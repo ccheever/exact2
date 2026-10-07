@@ -27,22 +27,25 @@ export function useXcode() {
 }
 const read = (cmd, args, opts = {}) => { useXcode(); return spawnSync(cmd, args, { cwd: root, encoding: 'utf8', ...opts }); };
 
-/** Every available simulator: { udid, name, runtime, state }. */
+/** Every available simulator: { udid, name, runtime, state, type } — `type`
+ *  the device type's last component (`iPhone-18-Pro`, `Apple-TV-4K-…`), which a
+ *  renamed simulator keeps. */
 export function simulators() {
   const r = read('xcrun', ['simctl', 'list', 'devices', 'available', '-j']);
   if (r.status !== 0) throw new Error('xcrun simctl list: ' + r.stderr);
-  return Object.entries(JSON.parse(r.stdout).devices).flatMap(([runtime, list]) => list.map((d) => ({ udid: d.udid, name: d.name, runtime, state: d.state })));
+  return Object.entries(JSON.parse(r.stdout).devices).flatMap(([runtime, list]) => list.map((d) => ({ udid: d.udid, name: d.name, runtime, state: d.state, type: d.deviceTypeIdentifier?.split('.').pop() ?? '' })));
 }
 
-/** The simulator to use — `pick` (a udid or a name; EXACT_SIM by default), else a booted iPhone, else the iPhone Pro on the newest iOS — booted and waited for. With `tv`, the same choice among Apple TVs on tvOS. */
+/** The simulator to use — `pick` (a udid or a name; EXACT_SIM by default), else a booted iPhone, else the iPhone Pro on the newest iOS — booted and waited for. With `tv`, the same choice among Apple TVs on tvOS. An iPhone is one by its device type, not its name: a simulator renamed `work-phone` is still one. */
 export function simulator(pick = process.env.EXACT_SIM, { tv = false } = {}) {
   const all = simulators();
   const version = (d) => Number(/(?:iOS|tvOS)-(\d+)-(\d+)/.exec(d.runtime)?.slice(1).join('.') ?? 0);
-  const iphones = all.filter((d) => (tv ? /SimRuntime\.tvOS/.test(d.runtime) && /^Apple TV/.test(d.name) : /SimRuntime\.iOS/.test(d.runtime) && /^iPhone/.test(d.name))).sort((a, b) => version(b) - version(a) || a.name.localeCompare(b.name));
+  const kind = (d) => d.type || d.name.replaceAll(' ', '-');
+  const iphones = all.filter((d) => (tv ? /SimRuntime\.tvOS/.test(d.runtime) && /^Apple-TV/.test(kind(d)) : /SimRuntime\.iOS/.test(d.runtime) && /^iPhone/.test(kind(d)))).sort((a, b) => version(b) - version(a) || a.name.localeCompare(b.name));
   let dev = pick ? all.find((d) => d.udid === pick || d.name === pick) : null;
   if (pick && !dev) throw new Error(`no simulator ${pick} (xcrun simctl list devices available)`);
-  dev ??= iphones.find((d) => d.state === 'Booted') ?? iphones.find((d) => /^iPhone \d+ Pro$/.test(d.name)) ?? iphones[0];
-  if (!dev) throw new Error(`no ${tv ? 'Apple TV' : 'iPhone'} simulator; add one in Xcode`);
+  dev ??= iphones.find((d) => d.state === 'Booted') ?? iphones.find((d) => /^iPhone-\d+-Pro$/.test(kind(d))) ?? iphones[0];
+  if (!dev) throw new Error(`no ${tv ? 'Apple TV' : 'iPhone'} simulator on ${tv ? 'tvOS' : 'iOS'}; add one in Xcode, or name any simulator by udid or name with EXACT_SIM (or --sim)`);
   if (dev.state !== 'Booted') {
     const b = read('xcrun', ['simctl', 'boot', dev.udid]);
     if (b.status !== 0 && !/current state: Booted/.test(b.stderr)) throw new Error('simctl boot: ' + b.stderr);
@@ -137,9 +140,9 @@ export function phones() {
   return list;
 }
 
-/** The phone to use: `pick` (a udid or a name; EXACT_PHONE by default), else a reachable phone, else the one phone this Mac knows — the bundle is built and signed for it either way; installing needs it connected (`reachable`). Unpicked, a simulator devicectl lists is no phone. */
-export function phone(pick = process.env.EXACT_PHONE) {
-  const named = phones(), all = pick ? named : named.filter((d) => !d.simulated);
+/** The phone to use: `pick` (a udid or a name; EXACT_PHONE by default), else a reachable phone, else the one phone this Mac knows — the bundle is built and signed for it either way; installing needs it connected (`reachable`). Unpicked, a simulator devicectl lists is no phone. With `tv`, the same choice among physical Apple TVs. */
+export function phone(pick = process.env.EXACT_PHONE, { tv = false } = {}) {
+  const named = phones().filter((d) => !tv || (!d.simulated && /Apple TV/.test(d.model ?? ''))), all = pick ? named : named.filter((d) => !d.simulated);
   const dev = pick ? all.find((d) => d.udid === pick || d.id === pick || d.name === pick) : all.find((d) => d.reachable) ?? (all.length === 1 ? all[0] : null);
   if (!dev) throw new Error(pick ? `no phone ${pick} (xcrun devicectl list devices)` : `no phone is known to this Mac (${all.length ? all.map((d) => `${d.name}, not connected`).join('; ') : 'xcrun devicectl list devices shows none'}): plug one in, unlock it, and trust this Mac`);
   return dev;
@@ -180,14 +183,28 @@ export function developmentLaunchEnvironment(args, environment = process.env) {
   return { ...environment, EXACT_DEV_PLAN: url.href };
 }
 
-/** A development profile on this Mac covering the phone and the bundle id (the team's wildcard or the id itself), unexpired; EXACT_PROFILE names one. */
-export function profile(udid, bundle) {
-  if (process.env.EXACT_PROFILE) return decodeProfile(process.env.EXACT_PROFILE);
+/** Whether a profile allows every entitlement in `required` (a grant's
+ * signing entitlements, LLP 1069.008.000 D4). */
+export const allows = (p, required = []) => !!p && required.every((name) => p.entitlements.includes(name));
+
+/** What a profile that lacks a grant's entitlement needs, said once. */
+const missing = (bundle, required, why) => new Error(`grant-device-profile: ${required.join(', ')} ${required.length > 1 ? 'are' : 'is'} needed by this app's grants, and ${why} (a team wildcard never allows HealthKit). In the Apple Developer portal, register the App ID ${bundle} with that capability, make a development profile for it that includes this phone, and install it (or name it with EXACT_PROFILE).`);
+
+/** A development profile on this Mac covering the phone and the bundle id (the team's wildcard or the id itself, under the profile's App ID prefix, which an older team's App IDs keep apart from its team id), unexpired; EXACT_PROFILE names one.
+ * With `required` (a grant's signing entitlements), only one that allows them all, which is one for the id itself. */
+export function profile(udid, bundle, required = []) {
+  if (process.env.EXACT_PROFILE) {
+    const named = decodeProfile(process.env.EXACT_PROFILE);
+    if (!allows(named, required)) throw missing(bundle, required, `EXACT_PROFILE (${named.name}) does not allow ${required.length > 1 ? 'them' : 'it'}`);
+    return named;
+  }
   const dirs = ['Library/Developer/Xcode/UserData/Provisioning Profiles', 'Library/MobileDevice/Provisioning Profiles'].map((d) => resolve(homedir(), d)).filter(existsSync);
-  const found = dirs.flatMap((d) => readdirSync(d).filter((f) => f.endsWith('.mobileprovision')).map((f) => decodeProfile(resolve(d, f))))
-    .filter((p) => p.dev && p.expires > new Date() && p.devices.includes(udid) && (p.appId === `${p.team}.*` || p.appId === `${p.team}.${bundle}`))
+  const covering = dirs.flatMap((d) => readdirSync(d).filter((f) => f.endsWith('.mobileprovision')).map((f) => decodeProfile(resolve(d, f))))
+    .filter((p) => p.dev && p.expires > new Date() && p.devices.includes(udid) && (p.appId === `${p.prefix}.*` || p.appId === `${p.prefix}.${bundle}`))
     .sort((a, b) => b.expires - a.expires);
-  if (!found.length) throw new Error(`no development provisioning profile on this Mac covers ${bundle} on this phone (${udid}); run any app on it from Xcode once with team signing, or name one with EXACT_PROFILE`);
+  if (!covering.length) throw new Error(`no development provisioning profile on this Mac covers ${bundle} on this phone (${udid}); run any app on it from Xcode once with team signing, or name one with EXACT_PROFILE`);
+  const found = covering.filter((p) => allows(p, required));
+  if (!found.length) throw missing(bundle, required, `no development profile on this Mac for ${bundle} on this phone allows ${required.length > 1 ? 'them' : 'it'}`);
   return found[0];
 }
 
@@ -198,7 +215,11 @@ function decodeProfile(path) {
   const team = /<key>TeamIdentifier<\/key>\s*<array>\s*<string>([^<]*)<\/string>/.exec(xml)?.[1];
   const devices = [...(/<key>ProvisionedDevices<\/key>\s*<array>([\s\S]*?)<\/array>/.exec(xml)?.[1] ?? '').matchAll(/<string>([^<]*)<\/string>/g)].map((m) => m[1]);
   const expires = /<key>ExpirationDate<\/key>\s*<date>([^<]*)<\/date>/.exec(xml)?.[1];
-  return { path, name: str('Name'), team, appId: str('application-identifier'), devices, dev: /<key>get-task-allow<\/key>\s*<true\/>/.test(xml), expires: new Date(expires ?? 0) };
+  // The keys of its Entitlements whose value is not `false`: what it allows.
+  const allowed = /<key>Entitlements<\/key>\s*<dict>([\s\S]*?)<\/dict>/.exec(xml)?.[1] ?? '';
+  const entitlements = [...allowed.matchAll(/<key>([^<]+)<\/key>\s*(<false\/>)?/g)].filter((m) => !m[2]).map((m) => m[1]);
+  const appId = str('application-identifier');
+  return { path, name: str('Name'), team, appId, prefix: appId?.split('.')[0], devices, dev: /<key>get-task-allow<\/key>\s*<true\/>/.test(xml), expires: new Date(expires ?? 0), entitlements };
 }
 
 /** The Apple Development identity (its SHA-1) for a team, from the keychain; EXACT_IDENTITY names one. */

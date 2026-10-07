@@ -36,7 +36,7 @@ describe('sent attachments', () => {
   test('the expanded preview opens on an image and steps through the message', () => {
     const c = client(), id = JSON.stringify(['t1', 'm1']);
     imagePreviewAction(c, 'image-open', 'a1', id);
-    expect(imagePreviewView(c)).toEqual({ imagePreviewId: 'a1', imagePreviewName: 'shot.png', imagePreviewPosition: '(1/2)', imagePreviewPrevious: true, imagePreviewNext: true, imagePreviewVideo: false });
+    expect(imagePreviewView(c)).toEqual({ imagePreviewId: 'a1', imagePreviewName: 'shot.png', imagePreviewPosition: '(1/2)', imagePreviewPrevious: true, imagePreviewNext: true, imagePreviewVideo: false, imagePreviewSource: 'attachment:a1' });
     imagePreviewAction(c, 'image-step', '', 'next');
     expect(imagePreviewView(c)).toMatchObject({ imagePreviewId: 'a2', imagePreviewPosition: '(2/2)' });
     imagePreviewAction(c, 'image-step', '', 'next');

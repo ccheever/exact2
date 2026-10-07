@@ -11,6 +11,7 @@ mod background;
 mod commit;
 mod control;
 mod event;
+pub mod faults;
 mod field;
 pub use field::{FieldSelection, SelectionDirection};
 mod host_kinds;
@@ -37,7 +38,7 @@ mod collection;
 mod source;
 pub use source::{
     Announce, BackgroundState, DataError, DataSource, InFlight, Interrupt, Native, NativeCall,
-    NativeHandler, Target, BACKGROUND,
+    NativeHandler, PreloadWake, Target, BACKGROUND,
 };
 mod delivery;
 mod device;
@@ -85,9 +86,7 @@ pub struct Command {
     pub name: String,
     /// Its arguments.
     pub args: Vec<Value>,
-    /// The node whose input ran the action, when a host event did: where a
-    /// command that shows system UI anchors it (LLP 1069.003 D3). `None` for
-    /// a timer, an answer, or anything else no input dispatched.
+    /// The node whose input ran the action, when a host event did: where a command that shows system UI anchors it (LLP 1069.003 D3). `None` for a timer, an answer, or anything else no input dispatched.
     pub source: Option<ViewId>,
 }
 
@@ -123,8 +122,7 @@ pub enum RunnerError {
         plan: u64,
         kernel: u64,
     },
-    /// The plan belongs to another app (LLP 1023 D5): its header names one
-    /// identity, this binary's data crate another.
+    /// The plan belongs to another app (LLP 1023 D5): its header names one identity, this binary's data crate another.
     AppMismatch {
         plan: String,
         host: String,
@@ -140,14 +138,15 @@ pub enum RunnerError {
     },
     Shape {
         resource: String,
+        /// Where the answer first differs from the declared shape.
+        why: String,
     },
     UnknownView(ViewId),
     /// A typed host event carries invalid numeric values. No action ran.
     InvalidEvent {
         event: &'static str,
     },
-    /// A control's `input` or `change` carries a value it could never
-    /// report (LLP 1069.001 D4): a select's value no enabled option has.
+    /// A control's `input` or `change` carries a value it could never report (LLP 1069.001 D4): a select's value no enabled option has.
     InvalidValue {
         event: &'static str,
         reason: String,
@@ -163,8 +162,7 @@ pub enum RunnerError {
     },
     /// Derives and resources depend on each other in a cycle; nothing settles.
     Cycle,
-    /// An earlier update failed after the instance tree had begun to change;
-    /// the runner no longer matches its kernel and must be restarted (D5).
+    /// An earlier update failed after the instance tree had begun to change; the runner no longer matches its kernel and must be restarted (D5).
     Poisoned,
     /// `advance` was given a non-finite time.
     NonFiniteClock,
@@ -209,8 +207,7 @@ pub enum RunnerError {
         action: String,
         param: String,
     },
-    /// An action argument or a slot write is a string longer than
-    /// [`crate::vm::MAX_STRING`] bytes.
+    /// An action argument or a slot write is a string longer than [`crate::vm::MAX_STRING`] bytes.
     StringTooLong {
         name: String,
     },
@@ -283,6 +280,9 @@ struct PendingReq {
     keepable: Option<Request>,
     /// An answer that keeps coming (LLP 1016.000): what it has delivered.
     stream: Option<StreamCount>,
+    /// A topic its resource watches changed while it was in flight: its
+    /// reply lands, then the resource is asked again (LLP 1016.002 D4).
+    ask_again: bool,
 }
 
 /// An open stream's messages so far, and those the host coalesced away
@@ -357,14 +357,15 @@ pub struct Runner<D: DataSource> {
     surfaces: Vec<SurfaceUpdate>,
     /// Views the next applied batch renews (LLP 1078): rebound list rows.
     renewed: Vec<ViewId>,
+    /// Rows the next batch mounts out of their port, and those that showed (LLP 1055 D13).
+    shown: crate::instance::collection::shown::RowsShown,
     /// Retiring list rows are rebound to new items ([`Runner::set_row_reuse`]).
     reuse: bool,
     /// The 2D canvases (LLP 1056 D4), when Canvas 2D is linked.
     canvases: Option<Box<dyn canvas2d::CanvasEngine>>,
     /// Requests in flight (LLP 1016): at most one per resource or mutation.
     pending: Vec<PendingReq>,
-    /// This commit let a request go: `conclude` tells the source what is
-    /// still in flight.
+    /// This commit let a request go: `conclude` tells the source what is still in flight.
     forgot: bool,
     /// Resources refused ordered admission, asked again once the last
     /// ordered refusal has settled (`release_refused`).
@@ -374,14 +375,12 @@ pub struct Runner<D: DataSource> {
     /// `pending` as flags, by resource and by mutation, for expressions.
     pending_res: Vec<bool>,
     pending_mut: Vec<bool>,
-    /// Mutations whose answer landed in the commit being made; their `then`
-    /// actions are armed once it stands (LLP 1016.001).
+    /// Mutations whose answer landed in the commit being made; their `then` actions are armed once it stands (LLP 1016.001).
     landed: Vec<usize>,
     /// Sends made before the data source was ready, by mutation, sent at
     /// `data_ready` (LLP 1027 D4): pending meanwhile, one per mutation.
     unsent: Vec<(usize, String, Vec<Value>)>,
-    /// When each mutation's `then` action is due, as a one-shot timer:
-    /// infinite until an answer lands.
+    /// When each mutation's `then` action is due, as a one-shot timer: infinite until an answer lands.
     then_due: Vec<f64>,
     /// `queue` mutations' waiting sends, `next`s and stalls (LLP 1092).
     queues: queue::Queues,
@@ -390,8 +389,10 @@ pub struct Runner<D: DataSource> {
     background: background::Background,
     /// Files picked this run, for `app:/tmp/picked/` names (LLP 1069.002 D3).
     picked_count: u64,
-    /// Second edges waiting for the first action's async targets to settle.
+    /// Second edges waiting for the first action's async targets to settle,
+    /// and lists whose edge waits for their covered route to show (`collection.rs`).
     deferred_edges: Vec<(u32, Vec<Target>)>,
+    held_edges: Vec<u32>,
     /// Requests for the host, since the last take.
     requests: Vec<RequestOut>,
     /// Resources an action asked to re-request; consumed by the next settle
@@ -463,6 +464,8 @@ pub struct Runner<D: DataSource> {
     /// What happened, one line each, for the agent API's `logs`: the last
     /// [`JOURNAL_RING`] lines, and how many were dropped before them.
     journal: std::collections::VecDeque<String>,
+    /// The driver's fetch faults (LLP 1103).
+    faults: faults::Faults,
     /// Device requests held for the agent (LLP 1069.007 D3): not I/O.
     device_holds: Vec<device::Hold>,
     /// Notifications the app posted under the agent (`state.notifications`):
@@ -470,6 +473,8 @@ pub struct Runner<D: DataSource> {
     notifications: Vec<crate::notify::Notice>,
     /// The voice table (LLP 1096 D5): what the app's sounds scheduled.
     sounds: crate::sound::Sounds,
+    /// The app's `setRootFontSize` over the host's size (LLP 1069.000 D3).
+    root_font: root_font::RootFont,
     /// Auth sessions (LLP 1069.006): live ones, and answers to deliver.
     auth: crate::auth::Sessions,
     /// The device capabilities linked (LLP 1047 D3): [`DeviceLinks`].
@@ -677,6 +682,7 @@ impl<D: DataSource> Runner<D> {
             now_ms: self.now_ms,
             store: self.store.snapshot(),
             forgot_waiting: self.queued(),
+            faults: (!self.faults.is_empty()).then(|| self.faults.spec()),
         }
     }
 
@@ -757,8 +763,11 @@ impl<D: DataSource> Runner<D> {
         }
         let same_logic = carried.is_none_or(|c| c.data_revision.as_deref() == data.revision());
         data.bind(&plan);
-        // A cold boot forgets the kept answers no declared reader seeds.
+        // A cold boot forgets the kept answers no declared reader seeds; an
+        // app granting Health forgets them all, at every boot (LLP 1069.008.000 D7).
+        let private = crate::device::keeps_no_answers(data.grants());
         let obsolete_kept = match carried {
+            _ if private => kept::all(&snapshot),
             None => kept::obsolete(&plan, &snapshot),
             Some(_) => Vec::new(),
         };
@@ -781,7 +790,7 @@ impl<D: DataSource> Runner<D> {
                                 .iter()
                                 .any(|(n, s)| n == resource && s == plan.str(r.source))
                     });
-                if !compatible {
+                if private || !compatible {
                     store.forget_kept(name);
                 }
             }
@@ -835,12 +844,14 @@ impl<D: DataSource> Runner<D> {
             batch: 0,
             commands: Vec::new(),
             sounds: Default::default(),
+            root_font: Default::default(),
             into_view: Vec::new(),
             scrolled: Default::default(),
             resized: Vec::new(),
             into_view_refused: Default::default(),
             surfaces: Vec::new(),
             renewed: Vec::new(),
+            shown: Default::default(),
             reuse: false,
             canvases: links.canvas.map(|engine| engine()),
             pending: Vec::new(),
@@ -860,6 +871,7 @@ impl<D: DataSource> Runner<D> {
             refused_asks: Vec::new(),
             failed_args: Vec::new(),
             deferred_edges: Vec::new(),
+            held_edges: Vec::new(),
             requests: Vec::new(),
             refresh_next: Vec::new(),
             reread_next: Vec::new(),
@@ -888,6 +900,7 @@ impl<D: DataSource> Runner<D> {
             settled: None,
             derive_store_dependent: Vec::new(),
             journal: std::collections::VecDeque::new(),
+            faults: faults::Faults::from_env(),
             device_holds: Vec::new(),
             notifications: Vec::new(),
             auth: Default::default(),
@@ -937,7 +950,7 @@ impl<D: DataSource> Runner<D> {
         // empty-store placeholder is the fallback (settlement); either way
         // the resource is asked again at `data_ready`.
         let ready = runner.data.ready();
-        runner.keeps_answers = !ready || carried.is_some_and(|c| c.keeps_answers);
+        runner.keeps_answers = !private && (!ready || carried.is_some_and(|c| c.keeps_answers));
         runner.stale = vec![false; runner.plan.resources.len()];
         runner.entropy_readers = vec![false; runner.plan.resources.len()];
         runner.awaiting = vec![false; runner.plan.resources.len()];
@@ -1022,19 +1035,23 @@ impl<D: DataSource> Runner<D> {
         runner.gate_step()?;
         // First frame.
         let mut ids = std::mem::take(&mut runner.ids);
-        let (tree, ops, surfaces, notes) = {
+        let (tree, ops, surfaces, notes, shown) = {
             let mut u = Update::new(runner.env(&[], &[]), &runner.sites, &mut ids);
             u.discard = runner.kernel.is_detached();
             let tree = Tree::create(&mut u)?;
-            (tree, u.ops, u.surfaces, u.notes)
+            (tree, u.ops, u.surfaces, u.notes, u.shown)
         };
         runner.notes = notes;
+        runner.shown = shown;
         runner.ids = ids;
         runner.tree = Some(tree);
         let receipt = runner.apply(ops)?;
         runner.publish_surfaces(surfaces);
         let line = lines::boot(carried.is_some(), runner.kernel.live_count(), receipt.epoch);
         runner.log(line);
+        if let Some(spec) = carried.and_then(|c| c.faults.as_deref()) {
+            runner.faults = faults::Faults::parse(spec).unwrap_or_default();
+        }
         for (name, n) in carried
             .map(|c| c.forgot_waiting.as_slice())
             .unwrap_or_default()
@@ -1402,6 +1419,7 @@ impl<D: DataSource> Runner<D> {
         } else {
             exact_kernel::Direction::Ltr
         };
+        let shown = std::mem::take(&mut self.shown);
         let mut receipt =
             match self
                 .kernel
@@ -1413,12 +1431,13 @@ impl<D: DataSource> Runner<D> {
                     return Err(e.into());
                 }
             };
+        let renewed = self.settle_shown(shown, &mut receipt);
         self.tally(&ops, &receipt.touched);
         for note in std::mem::take(&mut self.notes) {
             self.log(note);
         }
         let arena = self.kernel.arena();
-        receipt.renewed = std::mem::take(&mut self.renewed)
+        receipt.renewed = renewed
             .into_iter()
             .filter_map(|view| arena.key_of(view))
             .collect();

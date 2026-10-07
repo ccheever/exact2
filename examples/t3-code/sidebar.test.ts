@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import type { T3Client } from './client';
 import type { Obj } from './domain';
 import type { Files, Native } from './protocol';
@@ -6,9 +6,17 @@ import { toasts } from './toast';
 import { ageLabel, effectiveSnoozed, isWoke, orderKeyBetween, planReorder, recedes, sectionOf, sidebarStatus, snoozeWakeLabel,
   sortActive, sortPinned, topStatus, unseenCompletion, wokeAt, workingDuration, capabilities, sidebarVisible } from './sidebar-model';
 import { bulkMenuItems, nativeTemplate, threadMenuItems } from './sidebar-menu';
-import { sidebarSnapshot } from './sidebar-view';
+import { sidebarSnapshot, terminalProcessCount } from './sidebar-view';
+import { legacySidebarSnapshot } from './legacy-sidebar-view';
+import { threadItems } from './palette';
+import { terminalMetadataEvent } from './terminal-drawer-view';
+import { recordTerminalFocus } from './terminal-focus';
 import { sidebarCommand, sidebarLocal, sidebarSelecting, undoLatest, visitOpenThread } from './sidebar-commands';
-import { resolveCustomSnooze, sidebarPrefs, sidebarSession } from './sidebar-state';
+import { resolveCustomSnooze, sidebarPrefs, sidebarSession, setRuntimeClock } from './sidebar-state';
+
+// The data runtime has no clock (sidebar-state.ts `clock`); these tests stand in for a host clock that reads Date.now.
+beforeEach(() => setRuntimeClock(() => Date.now()));
+afterEach(() => setRuntimeClock(() => Number.NaN));
 
 const NOW = Date.parse('2026-10-04T12:00:00.000Z');
 const iso = (offset: number) => new Date(NOW + offset).toISOString();
@@ -394,5 +402,39 @@ describe('sidebar navigation, drafts and the hover card', () => {
     await sidebarCommand(client, native, files, 'dialog-confirm', '', '');
     expect(strip(dispatched).map(payload => `${payload.type}:${payload.threadId}`)).toEqual(['thread.snooze:a', 'thread.snooze:b']);
     expect(sidebarSnapshot(client, NOW, helpers).sidebar.dialog).toBe('');
+  });
+});
+
+
+describe('terminal activity in thread lists (B10)', () => {
+  test('only subprocesses count, updates clear the indicator across sidebar, legacy and palette', () => {
+    const { client } = fake([shell('a'), shell('b')], { settings: { legacySidebarEnabled: true } });
+    const summary = (threadId: string, terminalId: string, busy: boolean) => ({ threadId, terminalId, cwd: '/fixture', worktreePath: null,
+      status: 'running', pid: 1, exitCode: null, exitSignal: null, hasRunningSubprocess: busy, label: 'sh', updatedAt: iso(0) });
+    const update = (terminals: Obj[]) => terminalMetadataEvent(client, { subscriptionId: '1-1', value: { type: 'snapshot', terminals } });
+    update([summary('a', 'term-1', true), summary('a', 'term-2', true), summary('a', 'term-3', false), summary('b', 'term-1', false)]);
+    expect(sidebarSnapshot(client, NOW, helpers).threads.find(row => row.id === 'a')).toMatchObject({ terminalCount: 2, terminalLabel: '2 terminal processes running' });
+    expect(sidebarSnapshot(client, NOW, helpers).threads.find(row => row.id === 'b')).toMatchObject({ terminalCount: 0, terminalLabel: '' });
+    expect(legacySidebarSnapshot(client, NOW, helpers).projects.flatMap(project => project.threads).find(row => row.id === 'a')?.terminalCount).toBe(2);
+    expect(threadItems(client, NOW, new Map(), '').find(item => item.row.key === 'a')?.row.terminalCount).toBe(2);
+    expect(terminalProcessCount(client, 'fleet:other:a')).toBe(0);
+    update([summary('a', 'term-1', true)]);
+    expect(sidebarSnapshot(client, NOW, helpers).threads.find(row => row.id === 'a')?.terminalLabel).toBe('1 terminal process running');
+    update([]);
+    expect(sidebarSnapshot(client, NOW, helpers).threads.every(row => row.terminalCount === 0)).toBe(true);
+    expect(legacySidebarSnapshot(client, NOW, helpers).projects.flatMap(project => project.threads).every(row => row.terminalCount === 0)).toBe(true);
+    expect(threadItems(client, NOW, new Map(), '').every(item => item.row.terminalCount === 0)).toBe(true);
+  });
+  test('Command-hold jump hints disappear while the terminal owns focus and return on blur', () => {
+    const { client } = fake([shell('a')], { threadId: 'a', settings: { legacySidebarEnabled: true } });
+    client.presentation.sidebarJumpHints = true;
+    expect(sidebarSnapshot(client, NOW, helpers).sidebar.jumpHints).toBe(true);
+    expect(legacySidebarSnapshot(client, NOW, helpers).jumpHints).toBe(true);
+    recordTerminalFocus(client, { environmentId: 'env', threadId: 'a', terminalId: 'term-1', focused: true });
+    expect(sidebarSnapshot(client, NOW, helpers).sidebar.jumpHints).toBe(false);
+    expect(legacySidebarSnapshot(client, NOW, helpers).jumpHints).toBe(false);
+    recordTerminalFocus(client, { environmentId: 'env', threadId: 'a', terminalId: 'term-1', focused: false });
+    expect(sidebarSnapshot(client, NOW, helpers).sidebar.jumpHints).toBe(true);
+    expect(legacySidebarSnapshot(client, NOW, helpers).jumpHints).toBe(true);
   });
 });

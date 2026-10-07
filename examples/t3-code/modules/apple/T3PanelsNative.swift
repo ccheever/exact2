@@ -1,11 +1,10 @@
 // Lane r5-panels: the right panel's native needs.
 //
-// 1. The Files editor writes exactly what was typed. A Contract textarea maps
-//    `autocorrect="off"` to spelling only, so AppKit's smart quotes, smart
-//    dashes, text replacement and link detection stay on and `"0.1.0"` would be
-//    saved as `“0.1.0”`. The `t3-plain-text` hook turns every substitution off on
-//    that text view (the reference's editor is a plain browser textarea, which
-//    never substitutes).
+// 1. The Files editor (hook `t3-file-editor`) takes the focus when a press in the
+//    file's body mounts it. It writes exactly what was typed through its
+//    `autocorrect="off"`, which exact2 #111 maps to no smart quotes, dashes or
+//    text replacement (the reference's editor is a browser textarea, which never
+//    substitutes).
 // 2. A sent attachment's preview (MIT reference, see LICENSE-T3:
 //    components/files/AttachmentFilePreview.tsx): its text is read from the
 //    signed asset URL with a 1 MB range (FILE_TEXT_PREVIEW_MAX_BYTES), and Save
@@ -14,10 +13,9 @@
 import AppKit
 import Foundation
 
-enum T3PlainText {
+enum T3FileEditor {
     static func install(_ element: ExactElement) {
-        guard element.hook == .t3PlainText, let view = element.textView else { return }
-        apply(view)
+        guard element.hook == .t3FileEditor, let view = element.textView else { return }
         watchPresses()
         if element.isNew, element.id == fileEditorId { focusFileEditor(element, view) }
     }
@@ -33,8 +31,9 @@ enum T3PlainText {
     /// f870c41 oracle with @pierre/diffs 1.3.0-beta.10: a click below the last line focuses the
     /// contenteditable with the caret at the end of the last line, whatever the click's x; a click on
     /// a line puts the caret under it). A real press's point is kept (`watchPresses`): below the
-    /// text the caret goes to the end, on a line to the character under it; an agent's tap carries
-    /// no AppKit event, so its caret goes to the end.
+    /// text the caret goes to the end, on a line to the character under it; an agent's plain tap
+    /// carries no AppKit event, so its caret goes to the end (`tap … mouse at x y` is a real press
+    /// the monitor sees since exact2 #186).
     static func focusFileEditor(_ element: ExactElement, _ view: NSTextView, attempts: Int = 20) {
         DispatchQueue.main.async { [weak element, weak view] in
             guard let element, element.isLive, let view else { return }
@@ -64,7 +63,7 @@ enum T3PlainText {
         return min(end, view.characterIndexForInsertion(at: local))
     }
 
-    /// The last real left press (an AppKit event; the agent's taps have none) in a window.
+    /// The last real left press (an AppKit event; an agent's plain tap has none) in a window.
     private static var press: (window: NSWindow, point: NSPoint, at: TimeInterval)?
     private static var pressMonitor: Any?
     static func watchPresses() {
@@ -82,18 +81,6 @@ enum T3PlainText {
     }
     /// Tests stand in for a press.
     static func recordPress(_ window: NSWindow, at point: NSPoint) { press = (window, point, ProcessInfo.processInfo.systemUptime) }
-
-    /// Every automatic substitution AppKit can apply while typing, off.
-    static func apply(_ view: NSTextView) {
-        if view.isAutomaticQuoteSubstitutionEnabled { view.isAutomaticQuoteSubstitutionEnabled = false }
-        if view.isAutomaticDashSubstitutionEnabled { view.isAutomaticDashSubstitutionEnabled = false }
-        if view.isAutomaticTextReplacementEnabled { view.isAutomaticTextReplacementEnabled = false }
-        if view.isAutomaticSpellingCorrectionEnabled { view.isAutomaticSpellingCorrectionEnabled = false }
-        if view.isAutomaticLinkDetectionEnabled { view.isAutomaticLinkDetectionEnabled = false }
-        if view.isAutomaticDataDetectionEnabled { view.isAutomaticDataDetectionEnabled = false }
-        if view.isAutomaticTextCompletionEnabled { view.isAutomaticTextCompletionEnabled = false }
-        if view.smartInsertDeleteEnabled { view.smartInsertDeleteEnabled = false }
-    }
 }
 
 enum T3AttachmentFiles {

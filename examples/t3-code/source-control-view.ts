@@ -3,17 +3,23 @@
 // SourceControlWritingSettings.tsx, IntegrationsSettings.tsx, SettingInheritance.tsx).
 // Rows carry their inheritance chain; writes are server.updateSettings patches
 // with the reference's project-override replacement semantics.
+// 1e2ecbd975 (5318d054a5): Integrations › Devices adds the Simulator support row (device-support.ts).
 import { arr, obj, str, num, type Json, type Obj } from './domain';
 import type { T3Client } from './client';
 import { providerAvailable, type Native } from './protocol';
 import { deviceTool } from './settings-a-integrations';
 import { bitbucketView, type BitbucketView } from './settings-a-bitbucket';
 import { deviceHostsView } from './settings-a-hosts';
+import { deviceScope } from './settings-integrations-scope';
+import { connectedEnvironmentCount, simulatorSupportRows, type SimulatorSupportRow } from './device-support'; // 5318d054a5: Simulator support row
+import { letGo } from './let-go';
 
 type Choice = { value: string; label: string; selected: boolean };
 type Layer = { key: string; label: string; value: string; effective: boolean; set: boolean };
 export type ScopedRow = { key: string; kind: string; title: string; description: string; checked: boolean; value: string; valueLabel: string; options: Choice[]; placeholder: string;
-  disabled: boolean; first: boolean; summary: string; state: string; layers: Layer[]; reset: string; status: string; child: string };
+  disabled: boolean; first: boolean; summary: string; state: string; layers: Layer[]; reset: string; status: string; child: string;
+  /** ScopedSwitch's mixed state (D15): the Integrations device rows compute it across the settings scope's targets (settings-integrations-scope.ts). */
+  mixed: boolean };
 
 export const DEFAULTS: Obj = { defaultAutoPull: false, pullRequestMergeMethod: null, branchNamingMode: 'static', branchNamePrefix: 't3code', branchNameInstructions: '',
   sourceControlWritingStyle: { mode: 'repo_conventions', customInstructions: '', followChangeRequestTemplates: true }, sourceControlWriterModelSelection: null,
@@ -66,7 +72,7 @@ function effective(settings: Obj, projectId: string): Obj {
 
 function row(settings: Obj, projectId: string, environmentLabel: string, key: string, partial: Partial<ScopedRow>): ScopedRow {
   const info = inheritance(settings, projectId, key, environmentLabel);
-  return { key, kind: 'switch', title: '', description: '', checked: false, value: '', valueLabel: '', options: [], placeholder: '', disabled: false, first: false, status: '', child: '', reset: '', ...info, ...partial };
+  return { key, kind: 'switch', title: '', description: '', checked: false, value: '', valueLabel: '', options: [], placeholder: '', disabled: false, first: false, status: '', child: '', reset: '', mixed: false, ...info, ...partial };
 }
 
 /** Source-control route rows: Repositories and Text generation. */
@@ -231,7 +237,7 @@ export async function sourceControlPage(client: T3Client, native: Native | null 
     let cached = discoveries.get(client);
     if (!cached || cached.key !== key) {
       try { cached = { key, value: await access.request('server.discoverSourceControl', {}), error: '' }; }
-      catch (failure) { cached = { key, value: {}, error: failure instanceof Error ? failure.message : 'Could not scan the server environment.' }; }
+      catch (failure) { if (letGo(failure)) throw failure; cached = { key, value: {}, error: failure instanceof Error ? failure.message : 'Could not scan the server environment.' }; }
       discoveries.set(client, cached);
     }
     const found = discoveryRows(cached.value);
@@ -241,9 +247,10 @@ export async function sourceControlPage(client: T3Client, native: Native | null 
   } catch (failure) { return { ...empty, error: failure instanceof Error ? failure.message : 'Could not load settings.' }; }
 }
 
-export async function integrationsPage(client: T3Client, native: Native | null | undefined, environmentId: string, projectId: string, active: boolean) {
-  const empty = { available: false, error: '', project: projectId !== '', scope: `${environmentId}:${projectId}`, browser: [] as ScopedRow[], deviceHub: blankRow(), agentDevice: blankRow(), hubStatus: '', agentStatus: '', hosts: 0,
-    hubTool: deviceTool('hub', null), agentTool: deviceTool('agent', null), hostsRow: blankRow(), deviceHosts: deviceHostsView(client, {}, null, projectId !== '', false) };
+export async function integrationsPage(client: T3Client, native: Native | null | undefined, environmentId: string, projectId: string, active: boolean, machine = '', projectKey = '', checkout = '') {
+  const empty = { available: false, error: '', project: projectId !== '', scope: `${environmentId}:${projectId}`, deviceScope: '', browser: [] as ScopedRow[], deviceHub: blankRow(), agentDevice: blankRow(), hubStatus: '', agentStatus: '', hosts: 0,
+    hubTool: deviceTool('hub', null), agentTool: deviceTool('agent', null), hostsRow: blankRow(), deviceHosts: deviceHostsView(client, {}, null, projectId !== '', false),
+    simulatorSupport: [] as SimulatorSupportRow[] };
   if (!active) return { ...empty };
   const error = scopeError(client, native, environmentId, projectId);
   if (error || !native) return { ...empty, error };
@@ -253,6 +260,15 @@ export async function integrationsPage(client: T3Client, native: Native | null |
     if (projectId && obj(obj(config.environment).capabilities).projectSettingsOverrides !== true) return { ...empty, error: 'Update the selected environment to configure project overrides.' };
     const settings = await access.request('server.getSettings');
     const rows = integrationRows(settings, projectId, environmentLabel(client), client.writable);
+    // Device hub and Agent device access follow the settings scope: the representative's value, mixed across
+    // the selected targets, and Agent device access open once any connected environment runs the hub.
+    // A checkout chosen by this page's own scope (settingsProjectId) is that checkout's group and checkout.
+    const legacy = !projectKey && projectId ? client.projectGroups().find(group => group.members.some(member => member.id === projectId)) : undefined;
+    const devices = deviceScope(client, machine, legacy ? legacy.key : projectKey, legacy ? projectId : checkout);
+    rows.deviceHub = { ...rows.deviceHub, checked: devices.checked.enableDeviceSupport, mixed: devices.mixed.enableDeviceSupport,
+      disabled: devices.project || devices.unavailable || devices.connectedCount === 0 || !client.writable };
+    rows.agentDevice = { ...rows.agentDevice, checked: devices.checked.enableAgentDeviceAccess, mixed: devices.mixed.enableAgentDeviceAccess,
+      disabled: !client.writable || devices.connectedCount === 0 || (!devices.project && !devices.anyHubEnabled) };
     // DeviceToolVersions over the read-only device.list inspection.
     let hubStatus = 'Version unknown', agentStatus = 'Version unknown', deviceState: Obj | null = null;
     try {
@@ -260,8 +276,9 @@ export async function integrationsPage(client: T3Client, native: Native | null |
       const tools = obj(arr(state.hosts).find(host => host.kind === 'local')?.tools);
       hubStatus = toolVersion(tools.hub); agentStatus = toolVersion(tools.agent); deviceState = state;
     } catch { /* the reference shows "Version unknown" without a device state */ }
-    return { ...empty, available: true, ...rows, hubStatus, agentStatus, hosts: Array.isArray(settings.deviceHosts) ? settings.deviceHosts.length : 0,
-      hubTool: deviceTool('hub', deviceState), agentTool: deviceTool('agent', deviceState), deviceHosts: deviceHostsView(client, settings, deviceState, projectId !== '', true) };
+    return { ...empty, available: true, ...rows, deviceScope: devices.scopeKey, hubStatus, agentStatus, hosts: Array.isArray(settings.deviceHosts) ? settings.deviceHosts.length : 0,
+      hubTool: deviceTool('hub', deviceState), agentTool: deviceTool('agent', deviceState), deviceHosts: deviceHostsView(client, settings, deviceState, projectId !== '', true),
+      simulatorSupport: simulatorSupportRows(client, environmentId, settings.enableDeviceSupport === true, deviceState, connectedEnvironmentCount(client)) };
   } catch (failure) { return { ...empty, error: failure instanceof Error ? failure.message : 'Could not load settings.' }; }
 }
 export function toolVersion(value: unknown): string {
@@ -271,5 +288,5 @@ export function toolVersion(value: unknown): string {
   return version ? `v${version}` : 'Not installed';
 }
 function blankRow(): ScopedRow {
-  return { key: '', kind: 'switch', title: '', description: '', checked: false, value: '', valueLabel: '', options: [], placeholder: '', disabled: true, first: false, summary: '', state: '', layers: [], reset: '', status: '', child: '' };
+  return { key: '', kind: 'switch', title: '', description: '', checked: false, value: '', valueLabel: '', options: [], placeholder: '', disabled: true, first: false, summary: '', state: '', layers: [], reset: '', status: '', child: '', mixed: false };
 }

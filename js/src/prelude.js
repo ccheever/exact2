@@ -699,8 +699,8 @@
   }
   // The operation in flight's owner, or null.
   function headOwner() { return head ? owner(head.call) : null; }
-  var abortHooks = global.__ibex2_abort;
-  delete global.__ibex2_abort;
+  var abortHooks = global.__exact_ibex2_abort_hooks;
+  delete global.__exact_ibex2_abort_hooks;
   function watchAbort(signal, aborted) {
     if (abortHooks) return abortHooks.subscribe(signal, aborted);
     signal.addEventListener("abort", aborted);
@@ -712,29 +712,10 @@
     return p;
   }
 
-  function Headers(init) {
-    this._h = [];
-    if (init instanceof Headers) init = init._h;
-    if (Array.isArray(init)) for (var i = 0; i < init.length; i++) this.append(init[i][0], init[i][1]);
-    else if (init && typeof init === "object") for (var k in init) if (Object.prototype.hasOwnProperty.call(init, k)) this.append(k, init[k]);
-  }
-  Headers.prototype.append = function (k, v) { this._h.push([String(k).toLowerCase(), String(v)]); };
-  Headers.prototype.set = function (k, v) { this.delete(k); this.append(k, v); };
-  Headers.prototype.delete = function (k) { k = String(k).toLowerCase(); this._h = this._h.filter(function (e) { return e[0] !== k; }); };
-  Headers.prototype.get = function (k) {
-    k = String(k).toLowerCase();
-    var v = this._h.filter(function (e) { return e[0] === k; }).map(function (e) { return e[1]; });
-    return v.length ? v.join(", ") : null;
-  };
-  Headers.prototype.has = function (k) { return this.get(k) !== null; };
-  Headers.prototype.entries = function () { return this._h.slice(); };
-  Headers.prototype.forEach = function (f) { this._h.forEach(function (e) { f(e[1], e[0]); }); };
-  Headers.prototype.toJSON = function () { return this._h.slice(); };
-
   function Response(r) {
     this.status = r.status;
     this.ok = r.status >= 200 && r.status < 300;
-    this.headers = new Headers(r.headers);
+    this.headers = new global.Headers(r.headers);
     this._text = r.body;
     this._b64 = r.bodyBase64;
   }
@@ -753,7 +734,6 @@
   }
   FetchError.prototype = Object.create(Error.prototype);
 
-  global.Headers = Headers;
   global.Response = Response;
   global.fetch = function (url, init) {
     var call = currentCall;
@@ -773,7 +753,7 @@
     }
     if (call.letGo) return Promise.reject(new FetchError({ kind: "Aborted", message: "the answer was let go before this fetch" }));
     var method = init && init.method ? String(init.method).toUpperCase() : "GET";
-    var headers = new Headers(init && init.headers).entries();
+    var headers = Array.from(new global.Headers(init && init.headers).entries());
     var body = init && init.body != null ? String(init.body) : "";
     // LLP 1041 §8.4: an explicit promise about both operation and settlement.
     // Browsers ignore this native scheduling hint; their admission is unchanged.
@@ -792,6 +772,15 @@
       return Promise.reject(new TypeError("exactStream maps each event to the answer: (event) => value"));
     if (stream && call.stream) return Promise.reject(new Error("an answer streams one request"));
     if (stream && ceiling === undefined) ceiling = 1048576;
+    // A deadline for the whole exchange (headers and body), in milliseconds:
+    // the host cancels the request when it passes and the fetch rejects with
+    // a FetchError of kind "Timeout". A stream has none.
+    var timeout = init ? init.exactTimeout : undefined;
+    if (timeout !== undefined) {
+      if (!Number.isInteger(timeout) || timeout < 1 || timeout > 3600000)
+        return Promise.reject(new TypeError("exactTimeout must be an integer number of milliseconds from 1 to 3600000"));
+      if (stream) return Promise.reject(new TypeError("exactTimeout: a stream has no timeout"));
+    }
     // The web's `signal`: an aborted fetch rejects with its reason at once.
     // The host's request still runs; its reply is dropped (`__exact_fulfill`).
     var signal = init ? init.signal : undefined;
@@ -801,7 +790,7 @@
     }
     if (signal && signal.aborted) return Promise.reject(signal.reason);
     var ticket = nextTicket++;
-    var error = host(1, String(ticket), JSON.stringify({ method: method, url: String(url), headers: headers, body: body, max_response_bytes: ceiling, stream: stream ? true : undefined }));
+    var error = host(1, String(ticket), JSON.stringify({ method: method, url: String(url), headers: headers, body: body, max_response_bytes: ceiling, stream: stream ? true : undefined, timeout_ms: timeout }));
     if (error !== undefined) return Promise.reject(new Error(error));
     call.tickets.push(ticket);
     if (stream) call.stream = stream;
@@ -877,6 +866,7 @@
     agent: "storage is unavailable in agent mode unless the drive names a scratch store (--storage <name>)",
     unsupported: "storage is unsupported by this host",
   };
+  var toldAgent = false;
   // Rust's error numbers are platform-specific. Never treat Windows access
   // denial (5) as EISDIR, or its 17/39 as Unix EEXIST/ENOTEMPTY.
   var windowsStorage = global.__exact_windows_storage === true;
@@ -917,6 +907,9 @@
     var path = receiver && nativeStorage && receiver === nativeStorage.fs && typeof args[0] === "string" ? args[0] : "";
     try { refused = host(5, path, "") || (receiver ? undefined : "unsupported"); }
     catch (e) { refused = "bake"; } // no filesystem or database effects during bake
+    // A drive with no scratch store is said once in the journal, as the web's (ts-data.js), where
+    // the driver finds it for its note (LLP 1102 §3.17).
+    if (refused === "agent" && !toldAgent) { toldAgent = true; journal("storage refused (agent): " + REFUSED.agent); }
     if (refused) return Promise.reject(storageError(REFUSED[refused], refused));
     var what = method + (path ? " " + path : "");
     // The bound (D3): refusal is the overload policy (LLP 1041 D2).
@@ -1240,8 +1233,11 @@
     var call = calls.get(Number(id));
     return call ? settle(call, final === "final") : fail(new Error("no such call"));
   };
-  // The runner let this call's request go (LLP 1016 D5): drop the call and
-  // the fetches it waits on, so nothing keeps them alive.
+  // The runner let this call's request go (LLP 1016 D5): drop the call, and
+  // reject the fetches it waits on, so its continuation runs (a `finally`
+  // clears what the call set) rather than vanishing: the runner drops the
+  // reply when it comes. The request may already be on the wire. A send
+  // that needs every reply is a `queue` mutation (LLP 1092).
   // One let go between storage steps answers "storage": its steps are
   // running and the chain behind them goes on, so the executor delivers them
   // until `__exact_let_go` says none is left, and its answer is never given
@@ -1250,14 +1246,21 @@
     var call = calls.get(Number(id));
     if (!call) return "";
     // Not a fetch another answer has since claimed: that one waits on it.
+    var dropped = [];
     for (var i = 0; i < call.tickets.length; i++) {
       var p = pending.get(call.tickets[i]);
-      if (p && p.call === call) settled(call.tickets[i]);
+      // A stream's promise never settles (LLP 1016.000), ended or let go.
+      if (p && p.call === call) { settled(call.tickets[i]); if (!p.stream) dropped.push(p); }
     }
-    if (call.storage > 0 && !call.lost) { call.letGo = true; return "storage"; }
+    // Rejected now, run at the next drain with no answer current.
+    dropped.forEach(function (p) {
+      p.reject(new FetchError({ kind: "Aborted", message: "the answer was let go before this reply; the request may already have been sent" }));
+    });
+    var rejected = dropped.length ? " rejected" : "";
+    if (call.storage > 0 && !call.lost) { call.letGo = true; return "storage" + rejected; }
     call.replied = true;
     calls.delete(call.id);
-    return "";
+    return rejected.trim();
   };
   global.__exact_let_go = function (failed, message) {
     var owed = false;

@@ -1,4 +1,7 @@
+import { legacySidebarSnapshot } from './legacy-sidebar-view';
 import { timelineReadsNeeded } from './timeline-prepare';
+import { projectCloneBlock } from './project-clones-live';
+import { highlightPending } from './r12-render-highlight';
 import { markdownSkills } from './r4-timeline-chips';
 import { workspaceValues } from './composer-workspace-snapshots';
 import { workspaceCwd } from './composer-editor';
@@ -11,7 +14,7 @@ import { sidebarSnapshot } from './sidebar-view';
 import { subagentLead } from './sidebar-lineage';
 import { requestPresentation } from './requests';
 import { threadErrorView } from './timeline-errors';
-import { diffSnapshot } from './diff';
+import { diffNotGit, diffSnapshot, NOT_GIT_REPO } from './diff';
 import { composerSnapshot } from './composer-presentation';
 import { triggerModelName } from './r3-composer-controls-model';
 import { pickerCatalog } from './model-catalog';
@@ -20,7 +23,10 @@ import { composerOverlaySnapshot } from './r4-composer-overlay';
 import { composerVideoSnapshot } from './r4-composer-attachments';
 import { alertClip } from './r6-polish-measure'; // r6-polish
 import { tableMenuSnapshot } from './r8-keys-table-menu'; // lane r8-keys
-import { sidebarMinimumWidth } from './r12-sidebar-width'; // lane r12-sidebar
+import { sidebarMinimumWidth, workspaceControlsLeft } from './r12-sidebar-width'; // lane r12-sidebar
+import { adoptHostLocale } from './timestamp-format'; // desktop-shell-details: the Mac's locale, from the status presentation (T3Locale.swift)
+import { serverUpdateView } from './server-update-notices'; // server-update-banner
+import { composerOwner } from './auto-balance-owner'; // auto-balance
 
 const modes: Record<string, string> = {
   'approval-required': 'Ask for approval', 'auto-accept-edits': 'Auto-accept edits',
@@ -100,6 +106,8 @@ export function providerBanner(provider: Obj | undefined) {
 /** T3's timeline rows (timeline-presentation.ts transcriptRows). */
 export function transcriptPresentation(client: T3Client): Message[] { return [...subagentLead(client), ...transcriptRows(client)]; }
 export function snapshot(client: T3Client, now = 0) {
+  adoptHostLocale(client.presentation.systemLocale);
+  const fullScreen = client.presentation.fullScreen === true; // T3FullScreen.swift
   const project = client.shell.projects.find(project => project.id === client.projectId);
   const providers = arr(client.config.providers);
   const provider = providers.find(provider => provider.instanceId === client.providerId);
@@ -125,16 +133,16 @@ export function snapshot(client: T3Client, now = 0) {
   return {
     revision: client.revision, alertClip: alertClip(client.presentation), ...providerBanner(provider), available: client.available, connected: client.connection === 'connected',
     connecting: ['connecting', 'reconnecting'].includes(client.connection), syncComplete: client.ready,
-    status: connectionMessage, serverUrl: client.origin,
+    status: connectionMessage, serverUrl: client.origin, composerOwner: composerOwner(client), // auto-balance: a moved draft keeps its owner
     uncertain: pending?.uncertain === true,
     uncertainMessage: pending?.uncertain ? `${pending.description} may already have reached T3. Reconnect and check the thread before retrying.` : '',
-    sidebarWidth: client.local.sidebarWidth, sidebarMinWidth: sidebarMinimumWidth(client.local.clientSettings?.fontSizeInterface), sidebarOpen: client.local.sidebarOpen, query: client.query,
+    sidebarWidth: client.local.sidebarWidth, sidebarMinWidth: sidebarMinimumWidth(client.local.clientSettings?.fontSizeInterface, fullScreen), controlsLeft: workspaceControlsLeft(client.local.clientSettings?.fontSizeInterface, fullScreen), sidebarOpen: client.local.sidebarOpen, query: client.query,
     projectId: client.projectId, projectName: str(project?.title, 'Choose a project'), threadId: client.threadId,
     threadTitle: str(obj(client.projection.thread).title, 'New thread'),
     // The header title keyed by its text: a reused one-line text keeps drawing the previous title clipped to the new width.
     threadHeading: [str(obj(client.projection.thread).title, 'New thread')].map(title => ({ id: title, label: title })), draft: client.draft, snapshotDrafts: snapshotDraftTiles(client), snapshotOwner: client.snapshotOwner,
     settled: section(obj(client.projection.thread)) === 'settled', ...projectIdentity(str(project?.title)),
-    running: !!run, canSend: client.writable && !pending && !client.busy && modelReady && !!client.projectId,
+    running: !!run, canSend: client.writable && !pending && !client.busy && modelReady && !!client.projectId && !projectCloneBlock(client), // a cloning project waits (project-clones-live.ts)
     canStop: client.writable && !pending && !client.busy && !!run,
     providerId: client.providerId, modelId: client.modelId, modelLabel: currentModel ? triggerModelName(currentModel) : client.modelId || 'Choose model',
     composerCollapseOnScroll: client.local.deviceSettings.composerCollapseOnScroll,
@@ -148,10 +156,11 @@ export function snapshot(client: T3Client, now = 0) {
     modelOptions: arr(option?.options).map(choice => ({ id: str(choice.id), value: str(choice.id), label: str(choice.label), selected: choice.id === selectedOption, default: choice.isDefault === true })),
     runtimeMode: client.runtimeMode, modeLabel: modes[client.runtimeMode] || client.runtimeMode, interactionMode: client.interactionMode,
     hasMore: client.thread?.hasMore === true, historyLoading: client.historyLoading,
-    diffOpen: client.diffOpen, diffLoading: client.diffLoading, diffError: client.diffError,
+    diffOpen: client.diffOpen, diffLoading: client.diffLoading, diffError: diffNotGit(client) || client.diffError === NOT_GIT_REPO ? '' : client.diffError,
     ...diffSnapshot(client, now),
     projects: client.shell.projects.map(project => ({ id: str(project.id), name: str(project.title), path: str(project.workspaceRoot), selected: project.id === client.projectId })),
     ...sidebarSnapshot(client, now, { projectIdentity, providerBadge }),
+    legacy: legacySidebarSnapshot(client, now, { projectIdentity }), // legacy-sidebar
     timelineReadsNeeded: timelineReadsNeeded(client),
     markdownSkills: markdownSkills(workspaceValues(provider ?? {}, workspaceCwd(client), 'skills').map(skill => ({ name: str(skill.name), displayName: str(skill.displayName) }))),
     messages: timelineMessages(client, transcript, now), ...timelineSnapshot(client),
@@ -160,8 +169,10 @@ export function snapshot(client: T3Client, now = 0) {
       providerId: str(provider.instanceId), selected: provider.instanceId === client.providerId && model.slug === client.modelId }))),
     ...threadErrorView(client, requestPresentation(client)),
     composer: composerSnapshot(client, now),
+    serverUpdate: serverUpdateView(client), // server-update-notices.ts: the offline timers' episodes, the details dot, the update confirmation
     look: look(client),
     ...tableMenuSnapshot(client), // lane r8-keys: a table's Copy popup over every layer
+    highlightPending: highlightPending(), // shiki-residuals: last, after every code text above asked for its tokens
   };
 }
 

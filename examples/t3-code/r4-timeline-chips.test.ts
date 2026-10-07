@@ -38,7 +38,7 @@ describe('sent-message context chips', () => {
       { version: 1, kind: 'file', contextId: 'file_v', label: 'clip.mov', attachmentId: 'v', name: 'clip.mov', mimeType: 'video/quicktime', sizeBytes: 3 * 1024 * 1024 },
       { version: 1, kind: 'terminal', contextId: 'terminal_1', label: 'out', terminalId: 't', terminalLabel: 'Terminal 1', lineStart: 2, lineEnd: 4, text: 'ls\nok' },
     ], [{ type: 'file', id: 'v', name: 'clip.mov', mimeType: 'video/quicktime', sizeBytes: 3 * 1024 * 1024 }]), '', []);
-    expect(chips.map(chip => [chip.kind, chip.size, chip.tip, chip.detail])).toEqual([['video', '3.0 MB', 'clip.mov\n3.0 MB', ''], ['terminal', '', 'Terminal 1 lines 2-4', 'ls\nok']]);
+    expect(chips.map(chip => [chip.kind, chip.size, chip.tip, chip.detail])).toEqual([['video', '3.0 MB', 'clip.mov\n3.0 MB', ''], ['terminal', 'Lines 2–4', 'Terminal 1', 'ls\nok']]);
   });
   test('workspace file links carry their full path; web links and images are not chips', () => {
     const chips = messageChips({ text: 'Open [a](src/a.ts#L3), [b](./docs/../b.md:4), [abs](/etc/hosts), [web](https://x.dev) and ![i](pic.png)' }, '/repo/root', []);
@@ -47,7 +47,7 @@ describe('sent-message context chips', () => {
   });
   test('an assistant quote reads its quote cut at 64 characters and "View source" opens the cited thread', () => {
     const quote = 'q'.repeat(70);
-    const chips = messageChips({ text: `see [Assistant quote](t3-citation://v1/env/thread-9/msg-2?text=${quote}&start=0&end=70)` }, '', []);
+    const chips = messageChips({ text: `see [Assistant quote](t3-citation://v1/env/thread-9/msg-2?text=${quote}&start=0&end=70&prefix=&suffix=)` }, '', []);
     expect(chips.map(chip => [chip.kind, chip.label, chip.tip, chip.target, chip.detail])).toEqual([['citation', `${'q'.repeat(64)}…`, 'View source', 'thread-9', 'msg-2']]);
   });
   test('formatAttachmentSize, middle truncation and path resolution follow the reference helpers', () => {
@@ -60,8 +60,8 @@ describe('sent-message context chips', () => {
 describe('Markdown settings', () => {
   const client = (settings: object) => ({ local: { clientSettings: settings } }) as unknown as T3Client;
   test('code size clamps to 10–18, word wrap and the monospace family come from Settings → Appearance', () => {
-    expect(markdownEnv(client({ fontSizeCode: 22, wordWrap: false, fontFamilyCode: 'Menlo' }))).toEqual({ codeFont: 'monospace', codeSize: 18, wrap: false, chips: [] });
-    expect(markdownEnv(client({ fontSizeCode: 13, wordWrap: true, fontFamilyCode: '' }))).toEqual({ codeFont: 'ui-monospace', codeSize: 13, wrap: true, chips: [] });
+    expect(markdownEnv(client({ fontSizeCode: 22, wordWrap: false, fontFamilyCode: 'Menlo' }))).toEqual({ codeFont: 'monospace', codeSize: 18, wrap: false, chips: [], runCommands: [] });
+    expect(markdownEnv(client({ fontSizeCode: 13, wordWrap: true, fontFamilyCode: '' }))).toEqual({ codeFont: 'ui-monospace', codeSize: 13, wrap: true, chips: [], runCommands: [] });
     expect(markdownEnv({} as T3Client).codeSize).toBe(13);
   });
   test('diff colors default to red-green', () => {
@@ -103,7 +103,7 @@ describe('Pull Requests diff colors and Markdown settings', () => {
     const list = await pullRequestsPage(client, null, { open: false, refresh: 0, now: 0, selected: '', query: '', typed: false });
     expect(list.diffScheme).toBe('blue-orange');
     const detail = await pullRequestDetail(client, null, { selected: '', refresh: 0, now: 0 });
-    expect([detail.diffScheme, detail.md]).toEqual(['blue-orange', { codeFont: 'ui-monospace', codeSize: 15, wrap: false, chips: [] }]);
+    expect([detail.diffScheme, detail.md]).toEqual(['blue-orange', { codeFont: 'ui-monospace', codeSize: 15, wrap: false, chips: [], runCommands: [] }]);
   });
 });
 

@@ -73,7 +73,7 @@ Edge cases to test: `$TMPDIR` differs between the CLI's shell and the app (the r
 
 | Kind | Readable task/issue/decision | Remote reference | Required condition | Resolution evidence |
 | --- | --- | --- | --- | --- |
-| merged task PR | [20261005-hot-file-split](20261005-hot-file-split.md) | pending | Merged into `daehyeon/t3-code` (common prerequisite: room and per-area seams in the shared files) | pending |
+| merged task PR | [20261005-hot-file-split](closed/20261005-hot-file-split.md) | pending | Merged into `daehyeon/t3-code` (common prerequisite: room and per-area seams in the shared files) | pending |
 | merged task PR | [20261005-clone-on-exact2-main](20261005-clone-on-exact2-main.md) | pending | Merged | pending |
 | merged task PR | [20261005-desktop-oracle-and-trace](20261005-desktop-oracle-and-trace.md) | pending | Merged | pending |
 | merged task PR | [20261005-local-primary-environment](20261005-local-primary-environment.md) | pending | Merged | pending |
@@ -85,8 +85,8 @@ Checked sources and time: planning pass 2026-10-05 against the local drafts in `
 
 | Issue / reference | Capability and target | Evidence / affected revision | Impact | Next action |
 | --- | --- | --- | --- | --- |
-| [X5](../issues/20261005-x05-url-scheme-delivery.md) | URL scheme delivered to a module | needed only for the hosted-web deep link | blocking if it is kept; none otherwise | U10 |
-| [X6](../issues/20261005-x06-module-quit-shutdown.md) | Cleanup at quit | the socket file must go when the app quits | nonblocking (workaround: the next app instance re-binds; stale files are replaced) | measure whether `destroy()` runs at ⌘Q |
+| [X5](../issues/20261005-x05-url-scheme-delivery.md) | URL scheme delivered to a module | needed only for the hosted-web deep link; #104 closed by main #201, which only journals a launch URL no navigation root hears (checked in [adopt-main-fixes-r4](closed/20261007-adopt-main-fixes-r4.md)) | blocking if it is kept; none otherwise | U10 |
+| [X6](../issues/20261005-x06-module-quit-shutdown.md) | Cleanup at quit | the socket file must go when the app quits | nonblocking (workaround: the next app instance re-binds; stale files are replaced) | main #200 (#105): `destroy()` now runs at ⌘Q, an Apple Event quit and last-window close, so remove the socket in the module's `destroy()` ([adopt-main-fixes-r4](closed/20261007-adopt-main-fixes-r4.md)) |
 
 ## Implementation notes
 

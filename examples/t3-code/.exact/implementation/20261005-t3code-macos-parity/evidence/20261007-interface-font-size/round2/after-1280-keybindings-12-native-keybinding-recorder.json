@@ -1,0 +1,58 @@
+{
+ "box": {
+  "y": 159.5,
+  "x": 949.25,
+  "w": 116.5,
+  "h": 18
+ },
+ "native": {
+  "sheet": false,
+  "view": "NodeView",
+  "subviews": {
+   "count": 2,
+   "entries": [
+    {
+     "alpha": 1,
+     "depth": 0,
+     "layer": {
+      "masksToBounds": false,
+      "zPosition": 0
+     },
+     "node": 7002,
+     "frame": {
+      "y": 159.5,
+      "h": 18,
+      "w": 116.5,
+      "x": 949.25
+     },
+     "class": "NodeView",
+     "kind": "view",
+     "hidden": false
+    },
+    {
+     "kind": "view",
+     "class": "T3KeyRecorderView",
+     "role": "platform",
+     "frame": {
+      "w": 116.5,
+      "h": 18,
+      "y": 159.5,
+      "x": 949.25
+     },
+     "alpha": 1,
+     "hidden": false,
+     "depth": 1,
+     "layer": {
+      "masksToBounds": false,
+      "zPosition": 0
+     },
+     "owner": 7002
+    }
+   ],
+   "complete": true,
+   "limit": 12,
+   "root": "view",
+   "depth": 2
+  }
+ }
+}

@@ -351,7 +351,8 @@ launch        = "size" NUMBER "x" NUMBER NL          (* written 1200x800 *)
               | "time-zone" STRING NL                (* an IANA zone, "America/New_York" *)
               | "locale" STRING NL                   (* a BCP 47 tag, "fr-FR" *)
               | "seed" NUMBER NL                     (* 0 through 2^53 - 1 *)
-              | "before" "data" NL ;                 (* the first step does not wait for data *)
+              | "before" "data" NL                   (* the first step does not wait for data *)
+              | "fail" "fetch" STRING [ "times" NUMBER ] NL ; (* armed before the first data load *)
 step          = "tap" STRING [ "hover" | "dblclick" | "contextmenu"
                   | "pinch" NUMBER [ "at" NUMBER NUMBER ]
                   | "into" STRING
@@ -368,6 +369,8 @@ step          = "tap" STRING [ "hover" | "dblclick" | "contextmenu"
               | "clock" ( "settle" | "data" | [ "+" ] NUMBER [ "real" ] ) NL
               | "resize" NUMBER "x" NUMBER NL        (* the window, mid-test: 800x600 *)
               | "reload" NL
+              | "fail" "fetch" STRING [ "times" NUMBER ] NL (* later fetches whose URL starts with it fail *)
+              | "pass" "fetch" STRING NL             (* it stops failing *)
               | "close" NL                           (* the window's close button *)
               | "screenshot" STRING NL
               | "expect" "tree" ( "has" | "missing" ) STRING NL
@@ -389,7 +392,20 @@ name its own; either way they override the drive's flags. A file whose
 assertions depend on the date says so in the file. Before the first step, and
 after a `reload`, the driver waits for the app's data as `clock data` does (its
 module activated, every request in flight answered and each answer's `then`
-landed, the clock unmoved); `before data` skips the wait. `tap "id" drag to "other" [at x y]` ends on the other
+landed, the clock unmoved); `before data` skips the wait. `fail fetch "<prefix>"`
+(LLP 1103) makes every later fetch whose URL starts with the prefix fail as a
+refused connection does, on every host: a TypeScript source's `fetch` rejects
+with `FetchError` of kind `"Network"`, a Rust source's request settles
+`Failed { kind: Network }`, and the request never goes out. `times N` (a
+positive whole number) fails only the next N; `pass fetch "<prefix>"` stops it.
+Leading the steps, or at the top of the file, `fail fetch` is a launch line,
+armed before the app's first data load; later it is a step. Several prefixes may
+be armed; the longest matching prefix decides, and arming a prefix again
+replaces it. A file's line applies to every test that does not arm the same
+prefix itself. A counted fault that matched no fetch by the test's end (or
+before it is armed again) fails the test at the line that armed it, and
+`reload` relaunches with the table as it is then. A stream (`exactStream`, a
+WebSocket) is not matched. `tap "id" drag to "other" [at x y]` ends on the other
 node (LLP 1094 D12). `tap "id" drag dx dy` is the driver's `tap … drag` (from the
 node's middle, or `from x y` in its box, in points; `press`, `over`, `hold` in
 milliseconds; each once). It is a finger where the carrier has one (the web,
@@ -471,12 +487,18 @@ never breaks an app that declared it first.
 | --- | --- |
 | `now()` | Milliseconds on the runner's clock since boot (the driver's clock under the agent), not a date: the date is `exactTime().epochAtZero + now()`. A read does not schedule a render, and a derive that reads it is not read again as time passes (when it is depends on the host's clock), so a value that follows the clock comes from a timer: keep the time in state that a `task … every` action writes |
 | `formatTime(ms, offsetMinutes, "short")` | String; fixed offset east of UTC, en-US formatting (`exactTime().utcOffset` is the zone's offset now, answered again when it changes) |
-| `formatDate(ms, offsetMinutes, "medium" or "month-year")` | String; format is a literal choice, not an expression containing `or` |
+| `formatDate(ms, offsetMinutes, "medium" or "month-year" or "iso")` | String; format is a literal choice, not an expression containing `or`. `"iso"` is `YYYY-MM-DD`: the date at that wall time, which is `toISOString`'s date part at a whole-minute offset (a fractional offset's sub-millisecond wall time is not clipped again, as no style's is) (LLP 1102 §3.4); every style prints `""` outside years 1–9999 |
 | `formatNumber(n, "compact")` | String; admitted deterministic compact format |
+| `toFixed(n, digits)` | String; JavaScript's `Number.prototype.toFixed`: the binary value rounded (`toFixed(1.005, 2)` is `"1.00"`), a tie away from zero, `-0.001` at 2 is `"-0.00"`, `1e21` and up as `toString` prints; one declared difference: `NaN` and the infinities print `""` (LLP 1054.000.003 D7). `digits` is a whole-number literal 0–100 (LLP 1102 §3.2) |
+| `formatDecimal(units, digits)` | String; an integer count of a smallest unit as a decimal, exactly: `formatDecimal(1234, 2)` is `"12.34"`, `formatDecimal(-5, 2)` is `"-0.05"`, `-0` is `"0.00"`; a count that is not an integer, or not finite, is `""`, so money is a count of cents, or `formatDecimal(round(price * 100), 2)` for a price of at most two decimals under a trillion. `digits` is a whole-number literal 0–20 (LLP 1102 §3.2) |
 | `length(value)` | Number; list item count or string UTF-16 code-unit count |
 | `isEmpty(value)` | Boolean; empty string or list |
 | `toString(value)` | String; number, boolean, or string conversion |
 | `floor(n)` | Number |
+| `ceil(n)` | Number; `Math.ceil` |
+| `round(n)` | Number; JavaScript's `Math.round`: a half rounds up (`round(2.5)` is 3, `round(-2.5)` is -2), not away from zero. Two decimals is `round(v * 100) / 100` |
+| `parseNumber(text)` | `option<number>`; `some` for a decimal numeral in the text, trimmed as `trim` does: an optional sign, digits with an optional fraction or a fraction alone, an optional exponent (`" 12.5 "`, `"-3"`, `".5"`, `"1e3"`), the nearest double as `Number()` reads it; `none` for anything else (`""`, `"12px"`, `"0x1F"`, `"1_000"`, `"Infinity"`), past the largest finite, or a nonzero numeral that rounds to zero (LLP 1102 §3.1) |
+| `calendarDiff(from, to, "years" or "months")` | `option<number>`; whole years or months from one `YYYY-MM-DD` date to another, counted as an age is: a period completes when `to`'s month and day reach `from`'s (months compare the day), so a Feb 29 start completes a year on Mar 1 of a common year and a Jan 31 start a month on Mar 1, as Temporal's `PlainDate.until` counts with `largestUnit` `"years"` or `"months"`. When `to` is earlier, the count back, negated; `none` when either is not a real date (LLP 1102 §3.4) |
 | `max(a, b)` | Number |
 | `min(a, b)` | Number |
 | `includes(text, substring)` | Boolean, case-sensitive literal substring |
@@ -675,7 +697,7 @@ working fixture, not inferred from JavaScript's Event interface.
 | A string, then optionally a `KeyboardEvent` | `key`: the key's name; an action taking one more parameter also hears the [modifiers](#keys) |
 | Two numbers, then optionally a `ScrollEvent` | `scroll`: left and top; an action taking one more parameter also hears the scroller's extents (below) |
 | Two numbers, then optionally a `DOMRectReadOnly` | `resize` given an action: the content box's width and height; an action taking one more parameter also hears its `contentRect` (below). A string `resize` is CSS's property |
-| One boolean | `hover` |
+| One boolean | `hover`; `fullscreenchange` (whether the video is now full screen) |
 | One boolean, then optionally an `InputEvent` | `change`, `input` on a checkbox or `switch` |
 | One number | `timeupdate`, `durationchange` |
 | One number, then optionally an `InputEvent` | `change`, `input` on `type="range"` |
@@ -865,12 +887,15 @@ handler, itself or an ancestor — so a node with one takes the focus, as a
 `key` node does. An action that takes one more parameter gets a
 `ClipboardEvent` whose `text` is the clipboard's plain text: what is pasted,
 and empty on `copy` and `cut`, as the DOM's is until a listener sets it — the
-action writes the clipboard with `copyText`. A field's own paste still
-inserts the text. On macOS and iOS, a text field's or textarea's editing is
-the platform's and fires none of the three (the web's fires them); the
-driver's `type <id> paste <text>` delivers a paste carrying that text, and
-`type <id> copy` and `type <id> cut` the others, without touching the
-system clipboard.
+action writes the clipboard with `copyText`. In an `input` or `textarea`
+the event comes first and the field's own cut, copy or paste follows,
+unless the action calls `preventDefault()`, which cancels it as the DOM's
+does (a paste then inserts nothing): on the web and on macOS and iOS alike,
+where the field's editor fires the three (a password field's on macOS
+fires none). The driver's `type <id> paste <text>` delivers a paste
+carrying that text, and `type <id> copy` and `type <id> cut` the others,
+without touching the system clipboard; at a field, an unprevented paste
+inserts the text.
 
 ```text
 action pasteAt(cell: string, e: ClipboardEvent)
@@ -1063,7 +1088,7 @@ negative value and keeps UIKit's geometric order.
 The current command name inventory is:
 
 `blur`, `copyText`, `deliveryActivate`, `deliveryCheck`, `fastSeek`, `focus`, `format`,
-`load`, `openURL`, `selectText`, `setSelectionRange`, `setScheme`, `showPicker`, `share`, `saveFile`,
+`load`, `openURL`, `selectText`, `setSelectionRange`, `setScheme`, `setRootFontSize`, `showPicker`, `share`, `saveFile`,
 `showOpenFilePicker`, `showDirectoryPicker`, `showSaveFilePicker`, `scrollIntoView`,
 `showNotification`, `closeNotification`, `haptic`, `postMessage`, `reload`, `close`,
 `playSound`, `playSounds`, `stopSounds`
@@ -1084,6 +1109,7 @@ argument validation. Use the working implementation when selecting arguments:
 | `copyText(text)` | [Messages](../apps/messages/app.contract) |
 | `openURL(url)` | No Contract fixture; the hosts' dispatch, such as [`host/web-js/commands.js`](../host/web-js/commands.js) |
 | `setScheme(...)` | [Caltrain](../apps/caltrain/app.contract), [Markdown](../apps/markdown/app.contract) |
+| `setRootFontSize(px)`, `setRootFontSize("medium")`: CSS's `:root { font-size }`, the root font size every `rem` follows, in px above 0, laid out in the action's own commit; `px` lengths stay. It stands over the host's own size (the browser's setting, iOS Dynamic Type, 16 on macOS and Linux), as an author's `html { font-size: 20px }` stands over a browser's font-size setting, and `"medium"` hands the size back to the host. A literal of 0 or less is refused here, a computed one in the log when it runs. Not kept across a launch: set it again from a mount task (LLP 1069.000 D3) | [rem tests](../contract/cli/tests/it/rem.rs) |
 | `share(...)` | [share corpus](../contract/corpus/share.contract) |
 | `showNotification(title=, body=, tag=, showTrigger=)`, `closeNotification(tag)`: a local notification by the Notification API's names, now or at `showTrigger` (epoch milliseconds); a newer one with the same `tag` replaces it, and `closeNotification` takes it away, shown or waiting. Needs the grant `device.notifications <strings key>`; see [notifications](reference.md#notifications) | [notify corpus](../contract/corpus/notify.contract) |
 | `showPicker(id)`, export `saveFile(id, from, suggestedName)`: the host copies the `app:/` file `from` to where the person chooses; `change` at `id` carries the chosen name, `cancel` a dismissal. `saveFile(id, text=…, suggestedName=…)` saves the text itself (UTF-8), no file written first and no grant, so "export what's on screen" is one press | [picker tests](../contract/cli/tests/it/picker.rs), [Fieldnotes](../apps/fieldnotes/app.contract), [Linux's save tests](../host/linux/src/presenter/save_tests.rs) |

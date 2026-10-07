@@ -26,6 +26,9 @@ pub struct Carried {
     /// Each queue's waiting sends, by mutation name: never carried, only
     /// said once the new runner boots (LLP 1092 D4).
     pub forgot_waiting: Vec<(String, usize)>,
+    /// The driver's fetch faults as they are (LLP 1103 D3, `Faults::spec`),
+    /// so a replacement neither revives a spent fault nor loses an armed one.
+    pub faults: Option<String>,
 }
 
 #[cfg(test)]

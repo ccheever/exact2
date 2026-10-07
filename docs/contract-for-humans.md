@@ -803,7 +803,7 @@ call outside them fails. The capabilities are:
   ```ts
   edit(store, args) {
     song = apply(song, args);
-    storage.fs.atomicWriteFile(PATH, JSON.stringify(song)).catch(note);  // started now, not awaited
+    storage.fs.atomicWriteFile(PATH, new TextEncoder().encode(JSON.stringify(song))).catch(note);  // started now, not awaited
     return song;
   }
   ```
@@ -942,6 +942,11 @@ Bind a controlled text field's current value and its editing action:
 input value=query input=search placeholder="Search" aria-label="Search"
 textarea value=body input=editBody
 ```
+
+A bare text field is visible, as the browser's is: a thin border, rounded
+corners, padding and a fill that follow light and dark mode. Any row you write
+replaces only that row; `appearance="none"` gives the bare box for a field you
+draw yourself (LLP 1104).
 
 `input` and `change` carry the control's new value as the final action argument:
 a string for a text field, textarea or `select`, a boolean for a checkbox or
@@ -1208,6 +1213,12 @@ transform properties, not layout ones such as `width`. Styles remain
 literal-only. CSS easing and the admitted `spring(…)` timing function, which
 belongs only inside `transition`, are not interchangeable guesses: copy the
 appropriate [motion fixture](../contract/corpus/spring.contract).
+In a `list virtualized=true` row, an animation waits until its row first
+shows in the list (`animation-trigger="view"`, the default), because the list
+builds rows before they scroll in; `animation-trigger="none"` starts it when
+the row is built, so the row arrives settled. The web build does not hold it
+yet.
+
 `exit-animation`, `layout-transition`, and presentation timelines
 (`drag-timeline`, `animation-timeline`, `animation-range`, `timeline-scope`) are
 declared extensions with bounded behavior, not arbitrary layout animation.

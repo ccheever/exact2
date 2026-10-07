@@ -435,6 +435,39 @@ pub fn flow(
         }
     })
 }
+/// Where a line may end in `text` (UTF-8), as ascending UTF-16 offsets, the
+/// last its length: the walker's opportunities, which follow Chrome's, for the
+/// paragraphs CoreText lays out (`TextEngine.lineBreaks`). `words` as in
+/// [`prepare`]. Writes at most `cap`; returns the count, 0 for invalid input.
+pub fn line_breaks(
+    text: *const u8,
+    len: usize,
+    words: *const u32,
+    word_count: usize,
+    out: *mut u32,
+    cap: usize,
+) -> usize {
+    let Some(text) = slice(text, len).and_then(|b| std::str::from_utf8(b).ok()) else {
+        return 0;
+    };
+    let Some(words) = slice(words, word_count) else {
+        return 0;
+    };
+    let words = exact_textflow::utf16_words(text, words.iter().map(|&w| w as usize));
+    let ends = exact_textflow::line_breaks(text, &words);
+    let (mut units, mut byte, mut chars) = (0u32, 0, text.chars());
+    for (i, &end) in ends.iter().enumerate() {
+        while byte < end {
+            let Some(ch) = chars.next() else { break };
+            byte += ch.len_utf8();
+            units += ch.len_utf16() as u32;
+        }
+        if i < cap && !out.is_null() {
+            unsafe { out.add(i).write(units) };
+        }
+    }
+    ends.len()
+}
 /// Release a prepared source. Zero, stale, and repeated frees are no-ops.
 pub fn free(handle: u64) {
     with_sources(|sources| sources.remove(&handle));
@@ -496,6 +529,18 @@ macro_rules! textflow_exports {
                 out,
                 cap,
             )
+        }
+        /// A paragraph's line-break opportunities, as UTF-16 offsets.
+        #[no_mangle]
+        pub extern "C" fn exact_text_line_breaks(
+            text: *const u8,
+            len: usize,
+            words: *const u32,
+            word_count: usize,
+            out: *mut u32,
+            cap: usize,
+        ) -> usize {
+            $crate::textflow::line_breaks(text, len, words, word_count, out, cap)
         }
         /// Release one prepared source.
         #[no_mangle]

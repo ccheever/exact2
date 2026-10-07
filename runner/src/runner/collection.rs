@@ -22,6 +22,13 @@ impl<D: DataSource> Runner<D> {
     pub fn collection(&self, view: ViewId) -> Option<CollectionSnapshot> {
         self.tree.as_ref().and_then(|tree| tree.collection(view))
     }
+    /// [`Tree::collection_mounted`].
+    pub fn collection_mounted(&self, view: ViewId, out: &mut Vec<(ViewId, u64)>) {
+        out.clear();
+        if let Some(tree) = &self.tree {
+            tree.collection_mounted(view, out);
+        }
+    }
     /// [`Runner::collections`] with only each list's first mounted row
     /// ([`Tree::collections_shallow`]).
     pub fn collections_shallow(&self) -> Vec<CollectionSnapshot> {
@@ -110,15 +117,17 @@ impl<D: DataSource> Runner<D> {
                         update.surfaces,
                         update.notes,
                         update.renewed,
+                        update.shown,
                     )
                 })
         };
         self.tree = Some(tree);
         self.ids = ids;
         let ((changed, edge), ops, surfaces) = match result {
-            Ok((changed, ops, surfaces, notes, renewed)) => {
+            Ok((changed, ops, surfaces, notes, renewed, shown)) => {
                 self.notes = notes;
                 self.renewed = renewed;
+                self.shown.extend(shown);
                 (changed, ops, surfaces)
             }
             Err(error) => {
@@ -135,7 +144,14 @@ impl<D: DataSource> Runner<D> {
             now_ms: self.now_ms,
             error: None,
         };
-        if changed || !ops.is_empty() {
+        // A row that showed with animations waiting on it is a commit of its
+        // own when the report changed nothing else (LLP 1055 D13).
+        let revealed = self
+            .shown
+            .revealed
+            .iter()
+            .any(|v| self.kernel.is_awaiting(*v));
+        if changed || !ops.is_empty() || revealed {
             match self.apply(ops) {
                 Ok(receipt) => {
                     self.publish_surfaces(surfaces);
@@ -150,6 +166,29 @@ impl<D: DataSource> Runner<D> {
                 }
             }
         }
+        // @ref LLP 1010 — a list on a route its stack keeps covered (a deep
+        // link's root, a feed under a thread) is hidden and inert: its edge
+        // waits, armed, for the route to show, so nothing is asked for a
+        // screen the reader has not seen (`release_held_edges`).
+        let edge = match edge {
+            Some(edges) if self.inactive(view) => {
+                let tree = self.tree.as_mut().expect("booted");
+                tree.rearm_collection_edge(view, edges.first);
+                if !self.held_edges.contains(&view) {
+                    self.held_edges.push(view);
+                    let name = if edges.first == EventKind::Reachstart {
+                        "reachstart"
+                    } else {
+                        "reachend"
+                    };
+                    self.log(format!(
+                        "{name} view {view} waits: its list is on a covered route; it is offered when the route shows"
+                    ));
+                }
+                None
+            }
+            edge => edge,
+        };
         if let Some(edges) = edge {
             let mut end_after_noop = edges.end_after_noop;
             for (position, event) in [edges.first, EventKind::Reachend].into_iter().enumerate() {
@@ -209,6 +248,25 @@ impl<D: DataSource> Runner<D> {
             }
         }
         Ok(result)
+    }
+    /// After an ordinary commit: a list whose edge waited under a covered
+    /// route asks its host for a report once the route shows, which offers
+    /// the edge it reaches then.
+    pub(super) fn release_held_edges(&mut self) -> Result<(), RunnerError> {
+        for view in std::mem::take(&mut self.held_edges) {
+            if !self.tree.as_ref().expect("booted").has_collection(view) {
+                continue;
+            }
+            if self.inactive(view) {
+                self.held_edges.push(view);
+            } else {
+                self.tree
+                    .as_mut()
+                    .expect("booted")
+                    .wake_collection_edge(view)?;
+            }
+        }
+        Ok(())
     }
     /// Called once per ordinary commit, after settlement. Follow targets across
     /// continuation tickets, discard unmounted owners, and wake each ready edge
@@ -287,5 +345,29 @@ impl EdgeState {
                         .zip(now.iter())
                         .any(|((ak, av), (bk, bv))| ak != bk || !equivalent(av, bv))
             })
+    }
+}
+
+impl<D: DataSource> Runner<D> {
+    /// After a batch applies (LLP 1055 D13): the views it renewed, taken.
+    pub(super) fn settle_shown(
+        &mut self,
+        shown: crate::instance::collection::shown::RowsShown,
+        receipt: &mut exact_kernel::CommitReceipt,
+    ) -> Vec<ViewId> {
+        // Rows that showed stop holding their animations, and rows mounted
+        // out of their port start to, before a host hears the commit.
+        let renewed = std::mem::take(&mut self.renewed);
+        for view in shown.revealed {
+            // A row bound again where it shows is heard as new (`renewed`),
+            // which starts it: only a row that stayed is named revealed.
+            if self.kernel.reveal(view) && !renewed.contains(&view) {
+                receipt.revealed.extend(self.kernel.arena().key_of(view));
+            }
+        }
+        for view in shown.awaiting {
+            self.kernel.await_view(view);
+        }
+        renewed
     }
 }

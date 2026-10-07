@@ -288,9 +288,37 @@ at CSS.
 - Two strings compare with `<`, `<=`, `>`, `>=` in UTF-16 code-unit order, as on
   the web (`end > start` for `"HH:MM"` times). `slice(s, 0, -1)`,
   `replaceAll(s, find, with)` and `toLowerCase(s)` are the web's string methods.
-- Numbers have `floor`, `min`, `max`, `%` and `formatNumber`, and no text-to-number parse, `ceil`,
-  `round` or fixed-decimal format: a typed amount is parsed (and money formatted)
-  in a source, which takes the field's text and answers the number.
+- Numbers have `floor`, `ceil`, `round` (JavaScript's `Math.round`: `round(-2.5)` is
+  -2), `min`, `max`, `%`, `formatNumber` (`1.2K`), `toFixed` and `formatDecimal`. A
+  field's text is a number through `match parseNumber(s) { case some(n) => …, case
+  none => … }`: a decimal numeral, trimmed, or `none` (`"12px"`, `""`).
+- Money is a count of cents printed with `formatDecimal(cents, 2)`, which is
+  exact (`1234` is `"12.34"`, `-5` is `"-0.05"`). A price held as dollars
+  becomes cents with `round(price * 100)`, which is right for a price of at
+  most two decimals under a trillion (`19.99` is `1999`, though `19.99 * 100`
+  is `1998.9999999999998`); past about `3.5e13` the double cannot hold the
+  cents, and a half cent such as `1.005` has no exact binary value and
+  becomes `100`, so keep money in cents from the source when amounts can
+  have more places (tax, a split bill). `formatDecimal` of a number that is
+  not an integer prints `""`, so round first. `toFixed(x, 2)` is the web's
+  `x.toFixed(2)`, for a measured number (`toFixed(km, 1)`): it rounds the
+  binary value too (`toFixed(1.005, 2)` is `"1.00"`) and sums of dollars drift
+  (`0.1 + 0.2`), which is why money is counted in cents. Both take the digits as a whole-number literal (`toFixed` 0–100,
+  `formatDecimal` 0–20), never a variable, and print `""` for `NaN` or
+  `Infinity` (JavaScript's `toFixed` prints `"NaN"`).
+
+```contract
+component Cart
+  state cents = 1999
+  state km = 12.34
+  view
+    column
+      text `Total $${formatDecimal(cents, 2)}` testId="total"
+      text `${toFixed(km, 1)} km` testId="distance"
+```
+- Dates: `formatDate(ms, offset, "iso")` is `YYYY-MM-DD`, and `calendarDiff(from, to,
+  "years")` (or `"months"`) is the whole periods between two such dates as an
+  `option<number>`, counted as an age is (a Feb 29 birthday has its year on Mar 1).
 - There is no general list append: add an item to
   resource-backed data in its source and answer the updated list (a mutation that
   `refreshes` the list's resource, or its own answer).
@@ -391,6 +419,50 @@ read the starting cell, and the last write wins. Calls in exclusive branches
 
 A derive is not mutable storage, an async effect, or a timer. Derive cycles are
 refused. Avoid unnecessary state that can be calculated from existing values.
+
+### Editing a value: the field's contract
+
+A text field is re-set only when what its `value` binding reads changes, never
+after each keystroke (React writes the bound value back; Exact does not, so a
+half-typed `-` or `1.` survives). That makes the contract:
+
+- **while editing**, the field is bound to raw text in state that `input`
+  always writes;
+- **validation** reads the parsed value (`parseNumber`, a trim, a length) and
+  shows a hint, without touching the text;
+- **on commit** (`change`, which a text field fires on Enter and on blur), the
+  action writes the accepted value and writes the normalized text back into the
+  draft, which changes the binding and redraws the field.
+
+A field bound straight to the accepted value breaks this: an action that
+normalizes `-2` to the `0` it already held leaves the binding unchanged, so the
+field keeps showing `-2`.
+
+```contract
+component Quantity
+  state count = 1
+  state draft = "1"
+  action edit(text: string)
+    draft = text
+  action commit(text: string)
+    match parseNumber(text)
+      case some(n)
+        count = max(0, round(n))
+        draft = `${max(0, round(n))}`
+      case none
+        draft = `${count}`
+  view
+    column gap=8
+      input value=draft input=edit change=commit inputmode="numeric" aria-label="Quantity" testId="qty"
+      text (match parseNumber(draft) { case some(n) => (n < 0 ? "Must be 0 or more" : ""), case none => "Enter a number" }) testId="qty-hint"
+      text `Ordered: ${count}` testId="qty-count"
+```
+
+`type "qty" "-2"` leaves `-2` in the field with the hint; `type "qty" key
+"Enter"` commits, and the field reads `0`. A checkbox bound to a resource's
+field follows the same rule from the other side: it shows the resource's value,
+so it snaps back until the save answers and the resource is read again (LLP 1102
+§3.16).
 
 ## Composition and lifetime
 
@@ -498,7 +570,8 @@ Choose the mechanism from its lifetime:
 | Refresh reads around a mutation | `mutation … refreshes resourceA, resourceB` |
 | React once to a settled mutation | `mutation … then actionName` |
 | Writes that must all land, in order | `mutation … queue`: one in flight, later sends wait their turn |
-| A timer while something shows | `task … when cond`, restarted by `key=` |
+| Run once after a delay, while a condition holds (a toast, a debounce) | `task … when cond` with `after(ms, action)` |
+| Repeat while a condition holds (a game tick, a pulse) | `task … when cond` with `every(ms, action)` |
 | Pending indicator | `pending(resourceOrMutationName)` |
 | Resource request failed without an answer | `failed(resourceName)` (a resource only: a mutation answers its failure as a domain result, such as `ok: false`) |
 | Initial resource fallback | `else empty(field=constant)`, or `else source(values)` answered once at build |
@@ -543,7 +616,8 @@ async read is asked again, not dropped). `then` is parameterless,
 runs once at the host's next clock advance as a new commit (under the driver, an
 input's own answer's `then` before the input's reply), reads the latest
 answer, does not run for a failure that brought no answer, and cannot send its
-own mutation. Do not mistake the scheduling boundary
+own mutation; to repeat, use a task (see "Repeating while a condition holds").
+Do not mistake the scheduling boundary
 for a general async workflow or a per-reply event log.
 
 A failed resource retains its value or placeholder, with `pending=false` and
@@ -566,8 +640,18 @@ has a complete `app.ts`: synchronous, `fetch` and SQLite sources, the grants
 each needs (one per line: `['sqlite.open app:/data/books.db', 'net.fetch https://…'].join('\n')`;
 `net.fetch` takes an `http` or `https` origin, `http://127.0.0.1:8080` too; on iOS
 cleartext `http` reaches only a local host, and only with `app.json`'s
-`host.ios.localNetworking` set),
+`host.ios.localNetworking` set; an `iframe` of `http://` from a named host needs
+`host.macos.appTransportSecurity` or `host.ios.appTransportSecurity` set to
+`{ "allowsArbitraryLoadsInWebContent": true }`, which relaxes web views only and
+not an `http:` sub-resource of the app's own `assets/` page),
 and how to drive it with storage.
+A token, a password or a key the module keeps is a secret, not a file: grant
+`secret.keep <name>` (one line per name, `secret.keep signal.token`) and use
+`store.set(name, value)`, `store.get(name)` (a string, or `null`) and
+`store.forget(name)` in an answer (LLP 1018). It is the Keychain on Apple; on the
+web, the page's `localStorage`, readable by any script on that origin; a Linux
+launch keeps it only until the app exits for now. A drive keeps it, by default,
+only in a named `--storage` store (`EXACT_STORE=real` gives an Apple drive the Keychain).
 The compiler accepting a source call does not provide its implementation. Check
 its arguments, declared result, grants, storage access, and bake-time behavior.
 Keep generated output out of version control. Use app-local sources for domain
@@ -680,7 +764,10 @@ drawn title bar) is a bug. On iOS:
 itself: its content goes in a `scroll`, `list` or `overflow-y="auto"` box, which
 `navigationScroll` names for the bar ("Routes and web documents"). A sheet's swipe down and a pushed screen's edge swipe press the
 route's enabled control whose `id` is the root's `navigationBack`; without one
-both are refused, as is the swipe on a sheet with `closedby="none"`.
+both are refused, as is the swipe on a sheet with `closedby="none"`. On a pushed iOS
+route under the platform bar, that control's text becomes the bar's back button title
+beside the bar's own chevron (no text shows the chevron alone), so label it `Recipes`,
+not `‹ Recipes`.
 
 An `image` source is the same string on every host: a path under the app's
 `assets/`, an `http(s)` URL, `symbol:<role>` (the roles are
@@ -693,6 +780,21 @@ nothing (the web and Apple journal `image refused`). Keep a picked photo by copy
 `app:/data` and answering that path; never tell hosts apart in the data module
 (`HermesInternal`) to choose a source
 ([LLP 1069.002](../llp/1069.002-media-picker.rfc.md) D7, [LLP 1011](../llp/1011-image-v1.spec.md) §2).
+
+An `image` hears HTML `<img>`'s two events, once per source, on the web, macOS and
+iOS: `load=` when the picture is ready (no payload), and `error=` when it does not
+load, with a `message` that says why (`error=failed` runs `action failed(message:
+string)`; `error=failed("icon")` passes `"icon"` before it). On macOS and iOS the
+message is the reason (`HTTP 404`, `Could not connect to the server.`, `not an image
+format this host decodes`); the browser gives none, so the web says `the image did
+not load`. A symbol fires neither. What each host's fetch of an `http(s)` source
+sends, follows and accepts is LLP 1011's: macOS and iOS send no cookie and no
+`Referer`, follow redirects to any host (within App Transport Security), take any
+2xx body up to 64 MiB whatever its `Content-Type`, and keep an HTTP cache on disk;
+the web is the browser's `<img>` (its cookies and `Referer` rules, no size cap). SVG
+draws on the web only; on Apple it is an `error`. A tinted remote image on the web
+needs CORS headers, or it is an `error` too. A drive sees both after `clock +<ms>
+real`; `clock settle` can return just before them.
 
 A sound effect is a declared WAV that an action plays ([LLP
 1096](../llp/1096-sounds-an-app-can-schedule.rfc.md)): `sound "assets/…wav"` at the
@@ -980,7 +1082,8 @@ and `then`s (`TIMER_FIRE_LIMIT`), those that change nothing included; the rest i
 refused, what committed is kept, and the clock stays at the last one's time. A
 fast `every` under a long `clock +N` can reach it: tick slower or move the clock in steps.
 
-`task hide when toast != "" key=toastUntil` with `after(5000, expire)` has its
+A task with `when` (a gated task), such as
+`task hide when toast != "" key=toastUntil` with `after(5000, expire)`, has its
 timer only while the gate holds, as a `when` arm has its nodes, and a new key
 restarts it, as a new `each` key makes a new row
 ([LLP 1092](../llp/1092-sends-that-queue-and-timers-that-wait.rfc.md)). Nothing
@@ -994,6 +1097,30 @@ gate is a bool and the key a string, number or bool; neither may read `now()`
 toast, a debounce (`when draft != saved key=draft` with `after(800, save)`), a
 round's tick (`when screen == "play"`) and a flight's frames
 (`when flying` with `every(frame, step)`) are each one gated task.
+
+**Repeating while a condition holds.** Use a task with `when` and `every`. The
+timer runs only while the condition is true. Any action that makes it false
+stops the timer.
+
+```text
+  state pulsing = false
+  state dim = false
+  task pulse when pulsing
+    every(1200, step)
+  action step
+    if dim
+      dim = false
+    else
+      if busy
+        dim = true
+      else
+        pulsing = false
+```
+
+The first `step` runs one interval after the condition turns true. Do not build
+a loop from mutations: a `then` cannot send its own mutation
+(`analyze-then-self-send`). For a purely visual loop, use a CSS `animation`
+instead.
 
 `now()` is the runner's clock in milliseconds since boot (the driver's clock under
 the agent), not a date. For the date, read the reserved `exactTime` source and add
@@ -1076,11 +1203,33 @@ trip, as `press-scale` does. `haptic("selection" | "impact-…" | "success" |
 drag crosses a threshold. iOS uses the feedback generators; the web vibrates
 where it can; Linux does nothing.
 
+An interface size setting is `rem` plus `setRootFontSize(px)`, CSS's `:root {
+font-size }` (LLP 1069.000 D3). Size what should scale in `rem` (text, control
+heights, paddings) and what should not in `px`; an action calling
+`setRootFontSize(size)` re-lays every `rem` out in its own commit, on every host.
+The app's size stands over the host's (the browser's setting, iOS Dynamic Type,
+16 on macOS and Linux), as an author's `html { font-size: 20px }` stands over a
+browser's font-size setting; `setRootFontSize("medium")` hands it back, so a
+"Default" choice that follows Dynamic Type calls that. A size of 0 or less is
+refused (a literal at compile time, a computed one in `logs`). It is not kept
+across a launch: a root `task restore mount` with `after(1, applySize)` sets the
+stored size again. Do not multiply a scale factor into every size instead.
+
 Platform facts are reserved sources (`exactViewport`, `exactPage`, `exactDelivery`,
 `exactSurface`, `exactTime`); the bake refuses a declared field the source does
 not have. Use dimensions, media preferences, page facts,
 and capability state rather than suffixing files by platform. Preference facts
 inform authored policy; the engine does not automatically remove all motion.
+
+`exactSurface(name)` is the host's channel for read-only facts about where
+the app is running, not only for a GPU surface's published record. The
+terminal host publishes `exactSurface("terminal")` (`mode`, `images`,
+`colors`, `log`, which counts the `role="log"` nodes it has seen, and
+`printed`, the `id` of that log's last child it wrote to scrollback), and an inline app retires printed entries from it (LLP 1101.001
+P1; `apps/harness/terminal.contract` shows the task). Declare its shape
+(`resource terminal = exactSurface("terminal") as shape Terminal`); on any
+other host it stays unloaded. A new host fact uses this channel before
+anyone proposes a new reserved source (LLP 1101.002 §0 P11).
 
 Localized strings use `t("key", name=value)` and app `strings/<locale>.json`
 files. Compile against the files to check keys and placeholders. Formatting
@@ -1131,8 +1280,14 @@ primary mouse click on web, macOS, Windows, and Linux (on macOS any node takes
 it, so a click can land on a link inside a paragraph). `{contextmenu:true, at:[x,y]}`
 sends a right-click. Coordinates are relative to the target's top-left; omit
 `at` for its center. Both refuse invalid, covered, or offscreen points and held
-contacts. The CLI forms are `tap world mouse` and `tap world contextmenu`, or use
-a JSON options object for coordinates. `tap stage wheel 0 -20 modifiers Control`
+contacts. The CLI forms are `tap world mouse [at <x> <y>]` and `tap world contextmenu
+[at <x> <y>]`. `tap <target> auxclick` is the middle button and `clicks 3` a triple
+click (each press counting 1, 2, 3); every click form and a wheel take `at <x> <y>` and
+`modifiers Shift+Meta`, and `down … modifiers Shift` or `drag … modifiers Shift` holds
+them to the lift. Chrome and macOS deliver these as a hand's (on macOS through the
+application, so its local event monitors see them); iOS, Linux, Windows, Firefox and
+WebKit answer `delivery: "unsupported"`, and a word a form does not use is refused by
+name. `tap stage wheel 0 -20 modifiers Control`
 is a pinch's wheel; `tap world drop a.board` drags a file in (web, macOS). Plain canvas taps and held contacts are
 fingers, so their platform pointer identity and retained press history can differ
 from a mouse's; use the intended physical input when comparing game saves.
@@ -1208,6 +1363,38 @@ as `clock data` does: its data module activated and every request launch started
 test does not start with `clock settle`. `before data`, a launch line, skips the
 wait; what has landed then is the host's (a native app runs on real time before
 the driver connects).
+
+To test an error path, fail the fetch: `fail fetch "<url prefix>"` makes every
+later fetch whose URL starts with it fail exactly as a refused connection does
+on that host (a TypeScript source's `fetch` rejects with `FetchError` kind
+`"Network"`; a Rust source's request settles `Failed { kind: Network }`), and it
+never goes out. Leading the test it is armed before the first data load, so
+"the API is down when the screen opens" is the launch; later it is a step.
+`times N` fails only the next N; `pass fetch "<prefix>"` stops it; a counted
+fault that never fired fails the test. The app's own `catch`, error record and
+retry run, so this checks the real error handling (LLP 1103). A drive takes
+`--fail-fetch <prefix>` at open and the ops `"fail fetch <prefix> [times N]"`
+and `"pass fetch <prefix>"`; `state.faults` shows each prefix's hits.
+
+```contract-test
+test "the list shows an error, then retries and loads"
+  fail fetch "https://api.example.com/recipes"
+  expect text "error" == "Couldn't load recipes."
+  pass fetch "https://api.example.com/recipes"
+  tap "retry"
+  clock data
+  expect tree has "recipes"
+```
+
+A slow server is bounded in the source, not the view: `fetch(url, {
+exactTimeout: 10000 })` cancels the exchange after 10 s (headers and body) and
+rejects with a `FetchError` of kind `"Timeout"`, which the source catches and
+answers as any failure (a Rust source's request takes `Request::timeout(ms)`).
+Without it a stalled fetch waits the platform's limit (60 s without data on
+Apple). Test the error state with `fail fetch`, as above; a timeout itself is
+tested against a stand-in server that never answers (the reference's
+"exactTimeout").
+
 A test whose text depends on the date names its `epoch`; without one it runs at
 the driver's 2026-01-01 UTC. The steps are `tap "id" [hover|dblclick|contextmenu]`,
 `tap "id" modifiers "Shift+Meta"` (a press with keys held),
@@ -1407,6 +1594,19 @@ says so once per box. Refused, each saying what to write: `column-span`, page
 and region breaks, `balance-all`, dashed or dotted rules, and multi-column rows
 on `row` or `column` (CSS ignores them on flex and grid; write `view`).
 
+A bare text field (`input` of type `text`, `email`, `password`, `search`, `tel`,
+`url`, `number` or none, and `textarea`) is visible, as the browser's is: a 1px
+`light-dark(#c6c6c8, #48484a)` border, radius 6, padding 6/8, a
+`light-dark(#ffffff, #1c1c1e)` fill and its own `light-dark(#000000, #ffffff)`
+ink (it does not inherit `color`). These are rows under yours: any row or class
+you write replaces that one row and keeps the rest; `padding` and `width` stay
+content-box, so the field is 18px wider and 14px taller than its content.
+`appearance="none"` (a literal) leaves them all out for a field you draw
+yourself, such as a composer inside a pill (LLP 1104). A field in this look
+shows a focus ring while focused (the web's `:focus-visible`, an accent ring on
+macOS and Linux; iOS shows its caret) and dims to `opacity` 0.5 while
+`disabled`; a bare field draws its own focus and disabled states.
+
 `textarea rows=3` sets its preferred height in lines (default 2); explicit CSS
 height and `field-sizing="content"` override it. `maxlength=80` on text inputs
 and textareas limits user edits in UTF-16 units; authored `value` updates are
@@ -1429,12 +1629,54 @@ natively), or `light-dark(a, b)`; the kernel parses it once for every host.
 `color-scheme="dark"` (or `"light"`) on a node makes that subtree resolve
 `light-dark()`, platform colours and glass in that scheme, as a sheet that is
 always dark does; leave it off to follow the surrounding scheme (LLP 1034 §8).
+`status-bar-style="light-content"` (light text, for a dark surface),
+`"dark-content"` or `"auto"` on any node, bound to state, sets an iOS phone's
+status bar: of what the bar sits over, the declaration painted on top wins, and
+a flip shows in its own batch's frame; `status-bar-animation="fade"` fades it
+(LLP 1105). Other hosts ignore both.
 `currentcolor` takes the node's `color` on borders, `background-color`,
 `tint-color`, text stroke and SVG paint. `unset` clears any row, and `inherit`
 an inherited one (`color`, fonts, `fill`…); `inherit` on a row CSS does not
 inherit is refused. `order` places flex and grid items. An image's accessible
 name is `alt` or `aria-label`; `enterkeyhint` labels a soft keyboard's enter
-key on the web and iOS.
+key on the web and iOS. A bare number on a length row is pixels (except
+`line-height`, where it is CSS's multiple of the font size), and the row takes
+CSS's spellings too (`font-size="14px"`, `letter-spacing="-0.5px"`,
+`padding="1.5rem"`; `stroke-width="2px"` but no `rem` there), bound or literal
+(``font-size=`${size}px` ``). A row whose value is a number and no text
+(`opacity`, `flex-grow`, `z-index`, `font-weight`, `column-count`,
+`column-rule-width`) takes a number where it is computed: a string-typed
+expression there is refused, since the native hosts read no text on it (the
+literal keywords and `px` of `column-count` and `column-rule-width` compile to
+their numbers). `max-width` and `max-height` take `none`, CSS's initial maximum, or `auto`, and the web writes
+`none` for either. A number field's (`input type="number"`, written so)
+`min`, `max` and `step` take numbers, as a range's do; its `value` is its text.
+
+`autocomplete` on an `input` or `textarea` is HTML's attribute, written as
+HTML writes it (`autocomplete="username"`, `"section-login current-password"`,
+`"shipping postal-code"`). The web sets it as written. iOS and macOS read its
+last field name (a trailing `webauthn` aside) as the field's AutoFill content
+type, over the one `type` implies (iOS: `password`, `email`): `username`,
+`current-password`, `new-password`, `one-time-code`, `email`, `tel`, `url`,
+`name`, `given-name`, `additional-name`, `family-name`, `honorific-prefix`,
+`honorific-suffix`, `nickname`, `organization`, `organization-title`,
+`street-address`, `address-line1`, `address-line2`, `address-level1`…`3`,
+`postal-code`, `country-name`, `cc-name`, `cc-given-name`,
+`cc-additional-name`, `cc-family-name`, `cc-number`, `cc-exp`, `cc-exp-month`,
+`cc-exp-year`, `cc-csc`, `cc-type`, `bday`, `bday-day`, `bday-month` and
+`bday-year`.
+`off` clears the content type (the web's `autocomplete="off"`); `on` or a
+list HTML's grammar refuses (the web's default) leaves `type`'s, and so does
+a name the platform has no type for (`country`, `impp`, `sex`), which only the
+web can act on.
+
+An `input type="password"`'s value is never agent output, on any host: `tree`,
+`layout <field>` and the `type` reply show `value="•••"` for any value that is
+not empty, whatever its length (an `expect text` on the field reads `•••`), and
+`tree --ax` marks the field `protected` where the host has one (the web's
+accessibility tree still shows one bullet a character, as Chrome exposes it).
+What the app stores (`state.slots`, its data module) is the app's own; an
+`app.test.contract` `type … append` into a filled password field is refused.
 
 `border`, `border-top/right/bottom/left` take CSS width/style/color in any order,
 resetting omitted components to medium/none/currentcolor. Widths are px/pt,

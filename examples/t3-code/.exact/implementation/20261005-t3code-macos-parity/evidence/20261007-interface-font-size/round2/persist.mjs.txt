@@ -1,0 +1,39 @@
+// Lane persistence drive (not committed): two launches on one named agent store (`storage`), 1280x840.
+// Launch 1: pair, set Interface font size 20, quit. Launch 2: the same store; read the root size and layout.
+import { execFileSync } from 'node:child_process';
+import { writeFileSync, appendFileSync, mkdirSync } from 'node:fs';
+import { resolve } from 'node:path';
+const repo = process.argv[2];
+const L = resolve(import.meta.dir), out = resolve(L, 'out3'); mkdirSync(out, { recursive: true });
+process.env.EXACT_APP_DIR = resolve(repo, 'examples/t3-code');
+const { open } = await import(resolve(repo, 'scripts/agent.mjs'));
+const token = () => /token=([A-Z0-9]+)/.exec(execFileSync(resolve(L, 'server.sh'), ['pair', '--base-dir', resolve(L, 't3home')], { encoding: 'utf8' }))[1];
+const rec = (line) => { appendFileSync(resolve(out, 'persist-record.txt'), line + '\n'); console.log(line); };
+const launch = () => open({ host: 'macos', size: [1280, 840], storage: 'ifs-persist', env: { HOME: resolve(L, 'apphome-persist') }, epoch: Date.parse('2026-10-07T10:00:00Z'), onProcess: p => writeFileSync(resolve(L, 'persist-app.pid'), String(p.pid)) });
+for (const round of [1, 2]) {
+  const s = await launch();
+  const ids = async () => (await s.tree()).nodes.map(n => n.testId ?? n.props?.testId).filter(Boolean);
+  const has = async id => (await ids()).includes(id);
+  const settle = async (ms = 600) => { await s.clock(`+${ms} real`); await s.clock('settle'); };
+  const probe = async (name) => { const st = await s.state().catch(() => ({})); const l = await s.layout(); const box = l.nodes.find(n => n.testId === 'connection-settings' || n.testId === 'welcome-pair');
+    rec(`[persist ${round}] ${name} rootFontSize=${st?.device?.rootFontSize ?? '?'} ${box ? `${box.testId} ${box.width ?? box.w}x${box.height ?? box.h}` : ''}`); };
+  try {
+    await settle(2000);
+    await probe('launch');
+    if (await has('welcome-pairing-link')) { await s.type('welcome-pairing-link', `http://127.0.0.1:16521/pair#token=${token()}`); await s.tap('welcome-pair'); await settle(4000); }
+    for (const id of ['welcome-continue', 'welcome-agents-continue', 'welcome-skip-import']) if (await has(id)) { await s.tap(id); await settle(); }
+    await settle(2000);
+    await probe('connected');
+    if (round === 1) {
+      await s.tap('connection-settings'); await settle(1200); await s.tap('settings-appearance'); await settle(1200);
+      await s.tap('setting-interface-font-size'); await settle(600);
+      const all = await ids(); const option = all.filter(id => id.startsWith('setting-interface-font-size-menu-')).find(id => /[^0-9]20$/.test(id));
+      if (!option) rec(`[persist ${round}] ids: ${all.filter(id => /font|appearance|settings-/.test(id)).slice(0, 20).join(',')}`);
+      await s.tap(option); await settle(1500);
+      await probe('set 20');
+    }
+    await s.screenshot(resolve(out, `persist-${round}.png`), true);
+  } catch (e) { rec(`[persist ${round}] ERROR ${e.stack?.slice(0, 600)}`); }
+  finally { await s.close?.(); }
+  await new Promise(r => setTimeout(r, 2000));
+}

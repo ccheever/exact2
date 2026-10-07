@@ -448,6 +448,64 @@ fn option_and_select_keep_htmls_content_model() {
     assert!(e.contains("lower-attr-tag"), "{e}");
 }
 
+#[test]
+fn autocomplete_names_a_field_to_autofill() {
+    // LLP 1102 §3.6: HTML's attribute, kept as written; each host reads its last field token.
+    let r = boot(
+        r#"component App
+  state kind = "one-time-code"
+  view
+    column
+      input type="email" autocomplete="username" testId="user" aria-label="User"
+      input autocomplete=kind testId="code" aria-label="Code"
+      textarea autocomplete="shipping street-address" testId="addr" aria-label="Address"
+"#,
+    );
+    for (id, want) in [
+        ("user", "username"),
+        ("code", "one-time-code"),
+        ("addr", "shipping street-address"),
+    ] {
+        let node = r.kernel().node(view_of(&r, id)).unwrap();
+        assert_eq!(node.props.str(PropId::Autocomplete), Some(want), "{id}");
+    }
+    // React Native's names point at it.
+    for name in ["textContentType", "autoComplete", "autoCompleteType"] {
+        let src = format!("component App\n  view\n    input {name}=\"email\"\n");
+        let e = format!("{:?}", contract::compile(&src).unwrap_err());
+        assert!(e.contains("autocomplete"), "{name}: {e}");
+    }
+}
+
+#[test]
+fn a_number_fields_bounds_take_numbers_as_a_ranges_do() {
+    // LLP 1102 §3.12: `min`, `max` and `step` as numbers; the field's value stays its text.
+    let mut r = boot(
+        r#"component App
+  state n = "3"
+  state lo = 2
+  action edit(v: string)
+    n = v
+  view
+    column
+      input type="number" value=n input=edit min=lo max=50 step=0.5 testId="team" aria-label="Team"
+"#,
+    );
+    let team = view_of(&r, "team");
+    let node = r.kernel().node(team).unwrap();
+    assert_eq!(node.props.str(PropId::Min), Some("2"));
+    assert_eq!(node.props.str(PropId::Max), Some("50"));
+    assert_eq!(node.props.str(PropId::Step), Some("0.5"));
+    r.dispatch(team, Event::Input("4.".into())).unwrap();
+    let node = r.kernel().node(team).unwrap();
+    assert_eq!(node.props.str(PropId::Value), Some("4."));
+    // Only an `input` is a number field: elsewhere a numeric `min` is no bound and stays refused.
+    for tag in ["textarea", "view"] {
+        let src = format!("component App\n  view\n    {tag} type=\"number\" min=2\n");
+        assert!(contract::compile(&src).is_err(), "{tag}");
+    }
+}
+
 const VOLUME: &str = r#"component App
   state volume = 40
   state scale = 1

@@ -4,7 +4,10 @@ A macOS client for an existing T3 Code server. Contract draws the interface;
 TypeScript owns the client state and projections; an app-local Swift module
 handles HTTP, WebSocket RPC, Keychain credentials, the composer's text view, menus,
 notifications and window chrome. Provider execution, workspaces, Git and conversation
-history remain on the T3 server. The app does not bundle or modify T3 Code.
+history remain on the T3 server. The app carries the official T3 server release (the CLI
+archive of the release built from the reference pin, unmodified; `server-runtime/runtime-pin.json`)
+and runs it as its own local server (20261005-embedded-server-runtime; "This machine" is built on it
+by 20261005-local-primary-environment). It does not modify T3 Code.
 
 ## Reference and verification status
 
@@ -28,12 +31,11 @@ source changed in the integration pass apart from this README and `AGENT-HANDOFF
   attach 3, composer 45, composer-files 4, contextmenu 6, fleet 8, intent 4, menus 10,
   notifications 4, r5-composer 3, r5-panels 5, r6-device 3 (loopback serve-sim peers),
   r6-media 5 (PDFKit, sandboxed WebKit; rendered HTML loads its siblings from the asset
-  token's directory only), r7-device 13 (H.264 over a loopback hub; with
+  token's directory and, as the reference's frame, external hosts), r7-device 13 (H.264 over a loopback hub; with
   `T3_DEVICE_GLB_DIR` set to a T3 server's `client/assets` the served-model renders run
-  too), r8-keys 4, r8-pointer 3, r9-device 13 (the iPhone Duo viewer over loopback panel
-  feeds and the served model, the foldable), r9-input 10, r10-connect 5 (select-on-open,
-  Korean 2-Set chords re-issued by key code and reaching menu equivalents, the still-pointer
-  re-hover), r10-device 4 (a Duo panel feed reopens its stream after a stalled main thread,
+  too), r8-keys 4, r8-pointer 2 (the title row keeps the frame the host restored), r9-device 13 (the iPhone Duo viewer over loopback panel
+  feeds and the served model, the foldable), r9-input 10, r10-connect 4 (select-on-open,
+  Korean 2-Set chords re-issued by key code and reaching menu equivalents), r10-device 4 (a Duo panel feed reopens its stream after a stalled main thread,
   including a 10-run Closed loop; the physical hand-off's single elected feed), r11-device 3
   (the 3D phone keeps H.264 and 3D through main-thread stalls, ten first opens; the soft-queue
   window), r11-upstream 3 (the draft row's NSMenu), sidebar 5,
@@ -79,15 +81,38 @@ Exact repository root:
 ```sh
 bun install --frozen-lockfile
 export EXACT_APP_DIR="$PWD/examples/t3-code"
+bun examples/t3-code/terminal-host/build.mjs   # the terminal page into assets/ (ignored; EXACT2-GAPS X46)
+bun examples/t3-code/stage-runtime.mjs         # the embedded T3 server into server-runtime/ (ignored; network once)
 bun host/apple/build.mjs t3-code-macos --bundle --run
 ```
+
+The embedded server. `stage-runtime.mjs` downloads the release archive named by
+`server-runtime/runtime-pin.json`, accepts it only when its SHA-256, the release's `SHA256SUMS`
+and the pin agree, checks the signatures of its Mach-O files, runs `t3 --version`, starts it once on
+a scratch home and a lane port, and puts the archive and its manifest beside the pin (`--offline`
+reuses the cache in `.runtime-cache/`). The bundle carries that folder as
+`Contents/Resources/t3-runtime` (`app.json` `host.macos.resources`). At the first launch the app
+unpacks it into `<T3 home>/runtime/versions/<version>` and starts `t3 --bootstrap-fd 0` with the
+desktop envelope; it restarts the server with T3 Code's backoff, keeps its failure log in
+`<T3 home>/userdata/logs/server-child.log`, and stops it when the app quits. A development build
+starts it only with an isolated home and a lane port, never `~/.t3` or 3773:
+
+```sh
+T3_LOCAL_HOME=/tmp/lane/t3-home T3_LOCAL_PORT=16437 bun host/apple/build.mjs t3-code-macos --bundle --run
+```
+
+Without both variables its status is `refused` and nothing starts. Only the packaged build
+(`distribution.json` in its Resources) uses `~/.t3` and the port scan from 3773, as T3 Code does.
 
 Start your existing T3 installation with `t3`, or use its normal source-checkout
 startup command. Configure and authenticate at least one provider in T3 Code.
 This client implements orchestration protocol 2 and requires the server's
 `serverResolvedCommandContext` capability for writes. A server on another protocol
 is listed as outdated or newer; one that can update itself offers **Update** in
-Settings › Connections.
+Settings › Connections. A connected server older than this client shows "Server
+update available" above the composer (and a warning in the thread details card);
+its Update streams the update's progress, waits for the server to come back on the
+new version and shares that state with Settings › Connections (`server-update.ts`).
 
 1. In T3 Code, open **Settings → Connections** and create a fresh pairing link.
    A command-line installation can also use `t3 pair` for a running server.
@@ -149,7 +174,9 @@ Settings › Connections.
   rendered Markdown/CSV and an editor that writes back with `projects.writeFile`; opened
   from Go to file, content search and file chips; its explorer and rendered/source
   choices persist; an `.html` file opens rendered in the sandboxed WebKit body (its sibling stylesheets, scripts and
-  images load through the signed asset URL's token directory only, `R6MediaPreview.swift`, lane r11-misc)
+  images load through the signed asset URL's token directory, and the page may load stylesheets, scripts,
+  images, fonts and fetches from other hosts as the reference's sandboxed frame does (https, and `http` to an IP
+  address or a named host: `app.json` allows arbitrary loads in web content, #106), `R6MediaPreview.swift`)
   from a signed asset URL, with the reference's Show HTML source / Show rendered page toggle,
   `r10-device-files-html.ts`; regex literals in its scripts are coloured as Shiki does,
   `r10-device-html-regex.ts`; every right-panel tab (Files, files, the
@@ -174,7 +201,7 @@ Settings › Connections.
   +N and stack forms, `r7-handoff-strip.ts`), sent attachment
   previews (Markdown, table or numbered source, images, Copy contents and Save file;
   opened from a sent file chip; `r6-media-*`: PDFs in PDFKit, HTML rendered in a sandboxed
-  WebKit view that reaches only its asset URL's token directory or as source coloured by Shiki's html grammar under the
+  WebKit view that loads its token directory and external hosts as the reference's frame does, or as source coloured by Shiki's html grammar under the
   Pierre themes (`r7-polish-html-syntax.ts`), audio and video in AVKit players, "Unable to
   load audio/video." with Try again) and Device (the "Set up devices" wizard over
   `device.configure` / `subscribeDeviceState`; Escape closes it; after onboarding a row
@@ -214,8 +241,10 @@ counts as focus (the window's first responder is followed, `R9Input.swift`), and
 a composing syllable first and match by key code under a non-Latin source such as Korean 2-Set. Outside
 the composer a ⌘ or ⌃ letter chord under a non-Latin source is re-issued with its key's Latin
 character, as the reference's `resolveEventKeys` does (`R10Connect.swift`), so ⌘B, ⌘K and menu
-equivalents still match. After the thread list re-renders under a still pointer, the row that
-slid under it is hovered, as a browser's synthetic mouse move does (`t3-rehover`). The menu bar is the reference
+equivalents still match. exact2 #168 matches declared chords by physical key itself, but not
+the menu's standard items, the terminal's web view or the module's own key monitors, so the
+re-issue stays. After the thread list re-renders or scrolls under a still pointer, the row that
+slid under it is hovered, as a browser's synthetic mouse move does (the host's own, exact2 #139). The menu bar is the reference
 desktop app's (`R8KeysMenus.swift`): File shows only Close Window, View starts with Reload
 and Force Reload, and the host's Develop and Go menus are removed, so ⌘D (diff), ⌘O (open in
 editor) and ⌘1–9 reach the window; every button chord stays a hidden File key equivalent,
@@ -233,8 +262,8 @@ module atomically saves the versioned `t3-code.json` preference file (selections
 drafts, sidebar and page preferences, dismissed notices, pending operation identities)
 under Exact's app data directory. **Disconnect** keeps the credential; **Forget**
 removes it. On launch the client reconnects by itself to the last switched-on saved
-environment with its Keychain credential, and the window keeps its frame across launches
-(`r8-pointer-reconnect.ts`, `R8PointerWindowFrame.swift`). This client bundles no server, so
+environment with its Keychain credential (`r8-pointer-reconnect.ts`), and the window keeps its frame across launches
+(the host's frame autosave, restored after the window's final style since exact2 #113). This client bundles no server, so
 every paired server, a loopback one included, is a saved environment under Environments in
 Settings › Connections with its switch and row menu (Icon, Copy trace ID, Remove from this
 device…), as the reference lists paired remote environments (lane r9-connect). Load balancing
@@ -255,34 +284,38 @@ its command identifiers and draft and is never retried automatically.
 
 ## Known limits and exclusions
 
+The terminal renderer's [2026-10-06 verification](.exact/implementation/20261005-t3code-macos-parity/evidence/20261005-terminal-surface/20261006-theme-parity/attempt.md) includes light/dark,
+preset/custom theme pairs against the original renderer, font updates, and integrated app
+window captures with visible ANSI output and typed loopback text. Settings now reach the
+terminal. This is renderer evidence; the drawer and PTY session integrations below remain excluded.
+
 - Excluded or not built: the terminal drawer and Terminal surface (a hand-off's setup script
-  runs on the server but its output is not shown), the Browser surface,
+  runs on the server but its output is not shown; the `t3-terminal` view, T3 Code's own Ghostty
+  emulator in a web view, exists with a development harness, ⌃⌥⇧T, `AGENT-HANDOFF.md` "Terminal
+  spike"), the Browser surface,
   pinch zoom of the 3D phone (the reference's is a no-op too; the iPhone Duo's pinch moves its
   hinge, `R9DeviceDuoView.swift`), dragging and resizing the floating device player, web,
   iOS and Linux delivery.
 - Known in-app differences (round 11): during a row-action sweep the hover card or tooltip
   that was open at the press stays until release, and Escape does not cancel the sweep (the
-  reference closes the card and cancels); rows have no keyboard context menu (ContextMenu key,
-  Shift-F10); a switched-off loopback environment stays listed under Environments (it stands
-  in for the reference's unlisted primary); rendered HTML loads only its asset token's
-  directory, not external hosts; the reference opens a thread's live device session as a
+  reference closes the card and cancels); a switched-off loopback environment stays listed under Environments (it stands
+  in for the reference's unlisted primary); rendered HTML loads https and `http` hosts, named
+  ones included (`app.json` allows arbitrary loads in web content, [#106](https://github.com/ccheever/exact2/issues/106)),
+  and its token directory; the reference opens a thread's live device session as a
   floating player on load and this client does not; No project drafts cannot switch machine.
 - Framework limits worked around in-app: host text truncates at word boundaries and
-  draws no placeholder colour; negative-spread shadows draw faint; popovers anchor below
-  their invoker; SVG paths cannot morph (morph icons cross-fade); backdrop blur sees only
+  draws no placeholder colour; negative-spread shadows draw faint; popovers open below, above or centred on
+  their invoker (`position-area`) but never flip near a window edge (#112); SVG paths cannot morph (morph icons cross-fade); backdrop blur sees only
   its parent (the composer is opaque, where the reference's glass shows the transcript
   through it); a textarea sizes to its plain value (a prompt whose chip links are long
-  can be a line taller than its chips draw at narrow widths); a forgotten Exact answer drops its native replies (the snapshot read gate
-  in `T3ReadGate.swift` limits the effect); an answer that awaits a promise another answer
-  started is refused as "pending on nothing", so caches share resolved values only
-  (`readDetail` in `r6-pr-actions.ts`); data sources have no clock; the
-  macOS textarea maps `autocorrect="off"` to spelling correction only, so the Files
-  editor's text view takes the app's `t3-plain-text` hook, which turns AppKit's smart
-  quotes, dashes and text replacement off (`T3PanelsNative.swift`); the composer's text
-  view gets the same switch-off when it attaches (`T3ComposerEditor.swift`). A child
-  drawn outside its parent's frame takes no press natively, so a negative margin (the
-  model picker's `-ms-2.5`) is held inside a parent that reaches out by the same amount;
-  `pointer-events="none"` holds only on SVG, so overlay layers carry `inert=true`.
+  can be a line taller than its chips draw at narrow widths); an Exact answer replaced for new arguments drops its native replies (LLP 1016 D5;
+  a watched topic's re-ask no longer does since exact2 #183), so a cache that another answer could await
+  shares resolved values only (`readDetail` in `r6-pr-actions.ts`); data sources have no clock; every
+  editable textarea has `autocorrect="off"`, which keeps the typed bytes on macOS since
+  exact2 #111 (`text-entry.test.ts` checks it). Workarounds
+  for limits main has since fixed (hit testing, `pointer-events`, cursors, `position-area`,
+  key modifiers, `title`) are gone; `EXACT2-GAPS.md` lists what was removed and each open
+  item's state on the pin.
 - Needs a person: physical modifier chords, right-click menus, real pointer drags and
   hovers, macOS notification and screen-capture grants, provider installs and logins,
   GitHub writes.
@@ -299,12 +332,12 @@ names they read as props of the same names. Feature areas live in their own file
 event projection. `modules/apple/` is the native module; `apple/` holds the bake adapter
 and native tests. T3's MIT notice is retained in `LICENSE-T3`.
 
-Exact asks an answer again when a topic it watches changes, and an answer it lets go
-never receives its pending native replies. The snapshot read therefore tags its native
-requests (`r3-protocol-reader.ts`) and `T3ReadGate.swift` holds the topics that read
-watches until its last reply, replays them once, and asks again after a read that
-stopped mid-way. Each WebSocket RPC carries a trace id the transport lists while it is
-pending, so "Some requests are slow" counts only requests the server has not answered.
+Exact asks an answer again when a topic it watches changes. Since exact2 #183 a change
+that arrives while the snapshot read is in flight lets that read's reply land and then asks
+once more, so the topics go straight to Exact (the app's read gate is gone). An answer Exact
+replaces for new arguments still never receives its pending native replies, so each
+WebSocket RPC carries a trace id the transport lists while it is pending, and "Some requests
+are slow" counts only requests the server has not answered.
 The transport follows the reference's reconnect policy (jittered 1 s·2ⁿ⁺¹ ladder capped at
 five minutes, reset after 30 s connected; Retry, returning to the app and an offline report
 probe the live socket instead of replacing it) and resubscribes a failed stream on the same
@@ -312,7 +345,7 @@ session after 250 ms doubling to 30 s.
 
 ```sh
 bun test examples/t3-code
-bun node_modules/typescript/bin/tsc --noEmit --strict --target ES2020 --module ESNext --moduleResolution bundler --skipLibCheck --lib ES2020,DOM examples/t3-code/app.ts
+bun node_modules/typescript/bin/tsc --noEmit --strict --target ES2023 --module ESNext --moduleResolution bundler --skipLibCheck --lib ES2023,DOM examples/t3-code/app.ts
 cargo run -q -p contract -- build examples/t3-code/app.contract -o /tmp/t3-code.plan
 EXACT_APP_DIR="$PWD/examples/t3-code" cargo test -p t3-code-macos --lib   # with the Hermes env of the root setup
 ```
@@ -324,7 +357,7 @@ for an integrated check.
 The module AppKit/XCTest binaries under `macos/tests/<name>/` build with Exact's
 module facade, the app's generated data keys, every file in `modules/apple/` (the
 `composer`, `menus` and `r5-panels` tests define their own `exactModule`, so they leave
-out `T3Module.swift`) and the test directory's sources. Run from the repository root:
+out `T3Module.swift` and its `T3Module+<area>.swift` op files) and the test directory's sources. Run from the repository root:
 
 ```sh
 X=$(xcode-select -p); F="$X/Platforms/MacOSX.platform/Developer/Library/Frameworks"; L="$X/Platforms/MacOSX.platform/Developer/usr/lib"
@@ -333,12 +366,12 @@ T3_DK="$R" bun -e 'import { writeDataKeys } from "./host/apple/data-keys.mjs"; i
 for d in examples/t3-code/macos/tests/*/; do
   n=$(basename "$d"); O="$R/$n"; mkdir -p "$O"
   [ "$n" = timeline-keyboard ] && continue # Actual host regression; separate recipe below.
-  M=$(ls examples/t3-code/modules/apple/*.swift); case $n in composer|menus|r5-panels) M=$(echo "$M" | grep -v /T3Module.swift);; esac
+  M=$(ls examples/t3-code/modules/apple/*.swift); case $n in composer|menus|r5-panels) M=$(echo "$M" | grep -v /T3Module);; esac
   xcrun swiftc -swift-version 5 -module-name "T3$(echo $n | tr -d -)Tests" -F "$F" -I "$L" -L "$L" \
     -Xlinker -rpath -Xlinker "$F" -Xlinker -rpath -Xlinker "$L" \
     host/apple/modules/ExactNativeModule.swift "$R/ExactDataKeys.swift" $M "$d"*.swift -o "$O/$n-tests" || continue
   [ $n = snapshot ] && { rm -rf "$O/fixture"; mkdir -p "$O/fixture"; export T3_SNAPSHOT_TEST_ROOT="$O/fixture"; }
-  T3_COMPOSER_TEST_DIR="$O" T3_MENUS_TEST_DIR="$O" T3_MERMAID_TEST_DIR="$O" T3_PANELS_TEST_DIR="$O" "$O/$n-tests" $([ $n = mermaid ] && echo "$T3_SERVER")
+  T3_COMPOSER_TEST_DIR="$O" T3_MENUS_TEST_DIR="$O" T3_MERMAID_TEST_DIR="$O" T3_PANELS_TEST_DIR="$O" T3_TERMINAL_TEST_DIR="$O" "$O/$n-tests" $([ $n = mermaid ] && echo "$T3_SERVER")
 done
 ```
 
@@ -350,11 +383,14 @@ mkdir -p target/t3-tests
 xcrun swiftc -swift-version 5 -module-name ExactKit -I host/apple/Sources/CExact \
   $(rg --files host/apple/Sources/ExactKit -g '*.swift') \
   examples/t3-code/macos/tests/timeline-keyboard/main.swift \
-  -L target/aarch64-apple-darwin/apple-dev -lt3_code_macos -lc++ \
+  -L target/aarch64-apple-darwin/host-dev -lt3_code_macos -lc++ \
   -o target/t3-tests/timeline-keyboard-tests
 target/t3-tests/timeline-keyboard-tests
 ```
 
+`terminal` needs `bun examples/t3-code/terminal-host/build.mjs` first (it loads the page from
+`assets/`); `T3_TERMINAL_SCALE=1` adds the 1/4/11/44-view cost table, and
+`bun examples/t3-code/terminal-host/verify-vendor.mjs` checks the vendored binaries.
 `mermaid` needs `T3_SERVER` set to a running T3 server's origin (it loads that server's
 Mermaid build into an offscreen web view). The live transport tests skip unless
 `T3_TRANSPORT_PAIRING_FILE` points at a fresh disposable pairing JSON file and
@@ -362,6 +398,9 @@ Mermaid build into an offscreen web view). The live transport tests skip unless
 for the reconnect policy, stream retries and outdated-host updates. The SSH tests read
 a temporary home, never `~/.ssh`; the live tunnel test skips unless `T3_SSH_COMMAND`
 names an ssh test double, and agent runs of the app read hosts only from `T3_SSH_HOME`.
+`macos/tests/ssh/fake-ssh.sh` is that double (its header lists the variables): the password
+prompt tests run against it always, the live test when `T3_SSH_COMMAND` names it and
+`FAKE_SSH_REMOTE_HOME` holds a running server's `.t3/userdata/server-runtime.json`.
 `T3_MENUS_EVIDENCE` set to a directory also renders the quit pill in both appearances.
 **Check for Updates...** (under About and in Help) reads the bundle's receipt: a build
 without an update store (`deploy.store` is `"0"`) shows the reference's "Automatic

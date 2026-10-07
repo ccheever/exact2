@@ -722,3 +722,47 @@ fn rows_arriving_before_a_trailing_row_rearm_the_end() {
     send(&mut r, 992.);
     assert_eq!(hits(&r).1, 2.);
 }
+
+// @ref LLP 1010 — a list on a route its stack keeps covered (a deep link's
+// root under the screen it opened) asks for nothing until the route shows;
+// then the report its host is asked for offers the edge.
+#[test]
+fn a_list_on_a_covered_route_waits_for_it_to_show() {
+    let source = SOURCE
+        .replace(
+            "component App\n",
+            "routes nav\n  home \"/\"\n  post \"/post/:id\"\ncomponent App\n  derive current = top(nav)\n  action back\n    nav = back(nav)\n",
+        )
+        .replace(
+            "    list virtualized=true height=320 reachstart=onStart reachend=onEnd\n      each x in rows key=x\n        text `${x}` testId=`row-${x}` height=32\n",
+            "    main navigationKey=`${current.id}` navigationBack=\"back\"\n      each e in stack(nav) key=e.id\n        column navigationKey=`${e.id}`\n          when e.name == \"home\"\n            list virtualized=true height=320 reachstart=onStart reachend=onEnd\n              each x in rows key=x\n                text `${x}` testId=`row-${x}` height=32\n          when e.name == \"post\"\n            button id=\"back\" press=back\n              text \"Back\"\n",
+        );
+    let mut r = Runner::boot(
+        contract::compile(&source).unwrap(),
+        Rows::default(),
+        Kernel::with_monospace(),
+        Default::default(),
+        "/post/1",
+    )
+    .unwrap();
+    r.act("change", vec![Value::Number(0.), Value::Number(2.)])
+        .unwrap();
+    measure(&mut r, 0., 32.);
+    send(&mut r, 0.);
+    assert_eq!(hits(&r), (0., 0.), "a covered list asks for nothing");
+    let waits = |r: &Runner<Rows>| {
+        r.journal()
+            .filter(|l| l.contains("waits: its list is on a covered route"))
+            .count()
+    };
+    assert_eq!(waits(&r), 1, "journaled once while it waits");
+    let revision = r.collections()[0].revision;
+    r.act("back", vec![]).unwrap();
+    assert!(
+        r.collections()[0].revision > revision,
+        "its host is asked for a report"
+    );
+    measure(&mut r, 0., 32.);
+    send(&mut r, 0.);
+    assert_eq!(hits(&r), (1., 1.), "shown, the list is offered both edges");
+}

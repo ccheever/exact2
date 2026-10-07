@@ -10,6 +10,22 @@ guide's rules don't make obvious.
 
 ## Layout
 
+- **A numeric `height` transition jumps on macOS.** Apple's automatic height
+  ownership requires a border-box node with `interpolate-size="allow-keywords"`,
+  including numeric endpoints. Use both on the clipping parent, for example
+  `box-sizing="border-box" interpolate-size="allow-keywords" height=(open ? 280 : 0)
+  transition="height 400ms ease-out"`. A fixed-height child then retains its grid
+  while the parent animates. A standalone macOS probe measured 105.88 pt at 100 ms
+  and continuous reversal. (Terminal parity, framework height code identical to
+  `origin/main` `a72661fd4`, 2026-10-07; `host/apple/src/height.rs`.)
+
+- **A one-edge border draws a 3 px frame, or a closed panel stays 3 px tall.**
+  `border-style="solid"` enables every edge; unspecified widths retain CSS's
+  `medium` default. Set `border-width=0` before the intended edge, for example
+  `border-width=0 border-top-width=1 border-style="solid"`. The terminal drawer
+  measured 3 px when its declared height was zero, and its panes lost 6 px to
+  unintended side borders. (T3 Code macOS terminal parity, 2026-10-06.)
+
 - **A root with `min-height="100%"` and `overflow-y="auto"` does not scroll itself.**
   `min-height` lets the box grow with its in-flow content (CSS), so it has nothing to
   scroll and the document scrolls instead: on the web a screenshot shows only the first
@@ -146,7 +162,7 @@ guide's rules don't make obvious.
   needs) is a scroll container, and `touch-action` is resolved from the touched element
   up to its nearest scroll container (Pointer Events), so the grip's `none` is never
   consulted: where the page can scroll the browser takes a touch that starts on the
-  title, and nothing lifts or is logged. A mouse, or a finger on the grip's
+  title, and nothing lifts; the journal says `reorder: the browser took the touch contact on a grip to scroll before it lifted` and names the scroll container (LLP 1102 §3.17). A mouse, or a finger on the grip's
   padding, works. Driven at phone size on the web: the card stays; without the overflow,
   or with `touch-action="none"` (or `pointer-events="none"`) on the title, it moves. Fix:
   put `touch-action="none"` on that text too. (Authoring bench, LLP 1087, r32 and r33
@@ -155,12 +171,13 @@ guide's rules don't make obvious.
 - **A second card drag right after a drop does nothing.** A drag that starts before
   the last one's session ends is refused (LLP 1094 D8): the drop is held until its move
   shows (a second at most; [the agent guide](contract-for-agents.md#views-layout-and-interaction),
-  boards), then the card lands (about 250 ms on the web). No diagnostic names the
-  refusal, and the agent's `drag to` reply reads like a success. A board whose drop
+  boards). A new drag ends the landing that follows at once (LLP 1102 §3.18), so only
+  the hold refuses; the journal says `reorder: a drag refused: the last drop is held
+  until its move shows`, and the agent's `drag to` reply carries it as `note` (LLP 1102
+  §3.17). A board whose drop
   sends a mutation that `refreshes` its cards holds until storage answers, so a quick
   second drag is easy to lose (a person's, or a test's: two `drag to` steps in a row).
-  Fix: in a test or drive put `clock settle` between drags; it is needed even when the
-  move shows at once, since the landing still holds the session. Showing the move in
+  Fix: in a test or drive put `clock settle` between drags. Showing the move in
   the drop's own commit (the board in state the action writes, saved through the
   mutation) only removes the wait for storage, which shortens what a person meets. (Authoring bench, LLP
   1087, r26 and r29 t4-kanban, 2026-10-05.)
@@ -236,6 +253,17 @@ guide's rules don't make obvious.
   safe area. Fix: put `env(safe-area-inset-top)` on the route column, not on each
   authored header. (Signal Clone, build 5.)
 
+- **After a relaunch on iOS, a form opens with old values and ignores the fresh answer.**
+  While the data module is not ready, a native host (and the wasm web target) can make
+  the form's child from the resource's kept answer: a device-state reader's last small
+  answer for the same arguments. A child's states start once, so the fresh answer does
+  not reset them, and a write the resource did not hear about leaves that kept answer
+  old. The default web JS target keeps none, so a web run never shows it. Fixes: [the
+  agent guide](contract-for-agents.md#composition-and-lifetime), the form that edits a
+  saved record (refresh the resource after each write, or key the child by a string or
+  number from the answer). (Authoring bench, LLP 1087, ios19, ios22 and ios32
+  t7-wizard, 2026-10-05/06.)
+
 - **An empty date input can still show a date on iOS.** `input type="date" value=""`
   draws a date in the `UIDatePicker`, which has no empty state: today in a new picker,
   the last date in one whose value was cleared (`time` and `datetime-local` share the
@@ -245,6 +273,29 @@ guide's rules don't make obvious.
   2026-10-05.)
 
 ## Actions
+
+- **A token kept in an app data file.** Exact has a secret store, and it holds
+  strings, not only keys: grant `secret.keep <name>` and use
+  `store.set`/`store.get`/`store.forget` in an answer (the Keychain on Apple,
+  `localStorage` on the web; a Linux launch forgets it at exit for now). The
+  Signal clone kept its signal-cli bearer token in a plain config file because
+  `secret.keep` read like the P-256 key store of LLP 1069.005. (2026-10-06.)
+
+- **A superseded send's fetch rejects natively and completes on the web
+  build.** A newer `send x = command(…)` replaces the pending one; natively
+  (and in the web's wasm module realm) its `await fetch(…)` then rejects with
+  a `FetchError` of kind `Aborted` though the request may have been sent,
+  while on the web build (the JS target) the reply arrives and is dropped. Clear a busy flag or lock in a `finally`, and don't retry on
+  `Aborted` (it would send twice); declare the mutation `queue` when every
+  send's reply matters (LLP 1092). Until 2026-10-05 the continuation vanished
+  natively, which held the Signal clone's sends forever (build 35).
+
+- **`Date.now()` in a data module passes its Bun tests and fails on the
+  device.** Since 2026-10-05 the build refuses a direct use by file and line
+  (`Date.now()`, `new Date()`, `Math.random()`, timers); an alias still gets
+  past the build and throws on first use on every host but Bun. Take the time
+  from the call's arguments (the Contract's `wallTime.epochAtZero + now()`), as
+  every source already receives it. (Signal clone build 34, 2026-10-05.)
 
 - **A helper action does not see what its caller just assigned.** `sel = next`
   then `follow()`, with `follow` reading `sel`, would read the old `sel`: a call
@@ -261,6 +312,11 @@ guide's rules don't make obvious.
   is the data module's, and it is done only when its mutation answers; the reload
   ends the page first. Fix: navigate in the mutation's `then`, which runs once the
   write has answered. (Authoring bench, LLP 1087, a2-contacts and t2-todo, 2026-10-05.)
+
+- **Repeating with `pause` mutations.** A `then` cannot send its own mutation
+  (`analyze-then-self-send`), and two mutations whose `then`s send each other
+  are the same loop. To repeat while a condition holds, use a task with `when`
+  and `every`. See "Repeating while a condition holds" in the guide.
 
 ## Sound
 
@@ -326,7 +382,7 @@ guide's rules don't make obvious.
   the web (both targets) a text field is re-set only when what its binding reads
   changes, so an unchanged binding does not overwrite the edit. Fix: bind the field to draft state that `edit` always writes, and on commit
   (`change`, Enter, `blur`) write the accepted value or reset the draft to it, which
-  changes the bound value and redraws the field. (Authoring bench, LLP 1087, t2-todo:
+  changes the bound value and redraws the field; the guide's "Editing a value: the field's contract" has the recipe. (Authoring bench, LLP 1087, t2-todo:
   two builders, about 10 minutes each, 2026-10-04; t1-tip, a normalized count,
   2026-10-05.)
 
@@ -339,13 +395,6 @@ guide's rules don't make obvious.
   the answer. Fix: bind it to state the action writes at once (`terms = value`, then
   `send`), and seed that state from the saved record as a form does. (Authoring bench,
   LLP 1087, codex17 t7-wizard, 2026-10-05.)
-
-- **`autofocus` on a field an action shows does not focus it on the web.** The JS
-  target honours `autofocus` once, at boot; a field mounted later by an action keeps
-  the focus where it was (the pressed button). Fix: give the field an `id` and call
-  `focus("field")` (the `id`, not the `testId`) in the action that shows it. (LLP 1035.000 D9 says a node mounted later may autofocus, as
-  the wasm target does; the JS target's gap is in QUEUE.md.) (Authoring bench, LLP
-  1087, r27 t2-todo, 2026-10-05.)
 
 - **A test `drag` is a touch unless `mouse` is set.** `tap "chart" drag 20 0`
   is a finger (`pointerType` `touch`) on the web, so a `pointerup` that treats
@@ -429,6 +478,16 @@ guide's rules don't make obvious.
 
 ## Driving and testing
 
+- **Physical IME input differs in a macOS agent window.** `EXACT_AGENT=1`
+  launches a non-activating accessory app. Its window can be key and its textarea
+  AX-focused while another process remains the foreground application. In that
+  state, a terminal probe received the first Korean syllable as separate Jamo;
+  a fresh terminal in a normally launched, active app composed it correctly.
+  For physical keyboard acceptance, use the normal app and verify both
+  `NSApp.isActive` and the foreground PID before asking someone to type. A key
+  window or successful synthetic input alone is insufficient. Keep other test
+  windows hidden and name the visible app. (T3 terminal parity, 2026-10-07.)
+
 - **A test passes on the web and fails on iOS right after an input that saves.** An
   `expect` straight after `type` or `tap` reads what the input's mutation answered,
   but an input step only finishes the `then`s of answers already settled; it does not
@@ -437,6 +496,36 @@ guide's rules don't make obvious.
   the native reply is still pending. Fix: put `clock data` after the input, before the
   `expect` that reads what its reply sets.
   (Authoring bench, LLP 1087, ios23 t5-pomodoro, 2026-10-05; iOS round 6.)
+
+- **An `iframe` of `http://` from a named host loads under the agent and shows an
+  App Transport Security error in the macOS app.** `http://localtest.me:5173/` or
+  `http://example.com/` read "The resource could not be loaded because the App
+  Transport Security policy requires the use of a secure connection" in the `.app`
+  (an IP literal such as `http://127.0.0.1` loads). Cause: ATS reads the bundle's
+  `Info.plist`, and `agent macos` runs the bare executable, which has none. Fix: set
+  `host.macos.appTransportSecurity` (and `host.ios.…` for iOS) to
+  `{ "allowsArbitraryLoadsInWebContent": true }` in `app.json`; it relaxes web views
+  only. On iOS, the host's wrapper for a remote HTTP page also uses HTTP:
+  an HTTPS wrapper would still block that page as mixed content after the ATS
+  opt-in. The inner iframe keeps its sandbox and its authored dimensions.
+  To drive what a user sees on macOS, build with `bun exact.mjs mac --bundle` and set
+  `EXACT_MAC_BIN` to the `.app`'s `Contents/MacOS/ExactMac`; the driver then skips its
+  stale-build check, so rebuild the bundle before each drive. An app's own page
+  (`src="assets/…"`) is served at `http://exact.localhost`: its `http:`
+  sub-resources on loopback load, and one on a named host follows the same ATS
+  setting. A sub-resource that fails is logged (`exact: iframe assets/…: <url>
+  did not load (<reason>)`) (#135).
+  (Issue #106, 2026-10-06.)
+
+- **A focus ring never shows in an `agent macos` screenshot.** `type save key Tab`
+  moves the focus (`state` reads it in `focus.logical`), yet neither `screenshot`
+  nor `screenshot … window` shows AppKit's ring. Cause: the agent's app is an
+  accessory whose window is ordered front but never key, and AppKit draws a focus
+  ring only in the key window; nor can a script activate a dev build here (macOS
+  refuses `activate` from the background). Fix: read the focus from `state`, and
+  for the ring itself make the presenter's window an `NSPanel` with
+  `.nonactivatingPanel` in an XCTest (it becomes key without activating the app)
+  and read its pixels with `CGWindowListCreateImage`. (Issue #179, 2026-10-07.)
 
 - **A drive script kept in the app folder makes the build stale.** Editing
   `verify.mjs` beside `app.contract` made the driver refuse the next drive until
@@ -540,6 +629,18 @@ guide's rules don't make obvious.
   ([the human guide](contract-for-humans.md#writing-the-data-module) shows one).
   (LLP 1086 reading-list example, 2026-10-04.)
 
+- **An agent drive shows the app's defaults (a mock, an empty store) though
+  the app's files are there.** Cause: without `--storage <name>` every
+  `storage.fs` call in the data module throws "storage is unavailable in agent
+  mode…", and a module that catches a missing config file falls back silently
+  (the drive says so once on stderr, `note: a data source was refused storage`, on
+  every carrier: beside the op on the web, at the drive's end on a native one).
+  The installed app's own files are not the drive's: a named scratch store lives
+  apart (on iOS under `Library/Caches/exact/<app id>/agent/<name>/data`). Fix:
+  `--storage <name>`, and copy the files the drive needs (a config, a saved
+  store) into that folder first; `logs` shows the module's `console.log`.
+  (Signal clone, live transport, 2026-10-05.)
+
 - **A save that fails in the background is lost to the person.** An answer that
   saves unawaited has replied before the write fails, so no answer reports it;
   `logs` has `storage failed: …`, but the person sees nothing. Fix: keep the
@@ -560,6 +661,13 @@ guide's rules don't make obvious.
 
 ## Working on exact2 itself
 
+- **A bisect that shares another worktree's Cargo target directory builds
+  stale code.** `CARGO_TARGET_DIR` pointed at one worktree while checking out
+  older commits in another left generated enums (`PropId`, `Stdlib`) from the
+  wrong commit, and the build failed for no reason in either tree until a
+  full `cargo clean` (65 GiB). Give a bisect or a second worktree its own
+  target directory. (2026-10-06.)
+
 - **A platform feature looks missing, and you start building it.** Cause: the
   feature already exists under a name you did not search for. Haptics
   (`haptic()`, `press-haptic`) were proposed as a new gap after they had
@@ -568,6 +676,14 @@ guide's rules don't make obvious.
   <term> llp`). Name the LLP that lacks it when you report the gap. (Signal
   Clone, 2026-10-04.)
 
+- **`build.mjs --test --ios` never returns after the tests pass.** Cause:
+  `xcodebuild test` can sit for ten minutes or more after `Test Suite 'Selected
+  tests' passed` and its `Executed N tests` line, with or without your change
+  (seen on 2026-10-05 on an iPhone 17 Pro simulator, Xcode 27). Fix: run it in
+  the background with its log in a file, wait for the `Executed N tests …
+  seconds` line of the whole run, read the verdict from it, then kill the
+  `xcodebuild test` PID whose `-derivedDataPath` is under your own checkout.
+  `build.mjs` then reports `BUILD INTERRUPTED`, which is not a test failure.
 - **Conformance fails on apps you didn't touch.** Cause: `host/web-js/conform.mjs`
   compares against wasm dists under `--wasm-root` (default `/tmp/e3-wasm`, shared by
   every checkout), and without `--build` it uses whatever another checkout or an
@@ -603,3 +719,39 @@ guide's rules don't make obvious.
   Flush ranks before capture and disable actions for that flush, including
   mirror writes. A same-batch texture upload then sees the new front sibling.
   (LLP 1083.000, Astra 6 regression.)
+- **A sub-agent's half-written crate breaks every build in the worktree.**
+  Cause: a crate listed in the root `Cargo.toml`'s `members` is resolved by
+  every `cargo` command, so one that does not parse or compile yet stops
+  builds that never touch it (about ten minutes of the harness's build, LLP
+  1101.002 §0 P15). Fix: list it in `exclude` while it is written, which lets
+  `cargo build --manifest-path <it>/Cargo.toml` build it alone, and move it
+  to `members` once that passes.
+- **"I opened it in a terminal" is not "it is running".** `open -na
+  Ghostty.app --args -e …` can return success while the window reports "The
+  terminal failed to initialize". Before telling a person the app is up,
+  confirm its process (`pgrep -f <binary>`) and kill a failed window's
+  instance before retrying (LLP 1101.002 §0 P16).
+
+- **An external native app rebuilds on every unchanged direct Cargo invocation.**
+  Cargo treats a missing optional `assets`/`deck` input as perpetually dirty;
+  watching its parent recursively would also watch app-local build outputs.
+  Use the host builder (`bun exact.mjs windows` for a generated Windows game).
+  It recomputes `EXACT_ASSET_ROOTS` before each Cargo invocation; the bake watches
+  that inventory for first creation and existing roots for content changes.
+  Do not set this variable to a fixed hand-maintained list for direct Cargo.
+
+- **macOS helpers belong in a native resource tree, not `assets/`.** Assets are
+  baked update bytes with portable names and capture limits. To ship a helper
+  and its package tree, keep them in `server/` beside `app.json` and declare
+  `"host": { "macos": { "resources": [{ "from": "server", "to": "Resources/server" }] } }`.
+  `bun exact.mjs mac --bundle` copies the tree to `Contents/Resources/server`.
+  Executable modes, spaces, `@scope` names and relative links within the tree
+  survive; files above 64 MiB are allowed. Source and asset roots cannot be
+  used as native resource roots. Links must resolve inside the declared tree.
+  The tree is excluded from TypeScript capture and web assets. Its files,
+  modes and link targets are binary inputs, so changes require a new binary.
+  Snapshot-based delivery captures this tree, including ignored dependencies;
+  use `--dirty` when those files differ from the committed source. Mach-O helpers and libraries are signed in
+  the bundle, which changes their signature bytes; other files stay identical.
+  `exact release` signs these files with the release identity before sealing
+  the outer bundle. This field is macOS-only. (Issue #103, 2026-10-07.)

@@ -47,20 +47,20 @@ Scheduling preference (not a prerequisite): after `20261005-main-fix-adoption` (
 | --- | --- | --- | --- | --- |
 | merged task PR | [20261005-clone-on-exact2-main](20261005-clone-on-exact2-main.md) | pending | Merged | pending |
 | merged task PR | [20261005-desktop-oracle-and-trace](20261005-desktop-oracle-and-trace.md) | pending | Merged | pending |
-| merged task PR | [20261005-hot-file-split](20261005-hot-file-split.md) | pending | Merged (area files and registration points exist) | pending |
+| merged task PR | [20261005-hot-file-split](closed/20261005-hot-file-split.md) | pending | Merged (area files and registration points exist) | pending |
 | merged task PR | [20261005-provider-sign-in-and-install](20261005-provider-sign-in-and-install.md) | pending | Merged (streams, open-URL op, setup fixture, `RedactedText`) | pending |
 | recorded decision | Plan decision U2 / U23 (apparatus): the provider-setup fixture `target/t3-ui-parity/provider-setup-fixture.mjs` introduced by `20261005-provider-sign-in-and-install` is reused | none | Approved there | pending |
 | recorded decision | A real ChatGPT test account and an isolated server for the attended session | none | User provides at `prepare` | pending |
 
 ## Issue assessment at preparation
 
-Checked sources and time: plan `issues/` drafts read 2026-10-05; no upstream search (no network). Records: [X21](../issues/20261005-x21-two-way-websocket.md), [X9](../issues/20261005-x09-root-component-across-files.md), [X14](../issues/20261005-x14-parked-native-reply.md), [X6](../issues/20261005-x06-module-quit-shutdown.md), [X5](../issues/20261005-x05-url-scheme-delivery.md), [X11](../issues/20261005-x11-shadow-blur-parity.md), [X35](../issues/20261005-x35-secure-text-entry.md).
+Checked sources and time: plan `issues/` drafts read 2026-10-05; no upstream search (no network). Records: [X21](../issues/20261005-x21-two-way-websocket.md), [X9](../issues/20261005-x09-root-component-across-files.md), [X14](../issues/closed/20261005-x14-parked-native-reply.md), [X6](../issues/20261005-x06-module-quit-shutdown.md), [X5](../issues/20261005-x05-url-scheme-delivery.md), [X11](../issues/20261005-x11-shadow-blur-parity.md), [X35](../issues/closed/20261005-x35-secure-text-entry.md).
 
 | Issue / reference | Capability and target | Evidence / affected revision | Impact | Next action |
 | --- | --- | --- | --- | --- |
 | X21 | Server RPC and streams | Existing Swift transport; handoff stream is the first stream that must not resubscribe on `_retryDue` | nonblocking (workaround: existing transport + TypeScript decides) | Test: no replay of `provider.chatgpt.handoff.subscribe` after a stream error |
-| X35 | Secure (password) text entry in Contract | The paste-redirect field is `type="password"` in the reference (`CodexSetupSection.tsx:674-676`) | nonblocking (workaround: the existing `type="password"` input, `providers-wizard.contract:333`) | Check at `prepare` |
-| X14 | Parked native reply | A long `later` reply can be lost if its answer is let go | unknown until `clone-on-exact2-main` decides | Use start / take; do not rely on a parked reply |
+| X35 | Secure (password) text entry in Contract | The paste-redirect field is `type="password"` in the reference (`CodexSetupSection.tsx:674-676`) | nonblocking (workaround: the existing `type="password"` input, `providers-wizard.contract:333`) | Check at `prepare` 2026-10-07: #134 closed by main #167: a Contract password field's value is masked in `tree`, `layout` and the `type` reply, and `autocomplete` sets its content type; the app's state and data module stay outside that (adopt-main-fixes-input). |
+| X14 | Parked native reply | A long `later` reply can be lost if its answer is let go | resolved for a watched topic's re-ask (#109, main #183, adopted 2026-10-07 by adopt-main-fixes-r3); a re-ask for new arguments still drops the reply | Use start / take; do not rely on a parked reply across an argument change |
 | X6 | Module hook at quit | Listener lives at most 300 s; process exit closes the socket | nonblocking | none |
 | X5 | URL scheme delivery | Not used | not applicable | none |
 | X9 | Root cap | `app.contract` 1,327 and `client.ts` 1,455 of 1,500 lines | nonblocking until the cap | Put flow state in a TypeScript module and child-component drafts; one dispatch line in `client.ts` |
@@ -102,6 +102,8 @@ Required environment: Xcode 27.0, pinned Bun and Hermes, oracle build, isolated 
 
 ## Progress
 
+2026-10-06: on hold (user decision: tasks that need a sign-in waited). 2026-10-07: the user lifted the hold. Rows that need a real account are signed in by the user in person on the lane build; every other sign-in row uses lane fixtures.
+
 Planned. No branch.
 
 ## Attempts and evidence
@@ -112,4 +114,4 @@ Planned. No branch.
 
 ## Next action
 
-`prepare` after `20261005-provider-sign-in-and-install` merges; `implement` starts with the receiver and its AppKit binary.
+`prepare` from `feat(example)/t3-code` once the prerequisite task PRs above have merged into it; sign-in rows use lane fixtures, and real-account rows wait for the user to sign in.

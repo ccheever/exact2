@@ -384,6 +384,9 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "ratechange" => AttrTarget::Handler("ratechange"),
         "volumechange" => AttrTarget::Handler("volumechange"),
         "error" => AttrTarget::Handler("error"),
+        // A `video` entered or left full screen (`requestFullscreen`, the
+        // platform's own controls); the payload says which.
+        "fullscreenchange" => AttrTarget::Handler("fullscreenchange"),
         "canplay" => AttrTarget::Handler("canplay"),
         // @ref LLP 1098 D1, D2 — the media session: `metadata=` claims it,
         // the six actions by `setActionHandler`'s names, and the seconds a
@@ -529,6 +532,7 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "focusGuide" => AttrTarget::Prop(p("focusGuide")),
         "swipeIndicator" => AttrTarget::Prop(p("swipeIndicator")),
         "aria-live" => AttrTarget::Prop(p("accessibilityLive")),
+        "aria-busy" => AttrTarget::Prop(p("accessibilityBusy")),
         "autofocus" => AttrTarget::Prop(p("autofocus")),
         "action" => AttrTarget::Prop(p("action")),
         "aria-label" => AttrTarget::Prop(p("accessibilityLabel")),
@@ -545,6 +549,7 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         // property's spelling, as the schema does for every prop.
         "inputmode" => AttrTarget::Prop(p("inputMode")),
         "enterkeyhint" => AttrTarget::Prop(p("enterKeyHint")),
+        "autocomplete" => AttrTarget::Prop(p("autocomplete")),
         // An image's accessible name by HTML's spelling (feed F1).
         "alt" => AttrTarget::Prop(p("accessibilityLabel")),
         "autocapitalize" => AttrTarget::Prop(p("autocapitalize")),
@@ -554,6 +559,9 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         // (LLP 1008 §9): the layout viewport becomes the whole screen and
         // `env(safe-area-inset-*)` lengths carry the insets.
         "viewport-fit" => AttrTarget::Prop(p("viewportFit")),
+        // The status bar's text over this node's screen, from state (LLP 1105).
+        "status-bar-style" => AttrTarget::Prop(p("statusBarStyle")),
+        "status-bar-animation" => AttrTarget::Prop(p("statusBarAnimation")),
         // The viewport meta's `interactive-widget`, read from the first root
         // (LLP 1008 §9): `resizes-content` shrinks the layout viewport to a
         // software keyboard's top, so what is pinned to the bottom rises with
@@ -933,6 +941,8 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "drag-timeline" => styles(&[StyleId::DragTimeline]),
         "animation-timeline" => styles(&[StyleId::AnimationTimeline]),
         "animation-range" => styles(&[StyleId::AnimationRange]),
+        // @ref LLP 1055 D13 — when a list row's animations start.
+        "animation-trigger" => styles(&[StyleId::AnimationTrigger]),
         // @ref LLP 1057.003 D4 — CSS `timeline-scope`.
         "timeline-scope" => styles(&[StyleId::TimelineScope]),
         "display" => styles(&[StyleId::Display]),
@@ -1050,6 +1060,7 @@ pub fn renamed(old: &str) -> Option<&'static str> {
         "dragTimeline" => "drag-timeline",
         "animationTimeline" => "animation-timeline",
         "animationRange" => "animation-range",
+        "animationTrigger" => "animation-trigger",
         "timelineScope" => "timeline-scope",
         "transformOrigin" => "transform-origin",
         "align" | "alignItems" => "align-items",
@@ -1067,7 +1078,9 @@ pub fn renamed(old: &str) -> Option<&'static str> {
         "headingLevel" => "aria-level",
         "inputMode" | "keyboardType" => "inputmode",
         "enterKeyHint" | "returnKeyType" => "enterkeyhint",
+        "autoComplete" | "textContentType" | "autoCompleteType" => "autocomplete",
         "viewportFit" | "safeArea" | "safeAreaView" => "viewport-fit",
+        "statusBarStyle" | "barStyle" | "StatusBar" => "status-bar-style",
         "interactiveWidget" | "keyboardAvoidingView" | "keyboardAvoiding" => "interactive-widget",
         "secureTextEntry" => "type",
         "onClick" | "onPress" => "press",

@@ -488,6 +488,66 @@ fn a_held_drop_waits_ignores_escape_then_lands_when_the_answer_shows() {
 }
 
 #[test]
+fn a_new_lift_waits_out_a_hold_but_ends_a_landing() {
+    // LLP 1102 §3.18: D8's hold refuses a second drag; the landing after it does not.
+    let mut p = board();
+    let c = p
+        .host
+        .kernel()
+        .node_by_key(p.host.kernel().find_by_test_id("list-c")[0])
+        .unwrap()
+        .id;
+    let r = p.rect_of(c).unwrap();
+    let board = p
+        .host
+        .kernel()
+        .node_by_key(p.host.kernel().find_by_test_id("board")[0])
+        .unwrap()
+        .id;
+    p.scroll.insert(board, (100., 0.));
+    p.publish_scroll();
+    p.frame();
+    let r = (r.0 - 100., r.1, r.2, r.3);
+    carry(&mut p, "b1", (r.0 + 30., r.1 + 20.), 0.);
+    assert!(p.pointer_up(r.0 + 30., r.1 + 20., 30.).unwrap());
+    assert_eq!(phase(&p), Some(exact_runner::ReorderPhase::Holding));
+    let first = p.group.as_ref().unwrap().token;
+    // While the drop holds, a press on another grip lifts nothing.
+    let (x, y) = centre(&mut p, "grip-a1");
+    p.pointer_down(x, y, 40.).unwrap();
+    p.pointer_move(x + 12., y, 50.).unwrap();
+    assert_eq!(
+        p.group.as_ref().map(|s| s.token),
+        Some(first),
+        "the hold refuses"
+    );
+    assert!(
+        p.host
+            .runner()
+            .journal()
+            .any(|l| l.contains("reorder: a drag refused: the last drop is held")),
+        "and says so (LLP 1102 §3.17)"
+    );
+    p.pointer_up(x + 12., y, 60.).unwrap();
+    // The board's timer answers at 200 ms: the move shows and the ghost lands.
+    p.clock(200.);
+    assert!(p.brush.lift.ghost.is_some(), "the ghost is springing home");
+    // A new lift now ends that landing and begins its own session.
+    let (x, y) = centre(&mut p, "grip-a1");
+    p.pointer_down(x, y, 210.).unwrap();
+    p.pointer_move(x + 12., y, 220.).unwrap();
+    let second = p.group.as_ref().map(|s| s.token);
+    assert!(
+        second.is_some() && second != Some(first),
+        "a new session: {second:?}"
+    );
+    assert!(
+        p.host.runner().reorder_frame(first).is_none(),
+        "the first finished"
+    );
+}
+
+#[test]
 fn a_hold_that_never_answers_times_out_and_the_ghost_returns_home() {
     let mut p = board();
     p.tap(

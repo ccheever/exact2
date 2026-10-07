@@ -44,21 +44,21 @@ Scheduling preference (not a prerequisite): after `20261005-main-fix-adoption` (
 | --- | --- | --- | --- | --- |
 | merged task PR | [20261005-clone-on-exact2-main](20261005-clone-on-exact2-main.md) | pending | Merged | pending |
 | merged task PR | [20261005-desktop-oracle-and-trace](20261005-desktop-oracle-and-trace.md) | pending | Merged | pending |
-| merged task PR | [20261005-hot-file-split](20261005-hot-file-split.md) | pending | Merged (area files and registration points exist) | pending |
+| merged task PR | [20261005-hot-file-split](closed/20261005-hot-file-split.md) | pending | Merged (area files and registration points exist) | pending |
 | merged task PR | [20261005-provider-sign-in-and-install](20261005-provider-sign-in-and-install.md) | pending | Merged (editor mounting, fixture, open-URL op) | pending |
 
 ## Issue assessment at preparation
 
-Checked sources and time: plan `issues/` drafts read 2026-10-05; no upstream search (no network). Records: [X17](../issues/20261005-x17-popover-position-try.md), [X9](../issues/20261005-x09-root-component-across-files.md), [X21](../issues/20261005-x21-two-way-websocket.md), [X10](../issues/20261005-x10-text-rendering-parity.md), [X13](../issues/20261005-x13-hover-keys-during-pan.md), [X35](../issues/20261005-x35-secure-text-entry.md), [X44](../issues/20261005-x44-remote-image-policy.md).
+Checked sources and time: plan `issues/` drafts read 2026-10-05; no upstream search (no network). Records: [X17](../issues/20261005-x17-popover-position-try.md), [X9](../issues/20261005-x09-root-component-across-files.md), [X21](../issues/20261005-x21-two-way-websocket.md), [X10](../issues/20261005-x10-text-rendering-parity.md), [X13](../issues/20261005-x13-hover-keys-during-pan.md), [X35](../issues/closed/20261005-x35-secure-text-entry.md), [X44](../issues/20261005-x44-remote-image-policy.md).
 
 | Issue / reference | Capability and target | Evidence / affected revision | Impact | Next action |
 | --- | --- | --- | --- | --- |
 | X17 | Popover `align="end"` / side areas | Reference popover is `side="bottom" align="end"`; main places popovers above or below the invoker | nonblocking (workaround: anchor below, align as available; declare the difference) | Measure at `prepare` |
 | X9 | Root cap | `app.contract` 1,327 and `client.ts` 1,455 of 1,500 lines | nonblocking until the cap | Extend `providerPage`; editor drafts in child components; no new resource |
 | X21 | RPC from a data module | Existing Swift transport | nonblocking | none |
-| X35 | Secure (password) text entry in Contract | The Agent providers headers field is a write-only `type="password"` input in the reference (`AcpSessionManagementSection.tsx:551-559`) | nonblocking (workaround: the existing `type="password"` input, `providers-wizard.contract:333`) | Check at `prepare` |
+| X35 | Secure (password) text entry in Contract | The Agent providers headers field is a write-only `type="password"` input in the reference (`AcpSessionManagementSection.tsx:551-559`) | nonblocking (workaround: the existing `type="password"` input, `providers-wizard.contract:333`) | Check at `prepare` 2026-10-07: #134 closed by main #167: a Contract password field's value is masked in `tree`, `layout` and the `type` reply, and `autocomplete` sets its content type; the app's state and data module stay outside that (adopt-main-fixes-input). |
 | X10, X13 | Text truncation; hover during a pan | Row text, popover trigger tooltip | nonblocking | Cite in the pixel matrix |
-| [X44](../issues/20261005-x44-remote-image-policy.md) | Remote `image` loading policy (no credentials, no redirects, size cap, persistent cache, load state, remote SVG) | Reference `AcpRegistryIcon.tsx:7-70,128-136`, `acpRegistry.ts:13-44` | nonblocking (same icon shows in the happy path; policy differences declared) | Check what `image` does at `prepare`; apply the X44 adoption steps when it lands |
+| [X44](../issues/20261005-x44-remote-image-policy.md) | Remote `image` loading policy (no credentials, no redirects, size cap, persistent cache, load state, remote SVG) | Reference `AcpRegistryIcon.tsx:7-70,128-136`, `acpRegistry.ts:13-44` | nonblocking (same icon shows in the happy path; policy differences declared) | Check what `image` does at `prepare`; apply the X44 adoption steps when it lands Update 2026-10-07 (record only; task on hold): main #177 adds `load`/`error` on `image` and documents the fetch (no cookie, no Referer, redirects followed, 64 MiB cap, disk cache); an SVG icon is still an `error` on Apple, so AcpRegistryIcon's SVG icons need the `error` fallback when this task resumes. |
 
 ## Implementation notes
 
@@ -91,6 +91,8 @@ Required environment: Xcode 27.0, pinned Bun and Hermes, oracle build, isolated 
 
 ## Progress
 
+2026-10-06: on hold (user decision: tasks that need a sign-in waited). 2026-10-07: the user lifted the hold. Rows that need a real account are signed in by the user in person on the lane build; every other sign-in row uses lane fixtures.
+
 Planned. No branch.
 
 ## Attempts and evidence
@@ -101,4 +103,4 @@ Planned. No branch.
 
 ## Next action
 
-`prepare` after `20261005-provider-sign-in-and-install` merges; confirm the per-environment config read and the image policy first.
+`prepare` from `feat(example)/t3-code` once the prerequisite task PRs above have merged into it; sign-in rows use lane fixtures, and real-account rows wait for the user to sign in.

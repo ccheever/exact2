@@ -14,6 +14,8 @@ final class Presenter {
     static let signposts = OSSignposter(subsystem: "com.exact.host", category: "scroll")
 
     var autofocusProcessed: Set<ObjectIdentifier> = []
+    /// Set the turn after the session's first activation. A booted session's autofocus waits for it.
+    var launchAutofocusReleased = false
     private var projectionSyncOwed = false
     /// What the native projections show changed outside a batch (a subtree's
     /// appearance or size traits, geometry a sheet replayed after the batch).
@@ -60,6 +62,8 @@ final class Presenter {
     func takeChangedNames() -> Set<String> { chrome.takeChangedNames() }
     var scrollers: Set<UInt32> = []
     var pendingScrolls: Set<UInt32> = []
+    /// The batch's suppression triggers for scroll anchoring (`ScrollAnchoring.swift`).
+    var anchorChanges = ScrollAnchoring.Changes()
     var materialNodes: Set<UInt32> = []
     let glassGroups = GlassGroups()
     var contextNodes: Set<UInt32> = []
@@ -101,6 +105,7 @@ final class Presenter {
     #if os(tvOS)
     lazy var menuKey = MenuKey(presenter: self)
     lazy var focusGuides = FocusGuides(presenter: self)
+    lazy var playPauseKey = PlayPauseKey(presenter: self)
     /// The `testId` of the node that last held the remote's focus.
     var focusKey: String?
     #endif
@@ -727,6 +732,7 @@ final class Presenter {
         prepareContexts(batch)
         modals.prepare(batch)
         navigation.prepare(batch)
+        anchorChanges.reset()
         for id in scrollers where !collections.owns(id) { views[id]?.captureScrollPosition() }
         if let e = batch.error { FileHandle.standardError.write(Data("exact: \(e)\n".utf8)) }
         if let text = session?.text {
@@ -758,12 +764,16 @@ final class Presenter {
                 for (id, f) in q where id.map({ textHost($0) != nil }) ?? true { f() }
                 scrollPump.batchApplied()
                 leaves.batchApplied(moved: moved)
+                #if os(iOS)
+                resolveStatusBar()
+                #endif
                 if moved { session?.natives.refreshWorldGeometry() }
                 flushPendingFocus()
             }
         }
         var beganGeometry = false
         var touchedIDs: [UInt32] = []
+        let rowsOnly = onlyListRows(batch)
         for op in batch.ops {
             let kind = op.op
             switch kind {
@@ -839,8 +849,9 @@ final class Presenter {
             case .style:
                 if flats.isFlat(id), flats.style(id, op) { continue }
                 guard let v = views[id] ?? leaving[id]?.view else { continue }
-                let color = v.style["text_color"]
+                let color = v.style["text_color"], old = v.style
                 v.applyStyle(op.style)
+                anchorChanges.note(id, from: old, to: v.style)
                 flats.styleChanged(id)
                 if v.surface != nil { v.applySurface() }
                 // Paint motion re-sends a style per frame (LLP 1055.000 D6):
@@ -950,10 +961,13 @@ final class Presenter {
         }
         pendingScrolls = pendingScrolls.filter { views[$0]?.pendingScrollTop != nil || views[$0]?.pendingScrollLeft != nil }
         if !flights.isEmpty { flightsBatchApplied() }
-        navigation.sync(batch)
+        // A batch that only builds, moves or drops a list's rows changes no
+        // route, header or bar: the projection would come out the same.
+        if !rowsOnly || navigation.syncOwed { navigation.sync(batch) }
         #if os(tvOS)
         menuKey.sync()
         focusGuides.sync()
+        playPauseKey.sync()
         #endif
         segments.sync()
         controls.sync(contents: batch.controls, touched: touchedIDs)
@@ -1263,6 +1277,12 @@ final class Presenter {
     /// scene; an embedded view never claims it.
     private(set) var title: String?
     var onTitle: ((String?) -> Void)?
+    #if os(iOS)
+    /// The status bar's resolved style (LLP 1105), and who is told of a change.
+    var statusBar = StatusBarChoice()
+    var onStatusBar: ((StatusBarChoice) -> Void)?
+    var statusBarNoted = Set<String>()
+    #endif
     func headTitle(_ title: String?) {
         guard title != self.title else { return }
         self.title = title

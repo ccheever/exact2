@@ -305,7 +305,10 @@ impl RegionState {
         // Split waits nonfatally when external A+B still own both tokens: no C
         // facts/request/geometry, but shell and retained selection still publish.
         let next_accepted = if admitted && !already_current && self.pending.is_none() {
-            self.advance(arena, origin, offer, inputs)?
+            // Height-free facts are SplitFacts': the default profile keeps
+            // one retained artifact per exact offer.
+            let height_free = self.profile == RegionProfile::SplitFacts && measurer.height_free();
+            self.advance(arena, origin, offer, inputs, height_free)?
         } else {
             None
         };
@@ -389,6 +392,7 @@ impl RegionState {
         origin: Frame,
         offer: Offer,
         inputs: RegionInputs,
+        height_free: bool,
     ) -> Result<Option<Rc<RegionPublication>>, LayoutError> {
         let b = self.binding;
         let ticket = self.ticket.as_ref().expect("admitted ticket").clone();
@@ -401,14 +405,17 @@ impl RegionState {
                 true,
             )?;
             candidate.constrain_owner(arena, b.owner.index, origin);
+            let facts = Arc::get_mut(&mut self.facts).expect("unpublished candidate facts");
+            facts.height_free = height_free;
             let mut latch = Candidate {
                 ticket: ticket.clone(),
                 profile: self.profile,
                 lease: self.lease.clone(),
                 ready: &mut self.ready,
-                facts: Arc::get_mut(&mut self.facts).expect("unpublished candidate facts"),
+                facts,
                 accepted: self.accepted.as_deref(),
                 catalog: inputs.catalog,
+                height_free,
                 missing: None,
                 refused: None,
             };
@@ -480,9 +487,15 @@ impl RegionState {
                 let source = self.facts.sources[fact.source as usize].clone();
                 self.pending = Some(RegionTextRequest(Arc::new(RequestData {
                     ticket,
+                    // A final owner paints at its width under a max-content
+                    // height (`paint_offers`); a height-free fact may have
+                    // been measured under another height.
                     key: TextKey {
                         stamp: source.stamp.clone(),
-                        offer: fact.offer,
+                        offer: Offer {
+                            width: fact.offer.width,
+                            height: crate::AxisOffer::MaxContent,
+                        },
                     },
                     catalog: inputs.catalog,
                     source,
@@ -519,6 +532,8 @@ struct Candidate<'a> {
     facts: &'a mut FactSet,
     accepted: Option<&'a RegionPublication>,
     catalog: u64,
+    /// The installed measurer's `height_free`: facts answer every height at a width.
+    height_free: bool,
     missing: Option<RegionTextRequest>,
     refused: Option<&'static str>,
 }
@@ -532,6 +547,9 @@ impl Candidate<'_> {
     }
 }
 impl TextMeasurer for Candidate<'_> {
+    fn height_free(&self) -> bool {
+        self.height_free
+    }
     fn measure(&mut self, _: &TextMeasureRequest<'_>) -> TextMetrics {
         self.refused = Some("exact-offer/source budget exhausted");
         TextMetrics::default()
@@ -670,6 +688,25 @@ fn members(arena: &NodeArena, key: NodeKey) -> Result<IdSet<NodeKey>, LayoutErro
     }
     Ok(result)
 }
+/// Whether an absolutely positioned box is under `owner`: each branch walked
+/// on its own, to the region's node limit (`members`); a branch past it is
+/// taken to hold one, and nothing past it is copied.
+fn holds_absolute(arena: &NodeArena, owner: u32) -> bool {
+    arena.children(owner).iter().any(|&branch| {
+        let (mut stack, mut seen) = (vec![branch], 0);
+        while let Some(s) = stack.pop() {
+            seen += 1;
+            let children = arena.children(s);
+            if arena.style(s).position_type == crate::PositionType::Absolute
+                || seen + stack.len() + children.len() > REGION_NODES
+            {
+                return true;
+            }
+            stack.extend_from_slice(children);
+        }
+        false
+    })
+}
 fn validate(arena: &NodeArena, b: ContentRegion) -> Result<(), LayoutError> {
     let bad = || {
         LayoutError::ContentRegion(
@@ -736,9 +773,11 @@ fn validate(arena: &NodeArena, b: ContentRegion) -> Result<(), LayoutError> {
     }
     // @ref LLP 1074 T1 — a trial lays the owner out as the top of its own tree,
     // where it contains every absolutely positioned descendant; the ordinary
-    // tree agrees only if the owner is positioned there too. (The compiler
-    // positions a clipping box, which the owner is.)
-    if s.position_type == crate::PositionType::Static {
+    // tree agrees only if the owner is positioned there too, or nothing
+    // absolute is under it. The compiler positions a clipping box only when
+    // something absolute can be under it (487f14493), so a static owner holds
+    // none; one that does is refused, at registration and at each commit.
+    if s.position_type == crate::PositionType::Static && holds_absolute(arena, b.owner.index) {
         return Err(bad());
     }
     // Deliberately narrow certificate: percentages only under a direct root.

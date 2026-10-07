@@ -1,0 +1,79 @@
+{
+  "recordedRootPids": [
+    91959,
+    1754,
+    40951,
+    50497,
+    91922
+  ],
+  "recordedDescendants": [
+    {
+      "pid": 1754,
+      "parent": 1,
+      "executable": "/opt/homebrew/bin/node"
+    },
+    {
+      "pid": 2758,
+      "parent": 1754,
+      "executable": "/opt/homebrew/bin/node"
+    },
+    {
+      "pid": 40951,
+      "parent": 1,
+      "executable": "/opt/homebrew/bin/node"
+    },
+    {
+      "pid": 50497,
+      "parent": 1,
+      "executable": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code-remote-scopes-and-update-commands/target/rsu-complete/reference/node_modules/.pnpm/electron@44.4.2/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"
+    },
+    {
+      "pid": 50568,
+      "parent": 50497,
+      "executable": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code-remote-scopes-and-update-commands/target/rsu-complete/reference/node_modules/.pnpm/electron@44.4.2/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+    },
+    {
+      "pid": 50569,
+      "parent": 50497,
+      "executable": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code-remote-scopes-and-update-commands/target/rsu-complete/reference/node_modules/.pnpm/electron@44.4.2/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+    },
+    {
+      "pid": 50601,
+      "parent": 50497,
+      "executable": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code-remote-scopes-and-update-commands/target/rsu-complete/reference/node_modules/.pnpm/electron@44.4.2/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper (Renderer).app/Contents/MacOS/Electron Helper (Renderer)"
+    },
+    {
+      "pid": 50602,
+      "parent": 50497,
+      "executable": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code-remote-scopes-and-update-commands/target/rsu-complete/reference/node_modules/.pnpm/electron@44.4.2/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"
+    },
+    {
+      "pid": 91922,
+      "parent": 53551,
+      "executable": "/Users/daehyeonmun/.bun-1.4.2/bin/bun"
+    },
+    {
+      "pid": 91959,
+      "parent": 1,
+      "executable": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code-remote-scopes-and-update-commands/target/rsu-unlocked/T3 Scope Review.app/Contents/MacOS/ExactMac"
+    }
+  ],
+  "keychainFixtures": [
+    {
+      "origin": "http://127.0.0.1:16140",
+      "deleteExit": 0,
+      "absent": true
+    },
+    {
+      "origin": "http://127.0.0.1:16158",
+      "deleteExit": 0,
+      "absent": true
+    }
+  ],
+  "fixtureDefaultsDeleteExit": 0,
+  "realT3DirectoryMtimeUnchanged": true,
+  "pidsStillPresent": [],
+  "forcedStop": [
+    1754
+  ]
+}

@@ -16,6 +16,10 @@ use CnSeparator from "./settings-b-kit.contract"
 use CnTooltip from "./settings-b-kit.contract"
 use CnFolded from "./settings-b-kit.contract"
 use CnSelect from "./settings-b-kit.contract"
+use EnvRoute from "./connections-routes.contract" // lane environment-routes
+use RouteCount from "./connections-routes.contract"
+use RouteMenuItem from "./connections-routes.contract"
+use EnvironmentRoutes from "./connections-routes.contract"
 
 // animate-status-pulse: full, then half opacity in six steps.
 keyframes cnStatusPulse
@@ -48,6 +52,8 @@ shape SavedEnvironment
   traceId: string
   update: string
   updateVersion: string
+  // ServerUpdateAction: a desktop-managed server without remote app updates shows this sentence, no button.
+  updateNote: string
   // 22e9d35613: an outdated, self-updating host's "Update"/"Retry update", and the update's progress line.
   outdatedAction: string
   outdatedFrom: string
@@ -55,6 +61,10 @@ shape SavedEnvironment
   progressFailed: string
   iconLock: string
   icons: list<EnvIconChoice>
+  // Lane environment-routes: "Routes" / "N routes", the list's label and its rows.
+  routeCount: string
+  routesLabel: string
+  routes: list<EnvRoute>
 shape BalanceMachine
   key: string
   first: bool
@@ -107,6 +117,8 @@ component ConnectionsPanel
     remove: action
     menu: string
     toggleMenu: action
+    addRoute: action
+    still: bool
   state loadOpen = false
   state githubOpen = false
   action toggleLoad
@@ -115,51 +127,51 @@ component ConnectionsPanel
     githubOpen = not githubOpen
   derive rowWide = width - 34 >= 512
   view
-    column width="100%" gap=32 testId="connections-settings"
-      column width="100%" gap=10
+    column width="100%" gap="2rem" testId="connections-settings"
+      column width="100%" gap="0.625rem"
         PvSectionTitle(title="This machine")
         PvGroup()
           PvRow(title="Administrative access", description="Pairing links and client-session management require the access:write scope for this backend.", status="", wide=rowWide, divided=false)
-      column width="100%" gap=10
+      column width="100%" gap="0.625rem"
         PvSectionTitle(title="Environments")
-          row gap=4 align-items="center"
+          row gap="0.25rem" align-items="center"
             when page.updateCount > 0
               button press=op("environment-update-all", "", "") class=PvGhost disabled=busy testId="environments-update-all"
-                text "Update all" font-size=12 line-height="16px" font-weight=500 color="light-dark(#71717b, #818181)"
+                text "Update all" font-size="0.75rem" line-height="1rem" font-weight=500 color="light-dark(#71717b, #818181)"
             button press=add class=PvGhost aria-label="Add environment" disabled=busy id="manage-connection" testId="manage-connection"
               PvIcon(name="plus", size=12, color="light-dark(#71717b, #818181)")
-              text "Add environment" font-size=12 line-height="16px" font-weight=500 color="light-dark(#71717b, #818181)"
+              text "Add environment" font-size="0.75rem" line-height="1rem" font-weight=500 color="light-dark(#71717b, #818181)"
         PvGroupOpen()
           when length(page.environments) == 0
-            column width="100%" min-height=208 box-sizing="border-box" padding=48 gap=24 align-items="center" justify-content="center" testId="environments-empty"
-              box width=36 height=36 position="relative" margin-bottom=24
+            column width="100%" min-height="13rem" box-sizing="border-box" padding="3rem" gap="1.5rem" align-items="center" justify-content="center" testId="environments-empty"
+              box width="2.25rem" height="2.25rem" position="relative" margin-bottom="1.5rem"
                 // EmptyMedia variant="icon": two cards behind, scale-84 and rotated ±10° about their bottom corners
                 // (the host draws a box's rotate/translate/scale about its centre, so the corner origin is folded into translate).
-                box position="absolute" left=0 bottom=1 width=36 height=36 box-sizing="border-box" border-radius=8 border-style="solid" border-width=1 border-color="light-dark(#e4e4e7, #ffffff14)" background-color="light-dark(#ffffff, #111111)" translate="-7.74px 0.48px" rotate=-10 scale=0.84
-                box position="absolute" left=0 bottom=1 width=36 height=36 box-sizing="border-box" border-radius=8 border-style="solid" border-width=1 border-color="light-dark(#e4e4e7, #ffffff14)" background-color="light-dark(#ffffff, #111111)" translate="7.74px 0.48px" rotate=10 scale=0.84
-                box position="absolute" left=0 top=0 width=36 height=36 box-sizing="border-box" border-radius=8 border-style="solid" border-width=1 border-color="light-dark(#e4e4e7, #ffffff14)" background-color="light-dark(#ffffff, #111111)" box-shadow="0 1px 2px #0000000d" display="flex" align-items="center" justify-content="center"
+                box position="absolute" left=0 bottom=1 width="2.25rem" height="2.25rem" box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#e4e4e7, #ffffff14)" background-color="light-dark(#ffffff, #111111)" translate="-7.74px 0.48px" rotate=-10 scale=0.84
+                box position="absolute" left=0 bottom=1 width="2.25rem" height="2.25rem" box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#e4e4e7, #ffffff14)" background-color="light-dark(#ffffff, #111111)" translate="7.74px 0.48px" rotate=10 scale=0.84
+                box position="absolute" left=0 top=0 width="2.25rem" height="2.25rem" box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#e4e4e7, #ffffff14)" background-color="light-dark(#ffffff, #111111)" box-shadow="0 1px 2px #0000000d" display="flex" align-items="center" justify-content="center"
                   PvIcon(name="link", size=18, color="light-dark(#27272a, #f5f5f5)")
-              column max-width=384 gap=4 align-items="center"
-                text "No saved remote environments" font-size=20 line-height="28px" font-weight=600 text-align="center" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=3
+              column max-width="24rem" gap="0.25rem" align-items="center"
+                text "No saved remote environments" font-size="1.25rem" line-height="1.75rem" font-weight=600 text-align="center" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=3
                 // lane r7-polish: EmptyRemoteEnvironments cloudEnabled={false} — this client has no T3 Connect
                 // (no cloud public config), so the HEAD oracle draws neither the T3 Connect nor the
                 // "Publish agent activity" row (CloudLinkRow renders null) and this one-line sentence.
-                text "Click “Add environment” to pair another environment." font-size=14 line-height="20px" text-align="center" color="light-dark(#71717b, #818181)"
+                text "Click “Add environment” to pair another environment." font-size="0.875rem" line-height="1.25rem" text-align="center" color="light-dark(#71717b, #818181)"
           each environment in page.environments key=environment.key
-            EnvironmentRow(environment=environment, busy=busy, op=op, remove=remove)
+            EnvironmentRow(environment=environment, busy=busy, op=op, remove=remove, addRoute=addRoute, still=still)
       when length(page.machines) >= 2
         CnFolded(title="Load balancing", summary=page.loadSummary, open=loadOpen, sectionId="load-balancing", toggle=toggleLoad, hasSwitch=true, switchOn=page.loadBalancing, switchLabel="Automatically balance load", flip=op("load-balancing", "", (page.loadBalancing ? "false" : "true")), busy=busy)
-          text "New threads in shared projects start on the machine with the most free CPU and memory, weighted by each machine's preference." font-size=12 line-height="16px" padding-left=16 padding-right=16 padding-top=10 padding-bottom=10 color="light-dark(#71717b, #818181)"
+          text "New threads in shared projects start on the machine with the most free CPU and memory, weighted by each machine's preference." font-size="0.75rem" line-height="1rem" padding-left="1rem" padding-right="1rem" padding-top="0.625rem" padding-bottom="0.625rem" color="light-dark(#71717b, #818181)"
           each machine in page.machines key=machine.key
             MachineRow(machine=machine)
               CnSelect(selectId=`load-weight-${machine.environmentId}`, label=`${machine.label} load preference`, valueLabel=machine.weightLabel, disabled=(busy or not page.loadBalancing), options=machine.weights, choose=op("load-weight", machine.environmentId))
         CnFolded(title="GitHub sharing", summary=page.githubSummary, open=githubOpen, sectionId="github-routing", toggle=toggleGithub, hasSwitch=false, switchOn=false, switchLabel="", flip=toggleGithub, busy=busy)
-          text "Machines you trust here can read PR data through each other's GitHub access. Enable both machines. Read and act may use broader permissions than the machine that owns them. This applies only to this device." font-size=12 line-height="16px" padding-left=16 padding-right=16 padding-top=10 padding-bottom=10 color="light-dark(#71717b, #818181)"
+          text "Machines you trust here can read PR data through each other's GitHub access. Enable both machines. Read and act may use broader permissions than the machine that owns them. This applies only to this device." font-size="0.75rem" line-height="1rem" padding-left="1rem" padding-right="1rem" padding-top="0.625rem" padding-bottom="0.625rem" color="light-dark(#71717b, #818181)"
           each machine in page.machines key=machine.key
             MachineRow(machine=machine)
               CnSelect(selectId=`github-routing-${machine.environmentId}`, label=`${machine.label} GitHub routing`, valueLabel=machine.routingLabel, disabled=busy, options=machine.routings, choose=op("github-routing", machine.key))
       when error != ""
-        text error font-size=12 line-height="16px" role="alert" padding-left=16 color="light-dark(#e7000b, #ff6467)" testId="connection-error"
+        text error font-size="0.75rem" line-height="1rem" role="alert" padding-left="1rem" color="light-dark(#e7000b, #ff6467)" testId="connection-error"
 
 // SavedBackendListRow: the switch is the main action; the update icon appears
 // only when that machine can take an update; the row menu holds the icon
@@ -170,35 +182,44 @@ component EnvironmentRow
     busy: bool
     op: action
     remove: action
+    addRoute: action
+    still: bool
   state tip = ""
+  state routesOpen = false
   action hover(which: string, over: bool)
     tip = over ? which : (tip == which ? "" : tip)
+  action toggleRoutes
+    routesOpen = not routesOpen
   view
     column width="100%" position="relative" border-top-style="solid" border-top-width=(environment.first ? 0 : 1) border-color="light-dark(#e3e3e780, #ffffff08)"
-      row width="100%" box-sizing="border-box" padding-left=16 padding-right=16 padding-top=10 padding-bottom=10 gap=12 align-items="center" opacity=(environment.dimmed ? 0.6 : 1) testId=`environment-${environment.environmentId}`
+      row width="100%" box-sizing="border-box" padding-left="1rem" padding-right="1rem" padding-top="0.625rem" padding-bottom=(routesOpen ? "0px" : "0.625rem") gap="0.75rem" align-items="center" opacity=(environment.dimmed ? 0.6 : 1) testId=`environment-${environment.environmentId}`
         CnMachineIcon(kind=environment.kind, size=16, color="light-dark(#71717b, #818181)")
         column flex=1 min-width=0
-          text environment.label font-size=14 line-height="20px" font-weight=500 color="light-dark(#27272a, #f5f5f5)" line-clamp=1
-          row hover=hover("status") min-width=0 position="relative"
-            text environment.subtitle font-size=12 line-height="16px" line-clamp=1 min-width=0 color=(environment.errorTone ? "light-dark(#e7000b, #ff6467)" : "light-dark(#71717b, #818181)") testId=`environment-status-${environment.environmentId}`
-            when tip == "status"
-              CnTooltip(tip=environment.tooltip, tipId=`environment-status-tip-${environment.environmentId}`, above=20)
+          text environment.label font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)" line-clamp=1
+          row min-width=0 gap="0.25rem" align-items="center"
+            row hover=hover("status") min-width=0 flex-shrink=1 position="relative"
+              text environment.subtitle font-size="0.75rem" line-height="1rem" line-clamp=1 min-width=0 color=(environment.errorTone ? "light-dark(#e7000b, #ff6467)" : "light-dark(#71717b, #818181)") testId=`environment-status-${environment.environmentId}`
+              when tip == "status"
+                CnTooltip(tip=environment.tooltip, tipId=`environment-status-tip-${environment.environmentId}`, above=20)
+            RouteCount(label=environment.routeCount, open=routesOpen, still=still, environmentId=environment.environmentId, toggle=toggleRoutes)
           // ServerUpdateProgress: a pulsing dot and "Downloading…"/"Restarting…", or the failure in red.
           when environment.progress != ""
-            row margin-top=4 gap=8 align-items="center" max-width=448 testId=`environment-update-progress-${environment.environmentId}`
-              box width=6 height=6 border-radius=3 flex-shrink=0 background-color="light-dark(#27272a, #f5f5f5)" animation="cnStatusPulse 2s infinite"
-              text environment.progress font-size=12 line-height="16px" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
+            row margin-top="0.25rem" gap="0.5rem" align-items="center" max-width="28rem" testId=`environment-update-progress-${environment.environmentId}`
+              box width="0.375rem" height="0.375rem" border-radius="0.1875rem" flex-shrink=0 background-color="light-dark(#27272a, #f5f5f5)" animation="cnStatusPulse 2s infinite"
+              text environment.progress font-size="0.75rem" line-height="1rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
           when environment.progressFailed != ""
-            row margin-top=4 gap=8 align-items="center" max-width=448 min-width=0 role="alert" hover=hover("failure") position="relative" testId=`environment-update-failure-${environment.environmentId}`
-              box width=6 height=6 border-radius=3 flex-shrink=0 background-color="light-dark(#e7000b, #ff6467)"
-              text environment.progressFailed font-size=12 line-height="16px" color="light-dark(#e7000b, #ff6467)" line-clamp=1 min-width=0
+            row margin-top="0.25rem" gap="0.5rem" align-items="center" max-width="28rem" min-width=0 role="alert" hover=hover("failure") position="relative" testId=`environment-update-failure-${environment.environmentId}`
+              box width="0.375rem" height="0.375rem" border-radius="0.1875rem" flex-shrink=0 background-color="light-dark(#e7000b, #ff6467)"
+              text environment.progressFailed font-size="0.75rem" line-height="1rem" color="light-dark(#e7000b, #ff6467)" line-clamp=1 min-width=0
               when tip == "failure"
                 CnTooltip(tip=environment.progressFailed, tipId=`environment-update-failure-tip-${environment.environmentId}`, above=20)
-        row gap=4 align-items="center" flex-shrink=0
+        row gap="0.25rem" align-items="center" flex-shrink=0
           // OutdatedServerUpdateAction: Button size xs, variant outline.
           when environment.outdatedAction != ""
-            button press=op("environment-update-outdated", environment.key, environment.label) disabled=busy aria-label=`${environment.outdatedAction} ${environment.label} server` testId=`environment-update-outdated-${environment.environmentId}` display="flex" flex-direction="row" align-items="center" justify-content="center" height=24 padding-left=7 padding-right=7 box-sizing="border-box" border-radius=8 border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)" box-shadow="0 1px 2px #0000000d"
-              text environment.outdatedAction font-size=12 line-height="16px" font-weight=500 color="light-dark(#27272a, #f5f5f5)" white-space="nowrap"
+            button press=op("environment-update-outdated", environment.key, environment.label) disabled=busy aria-label=`${environment.outdatedAction} ${environment.label} server` testId=`environment-update-outdated-${environment.environmentId}` display="flex" flex-direction="row" align-items="center" justify-content="center" height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)" box-shadow="0 1px 2px #0000000d"
+              text environment.outdatedAction font-size="0.75rem" line-height="1rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)" white-space="nowrap"
+          when environment.updateNote != ""
+            text environment.updateNote font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)" testId=`environment-update-note-${environment.environmentId}`
           when environment.update != ""
             box position="relative" hover=hover("update")
               button press=op("environment-update", environment.key, environment.updateVersion) class=PvIconButton aria-label=`${environment.update} for ${environment.label} server` disabled=busy testId=`environment-update-${environment.environmentId}`
@@ -206,8 +227,8 @@ component EnvironmentRow
               when tip == "update"
                 CnTooltip(tip=environment.update, tipId=`environment-update-tip-${environment.environmentId}`, above=28)
           box position="relative" hover=hover("switch")
-            button press=op("environment-enabled", environment.key, (environment.enabled ? "off" : "on")) role="switch" aria-checked=environment.enabled aria-label=`${environment.enabled ? "Switch off" : "Switch on"} ${environment.label}` disabled=(busy or environment.unsupported) testId=(environment.active ? "disconnect" : `environment-switch-${environment.environmentId}`) width=26 height=16 padding=2 border-width=0 border-radius=9999 box-sizing="border-box" display="flex" flex-direction="row" align-items="center" justify-content=(environment.enabled ? "flex-end" : "flex-start") opacity=(environment.unsupported ? 0.64 : 1) background-color=(environment.enabled ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#d4d4d8, #ffffff14)")
-              box width=12 height=12 border-radius=9999 background-color="light-dark(#fcfcfc, #0a0a0a)"
+            button press=op("environment-enabled", environment.key, (environment.enabled ? "off" : "on")) role="switch" aria-checked=environment.enabled aria-label=`${environment.enabled ? "Switch off" : "Switch on"} ${environment.label}` disabled=(busy or environment.unsupported) testId=(environment.active ? "disconnect" : `environment-switch-${environment.environmentId}`) width="1.625rem" height="1rem" padding="0.125rem" border-width=0 border-radius="624.9375rem" box-sizing="border-box" display="flex" flex-direction="row" align-items="center" justify-content=(environment.enabled ? "flex-end" : "flex-start") opacity=(environment.unsupported ? 0.64 : 1) background-color=(environment.enabled ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#d4d4d8, #ffffff14)")
+              box width="0.75rem" height="0.75rem" border-radius="624.9375rem" background-color="light-dark(#fcfcfc, #0a0a0a)"
             when tip == "switch"
               CnTooltip(tip=environment.switchTip, tipId=`environment-switch-tip-${environment.environmentId}`, above=20)
           box position="relative"
@@ -215,14 +236,21 @@ component EnvironmentRow
               PvIcon(name="ellipsis", size=14, color="light-dark(#71717b, #818181)")
             CnMenu(menuId=`environment-menu-${environment.environmentId}-popup`, label=`More actions for ${environment.label}`, width=196, endAlign=24, offsetX=0, offsetY=0)
               EnvironmentIconMenu(environment=environment, op=op)
+              RouteMenuItem(label=(routesOpen ? "Hide routes" : "Routes"), menuId=`environment-menu-${environment.environmentId}-popup`, itemId=`environment-routes-item-${environment.environmentId}`, disabled=busy, choose=toggleRoutes)
               when environment.traceId != ""
                 CnMenuItem(label="Copy trace ID", menuId=`environment-menu-${environment.environmentId}-popup`, itemId=`environment-trace-${environment.environmentId}`, destructive=false, disabled=busy, highlighted=false, note="", icon="", submenu="", choose=op("environment-trace", environment.key, environment.traceId))
               CnSeparator()
               CnMenuItem(label="Remove from this device…", menuId=`environment-menu-${environment.environmentId}-popup`, itemId=(environment.active ? "forget-server" : `environment-remove-${environment.environmentId}`), destructive=true, disabled=busy, highlighted=false, note="", icon="", submenu="", choose=remove(environment.key))
+      // EnvironmentRow `detail`: the routes, aligned with the label, inside the row's padding.
+      when routesOpen
+        column width="100%" box-sizing="border-box" padding-left="2.75rem" padding-right="1rem" padding-bottom="0.625rem" opacity=(environment.dimmed ? 0.6 : 1)
+          EnvironmentRoutes(environmentId=environment.environmentId, rowKey=environment.key, listLabel=environment.routesLabel, label=environment.label, routes=environment.routes, busy=busy, op=op, remove=remove, addRoute=addRoute)
 
 // EnvironmentIconMenu: "Icon" opens the machine kinds, the server's own
 // detection marked; a locked environment shows the reason as a disabled row.
 component EnvironmentIconMenu
+  inject
+    rem: number
   props
     environment: SavedEnvironment
     op: action
@@ -231,13 +259,13 @@ component EnvironmentIconMenu
     hovered = over
   view
     column width="100%" position="relative"
-      button popovertarget=`environment-icon-${environment.environmentId}-popup` hover=hover role="menuitem" testId=`environment-icon-${environment.environmentId}` display="flex" flex-direction="row" align-items="center" justify-content="flex-start" gap=8 width="100%" min-height=28 padding-left=8 padding-right=8 padding-top=4 padding-bottom=4 box-sizing="border-box" border-width=0 border-radius=6 background-color=(hovered ? "light-dark(#27272914, #f5f5f514)" : "#00000000")
+      button popovertarget=`environment-icon-${environment.environmentId}-popup` hover=hover role="menuitem" testId=`environment-icon-${environment.environmentId}` display="flex" flex-direction="row" align-items="center" justify-content="flex-start" gap="0.5rem" width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" border-width=0 border-radius="0.375rem" background-color=(hovered ? "light-dark(#27272914, #f5f5f514)" : "#00000000")
         CnMachineIcon(kind=environment.kind, size=16, color="light-dark(#27272a, #f5f5f5)")
-        text "Icon" font-size=14 line-height="20px" flex=1 min-width=0 color="light-dark(#27272a, #f5f5f5)"
+        text "Icon" font-size="0.875rem" line-height="1.25rem" flex=1 min-width=0 color="light-dark(#27272a, #f5f5f5)"
         CnGlyph(name="chevron-right", size=16, color="light-dark(#27272a, #f5f5f5)")
-      CnMenu(menuId=`environment-icon-${environment.environmentId}-popup`, label="Icon", width=(environment.iconLock != "" ? 220 : 160), endAlign=0, offsetX=(environment.iconLock != "" ? -225 : -165), offsetY=-37)
+      CnMenu(menuId=`environment-icon-${environment.environmentId}-popup`, label="Icon", width=((environment.iconLock != "" ? 220 : 160) * rem / 16), endAlign=0, offsetX=(environment.iconLock != "" ? -225 : -165), offsetY=-37)
         when environment.iconLock != ""
-          text environment.iconLock font-size=14 line-height="20px" padding-left=8 padding-right=8 padding-top=4 padding-bottom=4 opacity=0.64 color="light-dark(#27272a, #f5f5f5)" testId=`environment-icon-lock-${environment.environmentId}`
+          text environment.iconLock font-size="0.875rem" line-height="1.25rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" opacity=0.64 color="light-dark(#27272a, #f5f5f5)" testId=`environment-icon-lock-${environment.environmentId}`
           CnSeparator()
         each choice in environment.icons key=choice.kind
           CnMenuItem(label=choice.label, menuId=`environment-menu-${environment.environmentId}-popup`, itemId=`environment-icon-${environment.environmentId}-${choice.kind}`, destructive=false, disabled=(environment.iconLock != ""), highlighted=choice.selected, note=choice.note, icon=choice.kind, submenu="", choose=op("environment-icon", environment.key, choice.kind))
@@ -248,18 +276,18 @@ component MachineRow
     machine: BalanceMachine
   slot
   view
-    row width="100%" box-sizing="border-box" padding-left=16 padding-right=16 padding-top=10 padding-bottom=10 gap=12 align-items="center" border-top-style="solid" border-top-width=1 border-color="light-dark(#e3e3e780, #ffffff08)" testId=`machine-${machine.environmentId}`
+    row width="100%" box-sizing="border-box" padding-left="1rem" padding-right="1rem" padding-top="0.625rem" padding-bottom="0.625rem" gap="0.75rem" align-items="center" border-top-style="solid" border-top-width=1 border-color="light-dark(#e3e3e780, #ffffff08)" testId=`machine-${machine.environmentId}`
       CnMachineIcon(kind=machine.kind, size=16, color="light-dark(#71717b, #818181)")
       column flex=1 min-width=0
-        text machine.label font-size=14 line-height="20px" font-weight=500 color="light-dark(#27272a, #f5f5f5)" line-clamp=1
-        text machine.subtitle font-size=12 line-height="16px" line-clamp=1 color="light-dark(#71717b, #818181)"
+        text machine.label font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)" line-clamp=1
+        text machine.subtitle font-size="0.75rem" line-height="1rem" line-clamp=1 color="light-dark(#71717b, #818181)"
       children
 
 // The grouped card without clipping, so a row's action menu can overhang it.
 component PvGroupOpen
   slot
   view
-    column width="100%" box-sizing="border-box" border-radius=14 border-style="solid" border-width=1 border-color="light-dark(#e4e4e899, #ffffff0a)" background-color="light-dark(#ffffff66, #11111166)"
+    column width="100%" box-sizing="border-box" border-radius="0.875rem" border-style="solid" border-width=1 border-color="light-dark(#e4e4e899, #ffffff0a)" background-color="light-dark(#ffffff66, #11111166)"
       children
 
 // requestConfirmDialog for "Remove from this device…" (AlertDialog).
@@ -271,21 +299,23 @@ component EnvironmentRemoveDialog
     confirm: action
   view
     column class=CnOverlay testId="environment-remove-overlay"
-      column width="100%" max-width=448 box-sizing="border-box" padding=24 gap=16 border-radius=18 border-style="solid" border-width=1 border-color="light-dark(#2727271a, #ffffff14)" background-color="light-dark(#fcfcfccc, #0a0a0acc)" backdrop-filter="blur(12px)" box-shadow="0 24px 64px -24px #000000a6" role="alertdialog" aria-label=`Remove ${environment.label} from this device?` testId="environment-remove-dialog"
-        column gap=8
-          text `Remove ${environment.label} from this device?` font-size=18 line-height="24px" font-weight=600 color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=2
-          text "This forgets its pairing, credentials, and cached threads here. Switch it off instead to keep it saved." font-size=14 line-height="20px" color="light-dark(#71717b, #818181)"
-        row gap=8 justify-content="flex-end"
+      column width="100%" max-width="28rem" box-sizing="border-box" padding="1.5rem" gap="1rem" border-radius="1.125rem" border-style="solid" border-width=1 border-color="light-dark(#2727271a, #ffffff14)" background-color="light-dark(#fcfcfccc, #0a0a0acc)" backdrop-filter="blur(12px)" box-shadow="0 24px 64px -24px #000000a6" role="alertdialog" aria-label=`Remove ${environment.label} from this device?` testId="environment-remove-dialog"
+        column gap="0.5rem"
+          text `Remove ${environment.label} from this device?` font-size="1.125rem" line-height="1.5rem" font-weight=600 color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=2
+          text "This forgets its pairing, credentials, and cached threads here. Switch it off instead to keep it saved." font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #818181)"
+        row gap="0.5rem" justify-content="flex-end"
           button press=cancel class=PvOutline aria-keyshortcuts="Escape" disabled=busy testId="environment-remove-cancel"
-            text "Cancel" font-size=14 line-height="20px" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
+            text "Cancel" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
           button press=confirm class=PvOutline border-width=0 background-color="#e7000b" disabled=busy testId="environment-remove-confirm"
-            text "Confirm" font-size=14 line-height="20px" font-weight=500 color="#ffffff"
+            text "Confirm" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="#ffffff"
 
 // "Add Environment" (ConnectionsSettings.tsx): Remote link or SSH. The remote
 // fields keep the drive contract: server-origin, server-credential, connect.
 // SSH (renderSshFields): the host autocomplete over ~/.ssh/config and
 // known_hosts, Username and Port, then an SSH-managed tunnel (T3Ssh.swift).
 component AddEnvironmentDialog
+  inject
+    rem: number
   props
     origin: string
     credential: string
@@ -303,6 +333,8 @@ component AddEnvironmentDialog
     set: action
     ssh: action
     close: action
+    routeTarget: string
+    routeLabel: string
   state mode = "remote"
   state username = ""
   state port = ""
@@ -311,6 +343,12 @@ component AddEnvironmentDialog
   action choose(value: string)
     mode = value
     suggest = false
+  // Lane environment-routes: "Add route" pairs the same machine at this address (id `<environment id> <host>`).
+  action submitted
+    if routeTarget == ""
+      submit()
+    else
+      ssh("environment-route-add", `${routeTarget} ${origin}`, credential)
   action editUsername(value: string)
     username = value
   action editPort(value: string)
@@ -325,65 +363,68 @@ component AddEnvironmentDialog
     if name == "ArrowDown"
       suggest = true
       dismissedFor = "-"
-  derive sshPayload = `username=${encodeURIComponent(username)}&port=${encodeURIComponent(port)}`
+  // Lane environment-routes: adding a route pairs only the machine it names (expectedEnvironmentId).
+  derive routePayload = (routeTarget == "" ? "" : `expectedEnvironmentId=${encodeURIComponent(routeTarget)}`)
+  derive sshPayload = `username=${encodeURIComponent(username)}&port=${encodeURIComponent(port)}${routeTarget == "" ? "" : "&"}${routePayload}`
+  derive adding = (routeTarget == "" ? "Add environment" : "Add route")
   // openOnInputClick, and open while typing until Escape dismisses this text.
   derive suggestions = (suggest or sshHost != "") and dismissedFor != sshHost and mode == "ssh" and sshHosts.hasContent and not busy
   // r10-connect: a pasted pairing URL shows as its host and code (handleSavedBackendHostChange).
   derive split = pairFields.host != "" and pairFields.source == origin
   view
     column class=CnOverlay testId="connection-overlay"
-      column width="100%" max-width=768 max-height=(viewportHeight - 32) box-sizing="border-box" padding=24 gap=16 border-radius=18 border-style="solid" border-width=1 border-color="light-dark(#2727271a, #ffffff14)" background-color="light-dark(#fcfcfccc, #0a0a0acc)" backdrop-filter="blur(12px)" box-shadow="0 24px 64px -24px #000000a6" position="relative" role="dialog" aria-label="Add Environment" testId="connection-dialog"
-        column gap=8
-          text "Add Environment" font-size=20 line-height="20px" font-weight=600 color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=2
-          text "Pair another environment to this client." font-size=14 line-height="20px" color="light-dark(#71717b, #818181)"
-        row width="100%" gap=12
+      column width="100%" max-width="48rem" max-height=(viewportHeight - 2 * rem) box-sizing="border-box" padding="1.5rem" gap="1rem" border-radius="1.125rem" border-style="solid" border-width=1 border-color="light-dark(#2727271a, #ffffff14)" background-color="light-dark(#fcfcfccc, #0a0a0acc)" backdrop-filter="blur(12px)" box-shadow="0 24px 64px -24px #000000a6" position="relative" role="dialog" aria-label=(routeTarget == "" ? "Add Environment" : `Add a route to ${routeLabel}`) testId="connection-dialog"
+        column gap="0.5rem"
+          text (routeTarget == "" ? "Add Environment" : `Add a route to ${routeLabel}`) font-size="1.25rem" line-height="1.25rem" font-weight=600 color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=2
+          text (routeTarget == "" ? "Pair another environment to this client." : "Pair this machine again over another address, such as its Tailscale name. It joins the existing routes instead of adding a second machine.") font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #818181)"
+        row width="100%" gap="0.75rem"
           ModeCard(mode="remote", title="Remote link", description="Enter a backend host and pairing code.", icon="link", selected=(mode == "remote"), busy=busy, choose=choose("remote"))
           ModeCard(mode="ssh", title="SSH", description="Use local SSH config, agent, and tunnels for the backend.", icon="terminal", selected=(mode == "ssh"), busy=busy, choose=choose("ssh"))
         when mode == "remote"
-          column width="100%" gap=12
-            row width="100%" gap=12
-              column flex=1 min-width=0 gap=6
-                text "Host" font-size=12 line-height="16px" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
-                input value=(split ? pairFields.host : origin) input=editOrigin placeholder="backend.example.com" aria-label="Host" autocorrect="off" spellcheck="false" disabled=busy class=PvField height=32 padding-top=6 padding-bottom=6 border-radius=10 width="100%" testId="server-origin"
-              column width=160 flex-shrink=0 gap=6
-                text "Pairing code" font-size=12 line-height="16px" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
-                input value=(split and credential == "" ? pairFields.code : credential) input=editCredential placeholder="PAIRCODE" aria-label="Pairing code" autocorrect="off" spellcheck="false" disabled=busy class=PvField height=32 padding-top=6 padding-bottom=6 border-radius=10 width="100%" testId="server-credential"
-            text "Paste a full pairing URL here to fill both fields automatically." font-size=11 line-height="16px" color="light-dark(#71717b, #818181)"
+          column width="100%" gap="0.75rem"
+            row width="100%" gap="0.75rem"
+              column flex=1 min-width=0 gap="0.375rem"
+                text "Host" font-size="0.75rem" line-height="1rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
+                input value=(split ? pairFields.host : origin) input=editOrigin placeholder="backend.example.com" aria-label="Host" autocorrect="off" spellcheck="false" disabled=busy class=PvField height="2rem" padding-top="0.375rem" padding-bottom="0.375rem" border-radius="0.625rem" width="100%" testId="server-origin"
+              column width="10rem" flex-shrink=0 gap="0.375rem"
+                text "Pairing code" font-size="0.75rem" line-height="1rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
+                input value=(split and credential == "" ? pairFields.code : credential) input=editCredential placeholder="PAIRCODE" aria-label="Pairing code" autocorrect="off" spellcheck="false" disabled=busy class=PvField height="2rem" padding-top="0.375rem" padding-bottom="0.375rem" border-radius="0.625rem" width="100%" testId="server-credential"
+            text "Paste a full pairing URL here to fill both fields automatically." font-size="0.6875rem" line-height="1rem" color="light-dark(#71717b, #818181)"
           when error != ""
-            text error font-size=12 line-height="16px" role="alert" color="light-dark(#e7000b, #ff6467)" testId="connection-error"
+            text error font-size="0.75rem" line-height="1rem" role="alert" color="light-dark(#e7000b, #ff6467)" testId="connection-error"
           when not available
-            text "This client requires its macOS native transport module." font-size=12 role="alert" color="light-dark(#e7000b, #ff6467)"
-          button press=submit class=PvOutline width="100%" height=32 padding-left=11 padding-right=11 disabled=(busy or not available) testId="connect"
+            text "This client requires its macOS native transport module." font-size="0.75rem" role="alert" color="light-dark(#e7000b, #ff6467)"
+          button press=submitted class=PvOutline width="100%" height="2rem" padding-left="0.6875rem" padding-right="0.6875rem" disabled=(busy or not available) testId="connect"
             PvIcon(name="plus", size=14, color="light-dark(#27272a, #f5f5f5)")
-            text (busy ? "Adding…" : "Add environment") font-size=14 line-height="20px" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
+            text (busy ? "Adding…" : adding) font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
         when mode == "ssh"
-          column width="100%" gap=12
-            column width="100%" gap=6
-              text "SSH host or alias" font-size=12 line-height="16px" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
-              input value=sshHost input=set("ssh-host") focus=showSuggestions(true) press=showSuggestions(true) key=hostKey submit=ssh("environment-ssh-add", sshHost, sshPayload) placeholder="Search hosts or type devbox" aria-label="SSH host or alias" role="combobox" aria-expanded=suggestions autocorrect="off" spellcheck="false" disabled=busy class=PvField height=32 padding-top=6 padding-bottom=6 border-radius=10 width="100%" testId="ssh-host"
-            row width="100%" gap=12
-              column flex=1 min-width=0 gap=6
-                text "Username" font-size=12 line-height="16px" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
-                input value=username input=editUsername submit=ssh("environment-ssh-add", sshHost, sshPayload) placeholder="root" aria-label="Username" autocorrect="off" spellcheck="false" disabled=busy class=PvField height=32 padding-top=6 padding-bottom=6 border-radius=10 width="100%" testId="ssh-username"
-              column width=112 flex-shrink=0 gap=6
-                text "Port" font-size=12 line-height="16px" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
-                input value=port input=editPort submit=ssh("environment-ssh-add", sshHost, sshPayload) placeholder="22" aria-label="Port" autocorrect="off" spellcheck="false" disabled=busy class=PvField height=32 padding-top=6 padding-bottom=6 border-radius=10 width="100%" testId="ssh-port"
+          column width="100%" gap="0.75rem"
+            column width="100%" gap="0.375rem"
+              text "SSH host or alias" font-size="0.75rem" line-height="1rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
+              input value=sshHost input=set("ssh-host") focus=showSuggestions(true) press=showSuggestions(true) key=hostKey submit=ssh("environment-ssh-add", sshHost, sshPayload) placeholder="Search hosts or type devbox" aria-label="SSH host or alias" role="combobox" aria-expanded=suggestions autocorrect="off" spellcheck="false" disabled=busy class=PvField height="2rem" padding-top="0.375rem" padding-bottom="0.375rem" border-radius="0.625rem" width="100%" testId="ssh-host"
+            row width="100%" gap="0.75rem"
+              column flex=1 min-width=0 gap="0.375rem"
+                text "Username" font-size="0.75rem" line-height="1rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
+                input value=username input=editUsername submit=ssh("environment-ssh-add", sshHost, sshPayload) placeholder="root" aria-label="Username" autocorrect="off" spellcheck="false" disabled=busy class=PvField height="2rem" padding-top="0.375rem" padding-bottom="0.375rem" border-radius="0.625rem" width="100%" testId="ssh-username"
+              column width="7rem" flex-shrink=0 gap="0.375rem"
+                text "Port" font-size="0.75rem" line-height="1rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
+                input value=port input=editPort submit=ssh("environment-ssh-add", sshHost, sshPayload) placeholder="22" aria-label="Port" autocorrect="off" spellcheck="false" disabled=busy class=PvField height="2rem" padding-top="0.375rem" padding-bottom="0.375rem" border-radius="0.625rem" width="100%" testId="ssh-port"
             when error != "" or sshHosts.error != ""
-              row width="100%" box-sizing="border-box" gap=8 padding-top=10 padding-bottom=10 padding-left=12 padding-right=12 border-radius=10 border-style="solid" border-width=1 border-color="light-dark(#fb2c3633, #ff646733)" background-color="light-dark(#fb2c360d, #ff64670d)" role="alert" testId="ssh-error"
-                text (error != "" ? error : sshHosts.error) font-size=14 line-height="20px" flex=1 min-width=0 color="light-dark(#c10007, #ff6467)"
-            button press=ssh("environment-ssh-add", sshHost, sshPayload) class=PvOutline width="100%" height=32 padding-left=11 padding-right=11 disabled=(busy or not available) testId="ssh-connect"
+              row width="100%" box-sizing="border-box" gap="0.5rem" padding-top="0.625rem" padding-bottom="0.625rem" padding-left="0.75rem" padding-right="0.75rem" border-radius="0.625rem" border-style="solid" border-width=1 border-color="light-dark(#fb2c3633, #ff646733)" background-color="light-dark(#fb2c360d, #ff64670d)" role="alert" testId="ssh-error"
+                text (error != "" ? error : sshHosts.error) font-size="0.875rem" line-height="1.25rem" flex=1 min-width=0 color="light-dark(#c10007, #ff6467)"
+            button press=ssh("environment-ssh-add", sshHost, sshPayload) class=PvOutline width="100%" height="2rem" padding-left="0.6875rem" padding-right="0.6875rem" disabled=(busy or not available) id="ssh-connect" testId="ssh-connect"
               PvIcon(name="plus", size=14, color="light-dark(#27272a, #f5f5f5)")
-              text (busy ? "Adding…" : "Add environment") font-size=14 line-height="20px" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
+              text (busy ? "Adding…" : adding) font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
         // AutocompletePopup, laid over the fields as a direct child of the dialog so it takes hits.
         when suggestions
-          column position="absolute" left=24 right=24 top=264 max-height=288 overflow-y="scroll" box-sizing="border-box" padding=4 border-radius=10 border-style="solid" border-width=1 border-color="light-dark(#2727291a, #ffffff1a)" background-color="light-dark(#ffffff, #171717)" box-shadow="0 16px 40px -18px #0000008c" role="listbox" aria-label="SSH hosts" testId="ssh-host-suggestions"
+          column position="absolute" left="1.5rem" right="1.5rem" top="16.5rem" max-height="18rem" overflow-y="scroll" box-sizing="border-box" padding="0.25rem" border-radius="0.625rem" border-style="solid" border-width=1 border-color="light-dark(#2727291a, #ffffff1a)" background-color="light-dark(#ffffff, #171717)" box-shadow="0 16px 40px -18px #0000008c" role="listbox" aria-label="SSH hosts" testId="ssh-host-suggestions"
             when sshHosts.loading
-              text "Loading hosts…" font-size=12 line-height="16px" padding-left=12 padding-right=12 padding-top=8 padding-bottom=8 color="light-dark(#71717b, #9a9a9a)"
+              text "Loading hosts…" font-size="0.75rem" line-height="1rem" padding-left="0.75rem" padding-right="0.75rem" padding-top="0.5rem" padding-bottom="0.5rem" color="light-dark(#71717b, #9a9a9a)"
             when sshHosts.noMatch != ""
-              text sshHosts.noMatch font-size=12 line-height="16px" padding-left=12 padding-right=12 padding-top=8 padding-bottom=8 color="light-dark(#71717b, #9a9a9a)" testId="ssh-host-no-match"
+              text sshHosts.noMatch font-size="0.75rem" line-height="1rem" padding-left="0.75rem" padding-right="0.75rem" padding-top="0.5rem" padding-bottom="0.5rem" color="light-dark(#71717b, #9a9a9a)" testId="ssh-host-no-match"
             each host in sshHosts.hosts key=host.alias
-              SshHostRow(host=host, busy=busy, pick=ssh("environment-ssh-pick", host.alias, ""))
-        button press=close class=PvIconButton width=32 height=32 position="absolute" top=8 right=8 aria-label="Close" aria-keyshortcuts="Escape" disabled=busy testId="close-connection"
+              SshHostRow(host=host, busy=busy, pick=ssh("environment-ssh-pick", host.alias, routePayload))
+        button press=close class=PvIconButton width="2rem" height="2rem" position="absolute" top="0.5rem" right="0.5rem" aria-label="Close" aria-keyshortcuts="Escape" disabled=busy testId="close-connection"
           PvIcon(name="x", size=16, color="light-dark(#71717b, #818181)")
 
 // renderConnectionModeCard: selected cards wear the primary tint.
@@ -400,15 +441,15 @@ component ModeCard
   action hover(over: bool)
     hovered = over
   view
-    button press=choose hover=hover aria-checked=selected role="radio" disabled=busy width="calc(50% - 6px)" min-height=96 box-sizing="border-box" padding=16 gap=12 border-radius=10 border-style="solid" border-width=1 border-color=(selected ? "light-dark(#1c4ed780, #346bf180)" : "light-dark(#e4e4e799, #ffffff0f)") background-color=(selected ? "light-dark(#144ed80d, #346bf10d)" : (hovered ? "light-dark(#f4f4f566, #ffffff0a)" : "#00000000")) display="flex" flex-direction="row" align-items="flex-start" justify-content="flex-start" testId=`connection-mode-${mode}`
-      box width=32 height=32 margin-top=2 flex-shrink=0 box-sizing="border-box" border-radius=8 border-style="solid" border-width=1 border-color=(selected ? "light-dark(#1a4fd74d, #346bf14d)" : "light-dark(#e4e4e7b3, #ffffff12)") background-color=(selected ? "light-dark(#1d4ed81a, #346bf11a)" : "light-dark(#fcfcfc, #0a0a0a)") display="flex" align-items="center" justify-content="center"
+    button press=choose hover=hover aria-checked=selected role="radio" disabled=busy width="calc(50% - 6px)" min-height="6rem" box-sizing="border-box" padding="1rem" gap="0.75rem" border-radius="0.625rem" border-style="solid" border-width=1 border-color=(selected ? "light-dark(#1c4ed780, #346bf180)" : "light-dark(#e4e4e799, #ffffff0f)") background-color=(selected ? "light-dark(#144ed80d, #346bf10d)" : (hovered ? "light-dark(#f4f4f566, #ffffff0a)" : "#00000000")) display="flex" flex-direction="row" align-items="flex-start" justify-content="flex-start" testId=`connection-mode-${mode}`
+      box width="2rem" height="2rem" margin-top="0.125rem" flex-shrink=0 box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 border-color=(selected ? "light-dark(#1a4fd74d, #346bf14d)" : "light-dark(#e4e4e7b3, #ffffff12)") background-color=(selected ? "light-dark(#1d4ed81a, #346bf11a)" : "light-dark(#fcfcfc, #0a0a0a)") display="flex" align-items="center" justify-content="center"
         when icon == "terminal"
           CnGlyph(name="terminal", size=16, color=(selected ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#71717b, #9a9a9a)"))
         else
           PvIcon(name="link", size=16, color=(selected ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#71717b, #9a9a9a)"))
-      column min-width=0 align-items="flex-start" gap=4
-        text title font-size=14 line-height="20px" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
-        text description font-size=12 line-height="19.5px" text-align="left" color="light-dark(#71717b, #818181)"
+      column min-width=0 align-items="flex-start" gap="0.25rem"
+        text title font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
+        text description font-size="0.75rem" line-height="1.21875rem" text-align="left" color="light-dark(#71717b, #818181)"
 
 // AutocompleteItem: alias, its address when it differs, the ⌘1–⌘9 jump chord.
 component SshHostRow
@@ -420,13 +461,13 @@ component SshHostRow
   action hover(over: bool)
     hovered = over
   view
-    button press=pick hover=hover disabled=busy role="option" aria-label=host.alias testId=`ssh-host-${host.alias}` display="flex" flex-direction="row" align-items="center" justify-content="flex-start" gap=8 width="100%" height=32 padding-left=8 padding-right=8 box-sizing="border-box" border-width=0 border-radius=6 background-color=(hovered ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000")
-      text host.alias font-size=14 line-height="20px" font-weight=500 white-space="nowrap" line-clamp=1 min-width=0 flex-shrink=0 color="light-dark(#27272a, #f5f5f5)"
-      text host.address font-size=12 line-height="16px" white-space="nowrap" line-clamp=1 flex=1 min-width=0 text-align="left" color="light-dark(#71717b, #9a9a9a)"
+    button press=pick hover=hover disabled=busy role="option" aria-label=host.alias testId=`ssh-host-${host.alias}` display="flex" flex-direction="row" align-items="center" justify-content="flex-start" gap="0.5rem" width="100%" height="2rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-width=0 border-radius="0.375rem" background-color=(hovered ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000")
+      text host.alias font-size="0.875rem" line-height="1.25rem" font-weight=500 white-space="nowrap" line-clamp=1 min-width=0 flex-shrink=0 color="light-dark(#27272a, #f5f5f5)"
+      text host.address font-size="0.75rem" line-height="1rem" white-space="nowrap" line-clamp=1 flex=1 min-width=0 text-align="left" color="light-dark(#71717b, #9a9a9a)"
       when host.shortcut != ""
-        text host.shortcut font-size=12 line-height="16px" letter-spacing=1.2 flex-shrink=0 color="light-dark(#71717b, #9a9a9a)"
+        text host.shortcut font-size="0.75rem" line-height="1rem" letter-spacing="0.075rem" flex-shrink=0 color="light-dark(#71717b, #9a9a9a)"
 
 style CnOverlay
   position="absolute" left=0 right=0 top=0 bottom=0
   display="flex" align-items="center" justify-content="center"
-  background-color="light-dark(#fcfcfc99, #0a0a0aa3)" backdrop-filter="blur(4px)" padding=16 box-sizing="border-box" z-index=40
+  background-color="light-dark(#fcfcfc99, #0a0a0aa3)" backdrop-filter="blur(4px)" padding="1rem" box-sizing="border-box" z-index=40

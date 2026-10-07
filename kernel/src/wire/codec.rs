@@ -23,6 +23,9 @@ pub const MAX_STRING_BYTES: u32 = 1 << 24;
 /// every property's (grammar: `schema.json` `_transitions`).
 const BORDER_COLOR: u8 = Property::COUNT as u8 + 1;
 
+/// A path's `d` (LLP 1055.000 D15): its property's code, past the wire's.
+const PATH_D: u8 = Property::D as u8 + 1;
+
 /// Round `n` up to a multiple of 8.
 pub const fn align8(n: usize) -> usize {
     (n + 7) & !7
@@ -334,6 +337,7 @@ impl<'a> Reader<'a> {
             let property = match self.u8()? {
                 0 => TransitionProperty::All,
                 BORDER_COLOR => TransitionProperty::BorderColor,
+                PATH_D => TransitionProperty::Property(Property::D),
                 p => TransitionProperty::Property(
                     Property::from_wire(p - 1)
                         .filter(|p| *p != Property::ShadowColor)
@@ -695,7 +699,7 @@ mod tests {
         // schema. The literal makes an accidental removal of that coupling a
         // test failure whenever the byte snapshot above is intentionally moved.
         // Recomputed when the schema changes; the digest test prints the value.
-        assert_eq!(SCHEMA_DIGEST, 0x789d_5cd6_4f9d_6d16);
+        assert_eq!(SCHEMA_DIGEST, 0x4430_c91f_3ec2_e2f8);
     }
 
     #[test]

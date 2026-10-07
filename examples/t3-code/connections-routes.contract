@@ -1,0 +1,166 @@
+use PvIconButton from "./providers-kit.contract"
+use PvOutline from "./providers-kit.contract"
+use CnTooltip from "./settings-b-kit.contract"
+
+// Lane environment-routes: the routes of one saved environment (T3 Code 1e2ecbd975
+// EnvironmentRoutesList.tsx, ConnectionsSettings.tsx SavedBackendListRow's route count
+// and "Routes" menu item; MIT, see LICENSE-T3). connection-routes-ops.ts projects
+// the rows; the host's list reorder (`reorderdrop`, a `reorderFor` grip) stands in
+// for dnd-kit's pointer and keyboard sensors: Space lifts, the arrows move, Space or
+// Enter drops, Escape cancels.
+
+shape EnvRoute
+  id: string
+  label: string
+  address: string
+  inUse: bool
+  removable: bool
+  position: number
+  first: bool
+  last: bool
+  learned: bool
+  target: string
+
+// Lucide glyphs this list draws (grip-vertical, route, x, plus, chevron-right).
+component RtGlyph
+  props
+    name: string
+    size: number
+    color: string
+  view
+    svg width=`${size / 16}rem` height=`${size / 16}rem` viewBox="0 0 24 24" color=color fill="none" stroke="currentColor" stroke-width=2 stroke-linecap="round" stroke-linejoin="round" flex-shrink=0 aria-hidden=true
+      when name == "grip"
+        circle cx=9 cy=12 r=1
+        circle cx=9 cy=5 r=1
+        circle cx=9 cy=19 r=1
+        circle cx=15 cy=12 r=1
+        circle cx=15 cy=5 r=1
+        circle cx=15 cy=19 r=1
+      when name == "route"
+        circle cx=6 cy=19 r=3
+        path d="M9 19h8.5a3.5 3.5 0 0 0 0-7h-11a3.5 3.5 0 0 1 0-7H15"
+        circle cx=18 cy=5 r=3
+      when name == "x"
+        path d="M18 6 6 18M6 6l12 12"
+      when name == "plus"
+        path d="M5 12h14M12 5v14"
+      when name == "chevron-right"
+        path d="m9 18 6-6-6-6"
+
+// The route count after the row's status: "Routes" or "N routes", its chevron turning
+// a quarter over 150 ms (none under reduced motion).
+component RouteCount
+  props
+    label: string
+    open: bool
+    still: bool
+    environmentId: string
+    toggle: action
+  state hovered = false
+  action hover(over: bool)
+    hovered = over
+  view
+    row gap="0.25rem" align-items="center" flex-shrink=0
+      text "·" font-size="0.75rem" line-height="1rem" aria-hidden=true color="light-dark(#71717b, #818181)"
+      button press=toggle hover=hover aria-expanded=open testId=`environment-routes-toggle-${environmentId}` display="flex" flex-direction="row" align-items="center" gap="0.125rem" padding=0 border-width=0 border-radius="0.25rem" background-color="#00000000" flex-shrink=0
+        text label font-size="0.75rem" line-height="1rem" white-space="nowrap" color=(hovered ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)")
+        box display="flex" rotate=(open ? 90 : 0) transition=(still ? "none" : "rotate 150ms cubic-bezier(0.4, 0, 0.2, 1)") testId=`environment-routes-chevron-${environmentId}`
+          RtGlyph(name="chevron-right", size=12, color=(hovered ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)"))
+
+// The row menu's "Routes" / "Hide routes" item (RouteIcon).
+component RouteMenuItem
+  props
+    label: string
+    menuId: string
+    itemId: string
+    disabled: bool
+    choose: action
+  state hovered = false
+  action hover(over: bool)
+    hovered = over
+  view
+    button press=choose popovertarget=menuId popovertargetaction="hide" hover=hover disabled=disabled role="menuitem" testId=itemId display="flex" flex-direction="row" align-items="center" justify-content="flex-start" gap="0.5rem" width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" border-width=0 border-radius="0.375rem" opacity=(disabled ? 0.64 : 1) background-color=(hovered ? "light-dark(#27272914, #f5f5f514)" : "#00000000")
+      RtGlyph(name="route", size=16, color="light-dark(#27272a, #f5f5f5)")
+      text label font-size="0.875rem" line-height="1.25rem" flex=1 min-width=0 white-space="nowrap" line-clamp=1 color="light-dark(#27272a, #f5f5f5)"
+
+// EnvironmentRoutesList: the ways this client reaches one machine, preferred first.
+component EnvironmentRoutes
+  props
+    environmentId: string
+    rowKey: string
+    listLabel: string
+    label: string
+    routes: list<EnvRoute>
+    busy: bool
+    op: action
+    remove: action
+    addRoute: action
+  action dropRoute(key: string, before: option<string>)
+    match before
+      case some(next)
+        op("environment-route-move", rowKey, `${key}>${next}`)
+      case none
+        op("environment-route-move", rowKey, `${key}>`)
+  view
+    column width="100%" margin-top="0.5rem" box-sizing="border-box" border-radius="0.375rem" border-style="solid" border-width=1 border-color="light-dark(#e4e4e7b3, #ffffff12)" testId=`environment-routes-${environmentId}`
+      list id=`environment-routes-list-${environmentId}` reorderdrop=dropRoute virtualized=true max-height="15rem" width="100%" overflow-x="hidden" role="list" aria-label=listLabel
+        each route in routes key=route.id
+          RouteRow(route=route, listId=`environment-routes-list-${environmentId}`, environmentId=environmentId, busy=busy, remove=remove)
+      row width="100%" box-sizing="border-box" padding="0.25rem" border-top-style="solid" border-top-width=1 border-color="light-dark(#e4e4e7b3, #ffffff12)"
+        button press=addRoute(environmentId, label) class=PvOutline disabled=busy testId=`environment-route-add-${environmentId}` height="1.5rem" padding-left="0.5rem" padding-right="0.5rem" gap="0.25rem" border-width=0 border-radius="0.375rem" box-shadow="none" background-color="#00000000"
+          RtGlyph(name="plus", size=12, color="light-dark(#71717b, #818181)")
+          text "Add route" font-size="0.75rem" line-height="1rem" font-weight=500 color="light-dark(#71717b, #818181)"
+
+// SortableRouteRow: grip, label with "In use", the address (and "· found automatically"), remove.
+component RouteRow
+  props
+    route: EnvRoute
+    listId: string
+    environmentId: string
+    busy: bool
+    remove: action
+  state tip = false
+  action hover(over: bool)
+    tip = over
+  view
+    row width="100%" box-sizing="border-box" min-height="2.75rem" padding-left="0.25rem" padding-right="0.25rem" padding-top="0.375rem" padding-bottom="0.375rem" gap="0.5rem" align-items="center" border-bottom-style="solid" border-bottom-width=(route.last ? 0 : 1) border-color="light-dark(#e4e4e7b3, #ffffff12)" background-color="light-dark(#fcfcfc, #0a0a0a)" role="listitem" testId=`environment-route-${route.position}`
+      box reorderFor=listId disabled=busy touch-action="none" aria-label=`Reorder ${route.label}, position ${route.position}` testId=`environment-route-grip-${route.position}` width="1.5rem" height="1.5rem" border-radius="0.25rem" display="flex" align-items="center" justify-content="center" flex-shrink=0
+        RtGlyph(name="grip", size=14, color="light-dark(#71717bb3, #818181b3)")
+      column flex=1 min-width=0
+        row gap="0.375rem" align-items="center"
+          text route.label font-size="0.75rem" line-height="1rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)" white-space="nowrap"
+          when route.inUse
+            text "In use" font-size="0.625rem" line-height="0.875rem" padding-left="0.25rem" padding-right="0.25rem" border-radius="0.125rem" background-color="light-dark(#00a63e1f, #00c9501f)" color="light-dark(#008236, #05df72)" testId=`environment-route-in-use-${route.position}`
+        when route.address != ""
+          text route.address font-size="0.625rem" line-height="0.875rem" line-clamp=1 color="light-dark(#71717b, #818181)"
+      when route.removable
+        box position="relative" hover=hover
+          button press=remove(route.target) class=PvIconButton width="1.5rem" height="1.5rem" aria-label=`Remove ${route.label} route` disabled=busy testId=`environment-route-remove-${route.position}`
+            RtGlyph(name="x", size=12, color="light-dark(#71717b, #818181)")
+          when tip
+            CnTooltip(tip="Remove route", tipId=`environment-route-remove-tip-${route.position}`, above=28)
+
+// requestConfirmDialog(`Remove <label> route?\n<address>`, destructive).
+component RouteRemoveDialog
+  props
+    route: EnvRoute
+    busy: bool
+    cancel: action
+    confirm: action
+  view
+    column class=RtOverlay testId="route-remove-overlay"
+      column width="100%" max-width="28rem" box-sizing="border-box" padding="1.5rem" gap="1rem" border-radius="1.125rem" border-style="solid" border-width=1 border-color="light-dark(#2727271a, #ffffff14)" background-color="light-dark(#fcfcfccc, #0a0a0acc)" backdrop-filter="blur(12px)" box-shadow="0 24px 64px -24px #000000a6" role="alertdialog" aria-label=`Remove ${route.label} route?` testId="route-remove-dialog"
+        column gap="0.5rem"
+          text `Remove ${route.label} route?` font-size="1.125rem" line-height="1.5rem" font-weight=600 color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=2
+          when route.address != ""
+            text route.address font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #818181)"
+        row gap="0.5rem" justify-content="flex-end"
+          button press=cancel class=PvOutline aria-keyshortcuts="Escape" disabled=busy testId="route-remove-cancel"
+            text "Cancel" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
+          button press=confirm class=PvOutline border-width=0 background-color="#e7000b" disabled=busy testId="route-remove-confirm"
+            text "Confirm" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="#ffffff"
+
+style RtOverlay
+  position="absolute" left=0 right=0 top=0 bottom=0
+  display="flex" align-items="center" justify-content="center"
+  background-color="light-dark(#fcfcfc99, #0a0a0aa3)" backdrop-filter="blur(4px)" padding="1rem" box-sizing="border-box" z-index=40

@@ -17,6 +17,8 @@ final class Presenter {
     /// what the main thread spent on a list window, a batch, a text slice.
     static let signposts = OSSignposter(subsystem: "com.exact.host", category: "scroll")
     var autofocusProcessed: Set<ObjectIdentifier> = []
+    /// Set the turn after the session's first activation. A booted session's autofocus waits for it.
+    var launchAutofocusReleased = false
     /// The session this presenter shows (LLP 1031 D1).
     weak var session: ExactSession?
     /// The document: the roots live here, content-sized like a page.
@@ -33,6 +35,7 @@ final class Presenter {
     /// A view's props were written (`NodeView.props`' own observer).
     func propsChanged(_ view: NodeView) {
         chrome.note(view.id, props: view.props)
+        if view.fieldFocused, view.disabled || view.props["fieldStyle"] == nil { view.fieldFocused = false }
         // HTML's `title`: the platform's tooltip (studio diary R24).
         if view.toolTip != view.props["title"] { view.toolTip = view.props["title"] }
     }
@@ -53,6 +56,8 @@ final class Presenter {
     let glassGroups = GlassGroups()
     /// Views with an authored offset waiting for their frames.
     var pendingScrolls: Set<UInt32> = []
+    /// The batch's suppression triggers for scroll anchoring (`ScrollAnchoring.swift`).
+    var anchorChanges = ScrollAnchoring.Changes()
     var heightBindings: [UInt32: HeightDragBinding] = [:]
     var transformBindings: [UInt32: TransformDragBinding] = [:]
     lazy var transformGeometry = TransformGeometryHost(self)
@@ -117,6 +122,7 @@ final class Presenter {
             guard let self else { return false }
             return !self.applying && !self.resetting
         }
+        viewport.pressedGround = { [weak self] in self?.selection.clear() }
         viewport.documentView = root
         viewport.hasVerticalScroller = true
         viewport.hasHorizontalScroller = true
@@ -150,6 +156,7 @@ final class Presenter {
         if let scrollObserver { NotificationCenter.default.removeObserver(scrollObserver) }
         pumpLink?.invalidate()
         hoverLink?.invalidate()
+        followLink?.invalidate()
     }
 
     /// How far past its visible part a paragraph's text is painted, and how
@@ -406,6 +413,7 @@ final class Presenter {
     /// its scroll synchronizer, and the scrolling thread is waiting on it.
     func scrolled() {
         AnimatedRasters.shared.poke()
+        followPointer()
         guard !applying, !inScrollCallback else { return }
         menus.layout()
         inScrollCallback = true
@@ -597,7 +605,7 @@ final class Presenter {
         transformBindings.removeAll()
         transformGeometry.reset()
         videoVisibility?.reset()
-        selection.structureChanged()
+        selection.structureChanged(); selection.clear() // a selection of the retired tree, unreported
         visibleText.removeAll()
         textViewportIndex = nil
         stopPump()
@@ -688,6 +696,9 @@ final class Presenter {
     var onPointer: ((UInt32, PointerKind, PointerSample) -> Void)?
     /// The node the primary button went down on, until it comes up.
     var pointerHeld: UInt32?
+    /// The last input was a pointer's press, not a key: a focus it, or a
+    /// handler it ran, moves shows no ring (`:focus-visible`, `FocusMac.swift`).
+    var focusByPointer = false
     /// The view AppKit sends the held button's drags and up to: the one it
     /// went down on, perhaps a child of the held node, kept in the window
     /// until the button comes up even if a batch removes it (`MouseChainMac`).
@@ -700,6 +711,13 @@ final class Presenter {
     var hoverMoves: [(UInt32, PointerSample)] = []
     var hoverLink: CADisplayLink?
     let hoverTarget = PumpTarget()
+    /// The next display frame's hit-test of a resting pointer the layout or
+    /// a scroll moved content under (`followPointer`); one a frame.
+    var followLink: CADisplayLink?
+    let followTarget = PumpTarget()
+    /// Where the agent's pointer rests, in window points (its last `tap …
+    /// hover`); under the agent it stands for the system cursor.
+    var agentPointer: NSPoint?
     var onSwiperight: ((UInt32) -> Void)?
     /// Pull-to-refresh is UIKit's; AppKit has no such control, so this never fires.
     var onRefresh: ((UInt32) -> Void)?
@@ -825,15 +843,19 @@ final class Presenter {
         guard !resetting, textHost(id) != nil else { return }
         if applying { waiting.append((id, f)) } else { f() }
     }
+    /// One enter and one leave per hover, as the web's `mouseenter` and
+    /// `mouseleave`: a tracking area's every move, and its exit after the
+    /// resting pointer's hit-test already moved the hover (`followPointer`),
+    /// send nothing more.
     func hover(_ view: NodeView, _ over: Bool) {
         if over { hoverInline(nil) }
-        guard views[view.id] === view else { return }
+        guard views[view.id] === view, (hovered === view) != over else { return }
         if over {
-            if let h = hovered, h !== view { send(h.id) { [self] in onHover?(h.id, false) } }
+            if let h = hovered { send(h.id) { [self] in onHover?(h.id, false) } }
             hovered = view
             send(view.id) { [self] in onHover?(view.id, true) }
         } else {
-            if hovered === view { hovered = nil }
+            hovered = nil
             send(view.id) { [self] in onHover?(view.id, false) }
         }
     }
@@ -875,6 +897,7 @@ final class Presenter {
         viewport.invalidateDocumentFit()
         collections.beginBatch(batch)
         toolbar.prepare()
+        anchorChanges.reset()
         for id in scrollers where !collections.owns(id) { views[id]?.captureScrollPosition() }
         if let e = batch.error { FileHandle.standardError.write(Data("exact: \(e)\n".utf8)) }
         if let text = session?.text {
@@ -891,6 +914,8 @@ final class Presenter {
         elements.begin(batch)
         // Create, frame or content ops: rows may have come or moved (`HeavyLeaves.batchApplied`).
         let moved = batch.ops.contains { [.create, .frame, .content].contains($0.op) }
+        // What may now lie under a resting pointer: boxes made, moved, gone or transformed.
+        let relaid = batch.ops.contains { [.create, .frame, .children, .roots, .destroy, .present, .style, .props, .rank, .sticky, .fragments, .exit].contains($0.op) }
         defer {
             collections.endBatch()
             collections.observeKnobDrags()
@@ -912,6 +937,8 @@ final class Presenter {
                 if !boxFilters.isEmpty { boxFilters.render() }
                 leaves.batchApplied(moved: moved)
             }
+            // Only scheduled: the hit-test is the next display frame's.
+            if relaid { followPointer() }
         }
         if !batch.ops.isEmpty { textViewportIndex = nil }
         var reparented = Set<UInt32>()
@@ -963,8 +990,9 @@ final class Presenter {
                 views[id]?.applyFlow(op.payload["shapes"] as? [[String: Any]] ?? [])
             case .style:
                 guard let v = views[id] ?? leaving[id]?.view else { continue }
-                let color = v.style["text_color"]
+                let color = v.style["text_color"], old = v.style
                 v.applyStyle(op.style)
+                anchorChanges.note(id, from: old, to: v.style)
                 if v.surface != nil { v.applySurface() }
                 // Paint motion re-sends a style per frame (LLP 1055.000 D6);
                 // a view that paints in an appearance of its own says so

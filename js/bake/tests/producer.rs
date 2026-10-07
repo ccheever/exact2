@@ -438,7 +438,7 @@ fn storage_types_are_checked_by_the_actual_bake_without_granting_bake_io() {
     f.write("app.ts", &source);
     let baked = f.bake();
     assert!(baked.declarations.contains(include_str!(
-        "../../../vendor/ibex2/src/bindings/storage.d.ts"
+        "../../../vendor/ibex/crates/ibex2/src/bindings/storage.d.ts"
     )));
     let candidate = paired(&baked);
     let live = Runner::boot(
@@ -1038,4 +1038,160 @@ fn a_slow_first_frame_source_bakes_whatever_the_wall_clock() {
         live.resource("message").is_some(),
         "the slow source's first frame is baked"
     );
+}
+
+/// The clock in the app's own code is refused at build, by file and line,
+/// in both compilers, so a Bun test (no guard there) cannot hide it from a
+/// device that refuses it on first use (LLP 1027.000).
+#[test]
+fn the_clock_in_a_data_module_is_refused_at_build_by_file_and_line() {
+    if !exact_js::ENGINE_LINKED {
+        return;
+    }
+    let f = Fixture::new();
+    f.write(
+        "logic.ts",
+        "export const prefix = 'old: ';\nexport const stamp = () => Date.now();\n",
+    );
+    let error = bake(&f.0, &Tools::default())
+        .err()
+        .expect("Date.now() refused");
+    assert!(
+        error.contains("logic.ts:2:28: Date.now() is unavailable in data sources; pass time or a random seed as an argument"),
+        "{error}"
+    );
+    let mut producer = exact_js_bake::Producer::new(Tools::default()).unwrap();
+    assert!(producer
+        .bake(&f.0, None)
+        .err()
+        .unwrap()
+        .contains("logic.ts:2:28: Date.now()"));
+    // Through a global object, past `!`, after a CR line break.
+    f.write("logic.ts", "export const prefix = 'old: ';\rexport const a = () => globalThis.Date.now();\nexport const b = () => Date.now!();\nexport const c = () => window.setTimeout(() => {}, 1);\n");
+    let error = producer.bake(&f.0, None).err().unwrap();
+    assert!(error.contains("logic.ts:2:24: Date.now()"), "{error}");
+    assert!(error.contains("logic.ts:3:24: Date.now()"), "{error}");
+    assert!(
+        error.contains(
+            "logic.ts:4:24: setTimeout() is unavailable in data sources: there are no timers"
+        ),
+        "{error}"
+    );
+    // An angle-bracket assertion, a `declare`d class and a type-only
+    // namespace are erased: the global runs.
+    f.write("logic.ts", "export const prefix = 'old: ';\ndeclare class Date { static now(): number }\nnamespace Math { export type R = number }\nexport const a = () => (<any>Date).now() + Math.random();\n");
+    let error = producer.bake(&f.0, None).err().unwrap();
+    assert!(error.contains("logic.ts:4:24: Date.now()"), "{error}");
+    assert!(error.contains("logic.ts:4:44: Math.random()"), "{error}");
+    // An explicit date, a member named `now` elsewhere, a comment, and a
+    // `Date` or `performance` the module binds itself are fine.
+    f.write("logic.ts", "export const prefix = 'old: ';\n// Date.now() is refused\nexport const epoch = new Date(0).getTime() + ({ now: () => 1 }).now();\nexport const stamp = (performance: { now(): number }) => performance.now();\n");
+    assert!(
+        producer.bake(&f.0, None).is_ok(),
+        "{:?}",
+        producer.bake(&f.0, None).err()
+    );
+    f.write("logic.ts", "export const prefix = 'old: ';\nnamespace Date { export function now() { return 1; } }\nexport const local = () => Date.now();\n");
+    assert!(
+        producer.bake(&f.0, None).is_ok(),
+        "{:?}",
+        producer.bake(&f.0, None).err()
+    );
+}
+
+/// LLP 1091.001: a native producer keeps package identity without symlink privilege.
+#[cfg(windows)]
+#[test]
+fn windows_imported_packages_keep_identity_through_real_bakes() {
+    // No stub-engine skip: bake must succeed through real Hermes below.
+    let f = Fixture::new();
+    let package = f.0.join("node_modules/.packages/café # 雪");
+    std::fs::create_dir_all(package.join("src")).unwrap();
+    std::fs::create_dir_all(package.join(".hidden")).unwrap();
+    let inputs = [
+        (
+            package.join("package.json"),
+            r#"{"name":"fixture-ui","version":"1.0.0","exports":"./src/card.contract"}"#,
+        ),
+        (
+            package.join(".hidden/pad.contract"),
+            "style Pad\n  padding-top=10\n",
+        ),
+        (
+            package.join("src/card.contract"),
+            "use Pad from \"../.hidden/pad.contract\"\ncomponent Card\n  view\n    column class=Pad\n      text \"from package\"\n",
+        ),
+    ];
+    for (path, text) in &inputs {
+        std::fs::write(path, text).unwrap();
+    }
+    // These are the app's installed aliases, before the producer creates its stage.
+    let linked = exact_bake::bun()
+        .args([
+            "-e",
+            "const fs=require('node:fs'),p=require('node:path'); const root=fs.realpathSync.native(process.argv[1]),app=process.argv[2]; for(const name of ['ui','@survey/ui']){const link=p.join(app,'node_modules',name);fs.mkdirSync(p.dirname(link),{recursive:true});fs.symlinkSync(root,link,'junction');}",
+        ])
+        .arg(&package)
+        .arg(&f.0)
+        .output()
+        .unwrap();
+    assert!(
+        linked.status.success(),
+        "{}",
+        String::from_utf8_lossy(&linked.stderr)
+    );
+    let contract = format!(
+        "use Card as First from \"ui\"\nuse Card as Second from \"@survey/ui\"\n{}",
+        CONTRACT.replace(
+            "      text message",
+            "      First()\n      Second()\n      text message"
+        )
+    );
+    f.write("app.contract", &contract);
+    contract::compile_path(&f.0.join("app.contract")).unwrap();
+    let graph = contract::source_graph(&f.0.join("app.contract"));
+    assert!(graph.errors.is_empty());
+    assert_eq!(graph.packages.len(), 2);
+    let canonical = package.canonicalize().unwrap();
+    assert!(graph.packages.iter().all(|p| p.root == canonical));
+    let card = package.join("src/card.contract").canonicalize().unwrap();
+    assert_eq!(graph.sources.iter().filter(|s| s.path == card).count(), 1);
+
+    let first = f.bake();
+    let candidate = paired(&first);
+    let live = Runner::boot(
+        candidate.plan,
+        candidate.module,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    assert_eq!(live.resource("message"), Some(&Value::str("old: 0")));
+    let mut producer = exact_js_bake::Producer::new(Tools::default()).unwrap();
+    let resident = producer.bake(&f.0, None).unwrap();
+    let again = producer.bake(&f.0, None).unwrap();
+    assert_eq!(resident.plan, first.plan);
+    assert_eq!(again.receipt, resident.receipt);
+    let map: Json = serde_json::from_str(resident.source_map.as_ref().unwrap()).unwrap();
+    let nodes: Vec<_> = map["nodes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|node| node["component"] == "Card")
+        .collect();
+    assert!(!nodes.is_empty());
+    for node in nodes {
+        assert_eq!(node["file"], card.to_str().unwrap());
+    }
+    for (path, text) in inputs {
+        assert_eq!(std::fs::read_to_string(path).unwrap(), text);
+    }
+    for (name, text) in [
+        ("app.contract", contract.as_str()),
+        ("app.ts", SOURCE),
+        ("logic.ts", "export const prefix = 'old: ';\n"),
+    ] {
+        assert_eq!(std::fs::read_to_string(f.0.join(name)).unwrap(), text);
+    }
 }

@@ -109,14 +109,30 @@ impl<D: DataSource> Runner<D> {
     }
 
     /// The journal's word when an answer lands on a build-time one shown
-    /// until its source was ready (LLP 1048.003 D6).
+    /// until its source was ready (LLP 1048.003 D6), or on a kept answer
+    /// (LLP 1027 D4) that it contradicts: the first frame showed the last
+    /// session's value, which a reader of only the final frame never sees
+    /// (LLP 1102 §3.17).
     pub(super) fn revalidated(&mut self, i: usize, shown: Option<&ResourceState>, answer: &Value) {
-        let Some(shown) = shown.filter(|s| self.stale[i] && s.value.is_compiled()) else {
+        let Some(shown) = shown.filter(|_| self.stale[i]) else {
             return;
         };
+        // A stale value that is neither build-time nor a placeholder is one the
+        // last session left (a kept answer; its `kept_seed` mark is consumed
+        // at activation, before the answer lands).
+        let compiled = shown.value.is_compiled();
+        if !compiled && shown.placeholder {
+            return;
+        }
         let same = crate::compare::equivalent(shown.value.get(&self.plan), answer);
-        let line = super::lines::revalidated(self.plan.str(self.plan.resources[i].name), same);
-        self.log(line);
+        let name = self.plan.str(self.plan.resources[i].name);
+        if compiled {
+            let line = super::lines::revalidated(name, same);
+            self.log(line);
+        } else if !same {
+            let line = super::lines::kept_contradicted(name);
+            self.log(line);
+        }
     }
 
     /// Whether resource `i` is another's `else` row (LLP 1048.003 D6).
@@ -159,9 +175,7 @@ impl<D: DataSource> Runner<D> {
         if self.conforms(value, row.ty) {
             Ok(())
         } else {
-            Err(RunnerError::Shape {
-                resource: self.plan.str(row.name).to_string(),
-            })
+            Err(self.shape(self.plan.str(row.name).to_string(), value, row.ty))
         }
     }
 

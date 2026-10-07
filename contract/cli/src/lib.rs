@@ -26,6 +26,7 @@ mod sources;
 mod strings;
 mod surface;
 mod symbols;
+pub mod terminal;
 mod typescript;
 
 pub use contract_types::strings::Strings;
@@ -481,6 +482,21 @@ pub fn surface_findings(path: &Path) -> Result<SurfaceFindings, Vec<CompileError
     })
 }
 
+/// Compile a terminal entry (LLP 1101 D2): the terminal profile's refusals,
+/// every one, then the ordinary compile.
+pub fn compile_path_terminal(path: &Path) -> Result<Plan, Vec<CompileError>> {
+    let src = read_source(path).map_err(|e| vec![e])?;
+    let app_root = app_root(path)?;
+    let (file, sources) = sources::load(path, &src, &app_root)?;
+    terminal::check(&file).map_err(|all| {
+        all.into_iter()
+            .map(|e| sources.resolve(e))
+            .collect::<Vec<_>>()
+    })?;
+    compile_path_checked(path, &src, false, true, contract_lower::Profile::Terminal)
+        .map(|(plan, _)| plan)
+}
+
 /// [`compile_path_all`] without the surface-argument check, which the
 /// author's commands make apart ([`surface_findings`]).
 pub fn compile_path_all_unchecked(
@@ -488,7 +504,7 @@ pub fn compile_path_all_unchecked(
     mapped: bool,
 ) -> Result<(Plan, Option<SourceMap>), Vec<CompileError>> {
     let src = read_source(path).map_err(|e| vec![e])?;
-    compile_path_checked(path, &src, mapped, false)
+    compile_path_checked(path, &src, mapped, false, contract_lower::Profile::Web)
 }
 
 fn app_root(path: &Path) -> Result<PathBuf, Vec<CompileError>> {
@@ -513,7 +529,7 @@ fn compile_path_output(
     src: &str,
     mapped: bool,
 ) -> Result<(Plan, Option<SourceMap>), Vec<CompileError>> {
-    compile_path_checked(path, src, mapped, true)
+    compile_path_checked(path, src, mapped, true, contract_lower::Profile::Web)
 }
 
 fn compile_path_checked(
@@ -521,6 +537,7 @@ fn compile_path_checked(
     src: &str,
     mapped: bool,
     surfaces: bool,
+    profile: contract_lower::Profile,
 ) -> Result<(Plan, Option<SourceMap>), Vec<CompileError>> {
     let app_root = app_root(path)?;
     let (file, sources) = sources::load(path, src, &app_root)?;
@@ -553,14 +570,14 @@ fn compile_path_checked(
         all
     };
     let strings = strings::load(&app_root, path).map_err(joined)?;
-    let (mut plan, sites) =
-        compile_file_output(&file, Some(&app_root), strings, mapped).map_err(|all| {
-            joined(
-                all.into_iter()
-                    .map(|e| sources.resolve(e))
-                    .collect::<Vec<_>>(),
-            )
-        })?;
+    let (mut plan, sites) = compile_file_output(&file, Some(&app_root), strings, mapped, profile)
+        .map_err(|all| {
+        joined(
+            all.into_iter()
+                .map(|e| sources.resolve(e))
+                .collect::<Vec<_>>(),
+        )
+    })?;
     if !surface.is_empty() {
         return Err(surface);
     }
@@ -599,14 +616,24 @@ fn compile_path_checked(
 /// names the same fact itself (habits F7, calendar F13).
 pub fn tests(src: &str) -> Result<Vec<TestDecl>, CompileError> {
     let file = contract_syntax::parse(src)?;
-    let word = |s: &Step| std::mem::discriminant(s);
     Ok(file
         .tests
         .into_iter()
         .map(|mut test| {
-            let own: Vec<_> = test.steps.iter().map(word).collect();
-            let inherited = file.launch.iter().filter(|l| !own.contains(&word(l)));
-            test.steps = inherited.cloned().chain(test.steps).collect();
+            // By fact, among the test's own leading launch lines: a `fail
+            // fetch` line by its prefix (LLP 1103 D3); a later one is a step.
+            let leading = test
+                .steps
+                .iter()
+                .take_while(|s| contract_syntax::is_launch(s));
+            let own = |l: &Step| leading.clone().any(|s| contract_syntax::same_launch(s, l));
+            let inherited = file
+                .launch
+                .iter()
+                .filter(|l| !own(l))
+                .cloned()
+                .collect::<Vec<_>>();
+            test.steps = inherited.into_iter().chain(test.steps).collect();
             test
         })
         .collect())
@@ -764,6 +791,18 @@ pub fn tests_json(tests: &[TestDecl]) -> String {
                 Step::Reload { .. } => s.push_str("{\"op\":\"reload\""),
                 Step::Close { .. } => s.push_str("{\"op\":\"close\""),
                 Step::BeforeData { .. } => s.push_str("{\"op\":\"before-data\""),
+                Step::FailFetch { prefix, times, .. } => {
+                    s.push_str("{\"op\":\"fail-fetch\",\"prefix\":");
+                    q(prefix, &mut s);
+                    match times {
+                        Some(n) => s.push_str(&format!(",\"times\":{n}")),
+                        None => s.push_str(",\"times\":null"),
+                    }
+                }
+                Step::PassFetch { prefix, .. } => {
+                    s.push_str("{\"op\":\"pass-fetch\",\"prefix\":");
+                    q(prefix, &mut s);
+                }
                 Step::Resize { width, height, .. } => {
                     s.push_str(&format!(
                         "{{\"op\":\"resize\",\"width\":{width},\"height\":{height}"
@@ -893,7 +932,7 @@ pub fn tests_json(tests: &[TestDecl]) -> String {
 fn compile_file(file: File, asset_root: Option<&Path>) -> Result<Plan, CompileError> {
     // Media alone: a text has no app, so no `file_handlers` (LLP 1069.002 D1).
     picker::check(&file, None).map_err(first)?;
-    compile_file_output(&file, asset_root, None, false)
+    compile_file_output(&file, asset_root, None, false, contract_lower::Profile::Web)
         .map(|(plan, _)| plan)
         .map_err(first)
 }
@@ -909,6 +948,7 @@ fn compile_file_output(
     asset_root: Option<&Path>,
     strings: Option<std::sync::Arc<contract_types::strings::Strings>>,
     mapped: bool,
+    profile: contract_lower::Profile,
 ) -> Result<(Plan, Option<contract_lower::Sites>), Vec<CompileError>> {
     // Each pass runs on what the one before it accepted, and reports all of
     // its own refusals.
@@ -939,7 +979,7 @@ fn compile_file_output(
         .map_err(|all| with_lint(each(all, hint)))?;
     let analysis =
         contract_analyze::check_all(&checked).map_err(|all| with_lint(each(all, hint)))?;
-    contract_lower::lower_all(&checked, &analysis, asset_root, mapped)
+    contract_lower::lower_all(&checked, &analysis, asset_root, mapped, profile)
         .map_err(|all| each(all, |e| e))
 }
 

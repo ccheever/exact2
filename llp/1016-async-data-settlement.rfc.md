@@ -205,6 +205,22 @@ none, and ibex2's transport is the platform's; whatever ends a request without
 a response arrives as `Failed`, and a timeout policy, if one is ever wanted,
 is a later decision for both executors at once.
 
+> **Amended 2026-10-05 (the Signal clone's minute-long sends; team lead's
+> request).** A source may now ask for a deadline per request:
+> TypeScript's `fetch(url, { exactTimeout: ms })`, `Request::timeout(ms)` in
+> Rust, 1 to 3,600,000 ms, for the whole exchange. When it passes the
+> executor cancels the request and replies `Outcome::Failed` with the new
+> `FailureKind::Timeout` (a `FetchError` of kind `Timeout`). Both executors
+> at once, as this paragraph asked: the native one arms a deadline that aborts
+> the exchange (and sets the platform's own limit, URLSession's
+> `timeoutInterval` or ureq's, a second past it so it never ends a request
+> first), the web's uses `AbortSignal.timeout`. A request without one keeps
+> the platform's limits; a stream, storage, native or auth work takes none,
+> and is refused by name. A separately loaded Rust module (LLP 1027.002's
+> seam) cannot pass one yet: the seam has no field for it, so such a request
+> is refused rather than sent without its deadline. Off Apple, a name lookup
+> is the system resolver's and the deadline is seen once it returns.
+
 ### D5 — One request per resource; the newest arguments win
 
 A resource has at most one request in flight. When settlement finds a pending
@@ -238,6 +254,21 @@ forwarder, and the executor uses a disposable snapshot. `discard` still cancels
 uncommitted deferred calls. This does not extend the lifetime of forgotten fetches
 or work across unload (2026-10-05, authoring-bench lost-write repair).
 
+A forgotten call waiting on a fetch is not stranded either (2026-10-05, the
+Signal clone's stuck `flushing` flag): the native JavaScript executor (and
+the web's wasm module realm, which runs its prelude) rejects that fetch with
+a `FetchError` of kind `Aborted` and runs the continuation between answers,
+with no answer current, so its `catch` and `finally` run; the reply is still
+dropped on arrival. A stream's fetch is not rejected: its promise never
+settles. The web build's fetch is the browser's, whose promise settles with
+the reply. A mutation that needs every reply is a `queue`
+mutation (LLP 1092).
+
+*Amended 2026-10-07 by LLP 1016.002 D4 (issue #109):* a device topic's
+re-ask does not forget a request in flight. The reply lands, and that commit
+asks the resource again, forced, once for all the announcements that came
+while the request was out.
+
 A reload (`boot_carrying`, LLP 1005 §6) drops every ticket; the carried
 arguments re-request what has no compiled value. The agent's `clock settle`
 (LLP 1012 §2) waits for in-flight requests as it waits for motion and timers,
@@ -252,7 +283,7 @@ matched whole, never a prefix (as built: the web glue matches `URL.origin`
 the same way). *Amended 2026-09-26 (Charlie, LLP 1054.000 R5):* or
 `scheme://*.domain`, every host strictly under one domain of two labels or
 more, at that scheme and port; a cross-origin redirect drops the request's
-credentials (vendor/ibex2 patch 1). The app's data crate declares its grants as one constant —
+credentials (vendor/ibex/crates/ibex2 patch 1). The app's data crate declares its grants as one constant —
 `pub const GRANTS: &str = "net.fetch https://api.castle.xyz\n";` — that the
 `host!` macros hand to `Host::endow` on Apple and that `glue.js` receives at
 boot (a string list) and checks before `fetch`, so a request outside the grant

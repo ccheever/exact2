@@ -1,0 +1,131 @@
+{
+  "schema_version": 1,
+  "task": "20261005-remote-scopes-and-update-commands",
+  "captured_at": "2026-10-06T06:15:14.323280+00:00",
+  "source": {
+    "digest": "04454aad63111ed5bcf7d6a6662270e2af511552",
+    "algorithm": "git-tree-sha1",
+    "commit": "60a28292df26bda45397934b6598e2f55d5a3053",
+    "implementation_unchanged_since_build": true
+  },
+  "source_report_sha256": "d33dfb29a165bcf733865af36f1fe4ec224a02bce7502854b5c112474461f081",
+  "verification_status": "blocked",
+  "notice": "Artifact integrity only; behavior requires independent acceptance assertions.",
+  "artifacts": [
+    {
+      "path": "evidence/20261005-remote-scopes-and-update-commands/20261006-install-kinds-and-lock-diagnosis/README.md",
+      "bytes": 5932,
+      "sha256": "524716e18ca4e3bb1b059d4433a246641bb443d2f0272bc31d54bcc39c2786b0"
+    },
+    {
+      "path": "evidence/20261005-remote-scopes-and-update-commands/20261006-install-kinds-and-lock-diagnosis/bunx.png",
+      "bytes": 490502,
+      "sha256": "8b14eb48c15ead25e48195ec47375ff7f24f181af44152e1ce7f67d97be8f677"
+    },
+    {
+      "path": "evidence/20261005-remote-scopes-and-update-commands/20261006-install-kinds-and-lock-diagnosis/capture-report.json",
+      "bytes": 1120,
+      "sha256": "d33dfb29a165bcf733865af36f1fe4ec224a02bce7502854b5c112474461f081"
+    },
+    {
+      "path": "evidence/20261005-remote-scopes-and-update-commands/20261006-install-kinds-and-lock-diagnosis/clipboard-drive.log",
+      "bytes": 105,
+      "sha256": "b5edf49ef22f907b50ba54f239bf9cb8a3fb7dfc2ef6a18d8afb0187a6dbb152"
+    },
+    {
+      "path": "evidence/20261005-remote-scopes-and-update-commands/20261006-install-kinds-and-lock-diagnosis/clipboard-failure-tree.json",
+      "bytes": 328098,
+      "sha256": "14ee518b20f3769657b0ce2ae27deeace908f52213d5508d519ac9b12b92cdd1"
+    },
+    {
+      "path": "evidence/20261005-remote-scopes-and-update-commands/20261006-install-kinds-and-lock-diagnosis/clipboard-failure.png",
+      "bytes": 406604,
+      "sha256": "9ffce25ea4d485f882e7641e0b087686aeea3a87f3cf49415a85e15eddf01453"
+    },
+    {
+      "path": "evidence/20261005-remote-scopes-and-update-commands/20261006-install-kinds-and-lock-diagnosis/clipboard-fault-logs.json",
+      "bytes": 111439,
+      "sha256": "3f71794d59180b2eff4b48ed65a17cf614d022854bfafde033edbb6a5ba6b4de"
+    },
+    {
+      "path": "evidence/20261005-remote-scopes-and-update-commands/20261006-install-kinds-and-lock-diagnosis/clipboard-recovery-results.json",
+      "bytes": 351,
+      "sha256": "6227965c31a067f813136d4119dec769fcd4be87e483828f32296cf0247c3307"
+    },
+    {
+      "path": "evidence/20261005-remote-scopes-and-update-commands/20261006-install-kinds-and-lock-diagnosis/clipboard-recovery.png",
+      "bytes": 438367,
+      "sha256": "c26d55fa8eca25198480aa1eab385bcc7af98c8bd2e2c264eedf8249966542b0"
+    },
+    {
+      "path": "evidence/20261005-remote-scopes-and-update-commands/20261006-install-kinds-and-lock-diagnosis/install-descriptors.json",
+      "bytes": 1918,
+      "sha256": "a5db9478a3738000557344a552f8ee5418a733c659374853ded24ec17f9b3729"
+    },
+    {
+      "path": "evidence/20261005-remote-scopes-and-update-commands/20261006-install-kinds-and-lock-diagnosis/install-drive-attempt2.log",
+      "bytes": 189,
+      "sha256": "9e237dfbe3e20b848522f481fa899aeef63e6c69cf5ffcb00a945d37ac967276"
+    },
+    {
+      "path": "evidence/20261005-remote-scopes-and-update-commands/20261006-install-kinds-and-lock-diagnosis/install-drive.log",
+      "bytes": 1242,
+      "sha256": "a0c4a10cb60018865f1088e9a9f4cacd5dedb8d11b50ddeb8969a24c1d702a96"
+    },
+    {
+      "path": "evidence/20261005-remote-scopes-and-update-commands/20261006-install-kinds-and-lock-diagnosis/install-results.json",
+      "bytes": 954,
+      "sha256": "4afdfc36192d9e39bc1687a23ae7e9bef920dbaf0523b6e6c53a787d6e1979b6"
+    },
+    {
+      "path": "evidence/20261005-remote-scopes-and-update-commands/20261006-install-kinds-and-lock-diagnosis/keychain-stack.txt",
+      "bytes": 1052,
+      "sha256": "580ca6f4d1f0dbf9750a3de60e43cdc5f1ada8932d6a425d35e46151d042c50c"
+    },
+    {
+      "path": "evidence/20261005-remote-scopes-and-update-commands/20261006-install-kinds-and-lock-diagnosis/legacy-clients-after-launch.json",
+      "bytes": 576,
+      "sha256": "c6db931379704db7d1af50a801d58a9106c8e96794eb69291f66b6ac9808b03f"
+    },
+    {
+      "path": "evidence/20261005-remote-scopes-and-update-commands/20261006-install-kinds-and-lock-diagnosis/legacy-ui.json",
+      "bytes": 766,
+      "sha256": "891447d2e86225d211dca4d094a192479bfa609bfa13e29fe1481cd16cbfc94c"
+    },
+    {
+      "path": "evidence/20261005-remote-scopes-and-update-commands/20261006-install-kinds-and-lock-diagnosis/lock-state.json",
+      "bytes": 178,
+      "sha256": "f12bc645d0e1c81af8bee3c820680e37375e5e55b282cf99d72f5484d6e469f1"
+    },
+    {
+      "path": "evidence/20261005-remote-scopes-and-update-commands/20261006-install-kinds-and-lock-diagnosis/normal-cleanup.json",
+      "bytes": 105,
+      "sha256": "5532624d325e3314bcaeecf4eb9c1d14d61d0181f077c87e364eebd38dd60774"
+    },
+    {
+      "path": "evidence/20261005-remote-scopes-and-update-commands/20261006-install-kinds-and-lock-diagnosis/npm-global.png",
+      "bytes": 438367,
+      "sha256": "c26d55fa8eca25198480aa1eab385bcc7af98c8bd2e2c264eedf8249966542b0"
+    },
+    {
+      "path": "evidence/20261005-remote-scopes-and-update-commands/20261006-install-kinds-and-lock-diagnosis/npx.png",
+      "bytes": 509557,
+      "sha256": "c20c51f48b8dd89fd8329c9ecb94c5e6a6b380cd86bb0a9a19431785d9375077"
+    },
+    {
+      "path": "evidence/20261005-remote-scopes-and-update-commands/20261006-install-kinds-and-lock-diagnosis/pnpm-dlx.png",
+      "bytes": 471474,
+      "sha256": "aac57c8af953c34b464f7acdc9490a1b20e8cedf17e2e69b923853a87235bfc8"
+    },
+    {
+      "path": "evidence/20261005-remote-scopes-and-update-commands/20261006-install-kinds-and-lock-diagnosis/servers-cleanup.json",
+      "bytes": 502,
+      "sha256": "efb33b2f5fd1c4c19cbab08f884a85033a6beb736c13c852602524ee10acb015"
+    },
+    {
+      "path": "evidence/20261005-remote-scopes-and-update-commands/20261006-install-kinds-and-lock-diagnosis/small-dark.png",
+      "bytes": 404226,
+      "sha256": "4e5fffd4a9e3a22bcab6b5c499a4387e48391e8c95266917ab70d0e92be67d44"
+    }
+  ]
+}

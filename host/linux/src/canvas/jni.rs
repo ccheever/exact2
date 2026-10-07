@@ -33,6 +33,10 @@ macro_rules! canvas_jni {
 
             type Host = $crate::canvas::CanvasHost<$data>;
 
+            /// How long after boot the library's read-only pages are let go of
+            /// (boot's own work is done; see `release_library_pages_after`).
+            const RELEASE_AFTER: std::time::Duration = std::time::Duration::from_secs(2);
+
             thread_local! {
                 static HOST: RefCell<Option<Host>> = const { RefCell::new(None) };
                 /// The op stream the last `frame` returned; the reader reads it in place.
@@ -87,6 +91,7 @@ macro_rules! canvas_jni {
                 match Host::boot(PLAN, COMPAT, (width as u32, height as u32), scale) {
                     Ok(h) => {
                         HOST.with(|slot| *slot.borrow_mut() = Some(h));
+                        $crate::android::release_library_pages_after(RELEASE_AFTER);
                         JNI_TRUE
                     }
                     Err(e) => {
@@ -166,6 +171,7 @@ macro_rules! canvas_jni {
                         h.set_borrowed(false);
                         HOST.with(|s| *s.borrow_mut() = Some(h));
                         PRIMED.with(|p| *p.borrow_mut() = first);
+                        $crate::android::release_library_pages_after(RELEASE_AFTER);
                         JNI_TRUE
                     }
                     Err(e) => {
@@ -338,6 +344,28 @@ macro_rules! canvas_jni {
                 flag($crate::canvas::jni::copy_buffer(env, id as u32, buffer))
             }
 
+            /// The reader wraps a picture's own GPU buffer (`imageBuffer`): from
+            /// now on platform-decoded pictures are decoded into one.
+            #[no_mangle]
+            pub unsafe extern "system" fn Java_dev_exact_bench_exactcanvas_Native_hardwarePictures(
+                _env: *mut JNIEnv,
+                _class: jclass,
+                on: jboolean,
+            ) {
+                $crate::image::hardware_pictures(on == JNI_TRUE);
+            }
+
+            /// Picture `id`'s own GPU buffer as a `HardwareBuffer` to wrap, or
+            /// null when its pixels are on the heap (copy them instead).
+            #[no_mangle]
+            pub unsafe extern "system" fn Java_dev_exact_bench_exactcanvas_Native_imageBuffer(
+                env: *mut JNIEnv,
+                _class: jclass,
+                id: jint,
+            ) -> jobject {
+                $crate::canvas::jni::image_buffer(env, id as u32)
+            }
+
             /// A GPU canvas's window (op 28, kind 3); the window to pass back to
             /// `detachSurface`, or 0.
             #[no_mangle]
@@ -434,6 +462,54 @@ macro_rules! canvas_jni {
                 _class: jclass,
             ) -> jboolean {
                 if $crate::android::fast_cores() {
+                    JNI_TRUE
+                } else {
+                    JNI_FALSE
+                }
+            }
+
+            /// An ADPF hint session over `tids` (this process's threads) with
+            /// `target_ns` as their work's target; whether there is one.
+            #[no_mangle]
+            pub unsafe extern "system" fn Java_dev_exact_bench_exactcanvas_Native_hintSession(
+                env: *mut JNIEnv,
+                _class: jclass,
+                tids: jintArray,
+                target_ns: jlong,
+            ) -> jboolean {
+                let n = ((**env).GetArrayLength.expect("jni"))(env, tids).max(0) as usize;
+                let mut v = vec![0i32; n];
+                ((**env).GetIntArrayRegion.expect("jni"))(env, tids, 0, n as i32, v.as_mut_ptr());
+                if $crate::android_hint::session(&v, target_ns) {
+                    JNI_TRUE
+                } else {
+                    JNI_FALSE
+                }
+            }
+
+            /// Input arrived: the hint session's threads are about to work
+            /// (`hintSession`); whether a hint was sent.
+            #[no_mangle]
+            pub unsafe extern "system" fn Java_dev_exact_bench_exactcanvas_Native_inputHint(
+                _env: *mut JNIEnv,
+                _class: jclass,
+            ) -> jboolean {
+                if $crate::android_hint::input() {
+                    JNI_TRUE
+                } else {
+                    JNI_FALSE
+                }
+            }
+
+            /// Run thread `tid` on the calling thread's CPU until it widens its
+            /// own mask (`fastCores`); whether it was set.
+            #[no_mangle]
+            pub unsafe extern "system" fn Java_dev_exact_bench_exactcanvas_Native_colocate(
+                _env: *mut JNIEnv,
+                _class: jclass,
+                tid: jint,
+            ) -> jboolean {
+                if $crate::android_hint::colocate(tid) {
                     JNI_TRUE
                 } else {
                     JNI_FALSE
@@ -569,6 +645,7 @@ extern "C" {
     fn ANativeWindow_fromSurface(env: *mut JNIEnv, surface: jobject) -> *mut c_void;
     fn ANativeWindow_release(window: *mut c_void);
     fn AHardwareBuffer_fromHardwareBuffer(env: *mut JNIEnv, buffer: jobject) -> *mut c_void;
+    fn AHardwareBuffer_toHardwareBuffer(env: *mut JNIEnv, buffer: *mut c_void) -> jobject;
     fn AHardwareBuffer_describe(buffer: *const c_void, desc: *mut BufferDesc);
     fn AHardwareBuffer_lock(
         buffer: *mut c_void,
@@ -630,6 +707,27 @@ pub unsafe fn copy_bitmap(env: *mut JNIEnv, id: u32, bitmap: jobject) -> bool {
     );
     AndroidBitmap_unlockPixels(env, bitmap);
     true
+}
+
+/// Picture `id`'s own GPU buffer as a Java `HardwareBuffer` (which holds its
+/// own reference), taking the picture as fetched; null, and the picture left
+/// to be copied, when its pixels are on the heap.
+///
+/// # Safety
+/// `env` is the JNI call's.
+pub unsafe fn image_buffer(env: *mut JNIEnv, id: u32) -> jobject {
+    let mut pending = super::pending();
+    let Some(super::Picture::Bitmap(bitmap)) = pending.get(&id) else {
+        return std::ptr::null_mut();
+    };
+    let Some(buffer) = bitmap.hardware() else {
+        return std::ptr::null_mut();
+    };
+    let object = AHardwareBuffer_toHardwareBuffer(env, buffer);
+    if !object.is_null() {
+        pending.remove(&id);
+    }
+    object
 }
 
 /// Picture `id` into the `HardwareBuffer` `buffer` (RGBA_8888, CPU-writable):

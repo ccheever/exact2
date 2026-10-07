@@ -4,12 +4,17 @@
 // the toast stack with its timers, the header's panel-control labels, the
 // right panel's surface chooser and the thread title's action menu.
 import type { T3Client } from './client';
+import { terminalAvailable, terminalOpen } from './terminal-drawer-view'; // terminal-drawer
+import type { DispatchContext } from './keyboard-dispatch'; // terminal-layout: terminal labels resolve with terminalFocus
+import { highlightPending } from './r12-render-highlight';
 import { toasts, dismissToast, type Toast, type ToastKind } from './toast';
 import { arr, obj, str, type Obj } from './domain';
 import type { Files, Native } from './protocol';
 import { shortcutInput } from './keybinding-settings';
 import { shortcutLabel } from './keybinding-view';
 import { snoozePresets } from './sidebar-presentation';
+import { canSnooze, effectiveSnoozed } from './sidebar-model';
+import { diffNotGit } from './diff';
 import { threadNotifications, providerUpdates, nativeNotifyStatus, type NotifyStatus } from './shell-notify';
 import { slowRequests, tracking } from './shell-slow';
 import { settleLiveTraces } from './r3-protocol-reader'; // r13-slow: answered requests whose answer was let go end on the next shell read
@@ -22,6 +27,7 @@ import { gitTicking } from './r4-git-actions'; // lane r4-git: a running action'
 import { refsPageWanted } from './r6-polish-refs'; // r6-polish: a ref list's next page
 import { effectiveShortcut } from './r4-polish-shortcuts'; // r4-polish: header shortcut labels
 import { checkoutView } from './r9-connect-checkout';
+import { cloneToasts } from './project-clones-live';
 
 export type ShellToastView = {
   id: number; kind: string; title: string; description: string; icon: string; iconColor: string; provider: string;
@@ -48,7 +54,7 @@ const TONES: Record<string, string> = {
   foreground: 'light-dark(#27272a, #f5f5f5)',
 };
 
-type Clock = { remaining: number; last: number };
+type Clock = { remaining: number; last: number; timeout?: number };
 type ShellState = { clocks: Map<number, Clock>; handled: Set<string>; status: NotifyStatus; now: number; copied: Map<number, number> };
 const states = new WeakMap<T3Client, ShellState>();
 export function shellState(client: T3Client): ShellState {
@@ -102,7 +108,8 @@ export function advanceToasts(client: T3Client, now: number, paused: boolean): T
   if (!Number.isFinite(now) || now <= 0) return live;
   for (const toast of live) {
     let clock = state.clocks.get(toast.id);
-    if (!clock) { clock = { remaining: toast.timeoutMs, last: now }; state.clocks.set(toast.id, clock); }
+    // A toast updated to another timeout (a clone's running → done) starts that timer afresh.
+    if (!clock || (clock.timeout ?? toast.timeoutMs) !== toast.timeoutMs) { clock = { remaining: toast.timeoutMs, last: now, timeout: toast.timeoutMs }; state.clocks.set(toast.id, clock); }
     // Only the front three are visible; hidden toasts wait their turn.
     const visible = live.slice(-TOAST_LIMIT).includes(toast);
     // The window ticks every 500 ms only while toasts exist, so a longer gap
@@ -137,8 +144,8 @@ export function toastViews(queue: Toast[], copied: ReadonlySet<number> = new Set
 }
 
 /** The last binding for a command, as formatShortcutLabel prints it (⌥⌘B). */
-export function commandShortcut(config: Obj, command: string): string {
-  const shortcut = effectiveShortcut(config, command); // r4-polish-shortcuts.ts: findEffectiveShortcutForCommand
+export function commandShortcut(config: Obj, command: string, context: Partial<DispatchContext> = {}): string {
+  const shortcut = effectiveShortcut(config, command, context); // r4-polish-shortcuts.ts: findEffectiveShortcutForCommand
   return shortcut ? shortcutLabel(shortcutInput(shortcut)) : '';
 }
 
@@ -151,10 +158,9 @@ export function surfaces(client: T3Client): ShellSurface[] {
     ({ id, label, icon, shortcut, available, reason: available ? '' : reason });
   return [
     row('browser', 'Browser', 'earth', 'B', false, 'Only available in the desktop app.'),
-    // EX01: no terminal here; the row is the reference's unavailable Terminal (SURFACE_UNAVAILABLE_HINTS.terminal).
-    row('terminal', 'Terminal', 'square-terminal', 'T', false, 'Available when a project is open.'),
+    row('terminal', 'Terminal', 'square-terminal', 'T', terminalAvailable(client), 'Available when a project is open.'),
     row('files', 'Files', 'files', 'F', can.files, 'Available when a project is open.'),
-    row('diff', 'Diff', 'file-diff', 'D', !!client.threadId && client.ready, 'Available for Git repositories.'),
+    row('diff', 'Diff', 'file-diff', 'D', !!client.threadId && client.ready && !diffNotGit(client), 'Available for Git repositories.'),
     // r5-panels: ChatView pullRequestSurfaceAvailable (supportsPullRequests and a panel target); the detail panel opens beside the thread.
     row('pull-request', 'Pull request', 'git-pull-request-arrow', 'P', can.pullRequest && !!target, 'No pull request on this branch yet.'),
     row('pull-requests', 'Linked pull requests', 'link-2', 'L', can.pullRequests, 'No linked pull requests available.'),
@@ -172,8 +178,9 @@ export function titleMenu(client: T3Client, now: number): ShellMenuItem[] {
   if (!thread) return [{ ...item('project-settings', 'Project settings', 'settings', 'ui:project-settings', client.projectId) }];
   const caps = obj(obj(client.config.environment).capabilities);
   const id = str(thread.id), branch = str(thread.branch);
-  const settled = thread.settledOverride === 'settled' || (!!thread.settledAt && thread.settledOverride !== 'active');
-  const snoozed = !!thread.snoozedUntil;
+  // useThreadActionMenu: only an explicit settle offers Un-settle; a snooze that has woken or raised its hand reads as awake.
+  const settled = thread.settledOverride === 'settled';
+  const snoozed = effectiveSnoozed(thread, now);
   const running = !!thread.activeRunId || ['preparing', 'starting', 'running', 'waiting'].includes(str(thread.status));
   const regenerating = thread.titleRegeneration != null;
   const autoSettle = thread.autoSettleDisabledAt == null;
@@ -186,7 +193,7 @@ export function titleMenu(client: T3Client, now: number): ShellMenuItem[] {
     if (snoozed) items.push(item('unsnooze', 'Wake thread', 'clock', 'chat:unsnooze', id));
     else {
       const presets = snoozePresets(now, client.local.deviceSettings.timestampFormat);
-      items.push({ ...item('snooze', 'Snooze', 'clock', 'ui:submenu', 'snooze'), disabled: presets.length === 0 });
+      items.push({ ...item('snooze', 'Snooze', 'clock', 'ui:submenu', 'snooze'), disabled: !canSnooze(thread, now) });
       for (const preset of presets) items.push({ ...item(`snooze:${preset.id}`, `${preset.label} (${preset.wakeLabel})`, '', 'chat:snooze', id, preset.until), submenu: 'snooze' });
       items.push({ ...item('snooze:custom', 'Custom…', '', 'ui:custom-snooze', id), submenu: 'snooze', separated: true });
     }
@@ -243,6 +250,7 @@ export async function shellView(client: T3Client, native: Native | null | undefi
     native.watch('t3.notify');
     state.status = await nativeNotifyStatus(native, state.status);
     await providerUpdates(client, storage);
+    await cloneToasts(client, native); // project-clones-live.ts: a toast per tracked clone, every environment
     await threadNotifications(client, native, state.status);
     if (tracking(client)) await settleLiveTraces(client, native);
   }
@@ -256,11 +264,13 @@ export async function shellView(client: T3Client, native: Native | null | undefi
     openRequest: state.status.opened, openThreadId: state.status.openedThread,
     keyRightPanel: commandShortcut(client.config, 'rightPanel.toggle'), keyThreadPanel: commandShortcut(client.config, 'threadPanel.toggle'),
     keyTerminal: commandShortcut(client.config, 'terminal.toggle'), keyNewThread: commandShortcut(client.config, 'chat.new'),
+    terminalAvailable: terminalAvailable(client), terminalOpen: terminalOpen(client), // terminal-drawer: the layout controls' toggle
     keyNewThreadLocal: commandShortcut(client.config, 'chat.newLocal'), keySidebar: commandShortcut(client.config, 'sidebar.toggle'),
     serverThread: !!thread, projectPath: str(thread?.worktreePath) || str(project?.workspaceRoot),
     surfaces: surfaces(client), titleMenu: menu.filter(entry => entry.submenu === ''), titleSubmenu: menu.filter(entry => entry.submenu !== ''),
     panel: await panelSaved(client, storage, await panelView(client, native, now, sheet)), // r12-threads: `sheet` (window ≤ 980)
     prCheckout: checkoutView(client), // lane r9-connect
     notifications: `${state.status.authorization}${state.status.agent ? ' (agent)' : ''}${state.status.active ? '' : ' (window inactive)'}`,
+    highlightPending: highlightPending(), // shiki-residuals: after the panel's code texts asked for their tokens
   };
 }

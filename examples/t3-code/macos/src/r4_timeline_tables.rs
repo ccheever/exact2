@@ -197,6 +197,7 @@ fn table_block(first: usize, gap: f64, rows: &[&markdown_parse::Block], align: &
         Value::list(sizers),
         Value::str(&markdown),
         Value::str(&csv),
+        Value::Bool(false),
     ])
 }
 
@@ -207,6 +208,7 @@ fn no_table(fields: &mut Vec<Value>) {
         Value::list(Vec::new()),
         Value::str(""),
         Value::str(""),
+        Value::Bool(false),
     ]);
 }
 

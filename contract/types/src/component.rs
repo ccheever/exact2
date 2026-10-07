@@ -503,6 +503,7 @@ fn refine_params_from_view(
                             | "panrelease"
                             | "loadedmetadata"
                             | "durationchange"
+                            | "fullscreenchange"
                             | "timeupdate"
                             | "play"
                             | "playing"
@@ -573,7 +574,7 @@ fn refine_params_from_view(
                                     vec![Ty::String]
                                 }
                                 "timeupdate" | "durationchange" => vec![Ty::Number],
-                                "hover" => vec![Ty::Bool],
+                                "hover" | "fullscreenchange" => vec![Ty::Bool],
                                 "select" if field => vec![Ty::Record("InputEvent".into())],
                                 "select" => vec![Ty::Record("MarkdownSelection".into())],
                                 "scroll" | "panrelease" | "resize" => {

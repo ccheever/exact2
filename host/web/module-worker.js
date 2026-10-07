@@ -19,7 +19,7 @@ const pending = new Map();
 const owed = new Map();
 const scratch = owner => ({owner, store:new Map(), grants:new Set(), reads:[], writes:[], externalRead:false, entropy:false, topics:[], requests:new Map()});
 function release(owner, callId) {
-  if (self.__exact_forget(String(callId)) !== 'storage') { storage.retire(owner); return; }
+  if (!String(self.__exact_forget(String(callId))).startsWith('storage')) { storage.retire(owner); return; } // 'storage', or 'storage rejected'
   owed.set(callId, owner);
 }
 // The page's SHA-256 digests in flight, on a LAN dev page (see `init`).
@@ -60,10 +60,12 @@ const evaluate = source => (0, eval)(source);
 
 function init(message) {
   admitted = message.admitted;
-  // Disable accidental browser I/O before the module captures globals; the
-  // prelude refuses timers and the clock, by name, as Hermes does.
+  // Disable accidental browser I/O before the module captures globals: a
+  // function, so `new WebSocket(url)` refuses by name too, as the JS target's
+  // ts-fetch.js does. The prelude refuses timers and the clock, by name, as
+  // Hermes does.
   for (const name of ['XMLHttpRequest', 'WebSocket', 'EventSource']) {
-    Object.defineProperty(self, name, { value: () => { throw new Error(`${name} is unavailable in data sources`); }, configurable: false });
+    Object.defineProperty(self, name, { value: function () { throw new Error(`${name} is unavailable in data sources`); }, configurable: false });
   }
   storage = createStorage(self, admitted, () => context.owner, message.storage);
   // The page reads the drive's seed; this realm's stream starts here (D2b).

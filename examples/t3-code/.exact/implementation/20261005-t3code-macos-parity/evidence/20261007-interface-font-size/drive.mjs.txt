@@ -1,0 +1,75 @@
+// Lane drive (not committed): bun drive.mjs <repo> <label> [relaunch]. One macOS session at 1280x840:
+// pair, then at Interface font size 16, 12 and 20: Settings > Appearance and thread alpha-1
+// (sidebar, header, composer), each with a screenshot and `layout` of fixed test ids. With
+// `relaunch`, a second launch on the same app home checks that 20 applies again.
+import { execFileSync } from 'node:child_process';
+import { writeFileSync, appendFileSync, mkdirSync } from 'node:fs';
+import { resolve } from 'node:path';
+const [repo, label] = process.argv.slice(2);
+const L = resolve(import.meta.dir), out = resolve(L, 'out'); mkdirSync(out, { recursive: true });
+process.env.EXACT_APP_DIR = resolve(repo, 'examples/t3-code');
+const { open } = await import(resolve(repo, 'scripts/agent.mjs'));
+const origin = 'http://127.0.0.1:16521';
+const token = () => /token=([A-Z0-9]+)/.exec(execFileSync(resolve(L, 'server.sh'), ['pair', '--base-dir', resolve(L, 't3home')], { encoding: 'utf8' }))[1];
+const rec = (line) => { appendFileSync(resolve(out, `${label}-record.txt`), line + '\n'); console.log(line); };
+const env = { HOME: resolve(L, `apphome-${label}`) };
+const PROBES = ['chat-header', 'thread-alpha-1', 'toggle-sidebar', 'connection-settings', 'settings-header', 'settings-navigation', 'settings-appearance',
+  'setting-interface-font-size', 'setting-chat-width', 'composer-editor', 'composer-send', 'composer-toolbar', 'settings-search'];
+const session = async () => open({ host: 'macos', size: [1280, 840], env, epoch: Date.parse('2026-10-07T10:00:00Z'), onProcess: p => writeFileSync(resolve(L, `${label}-app.pid`), String(p.pid)) });
+let s = await session();
+const nodes = async () => (await s.tree()).nodes;
+const idOf = n => n.testId ?? n.props?.testId;
+const ids = async () => (await nodes()).map(idOf).filter(Boolean);
+const has = async id => (await ids()).includes(id);
+const settle = async (ms = 600) => { await s.clock(`+${ms} real`); await s.clock('settle'); };
+const tapIf = async id => { if (await has(id)) { await s.tap(id); await settle(); return true; } return false; };
+const geometry = async (tag) => {
+  const l = await s.layout();
+  const boxes = {};
+  for (const n of l.nodes) if (n.testId && PROBES.includes(n.testId) && !boxes[n.testId]) boxes[n.testId] = [n.x, n.y, n.width ?? n.w, n.height ?? n.h].map(v => Math.round(Number(v) * 100) / 100);
+  const st = await s.state().catch(() => ({}));
+  rec(`[${label}] ${tag} rootFontSize=${st?.device?.rootFontSize ?? '?'} ${JSON.stringify(boxes)}`);
+};
+const shot = async (name) => { await settle(400); await s.screenshot(resolve(out, `${label}-${name}.png`), true); rec(`[${label}] shot ${name}`); };
+const openSettings = async () => { if (!(await has('settings-appearance'))) { await s.tap('connection-settings'); await settle(1200); } await s.tap('settings-appearance'); await settle(1200); };
+const openThread = async () => { await tapIf('close-settings'); await settle(800); await s.tap('thread-alpha-1'); await settle(1500); };
+const pickSize = async (n) => {
+  await s.tap('setting-interface-font-size'); await settle(600);
+  const option = (await ids()).filter(id => id.startsWith('setting-interface-font-size-menu-')).find(id => new RegExp(`(^|[^0-9])${n}$`).test(id));
+  if (!option) { rec(`[${label}] no option for ${n}: ${(await ids()).filter(id => id.startsWith('setting-interface-font-size-menu')).join(',')}`); return; }
+  await s.tap(option); await settle(1000);
+};
+try {
+  await settle(1500);
+  if (await has('welcome-pairing-link')) {
+    await s.type('welcome-pairing-link', `${origin}/pair#token=${token()}`);
+    await s.tap('welcome-pair'); await settle(4000);
+  }
+  for (const id of ['welcome-continue', 'welcome-agents-continue', 'welcome-skip-import']) await tapIf(id);
+  await settle(3000);
+  rec(`[${label}] connected; rows: ${(await ids()).filter(id => /^thread-/.test(id)).join(',')}`);
+  for (const size of [16, 12, 20]) {
+    await openSettings();
+    if (size !== 16) await pickSize(size);
+    await geometry(`appearance-${size}`);
+    // The size menu open on its row (the tap scrolls the row into view), then closed again.
+    await s.tap('setting-interface-font-size'); await settle(600);
+    await shot(`appearance-${size}`);
+    await s.tap('setting-interface-font-size'); await settle(600);
+    await openThread();
+    await geometry(`thread-${size}`);
+    await shot(`thread-${size}`);
+  }
+  const logs = await s.logs();
+  writeFileSync(resolve(out, `${label}-logs.json`), JSON.stringify(logs, null, 1));
+  rec(`[${label}] setRootFontSize refusals: ${(JSON.stringify(logs).match(/setRootFontSize\([^)]*\) refused/g) ?? []).length}`);
+  if (false) {
+    await s.close?.(); await new Promise(r => setTimeout(r, 1500));
+    s = await session();
+    await settle(3000);
+    await tapIf('thread-alpha-1'); await settle(1500);
+    await geometry('relaunch-thread-20');
+    await shot('relaunch-thread-20');
+  }
+} catch (e) { rec(`[${label}] ERROR ${e.stack?.slice(0, 800)}`); }
+finally { await s.close?.(); }

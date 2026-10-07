@@ -1,0 +1,70 @@
+// The "Sidebar (legacy)" projection (legacy-sidebar-view.ts; LegacySidebar.tsx, MIT, see LICENSE-T3).
+use ProjectGlyph from "./sidebar-shapes.contract"
+
+shape LegacyThreadRow
+  terminalCount: number
+  id: string
+  title: string
+  label: string
+  active: bool
+  selected: bool
+  renaming: bool
+  running: bool
+  statusLabel: string
+  statusColor: string
+  statusDot: string
+  statusPulse: bool
+  prIcon: string
+  prState: string
+  prTooltip: string
+  prPending: bool
+  worktree: bool
+  worktreeLabel: string
+  remoteMachine: string
+  remoteLabel: string
+  age: string
+  jump: string
+shape LegacyProjectRow
+  key: string
+  name: string
+  countLabel: string
+  glyph: ProjectGlyph
+  expanded: bool
+  statusLabel: string
+  statusColor: string
+  statusDot: string
+  statusPulse: bool
+  remoteMachine: string
+  remoteLabel: string
+  remoteTooltip: string
+  threads: list<LegacyThreadRow>
+  showEmpty: bool
+  showMore: bool
+  showLess: bool
+  hiddenLabel: string
+  hiddenDot: string
+  hiddenColor: string
+  hiddenPulse: bool
+  newThreadLabel: string
+shape LegacySidebarView
+  enabled: bool
+  projects: list<LegacyProjectRow>
+  manual: bool
+  projectSort: string
+  threadSort: string
+  previewCount: number
+  newThreadTip: string
+  searchShortcut: string
+  confirmArchive: bool
+  noProjects: bool
+  jumpHints: bool
+  dialog: string
+  dialogTarget: string
+  dialogTitle: string
+  dialogDescription: string
+  dialogField: string
+  dialogDetail: string
+  dialogGrouping: string
+  dialogGroupingLabel: string
+  dialogGroupingDescription: string
+  dialogConfirmLabel: string

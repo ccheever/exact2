@@ -15,12 +15,15 @@ needs it. An app whose other screens draw too can give the world a module of its
 Removing the app's game module removes the engine from its bundle.
 The root build, test and boot checks stay independent of the engine workspace.
 
-On Windows, build the generated native shell from the exact2 root in PowerShell:
+On Windows, build from the generated game's directory in PowerShell:
 
 ```powershell
-$env:EXACT_APP_DIR = 'C:\path\to\my-game'
-bun host/windows/build.mjs my-game
+bun exact.mjs windows --run
 ```
+
+For an older external game, run `bun ../exact2/scripts/exact.mjs new . --update`
+once to refresh its runner. From the SDK root, the equivalent is
+`bun host/windows/build.mjs my-game` with `EXACT_APP_DIR` naming the game.
 
 The resulting `my-game/dist-windows` directory contains the standalone executable,
 game DLL and assets. Keep these files together; the executable resolves assets
@@ -84,7 +87,7 @@ the directory. From an empty directory, `bun /path/to/exact2/game/new.mjs .` wor
 A game outside this checkout — `bun scripts/exact.mjs new ../my-game --game` makes
 one, as `exact new` makes an app — also gets an app's `exact.mjs` and `AGENTS.md`:
 `bun exact.mjs test-rust` (the hostless tests), `web`, `web-build`, `test web`
-(`app.test.contract`; also `macos`, `ios`), `agent`, `mac`, `ios`, `contract`,
+(`app.test.contract`; also `macos`, `ios`), `agent`, `mac`, `ios`, `windows`, `contract`,
 `prove` and `feedback`, with the exact2 checkout named once (LLP 1086).
 Generation writes only inside that game. A game is the files its author writes; bakes
 generate its hosts, Cargo workspace and lock, ignored, under `.shells/`.

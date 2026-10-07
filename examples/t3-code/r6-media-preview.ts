@@ -13,9 +13,9 @@ const MEDIA: readonly string[] = ['pdf', 'html', 'audio', 'video'];
 /** Whether a filePreviewKind draws as a media body (not text, not an image, not "No preview"). */
 export const isMediaPreview = (kind: string): kind is MediaPreview => MEDIA.includes(kind);
 
-/** AttachmentFilePreview's onError messages; a PDF or page frame reports none. */
+/** AttachmentFilePreview's onError messages (an image's `error` since exact2 #121); a PDF or page frame reports none. */
 export function mediaErrorMessage(kind: string): string {
-  return kind === 'audio' ? 'Unable to load audio.' : kind === 'video' ? 'Unable to load video.' : '';
+  return kind === 'audio' ? 'Unable to load audio.' : kind === 'video' ? 'Unable to load video.' : kind === 'image' ? 'Unable to load image.' : '';
 }
 
 /** The body for a loaded URL: text kinds and images are r5-panels' own; the rest is media or "No preview". */

@@ -10,6 +10,8 @@ import { LUCIDE_PATHS } from './settings-b-lucide';
 import { fileIconToken } from './timeline-files';
 import { pushToast } from './toast';
 import type { T3Client } from './client';
+import { faviconPickLabel } from './desktop-shell-favicon';
+import { letGo } from './let-go';
 
 /** PROJECT_ICON_COLORS: swatch bg-*-500; icon ink text-*-600 / dark:text-*-400. */
 export const ICON_COLORS: { value: string; label: string; swatch: string; ink: string; surface: string; inkLight: string; inkDark: string }[] = ([
@@ -126,9 +128,9 @@ export function encodeIcon(input: { kind: string; name: string; color: string; t
 
 // ── The Project page's icon fields (ProjectFavicon for the representative) ──
 export type IconFields = { iconKind: string; iconName: string; iconD: string; iconInk: string; iconSurface: string; iconText: string; iconTextWidth: number;
-  iconEmoji: string; iconPickColor: string; iconLetters: string; faviconSrc: string; iconScope: string; iconCwd: string };
+  iconEmoji: string; iconPickColor: string; iconLetters: string; faviconSrc: string; iconScope: string; iconCwd: string; iconPickExternal: string };
 export const blankIconFields: IconFields = { iconKind: '', iconName: '', iconD: '', iconInk: '#00000000', iconSurface: '#00000000', iconText: '', iconTextWidth: 12,
-  iconEmoji: '', iconPickColor: 'blue', iconLetters: '', faviconSrc: '', iconScope: '', iconCwd: '' };
+  iconEmoji: '', iconPickColor: 'blue', iconLetters: '', faviconSrc: '', iconScope: '', iconCwd: '', iconPickExternal: '' };
 
 // Data sources have no clock: caches are keyed by the connection generation and bounded.
 const faviconCache = new Map<string, string>();
@@ -164,7 +166,8 @@ export async function iconFields(client: T3Client, native: Native | null | undef
     iconSurface: surfaceOf(icon.kind ? color : identity.color), iconText: shown, iconTextWidth: monogramWidth(shown), iconEmoji: icon.emoji,
     iconPickColor: color, iconLetters: icon.kind === 'monogram' ? icon.text : identity.monogram,
     faviconSrc: icon.kind ? '' : await faviconSource(client, native, representative),
-    iconScope: members.map(member => str(member.id)).join(','), iconCwd: str(representative.workspaceRoot) };
+    iconScope: members.map(member => str(member.id)).join(','), iconCwd: str(representative.workspaceRoot),
+    iconPickExternal: faviconPickLabel(client.origin, members) }; // desktop-shell-favicon.ts
 }
 
 // ── The picker resource (icon grid, emoji, monogram validity, image files) ──
@@ -181,7 +184,7 @@ export async function iconPicker(client: T3Client, native: Native | null | undef
         if (!native?.available || !cwd) throw new ClientError('Connect to this project\'s environment to choose a file.');
         const result = obj(await client.rpc(native, 'projects.searchEntries', { cwd, query: trimmed, limit: 200, imageOnly: true }));
         cached = { entries: arr(result.entries), error: '' };
-      } catch (error) { cached = { entries: [], error: error instanceof Error ? error.message : 'Could not search image files.' }; }
+      } catch (error) { if (letGo(error)) throw error; cached = { entries: [], error: error instanceof Error ? error.message : 'Could not search image files.' }; }
       fileCache.set(key, cached);
       if (fileCache.size > 40) fileCache.delete(fileCache.keys().next().value!);
     }
@@ -242,6 +245,7 @@ export async function runIconOp(client: T3Client, native: Native, storage: Files
     client.shell = applyShell(initialShell(), await access.http('/api/orchestration/shell'));
     faviconCache.clear();
   } catch (error) {
+    if (letGo(error)) throw error;
     pushToast(client, { kind: 'error', title: 'Failed to update project icon', description: error instanceof Error ? error.message : 'An error occurred.', stacked: true });
     throw error;
   }

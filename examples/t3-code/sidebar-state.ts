@@ -8,21 +8,28 @@ import type { T3Client } from './client';
 export const SETTLED_TAIL_INITIAL_COUNT = 10;
 export const SETTLED_TAIL_PAGE_COUNT = 25;
 
-/** Shelf expansion (t3code:sidebar:*-expanded), project scope (sidebarProjectScopeKey) and local visits. */
+/**
+ * Shelf expansion (t3code:sidebar:*-expanded), project scope (sidebarProjectScopeKey) and local visits;
+ * legacy-sidebar: the persisted UI store's projectExpandedById and projectOrder (uiStateStore.ts).
+ */
 export interface SidebarPrefs {
   settledExpanded: boolean; snoozedExpanded: boolean; workingExpanded: boolean;
   scope: string; visited: Record<string, string>;
+  projectExpanded: Record<string, boolean>; projectOrder: string[];
 }
 export function defaultSidebarPrefs(): SidebarPrefs {
-  return { settledExpanded: false, snoozedExpanded: false, workingExpanded: false, scope: '', visited: {} };
+  return { settledExpanded: false, snoozedExpanded: false, workingExpanded: false, scope: '', visited: {}, projectExpanded: {}, projectOrder: [] };
 }
 export function decodeSidebarPrefs(value: unknown): SidebarPrefs {
   const saved = obj(value), visited: Record<string, string> = {};
   for (const [key, stamp] of Object.entries(obj(saved.visited)).slice(-500)) {
     if (typeof stamp === 'string' && Number.isFinite(Date.parse(stamp))) visited[key] = stamp;
   }
+  const projectExpanded: Record<string, boolean> = {};
+  for (const [key, value] of Object.entries(obj(saved.projectExpanded)).slice(-1000)) if (key && typeof value === 'boolean') projectExpanded[key] = value;
+  const projectOrder = [...new Set((Array.isArray(saved.projectOrder) ? saved.projectOrder : []).filter((key): key is string => typeof key === 'string' && key.length > 0))].slice(0, 1000);
   return { settledExpanded: saved.settledExpanded === true, snoozedExpanded: saved.snoozedExpanded === true,
-    workingExpanded: saved.workingExpanded === true, scope: str(saved.scope).slice(0, 2000), visited };
+    workingExpanded: saved.workingExpanded === true, scope: str(saved.scope).slice(0, 2000), visited, projectExpanded, projectOrder };
 }
 /** The client's preferences carry the sidebar block; older files decode to the defaults. */
 export function sidebarPrefs(client: T3Client): SidebarPrefs {
@@ -33,7 +40,7 @@ export function sidebarPrefs(client: T3Client): SidebarPrefs {
 
 export type UndoAction = 'Settled' | 'Snoozed' | 'Unpinned' | 'Archived' | 'Discarded'; // lane r11-upstream: Discarded (95edeb753b)
 export interface UndoEntry { action: UndoAction; threadIds: string[]; at: number }
-export interface SidebarDialog { kind: '' | 'archive' | 'delete' | 'delete-many' | 'snooze' | 'unpin'; threadIds: string[]; title: string }
+export interface SidebarDialog { kind: '' | 'archive' | 'delete' | 'delete-many' | 'snooze' | 'unpin' | 'delete-worktree'; threadIds: string[]; title: string }
 export interface SidebarSession {
   settledVisible: number; settledScope: string;
   searchIndex: number; searchQuery: string; searchPending: boolean;
@@ -99,11 +106,15 @@ export function adoptSidebarPrefs(local: object, saved: { sidebar?: unknown }): 
   (local as { sidebar?: SidebarPrefs }).sidebar = decodeSidebarPrefs(saved.sidebar);
 }
 /**
- * The runtime clock where one exists (the bake has none). It is never an instant on its own: the data runtime
- * refuses `Date.now()` (this returns the fallback), and the agent's clock counts from 0. `wall` below turns it
- * into one by measuring from the window's wall time; r8-pointer-clock's `wallIso` is the rule for stored stamps.
+ * The runtime clock where one exists. Data modules have none: the bake refuses a direct `Date.now()` (exact2
+ * 8be2b2623) and the data runtime refused it before that, so in the app this returns the fallback. Bun tests
+ * stand in for a host clock with `setRuntimeClock`. It is never an instant on its own (the agent's clock counts
+ * from 0); `wall` below turns it into one by measuring from the window's wall time; r8-pointer-clock's
+ * `wallIso` is the rule for stored stamps.
  */
-export const clock = (fallback = 0): number => { try { const time = Date.now(); return Number.isFinite(time) && time > 0 ? time : fallback; } catch { return fallback; } };
+let runtimeClock: () => number = () => Number.NaN;
+export function setRuntimeClock(read: () => number): void { runtimeClock = read; }
+export const clock = (fallback = 0): number => { try { const time = runtimeClock(); return Number.isFinite(time) && time > 0 ? time : fallback; } catch { return fallback; } };
 /**
  * The wall clock for sidebar commands. The window passes its wall time with
  * each sidebar command (exactTime's epoch plus the window clock); the runtime

@@ -54,11 +54,11 @@ Reference rules to keep: writes route only when both servers are "read-write", r
 | --- | --- | --- | --- | --- |
 | merged task PR | [20261005-clone-on-exact2-main](20261005-clone-on-exact2-main.md) | pending | Merged | pending |
 | merged task PR | [20261005-desktop-oracle-and-trace](20261005-desktop-oracle-and-trace.md) | pending | Merged | pending |
-| merged task PR | [20261005-environment-routes](20261005-environment-routes.md) | pending | Merged (saved-environment key; `gitHubRoutingConnectionKey` over several routes) | pending |
+| merged task PR | [20261005-environment-routes](closed/20261005-environment-routes.md) | pending | Merged (saved-environment key; `gitHubRoutingConnectionKey` over several routes) | pending |
 | merged task PR | [20261005-pr-conversation-and-refresh](20261005-pr-conversation-and-refresh.md) | pending | Merged | pending |
 | merged task PR | [20261005-pr-handoffs-and-quick-actions](20261005-pr-handoffs-and-quick-actions.md) | pending | Merged (row menus, Check out menu and the hand-offs that "Act on" redirects; it already follows `20261005-pr-header-actions-and-stacks`, whose More menu also carries the radio) | pending |
 | merged task PR | [20261005-fake-github-fixture](20261005-fake-github-fixture.md) | pending | Search cursors and a second-lane account served (also reached through `20261005-pr-conversation-and-refresh`) | pending |
-| merged task PR | [20261005-hot-file-split](20261005-hot-file-split.md) | pending | Merged into `daehyeon/t3-code` (common prerequisite: room and per-area seams in the shared files) | pending |
+| merged task PR | [20261005-hot-file-split](closed/20261005-hot-file-split.md) | pending | Merged into `daehyeon/t3-code` (common prerequisite: room and per-area seams in the shared files) | pending |
 
 ## Issue assessment at preparation
 
@@ -69,7 +69,7 @@ Checked sources and time: planning pass 2026-10-05 over `EXACT2-GAPS.md` and `..
 | [X13](../issues/20261005-x13-hover-keys-during-pan.md) | Hover close/cancel during a pan | Documented clone limit | nonblocking (workaround: partial, r12) | Declare in matrix |
 | [X17](../issues/20261005-x17-popover-position-try.md) | Hover card flips near window edges | AGENT-HANDOFF "flipped hover card overhang" | nonblocking (workaround: fixed placement) | Declare |
 | [X19](../issues/20261005-x19-data-source-timers.md) | 350 ms open / 120 ms close hover delays; 10 s linked-thread poll | Delays held in Contract/`now` args today | nonblocking (workaround: `now` arguments, Contract tasks) | Reuse the details-card hover card's delay mechanism |
-| [X34](../issues/20261005-x34-inline-span-frame.md) | Frame and hover of an inline link inside rendered Markdown, to anchor the card | `t3-anchor`/`t3-frame` hooks cover boxes ([X22](../issues/20261005-x22-reactive-layout-facts.md)), not inline runs | unknown | Spike at `prepare`; if the renderer cannot expose a link's frame, the hover card on inline links is held for a user decision (no matching workaround); autolinks still link |
+| [X34](../issues/20261005-x34-inline-span-frame.md) | Frame and hover of an inline link inside rendered Markdown, to anchor the card | `t3-anchor`/`t3-frame` hooks cover boxes ([X22](../issues/20261005-x22-reactive-layout-facts.md)), not inline runs | unknown | Spike at `prepare`; if the renderer cannot expose a link's frame, the hover card on inline links is held for a user decision (no matching workaround); autolinks still link 2026-10-07: #133 closed; main #178 makes the macOS agent hover inline runs (enter, leave, a point's hit test), so an inline link's hover can be built and driven; `frame()` of an inline run is still missing, so the card's anchor remains the open question (adopt-main-fixes-input). |
 | [X21](../issues/20261005-x21-two-way-websocket.md) | RPC to background environments | `T3Fleet.swift` transports | nonblocking | Reuse |
 | [X9](../issues/20261005-x09-root-component-across-files.md) | `app.contract` cap | 1,327/1,500 | nonblocking | New files only |
 
@@ -102,6 +102,8 @@ Required environment: macOS 26.6.2, Xcode 27.0, Bun 1.4.2, two lane backends, fa
 
 ## Progress
 
+2026-10-06: on hold (user decision: tasks that need a sign-in waited). 2026-10-07: the user lifted the hold. Rows that need a real account are signed in by the user in person on the lane build; every other sign-in row uses lane fixtures.
+
 Planned. No branch.
 
 ## Attempts and evidence
@@ -112,4 +114,4 @@ Planned. No branch.
 
 ## Next action
 
-`prepare` after `20261005-environment-routes`, `20261005-pr-conversation-and-refresh` and `20261005-pr-handoffs-and-quick-actions` merge; run the inline-link frame spike first.
+`prepare` from `feat(example)/t3-code` once the prerequisite task PRs above have merged into it; sign-in rows use lane fixtures, and real-account rows wait for the user to sign in.

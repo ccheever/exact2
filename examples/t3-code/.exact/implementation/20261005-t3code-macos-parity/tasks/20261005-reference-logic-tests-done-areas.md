@@ -1,13 +1,13 @@
 ---
 name: 20261005-reference-logic-tests-done-areas
 plan: 20261005-t3code-macos-parity
-implementation: planned
-verification: unverified
-delivery: none
+implementation: blocked
+verification: blocked
+delivery: closed-unmerged
 repository: https://github.com/ccheever/exact2
 base_branch: daehyeon/t3-code
-branch: null
-pr_url: null
+branch: feat(example)/t3-code-reference-logic-tests-done-areas
+pr_url: https://github.com/ccheever/exact2/pull/151
 verified_commit: null
 ---
 
@@ -83,7 +83,7 @@ File headers in the clone name their source (for example "T3 Code, MIT, see LICE
 
 | Kind | Readable task/issue/decision | Remote reference | Required condition | Resolution evidence |
 | --- | --- | --- | --- | --- |
-| merged task PR | [20261005-hot-file-split](20261005-hot-file-split.md) | pending | Merged first: group 1 changes shared files that this ticket also edits (review finding: sequence it first) | pending |
+| merged task PR | [20261005-hot-file-split](closed/20261005-hot-file-split.md) | pending | Merged first: group 1 changes shared files that this ticket also edits (review finding: sequence it first) | pending |
 | merged task PR | [20261005-clone-on-exact2-main](20261005-clone-on-exact2-main.md) | pending | Merged | pending |
 | recorded decision | U2: apparatus: `target/t3-ui-parity/test-map.mjs` | none | User approves (the default is a one-off command recorded in Attempts) | pending |
 
@@ -93,7 +93,7 @@ Checked sources and time: local issue drafts in [issues](../issues/README.md), `
 
 | Issue / reference | Capability and target | Evidence / affected revision | Impact | Next action |
 | --- | --- | --- | --- | --- |
-| [X36](../issues/20261005-x36-data-runtime-intl-locale.md) | Locale-aware `Intl` in the data runtime | Date, time and number tests use `Intl`; unknown on the pinned main | unknown (decides whether those `port` rows can pass) | Mark the rows; the port ticket checks the capability |
+| [X36](../issues/closed/20261005-x36-data-runtime-intl-locale.md) | Locale-aware `Intl` in the data runtime | Date, time and number tests use `Intl`; fixed by main #204 (#118: `Intl.Locale`, `getWeekInfo()` as Chrome), adopted in [adopt-main-fixes-r4](closed/20261007-adopt-main-fixes-r4.md) | none | Port the rows; the `ja-JP` long-date space and a `Locale` object passed to a formatter are main's documented differences |
 | [X19](../issues/20261005-x19-data-source-timers.md) | Timers in data sources | Ported tests use a `now` argument | nonblocking | None |
 | none found | Mapping and classification | — | none | — |
 
@@ -123,6 +123,8 @@ Required environment: the read-only reference checkout for the map and title che
 
 ## Progress
 
+2026-10-06: dropped (user decision). The user closed #151, the map, as unnecessary.
+
 Planned.
 
 ## Attempts and evidence
@@ -133,4 +135,4 @@ Planned.
 
 ## Next action
 
-`prepare` after `20261005-clone-on-exact2-main` merges. When this ticket is verified, port tickets per area are created from the map (a planned plan revision); this ticket creates none. The plan's integrated acceptance checks that no `later-ticket` row remains.
+None unless the user reverses the 2026-10-06 decision.

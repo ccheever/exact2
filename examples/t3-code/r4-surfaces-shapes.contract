@@ -1,3 +1,4 @@
+use TerminalDrawerView from "./terminal.contract"
 // The right panel's tabbed surfaces (lane r4-surfaces, r4-surfaces-panel.ts):
 // the tab strip, the Files surface (tree and preview), the Linked pull requests
 // surface and the device hub's setup wizard, as ShellView.panel carries them.
@@ -8,6 +9,7 @@ use R5Attachment from "./r5-panels-shapes.contract"
 use R6DeviceView from "./r6-device-shapes.contract"
 use R6DeviceMini from "./r6-device-shapes.contract"
 use R12TabStrip from "./r12-threads.contract"
+use MediaView from "./media-actions.contract"
 
 shape R4Tab
   id: string
@@ -20,6 +22,15 @@ shape R4Tab
   pending: bool
   renaming: bool
   renameValue: string
+  closeTitle: string
+  closeBody: string
+  closeTarget: string
+  menu: list<R4TabMenuItem>
+// right-panel-tab-menu: one row of the tab's context menu (right-panel-tabs.ts tabMenuRows).
+shape R4TabMenuItem
+  id: string
+  label: string
+  disabled: bool
 shape R4TreeRow
   id: string
   path: string
@@ -48,6 +59,13 @@ shape R4CodeLine
   id: string
   number: string
   runs: list<R4CodeRun>
+  // diff-review: a code line ("line"), or a saved ("note") or draft comment under its last line; line selection.
+  kind: string
+  line: number
+  selected: bool
+  entry: string
+  text: string
+  label: string
 shape R4Editor
   id: string
   label: string
@@ -74,6 +92,7 @@ shape R4Files
   previewError: string
   crumbs: list<R4Crumb>
   lines: list<R4CodeLine>
+  commentOpen: bool
   text: string
   textKey: string
   gutter: number
@@ -87,6 +106,9 @@ shape R4Files
   pending: bool
   editorId: string
   editorLabel: string
+  editorShow: bool
+  editorHint: string
+  editorUnavailable: string
   editors: list<R4Editor>
   absolutePath: string
   markdown: ChatDocument
@@ -99,6 +121,8 @@ shape R4Files
   crumbsMask: string
   crumbsOffset: number
   url: string
+  // media-actions: an image or video file (media-views.ts filesMediaView).
+  media: MediaView
 shape R4CrumbEntry
   id: string
   path: string
@@ -197,7 +221,18 @@ shape R4Device
   refreshable: bool
   // lane r6-media: the opened device and its workspace (r6-media-device.ts).
   r6: R6DeviceView
+  // 1e2ecbd975 (5318d054a5): a local host has no available platform (device-support.ts).
+  localPlatformsUnavailable: bool
+shape TerminalSurfaceClose
+  op: string
+  serial: number
+  title: string
+  body: string
+  target: string
+
 shape R4Panel
+  terminalClose: TerminalSurfaceClose
+  terminal: TerminalDrawerView
   open: bool
   kind: string
   active: string

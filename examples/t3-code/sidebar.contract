@@ -25,6 +25,7 @@ use ProviderPill from "./r4-polish-tip.contract"
 
 component Sidebar
   props
+    reduced: bool
     data: Snapshot
     // r6-polish: the root's live clock (epoch ms), so a Working row's label ticks each second.
     now: number
@@ -69,109 +70,109 @@ component Sidebar
       // Environment identification (Appearance): the stage artwork, a version pill, or neither.
       when data.look.artwork
         NightlyBackdrop()
-      row height=52 flex-shrink=0 padding-left=91 padding-right=8 gap=11 align-items="center" position="relative"
+      row height=52 flex-shrink=0 padding-left=(data.controlsLeft + 1) padding-right="0.5rem" gap="0.6875rem" align-items="center" position="relative"
         Tip(label=(shell.keySidebar == "" ? "Toggle main sidebar" : `Toggle main sidebar (${shell.keySidebar})`), side="bottom", align="center", offset=32)
-          button press=toggle width=28 height=28 padding=0 border-radius=8 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" aria-label="Toggle sidebar" aria-keyshortcuts=keySidebar testId="toggle-sidebar"
+          button cursor="pointer" press=toggle width="1.75rem" height="1.75rem" padding=0 border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" aria-label="Toggle sidebar" aria-keyshortcuts=keySidebar testId="toggle-sidebar"
             Icon(name="sidebar", color=(data.look.artwork ? "#ffffffe6" : "light-dark(#71717b, #a3a3a3)"), size=16)
-        button press=run("home", "", "") height=28 padding=0 border-radius=8 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" gap=4 aria-label="Go to threads" testId="sidebar-brand"
+        button cursor="pointer" press=run("home", "", "") height="1.75rem" padding=0 border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" gap="0.25rem" aria-label="Go to threads" testId="sidebar-brand"
           when data.look.artwork
             Wordmark()
-            text "Code" font-size=14 font-weight=500 letter-spacing=-0.35 color="#ffffffb3"
+            text "Code" font-size="0.875rem" font-weight=500 letter-spacing=-0.35 color="#ffffffb3"
           else
             LookWordmark(ink=(data.look.themed ? data.look.sidebarText : "light-dark(#27272a, #f1f3f7)"), muted=(data.look.themed ? data.look.sidebarMuted : "light-dark(#71717b, #a3a3a3)"))
         // r11-upstream (9efb016900): the pill sits on the brand's line only while it fits inside the
         // header's 12pt right padding and the 1pt border (it wraps onto the clipped second line
-        // otherwise): brand at 130 + 53.77, 12pt, the 43.27pt pill.
-        when data.look.pill != "" and width - 13 >= 239.04
+        // otherwise): brand at 130 + 53.77, 12pt, the 43.27pt pill (the brand at controlsLeft + 40: 52 in full screen).
+        when data.look.pill != "" and width - 13 >= data.controlsLeft + 149.04
           LookPill(label=data.look.pill)
-      row width="100%" padding=8 box-sizing="border-box" gap=4 flex-shrink=0 align-items="center" position="relative"
-        row flex=1 min-width=0 height=32 padding-left=8 padding-right=(data.query == "" ? 8 : 4) box-sizing="border-box" border-radius=8 align-items="center" gap=8 position="relative" background-color=(data.query == "" ? "#00000000" : "light-dark(#fcfcfc, #f1f3f714)")
+      row width="100%" padding="0.5rem" box-sizing="border-box" gap="0.25rem" flex-shrink=0 align-items="center" position="relative"
+        row flex=1 min-width=0 height="2rem" padding-left="0.5rem" padding-right=(data.query == "" ? "0.5rem" : "0.25rem") box-sizing="border-box" border-radius="0.5rem" align-items="center" gap="0.5rem" position="relative" background-color=(data.query == "" ? "#00000000" : "light-dark(#fcfcfc, #f1f3f714)")
           Icon(name="search", size=16, color="light-dark(#a8a8ae, #545454)")
           when data.query == ""
-            text "Search" position="absolute" left=32 top=6 font-size=14 font-weight=500 line-height="20px" color="light-dark(#71717b, #a3a3a3)" pointer-events="none"
-          input value=data.query input=search key=local("search-key", "") submit=open(data.sidebar.searchSelectedId, "search") placeholder="" aria-label="Search threads" testId="search-threads" font-size=14 font-weight=500 flex=1 min-width=0 height=21 padding=0 border-width=0 background-color="#00000000" color="light-dark(#27272a, #f3f3f3)"
+            text "Search" position="absolute" left="2rem" top="0.375rem" font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#71717b, #a3a3a3)" pointer-events="none"
+          input value=data.query input=search key=local("search-key", "") submit=open(data.sidebar.searchSelectedId, "search") placeholder="" aria-label="Search threads" testId="search-threads" font-size="0.875rem" font-weight=500 flex=1 min-width=0 height="1.3125rem" padding=0 border-width=0 background-color="#00000000" color="light-dark(#27272a, #f3f3f3)"
           when data.query != ""
-            button press=search("") aria-label="Clear thread search" testId="clear-thread-search" width=24 height=24 padding=0 flex-shrink=0 border-radius=8 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center"
+            button cursor="pointer" press=search("") aria-label="Clear thread search" testId="clear-thread-search" width="1.5rem" height="1.5rem" padding=0 flex-shrink=0 border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center"
               Icon(name="x", size=14, color="light-dark(#71717b, #a3a3a3)")
         row flex-shrink=0 align-items="center"
           SidebarTip(tip="sidebar-filter", hoverCard=hoverCard)
-            button press=local("scope-open", "", "") width=28 height=28 padding=0 border-radius=8 border-width=0 background-color=(data.sidebar.scopeOpen ? "light-dark(#f4f4f5, #ffffff0a)" : hoverId == "sidebar-filter" ? "light-dark(#fcfcfc, #f1f3f714)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" aria-label=(data.sidebar.scopeKey == "" ? "Filter threads by project" : `Filter threads by project: ${data.sidebar.scopeLabel}`) aria-expanded=data.sidebar.scopeOpen testId="filter-project"
+            button cursor="pointer" press=local("scope-open", "", "") width="1.75rem" height="1.75rem" padding=0 border-radius="0.5rem" border-width=0 background-color=(data.sidebar.scopeOpen ? "light-dark(#f4f4f5, #ffffff0a)" : hoverId == "sidebar-filter" ? "light-dark(#fcfcfc, #f1f3f714)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" aria-label=(data.sidebar.scopeKey == "" ? "Filter threads by project" : `Filter threads by project: ${data.sidebar.scopeLabel}`) aria-expanded=data.sidebar.scopeOpen testId="filter-project"
               when data.sidebar.scopeKey == ""
                 Icon(name="folder", size=16, color=(data.sidebar.scopeOpen or hoverId == "sidebar-filter" ? "light-dark(#27272a, #f3f3f3)" : "light-dark(#a8a8ae, #545454)"))
               else
                 SidebarProjectGlyph(g=data.sidebar.scopeGlyph, size=16, dim=false)
           SidebarTip(tip="sidebar-add-project", hoverCard=hoverCard)
-            button press=addProject width=28 height=28 padding=0 border-radius=8 border-width=0 background-color=(hoverId == "sidebar-add-project" and data.connected ? "light-dark(#fcfcfc, #f1f3f714)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" aria-label="Add project" testId="add-project" disabled=(not data.connected)
+            button cursor="pointer" press=addProject width="1.75rem" height="1.75rem" padding=0 border-radius="0.5rem" border-width=0 background-color=(hoverId == "sidebar-add-project" and data.connected ? "light-dark(#fcfcfc, #f1f3f714)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" aria-label="Add project" testId="add-project" disabled=(not data.connected)
               Icon(name="folder-plus", size=16, color=(hoverId == "sidebar-add-project" and data.connected ? "light-dark(#27272a, #f3f3f3)" : "light-dark(#a8a8ae, #545454)"))
           // r4-polish: these controls hover the root sidebar hover id; SidebarOverlays draws their tooltips (r4-polish-tip.contract).
           SidebarTip(tip="sidebar-new-thread", hoverCard=hoverCard)
-            button press=newThread width=28 height=28 padding=0 border-radius=8 border-width=0 background-color=(hoverId == "sidebar-new-thread" and data.connected ? "light-dark(#fcfcfc, #f1f3f714)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" aria-label="New thread" testId="new-thread" disabled=(busy or not data.connected or not data.sidebar.hasProjects)
+            button cursor="pointer" press=newThread width="1.75rem" height="1.75rem" padding=0 border-radius="0.5rem" border-width=0 background-color=(hoverId == "sidebar-new-thread" and data.connected ? "light-dark(#fcfcfc, #f1f3f714)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" aria-label="New thread" testId="new-thread" disabled=(busy or not data.connected or not data.sidebar.hasProjects)
               Icon(name="compose", size=16, color=(hoverId == "sidebar-new-thread" and data.connected ? "light-dark(#27272a, #f3f3f3)" : "light-dark(#a8a8ae, #545454)"))
-      scroll id="thread-list" flex=1 min-height=0 padding-left=8 padding-right=8 padding-bottom=8 box-sizing="border-box" scroll=scrolled testId="thread-list" hook="t3-rehover" data-frame=`${data.revision}`
+      scroll id="thread-list" flex=1 min-height=0 padding-left="0.5rem" padding-right="0.5rem" padding-bottom="0.5rem" box-sizing="border-box" scroll=scrolled testId="thread-list"
         when not data.sidebar.searching
           column min-height="100%" width="100%" gap=1
             each d in data.sidebar.drafts key=d.id
               DraftCard(d=d, run=run, hoverCard=hoverCard, hoverId=hoverId)
             when length(data.sidebar.drafts) > 0
-              box height=1 flex-shrink=0 margin-left=10 margin-right=10 margin-top=6 margin-bottom=6 background-color="light-dark(#e4e4e799, #ffffff0c)" testId="sidebar-draft-divider"
-            box id="sidebar-list-top" width="100%" height=(dragId != "" ? 24 : 0) margin-bottom=-1 position="relative" testId="sidebar-pinned-header"
+              box height=1 flex-shrink=0 margin-left="0.625rem" margin-right="0.625rem" margin-top="0.375rem" margin-bottom="0.375rem" background-color="light-dark(#e4e4e799, #ffffff0c)" testId="sidebar-draft-divider"
+            box id="sidebar-list-top" width="100%" height=(dragId != "" ? "1.5rem" : "0px") margin-bottom=-1 position="relative" testId="sidebar-pinned-header"
               when dragId != ""
                 SidebarDragLabel(label="Pinned", target=(dragTarget == "pinned"))
-            ThreadSection(threads=data.threads, data=data, now=now, section="pinned", label="", busy=busy, local=local, run=run, open=open, hoverCard=hoverCard, hoverId=hoverId, drag=drag, dragEnd=dragEnd, dragId=dragId, dragVerb=dragVerb, dragOffset=dragOffset, dragTarget=dragTarget, page=page, scrollY=scrollY)
-            box id="sidebar-pinned-divider" width="100%" height=(dragId != "" ? 24 : 0) margin-bottom=-1 position="relative" testId="sidebar-pinned-divider"
+            ThreadSection(reduced=reduced, threads=data.threads, data=data, now=now, section="pinned", label="", busy=busy, local=local, run=run, open=open, hoverCard=hoverCard, hoverId=hoverId, drag=drag, dragEnd=dragEnd, dragId=dragId, dragVerb=dragVerb, dragOffset=dragOffset, dragTarget=dragTarget, page=page, scrollY=scrollY)
+            box id="sidebar-pinned-divider" width="100%" height=(dragId != "" ? "1.5rem" : "0px") margin-bottom=-1 position="relative" testId="sidebar-pinned-divider"
               when dragId != ""
                 SidebarDragLabel(label="Active", target=(dragTarget == "active"))
-            ThreadSection(threads=data.threads, data=data, now=now, section="active", label="", busy=busy, local=local, run=run, open=open, hoverCard=hoverCard, hoverId=hoverId, drag=drag, dragEnd=dragEnd, dragId=dragId, dragVerb=dragVerb, dragOffset=dragOffset, dragTarget=dragTarget, page=page, scrollY=scrollY)
+            ThreadSection(reduced=reduced, threads=data.threads, data=data, now=now, section="active", label="", busy=busy, local=local, run=run, open=open, hoverCard=hoverCard, hoverId=hoverId, drag=drag, dragEnd=dragEnd, dragId=dragId, dragVerb=dragVerb, dragOffset=dragOffset, dragTarget=dragTarget, page=page, scrollY=scrollY)
             when data.sidebar.emptyText != ""
-              column align-items="center" gap=8 margin-top=-2 padding-left=8 padding-right=8 padding-top=24 padding-bottom=24 box-sizing="border-box" testId="sidebar-empty"
-                text data.sidebar.emptyText font-size=12 line-height="16px" text-align="center" color="light-dark(#71717b99, #81818199)"
+              column align-items="center" gap="0.5rem" margin-top="-0.125rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="1.5rem" padding-bottom="1.5rem" box-sizing="border-box" testId="sidebar-empty"
+                text data.sidebar.emptyText font-size="0.75rem" line-height="1rem" text-align="center" color="light-dark(#71717b99, #81818199)"
                 when data.sidebar.emptyAddProject
-                  button press=addProject height=22 padding-left=10 padding-right=10 box-sizing="border-box" gap=6 border-radius=8 border-style="solid" border-width=1 border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="#00000000" display="flex" flex-direction="row" align-items="center" testId="sidebar-empty-add-project"
+                  button cursor="pointer" press=addProject height="1.375rem" padding-left="0.625rem" padding-right="0.625rem" box-sizing="border-box" gap="0.375rem" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="#00000000" display="flex" flex-direction="row" align-items="center" testId="sidebar-empty-add-project"
                     SidebarIcon(name="plus", size=12, color="light-dark(#71717b, #818181)")
-                    text "Add project" font-size=11 line-height="16px" font-weight=500 color="light-dark(#71717b, #818181)"
+                    text "Add project" font-size="0.6875rem" line-height="1rem" font-weight=500 color="light-dark(#71717b, #818181)"
             else
-              box flex=1 min-height=16
+              box flex=1 min-height="1rem"
               when data.sidebar.workingCount > 0
-                ThreadSection(threads=data.threads, data=data, now=now, section="working", label="Working", busy=busy, local=local, run=run, open=open, hoverCard=hoverCard, hoverId=hoverId, drag=drag, dragEnd=dragEnd, dragId=dragId, dragVerb=dragVerb, dragOffset=dragOffset, dragTarget=dragTarget, page=page, scrollY=scrollY)
+                ThreadSection(reduced=reduced, threads=data.threads, data=data, now=now, section="working", label="Working", busy=busy, local=local, run=run, open=open, hoverCard=hoverCard, hoverId=hoverId, drag=drag, dragEnd=dragEnd, dragId=dragId, dragVerb=dragVerb, dragOffset=dragOffset, dragTarget=dragTarget, page=page, scrollY=scrollY)
               when data.sidebar.snoozedCount > 0
-                ThreadSection(threads=data.threads, data=data, now=now, section="snoozed", label="Snoozed", busy=busy, local=local, run=run, open=open, hoverCard=hoverCard, hoverId=hoverId, drag=drag, dragEnd=dragEnd, dragId=dragId, dragVerb=dragVerb, dragOffset=dragOffset, dragTarget=dragTarget, page=page, scrollY=scrollY)
-              ThreadSection(threads=data.threads, data=data, now=now, section="settled", label="Settled", busy=busy, local=local, run=run, open=open, hoverCard=hoverCard, hoverId=hoverId, drag=drag, dragEnd=dragEnd, dragId=dragId, dragVerb=dragVerb, dragOffset=dragOffset, dragTarget=dragTarget, page=page, scrollY=scrollY)
+                ThreadSection(reduced=reduced, threads=data.threads, data=data, now=now, section="snoozed", label="Snoozed", busy=busy, local=local, run=run, open=open, hoverCard=hoverCard, hoverId=hoverId, drag=drag, dragEnd=dragEnd, dragId=dragId, dragVerb=dragVerb, dragOffset=dragOffset, dragTarget=dragTarget, page=page, scrollY=scrollY)
+              ThreadSection(reduced=reduced, threads=data.threads, data=data, now=now, section="settled", label="Settled", busy=busy, local=local, run=run, open=open, hoverCard=hoverCard, hoverId=hoverId, drag=drag, dragEnd=dragEnd, dragId=dragId, dragVerb=dragVerb, dragOffset=dragOffset, dragTarget=dragTarget, page=page, scrollY=scrollY)
               when data.sidebar.showMore > 0
-                button press=local("more", "", "") width="100%" height=36 padding-left=10 padding-right=10 box-sizing="border-box" gap=10 border-radius=8 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" testId="sidebar-show-more"
+                button cursor="pointer" press=local("more", "", "") width="100%" height="2.25rem" padding-left="0.625rem" padding-right="0.625rem" box-sizing="border-box" gap="0.625rem" border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" testId="sidebar-show-more"
                   SidebarIcon(name="plus", size=16, color="light-dark(#71717b8c, #8181818c)")
-                  text `Show ${data.sidebar.showMore} more` font-size=14 line-height="20px" color="light-dark(#71717b8c, #8181818c)"
+                  text `Show ${data.sidebar.showMore} more` font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b8c, #8181818c)"
         else
           column width="100%" gap=1 role="listbox" aria-label="Thread search results" testId="thread-search-results"
             each t in data.threads key=t.id
               SearchResult(t=t, open=open, hoverCard=hoverCard, hoverId=hoverId)
             when length(data.threads) == 0
-              text (data.sidebar.searchPending ? "Searching thread messages…" : "No threads found") role="status" font-size=12 line-height="16px" text-align="center" padding-top=24 padding-bottom=24 padding-left=8 padding-right=8 color="light-dark(#71717b, #a3a3a3)"
+              text (data.sidebar.searchPending ? "Searching thread messages…" : "No threads found") role="status" font-size="0.75rem" line-height="1rem" text-align="center" padding-top="1.5rem" padding-bottom="1.5rem" padding-left="0.5rem" padding-right="0.5rem" color="light-dark(#71717b, #a3a3a3)"
       // SidebarThreadUndoNotice (Alert variant sidebar): "Settled 2 threads, ⌘Z to undo" above the footer.
       when data.sidebar.undoText != "" and now < data.sidebar.undoUntil
-        row margin-left=8 margin-right=8 margin-top=4 margin-bottom=4 padding-left=8 padding-right=8 padding-top=6 padding-bottom=6 box-sizing="border-box" border-radius=10 border-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #ffffff14)" background-color="light-dark(#f4f4f5, #0a0a0a)" align-items="center" gap=3 flex-shrink=0 role="status" testId="sidebar-undo-notice"
-          text data.sidebar.undoText font-size=11 line-height="16px" color="light-dark(#71717b, #a3a3a3)"
-          button press=run("undo", "", "") testId="sidebar-undo" padding=0 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center"
-            text data.sidebar.undoLabel font-size=11 line-height="16px" font-weight=500 color="light-dark(#27272a, #f1f3f7)" white-space="nowrap"
+        row margin-left="0.5rem" margin-right="0.5rem" margin-top="0.25rem" margin-bottom="0.25rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.375rem" padding-bottom="0.375rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #ffffff14)" background-color="light-dark(#f4f4f5, #0a0a0a)" align-items="center" gap="0.1875rem" flex-shrink=0 role="status" testId="sidebar-undo-notice"
+          text data.sidebar.undoText font-size="0.6875rem" line-height="1rem" color="light-dark(#71717b, #a3a3a3)"
+          button cursor="pointer" press=run("undo", "", "") testId="sidebar-undo" padding=0 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center"
+            text data.sidebar.undoLabel font-size="0.6875rem" line-height="1rem" font-weight=500 color="light-dark(#27272a, #f1f3f7)" white-space="nowrap"
       // SidebarProviderUpdatePill (r4-polish-tip.contract: with its two tooltips).
       when data.sidebar.pillKey != ""
         ProviderPill(tone=data.sidebar.pillTone, title=data.sidebar.pillTitle, description=data.sidebar.pillDescription, dismissible=data.sidebar.pillDismissible, open=openProviders(""), dismiss=local("pill-dismiss", "", data.sidebar.pillKey))
       // SidebarUtilityMenu (lane pages): Settings, Pull Requests and Usage; a utility page shows Back instead.
-      row height=40 padding-left=8 padding-right=8 padding-top=4 padding-bottom=4 box-sizing="border-box" align-items="center" gap=4 flex-shrink=0 role="list"
+      row height="2.5rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" align-items="center" gap="0.25rem" flex-shrink=0 role="list"
         when page == ""
           SidebarTip(tip="sidebar-settings", hoverCard=hoverCard)
-            button press=openSettings testId="connection-settings" width=32 height=32 padding=0 border-radius=8 border-width=0 background-color=(hoverId == "sidebar-settings" ? "light-dark(#fcfcfc, #f1f3f714)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" aria-label="Settings"
+            button cursor="pointer" press=openSettings testId="connection-settings" width="2rem" height="2rem" padding=0 border-radius="0.5rem" border-width=0 background-color=(hoverId == "sidebar-settings" ? "light-dark(#fcfcfc, #f1f3f714)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" aria-label="Settings"
               Icon(name="settings", size=16, color=(hoverId == "sidebar-settings" ? "light-dark(#27272a, #f3f3f3)" : "light-dark(#a8a8ae, #545454)"))
           when pullRequests
             SidebarTip(tip="sidebar-pull-requests", hoverCard=hoverCard)
-              button press=navigate("pull-requests") testId="open-pull-requests" width=32 height=32 padding=0 border-radius=8 border-width=0 background-color=(hoverId == "sidebar-pull-requests" ? "light-dark(#fcfcfc, #f1f3f714)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" aria-label="Pull Requests"
+              button cursor="pointer" press=navigate("pull-requests") testId="open-pull-requests" width="2rem" height="2rem" padding=0 border-radius="0.5rem" border-width=0 background-color=(hoverId == "sidebar-pull-requests" ? "light-dark(#fcfcfc, #f1f3f714)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" aria-label="Pull Requests"
                 Icon(name="pull-requests", size=16, color=(hoverId == "sidebar-pull-requests" ? "light-dark(#27272a, #f3f3f3)" : "light-dark(#a8a8ae, #545454)"))
           SidebarTip(tip="sidebar-usage", hoverCard=hoverCard)
-            button press=navigate("usage") testId="open-usage" width=32 height=32 padding=0 border-radius=8 border-width=0 background-color=(hoverId == "sidebar-usage" ? "light-dark(#fcfcfc, #f1f3f714)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" aria-label="Usage"
+            button cursor="pointer" press=navigate("usage") testId="open-usage" width="2rem" height="2rem" padding=0 border-radius="0.5rem" border-width=0 background-color=(hoverId == "sidebar-usage" ? "light-dark(#fcfcfc, #f1f3f714)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" aria-label="Usage"
               Icon(name="usage", size=16, color=(hoverId == "sidebar-usage" ? "light-dark(#27272a, #f3f3f3)" : "light-dark(#a8a8ae, #545454)"))
         else
-          button press=navigate("") testId="sidebar-back" flex=1 min-width=0 height=32 padding-left=10 padding-right=10 box-sizing="border-box" gap=8 border-radius=8 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="flex-start" aria-label="Back"
+          button cursor="pointer" press=navigate("") testId="sidebar-back" flex=1 min-width=0 height="2rem" padding-left="0.625rem" padding-right="0.625rem" box-sizing="border-box" gap="0.5rem" border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="flex-start" aria-label="Back"
             PgIcon(name="arrow-left", size=16, color="light-dark(#a8a8ae, #545454)")
-            text "Back" font-size=14 line-height="20px" font-weight=500 color="light-dark(#70707acc, #a2a2a2cc)"
+            text "Back" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#70707acc, #a2a2a2cc)"
       // The resize rail is SidebarOverlays' (r5-shell.contract): a strip reaching past the sidebar is not hit-testable here.
 
 // A shelf of rows. Working, Snoozed and Settled carry the collapsible header
@@ -179,6 +180,7 @@ component Sidebar
 // shelf still paints the open thread, which the projection already decided.
 component ThreadSection
   props
+    reduced: bool
     threads: list<Thread>
     data: Snapshot
     now: number
@@ -247,14 +249,14 @@ component ThreadSection
   derive tone = section == "snoozed" ? "light-dark(#155dfc, #51a2ff)" : "light-dark(#71717b99, #a3a3a399)"
   view
     // r5-shell: an empty pinned or active block takes no gap (the reference's markers are 0pt tall with a -1pt margin).
-    column gap=1 width="100%" margin-bottom=(label == "" and length(rows) == 0 ? -1 : 0)
+    column gap=1 width="100%" margin-bottom=(label == "" and length(rows) == 0 ? "-1px" : "0px")
       when label != ""
-        button id=`shelf-${section}` press=local("shelf", section, "") width="calc(100% - 4px)" margin-left=2 height=32 padding-left=8 padding-right=8 box-sizing="border-box" border-radius=8 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" gap=8 aria-label=`Toggle ${label}` aria-expanded=expanded testId=`toggle-${section}`
-          text (expanded ? label : `${label} (${count})`) font-size=12 font-weight=500 line-height="16px" color=(section == "settled" and dragTarget == "settled" ? "light-dark(#1b4ed8, #346bf1)" : section == "settled" and dragId != "" ? "light-dark(#27272acc, #f3f3f3cc)" : tone) flex-shrink=0
-          box flex=1 min-width=8 height=1 background-color=(section == "snoozed" ? "light-dark(#2b7fff33, #51a2ff26)" : "light-dark(#e4e4e799, #ffffff0c)")
+        button cursor="pointer" id=`shelf-${section}` press=local("shelf", section, "") width="calc(100% - 4px)" margin-left="0.125rem" height="2rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" gap="0.5rem" aria-label=`Toggle ${label}` aria-expanded=expanded testId=`toggle-${section}`
+          text (expanded ? label : `${label} (${count})`) font-size="0.75rem" font-weight=500 line-height="1rem" color=(section == "settled" and dragTarget == "settled" ? "light-dark(#1b4ed8, #346bf1)" : section == "settled" and dragId != "" ? "light-dark(#27272acc, #f3f3f3cc)" : tone) flex-shrink=0
+          box flex=1 min-width="0.5rem" height=1 background-color=(section == "snoozed" ? "light-dark(#2b7fff33, #51a2ff26)" : "light-dark(#e4e4e799, #ffffff0c)")
           SidebarIcon(name=(expanded ? "chevron-up" : "chevron-down"), size=12, color=tone)
       each t in rows key=t.id
-        ThreadRow(t=t, now=now, presets=data.snoozePresets, busy=busy, local=local, run=run, open=open, hoverCard=hoverCard, hoverId=(sweepLive ? "" : sweepCancelled and sweepEpoch == data.sidebar.sweepEpoch ? sweepHover : hoverId), drag=drag, dragEnd=dragEnd, dragId=dragId, dragVerb=dragVerb, dragOffset=(dragId == t.id ? dragOffset : 0), page=page, sweep=sweep, sweepKeys=(sweepCancelled and sweepEpoch == data.sidebar.sweepEpoch ? "|cancel|" : sweepLive ? sweepKeys : ""), sweepVerb=sweepVerb)
+        ThreadRow(reduced=reduced, t=t, now=now, presets=data.snoozePresets, busy=busy, local=local, run=run, open=open, hoverCard=hoverCard, hoverId=(sweepLive ? "" : sweepCancelled and sweepEpoch == data.sidebar.sweepEpoch ? sweepHover : hoverId), drag=drag, dragEnd=dragEnd, dragId=dragId, dragVerb=dragVerb, dragOffset=(dragId == t.id ? dragOffset : 0), page=page, sweep=sweep, sweepKeys=(sweepCancelled and sweepEpoch == data.sidebar.sweepEpoch ? "|cancel|" : sweepLive ? sweepKeys : ""), sweepVerb=sweepVerb)
       // r12-sidebar: the sweep owns Escape while it is armed (a window shortcut: the pan's section gets no keys).
       when sweepLive
         button press=cancelSweep aria-keyshortcuts="Escape" aria-label="Cancel sweep" testId=`sweep-cancel-${section}` position="absolute" left=0 top=0 width=1 height=1 overflow="hidden" opacity=0 padding=0 border-width=0 background-color="#00000000"
@@ -265,6 +267,6 @@ component SidebarDragLabel
     label: string
     target: bool
   view
-    row position="absolute" left=8 right=8 top=4 height=16 gap=8 align-items="center" pointer-events="none"
-      text label font-size=12 line-height="16px" font-weight=500 color=(target ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#27272acc, #f3f3f3cc)") flex-shrink=0
+    row position="absolute" left="0.5rem" right="0.5rem" top="0.25rem" height="1rem" gap="0.5rem" align-items="center" pointer-events="none"
+      text label font-size="0.75rem" line-height="1rem" font-weight=500 color=(target ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#27272acc, #f3f3f3cc)") flex-shrink=0
       box flex=1 height=1 background-color=(target ? "light-dark(#1b4ed880, #346bf180)" : "light-dark(#27272a40, #f3f3f340)")

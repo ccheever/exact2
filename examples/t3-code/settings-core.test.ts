@@ -1,10 +1,16 @@
 // Lane settings-core: settings shell, General and Appearance logic.
-import { describe, expect, test } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import type { T3Client } from './client';
 import type { Obj } from './domain';
 import type { Native } from './protocol';
 import { applyCoreSetting, applyDeviceSetting, changedDeviceLabels, clientValue, decodeClientPrefs, effectiveSetting, generalSections, parseCoreTarget,
-  parseProjectFile, resolveScope, restoreLabels, serverContext, serverValue, settingPatch } from './settings-core';
+  parseProjectFile, resolveScope, restoreLabels, serverContext, serverValue, settingPlan } from './settings-core';
+import { toasts } from './toast';
+import { fleet } from './settings-b-fleet';
+
+// The app's one fleet is shared across test files; these cases are single-environment unless they add entries.
+beforeEach(() => { fleet.entries.clear(); fleet.saved = []; });
+afterEach(() => { fleet.entries.clear(); fleet.saved = []; });
 import { appearanceSections, mix, modeTiles, palette, themeCards, themeRoles } from './settings-appearance';
 import { breadcrumbLabel, commandLabel, scopeAvailable, searchSettings, settingsNavigation } from './settings-search';
 import { settingsCore } from './settings-core-view';
@@ -96,11 +102,12 @@ describe('scope', () => {
     const client = as(fake({ projectSettingsOverrides: { p1: { defaultAutoPull: true } } }));
     const scope = resolveScope(client, '', 'repo', '');
     const settings = client.config.settings as Obj;
-    expect(settingPatch(settings, scope, 'defaultRuntimeMode', 'auto', false)).toEqual({ projectSettingsOverrides: { p1: { defaultAutoPull: true, defaultRuntimeMode: 'auto' }, p2: { defaultRuntimeMode: 'auto' } } });
-    expect(settingPatch(settings, scope, 'defaultAutoPull', undefined, true)).toEqual({ projectSettingsOverrides: { p1: null, p2: null } });
-    expect(() => settingPatch(settings, scope, 'snoozeLimitedThreads', true, false)).toThrow('Environment-wide');
-    expect(settingPatch(settings, resolveScope(client, '', '', ''), 'snoozeLimitedThreads', true, false)).toEqual({ snoozeLimitedThreads: true });
-    expect(settingPatch(settings, resolveScope(client, '', '', ''), 'defaultThreadEnvMode', undefined, true)).toEqual({ defaultThreadEnvMode: null });
+    const patches = (key: string, value: unknown, clear: boolean, target = scope) => settingPlan(client, target, key, value as never, clear, settings).serverWrites.map(write => write.patch);
+    expect(patches('defaultRuntimeMode', 'auto', false)).toEqual([{ projectSettingsOverrides: { p1: { defaultAutoPull: true, defaultRuntimeMode: 'auto' }, p2: { defaultRuntimeMode: 'auto' } } }]);
+    expect(patches('defaultAutoPull', undefined, true)).toEqual([{ projectSettingsOverrides: { p1: null, p2: null } }]);
+    expect(settingPlan(client, scope, 'snoozeLimitedThreads', true, false, settings).unavailableReason).toBe('This setting is environment-wide and cannot be overridden by a project.');
+    expect(patches('snoozeLimitedThreads', true, false, resolveScope(client, '', '', ''))).toEqual([{ snoozeLimitedThreads: true }]);
+    expect(patches('defaultThreadEnvMode', undefined, true, resolveScope(client, '', '', ''))).toEqual([{ defaultThreadEnvMode: null }]);
   });
 });
 
@@ -149,6 +156,26 @@ describe('general rows', () => {
   });
 });
 
+describe('traits picker', () => {
+  test('sections, Default badges and the bolt; a pick keeps the other traits (TraitsPicker)', () => {
+    const tier = { id: 'serviceTier', label: 'Service Tier', type: 'select', options: [{ id: 'default', label: 'Standard', isDefault: true }, { id: 'priority', label: 'Fast', description: '2x speed, increased usage' }] };
+    const descriptors = (provider.models[0]!.capabilities as Obj).optionDescriptors as Obj[];
+    descriptors.push(tier);
+    try {
+      const client = as(fake({ defaultModelSelection: { instanceId: 'fixture', model: 'luna', options: [{ id: 'reasoningEffort', value: 'high' }, { id: 'serviceTier', value: 'priority' }] } }));
+      const context = serverContext(client, resolveScope(client, '', '', ''), new Map());
+      const model = generalSections(client, context).flatMap(section => section.rows).find(entry => entry.id === 'default-model')!;
+      expect([model.label2, model.icon]).toEqual(['High', 'fast']);
+      expect(model.options2.map(entry => [entry.value, entry.icon, entry.selected])).toEqual([['section:reasoningEffort', 'section', false], ['reasoningEffort=low', '', false],
+        ['reasoningEffort=medium', 'default', false], ['reasoningEffort=high', '', true], ['section:serviceTier', 'section-rule', false], ['serviceTier=default', 'default', false], ['serviceTier=priority', '', true]]);
+      expect(model.options2.find(entry => entry.value === 'serviceTier=priority')!.detail).toBe('2x speed, increased usage');
+      expect(serverValue('defaultModelSelection', 'reasoningEffort=low', context, 'effort')).toEqual({ instanceId: 'fixture', model: 'luna', options: [{ id: 'serviceTier', value: 'priority' }, { id: 'reasoningEffort', value: 'low' }] });
+      expect(serverValue('defaultModelSelection', 'serviceTier=default', context, 'effort')).toEqual({ instanceId: 'fixture', model: 'luna', options: [{ id: 'reasoningEffort', value: 'high' }, { id: 'serviceTier', value: 'default' }] });
+      expect(() => serverValue('defaultModelSelection', 'section:serviceTier', context, 'effort')).toThrow();
+    } finally { descriptors.pop(); }
+  });
+});
+
 describe('writes through the command', () => {
   test('environment and project writes reach server.updateSettings; device rows never do', async () => {
     const client = fake();
@@ -165,12 +192,19 @@ describe('writes through the command', () => {
     expect((client.local.clientSettings as Obj).diffLayout).toBe('split');
     await applyCoreSetting(as(client), native, 'diff-layout:reset|||', 'diffLayout');
     expect((client.local.clientSettings as Obj).diffLayout).toBe('stacked');
-    await expect(applyCoreSetting(as(client), native, 'snooze-limited-threads:||gone|', 'true')).rejects.toThrow('no longer available');
-    await expect(applyCoreSetting(as(client), native, 'snooze-limited-threads:||repo|', 'true')).rejects.toThrow('Environment-wide');
+    // useRunScopedPlan: a refused plan writes nothing and warns "Setting not saved" with the reason.
+    const before = client.writes.length;
+    await applyCoreSetting(as(client), native, 'snooze-limited-threads:||gone|', 'true');
+    expect(toasts(as(client)).at(-1)).toMatchObject({ kind: 'warning', title: 'Setting not saved', description: 'This project is no longer available.' });
+    await applyCoreSetting(as(client), native, 'snooze-limited-threads:||repo|', 'true');
+    expect(toasts(as(client)).at(-1)).toMatchObject({ kind: 'warning', description: 'This setting is environment-wide and cannot be overridden by a project.' });
+    expect(client.writes.length).toBe(before);
   });
   test('disconnected server rows refuse; restore resets device and environment values', async () => {
     const offline = fake({}, false);
-    await expect(applyCoreSetting(as(offline), native, 'snooze-limited-threads:|||', 'true')).rejects.toThrow('Reconnect');
+    await applyCoreSetting(as(offline), native, 'snooze-limited-threads:|||', 'true');
+    expect(offline.writes).toEqual([]);
+    expect(toasts(as(offline)).at(-1)).toMatchObject({ kind: 'warning', title: 'Setting not saved', description: 'Connect an environment to save this setting.' });
     const client = fake({ snoozeLimitedThreads: true, responseStreamingMode: 'turn' });
     applyDeviceSetting(client.local as never, 'chatWidth', 'full');
     expect(restoreLabels(client.local as never, client.config.settings as Obj, true)).toEqual(['Chat width', 'Snooze limited threads', 'Response streaming']);
@@ -232,6 +266,8 @@ describe('appearance', () => {
     expect(rows.map(row => row.title)).toEqual(['Contrast', 'Glass opacity', 'Environment identification', 'Diff colors', 'Composer context', 'Chat width', 'Panel animations', 'Interface font', 'Monospace font', 'Word wrap']);
     expect(rows.find(row => row.id === 'setting-glass-opacity')!.label).toBe('60%');
     expect(rows.filter(row => row.kind === 'font').map(row => [row.info, row.amount])).toEqual([['preview-prompt', 16], ['preview-code-terminal', 13]]);
+    // PromptFontPreview is the composer at the Prompt font size, whatever the Interface font size.
+    expect(appearanceSections(decodeClientPrefs({ fontSizeInterface: 12 }), true).flatMap(section => section.rows).filter(row => row.kind === 'font').map(row => [row.amount, row.previewSize])).toEqual([[12, 14], [13, 13]]);
     const advanced = appearanceSections(decodeClientPrefs({ typographyAdvanced: true, fontSizeTerminal: 14 }), true).at(-1)!.rows;
     expect(advanced.map(row => [row.title, row.info])).toEqual([['Interface font', ''], ['Prompt font', 'preview-prompt'], ['Code font', 'preview-code'], ['Terminal font', 'preview-terminal'], ['Font smoothing', ''], ['Word wrap', '']]);
     expect(advanced.find(row => row.id === 'terminal-font')!.amount).toBe(14);

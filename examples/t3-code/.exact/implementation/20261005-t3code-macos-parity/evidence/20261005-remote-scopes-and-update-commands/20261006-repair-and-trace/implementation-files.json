@@ -1,0 +1,74 @@
+[
+  {
+    "path": "examples/t3-code/client-ops-connection.ts",
+    "sha256": "b7832d67bbbe8e21e299b4f34c0f3df572a21aa30b116d139bd23fd36eef85da"
+  },
+  {
+    "path": "examples/t3-code/connections.contract",
+    "sha256": "64b855e990029684f54adff57cb480ce0b33137c4c0e40c12419795f148a3b55"
+  },
+  {
+    "path": "examples/t3-code/connections.test.ts",
+    "sha256": "e253e6b4b2446c237de259d00f042a6bbf641c602e66c75af066420d71af8e01"
+  },
+  {
+    "path": "examples/t3-code/connections.ts",
+    "sha256": "a97542fc96289c15a30f45d005f59a2d89161039211b02fcbe0741157220c7be"
+  },
+  {
+    "path": "examples/t3-code/macos/tests/transport/main.swift",
+    "sha256": "22b33a271dbbff8ffa09d98774f50cef251af42405e51b68e8e0df42b1b7b75e"
+  },
+  {
+    "path": "examples/t3-code/macos/tests/transport/remote-scopes.swift",
+    "sha256": "19ea0d3438fe1a7399f915917ba596a2209a185d2cfe97f27287dae181875cd5"
+  },
+  {
+    "path": "examples/t3-code/modules/apple/T3Fleet.swift",
+    "sha256": "77113e2f9de88f1a4f5ec328e73417bc22c4df1e39dc7ebf92869fae6c9e95a0"
+  },
+  {
+    "path": "examples/t3-code/modules/apple/T3RemoteAuth.swift",
+    "sha256": "3a4dd9b6e5407a3adfaad636c1abeb60a1812ba59690ed776f5ba41c8436fef9"
+  },
+  {
+    "path": "examples/t3-code/modules/apple/T3Transport+Environments.swift",
+    "sha256": "38cb7ded14cd4c735718d9c0cabf80ddc14aee98656ff6ffc69eacde46f2aa7a"
+  },
+  {
+    "path": "examples/t3-code/modules/apple/T3Transport.swift",
+    "sha256": "ad2844c2fe0c040cce8baa5799782d9bee0251728235ae60e3afbf608b2bc662"
+  },
+  {
+    "path": "examples/t3-code/remote-scopes.ts",
+    "sha256": "7b1daed37eb7e859faba8deca7da0db8630748b9d06145ef60dc5bc25d18e27c"
+  },
+  {
+    "path": "examples/t3-code/server-installation.test.ts",
+    "sha256": "f004d13793373db70cc6694e0d71181a7b053551102418964e079355b18195c0"
+  },
+  {
+    "path": "examples/t3-code/server-installation.ts",
+    "sha256": "d28c6360a739272a4c1a8d3712311dabf7b78f6aebab5078ed77f191fb2743d3"
+  },
+  {
+    "path": "examples/t3-code/settings-b-outdated.ts",
+    "sha256": "01508fce8fc715ab1b52182993e019544c3399aca312a846041cc193d78ece23"
+  },
+  {
+    "path": "examples/t3-code/settings-b-ssh.test.ts",
+    "sha256": "d30386b7abdb0faad81731c1513d029f46e45474da0008cc52a4beed0cad15c0"
+  },
+  {
+    "path": "examples/t3-code/settings-b-ssh.ts",
+    "sha256": "947f0ff8a977708563fe68461d7c50e92f53a35ce31dcbf039f778ce0924870a"
+  },
+  {
+    "path": "host/apple/Sources/ExactKit/Mac/NodeViewMac.swift",
+    "sha256": "25a6b76df53e4d9ff4b97c3d4e24915f69adadf58561f24aebaf22744244d8a0"
+  },
+  {
+    "path": "host/apple/tests/ExactKitTests/NativeButtonsMacTests.swift",
+    "sha256": "ed49866267d141433cc3084affb8d00438051e2a8d44fb53789ba6965214a794"
+  }
+]

@@ -314,6 +314,7 @@ impl super::Device {
             format: desc.format,
             copy_size: desc.copy_extent(),
             identity,
+            surface_image: false,
         }
     }
 
@@ -1278,31 +1279,59 @@ impl crate::Device for super::Device {
             vk_info = vk_info.push_next(&mut image_view_info);
         }
 
-        let raw = unsafe { self.shared.raw.create_image_view(&vk_info, None) }
-            .map_err(super::map_host_device_oom_and_ioca_err)?;
-
-        if let Some(label) = desc.label {
-            unsafe { self.shared.set_object_name(raw, label) };
-        }
-
-        let identity = self.shared.texture_view_identity_factory.next();
+        let make = || -> Result<super::IdentifiedTextureView, crate::DeviceError> {
+            let raw = unsafe { self.shared.raw.create_image_view(&vk_info, None) }
+                .map_err(super::map_host_device_oom_and_ioca_err)?;
+            if let Some(label) = desc.label {
+                unsafe { self.shared.set_object_name(raw, label) };
+            }
+            let identity = self.shared.texture_view_identity_factory.next();
+            Ok(super::IdentifiedTextureView { raw, identity })
+        };
+        // EXACT (EXACT-PATCHES.md, 6): a swapchain image's view is the
+        // device's, made once for the image and description.
+        let view = if texture.surface_image {
+            let key = super::SurfaceViewKey {
+                texture_identity: texture.identity,
+                raw_format,
+                view_type: conv::map_view_dimension(desc.dimension),
+                aspect_mask: subresource_range.aspect_mask,
+                range: [
+                    subresource_range.base_mip_level,
+                    subresource_range.level_count,
+                    subresource_range.base_array_layer,
+                    subresource_range.layer_count,
+                ],
+                usage: u32::from(desc.usage.bits()),
+            };
+            match self.shared.surface_views.lock().entry(key) {
+                Entry::Occupied(e) => *e.get(),
+                Entry::Vacant(e) => *e.insert(make()?),
+            }
+        } else {
+            make()?
+        };
 
         self.counters.texture_views.add(1);
 
         Ok(super::TextureView {
             raw_texture: texture.raw,
-            raw,
+            raw: view.raw,
             _layers: layers,
             format: desc.format,
             raw_format,
             base_mip_level: desc.range.base_mip_level,
             dimension: desc.dimension,
             texture_identity: texture.identity,
-            view_identity: identity,
+            view_identity: view.identity,
+            cached: texture.surface_image,
         })
     }
     unsafe fn destroy_texture_view(&self, view: super::TextureView) {
-        unsafe { self.shared.raw.destroy_image_view(view.raw, None) };
+        // EXACT (EXACT-PATCHES.md, 6): the device destroys its own.
+        if !view.cached {
+            unsafe { self.shared.raw.destroy_image_view(view.raw, None) };
+        }
 
         self.counters.texture_views.sub(1);
     }

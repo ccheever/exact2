@@ -124,7 +124,7 @@ const BOX_PROPS: [&str; 6] = ["testId", "id", "role", "disabled", "inert", "tabi
 /// The form-control props (LLP 1069.001, LLP 1069.002) a module's box has
 /// no use for. `checked` is refused on every tag but `input` before this
 /// runs (`controls::control`); it is listed so the set reads whole.
-const CONTROL_PROPS: [&str; 19] = [
+const CONTROL_PROPS: [&str; 20] = [
     "value",
     "placeholder",
     "autofocus",
@@ -137,6 +137,7 @@ const CONTROL_PROPS: [&str; 19] = [
     "readonly",
     "inputmode",
     "enterkeyhint",
+    "autocomplete",
     "autocapitalize",
     "autocorrect",
     "spellcheck",

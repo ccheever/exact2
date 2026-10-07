@@ -523,7 +523,7 @@ extension NodeView {
         if let e = extras {
             e.beforeLayoutScroll = nil; e.hiddenScroll = nil; e.followedScroll = nil
             e.anchoredScrollTop = nil; e.retainedScrollTop = nil; e.lastScrollEvent = .zero
-            e.readingAnchors.removeAll(); e.activeReadingAnchor = nil
+            e.readingAnchors.removeAll(); e.activeReadingAnchor = nil; e.scrollAnchor = nil
             e.pendingScrollTop = nil; e.pendingScrollLeft = nil
         }
     }
@@ -536,7 +536,7 @@ extension NodeView {
         // UIKit's setters are not free, even to the same value.
         if isHidden { isHidden = false }
         if alpha != 1 { alpha = 1 }
-        translatePx = .zero; translatePercent = .zero; layoutOffset = .zero; layoutScale = CGPoint(x: 1, y: 1); endSurface(); scale = 1; rotate = 0; press = PressFeedback()
+        translatePx = .zero; translatePercent = .zero; layoutOffset = .zero; layoutScale = CGPoint(x: 1, y: 1); endSurface(); scale = 1; rotate = 0; stopPressEase(); press = PressFeedback()
         if !transform.isIdentity { transform = .identity }
         if !isUserInteractionEnabled { isUserInteractionEnabled = true }
         if isAccessibilityElement { isAccessibilityElement = false }

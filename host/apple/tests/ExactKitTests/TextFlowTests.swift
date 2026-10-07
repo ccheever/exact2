@@ -40,9 +40,10 @@ final class TextFlowTests: XCTestCase {
     private let circle = TextFlowShape(kind: 0, x: 180, y: 96, a: 52)
     private let prose = String(repeating: "The garden leaves room for the light. We watch the quiet river carry its story beyond the trees. ", count: 10)
 
-    /// One tokenizer serves every paragraph. It must find what a new one
-    /// finds, whatever script the paragraph before it was in.
-    func testTheSharedLineBreakerFindsWhatANewOneFinds() {
+    /// A paragraph's opportunities depend on its text alone, whatever script
+    /// the paragraph before it was in; Thai keeps its dictionary words, and
+    /// a URL its solidi (Chrome's tailoring, #128).
+    func testLineBoundariesDependOnTheTextAlone() {
         let texts = [
             "東京都は日本の首都です。人口は約一千四百万人で、世界有数の大都市です。",
             "A plain sentence, with a hyphen-ated word and https://example.com/a/long/path?query=1.",
@@ -52,17 +53,15 @@ final class TextFlowTests: XCTestCase {
             "one\ntwo\r\nthree\u{2028}four",
             "A plain sentence, with a hyphen-ated word and https://example.com/a/long/path?query=1.",
         ]
-        for text in texts + texts.reversed() {
-            let string = text as NSString, length = string.length
-            let fresh = CFStringTokenizerCreate(nil, string as CFString, CFRange(location: 0, length: length), kCFStringTokenizerUnitLineBreak, nil)!
-            var expected: [Int] = []
-            while CFStringTokenizerAdvanceToNextToken(fresh).rawValue != 0 {
-                let range = CFStringTokenizerGetCurrentTokenRange(fresh)
-                expected.append(range.location + range.length)
-            }
-            if expected.last != length { expected.append(length) }
-            XCTAssertEqual(engine.lineBoundaries(string, length: length), expected, text)
+        let alone = texts.map { TextEngine(resolve: { _ in nil }).lineBoundaries($0 as NSString, length: ($0 as NSString).length) }
+        for (i, text) in (texts + texts.reversed()).enumerated() {
+            let string = text as NSString
+            XCTAssertEqual(engine.lineBoundaries(string, length: string.length), alone[i < texts.count ? i : 2 * texts.count - 1 - i], text)
         }
+        let url = texts[1] as NSString
+        XCTAssertFalse(alone[1].contains { $0 < url.length && url.character(at: $0 - 1) == 0x2F }, "no break after a solidus")
+        XCTAssertTrue(alone[1].contains(url.range(of: "hyphen-").upperBound), "a break after the hyphen")
+        XCTAssertGreaterThan(alone[2].count, 4, "Thai breaks between dictionary words")
     }
 
     func testCachedUnicodeOpportunitiesPreserveFreshLayoutAcrossWidths() {
@@ -89,11 +88,9 @@ final class TextFlowTests: XCTestCase {
                     XCTAssertEqual(cached.width, fresh.width)
                     XCTAssertEqual(cached.height, fresh.height)
                 }
-                // `break-word` takes normal's opportunities too, breaking
-                // inside a word only when none fits; `anywhere` is CoreText's.
-                if mode != 2 {
-                    XCTAssertEqual(source.lineBreakBoundaries, engine.lineBoundaries(text as NSString, length: text.utf16.count))
-                } else { XCTAssertNil(source.lineBreakBoundaries, "Emergency wrapping needs no Unicode opportunity array") }
+                // `break-word` and `anywhere` take normal's opportunities too,
+                // breaking inside a word only when none fits.
+                XCTAssertEqual(source.lineBreakBoundaries, engine.lineBoundaries(text as NSString, length: text.utf16.count))
             }
         }
     }

@@ -82,6 +82,8 @@ def unsupportedTy (name : String) (ts : List Ty) : Option Ty :=
   if name = "formatTime" ∨ name = "formatDate" then
     match ts with | [.number, .number, .string] => .some .string | _ => .none
   else if name = "formatNumber" then match ts with | [.number, .string] => .some .string | _ => .none
+  else if name = "toFixed" ∨ name = "formatDecimal" then
+    match ts with | [.number, .number] => .some .string | _ => .none
   else if name = "t" then
     match ts with
     | .string :: .string :: rest => if rest.all (· == .string) then .some .string else .none
@@ -130,6 +132,10 @@ def rosterTy (name : String) (ts : List Ty) : Option Ty :=
   else if name = "toString" then
     match ts with | [t] => if t.displayable then .some .string else .none | _ => .none
   else if name = "floor" then match ts with | [.number] => .some .number | _ => .none
+  else if name = "ceil" ∨ name = "round" then match ts with | [.number] => .some .number | _ => .none
+  else if name = "parseNumber" then match ts with | [.string] => .some (.option .number) | _ => .none
+  else if name = "calendarDiff" then
+    match ts with | [.string, .string, .string] => .some (.option .number) | _ => .none
   else if name = "max" ∨ name = "min" then
     match ts with | [.number, .number] => .some .number | _ => .none
   else if name = "first" then match ts with | [.list a] => .some (.option a) | _ => .none

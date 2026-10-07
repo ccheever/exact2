@@ -248,7 +248,8 @@ fn visit(
         let resolve_shape = |exclusion| {
             let f = frame(exclusion);
             let s = arena.style(exclusion);
-            s.shape_outside
+            s.rare
+                .shape_outside
                 .resolve(f.width, f.height)
                 .grow(s.shape_margin)
                 .translate(f.x, f.y)

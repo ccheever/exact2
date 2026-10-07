@@ -8,7 +8,7 @@ import UniformTypeIdentifiers
 final class T3ContextMenu: NSObject {
     private var chosen: String?
 
-    /// Items: [{ id, label, destructive?, disabled?, separatorBefore? }]. Main thread only.
+    /// Items: [{ id, label, destructive?, disabled?, separatorBefore?, children? }]. Main thread only.
     func show(_ items: [[String: Any]], in window: NSWindow?, keyboard: Bool = false) -> String? {
         let menu = self.menu(for: items)
         chosen = nil
@@ -27,7 +27,8 @@ final class T3ContextMenu: NSObject {
     }
 
     /// The menu `show` pops up: Electron's showContextMenu layout (a separator before the
-    /// first destructive item unless the items already declared their sections).
+    /// first destructive item unless the items already declared their sections; an item with
+    /// children is a submenu whose choice reports the child's id, as buildTemplate does).
     func menu(for items: [[String: Any]]) -> NSMenu {
         let menu = NSMenu()
         menu.autoenablesItems = false
@@ -40,6 +41,14 @@ final class T3ContextMenu: NSObject {
             }
             if destructive, !destructiveSeparated, !explicitSection, !menu.items.isEmpty {
                 menu.addItem(.separator()); destructiveSeparated = true
+            }
+            let children = item["children"] as? [[String: Any]] ?? []
+            if !children.isEmpty {
+                let parent = NSMenuItem(title: label, action: nil, keyEquivalent: "")
+                parent.isEnabled = !(item["disabled"] as? Bool ?? false)
+                parent.submenu = self.menu(for: children)
+                menu.addItem(parent)
+                continue
             }
             let entry = NSMenuItem(title: label, action: #selector(pick(_:)), keyEquivalent: "")
             entry.target = self
@@ -60,8 +69,13 @@ final class T3ContextMenu: NSObject {
 
     @objc private func pick(_ sender: NSMenuItem) { chosen = sender.representedObject as? String }
 
-    /// The module's `contextMenu` request on the main thread.
-    static func perform(_ request: [String: Any], reply: @escaping ([String: Any]) -> Void) {
+    /// The module's `contextMenu` request on the main thread. Under the agent no menu pops up:
+    /// its window is never key and has no pointer, so `popUp` would track until a real click
+    /// or Escape, leaving this request (and every main-queue turn and `clock settle` behind it)
+    /// pending. It answers dismissed, as Escape would, as T3Sidebar's menu does; menus the
+    /// agent must choose from are Contract `contextPopover`s (the right-panel tab menu).
+    static func perform(_ request: [String: Any], agent: Bool = false, reply: @escaping ([String: Any]) -> Void) {
+        if agent { return reply(["ok": true, "generation": request["generation"] as? Int ?? 0, "value": ["clicked": NSNull(), "shown": false] as [String: Any]]) }
         DispatchQueue.main.async {
             let items = request["items"] as? [[String: Any]] ?? []
             // NSMenuItem.target is weak: keep the owner alive across the modal popUp.
@@ -105,17 +119,38 @@ final class T3ContextMenu: NSObject {
         }
     }
 
-    /// The desktop shell's file picker for theme files: an NSOpenPanel of .json
-    /// files, each read up to 1 MB. Under the agent the files are the isolated
-    /// data root's imports/ directory, so a drive can supply them without a panel.
+    /// pickThemeFiles (apps/desktop/src/ipc/methods/window.ts, 1e2ecbd975): an NSOpenPanel of
+    /// .json files, several at once, opening in ~/.vscode/extensions when it exists. Theme files
+    /// are a few KB: one over 256 KiB comes back as {name, size, text: ""} without being read, an
+    /// unreadable one as {name, size: 0, text: ""}; the client reports both. Cancel answers
+    /// `cancelled`. Under the agent the files are the isolated data root's imports/ directory, so
+    /// a drive can supply them without a panel.
+    static let pickedThemeFileMaxBytes = 256 * 1024
+    static func readThemeFile(_ url: URL) -> [String: Any] {
+        let name = url.lastPathComponent
+        guard let size = (try? FileManager.default.attributesOfItem(atPath: url.path))?[.size] as? NSNumber else { return ["name": name, "size": 0, "text": ""] }
+        if size.intValue > pickedThemeFileMaxBytes { return ["name": name, "size": size.intValue, "text": ""] }
+        guard let data = try? Data(contentsOf: url), let text = String(data: data, encoding: .utf8) else { return ["name": name, "size": 0, "text": ""] }
+        return ["name": name, "size": size.intValue, "text": text]
+    }
+    /// os.homedir()/.vscode/extensions when it exists (HOME first, as Node reads it).
+    static func themeStartDirectory(home: String = ProcessInfo.processInfo.environment["HOME"] ?? NSHomeDirectory()) -> URL? {
+        let extensions = URL(fileURLWithPath: home, isDirectory: true).appendingPathComponent(".vscode/extensions", isDirectory: true)
+        var isDirectory: ObjCBool = false
+        return FileManager.default.fileExists(atPath: extensions.path, isDirectory: &isDirectory) && isDirectory.boolValue ? extensions : nil
+    }
+    static func themePanel() -> NSOpenPanel {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.json]
+        panel.allowsMultipleSelection = true
+        panel.canChooseDirectories = false
+        if let start = themeStartDirectory() { panel.directoryURL = start }
+        return panel
+    }
     static func openText(_ request: [String: Any], importsRoot: URL?, reply: @escaping ([String: Any]) -> Void) {
         let generation = request["generation"] as? Int ?? 0
         let read = { (urls: [URL]) -> [String: Any] in
-            let files: [[String: Any]] = urls.prefix(40).compactMap { url in
-                guard let data = try? Data(contentsOf: url), data.count <= 1_048_576, let text = String(data: data, encoding: .utf8) else { return nil }
-                return ["name": url.lastPathComponent, "text": text]
-            }
-            return ["ok": true, "generation": generation, "value": ["files": files]]
+            ["ok": true, "generation": generation, "value": ["files": urls.map(readThemeFile), "cancelled": urls.isEmpty]]
         }
         if let importsRoot {
             let urls = (try? FileManager.default.contentsOfDirectory(at: importsRoot, includingPropertiesForKeys: nil))?
@@ -123,11 +158,8 @@ final class T3ContextMenu: NSObject {
             return reply(read(urls))
         }
         DispatchQueue.main.async {
-            let panel = NSOpenPanel()
-            panel.allowedContentTypes = [.json]
-            panel.allowsMultipleSelection = request["multiple"] as? Bool ?? false
-            panel.canChooseDirectories = false
-            guard panel.runModal() == .OK else { return reply(["ok": true, "generation": generation, "value": ["files": [[String: Any]]()]]) }
+            let panel = themePanel()
+            guard panel.runModal() == .OK else { return reply(read([])) }
             reply(read(panel.urls))
         }
     }

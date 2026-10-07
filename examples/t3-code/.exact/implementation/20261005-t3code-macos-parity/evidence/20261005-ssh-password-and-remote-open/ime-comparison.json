@@ -1,0 +1,11 @@
+{
+  "reference": "1e2ecbd975",
+  "oraclePid": 7612,
+  "clonePid": 11257,
+  "selectedInputSource": "com.apple.inputmethod.Korean.2SetKorean",
+  "oracleFocusedPasswordInputSource": "com.apple.keylayout.ABC",
+  "oracleSyntheticGValue": "g",
+  "cloneFocusedSecureFieldInputSource": "com.apple.keylayout.ABC",
+  "cloneNativeAX": "secure text field; redacted value; focused",
+  "result": "Both macOS password fields switched Korean input source to ABC on focus. No Korean composition is expected in either secure field."
+}

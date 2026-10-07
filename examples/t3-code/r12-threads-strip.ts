@@ -13,6 +13,7 @@
 import type { T3Client } from './client';
 import { environmentOptions, NO_RUN_ON } from './r4-git-env';
 import { runOnMenuWidth } from './r5-composer-menus';
+import { autoIndicator, withAutoOption } from './auto-balance'; // auto-balance
 import { fleet, type EnvironmentFleet } from './settings-b-fleet';
 
 // A remote (non-primary) environment is always surfaced, even when it is the
@@ -58,6 +59,7 @@ export function gitlessStrip<T extends Strip>(client: T3Client, hidden: T, persi
   if (!show || !active) return hidden;
   // The Select's popup holds only the "Run on" group, so it sizes to the machine labels alone.
   const envMenuWidth = runOnMenuWidth(client.presentation, options.map(option => option.label), []);
-  return { ...hidden, ...NO_RUN_ON, envShow: true, envMachine: active.machine, envMachineLabel: active.label,
-    envOptions: draft ? options : [], envMenuWidth, envLocked: !draft, show: true, gitless: true };
+  const shown = autoIndicator(client, active); // auto-balance: "Auto balance" leads the group while it is offered
+  return { ...hidden, ...NO_RUN_ON, envShow: true, envMachine: shown.machine, envMachineLabel: shown.label,
+    envOptions: draft ? withAutoOption(client, options) : [], envMenuWidth, envLocked: !draft, show: true, gitless: true };
 }

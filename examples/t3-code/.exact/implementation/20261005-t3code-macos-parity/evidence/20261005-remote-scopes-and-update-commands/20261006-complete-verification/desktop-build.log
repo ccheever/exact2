@@ -1,0 +1,78 @@
+ℹ entry: src/main.ts
+ℹ tsconfig: tsconfig.json
+ℹ entry: src/electron/WindowsForegroundFocusWorker.ts, src/snapShot/GlobalShiftShortcutWorker.ts, src/snapShot/RegionSnapShotWorker.ts, src/snapShot/SnapShotAccessibilityWorker.ts
+ℹ tsconfig: tsconfig.json
+ℹ entry: src/boot.ts, src/compileCache.ts
+ℹ tsconfig: tsconfig.json
+ℹ entry: src/preload.ts
+ℹ tsconfig: tsconfig.json
+ℹ entry: src/preview-pick-preload.ts
+ℹ tsconfig: tsconfig.json
+ℹ entry: src/preview-pip-preload.ts
+ℹ tsconfig: tsconfig.json
+ℹ entry: src/mac-permission-preload.ts
+ℹ tsconfig: tsconfig.json
+ℹ Build start
+ℹ dist-electron/preview-pip-preload.cjs       0.68 kB │ gzip: 0.36 kB
+ℹ dist-electron/preview-pip-preload.cjs.map  10.55 kB │ gzip: 2.72 kB
+ℹ 2 files, total: 11.23 kB
+ℹ dist-electron/mac-permission-preload.cjs       0.79 kB │ gzip: 0.38 kB
+ℹ dist-electron/mac-permission-preload.cjs.map  10.74 kB │ gzip: 2.76 kB
+ℹ 2 files, total: 11.53 kB
+✔ Build complete in 31ms
+✔ Build complete in 31ms
+ℹ dist-electron/compileCache.cjs      1.61 kB │ gzip: 0.75 kB
+ℹ dist-electron/boot.cjs              0.12 kB │ gzip: 0.12 kB
+ℹ dist-electron/compileCache.cjs.map  1.82 kB │ gzip: 0.99 kB
+ℹ dist-electron/boot.cjs.map          0.33 kB │ gzip: 0.23 kB
+ℹ 4 files, total: 3.88 kB
+ℹ Hint: consider adding deps.onlyBundle option to avoid unintended bundling of dependencies, or set deps.onlyBundle: false to disable this hint.
+See more at https://tsdown.dev/options/dependencies#deps-onlybundle
+Detected dependencies in bundle:
+- @clerk/electron
+✔ Build complete in 59ms
+ℹ Hint: consider adding deps.onlyBundle option to avoid unintended bundling of dependencies, or set deps.onlyBundle: false to disable this hint.
+See more at https://tsdown.dev/options/dependencies#deps-onlybundle
+Detected dependencies in bundle:
+- react-grab
+ℹ dist-electron/preload.cjs      27.57 kB │ gzip:  6.09 kB
+ℹ dist-electron/preload.cjs.map  50.09 kB │ gzip: 10.73 kB
+ℹ 2 files, total: 77.66 kB
+✔ Build complete in 87ms
+ℹ dist-electron/preview-pick-preload.cjs      126.03 kB │ gzip: 33.22 kB
+ℹ dist-electron/preview-pick-preload.cjs.map  221.34 kB │ gzip: 56.55 kB
+ℹ 2 files, total: 347.37 kB
+✔ Build complete in 128ms
+ℹ dist-electron/snapShot/SnapShotAccessibilityWorker.cjs        6.27 kB │ gzip: 1.93 kB
+ℹ dist-electron/snapShot/GlobalShiftShortcutWorker.cjs          5.71 kB │ gzip: 1.59 kB
+ℹ dist-electron/electron/WindowsForegroundFocusWorker.cjs       2.32 kB │ gzip: 0.89 kB
+ℹ dist-electron/snapShot/RegionSnapShotWorker.cjs               0.77 kB │ gzip: 0.42 kB
+ℹ dist-electron/snapShot-DMaN9SMJ.cjs.map                       4.28 MB
+ℹ dist-electron/snapShot-DMaN9SMJ.cjs                           1.17 MB
+ℹ dist-electron/snapShot/SnapShotAccessibilityWorker.cjs.map   13.70 kB │ gzip: 4.02 kB
+ℹ dist-electron/snapShot/GlobalShiftShortcutWorker.cjs.map     13.62 kB │ gzip: 3.56 kB
+ℹ dist-electron/electron/WindowsForegroundFocusWorker.cjs.map   5.07 kB │ gzip: 1.67 kB
+ℹ dist-electron/snapShot/RegionSnapShotWorker.cjs.map           1.77 kB │ gzip: 0.84 kB
+ℹ dist-electron/rolldown-runtime-VH7oDXx4.cjs                   1.13 kB │ gzip: 0.53 kB
+ℹ 11 files, total: 5.51 MB
+✔ Build complete in 171ms
+ℹ dist-electron/main.cjs       5.09 MB
+ℹ dist-electron/main.cjs.map  12.96 MB
+ℹ 2 files, total: 18.04 MB
+../../node_modules/.pnpm/dbus-next@0.10.2_patch_hash=cfff57561b0ee59b5addb3b2e6c6f20906e967507a530ab67e8db8108e520ba4/node_modules/dbus-next/lib/address-x11.js (7:22) [33m[UNRESOLVED_IMPORT] [0mCould not resolve 'x11' in ../../node_modules/.pnpm/dbus-next@0.10.2_patch_hash=cfff57561b0ee59b5addb3b2e6c6f20906e967507a530ab67e8db8108e520ba4/node_modules/dbus-next/lib/address-x11.js
+   [38;5;246m╭[0m[38;5;246m─[0m[38;5;246m[[0m ../../node_modules/.pnpm/dbus-next@0.10.2_patch_hash=cfff57561b0ee59b5addb3b2e6c6f20906e967507a530ab67e8db8108e520ba4/node_modules/dbus-next/lib/address-x11.js:7:23 [38;5;246m][0m
+   [38;5;246m│[0m
+ [38;5;246m7 │[0m [38;5;249m [0m[38;5;249m [0m[38;5;249mc[0m[38;5;249mo[0m[38;5;249mn[0m[38;5;249ms[0m[38;5;249mt[0m[38;5;249m [0m[38;5;249mx[0m[38;5;249m1[0m[38;5;249m1[0m[38;5;249m [0m[38;5;249m=[0m[38;5;249m [0m[38;5;249mr[0m[38;5;249me[0m[38;5;249mq[0m[38;5;249mu[0m[38;5;249mi[0m[38;5;249mr[0m[38;5;249me[0m[38;5;249m([0m'x11'[38;5;249m)[0m[38;5;249m;[0m
+ [38;5;240m  │[0m                       ──┬──
+ [38;5;240m  │[0m                         ╰──── Module not found, treating it as an external dependency
+[38;5;246m───╯[0m
+
+../../node_modules/.pnpm/effect@4.0.0-rc.115_patch_hash=0dfc4bb8ebd80fb3e06b91ef61346f5259517ab0f2437644fe95ae531084b1f5/node_modules/effect/dist/ConfigProvider.js (709:7) [33m[EMPTY_IMPORT_META] [0m`import.meta` may not be a valid syntax with the `cjs` output format.
+     [38;5;246m╭[0m[38;5;246m─[0m[38;5;246m[[0m ../../node_modules/.pnpm/effect@4.0.0-rc.115_patch_hash=0dfc4bb8ebd80fb3e06b91ef61346f5259517ab0f2437644fe95ae531084b1f5/node_modules/effect/dist/ConfigProvider.js:709:8 [38;5;246m][0m
+     [38;5;246m│[0m
+ [38;5;246m709 │[0m [38;5;249m [0m[38;5;249m [0m[38;5;249m [0m[38;5;249m [0m[38;5;249m.[0m[38;5;249m.[0m[38;5;249m.[0mimport.meta[38;5;249m?[0m[38;5;249m.[0m[38;5;249me[0m[38;5;249mn[0m[38;5;249mv[0m
+ [38;5;240m    │[0m        ─────┬─────
+ [38;5;240m    │[0m             ╰─────── This `import.meta` will be replaced with an empty object (`{}`) automatically. If this is desired, you can suppress this warning by adding `transform.define: { 'import.meta': {} }`. If `import.meta` needs to be kept as-is, you need to set the output format to `esm`.
+[38;5;246m─────╯[0m
+
+✔ Build complete in 391ms

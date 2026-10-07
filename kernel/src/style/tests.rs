@@ -373,12 +373,12 @@ fn color_channels() {
 fn grid_tracks_lower_to_engine_tracks() {
     let mut p = StyleProps::default();
     p.display = Display::Grid;
-    p.grid_template_columns = GridTracks::from_tracks(vec![
+    p.rare.grid_template_columns = GridTracks::from_tracks(vec![
         GridTrack::Fr(1.0),
         GridTrack::Points(40.0),
         GridTrack::Auto,
     ]);
-    p.grid_row = GridPlacement::from_lines(GridLine::Line(1), GridLine::Span(2));
+    p.rare.grid_row = GridPlacement::from_lines(GridLine::Line(1), GridLine::Span(2));
     let s = p.to_taffy(NodeType::View, &Env::default());
     assert_eq!(s.grid_template_columns.len(), 3);
     assert_eq!(s.grid_row.start, line(1));
@@ -789,4 +789,63 @@ fn a_profiles_colour_is_the_platforms_to_draw() {
         crate::gradient::BackgroundImage::check("linear-gradient(red, color(--dci-p3 1 0 0))")
             .unwrap_err();
     assert!(why.contains("never mixed"), "{why}");
+}
+
+#[test]
+fn takes_text_is_what_set_dynamic_reads_on_a_number_row() {
+    use crate::generated::StyleCodec;
+    // A text of each form a number row's conversion has an arm for.
+    let texts = [
+        "1",
+        "1px",
+        "1rem",
+        "1em",
+        "none",
+        "auto",
+        "normal",
+        "45deg",
+        "thin",
+        "medium",
+        "1s",
+        "0.25turn",
+        "blur(1px)",
+        "1px red",
+        "0 0 1px",
+    ];
+    link_backdrop_filter();
+    for row in StyleId::ALL {
+        // A bound string reaches the row as text, or as `Percent` or `Auto`
+        // (`runner/src/bridge.rs`, `set_style`).
+        let values = texts
+            .iter()
+            .map(|t| StyleValue::Text((*t).into()))
+            .chain([StyleValue::Percent(50.0), StyleValue::Auto]);
+        let reads = values
+            .into_iter()
+            .any(|v| StyleProps::default().set_dynamic(row, &v).is_ok());
+        let number = matches!(
+            row.codec(),
+            StyleCodec::F32 | StyleCodec::U8 | StyleCodec::U16 | StyleCodec::U32 | StyleCodec::I32
+        );
+        if number {
+            assert_eq!(takes_text(row), reads, "{row:?}");
+        } else {
+            assert!(takes_text(row), "{row:?}");
+        }
+    }
+    for row in [
+        StyleId::Opacity,
+        StyleId::FlexGrow,
+        StyleId::ZIndex,
+        StyleId::FontWeight,
+    ] {
+        assert!(!takes_text(row), "{row:?}");
+    }
+    for row in [
+        StyleId::FontSize,
+        StyleId::LetterSpacing,
+        StyleId::StrokeWidth,
+    ] {
+        assert!(takes_text(row), "{row:?}");
+    }
 }

@@ -5,10 +5,12 @@
 // model), ModelListRow.tsx (the check) and ChatView.tsx (the fan-out send: one
 // background thread per model, each in its own worktree from the base branch).
 import { arr, obj, str, type Obj } from './domain';
-import { ClientError, launchPayload, modelSelection, providerAvailable, type Files, type Native } from './protocol';
+import { ClientError, launchPayload, providerAvailable, type Files, type Native } from './protocol';
 import { pushToast } from './toast';
 import type { T3Client } from './client';
 import { triggerModelName } from './r3-composer-controls-model';
+import { dispatchSelection } from './composer-ultrathink';
+import { letGo } from './let-go';
 
 export type FanoutSelection = { instanceId: string; model: string; options: Obj[] };
 // draftFanoutStateAtom: per draft route, in memory.
@@ -97,12 +99,13 @@ export async function sendFanout(client: T3Client, native: Native, storage: File
   for (const selection of list) {
     try {
       const [commandId, messageId, threadId] = await access.ids(3);
-      const payload = launchPayload(commandId, threadId, messageId, projectId, input.text, modelSelection(selection.instanceId, selection.model, selection.options),
+      const payload = launchPayload(commandId, threadId, messageId, projectId, input.text, dispatchSelection(client, selection.instanceId, selection.model, selection.options), // composer-fidelity: modelOptionsForDispatch per target
         input.runtimeMode, input.interactionMode, input.attachments);
       payload.workspaceStrategy = { type: 'worktree', baseRef: input.branch, ...(input.startFromOrigin ? { startFromOrigin: true } : {}) };
       await access.write(storage, { method: 'orchestration.launchThread', payload, description: 'Create thread', threadId, text: '', uncertain: false });
       started += 1;
     } catch (error) {
+      if (letGo(error)) throw error;
       failed.push(selection);
       pushToast(client, { kind: 'error', title: `Could not start ${selection.model}`, description: error instanceof Error ? error.message : 'Failed to send message.' });
     }

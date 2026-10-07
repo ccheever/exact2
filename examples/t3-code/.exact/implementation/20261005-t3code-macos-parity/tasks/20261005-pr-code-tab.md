@@ -57,10 +57,10 @@ Reference rules to keep: line comments only on the whole change (not under a com
 | merged task PR | [20261005-desktop-oracle-and-trace](20261005-desktop-oracle-and-trace.md) | pending | Merged | pending |
 | merged task PR | [20261005-pr-conversation-and-refresh](20261005-pr-conversation-and-refresh.md) | pending | Merged (threads, activity, refresh) | pending |
 | merged task PR | [20261005-pr-writing-and-metadata](20261005-pr-writing-and-metadata.md) | pending | Merged (composer, review store, editor, reactions) | pending |
-| merged task PR | [20261005-diff-review-engine](20261005-diff-review-engine.md) | pending | Merged (annotation rows, tree, lazy rows, line-comment cards) | pending |
+| merged task PR | [20261005-diff-review-engine](closed/20261005-diff-review-engine.md) | pending | Merged (annotation rows, tree, lazy rows, line-comment cards) | pending |
 | merged task PR | [20261005-pr-handoffs-and-quick-actions](20261005-pr-handoffs-and-quick-actions.md) | pending | Merged (`buildFixFindingHandoff`, `buildAddSelectionToAgentHandoff`, the hand-off runner) | pending |
 | merged task PR | [20261005-fake-github-fixture](20261005-fake-github-fixture.md) | pending | Diff, files, contents, viewed, thread verbs served (also reached through `20261005-pr-conversation-and-refresh`) | pending |
-| merged task PR | [20261005-hot-file-split](20261005-hot-file-split.md) | pending | Merged into `daehyeon/t3-code` (common prerequisite: room and per-area seams in the shared files) | pending |
+| merged task PR | [20261005-hot-file-split](closed/20261005-hot-file-split.md) | pending | Merged into `daehyeon/t3-code` (common prerequisite: room and per-area seams in the shared files) | pending |
 
 ## Issue assessment at preparation
 
@@ -71,7 +71,7 @@ Checked sources and time: planning pass 2026-10-05 over `EXACT2-GAPS.md` and `..
 | [X21](../issues/20261005-x21-two-way-websocket.md) | Authenticated POST with a body from a data module | Swift transport is GET-only for TS | nonblocking (workaround: new allow-listed POST-JSON op in `T3Transport.swift`) | Implement; keep the bearer in Swift |
 | [X19](../issues/20261005-x19-data-source-timers.md) | 400 ms burst gathering of Viewed ticks | Reference `FLUSH_DELAY_MS = 400` (`usePullRequestFilesViewed.ts:27`) | nonblocking (workaround: flush on the next tick of the existing `wallTime` argument or a Contract task) | Test with `now` |
 | [X23](../issues/20261005-x23-scroll-restore-offsets.md) | Reveal from the tree/timeline commit, keep scroll per tab | `scrollIntoView` on main | nonblocking | Reuse |
-| [X13](../issues/20261005-x13-hover-keys-during-pan.md) / [X24](../issues/20261005-x24-still-pointer-rehover.md) | Gutter "+" and hover reveals | `t3-rehover` hook | nonblocking | Reuse |
+| [X13](../issues/20261005-x13-hover-keys-during-pan.md) / [X24](../issues/closed/20261005-x24-still-pointer-rehover.md) | Gutter "+" and hover reveals | `t3-rehover` hook | nonblocking | Reuse Update 2026-10-07 (adopt-main-fixes-shell): X24 fixed on main #174; the `t3-rehover` hook no longer exists, the host does it. |
 | [X9](../issues/20261005-x09-root-component-across-files.md) | `app.contract` cap | 1,327/1,500 | nonblocking | No new root resource |
 | [X32](../issues/20261005-x32-sticky-positioning-in-lists.md) | Sticky file headers in the Code tab's list | Same open check as `20261005-diff-review-engine` (`contract vocab --json position`) | unknown | Follow that ticket's result |
 
@@ -109,6 +109,8 @@ Required environment: macOS 26.6.2, Xcode 27.0, Bun 1.4.2, fake gh, reference or
 
 ## Progress
 
+2026-10-06: on hold (user decision: tasks that need a sign-in waited). 2026-10-07: the user lifted the hold. Rows that need a real account are signed in by the user in person on the lane build; every other sign-in row uses lane fixtures.
+
 Planned. No branch.
 
 ## Attempts and evidence
@@ -119,4 +121,4 @@ Planned. No branch.
 
 ## Next action
 
-`prepare` after `20261005-pr-conversation-and-refresh`, `20261005-pr-writing-and-metadata`, `20261005-diff-review-engine` and `20261005-pr-handoffs-and-quick-actions` merge.
+`prepare` from `feat(example)/t3-code` once the prerequisite task PRs above have merged into it; sign-in rows use lane fixtures, and real-account rows wait for the user to sign in.

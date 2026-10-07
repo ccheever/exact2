@@ -1,3 +1,5 @@
+import { runnableShellCommands } from './terminal-integrations';
+import { runTerminalCommand } from './terminal-drawer-view';
 import { toolActivityIconSources } from './timeline-tool-icons';
 import { setTurnItemOpen, turnItemDetailView, turnItemIsOpen } from './timeline-item-fetch';
 import { turnItemHasDetail, turnItemNeedsDetailFetch } from './timeline-item-detail';
@@ -10,7 +12,7 @@ import { eventRow } from './timeline-events';
 import { messageCodeBlocks } from './timeline-highlight';
 import { planAction, planBody, planCollapsible, planSaveView, proposedPlanTitle } from './timeline-plan';
 import { treeRows } from './timeline-tree';
-import { imagePreviewAction, imagePreviewView, messageAttachments } from './timeline-attachments';
+import { cachedAttachmentUrl, forgetAttachmentUrl, forgetMediaPreviewUrl, imagePreviewAction, imagePreviewView, messageAttachments } from './timeline-attachments';
 import { revealCitation } from './r5-composer-citation';
 import { jumpToTurn, minimapCurrent, minimapItems, nativeTurns, type MinimapRow } from './timeline-minimap';
 import { diagramPreviewAction, diagramPreviewView, messageDiagrams, retryMermaid } from './timeline-mermaid';
@@ -18,17 +20,19 @@ import { setupView, threadWorktreeSetup, worktreeDetailsOpen, worktreeSetupActio
 import { chippedAttachmentIds, markdownEnv, messageChips } from './r4-timeline-chips';
 import { hasQuestionAnswer, notificationSubagent, plainOutput, questionAnswerPreview, questionHistory, questionTextPreview, runlessWorkStartedAt, type InspectorCode } from './timeline-inspect';
 import { gitChatLocal } from './r4-git-route';
-import { surfaceLocal } from './r4-surfaces-panel';
+import { openFileSurface, surfaceLocal } from './r4-surfaces-panel';
+import { mediaLocal } from './media-views'; // media-actions: the media menu, a video's error and Retry
 import { closeTableMenu, tableMenuAction } from './r8-keys-table-menu'; // lane r8-keys: the table Copy popup
 import { preparationFailureRunId, retryableActivities } from './r11-upstream-retry'; // lane r11-upstream: Retry a failed workspace preparation
+import { numericDateFormatter, timestampFormatter } from './timestamp-format'; // desktop-shell-details: the host's locale
+import { letGo } from './let-go';
+import { pullRequestLinkMenu } from './context-menu-actions'; // context-menu-gaps
 
 /** formatShortTimestamp: the wall-clock time alone, in the selected format. */
 export function shortTime(value: unknown, format: string): string {
   const date = new Date(typeof value === 'string' ? value : '');
   if (!Number.isFinite(date.getTime())) return '';
-  const options: Intl.DateTimeFormatOptions = {hour: 'numeric', minute: '2-digit'};
-  if (format !== 'locale') options.hour12 = format === '12-hour';
-  return new Intl.DateTimeFormat(undefined, options).format(date);
+  return timestampFormatter(format).format(date);
 }
 
 /** formatChatTimestampTooltip: "2:20 PM, 4th October 2026". */
@@ -44,16 +48,13 @@ export function timestampTooltip(value: unknown, format: string): string {
 export function messageTime(value: unknown, now: number, format: string): string {
   const date = new Date(typeof value === 'string' ? value : '');
   if (!Number.isFinite(date.getTime())) return '';
-  const options: Intl.DateTimeFormatOptions = {hour: 'numeric', minute: '2-digit'};
-  if (format !== 'locale') options.hour12 = format === '12-hour';
-  const time = new Intl.DateTimeFormat(undefined, options).format(date);
+  const time = timestampFormatter(format).format(date);
   const today = new Date(now);
   const dayDiff = Math.round((new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime()
     - new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime()) / 86_400_000);
   if (dayDiff <= 0) return time;
   if (dayDiff === 1) return `yesterday at ${time}`;
-  return `${new Intl.DateTimeFormat(undefined, {month: 'numeric', day: 'numeric',
-    ...(date.getFullYear() === today.getFullYear() ? {} : {year: 'numeric'})}).format(date)} ${time}`;
+  return `${numericDateFormatter(date.getFullYear() !== today.getFullYear()).format(date)} ${time}`;
 }
 
 interface ViewState { open: Set<string>; copies: Map<string, { nonce: number; ok: boolean }>; nonce: number; codeCopy: { threadId: string; text: string; nonce: number };
@@ -73,15 +74,19 @@ const scoped = (client: T3Client, kind: string, id: string) => `${client.threadI
  * Copy message / Copy code with their anchored feedback.
  */
 export async function chatLocal(client: T3Client, native: Native, op: string, id: string, value: string, storage?: Files): Promise<string> {
+  if (op === 'run-terminal' && storage) { await runTerminalCommand(client, native, storage, value.trim()); return ''; }
   if (op.startsWith('surface-')) return surfaceLocal(client, native, op.slice(8), id, value); // r4-surfaces: the right panel's surfaces (window chatLocal)
+  if (op === 'pr-link-menu') { await pullRequestLinkMenu(client, native, value); return ''; } // context-menu-gaps: the detail header's number
   if (op.startsWith('git-')) return gitChatLocal(client, native, op.slice(4), id, value); // lane r4-git (r4-git-route.ts)
+  if (op.startsWith('media-')) return mediaLocal(client, native, op.slice(6), id, value, { urlOf: attachmentId => cachedAttachmentUrl(client, attachmentId), // media-actions (media-views.ts)
+    openFile: relativePath => openFileSurface(client, native, relativePath, 0), forgetAttachment: attachmentId => { if (!forgetMediaPreviewUrl(client, attachmentId)) forgetAttachmentUrl(client, attachmentId); } });
   const view = timelineView(client);
   if (op === 'item-detail') { setTurnItemOpen(client, id, value === 'open'); return ''; }
   if (op === 'history') {
     const threadId = client.threadId;
     view.historyError.delete(threadId);
     try { await client.history(native); }
-    catch (error) { view.historyError.set(threadId, error instanceof Error && error.message ? error.message : 'Could not load earlier turns.'); }
+    catch (error) { if (letGo(error)) throw error; view.historyError.set(threadId, error instanceof Error && error.message ? error.message : 'Could not load earlier turns.'); }
     return '';
   }
   if (op.startsWith('plan-')) return planAction(client, native, op, id, value);
@@ -91,7 +96,7 @@ export async function chatLocal(client: T3Client, native: Native, op: string, id
   if (op === 'revert') return askRevert(client, view, id, Number(value));
   if (op === 'revert-answer') return answerRevert(client, native, view, value, storage);
   if (op === 'diagram-retry') return retryMermaid(value);
-  if (op === 'setup-details' || op === 'setup-cancel') return worktreeSetupAction(client, native, op);
+  if (op === 'setup-details' || op === 'setup-cancel' || op === 'setup-terminal') return worktreeSetupAction(client, native, op);
   if (op === 'diagram-open' || op === 'diagram-close') return diagramPreviewAction(client, op, value);
   // r4-timeline: a table's Copy as Markdown / CSV (the check morph, no toast) and a thread chip's open.
   if (op === 'table-menu' || op === 'table-menu-close') return tableMenuAction(client, op, id, value, native);
@@ -113,7 +118,7 @@ export async function chatLocal(client: T3Client, native: Native, op: string, id
     if (!text || text.length > 1_000_000) throw new ClientError(op === 'copy-code' ? 'That code block is unavailable.' : 'That message is no longer available.');
     const key = op === 'copy' ? id : `code:${id}`;
     try { await client.restAccess(native).call({ op: 'copyText', text }); }
-    catch (error) { view.copies.set(key, { nonce: ++view.nonce, ok: false }); throw error; }
+    catch (error) { if (!letGo(error)) view.copies.set(key, { nonce: ++view.nonce, ok: false }); throw error; }
     view.copies.set(key, { nonce: ++view.nonce, ok: true });
     if (op === 'copy-code') view.codeCopy = { threadId: client.threadId, text, nonce: view.nonce };
     return op === 'copy' ? 'Copied message' : 'Copied code';
@@ -300,7 +305,7 @@ function present(row: Row, context: PresentContext): Message {
     case 'plan': {
       const markdown = str(row.entry.item.markdown);
       return { ...base, kind: 'plan', title: proposedPlanTitle(markdown) ?? 'Proposed plan', body: planBody(markdown), runId: str(row.entry.item.runId),
-        completed: row.entry.item.streaming !== true, sourceThreadId: str(row.entry.row.sourceThreadId), meta: false, collapsible: planCollapsible(markdown), code: messageCodeBlocks(markdown),
+        completed: row.entry.item.streaming !== true, streaming: row.entry.item.streaming === true, sourceThreadId: str(row.entry.row.sourceThreadId), meta: false, collapsible: planCollapsible(markdown), code: messageCodeBlocks(markdown),
         diagrams: messageDiagrams(markdown, row.entry.item.streaming === true),
         copied: view.copies.get(row.id)?.nonce ?? 0 };
     }
@@ -315,7 +320,7 @@ function present(row: Row, context: PresentContext): Message {
         copied: copy?.nonce ?? 0, copyFailed: copy?.ok === false };
       if (row.entry.role === 'assistant') {
         const text = str(item.text);
-        return { ...common, kind: 'assistant', title: 'Assistant', body: text || (item.streaming === true ? '' : '(empty response)'), chips: messageChips(item, context.root, context.threads),
+        return { ...common, kind: 'assistant', title: 'Assistant', body: text || (item.streaming === true ? '' : '(empty response)'), chips: messageChips(item, context.root, context.threads, row.id),
           meta: row.meta, streaming: item.streaming === true || row.inProgress, code: messageCodeBlocks(text),
           diagrams: messageDiagrams(text, item.streaming === true || row.inProgress) };
       }
@@ -366,7 +371,7 @@ export function timelineMessages(client: T3Client, transcript: Message[], now: n
       attribution: message.attribution ?? '', targetId: message.kind === 'checkpoint' ? files[0]?.path ?? '' : message.targetId ?? '', actionLabel: message.actionLabel ?? '',
       copied: message.copied ?? 0, copyFailed: message.copyFailed === true, meta: message.meta !== false,
       collapsible: message.collapsible === true, code: message.code ?? [], diagrams: message.diagrams ?? [], setup: message.setup ?? [], fileCount: message.kind === 'checkpoint' ? files.length : 0,
-      images: message.images ?? [], attachFiles: message.attachFiles ?? [], md: { ...md, chips: message.chips ?? [] } };
+      images: message.images ?? [], attachFiles: message.attachFiles ?? [], md: { ...md, chips: message.chips ?? [], runCommands: client.projectId ? runnableShellCommands(str(message.body), message.streaming === true) : [] } };
   });
   timelineView(client).lastRows = { threadId: client.threadId, rows: rows.map(row => ({ id: row.id, kind: row.kind, body: row.body })) };
   rows.forEach((row, index) => {

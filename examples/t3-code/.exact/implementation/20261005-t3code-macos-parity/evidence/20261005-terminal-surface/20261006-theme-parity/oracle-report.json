@@ -1,0 +1,193 @@
+{
+  "reference": "1e2ecbd975",
+  "browser": "154.0.8037.98",
+  "fixtureUTF16": 43757,
+  "cases": [
+    {
+      "name": "light",
+      "cols": 90,
+      "rows": 22,
+      "text": [
+        "scrollback line 1985",
+        "scrollback line 1986",
+        "scrollback line 1987",
+        "scrollback line 1988",
+        "scrollback line 1989",
+        "scrollback line 1990",
+        "scrollback line 1991",
+        "scrollback line 1992",
+        "scrollback line 1993",
+        "scrollback line 1994",
+        "scrollback line 1995",
+        "scrollback line 1996",
+        "scrollback line 1997",
+        "scrollback line 1998",
+        "scrollback line 1999",
+        "scrollback line 2000",
+        "bold italic underline strike",
+        "",
+        "████████████████████████ truecolor",
+        "wide: 界 面  한 국 어  emoji: 🙂 🚀  nerd: ",
+        "link path: src/main.ts:12:3",
+        "$"
+      ],
+      "background": [
+        252,
+        252,
+        252,
+        255
+      ]
+    },
+    {
+      "name": "dark",
+      "cols": 90,
+      "rows": 22,
+      "text": [
+        "scrollback line 1985",
+        "scrollback line 1986",
+        "scrollback line 1987",
+        "scrollback line 1988",
+        "scrollback line 1989",
+        "scrollback line 1990",
+        "scrollback line 1991",
+        "scrollback line 1992",
+        "scrollback line 1993",
+        "scrollback line 1994",
+        "scrollback line 1995",
+        "scrollback line 1996",
+        "scrollback line 1997",
+        "scrollback line 1998",
+        "scrollback line 1999",
+        "scrollback line 2000",
+        "bold italic underline strike",
+        "",
+        "████████████████████████ truecolor",
+        "wide: 界 面  한 국 어  emoji: 🙂 🚀  nerd: ",
+        "link path: src/main.ts:12:3",
+        "$"
+      ],
+      "background": [
+        10,
+        10,
+        10,
+        255
+      ]
+    },
+    {
+      "name": "grove",
+      "cols": 90,
+      "rows": 22,
+      "text": [
+        "scrollback line 1985",
+        "scrollback line 1986",
+        "scrollback line 1987",
+        "scrollback line 1988",
+        "scrollback line 1989",
+        "scrollback line 1990",
+        "scrollback line 1991",
+        "scrollback line 1992",
+        "scrollback line 1993",
+        "scrollback line 1994",
+        "scrollback line 1995",
+        "scrollback line 1996",
+        "scrollback line 1997",
+        "scrollback line 1998",
+        "scrollback line 1999",
+        "scrollback line 2000",
+        "bold italic underline strike",
+        "",
+        "████████████████████████ truecolor",
+        "wide: 界 面  한 국 어  emoji: 🙂 🚀  nerd: ",
+        "link path: src/main.ts:12:3",
+        "$"
+      ],
+      "background": [
+        243,
+        247,
+        244,
+        255
+      ]
+    },
+    {
+      "name": "custom",
+      "cols": 90,
+      "rows": 22,
+      "text": [
+        "scrollback line 1985",
+        "scrollback line 1986",
+        "scrollback line 1987",
+        "scrollback line 1988",
+        "scrollback line 1989",
+        "scrollback line 1990",
+        "scrollback line 1991",
+        "scrollback line 1992",
+        "scrollback line 1993",
+        "scrollback line 1994",
+        "scrollback line 1995",
+        "scrollback line 1996",
+        "scrollback line 1997",
+        "scrollback line 1998",
+        "scrollback line 1999",
+        "scrollback line 2000",
+        "bold italic underline strike",
+        "",
+        "████████████████████████ truecolor",
+        "wide: 界 面  한 국 어  emoji: 🙂 🚀  nerd: ",
+        "link path: src/main.ts:12:3",
+        "$"
+      ],
+      "background": [
+        18,
+        52,
+        86,
+        255
+      ]
+    }
+  ],
+  "paletteChecks": [
+    "t3-chat light",
+    "t3-chat dark",
+    "grove light",
+    "grove dark",
+    "ocean light",
+    "ocean dark",
+    "ember light",
+    "ember dark",
+    "iris light",
+    "iris dark"
+  ],
+  "keys": [
+    {
+      "type": "data",
+      "data": "l"
+    },
+    {
+      "type": "data",
+      "data": "s"
+    },
+    {
+      "type": "data",
+      "data": " "
+    },
+    {
+      "type": "data",
+      "data": "-"
+    },
+    {
+      "type": "data",
+      "data": "l"
+    },
+    {
+      "type": "data",
+      "data": "a"
+    },
+    {
+      "type": "data",
+      "data": "\r"
+    },
+    {
+      "type": "data",
+      "data": "\u001b[A"
+    }
+  ]
+}

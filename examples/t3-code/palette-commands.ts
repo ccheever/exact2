@@ -11,8 +11,13 @@ import { cloneDestination, cloneDirectoryName, flowOf, githubAccount, inferTitle
 import { sortedThreads } from './palette';
 import { activeTarget } from './palette-files';
 import { favoriteEditor } from './keyboard-dispatch';
+import { openFavoriteHere } from './remote-open'; // remote Open: an SSH environment's workspace opens over SSH
+import { lastEditor } from './shell-details';
 import { linkPullRequest } from './palette-linkpr';
 import { openScratchProject } from './r11-upstream-scratch';
+import { startTrackedClone } from './project-clones-live';
+import { cloneTracking } from './live-streams';
+import { letGo } from './let-go';
 
 export type PaletteResult = { revision: number; ok: boolean; close: boolean; page: string; query: string; project: string; thread: string; message: string };
 const message = (error: unknown) => error instanceof Error ? error.message : 'An error occurred.';
@@ -39,6 +44,7 @@ async function createProject(client: T3Client, native: Native, storage: Files, c
     if (!client.shell.projects.some(project => project.id === projectId)) throw new Error('The project was created but is not yet available. Refresh before selecting it.');
     return done(client, projectId!);
   } catch (error) {
+    if (letGo(error)) throw error;
     pushToast(client, { kind: 'error', title: failureTitle, description: message(error) });
     return stay(client, false, message(error));
   }
@@ -91,7 +97,7 @@ export async function paletteCommand(client: T3Client, native: Native | null | u
       if (!name) return stay(client);
       let created: Obj;
       try { created = await access.request('projects.createNew', { name }, true); }
-      catch (error) { pushToast(client, { kind: 'error', title: 'Could not create the project', description: message(error) }); return stay(client, false, message(error)); }
+      catch (error) { if (letGo(error)) throw error; pushToast(client, { kind: 'error', title: 'Could not create the project', description: message(error) }); return stay(client, false, message(error)); }
       const workspaceRoot = str(created.workspaceRoot), commitError = str(created.commitError), projectId = str(created.projectId);
       pushToast(client, commitError ? { kind: 'warning', title: `Created ${name} without a first commit`, description: `${commitError} The project is in ${workspaceRoot}.` }
         : { kind: 'success', title: `Created ${name}`, description: workspaceRoot });
@@ -100,7 +106,7 @@ export async function paletteCommand(client: T3Client, native: Native | null | u
         const folder = workspaceRoot.split('/').filter(Boolean).pop() ?? '';
         access.request('sourceControl.publishRepository', { cwd: workspaceRoot, provider: 'github', repository: account ? `${account}/${folder}` : folder, visibility: 'private' }, true)
           .then(result => { pushToast(client, { kind: 'success', title: 'Published to GitHub', description: str(obj(obj(result).repository).nameWithOwner) }); client.revision++; })
-          .catch(error => { pushToast(client, { kind: 'error', title: 'Could not create the GitHub repository', description: `${message(error)} Use Publish Repository in the Git menu to try again.` }); client.revision++; });
+          .catch(error => { if (letGo(error)) return; pushToast(client, { kind: 'error', title: 'Could not create the GitHub repository', description: `${message(error)} Use Publish Repository in the Git menu to try again.` }); client.revision++; });
       }
       flow.publish = false;
       try { await refreshShell(client, native); } catch { /* the shell stream catches up */ }
@@ -120,7 +126,7 @@ export async function paletteCommand(client: T3Client, native: Native | null | u
       }
       let repository: Obj;
       try { repository = await access.request('sourceControl.lookupRepository', { provider: source, repository: raw }); }
-      catch (error) { pushToast(client, { kind: 'error', title: 'Repository lookup failed', description: message(error) }); return stay(client, false, message(error)); }
+      catch (error) { if (letGo(error)) throw error; pushToast(client, { kind: 'error', title: 'Repository lookup failed', description: message(error) }); return stay(client, false, message(error)); }
       const nameWithOwner = str(repository.nameWithOwner, raw);
       const remoteUrl = source === 'github' || source === 'forgejo' ? str(repository.url) : str(repository.sshUrl, str(repository.url));
       flow.clone = { source, repositoryInput: raw, title: nameWithOwner, description: str(repository.url, remoteUrl), remoteUrl, pinned: cloneDirectoryName(nameWithOwner) };
@@ -134,6 +140,14 @@ export async function paletteCommand(client: T3Client, native: Native | null | u
         return stay(client, false);
       }
       const destinationPath = resolvePath(raw, cwd), name = inferTitle(destinationPath);
+      // The server creates the project and clones in the background (projectCloneTracking): the
+      // palette closes once git runs; progress is the clone's toast and its draft's banner.
+      if (cloneTracking(client.config)) {
+        const started = await startTrackedClone(client, native, clone.remoteUrl, destinationPath, name); // project-clones-live.ts
+        if (!started.ok) return stay(client, false, started.message);
+        flow.clone = null;
+        return done(client, started.projectId);
+      }
       // The blocking clone (servers without clone tracking): the palette waits for git,
       // then adds the project; progress shows as the reference's clone toasts.
       const loading = pushToast(client, { kind: 'loading', title: `Cloning ${name}`, description: `${SOURCE_LABELS[clone.source] ?? 'Git'} · ${destinationPath}` });
@@ -141,6 +155,7 @@ export async function paletteCommand(client: T3Client, native: Native | null | u
       try { cloned = await access.request('sourceControl.cloneRepository', { remoteUrl: clone.remoteUrl, destinationPath }, true); }
       catch (error) {
         dismissLoading(client, loading);
+        if (letGo(error)) throw error;
         pushToast(client, { kind: 'error', title: 'Clone failed', description: message(error) });
         return stay(client, false, message(error));
       }
@@ -151,6 +166,7 @@ export async function paletteCommand(client: T3Client, native: Native | null | u
     }
     throw new Error(`Unknown palette command: ${op}`);
   } catch (error) {
+    if (letGo(error)) throw error;
     pushToast(client, { kind: 'error', title: 'Unable to run command', description: message(error) });
     return { ...stay(client, false, message(error)), close: true };
   }
@@ -187,7 +203,8 @@ async function restartSession(client: T3Client, native: Native, storage: Files, 
  * (shell.openInEditor; `path:line` reaches editors that take a position).
  */
 async function openInEditor(client: T3Client, native: Native, op: string, id: string, line: string): Promise<PaletteResult> {
-  const editor = favoriteEditor(client.config);
+  const editor = favoriteEditor(client.config, lastEditor(client)); // thread-commands-and-keys: the last-used editor (t3-code.json)
+  if (op === 'open-favorite') { if (id) await openFavoriteHere(client, native, id, editor); return done(client); }
   const target = activeTarget(client);
   const path = op === 'open-file' ? (target ? `${target.cwd.replace(/\/+$/, '')}/${id}` : '') : id;
   if (!path) throw new Error('Open a project to open its files.');
@@ -203,6 +220,7 @@ async function startScratch(client: T3Client, native: Native): Promise<PaletteRe
   try {
     return done(client, await openScratchProject(client, native)); // r11-upstream (845ddd9354): the shared opener
   } catch (error) {
+    if (letGo(error)) throw error;
     pushToast(client, { kind: 'error', title: 'Could not start without a project', description: message(error) });
     return done(client);
   }

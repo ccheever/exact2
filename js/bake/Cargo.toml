@@ -12,6 +12,7 @@ exact-bake = { path = "../../bake" }
 exact-js = { path = ".." }
 exact-plan = { path = "../../plan" }
 exact-runner = { path = "../../runner" }
+hermes-lean-sys = { path = "../../vendor/ibex/crates/hermes-lean-sys", default-features = false }
 serde_json = "1.0"
 sha2 = "0.10"
 

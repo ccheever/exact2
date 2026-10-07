@@ -69,6 +69,9 @@ struct StyleRow {
     /// An `animations` row whose every animation must end (LLP 1063).
     #[serde(default)]
     ends: bool,
+    /// Few nodes set it: kept apart, behind [`build/rare.rs`]'s pointer.
+    #[serde(default)]
+    rare: bool,
 }
 #[derive(Deserialize)]
 struct OpcodeRow {
@@ -105,6 +108,7 @@ fn packed_name(ty: &str, rows: &[(u64, &str)]) -> String {
 include!("build/names.rs");
 include!("build/codec.rs");
 include!("build/validate.rs");
+include!("build/rare.rs");
 fn digest(canonical: &str, codecs: &[(&str, String)]) -> u64 {
     let mut hasher = Sha256::new();
     hasher.update(DIGEST_DOMAIN);
@@ -125,20 +129,6 @@ fn digest(canonical: &str, codecs: &[(&str, String)]) -> u64 {
     let mut first = [0u8; 8];
     first.copy_from_slice(&bytes[..8]);
     u64::from_le_bytes(first)
-}
-/// `#rrggbb` or `#rrggbbaa` as RGBA.
-fn hex_rgba(hex: &str) -> [u8; 4] {
-    let h = hex
-        .strip_prefix('#')
-        .expect("schema: a tint is #rrggbb[aa]");
-    assert!(matches!(h.len(), 6 | 8), "schema: a tint is #rrggbb[aa]");
-    let byte = |i: usize| u8::from_str_radix(&h[i..i + 2], 16).expect("schema: a tint is hex");
-    [
-        byte(0),
-        byte(2),
-        byte(4),
-        if h.len() == 8 { byte(6) } else { 255 },
-    ]
 }
 fn generate(schema: &Schema, digest: u64) -> String {
     let mut o = String::new();
@@ -969,7 +959,7 @@ fn generate(schema: &Schema, digest: u64) -> String {
     .unwrap();
     writeln!(w, "#[derive(Debug, Clone, PartialEq)]").unwrap();
     writeln!(w, "pub struct StyleProps {{").unwrap();
-    for row in &schema.styles {
+    for row in schema.styles.iter().filter(|r| !r.rare) {
         writeln!(
             w,
             "    pub {}: {},",
@@ -986,17 +976,24 @@ fn generate(schema: &Schema, digest: u64) -> String {
     )
     .unwrap();
     writeln!(w, "    pub relative: crate::style::relative::Relative,").unwrap();
+    writeln!(
+        w,
+        "    /// The rows few nodes set ([`RareRows`]).\n    pub rare: Rare,"
+    )
+    .unwrap();
     writeln!(w, "}}").unwrap();
+    emit_rare(w, schema);
     writeln!(w, "impl Default for StyleProps {{").unwrap();
     writeln!(w, "    fn default() -> Self {{").unwrap();
     writeln!(w, "        StyleProps {{").unwrap();
-    for row in &schema.styles {
+    for row in schema.styles.iter().filter(|r| !r.rare) {
         let codec = parse_codec(&row.codec);
         let default = default_of(&codec, &row.default, &row.field, &schema.colors);
         writeln!(w, "            {}: {},", row.field, default).unwrap();
     }
     writeln!(w, "            mask: StyleMask::EMPTY,").unwrap();
     writeln!(w, "            relative: Default::default(),").unwrap();
+    writeln!(w, "            rare: Rare::default(),").unwrap();
     writeln!(w, "        }}").unwrap();
     writeln!(w, "    }}").unwrap();
     writeln!(w, "}}").unwrap();
@@ -1034,7 +1031,8 @@ fn generate(schema: &Schema, digest: u64) -> String {
         "    pub fn copy_rows(&mut self, from: &StyleProps, mask: StyleMask) {{"
     )
     .unwrap();
-    for row in &schema.styles {
+    emit_rare_copy(w, schema);
+    for row in schema.styles.iter().filter(|r| !r.rare) {
         let id = pascal(&row.field);
         let clone = if parse_codec(&row.codec).is_copy() {
             ""
@@ -1118,7 +1116,7 @@ fn generate(schema: &Schema, digest: u64) -> String {
             w,
             "        if mask.has(StyleId::{id}) {{ out.{f} = {}; }}",
             codec.decode_expr(&id, row.admits_auto),
-            f = row.field
+            f = at(row)
         )
         .unwrap();
     }
@@ -1146,7 +1144,7 @@ fn generate(schema: &Schema, digest: u64) -> String {
         writeln!(
             w,
             "        if mask.has(StyleId::{id}) {{ {} }}",
-            codec.encode_stmt(&format!("self.{}", row.field))
+            codec.encode_stmt(&format!("self.{}", at(row)))
         )
         .unwrap();
     }
@@ -1185,11 +1183,11 @@ fn generate(schema: &Schema, digest: u64) -> String {
             | Codec::Tracks
             | Codec::Transitions
             | Codec::Animations => {
-                format!("self.{}.is_finite()", row.field)
+                format!("self.{}.is_finite()", at(row))
             }
             Codec::Vec2 => format!(
                 "self.{f}.x.is_finite() && self.{f}.y.is_finite()",
-                f = row.field
+                f = at(row)
             ),
             _ => continue,
         };
@@ -1218,7 +1216,7 @@ fn generate(schema: &Schema, digest: u64) -> String {
     .unwrap();
     for row in &schema.styles {
         let id = pascal(&row.field);
-        let field = &row.field;
+        let field = &at(row);
         match parse_codec(&row.codec) {
             Codec::LineHeight => {
                 writeln!(w, "        if self.mask.has(StyleId::{id}) && !self.{field}.is_valid() {{ return Err(StyleDomainError::InvalidLineHeight); }}").unwrap();
@@ -1267,11 +1265,9 @@ fn generate(schema: &Schema, digest: u64) -> String {
         "        let provisional = relative.map(|r| crate::style::relative::provisional(id, r));"
     )
     .unwrap();
-    writeln!(
-        w,
-        "        let value = provisional.as_ref().unwrap_or(value);"
-    )
-    .unwrap();
+    // `14px` on a row that reads a bare number as pixels (LLP 1102 §3.10);
+    // a terminal's `ch`/`lh` at the fixed cell (LLP 1101 D3).
+    w.push_str("        let pixels = crate::style::relative::pixels_text(id, value)?;\n        let cells = crate::style::cells::of(id, value)?;\n        let value = provisional.as_ref().or(pixels.as_ref()).or(cells.as_ref()).unwrap_or(value);\n");
     writeln!(w, "        match id {{").unwrap();
     // Rows that convert alike share one conversion, then store by row: the
     // conversion (and its refusal) is written once per codec, not per row.
@@ -1314,8 +1310,8 @@ fn generate(schema: &Schema, digest: u64) -> String {
             Codec::Color2 => String::new(),
         };
         match groups.iter_mut().find(|(c, _)| *c == conv) {
-            Some((_, rows)) => rows.push((id, row.field.clone())),
-            None => groups.push((conv, vec![(id, row.field.clone())])),
+            Some((_, rows)) => rows.push((id, at(row))),
+            None => groups.push((conv, vec![(id, at(row))])),
         }
     }
     for (conv, rows) in &groups {
@@ -1354,7 +1350,7 @@ fn generate(schema: &Schema, digest: u64) -> String {
     writeln!(w, "        match id {{").unwrap();
     for row in &schema.styles {
         let id = pascal(&row.field);
-        let f = &row.field;
+        let f = &at(row);
         let expr = match parse_codec(&row.codec) {
             Codec::LineHeight => format!("RowValue::LineHeight(self.{f})"),
             Codec::Dimension => format!("RowValue::Dimension(self.{f})"),

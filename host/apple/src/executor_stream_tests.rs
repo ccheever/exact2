@@ -223,6 +223,7 @@ fn three_messages_then_a_close_and_the_worker_stays_free() {
 }
 
 #[test]
+#[ignore = "async lane: waits 50 ms of wall clock for the reader to fold each message; bun scripts/async.mjs runs it"]
 fn undelivered_messages_coalesce_to_the_newest() {
     let (core, script, woke) = setup();
     core.run_owned(stream(1, "/events", 4096), None).unwrap();
@@ -474,6 +475,7 @@ fn platform(port: u16) -> (Core, Receiver<()>) {
 }
 
 #[test]
+#[ignore = "async lane: a real socket under the platform transport (URLSession), timing-sensitive on a loaded machine; bun scripts/async.mjs runs it"]
 fn a_local_event_stream_arrives_message_by_message_on_the_platform_transport() {
     let (port, _) = peer();
     let (core, woke) = platform(port);
@@ -500,6 +502,7 @@ fn a_local_event_stream_arrives_message_by_message_on_the_platform_transport() {
 }
 
 #[test]
+#[ignore = "async lane: a real socket under the platform transport (URLSession), timing-sensitive on a loaded machine; bun scripts/async.mjs runs it"]
 fn forgetting_a_platform_stream_closes_its_connection() {
     let (port, gone) = peer();
     let (core, woke) = platform(port);
@@ -587,6 +590,7 @@ fn socket_platform(port: u16, grants: &str) -> (Core, Receiver<()>) {
 }
 
 #[test]
+#[ignore = "async lane: a real socket under the platform transport (URLSession), timing-sensitive on a loaded machine; bun scripts/async.mjs runs it"]
 fn a_local_socket_arrives_message_by_message_and_its_close_ends_it() {
     let (port, _) = socket_peer();
     let (core, woke) = socket_platform(port, "net.websocket ws://127.0.0.1:{port}");
@@ -613,6 +617,7 @@ fn a_local_socket_arrives_message_by_message_and_its_close_ends_it() {
 }
 
 #[test]
+#[ignore = "async lane: a real socket under the platform transport (URLSession), timing-sensitive on a loaded machine; bun scripts/async.mjs runs it"]
 fn a_socket_needs_its_own_grant_and_takes_only_text() {
     let (port, _) = socket_peer();
     // A fetch grant for the same origin admits no socket.
@@ -632,6 +637,7 @@ fn a_socket_needs_its_own_grant_and_takes_only_text() {
 }
 
 #[test]
+#[ignore = "async lane: a real socket under the platform transport (URLSession), timing-sensitive on a loaded machine; bun scripts/async.mjs runs it"]
 fn forgetting_a_socket_closes_its_connection() {
     let (port, gone) = socket_peer();
     let (core, woke) = socket_platform(port, "net.websocket ws://127.0.0.1:{port}");

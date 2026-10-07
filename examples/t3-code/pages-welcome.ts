@@ -9,11 +9,37 @@
 import { arr, obj, str, num, applyShell, type Obj } from './domain';
 import { ClientError, bridgeReply, type Native } from './protocol';
 import { environmentSources } from './connections';
-import { fleet } from './settings-b-fleet';
+import { fleet, EnvironmentFleet } from './settings-b-fleet';
+import { look } from './settings-appearance-look';
 import { pagesPrefs } from './pages-prefs';
 import { pushToast } from './toast';
 import { wallEpoch, wallIso } from './r8-pointer-clock';
 import type { T3Client } from './client';
+import { OnboardingTerminal, resolveOnboardingProviderInstallCommand, resolveOnboardingProviderLoginCommand } from './onboarding-terminal';
+import { letGo } from './let-go';
+const terminals = new WeakMap<T3Client, Map<string, OnboardingTerminal>>();
+function setupTerminal(client: T3Client, native: Native, environmentId: string): OnboardingTerminal {
+  let byEnvironment = terminals.get(client);
+  if (!byEnvironment) terminals.set(client, byEnvironment = new Map());
+  let terminal = byEnvironment.get(environmentId);
+  if (!terminal) {
+    terminal = new OnboardingTerminal(async (target, method, input) => {
+      if (target === client.environmentId) return client.rpc(native, method, input, true);
+      const entry = [...fleet.entries.values()].find(item => item.environmentId === target);
+      if (!entry || entry.phase !== 'connected') throw new ClientError('The environment is not connected.');
+      const generation = entry.generation;
+      const reply = await bridgeReply(EnvironmentFleet.native(native, entry.key), { op: 'request', method, payload: input, generation });
+      if (!reply.ok) throw new ClientError(reply.error?.message || 'The terminal request failed.');
+      if (generation !== entry.generation || reply.generation !== generation) throw new ClientError('The connection changed.');
+      return reply.value;
+    });
+    byEnvironment.set(environmentId, terminal);
+  }
+  return terminal;
+}
+async function closeSetupTerminals(client: T3Client): Promise<void> {
+  for (const terminal of terminals.get(client)?.values() ?? []) if (terminal.state.kind !== 'closed') await terminal.close();
+}
 
 type Decision = 'pending' | 'wizard' | 'app';
 type Candidate = { key: string; path: string; title: string; projectId: string; sources: string[]; threadCount: number; lastActiveAt: string; alreadyImported: boolean; git: boolean };
@@ -64,7 +90,7 @@ export function providerSummary(provider: Obj | undefined): { headline: string; 
   if (auth.status === 'authenticated') return { headline: label ? `Authenticated · ${label}` : 'Authenticated', detail: message };
   return { headline: 'Available', detail: message };
 }
-export type AgentRow = { key: string; driver: string; kind: string; instanceId: string; name: string; summary: string; state: string; badge: string };
+export type AgentRow = { key: string; driver: string; kind: string; instanceId: string; name: string; summary: string; state: string; badge: string; terminalOpen: boolean; terminalAvailable: boolean };
 /** ConnectedAgentsStep: every Codex instance (setup rows until one is pointed at an existing CLI), then Claude. */
 export function agentRows(config: Obj): AgentRow[] {
   const providers = arr(config.providers), settings = obj(config.settings);
@@ -76,7 +102,7 @@ export function agentRows(config: Obj): AgentRow[] {
   const card = (driver: string, provider: Obj | undefined, key: string): AgentRow => {
     const state = providerState(provider), summary = providerSummary(provider);
     const name = str(provider?.displayName) || (driver === 'claudeAgent' ? 'Claude Code' : 'Codex');
-    return { key, driver, kind: 'card', instanceId: str(provider?.instanceId), name, state,
+    return { terminalOpen: false, terminalAvailable: false, key, driver, kind: 'card', instanceId: str(provider?.instanceId), name, state,
       summary: state === 'ready' ? 'Ready to code.' : `${summary.headline}${summary.detail ? ` · ${summary.detail}` : ''}`,
       badge: state === 'ready' ? 'Ready' : state === 'checking' ? 'Checking...' : state === 'disabled' ? 'Disabled' : state === 'attention' ? summary.headline : state === 'signIn' ? 'Sign in' : 'Install' };
   };
@@ -87,7 +113,7 @@ export function agentRows(config: Obj): AgentRow[] {
     const instanceConfig = Object.keys(instance).length ? obj(instance.config) : obj(obj(settings.providers).codex);
     // OnboardingCodexSetup: only an explicit "existing" setup shows the plain readiness card.
     if (instanceConfig.setupMode === 'existing') return card('codex', provider, `codex:${instanceId}:${index}`);
-    return { key: `codex:${instanceId}:${index}`, driver: 'codex', kind: 'codex-setup', instanceId, name: 'Codex', state: providerState(provider), summary: 'Code with your ChatGPT subscription.', badge: '' };
+    return { terminalOpen: false, terminalAvailable: false, key: `codex:${instanceId}:${index}`, driver: 'codex', kind: 'codex-setup', instanceId, name: 'Codex', state: providerState(provider), summary: 'Code with your ChatGPT subscription.', badge: '' };
   });
   rows.push(card('claudeAgent', best.get('claudeAgent'), 'claudeAgent'));
   return rows;
@@ -129,7 +155,7 @@ export async function welcomeView(client: T3Client, native: Native | null | unde
   const view = {
     show: false, step: input.step === 'agents' || input.step === 'import' ? input.step : 'connect',
     computers: [] as { key: string; environmentId: string; label: string; url: string; status: string; selected: boolean }[],
-    ready: false, machines: [] as { key: string; label: string; agents: AgentRow[]; chatgpt: boolean }[],
+    ready: false, machines: [] as { key: string; label: string; agents: AgentRow[]; chatgpt: boolean; terminal: ReturnType<OnboardingTerminal['view']> & { font: string; fontSize: number; light: string; dark: string } }[],
     scanning: false, scanError: '', candidates: [] as { key: string; title: string; path: string; detail: string; selected: boolean }[],
     candidateCount: 0, selectedCount: 0, selectionLabel: '', truncated: false, importLabel: 'Import 0 projects', importing: false, emptyScan: false,
     commandCopied: state.copied,
@@ -151,6 +177,7 @@ export async function welcomeView(client: T3Client, native: Native | null | unde
   if (next.persistCompletion && !prefs.onboardingCompletedAt) prefs.onboardingCompletedAt = wallIso(state.now);
   state.decision = transition(state.decision, next.decision);
   view.show = state.decision === 'wizard';
+  if (!view.show || view.step !== 'agents') await closeSetupTerminals(client);
   if (!view.show) return view;
   // A failed pairing registers nothing (PairingForm): the link this client tried
   // and never reached stays out of the list rather than "Connecting…" forever.
@@ -170,7 +197,10 @@ export async function welcomeView(client: T3Client, native: Native | null | unde
   const setup = sources.filter(source => state.setup.includes(source.key));
   view.machines = setup.map(source => {
     const agents = Object.keys(source.config).length ? agentRows(source.config) : [];
-    return { key: source.key, label: source.label || 'Computer', agents, chatgpt: arr(source.config.providers).some(provider => provider.driver === 'codex' && providerState(provider) === 'ready') };
+    const terminal = setupTerminal(client, native, source.environmentId).view(), appearance = look(client);
+    const active = terminal.environmentId === source.environmentId;
+    for (const agent of agents) { agent.terminalOpen = active && terminal.open && agent.driver === terminal.driver; agent.terminalAvailable = !!str(source.config.cwd); }
+    return { key: source.key, label: source.label || 'Computer', agents, terminal: { ...terminal, open: active && terminal.open, font: appearance.terminalFont, fontSize: appearance.terminalSize, light: appearance.terminalLight, dark: appearance.terminalDark }, chatgpt: arr(source.config.providers).some(provider => provider.driver === 'codex' && providerState(provider) === 'ready') };
   });
   if (view.step !== 'import') return view;
   // useProjectScans: this client reads the focused environment's history.
@@ -185,7 +215,7 @@ export async function welcomeView(client: T3Client, native: Native | null | unde
         const result = await client.rpc(native, 'agentSessions.scan', {});
         scan.candidates = decodeCandidates(focused.environmentId, result);
         scan.truncated = result.truncated === true;
-      } catch (error) { scan.error = error instanceof Error ? error.message : 'The scan failed.'; }
+      } catch (error) { if (letGo(error)) throw error; scan.error = error instanceof Error ? error.message : 'The scan failed.'; }
     }
     state.scan = scan;
     state.picked = null;
@@ -210,6 +240,26 @@ export type WelcomeView = Awaited<ReturnType<typeof welcomeView>>;
 /** The wizard's own actions. Returns the project to open a new thread in, when finishing lands in one. */
 export async function welcomeLocal(client: T3Client, native: Native, op: string, id: string, value: string): Promise<string> {
   const state = stateOf(client);
+  if (op.startsWith('terminal-')) {
+    const terminal = setupTerminal(client, native, id);
+    if (op === 'terminal-exited') {
+      let event: Obj = {}; try { event = obj(JSON.parse(value)); } catch { return ''; }
+      if (terminal.state.kind !== 'closed' && str(event.terminalId) === terminal.state.session.terminalId && (event.type === 'exited' || event.type === 'closed')) await terminal.close();
+      return '';
+    }
+    if (op === 'terminal-close') { await terminal.close(); return ''; }
+    if (op === 'terminal-retry') { if (terminal.state.kind !== 'closed') await terminal.open(terminal.state.session); return ''; }
+    const source = environmentSources(client, fleet.saved, fleet.entries).find(item => item.key === id);
+    if (!source) throw new ClientError('The environment is not connected.');
+    const agent = agentRows(source.config).find(item => item.key === value);
+    if (!agent || (agent.driver !== 'claudeAgent' && agent.driver !== 'codex')) return '';
+    const provider = arr(source.config.providers).find(item => item.instanceId === agent.instanceId) ?? { driver: agent.driver, instanceId: agent.instanceId };
+    const platform = str(obj(obj(source.config.environment).platform).os);
+    const command = agent.state === 'signIn' ? resolveOnboardingProviderLoginCommand(provider, obj(source.config.settings), platform) : resolveOnboardingProviderInstallCommand(agent.driver, platform);
+    const ids = await client.ids(native, 1);
+    await setupTerminal(client, native, source.environmentId).open({ environmentId: source.environmentId, terminalId: `onboarding-${agent.driver}-${ids[0]}`, driver: agent.driver, providerInstanceId: agent.instanceId, cwd: str(source.config.cwd), command });
+    return '';
+  }
   // CommandBlock: copy without a toast; the button shows Check for 1.5s.
   if (op === 'copy-command') {
     const reply = await bridgeReply(native, { op: 'copyText', text: value });

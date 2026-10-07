@@ -9,6 +9,10 @@ import UIKit
 private final class ExactSegmentedControl: UISegmentedControl {
     let ownerID: UInt32
     var icons: [Int: (source: AnyObject, size: CGSize, label: String)] = [:]
+    /// The selection last reported or applied. A finger moves the selection
+    /// before the change is reported (on iOS 26 after the lift, as the
+    /// selection settles); until then the control keeps the newer choice.
+    var settled = UISegmentedControl.noSegment
     init(ownerID: UInt32) {
         self.ownerID = ownerID
         super.init(items: [])
@@ -70,6 +74,10 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
     func control(of id: UInt32) -> UISegmentedControl? { controls[id] }
     private var bars: [UInt32: ExactTabBar] = [:]
     private var sizes: [UInt32: CGSize] = [:]
+    /// A segmented control's own size, with what it was measured from: its
+    /// segments, their fonts and the text size. Measuring is UIKit laying out
+    /// every segment, and a sync runs after every batch (a fling's fills).
+    private var naturals: [UInt32: (source: String, size: CGSize)] = [:]
     private var hidden: [UInt32: Bool] = [:]
     private var members: [UInt32: [UInt32]] = [:]
     /// Tablists a tab container's bar has taken the place of, hidden here.
@@ -191,9 +199,26 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
     }
 
     private func clearSize(owner id: UInt32) {
+        naturals.removeValue(forKey: id)
         if sizes.removeValue(forKey: id) != nil, let owner = presenter.views[id] {
             presenter.queueIntrinsicSize(owner, generation: owner.loadGeneration, nil)
         }
+    }
+
+    private func natural(_ id: UInt32, _ control: UISegmentedControl) -> CGSize {
+        let fonts = [UIControl.State.normal, .selected].map { (control.titleTextAttributes(for: $0)?[.font] as? UIFont).map { "\($0.fontName) \($0.pointSize)" } ?? "" }
+        let segments = (0..<control.numberOfSegments).map { "\(control.titleForSegment(at: $0) ?? "")|\(control.imageForSegment(at: $0)?.size ?? .zero)|\(control.widthForSegment(at: $0))" }
+            + ["\(control.apportionsSegmentWidthsByContent)"]
+        let t = control.traitCollection
+        let source = "\(segments)|\(fonts)|\(t.preferredContentSizeCategory.rawValue)|\(t.legibilityWeight.rawValue)"
+        // A hook's own look (a background image, a divider) sizes it too:
+        // such a control is measured every time, as before.
+        let customized = control.backgroundImage(for: .normal, barMetrics: .default) != nil
+            || control.dividerImage(forLeftSegmentState: .normal, rightSegmentState: .normal, barMetrics: .default) != nil
+        if !customized, let known = naturals[id], known.source == source { return known.size }
+        let size = control.intrinsicContentSize
+        naturals[id] = customized ? nil : (source, size)
+        return size
     }
 
     private func measure(_ owner: NodeView, _ control: UIView) {
@@ -205,7 +230,7 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
             // (the seam takes only a positive one), so a resize does not
             // remeasure. It fills the content box, so a border-box minimum
             // also holds the padding and border around it.
-            let natural = control.intrinsicContentSize
+            let natural = natural(owner.id, control as! UISegmentedControl)
             size = CGSize(width: max(natural.width, 1), height: natural.height)
             if owner.style["box_sizing"]?.string == "border-box" {
                 let border = owner.number("border_width")
@@ -352,13 +377,18 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
                 control.setEnabled(!tab.disabled, forSegmentAt: index)
             }
             let selected = tabs.firstIndex { $0.props["accessibilitySelected"] == "true" } ?? UISegmentedControl.noSegment
-            if control.selectedSegmentIndex != selected { control.selectedSegmentIndex = selected }
+            // A choice the finger made and the control has not reported yet
+            // stays; resetting it would make the report name the old segment.
+            let pending = control.isTracking || control.selectedSegmentIndex != control.settled
+            if control.selectedSegmentIndex != selected, !pending { control.selectedSegmentIndex = selected }
+            if control.selectedSegmentIndex == selected { control.settled = selected }
             owner.bringSubviewToFront(control)
             measure(owner, control)
         }
     }
 
     @objc private func changed(_ sender: ExactSegmentedControl) {
+        sender.settled = sender.selectedSegmentIndex
         guard let ids = members[sender.ownerID], ids.indices.contains(sender.selectedSegmentIndex),
               let tab = presenter.views[ids[sender.selectedSegmentIndex]], !tab.disabled,
               let owner = presenter.views[sender.ownerID], available(owner) else { sync(); return }

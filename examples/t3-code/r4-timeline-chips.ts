@@ -10,12 +10,14 @@ import { fileIconToken } from './timeline-files';
 import type { T3Client } from './client';
 import { decodeClientPrefs, type ClientPrefs } from './settings-core';
 import { fontStack } from './settings-appearance';
+import { collectAssistantCitations, parseAssistantCitationHref } from './diff-citations';
+import { markdownMediaChips } from './media-views'; // media-actions: a message's image lines and their actions
 
 export interface ChipView {
   id: string; href: string; kind: string; label: string; size: string; tip: string;
   detail: string; icon: string; target: string; owner: string;
 }
-export interface MarkdownEnv { codeFont: string; codeSize: number; wrap: boolean; chips: ChipView[] }
+export interface MarkdownEnv { codeFont: string; codeSize: number; wrap: boolean; chips: ChipView[]; runCommands: string[] }
 
 const CONTEXT_LINK = /(!?)\[([^\]\n]{0,512})\]\((t3-context:\/\/v1\/([a-z][a-z0-9-]{0,39})\/([a-z0-9_-]{1,128}))\)/gi;
 // MARKDOWN_LINK_HREF_PATTERN, minus web and context links: what the parser marks as a file link.
@@ -64,25 +66,23 @@ export function messageChips(item: Obj, root: string, threads: Obj[], owner = ''
     const record = records.get(match[5]!);
     add(contextChip(href, kind, label, record && str(record.kind) === kind ? record : undefined, attachments, threads));
   }
-  if (text.includes('](t3-citation:')) for (const match of text.matchAll(CITATION_LINK)) add(citationChip(match[1]!));
+  if (text.includes('](t3-citation:')) for (const match of collectAssistantCitations(text)) add(citationChip(match.source.slice('[Assistant quote]('.length, -1)));
   if (text.includes('](')) for (const match of text.matchAll(FILE_LINK)) {
     const href = (match[3] ?? match[4] ?? '').trim();
     if (match[1] || !href || isWebHref(href) || /^(data|javascript|mailto|tel):/i.test(href)) continue;
     add({ href: `t3-file:${href}`, kind: 'link', label: match[2]!, size: '', tip: fileLinkTarget(href, root), detail: '', icon: fileIconToken(href), target: '' });
   }
+  // media-actions: an image line's chip (kind "media") is matched by href and kind, so a link to the same file keeps its own.
+  for (const media of markdownMediaChips(text, root)) chips.push({ id: `chip-${chips.length}`, ...media, owner });
   return chips;
 }
 
-const CITATION_LINK = /\[Assistant quote\]\((t3-citation:\/\/v1\/[^\s)]+)\)/g;
-/** AssistantCitationChip: the quote (or its comment) cut at 64 characters; "View source" opens the cited thread at the answer. */
+/** AssistantCitationChip: the quote (or its comment) cut at 64 characters; "View source" opens the cited thread at the answer.
+ * Each `[Assistant quote](t3-citation://…)` is read with the reference's parseAssistantCitationHref (diff-citations.ts). */
 function citationChip(href: string): Omit<ChipView, 'id' | 'owner'> {
-  let threadId = '', messageId = '', quote = '';
-  try {
-    const url = new URL(href), parts = url.pathname.slice(1).split('/');
-    threadId = decodeURIComponent(parts[1] ?? ''); messageId = decodeURIComponent(parts[2] ?? '');
-    quote = (url.searchParams.get('comment')?.trim() || url.searchParams.get('text') || '').replace(/\s+/g, ' ');
-  } catch { /* an unreadable citation keeps its parsed text */ }
-  return { href, kind: 'citation', label: quote.length > 64 ? `${quote.slice(0, 64)}…` : quote, size: '', tip: 'View source', detail: messageId, icon: '', target: threadId };
+  const citation = parseAssistantCitationHref(href);
+  const quote = (citation?.comment?.trim() || citation?.text || '').replace(/\s+/g, ' ');
+  return { href, kind: 'citation', label: quote.length > 64 ? `${quote.slice(0, 64)}…` : quote, size: '', tip: 'View source', detail: citation?.messageId ?? '', icon: '', target: citation?.threadId ?? '' };
 }
 const UNAVAILABLE = 'This context is no longer available.';
 function contextChip(href: string, kind: string, label: string, record: Obj | undefined, attachments: Map<string, Obj>, threads: Obj[]): Omit<ChipView, 'id' | 'owner'> {
@@ -104,8 +104,8 @@ function contextChip(href: string, kind: string, label: string, record: Obj | un
       const video = isVideo(attachment);
       return { ...base, kind: video ? 'video' : 'file', label: middleTruncate(name), size, tip: `${name}\n${size}`, icon: video ? '' : fileIconToken(name), target: str(attachment.id) };
     }
-    case 'terminal': return { ...base, kind: 'terminal', label: str(record.label, label),
-      tip: `${str(record.terminalLabel)} lines ${num(record.lineStart)}-${num(record.lineEnd)}`, detail: str(record.text) };
+    case 'terminal': return { ...base, kind: 'terminal', label: str(record.label, label), size: num(record.lineStart) === num(record.lineEnd) ? `Line ${num(record.lineStart)}` : `Lines ${num(record.lineStart)}–${num(record.lineEnd)}`,
+      tip: str(record.terminalLabel), detail: str(record.text) };
     case 'element': return { ...base, kind: 'element', label: str(record.label, label), tip: str(record.pageTitle).trim() || str(record.pageUrl),
       detail: [str(record.selector) || `<${str(record.tagName)}>`, str(record.htmlPreview).trim()].filter(Boolean).join('\n') };
     case 'preview-annotation': return { ...base, kind: 'element', label: str(record.label, label), tip: str(record.pageTitle).trim() || str(record.pageUrl) || 'Preview annotation',
@@ -127,7 +127,7 @@ export function markdownEnv(client: T3Client): MarkdownEnv {
   const prefs = (client.local as unknown as { clientSettings?: ClientPrefs } | undefined)?.clientSettings || decodeClientPrefs({});
   const size = Number(prefs.fontSizeCode);
   return { codeFont: fontStack(prefs.fontFamilyCode, true) ?? 'ui-monospace', codeSize: Number.isFinite(size) ? Math.min(18, Math.max(10, Math.round(size))) : 13,
-    wrap: prefs.wordWrap !== false, chips: [] };
+    wrap: prefs.wordWrap !== false, chips: [], runCommands: [] };
 }
 /** Settings → Appearance → Diff colors: "blue-orange" or the default "red-green". */
 export function diffSchemeOf(client: { local: object }): string {

@@ -487,6 +487,9 @@ pub fn style_writes(id: u16, timeline: bool) -> Result<Vec<Write>, String> {
         | StyleId::ScrollEdgeEffect
         | StyleId::HoverEffect
         | StyleId::SmartInvert => vec![],
+        // @ref LLP 1055 D13 — the browser starts an animation at insertion;
+        // this target does not hold one for its row (a declared deviation).
+        StyleId::AnimationTrigger => vec![],
         StyleId::Animation => vec![with("animation", NONE)],
         // @ref LLP 1069.011 D8 — and the custom property a native button reads.
         StyleId::AccentColor => vec![

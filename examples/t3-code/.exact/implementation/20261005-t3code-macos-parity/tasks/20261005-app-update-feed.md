@@ -59,7 +59,7 @@ Port changes for headers: `Effect` services and the Electron updater become a Sw
 | Kind | Readable task/issue/decision | Remote reference | Required condition | Resolution evidence |
 | --- | --- | --- | --- | --- |
 | recorded decision | [X40](../issues/20261005-x40-app-update-feed.md) | pending | The user decides to build on a clone-owned feed (with the feed source and the framework support), or closes it | pending |
-| merged task PR | [20261005-hot-file-split](20261005-hot-file-split.md) | pending | Merged into `daehyeon/t3-code` (common prerequisite: room and per-area seams in the shared files) | pending |
+| merged task PR | [20261005-hot-file-split](closed/20261005-hot-file-split.md) | pending | Merged into `daehyeon/t3-code` (common prerequisite: room and per-area seams in the shared files) | pending |
 | merged task PR | [20261005-clone-on-exact2-main](20261005-clone-on-exact2-main.md) | pending | Merged | pending |
 | merged task PR | [20261005-desktop-oracle-and-trace](20261005-desktop-oracle-and-trace.md) | pending | Merged | pending |
 | scheduling preference | After `20261005-embedded-server-runtime`, `20261005-desktop-shell-details` and `20261005-server-update-banner` | none | Server stop, menu seams, banner texts and the control pipe exist | pending |
@@ -73,7 +73,7 @@ Checked sources and time: planning pass 2026-10-05 against the local drafts in `
 | --- | --- | --- | --- | --- |
 | [X40](../issues/20261005-x40-app-update-feed.md) | Decision, and a module API to the delivery system | scope decision; not in the library | blocking | `issue-open`, then the user decides |
 | [X39](../issues/20261005-x39-telemetry.md) | Control pipe (part 3) for server-triggered updates | scope decision | blocking for item 8 only | decide part 3 |
-| [X6](../issues/20261005-x06-module-quit-shutdown.md) | Bounded delay at quit | `EXACT2-GAPS.md` X6 at `d2cb661eb`; not re-measured | nonblocking (install stops the server itself) | none |
+| [X6](../issues/20261005-x06-module-quit-shutdown.md) | Bounded delay at quit | main #200 (#105) runs `destroy()` at quit; no bounded hold on `463acda68` ([adopt-main-fixes-r4](closed/20261007-adopt-main-fixes-r4.md)) | nonblocking (install stops the server itself) | none |
 | [X26](../issues/20261005-x26-app-menu-control.md) | App menu control | `EXACT2-GAPS.md` X26 | nonblocking (the menu item exists) | none |
 
 ## Implementation notes

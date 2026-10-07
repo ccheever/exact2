@@ -9,6 +9,7 @@ import { obj, str, type Obj } from './domain';
 import { parseThemeFile, themeIdFromName, toHex, type CustomTheme } from './settings-themes';
 import { STANDARD, updateFamily } from './settings-appearance-editor';
 import { pushToast } from './toast';
+import { letGo } from './let-go';
 
 export const SUGGESTED_SEARCHES = ['Dracula', 'Catppuccin', 'Nord', 'Tokyo Night'];
 export const SORT_OPTIONS: [string, string][] = [['downloadCount', 'Most downloaded'], ['rating', 'Best rated'], ['timestamp', 'Newest'], ['relevance', 'Most relevant']];
@@ -234,6 +235,42 @@ export function importView(client: T3Client): ImportView {
     fileName: state.fileName, json: state.json, popular: SUGGESTED_SEARCHES };
 }
 
+// ── ThemeImportDialog's size guard and file reads (1e2ecbd975) ──────────────
+/** A full theme export is a few KB, so anything past this is not a theme file. */
+export const MAX_THEME_FILE_BYTES = 256 * 1024;
+function formatByteSize(bytes: number): string {
+  if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  if (bytes >= 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${bytes} bytes`;
+}
+/** Returns the error to show for a file too large to be a theme, else null. */
+export function describeOversizedThemeFile(bytes: number): string | null {
+  if (bytes <= MAX_THEME_FILE_BYTES) return null;
+  return `That file is ${formatByteSize(bytes)}. Theme files are only a few KB, so this one was not read (limit ${formatByteSize(MAX_THEME_FILE_BYTES)}).`;
+}
+export type PickedThemeFile = { name: string; size: number; text: string };
+export type ThemeFileRead = { kind: 'single'; json: string; fileName: string } | { kind: 'batch'; themes: CustomTheme[]; failures: string[] };
+/**
+ * readThemeFiles: one file fills the editor for review (its size checked first); several import
+ * as a batch, each oversized one as "<file>: too large" and each unparsable one as
+ * "<file>: <reason>", joined with " — " by the caller.
+ */
+export function readThemeFiles(files: PickedThemeFile[], taken: string[]): ThemeFileRead {
+  if (files.length === 1) {
+    const file = files[0]!;
+    const oversized = describeOversizedThemeFile(file.size);
+    if (oversized) throw new ClientError(oversized);
+    return { kind: 'single', json: file.text.slice(0, 1_048_576), fileName: file.name };
+  }
+  const themes: CustomTheme[] = [], failures: string[] = [];
+  for (const file of files) {
+    if (describeOversizedThemeFile(file.size)) { failures.push(`${file.name}: too large`); continue; }
+    try { const theme = importThemeText(file.text, taken); taken.push(theme.id); themes.push(theme); }
+    catch (cause) { failures.push(`${file.name}: ${cause instanceof Error ? cause.message : 'not a theme file'}`); }
+  }
+  return { kind: 'batch', themes, failures };
+}
+
 /** settings-core theme-add rows: search, sort, install, choose (files), json, add. */
 export async function themeImportCommand(client: T3Client, native: Native | null, part: string, value: string): Promise<string> {
   const state = searchState(client);
@@ -249,14 +286,16 @@ export async function themeImportCommand(client: T3Client, native: Native | null
   }
   if (!native?.available) throw new ClientError('Adding themes from Open VSX or files needs the macOS app.');
   if (part === 'choose') {
+    // pickThemeFiles (T3ContextMenu.openText): an oversized file arrives unread with its size.
     const reply = await client.restAccess(native).call({ op: 'openText', types: ['json'], multiple: true });
-    const files = Array.isArray(reply.files) ? (reply.files as unknown[]).map(obj) : [];
+    const files = Array.isArray(reply.files) ? (reply.files as unknown[]).map(obj).map(file => ({ name: str(file.name), size: Number(file.size) || 0, text: str(file.text) })) : [];
     // A cancelled picker leaves the dialog open (`toasted:` keeps its inline error empty).
     if (!files.length) throw new ClientError('toasted:');
     const taken = ['t3-code', 't3-chat', 'grove', 'ocean', 'ember', 'iris', ...customThemes(client).map(entry => entry.id)];
-    const themes = files.map(file => { const theme = importThemeText(str(file.text), taken); taken.push(theme.id); return theme; });
-    state.fileName = files.map(file => str(file.name)).join(', ');
-    addManyThemes(client, themes);
+    const result = readThemeFiles(files, taken);
+    if (result.kind === 'single') { state.json = result.json; state.fileName = result.fileName; return ''; }
+    if (result.themes.length) addManyThemes(client, result.themes);
+    if (result.failures.length) throw new ClientError(result.failures.join(' — '));
     resetImport(client);
     return '';
   }
@@ -266,7 +305,7 @@ export async function themeImportCommand(client: T3Client, native: Native | null
     if (!state.query.trim()) { state.results = null; state.error = ''; return ''; }
     state.searching = true; state.error = '';
     try { state.results = await searchOpenVsx(client, native, state.query.trim(), state.sort); }
-    catch (error) { state.error = error instanceof Error ? error.message : 'Open VSX search is unavailable right now.'; state.results = null; }
+    catch (error) { if (letGo(error)) throw error; state.error = error instanceof Error ? error.message : 'Open VSX search is unavailable right now.'; state.results = null; }
     finally { state.searching = false; }
     return '';
   }
@@ -281,7 +320,9 @@ export async function themeImportCommand(client: T3Client, native: Native | null
     try { addManyThemes(client, await installOpenVsx(client, native, ext), openVsxCollection(ext.id)); resetImport(client); }
     catch (error) {
       // The search section shows the failure; the dialog stays open.
-      state.installing = ''; state.error = error instanceof Error ? error.message : 'That theme could not be added.';
+      state.installing = '';
+      if (letGo(error)) throw error;
+      state.error = error instanceof Error ? error.message : 'That theme could not be added.';
       throw new ClientError('toasted:');
     }
     return '';

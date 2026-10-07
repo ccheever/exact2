@@ -3,7 +3,7 @@ import { spawnSync } from 'node:child_process';
 import { cpSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { basename, dirname, relative, resolve } from 'node:path';
 import { gameDefaults } from './app/shells.mjs';
-import { pathFrom, patchLines } from '../scripts/app.mjs';
+import { cargoEnvironment, pathFrom, patchLines } from '../scripts/app.mjs';
 
 /** Type names a game's generated type may not take: the engine's public items
  * (what `use exact_game::*` brings in) and the template's own. */
@@ -84,6 +84,7 @@ export function createGame(destination, directory = import.meta.dir, options = {
   bun exact.mjs test web      build (wasm), then run app.test.contract
   bun exact.mjs agent web tree  inspect or drive the game
   bun exact.mjs mac --run     build and launch on this Mac
+  bun exact.mjs windows --run build and launch on Windows
   bun exact.mjs prove         the proof's first baseline (pins.json)`;
   }
   return `Created ${local ? destination : `game/games/${name}`}\n  bun ${script('dev.mjs')} ${argument}\n  bun ${script('prove.mjs')} ${argument}
@@ -142,6 +143,7 @@ license = "MIT"
 ${patchLines(dir).join('\n')}
 `,
     'rust-toolchain.toml': readFileSync(resolve(ROOT, 'rust-toolchain.toml'), 'utf8'),
+    '.cargo/config.toml': readFileSync(resolve(ROOT, '.cargo/config.toml'), 'utf8'),
     'exact.mjs': commandsFor(dir, name),
     '.gitignore': '/target/\n/dist/\n/node_modules/\n/app.contract.d.ts\n/.exact/\n',
     // Contract libraries come through node_modules (LLP 1091 D9): \`bun add\`
@@ -328,7 +330,7 @@ Commands, from this directory:
 | \`bun exact.mjs contract vocab [name]\` | the tags, attributes and CSS properties Contract accepts |
 | \`bun exact.mjs web\` | the web dev loop, at the URL it prints (8765 unless another loop holds it) |
 | \`bun exact.mjs test web\` | build the web app if needed, then run \`app.test.contract\` (also \`macos\`, \`ios\`) |
-| \`bun exact.mjs agent web tree "tap <id>" "screenshot out.png"\` | drive the app as a person would |
+| \`bun exact.mjs agent web --storage s1 tree "tap <id>" "screenshot out.png"\` | drive the app as a person would; \`--storage <name>\` gives its storage sources a scratch store (without it their writes are refused; \`logs\` has the detail) |
 | \`bun exact.mjs agent ios tree "tap <testId>" "screenshot s.png"\` | the same on an iOS simulator; drive by \`testId\`, never by coordinates |
 | \`bun exact.mjs mac --run\`, \`bun exact.mjs ios --run\` | build and launch natively |
 | \`bun exact.mjs update\` | after exact2 moves or changes its patches; it rewrites \`exact.mjs\` |
@@ -340,7 +342,11 @@ source: changing it makes the driver refuse to drive until the app is rebuilt.
 
 The loop: generate the types, edit, \`contract build --json\` until it prints \`[]\`,
 \`test web\`, look at it with \`agent web … screenshot\`, then the native hosts.
-\`bun ${pathFrom(dir, resolve(ROOT, 'scripts/exact.mjs'))} setup --check\` names anything this machine is missing.
+Before the first native TypeScript build on a machine, run the one-time installer
+\`bun ${pathFrom(dir, resolve(ROOT, 'scripts/exact.mjs'))} setup\`; it installs the pinned
+host bundle and the iOS/tvOS bundles this Mac builds.
+\`bun ${pathFrom(dir, resolve(ROOT, 'scripts/exact.mjs'))} setup --check\` only checks and
+names anything this machine is missing. Cargo builds themselves are forced offline for Hermes.
 
 Build it native. A hand-built lookalike of a system control is a bug; write the
 Contract form and each host draws its own (the agent guide's "Prefer native
@@ -368,7 +374,7 @@ Contract libraries: \`use Card from "@scope/ui"\` reads an installed package's
 built-in. Each file sees only the names its \`use\` lines list.
 
 Generated, so don't edit: the \`[patch.crates-io]\` table in \`Cargo.toml\`,
-\`rust-toolchain.toml\`, \`exact.mjs\`, and this block.
+\`rust-toolchain.toml\`, \`.cargo/config.toml\`, \`exact.mjs\`, and this block.
 
 ${readFileSync(resolve(ROOT, 'docs/diary.md'), 'utf8').replace(/^#/gm, '##').trimEnd()}
 ${END}
@@ -406,6 +412,7 @@ Commands, from this directory:
 | \`bun exact.mjs test web\` | build the web game if needed, then run \`app.test.contract\` (also \`macos\`, \`ios\`) |
 | \`bun exact.mjs agent web "tap play" "type world key ArrowRight for 800" "screenshot out.png"\` | drive the game as a person would |
 | \`bun exact.mjs mac --run\`, \`bun exact.mjs ios --run\` | build and launch natively |
+| \`bun exact.mjs windows --run\` | build and launch the standalone Windows game; omit \`--run\` to package only |
 | \`bun exact.mjs prove\`, then \`bun proof.mjs web\` | the proof: a first baseline in \`pins.json\`, then real-host checks against it |
 | \`bun exact.mjs update\` | after exact2 moves; it rewrites \`exact.mjs\` and this block |
 | app.json \`"commands": {"replay": ["bun", "tools/replay.mjs"]}\` | the game's own verbs: \`bun exact.mjs replay web\` runs \`bun tools/replay.mjs web\` here |
@@ -485,6 +492,7 @@ const verbs = {
   feedback: ['scripts/feedback.mjs'],${game ? `
   // A game's own: its hostless Rust tests and its proof's baseline (exact2's game/README.md).
   'test-rust': ['game/app/shells.mjs', import.meta.dir, '--test'],
+  windows: ['host/windows/build.mjs', '${name}'],
   prove: ['game/prove.mjs', import.meta.dir],` : ''}
 };
 // The app's own verbs (paint, minesweeper, ledger: a regenerated file dropped the ones added here): app.json's
@@ -508,7 +516,7 @@ const spawned = (command, args, stdio = 'inherit', cwd = undefined) => new Promi
   const child = spawn(command, args, {
     stdio,
     cwd,
-    env: { ...process.env, EXACT_APP_DIR: import.meta.dir, EXACT2, EXACT_LAUNCHER_PID: String(process.pid) },
+    env: { ...process.env, HERMES_LEAN_SYS_OFFLINE: '1', EXACT_APP_DIR: import.meta.dir, EXACT2, EXACT_LAUNCHER_PID: String(process.pid) },
   });
   const pass = (signal) => child.kill(signal), signals = ['SIGINT', 'SIGTERM', 'SIGHUP'];
   for (const signal of signals) process.on(signal, pass);
@@ -556,7 +564,7 @@ process.exit(log(failed));
  * as copied (`deferrable`); `resolveApp` resolves a lock still identical to
  * exact2's at its first build, which may fetch. Returns whether it deferred. */
 function resolveOffline(dir, deferrable = false) {
-  const lock = spawnSync('cargo', ['metadata', '--offline', '--format-version', '1'], { cwd: dir, stdio: ['ignore', 'ignore', 'pipe'], encoding: 'utf8' });
+  const lock = spawnSync('cargo', ['metadata', '--offline', '--format-version', '1'], { cwd: dir, env: cargoEnvironment(), stdio: ['ignore', 'ignore', 'pipe'], encoding: 'utf8' });
   if (lock.status === 0) return false;
   if (lock.error?.code === 'ENOENT') throw new Error('cargo was not found on PATH or in ~/.cargo/bin; install Rust with rustup (https://rustup.rs)');
   // Cargo may have rewritten the lock before failing to download; the first
@@ -584,6 +592,8 @@ function updateApp(dir, name) {
   writeFileSync(resolve(dir, 'Cargo.toml'), at < 0 ? `${manifest.trimEnd()}\n\n${block}`
     : manifest.replace(section, table => block + (at + table.length < manifest.length ? '\n' : '')));
   writeFileSync(resolve(dir, 'rust-toolchain.toml'), readFileSync(resolve(ROOT, 'rust-toolchain.toml')));
+  mkdirSync(resolve(dir, '.cargo'), { recursive: true });
+  writeFileSync(resolve(dir, '.cargo/config.toml'), readFileSync(resolve(ROOT, '.cargo/config.toml')));
   writeFileSync(resolve(dir, 'exact.mjs'), commandsFor(dir, name));
   const notes = updateNotes(dir, name);
   const manifestPath = resolve(dir, 'app.json');
@@ -601,7 +611,7 @@ function updateApp(dir, name) {
 test "the app opens"
 `);
   // Each exact2 crate is found by name, so a checkout that moved is followed.
-  const metadata = spawnSync('cargo', ['metadata', '--no-deps', '--offline', '--format-version', '1'], { cwd: ROOT, encoding: 'utf8', maxBuffer: 1 << 26 });
+  const metadata = spawnSync('cargo', ['metadata', '--no-deps', '--offline', '--format-version', '1'], { cwd: ROOT, env: cargoEnvironment(), encoding: 'utf8', maxBuffer: 1 << 26 });
   if (metadata.status !== 0) throw new Error(`cargo metadata in ${ROOT}:\n${metadata.stderr}`);
   const crates = new Map(JSON.parse(metadata.stdout).packages.map(p => [p.name, dirname(p.manifest_path)]));
   const changed = [];

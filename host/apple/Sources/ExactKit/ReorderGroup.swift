@@ -139,6 +139,11 @@ final class ReorderGroupHold {
 
     /// Pin the grip, snapshot its row (before the runner hides it), and lift.
     init?(_ handle: NodeView, point: CGPoint, ghost drawn: Bool) {
+        handle.presenter?.reorderGroup?.landNow()
+        // Said, as the web says it (LLP 1102 §3.17): a drive's reply reads like a success otherwise.
+        if handle.presenter?.reorderGroup != nil {
+            handle.presenter?.session?.log("reorder: a drag refused: the last drop is held until its move shows (LLP 1094 D8); a person waits for the card to land; a drive waits with `clock settle` before the next drag")
+        }
         guard let presenter = handle.presenter, SwipeInput.allows(handle),
               presenter.reorderGroup == nil, presenter.reorder == nil,
               presenter.session?.isApplyingPresentation != true,
@@ -269,6 +274,12 @@ final class ReorderGroupHold {
         ghost.land(on: row) { [weak self] in self?.finishSession() }
     }
 
+    /// Whether the ghost is springing home: the move has shown, so a new drag may end it.
+    var isLanding: Bool { landing }
+
+    /// A new drag ends a landing at once (LLP 1102 §3.18); a session that holds is untouched (D8).
+    func landNow() { if landing { finishSession() } }
+
     private func finishSession() {
         guard let presenter, state.phase != "finished" else { end(); return }
         let landedHere = state.ending == "landed" || state.ending == "timeout"
@@ -345,7 +356,8 @@ extension NodeView {
     /// step, Space or Enter drops and Escape cancels. True when taken.
     func reorderKey(_ name: String) -> Bool {
         guard reorderKeys, let presenter else { return false }
-        if let hold = presenter.reorderGroup {
+        // A landing session yields to a new lift (LLP 1102 §3.18): Space below ends it first.
+        if let hold = presenter.reorderGroup, !hold.isLanding {
             guard hold.handle === self else { return false }
             if let step = ReorderGroupStep(key: name) { hold.step(step); return true }
             switch name {

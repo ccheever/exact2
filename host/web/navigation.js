@@ -38,7 +38,7 @@ const selectedRoute = nav => routesOf(nav).find(r => r.getAttribute("navigationK
 const browserIndex = () => globalThis.navigation?.currentEntry?.index ?? null;
 // Agent launch facts belong to the carrier, not the router's typed URL. Keep
 // them on every History entry so a browser reload retains its agent adapter.
-const agentParameters = ['agent', 'seed', 'locale', 'timeZone', 'epoch', 'storage'];
+const agentParameters = ['agent', 'seed', 'locale', 'timeZone', 'epoch', 'storage', 'failFetch'];
 function historyURL(path) {
   if (!AGENT_ADMITTED) return location.origin + path;
   const facts = launched();
@@ -51,12 +51,17 @@ function historyURL(path) {
 }
 const stamp = (index, op) => ({ exact: index, id: op.top, url: op.url });
 
+/** The selected route's Back control (1035.001 D1: the `id` the root's `navigationBack` names), pressable or not. */
+const backControl = nav => { const route = selectedRoute(nav); return route && [...route.querySelectorAll("[id]")].find(node => node.id === nav.getAttribute("navigationBack")); };
+/** Press the Back control; else why it was not pressed. */
 function pressBack(nav) {
-  const route = selectedRoute(nav);
-  if (!route || ["modal", "fullscreen"].includes(route.getAttribute("navigationPresentation")) && route.getAttribute("closedby") === "none") return;
-  const control = [...route.querySelectorAll("[id]")].find(node => node.id === nav.getAttribute("navigationBack"));
-  if (control && !control.matches(":disabled") && !control.closest("[inert]")
-      && control.getClientRects().length && getComputedStyle(control).visibility === "visible") control.click();
+  const route = selectedRoute(nav), control = backControl(nav);
+  if (!route) return "no route is selected";
+  if (["modal", "fullscreen"].includes(route.getAttribute("navigationPresentation")) && route.getAttribute("closedby") === "none") return `route ${route.getAttribute("navigationKey")} is closedby="none"`;
+  if (!control) return `route ${route.getAttribute("navigationKey")} has no id="${nav.getAttribute("navigationBack")}" control`;
+  if (control.matches(":disabled") || control.closest("[inert]") || !control.getClientRects().length || getComputedStyle(control).visibility !== "visible")
+    return `its id="${control.id}" control is disabled, inert or not shown`;
+  control.click();
 }
 
 function go(to, from, finish = () => {}) {
@@ -103,11 +108,16 @@ function popped({ j, state, url }) {
   const target = owned ? entry.url : url;
   const nav = root.querySelector("[navigationBack]");
   const routes = routesOf(nav), selected = routes.indexOf(selectedRoute(nav));
-  const back = owned && j === cursor - 1 && selected > 0
+  // A completed pop presses the selected route's Back control. A route with
+  // none (a screen with no Back button) still goes back, as the web's Back
+  // does: the root's `navigate` with the entry's URL, as any other traversal.
+  const beneath = owned && j === cursor - 1 && selected > 0
     && routes[selected - 1].getAttribute("navigationKey") === String(entry.id);
+  const back = beneath && !!backControl(nav);
+  let why = null;
   pop = {};
   try {
-    if (back) pressBack(nav);
+    if (back) why = pressBack(nav);
     else navigate(target);
     const accepted = back ? last?.top === entry.id : pop.op?.url === target;
     if (accepted) {
@@ -123,8 +133,8 @@ function popped({ j, state, url }) {
         commit(op);
       }
     } else {
-      if (back) log("history: Back refused; restoring the entry");
-      else log(`history: navigate ${JSON.stringify(target)} refused; restoring the entry`);
+      if (back) log(`history: Back refused: ${why ?? `pressing the Back control did not select entry ${entry.id}`}; restoring the entry`);
+      else log(`history: ${beneath ? `Back to ${JSON.stringify(target)} refused: route ${nav.getAttribute("navigationKey")} has no id="${nav.getAttribute("navigationBack")}" control, and` : `navigate ${JSON.stringify(target)} refused:`} the navigation root's navigate handler (navigate=…) committed no router change, or the root has none; restoring the entry`);
       if (j !== null && j !== cursor) go(cursor, j);
       else history.replaceState(written[cursor], "", historyURL(written[cursor].url));
     }
@@ -273,7 +283,7 @@ export function afterPaintPieces(load, o) {
   const queue = [];
   const start = () => loading ??= Promise.all([load('./collection-glue.js', 'collectionGlue'), load('./motion-glue.js', 'motionGlue'), load('./group-glue.js', 'groupGlue')])
     .then(([c, m, g]) => {
-      const common = { views: o.views, now: o.now, generation: o.generation, inert: o.inert, applyBatch: o.applyBatch, ready: o.ready };
+      const common = { views: o.views, now: o.now, generation: o.generation, inert: o.inert, applyBatch: o.applyBatch, ready: o.ready, log: o.log };
       const request = facts => o.wasm('exact_motion', m.motionBytes(facts)) ?? { accepted: false };
       const collections = c.collectionController({ root: o.root, views: o.views, agent: !!o.agent?.(), settled: () => arrange.commit(), report(bytes) {
         const batch = o.wasm('exact_collection_feedback', bytes);
@@ -774,7 +784,8 @@ export function pageReporter(agent, platform = globalThis) {
   // @ref LLP 1069.000 D3 — the root font size: the document element's
   // computed `font-size`, the browser's setting unless a page sets it; under
   // the agent the drive sets it on the element (`prefer root-font-size`).
-  const rootFontSize = () => agent ? facts["root-font-size"] : parseFloat(platform.getComputedStyle(platform.document.documentElement).fontSize) || 16;
+  // The app's own size (`appRootFontSize`) is set over it and read past.
+  const rootFontSize = () => agent ? facts["root-font-size"] : beneathApp(platform, () => parseFloat(platform.getComputedStyle(platform.document.documentElement).fontSize) || 16);
   const read = () => agent ? { ...facts } : { "visibility-state": platform.document.visibilityState === "hidden" ? "hidden" : "visible", online: platform.navigator.onLine !== false, "can-share": typeof platform.navigator.share === "function", "can-open-files": typeof platform.showOpenFilePicker === "function" };
   const bits = () => { const f = read(); return (f["visibility-state"] === "hidden" ? 1 : 0) | (f.online ? 0 : 2) | (f["can-share"] ? 4 : 0) | (f["can-open-files"] ? 8 : 0); };
   const prefer = (page) => {
@@ -791,6 +802,28 @@ export function pageReporter(agent, platform = globalThis) {
   };
   const onChange = (changed) => { if (agent) return; platform.document.addEventListener("visibilitychange", changed); platform.addEventListener("online", changed); platform.addEventListener("offline", changed); };
   return { bits, read: () => ({ ...read(), "root-font-size": rootFontSize() }), prefer, onChange, rootFontSize };
+}
+
+// @ref LLP 1069.000 D3 — the app's `setRootFontSize(px)`: `:root {
+// font-size: <px> !important }`, an author rule over the root element's own
+// size (the browser's setting, or the agent's `prefer root-font-size`), which
+// can change beneath it; `"medium"` removes the rule. The wasm runner checked
+// the value; the JS target checks it here.
+const APP_ROOT = "exact-root-font-size";
+export function appRootFontSize(value, say, platform = globalThis) {
+  const doc = platform.document;
+  let rule = doc.getElementById(APP_ROOT);
+  if (value === "medium") return void rule?.remove();
+  if (typeof value !== "number" || !(Math.fround(value) > 0) || !Number.isFinite(Math.fround(value))) return say?.(`setRootFontSize(${JSON.stringify(value) ?? ""}) refused: the root font size is a number of px above 0, or "medium"`);
+  if (!rule) { rule = doc.createElement("style"); rule.id = APP_ROOT; doc.head.append(rule); }
+  rule.textContent = `:root{font-size:${value}px!important}`;
+}
+// What `read` gives with the app's rule set aside: the host's own reading.
+function beneathApp(platform, read) {
+  const rule = platform.document.getElementById?.(APP_ROOT);
+  if (!rule) return read();
+  rule.disabled = true;
+  try { return read(); } finally { rule.disabled = false; }
 }
 
 // The page launch owns its seed; a new runner during development reuses it.
@@ -941,14 +974,16 @@ export function guestType(frame, request) {
     const key = String(request.key);
     target.dispatchEvent(new guest.KeyboardEvent("keydown", { key, bubbles: true, composed: true }));
     target.dispatchEvent(new guest.KeyboardEvent("keyup", { key, bubbles: true, composed: true }));
-    return { typed: request.id, guest: true, key, value: "value" in target ? target.value : target.textContent };
+    return { typed: request.id, guest: true, key, value: guestValue(target) };
   }
   const text = String(request.text ?? "");
   if ("value" in target) target.value = text; else target.textContent = text;
   target.dispatchEvent(new guest.InputEvent("input", { data: text, inputType: "insertText", bubbles: true, composed: true }));
   target.dispatchEvent(new guest.Event("change", { bubbles: true, composed: true }));
-  return { typed: request.id, guest: true, value: "value" in target ? target.value : target.textContent };
+  return { typed: request.id, guest: true, value: guestValue(target) };
 }
+// What a guest field holds, as the reply shows it: a password's is a fixed mark, whatever its length (#134).
+const guestValue = (target) => "value" in target ? (target.type === "password" && target.value ? "•••" : target.value) : target.textContent;
 
 // @ref LLP 1069.001 D4 (amended 2026-10-04) — a select, range or date is
 // controlled as a text field is: the committed `value` is written when it
@@ -1117,6 +1152,8 @@ export function grantOrigins(memory) {
   } };
 }
 
+// grant admission: begin — self-contained; the JS target's build (host/web-js/build.mjs) moves these lines into a module of
+// their own, so a page that admits nothing before a lazy chunk does not carry them; the wasm host keeps them here (boot.mjs).
 // Match only the sealed, typed output of exact-runner's Rust grant parser.
 // App code is the page, so this is parity admission rather than a sandbox.
 const INVALID_GRANTS = 'the grant set was not validated';
@@ -1348,6 +1385,7 @@ export function coversPath(set, capability, path) {
   const target = grantPathParts(path), kind = ({ 'fs.read': 'fs-read', 'fs.write': 'fs-write', 'sqlite.open': 'sqlite-open' })[capability];
   return !!target && set.entries.some(([, , grant]) => grant?.[0] === kind && grant.slice(1).every((part, index) => target[index] === part));
 }
+// grant admission: end
 
 // `selectionchange` on a `text` (the reader diary), on both web targets: its
 // part of the page's selection, reported as the text and its UTF-16 start and

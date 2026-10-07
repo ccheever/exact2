@@ -59,8 +59,8 @@ Reference rules to keep: one hand-off at a time whatever the surface; the thread
 | merged task PR | [20261005-pr-conversation-and-refresh](20261005-pr-conversation-and-refresh.md) | pending | Merged (Summary model, refresh) | pending |
 | merged task PR | [20261005-pr-header-actions-and-stacks](20261005-pr-header-actions-and-stacks.md) | pending | Merged (action runner, list overrides, `pullRequests.stack` read, Resolve conflicts button) | pending |
 | merged task PR | [20261005-fake-github-fixture](20261005-fake-github-fixture.md) | pending | Search, stats and stack-membership verbs served | pending |
-| merged task PR | [20261005-hot-file-split](20261005-hot-file-split.md) | pending | Merged into `daehyeon/t3-code` (common prerequisite: room and per-area seams in the shared files) | pending |
-| scheduling preference | [20261005-main-fix-adoption](20261005-main-fix-adoption.md) | pending | Merged first (popover/tooltip Contract) | pending |
+| merged task PR | [20261005-hot-file-split](closed/20261005-hot-file-split.md) | pending | Merged into `daehyeon/t3-code` (common prerequisite: room and per-area seams in the shared files) | pending |
+| scheduling preference | [20261005-main-fix-adoption](closed/20261005-main-fix-adoption.md) | pending | Merged first (popover/tooltip Contract) | pending |
 
 ## Issue assessment at preparation
 
@@ -71,7 +71,7 @@ Checked sources and time: planning pass 2026-10-05 over `EXACT2-GAPS.md` and the
 | [X25](../issues/20261005-x25-keyboard-keyup-code-capture.md) | "Shift held alone" fact for quick actions | Only the ⌘ jump-hint monitor exists | nonblocking (workaround: Swift `NSEvent` flags monitor like `T3Sidebar.swift`, status field on `t3.status`) | Add `shiftHeld` with its AppKit test; reset on resign-active and while a text input has focus |
 | [X26](../issues/20261005-x26-app-menu-control.md) | Menu at the pointer for the number's right-click | `T3ContextMenu.swift` | nonblocking (workaround exists) | Reuse |
 | [X17](../issues/20261005-x17-popover-position-try.md) | Popover flips near window edges (checks, stack) | Fixed placement | nonblocking (workaround: fixed placement; declared) | Declare in `EXACT2-GAPS.md` |
-| [X23](../issues/20261005-x23-scroll-restore-offsets.md) (sub-case X23d: nested scroll offset read and same-frame write), related [X22](../issues/20261005-x22-reactive-layout-facts.md) | Scroll offset that drives the header fold, and a `scrollTop` write in the same frame as the fold | Scroll events and bound `scrollTop` writes exist in the clone (X23 issue, observed by code reading); a write applied before the painting frame is unknown | blocking for the fold row only (no workaround avoids a one-frame content jump) | Hold the fold row until X23d is answered; at `prepare` run the minimal fold app from the X23 issue; build the other rows now |
+| [X23](../issues/20261005-x23-scroll-restore-offsets.md) (sub-case X23d: nested scroll offset read and same-frame write), related [X22](../issues/20261005-x22-reactive-layout-facts.md) | Scroll offset that drives the header fold, and a `scrollTop` write in the same frame as the fold | Answered by main #210 (#138 X23d, merged in [adopt-main-fixes-r4](closed/20261007-adopt-main-fixes-r4.md)): macOS anchors a plain `scroll` box as Chrome does, so a fold above the port no longer moves the content | none (was blocking for the fold row) | Build the fold row; measure against the reference whether its `compensationRef` write is still needed on top of anchoring |
 | [X13](../issues/20261005-x13-hover-keys-during-pan.md) | Hover reveals during a pan | Documented clone limit | nonblocking (workaround: partial, r12) | Declare |
 | [X9](../issues/20261005-x09-root-component-across-files.md) | `app.contract` near its cap | 1,327/1,500 lines | nonblocking | New files, no new root resource |
 | [X21](../issues/20261005-x21-two-way-websocket.md) | RPC send | Swift transport | nonblocking | Reuse `client.rpc` |
@@ -104,6 +104,8 @@ Required environment: macOS 26.6.2, Xcode 27.0, Bun 1.4.2, git, fake gh, referen
 
 ## Progress
 
+2026-10-06: on hold (user decision: tasks that need a sign-in waited). 2026-10-07: the user lifted the hold. Rows that need a real account are signed in by the user in person on the lane build; every other sign-in row uses lane fixtures.
+
 Planned. No branch.
 
 ## Attempts and evidence
@@ -114,4 +116,4 @@ Planned. No branch.
 
 ## Next action
 
-`prepare` after `20261005-pr-header-actions-and-stacks` merges; run the scroll-offset spike first.
+`prepare` from `feat(example)/t3-code` once the prerequisite task PRs above have merged into it; sign-in rows use lane fixtures, and real-account rows wait for the user to sign in.

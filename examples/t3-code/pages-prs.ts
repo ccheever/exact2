@@ -10,6 +10,7 @@ import { ClientError, type Native } from './protocol';
 import { pagesPrefs } from './pages-prefs';
 import { projectIdentity } from './presentation';
 import type { T3Client } from './client';
+import { letGo } from './let-go';
 
 export const SORTS = [
   { value: 'ready', label: 'Merge readiness' }, { value: 'blocked', label: 'Blocked on me' }, { value: 'updated', label: 'Recently updated' },
@@ -225,6 +226,8 @@ export function presentRow(entry: Obj, now: number, selected: string) {
     labels: arr(entry.labels).slice(0, 3).map(label => labelChip(str(label.name), labelColor(label.color))),
     firstLabel: arr(entry.labels).slice(0, 1).map(label => labelChip(str(label.name), labelColor(label.color))),
     moreLabels: Math.max(0, arr(entry.labels).length - 1), projectId: str(entry.projectId), host: str(entry.host),
+    // context-menu-gaps: the number's right-click (pageslocal:pr-link-menu) names the host it was read from.
+    linkMenu: `${str(entry.provider)} ${str(entry.url)}`,
   };
 }
 export type PrRow = ReturnType<typeof presentRow>;
@@ -281,7 +284,7 @@ export async function pullRequestsPage(client: T3Client, native: Native | null |
           for (const stat of arr(stats.stats)) cached.stats.set(`${arr(cached.result.entries).find(entry => entry.repository === stat.repository && entry.number === stat.number)?.host ?? ''}:${str(stat.repository)}#${num(stat.number)}`, stat);
         } catch { /* rows draw without counts */ }
       }
-    } catch (error) { cached.error = error instanceof Error ? error.message : 'Pull requests could not be read.'; }
+    } catch (error) { if (letGo(error)) throw error; cached.error = error instanceof Error ? error.message : 'Pull requests could not be read.'; }
     lists.set(client, cached);
   }
   return presentList(view, cached.result, cached.error, cached.stats, prefs, query, input.now, input.selected);

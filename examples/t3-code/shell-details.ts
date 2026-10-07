@@ -7,7 +7,7 @@ import type { T3Client } from './client';
 import { arr, obj, str, num, type Obj } from './domain';
 import type { Native } from './protocol';
 import { lineageView } from './shell-lineage';
-import { inlineOpen } from './shell-prefs';
+import { inlineOpen, shellPrefs } from './shell-prefs';
 import { watchVcsStatus } from './shell-vcs';
 import { draftContext, previousWorktree } from './composer-controls-branch';
 import { isLoopback } from './settings-b-fleet';
@@ -17,12 +17,14 @@ import { NO_SCRIPTS, cardScripts } from './r6-polish-scripts';
 import { gitDetails, EMPTY_GIT } from './r4-git-card'; // lane r4-git: branch picker, Git actions and dialogs
 import { environmentOptions } from './r4-git-env'; // lane r4-git: the environments that hold this project
 import { prRowsView, emptyPrRows } from './r5-panels-pr'; // lane r5-panels: the pull request rows under the branch
+import { EDITOR_DEFINITIONS } from './editors';
+import { openInView } from './remote-open'; // OpenInPicker's remote Open: deep links for environments on other machines
+import { threadAutomations, NO_AUTOMATIONS } from './thread-automations'; // ThreadAutomationsPanel
+import { versionCard } from './server-update-notices'; // server-update-banner: the version-differ card
+import { autoBalanceState } from './auto-balance'; // auto-balance
 
 /** EDITORS in contracts/editor.ts order; `file-manager` is Finder on macOS (editorLabelForPlatform). */
-export const EDITORS: [string, string][] = [['cursor', 'Cursor'], ['trae', 'Trae'], ['kiro', 'Kiro'], ['vscode', 'VS Code'], ['vscode-insiders', 'VS Code Insiders'],
-  ['vscodium', 'VSCodium'], ['zed', 'Zed'], ['antigravity', 'Antigravity'], ['idea', 'IntelliJ IDEA'], ['aqua', 'Aqua'], ['clion', 'CLion'], ['datagrip', 'DataGrip'],
-  ['dataspell', 'DataSpell'], ['goland', 'GoLand'], ['phpstorm', 'PhpStorm'], ['pycharm', 'PyCharm'], ['rider', 'Rider'], ['rubymine', 'RubyMine'],
-  ['rustrover', 'RustRover'], ['webstorm', 'WebStorm'], ['file-manager', 'Finder']];
+export const EDITORS: [string, string][] = EDITOR_DEFINITIONS.map(editor => [editor.id, editor.label]);
 
 type QuickAction = { label: string; kind: string; disabled: boolean; hint: string; action: string };
 /** GitActionsControl.logic.ts resolveQuickAction (GitHub terminology: PR). */
@@ -78,12 +80,13 @@ export function environmentIndicator(input: { isPrimary: boolean; available: num
 
 type LineageView = ReturnType<typeof lineageView>;
 const noLineage: LineageView = { lineageTitle: 'Lineage', lineage: [], showLineage: false, previousCount: 0, previousFailed: 0, mergeRunId: '', mergeTargetId: '', mergeSourceId: '', mergeLabel: '', mergeHint: '' };
-const empty = { ready: false, inline: false, error: '', folderName: '', folderLabel: '', cwd: '', editorId: '', editorLabel: '', editors: [] as { id: string; label: string; selected: boolean }[], editorShortcut: '',
+const empty = { versionClient: '', versionServer: '', versionLabel: '', ready: false, inline: false, error: '', folderName: '', folderLabel: '', cwd: '', editorId: '', editorLabel: '', editors: [] as { id: string; label: string; selected: boolean }[], editorShortcut: '', editorShow: false, editorHint: '', editorUnavailable: '', editorEmpty: false,
   isGit: false, branch: '', actionLabel: 'Commit', actionKind: 'show_hint', actionDisabled: true, actionHint: '', insertions: 0, deletions: 0,
   envModeSelect: false, envMode: 'local', envIcon: 'folder', previousLabel: '', actionIcon: 'git-commit', changesEnabled: false, diffScheme: 'red-green',
-  envShow: false, envLabel: '', envKind: 'server', git: EMPTY_GIT, prRows: emptyPrRows(), ...NO_SCRIPTS, ...noLineage };
-const lastEditors = new WeakMap<T3Client, string>();
-export function rememberEditor(client: T3Client, editor: string): void { lastEditors.set(client, editor); }
+  envShow: false, envLabel: '', envKind: 'server', automations: NO_AUTOMATIONS, git: EMPTY_GIT, prRows: emptyPrRows(), ...NO_SCRIPTS, ...noLineage };
+/** usePreferredEditor's stored choice (thread-commands-and-keys: persisted in t3-code.json, shell-prefs.ts). */
+export function rememberEditor(client: T3Client, editor: string): void { shellPrefs(client).lastEditor = editor; }
+export const lastEditor = (client: T3Client): string => shellPrefs(client).lastEditor;
 
 /** The inline card's per-thread key (scopedThreadKey: a draft is keyed by its draft). */
 export const detailsKey = (client: T3Client) => client.draftKey;
@@ -107,7 +110,9 @@ export async function shellDetails(client: T3Client, native: Native | null | und
   const cwd = worktree || str(project?.workspaceRoot);
   const raw: unknown[] = Array.isArray(client.config.availableEditors) ? client.config.availableEditors : [];
   const available = raw.filter((value): value is string => typeof value === 'string' && EDITORS.some(([id]) => id === value));
-  const editor = preferredEditor(available, lastEditors.get(client) ?? '');
+  // Remote mode ignores the server's PATH probe: what matters is what runs on this Mac (OpenInPicker effectiveEditors).
+  const openIn = await openInView(client, native, available, str(project?.title));
+  const editor = preferredEditor(openIn.editors, lastEditor(client));
   const label = (id: string) => EDITORS.find(([candidate]) => candidate === id)?.[1] ?? id;
   // subscribeVcsStatus while the card is shown (shell-vcs.ts); a closed card ends the stream below.
   const { status, error } = await watchVcsStatus(client, native, cwd, now);
@@ -121,7 +126,10 @@ export async function shellDetails(client: T3Client, native: Native | null | und
   const environment = obj(client.config.environment);
   const env = environmentIndicator({ isPrimary: isLoopback(client.origin), available: environmentOptions(client).length, environmentId: client.environmentId,
     runtimeLabel: str(environment.label), savedLabel: '', machine: machineKind(client.config) });
+  const balance = autoBalanceState(client); // auto-balance: the Run on row reads "Auto balance" (a scale) while the draft is automatic
+  if (balance.automatic) Object.assign(env, { envLabel: balance.label, envKind: 'scale' });
   return {
+    ...versionCard(client), // server-update-notices.ts: the version-differ card
     ready: true, inline, error, folderName: creating ? 'New worktree' : cwd.replace(/\/+$/, '').split('/').pop() ?? '',
     // The panel names the workspace kind only when it is not the project folder.
     folderLabel: creating ? 'Create' : worktree ? 'Worktree' : '', cwd,
@@ -129,7 +137,8 @@ export async function shellDetails(client: T3Client, native: Native | null | und
     previousLabel: previous?.branch ?? '', actionIcon: quickActionIcon(action, status),
     // ChatView passes onOpenChanges only for a server thread in a Git repository.
     changesEnabled: !!thread && status?.isRepo !== false, // GitActionsControl's isRepo is true until status says otherwise
-    editorId: editor, editorLabel: editor ? `Open in ${label(editor)}` : '', editors: available.map(id => ({ id, label: label(id), selected: id === editor })),
+    editorId: editor, editorLabel: `Open in ${editor ? label(editor) : 'editor'}`, editors: openIn.unavailable ? [] : openIn.editors.map(id => ({ id, label: label(id), selected: id === editor })),
+    editorShow: openIn.show, editorHint: openIn.hint, editorUnavailable: openIn.unavailable, editorEmpty: openIn.empty,
     editorShortcut: commandShortcut(client.config, 'editor.openFavorite'),
     ...cardScripts(obj(client.config.settings), project), // r6-polish: the project script row (r6-polish-scripts.ts)
     isGit: status?.isRepo === true, branch: str(status?.refName), actionLabel: action.label, actionKind: action.kind === 'run_action' ? action.action : action.kind,
@@ -137,6 +146,7 @@ export async function shellDetails(client: T3Client, native: Native | null | und
     diffScheme: client.local.clientSettings?.diffColorScheme === 'blue-orange' ? 'blue-orange' : 'red-green',
     git: await gitDetails(client, native, { status, error, cwd, root: str(project?.workspaceRoot), now, editor, envRow: env.envShow }),
     prRows: await prRowsView(client, native, { status, threadId, now, projectId: str(project?.id), rightGap, inline }), // lane r6-pr: the row's place in the window
+    automations: await threadAutomations(client, native, thread ? threadId : '', now), // thread-automations.ts: ThreadAutomationsPanel
     ...(thread ? lineageView(client.shell.threads, client.threadId === threadId ? client.projection : null, threadId, arr(client.config.providers), now) : noLineage),
   };
 }

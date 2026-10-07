@@ -99,9 +99,6 @@ final class T3ComposerEditor {
     private func attach(_ view: NSTextView) {
         detach()
         textView = view
-        // r5-integrate: the reference composer is a browser textarea, which never substitutes; AppKit's smart
-        // dashes turned a typed `-->` into `—>` (a Mermaid prompt failed to parse). Same switch-off as the Files editor.
-        T3PlainText.apply(view)
         if view.delegate !== proxy {
             proxy.inner = view.delegate as? NSObject
             view.delegate = proxy
@@ -300,8 +297,10 @@ final class T3ComposerEditor {
     func insert(_ request: [String: Any]) -> [String: Any] {
         guard let view = textView else { return ["applied": false, "reason": "no composer"] }
         let text = view.string as NSString
-        let selection = view.window?.firstResponder === view ? view.selectedRange() : NSRange(location: text.length, length: 0)
-        let start = selection.location, end = NSMaxRange(selection)
+        // Terminal/file menus take focus, but the editor retains the user's insertion range.
+        let selection = view.selectedRange()
+        let start = min(selection.location, text.length)
+        let end = start + min(selection.length, text.length - start)
         let lead = start > 0 && !T3ComposerText.isBlank(text.character(at: start - 1)) ? " " : ""
         let replaceEnd = end < text.length && text.character(at: end) == 32 ? end + 1 : end
         let body = request["text"] as? String ?? ""

@@ -138,6 +138,20 @@ describe('add project', () => {
     expect(cloneDestination('~/', 'repo')).toBe('~/repo');
     expect(normalizeCloneUrl('owner/repo')).toBe('https://github.com/owner/repo.git');
   });
+  test('a failed source-control discovery is asked again, not kept as "Setup Required"', async () => {
+    const c = client(), native = new Fake();
+    native.replies['server.discoverSourceControl'] = new Error('the answer was let go');
+    const failed = await addProjectView(c, native, { page: 'add-project', query: '', highlighted: false });
+    expect(failed.rows.find(entry => entry.title === 'GitHub repository')!.badge).toBe('Setup Required');
+    native.replies['server.discoverSourceControl'] = { sourceControlProviders: [{ kind: 'github', label: 'GitHub', status: 'available', auth: { status: 'authenticated' } }] };
+    // Bounded: a read right after the failure does not ask again; one after the client's state moves does.
+    const soon = await addProjectView(c, native, { page: 'add-project', query: '', highlighted: false });
+    expect(soon.rows.find(entry => entry.title === 'GitHub repository')!.badge).toBe('Setup Required');
+    c.revision++;
+    const view = await addProjectView(c, native, { page: 'add-project', query: '', highlighted: false });
+    expect(view.rows[3]!.title).toBe('GitHub repository');
+    expect(view.rows[3]!.badge).toBe('');
+  });
   test('sources: new project, local folder, Git URL, then ready providers before Setup Required', async () => {
     const c = client(), native = new Fake();
     native.replies['server.discoverSourceControl'] = { sourceControlProviders: [{ kind: 'github', label: 'GitHub', status: 'available', auth: { status: 'authenticated' } }, { kind: 'gitlab', label: 'GitLab', status: 'missing', installHint: 'Install glab' }] };

@@ -7,6 +7,7 @@ import { arr, obj, str, type Obj } from './domain';
 import { ClientError } from './protocol';
 import type { T3Client } from './client';
 import { queuedEdit } from './composer-controls-queue';
+import { promptRewriteKey } from './composer-ultrathink';
 
 /** One draft per question (`request::question`) and one per request (its question index). */
 export type RequestDraft = { selected: string[]; custom: string; index: number };
@@ -125,19 +126,8 @@ export function requestPresentation(client: T3Client) {
   })()] : [];
   const requestMode = approvals.length ? 'approval' : questions.length ? 'question' : '';
   const edit = queuedEdit(client);
-  return { approvals, questions, requestMode, requestKey: questions[0]?.id ?? (edit ? `queued-edit:${edit.runId}` : ''),
-    ...(questions.length ? { draft: active!.custom } : {}), ...connectionBanner(client), ...threadErrors(client) };
-}
-
-/** ChatView systemComposerBannerItems: "<label> is reconnecting|offline" above any request. */
-function connectionBanner(client: T3Client) {
-  const label = str(obj(client.config.environment).label).trim() || 'T3 server';
-  const known = !!client.environmentId;
-  const reconnecting = client.connection === 'reconnecting' || client.connection === 'connecting' && known;
-  const offline = known && (client.connection === 'error' || client.connection === 'disconnected');
-  return { connectionTitle: reconnecting ? `${label} is reconnecting` : offline ? `${label} is offline` : '',
-    connectionVariant: reconnecting ? 'warning' : offline ? client.connection === 'error' ? 'error' : 'warning' : '',
-    connectionAction: offline ? 'Reconnect' : '' };
+  return { approvals, questions, requestMode, requestKey: (questions[0]?.id ?? (edit ? `queued-edit:${edit.runId}` : '')) + promptRewriteKey(client), // composer-fidelity: a client-side prompt rewrite shows
+    ...(questions.length ? { draft: active!.custom } : {}), ...threadErrors(client) };
 }
 
 // Session-scoped dismissals, keyed by thread and message (ThreadErrorBanner.tsx).

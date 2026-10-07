@@ -1,0 +1,41 @@
+bun test v1.4.2 (744846f84)
+
+examples/t3-code/settings-b-ssh.test.ts:
+(pass) manual SSH targets parse like parseManualDesktopSshTarget [0.27ms]
+(pass) host suggestions put alias prefixes first, then substrings [0.05ms]
+(pass) the autocomplete hides saved hosts, numbers the first nine and says when nothing matches [0.57ms]
+(pass) adding over SSH tunnels, pairs beside the focused environment and toasts [0.46ms]
+(pass) an SSH environment is listed as "SSH user@host" beside the paired loopback one (r9-connect: no "This machine") [1.01ms]
+
+examples/t3-code/server-installation.test.ts:
+(pass) versionSkew > updates only the proven npm prefix and safely quotes its path [0.07ms]
+(pass) versionSkew > keeps runner and unknown commands as relaunches [0.03ms]
+(pass) ServerEnvironmentDescriptor > decodes old, recognized and future manual installation descriptors [0.09ms]
+(pass) ServerUpdateAction > copies an honest manual command for {"kind":"npm-global","prefix":"/opt/node"} without invoking remote update [1.35ms]
+(pass) ServerUpdateAction > copies an honest manual command for {"kind":"npx"} without invoking remote update [0.04ms]
+(pass) ServerUpdateAction > copies an honest manual command for  without invoking remote update [0.02ms]
+(pass) ServerUpdateAction > copies an honest manual command for {"kind":"pnpm-dlx"} without invoking remote update [0.01ms]
+(pass) ServerUpdateAction > copies an honest manual command for {"kind":"bunx"} without invoking remote update [0.01ms]
+(pass) ServerUpdateAction > copies an honest manual command for {"kind":"future-manager"} without invoking remote update
+(pass) ServerUpdateAction > the toasts and labels say exactly what the reference says [0.03ms]
+(pass) ServerUpdateAction > a refused pasteboard write is "Could not copy update command" with the copy error [0.47ms]
+(pass) ServerUpdateAction > keeps the manual instruction for desktop servers without remote update support [0.43ms]
+(pass) AuthStandardClientScopes > the standard five, in the reference order, encoded as one space-separated scope [0.09ms]
+(pass) AuthStandardClientScopes > a request with a credential asks for the standard scopes; a saved-token reconnect asks for none [0.02ms]
+(pass) AuthStandardClientScopes > every pairing path sends the standard scope to the transport [0.80ms]
+(pass) AuthStandardClientScopes > a session paired before this change keeps working with its three scopes (U12: left as is) [0.12ms]
+
+examples/t3-code/connections.test.ts:
+(pass) status copy follows savedBackendStatus and connectionStatusText [0.08ms]
+(pass) version skew follows versionSkew.ts: only an older server needs an update [0.06ms]
+(pass) every paired environment, a loopback one included, is a saved row under Environments in catalog order [0.28ms]
+(pass) failure tone, trace ID and unsupported clients follow the row rules [0.11ms]
+(pass) load balancing and GitHub sharing preferences decode and summarize like the reference [0.22ms]
+(pass) adding pairs beside the focused connection, connects when there is none, and toasts [1.31ms]
+(pass) the switch persists per environment and moves focus home when the focused one goes off [0.44ms]
+(pass) trace IDs copy, preferences persist on this device, and icon writes need a connection [0.29ms]
+
+ 29 pass
+ 0 fail
+ 165 expect() calls
+Ran 29 tests across 3 files. [160.00ms]

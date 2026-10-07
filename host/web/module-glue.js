@@ -4,6 +4,7 @@
 import { bindAnswerStorage, createStorage, finishLetGo } from './storage.js';
 import { agentSeed, agentStream, keyStore, storageKey } from './storage-environment.js';
 import { admitsNetwork, grantError, sameGrantDeclaration, scopedGrantSet } from './grant-admission.js';
+import { faultMatches } from './faults.js';
 const decoder = new TextDecoder('utf-8', { fatal: true });
 const hex = bytes => Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
 const realms = new Map();
@@ -49,7 +50,8 @@ const earlyKey = (url, headers) => `GET ${url} ${JSON.stringify(headers ?? [])}`
 // The runner's normalized set is the only authority this early request reads.
 export function fetchEarly(request, grants) {
   try { new URL(request.url); } catch { return null; } // a relative (asset) URL is the host's own
-  if (grantError(grants) || request.method !== 'GET' || request.body || !admitsNetwork(grants, request.url, 'fetch')) return null;
+  // A GET a driver fault will fail is not started early: the request fails it, counted once (LLP 1103 D1).
+  if (grantError(grants) || request.method !== 'GET' || request.body || !admitsNetwork(grants, request.url, 'fetch') || faultMatches(request.url)) return null;
   const key = earlyKey(request.url, request.headers), controller = new AbortController();
   const entry = { controller, response: fetch(request.url, { method: 'GET', headers: request.headers, redirect: 'follow', cache: 'default', signal: controller.signal }) };
   entry.response.catch(() => {});
@@ -144,10 +146,12 @@ export async function prepare(payload, admitted, id = nextId++) {
     // A cell belongs to the answer that accepted the call. The adapter runs
     // later, when the operation is issued, which may be a background round.
     bindAnswerStorage(win, storage, () => context.owner);
-    // Disable accidental browser I/O before the module captures globals; the
-    // prelude refuses timers and the clock, by name, as Hermes does.
+    // Disable accidental browser I/O before the module captures globals: a
+    // function, so `new WebSocket(url)` refuses by name too, as the JS target's
+    // ts-fetch.js does. The prelude refuses timers and the clock, by name, as
+    // Hermes does.
     for (const key of ['XMLHttpRequest', 'WebSocket', 'EventSource']) {
-      Object.defineProperty(win, key, { value: () => { throw new Error(`${key} is unavailable in data sources`); }, configurable: false });
+      Object.defineProperty(win, key, { value: function () { throw new Error(`${key} is unavailable in data sources`); }, configurable: false });
     }
     // A LAN dev page has no `crypto.subtle`: the realm's SHA-256 digest is
     // the dev protocol's, as module integrity's is (LLP 1069.005 D1).
@@ -191,7 +195,7 @@ export async function prepare(payload, admitted, id = nextId++) {
       },
     };
     const release = (owner, callId) => {
-      if (win.__exact_forget(String(callId)) !== 'storage') { storage.retire(owner); return; }
+      if (!String(win.__exact_forget(String(callId))).startsWith('storage')) { storage.retire(owner); return; } // 'storage', or 'storage rejected' (its fetches rejected too)
       owed.set(callId, owner);
       const run = tail.then(() => finishLetGo(storage, owed, letGoHooks));
       tail = run.catch(() => {});

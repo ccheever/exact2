@@ -117,6 +117,7 @@ extension NodeView {
     /// `pointermove`; it is held until the button comes up, wherever that is,
     /// and its drags are that node's moves (LLP 1056 §3 stage 3).
     func pointerPressed(_ event: NSEvent?) {
+        presenter?.focusByPointer = true
         presenter?.flushHoverMove()
         guard let presenter, presenter.pointerHeld == nil else { return }
         var next: NSView? = self
@@ -235,6 +236,68 @@ extension Presenter {
         let moves = hoverMoves
         hoverMoves = []
         for (id, sample) in moves where views[id] != nil { pointer(id, .move, sample) }
+    }
+    /// A batch or a scroll moved what lies under a resting pointer: at the
+    /// next display frame the pointer is hit-tested where it rests and its
+    /// hover follows, as a browser's does after layout or a scroll (the
+    /// boundary events of a synthetic mouse move; #139). AppKit's tracking
+    /// areas report only a pointer that moves. One hit-test a frame, and
+    /// none while a button is down or the pointer is outside the window.
+    func followPointer() {
+        guard followLink?.isPaused != false, restingPointer() != nil else { return }
+        if let followLink { followLink.isPaused = false; return }
+        // One link, paused between hit-tests: a fling asks every frame.
+        let link = viewport.displayLink(target: followTarget, selector: #selector(PumpTarget.tick(_:)))
+        // A presenter released with a hit-test pending leaves no link firing.
+        followTarget.fire = { [weak self, weak link] _ in
+            guard let self else { link?.invalidate(); return }
+            self.hoverUnderPointer()
+        }
+        link.add(to: .main, forMode: .common)
+        followLink = link
+    }
+    /// Whether a hit-test waits for the next frame.
+    var followPending: Bool { followLink?.isPaused == false }
+    /// The pointer in window points while it rests over this window's
+    /// content with no button down: the agent's under the agent (never the
+    /// system cursor, which the drive does not own), else the cursor, and
+    /// only where no other window covers it when `frontmost` is asked.
+    func restingPointer(frontmost: Bool = false) -> NSPoint? {
+        guard pointerHeld == nil, pointerSource == nil, let window = viewport.window, let content = window.contentView else { return nil }
+        let p: NSPoint
+        if let agentPointer { p = agentPointer } else {
+            guard !ExactEnv.agentMode, window.isVisible, NSEvent.pressedMouseButtons == 0 else { return nil }
+            p = window.mouseLocationOutsideOfEventStream
+            if frontmost, NSWindow.windowNumber(at: NSEvent.mouseLocation, belowWindowWithWindowNumber: 0) != window.windowNumber { return nil }
+        }
+        return content.bounds.contains(content.convert(p, from: nil)) ? p : nil
+    }
+    /// The frame's hit-test: the nearest node with a `hover` handler under
+    /// the resting pointer enters and the one hovered leaves, the path a
+    /// tracking area's move takes (`mouseMoved`); nothing while the node
+    /// hovered is still on the hit's path (an outer node hovered over an
+    /// inner one keeps it: the inner's hover-revealed content must not
+    /// flicker frame to frame), or the pointer has gone.
+    func hoverUnderPointer() {
+        followLink?.isPaused = true
+        guard let p = restingPointer(frontmost: true), let content = viewport.window?.contentView else { return }
+        let hit = content.hitTest(content.superview?.convert(p, from: nil) ?? p)
+        var under: [NodeView] = []
+        var leaf: NodeView?
+        var view = hit?.isDescendant(of: viewport) == true ? hit : nil
+        while let v = view {
+            if let n = v as? NodeView, !n.inert {
+                if leaf == nil { leaf = n }
+                if n.handlers.contains("hover") { under.append(n) }
+            }
+            view = v.superview
+        }
+        // A text's inline run with a `hover` handler is hovered as a move over it is.
+        let run = leaf.flatMap { n in n.inlineText.contains { $0.handlers.contains("hover") } ? n.inlineTarget(at: n.local(p), handler: "hover") : nil }
+        hoverInline(run?.id)
+        if run != nil { return }
+        if let h = hovered, under.contains(where: { $0 === h }) { return }
+        if let node = under.first { hover(node, true) } else if let h = hovered { hover(h, false) }
     }
 }
 extension NodeView {

@@ -9,6 +9,8 @@ mod reorder;
 mod reorder_api;
 mod reorder_group;
 mod reuse;
+pub(crate) mod shown;
+use shown::in_collection_row;
 mod start;
 #[cfg(test)]
 mod tests;
@@ -21,7 +23,7 @@ use exact_plan::EventKind;
 use index::{MeasurementToken, SizeIndex};
 pub use into_view::{Align, IntoView, IntoViewStatus};
 pub use reorder_api::*;
-pub(super) use traversal::invalidate_typography;
+pub(super) use traversal::{collections_json, invalidate_typography};
 
 /// A collection's data update, through [`super::LISTS`] (LLP 1047.000 §9).
 pub(super) fn update_collection(
@@ -34,11 +36,6 @@ pub(super) fn update_collection(
     c.update_data(u, frames, false)
 }
 
-/// The mounted collections as a batch's JSON, through [`super::LISTS`].
-pub(super) fn collections_json(tree: &Tree) -> String {
-    snapshots_json(&tree.collections())
-}
-
 const BOOTSTRAP_ROWS: usize = 16;
 const ESTIMATED_HEIGHT: f64 = 32.0;
 /// Travel the window leads by, past its viewport of overscan.
@@ -46,22 +43,6 @@ const LEAD_SECONDS: f64 = 0.25;
 /// A mounted row farther than this many viewports from what shows retires
 /// with any report, whatever its limit.
 const FAR_VIEWPORTS: f64 = 2.0;
-
-/// Whether this scope is a virtualized list's row: an inner list's (LLP
-/// 1070), whose first rows are bounded by its own literal size.
-fn in_collection_row(plan: &Plan, frames: &[Frame]) -> bool {
-    frames.iter().filter_map(|f| f.region).any(|region| {
-        let region = plan.region(RegionsId(region));
-        region.kind == RegionKind::Each
-            && region.parent.is_some_and(|node| {
-                plan.node(node)
-                    .bindings
-                    .iter()
-                    .map(|b| plan.binding(b))
-                    .any(|b| b.kind == BindingKind::Prop && b.id == PropId::Virtualized as u16)
-            })
-    })
-}
 
 /// How far the window reaches past the viewport, before and after it: one
 /// viewport each side, and toward the side the list travels, a quarter
@@ -128,6 +109,8 @@ struct Mounted {
     /// `aria-setsize`), for hosts that select and copy across rows.
     published: (usize, usize),
     row: Row,
+    /// Mounted out of the port and not shown since ([`shown`]).
+    awaiting: bool,
 }
 #[derive(Debug)]
 pub(crate) struct Collection {
@@ -153,6 +136,7 @@ pub(crate) struct Collection {
     dups: BTreeMap<usize, u32>,
     string_keys: bool,
     mounted: Vec<Mounted>,
+    any_awaiting: bool,
     spacers: Vec<(ViewId, f64)>,
     children: Vec<ViewId>,
     revision: u64,
@@ -201,6 +185,8 @@ pub(crate) struct Collection {
     at_end: bool,
     /// Consecutive reports that said the port was travelling, while it opens.
     end_travel: u8,
+    /// The followed end last sent as a correction (`start::at_target`).
+    end_sent: f64,
     /// What a retiring row may be rebound to another item under (LLP 1078):
     /// `None` when no row of this list can be.
     reuse: Option<Rc<reuse::Reuse>>,
@@ -432,6 +418,7 @@ impl Collection {
             dups: BTreeMap::new(),
             string_keys: true,
             mounted: Vec::new(),
+            any_awaiting: false,
             spacers: Vec::new(),
             children: Vec::new(),
             revision: 0,
@@ -467,6 +454,7 @@ impl Collection {
             start_offset: 0.0,
             at_end,
             end_travel: 0,
+            end_sent: f64::NAN,
             reuse,
         });
         this.update_data(u, frames, true)?;
@@ -729,7 +717,10 @@ impl Collection {
                 .index
                 .restore_anchor(&anchor, g.port_main)
                 .map_err(index_error)?;
-            if (corrected - g.offset).abs() > 0.01 {
+            if !start::at_target(&anchor, corrected, g.offset, self.end_sent) {
+                if index::SizeIndex::follows_end(&anchor) {
+                    self.end_sent = corrected;
+                }
                 // Relative only where the anchor's row stayed put (an end
                 // followed or clamped is absolute: the host's own clamp has
                 // moved it). One not yet acknowledged by a report is still
@@ -1075,7 +1066,7 @@ impl Collection {
         self.adopt_nested(u, &mut row, text, frames)?;
         let wrapper =
             views::row_wrapper(u, self.axis, roots_of(&row.roots), text, self.reorderable)?;
-        Ok(Mounted {
+        let mut mounted = Mounted {
             position,
             wrapper,
             epoch: advance(&mut self.next_epoch)?,
@@ -1084,7 +1075,10 @@ impl Collection {
             preview_hidden: false,
             published: (usize::MAX, usize::MAX),
             row,
-        })
+            awaiting: false,
+        };
+        self.mounted_shown(u, &mut mounted);
+        Ok(mounted)
     }
     fn create_row(
         &self,
@@ -1222,6 +1216,7 @@ impl Collection {
             return Err(InstanceError::InvalidCollectionFeedback);
         }
         if let Some(edge) = self.travel_within(u, &feedback, by_view, fill)? {
+            self.reveal_shown(u);
             return Ok((false, edge));
         }
         let changed_width = self
@@ -1317,6 +1312,7 @@ impl Collection {
         self.restore(anchor)?;
         self.settle_into_view(u.env.plan, feedback.offset);
         self.realize_window(u, frames, false, fill)?;
+        self.reveal_shown(u);
         self.settle_start(extent);
         let mut now = self.snapshot();
         // Receiving a newer sequence without changing rows/extent/correction is
@@ -1336,8 +1332,9 @@ impl Collection {
     ) -> Result<(), InstanceError> {
         let row = &self.mounted[by_view[&measurement.view]];
         let key = self.index.shared_key(row.position).unwrap().clone();
+        let size = self.index.denoised(row.position, measurement.size);
         self.index
-            .set_measured_height_at(row.position, row.token, measurement.size)
+            .set_measured_height_at(row.position, row.token, size)
             .map_err(index_error)?;
         if measurement.size == 0.0 {
             self.zero_heights.insert(key.to_string());
@@ -1391,8 +1388,7 @@ impl Collection {
             let row = &self.mounted[by_view[&m.view]];
             let key = self.index.key(row.position).unwrap();
             self.index.measurement_token(key) == Some(row.token)
-                && !(self.index.is_measured(key)
-                    && self.index.height(row.position) == Some(m.size)
+                && !(self.index.noise_at(row.position, m.size)
                     && (m.size == 0.0) == self.zero_heights.contains(key))
         };
         if feedback.measurements.iter().any(remeasures)
@@ -1428,7 +1424,7 @@ impl Collection {
             .index
             .restore_anchor(&anchor, g.port_main)
             .map_err(index_error)?;
-        if (corrected - feedback.offset).abs() > 0.01 {
+        if !start::at_target(&anchor, corrected, feedback.offset, self.end_sent) {
             return Ok(None);
         }
         let pins = self.pins();

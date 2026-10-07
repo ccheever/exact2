@@ -57,8 +57,8 @@ Reference wording to keep: placeholders "Leave a comment", "Summarize your revie
 | merged task PR | [20261005-desktop-oracle-and-trace](20261005-desktop-oracle-and-trace.md) | pending | Merged | pending |
 | merged task PR | [20261005-pr-conversation-and-refresh](20261005-pr-conversation-and-refresh.md) | pending | Merged (conversation model, refresh, `readableFailure`) | pending |
 | merged task PR | [20261005-fake-github-fixture](20261005-fake-github-fixture.md) | pending | Write verbs and profiles served | pending |
-| scheduling preference | [20261005-pr-header-actions-and-stacks](20261005-pr-header-actions-and-stacks.md), [20261005-main-fix-adoption](20261005-main-fix-adoption.md) | pending | Close/Reopen with comment calls the same `pr-act-action` path that `20261005-pr-header-actions-and-stacks` upgrades; merge that one first if both are open | pending |
-| merged task PR | [20261005-hot-file-split](20261005-hot-file-split.md) | pending | Merged into `daehyeon/t3-code` (common prerequisite: room and per-area seams in the shared files) | pending |
+| scheduling preference | [20261005-pr-header-actions-and-stacks](20261005-pr-header-actions-and-stacks.md), [20261005-main-fix-adoption](closed/20261005-main-fix-adoption.md) | pending | Close/Reopen with comment calls the same `pr-act-action` path that `20261005-pr-header-actions-and-stacks` upgrades; merge that one first if both are open | pending |
+| merged task PR | [20261005-hot-file-split](closed/20261005-hot-file-split.md) | pending | Merged into `daehyeon/t3-code` (common prerequisite: room and per-area seams in the shared files) | pending |
 
 ## Issue assessment at preparation
 
@@ -67,11 +67,11 @@ Checked sources and time: planning pass 2026-10-05 over `EXACT2-GAPS.md` and `..
 | Issue / reference | Capability and target | Evidence / affected revision | Impact | Next action |
 | --- | --- | --- | --- | --- |
 | [X25](../issues/20261005-x25-keyboard-keyup-code-capture.md) | ⌘↵ and Escape in a textarea; composition guard (`isComposing`/229) | macOS Korean 2-Set | nonblocking (workaround: `R9Input`/`T3KeyRecorder` pattern) | Prove in an attended session |
-| [X16](../issues/20261005-x16-smart-substitutions-off.md) | Exact bytes typed in a textarea | `t3-plain-text` hook | nonblocking (workaround exists) | Use the hook on every editor |
+| [X16](../issues/closed/20261005-x16-smart-substitutions-off.md) | Exact bytes typed in a textarea | `t3-plain-text` hook | nonblocking (workaround exists) | Use the hook on every editor 2026-10-07: adopted (#111, main #160): `autocorrect="off"` on every textarea; the `t3-plain-text` hook is gone (adopt-main-fixes-input). |
 | [X17](../issues/20261005-x17-popover-position-try.md) | Composer popover opens above, end-aligned; picker popups flip | fixed placement | nonblocking (workaround: fixed placement) | Declare near-edge difference |
 | [X9](../issues/20261005-x09-root-component-across-files.md) | Preview needs a root resource argument (`app.contract:101`) | +3 lines | nonblocking | Keep the addition minimal |
 | [X21](../issues/20261005-x21-two-way-websocket.md) | RPC send | Swift transport | nonblocking | Reuse `client.rpc` |
-| [X16](../issues/20261005-x16-smart-substitutions-off.md) | Exact typed bytes in the PR title, description, comment and review textareas | X16 | nonblocking (workaround: the `t3-plain-text` hook on these textareas) | remove the hook when X16 is adopted |
+| [X16](../issues/closed/20261005-x16-smart-substitutions-off.md) | Exact typed bytes in the PR title, description, comment and review textareas | X16 | nonblocking (workaround: the `t3-plain-text` hook on these textareas) | remove the hook when X16 is adopted 2026-10-07: adopted (#111, main #160): `autocorrect="off"` on every textarea; the `t3-plain-text` hook is gone (adopt-main-fixes-input). |
 
 ## Implementation notes
 
@@ -108,6 +108,8 @@ Required environment: macOS 26.6.2, Xcode 27.0, Bun 1.4.2, fake gh, reference or
 
 ## Progress
 
+2026-10-06: on hold (user decision: tasks that need a sign-in waited). 2026-10-07: the user lifted the hold. Rows that need a real account are signed in by the user in person on the lane build; every other sign-in row uses lane fixtures.
+
 Planned. No branch.
 
 ## Attempts and evidence
@@ -118,4 +120,4 @@ Planned. No branch.
 
 ## Next action
 
-`prepare` after `20261005-pr-conversation-and-refresh` and `20261005-fake-github-fixture` merge.
+`prepare` from `feat(example)/t3-code` once the prerequisite task PRs above have merged into it; sign-in rows use lane fixtures, and real-account rows wait for the user to sign in.

@@ -1,13 +1,13 @@
 ---
 name: 20261005-clone-on-exact2-main
 plan: 20261005-t3code-macos-parity
-implementation: planned
+implementation: in-progress
 verification: unverified
-delivery: none
+delivery: draft
 repository: https://github.com/ccheever/exact2
-base_branch: daehyeon/t3-code
-branch: null
-pr_url: null
+base_branch: main
+branch: feat(example)/t3-code
+pr_url: https://github.com/ccheever/exact2/pull/99
 verified_commit: null
 ---
 
@@ -55,7 +55,7 @@ Included:
    result changed. Watch the SnapShot `shift+shift` chord against modifier-only keydown.
 6. **Parked native call (X14).** Reproduce, without the framework edit, the reply that a
    let-go answer loses (`EXACT2-GAPS.md` X14), and write the result into
-   [issue X14](../issues/20261005-x14-parked-native-reply.md): the steps and output, or "not
+   [issue X14](../issues/closed/20261005-x14-parked-native-reply.md): the steps and output, or "not
    reproduced on the pin". Keep the app-side `T3ReadGate.swift` workaround either way; it goes
    only when X14 is resolved upstream and adopted (`issue-close`) or closed by a user decision.
    The plan files no framework PR. The framework change (`js/src/parking.rs` and
@@ -107,7 +107,7 @@ instructions). Pinned Bun is at `~/.bun-1.4.2/bin` on this Mac; `bun install
 | Kind | Readable task/issue/decision | Remote reference | Required condition | Resolution evidence |
 | --- | --- | --- | --- | --- |
 | recorded decision | User decision 2026-10-05 #1 (move to t3-code, copy tools to `target/`) and evening decision (integration branch) | none | Recorded | `spec.md` Confirmed requirements |
-| task (local, no PR) | [20261005-round12-wrapup](20261005-round12-wrapup.md) | none (untracked tree) | Implemented; unrun UI checks explicitly recorded under the latest user direction | round-12 continuation record |
+| task (local, no PR) | [20261005-round12-wrapup](closed/20261005-round12-wrapup.md) | none (untracked tree) | Implemented; unrun UI checks explicitly recorded under the latest user direction | round-12 continuation record |
 | recorded decision | Branch reset of local `daehyeon/t3-code` from `a9f9e58ec` to the main pin | none | User confirms at `prepare` | pending |
 
 ## Issue assessment at preparation
@@ -148,6 +148,8 @@ runtime copy, no running T3 Code (Nightly) during drives.
 
 ## Progress
 
+2026-10-07 (records sync): the import is done. Under the PR workflow of 2026-10-06 the clone lives at `examples/t3-code` on `feat(example)/t3-code`, and every task PR since (#142–#222) is based on it and merged into it. The branch-reset and import steps below are history.
+
 Preparation started 2026-10-06; import and branch reset not executed.
 
 - Fetched `origin/main`; proposed pin:
@@ -172,6 +174,4 @@ Preparation started 2026-10-06; import and branch reset not executed.
 
 ## Next action
 
-Confirm the reset to the prepared main pin, preserve these plan updates on the backup
-branch, then perform the import and required compilation/core workflow checks. No repeated
-pixel-fidelity test/fix loop.
+#99 goes to `main` at the end, as the user scheduled (2026-10-07). Before it goes: drop `.exact/`, `STATUS.md`, `AGENT-HANDOFF.md` and `EXACT2-GAPS.md`; export the clone as one commit on current `main` so the evidence never enters main's history; rewrite the `EXACT2-GAPS X<n>` citations in source and README to GitHub issue numbers; build and drive there; report the async lane's `--workspace` build time before and after; move the three `docs/agent-pitfalls.md` entries to their own PR.

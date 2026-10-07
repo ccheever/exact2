@@ -71,3 +71,5 @@ Delete `R8PointerWindowFrame.swift` and its `t3.window.frame` default; replace t
 
 Draft; not reproduced on the pinned `main`; not searched upstream; not published.
 Next: `issue-open` (reproduce, search for duplicates, prepare the report for the user's approval; publication only after approval).
+
+Re-checked 2026-10-07 on main `cff90b364` (task [20261007-adopt-main-fixes-r3](../tasks/closed/20261007-adopt-main-fixes-r3.md)): still missing: no title-row height or traffic-light inset setting, and no window full-screen fact (`bc6bc35f4` adds `requestFullscreen`/`fullscreenchange` for a `video` element only). `T3WindowChrome.swift` and `T3FullScreen.swift` stay.

@@ -18,7 +18,7 @@ impl<D: DataSource> Presenter<D> {
             viewport,
             scale,
             Assets::embedded(assets),
-            choice,
+            PainterBoot::selected(choice),
             None,
             "/",
             Some(region),
@@ -90,6 +90,7 @@ impl<D: DataSource> Presenter<D> {
             hidden: &|id| host.route_visibility(id).0,
             roots: &roots,
             presented: &presented,
+            paths: &|id| host.presented_path(id),
             scroll: model_scroll.as_ref().unwrap_or(&self.scroll),
             page: self.page,
             images: &self.images.bitmaps,
@@ -193,6 +194,7 @@ impl<D: DataSource> Presenter<D> {
             self.host.log(note);
         }
         self.boxes = boxes;
+        self.boxes_serial += 1;
         if self.last_frame_succeeded {
             self.host.flow_damage.clear();
         }

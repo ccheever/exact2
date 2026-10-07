@@ -92,6 +92,8 @@ final class R3Socket: @unchecked Sendable {
         let metadata = NWProtocolWebSocket.Metadata(opcode: .text)
         target.send(content: data, contentContext: NWConnection.ContentContext(identifier: "frame", metadata: [metadata]), isComplete: true, completion: .idempotent)
     }
+    /// Every frame the client sent with this `_tag` (terminal-drawer: the attach streams' Acks).
+    func frames(tagged tag: String) -> [[String: Any]] { lock.lock(); defer { lock.unlock() }; return frames.filter { $0["_tag"] as? String == tag } }
     func requests(_ method: String) -> [[String: Any]] { lock.lock(); defer { lock.unlock() }; return frames.filter { $0["_tag"] as? String == "Request" && $0["tag"] as? String == method } }
     var connectionCount: Int { lock.lock(); defer { lock.unlock() }; return connections.count }
     /// A header of the `index`th WebSocket handshake, and the count of handshakes seen.
@@ -105,8 +107,8 @@ final class R3Socket: @unchecked Sendable {
     deinit { listener.cancel(); dropAll() }
 }
 
-// Lane r3-protocol: the read gate (T3ReadGate.swift), the reconnect policy and
-// same-session stream retries (T3Transport.swift).
+// Lane r3-protocol: the reconnect policy and same-session stream retries
+// (T3Transport.swift). The read gate's cases left with T3ReadGate.swift (exact2 #183).
 final class R3TransportTests: XCTestCase {
     private final class Topics: @unchecked Sendable {
         private let lock = NSLock(); private var list: [String] = []
@@ -115,9 +117,6 @@ final class R3TransportTests: XCTestCase {
         func clear() { lock.lock(); list.removeAll(); lock.unlock() }
     }
     private func wait(_ seconds: TimeInterval) { RunLoop.current.run(until: Date().addingTimeInterval(seconds)) }
-    private func read(_ gate: T3ReadGate, _ op: String, reader: Int, session: String = "s") -> Bool {
-        gate.began(["op": op, "reader": reader, "readerSession": session], answer: { _ in })
-    }
 
     // MARK: Reconnect policy (9333509)
 
@@ -339,97 +338,5 @@ final class R3TransportTests: XCTestCase {
         XCTAssertLessThan(Date().timeIntervalSince(started), 1, "A HEAD server answers server.probe at once.")
         transport.applicationActive(); wait(0.3)
         XCTAssertEqual(perform(transport, ["op": "status"])["generation"] as? Int, generation)
-    }
-
-    func testGateHoldsTheReadsTopicsUntilItsLastReplyThenReplaysOnce() {
-        let topics = Topics()
-        let gate = T3ReadGate(changed: topics.add, idle: 5, settle: 0.01)
-        XCTAssertFalse(read(gate, "status", reader: 1))
-        XCTAssertTrue(gate.reading)
-        let http: [String: Any] = ["op": "http", "reader": 1, "readerSession": "s"]
-        gate.sent(http)
-        gate.changed("t3.events"); gate.changed("t3.status"); gate.changed("t3.events"); gate.changed("t3.editor")
-        XCTAssertEqual(topics.all, ["t3.editor"], "Only the snapshot read's topics are held.")
-        var answered = false
-        XCTAssertTrue(gate.began(["op": "readEnd", "reader": 1, "readerSession": "s", "generation": 4], answer: { reply in
-            answered = reply["ok"] as? Bool == true && reply["generation"] as? Int == 4 }))
-        XCTAssertTrue(answered)
-        wait(0.05)
-        XCTAssertEqual(topics.all, ["t3.editor"], "readEnd waits for the read's network replies.")
-        gate.answered(http)
-        wait(0.08)
-        XCTAssertFalse(gate.reading)
-        XCTAssertEqual(topics.all, ["t3.editor", "t3.events", "t3.status"], "Held topics replay once, after the last reply.")
-        gate.changed("t3.status")
-        XCTAssertEqual(topics.all.last, "t3.status", "An idle gate forwards at once.")
-    }
-
-    func testTheDrawAfterAReadIsCoalescedIntoOneReplay() {
-        let topics = Topics()
-        let gate = T3ReadGate(changed: topics.add, idle: 5, settle: 0.15, quietCap: 0.4)
-        _ = read(gate, "status", reader: 1)
-        _ = read(gate, "readEnd", reader: 1)
-        // Hooks mounted by the drawn result report back during the quiet window.
-        wait(0.05); gate.changed("t3.status")
-        wait(0.1); gate.changed("t3.status"); gate.changed("t3.editor")
-        XCTAssertEqual(topics.all, ["t3.editor"], "The quiet window holds only the read's topics.")
-        wait(0.1)
-        XCTAssertEqual(topics.all, ["t3.editor"], "Each held topic extends the window.")
-        wait(0.35)
-        XCTAssertEqual(topics.all, ["t3.editor", "t3.status"], "The burst replays once, within the cap.")
-        gate.changed("t3.events")
-        XCTAssertEqual(topics.all.last, "t3.events")
-    }
-
-    func testAnIdleBurstAsksOnceAtOnceAndOnceAfter() {
-        let topics = Topics()
-        let gate = T3ReadGate(changed: topics.add, idle: 5, settle: 0.1, quietCap: 0.3)
-        gate.changed("t3.status"); gate.changed("t3.events"); gate.changed("t3.status")
-        XCTAssertEqual(topics.all, ["t3.status"], "The first change asks at once; the rest of the burst waits.")
-        wait(0.25)
-        XCTAssertEqual(topics.all, ["t3.status", "t3.events", "t3.status"], "The burst replays once.")
-        // A read that began meanwhile keeps the burst until it ends.
-        topics.clear()
-        gate.changed("t3.status"); _ = read(gate, "status", reader: 9); gate.changed("t3.events")
-        wait(0.25)
-        XCTAssertEqual(topics.all, ["t3.status"])
-        _ = read(gate, "readEnd", reader: 9)
-        wait(0.25)
-        XCTAssertEqual(topics.all, ["t3.status", "t3.events"])
-    }
-
-    func testANewerReadSupersedesAndStragglersNeverRelease() {
-        let topics = Topics()
-        let gate = T3ReadGate(changed: topics.add, idle: 5, settle: 0.01)
-        _ = read(gate, "status", reader: 1)
-        _ = read(gate, "status", reader: 2)
-        gate.changed("t3.events")
-        _ = read(gate, "readEnd", reader: 1)
-        _ = read(gate, "events", reader: 1)
-        wait(0.05)
-        XCTAssertTrue(gate.reading); XCTAssertEqual(topics.all, [])
-        _ = read(gate, "readEnd", reader: 2)
-        wait(0.05)
-        XCTAssertEqual(topics.all, ["t3.events"])
-        _ = read(gate, "status", reader: 2)
-        XCTAssertFalse(gate.reading, "An ended read's late request opens nothing.")
-        // A reloaded module restarts its numbering under a new session.
-        _ = read(gate, "status", reader: 1, session: "reloaded")
-        XCTAssertTrue(gate.reading)
-        XCTAssertTrue(gate.began(["op": "readEnd"], answer: { _ in }), "An untagged readEnd is still answered.")
-    }
-
-    func testAReadExactLetGoIsReleasedAndAskedAgain() {
-        let topics = Topics()
-        let gate = T3ReadGate(changed: topics.add, idle: 0.3, settle: 0.01)
-        _ = read(gate, "status", reader: 5)
-        let pending: [String: Any] = ["op": "request", "reader": 5, "readerSession": "s"]
-        gate.sent(pending)
-        wait(0.6)
-        XCTAssertTrue(gate.reading, "A read waiting on the network is not stalled.")
-        gate.answered(pending)
-        wait(0.8)
-        XCTAssertFalse(gate.reading)
-        XCTAssertEqual(topics.all, ["t3.status"], "A stalled read is asked again even when nothing was held.")
     }
 }

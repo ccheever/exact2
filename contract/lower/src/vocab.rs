@@ -18,7 +18,7 @@ include!(concat!(env!("OUT_DIR"), "/vocab.rs"));
 pub const CONTEXTUAL: &[(&str, &str)] = &[
     ("sandbox", "`iframe`"),
     ("src", "`iframe` or `video`"),
-    ("load", "`iframe` or a native module"),
+    ("load", "`iframe`, `image` or a native module"),
     ("message", "`iframe`, `canvas` or a native module"),
     ("document", "`scroll`"),
     ("reachstart", "`list`"),
@@ -105,6 +105,22 @@ pub fn codec(row: StyleId) -> String {
         .next()
         .map(|c| c.to_ascii_lowercase().to_string() + chars.as_str())
         .unwrap_or_default()
+}
+
+/// What a `transition` names (`transition-property`, LLP 1002): `all`,
+/// `border-color`, and each property the engine moves, a path's `d` among
+/// them (LLP 1055.000 D15).
+pub fn transition_properties() -> Vec<&'static str> {
+    use exact_motion::Property;
+    let mut names = vec!["all", "border-color"];
+    names.extend(
+        Property::ALL
+            .into_iter()
+            .chain([Property::D])
+            .filter(|p| *p != Property::ShadowColor)
+            .map(|p| p.name()),
+    );
+    names
 }
 
 /// A style row's default as the schema writes it, if it declares one; a

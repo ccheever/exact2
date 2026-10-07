@@ -15,9 +15,9 @@ const dir = mkdtempSync(resolve(tmpdir(), 'exact-js-baked-'));
 const webJs = name => resolve(new URL(`../../web-js/${name}`, import.meta.url).pathname);
 for (const f of ['rt.js', 'roster.js', 'router.js', 'schedule.js', 'budget.js', 'shape.js', 'notify.js']) copyFileSync(webJs(f), resolve(dir, f));
 copyFileSync(resolve(new URL('../notify-glue.js', import.meta.url).pathname), resolve(dir, 'notify-glue.js'));
-for (const [file, names] of Object.entries({ 'navigation.js': ['renderMarkup', 'reportPlace', 'onSelection', 'textField', 'settleRadios', 'animationClocks', 'launchLocation'], 'pointer.js': ['pointer', 'record'], 'commands.js': ['commands'],
-  'media.js': ['media', 'mediaProp', 'mediaOn', 'mediaPiece'], 'document.js': ['Docs', 'Head', 'head', 'markDocument', 'projectRoots'],
-  'svg-transform.js': ['svgTransform'], 'dataset.js': ['ds'], 'hooks.js': ['hk'], 'perf.js': ['pf'], 'format.js': ['x_formatTime', 'x_formatDate', 'x_formatNumber'] }))
+for (const [file, names] of Object.entries({ 'navigation.js': ['renderMarkup', 'reportPlace', 'onSelection', 'textField', 'settleRadios', 'animationClocks', 'launchLocation'], 'pointer.js': ['pointer', 'record'], 'commands.js': ['commands'], 'focus.js': ['autofocus', 'press'],
+  'media.js': ['media', 'mediaProp', 'mediaOn', 'mediaPiece', 'requestFullscreen'], 'document.js': ['Docs', 'Head', 'head', 'markDocument', 'projectRoots'],
+  'svg-transform.js': ['svgTransform'], 'dataset.js': ['ds'], 'hooks.js': ['hk'], 'perf.js': ['pf'], 'format.js': ['x_formatTime', 'x_formatDate', 'x_formatNumber', 'x_toFixed', 'x_formatDecimal'] }))
   writeFileSync(resolve(dir, file), names.map(n => `export const ${n} = () => {};`).join('\n') + (file === 'media.js' ? '\nexport const MEDIA_EVENTS = new Set();' : ''));
 // A view transition that holds every tree update (shared.js's commit returns before its callback).
 writeFileSync(resolve(dir, 'shared.js'), 'export const commit = (tail) => { globalThis.heldTail = tail; return true; };');
@@ -151,11 +151,11 @@ test('a key handler stops and prevents its event while a view transition holds t
   globalThis.requestAnimationFrame = f => setTimeout(f, 0);
   globalThis.document = { getElementById: () => ({}) };
   try {
-    const { on, act, C, pr, pieces } = await import(resolve(dir, 'rt.js'));
+    const { on, onKey, act, C, pr, pieces } = await import(resolve(dir, 'rt.js'));
     pr({}); await pieces();
     const listeners = [];
     const el = { addEventListener: (type, f) => listeners.push([type, f]) };
-    on(el, 'key', act(() => { C('preventDefault', []); C('stopPropagation', []); }));
+    on(el, 'key', act(() => { C('preventDefault', []); C('stopPropagation', []); }), onKey);
     const ev = { key: 'Enter', defaultPrevented: false, preventDefault() { this.defaultPrevented = true; } };
     for (const [type, f] of listeners) if (type === 'keydown') f(ev);
     expect(typeof globalThis.heldTail).toBe('function'); // the tree update waits for the transition
@@ -181,6 +181,45 @@ test('slice, replaceAll and toLowerCase are the web methods, well formed and bou
   expect(replaceAll('xx', 'x', '😀', 9, 8)).toBe('😀😀');
   expect(() => replaceAll('😀😀', '', '', 9, 7)).toThrow('Trap(StringTooLong { pc: 9 })');
   expect(replaceAll('😀😀', '', '', 9, 8)).toBe('😀😀');
+});
+
+// LLP 1102 §3.1–§3.4: the cases of runner/src/stdlib.rs's `number_and_date_reads_are_javascript_s`, roster.js's
+// against the oracle the runner names: `Number` for a numeral the grammar admits, `Math.round` and `Math.ceil`.
+test('parseNumber, round, ceil and calendarDiff are the runner\'s', async () => {
+  const { x_parseNumber, x_round, x_ceil, x_calendarDiff } = await import(resolve(dir, 'roster.js'));
+  for (const [text, want] of [[' 12.5 ', 12.5], ['-3', -3], ['+.5', 0.5], ['5.', 5], ['5.e3', 5000], ['1E-2', 0.01], ['00012', 12],
+    ['-0', -0], ['0e999999999999', 0], [' \t7\n', 7], ['﻿8', 8], ['9007199254740993', 9007199254740992],
+    ['1.7976931348623157e308', Number.MAX_VALUE], ['2.4703282292062328e-324', 5e-324], ['1.7976931348623159e308', null],
+    ['2.4703282292062327e-324', null], ['1e-400', null], ['1e999999999999', null], ['', null], ['.', null], ['+', null], ['1e', null],
+    ['1e+', null], ['.e1', null], ['12px', null], ['0x1F', null], ['1_000', null], ['Infinity', null], ['NaN', null], ['1 2', null],
+    ['1,5', null], ['\u00859', null], ['١', null], [`0.${'0'.repeat(65535)}1e655360`, null], [`0.${'0'.repeat(70000)}1e70300`, 1e299],
+    [`-${'1'.repeat(65536)}e-65630`, -1.1111111111111112e-95], [`${'0'.repeat(70000)}e-1000`, 0], [`1${'0'.repeat(400)}`, null],
+    [`1${'0'.repeat(65535)}e-655360`, null]])
+    expect(Object.is(x_parseNumber(text), want)).toBe(true);
+  for (const [x, want] of [[2.5, 3], [-2.5, -2], [-1.5, -1], [0.49999999999999994, 0], [-0.4, -0], [-0.5, -0], [-0, -0],
+    [4503599627370495.5, 4503599627370496], [-4503599627370495.5, -4503599627370495], [Infinity, Infinity], [NaN, NaN]])
+    expect(Object.is(x_round(x), want)).toBe(true);
+  expect([x_ceil(-0.5), x_ceil(0.1)].map(v => Object.is(v, -0) ? '-0' : v)).toEqual(['-0', 1]);
+  for (const [from, to, years, months] of [['1990-06-15', '2026-06-14', 35, 431], ['1990-06-15', '2026-06-15', 36, 432],
+    ['2024-02-29', '2025-02-28', 0, 11], ['2024-02-29', '2025-03-01', 1, 12], ['2024-01-31', '2024-02-29', 0, 0],
+    ['2024-01-31', '2024-03-01', 0, 1], ['2026-06-14', '1990-06-15', -35, -431], ['2024-03-01', '2024-01-31', 0, -1],
+    ['2024-05-05', '2024-05-05', 0, 0], ['2024-02-29', '2024-01-31', 0, 0], ['0000-02-29', '9999-12-31', 9999, 119998], ['2025-02-29', '2026-01-01', null, null],
+    ['2024-13-01', '2026-01-01', null, null], ['2024-1-01', '2026-01-01', null, null], ['2024-01-01', ' 2026-01-01', null, null]]) {
+    expect(Object.is(x_calendarDiff(from, to, 'years'), years)).toBe(true);
+    expect(Object.is(x_calendarDiff(from, to, 'months'), months)).toBe(true);
+  }
+});
+
+// LLP 1102 §3.2 (decided (c)): format.js's `toFixed` is JavaScript's but "" for a non-finite number (D7), and its
+// `formatDecimal` is runner/src/format.rs's exact count (runner/tests/it/format.rs has the same rows).
+test('toFixed and formatDecimal are the runner\'s', async () => {
+  const { x_toFixed, x_formatDecimal } = await import(webJs('format.js'));
+  expect([[1.005, 2], [-0.001, 2], [-0, 2], [2.5, 0], [-2.5, 0], [1e21, 2], [NaN, 2], [Infinity, 0], [-Infinity, 100]].map(([x, d]) => x_toFixed(x, d)))
+    .toEqual(['1.00', '-0.00', '0.00', '3', '-3', '1e+21', '', '', '']);
+  expect([[1234, 2], [-5, 2], [7, 0], [-0, 2], [0, 0], [5, 20], [-1234567, 3], [9007199254740993, 2], [1e21, 0], [12.5, 2], [NaN, 2], [Infinity, 2], [5e-324, 2]]
+    .map(([x, d]) => x_formatDecimal(x, d)))
+    .toEqual(['12.34', '-0.05', '7', '0.00', '0', '0.00000000000000000005', '-1234.567', '90071992547409.92', '1000000000000000000000', '', '', '', '']);
+  expect(x_formatDecimal(-Number.MAX_VALUE, 2)).toBe('-1797693134862315708145274237317043567980705675258449965989174768031572607800285387605895586327668781715404589535143824642343213268894641827684675467035375169860499105765512820762454900903893289440758685084551339423045832369032229481658085593321233482747978262041447231687381771809192998812504040261841248583.68');
 });
 
 // LLP 1088 §9.1: `concat`, and `slice` and `includes` over a list, are the web's array methods (`includes` by
@@ -224,6 +263,14 @@ test('indexOf and split are the web methods, on the caller\'s list steps', async
 // replacing its older one), and otherwise asks permission once and posts
 // through the Notification API, now or at `showTrigger` while the page is
 // open; a tag's `closeNotification` takes away a shown or a waiting one.
+// `requestFullscreen` in a plan with no video or audio, where media.js is not installed
+// (`useMedia`): the same refusal media.js journals for an id that names no video.
+test('requestFullscreen without media refuses as media.js does', async () => {
+  const { Hosts, journal } = await import(resolve(dir, 'rt.js'));
+  Hosts.requestFullscreen('player');
+  expect(journal.at(-1).replace(/^t=\S+ /, '')).toBe('requestFullscreen: refused: no video with id "player"');
+});
+
 test('notifications: refused without the grant, listed under the agent, else posted by the Notification API', async () => {
   const { Hosts, clock, data, journal } = await import(resolve(dir, 'rt.js'));
   await import(resolve(dir, 'notify.js'));
@@ -369,7 +416,7 @@ test('an input runs a due then before its own action', async () => {
   // Runner::dispatch_at moves the clock first, so a focus answer's `then` runs
   // at the start of the input that follows and reads the value it landed, not
   // the one this input writes (synthetic-then: wasm " a3 T3 T2 T12").
-  const { mut, sig, W, commit, on, clock } = await import(resolve(dir, 'rt.js') + '?dispatch-at');
+  const { mut, sig, W, commit, on, onValue, clock } = await import(resolve(dir, 'rt.js') + '?dispatch-at');
   clock.agent = true;
   const slot = sig(0);
   const m = mut('quick', slot, []);
@@ -378,7 +425,7 @@ test('an input runs a due then before its own action', async () => {
   m.then = () => seen.push('T' + slot());
   m.due = clock.now;
   const el = new EventTarget();
-  on(el, 'input', () => { commit(() => W(slot, 12)); seen.push('E' + slot()); });
+  on(el, 'input', () => { commit(() => W(slot, 12)); seen.push('E' + slot()); }, onValue);
   el.dispatchEvent(new Event('input'));
   expect(seen).toEqual(['T2', 'E12']);
 });
@@ -399,7 +446,7 @@ test('an async source failure remains named when its retained value breaks a der
 // draft first and the action submitted it. The field's next key or edit now runs the pending submit first, before the
 // edit applies, so a submit that clears the field keeps the arriving text.
 test('a submit runs before the field\'s next key or edit applies; the edit lands after it', async () => {
-  const { on } = await import(resolve(dir, 'rt.js'));
+  const { on, onSubmit } = await import(resolve(dir, 'rt.js'));
   const saved = globalThis.addEventListener;
   try {
     // The handler's own field, both paths; an Enter that bubbled from a textarea inside the handler's element.
@@ -409,7 +456,7 @@ test('a submit runs before the field\'s next key or edit applies; the edit lands
       const el = { localName: tag, value: 'Buy milk', addEventListener: (type, f, capture) => field.push([type, f, capture]),
         removeEventListener: (type, f) => { const i = field.findIndex(([t, g]) => t === type && g === f); if (i >= 0) field.splice(i, 1); } };
       const added = [];
-      on(el, 'submit', () => { added.push(el.value); el.value = ''; }); // the action submits the draft and clears the bound field
+      on(el, 'submit', () => { added.push(el.value); el.value = ''; }, onSubmit); // the action submits the draft and clears the bound field
       const enter = { key: 'Enter', isComposing: false, defaultPrevented: false, target: { localName: origin, isContentEditable: false } };
       for (const [type, f] of field.slice()) if (type === 'keydown') f(enter); // the field's own listener
       for (const [type, f] of win.splice(0)) if (type === 'keydown') f(enter); // the window's, last on the path
@@ -422,4 +469,37 @@ test('a submit runs before the field\'s next key or edit applies; the edit lands
       expect(field.filter(([, , capture]) => capture)).toEqual([]);
     }
   } finally { globalThis.addEventListener = saved; }
+});
+
+
+test('clipboard handlers preserve the default unless prevented and restore the enclosing event', async () => {
+  const { on, onClipboard, Hosts } = await import(resolve(dir, 'rt.js'));
+  const event = () => ({ defaultPrevented: false, stopped: false,
+    clipboardData: { getData: () => 'clipboard text' },
+    preventDefault() { this.defaultPrevented = true; },
+    stopPropagation() { this.stopped = true; } });
+  for (const kind of ['copy', 'cut', 'paste']) {
+    for (const prevent of [false, true]) {
+      let listener;
+      const el = { addEventListener: (_, f) => { listener = f; } };
+      on(el, kind, value => {
+        expect(value).toEqual(['clipboard text']);
+        if (prevent) Hosts.preventDefault();
+      }, onClipboard);
+      const ev = event();
+      listener(ev);
+      expect([ev.stopped, ev.defaultPrevented]).toEqual([true, prevent]);
+      Hosts.preventDefault();
+      expect(ev.defaultPrevented).toBe(prevent);
+    }
+  }
+  let outerListener, innerListener;
+  on({ addEventListener: (_, f) => { innerListener = f; } }, 'copy', () => { throw new Error('clipboard failure'); }, onClipboard);
+  on({ addEventListener: (_, f) => { outerListener = f; } }, 'paste', () => {
+    expect(() => innerListener(event())).toThrow('clipboard failure');
+    Hosts.preventDefault();
+  }, onClipboard);
+  const outer = event();
+  outerListener(outer);
+  expect(outer.defaultPrevented).toBe(true);
 });

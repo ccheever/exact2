@@ -200,6 +200,27 @@ fn contract_file(spec: &str, key: &Path) -> Result<(), Refusal> {
     }
 }
 
+/// The nearest directory above `dir` whose `package.json` names `name` as a
+/// dependency (exact2's own packages are `workspace:*` ones). Only the
+/// message reads these, so they are not `consulted`: the dev loops watch a
+/// consulted manifest's whole directory as a package's, which for the
+/// repository root is everything. The install itself is watched (`package`).
+fn declared(dir: &Path, name: &str) -> Option<PathBuf> {
+    dir.ancestors().find_map(|root| {
+        let text = std::fs::read_to_string(root.join("package.json")).ok()?;
+        let manifest = serde_json::from_str::<serde_json::Value>(&text).ok()?;
+        [
+            "dependencies",
+            "devDependencies",
+            "optionalDependencies",
+            "peerDependencies",
+        ]
+        .iter()
+        .any(|key| manifest[key].get(name).is_some())
+        .then(|| root.to_path_buf())
+    })
+}
+
 /// `@scope/name[/sub]` or `name[/sub]`, found in the nearest `node_modules`
 /// above `dir` that has it, then mapped through its `package.json`.
 fn package(spec: &str, dir: &Path, consulted: &mut Vec<PathBuf>) -> Result<Resolved, Refusal> {
@@ -239,13 +260,20 @@ fn package(spec: &str, dir: &Path, consulted: &mut Vec<PathBuf>) -> Result<Resol
                 dir.ancestors()
                     .map(|a| a.join("node_modules").join(&name).join("package.json")),
             );
-            (
-                "contract-use-package",
-                format!(
+            // Declared above but never installed (a fresh checkout or
+            // worktree): the fix is the install, not adding it again.
+            let message = match declared(dir, &name) {
+                Some(root) => format!(
+                    "package `{name}` is declared in {} but not installed: run `bun install --frozen-lockfile` in {}",
+                    root.join("package.json").display(),
+                    root.display()
+                ),
+                None => format!(
                     "no package `{name}` in a `node_modules` above {}: add it to the app's `package.json` and install (`bun add {name}`, or `\"{name}\": \"file:../path\"` for a local library)",
                     dir.display()
                 ),
-            )
+            };
+            ("contract-use-package", message)
         })?;
     // The manifest is the package's, where it really is: a linked directory,
     // or Bun's `file:` install of per-file links, leads to the library's

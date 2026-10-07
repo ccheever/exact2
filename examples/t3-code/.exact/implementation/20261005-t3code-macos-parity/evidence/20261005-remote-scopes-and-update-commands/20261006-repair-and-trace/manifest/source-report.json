@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "status": "passed",
+  "source": {
+    "commit": "759779342dd34fa516bec36924923e6beeb4c23a",
+    "digest": "6286eaefcc56b8163e1fbfbf31aaf8fd1d96c0dfb121baff934cf30fa91a9058",
+    "algorithm": "sha256 of sorted JSON implementation-files.json entries",
+    "integration_base": "587798ca8c0f5c2c761a4219263edce8256d50d8",
+    "scope": "18 feature/host implementation files differing from integration base",
+    "implementation_unchanged_since_final_build": true
+  },
+  "captured_at": "2026-10-06T09:14:17.061604+00:00",
+  "qualification": "Passed refers to this ticket acceptance, not identical full RPC streams. Focus screen-region capture used the same focus implementation with temporary logging; final T0 drive and targeted native tests used diagnostic-free source."
+}

@@ -16,6 +16,8 @@ import { NO_STRIP_PR, stripPr } from './r7-handoff-strip'; // lane r7-handoff: t
 import { checkoutItems, type CheckoutItem } from './r9-connect-checkout'; // lane r9-connect: the picker's checkout item
 import { NO_RUN_ON, stripRunOn } from './r4-git-env'; // lane r4-git: MobileRunContextSelector's "Run on"
 import { gitlessStrip } from './r12-threads-strip'; // lane r12-threads: the non-Git strip (BranchToolbar.logic.ts)
+import { autoBalanceState } from './auto-balance'; // auto-balance: the Run on menu's "Auto balance"
+import { letGo } from './let-go';
 
 export type DraftContext = { envMode: string; branch: string; worktreePath: string };
 type Repo = { isRepo: boolean; refName: string; status?: Obj; checked: boolean; refs: Obj[]; total: number; refsQuery: string | null; error: string; nextCursor?: number | null; ends?: number; loadingMore?: boolean };
@@ -33,6 +35,10 @@ export function draftContext(client: T3Client, key = client.draftKey): DraftCont
   const saved = contexts(client)[key];
   const fallback = str(obj(client.config.settings).defaultThreadEnvMode) === 'worktree' ? 'worktree' : 'local';
   return { envMode: saved?.envMode === 'worktree' || saved?.envMode === 'local' ? saved.envMode : fallback, branch: saved?.branch ?? '', worktreePath: saved?.worktreePath ?? '' };
+}
+/** setDraftThreadContext: changes some of the draft's context and keeps the rest (auto-balance clears branch and worktree). */
+export function patchDraftContext(client: T3Client, patch: Partial<DraftContext>, key = client.draftKey): void {
+  contexts(client)[key] = { ...draftContext(client, key), ...patch };
 }
 const projectRoot = (client: T3Client) => str(client.shell.projects.find(entry => entry.id === client.projectId)?.workspaceRoot);
 /** The thread's (or draft's) worktree, else null: the strip's activeWorktreePath. */
@@ -66,7 +72,7 @@ async function load(client: T3Client, native: Native, cwd: string, open: boolean
     try {
       const status = await access.request('vcs.refreshStatus', { cwd });
       entry.isRepo = status.isRepo === true; entry.refName = str(status.refName); entry.status = status; entry.error = ''; // r7-handoff: its pr feeds the strip's badge
-    } catch (error) { entry.isRepo = false; entry.error = error instanceof Error ? error.message : 'Could not read the repository.'; }
+    } catch (error) { if (letGo(error)) throw error; entry.isRepo = false; entry.error = error instanceof Error ? error.message : 'Could not read the repository.'; }
     entry.checked = true;
   }
   const search = sanitizeNewRefName(query).slice(0, 256);
@@ -93,8 +99,12 @@ export function refBadge(ref: Obj, cwd: string): string {
   return ref.isDefault === true ? 'default' : '';
 }
 
-/** The resource behind the strip (shouldShowComposerContextStrip with Git controls). */
+/** The resource behind the strip, and the auto-balance load the root's `balanceLoad` task sends (auto-balance.ts). */
 export async function composerBranches(client: T3Client, native: Native | null | undefined, open: boolean, query: string, card = false) {
+  return { ...await stripView(client, native, open, query, card), balanceFetch: card ? '' : autoBalanceState(client).fetch };
+}
+/** shouldShowComposerContextStrip with Git controls. */
+async function stripView(client: T3Client, native: Native | null | undefined, open: boolean, query: string, card: boolean) {
   const hidden = { show: false, envMode: 'local', forceWorktree: false, envLabel: 'Current checkout', envIcon: 'folder', envLocked: false, previous: false, previousBranch: '',
     branchLabel: '', branch: '', loading: false, refs: [] as Array<{ name: string; badge: string; selected: boolean; index: number }>, status: '', creatable: '', enterOp: '', enterValue: '', checkout: [] as CheckoutItem[], ...NO_RUN_ON, ...NO_STRIP_PR, gitless: false };
   if (!native?.available || client.connection !== 'connected' || !client.ready || !client.projectId) return hidden;
@@ -215,6 +225,7 @@ export async function selectBranch(client: T3Client, native: Native, storage: Fi
     await setThreadBranch(client, native, storage, switched, nextWorktree);
     return '';
   } catch (error) {
+    if (letGo(error)) throw error;
     pushToast(client, { kind: 'error', title: create ? 'Failed to create and switch ref.' : 'Failed to switch ref.',
       description: error instanceof Error ? error.message : 'An error occurred.' });
     return '';
@@ -232,6 +243,7 @@ export async function branchMenu(client: T3Client, native: Native, name: string)
     if (copied.copied === false) throw new ClientError('The clipboard refused the branch name.');
     pushToast(client, { kind: 'success', title: 'Branch name copied', description: name });
   } catch (error) {
+    if (letGo(error)) throw error;
     pushToast(client, { kind: 'error', title: 'Failed to copy branch name', description: error instanceof Error ? error.message : 'An error occurred.' });
   }
   return '';

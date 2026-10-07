@@ -1,0 +1,5 @@
+# The embedded server runtime that stage-runtime.mjs puts beside its pin (the
+# release archive and its manifest), and its download cache. Only the pin is committed.
+/server-runtime/*
+!/server-runtime/runtime-pin.json
+/.runtime-cache/

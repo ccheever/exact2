@@ -4,7 +4,7 @@ plan: 20261005-t3code-macos-parity
 status: fix-built
 kind: framework-policy
 blocks: [20261005-auto-balance, 20261005-client-activity-reporting, 20261005-embedded-server-runtime, 20261005-environment-routes, 20261005-live-automations-and-clones, 20261005-pr-code-tab, 20261005-pr-conversation-and-refresh, 20261005-pr-links-previews-and-routing, 20261005-reference-logic-test-ports, 20261005-reference-logic-tests-done-areas, 20261005-server-update-banner, 20261005-telemetry, 20261005-this-machine-network-access, 20261005-usage-pooled-view, 20261005-usage-reset-and-feedback]
-upstream_url: null
+upstream_url: https://github.com/ccheever/exact2/issues/124
 reproduced_on: null
 ---
 
@@ -93,3 +93,18 @@ Built on exact2 `origin/main`, branch `daehyeon/fw-x19-source-waits` (worktree `
 - Not built here: LLP 1092 stage 2 (gated tasks: `task … when … key=`), which covers most debounce/window/periodic needs at the Contract level; it is accepted upstream and assigned to Charlie's lanes.
 - Evidence: the five checks; `source_waits.rs` (5), `js/tests/it/waits.rs` through the real Hermes VM, `request-refusal.test.mjs`; a scratch app (450 ms debounce, backoff retry) passes its `clock +N` test on the web JS target, the wasm web host and macOS; one independent review, its findings fixed or documented.
 - Before main: LLP 1027.000 "Amendment to D1" (proposed) needs Charlie's ruling and a DEFERRED take or waiver.
+
+## #192 checked (2026-10-07, adopt-main-fixes-r4)
+
+Main #192 (merged before the feature branch's base) is documentation: the `analyze-then-self-send`
+diagnostic and the agents' guide point at a gated task (`task NAME when COND` with `every` or `after`) for
+"repeat or wait while a condition holds". The clone has no `pause`-mutation loop of the kind #192 warns
+about. Three of its mount polls were a gated task's job and are converted
+([20261007-adopt-main-fixes-r4](../tasks/closed/20261007-adopt-main-fixes-r4.md)): the Pull Requests search
+(`every(250)` checking `now() - typedAt`, so the query applied 250–500 ms after the last keystroke) is now
+the reference's 250 ms debounce (`task prSearchSettle when … key=prQuery` with `after(250, …)`); a
+terminal's close confirm and a thread the module opened (both read from the shell snapshot on a 500 ms
+poll, so up to 500 ms late) now run at once (`task terminalCloseAsk`, `task shellOpen`). The other mount
+clocks (`clock`, `liveClock`, `providerClock`, `sshClock`, `shellTicks`' toast clock) stay: each advances a
+shown time or retries a read on a fixed cadence rather than bridging an event. #124 (timers in data
+sources) is still open.

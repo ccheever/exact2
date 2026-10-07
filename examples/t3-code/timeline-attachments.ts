@@ -11,6 +11,9 @@ import { fileIconToken } from './timeline-files';
 import { assetUrl } from './settings-b-icons';
 import { imageChipInks } from './r4-timeline-chips';
 import { videoMimeType } from './r4-composer-video'; // lane r6-media: sent videos (UserVideoAttachment)
+import { markdownMedia, markdownMediaUrls } from './media-views'; // media-actions: the transcript's host-path media
+import { letGo } from './let-go';
+import { encodeMediaSource } from './media-actions';
 
 export interface MessageImage { id: string; name: string; snapshot: boolean; appName: string; appInitial: string; windowTitle: string; accessible: boolean; video: boolean }
 export interface MessageFile { id: string; name: string; icon: string }
@@ -48,7 +51,10 @@ export async function attachmentUrls(client: T3Client, native: Native | null | u
     // lane r6-media: buildAttachmentVideoAsset signs a sent video under its video MIME type.
     for (const attachment of arr(item.attachments)) if (attachment.type === 'file' && str(attachment.id) && isSentVideo(attachment)) wanted.push({ ...attachment, mimeType: videoMimeType({ name: str(attachment.name), mimeType: str(attachment.mimeType) }) });
   }
-  const items: { id: string; url: string }[] = [], videoIds = new Set(wanted.filter(entry => entry.type === 'file').map(entry => str(entry.id)));
+  // composer-fidelity G12a: queued messages' images (the queued rows' thumbnails and the edit's kept attachments).
+  const queuedMessages = new Set(arr(client.projection.runs).filter(run => run.status === 'queued').map(run => str(run.userMessageId)));
+  for (const message of arr(client.projection.messages)) if (queuedMessages.has(str(message.id))) for (const attachment of arr(message.attachments)) if (attachment.type === 'image' && str(attachment.id)) wanted.push(attachment);
+  const items: { id: string; url: string }[] = [], failed: { id: string; url: string }[] = [], videoIds = new Set(wanted.filter(entry => entry.type === 'file').map(entry => str(entry.id)));
   for (const attachment of wanted.slice(-64)) {
     const id = str(attachment.id), key = JSON.stringify([client.generation, client.environmentId, id]);
     const cached = urls.get(key);
@@ -61,10 +67,27 @@ export async function attachmentUrls(client: T3Client, native: Native | null | u
       urls.set(key, { url, expiresAt: Number(result.expiresAt) || 0 });
       if (urls.size > 256) urls.delete(urls.keys().next().value!);
       items.push({ id, url });
-    } catch { /* An unavailable preview shows the image's name instead. */ }
+    } catch { failed.push({ id: `failed:${id}`, url: '' }); /* An unavailable preview shows the image's name instead; the dialog says it is unavailable. */ }
   }
-  return { items: await withAccents(client, native, items, videoIds) };
+  // media-actions: the visible messages' Markdown media on host paths (`media:<path>`, `media-failed:<path>`).
+  const thread = obj(client.projection.thread), project = (client.shell?.projects ?? []).find(entry => entry.id === (thread.projectId ?? client.projectId));
+  const root = str(thread.worktreePath) || str(project?.workspaceRoot);
+  const media = (await markdownMediaUrls(client, native, root, now)).map(item => ({ ...item, ...NO_INKS }));
+  // context-menu-gaps: the linked media's signed URL (signed again after Retry video; a refusal is `failed:<key>`).
+  const preview = activeMediaPreview(client);
+  if (preview && !preview.url) {
+    try { preview.url = await signMediaFile(client, native, preview.path); } catch (error) { if (letGo(error)) throw error; }
+  }
+  if (preview) media.push(preview.url ? { id: preview.key, url: preview.url, ...NO_INKS } : { id: `failed:${preview.key}`, url: '', ...NO_INKS });
+  return { items: [...await withAccents(client, native, items, videoIds), ...failed.map(item => ({ ...item, ...NO_INKS })), ...media] };
 }
+
+/** media-actions: the URL a sent attachment shows now (its Save and Copy image source), or null. */
+export function cachedAttachmentUrl(client: T3Client, id: string): string | null {
+  return urls.get(JSON.stringify([client.generation, client.environmentId, id]))?.url ?? null;
+}
+/** media-actions: Retry video signs the attachment again (useAssetUrlRefresh). */
+export function forgetAttachmentUrl(client: T3Client, id: string): void { urls.delete(JSON.stringify([client.generation, client.environmentId, id])); }
 
 interface Preview { threadId: string; messageId: string; imageId: string }
 const previews = new WeakMap<T3Client, Preview | null>();
@@ -77,7 +100,7 @@ function messageImages(client: T3Client, messageId: string, selected = ''): Mess
 /** ExpandedImageDialog: open on an image, step to its neighbours, close. */
 export function imagePreviewAction(client: T3Client, op: string, id: string, value: string): string {
   const current = previews.get(client);
-  if (op === 'image-close') { previews.set(client, null); return ''; }
+  if (op === 'image-close') { previews.set(client, null); mediaPreviews.set(client, null); return ''; }
   if (op === 'image-open') {
     if (!messageImages(client, value, id).some(image => image.id === id)) throw new ClientError('That image is no longer available.');
     previews.set(client, { threadId: client.threadId, messageId: value, imageId: id });
@@ -92,13 +115,53 @@ export function imagePreviewAction(client: T3Client, op: string, id: string, val
   }
   throw new ClientError(`Unknown image action: ${op}`);
 }
+// context-menu-gaps: ChatMarkdown's "Preview media" on a file link (resolveMarkdownMediaPreview): the
+// media is signed on its environment as a `media-file` of the shown thread first (a failure is the caller's
+// "Media unavailable" toast and no dialog), then the same dialog shows it alone (markdownImageGallery finds
+// no inline image for a link). Leaving the thread drops it, as the reference resets its preview.
+type MediaPreview = { threadId: string; path: string; key: string; name: string; video: boolean; root: string; url: string };
+const mediaPreviews = new WeakMap<T3Client, MediaPreview | null>();
+async function signMediaFile(client: T3Client, native: Native, path: string): Promise<string> {
+  if (!native.available || client.connection !== 'connected' || !client.threadId) throw new ClientError('Reconnect to this environment and open the media again.');
+  const result = obj(await client.rpc(native, 'assets.createUrl', { resource: { _tag: 'media-file', path, threadId: client.threadId } }));
+  const url = assetUrl(client.origin, str(result.relativeUrl));
+  if (!url) throw new ClientError('The environment returned an invalid media URL.');
+  return url;
+}
+export async function openMarkdownMediaPreview(client: T3Client, native: Native, filePath: string, root: string): Promise<void> {
+  const path = filePath.replace(/:\d+(?::\d+)?$/, '');
+  const media = markdownMedia('', path, '', root);
+  if (media.access !== 'environment' || !media.source) throw new ClientError('Reconnect to this environment and open the media again.');
+  const threadId = client.threadId, url = await signMediaFile(client, native, path);
+  if (client.threadId !== threadId) return;
+  previews.set(client, null);
+  mediaPreviews.set(client, { threadId, path, key: media.key, name: path.slice(Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\')) + 1), video: media.kind === 'video', root, url });
+}
+const activeMediaPreview = (client: T3Client): MediaPreview | null => {
+  const media = mediaPreviews.get(client);
+  if (media && media.threadId !== client.threadId) { mediaPreviews.set(client, null); return null; }
+  return media ?? null;
+};
+/** Retry video on the linked media: sign it again (useAssetUrlRefresh). */
+export function forgetMediaPreviewUrl(client: T3Client, key: string): boolean {
+  const media = activeMediaPreview(client);
+  if (!media || media.key !== key) return false;
+  media.url = '';
+  return true;
+}
 export function imagePreviewView(client: T3Client) {
+  const media = activeMediaPreview(client);
+  if (media) {
+    const source = markdownMedia(media.name, media.path, '', media.root).source;
+    return { imagePreviewId: media.key, imagePreviewName: media.name, imagePreviewPosition: '', imagePreviewPrevious: false, imagePreviewNext: false,
+      imagePreviewVideo: media.video, imagePreviewSource: source ? encodeMediaSource({ ...source, name: media.name }) : '' };
+  }
   const current = previews.get(client);
   const images = current && current.threadId === client.threadId ? messageImages(client, current.messageId, current.imageId) : [];
   const index = current ? images.findIndex(image => image.id === current.imageId) : -1;
   const image = index >= 0 ? images[index]! : null;
   return { imagePreviewId: image?.id ?? '', imagePreviewName: image?.name ?? '', imagePreviewPosition: image && images.length > 1 ? `(${index + 1}/${images.length})` : '',
-    imagePreviewPrevious: !!image && images.length > 1, imagePreviewNext: !!image && images.length > 1, imagePreviewVideo: !!image?.video };
+    imagePreviewPrevious: !!image && images.length > 1, imagePreviewNext: !!image && images.length > 1, imagePreviewVideo: !!image?.video, imagePreviewSource: image ? `attachment:${image.id}` : '' };
 }
 
 // ImageChipButton tints its chip with the picture's average colour (lane r4-timeline).

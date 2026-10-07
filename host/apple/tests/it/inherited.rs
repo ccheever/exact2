@@ -325,6 +325,7 @@ fn border_layout_paint_and_current_color_follow_live_style_changes() {
 }
 
 #[test]
+#[ignore = "async lane: launches Bun and nested cargo builds; bun scripts/async.mjs runs it"]
 fn apple_artifacts_own_paths_locks_identity_and_failed_placement() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let result = std::process::Command::new("bun")
@@ -426,6 +427,7 @@ try {
 }
 
 #[test]
+#[ignore = "async lane: launches Bun; bun scripts/async.mjs runs it"]
 fn a_kept_module_is_taken_only_by_a_checkout_of_the_same_bytes() {
     // @ref LLP 1036.000 §10 — the host's Rust modules, kept for the machine.
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
@@ -516,6 +518,7 @@ try {
 }
 
 #[test]
+#[ignore = "async lane: launches Bun; bun scripts/async.mjs runs it"]
 fn kept_registry_crates_are_one_target_directory_at_a_time() {
     // @ref LLP 1036.000 §11 — compiled registry crates, kept for the machine.
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
@@ -769,9 +772,8 @@ fn text_transform_crosses_as_the_measured_string_and_box_shadow_as_its_rows() {
     );
     assert!(op(&first, view(&host, "field")).contains("\"value\":\"typed\""));
     let root = op(&first, view(&host, "root"));
-    for row in ["\"box_shadow\":[{\"o\":[0,2],\"b\":12,\"s\":0,\"c\":[0,0,0,51]}]"] {
-        assert!(root.contains(row), "{row} in {root}");
-    }
+    let row = "\"box_shadow\":[{\"o\":[0,2],\"b\":12,\"s\":0,\"c\":[0,0,0,51]}]";
+    assert!(root.contains(row), "{row} in {root}");
     let changed = host.dispatch_at(view(&host, "toggle"), Event::Press, 0.0);
     for text in ["STRASSE HERE", "HEL", "LO WORLD"] {
         assert!(

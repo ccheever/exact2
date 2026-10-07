@@ -30,6 +30,35 @@ pub struct Skipped {
 
 /// The `cssText` for a node's set rows, plus what was skipped.
 pub fn css_text(style: &StyleProps, font_names: &[String]) -> (String, Vec<Skipped>) {
+    css_text_in(style, font_names, false)
+}
+
+/// [`css_text`] with each row authored in `rem` or `em` written so, not as
+/// the pixels the kernel resolved it to: for a page that keeps no kernel to
+/// re-resolve them (the JS target, through [`crate::host::template`]), so
+/// the browser resolves them against the root's and the parent's font size
+/// as CSS does, and again when either changes.
+/// @ref LLP 1069.000 D3
+pub fn css_text_relative(style: &StyleProps, font_names: &[String]) -> (String, Vec<Skipped>) {
+    css_text_in(style, font_names, true)
+}
+
+fn css_text_in(
+    style: &StyleProps,
+    font_names: &[String],
+    relative: bool,
+) -> (String, Vec<Skipped>) {
+    // The row's `rem`/`em` length as authored, appended, when asked for and
+    // the row has one.
+    let authored = |out: &mut String, id| {
+        use exact_kernel::style::relative::Unit;
+        let Some((unit, n)) = style.relative.get(id).filter(|_| relative) else {
+            return false;
+        };
+        num_into(out, n);
+        out.push_str(if unit == Unit::Rem { "rem" } else { "em" });
+        true
+    };
     let mut out = String::new();
     let mut skipped = Vec::new();
     // @ref LLP 1061's ruling: the row and host feedback are independent
@@ -162,7 +191,9 @@ pub fn css_text(style: &StyleProps, font_names: &[String]) -> (String, Vec<Skipp
             ) if apple_corner(style, id) => {
                 property(&mut out, id);
                 out.push_str(":calc(");
-                dimension(&mut out, *d);
+                if !authored(&mut out, id) {
+                    dimension(&mut out, *d);
+                }
                 push_text!(
                     &mut out,
                     " * {});",
@@ -299,7 +330,9 @@ pub fn css_text(style: &StyleProps, font_names: &[String]) -> (String, Vec<Skipp
             _ if lowered(id, &value) => {
                 property(&mut out, id);
                 out.push(':');
-                declared(&mut out, id, &value);
+                if !authored(&mut out, id) {
+                    declared(&mut out, id, &value);
+                }
                 out.push(';');
             }
             _ => skipped.push(Skipped {
@@ -372,7 +405,7 @@ pub(crate) fn send_keyframes(
         return;
     };
     let press = press_composes(style);
-    for a in style.animation.0.iter().chain(&style.exit_animation.0) {
+    for a in style.animation.0.iter().chain(&style.rare.exit_animation.0) {
         let name = (link.name)(a, press);
         if !sent.contains(&name) {
             batch.keyframes(&name, &(link.body)(a, press));
@@ -441,7 +474,7 @@ fn apple_corner(style: &StyleProps, id: StyleId) -> bool {
         StyleId::BorderRadiusBottomRight => 2,
         _ => 3,
     };
-    style.corner_shape.0[i] == exact_kernel::corner::Corner::AppleContinuous
+    style.rare.corner_shape.0[i] == exact_kernel::corner::Corner::AppleContinuous
 }
 
 /// One row → one declaration, by the CSS rule for its name and codec.
@@ -460,6 +493,8 @@ fn lowered(id: StyleId, value: &RowValue<'_>) -> bool {
                 | StyleId::ScrollEdgeEffect
                 | StyleId::HoverEffect
                 | StyleId::SmartInvert
+                // The kernel holds the animations (LLP 1055 D13): no declaration.
+                | StyleId::AnimationTrigger
         ) =>
         {
             false
@@ -547,6 +582,12 @@ fn dashed(out: &mut String, name: &str) {
 /// A [`lowered`] row's CSS value, appended.
 fn declared(out: &mut String, id: StyleId, value: &RowValue<'_>) {
     match value {
+        // CSS's unbounded maximum is `none`; `max-width: auto` is no value (LLP 1102 §3.11).
+        RowValue::Dimension(Dimension::Auto)
+            if matches!(id, StyleId::MaxWidth | StyleId::MaxHeight) =>
+        {
+            out.push_str("none")
+        }
         RowValue::Dimension(d) => dimension(out, *d),
         RowValue::Color(c) => rgba_into(out, *c),
         // The browser resolves this one (LLP 1034 D2): handed the function
@@ -669,6 +710,7 @@ pub fn transition_css(t: &Transitions) -> (String, bool) {
                     // sides as their shorthand.
                     TransitionProperty::All => Property::ALL
                         .into_iter()
+                        .chain([Property::D])
                         .filter(|p| !p.springs() && *p != Property::ShadowColor)
                         .map(|p| match p {
                             Property::BorderTopColor => "border-color",
@@ -961,6 +1003,7 @@ mod writer_tests {
                 "border-color",
                 "--exact-tint",
                 "box-shadow",
+                "d",
                 ""
             ]
         );

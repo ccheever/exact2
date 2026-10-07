@@ -1,0 +1,87 @@
+App=com.exact.t3code.ssh157 (pid 11257)
+Window: "T3 Code (Exact)", App: T3 Code (Exact).
+
+0 standard window T3 Code (Exact)
+	1 scroll area, Secondary Actions: scroll up, scroll down
+		2 button Toggle sidebar
+		3 button Go to threads
+		4 text Search
+		5 text field (disabled) Search threads
+		6 button Filter threads by project
+		7 button Add project
+		8 button New thread
+		9 scroll area, Secondary Actions: scroll up, scroll down
+			10 text No threads yet
+		11 button Settings
+		12 button Pull Requests
+		13 button Usage
+		14 button New thread in SSH Acceptance
+		15 text /
+		16 heading New thread
+		17 button Toggle thread details panel
+		18 text What should we build in
+		19 button SSH Acceptance
+		20 text ?
+		21 button or start without a project
+		22 scroll area, Secondary Actions: scroll up, scroll down
+			23 text entry area Message
+			24 scroll bar (disabled) 0
+		25 button Open provider settings
+		26 button Attach files
+		27 button (disabled) Submit message
+		28 scroll area, Secondary Actions: scroll up, scroll down
+			29 button Close README.md
+			30 button README.md
+			31 button Add panel surface
+			32 scroll bar 0
+				33 value indicator 0
+				34 increment arrow button
+				35 decrement arrow button
+				36 increment page button
+				37 decrement page button
+		38 button Maximize panel
+		39 button (disabled) Toggle terminal drawer
+		40 button Toggle right panel
+		41 button Browse SSH Acceptance
+		42 text README.md
+		43 container Open in editor
+			44 button Open file in preferred editor
+			45 button Choose editor
+		46 button Show markdown source
+		47 button Hide file explorer
+		48 scroll area, Secondary Actions: scroll up, scroll down
+			49 heading SSH acceptance project
+			50 text README.md
+		51 button Refresh workspace files
+		52 text field (disabled) Search SSH Acceptance files, Placeholder: Search files
+		53 scroll area, Secondary Actions: scroll up, scroll down
+			54 button (selected) README.md
+		55 button Settings
+		56 button Command Palette
+		57 button Go to File
+		58 button Search Project Contents
+		59 button Change Theme
+		60 button Open Usage
+		61 button Toggle Theme Editor
+		62 button New Thread
+		63 button New Thread
+		64 button New Local Thread
+		65 button Appearance: Dark
+		66 button New Thread Without a Project
+		67 button Close Right Panel
+		68 button Terminal harness
+		69 button Cancel SSH password prompt
+		70 heading SSH Password Required
+		71 text T3 needs your SSH password to connect to tester@t3-ssh157. The password is passed to the local SSH process for this connection attempt and is not saved by T3 Code. [redacted]
+		72 text Enter the SSH password for tester@t3-ssh157. [redacted]
+		73 text 2:29
+		74 secure text field (settable) Enter the SSH password for tester@t3-ssh157., Value: [redacted]
+		75 text Use SSH keys to avoid repeated password prompts on new SSH sessions. [redacted]
+		76 button Cancel
+		77 button Continue
+	78 toolbar
+	79 close button
+	80 full screen button, Secondary Actions: zoom the window
+	81 minimize button
+
+The focused UI element is 74 secure text field (settable) Enter the SSH password for tester@t3-ssh157., Value: [redacted].

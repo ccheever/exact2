@@ -384,6 +384,48 @@ final class MacShortcutTests: XCTestCase {
         XCTAssertEqual(menu.items[0].keyEquivalent, "\u{f700}", "Dispatch must not restore a stale equivalent over a plan update")
     }
 
+    /// Issue #110: a key that types no Latin character (Korean 2-Set's ㅠ on
+    /// B, key code 11) is its physical key's chord, as the web falls back to
+    /// `code`; a Latin character is the key whatever the physical key is
+    /// (AZERTY, Dvorak, German's ö), so one chord fires, never two.
+    func testNonLatinCharactersMatchThePhysicalKeyAndLatinOnesTheirOwn() throws {
+        // The physical key's character is the Mac's ASCII-capable layout's.
+        guard KeyCodes.asciiCharacters(11, shift: false, option: false) == "b",
+              KeyCodes.asciiCharacters(45, shift: false, option: false) == "n" else {
+            throw XCTSkip("the ASCII-capable layout has no B on key 11 or N on key 45")
+        }
+        let presenter = Presenter(), window = window(presenter)
+        defer { window.close() }
+        _ = button(1, "Toggle Sidebar", "Meta+B", in: presenter)
+        _ = button(2, "New Thread", "Meta+N", in: presenter)
+        _ = button(3, "Inspector", "Meta+Shift+B Meta+;", in: presenter)
+        var presses: [UInt32] = []
+        presenter.onPress = { presses.append($0) }
+        XCTAssertTrue(presenter.shortcuts.perform(event("ㅠ", window: window, code: 11)))
+        XCTAssertTrue(presenter.shortcuts.perform(event("ㅠ", window: window, modifiers: [.command, .shift], code: 11)))
+        XCTAssertTrue(presenter.shortcuts.perform(event("n", window: window, code: 11)))
+        XCTAssertTrue(presenter.shortcuts.perform(event("b", window: window, code: 45)))
+        XCTAssertFalse(presenter.shortcuts.perform(event("q", window: window, code: 11)))
+        XCTAssertFalse(presenter.shortcuts.perform(event("ö", window: window, code: 41)), "German's ö is a Latin letter, not ;")
+        XCTAssertFalse(presenter.shortcuts.perform(event("ㅠ", window: window, modifiers: [.command, .control], code: 11)))
+        XCTAssertEqual(presses, [1, 3, 2, 1])
+        // XCTest has no key window, so the item's action (`activate`) does not
+        // press; that it is the item AppKit sends is what the menu decides.
+        let menu = ShortcutMenu(title: "File")
+        presenter.shortcuts.attach(menu)
+        var sent: [String] = []
+        let observer = NotificationCenter.default.addObserver(forName: NSMenu.didSendActionNotification, object: menu, queue: nil) {
+            sent.append(($0.userInfo?["MenuItem"] as? NSMenuItem)?.title ?? "")
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+        XCTAssertTrue(menu.performKeyEquivalent(with: event("ㅠ", window: window, code: 11)))
+        XCTAssertEqual(sent, ["Toggle Sidebar"])
+        XCTAssertEqual(menu.items[0].keyEquivalent, "b", "The visible menu equivalent stays the declared letter")
+        XCTAssertFalse(menu.performKeyEquivalent(with: event("ㅠ", window: window, modifiers: [.command, .control], code: 11)))
+        XCTAssertFalse(menu.performKeyEquivalent(with: event("ㅂ", window: window, code: 15)), "R's key has no command")
+        XCTAssertEqual(sent, ["Toggle Sidebar"])
+    }
+
     func testOptionMatchesProducedCharactersAndDoesNotMatchDeadKeys() {
         let presenter = Presenter(), window = window(presenter)
         defer { window.close() }

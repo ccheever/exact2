@@ -6,8 +6,11 @@ import type { DeviceTarget } from './r6-media-device';
 import type { Native } from './protocol';
 import { obj, str } from './domain';
 import { pushToast } from './toast';
+import { letGo } from './let-go';
 export type TabAction = 'rename' | 'copy-path' | 'toggle-mute' | 'close' | 'close-others' | 'close-to-right' | 'close-all';
 export type TabMenuItem = { id: TabAction; label: string; disabled?: boolean };
+/** A tab's menu row as the tab strip's `contextPopover` shows it (R4Tab.menu): every flag spelled out. */
+export type TabMenuRow = { id: TabAction; label: string; disabled: boolean };
 export function tabContextMenuItems(surface: Surface, surfaces: readonly Surface[]): TabMenuItem[] {
   const index = surfaces.findIndex(entry => entry.id === surface.id);
   if (index < 0) return [];
@@ -20,6 +23,14 @@ export function tabContextMenuItems(surface: Surface, surfaces: readonly Surface
     { id: 'close-all', label: 'Close all', disabled: surfaces.length === 0 },
   ];
 }
+/**
+ * The rows of the strip's one context popover (r4-surfaces.contract `r4-tab-menu`). A
+ * right-click opens it through the host (macOS: an NSMenu at the pointer; the agent: the
+ * painted popover), so no native request waits on menu tracking; each row presses
+ * `surface-<id>` for its tab, the same op the menu's choice ran before.
+ */
+export const tabMenuRows = (surface: Surface, surfaces: readonly Surface[]): TabMenuRow[] =>
+  tabContextMenuItems(surface, surfaces).map(item => ({ id: item.id, label: item.label, disabled: item.disabled === true }));
 export function closeSurface(state: PanelState, id: string): void {
   const index = state.surfaces.findIndex(entry => entry.id === id);
   if (index < 0) return;
@@ -89,8 +100,9 @@ export function editTabName(state: PanelState, op: string, id: string, value: st
   const surface = state.surfaces.find(entry => entry.id === id && entry.kind === 'device');
   if (!surface) return;
   if (op === 'rename') editors.set(state, { id, value: surface.title || surface.device?.name || 'Device' });
-  else if (op === 'rename-edit' && editors.get(state)?.id === id) editors.set(state, { id, value });
-  else if (op === 'rename-commit' && editors.get(state)?.id === id) { renameDevice(state, id, tabRename(state).value); editors.delete(state); }
+  // The editor's field owns the typed name and commits it as `value` (r4-surfaces.contract
+  // R4TabNameField): Enter and blur, after Escape's cancel the commit finds no editor.
+  else if (op === 'rename-commit' && editors.get(state)?.id === id) { renameDevice(state, id, value); editors.delete(state); }
   else if (op === 'rename-cancel') editors.delete(state);
 }
 export async function copyTabPath(client: T3Client, native: Native, surface: Surface): Promise<void> {
@@ -100,7 +112,7 @@ export async function copyTabPath(client: T3Client, native: Native, surface: Sur
     const result = obj(await client.restAccess(native).call({ op: 'copyText', text: surface.path }));
     if (result.copied === false) throw new Error('Clipboard API unavailable.');
     pushToast(client, { kind: 'success', title: 'Path copied', description: surface.path });
-  } catch (error) { pushToast(client, { kind: 'error', title: 'Failed to copy path', description: error instanceof Error && error.message ? error.message : 'Clipboard API unavailable.' }); }
+  } catch (error) { if (letGo(error)) throw error; pushToast(client, { kind: 'error', title: 'Failed to copy path', description: error instanceof Error && error.message ? error.message : 'Clipboard API unavailable.' }); }
 }
 export async function showTabMenu(client: T3Client, native: Native, state: PanelState, id: string, keyboard = false): Promise<string> {
   const surface = state.surfaces.find(entry => entry.id === id);

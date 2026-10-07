@@ -172,7 +172,8 @@ captioned figures — no camera, no generic file input. **Widened (Charlie,
 `file_handlers`, plus export and import copies to and from `app:/`. Unblocks
 the Markdown reader's remaining surfaces and Fieldnotes' backups. Take: none
 named (Charlie: "idk what to trade it for, maybe relax the limit slightly").
-Still no picker for any file, and no camera. Linux editing is v2
+Still no picker for any file, and no `capture` on the picker (the camera is a
+native module, §Components, 2026-10-02). Linux editing is v2
 (Charlie, 2026-09-21): web, iOS and macOS first; Linux reads.
 
 **Expanded (Charlie, 2026-09-21):** ship the full game engine from Black's
@@ -260,6 +261,29 @@ the consumer. Unblocks native cell highlight, separators, dynamic type and
 VoiceOver rows in a settings screen without a module. Take: none offered;
 waived by Charlie's approval. No sidebar styles, no virtualized grouped list,
 no grouped swipe actions.
+**Expanded (Charlie, 2026-10-06, via the lead: "Recs seem good. Approve and
+push"):** hooks on every platform and what the agent sees of them (LLP
+1075.003.000.001). The changes:
+- app and window scopes;
+- a frame clock and timers on the session clock;
+- `input(text)` on an authored field;
+- Linux and Windows hooks: an overlay the hook replaces whole, and input it
+  only observes;
+- development-only diagnostics (`log`, `count`, `measure`, spans, `publish`)
+  and Exact's own timing of each call;
+- owned regions and parts in `tree`;
+- a crash breadcrumb;
+- per-platform hook words checked by the delivery classifier.
+
+`perf hooks` is a form of `perf`. Tapping a part is a form of `tap`, by real
+platform input only. Neither is a new operation. The consumers are the Signal
+Clone and `apps/native-fixture`. The ruling admits three pieces of
+apparatus: `exact.mjs hook <word>`, `EXACT_HOOKS=off` and the template's
+`AGENTS.md` hooks section. Take: none offered; waived by Charlie's approval.
+Still refused: claiming input on a painting host (a gesture arena), a tap that
+runs hook code by name, a hook that writes Contract state or dispatches, a
+node-scoped frame ticket, diagnostics collected in production, and JavaScript
+above the data seam on native. Android stays below, named but not built.
 
 ## Surfaces
 
@@ -285,6 +309,21 @@ Unblocks Caltrain on an Apple TV. watchOS, which has no UIKit, stays out. A
 platform with its own UI stack (Amazon's Vega OS) is a host outside this
 repository, on the plan, runner and agent seams; its RFC is owed. The take is
 waived.
+
+**Admitted (Charlie, 2026-10-06: "this is pretty great. commit and push this
+and document that TUI is now an officially supported platform for Exact2";
+LLP 1101, 1101.000, 1101.001):** the terminal is an officially supported,
+in-tree surface. `host/terminal` (`exact-terminal`) runs a terminal entry —
+its own root `.contract`, compiled under the terminal profile (lengths in
+`ch`/`lh`, the schema's `terminal` admission) — inline (settled transcript
+entries printed once into the terminal's own scrollback, the live tail
+redrawn; selection, copy and tmux stay the terminal's) or full screen.
+Unblocks apps authored for the terminal: the coding harness
+(`apps/harness`, real models through OpenRouter, Anthropic, OpenAI and
+Ollama) and the todo fixture (`apps/todo`). A terminal entry is a separate
+application root on a separate medium, not a platform override (LLP 1101
+D9, §Authoring models). No take was named; the ruling stands as its own
+waiver until Charlie names one.
 
 - **Windows.** A working Direct2D host exists in the old repo. It is real work, and it
   doubles the native matrix. **Admitted (Charlie, 2026-10-04):** "make an exact2
@@ -312,7 +351,8 @@ change can break.
   no app-ABI generator.
 - **Platform-suffixed route overrides** (`.native.tsx`, `.mac.tsx`, ...). One route, one
   file. If a platform needs different behavior, that is a branch inside the component or
-  a bug in the presenter.
+  a bug in the presenter. A terminal entry (LLP 1101) is a separate application root on
+  a separate medium, not a platform override; GUI surfaces still have one source.
 
 ## Features carried over as "no"
 
@@ -430,7 +470,14 @@ reading. Nothing that isn't HTML is added by it.
   `source` and `track` children, a media controller (play, load, seek,
   fullscreen and PiP requests with results), DRM, and downloads and caches
   (LLP 1098 §7). No tag is added.
-- No camera anything.
+- ~~No camera anything.~~ Moved 2026-10-02 (Charlie: "I don't know why camera is so
+  aggressively deferred. Can we change that and record the change? It's time to work
+  on it"; take waived, none offered): a camera is an app native module in LLP
+  1067.000's shape — one object per session holding a preview view and its calls
+  (start, stop, capture, flip), gated by the `device.camera` grant (LLP 1069.008), with
+  an agent substitute before the OS (LLP 1069.007). Unblocks taking a photo in an
+  app, on the web, iOS and macOS first. Not a built-in tag. Video recording and
+  barcode or document scanning stay out until a consumer asks.
 - ~~No gradient style rows. A gradient with anything on it is a canvas surface with
   children (LLP 1014 §5 — the take for widening `canvas`; the three rows return when a
   host earns them).~~ Moved 2026-09-26 (Seth Webster, for grnl; LLP 1066): one CSS
@@ -656,7 +703,8 @@ names them. `press-scale` stays as a declared non-CSS host-feedback row (LLP
 highlight is (a shrink is feedback, not motion).
 - **`runOnJS` and the escape hatch / runtime graph admission** — never existed here.
 
-**Tooling** — no Design Mode, no Guide system, no devtools UI, no TUI host, no blog/CMS.
+**Tooling** — no Design Mode, no Guide system, no devtools UI, no blog/CMS. (The
+TUI host came off on 2026-10-06: §Surfaces.)
 
 **Agent API** — 10 operations, not 90:
 

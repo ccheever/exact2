@@ -6,6 +6,8 @@ use CoreSections from "./settings-rows.contract"
 use AppearanceLibrary from "./settings-appearance.contract"
 
 component SettingsCoreBody
+  inject
+    rem: number
   props
     core: SettingsCore
     route: string
@@ -20,19 +22,20 @@ component SettingsCoreBody
     navigate: action
     choose: action
     dialog: action
+    reduced: bool
   view
-    column width="100%" gap=32 position="relative" z-index=(menu != "" ? 50 : 1) margin-bottom=(route == "general" or route == "appearance" ? 0 : (route == "diagnostics" ? 22 : 14)) testId="settings-core-body"
+    column width="100%" gap="2rem" position="relative" z-index=(menu != "" ? 50 : 1) margin-bottom=((route == "general" or route == "appearance" ? 0 : (route == "diagnostics" ? 22 : 14)) * rem / 16) testId="settings-core-body"
       when core.showScope
         ScopeSentence(pal=core.palette, projectLabel=core.projectLabel, projectMark=core.projectMark, projectInk=core.projectInk, projectSurface=core.projectSurface, environmentLabel=core.environmentLabel, environmentIcon=core.environmentIcon, connective=core.connective, projects=core.projectChoices, environments=core.environmentChoices, projectKeyed=core.projectKeyed, environmentKeyed=core.environmentKeyed, menu=menu, openMenu=openMenu, closeMenu=closeMenu, choose=choose)
       when core.notice != ""
-        text core.notice role="status" font-size=14 line-height="20px" color=core.palette.muted padding-left=16 padding-right=16 testId="settings-scope-notice"
+        text core.notice role="status" font-size="0.875rem" line-height="1.25rem" color=core.palette.muted padding-left="1rem" padding-right="1rem" testId="settings-scope-notice"
       when core.message != "" and core.showScope
-        text core.message role="status" font-size=14 line-height="20px" color=core.palette.muted padding-left=16 padding-right=16 testId="settings-unavailable"
+        text core.message role="status" font-size="0.875rem" line-height="1.25rem" color=core.palette.muted padding-left="1rem" padding-right="1rem" testId="settings-unavailable"
       when route == "general" and core.message == "" and core.notice == ""
-        CoreSections(sections=core.sections, pal=core.palette, busy=busy, menu=menu, legacyOpen=legacyOpen, toggleLegacy=toggleLegacy, openMenu=openMenu, closeMenu=closeMenu, change=change, slide=slide, navigate=navigate)
+        CoreSections(reduced=reduced, sections=core.sections, pal=core.palette, busy=busy, menu=menu, legacyOpen=legacyOpen, toggleLegacy=toggleLegacy, openMenu=openMenu, closeMenu=closeMenu, change=change, slide=slide, navigate=navigate)
       when route == "appearance" and core.notice == ""
         AppearanceLibrary(tiles=core.tiles, themes=core.themes, pal=core.palette, busy=busy, change=change, dialog=dialog)
-        CoreSections(sections=core.sections, pal=core.palette, busy=busy, menu=menu, legacyOpen=legacyOpen, toggleLegacy=toggleLegacy, openMenu=openMenu, closeMenu=closeMenu, change=change, slide=slide, navigate=navigate)
+        CoreSections(reduced=reduced, sections=core.sections, pal=core.palette, busy=busy, menu=menu, legacyOpen=legacyOpen, toggleLegacy=toggleLegacy, openMenu=openMenu, closeMenu=closeMenu, change=change, slide=slide, navigate=navigate)
 
 // useSettingsRestore's confirmation: names every value it resets before restoring.
 component SettingsRestoreDialog
@@ -42,12 +45,12 @@ component SettingsRestoreDialog
     cancel: action
     confirm: action
   view
-    column position="absolute" left=0 right=0 top=0 bottom=0 display="flex" align-items="center" justify-content="center" background-color="#00000055" padding=24 box-sizing="border-box" z-index=30 testId="restore-defaults-overlay"
-      column width="100%" max-width=448 padding=24 gap=16 border-radius=16 border-width=1 border-style="solid" border-color=core.palette.cardBorder background-color=core.palette.canvas box-shadow="0 16px 40px -18px #0000008c" box-sizing="border-box" role="alertdialog" aria-label="Restore default settings?" testId="restore-defaults-dialog"
-        text "Restore default settings?" font-size=18 font-weight=600 line-height="24px" color=core.palette.text
-        text core.restoreText font-size=14 line-height="20px" color=core.palette.muted testId="restore-defaults-list"
-        row gap=8 justify-content="flex-end"
-          button press=cancel disabled=busy aria-keyshortcuts="Escape" display="flex" align-items="center" justify-content="center" height=32 padding-left=12 padding-right=12 border-radius=8 border-width=1 border-style="solid" border-color=core.palette.input background-color=core.palette.field testId="restore-defaults-cancel"
-            text "Cancel" font-size=14 font-weight=500 color=core.palette.text
-          button press=confirm disabled=busy display="flex" align-items="center" justify-content="center" height=32 padding-left=12 padding-right=12 border-radius=8 border-width=0 background-color="light-dark(#fb2c36, #fb414a)" testId="restore-defaults-confirm"
-            text "Restore defaults" font-size=14 font-weight=500 color="#ffffff"
+    column position="absolute" left=0 right=0 top=0 bottom=0 display="flex" align-items="center" justify-content="center" background-color="#00000055" padding="1.5rem" box-sizing="border-box" z-index=30 testId="restore-defaults-overlay"
+      column width="100%" max-width="28rem" padding="1.5rem" gap="1rem" border-radius="1rem" border-width=1 border-style="solid" border-color=core.palette.cardBorder background-color=core.palette.canvas box-shadow="0 16px 40px -18px #0000008c" box-sizing="border-box" role="alertdialog" aria-label="Restore default settings?" testId="restore-defaults-dialog"
+        text "Restore default settings?" font-size="1.125rem" font-weight=600 line-height="1.5rem" color=core.palette.text
+        text core.restoreText font-size="0.875rem" line-height="1.25rem" color=core.palette.muted testId="restore-defaults-list"
+        row gap="0.5rem" justify-content="flex-end"
+          button press=cancel disabled=busy aria-keyshortcuts="Escape" display="flex" align-items="center" justify-content="center" height="2rem" padding-left="0.75rem" padding-right="0.75rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color=core.palette.input background-color=core.palette.field testId="restore-defaults-cancel"
+            text "Cancel" font-size="0.875rem" font-weight=500 color=core.palette.text
+          button press=confirm disabled=busy display="flex" align-items="center" justify-content="center" height="2rem" padding-left="0.75rem" padding-right="0.75rem" border-radius="0.5rem" border-width=0 background-color="light-dark(#fb2c36, #fb414a)" testId="restore-defaults-confirm"
+            text "Restore defaults" font-size="0.875rem" font-weight=500 color="#ffffff"

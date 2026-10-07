@@ -1,12 +1,12 @@
 ---
 name: 20261005-provider-sign-in-and-install
 plan: 20261005-t3code-macos-parity
-implementation: planned
+implementation: in-progress
 verification: unverified
 delivery: none
 repository: https://github.com/ccheever/exact2
-base_branch: daehyeon/t3-code
-branch: null
+base_branch: feat(example)/t3-code
+branch: feat(example)/t3-code-provider-sign-in-and-install
 pr_url: null
 verified_commit: null
 ---
@@ -48,17 +48,17 @@ Scheduling preference (not a prerequisite): after `20261005-main-fix-adoption` (
 | --- | --- | --- | --- | --- |
 | merged task PR | [20261005-clone-on-exact2-main](20261005-clone-on-exact2-main.md) | pending | Merged into `daehyeon/t3-code` | pending |
 | merged task PR | [20261005-desktop-oracle-and-trace](20261005-desktop-oracle-and-trace.md) | pending | Merged (oracle, trace proxy, diff, RPC tally) | pending |
-| merged task PR | [20261005-hot-file-split](20261005-hot-file-split.md) | pending | Merged (area files and registration points exist) | pending |
+| merged task PR | [20261005-hot-file-split](closed/20261005-hot-file-split.md) | pending | Merged (area files and registration points exist) | pending |
 | recorded decision | Plan decision U2 / U23 (apparatus): provider-setup stream fixture `target/t3-ui-parity/provider-setup-fixture.mjs` (a scripted responder in the lane kit that answers `provider.auth.*` / `provider.install.*` with scripted state sequences on ports 16000–16999; reused by `20261005-managed-codex-chatgpt`, `20261005-provider-settings-upkeep` and `20261005-usage-reset-and-feedback`) | none | User approves at `prepare` | pending |
 
 ## Issue assessment at preparation
 
-Checked sources and time: plan `issues/` drafts (local, unpublished) read 2026-10-05; no upstream search (no network); library topics above. Issue records: [X21](../issues/20261005-x21-two-way-websocket.md), [X9](../issues/20261005-x09-root-component-across-files.md), [X17](../issues/20261005-x17-popover-position-try.md), [X5](../issues/20261005-x05-url-scheme-delivery.md), [X35](../issues/20261005-x35-secure-text-entry.md), [X42](../issues/20261005-x42-text-blur-filter.md).
+Checked sources and time: plan `issues/` drafts (local, unpublished) read 2026-10-05; no upstream search (no network); library topics above. Issue records: [X21](../issues/20261005-x21-two-way-websocket.md), [X9](../issues/20261005-x09-root-component-across-files.md), [X17](../issues/20261005-x17-popover-position-try.md), [X5](../issues/20261005-x05-url-scheme-delivery.md), [X35](../issues/closed/20261005-x35-secure-text-entry.md), [X42](../issues/20261005-x42-text-blur-filter.md).
 
 | Issue / reference | Capability and target | Evidence / affected revision | Impact | Next action |
 | --- | --- | --- | --- | --- |
 | X21 | RPC and streams to the T3 server from a data module | `C/modules/apple/T3Transport.swift` carries all RPC and the 16-stream cap (`:529`) | nonblocking (workaround: the existing Swift transport; two more keys per open editor) | Record the open stream count in the acceptance log |
-| X35 | Secure (password) text entry in Contract | The credentials form and the paste-redirect field use `type="password"` inputs, which the clone already has (`providers-wizard.contract:333`, `providers.contract:411`); whether that is true secure entry is unchecked | nonblocking (workaround: the existing `type="password"` input, or a native secure field in the module) | Check at `prepare` |
+| X35 | Secure (password) text entry in Contract | The credentials form and the paste-redirect field use `type="password"` inputs, which the clone already has (`providers-wizard.contract:333`, `providers.contract:411`); whether that is true secure entry is unchecked | nonblocking (workaround: the existing `type="password"` input, or a native secure field in the module) | Check at `prepare` 2026-10-07: #134 closed by main #167: a Contract password field's value is masked in `tree`, `layout` and the `type` reply, and `autocomplete` sets its content type; the app's state and data module stay outside that (adopt-main-fixes-input). |
 | X9 | Resources in child components | `C/app.contract` 1,327 and `C/client.ts` 1,455 of 1,500 lines | nonblocking until the cap | Add no resource; extend the existing `providerPage` view model; at most one dispatch line in `client.ts` |
 | X17 | Popover flips | The picker footer lives inside the existing picker popover; no flip needed | nonblocking | none |
 | X5 | URL scheme delivery | Not used: the `t3code://` handler serves hosted web only | not applicable | none |
@@ -102,11 +102,12 @@ Required environment: Xcode 27.0, pinned Bun and Hermes, reference oracle build,
 
 ## Progress
 
-On hold (2026-10-06): the user paused every task that needs a sign-in. Work stopped during
-design; no source file was changed. Branch `feat(example)/t3-code-provider-sign-in-and-install`
-(local only, not pushed).
+2026-10-06: on hold (user decision: tasks that need a sign-in waited). Work stopped during design;
+no source file was changed. 2026-10-07: the user lifted the hold, and work resumes on this branch,
+merged with `feat(example)/t3-code`. Rows that need a real account are signed in by the user in
+person on the lane build; every other sign-in row uses lane fixtures.
 
-Findings to resume from (observed in this worktree):
+Findings to resume from (observed 2026-10-06 on the old base, before this branch merged 678 feature-branch commits; re-check each):
 - Base: `bun test examples/t3-code` 1200 pass, 0 fail; the macOS bundle builds
   (`EXACT_APP_DIR=$PWD/examples/t3-code bun host/apple/build.mjs t3-code-macos`, exit 0).
 - No `target/t3-ui-parity/` lane kit exists in any checkout; the provider-setup fixture
@@ -135,4 +136,4 @@ Findings to resume from (observed in this worktree):
 
 ## Next action
 
-`prepare` after the two prerequisites merge and the fixture apparatus is approved; then `implement`.
+Implement on this branch, then the attended row: the user signs in to the real accounts on the lane build.

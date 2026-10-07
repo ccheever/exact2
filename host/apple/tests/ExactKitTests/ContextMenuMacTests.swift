@@ -47,10 +47,13 @@ final class ContextMenuMacTests: XCTestCase {
         let menu = p.menus.menu(of: pop)
         XCTAssertEqual(menu.items.map { $0.isSeparatorItem ? "—" : $0.title }, ["Pin", "—", "Delete"])
         var pressed: [UInt32] = []
-        p.onPress = { pressed.append($0) }
+        let picked = expectation(description: "the picked row is pressed")
+        p.onPress = { pressed.append($0); picked.fulfill() }
         NSApp.sendAction(try XCTUnwrap(menu.items[2].action), to: menu.items[2].target, from: menu.items[2])
         XCTAssertEqual(pressed, [], "on the next turn")
-        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        // That turn, however late a loaded machine runs it: a fixed 50 ms
+        // spin of the run loop could return before the main queue's turn.
+        wait(for: [picked], timeout: 10)
         XCTAssertEqual(pressed, [5])
     }
 }

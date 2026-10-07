@@ -42,7 +42,7 @@ Scheduling preference (not a prerequisite): after `20261005-main-fix-adoption` (
 | --- | --- | --- | --- | --- |
 | merged task PR | [20261005-clone-on-exact2-main](20261005-clone-on-exact2-main.md) | pending | Merged | pending |
 | merged task PR | [20261005-desktop-oracle-and-trace](20261005-desktop-oracle-and-trace.md) | pending | Merged | pending |
-| merged task PR | [20261005-hot-file-split](20261005-hot-file-split.md) | pending | Merged (area files and registration points exist) | pending |
+| merged task PR | [20261005-hot-file-split](closed/20261005-hot-file-split.md) | pending | Merged (area files and registration points exist) | pending |
 | merged task PR | [20261005-provider-sign-in-and-install](20261005-provider-sign-in-and-install.md) | pending | Merged (provider-setup fixture and `RedactedText`) | pending |
 | recorded decision | Plan decision U2 / U23 (apparatus): the fixture `target/t3-ui-parity/provider-setup-fixture.mjs` from `20261005-provider-sign-in-and-install` extended with a config overlay (`usageLimits`, `resetCredits`, hub sources) and scripted `provider.consumeResetCredit` / `provider.uploadFeedback` replies | none | User approves at `prepare` | pending |
 
@@ -87,6 +87,8 @@ Required environment: Xcode 27.0, pinned Bun and Hermes, oracle build, isolated 
 
 ## Progress
 
+2026-10-06: on hold (user decision: tasks that need a sign-in waited). 2026-10-07: the user lifted the hold. Rows that need a real account are signed in by the user in person on the lane build; every other sign-in row uses lane fixtures.
+
 Planned. No branch.
 
 ## Attempts and evidence
@@ -97,4 +99,4 @@ Planned. No branch.
 
 ## Next action
 
-`prepare` after the prerequisites merge; `20261005-usage-pooled-view` follows this ticket.
+`prepare` from `feat(example)/t3-code` once the prerequisite task PRs above have merged into it; sign-in rows use lane fixtures, and real-account rows wait for the user to sign in.

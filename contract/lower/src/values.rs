@@ -559,7 +559,7 @@ pub(crate) fn check_style_value(
             }
             if rows.contains(&StyleId::Transition) {
                 if let Err(reason) = exact_motion::Transitions::parse(v) {
-                    let supported = "translate, scale, rotate, opacity; color, background-color, border-color (and each side), tint-color, box-shadow; SVG fill, stroke, stroke-dashoffset, r, cx, cy, x, y, rx, ry; numeric height on admitted height owners";
+                    let supported = "translate, scale, rotate, opacity; color, background-color, border-color (and each side), tint-color, box-shadow; SVG fill, stroke, stroke-dashoffset, r, cx, cy, x, y, rx, ry, d; numeric height on admitted height owners";
                     let why = match reason {
                         exact_motion::ParseError::UnknownProperty(property) => {
                             let layout = matches!(property.as_str(), "width" | "min-width" | "max-width" | "min-height" | "max-height" | "top" | "right" | "bottom" | "left" | "margin" | "padding" | "flex-basis" | "gap");
@@ -724,37 +724,16 @@ pub(crate) fn check_style_value(
                         );
                     }
                     if let Err(e) = probe.set_dynamic(*row, &v) {
-                        // A number written as a pixel string: say the number.
-                        let pixels = match (&e, value) {
-                            (StyleValueError::WrongKind { .. }, Expr::Str(text, _)) => text
-                                .trim()
-                                .strip_suffix("px")
-                                .and_then(|n| n.trim().parse::<f64>().ok())
-                                .map(|n| format!("; write `{}={n}` (a number is pixels)", a.name)),
-                            _ => None,
-                        };
-                        // A viewport-pinned box (authoring bench, t6-todo-more).
-                        let hint = pixels.or_else(|| {
-                            (a.name == "position"
-                                && matches!(value, Expr::Str(t, _) if t.trim() == "fixed"))
-                            .then(|| {
-                                "; `fixed` is not a row (LLP 1001): pin a box to the viewport \
-                                 with `absolute`, directly inside a viewport-sized root that \
-                                 does not scroll (its content scrolls in a `scroll` beside it)"
-                                    .to_string()
-                            })
-                        });
-                        // CSS's initial `none` on a maximum (r30 t4-kanban).
-                        let hint = hint.or_else(|| {
-                            (matches!(a.name.as_str(), "max-width" | "max-height")
-                                && matches!(value, Expr::Str(t, _) if t.trim() == "none"))
-                            .then(|| {
-                                format!(
-                                    "; no limit is the default, so leave `{}` out \
-                                     (an explicit no-limit is `auto` here)",
-                                    a.name
-                                )
-                            })
+                        // A viewport-pinned box (authoring bench, t6-todo-more). A pixel row
+                        // takes `14px` as CSS does (LLP 1102 §3.10), and a maximum takes
+                        // `none` (§3.11), so neither needs a hint here.
+                        let hint = (a.name == "position"
+                            && matches!(value, Expr::Str(t, _) if t.trim() == "fixed"))
+                        .then(|| {
+                            "; `fixed` is not a row (LLP 1001): pin a box to the viewport \
+                             with `absolute`, directly inside a viewport-sized root that \
+                             does not scroll (its content scrolls in a `scroll` beside it)"
+                                .to_string()
                         });
                         return err(
                             "lower-attr-value",
@@ -770,6 +749,22 @@ pub(crate) fn check_style_value(
                         );
                     }
                 }
+            }
+            // A number row with no text form refuses every string where it
+            // binds, as it refuses the literal; a browser would apply one
+            // (`opacity: 0.5`), so a host would disagree.
+            None if std::ptr::eq(value, &a.value)
+                && matches!(ty, Ty::String)
+                && !rows.iter().any(|row| exact_kernel::style::takes_text(*row)) =>
+            {
+                return err(
+                    "lower-attr-type",
+                    format!(
+                        "`{}` takes a number where it is computed; this expression is `string`, which no native host reads on this row while a browser would apply it: bind the number itself (`{}=n` for a number `n`, not `` `${{n}}` ``)",
+                        a.name, a.name
+                    ),
+                    span,
+                );
             }
             None if std::ptr::eq(value, &a.value)
                 && !matches!(ty, Ty::Number | Ty::String | Ty::Unknown) =>
@@ -883,6 +878,24 @@ pub(crate) fn check_prop_value(
         return err(
             "lower-attr-value",
             "`target` takes \"_blank\" or \"_self\"",
+            span,
+        );
+    }
+    if prop == PropId::StatusBarStyle
+        && matches!(value, Expr::Str(s, _) if !matches!(s.as_str(), "light-content" | "dark-content" | "auto"))
+    {
+        return err(
+            "lower-attr-value",
+            "`status-bar-style` takes \"light-content\" (light text, for a dark surface), \"dark-content\" or \"auto\"",
+            span,
+        );
+    }
+    if prop == PropId::StatusBarAnimation
+        && matches!(value, Expr::Str(s, _) if !matches!(s.as_str(), "none" | "fade"))
+    {
+        return err(
+            "lower-attr-value",
+            "`status-bar-animation` takes \"none\" or \"fade\"",
             span,
         );
     }

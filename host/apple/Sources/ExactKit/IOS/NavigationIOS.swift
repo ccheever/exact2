@@ -9,10 +9,10 @@ import UIKit
 final class RouteController: UIViewController {
     let node: NodeView
     var key: String { node.props["navigationKey"] ?? "" }
-    /// What Exact last projected into the navigation item, and that plus the
-    /// words the route hook last saw; whether the hook has run; the header
+    /// What Exact last projected into the navigation item, and that plus
+    /// what the route hook last saw; whether the hook has run; the header
     /// lifted into the bar; the content scroll view a hook was handed.
-    var projectedSource: String?, projected: String?, backSource: String?
+    var projectedSource: BarSource?, projected: HookSource?, backSource: String?
     var hooked = false
     weak var lifted: NodeView?
     weak var host: NavigationHost?
@@ -118,7 +118,6 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     var unanimated = false
     var activeKey: String? { container?.props["navigationKey"] }
     /// While a push or pop runs: paints what each frame newly reveals.
-    private var revealLink: CADisplayLink?
     /// LLP 1075.003: each stack Exact built, by controller; what each shown
     /// bar covers of its route; the ownership changes already journaled;
     /// whether the hooks are being replayed for a cold launch's objects.
@@ -131,6 +130,19 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     /// Whether the session's view last took the whole of its own for a bar.
     var tookWholeView = false
     private var pendingSync = false
+    /// A sync was deferred (a transition ran, or there was no window yet)
+    /// and is still owed, or UIKit moved a stack itself (its back button, a
+    /// swipe) since the last one: the next batch syncs, whatever it holds.
+    var syncOwed: Bool {
+        pendingSync || changing || windowless || nativeMoved || !settled
+            || ([primaryNavigation].compactMap { $0 } + presentedNavigations).contains { $0.transitionCoordinator != nil }
+    }
+    /// No window yet; UIKit moved a stack since the last sync; the last
+    /// sync ran to its end (one that stopped early, waiting for the first
+    /// draw, a transition or a presentation it could not make yet, is owed).
+    private var windowless = false, nativeMoved = false, settled = false
+    /// Syncs asked for, for tests.
+    private(set) var syncCalls = 0
     private var interactiveSource: (node: NodeView, key: String)?
     /// The stack's depth when the interactive pop began, source included.
     private var interactiveDepth = 0
@@ -315,10 +327,17 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     func sync(_ batch: Batch) {
         // Installing or moving a controller can synchronously cause layout.
         // That layout must not start another containment handoff inside this one.
-        guard !syncing, presenter.session?.view?.window != nil else { return }
+        syncCalls += 1
+        guard !syncing else { return }
+        let window = presenter.session?.view?.window
+        windowless = presenter.session != nil && window == nil
+        // With no session (a presenter on its own) nothing is projected or owed.
+        if presenter.session == nil { settled = true }
+        guard window != nil else { return }
+        nativeMoved = false; settled = false
         syncing = true
         defer { syncing = false; presenter.flushPendingFocus() }
-        guard let p = projection(batch) else { return }
+        guard let p = projection(batch) else { settled = true; return }
         let root = p.root, wanted = p.chosen
         let parts = NavigationRules.segments(presentations: p.routes[...p.selected].map { $0.props["navigationPresentation"] })
         reshape(p)
@@ -392,6 +411,7 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
         if p.tabs != nil { replayTabs() }
         reportCovers()
         refitForBars()
+        settled = true
     }
 
     /// The container standing in for the routes paints where they are in
@@ -495,6 +515,9 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
         guard let nav = controller as? UINavigationController,
               presentedNavigations.contains(where: { $0 === nav }) else { return }
         presentedNavigations.removeAll { $0 === nav }
+        // A presentation gone (UIKit's own dismissal included): the next
+        // batch syncs, whatever it holds, so a route still declared returns.
+        nativeMoved = true
         retireStack(nav)
         nav.delegate = nil
         if !preserving {
@@ -525,6 +548,14 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     /// programmatic change, or nothing yet) — for `state.navigation`.
     private var lastTransition = "idle"
     private var interactiveTransition = false
+    /// A stack moving: Exact's own push or pop, or the person's swipe; and
+    /// (`started`) one begun by Exact or the finger, without the coordinator
+    /// a finished transition is still winding down in `didShow`.
+    var transitioning: Bool {
+        // A rotation's or resize's coordinator moves no controller: not one.
+        started || ([primaryNavigation].compactMap { $0 } + presentedNavigations).contains { $0.transitionCoordinator?.viewController(forKey: .from) != nil }
+    }
+    var started: Bool { changing || interactiveTransition }
 
     /// For `state.navigation` (LLP 1035.002 D2): the route the root names,
     /// UIKit's stack by key, and the transition's phase — observations.
@@ -694,26 +725,24 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     }
 
     private func startRevealing() {
-        guard revealLink == nil else { return }
-        let link = CADisplayLink(target: RevealTick(self), selector: #selector(RevealTick.tick))
-        link.add(to: .main, forMode: .common)
-        revealLink = link
+        guard !FrameClock.shared.wants(self) else { return }
+        FrameClock.shared.want(self, .navigationReveal, rate: FrameClock.full(on: presenter.viewport.window?.screen)) { [weak self] _ in self?.revealTick() }
     }
 
-    fileprivate func revealTick() {
+    private func revealTick() {
         guard changing else { stopRevealing(); return }
         presenter.paintVisibleText()
     }
 
     private func stopRevealing() {
-        revealLink?.invalidate()
-        revealLink = nil
+        FrameClock.shared.drop(self)
     }
 
     func navigationController(_ navigationController: UINavigationController, didShow viewController: UIViewController, animated: Bool) {
         guard navigationController === navigation,
               navigationController.topViewController === viewController else { return }
         changing = false
+        nativeMoved = true
         stopRevealing()
         defer {
             // Tree updates during UIKit's transition retain their latest
@@ -738,6 +767,9 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
             }
             // At rest: a large title's insets are sampled now (§9.10).
             coversChanged()
+            #if os(iOS)
+            presenter.resolveStatusBar(settled: true)
+            #endif
         }
         let source = interactiveSource
         interactiveSource = nil
@@ -798,12 +830,6 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
         lastTransition = "idle"
         if clearFocus { presenter.cancelPendingFocus() }
     }
-}
-/// The reveal link's target, so the link doesn't keep its host alive.
-private final class RevealTick: NSObject {
-    private weak var host: NavigationHost?
-    init(_ host: NavigationHost) { self.host = host }
-    @objc func tick() { if let host { host.revealTick() } }
 }
 #if os(tvOS)
 extension NavigationHost {

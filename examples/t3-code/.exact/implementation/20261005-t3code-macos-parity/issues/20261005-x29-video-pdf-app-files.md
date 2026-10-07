@@ -1,10 +1,10 @@
 ---
 name: 20261005-x29-video-pdf-app-files
 plan: 20261005-t3code-macos-parity
-status: draft
+status: closed-upstream
 kind: framework-gap
 blocks: [20261005-media-actions]
-upstream_url: null
+upstream_url: https://github.com/ccheever/exact2/issues/115
 reproduced_on: null
 ---
 
@@ -64,3 +64,18 @@ Remove `T3ComposerVideo.swift`, hook `t3-video`, the PDF and audio branches of `
 
 Draft; not reproduced on the pinned `main`; not searched upstream; not published.
 Next: `issue-open` (reproduce, search for duplicates, prepare the report for the user's approval; publication only after approval).
+
+## Merged upstream; partly fixed (2026-10-07, adopt-main-fixes-r4)
+
+[#115](https://github.com/ccheever/exact2/issues/115) was closed by main #205 (`e3b0be7ba`), in the feature
+branch since main `463acda68` ([20261007-adopt-main-fixes-r4](../tasks/closed/20261007-adopt-main-fixes-r4.md)):
+a bundled (`assets/`) PDF in an `iframe` is shown by WebKit's PDF view on macOS and iOS instead of its bytes
+as HTML text, and the web serves `.pdf` as `application/pdf`. #205's own open points are not on main: an
+`iframe` of an `app:/` file, and a PDF element with a fit-to-width mode and `load`/`error` (proposal B).
+`video` and `audio` from `app:/` were already on main (`4e2c79acb`).
+
+Adoption: none. The clone's PDF is the server's signed asset URL over http, which an `iframe` could load
+before #205 too (#205 changed only bundled files). `R6MediaPreview.swift`'s `PDFView` stays because WebKit's
+PDF view does not take Chromium's `#toolbar=0&view=FitH` and draws its own white surround (#205's capture),
+while T3 Code shows the page alone on Chromium's #282828 surface fitted to the panel width
+(`BrowserDocumentFrame.tsx`); doing that without a native view needs the PDF element #205 left open.

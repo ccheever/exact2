@@ -80,6 +80,8 @@ pub fn handle<D: DataSource + Default>(p: &mut Presenter<D>, line: &str) -> Stri
     // may activate a generation after the initial boot's frame was counted.
     if p.dirty() {
         let _ = p.frame();
+        // What that frame moved under the resting pointer is hovered (#139).
+        p.follow_pointer();
     }
     p.first_pixel();
     tagged(p, line, reply)
@@ -171,8 +173,8 @@ fn answer_line<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
                     .iter()
                     .filter_map(|b| {
                         let node = p.host().kernel().node(b.id)?;
-                        if node.style.layout_transition.0.is_empty()
-                            && node.style.exit_animation.0.is_empty()
+                        if node.style.rare.layout_transition.0.is_empty()
+                            && node.style.rare.exit_animation.0.is_empty()
                         {
                             return None;
                         }
@@ -393,6 +395,8 @@ fn answer_line<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
             None => error("reveal needs an id"),
         },
         Some("clock") => clock(p, line),
+        // A fetch fault (LLP 1103) is the runner's; the device facts are this presenter's.
+        Some("prefer") if top_level(line, "faults") => p.host().agent(line),
         Some("prefer") => prefer(p, line),
         Some("screenshot") => match field_str(line, "path") {
             Some(path) => p.screenshot(&path).unwrap_or_else(|e| error(&e)),
@@ -400,6 +404,12 @@ fn answer_line<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
         },
         _ => p.host().agent(line),
     }
+}
+
+/// Whether a request names `key` at its top level (not a value or a
+/// nested field that happens to spell it).
+fn top_level(line: &str, key: &str) -> bool {
+    serde_json::from_str::<serde_json::Value>(line).is_ok_and(|v| v.get(key).is_some())
 }
 
 /// `prefer` (LLP 1061 D5; LLP 1069.000 D6): the device facts by their web
@@ -655,14 +665,12 @@ fn tree<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
             };
             row["focused"] = (p.focus() == Some(id)).into();
             // What a field shows: typed text its bound value has not
-            // replaced (LLP 1069.001 D4).
-            if p.chosen.contains_key(&id)
-                && p.host()
-                    .kernel()
-                    .node(id)
-                    .is_some_and(|n| n.node_type == exact_kernel::NodeType::TextInput)
-            {
-                row["props"]["value"] = p.field_text(id).into();
+            // replaced (LLP 1069.001 D4); a password's masked (#134).
+            if let Some(node) = p.host().kernel().node(id).filter(|n| {
+                p.chosen.contains_key(&id) && n.node_type == exact_kernel::NodeType::TextInput
+            }) {
+                let text = p.field_text(id);
+                row["props"]["value"] = exact_runner::agent::shown_value(node.props, &text).into();
             }
             if row["type"] == "WebView" || row["type"] == "Video" {
                 row["unavailable"] = true.into();

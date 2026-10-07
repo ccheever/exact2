@@ -33,6 +33,7 @@ component ShortcutDispatch
     command: action
     settings: action
     copy: action
+    confirm: action
   view
     box position="absolute" left=0 top=0 width=0 height=0 overflow="hidden" testId="keyboard-dispatch"
       each item in items key=item.id
@@ -74,17 +75,27 @@ component ShortcutDispatch
           ShortcutButton(item=item, press=run("new-thread", item.target, ""))
         when item.kind == "flow"
           ShortcutButton(item=item, press=run("flow", item.target, item.extra))
+        when item.kind == "terminal-close"
+          ShortcutButton(item=item, press=confirm("ui:confirm", item.extra, item.target, item.label, "This stops the running process and clears its history.", true))
         when item.kind == "command"
           ShortcutButton(item=item, press=command(item.target, item.extra, "", 0))
         when item.kind == "settings"
           ShortcutButton(item=item, press=settings)
         when item.kind == "pr-copy"
           ShortcutButton(item=item, press=copy(item.target, item.extra))
+        // thread-commands-and-keys: a command whose argument is its value (composer.cycleHost → environment-run-on).
+        when item.kind == "command-value"
+          ShortcutButton(item=item, press=command(item.target, "", item.extra, 0))
+        // thread-commands-and-keys: ⌥↑ (thread.editQueuedMessage) is no menu chord; the native composer presses this
+        // button only with the caret at the very start (T3ComposerQueueKey.swift), so elsewhere the key moves the caret.
+        when item.kind == "composer-key"
+          button hook="t3-composer-key" data-anchor=`queued-edit|${item.chord}` press=command(item.target, item.extra, "", 0) aria-label=item.label testId=`shortcut-${item.command}` width=1 height=1 overflow="hidden" padding=0 border-width=0 opacity=0 aria-hidden=true
+            text item.label font-size=1
 
 component ShortcutButton
   props
     item: KeyDispatch
     press: action
   view
-    button press=press aria-keyshortcuts=item.chord aria-label=item.label testId=`shortcut-${item.command}` width=1 height=1 overflow="hidden" padding=0 border-width=0 background-color="#00000000"
+    button hook="t3-terminal-key" data-anchor=item.command press=press aria-keyshortcuts=item.chord aria-label=item.label testId=`shortcut-${item.command}` width=1 height=1 overflow="hidden" padding=0 border-width=0 background-color="#00000000"
       text item.label font-size=1

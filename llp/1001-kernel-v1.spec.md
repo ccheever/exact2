@@ -208,10 +208,24 @@ reader scrolls; if the node disappears, a surviving visible candidate can hold
 the position. With none left, iOS clamps the old offset to the new extent.
 An inactive iOS route retains an unpinned offset across a temporary viewport
 clamp, restoring it when space permits; a new drag or explicit scroll write wins.
-macOS still preserves the numeric offset in all cases. An explicit `scrollTop` assignment wins. Web uses
+macOS anchors that case as a plain scroller (below). An explicit `scrollTop` assignment wins. Web uses
 ResizeObserver and commit boundaries; Apple snapshots before each batch and
-restores after layout. The opt-in policy is not a complete native implementation
-of CSS `overflow-anchor` selection and suppression rules.
+restores after layout.
+Every other scroll container (not a list, which the runner anchors, LLP 1010
+§6.6) follows CSS Scroll Anchoring, `overflow-anchor: auto` being CSS's
+default (#138 X23d): the browser does it on the web; on macOS and iOS
+(`ScrollAnchoring.swift`) the host selects, before each batch, the first box in
+tree order that is fully visible in the port, descending into a partly visible
+one, skipping boxes with no area, `display: none`, fixed or sticky boxes and an
+absolute box whose containing block is outside the scroller; a nested
+scroller is a candidate but not its content. After layout it moves the offset
+by the anchor's movement, clamped. As in CSS, nothing is anchored at offset 0,
+and the adjustment is suppressed when the anchor is gone or when a layout
+property (an inset, margin, padding, size, position or transform) changed in the
+batch on the anchor or a box between it and the scroller, or a box in the
+scroller became or stopped being absolutely positioned. Not built: the
+`overflow-anchor` property (`none` to opt out), the priority candidates (a
+focused editable, a find-in-page match), the inline axis, and Linux.
 `inert` (prop 20, boolean, absent/false by default) is now authorable through
 Contract. It preserves layout while requesting subtree input, focus and
 accessibility exclusion. The browser uses HTML inertness; iOS enforces the
@@ -453,6 +467,16 @@ with PR #47, with Charlie's rulings of 2026-09-27 where he made them; the
   macOS's `NSSegmentedControl`) reports its own the same way and fills the
   content box (LLP 1059 D2a). The former overflow deviation
   is removed (`issues/closed/20260927-tab-bar-height-to-layout.md`).
+
+**When a list row's animations start (2026-10-06, [LLP 1055](1055-svg-shapes-and-css-animations.rfc.md)
+D13; Charlie's ruling, not reviewed).** `animation-trigger` (bit 179) is
+`view | none`, and `view` is the default: an animation in a row a virtualized
+list mounted out of its port is held at its start until the row first shows.
+CSS starts it at insertion, and CSS's own `animation-trigger` is a different
+grammar; only the name is shared. The reason: a list mounts rows a viewport
+ahead, so at a slow scroll an animation started at insertion is over before
+its row is seen. The web hosts do not build it yet (the browser starts the
+animation at insertion), which is the deviation in the other direction.
 
 **Clock timelines (2026-10-03, [LLP 1055.002](1055.002-synced-animations.rfc.md)
 D2; not reviewed).** `animation-timeline` takes a third value, `clock(<ident>)`,

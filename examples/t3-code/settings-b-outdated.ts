@@ -11,9 +11,11 @@ import { obj, str, type Obj } from './domain';
 import { bridgeReply, ClientError, type Native } from './protocol';
 import { pushToast } from './toast';
 import type { T3Client } from './client';
+import { withStandardScope } from './remote-scopes';
 
 export const ORCHESTRATION_PROTOCOL_VERSION = 2;
-export type OutdatedJob = { status: string; stage: string; fromVersion: string; targetVersion: string; message: string; resultVersion: string; label: string };
+/** One T3Fleet update job; `mode` is "connected" for a connected server older than this client (server-update.ts), `attempt` numbers each start. */
+export type OutdatedJob = { status: string; stage: string; fromVersion: string; targetVersion: string; message: string; resultVersion: string; label: string; mode: string; attempt: string };
 export type Compatibility = { message: string; serverUpdateRequired: boolean };
 
 /** compatibility.ts canSelfUpdate. */
@@ -57,7 +59,7 @@ export async function probeDescriptors(native: Native, keys: string[]): Promise<
 export const probedDescriptor = (key: string): Obj | undefined => probes.get(key)?.descriptor ?? undefined;
 const decodeJob = (value: unknown): OutdatedJob => {
   const job = obj(value);
-  return { status: str(job.status), stage: str(job.stage), fromVersion: str(job.fromVersion), targetVersion: str(job.targetVersion), message: str(job.message), resultVersion: str(job.resultVersion), label: str(job.label) };
+  return { status: str(job.status), stage: str(job.stage), fromVersion: str(job.fromVersion), targetVersion: str(job.targetVersion), message: str(job.message), resultVersion: str(job.resultVersion), label: str(job.label), mode: str(job.mode, 'outdated'), attempt: str(job.attempt) };
 };
 /** Every outdated-host update job T3Fleet holds, by environment key. */
 export async function readJobs(native: Native): Promise<Record<string, OutdatedJob>> {
@@ -69,6 +71,8 @@ export async function readJobs(native: Native): Promise<Record<string, OutdatedJ
   return jobs;
 }
 export const jobFor = (key: string): OutdatedJob | undefined => jobs[key];
+/** Every job from the last read, by environment key (server-update.ts finds a connected server's by its id). */
+export const allJobs = (): Readonly<Record<string, OutdatedJob>> => jobs;
 /** Test seam: replace the jobs the page reads. */
 export function setJobs(next: Record<string, OutdatedJob>): void { jobs = next; jobsMayExist = Object.keys(next).length > 0; }
 
@@ -88,16 +92,20 @@ export function outdatedRow(key: string, label: string, descriptor: Obj | undefi
 
 /** Starts the single-flight update; T3Fleet answers at once and reports through "t3.fleet". */
 export async function startOutdatedUpdate(native: Native, key: string, label: string, fromVersion: string, targetVersion: string): Promise<boolean> {
-  const reply = await bridgeReply(native, { op: 'fleetOutdatedUpdate', fleet: key, label, fromVersion, targetVersion });
+  return (await startUpdateJob(native, key, { label, fromVersion, targetVersion })).started === true;
+}
+/** Any update job (an outdated host's, or a connected server's with `mode: "connected"`): the reply's `{ started, attempt }`. */
+export async function startUpdateJob(native: Native, key: string, request: Obj): Promise<Obj> {
+  const reply = await bridgeReply(native, { ...request, op: 'fleetOutdatedUpdate', fleet: key });
   if (!reply.ok) throw new Error(reply.error!.message);
   jobsMayExist = true;
   probes.delete(key);
-  return obj(reply.value).started === true;
+  return obj(reply.value);
 }
 
 /** preparePairingRegistration for an outdated host: saved switched off when it can update itself. */
 export async function pairOutdated(native: Native, origin: string, credential: string): Promise<Obj> {
-  const reply = await bridgeReply(native, { op: 'fleetOutdatedPair', fleet: `${origin.replace(/\/+$/, '')}\n`, credential });
+  const reply = await bridgeReply(native, { op: 'fleetOutdatedPair', fleet: `${origin.replace(/\/+$/, '')}\n`, ...withStandardScope({ credential }) });
   if (!reply.ok) throw new ClientError(reply.error!.message, reply.error!.kind);
   return obj(reply.value);
 }
@@ -111,6 +119,7 @@ export async function announceJobs(native: Native, client: T3Client | null): Pro
   if (!jobsMayExist) return;
   const current = await readJobs(native);
   for (const [key, job] of Object.entries(current)) {
+    if (job.mode === 'connected') continue; // server-update.ts announces its own (announceServerUpdates)
     const signature = `${key}\n${job.status}\n${job.message}\n${job.resultVersion}`;
     if (job.status === 'running') { for (const seen of [...announced]) if (seen.startsWith(`${key}\n`)) announced.delete(seen); continue; }
     if (announced.has(signature)) continue;

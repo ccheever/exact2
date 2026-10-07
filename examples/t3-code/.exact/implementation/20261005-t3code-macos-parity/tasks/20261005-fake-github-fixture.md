@@ -146,6 +146,8 @@ Required environment: Bun 1.4.2, the pinned reference runtime copy, no network.
 
 ## Progress
 
+2026-10-06: on hold (user decision: tasks that need a sign-in waited). 2026-10-07: the user lifted the hold. Rows that need a real account are signed in by the user in person on the lane build; every other sign-in row uses lane fixtures.
+
 Planned. No branch.
 
 ## Attempts and evidence
@@ -156,6 +158,4 @@ Planned. No branch.
 
 ## Next action
 
-Decisions needed before `prepare`: the apparatus approval (U2), the fake's location is decided (U23: `examples/t3-code/tools/fakegh/`), and whether other hosts' CLIs get fakes (U21;
-otherwise their UI states are covered by capability-driven unit tests only). Then `prepare` once
-`20261005-clone-on-exact2-main` and `20261005-desktop-oracle-and-trace` have merged, then `implement`.
+`prepare` from `feat(example)/t3-code` once the prerequisite task PRs above have merged into it; sign-in rows use lane fixtures, and real-account rows wait for the user to sign in.

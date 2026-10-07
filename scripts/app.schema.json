@@ -287,6 +287,17 @@
                 "boolean"
               ]
             },
+            "appTransportSecurity": {
+              "description": "App Transport Security keys the build writes into the iOS Info.plist's `NSAppTransportSecurity`. Absent: no key, and ATS refuses cleartext `http://` to a named host. `localNetworking` adds `NSAllowsLocalNetworking` beside these.",
+              "type": "object",
+              "properties": {
+                "allowsArbitraryLoadsInWebContent": {
+                  "type": "boolean",
+                  "description": "`NSAllowsArbitraryLoadsInWebContent`: an `iframe` loads `http://` from any host, as a browser does. Web views only; a module's `URLSession` stays under ATS. Every build carries it, store builds too, and App Review may ask why."
+                }
+              },
+              "additionalProperties": false
+            },
             "backgroundModes": {
               "type": "array",
               "items": {
@@ -315,6 +326,17 @@
           "description": "macOS: `minimumOS` (default 14.0), the first window's size, and the keys below.",
           "type": "object",
           "properties": {
+            "resources": {
+              "description": "Native-only resource trees, copied under Contents with modes and internal relative symlinks preserved. Excluded from plan assets and TypeScript capture; changing them requires a new binary. Mach-O code is signed with the bundle.",
+              "type": "array",
+              "items": {
+                "type": "object", "required": ["from", "to"], "additionalProperties": false,
+                "properties": {
+                  "from": {"type": "string", "description": "Separate directory relative to app.json, for example server. Not assets, source or output roots."},
+                  "to": {"type": "string", "description": "Private destination under Contents, for example Resources/server or Helpers/server."}
+                }
+              }
+            },
             "minimumOS": {
               "description": "The oldest macOS the app runs on, as \"14.0\"; never below 14.0.",
               "type": "string"
@@ -330,6 +352,17 @@
             "type": "string"
           }
         },
+            "appTransportSecurity": {
+              "description": "App Transport Security keys the build writes into the macOS Info.plist's `NSAppTransportSecurity`. Absent: no key, and ATS refuses cleartext `http://` to a named host.",
+              "type": "object",
+              "properties": {
+                "allowsArbitraryLoadsInWebContent": {
+                  "type": "boolean",
+                  "description": "`NSAllowsArbitraryLoadsInWebContent`: an `iframe` loads `http://` from any host, as a browser does. Web views only; a module's `URLSession` stays under ATS. Every build carries it, store builds too, and App Review may ask why."
+                }
+              },
+              "additionalProperties": false
+            },
             "team": {
               "type": "string"
             },

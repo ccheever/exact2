@@ -417,6 +417,8 @@ pub fn run<D: DataSource + Default>(config: &mut Config, started: Instant) -> i3
                     return 1;
                 }
             }
+            // What the frame moved under the resting pointer is hovered (#139).
+            p.follow_pointer();
         }
         if p.module_pending() {
             p.first_pixel();
@@ -430,10 +432,14 @@ pub fn run<D: DataSource + Default>(config: &mut Config, started: Instant) -> i3
             now,
             frame_ms,
         );
+        // An activation after this turn's paint left a commit to show: don't sleep.
+        if p.dirty() && !display.pending() {
+            timeout = 0;
+        }
         if config.dev_plan.is_some() || config.dev_url.is_some() {
             timeout = if timeout < 0 { 100 } else { timeout.min(100) };
         }
-        if p.module_pending() {
+        if p.delivery_pending() {
             timeout = if timeout < 0 { 50 } else { timeout.min(50) };
         }
         if let Some(due) = check_due {

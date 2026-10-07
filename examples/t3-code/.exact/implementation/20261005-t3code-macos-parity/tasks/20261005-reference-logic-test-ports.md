@@ -1,8 +1,8 @@
 ---
 name: 20261005-reference-logic-test-ports
 plan: 20261005-t3code-macos-parity
-implementation: planned
-verification: unverified
+implementation: blocked
+verification: blocked
 delivery: none
 repository: https://github.com/ccheever/exact2
 base_branch: daehyeon/t3-code
@@ -53,7 +53,7 @@ so find it by symbol.
 | Kind | Readable task/issue/decision | Remote reference | Required condition | Resolution evidence |
 | --- | --- | --- | --- | --- |
 | merged task PR | [20261005-reference-logic-tests-done-areas](20261005-reference-logic-tests-done-areas.md) | pending | Merged (the map exists) | pending |
-| merged task PR | [20261005-hot-file-split](20261005-hot-file-split.md) | pending | Merged | pending |
+| merged task PR | [20261005-hot-file-split](closed/20261005-hot-file-split.md) | pending | Merged | pending |
 | merged task PR | [20261005-clone-on-exact2-main](20261005-clone-on-exact2-main.md) | pending | Merged | pending |
 
 ## Issue assessment at preparation
@@ -87,6 +87,8 @@ Task-owned source paths: the ported `*.test.ts` files, the clone modules they fi
 
 ## Progress
 
+2026-10-06: dropped together with the map (user decision; #151 closed as unnecessary).
+
 Planned.
 
 ## Attempts and evidence
@@ -97,5 +99,4 @@ Planned.
 
 ## Next action
 
-After the map merges: `prepare` splits this ticket per area (plan revision), then
-`implement` the first area.
+None unless the user reverses the 2026-10-06 decision.

@@ -133,6 +133,8 @@ mod layer;
 pub use jni_sys;
 #[path = "canvas/picture.rs"]
 mod picture;
+#[path = "canvas/refine.rs"]
+mod refine;
 #[path = "canvas/shadow.rs"]
 mod shadow;
 #[path = "canvas/stream.rs"]
@@ -428,15 +430,16 @@ impl Backend for Recorder {
         self.recorded = None;
         GROUPS.with(|g| g.borrow_mut().clear());
         self.frames += 1;
-        // Pictures the presenter dropped since the last frame, and those not
-        // drawn for a while: the reader's copy (heap and texture) goes; the
-        // decoded picture, if the presenter still caches it, is sent again
-        // when it draws again. Kept rows hold their own reference.
+        // Pictures the presenter dropped, and those not drawn for a while
+        // that the reader copied: its copy goes, and is sent again when it
+        // draws again. Kept rows hold their own reference.
         let frames = self.frames;
         let dead: Vec<(usize, u32)> = self
             .images
             .iter()
-            .filter(|(_, (_, weak, used))| !weak.alive() || frames - used > self.idle)
+            .filter(|(_, (_, weak, used))| {
+                !weak.alive() || (frames - used > self.idle && !weak.shared())
+            })
             .map(|(k, (id, _, _))| (*k, *id))
             .collect();
         for (k, id) in dead {
@@ -711,10 +714,16 @@ impl Backend for Recorder {
             return 0;
         };
         // The reader's node reaches from the origin to the far edge of what
-        // the row covers.
+        // the row covers; a row that recorded nothing (a list's spacer for
+        // the rows it has not mounted, a million px tall) covers nothing.
         let s = self.scale;
-        self.ops[at + 3] = ((bounds.0 + bounds.2 + ROW_PAD).max(1.0) * s).to_bits();
-        self.ops[at + 4] = ((bounds.1 + bounds.3 + ROW_PAD).max(1.0) * s).to_bits();
+        let (w, h) = if self.ops.len() == at + 6 {
+            (1.0, 1.0)
+        } else {
+            (bounds.0 + bounds.2 + ROW_PAD, bounds.1 + bounds.3 + ROW_PAD)
+        };
+        self.ops[at + 3] = (w.max(1.0) * s).to_bits();
+        self.ops[at + 4] = (h.max(1.0) * s).to_bits();
         self.ops.push(ROW_END);
         self.ops[at + 5] = (self.ops.len() - at - 6) as u32;
         self.clips = clips;
@@ -920,6 +929,13 @@ pub struct CanvasHost<D: DataSource> {
     /// [`MOVES`]); 1000 or more also leaves the last move standing, to check
     /// a moved frame against a painted one.
     moves: u32,
+    /// The feed's travel, and the frame (a count of `moved`) by which a
+    /// paint must show rows a pass mounted out of view ([`crate::travel`]).
+    travel: crate::travel::Travel,
+    /// Scratch for a pass's row count ([`CanvasHost::refine_slice`]).
+    rows_before: Vec<(ViewId, u64)>,
+    rows_after: Vec<(ViewId, u64)>,
+    paint_by: Option<u32>,
     /// A GPU canvas wants another frame (Android: they present each frame).
     surfaces: bool,
     /// GPU canvases wait for the host's own thread: it booted on another
@@ -965,8 +981,8 @@ const MOVES_MOUNTED: u32 = 6;
 
 impl<D: DataSource + Default> CanvasHost<D> {
     /// Boot `D`'s app over a view of `size` pixels at `scale` pixels per
-    /// point. The environment is read as on Linux (`EXACT_ASSETS`, …);
-    /// `EXACT_PAINTER` is set to `canvas` here.
+    /// point. Assets use the Linux environment; the carrier directly selects
+    /// its Canvas recorder and enables the reader's native motion lowering.
     pub fn boot(
         plan: &'static [u8],
         compat: &'static str,
@@ -975,12 +991,16 @@ impl<D: DataSource + Default> CanvasHost<D> {
     ) -> Result<CanvasHost<D>, String> {
         let started = std::time::Instant::now();
         let origin_ns = monotonic_ns();
+        // Motion lowering still reads this policy; painter construction is direct.
         std::env::set_var("EXACT_PAINTER", "canvas");
-        // Eight viewports of decoded pictures, Apple's rule: the reader's copy
-        // is a GPU buffer (no heap copy, no upload), and a picture decoded
-        // again costs more than the memory it holds.
+        // Twelve viewports of decoded pictures: the reader's copy is a GPU
+        // buffer (no heap copy, no upload), a picture decoded again costs
+        // more than the memory it holds, and pictures are kept at the size
+        // they show at (`image::png_decode::DecodePlan`), so twelve hold what
+        // a fling through heavy's photos comes back to (Pixel 10 Pro XL, 24k
+        // px/s: CPU -9% against eight, end PSS 530 MB against 495; Views 485).
         if std::env::var_os("EXACT_IMAGE_VIEWPORTS").is_none() {
-            std::env::set_var("EXACT_IMAGE_VIEWPORTS", "8");
+            std::env::set_var("EXACT_IMAGE_VIEWPORTS", "12");
         }
         std::env::set_var("EXACT_SCALE", scale.to_string());
         let viewport = (size.0 as f32 / scale, size.1 as f32 / scale);
@@ -997,7 +1017,11 @@ impl<D: DataSource + Default> CanvasHost<D> {
         crate::surfaces::prepare_gpu(compat);
         let mut config = crate::app::Config::from_env_static(plan, compat);
         config.scale = scale;
-        let (p, error) = crate::app::boot_presenter::<D>(&mut config, viewport)?;
+        let (p, error) = crate::app::boot_presenter_with_painter::<D>(
+            &mut config,
+            viewport,
+            crate::presenter::PainterBoot::canvas(),
+        )?;
         if let Some(e) = error {
             eprintln!("exact: {e}");
         }
@@ -1019,6 +1043,10 @@ impl<D: DataSource + Default> CanvasHost<D> {
             scrolled: false,
             prefetching: false,
             quiet: None,
+            travel: crate::travel::Travel::default(),
+            rows_before: Vec::new(),
+            rows_after: Vec::new(),
+            paint_by: None,
             moves: std::env::var("EXACT_MOVES")
                 .ok()
                 .and_then(|v| v.parse().ok())
@@ -1127,6 +1155,10 @@ impl<D: DataSource + Default> CanvasHost<D> {
         }
         if !quick {
             p.poll_images();
+            // The pump may have drained the wake of a data source that finished loading.
+            if p.module_pending() {
+                p.first_pixel();
+            }
         }
         if let Some(shift) = self.shift(now) {
             return Some(shift);
@@ -1149,6 +1181,7 @@ impl<D: DataSource + Default> CanvasHost<D> {
             groups: GROUPS.with(|g| g.borrow().clone()),
         });
         self.moved = 0;
+        self.paint_by = None;
         self.force = false;
         self.quiet = None;
         let mut ops = FINISHED.with(|f| f.borrow_mut().take())?;
@@ -1207,6 +1240,10 @@ impl<D: DataSource + Default> CanvasHost<D> {
         }
         self.p.run_commands(D::default);
         self.p.poll_images();
+        // The executor fd also wakes when a data source finishes loading.
+        if self.p.module_pending() {
+            self.p.first_pixel();
+        }
         self.animating()
     }
 
@@ -1217,83 +1254,6 @@ impl<D: DataSource + Default> CanvasHost<D> {
             || self.p.needs_animation_frame()
             || self.p.host().wants_frames()
             || self.surfaces
-    }
-
-    /// When only scrollers whose rows the last paint drew moved since it,
-    /// and nothing else it showed changed: the move, instead of a paint.
-    /// The collection pass a scroll left for after its frame (rows mount and
-    /// retire there, not inside the next frame's scroll); from now on scrolls
-    /// leave it. Whether a frame is wanted after it.
-    pub fn refine(&mut self) -> bool {
-        self.refine_slice(None, 0.0)
-    }
-
-    /// [`CanvasHost::refine`], building at most `limit` rows past what shows
-    /// per list (a slice; `None`: whole windows), the scrolled list leading
-    /// toward `velocity` (logical px/s). Whether a paint is wanted; the
-    /// rest a slice left is [`CanvasHost::refine_pending`].
-    pub fn refine_slice(&mut self, limit: Option<u32>, velocity: f64) -> bool {
-        let _s = Section::begin(c"exact refine");
-        self.p.slice_collections(limit, velocity);
-        let wanted = self.refine_inner();
-        self.p.slice_collections(None, 0.0);
-        wanted
-    }
-
-    /// The scroller [`CanvasHost::scroll`] moves, once a scroll found it.
-    pub fn feed(&self) -> Option<ViewId> {
-        self.feed
-    }
-
-    /// Device pixels per logical pixel.
-    pub fn scale(&self) -> f32 {
-        self.scale
-    }
-
-    /// Whether a slice left rows to build.
-    pub fn refine_pending(&self) -> bool {
-        self.p.collections_pending()
-    }
-
-    fn refine_inner(&mut self) -> bool {
-        self.scrolled = false;
-        self.prefetching = true;
-        // Pictures coming into view while frames move: requested now, where
-        // their rows are, not at the next paint.
-        if self.moved > 0 {
-            if let Some(painted) = &self.painted {
-                let now = self.p.scroll_offsets();
-                let moved: std::collections::BTreeMap<ViewId, (f32, f32)> = painted
-                    .groups
-                    .iter()
-                    .map(|(id, at)| {
-                        let to = now.get(id).copied().unwrap_or((0.0, 0.0));
-                        (*id, (at.0 - to.0, at.1 - to.1))
-                    })
-                    .collect();
-                if let Some(e) = self.p.sync_images_moved(&moved) {
-                    eprintln!("exact: {e}");
-                }
-            }
-        }
-        let before = self.p.still();
-        let wanted = self.p.refine_deferred(true);
-        // Only the pass changed the kernel (rows out of view): no paint now.
-        let after = self.p.still();
-        let painted = self.painted.as_ref().map(|p| &p.still);
-        match (before, after, painted) {
-            (Some(b), Some(a), Some(p))
-                if (b == *p || self.quiet.is_some_and(|e| p.same_at(&b, e))) && b != a =>
-            {
-                let epoch = self.p.host().kernel().epoch();
-                if p.same_at(&a, epoch) {
-                    self.quiet = Some(epoch);
-                    return false;
-                }
-                wanted
-            }
-            _ => wanted,
-        }
     }
 
     /// Whether a moved paint owes a paint: once moves pause (a frame
@@ -1315,7 +1275,8 @@ impl<D: DataSource + Default> CanvasHost<D> {
             self.moves.min(MOVES_MOUNTED)
         } else {
             self.moves
-        };
+        }
+        .min(self.paint_by.unwrap_or(u32::MAX));
         if !p.dirty() || self.force || self.moved >= limit {
             return None;
         }
@@ -1391,6 +1352,7 @@ impl<D: DataSource + Default> CanvasHost<D> {
         let (x, y) = (self.viewport.0 / 2.0, self.viewport.1 / 2.0);
         let _s = Section::begin(c"exact scroll");
         self.scrolled = self.prefetching;
+        self.travel.scrolled(dy / self.scale);
         self.p.hold_collections(self.prefetching);
         // The feed: the scroller the first wheel at the centre took, moved
         // directly after (a nested list under the centre would take it).

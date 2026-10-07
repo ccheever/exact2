@@ -91,7 +91,7 @@ Rules for lane runs: attended rows build the lane app with `T3_LOCAL_HOME=<lane>
 | --- | --- | --- | --- | --- |
 | resolved framework issue | [X1 embedded browser engine](../issues/20261005-x01-chromium-cdp-browser-surface.md) | none yet (local draft) | Charlie\'s decision on the DEFERRED browser-shell rule and a chosen path; for path A also the support merged upstream (path B needs no exact2 change) | pending |
 | merged task PR | [20261005-clone-on-exact2-main](20261005-clone-on-exact2-main.md) | pending | Merged | pending |
-| merged task PR | [20261005-hot-file-split](20261005-hot-file-split.md) | pending | Merged into `daehyeon/t3-code` (common prerequisite: room and per-area seams in the shared files) | pending |
+| merged task PR | [20261005-hot-file-split](closed/20261005-hot-file-split.md) | pending | Merged into `daehyeon/t3-code` (common prerequisite: room and per-area seams in the shared files) | pending |
 | merged task PR | [20261005-desktop-oracle-and-trace](20261005-desktop-oracle-and-trace.md) | pending | Merged (oracle and trace tools for the Browser surface) | pending |
 | scheduling preference | After `20261005-right-panel-tab-menu` (Mute slot), `20261005-floating-device-player` (player layout), `20261005-terminal-integrations` (link routing hook) | none | Not prerequisites | — |
 
@@ -102,7 +102,7 @@ Checked sources and time: plan issue drafts in [issues](../issues/README.md), 20
 | Issue / reference | Capability and target | Evidence / affected revision | Impact | Next action |
 | --- | --- | --- | --- | --- |
 | [X1](../issues/20261005-x01-chromium-cdp-browser-surface.md) | Embedded browser engine and Charlie's waiver | `EXACT2-GAPS.md` X1 | blocking | Wait for the decision; then complete the **P** rows |
-| [X8](../issues/20261005-x08-agent-pointer-native-views.md) | Pointer input for native views | `EXACT2-GAPS.md` X8 | nonblocking (workaround: `(attended session)`) | Page clicks, drags, annotate drawing and resize handles on the guest are attended; handles in Contract are agent-driven |
+| [X8](../issues/closed/20261005-x08-agent-pointer-native-views.md) | Pointer input for native views | `EXACT2-GAPS.md` X8 | nonblocking (workaround: `(attended session)`) | Page clicks, drags, annotate drawing and resize handles on the guest are attended; handles in Contract are agent-driven |
 | [X21](../issues/20261005-x21-two-way-websocket.md) | Two-way WebSocket | LLP 1016.000 receive-only | nonblocking (workaround: Swift transport) | Add the preview RPCs and the `previewAutomation.*` stream to `T3Transport.swift` |
 | [X22](../issues/20261005-x22-reactive-layout-facts.md) | Slot rect of the guest view | `t3-frame` hooks | nonblocking (workaround exists) | Report the slot's rect to the native view |
 | [X25](../issues/20261005-x25-keyboard-keyup-code-capture.md) | Key facts and the `previewFocus` context | native key monitors | nonblocking | The guest swallows keys; forward ⌘R, ⌘L, ⌘= ⌘- ⌘0 as `PreviewKeyboard.ts` does |

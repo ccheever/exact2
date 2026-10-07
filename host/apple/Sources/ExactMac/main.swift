@@ -305,12 +305,15 @@ let session = firstWindow.session
 let view = firstWindow.view
 let window = firstWindow.window
 window.center()
-if !agentMode && !smoke && !windowConfig.isEmpty,
-   let identity = ExactEnv.appMetadata["CFBundleIdentifier"] as? String {
-    let frameName = identity + ".main"
-    window.setFrameUsingName(frameName)
-    window.setFrameAutosaveName(frameName)
-}
+/// The frame the window was left at (its autosave). AppKit keeps the content
+/// rect when `.fullSizeContentView` or a toolbar goes in, so a frame restored
+/// only before the window's chrome lost the titlebar's height at every launch
+/// (#113). It is restored before boot, so the plan boots near its size, and
+/// again once the window has its final style (`finishLaunching`), which is
+/// when the name goes on: setting it saves the current frame.
+let frameName = !agentMode && !smoke && !windowConfig.isEmpty
+    ? (ExactEnv.appMetadata["CFBundleIdentifier"] as? String).map { $0 + ".main" } : nil
+if let frameName { window.setFrameUsingName(frameName) }
 // Agent-driven apps run side by side (every session's smoke launches one):
 // centred, each would cover the last and starve its Metal layer of drawables.
 // Spread them by pid so no window is fully hidden.
@@ -418,6 +421,16 @@ final class Delegate: NSObject, NSApplicationDelegate {
         return .terminateLater
     }
     var quitting: StorageHold?
+    /// The quit is decided, however it came (⌘Q, the app menu, an Apple
+    /// Event, the last window closing): every session still live goes now,
+    /// synchronously, so each native module's `destroy()` runs before the
+    /// process ends ("destroyed with the session", LLP 1067.000 D3). A closed
+    /// window's own teardown (`windowWillClose`) waits for the next turn of
+    /// the run loop, which the last window's never gets; `destroy()` runs
+    /// once whichever comes first. Nothing is held (LLP 1069.010 Q4).
+    func applicationWillTerminate(_ notification: Notification) {
+        for session in exact.sessions { session.destroy() }
+    }
     func applicationDidFinishLaunching(_ notification: Notification) {
         ExactEnv.stamp("didFinishLaunching")
         finishLaunching()
@@ -516,6 +529,13 @@ func finishLaunching() {
     let rustMs = session.rustMs
     let applyMs = session.applyMs
     let bootMs = session.bootMs
+    // Its final style, then the frame it was left at — before a document
+    // routed below can bring the window forward.
+    firstWindow.coverChrome()
+    if let frameName {
+        window.setFrameUsingName(frameName)
+        window.setFrameAutosaveName(frameName)
+    }
     // Becoming key can synchronously announce readiness. Initialize the guard
     // before ordering the window, not afterward (two stdin readers otherwise).
     if !launchDocuments.isEmpty {

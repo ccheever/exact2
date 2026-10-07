@@ -1,6 +1,7 @@
 // Settings → Providers: T3's ProviderSettingsPanel projected for Contract, and
 // the provider-instance writes it offers. Every write reads fresh server
 // settings first and changes only the selected instance (atomic mutation).
+import { providerAuthOp, providerAuthView } from './provider-auth-terminal';
 import { obj, str, arr, num, type Obj } from './domain';
 import { ClientError, type Native } from './protocol';
 import { pushToast } from './toast';
@@ -9,6 +10,7 @@ import type { T3Client } from './client';
 import { favoriteSlugs, groupModels, instancePrefs, runModelPrefOp, MODEL_PREF_OPS } from './settings-b-models';
 import { DRIVERS, driverMeta, instanceEnabled, sameValue, versionLabel, providerSummary, versionAdvisory, checkedLabel,
   slugifyLabel, validateInstanceId, deriveAvailableInstanceId, type Driver, type DriverField } from './providers-meta';
+import { letGo } from './let-go';
 
 export interface ProviderHost {
   config: Obj; ready: boolean; writable: boolean; local: { favoriteModels: string[] };
@@ -103,7 +105,7 @@ function editorFor(host: ProviderHost, row: Row, live: Obj[]) {
   const hiddenCount = display.filter(entry => !entry.model.isCustom && hiddenSet.has(entry.model.slug)).length;
   const builtIn = display.filter(entry => !entry.model.isCustom);
   return {
-    id: row.id, key: row.id, driver: row.driver, title: displayName,
+    id: row.id, key: row.id, driver: row.driver, title: displayName, auth: providerAuthView(host, row.id, provider),
     nameRows: [{ key: `${row.id}:${str(row.instance.displayName)}` }], // the accent picker keeps its popover open across commits
     modelBlocks: [{ key: `${row.id}:${hash(JSON.stringify(config.customModels ?? null))}` }],
     displayName: str(row.instance.displayName), placeholder: meta?.label || 'Instance label', accent: str(row.instance.accentColor), ...accentHsv(str(row.instance.accentColor)),
@@ -256,6 +258,7 @@ const toastOf = (host: ProviderHost) => host as unknown as T3Client;
 
 /** One provider-settings write. `value` is the JSON the Contract action built through app.ts. */
 export async function runProviderOp(host: ProviderHost, native: Native, op: string, id: string, value: string): Promise<string> {
+  if (op.startsWith('provider-auth-')) { await providerAuthOp(host, native, op, id, value); return ''; }
   try { return await providerOp(host, native, op, id, value); }
   catch (error) {
     if (!TOASTED.includes(op) || !(error instanceof ClientError) || ['client', 'stale', 'superseded'].includes(error.kind)) throw error;
@@ -293,7 +296,7 @@ async function providerOp(host: ProviderHost, native: Native, op: string, id: st
         const copied = await native.later({ op: 'copyText', text: command }) as Obj;
         if (copied?.ok !== true) throw new ClientError('Could not copy the command.');
         pushToast(toastOf(host), { kind: 'success', title: `${name} update command copied`, description: 'Run it in a terminal when you are ready to update.' });
-      } catch (error) { pushToast(toastOf(host), { kind: 'error', title: `Could not copy ${name} update command`, description: error instanceof Error ? error.message : '', stacked: true }); }
+      } catch (error) { if (letGo(error)) throw error; pushToast(toastOf(host), { kind: 'error', title: `Could not copy ${name} update command`, description: error instanceof Error ? error.message : '', stacked: true }); }
       return '';
     }
     const label = driverMeta(str(provider.driver))?.label || str(provider.driver);
@@ -301,7 +304,7 @@ async function providerOp(host: ProviderHost, native: Native, op: string, id: st
       await host.rpc(native, 'server.updateProvider', { provider: str(provider.driver), instanceId: id, ...(input.value ? { targetVersion: str(input.value) } : {}) }, true);
       await host.rpc(native, 'server.refreshProviders', {});
       await refreshConfig(host, native);
-    } catch (error) { pushToast(toastOf(host), { kind: 'error', title: `Could not update ${label}`, description: error instanceof Error ? error.message : 'The provider update command could not be started.', stacked: true }); }
+    } catch (error) { if (letGo(error)) throw error; pushToast(toastOf(host), { kind: 'error', title: `Could not update ${label}`, description: error instanceof Error ? error.message : 'The provider update command could not be started.', stacked: true }); }
     return '';
   }
   if (MODEL_PREF_OPS.includes(op)) {
@@ -355,6 +358,7 @@ async function providerOp(host: ProviderHost, native: Native, op: string, id: st
     if (row.driver === 'acpRegistry' && str(config.agentId)) {
       try { await host.rpc(native, 'server.uninstallAcpRegistryManagedBinary', { agentId: str(config.agentId) }, true); }
       catch (error) {
+        if (letGo(error)) throw error;
         await refreshConfig(host, native);
         pushToast(toastOf(host), { kind: 'warning', title: 'Provider deleted, but managed files remain', description: error instanceof Error ? error.message : 'Managed binary cleanup failed.' });
         return '';
@@ -470,7 +474,7 @@ async function createInstance(host: ProviderHost, native: Native, op: string, id
   return '';
 }
 
-export const PROVIDER_OPS = ['provider-create', 'provider-add', 'provider-name', 'provider-display', 'provider-enabled', 'provider-remove', 'provider-reset',
+export const PROVIDER_OPS = ['provider-auth-start', 'provider-auth-cancel', 'provider-auth-event', 'provider-create', 'provider-add', 'provider-name', 'provider-display', 'provider-enabled', 'provider-remove', 'provider-reset',
   'provider-accent', 'provider-field', 'provider-env-field', 'provider-env-add', 'provider-env-name', 'provider-env-value', 'provider-env-sensitive', 'provider-env-remove', 'provider-model-add',
   'provider-model-remove', 'provider-model-rename', 'provider-hub-add', 'provider-hub-remove', 'provider-chatgpt', 'provider-refresh', 'provider-health', 'provider-cursor-usage', 'acp-prepare', 'provider-update', 'provider-copy-command', ...MODEL_PREF_OPS];
 export type { Driver };

@@ -69,8 +69,8 @@ is "Nothing has happened…" (`contract:489`), the reference says "No activity y
 | merged task PR | [20261005-clone-on-exact2-main](20261005-clone-on-exact2-main.md) | pending | Merged | pending |
 | merged task PR | [20261005-desktop-oracle-and-trace](20261005-desktop-oracle-and-trace.md) | pending | Merged (oracle shots, trace diff) | pending |
 | merged task PR | [20261005-fake-github-fixture](20261005-fake-github-fixture.md) | pending | Activity, thread, injection verbs served | pending |
-| scheduling preference | [20261005-main-fix-adoption](20261005-main-fix-adoption.md) | pending | Merged first if popover/tooltip Contract is edited | pending |
-| merged task PR | [20261005-hot-file-split](20261005-hot-file-split.md) | pending | Merged into `daehyeon/t3-code` (common prerequisite: room and per-area seams in the shared files) | pending |
+| scheduling preference | [20261005-main-fix-adoption](closed/20261005-main-fix-adoption.md) | pending | Merged first if popover/tooltip Contract is edited | pending |
+| merged task PR | [20261005-hot-file-split](closed/20261005-hot-file-split.md) | pending | Merged into `daehyeon/t3-code` (common prerequisite: room and per-area seams in the shared files) | pending |
 
 ## Issue assessment at preparation
 
@@ -129,6 +129,8 @@ Required environment: macOS 26.6.2, Xcode 27.0, Bun 1.4.2, fake gh, reference or
 
 ## Progress
 
+2026-10-06: on hold (user decision: tasks that need a sign-in waited). 2026-10-07: the user lifted the hold. Rows that need a real account are signed in by the user in person on the lane build; every other sign-in row uses lane fixtures.
+
 Planned. No branch.
 
 ## Attempts and evidence
@@ -139,4 +141,4 @@ Planned. No branch.
 
 ## Next action
 
-`prepare` after `20261005-fake-github-fixture` and `20261005-hot-file-split` merge; decide the idle-rule input and the sticky-heading result there.
+`prepare` from `feat(example)/t3-code` once the prerequisite task PRs above have merged into it; sign-in rows use lane fixtures, and real-account rows wait for the user to sign in.

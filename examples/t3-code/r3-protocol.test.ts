@@ -2,7 +2,7 @@
 import { describe, test, expect } from 'bun:test';
 import { ClientError, reply, bridgeReply, applyConfig, type Native } from './protocol';
 import { keybindingsToastDecision, configEventSideEffects } from './r3-protocol-config';
-import { beginRead, traceRpc, statusTicket, settleTraces } from './r3-protocol-reader';
+import { traceRpc, statusTicket, settleTraces } from './r3-protocol-reader';
 import { tracking } from './shell-slow';
 import { toasts } from './toast';
 import { T3Client } from './client';
@@ -72,18 +72,6 @@ describe('config stream folding (0080e80, serverConfigProjection.ts)', () => {
 });
 
 describe('abandon-safe reads and traces', () => {
-  test('a read tags every request and ends with readEnd', async () => {
-    const seen: Obj[] = [];
-    const native: Native = { available: true, watch() {}, later: async request => { seen.push(obj(request)); return { ok: true, generation: 1, value: {} }; } };
-    const read = beginRead(native, 7);
-    await read.native.later({ op: 'status' });
-    await read.end();
-    expect(seen.map(request => [request.op, request.reader])).toEqual([['status', 7], ['readEnd', 7]]);
-    expect(typeof seen[0]!.readerSession).toBe('string');
-    expect(seen[0]!.readerSession).toBe(seen[1]!.readerSession);
-    const failing = beginRead({ available: true, watch() {}, later: async () => { throw new Error('gone'); } }, 8);
-    await failing.end(); // never throws: the gate's idle release covers a lost readEnd
-  });
   test('a request whose reply was dropped stops counting as slow once the transport no longer lists it', () => {
     const client = new T3Client();
     const lost = traceRpc(client, { op: 'request', method: 'server.getConfig', payload: {} });
@@ -101,7 +89,7 @@ describe('abandon-safe reads and traces', () => {
     lost.done(); // a late normal completion stays harmless
     expect(settleTraces(client, {}, statusTicket(client))).toBe(0);
   });
-  test('the snapshot read is tagged end to end and releases the gate', async () => {
+  test('the snapshot read needs no reader tags or readEnd since exact2 #183', async () => {
     const seen: Obj[] = [];
     const later = async (input: unknown) => {
       const request = obj(input); seen.push(request);
@@ -114,9 +102,8 @@ describe('abandon-safe reads and traces', () => {
     const client = new T3Client();
     const files = { fs: { async mkdir() {}, async readFile(): Promise<ArrayBuffer> { throw new Error('missing'); }, async atomicWriteFile() {} } };
     await client.refresh(native, files);
-    expect(seen.at(-1)!.op).toBe('readEnd');
-    const reader = seen.at(-1)!.reader;
-    expect(seen.filter(request => request.op !== 'readPreferences').every(request => request.reader === reader)).toBe(true);
+    expect(seen.some(request => request.op === 'status')).toBe(true);
+    expect(seen.filter(request => request.op === 'readEnd' || 'reader' in request || 'readerSession' in request)).toEqual([]);
   });
 });
 

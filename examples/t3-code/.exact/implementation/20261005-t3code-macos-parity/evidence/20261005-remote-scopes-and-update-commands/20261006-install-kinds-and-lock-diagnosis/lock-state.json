@@ -1,0 +1,8 @@
+{
+  "observed_at": "2026-10-06T06:13:04.273254+00:00",
+  "facts": {
+    "IOConsoleLocked": "Yes",
+    "CGSSessionScreenIsLocked": "Yes"
+  },
+  "user_reply": "Cannot unlock now"
+}

@@ -6,12 +6,12 @@
 // the preview over `projects.readFile` with syntax colour, and edits written back with
 // `projects.writeFile` (latest contents win; a save in flight is followed by the newest).
 import type { T3Client } from './client';
-import { arr, num, str, type Obj } from './domain';
+import { arr, num, obj, str, type Obj } from './domain';
 import type { Native } from './protocol';
 import { pushToast } from './toast';
 import { fileIconToken } from './timeline-files';
 import { lineTokens } from './timeline-diff-syntax';
-import { EDITORS, preferredEditor, rememberEditor } from './shell-details';
+import { EDITORS, lastEditor, preferredEditor, rememberEditor } from './shell-details';
 import { workspaceOf, panelState, type Surface, type PanelState } from './r4-surfaces-panel';
 import { markdownDocument, tableRows, type Document } from './r4-surfaces-render';
 import { textWidth } from './pages-text-width';
@@ -21,6 +21,14 @@ import { crumbsMask, crumbsShift } from './r7-polish-crumbs'; // lane r7-polish:
 import { crumbsOffset, noteFirstRead, settleCrumbs, settleMounted, sourceGutter } from './r9-device-crumbs'; // lane r9-device: where the trail settles
 import { contentRevision, htmlPage, htmlToggleLabel, isHtmlPath } from './r10-device-files-html'; // lane r10-device: rendered HTML
 import { crumbsMounting, loadBegin, loadEnd, missingFolders, noteReveal, revealStale } from './r10-device-crumbs'; // lane r10-device: a mounting preview settles at the end
+import { canUseMarkdownFileShellActions, loadSshAliases, openInEditorHere, openInView, remoteOpenFor } from './remote-open'; // remote Open (OpenInPicker)
+import { fileComment, fileCommentLines, fileCommentOpen, type FileLine } from './diff-file-comments'; // diff-review: line comments on the preview
+import { filesMediaView, NO_MEDIA, type MediaView } from './media-views'; // media-actions: image and video files with their menu
+import { letGo } from './let-go';
+import { filesTreeMenu, showContextMenu } from './context-menu-actions'; // context-menu-gaps
+import { availableEditorIds, markdownFileMenuItems, revealLabelFor } from './context-menus';
+import { mediaMimeTypeFromExtension } from './media-source';
+import { openMarkdownMediaPreview } from './timeline-attachments';
 
 export type TreeRow = { id: string; path: string; name: string; depth: number; directory: boolean; expanded: boolean; selected: boolean; token: string; ignored: boolean; guides: { id: string; left: number }[] };
 export type Crumb = { id: string; label: string; path: string; current: boolean; directory: boolean };
@@ -32,11 +40,11 @@ export type CrumbMenu = { open: boolean; root: string; x: number; back: string; 
 export type FilesView = {
   cwd: string; project: string; ready: boolean; loading: boolean; error: string; query: string; truncated: boolean;
   rows: TreeRow[]; hasDirectories: boolean; allExpanded: boolean; explorer: boolean; showExplorer: boolean;
-  path: string; preview: string; previewError: string; crumbs: Crumb[]; lines: CodeLine[]; text: string; textKey: string;
+  path: string; preview: string; previewError: string; crumbs: Crumb[]; lines: FileLine[]; commentOpen: boolean; text: string; textKey: string;
   gutter: number; wrap: boolean; truncatedNote: string; canRender: boolean; rendered: boolean; renderLabel: string; renderIcon: string;
-  editable: boolean; pending: boolean; editorId: string; editorLabel: string; editors: EditorChoice[]; absolutePath: string;
+  editable: boolean; pending: boolean; editorId: string; editorLabel: string; editorShow: boolean; editorHint: string; editorUnavailable: string; editors: EditorChoice[]; absolutePath: string;
   markdown: Document; code: never[]; table: { id: string; header: boolean; cells: CodeRun[] }[]; editing: boolean; editorText: string; editorsOpen: boolean; crumbMenu: CrumbMenu; crumbsMask: string; crumbsOffset: number;
-  url: string;
+  url: string; media: MediaView;
 };
 type Entry = { path: string; kind: 'file' | 'directory'; ignored: boolean };
 type Read = { contents: string; byteLength: number; truncated: boolean; error: string; notFile: boolean };
@@ -89,7 +97,7 @@ async function loadDirectory(client: T3Client, native: Native, path: string, ref
     const entries = arr(result.entries).map(toEntry).filter((entry): entry is Entry => !!entry && parentOf(entry.path) === path);
     state.dirs.set(path, sortEntries(entries)); state.errors.delete(path);
   } catch (error) {
-    if (filesState(client) === state) state.errors.set(path, message(error));
+    if (filesState(client) === state && !letGo(error)) state.errors.set(path, message(error));
   } finally { loadEnd(state, `dir:${path}`); }
 }
 export async function ensureTree(client: T3Client, native: Native): Promise<void> {
@@ -106,7 +114,7 @@ async function readFile(client: T3Client, native: Native, path: string): Promise
     if (filesState(client) !== state) return;
     state.reads.set(path, { contents: str(result.contents), byteLength: num(result.byteLength), truncated: result.truncated === true, error: '', notFile: false });
   } catch (error) {
-    if (filesState(client) !== state) return;
+    if (filesState(client) !== state || letGo(error)) return;
     const text = message(error);
     state.reads.set(path, { contents: '', byteLength: 0, truncated: false, error: text, notFile: /not a file|path_not_file|is a directory/i.test(text) });
   } finally { loadEnd(state, `read:${path}`); }
@@ -151,7 +159,7 @@ async function search(client: T3Client, native: Native, query: string): Promise<
     if (filesState(client) !== state || state.query !== query) return;
     state.search = { query: trimmed, entries: arr(result.entries).map(toEntry).filter((entry): entry is Entry => !!entry), truncated: result.truncated === true, error: '' };
   } catch (error) {
-    if (filesState(client) === state && state.query === query) state.search = { query: trimmed, entries: [], truncated: false, error: message(error) };
+    if (filesState(client) === state && state.query === query && !letGo(error)) state.search = { query: trimmed, entries: [], truncated: false, error: message(error) };
   } finally { loadEnd(state, 'search'); }
 }
 
@@ -184,6 +192,7 @@ export async function editFile(client: T3Client, native: Native, path: string, c
       await client.restAccess(native).request('projects.writeFile', { cwd, relativePath: path, contents: text }, true);
       edit.confirmed = revision; edit.error = '';
     } catch (error) {
+      if (letGo(error)) { edit.saving = false; throw error; }
       edit.error = message(error); edit.saving = false;
       pushToast(client, { kind: 'error', title: 'Failed to save file', description: edit.error, stacked: true });
       return;
@@ -199,6 +208,8 @@ export function pendingPaths(client: T3Client): Set<string> {
 
 /** `shelllocal:surface-files-*`. */
 export async function filesLocal(client: T3Client, native: Native, op: string, id: string, value: string): Promise<string> {
+  if (op === 'link-menu') { await markdownFileMenu(client, native, id); return ''; }
+  if (op === 'row-menu') { await filesTreeMenu(client, native, id); return ''; } // context-menu-actions.ts
   const state = filesState(client), preferences = prefsOf(client);
   if (op === 'toggle') {
     if (state.expanded.has(id)) { state.expanded.delete(id); state.expandAll = false; }
@@ -206,6 +217,7 @@ export async function filesLocal(client: T3Client, native: Native, op: string, i
     return '';
   }
   if (op === 'search') { await search(client, native, value); return ''; }
+  if (op.startsWith('comment-')) return fileComment(client, native, op.slice(8), id, value, state.reads.get(id)?.contents ?? ''); // diff-file-comments.ts
   if (op === 'search-key') { if (value === 'Escape') await search(client, native, ''); return ''; }
   if (op === 'begin-edit') {
     const read = state.reads.get(id);
@@ -244,25 +256,72 @@ export async function filesLocal(client: T3Client, native: Native, op: string, i
   if (op === 'crumb-close') { state.crumb = null; return ''; }
   if (op === 'open-editor') {
     state.editorsOpen = false;
-    const editor = value || editorFor(client).editorId;
-    if (!editor) { pushToast(client, { kind: 'error', title: 'Unable to open in editor', description: `No available editor can open ${id}.` }); return ''; }
-    await client.restAccess(native).request('shell.openInEditor', { cwd: id, editor });
-    rememberEditor(client, editor);
+    const choices = await editorFor(client, native);
+    if (!choices.editorShow) return '';
+    if (choices.editorUnavailable) { pushToast(client, { kind: 'error', title: 'Unable to open in editor', description: choices.editorUnavailable }); return ''; }
+    const editor = value || choices.editorId;
+    if (!editor || !choices.editors.some(choice => choice.id === editor)) { pushToast(client, { kind: 'error', title: 'Unable to open in editor', description: `No available editor can open ${id}.` }); return ''; }
+    if (await openInEditorHere(client, native, id, editor)) rememberEditor(client, editor); // remote Open as the details card does (remote-open.ts)
     return '';
   }
   return '';
+}
+
+/**
+ * ChatMarkdown's file-link menu (context-menus.ts markdownFileMenuItems): "Preview media" for a
+ * media file, the open item named for the preferred editor and the server-worded reveal only for
+ * a resolved local environment, then the copies.
+ */
+export async function markdownFileMenu(client: T3Client, native: Native, target: string): Promise<void> {
+  if (!target) return;
+  const environment = client.environmentId, origin = client.origin;
+  await loadSshAliases(native);
+  const remote = remoteOpenFor(client);
+  const canOpen = canUseMarkdownFileShellActions(environment || null, remote.state.mode, remote.resolved);
+  const available = availableEditorIds(client.config);
+  const editor = preferredEditor(available, lastEditor(client)) || null;
+  const filePath = target.replace(/:\d+(?::\d+)?$/, ''), name = baseName(filePath), dot = name.lastIndexOf('.');
+  const canPreviewMedia = !!client.threadId && dot >= 0 && mediaMimeTypeFromExtension(name.slice(dot)) !== null;
+  const items = markdownFileMenuItems({ canPreviewMedia, canOpen, preferredEditor: editor, revealLabel: revealLabelFor(client.config, environment || null) });
+  const picked = await showContextMenu(client, native, items);
+  if (!picked || client.environmentId !== environment || client.origin !== origin) return;
+  // openMarkdownMedia: the expanded media dialog with the link's media (timeline-attachments.ts).
+  if (picked === 'preview-media') {
+    try { await openMarkdownMediaPreview(client, native, target, workspaceOf(client).cwd); }
+    catch (error) { if (letGo(error)) throw error; pushToast(client, { kind: 'error', title: 'Media unavailable', description: error instanceof Error ? error.message : 'The file could not be loaded. It may have been moved or deleted.', stacked: true }); }
+    return;
+  }
+  // Recheck after the native menu closes; a menu from another route cannot execute there.
+  const current = remoteOpenFor(client);
+  if (picked === 'open' || picked === 'reveal') {
+    if (!canUseMarkdownFileShellActions(environment || null, current.state.mode, current.resolved)) return;
+    const failed = (description: string): void => { pushToast(client, { kind: 'error', title: picked === 'open' ? 'Unable to open file' : 'Unable to reveal file', description, stacked: true }); };
+    try {
+      if (picked === 'reveal') { await client.restAccess(native).request('shell.openInEditor', { cwd: filePath, editor: 'file-manager', reveal: true }); return; }
+      // useOpenInPreferredEditor: resolveAndPersistPreferredEditor, then open.
+      if (!editor) return failed(`No available editor can open ${target} in environment ${environment}.`);
+      rememberEditor(client, editor);
+      if (!await openInEditorHere(client, native, target, editor)) failed('An error occurred.');
+    } catch (error) { if (letGo(error)) throw error; failed(error instanceof Error && error.message ? error.message : 'An error occurred.'); }
+    return;
+  }
+  const root = workspaceOf(client).cwd.replace(/\/+$/, '');
+  const text = picked === 'copy-relative' && root && target.startsWith(`${root}/`) ? target.slice(root.length + 1) : target;
+  await client.restAccess(native).call({ op: 'copyText', text });
 }
 
 function allExpanded(state: FilesState): boolean {
   const folders = [...state.dirs.values()].flat().filter(entry => entry.kind === 'directory');
   return folders.length > 0 && folders.every(entry => state.expanded.has(entry.path));
 }
-function editorFor(client: T3Client) {
+async function editorFor(client: T3Client, native: Native) {
   const raw: unknown[] = Array.isArray(client.config.availableEditors) ? client.config.availableEditors : [];
   const available = raw.filter((value): value is string => typeof value === 'string' && EDITORS.some(([id]) => id === value));
-  const editorId = preferredEditor(available, '');
+  const openIn = await openInView(client, native, available, workspaceOf(client).projectName);
+  const editorId = preferredEditor(openIn.editors, '');
   const label = (id: string) => EDITORS.find(([candidate]) => candidate === id)?.[1] ?? id;
-  return { editorId, editorLabel: editorId ? `Open in ${label(editorId)}` : '', editors: available.map(id => ({ id, label: label(id), selected: id === editorId })) };
+  return { editorId, editorLabel: editorId ? `Open in ${label(editorId)}` : 'Open in editor', editorShow: openIn.show, editorHint: openIn.hint, editorUnavailable: openIn.unavailable,
+    editors: openIn.unavailable ? [] : openIn.editors.map(id => ({ id, label: label(id), selected: id === editorId })) };
 }
 
 /** The tree as visible rows: expanded folders' children, single-folder chains flattened (flattenEmptyDirectories). */
@@ -350,9 +409,9 @@ export function codeLines(path: string, contents: string): CodeLine[] {
 
 export const emptyFiles = (): FilesView => ({
   cwd: '', project: '', ready: false, loading: false, error: '', query: '', truncated: false, rows: [], hasDirectories: false, allExpanded: false,
-  explorer: true, showExplorer: true, path: '', preview: '', previewError: '', crumbs: [], lines: [], text: '', textKey: '', gutter: 0, wrap: true,
-  truncatedNote: '', canRender: false, rendered: false, renderLabel: '', renderIcon: '', editable: false, pending: false, editorId: '', editorLabel: '', editors: [], absolutePath: '',
-  markdown: { id: '', blocks: [] }, code: [], table: [], editing: false, editorText: '', editorsOpen: false, crumbMenu: closedCrumbs(), crumbsMask: 'none', crumbsOffset: -1, url: '',
+  explorer: true, showExplorer: true, path: '', preview: '', previewError: '', crumbs: [], lines: [], commentOpen: false, text: '', textKey: '', gutter: 0, wrap: true,
+  truncatedNote: '', canRender: false, rendered: false, renderLabel: '', renderIcon: '', editable: false, pending: false, editorId: '', editorLabel: '', editorShow: false, editorHint: '', editorUnavailable: '', editors: [], absolutePath: '',
+  markdown: { id: '', blocks: [] }, code: [], table: [], editing: false, editorText: '', editorsOpen: false, crumbMenu: closedCrumbs(), crumbsMask: 'none', crumbsOffset: -1, url: '', media: NO_MEDIA,
 });
 
 export async function filesView(client: T3Client, native: Native, active: Surface, now = 0): Promise<FilesView> {
@@ -372,31 +431,33 @@ export async function filesView(client: T3Client, native: Native, active: Surfac
   const absolute = path ? (isAbsolute(path) ? path : `${cwd.replace(/\/+$/, '')}/${path}`) : '';
   // lane r10-device: a rendered page waits for its signed URL, not for the read.
   const page = html && rendered ? await htmlPage(client, native, cwd, absolute, previewPath, read && !read.error ? contentRevision(read.contents) : '', now) : { url: '', error: '' };
+  // media-actions: an image or video renders from its signed URL, never from the read (FilePreviewPanel isImage / isVideo).
+  const media = previewPath ? await filesMediaView(client, native, previewPath, absolute, cwd, '', now) : NO_MEDIA;
   const text = read?.contents ?? '';
   const lines = previewPath && read && !read.error ? codeLines(previewPath, text) : [];
-  const editable = !!previewPath && !!read && !read.error && !read.truncated && !isAbsolute(previewPath);
+  const editable = !!previewPath && !media.kind && !!read && !read.error && !read.truncated && !isAbsolute(previewPath);
   const rows = state.query.trim() && state.search ? searchRows(searchMatches(state.search.entries, state.query), path) : treeRows(state.dirs, state.expanded, path);
   const reachable = new Set(['', ...[...state.dirs.values()].flat().filter(entry => entry.kind === 'directory').map(entry => entry.path)]);
   const error = [...state.errors].find(([folderPath]) => reachable.has(folderPath))?.[1] ?? state.search?.error ?? '';
-  const editors = editorFor(client);
+  const editors = await editorFor(client, native);
   const parsedTable = previewPath && table && rendered && read && !read.error ? tableRows(previewPath, text) : null;
   const showExplorer = !isAbsolute(path) && (preferences.explorer || !previewPath);
   return {
     cwd, project: projectName, ready: state.dirs.has(''), loading: state.loading > 0, error, query: state.query,
     truncated: !!state.query.trim() && !!state.search?.truncated, rows, hasDirectories: [...state.dirs.values()].flat().some(entry => entry.kind === 'directory'),
     allExpanded: state.expandAll || allExpanded(state), explorer: preferences.explorer, showExplorer,
-    path, preview: !previewPath ? '' : html && rendered ? (page.error ? 'error' : page.url ? 'html' : 'loading') : read === undefined ? 'loading' : read.error ? 'error' : rendered ? (markdown ? 'markdown' : 'table') : 'code',
-    previewError: html && rendered ? page.error : read?.error && !folder ? read.error : '', crumbs: path ? crumbs(projectName, path) : [], lines, text, textKey: `${path}:${active.reveal}`,
+    path, preview: !previewPath ? '' : media.kind ? 'media' : html && rendered ? (page.error ? 'error' : page.url ? 'html' : 'loading') : read === undefined ? 'loading' : read.error ? 'error' : rendered ? (markdown ? 'markdown' : 'table') : 'code',
+    previewError: html && rendered ? page.error : read?.error && !folder ? read.error : '', crumbs: path ? crumbs(projectName, path) : [], lines: fileCommentLines(client, previewPath, text, lines, editable && state.editing === path), commentOpen: fileCommentOpen(client), text, textKey: `${path}:${active.reveal}`,
     gutter: sourceGutter(lines.length), wrap: client.local.clientSettings.wordWrap !== false,
     truncatedNote: previewPath && read?.truncated ? `Preview limited to the first 1 MB of a ${read.byteLength.toLocaleString('en-US')} byte file.`
       : parsedTable?.truncated ? 'Table limited to the first 100 rows and 30 columns. Switch to source for the rest.' : '',
     canRender: markdown || table || html, rendered, renderLabel: markdown ? (rendered ? 'Show markdown source' : 'Show rendered markdown') : table ? (rendered ? 'Show source' : 'Show table') : html ? htmlToggleLabel(rendered) : '',
     renderIcon: rendered ? 'code' : table ? 'table' : 'eye', editable, pending: pendingPaths(client).has(path),
-    editorId: editors.editorId, editorLabel: editors.editorLabel, editors: editors.editors, absolutePath: absolute,
+    ...editors, absolutePath: absolute,
     markdown: previewPath && markdown && rendered && read && !read.error ? markdownDocument(previewPath, text) : { id: '', blocks: [] }, code: [], table: parsedTable?.rows ?? [],
     editing: editable && state.editing === path, editorText: state.editing === path ? state.editorText : '', editorsOpen: state.editorsOpen && !!path,
     crumbMenu: crumbMenu(state, projectName, path, client.presentation), crumbsMask: path ? crumbsMask(client.presentation) : 'none',
     crumbsOffset: path !== '' && previewPath !== '' && !!read && !read.error && !rendered ? crumbsOffset(client.presentation ?? {}, cold, true) : -1,
-    url: html && rendered ? page.url : '',
+    url: html && rendered ? page.url : '', media,
   };
 }

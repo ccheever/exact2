@@ -12,8 +12,8 @@ const files: AttachmentMeta[] = [
   { id: 'v1', name: 'clip.mp4', mimeType: 'video/mp4', sizeBytes: 5452 },
   { id: 'z1', name: 'archive.zip', mimeType: 'application/zip', sizeBytes: 10 },
 ];
-function client(calls: Obj[] = []) {
-  const item = { type: 'user_message', attachments: files.map(file => ({ type: 'file', ...file })) };
+function client(calls: Obj[] = [], list: AttachmentMeta[] = files) {
+  const item = { type: 'user_message', attachments: list.map(file => ({ type: 'file', ...file })) };
   return {
     ready: true, generation: 1, origin: 'http://127.0.0.1:1', local: { clientSettings: {} },
     projection: { visibleTurnItems: [{ item }] },
@@ -74,7 +74,17 @@ describe('attachment media bodies (lane r6-media)', () => {
     const again = await attachmentView(c, native, meta, 2000);
     expect([again.preview, again.error]).toEqual(['audio', '']);
     expect(calls.filter(call => call.method === 'assets.createUrl')).toHaveLength(2);
-    expect([mediaErrorMessage('video'), mediaErrorMessage('pdf')]).toEqual(['Unable to load video.', '']);
+    expect([mediaErrorMessage('video'), mediaErrorMessage('image'), mediaErrorMessage('pdf')]).toEqual(['Unable to load video.', 'Unable to load image.', '']);
+  });
+
+  test("an image's error reads \"Unable to load image.\" (its `error` event, exact2 #121); Try again loads it again", async () => {
+    const meta: AttachmentMeta = { id: 'i2', name: 'shot.png', mimeType: 'image/png', sizeBytes: 9 }, c = client([], [...files, meta]);
+    expect((await attachmentView(c, native, meta, 1000)).preview).toBe('image');
+    await attachmentLocal(c, native, 'media-error', meta.id, 0);
+    const failed = await attachmentView(c, native, meta, 1000);
+    expect([failed.preview, failed.error, failed.url]).toEqual(['error', 'Unable to load image.', '']);
+    await attachmentLocal(c, native, 'retry', meta.id, 0);
+    expect((await attachmentView(c, native, meta, 2000)).preview).toBe('image');
   });
 
   test('an unsupported file keeps "No preview for this file" and Save file', async () => {
@@ -112,10 +122,10 @@ describe('sent videos in the transcript (lane r6-media)', () => {
   test('a video opens alone in the media dialog; images step among the images only', () => {
     const c = timeline();
     imagePreviewAction(c, 'image-open', 'v1', messageId);
-    expect(imagePreviewView(c)).toEqual({ imagePreviewId: 'v1', imagePreviewName: 'clip.mp4', imagePreviewPosition: '', imagePreviewPrevious: false, imagePreviewNext: false, imagePreviewVideo: true });
+    expect(imagePreviewView(c)).toEqual({ imagePreviewId: 'v1', imagePreviewName: 'clip.mp4', imagePreviewPosition: '', imagePreviewPrevious: false, imagePreviewNext: false, imagePreviewVideo: true, imagePreviewSource: 'attachment:v1' });
     imagePreviewAction(c, 'image-open', 'i2', messageId);
     imagePreviewAction(c, 'image-step', '', 'next');
-    expect(imagePreviewView(c)).toEqual({ imagePreviewId: 'i1', imagePreviewName: 'a.png', imagePreviewPosition: '(1/2)', imagePreviewPrevious: true, imagePreviewNext: true, imagePreviewVideo: false });
+    expect(imagePreviewView(c)).toEqual({ imagePreviewId: 'i1', imagePreviewName: 'a.png', imagePreviewPosition: '(1/2)', imagePreviewPrevious: true, imagePreviewNext: true, imagePreviewVideo: false, imagePreviewSource: 'attachment:i1' });
     imagePreviewAction(c, 'image-close', '', '');
     expect(imagePreviewView(c).imagePreviewId).toBe('');
   });

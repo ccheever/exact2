@@ -9,27 +9,18 @@ import AppKit
 ///   selects its text in the frame after it opens (`focus(); select()`).
 /// - Letter chords under a non-Latin source (keybindings.ts resolveEventKeys): when a ⌘/⌃ chord's
 ///   key reports another script (Korean 2-Set's ㅠ for B), the physical key's Latin letter
-///   (KeyboardEvent.code) is the chord's key. The event is re-issued with that letter, so every
-///   declared chord (⌘B sidebar, ⌘K palette, …) and menu equivalent matches it anywhere in the
+///   (KeyboardEvent.code) is the chord's key. exact2 #168 matches the declared chords
+///   (`aria-keyshortcuts`) and the host's command menu items that way; it does not reach the
+///   menu's standard and app-added items (Copy, Paste, Undo, Quit, Close Window, Reload, Paste as Text),
+///   the terminal's web view, or this module's own key readers that read the event's characters
+///   (the composer's queued-edit chords, the SnapShot shortcut). So the event is still re-issued
+///   with that letter, and each of them matches it anywhere in the
 ///   window. Composition keeps its own keys (the composer ends it first, R9Input.swift).
-/// - Hover under a still pointer (hook `t3-rehover`): a browser re-hit-tests a still pointer after
-///   layout, so a row that slides under it (Settle, ⌘Z) is hovered. AppKit's tracking areas only
-///   fire on pointer motion; after the hooked list re-renders, the innermost hover-tracked view
-///   under the pointer hears an enter when it is not the one last seen there.
+/// A row that slides under a still pointer (Settle, ⌘Z) is hovered by the host itself, which
+/// hit-tests a resting pointer after layout and scrolling as a browser does (exact2 #139).
 final class R10Connect {
     private let agent: Bool
-    /// The pointer in screen coordinates (tests replace it).
-    var pointer: () -> NSPoint = { NSEvent.mouseLocation }
-    /// Whether a pass may act now (tests replace it): the window under the pointer is this one and no button is down.
-    var mayHover: (NSWindow, NSPoint) -> Bool = { window, screen in
-        NSEvent.pressedMouseButtons == 0 && NSWindow.windowNumber(at: screen, belowWindowWithWindowNumber: 0) == window.windowNumber
-    }
     private var monitor: Any?
-    private weak var list: ExactElement?
-    private weak var lastTracked: NSView?
-    private var passes: [DispatchWorkItem] = []
-    /// Enters sent by passes (tests read it).
-    private(set) var entered = 0
 
     init(agent: Bool) {
         self.agent = agent
@@ -51,14 +42,10 @@ final class R10Connect {
 
     func install(_ element: ExactElement) {
         if element.hook == .t3SelectOnOpen, element.isNew { selectOnOpen(element) }
-        if element.hook == .t3Rehover { list = element; schedulePasses() }
-    }
-    func remove(_ element: ExactElement) {
-        if element === list { list = nil; lastTracked = nil; cancelPasses() }
     }
     func destroy() {
         if let monitor { NSEvent.removeMonitor(monitor) }
-        monitor = nil; list = nil; cancelPasses()
+        monitor = nil
     }
 
     // MARK: Select on open
@@ -120,40 +107,6 @@ final class R10Connect {
     private func installMonitor() {
         guard monitor == nil else { return }
         monitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown]) { [weak self] event in self?.route(event) ?? event }
-    }
-
-    // MARK: Hover under a still pointer
-
-    private func cancelPasses() { passes.forEach { $0.cancel() }; passes = [] }
-    private func schedulePasses() {
-        guard !agent else { return } // the agent drives its own pointer; the real one may rest anywhere
-        cancelPasses()
-        // After this batch's layout, and again once row moves have settled.
-        for delay in [0.03, 0.2, 0.45] {
-            let work = DispatchWorkItem { [weak self] in self?.pass() }
-            passes.append(work)
-            DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
-        }
-    }
-    /// Internal so tests can run one: hover the innermost tracked view under a still pointer.
-    func pass() {
-        guard let view = list?.view, let window = view.window, window.isVisible, let content = window.contentView else { return }
-        let screen = pointer()
-        guard mayHover(window, screen) else { return }
-        let point = window.convertPoint(fromScreen: screen)
-        guard let hit = content.hitTest(content.superview.map { $0.convert(point, from: nil) } ?? point), hit.isDescendant(of: view) else { lastTracked = nil; return }
-        var candidate: NSView? = hit
-        while let current = candidate, current !== view.superview {
-            if current.trackingAreas.contains(where: { $0.owner === current && $0.options.contains(.mouseEnteredAndExited) }) { break }
-            candidate = current.superview
-        }
-        guard let tracked = candidate, tracked !== view.superview else { lastTracked = nil; return }
-        guard tracked !== lastTracked else { return }
-        lastTracked = tracked
-        guard let enter = NSEvent.enterExitEvent(with: .mouseEntered, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
-                                                 windowNumber: window.windowNumber, context: nil, eventNumber: 0, trackingNumber: 0, userData: nil) else { return }
-        entered += 1
-        tracked.mouseEntered(with: enter)
     }
 }
 #endif

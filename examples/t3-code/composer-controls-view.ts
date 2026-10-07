@@ -4,6 +4,10 @@
 // composerFooterLayout.ts (icon-only before overflow), TraitsPicker.tsx
 // (buildTraitsTriggerDisplay), ChatView.tsx (woke/parked/background banners,
 // tasks progress), threadSync.ts and ComposerTasksBadge.tsx.
+import { projectCloneBlock, projectCloneNotice } from './project-clones-live';
+import { systemComposerNotices } from './server-update-notices';
+import { autoBalanceState } from './auto-balance'; // auto-balance
+import { autoBalanceNotices, type MachineRow } from './auto-balance-banner'; // auto-balance
 import { arr, obj, str, num, type Obj } from './domain';
 import { activeRun, providerAvailable } from './protocol';
 import type { T3Client } from './client';
@@ -17,6 +21,8 @@ import { commandChords } from './composer-presentation';
 import { threadWorktreeSetup } from './timeline-worktree';
 import { machineChanging } from './r12-threads-scratch'; // r12-threads: isEnvironmentChanging (c47f4263f9)
 import { labelWidth, type Measure, type ProbeKind } from './r5-composer-measure';
+import { resolveRestingComposerControlsLayout } from './composer-resting-layout'; // composer-fidelity G11
+import { terminalOpen } from './terminal-drawer-view'; // terminal-layout: the real terminalOpen
 
 // SF Pro advances (AppKit, ASCII 32–126) for the toolbar's two label styles:
 // 14pt medium ("sm" controls) and 12pt regular (the resting "xs" controls).
@@ -31,11 +37,16 @@ export function textWidth(text: string, small = false): number {
 }
 
 /**
- * resolveRestingComposerControlsLayout without the overflow menu: trailing
- * blocks lose their labels first (mode, then traits); only then does the model
- * label shrink. Labels are measured (r5-composer-measure.ts); the rest is the toolbar's geometry.
+ * resolveRestingComposerControlsLayout (composer-resting-layout.ts): trailing
+ * blocks lose their labels first (mode, then traits), then move into the "More
+ * composer controls" menu (mode, then traits); only then does the model picker
+ * shrink, and below its minimum the cluster hides. Labels are measured
+ * (r5-composer-measure.ts); the rest is the toolbar's geometry. `previous` holds
+ * each size's last step (icon-only blocks plus hidden blocks) and whether the
+ * cluster showed, for the promotion slack.
  */
-export function footerLayout(input: { model: string; traits: string; traitsIcon: boolean; runtime: string; plan: string; host: number; measure?: Measure; previous?: { sm: number; xs: number } }) {
+export type FooterSteps = { sm: number; xs: number; smHidden?: boolean; xsHidden?: boolean };
+export function footerLayout(input: { model: string; traits: string; traitsIcon: boolean; runtime: string; plan: string; host: number; measure?: Measure; previous?: FooterSteps }) {
   // r5-composer: label widths come from laid-out probes (r5-composer-measure.ts); the estimate stands in until then.
   const width = (text: string, small: boolean, kind: ProbeKind) => labelWidth(text, small, kind, input.measure, textWidth);
   const steps = (small: boolean) => {
@@ -43,7 +54,8 @@ export function footerLayout(input: { model: string; traits: string; traitsIcon:
     // reference's measured blocks: a block is its separator (1pt + 2pt margins, then the row gap: 9 at "sm",
     // 5 in the resting row, which has no gap) and its trigger. "sm" triggers pad 11+11 with 6pt gaps, 16pt
     // icons and a 10pt chevron; "xs" ones pad 7+7 with 4pt gaps, 12pt icons and an 8pt chevron.
-    // The picker sits at margin-left -10 and, resting, at most 168pt wide (ProviderModelPicker max-w-42).
+    // The picker sits at margin-left -10 and, resting, at most 168pt wide (ProviderModelPicker max-w-42);
+    // its minimum is the trigger's min-width (48 / 40) less that margin.
     const picker = small ? Math.min(158, 34 + width(input.model, true, 'model')) : 50 + width(input.model, false, 'model');
     const separator = small ? 5 : 9;
     const traits = !input.traits && !input.traitsIcon ? 0
@@ -54,25 +66,30 @@ export function footerLayout(input: { model: string; traits: string; traitsIcon:
     const plan = input.plan ? separator + (small ? 14 : 22) + planGlyph + (small ? 4 : 6) + width(input.plan, small, 'plan') : 0;
     const mode = separator + (small ? 42 : 60) + width(input.runtime, small, 'runtime') + plan;
     const modeIcon = separator + (small ? 38 : 54) + (input.plan ? separator + (small ? 14 : 22) + planGlyph : 0);
-    const gap = small ? 0 : 4;
-    const total = (iconMode: boolean, iconTraits: boolean) => picker + (traits ? gap + (iconTraits ? traitsIcon : traits) : 0) + gap + (iconMode ? modeIcon : mode);
     // The reference's expanded footer has no gap before its actions (gap-2 sm:gap-0), so its controls
     // host is 8pt wider than this footer's controls row (gap=8); the resting row is measured as it is.
     const host = input.host > 0 ? input.host + (small ? 0 : 8) : 0;
-    // resolveRestingComposerControlsLayout: trailing blocks drop their labels one step at a time; a
-    // promotion back to labels needs a point of slack (RESTING_CONTROLS_SLACK_PX) over the last layout.
-    const previous = (small ? input.previous?.xs : input.previous?.sm) ?? 0;
-    const limit = (step: number) => host - (step < previous ? 1 : 0);
-    const iconMode = host > 0 && total(false, false) > limit(0);
-    const iconTraits = iconMode && !!traits && total(true, false) > limit(1);
-    return { iconMode, iconTraits };
+    const blocks = traits ? [traits, mode] : [mode], icons = traits ? [traitsIcon, modeIcon] : [modeIcon];
+    const previousStep = (small ? input.previous?.xs : input.previous?.sm) ?? 0;
+    const previous = { hiddenCount: Math.max(0, previousStep - blocks.length), iconOnlyCount: Math.min(previousStep, blocks.length),
+      visible: !(small ? input.previous?.xsHidden : input.previous?.smHidden) };
+    // The "…" trigger: an icon-only control (16pt glyph padded 11+11, resting 12pt padded 7+7).
+    const layout = host > 0 ? resolveRestingComposerControlsLayout({ gap: small ? 0 : 4, naturalFixedWidth: picker, minimumFixedWidth: small ? 30 : 38,
+      blockWidths: blocks, iconOnlyBlockWidths: icons, overflowWidth: small ? 26 : 38, hostWidth: host, previous }) : { hiddenCount: 0, iconOnlyCount: 0, visible: true };
+    const iconOnly = layout.iconOnlyCount ?? 0, hidden = layout.hiddenCount;
+    return { iconMode: iconOnly >= 1, iconTraits: !!traits && iconOnly >= 2, modeHidden: hidden >= 1, traitsHidden: !!traits && hidden >= 2,
+      hidden: !layout.visible, step: iconOnly + hidden };
   };
   const sm = steps(false), xs = steps(true);
-  return { runtimeIconOnly: sm.iconMode, traitsIconOnly: sm.iconTraits, restingRuntimeIconOnly: xs.iconMode, restingTraitsIconOnly: xs.iconTraits };
+  return { runtimeIconOnly: sm.iconMode, traitsIconOnly: sm.iconTraits, restingRuntimeIconOnly: xs.iconMode, restingTraitsIconOnly: xs.iconTraits,
+    // composer-fidelity G11: blocks in the overflow menu, and the cluster hidden below the picker's minimum.
+    modeOverflow: sm.modeHidden, traitsOverflow: sm.traitsHidden, restingModeOverflow: xs.modeHidden, restingTraitsOverflow: xs.traitsHidden,
+    controlsHidden: sm.hidden, restingControlsHidden: xs.hidden, steps: { sm: sm.step, xs: xs.step, smHidden: sm.hidden, xsHidden: xs.hidden } as FooterSteps };
 }
 
 /** buildTraitsTriggerDisplay: speed traits become a bolt (two for Ultrafast); booleans read "<label> On|Off". */
-export function traitsDisplay(driver: string, descriptors: Obj[], selections: Obj[], selection: Selection | null = null, reported: Selection | null = null) {
+export function traitsDisplay(driver: string, descriptors: Obj[], selections: Obj[], selection: Selection | null = null, reported: Selection | null = null,
+  ultra: { primaryId: string; controlled: boolean } = { primaryId: '', controlled: false }) {
   let speed = '', fallback = '';
   const labels: string[] = [];
   const current = (descriptor: Obj) => resolvedCurrent(descriptor, selections) ?? arr(descriptor.options).find(option => option.isDefault === true)?.id;
@@ -88,6 +105,8 @@ export function traitsDisplay(driver: string, descriptors: Obj[], selections: Ob
         fallback = str(options.find(option => option.id === value)?.label, 'Normal'); continue;
       }
     }
+    // composer-fidelity G9: the prompt-controlled primary effort reads "Ultrathink" (buildTraitsTriggerDisplay).
+    if (ultra.controlled && descriptor.id === ultra.primaryId) { labels.push('Ultrathink'); continue; }
     if (descriptor.type === 'boolean') { labels.push(`${str(descriptor.label, str(descriptor.id))} ${current(descriptor) === true ? 'On' : 'Off'}`); continue; }
     if (descriptor.type !== 'select') continue;
     // getProviderOptionCurrentLabel: a provider-reported value labels an option the user left unset.
@@ -111,11 +130,11 @@ export function primaryAction(client: T3Client, phase: string) {
   const sending = client.busy && !!client.pending && str(client.pending.payload.type) === 'message.dispatch';
   // worktreeSetupBlocksSend (ChatView): a new worktree thread holds sends until its agent starts (lane r4-git).
   const preparing = !!client.threadId && threadWorktreeSetup(client).preparing;
-  const status = unavailable ? 'Environment disconnected' : machineChanging(client) ? 'Preparing machine' : preparing ? 'Preparing worktree' : connecting ? 'Connecting' : sending ? 'Submitting message' : '';
+  const status = unavailable ? 'Environment disconnected' : machineChanging(client) ? 'Preparing machine' : preparing ? 'Preparing worktree' : projectCloneBlock(client) || (connecting ? 'Connecting' : sending ? 'Submitting message' : '');
   const plan = planFollowUp(client);
   const alternate = followUp === 'queue' ? 'steer' : 'queue';
   // alternateShortcutLabel: composer.sendAlternate's effective binding, as formatShortcutLabel prints it (⌘Enter).
-  const alternateKey = chordGlyphs(commandChords(client.config, 'composer.sendAlternate', 'Meta+Enter', false, { turnRunning: true }).split(' ')[0] ?? '');
+  const alternateKey = chordGlyphs(commandChords(client.config, 'composer.sendAlternate', 'Meta+Enter', false, { turnRunning: true, terminalOpen: terminalOpen(client) }).split(' ')[0] ?? '');
   return {
     sendRunning: running,
     sendLabel: queueing ? 'Queue message' : running ? 'Steer message' : 'Submit message',
@@ -132,9 +151,14 @@ export function primaryAction(client: T3Client, phase: string) {
 export type ComposerNotice = { id: string; variant: string; icon: string; title: string; description: string;
   action: string; actionLabel: string; action2: string; action2Label: string; dismiss: string; dismissLabel: string; priority: number; lines: string[];
   /** Why the action is disabled (its tooltip), '' when it is enabled; the id the dismiss command receives. */
-  actionReason: string; dismissId: string; segments: NoticeSegment[] };
+  actionReason: string; dismissId: string; segments: NoticeSegment[];
+  /** server-update-banner: the title's and the actions' tooltips, a red icon, a "·" before the description, the title's live role. */
+  tip: string; actionTip: string; action2Tip: string; iconTone: string; sep: boolean; liveRole: string;
+  /** auto-balance: the multi-machine banner's popover rows and its title's accessible name. */
+  machines: MachineRow[]; menuLabel: string };
 const notice = (value: Partial<ComposerNotice> & { id: string; title: string }): ComposerNotice => ({ variant: 'info', icon: '', description: '',
-  action: '', actionLabel: '', action2: '', action2Label: '', dismiss: '', dismissLabel: '', priority: 2, lines: [], actionReason: '', dismissId: '', segments: [], ...value });
+  action: '', actionLabel: '', action2: '', action2Label: '', dismiss: '', dismissLabel: '', priority: 2, lines: [], actionReason: '', dismissId: '', segments: [],
+  tip: '', actionTip: '', action2Tip: '', iconTone: '', sep: false, liveRole: '', machines: [], menuLabel: '', ...value });
 
 const BACKGROUND_KINDS: Record<string, { order: number; singular: string; plural: string }> = {
   subagent: { order: 0, singular: 'subagent', plural: 'subagents' }, command: { order: 1, singular: 'command', plural: 'commands' },
@@ -178,11 +202,17 @@ function backgroundWork(client: T3Client): ComposerNotice | null {
 }
 
 export function composerNotices(client: T3Client, now: number): ComposerNotice[] {
-  if (!client.threadId) return usageNotices(client, now);
+  // ChatView projectCloneBannerItem: a project added by cloning shows its clone where its draft is (project-clones-live.ts).
+  const clone = projectCloneNotice(client);
+  const cloneItem = clone ? [notice({ ...clone, icon: 'download', priority: clone.variant === 'info' ? 0 : 2 })] : [];
+  // systemComposerBannerItems (server-update-notices.ts): the environment's offline and server-version notices.
+  // auto-balance: an Auto draft shows one banner for every machine's update instead of the single-machine notice.
+  const system = [...systemComposerNotices(client, { automaticEnvironment: autoBalanceState(client).automatic }), ...autoBalanceNotices(client)].map(item => notice(item));
+  if (!client.threadId) return rankNotices([...usageNotices(client, now).map(item => notice(item)), ...cloneItem, ...system]);
   const shell = client.shell.threads.find(thread => thread.id === client.threadId) ?? {};
   const capabilities = obj(obj(client.config.environment).capabilities);
   // ChatView composerBannerItems order: limit recovery, usage limits, background work, woke, parked.
-  const items: ComposerNotice[] = [...usageNotices(client, now)];
+  const items: ComposerNotice[] = [...usageNotices(client, now).map(item => notice(item)), ...cloneItem, ...system];
   const background = backgroundWork(client);
   if (background) items.push(background);
   // resumeCompactionBannerItem: an idle Claude session offers to compact before resuming.
@@ -208,8 +238,11 @@ export function composerNotices(client: T3Client, now: number): ComposerNotice[]
   if (snoozed || settled) items.push(notice({ id: `thread-${snoozed ? 'snoozed' : 'settled'}:${client.threadId}`, icon: snoozed ? 'alarm' : 'circle-check',
     title: `This thread is ${snoozed ? 'snoozed' : 'settled'}`, description: `Send a message to ${snoozed ? 'wake' : 'unsettle'}`,
     action: snoozed ? 'cc:unsnooze' : 'unsettle', actionLabel: snoozed ? 'Wake now' : 'Un-settle' }));
-  // Activity stays attached; warnings and errors order the notices behind it.
-  const rank = (item: ComposerNotice) => item.priority === 0 ? 0 : item.variant === 'error' || item.variant === 'warning' ? 1 : 2;
+  return rankNotices(items);
+}
+/** bannerPriority: activity stays attached; urgency (priority 1), warnings and errors order the notices behind it. */
+function rankNotices(items: ComposerNotice[]): ComposerNotice[] {
+  const rank = (item: ComposerNotice) => item.priority === 0 ? 0 : item.priority === 1 || item.variant === 'error' || item.variant === 'warning' ? 1 : 2;
   return items.map((item, order) => ({ item, order })).sort((a, b) => rank(a.item) - rank(b.item) || a.order - b.order).map(entry => entry.item);
 }
 

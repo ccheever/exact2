@@ -23,7 +23,7 @@ pub fn typescript(plan: &Plan) -> Result<String, String> {
     // Ibex2 owns the storage surface. Include its declaration source directly:
     // this compiler needs neither its Rust runtime nor a JavaScript engine.
     out.push_str(include_str!(
-        "../../../vendor/ibex2/src/bindings/storage.d.ts"
+        "../../../vendor/ibex/crates/ibex2/src/bindings/storage.d.ts"
     ));
     out.push('\n');
     for (i, row) in plan.types.iter().enumerate() {
@@ -104,7 +104,7 @@ pub fn typescript(plan: &Plan) -> Result<String, String> {
          /** One server-sent event of a stream answer, or its end (`type: \"error\"`, LLP 1016.000). */\n\
          export interface StreamEvent { readonly type: string; readonly data: string; readonly lastEventId: string; readonly coalesced: number; readonly kind?: string; readonly message?: string; readonly status?: number }\n\
          declare global {\n\
-           interface RequestInit { exactStream?: (event: StreamEvent) => unknown; exactIndependentHttp?: { maxResponseBytes: number } }\n\
+           interface RequestInit { exactStream?: (event: StreamEvent) => unknown; exactIndependentHttp?: { maxResponseBytes: number }; /** A deadline for the whole exchange, 1 to 3600000 ms: the request is cancelled and the fetch rejects with a FetchError whose `kind` is \"Timeout\". Not with `exactStream`. */ exactTimeout?: number }\n\
            /** An answer that keeps coming: `exactStream` maps each event, and the end, to the answer. */\n\
            function fetch<T>(input: string | URL, init: RequestInit & { exactStream: (event: StreamEvent) => T }): Promise<T>;\n\
          }\n\

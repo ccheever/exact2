@@ -214,6 +214,29 @@ final class NavigationBarIOSTests: XCTestCase {
         XCTAssertEqual(backs(session), 1, "Back once")
     }
 
+    /// A pop UIKit finishes with no enabled Back control to press (here,
+    /// disabled just before the bar's pop, as a tap racing that batch does)
+    /// presses nothing, and the native stack goes back to the one the router
+    /// still declares, not one route short of it. The Brooks port's fork
+    /// needed a repair for this; main already restores the stack, with the
+    /// batch before the pop or during it, and this keeps it so.
+    func testAPopThatOutlivesItsBackControlRestoresTheDeclaredStack() throws {
+        let session = try fixture("bar-back-gone", module: false)
+        let agent = Agent(session: session)
+        XCTAssertNil(agent.tap(["id": Int(try node(session, "detail").id)])["error"])
+        let nav = try XCTUnwrap(session.presenter.navigation.primaryNavigation)
+        until("the detail route is pushed") { nav.viewControllers.count == 2 && nav.transitionCoordinator == nil }
+        let p = session.presenter
+        let name = try XCTUnwrap(p.views.values.first { $0.props["navigationBack"] != nil }?.props["navigationBack"])
+        let back = try XCTUnwrap(p.views.values.first { $0.props["id"] == name && $0.handlers.contains("press") })
+        p.apply(wireBatch([["op": "props", "id": Int(back.id), "set": ["disabled": "true"], "clear": []]]))
+        nav.popViewController(animated: true)
+        until("the transition ends and the declared stack is back") { nav.transitionCoordinator == nil && nav.viewControllers.count == 2 }
+        spin(0.2)
+        XCTAssertEqual(nav.viewControllers.count, 2, "the router still declares the detail route")
+        XCTAssertEqual(backs(session), 0, "no enabled Back control, so nothing is pressed")
+    }
+
     func testAForwardedCustomTransitionPopsOnceAndACancelledOneNever() throws {
         let session = try fixture("bar-delegate", module: false)
         let navigation = session.presenter.navigation
@@ -252,6 +275,13 @@ final class NavigationBarIOSTests: XCTestCase {
         let nav = try XCTUnwrap(session.presenter.navigation.primaryNavigation)
         XCTAssertEqual(nav.navigationBar.tintColor, .systemIndigo, "the long tail is the hook's")
         let home = try XCTUnwrap(nav.topViewController)
+        // A route prepared again with nothing changed keeps its projected
+        // items and runs no hook.
+        let items = home.navigationItem.rightBarButtonItems ?? []
+        session.presenter.navigation.prepareRoutes(nav.viewControllers.compactMap { $0 as? RouteController }, in: nav)
+        spin(0.2)
+        XCTAssertFalse(log().contains("hook route 0: changed"), "an unchanged route runs no hook")
+        XCTAssertTrue(items.elementsEqual(home.navigationItem.rightBarButtonItems ?? [], by: ===), "an unchanged route is not projected again")
         let more = home.navigationItem.leftBarButtonItems?.first { $0.accessibilityIdentifier == "hook-more" }
         XCTAssertEqual(home.navigationItem.rightBarButtonItems?.count, 1, "Exact's Compose stays beside the hook's item")
         // The hook-made control clicks the authored one.

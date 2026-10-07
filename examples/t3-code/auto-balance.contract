@@ -1,0 +1,56 @@
+// Auto balance's multi-machine update banner (task auto-balance; T3 Code MIT, see
+// LICENSE-T3; reference 1e2ecbd975 chat/useAutoBalanceUpdateBanner.tsx and
+// ServerUpdateAction.tsx ServerUpdateProgress / ServerUpdateAction). The notice's title
+// is an InlineButton that opens the machine list above it (PopoverPopup side="top"
+// align="start" width="md": w-80, p-4, space-y-3, text-xs), placed by position-area
+// (X17: no collision flip). Escape and a press outside close it, and focus goes back
+// to the title (the popover's light dismiss). Data: auto-balance-banner.ts.
+use ComposerNotice from "./composer-shapes.contract"
+
+// animate-status-pulse: full, then half opacity in six steps (reduced motion: still).
+keyframes abStatusPulse
+  from opacity=1
+  40% opacity=1
+  50% opacity=0.5
+  90% opacity=0.5
+  to opacity=1
+
+component NoticeMachines
+  props
+    notice: ComposerNotice
+    busy: bool
+    command: action
+    still: bool
+  state over = false
+  action hover(value: bool)
+    over = value
+  view
+    box position="relative" flex-shrink=1 min-width=0 max-width="60%"
+      button popovertarget=`notice-machines-${notice.id}` hover=hover aria-label=notice.menuLabel testId=`notice-machines-trigger-${notice.id}` height="1.5rem" padding=0 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" min-width=0 max-width="100%"
+        // The macOS host draws a paragraph this size into a bitmap off the main thread and keeps the old
+        // bitmap up until the new one lands; a shorter title parks it at its old size, clipped by the line
+        // clamp (the drive's "Update available for" at the width of "Updating 1 machine"), and a screenshot
+        // does not wait for the replacement. A new title is a new text node (no old bitmap), and its box
+        // paint (a transparent background) makes AppKit draw it on the main thread with the frame.
+        each title in [notice.title] key=title
+          text title background-color="#00000000" font-size="0.75rem" font-weight=500 line-height="1.5rem" color="light-dark(#27272a, #f5f5f5)" text-decoration=(over ? "underline" : "none") line-clamp=1 min-width=0 testId=`notice-title-${notice.id}`
+      column id=`notice-machines-${notice.id}` popover="auto" role="dialog" aria-label=notice.menuLabel position="absolute" position-area="top span-right" margin-bottom="0.25rem" width="20rem" padding="1rem" gap="0.75rem" box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#27272a1a, #f5f5f51a)" background-color="light-dark(#fefefe, #101010)" box-shadow="0 16px 40px -18px #0000008c" testId=`notice-machines-${notice.id}`
+        each machine in notice.machines key=machine.id
+          column width="100%" gap="0.25rem" align-items="flex-start" testId=`notice-machine-${machine.id}`
+            text machine.label font-size="0.75rem" font-weight=500 line-height="1rem" color="light-dark(#27272a, #f5f5f5)"
+            when machine.status == "failed"
+              row width="100%" margin-top="0.25rem" gap="0.5rem" align-items="center" min-width=0 role="alert"
+                box width="0.375rem" height="0.375rem" border-radius="0.1875rem" flex-shrink=0 background-color="light-dark(#e7000b, #ff6467)" aria-hidden=true
+                text machine.line font-size="0.75rem" line-height="1rem" color="light-dark(#e7000b, #ff6467)" line-clamp=1 min-width=0 testId=`notice-machine-line-${machine.id}`
+            else
+              when machine.status == "running"
+                row margin-top="0.25rem" gap="0.5rem" align-items="center" role="status"
+                  box width="0.375rem" height="0.375rem" border-radius="0.1875rem" flex-shrink=0 background-color="light-dark(#27272a, #f5f5f5)" animation=(still ? "none" : "abStatusPulse 2s infinite") aria-hidden=true
+                  text machine.line font-size="0.75rem" font-weight=500 line-height="1rem" color="light-dark(#27272a, #f5f5f5)" testId=`notice-machine-line-${machine.id}`
+              else
+                text machine.line font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)" testId=`notice-machine-line-${machine.id}`
+                when machine.copyLabel != ""
+                  button press=command("ab:copy", machine.id, "", 0) disabled=busy testId=`notice-machine-copy-${machine.id}` height="1.5rem" padding-left="0.5rem" padding-right="0.5rem" border-radius="0.375rem" border-style="solid" border-width=1 border-color="light-dark(#27272a26, #ffffff1f)" background-color="light-dark(#ffffff, #ffffff08)" display="flex" flex-direction="row" align-items="center" opacity=(busy ? 0.64 : 1)
+                    text machine.copyLabel font-size="0.75rem" font-weight=500 line-height="1rem" color="light-dark(#27272a, #f5f5f5)" white-space="nowrap"
+                when machine.note != ""
+                  text machine.note font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"

@@ -39,7 +39,12 @@ export function exercise(source: string): string {
       }
     }
     const view = new DataView(new Uint8Array([88,0,65,89]).buffer,1,2);
-    return JSON.stringify({labels,splitCases,encoded:Array.from(encoder.encode('a\0é😀\ud800z\udfff')),into,bytes:Array.from(bytes),chunks,rejected,reset:fatal.decode(new Uint8Array([65])),bom:new TextDecoder('utf8',{ignoreBOM:true}).decode(new Uint8Array([239,187,191])),view:decoder.decode(view),invalid:decoder.decode(new Uint8Array([0xed,0xa0,0x80,0xe2,0x28,0xa1]))});
+    const utf16 = new Uint8Array([255,254,65,0,61,216,0,222]);
+    const utf16le = new TextDecoder('utf-16le').decode(utf16);
+    let utf16Fatal=false;
+    try{new TextDecoder('utf-16le',{fatal:true}).decode(new Uint8Array([65]));}catch(e){utf16Fatal=e instanceof TypeError;}
+    const utf16Bom=[new TextDecoder('utf-16le').decode(new Uint8Array([255,254,65,0])),new TextDecoder('utf-16le',{ignoreBOM:true}).decode(new Uint8Array([255,254,65,0]))];
+    return JSON.stringify({labels,splitCases,encoded:Array.from(encoder.encode('a\0é😀\ud800z\udfff')),into,bytes:Array.from(bytes),chunks,rejected,reset:fatal.decode(new Uint8Array([65])),bom:new TextDecoder('utf8',{ignoreBOM:true}).decode(new Uint8Array([239,187,191])),utf16le,utf16Fatal,utf16Bom,view:decoder.decode(view),invalid:decoder.decode(new Uint8Array([0xed,0xa0,0x80,0xe2,0x28,0xa1]))});
   }
   if(source==='url') {
     const url = new URL('../c?q=a%20b&x=1&x=2#old','https://例え.テスト/a/b/');
@@ -106,6 +111,10 @@ export function exercise(source: string): string {
     const bad=fetch('https://example.invalid/bad',{signal:{aborted:false} as unknown as AbortSignal}).then(()=>'fetched',e=>(e as Error).name);
     return Promise.all([early,late,late.then(()=>controller.signal.reason.message),suppressed,bad]).then(JSON.stringify) as unknown as string;
   }
+  if(source==='hooks') {
+    const hook=(globalThis as any).__exact_ibex2_abort_hooks;
+    return JSON.stringify({present:'__exact_ibex2_abort_hooks' in globalThis,own:typeof hook?.own,subscribe:typeof hook?.subscribe});
+  }
   // Intl.NumberFormat as the browser formats it (x2apps stocks #3: Hermes
   // on macOS printed `9,274,743` for compact): compact in its displays,
   // currency and percent, each in a few locales.
@@ -124,6 +133,28 @@ export function exercise(source: string): string {
       out[locale+' percent']=[0.0041,-0.0041,0.5].map(v=>new Intl.NumberFormat(locale,{style:'percent',minimumFractionDigits:2}).format(v));
       out[locale+' resolved']=[new Intl.NumberFormat(locale,{notation:'compact'}).resolvedOptions().notation as string];
     }
+    // Intl.Locale and its week (#118): the tag, every field, and getWeekInfo(), or the error's name.
+    const fields=['baseName','language','script','region','variants','calendar','caseFirst','collation','firstDayOfWeek','hourCycle','numeric','numberingSystem'];
+    const locale=(tag:unknown,options?:object):string[]=>{
+      try{const l:any=new (Intl as any).Locale(tag,options);return [String(l),...fields.map(f=>String(l[f])),JSON.stringify(l.getWeekInfo()),Object.prototype.toString.call(l),JSON.stringify(l)];}
+      catch(e){return [(e as Error).name];}
+    };
+    for(const tag of ['en-US','de-DE','ar-EG','ar-SA','ja-JP','ko-KR','en-GB','fa-IR','hi-IN','he-IL','ps-AF','dv-MV','ug-UG','en-AU','fr-CA','pt-BR','pt-PT','es-419','en-001',
+      'en','de','ar','fa','he','zh','zh-Hant','pt','und','sr-Latn','pa-Arab','fil','yue','EN-latn-us-u-ca-gregory-hc-h12','en-u-fw-mon','en-US-u-fw-sat','en-u-fw-xyz',
+      'de-u-rg-uszzzz','en-u-kn','en-u-kn-false','en-u-nu-arab-ca-islamic','de-DE-1996-fonipa','sl-rozaj-biske-1994','en-a-foo-b-bar-u-ca-gregory','en-US-x-foo','en-t-de',
+      'en-u-attr-ca-gregory','en-u-ca-gregory-ca-buddhist','','not_a_tag','en-','i-klingon','x-private','en-US-US','en-1996-1996','en-u','root',
+      'ar-AE','en-AE','en-US-u-ca-iso8601','ar-EG-u-ca-iso8601','en-US-u-ca-iso8601-fw-sun','en-u-ca','en-u-kf','en-u-hc','en-u-co','en-u-nu','en-u-fw',
+      'und-Arab','und-Deva','en-Shaw','pi-Thai','en-t-12','en-t-en-foo','en-t-de-k0-tech','en-t-k0-tech-h0-hybrid','en-t-ja-Latn-JP'])
+      out['Locale '+tag]=locale(tag);
+    for(const [tag,options] of [['en',{region:'GB',calendar:'gregory',hourCycle:'h23',firstDayOfWeek:'mon'}],['en',{numeric:true}],['en',{numeric:false}],['en',{firstDayOfWeek:0}],
+      ['en',{firstDayOfWeek:7}],['en',{firstDayOfWeek:'monday'}],['en',{calendar:'Gregory'}],['en',{hourCycle:'h25'}],['en',{caseFirst:false}],['en-US',{language:'de'}],
+      ['en',{region:'419'}],['en',{language:'en-US'}],['en-u-ca-buddhist',{calendar:'gregory'}],['ar',{region:'SA'}],['de',{region:'US'}],
+      ['en',{variants:'fonipa'}],['en-1996',{variants:'FONIPA-1994'}],['en',{variants:''}],['en',{variants:'fonipa-fonipa'}],['en',{variants:'ab'}]] as [string,object][])
+      out['Locale '+tag+' '+JSON.stringify(options)]=locale(tag,options);
+    for(const tag of [undefined,null,5]) out['Locale '+String(tag)]=locale(tag);
+    out['Locale en with null options']=locale('en',null as unknown as object);
+    out['Locale length']=[String((Intl as any).Locale.length)];
+    out['Locale of a Locale']=locale(new (Intl as any).Locale('de-DE-u-ca-gregory'),{region:'AT'});
     return JSON.stringify(out);
   }
   if(source==='base64') {

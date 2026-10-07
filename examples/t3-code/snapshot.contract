@@ -14,41 +14,43 @@ use ComposerVideo from "./r4-composer.contract"
 use VideoDraftTile from "./r4-composer.contract"
 
 style SnapSectionTitle
-  font-size=14 font-weight=400 line-height="20px" color="light-dark(#262629b3, #f5f5f5b3)"
+  font-size="0.875rem" font-weight=400 line-height="1.25rem" color="light-dark(#262629b3, #f5f5f5b3)"
 style SnapCard
   display="flex" flex-direction="column" width="100%" box-sizing="border-box"
-  border-radius=14 border-style="solid" border-width=1 border-color="light-dark(#e4e4e899, #ffffff09)"
+  border-radius="0.875rem" border-style="solid" border-width=1 border-color="light-dark(#e4e4e899, #ffffff09)"
   background-color="light-dark(#ffffff66, #11111166)" box-shadow="0 1px 2px #0000000d"
 style SnapRowTitle
-  font-size=14 font-weight=500 line-height="20px" color="light-dark(#27272a, #f5f5f5)"
+  font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"
 style SnapRowText
-  font-size=12 font-weight=400 line-height="18px" color="light-dark(#70707acc, #818181cc)"
+  font-size="0.75rem" font-weight=400 line-height="1.125rem" color="light-dark(#70707acc, #818181cc)"
 style SnapStatus
-  font-size=12 font-weight=400 line-height="16px" color="light-dark(#71717b, #818181)"
+  font-size="0.75rem" font-weight=400 line-height="1rem" color="light-dark(#71717b, #818181)"
 style SnapInk
   color="light-dark(#27272a, #f5f5f5)"
 style SnapOutlineXs
-  display="flex" flex-direction="row" align-items="center" justify-content="center" gap=4
-  box-sizing="border-box" height=24 padding-left=7 padding-right=7 border-radius=8
+  cursor="pointer"
+  display="flex" flex-direction="row" align-items="center" justify-content="center" gap="0.25rem"
+  box-sizing="border-box" height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" border-radius="0.5rem"
   border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)"
   background-color="light-dark(#ffffff, #ffffff07)" box-shadow="0 1px 2px #0000000d" flex-shrink=0
 style SnapLabelXs
-  font-size=12 font-weight=500 line-height="16px" color="light-dark(#27272a, #f5f5f5)" white-space="nowrap"
+  font-size="0.75rem" font-weight=500 line-height="1rem" color="light-dark(#27272a, #f5f5f5)" white-space="nowrap"
 style SnapMenu
-  display="flex" flex-direction="column" box-sizing="border-box" width=168 padding=4 margin-top=4
-  border-radius=10 border-style="solid" border-width=1 border-color="light-dark(#27272a1a, #f5f5f51a)"
+  display="flex" flex-direction="column" box-sizing="border-box" width="10.5rem" padding="0.25rem" margin-top="0.25rem"
+  border-radius="0.625rem" border-style="solid" border-width=1 border-color="light-dark(#27272a1a, #f5f5f51a)"
   background-color="light-dark(#fffffff2, #111111f2)" backdrop-filter="blur(12px)" box-shadow="0 16px 40px -18px #0000008c"
 style SnapGhost
-  display="flex" flex-direction="row" align-items="center" justify-content="center" height=32 padding-left=11 padding-right=11
-  box-sizing="border-box" border-radius=8 border-width=0 background-color="#00000000" flex-shrink=0
+  display="flex" flex-direction="row" align-items="center" justify-content="center" height="2rem" padding-left="0.6875rem" padding-right="0.6875rem"
+  box-sizing="border-box" border-radius="0.5rem" border-width=0 background-color="#00000000" flex-shrink=0
 style SnapPrimary
-  display="flex" flex-direction="row" align-items="center" justify-content="center" height=32 padding-left=11 padding-right=11
-  box-sizing="border-box" border-radius=8 border-style="solid" border-width=1 border-color="light-dark(#1b4ed8, #346bf1)" background-color="light-dark(#1b4ed8, #346bf1)" flex-shrink=0
+  display="flex" flex-direction="row" align-items="center" justify-content="center" height="2rem" padding-left="0.6875rem" padding-right="0.6875rem"
+  box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#1b4ed8, #346bf1)" background-color="light-dark(#1b4ed8, #346bf1)" flex-shrink=0
 style SnapButtonText
-  font-size=14 font-weight=500 line-height="20px" color="light-dark(#27272a, #f5f5f5)"
+  font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"
 style SnapMenuItem
-  display="flex" flex-direction="row" align-items="center" box-sizing="border-box" height=28
-  padding-left=8 padding-right=8 border-radius=6 border-width=0 font-size=14 line-height="20px"
+  cursor="pointer"
+  display="flex" flex-direction="row" align-items="center" box-sizing="border-box" height="1.75rem"
+  padding-left="0.5rem" padding-right="0.5rem" border-radius="0.375rem" border-width=0 font-size="0.875rem" line-height="1.25rem"
 
 // Lucide geometry as the reference renders it (24px grid, stroke 2).
 component SnapIcon
@@ -57,7 +59,7 @@ component SnapIcon
     size: number
     color: string
   view
-    svg width=size height=size viewBox="0 0 24 24" color=color fill="none" stroke="currentColor" stroke-width=2 stroke-linecap="round" stroke-linejoin="round" flex-shrink=0 aria-hidden=true
+    svg width=`${size / 16}rem` height=`${size / 16}rem` viewBox="0 0 24 24" color=color fill="none" stroke="currentColor" stroke-width=2 stroke-linecap="round" stroke-linejoin="round" flex-shrink=0 aria-hidden=true
       when name == "play"
         path d="M5 5a2 2 0 0 1 3.008-1.728l11.997 6.998a2 2 0 0 1 .003 3.458l-12 7A2 2 0 0 1 5 19z"
       when name == "chevron-down"
@@ -88,8 +90,8 @@ component SnapSwitch
     switchId: string
     toggle: action
   view
-    button press=toggle role="switch" aria-checked=checked aria-label=label disabled=disabled id=switchId testId=switchId display="flex" flex-direction="row" align-items="center" justify-content=(checked ? "flex-end" : "flex-start") width=30 height=18 padding=2 box-sizing="border-box" border-width=0 border-radius=9 flex-shrink=0 opacity=(disabled ? 0.64 : 1) background-color=(checked ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#d4d4d8, #ffffff14)")
-      box width=14 height=14 border-radius=7 flex-shrink=0 background-color="light-dark(#fcfcfc, #0a0a0a)" box-shadow="0 1px 3px #0000000d"
+    button press=toggle role="switch" aria-checked=checked aria-label=label disabled=disabled id=switchId testId=switchId display="flex" flex-direction="row" align-items="center" justify-content=(checked ? "flex-end" : "flex-start") width="1.875rem" height="1.125rem" padding="0.125rem" box-sizing="border-box" border-width=0 border-radius="0.5625rem" flex-shrink=0 opacity=(disabled ? 0.64 : 1) background-color=(checked ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#d4d4d8, #ffffff14)")
+      box width="0.875rem" height="0.875rem" border-radius="0.4375rem" flex-shrink=0 background-color="light-dark(#fcfcfc, #0a0a0a)" box-shadow="0 1px 3px #0000000d"
 
 // settingsLayout.tsx SettingsRow: title, description and status beside a
 // right-aligned control column (minmax(10rem, auto), gap 32).
@@ -102,15 +104,15 @@ component SnapRow
     rowId: string
   slot
   view
-    row id=rowId testId=rowId width="100%" box-sizing="border-box" padding-top=12 padding-bottom=12 padding-left=16 padding-right=16 gap=32 align-items="center" border-top-style="solid" border-top-width=(first ? 0 : 1) border-color="light-dark(#e3e3e780, #ffffff08)"
-      column flex=1 min-width=0 gap=4
-        row min-height=20 align-items="center" gap=6
+    row id=rowId testId=rowId width="100%" box-sizing="border-box" padding-top="0.75rem" padding-bottom="0.75rem" padding-left="1rem" padding-right="1rem" gap="2rem" align-items="center" border-top-style="solid" border-top-width=(first ? 0 : 1) border-color="light-dark(#e3e3e780, #ffffff08)"
+      column flex=1 min-width=0 gap="0.25rem"
+        row min-height="1.25rem" align-items="center" gap="0.375rem"
           text title class=SnapRowTitle role="heading" aria-level=3
         when description != ""
-          text description class=SnapRowText max-width=576
+          text description class=SnapRowText max-width="36rem"
         when status != ""
-          text status class=SnapStatus padding-top=2 role="status" testId=`${rowId}-status`
-      row flex-shrink=0 min-width=160 align-items="center" justify-content="flex-end" gap=8
+          text status class=SnapStatus padding-top="0.125rem" role="status" testId=`${rowId}-status`
+      row flex-shrink=0 min-width="10rem" align-items="center" justify-content="flex-end" gap="0.5rem"
         children
 
 // SnapShotShortcutKeys: one Kbd per key (⌃ ⌥ ⇧ ⌘, then the key).
@@ -118,10 +120,10 @@ component SnapKeys
   props
     data: SnapshotSettings
   view
-    row gap=4 align-items="center"
+    row gap="0.25rem" align-items="center"
       each chip in data.keys key=chip.id
-        row height=20 min-width=20 padding-left=4 padding-right=4 box-sizing="border-box" border-radius=4 align-items="center" justify-content="center" background-color="light-dark(#fafafa, #ffffff08)"
-          text chip.label font-size=12 font-weight=500 line-height="16px" color="light-dark(#71717b, #818181)" aria-hidden=true
+        row height="1.25rem" min-width="1.25rem" padding-left="0.25rem" padding-right="0.25rem" box-sizing="border-box" border-radius="0.25rem" align-items="center" justify-content="center" background-color="light-dark(#fafafa, #ffffff08)"
+          text chip.label font-size="0.75rem" font-weight=500 line-height="1rem" color="light-dark(#71717b, #818181)" aria-hidden=true
 
 component SnapshotPanel
   props
@@ -135,11 +137,11 @@ component SnapshotPanel
     record: action
     saveShortcut: action
   view
-    column id="snap-shot" gap=10 width="100%" testId="snapshot-settings"
-      row min-height=28 padding-left=16 padding-right=16 align-items="center" box-sizing="border-box"
+    column id="snap-shot" gap="0.625rem" width="100%" testId="snapshot-settings"
+      row min-height="1.75rem" padding-left="1rem" padding-right="1rem" align-items="center" box-sizing="border-box"
         text "SnapShots" class=SnapSectionTitle role="heading" aria-level=2
       when data.error != ""
-        text data.error font-size=12 line-height="16px" color="light-dark(#dc2626, #f87171)" role="alert" padding-left=16 padding-right=16 testId="snapshot-state-error"
+        text data.error font-size="0.75rem" line-height="1rem" color="light-dark(#dc2626, #f87171)" role="alert" padding-left="1rem" padding-right="1rem" testId="snapshot-state-error"
       column class=SnapCard
         SnapRow(title="SnapShots", description="Capture a window and attach it to your current draft.", status=(busy ? "Updating capture settings…" : data.statusText), first=true, rowId="snap-shot-enabled")
           when data.setupLabel != ""
@@ -156,31 +158,31 @@ component SnapshotPanel
               else
                 SnapKeys(data=data)
             when data.changed
-              button press=saveShortcut(data.candidate) disabled=(busy or not data.canSave) testId="snapshot-save-shortcut" display="flex" align-items="center" height=24 padding-left=7 padding-right=7 box-sizing="border-box" border-radius=8 border-width=1 border-style="solid" border-color="light-dark(#1b4ed8, #346bf1)" background-color="light-dark(#1b4ed8, #346bf1)" opacity=(busy or not data.canSave ? 0.64 : 1) flex-shrink=0
-                text (busy ? "Saving…" : "Save") font-size=12 font-weight=500 line-height="16px" color="#ffffff"
-              button press=record("false") disabled=busy testId="snapshot-cancel-shortcut" display="flex" align-items="center" height=24 padding-left=7 padding-right=7 box-sizing="border-box" border-radius=8 border-width=0 background-color="#00000000" opacity=(busy ? 0.64 : 1) flex-shrink=0
+              button press=saveShortcut(data.candidate) disabled=(busy or not data.canSave) testId="snapshot-save-shortcut" display="flex" align-items="center" height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#1b4ed8, #346bf1)" background-color="light-dark(#1b4ed8, #346bf1)" opacity=(busy or not data.canSave ? 0.64 : 1) flex-shrink=0
+                text (busy ? "Saving…" : "Save") font-size="0.75rem" font-weight=500 line-height="1rem" color="#ffffff"
+              button press=record("false") disabled=busy testId="snapshot-cancel-shortcut" display="flex" align-items="center" height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" box-sizing="border-box" border-radius="0.5rem" border-width=0 background-color="#00000000" opacity=(busy ? 0.64 : 1) flex-shrink=0
                 text "Cancel" class=SnapLabelXs
           SnapRow(title="Capture sound", description="Choose the sound played when capture starts.", status="", first=false, rowId="snap-shot-sound")
             box position="relative" flex-shrink=0
-              button popovertarget="snapshot-sound-menu" aria-label=`Snapshot sound: ${data.soundLabel}${data.soundSelection == "soft-pop" ? " (Default)" : ""}` disabled=(not data.captureAvailable) testId="snapshot-sound" display="flex" flex-direction="row" align-items="center" gap=6 height=28 padding-left=9 padding-right=9 box-sizing="border-box" border-radius=10 border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#fcfcfc, #ffffff07)" flex-shrink=0
-                row gap=4 align-items="center"
-                  text data.soundLabel font-size=14 line-height="20px" class=SnapInk white-space="nowrap"
+              button popovertarget="snapshot-sound-menu" aria-label=`Snapshot sound: ${data.soundLabel}${data.soundSelection == "soft-pop" ? " (Default)" : ""}` disabled=(not data.captureAvailable) testId="snapshot-sound" display="flex" flex-direction="row" align-items="center" gap="0.375rem" height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" box-sizing="border-box" border-radius="0.625rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#fcfcfc, #ffffff07)" flex-shrink=0
+                row gap="0.25rem" align-items="center"
+                  text data.soundLabel font-size="0.875rem" line-height="1.25rem" class=SnapInk white-space="nowrap"
                   when data.soundSelection == "soft-pop"
-                    text "(Default)" font-size=14 line-height="20px" color="light-dark(#71717b, #818181)" white-space="nowrap"
+                    text "(Default)" font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #818181)" white-space="nowrap"
                 SnapIcon(name="chevron-down", size=12, color="light-dark(#27272a80, #f5f5f580)")
               column id="snapshot-sound-menu" popover="auto" role="menu" aria-label="Snapshot sound" class=SnapMenu position="absolute" top="100%" right=0 testId="snapshot-sound-menu"
                 button press=change("snapShotPlaySound", "false") popovertarget="snapshot-sound-menu" popovertargetaction="hide" role="menuitemradio" aria-checked=(data.soundSelection == "off") class=SnapMenuItem width="100%" background-color=(data.soundSelection == "off" ? "light-dark(#27272a14, #f5f5f514)" : "#00000000") testId="snapshot-sound-off"
                   text "Off" class=SnapInk
                 row width="100%" align-items="center"
-                  button press=change("snapShotSound", "soft-pop") popovertarget="snapshot-sound-menu" popovertargetaction="hide" role="menuitemradio" aria-checked=(data.soundSelection == "soft-pop") class=SnapMenuItem flex=1 min-width=0 gap=4 background-color=(data.soundSelection == "soft-pop" ? "light-dark(#27272a14, #f5f5f514)" : "#00000000") testId="snapshot-sound-whoosh"
+                  button press=change("snapShotSound", "soft-pop") popovertarget="snapshot-sound-menu" popovertargetaction="hide" role="menuitemradio" aria-checked=(data.soundSelection == "soft-pop") class=SnapMenuItem flex=1 min-width=0 gap="0.25rem" background-color=(data.soundSelection == "soft-pop" ? "light-dark(#27272a14, #f5f5f514)" : "#00000000") testId="snapshot-sound-whoosh"
                     text "Whoosh" class=SnapInk white-space="nowrap"
                     text "(Default)" color="light-dark(#71717b, #818181)" white-space="nowrap"
-                  button press=preview("soft-pop") role="menuitem" aria-label="Play Whoosh" class=SnapMenuItem width=28 padding-left=0 padding-right=0 justify-content="center" background-color="#00000000" testId="snapshot-play-whoosh"
+                  button press=preview("soft-pop") role="menuitem" aria-label="Play Whoosh" class=SnapMenuItem width="1.75rem" padding-left=0 padding-right=0 justify-content="center" background-color="#00000000" testId="snapshot-play-whoosh"
                     SnapIcon(name="play", size=16, color="light-dark(#27272a, #f5f5f5)")
                 row width="100%" align-items="center"
                   button press=change("snapShotSound", "camera-shutter") popovertarget="snapshot-sound-menu" popovertargetaction="hide" role="menuitemradio" aria-checked=(data.soundSelection == "camera-shutter") class=SnapMenuItem flex=1 min-width=0 background-color=(data.soundSelection == "camera-shutter" ? "light-dark(#27272a14, #f5f5f514)" : "#00000000") testId="snapshot-sound-click"
                     text "Click" class=SnapInk
-                  button press=preview("camera-shutter") role="menuitem" aria-label="Play Click" class=SnapMenuItem width=28 padding-left=0 padding-right=0 justify-content="center" background-color="#00000000" testId="snapshot-play-click"
+                  button press=preview("camera-shutter") role="menuitem" aria-label="Play Click" class=SnapMenuItem width="1.75rem" padding-left=0 padding-right=0 justify-content="center" background-color="#00000000" testId="snapshot-play-click"
                     SnapIcon(name="play", size=16, color="light-dark(#27272a, #f5f5f5)")
           SnapRow(title="Capture flash", description="Show a gentle cue on the captured window.", status="", first=false, rowId="snap-shot-flash")
             SnapSwitch(checked=data.flash, label="Flash captured window", disabled=(busy or not data.captureAvailable), switchId="snapshot-flash", toggle=change("snapShotFlash", data.flash ? "false" : "true"))
@@ -200,28 +202,29 @@ component SnapshotTile
   action setHover(over: bool)
     hovering = over
   view
-    column hover=setHover position="relative" width=208 max-width="100%" height=112 flex-shrink=0 box-sizing="border-box" overflow="hidden" border-radius=10 border-style="solid" border-width=1 border-color="light-dark(#e4e4e7cc, #ffffff0d)" background-color="light-dark(#fcfcfc, #0a0a0a)" testId=`snapshot-draft-${image.id}`
+    column hover=setHover position="relative" width="13rem" max-width="100%" height="7rem" flex-shrink=0 box-sizing="border-box" overflow="hidden" border-radius="0.625rem" border-style="solid" border-width=1 border-color="light-dark(#e4e4e7cc, #ffffff0d)" background-color="light-dark(#fcfcfc, #0a0a0a)" testId=`snapshot-draft-${image.id}`
       box hook="t3-snapshot-tile" data-snapshot-id=image.id position="absolute" top=0 left=0 right=0 bottom=0 testId=`snapshot-thumbnail-${image.id}`
-      row position="absolute" left=0 right=0 bottom=0 gap=6 align-items="center" padding-left=10 padding-right=10 padding-top=24 padding-bottom=8 box-sizing="border-box" min-width=0 background-image="linear-gradient(to top, #000000d9, #0000008c, #00000000)"
-        row width=28 height=28 border-radius=8 flex-shrink=0 align-items="center" justify-content="center" background-color="#ffffff33"
-          text image.letter font-size=10 font-weight=500 line-height="14px" color="#ffffff"
+      row position="absolute" left=0 right=0 bottom=0 gap="0.375rem" align-items="center" padding-left="0.625rem" padding-right="0.625rem" padding-top="1.5rem" padding-bottom="0.5rem" box-sizing="border-box" min-width=0 background-image="linear-gradient(to top, #000000d9, #0000008c, #00000000)"
+        row width="1.75rem" height="1.75rem" border-radius="0.5rem" flex-shrink=0 align-items="center" justify-content="center" background-color="#ffffff33"
+          text image.letter font-size="0.625rem" font-weight=500 line-height="0.875rem" color="#ffffff"
         column flex=1 min-width=0
-          row min-width=0 min-height=20 gap=6 align-items="center"
-            text image.app font-size=11 font-weight=500 line-height="14px" color="#ffffff" line-clamp=1 min-width=0
+          row min-width=0 min-height="1.25rem" gap="0.375rem" align-items="center"
+            text image.app font-size="0.6875rem" font-weight=500 line-height="0.875rem" color="#ffffff" line-clamp=1 min-width=0
             box position="relative" flex-shrink=0
-              button popovertarget=`snapshot-contents-${image.id}` aria-label=(image.included ? "View accessibility data" : "No accessibility data") testId=`snapshot-contents-${image.id}` width=20 height=20 padding=0 border-width=0 border-radius=6 display="flex" align-items="center" justify-content="center" background-color="#000000b3" flex-shrink=0
+              button popovertarget=`snapshot-contents-${image.id}` aria-label=(image.included ? "View accessibility data" : "No accessibility data") testId=`snapshot-contents-${image.id}` width="1.25rem" height="1.25rem" padding=0 border-width=0 border-radius="0.375rem" display="flex" align-items="center" justify-content="center" background-color="#000000b3" flex-shrink=0
                 SnapIcon(name=(image.included ? "text" : "image"), size=12, color="#ffffffa6")
-              column id=`snapshot-contents-${image.id}` popover="auto" role="dialog" aria-label="Accessibility data" position="absolute" bottom="100%" left=-134 margin-bottom=8 width=288 max-height=448 padding=12 gap=8 box-sizing="border-box" border-radius=10 border-style="solid" border-width=1 border-color="light-dark(#27272a1a, #ffffff14)" background-color="light-dark(#ffffff, #1a1a1a)" box-shadow="0 10px 15px -3px #0000001a" testId=`snapshot-contents-popup-${image.id}`
-                text "Accessibility data" font-size=14 font-weight=600 line-height="20px" class=SnapInk
-                scroll max-height=256 width="100%" border-radius=6 border-style="solid" border-width=1 border-color="light-dark(#e4e4e7b3, #ffffff12)" background-color="light-dark(#f4f4f573, #ffffff0a)"
-                  text (image.contents != "" ? image.contents : image.included ? "Structured accessibility elements were included, but they have no readable names or values." : "The app or capture backend did not provide verified accessibility data.") font-size=11 line-height="16px" font-family=(image.contents != "" ? "monospace" : "system-ui") white-space="pre-wrap" overflow-wrap="anywhere" padding=10 color=(image.contents != "" ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)")
-          text image.title font-size=10 line-height="14px" color="#ffffffb3" line-clamp=1
-      row position="absolute" top=4 right=4 opacity=(hovering ? 1 : 0)
+              // SnapShotContentsButton: PopoverPopup side="top" align="center", placed by position-area (exact2 2c6b551ba).
+              column id=`snapshot-contents-${image.id}` popover="auto" role="dialog" aria-label="Accessibility data" position="absolute" position-area="top" margin-bottom="0.5rem" width="18rem" max-height="28rem" padding="0.75rem" gap="0.5rem" box-sizing="border-box" border-radius="0.625rem" border-style="solid" border-width=1 border-color="light-dark(#27272a1a, #ffffff14)" background-color="light-dark(#ffffff, #1a1a1a)" box-shadow="0 10px 15px -3px #0000001a" testId=`snapshot-contents-popup-${image.id}`
+                text "Accessibility data" font-size="0.875rem" font-weight=600 line-height="1.25rem" class=SnapInk
+                scroll max-height="16rem" width="100%" border-radius="0.375rem" border-style="solid" border-width=1 border-color="light-dark(#e4e4e7b3, #ffffff12)" background-color="light-dark(#f4f4f573, #ffffff0a)"
+                  text (image.contents != "" ? image.contents : image.included ? "Structured accessibility elements were included, but they have no readable names or values." : "The app or capture backend did not provide verified accessibility data.") font-size="0.6875rem" line-height="1rem" font-family=(image.contents != "" ? "monospace" : "system-ui") white-space="pre-wrap" overflow-wrap="anywhere" padding="0.625rem" color=(image.contents != "" ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)")
+          text image.title font-size="0.625rem" line-height="0.875rem" color="#ffffffb3" line-clamp=1
+      row position="absolute" top="0.25rem" right="0.25rem" opacity=(hovering ? 1 : 0)
         when image.referenced
-          button press=ask("ui:confirm", image.id, "remove-snapshot", `Remove ${image.name} from the message?`, "It is referenced in your text; removing it also removes every reference.", true) focus=setHover(true) blur=setHover(false) disabled=disabled aria-label=`Remove ${image.name}` testId=`remove-snapshot-${image.id}` width=24 height=24 padding=0 border-radius=8 border-width=0 box-shadow="0 1px 2px #0000000d, 0 0 0 1px #ffffff33" background-color="#000000a6" display="flex" align-items="center" justify-content="center"
+          button press=ask("ui:confirm", image.id, "remove-snapshot", `Remove ${image.name} from the message?`, "It is referenced in your text; removing it also removes every reference.", true) focus=setHover(true) blur=setHover(false) disabled=disabled aria-label=`Remove ${image.name}` testId=`remove-snapshot-${image.id}` width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 box-shadow="0 1px 2px #0000000d, 0 0 0 1px #ffffff33" background-color="#000000a6" display="flex" align-items="center" justify-content="center"
             SnapIcon(name="x", size=14, color="#ffffff")
         else
-          button press=remove(image.id) focus=setHover(true) blur=setHover(false) disabled=disabled aria-label=`Remove ${image.name}` testId=`remove-snapshot-${image.id}` width=24 height=24 padding=0 border-radius=8 border-width=0 box-shadow="0 1px 2px #0000000d, 0 0 0 1px #ffffff33" background-color="#000000a6" display="flex" align-items="center" justify-content="center"
+          button press=remove(image.id) focus=setHover(true) blur=setHover(false) disabled=disabled aria-label=`Remove ${image.name}` testId=`remove-snapshot-${image.id}` width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 box-shadow="0 1px 2px #0000000d, 0 0 0 1px #ffffff33" background-color="#000000a6" display="flex" align-items="center" justify-content="center"
             SnapIcon(name="x", size=14, color="#ffffff")
 
 component SnapshotDrafts
@@ -235,7 +238,7 @@ component SnapshotDrafts
     command: action
   view
     when length(images) > 0 or length(videos) > 0
-      row width="100%" gap=8 overflow-x="scroll" padding-bottom=4 box-sizing="border-box" testId="snapshot-drafts"
+      row width="100%" gap="0.5rem" overflow-x="scroll" padding-bottom="0.25rem" box-sizing="border-box" testId="snapshot-drafts"
         each image in images key=image.id
           when image.snapshot
             SnapshotTile(image=image, disabled=disabled, remove=remove, ask=ask)
@@ -256,9 +259,9 @@ component SnapPermission
     allow: action
     rowId: string
   view
-    row gap=12 align-items="center" padding-left=12 padding-right=12 padding-top=8 padding-bottom=8 border-radius=10 border-style="solid" border-width=1 border-color="light-dark(#e4e4e7, #ffffff0f)" box-sizing="border-box" width="100%" testId=rowId
-      box width=32 height=32 border-radius=7 flex-shrink=0 box-sizing="border-box" border-style="solid" border-width=1 border-color="#ffffff40" box-shadow="0 1px 1px #0000000d" background-image=(title == "Accessibility" ? "linear-gradient(to bottom, #48b6ff, #0085ff)" : "linear-gradient(to bottom, #ff6972, #ff2938)")
-        svg width=30 height=30 viewBox="1 1 30 30" fill="none" stroke="#ffffff" stroke-linecap="round" stroke-linejoin="round" aria-hidden=true
+    row gap="0.75rem" align-items="center" padding-left="0.75rem" padding-right="0.75rem" padding-top="0.5rem" padding-bottom="0.5rem" border-radius="0.625rem" border-style="solid" border-width=1 border-color="light-dark(#e4e4e7, #ffffff0f)" box-sizing="border-box" width="100%" testId=rowId
+      box width="2rem" height="2rem" border-radius="0.4375rem" flex-shrink=0 box-sizing="border-box" border-style="solid" border-width=1 border-color="#ffffff40" box-shadow="0 1px 1px #0000000d" background-image=(title == "Accessibility" ? "linear-gradient(to bottom, #48b6ff, #0085ff)" : "linear-gradient(to bottom, #ff6972, #ff2938)")
+        svg width="1.875rem" height="1.875rem" viewBox="1 1 30 30" fill="none" stroke="#ffffff" stroke-linecap="round" stroke-linejoin="round" aria-hidden=true
           when title == "Accessibility"
             circle cx=16 cy=16 r=10 stroke-width=1.75
             circle cx=16 cy=10 r=1.6 fill="#ffffff" stroke-width=0
@@ -267,12 +270,12 @@ component SnapPermission
             circle cx=16 cy=16 r=10 stroke-width=2
             circle cx=16 cy=16 r=4.5 fill="#ffffff" stroke-width=0
       column flex=1 min-width=0
-        text title font-size=14 font-weight=500 line-height="20px" class=SnapInk
-        text description font-size=12 line-height="16px" color="light-dark(#71717b, #818181)"
+        text title font-size="0.875rem" font-weight=500 line-height="1.25rem" class=SnapInk
+        text description font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
       when granted
-        row gap=4 align-items="center" role="status" testId=`${rowId}-allowed`
+        row gap="0.25rem" align-items="center" role="status" testId=`${rowId}-allowed`
           SnapIcon(name="check-circle", size=16, color="light-dark(#16a34a, #4ade80)")
-          text "Allowed" font-size=12 line-height="16px" color="light-dark(#16a34a, #4ade80)"
+          text "Allowed" font-size="0.75rem" line-height="1rem" color="light-dark(#16a34a, #4ade80)"
       else
         button press=allow class=SnapOutlineXs disabled=busy testId=`${rowId}-allow` opacity=(busy ? 0.64 : 1)
           text "Allow" class=SnapLabelXs
@@ -296,65 +299,65 @@ component SnapshotSetup
     advanced = not advanced
   view
     // Reference dialog-backdrop: the page at 60% (64% dark) behind a 4px blur.
-    column position="absolute" left=0 right=0 top=0 bottom=0 display="flex" align-items="center" justify-content="center" padding=16 box-sizing="border-box" z-index=20 background-color="light-dark(#fcfcfc99, #0a0a0aa3)" backdrop-filter="blur(4px)"
-      column position="relative" width="100%" max-width=576 border-radius=18 box-sizing="border-box" overflow="hidden" border-style="solid" border-width=1 border-color="light-dark(#27272a1a, #ffffff14)" background-color="light-dark(#fcfcfccc, #0a0a0acc)" backdrop-filter="blur(24px)" box-shadow="0 24px 64px -24px light-dark(#000000a6, #000000e6)" role="dialog" aria-label="Set up snapshots" testId="snapshot-setup-dialog"
-        column padding-top=24 padding-left=24 padding-right=24 padding-bottom=12 gap=8 box-sizing="border-box"
-          text "Set up snapshots" font-size=20 font-weight=600 line-height="20px" class=SnapInk role="heading" aria-level=2
-          row gap=4 padding=4 border-radius=14 background-color="light-dark(#fcfcfc, #ffffff0a)" box-shadow="0 0 0 1px light-dark(#0000000d, #ffffff0d)" role="list" aria-label="Setup progress"
-            row flex=1 min-width=0 gap=8 align-items="center" padding-left=10 padding-right=10 padding-top=8 padding-bottom=8 border-radius=10 background-color=(data.setupReady and not back ? "#00000000" : "light-dark(#ffffff, #111111)") box-shadow=(data.setupReady and not back ? "none" : "0 1px 2px #0000000d, 0 0 0 1px light-dark(#0000000d, #ffffff0d)") testId="snapshot-setup-step-access"
-              row width=20 height=20 border-radius=10 align-items="center" justify-content="center" flex-shrink=0 background-color=(data.setupReady and not back ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#1b4ed81a, #346bf11a)") box-shadow=(data.setupReady and not back ? "0 0 0 1px light-dark(#1b4ed8, #346bf1)" : "0 0 0 1px light-dark(#1b4ed84d, #346bf14d)")
+    column position="absolute" left=0 right=0 top=0 bottom=0 display="flex" align-items="center" justify-content="center" padding="1rem" box-sizing="border-box" z-index=20 background-color="light-dark(#fcfcfc99, #0a0a0aa3)" backdrop-filter="blur(4px)"
+      column position="relative" width="100%" max-width="36rem" border-radius="1.125rem" box-sizing="border-box" overflow="hidden" border-style="solid" border-width=1 border-color="light-dark(#27272a1a, #ffffff14)" background-color="light-dark(#fcfcfccc, #0a0a0acc)" backdrop-filter="blur(24px)" box-shadow="0 24px 64px -24px light-dark(#000000a6, #000000e6)" role="dialog" aria-label="Set up snapshots" testId="snapshot-setup-dialog"
+        column padding-top="1.5rem" padding-left="1.5rem" padding-right="1.5rem" padding-bottom="0.75rem" gap="0.5rem" box-sizing="border-box"
+          text "Set up snapshots" font-size="1.25rem" font-weight=600 line-height="1.25rem" class=SnapInk role="heading" aria-level=2
+          row gap="0.25rem" padding="0.25rem" border-radius="0.875rem" background-color="light-dark(#fcfcfc, #ffffff0a)" box-shadow="0 0 0 1px light-dark(#0000000d, #ffffff0d)" role="list" aria-label="Setup progress"
+            row flex=1 min-width=0 gap="0.5rem" align-items="center" padding-left="0.625rem" padding-right="0.625rem" padding-top="0.5rem" padding-bottom="0.5rem" border-radius="0.625rem" background-color=(data.setupReady and not back ? "#00000000" : "light-dark(#ffffff, #111111)") box-shadow=(data.setupReady and not back ? "none" : "0 1px 2px #0000000d, 0 0 0 1px light-dark(#0000000d, #ffffff0d)") testId="snapshot-setup-step-access"
+              row width="1.25rem" height="1.25rem" border-radius="0.625rem" align-items="center" justify-content="center" flex-shrink=0 background-color=(data.setupReady and not back ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#1b4ed81a, #346bf11a)") box-shadow=(data.setupReady and not back ? "0 0 0 1px light-dark(#1b4ed8, #346bf1)" : "0 0 0 1px light-dark(#1b4ed84d, #346bf14d)")
                 when data.setupReady and not back
                   SnapIcon(name="check", size=14, color="#ffffff")
                 else
-                  text "1" font-size=14 font-weight=500 line-height="20px" color="light-dark(#1b4ed8, #346bf1)"
-              text "Access" font-size=14 font-weight=500 line-height="20px" color=(data.setupReady and not back ? "light-dark(#71717b, #818181)" : "light-dark(#27272a, #f5f5f5)")
-            row flex=1 min-width=0 gap=8 align-items="center" padding-left=10 padding-right=10 padding-top=8 padding-bottom=8 border-radius=10 background-color=(data.setupReady and not back ? "light-dark(#ffffff, #111111)" : "#00000000") box-shadow=(data.setupReady and not back ? "0 1px 2px #0000000d, 0 0 0 1px light-dark(#0000000d, #ffffff0d)" : "none") testId="snapshot-setup-step-shortcut"
-              row width=20 height=20 border-radius=10 align-items="center" justify-content="center" flex-shrink=0 background-color=(data.setupReady and not back ? "light-dark(#1b4ed81a, #346bf11a)" : "light-dark(#ffffff, #ffffff0d)") box-shadow=(data.setupReady and not back ? "0 0 0 1px light-dark(#1b4ed84d, #346bf14d)" : "0 0 0 1px light-dark(#0000001a, #ffffff1a)")
-                text "2" font-size=14 font-weight=500 line-height="20px" color=(data.setupReady and not back ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#71717b, #818181)")
-              text "Shortcut" font-size=14 font-weight=500 line-height="20px" color=(data.setupReady and not back ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)")
-        column padding-left=24 padding-right=24 padding-top=20 padding-bottom=20 gap=16 box-sizing="border-box" background-color="light-dark(#fcfcfccc, #ffffff05)" box-shadow="0 0 0 1px light-dark(#0000000d, #ffffff0d)"
+                  text "1" font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#1b4ed8, #346bf1)"
+              text "Access" font-size="0.875rem" font-weight=500 line-height="1.25rem" color=(data.setupReady and not back ? "light-dark(#71717b, #818181)" : "light-dark(#27272a, #f5f5f5)")
+            row flex=1 min-width=0 gap="0.5rem" align-items="center" padding-left="0.625rem" padding-right="0.625rem" padding-top="0.5rem" padding-bottom="0.5rem" border-radius="0.625rem" background-color=(data.setupReady and not back ? "light-dark(#ffffff, #111111)" : "#00000000") box-shadow=(data.setupReady and not back ? "0 1px 2px #0000000d, 0 0 0 1px light-dark(#0000000d, #ffffff0d)" : "none") testId="snapshot-setup-step-shortcut"
+              row width="1.25rem" height="1.25rem" border-radius="0.625rem" align-items="center" justify-content="center" flex-shrink=0 background-color=(data.setupReady and not back ? "light-dark(#1b4ed81a, #346bf11a)" : "light-dark(#ffffff, #ffffff0d)") box-shadow=(data.setupReady and not back ? "0 0 0 1px light-dark(#1b4ed84d, #346bf14d)" : "0 0 0 1px light-dark(#0000001a, #ffffff1a)")
+                text "2" font-size="0.875rem" font-weight=500 line-height="1.25rem" color=(data.setupReady and not back ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#71717b, #818181)")
+              text "Shortcut" font-size="0.875rem" font-weight=500 line-height="1.25rem" color=(data.setupReady and not back ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)")
+        column padding-left="1.5rem" padding-right="1.5rem" padding-top="1.25rem" padding-bottom="1.25rem" gap="1rem" box-sizing="border-box" background-color="light-dark(#fcfcfccc, #ffffff05)" box-shadow="0 0 0 1px light-dark(#0000000d, #ffffff0d)"
           when data.setupReady and not back
-            column gap=8
-              text "Choose your shortcut" font-size=14 font-weight=500 line-height="20px" class=SnapInk role="heading" aria-level=3
-              text "Use both Shift keys, or record a different shortcut." font-size=14 line-height="20px" color="light-dark(#71717b, #818181)"
-            column gap=12 align-items="flex-start"
-              row gap=8 align-items="center"
+            column gap="0.5rem"
+              text "Choose your shortcut" font-size="0.875rem" font-weight=500 line-height="1.25rem" class=SnapInk role="heading" aria-level=3
+              text "Use both Shift keys, or record a different shortcut." font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #818181)"
+            column gap="0.75rem" align-items="flex-start"
+              row gap="0.5rem" align-items="center"
                 button press=record("true") class=SnapOutlineXs disabled=busy aria-label=data.shortcutAria testId="snapshot-setup-record" background-color=(data.recording ? "light-dark(#fafafae6, #ffffff14)" : "light-dark(#ffffff, #ffffff07)")
                   when data.recording
                     text "Press shortcut…" class=SnapLabelXs
                   else
                     SnapKeys(data=data)
                 when data.changed
-                  button press=record("false") disabled=busy testId="snapshot-setup-cancel-shortcut" display="flex" align-items="center" height=24 padding-left=7 padding-right=7 box-sizing="border-box" border-radius=8 border-width=0 background-color="#00000000"
+                  button press=record("false") disabled=busy testId="snapshot-setup-cancel-shortcut" display="flex" align-items="center" height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" box-sizing="border-box" border-radius="0.5rem" border-width=0 background-color="#00000000"
                     text "Cancel" class=SnapLabelXs
               when data.shortcutStatus != ""
-                text data.shortcutStatus font-size=12 line-height="16px" color="light-dark(#71717b, #818181)" role="status" testId="snapshot-setup-shortcut-status"
+                text data.shortcutStatus font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)" role="status" testId="snapshot-setup-shortcut-status"
           else
-            column gap=8
-              text "Allow snapshots" font-size=14 font-weight=500 line-height="20px" class=SnapInk role="heading" aria-level=3
-              text ((data.screenRecording and (data.accessibility or not data.includeAccessibility)) ? "Test a snapshot of the current window. If macOS asks to bypass its window picker, choose Allow. The test image is discarded." : "Allow each permission, then continue.") font-size=14 line-height="20px" color="light-dark(#71717b, #818181)"
-            column gap=8 width="100%"
+            column gap="0.5rem"
+              text "Allow snapshots" font-size="0.875rem" font-weight=500 line-height="1.25rem" class=SnapInk role="heading" aria-level=3
+              text ((data.screenRecording and (data.accessibility or not data.includeAccessibility)) ? "Test a snapshot of the current window. If macOS asks to bypass its window picker, choose Allow. The test image is discarded." : "Allow each permission, then continue.") font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #818181)"
+            column gap="0.5rem" width="100%"
               SnapPermission(title="Screen Recording", description="Capture the window you're using.", granted=data.screenRecording, busy=busy, allow=change("setup", "allow-screen-recording"), rowId="snapshot-permission-screen")
               SnapPermission(title="Accessibility", description=(data.includeAccessibility ? "Include text and controls from the captured app." : "Optional. Include text and controls from the captured app."), granted=data.accessibility, busy=busy, allow=change("setup", "allow-accessibility"), rowId="snapshot-permission-accessibility")
           when error != ""
-            text "Couldn't finish this step. Try again or check Advanced for help." font-size=14 line-height="20px" color="light-dark(#dc2626, #f87171)" role="alert" testId="snapshot-setup-error"
+            text "Couldn't finish this step. Try again or check Advanced for help." font-size="0.875rem" line-height="1.25rem" color="light-dark(#dc2626, #f87171)" role="alert" testId="snapshot-setup-error"
             // Reference <details><summary>Advanced</summary>: the error detail, collapsed.
-            column gap=12
-              button press=toggleAdvanced aria-expanded=advanced testId="snapshot-setup-advanced" display="flex" flex-direction="row" align-items="center" gap=4 padding=0 border-width=0 background-color="#00000000" align-self="flex-start"
-                svg width=10 height=10 viewBox="0 0 10 10" color="light-dark(#71717b, #818181)" aria-hidden=true flex-shrink=0
+            column gap="0.75rem"
+              button press=toggleAdvanced aria-expanded=advanced testId="snapshot-setup-advanced" display="flex" flex-direction="row" align-items="center" gap="0.25rem" padding=0 border-width=0 background-color="#00000000" align-self="flex-start"
+                svg width="0.625rem" height="0.625rem" viewBox="0 0 10 10" color="light-dark(#71717b, #818181)" aria-hidden=true flex-shrink=0
                   path d=(advanced ? "M1 3h8L5 8z" : "M3 1v8l5-4z") fill="currentColor"
-                text "Advanced" font-size=12 line-height="16px" color="light-dark(#71717b, #818181)"
+                text "Advanced" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
               when advanced
-                text error font-size=12 line-height="16px" color="light-dark(#71717b, #818181)" overflow-wrap="anywhere" testId="snapshot-setup-error-detail"
-        row padding-top=16 padding-bottom=16 padding-left=24 padding-right=24 gap=8 justify-content="flex-end" box-sizing="border-box"
+                text error font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)" overflow-wrap="anywhere" testId="snapshot-setup-error-detail"
+        row padding-top="1rem" padding-bottom="1rem" padding-left="1.5rem" padding-right="1.5rem" gap="0.5rem" justify-content="flex-end" box-sizing="border-box"
           when busy
             box width=0 height=0
           else
             when wasEnabled or not data.enabled
-              button press=close aria-label="Close" testId="snapshot-setup-close" position="absolute" top=8 right=8 width=32 height=32 padding=0 border-radius=8 border-width=0 background-color="#00000000" display="flex" align-items="center" justify-content="center"
+              button press=close aria-label="Close" testId="snapshot-setup-close" position="absolute" top="0.5rem" right="0.5rem" width="2rem" height="2rem" padding=0 border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" align-items="center" justify-content="center"
                 SnapIcon(name="x", size=16, color="light-dark(#27272a, #f5f5f5)")
             else
-              button press=toggle aria-label="Close" testId="snapshot-setup-close" position="absolute" top=8 right=8 width=32 height=32 padding=0 border-radius=8 border-width=0 background-color="#00000000" display="flex" align-items="center" justify-content="center"
+              button press=toggle aria-label="Close" testId="snapshot-setup-close" position="absolute" top="0.5rem" right="0.5rem" width="2rem" height="2rem" padding=0 border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" align-items="center" justify-content="center"
                 SnapIcon(name="x", size=16, color="light-dark(#27272a, #f5f5f5)")
           when data.setupReady and not back
             button press=goBack(true) disabled=busy class=SnapGhost testId="snapshot-setup-back"
@@ -368,10 +371,10 @@ component SnapshotSetup
           when data.setupReady and not back
             when data.changed
               button press=saveShortcut(data.candidate) disabled=(busy or not data.canSave) class=SnapPrimary opacity=(busy or not data.canSave ? 0.64 : 1) testId="snapshot-setup-done"
-                text (busy ? "Saving…" : "Save and finish") font-size=14 font-weight=500 line-height="20px" color="#ffffff"
+                text (busy ? "Saving…" : "Save and finish") font-size="0.875rem" font-weight=500 line-height="1.25rem" color="#ffffff"
             else
               button press=close disabled=busy class=SnapPrimary opacity=(busy ? 0.64 : 1) testId="snapshot-setup-done"
-                text "Done" font-size=14 font-weight=500 line-height="20px" color="#ffffff"
+                text "Done" font-size="0.875rem" font-weight=500 line-height="1.25rem" color="#ffffff"
           else
             button press=change("setup", "continue") disabled=(busy or not data.screenRecording or (data.includeAccessibility and not data.accessibility)) class=SnapPrimary opacity=((busy or not data.screenRecording or (data.includeAccessibility and not data.accessibility)) ? 0.64 : 1) testId="snapshot-setup-enable"
-              text (busy ? "Working…" : "Test capture and continue") font-size=14 font-weight=500 line-height="20px" color="#ffffff"
+              text (busy ? "Working…" : "Test capture and continue") font-size="0.875rem" font-weight=500 line-height="1.25rem" color="#ffffff"

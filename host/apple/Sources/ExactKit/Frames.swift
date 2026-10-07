@@ -9,10 +9,17 @@ import Foundation
 import QuartzCore
 
 /// Frames come from the display link, only while motion runs or a canvas
-/// has something to render (LLP 1009 D4), per session.
+/// has something to render (LLP 1009 D4), per session. iOS takes them from
+/// the app's clock (`FrameClock`); macOS's link comes from the viewport, so
+/// from its window's screen.
 final class Frames: NSObject {
     weak var session: ExactSession?
+    #if canImport(UIKit)
+    /// The app's link while this session takes frames from it.
+    var link: CADisplayLink? { FrameClock.shared.wants(self) ? FrameClock.shared.link : nil }
+    #else
     var link: CADisplayLink?
+    #endif
     var motion = false, spatial = false
     /// A 2D canvas asked for a frame (LLP 1056 D5): ticks run while it does.
     var canvas2d = false
@@ -73,32 +80,29 @@ final class Frames: NSObject {
     func run(_ wanted: Bool) {
         if wanted, session?.clock != nil { requestCanvas() }
         let on = wanted && session?.clock == nil
+        #if canImport(UIKit)
+        guard on else { FrameClock.shared.drop(self); return }
+        // Motion that changes place or size asks for the panel's full
+        // rate while it runs, as a canvas does: at `.default` a ProMotion
+        // iPhone presents a slide at 60 Hz. A fade or a colour change
+        // reads the same at 60, so paint-only motion — a breathing loop
+        // that runs for minutes — asks no more. The app's clock runs
+        // only while something wants frames, so an idle app gets no
+        // callbacks at all (LLP 1061 D4).
+        let fullRate = (motion && spatial) || session?.canvases.wantsFrames == true
+        let rate = Float(min(120, session?.presenter.viewport.window?.screen.maximumFramesPerSecond ?? 60))
+        let range = fullRate ? CAFrameRateRange(minimum: min(80, rate), maximum: rate, preferred: rate)
+            : motion ? CAFrameRateRange(minimum: min(30, rate), maximum: min(60, rate), preferred: min(60, rate)) : .default
+        FrameClock.shared.want(self, .session, rate: range) { [weak self] in self?.tick($0) }
+        #else
         if on, link == nil {
-            #if canImport(UIKit)
-            let l = CADisplayLink(target: self, selector: #selector(tick(_:)))
-            #else
             guard let viewport = session?.presenter.viewport else { return }
             let l = viewport.displayLink(target: self, selector: #selector(tick(_:)))
-            #endif
             l.add(to: .main, forMode: .common)
             link = l
         } else if !on, let l = link {
             l.invalidate()
             link = nil
-        }
-        #if canImport(UIKit)
-        if let link {
-            // Motion that changes place or size asks for the panel's full
-            // rate while it runs, as a canvas does: at `.default` a ProMotion
-            // iPhone presents a slide at 60 Hz. A fade or a colour change
-            // reads the same at 60, so paint-only motion — a breathing loop
-            // that runs for minutes — asks no more. The link exists only
-            // while something wants frames, so an idle app drops to no link
-            // at all (LLP 1061 D4).
-            let fullRate = (motion && spatial) || session?.canvases.wantsFrames == true
-            let rate = Float(min(120, session?.presenter.viewport.window?.screen.maximumFramesPerSecond ?? 60))
-            link.preferredFrameRateRange = fullRate ? CAFrameRateRange(minimum: min(80, rate), maximum: rate, preferred: rate)
-                : motion ? CAFrameRateRange(minimum: min(30, rate), maximum: min(60, rate), preferred: min(60, rate)) : .default
         }
         #endif
     }

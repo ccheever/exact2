@@ -74,6 +74,11 @@ impl<D: DataSource> Storage<D> {
     ) -> Result<Answer, DataError> {
         let mut answer = result?;
         if let Answer::Later(request) = &mut answer {
+            // Storage becomes a continuation below: a deadline on it is
+            // refused, not dropped.
+            if let Some(why) = request.timeout_refusal() {
+                return Err(unavailable(why));
+            }
             if request.http != exact_runner::HttpScheduling::Ordered
                 && (request.storage.is_some() || request.continuation.is_some())
             {
@@ -140,6 +145,9 @@ fn unavailable(s: impl Into<String>) -> DataError {
 impl<D: DataSource> DataSource for Storage<D> {
     fn preload(&self) -> Result<bool, DataError> {
         self.source.preload()
+    }
+    fn when_preloaded(&self, wake: Box<dyn FnOnce() + Send>) {
+        self.source.when_preloaded(wake)
     }
     fn query(&mut self, name: &str, args: &[Value]) -> Result<Value, DataError> {
         self.source.query(name, args)

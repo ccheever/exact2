@@ -1,0 +1,25 @@
+// The chat canvas's answer (chat-canvas-view.ts; T3 Code 1e2ecbd975 ChatCanvas.tsx and
+// chatCanvasLayout.ts, MIT, see LICENSE-T3): the chat lane, the inline card's fold and the
+// floating player's frame, in the chat column's coordinates.
+shape ChatCanvasMini
+  show: bool
+  key: string // deviceKey, matched against shell.panel.deviceMini.key
+  x: number
+  top: number // from the chat column's top: the 52 pt header plus the frame's y
+  width: number
+  height: number
+  radius: number // resolveDeviceMiniPlayerCornerRadius
+  pillInset: number
+
+shape ChatCanvasView
+  ready: bool
+  containerWidth: number
+  containerHeight: number
+  left: number
+  width: number
+  insetEnd: number
+  overlapsChat: bool
+  overlapsDetailsCard: bool
+  cardShown: bool
+  cardHeight: number
+  mini: ChatCanvasMini

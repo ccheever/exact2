@@ -6,6 +6,7 @@ import { arr, obj, str, type Obj } from './domain';
 import type { T3Client } from './client';
 import type { Native } from './protocol';
 import { turnItemDetailRevision, turnItemNeedsDetailFetch, turnItemOutputText } from './timeline-item-detail';
+import { letGo } from './let-go';
 
 const TTL = 60_000;
 interface Detail { item?: Obj | null; error: string; pending?: Promise<void>; touched: number; fetched: number }
@@ -60,7 +61,11 @@ async function fetchDetail(client: T3Client, native: Native, item: Obj, now: num
       if (reply.item === null) detail.item = null;
       else if (typeof reply.item === 'object' && !Array.isArray(reply.item) && reply.item && str(obj(reply.item).id) === itemId && obj(reply.item).type === item.type) detail.item = obj(reply.item);
       else throw new Error('The server returned an invalid turn item.');
-    } catch (error) { detail.error = error instanceof Error ? error.message : String(error); }
+    } catch (error) {
+      // A let-go read is asked again, never shown as an error (let-go.ts).
+      if (letGo(error)) { if (value.details.get(key) === detail) value.details.delete(key); return; }
+      detail.error = error instanceof Error ? error.message : String(error);
+    }
     finally { detail.pending = undefined; detail.fetched = composerNow(client); await wakeShell(native); }
   })();
   await wakeShell(native);
@@ -99,7 +104,7 @@ export function turnItemDetailView(client: T3Client, item: Obj, now = composerNo
     return { item: loaded, text: text ?? 'No output.', state: text ? '' : 'empty' };
   }
   if (current?.error) return { item, text: `Couldn't load output: ${current.error}`, state: 'error' };
-  if (current?.item === null) return { item, text: 'Output is no longer available.', state: 'missing' };
+  if (current?.item === null) return { item, text: "Couldn't load output: Output is no longer available.", state: 'missing' };
   return { item, text: 'Loading output…', state: 'loading' };
 }
 

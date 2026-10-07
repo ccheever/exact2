@@ -20,5 +20,5 @@ component SidebarWindowRail
     resetWidth: action
     hoverCard: action
   view
-    box position="absolute" left=(width - 9) top=0 bottom=0 width=16 z-index=20 touch-action="none" pan=resize panrelease=finishResize dblclick=resetWidth hover=hoverCard("sidebar-rail") role="separator" aria-orientation="vertical" aria-label="Resize Sidebar" testId="sidebar-resize"
-      box position="absolute" left=8 top=0 bottom=0 width=2 box-sizing="border-box" pointer-events="none" border-left-style="solid" border-left-width=1 border-color=(hovered ? line : "#00000000") background-color=(hovered ? fill : "#00000000")
+    box position="absolute" left=(width - 9) top=0 bottom=0 width="1rem" z-index=20 cursor="w-resize" touch-action="none" pan=resize panrelease=finishResize dblclick=resetWidth hover=hoverCard("sidebar-rail") role="separator" aria-orientation="vertical" aria-label="Resize Sidebar" testId="sidebar-resize"
+      box position="absolute" left="0.5rem" top=0 bottom=0 width=2 box-sizing="border-box" pointer-events="none" border-left-style="solid" border-left-width=1 border-color=(hovered ? line : "#00000000") background-color=(hovered ? fill : "#00000000")

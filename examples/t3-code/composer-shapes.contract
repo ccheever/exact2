@@ -14,6 +14,8 @@ shape ComposerTrait
   selected: bool
   isDefault: bool
   index: number
+  // composer-fidelity G9: the primary effort's rows while "ultrathink" is in the prompt's body.
+  disabled: bool
 shape ComposerRuntime
   mode: string
   label: string
@@ -46,11 +48,37 @@ shape ComposerNotice
   actionReason: string
   dismissId: string
   segments: list<NoticeSegment>
+  // server-update-banner: the title's and actions' tooltips, a red icon, a "·" before the description, the title's live role.
+  tip: string
+  actionTip: string
+  action2Tip: string
+  iconTone: string
+  sep: bool
+  liveRole: string
+  // auto-balance: the multi-machine update banner's popover rows, and its title's accessible name.
+  machines: list<NoticeMachine>
+  menuLabel: string
+// auto-balance: one machine of the banner's popover (status idle, running or failed; a manual copy action or note).
+shape NoticeMachine
+  id: string
+  label: string
+  status: string
+  line: string
+  copyLabel: string
+  note: string
 shape ComposerTask
   key: string
   text: string
   status: string
   duration: string
+// composer-fidelity G12a: a queued row's image thumbnail, and an attachment the queued edit keeps.
+shape QueuedThumb
+  id: string
+  name: string
+shape QueueEditAttachment
+  id: string
+  name: string
+  image: bool
 shape ComposerQueued
   runId: string
   text: string
@@ -58,6 +86,8 @@ shape ComposerQueued
   index: number
   editing: bool
   last: bool
+  thumbnails: list<QueuedThumb>
+  pending: bool
 // The workspace / branch strip under the draft composer (composer-controls-branch.ts).
 shape BranchRef
   name: string
@@ -92,6 +122,8 @@ shape ComposerBranches
   envMachineLabel: string
   envOptions: list<R4EnvOption>
   envMenuWidth: number
+  // auto-balance: the host-resource load the root's balanceLoad task sends ("" when none is due).
+  balanceFetch: string
   originShown: bool
   originOn: bool
   // lane r7-handoff: the pull request badge before the branch trigger (r7-handoff-strip.ts).
@@ -170,6 +202,9 @@ shape ComposerView
   queueSteer: bool
   queueSteerReason: string
   queueEditing: string
+  // composer-fidelity G12a: the edit's kept attachments and whether its save is in flight.
+  queueEditAttachments: list<QueueEditAttachment>
+  queueEditSaving: bool
   queueDropSeq: number
   traitsCount: number
   traitsSelected: number
@@ -185,8 +220,30 @@ shape ComposerView
   menuProbes: list<R5Probe>
   effortMenuWidth: number
   runtimeMenuWidth: number
+  effortMenuHeight: number
+  runtimeMenuHeight: number
   planVisible: bool
   planActive: bool
+  // composer-fidelity G9: the prompt drives the ultrathink frame (composer-ultrathink.ts).
+  ultrathink: bool
+  // composer-fidelity G11: blocks moved into "More composer controls", the cluster hidden below the
+  // picker's minimum, and the menu's rows and widths, for the expanded and the resting footer.
+  modeOverflow: bool
+  traitsOverflow: bool
+  restingModeOverflow: bool
+  restingTraitsOverflow: bool
+  controlsHidden: bool
+  restingControlsHidden: bool
+  more: list<ComposerTrait>
+  moreCount: number
+  restingMore: list<ComposerTrait>
+  restingMoreCount: number
+  moreMenuWidth: number
+  restingMoreMenuWidth: number
+  moreMenuHeight: number
+  restingMoreMenuHeight: number
+  moreX: number
+  moreWidth: number
   traitsX: number
   traitsWidth: number
   runtimeX: number

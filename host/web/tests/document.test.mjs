@@ -7,11 +7,11 @@ import { test, expect } from 'bun:test';
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { createServer } from 'node:http';
-import { homedir, tmpdir } from 'node:os';
+import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { Cdp, assertWebDistApp, browserDiagnosticNoise } from '../../../scripts/agent.mjs';
 import { chromium, refuseStale, webChanges } from '../../../scripts/agent-launch.mjs';
-import { hermesIos, resolveApp } from '../../../scripts/app.mjs';
+import { hermesBundle, hermesTarget, resolveApp } from '../../../scripts/app.mjs';
 import { jsTargetBuild, serveStatic } from '../serve.mjs';
 
 const ROOT = resolve(new URL('../../..', import.meta.url).pathname);
@@ -23,18 +23,9 @@ function weatherlightPrerequisite() {
   if (browserUnavailable) return browserUnavailable;
   if (process.env.EXACT_JS_ENGINE === 'stub') return 'the Weatherlight document test needs the Hermes executor, not EXACT_JS_ENGINE=stub';
   if (!['linux', 'darwin'].includes(process.platform)) return `the Weatherlight wasm build is not provisioned on ${process.platform}`;
-  const arch = process.arch === 'arm64' ? 'arm64' : 'x64';
-  // js/build.rs's macOS fallback: the machine's cache, when there is no sibling ibex.
-  const cache = resolve(homedir(), '.cache/exact/hermes-macos'), cached = process.platform === 'darwin' && !process.env.EXACT_HERMES_DIR && !existsSync(resolve(ROOT, '../ibex')) && existsSync(resolve(cache, 'engine'));
-  const receipt = resolve(cache, 'engine/hermes-input-receipt.json');
-  if (cached && !(existsSync(receipt) && readFileSync(receipt, 'utf8').includes(`"sourceCommit": "${hermesIos().pin}"`))) return `${receipt} does not name the pinned Hermes`;
-  const engine = process.platform === 'linux' ? resolve(ROOT, '../ibex/linux-vanilla')
-    : resolve(process.env.EXACT_HERMES_DIR ?? (cached ? resolve(cache, 'engine') : resolve(ROOT, '../ibex/ios/Frameworks-vanilla')));
-  const headers = process.platform === 'linux' ? resolve(process.env.HERMES_INCLUDE_DIR ?? resolve(engine, 'hermes-headers')) : resolve(engine, 'hermes-headers');
-  const libraries = process.platform === 'linux' ? resolve(process.env.HERMES_LIB_DIR ?? resolve(engine, 'lib')) : resolve(engine, 'macos-static');
-  const hermesc = resolve(process.env.EXACT_HERMESC ?? (cached ? resolve(cache, 'hermesc') : resolve(ROOT, `../ibex/tools/hermes-vanilla/hermesc-${process.platform === 'linux' ? 'linux' : 'macos'}-${arch}`)));
-  const needed = [headers, ...['libhermesvmlean_a.a', 'libjsi.a', 'libboost_context.a'].map(name => resolve(libraries, name)),
-    hermesc, resolve(process.env.EXACT_TSC ?? resolve(ROOT, 'node_modules/.bin/tsc')),
+  const bundle = hermesBundle(hermesTarget());
+  if (!bundle.installed) return `the Weatherlight wasm build needs ${bundle.target}; missing ${bundle.missing.join(', ')}; run ${bundle.fix}`;
+  const needed = [resolve(process.env.EXACT_TSC ?? resolve(ROOT, 'node_modules/.bin/tsc')),
     resolve(process.env.EXACT_ROLLDOWN ?? resolve(ROOT, 'node_modules/.bin/rolldown'))];
   const missing = needed.filter(path => !existsSync(path));
   return missing.length ? `the Weatherlight wasm build needs its complete Hermes and TypeScript toolchain; missing ${missing.join(', ')}` : null;
@@ -141,7 +132,7 @@ function differences(served, live, where = 'root', out = []) {
 
 /** Serve the rendered page for `location` beside dist/, launch Chrome, and
  * hand `drive` a way to open tabs on it; everything is torn down after. */
-async function withDocument(location, drive, { wasmAfter = null, glueAfter = null, tamper = (page) => page, origin = null, html = null, files = {}, answers = {}, requested = () => {} } = {}) {
+async function withDocument(location, drive, { wasmAfter = null, glueAfter = null, tamper = (page) => page, origin = null, html = null, files = {}, answers = {}, requested = () => {}, hints = false } = {}) {
   let server = null, url = `${origin}${location}`;
   if (!origin) {
     const page = tamper(html ?? renderedPage(location));
@@ -177,6 +168,13 @@ async function withDocument(location, drive, { wasmAfter = null, glueAfter = nul
       await call('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: false });
       await call('Emulation.setScriptExecutionDisabled', { value: !scripts });
       if (onNew) await call('Page.addScriptToEvaluateOnNewDocument', { source: onNew });
+      // A returning reader's browser sends the viewport hints the server asked for (LLP 1048.006):
+      // a first visit gets its user agent's class, a desktop's 1280 px, which a page that breaks
+      // between the tab's width and 1280 renders differently and the runtime does not adopt.
+      if (hints) {
+        await call('Network.enable');
+        await call('Network.setExtraHTTPHeaders', { headers: { 'Sec-CH-Viewport-Width': String(width), 'Sec-CH-Viewport-Height': String(height) } });
+      }
       const evaluate = async (expression) => {
         const r = await call('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true });
         if (r.exceptionDetails) throw new Error(r.exceptionDetails.exception?.description ?? r.exceptionDetails.text);
@@ -414,7 +412,8 @@ weatherlightCheck(`a TypeScript app's served document is adopted, with its modul
         expect(served).toBe(views);
         const { emptyFrames, swaps } = JSON.parse(await live('JSON.stringify(globalThis.__watch)'));
         expect({ emptyFrames, swaps }).toEqual({ emptyFrames: 0, swaps: 0 });
-      }, { origin: server.origin });
+        // Weatherlight breaks at 1100 px (its wide layout): the tab's hints decide its page.
+      }, { origin: server.origin, hints: true });
       expect(server.lines.some((l) => /^render \/\?agent=1 200 /.test(l))).toBe(true);
     } finally {
       server.stop();

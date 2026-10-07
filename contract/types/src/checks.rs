@@ -1030,10 +1030,10 @@ pub(super) fn check_command(
             span,
         );
     }
-    if name == "close" && !args.is_empty() {
+    if name == "close" && args.len() > 1 {
         return err(
             "type-close",
-            "`close()` takes no arguments: it closes the window this session shows, without asking its `beforeunload` again",
+            "`close()` closes the window this session shows, without asking its `beforeunload` again; `close(id)` closes the dialog with that `id` (LLP 1101.001 P5); nothing else",
             span,
         );
     }
@@ -1064,6 +1064,9 @@ pub(super) fn check_command(
     }
     if name == "setSelectionRange" {
         return crate::selection::selection_range_args(args, scope, shapes, span);
+    }
+    if name == "setRootFontSize" {
+        return root_font_size_args(args, scope, shapes, span);
     }
     if matches!(name, "playSound" | "playSounds" | "stopSounds") {
         return sounds::args(name, args, scope, shapes, span);
@@ -1099,6 +1102,32 @@ pub(super) fn check_command(
         infer(arg, scope, shapes)?;
     }
     Ok(())
+}
+
+/// `setRootFontSize(px)`, a number of CSS pixels, or `setRootFontSize("medium")`,
+/// CSS's keyword for the host's own size (LLP 1069.000 D3). A size the
+/// source spells as zero or less is refused here; a computed one, when it
+/// runs.
+fn root_font_size_args(
+    args: &[Expr],
+    scope: &Scope,
+    shapes: &Shapes,
+    span: Span,
+) -> Result<(), TypeError> {
+    let fits = match args {
+        [Expr::Str(s, _)] => s == "medium",
+        [Expr::Number(n, _)] => *n > 0.0,
+        [arg] => matches!(infer(arg, scope, shapes)?, Ty::Number),
+        _ => false,
+    };
+    if fits {
+        return Ok(());
+    }
+    err(
+        "type-root-font-size",
+        "`setRootFontSize(px)` takes the root font size in px, above 0 (`rem` follows it, as `:root { font-size }`), or `setRootFontSize(\"medium\")` for the host's own size",
+        span,
+    )
 }
 
 /// Check a view, recording each attribute's refusal and moving on. A

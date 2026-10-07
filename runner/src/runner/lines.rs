@@ -58,6 +58,14 @@ pub(super) fn revalidated(resource: &str, same: bool) -> String {
     text!("{} answered: {}", resource, what)
 }
 
+/// A kept answer the fresh one contradicts (LLP 1027 D4, LLP 1102 §3.17).
+pub(super) fn kept_contradicted(resource: &str) -> String {
+    text!(
+        "{} answered differently from its kept answer: the first frame showed the last session's value until its source answered",
+        resource
+    )
+}
+
 pub(super) fn advanced(fired: usize, epoch: u64) -> String {
     let plural = if fired == 1 { "" } else { "s" };
     text!("advance → {} timer{} fired, epoch {}", fired, plural, epoch)
@@ -73,6 +81,25 @@ pub(super) fn kept(ticket: u64, name: &str) -> String {
         "keep request {} ({}): the same request for newer arguments",
         ticket,
         name
+    )
+}
+
+/// A watched topic changed while a request was in flight (LLP 1016.002 D4).
+pub(super) fn waits_for(topic: &str, ticket: u64, name: &str) -> String {
+    text!(
+        "changed {}: request {} ({}) lands first, then it is asked again",
+        topic,
+        ticket,
+        name
+    )
+}
+
+/// That request's reply landed (or failed): the resource is asked again.
+pub(super) fn asked_again(ticket: u64, name: &str) -> String {
+    text!(
+        "{}: asked again, a watched topic changed while request {} was in flight",
+        name,
+        ticket
     )
 }
 

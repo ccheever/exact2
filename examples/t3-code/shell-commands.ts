@@ -3,6 +3,9 @@
 // "Update", OpenInPicker) and the toasts the reference raises around the
 // main window's actions. `shell:` ops write to the server through the
 // client's generation-guarded access; `shelllocal:` ops never do.
+import { cloneCommand } from './project-clones-live';
+import { closeThreadTerminals } from './terminal-drawer-view'; // terminal-drawer
+import { automationCommand } from './scheduled-tasks-commands';
 import type { T3Client } from './client';
 import { pushToast } from './toast';
 import { obj, str } from './domain';
@@ -12,6 +15,8 @@ import { toggleInline } from './shell-prefs';
 import { markCopied } from './shell';
 import { gitShellCommand, GIT_FAILURE_TITLES } from './r4-git-route';
 import { surfaceLocal, surfaceCommand } from './r4-surfaces-panel';
+import { openInEditorHere } from './remote-open'; // remote Open (OpenInPicker)
+import { letGo } from './let-go';
 
 function threadOf(client: T3Client, threadId: string) {
   const thread = client.shell.threads.find(candidate => candidate.id === threadId);
@@ -29,6 +34,8 @@ export function resolveRenameCommit(title: string, originalTitle: string): { act
 
 export async function shellCommand(client: T3Client, native: Native, storage: Files, op: string, id: string, value: string): Promise<string> {
   if (op.startsWith('surface-')) return surfaceCommand(client, native, storage, op.slice(8), id, value); // r4-surfaces-panel.ts
+  if (op.startsWith('clone-')) return cloneCommand(client, native, storage, op, id, value); // project-clones-live.ts
+  if (op.startsWith('automation-')) return automationCommand(client, native, op.slice(11), id, value); // scheduled-tasks-commands.ts
   const access = client.restAccess(native);
   if (op === 'provider-update') {
     // server.updateProvider per one-click candidate, in order (runUpdates),
@@ -43,6 +50,7 @@ export async function shellCommand(client: T3Client, native: Native, storage: Fi
         await access.request('server.updateProvider', { provider: str(provider.driver), instanceId }, true);
       }
     } catch (error) {
+      if (letGo(error)) throw error;
       pushToast(client, { kind: 'error', title: one ? 'Provider update failed' : 'Provider updates failed', description: messageOf(error), timeoutMs: 0, stacked: true, key: 'provider-update' });
       return '';
     }
@@ -52,8 +60,8 @@ export async function shellCommand(client: T3Client, native: Native, storage: Fi
   }
   if (op === 'open-editor') {
     if (!id) throw new ClientError('This thread does not have a workspace path to open.');
-    await access.request('shell.openInEditor', { cwd: id, editor: value });
-    rememberEditor(client, value);
+    // OpenInPicker: remotely a deep link to this Mac's editor, never an editor run on the other machine (remote-open.ts).
+    if (await openInEditorHere(client, native, id, value)) rememberEditor(client, value);
     return '';
   }
   // lane r4-git: the card's branch picker, Git actions and dialogs (r4-git-route.ts).
@@ -91,6 +99,7 @@ export async function shellCommand(client: T3Client, native: Native, storage: Fi
   if (op === 'archive' && (thread.activeRunId || ['preparing', 'starting', 'running', 'waiting'].includes(str(thread.status)))) {
     throw new ClientError('Stop the running turn before archiving this thread.');
   }
+  if (op === 'delete') await closeThreadTerminals(client, native, id); // terminal-drawer: useThreadActions closes the thread's terminals first
   await access.dispatch(storage, { ...entry[1], commandId, threadId: id }, `${entry[0]} ${title}`);
   return '';
 }
@@ -110,20 +119,20 @@ export async function shellLocal(client: T3Client, native: Native, op: string, i
     const project = client.shell.projects.find(candidate => candidate.id === (thread?.projectId ?? client.projectId));
     const path = str(thread?.worktreePath) || str(project?.workspaceRoot);
     if (!path) { pushToast(client, { kind: 'error', title: 'Path unavailable', description: 'This thread does not have a workspace path to copy.', stacked: true }); return ''; }
-    try { await copy(path); } catch (error) { pushToast(client, { kind: 'error', title: 'Failed to copy path', description: messageOf(error) }); return ''; }
+    try { await copy(path); } catch (error) { if (letGo(error)) throw error; pushToast(client, { kind: 'error', title: 'Failed to copy path', description: messageOf(error) }); return ''; }
     pushToast(client, { kind: 'success', title: 'Path copied', description: path });
     return '';
   }
   if (op === 'copy-branch') {
     const branch = str(thread?.branch);
     if (!branch) return '';
-    try { await copy(branch); } catch (error) { pushToast(client, { kind: 'error', title: 'Failed to copy branch', description: messageOf(error) }); return ''; }
+    try { await copy(branch); } catch (error) { if (letGo(error)) throw error; pushToast(client, { kind: 'error', title: 'Failed to copy branch', description: messageOf(error) }); return ''; }
     pushToast(client, { kind: 'success', title: 'Branch copied', description: branch });
     return '';
   }
   if (op === 'copy-thread-id') {
     if (!thread) throw new ClientError('That thread is no longer available.');
-    try { await copy(str(thread.id)); } catch (error) { pushToast(client, { kind: 'error', title: 'Failed to copy thread ID', description: messageOf(error) }); return ''; }
+    try { await copy(str(thread.id)); } catch (error) { if (letGo(error)) throw error; pushToast(client, { kind: 'error', title: 'Failed to copy thread ID', description: messageOf(error) }); return ''; }
     pushToast(client, { kind: 'success', title: 'Thread ID copied', description: str(thread.id) });
     return '';
   }

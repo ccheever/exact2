@@ -137,7 +137,7 @@ impl<'a> NodeRef<'a> {
     /// The run style this node's text measures and paints with: its own text
     /// rows, else its paragraph's, else the initial values.
     pub fn text_style(&self) -> TextStyle {
-        TextStyle::from_style(&self.computed_style(StyleMask::INHERITED))
+        self.arena.text_style(self.slot)
     }
 
     /// The nearest explicit HTML spelling-check hint in the logical tree.
@@ -221,6 +221,9 @@ pub struct Kernel {
     on_demand: bool,
     /// Keeps nothing ([`Kernel::detached`]).
     detached: bool,
+    /// List rows mounted out of their port that hold an animation waiting
+    /// for the row to show (`animation-trigger: view`, LLP 1055 D13).
+    pub(crate) awaiting: crate::id::IdSet<ViewId>,
 }
 
 /// The engine tree, which a layout path has made sure of with `mirror`.
@@ -283,6 +286,7 @@ impl Kernel {
             region_leases: Default::default(),
             on_demand: true,
             detached: false,
+            awaiting: Default::default(),
         }
     }
 
@@ -739,6 +743,14 @@ impl Kernel {
         self.replace_env(next)
     }
 
+    /// Lay borders out as a terminal does: a drawn side is one cell (LLP
+    /// 1101.001 P13). The terminal host sets it on its own kernel before
+    /// the tree is built; it is this kernel's alone.
+    pub fn set_cell_borders(&mut self, on: bool) {
+        let next = self.arena.env().with_cell_borders(on);
+        let _ = self.replace_env(next);
+    }
+
     fn replace_env(&mut self, env: Env) -> Result<bool, KernelError> {
         if *self.arena.env() == env {
             return Ok(false);
@@ -977,6 +989,7 @@ impl Kernel {
             region_leases: Default::default(),
             on_demand: self.on_demand,
             detached: self.detached,
+            awaiting: Default::default(),
         }
     }
 }

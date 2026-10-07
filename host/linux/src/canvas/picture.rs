@@ -40,7 +40,7 @@ impl Picture {
 
     pub(super) fn downgrade(&self) -> WeakPicture {
         match self {
-            Picture::Bitmap(b) => WeakPicture::Bitmap(Arc::downgrade(b)),
+            Picture::Bitmap(b) => WeakPicture::Bitmap(Arc::downgrade(b), b.shared()),
             Picture::Canvas(p) => WeakPicture::Canvas(Arc::downgrade(p)),
         }
     }
@@ -58,22 +58,29 @@ impl AsRef<[u8]> for Picture {
 /// A picture the recorder announced, held weakly: dropped by the presenter,
 /// it is freed on the reader too.
 pub(super) enum WeakPicture {
-    Bitmap(Weak<Bitmap>),
+    /// The image, and whether the reader draws from its own pixels.
+    Bitmap(Weak<Bitmap>, bool),
     Canvas(Weak<Pixmap>),
 }
 
 impl WeakPicture {
     pub(super) fn alive(&self) -> bool {
         match self {
-            WeakPicture::Bitmap(w) => w.strong_count() > 0,
+            WeakPicture::Bitmap(w, _) => w.strong_count() > 0,
             WeakPicture::Canvas(w) => w.strong_count() > 0,
         }
+    }
+
+    /// Whether the reader holds no copy of its own (it draws from the
+    /// picture's GPU buffer): nothing is freed by letting go of it early.
+    pub(super) fn shared(&self) -> bool {
+        matches!(self, WeakPicture::Bitmap(_, true))
     }
 
     /// Whether this is `picture`'s allocation, still alive.
     pub(super) fn is(&self, picture: &Picture) -> bool {
         match (self, picture) {
-            (WeakPicture::Bitmap(w), Picture::Bitmap(b)) => {
+            (WeakPicture::Bitmap(w, _), Picture::Bitmap(b)) => {
                 w.upgrade().is_some_and(|live| Arc::ptr_eq(&live, b))
             }
             (WeakPicture::Canvas(w), Picture::Canvas(p)) => {

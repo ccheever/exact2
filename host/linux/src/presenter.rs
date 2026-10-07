@@ -95,7 +95,8 @@ mod events_tests;
 #[path = "presenter/visibility_tests.rs"]
 mod visibility_tests;
 
-use painter::{cpu_info, open_backend};
+use painter::cpu_info;
+pub(crate) use painter::PainterBoot;
 pub use painter::{set_custom_painter, PainterChoice, PainterFactory, PainterInfo};
 
 /// The presenter: one host, its painter, and the host state.
@@ -149,6 +150,9 @@ pub struct Presenter<D: DataSource> {
     pointer: Option<(f32, f32)>,
     /// The nodes with a `hover` handler under the pointer, innermost first.
     hovered: Vec<ViewId>,
+    /// Where the pointer last moved for hover (`hover_at`): a frame that
+    /// moves content under it hovers again there (`follow_pointer`).
+    hover_point: Option<(f32, f32)>,
     /// The node holding the pointer's `pointerdown` until it lifts.
     pointer_held: Option<exact_kernel::NodeKey>,
     /// The held pointer's buttons as DOM counts them: 1 primary, 2
@@ -157,6 +161,8 @@ pub struct Presenter<D: DataSource> {
     pub(crate) control_bindings: BTreeMap<(u32, u32), crate::surfaces::ControlBinding>,
     pub(crate) control_contact: Option<(ViewId, f32, f32)>,
     boxes: Vec<PaintedBox>,
+    /// Bumped whenever `boxes` is replaced.
+    boxes_serial: u64,
     pub(crate) dirty: bool,
     /// The app's `setScheme` (`None`: follow the system) and the system's
     /// appearance, which only an agent sets here (LLP 1061 D5).
@@ -243,7 +249,7 @@ impl<D: DataSource> Presenter<D> {
             viewport,
             scale,
             Assets::embedded(assets),
-            choice,
+            PainterBoot::selected(choice),
             None,
             "/",
             None,
@@ -265,6 +271,7 @@ impl<D: DataSource> Presenter<D> {
         (compat, delivery): (&str, exact_runner::Delivery),
         launch: &str,
         region: Option<crate::content_region::ContentRegionRegistration>,
+        painter: PainterBoot,
     ) -> Result<(Presenter<D>, Option<String>), HostError> {
         let assets = match selected {
             Some(set) => Assets::selected(root, set),
@@ -276,7 +283,7 @@ impl<D: DataSource> Presenter<D> {
             viewport,
             scale,
             assets,
-            PainterChoice::from_env(),
+            painter,
             Some(delivery),
             launch,
             region,
@@ -293,11 +300,12 @@ impl<D: DataSource> Presenter<D> {
         viewport: (f32, f32),
         scale: f32,
         assets: Assets,
-        choice: PainterChoice,
+        painter: PainterBoot,
         delivery: Option<exact_runner::Delivery>,
         launch: &str,
         region: Option<crate::content_region::ContentRegionRegistration>,
     ) -> Result<(Presenter<D>, Option<String>), HostError> {
+        let choice = painter.choice;
         if region.is_some() && choice != PainterChoice::Cpu {
             return Err(HostError::Painter(
                 "content-region trial requires explicit CPU painting (EXACT_PAINTER=cpu)".into(),
@@ -314,7 +322,7 @@ impl<D: DataSource> Presenter<D> {
             return Err(HostError::Asset(reason));
         }
         let fonts_ms = t.elapsed().as_secs_f64() * 1000.0;
-        let (backend, painter) = open_backend(choice).map_err(HostError::Painter)?;
+        let (backend, painter) = painter.open().map_err(HostError::Painter)?;
         let (mut host, error) = Host::boot_decoded(
             decoded,
             data,
@@ -383,11 +391,13 @@ impl<D: DataSource> Presenter<D> {
             autofocus_processed: Default::default(),
             pointer: None,
             hovered: Vec::new(),
+            hover_point: None,
             pointer_held: None,
             pointer_buttons: 0,
             control_contact: None,
             control_bindings: BTreeMap::new(),
             boxes: Vec::new(),
+            boxes_serial: 0,
             dirty: true,
             scheme: (None, false),
             segments: Vec::new(),
@@ -672,6 +682,12 @@ impl<D: DataSource> Presenter<D> {
         self.forget_replaced_choices();
         let admitted = self.host.grants();
         for r in self.host.take_requests() {
+            // A deadline the surface and auth paths can't keep: the executor
+            // refuses it at admission, fencing later ordered work.
+            if r.request.timeout_refusal().is_some() {
+                self.run_dispatch(r, exact_runner::Dispatch::Missing);
+                continue;
+            }
             if r.request.surface.is_some() {
                 self.surfaces.enqueue(r, &admitted);
                 continue;
@@ -687,10 +703,9 @@ impl<D: DataSource> Presenter<D> {
             let dispatch = match r.request.continuation {
                 Some(token) => self.host.dispatch_work(token),
                 None if r.request.is_native() => self.host.native_work(&r.request),
-                None => {
-                    self.run_dispatch(r, exact_runner::Dispatch::Missing);
-                    continue;
-                }
+                // @ref LLP 1103 D1 — a driver fault fails it before transport.
+                None => (self.host.runner_mut().fault_dispatch(&r))
+                    .unwrap_or(exact_runner::Dispatch::Missing),
             };
             self.run_dispatch(r, dispatch);
         }
@@ -1335,8 +1350,19 @@ impl<D: DataSource> Presenter<D> {
 
     /// Another host took over: it is measured as the last was, and counted.
     pub(crate) fn replaced(&mut self) {
-        self.brush.paint_epoch = None; // A new kernel may have the same epoch.
-        self.chosen.clear(); // A new runner reuses view ids.
+        // A new kernel may have the same epoch.
+        self.brush.paint_epoch = None;
+        // A new runner reuses view ids and node keys: an unbound control's
+        // own state, a choice or typed text (LLP 1069.001 D4), an edit to
+        // commit, a caret, an open menu, a hover or a held pointer is not
+        // its tree's, as Apple's reset and the web's rebuilt page have it.
+        self.chosen.clear();
+        self.controls.clear();
+        self.edited = None;
+        self.fields.clear();
+        self.menu = None;
+        self.hovered.clear();
+        self.pointer_held = None;
         self.hosts += 1;
         self.measure();
     }

@@ -1,6 +1,10 @@
 // providerSkills.ts and ChatComposer workspace refresh (T3 Code 1e2ecbd975).
 // Root Contract actions own the 10-second completion-based retry clock; this
 // module owns snapshot completeness and stale-response/single-flight guards.
+// ChatComposer.tsx:2195-2268: only a pending snapshot (`slashCommandsPending`)
+// arms a timer for the retry. A failed or snapshot-less answer is retried when
+// the refresh effect next runs after the cooldown: when the prompt, the provider
+// list or the settings change. `wake` counts those changes for the root.
 import { arr, str, type Obj } from './domain';
 
 export function hasCompleteProviderWorkspaceSnapshot(provider: Obj | undefined, cwd: string): boolean {
@@ -12,17 +16,24 @@ export function workspaceValues(provider: Obj, cwd: string, key: 'skills' | 'sla
   return arr(snapshot ? snapshot[key] : provider[key]);
 }
 
-export type WorkspaceReadiness = { key: string; needed: boolean };
-export type WorkspaceRefresh = { key: string; retry: boolean };
+export type WorkspaceReadiness = { key: string; needed: boolean; timer: boolean; wake: number };
+export type WorkspaceRefresh = { key: string; retry: boolean; wake: number };
+/** What re-runs the reference's refresh effect: the prompt, and the provider list or settings (one object, replaced on change). */
+export type WorkspaceWake = { prompt: string; config: unknown };
+const pendingSnapshot = (provider: Obj, cwd: string) => arr(provider.workspaceSnapshots).some(entry => str(entry.cwd) === cwd && entry.slashCommandsPending === true);
 type Attempt = { key: string; instanceId: string; cwd: string; complete: boolean; observedComplete: boolean; flight: Promise<WorkspaceRefresh> | null };
 export class WorkspaceDiscovery {
   private attempts = new Map<string, Attempt>();
   private serial = 0;
   private selected: Attempt | undefined;
+  private seen: WorkspaceWake | null = null;
+  private wake = 0;
 
-  state(environment: string, generation: number, provider: Obj, cwd: string): WorkspaceReadiness {
+  state(environment: string, generation: number, provider: Obj, cwd: string, wake: WorkspaceWake = { prompt: '', config: provider }): WorkspaceReadiness {
+    if (this.seen && (this.seen.prompt !== wake.prompt || this.seen.config !== wake.config)) this.wake++;
+    this.seen = wake;
     const instanceId = str(provider.instanceId);
-    if (!environment || !instanceId || !cwd) { this.selected = undefined; return { key: '', needed: false }; }
+    if (!environment || !instanceId || !cwd) { this.selected = undefined; return { key: '', needed: false, timer: false, wake: this.wake }; }
     const base = JSON.stringify([environment, generation, instanceId, cwd]);
     let attempt = this.attempts.get(base);
     const complete = hasCompleteProviderWorkspaceSnapshot(provider, cwd);
@@ -35,14 +46,14 @@ export class WorkspaceDiscovery {
     attempt.observedComplete = complete;
     if (complete) attempt.complete = true;
     this.selected = attempt;
-    return { key: attempt.key, needed: !attempt.complete };
+    return { key: attempt.key, needed: !attempt.complete, timer: pendingSnapshot(provider, cwd), wake: this.wake };
   }
 
   async refresh(key: string, request: (method: string, payload: Obj) => Promise<Obj>): Promise<WorkspaceRefresh> {
     const attempt = this.selected;
     // Root mutations carry the readiness key, so switching environments before
     // dispatch never sends an old workspace request through the new transport.
-    if (!attempt || attempt.key !== key || attempt.complete) return { key, retry: false };
+    if (!attempt || attempt.key !== key || attempt.complete) return { key, retry: false, wake: this.wake };
     if (attempt.flight) return attempt.flight;
     const flight = (async () => {
       let complete = false;
@@ -53,7 +64,9 @@ export class WorkspaceDiscovery {
       // A config subscription may have supplied a complete snapshot while this
       // call was pending. Never replace that knowledge with an older partial reply.
       attempt.complete = attempt.complete || complete;
-      return { key, retry: !attempt.complete };
+      // Changes seen while the request was out do not wake a retry (the
+      // reference's effect returns early while its key is claimed).
+      return { key, retry: !attempt.complete, wake: this.wake };
     })();
     attempt.flight = flight;
     try { return await flight; } finally { attempt.flight = null; }

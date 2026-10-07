@@ -21,6 +21,7 @@ use LucideRefreshCw from "./settings-icons.contract"
 
 shape TaskRowView
   id: string
+  environmentId: string
   title: string
   prompt: string
   status: string
@@ -31,6 +32,7 @@ shape TaskRowView
 shape TaskDraftView
   key: string
   id: string
+  environmentId: string
   title: string
   prompt: string
   enabled: bool
@@ -68,6 +70,16 @@ shape TaskModelMark
   driver: string
   badge: string
   accent: string
+// ScheduledTaskEnvironmentSection: `state` is disconnected, error, loading or ready.
+shape TaskSectionView
+  id: string
+  label: string
+  heading: bool
+  state: string
+  title: string
+  description: string
+  linkMissing: bool
+  tasks: list<TaskRowView>
 shape ScheduledPage
   available: bool
   writable: bool
@@ -77,6 +89,7 @@ shape ScheduledPage
   scope: string
   missing: bool
   tasks: list<TaskRowView>
+  sections: list<TaskSectionView>
   editors: list<TaskDraftView>
   projects: list<SelectOption>
   models: list<SelectOption>
@@ -86,11 +99,11 @@ shape ScheduledPage
   marks: list<TaskModelMark>
 
 style TkLabel
-  font-size=14 font-weight=500 line-height="16px" color="light-dark(#27272a, #f5f5f5)"
+  font-size="0.875rem" font-weight=500 line-height="1rem" color="light-dark(#27272a, #f5f5f5)"
 style TkField
-  box-sizing="border-box" width="100%" height=32 padding-left=11 padding-right=11 padding-top=5 padding-bottom=5 line-height="20px" border-radius=10 border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#fcfcfc, #ffffff07)" font-size=14 color="light-dark(#27272a, #f5f5f5)"
+  box-sizing="border-box" width="100%" height="2rem" padding-left="0.6875rem" padding-right="0.6875rem" padding-top="0.3125rem" padding-bottom="0.3125rem" line-height="1.25rem" border-radius="0.625rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#fcfcfc, #ffffff07)" font-size="0.875rem" color="light-dark(#27272a, #f5f5f5)"
 style TkOutline
-  display="flex" flex-direction="row" align-items="center" justify-content="center" gap=6 box-sizing="border-box" height=28 padding-left=9 padding-right=9 border-radius=8 border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)" flex-shrink=0
+  display="flex" flex-direction="row" align-items="center" justify-content="center" gap="0.375rem" box-sizing="border-box" height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)" flex-shrink=0
 
 component ScheduledPanel
   props
@@ -100,39 +113,71 @@ component ScheduledPanel
     open: action
     rest: action
   view
-    column width="100%" gap=10 testId="scheduled-settings"
-      row min-height=28 padding-left=16 padding-right=16 align-items="center" justify-content="space-between" gap=16 box-sizing="border-box"
-        text "Scheduled tasks" font-size=14 line-height="20px" color="light-dark(#262629b3, #f5f5f5b3)" role="heading" aria-level=2
-        button press=open("task", "", "") disabled=(busy or not data.available or not data.writable) id="new-scheduled-task" testId="new-scheduled-task" display="flex" flex-direction="row" align-items="center" gap=4 height=24 padding-left=7 padding-right=7 border-width=0 border-radius=8 background-color="#00000000" opacity=(busy or not data.available or not data.writable ? 0.64 : 1)
+    column width="100%" gap="0.625rem" testId="scheduled-settings"
+      row min-height="1.75rem" padding-left="1rem" padding-right="1rem" align-items="center" justify-content="space-between" gap="1rem" box-sizing="border-box"
+        text "Scheduled tasks" font-size="0.875rem" line-height="1.25rem" color="light-dark(#262629b3, #f5f5f5b3)" role="heading" aria-level=2
+        button press=open("task", "", "") disabled=(busy or not data.available or not data.writable) id="new-scheduled-task" testId="new-scheduled-task" display="flex" flex-direction="row" align-items="center" gap="0.25rem" height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" border-width=0 border-radius="0.5rem" background-color="#00000000" opacity=(busy or not data.available or not data.writable ? 0.64 : 1)
           LucidePlus(size=12, color="light-dark(#71717b, #818181)")
-          text "New task" font-size=12 font-weight=500 line-height="16px" color="light-dark(#71717b, #818181)"
+          text "New task" font-size="0.75rem" font-weight=500 line-height="1rem" color="light-dark(#71717b, #818181)"
       when error != ""
-        text error font-size=12 line-height="18px" color="light-dark(#dc2626, #f87171)" role="alert" testId="scheduled-error" padding-left=16
-      column width="100%" box-sizing="border-box" border-radius=14 border-style="solid" border-width=1 border-color="light-dark(#e4e4e899, #ffffff09)" background-color="light-dark(#ffffff66, #11111166)" box-shadow="0 1px 2px #0000000d"
-        when data.error != ""
-          TaskMessage(title="Could not load scheduled tasks", description=data.error)
-        when data.available and length(data.tasks) == 0
-          TaskMessage(title="No scheduled tasks", description="No tasks match this environment and project selection.")
-        each item in data.tasks key=item.id
-          row width="100%" box-sizing="border-box" padding-top=12 padding-bottom=12 padding-left=16 padding-right=16 gap=32 align-items="center" border-top-style="solid" border-top-width=(item.first ? 0 : 1) border-color="light-dark(#e3e3e780, #ffffff08)" testId=`task-row-${item.id}`
-            column flex=1 min-width=0 gap=4
-              text item.title font-size=14 font-weight=500 line-height="20px" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=3
-              text item.prompt font-size=12 line-height="18px" color="light-dark(#70707acc, #818181cc)" max-width=576 line-clamp=2
-              row padding-top=2 gap=8 align-items="center" flex-wrap="wrap"
-                text item.status font-size=12 line-height="16px" color="light-dark(#71717b, #818181)" testId=`task-status-${item.id}`
-                when item.runStatus != ""
-                  text item.runStatus font-size=12 font-weight=500 line-height="16px" padding-left=5 padding-right=5 border-radius=6 border-style="solid" border-width=1 border-color="light-dark(#e4e4e7, #ffffff14)" color=(item.runStatus == "failed" ? "light-dark(#dc2626, #f87171)" : (item.runStatus == "succeeded" ? "light-dark(#15803d, #4ade80)" : "light-dark(#27272a, #f5f5f5)"))
-                when item.runError != ""
-                  text item.runError font-size=12 line-height="16px" color="light-dark(#dc2626, #f87171)"
-            row flex-shrink=0 align-items="center" gap=8
-              SettingsSwitch(checked=item.enabled, label=`Enable ${item.title}`, disabled=(busy or not data.writable), switchId=`task-enabled-${item.id}`, toggle=rest("task", `action=toggle&id=${encodeURIComponent(item.id)}&enabled=${item.enabled ? "false" : "true"}`))
-              button popovertarget=`task-menu-${item.id}` disabled=(busy or not data.writable) aria-label=`Actions for ${item.title}` testId=`task-actions-${item.id}` width=28 height=28 border-width=0 border-radius=8 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center"
-                LucideEllipsis(size=16, color="light-dark(#27272a, #f5f5f5)")
-              SkPopup(menuId=`task-menu-${item.id}`, label=`Actions for ${item.title}`, width=160, list=false, endAlign=28)
-                TaskMenuItem(label="Edit", icon="edit", menuId=`task-menu-${item.id}`, itemId=`task-edit-${item.id}`, destructive=false, choose=open("task", item.id, item.title))
-                TaskMenuItem(label="Run now", icon="run", menuId=`task-menu-${item.id}`, itemId=`task-run-${item.id}`, destructive=false, choose=rest("task", `action=run&id=${encodeURIComponent(item.id)}`))
-                box height=1 margin-top=4 margin-bottom=4 margin-left=8 margin-right=8 background-color="light-dark(#e4e4e7, #ffffff0f)"
-                TaskMenuItem(label="Delete", icon="delete", menuId=`task-menu-${item.id}`, itemId=`task-delete-${item.id}`, destructive=false, choose=rest("task", `action=delete&id=${encodeURIComponent(item.id)}`))
+        text error font-size="0.75rem" line-height="1.125rem" color="light-dark(#dc2626, #f87171)" role="alert" testId="scheduled-error" padding-left="1rem"
+      when data.error != ""
+        TaskCard()
+          TaskMessage(title="Could not load scheduled tasks", description=data.error, status=false)
+      column width="100%" gap="2rem"
+        each section in data.sections key=section.id
+          column width="100%" gap="0.625rem" testId=`task-section-${section.id}`
+            when section.heading
+              row min-height="1.25rem" padding-left="1rem" padding-right="1rem" gap="0.375rem" align-items="center" box-sizing="border-box"
+                LucideLaptop(size=14, color="light-dark(#71717b, #818181)")
+                text section.label font-size="0.75rem" font-weight=500 line-height="1rem" color="light-dark(#71717b, #818181)" role="heading" aria-level=3 testId=`task-section-title-${section.id}`
+            TaskCard()
+              when section.state != "ready"
+                TaskMessage(title=section.title, description=section.description, status=(section.state == "loading"))
+              else
+                when section.linkMissing
+                  TaskMessage(title="Task unavailable", description="This task no longer exists or is outside the selected project scope.", status=true)
+                when length(section.tasks) == 0
+                  TaskMessage(title=section.title, description=section.description, status=false)
+                each item in section.tasks key=item.id
+                  TaskRow(item=item, data=data, busy=busy, open=open, rest=rest)
+
+// SettingsSection's card around one environment's rows.
+component TaskCard
+  slot
+  view
+    column width="100%" box-sizing="border-box" border-radius="0.875rem" border-style="solid" border-width=1 border-color="light-dark(#e4e4e899, #ffffff09)" background-color="light-dark(#ffffff66, #11111166)" box-shadow="0 1px 2px #0000000d"
+      children
+
+// ScheduledTaskRow: the switch and the Edit / Run now / Delete menu.
+component TaskRow
+  props
+    item: TaskRowView
+    data: ScheduledPage
+    busy: bool
+    open: action
+    rest: action
+  derive target = `id=${encodeURIComponent(item.id)}&environmentId=${encodeURIComponent(item.environmentId)}`
+  view
+    row width="100%" box-sizing="border-box" padding-top="0.75rem" padding-bottom="0.75rem" padding-left="1rem" padding-right="1rem" gap="2rem" align-items="center" border-top-style="solid" border-top-width=(item.first ? 0 : 1) border-color="light-dark(#e3e3e780, #ffffff08)" testId=`task-row-${item.id}`
+      column flex=1 min-width=0 gap="0.25rem"
+        text item.title font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=3
+        text item.prompt font-size="0.75rem" line-height="1.125rem" color="light-dark(#70707acc, #818181cc)" max-width="36rem" line-clamp=2
+        row padding-top="0.125rem" gap="0.5rem" align-items="center" flex-wrap="wrap"
+          text item.status font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)" testId=`task-status-${item.id}`
+          when item.runStatus != ""
+            text item.runStatus font-size="0.75rem" font-weight=500 line-height="1rem" padding-left="0.3125rem" padding-right="0.3125rem" border-radius="0.375rem" border-style="solid" border-width=1 border-color="light-dark(#e4e4e7, #ffffff14)" color=(item.runStatus == "failed" ? "light-dark(#dc2626, #f87171)" : (item.runStatus == "succeeded" ? "light-dark(#15803d, #4ade80)" : (item.runStatus == "running" ? "light-dark(#1447e6, #51a2ff)" : "light-dark(#27272a, #f5f5f5)"))) testId=`task-run-status-${item.id}`
+          when item.runError != ""
+            text item.runError font-size="0.75rem" line-height="1rem" color="light-dark(#dc2626, #f87171)" testId=`task-run-error-${item.id}`
+      row flex-shrink=0 align-items="center" gap="0.5rem"
+        SettingsSwitch(checked=item.enabled, label=`Enable ${item.title}`, disabled=(busy or not data.writable), switchId=`task-enabled-${item.id}`, toggle=rest("task", `action=toggle&${target}&enabled=${item.enabled ? "false" : "true"}`))
+        button popovertarget=`task-menu-${item.id}` disabled=(busy or not data.writable) aria-label=`Actions for ${item.title}` testId=`task-actions-${item.id}` width="1.75rem" height="1.75rem" border-width=0 border-radius="0.5rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center"
+          LucideEllipsis(size=16, color="light-dark(#27272a, #f5f5f5)")
+        SkPopup(menuId=`task-menu-${item.id}`, label=`Actions for ${item.title}`, width=160, list=false, endAlign=28)
+          TaskMenuItem(label="Edit", icon="edit", menuId=`task-menu-${item.id}`, itemId=`task-edit-${item.id}`, destructive=false, choose=open("task", `${item.environmentId}|${item.id}`, item.title))
+          TaskMenuItem(label="Run now", icon="run", menuId=`task-menu-${item.id}`, itemId=`task-run-${item.id}`, destructive=false, choose=rest("task", `action=run&${target}`))
+          box height=1 margin-top="0.25rem" margin-bottom="0.25rem" margin-left="0.5rem" margin-right="0.5rem" background-color="light-dark(#e4e4e7, #ffffff0f)"
+          TaskMenuItem(label="Delete", icon="delete", menuId=`task-menu-${item.id}`, itemId=`task-delete-${item.id}`, destructive=false, choose=rest("task", `action=delete&${target}`))
 
 // A task row's menu item with its icon (Edit / Run now / Delete).
 component TaskMenuItem
@@ -147,23 +192,25 @@ component TaskMenuItem
   action hover(over: bool)
     hovered = over
   view
-    button press=choose popovertarget=menuId popovertargetaction="hide" hover=hover role="menuitem" testId=itemId display="flex" flex-direction="row" align-items="center" gap=8 width="100%" min-height=28 padding-left=8 padding-right=8 box-sizing="border-box" border-width=0 border-radius=6 background-color=(hovered ? "light-dark(#27272a14, #f5f5f50f)" : "#00000000")
+    button press=choose popovertarget=menuId popovertargetaction="hide" hover=hover role="menuitem" testId=itemId display="flex" flex-direction="row" align-items="center" gap="0.5rem" width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-width=0 border-radius="0.375rem" background-color=(hovered ? "light-dark(#27272a14, #f5f5f50f)" : "#00000000")
       when icon == "edit"
         LucidePencil(size=16, color="light-dark(#71717b, #818181)")
       when icon == "run"
         LucidePlay(size=16, color="light-dark(#71717b, #818181)")
       when icon == "delete"
         LucideTrash2(size=16, color="light-dark(#71717b, #818181)")
-      text label font-size=14 line-height="20px" white-space="nowrap" color=(destructive ? "light-dark(#c10007, #ff6467)" : "light-dark(#27272a, #f5f5f5)")
+      text label font-size="0.875rem" line-height="1.25rem" white-space="nowrap" color=(destructive ? "light-dark(#c10007, #ff6467)" : "light-dark(#27272a, #f5f5f5)")
 
 component TaskMessage
   props
     title: string
     description: string
+    status: bool
   view
-    column width="100%" box-sizing="border-box" padding-top=12 padding-bottom=12 padding-left=16 padding-right=16 gap=4
-      text title font-size=14 font-weight=500 line-height="20px" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=3
-      text description font-size=12 line-height="18px" color="light-dark(#70707acc, #818181cc)" max-width=576
+    column width="100%" box-sizing="border-box" padding-top="0.75rem" padding-bottom="0.75rem" padding-left="1rem" padding-right="1rem" gap="0.25rem" role=(status ? "status" : "group") aria-label=title testId="task-message"
+      text title font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=3
+      when description != ""
+        text description font-size="0.75rem" line-height="1.125rem" color="light-dark(#70707acc, #818181cc)" max-width="36rem"
 
 // ScheduledTaskEditorDialog. Per-instance state starts from the server's
 // draft each time the dialog opens (the draft row is new per opening).
@@ -240,99 +287,99 @@ component ScheduledEditor
     if field == "6" and (sunday or monday or tuesday or wednesday or thursday or friday)
       saturday = not saturday
   view
-    column position="absolute" left=0 right=0 top=0 bottom=0 z-index=40 display="flex" align-items="center" justify-content="center" padding=16 box-sizing="border-box" background-color="light-dark(#fcfcfc99, #090909a3)" testId="scheduled-task-overlay"
-      column width="100%" max-width=576 max-height="100%" box-sizing="border-box" border-radius=18 border-style="solid" border-width=1 border-color="light-dark(#2727271a, #ffffff14)" background-color="light-dark(#fcfcfc, #0b0b0b)" box-shadow="0 24px 64px -24px #000000a6" overflow="hidden" role="dialog" aria-label=(draft.id == "" ? "New task" : "Edit task") testId="scheduled-task-dialog"
-        row padding-top=24 padding-left=24 padding-right=24 padding-bottom=12 align-items="flex-start" gap=8 box-sizing="border-box" position="relative"
-          column flex=1 min-width=0 gap=8
-            text (draft.id == "" ? "New task" : "Edit task") font-size=20 font-weight=600 line-height="20px" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=2
-            text "Run a prompt automatically — on an interval or at a fixed time." font-size=14 line-height="20px" color="light-dark(#71717b, #818181)"
-          button press=close disabled=busy aria-label="Close" aria-keyshortcuts="Escape" testId="close-scheduled-task" width=32 height=32 border-width=0 border-radius=8 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" position="absolute" top=8 right=8
+    column position="absolute" left=0 right=0 top=0 bottom=0 z-index=40 display="flex" align-items="center" justify-content="center" padding="1rem" box-sizing="border-box" background-color="light-dark(#fcfcfc99, #090909a3)" testId="scheduled-task-overlay"
+      column width="100%" max-width="36rem" max-height="100%" box-sizing="border-box" border-radius="1.125rem" border-style="solid" border-width=1 border-color="light-dark(#2727271a, #ffffff14)" background-color="light-dark(#fcfcfc, #0b0b0b)" box-shadow="0 24px 64px -24px #000000a6" overflow="hidden" role="dialog" aria-label=(draft.id == "" ? "New task" : "Edit task") testId="scheduled-task-dialog"
+        row padding-top="1.5rem" padding-left="1.5rem" padding-right="1.5rem" padding-bottom="0.75rem" align-items="flex-start" gap="0.5rem" box-sizing="border-box" position="relative"
+          column flex=1 min-width=0 gap="0.5rem"
+            text (draft.id == "" ? "New task" : "Edit task") font-size="1.25rem" font-weight=600 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=2
+            text "Run a prompt automatically — on an interval or at a fixed time." font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #818181)"
+          button press=close disabled=busy aria-label="Close" aria-keyshortcuts="Escape" testId="close-scheduled-task" width="2rem" height="2rem" border-width=0 border-radius="0.5rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" position="absolute" top="0.5rem" right="0.5rem"
             LucideX(size=16, color="light-dark(#71717b, #818181)")
         scroll flex=1 min-height=0 width="100%" testId="scheduled-editor-scroll"
-          column width="100%" gap=20 padding-left=24 padding-right=24 padding-top=4 padding-bottom=24 box-sizing="border-box" testId="scheduled-editor"
+          column width="100%" gap="1.25rem" padding-left="1.5rem" padding-right="1.5rem" padding-top="0.25rem" padding-bottom="1.5rem" box-sizing="border-box" testId="scheduled-editor"
             when draft.missing
-              text "This scheduled task no longer exists." font-size=12 line-height="16px" color="light-dark(#dc2626, #f87171)" role="status" testId="task-missing"
+              text "This scheduled task no longer exists." font-size="0.75rem" line-height="1rem" color="light-dark(#dc2626, #f87171)" role="status" testId="task-missing"
             when error != ""
-              text error font-size=14 line-height="20px" color="light-dark(#dc2626, #f87171)" role="alert" testId="scheduled-task-error"
-            column gap=6
+              text error font-size="0.875rem" line-height="1.25rem" color="light-dark(#dc2626, #f87171)" role="alert" testId="scheduled-task-error"
+            column gap="0.375rem"
               text "Runs on" class=TkLabel
-              button popovertarget="task-environment-menu" role="combobox" aria-label="Runs on" disabled=(draft.id != "" or busy) id="task-environment" testId="task-environment" display="flex" flex-direction="row" align-items="center" gap=8 width="100%" height=32 box-sizing="border-box" padding-left=11 padding-right=9 border-radius=10 border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#fcfcfc, #ffffff07)" opacity=(draft.id != "" ? 0.64 : 1)
+              button popovertarget="task-environment-menu" role="combobox" aria-label="Runs on" disabled=(draft.id != "" or busy) id="task-environment" testId="task-environment" display="flex" flex-direction="row" align-items="center" gap="0.5rem" width="100%" height="2rem" box-sizing="border-box" padding-left="0.6875rem" padding-right="0.5625rem" border-radius="0.625rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#fcfcfc, #ffffff07)" opacity=(draft.id != "" ? 0.64 : 1)
                 LucideLaptop(size=16, color="light-dark(#71717b, #818181)")
-                text data.environment font-size=14 line-height="20px" color="light-dark(#27272a, #f5f5f5)" flex=1 min-width=0 line-clamp=1
+                text data.environment font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" flex=1 min-width=0 line-clamp=1
                 LucideChevronDown(size=12, color="light-dark(#71717b, #818181)")
               SkPopup(menuId="task-environment-menu", label="Runs on", width=526, list=true, endAlign=0)
                 each option in data.environments key=option.value
                   SkMenuItem(label=option.label, menuId="task-environment-menu", itemId=`task-environment-option-${option.value}`, selected=option.selected, check=true, destructive=false, disabled=false, choose=choose("environment", option.value))
-            column gap=6
+            column gap="0.375rem"
               text "Name" class=TkLabel
               input value=title input=setText("title") placeholder="e.g. Check for Sentry issues" aria-label="Name" class=TkField disabled=busy testId="task-title"
-            row gap=12 width="100%"
-              column gap=6 flex=1 min-width=0
+            row gap="0.75rem" width="100%"
+              column gap="0.375rem" flex=1 min-width=0
                 text "Project" class=TkLabel
                 SettingsSelect(selectId="task-project", label="Project", valueLabel=projectLabel(data.projects, projectId), width=257, disabled=busy, options=data.projects, choose=choose("project"))
-              column gap=6 flex=1 min-width=0
+              column gap="0.375rem" flex=1 min-width=0
                 text "Workspace" class=TkLabel
                 SettingsSelect(selectId="task-workspace", label="Workspace", valueLabel=(workspaceMode == "root" ? "Use the project checkout" : (workspaceMode == "existing_worktree" ? "Use a specific checkout" : "Create a new worktree")), width=257, disabled=busy, options=data.workspaces, choose=choose("workspace"))
             when workspaceMode == "worktree"
-              column gap=6
+              column gap="0.375rem"
                 text "Base branch" class=TkLabel
                 button popovertarget="task-branch-menu" disabled=busy aria-label="Base branch" role="combobox" testId="task-base-branch" class=TkOutline width="100%" justify-content="flex-start"
                   LucideGitBranch(size=14, color="light-dark(#71717b, #818181)")
-                  text (baseRef == "" ? "Select ref" : (startFromOrigin ? `From origin/${baseRef}` : `From ${baseRef}`)) font-size=14 font-weight=500 line-height="20px" color="light-dark(#27272a, #f5f5f5)" flex=1 min-width=0 line-clamp=1
+                  text (baseRef == "" ? "Select ref" : (startFromOrigin ? `From origin/${baseRef}` : `From ${baseRef}`)) font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" flex=1 min-width=0 line-clamp=1
                   LucideChevronDown(size=14, color="light-dark(#71717b, #818181)")
                 // BranchPicker: ComboboxPopup at the trigger's width, Search refs..., the refs with
                 // their current/worktree/remote/default tag, and the Start from origin row.
-                column id="task-branch-menu" popover="auto" position="absolute" width=526 box-sizing="border-box" border-radius=10 border-style="solid" border-width=1 border-color="light-dark(#e4e4e7, #ffffff14)" background-color="light-dark(#ffffff, #181818)" box-shadow="0 8px 24px #00000026" overflow="hidden" aria-label="Base branch" testId="task-branch-menu"
-                  column padding-top=10 padding-left=12 padding-right=12 box-sizing="border-box" width="100%"
-                    row height=33 align-items="center" gap=4 padding-bottom=6 box-sizing="border-box" border-bottom-style="solid" border-bottom-width=1 border-color="light-dark(#e4e4e7, #ffffff14)"
+                column id="task-branch-menu" popover="auto" position="absolute" width="32.875rem" box-sizing="border-box" border-radius="0.625rem" border-style="solid" border-width=1 border-color="light-dark(#e4e4e7, #ffffff14)" background-color="light-dark(#ffffff, #181818)" box-shadow="0 8px 24px #00000026" overflow="hidden" aria-label="Base branch" testId="task-branch-menu"
+                  column padding-top="0.625rem" padding-left="0.75rem" padding-right="0.75rem" box-sizing="border-box" width="100%"
+                    row height="2.0625rem" align-items="center" gap="0.25rem" padding-bottom="0.375rem" box-sizing="border-box" border-bottom-style="solid" border-bottom-width=1 border-color="light-dark(#e4e4e7, #ffffff14)"
                       LucideSearch(size=16, color="light-dark(#71717b8c, #8181818c)")
-                      input value=refQuery input=setText("refs") placeholder="Search refs..." aria-label="Search refs" testId="task-branch-search" flex=1 min-width=0 height=20 line-height="20px" padding=0 border-width=0 background-color="#00000000" font-size=14 color="light-dark(#27272a, #f5f5f5)"
-                  scroll max-height=224 width="100%"
-                    column padding-left=4 padding-top=8 padding-bottom=4 width="100%" box-sizing="border-box"
+                      input value=refQuery input=setText("refs") placeholder="Search refs..." aria-label="Search refs" testId="task-branch-search" flex=1 min-width=0 height="1.25rem" line-height="1.25rem" padding=0 border-width=0 background-color="#00000000" font-size="0.875rem" color="light-dark(#27272a, #f5f5f5)"
+                  scroll max-height="14rem" width="100%"
+                    column padding-left="0.25rem" padding-top="0.5rem" padding-bottom="0.25rem" width="100%" box-sizing="border-box"
                       each group in data.branches key=group.projectId
                         when group.projectId == projectId
                           when group.error != ""
-                            text group.error font-size=12 color="light-dark(#dc2626, #f87171)" padding=8
+                            text group.error font-size="0.75rem" color="light-dark(#dc2626, #f87171)" padding="0.5rem"
                           when group.error == "" and length(filter(group.refs, (r) => refSearch == "" or includes(r.search, refSearch))) == 0
-                            text "No refs found." font-size=14 line-height="20px" text-align="center" padding=8 color="light-dark(#71717b, #818181)" testId="task-branch-empty"
+                            text "No refs found." font-size="0.875rem" line-height="1.25rem" text-align="center" padding="0.5rem" color="light-dark(#71717b, #818181)" testId="task-branch-empty"
                           each ref in group.refs key=ref.value
                             when refSearch == "" or includes(ref.search, refSearch)
-                              button press=choose("branch", ref.value) popovertarget="task-branch-menu" popovertargetaction="hide" role="option" aria-selected=(ref.value == baseRef) testId=`task-branch-${ref.value}` display="flex" flex-direction="row" align-items="center" gap=8 width="100%" height=28 padding-left=8 padding-right=8 box-sizing="border-box" border-width=0 border-radius=6 justify-content="flex-start" background-color=(ref.value == baseRef ? "light-dark(#f4f4f5, #ffffff0f)" : "#00000000")
-                                text ref.label font-size=14 line-height="20px" color="light-dark(#18181b, #fafafa)" flex=1 min-width=0 line-clamp=1
+                              button press=choose("branch", ref.value) popovertarget="task-branch-menu" popovertargetaction="hide" role="option" aria-selected=(ref.value == baseRef) testId=`task-branch-${ref.value}` display="flex" flex-direction="row" align-items="center" gap="0.5rem" width="100%" height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-width=0 border-radius="0.375rem" justify-content="flex-start" background-color=(ref.value == baseRef ? "light-dark(#f4f4f5, #ffffff0f)" : "#00000000")
+                                text ref.label font-size="0.875rem" line-height="1.25rem" color="light-dark(#18181b, #fafafa)" flex=1 min-width=0 line-clamp=1
                                 when ref.badge != ""
-                                  text ref.badge font-size=10 line-height="14px" color="light-dark(#71717b73, #81818173)" flex-shrink=0
-                  row align-items="center" justify-content="space-between" gap=12 padding-left=12 padding-right=12 padding-top=8 padding-bottom=8 border-top-style="solid" border-top-width=1 border-color="light-dark(#e4e4e799, #ffffff0f)"
-                    row align-items="center" gap=6 min-width=0
+                                  text ref.badge font-size="0.625rem" line-height="0.875rem" color="light-dark(#71717b73, #81818173)" flex-shrink=0
+                  row align-items="center" justify-content="space-between" gap="0.75rem" padding-left="0.75rem" padding-right="0.75rem" padding-top="0.5rem" padding-bottom="0.5rem" border-top-style="solid" border-top-width=1 border-color="light-dark(#e4e4e799, #ffffff0f)"
+                    row align-items="center" gap="0.375rem" min-width=0
                       LucideRefreshCw(size=12, color="light-dark(#71717b, #818181)")
-                      text "Start from origin" font-size=12 font-weight=500 line-height="16px" color="light-dark(#71717b, #818181)" line-clamp=1
+                      text "Start from origin" font-size="0.75rem" font-weight=500 line-height="1rem" color="light-dark(#71717b, #818181)" line-clamp=1
                     SettingsSwitch(checked=startFromOrigin, label="Start worktree from origin", disabled=busy, switchId="task-origin", toggle=toggle("origin"))
             when workspaceMode == "existing_worktree"
-              column gap=6
+              column gap="0.375rem"
                 text "Checkout path" class=TkLabel
                 input value=path input=setText("path") placeholder="/path/to/checkout" aria-label="Checkout path" class=TkField disabled=busy testId="task-worktree-path"
-            column gap=6
+            column gap="0.375rem"
               text "Prompt" class=TkLabel
-              textarea value=prompt input=setText("prompt") placeholder="What should the agent do each time this runs?" aria-label="Prompt" class=TkField height=72 padding-top=6 disabled=busy testId="task-prompt"
-            column gap=6
+              textarea value=prompt input=setText("prompt") autocorrect="off" placeholder="What should the agent do each time this runs?" aria-label="Prompt" class=TkField height="4.5rem" padding-top="0.375rem" disabled=busy testId="task-prompt"
+            column gap="0.375rem"
               text "Model" class=TkLabel
               row
                 GhostSelect(selectId="task-model", label="Model", driver=markField(data.marks, modelKey, "driver"), badge=markField(data.marks, modelKey, "badge"), accent=(markField(data.marks, modelKey, "accent") == "" ? "#00000000" : markField(data.marks, modelKey, "accent")), valueLabel=(markField(data.marks, modelKey, "name") == "" ? modelLabel(data.models, modelKey) : markField(data.marks, modelKey, "name")), disabled=busy, options=data.models, choose=choose("model"))
-            column gap=12
+            column gap="0.75rem"
               when draft.legacyInterval
-                text "This task uses a legacy interval below one minute. Saving updates it to at least one minute." font-size=14 line-height="20px" color="light-dark(#71717b, #818181)" role="status"
-              row align-items="center" justify-content="space-between" gap=8
+                text "This task uses a legacy interval below one minute. Saving updates it to at least one minute." font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #818181)" role="status"
+              row align-items="center" justify-content="space-between" gap="0.5rem"
                 text "Schedule" class=TkLabel
-                row role="group" aria-label="Schedule type" padding=2 gap=2 border-radius=10 background-color="light-dark(#d4d4d766, #ffffff08)"
-                  button press=choose("schedule", "fixed") aria-checked=(scheduleMode == "fixed") testId="task-schedule-fixed" height=24 padding-left=10 padding-right=10 border-radius=8 border-width=0 background-color=(scheduleMode == "fixed" ? "light-dark(#fcfcfc, #ffffff0f)" : "#00000000") box-shadow=(scheduleMode == "fixed" ? "0 1px 2px #0000000d" : "none")
-                    text "At a time" font-size=14 font-weight=500 line-height="20px" color=(scheduleMode == "fixed" ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)")
-                  button press=choose("schedule", "interval") aria-checked=(scheduleMode == "interval") testId="task-schedule-interval" height=24 padding-left=10 padding-right=10 border-radius=8 border-width=0 background-color=(scheduleMode == "interval" ? "light-dark(#fcfcfc, #ffffff0f)" : "#00000000") box-shadow=(scheduleMode == "interval" ? "0 1px 2px #0000000d" : "none")
-                    text "Every interval" font-size=14 font-weight=500 line-height="20px" color=(scheduleMode == "interval" ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)")
+                row role="group" aria-label="Schedule type" padding="0.125rem" gap="0.125rem" border-radius="0.625rem" background-color="light-dark(#d4d4d766, #ffffff08)"
+                  button press=choose("schedule", "fixed") aria-checked=(scheduleMode == "fixed") testId="task-schedule-fixed" height="1.5rem" padding-left="0.625rem" padding-right="0.625rem" border-radius="0.5rem" border-width=0 background-color=(scheduleMode == "fixed" ? "light-dark(#fcfcfc, #ffffff0f)" : "#00000000") box-shadow=(scheduleMode == "fixed" ? "0 1px 2px #0000000d" : "none")
+                    text "At a time" font-size="0.875rem" font-weight=500 line-height="1.25rem" color=(scheduleMode == "fixed" ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)")
+                  button press=choose("schedule", "interval") aria-checked=(scheduleMode == "interval") testId="task-schedule-interval" height="1.5rem" padding-left="0.625rem" padding-right="0.625rem" border-radius="0.5rem" border-width=0 background-color=(scheduleMode == "interval" ? "light-dark(#fcfcfc, #ffffff0f)" : "#00000000") box-shadow=(scheduleMode == "interval" ? "0 1px 2px #0000000d" : "none")
+                    text "Every interval" font-size="0.875rem" font-weight=500 line-height="1.25rem" color=(scheduleMode == "interval" ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)")
               when scheduleMode == "fixed"
-                row align-items="center" gap=12 flex-wrap="wrap"
-                  row align-items="center" gap=8
+                row align-items="center" gap="0.75rem" flex-wrap="wrap"
+                  row align-items="center" gap="0.5rem"
                     text "Run at" class=TkLabel
-                    input type="time" value=timeOfDay change=setText("time") aria-label="Run at" disabled=busy testId="task-time" box-sizing="border-box" width=128 height=32 padding-left=11 padding-right=9 border-radius=10 border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#fcfcfc, #ffffff07)" font-size=14 color="light-dark(#27272a, #f5f5f5)"
-                    text "on" font-size=12 line-height="16px" color="light-dark(#71717b, #818181)"
+                    input type="time" value=timeOfDay change=setText("time") aria-label="Run at" disabled=busy testId="task-time" box-sizing="border-box" width="8rem" height="2rem" padding-left="0.6875rem" padding-right="0.5625rem" border-radius="0.625rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#fcfcfc, #ffffff07)" font-size="0.875rem" color="light-dark(#27272a, #f5f5f5)"
+                    text "on" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
                   row role="group" aria-label="Days to run"
                     Weekday(label="Mon", short="Mo", on=monday, first=true, last=false, press=toggle("1"))
                     Weekday(label="Tue", short="Tu", on=tuesday, first=false, last=false, press=toggle("2"))
@@ -342,20 +389,20 @@ component ScheduledEditor
                     Weekday(label="Sat", short="Sa", on=saturday, first=false, last=false, press=toggle("6"))
                     Weekday(label="Sun", short="Su", on=sunday, first=false, last=true, press=toggle("0"))
               when scheduleMode == "interval"
-                row align-items="center" gap=8
+                row align-items="center" gap="0.5rem"
                   text "Run every" class=TkLabel
-                  input value=intervalMinutes input=setText("interval") aria-label="Run every" class=TkField width=96 disabled=busy testId="task-minutes"
-                  text "minutes" font-size=12 line-height="16px" color="light-dark(#71717b, #818181)"
-            row align-items="center" justify-content="space-between" gap=16
-              column min-width=0 gap=4
+                  input value=intervalMinutes input=setText("interval") aria-label="Run every" class=TkField width="6rem" disabled=busy testId="task-minutes"
+                  text "minutes" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
+            row align-items="center" justify-content="space-between" gap="1rem"
+              column min-width=0 gap="0.25rem"
                 text "Enabled" class=TkLabel
-                text "Disabled tasks stay saved but do not run." font-size=14 line-height="20px" color="light-dark(#71717b, #818181)"
+                text "Disabled tasks stay saved but do not run." font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #818181)"
               SettingsSwitch(checked=enabled, label="Enabled", disabled=busy, switchId="task-enabled", toggle=toggle("enabled"))
-        row gap=8 justify-content="flex-end" padding-left=24 padding-right=24 padding-top=16 padding-bottom=16 box-sizing="border-box" border-top-style="solid" border-top-width=1 border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#f9f9f9b8, #ffffff06)"
+        row gap="0.5rem" justify-content="flex-end" padding-left="1.5rem" padding-right="1.5rem" padding-top="1rem" padding-bottom="1rem" box-sizing="border-box" border-top-style="solid" border-top-width=1 border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#f9f9f9b8, #ffffff06)"
           button press=close disabled=busy testId="cancel-scheduled-task" class=TkOutline
-            text "Cancel" font-size=14 font-weight=500 line-height="20px" color="light-dark(#27272a, #f5f5f5)"
-          button press=rest("task", `action=save&id=${encodeURIComponent(draft.id)}&title=${encodeURIComponent(title)}&prompt=${encodeURIComponent(prompt)}&enabled=${enabled}&scheduleMode=${scheduleMode}&intervalMinutes=${encodeURIComponent(intervalMinutes)}&timeOfDay=${encodeURIComponent(timeOfDay)}&sunday=${sunday}&monday=${monday}&tuesday=${tuesday}&wednesday=${wednesday}&thursday=${thursday}&friday=${friday}&saturday=${saturday}&projectId=${encodeURIComponent(projectId)}&threadId=${encodeURIComponent(draft.threadId)}&workspaceMode=${workspaceMode}&baseRef=${encodeURIComponent(baseRef)}&startFromOrigin=${startFromOrigin}&path=${encodeURIComponent(path)}&modelKey=${encodeURIComponent(modelKey)}`) disabled=(busy or draft.missing or not data.available) testId="save-scheduled-task" display="flex" flex-direction="row" align-items="center" justify-content="center" height=28 padding-left=9 padding-right=9 border-radius=8 border-width=0 background-color="light-dark(#1b4ed8, #346bf1)" opacity=(busy or draft.missing or not data.available ? 0.64 : 1)
-            text (draft.id == "" ? "Create task" : "Save task") font-size=14 font-weight=500 line-height="20px" color="#ffffff"
+            text "Cancel" font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"
+          button press=rest("task", `action=save&id=${encodeURIComponent(draft.id)}&environmentId=${encodeURIComponent(draft.environmentId)}&title=${encodeURIComponent(title)}&prompt=${encodeURIComponent(prompt)}&enabled=${enabled}&scheduleMode=${scheduleMode}&intervalMinutes=${encodeURIComponent(intervalMinutes)}&timeOfDay=${encodeURIComponent(timeOfDay)}&sunday=${sunday}&monday=${monday}&tuesday=${tuesday}&wednesday=${wednesday}&thursday=${thursday}&friday=${friday}&saturday=${saturday}&projectId=${encodeURIComponent(projectId)}&threadId=${encodeURIComponent(draft.threadId)}&workspaceMode=${workspaceMode}&baseRef=${encodeURIComponent(baseRef)}&startFromOrigin=${startFromOrigin}&path=${encodeURIComponent(path)}&modelKey=${encodeURIComponent(modelKey)}`) disabled=(busy or draft.missing or not data.available) testId="save-scheduled-task" display="flex" flex-direction="row" align-items="center" justify-content="center" height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" border-radius="0.5rem" border-width=0 background-color="light-dark(#1b4ed8, #346bf1)" opacity=(busy or draft.missing or not data.available ? 0.64 : 1)
+            text (draft.id == "" ? "Create task" : "Save task") font-size="0.875rem" font-weight=500 line-height="1.25rem" color="#ffffff"
 
 fn projectLabel(options: list<SelectOption>, value: string): string = join(map(filter(options, option => option.value == value), option => option.label), "")
 fn modelLabel(options: list<SelectOption>, value: string): string = join(map(filter(options, option => option.value == value), option => option.label), "")
@@ -370,5 +417,5 @@ component Weekday
     last: bool
     press: action
   view
-    button press=press aria-label=label aria-checked=on testId=`task-day-${label}` height=28 min-width=28 padding-left=5 padding-right=5 box-sizing="border-box" border-style="solid" border-width=1 border-left-width=(first ? 1 : 0) border-color="light-dark(#d4d4d8, #ffffff14)" border-top-left-radius=(first ? 10 : 0) border-bottom-left-radius=(first ? 10 : 0) border-top-right-radius=(last ? 10 : 0) border-bottom-right-radius=(last ? 10 : 0) background-color=(on ? "light-dark(#d5d5d8a3, #ffffff14)" : "light-dark(#fcfcfc, #ffffff07)")
-      text short font-size=14 font-weight=500 line-height="20px" color=(on ? "light-dark(#18181b, #f5f5f5)" : "light-dark(#27272a, #f5f5f5)")
+    button press=press aria-label=label aria-checked=on testId=`task-day-${label}` height="1.75rem" min-width="1.75rem" padding-left="0.3125rem" padding-right="0.3125rem" box-sizing="border-box" border-style="solid" border-width=1 border-left-width=(first ? 1 : 0) border-color="light-dark(#d4d4d8, #ffffff14)" border-top-left-radius=(first ? "0.625rem" : "0px") border-bottom-left-radius=(first ? "0.625rem" : "0px") border-top-right-radius=(last ? "0.625rem" : "0px") border-bottom-right-radius=(last ? "0.625rem" : "0px") background-color=(on ? "light-dark(#d5d5d8a3, #ffffff14)" : "light-dark(#fcfcfc, #ffffff07)")
+      text short font-size="0.875rem" font-weight=500 line-height="1.25rem" color=(on ? "light-dark(#18181b, #f5f5f5)" : "light-dark(#27272a, #f5f5f5)")

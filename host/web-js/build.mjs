@@ -104,7 +104,7 @@ const compiler = webCompiler();
 const cargo = spawnSync(compiler.cmd, [...compiler.pre, 'js', input, '-o', gen, ...(production ? [] : ['--sites']), ...(devReload ? ['--dev-reload'] : [])], { cwd: root, stdio: 'inherit', env: { ...process.env, EXACT_JS_GPU_SURFACES: gpuSurfaces.join(',') } });
 if (cargo.status !== 0) process.exit(cargo.status ?? 1);
 compiler.done();
-for (const f of ['rt.js', 'roster.js', 'router.js', 'schedule.js', 'budget.js', 'shape.js', 'pointer.js', 'document.js', 'media.js', 'commands.js']) cpSync(resolve(here, f), resolve(gen, f));
+for (const f of ['rt.js', 'roster.js', 'router.js', 'schedule.js', 'budget.js', 'shape.js', 'pointer.js', 'document.js', 'media.js', 'commands.js', 'focus.js']) cpSync(resolve(here, f), resolve(gen, f));
 // Canvas 2D surfaces (a loaded chunk: this runtime's engine over the web
 // host's own replayer) are drawn by the Rust data module, or by a
 // TypeScript source's `draw` in the page (ts-draw.js, in the same chunk).
@@ -148,7 +148,7 @@ if (ts && existsSync(webScript) && !/^\s*fn main\(\)\s*\{\s*exact_js_bake::build
 // answers is unknown, and its declarations stay its own.
 const typeChecked = ts && !opt('--data') ? typecheck().then(() => null, error => error) : null;
 async function typecheck() {
-  const { configure, check } = await import(resolve(root, 'js/bake/src/typescript.mjs'));
+  const { configure, check, ambientRefusals } = await import(resolve(root, 'js/bake/src/typescript.mjs'));
   const libraries = resolve(dirname(fileURLToPath(import.meta.resolve(`@typescript/typescript-${process.platform}-${process.arch}/package.json`))), 'lib');
   const source = readFileSync(appTs, 'utf8');
   let declarations = readFileSync(resolve(gen, 'app.contract.d.ts'), 'utf8');
@@ -167,6 +167,7 @@ async function typecheck() {
   const capture = (from, to, top) => {
     for (const entry of readdirSync(from, { withFileTypes: true })) {
       const name = entry.name, path = resolve(from, name);
+      if ((manifest.host?.macos?.resources ?? []).some(resource => path === resolve(appDir, resource.from))) continue;
       if (['.git', 'node_modules', 'target', 'dist'].includes(name) || name.startsWith('.exact-js-bake-') || (top && name === 'app.contract.d.ts')) continue;
       // The app's dot directories (`.exact/`: an agent's evidence, logs, runtime files) are no source, as in js/bake's capture.
       if (top && name.startsWith('.') && entry.isDirectory()) continue;
@@ -191,7 +192,21 @@ async function typecheck() {
   writeFileSync(resolve(stage, '__exact_paths.json'), JSON.stringify({ app: realpathSync(appDir), mounts }));
   const real = realpathSync(stage);
   configure(real);
-  await check(real, resolve(libraries, 'tsc'), libraries);
+  // The clock, randomness and timers, refused at build in the modules
+  // app.ts reaches, as the native bake's bundler refuses them
+  // (js/bake/src/typescript.mjs `ambientRefusals`). A graph that does not
+  // bundle from the capture is refused, as the native bake refuses it.
+  // Both run, and every diagnostic is reported, as the resident compiler joins them.
+  const why = [];
+  const { rolldown } = await import('rolldown');
+  const typed = check(real, resolve(libraries, 'tsc'), libraries).then(() => null, error => error);
+  const bundled = (async () => {
+    const bundle = await rolldown({ cwd: real, input: resolve(real, '__exact_entry.ts'), platform: 'neutral', tsconfig: resolve(real, '__exact_tsconfig.json'),
+      logLevel: 'silent', plugins: [{ name: 'ambient', transform(code, id) { why.push(...ambientRefusals(real, id, code, (c, o) => this.parse(c, o))); return null; } }] });
+    try { await bundle.generate({ format: 'esm' }); } finally { await bundle.close(); }
+  })().then(() => null, error => error);
+  const errors = [await bundled, ...why.map(line => new Error(line)), await typed].filter(Boolean);
+  if (errors.length) throw new Error(errors.map(e => e.message ?? String(e)).join('\n'));
 }
 const normalizeGrants = (label, spec, stem) => {
   const file = resolve(gen, `${stem}.grants`);
@@ -281,20 +296,32 @@ for (const f of ['frames.js', 'motion-glue.js', 'group-glue.js', 'input-glue.js'
 cpSync(resolve(root, 'host/web/collection-glue.js'), resolve(gen, 'collection-glue.js'));
 // Animated images on the agent's clock, the web host's own (agent.js only).
 cpSync(resolve(root, 'host/web/image-glue.js'), resolve(gen, 'image-glue.js'));
-cpSync(resolve(root, 'host/web/navigation.js'), resolve(gen, 'navigation.js'));
+// navigation.js's grant admission (between its `grant admission: begin` and `end` lines) becomes a module of its own
+// here, which navigation.js re-exports: one module is one chunk, and the lazy admission (admission.js, the TypeScript
+// and Rust data chunks) is the only reader, so a page that admits nothing before a lazy chunk carries none of it. The
+// wasm host serves navigation.js whole (its boot graph is glue.js and navigation.js; scripts/boot.mjs).
+const grantSection = (() => {
+  const lines = readFileSync(resolve(root, 'host/web/navigation.js'), 'utf8').split('\n');
+  const begin = lines.findIndex(l => l.startsWith('// grant admission: begin')), end = lines.findIndex(l => l === '// grant admission: end');
+  if (begin < 0 || end < begin) throw new Error("host/web/navigation.js: no `// grant admission: begin` … `end` section");
+  const names = [...lines.slice(begin, end).join('\n').matchAll(/^export (?:function|const) (\w+)/gm)].map(m => m[1]);
+  writeFileSync(resolve(gen, 'navigation.js'), [...lines.slice(0, begin), `export { ${names.join(', ')} } from './grant-admission.js';`, ...lines.slice(end + 1)].join('\n'));
+  return lines.slice(begin, end + 1).join('\n') + '\n';
+})();
 // The agent adapter reads its own copies of the modules it shares with the
 // entry: a module lives in one chunk, so what only the agent reads from
 // navigation.js (the guest outline and taps, the environment) or names.js
 // (every slot's type) would otherwise ride in every page's entry module.
 for (const f of ['navigation.js', 'names.js']) cpSync(resolve(gen, f), resolve(gen, 'agent-' + f));
-writeFileSync(resolve(gen, 'agent.js'), readFileSync(resolve(gen, 'agent.js'), 'utf8').replace("from './names.js'", "from './agent-names.js'").replace("from './navigation.js'", "from './agent-navigation.js'"));
+writeFileSync(resolve(gen, 'agent.js'), readFileSync(resolve(gen, 'agent.js'), 'utf8').replace("from './names.js'", "from './agent-names.js'").replace("from './navigation.js'", "from './agent-navigation.js'").replace("from '../web/faults.js'", "from './faults.js'"));
 // A source granted `auth.session` signs in through the system browser (auth.js, LLP 1069.006).
 const auth = /^\s*auth\.session\s/m.test(grants);
 if (ts) writeFileSync(resolve(gen, 'ts-data.js'), readFileSync(resolve(here, 'ts-data.js'), 'utf8').replace("'__APP_TS__'", JSON.stringify(resolve(appDir, 'app.ts')))
   .replace('__AUTH_IMPORT__', auth ? "import { install as signIn } from './auth.js';" : '')
   .replace('__AUTH_INSTALL__', auth ? `signIn(${JSON.stringify(grants)}, () => asking);` : ''));
-for (const f of ['auth-glue.js', 'storage-environment.js', 'http-body.js', 'grant-admission.js']) cpSync(resolve(root, 'host/web', f), resolve(gen, f));
-writeFileSync(resolve(gen, 'admission.js'), readFileSync(resolve(here, 'admission.js'), 'utf8').replaceAll("'../web/grant-admission.js'", "'./grant-admission.js'"));
+for (const f of ['auth-glue.js', 'storage-environment.js', 'http-body.js', 'faults.js']) cpSync(resolve(root, 'host/web', f), resolve(gen, f));
+writeFileSync(resolve(gen, 'grant-admission.js'), grantSection); // the section navigation.js re-exports (above)
+writeFileSync(resolve(gen, 'admission.js'), readFileSync(resolve(here, 'admission.js'), 'utf8').replaceAll("'../web/grant-admission.js'", "'./grant-admission.js'").replaceAll("'../web/faults.js'", "'./faults.js'"));
 cpSync(resolve(here, 'ts-fetch.js'), resolve(gen, 'ts-fetch.js'));
 cpSync(resolve(here, 'ts-stream.js'), resolve(gen, 'ts-stream.js'));
 cpSync(resolve(here, 'auth.js'), resolve(gen, 'auth.js'));
@@ -349,9 +376,10 @@ const scopedModule = (code, id) => {
     const path = relative(root, id);
     return path === '' || !isAbsolute(path) && path !== '..' && !path.startsWith('..' + sep);
   })) return null;
-  // And the clock, timers and Math.random refused by name (LLP 1027.000 D3).
+  // And the clock, timers and Math.random refused by name (LLP 1027.000 D3),
+  // and the browser's own I/O, as the wasm target's realm refuses it.
   const bound = ['fetch', 'Date', 'Math', 'Intl', 'setTimeout', 'setInterval', 'requestAnimationFrame', 'requestIdleCallback',
-    'clearTimeout', 'clearInterval', 'cancelAnimationFrame', 'cancelIdleCallback', 'performance'];
+    'clearTimeout', 'clearInterval', 'cancelAnimationFrame', 'cancelIdleCallback', 'performance', 'XMLHttpRequest', 'WebSocket', 'EventSource'];
   const result = transformSync(id, code, { inject: { ...Object.fromEntries(bound.map(name => [name, [resolve(gen, 'ts-fetch.js'), name]])),
     ...Object.fromEntries(['globalThis', 'window', 'self'].map(name => [name, [resolve(gen, 'ts-fetch.js'), 'appGlobal']])) } });
   if (result.errors.length) throw new Error(result.errors.map(e => e.message).join('\n'));

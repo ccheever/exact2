@@ -20,10 +20,17 @@ import { resetSidebarWidth } from './r4-polish-sidebar-width';
 import { sweepRelease } from './r11-upstream-sweep';
 import { discardDraft, draftMenu } from './r11-upstream-drafts';
 import { menuAnchor, rowKeyMenu, withMenuAnchor } from './r12-sidebar-keys';
+import { legacyCommand, legacyLocal } from './legacy-sidebar-commands'; // legacy-sidebar: the "Sidebar (legacy)" gestures
+import { legacyEnabled, legacyProjectOrder, threadSortOrder } from './legacy-sidebar-view';
+import { closeThreadTerminals, detachThreadSessions, removeOrphanedWorktree, setWorktreePrompt, worktreePlan, worktreePrompt, type WorktreePrompt } from './worktree-cleanup'; // thread-commands-and-keys: G5
+import { deleteSelectedThreadEntries, getFallbackThreadIdAfterDelete } from './sidebar-delete-logic';
+import { mostRecentProjectId } from './pages-home';
+import { letGo } from './let-go';
 
 const failure = (error: unknown) => error instanceof Error ? error.message : 'An error occurred.';
 const threadOf = (client: T3Client, id: string): Obj | undefined => client.shell.threads.find(thread => thread.id === id);
-const toast = (client: T3Client, title: string, error: unknown) => pushToast(client, { kind: 'error', title, description: failure(error) });
+/** The failure toast; a let-go request is rethrown instead (let-go.ts), so nothing after it runs. */
+const toast = (client: T3Client, title: string, error: unknown) => { if (letGo(error)) throw error; pushToast(client, { kind: 'error', title, description: failure(error) }); };
 
 /** Session navigation the client exposes for the sidebar (select-thread / new-thread without a row gesture). */
 interface Navigator { openSelected?(native: Native, id: string): Promise<void>; openDraft?(native: Native, projectId: string): Promise<void> }
@@ -150,25 +157,76 @@ export async function archive(client: T3Client, native: Native, id: string): Pro
     catch (error) { toast(client, 'Thread archived, but navigation failed', error); }
   }
 }
-export async function remove(client: T3Client, native: Native, storage: Files, id: string, deleting: Set<string> = new Set()): Promise<void> {
+/**
+ * useThreadActions.deleteThread for one shown thread: the worktree question
+ * (asked once, then resumed with its `answer`), the session detach, the
+ * delete, the fallback navigation, then the orphaned worktree's removal.
+ * `deleted` holds this run's earlier successes. 'prompt' leaves the thread
+ * in place while the "Delete the worktree too?" dialog is open.
+ */
+export async function remove(client: T3Client, native: Native, storage: Files, id: string, deleted: ReadonlySet<string> = new Set(), answer?: boolean): Promise<'deleted' | 'prompt' | 'missing'> {
   const thread = threadOf(client, id);
-  if (!thread) return;
-  const parts = partition(client, wall(client)), order = renderedRows(client, parts).map(entry => str(entry.thread.id));
+  if (!thread) return 'missing';
+  const plan = worktreePlan(client, id, deleted);
+  if (plan && answer === undefined) return 'prompt';
+  await detachThreadSessions(client, native, thread);
+  await closeThreadTerminals(client, native, id);
   const wasOpen = client.threadId === id;
+  const fallback = getFallbackThreadIdAfterDelete({ threads: client.shell.threads.filter(entry => !entry.archivedAt), deletedThreadId: id, deletedThreadIds: deleted, sortOrder: threadSortOrder(client) });
   await dispatch(client, native, { type: 'thread.delete', threadId: id });
   forget(client, id);
   delete client.local.drafts[`${client.environmentId}:${id}`];
   const session = sidebarSession(client);
   session.selection = session.selection.filter(selected => selected !== id);
   if (wasOpen && client.threadId === id) {
-    // getFallbackThreadIdAfterDelete: the next surviving row, else the previous.
-    const at = order.indexOf(id);
-    const fallback = [...order.slice(at + 1), ...order.slice(0, Math.max(0, at)).reverse()].find(candidate => candidate !== id && !deleting.has(candidate));
     const navigator = client as unknown as Navigator;
     if (fallback) await navigator.openSelected?.(native, fallback);
-    else await navigator.openDraft?.(native, str(thread.projectId));
+    // No thread left in the project: the home route `/` (IndexDraftLanding), a draft in the most recently active project.
+    else await navigator.openDraft?.(native, mostRecentProjectId({ ...client.shell, threads: client.shell.threads.filter(entry => entry.id !== id && !deleted.has(str(entry.id))) }));
   }
-  void storage;
+  if (plan && answer === true) await removeOrphanedWorktree(client, native, storage, plan);
+  return 'deleted';
+}
+
+/**
+ * Deletes `ids` in order (a single delete, or the multi-select's
+ * deleteSelectedThreadEntries), stopping at a worktree question and resuming
+ * from `answerWorktree`. Failures end as one toast: "Failed to delete
+ * thread", or "Failed to delete threads" for a selection.
+ */
+export async function deleteThreads(client: T3Client, native: Native, storage: Files, ids: string[], bulk: boolean, resume?: WorktreePrompt, answer?: boolean): Promise<void> {
+  const session = sidebarSession(client);
+  let pending = answer;
+  const outcome = await deleteSelectedThreadEntries({
+    entries: ids.map(threadKey => ({ threadKey })),
+    start: resume ? { deletedThreadKeys: resume.deleted, firstFailure: resume.firstFailure } : undefined,
+    delete: async ({ threadKey }, deletedThreadKeys) => {
+      const reply = pending;
+      pending = undefined;
+      try {
+        const result = await remove(client, native, storage, threadKey, deletedThreadKeys, reply);
+        return result === 'missing' ? null : result === 'prompt' ? { paused: true } : { ok: true };
+      } catch (error) { return { ok: false, error }; }
+    },
+  });
+  if (outcome.pausedAt >= 0) {
+    const threadId = ids[outcome.pausedAt]!, plan = worktreePlan(client, threadId, outcome.deletedThreadKeys);
+    if (plan) {
+      setWorktreePrompt(client, { threadId, plan, queue: ids.slice(outcome.pausedAt), deleted: outcome.deletedThreadKeys, bulk, firstFailure: outcome.firstFailure });
+      session.dialog = { kind: 'delete-worktree', threadIds: [threadId], title: plan.display };
+      return;
+    }
+  }
+  setWorktreePrompt(client, undefined);
+  if (outcome.firstFailure) toast(client, bulk ? 'Failed to delete threads' : 'Failed to delete thread', outcome.firstFailure.error);
+  if (bulk) session.selection = session.selection.filter(id => !!threadOf(client, id) && !outcome.deletedThreadKeys.has(id));
+}
+/** The worktree question's answer: Confirm removes the worktree; Cancel (or closing) keeps it. Either way the thread is deleted and the run goes on. */
+async function answerWorktree(client: T3Client, native: Native, storage: Files, confirmed: boolean): Promise<void> {
+  const prompt = worktreePrompt(client);
+  closeDialog(sidebarSession(client));
+  setWorktreePrompt(client, undefined);
+  if (prompt) await deleteThreads(client, native, storage, prompt.queue, prompt.bulk, prompt, confirmed);
 }
 
 /** planForwardNavigation: parking the open thread moves to the next remaining card, else a fresh draft. */
@@ -261,7 +319,8 @@ export async function sidebarSelecting(client: T3Client, nativeHandle: Native, i
   if (value === 'click') {
     let flags: Obj = {};
     try { flags = obj(await client.restAccess(nativeHandle).call({ op: 'sidebarModifiers' })); } catch { flags = {}; }
-    const rows = renderedRows(client, partition(client, wall(client))).map(entry => str(entry.thread.id));
+    // legacy-sidebar: ⇧-click ranges over the row's project list (rangeSelectTo(threadKey, orderedProjectThreadKeys)).
+    const rows = legacyEnabled(client) ? legacyProjectOrder(client, id) : renderedRows(client, partition(client, wall(client))).map(entry => str(entry.thread.id));
     if (flags.command === true) {
       session.selection = session.selection.includes(id) ? session.selection.filter(key => key !== id) : [...session.selection, id];
       session.anchor = id;
@@ -312,6 +371,7 @@ async function showMenu(client: T3Client, nativeHandle: Native, items: MenuItem[
 
 /** The sidebar's local ops: view state that never reaches the server. */
 export async function sidebarLocal(client: T3Client, _native: Native, op: string, id: string, value: string): Promise<string> {
+  if (op.startsWith('legacy-')) return legacyLocal(client, op.slice(7), id, value);
   const prefs = sidebarPrefs(client), session = sidebarSession(client);
   if (op === 'pill-dismiss') { dismissProviderPill(client, value); return ''; }
   if (op === 'shelf') {
@@ -359,11 +419,13 @@ export async function sidebarLocal(client: T3Client, _native: Native, op: string
 /** The sidebar's server ops. Failures are toasts, never the transcript banner. */
 export async function sidebarCommand(client: T3Client, nativeHandle: Native, storage: Files, op: string, id: string, value: string, at = 0): Promise<string> {
   adoptCommandTime(client, at);
+  if (op.startsWith('legacy-')) return legacyCommand(client, nativeHandle, storage, op.slice(7), id, value);
   const session = sidebarSession(client);
   const settings = client.local.clientSettings;
   if (op === 'undo') { await undoLatest(client, nativeHandle); return ''; }
   if (op === 'rename') { await rename(client, nativeHandle, id, value); return ''; }
   if (op === 'dialog-confirm') return confirmDialog(client, nativeHandle, storage, value);
+  if (op === 'dialog-cancel') { if (session.dialog.kind === 'delete-worktree') await answerWorktree(client, nativeHandle, storage, false); else closeDialog(session); return ''; }
   if (op === 'drop' && id.startsWith('sweep|')) return sweepRelease(client, nativeHandle, storage, id); // lane r11-upstream (1826fb55cc)
   if (op === 'drop') return sidebarDrop(client, nativeHandle, id, value);
   if (op === 'project-settings-group') {
@@ -384,7 +446,8 @@ export async function sidebarCommand(client: T3Client, nativeHandle: Native, sto
   if (op === 'new-thread-click') {
     let flags: Obj = {};
     try { flags = obj(await client.restAccess(nativeHandle).call({ op: 'sidebarModifiers' })); } catch { flags = {}; }
-    if (flags.shift !== true && client.projectGroups().length > 1) return 'sidebar:palette-new-thread';
+    // routes/_chat.tsx chat.new: the legacy sidebar keeps the immediate contextual create.
+    if (flags.shift !== true && client.projectGroups().length > 1 && !legacyEnabled(client)) return 'sidebar:palette-new-thread';
     try { await (client as unknown as Navigator).openDraft?.(nativeHandle, client.projectId); }
     catch (error) { toast(client, 'Could not create thread', error); return ''; }
     return 'sidebar:new-thread';
@@ -459,7 +522,7 @@ async function runChoice(client: T3Client, nativeHandle: Native, storage: Files,
       await attempt(client, 'Failed to archive thread', () => archive(client, nativeHandle, id)); return '';
     case 'delete':
       if (settings?.confirmThreadDelete !== false) { session.dialog = { kind: 'delete', threadIds: [id], title: str(thread.title) }; return ''; }
-      await attempt(client, 'Failed to delete thread', () => remove(client, nativeHandle, storage, id)); return '';
+      await deleteThreads(client, nativeHandle, storage, [id], false); return '';
     default: throw new ClientError(`Unknown thread action: ${choice}`);
   }
 }
@@ -495,7 +558,7 @@ async function bulkMenu(client: T3Client, nativeHandle: Native, storage: Files):
   if (choice === 'mark-unread') { session.selection = []; for (const id of ids) await attempt(client, 'Failed to mark thread unread', () => markUnread(client, nativeHandle, id)); return ''; }
   if (choice === 'delete') {
     if (client.local.clientSettings?.confirmThreadDelete !== false) { session.dialog = { kind: 'delete-many', threadIds: ids, title: '' }; return ''; }
-    await deleteMany(client, nativeHandle, storage, ids);
+    await deleteThreads(client, nativeHandle, storage, ids, true);
   }
   return '';
 }
@@ -506,27 +569,20 @@ async function snoozeMany(client: T3Client, nativeHandle: Native, ids: string[],
     const forward = planForward(client, nativeHandle, id, batch);
     try { await snooze(client, nativeHandle, id, until); snoozed++; if (forward) await forward(); } catch (error) { failures.push(error); }
   }
+  const letGoFailure = failures.find(letGo);
+  if (letGoFailure) throw letGoFailure;
   if (failures.length) pushToast(client, { kind: 'error', title: snoozed > 0 ? `Failed to snooze ${failures.length} thread${failures.length === 1 ? '' : 's'}` : 'Failed to snooze threads', description: failure(failures[0]) });
 }
-async function deleteMany(client: T3Client, nativeHandle: Native, storage: Files, ids: string[]): Promise<void> {
-  const deleting = new Set(ids);
-  for (const id of ids) {
-    try { await remove(client, nativeHandle, storage, id, deleting); }
-    catch (error) { toast(client, 'Failed to delete threads', error); break; }
-  }
-  const session = sidebarSession(client);
-  session.selection = session.selection.filter(id => !!threadOf(client, id) && !deleting.has(id));
-}
-
 /** The confirmation and custom snooze dialogs' confirm button. */
 async function confirmDialog(client: T3Client, nativeHandle: Native, storage: Files, value: string): Promise<string> {
   const session = sidebarSession(client), dialog = session.dialog;
   void value;
   closeDialog(session);
   const [id] = dialog.threadIds;
+  if (dialog.kind === 'delete-worktree') { await answerWorktree(client, nativeHandle, storage, true); return ''; }
   if (dialog.kind === 'archive' && id) await attempt(client, 'Failed to archive thread', () => archive(client, nativeHandle, id));
-  else if (dialog.kind === 'delete' && id) await attempt(client, 'Failed to delete thread', () => remove(client, nativeHandle, storage, id));
-  else if (dialog.kind === 'delete-many') await deleteMany(client, nativeHandle, storage, dialog.threadIds);
+  else if (dialog.kind === 'delete' && id) await deleteThreads(client, nativeHandle, storage, [id], false);
+  else if (dialog.kind === 'delete-many') await deleteThreads(client, nativeHandle, storage, dialog.threadIds, true);
   else if (dialog.kind === 'unpin' && id) await attempt(client, 'Failed to unpin thread', () => unpin(client, nativeHandle, id));
   else if (dialog.kind === 'snooze') {
     const resolved = resolveCustomSnooze({ mode: session.dialogMode, date: session.dialogDate, time: session.dialogTime, amount: session.dialogAmount, unit: session.dialogUnit }, wall(client));

@@ -137,14 +137,14 @@ export function identifyInspectedNode(reply, target) {
  *   tree    epoch E · incarnation I · clock C ms · N nodes
  *           {"  " × depth}{Type}#{id} [{testId}] hook="…" "{text}" value="…" label="…" checked=true|false ({handlers, comma-separated})
  *           an iframe adds url="…" loading=true|false and `[guest]` outline lines
- *   layout  viewport W×H [· safe-area T R B L · keyboard K, when any is not 0] · clock C ms
+ *   layout  viewport W×H [· safe-area T R B L · keyboard K, when any is not 0] [· status bar light-content|dark-content (#id), iOS] · clock C ms
  *           #{id} [{testId}] {Type} {x},{y} {w}×{h} scroll {sx},{sy} [overscroll {ox},{oy}]
  *   logs    "(N earlier lines dropped by the journal ring)" when dropped > 0; the journal lines as they are;
  *           the host's lines indented two spaces; "(nothing new)" when there is nothing
  *   state   the JSON, indented two spaces
  *   perf    {target} — seq [A..]B · clock [X..]Y ms · incarnation I [· partial: N walked]
  *           one row per site: component, file:line (or `site N`), then each counter the host has
- *   perf frames  period P ms (source) · presented N · late L · missed M · segments S, the window's
+ *   perf frames  period P ms (source) · presented N · late L · missed M [· overruns O] · segments S, the window's
  *           percentiles, then one line per late frame; `virtual clock: no frame was presented`
  *   others  the JSON on one line
  */
@@ -180,7 +180,9 @@ export function render(op, r) {
       // `overscroll` is how far a scroller sits past its own ends — a stretched rubber band, which the offset
       // alone cannot distinguish from an ordinary scroll position. Printed only when there is one.
       const past = (n) => (n.ox != null || n.oy != null ? ` overscroll ${n.ox ?? 0},${n.oy ?? 0}` : '');
-      const lines = [`viewport ${r.viewport.w}×${r.viewport.h}${past(r.viewport)}${env}${fold} · clock ${r.clock} ms`].concat((r.nodes ?? []).map((n) => `#${n.id}${n.testId != null ? ` [${n.testId}]` : ''}${n.type != null ? ` ${n.type}` : ''} ${n.native?.placement === 'window' ? `${n.native.view} · system-owned geometry` : `${n.x},${n.y} ${n.w}×${n.h}${n.sx != null ? ` scroll ${n.sx},${n.sy}` : ''}${past(n)}`}`));
+      // The status bar's style Exact asks for (LLP 1105 D7, iOS), when it is not the default.
+      const bar = r.statusBar && r.statusBar.style !== 'default' ? ` · status bar ${r.statusBar.style} (#${r.statusBar.source})` : '';
+      const lines = [`viewport ${r.viewport.w}×${r.viewport.h}${past(r.viewport)}${env}${fold}${bar} · clock ${r.clock} ms`].concat((r.nodes ?? []).map((n) => `#${n.id}${n.testId != null ? ` [${n.testId}]` : ''}${n.type != null ? ` ${n.type}` : ''} ${n.native?.placement === 'window' ? `${n.native.view} · system-owned geometry` : `${n.x},${n.y} ${n.w}×${n.h}${n.sx != null ? ` scroll ${n.sx},${n.sy}` : ''}${past(n)}`}`));
       if (r.node) lines.push(...renderNode(r.node));
       return lines.join('\n');
     }
@@ -301,14 +303,14 @@ function renderPerf(r) {
   if (r.unavailable) return 'this host observes no presented frames';
   if (r.lifetime) {
     const w = r.window ?? {}, f = n => n == null ? '—' : `${n} ms`;
-    const out = [`period ${r.period.ms} ms (${r.period.source}) · presented ${r.lifetime.presented} · late ${r.lifetime.late} · missed ${r.lifetime.missed} · segments ${r.lifetime.segments}${r.covers?.length ? ` · covers ${r.covers.join(', ')}` : ''}`,
+    const out = [`period ${r.period.ms} ms (${r.period.source}) · presented ${r.lifetime.presented} · late ${r.lifetime.late} · missed ${r.lifetime.missed}${r.lifetime.overruns != null ? ` · overruns ${r.lifetime.overruns}` : ''} · segments ${r.lifetime.segments}${r.covers?.length ? ` · covers ${r.covers.join(', ')}` : ''}`,
       `window t=${w.from}..${w.to} · ${w.samples} samples (${w.dropped} dropped) · p50 ${f(w.p50)} · p95 ${f(w.p95)} · p99 ${f(w.p99)} · max ${f(w.max)}`];
     if (r.live) out.unshift(`live window ${r.live.ms} ms · clock ${r.live.from}..${r.live.to}`);
     for (const w of r.world ?? []) {
       const g = n => n == null ? '—' : `${Math.round(n * 100) / 100} ms`, ms = x => x ? `p50 ${g(x.p50)} p95 ${g(x.p95)} p99 ${g(x.p99)} mean ${g(x.mean)}` : '—';
       out.push(`  world ${w.canvas}: frame ${ms(w.perf.frameMs)} · tick ${ms(w.perf.tickMs)} · feed ${ms(w.perf.feedMs)} · encode ${ms(w.perf.encodeMs)}`);
     }
-    for (const l of r.late ?? []) out.push(`  t=${l.t} late: ${l.missed} missed (${l.interval} ms) · seq ${l.seq ? l.seq.join('..') : '—'}${l.apply != null ? ` · apply ${l.apply}` : ''}${l.layout != null ? ` · layout ${l.layout}` : ''}${l.loaf ? ` · loaf script ${l.loaf.script}${l.loaf.styleLayout != null ? ` style+layout ${l.loaf.styleLayout}` : ''}` : ''}`);
+    for (const l of r.late ?? []) out.push(`  t=${l.t} late: ${l.missed} missed (${l.interval} ms)${l.overrun ? ` · main ${l.overrun} ms past the target` : ''} · seq ${l.seq ? l.seq.join('..') : '—'}${l.apply != null ? ` · apply ${l.apply}` : ''}${l.layout != null ? ` · layout ${l.layout}` : ''}${l.loaf ? ` · loaf script ${l.loaf.script}${l.loaf.styleLayout != null ? ` style+layout ${l.loaf.styleLayout}` : ''}` : ''}`);
     return out.join('\n');
   }
   const round = x => typeof x === 'number' ? Math.round(x * 100) / 100 : x;
@@ -382,7 +384,7 @@ export function renderTrace(t) {
       while (from > 0 && at - from < 5 && !lines[from - 1].includes(' frame late at ')) from--;
       const near = at < 0 ? [] : lines.slice(from, at);
       const n = r.seq ? r.seq[1] - r.seq[0] + 1 : 0;
-      out.push(`  late at ${r.t}: ${r.missed} missed (${r.interval} ms) · ${n} transaction${n === 1 ? '' : 's'}${r.seq ? ` (seq ${r.seq.join('..')})` : ''}${r.apply ? ` · apply ${r.apply}` : ''}${r.layout != null ? ` · layout ${r.layout}` : ''}${r.paint != null ? ` · paint ${r.paint}` : ''}${r.loaf ? ` · loaf script ${r.loaf.script}${r.loaf.styleLayout != null ? ` style+layout ${r.loaf.styleLayout}` : ''}` : ''}${at < 0 ? ' · its journal line is gone (the ring turned over)' : ` · ${near.length} journal line${near.length === 1 ? '' : 's'} before it`}`);
+      out.push(`  late at ${r.t}: ${r.missed} missed (${r.interval} ms)${r.overrun ? ` · main ${r.overrun} ms past the target` : ''} · ${n} transaction${n === 1 ? '' : 's'}${r.seq ? ` (seq ${r.seq.join('..')})` : ''}${r.apply ? ` · apply ${r.apply}` : ''}${r.layout != null ? ` · layout ${r.layout}` : ''}${r.paint != null ? ` · paint ${r.paint}` : ''}${r.loaf ? ` · loaf script ${r.loaf.script}${r.loaf.styleLayout != null ? ` style+layout ${r.loaf.styleLayout}` : ''}` : ''}${at < 0 ? ' · its journal line is gone (the ring turned over)' : ` · ${near.length} journal line${near.length === 1 ? '' : 's'} before it`}`);
       for (const l of near) out.push(`    ${l}`);
     }
   } else if (t.frames) out.push('', renderPerf(t.frames));

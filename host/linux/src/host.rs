@@ -19,6 +19,8 @@ use exact_plan::Plan;
 use exact_runner::{Carried, DataSource, Event, Outcome, RequestOut, Runner, RunnerError, Timed};
 use std::collections::BTreeMap;
 
+#[path = "activation.rs"]
+mod activation;
 #[path = "arrange.rs"]
 mod arrange;
 #[path = "content_region/host.rs"]
@@ -37,10 +39,14 @@ mod paint_motion;
 mod presence;
 #[path = "press.rs"]
 mod press;
+#[path = "system_support.rs"]
+mod system;
 #[path = "transform_binding.rs"]
 mod transform_binding;
 #[path = "value_watch.rs"]
 mod value_watch;
+
+use system::{agent_store_snapshot, persist_agent_writes, physical_memory};
 
 /// Why the host refused to boot.
 #[allow(missing_docs)]
@@ -111,6 +117,9 @@ pub struct Host<D: DataSource> {
         u64,
         Vec<(exact_motion::Property, exact_motion::PlayedTransition)>,
     >,
+    /// The executor's wake, which a pending activation leaves with the data
+    /// source, so the display loop doesn't poll.
+    preload_wake: exact_runner::PreloadWake,
     router_op: Option<exact_runner::RouterChange>,
     navigation: crate::navigation::Navigation,
     presence: presence::Presence,
@@ -262,6 +271,7 @@ impl<D: DataSource> Host<D> {
             lowered_epoch: 0,
             lowered_changed: Default::default(),
             played: Default::default(),
+            preload_wake: Default::default(),
             router_op: None,
             navigation: Default::default(),
             presence: Default::default(),
@@ -504,6 +514,11 @@ impl<D: DataSource> Host<D> {
         self.runner.collection(view)
     }
 
+    /// A list's mounted rows as (view, epoch), into `out`.
+    pub fn collection_mounted(&self, view: ViewId, out: &mut Vec<(ViewId, u64)>) {
+        self.runner.collection_mounted(view, out);
+    }
+
     /// [`Host::collections`] with only each list's first mounted row: views,
     /// sequences and port geometry, not every row's record.
     pub fn collections_shallow(&self) -> Vec<exact_runner::CollectionSnapshot> {
@@ -673,62 +688,6 @@ impl<D: DataSource> Host<D> {
         self.runner.log(line);
     }
 
-    fn configure_storage(&mut self) -> Result<(), exact_runner::DataError> {
-        let app_id = self.runner.data().app_id().to_string();
-        let Some(([data, cache, temporary], _)) = crate::picker::app_dirs(&app_id)? else {
-            return Ok(());
-        };
-        // An authored test's store starts empty every run (`agent --test`):
-        // emptied at the boot that read it, so this is a no-op unless that failed.
-        crate::picker::empty_fresh_tree(&app_id)?;
-        // What `app:/` names for the picker and an image's source (LLP
-        // 1069.002 D4, D7); the last launch's picks go.
-        crate::picker::set_roots(data.clone(), cache.clone(), temporary.clone());
-        self.runner.data().configure_storage(data, cache, temporary)
-    }
-
-    /// Activate deferred data only after the presenter has produced first pixel.
-    /// Returns whether a data-ready commit needs presenting and dispatching.
-    pub fn activate_data(&mut self) -> Result<bool, String> {
-        if self.data_activated {
-            return Ok(false);
-        }
-        if !self
-            .runner
-            .data_ref()
-            .preload()
-            .map_err(|e| format!("prepare data: {e:?}"))?
-        {
-            return Ok(false);
-        }
-        if let Err(error) = self
-            .configure_storage()
-            .and_then(|()| self.runner.data().activate())
-        {
-            return Err(format!("activate data: {error:?}"));
-        }
-        self.data_activated = true;
-        match self.runner.data_ready() {
-            Ok(Some(receipt)) => match self.commit(
-                &[Timed {
-                    at_ms: self.now_ms,
-                    receipt,
-                }],
-                None,
-            ) {
-                Some(error) => Err(error),
-                None => Ok(true),
-            },
-            Ok(None) => Ok(false),
-            Err(error) => Err(format!("data ready: {error:?}")),
-        }
-    }
-
-    /// Deferred image preparation needs another turn after first pixel.
-    pub fn data_pending(&self) -> bool {
-        !self.data_activated
-    }
-
     /// The work behind a continuation, dispatched on this thread after the
     /// commit that handed it out (LLP 1027.002 D3).
     pub fn dispatch_work(&mut self, token: u64) -> exact_runner::Dispatch {
@@ -744,6 +703,7 @@ impl<D: DataSource> Host<D> {
     /// also wake (LLP 1016.002).
     pub fn executor(&mut self) -> crate::executor::Executor {
         let executor = crate::executor::Executor::start(&self.grants());
+        self.preload_wake.set(executor.waker());
         self.runner.listen(executor.waker());
         executor
     }
@@ -1025,6 +985,43 @@ impl<D: DataSource> Host<D> {
         error
     }
 
+    /// A symbol picture (`symbol:<role>`) a commit made, renewed or touched
+    /// takes its natural size, the em square the image sync reports for it
+    /// (LLP 1035.004), before this commit's layout: not in a second layout
+    /// once the sync after the commit reports it (every list row built
+    /// with an icon paid one).
+    fn size_new_symbols(&mut self, receipts: &[Timed]) {
+        let kernel = self.runner.kernel_mut();
+        if !kernel.has_type(exact_kernel::NodeType::Image) {
+            return;
+        }
+        let mut sizes = Vec::new();
+        for t in receipts {
+            let r = &t.receipt;
+            for key in r.created.iter().chain(&r.renewed).chain(&r.touched) {
+                let Some(node) = kernel.node_by_key(*key) else {
+                    continue;
+                };
+                if node.node_type != exact_kernel::NodeType::Image
+                    || !node
+                        .props
+                        .str(exact_kernel::PropId::ImageSource)
+                        .is_some_and(|s| s.starts_with("symbol:"))
+                {
+                    continue;
+                }
+                let size = node.computed_row(exact_kernel::StyleId::FontSize, |s| s.font_size);
+                sizes.push((node.id, (size > 0.).then_some((size, size))));
+            }
+        }
+        for (view, size) in sizes {
+            if let Err(e) = kernel.set_intrinsic_size(view, size) {
+                self.log(format!("intrinsic: {e:?}"));
+                return;
+            }
+        }
+    }
+
     /// The viewport changed: lay out again.
     pub fn resize(&mut self, width: f32, height: f32) -> Option<String> {
         // @ref LLP 1039 D2 — merge re-answer and relayout, once.
@@ -1244,6 +1241,7 @@ impl<D: DataSource> Host<D> {
             self.media_mounts.commit(self.runner.kernel(), r);
         }
         self.track_presence(receipts);
+        self.size_new_symbols(receipts);
         if receipts.iter().any(|t| !t.receipt.created.is_empty()) {
             self.discover_height_handles();
             self.discover_transform_handles();
@@ -1352,6 +1350,10 @@ impl<D: DataSource> Host<D> {
             }
             changed = true;
             self.row_dirty.node(key);
+            // A path's `d` is read from the engine where it is painted.
+            if p.property == Property::D {
+                continue;
+            }
             if Property::PAINT.contains(&p.property) {
                 self.present_paint(p);
                 continue;
@@ -1395,98 +1397,6 @@ impl<D: DataSource> Host<D> {
 /// The kv scope the runner's kept answers live in, beside secrets
 /// (LLP 1027 D4). The same scope Apple's store writes.
 const KEPT: &str = "exact.kept";
-
-/// What a named agent drive has kept, for the runner's boot snapshot.
-/// A carried launch and a nameless drive contribute nothing. A fresh drive's
-/// tree is emptied first, once a process and before anything is written there
-/// (`picker::empty_fresh_tree`); one that cannot be emptied gives nothing,
-/// said at boot and again by the activation.
-fn agent_store_snapshot(app_id: &str, carried: bool) -> Vec<(String, String)> {
-    if carried {
-        return Vec::new();
-    }
-    // A tree that could not be emptied is not read: a fresh drive starts
-    // with nothing, never with what the last one left (b6 review C1).
-    if let Err(e) = crate::picker::empty_fresh_tree(app_id) {
-        eprintln!("exact: {e:?}");
-        return Vec::new();
-    }
-    let Some(root) = crate::picker::agent_secret_root(app_id) else {
-        return Vec::new();
-    };
-    let secrets = ibex2::secrets::FileStore::new(root.join("secrets"));
-    let kv = ibex2::kv::FileStore::new(root.join("kv"));
-    // A leading dot is the store's temporary file, not a secret.
-    let mut names = Vec::new();
-    if let Ok(entries) = std::fs::read_dir(root.join("secrets")) {
-        for entry in entries.flatten() {
-            let Ok(name) = entry.file_name().into_string() else {
-                continue;
-            };
-            if !name.starts_with('.') && ibex2::secrets::is_valid_name(&name) {
-                names.push(name);
-            }
-        }
-    }
-    names.sort();
-    let mut out = Vec::new();
-    for name in names {
-        if let Ok(Some(value)) = ibex2::secrets::SecretStore::get(&secrets, &name) {
-            out.push((name, value));
-        }
-    }
-    if let Ok(keys) = ibex2::kv::KvStore::keys(&kv, KEPT) {
-        for key in keys {
-            if let Ok(Some(bytes)) = ibex2::kv::KvStore::get(&kv, KEPT, &key) {
-                if let Ok(value) = String::from_utf8(bytes) {
-                    out.push((format!("{}{key}", exact_runner::Store::KEPT), value));
-                }
-            }
-        }
-    }
-    out
-}
-
-/// Write one commit's store log into the named drive's scratch tree.
-/// A nameless drive drops the log. A failed write is a journal line.
-fn persist_agent_writes(app_id: &str, writes: &[exact_runner::StoreWrite]) -> Vec<String> {
-    let Some(root) = crate::picker::agent_secret_root(app_id) else {
-        return Vec::new();
-    };
-    let secrets = ibex2::secrets::FileStore::new(root.join("secrets"));
-    let kv = ibex2::kv::FileStore::new(root.join("kv"));
-    let mut errors = Vec::new();
-    for write in writes {
-        let result = match write.name.strip_prefix(exact_runner::Store::KEPT) {
-            Some(key) => match &write.value {
-                Some(value) => ibex2::kv::KvStore::set(&kv, KEPT, key, value.as_bytes()),
-                None => ibex2::kv::KvStore::delete(&kv, KEPT, key),
-            },
-            None => match &write.value {
-                Some(value) => ibex2::secrets::SecretStore::set(&secrets, &write.name, value),
-                None => ibex2::secrets::SecretStore::forget(&secrets, &write.name),
-            },
-        };
-        if let Err(error) = result {
-            errors.push(format!("store {} failed: {error}", write.name));
-        }
-    }
-    errors
-}
-
-/// Physical memory in bytes, for the canvas budget (LLP 1056 D4): a quarter
-/// of it, as WebKit charged on iOS. Linux reports it in `/proc/meminfo`;
-/// elsewhere (the host run on a Mac) 8 GiB is assumed.
-fn physical_memory() -> u64 {
-    std::fs::read_to_string("/proc/meminfo")
-        .ok()
-        .and_then(|m| {
-            let line = m.lines().find(|l| l.starts_with("MemTotal:"))?;
-            let kb: u64 = line.split_whitespace().nth(1)?.parse().ok()?;
-            Some(kb * 1024)
-        })
-        .unwrap_or(8 << 30)
-}
 
 #[cfg(test)]
 #[path = "host_tests.rs"]

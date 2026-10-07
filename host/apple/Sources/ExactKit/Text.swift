@@ -519,9 +519,6 @@ final class TextEngine {
     var measureCount = 0
     var measureHits = 0
     var measureSeconds = 0.0
-    // Session-confined like the caches above. Raster workers receive copied
-    // source and line ranges; they never call this engine or its tokenizer.
-    private var lineBreaker: CFStringTokenizer?
 
     init(resolve: @escaping (String) -> URL?, read: ((String) -> Data?)? = nil,
          bundled: @escaping (String) -> URL? = { _ in nil },
@@ -642,8 +639,8 @@ final class TextEngine {
                 continue
             }
             if let url = fontURL(source) { pendingFonts.append(url) }
-            staged[stack, default: []].append(RegisteredFace(
-                family: name, generic: nil, weight: Int(row.weight), italic: row.italic != 0, descriptor: descriptor))
+            staged[stack, default: []].append(RegisteredFace(family: name, generic: nil, weight: Int(row.weight),
+                italic: row.italic != 0, descriptor: Self.declaredFace(descriptor, weight: Int(row.weight))))
         }
         for stack in failed {
             staged.removeValue(forKey: stack)
@@ -994,12 +991,13 @@ final class TextEngine {
         var start = 0
         var clampedRange: CFRange?
         let limit = width.isFinite ? Double(width) : Double.greatestFiniteMagnitude
-        // CSS breaks a line at the last Unicode line-break opportunity that
-        // fits; `anywhere` keeps CoreText's breaking (TextBreaks.swift).
+        // CSS breaks a line at the last line-break opportunity that fits;
+        // `break-word` and `anywhere` break inside a word only when none
+        // does (TextBreaks.swift).
         var plan = LineBreakPlan()
         let text = shape.attributed.string as NSString
         // `nowrap` takes no soft break (below), so it needs none of them.
-        if spec.overflowWrap != 2 && spec.wraps && width.isFinite && breaks == nil && ranges == nil {
+        if spec.wraps && width.isFinite && breaks == nil && ranges == nil {
             if let cached = shape.lineBreakBoundaries { plan.boundaries = cached }
             else {
                 plan.boundaries = lineBoundaries(shape.attributed.string as NSString, length: length)
@@ -1028,7 +1026,7 @@ final class TextEngine {
                 let room = limit - Double(insets.at(start).width)
                 plan.advance(to: start)
                 func suggest(_ room: Double) -> Int {
-                    plan.suggest(typesetter, start: start, room: room, offerWidth: width, breakWord: spec.overflowWrap == 1, length: length, text: text)
+                    plan.suggest(typesetter, start: start, room: room, offerWidth: width, breakWord: spec.overflowWrap != 0, length: length, text: text)
                 }
                 count = suggest(room)
                 // A soft hyphen's break shows one, which must fit (TextBreaks).
@@ -1135,31 +1133,10 @@ final class TextEngine {
         return paragraph
     }
 
-    /// Where Unicode lets a line end, as UTF16 offsets, the last being `length`.
-    /// One tokenizer is handed each paragraph in turn: making one opens an ICU
-    /// break iterator, which was a tenth of what measuring a paragraph cost.
+    /// Where a line may end, as UTF16 offsets, the last being `length`
+    /// (TextEngine.lineBreaks: Chrome's opportunities, the walker's).
     func lineBoundaries(_ text: NSString, length: Int) -> [Int] {
-        guard length > 0 else { return [0] }
-        let range = CFRange(location: 0, length: length)
-        let tokenizer: CFStringTokenizer
-        if let lineBreaker {
-            CFStringTokenizerSetString(lineBreaker, text as CFString, range)
-            tokenizer = lineBreaker
-        } else {
-            tokenizer = CFStringTokenizerCreate(nil, text as CFString, range, kCFStringTokenizerUnitLineBreak, nil)!
-            lineBreaker = tokenizer
-        }
-        // An empty reset retained the previous input on macOS. A one-space
-        // sentinel releases the paragraph while keeping the iterator bounded;
-        // the empty-input guard above prevents querying that sentinel's range.
-        defer { CFStringTokenizerSetString(tokenizer, " " as CFString, CFRange(location: 0, length: 1)) }
-        var boundaries: [Int] = []
-        while CFStringTokenizerAdvanceToNextToken(tokenizer).rawValue != 0 {
-            let token = CFStringTokenizerGetCurrentTokenRange(tokenizer)
-            boundaries.append(token.location + token.length)
-        }
-        if boundaries.last != length { boundaries.append(length) }
-        return boundaries
+        Self.lineBreaks(text, length: length)
     }
 
     /// An over-wide line truncated at `width` with the ellipsis in the style

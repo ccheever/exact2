@@ -1,10 +1,10 @@
 ---
 name: 20261005-x05-url-scheme-delivery
 plan: 20261005-t3code-macos-parity
-status: draft
+status: closed-upstream
 kind: framework-gap
 blocks: [20261005-app-activation, 20261005-managed-codex-chatgpt, 20261005-provider-sign-in-and-install, 20261005-t3-connect-sign-in]
-upstream_url: null
+upstream_url: https://github.com/ccheever/exact2/issues/104
 reproduced_on: null
 ---
 
@@ -88,3 +88,13 @@ If the user dropped both: close the issue by decision and record it in the two t
 ## Status and next action
 Draft; not reproduced on the pinned `main`; not searched upstream; not published.
 Next: `issue-open` (reproduce, search for duplicates, prepare the report for the user's approval; publication only after approval), after plan decision U10 is answered.
+
+## Merged upstream; not fixed for this ask (2026-10-07, adopt-main-fixes-r4)
+
+[#104](https://github.com/ccheever/exact2/issues/104) was closed by main #201 (`20017b7fc`), in the feature
+branch since main `463acda68` ([20261007-adopt-main-fixes-r4](../tasks/closed/20261007-adopt-main-fixes-r4.md)):
+a launch URL that an app with no navigation root cannot hear is now journaled, as a running app's already
+was. A scheme URL is still delivered only to a navigation root's `navigate`; nothing reaches a data source
+or module (this issue's request). Adoption: none. The clone has no scheme workaround, and
+`20261005-app-activation` is not built (user decision U10 pending); its rows and `t3-connect-sign-in`'s
+stay blocked as before.

@@ -2,7 +2,8 @@
 // globals. Host modules keep the browser's functions at every load time.
 import { fetchWith } from './admission.js';
 import { tsGrantSet } from './admission-data.js';
-export const fetch = (input, options) => options?.exactStream === undefined ? fetchWith(tsGrantSet, input, options) : stream(input, options);
+export const fetch = (input, options) => options?.exactStream === undefined ? fetchWith(tsGrantSet, input, options)
+  : options.exactTimeout !== undefined ? Promise.reject(new TypeError('exactTimeout: a stream has no timeout')) : stream(input, options);
 
 // An answer that keeps coming (LLP 1016.000), with Hermes's words
 // (js/src/prelude.js): the stream is the answer's, so its fetch is made while
@@ -58,8 +59,15 @@ DateTimeFormat.prototype = Object.create(NativeFormat.prototype, {
   formatToParts: { configurable: true, writable: true, value(...args) { return args[0] === undefined ? refuse('Intl.DateTimeFormat.formatToParts()') : nativeParts.apply(this, args); } },
 });
 Object.setPrototypeOf(DateTimeFormat, NativeFormat);
+// A data module does no I/O of its own (LLP 1016.000 D3: a socket only
+// listens, opened by the runtime as a `fetch` with `exactStream`): the page's
+// XMLHttpRequest, WebSocket and EventSource refuse, as the wasm target's realm
+// refuses them (host/web/module-glue.js), so no frame is sent and no origin
+// is reached past the grants.
+const noIo = api => function () { throw new Error(`${api} is unavailable in data sources`); };
 const guarded = {
   Date: GuardedDate, Math: GuardedMath,
+  XMLHttpRequest: noIo('XMLHttpRequest'), WebSocket: noIo('WebSocket'), EventSource: noIo('EventSource'),
   Intl: Object.freeze(Object.create(NativeIntl, { DateTimeFormat: { value: DateTimeFormat } })),
   setTimeout: noTimers('setTimeout()'), setInterval: noTimers('setInterval()'),
   requestAnimationFrame: noTimers('requestAnimationFrame()'), requestIdleCallback: noTimers('requestIdleCallback()'),
@@ -67,7 +75,7 @@ const guarded = {
   performance: Object.freeze({ now: () => refuse('performance.now()') }),
 };
 export const { Date, Math, Intl, setTimeout, setInterval, requestAnimationFrame, requestIdleCallback, clearTimeout, clearInterval,
-  cancelAnimationFrame, cancelIdleCallback, performance } = guarded;
+  cancelAnimationFrame, cancelIdleCallback, performance, XMLHttpRequest, WebSocket, EventSource } = guarded;
 
 // The usual browser global spellings share this app-local view. Computed
 // access, aliases and destructuring therefore get the same scoped fetch.

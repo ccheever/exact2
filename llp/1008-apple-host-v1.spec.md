@@ -153,13 +153,14 @@ long-reply drive are in `/tmp/messages-line-clamp/verification.json`. Mixed-run
 token styling still differs from the browser's paragraph-styled ellipsis, and
 the browser fixture does not show the token on a right-aligned line; full text raster
 parity remains open. `overflow-wrap` travels through `ExactMeasureRequest`
-and the paragraph cache. Normal and `break-word` break at the last public
-Unicode line-break boundary whose content fits (CoreText's own opportunities
-differ); when none fits, normal lets the word overflow and `break-word`
-splits it at the last cluster that fits. `anywhere` keeps CoreText's
-breaking and measures min-content by composed-character clusters; the other
-modes measure the widest piece between those same Unicode boundaries, not
-only between spaces (2026-10-05: a URL in a chat bubble had sized its box to
+and the paragraph cache. Every mode breaks at the last of Chrome's
+line-break opportunities whose content fits, the shared walker's
+(`exact_text_line_breaks`, `textflow/src/walker.rs`; 2026-10-06, #128: the
+public Unicode boundaries broke a path after each `/`); when none fits,
+normal lets the word overflow, and `break-word` and `anywhere` split it at
+the last cluster that fits. `anywhere` measures min-content by
+composed-character clusters; the other modes measure the widest piece
+between those same opportunities, not only between spaces (2026-10-05: a URL in a chat bubble had sized its box to
 the whole URL, then overflowed it). A forward cursor consumes line
 boundaries once rather than searching the whole list for every line.
 The normal/break-word/anywhere/restored fixture agrees with the browser's
@@ -348,7 +349,12 @@ affine transform about the bounds' center (translate · rotate · scale) and
 with a `press` handler; an input's `controlTextDidChange` is a `change`. The
 events beyond those (LLP 1005 §3; 2026-08-30): a `hover` handler is an
 `NSTrackingArea` — `mouseEntered`/`Exited`, the previously hovered node's
-leave sent before the new one's enter; `focus`/`blur` are first-responder
+leave sent before the new one's enter. A tracking area hears only a pointer
+that moves, so after a batch that makes, moves, removes or transforms boxes,
+or a scroll, the next display frame hit-tests the resting pointer (once a
+frame; none while a button is down or the pointer is off the window or over
+another one) and sends the leave/enter a browser's hover update would (#139,
+2026-10-06); `focus`/`blur` are first-responder
 changes (a field's begin/end editing; a node with such a handler
 `acceptsFirstResponder` and takes it on mouse-down); a `key` handler gets
 `keyDown`'s name in the web's vocabulary (`Enter`, `Escape`, `Tab`,

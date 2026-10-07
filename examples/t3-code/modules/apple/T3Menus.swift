@@ -1,5 +1,6 @@
 #if os(macOS)
 import AppKit
+import UniformTypeIdentifiers
 
 /// The reference desktop menu (apps/desktop/src/window/DesktopApplicationMenu.ts) laid over
 /// the host's: Edit gains Paste as Text (⇧⌘V) and Speech, View gains Actual Size, Zoom In
@@ -27,12 +28,17 @@ final class T3Menus: NSObject, NSMenuItemValidation, NSMenuDelegate {
 
     override init() {
         super.init()
-        quit.mode = { [weak self] in self?.quitMode ?? "hold" }
+        // The client pushes confirmQuit with devicePresentation, so the read answers at once.
+        quit.getMode = { [weak self] done in done(self?.quitMode ?? "hold") }
         quit.notify = { [weak self] down, mode in
             guard let self, let window = self.window else { return }
             if down { self.overlay.show(mode: mode, over: window) } else { self.overlay.release() }
         }
-        quit.conceal = { NSApp.windows.forEach { $0.orderOut(nil) } }
+        // The window stays key and only turns transparent, so the held keys' repeats cannot reach the next app.
+        quit.conceal = { [weak self] in
+            T3Menus.concealPendingQuit(self?.window ?? NSApp.keyWindow)
+            self?.overlay.hide()
+        }
         quit.quit = { NSApp.terminate(nil) }
     }
 
@@ -43,9 +49,27 @@ final class T3Menus: NSObject, NSMenuItemValidation, NSMenuDelegate {
         if monitor == nil {
             monitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .keyUp, .flagsChanged]) { [weak self] event in
                 guard let self else { return event }
-                return self.quit.handle(event) ? nil : event
+                if self.quit.handle(event) { return nil }
+                return Self.dropsHeldClose(event) ? nil : event
             }
         }
+    }
+
+    /// DesktopWindow.ts: a held ⌘W can outlive the panel that took its first press, so its
+    /// auto-repeats (no ⌥, no ⇧) never reach the menu's Close Window. Matched by key code 13 as
+    /// well, since a non-Latin source (Korean 2-Set) reports ㅈ there: this monitor reads the raw
+    /// event, which exact2 #168's physical-key matching of declared chords does not reach (X15).
+    static func dropsHeldClose(_ event: NSEvent) -> Bool {
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        guard event.type == .keyDown, event.isARepeat, flags.contains(.command), !flags.contains(.option), !flags.contains(.shift) else { return false }
+        return event.keyCode == 13 || (event.charactersIgnoringModifiers ?? "").lowercased() == "w"
+    }
+
+    /// concealPendingQuitWindow: leave full screen first, then turn the window transparent.
+    static func concealPendingQuit(_ window: T3ConcealableWindow?) {
+        guard let window, window.isConcealable else { return }
+        if window.isFullScreenWindow { window.leaveFullScreen() }
+        window.alphaValue = 0
     }
 
     /// The main window whose content zooms and over which the quit hint shows.
@@ -221,6 +245,37 @@ final class T3Menus: NSObject, NSMenuItemValidation, NSMenuDelegate {
         if let window { panel.beginSheetModal(for: window, completionHandler: finish) } else { finish(panel.runModal()) }
     }
 
+    /// WORKSPACE_IMAGE_PREVIEW_EXTENSIONS (packages/shared/src/filePreview.ts), without the dot.
+    static let faviconExtensions = ["avif", "gif", "ico", "jpeg", "jpg", "png", "svg", "webp"]
+
+    /// pickProjectFavicon (apps/desktop/src/ipc/methods/window.ts): one image file, starting in the
+    /// project's workspace root, as a sheet on the main window. The panel is built by `faviconPanel`
+    /// so the tests can read its configuration.
+    static func faviconPanel(startingAt path: String) -> NSOpenPanel {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.allowedContentTypes = faviconExtensions.compactMap { UTType(filenameExtension: $0) }
+        var isDirectory: ObjCBool = false
+        let expanded = (path as NSString).expandingTildeInPath
+        if !expanded.isEmpty, FileManager.default.fileExists(atPath: expanded, isDirectory: &isDirectory) {
+            panel.directoryURL = URL(fileURLWithPath: isDirectory.boolValue ? expanded : (expanded as NSString).deletingLastPathComponent, isDirectory: true)
+        }
+        return panel
+    }
+    /// The picked file's absolute path, or nil on cancel. Under the agent no panel opens: the
+    /// isolated data root's imports/ gives its first image file, so a drive can pick without one.
+    func pickProjectFavicon(startingAt path: String, importsRoot: URL?, completion: @escaping (String?) -> Void) {
+        if let importsRoot {
+            let files = (try? FileManager.default.contentsOfDirectory(at: importsRoot, includingPropertiesForKeys: nil)) ?? []
+            return completion(files.filter { Self.faviconExtensions.contains($0.pathExtension.lowercased()) }.map(\.path).sorted().first)
+        }
+        let panel = Self.faviconPanel(startingAt: path)
+        let finish: (NSApplication.ModalResponse) -> Void = { response in completion(response == .OK ? panel.url?.path : nil) }
+        if let window { panel.beginSheetModal(for: window, completionHandler: finish) } else { finish(panel.runModal()) }
+    }
+
     func destroy() {
         if let monitor { NSEvent.removeMonitor(monitor) }
         monitor = nil
@@ -232,13 +287,32 @@ final class T3Menus: NSObject, NSMenuItemValidation, NSMenuDelegate {
     deinit { destroy() }
 }
 
-/// QuitHold.ts: the quit accelerator waits for a hold (proven by auto-repeat) or a second
-/// press. Timers and the clock are injectable for the AppKit tests.
+/// What concealPendingQuit needs of a window (the AppKit tests pass a stand-in).
+protocol T3ConcealableWindow: AnyObject {
+    var isConcealable: Bool { get }
+    var isFullScreenWindow: Bool { get }
+    func leaveFullScreen()
+    var alphaValue: CGFloat { get set }
+}
+extension NSWindow: T3ConcealableWindow {
+    var isConcealable: Bool { isVisible || isMiniaturized }
+    var isFullScreenWindow: Bool { styleMask.contains(.fullScreen) }
+    func leaveFullScreen() { toggleFullScreen(nil) }
+}
+
+/// QuitHold.ts (apps/desktop/src/window/QuitHold.ts, 1e2ecbd975; MIT, see LICENSE-T3): the quit
+/// accelerator waits for a hold (proven by auto-repeat) or a second press. The mode is read when
+/// the key goes down and may answer later (`getMode`, nil for a failed read, which quits at once);
+/// a press superseded before its read settles discards that read. Timers and the clock are
+/// injectable for the AppKit tests.
 final class T3QuitHold {
     static let holdDuration: TimeInterval = 1.2
     static let doublePress: TimeInterval = 0.5
     static let releaseGrace: TimeInterval = 0.6
-    var mode: () -> String = { "hold" }
+    /// A slow repeat rate can exceed the fixed grace: wait two observed cadences.
+    static let repeatCadenceMultiplier: TimeInterval = 2
+    /// confirmQuit for this press: "direct", "hold" or "double-click"; nil when the read failed.
+    var getMode: (@escaping (String?) -> Void) -> Void = { $0("hold") }
     var notify: (Bool, String) -> Void = { _, _ in }
     var conceal: () -> Void = {}
     var quit: () -> Void = {}
@@ -252,32 +326,47 @@ final class T3QuitHold {
     private var holding = false
     private var current = ""
     private(set) var notified = false
+    /// Set once the mode read answers hold; auto-repeats may only complete the hold when armed.
     private var armed = false
     private var quitOnRelease = false
     private var heldSince: TimeInterval = 0
     private var lastPressAt: TimeInterval = 0
     private var lastRepeatAt: TimeInterval = 0
     private var repeatCadence: TimeInterval = 0
-    private var commandDown = false
+    /// Bumped when a press is superseded or cancelled; a plain key release keeps its pending read.
+    private var generation = 0
+    private var flags: NSEvent.ModifierFlags = []
 
-    /// One keyboard event of this app; true when the quit shortcut consumed it.
+    /// One keyboard event of this app; true when the quit shortcut consumed it. A modifier going
+    /// down arrives as its own keydown, as Electron's before-input-event reports it.
     func handle(_ event: NSEvent) -> Bool {
-        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        let now = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        let command = now.contains(.command), option = now.contains(.option) || now.contains(.control), shift = now.contains(.shift)
         switch event.type {
         case .flagsChanged:
-            let down = flags.contains(.command)
-            defer { commandDown = down }
-            if down && !commandDown { return keyDown(key: "meta", command: true, option: flags.contains(.option), shift: flags.contains(.shift), isRepeat: false) }
-            if !down && commandDown { keyUp(key: "meta") }
+            let before = flags
+            flags = now
+            // A modifier event is never consumed: AppKit keeps its own modifier state from it.
+            if command && !before.contains(.command) { _ = keyDown(key: "meta", command: true, option: option, shift: shift, isRepeat: false) }
+            else if !command && before.contains(.command) { keyUp(key: "meta") }
+            else if let pressed = [(NSEvent.ModifierFlags.shift, "shift"), (.option, "alt"), (.control, "control")].first(where: { now.contains($0.0) && !before.contains($0.0) }) {
+                _ = keyDown(key: pressed.1, command: command, option: option, shift: shift, isRepeat: false)
+            }
             return false
         case .keyDown:
-            let key = (event.charactersIgnoringModifiers ?? "").lowercased()
-            return keyDown(key: key, command: flags.contains(.command), option: flags.contains(.option) || flags.contains(.control), shift: flags.contains(.shift), isRepeat: event.isARepeat)
+            return keyDown(key: Self.key(event), command: command, option: option, shift: shift, isRepeat: event.isARepeat)
         case .keyUp:
-            keyUp(key: (event.charactersIgnoringModifiers ?? "").lowercased())
+            keyUp(key: Self.key(event))
             return false
         default: return false
         }
+    }
+    /// The event's key; Q's key code stands in when a non-Latin source (Korean 2-Set's ㅂ) types no
+    /// Latin letter there, as the r10-connect chords do: the quit hold reads raw key events, which
+    /// exact2 #168 (declared chords only) does not reach (X15).
+    static func key(_ event: NSEvent) -> String {
+        let key = (event.charactersIgnoringModifiers ?? "").lowercased()
+        return event.keyCode == 12 && !key.unicodeScalars.contains(where: { $0.isASCII }) ? "q" : key
     }
 
     func keyDown(key: String, command: Bool, option: Bool, shift: Bool, isRepeat: Bool) -> Bool {
@@ -287,13 +376,14 @@ final class T3QuitHold {
             lastRepeatAt = time
         }
         if quitOnRelease {
-            // A Q keydown proves the key is still down; it only pushes the quiet period back.
+            // A Q keydown proves the key is still down whether or not ⌘ is; it only pushes the quiet period back.
             if key == "q" { quitAfterQuietPeriod() }
-            return key == "q"
+            return true
         }
         if !command || option || shift || key != "q" {
             // Re-pressing ⌘ is the first half of a second quit shortcut.
             if key == "meta" && !option && !shift { return false }
+            // Other keys cancel the hold and the first tap, even after release.
             if !isRepeat { lastPressAt = 0; release() }
             return false
         }
@@ -308,36 +398,49 @@ final class T3QuitHold {
         }
         let time = now(), previous = lastPressAt
         lastPressAt = time
+        // A fresh keydown supersedes the current hold or the hint kept after a detected release.
         if holding || notified { release() }
-        // Every mode accepts two presses.
+        generation += 1
+        // Every mode accepts two presses, before the mode read can delay the second.
         if previous != 0 && time - previous <= Self.doublePress { quitNow(); return true }
+        let press = generation
         holding = true
         heldSince = time
-        let resolved = mode()
-        if resolved == "direct" { quitNow(); return true }
+        getMode { [weak self] resolved in self?.resolve(resolved, press: press, pressedAt: time) }
+        return true
+    }
+
+    private func resolve(_ resolved: String?, press: Int, pressedAt: TimeInterval) {
+        guard generation == press else { return }
+        // A failed settings read must never strand the quit request.
+        guard let resolved else { quitNow(); return }
+        if resolved == "direct" { quitNow(); return }
         if resolved == "double-click" {
+            let remaining = Self.doublePress - (now() - pressedAt)
+            if remaining <= 0 { release(); return }
             current = resolved
             notified = true
             notify(true, resolved)
-            watch(Self.doublePress) { [weak self] in self?.release() }
-            return true
+            watch(remaining) { [weak self] in self?.release() }
+            return
         }
-        current = "hold"
+        // A hold cannot be armed after its physical press has ended.
+        guard holding else { return }
+        current = resolved
         notified = true
-        notify(true, "hold")
+        notify(true, resolved)
         armed = true
         // No auto-repeat by then means the key was released (or repeat is off): don't quit.
         watch(Self.holdDuration + Self.releaseGrace) { [weak self] in self?.cancelWatchdog = nil; self?.release() }
-        return true
     }
 
     func keyUp(key: String) {
         if key == "q" {
             let shouldQuit = quitOnRelease
-            release(keepDoublePressHint: true)
+            release(cancelPendingMode: false, keepDoublePressHint: true)
             if shouldQuit { quit() }
         } else if key == "meta" {
-            if !quitOnRelease { release(keepDoublePressHint: true) } else { quitAfterQuietPeriod() }
+            if !quitOnRelease { release(cancelPendingMode: false, keepDoublePressHint: true) } else { quitAfterQuietPeriod() }
         }
     }
 
@@ -348,7 +451,8 @@ final class T3QuitHold {
         cancelWatchdog = schedule(delay, work)
     }
     private func clearWatchdog() { cancelWatchdog?(); cancelWatchdog = nil }
-    private func release(keepDoublePressHint: Bool = false) {
+    private func release(cancelPendingMode: Bool = true, keepDoublePressHint: Bool = false) {
+        if cancelPendingMode { generation += 1 }
         if !holding && !notified { return }
         let keepHint = keepDoublePressHint && current == "double-click" && notified
         holding = false
@@ -361,11 +465,11 @@ final class T3QuitHold {
         clearWatchdog()
         if notified { notified = false; notify(false, "") }
     }
+    /// Dismisses any hint first so a cancelled quit cannot leave a stale one.
     private func quitNow() { release(); lastPressAt = 0; quit() }
     private func quitAfterQuietPeriod() {
         clearWatchdog()
-        // A slow repeat rate can exceed the fixed grace: wait two observed cadences.
-        watch(max(Self.releaseGrace, repeatCadence * 2)) { [weak self] in self?.quitNow() }
+        watch(max(Self.releaseGrace, repeatCadence * Self.repeatCadenceMultiplier)) { [weak self] in self?.quitNow() }
     }
 }
 
@@ -384,10 +488,10 @@ final class T3QuitOverlay {
         let foreground = dark ? NSColor(srgbRed: 0xf5 / 255, green: 0xf5 / 255, blue: 0xf5 / 255, alpha: 0.95) : NSColor(srgbRed: 0x27 / 255, green: 0x27 / 255, blue: 0x2a / 255, alpha: 0.95)
         let background = dark ? NSColor(srgbRed: 0x0a / 255, green: 0x0a / 255, blue: 0x0a / 255, alpha: 1) : NSColor(srgbRed: 0xfc / 255, green: 0xfc / 255, blue: 0xfc / 255, alpha: 1)
         label.stringValue = Self.message(mode)
-        label.font = .systemFont(ofSize: 24, weight: .bold)
+        label.font = .systemFont(ofSize: T3RootFont.rem(24), weight: .bold)
         label.textColor = background
         label.sizeToFit()
-        let size = NSSize(width: ceil(label.frame.width) + 64, height: 64)
+        let size = NSSize(width: ceil(label.frame.width) + T3RootFont.rem(64), height: T3RootFont.rem(64)) // px-8 py-4 around text-2xl
         pill.frame = NSRect(origin: .zero, size: size)
         pill.wantsLayer = true
         pill.layer?.backgroundColor = foreground.cgColor
@@ -396,7 +500,7 @@ final class T3QuitOverlay {
         pill.layer?.shadowOpacity = 0.1
         pill.layer?.shadowRadius = 12
         pill.layer?.shadowOffset = CGSize(width: 0, height: -20)
-        label.frame = NSRect(x: 32, y: (size.height - label.frame.height) / 2, width: ceil(label.frame.width), height: label.frame.height)
+        label.frame = NSRect(x: T3RootFont.rem(32), y: (size.height - label.frame.height) / 2, width: ceil(label.frame.width), height: label.frame.height)
         if label.superview !== pill { pill.addSubview(label) }
         return pill
     }

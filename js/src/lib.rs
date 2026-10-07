@@ -114,10 +114,10 @@ pub const BYTECODE_VERSION: u32 = if PRELUDE.len() >= 12 {
     0
 };
 
-/// Receipt identity of this Windows executor's pinned lean engine and compiler.
-/// The producer compares its accepted install before compiling app bytecode.
-/// Other platforms and the explicit refusing stub do not use this identity.
-pub const ENGINE_INPUTS: Option<&str> = option_env!("EXACT_JS_ENGINE_INPUTS");
+/// Receipt-bound archive identity of this executor's pinned lean engine.
+/// The producer compares its selected Ibex bundle before compiling app bytecode.
+/// The explicit refusing stub has no identity.
+pub const ENGINE_INPUTS: Option<&str> = hermes_lean_sys::LEAN_ENGINE_DIGEST;
 
 /// One source's signature, from the plan.
 struct Sig {
@@ -144,10 +144,6 @@ struct Parked {
     last: bool,
 }
 
-/// The token of a resource the bake could not answer (storage refused at
-/// bake): its placeholder shows and the device asks it at launch. Never
-/// dispatched (see [`Module::answer_for`]).
-const UNASKED: u64 = u64::MAX;
 /// The ticket of an answer that awaits another answer's work (a fetch it
 /// shares, a queue behind another's storage): it waits while the module has
 /// work outstanding, and is asked again after each delivery (LLP
@@ -187,8 +183,6 @@ struct HostState {
     documents: bool,
     /// The bake's module ([`Module::inspect`]): storage refuses as `bake`.
     baking: bool,
-    /// Storage calls the bake refused so far (see [`Module::answer_for`]).
-    bake_refusals: u64,
     /// The runtime's own journal lines since the last take (LLP 1097 D8).
     journal: Vec<String>,
     /// Delivering between answers (a background round, a let-go call's
@@ -459,16 +453,32 @@ impl Module {
     }
 
     fn load_engine(&mut self) -> Result<Watched, String> {
+        self.load_engine_with_prelude(PRELUDE)
+    }
+
+    fn load_engine_with_prelude(&mut self, prelude: &[u8]) -> Result<Watched, String> {
+        let io = exact_runner::io_grants(&self.grants);
+        self.host.documents = storage::reaches_documents(&io);
+        // The bindings Context must precede the engine and outlive its
+        // adapter. Module declares `engine` before `storage`, and unload takes
+        // the engine first, preserving that order on every path.
+        self.storage = Some(storage::Session::open(&io)?);
         let ctx = &mut *self.host as *mut HostState as *mut c_void;
         let host: HostFn = host_door;
         let bytes: engine::BytesFn = crypto::bytes_door;
-        let engine =
-            Engine::new(self.max_heap, host, bytes, ctx).map_err(|e| format!("exact-js: {e}"))?;
+        let engine = Engine::new(
+            self.max_heap,
+            host,
+            bytes,
+            ctx,
+            &self.storage.as_ref().expect("Context was created").context,
+        )
+        .map_err(|e| format!("exact-js: {e}"))?;
         // Reachable before anything runs in it: module initialization is
         // application code too.
         let mut engine = Watched::new(engine, self.watch.clone());
         engine
-            .load(PRELUDE)
+            .load(prelude)
             .map_err(|e| format!("exact-js: the prelude did not load: {e}"))?;
         if self.main_thread {
             engine
@@ -500,14 +510,13 @@ impl Module {
                     }));
                 self.host.native = Some(native);
             }
+            self.storage
+                .as_ref()
+                .expect("Context was created")
+                .configure(paths)?;
         }
-        let io = exact_runner::io_grants(&self.grants);
-        self.host.documents = storage::reaches_documents(&io);
         if self.directories.is_some() || (self.host.documents && !self.host.baking) {
-            self.storage = Some(storage::Session::open(self.directories.as_ref(), &io)?);
-            // Retain the borrowed queue even if adapter initialization fails;
-            // the local engine must be destroyed before its storage context.
-            engine.install_storage(&self.storage.as_ref().unwrap().context)?;
+            engine.install_storage()?;
         }
         // The host's app module, when the app links no native module of its
         // own: present in agent mode too, where it substitutes its input
@@ -517,6 +526,9 @@ impl Module {
             self.host.later = true;
             self.host.hosted_call = self.native_slot.hosted_call();
         }
+        engine
+            .harden()
+            .map_err(|e| format!("exact-js: hardening failed: {e}"))?;
         engine
             .load(&self.bytecode)
             .map_err(|e| format!("exact-js: the module did not load: {e}"))?;
@@ -1025,5 +1037,29 @@ impl Module {
 impl Drop for Module {
     fn drop(&mut self) {
         self.unload();
+    }
+}
+
+#[cfg(all(test, exact_js_engine))]
+mod bootstrap_tests {
+    use super::Module;
+
+    #[test]
+    fn hardening_refuses_a_reachable_abort_hook_handoff() {
+        let mut module = Module::new(
+            include_bytes!(concat!(env!("OUT_DIR"), "/pure.hbc")).to_vec(),
+            "test.pure",
+            "",
+        );
+        let error = match module.load_engine_with_prelude(include_bytes!(concat!(
+            env!("OUT_DIR"),
+            "/prelude-with-abort-hook.hbc"
+        ))) {
+            Ok(_) => panic!("a reachable abort hook handoff must refuse hardening"),
+            Err(error) => error,
+        };
+        assert!(error.contains("refusing to harden"), "{error}");
+        assert!(error.contains("abort hooks global"), "{error}");
+        assert!(error.contains("__exact_ibex2_abort_hooks"), "{error}");
     }
 }

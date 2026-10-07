@@ -1,0 +1,228 @@
+{
+  "schema_version": 1,
+  "task": "20261005-remote-scopes-and-update-commands",
+  "captured_at": "2026-10-06T09:16:18.110142+00:00",
+  "source": {
+    "commit": "759779342dd34fa516bec36924923e6beeb4c23a",
+    "digest": "6286eaefcc56b8163e1fbfbf31aaf8fd1d96c0dfb121baff934cf30fa91a9058",
+    "algorithm": "sha256 of sorted JSON implementation-files.json entries",
+    "integration_base": "587798ca8c0f5c2c761a4219263edce8256d50d8",
+    "scope": "18 feature/host implementation files differing from integration base",
+    "implementation_unchanged_since_final_build": true
+  },
+  "source_report_sha256": "b6c9453b3bfb4c336e5d7af2c8a01cf38e865639bdca955668a325fbe6be18ba",
+  "verification_status": "passed",
+  "notice": "Artifact integrity only; behavior requires independent acceptance assertions.",
+  "artifacts": [
+    {
+      "path": "README.md",
+      "bytes": 7873,
+      "sha256": "0a3dba0305a6009a3598fae30dbc1a49dce7ce7d440cf7a26d6095d7b0cfb82b"
+    },
+    {
+      "path": "apple-tests-caltrain.log",
+      "bytes": 258420,
+      "sha256": "48579013954717d154e6ab70a6fd9fd2c2c6fd6f8420b543414033331fc5f01f"
+    },
+    {
+      "path": "apple-tests-wrong-fixture.log",
+      "bytes": 265415,
+      "sha256": "9d9edfbcd8cb27760c1206cc632943a4118b6eba2c7541462e82d766cf520857"
+    },
+    {
+      "path": "capture-report.json",
+      "bytes": 796,
+      "sha256": "b6c9453b3bfb4c336e5d7af2c8a01cf38e865639bdca955668a325fbe6be18ba"
+    },
+    {
+      "path": "cleanup.json",
+      "bytes": 698,
+      "sha256": "dab71a84c3a2a97e47049fa47751e38672499b025b8fc713e85d98f07ca10ba1"
+    },
+    {
+      "path": "focus-screen-region.png",
+      "bytes": 308227,
+      "sha256": "8b16df2f06f5e03a17868b77b1fba1ae82f7d87b5e9f55aea1272dfd506bd91e"
+    },
+    {
+      "path": "focus-window-settled.png",
+      "bytes": 290942,
+      "sha256": "a663c8172159a4f2249005e0b21421c8f72ec12a2d735dc89efa6d7fb1566002"
+    },
+    {
+      "path": "gate-app-rust-pinned.log",
+      "bytes": 1241,
+      "sha256": "33e37463215cc4a999e0b048c466ba515f10a89c10b62ee532e9fe5fa62950af"
+    },
+    {
+      "path": "gate-app-rust.log",
+      "bytes": 2420,
+      "sha256": "0261f5b6edefd8a769c04c086d639c2e16fbbef1ed8b29a99c7229ca4b9418af"
+    },
+    {
+      "path": "gate-boot.log",
+      "bytes": 796,
+      "sha256": "7e0e4073afd19cff848ea5ca052996004c7e92eb34cde8bf1706582c2d6962ee"
+    },
+    {
+      "path": "gate-build.log",
+      "bytes": 72,
+      "sha256": "f591e097f22f91dd5c31fbbf7e587d80c0a4e0ed594f9c9012a544f38c52d926"
+    },
+    {
+      "path": "gate-caps.log",
+      "bytes": 329,
+      "sha256": "3c92f77d3a158416c880ba129b8f43413674a54b6439da76d91e5b890fc748c6"
+    },
+    {
+      "path": "gate-clippy.log",
+      "bytes": 72,
+      "sha256": "f2066ca264b9a8598ecd436c70919e1efe1acea4098ad2a13b5d82d67bc049ec"
+    },
+    {
+      "path": "gate-fmt.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "gate-test-pinned.log",
+      "bytes": 251807,
+      "sha256": "5fefe5dc8a61b4de0d9b82d0f7a5f894b18c6204513048d01b56b20dfa35f5ea"
+    },
+    {
+      "path": "gate-test.log",
+      "bytes": 269919,
+      "sha256": "e05c2aa1c2cb3a1bb9e2b4229cf7059a55d3d5f9e94972f2622943d85617b112"
+    },
+    {
+      "path": "implementation-files.json",
+      "bytes": 2699,
+      "sha256": "7d91ecc2ae3e76d21e9a5ac62ad5996edd53ee5bc738ec8c7bc18be4a1f9c18a"
+    },
+    {
+      "path": "independent-review.md",
+      "bytes": 992,
+      "sha256": "aa99db26dd27b64f9c57cd15d1ec925885dd42c72094f8b9f4bc7d0f556ed04a"
+    },
+    {
+      "path": "keyboard-focus.png",
+      "bytes": 289070,
+      "sha256": "83cc60b8f15375ff7d2731473dbc2bf9901c3513314dd0bb49f40a83f3583f46"
+    },
+    {
+      "path": "keyboard-results.json",
+      "bytes": 893,
+      "sha256": "dc6bd68c95e9c894db7407ddcefe14a2c41c41fe3aa53e06948980776e9f8f07"
+    },
+    {
+      "path": "native-build-final.log",
+      "bytes": 2780,
+      "sha256": "fe6651b9b5f488ab880b6bc6fcc27c438877ee76c25a5f421647b099ce65a22d"
+    },
+    {
+      "path": "native-buttons-final.log",
+      "bytes": 13312,
+      "sha256": "8579dcce269cdb9f10e77308e5e2257f24c4a5d2f3e9ffabd00b9a01d1262476"
+    },
+    {
+      "path": "native-diagnostic.log",
+      "bytes": 2397,
+      "sha256": "fb99fdc45f03813ddc15105e34fdb5d081650368b87f3353831a3d584671ce38"
+    },
+    {
+      "path": "native-diagnostic2b.log",
+      "bytes": 33787,
+      "sha256": "3075357b9cf705312a13c1a36380fc00d88fbce425209f05c0c9cf13f0cc9f49"
+    },
+    {
+      "path": "native-t0-settled.png",
+      "bytes": 400919,
+      "sha256": "7723790743db8bbce1fb66b3e706c0f349dd5f82372225ed8425f19c8cd41da1"
+    },
+    {
+      "path": "native-t0-settled.txt",
+      "bytes": 3912,
+      "sha256": "6053974f5e76b5464580f38b1d7017baf795a5d8d137e7cd3f2f33143224de52"
+    },
+    {
+      "path": "oracle-t0-approval.png",
+      "bytes": 863948,
+      "sha256": "42b3507be91c04bd6e3c4c33376c10ebc56a6ad152652bcf326983f65cecf17d"
+    },
+    {
+      "path": "oracle-t0-approval.txt",
+      "bytes": 1509,
+      "sha256": "2ce49ddcc25af4cf9f9d0dd474791e1803b541de0dfbc738e9189bb32b369775"
+    },
+    {
+      "path": "oracle-t0-settled.png",
+      "bytes": 836898,
+      "sha256": "9ea217cccd364c50672b6a1d05a00020cf4b040186f7749bac08568e7a091761"
+    },
+    {
+      "path": "oracle-t0-settled.txt",
+      "bytes": 1429,
+      "sha256": "128ab1c308ca9b42c9c7c42820f234bb303d8171bb2c029a69f37ce7e9ccdbc8"
+    },
+    {
+      "path": "report.json",
+      "bytes": 2902,
+      "sha256": "f821d4d6fe8c5ccbd48b8c4addf3606ad96abf04c805b28b9797ce802ebbeab5"
+    },
+    {
+      "path": "route-scope-tests.log",
+      "bytes": 1631,
+      "sha256": "a1a308d9ec0d42c95d0906826eee9d8651b88a51ad189ce2fc19cc853e9bdfac"
+    },
+    {
+      "path": "trace-diff-final-native.json.gz",
+      "bytes": 421191,
+      "sha256": "4f1cf4f7f2335889139869a61383561e07f3ba13143bc4db654cf290fbbd7471"
+    },
+    {
+      "path": "trace-diff-final-oracle.json.gz",
+      "bytes": 175221,
+      "sha256": "d39ac4de1935bf315418b1ee96c982cbfaa05e572b67193a699377ce541a1557"
+    },
+    {
+      "path": "trace-diff-final-report.json.gz",
+      "bytes": 596801,
+      "sha256": "555f8ae6f7008dd15c8a93f3cc0e796be4bf6a52cfecec0b8f5ee0a33de5b1e4"
+    },
+    {
+      "path": "trace-diff-final-tally.md",
+      "bytes": 6360,
+      "sha256": "c1e936a06c34762812416c573611f0d9d2715f65091ef12a3c1c63854d75ad3b"
+    },
+    {
+      "path": "trace-full.ndjson.gz",
+      "bytes": 545026,
+      "sha256": "9ce1f6470b943c870920688c74b09f546bd41affb06756202c5088c3e820784c"
+    },
+    {
+      "path": "trace-scenario.ndjson.gz",
+      "bytes": 544630,
+      "sha256": "bda45bbb65014a39890d6c4fd78dfc0dd855c3b2c0467ce5ed9fbbe6e14aa3f4"
+    },
+    {
+      "path": "trace-selection.json",
+      "bytes": 585,
+      "sha256": "737f4383b6efd10b2ebcf85f4cffcaf38f244484f72e5887effc5b22d166c135"
+    },
+    {
+      "path": "transport-final.log",
+      "bytes": 19301,
+      "sha256": "f97c9ad575951e75be0817d1b5cb76bb85e67eb367fdaf4e40dcda24e19c6257"
+    },
+    {
+      "path": "ts-tests-final.log",
+      "bytes": 226019,
+      "sha256": "3645cd738302bf8f21d8ba5b2ea6d0de07d771965c5124c24b553ab8a125dd26"
+    },
+    {
+      "path": "typecheck.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ]
+}

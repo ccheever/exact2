@@ -1,0 +1,20 @@
+[
+  {
+    "process": "route-cloudflared",
+    "pid": 88842,
+    "signal": "SIGTERM",
+    "exited": true
+  },
+  {
+    "process": "route-proxy",
+    "pid": 90573,
+    "signal": "SIGTERM",
+    "exited": true
+  },
+  {
+    "process": "route-server",
+    "pid": 58161,
+    "signal": "SIGTERM",
+    "exited": true
+  }
+]
