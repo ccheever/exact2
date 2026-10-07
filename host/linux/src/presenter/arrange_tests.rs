@@ -182,7 +182,7 @@ fn nested_ancestor_scroll_changes_mapping_and_cancels_before_any_late_action() {
 #[test]
 fn an_arrange_sample_publishes_concurrent_height_layout_then_cancels_changed_port() {
     let source=APP.replace("  state grips = true", "  state panelHeight = 180\n  action grow\n    panelHeight = 320\n  state grips = true")
-        .replace("    column width=\"100%\" height=\"100%\"", "    column testId=\"panel\" width=400 height=panelHeight box-sizing=\"border-box\" transition=\"height spring(300,30,1)\" press=grow")
+        .replace("    column width=\"100%\" height=\"100%\"", "    column testId=\"panel\" width=400 height=panelHeight box-sizing=\"border-box\" transition=\"height -exact-spring(300,30,1)\" press=grow")
         .replace("width=width height=180", "width=width height=\"100%\" flex-shrink=0");
     let (mut p, error) = Presenter::boot_with(
         &contract::compile(&source).unwrap().encode(),

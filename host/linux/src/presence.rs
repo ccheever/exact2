@@ -1,6 +1,6 @@
 //! Layout transition on Linux, and its refusal of exit animation (LLP 1063).
 //!
-//! A node with a `layout-transition` has its laid-out box in its parent
+//! A node with a `-exact-layout-transition` has its laid-out box in its parent
 //! (`Kernel::layout_box`) observed as `Property::Layout` after every layout;
 //! the engine's transition rules apply. What it shows against the laid-out
 //! box is an offset and scale the painter applies outermost, from the box's
@@ -39,7 +39,7 @@ impl<D: DataSource> Host<D> {
         for t in receipts {
             if !t.receipt.exits.is_empty() && !self.presence.refused {
                 self.presence.refused = true;
-                self.log("exit-animation: refused on Linux (LLP 1063): the painter reads the live tree, so a removed node leaves at once");
+                self.log("-exact-exit-animation: refused on Linux (LLP 1063): the painter reads the live tree, so a removed node leaves at once");
             }
             if !t.receipt.handoffs.is_empty() && !self.presence.refused_flights {
                 self.presence.refused_flights = true;

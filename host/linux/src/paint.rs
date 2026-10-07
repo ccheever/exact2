@@ -1057,10 +1057,11 @@ impl Painter {
                 }
                 let spec = text_spec(&computed, shown);
                 let multiline = node.props.str(PropId::SemanticTag) == Some("textarea");
-                let paragraph = self
-                    .text
-                    .borrow_mut()
-                    .paragraph(&spec, multiline.then_some(content.2));
+                let paragraph = self.text.borrow_mut().paragraph_replacing(
+                    (node.id, 0),
+                    &spec,
+                    multiline.then_some(content.2),
+                );
                 walk.text.insert(node.key, paragraph.clone());
                 let oy = content.1
                     + if multiline {
@@ -1076,6 +1077,7 @@ impl Painter {
                 };
                 // The focused field's selection (x2apps codeedit #2).
                 let field = caret::FieldText {
+                    node: node.id,
                     style: &computed,
                     value,
                     masked: node.props.str(PropId::Type) == Some("password"),

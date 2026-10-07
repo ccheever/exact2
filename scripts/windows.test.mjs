@@ -500,6 +500,25 @@ test.skipIf(process.platform !== 'win32')('release Windows game shells use GUI e
   } finally { rmSync(root,{recursive:true,force:true}); }
 },60000);
 
+test('a chord presses its modifiers as their own keys around the key, as a keyboard does', async () => {
+  const held = new Map(), sent = [];
+  const call = async (method, event) => {
+    sent.push(withHeldModifiers(method, event, held));
+    if (event.type === 'keyUp') held.delete(event.code); else held.set(event.code, event);
+  };
+  await browserKey({id:3,opts:{key:'Shift+Control+Enter'},evaluate:async()=>true,ask:async()=>({ok:true}),call,frame:async()=>{}});
+  expect(sent.map(e => [e.type, e.key, e.modifiers])).toEqual([
+    ['keyDown','Shift',8], ['keyDown','Control',10], ['keyDown','Enter',10], ['keyUp','Enter',10], ['keyUp','Control',8], ['keyUp','Shift',0]]);
+  expect(held.size).toBe(0);
+  // A held key keeps its modifiers down until its up.
+  sent.length = 0;
+  const down = await browserKey({id:3,opts:{key:'Meta+k',phase:'down'},evaluate:async()=>true,ask:async()=>({ok:true}),call,frame:async()=>{}});
+  expect(sent.map(e => [e.type, e.key])).toEqual([['keyDown','Meta'], ['keyDown','k']]);
+  await down.release();
+  expect(sent.map(e => [e.type, e.key])).toEqual([['keyDown','Meta'], ['keyDown','k'], ['keyUp','k'], ['keyUp','Meta']]);
+  expect(held.size).toBe(0);
+});
+
 test('browser function keys reach the focused game with their platform key identity', async () => {
   for(const [key,vk] of [['F1',112],['F2',113],['F12',123],['F24',135]]) {
     const calls=[];
@@ -568,14 +587,17 @@ test('paste sends the platform chord and a prevented keydown skips the clipboard
     return deliverClipboard({id:7, opts:{clipboard, ...(text == null ? {} : {text})}, evaluate, ask, call}).then(() => trace);
   };
 
+  // The chord's modifier is its own key first and last, as a keyboard's (Charlie, 2026-10-07).
+  const [name, code] = process.platform === 'darwin' ? ['Meta', 'MetaLeft'] : ['Control', 'ControlLeft'];
+  const md = ['keyDown', name, code, 0, undefined], mu = ['keyUp', name, code, 0, undefined];
   expect(await drive({clipboard:'paste', text:'secret', prevented:true})).toEqual([
-    'focus', 'listen', ['keyDown', 'v', 'KeyV', mapped.modifiers, undefined], 'flag', ['keyUp', 'v', 'KeyV', mapped.modifiers, undefined], 'unlisten',
+    'focus', 'listen', md, ['keyDown', 'v', 'KeyV', mapped.modifiers, undefined], 'flag', ['keyUp', 'v', 'KeyV', mapped.modifiers, undefined], mu, 'unlisten',
   ]);
   expect(await drive({clipboard:'paste', text:'secret', prevented:false})).toEqual([
-    'focus', 'listen', ['keyDown', 'v', 'KeyV', mapped.modifiers, undefined], 'flag', 'event', ['insert', 'secret'], ['keyUp', 'v', 'KeyV', mapped.modifiers, undefined], 'unlisten',
+    'focus', 'listen', md, ['keyDown', 'v', 'KeyV', mapped.modifiers, undefined], 'flag', 'event', ['insert', 'secret'], ['keyUp', 'v', 'KeyV', mapped.modifiers, undefined], mu, 'unlisten',
   ]);
   expect(await drive({clipboard:'paste', text:'secret', prevented:false, editable:false})).toEqual([
-    'focus', 'listen', ['keyDown', 'v', 'KeyV', mapped.modifiers, undefined], 'flag', 'event', ['keyUp', 'v', 'KeyV', mapped.modifiers, undefined], 'unlisten',
+    'focus', 'listen', md, ['keyDown', 'v', 'KeyV', mapped.modifiers, undefined], 'flag', 'event', ['keyUp', 'v', 'KeyV', mapped.modifiers, undefined], mu, 'unlisten',
   ]);
   expect(await drive({clipboard:'copy'})).toEqual(['focus', 'event']);
   await assert.rejects(drive({clipboard:'paste', text:'secret', prevented:false, failAt:'event'}), /send failed/);
@@ -594,7 +616,7 @@ test('paste sends the platform chord and a prevented keydown skips the clipboard
     },
     call:async (_method, args) => { released.push(args.type); if (args.type === 'keyDown' && !listening) throw new Error('keydown before the listener'); },
   }), /send failed/);
-  expect(released).toEqual(['keyDown', 'keyUp']);
+  expect(released).toEqual(['keyDown', 'keyDown', 'keyUp', 'keyUp']);
   released.length = 0;
   await assert.rejects(deliverClipboard({
     id:7, opts:{clipboard:'paste', text:'x'},
@@ -739,16 +761,19 @@ test('a real filesystem helper missing-parent response preserves ENOENT', () => 
 
 test('packaged native freshness rejects changed source and copied binary bytes', () => {
   const root=mkdtempSync(resolve(tmpdir(),'exact-package-receipt-'));
-  const receipt=resolve(root,'build.json'), source=resolve(root,'source.rs'), binary=resolve(root,'game.exe'), gpu=resolve(root,'game.dll');
+  // Cargo's executable is the crate's; the package names it for the app, as Visual Studio would.
+  const app={id:'com.exact.game',displayName:'Game: Two',crate:()=>'game-windows'};
+  const receipt=resolve(root,'build.json'), source=resolve(root,'source.rs'), built=resolve(root,'cargo/game-windows.exe'), binary=resolve(root,'Game- Two.exe'), gpu=resolve(root,'game.dll');
   const digest=path=>createHash('sha256').update(readFileSync(path)).digest('hex');
   try {
-    expect(packagedBuildChanges(receipt,root)).toEqual(['missing compiler build receipt']);
-    for(const path of [source,binary,gpu]) writeFileSync(path,path);
-    writeFileSync(receipt,JSON.stringify({version:1,binary:{inputs:[{path:source,name:'source',sha256:digest(source)}],missing:[],directories:[]},products:[binary,gpu].map(path=>({path,sha256:digest(path)}))}));
-    expect(packagedBuildChanges(receipt,root)).toEqual([]);
-    writeFileSync(source,'changed'); expect(packagedBuildChanges(receipt,root)).toEqual(['source']);
-    writeFileSync(source,source); writeFileSync(gpu,'changed'); expect(packagedBuildChanges(receipt,root)).toEqual([gpu]);
-    rmSync(binary); expect(packagedBuildChanges(receipt,root)).toEqual([binary,gpu]);
+    expect(packagedBuildChanges(receipt,root,app)).toEqual(['missing compiler build receipt']);
+    mkdirSync(resolve(root,'cargo')); writeFileSync(built,'exe');
+    for(const path of [source,binary,gpu]) writeFileSync(path,path===binary?'exe':path);
+    writeFileSync(receipt,JSON.stringify({version:1,binary:{inputs:[{path:source,name:'source',sha256:digest(source)}],missing:[],directories:[]},products:[built,gpu].map(path=>({path,sha256:digest(path)}))}));
+    expect(packagedBuildChanges(receipt,root,app)).toEqual([]);
+    writeFileSync(source,'changed'); expect(packagedBuildChanges(receipt,root,app)).toEqual(['source']);
+    writeFileSync(source,source); writeFileSync(gpu,'changed'); expect(packagedBuildChanges(receipt,root,app)).toEqual([gpu]);
+    rmSync(binary); expect(packagedBuildChanges(receipt,root,app)).toEqual([binary,gpu]);
   } finally { rmSync(root,{recursive:true,force:true}); }
 });
 
@@ -761,9 +786,10 @@ test('packaged native freshness verifies executable-relative shader bytes', () =
     mkdirSync(resolve(root,'shaders')); writeFileSync(binary,'exe'); writeFileSync(shader,'shader');
     writeFileSync(receipt,JSON.stringify({version:1,binary:{inputs:[],missing:[],directories:[]},products:[{path:binary,sha256:digest('exe')}]}));
     writeFileSync(resolve(root,'compat.json'),JSON.stringify({embedded:{assets:[{name:'shaders/fog.wgsl',bytes:6,sha256:digest('shader')}]}}));
-    expect(packagedBuildChanges(receipt,root)).toEqual([]);
-    writeFileSync(shader,'edited'); expect(packagedBuildChanges(receipt,root)).toEqual([shader]);
-    rmSync(shader); expect(packagedBuildChanges(receipt,root)).toEqual([shader]);
+    const app={id:'com.exact.game',displayName:'game',crate:()=>'game-windows'};
+    expect(packagedBuildChanges(receipt,root,app)).toEqual([]);
+    writeFileSync(shader,'edited'); expect(packagedBuildChanges(receipt,root,app)).toEqual([shader]);
+    rmSync(shader); expect(packagedBuildChanges(receipt,root,app)).toEqual([shader]);
   } finally { rmSync(root,{recursive:true,force:true}); }
 });
 

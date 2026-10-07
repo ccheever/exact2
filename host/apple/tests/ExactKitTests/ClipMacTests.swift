@@ -1,5 +1,6 @@
 #if os(macOS)
 import AppKit
+import CoreImage
 import XCTest
 @testable import ExactKit
 
@@ -206,6 +207,63 @@ final class ClipMacTests: XCTestCase {
         XCTAssertFalse(try XCTUnwrap(resized.path).contains(CGPoint(x: 5, y: 20)))
         n.applyStyle([:])
         XCTAssertNil(n.layer?.mask)
+    }
+
+    /// A backdrop is read inside its box and mirrored past it, as Chrome
+    /// reads it (#129): the chain mirrors the frame, follows it and its
+    /// scale, and a turned box reads past its edges.
+    func testABackdropMirrorsItsBoxAndFollowsItsFrame() throws {
+        let n = node("view", ["backdrop_blur": 4])
+        n.frame = NSRect(x: 10, y: 20, width: 60, height: 30)
+        XCTAssertEqual(n.backdropDrawn?.box, NSRect(x: 10, y: 20, width: 60, height: 30))
+        XCTAssertEqual(n.layer?.backgroundFilters?.compactMap { ($0 as? CIFilter)?.name },
+                       ["CIAffineTransform", "CIFourfoldReflectedTile", "CIAffineTransform",
+                        "CILinearToSRGBToneCurve", "CIGaussianBlur", "CISRGBToneCurveToLinear"])
+        n.setFrameOrigin(NSPoint(x: 15, y: 25))
+        XCTAssertEqual(n.backdropDrawn?.box, NSRect(x: 15, y: 25, width: 60, height: 30))
+        // A scale (a press's too) shrinks the box about its transform origin.
+        n.scale = 0.5
+        n.applyTransform()
+        XCTAssertEqual(n.backdropDrawn?.box, NSRect(x: 30, y: 32.5, width: 30, height: 15))
+        // A turned box reads past its edges; turned back, it mirrors again.
+        n.rotate = 30
+        n.applyTransform()
+        XCTAssertEqual(n.layer?.backgroundFilters?.count, 3)
+        XCTAssertEqual(n.backdropDrawn?.sigma, 4)
+        XCTAssertNil(n.backdropDrawn?.box)
+        n.rotate = 0
+        n.scale = 1
+        n.applyTransform()
+        XCTAssertEqual(n.layer?.backgroundFilters?.count, 6)
+        XCTAssertEqual(n.backdropDrawn?.box, NSRect(x: 15, y: 25, width: 60, height: 30))
+
+        // The mirror, run here over a picture whose red is x and green y:
+        // past each edge of the box (8, 16, 32 × 20) a pixel is the one as
+        // far inside it, and inside it the picture is unchanged.
+        let side = 64
+        var bytes = [UInt8](repeating: 255, count: side * side * 4)
+        for y in 0..<side { for x in 0..<side { // the bitmap's first row is the top, y 63
+            bytes[((side - 1 - y) * side + x) * 4] = UInt8(x * 4); bytes[((side - 1 - y) * side + x) * 4 + 1] = UInt8(y * 4)
+        } }
+        var image = CIImage(bitmapData: Data(bytes), bytesPerRow: side * 4, size: CGSize(width: side, height: side), format: .RGBA8, colorSpace: nil)
+        for f in Backdrop.filters(BackdropDrawn(sigma: 4, box: CGRect(x: 8, y: 16, width: 32, height: 20))).prefix(3) {
+            f.setValue(image, forKey: kCIInputImageKey)
+            image = try XCTUnwrap(f.outputImage)
+        }
+        let context = CIContext(options: [.workingColorSpace: NSNull(), .outputColorSpace: NSNull()])
+        func read(_ x: Int, _ y: Int, is expected: (Double, Double), _ what: String = "") {
+            var px = [UInt8](repeating: 0, count: 4)
+            context.render(image, toBitmap: &px, rowBytes: 4, bounds: CGRect(x: x, y: y, width: 1, height: 1), format: .RGBA8, colorSpace: nil)
+            XCTAssertEqual(Double(px[0]) / 4, expected.0, accuracy: 0.5, "x of (\(x), \(y)) \(what)")
+            XCTAssertEqual(Double(px[1]) / 4, expected.1, accuracy: 0.5, "y of (\(x), \(y)) \(what)")
+        }
+        read(20, 25, is: (20, 25), "inside")
+        read(7, 25, is: (8, 25), "left")
+        read(4, 25, is: (11, 25))
+        read(41, 25, is: (38, 25), "right")
+        read(20, 14, is: (20, 17), "below")
+        read(20, 37, is: (20, 34), "above")
+        read(6, 13, is: (9, 18), "a corner")
     }
 
     func testAMaterialsRadiusIsReducedToo() {

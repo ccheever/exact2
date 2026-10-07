@@ -45,13 +45,14 @@ fn main() {
     std::fs::write(
         out_dir.join("entry.rs"),
         format!(
-            "{}\n{host}::host!(AppData, PLAN, COMPAT);\n",
+            "{}\n{}{host}::host!(AppData, PLAN, COMPAT; linked = EXACT_LINKED);\n",
             contract::rust_entry(
                 "llp_data::Llp",
                 "llp_data::Llp::new()",
                 compat.inputs["rustMode"].as_str().unwrap()
             )
-            .unwrap()
+            .unwrap(),
+            contract::apple_linked(&baked, host)
         ),
     )
     .unwrap();

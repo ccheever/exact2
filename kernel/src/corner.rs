@@ -1,8 +1,9 @@
-//! CSS `corner-shape` (CSS Borders 4) and `-apple-continuous` (LLP 1077 D1).
+//! CSS `corner-shape` (CSS Borders 4) and `-exact-continuous` (LLP 1077 D1,
+//! spelled `-exact-` by LLP 1081 D2).
 //!
 //! Each corner is a superellipse parameter K, as CSS defines the keywords:
 //! `round` 1, `squircle` 2, `bevel` 0, `scoop` -1, `square` ∞, `notch` -∞.
-//! `-apple-continuous` is Apple's continuous corner curve, the one shape every
+//! `-exact-continuous` is Apple's continuous corner curve, the one shape every
 //! host draws for that name: iOS natively (`cornerCurve = .continuous`), the
 //! others from [`outline`]. The outline is geometry every native host draws
 //! the same way; the web draws CSS's keywords itself and approximates
@@ -15,7 +16,7 @@ use crate::svg::{Path, Seg};
 pub enum Corner {
     /// `superellipse(K)`; the keywords are values of K.
     Superellipse(f32),
-    /// `-apple-continuous`.
+    /// `-exact-continuous`.
     AppleContinuous,
 }
 
@@ -32,19 +33,34 @@ impl Default for CornerShape {
     }
 }
 
-const KEYWORDS: [(&str, f32); 6] = [
-    ("round", 1.0),
-    ("squircle", 2.0),
-    ("bevel", 0.0),
-    ("scoop", -1.0),
-    ("square", f32::INFINITY),
-    ("notch", f32::NEG_INFINITY),
+/// The keywords, each with its kind (LLP 1081 D8): CSS's, as values of K,
+/// and the one Exact adds.
+pub const KEYWORDS: [(&str, Corner, &str); 7] = [
+    ("round", Corner::Superellipse(1.0), "css CSS Borders 4"),
+    ("squircle", Corner::Superellipse(2.0), "css CSS Borders 4"),
+    ("bevel", Corner::Superellipse(0.0), "css CSS Borders 4"),
+    ("scoop", Corner::Superellipse(-1.0), "css CSS Borders 4"),
+    (
+        "square",
+        Corner::Superellipse(f32::INFINITY),
+        "css CSS Borders 4",
+    ),
+    (
+        "notch",
+        Corner::Superellipse(f32::NEG_INFINITY),
+        "css CSS Borders 4",
+    ),
+    (
+        "-exact-continuous",
+        Corner::AppleContinuous,
+        "exact LLP 1077",
+    ),
 ];
 
 /// Apple's curve reaches this many radii along each side from the corner.
 pub const APPLE_EXTENT: f32 = 1.528_664_8;
 
-/// The web's stand-in for `-apple-continuous`: `superellipse(K)` with the
+/// The web's stand-in for `-exact-continuous`: `superellipse(K)` with the
 /// radius scaled. Fitted to Apple's curve; the worst distance between them
 /// is 2.5% of the radius (0.4 pt at 16 pt), declared in LLP 1001.
 pub const APPLE_ON_THE_WEB: (f32, f32) = (1.6, 1.52);
@@ -82,11 +98,13 @@ impl CornerShape {
 
     /// Canonical CSS, also the wire form: one value when all four agree.
     pub fn css(&self) -> String {
-        let one = |c: Corner| match c {
-            Corner::AppleContinuous => "-apple-continuous".to_string(),
-            Corner::Superellipse(k) => match KEYWORDS.iter().find(|(_, v)| *v == k) {
-                Some((name, _)) => (*name).to_string(),
-                None => exact_num::text!("superellipse({})", exact_num::Shortest32(k)),
+        let one = |c: Corner| match KEYWORDS.iter().find(|(_, v, _)| *v == c) {
+            Some((name, ..)) => (*name).to_string(),
+            None => match c {
+                Corner::Superellipse(k) => {
+                    exact_num::text!("superellipse({})", exact_num::Shortest32(k))
+                }
+                Corner::AppleContinuous => unreachable!("a keyword"),
             },
         };
         let [a, b, c, d] = self.0;
@@ -101,27 +119,24 @@ impl CornerShape {
         self.0.iter().all(|c| *c == ROUND)
     }
 
-    /// Whether every corner is `-apple-continuous`.
+    /// Whether every corner is `-exact-continuous`.
     pub fn is_apple_continuous(&self) -> bool {
         self.0.iter().all(|c| *c == Corner::AppleContinuous)
     }
 }
 
 fn corner(word: &str) -> Result<Corner, &'static str> {
-    if word.eq_ignore_ascii_case("-apple-continuous") {
-        return Ok(Corner::AppleContinuous);
-    }
-    if let Some((_, k)) = KEYWORDS
+    if let Some((_, c, _)) = KEYWORDS
         .iter()
-        .find(|(name, _)| word.eq_ignore_ascii_case(name))
+        .find(|(name, ..)| word.eq_ignore_ascii_case(name))
     {
-        return Ok(Corner::Superellipse(*k));
+        return Ok(*c);
     }
     let lower = word.to_ascii_lowercase();
     let arg = lower
         .strip_prefix("superellipse(")
         .and_then(|a| a.strip_suffix(')'))
-        .ok_or("round, squircle, square, bevel, scoop, notch, superellipse(<number>) or -apple-continuous")?
+        .ok_or("round, squircle, square, bevel, scoop, notch, superellipse(<number>) or -exact-continuous")?
         .trim();
     let k = match arg {
         "infinity" => f32::INFINITY,
@@ -286,7 +301,7 @@ fn apple_points(ra: f32, rd: f32, out: &mut Vec<(f32, f32)>) {
     }
 }
 
-/// The largest radius `-apple-continuous` draws in a box of this size:
+/// The largest radius `-exact-continuous` draws in a box of this size:
 /// Apple's curve needs [`APPLE_EXTENT`] radii on each side.
 pub fn apple_radius_limit(width: f32, height: f32) -> f32 {
     width.min(height) / 2.0 / APPLE_EXTENT

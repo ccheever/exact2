@@ -10,7 +10,7 @@
 //! `textBaseline = "alphabetic"`), with Chrome's formulas
 //! (`TextMetrics::Update`, `GetFontBaseline`), so a replayer only draws a run
 //! from its left end on its alphabetic baseline. The engine is the host's:
-//! Core Text on Apple, cosmic-text on Linux, the browser's own context on
+//! Core Text on Apple, Parley on Linux, the browser's own context on
 //! the web; the replayer draws with the same engine, so what was measured is
 //! what is drawn.
 

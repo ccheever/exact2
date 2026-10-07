@@ -16,7 +16,7 @@
 //   1. **Bundle identity.** A bare Mach-O has no Info.plist, so it has no
 //      name, no document types, no Dock tile, and Launch Services cannot find
 //      it — `open -a` fails and Open With never lists it. `run` and `install`
-//      both launch `<Name>.app/Contents/MacOS/ExactMac`: the executable inside
+//      both launch `<Name>.app/Contents/MacOS/<Name>`: the executable inside
 //      a bundle, which *is* the app, with stdout still attached to the
 //      terminal that started it. @ref LLP 1033 D2
 //   2. **Where the file argument goes.** `exact run markdown README.md` and
@@ -36,7 +36,7 @@ import { createHash } from 'node:crypto';
 import { BINARYEN } from '../host/web/stages.mjs';
 import { delimiter, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { cargoEnvironment, HERMES_INSTALLER, hermesBundle, hermesTarget, resolveApp, WEB_TOOLCHAIN, webToolchainEnv } from './app.mjs';
+import { cargoEnvironment, executableName, HERMES_INSTALLER, hermesBundle, hermesTarget, resolveApp, WEB_TOOLCHAIN, webToolchainEnv } from './app.mjs';
 import { createApp, createGame } from '../game/new.mjs';
 import { sdkFetch } from '../game/app/shells.mjs';
 import { appleArtifacts, assertAppleIdentity, macReleaseEntitlements, stripForDistribution } from '../host/apple/build.mjs';
@@ -51,11 +51,11 @@ const APPLICATIONS = resolve(homedir(), 'Applications');
 /** The app's assembled bundle in this repo — `host/apple/build.mjs --bundle`'s one stable output. */
 export const bundleOf = (app) => appleArtifacts(app).bundle;
 /** The executable inside a bundle: what a terminal launches to keep stdio. */
-export const executableIn = (bundle) => resolve(bundle, 'Contents/MacOS/ExactMac');
+export const executableIn = (bundle, app) => resolve(bundle, 'Contents/MacOS', executableName(app));
 /** The name this app answers to on the command line (`app.command`, else its directory's name). */
 export const commandOf = (app) => app.manifest.app?.command ?? app.name;
 /** Where `install` puts the app. */
-export const installedAt = (app) => resolve(APPLICATIONS, `${app.displayName}.app`);
+export const installedAt = (app) => resolve(APPLICATIONS, `${executableName(app)}.app`);
 
 /** The cross bundles a Mac's TypeScript builds use, each needed only for its
  * destination (and only with Xcode). The host bundle is the one required row. */
@@ -107,7 +107,7 @@ const onPath = (dir) => (process.env.PATH ?? '').split(':').some((p) => p && res
 
 /** Cheap assertion on the executable's baked identity, shared with the driver. */
 function refuseForeignBundle(app, bundle) {
-  assertAppleIdentity(app, executableIn(bundle));
+  assertAppleIdentity(app, executableIn(bundle, app));
 }
 
 /** Build the app's macOS bundle. Cargo and SwiftPM decide what is stale; this always asks them. */
@@ -152,7 +152,7 @@ async function run(app, files) {
   console.log(dev.path
     ? `live reload: watching ${dev.path.replace(ROOT + '/', '')} — edit ${app.name}/app.contract and this window restarts from it`
     : `live reload: off (${dev.why}). Start it with: bun host/web/dev.mjs --app ${app.name}`);
-  const child = spawn(executableIn(bundle), documents, {
+  const child = spawn(executableIn(bundle, app), documents, {
     stdio: 'inherit',
     // Use the merged shader/asset generation captured by this bake.
     env: { ...process.env, EXACT_ASSETS: appleArtifacts(app).capture, ...(dev.path ? { EXACT_DEV_PLAN: dev.path } : {}) },
@@ -245,10 +245,10 @@ function release(app) {
   const out = resolve(app.target, 'dist', app.name);
   rmSync(out, { recursive: true, force: true });
   mkdirSync(out, { recursive: true });
-  const staged = resolve(out, `${app.displayName}.app`);
+  const staged = resolve(out, `${executableName(app)}.app`);
   sh('/usr/bin/ditto', [bundle, staged]);
   // What ships carries no local symbols; they stay here as a dSYM (before signing: stripping changes the bytes signed).
-  const symbols = stripForDistribution(resolve(staged, 'Contents/MacOS/ExactMac'), resolve(out, `${app.displayName}.dSYM`));
+  const symbols = stripForDistribution(executableIn(staged, app), resolve(out, `${app.displayName}.dSYM`));
   console.log(`symbols: ${symbols.dsym} (${(symbols.saved / 1048576).toFixed(1)} MB off the executable)`);
 
   // Sign inside out, with the hardened runtime and a timestamp. Both are
@@ -297,7 +297,7 @@ function release(app) {
   sh('xcrun', ['stapler', 'staple', staged]);
   const dmg = resolve(out, `${app.displayName}.dmg`);
   const image = mkdtempSync(resolve(out, '.dmg-'));
-  sh('/usr/bin/ditto', [staged, resolve(image, `${app.displayName}.app`)]);
+  sh('/usr/bin/ditto', [staged, resolve(image, `${executableName(app)}.app`)]);
   symlinkSync('/Applications', resolve(image, 'Applications'));
   sh('hdiutil', ['create', '-volname', app.displayName, '-srcfolder', image, '-ov', '-format', 'UDZO', '-quiet', dmg]);
   rmSync(image, { recursive: true, force: true });

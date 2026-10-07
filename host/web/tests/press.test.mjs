@@ -97,7 +97,7 @@ check('only the innermost pressable shows the press, and only while inside', asy
     expect(await pressed()).toBe('');
 
     // The innermost pressable has no row: nothing shows, not even its card.
-    // Its `press-haptic` plays at the press, as `haptic()`'s length (LLP 1077 D14).
+    // Its `-exact-press-haptic` plays at the press, as `haptic()`'s length (LLP 1077 D14).
     const vibrations = () => evaluate('vibrations.join()');
     expect(await vibrations()).toBe('');
     await mouse('mousePressed', await centre('plain'));

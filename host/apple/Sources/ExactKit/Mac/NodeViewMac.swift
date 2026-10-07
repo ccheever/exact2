@@ -127,6 +127,8 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     /// While it flies as a shared element (LLP 1013.000 D4): where its image is drawn.
     var flightLook: FlightLook?
     var materialView: NSView?
+    /// The backdrop blur's σ and mirrored box as last set (`Backdrop.swift`).
+    var backdropDrawn: BackdropDrawn?
     /// `glassGroup`'s view and a grouped glass's isolation (`GlassGroup.swift`).
     var glassGroupView: NSView?
     var glassIsolation: NSView?
@@ -1142,6 +1144,13 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     /// differing radii clip to the bounds, as UIKit's layer path does. The
     /// box's own layer paint decides the radius with it (`applyBoxLayer`).
     func applyClipRadius() { applyBoxLayer() }
+
+    /// A backdrop mirrors its box where its parent hands it the backdrop.
+    override func setFrameOrigin(_ newOrigin: NSPoint) {
+        let moved = newOrigin != frame.origin
+        super.setFrameOrigin(newOrigin)
+        if moved, number("backdrop_blur") > 0 { applyBackdrop() }
+    }
 
     /// The reduction depends on the size, which the kernel's layout sets
     /// after the style.

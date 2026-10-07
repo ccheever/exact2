@@ -33,10 +33,10 @@
 //        a first mount, and `load` follows once no pixel of the last row shows
 // 112  focus_target(handle) → borrowed NSView * / UIView *; size ≥ 120; nullable
 //        the platform view or an attached descendant; nil refuses focus
-// 120  module_connect(module, host_table)       size ≥ 144; the hooks (LLP
-//        1075.003 §3.2), NativeHooks.swift: the host's callbacks, once
+// 120  module_connect(module, host_table)       size ≥ 144; the hatches (LLP
+//        1075.003 §3.2), NativeHatches.swift: the host's callbacks, once
 // 128  module_navigation(module, event, controller, flags) → flags
-//        event 0 built (the hook runs), 1 retired; bit 0 showsBar
+//        event 0 built (the hatch runs), 1 retired; bit 0 showsBar
 // 136  module_route(module, event, controller, navigation, scroll, json, len)
 //        event 0 built, 1 changed, 2 ended; json {"key", "data": {…}}
 // 144  module_tabs(module, event, controller, index)      size ≥ 168
@@ -46,9 +46,9 @@
 //        json {"names", "nodes", "selected"}; retained once, or nil (Exact's)
 // 160  platform_controller(handle) → UIViewController *, a native screen's
 // 168  module_element(module, event, view, platform, json, len) → flags
-//        size ≥ 176 (LLP 1075.003.000): a node marked `hook="word"`; event
-//        0 built, 1 changed, 2 ended; json {"hook", "node", "id", "kind",
-//        "data"}; flags bit 0: the hook made it reusable
+//        size ≥ 176 (LLP 1075.003.000): a node marked `hatch="word"`; event
+//        0 built, 1 changed, 2 ended; json {"hatch", "node", "id", "kind",
+//        "data"}; flags bit 0: the hatch made it reusable
 // 176  module_toolbar(module, toolbar, window)        size ≥ 184; macOS:
 //        the window toolbar Exact installed (LLP 1075.003.000 §3.7)
 //
@@ -93,6 +93,8 @@ private struct NativeFailure: Error { let state: String; let message: String }
 /// The loaded table: the roster and the entries, read once.
 private final class NativeTable {
     static let major: UInt32 = 3
+    /// The hatch words the module handles, or nil for one that does not say.
+    var hatchWords: Set<String>?
     static let size: UInt32 = 104
     typealias CreateFn = @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, UInt32, UnsafePointer<UInt8>?, UInt32, NativeEventFn?, NativeReplyFn?, UnsafeMutableRawPointer?, UInt32, UnsafeMutablePointer<UInt8>?, UInt32) -> UnsafeMutableRawPointer?
     typealias ViewFn = @convention(c) (UnsafeMutableRawPointer?) -> UnsafeMutableRawPointer?
@@ -120,13 +122,13 @@ private final class NativeTable {
     let moduleLater: ModuleLaterFn
     let moduleCall: ModuleLaterFn
     var prepareForReuse: ReuseFn?
-    /// The hooks (LLP 1075.003 §3.2), in a table of 144 bytes or more.
-    var connect: HookConnectFn?, navigationHook: HookNavigationFn?, routeHook: HookRouteFn?
+    /// The hatches (LLP 1075.003 §3.2), in a table of 144 bytes or more.
+    var connect: HatchConnectFn?, navigationHatch: HatchNavigationFn?, routeHatch: HatchRouteFn?
     /// Tabs and native screens, in a table of 168 bytes or more.
-    var tabsHook: HookTabsFn?, tabContainerHook: HookTabContainerFn?, platformController: ViewFn?
-    /// Hooked nodes (LLP 1075.003.000), in a table of 176 bytes or more;
-    /// the window toolbar's hook (macOS), in one of 184 or more.
-    var elementHook: HookElementFn?, toolbarHook: HookToolbarFn?
+    var tabsHatch: HatchTabsFn?, tabContainerHatch: HatchTabContainerFn?, platformController: ViewFn?
+    /// Hatched nodes (LLP 1075.003.000), in a table of 176 bytes or more;
+    /// the window toolbar's hatch (macOS), in one of 184 or more.
+    var elementHatch: HatchElementFn?, toolbarHatch: HatchToolbarFn?
     var agentInput: SetFn?
     var focusTarget: ViewFn?
 
@@ -161,8 +163,11 @@ private final class NativeTable {
         guard size >= NativeTable.size else { return .failure(NativeFailure(state: "unavailable", message: "module table of \(size) bytes, host needs \(NativeTable.size)")) }
         func pointer(_ offset: Int) -> UnsafeRawPointer? { table.load(fromByteOffset: offset, as: UnsafeRawPointer?.self) }
         guard let rosterText = pointer(8).map({ String(cString: $0.assumingMemoryBound(to: CChar.self)) }),
-              let roster = try? JSONSerialization.jsonObject(with: Data(rosterText.utf8)) as? [String: [String: Any]]
+              var roster = try? JSONSerialization.jsonObject(with: Data(rosterText.utf8)) as? [String: [String: Any]]
         else { return .failure(NativeFailure(state: "unavailable", message: "\(path): unreadable roster")) }
+        // The hatch words the module was built to handle, under a key no tag
+        // can take (LLP 1075.003.000.001 §4.3); an older module names none.
+        let hatchWords = (roster.removeValue(forKey: "hatches")?["words"] as? [String]).map(Set.init)
         guard let create = pointer(16), let view = pointer(24), let set = pointer(32), let destroy = pointer(48),
               let moduleCreate = pointer(72), let moduleDestroy = pointer(80), let moduleLater = pointer(88),
               let moduleCall = pointer(96) else {
@@ -177,21 +182,22 @@ private final class NativeTable {
             moduleDestroy: unsafeBitCast(moduleDestroy, to: ModuleDestroyFn.self),
             moduleLater: unsafeBitCast(moduleLater, to: ModuleLaterFn.self),
             moduleCall: unsafeBitCast(moduleCall, to: ModuleLaterFn.self))
+        loaded.hatchWords = hatchWords
         loaded.agentInput = pointer(64).map { unsafeBitCast($0, to: SetFn.self) }
         loaded.focusTarget = size >= 120 ? pointer(112).map { unsafeBitCast($0, to: ViewFn.self) } : nil
         loaded.prepareForReuse = size >= 112 ? pointer(104).map { unsafeBitCast($0, to: ReuseFn.self) } : nil
         if size >= 144 {
-            loaded.connect = pointer(120).map { unsafeBitCast($0, to: HookConnectFn.self) }
-            loaded.navigationHook = pointer(128).map { unsafeBitCast($0, to: HookNavigationFn.self) }
-            loaded.routeHook = pointer(136).map { unsafeBitCast($0, to: HookRouteFn.self) }
+            loaded.connect = pointer(120).map { unsafeBitCast($0, to: HatchConnectFn.self) }
+            loaded.navigationHatch = pointer(128).map { unsafeBitCast($0, to: HatchNavigationFn.self) }
+            loaded.routeHatch = pointer(136).map { unsafeBitCast($0, to: HatchRouteFn.self) }
         }
         if size >= 168 {
-            loaded.tabsHook = pointer(144).map { unsafeBitCast($0, to: HookTabsFn.self) }
-            loaded.tabContainerHook = pointer(152).map { unsafeBitCast($0, to: HookTabContainerFn.self) }
+            loaded.tabsHatch = pointer(144).map { unsafeBitCast($0, to: HatchTabsFn.self) }
+            loaded.tabContainerHatch = pointer(152).map { unsafeBitCast($0, to: HatchTabContainerFn.self) }
             loaded.platformController = pointer(160).map { unsafeBitCast($0, to: ViewFn.self) }
         }
-        if size >= 176 { loaded.elementHook = pointer(168).map { unsafeBitCast($0, to: HookElementFn.self) } }
-        if size >= 184 { loaded.toolbarHook = pointer(176).map { unsafeBitCast($0, to: HookToolbarFn.self) } }
+        if size >= 176 { loaded.elementHatch = pointer(168).map { unsafeBitCast($0, to: HatchElementFn.self) } }
+        if size >= 184 { loaded.toolbarHatch = pointer(176).map { unsafeBitCast($0, to: HatchToolbarFn.self) } }
         return .success(loaded)
     }
 }
@@ -340,7 +346,15 @@ private let nativeNowCallback: NativeTable.NowFn = { host in
 }
 
 final class NativeViews {
-    weak var session: ExactSession?
+    weak var session: ExactSession? { didSet { hatchDiagnostics.attach(session) } }
+    /// What Exact times of each hatch call and what hatch code records (LLP 1075.003.000.001 §3.1–3.2).
+    let hatchDiagnostics = HatchDiagnostics()
+    /// This session's slot in the crash breadcrumb (§4.4), and the count of
+    /// times its hatches have connected: a record's incarnation.
+    var crumbSlot: Int?, hatchIncarnation: UInt32 = 0
+    /// `EXACT_HATCHES=off` (a development build only, §2.6): the module loads
+    /// and its views and calls work; no hatch is connected or called.
+    static let hatchesOff = !ExactEnv.productionBake && ExactEnv.environment["EXACT_HATCHES"] == "off"
     private var entries: [UInt32: NativeEntry] = [:]
     private var gateOpen = false
     private var waits: [UInt32: NativeWait] = [:]
@@ -353,7 +367,10 @@ final class NativeViews {
     /// Parked instances by tag, oldest first.
     fileprivate var parked: [String: [NativeEntry]] = [:]
     fileprivate var observers: [NSObjectProtocol] = []
-    deinit { for o in observers { NotificationCenter.default.removeObserver(o) } }
+    deinit {
+        for o in observers { NotificationCenter.default.removeObserver(o) }
+        if let crumbSlot { HatchBreadcrumb.shared?.free(crumbSlot) }
+    }
     #endif
     private static let kinds = ["press", "change", "hover", "focus", "blur", "key", "submit", "load", "message"]
 
@@ -450,14 +467,17 @@ final class NativeViews {
 
     private(set) var instance: UnsafeMutableRawPointer?
     private var instanceFailure: NativeFailure?
-    /// Whether the module's hooks are connected, and who replays them for
-    /// the objects built before (LLP 1075.003 §3.2; NativeHooks.swift).
-    var hooksConnected = false
-    var onHooksConnected: (() -> Void)?
-    var hookCalls: (navigation: HookNavigationFn, route: HookRouteFn)?
-    var tabCalls: (HookTabsFn, HookTabContainerFn)?
-    var elementCall: HookElementFn?
-    var toolbarCall: HookToolbarFn?
+    /// Whether the module's hatches are connected, and who replays them for
+    /// the objects built before (LLP 1075.003 §3.2; NativeHatches.swift).
+    var hatchesConnected = false
+    /// The hatch words the loaded module was built to handle (LLP
+    /// 1075.003.000.001 §4.3), or nil when it does not say: then every word is called.
+    var handledHatches: Set<String>? { if case .success(let t) = NativeProcess.table { t.hatchWords } else { nil } }
+    var onHatchesConnected: (() -> Void)?
+    var hatchCalls: (navigation: HatchNavigationFn, route: HatchRouteFn)?
+    var tabCalls: (HatchTabsFn, HatchTabContainerFn)?
+    var elementCall: HatchElementFn?
+    var toolbarCall: HatchToolbarFn?
 
     /// The session's one module instance, made at the first view or long
     /// call that needs it. Main thread.
@@ -481,9 +501,10 @@ final class NativeViews {
         }
         instance = made
         log("module instance made (agent \(ExactEnv.agentMode))")
-        if let connect = table.connect, let navigation = table.navigationHook, let route = table.routeHook {
-            let tabs = table.tabsHook.flatMap { tabs in table.tabContainerHook.map { (tabs, $0) } }
-            connectHooks(connect, navigation, route, tabs, table.elementHook, table.toolbarHook, made)
+        if Self.hatchesOff { log("hatches: off (EXACT_HATCHES=off); no hatch is connected or called") }
+        if !Self.hatchesOff, let connect = table.connect, let navigation = table.navigationHatch, let route = table.routeHatch {
+            let tabs = table.tabsHatch.flatMap { tabs in table.tabContainerHatch.map { (tabs, $0) } }
+            connectHatches(connect, navigation, route, tabs, table.elementHatch, table.toolbarHatch, made)
         }
         return .success(made)
     }
@@ -572,7 +593,7 @@ final class NativeViews {
         #endif
         guard let instance, case .success(let table)? = NativeProcess.table else { return }
         self.instance = nil
-        hooksConnected = false
+        hatchesConnected = false
         table.moduleDestroy(instance)
         log("module instance destroyed")
     }
@@ -668,7 +689,7 @@ final class NativeViews {
     static func uninstallTable() { NativeProcess.table = nil }
     func install(module: UnsafeMutableRawPointer, gateOpen open: Bool = true) { instance = module; gateOpen = open }
     /// Tests: the process's artifact from a file and this session's module
-    /// made from it now, as the paint gate makes it (its hooks connect).
+    /// made from it now, as the paint gate makes it (its hatches connect).
     func installArtifact(_ path: String) {
         NativeProcess.table = NativeTable.load(path: path)
         hasAppModule = true
@@ -956,7 +977,7 @@ final class NativeViews {
         case 2: presenter.hover(owner, text == "true")
         case 3: presenter.focus(id)
         case 4: presenter.blur(id)
-        case 5: presenter.key(id, text)
+        case 5: presenter.key(id, KeyPress(text))
         case 6: presenter.submit(id)
         case 7: presenter.load(id)
         default: presenter.message(id, text)

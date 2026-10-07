@@ -312,7 +312,7 @@ impl Collection {
         let transition = if self.instant {
             "none"
         } else {
-            "translate spring(300,30,1)"
+            "translate -exact-spring(300,30,1)"
         };
         for i in 0..self.mounted.len() {
             let position = self.mounted[i].position;

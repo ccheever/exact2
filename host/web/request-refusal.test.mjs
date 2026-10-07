@@ -658,6 +658,34 @@ export function answer(name, args, store, storage) {
   }
 });
 
+test('the web build retains every ambient diagnostic with its source location', () => {
+  // Diagnostic paths can resemble warnings or Cargo's progress lines.
+  for (const file of ['logic clock.ts', 'warning clock.ts', 'Compiling clock.ts']) {
+    const dir = mkdtempSync(resolve(tmpdir(), 'exact web diagnostics-'));
+    try {
+      writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ name: 'Diagnostics', app: { id: 'test.exact.diagnostics', name: 'Diagnostics' }, rust: false }));
+      writeFileSync(resolve(dir, 'app.contract'), 'component App\n  resource message = message() as shape string\n  view\n    text message\n');
+      writeFileSync(resolve(dir, 'app.ts'), `import { prefix } from './${file}';\nexport const appId = 'test.exact.diagnostics';\nexport const grants = '';\nexport const answer: import('./app.contract.d.ts').Answer = () => prefix;\n`);
+      writeFileSync(resolve(dir, file), [
+        "export const prefix = 'hello';",
+        'export const a = () => Date.now();',
+        'export const b = () => globalThis.setTimeout(() => {}, 1);',
+        "export const c = () => Date['now']();",
+        'export const d = () => Math[`random`]();',
+        '',
+      ].join('\n'));
+      const built = spawnSync(process.execPath, [resolve(ROOT, 'host/web/build.mjs'), 'diagnostics', '--render', 'none'], {
+        cwd: ROOT, encoding: 'utf8', env: { ...process.env, EXACT_APP_DIR: dir, EXACT_WEB_DIST: resolve(dir, 'dist') },
+      });
+      expect(built.status, built.stderr).toBe(1);
+      for (const [line, api] of [[2, 'Date.now()'], [3, 'setTimeout()'], [4, 'Date.now()'], [5, 'Math.random()']]) {
+        expect(built.stderr, built.stderr).toContain(`${file}:${line}:24: ${api} is unavailable in data sources`);
+      }
+      expect(built.stderr).toContain('the web build (the JS target) failed');
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  }
+}, 60_000);
+
 // LLP 1027.000 D3 on the JS target: the app's modules get guarded bindings
 // in place of the page's clock, Math.random and timers, injected as the web
 // build injects them, and Hermes's fixture of aliases refuses with Hermes's words.

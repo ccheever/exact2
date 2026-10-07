@@ -32,7 +32,7 @@
 // once no pixel of the last row's shows (the host keeps the view
 // transparent until then).
 //
-// Hooks (LLP 1075.003 §3.2, iOS): the module also receives Exact's own
+// Hatches (LLP 1075.003 §3.2, iOS): the module also receives Exact's own
 // UIKit objects at defined moments — a navigation controller when Exact
 // builds it, a route when its controller is built, changed and ended — and
 // acts back by clicking an authored control (`route.element(id)?.click()`).
@@ -85,8 +85,13 @@ public final class ExactModuleContext: @unchecked Sendable {
     let host: UnsafeMutableRawPointer?
     private let changedFn: ExactModuleChangedFn
     private let nowFn: ExactModuleNowFn
+    /// What the module's code says of itself (LLP 1075.003.000.001 §3.2),
+    /// scoped `module`. It records once the hatches have connected, in a
+    /// development build; before that, and in production, each call returns.
+    public let diagnostics: ExactDiagnostics
 
     init(json: [String: Any], host: UnsafeMutableRawPointer?, changed: @escaping ExactModuleChangedFn, now: @escaping ExactModuleNowFn) {
+        diagnostics = ExactDiagnostics(host: host, scope: "module", node: 0)
         let url = { (key: String) in URL(fileURLWithPath: json[key] as? String ?? NSTemporaryDirectory(), isDirectory: true) }
         agent = json["agent"] as? Bool ?? false
         data = url("data"); cache = url("cache"); temporary = url("temporary")
@@ -154,23 +159,23 @@ open class ExactModule {
     }
     /// The session is ending; its views are already gone.
     open func destroy() {}
-    /// The host's side of the hooks, once it has connected (LLP 1075.003).
-    var hooks: ExactHooks?
-    /// A node the Contract marks `hook="word"` (LLP 1075.003.000), on every
+    /// The host's side of the hatches, once it has connected (LLP 1075.003).
+    var hatches: ExactHatches?
+    /// A node the Contract marks `hatch="word"` (LLP 1075.003.000), on every
     /// host with native objects: after the batch that mounts it
     /// (`element.isNew`), and again when its `data-*` words change. It runs
-    /// on the main thread as each one mounts, and a hooked node leaves
+    /// on the main thread as each one mounts, and a hatched node leaves
     /// Exact's fast path: on iOS it is never drawn as a flat leaf into its
     /// parent's layer, and a list row that holds one is never reused.
-    /// Measured (LLP 1075.003.000.000): every row's avatar hooked on the
-    /// Extra Heavy feed, with this hook empty, took a fling's CPU up about
+    /// Measured (LLP 1075.003.000.000): every row's avatar hatched on the
+    /// Extra Heavy feed, with this hatch empty, took a fling's CPU up about
     /// 16–20% and its frame rate 115.3 → 110.2 fps on an iPhone 13 Pro Max
     /// (117.6 → 115.1 on an M1 iPad Pro). All of it is the lost row reuse:
     /// set `element.reusable` (and undo in `elementEnded`) and the same feed
-    /// ran as if nothing were hooked (115.0 fps, CPU +10 ms/s). The call
-    /// itself, and a build with nothing hooked, cost nothing measurable.
+    /// ran as if nothing were hatched (115.0 fps, CPU +10 ms/s). The call
+    /// itself, and a build with nothing hatched, cost nothing measurable.
     open func element(_ element: ExactElement) {}
-    /// A hooked node is leaving; its view goes after this returns, and the
+    /// A hatched node is leaving; its view goes after this returns, and the
     /// handle does nothing from now on.
     open func elementEnded(_ element: ExactElement) {}
     #if os(macOS)
@@ -213,13 +218,70 @@ public struct ExactData: Sendable {
     public subscript(_ key: ExactDataKey) -> String? { words[key.name] }
 }
 
-/// The host's callbacks for the hooks (LLP 1075.003 §3.2), one table per
+/// What hatch code says of itself, for the agent (LLP 1075.003.000.001 §3.2):
+/// `logs` shows `log`'s lines, `state.hatches` the counters and snapshots,
+/// `perf hatches` the timings. Development only, as `perf` is: in production
+/// each call returns at once and keeps nothing. Every call is bounded (64
+/// counters and 64 timings a module, 32 open spans, 16 snapshots of 4 KB, a
+/// 256-byte line and 20 lines a second of session clock a scope); past a
+/// bound it is refused and counted. Names are lowercase letters, digits, `-`
+/// and `.`, at most 64 bytes. Any thread may call.
+public final class ExactDiagnostics: @unchecked Sendable {
+    typealias RecordFn = @convention(c) (UnsafeMutableRawPointer?, UInt32, UInt32, UnsafePointer<UInt8>?, UInt32, UnsafePointer<UInt8>?, UInt32, Double, UnsafePointer<UInt8>?, UInt32) -> UInt64
+    let host: UnsafeMutableRawPointer?, scope: [UInt8], node: UInt32
+    /// The host's entry: nil in a production build, on a host without it, and
+    /// before the hatches connect.
+    var recordFn: RecordFn?
+
+    init(host: UnsafeMutableRawPointer?, scope: String, node: UInt32, recordFn: RecordFn? = nil) {
+        self.host = host; self.scope = Array(scope.utf8); self.node = node; self.recordFn = recordFn
+    }
+
+    @discardableResult
+    func record(_ kind: UInt32, _ name: String = "", _ value: Double = 0, _ text: [UInt8] = []) -> UInt64 {
+        guard let recordFn else { return 0 }
+        let name = Array(name.utf8)
+        return scope.withUnsafeBufferPointer { s in
+            name.withUnsafeBufferPointer { n in
+                text.withUnsafeBufferPointer { t in
+                    recordFn(host, kind, node, s.baseAddress, UInt32(s.count), n.baseAddress, UInt32(n.count), value, t.baseAddress, UInt32(t.count))
+                }
+            }
+        }
+    }
+
+    /// A line in the journal, under this scope.
+    public func log(_ text: @autoclosure () -> String) { if recordFn != nil { record(0, "", 0, Array(text().utf8)) } }
+    /// A cumulative counter.
+    public func count(_ name: String, by: Int = 1) { record(1, name, Double(by)) }
+    /// One sample of a timing this code measured itself (wall time, perhaps).
+    public func measure(_ name: String, ms: Double) { record(2, name, ms) }
+    /// A span on the session clock, so two identical drives time it alike.
+    public func begin(_ name: String) -> ExactSpan { ExactSpan(diagnostics: self, id: record(3, name)) }
+    /// A snapshot, as JSON, the latest kept. One over 4 KB is refused whole.
+    public func publish(_ name: String, _ value: Any) {
+        guard recordFn != nil else { return }
+        let json = JSONSerialization.isValidJSONObject([value]) ? (try? JSONSerialization.data(withJSONObject: value, options: .fragmentsAllowed)) : nil
+        record(5, name, 0, json.map(Array.init) ?? [])
+    }
+    /// Ask for Save Trace (LLP 1079 D5): at most one a second.
+    public func saveTrace() { record(6) }
+}
+
+/// A span `begin` opened; `end()` once closes it. One still open when its
+/// node ends is counted as abandoned, not timed.
+public struct ExactSpan: Sendable {
+    let diagnostics: ExactDiagnostics, id: UInt64
+    public func end() { if id != 0 { diagnostics.record(4, "", Double(id)) } }
+}
+
+/// The host's callbacks for the hatches (LLP 1075.003 §3.2), one table per
 /// session: `resolve(host, routeKey, keyLen, id, idLen)` → the node a route
 /// holds under an HTML id (0: none); `act(host, node, action)` — 0 click,
 /// 1 focus, 2 blur — queued past the batch being applied; `log(host, text,
 /// len)` into the journal; `delegate(host, controller, object)`: the app's
 /// delegate for a controller whose slot Exact keeps.
-final class ExactHooks {
+final class ExactHatches {
     typealias ResolveFn = @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, UInt32, UnsafePointer<UInt8>?, UInt32) -> UInt32
     typealias ActFn = @convention(c) (UnsafeMutableRawPointer?, UInt32, UInt32) -> Int32
     typealias LogFn = @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, UInt32) -> Void
@@ -229,6 +291,11 @@ final class ExactHooks {
     let resolveFn: ResolveFn, actFn: ActFn, logFn: LogFn, delegateFn: DelegateFn
     /// A host table of 48 bytes or more: an item added to the window toolbar.
     let toolbarItemFn: ToolbarItemFn?
+    /// One of 56 or more, in a development build: the diagnostics' entry.
+    let recordFn: ExactDiagnostics.RecordFn?
+    /// One of 64 or more: `input(text)` on an authored field.
+    typealias InputFn = @convention(c) (UnsafeMutableRawPointer?, UInt32, UnsafePointer<UInt8>?, UInt32) -> Int32
+    let inputFn: InputFn?
     #if os(iOS) || os(tvOS)
     var navigations: [ObjectIdentifier: ExactNavigation] = [:]
     var routes: [String: ExactRoute] = [:]
@@ -250,6 +317,11 @@ final class ExactHooks {
         delegateFn = unsafeBitCast(delegate, to: DelegateFn.self)
         toolbarItemFn = table.load(as: UInt32.self) >= 48
             ? table.load(fromByteOffset: 40, as: UnsafeRawPointer?.self).map { unsafeBitCast($0, to: ToolbarItemFn.self) } : nil
+        let calls = table.load(as: UInt32.self) >= 56 ? table.load(fromByteOffset: 48, as: UnsafeRawPointer?.self) : nil
+        recordFn = calls.flatMap { $0.load(as: UInt32.self) >= 16 ? $0.load(fromByteOffset: 8, as: UnsafeRawPointer?.self) : nil }
+            .map { unsafeBitCast($0, to: ExactDiagnostics.RecordFn.self) }
+        inputFn = table.load(as: UInt32.self) >= 64
+            ? table.load(fromByteOffset: 56, as: UnsafeRawPointer?.self).map { unsafeBitCast($0, to: InputFn.self) } : nil
     }
 
     func log(_ line: String) {
@@ -282,14 +354,14 @@ public final class ExactNavigation {
     /// animator) comes straight here.
     public weak var delegate: UINavigationControllerDelegate? {
         didSet {
-            guard let hooks else { return }
+            guard let hatches else { return }
             let object = delegate.map { Unmanaged.passUnretained($0 as AnyObject).toOpaque() }
-            hooks.delegateFn(hooks.host, Unmanaged.passUnretained(controller).toOpaque(), object)
+            hatches.delegateFn(hatches.host, Unmanaged.passUnretained(controller).toOpaque(), object)
         }
     }
-    weak var hooks: ExactHooks?
-    init(controller: UINavigationController, showsBar: Bool, hooks: ExactHooks) {
-        self.controller = controller; self.showsBar = showsBar; self.hooks = hooks
+    weak var hatches: ExactHatches?
+    init(controller: UINavigationController, showsBar: Bool, hatches: ExactHatches) {
+        self.controller = controller; self.showsBar = showsBar; self.hatches = hatches
     }
 }
 
@@ -311,21 +383,21 @@ public final class ExactRoute {
     public internal(set) var isNew: Bool
     /// False once `routeEnded` has run: the handle then does nothing.
     public internal(set) var isLive = true
-    weak var hooks: ExactHooks?
-    init(key: String, controller: UIViewController, data: ExactData, hooks: ExactHooks) {
-        self.key = key; self.controller = controller; self.data = data; isNew = true; self.hooks = hooks
+    weak var hatches: ExactHatches?
+    init(key: String, controller: UIViewController, data: ExactData, hatches: ExactHatches) {
+        self.key = key; self.controller = controller; self.data = data; isNew = true; self.hatches = hatches
     }
 
     /// The live node the route holds under this HTML id, resolved now, as
     /// Exact resolves a route's Back control (LLP 1035.001 D1).
     public func element(_ id: String) -> ExactElement? {
-        guard let hooks else { return nil }
+        guard let hatches else { return nil }
         guard isLive else {
-            hooks.log("route \(key): element(\"\(id)\") on a route that has ended")
+            hatches.log("route \(key): element(\"\(id)\") on a route that has ended")
             return nil
         }
-        let node = hooks.resolve(route: key, id: id)
-        return node == 0 ? nil : ExactElement(id: id, node: node, route: self, hooks: hooks)
+        let node = hatches.resolve(route: key, id: id)
+        return node == 0 ? nil : ExactElement(id: id, node: node, route: self, hatches: hatches)
     }
 }
 
@@ -337,13 +409,13 @@ public final class ExactTabs {
     /// delegate's `shouldSelect`; the rest is forwarded.
     public weak var delegate: UITabBarControllerDelegate? {
         didSet {
-            guard let hooks else { return }
+            guard let hatches else { return }
             let object = delegate.map { Unmanaged.passUnretained($0 as AnyObject).toOpaque() }
-            hooks.delegateFn(hooks.host, Unmanaged.passUnretained(controller).toOpaque(), object)
+            hatches.delegateFn(hatches.host, Unmanaged.passUnretained(controller).toOpaque(), object)
         }
     }
-    weak var hooks: ExactHooks?
-    init(controller: UITabBarController, hooks: ExactHooks) { self.controller = controller; self.hooks = hooks }
+    weak var hatches: ExactHatches?
+    init(controller: UITabBarController, hatches: ExactHatches) { self.controller = controller; self.hatches = hatches }
 }
 
 /// One tab, for a container the app owns: its name, the navigation
@@ -366,24 +438,24 @@ public final class ExactTabContents {
     /// False once Exact retired the container: `select` then does nothing.
     public internal(set) var isLive = true
     let tabNodes: [UInt32]
-    weak var hooks: ExactHooks?
-    init(tabs: [ExactTab], selected: Int, tabNodes: [UInt32], hooks: ExactHooks) {
-        self.tabs = tabs; self.selected = selected; self.tabNodes = tabNodes; self.hooks = hooks
+    weak var hatches: ExactHatches?
+    init(tabs: [ExactTab], selected: Int, tabNodes: [UInt32], hatches: ExactHatches) {
+        self.tabs = tabs; self.selected = selected; self.tabNodes = tabNodes; self.hatches = hatches
     }
     /// The container selected a tab: Exact presses its authored tab, and the
     /// router decides (its history, its pop to root on a second press).
     public func select(_ index: Int) {
-        guard let hooks else { return }
-        guard isLive, tabNodes.indices.contains(index), hooks.act(tabNodes[index], 0) else { return hooks.log("tabs: select(\(index)) refused") }
+        guard let hatches else { return }
+        guard isLive, tabNodes.indices.contains(index), hatches.act(tabNodes[index], 0) else { return hatches.log("tabs: select(\(index)) refused") }
     }
 }
 
 #endif
 
-/// An authored element a hook acts on, as the DOM's: `click()` presses it as
+/// An authored element a hatch acts on, as the DOM's: `click()` presses it as
 /// a tap does, queued until the batch being applied is done. A route's
 /// (`route.element(id)`, iOS) lives while its route does; a node the
-/// Contract marks `hook="word"` (LLP 1075.003.000) while the node does, and
+/// Contract marks `hatch="word"` (LLP 1075.003.000) while the node does, and
 /// carries its view and the platform object of its kind.
 public final class ExactElement {
     /// Its HTML id ("" when it has none).
@@ -394,26 +466,29 @@ public final class ExactElement {
     /// element does nothing, so a saved one never reaches a later node.
     weak var route: ExactRoute?
     #endif
-    weak var hooks: ExactHooks?
-    /// A hooked node's word, or nil for a route's element.
-    public internal(set) var hook: ExactHookKey?
-    /// A hooked node's `data-*` words.
+    weak var hatches: ExactHatches?
+    /// What this node's hatch says of itself (LLP 1075.003.000.001 §3.2),
+    /// scoped to its word: `element <word>`.
+    public private(set) lazy var diagnostics = ExactDiagnostics(host: hatches?.host, scope: hatch == nil ? "route \(key)" : "element \(key)", node: node, recordFn: hatches?.recordFn)
+    /// A hatched node's word, or nil for a route's element.
+    public internal(set) var hatch: ExactHatchKey?
+    /// A hatched node's `data-*` words.
     public internal(set) var data = ExactData([:])
-    /// A hooked node's view. Its frame, transform, alpha, hidden state, the
+    /// A hatched node's view. Its frame, transform, alpha, hidden state, the
     /// paint Exact draws and Exact's own subviews are Exact's; add
     /// interactions, gestures, subviews and sublayers of your own (§3.6).
     /// Nil once `elementEnded` has returned: the view may be another row's.
     public internal(set) weak var view: ExactNativeView?
-    /// The platform object of a hooked node's kind, or nil: a text field or
+    /// The platform object of a hatched node's kind, or nil: a text field or
     /// text view, a control (a segmented control too), a web view, a scroll
     /// view. What an authored row or attribute writes on it is Exact's; the
     /// rest is yours. A video, frame or native view in a list row may be made
-    /// after `built`: the hook hears `changed` once it is there.
+    /// after `built`: the hatch hears `changed` once it is there.
     public internal(set) weak var platform: AnyObject?
     /// Whether this call is the node's first.
     public internal(set) var isNew = true
     /// Set in `element` (or in `elementEnded` itself) when `elementEnded`
-    /// undoes everything this hook adds to `view` (its interactions,
+    /// undoes everything this hatch adds to `view` (its interactions,
     /// gestures, subviews, sublayers, and any property it changed): a list
     /// row holding the node may then be reused for another row (iOS), as
     /// UIKit reuses a cell after `prepareForReuse`, and the next node there
@@ -427,22 +502,38 @@ public final class ExactElement {
     public var isLive: Bool {
         guard !ended else { return false }
         #if os(iOS) || os(tvOS)
-        if hook == nil { return route?.isLive == true }
+        if hatch == nil { return route?.isLive == true }
         #endif
-        return hook != nil
+        return hatch != nil
     }
     #if os(iOS) || os(tvOS)
-    init(id: String, node: UInt32, route: ExactRoute, hooks: ExactHooks) {
-        self.id = id; self.node = node; key = route.key; self.route = route; self.hooks = hooks
+    init(id: String, node: UInt32, route: ExactRoute, hatches: ExactHatches) {
+        self.id = id; self.node = node; key = route.key; self.route = route; self.hatches = hatches
     }
     #endif
-    init(hook: ExactHookKey, id: String, node: UInt32, hooks: ExactHooks) {
-        self.id = id; self.node = node; key = hook.name; self.hook = hook; self.hooks = hooks
+    init(hatch: ExactHatchKey, id: String, node: UInt32, hatches: ExactHatches) {
+        self.id = id; self.node = node; key = hatch.name; self.hatch = hatch; self.hatches = hatches
     }
     private func act(_ action: UInt32, _ name: String) {
-        guard let hooks else { return }
-        let what = hook == nil ? "route \(key)" : "element \(key)"
-        guard isLive, hooks.act(node, action) else { return hooks.log("\(what): \(name)() on #\(id.isEmpty ? String(node) : id) refused") }
+        guard let hatches else { return }
+        let what = hatch == nil ? "route \(key)" : "element \(key)"
+        guard isLive, hatches.act(node, action) else { return hatches.log("\(what): \(name)() on #\(id.isEmpty ? String(node) : id) refused") }
+    }
+
+    /// Replace an authored text field's whole value, as a person's typing
+    /// would leave it (LLP 1075.003.000.001 §2.5): cut to the field's own
+    /// limits, heard by its `input` and `change` handlers, without moving
+    /// focus, so a native search controller can feed an authored field while
+    /// it keeps the keyboard. Queued like `click()`. Refused by name, in the
+    /// journal, for a node that is not an editable text field, a disabled or
+    /// readonly one, one that is composing, and text over 64 KB. The journal
+    /// records the length, never the text.
+    public func input(_ text: String) {
+        guard let hatches else { return }
+        let what = hatch == nil ? "route \(key)" : "element \(key)"
+        guard isLive, let inputFn = hatches.inputFn else { return hatches.log("\(what): input() on #\(id.isEmpty ? String(node) : id) refused") }
+        let bytes = Array(text.utf8)
+        _ = bytes.withUnsafeBufferPointer { inputFn(hatches.host, node, $0.baseAddress, UInt32($0.count)) }
     }
     /// Press it, as HTMLElement.click() does: its `press` handler runs.
     public func click() { act(0, "click") }
@@ -472,19 +563,19 @@ public final class ExactToolbar {
     /// it supplies its command items, and forwards what it does not answer.
     public weak var delegate: NSToolbarDelegate? {
         didSet {
-            guard let hooks else { return }
+            guard let hatches else { return }
             let object = delegate.map { Unmanaged.passUnretained($0 as AnyObject).toOpaque() }
-            hooks.delegateFn(hooks.host, Unmanaged.passUnretained(toolbar).toOpaque(), object)
+            hatches.delegateFn(hatches.host, Unmanaged.passUnretained(toolbar).toOpaque(), object)
         }
     }
-    weak var hooks: ExactHooks?
-    init(toolbar: NSToolbar, window: NSWindow?, hooks: ExactHooks) { self.toolbar = toolbar; self.window = window; self.hooks = hooks }
+    weak var hatches: ExactHatches?
+    init(toolbar: NSToolbar, window: NSWindow?, hatches: ExactHatches) { self.toolbar = toolbar; self.window = window; self.hatches = hatches }
     /// Add an item after Exact's; Exact never removes it while the toolbar
     /// stays installed.
     public func add(_ item: NSToolbarItem) {
-        guard let hooks else { return }
-        guard let fn = hooks.toolbarItemFn else { return hooks.log("toolbar: this host takes no items") }
-        fn(hooks.host, Unmanaged.passUnretained(toolbar).toOpaque(), Unmanaged.passUnretained(item).toOpaque())
+        guard let hatches else { return }
+        guard let fn = hatches.toolbarItemFn else { return hatches.log("toolbar: this host takes no items") }
+        fn(hatches.host, Unmanaged.passUnretained(toolbar).toOpaque(), Unmanaged.passUnretained(item).toOpaque())
     }
 }
 #endif
@@ -756,27 +847,28 @@ private let prepareForReuse: @convention(c) (UnsafeMutableRawPointer?) -> Int32 
     do { try h.instance.prepareForReuse(); return 0 } catch { return 1 }
 }
 
-// The hooks (LLP 1075.003 §3.2): the host connects its callbacks once,
+// The hatches (LLP 1075.003 §3.2): the host connects its callbacks once,
 // after the session's module is made; then each moment is one call.
 private let moduleConnect: @convention(c) (UnsafeMutableRawPointer?, UnsafeRawPointer?) -> Void = { raw, table in
     guard let m = module(raw), let table else { return }
-    m.hooks = ExactHooks(host: m.context.host, table: table)
+    m.hatches = ExactHatches(host: m.context.host, table: table)
+    m.context.diagnostics.recordFn = m.hatches?.recordFn
 }
 
 /// `navigation(module, event, controller, flags) → flags`: event 0 built (the
-/// hook runs), 1 retired (the handle goes). Bit 0 of the flags is
+/// hatch runs), 1 retired (the handle goes). Bit 0 of the flags is
 /// `showsBar`, Exact's default in and the stack's choice out.
 private let moduleNavigation: @convention(c) (UnsafeMutableRawPointer?, UInt32, UnsafeMutableRawPointer?, UInt32) -> UInt32 = { raw, event, controller, flags in
     #if os(iOS) || os(tvOS)
-    guard let m = module(raw), let hooks = m.hooks, let controller else { return flags }
+    guard let m = module(raw), let hatches = m.hatches, let controller else { return flags }
     let nav = Unmanaged<UINavigationController>.fromOpaque(controller).takeUnretainedValue()
     let id = ObjectIdentifier(nav)
     if event == 1 {
-        hooks.navigations.removeValue(forKey: id)
+        hatches.navigations.removeValue(forKey: id)
         return flags
     }
-    let handle = hooks.navigations[id] ?? ExactNavigation(controller: nav, showsBar: flags & 1 != 0, hooks: hooks)
-    hooks.navigations[id] = handle
+    let handle = hatches.navigations[id] ?? ExactNavigation(controller: nav, showsBar: flags & 1 != 0, hatches: hatches)
+    hatches.navigations[id] = handle
     handle.showsBar = flags & 1 != 0
     m.navigation(handle)
     return handle.showsBar ? 1 : 0
@@ -789,7 +881,7 @@ private let moduleNavigation: @convention(c) (UnsafeMutableRawPointer?, UInt32, 
 /// 0 built, 1 changed, 2 ended; json `{"key": …, "data": {…}}`.
 private let moduleRoute: @convention(c) (UnsafeMutableRawPointer?, UInt32, UnsafeMutableRawPointer?, UnsafeMutableRawPointer?, UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, UInt32) -> Void = { raw, event, controller, navigation, scroll, json, length in
     #if os(iOS) || os(tvOS)
-    guard let m = module(raw), let hooks = m.hooks, let controller, let json, length > 0,
+    guard let m = module(raw), let hatches = m.hatches, let controller, let json, length > 0,
           let object = try? JSONSerialization.jsonObject(with: Data(bytes: json, count: Int(length))) as? [String: Any],
           let key = object["key"] as? String else { return }
     let data = ExactData(object["data"] as? [String: String] ?? [:])
@@ -797,49 +889,49 @@ private let moduleRoute: @convention(c) (UnsafeMutableRawPointer?, UInt32, Unsaf
     // A route node replaced under the same key is a new controller: the old
     // one's handle ends before the new one's first call, whichever arrives first.
     func end(_ route: ExactRoute) {
-        hooks.routes.removeValue(forKey: route.key)
+        hatches.routes.removeValue(forKey: route.key)
         route.isLive = false
         m.routeEnded(route)
     }
     if event == 2 {
-        if let route = hooks.routes[key], route.controller === view { end(route) }
+        if let route = hatches.routes[key], route.controller === view { end(route) }
         return
     }
     let route: ExactRoute
-    if let known = hooks.routes[key], known.controller === view {
+    if let known = hatches.routes[key], known.controller === view {
         route = known
         route.isNew = false
         route.data = data
     } else {
-        if let old = hooks.routes[key] { end(old) }
-        route = ExactRoute(key: key, controller: view, data: data, hooks: hooks)
-        hooks.routes[key] = route
+        if let old = hatches.routes[key] { end(old) }
+        route = ExactRoute(key: key, controller: view, data: data, hatches: hatches)
+        hatches.routes[key] = route
     }
-    route.navigation = navigation.flatMap { hooks.navigations[ObjectIdentifier(Unmanaged<UINavigationController>.fromOpaque($0).takeUnretainedValue())] }
+    route.navigation = navigation.flatMap { hatches.navigations[ObjectIdentifier(Unmanaged<UINavigationController>.fromOpaque($0).takeUnretainedValue())] }
     route.contentScrollView = scroll.map { Unmanaged<UIScrollView>.fromOpaque($0).takeUnretainedValue() }
     m.route(route)
     #endif
 }
 
 /// `tabs(module, event, controller, index)`: event 0 Exact built its tab
-/// container (the hook runs), 1 it retired, 2 the router selected `index` in
+/// container (the hatch runs), 1 it retired, 2 the router selected `index` in
 /// a container the app owns, 3 that container retired.
 private let moduleTabs: @convention(c) (UnsafeMutableRawPointer?, UInt32, UnsafeMutableRawPointer?, UInt32) -> Void = { raw, event, controller, index in
     #if os(iOS) || os(tvOS)
-    guard let m = module(raw), let hooks = m.hooks else { return }
+    guard let m = module(raw), let hatches = m.hatches else { return }
     switch event {
     case 0:
         guard let controller else { return }
-        let tabs = ExactTabs(controller: Unmanaged<UITabBarController>.fromOpaque(controller).takeUnretainedValue(), hooks: hooks)
-        hooks.tabs = tabs
+        let tabs = ExactTabs(controller: Unmanaged<UITabBarController>.fromOpaque(controller).takeUnretainedValue(), hatches: hatches)
+        hatches.tabs = tabs
         m.tabs(tabs)
     case 1:
-        hooks.tabs = nil
+        hatches.tabs = nil
     case 3:
-        hooks.contents?.isLive = false
-        hooks.contents = nil
+        hatches.contents?.isLive = false
+        hatches.contents = nil
     default:
-        guard let contents = hooks.contents, contents.tabs.indices.contains(Int(index)) else { return }
+        guard let contents = hatches.contents, contents.tabs.indices.contains(Int(index)) else { return }
         contents.selected = Int(index)
         contents.onSelect?(Int(index))
     }
@@ -851,15 +943,15 @@ private let moduleTabs: @convention(c) (UnsafeMutableRawPointer?, UInt32, Unsafe
 /// controllers; a container the app owns, retained once for the host, or nil.
 private let moduleTabContainer: @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, UInt32, UnsafePointer<UnsafeMutableRawPointer?>?, UInt32) -> UnsafeMutableRawPointer? = { raw, json, length, controllers, count in
     #if os(iOS) || os(tvOS)
-    guard let m = module(raw), let hooks = m.hooks, let json, let controllers,
+    guard let m = module(raw), let hatches = m.hatches, let json, let controllers,
           let object = try? JSONSerialization.jsonObject(with: Data(bytes: json, count: Int(length))) as? [String: Any],
           let names = object["names"] as? [String], let nodes = object["nodes"] as? [NSNumber], names.count == Int(count) else { return nil }
     let navs = (0..<Int(count)).compactMap { controllers[$0].map { Unmanaged<UINavigationController>.fromOpaque($0).takeUnretainedValue() } }
     guard navs.count == names.count else { return nil }
     let tabs = zip(names, navs).map { ExactTab(name: $0, controller: $1) }
-    let contents = ExactTabContents(tabs: tabs, selected: object["selected"] as? Int ?? 0, tabNodes: nodes.map(\.uint32Value), hooks: hooks)
+    let contents = ExactTabContents(tabs: tabs, selected: object["selected"] as? Int ?? 0, tabNodes: nodes.map(\.uint32Value), hatches: hatches)
     guard let container = m.tabContainer(contents) else { return nil }
-    hooks.contents = contents
+    hatches.contents = contents
     return Unmanaged.passRetained(container).toOpaque()
     #else
     return nil
@@ -867,14 +959,14 @@ private let moduleTabContainer: @convention(c) (UnsafeMutableRawPointer?, Unsafe
 }
 
 /// `element(module, event, view, platform, json, len) → flags`
-/// (LLP 1075.003.000): event 0 built, 1 changed, 2 ended; json {"hook",
+/// (LLP 1075.003.000): event 0 built, 1 changed, 2 ended; json {"hatch",
 /// "node", "id", "kind", "data"}; bit 0 of the flags: `reusable`.
 private let moduleElement: @convention(c) (UnsafeMutableRawPointer?, UInt32, UnsafeMutableRawPointer?, UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, UInt32) -> UInt32 = { raw, event, view, platform, json, length in
-    guard let m = module(raw), let hooks = m.hooks, let json, length > 0,
+    guard let m = module(raw), let hatches = m.hatches, let json, length > 0,
           let object = try? JSONSerialization.jsonObject(with: Data(bytes: json, count: Int(length))) as? [String: Any],
-          let word = object["hook"] as? String, let node = (object["node"] as? NSNumber)?.uint32Value else { return 0 }
+          let word = object["hatch"] as? String, let node = (object["node"] as? NSNumber)?.uint32Value else { return 0 }
     if event == 2 {
-        guard let element = hooks.elements.removeValue(forKey: node) else { return 0 }
+        guard let element = hatches.elements.removeValue(forKey: node) else { return 0 }
         element.ended = true
         m.elementEnded(element)
         // The view goes to the node pool or away: a handle the app kept no
@@ -885,12 +977,12 @@ private let moduleElement: @convention(c) (UnsafeMutableRawPointer?, UInt32, Uns
         return element.reusable ? 1 : 0
     }
     let element: ExactElement
-    if let known = hooks.elements[node] {
+    if let known = hatches.elements[node] {
         element = known
         element.isNew = false
     } else {
-        element = ExactElement(hook: ExactHookKey(word), id: object["id"] as? String ?? "", node: node, hooks: hooks)
-        hooks.elements[node] = element
+        element = ExactElement(hatch: ExactHatchKey(word), id: object["id"] as? String ?? "", node: node, hatches: hatches)
+        hatches.elements[node] = element
     }
     element.data = ExactData(object["data"] as? [String: String] ?? [:])
     element.view = view.map { Unmanaged<ExactNativeView>.fromOpaque($0).takeUnretainedValue() }
@@ -902,9 +994,9 @@ private let moduleElement: @convention(c) (UnsafeMutableRawPointer?, UInt32, Uns
 /// `toolbar(module, toolbar, window)` (macOS, LLP 1075.003.000 §3.7).
 private let moduleToolbar: @convention(c) (UnsafeMutableRawPointer?, UnsafeMutableRawPointer?, UnsafeMutableRawPointer?) -> Void = { raw, toolbar, window in
     #if os(macOS)
-    guard let m = module(raw), let hooks = m.hooks, let toolbar else { return }
+    guard let m = module(raw), let hatches = m.hatches, let toolbar else { return }
     m.toolbar(ExactToolbar(toolbar: Unmanaged<NSToolbar>.fromOpaque(toolbar).takeUnretainedValue(),
-                           window: window.map { Unmanaged<NSWindow>.fromOpaque($0).takeUnretainedValue() }, hooks: hooks))
+                           window: window.map { Unmanaged<NSWindow>.fromOpaque($0).takeUnretainedValue() }, hatches: hatches))
     #endif
 }
 
@@ -922,9 +1014,13 @@ private let platformController: @convention(c) (UnsafeMutableRawPointer?) -> Uns
 private let major: UInt32 = 3
 
 private let table: UnsafeMutableRawPointer = {
-    let text = "{" + roster.keys.sorted().map { tag in
+    // Beside the tags, under a key no tag can take (a tag has a hyphen): the
+    // hatch words this module was built to handle (LLP 1075.003.000.001
+    // §4.3), so the host calls it with no word its code never compiled.
+    let words = "\"hatches\":{\"words\":[" + ExactHatchKey._words.map { "\"\($0)\"" }.joined(separator: ",") + "]}"
+    let text = "{" + (roster.keys.sorted().map { tag in
         "\"\(tag)\":{\"snapshot\":\(roster[tag]!.snapshot),\"reuse\":\(roster[tag]!.reuse)}"
-    }.joined(separator: ",") + "}"
+    } + [words]).joined(separator: ",") + "}"
     let size = 184
     let t = UnsafeMutableRawPointer.allocate(byteCount: size, alignment: 8)
     t.initializeMemory(as: UInt8.self, repeating: 0, count: size)

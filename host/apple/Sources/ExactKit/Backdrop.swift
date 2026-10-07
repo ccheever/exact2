@@ -4,8 +4,12 @@
 // `backgroundFilters`, run between the sRGB tone curves because Core Image
 // blurs linear light and Chrome blurs encoded values; measured against
 // Chrome's picture of scripts/fixtures/backdrop.contract its σ lands within
-// 0.05 pt. AppKit filters a layer's backdrop only when the layer masks to
-// its bounds, and the backdrop it sees is the superlayer's subtree: the
+// 0.05 pt. Core Animation hands the filters the backdrop past the box,
+// where Chrome reads only the box and mirrors it past its edges; the chain
+// mirrors the box first, so the edges land within 2/255 per channel of
+// Chrome's (#129's panels; a turned or skewed box still reads past it).
+// AppKit filters a layer's backdrop only when the layer masks to its
+// bounds, and the backdrop it sees is the superlayer's subtree: the
 // parent's paint and the earlier siblings, not what a further ancestor
 // paints. Both are declared (LLP 1053.000 §3, LLP 1001 §1): a backdrop
 // node clips its children to its border box, and paint above its parent
@@ -195,15 +199,26 @@ extension NodeView {
         guard let l = layer else { return }
         let sigma = materialView == nil && props["backgroundMaterial"] == nil ? max(0, number("backdrop_blur")) : 0
         guard sigma > 0 else {
-            if l.backgroundFilters != nil { l.backgroundFilters = nil; syncEllipticalClip() }
+            if l.backgroundFilters != nil { l.backgroundFilters = nil; backdropDrawn = nil; syncEllipticalClip() }
             return
         }
         if !layerUsesCoreImageFilters { layerUsesCoreImageFilters = true }
-        let current = (l.backgroundFilters?.dropFirst().first as? CIFilter)?.value(forKey: kCIInputRadiusKey) as? Double
-        if current != Double(sigma), let blur = CIFilter(name: "CIGaussianBlur"),
-           let encode = CIFilter(name: "CILinearToSRGBToneCurve"), let decode = CIFilter(name: "CISRGBToneCurveToLinear") {
-            blur.setValue(Double(sigma), forKey: kCIInputRadiusKey)
-            l.backgroundFilters = [encode, blur, decode]
+        // Core Animation hands the filters the backdrop in the superlayer's
+        // space, where the box is the frame moved and scaled by the layer's
+        // transform about its anchor (a press, a flight, `translate`). A
+        // turned, skewed or 3D layer, or one under a parent's perspective,
+        // reads past its box: not measured.
+        let t = l.transform, size = frame.size
+        let anchor = CGPoint(x: l.anchorPoint.x * size.width, y: l.anchorPoint.y * size.height)
+        let flat = l.superlayer.map { CATransform3DIsIdentity($0.sublayerTransform) } ?? true
+        let box = flat && CATransform3DIsAffine(t) && t.m12 == 0 && t.m21 == 0
+            ? CGRect(origin: CGPoint(x: -anchor.x, y: -anchor.y), size: size).applying(CATransform3DGetAffineTransform(t))
+                .offsetBy(dx: frame.minX + anchor.x, dy: frame.minY + anchor.y)
+            : nil
+        let drawn = BackdropDrawn(sigma: sigma, box: box)
+        if backdropDrawn != drawn || l.backgroundFilters == nil {
+            l.backgroundFilters = Backdrop.filters(drawn)
+            backdropDrawn = drawn
         }
         // AppKit filters the backdrop only inside a masking layer; one
         // radius rides it (differing radii take their smallest).
@@ -212,6 +227,44 @@ extension NodeView {
         let radius = radii.allSatisfy { $0.width == $0.height } ? radii.map(\.width).min() ?? 0 : 0
         if l.cornerRadius != radius { l.cornerRadius = radius }
         syncEllipticalClip()
+    }
+}
+
+/// A backdrop blur of σ points over `box`, the layer's frame in its
+/// superlayer (nil: the blur reads past the box).
+struct BackdropDrawn: Equatable {
+    var sigma: CGFloat
+    var box: CGRect?
+}
+
+enum Backdrop {
+    /// Core Image's chain for `drawn`. Chrome reads the backdrop inside the
+    /// border box and mirrors it past the edges: the box is scaled to a
+    /// square, which `CIFourfoldReflectedTile` mirrors (its tile runs from
+    /// its centre by its width), and scaled back. The Gaussian runs between
+    /// the sRGB tone curves, as Chrome blurs encoded values.
+    static func filters(_ drawn: BackdropDrawn) -> [CIFilter] {
+        func filter(_ name: String, _ values: [String: Any] = [:]) -> CIFilter? {
+            let f = CIFilter(name: name)
+            for (key, value) in values { f?.setValue(value, forKey: key) }
+            return f
+        }
+        func transform(_ t: CGAffineTransform) -> CIFilter? {
+            let ns = NSAffineTransform()
+            ns.transformStruct = NSAffineTransformStruct(m11: t.a, m12: t.b, m21: t.c, m22: t.d, tX: t.tx, tY: t.ty)
+            return filter("CIAffineTransform", [kCIInputTransformKey: ns])
+        }
+        var chain: [CIFilter?] = []
+        if let box = drawn.box, box.width > 0, box.height > 0 {
+            let side = max(box.width, box.height)
+            let square = CGAffineTransform(scaleX: side / box.width, y: side / box.height).translatedBy(x: -box.minX, y: -box.minY)
+            let mirror = filter("CIFourfoldReflectedTile", [kCIInputCenterKey: CIVector(x: 0, y: 0), kCIInputWidthKey: Double(side),
+                                                             kCIInputAngleKey: 0.0, "inputAcuteAngle": Double.pi / 2])
+            chain = [transform(square), mirror, transform(square.inverted())]
+        }
+        chain += [filter("CILinearToSRGBToneCurve"), filter("CIGaussianBlur", [kCIInputRadiusKey: Double(drawn.sigma)]),
+                  filter("CISRGBToneCurveToLinear")]
+        return chain.compactMap { $0 }
     }
 }
 #endif

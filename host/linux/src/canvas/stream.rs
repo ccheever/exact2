@@ -36,6 +36,10 @@ fn end(b: &[u32], i: usize) -> Option<usize> {
         IMAGE => i + 6,
         GLYPHS => i + 6 + 3 * at(5)?,
         FONT => i + 5 + words(at(4)?),
+        FONT_AXES => {
+            let len = i + 5 + 2 * at(4)?;
+            len + 1 + words(*b.get(len)? as usize)
+        }
         IMAGE_DEF => i + 4,
         STROKE => path(i + 5)?,
         IMAGE_RRECT => i + 18,
@@ -57,7 +61,8 @@ fn end(b: &[u32], i: usize) -> Option<usize> {
 fn defines(op: u32) -> bool {
     matches!(
         op,
-        FONT | IMAGE_DEF
+        FONT | FONT_AXES
+            | IMAGE_DEF
             | IMAGE_FREE
             | ANIMATED
             | ROW_BEGIN
@@ -106,5 +111,18 @@ mod tests {
         assert_eq!(again, d);
         assert!(drawing(&[99]).is_none());
         assert!(drawing(&[GLYPHS, 1, 0, 0, 0, 5]).is_none());
+    }
+
+    #[test]
+    fn a_face_with_axes_is_a_definition() {
+        let ital = u32::from_be_bytes(*b"ital");
+        // Key 1, index 0, weight 400, one axis, then a five-byte path.
+        let face = [FONT_AXES, 1, 0, 400, 1, ital, 1f32.to_bits(), 5, 0, 0];
+        let glyphs = [GLYPHS, 1, 0, 0, 0, 1, 7, 0, 0];
+        let stream: Vec<u32> = face.iter().chain(&glyphs).copied().collect();
+        let (d, defs) = drawing(&stream).expect("known");
+        assert!(defs);
+        assert_eq!(d, glyphs);
+        assert!(drawing(&face[..8]).is_none(), "a cut path is malformed");
     }
 }

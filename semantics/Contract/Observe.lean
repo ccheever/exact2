@@ -112,11 +112,33 @@ def Event.label : Event → String
   | .clock ms => "clock +" ++ Number.jsToString ms
   | .other t e _ => e ++ " " ++ quote t
 
+/-- An event delivered at the current time, as every host delivers one (the
+runner's `dispatch_at`, the web build's `on()`): the work already due by
+`c.now` (a timer, a mutation's `then`, a queue's next send) fires first, then
+the event, which runs even when that work refused. The outcome is the
+event's when it failed, else the due work's; a poisoned advance ends the step
+there. An event for an element the view lacks, or that it has no handler for,
+advances nothing: a host attaches a listener only where one is declared, so
+it cannot deliver it. A tap carries no time of its own, so the clock does not
+move. -/
+def dispatchAt (p : Program) (o : Oracle) (c : Config) (target event : String)
+    (payload : Option Value) : Config × Outcome :=
+  match findTestId target c.view with
+  | .none => dispatch p o c target event payload
+  | .some n =>
+    if (n.handlers.find? (·.1 == event)).isNone then dispatch p o c target event payload else
+    match advance p o c c.now with
+    | (c₁, .poisoned e) => (c₁, .poisoned e)
+    | (c₁, o₁) =>
+      match dispatch p o c₁ target event payload with
+      | (c₂, .ok) => (c₂, o₁)
+      | (c₂, o₂) => (c₂, o₂)
+
 def step (p : Program) (o : Oracle) (c : Config) : Event → Config × Outcome
-  | .tap t => dispatch p o c t "press" .none
-  | .change t s => dispatch p o c t "change" (.some (.str s))
+  | .tap t => dispatchAt p o c t "press" .none
+  | .change t s => dispatchAt p o c t "change" (.some (.str s))
   | .clock ms => advance p o c (c.now + ms)
-  | .other t e v => dispatch p o c t e v
+  | .other t e v => dispatchAt p o c t e v
 
 /-- Boot, then every event: the whole observation text. Stops after a
 poisoned outcome (a poisoned runner refuses everything after). -/

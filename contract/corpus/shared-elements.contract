@@ -2,7 +2,7 @@
 // and creates the viewer; the photo's name moves from the thumbnail to the
 // viewer's image, so the viewer's image flies from the thumbnail's box.
 style Photo
-  layout-transition="300ms ease"
+  -exact-layout-transition="300ms ease"
 
 component Shared
   state open = false

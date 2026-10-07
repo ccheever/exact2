@@ -115,8 +115,8 @@ component PresenceTimeline
         button "Hide" testId="hide" press=hide width=80 height=30
       view height=(moved ? 120 : 20) flex-shrink=0
       when shown
-        view testId="card" width=(large ? 180 : 100) height=(large ? 80 : 40) flex-shrink=0 background-color="#ff0000" layout-transition="1000ms linear" exit-animation="leave 400ms linear both"
-      view testId="sibling" width=50 height=30 flex-shrink=0 background-color="#0000ff" layout-transition="1000ms linear"
+        view testId="card" width=(large ? 180 : 100) height=(large ? 80 : 40) flex-shrink=0 background-color="#ff0000" -exact-layout-transition="1000ms linear" -exact-exit-animation="leave 400ms linear both"
+      view testId="sibling" width=50 height=30 flex-shrink=0 background-color="#0000ff" -exact-layout-transition="1000ms linear"
 "##;
 
 /// Relative agent-clock advances, sampled after every operation. Resizing
@@ -554,7 +554,7 @@ pub fn cases() -> Vec<Case> {
         single(
             "color-spring",
             Property::BackgroundColor,
-            "background-color spring(180, 12, 1)",
+            "background-color -exact-spring(180, 12, 1)",
             rgba(0, 0, 0, 1.0),
             rgba(255, 128, 0, 1.0),
             &[0.05, 0.1, 0.2, 0.3, 0.45],
@@ -587,7 +587,7 @@ pub fn cases() -> Vec<Case> {
     out.push(single(
         "spring",
         Property::Scale,
-        "scale spring(180, 12, 1)",
+        "scale -exact-spring(180, 12, 1)",
         o(1.0),
         o(1.5),
         &[0.05, 0.1, 0.1020833333, 0.2, 0.35, 0.5, 0.8],

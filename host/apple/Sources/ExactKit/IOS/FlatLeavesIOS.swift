@@ -72,7 +72,7 @@ final class FlatLeaves {
     }
 
     /// Whether an op's props are at most `data-*` words, which never make a
-    /// view (LLP 1075.003 §3.3): on iOS a hook reads them only from a route.
+    /// view (LLP 1075.003 §3.3): on iOS a hatch reads them only from a route.
     static func onlyData(_ op: BatchOp) -> Bool {
         op.props.keys.allSatisfy { $0 == "dataset" } && op.clear.allSatisfy { $0 == "dataset" }
     }

@@ -20,6 +20,8 @@ use std::{
 #[path = "surfaces/android.rs"]
 mod android;
 #[cfg(target_os = "android")]
+pub use android::buffer_frame;
+#[cfg(target_os = "android")]
 pub(crate) use android::{device_pending as gpu_device_pending, prepare as prepare_gpu};
 #[path = "surface_controls.rs"]
 pub(crate) mod controls;

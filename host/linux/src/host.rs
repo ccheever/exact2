@@ -214,10 +214,10 @@ impl<D: DataSource> Host<D> {
         region: Option<crate::content_region::ContentRegionRegistration>,
     ) -> Result<(Host<D>, Option<String>), HostError> {
         // @ref LLP 1075.003.000 §3.3 — this host has no native objects for a
-        // hook to reach: a plan that marks nodes is told so once, at boot.
-        let hooked = plan.bindings.iter().any(|b| {
+        // hatch to reach: a plan that marks nodes is told so once, at boot.
+        let hatched = plan.bindings.iter().any(|b| {
             b.kind == exact_plan::BindingKind::Prop
-                && exact_kernel::PropId::from_wire(b.id) == Some(exact_kernel::PropId::Hook)
+                && exact_kernel::PropId::from_wire(b.id) == Some(exact_kernel::PropId::Hatch)
         });
         // @ref LLP 1100 D10 — this host draws sRGB only.
         exact_kernel::style::wide::set_available(exact_color::Wide::in_srgb);
@@ -321,9 +321,9 @@ impl<D: DataSource> Host<D> {
         let error = host.layout().err();
         host.observe_layout();
         host.present();
-        if hooked {
+        if hatched {
             host.runner.log(
-                "hook: this host has no native objects; hooked nodes are shown and never called",
+                "hatch: this host has no native objects; hatched nodes are shown and never called",
             );
         }
         Ok((host, error))

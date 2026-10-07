@@ -356,7 +356,14 @@ pub static SYSTEM_COLOR_MAP: std::sync::LazyLock<String> = std::sync::LazyLock::
     for (i, r) in COLOR_ROLES.iter().enumerate() {
         let mut css = String::new();
         exact_kernel::gradient::color_css(&mut css, ColorValue::Role(i as u8));
-        pairs.push(format!("{:?}:{css:?}", r.name.to_ascii_lowercase()));
+        // A CSS colour by its name; an Exact role as `-exact-<role>` (LLP
+        // 1081 D2), so a bare role name stays as written and is no colour.
+        let name = if exact_kernel::style::roles::is_css_system(r) {
+            r.name.to_ascii_lowercase()
+        } else {
+            format!("-exact-{}", r.name)
+        };
+        pairs.push(format!("{name:?}:{css:?}"));
         if !r.alias.is_empty() {
             pairs.push(format!("{:?}:{css:?}", r.alias));
         }
@@ -368,7 +375,7 @@ pub static SYSTEM_COLOR_MAP: std::sync::LazyLock<String> = std::sync::LazyLock::
 });
 
 /// [`SYSTEM_COLOR_MAP`] for a binding of `plan`, gated as the runner's
-/// `set_plan_style` is (LLP 1095 D3): a value with a `platform-color()` is
+/// `set_plan_style` is (LLP 1095 D3): a value with a `-exact-platform-color()` is
 /// admitted only as one of the plan's own string literals, and writes what
 /// the literal path writes for each of its functions; any other is refused
 /// (`null`: the row unset).
@@ -395,9 +402,22 @@ pub fn color_map(plan: &Plan) -> String {
     )
 }
 
-const PLATFORM: &str = "platform-color(";
+const PLATFORM: &str = "-exact-platform-color(";
 
-/// `text` with each `platform-color()` in it as its CSS (its `web` colour or
+/// A computed `transition`'s entries as an author's (LLP 1081 D5), shared by
+/// the ordinary and the pressed mappers: comments go (CSS removes them, so a
+/// check must too); springs are the engine's; an entry naming the host's
+/// `--exact-*` or an old spelling is dropped, as the native parser refuses
+/// it; `-exact-tint-color` becomes the property the browser animates,
+/// `--exact-tint`. `p` is the list of kept entries.
+pub const TRANSITION_ENTRIES: &str = "const p=v.replace(/\\/\\*[\\s\\S]*?\\*\\//g,\" \").split(/,(?![^(]*\\))/).map(t=>t.trim()).filter(t=>t&&!/spring\\(/i.test(t)&&!/(^|\\s)(--exact-\\S*|tint-color|exit-animation|layout-transition|press-scale|drag-timeline|symbol-rendering|symbol-palette|symbol-value|symbol-effect|press-haptic|content-transition|scroll-edge-effect|hover-effect|smart-invert|animation-trigger)(?=\\s|$)/i.test(t)).map(t=>t.replace(/(^|\\s)-exact-tint-color(?=\\s|$)/i,\"$1--exact-tint\"));";
+
+/// A computed `transition`, as the browser takes it: [`TRANSITION_ENTRIES`].
+pub static TRANSITION_MAP: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
+    format!("v=>{{if(v==null)return v;{TRANSITION_ENTRIES}return p.join(\",\")||\"none\"}}")
+});
+
+/// `text` with each `-exact-platform-color()` in it as its CSS (its `web` colour or
 /// its fallback), as the kernel writes a literal's.
 fn platform_css(text: &str) -> String {
     let mut out = String::new();
@@ -497,20 +517,20 @@ pub fn style_writes(id: u16, timeline: bool) -> Result<Vec<Write>, String> {
             with("--exact-accent", "v=>v==null?v:/^\\s*auto\\s*$/i.test(v)?\"AccentColor\":v"),
         ],
         StyleId::DragTimeline => vec![with("--exact-drag-timeline", NONE)],
-        // @ref LLP 1055.002 — `clock(Name)` is css.rs's clock property and
+        // @ref LLP 1055.002 — `-exact-clock(Name)` is css.rs's clock property and
         // leaves the play state alone; a drag timeline pauses.
         StyleId::AnimationTimeline => vec![
             with(
                 "--exact-animation-timeline",
-                "v=>v==null||/^\\s*(auto|clock\\(.*\\))\\s*$/i.test(v)?null:v",
+                "v=>v==null||/^\\s*(auto|(-exact-)?clock\\(.*\\))\\s*$/i.test(v)?null:v",
             ),
             with(
                 "--exact-animation-clock",
-                "v=>v==null?v:/^\\s*clock\\(\\s*([^)\\s]+)\\s*\\)\\s*$/i.exec(v)?.[1]??null",
+                "v=>v==null?v:/^\\s*-exact-clock\\(\\s*([^)\\s]+)\\s*\\)\\s*$/i.exec(v)?.[1]??null",
             ),
             with(
                 "animation-play-state",
-                "v=>v==null||/^\\s*(auto|clock\\(.*\\))\\s*$/i.test(v)?null:\"paused\"",
+                "v=>v==null||/^\\s*(auto|(-exact-)?clock\\(.*\\))\\s*$/i.test(v)?null:\"paused\"",
             ),
         ],
         StyleId::AnimationRange => vec![with(
@@ -541,7 +561,7 @@ pub fn style_writes(id: u16, timeline: bool) -> Result<Vec<Write>, String> {
         // is the rest, as css.rs `transition_css` leaves springs out.
         StyleId::Transition => vec![with(
             "transition",
-            "v=>v==null?v:v.split(/,(?![^(]*\\))/).filter(t=>!/spring\\(/.test(t)).join(\",\")||\"none\"",
+            TRANSITION_MAP.as_str(),
         )],
         // The kernel's `clip-path` is `none`, `url(#id)` or `path()` (clip.rs);
         // any other shape, which the browser would take, is refused: unset.
@@ -551,7 +571,7 @@ pub fn style_writes(id: u16, timeline: bool) -> Result<Vec<Write>, String> {
         )],
         // @ref LLP 1077 D1 — Apple's curve as the web's stand-in. A bound
         // radius is not rescaled here, as css.rs scales a static one: a
-        // dynamic `-apple-continuous` reaches less far on the web.
+        // dynamic `-exact-continuous` reaches less far on the web.
         // @ref LLP 1034 §8 — `light` and `dark`; a bound `normal` follows
         // the surrounding scheme (the property removed), as the kernel unsets
         // it; anything else is no value it takes.
@@ -561,7 +581,7 @@ pub fn style_writes(id: u16, timeline: bool) -> Result<Vec<Write>, String> {
         )],
         StyleId::CornerShape => vec![with(
             "corner-shape",
-            "v=>v==null?v:v.replace(/-apple-continuous/gi,\"superellipse(1.6)\")",
+            "v=>v==null?v:/-apple-continuous/i.test(v)?null:v.replace(/-exact-continuous/gi,\"superellipse(1.6)\")",
         )],
         _ => {
             let (name, unit) = style_row(id)?;
@@ -749,6 +769,33 @@ pub(crate) mod tests {
         serde_json::from_slice(&out.stdout).unwrap()
     }
 
+    #[test]
+    fn a_computed_transition_is_checked_as_an_authors() {
+        // LLP 1081 D5: the new tint becomes the property the browser
+        // animates; the old spelling, the host's own name (behind a comment
+        // too) and any old name are dropped, as the native parser refuses
+        // them; springs are the engine's.
+        let values = [
+            "-exact-tint-color 1s",
+            "tint-color 1s, opacity 1s",
+            "/**/--exact-tint 1s",
+            "opacity 1s -exact-spring(1, 2, 3), scale 1s",
+            "press-scale 1s",
+            "animation-trigger 1s, --exact-π 1s",
+        ];
+        assert_eq!(
+            run(TRANSITION_MAP.as_str(), &values),
+            serde_json::json!([
+                "--exact-tint 1s",
+                "opacity 1s",
+                "none",
+                "scale 1s",
+                "none",
+                "none"
+            ])
+        );
+    }
+
     /// LLP 1034 §8: a bound `color-scheme` writes `light` or `dark`, and a
     /// bound `normal` (or anything else) removes the property, so the node
     /// follows its parent's scheme as the kernel's unset row does.
@@ -771,11 +818,11 @@ pub(crate) mod tests {
         let (orange, label, fill) = (role("system-orange"), role("secondary-label"), role("fill"));
         assert_eq!(
             mapped(&[
-                " secondary-label ",
-                "System-Orange",
-                "linear-gradient(system-orange, #fff)",
-                "radial-gradient(circle,fill 0%,system-orange 100%)",
-                "0 1px 2px system-orange, inset 0 0 4px -apple-system-secondary-label",
+                " -exact-secondary-label ",
+                "-Exact-System-Orange",
+                "linear-gradient(-exact-system-orange, #fff)",
+                "radial-gradient(circle,-exact-fill 0%,-exact-system-orange 100%)",
+                "0 1px 2px -exact-system-orange, inset 0 0 4px -apple-system-secondary-label",
                 "1px -apple-system-orange",
             ]),
             [
@@ -804,15 +851,18 @@ pub(crate) mod tests {
             "background2",
             "fill(1)",
             "/* label */ red",
+            // An Exact role's bare name is no colour (LLP 1081 D2).
+            "system-orange",
+            "linear-gradient(secondary-label, fill)",
         ];
         assert_eq!(mapped(&values), values);
     }
 
     #[test]
     fn a_bound_platform_color_is_admitted_only_as_a_plan_literal() {
-        let literal = "platform-color(ios webJsTestColor, #010203)";
+        let literal = "-exact-platform-color(ios webJsTestColor, #010203)";
         let gradient =
-            "linear-gradient(platform-color(ios webJsTestColor, #010203), system-orange)";
+            "linear-gradient(-exact-platform-color(ios webJsTestColor, #010203), -exact-system-orange)";
         let mut plan = exact_plan::Plan::default();
         plan.strings.extend([literal.into(), gradient.into()]);
         let mut css = String::new();
@@ -828,10 +878,10 @@ pub(crate) mod tests {
                 &[
                     literal,
                     gradient,
-                    "platform-color(ios webJsOtherColor, #010203)",
-                    "linear-gradient(platform-color(ios webJsTestColor, #010203), #fff)",
-                    " platform-color(ios webJsTestColor, #010203)",
-                    "secondary-label"
+                    "-exact-platform-color(ios webJsOtherColor, #010203)",
+                    "linear-gradient(-exact-platform-color(ios webJsTestColor, #010203), #fff)",
+                    " -exact-platform-color(ios webJsTestColor, #010203)",
+                    "-exact-secondary-label"
                 ]
             ),
             serde_json::json!([

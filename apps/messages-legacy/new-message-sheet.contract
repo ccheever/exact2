@@ -207,7 +207,7 @@ component NewMessageSheet
               display="flex" flex-direction="row"
               align-items="center"
               justify-content="center"
-              image "symbol:add" font-size=22 font-weight=400 tint-color="#b4b4b7"
+              image "symbol:add" font-size=22 font-weight=400 -exact-tint-color="#b4b4b7"
             row testId="new-composer-surface"
               flex=1
               min-width=0
@@ -261,9 +261,9 @@ component NewMessageSheet
                 when newDraft != ""
                   image "symbol:send" font-size=17
                     font-weight=700
-                    tint-color=(sendable ? "#ffffff": "light-dark(#b4b4b7, #8e8e93)")
+                    -exact-tint-color=(sendable ? "#ffffff": "light-dark(#b4b4b7, #8e8e93)")
                 else
                   image "symbol:microphone" font-size=17
                     font-weight=400
-                    tint-color="light-dark(#b4b4b7, #8e8e93)"
+                    -exact-tint-color="light-dark(#b4b4b7, #8e8e93)"
         box height="calc(env(safe-area-inset-bottom) - 22px)" min-height=0 flex-shrink=0

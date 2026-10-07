@@ -11,7 +11,10 @@
 // `selectText` focuses a field with its text selected, so the next key
 // replaces it (files diary F5: the JS target did not carry it). A field's
 // handler that calls `stopPropagation()` is the last to hear its key, and
-// the key's default still happens: Enter submits (files diary F8).
+// the key's default still happens: Enter submits (files diary F8). A key's
+// release reaches the page's `keyup` handler with its physical `code`, a
+// modifier's too (its own flag no longer held), and a held key's downs after
+// the first are `repeat`s (#140).
 component Keys
   state text = ""
   state heard = ""
@@ -21,6 +24,9 @@ component Keys
   state sent = ""
   state saved = 0
   state pressed = 0
+  state ups = ""
+  action released(k: string, e: KeyboardEvent)
+    ups = `${ups}${k}:${e.code}${e.metaKey ? ":m" : ""}${e.repeat ? ":r" : ""};`
   action submitted
     submits = submits + 1
   action typed(v: string)
@@ -32,7 +38,7 @@ component Keys
     if k == "Escape" or (k == "Enter" and text == "go")
       stopPropagation()
   action outer(k: string, e: KeyboardEvent)
-    heard = `${heard}o${k}`
+    heard = `${heard}o${k}${e.repeat ? "r" : ""}`
     if k == "Enter" and text == ""
       preventDefault()
     if (e.metaKey or e.ctrlKey) and k == "s"
@@ -58,10 +64,11 @@ component Keys
       draft = ""
       preventDefault()
   view
-    column testId="page" key=outer height=320 overflow-y="scroll" gap=8 padding=8
+    column testId="page" key=outer keyup=released height=320 overflow-y="scroll" gap=8 padding=8
       input value=text input=typed key=field submit=submitted testId="field" id="field" padding=8
       button "Rename" press=rename testId="rename"
       text heard testId="heard"
+      text ups testId="ups"
       textarea value=draft input=write key=compose testId="area" height=60
       text sent testId="sent"
       column press=hit testId="pressable" padding=8

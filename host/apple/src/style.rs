@@ -440,7 +440,7 @@ fn push_dimension(out: &mut String, d: Dimension) {
 /// or a reference (LLP 1095 D1) as `{"sys": <name>, "c": <pair>}`: this
 /// platform's class colour property (or `@tint`, `named:<Asset>`), which the
 /// presenter resolves per view against its traits, and the fallback pair.
-/// A `platform-color()` with no name for this platform crosses as its fallback.
+/// A `-exact-platform-color()` with no name for this platform crosses as its fallback.
 pub(crate) fn push_color_value(out: &mut String, c: ColorValue) {
     // LLP 1100 D3: no sRGB clip rides along; nothing here converts it.
     if let ColorValue::Profiled(id) = c {
@@ -1327,7 +1327,7 @@ mod flow_tests {
     fn a_moving_colour_leaves_system_colours_and_the_rest_stay() {
         // LLP 1077 D13: the row the motion paints is no longer a system
         // colour; an untouched one keeps its name.
-        let last = r#"{"text_color":[[0,0,0,255],[255,255,255,255]],"background_color":[[120,120,128,51],[120,120,128,92]],"system_colors":{"text_color":"-apple-system-label","background_color":"-apple-system-fill"}}"#;
+        let last = r#"{"text_color":[[0,0,0,255],[255,255,255,255]],"background_color":[[120,120,128,51],[120,120,128,92]],"system_colors":{"text_color":"-apple-system-label","background_color":"-exact-fill"}}"#;
         let mut shown = Shown::default();
         shown.set(
             Property::BackgroundColor,

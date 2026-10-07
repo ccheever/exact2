@@ -20,7 +20,7 @@ const SOURCE: &str = r#"component App
     column
       text `${count}` testId="count"
       button testId="block" press=block width=60 height=20
-      column testId="other-motion" width=20 height=20 scale=1 transition="scale spring(300,30,1)"
+      column testId="other-motion" width=20 height=20 scale=1 transition="scale -exact-spring(300,30,1)"
       list id="arrange" testId="list" virtualized=true height=100 reorderdrop=receive
         each x in rows key=x
           column reorderFor="arrange" disabled=disabled testId=`grip-${x}` height=20
