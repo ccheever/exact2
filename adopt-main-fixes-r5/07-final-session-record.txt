@@ -1,0 +1,78 @@
+Round 5, final after-build session (approved by the coordinator; one session, no retry). Build da3aae081
+(the follow-up fix cf7b15baf included), bundle copy com.exact.t3code.laner5.final, open -n, real input via orca computer by
+pid, under .realinput-lock (21:56:16-22:00). Lane: reference server 1e2ecbd975 on 127.0.0.1:16741 behind the trace proxy
+on 16742, isolated HOME/CODEX_HOME/CLAUDE_CONFIG_DIR/XDG_*/T3CODE_HOME, telemetry off, stubs first on PATH.
+
+--- session log
+21:56:22 [final] copy of da3aae081 bundle as com.exact.t3code.laner5.final
+21:56:28 [final] launched pid 28170
+21:56:53 [final] wizard pairing field 
+21:57:11 [final] rows after pairing: 0
+21:57:22 [final] wizard pairing field 37 (wizard was still loading at the first read)
+21:57:41 [final] rows after pairing: 4
+21:57:55 [final] row element 11 (First lane thread, not snoozed)
+21:57:57 [final] menu items: 16
+21:57:57 [final] Snooze item 21
+21:58:12 [final] In 1 hour (10:57 PM) in the screenshot at screen point (446,346); window origin (36,38); clicking window point (410,308)
+21:58:16 [final] rows: 6; notice: 
+21:59:17 [final] after In 1 hour: toast 'Failed to snooze thread' / 'Too many server requests are already pending.'; rows unchanged (6), no Snoozed row; no retry
+21:59:20 [final] pid 28170 quit
+21:59:20 [final] keychain item deleted
+21:59:20 [final] preferences domain deleted
+21:59:26 [final] launched pid 96366
+21:59:27 [final] relaunch: Connect to a computer running T3 Code 
+21:59:32 [final] host field 64
+21:59:43 [final] after Add environment: banner=[] dialog=[2 x 'Could not connect to the server.']
+21:59:47 [final] after Back: banner=[]
+21:59:56 [final] pid 96366 quit
+21:59:56 [final] cleaned
+
+--- item 2: the native menu (02, after the real right-click on "First lane thread")
+18 menu item New thread on main
+19 menu item Pin thread
+20 menu item Settle thread
+21 menu item Snooze
+22 menu item (disabled)
+23 menu item Rename thread
+24 menu item Regenerate title
+25 menu item Mark unread
+26 menu item Filter by alpha
+27 menu item Auto-settle behavior
+28 menu item (disabled)
+29 menu item Copy
+30 menu item Project settings
+31 menu item (disabled)
+32 menu item Archive thread
+33 menu item Delete
+The Snooze submenu's items are not in the accessibility tree; the screenshot shows them: In 1 hour (10:57 PM), In 3 hours
+(12:57 AM), Tomorrow (9:00 AM), Next week (Mon 9:00 AM), Custom... "In 1 hour" was clicked at window point (410,308).
+--- item 2: after the click (04)
+10 button Second lane thread, alpha
+11 button First lane thread, alpha
+12 button Second lane thread, alpha
+13 button First lane thread, alpha
+14 button Second lane thread, Woke, alpha
+15 button First lane thread, Woke, alpha
+89 heading Failed to snooze thread
+90 text Too many server requests are already pending.
+
+--- vcs.refreshStatus frames through the proxy (client to server), per second
+base 38352ceaf, follow-up session (12:26:31-12:26:48Z):
+12:26:31:6  12:26:32:8  12:26:33:4  12:26:34:4  12:26:35:4  12:26:36:4  12:26:37:4  12:26:38:4  12:26:39:6  12:26:40:4  12:26:41:4  12:26:42:4  12:26:43:4  12:26:44:8  12:26:45:4  12:26:46:4  12:26:47:4  12:26:48:2  
+da3aae081, this session:
+12:57:26:14  12:57:27:4  12:57:28:4  12:57:29:4  12:57:30:4  12:57:31:4  12:57:32:6  12:57:33:4  12:57:34:4  12:57:35:4  12:57:36:4  12:57:37:8  12:57:38:4  12:57:39:4  12:57:40:4  12:57:41:4  12:57:42:4  12:57:43:4  12:57:44:4  12:57:45:4  12:57:46:4  12:57:47:4  12:57:48:4  12:57:49:4  12:57:50:4  12:57:51:4  12:57:52:4  12:57:53:4  12:57:54:4  12:57:55:4  12:58:13:64  
+No frame between 12:57:55.965Z (the right-click) and 12:58:13.235Z (the click on In 1 hour): the menu was open 17 s while
+the screenshot was read, and the requests issued meanwhile were sent together after it closed (64 within 4 ms). The
+transport refuses a request once 64 are pending (modules/apple/T3Transport.swift: "Too many server requests are already
+pending."), so the snooze was refused. The repeated vcs.refreshStatus is the same rate on the base.
+
+--- item 1: after Add environment (06), the rows after the composer's Environment disconnected
+23 button (disabled) Environment disconnected
+24 text T3 Code
+25 heading Connect to a computer running T3 Code
+58 text Could not connect to the server.
+69 text Could not connect to the server.
+native.watch banner: 0 (after Back: 0)
+
+After: the copy, its preferences, data and caches deleted; no lane Keychain item; the lane server and proxy stopped by
+their recorded pids; the lock released. No thread was snoozed, so nothing was un-snoozed.
