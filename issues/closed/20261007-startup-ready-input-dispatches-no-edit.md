@@ -1,6 +1,7 @@
 # exact-js-web: after activation, typing in a baked field dispatches no edit
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** A stale fixture, not a startup bug: the edit does dispatch, as a text field's commit (kind 41, selection then value, x2apps codeedit #2), not kind 1 (a non-text control's change); the next step expected the range to snap back to the app's 50, which LLP 1069.001 D4 amended (2026-10-04) replaced with keeping the person's value until the bound value changes. Both assertions updated; the test passes 3 of 3 on the mini.
 **Systems:** js/web/tests/browser.rs, host/web (startup gating of a baked page)
 **Author:** Claude (Opus 5.5), found fixing the module-guard test's storage step
 **Date:** 2026-10-07

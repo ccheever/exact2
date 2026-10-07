@@ -978,15 +978,17 @@ try {
       await click('action');await click('editor');await type('ready');
       const active=await evaluate(`({dispatch:startup.dispatch,value:document.getElementById('editor').value,disabled:document.getElementById('disabled').disabled})`);
       assert.equal(active.dispatch.some(event=>event.id===2&&event.kind===0),true,'ready button dispatches');
-      assert.equal(active.dispatch.some(event=>event.id===3&&event.kind===1),true,'ready input dispatches edits');
+      // A text field's committed value is kind 41, its selection then its value (navigation.js `controlEvent`, x2apps codeedit #2); kind 1 is a non-text control's `change`, as the range's below.
+      assert.equal(active.dispatch.some(event=>event.id===3&&event.kind===41&&event.value.includes('ready')),true,'ready input dispatches edits');
       assert.equal(active.value.includes('ready'),true);assert.equal(active.disabled,true,'authored disabled state survives activation');
       assert.deepEqual(await evaluate(`['disabled-on-activation','enabled-on-activation'].map(id=>document.getElementById(id).disabled)`),[true,false],'activation prop changes override originally authored disabled state');
       // The range is controlled (LLP 1069.001): an edit reaches the app, and the
-      // control shows the app's value, which this stub never changes.
+      // control keeps the person's value until its bound value changes, which this
+      // stub never does (D4, amended 2026-10-04: the web never snapped a valued control back).
       const rangeEdits=`startup.dispatch.filter(event=>event.id===6&&event.kind===1).map(event=>event.value)`;
       await rangeKeyboard();
       assert.deepEqual(await evaluate(rangeEdits),['51'],'activated range accepts native keyboard editing');
-      assert.equal(await evaluate(`document.getElementById('range').value`),'50','the range shows the value the app holds');
+      assert.equal(await evaluate(`document.getElementById('range').value`),'51','the range keeps the person\'s value while the bound value is unchanged');
       await click('range');
       const edits=await evaluate(rangeEdits);
       assert.equal(edits.length,2,'keyboard and pointer range edits both dispatch');
