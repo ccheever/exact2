@@ -567,9 +567,13 @@ impl Catalog {
     fn render(&mut self, key: GlyphKey) -> Option<swash::scale::image::Image> {
         let (font, face) = self.faces.get(key.slot as usize)?;
         let font_ref = swash::FontRef::from_index(font.data.data(), font.index as usize)?;
+        // Named by the face, not by `from_index`'s fresh key: swash keeps a
+        // face's scaler state and hinting instance under the id it is given,
+        // and a new key per glyph built both again (the font's hinting
+        // programs run again) for every glyph rasterized.
         let mut scaler = self
             .scale
-            .builder(font_ref)
+            .builder_with_id(font_ref, scaler_id(font))
             .size(f32::from_bits(key.size_bits))
             .hint(true)
             .normalized_coords(face.coords.iter().copied())
@@ -711,6 +715,12 @@ impl Catalog {
             self.layout = LayoutContext::new();
         }
     }
+}
+
+/// The id swash's scale context keeps a face's scaler state under: its
+/// blob (one per file or byte buffer) and its index in a collection.
+pub(crate) fn scaler_id(font: &FontData) -> [u64; 2] {
+    [font.data.id(), u64::from(font.index)]
 }
 
 fn generic_choice(kind: StackMemberKind) -> FamilyChoice {

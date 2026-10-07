@@ -34,6 +34,7 @@ use shaping::ShapedSource;
 mod ink;
 pub(crate) mod markup;
 pub use cache::{HandoffResidency, Residency, RetiringResidency};
+pub(crate) use catalog::scaler_id;
 pub use catalog::FaceId;
 pub use lines::{Face, LayoutGlyph, LayoutLine, Lines};
 pub use shaping::LayoutRun;

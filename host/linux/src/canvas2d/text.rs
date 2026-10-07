@@ -153,7 +153,7 @@ impl Fonts {
                 };
                 let mut scaler = self
                     .scale
-                    .builder(font_ref)
+                    .builder_with_id(font_ref, crate::text::scaler_id(&font))
                     .size(run.font_size())
                     .hint(false)
                     .normalized_coords(coords.iter().copied())
