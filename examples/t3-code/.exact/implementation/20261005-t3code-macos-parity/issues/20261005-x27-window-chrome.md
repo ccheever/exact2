@@ -81,4 +81,4 @@ adopted earlier). Still missing on `261dd4e10`: `env()` accepts only `safe-area-
 (no `titlebar-area-*`), `host.macos.window` has no title-bar setting, `exactViewport()` has no `displayMode` and
 `exactPage()` no full-screen field (its fields are `visibilityState`, `onLine`, `canShare`, `canOpenFiles`,
 `hasFocus`). `T3WindowChrome.swift` and `T3FullScreen.swift` stay. No open upstream issue tracks the rest of #113;
-filing one is the user's decision ([adopt-main-fixes-r5](../tasks/20261007-adopt-main-fixes-r5.md)).
+filing one is the user's decision ([adopt-main-fixes-r5](../tasks/closed/20261007-adopt-main-fixes-r5.md)).
