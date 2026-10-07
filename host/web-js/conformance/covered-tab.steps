@@ -1,0 +1,7 @@
+# The list mounts in the saved tab, which is not selected: no ask.
+clock +300
+clock +300
+# Selecting the tab shows it: its footer asks for the first page, once.
+tap tab-saved
+clock +300
+clock +300
