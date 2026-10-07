@@ -84,6 +84,10 @@ const HOME_CHECK_MS: f64 = 15_000.0;
 const FIRST_HOME_CHECK_MS: f64 = 3_000.0;
 const FAILOVER_RETRY_MS: f64 = 30_000.0;
 const TRANSCRIPT_LIVE_MS: f64 = 2_000.0;
+/// The same, from a server that answers only what changed (a few hundred
+/// bytes, not the whole conversation): a working session reads closer to
+/// live.
+const TRANSCRIPT_DELTA_LIVE_MS: f64 = 1_000.0;
 const TRANSCRIPT_IDLE_MS: f64 = 5_000.0;
 const AFTER_SEND_MS: f64 = 800.0;
 /// How long the last answer's sessions stay live through failed polls: a
@@ -149,6 +153,11 @@ pub struct Conversation {
     pub error: String,
     /// Entries drawn, from the end: `view::PAGE_ENTRIES` until "Show earlier".
     pub shown: usize,
+    /// The revision of the transcript held: the next read asks only for
+    /// what changed since.
+    pub revision: String,
+    /// The server's fingerprint of the entries held but the last.
+    pub base: String,
 }
 
 /// A message on its way.
@@ -1113,7 +1122,25 @@ impl Model {
     pub fn transcript_request(&mut self) -> Option<(String, String)> {
         let conn = self.conn.as_ref()?;
         let key = self.open.clone()?;
-        let url = conn.session_url(&self.route_of(&self.via), &key.0, &key.1, "transcript");
+        let mut url = conn.session_url(&self.route_of(&self.via), &key.0, &key.1, "transcript");
+        // What this phone holds, so the server answers "unchanged" or only
+        // the entries that moved (a long conversation is hundreds of KB).
+        if let Some(c) = self
+            .conversations
+            .get(&key)
+            .filter(|c| c.loaded && c.error.is_empty())
+        {
+            if !c.revision.is_empty() {
+                url.push_str(&format!("?revision={}", crate::api::encode(&c.revision)));
+                if !c.base.is_empty() {
+                    url.push_str(&format!(
+                        "&have={}&base={}",
+                        c.transcript.entries.len(),
+                        crate::api::encode(&c.base)
+                    ));
+                }
+            }
+        }
         let bearer = conn.bearer();
         self.transcript.start(self.now);
         self.transcript_key = Some(key);
@@ -1129,21 +1156,39 @@ impl Model {
         let live = self
             .live_session(&key)
             .is_some_and(|s| s.working() || s.blocked());
-        self.transcript.next_at = self.now
-            + if live {
-                TRANSCRIPT_LIVE_MS
-            } else {
-                TRANSCRIPT_IDLE_MS
-            };
         let conversation = self.conversations.entry(key.clone()).or_default();
+        let deltas = !conversation.base.is_empty();
+        self.transcript.next_at = self.now
+            + match (live, deltas) {
+                (true, true) => TRANSCRIPT_DELTA_LIVE_MS,
+                (true, false) => TRANSCRIPT_LIVE_MS,
+                _ => TRANSCRIPT_IDLE_MS,
+            };
         match result.and_then(|body| TranscriptUpdate::decode(&body).map_err(|e| e.to_string())) {
             Ok(update) => {
-                let changed = !conversation.loaded
-                    || !conversation.error.is_empty()
-                    || conversation.transcript != update.transcript;
+                let mut changed = !conversation.loaded || !conversation.error.is_empty();
                 conversation.loaded = true;
                 conversation.error.clear();
-                conversation.transcript = update.transcript;
+                conversation.revision = update.revision;
+                conversation.base = update.base;
+                let entries = &mut conversation.transcript.entries;
+                match update.from {
+                    _ if update.unchanged => {}
+                    // Only what moved: the entries from `from` on.
+                    Some(from) if from <= entries.len() => {
+                        if entries[from..] != update.transcript.entries[..] {
+                            entries.truncate(from);
+                            entries.extend(update.transcript.entries);
+                            changed = true;
+                        }
+                    }
+                    _ => {
+                        if *entries != update.transcript.entries {
+                            *entries = update.transcript.entries;
+                            changed = true;
+                        }
+                    }
+                }
                 let entries = &conversation.transcript.entries;
                 let before = self.pending.len();
                 self.pending.retain(|p| {

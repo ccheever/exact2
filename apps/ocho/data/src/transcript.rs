@@ -147,24 +147,37 @@ pub struct Transcript {
     pub entries: Vec<Entry>,
 }
 
-/// One `fleet transcript M S --revision R` reply.
+/// One `fleet transcript M S --revision R` reply, or fleet serve's (which
+/// can also answer only what changed: `from`, `base`).
 #[derive(Default, Deserialize)]
 pub struct TranscriptUpdate {
-    /// The entries, when they changed.
-    #[serde(flatten)]
+    /// The entries, when they changed (from `from`, when it is set).
+    #[serde(skip)]
     pub transcript: Transcript,
+    /// The entries as read; `decode` moves them into `transcript`. Read
+    /// directly rather than through `#[serde(flatten)]`, which buffers the
+    /// whole reply first (hundreds of kilobytes, every few seconds).
+    #[serde(default)]
+    entries: Vec<Entry>,
     /// The revision the reply describes.
     #[serde(default)]
     pub revision: String,
     /// Nothing changed since the revision asked for.
     #[serde(default)]
     pub unchanged: bool,
+    /// The entries replace the reader's from this index on.
+    #[serde(default)]
+    pub from: Option<usize>,
+    /// Fingerprints every entry but the last, for the next ask.
+    #[serde(default)]
+    pub base: String,
 }
 
 impl TranscriptUpdate {
-    /// Parse a reply and its Markdown.
+    /// Parse a reply and its Markdown (only the entries it carries).
     pub fn decode(json: &str) -> serde_json::Result<Self> {
         let mut update: Self = serde_json::from_str(json)?;
+        update.transcript.entries = std::mem::take(&mut update.entries);
         update.transcript.prepare_markdown();
         Ok(update)
     }

@@ -811,3 +811,41 @@ fn telemetry_keeps_sending_after_the_first_batch() {
     let second = m.report_request().expect("second batch");
     assert!(second.contains("connect.first"), "{second}");
 }
+
+#[test]
+fn transcript_reads_ask_only_for_what_changed() {
+    let mut m = paired();
+    m.poll_request();
+    m.poll_done(Ok(answer(1, true)));
+    m.open("mac", "s1");
+    let (url, _) = m.transcript_request().unwrap();
+    assert!(
+        url.ends_with("/transcript"),
+        "a first read asks for everything"
+    );
+    m.transcript_done(Ok(r#"{"entries":[{"kind":"user","text":"hi"},{"kind":"assistant","text":"wor"}],"revision":"r1","base":"b1"}"#.into()));
+    let key = ("mac".to_string(), "s1".to_string());
+    let (url, _) = m.transcript_request().unwrap();
+    assert!(
+        url.ends_with("/transcript?revision=r1&have=2&base=b1"),
+        "{url}"
+    );
+    // Unchanged: nothing redrawn, entries kept.
+    let version = m.version;
+    m.transcript_done(Ok(
+        r#"{"entries":[],"revision":"r1","unchanged":true}"#.into()
+    ));
+    assert_eq!(m.version, version);
+    assert_eq!(m.conversations[&key].transcript.entries.len(), 2);
+    // A delta: the last entry grew, one more followed.
+    m.transcript_request();
+    m.transcript_done(Ok(r#"{"entries":[{"kind":"assistant","text":"working"},{"kind":"tools","count":2}],"from":1,"revision":"r2","base":"b2"}"#.into()));
+    let entries = &m.conversations[&key].transcript.entries;
+    assert_eq!(entries.len(), 3);
+    assert_eq!(entries[0].text, "hi");
+    assert_eq!(entries[1].text, "working");
+    assert_eq!(entries[2].count, 2);
+    assert!(m.version > version);
+    let (url, _) = m.transcript_request().unwrap();
+    assert!(url.ends_with("?revision=r2&have=3&base=b2"), "{url}");
+}
