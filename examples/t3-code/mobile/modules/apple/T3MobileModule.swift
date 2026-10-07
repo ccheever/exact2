@@ -63,6 +63,7 @@ final class T3MobileModule: ExactModule {
     private var alive = true
     let homeChrome = T3HomeChrome()
     private let threadHeader = T3MobileThreadHeader()
+    private let sheets = T3MobileSheets()
     private let reviewViewport = T3MobileReviewViewport()
     private let inspectorChrome = T3MobileInspector()
     lazy var workspace = T3MobileWorkspace(homeChrome: homeChrome, inspector: inspectorChrome)
@@ -117,11 +118,13 @@ final class T3MobileModule: ExactModule {
 
     override func navigation(_ navigation: ExactNavigation) {
         T3MobileNavigation.configure(navigation)
+        sheets.configure(navigation)
     }
     override func route(_ route: ExactRoute) {
         T3MobileNavigation.configure(route, formSheet: route.data[.mobileFormSheet] == "true",
             scanActionID: route.data[.mobileScanAction], scannerOpen: route.data[.mobileScannerOpen] == "true",
             tint: route.controller.traitCollection.userInterfaceStyle == .dark ? .white : .black)
+        sheets.configure(route)
         threadHeader.configure(route)
         inspectorChrome.configure(route)
         homeChrome.configure(route)
@@ -140,7 +143,7 @@ final class T3MobileModule: ExactModule {
         if element.hatch == .mobileReviewList || element.hatch == .mobileReviewRow { reviewViewport.end(element) }
         if element.hatch == .mobileVoiceEditor { voice.editor.end(element) }
     }
-    override func routeEnded(_ route: ExactRoute) { threadHeader.end(route); inspectorChrome.end(route); homeChrome.end(route); settingsNavigation.end(route); scheduledNavigation.end(route); informationLegal.end(route) }
+    override func routeEnded(_ route: ExactRoute) { sheets.end(route); threadHeader.end(route); inspectorChrome.end(route); homeChrome.end(route); settingsNavigation.end(route); scheduledNavigation.end(route); informationLegal.end(route) }
 
     override func later(_ request: [String: Any], reply: ExactReply) {
         guard alive else { reply.fail("The mobile session was closed."); return }
@@ -274,6 +277,7 @@ final class T3MobileModule: ExactModule {
 
     override func destroy() {
         alive = false
+        sheets.destroy()
         scratchClock.destroy()
         threadHeader.destroy()
         reviewViewport.destroy()
