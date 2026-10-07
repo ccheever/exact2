@@ -15,7 +15,7 @@ function httpHelpers() {
 const root = document.getElementById("exact-root");
 const views = new Map(); // view id -> element
 // Springs, holds, drags and virtualized collections: after-paint pieces, fetched on first use (LLP 1047 D5).
-const pieces = afterPaintPieces(loadAfterPaint, { root, views, applyBatch, agent: () => agentMode, inert: inertAncestor, now: () => now(), generation: () => incarnation, ready: () => inputReady,
+const pieces = afterPaintPieces(loadAfterPaint, { root, views, applyBatch, agent: () => agentMode, inert: inertAncestor, now: () => now(), generation: () => incarnation, ready: () => inputReady, log: line => log(line),
   replayed() { motion.commit(); arrange.commit(); if (agentMode) { register(agentClock); seek(agentClock); } else motion.followTimelines(); },
   wasm(name, bytes) { if (!wasm) return null; new Uint8Array(memory.buffer, wasm.exact_in(bytes.length), bytes.length).set(bytes); return JSON.parse(readOut(wasm[name](bytes.length))); } });
 const { collections, motion, arrange } = pieces, retiredViews = new WeakSet(); // committed removals must not dispatch teardown events
@@ -32,7 +32,7 @@ function syncMedia(el, set = {}, clear = []) {
 const iframeLoading = new WeakMap(); // iframe -> true until its latest src load
 const messageViews = new Set(), messageFrames = new Set(); // the latter: iframes whose node handles `message`
 const keyChord = e => /* a keydown as kind 6's payload, the chord `Event::key` reads */ (e.shiftKey ? "Shift+" : "") + (e.ctrlKey ? "Control+" : "") + (e.altKey ? "Alt+" : "") + (e.metaKey ? "Meta+" : "") + e.key;
-let messageListening = false, keyEvent = null; // keyEvent: the keydown a `key` handler is running for, which its `preventDefault()` command prevents
+let messageListening = false, keyEvent = null; // keyEvent: the keydown (or wheel, beforeunload, clipboard event) a handler is running for, which its `preventDefault()` command prevents
 let wasm = null, memory = null, inputReady = false, inputHandlers;
 // Native modules (LLP 1024 D3): a module node is its custom element, empty until the adapter and the app's module load after first paint (the browser's paint entry; two frames and a beat where it records none).
 let nativePaint = null;
@@ -552,7 +552,7 @@ function attach(el, id, handlers) {
     } else if (kind === "selectionchange") { // its part of the page's selection (navigation.js `onSelection`): kind 35, "start,end,text"
       onSelection(el, (text, a, b) => { if (views.get(id) === el && !retiredViews.has(el)) send(wasm.exact_dispatch(id, 35, writeIn(`${a},${b},${text}`), now())); });
     } else if (kind === "copy" || kind === "cut" || kind === "paste") { // the clipboard's events at the focused node, the nearest handler's (spreadsheet F4); a field's own paste proceeds
-      on(kind, e => { e.stopPropagation(); send(wasm.exact_dispatch(id, 32 + ["copy", "cut", "paste"].indexOf(kind), writeIn(e.clipboardData?.getData("text/plain") ?? ""), now())); });
+      on(kind, e => { e.stopPropagation(); const outer = keyEvent; keyEvent = e; try { send(wasm.exact_dispatch(id, 32 + ["copy", "cut", "paste"].indexOf(kind), writeIn(e.clipboardData?.getData("text/plain") ?? ""), now())); } finally { keyEvent = outer; } }); // preventDefault() cancels the default (a field's own paste; #125)
     } else if (["contextmenu", "dblclick", "wheel", "drop", "beforeunload"].includes(kind)) { // with their records (input-glue `mouse`; studio diary R22, R3, R19, R17); a running wheel or beforeunload is the event its `preventDefault()` prevents
       const go = (k, e) => inputHandlers?.mouse(el, k, e, (n, line) => { if (views.get(id) !== el || retiredViews.has(el)) return; const outer = keyEvent; keyEvent = e; try { send(wasm.exact_dispatch(id, n, writeIn(line), now())); } finally { keyEvent = outer; } });
       if (kind === "beforeunload") addEventListener(kind, e => go(kind, e)); else on(kind, e => go(kind, e));

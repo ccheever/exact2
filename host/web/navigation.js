@@ -51,12 +51,17 @@ function historyURL(path) {
 }
 const stamp = (index, op) => ({ exact: index, id: op.top, url: op.url });
 
+/** The selected route's Back control (1035.001 D1: the `id` the root's `navigationBack` names), pressable or not. */
+const backControl = nav => { const route = selectedRoute(nav); return route && [...route.querySelectorAll("[id]")].find(node => node.id === nav.getAttribute("navigationBack")); };
+/** Press the Back control; else why it was not pressed. */
 function pressBack(nav) {
-  const route = selectedRoute(nav);
-  if (!route || ["modal", "fullscreen"].includes(route.getAttribute("navigationPresentation")) && route.getAttribute("closedby") === "none") return;
-  const control = [...route.querySelectorAll("[id]")].find(node => node.id === nav.getAttribute("navigationBack"));
-  if (control && !control.matches(":disabled") && !control.closest("[inert]")
-      && control.getClientRects().length && getComputedStyle(control).visibility === "visible") control.click();
+  const route = selectedRoute(nav), control = backControl(nav);
+  if (!route) return "no route is selected";
+  if (["modal", "fullscreen"].includes(route.getAttribute("navigationPresentation")) && route.getAttribute("closedby") === "none") return `route ${route.getAttribute("navigationKey")} is closedby="none"`;
+  if (!control) return `route ${route.getAttribute("navigationKey")} has no id="${nav.getAttribute("navigationBack")}" control`;
+  if (control.matches(":disabled") || control.closest("[inert]") || !control.getClientRects().length || getComputedStyle(control).visibility !== "visible")
+    return `its id="${control.id}" control is disabled, inert or not shown`;
+  control.click();
 }
 
 function go(to, from, finish = () => {}) {
@@ -103,11 +108,16 @@ function popped({ j, state, url }) {
   const target = owned ? entry.url : url;
   const nav = root.querySelector("[navigationBack]");
   const routes = routesOf(nav), selected = routes.indexOf(selectedRoute(nav));
-  const back = owned && j === cursor - 1 && selected > 0
+  // A completed pop presses the selected route's Back control. A route with
+  // none (a screen with no Back button) still goes back, as the web's Back
+  // does: the root's `navigate` with the entry's URL, as any other traversal.
+  const beneath = owned && j === cursor - 1 && selected > 0
     && routes[selected - 1].getAttribute("navigationKey") === String(entry.id);
+  const back = beneath && !!backControl(nav);
+  let why = null;
   pop = {};
   try {
-    if (back) pressBack(nav);
+    if (back) why = pressBack(nav);
     else navigate(target);
     const accepted = back ? last?.top === entry.id : pop.op?.url === target;
     if (accepted) {
@@ -123,8 +133,8 @@ function popped({ j, state, url }) {
         commit(op);
       }
     } else {
-      if (back) log("history: Back refused; restoring the entry");
-      else log(`history: navigate ${JSON.stringify(target)} refused; restoring the entry`);
+      if (back) log(`history: Back refused: ${why ?? `pressing the Back control did not select entry ${entry.id}`}; restoring the entry`);
+      else log(`history: ${beneath ? `Back to ${JSON.stringify(target)} refused: route ${nav.getAttribute("navigationKey")} has no id="${nav.getAttribute("navigationBack")}" control, and` : `navigate ${JSON.stringify(target)} refused:`} the navigation root's navigate handler (navigate=…) committed no router change, or the root has none; restoring the entry`);
       if (j !== null && j !== cursor) go(cursor, j);
       else history.replaceState(written[cursor], "", historyURL(written[cursor].url));
     }
@@ -273,7 +283,7 @@ export function afterPaintPieces(load, o) {
   const queue = [];
   const start = () => loading ??= Promise.all([load('./collection-glue.js', 'collectionGlue'), load('./motion-glue.js', 'motionGlue'), load('./group-glue.js', 'groupGlue')])
     .then(([c, m, g]) => {
-      const common = { views: o.views, now: o.now, generation: o.generation, inert: o.inert, applyBatch: o.applyBatch, ready: o.ready };
+      const common = { views: o.views, now: o.now, generation: o.generation, inert: o.inert, applyBatch: o.applyBatch, ready: o.ready, log: o.log };
       const request = facts => o.wasm('exact_motion', m.motionBytes(facts)) ?? { accepted: false };
       const collections = c.collectionController({ root: o.root, views: o.views, agent: !!o.agent?.(), settled: () => arrange.commit(), report(bytes) {
         const batch = o.wasm('exact_collection_feedback', bytes);
@@ -1142,6 +1152,8 @@ export function grantOrigins(memory) {
   } };
 }
 
+// grant admission: begin — self-contained; the JS target's build (host/web-js/build.mjs) moves these lines into a module of
+// their own, so a page that admits nothing before a lazy chunk does not carry them; the wasm host keeps them here (boot.mjs).
 // Match only the sealed, typed output of exact-runner's Rust grant parser.
 // App code is the page, so this is parity admission rather than a sandbox.
 const INVALID_GRANTS = 'the grant set was not validated';
@@ -1373,6 +1385,7 @@ export function coversPath(set, capability, path) {
   const target = grantPathParts(path), kind = ({ 'fs.read': 'fs-read', 'fs.write': 'fs-write', 'sqlite.open': 'sqlite-open' })[capability];
   return !!target && set.entries.some(([, , grant]) => grant?.[0] === kind && grant.slice(1).every((part, index) => target[index] === part));
 }
+// grant admission: end
 
 // `selectionchange` on a `text` (the reader diary), on both web targets: its
 // part of the page's selection, reported as the text and its UTF-16 start and

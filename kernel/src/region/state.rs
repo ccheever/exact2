@@ -305,7 +305,10 @@ impl RegionState {
         // Split waits nonfatally when external A+B still own both tokens: no C
         // facts/request/geometry, but shell and retained selection still publish.
         let next_accepted = if admitted && !already_current && self.pending.is_none() {
-            self.advance(arena, origin, offer, inputs)?
+            // Height-free facts are SplitFacts': the default profile keeps
+            // one retained artifact per exact offer.
+            let height_free = self.profile == RegionProfile::SplitFacts && measurer.height_free();
+            self.advance(arena, origin, offer, inputs, height_free)?
         } else {
             None
         };
@@ -389,6 +392,7 @@ impl RegionState {
         origin: Frame,
         offer: Offer,
         inputs: RegionInputs,
+        height_free: bool,
     ) -> Result<Option<Rc<RegionPublication>>, LayoutError> {
         let b = self.binding;
         let ticket = self.ticket.as_ref().expect("admitted ticket").clone();
@@ -401,14 +405,17 @@ impl RegionState {
                 true,
             )?;
             candidate.constrain_owner(arena, b.owner.index, origin);
+            let facts = Arc::get_mut(&mut self.facts).expect("unpublished candidate facts");
+            facts.height_free = height_free;
             let mut latch = Candidate {
                 ticket: ticket.clone(),
                 profile: self.profile,
                 lease: self.lease.clone(),
                 ready: &mut self.ready,
-                facts: Arc::get_mut(&mut self.facts).expect("unpublished candidate facts"),
+                facts,
                 accepted: self.accepted.as_deref(),
                 catalog: inputs.catalog,
+                height_free,
                 missing: None,
                 refused: None,
             };
@@ -480,9 +487,15 @@ impl RegionState {
                 let source = self.facts.sources[fact.source as usize].clone();
                 self.pending = Some(RegionTextRequest(Arc::new(RequestData {
                     ticket,
+                    // A final owner paints at its width under a max-content
+                    // height (`paint_offers`); a height-free fact may have
+                    // been measured under another height.
                     key: TextKey {
                         stamp: source.stamp.clone(),
-                        offer: fact.offer,
+                        offer: Offer {
+                            width: fact.offer.width,
+                            height: crate::AxisOffer::MaxContent,
+                        },
                     },
                     catalog: inputs.catalog,
                     source,
@@ -519,6 +532,8 @@ struct Candidate<'a> {
     facts: &'a mut FactSet,
     accepted: Option<&'a RegionPublication>,
     catalog: u64,
+    /// The installed measurer's `height_free`: facts answer every height at a width.
+    height_free: bool,
     missing: Option<RegionTextRequest>,
     refused: Option<&'static str>,
 }
@@ -532,6 +547,9 @@ impl Candidate<'_> {
     }
 }
 impl TextMeasurer for Candidate<'_> {
+    fn height_free(&self) -> bool {
+        self.height_free
+    }
     fn measure(&mut self, _: &TextMeasureRequest<'_>) -> TextMetrics {
         self.refused = Some("exact-offer/source budget exhausted");
         TextMetrics::default()

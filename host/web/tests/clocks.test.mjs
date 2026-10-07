@@ -35,7 +35,7 @@ const page = `<style>@keyframes pulse { from { opacity: 0.4 } to { opacity: 1 } 
 check('pulses that mount apart share a phase, and a resumed one rejoins it', async () => {
   const server = createServer((req, res) => {
     if (req.url === '/') { res.writeHead(200, { 'content-type': 'text/html' }); res.end(page); return; }
-    res.writeHead(200, { 'content-type': 'text/javascript' }); res.end(readFileSync(resolve(WEB, 'navigation.js')));
+    res.writeHead(200, { 'content-type': 'text/javascript' }); res.end(readFileSync(resolve(WEB, req.url === '/grant-admission.js' ? 'grant-admission.js' : 'navigation.js'))); // navigation.js re-exports the grant admission
   });
   await new Promise((ok) => server.listen(0, '127.0.0.1', ok));
   const profile = mkdtempSync(resolve(tmpdir(), 'exact-clocks-'));

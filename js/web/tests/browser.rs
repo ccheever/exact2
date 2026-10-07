@@ -150,7 +150,7 @@ fn grant_sets() -> String {
         "net.fetch https://fixture.exact.test\n",
         "secret.keep dpop\n",
         "net.fetch https://api.castle.xyz\nsecret.keep castle.session\n",
-        "fs.read app:/data\nfs.write app:/data\nsqlite.open app:/data/notes.db\nnet.fetch https://example.test\nsecret.keep session\n",
+        "fs.read app:/data\nfs.write app:/data\nfs.read doc:/\nfs.write doc:/\nsqlite.open app:/data/notes.db\nnet.fetch https://example.test\nsecret.keep session\n",
         "fs.read app:/\nfs.write app:/\nsqlite.open app:/data",
         "fs.read app:/data/move\nfs.write app:/data/move",
         "fs.read app:/data",
@@ -290,7 +290,7 @@ try {
     const checkpoint=async result=>{for(let i=0;result.continuation&&i<20;i++)result=await run(result.continuation);return result;};
     const oldDate=Date, oldNow=Date.now, oldRandom=Math.random;
     const guest=document.createElement('iframe');document.getElementById('exact-root').append(guest);
-    const guestBox=guest.getBoundingClientRect(), pageHeight=document.documentElement.scrollHeight;
+    const guestBox=guest.getBoundingClientRect();
     if(guestBox.width!==300||guestBox.height!==150)throw new Error('guest iframe lost its 300x150 box');
     const guestDate=guest.contentWindow.Date;
     const identity=admit({appId:'test.browser.module',grants:'secret.keep token'});
@@ -327,7 +327,14 @@ try {
     const module = await prepare(loaded,identity);
     const privateFrames=[...document.querySelectorAll('iframe')].filter(frame=>frame!==guest);
     if(privateFrames.length!==1||privateFrames.some(frame=>frame.getClientRects().length))throw new Error('private module iframe participates in layout');
-    if(document.documentElement.scrollHeight!==pageHeight)throw new Error('private module grew document scroll height');
+    // The private frames' own share of the page's height, measured at once: the page with them and without
+    // them (display:none). The height at the guest's creation is no baseline; the page's own content may
+    // still be growing (the check failed 1 run in 4 that way).
+    const withFrames=document.documentElement.scrollHeight;
+    for(const frame of privateFrames)frame.style.setProperty('display','none');
+    const withoutFrames=document.documentElement.scrollHeight;
+    for(const frame of privateFrames)frame.style.removeProperty('display');
+    if(withFrames!==withoutFrames)throw new Error(`private module grew document scroll height (${withoutFrames} to ${withFrames})`);
     const answer=(source,args=[])=>call({op:'answer',id:module.id,source,args,store:[['token','old']],grants:['token']});
     const results=[];
     for(const name of ['alias','random','constructor','intl'])results.push(await checkpoint(answer(name)));
@@ -402,8 +409,12 @@ try {
     // D2b: under the agent (a loopback page with `?agent`) a realm draws the
     // seed's repeatable stream, the bytes Hermes draws; outside it, the OS's.
     const pageUrl=location.href;
+    // The seed is the launch URL's (its navigation entry, 18d0dec29), not the
+    // route's: stand in that entry as well as the location.
+    const entries=performance.getEntriesByType;
     const agentRun=async(query,placement)=>{
       history.replaceState(null,'',query);
+      performance.getEntriesByType=type=>type==='navigation'?[{name:new URL(query,location.origin).href}]:entries.call(performance,type);
       try{
         const realm=await prepare(await payload(fixtures.entropy,entropyIdentity),{...entropyIdentity,placement});
         const ask=(source,args=[])=>{
@@ -415,7 +426,7 @@ try {
         if(!first.entropy||!bytes.entropy)throw new Error(`${placement}: an agent draw is still a read`);
         realm.dispose();
         return [first.value,bytes.value,second.value].join(' ');
-      } finally {history.replaceState(null,'',pageUrl);}
+      } finally {history.replaceState(null,'',pageUrl);performance.getEntriesByType=entries;}
     };
     for(const placement of ['main','worker']){
       const seeded=await agentRun('/?agent=1&seed=1',placement);
@@ -552,7 +563,9 @@ try {
       constructor(...args){super(...args);workersCreated++;}
       terminate(){workersTerminated++;return super.terminate();}
     };
-    const storageIdentity=admit({appId:'dev.exact.storage-test',grants:'fs.read app:/data\nfs.write app:/data\nsqlite.open app:/data/notes.db\nnet.fetch https://example.test\nsecret.keep session\n'});
+    // The fixture's own grants (js/tests/fixtures/storage.ts, js/tests/it/storage.rs GRANTS): its module declares
+    // them, and admission refuses a module whose declaration differs from the admitted one.
+    const storageIdentity=admit({appId:'dev.exact.storage-test',grants:'fs.read app:/data\nfs.write app:/data\nfs.read doc:/\nfs.write doc:/\nsqlite.open app:/data/notes.db\nnet.fetch https://example.test\nsecret.keep session\n'});
     const beforeStorage=(await indexedDB.databases()).length;
     let storage=await prepare(await payload(fixtures.storage,storageIdentity),storageIdentity);
     if((await indexedDB.databases()).length!==beforeStorage)throw new Error('prepare opened storage');
@@ -613,16 +626,30 @@ try {
     storage=await prepare(await payload(fixtures.storage.replaceAll(storageIdentity.appId,secondIdentity.appId),secondIdentity),secondIdentity);
     if(await storageCall('list')!=='')throw new Error('app storage isolation');
     storage.dispose();
-    history.replaceState(null,'','/?agent=1');
-    storage=await prepare(await payload(fixtures.storage,storageIdentity),storageIdentity);
-    if(!(await storageCall('bake')).includes('unavailable in agent mode'))throw new Error('agent mode disk access');
-    storage.dispose();history.replaceState(null,'','/');
+    // Agent mode is the launch URL's (its navigation entry, 18d0dec29), which a
+    // router's replaceState cannot change: stand in that entry, as the storage
+    // service test does (f6072f214).
+    const navigationEntries=performance.getEntriesByType;
+    performance.getEntriesByType=type=>type==='navigation'?[{name:location.origin+'/?agent=1'}]:navigationEntries.call(performance,type);
+    try {
+      storage=await prepare(await payload(fixtures.storage,storageIdentity),storageIdentity);
+      if(!(await storageCall('bake')).includes('unavailable in agent mode'))throw new Error('agent mode disk access');
+      storage.dispose();
+    } finally {performance.getEntriesByType=navigationEntries;}
     const abandonedSource=`let invocation=0;globalThis.exact={abi:1,appId:'dev.exact.storage-test',grants:${JSON.stringify(storageIdentity.grants)},answer(source,args,store,storage){
       if(invocation++===0){void storage.fs.stat('app:/data').then(()=>store.set('session','orphan'));throw new Error('abandoned');}
       return storage.fs.stat('app:/data').then(()=>({text:'current'}));}};`;
+    // LLP 1097 D7: an abandoned call's storage is the background's, and an answer queued behind it parks until a
+    // background round delivers it, as the runner's background ticket runs one: start the answer, run the rounds
+    // while the background holds the queue's head, then take the answer.
+    const drained=async(realm,source,args,store,grants)=>{
+      const answer=invoke(realm,source,args,store,grants);
+      for(let round=0;round<20&&call({op:'background',id:realm.id}).head;round++)await run(call({op:'background-round',id:realm.id}).token);
+      return answer;
+    };
     const abandoned=await prepare(await payload(abandonedSource,storageIdentity),storageIdentity);
     const first=await invoke(abandoned,'work',[],[],['session']);
-    const next=await invoke(abandoned,'work',[],[],['session']);
+    const next=await drained(abandoned,'work',[],[],['session']);
     if(first.tag!==2||next.value?.text!=='current'||next.writes.length)throw new Error('abandoned completion entered another invocation');
     abandoned.dispose();
     const abandonedOpenSource=`let invocation=0;globalThis.exact={abi:1,appId:'dev.exact.storage-test',grants:${JSON.stringify(storageIdentity.grants)},answer(source,args,store,storage){
@@ -633,7 +660,7 @@ try {
     if((await invoke(abandonedOpen,'work',[],[],['session'])).tag!==2)throw new Error('open abandonment fixture');
     let released=false;
     for(let attempt=0;attempt<20&&!released;attempt++){
-      const result=await invoke(abandonedOpen,'work',[],[],['session']);
+      const result=await drained(abandonedOpen,'work',[],[],['session']);
       if(result.writes.length)throw new Error('abandoned open ran app callback');
       released=result.value?.text==='current';
     }
@@ -1105,10 +1132,13 @@ try {
     check(typeof narrow.error==='string','narrow source cannot borrow sibling filesystem grant');
     const widened=await request('fs.mkdir',{path:'app:/cache/no'},'fs.write app:/');
     check(widened.error?.includes('exceeds'),'scope cannot exceed admitted grants');
-    history.replaceState(null,'','/?agent=1');
     // A page opened under the agent ('?agent', no scratch store named) gets no
-    // storage; the store is chosen when the service is made, not per request.
-    const agent=createStorageRequests(identity.appId,identity.grantSet);history.replaceState(null,'','/');
+    // storage; the store is chosen when the service is made, not per request,
+    // from the URL the page was opened at (its navigation entry, 18d0dec29), so
+    // a router's replaceState cannot change it: stand in that entry.
+    const entries=performance.getEntriesByType;
+    performance.getEntriesByType=type=>type==='navigation'?[{name:location.origin+'/?agent=1'}]:entries.call(performance,type);
+    const agent=createStorageRequests(identity.appId,identity.grantSet);performance.getEntriesByType=entries;
     check(JSON.parse(decoder.decode(await agent.run(JSON.stringify({version:1,op:'fs.readFile',args:{path}})))).error?.includes('unavailable in agent mode'),'agent mode withholds portable storage');agent.dispose();
     check(typeof (await request('fs.atomicWriteFile',{path:'app:/data/backups/../escape',text:'deny'})).error==='string','traversal refused');
     const binary='app:/data/backups/binary';await request('fs.atomicWriteFile',{path:binary,bytes:[0,255]});

@@ -1,6 +1,7 @@
 // The Apple iframe arm: WebKit stays in this dylib, loaded at the first
 // iframe commit (@ref LLP 1020 D2/D3). The presenters see only its C ABI.
 import Foundation
+import UniformTypeIdentifiers
 import WebKit
 
 #if os(macOS)
@@ -55,7 +56,8 @@ private final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelega
     let world = WKContentWorld.world(name: "exact.agent")
     let webView: WKWebView
     var src: String?
-    var suppliedDocument: String?
+    /// A local `src`'s bytes, as the host read them (`exact_web_set_document`).
+    var suppliedDocument: Data?
     var sandbox: String?
     var srcInitialized = false
     var sandboxInitialized = false
@@ -215,6 +217,10 @@ private final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelega
         guestFrame = nil
         serving = true
         revoked = false
+        if error == nil, let file = src.flatMap(localFile) {
+            serveFile(file.0, type: file.1)
+            return
+        }
         let local = error.map(errorDocument) ?? src.flatMap(localDocument)
         let remote = local == nil ? src.flatMap(remoteSource) : nil
         let web = remote.flatMap(URL.init(string:)).flatMap { ["http", "https"].contains($0.scheme?.lowercased() ?? "") ? $0 : nil }
@@ -252,6 +258,23 @@ private final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelega
         let response = HTTPURLResponse(url: wrapperURL, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: headers)!
         webView.loadSimulatedRequest(URLRequest(url: wrapperURL, cachePolicy: .reloadIgnoringLocalCacheData),
                                      response: response, responseData: Data((local ?? "").utf8))
+    }
+
+    /// A local file that is not text (a PDF, an image) is the web view's
+    /// own document under its content type, as Chrome shows such
+    /// a frame by the type its server sent: WebKit's PDF view for a PDF, not
+    /// its bytes as HTML text (#115, @ref LLP 1020 §10).
+    func serveFile(_ bytes: Data, type: String) {
+        let url = URL(string: "\(WebArm.localOrigin)/frame/\(id)/index.html")!
+        wrapperURL = url
+        localGuest = true
+        direct = true
+        setPageBridge(false)
+        expectedOrigin = guestOrigin(remote: nil, local: true)
+        var headers = ["Content-Type": type.hasPrefix("text/") ? "\(type); charset=utf-8" : type]
+        if let sandbox { headers["Content-Security-Policy"] = "sandbox \(sandbox)" }
+        let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: headers)!
+        webView.loadSimulatedRequest(URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData), response: response, responseData: bytes)
     }
 
     /// Whether a document's viewport `<meta>` asks for the device width at
@@ -351,11 +374,28 @@ private final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelega
         return text.replacingOccurrences(of: "<", with: "\\u003c")
     }
 
+    /// A local `src` whose file type is not text: its bytes and content type.
+    /// Text (HTML, XHTML, XML, plain text) keeps the box-width document an
+    /// iOS frame needs (`fitsItsBox`); no extension, or an unknown type, too.
+    func localFile(_ source: String) -> (Data, String)? {
+        let path = source.split(separator: "?", maxSplits: 1, omittingEmptySubsequences: false)[0]
+            .split(separator: "#", maxSplits: 1, omittingEmptySubsequences: false)[0]
+        let ext = (String(path) as NSString).pathExtension
+        guard !ext.isEmpty, let file = UTType(filenameExtension: ext), !file.conforms(to: .text),
+              let type = file.preferredMIMEType?.lowercased(), let bytes = localBytes(source) else { return nil }
+        return (bytes, type)
+    }
+
     func localDocument(_ source: String) -> String? {
+        localBytes(source).map { String(decoding: $0, as: UTF8.self) }
+    }
+
+    func localBytes(_ source: String) -> Data? {
         if let suppliedDocument { return suppliedDocument }
         // Hosted http(s) decks keep their URL. A scheme-less src — including
         // `URL(string:)` returning nil for a leading-dot relative path — is a
-        // file under EXACT_ASSETS, inlined as srcdoc. Query and fragment
+        // file under EXACT_ASSETS: an HTML one inlined as srcdoc, another
+        // served under its type. Query and fragment
         // are URL metadata, not part of the filesystem path.
         if let scheme = URL(string: source)?.scheme?.lowercased(),
            scheme == "http" || scheme == "https" || scheme == "data" || scheme == "about" || scheme == "blob" {
@@ -374,7 +414,7 @@ private final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelega
         let file = base.appendingPathComponent(String(relative))
             .resolvingSymlinksInPath().standardizedFileURL
         guard file.path == root || file.path.hasPrefix(root.hasSuffix("/") ? root : root + "/") else { return nil }
-        return try? String(contentsOf: file, encoding: .utf8)
+        return try? Data(contentsOf: file)
     }
 
     /// What most likely refused a bundled page's sub-resource. The page sees
@@ -604,7 +644,7 @@ public func exactWebSetSrc(_ handle: UnsafeMutableRawPointer?, _ bytes: UnsafePo
 
 @_cdecl("exact_web_set_document")
 public func exactWebSetDocument(_ handle: UnsafeMutableRawPointer?, _ bytes: UnsafePointer<UInt8>?, _ length: UInt32, _ present: UInt32) {
-    arm(handle)?.suppliedDocument = present == 0 ? nil : String(decoding: UnsafeBufferPointer(start: bytes, count: Int(length)), as: UTF8.self)
+    arm(handle)?.suppliedDocument = present == 0 ? nil : Data(UnsafeBufferPointer(start: bytes, count: Int(length)))
 }
 
 @_cdecl("exact_web_set_sandbox")
