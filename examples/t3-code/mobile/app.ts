@@ -1,3 +1,9 @@
+import { mobileReviewColors } from './review-colors';
+import { mobileReviewRead, mobileReviewSnapshot, mobileReviewAction } from './review-data';
+import { mobileFilesRead, mobileFilesSnapshot, mobileFilesAction, mobileFileRead, mobileFileSnapshot } from './file-data';
+import { MOBILE_SERVER_ROUTES, mobileServerSettings, mobileServerSettingsCommand } from './settings-server';
+import { settingsProviderNative, mobileProviderAccounts, mobileProviderAccountsSnapshot, mobileProviderCommand, mobileProviderField } from './settings-provider';
+import { mobileMediaPrepare, mobileMediaShare, mobileMediaForget } from './media-preview';
 import { mobileComposerAttachmentAction, mobileComposerAttachments, mobileComposerAttachmentPreviews } from './composer-attachments';
 // @ref llp/1106.003-pairing-and-transport.decision.md#decision
 import { mobileClient, mobileSnapshot, mobileCommand, mobilePairingFields } from './client';
@@ -20,6 +26,38 @@ export const appId = 'com.exact.t3code.ios';
 export const grants = 'device.camera purpose.camera';
 
 export function answer(source: string, args: unknown[], _store?: unknown, storage?: Files, native?: Native | null) {
+  if (native) native = settingsProviderNative(native);
+  if (source === 'reviewColors') return mobileReviewColors(String(args[0]), String(args[1]));
+  if (source === 'reviewSnapshot') return mobileReviewSnapshot(args[0] === 'dark', mobileClient, args[1] === true);
+  if (source === 'reviewPrepare') return mobileReviewRead(native, String(args[0] ?? ''), args[1] === 'dark');
+  if (source === 'reviewAction') return mobileReviewAction(String(args[0]), String(args[1]), String(args[2]), String(args[3]), Number(args[4]), native, storage!, args[5] === 'dark');
+  if (source === 'filesSnapshot') return mobileFilesSnapshot(String(args[0] ?? ''));
+  if (source === 'filesPrepare') return mobileFilesRead(String(args[0] ?? ''), String(args[1] ?? ''), native);
+  if (source === 'filesAction') return mobileFilesAction(String(args[0]), String(args[1]), String(args[2]), String(args[3] ?? ''), native);
+  if (source === 'fileSnapshot') return mobileFileSnapshot(String(args[0] ?? ''), args[1] === 'dark', Number(args[2] ?? 0));
+  if (source === 'filePrepare') return mobileFileRead(String(args[0] ?? ''), native, args[1] === 'dark', Number(args[2] ?? 0), args[3] === true);
+  if (source === 'serverSettings') return mobileServerSettings(MOBILE_SERVER_ROUTES[String(args[0])] ?? 'new-threads', String(args[1]), args[2] === true ? native : null);
+  if (source === 'serverSettingChange') return mobileServerSettingsCommand(MOBILE_SERVER_ROUTES[String(args[0])] ?? 'new-threads', String(args[1]), String(args[2]), String(args[3]), native);
+  if (source === 'providerSnapshot') {
+    const snapshot = mobileProviderAccountsSnapshot(String(args[0]), args[1] === true);
+    return snapshot.ready || !obj(args[2]).error ? snapshot : args[2];
+  }
+  if (source === 'providerAccounts') return mobileProviderAccounts(String(args[0]), args[1] === true, native, native?.available === true);
+  if (source === 'providerAction') return mobileProviderCommand(String(args[0]), String(args[1]), String(args[2]), native);
+  if (source === 'providerField') return mobileProviderField(String(args[0]), String(args[1]), String(args[2]));
+  if (source === 'mediaPreview') {
+    if (args[5] !== true) return { identifier: '', name: '', kind: '', sourceJSON: '', ready: false, error: '' };
+    return mobileMediaPrepare(String(args[0] ?? ''), String(args[1] ?? ''), String(args[2] ?? ''), native, mobileClient, String(args[3] ?? ''), String(args[4] ?? ''));
+  }
+  if (source === 'mediaCompletion') {
+    let value: Record<string, unknown> = {};
+    try { value = obj(JSON.parse(String(args[0] ?? ''))); } catch { /* Ignore malformed or stale native events. */ }
+    const identifier = String(value.identifier ?? '');
+    if (!identifier || identifier !== args[1]) return { identifier: '', message: '' };
+    mobileMediaForget(identifier);
+    return { identifier, message: String(value.message ?? '') };
+  }
+  if (source === 'shareMedia') return mobileMediaShare(String(args[0] ?? ''), String(args[1] ?? ''), String(args[2] ?? ''), native);
   if (source === 'attachmentAction') return mobileComposerAttachmentAction(String(args[0] ?? 'menu'), String(args[1] ?? ''), native, storage!);
   if (source === 'composerAttachments') return mobileComposerAttachmentPreviews(native).then(() => mobileComposerAttachments());
   if (source === 'preferences') return mobilePreferencesResource(native);
@@ -29,7 +67,7 @@ export function answer(source: string, args: unknown[], _store?: unknown, storag
     const preferences = normalizeMobilePreferences(args[0]);
     const resolved = resolveMobileAppearance(preferences, String(args[1] ?? 'light'));
     return { scheme: resolved.scheme, themeId: resolved.themeId, baseFontSize: resolved.baseFontSize,
-      themeMode: preferences.themeMode, groupingMode: preferences.projectGroupingMode };
+      themeMode: preferences.themeMode, enterBehavior: preferences.composerEnterBehavior, groupingMode: preferences.projectGroupingMode };
   }
   if (source === 'settingsRoot') return settingsRoot(args);
   if (source === 'settingsScopeEvent') return settingsScopeEvent(args);

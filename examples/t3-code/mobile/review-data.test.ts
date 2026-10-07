@@ -1,0 +1,106 @@
+import { describe, expect, test } from 'bun:test';
+import { T3Client } from './shared/client';
+import { obj, type Obj } from './shared/domain';
+import type { Native, Files } from './shared/protocol';
+import { messageContext } from './shared/composer-editor';
+import { mobileReviewRead, mobileReviewAction, mobileReviewSnapshot } from './review-data';
+import { reviewPatch, reviewSuppression } from './review-model';
+
+const patch = (path = 'src/a.ts') => `diff --git a/${path} b/${path}\n--- a/${path}\n+++ b/${path}\n@@ -1,2 +1,2 @@\n const before = 1;\n-old\n+new\n`;
+function fixture() {
+  const client = new T3Client(); client.origin = 'https://example.test'; client.environmentId = 'one'; client.projectId = 'p'; client.threadId = 't';
+  client.connection = 'connected'; client.configLive = true; client.shellLive = true; client.threadLive = true; client.generation = 3;
+  client.shell.projects = [{ id: 'p', title: 'Project', workspaceRoot: '/repo' }]; client.shell.threads = [{ id: 't', projectId: 'p' }];
+  client.thread = { sequence: 1, hasMore: false, historyCursor: null, latestLocalTurnOrdinal: null,
+    projection: { thread: { id: 't' }, checkpoints: [
+      { runId: 'r1', appRunOrdinal: 1, status: 'ready', files: [{ path: 'a' }] },
+      { runId: 'r2', appRunOrdinal: 2, status: 'missing', files: [] },
+      { runId: 'r3', appRunOrdinal: 3, status: 'ready', files: [] }], runs: [] } };
+  const calls: Obj[] = []; let hook: ((request: Obj) => unknown) | undefined;
+  const native: Native = { available: true, watch() {}, async later(input) {
+    const request = obj(input); calls.push(request); const custom = hook?.(request);
+    if (custom !== undefined) return await custom;
+    const value = request.op === 'http' ? { authenticated: true, permissions: ['filesystem:read'] }
+      : request.method === 'review.getDiffPreview' ? { cwd: '/repo', sources: [{ kind: 'working-tree', title: 'Uncommitted', diff: '' }, { kind: 'branch-range', title: 'Changes', baseRef: 'main', headRef: 'feature', diffHash: 'a', diff: patch() }] }
+      : request.method === 'orchestration.getTurnDiff' ? { diff: patch('turn.ts') } : {};
+    return { ok: true, generation: client.generation, value };
+  } };
+  const storage: Files = { fs: { async mkdir() {}, async readFile() { return new ArrayBuffer(0); }, async atomicWriteFile() {} } };
+  return { client, calls, native, storage, hook(fn: typeof hook) { hook = fn; } };
+}
+const read = (f: ReturnType<typeof fixture>, section = '', refresh = false) => mobileReviewRead(f.native, section, false, refresh, f.client);
+const act = (f: ReturnType<typeof fixture>, op: string, id = '', value = '', n = 0, owner = mobileReviewSnapshot(false, f.client).owner) => mobileReviewAction(owner, op, id, value, n, f.native, f.storage, false, f.client);
+
+describe('mobile review source rules and real shared RPC ownership', () => {
+  test('Changes default, ready checkpoints only, source labels, and turn whitespace retained', async () => {
+    const f = fixture(), view = await read(f);
+    expect(view.sections.map(row => row.id)).toEqual(['turn:3', 'turn:1', 'git:working-tree', 'git:branch-range']);
+    expect(view.sectionId).toBe('git:branch-range'); expect(view.subtitle).toBe('main ... feature');
+    expect(view.files.map(row => row.path)).toEqual(['src/a.ts']); expect(view.rows.filter(row => row.kind === 'line')).toHaveLength(3);
+    expect(view.additions).toBe(1); expect(view.deletions).toBe(1);
+    expect((await read(f, 'turn:1')).files[0]?.path).toBe('turn.ts');
+    expect(f.calls.find(call => call.method === 'orchestration.getTurnDiff')?.payload).toEqual({ threadId: 't', fromTurnCount: 0, toTurnCount: 1, ignoreWhitespace: false });
+  });
+  test('explicit permission denial removes cached host diffs, still permits ready turn RPC', async () => {
+    const f = fixture(); await read(f);
+    f.hook(request => request.op === 'http' ? { ok: true, generation: 3, value: { authenticated: true, permissions: [], scopes: ['filesystem:read'] } } : undefined);
+    f.calls.length = 0; const denied = await read(f);
+    expect(denied.sections.map(row => row.id)).toEqual(['turn:3', 'turn:1']);
+    expect(denied.files[0]?.path).toBe('turn.ts'); expect(f.calls.some(call => call.method === 'review.getDiffPreview')).toBe(false);
+  });
+  test('three lazy files keep server order; visible file requests next two; counts use metadata', async () => {
+    const f = fixture(), paths = ['z.ts', 'a.ts', 'm.ts', 'b.ts', 'q.ts'];
+    f.hook(request => {
+      if (request.method !== 'review.getDiffPreview') return;
+      const file = obj(obj(request.payload).file);
+      return { ok: true, generation: 3, value: { cwd: '/repo', sources: [{ kind: 'branch-range', title: 'Changes', diffHash: 'large', truncated: !file.path,
+        files: paths.map(path => ({ path, previousPath: null, additions: 10, deletions: 2 })), diff: file.path ? patch(String(file.path)) : patch('z.ts') }] } };
+    });
+    const view = await read(f); expect(view.files.map(file => file.path)).toEqual(paths); expect(view.additions).toBe(50);
+    expect(f.calls.filter(call => obj(obj(call.payload).file).path).map(call => obj(obj(call.payload).file).path)).toEqual(paths.slice(0, 3));
+    await act(f, 'visible', 'm.ts');
+    expect(f.calls.filter(call => obj(obj(call.payload).file).path).map(call => obj(obj(call.payload).file).path)).toEqual(paths);
+  });
+  test('stale response cannot replace newly selected workspace or mutate its draft', async () => {
+    const f = fixture(); let release!: (value: unknown) => void;
+    const gate = new Promise(resolve => { release = resolve; }); let started!: () => void;
+    const begun = new Promise<void>(resolve => { started = resolve; });
+    f.hook(request => { if (request.method === 'review.getDiffPreview') { started(); return gate; } });
+    const pending = read(f); await begun; f.client.threadId = 'other'; f.client.threadEpoch++;
+    release({ ok: true, generation: 3, value: { cwd: '/repo', sources: [{ kind: 'branch-range', diff: patch('old.ts') }] } });
+    await expect(pending).rejects.toMatchObject({ kind: 'superseded' });
+    expect(mobileReviewSnapshot(false, f.client).error).toBe('');
+  });
+  test('line comment carries real selected patch into the shared outbound message context', async () => {
+    const f = fixture(); const view = await read(f);
+    await act(f, 'range-start', 'src/a.ts', '', 1); await act(f, 'extend', 'src/a.ts', '', 2); await act(f, 'comment');
+    expect((await act(f, 'save', '', 'Please explain this change')).message).toBe('');
+    expect(f.client.draft).toContain('t3-context://v1/review-comment/');
+    const records = obj(messageContext(f.client, f.client.draft)).records as Obj[];
+    expect(records).toHaveLength(1); expect(records[0]).toMatchObject({ sectionId: 'git:branch-range', filePath: 'src/a.ts', text: 'Please explain this change', diff: '@@ -2,1 +2,1 @@\n-old\n+new' });
+    expect(f.calls.some(call => call.op === 'editorInsert' || call.method === 'orchestration.dispatchCommand')).toBe(false);
+    expect((await act(f, 'delete-comment', String(records[0]!.contextId))).message).toBe(''); expect(f.client.draft.trim()).toBe('');
+    f.client.threadId = 'other'; await expect(act(f, 'save', '', 'Wrong thread', 0, view.owner)).rejects.toMatchObject({ kind: 'superseded' });
+    expect(f.client.draft).toBe('');
+  });
+  test('large/non-text suppression and raw/truncated fallback use pinned boundaries', () => {
+    const file = reviewPatch(patch()).files[0]!;
+    expect(reviewSuppression(file)).toBe(''); expect(reviewSuppression({ ...file, path: 'image.png' })).toBe('non-text');
+    file.hunks[0]!.lines = Array.from({ length: 401 }, (_, n) => ({ kind: 'addition', text: 'x', old: 0, next: n + 1 }));
+    expect(reviewSuppression(file)).toBe('large');
+    expect(reviewPatch('unexpected\n[truncated]').notice).toContain('server size cap');
+    expect(reviewPatch('unexpected').rawReason).toBe('Unsupported diff format. Showing raw patch.');
+  });
+  test('inactive snapshot skips projection, unchanged active snapshot retains row/token objects', async () => {
+    const f = fixture(); const first = await read(f); f.client.revision++;
+    expect(mobileReviewSnapshot(false, f.client).rows).toBe(first.rows);
+    expect(mobileReviewSnapshot(false, f.client, false).rows).toEqual([]);
+    await act(f, 'line', 'src/a.ts', '', 0);
+    expect(mobileReviewSnapshot(false, f.client).commentOpen).toBe(true);
+    await act(f, 'cancel');
+    await act(f, 'range-start', 'src/a.ts', '', 1);
+    expect(mobileReviewSnapshot(false, f.client)).toMatchObject({ selectionTitle: 'Select range end', commentOpen: false, canComment: false });
+    await act(f, 'line', 'src/a.ts', '', 2);
+    expect(mobileReviewSnapshot(false, f.client)).toMatchObject({ commentOpen: false, canComment: true });
+  });
+});

@@ -35,7 +35,8 @@
     "t3-layout-facts",
     "t3-archive-spinner",
     "t3-settings-slider",
-    "t3-settings-header"
+    "t3-settings-header",
+    "t3-media-presenter"
   ],
   "data": [
     "mobile-form-sheet",

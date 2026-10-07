@@ -1,0 +1,110 @@
+// @ref llp/1106.002-design-system-parity.spec.md#typography-and-font-assets
+// Pinned SettingsProviderAccountsRouteScreen; actual auth interactions only.
+use SettingsColors, SettingsTextRoles, SettingsSectionLabel from "./settings.contract"
+shape ProviderSettingsField
+  name: string
+  label: string
+  secret: bool
+  value: string
+  limit: number
+shape ProviderSettingsAction
+  op: string
+  value: string
+  label: string
+  icon: string
+  disabled: bool
+  danger: bool
+  inline: bool
+  loading: bool
+shape ProviderSettingsAccount
+  key: string
+  label: string
+  disabled: bool
+  pending: bool
+  message: string
+  email: string
+  emailAction: string
+  deviceCode: string
+  output: string
+  error: string
+  logoutTitle: string
+  logoutMessage: string
+  fields: list<ProviderSettingsField>
+  actions: list<ProviderSettingsAction>
+shape ProviderSettingsSection
+  key: string
+  title: string
+  emptyMessage: string
+  accounts: list<ProviderSettingsAccount>
+shape ProviderSettingsData
+  ready: bool
+  error: string
+  emptyMessage: string
+  sections: list<ProviderSettingsSection>
+component SettingsProviderAccounts
+  props
+    data: ProviderSettingsData
+    colors: SettingsColors
+    roles: SettingsTextRoles
+    danger: string
+    bottom: number
+    action: action
+    field: action
+    signOut: action
+  view
+    scroll id="settings-provider-scroll" flex=1 min-height=0 background-color=colors.sheet
+      column gap=21 padding-left=17.5 padding-right=17.5 padding-top=14 padding-bottom=bottom font-family="DM Sans" testId="settings-provider-accounts"
+        when length(data.error) > 0
+          text data.error role="alert" color=danger font-size=roles.body.size line-height=`${roles.body.line}px`
+        when length(data.emptyMessage) > 0
+          text data.emptyMessage color=colors.muted font-size=roles.body.size line-height=`${roles.body.line}px`
+        each section in data.sections key=section.key
+          column gap=7
+            SettingsSectionLabel(title=section.title, colors=colors, roles=roles)
+            column border-radius=24 overflow="hidden" background-color=colors.grouped
+              when length(section.emptyMessage) > 0
+                text section.emptyMessage padding=14 color=colors.muted font-size=roles.body.size line-height=`${roles.body.line}px`
+              each account in section.accounts key=account.key
+                column border-bottom-width=1 border-bottom-style="solid" border-bottom-color=colors.borderSubtle
+                  column gap=7 padding=14
+                    text account.label font-size=roles.headline.size line-height=`${roles.headline.line}px` font-weight=600 color=colors.foreground
+                    text account.message aria-live="polite" font-size=roles.footnote.size line-height=`${roles.footnote.line}px` color=colors.muted
+                    when length(account.email) > 0
+                      button press=action("reveal", account.key, "") min-height=44 padding=0 text-align="left" aria-label=account.emailAction
+                        text account.email font-size=roles.footnote.size line-height=`${roles.footnote.line}px` color=colors.muted
+                    when length(account.deviceCode) > 0
+                      text account.deviceCode font-size=roles.body.size line-height=`${roles.body.line}px` color=colors.foreground
+                    when length(account.output) > 0
+                      scroll max-height=224
+                        text account.output font-family="Menlo" font-size=roles.footnote.size line-height=`${roles.footnote.line}px` color=colors.foreground
+                    each entry in account.fields key=entry.name
+                      input type=(entry.secret ? "password" : "text") value=entry.value input=field(account.key, entry.name) disabled=account.disabled maxlength=entry.limit placeholder=entry.label aria-label=entry.label autocapitalize="none" autocomplete="off" border-radius=7 border-width=1 border-style="solid" border-color=colors.borderSubtle padding-left=10.5 padding-right=10.5 padding-top=7 padding-bottom=7 font-family="DM Sans" font-size=roles.body.size line-height=`${roles.body.line}px` color=colors.foreground background-color="transparent"
+                    each item in account.actions key=`inline:${item.op}:${item.value}`
+                      when item.inline
+                        SettingsProviderAction(item=item, account=account, colors=colors, roles=roles, danger=danger, action=action, signOut=signOut)
+                    when length(account.error) > 0
+                      text account.error role="alert" font-size=roles.body.size line-height=`${roles.body.line}px` color=danger
+                  each item in account.actions key=`${item.op}:${item.value}`
+                    when not item.inline
+                      SettingsProviderAction(item=item, account=account, colors=colors, roles=roles, danger=danger, action=action, signOut=signOut)
+component SettingsProviderAction
+  props
+    item: ProviderSettingsAction
+    account: ProviderSettingsAccount
+    colors: SettingsColors
+    roles: SettingsTextRoles
+    danger: string
+    action: action
+    signOut: action
+  action press()
+    if item.op == "logout"
+      signOut(account.key, account.logoutTitle, account.logoutMessage)
+    else
+      action(item.op, account.key, item.value)
+  view
+    button press=press disabled=item.disabled padding=0 aria-label=item.label
+      row gap=14 padding=14 align-items="center" opacity=(item.disabled ? 0.4 : 1)
+        t3-symbol symbol-name=item.icon point-size=22 symbol-weight="regular" symbol-tint=(item.danger ? danger : colors.icon) width=22 height=22
+        text item.label flex=1 text-align="left" color=(item.danger ? danger : colors.foreground) font-size=roles.headline.size line-height=`${roles.headline.line}px`
+        when item.loading
+          t3-archive-spinner spinner-tint=colors.icon width=20 height=20

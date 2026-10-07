@@ -7,6 +7,9 @@ final class T3MobileModule: ExactModule {
     override class var views: [String: ExactNativeFactory] { ["t3-symbol": T3SymbolView.factory, "t3-qr-scanner": T3QRScanner.factory,
         "t3-layout-facts": T3LayoutFacts.factory,
         "t3-archive-spinner": T3ArchiveSpinner.factory,
+        "t3-media-presenter": ExactNativeFactory(for: T3MobileModule.self) { module, props, events in
+            try module.media.makeView(props: props, events: events)
+        },
         "t3-settings-slider": T3SettingsSlider.factory,
         "t3-settings-header": ExactNativeFactory(for: T3MobileModule.self) { module, props, events in
             try module.settingsNavigation.makeView(props: props, events: events)
@@ -22,12 +25,14 @@ final class T3MobileModule: ExactModule {
     let settingsNavigation = T3SettingsNavigation()
     private let alerts = T3MobileAlerts()
     private let releases = T3ReleasePages()
+    let media: T3MobileMedia
     private let attachments: T3MobileAttachments
     private let homePreferences: T3MobilePreferences
 
     required init(context: ExactModuleContext) {
         T3MobileIdentity.configure()
         let directory = T3Storage.dataRoot(agent: context.agent, contextData: context.data)
+        media = T3MobileMedia(dataRoot: directory)
         attachments = T3MobileAttachments(dataRoot: directory, agent: context.agent)
         homePreferences = T3MobilePreferences(directory: directory, changed: { context.changed("t3.mobile-preferences") })
         let credentials = T3Credentials(persistent: !context.agent)
@@ -60,6 +65,8 @@ final class T3MobileModule: ExactModule {
         switch request["op"] as? String {
         case "mobileHomePreferences", "mobileToggleShelf", "mobilePreferences", "mobilePreferencesPatch":
             homePreferences.perform(request, reply: reply)
+        case "mobileMediaShare":
+            media.perform(request) { reply.send($0) }
         case "mobileAttachmentSource", "composerAttachPick", "composerAttachRead", "composerAttachRemove", "snapshotDraftRead", "snapshotDraftRemove", "mobileAttachmentPreview":
             attachments.perform(request) { reply.send($0) }
         case "uploadAttachment":
@@ -77,6 +84,8 @@ final class T3MobileModule: ExactModule {
             let kind = request["kind"] as? String ?? "info"
             let buttons: [(String, String, UIAlertAction.Style)] = kind == "remove"
                 ? [("cancel", "Cancel", .cancel), ("remove", "Remove", .destructive)]
+                : kind == "sign-out"
+                    ? [("cancel", "Cancel", .cancel), ("sign-out", "Sign out", .destructive)]
                 : kind == "delete"
                     ? [("cancel", "Cancel", .cancel), ("delete", "Delete", .destructive)]
                 : kind == "update"
@@ -93,13 +102,16 @@ final class T3MobileModule: ExactModule {
                 }
             } catch { reply.fail(String(describing: error)) }
         case "devicePresentation":
-            let mode = request["appearanceMode"] as? String ?? "system"
-            let style: UIUserInterfaceStyle = mode == "dark" ? .dark : mode == "light" ? .light : .unspecified
-            for scene in UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }) {
-                for window in scene.windows { window.overrideUserInterfaceStyle = style }
-            }
-            // Desktop root-font, screenshot and quit settings have no corresponding mobile control.
-            answer()
+            do {
+                // Shared desktop commands also send this op. Device mobile preferences own appearance.
+                let preferences = try homePreferences.request(["op": "mobilePreferences"])
+                let mode = preferences["themeMode"] as? String ?? "system"
+                let style: UIUserInterfaceStyle = mode == "dark" ? .dark : mode == "light" ? .light : .unspecified
+                for scene in UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }) {
+                    for window in scene.windows { window.overrideUserInterfaceStyle = style }
+                }
+                answer()
+            } catch { reply.fail(String(describing: error)) }
         case "sidebarNotify":
             let delay = request["delay"] as? Double ?? 0
             guard delay.isFinite, delay >= 0 else { reply.fail("The notification delay is invalid."); return }
@@ -108,6 +120,15 @@ final class T3MobileModule: ExactModule {
                 guard let self, self.alive else { return }; self.context.changed("t3.status")
             }
             answer()
+        case "mobileOpenURL":
+            guard !context.agent else { reply.fail("External links are unavailable in an agent session."); return }
+            guard let text = request["url"] as? String, let url = URL(string: text),
+                  ["https", "http"].contains(url.scheme?.lowercased() ?? ""), url.host != nil else {
+                reply.fail("Choose a valid web address."); return
+            }
+            UIApplication.shared.open(url) { opened in
+                if opened { answer(["opened": true]) } else { reply.fail("The web address could not be opened.") }
+            }
         case "copyText":
             guard let text = request["text"] as? String else { reply.fail("copyText requires text."); return }
             if !context.agent { UIPasteboard.general.string = text }
@@ -119,6 +140,7 @@ final class T3MobileModule: ExactModule {
 
     override func destroy() {
         alive = false
+        media.destroy()
         attachments.destroy()
         alerts.destroy()
         releases.destroy()
@@ -132,7 +154,8 @@ final class T3MobileModule: ExactModule {
 import Foundation
 final class T3MobileModule: ExactModule {
     override class var views: [String: ExactNativeFactory] {
-        ["t3-settings-slider": ExactNativeFactory { _, _ in throw ExactNativeRefusal("T3 Code mobile requires iOS") },
+        ["t3-media-presenter": ExactNativeFactory { _, _ in throw ExactNativeRefusal("T3 Code mobile requires iOS") },
+         "t3-settings-slider": ExactNativeFactory { _, _ in throw ExactNativeRefusal("T3 Code mobile requires iOS") },
          "t3-settings-header": ExactNativeFactory { _, _ in throw ExactNativeRefusal("T3 Code mobile requires iOS") },
          "t3-archive-spinner": ExactNativeFactory { _, _ in throw ExactNativeRefusal("T3 Code mobile requires iOS") },
          "t3-symbol": ExactNativeFactory { _, _ in throw ExactNativeRefusal("T3 Code mobile requires iOS") },

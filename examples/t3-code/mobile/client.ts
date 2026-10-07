@@ -1,6 +1,7 @@
 // upstream 365aa87982 mobile pairing.ts and connection/platform.ts; shared reducers remain unchanged.
 // @ref llp/1106.003-pairing-and-transport.decision.md#mobile-adaptations
 import { T3Client } from './shared/client';
+import { applyMobileComposerBehavior, mobileSend } from './composer-behavior';
 import { mobileDraftChanged } from './draft';
 import { decodePrefs, environmentSources, machineKind, savedStatus } from './shared/connections';
 import { connectionRouteAddress, connectionRouteKind, connectionRouteLabel, gitHubRoutingConnectionKey, hasRelayRoute } from './shared/connection-routes';
@@ -93,10 +94,11 @@ export async function mobileSnapshot(nativeInput: Native | null | undefined, sup
   let focusedStatus = {}, savedCatalog = fleet.saved, preferencesText = '{}', routingReady = false;
   if (native?.available) {
     try {
-      const [status, catalog, preferences] = await Promise.all([
+      const [status, catalog, preferences, mobilePreferences] = await Promise.all([
         bridgeReply(native, { op: 'status' }), bridgeReply(native, { op: 'environments' }),
-        bridgeReply(native, { op: 'connectionPreferences' }),
+        bridgeReply(native, { op: 'connectionPreferences' }), bridgeReply(native, { op: 'mobilePreferences' }),
       ]);
+      if (mobilePreferences.ok) applyMobileComposerBehavior(mobileClient, mobilePreferences.value);
       if (status.ok) focusedStatus = obj(status.value);
       if (catalog.ok) savedCatalog = arr(obj(catalog.value).saved);
       if (preferences.ok) preferencesText = str(obj(preferences.value).text, '{}');
@@ -136,6 +138,7 @@ export async function mobileCommand(args: unknown[], nativeInput: Native | null 
   const { native, storage } = answerHandles(nativeInput, suppliedStorage);
   if (!native?.available) return { revision: mobileClient.revision, message: 'Open T3 Code on your iPhone or iPad to connect.' };
   let op = str(args[0]), id = str(args[1]), value = str(args[2]);
+  if (op === 'send' || op === 'send-alternate') return mobileSend(mobileClient, op === 'send-alternate', native, storage);
   if (op === 'draft') return mobileDraftChanged(mobileClient, value, native, storage);
   if (op === 'environment-reconnect') {
     try {

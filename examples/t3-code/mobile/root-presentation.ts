@@ -5,6 +5,7 @@ import { mobileSettingsScope, settingsRootView, settingsHeaderConfiguration, dec
 import { arr, obj, str } from './shared/domain';
 import { fleet } from './shared/settings-b-fleet';
 import { mobileClient } from './client';
+import { MOBILE_SERVER_ROUTES } from './settings-server';
 import { mobileHomeChrome, decodeHomeChromeEvent } from './home-chrome';
 
 export function mobileLayoutFacts(input: string) {
@@ -43,9 +44,16 @@ export function settingsRoot(args: unknown[]) {
   const appearance = resolveMobileAppearance(preferences, str(systemScheme));
   const scope = settingsScope(rows, selectionJSON, preferences.projectGroupingMode);
   return { root: settingsRootView({ savedEnvironmentCount: arr(rows).length,
-    enabledRoutes: ['SettingsEnvironments', 'SettingsAppearance', 'SettingsKeyboard', 'SettingsFollowUp', 'SettingsOrganization', 'SettingsArchive'],
+    enabledRoutes: ['SettingsEnvironments', 'SettingsAppearance', 'SettingsKeyboard', 'SettingsFollowUp', 'SettingsOrganization', 'SettingsArchive', 'SettingsProviderAccounts', ...Object.keys(MOBILE_SERVER_ROUTES)],
     scope, preferences, scheme: appearance.scheme, themeId: appearance.themeId, safeBottom: Number(safeBottom) || 0 }),
-    header: settingsHeaderConfiguration(str(routeKey), true, scope) };
+    header: settingsHeaderConfiguration(str(routeKey), true, scope),
+    environmentIds: JSON.stringify(scope.selected.map(environment => environment.environmentId)),
+    serverScope: JSON.stringify({ environmentIds: scope.scoped.map(environment => environment.environmentId),
+      members: scope.selection.projectKey ? scope.scoped.flatMap(environment =>
+        (scope.projects.find(project => project.key === scope.selection.projectKey)?.projectKeys ?? [])
+          .filter(key => key.startsWith(`${environment.environmentId}:`))
+          .map(key => ({ environmentId: environment.environmentId, id: key.slice(environment.environmentId.length + 1) }))) : null,
+      projectLabel: scope.projectLabel }) };
 }
 function settingsScope(rows: unknown, selectionJSON: unknown, groupingMode: string) {
   let selection: SettingsScopeSelection = { environmentIds: null, projectKey: '' };
