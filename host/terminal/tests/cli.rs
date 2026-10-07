@@ -76,8 +76,8 @@ fn a_verb_that_cannot_do_its_work_fails() {
     }
 }
 
-/// A bare field in a terminal entry is one row with a fill, no border
-/// (LLP 1101.002 §0 P7), and a disabled one is faint.
+/// A native field in a terminal entry is one row with a host-painted fill,
+/// no border (LLP 1104 D7), and a disabled one is faint.
 #[test]
 fn a_terminal_field_is_a_filled_row() {
     let (ok, out, err) = run("field", &["print"]);
@@ -98,10 +98,73 @@ fn a_terminal_field_is_a_filled_row() {
     );
     assert!(ok, "{err}");
     let ans = std::fs::read_to_string(&shot).unwrap();
-    // The fill: #303030 behind the placeholder.
+    // The host's fill: #303030 behind the placeholder, without compiled rows.
     assert!(ans.contains("48;2;48;48;48"), "{ans:?}");
     let before = &ans[..ans.find("locked").unwrap()];
     let sgr = &before[before.rfind("\x1b[").unwrap()..];
     let params: Vec<&str> = sgr[2..sgr.find('m').unwrap()].split(';').collect();
     assert!(params[..2].contains(&"2"), "not faint: {sgr:?}");
+}
+
+#[test]
+fn native_cell_look_keeps_bare_fields_and_authored_ink() {
+    use exact_terminal::{
+        grid::Rgb,
+        host::{Host, Mode},
+    };
+    let plan = contract::compile_path_terminal(&entry("look")).unwrap();
+    let host = Host::boot(plan, (), Mode::Fullscreen, 40, 12).unwrap();
+    assert!(host.kernel().env().control_text_styles.is_none());
+    let field = host
+        .kernel()
+        .node_by_key(host.kernel().find_by_test_id("field")[0])
+        .unwrap();
+    assert!(!field.style.mask.has(exact_kernel::StyleId::BackgroundColor));
+    assert_eq!(host.kernel().provisional_layouts(), 0);
+
+    let plan = contract::compile(
+        r##"component App
+  view
+    column color="#ff0000"
+      input width="10ch" value="native" testId="native"
+      input width="10ch" value="authored" color="#00ff00"
+      input width="10ch" value="bare" appearance="none" disabled=true
+      textarea width="10ch" rows=2 value="two\nlines"
+"##,
+    )
+    .unwrap();
+    let mut host = Host::boot(plan, (), Mode::Fullscreen, 40, 12).unwrap();
+    for dark in [false, true] {
+        host.dark = dark;
+        let painted = host.render(0, 12);
+        let grid = &painted.grid;
+        let fill = if dark {
+            Rgb(48, 48, 48)
+        } else {
+            Rgb(228, 228, 228)
+        };
+        let ink = if dark {
+            Rgb(255, 255, 255)
+        } else {
+            Rgb(0, 0, 0)
+        };
+        assert_eq!(grid.cell(0, 0).style.fg, Some(ink));
+        assert_eq!(
+            grid.cell(9, 0).style.bg,
+            Some(fill),
+            "empty cells have fill"
+        );
+        assert_eq!(grid.cell(0, 1).style.fg, Some(Rgb(0, 255, 0)));
+        assert_eq!(grid.cell(0, 2).style.fg, Some(Rgb(255, 0, 0)));
+        assert_eq!(grid.cell(0, 2).style.bg, None);
+        assert!(
+            !grid.cell(0, 2).style.faint,
+            "bare disabled paint stays authored"
+        );
+        assert_eq!(
+            grid.cell(9, 4).style.bg,
+            Some(fill),
+            "textarea's second row"
+        );
+    }
 }

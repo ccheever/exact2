@@ -98,9 +98,8 @@ impl super::Painter {
             .fill(&Shape::rect((x, y, 1.0, line)), color, ts);
     }
 
-    /// A field in its default look, focused: a two-point ring in the accent
-    /// colour over its border box's edge (LLP 1104 D4), where the web draws
-    /// its `:focus-visible` ring.
+    /// A native field's painted focus: a two-point ring in the accent
+    /// colour over its chrome's edge (LLP 1104 D6–D7).
     pub(super) fn field_ring(&mut self, outer: &Shape, accent: [u8; 4], ts: Transform) {
         for part in super::border::border_fills(outer, [2.0; 4], [accent; 4]) {
             self.backend.fill_border(&part, ts);

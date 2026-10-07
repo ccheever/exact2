@@ -167,7 +167,17 @@ fn node(
     let visible =
         n.computed_row(exact_kernel::StyleId::Visibility, |s| s.visibility) == Visibility::Visible;
     let current = n.text_color();
+    let native_field =
+        n.node_type == NodeType::TextInput && n.style.appearance == exact_kernel::Appearance::Auto;
     if visible {
+        if native_field {
+            let fill = if scene.dark {
+                Rgb(48, 48, 48)
+            } else {
+                Rgb(228, 228, 228)
+            };
+            out.grid.fill(rect, clip, fill);
+        }
         if let Some(bg) = n
             .style
             .background_color
@@ -180,11 +190,16 @@ fn node(
     }
     let [bt, br, bb, bl] = n.style.border_widths_in(&scene.env);
     let (pl, pt, pr, pb) = kernel.resolved_padding(n.key).unwrap_or_default();
-    let content = cells(
-        f.x - dx + bl + pl,
-        f.y - dy + bt + pt,
-        f.width - bl - br - pl - pr,
-        f.height - bt - bb - pt - pb,
+    let content = n.field_content_rect().map_or_else(
+        || {
+            cells(
+                f.x - dx + bl + pl,
+                f.y - dy + bt + pt,
+                f.width - bl - br - pl - pr,
+                f.height - bt - bb - pt - pb,
+            )
+        },
+        |c| cells(f.x - dx + c.x, f.y - dy + c.y, c.width, c.height),
     );
     if matches!(
         n.node_type,
@@ -374,13 +389,16 @@ fn base_style(scene: &Scene<'_>, n: &NodeRef<'_>, current: ColorValue) -> Style 
     }
 }
 
-/// Whether the node or a box around it is see-through (`opacity` under 1,
-/// as a disabled field's sheet sets): a cell has no alpha, so its text is
-/// faint instead.
+/// A cell has no alpha: a see-through box's text, or a native disabled
+/// field, is faint instead (LLP 1104 D7).
 fn faded(kernel: &Kernel, id: ViewId) -> bool {
     let mut at = kernel.node(id);
     while let Some(n) = at {
-        if n.style.opacity < 1.0 {
+        if n.style.opacity < 1.0
+            || (n.node_type == NodeType::TextInput
+                && n.style.appearance == exact_kernel::Appearance::Auto
+                && n.props.bool(PropId::Disabled) == Some(true))
+        {
             return true;
         }
         at = n.parent.and_then(|p| kernel.node(p));
@@ -568,6 +586,15 @@ fn field(
     let focused = scene.focus == Some(n.id);
     let multiline = n.props.str(PropId::SemanticTag) == Some("textarea");
     let mut style = base_style(scene, n, current);
+    if n.style.appearance == exact_kernel::Appearance::Auto
+        && !n.style.mask.has(exact_kernel::StyleId::TextColor)
+    {
+        style.fg = Some(if scene.dark {
+            Rgb(255, 255, 255)
+        } else {
+            Rgb(0, 0, 0)
+        });
+    }
     let placeholder = value.is_empty();
     let shown = if placeholder {
         style.faint = true;
