@@ -4,7 +4,7 @@
 // — against a running app on either host, from one script, with the clock in
 // the driver's hands: nothing moves between two calls unless a call moved it.
 //
-// Usage:  bun scripts/agent.mjs <web|macos|ios|linux|host|host-ios> [--browser chrome|firefox|webkit] [--plan <file>] [--world <file>] [--url <page>] [--session <label>] [--open <document> …] [--size <w>x<h>] [--json] <op> [<op> …]
+// Usage:  bun scripts/agent.mjs <web|macos|ios|linux|android|host|host-ios> [--browser chrome|firefox|webkit] [--plan <file>] [--world <file>] [--url <page>] [--session <label>] [--open <document> …] [--size <w>x<h>] [--json] <op> [<op> …]
 //   Web defaults to Chrome; EXACT_WEB_BROWSER selects the same option. Install
 //   the other engines with: bunx playwright@1.63.0 install firefox webkit
 //   tree | layout | state | logs | screenshot <png> [window] | screenshot <png|apng> over <ms> every <ms> | screenshot <path> <canvas> save
@@ -52,7 +52,7 @@ export { cdpKey, browserKey, nativeKey, typeFor, ticketOf, holdOf, heldTicket, t
 import { appleArtifacts, assertAppleIdentity, bundleId, install } from '../host/apple/build.mjs';
 import { crashReports, developmentLaunchEnvironment, phone, phoneBridge, showSimulator, simulator } from '../host/apple/devices.mjs';
 import { builtAppMatches, jsTargetBuild, serveBuildTree, serveStatic } from '../host/web/serve.mjs';
-import { bakeOutput, bakeTarget, executableName, linuxBinary, linuxBuild, resolveApp, webDist as defaultWebDist } from './app.mjs';
+import { bakeOutput, bakeTarget, executableName, linuxBinary, linuxBuild, resolveApp, webDist as defaultWebDist } from './app.mjs'; import { androidBinary, androidBuild, androidDeploy } from './agent-android.mjs';
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // A completed operation must release its deadline too, so an otherwise closed
@@ -575,22 +575,22 @@ const bootRefusal = (error) => 'the app booted with an error: ' + error +
 /** One JSON-lines protocol over stdio on desktop hosts, or a phone's outbound socket. */
 async function openStdio({ host, plan, world, size, app, env: extra = {}, session, documents = [], device = false, phone: pick, onProcess }) {
   const a = resolveApp(app);
-  const linux = host === 'linux';
-  const windows = host === 'windows', portable = linux || windows;
+  const linux = host === 'linux', android = host === 'android'; // @ref LLP 1107 — Android: the Linux host on a phone, under adb
+  const windows = host === 'windows', portable = linux || windows || android;
   const sample = host === 'host';
   const artifacts = portable ? null : appleArtifacts(a, { destination: device ? 'ios' : 'macos', host: sample });
   const deviceBundle = artifacts?.bundle;
   const bin = windows ? (process.env.EXACT_WINDOWS_BIN ?? resolve(a.dir, 'dist-windows', `${executableName(a)}.exe`))
-    : linux ? (process.env.EXACT_LINUX_BIN ?? linuxBinary(a)) : (process.env.EXACT_MAC_BIN ?? artifacts.binary);
-  if (!existsSync(device ? deviceBundle : bin)) throw new Error(device ? 'run bun host/apple/build.mjs --device first' : windows ? 'run bun host/windows/build.mjs first' : linux ? `run ${linuxBuild(a).join(' ')} first` : sample ? 'run bun host/apple/build.mjs --host first' : `run ${ownAppleBuild(a, 'mac') ?? `bun host/apple/build.mjs ${a.crate('apple')}`} first`);
+    : android ? (process.env.EXACT_ANDROID_BIN ?? androidBinary(a)) : linux ? (process.env.EXACT_LINUX_BIN ?? linuxBinary(a)) : (process.env.EXACT_MAC_BIN ?? artifacts.binary);
+  if (!existsSync(device ? deviceBundle : bin)) throw new Error(device ? 'run bun host/apple/build.mjs --device first' : windows ? 'run bun host/windows/build.mjs first' : android ? `run bun scripts/agent-android.mjs build ${a.name} first` : linux ? `run ${linuxBuild(a).join(' ')} first` : sample ? 'run bun host/apple/build.mjs --host first' : `run ${ownAppleBuild(a, 'mac') ?? `bun host/apple/build.mjs ${a.crate('apple')}`} first`);
   if (!portable) assertAppleIdentity(a, device ? resolve(deviceBundle, artifacts.executable) : bin);
   if (windows && process.env.EXACT_WINDOWS_BIN) unchecked('windows', 'EXACT_WINDOWS_BIN');
   else if (windows) {
     const receipt = resolve(bakeOutput(a), `windows-${bakeTarget('windows')}.build.json`);
     refuseStale('windows', bin, packagedBuildChanges(receipt, dirname(bin), a), `bun host/windows/build.mjs ${a.crate('windows')}`);
   }
-  else if (linux && process.env.EXACT_LINUX_BIN) unchecked('linux', 'EXACT_LINUX_BIN');
-  else if (linux) refuseStale('linux', bin, depInfoChanges(bin), linuxBuild(a).join(' '));
+  else if ((linux && process.env.EXACT_LINUX_BIN) || (android && process.env.EXACT_ANDROID_BIN)) unchecked(host, android ? 'EXACT_ANDROID_BIN' : 'EXACT_LINUX_BIN');
+  else if (linux || android) refuseStale(host, bin, depInfoChanges(bin), android ? `bun scripts/agent-android.mjs build ${a.name}` : linuxBuild(a).join(' '));
   else if (!device && process.env.EXACT_MAC_BIN) unchecked(host, 'EXACT_MAC_BIN');
   else if (!device) {
     const receipt = [resolve(bin, '..', 'receipt.json'), resolve(deviceBundle, 'Contents/Resources/receipt.json')].find(existsSync);
@@ -608,7 +608,7 @@ async function openStdio({ host, plan, world, size, app, env: extra = {}, sessio
       extra = { ...extra, EXACT_WORLD: '~/tmp/exact-agent.world' };
     }
   }
-  const env = { EXACT_ASSETS: windows ? dirname(bin) : linux ? a.dir : artifacts.capture, ...process.env, EXACT_AGENT: '1' };
+  const env = { EXACT_ASSETS: windows ? dirname(bin) : linux || android ? a.dir : artifacts.capture, ...process.env, EXACT_AGENT: '1' };
   if (plan) env.EXACT_PLAN = plan;
   if (portable && size) env.EXACT_SIZE = `${size[0]}x${size[1]}`;
   // @ref LLP 1039 §5 — measure the requested Mac content viewport.
@@ -623,12 +623,12 @@ async function openStdio({ host, plan, world, size, app, env: extra = {}, sessio
     env.EXACT_FONT ??= 'DejaVu Sans';
   }
   Object.assign(env, extra);
-  const bridge = device ? await phoneBridge() : null;
+  const bridge = device ? await phoneBridge() : null, droid = android ? androidDeploy(a, bin, { ...env, ...extra }) : null;
   const launched = Date.now(); let closing = false;
   const child = device
     ? spawn('xcrun', ['devicectl', 'device', 'process', 'launch', '--quiet', '--console', '--terminate-existing', '--device', ph.udid,
         '--environment-variables', JSON.stringify({ ...(size ? { EXACT_WINDOW_WIDTH: env.EXACT_WINDOW_WIDTH, EXACT_WINDOW_HEIGHT: env.EXACT_WINDOW_HEIGHT } : {}), ...extra, EXACT_AGENT: '1', ...bridge.env }), a.id], { stdio: ['pipe', 'pipe', 'pipe'] })
-    : spawn(bin, portable && env.EXACT_LAUNCH_URL ? [env.EXACT_LAUNCH_URL] : documents, { env, stdio: ['pipe', 'pipe', 'pipe'], windowsHide:true });
+    : droid ? droid.spawn() : spawn(bin, portable && env.EXACT_LAUNCH_URL ? [env.EXACT_LAUNCH_URL] : documents, { env, stdio: ['pipe', 'pipe', 'pipe'], windowsHide:true });
   onProcess?.(child);
   const hostLines = [];
   child.stderr.on('data', (d) => { for (const l of String(d).split('\n')) if (l) hostLines.push('app: ' + l); });
@@ -636,7 +636,7 @@ async function openStdio({ host, plan, world, size, app, env: extra = {}, sessio
   let lines = device ? null : jsonLines(child.stdout, child.stdin, hostLines);
   const fail = (why) => { lines?.fail(why); bridge?.fail(new Error(why)); };
   child.on('error', (e) => fail(`launch failed: ${e.message}`));
-  const exited = new Promise((r) => child.on('exit', (code, signal) => { r(code ?? signal); fail(closing ? 'the app was closed' : hangup({ what: 'the app exited', exit: { code, signal }, hostLines, reports: device ? [] : crashReports(basename(bin), launched) })); }));
+  const exited = new Promise((r) => child.on('exit', (code, signal) => { r(code ?? signal); fail(closing ? 'the app was closed' : hangup({ what: 'the app exited', exit: { code, signal }, hostLines, reports: device || droid ? [] : crashReports(basename(bin), launched) })); }));
   const close = async () => { closing = true; bridge?.close(); try { child.stdin.end(); if (device) child.kill('SIGTERM'); } catch {} await waitAtMost(exited, 2000); if (child.exitCode === null && child.signalCode === null) { try { child.kill('SIGKILL'); } catch {} } await exited; };
   let readyTimeout;
   try {
@@ -680,9 +680,10 @@ async function openStdio({ host, plan, world, size, app, env: extra = {}, sessio
         return r;
       },
       async screenshot(path, window = false) {
-        const remote = device ? `${ready.container}/tmp/exact-agent.png` : path;
+        const remote = device ? `${ready.container}/tmp/exact-agent.png` : droid ? droid.shot : path;
         const r = await ask({ op: 'screenshot', path: remote, window });
         if (r.error) throw new Error(r.error);
+        if (droid) { droid.pull(path); r.screenshot = path; }
         if (device) {
           const copied = spawnSync('xcrun', ['devicectl', 'device', 'copy', 'from', '--quiet', '--device', ph.udid,
             '--domain-type', 'appDataContainer', '--domain-identifier', a.id, '--source', 'tmp/exact-agent.png', '--destination', resolve(path)], { encoding: 'utf8', timeout: 20000 });
@@ -891,7 +892,7 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
     : host === 'macos' || host === 'mac' ? await openStdio({ host: 'macos', plan, size: size ?? VIEWPORT, env, app, session, documents, onProcess })
     : host === 'host' ? await openStdio({ host: 'host', plan, env, app, session, onProcess })
     : host === 'host-ios' ? await openIOS({ plan, app, env, session, hostFixture: true, touch, onProcess })
-    : host === 'linux' ? await openStdio({ host: 'linux', plan, size: size ?? VIEWPORT, env, app, onProcess })
+    : host === 'linux' || host === 'android' ? await openStdio({ host, plan, size: size ?? VIEWPORT, env, app, onProcess })
     : host === 'windows' ? await openStdio({ host: 'windows', plan, size: size ?? VIEWPORT, env, app, onProcess })
     : host === 'ios' ? await openIOS({ plan, env, app, size, touch, onProcess })
     : await openWeb({ browser, plan, world, size, url, app, webDist, onProcess, reuse, storage, fresh: env?.EXACT_AGENT_STORAGE_FRESH === '1', facts, env, mediaClock, lineHeight });
@@ -1026,7 +1027,7 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
      * injects; it synthesizes no touch (LLP 1008 §9). */
     input: host === 'ios' || host === 'host-ios'
       ? { contact: false, hold: false, delivery: (kind) => (['contextmenu', 'dblclick', 'hover', 'pinch'].includes(kind) ? 'recognized' : ['down', 'move', 'hold', 'up', 'cancel'].includes(kind) ? 'unsupported' : (kind === 'drag' && carrier.touches || kind === 'press' && carrier.touch === 'platform') ? 'platform' : kind === 'drag' ? 'unsupported' : 'activation') }
-      : host === 'linux' || host === 'windows'
+      : host === 'linux' || host === 'windows' || host === 'android'
         ? { contact: true, hold: true, delivery: (kind) => (['down', 'move', 'hold', 'up', 'cancel', 'contextmenu', 'mouse'].includes(kind) ? 'presenter' : 'platform') }
         : { contact: true, hold: true, delivery: () => 'platform' },
     /** The contact this session holds, `{x, y}` in the viewport's space, or null. */
@@ -1052,7 +1053,7 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
       if (modifiers !== undefined && !String(modifiers).split('+').filter(Boolean).every(k => ['Shift', 'Control', 'Alt', 'Meta'].includes(k))) throw new Error(`tap … modifiers: ${modifiers} is not Shift, Control, Alt and Meta joined by +`);
       if (modifiers !== undefined && (opts.hover || opts.history !== undefined || opts.into || opts.drop || opts.pinch !== undefined)) throw new Error('modifiers are held through a press, a click, a wheel, a contact or a drag');
       if (opts.mouse) {
-        if (!['web', 'linux', 'windows', 'macos', 'mac'].includes(host)) throw new Error(`${host} does not carry explicit mouse clicks`);
+        if (!['web', 'linux', 'android', 'windows', 'macos', 'mac'].includes(host)) throw new Error(`${host} does not carry explicit mouse clicks`);
         if (node.entity !== undefined || ['contextmenu','dblclick','auxclick','clicks','down','drag','wheel','hover','pinch','history','into','gesture'].some(key => opts[key] !== undefined)) throw new Error('mouse cannot be combined with another input mode or an entity target');
       }
       if (node.entity !== undefined) {
@@ -1078,14 +1079,14 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
       // takes, so a driver must never be told it sent a gesture when it did
       // not (LLP 0382 — fail closed, loudly).
       if (opts.gesture && !(host === 'macos' || host === 'mac')) throw new Error(`${host} cannot phase a wheel; \`gesture\` is the AppKit carrier's`);
-      if ((opts.contextmenu || opts.dblclick) && !['web', 'ios', 'macos', 'mac', ...(opts.dblclick ? [] : ['linux', 'windows'])].includes(host)) throw new Error(`${host} does not carry contextmenu/dblclick input`);
+      if ((opts.contextmenu || opts.dblclick) && !['web', 'ios', 'macos', 'mac', ...(opts.dblclick ? [] : ['linux', 'android', 'windows'])].includes(host)) throw new Error(`${host} does not carry contextmenu/dblclick input`);
       if (button.length && s.contact) throw new Error(`${button[0]} requires the held contact to be released`);
       // A form this carrier cannot deliver as a hand's is answered `unsupported`, never sent as another input (#107).
       const gap = pointerGap(host, carrier.browser, opts);
       if (gap) return s.tagged({ tapped: node.id, target, delivery: 'unsupported', reason: gap, carrier: host, mode: timing });
       if ((button.length || opts.wheel) && opts.at !== undefined) {
         const form = button[0] ?? 'wheel';
-        if (!['web', 'linux', 'windows', 'macos', 'mac', 'host'].includes(host)) throw new Error(`${host} does not carry ${form} at an explicit point`);
+        if (!['web', 'linux', 'android', 'windows', 'macos', 'mac', 'host'].includes(host)) throw new Error(`${host} does not carry ${form} at an explicit point`);
         if (!Array.isArray(opts.at) || opts.at.length !== 2 || !opts.at.every(Number.isFinite)) throw new Error(`${form} at needs two finite numbers`);
         const layout = await s.layout(), b = layout.nodes.find(n => n.id === node.id), [x, y] = opts.at;
         if (!b || x < 0 || y < 0 || x >= b.w || y >= b.h) throw new Error(`${form} at must be inside the target box`);
@@ -1385,7 +1386,7 @@ async function main(argv) {
   // A trace a person's session saved (LLP 1079 D5), read back with no app running.
   if (host === 'trace' && (ops.length === 1 || (!ops.length && (flags.phone || flags.device)))) { const t = await readTrace(ops[0] ?? phoneTrace(phone(flags.phone), resolveApp(flags.app)), traceLocators); console.log(flags.json ? JSON.stringify(t) : renderTrace(t)); return 0; }
   if (!host || !ops.length) {
-    console.error('usage: bun scripts/agent.mjs <web|macos|ios|linux|host|host-ios> [--browser chrome|firefox|webkit] [--app <name>] [--plan <file> | --url <url>] [--world <file>] [--device] [--phone <name|udid>] [--session <label>] [--open <document>] [--storage <name>] [--seed <n>] [--locale <tag>] [--time-zone <zone>] [--epoch <ISO|ms>] [--timing platform] [--touch platform] [--chrome platform] [--size <w>x<h>] [--json] <op> [<op> …]\n  desktop carriers open 420x900 unless --size names another viewport; a target is a testId, a view id, or a view\'s exact label or text (`tap "Sky off"`); tap and type scroll a target out of view into it first; web defaults to chrome; EXACT_WEB_BROWSER selects the same option. Install the other engines outside the repo: bunx playwright@1.63.0 install firefox webkit\n  tree | layout | state | logs | screenshot <png> [window] | screenshot <png|apng> over <ms> every <ms> | screenshot <path> <canvas> save | tap <target> [wheel <dx> <dy> [gesture] [at <x> <y>] [modifiers <Control…>] | drop <path…> | hover | history <n> | {"history":n} | mouse | dblclick | contextmenu | auxclick (the middle button) | clicks <1-3> (each [at <x> <y>: from its top left] [modifiers <Shift+Meta…>]) | modifiers <Shift+Meta…> | pinch <scale> [at <x> <y>] | mediasession <action> [seconds] | drag <dx> <dy> [from <x> <y>] [mouse: the left button, desktop pointers] [modifiers <M>] [press <ms>] [over <ms>] [hold <ms>] [during "<op>" …: after the move, the finger down; inside the hold under --touch platform] | drag to <target> [at <x> <y>: from its top left] [same options]] | tap <target> down [at <x> <y>] [modifiers <M>], then tap move [by] <x> <y> [over <ms>] [modifiers <M>] | tap hold <ms> | tap up [modifiers <M>] | tap cancel (a word a form does not use is refused; a form a carrier cannot deliver answers unsupported) | type <target> <text…> (a select, date, time, range or checkbox: its value) | type <target> key <Name> [for <ms>] | type <target> copy | cut | paste <text…> (the clipboard event at the focus) | tap @N|@<id> <choice> | type @N|@<id> <value> | clock <ms|+ms|+ms real|settle|data> | sample <x> <y> […] | resize <w>x<h> (the window: web, macOS, Linux) | close (the window\'s close button, asking its beforeunload: web, macOS) | prefer <media feature, page fact, posture folded|continuous, segments <cols>x<rows> [gap <points>]> […] | fail fetch <url-prefix> [times <n>] | pass fetch <url-prefix> (LLP 1103: a matching fetch fails as a refused connection; --fail-fetch <url-prefix> arms one before the first data load) | perf [<target>] [during "<op>" …] | perf frames [late <n>]\n       bun scripts/agent.mjs trace <file>   (a development session\'s trace, LLP 1079 D5)\n       bun scripts/agent.mjs trace --phone <name|udid> | trace --device [--app <name>]   (a phone\'s last Save Trace, copied off it)\n       bun scripts/agent.mjs <host> --test <file.test.contract>   (LLP 1017 P7: the file\'s `test` blocks, run here)');
+    console.error('usage: bun scripts/agent.mjs <web|macos|ios|linux|android|host|host-ios> [--browser chrome|firefox|webkit] [--app <name>] [--plan <file> | --url <url>] [--world <file>] [--device] [--phone <name|udid>] [--session <label>] [--open <document>] [--storage <name>] [--seed <n>] [--locale <tag>] [--time-zone <zone>] [--epoch <ISO|ms>] [--timing platform] [--touch platform] [--chrome platform] [--size <w>x<h>] [--json] <op> [<op> …]\n  desktop carriers open 420x900 unless --size names another viewport; a target is a testId, a view id, or a view\'s exact label or text (`tap "Sky off"`); tap and type scroll a target out of view into it first; web defaults to chrome; EXACT_WEB_BROWSER selects the same option. Install the other engines outside the repo: bunx playwright@1.63.0 install firefox webkit\n  tree | layout | state | logs | screenshot <png> [window] | screenshot <png|apng> over <ms> every <ms> | screenshot <path> <canvas> save | tap <target> [wheel <dx> <dy> [gesture] [at <x> <y>] [modifiers <Control…>] | drop <path…> | hover | history <n> | {"history":n} | mouse | dblclick | contextmenu | auxclick (the middle button) | clicks <1-3> (each [at <x> <y>: from its top left] [modifiers <Shift+Meta…>]) | modifiers <Shift+Meta…> | pinch <scale> [at <x> <y>] | mediasession <action> [seconds] | drag <dx> <dy> [from <x> <y>] [mouse: the left button, desktop pointers] [modifiers <M>] [press <ms>] [over <ms>] [hold <ms>] [during "<op>" …: after the move, the finger down; inside the hold under --touch platform] | drag to <target> [at <x> <y>: from its top left] [same options]] | tap <target> down [at <x> <y>] [modifiers <M>], then tap move [by] <x> <y> [over <ms>] [modifiers <M>] | tap hold <ms> | tap up [modifiers <M>] | tap cancel (a word a form does not use is refused; a form a carrier cannot deliver answers unsupported) | type <target> <text…> (a select, date, time, range or checkbox: its value) | type <target> key <Name> [for <ms>] | type <target> copy | cut | paste <text…> (the clipboard event at the focus) | tap @N|@<id> <choice> | type @N|@<id> <value> | clock <ms|+ms|+ms real|settle|data> | sample <x> <y> […] | resize <w>x<h> (the window: web, macOS, Linux) | close (the window\'s close button, asking its beforeunload: web, macOS) | prefer <media feature, page fact, posture folded|continuous, segments <cols>x<rows> [gap <points>]> […] | fail fetch <url-prefix> [times <n>] | pass fetch <url-prefix> (LLP 1103: a matching fetch fails as a refused connection; --fail-fetch <url-prefix> arms one before the first data load) | perf [<target>] [during "<op>" …] | perf frames [late <n>]\n       bun scripts/agent.mjs trace <file>   (a development session\'s trace, LLP 1079 D5)\n       bun scripts/agent.mjs trace --phone <name|udid> | trace --device [--app <name>]   (a phone\'s last Save Trace, copied off it)\n       bun scripts/agent.mjs <host> --test <file.test.contract>   (LLP 1017 P7: the file\'s `test` blocks, run here)');
     return 2;
   }
   const s = await open({ host, browser, plan: flags.plan, world: flags.world, size: flags.size, app: flags.app, session: flags.session, documents: flags.open, url: flags.url, device: flags.device, phone: flags.phone, timing: flags.timing, touch: flags.touch, chrome: flags.chrome, storage: flags.storage, seed: flags.seed, locale: flags.locale, timeZone: flags.timeZone, epoch: flags.epoch, failFetch: flags.failFetch });
