@@ -173,3 +173,43 @@ fn disabled_native_ink_dims_but_authored_color_wins() {
         assert_eq!(red, darkest, "{name}");
     }
 }
+
+#[test]
+fn oversized_field_line_paints_at_the_kernel_baseline() {
+    let plan = contract::compile(r##"component App
+  view
+    row align-items="baseline" padding-top=60 color="red" font-size=16 line-height="80px"
+      input testId="field" value="Hg" width=100 height=40 color="red" font-size=16 line-height="80px"
+      text testId="text" "Hg"
+"##).unwrap();
+    let (mut p, error) = Presenter::boot_with(
+        &plan.encode(),
+        (),
+        (400., 200.),
+        1.,
+        std::path::PathBuf::new(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(error.is_none(), "{error:?}");
+    let field = frame(&p, "field");
+    let text = frame(&p, "text");
+    let shot = p.frame();
+    let ink_rows = |f: Frame| -> Vec<u32> {
+        (0..200)
+            .filter(|&y| {
+                (f.x as u32..(f.x + f.width) as u32).any(|x| {
+                    let c = shot.pixel(x, y).unwrap();
+                    c.red() > 100 && c.green() < 80 && c.blue() < 80
+                })
+            })
+            .collect()
+    };
+    let expected = ink_rows(text);
+    assert!(!expected.is_empty());
+    assert_eq!(
+        ink_rows(field),
+        expected,
+        "field ink and baseline-aligned text must occupy the same rows"
+    );
+}

@@ -685,7 +685,13 @@ impl Batch {
             ops + 256 + self.images.iter().map(|i| i.len() + 3).sum::<usize>(),
         );
         s.push_str("{\"ops\":[");
-        for (i, op) in self.ops.iter().enumerate() {
+        // A failed three-pass layout can retain native-region geometry staged
+        // before the miss. Publish its other updates, never guessed boxes.
+        let published = self
+            .ops
+            .iter()
+            .filter(|op| !self.layout_provisional || !layout_geometry(op));
+        for (i, op) in published.enumerate() {
             if i != 0 {
                 s.push(',');
             }
@@ -734,6 +740,23 @@ impl Batch {
         }
         s.push('}');
         s
+    }
+}
+
+/// Operation discriminators are written first by every Batch writer.
+fn layout_geometry(op: &str) -> bool {
+    let kind = op
+        .strip_prefix("{\"op\":\"")
+        .and_then(|s| s.split('"').next());
+    match kind {
+        Some(
+            "frame" | "content" | "fieldContent" | "flow" | "sticky" | "fragments" | "region"
+            | "native-region",
+        ) => true,
+        Some("present") => ["translate", "scale", "rotate", "layout", "height"]
+            .iter()
+            .any(|p| op.contains(&format!("\"property\":\"{p}\""))),
+        _ => false,
     }
 }
 

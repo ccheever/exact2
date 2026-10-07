@@ -1079,7 +1079,7 @@ impl Painter {
                     + if multiline {
                         0.0
                     } else {
-                        ((content.3 - paragraph.height) / 2.0).max(0.0)
+                        (content.3 - paragraph.height) / 2.0
                     };
                 let mut ink = if placeholder {
                     [0x75, 0x75, 0x75, 0xff]

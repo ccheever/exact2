@@ -2,6 +2,20 @@
 use super::*;
 
 impl<D: DataSource> Host<D> {
+    pub(super) fn withhold_layout(&mut self) {
+        // These geometry rows will be withheld. Force a settled retry to
+        // publish them even if the kernel's last guessed boxes compare equal.
+        self.layout_withheld = true;
+        for m in self.mirror.values_mut() {
+            m.frame = None;
+        }
+        self.pending_layout.extend(
+            self.mirror
+                .keys()
+                .filter_map(|id| self.runner.kernel().node(*id).map(|n| n.key)),
+        );
+    }
+
     pub(super) fn record_layout(&mut self, receipt: &exact_kernel::LayoutReceipt) {
         self.pending_layout
             .extend(receipt.updated.iter().chain(&receipt.flow_changed).copied());
@@ -105,7 +119,7 @@ impl<D: DataSource> Host<D> {
                 continue;
             };
             if let Some(c) = kernel.sticky_constraint(key) {
-                if self.stickies.get(&node.id) != Some(&c) {
+                if self.layout_withheld || self.stickies.get(&node.id) != Some(&c) {
                     batch.sticky(node.id, Some(&c));
                 }
                 now.insert(node.id, c);
@@ -133,7 +147,7 @@ impl<D: DataSource> Host<D> {
                 continue;
             };
             let record = crate::batch::fragments_json(kernel.fragments(key), kernel.columns(key));
-            if self.fragments.get(&node.id) != Some(&record) {
+            if self.layout_withheld || self.fragments.get(&node.id) != Some(&record) {
                 batch.fragments(node.id, &record);
             }
             now.insert(node.id, record);
@@ -183,7 +197,7 @@ impl<D: DataSource> Host<D> {
             // views drop this state with their mirror, and [] clears old ink.
             // Region-owned views still receive flow invalidation even when
             // their frames come from the selected native artifact below.
-            if m.flow != node.flow_shapes() {
+            if self.layout_withheld || m.flow != node.flow_shapes() {
                 batch.flow(id, node.flow_shapes());
                 m.flow = node.flow_shapes().to_vec();
             }
@@ -211,7 +225,9 @@ impl<D: DataSource> Host<D> {
                 }
             }
             let field_content = node.field_content_rect();
-            if m.field_content != field_content {
+            if (self.layout_withheld && node.node_type == NodeType::TextInput)
+                || m.field_content != field_content
+            {
                 m.field_content = field_content;
                 batch.field_content(id, field_content);
             }
@@ -220,7 +236,7 @@ impl<D: DataSource> Host<D> {
                 batch.frame(id, rel.0, rel.1, rel.2, rel.3);
             }
             if let Some(c) = content {
-                if m.content != Some(c) {
+                if self.layout_withheld || m.content != Some(c) {
                     m.content = Some(c);
                     batch.content(id, c.0, c.1);
                 }
@@ -233,6 +249,7 @@ impl<D: DataSource> Host<D> {
         self.snap_layout(batch);
         self.emit_sticky(batch);
         self.emit_fragments(batch);
+        self.layout_withheld = false;
         self.emit_ranks(batch);
         // Layout/receipt work may change the live window. Motion-only ticks and
         // stale feedback never traverse the tree to collect this metadata.

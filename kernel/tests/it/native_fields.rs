@@ -737,3 +737,68 @@ fn native_fields_reset_ua_rows_with_and_without_platform_fonts() {
         }
     }
 }
+
+#[test]
+fn web_and_platform_fields_resolve_relative_fonts_at_their_font_boundary() {
+    for controls in [None, env(18.0).control_text_styles] {
+        let (mut k, _) = tree(FieldChrome::default());
+        k.set_env(Env {
+            control_text_styles: controls.clone(),
+            ..Env::default()
+        })
+        .unwrap();
+        patch(&mut k, 1, &[(StyleId::FontSize, "32")]);
+        for id in [2, 5] {
+            patch(
+                &mut k,
+                id,
+                &[(StyleId::FontSize, "2em"), (StyleId::PaddingTop, "1em")],
+            );
+            let expected = controls.as_ref().map_or(64.0, |s| {
+                2.0 * if id == 2 {
+                    s.field.size
+                } else {
+                    s.textarea.size
+                }
+            });
+            assert_eq!(number(&k, id, StyleId::FontSize), expected as f64);
+            assert_eq!(
+                k.node(id).unwrap().style.padding_top,
+                Dimension::Points(expected)
+            );
+        }
+    }
+}
+
+#[test]
+fn root_font_change_relayouts_web_fields_but_preserves_platform_fonts() {
+    for controls in [None, env(18.0).control_text_styles] {
+        let (mut k, _) = tree(FieldChrome::default());
+        k.set_env(Env {
+            control_text_styles: controls.clone(),
+            ..Env::default()
+        })
+        .unwrap();
+        layout(&mut k);
+        k.set_root_font_size(24.0).unwrap();
+        let receipt = k.apply(0, 10, &[]).unwrap();
+        layout(&mut k);
+        for id in [2, 5] {
+            let expected = controls.as_ref().map_or(24.0, |s| {
+                if id == 2 {
+                    s.field.size
+                } else {
+                    s.textarea.size
+                }
+            });
+            assert_eq!(number(&k, id, StyleId::FontSize), expected as f64);
+            if controls.is_none() {
+                assert!(
+                    receipt.touched.contains(&k.node(id).unwrap().key),
+                    "root font must invalidate {id}"
+                );
+                assert_eq!(k.node(id).unwrap().frame.height, 30.0);
+            }
+        }
+    }
+}

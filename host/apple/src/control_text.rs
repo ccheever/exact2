@@ -100,7 +100,3 @@ pub(crate) fn chrome(f: FieldChromeFn, ctx: *mut c_void, r: &FieldChromeRequest)
         provisional: c.provisional != 0,
     }
 }
-
-#[cfg(test)]
-#[path = "control_text_tests.rs"]
-mod tests;

@@ -645,10 +645,12 @@ impl<D: DataSource> Host<D> {
                 let (x, y, w, h) = node.mirror.frame.ok_or("native frame not complete")?;
                 staged.frame(node.header.id, x, y, w, h);
             }
-            if old.map(|m| m.field_content).unwrap_or(None) != node.mirror.field_content {
+            if self.layout_withheld
+                || old.map(|m| m.field_content).unwrap_or(None) != node.mirror.field_content
+            {
                 staged.field_content(node.header.id, node.mirror.field_content);
             }
-            if old.is_none_or(|m| m.content != node.mirror.content) {
+            if self.layout_withheld || old.is_none_or(|m| m.content != node.mirror.content) {
                 if let Some((w, h)) = node.mirror.content {
                     staged.content(node.header.id, w, h);
                 }

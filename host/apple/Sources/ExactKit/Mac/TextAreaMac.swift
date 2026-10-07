@@ -19,19 +19,26 @@ package final class TextArea: NSTextView {
     weak var owner: NodeView?
     package var markup: MarkdownEditing?
     var nativeOrigin: NSPoint?
-    // AppKit asks the first responder for the mask. Forward the textarea's
-    // mask to its scroll view, so the ring encloses the bezel, not the text.
+    // AppKit asks the first responder for the mask: the native bezel's
+    // scroll view, or the bare node's whole authored box.
     package override var focusRingMaskBounds: NSRect {
-        guard owner?.isNativeTextControl == true, let scroll = owner?.textAreaScroll else { return super.focusRingMaskBounds }
+        guard let owner else { return super.focusRingMaskBounds }
+        if !owner.isNativeTextControl { return convert(owner.focusRingMaskBounds, from: owner) }
+        guard let scroll = owner.textAreaScroll else { return super.focusRingMaskBounds }
         return convert(scroll.bounds, from: scroll)
     }
     package override func drawFocusRingMask() {
-        guard owner?.isNativeTextControl == true, let scroll = owner?.textAreaScroll else { super.drawFocusRingMask(); return }
+        guard let owner else { super.drawFocusRingMask(); return }
+        let mask: NSView
+        if owner.isNativeTextControl {
+            guard let scroll = owner.textAreaScroll else { return }
+            mask = scroll
+        } else { mask = owner }
         NSGraphicsContext.saveGraphicsState()
-        let origin = convert(NSPoint.zero, from: scroll)
+        let origin = convert(NSPoint.zero, from: mask)
         let transform = AffineTransform(translationByX: origin.x, byY: origin.y)
         (transform as NSAffineTransform).concat()
-        scroll.drawFocusRingMask()
+        mask.drawFocusRingMask()
         NSGraphicsContext.restoreGraphicsState()
     }
     package override var textContainerOrigin: NSPoint { nativeOrigin ?? super.textContainerOrigin }
@@ -233,8 +240,8 @@ extension NodeView {
         textAreaScroll?.focusRingType = native ? .default : .none
         textAreaScroll?.drawsBackground = native
         f.drawsBackground = native
-        f.focusRingType = .default
-        f.textContainerInset = native ? FieldChromeCache.textareaInset : .zero
+        f.focusRingType = native ? .default : .exterior
+        f.textContainerInset = native ? FieldChromeCache.textareaInset(for: effectiveAppearance, scale: window?.backingScaleFactor ?? 1) : .zero
         let paragraph = NSMutableParagraphStyle()
         if let height = usedLineHeight {
             paragraph.minimumLineHeight = height

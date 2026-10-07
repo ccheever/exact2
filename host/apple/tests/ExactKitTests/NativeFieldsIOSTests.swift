@@ -33,19 +33,27 @@ final class NativeFieldsIOSTests: XCTestCase {
         XCTAssertEqual(session.fieldChrome.presentedProvisional, 0)
     }
 
-    func testProvisionalBatchIsAppliedAndCounted() throws {
+    func testProvisionalBatchKeepsUpdatesWithholdsGeometryAndIsCounted() throws {
         let session = ExactApp.shared.makeSession(label: "provisional-publication")
         defer { session.destroy() }
-        let bytes = try JSONSerialization.data(withJSONObject: ["layoutProvisional": true, "ops": [
+        session.presenter.apply(Batch.decode(try JSONSerialization.data(withJSONObject: ["ops": [
+            ["op": "create", "id": 1103, "kind": "view"],
+            ["op": "frame", "id": 1103, "x": 1, "y": 2, "w": 3, "h": 4],
+            ["op": "roots", "ids": [1103]]
+        ]])))
+        // Rust withholds frame/content ops at publication after three failed passes.
+        let bytes = try JSONSerialization.data(withJSONObject: ["layoutProvisional": true, "error": "chrome did not settle", "ops": [
             ["op": "create", "id": 1104, "kind": "view", "props": ["testId": "provisional"]],
-            ["op": "frame", "id": 1104, "x": 10, "y": 20, "w": 30, "h": 40],
-            ["op": "roots", "ids": [1104]]
+            ["op": "props", "id": 1103, "set": ["testId": "kept"], "clear": []],
+            ["op": "roots", "ids": [1103, 1104]]
         ]])
         let batch = Batch.decode(bytes)
         XCTAssertTrue(batch.layoutProvisional)
         session.presenter.apply(batch)
         XCTAssertEqual(session.fieldChrome.presentedProvisional, 1)
-        XCTAssertEqual(session.presenter.views[1104]?.frame, CGRect(x: 10, y: 20, width: 30, height: 40))
+        XCTAssertEqual(session.presenter.views[1104]?.frame, .zero)
+        XCTAssertEqual(session.presenter.views[1103]?.frame, CGRect(x: 1, y: 2, width: 3, height: 4))
+        XCTAssertEqual(session.presenter.views[1103]?.props["testId"], "kept")
     }
 
     func testChromeCacheCoversKindsFontsAndTraits() {

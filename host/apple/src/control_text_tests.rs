@@ -1,9 +1,8 @@
 //! Native field environment and silent chrome settlement before publication.
-use super::*;
 use crate::Host;
 use exact_kernel::{
-    FieldChrome, FieldChromeRequest, MonospaceMeasurer, TextMeasureRequest, TextMeasurer,
-    TextMetrics,
+    ControlFont, ControlTextStyles, FieldChrome, FieldChromeRequest, FieldKind, FontStyle,
+    MonospaceMeasurer, TextMeasureRequest, TextMeasurer, TextMetrics,
 };
 use std::collections::HashSet;
 
@@ -35,6 +34,7 @@ fn styles(size: f32) -> ControlTextStyles {
 struct CachedChrome {
     seen: HashSet<(u8, u32)>,
     forever: bool,
+    failure: Option<std::rc::Rc<std::cell::Cell<bool>>>,
 }
 impl TextMeasurer for CachedChrome {
     fn measure(&mut self, request: &TextMeasureRequest<'_>) -> TextMetrics {
@@ -47,7 +47,9 @@ impl TextMeasurer for CachedChrome {
             FieldKind::SearchField => 2,
             FieldKind::Textarea => 3,
         };
-        let provisional = self.forever || self.seen.insert((kind, r.font.size.to_bits()));
+        let provisional = self.forever
+            || self.failure.as_ref().is_some_and(|f| f.get())
+            || self.seen.insert((kind, r.font.size.to_bits()));
         FieldChrome {
             top: 6.0,
             right: 8.0,
@@ -166,5 +168,98 @@ fn a_cache_that_never_settles_refuses_the_boot_in_three_passes() {
     });
     assert!(
         matches!(result, Err(crate::HostError::Layout(ref reason)) if reason == "layout: field chrome remained provisional after three passes; batch refused before presentation")
+    );
+}
+
+#[test]
+fn running_session_chrome_failure_keeps_updates_but_withholds_staged_geometry() {
+    let failure = std::rc::Rc::new(std::cell::Cell::new(false));
+    let (mut host, _) = boot(CachedChrome {
+        failure: Some(failure.clone()),
+        ..Default::default()
+    })
+    .unwrap();
+    let native = field(&host, "field");
+    let mut batch = crate::batch::Batch::new();
+    // Native-region promotion can have written geometry before layout fails.
+    batch.frame(native, 10., 20., 30., 40.);
+    batch.content(native, 300., 400.);
+    batch.field_content(
+        native,
+        Some(exact_kernel::Frame {
+            x: 1.,
+            y: 2.,
+            width: 3.,
+            height: 4.,
+        }),
+    );
+    batch.region("{\"op\":\"native-region\",\"origin\":[10,20]}");
+    batch.props(native, &[("value", "kept".into())], &[]);
+    let receipt = host
+        .runner_mut()
+        .kernel_mut()
+        .apply(
+            0,
+            10,
+            &[exact_kernel::Op::SetStyle {
+                id: native,
+                patch: Box::new({
+                    let mut s = exact_kernel::StyleProps::default();
+                    s.set_dynamic(
+                        exact_kernel::StyleId::FontSize,
+                        &exact_kernel::StyleValue::Number(31.),
+                    )
+                    .unwrap();
+                    s
+                }),
+            }],
+        )
+        .unwrap();
+    // This font misses forever, while the successfully booted session remains live.
+    failure.set(true);
+    let wire = host.commit_into(&[exact_runner::Timed { at_ms: 0., receipt }], None, batch);
+    let json: serde_json::Value = serde_json::from_str(&wire).unwrap();
+    assert_eq!(json["layoutProvisional"], true, "{wire}");
+    assert_eq!(json["error"], "layout: field chrome remained provisional after three passes; batch refused before presentation");
+    assert!(json["ops"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|op| op["op"] == "props" && op["set"]["value"] == "kept"));
+    assert_eq!(host.runner().kernel().provisional_layouts(), 4);
+    for op in json["ops"].as_array().unwrap() {
+        assert!(
+            !["frame", "content", "fieldContent", "native-region"]
+                .contains(&op["op"].as_str().unwrap()),
+            "guessed geometry: {wire}"
+        );
+    }
+    // Promotion may already have memoized this guessed editor rect. A
+    // settled answer equal to that guess must still reach the presenter.
+    let guessed = host
+        .runner()
+        .kernel()
+        .node(native)
+        .unwrap()
+        .field_content_rect();
+    host.mirror.get_mut(&native).unwrap().field_content = guessed;
+    failure.set(false);
+    let settled: serde_json::Value = serde_json::from_str(&host.resize(400., 800.)).unwrap();
+    assert!(settled["error"].is_null(), "{settled}");
+    assert!(
+        settled["ops"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|op| op["op"] == "frame" && op["id"] == native),
+        "withheld frames must be republished: {settled}"
+    );
+    assert!(
+        settled["ops"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|op| op["op"] == "fieldContent" && op["id"] == native),
+        "withheld editor rects must be republished: {settled}"
     );
 }

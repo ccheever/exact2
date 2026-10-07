@@ -81,10 +81,22 @@ final class FieldChromeCache: @unchecked Sendable {
     }
     /// Preserve NSTextView's standard space around glyphs while the kernel
     /// owns the wrapping width (and Exact keeps lineFragmentPadding at zero).
-    static var textareaInset: NSSize {
-        let editor = NSTextView(usingTextLayoutManager: true)
-        let inset = editor.textContainerInset
-        return NSSize(width: inset.width + (editor.textContainer?.lineFragmentPadding ?? 0), height: inset.height)
+    private(set) static var textareaInsetMeasurements = 0
+    private static var textareaInsets: [Traits: NSSize] = [:]
+    static var textareaInset: NSSize { textareaInset(for: NSAppearance(named: .aqua)!, scale: 1) }
+    static func textareaInset(for appearance: NSAppearance, scale: CGFloat) -> NSSize {
+        precondition(Thread.isMainThread)
+        let traits = Traits(appearance: appearance.name.rawValue, scale: max(1, scale))
+        if let inset = textareaInsets[traits] { return inset }
+        var inset = NSSize.zero
+        appearance.performAsCurrentDrawingAppearance {
+            let editor = NSTextView(usingTextLayoutManager: true)
+            let standard = editor.textContainerInset
+            inset = NSSize(width: standard.width + (editor.textContainer?.lineFragmentPadding ?? 0), height: standard.height)
+        }
+        textareaInsetMeasurements += 1
+        textareaInsets[traits] = inset
+        return inset
     }
     func measure(_ key: Key, font: NSFont) -> ExactFieldChrome {
         precondition(Thread.isMainThread)
@@ -94,7 +106,8 @@ final class FieldChromeCache: @unchecked Sendable {
             if key.kind == 3 {
                 let scroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: 320, height: 100))
                 scroll.borderType = .bezelBorder
-                let rect = scroll.contentView.frame.insetBy(dx: Self.textareaInset.width, dy: Self.textareaInset.height)
+                let inset = Self.textareaInset(for: current, scale: key.traits.scale)
+                let rect = scroll.contentView.frame.insetBy(dx: inset.width, dy: inset.height)
                 result = ExactFieldChrome(top: Float(rect.minY), right: Float(320 - rect.maxX),
                     bottom: Float(100 - rect.maxY), left: Float(rect.minX), minimum_height: 0, provisional: 0)
                 return

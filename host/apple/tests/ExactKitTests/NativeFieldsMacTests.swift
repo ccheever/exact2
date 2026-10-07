@@ -10,6 +10,17 @@ final class NativeFieldsMacTests: XCTestCase {
         let editor = NSTextView(usingTextLayoutManager: true)
         return NSSize(width: editor.textContainerInset.width + (editor.textContainer?.lineFragmentPadding ?? 0), height: editor.textContainerInset.height)
     }
+    func testTextareaInsetReadsReuseTheMainThreadMeasurement() {
+        let first = FieldChromeCache.textareaInset
+        let measured = FieldChromeCache.textareaInsetMeasurements
+        for _ in 0..<20 { XCTAssertEqual(FieldChromeCache.textareaInset, first) }
+        XCTAssertEqual(FieldChromeCache.textareaInsetMeasurements, measured)
+        let appearance = NSAppearance(named: .vibrantDark)!
+        let other = FieldChromeCache.textareaInset(for: appearance, scale: 3)
+        XCTAssertEqual(FieldChromeCache.textareaInsetMeasurements, measured + 1)
+        for _ in 0..<20 { XCTAssertEqual(FieldChromeCache.textareaInset(for: appearance, scale: 3), other) }
+        XCTAssertEqual(FieldChromeCache.textareaInsetMeasurements, measured + 1)
+    }
     func testChromeKindsFontsScalesAndAppearances() {
         let cache = FieldChromeCache()
         cache.configure(NSAppearance(named: .aqua)!, scale: 2)
@@ -140,11 +151,17 @@ final class NativeFieldsMacTests: XCTestCase {
         window.contentView = node
         XCTAssertTrue(window.makeFirstResponder(editor))
         XCTAssertEqual(scroll.focusRingMaskBounds, scroll.bounds)
+        XCTAssertEqual(editor.focusRingMaskBounds, editor.convert(scroll.bounds, from: scroll))
         window.makeFirstResponder(nil)
         XCTAssertEqual(scroll.focusRingMaskBounds, .zero)
         node.applyStyle(["appearance": .string("none")])
         XCTAssertEqual(scroll.borderType, .noBorder)
+        XCTAssertEqual(editor.focusRingType, .exterior)
         XCTAssertEqual(editor.textContainerOrigin, .zero)
+        XCTAssertTrue(window.makeFirstResponder(editor))
+        XCTAssertEqual(editor.focusRingMaskBounds, editor.convert(node.bounds, from: node))
+        window.makeFirstResponder(nil)
+        XCTAssertTrue(editor.focusRingMaskBounds.isEmpty)
         node.applyProps(set: ["markup": "markdown"], clear: [])
         XCTAssertFalse(node.isNativeTextControl)
     }

@@ -39,6 +39,9 @@ pub(crate) mod canvas2d;
 mod colors;
 #[path = "content_region/host.rs"]
 mod content_region_host;
+#[cfg(test)]
+#[path = "control_text_tests.rs"]
+mod control_text_tests;
 #[path = "covers.rs"]
 mod covers;
 #[path = "flights.rs"]
@@ -155,6 +158,7 @@ pub struct Host<D: DataSource> {
     canvas_deferred: bool,
     dirty_paragraphs: BTreeSet<ViewId>,
     pending_layout: IdSet<NodeKey>,
+    layout_withheld: bool,
     /// Each sticky node's constraint as the presenter last heard it (LLP 1083).
     stickies: IdMap<ViewId, exact_kernel::StickyConstraint>,
     /// Each multi-column record as the presenter last heard it (LLP 1093 D7).
@@ -448,6 +452,7 @@ impl<D: DataSource> Host<D> {
             canvas_deferred: false,
             dirty_paragraphs: BTreeSet::new(),
             pending_layout: IdSet::default(),
+            layout_withheld: false,
             stickies: IdMap::default(),
             fragments: IdMap::default(),
             ranks: IdMap::default(),
@@ -1136,6 +1141,9 @@ impl<D: DataSource> Host<D> {
 
     fn finish(&mut self, batch: Batch, error: Option<String>) -> String {
         let (batch, error) = self.resize_rounds(batch, error);
+        if batch.layout_provisional {
+            self.withhold_layout();
+        }
         self.refused(batch, error)
     }
 

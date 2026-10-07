@@ -29,7 +29,9 @@ pub(crate) fn resolve(
             let slots: Vec<u32> = arena.iter_live().collect();
             for slot in slots {
                 if arena.inherited_source(slot, StyleId::FontSize).is_none()
-                    && arena.control_text_start(slot).is_none()
+                    && !arena
+                        .control_text_start(slot)
+                        .is_some_and(|s| s.mask.has(StyleId::FontSize))
                 {
                     inherited_changed(arena, layout, slot, rows, receipt);
                     touched.push(arena.key(slot));
@@ -56,14 +58,17 @@ pub(crate) fn resolve(
     slots.sort_unstable();
     let root = arena.document_style.font_size;
     for (_, slot) in slots {
-        let parent = arena.control_text_start(slot).map_or_else(
-            || {
-                arena.parent(slot).map_or(root, |s| {
-                    arena.computed_source(s, StyleId::FontSize).font_size
-                })
-            },
-            |s| s.font_size,
-        );
+        let parent = arena
+            .control_text_start(slot)
+            .filter(|s| s.mask.has(StyleId::FontSize))
+            .map_or_else(
+                || {
+                    arena.parent(slot).map_or(root, |s| {
+                        arena.computed_source(s, StyleId::FontSize).font_size
+                    })
+                },
+                |s| s.font_size,
+            );
         let mut next = StyleProps::clone(arena.style(slot));
         let mut changed = StyleMask::EMPTY;
         let relative: Vec<_> = next.relative.iter().collect();
