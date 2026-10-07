@@ -148,6 +148,11 @@ ExactFlowResult exact_textflow_flow(uint64_t handle, const ExactFlowShape *shape
     ExactFlowFragment *out, size_t cap);
 /* Zero, stale, and repeated free are harmless. */
 void exact_textflow_free(uint64_t handle);
+/* Where a line may end in a paragraph (Chrome's opportunities, the walker's):
+ * ascending UTF-16 offsets, the last its length. Words as in prepare. Writes
+ * min(count,cap) to out (null is a query); returns count, 0 for invalid UTF-8. */
+size_t exact_text_line_breaks(const uint8_t *utf8, size_t len,
+    const uint32_t *words, size_t word_count, uint32_t *out, size_t cap);
 
 typedef struct ExactMeasureRequest {
     uint32_t view, node_index, node_generation;

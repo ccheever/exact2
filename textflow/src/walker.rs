@@ -204,16 +204,10 @@ impl Prepared {
             if end == start {
                 continue;
             }
-            // Keep even ordinary UAX opportunities out of conservative clusters
-            // (notably a combining mark after an ASCII space or a newer mark).
-            let previous = text[..end].chars().next_back().unwrap();
-            if !hard_break(previous)
-                && text[end..].chars().next().is_some_and(|ch| {
-                    joins_previous(ch, previous) && !(complex(ch) && complex(previous))
-                })
-            {
+            if inside_cluster(text, end) {
                 continue;
             }
+            let previous = text[..end].chars().next_back().unwrap();
             // One collapsed run can cross several UAX mandatory boundaries.
             if !preserve
                 && whitespace(previous)
@@ -672,6 +666,30 @@ pub fn utf16_words(text: &str, words: impl IntoIterator<Item = usize>) -> Vec<us
             result.push(byte);
         }
     }
+    result
+}
+
+/// Keep even ordinary UAX opportunities out of conservative clusters
+/// (notably a combining mark after an ASCII space or a newer mark).
+fn inside_cluster(text: &str, end: usize) -> bool {
+    let Some(previous) = text[..end].chars().next_back() else {
+        return false;
+    };
+    !hard_break(previous)
+        && text[end..]
+            .chars()
+            .next()
+            .is_some_and(|ch| joins_previous(ch, previous) && !(complex(ch) && complex(previous)))
+}
+
+/// Where a line may end, as UTF-8 byte offsets, the last `text.len()`: the
+/// walker's opportunities, Chrome's (see `opportunities`), outside clusters.
+/// `words` are a host segmenter's boundaries ([`Prepared::with_words`]). A host
+/// that breaks lines with its own typesetter takes its opportunities from here.
+/// @ref LLP 1043.000 §3 D6 — one source of break/cluster boundaries.
+pub fn line_breaks(text: &str, words: &[usize]) -> Vec<usize> {
+    let mut result = opportunities(text, words);
+    result.retain(|&end| end == text.len() || !inside_cluster(text, end));
     result
 }
 
