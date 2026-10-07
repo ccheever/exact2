@@ -2,7 +2,7 @@
 name: 20261007-adopt-main-fixes-r5
 plan: 20261005-t3code-macos-parity
 implementation: implemented
-verification: unverified
+verification: blocked
 delivery: none
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
@@ -66,6 +66,7 @@ checked for X27: `env()` names, `host.macos.window`, `exactViewport()` and `exac
 | #141 / X26 (#223) | **adopted** for the sidebar | The thread row's and draft row's right-click menus are context popovers with nested submenu popovers. Each row carries its menu (`menuRows`; the bulk menu on a selected row), and a choice runs `menu-choice`/`draft-choice`. A real right-click shows the same `NSMenu`, and the agent can now open and choose the menu. Menus opened from the keyboard stay `T3Sidebar.swift`'s ([#235](https://github.com/ccheever/exact2/issues/235), filed here) |
 | #141 / X26 (#226) | **adopted** | The clone's own Speech is removed (it would have shown twice). #226 also files the clone's ⇧⌘G and ⌘D buttons under Edit (Branch, Toggle Diff). `R8KeysMenus` hides Edit's app commands as File's, so Edit is DesktopApplicationMenu.ts's |
 | #129 / X11 | **nothing to remove** (`closed-upstream`, #225 open) | The drawer's and dialogs' real blurs take #221 with no clone change. The flattened glass stays: nested backdrops and `saturate()` are #225 |
+| "native.watch outside an answer" (follow-up) | **fixed in the clone** (only the round-5 build showed it; the cause is clone code present in both builds) | Real input, one session per build: only the round-5 build showed the transcript banner after a failed Add environment (record 06). `letGoAware` (`let-go.ts`) passed `watch()` through after its answer was let go. A refresh let go inside one of `fleet.sync`'s tolerated reads went on to `readLocalBackend`, whose `native.watch('t3.local')` the prelude refuses outside an answer, and the refresh's catch wrote that Error into `client.error`. The watch now rejects as `superseded` once the answer is let go (`cf7b15baf`; `let-go.test.ts` reproduces the message through `client.refresh`). The path and the race are the same on the base. Why only the round-5 build showed it is a hypothesis: its page-fact answers (shellView, the details card, SnapShot settings) are asked again on each window activation, which may shift when the snapshot answer is let go. With one session per build, and an uncontrolled extra step in the after session (Snooze before its quit), chance explains it as well. No main commit introduced it (independent review: the prelude diff only adds database tracking, and `forget_calls` is unchanged); nothing was filed |
 | #113 / X27 | **re-checked: still missing** | No `titlebar-area-*`, title-bar setting or full-screen fact on `261dd4e10`. No open issue tracks the rest (user decision) |
 
 ## Acceptance and reproduction
@@ -77,17 +78,26 @@ checked for X27: `env()` names, `host.macos.window`, `exactViewport()` and `exac
 | Row menu with a submenu | lane, two threads | `tap row-<id> contextmenu`, `tap thread-menu-copy`, `tap thread-menu-snooze`, `tap thread-menu-snooze:hour` | the menu and its submenu beside the row; the thread snoozes | macOS 1280×840 | images 01, 03 |
 | Native menu | lane bundle copies (own bundle ids), real right-click | `orca computer click … --mouse-button right`, then Copy | the same `NSMenu` before and after, Copy ▸ open | macOS | image 02 |
 | Edit menu | agent `state.menus` | — | Undo, Redo, —, Cut, Copy, Paste, Paste as Text, Delete, —, Select All, —, Speech (+ AppKit's) | macOS | record 05 |
+| No banner after a failed Add environment | lane copy with no saved credential (Keychain item and preferences removed, data kept) | real input: Settings › Connections › Add environment › Remote link, an unreachable host, Add environment | the dialog's "Could not connect to the server." only; no transcript banner | macOS | record 06; `let-go.test.ts` |
+| Native menu choice | lane copy, one thread | real right-click on the row, Snooze ▸ In 1 hour, then `state` | the thread is snoozed | macOS | not verified (Next action) |
 | Backdrop edge | lane thread | `type composer "/"` | the drawer's edge as Chrome's | macOS | image 04 |
 
 ## Progress
 
-Implemented 2026-10-07. Verification: unverified (task PR review pending).
+Implemented 2026-10-07. Round-5 follow-up (coordinator, 2026-10-07): the "native.watch outside an answer" finding was
+tried on both builds, found to be a regression of this round in clone code, and fixed; the native menu was opened with
+real input. Verification: blocked. Every check that runs here passes (runner attempt 2, `source_unchanged: true`, source digest
+`bcce3dd7`: [`attempt2-report.json`](../evidence/20261007-adopt-main-fixes-r5/attempt2-report.json); attempt 1, before the
+review's direct `watch()` test, is kept; recipe beside them). Two required
+live checks need another real-input session, which needs the coordinator's or the user's decision: the fix on a build,
+and a choice from the native menu. Independent review: [`review.md`](../evidence/20261007-adopt-main-fixes-r5/review.md).
 
 ## Attempts and evidence
 
 | Attempt | Revision/fingerprint | Checks and outcomes | Evidence | Remaining blocker |
 | --- | --- | --- | --- | --- |
 | 1 (2026-10-07) | `830eadecd` (merged base, no clone change) | `bun test examples/t3-code` 2312 pass / 1 skip / 0 fail; strict tsc clean; **`contract build` failed** (21 refusals: `box`/`column`/`list`/`button` have no attribute `hook`; `spring(` is spelled `-exact-spring(`); **`cargo test -p t3-code-macos --lib` failed** (the bake in `build.rs`, same refusals); after the migration 2542 slots / 45 resources and 11/0; **macOS bundle build failed** (#234) | — | #234 (worked around locally) |
+| 3 (2026-10-07, follow-up) | `364f5baa6` (sessions); `cf7b15baf` (fix) | Real input, one session per build under `.realinput-lock` (21:26–21:28): before no banner, after "native.watch outside an answer" (record 06); the after session's real right-click opened the native menu and its Snooze submenu, but no submenu item could be chosen (the accessibility tree lists only the top-level items). Fix `cf7b15baf`: `bun test examples/t3-code` 2318 pass / 1 skip / 0 fail (1 added, and the seam test checks `watch()`); strict tsc clean; `contract build` 2546 slots / 46 resources; `cargo test -p t3-code-macos --lib` 11/0; five checks: see Checks | record 06; runner attempts 1–2; review | the two live checks (Next action) |
 | 2 (2026-10-07) | `fac7ef1a1` + records | `bun test examples/t3-code` 2317 pass / 1 skip / 0 fail (2318 tests; 5 added); strict tsc clean; `contract build` 2546 slots / 46 resources; `cargo test -p t3-code-macos --lib` 11/0; AppKit binaries: see Checks; five checks: see Checks | images and record below | none for the adopted rows |
 
 Checks (final source): `cargo build --all-targets --keep-going` ok; `cargo test --lib --bins --tests --no-fail-fast` 3377 passed, 0 failed, 33 ignored; `cargo clippy --all-targets --keep-going -- -D warnings` ok; `cargo fmt --all -- --check` ok; `git add -A && bun scripts/caps.mjs` within every budget (`app.contract` at 1,500 lines); `bun scripts/boot.mjs` ok. AppKit binaries (README recipe): 29 pass, 296 tests, 0 failures, 1 skipped (`ssh` live): activity 8 (1 added), notifications 4, menus 45 (1 added), contextmenu 19, sidebar 5, r12-sidebar 3, r8-keys 4, local-backend 44, terminal 38, transport 7 and the rest. Two do not run here, for this Mac's reasons, and no file they cover changed: `mermaid` needs `T3_SERVER` (a server with its web bundle; the lane's reference server has none), and `snapshot` aborts at its "actual current layout translates printable letter" precondition because the current input source is 2-Set Korean (`com.apple.keylayout.2SetHangul`). `timeline-keyboard` has its own recipe and was not run. The macOS bundles of base and branch build (the branch's with the `otool` shim, #234).
@@ -146,6 +156,7 @@ REAL right-click    before and after             NSMenu: New thread on main, Pin
 | Composer command drawer edge | dark band at the bottom edge | clean edge |
 | Focus under the agent (text) | `prefer has-focus` refused; reports `focused:false` | page fact, notifications and reports follow it; git refresh on focus |
 | Edit menu (text) | Toggle Diff ⌘D shown at the end | the reference's items only, one Speech |
+| Failed Add environment, real input (text) | the dialog's error only | the same, plus the transcript banner "native.watch outside an answer" (fixed after, `cf7b15baf`) |
 
 Images (pinned to the evidence commits):
 - `https://raw.githubusercontent.com/ccheever/exact2/dfa835ac3c7a97b4c8ed0e8f3552e5b89ec49e68/adopt-main-fixes-r5/01-thread-menu-agent-before-after.png`
@@ -153,11 +164,25 @@ Images (pinned to the evidence commits):
 - `https://raw.githubusercontent.com/ccheever/exact2/8685283e020639d7c1487b367398fd70c387b56a/adopt-main-fixes-r5/03-thread-menu-choice-before-after.png`
 - `https://raw.githubusercontent.com/ccheever/exact2/52f106b60c1c23f47db0fd2b1477129fc36d84e9/adopt-main-fixes-r5/04-drawer-backdrop-before-after.png`
 - Record: `https://raw.githubusercontent.com/ccheever/exact2/32700857d7bf526b6d24a4be92f3b12fc09709b5/adopt-main-fixes-r5/05-drive-record.txt`
+- Follow-up record (text: the banner is behind the Settings backdrop, so the screenshots do not show it; the
+  accessibility tree does): `https://raw.githubusercontent.com/ccheever/exact2/ee2b4323bf709761f42b504d42e7b2944db267e1/adopt-main-fixes-r5/06-add-environment-record.txt`
+
+Follow-up sessions (coordinator's round-5 follow-up; `realsession.sh` in the session scratchpad, not committed). The
+same lane and the same steps for each build, one session each: pair a lane copy through the wizard, quit, delete its
+Keychain item and preferences domain (data kept), relaunch, Open Connections, Add environment, Remote link, the Host
+field set and nudged (End, space, Backspace left `http://127.0.0.1:1674`, unreachable, in both), a pairing code, Add
+environment. The after session also right-clicked "First lane thread" and opened Snooze ▸ before its quit. The
+copies, their Keychain items, preference domains and data were deleted after; the lane server and proxy were stopped
+by their recorded pids.
 
 Findings for follow-ups (not this task):
-- After adding the lane environment from Settings › Connections in a lane copy with no primary environment, the window
-  showed "native.watch outside an answer" (`a5`, not committed; the code path is the fleet sync's, unchanged here;
-  not tried on the base).
+- Resolved in the follow-up: "native.watch outside an answer" (Decisions per issue).
+- From the follow-up's independent review ([`review.md`](../evidence/20261007-adopt-main-fixes-r5/review.md)), none of
+  them observed. Other let-go paths still show something or lose state. `auto-balance.ts` `retargetDraft` toasts "Could
+  not switch machine" for a let-go. `settings-b-outdated.ts` `probeDescriptors` caches a let-go probe as no descriptor
+  until the page closes. Prelude calls outside `native` (crypto, a plain `fetch`) throw a plain "outside an answer"
+  error after a let-go. And `letGo` reads only the kind, so the runtime's two Aborted failures that are not a let-go
+  (a panicked native call, an owner that ended without a reply) are hidden as let-go for `later()` and now `watch()`.
 - `press` carries `MouseEvent` modifiers: the Send gesture and the sidebar's ⌘/⇧-click could read them instead of
   native monitors.
 
@@ -174,7 +199,12 @@ Review the PR ([#236](https://github.com/ccheever/exact2/pull/236)). Not done, e
   **capture-phase and held-modifier keys** (#140), **an app-declared menu bar** (#141): upstream.
 
 Not verified, each with its blocker:
-- **A choice from the native `NSMenu` with real input.** #223 verified the host's press of a nested pick. Here the
-  choice ran under the agent through the same row press, and the native menu was shown and opened. Blocker: user
-  decision (another real-input session). Re-pairing a lane copy after its Keychain item is removed goes through
-  Settings › Connections and adds a background environment, which shows no rows.
+- **The "native.watch outside an answer" fix on a build.** It is reproduced and fixed through `client.refresh` under Bun
+  only; the follow-up's one session per build was spent finding the regression. Blocker: coordinator or user decision
+  (another real-input session).
+- **A choice from the native `NSMenu` with real input.** In the follow-up's after session a real right-click opened
+  the host's `NSMenu` and its Snooze submenu ("In 1 hour", "In 3 hours", "Tomorrow", "Next week", "Custom…"), but
+  `orca computer`'s accessibility tree lists only the menu's top-level items, so no submenu item was chosen and no
+  snooze was read back. The next try clicks "In 1 hour" by its position in the screenshot. #223 verified the host's
+  press of a nested pick, and the same choice ran under the agent through the same row press. Blocker: coordinator or
+  user decision (another real-input session).
