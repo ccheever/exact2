@@ -2190,6 +2190,27 @@ and shows a hyphen; `none` ignores it; `auto` also hyphenates by the document's
 language on the web and Apple (Linux has no dictionary and breaks only at soft
 hyphens).
 
+`text-box` cuts a paragraph's line box to its glyphs (CSS Inline Layout 3 §4),
+to centre a label in a pill or line a heading's cap height up with an icon
+without padding by eye: `text-box="trim-both cap alphabetic"` trims the first
+line down to the cap height and the last up to the baseline. Write the trim
+(`none`, `trim-start`, `trim-end`, `trim-both`) and the edges in either order,
+or `normal`; the edges are over (`text`, `cap`, `ex`) then under (`text`,
+`alphabetic`), and `auto` or a lone `text` sets both (a lone `cap` or `ex` is
+refused: CSS's one-word edge also names the under edge). The longhands are
+`text-box-trim` and `text-box-edge`. The cut uses the paragraph's own font, as
+CSS's root inline box: a smaller run inside does not change it.
+`text-box-edge` is inherited, so it may sit on a `view` above; the trim is
+not, and goes on the `text`. Exact refuses the trim on a `view` or a `column`
+(CSS trims a block's first and last lines, which Exact does not reach yet), on
+an inline `text` run, on a `text` that is itself in columns, one included (CSS
+trims every column), on a `text` laid out as flex or grid (CSS does not trim
+it), and the `ideographic` edges. A later declaration, the node's own over its
+class's, overrides an earlier one, and a `?:` choice of literals is refused
+only when one of its values would be. A paragraph split across a `view`'s
+columns is trimmed at its outer ends only. Every host trims: Apple and Linux
+measure and paint the cut, the web writes CSS's own `text-box`.
+
 Multi-column layout is CSS's (LLP 1093). A `view` (or a `text`) with
 `column-count`, `column-width` or `columns="12em 3"` flows its content through
 columns of one width, separated by `column-gap` (unset, 1em) and an optional

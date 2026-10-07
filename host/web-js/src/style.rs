@@ -645,6 +645,11 @@ pub fn style_writes(id: u16, timeline: bool) -> Result<Vec<Write>, String> {
             "color-scheme",
             "v=>v===\"light\"||v===\"dark\"?v:null",
         )],
+        // A row's word to CSS's two (host/web/src/css.rs `text_box_edge`).
+        StyleId::TextBoxEdge => vec![with(
+            "text-box-edge",
+            "v=>v==null?v:({cap:\"cap text\",ex:\"ex text\"})[v]??v.replace(\"-alphabetic\",\" alphabetic\")",
+        )],
         StyleId::CornerShape => vec![with(
             "corner-shape",
             "v=>v==null?v:/-apple-continuous/i.test(v)?null:v.replace(/-exact-continuous/gi,\"superellipse(1.6)\")",

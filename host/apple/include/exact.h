@@ -174,6 +174,9 @@ typedef struct ExactMeasureRequest {
     uint8_t hyphens;       /* CSS hyphens: 0 manual (the initial value), 1 none (soft hyphens already arrive as U+034F), 2 auto */
     const uint8_t *lang;   /* the document language, UTF-8 (auto's hyphenation points); lang_len 0 is unknown */
     size_t lang_len;
+    uint8_t text_box_trim;  /* CSS text-box-trim: 0 none, 1 trim-start, 2 trim-end, 3 trim-both */
+    uint8_t text_box_over;  /* text-box-edge over: 0 text, 1 cap, 2 ex */
+    uint8_t text_box_under; /* text-box-edge under: 0 text, 1 alphabetic */
 } ExactMeasureRequest;
 
 /* LLP 1045 D3/D4. Markdown source into display pieces, the same for measure and paint. */

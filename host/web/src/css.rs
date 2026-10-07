@@ -299,6 +299,9 @@ fn css_text_in(
                 });
                 out.push(';');
             }
+            (StyleId::TextBoxEdge, RowValue::Enum(edge)) => {
+                crate::text_box_css::push_edge(edge, &mut out)
+            }
             (StyleId::LineClamp, RowValue::Number(n)) => {
                 if *n > 0.0 {
                     // The legacy clamp requires an old flex box and clipping. It
