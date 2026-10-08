@@ -335,7 +335,9 @@ final class TransportTests: XCTestCase {
         XCTAssertEqual(try T3Endpoint.credential("https://example.test/pair?token=a%2Bb", at: origin), "a+b")
         XCTAssertEqual(try T3Endpoint.credential("https://example.test/pair#token=a%2Bb", at: origin), "a+b")
         XCTAssertThrowsError(try T3Endpoint.credential("https://other.test/pair?token=secret", at: origin))
-        XCTAssertThrowsError(try T3Endpoint.origin("http://remote.example"))
+        // A remote http backend pairs as the reference's does (remote.ts SUPPORTED_REMOTE_BACKEND_PROTOCOLS).
+        XCTAssertEqual(try T3Endpoint.origin("http://192.168.1.20:16261/pair#token=secret").absoluteString, "http://192.168.1.20:16261")
+        XCTAssertThrowsError(try T3Endpoint.origin("ftp://remote.example"))
         XCTAssertThrowsError(try T3Endpoint.origin("https://user:password@example.test"))
         XCTAssertThrowsError(try T3Endpoint.path("//other.test/private", at: origin))
         XCTAssertThrowsError(try T3Endpoint.path("https://other.test/private", at: origin))
@@ -559,7 +561,7 @@ final class ForgetOriginTests: XCTestCase {
 // RemoteScopeTests (remote-scopes.swift): the exchange sends the scope TS names; a narrow link is refused.
 // RouteTests (routes.swift): one environment, several routes.
 // TerminalStreamTests (terminal-streams.swift): the drawer's attach streams beside the app's 16.
-let suites = [TransportTests.defaultTestSuite, R3TransportTests.defaultTestSuite, ForgetOriginTests.defaultTestSuite, RemoteScopeTests.defaultTestSuite, RouteTests.defaultTestSuite, TerminalStreamTests.defaultTestSuite, PrimaryTransportTests.defaultTestSuite]
+let suites = [TransportTests.defaultTestSuite, R3TransportTests.defaultTestSuite, ForgetOriginTests.defaultTestSuite, RemoteScopeTests.defaultTestSuite, RouteTests.defaultTestSuite, TerminalStreamTests.defaultTestSuite, PrimaryTransportTests.defaultTestSuite, PullRequestDiffTransportTests.defaultTestSuite]
 var executed = 0, failures = 0, succeeded = true
 for suite in suites {
     suite.run()
