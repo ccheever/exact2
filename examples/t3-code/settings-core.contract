@@ -250,6 +250,7 @@ shape SettingsCore
   environmentKeyed: list<ScopeChoice>
   projectKeyed: list<ScopeChoice>
   representative: string
+  scopeEnvironment: string // the scope's representative environment; Settings' own setup links open Providers there
   scopeKey: string
   sections: list<CoreSection>
   // The Project page's Model row (General's default-model row in the project scope), or none.

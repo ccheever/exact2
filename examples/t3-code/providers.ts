@@ -11,7 +11,6 @@ import { obj, str, arr, num, type Obj } from './domain';
 import { ClientError, type Native } from './protocol';
 import { pushToast } from './toast';
 import { accentHsv } from './settings-b-accent';
-import type { T3Client } from './client';
 import { favoriteSlugs, groupModels, instancePrefs, runModelPrefOp, MODEL_PREF_OPS } from './settings-b-models';
 import { DRIVERS, driverMeta, instanceEnabled, sameValue, versionLabel, providerSummary, checkedLabel,
   slugifyLabel, validateInstanceId, deriveAvailableInstanceId, type Driver, type DriverField } from './providers-meta';
@@ -20,12 +19,15 @@ import { letGo } from './let-go';
 // editor are providers-upkeep.ts (app.ts adds them to this page with `withUpkeep`).
 import { deriveProviderModelsForDisplay, readCustomModelEntries, storedCustomModels } from './custom-model-editor';
 import { instanceIconUrl, resolveOfficialAcpRegistryIconUrl, resolveProviderInstanceAcpRegistryIconUrl } from './acp-icons';
+import { hostClient } from './codex-fleet-host';
 
 export interface ProviderHost {
   config: Obj; ready: boolean; writable: boolean; local: { favoriteModels: string[] };
   rpc(native: Native, method: string, payload: Obj, write?: boolean): Promise<Obj>;
   /** The native id source the client's command ids come from (client.ts `ids`): new ChatGPT accounts are `codex_<uuid>`. */
   ids?(native: Native, count: number): Promise<string[]>;
+  /** A background environment's managed Codex command target (codex-fleet-host.ts); the instance id on the focused one. */
+  setupTarget?(instanceId: string): string;
 }
 type Row = { id: string; instance: Obj; driver: string; isDefault: boolean; isDirty: boolean };
 export type AcpAgent = { id: string; name: string; description: string; link: string; icon: string; iconUrl: string; version: string; distribution: string; added: boolean };
@@ -92,14 +94,17 @@ function capabilityLabels(model: Obj): string {
 
 // Environment rows that are being edited but not yet valid stay on this device
 // until they can be published (T3's ProviderEnvironmentSection draft rows).
-const envDrafts = new Map<string, Obj[]>();
-function envRows(instanceId: string, instance: Obj, dedicated: Set<string>): Obj[] {
+// One set per environment's host: the same instance id on two environments keeps its own drafts (the reference keys the panel on its environment).
+const envDraftStores = new WeakMap<object, Map<string, Obj[]>>();
+function envDraftsOf(host: ProviderHost): Map<string, Obj[]> { let drafts = envDraftStores.get(host); if (!drafts) envDraftStores.set(host, drafts = new Map()); return drafts; }
+function envRows(host: ProviderHost, instanceId: string, instance: Obj, dedicated: Set<string>): Obj[] {
   const published = arr(instance.environment).filter(variable => !dedicated.has(str(variable.name)));
-  const draft = envDrafts.get(instanceId);
+  const draft = envDraftsOf(host).get(instanceId);
   return draft ?? published.map(variable => ({ name: str(variable.name), value: str(variable.value), sensitive: variable.sensitive === true, ...(variable.valueRedacted === true ? { valueRedacted: true } : {}) }));
 }
 
 const environmentLabelOf = (host: ProviderHost) => str(obj(host.config.environment).label, 'this environment');
+const setupTargetOf = (host: ProviderHost, instanceId: string) => host.setupTarget ? { target: host.setupTarget(instanceId) } : {};
 /**
  * ProviderSettingsPanel's `setup` slot for the editor (ProviderSettingsPanel.tsx:1066-1118):
  * Antigravity gets ProviderSetupSection (Environment, then Runtime and Account); a provider
@@ -124,7 +129,7 @@ function setupView(host: ProviderHost, row: Row, provider: Obj | undefined) {
     kind, environmentLabel, mode, showEnable: kind === 'antigravity' && !instanceEnabled(row.instance) && host.writable,
     runtime: mode === 'actions' ? [providerRuntime(live, entry, environmentLabel, configuredBinaryPath(row.instance.config), instanceEnabled(row.instance))] : [],
     account: kind === 'account' || mode === 'actions' ? [providerAccount(row.id, live, entry, environmentLabel)] : [],
-    codex: kind === 'codex' ? [codexSetupView(host, row.id, provider, { presentation: 'settings', mode: 'managed', enabled: instanceEnabled(row.instance), readOnly: !host.writable, allowExistingCli: true })] : [],
+    codex: kind === 'codex' ? [codexSetupView(host, row.id, provider, { presentation: 'settings', mode: 'managed', enabled: instanceEnabled(row.instance), readOnly: !host.writable, allowExistingCli: true, ...setupTargetOf(host, row.id) })] : [],
     cursorNote: kind === 'cursor' ? "Using CURSOR_API_KEY. Remove it from this provider's environment to use browser sign-in." : '',
   };
 }
@@ -147,7 +152,7 @@ function editorFor(host: ProviderHost, row: Row, live: Obj[]) {
   const status = rowStatus(row, provider), config = obj(row.instance.config);
   const displayName = str(row.instance.displayName).trim() || meta?.label || row.driver;
   const dedicated = new Set((meta?.env || []).map(field => field.key));
-  const variables = envRows(row.id, row.instance, dedicated);
+  const variables = envRows(host, row.id, row.instance, dedicated);
   // deriveProviderModelsForDisplay: built-ins from the server, custom rows from the current config.
   const models = deriveProviderModelsForDisplay({ liveModels: arr(provider?.models), customModels: row.driver === 'antigravity' ? [] : readCustomModelEntries(config.customModels) });
   // ProviderModelsSection: favorites, visible, then hidden; order and visibility are device preferences (settings-b-models.ts).
@@ -283,7 +288,7 @@ export function providerWizard(host: ProviderHost, open: boolean, serial: number
 function chatgptDialog(host: ProviderHost, open: boolean, serial: number) {
   if (!open || chatgptCreated?.serial !== serial) return [];
   const { instanceId, displayName } = chatgptCreated, provider = liveProviders(host).find(candidate => candidate.instanceId === instanceId);
-  const setup = provider?.setup ? [codexSetupView(host, instanceId, provider, { presentation: 'settings', mode: 'managed', enabled: true, readOnly: !host.writable, allowExistingCli: false })] : [];
+  const setup = provider?.setup ? [codexSetupView(host, instanceId, provider, { presentation: 'settings', mode: 'managed', enabled: true, readOnly: !host.writable, allowExistingCli: false, ...setupTargetOf(host, instanceId) })] : [];
   return [{ key: instanceId, instanceId, title: displayName, setup }];
 }
 /** The dialog closes once the destination's snapshot shares a ChatGPT plan (usesChatGptSharing). */
@@ -322,7 +327,7 @@ const FAILURE_TITLES: Record<string, string> = { 'provider-remove': 'Could not d
   'provider-add': 'Could not add provider instance', 'provider-create': 'Could not add provider instance' };
 const TOASTED = ['provider-name', 'provider-display', 'provider-enabled', 'provider-accent', 'provider-field', 'provider-env-field', 'provider-env-remove', 'provider-env-name',
   'provider-env-value', 'provider-env-sensitive', 'provider-model-add', 'provider-model-remove', ...Object.keys(FAILURE_TITLES)];
-const toastOf = (host: ProviderHost) => host as unknown as T3Client;
+const toastOf = (host: ProviderHost) => hostClient(host); // a background environment's page toasts in this window
 
 /** One provider-settings write. `value` is the JSON the Contract action built through app.ts. */
 export async function runProviderOp(host: ProviderHost, native: Native, op: string, id: string, value: string): Promise<string> {
@@ -405,7 +410,7 @@ async function providerOp(host: ProviderHost, native: Native, op: string, id: st
   if (op === 'provider-remove') {
     if (row.isDefault) throw new ClientError('Built-in provider slots can be reset, not deleted.');
     await host.rpc(native, 'server.updateSettings', { patch: {}, providerInstanceMutation: { operation: 'remove', instanceId: id } }, true);
-    envDrafts.delete(id);
+    envDraftsOf(host).delete(id);
     if (row.driver === 'acpRegistry' && str(config.agentId)) {
       try { await host.rpc(native, 'server.uninstallAcpRegistryManagedBinary', { agentId: str(config.agentId) }, true); }
       catch (error) {
@@ -418,7 +423,7 @@ async function providerOp(host: ProviderHost, native: Native, op: string, id: st
   } else if (op === 'provider-reset') {
     if (!row.isDefault || !meta?.legacyDefault) throw new ClientError('Only built-in provider slots can be reset.');
     await host.rpc(native, 'server.updateSettings', { patch: { providers: { ...obj(settings.providers), [row.driver]: meta.legacyDefault } }, providerInstanceMutation: { operation: 'remove', instanceId: id } }, true);
-    envDrafts.delete(id);
+    envDraftsOf(host).delete(id);
   } else {
     let next: Obj = instance, extra: Obj = {};
     if (op === 'provider-name' || op === 'provider-display') {
@@ -451,16 +456,16 @@ async function providerOp(host: ProviderHost, native: Native, op: string, id: st
       next = withKey(instance, 'environment', environment.length ? environment : undefined);
     } else if (op.startsWith('provider-env-')) {
       const dedicated = new Set((meta?.env || []).map(field => field.key));
-      const rows = envRows(id, instance, dedicated).map(entry => ({ ...entry }));
+      const rows = envRows(host, id, instance, dedicated).map(entry => ({ ...entry }));
       const index = /^\d+$/.test(str(input.key)) ? Number(input.key) : -1;
-      if (op === 'provider-env-add') { rows.push({ name: '', value: '', sensitive: true }); envDrafts.set(id, rows); return ''; }
+      if (op === 'provider-env-add') { rows.push({ name: '', value: '', sensitive: true }); envDraftsOf(host).set(id, rows); return ''; }
       if (index < 0 || index >= rows.length) throw new ClientError('That variable is no longer available.');
       if (op === 'provider-env-remove') rows.splice(index, 1);
       else if (op === 'provider-env-name') rows[index]!.name = str(input.value).trim();
       else if (op === 'provider-env-value') { if (str(input.value) !== str(rows[index]!.value) || rows[index]!.valueRedacted === true) { rows[index]!.value = str(input.value); rows[index]!.valueRedacted = false; } }
       else if (op === 'provider-env-sensitive') { const current = rows[index]!; current.sensitive = input.value === 'true'; if (current.sensitive !== true && current.valueRedacted === true) current.valueRedacted = false; }
       else throw new ClientError(`Unknown action: ${op}`);
-      envDrafts.set(id, rows);
+      envDraftsOf(host).set(id, rows);
       const invalid = rows.some(entry => !ENV_NAME.test(str(entry.name)) && (str(entry.name) || str(entry.value) || entry.sensitive !== true || entry.valueRedacted !== undefined));
       if (invalid) return str(rows[index]?.name) && !ENV_NAME.test(str(rows[index]?.name)) ? 'Use letters, digits and underscores for variable names, starting with a letter or underscore.' : '';
       const keep = arr(instance.environment).filter(variable => dedicated.has(str(variable.name)));
@@ -469,7 +474,7 @@ async function providerOp(host: ProviderHost, native: Native, op: string, id: st
       if (sameValue(environment, arr(instance.environment))) { await refreshConfig(host, native); return ''; }
       next = withKey(instance, 'environment', environment.length ? environment : undefined);
       await upsert(host, native, row, next, settings);
-      envDrafts.delete(id); await refreshConfig(host, native); return '';
+      envDraftsOf(host).delete(id); await refreshConfig(host, native); return '';
     } else if (op === 'provider-model-add' || op === 'provider-model-remove') {
       // ProviderModelsSection handleAdd / handleRemove; the editor's Save is providers-upkeep.ts.
       if (row.driver === 'antigravity') throw new ClientError('Antigravity models come from the provider.');
