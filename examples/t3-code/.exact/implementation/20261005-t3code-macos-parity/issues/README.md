@@ -104,11 +104,17 @@ publication was performed during this local audit.
 | --- | --- | --- | --- | --- |
 | [X54](20261008-x54-focus-within-subtree.md) | An ancestor hearing the focus enter its subtree (`focusin`, `:focus-within`) | framework-gap | [pr-writing-and-metadata](../tasks/20261005-pr-writing-and-metadata.md) (nonblocking: "Show full comment" and the pencil are Tab stops of their own) | reproduced with `contract vocab` on the feature branch's framework; no upstream match by title; draft, not published |
 
+## Pull Requests row addition, 2026-10-08
+
+| Issue | Capability | Kind | Blocks | Status |
+| --- | --- | --- | --- | --- |
+| [X57](20261008-x57-overflowing-centred-line.md) | A line wider than its box start-aligned whatever `text-align` says (CSS Text 3 §7.1); macOS centres it and cuts its start | framework-gap | none ([pr-list-title-clip](../tasks/20261008-pr-list-title-clip.md): `text-left` on the pull request surfaces; other clone buttons listed in the file) | reproduced on a one-file app (macOS cuts, web does not); draft, not published |
+
 ## Provisional decisions parity addition, 2026-10-08
 
 | Issue | Capability | Kind | Blocks | Status |
 | --- | --- | --- | --- | --- |
-| [X57](20261008-x57-number-field-semantics.md) | `input type="number"` on macOS: ArrowUp/ArrowDown stepping within `min`/`max`, refusing characters a number cannot hold | framework-gap | none ([provisional-decisions-parity](../tasks/20261008-provisional-decisions-parity.md) steps the Tailscale port field itself; a typed letter still shows, with the error) | reproduced in the clone with the agent (`0443` + ArrowUp stays `0443`); no host code for it; no upstream match by title; draft, not published |
+| [X60](20261008-x60-number-field-semantics.md) | `input type="number"` on macOS: ArrowUp/ArrowDown stepping within `min`/`max`, refusing characters a number cannot hold | framework-gap | none ([provisional-decisions-parity](../tasks/20261008-provisional-decisions-parity.md) steps the Tailscale port field itself; a typed letter still shows, with the error) | reproduced in the clone with the agent (`0443` + ArrowUp stays `0443`); no host code for it; no upstream match by title; draft, not published |
 
 ## Pull Requests list live refresh addition, 2026-10-08
 

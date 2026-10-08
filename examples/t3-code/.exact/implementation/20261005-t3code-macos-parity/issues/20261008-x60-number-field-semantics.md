@@ -1,5 +1,5 @@
 ---
-name: 20261008-x57-number-field-semantics
+name: 20261008-x60-number-field-semantics
 plan: 20261005-t3code-macos-parity
 status: draft
 kind: framework-gap
@@ -8,7 +8,7 @@ upstream_url: null
 reproduced_on: 592657b3a (feat(example)/t3-code-provisional-decisions-parity; the feature branch's framework, main 1f19b2400)
 ---
 
-# X57: `input type="number"` on macOS is a plain text field (no ArrowUp/ArrowDown stepping, no character filter)
+# X60: `input type="number"` on macOS is a plain text field (no ArrowUp/ArrowDown stepping, no character filter)
 
 ## Summary
 
