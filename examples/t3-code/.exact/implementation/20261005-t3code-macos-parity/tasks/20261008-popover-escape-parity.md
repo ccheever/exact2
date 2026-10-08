@@ -28,7 +28,7 @@ The user decided on 2026-10-08 that both behave as the reference T3 Code (`1e2ec
    closes as the pointer moves into it and (11) on the second card a click pins the previously clicked
    segment's popover are hover, and the coordinator moved them to the fix-hover-cards PR (its HoverLayer helper
    owns hover grace for every clone popover); this task's diagnosis and base repro for them are under
-   "Handed over".
+   "Moved to fix-hover-cards".
 
 ## Reference behavior
 
@@ -61,7 +61,7 @@ The user decided on 2026-10-08 that both behave as the reference T3 Code (`1e2ec
   (`usage-legend-<id>`), by `frame()` and the event's `clientX`/`clientY` (`fn usageHit`); `pressUp(e)` closes it
   unless the press ends in the card, before the press's own action (DOM's order), so a press on another
   segment pins that one. The pin (`pin`) and the dismissal (`pressDown`, `pressUp`) touch only the pin, never a
-  hover state, so the hover helper (fix-hover-cards) owns how a hover-shown popover closes ("Handed over").
+  hover state, so the hover helper (fix-hover-cards) owns how a hover-shown popover closes ("Moved to fix-hover-cards").
   `usage-pooled.contract` gives the card and the legend row their ids.
 - **Presses elsewhere in the window** (`app-window.contract` T3Window): the window's root counts primary presses
   that end (`outsidePressDown` / `outsidePressUp`, `outsidePresses`), passed through PagesCover to UsagePage as
@@ -73,7 +73,7 @@ The user decided on 2026-10-08 that both behave as the reference T3 Code (`1e2ec
   (`outsideFocus`).
 - **The page's ground** (`usage-ground`): a full-height column under the scroll's content. On macOS a press on a
   scroll view's empty area (below or beside its content) reaches no node, so no `pointerdown` hears it (found in
-  session 1; `EXACT2-GAPS.md` "Host finding", not filed).
+  session 1; local draft [X65](../issues/20261008-x65-scroll-empty-area-press.md), not published).
 - **The reset confirm's focus (item 12)** (`app-main.contract` PagesCover, `pages-usage.contract`): the confirm's
   buttons (Cancel, its Escape, Use credit) go through PagesCover's `usageConfirm`, which closes it for the page
   at once (`usageClosing`, `derive usageConfirmOpen`); UsagePage is inert while `confirmOpen`, not while the
@@ -94,15 +94,16 @@ The user decided on 2026-10-08 that both behave as the reference T3 Code (`1e2ec
 
 | Row | Result | Proof |
 | --- | --- | --- |
-| A primary press on the page outside the pinned popover and its triggers closes it (empty ground, a card's body, narrow card text) | pass: agent (macOS, sessions 2, 6 and 7, the last on the final code) and real input (session R1, on the build before `pin`/`pressUp` dropped their hover lines; the pointer had left the segment, so those lines did nothing there). The final build's real retry (R4) did not reach the segment: another lane's macOS permission prompt sat over it | images 01, 10, 15; drive record; real-input record |
-| A press outside the page closes it: the sidebar, a toast, the floating theme editor, the editor's swatch | pass (agent, macOS; the sidebar again in session 7). Real input not verified: in R1 the sidebar press dropped the pin but #263's hover state, left set by the real click on the segment, kept the popover shown (hover, handed over); R3 and R4 did not get that far (R3's window lost activation, R4's segment was under another lane's permission prompt) | images 02, 08, 09; drive record; real-input record |
-| Presses that do not count: inside the card; a right-click; another segment (pins that one instead); Escape closes it and the segment keeps the focus | pass (agent, macOS, sessions 2 and 6) | drive record |
-| A press on the pinned segment closes it | pass (agent). With a real pointer resting on it, #263's hover state keeps the popover shown (base: image 07): hover, handed to fix-hover-cards | drive record; "Handed over" |
-| A press on the same account's legend row (narrow) closes it | not passing, pre-existing (#263's layout): the popover hangs off the segment and covers the legend row's upper half, so the press lands in the popover; fix-hover-cards moves the popover (`UsagePopups`) | drive record "Not passing" |
-| A press in the floating editor's text fields counts as outside (macOS fields reach no `pointerdown`) | implemented (their `focus` counts); unit-tested, not driven | tests |
-| A press that ends inside the card does not dismiss (Base UI's insideReactTree) | implemented (review N1); unit-tested, not driven | tests |
+| A primary press on the page outside the pinned popover and its triggers closes it (empty ground, a card's body, narrow card text) | pass: agent (macOS, sessions 2, 6 and 7, the last on the final code) and real input (session R1, on the build before `pin`/`pressUp` dropped their hover lines; the pointer had left the segment, so those lines did nothing there). The final build's real retry (R4) did not reach the segment: another lane's macOS permission prompt sat over it. The real press on the final build is **deferred to the next real-input batch** (`STATUS.md` "Next real-input batch") | images 01, 10, 15; drive record; real-input record |
+| A press outside the page closes it: the sidebar, a toast, the floating theme editor, the editor's swatch | pass (agent, macOS; the sidebar again in session 7) | images 02, 08, 09; drive record |
+| The same with a real pointer on the sidebar | **moved to fix-hover-cards** (coordinator, 2026-10-08): in R1 the pin dropped (the window counted the press), but #263's hover state stayed set after the real click on the segment and kept the popover shown; diagnosis under "Moved to fix-hover-cards" | real-input record |
+| Presses that do not count: inside the card; a right-click; another segment (pins that one instead); Escape closes it and the segment keeps the focus | pass (agent, macOS, sessions 2, 6 and 7) | drive record |
+| A press on the pinned segment closes it | pass (agent, the pin). With a real pointer resting on the segment the popover stays shown by #263's hover state (base: image 07): **moved to fix-hover-cards**; diagnosis under "Moved to fix-hover-cards" | drive record |
+| A press on the same account's legend row (narrow) closes it | not passing, pre-existing (#263's anchoring): **moved to fix-hover-cards**; diagnosis under "Moved to fix-hover-cards" | drive record "Not passing" |
+| A press in the floating editor's text fields counts as outside (a macOS field fires no `pointerdown`, read in the host's code) | implemented (their `focus` counts); unit-tested. The real press is **deferred to the next real-input batch** (`STATUS.md` "Next real-input batch") | tests |
+| A press that starts outside and ends inside the card does not dismiss (Base UI's insideReactTree) | implemented (review N1); unit-tested; the agent cannot drag across, so it is **deferred to the next real-input batch** (the page-press row's last step) | tests |
 | Item 12: Escape in the reset confirm gives the segment the focus | pass: agent (session 7) and real keys (session R2: Tab, Tab to "Use reset", Return, Escape: the confirm closes, the 5h Work segment shows the ring, the next Tab goes on from it); agent (the base passes there too) | real-input record, images 13-14 |
-| Items 10, 11 (hover) | handed over to fix-hover-cards (coordinator, 2026-10-08) | "Handed over" |
+| Items 10, 11 (hover) | moved to fix-hover-cards (coordinator, 2026-10-08) | "Moved to fix-hover-cards" |
 | Escape in the theme editor never closes it; it reaches the page under it (Settings closes, the editor stays), also with Settings reopened over the editor | pass (agent, macOS, sessions 2, 6 and 7); real keys on the final build (R3): the first case passes (Escape leaves Settings, the editor stays; a second Escape changes nothing) | images 03, 04, 16; real-input record |
 | That Escape blurs the editor's field, as `useEscapeToGoBack` does | pass (agent, sessions 6 and 7: no focus after the first Escape); real keys (R3): the Theme name field's ring goes with the first Escape | image 16; drive record |
 | Escape in the colour popover closes only the popover and focuses its swatch | pass (agent, macOS), unchanged; real keys: the batch's #252 row 9 (PR #298) | image 05 |
@@ -125,10 +126,10 @@ hover model and keeps the light dismiss, the editor's Escape and item 12. The fe
 times (`c0475fbaa`, `ec32c8c37`, `fa46ad5d0`). Agent session 7 drove every row on the final code (the same
 read-backs as session 6); real-input sessions R1-R4 are in the real-input record.
 
-## Handed over to fix-hover-cards (coordinator, 2026-10-08)
+## Moved to fix-hover-cards (coordinator, 2026-10-08)
 
-The coordinator moved hover grace for every clone popover to the fix-hover-cards PR (a window-level HoverLayer).
-This task's findings for it:
+The coordinator moved hover grace for every clone popover to the fix-hover-cards PR (a window-level HoverLayer),
+and with it every row here whose cause is hover. The coordinator forwards this diagnosis:
 - **Item 10** (the hover popover closes as the pointer moves into it): a segment leave cleared the hover at
   once, the popover went inert before the pointer reached it, and the host's hover follow after that batch
   (`followPointer`: a style change re-hit-tests) dropped it; the popup drawn outside its trigger's box also gets
@@ -140,15 +141,41 @@ This task's findings for it:
   `tap usage-seg-0-1-1`: Weekly Work is not pinned and 5h Work's popover shows ([image, left half]
   (https://raw.githubusercontent.com/ccheever/exact2/d9d66b36e8c99d3a16d300bd1d248a192f7af738/popover-escape-parity/11-pass-over-then-click.png)).
   Base UI mounts nothing before the rest delay.
-- **Hover after a press**: an outside press closes a hover-opened popover too (Base UI's useDismiss), and a
-  press on the pinned segment closes it with the pointer resting there (blockMouseMove until mouseenter); the
-  pin here no longer touches hover states, so the helper owns both. Under a real pointer #263's hover state can
-  stay set after a click on a segment, which keeps the popover shown after the pin is dropped (real-input
-  record).
-- **A host finding from an abandoned approach** (attempt 5, unconfirmed): on the normal macOS app, free
-  `pointermove` on the page stopped being delivered once the pointer entered a segment whose `hover` handler
-  called an action prop bound to a root action (the root's `usageEdge`); with that call removed, moves kept
-  coming. Not filed; worth a check for any helper whose hover handler calls a root or injected action.
+- **A real sidebar press** (R1): the press dropped the pin (`T3Window` counted it and `held` went empty), but
+  the popover stayed shown. `shown` falls back to #263's hover states (`overSeg`/`overPop`/`overMail`), and
+  `overSeg` was still set after the real click on the segment and the move away (why the leave did not clear
+  it was not traced). In Base UI an outside press closes the popover however it opened (`useDismiss`), so
+  the hover helper should drop the hover-open state on an outside press as well. This task's pin code touches
+  no hover state.
+- **A press on the pinned segment with the pointer resting on it** (base: image 07): `pin` toggles the pin
+  off, but `overSeg` is still set by the resting pointer, so the hover keeps the popover shown. In Base UI,
+  any close sets `blockMouseMove` until a new mouseenter (`useHoverReferenceInteraction`), so a resting
+  pointer does not reopen it. The helper should block hover after a close until the next enter.
+- **A press on the same account's legend row, narrow layout**: #263 anchors the popover below its segment,
+  and on the narrow layout it covers the upper half of the legend row under the bar. So the press lands in
+  the popover's card, which by design does not dismiss (Base UI's `insideReactTree`). Base UI positions the
+  popup from the trigger that opened it with collision handling, which leaves the other trigger visible.
+  fix-hover-cards moves the popovers into `UsagePopups`, and the fix belongs there.
+
+## Host findings and unconfirmed observations
+
+Checked on 2026-10-08 against the filed issues #266–#302, an upstream search (`pointerdown`, scroll presses,
+text-field pointer) and main `2531fb826`:
+- **A press on a scroll view's empty area reaches no node** (macOS): reproduced in this task's agent session 1
+  (a real `NSEvent` through `NSApp.sendEvent`), not filed, unchanged on main by reading. Local draft
+  [X65](../issues/20261008-x65-scroll-empty-area-press.md).
+- **A press in a text field never fires `pointerdown`** (macOS): unconfirmed, from reading the host's code
+  (`TextAreaMac.swift` `Field`, `FieldEditor`, `TextArea`, and `NativeFieldsMac.swift` on main, never call
+  `pointerPressed`). Not reproduced, because the live-session budget was spent, so there is no draft. The
+  next real-input batch's editor-field row exercises the workaround.
+- **A native context menu keeps the pointer held** (macOS): unconfirmed, from reading the code (review S1).
+  `rightMouseDown` calls `pointerPressed`, and the NSMenu takes the secondary button's up, so `pointerHeld`
+  stays set until the next primary up. No draft.
+- **Free `pointermove` stopped after a hover handler called a root action** (attempt 5's abandoned hover
+  model): unconfirmed. On the normal macOS app the page's `pointermove` stopped once the pointer entered a
+  segment whose `hover` handler called an action prop bound to a root action (`usageEdge`); with that call
+  removed, moves kept coming. Not traced to the host; worth a check for any helper whose hover handler calls a
+  root or injected action. No draft.
 
 ## Independent review (2026-10-08, a separate agent, on `e5d0ce63a`)
 
@@ -175,7 +202,7 @@ Given the diff, this record, the drive record, the reference and Base UI 1.5.0 s
 No blocking finding. Should-fix: a hover hold could go stale when the pointer left the page within one frame
 (no page move outside); a segment under an open card could take the hover on macOS (tracking areas are
 geometric); the records' placeholders and two "pass (agent)" rows that the agent cannot tell from the base.
-All moot after the scope change (the hover model is gone; its notes are under "Handed over"); the records were
+All moot after the scope change (the hover model is gone; its notes are under "Moved to fix-hover-cards"); the records were
 rewritten for attempt 6.
 
 ## Attempts and evidence
@@ -186,17 +213,21 @@ rewritten for attempt 6.
 | 2 (2026-10-08) | `e5d0ce63a` | `bun test examples/t3-code` 3,041 pass / 1 skip / 0 fail (base 3,036); strict `tsc` clean; contract build 3,850 slots (base 3,844); `cargo test -p t3-code-macos --lib` 11 pass; five checks (run 13:40-13:55 KST before the commit, logs in the worktree's `target/pep/checks`, not committed): build ok, test 3,383 pass / 0 fail / 33 ignored, clippy ok, fmt ok, caps within, boot ok; agent session 2 (pid 75713) and base session (pid 98359): rows above | images 01-10, drive record | review findings |
 | 3 (2026-10-08) | `e6ceb5efd` (review fixes B1, S2, N1-N3, records) | `bun test examples/t3-code` 3,042 pass / 1 skip / 0 fail; strict `tsc` clean; contract build 3,850 slots; `app.contract` 1,456 lines (unchanged); `cargo test -p t3-code-macos --lib` 11 pass; macOS dev and `--bundle` builds; five checks: build ok, test 3,383 pass / 0 fail / 33 ignored, clippy ok, fmt ok, caps within, boot ok; the 5 new tests fail on `07dcef1ab`'s sources (1 guard passes) | tests | real-input rows |
 | 4 (2026-10-08) | `6e1636d7c` (second-round fixes: own hover states only; release check on the card) | `bun test examples/t3-code` 3,042 pass / 1 skip / 0 fail; strict `tsc` clean; contract build 3,850 slots; `cargo test -p t3-code-macos --lib` 11 pass; macOS `--bundle` builds; five checks: build ok, test 3,383 pass / 0 fail / 33 ignored, clippy ok, fmt ok, caps within, boot ok | tests | real-input rows |
-| 5 (2026-10-08) | uncommitted (merge of `c0475fbaa`; items 10-12 with a hover model) | agent sessions 3-4: rest, bridge, move-then-click and the confirm's focus passed; real pointer (lane copy): the page's free `pointermove` stopped after the pointer entered a segment (see "Handed over"); scope change | `t3-code-evidence:popover-escape-parity/11-*`, `12-*` (handed over) | dropped |
+| 5 (2026-10-08) | uncommitted (merge of `c0475fbaa`; items 10-12 with a hover model) | agent sessions 3-4: rest, bridge, move-then-click and the confirm's focus passed; real pointer (lane copy): the page's free `pointermove` stopped after the pointer entered a segment (see "Moved to fix-hover-cards"); scope change | `t3-code-evidence:popover-escape-parity/11-*`, `12-*` (moved to fix-hover-cards) | dropped |
 | 6 (2026-10-08) | merge of `ec32c8c37`; pin and dismissal independent of hover; item 12 in PagesCover | `bun test examples/t3-code` 3,140 pass / 1 skip / 0 fail; strict `tsc` clean; contract build 3,938 slots; `app.contract` 1,478 lines (the base's); `cargo test -p t3-code-macos --lib` 13 pass; macOS dev and `--bundle` builds; five checks: build ok, test 3,521 pass / 0 fail / 34 ignored, clippy ok, fmt ok, caps within, boot ok; agent session 6 (pid 82941): every row above; real input R1, R2 | images 13-14, real-input record | the last edit to `pin`/`pressUp` |
-| 7 (2026-10-08) | `cae284e86` (pin and dismissal touch no hover state; item 12 committed), merge of `fa46ad5d0` (`a579d01e4`) | `bun test examples/t3-code` 3,142 pass / 1 skip / 0 fail; strict `tsc` clean; contract build 3,938 slots; `app.contract` 1,478 lines (the base's); `cargo test -p t3-code-macos --lib` 13 pass; macOS dev build; `git add -A` + caps within; five checks: build ok, test 3,521 pass / 0 fail / 34 ignored, clippy ok, fmt ok, caps within, boot ok; agent session 7 (pid 54085): every row, as session 6; real input R3 (final build: the editor's Escape passes), R4 (blocked by another lane's permission prompt) | images 15-16, drive record session 7, real-input record | the two real-input rows in "Next action" |
+| 7 (2026-10-08) | `cae284e86` (pin and dismissal touch no hover state; item 12 committed), merge of `fa46ad5d0` (`a579d01e4`) | `bun test examples/t3-code` 3,142 pass / 1 skip / 0 fail; strict `tsc` clean; contract build 3,938 slots; `app.contract` 1,478 lines (the base's); `cargo test -p t3-code-macos --lib` 13 pass; macOS dev build; `git add -A` + caps within; five checks: build ok, test 3,521 pass / 0 fail / 34 ignored, clippy ok, fmt ok, caps within, boot ok; agent session 7 (pid 54085): every row, as session 6; real input R3 (final build: the editor's Escape passes), R4 (blocked by another lane's permission prompt) | images 15-16, drive record session 7, real-input record | the rows in "Next action" |
 
 ## Next action
 
-Review the draft PR (#290). fix-hover-cards merges the base after it and takes over the hover lines of the
-usage files (the coordinator relays the list of lines this task changed). Two real-input rows are open, both
-needing a session this task may not take on its own: a real page press on the final build (R4 was blocked by
-another lane's permission prompt over the segment) and a real sidebar press (blocked by #263's hover state,
-which fix-hover-cards owns; recheck it there or in the next real-input batch).
+Review the draft PR (#290); the coordinator flips it to ready. Every not-done row now has an owner:
+- **Deferred to the next real-input batch** (`STATUS.md` "Next real-input batch", with steps): a real page press
+  on the final build (with a press that ends inside the card), and a press in the floating theme editor's text
+  fields.
+- **Moved to fix-hover-cards** (diagnosis above): the real sidebar press, the pinned-segment press with the
+  pointer resting on it, and the narrow legend-row press. fix-hover-cards merges the base after #290 and takes
+  over the hover lines of the usage files. The coordinator relays the list of lines this task changed.
+- **Local draft X65**: a press on a scroll view's empty area. The workaround (`usage-ground`) stays until the
+  host routes the press.
 
 ## Real-input record (2026-10-08)
 
@@ -209,12 +240,13 @@ keys: `orca computer press-key` to the lane copy's pid. Read back from window sc
 
 | Session (UTC) | Build | Rows and outcome |
 | --- | --- | --- |
-| R1 (07:24, pid 25789) | before `pin`/`pressUp` dropped their hover lines; item 12's fix in | Page press: pin 5h Codex by a click, the pointer taken round the card, a click on the page ground below the cards: closed (image 15). Sidebar press: the pin dropped (the window counted it), but #263's hover state for the segment, left set by the real click, kept the popover shown: hover, handed over. Keys sent with `cliclick kp` did not reach the app, so its Escape rows did not run |
+| R1 (07:24, pid 25789) | before `pin`/`pressUp` dropped their hover lines; item 12's fix in | Page press: pin 5h Codex by a click, the pointer taken round the card, a click on the page ground below the cards: closed (image 15). Sidebar press: the pin dropped (the window counted it), but #263's hover state for the segment, left set by the real click, kept the popover shown: hover, moved to fix-hover-cards. Keys sent with `cliclick kp` did not reach the app, so its Escape rows did not run |
 | R2 (07:26, pid 34704) | same as R1 | Item 12, keys through `orca computer press-key`: pin 5h Work, Tab, Tab to "Use reset", Return (the confirm), Escape: the confirm closes, the 5h Work segment shows the focus ring and the next Tab goes on from it (images 13, 14). The editor rows: the click meant for Settings hit the Usage page's Back, so they did not run |
 | R3 (07:52, pid 51056) | final (the lane bundle built from this branch's code after the last edit) | Theme editor: Settings, Appearance, Create theme, a click in Theme name (ring), Escape: Settings closes, the editor stays, the field has no ring; a second Escape changes nothing (image 16). The window then lost activation (grey traffic lights) before the click on the Usage gauge, so the outside-press rows did not run |
 | R4 (07:57, pid 76996) | final | Retry of the outside-press rows only. Usage opened; the clicks on the 5h Codex segment landed on another lane's macOS permission prompt ("T3 Code (Lane FPAS)" asking for the Documents folder; a `UserNotificationCenter` window over screen 546,160, 260x208), so nothing was pinned and the later presses had nothing to close. The prompt is another lane's and was left unanswered |
 
 Each session took the shared real-input lock while it was absent and released it at once. The brief allows one
 live session and one retry: R3 was the final session the coordinator asked for and R4 its retry, so the real
-sidebar press and a real page press on the final build stay open (see "Next action").
+page press on the final build is deferred to the next real-input batch and the real sidebar press moved to
+fix-hover-cards (see "Next action").
 

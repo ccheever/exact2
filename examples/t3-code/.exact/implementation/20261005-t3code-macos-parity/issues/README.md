@@ -152,6 +152,12 @@ Those drafts are not on this branch; here X50 and X54 are the records above.
 | --- | --- | --- | --- | --- |
 | [X63](20261008-x63-textarea-undo-menu.md) | Edit › Undo, Edit › Redo, ⌘Z and ⇧⌘Z reaching a plain `textarea`'s own undo history on macOS (`TextArea` overrides `undoManager`; `undo:` lands on `NSWindow`) | framework-gap | none ([fix-misc-batch](../tasks/20261008-fix-misc-batch.md) routes the clone's own Edit › Undo and Redo to the focused text view's manager) | reproduced against the host's `TextArea` on main `fa965d3e2` and with real keys on the clone's base `c0475fbaa`; not #275/#276/#125 (they assume undo reaches the field); draft, not published |
 
+## Popover-escape-parity addition, 2026-10-08
+
+| Issue | Capability | Kind | Blocks | Status |
+| --- | --- | --- | --- | --- |
+| [X65](20261008-x65-scroll-empty-area-press.md) | A press on a `scroll` node's empty area (its port's ground, beyond the content) reaching that node and its ancestors' `pointerdown` on macOS | framework-gap | none ([popover-escape-parity](../tasks/20261008-popover-escape-parity.md) puts a full-height ground under the Usage page's scroll content) | local draft: seen in the clone's agent drive (real `NSEvent` path); main `2531fb826` unchanged on that path (read); not in #266–#302 or an upstream search; a one-file repro written, not run |
+
 Re-checked on main `e200397ec` ([adopt-main-fixes-r6](../tasks/20261008-adopt-main-fixes-r6.md)): since `1f19b2400` main
 closed none of this plan's issues (#234 was adopted in round 5). #108, #112, #116, #117, #124, #126, #127, #130, #131,
 #140, #141, #224, #235 and #266–#277 are open, and nothing main merged covers them; our drafts #227 and #228 are still
