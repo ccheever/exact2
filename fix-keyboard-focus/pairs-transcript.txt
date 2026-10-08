@@ -12,3 +12,5 @@
 [after] More menu by keyboard: Return on "…" -> pr-more-refresh; ArrowDown -> pr-more-ask; ArrowDown -> pr-more-explain; ArrowUp -> pr-more-ask; End -> pr-more-close
 [before] Close pull request? open, focus pull-request-more; Tab -> pull-request-edit-title; Tab -> pull-request-copy-checkout; Escape -> pull-request-copy-checkout
 [after] Close pull request? open, focus pr-action-dialog-cancel; Tab -> pr-action-dialog-confirm; Tab -> pr-action-dialog-cancel; Escape -> pull-request-more
+[before] arrow-open: "…" focused (pull-request-more), menu closed; ArrowDown -> pull-request-more; ArrowUp -> pull-request-more
+[after] arrow-open: "…" focused (pull-request-more), menu closed; ArrowDown -> pr-more-refresh; Escape -> pull-request-more; ArrowUp -> pr-more-close
