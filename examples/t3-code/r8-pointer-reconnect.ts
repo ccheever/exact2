@@ -10,8 +10,8 @@
 //    opens its primary environment);
 //  - else the first switched-on saved environment.
 // The primary is connected once its server is ready with its bearer (20261005-local-primary-
-// environment; until then the window shows the connecting state, decision U5 provisional, because
-// the host opens the first window before the server is ready, exact2 #117 / issue X31). When the
+// environment; until then the window shows the connecting state, decision U5 (2026-10-08: kept until
+// exact2 lets an app hold its first window; the host opens it before the server is ready, #117 / X31). When the
 // primary cannot come (switched off, a refused development build, no runtime), the launch falls
 // back to the saved rule. Until the server names its environment, the fleet treats the one being
 // opened as the focus, so it is not opened twice.

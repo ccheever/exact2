@@ -85,7 +85,7 @@ Do not grow `app.contract` or `client.ts`; put the section in a new `.contract` 
 | merged task PR | [20261005-clone-on-exact2-main](20261005-clone-on-exact2-main.md) | [#99](https://github.com/ccheever/exact2/pull/99) | Merged | the clone is on exact2 in `feat(example)/t3-code` (this PR's base) |
 | merged task PR | [20261005-desktop-oracle-and-trace](20261005-desktop-oracle-and-trace.md) | none | Merged | blocked: not built (user decision 2026-10-06); the Trace row and the oracle comparisons stay blocked |
 | merged task PR | [20261005-local-primary-environment](closed/20261005-local-primary-environment.md) | [#237](https://github.com/ccheever/exact2/pull/237) | Merged | merged (`applyLocalSetting` is the shared seam) |
-| recorded decision | U4 decided (relaunch); U8 (hosted link), U9 (Tailscale verification) | none | U8 and U9 answered at `prepare` | U4: user 2026-10-05; U8 (keep the hosted link) and U9 (stub provider only) taken provisionally for this PR (coordinator brief 2026-10-08), user decision pending |
+| recorded decision | U4 decided (relaunch); U8 (hosted link), U9 (Tailscale verification) | none | U8 and U9 answered at `prepare` | U4: user 2026-10-05; U8 and U9 decided 2026-10-08 (user: match the original): the hosted link is the reference's, checked line by line, and the implementation matches the reference (the probe deadline, the SWR snapshot cadence, the port rule and stepping were fixed in [provisional-decisions-parity](20261008-provisional-decisions-parity.md)); live Tailscale needs a tailnet the user provides |
 
 ## Issue assessment at preparation
 
@@ -128,10 +128,11 @@ Required environment: Xcode 27.0, pinned Bun, the staged runtime, lane ports 160
 ## Progress
 
 Implemented on `feat(example)/t3-code-this-machine-network-access` (2026-10-08) from `feat(example)/t3-code` `da4f4512f`,
-with `d82fb6a47` (#244, records only) merged in. Reference `1e2ecbd975`. Decisions taken for this PR, each
-**provisional, user decision pending**: U8 (HTTPS endpoints pair through the hosted app on `app.t3.codes`, as the
-reference; it needs no T3 Connect, so nothing here is blocked by X38) and U9 (Tailscale verified with the stub
-provider only; live Tailscale is blocked by U9, "a tailnet the user provides"). U4 (relaunch) is decided; exact2
+with `d82fb6a47` (#244, records only) merged in. Reference `1e2ecbd975`. Decisions (user, 2026-10-08: match the
+original; [provisional-decisions-parity](20261008-provisional-decisions-parity.md)): U8, HTTPS endpoints pair through the hosted app on `app.t3.codes` exactly as the reference
+(conditions, URL, strings; it needs no T3 Connect, so nothing here is blocked by X38); U9, Tailscale is verified with
+the stub provider in lanes and was checked against the reference line by line; live Tailscale needs a tailnet the
+user provides (a verification gap, not a function difference). U4 (relaunch) is decided; exact2
 has no process relaunch (#122 / X45), so every change goes through `applyLocalSetting`'s restart-in-place stopgap.
 
 | Scope item | Built | Where |

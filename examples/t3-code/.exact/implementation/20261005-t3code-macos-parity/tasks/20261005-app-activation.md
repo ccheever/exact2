@@ -77,7 +77,7 @@ Edge cases to test: `$TMPDIR` differs between the CLI's shell and the app (the r
 | merged task PR | [20261005-clone-on-exact2-main](20261005-clone-on-exact2-main.md) | pending | Merged | pending |
 | merged task PR | [20261005-desktop-oracle-and-trace](20261005-desktop-oracle-and-trace.md) | pending | Merged | pending |
 | merged task PR | [20261005-local-primary-environment](closed/20261005-local-primary-environment.md) | [#237](https://github.com/ccheever/exact2/pull/237) | Merged | merged into `feat(example)/t3-code` (`ed98ab3c0`); this PR's base |
-| recorded decision | U10 (hosted-web deep link kept or dropped; command-line install action) | none | Answered at `prepare` | taken provisionally for this PR (coordinator brief 2026-10-08): the ticket's defaults, neither built; **user decision pending** |
+| recorded decision | U10 (hosted-web deep link kept or dropped; command-line install action) | none | Answered at `prepare` | decided 2026-10-08 (user: match the original; [provisional-decisions-parity](20261008-provisional-decisions-parity.md)): no command-line install action, as the reference desktop has none; the `t3code://` deep link belongs to T3 Connect, out of scope by user decision (X38) |
 
 ## Issue assessment at preparation
 
@@ -115,9 +115,10 @@ Required environment: the staged runtime (for the CLI), Xcode 27.0, pinned Bun, 
 
 Implemented on `feat(example)/t3-code-app-activation` (2026-10-08) from `feat(example)/t3-code` `da4f4512f`, with
 `d82fb6a47` (#244, records only) merged in. Reference `1e2ecbd975`; the CLI is the pinned release's own `t3`
-(`0.0.46-nightly.20261005.2667`, 4 commits after the pin). Decision U10 is taken provisionally, **user decision
-pending**: the ticket's defaults, so no "install command line tool" action (the reference desktop has none) and no
-hosted-web deep link (`t3code://` belongs to the excluded `t3-connect-sign-in`; a lane build registers no scheme).
+(`0.0.46-nightly.20261005.2667`, 4 commits after the pin). Decision U10 (2026-10-08, [provisional-decisions-parity](20261008-provisional-decisions-parity.md)): no "install
+command line tool" action, because the reference desktop has none (users install `t3` with `scripts/install.sh` or
+npm); the hosted-web deep link (`t3code://`) is T3 Connect, out of scope by user decision (X38); a lane build
+registers no scheme.
 Neither is built.
 
 | Scope item | Built | Where |
@@ -126,7 +127,7 @@ Neither is built.
 | 2. Broker | `DesktopAppActivationBroker`: waits for a ready window, one request handed at a time, the rest queued in order; the window brought forward on arrival (`NSApp.activate`, un-minimize, key); 15 s `request-timeout` (`T3_ACTIVATION_TIMEOUT_MS` in a development build); duplicate id `invalid-request`; window gone `renderer-unavailable` (a module destroyed, its NSWindow starting to close, or a reloaded page's new token); shutdown; a cancelled client. Ten reference tests by name plus 15 of the clone's | `T3AppControl.swift` (`T3ActivationBroker`, `T3AppControl`), `macos/tests/app-control/` (25 tests) |
 | 3. Window side | `handleDesktopAppActivationRequest` and `findProjectByPath`/`inferProjectTitleFromPath` (the whole `projectPaths` module, its 11 tests by name); ready only while the primary is connected with its config and shell snapshot (focused, or in the fleet), not ready on a disconnect or with the Local environment off; a handed request opens like a clicked notification (the shell view's open request), so the root's `shellOpen` task leaves Settings and the utility pages as the reference's route change does and sends `activation:open`; that op reads the request back (a cancelled or expired one opens nothing), finds or adds the project (`project.create`, `createWorkspaceRootIfMissing: false`, no toast on failure, `reportFailure: false`), waits up to 10 s for it in the shell, opens its draft with the draft's own thread id (`ensureDraftThreadId`), and answers with `projectId` and `threadId`. A primary in the fleet gets the project on its own transport, then becomes the focus on the new draft | `desktop-activation.ts`, `project-paths.ts` (+ tests), `client-ops.ts` (one entry), `shell.ts` (one line), `app.ts` (one line), `app.contract` (`shellOpenThread`, net 0 lines) |
 | 4. Lifecycle | Listens once the embedded server's start is under way (its status names the T3 home), never while the Local environment is off or a build is refused; the stopgap switch (X45) closes and reopens it as the reference's relaunch would; a bind failure is logged (`desktop app control socket unavailable: …`) and the app goes on; closed with the last window | `T3AppControl.swift`, `T3Module+Activation.swift`, `T3Module.swift` (area entry, attach, `detachAppControl()` first in `destroy()`) |
-| 5. The CLI | Not shipped (U10, provisional). `t3 app` is the user's own `t3` or `<T3 home>/runtime/versions/<version>/t3`; a lane build listens for its own home (`t3 app <dir> --base-dir "$T3_LOCAL_HOME"`, README) | — |
+| 5. The CLI | Not shipped (U10: the reference desktop ships none). `t3 app` is the user's own `t3` or `<T3 home>/runtime/versions/<version>/t3`; a lane build listens for its own home (`t3 app <dir> --base-dir "$T3_LOCAL_HOME"`, README) | — |
 
 `app.contract` stays at 1500 lines (two comment lines became trailing comments); `client.ts` is unchanged.
 
@@ -209,5 +210,5 @@ Final checks on `c5fab5dbf`:
 
 ## Next action
 
-Review of the draft PR; the user answers U10 (provisional: no CLI install action, no deep link). The coordinator runs
+Review of the draft PR (U10 decided 2026-10-08: no CLI install action, as the reference; no deep link, X38 out of scope). The coordinator runs
 the "Real-input batch steps" above (front, un-minimize, ⌘W mid-request, ⌘Q) once the screen is unlocked.
