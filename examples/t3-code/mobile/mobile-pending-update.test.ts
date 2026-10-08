@@ -1,5 +1,6 @@
 import { expect, test } from 'bun:test';
-import { mobileOutboxRead, mobileOutboxPrepareUpdate, mobileOutboxResumeUpdate, mobileOutboxSnapshot } from './mobile-outbox';
+import { mobileOutboxRead, mobileOutboxPrepareUpdate, mobileOutboxResumeUpdate, mobileOutboxSnapshot,
+  mobileOutboxPrepareRemoval, mobileOutboxResumeRemoval } from './mobile-outbox';
 import type { MobileOutboxRecord } from './mobile-outbox-model';
 import type { Native } from './shared/protocol';
 const record = (text = 'original'): MobileOutboxRecord => ({ schemaVersion: 1, origin: 'https://server.test',
@@ -19,9 +20,10 @@ async function fixture(epoch = 'old', floor = 1) {
   return { client, native, calls };
 }
 function result(request: any, epoch = 'old', status = 'committed') {
+  const removing = request.operation === 'remove';
   return { mutationId: request.mutationId, messageId: 'message', status, message: '', revision: 2,
-    record: status === 'committed' ? request.record : null, removed: null, ownerEpoch: epoch, sequenceFloor: 2,
-    current: { record: status === 'committed' ? request.record : record(), token: status === 'committed' ? request.mutationId : 'old:1', revision: 2, pending: false } };
+    record: status === 'committed' && !removing ? request.record : null, removed: status === 'committed' && removing ? record() : null, ownerEpoch: epoch, sequenceFloor: 2,
+    current: { record: status === 'committed' ? removing ? null : request.record : record(), token: status === 'committed' ? request.mutationId : 'old:1', revision: 2, pending: false } };
 }
 test('prepare reserves immutable captured revisions without admitting native work', async () => {
   const f = await fixture(), input = record('first'), saved = mobileOutboxPrepareUpdate(f.client, input, expected);
@@ -56,4 +58,40 @@ test('invalid saved ownership is refused before native; mismatched receipt canno
   const pending = mobileOutboxResumeUpdate(f.client, f.native, saved, 'editor');
   f.calls[1]!.answer({ ...result(saved), mutationId: 'elsewhere:1' });
   expect((await pending).status).toBe('unknown'); expect(mobileOutboxSnapshot(f.client).rows[0]!.record.text).toBe('original');
+});
+
+test('removal reservation is immutable, has no side effect and shares the update sequence', async () => {
+  const f = await fixture(), saved = mobileOutboxPrepareRemoval(f.client, 'message', expected);
+  expect(Object.isFrozen(saved)).toBe(true); expect(saved).toEqual({ ...expected, ownerEpoch: 'old', mutationId: 'old:2',
+    messageId: 'message', operation: 'remove', requireUnheld: false });
+  expect(f.calls).toHaveLength(1); expect(mobileOutboxSnapshot(f.client).rows).toHaveLength(1);
+  expect(mobileOutboxPrepareUpdate(f.client, record(), expected).mutationId).toBe('old:3');
+  expect(() => mobileOutboxPrepareRemoval(f.client, 'message', {})).toThrow('exact pending task');
+});
+test('restart replays one saved removal and adopts actual removed payload without a new mutation', async () => {
+  const old = await fixture(), saved = mobileOutboxPrepareRemoval(old.client, 'message', expected), cold = await fixture('new', 40);
+  const pending = mobileOutboxResumeRemoval(cold.client, cold.native, saved, 'recovery');
+  expect(cold.calls[1]!.request).toEqual({ op: 'mobileOutbox', action: 'resumeRemoval', ownerEpoch: 'new', holdOwner: 'recovery', request: saved });
+  expect(mobileOutboxSnapshot(cold.client).rows).toHaveLength(1);
+  cold.calls[1]!.answer(result(saved, 'new')); expect((await pending).removed).toEqual(record());
+  expect(mobileOutboxSnapshot(cold.client).rows).toEqual([]);
+  const replay = mobileOutboxResumeRemoval(cold.client, cold.native, saved, 'recovery');
+  expect(cold.calls[2]!.request.request).toEqual(saved); cold.calls[2]!.answer(result(saved, 'new')); expect((await replay).status).toBe('committed');
+  expect(mobileOutboxPrepareRemoval(cold.client, 'message', expected).mutationId).toBe('new:41');
+});
+test('uncertain removal keeps the row and exact request; stale replay preserves the current row', async () => {
+  const f = await fixture(), saved = mobileOutboxPrepareRemoval(f.client, 'message', expected);
+  const pending = mobileOutboxResumeRemoval(f.client, f.native, saved, 'recovery');
+  f.calls[1]!.answer({ mutationId: saved.mutationId, messageId: 'message', status: 'unknown', message: 'reply lost' });
+  expect((await pending).status).toBe('unknown'); expect(mobileOutboxSnapshot(f.client).rows).toHaveLength(1);
+  const retry = mobileOutboxResumeRemoval(f.client, f.native, saved, 'recovery');
+  expect(f.calls[2]!.request.request).toEqual(saved); f.calls[2]!.answer(result(saved, 'old', 'stale'));
+  expect((await retry).status).toBe('stale'); expect(mobileOutboxSnapshot(f.client).rows[0]!.record).toEqual(record());
+});
+test('removal rejects changed operation, extra payload, wrong epoch identity and empty holder before native', async () => {
+  const f = await fixture(), saved = mobileOutboxPrepareRemoval(f.client, 'message', expected);
+  for (const patch of [{ operation: 'update' }, { record: record() }, { mutationId: 'different:2' }])
+    await expect(mobileOutboxResumeRemoval(f.client, f.native, { ...saved, ...patch } as typeof saved, 'recovery')).rejects.toThrow('invalid');
+  await expect(mobileOutboxResumeRemoval(f.client, f.native, saved, '')).rejects.toThrow('invalid');
+  expect(f.calls).toHaveLength(1);
 });

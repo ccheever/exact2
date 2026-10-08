@@ -20,6 +20,7 @@ export interface MobileOutboxSavedUpdate {
   ownerEpoch: string; mutationId: string; messageId: string; operation: 'update';
   record: MobileOutboxRecord; expectedToken: string; expectedRevision: number; requireUnheld: false;
 }
+export interface MobileOutboxSavedRemoval extends Omit<MobileOutboxSavedUpdate, 'operation' | 'record'> { operation: 'remove' }
 export interface MobileOutboxCurrent { record: MobileOutboxRecord | null; revision: number; token: string; pending: boolean }
 export interface MobileOutboxOutcome {
   mutationId: string; messageId: string; status: 'committed' | 'stale' | 'failed' | 'uncertain' | 'unknown';
@@ -247,20 +248,45 @@ export function mobileOutboxPrepareUpdate(client: Client, input: MobileOutboxRec
 /** Root must persist this exact request before first invocation, and retain its editor hold. */
 export async function mobileOutboxResumeUpdate(client: Client, native: Native | null | undefined,
   saved: MobileOutboxSavedUpdate, holdOwner: string): Promise<MobileOutboxOutcome> {
+  return resumeSavedMutation(client, native, saved, holdOwner, 'update');
+}
+/** Reserve before persisting the recovery intent. This never removes the queue row. */
+export function mobileOutboxPrepareRemoval(client: Client, messageId: string, expected: MobileOutboxExpected): MobileOutboxSavedRemoval {
+  const value = state(client);
+  if (!value.initialized || !value.ownerEpoch || !value.complete) throw new ClientError('Read a complete pending-task inventory before recovering a draft.');
+  assertExpected(expected);
+  if (!nonempty(messageId) || !nonempty(expected.expectedToken) || !integer(expected.expectedRevision))
+    throw new ClientError('Capture the exact pending task before recovering its draft.');
+  if (!Number.isSafeInteger(value.sequence + 1)) throw new ClientError('The pending task sequence is exhausted.');
+  return Object.freeze({ ownerEpoch: value.ownerEpoch, mutationId: `${value.ownerEpoch}:${++value.sequence}`,
+    messageId, operation: 'remove', expectedToken: expected.expectedToken, expectedRevision: expected.expectedRevision, requireUnheld: false });
+}
+/** Caller must durably publish the destination and save this exact request first.
+ * Native requires the held row for first admission; terminal replay uses its receipt. */
+export async function mobileOutboxResumeRemoval(client: Client, native: Native | null | undefined,
+  saved: MobileOutboxSavedRemoval, holdOwner: string): Promise<MobileOutboxOutcome> {
+  return resumeSavedMutation(client, native, saved, holdOwner, 'remove');
+}
+async function resumeSavedMutation(client: Client, native: Native | null | undefined,
+  saved: MobileOutboxSavedUpdate | MobileOutboxSavedRemoval, holdOwner: string, operation: 'update' | 'remove'): Promise<MobileOutboxOutcome> {
   const { value, native: handle, epoch } = readyState(client, native);
+  const keys = ['ownerEpoch', 'mutationId', 'messageId', 'operation', 'expectedToken', 'expectedRevision', 'requireUnheld',
+    ...(operation === 'update' ? ['record'] : [])];
   if (!value.complete || !nonempty(holdOwner) || !object(saved) || !nonempty(saved.ownerEpoch)
     || !nonempty(saved.mutationId) || tokenSequence(saved.mutationId, saved.ownerEpoch) === null
-    || saved.operation !== 'update' || saved.requireUnheld !== false || !nonempty(saved.expectedToken)
-    || !integer(saved.expectedRevision) || !nonempty(saved.messageId)) throw new ClientError('The saved pending update is invalid.');
-  const request = clone(saved); request.record = decodeRecord(request.record, request.messageId);
+    || saved.operation !== operation || saved.requireUnheld !== false || !nonempty(saved.expectedToken)
+    || !integer(saved.expectedRevision) || !nonempty(saved.messageId) || Object.keys(saved).length !== keys.length
+    || Object.keys(saved).some(key => !keys.includes(key))) throw new ClientError('The saved pending mutation is invalid.');
+  const request = clone<MobileOutboxSavedUpdate | MobileOutboxSavedRemoval>(saved);
+  if (request.operation === 'update') request.record = decodeRecord(request.record, request.messageId);
   value.sequence = Math.max(value.sequence, tokenSequence(request.mutationId, epoch) ?? 0);
   const ordinal = ++value.ordinal;
   value.intents[request.mutationId] = { mutationId: request.mutationId, messageId: request.messageId,
-    ownerEpoch: request.ownerEpoch, operation: 'update', ordinal, record: clone(request.record),
+    ownerEpoch: request.ownerEpoch, operation, ordinal, ...(request.operation === 'update' ? { record: clone(request.record) } : {}),
     expected: { expectedToken: request.expectedToken, expectedRevision: request.expectedRevision }, status: 'submitted' };
   change(client, value);
   try {
-    const result = outcome(await invoke(handle, { action: 'resumeUpdate', ownerEpoch: epoch, holdOwner, request }), request.messageId, request.mutationId);
+    const result = outcome(await invoke(handle, { action: operation === 'update' ? 'resumeUpdate' : 'resumeRemoval', ownerEpoch: epoch, holdOwner, request }), request.messageId, request.mutationId);
     adoptOutcome(value, result, ordinal); change(client, value); return clone(result);
   } catch (error) {
     const result: MobileOutboxOutcome = { mutationId: request.mutationId, messageId: request.messageId, status: 'unknown', message: String(error) };
