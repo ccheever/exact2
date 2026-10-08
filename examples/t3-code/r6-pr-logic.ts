@@ -7,7 +7,11 @@
 // - pullRequestPresentation.tsx: CHECK_STATUS_PRESENTATION labels,
 //   CHECKS_STATE_PRESENTATION headlines, summarizePullRequestChecks,
 //   pullRequestCheckStatusLabel, PullRequestDiffStat;
-// - usePullRequestActions.ts: the action toasts' titles and hints;
+// - usePullRequestActions.ts / PullRequestDetailPanel.tsx: the action toasts' titles and hints for all
+//   ten actions; and (pr-header-actions-and-stacks) PULL_REQUEST_MERGE_METHOD_LABELS,
+//   resolvePullRequestMergeMethod, allowsSinglePullRequestMerge, resolvePullRequestPrimaryControl,
+//   pullRequestActionMenuHasGroup, isStackedPullRequestBase, resolveBaseFreshness,
+//   pullRequestActionNeedsHostRefresh;
 // - chat/ThreadDetailsPrRow.tsx: the row's tooltip card and trailing action.
 import { arr, num, obj, str, type Obj } from './domain';
 
