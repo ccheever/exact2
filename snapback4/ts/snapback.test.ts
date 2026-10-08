@@ -582,3 +582,14 @@ test('a write the device refuses is failed at once, never sent, and answered by 
   expect((await olga.outcome(approved.id)).state).toBe('failed');
   await olga.close();
 }, 60_000);
+
+test('two sources polling one partition at once share the poll', async () => {
+  const openKim = onePage('kim', join(scratch, 'kim'));
+  const [a, b] = await Promise.all([openKim(), openKim()]);
+  expect(await a.sync()).toEqual({ ok: true });
+  // Two polls at once: neither supersedes the other (E_STALE before sharing).
+  const both = await Promise.all([a.poll(0), b.poll(0)]);
+  expect(both[0]).toBe(both[1]);
+  await a.close();
+  await b.close();
+}, 60_000);

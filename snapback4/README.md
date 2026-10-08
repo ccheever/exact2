@@ -65,7 +65,7 @@ launch, and agrees with the server's (the agent's `clock` still moves it).
 ### A complete app
 
 A guestbook: two personas, a list that syncs and works offline, a post whose
-fate the app reports. `snapback/schema.q`:
+fate (and new row's id) the app reports, a failure banner. `snapback/schema.q`:
 
 ```quarry
 use personas alice, bob
@@ -89,7 +89,8 @@ mutation post(body: text 1..200):
   return { id: row.id }
 ```
 
-`app.contract`:
+`app.contract` (a source's result type is keyed by its source name:
+`Result<'notes'>`, `Result<'post'>`):
 
 ```
 // Guestbook: the view. app.ts answers it through Snapback4.
@@ -103,10 +104,13 @@ shape Note
 shape Board
   online: bool
   message: string
+  latest: string
+  sending: number
   notes: list<Note>
 shape Ack
   ok: bool
   message: string
+  id: string
 
 component Guestbook
   state persona = "alice"
@@ -115,6 +119,10 @@ component Guestbook
   resource time = exactTime() as shape Clock
   resource board = notes(persona, time.epochAtZero + performanceNow()) as shape Board
   mutation posted as shape Ack queue refreshes board then afterPost
+  derive banner = match failure(board) {
+    case some(f) => f.code == "offline" ? "You're offline" : `Couldn't load notes (${f.code})`,
+    case none => ""
+  }
   task live mount
     every(5000, refreshBoard)
   action refreshBoard
@@ -141,12 +149,16 @@ component Guestbook
             text "Alice"
           option value="bob"
             text "Bob"
+        when banner != ""
+          text banner testId="banner"
         text (board.online ? "Synced" : board.message) testId="status"
+        text `${board.sending} sending` testId="sending"
         row gap=8
           input value=draft input=editDraft testId="draft" placeholder="Say something" aria-label="Note" flex=1
           button appearance="auto" press=postNote disabled=(trim(draft) == "") testId="post"
             text "Post"
         text notice testId="notice"
+        text board.latest testId="latest"
         each note in board.notes key=note.id
           text `${note.author}: ${note.body}${note.pending ? " (sending)" : ""}` testId=`note-${note.id}`
 ```
@@ -177,85 +189,80 @@ function device(persona: string, storage: Storage, native: NativeModule | null |
 
 type Row = { id: string; author: string; body: string; pending?: boolean };
 
+// Results are keyed by source name: `Result<'notes'>`, `Result<'post'>`.
 const sources: Sources = {
   notes: async ([persona, now], _store, storage, native): Promise<Result<'notes'>> => {
     try {
       const db = await device(persona, storage, native);
       const round = await db.sync();                    // offline is fine once synced
       const read = await db.read<Row[]>('recent', {}, now);
-      if (read.denied) return { online: false, message: read.denied.message, notes: [] };
+      if (read.denied) throw new Error(`${read.denied.code}: ${read.denied.message}`);
       // Project each row onto the shape: an answer's extra fields are refused.
       const notes = (read.data ?? []).map(row => ({ id: row.id, author: row.author, body: row.body, pending: row.pending === true }));
-      return { online: round.ok, message: round.ok ? '' : 'Offline: showing what this device keeps', notes };
+      return { online: round.ok, message: round.ok ? '' : 'Offline: showing what this device keeps',
+        latest: notes.length ? `${notes[0].author}: ${notes[0].body}` : '',
+        sending: notes.filter(note => note.pending).length, notes };
     } catch (error) {
       // At build (bake) time there is no storage; the app asks again when it runs.
-      if ((error as { code?: string }).code === 'bake') return { online: false, message: 'Connecting…', notes: [] };
-      return { online: false, message: (error as Error).message, notes: [] };
+      if ((error as { code?: string }).code === 'bake') return { online: false, message: 'Connecting…', latest: '', sending: 0, notes: [] };
+      throw error;                                      // the view shows it through failure(board)
     }
   },
   post: async ([persona, body, now], _store, storage, native): Promise<Result<'post'>> => {
     const db = await device(persona, storage, native);
     const written = await db.write('post', { body }, now);
-    if (written.state === 'failed') return { ok: false, message: `Refused: ${written.why.code}` };
+    if (written.state === 'failed') return { ok: false, message: `Refused: ${written.why.code}`, id: '' };
     await db.sync();
-    // A round that ends ok delivered the outbox; the write's own fate is here.
-    const fate = await db.outcome(written.id);
-    if (fate.state === 'failed') return { ok: false, message: `Refused: ${fate.why?.code}` };
-    return { ok: true, message: fate.state === 'sent' ? 'Posted.' : 'Saved on this device; it sends when online.' };
+    // A round that ends ok delivered the outbox; the write's own fate is here,
+    // with the mutation's result (here the new row's id) once it was sent.
+    const fate = await db.outcome<{ id: string }>(written.id);
+    if (fate.state === 'failed') return { ok: false, message: `Refused: ${fate.why?.code}`, id: '' };
+    if (fate.state === 'sent') return { ok: true, message: 'Posted.', id: fate.result?.id ?? '' };
+    return { ok: true, message: 'Saved on this device; it sends when online.', id: '' };
   },
 };
 export const answer: Answer = (source, args, store, storage, native) =>
   sources[source](args, store, storage, native);
 ```
 
-`app.test.contract` (run `bunx snapback4 dev` first; the tests talk to it):
+`app.test.contract` (run `bunx snapback4 dev` first; the tests talk to it,
+and `epoch now` dates them as the server does). A `select` is driven with
+`type`; the offline test proves delivery after `pass fetch`, not only that
+the write was kept:
 
 ```
-test "a note posts and appears"
+epoch now
+
+test "a note posts, and another persona sees it"
   clock data
   expect text "status" == "Synced"
-  type "draft" "hello from a test"
+  type "draft" "hello from alice"
   tap "post"
   clock data
   expect text "notice" == "Posted."
+  type "persona" "bob"
+  clock data
+  expect text "latest" == "dev:alice: hello from alice"
 
-test "offline, a note is kept on the device and marked sending"
+test "offline, a note is kept, then delivered on reconnect"
   clock data
   fail fetch "http://127.0.0.1:4400"
   type "draft" "from the tunnel"
   tap "post"
   clock data
   expect text "notice" == "Saved on this device; it sends when online."
+  expect text "sending" == "1 sending"
+  pass fetch "http://127.0.0.1:4400"
+  clock +5000
+  clock data
+  expect text "sending" == "0 sending"
 ```
 
 `app.json` mounts the driver (`"typescript": { "sources": { "snapback4":
 "<this checkout>/snapback4/ts" } }`), `bun add snapback4@0.4.13` installs the
 server, and `node <this checkout>/snapback4/web/build.mjs assets/snapback4.wasm`
-builds the device. Built and tested as written (2026-10-08).
-
-### Typed rows from the schema
-
-`bunx snapback4 types` (and `snapback4 check`) write
-`snapback/generated/api.ts`: each table's row (`Rows`) and each operation's
-arguments and result (`Ops`). Import them as types from any of the app's
-modules, and give `read` its result type, so a misspelled field is a type
-error at build on every host instead of a row retyped by hand:
-
-```ts
-import type { ArgsOf, ResultOf } from 'snapback4/contract';
-import type { Ops, Rows } from './snapback/generated/api.ts';
-
-type Note = Rows['notes'];                      // { id, author, body, at, pending? }
-const read = await db.read<ResultOf<Ops['recent']>>('recent', {} satisfies ArgsOf<Ops['recent']>, now);
-const notes: Note[] = read.data ?? [];
-```
-
-The build checks these against the installed `snapback4` package's
-declarations and never runs any of it: an `import type` from a package is
-admitted, a value import (`import { … } from 'snapback4/…'`) is refused as
-`module outside captured app`. The driver is the mounted
-`./snapback4/snapback.ts`. Rerun `bunx snapback4 types` after changing the
-schema.
+builds the device. Built and tested as written (2026-10-08): both tests pass,
+and pass again on the data a first run leaves.
 
 ### Open, sync, read, write
 

@@ -1446,6 +1446,10 @@ commands; `prefer` takes CSS's media feature names (`"prefer prefers-color-schem
 drive it on every host, iOS included (`agent ios`), never by screen coordinates.
 A target no `testId` carries resolves by a view's exact accessibility label or
 text (`tap "Save draft"`); a name several views share refuses, naming them.
+`type` also sets a control's value: `type "persona" "bob"` chooses a
+`select`'s option by its `value`, and a date, time, range or checkbox takes
+its value the same way, in a drive or a test (a tap does not open a native
+`select`'s menu under the driver).
 `tree --ax` prints the platform's accessibility tree, as VoiceOver would read it.
 Use `tree` to find targets, `state` for data and delivery, `layout` for
 geometry, `perf` for the work a drive cost (`perf <target> during "<op>" …`: per

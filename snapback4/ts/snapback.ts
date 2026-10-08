@@ -51,7 +51,7 @@ export type Write =
 export interface Refused { id: string; op: string; args: Json; argsOmitted?: boolean; why: Refusal; at: number }
 
 /** What became of a write. `result` is the server's, while remembered. */
-export interface Outcome { id: string; state: 'pending' | 'sent' | 'failed' | 'unknown'; seq?: number; result?: Json; why?: Refusal }
+export interface Outcome<R = Json> { id: string; state: 'pending' | 'sent' | 'failed' | 'unknown'; seq?: number; result?: R; why?: Refusal }
 
 /** A session as Snapback mints it; `expiresAt` in milliseconds. */
 export interface Session { principal: string; kind: string; token: string; expiresAt: number }
@@ -135,6 +135,9 @@ interface Partition {
   /** The rounds, one after another: a `sync()` while one runs waits its turn. */
   rounds: Promise<unknown>;
   refreshing?: Promise<Refreshed>;
+  /** The change poll in flight: a second `poll()` shares it (a second poll
+   * would supersede the first, whose reply the client then refuses). */
+  polling?: Promise<boolean>;
   /** Which queries the server answers, by name; forgotten after each round
    * (a round can adopt a new backend). */
   routes: Map<string, 'device' | 'server'>;
@@ -336,8 +339,8 @@ export class Snapback {
   /** What became of a write: `pending` while unsent, `sent` or `failed`
    * (the server's verdict, or the device's at `write`), `unknown` if this
    * device never admitted it. */
-  async outcome(id: string): Promise<Outcome> {
-    return ok<Outcome>(await this.call({ op: 'outcome', id }));
+  async outcome<R = Json>(id: string): Promise<Outcome<R>> {
+    return ok<Outcome<R>>(await this.call({ op: 'outcome', id }));
   }
 
   async status(): Promise<Status> {
@@ -376,11 +379,18 @@ export class Snapback {
   }
 
   /** Wait up to `wait` seconds for the server's head to move. `true`: call
-   * `sync()`. Throws when the server is unreachable or refuses. */
+   * `sync()`. Throws when the server is unreachable or refuses. A poll while
+   * another client of the partition has one in flight shares its answer. */
   async poll(wait = 20): Promise<boolean> {
-    const request = ok<{ fetch: Request }>(await this.call({ op: 'changes', wait }));
-    const reply = await this.exchange(request.fetch);
-    return ok<boolean>(await this.call({ op: 'changed', exchange: request.fetch.exchange, reply }));
+    const partition = this.partition;
+    // One at a time for every client of the partition: a caller while one is
+    // in flight shares its answer (a second poll would supersede it).
+    partition.polling ??= (async () => {
+      const request = ok<{ fetch: Request }>(await this.call({ op: 'changes', wait }));
+      const reply = await this.exchange(request.fetch);
+      return ok<boolean>(await this.call({ op: 'changed', exchange: request.fetch.exchange, reply }));
+    })().finally(() => { partition.polling = undefined; });
+    return partition.polling;
   }
 
   /** Trade the session `headers()` sends for a fresh one (`POST
