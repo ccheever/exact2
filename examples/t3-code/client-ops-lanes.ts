@@ -1,7 +1,8 @@
 // The prefixed client.command() ops (client-ops.ts): each prefix names the
 // lane module that owns its ops (settings-rest-commands.ts, chat-commands.ts,
 // pages-commands.ts, composer-editor.ts, shell-commands.ts,
-// composer-controls-commands.ts, sidebar-commands.ts, settings-b-commands.ts).
+// composer-controls-commands.ts, sidebar-commands.ts, settings-b-commands.ts,
+// settings-appearance-editor.ts).
 // A '…local:' op changes device state only; the others write to the server.
 import type { T3Client } from './client';
 import type { OpOut } from './client-ops';
@@ -14,6 +15,7 @@ import { editorLocal } from './composer-editor';
 import { sidebarCommand, sidebarLocal } from './sidebar-commands';
 import { settingsBCommand } from './settings-b-commands';
 import { pagesLocal } from './pages-commands';
+import { themeLocal } from './settings-appearance-editor';
 import { type Native, type Files } from './protocol';
 
 /** Device-local ops by prefix, each handled by its lane's module. */
@@ -27,6 +29,7 @@ export async function laneOps(this: T3Client, op: string, id: string, value: str
     } else if (op.startsWith('shelllocal:')) { resultMessage = await shellLocal(this, native, op.slice(11), id, value);
     } else if (op.startsWith('cclocal:')) { resultMessage = await composerLocal(this, native, storage, op.slice(8), id, value);
     } else if (op.startsWith('sidebarlocal:')) { resultMessage = await sidebarLocal(this, native, op.slice(13), id, value);
+    } else if (op.startsWith('themelocal:')) { resultMessage = themeLocal(this, op.slice(11), id, value, n); // the theme editor's colour picker
     } else return false;
     return true;
   } finally { Object.assign(out, { message: resultMessage, id, value }); }
