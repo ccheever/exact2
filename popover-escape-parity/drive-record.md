@@ -81,3 +81,22 @@ hover opens it again only on a new enter, as Base UI's `blockMouseMove`; the the
 their `focus` as an outside press (a macOS text field reaches no `pointerdown`); Settings' Back and the Usage
 page's back blur the focus first, as `useEscapeToGoBack` does. Unit-tested; the real-input steps in the task
 record cover them.
+
+## Session 3 (AFTER, items 10-12; the branch with the feature branch `c0475fbaa` merged; app pid 34652)
+
+| Row | Ops | Read back |
+| --- | --- | --- |
+| Rest before show | `tap usage-seg-0-0-0 hover`, `clock +100` / `+300` | not shown at 100 ms; shown at 400 ms (root `usageRest`) |
+| Bridge and email (item 10) | `tap usage-seg-email-0-0-0 hover`, `clock +400`, `tap usage-seg-email-0-0-0` | still shown; the email text changes from its mask to the fixture address (image 12) |
+| Over the card, then away | `tap usage-seg-pop-0-0-0 hover`; `tap usage-cursor-limits hover` | shown; closed (`pageMove` outside the span) |
+| Pass over, then click (item 11) | `tap usage-seg-0-0-1 hover`, `clock +100`, `tap usage-seg-0-1-1 hover`, `tap usage-seg-0-1-1`, `clock +400` | Weekly Work (0-1-1) pinned and the only one shown (image 11 right) |
+| Confirm Escape (item 12) | pin 0-0-1, `tap usage-seg-reset-0-0-1`, `type reset-credit-cancel key Escape` | focus `reset-credit-cancel`, then `usage-seg-0-0-1` (journal: `command focus("usage-seg-0-0-1")` from `usageRefocusNow`) |
+| Light dismiss again (the hover model changed) | ground press, sidebar press, another segment, own segment, inside the card, right-click, Escape | closed, closed, swapped, closed, kept, kept, closed with the focus on the segment |
+| Editor Escape blur | Settings → Appearance → Create theme, `type theme-editor-name key Escape` | Settings gone, editor stays, no focus |
+
+Base, same steps (`07dcef1ab`, app pid 40320; no usage change between it and `c0475fbaa`): shown already 100 ms
+after the hover (the popover was logically open; only its fade waited); pass over then click: the 5h Work popover
+stayed and Weekly Work was not pinned (image 11 left); the confirm's Escape gave the focus back under the agent
+clock too (`focus("usage-seg-0-0-1")`), so item 12 shows only in real time (the batch's `upv-k4z`). Item 10's
+close on entry needs a real pointer (the agent's hover move is one step); the batch's `upv-hover2`/`upv-hover3`
+are its base images.
