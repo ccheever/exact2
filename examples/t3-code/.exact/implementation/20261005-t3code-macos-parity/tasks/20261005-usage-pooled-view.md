@@ -195,6 +195,8 @@ Acceptance rows:
   free plan (403 plan_required).
 - **Gates:** see Attempts.
 
+2026-10-08 (real-input batch, records PR): hover delay, X56 first card, flip, keys and Cursor Enable pass; three clone bugs (hover popover closes on entry, wrong pinned popover, no focus return after the confirm). Results and proof: "Real-input batch (2026-10-08)" below.
+
 ## Attempts and evidence
 
 | Attempt | Revision/fingerprint | Checks and outcomes | Evidence | Remaining blocker |
@@ -204,6 +206,21 @@ Acceptance rows:
 | 2 (2026-10-08) | `ba541958d` (feature branch `b7761f556` merged) | live session 2 (the one retry): Escape fixed; found X56 (a click on an unfocused segment lost its press) and a clipped second-card popover | images 02–05, 07, 16; `drive-record.md` | both fixed in attempt 3, not re-driven |
 | 3 (2026-10-08) | `aceedd9e2` | `bun test examples/t3-code` 2,970 pass / 1 skip / 0 fail; strict `tsc` clean; contract build 3,472 slots; `cargo test -p t3-code-macos --lib` 11 pass; macOS bundle builds; caps within; five checks: build ok, test 3,383 pass / 0 fail / 33 ignored (95 binaries), clippy ok, fmt ok, boot ok | PR checks table | real-input batch rows; user decisions (real redeem); Cursor free plan |
 | 4 (2026-10-08) | `9472711ee` (independent-review fixes), merges `99466bb98` (feature branch `e784c8fb1`, #261) and `0697700e7` (`19714be51`, #264) | review fixes: `bun test examples/t3-code` 2,974 pass / 1 skip / 0 fail; after both merges: 3,036 pass / 1 skip / 0 fail; strict `tsc` clean; contract build 3,844 slots; `app.contract` 1,456 lines (base 1,459); `cargo test -p t3-code-macos --lib` 11 pass; macOS bundle builds; caps within; five checks: build ok, test 3,383 pass / 0 fail / 33 ignored (95 binaries), clippy ok, fmt ok, boot ok | PR "Independent review" and Checks sections; 4 new `usage-pooled.test.ts` cases | review fixes unit-tested, not re-driven (session budget); light dismiss needs a decision or an issue; rows above |
+
+## Real-input batch (2026-10-08)
+
+Run by the coordinator's real-input batch on an unlocked Mac (2026-10-08, 02:58-05:15 UTC), under the shared real-input lock (owner "real-input batch"), on the merged feature branch (`b7761f556`, rebuilt once at `07dcef1ab` for #263): one lane copy "T3 Code (Lane RIB)" launched normally (not agent mode) with isolated homes and lane ports 16450-16499. Real input: cliclick / CGEvent real mouse and wheel events, real HID key chords (posted only after a check that the lane app is frontmost), orca computer clicks and pastes. Records PR: draft "T3 Code clone: real-input batch for the tasks merged on 2026-10-08".
+
+| Row | Result | Proof |
+| --- | --- | --- |
+| 3. Real hover on a segment | Delay PASS (nothing at 120 ms, open at 650 ms); FAIL (clone bug): moving the pointer into the popover closes it, so the blurred email cannot be clicked | [upv-hover](https://raw.githubusercontent.com/ccheever/exact2/ec2aeba0830cebdf6f0af0275e53a46bc330b90a/real-input-batch/usage-pooled-view/01-upv-hover.png), [upv-hover2](https://raw.githubusercontent.com/ccheever/exact2/ec2aeba0830cebdf6f0af0275e53a46bc330b90a/real-input-batch/usage-pooled-view/02-upv-hover2.png), [upv-hover3](https://raw.githubusercontent.com/ccheever/exact2/ec2aeba0830cebdf6f0af0275e53a46bc330b90a/real-input-batch/usage-pooled-view/03-upv-hover3.png) |
+| 4. Real click on an unfocused segment (X56) | PASS on the first card (pin, unpin, Escape, Escape back); FAIL (clone bug): on the second card a click pins the previously clicked segment's popover | [upv-click](https://raw.githubusercontent.com/ccheever/exact2/ec2aeba0830cebdf6f0af0275e53a46bc330b90a/real-input-batch/usage-pooled-view/04-upv-click.png), [upv-click2](https://raw.githubusercontent.com/ccheever/exact2/ec2aeba0830cebdf6f0af0275e53a46bc330b90a/real-input-batch/usage-pooled-view/05-upv-click2.png), [upv-pin](https://raw.githubusercontent.com/ccheever/exact2/ec2aeba0830cebdf6f0af0275e53a46bc330b90a/real-input-batch/usage-pooled-view/06-upv-pin.png) |
+| Popover flip | PASS: Weekly row popovers open below inside the window | [upv-flip](https://raw.githubusercontent.com/ccheever/exact2/ec2aeba0830cebdf6f0af0275e53a46bc330b90a/real-input-batch/usage-pooled-view/07-upv-flip.png), [upv-f56](https://raw.githubusercontent.com/ccheever/exact2/ec2aeba0830cebdf6f0af0275e53a46bc330b90a/real-input-batch/usage-pooled-view/08-upv-f56.png) |
+| 5. Keys: Tab through segments, Return, Use reset → confirm → Escape | PASS except: FAIL (clone bug) focus is not returned to the segment after the confirm's Escape; no redeem RPC sent | [upv-k2-small](https://raw.githubusercontent.com/ccheever/exact2/ec2aeba0830cebdf6f0af0275e53a46bc330b90a/real-input-batch/usage-pooled-view/09-upv-k2-small.png), [upv-k3-small](https://raw.githubusercontent.com/ccheever/exact2/ec2aeba0830cebdf6f0af0275e53a46bc330b90a/real-input-batch/usage-pooled-view/10-upv-k3-small.png), [upv-k4z](https://raw.githubusercontent.com/ccheever/exact2/ec2aeba0830cebdf6f0af0275e53a46bc330b90a/real-input-batch/usage-pooled-view/11-upv-k4z.png) |
+| Cursor Enable with Return | PASS: one `server.updateSettings {"patch":{"cursorKeychainUsageEnabled":true}}` | [upv-k5-small](https://raw.githubusercontent.com/ccheever/exact2/ec2aeba0830cebdf6f0af0275e53a46bc330b90a/real-input-batch/usage-pooled-view/12-upv-k5-small.png), [upv-k6-after-crop](https://raw.githubusercontent.com/ccheever/exact2/ec2aeba0830cebdf6f0af0275e53a46bc330b90a/real-input-batch/usage-pooled-view/13-upv-k6-after-crop.png) |
+| Real Cursor Keychain prompt; real redeem | Blocked (user decisions; free Cursor plan) | — |
+
+Full record: [usage-pooled-view.txt](https://raw.githubusercontent.com/ccheever/exact2/ec2aeba0830cebdf6f0af0275e53a46bc330b90a/real-input-batch/usage-pooled-view/usage-pooled-view.txt).
 
 ## Next action
 

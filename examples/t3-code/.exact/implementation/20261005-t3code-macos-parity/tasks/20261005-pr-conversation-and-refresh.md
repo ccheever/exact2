@@ -272,6 +272,8 @@ the focus ring, reduced motion live, real-pointer tooltips, collapse mid-scroll.
 on the real-GitHub lane; draft PR #247. Later: the coordinator approved one normal-launch real-input session, but the
 screen was locked (user away); the rows ran in agent mode and the real-input versions wait for the batch (steps above).
 
+2026-10-08 (real-input batch, records PR): every deferred row passes, including reduced motion from System Settings and the cached detail after a normal relaunch. Results and proof: "Real-input batch (2026-10-08)" below.
+
 ## Attempts and evidence
 
 | Attempt | Revision/fingerprint | Checks and outcomes | Evidence | Remaining blocker |
@@ -280,6 +282,20 @@ screen was locked (user away); the rows ran in agent mode and the real-input ver
 | 2 (retry + relaunch) | `e991c4b84` | every scripted step passes; the refresh read once and showed the comment; the relaunch showed the list-seeded ghost, not the kept detail (agent-mode data per process) | images 01–12, [record](https://raw.githubusercontent.com/ccheever/exact2/79ccaff3bb25bfb4b936b8d1a6f0faa7e9941b5b/pr-conversation-and-refresh/live-drive-record.txt), [replay](https://raw.githubusercontent.com/ccheever/exact2/79ccaff3bb25bfb4b936b8d1a6f0faa7e9941b5b/pr-conversation-and-refresh/relaunch-replay.txt), [tests](https://raw.githubusercontent.com/ccheever/exact2/79ccaff3bb25bfb4b936b8d1a6f0faa7e9941b5b/pr-conversation-and-refresh/tests-before-after.txt) | X50 for a live relaunch; real-input rows |
 
 | 3 (agent stand-ins, screen locked) | `e991c4b84` + the collapse anchor; the tooltip fix | agent hover tooltips, agent wheel collapse, agent Tab order, `prefer` reduced motion, agent relaunch given the kept file: pass. The hover shot showed the Labels row over the reviewer's tooltip: fixed (Reviewers row raised) and re-driven, image 17. Attempt 1 of this drive stopped at an unsupported key name (`Return`, fixed to `Enter`); a stepped clock replaced the film (empty frames) | images 13–17, [record](https://raw.githubusercontent.com/ccheever/exact2/f09126670abd8e9327a38d384f5c7c58a7dbe3b3/pr-conversation-and-refresh/agent-standins-record.txt) | real-input batch (steps above) |
+
+## Real-input batch (2026-10-08)
+
+Run by the coordinator's real-input batch on an unlocked Mac (2026-10-08, 02:58-05:15 UTC), under the shared real-input lock (owner "real-input batch"), on the merged feature branch (`b7761f556`, rebuilt once at `07dcef1ab` for #263): one lane copy "T3 Code (Lane RIB)" launched normally (not agent mode) with isolated homes and lane ports 16450-16499. Real input: cliclick / CGEvent real mouse and wheel events, real HID key chords (posted only after a check that the lane app is frontmost), orca computer clicks and pastes. Records PR: draft "T3 Code clone: real-input batch for the tasks merged on 2026-10-08".
+
+| Row | Result | Proof |
+| --- | --- | --- |
+| 5. Collapse mid-scroll (real wheel) | PASS | [prc-02-scrolled](https://raw.githubusercontent.com/ccheever/exact2/ec2aeba0830cebdf6f0af0275e53a46bc330b90a/real-input-batch/pr-conversation-and-refresh/02-prc-02-scrolled.png), [prc-34](https://raw.githubusercontent.com/ccheever/exact2/ec2aeba0830cebdf6f0af0275e53a46bc330b90a/real-input-batch/pr-conversation-and-refresh/03-prc-34.png) |
+| 6. Real-pointer tooltips (reviewer, location line, stale verdict) | PASS | [prc-01-reviewer-hover-crop](https://raw.githubusercontent.com/ccheever/exact2/ec2aeba0830cebdf6f0af0275e53a46bc330b90a/real-input-batch/pr-conversation-and-refresh/01-prc-01-reviewer-hover-crop.png), [prc-34](https://raw.githubusercontent.com/ccheever/exact2/ec2aeba0830cebdf6f0af0275e53a46bc330b90a/real-input-batch/pr-conversation-and-refresh/03-prc-34.png), [prc-07-stale-hover-crop](https://raw.githubusercontent.com/ccheever/exact2/ec2aeba0830cebdf6f0af0275e53a46bc330b90a/real-input-batch/pr-conversation-and-refresh/04-prc-07-stale-hover-crop.png) |
+| 7. Tab and the ring; Space on a heading and on the order toggle | PASS | [prc-tab2-small](https://raw.githubusercontent.com/ccheever/exact2/ec2aeba0830cebdf6f0af0275e53a46bc330b90a/real-input-batch/pr-conversation-and-refresh/05-prc-tab2-small.png), [prc-space-small](https://raw.githubusercontent.com/ccheever/exact2/ec2aeba0830cebdf6f0af0275e53a46bc330b90a/real-input-batch/pr-conversation-and-refresh/06-prc-space-small.png) |
+| 8. Reduced motion (System Settings, user turned it on) | PASS: the chevron changes at once | [prc-on-strip](https://raw.githubusercontent.com/ccheever/exact2/ec2aeba0830cebdf6f0af0275e53a46bc330b90a/real-input-batch/pr-conversation-and-refresh/08-prc-on-strip.png) |
+| 9. Cached detail after a normal relaunch (gh slowed 8 s) | PASS: kept title/header 0.28 s after the click, detail RPC answered later | [prc-cached](https://raw.githubusercontent.com/ccheever/exact2/ec2aeba0830cebdf6f0af0275e53a46bc330b90a/real-input-batch/pr-conversation-and-refresh/07-prc-cached.png) |
+
+Full record: [pr-conversation-and-refresh.txt](https://raw.githubusercontent.com/ccheever/exact2/ec2aeba0830cebdf6f0af0275e53a46bc330b90a/real-input-batch/pr-conversation-and-refresh/pr-conversation-and-refresh.txt). Reduced-motion details: [reduced-motion.txt](https://raw.githubusercontent.com/ccheever/exact2/ec2aeba0830cebdf6f0af0275e53a46bc330b90a/real-input-batch/reduced-motion/reduced-motion.txt).
 
 ## Next action
 

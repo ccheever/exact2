@@ -109,6 +109,8 @@ worktree is gone). The lane catalog uses fixture credentials instead, with no re
 
 Both probe `ready` / `authenticated`: Codex 0.151.0 with 5 models, all legacy, and Claude 2.1.293 with 12.
 
+2026-10-08 (real-input batch, records PR): before/after pairs made (base 85cb6f4a1); every live row driven by real input; two clone bugs (no "No models found", no tooltip on an unavailable row). Results and proof: "Real-input batch (2026-10-08)" below.
+
 ## Attempts and evidence
 
 | Attempt | Revision/fingerprint | Checks and outcomes | Evidence | Remaining blocker |
@@ -151,6 +153,25 @@ Every live row is deferred to the real-input batch — screen locked (user away)
    - At All environments, open the default model picker and hover a Claude row. Expect the tooltip "This model is unavailable on <second>. Select that environment to choose its model separately." The row is dimmed and its star is disabled.
    - The row is pressed with `orca computer` under the real-input lock.
 6. **Evidence.** Compose base | branch pairs with PIL; upload them to `t3-code-evidence/settings-model-picker/`.
+
+## Real-input batch (2026-10-08)
+
+Run by the coordinator's real-input batch on an unlocked Mac (2026-10-08, 02:58-05:15 UTC), under the shared real-input lock (owner "real-input batch"), on the merged feature branch (`b7761f556`, rebuilt once at `07dcef1ab` for #263): one lane copy "T3 Code (Lane RIB)" launched normally (not agent mode) with isolated homes and lane ports 16450-16499. Real input: cliclick / CGEvent real mouse and wheel events, real HID key chords (posted only after a check that the lane app is frontmost), orca computer clicks and pastes. Records PR: draft "T3 Code clone: real-input batch for the tasks merged on 2026-10-08".
+
+| Row | Result | Proof |
+| --- | --- | --- |
+| Before/after pairs (base `85cb6f4a1` vs `b7761f556`) | Done: default model, text generation, Escape | [01-default-model-open-before-after](https://raw.githubusercontent.com/ccheever/exact2/ec2aeba0830cebdf6f0af0275e53a46bc330b90a/real-input-batch/settings-model-picker/p01-01-default-model-open-before-after.png), [02-text-generation-open-before-after](https://raw.githubusercontent.com/ccheever/exact2/ec2aeba0830cebdf6f0af0275e53a46bc330b90a/real-input-batch/settings-model-picker/p02-02-text-generation-open-before-after.png), [03-escape-before-after](https://raw.githubusercontent.com/ccheever/exact2/ec2aeba0830cebdf6f0af0275e53a46bc330b90a/real-input-batch/settings-model-picker/p03-03-escape-before-after.png) |
+| Agent-mode drive (drive.mjs) | Not usable: blank captures and refused taps again (as live sessions 1-3); every row below was driven by real input instead | — |
+| Provider browsing | PASS | [smpA-browse-search](https://raw.githubusercontent.com/ccheever/exact2/ec2aeba0830cebdf6f0af0275e53a46bc330b90a/real-input-batch/settings-model-picker/01-smpA-browse-search.png) |
+| Search (opus / codex / zzzz / clear) | PASS except: FAIL (clone bug) the no-match state shows no "No models found" | [smpA-browse-search](https://raw.githubusercontent.com/ccheever/exact2/ec2aeba0830cebdf6f0af0275e53a46bc330b90a/real-input-batch/settings-model-picker/01-smpA-browse-search.png), [smpA-search-zoom](https://raw.githubusercontent.com/ccheever/exact2/ec2aeba0830cebdf6f0af0275e53a46bc330b90a/real-input-batch/settings-model-picker/02-smpA-search-zoom.png) |
+| Favorites (star, Favorites rail, composer, unstar; no setting written) | PASS (settings.json byte-identical) | [smpA-fav](https://raw.githubusercontent.com/ccheever/exact2/ec2aeba0830cebdf6f0af0275e53a46bc330b90a/real-input-batch/settings-model-picker/03-smpA-fav.png), [smpA-24-composer-picker](https://raw.githubusercontent.com/ccheever/exact2/ec2aeba0830cebdf6f0af0275e53a46bc330b90a/real-input-batch/settings-model-picker/04-smpA-24-composer-picker.png) |
+| Legacy expand/collapse, pick GPT-5.5 | PASS (`defaultModelSelection {codex, gpt-5.5}`) | [smpA-legacy](https://raw.githubusercontent.com/ccheever/exact2/ec2aeba0830cebdf6f0af0275e53a46bc330b90a/real-input-batch/settings-model-picker/05-smpA-legacy.png), [smpA-31-legacy-picked](https://raw.githubusercontent.com/ccheever/exact2/ec2aeba0830cebdf6f0af0275e53a46bc330b90a/real-input-batch/settings-model-picker/06-smpA-31-legacy-picked.png) |
+| Scoped selection (project / environment / All → Mixed) | PASS | [smpA-35-project-picked-crop](https://raw.githubusercontent.com/ccheever/exact2/ec2aeba0830cebdf6f0af0275e53a46bc330b90a/real-input-batch/settings-model-picker/08-smpA-35-project-picked-crop.png), [smpA-42-env-picked-crop](https://raw.githubusercontent.com/ccheever/exact2/ec2aeba0830cebdf6f0af0275e53a46bc330b90a/real-input-batch/settings-model-picker/09-smpA-42-env-picked-crop.png), [smpA-52-general-crop](https://raw.githubusercontent.com/ccheever/exact2/ec2aeba0830cebdf6f0af0275e53a46bc330b90a/real-input-batch/settings-model-picker/10-smpA-52-general-crop.png) |
+| Text generation (no Antigravity; pick Claude Opus) | PASS | [smpA-13-textgen-picked-crop](https://raw.githubusercontent.com/ccheever/exact2/ec2aeba0830cebdf6f0af0275e53a46bc330b90a/real-input-batch/settings-model-picker/07-smpA-13-textgen-picked-crop.png) |
+| Keyboard (↓/↑, ←/→ rail, type, Return, Escape focus return) | PASS; composer model unchanged | [smpA-kb](https://raw.githubusercontent.com/ccheever/exact2/ec2aeba0830cebdf6f0af0275e53a46bc330b90a/real-input-batch/settings-model-picker/13-smpA-kb.png), [smpA-kb3-small](https://raw.githubusercontent.com/ccheever/exact2/ec2aeba0830cebdf6f0af0275e53a46bc330b90a/real-input-batch/settings-model-picker/14-smpA-kb3-small.png), [smpA-46-composer-crop](https://raw.githubusercontent.com/ccheever/exact2/ec2aeba0830cebdf6f0af0275e53a46bc330b90a/real-input-batch/settings-model-picker/15-smpA-46-composer-crop.png) |
+| 5. Disabled-row tooltip (second server with Claude disabled) | Rows dimmed, stars greyed, click refused — PASS; hover tooltip FAIL (clone bug): no "This model is unavailable on …" tooltip | [smpA-56-click-haiku](https://raw.githubusercontent.com/ccheever/exact2/ec2aeba0830cebdf6f0af0275e53a46bc330b90a/real-input-batch/settings-model-picker/11-smpA-56-click-haiku.png), [smpA-57](https://raw.githubusercontent.com/ccheever/exact2/ec2aeba0830cebdf6f0af0275e53a46bc330b90a/real-input-batch/settings-model-picker/12-smpA-57.png) |
+
+Full record: [settings-model-picker.txt](https://raw.githubusercontent.com/ccheever/exact2/ec2aeba0830cebdf6f0af0275e53a46bc330b90a/real-input-batch/settings-model-picker/settings-model-picker.txt).
 
 ## Next action
 

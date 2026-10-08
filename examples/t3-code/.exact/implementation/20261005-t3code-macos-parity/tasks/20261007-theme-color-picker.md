@@ -119,6 +119,8 @@ the HEX/RGB labels are text beside the fields, not `<label>`s (a click on "HEX" 
 | Keyboard | **Pass (agent)**: Shift+← on saturation, Shift+↓/End on brightness, Home on saturation, Shift+→ on the slider; Tab from saturation to brightness shows the ring and "Brightness 35%"; Escape closes only the popover, the focus returns to the swatch and Settings stays; a second Escape closes Settings, the editor stays (the reference's `useEscapeToGoBack`). VoiceOver: not run | [keyboard](https://raw.githubusercontent.com/ccheever/exact2/7ba5e1b01365b57521150b27d7cad76a9b7998f9/theme-color-picker/06-keyboard.png), [escape](https://raw.githubusercontent.com/ccheever/exact2/7ba5e1b01365b57521150b27d7cad76a9b7998f9/theme-color-picker/02-escape.png) |
 | Before/after | Base popover (24 presets) vs the picker; Escape; Advanced | [popover](https://raw.githubusercontent.com/ccheever/exact2/7ba5e1b01365b57521150b27d7cad76a9b7998f9/theme-color-picker/01-background-popover.png), [escape](https://raw.githubusercontent.com/ccheever/exact2/7ba5e1b01365b57521150b27d7cad76a9b7998f9/theme-color-picker/02-escape.png), [advanced](https://raw.githubusercontent.com/ccheever/exact2/7ba5e1b01365b57521150b27d7cad76a9b7998f9/theme-color-picker/03-advanced-border.png) |
 
+2026-10-08 (real-input batch, records PR): every deferred row passes (real drags, pause, hue, click pass-through, keys, RGB, relaunch readback). Results and proof: "Real-input batch (2026-10-08)" below.
+
 ## Attempts and evidence
 
 | Attempt | Revision | Checks and outcomes | Evidence | Remaining blocker |
@@ -155,6 +157,21 @@ Deferred to the real-input batch — screen locked (user away). One session, rea
 9. Keys: Tab (ring + "Brightness N%"), ↑/↓ with and without Shift, Home/End, Shift+→ on the slider; Escape: the popover closes, the swatch shows the focus ring, Settings stays; Escape again: Settings closes, the editor stays.
 10. Paste `12, 34, 56` into RGB (⌘A first): HEX `#0c2238`. Name "Real input", Create theme; quit (⌘Q hold), relaunch the same copy: the theme card is there and Edit theme shows Background `#0c2238`.
 11. Release the lock; kill only the recorded pid if it is still running.
+
+## Real-input batch (2026-10-08)
+
+Run by the coordinator's real-input batch on an unlocked Mac (2026-10-08, 02:58-05:15 UTC), under the shared real-input lock (owner "real-input batch"), on the merged feature branch (`b7761f556`, rebuilt once at `07dcef1ab` for #263): one lane copy "T3 Code (Lane RIB)" launched normally (not agent mode) with isolated homes and lane ports 16450-16499. Real input: cliclick / CGEvent real mouse and wheel events, real HID key chords (posted only after a check that the lane app is frontmost), orca computer clicks and pastes. Records PR: draft "T3 Code clone: real-input batch for the tasks merged on 2026-10-08".
+
+| Row | Result | Proof |
+| --- | --- | --- |
+| 5. Plane drag (60,100)→(140,70) | PASS: #743636 in HEX, RGB, swatches; marker under the release | [tcp-02-plane-drag](https://raw.githubusercontent.com/ccheever/exact2/ec2aeba0830cebdf6f0af0275e53a46bc330b90a/real-input-batch/theme-color-picker/01-tcp-02-plane-drag.png) |
+| 6. Pause mid-drag | PASS: window background already the derived colour while the button is held | [tcp-04-mid-drag](https://raw.githubusercontent.com/ccheever/exact2/ec2aeba0830cebdf6f0af0275e53a46bc330b90a/real-input-batch/theme-color-picker/02-tcp-04-mid-drag.png) |
+| 7. Hue drag x 30→150 | PASS: hue changes, saturation and brightness kept | [tcp-06-hue-drag](https://raw.githubusercontent.com/ccheever/exact2/ec2aeba0830cebdf6f0af0275e53a46bc330b90a/real-input-batch/theme-color-picker/03-tcp-06-hue-drag.png) |
+| 8. Clicks on the popover over Light/Dark and the name field | PASS: the editor stays Light (saved theme `appearance: light`), the name field never takes the focus | [tcp-toggle-test](https://raw.githubusercontent.com/ccheever/exact2/ec2aeba0830cebdf6f0af0275e53a46bc330b90a/real-input-batch/theme-color-picker/04-tcp-toggle-test.png) |
+| 9. Keys (Tab, arrows ±Shift, Home/End, slider), Escape ×2 | PASS: ring + "Brightness/Saturation N%" labels, values step as specified; Escape closes the popover (ring on the swatch), second Escape closes Settings | [tcp-kb-sheet](https://raw.githubusercontent.com/ccheever/exact2/ec2aeba0830cebdf6f0af0275e53a46bc330b90a/real-input-batch/theme-color-picker/05-tcp-kb-sheet.png), [tcp-esc-pair](https://raw.githubusercontent.com/ccheever/exact2/ec2aeba0830cebdf6f0af0275e53a46bc330b90a/real-input-batch/theme-color-picker/06-tcp-esc-pair.png) |
+| 10. RGB paste, Create, ⌘Q hold, relaunch | PASS: #0c2238; after relaunch the "Real input" card and Edit theme show #0c2238 | [tcp-25-zoom](https://raw.githubusercontent.com/ccheever/exact2/ec2aeba0830cebdf6f0af0275e53a46bc330b90a/real-input-batch/theme-color-picker/07-tcp-25-zoom.png), [tcp-28-relaunch](https://raw.githubusercontent.com/ccheever/exact2/ec2aeba0830cebdf6f0af0275e53a46bc330b90a/real-input-batch/theme-color-picker/08-tcp-28-relaunch.png), [tcp-29-crop](https://raw.githubusercontent.com/ccheever/exact2/ec2aeba0830cebdf6f0af0275e53a46bc330b90a/real-input-batch/theme-color-picker/09-tcp-29-crop.png) |
+
+Full record: [theme-color-picker.txt](https://raw.githubusercontent.com/ccheever/exact2/ec2aeba0830cebdf6f0af0275e53a46bc330b90a/real-input-batch/theme-color-picker/theme-color-picker.txt).
 
 ## Next action
 

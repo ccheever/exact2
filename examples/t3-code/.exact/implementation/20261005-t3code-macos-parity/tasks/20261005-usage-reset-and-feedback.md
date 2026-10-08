@@ -148,6 +148,8 @@ Acceptance rows:
   motion changes nothing here.
 - **Gates:** pass — see Attempts.
 
+2026-10-08 (real-input batch, records PR): the approved real redeem was not possible: no banked credit on the account. Results and proof: "Real-input batch (2026-10-08)" below.
+
 ## Attempts and evidence
 
 | Attempt | Revision/fingerprint | Checks and outcomes | Evidence | Remaining blocker |
@@ -155,6 +157,16 @@ Acceptance rows:
 | 1 (2026-10-08) | `d7fe611f9` | `bun test examples/t3-code` 2559 pass / 1 skip / 0 fail (base 2512); strict `tsc` clean; contract build 2677 slots; `cargo test -p t3-code-macos --lib` 11 pass; AppKit transport 57 tests, 0 failures; caps within; five checks: build ok, test 3383 pass / 0 fail / 33 ignored (94 binaries), clippy ok, fmt ok, boot ok | drives A, BC, timing probe; PR #249 images 01–13, `drive-record.md` | review: staged chips not gated (blocking) |
 | 1a (failed approach, same day) | uncommitted | the upload ran inside a queued `composerJob` mutation: the drive's `clock +500 real` took 8,412 ms and drew nothing until the reply | timing probe in `drive-record.md` | replaced by detached requests |
 | 2 (2026-10-08) | `e96af64ec` | `bun test examples/t3-code` 2562 pass / 1 skip / 0 fail; strict `tsc` clean; contract build 2685 slots; `cargo test -p t3-code-macos --lib` 11 pass; AppKit transport 57 tests, 0 failures; caps within; five checks: build ok, test 3383 pass / 0 fail / 33 ignored (94 binaries), clippy ok, fmt ok, boot ok | drive R (bar focus ring and tooltip, focus after Use credit); image 14 | real-account rows (above) |
+
+## Real-input batch (2026-10-08)
+
+Run by the coordinator's real-input batch on an unlocked Mac (2026-10-08, 02:58-05:15 UTC), under the shared real-input lock (owner "real-input batch"), on the merged feature branch (`b7761f556`, rebuilt once at `07dcef1ab` for #263): one lane copy "T3 Code (Lane RIB)" launched normally (not agent mode) with isolated homes and lane ports 16450-16499. Real input: cliclick / CGEvent real mouse and wheel events, real HID key chords (posted only after a check that the lane app is frontmost), orca computer clicks and pastes. Records PR: draft "T3 Code clone: real-input batch for the tasks merged on 2026-10-08".
+
+| Row | Result | Proof |
+| --- | --- | --- |
+| Real reset-credit redeem (user approved one) | Not done: no banked credit on the account. Signed in to managed Codex with the user's ChatGPT account (#256 batch); the composer `/usage-limits` shows only the ChatGPT-tracked notice, Usage › Limits shows no limit window or credit row after a refresh | [mcc-21-usage-limits](https://raw.githubusercontent.com/ccheever/exact2/ec2aeba0830cebdf6f0af0275e53a46bc330b90a/real-input-batch/usage-reset-and-feedback/01-mcc-21-usage-limits.png), [mcc-17-usage-refresh](https://raw.githubusercontent.com/ccheever/exact2/ec2aeba0830cebdf6f0af0275e53a46bc330b90a/real-input-batch/usage-reset-and-feedback/02-mcc-17-usage-refresh.png) |
+
+
 
 ## Next action
 

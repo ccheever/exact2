@@ -118,6 +118,8 @@ submission, provider calls or a second conversation composer.
   - Follow-up, not in this task: the composer's skill chips use the provider's `displayName` when the
     skill is known (the reference's `skillLabelFor`); the clone always title-cases the raw name.
 
+2026-10-08 (real-input batch, records PR): Tab and select/replace pass; ⌘Z does not undo in the preview (clone bug, the composer behaves the same). Results and proof: "Real-input batch (2026-10-08)" below.
+
 ## Attempts and evidence
 
 | Attempt | Revision | Checks and outcomes | Evidence | Remaining |
@@ -166,6 +168,19 @@ Deferred: screen locked (user away). Run them in one session.
 8. Check that the thread's composer draft is unchanged: close Settings and read the composer.
 9. Quit the lane app (its PID only), then release the lock. Upload the before/after shots next to
    this PR's evidence.
+
+## Real-input batch (2026-10-08)
+
+Run by the coordinator's real-input batch on an unlocked Mac (2026-10-08, 02:58-05:15 UTC), under the shared real-input lock (owner "real-input batch"), on the merged feature branch (`b7761f556`, rebuilt once at `07dcef1ab` for #263): one lane copy "T3 Code (Lane RIB)" launched normally (not agent mode) with isolated homes and lane ports 16450-16499. Real input: cliclick / CGEvent real mouse and wheel events, real HID key chords (posted only after a check that the lane app is frontmost), orca computer clicks and pastes. Records PR: draft "T3 Code clone: real-input batch for the tasks merged on 2026-10-08".
+
+| Row | Result | Proof |
+| --- | --- | --- |
+| 5. Type the suffix, ⌘Z, ⌘⇧Z | Typing PASS; undo FAIL (clone bug): ⌘Z (orca and HID), Edit › Undo from the menu bar and typed-key undo leave the text unchanged; the composer behaves the same | [efp-undo-strip](https://raw.githubusercontent.com/ccheever/exact2/ec2aeba0830cebdf6f0af0275e53a46bc330b90a/real-input-batch/editable-font-prompt-preview/01-efp-undo-strip.png), [efp-undo12](https://raw.githubusercontent.com/ccheever/exact2/ec2aeba0830cebdf6f0af0275e53a46bc330b90a/real-input-batch/editable-font-prompt-preview/02-efp-undo12.png), [efp-15-undo-mid-crop](https://raw.githubusercontent.com/ccheever/exact2/ec2aeba0830cebdf6f0af0275e53a46bc330b90a/real-input-batch/editable-font-prompt-preview/05-efp-15-undo-mid-crop.png), [efp-composer](https://raw.githubusercontent.com/ccheever/exact2/ec2aeba0830cebdf6f0af0275e53a46bc330b90a/real-input-batch/editable-font-prompt-preview/07-efp-composer.png) |
+| 6. Double-click "flaky", paste "stable", ⌘Z | Select/replace PASS (chips intact); undo FAIL (same bug) | [efp-replace-strip](https://raw.githubusercontent.com/ccheever/exact2/ec2aeba0830cebdf6f0af0275e53a46bc330b90a/real-input-batch/editable-font-prompt-preview/03-efp-replace-strip.png), [efp-caret](https://raw.githubusercontent.com/ccheever/exact2/ec2aeba0830cebdf6f0af0275e53a46bc330b90a/real-input-batch/editable-font-prompt-preview/04-efp-caret.png) |
+| 7. Real Tab / Shift+Tab | PASS: Tab → Monospace family control, no tab typed; Shift+Tab back into the sample | [efp-tab](https://raw.githubusercontent.com/ccheever/exact2/ec2aeba0830cebdf6f0af0275e53a46bc330b90a/real-input-batch/editable-font-prompt-preview/06-efp-tab.png) |
+| 8. Thread draft unchanged | PASS | [efp-18-draft-crop](https://raw.githubusercontent.com/ccheever/exact2/ec2aeba0830cebdf6f0af0275e53a46bc330b90a/real-input-batch/editable-font-prompt-preview/08-efp-18-draft-crop.png) |
+
+Full record: [editable-font-prompt-preview.txt](https://raw.githubusercontent.com/ccheever/exact2/ec2aeba0830cebdf6f0af0275e53a46bc330b90a/real-input-batch/editable-font-prompt-preview/editable-font-prompt-preview.txt).
 
 ## Next action
 

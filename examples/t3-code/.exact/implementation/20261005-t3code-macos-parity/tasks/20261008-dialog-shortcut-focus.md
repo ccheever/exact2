@@ -189,12 +189,30 @@ carried on macOS or the web, date/time/select are no macOS Tab stops); fix, test
 deferred (screen locked). Later: the local issue drafts renumbered X52 and X53 (X50 and X51 are taken by
 #247 and #252); that commit changes records and one test comment only, and the new tests still pass (42).
 
+2026-10-08 (real-input batch, records PR): real keys run; rows 1, 2, 3c, 4 and 5 pass; three clone bugs (Custom snooze cannot be opened by real pointer or arrow keys, no focus at its open, Escape closes it under the palette). Results and proof: "Real-input batch (2026-10-08)" below.
+
 ## Attempts and evidence
 
 | Attempt | Revision/fingerprint | Checks and outcomes | Evidence | Remaining blocker |
 | --- | --- | --- | --- | --- |
 | 1 (2026-10-08) | branch tree before the review repairs | agent drives 1–9 (base and branch); review round 1 FAIL (B1) | `agent-focus-drives.txt` §1–9, `review.md` | B1 |
 | 2 (2026-10-08) | `b3390af6d` (runner fingerprint in `attempt1-report.json`, `source_unchanged: true`; the commit compared equal) | runner passed every check it runs: new tests 42 pass; `bun test examples/t3-code` 2519 pass / 1 skip / 0 fail; strict `tsc`; `contract build` (2631 slots, 2738 actions, 59420 nodes); `cargo test -p t3-code-macos --lib` 11 pass; caps. Five checks: build, test (3383 pass / 0 fail / 33 ignored, 94 binaries), clippy, fmt, caps, boot green. Drives §10 on the rebuilt app; review round 2 PASS | `agent-focus-drives.txt` §10, images 01–04, `attempt1-report.json`, `review.md` | real-input batch (screen locked); X52; X53 |
+
+## Real-input batch (2026-10-08)
+
+Run by the coordinator's real-input batch on an unlocked Mac (2026-10-08, 02:58-05:15 UTC), under the shared real-input lock (owner "real-input batch"), on the merged feature branch (`b7761f556`, rebuilt once at `07dcef1ab` for #263): one lane copy "T3 Code (Lane RIB)" launched normally (not agent mode) with isolated homes and lane ports 16450-16499. Real input: cliclick / CGEvent real mouse and wheel events, real HID key chords (posted only after a check that the lane app is frontmost), orca computer clicks and pastes. Records PR: draft "T3 Code clone: real-input batch for the tasks merged on 2026-10-08".
+
+| Row | Result | Proof |
+| --- | --- | --- |
+| 1. Add Environment: real Tab x7 / Shift+Tab x3 / Escape | PASS: Remote link → SSH → Host → Pairing code → Add environment → Close → wrap; Escape returns the ring to "Add environment"; no toast or 1×1 button reached | [dsf-s1-small](https://raw.githubusercontent.com/ccheever/exact2/ec2aeba0830cebdf6f0af0275e53a46bc330b90a/real-input-batch/dialog-shortcut-focus/01-dsf-s1-small.png) |
+| 2. Providers › Antigravity "Remove downloaded runtime" confirm | PASS: Return opens it with the ring on Cancel; Tab/Shift+Tab stay on Cancel⇄Confirm; Escape closes, ring on the trash button; 0 `provider.install.remove` spans | [dsf-s2-small](https://raw.githubusercontent.com/ccheever/exact2/ec2aeba0830cebdf6f0af0275e53a46bc330b90a/real-input-batch/dialog-shortcut-focus/02-dsf-s2-small.png) |
+| 3a. Open Custom snooze with the real pointer | FAIL (clone bug): moving onto "Custom…" ends the row hover and a real click closes the menu without opening the dialog; ↓ keys do not enter the menu. Opened with an AX press instead | [dsf-07-strip](https://raw.githubusercontent.com/ccheever/exact2/ec2aeba0830cebdf6f0af0275e53a46bc330b90a/real-input-batch/dialog-shortcut-focus/03-dsf-07-strip.png), [dsf-08-strip](https://raw.githubusercontent.com/ccheever/exact2/ec2aeba0830cebdf6f0af0275e53a46bc330b90a/real-input-batch/dialog-shortcut-focus/04-dsf-08-strip.png) |
+| 3b. Custom snooze focus at open | FAIL (clone bug): no visible ring at open and none after Tab ×5 (the record expected "Date and time") | [dsf-s3-dialog](https://raw.githubusercontent.com/ccheever/exact2/ec2aeba0830cebdf6f0af0275e53a46bc330b90a/real-input-batch/dialog-shortcut-focus/05-dsf-s3-dialog.png) |
+| 3c. Custom snooze toggle ←/→, Tab/Shift+Tab, Escape | PASS after a click on the toggle: ←/→ move the ring, Tab Cancel → Snooze → Close → wrap; Escape returns to the row; no `thread.snooze` | [dsf-s3b-small](https://raw.githubusercontent.com/ccheever/exact2/ec2aeba0830cebdf6f0af0275e53a46bc330b90a/real-input-batch/dialog-shortcut-focus/06-dsf-s3b-small.png) |
+| 4. Title menu › Delete confirm | PASS: Tab Confirm/Cancel wrap, Escape → ring on the title, no `thread.delete` | [dsf-s4-small](https://raw.githubusercontent.com/ccheever/exact2/ec2aeba0830cebdf6f0af0275e53a46bc330b90a/real-input-batch/dialog-shortcut-focus/07-dsf-s4-small.png) |
+| 5. Shortcuts closed / with a dialog open | PASS: ⌘K, ⌘K in the composer, ⌘1/⌘2/⌘3; ⌘K opens over Custom snooze. FAIL (clone bug): the next Escape closes Custom snooze UNDER the palette first | [dsf-s5a](https://raw.githubusercontent.com/ccheever/exact2/ec2aeba0830cebdf6f0af0275e53a46bc330b90a/real-input-batch/dialog-shortcut-focus/08-dsf-s5a.png), [dsf-jumps](https://raw.githubusercontent.com/ccheever/exact2/ec2aeba0830cebdf6f0af0275e53a46bc330b90a/real-input-batch/dialog-shortcut-focus/09-dsf-jumps.png), [dsf-s5b](https://raw.githubusercontent.com/ccheever/exact2/ec2aeba0830cebdf6f0af0275e53a46bc330b90a/real-input-batch/dialog-shortcut-focus/10-dsf-s5b.png) |
+
+Full record: [dialog-shortcut-focus.txt](https://raw.githubusercontent.com/ccheever/exact2/ec2aeba0830cebdf6f0af0275e53a46bc330b90a/real-input-batch/dialog-shortcut-focus/dialog-shortcut-focus.txt).
 
 ## Next action
 
