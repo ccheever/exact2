@@ -1166,9 +1166,9 @@ main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow displa
   `medium`, a point height or `fit-content` (the route's content height; a menu or
   a short dialog), which goes alone or as `"fit-content large"`. A literal with
   another word is refused. `fit-content` measures the route laid out alone, its
-  height left to its children, so nothing sized from the sheet counts; in it `vh`
-  (and `svh`, `lvh`, `dvh`, `vw`, `vmin`, `vmax`) is the screen's, not the sheet's, so
-  `min-height: 100vh` opens the sheet at its maximum; a route
+  height left to its children, so nothing sized from the sheet counts; on iOS `vh`
+  (and `svh`, `lvh`, `dvh`, `vmin`, `vmax`) is the window's in every sheet, never the
+  sheet's, so `min-height: 100vh` opens the sheet at its maximum; a route
   that scrolls is measured by its scroll extent, so give its rows
   `flex-shrink: 0`. The route does
   not pad `env(safe-area-inset-bottom)`: UIKit adds that band below the detent.

@@ -128,7 +128,7 @@ impl Kernel {
         let cb = content(parent)?;
         let port = content(scroller)?;
         let (w, h) = (port[2] - port[0], port[3] - port[1]);
-        let env = &*arena.env_for(slot);
+        let env = arena.env();
         Some(StickyConstraint {
             scroller: arena.local_id(scroller),
             natural: at(slot),

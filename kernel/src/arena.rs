@@ -162,33 +162,6 @@ impl NodeArena {
         &self.env
     }
 
-    /// The environment `slot`'s lengths resolve against: the screen's
-    /// viewport for a `fit-content` route and everything under it, when
-    /// the host gave a screen (LLP 1075.003 §9.11); else [`Self::env`].
-    pub fn env_for(&self, slot: u32) -> std::borrow::Cow<'_, Env> {
-        match self.screened(slot).then(|| self.env.screened()).flatten() {
-            Some(env) => std::borrow::Cow::Owned(env),
-            None => std::borrow::Cow::Borrowed(&self.env),
-        }
-    }
-
-    /// Whether `slot` is a `fit-content` route or under one while the host
-    /// gives a screen: its viewport units read the screen.
-    pub fn screened(&self, slot: u32) -> bool {
-        if self.env.screen.is_none() || !self.has_prop(crate::PropId::NavigationDetent) {
-            return false;
-        }
-        let mut at = Some(slot);
-        while let Some(s) = at {
-            let detent = self.props(s).str(crate::PropId::NavigationDetent);
-            if detent.is_some_and(|d| d.split(' ').any(|w| w == "fit-content")) {
-                return true;
-            }
-            at = self.parent(s);
-        }
-        false
-    }
-
     /// The root element's font size, what `rem` resolves against and what
     /// a node no ancestor gives a `font-size` inherits (CSS's `medium`;
     /// LLP 1069.000 D3). The host's, not the tree's — a reset keeps it.

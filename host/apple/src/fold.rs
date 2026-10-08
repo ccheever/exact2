@@ -22,12 +22,11 @@ impl<D: DataSource> Host<D> {
         self.set_environment(env)
     }
 
-    /// The screen — the window's own viewport and its segments, whatever is
-    /// presented (LLP 1075.003 §9.11): what a `fit-content` route and its
-    /// subtree resolve the viewport units and segment variables against,
-    /// never the sheet's, so nothing the sheet's content measures follows
-    /// the sheet. Every other node keeps the viewport. `None`: no screen.
-    pub fn set_screen(&mut self, screen: Option<exact_kernel::Screen>) -> String {
+    /// The window's own size, whatever is presented in it (LLP 1075.003
+    /// §9.11): what `vh`, `svh`, `lvh`, `dvh`, `vmin` and `vmax` resolve
+    /// against everywhere, root and every sheet, never a sheet's viewport,
+    /// so no length follows a sheet's height. `None`: the layout viewport.
+    pub fn set_screen(&mut self, screen: Option<(f32, f32)>) -> String {
         let env = self.runner.kernel().env().with_screen(screen);
         self.set_environment(env)
     }

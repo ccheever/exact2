@@ -100,10 +100,11 @@ impl Kernel {
     /// limits) with its block size indefinite, never imported from a width
     /// that may have followed the sheet; nothing it is placed in (a sheet, a
     /// flex line, insets) constrains its height, so no child shrinks, grows
-    /// or takes a percentage of its height. Viewport lengths resolve as in
-    /// the ordinary layout ([`crate::NodeArena::env_for`]): a `fit-content`
-    /// route's against the screen, so the measure and the layout agree and
-    /// neither reads the sheet. A height a transition presents (LLP 1063)
+    /// or takes a percentage of its height. In a flex row or a grid the
+    /// box's in-flow siblings come too, since they set its width. Viewport
+    /// lengths resolve as in the ordinary layout, the height units against
+    /// the window ([`crate::Env::screen`]), so the measure and the layout
+    /// agree and neither reads the sheet. A height a transition presents (LLP 1063)
     /// is the presented one, as in the ordinary layout. Exclusions and
     /// multi-column fragments are not settled in that tree. The ordinary
     /// engine tree, its caches, frames and the epoch are untouched (LLP
@@ -170,52 +171,17 @@ impl Kernel {
         tree.set_style(root, style);
         // The parent, as the containing block: its published width, its
         // resolved edges, no height; positioned, so it holds what the box
-        // positions. A horizontal edge of its that reads the environment is
-        // resolved in the box's (the screen's, for a fit-content route), not
-        // the sheet's it was laid out in. A viewport length on the parent's
-        // own width, or on any farther ancestor, still follows the sheet
-        // (LLP 1075.003 §9.11, the limitation).
+        // positions. Neither reads the sheet's height: the viewport height
+        // units are the window's (`Env::screen`), and a percentage of the
+        // parent's own height is not its width.
         let lp = LengthPercentage::length;
         let mut outer = match holder {
             Some((p, _)) => taffy_style(&self.arena, p),
             None => taffy::style::Style::default(),
         };
-        let mut width = holder.map_or(frame.width, |(p, _)| self.arena.frame(p).width);
-        if let Some((p, Some(laid))) = holder {
-            let (mut pad, mut border) = (laid.padding, laid.border);
-            let before = pad.left + pad.right + border.left + border.right;
-            let own = self.arena.style(p);
-            let here = own.to_taffy(self.arena.node_type(p), &self.arena.env_for(slot));
-            let reads = |d: crate::style::Dimension| {
-                matches!(
-                    d,
-                    crate::style::Dimension::Viewport(..)
-                        | crate::style::Dimension::Compare(..)
-                        | crate::style::Dimension::Segment(..)
-                )
-            };
-            let length = |l: LengthPercentage| {
-                let raw = l.into_raw();
-                (raw.tag() == taffy::CompactLength::LENGTH_TAG).then(|| raw.value())
-            };
-            if reads(own.padding_left) {
-                pad.left = length(here.padding.left).unwrap_or(pad.left);
-            }
-            if reads(own.padding_right) {
-                pad.right = length(here.padding.right).unwrap_or(pad.right);
-            }
-            border.left = length(here.border.left).unwrap_or(border.left);
-            border.right = length(here.border.right).unwrap_or(border.right);
-            // A content box its authored width sets (`content-box`, CSS's
-            // default, and a width that is not `auto`) stays and the edges
-            // grow around it. Otherwise the border box stays and the edges
-            // come out of the content: `border-box`, or a width that fills
-            // (`auto`, a plain `column` filling the sheet; Grok's review).
-            if own.box_sizing == crate::BoxSizing::ContentBox
-                && own.width != crate::style::Dimension::Auto
-            {
-                width += pad.left + pad.right + border.left + border.right - before;
-            }
+        let width = holder.map_or(frame.width, |(p, _)| self.arena.frame(p).width);
+        if let Some((_, Some(laid))) = holder {
+            let (pad, border) = (laid.padding, laid.border);
             outer.padding = taffy::geometry::Rect {
                 left: lp(pad.left),
                 right: lp(pad.right),

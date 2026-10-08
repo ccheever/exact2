@@ -494,15 +494,8 @@ package final class Runtime {
         }
     }
     func insets(top: CGFloat, right: CGFloat, bottom: CGFloat, left: CGFloat) -> Batch { on { read(exact_insets(rt, Float(top), Float(right), Float(bottom), Float(left))) } }
-    /// The screen a fit-content route's viewport units and segments resolve against: its size and segments as `segments` sends them; zero clears it (LLP 1075.003 §9.11).
-    func screen(width: CGFloat, height: CGFloat, fold: ViewportFold) -> Batch {
-        on {
-            var data = Data(capacity: fold.rects.count * 16)
-            for r in fold.rects { for v in [Float(r.minX), Float(r.minY), Float(r.width), Float(r.height)] { withUnsafeBytes(of: v.bitPattern.littleEndian) { data.append(contentsOf: $0) } } }
-            _ = write(data)
-            return read(exact_screen(rt, Float(width), Float(height), UInt32(fold.cols), UInt32(fold.rows), UInt32(fold.rects.count)))
-        }
-    }
+    /// The window's size, which the viewport height units resolve against everywhere; zero clears it (LLP 1075.003 §9.11).
+    func screen(width: CGFloat, height: CGFloat) -> Batch { on { read(exact_screen(rt, Float(width), Float(height))) } }
     /// The posture and the viewport segments (LLP 1078 D4): the rects as `x y w h` floats in the input buffer, none for one segment.
     func segments(_ fold: ViewportFold) -> Batch {
         on {

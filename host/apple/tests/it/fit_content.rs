@@ -4,7 +4,7 @@
 
 use crate::host::{count, view, NoData};
 use exact_apple::Host;
-use exact_kernel::{HostCover, MonospaceMeasurer, Screen};
+use exact_kernel::{HostCover, MonospaceMeasurer};
 use exact_runner::Event;
 
 /// The `content` ops for `id`, in order.
@@ -300,7 +300,7 @@ fn settles_and_agrees(src: &str, routes: &[(&str, f32)]) {
     }
     // The screen, as `ExactViewIOS.fit` sends it before the sheet's
     // resize: the boot's viewport, so nothing moves.
-    let screened = host.set_screen(Some(Screen::sized(390.0, 844.0)));
+    let screened = host.set_screen(Some((390.0, 844.0)));
     for &(id, _) in routes {
         assert!(
             heights(&screened, view(&host, id)).is_empty(),
@@ -457,34 +457,27 @@ fn padding_bases_fields_and_widths_in_viewport_lengths_settle() {
     );
 }
 
-/// Astra's review of option (b): the screen is a fit-content route's, not
-/// the session's. With sheets stacked in either order, a medium sheet's
-/// `50vh` is half its own viewport and a fit-content one's half the
-/// screen; a route's detent turning to `fit-content` turns its lengths to
-/// the screen; and a fit-content route that appears over a 400-point sheet
-/// in an 800-point window measures against the screen from its first
-/// extent.
+/// The lead's rule after the option (b) reviews: the viewport height units
+/// are the window's for the whole session, every sheet and any detent. In
+/// an 800-point window with a 400-point sheet up, a medium route's `50vh`
+/// and a fit-content route's are both 400, in either order, and a
+/// fit-content route that appears then measures 400 from its first extent.
 #[test]
-fn the_screen_is_a_fit_content_routes_alone() {
+fn the_window_is_every_sheets() {
     for fit_first in [true, false] {
         let fit = r#"      column testId="fit" navigationDetent="fit-content" position="absolute" top=0 right=0 bottom=0 left=0
         box testId="fit-half" height="50vh" flex-shrink=0
 "#;
-        let medium = r#"      column testId="medium" navigationDetent=(fitted ? "fit-content" : "medium") position="absolute" top=0 right=0 bottom=0 left=0
+        let medium = r#"      column testId="medium" navigationDetent="medium" position="absolute" top=0 right=0 bottom=0 left=0
         box testId="medium-half" height="50vh" flex-shrink=0
 "#;
         let src = format!(
             r##"component Menu
-  state fitted = false
   state shown = false
-  action fit
-    fitted = true
   action show
     shown = true
   view
     column position="relative" width="100%" height="100%"
-      button press=fit testId="to-fit" height=44
-        text "Fit"
       button press=show testId="show" height=44
         text "Show"
 {}{}      when shown
@@ -503,21 +496,13 @@ fn the_screen_is_a_fit_content_routes_alone() {
             800.0,
         )
         .unwrap();
-        host.set_screen(Some(Screen::sized(390.0, 800.0)));
-        // A medium sheet owns the viewport now.
+        host.set_screen(Some((390.0, 800.0)));
         host.resize(390.0, 400.0);
         let height = |host: &Host<NoData>, id: &str| {
             let k = host.runner().kernel();
             k.node(view(host, id)).unwrap().frame.height
         };
         assert_eq!(height(&host, "fit-half"), 400.0, "fit first: {fit_first}");
-        assert_eq!(
-            height(&host, "medium-half"),
-            200.0,
-            "fit first: {fit_first}"
-        );
-        let to_fit = view(&host, "to-fit");
-        host.dispatch_at(to_fit, Event::Press, 0.0);
         assert_eq!(
             height(&host, "medium-half"),
             400.0,
@@ -551,7 +536,7 @@ fn a_width_through_a_percentage_height_does_not_cycle() {
         844.0,
     )
     .unwrap();
-    host.set_screen(Some(Screen::sized(390.0, 844.0)));
+    host.set_screen(Some((390.0, 844.0)));
     let ratio = view(&host, "ratio");
     let start = heights(&first, ratio);
     let mut last = *start.last().unwrap();
@@ -600,7 +585,7 @@ fn a_parents_viewport_padding_is_the_screens_in_the_measure() {
             844.0,
         )
         .unwrap();
-        host.set_screen(Some(Screen::sized(390.0, 844.0)));
+        host.set_screen(Some((390.0, 844.0)));
         let menu = view(&host, "menu");
         assert_eq!(heights(&first, menu).len(), 1, "{sizing}: {first}");
         for h in [44.0, 200.0, 844.0, 44.0] {
@@ -634,7 +619,7 @@ fn a_rows_siblings_set_the_routes_width_in_the_measure() {
         844.0,
     )
     .unwrap();
-    host.set_screen(Some(Screen::sized(390.0, 844.0)));
+    host.set_screen(Some((390.0, 844.0)));
     let menu = view(&host, "menu");
     let k = host.runner().kernel();
     let node = k.node(menu).unwrap();

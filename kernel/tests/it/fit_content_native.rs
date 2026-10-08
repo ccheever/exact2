@@ -1,5 +1,5 @@
-//! LLP 1075.003 §9.11: in a fit-content sheet the height units are the
-//! screen's (`Env::screen`), through native measurement too — a field's
+//! LLP 1075.003 §9.11: the viewport height units are the window's
+//! (`Env::screen`), in every sheet, through native measurement too — a field's
 //! floor, a native button's padding — so the measure is the same at any
 //! sheet height and the layout agrees with it (Astra's r6 cases).
 use exact_kernel::*;
@@ -110,7 +110,7 @@ fn route(node_type: NodeType, child: &[(StyleId, &str)], props: &[(PropId, &str)
             textarea: font.clone(),
             button: font,
         }),
-        screen: Some(Screen::sized(390.0, 844.0)),
+        screen: Some((390.0, 844.0)),
         ..Env::default()
     })
     .unwrap();
@@ -164,11 +164,11 @@ fn a_native_buttons_viewport_padding_is_the_screens() {
     }
 }
 
-/// A fit-content route's segment variables are the screen's grid; the
-/// viewport's grid is every other node's, and the route's once its detent
-/// is no longer `fit-content` (Grok's and Astra's reviews).
+/// The segment variables read the grid the host sends, the window's
+/// (LLP 1075.003 §9.11), whatever the sheet's height: measured and laid out
+/// alike.
 #[test]
-fn a_fit_content_routes_segments_are_the_screens() {
+fn segments_are_the_windows_at_any_sheet_height() {
     exact_kernel::link_segments();
     let mut k = route(
         NodeType::View,
@@ -178,40 +178,18 @@ fn a_fit_content_routes_segments_are_the_screens() {
         ],
         &[],
     );
-    let mut env = k.env();
-    env.screen = Some(Screen {
-        cols: 1,
-        rows: 2,
-        segments: vec![
-            Rect::new(0.0, 0.0, 390.0, 400.0),
-            Rect::new(0.0, 444.0, 390.0, 400.0),
-        ],
-        ..Screen::sized(390.0, 844.0)
-    });
-    k.set_env(env).unwrap();
-    // The sheet, folded too: a grid of its own.
     k.set_segments(
         1,
         2,
         vec![
-            Rect::new(0.0, 0.0, 390.0, 100.0),
-            Rect::new(0.0, 120.0, 390.0, 80.0),
+            Rect::new(0.0, 0.0, 390.0, 400.0),
+            Rect::new(0.0, 444.0, 390.0, 400.0),
         ],
     )
     .unwrap();
-    let (fit, laid) = fitted(&mut k, 200.0);
-    assert_eq!((fit, laid), (400.0, 400.0));
-    k.apply(
-        0,
-        2,
-        &[Op::ClearProp {
-            id: 2,
-            prop: PropId::NavigationDetent,
-        }],
-    )
-    .unwrap();
-    k.compute_layout(1, Offer::definite(390.0, 200.0)).unwrap();
-    assert_eq!(k.node(3).unwrap().frame.height, 100.0);
+    for sheet in [844.0, 200.0] {
+        assert_eq!(fitted(&mut k, sheet), (400.0, 400.0), "{sheet}");
+    }
 }
 
 fn height(k: &mut Kernel, value: &str) -> f32 {
@@ -228,8 +206,8 @@ fn height(k: &mut Kernel, value: &str) -> f32 {
     k.node(3).unwrap().frame.height
 }
 
-/// Under a fit-content route every viewport unit reads the screen; without
-/// a screen, all read the viewport.
+/// The height units and `vmin`/`vmax` read the window (`Env::screen`),
+/// `vw` the viewport; without a screen, all read the viewport.
 #[test]
 fn the_screen_is_what_the_height_units_read() {
     let mut k = route(NodeType::View, &[], &[]);
@@ -237,7 +215,7 @@ fn the_screen_is_what_the_height_units_read() {
         ("50vh", 422.0),
         ("10vmin", 39.0),
         ("10vmax", 84.4),
-        ("10vw", 39.0),
+        ("10vw", 30.0),
     ] {
         let got = height(&mut k, value);
         assert!((got - want).abs() < 0.01, "{value}: {got}");

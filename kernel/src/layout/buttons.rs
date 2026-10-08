@@ -130,11 +130,9 @@ impl LayoutTree {
             if changed || retry {
                 record.provisional = false;
                 let mut request = record.request.clone();
-                request.style.resolve_geometry(
-                    &arena.env_for(slot),
-                    record.parent_width,
-                    arena.frame(slot),
-                );
+                request
+                    .style
+                    .resolve_geometry(arena.env(), record.parent_width, arena.frame(slot));
                 if let Some(answer) = record.answer(request, measurer) {
                     if !answer.is_valid() {
                         return Err(LayoutError::InvalidButtonMeasure(arena.local_id(slot)));
@@ -157,7 +155,6 @@ impl LayoutTree {
 pub(super) fn measure(
     record: &mut ButtonRecord,
     arena: &NodeArena,
-    slot: u32,
     measurer: &mut dyn TextMeasurer,
     known: Size<Option<f32>>,
     space: Size<AvailableSpace>,
@@ -181,7 +178,7 @@ pub(super) fn measure(
     frame.height = known.height.map_or(0.0, |h| h + inset.top + inset.bottom);
     request
         .style
-        .resolve_geometry(&arena.env_for(slot), record.parent_width, frame);
+        .resolve_geometry(arena.env(), record.parent_width, frame);
     record.answer(request, measurer)
 }
 

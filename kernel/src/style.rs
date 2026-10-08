@@ -28,7 +28,7 @@ pub mod compare;
 pub use compare::Comparison;
 pub mod env;
 pub use env::link as link_segments;
-pub use env::{uses_env, Edge, Env, EnvRefusal, Rect, Screen, SegmentVar};
+pub use env::{uses_env, Edge, Env, EnvRefusal, Rect, SegmentVar};
 /// Link the wide colour forms (`lab()`, `lch()`, `oklab()`, `oklch()`,
 /// `color()`) into every colour row's grammar: native hosts and the compiler
 /// at start, a web artifact by use (LLP 1047 D2, LLP 1056 §8.2).
@@ -1347,7 +1347,7 @@ impl StyleProps {
 pub fn taffy_style(arena: &NodeArena, slot: u32) -> taffy::style::Style {
     let mut s = arena
         .style(slot)
-        .to_taffy(arena.node_type(slot), &arena.env_for(slot));
+        .to_taffy(arena.node_type(slot), arena.env());
     // HTML's button layout, which Exact's reset of a `<button>` keeps: its
     // automatic inline size is shrink-to-fit, and a block button's content
     // sits in an anonymous flow-root box centred safely in the block axis,
@@ -1435,7 +1435,7 @@ pub fn taffy_style(arena: &NodeArena, slot: u32) -> taffy::style::Style {
     match arena.cover(slot) {
         Some(crate::kernel::HostCover::Whole) => s.display = taffy::style::Display::None,
         Some(crate::kernel::HostCover::Edges([top, right, bottom, left])) => {
-            let (style, env) = (arena.style(slot), &*arena.env_for(slot));
+            let (style, env) = (arena.style(slot), arena.env());
             let top = top + crate::kernel::header_inset(arena, slot, top);
             s.padding = taffy::geometry::Rect {
                 top: style.padding_top.plus(env, top).to_lp(env),

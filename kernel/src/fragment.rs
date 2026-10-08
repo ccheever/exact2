@@ -197,7 +197,7 @@ pub(crate) fn taffy_multicol(arena: &NodeArena, slot: u32) -> Option<taffy::Mult
     let cut = arena.frag.multicol.get(&slot);
     Some(taffy::Multicol {
         count: (s.column_count != 0).then_some(s.column_count),
-        width: match s.column_width.resolve(&arena.env_for(slot)) {
+        width: match s.column_width.resolve(arena.env()) {
             Dimension::Points(w) => Some(w.max(0.0)),
             _ => None,
         },

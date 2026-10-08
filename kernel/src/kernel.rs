@@ -31,7 +31,7 @@ mod sticky;
 mod trim;
 
 pub use cover::HostCover;
-pub(crate) use cover::{children_changed as cover_children_changed, header_inset, rescope};
+pub(crate) use cover::{children_changed as cover_children_changed, header_inset};
 pub use sticky::StickyConstraint;
 
 /// How many receipts the kernel retains for late readers.
@@ -80,13 +80,6 @@ pub struct NodeRef<'a> {
 }
 
 impl<'a> NodeRef<'a> {
-    /// Whether this node's viewport units read the screen: it is a
-    /// `fit-content` route or under one while the host gives a screen
-    /// (LLP 1075.003 §9.11; [`crate::Env::screened`] is that environment).
-    pub fn screened(&self) -> bool {
-        self.arena.screened(self.slot)
-    }
-
     /// The editor content box in this native field's local frame (LLP 1104 D5).
     pub fn field_content_rect(&self) -> Option<Frame> {
         self.arena.field_content_rect(self.slot)

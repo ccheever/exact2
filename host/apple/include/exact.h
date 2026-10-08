@@ -510,13 +510,11 @@ uint32_t exact_list_text(ExactRuntime rt, uint32_t view, uint32_t first_len,
  * safe area itself. A change re-sends the style of every node that reads
  * them and lays out again. */
 uint32_t exact_insets(ExactRuntime rt, float top, float right, float bottom, float left);
-/* @ref LLP 1075.003 §9.11: the screen — the window's own viewport (points)
- * and its segments, cols × rows rects in the input buffer as exact_segments
- * takes them, whatever is presented. A fit-content route and its subtree
- * resolve the viewport units and env(viewport-segment-*) against it, never
- * the sheet; every other node keeps the viewport. A nonpositive size
- * clears it. */
-uint32_t exact_screen(ExactRuntime rt, float width, float height, uint32_t cols, uint32_t rows, uint32_t count);
+/* @ref LLP 1075.003 §9.11: the window's own size (points), whatever is
+ * presented in it — what vh, svh, lvh, dvh, vmin and vmax resolve against
+ * everywhere, root and every sheet, never a sheet's viewport (exact_segments
+ * sends the window's segments too). A nonpositive size clears it. */
+uint32_t exact_screen(ExactRuntime rt, float width, float height);
 /* @ref LLP 1078 D4: the device's posture (0 continuous, 1 folded) and the
  * viewport segments a fold makes — cols × rows rects, row-major, each
  * x y w h as four little-endian floats in the input buffer (count rects;
