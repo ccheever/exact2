@@ -37,6 +37,10 @@ impl<D: DataSource + Default> CanvasHost<D> {
         // steps stop (`CanvasHost::owed`).
         self.waiting = limit.is_none() && self.batches();
         if self.waiting {
+            // Its pictures do not wait: one that came into view since the
+            // last pass is asked for now (heavy's placeholders showed for
+            // three points more of the view at 1,000 dp/s when they did).
+            self.sync_moved_pictures();
             return false;
         }
         let started = std::time::Instant::now();
@@ -126,11 +130,9 @@ impl<D: DataSource + Default> CanvasHost<D> {
         !self.waiting && self.p.collections_pending()
     }
 
-    fn refine_inner(&mut self) -> bool {
-        self.scrolled = false;
-        self.prefetching = true;
-        // Pictures coming into view while frames move: requested now, where
-        // their rows are, not at the next paint.
+    /// Pictures coming into view while frames move: requested now, where
+    /// their rows are, not at the next paint.
+    fn sync_moved_pictures(&mut self) {
         if self.moved > 0 {
             if let Some(painted) = &self.painted {
                 let now = self.p.scroll_offsets();
@@ -147,6 +149,12 @@ impl<D: DataSource + Default> CanvasHost<D> {
                 }
             }
         }
+    }
+
+    fn refine_inner(&mut self) -> bool {
+        self.scrolled = false;
+        self.prefetching = true;
+        self.sync_moved_pictures();
         // How soon what this pass mounts past the view can scroll in: it
         // reaches the feed's viewport past it (the window's lead).
         let lead = self
