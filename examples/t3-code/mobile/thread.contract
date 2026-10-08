@@ -36,7 +36,7 @@ component ThreadFeed
                         text (data.historyLoading ? "Loading earlier activity…" : "Load earlier activity") font-size=14 line-height="19px" font-weight=500 color=colors.foreground
                   when length(data.historyError) > 0
                     text data.historyError text-align="center" font-size=13 line-height="17px" color=colors.iconSubtle
-              when data.queued and row.first
+              when data.queued and not data.queuedFailed and row.first
                 column gap=7 padding=12 margin-bottom=12 border-radius=14 background-color=colors.subtle testId="outbox-status"
                   text data.queuedStatus font-size=14 line-height="19px" font-weight=500 color=colors.foreground
                   when length(data.queuedReason) > 0
@@ -146,3 +146,20 @@ component ThreadApprovals
                   padding-left=14 padding-right=14 padding-top=8.75 padding-bottom=8.75 border-radius=9999
                   background-color=(option.tone == "primary" ? colors.primary : option.tone == "danger" ? colors.danger : colors.subtle)
                   text option.label font-size=14 line-height="19px" font-weight=700 color=(option.tone == "primary" ? colors.primaryForeground : option.tone == "danger" ? colors.dangerForeground : colors.foreground)
+
+
+// Pinned ThreadCreationFailedCard replaces the composer after durable restoration.
+component ThreadCreationFailedCard
+  props
+    data: ThreadSnapshot
+    action: action
+    colors: ThreadColors
+  view
+    column gap=8.75 border-radius=20 border-width=1 border-style="solid" border-color=colors.borderSubtle background-color=colors.subtle padding=14 testId="task-creation-failed"
+      text "COULD NOT START TASK" font-family="DM Sans" font-size=12 line-height="16px" font-weight=700 letter-spacing=1.1 color=colors.dangerForeground
+      text data.queuedReason font-size=14 line-height="20px" color=colors.secondary
+      text (data.queuedCanEdit ? "Your prompt was kept in the project draft." : "The saved draft is no longer available here.") font-size=13 line-height="17px" color=colors.secondary
+      when data.queuedCanEdit
+        row
+          button press=action("outbox:edit", data.queuedOwner, "") border-radius=14 padding-left=12.25 padding-right=12.25 padding-top=10.5 padding-bottom=10.5 background-color=colors.primary testId="task-creation-edit" aria-label="Edit task"
+            text "Edit task" font-size=14 line-height="19px" font-weight=800 color=colors.primaryForeground

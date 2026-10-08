@@ -1,7 +1,7 @@
 // Pinned365aa87982 flush-before-remove recovery, over existing preference/journal owners.
 // @ref llp/1109.005-composer-and-transcript.decision.md#terminal-draft-attachment-handoff
 import type { MobileDraftClient } from './mobile-draft-recovery';
-import { obj, type Obj } from './shared/domain';
+import { obj, str, type Obj } from './shared/domain';
 import { bridgeReply, ClientError, type Native, type Files } from './shared/protocol';
 import { letGo, letGoAware } from './shared/let-go';
 import { mobileQueuedEditOrigin } from './queued-edit-origin';
@@ -33,7 +33,7 @@ function set(client: MobileDraftClient, id: string, proof: MobileOutboxDraftHand
   const next = { ...saved(client) }; if (proof) next[id] = copy(proof) as unknown as Obj; else delete next[id];
   Object.assign(client.local, { [field]: next }); client.revision++;
 }
-export interface MobileOutboxDraftRecoveryResult { status: 'recovered' | 'retained' | 'stale'; draftKey: string; reason: string; handoff?: MobileOutboxDraftHandoff }
+export interface MobileOutboxDraftRecoveryResult { status: 'recovered' | 'retained' | 'stale'; draftKey: string; reason: string; handoff?: MobileOutboxDraftHandoff; rejectionReason?: string }
 export interface MobileOutboxDraftRecoveryEditor { expected: MobilePendingTaskExpected; fingerprint: string }
 export { mobileOutboxDraftRecoveryBlocked } from './mobile-outbox-draft-handoff';
 /** One invocation owns handles; saved proofs own retries. No provider requests. */
@@ -160,7 +160,8 @@ export async function mobileOutboxDraftRecover(client: MobileDraftClient, handle
     await read();
     set(client, owner.commandId, null);
     try { await persist(); } catch (error) { set(client, owner.commandId, proof); throw error; }
-    return { ...reply('recovered'), handoff: proof };
+    return { ...reply('recovered'), handoff: proof, ...(receipt.state === 'rejected' && proof.record.creation
+      ? { rejectionReason: str(obj(receipt.error).message) || 'The server did not accept this task.' } : {}) };
   } catch (error) {
     if (letGo(error)) { releaseUnpublished = null; throw error; }
     return reply('retained', error instanceof Error ? error.message : String(error));

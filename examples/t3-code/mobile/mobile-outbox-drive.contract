@@ -6,3 +6,9 @@ shape MobileOutboxDrive
   count: number
   next: string
   delay: number
+
+shape MobileOutboxEdit
+  revision: number
+  message: string
+  requestRoute: string
+  nextLocation: string

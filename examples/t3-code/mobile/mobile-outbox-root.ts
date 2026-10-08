@@ -1,4 +1,7 @@
 // @ref llp/1109.005-composer-and-transcript.decision.md#terminal-draft-publication-and-recovery-coordinator
+import type { T3Client } from './shared/client';
+import { mobileNewTaskDraftLookup } from './mobile-new-task-drafts';
+import { homeDraftLocation } from './home-drafts';
 import type { MobileDraftClient } from './mobile-draft-recovery';
 import type { Native, Files } from './shared/protocol';
 import { obj, type Obj } from './shared/domain';
@@ -12,11 +15,12 @@ import { mobileOutboxDriveSnapshot, mobileOutboxDriveRead, mobileOutboxDriveRun,
 import type { MobileOutboxWireOwner } from './mobile-outbox-wire';
 
 interface Attempt { signature: string; sequence: number; tries: number; retryAt: number }
-interface Root { busy: string; attempts: Map<string, Attempt> }
-const roots = new WeakMap<MobileDraftClient, Root>();
-function state(client: MobileDraftClient): Root {
+interface CreationFailure { record: MobileOutboxRecord; draftKey: string; reason: string }
+interface Root { busy: string; attempts: Map<string, Attempt>; failures: Map<string, CreationFailure> }
+const roots = new WeakMap<T3Client, Root>();
+function state(client: T3Client): Root {
   let root = roots.get(client);
-  if (!root) { root = { busy: '', attempts: new Map() }; roots.set(client, root); }
+  if (!root) { root = { busy: '', attempts: new Map(), failures: new Map() }; roots.set(client, root); }
   return root;
 }
 const ownerOf = (record: MobileOutboxWireOwner): MobileOutboxWireOwner => ({ origin: record.origin, environmentId: record.environmentId,
@@ -81,7 +85,11 @@ export async function mobileOutboxRootAction(client: MobileDraftClient, native: 
   root.busy = candidate.id; client.revision++;
   try {
     const recovered = await mobileOutboxDraftRecover(client, native, storage, { owner: candidate.owner, current: () => root.busy === candidate.id });
-    if (recovered.status === 'recovered') root.attempts.delete(candidate.id);
+    if (recovered.status === 'recovered') {
+      root.attempts.delete(candidate.id);
+      if (recovered.handoff && recovered.rejectionReason) root.failures.set(candidate.id, {
+        record: JSON.parse(JSON.stringify(recovered.handoff.record)), draftKey: recovered.draftKey, reason: recovered.rejectionReason });
+    }
     else {
       candidate.attempt.sequence++; candidate.attempt.tries++;
       candidate.attempt.retryAt = now + mobileOutboxRetryDelay(candidate.attempt.tries);
@@ -96,4 +104,26 @@ export async function mobileOutboxRootAction(client: MobileDraftClient, native: 
     candidate.attempt.retryAt = now + mobileOutboxRetryDelay(candidate.attempt.tries);
     return result(kind === 'retry' ? error instanceof Error ? error.message : String(error) : '');
   } finally { root.busy = ''; client.revision++; }
+}
+
+
+/** Transient thread presentation, like the source creation outcome. It grants no
+ * send or recovery permission and is never projected as another Home task. */
+export function mobileOutboxRootFailure(client: T3Client, environmentId: string, threadId: string) {
+  const failure = [...state(client).failures.values()].find(value => value.record.environmentId === environmentId && value.record.threadId === threadId);
+  if (!failure) return null;
+  const draft = mobileNewTaskDraftLookup(client, failure.draftKey), record = failure.record;
+  const editable = !!draft && draft.origin === record.origin && draft.environmentId === record.environmentId
+    && draft.projectId === record.creation?.projectId && draft.createdAt === record.createdAt;
+  return { ...failure, editable };
+}
+export function mobileOutboxRootEdit(client: T3Client, key: string) {
+  const requested = parse(key), failure = state(client).failures.get(canonical(requested));
+  if (!failure || canonical(ownerOf(failure.record)) !== canonical(requested))
+    return { revision: client.revision, message: 'This task no longer has a recovered draft.', nextLocation: '' };
+  const current = mobileOutboxRootFailure(client, failure.record.environmentId, failure.record.threadId);
+  if (!current?.editable || current.draftKey !== failure.draftKey)
+    return { revision: client.revision, message: 'The saved draft was already used or changed. Open its current state from Home.', nextLocation: '' };
+  const draft = mobileNewTaskDraftLookup(client, failure.draftKey)!;
+  return { revision: client.revision, message: '', nextLocation: homeDraftLocation(draft) };
 }

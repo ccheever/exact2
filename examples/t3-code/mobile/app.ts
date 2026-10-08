@@ -1,5 +1,5 @@
 import { mobileOutboxThread } from './mobile-outbox-presentation';
-import { mobileOutboxRootSnapshot, mobileOutboxRootAction } from './mobile-outbox-root';
+import { mobileOutboxRootSnapshot, mobileOutboxRootAction, mobileOutboxRootEdit } from './mobile-outbox-root';
 import { noteNow } from './shared/composer-controls';
 import { homeArrangeActionValue } from './home-arrange';
 import { mobileHomeAction } from './home-actions';
@@ -74,6 +74,7 @@ const sources: Sources = {
     const { initialized, complete, busy, count, next, delay } = mobileOutboxRootSnapshot(mobileClient, Number(args[1]));
     return { initialized, complete, busy, count, next, delay };
   },
+  outboxEdit: args => ({ ...mobileOutboxRootEdit(mobileClient, str(args[0])), requestRoute: str(args[1]) }),
   outboxAction: async (args, _store, storage, nativeInput) => {
     const native = nativeInput?.available ? mobileNative(nativeInput) : nativeInput;
     return mobileOutboxRootAction(mobileClient, native, native?.available ? nativeFiles(native) : storage!,

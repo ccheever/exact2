@@ -115,6 +115,8 @@ shape ThreadSnapshot
   queuedStatus: string
   queuedReason: string
   queuedCanRetry: bool
+  queuedFailed: bool
+  queuedCanEdit: bool
   revision: number
   environmentId: string
   threadId: string
