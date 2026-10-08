@@ -226,7 +226,7 @@ component T3Window
     connectionToggleMenu: action
     providerPage: ProviderPage
     providerDialog: string
-    providerUi: action
+    providerUiRoot: action
     providerOp: action
     providerAccent: action
     projectsSettings: ProjectsPage
@@ -266,14 +266,13 @@ component T3Window
     providerWizard: ProviderWizard
     acpAgents: AcpRegistry
     wizardStep: number
-    wizardAttempted: bool
     wizardLabelSet: bool
     wizardLabel: string
     wizardIdSet: bool
     wizardId: string
     acpQuery: string
     wizardManual: bool
-    providerAdd: action
+    providerAddRoot: action
     providerTarget: string
     catalog: PickerCatalog
     modelQuery: string
@@ -376,6 +375,19 @@ component T3Window
   derive dragTarget = dragId == "" ? "" : (dragCX > sidebarWidth ? "context" : (dragSettledY > 0 and dragCY >= dragSettledY ? "settled" : (dragSnoozedY > 0 and dragCY >= dragSnoozedY ? "snoozed" : (dragWorkingY > 0 and dragCY >= dragWorkingY ? "working" : (dragCY < dragDividerY + 36 ? "pinned" : "active")))))
   derive dragVerb = (dragTarget == "" or dragTarget == dragSection or dragTarget == "working" or dragTarget == "snoozed" or dragTarget == "context") ? "" : (dragTarget == "pinned" ? "pin" : (dragTarget == "settled" ? "settle" : (dragSection == "pinned" ? "unpin" : (dragSection == "settled" ? "unsettle" : "wake"))))
   derive dragOffset = dragDy - (dragSection == "pinned" ? 24 : (dragSection == "active" ? 48 : 0))
+  // The root rewrite: whether Add provider has tried to go past an invalid id (AddProviderDialog shows its error),
+  // moved from app.contract. The wizard's fields stay in the root: providerWizard reads them.
+  state wizardAttempted = false
+  action providerUi(what: string, value: string)
+    let target = value == "back" ? max(0, wizardStep - 1) : min(wizardManual ? 1 : 2, value == "next" ? wizardStep + 1 : (value == "2" ? 2 : (value == "1" ? 1 : 0)))
+    if what == "open" or what == "driver" or what == "manual"
+      wizardAttempted = false
+    if what == "step" and wizardStep <= 1 and target > 1 and providerWizard.idError != ""
+      wizardAttempted = true
+    providerUiRoot(what, value)
+  action providerAdd(driver: string, label: string, id: string, accent: string, f0: string, f1: string, f2: string, f3: string, f4: string)
+    wizardAttempted = true
+    providerAddRoot(driver, label, id, accent, f0, f1, f2, f3, f4)
   // The root rewrite: the settings editors' row menu and dialog label (Settings' panels and ProjectDialogs), moved
   // from app.contract. A settings editor's command is the root's restRaw; rest and restInput name its op and scope.
   state restLabel = ""
