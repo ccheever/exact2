@@ -1,0 +1,42 @@
+# fix-provider-auth-state: live session (normal launch, real input), 2026-10-08 UTC
+Real-input lock: taken 07:27:04Z (owner 'fix-provider-auth-state: login + real input …'), released 07:40:47Z when the screen locked.
+Build: this branch's bundle (providers list-row fix, wizard ids, arrow-key invoker, redaction, welcome mount, composer gating) copied to
+  'T3 Code (Lane FPAS).app', bundle id com.exact.t3code.macos.lanefpas, ad-hoc signed; launched by LaunchServices (open -n -a)
+  with T3_LOCAL_HOME/T3_LOCAL_PORT=16260, CODEX_HOME, CLAUDE_CONFIG_DIR, XDG_*, TMPDIR, HOME and CFFIXED_USER_HOME under the lane.
+App pid 39609 (window 206921, 1280x840); its embedded server pid 39910 (stopped by pid at the end: orphaned by the app's SIGTERM, X6/#269).
+LAN-bound second server for the handoff row: pid 38792 on 192.168.1.225:16261 only (lsof), 07:27:13-07:29:51; stopped by pid; nothing listening on 16261 afterwards (lsof).
+Input: orca computer clicks by window coordinates and paste-text from stdin (the pairing link, the project path); keys: Cmd+A, Delete, Escape.
+Account: the personal ChatGPT account (gmail.com; chosen by domain in OpenAI's chooser, the other account not used). No email, token, code or pairing token is in this record or the kept images.
+
+## Timeline (UTC)
+07:27:35 l01
+07:27:57 clicked Pair
+07:29:51 remote server 38792 stopped (pairing refused: A remote server requires HTTPS)
+07:30:07 Continue (connect)
+07:30:19 Continue with ChatGPT (welcome, This machine)
+07:31:25 Chrome: chose the personal (gmail.com) account
+07:31:46 Chrome: agent name page Continue (name T3 Code)
+07:31:52 Chrome: consent Continue clicked by the agent (orca computer)
+07:32:07 lane app came to the front (lsappinfo front = T3 Code (Lane FPAS))
+07:32:33 plan dialog Continue
+07:32:44 Continue (agents -> projects), T0=1791444763.445087
+07:33:14 Do not import projects
+07:33:53 t3 project add demo (lane CLI)
+07:34:38 Settings > Providers opened
+07:34:52 Disconnect clicked
+07:40:19 Reconnect account clicked
+07:40:47 screen locked (CGSSessionScreenIsLocked=1, front=loginwindow); orca computer AX blocked; real-input lock released
+07:41:09 lane embedded server 39910 (orphaned after SIGTERM to the app, X6/#269) stopped
+
+## Read back
+- Pairing the LAN server (http://192.168.1.225:16261/pair#token=…): refused by the clone, 'A remote server requires HTTPS.' (T3Protocol.swift T3Endpoint.origin). Handoff row blocked here; see the task record.
+- Sign-in: provider.auth.complete Success 07:32:00.661; the lane app came to the front (lsappinfo front); 'Your ChatGPT plan is connected' / 'Codex on Daehyeon's MacBook Pro'; Welcome Codex row 'Signed in as' + RedactedText placeholder, Ready.
+- Bug 18: provider.auth.subscribe spans (records/e18-subscribe.txt): none on the Projects step.
+- Settings › Providers: Codex 'Authenticated as' + placeholder · ChatGPT; ChatGPT account 'Signed in as' + placeholder; the lane's Codex app-server probe timed out ('Unavailable · Timed out while checking Codex app-server provider status', a lane condition).
+- Bug 17: Disconnect 07:34:52 (one provider.auth.logout, 625 ms) -> the ChatGPT account row shows the saved account through RedactedText (blurred placeholder), Reconnect account / Use a different account.
+- Bug 19: the list row went from 'Unavailable · Timed out while checking Codex' (two lines) to 'Not authenticated · Sign in with ChatGPT to use' (two lines) and painted it. Reconnect (consent 2) not reached: the screen locked at 07:40 (Reconnect click refused: AX blocked, front = loginwindow).
+- Bug 20: server.refreshProviders spans of the session:
+07:32:01.854 ws.rpc.server.refreshProviders 23177.2ms {"rpc.transport": "websocket", "rpc.system": "effect-rpc", "rpc.method": "server.refreshProviders", "rpc.aggregate": "server"}
+07:33:54.870 ws.rpc.server.refreshProviders 731.8ms {"rpc.transport": "websocket", "rpc.system": "effect-rpc", "rpc.method": "server.refreshProviders", "rpc.aggregate": "server"}
+count 2
+  07:32:01 is the setup's refresh after sign-in (refreshProviders {instanceId}); 07:33:54 came right after the demo draft opened (by its timing, the composer's workspace refresh). Settings › Providers was open 07:34:38-07:40:47: none (the base called it every 11 s, #298).
