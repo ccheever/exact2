@@ -84,6 +84,10 @@ function outcome(raw: unknown, messageId?: string, mutationId?: string): MobileO
     record: raw.record === null ? null : decodeRecord(raw.record, raw.messageId),
     removed: raw.removed === null ? null : decodeRecord(raw.removed, raw.messageId), current: current(raw.current, raw.messageId) };
 }
+/** Shared reply decoder; reading an outcome alone never adopts it. */
+export function mobileOutboxDecodeOutcome(raw: unknown, messageId: string, mutationId: string): MobileOutboxOutcome {
+  return clone(outcome(raw, messageId, mutationId));
+}
 function nativeHandle(native: Native | null | undefined): Native {
   if (!native?.available) throw new ClientError('Open T3 Code on your iPhone or iPad to manage pending tasks.');
   return letGoAware(native);
@@ -269,6 +273,28 @@ export async function mobileOutboxRecover(client: Client, native: Native | null 
   const value = state(client), ordinal = ++value.ordinal;
   const result = outcome(await invoke(nativeHandle(native), { action: 'recover', messageId, mutationId, decision }), messageId, mutationId);
   adoptOutcome(value, result, ordinal); change(client, value); return clone(result);
+}
+
+/** Delivery uses this owner's mutation sequence and outcome projection. The caller
+ * validates the entire native receipt before any returned row can be adopted. */
+export async function mobileOutboxCompleteDelivery<T extends { outcome: unknown }>(client: Client, native: Native | null | undefined,
+  request: { operationId: string; revision: number; messageId: string; retryCleanupRevision?: number },
+  decode: (raw: unknown, admitted: { ownerEpoch: string; mutationId: string }) => T): Promise<T> {
+  const { value, native: handle, epoch } = readyState(client, native);
+  if (!Number.isSafeInteger(value.sequence + 1)) throw new ClientError('The pending task sequence is exhausted.');
+  const mutationId = `${epoch}:${++value.sequence}`, ordinal = ++value.ordinal;
+  const reply = await bridgeReply(handle, { op: 'mobileOutboxDelivery', action: 'complete',
+    operationId: request.operationId, revision: request.revision, ownerEpoch: epoch, mutationId,
+    ...(request.retryCleanupRevision === undefined ? {} : { retryCleanupRevision: request.retryCleanupRevision }) });
+  if (!reply.ok) throw new ClientError(reply.error!.message, reply.error!.kind, reply.error!.uncertain);
+  const decoded = decode(reply.value, { ownerEpoch: epoch, mutationId });
+  if (decoded.outcome !== null) {
+    // Restart or a lost reply may return an earlier saved cleanup mutation. The
+    // receipt decoder verifies its identity; normal epoch/watermark adoption applies.
+    const result = outcome(decoded.outcome, request.messageId);
+    adoptOutcome(value, result, ordinal); change(client, value);
+  }
+  return decoded;
 }
 
 

@@ -154,6 +154,14 @@ final class T3MobileOutbox {
                   claim["mutationId"] as? String == request["mutationId"] as? String,
                   jsonEqual(claim["record"], request["record"]) else { return false }
         }
+        if let delivery = request["deliveryCleanup"] {
+            guard let delivery = delivery as? Object,
+                  Set(delivery.keys) == Set(["operationId", "ackRevision", "record"]),
+                  nonempty(delivery["operationId"]), integer(delivery["ackRevision"], positive: true),
+                  let record = delivery["record"] as? Object, validateRecord(record), record["messageId"] as? String == id,
+                  request["operation"] as? String == "remove", request["requireUnheld"] as? Bool == true,
+                  nonempty(request["expectedToken"]), integer(request["expectedRevision"], positive: true) else { return false }
+        }
         if let revision = request["expectedRevision"], !integer(revision) { return false }
         if let token = request["expectedToken"], !nonempty(token) { return false }
         if let held = request["requireUnheld"], !boolean(held) { return false }

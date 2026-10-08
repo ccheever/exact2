@@ -168,9 +168,20 @@ final class T3MobileModule: ExactModule {
             return
         }
         if request["op"] as? String == "mobileOutboxDelivery",
-           ["status", "recover", "retire"].contains(request["action"] as? String ?? "") {
+           ["status", "recover", "retire", "complete"].contains(request["action"] as? String ?? "") {
             let store = queuedEdits
             DispatchQueue.global(qos: .userInitiated).async {
+                if request["action"] as? String == "complete" {
+                    store.completeOutboxDelivery(request) { result in
+                        switch result {
+                        case .success(let value): reply.send(["ok": true, "generation": request["generation"] ?? 0, "value": value])
+                        case .failure(let error):
+                            let problem = error as? T3Failure ?? T3Failure(kind: "Persistence", message: "The queued command cleanup needs recovery.", uncertain: true)
+                            reply.send(["ok": false, "generation": request["generation"] ?? 0, "error": problem.json])
+                        }
+                    }
+                    return
+                }
                 do {
                     guard let id = request["operationId"] as? String, !id.isEmpty else {
                         throw T3Failure(kind: "Arguments", message: "Choose a saved queued command.")
