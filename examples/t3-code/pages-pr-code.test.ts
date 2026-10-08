@@ -8,7 +8,7 @@ import type { T3Client } from './client';
 import type { Obj } from './domain';
 import { ClientError, type Native } from './protocol';
 import { prCodeLocalFor, prCommand, pullRequestDetail, type DetailInput } from './pages-pr-detail';
-import { diffFileContentsInput } from './pages-pr-code';
+import { diffFileContentsInput, draftSelection } from './pages-pr-code';
 import { pullRequestReviewKey, pullRequestReviewStore } from './pages-pr-writes-logic';
 import { toasts } from './toast';
 import { renderablePatch } from './pages-pr-code-logic';
@@ -374,5 +374,18 @@ describe('Refresh (the panel\'s, which the Code tab follows)', () => {
     expect(letGoOnce).toBe(false);
     await f.settle({ refresh: 1 });
     expect(f.of('pullRequests.invalidate')).toHaveLength(1);
+  });
+});
+
+describe('"Add to agent" (PullRequestCodeTab finishSelection)', () => {
+  test('the draft\'s lines become the review-comment chip the hand-off carries, and the draft closes', async () => {
+    const f = fixture();
+    await walk(f);
+    await f.press('fold', 'src/catalog.js');
+    await f.press('begin', 'additions|2|src/catalog.js');
+    const comment = draftSelection(f.client, reference, detail(), 'Why one?');
+    expect(comment).toMatchObject({ id: 'pull-request-selection:src/catalog.js:2:2', sectionId: 'pull-request:114', sectionTitle: 'PR #114 review', filePath: 'src/catalog.js', rangeLabel: '+2', text: 'Why one?' });
+    expect(comment!.diff.split('\n')).toEqual(['@@ -0,0 +2,1 @@', '+export const size = 1;']);
+    expect((await f.settle()).codeTab.draftOpen).toBe(false);
   });
 });
