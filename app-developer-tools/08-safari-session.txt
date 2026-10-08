@@ -1,6 +1,6 @@
 app-developer-tools: Safari Develop menu row, real-input session (2026-10-08)
 
-20:22:58 KST  real-input lock taken (owner "app-developer-tools: Safari Develop menu rows"), after fix-hover-cards (#307)
+20:23:00 KST  real-input lock taken (owner "app-developer-tools: Safari Develop menu rows"), after fix-hover-cards (#307)
               released it; screen unlocked (no CGSSessionScreenIsLocked key).
 20:23        Safari was not running. `open -a Safari` (pid 30798; it opened a Start Page window).
               Read back the menu bar with System Events (accessibility):
