@@ -381,8 +381,11 @@ public final class ExactSession {
     /// The runner deadline `clockTimer` fires for.
     private(set) var clockDue: Double?
     /// The agent's clock (milliseconds) when the driver owns time; nil runs
-    /// on the wall clock.
-    public var clock: Double?
+    /// on the wall clock. Taking it over ends the first-frame rule (LLP
+    /// 1003.001 D7): what waits for a frame starts there.
+    public var clock: Double? {
+        didSet { if oldValue == nil, let at = clock { apply(runtime.startOnFrame(false, at: at)) } }
+    }
     /// The runner's soonest timer, from the last batch (absent without timers).
     var timerDue: Double?
     /// The view presenting this session, while one is mounted (D1).
@@ -462,6 +465,8 @@ public final class ExactSession {
         self.app = app
         self.label = label
         runtime = Runtime()
+        // Motion starts at the first frame that shows it, until an agent owns the clock (LLP 1003.001 D7).
+        if !ExactEnv.agentFreezes { _ = runtime.startOnFrame(true, at: 0) }
         text = TextEngine.pair(resolve: { [weak app] source in app?.resolveAsset(source) }, read: { [weak app] source in app?.assetBytes(source) },
                                bundled: { [weak app] source in app?.bundledAsset(source) })
         presenter = Presenter()
@@ -584,10 +589,10 @@ public final class ExactSession {
 
     /// A frame's tick on the owner, not waited for: motion sampled at this
     /// frame lands with the next main-queue turn (LLP 1072 §7.1).
-    func sendTick(now: Double) {
+    func sendTick(now: Double, frame: Double? = nil) {
         tickInFlight = true
         let captured = generation
-        runtime.tickAsync(now: now) { [weak self] batch in self?.publish(.tick, batch, captured) }
+        runtime.tickAsync(now: now, frame: frame) { [weak self] batch in self?.publish(.tick, batch, captured) }
     }
 
     /// The owed canvas draws, after this main-queue turn's calls and not

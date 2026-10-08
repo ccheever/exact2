@@ -456,6 +456,13 @@ uint32_t exact_advance(ExactRuntime rt, double now_ms, uint32_t mode);
 /* @ref LLP 1073 D5: a presented display frame — timers due by now_ms, then
  * every frame task once at it. The batch says "frames" while one wants it. */
 uint32_t exact_frame(ExactRuntime rt, double now_ms);
+/* @ref LLP 1003.001 D5: exact_frame at the target now_ms, the wall at wall_ms
+ * stopping the motion engine's input clock. */
+uint32_t exact_frame_at(ExactRuntime rt, double now_ms, double wall_ms);
+/* @ref LLP 1003.001 D7: nonzero, motion a commit begins waits for the first
+ * presented frame, in every host booted after; zero at the agent's takeover,
+ * where what waits starts at at_ms. Returns the batch's length. */
+uint32_t exact_start_on_frame(ExactRuntime rt, uint32_t on, double at_ms);
 /* Whether the display drives frame tasks: exact_frame turns it on; 0 when the
  * agent's clock takes over, whose advances then fire virtual frames. */
 uint32_t exact_present_frames(ExactRuntime rt, uint32_t on);
@@ -525,6 +532,7 @@ uint32_t exact_color_references(ExactRuntime rt);
  *  batch's length. */
 uint32_t exact_colors(ExactRuntime rt, size_t len);
 uint32_t exact_tick(ExactRuntime rt, double now_ms);      /* a motion frame, only while "motion" is true */
+uint32_t exact_tick_at(ExactRuntime rt, double now_ms, double frame_ms); /* LLP 1003.001 D5: for the frame presented at frame_ms */
 /* An image node loaded: its bitmap's pixel counts, taken one-for-one as
  * points (never divided by the backing scale — a 2× asset is not half its
  * pixels wide, as on the web); a width or height ≤ 0 clears it (the load

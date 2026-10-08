@@ -330,11 +330,12 @@ package final class Runtime {
             done(read(exact_canvas_draw(rt)))
         }
     }
-    /// A frame's tick on the owner, not waited for (LLP 1072 §7.1).
-    func tickAsync(now: Double, done: @escaping (Batch) -> Void) {
+    /// A frame's tick on the owner, not waited for (LLP 1072 §7.1); `frame`
+    /// is the display frame it is for (LLP 1003.001 D5).
+    func tickAsync(now: Double, frame: Double? = nil, done: @escaping (Batch) -> Void) {
         Owner.shared.post { [self] in
             guard !destroyed else { return }
-            done(read(exact_tick(rt, now)))
+            done(read(frame.map { exact_tick_at(rt, now, $0) } ?? exact_tick(rt, now)))
         }
     }
     /// Actual viewport/row observations using the runner's versioned LE wire.
@@ -466,7 +467,10 @@ package final class Runtime {
     func advance(now: Double, untilRequest: Bool = false) -> Batch { on { read(exact_advance(rt, now, untilRequest ? 1 : 0)) } }
     /// The `then`s an agent's input settled, the clock unmoved (LLP 1012 §2).
     func landThen() -> Batch { on { read(exact_advance(rt, 0, 2)) } }
-    func frame(now: Double) -> Batch { on { read(exact_frame(rt, now)) } }
+    func frame(now: Double, wall: Double? = nil) -> Batch { on { read(wall.map { exact_frame_at(rt, now, $0) } ?? exact_frame(rt, now)) } }
+    /// Whether motion a commit begins waits for the first presented frame
+    /// (LLP 1003.001 D7); off, what waits starts at `at`.
+    func startOnFrame(_ yes: Bool, at: Double) -> Batch { on { read(exact_start_on_frame(rt, yes ? 1 : 0, at)) } }
     func presentFrames(_ yes: Bool) { on { () -> Void in _ = exact_present_frames(rt, yes ? 1 : 0) } }
     func resize(width: CGFloat, height: CGFloat) -> Batch { on { read(exact_resize(rt, Float(width), Float(height))) } }
     func setTime(epochAtZero: Double, utcOffset: Double) -> Batch { on { read(exact_set_time(rt, epochAtZero, utcOffset)) } }
@@ -499,7 +503,7 @@ package final class Runtime {
             return read(exact_segments(rt, fold.posture == "folded" ? 1 : 0, UInt32(fold.cols), UInt32(fold.rows), UInt32(fold.rects.count)))
         }
     }
-    func tick(now: Double) -> Batch { on { read(exact_tick(rt, now)) } }
+    func tick(now: Double, frame: Double? = nil) -> Batch { on { read(frame.map { exact_tick_at(rt, now, $0) } ?? exact_tick(rt, now)) } }
     func scheme(dark: Bool) -> Batch { on { read(exact_scheme(rt, dark ? 1 : 0)) } }
     func viewScheme(_ view: UInt32, dark: Bool) -> Batch { on { read(exact_view_scheme(rt, view, dark ? 1 : 0)) } }
     /// @ref LLP 1095 D1 — every colour reference the kernel resolves itself

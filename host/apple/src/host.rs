@@ -44,6 +44,11 @@ mod content_region_host;
 mod control_text_tests;
 #[path = "covers.rs"]
 mod covers;
+#[path = "first_frame.rs"]
+mod first_frame;
+#[cfg(test)]
+#[path = "first_frame_tests.rs"]
+mod first_frame_tests;
 #[path = "flights.rs"]
 mod flights;
 #[path = "fold.rs"]
@@ -307,6 +312,7 @@ impl<D: DataSource> Host<D> {
             None,
             None,
             "/",
+            false,
             None,
             crate::link::Links::ALL,
             |_| Ok(()),
@@ -331,6 +337,7 @@ impl<D: DataSource> Host<D> {
         delivery: Option<&'static crate::delivery::Hooks>,
         candidate_delivery: Option<exact_runner::Delivery>,
         launch: &str,
+        start_on_frame: bool,
         region: Option<crate::content_region::ContentRegionRegistration>,
         links: crate::link::Links<D>,
         prepare: impl FnOnce(&mut Runner<D>) -> Result<(), HostError>,
@@ -347,6 +354,7 @@ impl<D: DataSource> Host<D> {
             delivery,
             candidate_delivery,
             launch,
+            start_on_frame,
             region,
             None,
             links,
@@ -367,6 +375,7 @@ impl<D: DataSource> Host<D> {
         delivery: Option<&'static crate::delivery::Hooks>,
         candidate_delivery: Option<exact_runner::Delivery>,
         launch: &str,
+        start_on_frame: bool,
         region: Option<crate::content_region::ContentRegionRegistration>,
         native: Option<crate::content_region::NativeProjectionLimits>,
         links: crate::link::Links<D>,
@@ -466,6 +475,7 @@ impl<D: DataSource> Host<D> {
             collections_json: "[]".into(),
             engine: {
                 let mut engine = Engine::new();
+                let _ = engine.set_start_on_frame(start_on_frame, 0.0);
                 engine.set_lowered_properties(&svg::lowered(cfg!(any(
                     target_os = "ios",
                     target_os = "tvos"
@@ -877,6 +887,9 @@ impl<D: DataSource> Host<D> {
     /// the batch, the refusal in `error`, and `clock` says where the runner
     /// stands.
     pub fn advance(&mut self, now_ms: f64) -> String {
+        if self.engine.starts_on_frame() {
+            self.now_ms = now_ms.max(self.now_ms);
+        }
         let a = self.runner.advance_timed(now_ms);
         self.advanced(a)
     }
@@ -911,7 +924,11 @@ impl<D: DataSource> Host<D> {
     }
 
     fn advanced(&mut self, a: exact_runner::Advanced) -> String {
-        self.now_ms = a.now_ms.max(self.now_ms);
+        // A frame task puts the runner at the display's target; with the
+        // first-frame rule the host's clock stays the wall's (LLP 1003.001 D5).
+        if !self.engine.starts_on_frame() {
+            self.now_ms = a.now_ms.max(self.now_ms);
+        }
         self.runner.canvas_frame();
         let error = a.error.map(|e| format!("{e:?}"));
         self.commit(&a.receipts, error)
@@ -1098,30 +1115,6 @@ impl<D: DataSource> Host<D> {
         self.engine.trim();
     }
 
-    /// A motion frame: seek the engine to `now_ms` and report every
-    /// presentation value that changed. Nothing else moves.
-    pub fn tick(&mut self, now_ms: f64) -> String {
-        self.now_ms = now_ms.max(self.now_ms);
-        let mut batch = Batch::new();
-        let seek = self.engine.advance(self.now_ms / 1000.0);
-        debug_assert!(seek.is_ok(), "the clock never runs backwards here");
-        if self.arrange_settled() {
-            return self.arrange_settle();
-        }
-        let error = self.height_layout_if_needed(&mut batch).err();
-        self.runner.canvas_frame();
-        // A tick is never waited for where draws are deferred (LLP 1072
-        // §9): it draws in its own turn.
-        self.canvas_draw_turn(&mut batch);
-        // Only suspended ancestor mappings need a settle recheck. Normal
-        // photo Translate/Scale frames keep the existing cheap tick path.
-        if self.transform_drags.mapping_pending {
-            self.emit_transform_drags(&mut batch);
-        }
-        self.present(&mut batch, false);
-        self.finish(batch, error)
-    }
-
     /// The active head's title and edited mark, when a plan with a head may
     /// have moved them (LLP 1048.003 D1, LLP 1069.010 D6). The app owning
     /// the window or scene shows them.
@@ -1260,9 +1253,7 @@ impl<D: DataSource> Host<D> {
         // frame/hold. Match Web's floor at the engine's current presentation
         // time, not this batch's final time. No timer work enters pointer moves.
         for t in receipts {
-            let seek = self
-                .engine
-                .advance((t.at_ms / 1000.0).max(self.engine.now()));
+            let seek = self.engine.advance(self.engine_time(t.at_ms));
             debug_assert!(seek.is_ok(), "the clock never runs backwards here");
             let mut sync = self.runner.kernel().motion_sync(&t.receipt);
             self.spare_exits(&mut sync);
@@ -1294,7 +1285,7 @@ impl<D: DataSource> Host<D> {
             self.cancel_invalid_height_drag();
             self.reconcile_transform_drags(&mut batch);
         }
-        let seek = self.engine.advance(self.now_ms / 1000.0);
+        let seek = self.engine.advance(self.engine_time(self.now_ms));
         debug_assert!(seek.is_ok(), "the clock never runs backwards here");
         let layout_error = if height_target_error.is_some() {
             height_target_error

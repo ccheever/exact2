@@ -791,7 +791,7 @@ impl LayoutTree {
         arena: &NodeArena,
         measurer: &mut dyn TextMeasurer,
     ) -> Result<(), LayoutError> {
-        self.compute_mapped(root, offer, arena, measurer, |s| arena.taffy(s))
+        self.compute_mapped(root, offer, arena, measurer, &|s| arena.taffy(s))
     }
 
     /// Region trial trees supply their local handle map; arena handles belong
@@ -802,14 +802,14 @@ impl LayoutTree {
         offer: Offer,
         arena: &NodeArena,
         measurer: &mut dyn TextMeasurer,
-        node_for: impl Fn(u32) -> Option<NodeId>,
+        node_for: &dyn Fn(u32) -> Option<NodeId>,
     ) -> Result<(), LayoutError> {
         self.prepare_fields(root, arena, measurer)?;
         let buttons = self.prepare_buttons(root, arena, measurer)?;
         // Percentage padding uses the containing block's final width. Settle
         // its frame floor in the engine before publication, never after paint.
         for _ in 0..3 {
-            let minima = self.compute_pass(root, offer, arena, measurer, &node_for, &buttons)?;
+            let minima = self.compute_pass(root, offer, arena, measurer, node_for, &buttons)?;
             if !self.settle_field_minima(minima) {
                 return Ok(());
             }
@@ -825,7 +825,10 @@ impl LayoutTree {
         offer: Offer,
         arena: &NodeArena,
         measurer: &mut dyn TextMeasurer,
-        node_for: &impl Fn(u32) -> Option<NodeId>,
+        // A trait object, not a generic: each closure type would compile the
+        // engine's whole pass, Taffy's algorithms with it, again into every
+        // app (LLP 1047.001; LLP 1075.003 §9.11's trial tree did, +0.4 MB).
+        node_for: &dyn Fn(u32) -> Option<NodeId>,
         buttons: &IdMap<u32, NodeId>,
     ) -> Result<IdMap<NodeId, f32>, LayoutError> {
         if let Some(fault) = &self.fault {

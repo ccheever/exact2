@@ -89,6 +89,7 @@ fn boot(measurer: CachedChrome) -> Result<(Host<NoData>, String), crate::HostErr
         None,
         None,
         "/",
+        false,
         None,
         crate::link::Links::ALL,
         |runner| {
@@ -375,6 +376,7 @@ fn control_size_fonts_feed_em_resolution_and_the_shared_face_payload() {
         None,
         None,
         "/",
+        false,
         None,
         crate::link::Links::ALL,
         |runner| {

@@ -46,7 +46,7 @@ package final class Frames: NSObject {
     @objc func tick(_ link: CADisplayLink) {
         guard let s = session else { return }
         s.canvases.lifecycleFrame()
-        // Motion keeps its existing sampling clock; canvas frames target presentation.
+        // Motion (below) and canvas frames target presentation.
         let frameNow = s.clock ?? (link.targetTimestamp - ExactEnv.t0) * 1000
         // ProMotion changes callback cadence (e.g. 120 → 80 Hz) while duration
         // can remain the nominal base interval. The target interval is actual;
@@ -64,14 +64,17 @@ package final class Frames: NSObject {
             if timerSoon, !ExactEnv.agentMode, s.clock == nil {
                 let now = s.now()
                 s.followOffset()
-                if tasks { s.apply(s.runtime.frame(now: frameNow)) }
+                if tasks { s.apply(s.runtime.frame(now: frameNow, wall: now)) }
                 else if s.timerDue.map({ now >= $0 }) ?? true { s.apply(s.runtime.advance(now: now)) }
             }
+            // Motion samples at the frame's target, and starts there what
+            // waits for it (LLP 1003.001 D5); the agent's clock has no frames.
             if motion || canvas2d {
+                let frame = s.clock == nil ? frameNow : nil
                 if ExactSession.asyncFills {
-                    if !s.tickInFlight { s.sendTick(now: s.now()) }
+                    if !s.tickInFlight { s.sendTick(now: s.now(), frame: frame) }
                 } else {
-                    s.apply(s.runtime.tick(now: s.now()))
+                    s.apply(s.runtime.tick(now: s.now(), frame: frame))
                 }
             }
         }
