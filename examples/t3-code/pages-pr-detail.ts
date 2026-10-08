@@ -192,7 +192,10 @@ async function liveRefresh(client: T3Client, native: Native, panel: Panel, viewK
 }
 async function readDetail(client: T3Client, native: Native, panel: Panel, ref: Obj, storage: Files | undefined): Promise<void> {
   try {
-    if (panel.invalidate) await client.rpc(native, 'pullRequests.invalidate', { reference: ref }).catch((error: unknown) => { if (letGo(error)) throw error; return {}; });
+    // refreshFromHost invalidates once: the flag is taken as the call goes out. A let-go answer may already have
+    // sent it, and the change it announces asks this read again; a run that sent it again would announce again,
+    // and so on (fix-misc-batch, #298 bug 15: 237 invalidates in 40 s after one Update with rebase).
+    if (panel.invalidate) { panel.invalidate = false; await client.rpc(native, 'pullRequests.invalidate', { reference: ref }).catch((error: unknown) => { if (letGo(error)) throw error; return {}; }); }
     const detail = obj(await client.rpc(native, 'pullRequests.detail', ref));
     if (panel.detail && shouldRefreshPullRequestActivity({ key: panel.key, updatedAt: str(panel.detail.updatedAt) }, { key: panel.key, updatedAt: str(detail.updatedAt) })) panel.activityDue = true;
     panel.detail = detail; panel.detailError = null;
