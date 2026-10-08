@@ -112,11 +112,11 @@ component ComposerCard
       when editor.promptLimit != "" and not resting
         PromptLengthValidation(message=editor.promptLimit)
       when data.composer.planVisible
-        button hatch="t3-composer-key" data-anchor="plan" press=interaction(data.composer.planActive ? "default" : "plan") disabled=(busy or not data.connected or data.running) position="absolute" left=0 top=0 width=1 height=1 overflow="hidden" padding=0 border-width=0 opacity=0 aria-hidden=true testId="composer-plan-key"
+        button hatch="t3-composer-key" data-anchor="plan" press=interaction(data.composer.planActive ? "default" : "plan") disabled=(busy or not data.connected or data.running) position="absolute" left=0 top=0 width=1 height=1 overflow="hidden" padding=0 border-width=0 opacity=0 aria-hidden=true tabindex=-1 testId="composer-plan-key"
           text "composer-plan-key" font-size=1
-        button hatch="t3-composer-key" data-anchor="mode-plan" press=interaction("plan") disabled=(busy or not data.connected or data.running) position="absolute" left=0 top=0 width=1 height=1 overflow="hidden" padding=0 border-width=0 opacity=0 aria-hidden=true testId="composer-mode-plan-key"
+        button hatch="t3-composer-key" data-anchor="mode-plan" press=interaction("plan") disabled=(busy or not data.connected or data.running) position="absolute" left=0 top=0 width=1 height=1 overflow="hidden" padding=0 border-width=0 opacity=0 aria-hidden=true tabindex=-1 testId="composer-mode-plan-key"
           text "composer-mode-plan-key" font-size=1
-        button hatch="t3-composer-key" data-anchor="mode-default" press=interaction("default") disabled=(busy or not data.connected or data.running) position="absolute" left=0 top=0 width=1 height=1 overflow="hidden" padding=0 border-width=0 opacity=0 aria-hidden=true testId="composer-mode-default-key"
+        button hatch="t3-composer-key" data-anchor="mode-default" press=interaction("default") disabled=(busy or not data.connected or data.running) position="absolute" left=0 top=0 width=1 height=1 overflow="hidden" padding=0 border-width=0 opacity=0 aria-hidden=true tabindex=-1 testId="composer-mode-default-key"
           text "composer-mode-default-key" font-size=1
       ComposerFooter(data=data, viewportWidth=viewportWidth, text=text, resting=resting, busy=busy, narrow=narrow, keyModels=keyModels, modelsOpen=modelsOpen, optionsOpen=optionsOpen, send=send, stop=stop, openModels=openModels, openOptions=openOptions, interaction=interaction, command=command, openProviders=openProviders)
 

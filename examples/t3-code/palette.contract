@@ -398,7 +398,7 @@ component CommandPaletteBody
   view
     box position="absolute" left=0 top=0 right=0 bottom=0 z-index=60 background-color="light-dark(#fcfcfc99, #0a0a0aa3)" backdrop-filter="blur(4px)" press=close aria-label=(view.escapeLabel == "Back" ? "Back" : "Close") testId="palette-backdrop"
     // Escape: the host binds key shortcuts on buttons only.
-    button press=close aria-keyshortcuts="Escape" aria-label=(view.escapeLabel == "Back" ? "Back" : "Close") testId="palette-escape" position="absolute" left=0 top=0 width=1 height=1 overflow="hidden" opacity=0 padding=0 border-width=0 background-color="#00000000" z-index=60
+    button press=close aria-keyshortcuts="Escape" aria-label=(view.escapeLabel == "Back" ? "Back" : "Close") tabindex=-1 testId="palette-escape" position="absolute" left=0 top=0 width=1 height=1 overflow="hidden" opacity=0 padding=0 border-width=0 background-color="#00000000" z-index=60
     column retainFocus=true position="absolute" left=floor((viewport.width - width) / 2) top=top width=width max-height=maxHeight min-height=(view.panel == "fill" ? maxHeight : 0) z-index=61 box-sizing="border-box" border-radius="1.125rem" border-style="solid" border-width=1 border-color="light-dark(#27272a1a, #ffffff14)" background-color="light-dark(#fcfcfccc, #0a0a0acc)" backdrop-filter="blur(12px)" box-shadow=(scheme == "dark" ? "inset 0 1px 0 #ffffff0a, 0 24px 72px -20px #000000e6" : "0 24px 64px -24px #000000a6") overflow="hidden" role="dialog" aria-label=view.label testId=view.testId
       row padding-left="0.5rem" padding-right="0.5rem" padding-top="0.375rem" padding-bottom="0.375rem" flex-shrink=0 box-sizing="border-box"
         box position="relative" width="100%" height="2.25rem" border-radius="0.625rem" box-sizing="border-box"
@@ -488,7 +488,7 @@ component PaletteDialog
   derive height = 227 + lines * 32 + (width < 540 ? 20 : 0)
   view
     box position="absolute" left=0 top=0 right=0 bottom=0 z-index=60 background-color="light-dark(#fcfcfc99, #0a0a0aa3)" backdrop-filter="blur(4px)" press=close aria-label="Close" testId="palette-backdrop"
-    button press=close aria-keyshortcuts="Escape" aria-label="Close" testId="palette-escape" position="absolute" left=0 top=0 width=1 height=1 overflow="hidden" opacity=0 padding=0 border-width=0 background-color="#00000000" z-index=60
+    button press=close aria-keyshortcuts="Escape" aria-label="Close" tabindex=-1 testId="palette-escape" position="absolute" left=0 top=0 width=1 height=1 overflow="hidden" opacity=0 padding=0 border-width=0 background-color="#00000000" z-index=60
     column position="absolute" left=floor((viewport.width - width) / 2) top=max(16, floor((viewport.height - height) / 2 + 0.5)) width=width z-index=61 box-sizing="border-box" border-radius="1.125rem" border-style="solid" border-width=1 border-color="light-dark(#27272a1a, #ffffff14)" background-color="light-dark(#fcfcfccc, #0a0a0acc)" backdrop-filter="blur(12px)" box-shadow=(dark ? "inset 0 1px 0 #ffffff0a, 0 24px 72px -20px #000000e6" : "0 24px 64px -24px #000000a6") overflow="hidden" role="dialog" aria-label=view.label testId=view.testId
       column gap="0.5rem" padding-left="1.5rem" padding-right="1.5rem" padding-top="1.5rem" padding-bottom="0.75rem" box-sizing="border-box"
         text view.label font-size="1.25rem" line-height="1.25rem" font-weight=600 color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=2 padding-right="1.5rem"
