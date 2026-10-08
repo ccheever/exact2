@@ -1,3 +1,5 @@
+import { mobileOutboxThread } from './mobile-outbox-presentation';
+import { mobileOutboxDriveSnapshot, mobileOutboxDriveRead, mobileOutboxDriveRun } from './mobile-outbox-drive';
 import { noteNow } from './shared/composer-controls';
 import { homeArrangeActionValue } from './home-arrange';
 import { mobileHomeAction } from './home-actions';
@@ -68,6 +70,16 @@ export const grants = 'device.camera purpose.camera\ndevice.microphone purpose.m
 
 // Each generated source has its own checked result type; no union assertion crosses the ABI.
 const sources: Sources = {
+  outboxView: args => {
+    const { initialized, complete, busy, count, next, delay } = mobileOutboxDriveSnapshot(mobileClient, Number(args[1]));
+    return { initialized, complete, busy, count, next, delay };
+  },
+  outboxAction: async (args, _store, _storage, nativeInput) => {
+    const native = nativeInput?.available ? mobileNative(nativeInput) : nativeInput;
+    if (args[0] === 'read') return mobileOutboxDriveRead(mobileClient, native);
+    if (!native?.available) return { revision: mobileClient.revision, message: 'Open T3 Code on your iPhone or iPad.' };
+    return mobileOutboxDriveRun(mobileClient, native, str(args[1]), Number(args[2]), args[0] === 'retry');
+  },
   threadHeader: args => mobileThreadHeaderSnapshot(args[0]),
   threadHeaderPrepare: (args, _store, _storage, native) => mobileThreadHeaderPrepare(args[0], native, args[1]),
   threadHeaderAction: (args, _store, storage, native) => mobileThreadHeaderAction(args[0], args[1], args[2], native, storage!),
@@ -150,7 +162,7 @@ const sources: Sources = {
   },
   newTaskAction: (args, _store, storage, nativeInput) => {
     const native = sourceNative('newTaskAction', args, nativeInput);
-    return mobileNewTaskFlowAction(String(args[0]), String(args[1]), String(args[2]), String(args[3]), String(args[4]), native, storage!);
+    return mobileNewTaskFlowAction(String(args[0]), String(args[1]), String(args[2]), String(args[3]), String(args[4]), native, storage!, mobileClient, fleet, Number(args[5]));
   },
   threadPreferences: (args, _store, storage, nativeInput) => {
     const native = sourceNative('threadPreferences', args, nativeInput);
@@ -299,10 +311,6 @@ const sources: Sources = {
   terminalAction: (args, _store, storage, nativeInput) => {
     const native = sourceNative('terminalAction', args, nativeInput);
     return mobileTerminalAction(String(args[0]), String(args[1]), String(args[2] ?? ''), native, storage!);
-  },
-  terminalMenu: (args, _store, storage, nativeInput) => {
-    const native = sourceNative('terminalMenu', args, nativeInput);
-    return mobileTerminalAction('menu', String(args[0]), JSON.stringify({ tabs: args[1], readOnly: args[2] === true, fontSize: Number(args[3]) }), native, storage!);
   },
   terminalEvent: (args, _store, storage, nativeInput) => {
     const native = sourceNative('terminalEvent', args, nativeInput);
@@ -671,6 +679,8 @@ async function newTaskFlow(args: unknown[], native?: Native | null) {
 
 async function threadView(args: unknown[], native?: Native | null) {
   const [_revision, time, scheme, environmentId, threadId, active] = args;
+  const queued = active === true ? mobileOutboxThread(str(environmentId), str(threadId), Number(time), scheme === 'dark') : null;
+  if (queued) return queued;
   const matched = active === true && environmentId === mobileClient.environmentId && threadId === mobileClient.threadId;
   if (matched) await mobileThreadPrepare(native, Number(time));
   const view = mobileThread(Number(time), scheme === 'dark');

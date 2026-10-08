@@ -36,7 +36,7 @@ export interface ThreadApproval { id: string; title: string; detail: string; dis
 export interface ThreadComposerState { editing: boolean; saving: boolean; canCancel: boolean; editNotice: string; editPendingId: string; canRetryEdit: boolean; contentOwner: string; draft: string; placeholder: string; canSend: boolean; canStop: boolean; showStop: boolean;
   canOperate: boolean; showReadOnlyNotice: boolean; sendLabel: string; sendSymbol: string; blockedReason: string; modelLabel: string; providerDriver: string;
   providerIconURL: string; modelUnavailable: boolean; running: boolean; queueCount: number; }
-export interface ThreadSnapshot { revision: number; environmentId: string; threadId: string; title: string; loaded: boolean; loading: boolean; rows: ThreadRow[];
+export interface ThreadSnapshot { queued: boolean; queuedOwner: string; queuedStatus: string; queuedReason: string; queuedCanRetry: boolean; revision: number; environmentId: string; threadId: string; title: string; loaded: boolean; loading: boolean; rows: ThreadRow[];
   emptyTitle: string; emptyDetail: string; error: string; uncertain: boolean; hasMore: boolean; historyLoading: boolean; historyError: string;
   readsNeeded: boolean; answerFilesOwner: string; answerFilesRequest: string; approvals: ThreadApproval[]; composer: ThreadComposerState; }
 const timeFormatter = new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' });
@@ -120,7 +120,7 @@ export function mobileThread(now: number, dark = false, client: T3Client = mobil
   const loading = !loaded && ['connected', 'connecting', 'reconnecting'].includes(client.connection);
   const requests = requestPresentation(client), view = timelineView(client);
   const answerFiles = mobileAnswerFilesRequest(client, visibleAnswerFiles(rows), now);
-  return { answerFilesOwner: answerFiles.owner, answerFilesRequest: answerFiles.request, revision: client.revision, environmentId: client.environmentId, threadId: client.threadId,
+  return { queued: false, queuedOwner: '', queuedStatus: '', queuedReason: '', queuedCanRetry: false, answerFilesOwner: answerFiles.owner, answerFilesRequest: answerFiles.request, revision: client.revision, environmentId: client.environmentId, threadId: client.threadId,
     title: str(obj(client.projection.thread).title), loaded, loading, rows,
     emptyTitle: loaded ? 'No conversation yet' : loading ? '' : 'Messages not cached',
     emptyDetail: loaded ? 'Ask the agent to inspect the repo, run a command, or continue the active thread.' : loading ? '' : 'Reconnect this environment to load the conversation.',

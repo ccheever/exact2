@@ -4,6 +4,8 @@ import { blankHomeSwipe, type HomeSwipeData } from './home-swipe';
 // @ref llp/1109.000-mobile-app-layout.decision.md#shared-typescript
 // @ref llp/1109.002-design-system-parity.spec.md#typography-and-font-assets
 import { mobileClient } from './client';
+import { mobileOutboxPendingTasks, projectHomePending, mobileOutboxStatus, type MobilePendingTask } from './mobile-outbox-presentation';
+import { homeDraftTitle } from './home-drafts';
 import { projectHomeDrafts, type HomeDraftInput, type HomeDraftEnvironment } from './home-drafts';
 import { homeApplyPending, mobileHomeOrder, type HomePendingOrder, type HomeOrderSnapshot } from './home-order';
 import type { HomeMenuItem } from './home-actions';
@@ -20,6 +22,7 @@ import { capabilities, effectiveSnoozed, isWorkingThread, lastVisited, unseenCom
   sortSettled, sortSnoozed, sortWorkingThreadsBySend, settledTimestamp, type SidebarSection } from './shared/sidebar-model';
 
 export interface HomeOptions {
+  pendingTasks?: readonly MobilePendingTask[];
   drafts?: readonly HomeDraftInput[];
   draftEnvironments?: readonly HomeDraftEnvironment[];
   returnedAt?: Readonly<Record<string, number>>;
@@ -37,14 +40,14 @@ export interface HomeOptions {
 export interface HomeSource { environmentId: string; label: string; machine: string; config: Obj; shell: Shell; focused: boolean; origin?: string; connected?: boolean }
 export interface HomeProject { key: string; title: string; projectKeys: string[]; environmentId: string; projectId: string }
 export interface HomeItem {
-  key: string; kind: string; draftKey: string; showPendingDivider: boolean; id: string; environmentId: string; threadId: string; section: string; title: string;
+  key: string; kind: string; draftKey: string; queuedOwner: string; showPendingDivider: boolean; id: string; environmentId: string; threadId: string; section: string; title: string;
   projectTitle: string; projectPresent: boolean; branch: string; environmentLabel: string; machineSymbol: string;
   status: string; statusTone: string; time: string; error: string; card: boolean; pinned: boolean; queued: boolean;
   expanded: boolean; disabled: boolean; count: number; last: boolean; trailingDivider: boolean; selected: boolean;
   favicon: string; iconKind: string; iconText: string; iconColor: string; iconSurface: string; iconSize: number;
   searchExcerpt: string; swipe: HomeSwipeData; menuItems: HomeMenuItem[]; nativeMenu: string;
 }
-const blankItem = (key: string): HomeItem => ({ key, kind: 'thread', draftKey: '', showPendingDivider: false, id: '', environmentId: '', threadId: '', section: '', title: '',
+const blankItem = (key: string): HomeItem => ({ key, kind: 'thread', draftKey: '', queuedOwner: '', showPendingDivider: false, id: '', environmentId: '', threadId: '', section: '', title: '',
   projectTitle: '', projectPresent: false, branch: '', environmentLabel: '', machineSymbol: '', status: '', statusTone: '',
   time: '', error: '', card: false, pinned: false, queued: false, expanded: false, disabled: false, count: 0,
   last: false, trailingDivider: false, selected: false, favicon: '', iconKind: '', iconText: '', iconColor: '', iconSurface: '', iconSize: 0, searchExcerpt: '', swipe: blankHomeSwipe(), menuItems: [], nativeMenu: '' });
@@ -190,6 +193,27 @@ export function projectMobileHome(sources: HomeSource[], now: number, options: H
       status: draft.status, statusTone: 'draft', card: true, menuItems: draft.menuItems, iconKind, iconText, iconColor,
       iconSurface: iconColor ? `${iconColor}26` : '', iconSize: 15 * (Array.from(iconText.replace(/\p{M}/gu, '')).length === 1 ? 0.6 : 0.515625) });
   }
+  const pendingRows = projectHomePending(options.pendingTasks ?? [], { query: options.query, environmentId: options.environmentId,
+    projectRefs: selectedProject ? draftProjects.filter(project => selectedProject.projectKeys.includes(scoped(project.environmentId, project.projectId))) : null });
+  for (const pending of pendingRows) {
+    const record = pending.record, creation = record.creation!;
+    const source = sources.find(source => source.environmentId === record.environmentId);
+    if (source?.shell.threads.some(thread => thread.id === record.threadId)) continue;
+    const project = source?.shell.projects.find(project => project.id === creation.projectId);
+    const environment = options.draftEnvironments?.find(environment => environment.environmentId === record.environmentId);
+    const icon = obj(project?.projectIcon), iconKind = icon.kind === 'lucide' ? 'monogram' : str(icon.kind);
+    const iconText = icon.kind === 'lucide' ? projectIdentity(str(project?.title).normalize('NFKC')).monogram : str(icon.emoji ?? icon.text);
+    const iconColor = ICON_COLORS.find(color => color.value === icon.color)?.swatch ?? '';
+    items.push({ ...blankItem(`pending-task:${record.environmentId}:${record.messageId}`), kind: 'pending', queuedOwner: pending.owner,
+      environmentId: record.environmentId, threadId: record.threadId, section: 'unsent', queued: true, card: true,
+      showPendingDivider: !items.some(item => item.kind === 'draft' || item.kind === 'pending'), title: homeDraftTitle(record.text, record.attachments.length),
+      projectTitle: titles.get(scoped(record.environmentId, creation.projectId)) ?? str(project?.title, creation.projectTitle ?? ''),
+      projectPresent: !!project, branch: creation.branch ?? '', status: mobileOutboxStatus(pending.status), statusTone: 'pending',
+      error: pending.reason, environmentLabel: (options.draftEnvironments?.length ?? 0) > 1 ? environment?.label ?? '' : '',
+      machineSymbol: environment?.machineSymbol ?? '', selected: options.selectedThreadKey === scoped(record.environmentId, record.threadId),
+      iconKind, iconText, iconColor, iconSurface: iconColor ? `${iconColor}26` : '',
+      iconSize: 15 * (Array.from(iconText.replace(/\p{M}/gu, '')).length === 1 ? 0.6 : 0.515625) });
+  }
   let hiddenSettledCount = 0;
   for (const section of ['working', 'snoozed', 'settled'] as const) {
     const rows = parts[section]; if (!rows.length) continue;
@@ -207,7 +231,7 @@ export function projectMobileHome(sources: HomeSource[], now: number, options: H
     if (section === 'settled' && expanded && hiddenSettledCount) items.push({ ...blankItem('settled:more'), kind: 'more', section,
       title: `Show more (${hiddenSettledCount} settled hidden)`, count: hiddenSettledCount });
   }
-  items.forEach((item, index) => { item.last = index === items.length - 1; const next = items[index + 1]; item.trailingDivider = ['thread', 'draft'].includes(item.kind) && !!next && (next.kind === 'thread' || next.kind === 'draft' && !next.showPendingDivider); });
+  items.forEach((item, index) => { item.last = index === items.length - 1; const next = items[index + 1]; item.trailingDivider = ['thread', 'draft', 'pending'].includes(item.kind) && !!next && (next.kind === 'thread' || ['draft', 'pending'].includes(next.kind) && !next.showPendingDivider); });
   const selectedEnvironment = sources.find(source => source.environmentId === options.environmentId);
   const empty = query ? { title: 'No results', detail: `No threads matching "${options.query?.trim()}".` }
     : selectedProject ? { title: `No threads in ${selectedProject.title}`, detail: 'Choose another project or create a new task.' }
@@ -220,14 +244,16 @@ export function projectMobileHome(sources: HomeSource[], now: number, options: H
 
 /** Call after mobileSnapshot refresh. Root owns watches, timer, navigation, shelf persistence, and search RPC. */
 export function mobileHome(now: number, options: HomeOptions = {}, client: T3Client = mobileClient, background: EnvironmentFleet = fleet) {
+  options = { ...options, pendingTasks: options.pendingTasks ?? mobileOutboxPendingTasks(client, now) };
   const sources = mobileHomeSources(client, background);
   const matches = options.messageMatches ?? new Map((options.query?.trim() === client.query.trim() ? [...serverMatches(client)] : []).map(([id, match]) => [scoped(client.environmentId, id), match]));
   const order = options.orderSnapshot ?? mobileHomeOrder(client, sources, now, { ...options, observeReturns: true });
   const projection = projectMobileHome(sources, now, { ...options, returnedAt: order.returnedAt, messageMatches: matches, pendingOrder: order.pending, queuedThreadKeys: order.queuedThreadKeys });
   projection.items.forEach(item => {
-    if (!['thread', 'draft'].includes(item.kind) || item.environmentId !== client.environmentId) return;
+    if (!['thread', 'draft', 'pending'].includes(item.kind) || item.environmentId !== client.environmentId) return;
     const raw = client.shell.threads.find(thread => thread.id === item.threadId);
-    const projectId = item.kind === 'draft' ? options.drafts?.find(draft => draft.key === item.draftKey)?.projectId : raw?.projectId;
+    const projectId = item.kind === 'draft' ? options.drafts?.find(draft => draft.key === item.draftKey)?.projectId
+      : item.kind === 'pending' ? options.pendingTasks?.find(task => task.owner === item.queuedOwner)?.record.creation?.projectId : raw?.projectId;
     const project = client.shell.projects.find(project => project.id === projectId);
     if (project) item.favicon = faviconSrc(client, project);
   });
@@ -237,7 +263,7 @@ export function mobileHome(now: number, options: HomeOptions = {}, client: T3Cli
     hasLoadedShell: sources.length > 0, connecting: ['connecting', 'reconnecting'].includes(state) || entries.some(entry => ['connecting', 'reconnecting'].includes(entry.phase)),
     connectionState: state, error: client.error || entries.find(entry => entry.error)?.error || '' };
   const anyThreads = sources.some(source => source.shell.threads.some(thread => thread.archivedAt == null && thread.deletedAt == null));
-  const anyContent = anyThreads || projectHomeDrafts(options.drafts ?? []).length > 0;
+  const anyContent = anyThreads || projectHomeDrafts(options.drafts ?? []).length > 0 || (options.pendingTasks?.length ?? 0) > 0;
   const empty = anyContent ? null : mobileHomeEmpty(catalog, sources.reduce((sum, source) => sum + source.shell.projects.length, 0));
   return { ...projection, emptyTitle: empty?.title ?? projection.emptyTitle, emptyDetail: empty?.detail ?? projection.emptyDetail,
     loading: empty?.loading ?? false, addEnvironment: !anyContent && !catalog.hasReadyEnvironment, hasAnyThreads: anyThreads };

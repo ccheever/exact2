@@ -17,8 +17,8 @@ import { nextTerminalId, resolveTerminalSessionLabel } from './shared/terminal-l
 import { mobileTheme } from './design';
 import { MOBILE_THEME_ARTWORK } from './settings-theme-data';
 
-export interface MobileTerminalTab { id: string; label: string; status: string; selected: boolean; running: boolean }
-export interface MobileTerminalColors { background: string; foreground: string; mutedForeground: string; border: string; cursor: string; config: string }
+export interface MobileTerminalTab { id: string; label: string; status: string; selected: boolean; running: boolean; cwd: string }
+export interface MobileTerminalColors { background: string; foreground: string; mutedForeground: string; border: string; cursor: string; config: string; sheetBackground: string; sheetForeground: string; sheetSubtle: string }
 export interface MobileTerminalSnapshot { revision: number; environmentId: string; threadId: string; terminalId: string; sessionKey: string;
   title: string; subtitle: string; ready: boolean; readOnly: boolean; sourceJSON: string; error: string; emptyTitle: string; emptyDetail: string;
   tabs: MobileTerminalTab[]; hostPlatform: string; colors: MobileTerminalColors; }
@@ -26,13 +26,13 @@ const owner = (client: T3Client) => JSON.stringify([client.generation, client.en
 const permissions = new WeakMap<T3Client, { owner: string; read: boolean; operate: boolean }>();
 const busy = new WeakSet<T3Client>();
 export function mobileTerminalColors(scheme: string, palette = 't3-code'): MobileTerminalColors {
-  const dark = scheme === 'dark', colors = mobileTheme(scheme, palette).colors;
+  const dark = scheme === 'dark', theme = mobileTheme(scheme, palette), colors = theme.colors;
   const table = MOBILE_THEME_ARTWORK as Record<string, Record<string, { terminalBackground: string; terminalForeground: string; terminalCursor: string }>>;
   const roles = (table[palette] ?? table['t3-code']!)[dark ? 'dark' : 'light']!;
   const ansi = [dark ? '#141415' : '#1F1F21', '#ff2e3f', '#0dbe4e', '#ffca00', '#009fff', '#c635e4', '#08c0ef', '#c6c6c8'];
   const config = [`background = ${roles.terminalBackground}`, `foreground = ${roles.terminalForeground}`, `cursor-color = ${roles.terminalCursor}`,
     `cursor-text = ${roles.terminalBackground}`, ...[...ansi, ...ansi].map((color, index) => `palette = ${index}=${color}`)].join('\n') + '\n';
-  return { background: roles.terminalBackground, foreground: roles.terminalForeground, mutedForeground: colors.muted ?? '', border: colors.border ?? '', cursor: roles.terminalCursor, config };
+  return { background: roles.terminalBackground, foreground: roles.terminalForeground, mutedForeground: colors.muted ?? '', border: colors.border ?? '', cursor: roles.terminalCursor, config, sheetBackground: theme.sheet ?? '', sheetForeground: theme.foreground ?? '', sheetSubtle: colors.subtle ?? '' };
 }
 function hostPlatform(client: T3Client): string {
   const platform = obj(obj(client.config.environment).platform);
@@ -65,7 +65,7 @@ export async function mobileTerminalPrepare(requestedId: string, scheme: string,
     const fallback = known.find(item => ['running', 'starting'].includes(item.state.status)) ?? (!operate ? known[0] : undefined);
     const terminalId = requestedId || fallback?.target.terminalId || (operate ? DEFAULT_TERMINAL_ID : '');
     data.tabs = known.filter(item => ['running', 'starting'].includes(item.state.status) || item.target.terminalId === terminalId).map(item => ({ id: item.target.terminalId, label: resolveTerminalSessionLabel(item.target.terminalId, item.state.summary),
-      status: item.state.status, running: item.state.hasRunningSubprocess, selected: item.target.terminalId === terminalId }));
+      cwd: item.state.summary?.cwd ?? launchFor(client, ref.threadId)?.cwd ?? '', status: item.state.status, running: item.state.hasRunningSubprocess, selected: item.target.terminalId === terminalId })).sort((a, b) => a.id.localeCompare(b.id, undefined, { numeric: true }));
     if (!terminalId && drawer.metadata !== 'waiting' && !/^\d+ sessions$/.test(drawer.metadata)) return { ...data, emptyTitle: 'Could not load terminals', emptyDetail: drawer.metadata, error: drawer.metadata };
     if (!terminalId) return { ...data, emptyTitle: drawer.metadata === 'waiting' ? 'Loading terminals' : 'No terminal sessions',
       emptyDetail: drawer.metadata === 'waiting' ? 'Reading existing terminal sessions.' : 'Existing terminals will appear here when another client opens one.' };
@@ -79,7 +79,7 @@ export async function mobileTerminalPrepare(requestedId: string, scheme: string,
     const project = client.shell.projects.find(item => item.id === client.projectId);
     data.subtitle = str(project?.title); data.terminalId = terminalId; data.sessionKey = JSON.stringify([ref.environmentId, ref.threadId, terminalId]);
     data.title = 'Terminal'; data.ready = true;
-    data.sourceJSON = JSON.stringify({ ...ref, terminalId, cwd, worktreePath, env: launch?.env ?? {}, readOnly: !operate,
+    data.sourceJSON = JSON.stringify({ ...ref, terminalId, key: data.sessionKey, generation: client.generation, tabs: data.tabs, workspaceRoot: cwd, cwd, worktreePath, env: launch?.env ?? {}, readOnly: !operate,
       autoFocus: operate, hostPlatform: data.hostPlatform, fontSize: Number.isFinite(fontSize) ? Math.max(6, Math.min(14, fontSize)) : 10.5,
       appearance: scheme === 'dark' ? 'dark' : 'light', themeConfig: colors.config, background: colors.background, foreground: colors.foreground, mutedForeground: colors.mutedForeground, border: colors.border });
     return data;
@@ -99,7 +99,7 @@ export async function mobileTerminalAction(action: string, terminalId: string, v
     const permission = permissions.get(client);
     if (!permission || permission.owner !== captured || !ref.threadId) throw new ClientError('Reopen the terminal to check its permissions.');
     if (!permission.read && !permission.operate) throw new ClientError('This connection does not have permission to view terminals.');
-    if (!permission.operate && !['capture', 'hide-keyboard', 'select', 'menu', 'session-ended'].includes(action)) throw new ClientError('This connection does not have permission to operate terminals.');
+    if (!permission.operate && !['capture', 'hide-keyboard', 'select', 'session-ended'].includes(action)) throw new ClientError('This connection does not have permission to operate terminals.');
     if (action === 'session-ended') {
       const live = knownSessions(client, ref).filter(item => item.target.terminalId !== terminalId && ['running', 'starting'].includes(item.state.status))
         .map(item => item.target.terminalId).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
@@ -111,13 +111,6 @@ export async function mobileTerminalAction(action: string, terminalId: string, v
     if (action === 'select') {
       if (!knownSessions(client, ref).some(item => item.target.terminalId === terminalId)) throw new ClientError('That terminal session is no longer available.');
       revealTerminal(client, ref, terminalId); return result();
-    }
-    if (action === 'menu') {
-      const reply = await bridgeReply(native, { op: 'mobileTerminalControl', key: JSON.stringify([ref.environmentId, ref.threadId, terminalId]), action, value });
-      if (!reply.ok) throw new ClientError(reply.error!.message);
-      if (captured !== owner(client)) throw new ClientError('The selected conversation changed.');
-      const choice = str(obj(reply.value).choice);
-      return { ...result('', choice.startsWith('select:') ? choice.slice(7) : terminalId), choice: choice.startsWith('select:') ? 'select' : choice };
     }
     if (['input', 'modifier', 'paste', 'capture', 'show-keyboard', 'hide-keyboard'].includes(action)) {
       const reply = await bridgeReply(native, { op: 'mobileTerminalControl', key: JSON.stringify([ref.environmentId, ref.threadId, terminalId]), action, value });

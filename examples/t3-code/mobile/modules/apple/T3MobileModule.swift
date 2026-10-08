@@ -17,6 +17,9 @@ final class T3MobileModule: ExactModule {
         "t3-information-search": T3MobileInformationSearch.factory,
         "t3-information-notice": T3MobileInformationNotice.factory,
         "t3-preview-menu": T3MobilePreviewMenu.factory,
+        "t3-terminal-menu": ExactNativeFactory(for: T3MobileModule.self) { module, props, events in
+            try module.terminal.menus.makeView(props: props, events: events)
+        },
         "t3-mobile-browser": ExactNativeFactory(for: T3MobileModule.self) { module, props, events in
             try module.browser.makeView(props: props, events: events)
         },
@@ -130,6 +133,7 @@ final class T3MobileModule: ExactModule {
             tint: route.controller.traitCollection.userInterfaceStyle == .dark ? .white : .black)
         sheets.configure(route)
         threadHeader.configure(route)
+        terminal.menus.configure(route)
         inspectorChrome.configure(route)
         homeChrome.configure(route)
         homeSwipes.configure(route)
@@ -152,7 +156,7 @@ final class T3MobileModule: ExactModule {
         if element.hatch == .mobileReviewList || element.hatch == .mobileReviewRow { reviewViewport.end(element) }
         if element.hatch == .mobileVoiceEditor { voice.editor.end(element) }
     }
-    override func routeEnded(_ route: ExactRoute) { homeSwipes.end(route); sheets.end(route); threadHeader.end(route); inspectorChrome.end(route); homeChrome.end(route); settingsNavigation.end(route); scheduledNavigation.end(route); informationLegal.end(route) }
+    override func routeEnded(_ route: ExactRoute) { homeSwipes.end(route); sheets.end(route); threadHeader.end(route); terminal.menus.end(route); inspectorChrome.end(route); homeChrome.end(route); settingsNavigation.end(route); scheduledNavigation.end(route); informationLegal.end(route) }
 
     override func later(_ request: [String: Any], reply: ExactReply) {
         guard alive else { reply.fail("The mobile session was closed."); return }
@@ -419,6 +423,7 @@ final class T3MobileModule: ExactModule {
          "t3-mobile-browser": ExactNativeFactory { _, _ in throw ExactNativeRefusal("T3 Code mobile requires iOS") },
          "t3-mobile-devices": ExactNativeFactory { _, _ in throw ExactNativeRefusal("T3 Code mobile requires iOS") },
          "t3-preview-menu": ExactNativeFactory { _, _ in throw ExactNativeRefusal("T3 Code mobile requires iOS") },
+         "t3-terminal-menu": ExactNativeFactory { _, _ in throw ExactNativeRefusal("T3 Code mobile requires iOS") },
          "t3-document-audio": ExactNativeFactory { _, _ in throw ExactNativeRefusal("T3 Code mobile requires iOS") },
          "t3-document-html": ExactNativeFactory { _, _ in throw ExactNativeRefusal("T3 Code mobile requires iOS") },
          "t3-mobile-terminal": ExactNativeFactory { _, _ in throw ExactNativeRefusal("T3 Code mobile requires iOS") },

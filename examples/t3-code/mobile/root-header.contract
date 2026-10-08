@@ -24,7 +24,6 @@ component MobileRootHeader
     documentAction: action
     automationAction: action
     browserMenu: action
-    terminalMenu: action
     toggleSidebar: action
   view
     header height=44 flex-shrink=0 align-items="center" justify-content="space-between"
@@ -66,9 +65,6 @@ component MobileRootHeader
           t3-symbol symbol-name="arrow.clockwise" point-size=20 symbol-tint=iconColor width=20 height=20
       when routeName == "threadBrowser"
         t3-preview-menu configuration=browserMenuConfiguration change=browserMenu width=38.5 height=38.5
-      when routeName == "threadTerminal"
-        button press=terminalMenu aria-label="Terminal options" testId="terminal-options"
-          t3-symbol symbol-name="terminal" point-size=20 symbol-tint=iconColor width=20 height=20
       when inspectorAvailable and (routeName == "threadFile" or routeName == "threadReview")
         button press=toggleInspector aria-label=(inspectorVisible ? "Hide inspector" : "Show inspector") aria-pressed=inspectorVisible
           t3-symbol symbol-name="sidebar.right" point-size=20 symbol-tint=iconColor width=20 height=20

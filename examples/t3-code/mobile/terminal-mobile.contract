@@ -5,6 +5,7 @@ shape MobileTerminalTab
   status: string
   selected: bool
   running: bool
+  cwd: string
 shape MobileTerminalColors
   background: string
   foreground: string
@@ -12,6 +13,9 @@ shape MobileTerminalColors
   border: string
   cursor: string
   config: string
+  sheetBackground: string
+  sheetForeground: string
+  sheetSubtle: string
 shape MobileTerminalSnapshot
   revision: number
   environmentId: string
@@ -66,12 +70,6 @@ component MobileTerminal
         text data.subtitle padding-left=16 padding-bottom=8 font-size=13 color=data.colors.mutedForeground
       when data.ready and mountReady
         t3-mobile-terminal terminal-source=data.sourceJSON change=event flex=1 min-height=0 aria-label="Terminal" testId="terminal-surface"
-        row padding-left=16 padding-right=16 padding-top=8 padding-bottom=8 align-items="center" justify-content="space-between"
-          button press=action("capture", "") aria-label="Attach visible output" testId="terminal-capture"
-            text "Attach visible output" font-size=14
-          when not data.readOnly
-            button press=action("show-keyboard", "") aria-label="Show keyboard" testId="terminal-keyboard"
-              text "⌨" font-size=20
       else
         column flex=1 align-items="center" justify-content="center" padding=24 gap=8
           text data.emptyTitle font-size=18
@@ -83,14 +81,14 @@ component MobileTerminalCaptureView
     select: action
     attach: action
   view
-    column flex=1 min-height=0 background-color=colors.background color=colors.foreground
+    column flex=1 min-height=0 background-color=colors.sheetBackground color=colors.sheetForeground
       text "Tap the first and last line to select a range." padding-left=16 padding-right=16 padding-bottom=12 color=colors.mutedForeground
       scroll flex=1 min-height=0 id="terminal-capture-lines"
         column padding=16
           each line in data.lines key=line.id
-            button press=select(line.id) aria-label=`Line ${line.text}` aria-pressed=line.selected background-color=(line.selected ? colors.border : "transparent") padding-top=4 padding-bottom=4
+            button press=select(line.id) aria-label=`Line ${line.text}` aria-pressed=line.selected background-color=(line.selected ? colors.sheetSubtle : "transparent") padding-top=4 padding-bottom=4
               text line.text font-family="monospace" font-size=14 white-space="pre-wrap"
       when data.tooLarge
         text "Select fewer lines to fit the context limit." padding-left=16 padding-right=16 color=colors.mutedForeground
-      button press=attach disabled=not data.canAttach margin=16 margin-bottom=40 padding=16 border-radius=12 background-color=colors.border aria-label="Attach selected output"
+      button press=attach disabled=not data.canAttach margin=16 margin-bottom=40 padding=16 border-radius=12 background-color=colors.sheetSubtle aria-label="Attach selected output"
         text "Attach selected output" text-align="center"
