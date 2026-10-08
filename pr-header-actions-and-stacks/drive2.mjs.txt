@@ -1,0 +1,116 @@
+// pr-header-actions-and-stacks retry drive (not committed): bun drive2.mjs <repo> <label> <mergePr>
+// The one retry session, as the second account (`daehyeon-mun`, a write collaborator) on its own lane server
+// (127.0.0.1:16721): the header and More menu on the primary's pull request and on its own, the base branch's
+// hover card over the tab bar (fixed after the first session), the 840×620 header with its labels gone, "Merging..."
+// read the moment Merge is confirmed, and a stack layer opened from the stack menu.
+import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+const [repo, label, mergePr] = process.argv.slice(2);
+const MINE = '/Users/daehyeonmun/orca/workspaces/exact2/t3-code-pr-header-actions-and-stacks';
+const L = resolve(import.meta.dir), out = resolve(L, `out-${label}`); mkdirSync(out, { recursive: true });
+process.env.EXACT_APP_DIR = resolve(repo, 'examples/t3-code');
+const { open } = await import(resolve(repo, 'scripts/agent.mjs'));
+const lane = await import(resolve(MINE, 'examples/t3-code/tools/github-lane/lane.mjs'));
+const lib = await import(resolve(MINE, 'examples/t3-code/tools/github-lane/lib.mjs'));
+const paths = lib.lanePaths();
+const REPO = 'daehyeonmun2021/playground';
+const origin = 'http://127.0.0.1:16721';
+const rec = (line) => { const text = `${new Date().toISOString()} [${label}] ${line}`; appendFileSync(resolve(out, 'record.txt'), text + '\n'); console.log(text); };
+const s = await open({ host: 'macos', size: [1280, 840], env: { HOME: resolve(L, `apphome-${label}`) }, storage: `pha-${label}`, epoch: Date.now(),
+  onProcess: (p) => { writeFileSync(resolve(L, `${label}-app.pid`), String(p.pid)); rec(`app pid ${p.pid}`); } });
+const ids = async () => (await s.tree()).nodes.map((n) => n.testId ?? n.props?.testId).filter(Boolean);
+const has = async (id) => (await ids()).includes(id);
+const settle = async (ms = 600) => { await s.clock(`+${ms} real`); await s.clock('settle'); };
+const tapIf = async (id, opts) => { if (await has(id)) { await s.tap(id, opts); await settle(); return true; } return false; };
+const shot = async (name) => { await s.screenshot(resolve(out, `${label}-${name}.png`), true); rec(`shot ${name}`); };
+const texts = async (target) => {
+  try { const t = await s.tree(target); return t.nodes.flatMap((n) => [n.text, n.props?.text, n.props?.['aria-label'], n.label].filter((v) => typeof v === 'string' && v.trim())).map((v) => v.trim()); }
+  catch (e) { return [`(no ${target}: ${e.message.slice(0, 80)})`]; }
+};
+const dump = async (name, target) => { const t = [...new Set(await texts(target))]; writeFileSync(resolve(out, `${label}-${name}.txt`), t.join('\n')); rec(`${name}: ${t.slice(0, 40).join(' | ').slice(0, 900)}`); return t; };
+const waitFor = async (pred, ms = 20000, step = 700) => { const end = Date.now() + ms; while (Date.now() < end) { if (await pred()) return true; await settle(step); } return false; };
+const clearToasts = async () => { for (const id of (await ids()).filter((id) => id.startsWith('toast-dismiss-'))) { try { await s.tap(id); await settle(250); } catch {} } };
+const toastText = async () => (await texts('toast-region')).filter((t) => !/^(Dismiss|Copy|Close)/.test(t)).join(' · ');
+const openPr = async (n) => {
+  await s.type('pull-requests-search', `#${n}`); await settle(3500);
+  if (!(await has(`pr-row-${n}`))) await settle(4000);
+  await s.tap(`pr-row-${n}`); await settle(1000);
+  await waitFor(() => has('pull-request-header-actions'), 15000);
+  await settle(2500); await clearToasts();
+};
+const pull = (n) => lib.api(paths, 'primary', [`repos/${REPO}/pulls/${n}`]).body ?? {};
+const step = async (name, fn) => { try { await fn(); } catch (e) { rec(`STEP ${name} ERROR ${e.message?.slice(0, 600)}`); try { await shot(`${name}-error`); } catch {} } };
+const header = (name) => dump(`${name}-header`, 'pull-request-header-actions');
+
+try {
+  await settle(2000);
+  if (await has('welcome-pairing-link')) {
+    await s.type('welcome-pairing-link', `${origin}/pair#token=${lane.pairingToken('second')}`);
+    await s.tap('welcome-pair'); await settle(5000);
+  }
+  for (const id of ['welcome-continue', 'welcome-agents-continue', 'welcome-skip-import']) await tapIf(id);
+  await settle(3000);
+  rec(`connected as the second account: ${(await has('open-pull-requests')) ? 'sidebar shows Pull Requests' : 'no Pull Requests entry'}`);
+  await clearToasts();
+  await s.tap('open-pull-requests'); await settle(5000); await clearToasts();
+  await step('filter-all', async () => { await s.tap('pull-requests-filters'); await settle(400); await s.tap('pr-filter-state'); await settle(400); await s.tap('pr-state-all'); await settle(3000); });
+  // The write collaborator on the primary's pull request and on its own.
+  await step('second-on-primary', async () => { await openPr(132); await header('second-on-132'); await shot('second-on-132'); });
+  await step('second-own', async () => { await openPr(115); await header('second-on-115'); await shot('second-on-115'); });
+  // The base branch's hover card over the tab bar, then the pressed popover.
+  await step('freshness', async () => {
+    await openPr(132);
+    await s.tap('pull-request-base-freshness', { hover: true }); await settle(500); await shot('freshness-hover'); await dump('freshness-hover', 'pr-freshness-hover');
+    await s.tap('pull-request-tab-summary', { hover: true }); await settle(400); rec(`hover card after the pointer left: ${(await has('pr-freshness-hover')) ? 'still shown' : 'gone'}`);
+    await s.tap('pull-request-base-freshness'); await settle(600); await shot('freshness-popover');
+    await s.type('pull-request-base-freshness', { key: 'Escape' }); await settle(500); await shot('freshness-escaped');
+  });
+  // "Merging..." the moment Merge is confirmed (no settle before the read), then the merge read back.
+  await step('merging', async () => {
+    await openPr(Number(mergePr)); await header('merging-before');
+    await s.tap('pull-request-primary'); await waitFor(() => has('pr-action-dialog'), 6000); await dump('merging-dialog', 'pr-action-dialog');
+    await s.tap('pr-action-dialog-confirm');
+    const during = [...new Set(await texts('pull-request-header-actions'))].slice(0, 3);
+    await s.screenshot(resolve(out, `${label}-merging-pending.png`), true);
+    rec(`right after the confirm: ${during.join(' | ')}`);
+    let seen = '';
+    await waitFor(async () => { seen = await toastText(); return /merged|Could not/.test(seen); }, 30000);
+    rec(`merging toast: ${seen}`);
+    const p = pull(Number(mergePr)); rec(`#${mergePr} read back: merged ${!!p.merged_at} by ${p.merged_by?.login ?? '?'} (${p.merge_commit_sha?.slice(0, 7)})`);
+    await header('merging-after'); await shot('merging-after');
+  });
+  // The second generation's stack (#162 bottom, #163 top, stack 164): a layer opened from the menu, Rebase stack, Merge stack.
+  await step('stack', async () => {
+    const passHead = (n) => { const sha = pull(n).head?.sha; lib.api(paths, 'primary', ['-X', 'POST', `repos/${REPO}/statuses/${sha}`, '-f', 'state=success', '-f', 'context=ci/build', '-f', 'description=Build passed']); return sha?.slice(0, 7); };
+    const toast = async (name, pattern, ms) => { let seen = ''; await waitFor(async () => { seen = await toastText(); return pattern.test(seen); }, ms); rec(`${name} toast: ${seen}`); return seen; };
+    await openPr(163); await header('stack-163'); await shot('stack-163');
+    await s.tap('pull-request-stack'); await settle(500); await shot('stack-menu-163'); await dump('stack-menu-163', 'pr-stack-layer');
+    await s.tap('pr-stack-layer-162'); await settle(4000);
+    rec(`after pressing layer #162 the panel shows: ${(await texts('pull-request-open-host')).join(' ')}`);
+    await shot('stack-selected-162');
+    await openPr(163); await clearToasts();
+    await s.tap('pull-request-stack'); await settle(500); await s.tap('pr-stack-rebase'); await waitFor(() => has('pr-stack-dialog'), 6000);
+    await dump('stack-rebase-dialog', 'pr-stack-dialog'); await s.tap('pr-stack-dialog-confirm');
+    const during = [...new Set(await texts('pr-stack-dialog'))]; rec(`right after the confirm, the dialog says: ${during.slice(-2).join(' | ')}`);
+    await toast('stack-rebase', /Stack rebased|Stack operation did not complete/, 90000); await shot('stack-rebased');
+    rec(`rebase read back: #162 ${pull(162).head?.sha?.slice(0, 7)} #163 ${pull(163).head?.sha?.slice(0, 7)}; ci/build on the new heads ${[162, 163].map(passHead).join(' ')}`);
+    await settle(3000); await clearToasts();
+    await s.tap('pull-request-more'); await settle(400); await s.tap('pr-more-refresh'); await settle(6000); await header('stack-163-refreshed');
+    await s.tap('pull-request-stack-merge'); await waitFor(() => has('pr-stack-dialog'), 6000); await dump('stack-merge-dialog', 'pr-stack-dialog'); await s.tap('pr-stack-dialog-confirm');
+    await toast('stack-merge', /Stack merge request completed|Stack operation did not complete/, 120000); await shot('stack-merged');
+    const a = pull(162), b = pull(163); rec(`merge read back: #162 merged ${!!a.merged_at}, #163 merged ${!!b.merged_at}`);
+  });
+  // 840×620: the header's labels go under 30rem (icon-only controls; the label is the tooltip).
+  await step('narrow', async () => {
+    await s.resize(840, 620); await settle(800);
+    await openPr(132); await shot('narrow-132'); await dump('narrow-132-header', 'pull-request-header-actions');
+    await openPr(148); await shot('narrow-148');
+    await openPr(110); await shot('narrow-110');
+    await s.resize(1280, 840); await settle(800);
+  });
+  const logs = await s.logs();
+  writeFileSync(resolve(out, `${label}-logs.json`), JSON.stringify(logs, null, 1));
+  rec(`log lines ${logs.lines.length}; errors: ${logs.lines.filter((l) => /error|refused|failed/i.test(JSON.stringify(l))).length}`);
+} catch (e) { rec(`ERROR ${e.stack?.slice(0, 1200)}`); try { await shot('error'); } catch {} }
+finally { await s.close?.(); }
+process.exit(0);
