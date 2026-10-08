@@ -70,6 +70,20 @@ function glide(x0, y0, x1, y1) {
 const center = (b) => [b.x + b.w / 2, b.y + b.h / 2];
 const waitReal = async (ms) => { await real(ms); };
 const shotScreen = async (name) => { await s.screenshot(`${out}/${which}-real-${name}.png`, true); log('shot', { name }); };
+// #281's rule: a press inside a card, on a part with no press of its own, presses nothing under it. Find a point in the
+// card's padding (or, failing that, anywhere in the card off its buttons) that lies over a control under the card.
+function overControl(card, unders, pad, avoid = []) {
+  const inside = (b, x, y) => x >= b.x && x < b.x + b.w && y >= b.y && y < b.y + b.h;
+  let any = null;
+  for (let y = card.y + 2; y < card.y + card.h - 2; y += 3) for (let x = card.x + 2; x < card.x + card.w - 2; x += 3) {
+    if (avoid.some(b => inside(b, x, y)) || !unders.some(b => inside(b, x, y))) continue;
+    const padding = x < card.x + pad.x || x > card.x + card.w - pad.x || y < card.y + pad.y || y > card.y + card.h - pad.y;
+    if (padding) return { x, y, padding: true };
+    any ??= { x, y, padding: false };
+  }
+  return any;
+}
+const click = (x, y) => { if (!DRY) execSync(`/opt/homebrew/bin/cliclick c:${toScreen(x, y, true).join(',')}`); log('click', { at: [Math.round(x), Math.round(y)] }); };
 try {
   front();
   if (part === 'settings') {
@@ -145,6 +159,12 @@ try {
       glide(sx - 40, sy, sx - 40, into); await waitReal(900);
       await visible(pop);
       await shotScreen('22-pointer-in-usage-popover');
+      // #281: a press on the popover's padding over the next card's bar presses no segment there.
+      const others = [];
+      for (const other of [...await ids()].filter(x => /^usage-seg-\d+-\d+-\d+$/.test(x) && x !== seg)) others.push(await box(other).catch(() => ({ x: 0, y: 0, w: 0, h: 0 })));
+      const spot = overControl(card, others, { x: 17, y: 17 }, [await box(`usage-seg-reset-${id}`).catch(() => ({ x: 0, y: 0, w: 0, h: 0 })), await box(`usage-seg-email-${id}`).catch(() => ({ x: 0, y: 0, w: 0, h: 0 }))]);
+      log('press-spot', spot ?? { none: true });
+      if (spot) { glide(sx - 40, into, spot.x, spot.y); click(spot.x, spot.y); await waitReal(600); await visible(pop); log('expanded', { segs: (await nodes()).filter(n => /^usage-seg-\d+-\d+-\d+$/.test(n.props.testId ?? '')).map(n => [n.props.testId, n.props.ariaExpanded ?? n.props['aria-expanded'] ?? n.props.accessibilityExpanded]) }); await shotScreen('22b-press-on-popover-padding'); glide(spot.x, spot.y, sx - 40, into); }
       const mail = await box(`usage-seg-email-${id}`).catch(() => ({ x: card.x + 16, y: card.y + 40, w: 120, h: 16 })); const [mx, my] = center(mail);
       glide(sx - 40, into, mx, my); await waitReal(700);
       await present(`usage-seg-email-${id}-tip`);
@@ -156,6 +176,33 @@ try {
       glide(mx, my, card.x + card.w + 150, my); await waitReal(400);
       await visible(pop);
       await shotScreen('25-usage-popover-left');
+    });
+    // Rows handed over by #290: a press on the sidebar, a second press on the pinned segment under a resting
+    // pointer, and a press on the same account's legend row in the narrow layout.
+    await step('handed-over', async () => {
+      front();
+      const id = '0-0-0', seg = `usage-seg-${id}`, pop = `usage-seg-pop-${id}`;
+      const b = await box(seg); const [sx, sy] = center(b);
+      glide(sx - 200, sy - 30, sx - 40, sy); click(sx - 40, sy); await waitReal(500);
+      await visible(pop); await shotScreen('26-pinned');
+      glide(sx - 40, sy, 120, 420); click(120, 420); await waitReal(500);
+      await visible(pop); await shotScreen('27-after-sidebar-press');
+      glide(120, 420, sx - 40, sy); click(sx - 40, sy); await waitReal(500); await visible(pop);
+      click(sx - 40, sy); await waitReal(800);
+      await visible(pop); await shotScreen('28-second-press-resting');
+      glide(sx - 40, sy, sx - 40, sy + 2); await waitReal(500); await visible(pop);
+      await s.resize(840, 620); await real(1500); await settle(); front();
+      const legend = `usage-legend-${id}`;
+      if (await has(legend)) {
+        const l = await box(legend); const [lx, ly] = center(l);
+        glide(lx - 120, ly + 60, lx, ly); click(lx, ly); await waitReal(600);
+        const shown = await visible(pop); const card = shown && shown.inert === false ? await box(pop) : null;
+        log('legend-anchor', { legend: l, card, covers: !!card && card.y < l.y + l.h && card.y + card.h > l.y && card.x < l.x + l.w && card.x + card.w > l.x });
+        await shotScreen('29-legend-pinned');
+        click(lx, ly); await waitReal(600);
+        await visible(pop); await shotScreen('30-legend-second-press');
+      } else log('legend-missing', { ids: [...await ids()].filter(x => x.startsWith('usage-legend-')).slice(0, 5) });
+      await s.resize(1280, 840); await real(1000); await settle();
     });
     await step('model-row', async () => {
       if (await has('sidebar-back')) { await tap('sidebar-back'); await real(1000); }
@@ -193,6 +240,14 @@ try {
       glide(mx, my, mx, card.y + 20); glide(mx, card.y + 20, mx + 40, card.y + 30); await waitReal(900);
       await present('pr-freshness-hover');
       await shotScreen('12-pointer-in-freshness-card');
+      // #281: a press on the card's padding over the Summary/Timeline tabs presses no tab.
+      const tabs = [await box('pull-request-tab-summary'), await box('pull-request-tab-timeline')];
+      const selected = async () => (await nodes()).filter(n => /^pull-request-tab-/.test(n.props.testId ?? '')).map(n => [n.props.testId, n.props.accessibilitySelected ?? n.props['aria-selected']]);
+      log('tabs-before', { tabs: await selected() });
+      const buttons = await Promise.all(['pr-freshness-hover-merge', 'pr-freshness-hover-rebase'].map(id => box(id).catch(() => ({ x: 0, y: 0, w: 0, h: 0 }))));
+      const spot = overControl(card, tabs, { x: 13, y: 13 }, buttons);
+      log('press-spot', spot ?? { none: true });
+      if (spot) { glide(mx + 40, card.y + 30, spot.x, spot.y); click(spot.x, spot.y); await waitReal(600); log('tabs-after', { tabs: await selected() }); await present('pr-freshness-hover'); await shotScreen('12b-press-on-card-padding'); glide(spot.x, spot.y, mx + 40, card.y + 30); }
       const btn = (await has('pr-freshness-hover-rebase')) ? await box('pr-freshness-hover-rebase') : { x: card.x + 170, y: card.y + 60, w: 130, h: 24 }; const [bx, by] = center(btn);
       glide(mx + 40, card.y + 30, bx, by); await waitReal(900);
       await present('pr-freshness-hover');
