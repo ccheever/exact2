@@ -91,8 +91,35 @@ impl Grammars {
     }
 }
 
+/// The host's I/O (LLP 1047.001): the app's bindings and the stores they
+/// keep, and the executor that runs a source's requests over them. Linked
+/// when the plan keeps answers or the app's grants name I/O.
+#[derive(Clone, Copy)]
+pub struct IoLinks {
+    /// Bind the app's grants: [`crate::store::endowed`].
+    pub endow: fn(&str, &str, bool) -> crate::store::Endowed,
+    /// Start the executor: [`crate::executor::start_io`].
+    pub start: StartIo,
+}
+
+/// How [`IoLinks`] starts the executor: over the bindings, for the grants,
+/// waking the presenter through the hook.
+pub type StartIo = fn(
+    Option<ibex2::host::Bindings>,
+    &str,
+    Option<(crate::executor::WakeFn, *mut std::ffi::c_void)>,
+) -> Box<dyn crate::executor::Io>;
+
+impl IoLinks {
+    /// The platform's.
+    pub const LINKED: IoLinks = IoLinks {
+        endow: crate::store::endowed,
+        start: crate::executor::start_io,
+    };
+}
+
 /// What a boot links (LLP 1047.001 D3): the runner's capabilities, its
-/// device capabilities and the kernel's grammars. An entry makes it in a
+/// device capabilities, the kernel's grammars and the host's I/O. An entry makes it in a
 /// `const` from its set (`host!`), so the linker sees only what it names;
 /// the public boots, which tests and tools use, link everything.
 pub struct Links<D: DataSource> {
@@ -103,6 +130,8 @@ pub struct Links<D: DataSource> {
     pub device: DeviceLinks<D>,
     /// The kernel's style grammars.
     pub grammars: Grammars,
+    /// The host's I/O; `None`, none (no request runs, nothing is kept).
+    pub io: Option<IoLinks>,
 }
 
 impl<D: DataSource> Clone for Links<D> {
@@ -111,6 +140,7 @@ impl<D: DataSource> Clone for Links<D> {
             runner: self.runner,
             device: self.device,
             grammars: self.grammars,
+            io: self.io,
         }
     }
 }
@@ -121,6 +151,7 @@ impl<D: DataSource> Links<D> {
         runner: RunnerLinks::ALL,
         device: DeviceLinks::ALL,
         grammars: Grammars::ALL,
+        io: Some(IoLinks::LINKED),
     };
 
     /// What `uses` needs; evaluated in a `const`, so nothing else is named.
@@ -158,6 +189,11 @@ impl<D: DataSource> Links<D> {
                 } else {
                     None
                 },
+                grants: if uses.has(Capability::Io) {
+                    all.grants
+                } else {
+                    None
+                },
             },
             device: DeviceLinks {
                 auth: DeviceLinks::<D>::ALL.auth,
@@ -183,6 +219,11 @@ impl<D: DataSource> Links<D> {
                 },
             },
             grammars: Grammars::of(uses),
+            io: if uses.has(Capability::Io) {
+                Some(IoLinks::LINKED)
+            } else {
+                None
+            },
         }
     }
 }

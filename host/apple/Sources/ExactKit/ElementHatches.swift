@@ -32,6 +32,8 @@ final class ElementHatches {
     private var calls: [String: [String: Int]] = [:]
     /// The words the plan marks that the module does not handle.
     private var unhandled: Set<String> = []
+    /// The words the plan marks and does not give this platform.
+    private var unhandledByPlan: Set<String> = []
     /// What hatches told the agent of what they made (HatchRegions.swift).
     lazy var regions = HatchRegions(presenter)
 
@@ -51,6 +53,11 @@ final class ElementHatches {
 
     /// A node the batch created: told once the batch is applied.
     func created(_ node: NodeView) {
+        // A word the plan does not give this platform (the Rust host sends it
+        // as `hatchOff`, LLP 1075.003.000.001 §4.3): shown, never called, listed.
+        if let off = node.props["hatchOff"], unhandledByPlan.insert(off).inserted {
+            presenter.session?.log("hatch element \(off): the plan does not give it to this platform; its nodes are shown and never called")
+        }
         guard node.props["hatch"] != nil else { return }
         nodes[node.id] = Entry(node: node, told: false, data: node.props["dataset"] ?? "", inList: false)
         presenter.afterBatch { [weak self, weak node] in if let self, let node { self.build(node) } }
@@ -76,6 +83,7 @@ final class ElementHatches {
 
     /// A hatched node's props changed: its hatch hears new `data-*` words.
     func propsChanged(_ id: UInt32) {
+        presenter.session?.natives.rootPropsChanged(id)   // a root's words are the app hatch's (ScopeHatches.swift)
         guard var entry = nodes[id], entry.node.props["dataset"] ?? "" != entry.data else { return }
         entry.data = entry.node.props["dataset"] ?? ""
         nodes[id] = entry
@@ -206,7 +214,7 @@ final class ElementHatches {
         // What each hatch counted and published, and the other scopes (HatchDiagnostics.swift).
         var reply = diagnostics?.state(words: out) ?? ["words": out]
         if let handled = presenter.session?.natives.handledHatches { reply["platform"] = handled.sorted() }
-        reply["unhandled"] = unhandled.sorted().map { ["word": $0, "reason": "module"] }
+        reply["unhandled"] = unhandledByPlan.sorted().map { ["word": $0, "reason": "plan"] } + unhandled.sorted().map { ["word": $0, "reason": "module"] }
         reply["refused"] = refused
         reply["inFlight"] = inFlight
         regions.state(into: &reply)

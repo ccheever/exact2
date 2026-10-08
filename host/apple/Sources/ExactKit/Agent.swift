@@ -64,11 +64,13 @@ public final class Agent {
     /// The modifiers held through the contact: its `down`'s, until a
     /// `move` or `up` names others.
     var contactFlags: NSEvent.ModifierFlags = []
+    /// A native button's nested tracking loop consumes queued drag/up events.
+    var contactTracksNative = false
     #endif
     weak var canvasContact: NodeView?
     /// The last point the agent's pointer sent its canvas (iOS), for its motion.
     var canvasPoint: CGPoint?
-    var keyReleases: [String: () -> [String: Any]] = [:]
+    package var keyReleases: [String: () -> [String: Any]] = [:]
 
     /// Where replies go: the stream the requests came on.
     nonisolated(unsafe) static var out = FileHandle.standardOutput
@@ -299,7 +301,9 @@ public final class Agent {
             var forward = req
             forward.removeValue(forKey: "session")
             let json = (try? JSONSerialization.data(withJSONObject: forward)).map { String(decoding: $0, as: UTF8.self) } ?? line
-            Agent.raw(session.agent(json))
+            let reply = session.agent(json)
+            // A hatched site's row names its hatch's calls and time (LLP 1075.003.000.001 §3.1).
+            Agent.raw(op == "perf" ? session.hatchDiagnostics.joined(perf: reply) : reply)
         }
     }
 
@@ -492,6 +496,9 @@ public final class Agent {
             session.clock = max(session.now(), runner ?? 0)
             // The display's cadence means nothing under the agent's clock.
             session.sampler?.stop()
+            // An activity indicator holds one frame under it (LLP 1069.001,
+            // amended 2026-10-07).
+            presenter.controls.syncProgress()
         }
         if req["take"] as? Bool == true { return ["clock": session.clock ?? 0] }
         let from = session.clock ?? 0
@@ -522,7 +529,7 @@ public final class Agent {
         guard var to = target, to.isFinite else { return ["error": "clock needs \"to\" (ms) or \"settle\": true"] }
         guard to >= from else { return ["error": "the clock cannot go backwards (\(from) → \(to))"] }
         var rounds = 0, hatchDrains = 0
-        var world = Canvases.WorldClock()
+        var world = WorldClock()
         func reply(_ landed: Double, _ settled: Bool? = nil, reason: String? = nil) -> [String: Any] {
             var out = world.reply
             out["clock"] = landed
@@ -764,7 +771,7 @@ public final class Agent {
 
 extension ExactSession {
     /// This session's agent (made on first use).
-    var agentInstance: Agent {
+    package var agentInstance: Agent {
         if let a = agentBox { return a }
         let a = Agent(session: self)
         agentBox = a

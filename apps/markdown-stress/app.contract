@@ -404,9 +404,9 @@ component DocumentBody
             when linkOpen
               row gap=6 align-items="center" width="100%"
                 input id="markup-link-url" value=linkUrl input=linkChanged aria-label="Link URL" placeholder="https://example.com" testId="markup-link-url" flex=1 min-width=0 padding=8
-                button press=applyLink retainFocus=true testId="apply-link" min-height=40 padding=8
+                button appearance="none" press=applyLink retainFocus=true testId="apply-link" min-height=40 padding=8
                   text (linkUrl == "" ? "Remove link" : "Apply") font-size=13 color=theme.ink
-                button press=cancelLink testId="cancel-link" min-height=40 padding=8
+                button appearance="none" press=cancelLink testId="cancel-link" min-height=40 padding=8
                   text "Cancel" font-size=13 color=theme.ink
             text `${mixed ? "Mixed · " : ""}${formats}` testId="markup-selection" min-height=16 font-size=12 color=theme.softInk
             textarea id="markup-editor" markup="markdown" value=editorText input=editMarkdown select=selected testId="markup-editor" aria-label="Markdown editor" width="100%" height=260 box-sizing="border-box" padding=12 border-width=1 border-color=theme.fieldEdge border-radius=8 background-color=theme.field color=theme.ink font-size=16 line-height="26px"

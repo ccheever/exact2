@@ -136,6 +136,12 @@ final class FieldCell: NSTextFieldCell {
     override func fieldEditor(for controlView: NSView) -> NSTextView? {
         (controlView.superview as? NodeView)?.hearsFieldClipboard() == true ? clipboardEditor : super.fieldEditor(for: controlView)
     }
+    override func drawingRect(forBounds rect: NSRect) -> NSRect {
+        (controlView?.superview as? NodeView)?.nativeEditorRect(in: rect) ?? super.drawingRect(forBounds: rect)
+    }
+    override func titleRect(forBounds rect: NSRect) -> NSRect {
+        (controlView?.superview as? NodeView)?.nativeEditorRect(in: rect) ?? super.titleRect(forBounds: rect)
+    }
     override func accessibilityAttributeNames() -> [NSAccessibility.Attribute] {
         super.accessibilityAttributeNames() + NodeView.ariaAttributes.filter { (controlView?.superview as? NodeView)?.ariaAttribute($0) != nil }.map { .init(rawValue: $0) }
     }
@@ -145,6 +151,12 @@ final class FieldCell: NSTextFieldCell {
 }
 /// A password field's, as `FieldCell`.
 final class SecureFieldCell: NSSecureTextFieldCell {
+    override func drawingRect(forBounds rect: NSRect) -> NSRect {
+        (controlView?.superview as? NodeView)?.nativeEditorRect(in: rect) ?? super.drawingRect(forBounds: rect)
+    }
+    override func titleRect(forBounds rect: NSRect) -> NSRect {
+        (controlView?.superview as? NodeView)?.nativeEditorRect(in: rect) ?? super.titleRect(forBounds: rect)
+    }
     override func accessibilityAttributeNames() -> [NSAccessibility.Attribute] {
         super.accessibilityAttributeNames() + NodeView.ariaAttributes.filter { (controlView?.superview as? NodeView)?.ariaAttribute($0) != nil }.map { .init(rawValue: $0) }
     }
@@ -247,12 +259,27 @@ extension Presenter {
         let described = changed == nil ? [] : chrome.ids("accessibilityDescribedBy").subtracting(nodes.map(\.id)).compactMap { views[$0] }
         for node in described { node.applyFormAccessibility() }
         // A name read from other elements follows their text (ledger2 Rough 3).
-        for node in chrome.ids("accessibilityLabelledBy").compactMap({ views[$0] }) where !node.isNativeButton {
-            #if os(macOS)
-            if node.accessibilityLabel() != node.accessibleName { node.setAccessibilityLabel(node.accessibleName) }
-            #else
-            if node.accessibilityLabel != node.accessibleName { node.accessibilityLabel = node.accessibleName }
-            #endif
+        for node in chrome.ids("accessibilityLabelledBy").compactMap({ views[$0] }) {
+            if node.isNativeButton {
+                #if os(macOS)
+                guard let button = controls.controls[node.id] as? NativeButtonMac else { continue }
+                let name = node.authoredLabel ?? button.written?.face.title
+                if button.accessibilityLabel() != name { button.setAccessibilityLabel(name) }
+                #else
+                guard let button = controls.controls[node.id] as? NativeButtonIOS else { continue }
+                let name = node.authoredLabel ?? button.written?.face.title
+                if button.accessibilityLabel != name { button.accessibilityLabel = name }
+                #endif
+                // Keep the configuration guard current without rewriting the
+                // face or restarting native animations for referenced text.
+                button.written?.label = name
+            } else {
+                #if os(macOS)
+                if node.accessibilityLabel() != node.accessibleName { node.setAccessibilityLabel(node.accessibleName) }
+                #else
+                if node.accessibilityLabel != node.accessibleName { node.accessibilityLabel = node.accessibleName }
+                #endif
+            }
         }
         for node in nodes {
             node.applyFormAccessibility()
@@ -287,7 +314,7 @@ extension Presenter {
             guard current == nil || current === window || current === window.contentView || current === viewport || current === session?.view || (current as? NodeView)?.canvasInput != nil else { continue }
             // Blocked autofocus stays pending until the pointer hands focus back.
             autofocusProcessed.insert(ObjectIdentifier(node))
-            let target: NSView = node.textArea ?? node.field ?? node
+            let target = keyView(of: node)
             if target.acceptsFirstResponder { _ = window.makeFirstResponder(target) }
             #else
             // The session's own view holding the focus for its shortcuts (ShortcutsIOS) is no focus a node took.
@@ -420,7 +447,7 @@ extension Presenter {
         views.values.filter { node in
             #if os(macOS)
             guard let responder = node.window?.firstResponder else { return false }
-            return responder === node || responder === node.textArea || node.field?.currentEditor().map { responder === $0 } == true
+            return keyTarget(responder) === node
             #else
             return node.isFirstResponder || node.field?.isFirstResponder == true || node.textArea?.isFirstResponder == true
             #endif
@@ -449,7 +476,7 @@ extension Presenter {
         guard let kept, let id = FocusTree(json)?.view(at: kept), let node = views[id], node.accessibilityVisible,
               !node.disabled, node.bounds.width > 0, node.bounds.height > 0 else { return }
         #if os(macOS)
-        let target: NSView = node.textArea ?? node.field ?? node
+        let target = keyView(of: node)
         if target.acceptsFirstResponder { _ = node.window?.makeFirstResponder(target) }
         #else
         let target: UIResponder = node.textArea ?? node.field ?? node

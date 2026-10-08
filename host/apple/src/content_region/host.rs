@@ -25,9 +25,10 @@ impl<D: DataSource> Host<D> {
             None,
             None,
             "/",
+            false,
             Some(registration),
             crate::link::Links::ALL,
-            |_| {},
+            |_| Ok(()),
         )?;
         host.commit_boot();
         Ok((host, batch))
@@ -194,10 +195,11 @@ impl<D: DataSource> Host<D> {
             None,
             None,
             "/",
+            false,
             Some(registration),
             Some(limits),
             crate::link::Links::ALL,
-            |_| {},
+            |_| Ok(()),
         )?;
         host.commit_boot();
         Ok((host, batch))
@@ -534,6 +536,7 @@ impl<D: DataSource> Host<D> {
                 .ok_or("native current node missing")?;
             let parent = live.parent.and_then(|id| kernel.node(id)).map(|p| p.frame);
             n.mirror.frame = Some(relative(projected.frame, parent));
+            n.mirror.field_content = live.field_content_rect();
             if style::effective_overflow(&live) != (Overflow::Visible, Overflow::Visible) {
                 // Preserve the ordinary native overflow computation while current;
                 // it cannot run against live B for an old selected A.
@@ -644,7 +647,12 @@ impl<D: DataSource> Host<D> {
                 let (x, y, w, h) = node.mirror.frame.ok_or("native frame not complete")?;
                 staged.frame(node.header.id, x, y, w, h);
             }
-            if old.is_none_or(|m| m.content != node.mirror.content) {
+            if self.layout_withheld
+                || old.map(|m| m.field_content).unwrap_or(None) != node.mirror.field_content
+            {
+                staged.field_content(node.header.id, node.mirror.field_content);
+            }
+            if self.layout_withheld || old.is_none_or(|m| m.content != node.mirror.content) {
                 if let Some((w, h)) = node.mirror.content {
                     staged.content(node.header.id, w, h);
                 }

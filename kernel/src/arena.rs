@@ -12,6 +12,8 @@ use crate::id::IdMap;
 use crate::shared_style::SharedStyles;
 use crate::sorted::SlotSet;
 use std::rc::Rc;
+pub(crate) mod button;
+pub(crate) mod control_text;
 
 use taffy::NodeId;
 
@@ -84,6 +86,9 @@ pub struct NodeArena {
     /// The page's environment (LLP 1001 §2): what `env()` lengths resolve
     /// to. The host's, not the tree's — a reset keeps it.
     env: Env,
+    control_styles: Option<Box<[StyleProps; 10]>>,
+    pub(crate) field_content: IdMap<u32, Frame>,
+    pub(crate) button_bases: IdMap<u32, Option<f32>>,
     pub(crate) document_language: String,
     pub(crate) document_style: StyleProps,
     // Current metadata only: O(arena slot high-water), never revision history.
@@ -129,6 +134,9 @@ impl Clone for NodeArena {
             by_local: self.by_local.clone(),
             live_count: self.live_count,
             env: self.env.clone(),
+            control_styles: self.control_styles.clone(),
+            field_content: self.field_content.clone(),
+            button_bases: self.button_bases.clone(),
             document_language: self.document_language.clone(),
             document_style: self.document_style.clone(),
             text_revisions: vec![TextRevisions::default(); self.text_revisions.len()],
@@ -166,6 +174,7 @@ impl NodeArena {
     /// kernel's to re-derive (`Kernel::set_env`).
     pub fn set_env(&mut self, env: Env) {
         self.env = env;
+        self.refresh_control_styles();
     }
 
     /// Forget every allocation while retaining each slot's generation.
@@ -175,6 +184,8 @@ impl NodeArena {
     /// [`alloc`](Self::alloc) advances identity exactly as ordinary reuse does.
     pub(crate) fn reset(&mut self) {
         self.renew_text_namespace();
+        self.field_content.clear();
+        self.button_bases.clear();
         self.flow.clear();
         self.exclusion_slots.clear();
         self.frag = Default::default();
@@ -505,6 +516,12 @@ impl NodeArena {
             if self.styles[s as usize].mask.has(id) {
                 return Some(s);
             }
+            if self
+                .control_text_start(s)
+                .is_some_and(|start| start.mask.has(id))
+            {
+                return None;
+            }
             if !id.inherited() {
                 return None;
             }
@@ -527,21 +544,24 @@ impl NodeArena {
     /// The style that supplies row `id` of [`NodeArena::computed_style`]:
     /// one row read without copying a whole style.
     pub fn computed_source(&self, slot: u32, id: StyleId) -> &StyleProps {
-        let own = &self.styles[slot as usize];
-        if own.mask.has(id) || !id.inherited() {
-            return own;
-        }
-        let mut cur = self.parents[slot as usize];
-        while let Some(p) = cur {
-            if self.styles[p as usize].mask.has(id) {
-                return &self.styles[p as usize];
+        let mut cur = Some(slot);
+        while let Some(s) = cur {
+            let own = &self.styles[s as usize];
+            if own.mask.has(id) || !id.inherited() {
+                return own;
             }
-            cur = self.parents[p as usize];
+            if let Some(start) = self
+                .control_text_start(s)
+                .filter(|start| start.mask.has(id))
+            {
+                return start;
+            }
+            cur = self.parents[s as usize];
         }
         if self.document_style.mask.has(id) {
             return &self.document_style;
         }
-        own
+        &self.styles[slot as usize]
     }
 
     /// [`crate::text::TextStyle::from_style`] of the computed style, read
@@ -571,7 +591,7 @@ impl NodeArena {
         let mut pending = rows
             .intersect(StyleMask::INHERITED)
             .minus(self.styles[slot as usize].mask);
-        let mut cur = self.parents[slot as usize];
+        let mut cur = Some(slot);
         while !pending.is_empty() {
             let Some(p) = cur else { break };
             let ancestor: &StyleProps = &self.styles[p as usize];
@@ -579,6 +599,13 @@ impl NodeArena {
             if !found.is_empty() {
                 copy(ancestor, found);
                 pending = pending.minus(found);
+            }
+            if let Some(start) = self.control_text_start(p) {
+                let stopped = pending.intersect(start.mask);
+                if !stopped.is_empty() {
+                    copy(start, stopped);
+                    pending = pending.minus(stopped);
+                }
             }
             cur = self.parents[p as usize];
         }
@@ -795,9 +822,11 @@ impl NodeArena {
     }
 
     pub(crate) fn free_slot(&mut self, slot: u32) {
+        self.field_content.remove(&slot);
         self.exclusion_slots.remove(slot);
         self.frag.forget(slot);
         self.relative_slots.remove(slot);
+        self.button_bases.remove(&slot);
         self.sticky_slots.remove(slot);
         self.layout_dirty.remove(slot);
         self.flow.remove(&slot);

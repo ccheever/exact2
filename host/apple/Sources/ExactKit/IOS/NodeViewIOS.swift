@@ -58,7 +58,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     /// projection or a placement saves and restores, since `isHidden` also
     /// reads `display: none` (review B1: restoring that wrote CSS's bit into
     /// the host's and kept the view hidden once it was displayed).
-    var hiddenByHost: Bool { hostHidden }
+    package var hiddenByHost: Bool { hostHidden }
     package override var isHidden: Bool {
         get { super.isHidden }
         set {
@@ -93,7 +93,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
             video?.update() // the media events the player reports
         }
     }
-    func allowsTouchPan(_ velocity: CGPoint) -> Bool {
+    package func allowsTouchPan(_ velocity: CGPoint) -> Bool {
         let action = style["touch_action"]?.string ?? "auto"
         if action == "auto" || action == "manipulation" { return true }
         let values = action.split(separator: " ")
@@ -129,8 +129,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
             let direction = velocity == .zero ? pan.translation(in: self) : velocity
             return direction == .zero || !allowsTouchPan(direction)
         }
-        if let reorder = reorderShouldBegin(gesture) { return reorder }
-        if let transform = transformShouldBegin(gesture) { return transform }
+        if let drag = DragLink.installed?.shouldBegin(self, gesture) { return drag }
         if gesture === heightRecognizer, let pan = gesture as? UIPanGestureRecognizer {
             let velocity = pan.velocity(in: window), translation = pan.translation(in: window)
             return SwipeInput.allows(self) && HeightDragDirection.accepts(
@@ -173,7 +172,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         }
     }
     package func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
-        if CanvasInput.owns(touch.view) { return false }
+        if CanvasInputs.owns(touch.view) { return false }
         if gestureRecognizer === swipeRecognizer, gestureRecognizer.numberOfTouches == 0 { swipeDownX = touch.location(in: window).x }
         if stopsAtPress(gestureRecognizer), pressBoundary(touch, presses: gestureRecognizer !== layoutPanRecognizer) { return false } // LLP 1057.001 rule 3
         // A nested editor owns its selection gestures, including read-only
@@ -227,9 +226,9 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         DispatchQueue.main.async { [weak self, token = incarnation] in if let self, self.incarnation == token, !self.disabled, self.presenter?.views[self.id] === self { self.presenter?.dblclick(self.id) } }
     }
     var translatePx = CGPoint.zero, translatePercent = CGPoint.zero // `translate`: its lengths, and its percentages of the box (chess diary #4)
-    var scale: CGFloat = 1
-    var rotate: CGFloat = 0
-    var contextTransform = CGAffineTransform.identity {
+    package var scale: CGFloat = 1
+    package var rotate: CGFloat = 0
+    package var contextTransform = CGAffineTransform.identity {
         didSet {
             if contextTransform.isIdentity { presenter?.contextNodes.remove(id) }
             else { presenter?.contextNodes.insert(id) }
@@ -239,7 +238,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     /// The scroll view a capability module sees (LLP 1047.001 D4).
     package var scrollView: UIScrollView? { scroll }
     package var scrollsVertically: Bool { scroll?.scrollsY ?? true }
-    var scroll: ScrollView? {
+    package var scroll: ScrollView? {
         didSet {
             if scroll == nil { presenter?.scrollers.remove(id) }
             else { presenter?.scrollers.insert(id) }
@@ -248,7 +247,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     /// A scroll container's content extent (the `content` op), before the
     /// axes that do not scroll are held to the box.
     var content = CGSize.zero
-    var placementHidden: Bool {
+    package var placementHidden: Bool {
         get { extras?.placementHidden ?? false }
         set {
             let oldValue = placementHidden
@@ -274,7 +273,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     var flightLook: FlightLook?
     var imageSource: String?
     var loadGeneration = 0
-    var pressed = false { didSet { if pressed != oldValue { pressChanged() } } }
+    package var pressed = false { didSet { if pressed != oldValue { pressChanged() } } }
     var press = PressFeedback() // LLP 1061 D2: the feedback `pressed` drives
     package var disabled: Bool { props["disabled"] == "true" }
     /// HTML inertness covers the subtree, including direct agent activation.
@@ -289,7 +288,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     /// Images loaded since launch (smoke reporting).
     /// The session's text engine (LLP 1031 D12: the catalog is the session's).
     package var text: TextEngine? { presenter?.session?.text }
-    var canvases: Canvases? { presenter?.session?.canvases }
+    package var canvases: Canvases? { presenter?.session?.canvases }
 
     /// A node with focus, blur, or key handlers takes the focus (an input's
     /// field does by itself): the web's rule that only a focusable element
@@ -335,7 +334,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     /// and AppKit's focus ring do: drawn when Tab moved the focus here, never
     /// for a touch, and inside the box so no clip hides it.
     func showFocusRing(_ shown: Bool) {
-        guard shown else { focusRing?.removeFromSuperlayer(); focusRing = nil; return }
+        guard shown, !isNativeTextControl else { focusRing?.removeFromSuperlayer(); focusRing = nil; return }
         let ring = focusRing ?? CAShapeLayer()
         #if os(tvOS)
         // Across a room the ring stands clear of the content: outside the box, padded and rounded.
@@ -558,8 +557,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         isOpaque = false
         // A frame change repaints at the new width instead of stretching stale pixels.
         contentMode = .redraw
-        if kind == "canvas" {
-            let m = MetalView(frame: .zero)
+        if kind == "canvas", let m = SurfacesLink.installed?.makeMetalView() {
             addSubview(m)
             metal = m
             let o = PlainView(frame: .zero)
@@ -596,7 +594,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
 
     /// The canvas this node is painted through, if any: the nearest canvas
     /// above whose overlay holds it.
-    var canvasAbove: NodeView? {
+    package var canvasAbove: NodeView? {
         var v: UIView = self
         while let s = v.superview {
             if let c = s as? NodeView, c.overlay === v { return c }
@@ -722,7 +720,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     /// A window point in this node's own coordinates — through the surface's
     /// placement when this node is under a placed child (LLP 1014 D5), else
     /// UIKit's own conversion.
-    func local(_ windowPoint: CGPoint) -> CGPoint {
+    package func local(_ windowPoint: CGPoint) -> CGPoint {
         guard let placed = placedAncestor, let h = placed.placement, let inv = NodeView.invert(h),
               let overlay = placed.superview, let canvas = overlay.superview as? NodeView else {
             return convert(windowPoint, from: nil)
@@ -734,7 +732,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     }
 
     /// The placement changed: accessibility sees the new box.
-    func placementChanged() {
+    package func placementChanged() {
         UIAccessibility.post(notification: .layoutChanged, argument: nil)
     }
 
@@ -869,11 +867,9 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
             f.placeholder = nil
             return
         }
-        // Not `placeholderText`: that tracks the window's appearance, so a
-        // white field in a dark app (the night) paints a light placeholder
-        // and it vanishes. Mute this field's text color — the web's
-        // `input::placeholder`.
-        let ink = (f.textColor ?? SystemColor.canvasText).withAlphaComponent(0.30)
+        // D3: UIKit's semantic placeholder colour on a native field. The
+        // explicitly bare editor preserves its existing authored ink rule.
+        let ink = isNativeTextControl ? UIColor.placeholderText : (f.textColor ?? SystemColor.canvasText).withAlphaComponent(0.30)
         f.attributedPlaceholder = NSAttributedString(string: text, attributes: [
             .font: font,
             .foregroundColor: ink,
@@ -1064,6 +1060,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         }
         if style["mask_image"] != nil { applyBoxMask() }
     }
+    var nativeFieldContent: CGRect?
     var pendingScrollLeft: Double? {
         get { extras?.pendingScrollLeft }
         set { if newValue != nil || extras != nil { more.pendingScrollLeft = newValue }; presenter?.pendingScrolls.insert(id) }
@@ -1134,6 +1131,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
             default: f.returnKeyType = handlers.contains("submit") ? .go : .default
             }
             f.isEnabled = !disabled
+            if isNativeTextControl { styleNativeField() }
         }
         if disabled { accessibilityTraits.insert(.notEnabled) } else { accessibilityTraits.remove(.notEnabled) }
         accessibilityIdentifier = props["testId"]
@@ -1232,7 +1230,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
             f.font = t.font(size: number("font_size", 16), weight: Int(number("font_weight", 400)), family: Int(number("font_family")), italic: (style["font_style"]?.string) == "italic", numeric: Int(number("font_variant_numeric")))
             f.textColor = color("text_color", SystemColor.canvasText)
             applyPlaceholder(f)
-            f.frame = contentBox()
+            styleNativeField()
         }
         if s["transform_origin"] != origin { applyTransform() }
         applySpace(changedFrom: old)
@@ -1352,7 +1350,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         presenter?.collections.changed(id)
         presenter?.transformGeometry.changed()
         presenter?.videoVisibility?.changed()
-        if field != nil { field?.frame = contentBox() }
+        layoutField()
         video?.layout()
         if kind == "native" { presenter?.session?.natives.laidOut(self) }
         layoutTextArea()

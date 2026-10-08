@@ -494,15 +494,21 @@ package final class TextEngine {
     /// A screen shows about `visibleParagraphs` paragraphs: cold shaped
     /// text is held to two screens of them (`TextResidency.fitShaped`).
     func fitShaped(visibleParagraphs: Int) { residency.fitShaped(visibleParagraphs: visibleParagraphs) }
-    private var catalog: [Int: [RegisteredFace]] = [:]
+    var catalog: [Int: [RegisteredFace]] = [:]
+    var fieldChrome: FieldChromeCache?
+    var buttonMeasurements: ButtonMeasureCache?
+    var platformControlID: UInt16?
+    var platformControlFont: PlatformFont?
+    var platformControlName = NSData()
     /// Declared family names to their plan stacks, for Canvas 2D's `font`
     /// (LLP 1056 D8).
     private var familyStacks: [String: Int] = [:]
-    /// Canvas 2D's fonts and lines over this engine (LLP 1056 D8).
-    private(set) lazy var canvasText = CanvasText(engine: self)
+    /// Canvas 2D's fonts and lines over this engine (LLP 1056 D8), which the
+    /// Surfaces module makes at first use (LLP 1047.001 D4).
+    package var canvasTextCache: AnyObject?
 
     /// A declared family's stack, by name.
-    func stack(named name: String) -> Int? { familyStacks[name] }
+    package func stack(named name: String) -> Int? { familyStacks[name] }
     /// Where a declared face's relative source resolves: the app's resolver
     /// (LLP 1031 D1 — the committed complete generation, else the root).
     let resolve: (String) -> URL?
@@ -562,11 +568,15 @@ package final class TextEngine {
         private let residency: TextResidency
         private let catalog: [Int: [RegisteredFace]]
         private let familyStacks: [String: Int]
+        private let controlID: UInt16?
+        private let controlFont: PlatformFont?
+        private let controlName: NSData
         private let measurer: Checkpoint?
 
         fileprivate init(_ engine: TextEngine) {
             // The measurer's state is the owner's (LLP 1072 §8.1).
             measurer = engine.measurer.map { m in Owner.shared.sync { Checkpoint(m) } }
+            controlID = engine.platformControlID; controlFont = engine.platformControlFont; controlName = engine.platformControlName
             pendingFonts = engine.pendingFonts
             fonts = engine.fonts
             residency = engine.residency
@@ -575,13 +585,14 @@ package final class TextEngine {
         }
 
         fileprivate func restore(into engine: TextEngine) {
+            engine.platformControlID = controlID; engine.platformControlFont = controlFont; engine.platformControlName = controlName
             engine.pendingFonts = pendingFonts
             engine.fonts = fonts
             engine.residency = residency
             engine.residency.refreshAfterRestore()
             engine.catalog = catalog
             engine.familyStacks = familyStacks
-            engine.canvasText = CanvasText(engine: engine)
+            engine.canvasTextCache = nil
             engine.dropMeasuredBreaks()
             if let measurer, let m = engine.measurer { Owner.shared.sync { measurer.restore(into: m) } }
         }
@@ -601,9 +612,10 @@ package final class TextEngine {
         residency = TextResidency(softTargetBytes: residency.softTargetBytes)
         residency.keepsAnswers = !publishes
         dropMeasuredBreaks()
+        platformControlID = nil
         catalog.removeAll(keepingCapacity: true)
         familyStacks.removeAll()
-        canvasText = CanvasText(engine: self)
+        canvasTextCache = nil
         guard let value = pointer?.pointee else { return }
         let rows = UnsafeBufferPointer(start: value.faces, count: value.count)
         var staged: [Int: [RegisteredFace]] = [:]
@@ -682,6 +694,7 @@ package final class TextEngine {
     }
 
     package func font(size: CGFloat, weight: Int, family: Int, italic: Bool) -> PlatformFont {
+        if let f = controlFont(size: size, weight: weight, family: family, italic: italic) { return f }
         let key = "\(family)/\(size)/\(weight)/\(italic)"
         if let f = fonts[key] { return f }
         if let faces = catalog[family], !faces.isEmpty {

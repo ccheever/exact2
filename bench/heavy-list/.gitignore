@@ -1,0 +1,16 @@
+# What prepare.sh makes from gen.py: the data and the copies the exact2 and Expo builds read.
+/data/
+/exact-heavylist/data/messages.json
+/exact-heavylist/assets/
+# prepare.sh copies the root Cargo.lock; build.mjs resolves it for this workspace.
+/exact-heavylist/Cargo.lock
+/expo/data/
+/expo/assets/
+# Build products.
+build/
+build-sim/
+/exact-heavylist/target/
+/expo/node_modules/
+/expo/ios/
+/expo/.expo/
+/probe/*.dylib

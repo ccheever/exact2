@@ -1,0 +1,12 @@
+[package]
+name = "exact-crypto-svg-data"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+exact-plan = { path = "../../../../plan" }
+exact-runner = { path = "../../../../runner" }
+serde_json = "1.0"
+serde = { version = "1.0", features = ["derive"] }

@@ -19,6 +19,8 @@ export interface Refusal { code: string; family?: string; message: string; retry
  * predicted carry `pending: true`. */
 export interface Read<T = Json> {
   data?: T;
+  /** The server answered (the query reads an `online only` table or view). */
+  server?: boolean;
   complete?: boolean;
   next?: string | null;
   loading?: boolean;
@@ -39,6 +41,12 @@ export interface Refused { id: string; op: string; args: Json; argsOmitted?: boo
 
 /** What became of a write. `result` is the server's, while remembered. */
 export interface Outcome { id: string; state: 'pending' | 'sent' | 'failed' | 'unknown'; seq?: number; result?: Json; why?: Refusal }
+
+/** A session as Snapback mints it; `expiresAt` in milliseconds. */
+export interface Session { principal: string; kind: string; token: string; expiresAt: number }
+
+/** What a refresh came to: the replacement session, or why not. */
+export type Refreshed = { ok: true; session: Session } | { ok: false; offline?: boolean; denied: Refusal };
 
 /** A round's end: caught up, or why not. `offline`: the server was not
  * reached; `retry`: it asked to be asked again; `busy`: a round is already
@@ -98,46 +106,167 @@ function nativeDevice(native: NativeModule): Device {
   return { async call(request) { return native.call(request) as Request; } };
 }
 
+/** A partition as this page holds it: one device per file, whatever number
+ * of clients opened it. Exact's storage locks an open database's file, so a
+ * second device on the same file would be refused as busy; every client of
+ * the partition shares this one instead, and its rounds run one at a time. */
+interface Partition {
+  page: Page;
+  path: string;
+  origin: string;
+  viewer: string;
+  device: Device;
+  /** It has synced at least once (or was kept from an earlier run). */
+  opened: boolean;
+  /** Clients that have it open; the device closes with the last. */
+  clients: number;
+  /** The rounds, one after another: a `sync()` while one runs waits its turn. */
+  rounds: Promise<unknown>;
+  refreshing?: Promise<Refreshed>;
+  /** Which queries the server answers, by name; forgotten after each round
+   * (a round can adopt a new backend). */
+  routes: Map<string, 'device' | 'server'>;
+  /** Its entry in `partitions`, while it is there. */
+  entry?: Promise<Partition>;
+  /** The last client closed it: a new `open` makes another. */
+  closing: boolean;
+  cleaned: boolean;
+}
+
+/** The partitions a page has open, by path, and those still closing (a
+ * reopen waits for its file to be let go), kept per storage (natively, per
+ * module): the lock is the storage's. Awaiting another answer's promise here
+ * is Exact's own pattern for one open at a time (`withBooks` in
+ * docs/contract-for-humans.md). */
+interface Page { partitions: Map<string, Promise<Partition>>; closing: Map<string, Promise<unknown>> }
+const pages = new WeakMap<object, Page>();
+function pageOf(options: Options): Page {
+  const owner = (options.native ?? options.storage) as object;
+  let page = pages.get(owner);
+  if (!page) pages.set(owner, page = { partitions: new Map(), closing: new Map() });
+  return page;
+}
+
+function refusal(code: string, message: string, extra: Partial<Refusal> = {}): Error {
+  return Object.assign(new Error(`${code}: ${message}`), { refusal: { code, message, ...extra } as Refusal });
+}
+
+async function openPartition(options: Options, path: string, page: Page): Promise<Partition> {
+  await page.closing.get(path)?.catch(() => undefined);
+  const device = options.native
+    ? nativeDevice(options.native)
+    : await webDevice(options.storage as SqliteStorage, options.app, path, options.wasm ?? '/assets/snapback4.wasm');
+  try {
+    const opened = ok<{ opened: boolean }>(await device.call({ op: 'open', path, origin: options.origin, viewer: options.viewer }));
+    return { page, path, origin: options.origin, viewer: options.viewer, device, opened: opened.opened, clients: 0, rounds: Promise.resolve(), routes: new Map(), closing: false, cleaned: false };
+  } catch (error) { await device.close?.(); throw error; }
+}
+
 export class Snapback {
   private closed = false;
-  private cleaned = false;
-  private constructor(private device: Device, readonly options: Options, private opened: boolean) {}
+  private constructor(private partition: Partition, readonly options: Options) {}
 
   /** Every call goes through here: a closed client refuses, rather than
    * reaching whatever partition its device holds now. */
   private call(request: Request): Promise<Request> {
     if (this.closed) return Promise.reject(new Error('Snapback4: this client is closed'));
-    return this.device.call(request);
+    return this.partition.device.call(request);
   }
 
   /** Open the partition this device keeps. Offline is fine once it has
-   * synced; a partition that never has opens in the first `sync()`. */
+   * synced; a partition that never has opens in its first round, which the
+   * first `read` or `write` starts if the app has not called `sync()`.
+   *
+   * Opening a partition this page already has open shares it: every source
+   * may call `open` for itself. A partition belongs to one viewer, so a
+   * second viewer needs its own `name` (for example `inbox-${persona}`). */
   static async open(options: Options): Promise<Snapback> {
     const path = `app:/data/${options.name}.sqlite`;
-    const device = options.native
-      ? nativeDevice(options.native)
-      : await webDevice(options.storage, options.app, path, options.wasm ?? '/assets/snapback4.wasm');
-    try {
-      const opened = ok<{ opened: boolean }>(await device.call({ op: 'open', path, origin: options.origin, viewer: options.viewer }));
-      return new Snapback(device, options, opened.opened);
-    } catch (error) { await device.close?.(); throw error; }
+    const page = pageOf(options);
+    const { partitions } = page;
+    for (;;) {
+      let pending = partitions.get(path);
+      if (!pending) {
+        const opening = openPartition(options, path, page);
+        partitions.set(path, opening);
+        opening.catch(() => { if (partitions.get(path) === opening) partitions.delete(path); });
+        pending = opening;
+      }
+      const partition = await pending;
+      partition.entry ??= pending;
+      // Closed by its last client while this open waited: open it afresh.
+      if (partition.closing) {
+        if (partitions.get(path) === pending) partitions.delete(path);
+        continue;
+      }
+      // A device that gave up (its saved data could not be reloaded) is
+      // replaced: the next device takes over what it could not save.
+      if (partition.device.healthy?.() === false) {
+        if (partitions.get(path) === pending) partitions.delete(path);
+        continue;
+      }
+      if (partition.viewer !== options.viewer || partition.origin !== options.origin) {
+        throw refusal('E_PARTITION_VIEWER', `${path} is open in this page for ${partition.viewer} at ${partition.origin}, and a partition belongs to one viewer and one origin. Give each viewer its own name (for example \`${options.name}-${options.viewer.replace(/[^A-Za-z0-9_-]/g, '-')}\`) and grant sqlite.open for each.`);
+      }
+      partition.clients++;
+      return new Snapback(partition, options);
+    }
   }
 
   /** Whether this client can still be used: not closed, and its device has
    * not given up (the web's, when even rebuilding from the disk failed). An
    * app replaces an unusable client by opening the partition again: the new
    * device takes over what the old one could not save. */
-  get usable(): boolean { return !this.closed && (this.device.healthy?.() ?? true); }
+  get usable(): boolean { return !this.closed && (this.partition.device.healthy?.() ?? true); }
 
   /** Whether the partition is open (it has synced at least once). */
-  get isOpen(): boolean { return this.opened; }
+  get isOpen(): boolean { return !this.closed && this.partition.opened; }
 
-  /** A named query, answered on this device from its partition. */
-  async read<T = Json>(name: string, args: Request, now: number): Promise<Read<T>> {
-    return ok<Read<T>>(await this.call({ op: 'read', name, args, now: clock(now) }));
+  /** A partition that has never synced opens in its first round: start one
+   * (or wait for the one running) before reading or writing. Unreached, the
+   * device has nothing to answer from: `E_OFFLINE`. */
+  private async ready(): Promise<void> {
+    if (this.partition.opened) return;
+    const round = await this.sync();
+    if (!this.partition.opened) {
+      throw refusal('E_OFFLINE', `this device has never synced and the server was not reached${round.denied ? ` (${round.denied.code}: ${round.denied.message})` : ''}; connect once to open it`, { retryable: true });
+    }
   }
 
-  /** Every page of a paged query (`next` cursors passed back as `args.c`).
+  /** A named query. The device answers it from its partition, unless it
+   * reads a table or view the device does not sync (`online only`): then the
+   * server answers it (`POST /q/<name>`), and the answer says `server: true`.
+   * Unreached, such a read answers `denied` with `E_OFFLINE`, never an empty
+   * page that looks like one. */
+  async read<T = Json>(name: string, args: Request, now: number): Promise<Read<T>> {
+    const at = clock(now);
+    await this.ready();
+    let route = this.partition.routes.get(name);
+    if (!route) {
+      route = ok<'device' | 'server'>(await this.call({ op: 'route', name }));
+      this.partition.routes.set(name, route);
+    }
+    if (route === 'server') return this.serverRead<T>(name, args);
+    return ok<Read<T>>(await this.call({ op: 'read', name, args, now: at }));
+  }
+
+  private async serverRead<T>(name: string, args: Request): Promise<Read<T>> {
+    if (this.closed) throw new Error('Snapback4: this client is closed');
+    const reply = await this.exchange({ method: 'POST', path: `/q/${encodeURIComponent(name)}`, body: { args } });
+    if (reply.error !== undefined) {
+      return { server: true, denied: { code: 'E_OFFLINE', family: 'transport', retryable: true,
+        message: `${name} reads data this device does not keep (online only), so the server answers it, and it was not reached: ${String(reply.error)}` } };
+    }
+    const body = (reply.body ?? {}) as { data?: T; complete?: boolean; next?: string | null; denied?: Refusal };
+    if (body.denied) return { server: true, denied: body.denied };
+    if (typeof reply.status === 'number' && (reply.status < 200 || reply.status >= 300)) {
+      return { server: true, denied: { code: 'E_SERVER', family: 'transport', retryable: reply.status >= 500, message: `the server answered ${name} with HTTP ${reply.status}` } };
+    }
+    return { server: true, data: body.data, complete: body.complete ?? true, next: body.next ?? null };
+  }
+
+  /** Every page of a paged query (`next` cursors passed back as `args.c`;
+   * the first page sends no cursor, so an unpaged query reads whole).
    * `limit`, if given, refuses a query that holds more rows than that; by
    * default every row is read, and only a cursor that does not advance stops. */
   async readAll<T = Json>(name: string, args: Request, now: number, cursor = 'c', limit = Infinity): Promise<T[]> {
@@ -145,7 +274,7 @@ export class Snapback {
     const seen = new Set<string>();
     let next: string | null = null;
     do {
-      const page: Read<T[]> = await this.read<T[]>(name, { ...args, [cursor]: next }, now);
+      const page: Read<T[]> = await this.read<T[]>(name, next === null ? args : { ...args, [cursor]: next }, now);
       if (page.denied) throw Object.assign(new Error(`${page.denied.code}: ${page.denied.message}`), { refusal: page.denied });
       if (!Array.isArray(page.data)) throw new Error(`${name}: not on this device yet`);
       rows.push(...page.data);
@@ -162,11 +291,15 @@ export class Snapback {
   /** Admit a write: kept and predicted now, sent by the next `sync()`.
    * With an idempotency `key` (the app's name for this intent, such as the
    * draft version a post publishes), its id derives from the key, and writing
-   * the same key again admits nothing: it answers what became of the first. */
+   * the same key again admits nothing: it answers what became of the first.
+   * Whether the server took it is `outcome(id)` after a round: a round that
+   * ends `ok` has delivered the outbox, not had every write accepted. */
   async write(name: string, args: Request, now: number): Promise<Write>;
   async write(name: string, args: Request, now: number, key: string): Promise<Write | Outcome>;
   async write(name: string, args: Request, now: number, key?: string): Promise<Write | Outcome> {
-    return ok<Write | Outcome>(await this.call({ op: 'write', name, args, now: clock(now), ...(key === undefined ? {} : { key }) }));
+    const at = clock(now);
+    await this.ready();
+    return ok<Write | Outcome>(await this.call({ op: 'write', name, args, now: at, ...(key === undefined ? {} : { key }) }));
   }
 
   /** The id a write with this idempotency key has (or would have). */
@@ -184,21 +317,33 @@ export class Snapback {
   }
 
   /** One round: open if needed, sync to the head, send the outbox, sync again.
-   * A round already running answers `{ok:false, busy:true}` at once. */
-  async sync(): Promise<Round> {
+   * Rounds on a partition run one at a time: a `sync()` while another runs
+   * (from this client or another source's) waits for it, then runs its own,
+   * so what was written meanwhile is sent too. */
+  sync(): Promise<Round> {
+    if (this.closed) return Promise.reject(new Error('Snapback4: this client is closed'));
+    const partition = this.partition;
+    const run = partition.rounds.then(() => this.round());
+    partition.rounds = run.catch(() => undefined);
+    return run;
+  }
+
+  private async round(): Promise<Round> {
     let step = ok<{ fetch?: Request; done?: Round }>(await this.call({ op: 'sync' }));
-    while (step.fetch) {
-      const exchange = step.fetch.exchange;
-      const reply = await this.exchange(step.fetch);
-      try { step = ok(await this.call({ op: 'deliver', exchange, reply })); }
-      catch (error) {
-        // Only this round's own exchange can be cancelled.
-        await this.call({ op: 'cancel', exchange }).catch(() => undefined);
-        throw error;
+    try {
+      while (step.fetch) {
+        const exchange = step.fetch.exchange;
+        const reply = await this.exchange(step.fetch);
+        try { step = ok(await this.call({ op: 'deliver', exchange, reply })); }
+        catch (error) {
+          // Only this round's own exchange can be cancelled.
+          await this.call({ op: 'cancel', exchange }).catch(() => undefined);
+          throw error;
+        }
       }
-    }
+    } finally { this.partition.routes.clear(); }
     const done = step.done ?? { ok: false };
-    if (done.ok) this.opened = true;
+    if (done.ok) this.partition.opened = true;
     return done;
   }
 
@@ -210,16 +355,52 @@ export class Snapback {
     return ok<boolean>(await this.call({ op: 'changed', exchange: request.fetch.exchange, reply }));
   }
 
-  /** Close the partition. The client refuses every call from now on, and
-   * says it is not open; closing again retries a cleanup that failed. */
+  /** Trade the session `headers()` sends for a fresh one (`POST
+   * /auth/refresh`). The server retires the presented token before it
+   * answers: keep the returned session at once and send its token from then
+   * on. `E_AUTH` means the member signs in again; `offline` that the server
+   * was not reached (the old token still works). */
+  async refreshSession(now: number): Promise<Refreshed> {
+    const partition = this.partition;
+    // One at a time, for every client of the partition: a caller while one
+    // is in flight shares its answer.
+    partition.refreshing ??= (async () => {
+      const request = ok<{ fetch: Request }>(await this.call({ op: 'refresh' }));
+      // Whatever stops this before its answer is delivered (`headers()`
+      // throwing, a closed client) lets the refresh go; cancelling one already
+      // answered does nothing.
+      try {
+        const reply = await this.exchange(request.fetch);
+        return ok<Refreshed>(await this.call({ op: 'refreshed', exchange: request.fetch.exchange, reply, now: clock(now) }));
+      } catch (error) {
+        await this.call({ op: 'cancel', exchange: request.fetch.exchange }).catch(() => undefined);
+        throw error;
+      }
+    })().finally(() => { partition.refreshing = undefined; });
+    return partition.refreshing;
+  }
+
+  /** Close this client. It refuses every call from now on and says it is not
+   * open. The partition closes with the last client that has it open;
+   * closing that one again retries a cleanup that failed. */
   async close(): Promise<void> {
-    this.closed = true;
-    this.opened = false;
-    if (this.cleaned) return;
-    await this.device.call({ op: 'close' }).catch(() => undefined);
-    // A cleanup the device deferred (it will run it) or that failed can be
-    // asked for again.
-    this.cleaned = (await this.device.close?.()) !== false;
+    const partition = this.partition;
+    if (!this.closed) {
+      this.closed = true;
+      partition.clients--;
+    }
+    if (partition.clients > 0 || partition.cleaned) return;
+    partition.closing = true;
+    const { partitions, closing } = partition.page;
+    if (partition.entry && partitions.get(partition.path) === partition.entry) partitions.delete(partition.path);
+    const cleanup = (async () => {
+      await partition.device.call({ op: 'close' }).catch(() => undefined);
+      // A cleanup the device deferred (it will run it) or that failed can be
+      // asked for again.
+      partition.cleaned = (await partition.device.close?.()) !== false;
+    })();
+    closing.set(partition.path, cleanup);
+    try { await cleanup; } finally { if (closing.get(partition.path) === cleanup) closing.delete(partition.path); }
   }
 
   /** Writes the server refused, oldest first, until dismissed. */

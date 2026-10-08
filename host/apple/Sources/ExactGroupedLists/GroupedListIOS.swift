@@ -305,11 +305,13 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
             var c = view.defaultContentConfiguration()
             c.text = section(at: path.section)?.header
             view.contentConfiguration = c
+            view.marginsIgnoreSafeArea()
         }
         let footer = UICollectionView.SupplementaryRegistration<UICollectionViewListCell>(elementKind: UICollectionView.elementKindSectionFooter) { [unowned self] view, _, path in
             var c = view.defaultContentConfiguration()
             c.text = section(at: path.section)?.footer
             view.contentConfiguration = c
+            view.marginsIgnoreSafeArea()
         }
         source = UICollectionViewDiffableDataSource(collectionView: collection) { view, path, id in
             view.dequeueConfiguredReusableCell(using: cell, for: path, item: id)
@@ -414,6 +416,7 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
                     var c = view.defaultContentConfiguration()
                     c.text = kind == UICollectionView.elementKindSectionHeader ? section(at: path.section)?.header : section(at: path.section)?.footer
                     view.contentConfiguration = c
+                    view.marginsIgnoreSafeArea()
                 }
             }
             collection.collectionViewLayout.invalidateLayout()
@@ -430,10 +433,33 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
             assign(collection, \.contentInsetAdjustmentBehavior, scroll.contentInsetAdjustmentBehavior)
             // An authored space under a last section with a footer is under
             // the footer: its section's bottom inset is the rows-to-footer gap.
+            // What the list adds to the hidden scroll's insets: an authored
+            // space under a last section with a footer (its section's bottom
+            // inset is the rows-to-footer gap), and the list's own padding,
+            // room before its first section and after its last as a scroll's
+            // is (a tab bar's, under a list that runs beneath it).
+            var added = UIEdgeInsets.zero
+            if model.sections.last?.footer != nil, let below = model.spaceBelow { added.bottom += below }
+            added.top += CGFloat(owner.style["padding_top"]?.number ?? 0)
+            added.bottom += CGFloat(owner.style["padding_bottom"]?.number ?? 0)
             var inset = scroll.contentInset
-            if model.sections.last?.footer != nil, let below = model.spaceBelow { inset.bottom += below }
+            inset.top += added.top
+            inset.bottom += added.bottom
+            // A list at rest at its top stays there, its first section below
+            // the new room, as a scroll keeps its top under a new inset.
+            // Only when the inset moves and the list is still, so a drag, a
+            // fling or a bounce past the top is left alone.
+            let moved = collection.contentInset.top != inset.top
+            let atTop = abs(collection.contentOffset.y + collection.adjustedContentInset.top) < 0.5
             assign(collection, \.contentInset, inset)
-            assign(collection, \.verticalScrollIndicatorInsets, scroll.verticalScrollIndicatorInsets)
+            if moved, atTop, !(collection.isTracking || collection.isDragging || collection.isDecelerating) {
+                collection.contentOffset.y = -collection.adjustedContentInset.top
+            }
+            // The indicator keeps to the same room.
+            var indicator = scroll.verticalScrollIndicatorInsets
+            indicator.top += added.top
+            indicator.bottom += added.bottom
+            assign(collection, \.verticalScrollIndicatorInsets, indicator)
             // A short list bounces, as Settings does; UICollectionView's own
             // default would not.
             assign(collection, \.alwaysBounceVertical, owner.scrollsVertically)
@@ -500,6 +526,7 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         }
         if row.custom {
             cell.contentConfiguration = nil
+            cell.marginsIgnoreSafeArea()
             cell.accessories = []
             carry(id, into: cell)
             return
@@ -527,6 +554,7 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
             c.imageProperties.tintColor = .tertiaryLabel
         }
         cell.contentConfiguration = c
+        cell.marginsIgnoreSafeArea()
         cell.accessories = accessories(row)
     }
 
@@ -705,6 +733,20 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
 
 /// A grouped list's collection view, by type, for the agent's wheel.
 final class GroupedCollectionView: UICollectionView, GroupedScroller {}
+
+extension UICollectionViewListCell {
+    /// A row's or header's margins are the list layout's, never the safe
+    /// area's: a cell under the home indicator (a fling past the end)
+    /// otherwise grew by the inset, moved, and shrank a pixel a layout pass
+    /// until UIKit's feedback-loop check stopped the app. The layout's
+    /// sections already keep clear of the sides' safe area (its
+    /// `contentInsetsReference`). Again after each configuration, which may
+    /// replace the content view.
+    func marginsIgnoreSafeArea() {
+        insetsLayoutMarginsFromSafeArea = false
+        contentView.insetsLayoutMarginsFromSafeArea = false
+    }
+}
 
 /// A list cell; a custom row's is as tall as its carried views.
 final class GroupedCell: UICollectionViewListCell {

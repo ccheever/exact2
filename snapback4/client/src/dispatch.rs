@@ -6,6 +6,9 @@
 //!   kept partition: `{opened:true}`, or `{opened:false}` when it has never
 //!   synced and the first `sync` round opens it on the server's backend.
 //! - `read {name, args, now}`: a named query, answered by the device.
+//! - `route {name}`: `"device"` when the device answers that query (every
+//!   table it reads is synced), `"server"` when it reads an `online only`
+//!   table or view and the server answers it (`POST /q/<name>`).
 //! - `write {name, args, now, key?}`: admit a write and its prediction;
 //!   `{id, state:"pending", newIds}` or `{id, state:"failed", why}`. With an
 //!   idempotency `key` the id derives from it, and asking again answers what
@@ -16,6 +19,8 @@
 //!   retry?, denied?}}` ends the round. `cancel {exchange}` abandons it. A
 //!   reply or cancel naming another exchange is refused (`done.stale`).
 //! - `changes {wait}` → `{fetch}`; `changed {exchange, reply}` → whether to sync.
+//! - `refresh` → `{fetch}`; `refreshed {exchange, reply, now}` → the
+//!   replacement session, or why not.
 //!
 //! `now` is milliseconds since the epoch, fractions allowed (floored); a
 //! write requires it.
@@ -88,6 +93,11 @@ pub fn dispatch(
     };
     let answer = match op {
         "read" => client.read(core, text(request, "name")?, args(), now(false)?)?,
+        "route" => json!(if client.answers_on_device(core, text(request, "name")?)? {
+            "device"
+        } else {
+            "server"
+        }),
         "write" => {
             let key = request.get("key").and_then(Json::as_str);
             client.write(core, text(request, "name")?, args(), now(true)?, key)?
@@ -120,6 +130,8 @@ pub fn dispatch(
             json!({"fetch": client.changes(core, wait)?.to_json()})
         }
         "changed" => json!(client.changed(core, exchange()?, reply("reply")?)?),
+        "refresh" => json!({"fetch": client.refresh()?.to_json()}),
+        "refreshed" => client.refreshed(exchange()?, reply("reply")?, now(true)?),
         _ => return core.call(request.clone()),
     };
     Ok(json!({"ok": answer}))

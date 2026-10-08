@@ -20,9 +20,9 @@
 // `tap … wheel <dx> <dy> gesture` sends the wheel as a trackpad's gesture —
 // began, changed, and the zero-delta lift that ends it (LLP 1033 D4a, macOS
 // only); `tap … hover` moves the pointer onto the target (LLP 1005 §3). --device: build/install first with build.mjs --device; no Mac-local plan/assets paths.
-import { Cdp, closePage, exclusiveIOS, copyCdpFailureContext, chromium, closeWindowsBrowser, retainCleanupError, removeBrowserProfile, driveStore, traceLocators, parseFlags, launchFacts, launchEnvironment, withFaults, refuseStale, unchecked, depInfoChanges, packagedBuildChanges, receiptChanges, webChanges, bakedPlans, parityScript } from './agent-launch.mjs';
+import { Cdp, browserDiagnosticNoise, closePage, exclusiveIOS, copyCdpFailureContext, chromium, closeWindowsBrowser, retainCleanupError, removeBrowserProfile, driveStore, traceLocators, parseFlags, launchFacts, launchEnvironment, withFaults, refuseStale, unchecked, depInfoChanges, packagedBuildChanges, receiptChanges, webChanges, bakedPlans, parityScript } from './agent-launch.mjs';
 export { Cdp } from './agent-launch.mjs';
-import { sourceMapReaders, identifyInspectedNode, render, perfOp, partTap, readTrace, renderTrace, layoutArgs, tapRefusal, worldView, phoneTrace } from './agent-inspect.mjs';
+import { sourceMapReaders, identifyInspectedNode, identifyLayoutNodes, render, perfOp, partTap, readTrace, renderTrace, layoutArgs, tapRefusal, worldView, phoneTrace } from './agent-inspect.mjs';
 import { LAUNCH_MEDIA, preferGroups, preferOp, preferWeb } from './agent-prefer.mjs';
 import { axTree } from './agent-ax.mjs';
 export { sourceMapReader, identifyInspectedNode, render, tapRefusal, worldView } from './agent-inspect.mjs';
@@ -46,7 +46,7 @@ import { basename, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { openTouches, realTap } from '../host/apple/touches.mjs';
 import { dragTap, duringAllowed, duringOp } from './agent-drag.mjs';
-import { runTests, nodeNamed, targetsIn } from './agent-test.mjs';
+import { driveNotes, runTests, nodeNamed, targetsIn } from './agent-test.mjs';
 import { cdpKey, browserKey, nativeKey, typeFor, ticketOf, holdOf, heldTicket, typeArguments, typeCommand, pickedPaths, mouseContact, withHeldModifiers, pasteChord, deliverClipboard, tapWords, pointerGap, chordModifiers, withChordModifiers, heldForClick } from './agent-keys.mjs';
 export { cdpKey, browserKey, nativeKey, typeFor, ticketOf, holdOf, heldTicket, typeArguments, typeCommand, pickedPaths, mouseContact, pasteChord, deliverClipboard, tapWords, pointerGap } from './agent-keys.mjs';
 import { appleArtifacts, assertAppleIdentity, bundleId, install } from '../host/apple/build.mjs';
@@ -62,18 +62,6 @@ async function waitAtMost(operation, ms, onTimeout) {
   const deadline = new Promise(resolve => { timer = setTimeout(resolve, ms); }).then(onTimeout);
   try { return await Promise.race([operation, deadline]); }
   finally { clearTimeout(timer); }
-}
-/** Browser-process diagnostics that do not describe the page or Exact. Page
- * exceptions and console errors arrive over CDP separately and remain logs. */
-export function browserDiagnosticNoise(line) {
-  return /crashpad|updater|gcm|VERBOSE|DevTools listening/i.test(line)
-    // Linux without a session bus or GSettings schemas: Chrome's dbus client and GLib report it on every launch.
-    || /:ERROR:dbus\/(bus|object_proxy)\.cc:\d+\] (Failed to connect to the bus|Failed to call method: org\.freedesktop\.DBus)/.test(line) || /GLib-GIO-CRITICAL \*\*: [\d:.]+: g_settings_schema_source_lookup: assertion 'source != NULL' failed$/.test(line)
-    || /CVDisplayLinkCreateWithCGDisplay failed|CVReturn:\s*-6670/i.test(line)
-    // The browser process checking the renderer's paint-timing report
-    // against itself (two paints in one frame, image before first): its
-    // bookkeeping, not the page's. The page's own errors come over CDP.
-    || /\bpage_load_metrics_update_dispatcher\.cc:\d+\] Invalid first_\w+ [\d.]+ s for \w+ [\d.]+ s$/.test(line);
 }
 // web
 /** Every desktop carrier's viewport unless a drive names one (LLP 1012.001.000 D8, Charlie 2026-09-30: 900, the page's and the conformance run's), so one drive gives one set of numbers on every host. A phone or simulator is its device's size. */
@@ -185,6 +173,9 @@ async function openWeb({ browser = 'chrome', plan, world, size = VIEWPORT, url: 
     try {
       if (process.platform === 'win32') await closeWindowsBrowser(child, cdp, exited, profile);
       else {
+        // A named store's Chrome quits as a person's does: it writes `localStorage`, the web's secret store, only at
+        // shutdown or a few seconds after a write, and a kill loses it while SQLite survives (app farm, set-variants-0771).
+        if (kept) await cdp.send('Browser.close', {}, undefined, 2000).then(() => waitAtMost(exited, 3000), () => {});
         try { process.kill(-child.pid, 'SIGKILL'); } catch {}
         await waitAtMost(exited, 2000);
       }
@@ -973,7 +964,6 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
     },
     /** Every on-screen view's box in the viewport (scroll folded in), with its testId and type from the tree. With a target, `node` explains that one node (LLP 1035.002 D1): every row it sets or inherits with where the value came from, its box in each coordinate space the host has, the scroll and clip chains above it, whether it is hidden, inert, in the viewport or clipped away, and what the host mounted for it — observations of the runner's memory and the host's view tree, never a second model. */
     async layout(target, at, inspect = {}) { // inspect: {native: {depth, limit}} | {agree: true, limit} (LLP 1080.001)
-      // The host labels disagreements with testIds from the walk's own snapshot (no second read to join).
       if (inspect.agree) return s.op({ op: 'layout', agree: true, ...(inspect.limit != null ? { limit: inspect.limit } : {}) });
       if (typeof target === "string" && target.startsWith("world:")) return s.op({op:"layout", ...await s.target(target), ...(at ? {world:true,x:at[0],y:at[1]} : {})});
       // `layout <canvas> at <x> <y>` is the world's pick (@ref llp/1046.001-agent-interface-to-a-game.rfc.md D2).
@@ -990,9 +980,9 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
         if (reply.node) sourceMaps.attach(reply.node);
         delete reply.nodes; return reply; // the answer is the target (its box: node.space.viewport); every view's box beside it let an assertion over `nodes` pass whatever the target was (Depot)
       }
-      const [l, t] = await Promise.all([s.op(req), s.tree()]);
-      const by = new Map(t.nodes.map((n) => [n.id, n]));
-      for (const n of l.nodes) { const k = by.get(n.id); if (k) { n.type = k.type; if (k.props.testId) n.testId = k.props.testId; } }
+      const mapped = await sourceMaps.refresh();
+      const [l, t] = await Promise.all([s.op(req), s.op({ op: 'tree', ...(mapped ? { plan: true } : {}) })]);
+      identifyLayoutNodes(l, t, mapped ? sourceMaps : null);
       return l;
     },
     async target(target) {
@@ -1368,6 +1358,7 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
 // ---------------------------------------------------------------- the CLI
 // Authored tests (LLP 1017 P7): agent-test.mjs drives a file's `test` blocks through `open`.
 export { runTests, textOf } from './agent-test.mjs';
+export { browserDiagnosticNoise };
 async function main(argv) {
   const { flags, rest } = parseFlags(argv);
   const [host, ...ops] = rest;
@@ -1457,36 +1448,20 @@ async function main(argv) {
       }
       return [op, r];
   };
-  // A drive that names no scratch store has no storage, and a source's write fails only in the
-  // journal; say so on stderr, which a --json reader's stdout never carries (authoring bench,
-  // LLP 1087; LLP 1102 §3.17). The web reads its journal beside each op that could have caused
-  // it (an in-page call); a native carrier, whose journal read could be slow, once when the
-  // drive ends, bounded, so it never fails the ops.
-  let peek = 0, probes = 0, warned = flags.storage !== undefined;
-  const storageNote = async () => {
-    if (warned || ++probes > 20) return; // a missing store shows at the first writes
-    try {
-      const j = await Promise.race([s.op({ op: 'logs', since: peek }).catch(() => null), new Promise((done) => setTimeout(() => done(null), 3000))]);
-      if (!Array.isArray(j?.lines)) return;
-      peek = j.next;
-      if (j.lines.some((l) => /unavailable in agent mode/.test(typeof l === 'string' ? l : JSON.stringify(l)))) {
-        warned = true;
-        console.error('note: a data source was refused storage: this drive names no scratch store, so writes do nothing; pass --storage <name> (docs/agent-pitfalls.md)');
-      }
-    } catch { warned = true; } // advice only: never fail a drive over it
-  };
+  // What the replies leave out, on stderr, which a --json reader's stdout never carries (agent-test.mjs `driveNotes`).
+  const notes = driveNotes(s, { host, storage: flags.storage });
   try {
     for (const [k, line] of ops.entries()) {
       at = k + 1;
       const [op, r] = await step(line);
       console.log(flags.json ? JSON.stringify(r) : render(op, r));
-      if (host === 'web' && ['tap', 'type', 'clock'].includes(op)) await storageNote();
+      await notes(op);
     }
-    if (host !== 'web' && ops.some((line) => /^\s*(tap|type|clock)\b/.test(line))) await storageNote();
+    await notes('end');
     return 0;
   } catch (e) {
-    // A drive that fails (an `expect`, a refused op) is where a missing store is found: say it first.
-    if (host !== 'web' && ops.slice(0, at).some((line) => /^\s*(tap|type|clock)\b/.test(line))) await storageNote();
+    // A drive that fails (an `expect`, a refused op) is where a missing store or a failed resource is found: say it first.
+    await notes('end');
     e.message = `op ${at}/${ops.length} \`${ops[at - 1]?.trim()}\`: ${e.message}`;
     throw e;
   } finally {

@@ -18,8 +18,7 @@ extension NodeView {
     @objc package func controlTextDidBeginEditing(_ obj: Notification) {
         presenter?.collections.pinsChanged()
         guard let editor = field?.currentEditor() as? NSTextView else { return }
-        editor.insertionPointColor = caretColor
-        applyTextChecking(editor)
+        styleFieldEditor(editor)
     }
     @objc package func controlTextDidEndEditing(_ obj: Notification) {
         presenter?.collections.pinsChanged()
@@ -37,14 +36,33 @@ extension NodeView {
         }
         if !disabled { presenter?.typed(id, field?.stringValue ?? "", input: handlers.contains("input")) }
     }
-    /// A field in its default look (`fieldStyle`, LLP 1104 D4) marks its
-    /// focus as the web's `:focus-visible` ring does: its border, drawn by
-    /// the box painter (`boxPlan`), two points wide in the focus colour, so
-    /// it follows the box's shape, size, clip and appearance. A bare or
-    /// disabled field draws its own. Set as the field takes the focus,
-    /// cleared as its editor leaves.
+    /// The ring Exact draws for a focused field (LLP 1104 D6): its border,
+    /// painted by the box painter (`boxPlan`) two points wide in the focus
+    /// colour, so it follows the box's shape, size, clip and appearance. A
+    /// bare field or textarea keeps Exact's ring, as a bare button does; a
+    /// native textarea takes it as a stand-in, because AppKit asks only the
+    /// first responder for a ring and the text view's sits inside its clip
+    /// view. A native single-line field is AppKit's own ring. Set as the
+    /// editor takes the focus, cleared as it leaves.
     func showFieldFocus(_ on: Bool) {
-        fieldFocused = on && props["fieldStyle"] != nil && !disabled
+        let show = on && !disabled && (!isNativeTextControl || textArea != nil)
+        // A textarea's scroll view covers the node's own border, so its ring
+        // is a layer above the node's subviews instead.
+        guard textArea != nil else { fieldFocused = show; return }
+        fieldFocused = false
+        let ring = layer?.sublayers?.first { $0.name == "exact.fieldFocus" }
+        guard show, let layer else { ring?.removeFromSuperlayer(); return }
+        let r = ring ?? CALayer()
+        r.name = "exact.fieldFocus"
+        r.frame = layer.bounds
+        r.autoresizingMask = [.layerWidthSizable, .layerHeightSizable]
+        r.cornerRadius = max(layer.cornerRadius, boxBorder?.cornerRadius ?? 0, boxFill?.cornerRadius ?? 0, isNativeTextControl ? 5 : 0)
+        r.borderWidth = 2
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            r.borderColor = NSColor.keyboardFocusIndicatorColor.withAlphaComponent(1).cgColor
+        }
+        r.zPosition = 1
+        if ring == nil { layer.addSublayer(r) }
     }
 }
 #endif

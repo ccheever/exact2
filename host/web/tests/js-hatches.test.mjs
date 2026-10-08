@@ -284,6 +284,23 @@ test('what a tick asks is drained at its instant, with the moments it causes, un
   await settled();
 });
 
+test('an act that asks for another, forever, stops the command at HatchActLimit', async () => {
+  const hatches = await import(resolve(dir, 'hatches.js'));
+  const { frames } = globalThis.exact.hatches;
+  clock.now = 20000; clock.timers.length = 0; globalThis.exact.hatchActs.command();
+  let handle = null, asked = false;
+  const button = field('looper', { onHatch: e => { handle = e; } });
+  button.click = function () { this.clicks++; handle.click(); };
+  await mount(hatches, button);
+  const stop = frames(() => { if (!asked) { asked = true; handle.click(); } });
+  // One tick's click asks for the next at the same instant: 4,096 run, then the seek is refused by name.
+  expect(seek(clock.now + 1000 / 60)).toMatch(/refused advance: HatchActLimit/);
+  expect(button.clicks).toBe(4096);
+  button.click = function () { this.clicks++; };
+  stop();
+  await settled();
+});
+
 test('regions and parts are bounded, bound to their elements, and end as tombstones', async () => {
   const hatches = await import(resolve(dir, 'hatches.js'));
   clock.now = 9000;

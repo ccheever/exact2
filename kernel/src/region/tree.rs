@@ -1,7 +1,7 @@
 use super::{RegionFrame, RegionGeometry, RegionOffset, OWNER, REGION_NODES};
 use crate::{
-    arena::NodeArena, layout::LayoutTree, style::taffy_style, Frame, LayoutError, NodeType, Offer,
-    TextMeasurer,
+    arena::NodeArena, id::IdMap, layout::LayoutTree, style::taffy_style, Frame, LayoutError,
+    NodeKey, NodeType, Offer, TextMeasurer,
 };
 use std::collections::HashMap;
 use taffy::prelude::NodeId;
@@ -107,7 +107,10 @@ impl Derived {
         offer: Offer,
     ) -> Result<(), LayoutError> {
         self.tree
-            .compute_mapped(self.root, offer, arena, m, |s| self.nodes.get(&s).copied())
+            .compute_mapped(self.root, offer, arena, m, &|s| self.nodes.get(&s).copied())
+    }
+    pub fn provisional_chrome(&self) -> bool {
+        self.tree.provisional_chrome()
     }
     pub fn paint_offers(&self, arena: &NodeArena) -> Vec<(u32, f32)> {
         self.slots
@@ -149,8 +152,11 @@ impl Derived {
     ) -> Result<RegionGeometry, LayoutError> {
         let mut frames = Vec::with_capacity(self.slots.len());
         let mut offsets = Vec::with_capacity(self.slots.len());
-        let mut stack = vec![(root, 0., 0., OWNER)];
-        while let Some((s, x, y, parent)) = stack.pop() {
+        let mut field_content = IdMap::default();
+        let mut button_bases = IdMap::default();
+        let mut stack = vec![(root, 0., 0., OWNER, false)];
+        while let Some((s, x, y, parent, hidden)) = stack.pop() {
+            let hidden = hidden || arena.style(s).display == crate::Display::None;
             let l = self.tree.layout(self.nodes[&s]);
             let inline = arena.is_inline_run(s);
             let frame = if inline {
@@ -188,6 +194,20 @@ impl Derived {
                     return Err(LayoutError::ContentRegion("mounted node limit"));
                 }
                 let ordinal = frames.len() as u32;
+                if let Some(content) = self
+                    .tree
+                    .field_content_rect(arena, s, self.nodes[&s])
+                    .filter(|_| !hidden)
+                {
+                    field_content.insert(arena.key(s), content);
+                }
+                if let Some(basis) = self
+                    .tree
+                    .button_containing_width(self.nodes[&s])
+                    .filter(|_| !hidden)
+                {
+                    button_bases.insert(arena.key(s), basis);
+                }
                 frames.push(RegionFrame {
                     node: arena.key(s),
                     frame,
@@ -207,16 +227,28 @@ impl Derived {
             };
             if Some(s) == cut {
                 if let Some(b) = branch {
-                    stack.push((b, frame.x, frame.y, next_parent))
+                    stack.push((b, frame.x, frame.y, next_parent, hidden))
                 }
             } else {
                 for &c in arena.children(s).iter().rev() {
-                    stack.push((c, frame.x, frame.y, next_parent))
+                    stack.push((c, frame.x, frame.y, next_parent, hidden))
                 }
             }
         }
-        Ok(RegionGeometry { frames, offsets })
+        Ok(RegionGeometry {
+            frames,
+            offsets,
+            field_content,
+            button_bases,
+            provisional_chrome: self.provisional_chrome(),
+        })
     }
+}
+
+pub(super) struct ShellGeometry {
+    pub frames: Vec<RegionFrame>,
+    pub field_content: IdMap<NodeKey, Frame>,
+    pub button_bases: IdMap<NodeKey, Option<f32>>,
 }
 
 /// Compute using the existing shell tree, staging frames without arena writes.
@@ -228,7 +260,7 @@ pub(super) fn shell(
     root: u32,
     cut: u32,
     offer: Offer,
-) -> Result<Vec<RegionFrame>, LayoutError> {
+) -> Result<ShellGeometry, LayoutError> {
     let engine_root = arena
         .taffy(root)
         .ok_or_else(|| LayoutError::Engine("shell root absent".into()))?;
@@ -238,8 +270,11 @@ pub(super) fn shell(
     tree.cut_children(owner);
     tree.compute(engine_root, offer, arena, measurer)?;
     let mut frames = Vec::new();
-    let mut stack = vec![(root, 0., 0.)];
-    while let Some((s, x, y)) = stack.pop() {
+    let mut field_content = IdMap::default();
+    let mut button_bases = IdMap::default();
+    let mut stack = vec![(root, 0., 0., false)];
+    while let Some((s, x, y, hidden)) = stack.pop() {
+        let hidden = hidden || arena.style(s).display == crate::Display::None;
         let n = arena
             .taffy(s)
             .ok_or_else(|| LayoutError::Engine("shell node absent".into()))?;
@@ -267,6 +302,12 @@ pub(super) fn shell(
         {
             return Err(LayoutError::ContentRegion("nonfinite shell geometry"));
         }
+        if let Some(content) = tree.field_content_rect(arena, s, n).filter(|_| !hidden) {
+            field_content.insert(arena.key(s), content);
+        }
+        if let Some(basis) = tree.button_containing_width(n).filter(|_| !hidden) {
+            button_bases.insert(arena.key(s), basis);
+        }
         frames.push(RegionFrame {
             node: arena.key(s),
             frame,
@@ -278,9 +319,54 @@ pub(super) fn shell(
         });
         if s != cut {
             for &c in arena.children(s).iter().rev() {
-                stack.push((c, frame.x, frame.y))
+                stack.push((c, frame.x, frame.y, hidden))
             }
         }
     }
-    Ok(frames)
+    Ok(ShellGeometry {
+        frames,
+        field_content,
+        button_bases,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{Kernel, MonospaceMeasurer, Op};
+
+    #[test]
+    fn region_without_fields_allocates_no_field_rect_storage() {
+        let mut kernel = Kernel::new(Box::new(MonospaceMeasurer::default()));
+        let mut ops: Vec<_> = (1..=REGION_NODES as u32)
+            .map(|id| Op::CreateView {
+                id,
+                node_type: NodeType::View,
+            })
+            .collect();
+        ops.push(Op::SetChildren {
+            id: 1,
+            children: (2..=REGION_NODES as u32).collect(),
+        });
+        ops.push(Op::AttachRoot { id: 1 });
+        kernel.apply(0, 0, &ops).unwrap();
+        let arena = kernel.arena();
+        let root = kernel.node(1).unwrap().key.index;
+        let mut derived = Derived::build(arena, root, None, None, true).unwrap();
+        derived
+            .compute(
+                arena,
+                &mut MonospaceMeasurer::default(),
+                Offer::definite(400., 300.),
+            )
+            .unwrap();
+        let geometry = derived.frames(arena, root, None, None).unwrap();
+        assert_eq!(geometry.frames.len(), REGION_NODES - 1);
+        assert!(geometry.field_content.is_empty());
+        assert_eq!(geometry.field_content.capacity(), 0);
+        assert_eq!(
+            geometry.project(Frame::default()).unwrap().len(),
+            REGION_NODES - 1
+        );
+    }
 }

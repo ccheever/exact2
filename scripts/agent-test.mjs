@@ -97,6 +97,36 @@ export function sweepTestStores(base, storage) {
   const ours = new RegExp(`^${storage.replace(/[.]/g, '\\.')}\\.r(\\d+)-[0-9a-z]+\\.t\\d+$`);
   for (const name of names) { const m = name.match(ours); if (m && !alive(Number(m[1]))) rmSync(resolve(base, name), { recursive: true, force: true }); }
 }
+/** The notes a CLI drive writes on stderr beside its replies, each once (LLP 1102 §3.17; app farm round 1, where a
+ * shape refusal lived only in `logs` and an early `tree` showed an empty list): a drive with no scratch store whose
+ * source was refused storage; a resource that failed, and why; a read taken while the app's data is in flight. Call it
+ * after each op with the op's name, and with `end` when the drive ends. The web reads after each input; a native
+ * carrier, whose reads could be slow, at the end; both at a read before the clock first moved. Advice only: bounded,
+ * and never fails a drive. */
+export function driveNotes(s, { host, storage }) {
+  const INPUTS = ['tap', 'type', 'clock'], READS = ['tree', 'screenshot', 'layout'];
+  const said = new Set(), note = (key, text) => { if (!said.has(key)) { said.add(key); console.error(`note: ${text}`); } };
+  const bounded = (p, ms) => Promise.race([p.catch(() => null), new Promise((done) => setTimeout(() => done(null), ms))]);
+  let peek = 0, probes = 0, clocked = false;
+  return async (op) => {
+    const end = op === 'end', early = READS.includes(op) && !clocked && !said.has('early');
+    if (op === 'clock') clocked = true;
+    if (!(end || early || (host === 'web' && INPUTS.includes(op)))) return;
+    try {
+      if (storage === undefined && !said.has('storage') && (end || INPUTS.includes(op)) && ++probes <= 20) {
+        const j = await bounded(s.op({ op: 'logs', since: peek }), 3000);
+        if (Array.isArray(j?.lines)) {
+          peek = j.next;
+          if (j.lines.some((l) => /unavailable in agent mode/.test(typeof l === 'string' ? l : JSON.stringify(l)))) note('storage', 'a data source was refused storage: this drive names no scratch store, so writes do nothing; pass --storage <name> (docs/agent-pitfalls.md)');
+        }
+      }
+      const state = await bounded(s.state(), 3000);
+      for (const [name, why] of Object.entries(state?.failed ?? {})) note(`failed ${name} ${why}`, `resource ${name} failed: ${why}; it shows its placeholder or last value, and \`failed(${name})\` is true (\`state\` lists it under \`failed\`)`);
+      const pending = (state?.pending ?? []).filter((p) => !p.device).map((p) => p.name);
+      if (early && pending.length) note('early', `${op} read the app with ${pending.length} request${pending.length === 1 ? '' : 's'} in flight (${pending.join(', ')}): a reply lands at a clock step, so a drive that reads the app's data starts with "clock data"`);
+    } catch { /* advice only */ }
+  };
+}
 /** A launch line's op and the `open` option it sets (`size` aside: it is two numbers). */
 const LAUNCH = { epoch: 'epoch', 'time-zone': 'timeZone', locale: 'locale', seed: 'seed' };
 
@@ -194,10 +224,13 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
     const delivered = (r) => { if (r?.error || r?.delivery === 'unsupported') throw new Error(r.error ?? r.reason ?? 'the host does not support this input'); if (r?.closed) closedAt = current; };
     // With no input since the clock last moved, a request still in flight (the boot's own, or one a jump
     // left on real time) is named: the expect read the value before its reply (workout F1).
+    // A resource that failed is named first, with why (app farm round 1: a shape refusal read as a timing problem).
     const fail = async (message) => {
-      if (input != null) return failures.push(`${message} (the clock has not moved since line ${input}'s input: a reply, a mutation's \`then\` or a transition lands at \`clock settle\`; a timer fires when the clock reaches its time, \`clock +N\`)`);
-      const pending = ((await s.state().catch(() => ({}))).pending ?? []).filter((p) => !p.device).map((p) => p.name);
-      failures.push(pending.length ? `${message} (${pending.length} request${pending.length === 1 ? '' : 's'} still in flight: ${pending.join(', ')}; a reply lands at a \`clock\` step, as \`clock settle\`)` : message);
+      const state = await s.state().catch(() => ({}));
+      const failed = Object.entries(state.failed ?? {}).map(([name, why]) => ` (resource ${name} failed: ${why}; it shows its placeholder or last value)`).join('');
+      if (input != null) return failures.push(`${message}${failed} (the clock has not moved since line ${input}'s input: a reply, a mutation's \`then\` or a transition lands at \`clock settle\`; a timer fires when the clock reaches its time, \`clock +N\`)`);
+      const pending = (state.pending ?? []).filter((p) => !p.device).map((p) => p.name);
+      failures.push(`${message}${failed}${pending.length ? ` (${pending.length} request${pending.length === 1 ? '' : 's'} still in flight: ${pending.join(', ')}; a reply lands at a \`clock\` step, as \`clock settle\`)` : ''}`);
     };
     try {
       try { await data(); } catch (e) { failures.push(`${t.name}: waiting for the app's data before the first step: ${e.message}`); }

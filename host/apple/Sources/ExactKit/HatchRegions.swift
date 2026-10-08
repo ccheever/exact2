@@ -222,10 +222,23 @@ final class HatchRegions {
 
     // MARK: Undeclared gestures (§3.4), a development check
 
-    private var reported: Set<String> = []
+    /// What the check has journaled, a hatch and a class each once.
+    private(set) var reported: Set<String> = []
+
+    /// Every recognizer the walk below reaches under `root`, by identity:
+    /// what was there before a call, which the call did not add.
+    func recognizers(under root: PlatformView) -> Set<ObjectIdentifier> {
+        var out = Set<ObjectIdentifier>(), stack: [(PlatformView, Int)] = [(root, 0)], walked = 0
+        while let (view, depth) = stack.popLast(), walked < 2000 {
+            walked += 1
+            for recognizer in view.gestureRecognizers ?? [] { out.insert(ObjectIdentifier(recognizer)) }
+            if depth < 8 { for sub in view.subviews where !(sub is NodeView) { stack.append((sub, depth + 1)) } }
+        }
+        return out
+    }
 
     /// Recognizers on a hatched node's view that are neither Exact's own
-    /// (`known`) nor bound by a region, journaled once a hatch and class:
+    /// (`known`) nor bound by a region, nor inside a view one binds, journaled once a hatch and class:
     /// 8 levels below the view, 2,000 views a check.
     func undeclared(under root: PlatformView, by scope: String, known: (HatchRecognizer) -> Bool) {
         var stack: [(PlatformView, Int)] = [(root, 0)], walked = 0
@@ -235,6 +248,8 @@ final class HatchRegions {
                 if reported.insert("\(scope)\ntruncated").inserted { presenter?.session?.log("hatch \(scope): the undeclared-recognizer check was truncated at 2,000 views") }
                 return
             }
+            // A view a region or a part binds is declared, with what is inside it (the platform's own recognizers on a control, say).
+            if view !== root, regions.contains(where: { $0.kind == "view" && $0.object === view }) || parts.values.contains(where: { $0.contains { $0.view === view } }) { continue }
             for recognizer in view.gestureRecognizers ?? [] where !known(recognizer) && !regions.contains(where: { $0.object === recognizer }) {
                 let name = String(describing: type(of: recognizer))
                 if reported.insert("\(scope)\n\(name)").inserted { presenter?.session?.log("hatch \(scope) added a \(name) it did not declare") }

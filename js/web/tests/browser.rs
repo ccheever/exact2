@@ -529,6 +529,9 @@ try {
     if((await ask('parallel')).request.url!=='https://api.castle.xyz/a')throw new Error('parallel first request');
     if((await ask('parallel',[],response('\u0000\u00ff'))).request.url!=='https://api.castle.xyz/b')throw new Error('parallel second request');
     if((await ask('parallel',[],response('ok'))).value.error!=='0,255/ok')throw new Error('parallel binary body');
+    const upload=(await ask('upload',['view'])).request;
+    if(upload?.body_base64!=='AP+ACg0A'||upload.body!=='')throw new Error(`a byte body: ${JSON.stringify(upload)}`);
+    if((await ask('upload',['view'],response('ok'))).value!=='ok')throw new Error('a byte body reply');
     for(const expected of ['1/1','2/2']){await ask('reused');const reused=await ask('reused',[],response('ok'));if(reused.value?.error!==expected)throw new Error(`abort listeners outlive their fetches: ${JSON.stringify(reused)}`);}
     if((await ask('logout')).writes[0][1]!==null)throw new Error('forget');
     castle.dispose();

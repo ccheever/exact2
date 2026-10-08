@@ -55,7 +55,7 @@ pub fn parts_with(
     let (text, skipped) =
         crate::css::css_text_relative(&css_style(kernel, &node), &font_names(plan));
     let css = super::element::contents(
-        host_css(&node, text, tag),
+        host_css(kernel, &node, text, tag),
         may_fold && super::element::folded(kernel, &node, false),
         super::element::touch_scoped(kernel, &node),
     );

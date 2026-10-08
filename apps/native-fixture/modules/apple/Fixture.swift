@@ -55,7 +55,8 @@ final class FixtureModule: ExactModule {
     override func app(_ app: ExactApp) {
         scheme = app.prefersColorScheme
         tint()
-        context.diagnostics.publish("app", ["processOwner": app.processOwner, "hasApplication": app.application != nil, "visibilityState": app.visibilityState, "onLine": app.onLine])
+        context.diagnostics.publish("app", ["processOwner": app.processOwner, "hasApplication": app.application != nil, "visibilityState": app.visibilityState, "onLine": app.onLine,
+                                            "mood": app.data[.mood] ?? ""])
         publishScopes(app.isNew ? "app-built" : "app-changed")
     }
 

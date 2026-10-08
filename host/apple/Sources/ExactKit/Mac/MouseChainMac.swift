@@ -5,28 +5,13 @@ import AppKit
 /// then reorder > transform > height > pan > swipe on one node. Every recognizer
 /// arms on down; drags go to the first armed candidate that takes them, and the
 /// first to engage keeps the contact while the others are cancelled.
-protocol MouseRecognizer: AnyObject {
+package protocol MouseRecognizer: AnyObject {
     var armed: NodeView? { get }
     var engaged: Bool { get }
     func arm(_ node: NodeView, event: NSEvent)
     func drag(_ event: NSEvent) -> Bool
     func up(_ event: NSEvent) -> Bool
     func cancel()
-}
-extension MouseReorder: MouseRecognizer {
-    var armed: NodeView? { candidate }
-    var engaged: Bool { hold != nil || grouped }
-    func arm(_ node: NodeView, event: NSEvent) { down(node, event: event) }
-}
-extension MouseTransformDrag: MouseRecognizer {
-    var armed: NodeView? { candidate }
-    var engaged: Bool { hold != nil }
-    func arm(_ node: NodeView, event: NSEvent) { down(node, event: event) }
-}
-extension MouseHeightDrag: MouseRecognizer {
-    var armed: NodeView? { candidate }
-    var engaged: Bool { hold != nil }
-    func arm(_ node: NodeView, event: NSEvent) { down(node, event: event) }
 }
 extension MouseLayoutPan: MouseRecognizer {
     var armed: NodeView? { candidate }
@@ -48,7 +33,7 @@ final class MouseChain {
     /// Rule 4's rank on one node, the tie-break after depth.
     var ranked: [MouseRecognizer] {
         guard let p = presenter else { return [] }
-        return [p.mouseReorder, p.mouseTransformDrag, p.mouseHeightDrag, p.mouseLayoutPan, p.mouseSwipe]
+        return [p.mouseDrags.reorder, p.mouseDrags.transform, p.mouseDrags.height, p.mouseLayoutPan, p.mouseSwipe]
     }
     /// Arms every recognizer once per event (a `super.mouseDown` reaches the
     /// ancestors' overrides with the same event). The `press` arms too, as on

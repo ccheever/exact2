@@ -118,6 +118,13 @@ are animatable and constant-call values can be evaluated at compilation.
 Styles accept literal style attributes and explicitly styleable props (currently
 `buttonStyle`), not arbitrary expressions or event props.
 
+A length attribute's string is CSS's own text, read by the kernel: a px or
+other absolute length, a percentage, a viewport length, `auto`,
+`calc(<percent> ± <px>)`, `env(safe-area-inset-*)` and `calc(env(…) ± <px>)`,
+or `min()`, `max()` and `clamp()` over px, insets and viewport lengths
+(`clamp(15px, env(safe-area-inset-bottom), 60px)`; LLP 1001 §2). Anything else
+is `lower-attr-value`, with the kernel's reason.
+
 A `sound` names a WAV under the app's `assets/` (LLP 1096 D1): 16-bit integer
 or 32-bit float PCM (or `WAVE_FORMAT_EXTENSIBLE` naming one), one or two
 channels, 8–96 kHz, at most 10 s. The compiler reads its header and refuses
@@ -485,7 +492,7 @@ never breaks an app that declared it first.
 
 | Call | Result / restriction |
 | --- | --- |
-| `now()` | Milliseconds on the runner's clock since boot (the driver's clock under the agent), not a date: the date is `exactTime().epochAtZero + now()`. A read does not schedule a render, and a derive that reads it is not read again as time passes (when it is depends on the host's clock), so a value that follows the clock comes from a timer: keep the time in state that a `task … every` action writes |
+| `now()` | Milliseconds on the runner's clock since boot (the driver's clock under the agent, from 0), as the web's `performance.now()`, not `Date.now()`: the date is `time.epochAtZero + now()`, with `resource time = exactTime() as shape T` declared. A read does not schedule a render, and a derive that reads it is not read again as time passes (when it is depends on the host's clock), so a value that follows the clock comes from a timer: keep the time in state that a `task … every` action writes |
 | `formatTime(ms, offsetMinutes, "short")` | String; fixed offset east of UTC, en-US formatting (`exactTime().utcOffset` is the zone's offset now, answered again when it changes) |
 | `formatDate(ms, offsetMinutes, "medium" or "month-year" or "iso")` | String; format is a literal choice, not an expression containing `or`. `"iso"` is `YYYY-MM-DD`: the date at that wall time, which is `toISOString`'s date part at a whole-minute offset (a fractional offset's sub-millisecond wall time is not clipped again, as no style's is) (LLP 1102 §3.4); every style prints `""` outside years 1–9999 |
 | `formatNumber(n, "compact")` | String; admitted deterministic compact format |
@@ -587,7 +594,7 @@ Several tags share a kernel node type with different fixed properties.
 | --- | --- |
 | Boxes / layout | `view`, `box`, `row`, `column`, `scroll`, `list` |
 | Structure | `main`, `header`, `nav`, `section`, `footer`, `article`, `aside`, `dialog`, `hr` |
-| Text and controls | `text`, `button`, `link`, `input`, `textarea`, `select`, `option` |
+| Text and controls | `text`, `button`, `link`, `input`, `textarea`, `select`, `option`, `progress` |
 | Media / metadata | `image`, `video`, `audio`, `iframe`, `canvas`, `head` |
 | SVG scene | `svg`, `g`, `path`, `polyline`, `polygon`, `circle`, `ellipse`, `line`, `rect` |
 | SVG definitions | `defs`, `symbol`, `use`, `clipPath`, `marker`, `mask`, `pattern` |
@@ -920,6 +927,28 @@ selection on a `text`, so it never fires there.
 action mark(para: string, s: Selection)
   selection = Excerpt(para=para, from=s.start, to=s.end, text=s.text)
 text para.body selectionchange=mark(para.id)
+```
+
+### Activity: `progress`
+
+`progress` with no `value` is HTML's indeterminate progress, shown as the
+platform's activity indicator: `UIActivityIndicatorView` on iOS (`.medium`,
+`.large` where the box's shorter side is 37 points or more), a spinning
+`NSProgressIndicator` on macOS (small, regular from 32 points), and on the web
+and Linux a spinner the host draws, since HTML's own indeterminate progress is
+a bar (the one deliberate divergence, [LLP 1069.001](../llp/1069.001-form-controls.rfc.md)).
+It is a 20 × 20 box until `width` or `height` sizes it, and the indicator is
+centred in it. `color` colours it on iOS, the web and Linux; macOS draws the
+system's colour, as AppKit gives a spinner no tint. Its role is `progressbar`,
+busy (`aria-busy`); name it with `aria-label`. It turns while it shows, and
+stops where it is hidden or gone; under the agent's held clock it shows one
+still frame (on the web, the frame at the agent's time, as every CSS animation;
+Linux paints one still frame always). `value` (a determinate bar) and `max` (that
+bar's) are refused for now, and so are children and `type`.
+
+```text
+progress aria-label="Loading"
+progress width=37 height=37 color="#1083fe" aria-label="Loading posts"
 ```
 
 ### Form controls: radio, `InputEvent`, `setSelectionRange`

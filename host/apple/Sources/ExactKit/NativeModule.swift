@@ -361,6 +361,8 @@ final class NativeViews {
     /// This session's slot in the crash breadcrumb (§4.4), and the count of
     /// times its hatches have connected: a record's incarnation.
     var crumbSlot: Int?, hatchIncarnation: UInt32 = 0
+    /// Each hatched node's plan site, once asked (`planSite`, NativeHatches.swift).
+    var hatchSites: [UInt32: Int?] = [:]
     /// The app and window scopes: the embedder's grants and what each was told (ScopeHatches.swift).
     let scopes = HatchScopes()
     /// The hatches' frame tickets and `after`s on the session clock (HatchClock.swift).
@@ -401,7 +403,7 @@ final class NativeViews {
         #else
         let standard = embeddedModule(framework: "ExactModules", dylib: "libexact_modules.dylib")
         #endif
-        let trust = ((GpuModule.bakedCompatibility["inputs"] as? [String: Any])?["trust"] as? String) ?? "development"
+        let trust = ((BakedCompatibility.json["inputs"] as? [String: Any])?["trust"] as? String) ?? "development"
         guard trust != "production", let override = ExactEnv.environment["EXACT_MODULES"], !override.isEmpty else { return standard }
         return override
     }

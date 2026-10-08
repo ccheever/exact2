@@ -9,8 +9,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { createInterface } from 'node:readline';
-import { Snapback } from './snapback.ts';
-import { commitChanges, readKept, type Change, type SqliteStorage } from './web.ts';
+import type { Change, SqliteStorage } from './web.ts';
 
 const SCHEMA = `
 use identity
@@ -32,6 +31,24 @@ mutation send(body: text <=50):
   require body != '' else EMPTY
   row = insert messages { author: viewer, body, at: now }
   return { id: row.id }
+
+table drafts:
+  author: principal
+  body: text <=50
+  at: time
+  by byTime: at, id
+  read <- .author = viewer
+  insert <- .author = viewer
+  update <- deny
+  delete <- deny
+  online only
+
+query myDrafts():
+  return drafts last 50 by byTime
+
+mutation draft(body: text <=50):
+  row = insert drafts { author: viewer, body, at: now }
+  return { id: row.id }
 `;
 
 const scratch = mkdtempSync(join(tmpdir(), 'exact-snapback4-ts-'));
@@ -39,9 +56,14 @@ const wasm = join(scratch, 'snapback4.wasm');
 let server: ChildProcess;
 let origin = '';
 
+// The driver imports the wasm glue this writes (ts/generated/), so it is
+// built before the driver is loaded, in a fresh checkout too.
+const built = spawnSync('bun', [resolve(import.meta.dir, '../web/build.mjs'), wasm], { stdio: 'inherit' });
+if (built.status !== 0) throw new Error('web/build.mjs failed');
+const { Snapback } = await import('./snapback.ts');
+const { commitChanges, readKept } = await import('./web.ts');
+
 beforeAll(async () => {
-  const built = spawnSync('bun', [resolve(import.meta.dir, '../web/build.mjs'), wasm], { stdio: 'inherit' });
-  if (built.status !== 0) throw new Error('web/build.mjs failed');
   const project = join(scratch, 'server');
   mkdirSync(join(project, 'snapback'), { recursive: true });
   writeFileSync(join(project, 'snapback/schema.q'), SCHEMA);
@@ -347,4 +369,115 @@ test('a close during a rebuild is carried out when the rebuild ends', async () =
   expect(String(await failing)).toMatch(/storage write failed/);
   faults.openDelay = 0;
   expect(faults.handles).toBe(0);
+}, 60_000);
+
+test('a refresh that fails before its answer lets the next one go', async () => {
+  let failing = true;
+  const dir = join(scratch, 'refresh');
+  const client = await Snapback.open({
+    app: 'test.exact.snapback4', name: 'inbox', origin, viewer: 'dev:rory',
+    headers: () => { if (failing) throw new Error('no credential yet'); return { 'x-snapback-persona': 'rory' }; },
+    storage: storage(dir, {}), wasm: `file://${wasm}`,
+  });
+  await expect(client.refreshSession(Date.now())).rejects.toThrow(/no credential yet/);
+  failing = false;
+  // A persona cannot be refreshed, but the request goes: not E_BUSY.
+  const second = await client.refreshSession(Date.now());
+  expect(second.ok).toBe(false);
+  expect(second.ok ? '' : second.denied.code).not.toBe('E_BUSY');
+  await client.close();
+}, 60_000);
+
+/** One page's storage, shared by every source that opens a partition in it. */
+const onePage = (persona: string, dir: string, faults: Faults = {}) => {
+  const page = storage(dir, faults);
+  return (viewer = persona) => Snapback.open({
+    app: 'test.exact.snapback4', name: 'inbox', origin, viewer: `dev:${viewer}`,
+    headers: () => ({ 'x-snapback-persona': viewer }), storage: page, wasm: `file://${wasm}`,
+  });
+};
+
+/** Every request to the server fails, as with no network, while `work` runs. */
+async function offline<T>(work: () => Promise<T>): Promise<T> {
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    if (String(input).startsWith(origin)) throw new TypeError('offline');
+    return realFetch(input as never, init);
+  }) as typeof fetch;
+  try { return await work(); } finally { globalThis.fetch = realFetch; }
+}
+
+test('sources share a page\'s partition: concurrent opens, rounds that wait their turn, a first read that syncs', async () => {
+  const openErin = onePage('erin', join(scratch, 'erin'));
+  const [a, b] = await Promise.all([openErin(), openErin()]);
+  expect(a.isOpen).toBe(false);
+  // Never synced: reads start (or wait for) the first round, and rounds asked
+  // for at once run one after another, none answering busy.
+  const [ra, rb, sa, sb] = await Promise.all([
+    a.read<{ body: string }[]>('inbox', {}, Date.now()), b.read<{ body: string }[]>('inbox', {}, Date.now()), a.sync(), b.sync()]);
+  expect(Array.isArray(ra.data) && Array.isArray(rb.data)).toBe(true);
+  expect(sa).toEqual({ ok: true });
+  expect(sb).toEqual({ ok: true });
+  expect(a.isOpen && b.isOpen).toBe(true);
+
+  const shared = (rows?: { body: string; pending?: boolean }[]) => bodies(rows!.filter(row => row.body === 'shared'));
+  const written = await a.write('send', { body: 'shared' }, Date.now());
+  expect(shared((await b.read<{ body: string; pending?: boolean }[]>('inbox', {}, Date.now())).data)).toEqual([['shared', true]]);
+  expect((await Promise.all([a.sync(), b.sync(), a.sync()])).every(round => round.ok)).toBe(true);
+  expect((await b.outcome(written.id)).state).toBe('sent');
+
+  // A partition belongs to one viewer: another needs its own name.
+  await expect(openErin('frank')).rejects.toThrow(/E_PARTITION_VIEWER/);
+
+  // Closing one client leaves the partition to the other; the last lets it go.
+  await a.close();
+  expect(a.isOpen).toBe(false);
+  await expect(a.read('inbox', {}, Date.now())).rejects.toThrow(/closed/);
+  expect(b.usable).toBe(true);
+  expect(shared((await b.read<{ body: string }[]>('inbox', {}, Date.now())).data)).toEqual([['shared', false]]);
+  await b.close();
+  const again = await openErin();
+  expect(again.isOpen).toBe(true);
+  expect(shared((await again.read<{ body: string }[]>('inbox', {}, Date.now())).data)).toEqual([['shared', false]]);
+  await again.close();
+}, 60_000);
+
+test('a query over an online only table is the server\'s to answer, and says so when unreached', async () => {
+  const gina = await open('gina', join(scratch, 'gina'));
+  const kept = await gina.write('draft', { body: 'only mine' }, Date.now());
+  expect(kept.state).toBe('pending');
+  expect(await gina.sync()).toEqual({ ok: true });
+  expect((await gina.outcome(kept.id)).state).toBe('sent');
+  const mine = await gina.read<{ body: string }[]>('myDrafts', {}, Date.now());
+  expect(mine.server).toBe(true);
+  expect(mine.data!.map(row => row.body)).toEqual(['only mine']);
+  expect((await gina.readAll<{ body: string }>('myDrafts', {}, Date.now())).map(row => row.body)).toEqual(['only mine']);
+
+  // The server's rules answer for another viewer.
+  const hank = await open('hank', join(scratch, 'hank'));
+  expect((await hank.read<{ body: string }[]>('myDrafts', {}, Date.now())).data).toEqual([]);
+  await hank.close();
+
+  // Unreached: a refusal, never an empty page; the device's own queries
+  // still answer from the partition.
+  await offline(async () => {
+    const unreached = await gina.read('myDrafts', {}, Date.now());
+    expect(unreached.data).toBeUndefined();
+    expect(unreached.denied?.code).toBe('E_OFFLINE');
+    await expect(gina.readAll('myDrafts', {}, Date.now())).rejects.toThrow(/E_OFFLINE/);
+    expect(Array.isArray((await gina.read('inbox', {}, Date.now())).data)).toBe(true);
+  });
+  await gina.close();
+}, 60_000);
+
+test('a partition that has never synced, offline, refuses reads and writes with E_OFFLINE', async () => {
+  const ivy = await open('ivy', join(scratch, 'ivy'));
+  await offline(async () => {
+    await expect(ivy.read('inbox', {}, Date.now())).rejects.toThrow(/E_OFFLINE/);
+    await expect(ivy.write('send', { body: 'too soon' }, Date.now())).rejects.toThrow(/E_OFFLINE/);
+  });
+  // Back online, the next read opens it.
+  expect((await ivy.read('inbox', {}, Date.now())).data).toBeDefined();
+  expect(ivy.isOpen).toBe(true);
+  await ivy.close();
 }, 60_000);

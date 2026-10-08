@@ -73,6 +73,7 @@ export function sourceMapReader(locator) {
       return maps.size > 0;
     },
     attach(node) {
+      delete node.bare_reason;
       for (const style of Object.values(node.style ?? {})) delete style.origin;
       const map = digest(node.planDigest) ? maps.get(node.planDigest) : null;
       const entry = Number.isSafeInteger(node.site) && node.site >= 0 ? map?.nodes[node.site] : null;
@@ -83,6 +84,8 @@ export function sourceMapReader(locator) {
         return;
       }
       node.sourceMap = {status: 'compatible', digest: map.digest, ...at(entry), chain: entry.chain.map(at)};
+      // @ref LLP 1104 D2 — the first reason belongs only to this compatible plan site.
+      if (typeof entry.bare_reason === 'string' && entry.bare_reason.length > 0 && entry.bare_reason.length <= 1024) node.bare_reason = entry.bare_reason;
       for (const {row, origin} of entry.bindings) {
         const style = node.style?.[row];
         if (style && ['authored', 'dynamic'].includes(style.source)) style.origin = origin;
@@ -99,6 +102,20 @@ export function sourceMapReaders(locators) {
     async refresh() { return (await Promise.all(readers.map(r => r.refresh()))).some(Boolean); },
     attach(node) { for (const r of readers) { r.attach(node); if (node.sourceMap?.status === 'compatible') return; } },
   };
+}
+
+/** LLP 1104 D2 / 1035.002 D3: list reasons only when geometry and tree
+ * describe the same settlement; a target read already owns its identity. */
+export function identifyLayoutNodes(layout, tree, maps) {
+  const same = layout.epoch === tree.epoch && layout.incarnation === tree.incarnation;
+  const by = new Map(tree.nodes.map(n => [n.id, n]));
+  for (const node of layout.nodes) {
+    const record = by.get(node.id);
+    if (!record) continue;
+    node.type = record.type;
+    if (record.props.testId) node.testId = record.props.testId;
+    if (maps && same) { node.site = record.site; node.planDigest = tree.planDigest; maps.attach(node); }
+  }
 }
 
 /** A targeted reply owns its identity. A concurrently fetched tree may already
@@ -182,7 +199,7 @@ export function render(op, r) {
       const past = (n) => (n.ox != null || n.oy != null ? ` overscroll ${n.ox ?? 0},${n.oy ?? 0}` : '');
       // The status bar's style Exact asks for (LLP 1105 D7, iOS), when it is not the default.
       const bar = r.statusBar && r.statusBar.style !== 'default' ? ` · status bar ${r.statusBar.style} (#${r.statusBar.source})` : '';
-      const lines = [`viewport ${r.viewport.w}×${r.viewport.h}${past(r.viewport)}${env}${fold}${bar} · clock ${r.clock} ms`].concat((r.nodes ?? []).map((n) => `#${n.id}${n.testId != null ? ` [${n.testId}]` : ''}${n.type != null ? ` ${n.type}` : ''} ${n.native?.placement === 'window' ? `${n.native.view} · system-owned geometry` : `${n.x},${n.y} ${n.w}×${n.h}${n.sx != null ? ` scroll ${n.sx},${n.sy}` : ''}${past(n)}`}`));
+      const lines = [`viewport ${r.viewport.w}×${r.viewport.h}${past(r.viewport)}${env}${fold}${bar} · clock ${r.clock} ms`].concat((r.nodes ?? []).map((n) => `#${n.id}${n.testId != null ? ` [${n.testId}]` : ''}${n.type != null ? ` ${n.type}` : ''}${n.bare_reason ? ` · bare: \`${n.bare_reason}\`` : ''} ${n.native?.placement === 'window' ? `${n.native.view} · system-owned geometry` : `${n.x},${n.y} ${n.w}×${n.h}${n.sx != null ? ` scroll ${n.sx},${n.sy}` : ''}${past(n)}`}`));
       if (r.node) lines.push(...renderNode(r.node));
       return lines.join('\n');
     }
@@ -219,6 +236,7 @@ function renderNode(n) {
   const box = (b) => (b ? `${b.x},${b.y} ${b.w}×${b.h}` : '—');
   const instance = (n.instance ?? []).map((i) => (i.key !== undefined ? q(i.key) : `arm ${i.arm}`)).join(' / ');
   const out = [`node #${n.id}${n.testId != null ? ` [${n.testId}]` : ''} ${n.type}${n.site != null ? ` · site ${n.site}` : ''}${instance ? ` · instance ${instance}` : ''} · epoch ${n.epoch} · incarnation ${n.incarnation}`];
+  if (n.bare_reason) out.push(`  bare: \`${n.bare_reason}\``);
   const source = n.sourceMap;
   if (source?.status === 'compatible') {
     const at = value => `${value.file}:${value.line}:${value.col}`;
@@ -290,8 +308,6 @@ export async function perfOp(s, args, line, step) {
   }
   // `perf hatches` (LLP 1075.003.000.001 §3.3): the hatches' calls and what their code counted.
   if (args[0] === 'hatches') {
-    // The Linux host calls no hatch until its stage (§8 stage 4).
-    if (s.host === 'linux') throw Error('perf hatches: the linux host calls no hatches yet (LLP 1075.003.000.001 §8 stage 4)');
     const read = () => s.op({ op: 'perf', hatches: true });
     const at = line.search(/\sduring\s/);
     if (at < 0) return read();

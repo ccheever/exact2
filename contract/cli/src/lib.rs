@@ -603,6 +603,22 @@ fn compile_path_checked(
                 related: Box::new([]),
             }]);
         }
+        // @ref LLP 1075.003.000.001 §4.3 — each hatch word with the
+        // platforms that handle it, under the plan's signature: a host calls
+        // a word only where the plan says its platform handles it.
+        let rows = native::hatch_rows(&manifest).map_err(|message| {
+            vec![CompileError {
+                pass: "app",
+                id: "app-manifest".into(),
+                message,
+                span: Span::default(),
+                file: Some(path.into()),
+                related: Box::new([]),
+            }]
+        })?;
+        for (word, platforms) in rows {
+            plan.add_hatch(&word, platforms);
+        }
         plan.app_id = manifest.id;
     }
     Ok((plan, sites.map(|sites| SourceMap::new(sites, sources))))
@@ -1235,7 +1251,10 @@ fn lint<D: DataSource>(runner: &mut Runner<D>, answered: bool) -> Result<(), Bak
                     });
                 }
             }
-            NodeType::Pressable => {
+            NodeType::Pressable | NodeType::Control
+                if node.node_type == NodeType::Pressable
+                    || node.props.str(exact_kernel::PropId::Type) == Some("button") =>
+            {
                 if node.frame.width > 0.0 && node.frame.height > 0.0 {
                     continue;
                 }

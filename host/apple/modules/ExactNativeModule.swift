@@ -334,6 +334,9 @@ public final class ExactApp {
     public internal(set) var prefersContrast = "no-preference"
     public internal(set) var prefersReducedMotion = false
     public internal(set) var prefersReducedTransparency = false
+    /// The root node's `data-*` words: what Contract projects for the app
+    /// hatch to know. A change is a `changed` moment.
+    public internal(set) var data = ExactData([:])
     /// True in the first `app` call of this handle; false when a fact changed.
     public internal(set) var isNew = true
     public internal(set) var isLive = true
@@ -347,6 +350,7 @@ public final class ExactApp {
 
     func read(_ json: [String: Any]) {
         processOwner = json["processOwner"] as? Bool ?? false
+        data = ExactData(json["data"] as? [String: String] ?? [:])
         let facts = json["facts"] as? [String: Any] ?? [:]
         visibilityState = facts["visibilityState"] as? String ?? visibilityState
         onLine = facts["onLine"] as? Bool ?? onLine

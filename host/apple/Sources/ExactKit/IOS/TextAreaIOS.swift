@@ -11,6 +11,9 @@ final class TextField: UITextField {
     /// The hardware key whose handlers ran in `pressesBegan`: UIKit's own
     /// Backspace or Return for it does not run them again.
     var heard: String?
+    override func textRect(forBounds bounds: CGRect) -> CGRect { owner?.nativeEditorRect(in: bounds) ?? super.textRect(forBounds: bounds) }
+    override func editingRect(forBounds bounds: CGRect) -> CGRect { owner?.nativeEditorRect(in: bounds) ?? super.editingRect(forBounds: bounds) }
+    override func placeholderRect(forBounds bounds: CGRect) -> CGRect { owner?.nativeEditorRect(in: bounds) ?? super.placeholderRect(forBounds: bounds) }
     override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
         let remaining=owner?.pressedControls(presses,down:true) ?? presses
         if remaining.isEmpty { return }
@@ -174,7 +177,7 @@ package final class TextArea: UITextView {
     package override func draw(_ rect: CGRect) {
         super.draw(rect)
         if text.isEmpty, !placeholder.isEmpty {
-            (placeholder as NSString).draw(in: bounds, withAttributes: [
+            (placeholder as NSString).draw(in: bounds.inset(by: textContainerInset), withAttributes: [
                 .font: font ?? UIFont.systemFont(ofSize: 16),
                 .foregroundColor: UIColor.placeholderText,
             ])
@@ -228,6 +231,15 @@ extension NodeView {
         // `layoutManager`: that would irreversibly switch back to TextKit 1.
         let f = TextArea(frame: .zero)
         f.owner = self
+        #if !os(tvOS)
+        // A CGColor does not retain UIColor's semantic appearance. The
+        // native textarea's drawn separator follows UIKit's trait change.
+        f.registerForTraitChanges([UITraitUserInterfaceStyle.self, UITraitAccessibilityContrast.self]) { (view: TextArea, _: UITraitCollection) in
+            if view.owner?.isNativeTextControl == true {
+                view.layer.borderColor = UIColor.separator.resolvedColor(with: view.traitCollection).cgColor
+            }
+        }
+        #endif
         f.backgroundColor = .clear
         f.textContainerInset = .zero
         f.textContainer.lineFragmentPadding = 0
@@ -273,13 +285,30 @@ extension NodeView {
         guard f.markedTextRange == nil else { layoutTextArea(); return }
         f.font = t.font(size: number("font_size", 16), weight: Int(number("font_weight", 400)), family: Int(number("font_family")), italic: (style["font_style"]?.string) == "italic", numeric: Int(number("font_variant_numeric")))
         f.textColor = color("text_color", SystemColor.canvasText)
-        f.tintColor = caretColor
+        f.tintColor = isNativeTextControl ? caretColor ?? channels("accent_color").map { TextEngine.color($0) } : caretColor
+        if isNativeTextControl {
+            f.typingAttributes[.kern] = number("letter_spacing")
+            f.textStorage.addAttribute(.kern, value: number("letter_spacing"), range: NSRange(location: 0, length: f.textStorage.length))
+        }
+        (f as? TextArea)?.configureNativeChrome(isNativeTextControl)
         (f as? TextArea)?.applyLineHeight(usedLineHeight)
         restyleMarkup()
         f.setNeedsDisplay()
         layoutTextArea()
     }
-    func layoutTextArea() { textArea?.frame = contentBox() }
+    func layoutTextArea() {
+        guard let area = textArea else { return }
+        #if os(tvOS)
+        area.frame = contentBox() // tvOS keeps its read-only presentation.
+        #else
+        if isNativeTextControl {
+            area.frame = bounds
+            if let r = nativeFieldContent {
+                area.textContainerInset = UIEdgeInsets(top: r.minY, left: r.minX, bottom: max(0, bounds.height - r.maxY), right: max(0, bounds.width - r.maxX))
+            }
+        } else { area.frame = contentBox() }
+        #endif
+    }
     /// The app's value into the editor: nothing while text is being composed
     /// (held until the composition ends), else the changed middle only, with
     /// the selection carried through (LLP 1045 D5).
