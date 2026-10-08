@@ -443,6 +443,14 @@ it: \`diagnostics.log/count/measure/publish\` show in \`logs\`, \`state\`
 what it added in \`tree\` under its node, and \`parts\` names a control it drew
 so \`tap <testId>/<part>\` can reach it as a real click.
 
+A backend: an app that keeps shared, server-authoritative data (accounts,
+other people's rows, offline writes that sync) uses Snapback 4 through this
+checkout's first-party client, never hand-written HTTP: read
+${pathFrom(dir, resolve(ROOT, 'snapback4/README.md'))} before any data code. It
+mounts \`${pathFrom(dir, resolve(ROOT, 'snapback4/ts'))}\` in \`app.json\`'s
+\`typescript.sources\` and gives \`app.ts\` a local-first device
+(\`Snapback.open\`, \`read\`, \`write\`, \`sync\`, \`outcome\`).
+
 Contract libraries: \`use Card from "@scope/ui"\` reads an installed package's
 \`.contract\` files (\`bun add @scope/ui\`, or \`"@me/ui": "file:../ui"\` in
 \`package.json\` for a local one), and \`use Activity from "exact:motion"\` a

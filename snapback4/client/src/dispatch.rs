@@ -6,6 +6,9 @@
 //!   kept partition: `{opened:true}`, or `{opened:false}` when it has never
 //!   synced and the first `sync` round opens it on the server's backend.
 //! - `read {name, args, now}`: a named query, answered by the device.
+//! - `route {name}`: `"device"` when the device answers that query (every
+//!   table it reads is synced), `"server"` when it reads an `online only`
+//!   table or view and the server answers it (`POST /q/<name>`).
 //! - `write {name, args, now, key?}`: admit a write and its prediction;
 //!   `{id, state:"pending", newIds}` or `{id, state:"failed", why}`. With an
 //!   idempotency `key` the id derives from it, and asking again answers what
@@ -90,6 +93,11 @@ pub fn dispatch(
     };
     let answer = match op {
         "read" => client.read(core, text(request, "name")?, args(), now(false)?)?,
+        "route" => json!(if client.answers_on_device(core, text(request, "name")?)? {
+            "device"
+        } else {
+            "server"
+        }),
         "write" => {
             let key = request.get("key").and_then(Json::as_str);
             client.write(core, text(request, "name")?, args(), now(true)?, key)?
