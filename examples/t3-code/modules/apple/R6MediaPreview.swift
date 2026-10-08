@@ -167,6 +167,7 @@ final class R6MediaPreview: NSObject, WKNavigationDelegate, WKUIDelegate {
         web.appearance = NSAppearance(named: .aqua)
         web.underPageBackgroundColor = .white
         web.setAccessibilityLabel(name)
+        T3WebInspection.mark(web, "html-preview") // Safari's Web Inspector in a development build (EXACT2-GAPS X2)
         return web
     }
 

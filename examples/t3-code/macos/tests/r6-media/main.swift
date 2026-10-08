@@ -223,7 +223,9 @@ final class MediaPreviewTests: XCTestCase {
 
 _ = NSApplication.shared
 NSApp.setActivationPolicy(.accessory)
-let suite = XCTestSuite(forTestCaseClass: MediaPreviewTests.self)
+let suite = XCTestSuite(name: "r6-media")
+suite.addTest(XCTestSuite(forTestCaseClass: MediaPreviewTests.self))
+suite.addTest(XCTestSuite(forTestCaseClass: WebInspectionTests.self)) // app-developer-tools (inspection.swift)
 suite.run()
 let run = suite.testRun!
 print("Executed \(run.executionCount) tests, with \(run.totalFailureCount) failures")

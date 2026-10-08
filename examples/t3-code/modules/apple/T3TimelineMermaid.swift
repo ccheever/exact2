@@ -130,13 +130,19 @@ final class T3TimelineMermaid: NSObject, WKNavigationDelegate {
 
     private func load(base: URL) {
         loader = .loading
-        let configuration = WKWebViewConfiguration()
-        configuration.websiteDataStore = .nonPersistent()
-        let view = WKWebView(frame: NSRect(x: 0, y: 0, width: 1600, height: 1200), configuration: configuration)
+        let view = Self.renderer()
         view.navigationDelegate = self
         webView = view
         let page = "<!doctype html><html><head><meta charset=\"utf-8\"><script>\(Self.flattenScript)</script></head><body style=\"margin:0\"><div id=\"host\"></div></body></html>"
         view.loadHTMLString(page, baseURL: base)
+    }
+    /// The offscreen renderer: a non-persistent store, inspectable in a development build (EXACT2-GAPS X2).
+    static func renderer() -> WKWebView {
+        let configuration = WKWebViewConfiguration()
+        configuration.websiteDataStore = .nonPersistent()
+        let view = WKWebView(frame: NSRect(x: 0, y: 0, width: 1600, height: 1200), configuration: configuration)
+        T3WebInspection.mark(view, "mermaid")
+        return view
     }
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         guard webView === self.webView, case .loading = loader else { return }

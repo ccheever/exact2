@@ -145,8 +145,7 @@ final class T3TerminalView: ExactNativeInstance {
         web.setValue(false, forKey: "drawsBackground")
         web.allowsMagnification = false
         web.allowsBackForwardNavigationGestures = false
-        // EXACT2-GAPS X2 option 3: a development run's terminal is inspectable from Safari.
-        if #available(macOS 13.3, *), Self.inspectable { web.isInspectable = true }
+        T3WebInspection.mark(web, "terminal") // Safari's Web Inspector in a development build (EXACT2-GAPS X2)
         web.focused = { [weak self] in
             guard let self, self.ready else { return }
             self.send(["type": "focus"])
@@ -372,12 +371,6 @@ final class T3TerminalView: ExactNativeInstance {
 
     /// writeSystemMessage: `\r\n[terminal] <message>\r\n`.
     func systemMessage(_ message: String) { write("\r\n[terminal] \(message)\r\n") }
-
-    /// Inspectable in development runs only: the host's `--run` and the agent set EXACT_ASSETS.
-    static var inspectable: Bool {
-        let environment = ProcessInfo.processInfo.environment
-        return environment["EXACT_ASSETS"] != nil || environment["T3_TERMINAL_INSPECTABLE"] == "1"
-    }
 
     override var view: ExactNativeView { web }
     override var focusTarget: ExactNativeView? { web }

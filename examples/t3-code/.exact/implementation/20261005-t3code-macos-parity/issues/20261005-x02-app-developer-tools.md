@@ -107,6 +107,12 @@ command."
 - **Declared difference (permanent):** View › Toggle Developer Tools stays absent; there is no inspector for it to
   open.
 - The user's decision (2026-10-08): `app-developer-tools` is narrowed to a development-only `isInspectable` on the
-  clone's web views (terminal, rendered HTML, Mermaid). That is app code; it is being built on
-  `feat(example)/t3-code-app-developer-tools`. Nothing waits on main for the clone.
+  clone's web views (terminal, rendered HTML, Mermaid). That is app code, built in
+  [#326](https://github.com/ccheever/exact2/pull/326) (`T3WebInspection.swift`; draft): a release build (the packaged
+  `distribution.json`, a production-trust bake, a distributed bundle) is never inspectable. Nothing waits on main for the clone.
+- Main [#309](https://github.com/ccheever/exact2/pull/309) (merged to main on 2026-10-08 as `f2f0e7092`; not in the T3 branch until a main-adoption round) is the main-side half: Exact's `iframe` web views,
+  inspectable from the development web arm only (left out for production trust, `exact release` and IPA archives). It
+  does not cover the clone's own web views; #326 follows its release line, and adopting #309 needs no clone change.
+- Verified 2026-10-08 with real input (user-approved Safari setting, off again afterwards): Safari's Develop menu lists the
+  development copy's terminal page and not the release copy (`app-developer-tools` record, evidence 09–12).
 - [#327](https://github.com/ccheever/exact2/pull/327) audit (open on main, 2026-10-08): "existing ready PR #309", now merged on main (`f2f0e7092`): development-only `isInspectable` on Exact's own iframe web views, release-gated; the issue stays open. The clone's own module web views still need the clone-side gate (`app-developer-tools`).
