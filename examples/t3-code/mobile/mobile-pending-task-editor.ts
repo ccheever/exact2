@@ -14,11 +14,12 @@ import { mobilePendingTaskEditorKey, mobilePendingTaskEditorsSnapshot, mobilePen
 import { mobilePendingTaskDraftAdopt, mobilePendingTaskDraftBuildRecord, mobilePendingTaskDraftFingerprint,
   mobilePendingTaskDraftCleanup } from './mobile-pending-task-draft';
 import { mobileNewTaskDraftBoundKey, mobileNewTaskDraftLookup } from './mobile-new-task-drafts';
-import { mobilePendingTaskReceiptsPrepare } from './mobile-pending-task-receipts';
+import { mobileOutboxDraftHandoffStatus } from './mobile-outbox-draft-handoff';
+import { mobilePendingTaskReceiptsPrepare, mobilePendingTaskReceiptsRead } from './mobile-pending-task-receipts';
 
 export interface MobilePendingTaskEditorInput { owner: MobileOutboxWireOwner; current(): boolean }
 export interface MobilePendingTaskEditorResult {
-  status: 'ready' | 'saved' | 'finished' | 'retained'; reason: string;
+  status: 'ready' | 'saved' | 'recovery-saved' | 'finished' | 'retained'; reason: string;
   marker: MobilePendingTaskMarker | null; fingerprint: string | null;
 }
 const busy = new WeakMap<MobileDraftClient, Set<string>>();
@@ -99,13 +100,22 @@ async function hold(client: MobileDraftClient, ctx: Context, marker: MobilePendi
   if (!capture || !await mobileOutboxHold(client, ctx.native, capture, holdOwner(marker))) return false;
   ctx.check(); if (!matching(client, marker)) throw changed(); await read(client, ctx); return true;
 }
-async function receipts(client: MobileDraftClient, ctx: Context, marker: MobilePendingTaskMarker): Promise<string> {
+async function receipts(client: MobileDraftClient, ctx: Context, marker: MobilePendingTaskMarker, terminalRecovery = false): Promise<string> {
   const row = exactRow(client, marker);
   if (!row) return 'The queued task changed. Your editor is retained; reopen its recovery status.';
-  const value = await mobilePendingTaskReceiptsPrepare(client, ctx.native,
-    { owner: marker.owner, row, current: () => { ctx.check(); return matching(client, marker); } });
+  const input = { owner: marker.owner, row, current: () => { ctx.check(); return matching(client, marker); } };
+  let value = await (terminalRecovery ? mobilePendingTaskReceiptsRead : mobilePendingTaskReceiptsPrepare)(client, ctx.native, input);
+  if (terminalRecovery && value.final.operation && ['acknowledged', 'rejected'].includes(value.final.operation.state)
+    && value.status === 'prepare-required') value = await mobilePendingTaskReceiptsPrepare(client, ctx.native, input);
   ctx.check(); if (!matching(client, marker)) throw changed();
-  return value.status === 'editable' ? '' : value.reason || 'Recover the original send before saving these edits.';
+  if (!terminalRecovery) return value.status === 'editable' ? '' : value.reason || 'Recover the original send before saving these edits.';
+  const receipt = value.final.operation;
+  if (!receipt || !value.final.durable || receipt.stage !== 'start-turn'
+    || !(value.status === 'original-rejected' || value.status === 'original-accepted' && receipt.cleanup?.phase === 'edited'))
+    return value.reason || 'Resolve the original terminal send before preparing this editor for recovery.';
+  const completed = await mobileOutboxDraftHandoffStatus(ctx.native, receipt);
+  ctx.check(); if (!matching(client, marker)) throw changed();
+  return completed.handoff ? 'This task already has a recovered destination. Keep newer editor changes until its saved handoff is resolved.' : '';
 }
 /** Resolve only the saved request. Never recapture newer typing for an interrupted mutation. */
 async function resume(client: MobileDraftClient, ctx: Context, marker: MobilePendingTaskMarker): Promise<MobilePendingTaskMarker> {
@@ -164,18 +174,30 @@ export function mobilePendingTaskEditorOpen(client: MobileDraftClient, native: N
 /** Save retains draft/marker/hold. The caller unbinds the editor before explicit Finish. */
 export function mobilePendingTaskEditorSave(client: MobileDraftClient, native: Native | null | undefined, storage: Files,
   input: MobilePendingTaskEditorInput & { expected: MobilePendingTaskExpected }): Promise<MobilePendingTaskEditorResult> {
+  return saveEditor(client, native, storage, input, false);
+}
+/** Stage the latest retained editor in the local queue for a separate draft handoff.
+ * Terminal receipts remain immutable. This result never authorizes Send or Finish. */
+export function mobilePendingTaskEditorSaveForRecovery(client: MobileDraftClient, native: Native | null | undefined, storage: Files,
+  input: MobilePendingTaskEditorInput & { expected: MobilePendingTaskExpected }): Promise<MobilePendingTaskEditorResult> {
+  return saveEditor(client, native, storage, input, true);
+}
+function saveEditor(client: MobileDraftClient, native: Native | null | undefined, storage: Files,
+  input: MobilePendingTaskEditorInput & { expected: MobilePendingTaskExpected }, terminalRecovery: boolean): Promise<MobilePendingTaskEditorResult> {
   return run(client, native, storage, input, async ctx => {
+    if (terminalRecovery && client.local.pending[input.owner.environmentId])
+      throw new ClientError('Resolve the active send before preparing this editor for recovery.');
     let marker = lookup(client, input.owner);
     if (!marker || mobilePendingTaskEditorKey(input.expected.owner) !== mobilePendingTaskEditorKey(input.owner)
       || !matching(client, input.expected)) throw changed();
     await read(client, ctx); if (!matching(client, marker)) throw changed();
     if (!await hold(client, ctx, marker)) return result('retained', marker, 'The queued task is unavailable. Keep the saved editor.');
     marker = await resume(client, ctx, marker);
-    const reason = await receipts(client, ctx, marker); if (reason) return result('retained', marker, reason);
+    const reason = await receipts(client, ctx, marker, terminalRecovery); if (reason) return result('retained', marker, reason);
     const captured = mobilePendingTaskDraftBuildRecord(client, marker);
     if (captured.status !== 'ready') { await ctx.persist(); return result('retained', marker, captured.reason); }
     if (canonical(captured.record) === canonical(marker.baseline.record)) {
-      await ctx.persist(); return result('saved', marker, '', captured.fingerprint);
+      await ctx.persist(); return result(terminalRecovery ? 'recovery-saved' : 'saved', marker, '', captured.fingerprint);
     }
     const request = mobileOutboxPrepareUpdate(client, captured.record, { expectedToken: marker.baseline.token, expectedRevision: marker.baseline.revision });
     const revision = contentRevision(client, marker);
@@ -183,7 +205,7 @@ export function mobilePendingTaskEditorSave(client: MobileDraftClient, native: N
     await ctx.persist(); if (!matching(client, marker)) throw changed();
     marker = await resume(client, ctx, marker);
     const newer = mobilePendingTaskDraftFingerprint(client, marker.draftKey) !== captured.fingerprint;
-    return result(newer ? 'retained' : 'saved', marker, newer ? 'The captured edits were saved. Newer changes are still in this editor.' : '', captured.fingerprint);
+    return result(newer ? 'retained' : terminalRecovery ? 'recovery-saved' : 'saved', marker, newer ? 'The captured edits were saved. Newer changes are still in this editor.' : '', captured.fingerprint);
   });
 }
 /** Persist projected cleanup before touching live content. Never close a bound editor.
@@ -203,6 +225,8 @@ export function mobilePendingTaskEditorFinish(client: MobileDraftClient, native:
     // before retrying Finish; the baseline check still rejects another winner.
     if (!await hold(client, ctx, marker)) return result('retained', marker, 'The queued task is unavailable. Keep the saved editor.');
     if (!unchanged() || !exactRow(client, marker)) throw changed();
+    const reason = await receipts(client, ctx, marker); if (reason) return result('retained', marker, reason);
+    if (!unchanged()) throw changed();
     const captured = mobilePendingTaskDraftBuildRecord(client, marker);
     if (captured.status !== 'ready' || canonical(captured.record) !== canonical(marker.baseline.record))
       return result('retained', marker, 'Save the current edits before releasing this task.');
