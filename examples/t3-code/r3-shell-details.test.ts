@@ -89,7 +89,7 @@ describe('shell preferences', () => {
     shellPrefs(owner).nightlyNoticeDismissed = true;
     const next = {};
     adoptShellPrefs(next, JSON.parse(JSON.stringify({ shell: shellPrefs(owner) })));
-    expect(next).toEqual({ shell: { nightlyNoticeDismissed: true, inlineClosed: ['env:t1'], providerUpdateDismissals: [], versionMismatchDismissals: [], lastEditor: '' } });
+    expect(next).toEqual({ shell: { nightlyNoticeDismissed: true, inlineClosed: ['env:t1'], providerUpdateDismissals: [], versionMismatchDismissals: [], lastEditor: '', chatgptSharingWelcome: [] } });
     expect(toggleInline(owner, 'env:t1')).toBe(true);
   });
 });

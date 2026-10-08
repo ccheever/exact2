@@ -19,6 +19,9 @@ import { applyTerminalMetadataStreamEvent, type TerminalSummary, type TerminalMe
 import { letGo } from './let-go';
 import { dropPrimaryDuplicates, primary, primaryEntry, withoutPrimaryDuplicates } from './local-primary';
 import { handoffKeptThread, keepAliveFleetEvent, keepAliveFleetPass } from './keep-alive';
+import { codexHandoffEvent } from './codex-handoff-events'; // managed-codex-chatgpt: the primary's handoff stream
+import { providerSetupEvent } from './provider-setup';
+import { fleetSetupHost } from './codex-fleet-host'; // managed-codex-chatgpt: a background computer's Codex setup streams
 
 export type FleetPhase = 'available' | 'connecting' | 'reconnecting' | 'connected' | 'error' | 'unsupported';
 export interface FleetEntry {
@@ -190,6 +193,7 @@ export class EnvironmentFleet {
         through = Math.max(through, seq);
         if (liveFleetEvent(entry, event)) { this.revision++; continue; } // live-streams.ts
         if (keepAliveFleetEvent(entry, event)) { this.revision++; continue; } // keep-alive.ts
+        if (num(event.generation, -1) === entry.generation && (codexHandoffEvent(event) || providerSetupEvent(fleetSetupHost(entry), event))) { this.revision++; continue; } // codex-handoff-events.ts, codex-fleet-host.ts
         const key = str(event.key), item = obj(event.value);
         if (num(event.generation, -1) !== entry.generation || str(event.subscriptionId) !== entry.subscriptions[key]) continue;
         if (key === 'terminal-metadata') {
