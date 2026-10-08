@@ -29,6 +29,18 @@ pub fn effort_name(effort: &str) -> &'static str {
     }
 }
 
+/// A provider's mark in a picker: an SF Symbol and its colour (`label` is
+/// the text colour, black or white with the appearance).
+pub fn provider_symbol(provider: &str) -> (&'static str, &'static str) {
+    match provider {
+        "claude" => ("asterisk", "#d97757"),
+        "codex" => ("terminal", "label"),
+        "gemini" => ("sparkle", "#4285f4"),
+        "grok" => ("bolt.fill", "#8e8e93"),
+        _ => ("person.crop.circle", "label"),
+    }
+}
+
 /// A provider's name.
 pub fn provider_name(provider: &str) -> String {
     match provider {

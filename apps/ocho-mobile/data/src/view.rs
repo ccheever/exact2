@@ -396,6 +396,19 @@ fn menu(items: impl IntoIterator<Item = (String, String, bool)>) -> String {
     Json::Array(items).to_string()
 }
 
+/// The accounts' menu: each with its provider's mark.
+fn account_menu(items: Vec<(String, String, bool, String)>) -> String {
+    use crate::model::launch::provider_symbol;
+    let items: Vec<Json> = items
+        .into_iter()
+        .map(|(id, title, selected, provider)| {
+            let (symbol, tint) = provider_symbol(&provider);
+            json!({ "id": id, "title": title, "selected": selected, "symbol": symbol, "tint": tint })
+        })
+        .collect();
+    Json::Array(items).to_string()
+}
+
 /// The new-session screen: where, as whom, which model, how hard.
 fn compose(m: &Model) -> Json {
     use crate::model::launch::{effort_name, provider_name};
@@ -447,11 +460,14 @@ fn compose(m: &Model) -> Json {
         "machine": machine,
         "machineMenu": menu(machines.iter().map(|(id, name)| (id.clone(), name.clone(), *id == l.machine))),
         "account": account,
-        "accountMenu": menu(accounts.iter().map(|a| (
+        "accountSymbol": crate::model::launch::provider_symbol(&l.provider).0,
+        "accountTint": crate::model::launch::provider_symbol(&l.provider).1,
+        "accountMenu": account_menu(accounts.iter().map(|a| (
             format!("{}/{}", a.provider, a.name),
             account_title(&a.name, &a.provider),
             a.name == l.account && a.provider == l.provider,
-        ))),
+            a.provider.clone(),
+        )).collect()),
         "model": m.launch_model_name(),
         "modelMenu": menu(models),
         "effort": effort_name(&l.effort),

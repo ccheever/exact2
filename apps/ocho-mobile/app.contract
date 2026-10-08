@@ -158,6 +158,8 @@ shape Compose
   machineMenu: string
   account: string
   accountMenu: string
+  accountSymbol: string
+  accountTint: string
   model: string
   modelMenu: string
   effort: string
@@ -399,7 +401,7 @@ component NewSession
       box flex=1 min-height=0
       column padding-left=24 padding-right=24 padding-bottom=6
         menu-picker testId="pick-machine" kind="inline" symbol="desktopcomputer" primary=model.machine menu=model.machineMenu message=machine height=44 width=model.machineWidth align-self="flex-start"
-        menu-picker testId="pick-account" kind="inline" symbol="person.crop.circle" primary=model.account menu=model.accountMenu message=account height=44 width=model.accountWidth align-self="flex-start"
+        menu-picker testId="pick-account" kind="inline" symbol=model.accountSymbol tint=model.accountTint primary=model.account menu=model.accountMenu message=account height=44 width=model.accountWidth align-self="flex-start"
       when model.launching
         row justify-content="center" align-items="center" gap=8 padding-top=6
           Spinner(size=14)
@@ -541,11 +543,12 @@ component Pairing
     togglePaste: action
   view
     scroll testId="pairing" flex=1 min-height=0 keyboardDismissMode="interactive"
-      column padding-left=20 padding-right=20 padding-top=64 padding-bottom=40 gap=16
+      // The mark at the top; what to do at the bottom, under the thumb.
+      column min-height="100%" box-sizing="border-box" padding-left=20 padding-right=20 padding-top=64 padding-bottom=24 gap=16
         image "assets/icon.png" width=88 height=88 border-radius=20 align-self="center" margin-bottom=8 aria-label=""
         text "Ocho" text-align="center" font-size=34 font-weight=700 line-height="41px" class=Label
-        text "Pick up your desktop sessions from your phone — even when your Mac is asleep." text-align="center" font-size=17 line-height="23px" class=Secondary
-        column class=Cell border-radius=14 padding=16 gap=6 margin-top=8
+        box flex=1 min-height=24
+        column class=Cell border-radius=14 padding=16 gap=6
           text "On your Mac, open Ocho and choose Pair Phone… from the View menu. Then scan the code it shows." font-size=15 line-height="20px" class=Label
         when model.error != ""
           text model.error testId="pair-error" text-align="center" font-size=14 line-height="19px" class=Danger

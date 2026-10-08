@@ -33,6 +33,8 @@ final class GlassComposer: ExactNativeInstance {
     private static let send: CGFloat = 34
     private static let inset: CGFloat = 5
     private static let plus: CGFloat = 44
+    /// Between the extra button and send.
+    private static let extraGap: CGFloat = 12
 
     private let host = ComposerHost()
     private let container: UIVisualEffectView
@@ -238,7 +240,7 @@ final class GlassComposer: ExactNativeInstance {
             field.clipsToBounds = true
         }
         let left: CGFloat = 16
-        let right = Self.inset * 2 + Self.send + (extra.isHidden ? 0 : Self.send + 2)
+        let right = Self.inset * 2 + Self.send + (extra.isHidden ? 0 : Self.send + Self.extraGap)
         let width = max(1, field.bounds.width - left - right)
         let trayHeight = attachments.isEmpty ? 0 : AttachmentTray.height
         tray.isHidden = attachments.isEmpty
@@ -253,7 +255,7 @@ final class GlassComposer: ExactNativeInstance {
         placeholder.frame = CGRect(x: left, y: top, width: width, height: line)
         button.frame = CGRect(x: bounds.width - Self.inset - Self.send, y: bounds.height - Self.inset - Self.send, width: Self.send, height: Self.send)
         // Beside send, in the field's coordinates.
-        extra.frame = CGRect(x: field.bounds.width - Self.inset - Self.send * 2 - 2, y: field.bounds.height - Self.inset - Self.send, width: Self.send, height: Self.send)
+        extra.frame = CGRect(x: field.bounds.width - Self.inset - Self.send * 2 - Self.extraGap, y: field.bounds.height - Self.inset - Self.send, width: Self.send, height: Self.send)
         let height = max(Self.minHeight, capped + vertical * 2) + trayHeight
         if abs(height - reported) >= 0.5 {
             reported = height

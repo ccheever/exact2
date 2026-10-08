@@ -6,8 +6,9 @@
 //     the trailing, as a settings sheet's row;
 //   - "link": `primary` then `secondary` (dimmer) and ›, centered; pressing
 //     it reports `change("press")` instead of opening a menu.
-// Props: `symbol`, `primary`, `secondary`, `kind`, `enabled`, and `menu`, a
-// JSON list of `{"id", "title", "selected"}`. Events: `message` with the
+// Props: `symbol` and its `tint` ("#rrggbb", or "label"), `primary`,
+// `secondary`, `kind`, `enabled`, and `menu`, a JSON list of `{"id",
+// "title", "selected"}`, each with an optional `symbol` and `tint`. Events: `message` with the
 // chosen item's id; `change` ("press") for a link.
 import Foundation
 
@@ -19,6 +20,24 @@ final class MenuPicker: ExactNativeInstance {
         let id: String
         let title: String
         var selected: Bool?
+        var symbol: String?
+        var tint: String?
+    }
+
+    /// `tint` as a colour: "#rrggbb", else the text colour.
+    static func color(_ tint: String?) -> UIColor {
+        guard let tint, tint.hasPrefix("#"), tint.count == 7, let value = UInt32(tint.dropFirst(), radix: 16) else {
+            return .label
+        }
+        return UIColor(red: CGFloat((value >> 16) & 0xff) / 255, green: CGFloat((value >> 8) & 0xff) / 255,
+                       blue: CGFloat(value & 0xff) / 255, alpha: 1)
+    }
+
+    /// An SF Symbol drawn in its tint, kept so (a menu would recolour it).
+    static func mark(_ symbol: String?, _ tint: String?) -> UIImage? {
+        guard let symbol, !symbol.isEmpty else { return nil }
+        return UIImage(systemName: symbol, withConfiguration: UIImage.SymbolConfiguration(textStyle: .body))?
+            .withTintColor(color(tint), renderingMode: .alwaysOriginal)
     }
 
     private let button = UIButton(type: .system)
@@ -83,8 +102,8 @@ final class MenuPicker: ExactNativeInstance {
             title.font = body
             title.foregroundColor = UIColor.label
             config.attributedTitle = title
-            if let symbol = props["symbol"], !symbol.isEmpty {
-                config.image = UIImage(systemName: symbol, withConfiguration: UIImage.SymbolConfiguration(textStyle: .body))
+            if let image = Self.mark(props["symbol"], props["tint"]) {
+                config.image = image
                 config.imagePadding = 12
             }
             config.baseForegroundColor = .label
@@ -99,7 +118,7 @@ final class MenuPicker: ExactNativeInstance {
         if kind != "link", let json = props["menu"], let data = json.data(using: .utf8),
            let items = try? JSONDecoder().decode([Item].self, from: data), !items.isEmpty {
             button.menu = UIMenu(children: items.map { item in
-                UIAction(title: item.title, state: item.selected == true ? .on : .off) { [weak self] _ in
+                UIAction(title: item.title, image: Self.mark(item.symbol, item.tint), state: item.selected == true ? .on : .off) { [weak self] _ in
                     self?.events.message(item.id)
                 }
             })

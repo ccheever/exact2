@@ -157,6 +157,8 @@ const COMPOSE: Shape = Record(&[
     ("machineMenu", Str),
     ("account", Str),
     ("accountMenu", Str),
+    ("accountSymbol", Str),
+    ("accountTint", Str),
     ("model", Str),
     ("modelMenu", Str),
     ("effort", Str),
