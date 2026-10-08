@@ -32,7 +32,7 @@ type Candidates = { at: number; loading: boolean; error: string; list: Obj[]; tr
 /** The panel's reads that a write patches in place (pages-pr-detail.ts hands them over). */
 export type PanelCache = { detail: Obj | null; activity: Obj | null };
 type State = {
-  comments: Map<string, string>; submitting: Map<string, string>; reviewing: Set<string>;
+  comments: Map<string, string>; sent: Map<string, string>; submitting: Map<string, string>; reviewing: Set<string>;
   serials: Map<string, number>; saving: Map<string, string>; previews: Map<string, string>;
   overlays: Map<string, Overlay>; candidates: Map<string, Candidates>; picking: Map<string, string>;
 };
@@ -40,7 +40,7 @@ const states = new WeakMap<object, State>();
 function stateOf(client: object): State {
   let state = states.get(client);
   if (!state) {
-    state = { comments: new Map(), submitting: new Map(), reviewing: new Set(), serials: new Map(), saving: new Map(), previews: new Map(), overlays: new Map(), candidates: new Map(), picking: new Map() };
+    state = { comments: new Map(), sent: new Map(), submitting: new Map(), reviewing: new Set(), serials: new Map(), saving: new Map(), previews: new Map(), overlays: new Map(), candidates: new Map(), picking: new Map() };
     states.set(client, state);
   }
   return state;
@@ -177,8 +177,11 @@ export type WriteContext = { client: T3Client; native: Native; reference: WriteR
 export async function prWrite(context: WriteContext, op: string, value: string): Promise<string | null> {
   const { client, reference } = context, state = stateOf(client), key = pullRequestReviewKey(reference);
   switch (op) {
-    case 'draft-comment': state.comments.set(key, value); return '';
-    case 'draft-summary': pullRequestReviewStore(client).setSummary(key, value); return '';
+    // The boxes keep their words here when they lose the focus (chatlocal:prw-*, beside the writes'
+    // one-at-a-time route): a blur that a press on Comment or Submit review caused can land after
+    // that write, so words already sent, or a box being sent, are not kept again.
+    case 'draft-comment': if (!state.submitting.has(key) && state.sent.get(`${key}|comment`) !== value) state.comments.set(key, value); return '';
+    case 'draft-summary': if (!state.reviewing.has(key) && state.sent.get(`${key}|review`) !== value) pullRequestReviewStore(client).setSummary(key, value); return '';
     case 'preview': { const [editor = '', text = ''] = fields(value, 2); state.previews.set(`${key}|${editor}`, text); return ''; }
     case 'discard-pending': pullRequestReviewStore(client).clear(key); return '';
     case 'post-comment': return postComment(context, value, 'comment');
@@ -211,7 +214,7 @@ async function postComment(context: WriteContext, text: string, action: 'comment
       return error instanceof Error ? error.message : 'Could not post the comment';
     }
     // The comment is posted: clear the box and close the composer, whatever the follow-up does.
-    state.comments.delete(key); bump(state, `${key}|comment`); bump(state, `${key}|close`);
+    state.comments.delete(key); state.sent.set(`${key}|comment`, text); bump(state, `${key}|comment`); bump(state, `${key}|close`);
     context.refresh();
     if (action === 'comment') return '';
     try {
@@ -245,7 +248,7 @@ async function submitReview(context: WriteContext, verdict: string, body: string
     return error instanceof Error ? error.message : 'The review could not be submitted';
   } finally { state.reviewing.delete(key); }
   store.removeComments(key, submittedComments.map(comment => comment.id));
-  store.clearSummary(key, body);
+  store.clearSummary(key, body); state.sent.set(`${key}|review`, body);
   bump(state, `${key}|review`); bump(state, `${key}|close`);
   pushToast(client, { kind: 'success', title: VERDICT_SENT[verdict]! });
   context.refresh();

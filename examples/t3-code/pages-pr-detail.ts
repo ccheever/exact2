@@ -358,3 +358,11 @@ export async function prCommand(client: T3Client, native: Native, op: string, se
   stale(client);
   return '';
 }
+/** The ops a pull request panel sends beside the writes' one-at-a-time route (chatlocal:prw-*): the boxes' drafts. */
+const LOCAL_WRITES = new Set(['draft-comment', 'draft-summary']);
+export async function prLocalWrite(client: T3Client, native: Native, op: string, selected: string, value: string): Promise<string> {
+  const selection = parseSelection(selected);
+  if (!selection || !LOCAL_WRITES.has(op)) return '';
+  const panel = panelsOf(client).get(JSON.stringify([client.environmentId, selectionRef(selection)])) ?? null;
+  return (await prWrite({ client, native, reference: writeReference(selection), panel, refresh: () => stale(client), now: composerNow(client) }, op, value)) ?? '';
+}

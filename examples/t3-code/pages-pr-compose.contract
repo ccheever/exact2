@@ -51,8 +51,10 @@ fn prcCanSubmit(verdict: string, summary: string, pending: number, required: boo
 component PrdComposer
   props
     writes: PrWrites
+    selected: string
     scope: string
     act: action
+    local: action
   state mode = "comment"
   state verdict = "comment"
   // The drafts as typed, and the write serial each was typed against: a write that landed clears
@@ -78,21 +80,22 @@ component PrdComposer
   action editComment(text: string)
     commentText = text
     commentSeen = writes.commentSerial
+  // Kept beside the writes' one-at-a-time route, so the blur a press on Comment causes never holds that press back.
   action keepComment(text: string)
-    act("draft-comment", text)
+    local("prw-draft-comment", selected, text)
   action editSummary(text: string)
     summaryText = text
     summarySeen = writes.reviewSerial
   action keepSummary(text: string)
-    act("draft-summary", text)
+    local("prw-draft-summary", selected, text)
   action chooseVerdict(value: string)
     verdict = value
   // Closing keeps the shown draft (the box also keeps it whenever it loses the focus).
   action closing
     if shownMode == "review"
-      act("draft-summary", summary)
+      local("prw-draft-summary", selected, summary)
     else
-      act("draft-comment", comment)
+      local("prw-draft-comment", selected, comment)
   action post(kind: string)
     if trim(comment) != "" and not locked
       act(kind == "comment" ? "post-comment" : `comment-${kind}`, comment)

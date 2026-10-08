@@ -230,7 +230,7 @@ component PrdCandidateRow
         row flex=1 min-width=0 align-items="baseline" overflow="hidden"
           text row.label flex-shrink=0 max-width="100%" text-align="left" font-size="0.875rem" line-height="1.25rem" color=prmInk() white-space="nowrap" overflow="hidden" text-overflow="ellipsis"
           when row.detail != ""
-            text ` · ${row.detail}` flex=1 min-width=0 text-align="left" font-size="0.875rem" line-height="1.25rem" color=prmMuted() white-space="nowrap" overflow="hidden" text-overflow="ellipsis"
+            text `· ${row.detail}` margin-left="0.25rem" flex=1 min-width=0 text-align="left" font-size="0.875rem" line-height="1.25rem" color=prmMuted() white-space="nowrap" overflow="hidden" text-overflow="ellipsis"
         when row.on
           box aria-label="Applied" role="img" flex-shrink=0 display="flex"
             PgIcon(name="check", size=14, color=prmInk())

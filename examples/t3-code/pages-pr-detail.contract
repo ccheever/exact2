@@ -210,7 +210,7 @@ component PrdBody
         row position="relative" width="100%" height=0 flex-shrink=0
           each composerKey in [detail.writes.key] key=composerKey
             column position="absolute" right="1rem" bottom="0.75rem" z-index=20
-              PrdComposer(writes=detail.writes, scope=scrollId, act=act)
+              PrdComposer(writes=detail.writes, selected=detail.ref, scope=scrollId, act=act, local=local)
 
 // The tab's leading slot: the lifecycle glyph, which becomes the close button.
 component PrTabClose

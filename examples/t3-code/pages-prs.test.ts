@@ -79,3 +79,25 @@ test('the detail offers only what the host can do and this viewer may ask', () =
   expect(checksTone([{ status: 'pending' }])).toBe('pending');
   expect(rowRef(entry(7))).toBe('{"projectId":"p1","host":"github.com","repository":"acme/app","number":7}');
 });
+
+test('one Refresh press invalidates once, though the announcement it causes asks the list again while it reads', async () => {
+  const { pullRequestsPage } = await import('./pages-prs');
+  const calls: string[] = [];
+  let release: () => void = () => {};
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  const client = {
+    environmentId: 'env', ready: true, generation: 1, revision: 0, local: {}, config: { environment: { capabilities: { pullRequests: true } } },
+    shell: { projects: [{ id: 'p1', title: 'Parity' }], threads: [] },
+    restAccess: () => ({ call: async () => ({ id: 'sub-1' }) }),
+    rpc: async (_native: unknown, method: string) => { calls.push(method); if (method === 'pullRequests.list' && calls.filter(c => c === 'pullRequests.list').length > 1) await gate; return method === 'pullRequests.list' ? { entries: [] } : {}; },
+  } as unknown as Parameters<typeof pullRequestsPage>[0];
+  const native = { available: true, watch: () => {}, later: async () => ({ ok: true }) } as unknown as Parameters<typeof pullRequestsPage>[1];
+  const input = { open: true, now: 0, selected: '', query: '', typed: false };
+  await pullRequestsPage(client, native, { ...input, refresh: 0 });
+  // The press, then two more asks while its read is out (each announcement bumps the revision).
+  const reads = [pullRequestsPage(client, native, { ...input, refresh: 1 }), pullRequestsPage(client, native, { ...input, refresh: 1 }), pullRequestsPage(client, native, { ...input, refresh: 1 })];
+  await Bun.sleep(5);
+  release();
+  await Promise.all(reads);
+  expect(calls.filter(c => c === 'pullRequests.invalidate').length).toBe(1);
+});

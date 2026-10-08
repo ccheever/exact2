@@ -237,6 +237,8 @@ export type PrRow = ReturnType<typeof presentRow>;
 
 type ListCache = { key: string; refresh: number; epoch: number; result: Obj | null; error: string; stats: Map<string, Obj> };
 const lists = new WeakMap<object, ListCache>();
+/** The Refresh press whose invalidate was sent, per client. */
+const invalidated = new WeakMap<object, number>();
 export type PrInput = { open: boolean; refresh: number; now: number; selected: string; query: string; typed: boolean };
 
 export function listPayload(prefs: PrPrefs, query: string): Obj {
@@ -279,7 +281,13 @@ export async function pullRequestsPage(client: T3Client, native: Native | null |
     const previous = cached, previousStats = cached?.stats ?? new Map<string, Obj>();
     cached = { key, refresh: input.refresh, epoch: pullRequestRefreshEpoch(client), result: null, error: '', stats: previousStats };
     try {
-      if (input.refresh > 0 && previous?.refresh === input.refresh - 1) await client.rpc(native, 'pullRequests.invalidate', {}).catch(() => ({}));
+      // One invalidate per Refresh press: each one announces a change, which asks this read again while
+      // the first is still out, and that read would invalidate (and announce) again (pr-writing-and-metadata
+      // live drive: 141 invalidates, ~50 detail and list reads in 3 s after one press).
+      if (input.refresh > 0 && previous?.refresh === input.refresh - 1 && invalidated.get(client) !== input.refresh) {
+        invalidated.set(client, input.refresh);
+        await client.rpc(native, 'pullRequests.invalidate', {}).catch(() => ({}));
+      }
       cached.result = await client.rpc(native, 'pullRequests.list', payload);
       const unmeasured = arr(cached.result.entries).filter(entry => !measured(entry) && !cached!.stats.has(entryKey(entry)));
       if (unmeasured.length) {

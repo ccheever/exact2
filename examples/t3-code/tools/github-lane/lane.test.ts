@@ -94,7 +94,7 @@ describe("the seed", () => {
     const two = scenarios({ second: "lane-second" });
     expect(one).toEqual(["open-clean", "draft", "closed", "merged", "conflict", "failing", "running", "behind", "many-files", "stack-bottom", "stack-top"]);
     expect(two.find((s) => s.key === "stack-top")?.after).toBe("stack-bottom");
-    expect(two.filter((s) => s.author === "second").map((s) => s.key)).toEqual(["second-review", "cross-repo"]);
+    expect(two.filter((s) => s.author === "second").map((s) => s.key)).toEqual(["second-review", "cross-repo", "writes-second"]);
     expect(two.find((s) => s.key === "cross-repo")?.fork).toBe(true);
     expect(Object.keys(two.find((s) => s.key === "many-files")!.files).length).toBe(310);
   });

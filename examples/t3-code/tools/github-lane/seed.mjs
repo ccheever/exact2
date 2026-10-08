@@ -78,6 +78,10 @@ export function scenarios({ second }) {
     { key: "cross-repo", author: "second", fork: true, branch: "docs/contributing", title: "Add contributing notes", body: "How to send a change.", from: "c7", files: { "CONTRIBUTING.md": "# Contributing\n\nOpen a pull request from a fork.\n" }, want: "open" },
     // pr-conversation-and-refresh: an approval the branch has moved on from (a stale verdict).
     { key: "stale-approval", branch: "feature/trim-input", title: "Trim the input first", body: "Trims the input before checking it.", from: "c7", files: { "src/trim.js": "export const trim = (text) => text.trim();\n" }, want: "open", conversation: "stale-approval", statuses: ok },
+    // pr-writing-and-metadata: the pull requests its drives write to (comments, reviews, edits,
+    // reactions, reviewers, labels), one by each account, so the conversation seeds above stay as they are.
+    { key: "writes-second", author: "second", branch: "feature/vowel-count", title: "Count the vowels in a line", body: "Adds a vowel counter.", from: "c7", files: { "src/vowels.js": "export const vowels = (text) => (text.match(/[aeiou]/gi) ?? []).length;\n" }, want: "open", statuses: ok },
+    { key: "writes-primary", branch: "docs/vowel-count", title: "Describe the vowel counter", body: "Notes on counting vowels.", from: "c7", files: { "docs/vowels.md": "# Vowels\n\nCall `vowels` with a line of text.\n" }, want: "open", statuses: ok },
   );
   // Two pull requests in one GitHub stack (the second's base is the first's branch).
   list.push(
@@ -86,7 +90,9 @@ export function scenarios({ second }) {
   );
   return list;
 }
-export const LABELS = [["area:ui", "1d76db", "Interface"], ["needs-review", "fbca04", "Waiting for a reviewer"], ["priority:high", "b60205", "Do this first"], ["chore", "c5def5", "Housekeeping"]];
+export const LABELS = [["area:ui", "1d76db", "Interface"], ["needs-review", "fbca04", "Waiting for a reviewer"], ["priority:high", "b60205", "Do this first"], ["chore", "c5def5", "Housekeeping"],
+  // A name with a space and a slash (pr-writing-and-metadata: `DELETE …/labels/<encoded>`).
+  ["area/docs and help", "0e8a16", "Pages people read"]];
 export const BULK = 105;
 export const bulkBranch = (n) => `chore/note-${String(n).padStart(3, "0")}`;
 export const branchOf = (base, generation) => (generation > 1 ? `${base}-${generation}` : base);
