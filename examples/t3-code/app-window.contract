@@ -68,7 +68,7 @@ component T3Window
     openSettings: action
     openPage: action
     openProviderSettings: action
-    sidebarHover: action
+    sidebarHoverRoot: action
     sidebarHoverId: string
     search: action
     openProjects: action
@@ -79,14 +79,6 @@ component T3Window
     resizeSidebar: action
     finishResize: action
     resetSidebarWidth: action
-    sidebarScrolled: action
-    sidebarDrag: action
-    sidebarDragEnd: action
-    dragId: string
-    dragTarget: string
-    dragVerb: string
-    dragOffset: number
-    sidebarScrollY: number
     noticeExit: string
     noticeDismiss: action
     pageCover: bool
@@ -132,8 +124,6 @@ component T3Window
     titleMenuPick: action
     menuPick: action
     branches: ComposerBranches
-    dragCX: number
-    dragCY: number
     terminalDrawer: TerminalDrawerView
     confirmOp: string
     rightMaximized: bool
@@ -280,9 +270,6 @@ component T3Window
     sbLetters: string
     sbEmoji: string
     sbSet: action
-    sidebarHoverLast: string
-    sidebarHoverY: number
-    sidebarHoverH: number
     snapshotSetupWasEnabled: bool
     origin: string
     credential: string
@@ -382,6 +369,70 @@ component T3Window
   // floating theme editor's fields count the focus a press gives them instead.
   action outsideFocus
     outsidePresses = outsidePresses + 1
+  // The root rewrite (20261008-app-contract-root-rewrite): the sidebar's hover card geometry, its list's scroll
+  // offset and a row drag, moved from app.contract. The sidebars are drawn in `when` arms (legacy, dark, light),
+  // so the window keeps their state. sidebarHoverId stays in the root: openSettings and openPage close the card.
+  state sidebarHoverLast = ""
+  state sidebarHoverY = 0 // the hovered row's frame in the window (r5-shell: less the list's scroll)
+  state sidebarHoverH = 0
+  state sidebarScrollY = 0
+  state dragId = ""
+  state dragSection = ""
+  state dragDx = 0
+  state dragDy = 0
+  state dragX0 = 0
+  state dragY0 = 0
+  state dragW = 0
+  state dragH = 0
+  state dragTopY = 0
+  state dragDividerY = 0
+  state dragWorkingY = 0
+  state dragSnoozedY = 0
+  state dragSettledY = 0
+  derive dragCX = dragX0 + dragW / 2 + dragDx
+  derive dragCY = dragY0 + dragH / 2 + dragDy
+  derive dragTarget = dragId == "" ? "" : (dragCX > sidebarWidth ? "context" : (dragSettledY > 0 and dragCY >= dragSettledY ? "settled" : (dragSnoozedY > 0 and dragCY >= dragSnoozedY ? "snoozed" : (dragWorkingY > 0 and dragCY >= dragWorkingY ? "working" : (dragCY < dragDividerY + 36 ? "pinned" : "active")))))
+  derive dragVerb = (dragTarget == "" or dragTarget == dragSection or dragTarget == "working" or dragTarget == "snoozed" or dragTarget == "context") ? "" : (dragTarget == "pinned" ? "pin" : (dragTarget == "settled" ? "settle" : (dragSection == "pinned" ? "unpin" : (dragSection == "settled" ? "unsettle" : "wake"))))
+  derive dragOffset = dragDy - (dragSection == "pinned" ? 24 : (dragSection == "active" ? 48 : 0))
+  action sidebarScrolled(x: number, y: number)
+    sidebarScrollY = y
+  action sidebarHover(id: string, over: bool)
+    if over
+      sidebarHoverLast = id
+      sidebarHoverY = frame(`row-${id}`).y - sidebarScrollY
+      sidebarHoverH = frame(`row-${id}`).height
+    else if id == ""
+      sidebarHoverY = -10000
+    sidebarHoverRoot(id, over)
+  action sidebarDrag(id: string, section: string, dx: number, dy: number)
+    if section != "working" and data.sidebar.dragEnabled and not commandPending
+      if dragId != id
+        dragId = id
+        dragSection = section
+        dragDx = 0
+        dragDy = 0
+        sidebarHoverRoot(sidebarHoverId, false) // the root's half closes the hovered row's card
+        dragX0 = frame(`row-${id}`).x
+        dragY0 = frame(`row-${id}`).y
+        dragW = frame(`row-${id}`).width
+        dragH = frame(`row-${id}`).height
+        dragTopY = frame("sidebar-list-top").y
+        dragDividerY = frame("sidebar-pinned-divider").y
+        dragWorkingY = data.sidebar.workingCount > 0 ? frame("shelf-working").y : 0
+        dragSnoozedY = data.sidebar.snoozedCount > 0 ? frame("shelf-snoozed").y : 0
+        dragSettledY = frame("shelf-settled").y
+      dragDx = dragDx + dx
+      dragDy = dragDy + dy
+  action sidebarDragEnd(id: string, vx: number, vy: number) // r11-upstream: a row-action sweep's release (`sweep|…`, sidebar.contract ThreadSection) is a drop too; sidebarRun sends `sidebar:drop` while no command is pending
+    if dragId == id or startsWith(id, "sweep|")
+      if dragTarget == "context"
+        sidebarRun("drop", id, `context|${dragCY}|${dragTopY}|${dragDividerY}|${dragCX >= frame("composer").x - 16 and dragCX <= frame("composer").x + frame("composer").width + 16 and dragCY >= frame("composer").y - 24 and dragCY <= frame("composer").y + frame("composer").height + 64}`)
+      else if dragTarget != "" or startsWith(id, "sweep|")
+        sidebarRun("drop", id, `${dragTarget}|${dragCY}|${dragTopY}|${dragDividerY}|false`)
+      dragId = ""
+      dragSection = ""
+      dragDx = 0
+      dragDy = 0
   view
     main testId="t3-code" pointerdown=outsidePressDown pointerup=outsidePressUp viewport-fit="cover" width="100%" height="100%" position="relative" display="flex" flex-direction="row" overflow="hidden" class=Canvas background-color=(settingsCore.palette.canvas == "" ? "light-dark(#fcfcfc, #0a0a0a)" : settingsCore.palette.canvas) font-family=(settingsCore.interfaceFont == "ui-serif" ? "ui-serif" : settingsCore.interfaceFont == "ui-rounded" ? "ui-rounded" : settingsCore.interfaceFont == "serif" ? "serif" : settingsCore.interfaceFont == "sans-serif" ? "sans-serif" : settingsCore.interfaceFont == "monospace" ? "monospace" : settingsCore.interfaceFont == "ui-monospace" ? "ui-monospace" : settingsCore.interfaceFont == "ui-sans-serif" ? "ui-sans-serif" : "system-ui") color=(settingsCore.palette.text == "" ? "light-dark(#27272a, #f5f5f5)" : settingsCore.palette.text)
       row width="100%" height="100%" min-width=0 position="relative" inert=sshPrompt.open testId="ssh-background"
