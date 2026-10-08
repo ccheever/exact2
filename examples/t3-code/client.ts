@@ -12,7 +12,7 @@ import { type ComposerControlsPrefs, emptyComposerControls, decodeComposerContro
 import { adoptStash } from './composer-editor-stash';
 import { adoptComposerFiles } from './composer-editor-files';
 import { sidebarOpened, sidebarRefreshed } from './sidebar-commands';
-import { reconnectOnLaunch, launchFocus } from './r8-pointer-reconnect';
+import { reconnectOnLaunch, launchFocus, primaryTakesFocus } from './r8-pointer-reconnect';
 import { adoptSidebarPrefs } from './sidebar-state';
 import { PROVIDER_OPS } from './providers';
 import { CONNECTION_OPS } from './connections';
