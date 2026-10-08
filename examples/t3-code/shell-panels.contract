@@ -16,6 +16,8 @@ use R5AttachmentBody from "./r5-panels.contract"
 use PrDetailView from "./pages-pr-detail.contract"
 use ChatDocument from "./markdown.contract"
 use Look from "./settings-appearance-look.contract"
+use KmItem from "./menu-keys.contract"
+use KeyMenu from "./menu-keys.contract"
 
 // RightPanelEmptyState in a 540pt panel (1px left border): its own top bar
 // (maximize, terminal drawer, right panel pressed) and the centred launcher,
@@ -136,6 +138,9 @@ component TitleMenu
   state subTop = 0
   state subSerial = -1
   state hoveredId = ""
+  // fix-keyboard-focus: the arrows, Home, End and a letter move through each list (menu-keys.contract); a
+  // submenu's row opened from the keyboard hands the focus to the submenu's first item.
+  state subKeyed = 0
   derive open = subSerial == serial ? sub : ""
   action hover(id: string, op: string, parent: string, offset: number, over: bool)
     if over
@@ -152,25 +157,30 @@ component TitleMenu
         hoveredId = ""
   action expand(id: string, offset: number)
     hover(id, "ui:submenu", "", offset, true)
-    match first(filter(children, (c) => c.submenu == id and not c.disabled))
-      case some(c)
-        focus(`title-menu-${c.id}`)
-      case none
+    subKeyed = subKeyed + 1
+    focus("title-submenu-keys")
+  action subBack(k: string)
+    if k == "ArrowLeft" and open != ""
+      preventDefault()
+      focus(`title-menu-${open}`)
+      sub = ""
   view
     box position="absolute" left=0 top=0 right=0 bottom=0 z-index=60 testId="title-menu-layer"
       button press=ui("close", "") dblclick=ui("rename", "") aria-label="Close menu" aria-keyshortcuts="Escape" testId="title-menu-backdrop" position="absolute" left=0 top=0 right=0 bottom=0 padding=0 border-width=0 background-color="#00000000"
       row position="absolute" left=x top=y align-items="flex-start"
         column min-width="8rem" max-width="24rem" padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-style="solid" border-width=1 border-color="light-dark(#27272a1a, #f5f5f51a)" background-color="light-dark(#fefefe, #101010)" box-shadow="0 20px 25px -5px #00000040, 0 8px 10px -6px #00000040" role="menu" aria-label="Thread actions" testId="title-menu"
-          each entry in items key=entry.id
-            when entry.separated
-              box height=1 margin-top="0.25rem" margin-bottom="0.25rem" margin-left="0.5rem" margin-right="0.5rem" background-color="light-dark(#e4e4e7, #ffffff0f)"
-            MenuRow(entry=entry, highlighted=(hoveredId == entry.id or open == entry.id), pick=pick, hover=hover, expand=expand)
-        when open != ""
-          column min-width="8rem" max-width="24rem" margin-left=-1 margin-top=subTop padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-style="solid" border-width=1 border-color="light-dark(#27272a1a, #f5f5f51a)" background-color="light-dark(#fefefe, #101010)" box-shadow="0 20px 25px -5px #00000040, 0 8px 10px -6px #00000040" role="menu" aria-label=open testId="title-submenu"
-            each entry in filter(children, (c) => c.submenu == open) key=entry.id
+          KeyMenu(menuId="title-menu-keys", items=map(filter(items, (entry) => not entry.disabled), (entry) => KmItem(id=`title-menu-${entry.id}`, label=entry.label)), keyed=0, gap="0px", modal=false)
+            each entry in items key=entry.id
               when entry.separated
                 box height=1 margin-top="0.25rem" margin-bottom="0.25rem" margin-left="0.5rem" margin-right="0.5rem" background-color="light-dark(#e4e4e7, #ffffff0f)"
-              MenuRow(entry=entry, highlighted=(hoveredId == entry.id), pick=pick, hover=hover, expand=expand)
+              MenuRow(entry=entry, highlighted=(hoveredId == entry.id or open == entry.id), pick=pick, hover=hover, expand=expand)
+        when open != ""
+          column min-width="8rem" max-width="24rem" margin-left=-1 margin-top=subTop padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-style="solid" border-width=1 border-color="light-dark(#27272a1a, #f5f5f51a)" background-color="light-dark(#fefefe, #101010)" box-shadow="0 20px 25px -5px #00000040, 0 8px 10px -6px #00000040" key=subBack role="menu" aria-label=open testId="title-submenu"
+            KeyMenu(menuId="title-submenu-keys", items=map(filter(children, (c) => c.submenu == open and not c.disabled), (entry) => KmItem(id=`title-menu-${entry.id}`, label=entry.label)), keyed=subKeyed, gap="0px", modal=false)
+              each entry in filter(children, (c) => c.submenu == open) key=entry.id
+                when entry.separated
+                  box height=1 margin-top="0.25rem" margin-bottom="0.25rem" margin-left="0.5rem" margin-right="0.5rem" background-color="light-dark(#e4e4e7, #ffffff0f)"
+                MenuRow(entry=entry, highlighted=(hoveredId == entry.id), pick=pick, hover=hover, expand=expand)
 
 component MenuRow
   props
@@ -184,12 +194,17 @@ component MenuRow
       expand(entry.id, entry.offset)
     else
       pick(entry.op, entry.target, entry.value, entry.confirmTitle, entry.confirmBody, entry.destructive)
+  // → opens a submenu's row as Enter does (fix-keyboard-focus).
+  action rowKey(k: string)
+    if k == "ArrowRight" and entry.op == "ui:submenu" and not entry.disabled
+      preventDefault()
+      expand(entry.id, entry.offset)
   // A disabled row hears no pointer (the fallback's pointer-events: none): a disabled Snooze never opens its submenu.
   action point(over: bool)
     if not entry.disabled
       hover(entry.id, entry.op, entry.submenu, entry.offset, over)
   view
-    button id=`title-menu-${entry.id}` press=activate hover=point disabled=entry.disabled role=(entry.id == "auto-settle:enabled" or entry.id == "auto-settle:disabled" ? "menuitemradio" : "menuitem") aria-checked=entry.checked aria-expanded=(entry.op == "ui:submenu" and highlighted) testId=`title-menu-${entry.id}` width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" gap="0.5rem" border-radius="0.375rem" border-width=0 display="flex" flex-direction="row" align-items="center" opacity=(entry.disabled ? 0.64 : 1) background-color=(highlighted ? (entry.destructive ? "light-dark(#fb2c3614, #fb414a1f)" : "light-dark(#f4f4f5, #ffffff0a)") : "#00000000")
+    button id=`title-menu-${entry.id}` press=activate hover=point key=rowKey disabled=entry.disabled role=(entry.id == "auto-settle:enabled" or entry.id == "auto-settle:disabled" ? "menuitemradio" : "menuitem") aria-checked=entry.checked aria-expanded=(entry.op == "ui:submenu" and highlighted) testId=`title-menu-${entry.id}` width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" gap="0.5rem" border-radius="0.375rem" border-width=0 display="flex" flex-direction="row" align-items="center" opacity=(entry.disabled ? 0.64 : 1) background-color=(highlighted ? (entry.destructive ? "light-dark(#fb2c3614, #fb414a1f)" : "light-dark(#f4f4f5, #ffffff0a)") : "#00000000")
       when entry.icon != ""
         ShellIcon(name=entry.icon, size=16, color=(entry.destructive ? "light-dark(#c10007, #ff6467)" : "light-dark(#71717b, #818181)"))
       when entry.checked

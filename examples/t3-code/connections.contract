@@ -23,6 +23,10 @@ use EnvironmentRoutes from "./connections-routes.contract"
 use NetworkView from "./connections-network.contract" // this-machine-network-access
 use NetworkAccessRows from "./connections-network.contract"
 use AuthorizedClients from "./connections-network.contract"
+use KmItem from "./menu-keys.contract"
+use kmOpenKey from "./menu-keys.contract"
+use KeyMenuOpen from "./menu-keys.contract"
+use kmBump from "./menu-keys.contract"
 
 // animate-status-pulse: full, then half opacity in six steps.
 keyframes cnStatusPulse
@@ -220,6 +224,16 @@ component ThisMachineSection
     busy: bool
     op: action
     ask: action
+  // fix-keyboard-focus: the "…" menu's keyboard (menu-keys.contract).
+  state keyed = 0
+  state keyArmed = false
+  action keyArm(on: bool)
+    keyArmed = on
+  action keyOpened(last: bool)
+    keyed = kmBump(keyed, last)
+  action triggerKey(k: string)
+    if kmOpenKey(k)
+      keyed = kmBump(keyed, false)
   // The confirm takes the focus as the reference's AlertDialog gives it to its first button: a
   // mounted node's `autofocus` waits while the switch holds the focus (HTML's rule).
   action toggle
@@ -234,9 +248,10 @@ component ThisMachineSection
         row min-height="1.75rem" min-width="1.75rem" gap="0.5rem" align-items="center" justify-content="flex-end"
           when machine.menu
             box position="relative"
-              button popovertarget="this-machine-menu-popup" class=PvIconButton aria-label="More actions for this machine" disabled=busy testId="this-machine-menu"
+              button popovertarget="this-machine-menu-popup" key=triggerKey focus=keyArm(true) blur=keyArm(false) class=PvIconButton aria-label="More actions for this machine" disabled=busy testId="this-machine-menu"
                 PvIcon(name="ellipsis", size=14, color="light-dark(#71717b, #818181)")
-              CnMenu(menuId="this-machine-menu-popup", label="More actions for this machine", width=196, endAlign=24, offsetX=0, offsetY=0)
+              KeyMenuOpen(menuId="this-machine-menu-popup", armed=keyArmed, opened=keyOpened)
+              CnMenu(menuId="this-machine-menu-popup", label="More actions for this machine", width=196, endAlign=24, offsetX=0, offsetY=0, items=[KmItem(id=`environment-icon-${machine.environment.environmentId}`, label="Icon")], keyed=keyed)
                 EnvironmentIconMenu(environment=machine.environment, op=op)
       PvGroupOpen()
         PvRow(title="Local environment", description=machine.description, status="", wide=wide, divided=false)
@@ -284,6 +299,17 @@ component EnvironmentRow
     tip = over ? which : (tip == which ? "" : tip)
   action toggleRoutes
     routesOpen = not routesOpen
+  // fix-keyboard-focus: the row menu's keyboard (menu-keys.contract).
+  state keyed = 0
+  state keyArmed = false
+  action keyArm(on: bool)
+    keyArmed = on
+  action keyOpened(last: bool)
+    keyed = kmBump(keyed, last)
+  derive menuItems = filter([KmItem(id=`environment-icon-${environment.environmentId}`, label="Icon"), KmItem(id=(busy ? "" : `environment-routes-item-${environment.environmentId}`), label=(routesOpen ? "Hide routes" : "Routes")), KmItem(id=(busy or environment.traceId == "" ? "" : `environment-trace-${environment.environmentId}`), label="Copy trace ID"), KmItem(id=(busy ? "" : (environment.active ? "forget-server" : `environment-remove-${environment.environmentId}`)), label="Remove from this device…")], (item) => item.id != "")
+  action triggerKey(k: string)
+    if kmOpenKey(k)
+      keyed = kmBump(keyed, false)
   view
     column width="100%" position="relative" border-top-style="solid" border-top-width=(environment.first ? 0 : 1) border-color="light-dark(#e3e3e780, #ffffff08)"
       row width="100%" box-sizing="border-box" padding-left="1rem" padding-right="1rem" padding-top="0.625rem" padding-bottom=(routesOpen ? "0px" : "0.625rem") gap="0.75rem" align-items="center" opacity=(environment.dimmed ? 0.6 : 1) testId=`environment-${environment.environmentId}`
@@ -326,9 +352,10 @@ component EnvironmentRow
             when tip == "switch"
               CnTooltip(tip=environment.switchTip, tipId=`environment-switch-tip-${environment.environmentId}`, above=20)
           box position="relative"
-            button popovertarget=`environment-menu-${environment.environmentId}-popup` class=PvIconButton aria-label=`More actions for ${environment.label}` disabled=busy testId=`environment-menu-${environment.environmentId}`
+            button popovertarget=`environment-menu-${environment.environmentId}-popup` key=triggerKey focus=keyArm(true) blur=keyArm(false) class=PvIconButton aria-label=`More actions for ${environment.label}` disabled=busy testId=`environment-menu-${environment.environmentId}`
               PvIcon(name="ellipsis", size=14, color="light-dark(#71717b, #818181)")
-            CnMenu(menuId=`environment-menu-${environment.environmentId}-popup`, label=`More actions for ${environment.label}`, width=196, endAlign=24, offsetX=0, offsetY=0)
+            KeyMenuOpen(menuId=`environment-menu-${environment.environmentId}-popup`, armed=keyArmed, opened=keyOpened)
+            CnMenu(menuId=`environment-menu-${environment.environmentId}-popup`, label=`More actions for ${environment.label}`, width=196, endAlign=24, offsetX=0, offsetY=0, items=menuItems, keyed=keyed)
               EnvironmentIconMenu(environment=environment, op=op)
               RouteMenuItem(label=(routesOpen ? "Hide routes" : "Routes"), menuId=`environment-menu-${environment.environmentId}-popup`, itemId=`environment-routes-item-${environment.environmentId}`, disabled=busy, choose=toggleRoutes)
               when environment.traceId != ""
@@ -349,15 +376,23 @@ component EnvironmentIconMenu
     environment: SavedEnvironment
     op: action
   state hovered = false
+  state lit = false
+  // fix-keyboard-focus: Enter or Space on "Icon" opens its submenu with the focus on its first kind.
+  state keyed = 0
   action hover(over: bool)
     hovered = over
+  action focused(on: bool)
+    lit = on
+  action triggerKey(k: string)
+    if kmOpenKey(k)
+      keyed = keyed + 1
   view
     column width="100%" position="relative"
-      button popovertarget=`environment-icon-${environment.environmentId}-popup` hover=hover role="menuitem" testId=`environment-icon-${environment.environmentId}` display="flex" flex-direction="row" align-items="center" justify-content="flex-start" gap="0.5rem" width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" border-width=0 border-radius="0.375rem" background-color=(hovered ? "light-dark(#27272914, #f5f5f514)" : "#00000000")
+      button id=`environment-icon-${environment.environmentId}` popovertarget=`environment-icon-${environment.environmentId}-popup` hover=hover focus=focused(true) blur=focused(false) key=triggerKey role="menuitem" testId=`environment-icon-${environment.environmentId}` display="flex" flex-direction="row" align-items="center" justify-content="flex-start" gap="0.5rem" width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" border-width=0 border-radius="0.375rem" background-color=(hovered or lit ? "light-dark(#27272914, #f5f5f514)" : "#00000000")
         CnMachineIcon(kind=environment.kind, size=16, color="light-dark(#27272a, #f5f5f5)")
         text "Icon" font-size="0.875rem" line-height="1.25rem" flex=1 min-width=0 color="light-dark(#27272a, #f5f5f5)"
         CnGlyph(name="chevron-right", size=16, color="light-dark(#27272a, #f5f5f5)")
-      CnMenu(menuId=`environment-icon-${environment.environmentId}-popup`, label="Icon", width=((environment.iconLock != "" ? 220 : 160) * rem / 16), endAlign=0, offsetX=(environment.iconLock != "" ? -225 : -165), offsetY=-37)
+      CnMenu(menuId=`environment-icon-${environment.environmentId}-popup`, label="Icon", width=((environment.iconLock != "" ? 220 : 160) * rem / 16), endAlign=0, offsetX=(environment.iconLock != "" ? -225 : -165), offsetY=-37, items=(environment.iconLock != "" ? [] : map(environment.icons, (choice) => KmItem(id=`environment-icon-${environment.environmentId}-${choice.kind}`, label=choice.label))), keyed=keyed)
         when environment.iconLock != ""
           text environment.iconLock font-size="0.875rem" line-height="1.25rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" opacity=0.64 color="light-dark(#27272a, #f5f5f5)" testId=`environment-icon-lock-${environment.environmentId}`
           CnSeparator()

@@ -96,7 +96,8 @@ describe('a dialog keeps Tab and Shift+Tab inside, in the reference order', () =
     expect(body).toContain('focus("snooze-close")'); // Shift+Tab from the toggle
     expect(body).toContain('focus(toggleId)'); // Tab from Close
     expect(body).toContain('button id="snooze-close" press=dismiss key=closeKey');
-    expect(body).toContain('button press=dismiss disabled=busy aria-keyshortcuts="Escape" testId="snooze-cancel"');
+    // fix-keyboard-focus: Escape is the dialog's unless the command palette covers it (the palette's first).
+    expect(body).toContain('button press=dismiss disabled=busy aria-keyshortcuts=(covered ? "" : "Escape") testId="snooze-cancel"');
     expect(body).toContain('focus(data.sidebar.dialogReturn)');
   });
 
@@ -123,7 +124,7 @@ describe('a dialog keeps Tab and Shift+Tab inside, in the reference order', () =
 
   test('the root moves the focus into a sidebar dialog however it opened, and title-menu confirms give it back', async () => {
     const app = await source('app.contract');
-    expect(app).toContain('task sidebarDialogFocus when data.sidebar.dialog != "" key=data.sidebar.dialog');
+    expect(app).toContain('task sidebarDialogFocus when data.sidebar.dialog != "" and not paletteOpen key=data.sidebar.dialog');
     expect(app).toContain('focus(data.sidebar.dialog == "snooze" ? "snooze-mode-date" : `sidebar-${data.sidebar.dialog}-cancel`)');
     expect(app).toMatch(/if startsWith\(confirmOp, "shell:"\)[^\n]*\n\s+focus\("thread-title"\)/);
     expect(app).toMatch(/confirmValue = ""\n\s+focus\("app-confirm-cancel"\)/); // the terminal's close asks with the focus in the confirm

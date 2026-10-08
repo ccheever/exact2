@@ -1,3 +1,8 @@
+use KmItem from "./menu-keys.contract"
+use KeyMenu from "./menu-keys.contract"
+use kmOpenKey from "./menu-keys.contract"
+use KeyMenuOpen from "./menu-keys.contract"
+use kmBump from "./menu-keys.contract"
 shape CnOption
   value: string
   label: string
@@ -56,11 +61,16 @@ component CnMenu
     endAlign: number
     offsetX: number
     offsetY: number
+    // fix-keyboard-focus: the menu's keyboard (menu-keys.contract): its enabled rows in order, and the
+    // trigger's count of Enter and Space.
+    items: list<KmItem>
+    keyed: number
   slot
   view
     column id=menuId popover="auto" position="absolute" margin-top=(0.25 * rem + offsetY) width=width margin-left=(endAlign > 0 ? endAlign - width + offsetX : offsetX)
       column width="100%" padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#2727291a, #ffffff1a)" background-color="light-dark(#ffffffd5, #171717d5)" box-shadow="0 16px 40px -18px #0000008c" role="menu" aria-label=label testId=menuId
-        children
+        KeyMenu(menuId=`${menuId}-keys`, items=items, keyed=keyed, gap="0px", modal=true)
+          children
 
 // One MenuItem row: 28pt, 4/8 inset, radius 6, highlight on hover.
 component CnMenuItem
@@ -76,10 +86,13 @@ component CnMenuItem
     submenu: string
     choose: action
   state hovered = false
+  state lit = false
   action hover(over: bool)
     hovered = over
+  action focused(on: bool)
+    lit = on
   view
-    button press=choose popovertarget=(submenu != "" ? submenu : menuId) popovertargetaction=(submenu != "" ? "toggle" : "hide") hover=hover disabled=disabled role="menuitem" testId=itemId display="flex" flex-direction="row" align-items="center" justify-content="flex-start" gap="0.5rem" width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" border-width=0 border-radius="0.375rem" opacity=(disabled ? 0.64 : 1) background-color=(hovered or highlighted ? "light-dark(#27272914, #f5f5f514)" : "#00000000")
+    button id=itemId press=choose popovertarget=(submenu != "" ? submenu : menuId) popovertargetaction=(submenu != "" ? "toggle" : "hide") hover=hover focus=focused(true) blur=focused(false) disabled=disabled role="menuitem" testId=itemId display="flex" flex-direction="row" align-items="center" justify-content="flex-start" gap="0.5rem" width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" border-width=0 border-radius="0.375rem" opacity=(disabled ? 0.64 : 1) background-color=(hovered or lit or highlighted ? "light-dark(#27272914, #f5f5f514)" : "#00000000")
       when icon != ""
         CnMachineIcon(kind=icon, size=16, color="light-dark(#27272a, #f5f5f5)")
       text label font-size="0.875rem" line-height="1.25rem" flex=1 min-width=0 white-space="nowrap" line-clamp=1 color=(destructive ? "light-dark(#c10007, #ff6467)" : "light-dark(#27272a, #f5f5f5)")
@@ -144,11 +157,21 @@ component CnSelect
     disabled: bool
     options: list<CnOption>
     choose: action
+  state keyed = 0
+  state keyArmed = false
+  action keyArm(on: bool)
+    keyArmed = on
+  action keyOpened(last: bool)
+    keyed = kmBump(keyed, last)
+  action triggerKey(k: string)
+    if kmOpenKey(k)
+      keyed = kmBump(keyed, false)
   view
     box position="relative" flex-shrink=0
-      button popovertarget=`${selectId}-menu` role="combobox" aria-label=label disabled=disabled testId=selectId display="flex" flex-direction="row" align-items="center" gap="0.25rem" width="9rem" height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#fcfcfc, #ffffff08)" opacity=(disabled ? 0.64 : 1)
+      button popovertarget=`${selectId}-menu` key=triggerKey focus=keyArm(true) blur=keyArm(false) role="combobox" aria-label=label disabled=disabled testId=selectId display="flex" flex-direction="row" align-items="center" gap="0.25rem" width="9rem" height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#fcfcfc, #ffffff08)" opacity=(disabled ? 0.64 : 1)
         text valueLabel font-size="0.75rem" line-height="1rem" flex=1 min-width=0 line-clamp=1 color="light-dark(#27272a, #f5f5f5)"
         CnGlyph(name="chevron-down", size=12, color="light-dark(#71717b, #818181)")
-      CnMenu(menuId=`${selectId}-menu`, label=label, width=144, endAlign=144, offsetX=0, offsetY=0)
+      KeyMenuOpen(menuId=`${selectId}-menu`, armed=keyArmed, opened=keyOpened)
+      CnMenu(menuId=`${selectId}-menu`, label=label, width=144, endAlign=144, offsetX=0, offsetY=0, items=map(options, (option) => KmItem(id=`${selectId}-option-${option.value}`, label=option.label)), keyed=keyed)
         each option in options key=option.value
           CnMenuItem(label=option.label, menuId=`${selectId}-menu`, itemId=`${selectId}-option-${option.value}`, destructive=false, disabled=false, highlighted=option.selected, note="", icon="", submenu="", choose=choose(option.value))

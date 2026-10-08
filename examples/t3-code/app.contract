@@ -1316,7 +1316,7 @@ component T3Code
   action shellTick
     if shell.toastCount > 0 or shell.ticking or commandPending
       shellClock = now()
-  task sidebarDialogFocus when data.sidebar.dialog != "" key=data.sidebar.dialog // dialog-shortcut-focus: a dialog the sidebar opens takes the focus at its first stop, however it opened (Base UI's initialFocus)
+  task sidebarDialogFocus when data.sidebar.dialog != "" and not paletteOpen key=data.sidebar.dialog // fix-keyboard-focus: and again as the palette over it closes (its finalFocus); dialog-shortcut-focus: a dialog the sidebar opens takes the focus at its first stop, however it opened (Base UI's initialFocus)
     after(1, focusSidebarDialog)
   action focusSidebarDialog
     focus(data.sidebar.dialog == "snooze" ? "snooze-mode-date" : `sidebar-${data.sidebar.dialog}-cancel`)

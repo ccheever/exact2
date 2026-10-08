@@ -251,6 +251,13 @@ on one resumes after that fix merges to `main` and an adoption round brings it i
 | Issue | Capability | Kind | Blocks | Status |
 | --- | --- | --- | --- | --- |
 | [X62](20261008-x62-hover-outside-the-box.md) | macOS `hover` that counts a node's overflowing descendants (as `pointerenter`/`pointerleave` do) and follows the hit-test, so a hover card beside its trigger hears the pointer | framework-gap | none ([fix-hover-cards](../tasks/20261008-fix-hover-cards.md) draws hover cards in a window-level layer with Base UI's close delay on the root's hover clock) | filed as [#322](https://github.com/ccheever/exact2/issues/322), fixed by [#327](https://github.com/ccheever/exact2/pull/327) (open); reproduced with a one-file app and a real pointer, and seen again in fix-hover-cards' real-pointer session |
+
+## Keyboard and focus fixes addition, 2026-10-08
+
+| Issue | Capability | Kind | Blocks | Status |
+| --- | --- | --- | --- | --- |
+| [X66](20261008-x66-popover-from-action-and-toggle.md) | A popover shown or hidden from an action (`showPopover`/`hidePopover`/`togglePopover`) and a `toggle` event when it opens or closes; today only an invisible `popovertargetaction` invoker over the trigger, pressed by a scoped `aria-keyshortcuts`, can do it (the popover sibling of #282) | framework-gap | none ([fix-keyboard-focus](../tasks/20261008-fix-keyboard-focus.md) builds ↓/↑-to-open on every menu with the invisible invokers (`KeyMenuOpen`) and keyboard-opening counts; the snooze row pins on focus and pointer instead of the menu's open state. Also wanted by #290's light dismiss and #307's in-scroll Usage card) | reproduced in two one-file apps on main `9314e7a81` (contract/, runner/, plan/ unchanged through `263c8b96e`); not #281/#112/#282 (#282 is `showModal` for dialogs); upstream [#319](https://github.com/ccheever/exact2/issues/319) ([Feature] `showPopover`/`hidePopover`/`togglePopover` from an action and a popover `toggle` event, filed by the coordinator 2026-10-08) |
+
 ## Upstream issues (filed 2026-10-06)
 
 Each was reproduced on exact2 `4c893fef6` before filing. Not filed: X13 (unverified on macOS; the web behavior is designed), X42 (already supported on main), X38–X41 (product scope, not framework gaps).

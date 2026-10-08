@@ -121,11 +121,33 @@ describe('D6: the table Copy menu is a window-level popup', () => {
     expect(placeTableMenu({ ...trigger, x: 40 }, 1280, 840).x).toBe(5);
     expect(placeTableMenu({ ...trigger, x: 1270 }, 1280, 840).x).toBe(1280 - 160 - 5);
   });
+  test('the menu keeps the table\'s Markdown and CSV apart as the Copy button sends them (fix-keyboard-focus: Copy as CSV copied nothing)', async () => {
+    // markdown.contract sends `${block.markdown}\t${block.csv}`, and Contract's `\t` is a real tab (contract/syntax lexer).
+    // Neither text holds a tab: r4_timeline_tables.rs collapses every cell's whitespace, and rows join with newlines.
+    const c = client(), native = new Fake();
+    await chatLocal(c, native, 'table-menu', 'tbl-1', '900|200|24|24|1280|840|| a | b |\n|---|---|\n| 1 | 2 |\ta,b\n1,2');
+    expect(tableMenuSnapshot(c).tableMenu[0]).toMatchObject({ markdown: '| a | b |\n|---|---|\n| 1 | 2 |', csv: 'a,b\n1,2' });
+    await chatLocal(c, native, 'copy-table', 'tbl-1', tableMenuSnapshot(c).tableMenu[0]?.csv ?? '');
+    expect(native.calls.some(call => call.op === 'copyText' && call.text === 'a,b\n1,2')).toBe(true);
+  });
+  test('↓ or ↑ on the Copy button opens the menu at its first or last item (fix-keyboard-focus)', async () => {
+    const c = client(), native = new Fake();
+    const table = '| a | b |\n|---|---|\ta,b';
+    await chatLocal(c, native, 'table-menu', 'tbl-1', `900|200|24|24|1280|840|keys:first\t${table}`);
+    expect(tableMenuSnapshot(c).tableMenu[0]).toMatchObject({ keyed: 1, markdown: '| a | b |\n|---|---|', csv: 'a,b' });
+    await chatLocal(c, native, 'table-menu-close', 'tbl-1', '');
+    await chatLocal(c, native, 'table-menu', 'tbl-1', `900|200|24|24|1280|840|keys:last\t${table}`);
+    expect(tableMenuSnapshot(c).tableMenu[0]).toMatchObject({ keyed: -1, markdown: '| a | b |\n|---|---|' });
+    await chatLocal(c, native, 'table-menu-close', 'tbl-1', '');
+    // A press asks for no item: the popup takes the focus.
+    await chatLocal(c, native, 'table-menu', 'tbl-1', `900|200|24|24|1280|840|${table}`);
+    expect(tableMenuSnapshot(c).tableMenu[0]).toMatchObject({ keyed: 0 });
+  });
   test('open, toggle, close on copy, and per thread', async () => {
     const c = client(), native = new Fake();
-    const value = '900|200|24|24|1280|840|| a | b |\n|---|---|\\u0000a,b'; // the template's raw `\u0000`
+    const value = '900|200|24|24|1280|840|| a | b |\n|---|---|\ta,b'; // the template's `\t`, a real tab
     await chatLocal(c, native, 'table-menu', 'tbl-1', value);
-    expect(tableMenuSnapshot(c).tableMenu).toEqual([{ id: 'tbl-1', x: 764, y: 228, triggerX: 900, triggerY: 200, markdown: '| a | b |\n|---|---|', csv: 'a,b' }]);
+    expect(tableMenuSnapshot(c).tableMenu).toEqual([{ id: 'tbl-1', x: 764, y: 228, triggerX: 900, triggerY: 200, markdown: '| a | b |\n|---|---|', csv: 'a,b', keyed: 0 }]);
     await chatLocal(c, native, 'table-menu', 'tbl-1', value);
     expect(tableMenuSnapshot(c).tableMenu).toEqual([]);
     await tableMenuAction(c, 'table-menu', 'tbl-1', value);
