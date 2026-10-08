@@ -49,6 +49,9 @@ query myDrafts():
 query total():
   return count(messages)
 
+query oldest():
+  return messages first 5 by byTime
+
 table pings:
   author: principal
   public 'pings are public'
@@ -550,6 +553,17 @@ test('a read the device cannot vouch for asks the server; offline it says so', a
       const unreached = await jo.read<number>('total', {}, Date.now());
       expect(unreached.offline).toBe(true);
       expect(unreached.server).toBeUndefined();
+    });
+    // A page ordered against the horizon (`first 5` of a `last 100` sync):
+    // the device holds none of those rows and says `unknown`; the server
+    // answers it whole. Offline, the device's rows are a partial, marked.
+    const first = await jo.read<{ body: string }[]>('oldest', {}, Date.now());
+    expect(first.server).toBe(true);
+    expect(first.data!.length).toBe(5);
+    await offline(async () => {
+      const partial = await jo.read<{ body: string }[]>('oldest', {}, Date.now());
+      expect(partial.offline).toBe(true);
+      expect(partial.complete).not.toBe(true);
     });
   } else {
     // The device vouched for it (complete coverage): then it must be the truth.

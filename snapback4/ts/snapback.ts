@@ -141,7 +141,7 @@ interface Partition {
   polling?: Promise<boolean>;
   /** Which queries the server answers, by name; forgotten after each round
    * (a round can adopt a new backend). */
-  routes: Map<string, 'device' | 'server'>;
+  routes: Map<string, 'device' | 'server' | 'held'>;
   /** Its entry in `partitions`, while it is there. */
   entry?: Promise<Partition>;
   /** The last client closed it: a new `open` makes another. */
@@ -259,20 +259,27 @@ export class Snapback {
     await this.ready();
     let route = this.partition.routes.get(name);
     if (!route) {
-      route = ok<'device' | 'server'>(await this.call({ op: 'route', name }));
+      route = ok<'device' | 'server' | 'held'>(await this.call({ op: 'route', name }));
       this.partition.routes.set(name, route);
     }
     if (route === 'server') return this.serverRead<T>(name, args);
     const local = ok<Read<T>>(await this.call({ op: 'read', name, args: args as Request, now: at }));
-    // A read the device cannot vouch for (a total past its sync horizon, a
-    // point it has not acquired) asks the server, as Snapback's own client
-    // does, unless a write here is still unsent: then the device's
-    // prediction stands until a round settles it.
-    if (local.loading !== true && local.speculative !== true) return local;
-    const queued = (await this.status()).queued ?? [];
-    if (queued.length) return local;
+    // Whose answer (CLIENT-AND-OPERATIONS.md, "The device reply"): the
+    // device's when it is not `unknown`, when it is `retained` history, or
+    // when the schema holds the query to the device; otherwise the server's.
+    // `E_PREDICT`/`E_NATIVE` with `unknown` mean evaluation never began.
+    if (route === 'held' || local.unknown !== true || local.retained === true) return local;
+    // The prediction fence, coarse: while any write is queued, the device's
+    // answer (with its predicted rows) stands; a speculative one is not an
+    // answer, so it shows as loading. Checked again when the server replies.
+    const placeholder = (extra: Partial<Read<T>>): Read<T> =>
+      local.speculative === true || local.loading === true
+        ? { loading: true, unknown: true, ...extra }
+        : { ...local, ...extra };
+    if (((await this.status()).queued ?? []).length) return placeholder({});
     const served = await this.serverRead<T>(name, args);
-    if (served.denied?.code === 'E_OFFLINE') return { ...local, offline: true };
+    if (served.denied?.code === 'E_OFFLINE') return placeholder({ offline: true });
+    if (((await this.status()).queued ?? []).length) return placeholder({});
     return served;
   }
 

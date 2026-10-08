@@ -302,11 +302,14 @@ const renewed = await db.refreshSession(now);          // near expiresAt: keep r
   `server: true`; unreached, it answers `denied` with `E_OFFLINE`, never an
   empty page. A synced table holds only its sync horizon (`sync … last 100 by
   byTime`): a read of rows outside it (`first 1` of a `last 100` horizon) is
-  `complete: false`. Read in the horizon's order, or widen it. A read the
-  device cannot vouch for (`loading` or `speculative`: a total over rows past
-  the horizon, a row it has not acquired) asks the server too, unless a write
-  is still queued here; unreached, it stays `loading` and says `offline: true`.
-  Show such a read as unavailable, never as zero.
+  `complete: false`. Read in the horizon's order, or widen it. Otherwise the reply says whose answer it is (Snapback's
+  CLIENT-AND-OPERATIONS.md, "The device reply"): the device's unless it is
+  `unknown` (rows past the horizon, a total over them, a page ordered
+  against the horizon), or `retained` history, or the schema holds the
+  query to the device; an `unknown` read asks the server, unless a write is
+  still queued here. Unreached, a usable partial comes back marked
+  `offline: true`, and a placeholder (`speculative`, `loading`) comes back as
+  `loading` with `offline: true`: show it as unavailable, never as zero.
 - **A round that ends `ok` delivered the outbox; it does not say each write
   was accepted.** `outcome(id)` does: `sent` with `result`, `failed` with
   `why` (the refusal's code, such as one the mutation `require`s), or
