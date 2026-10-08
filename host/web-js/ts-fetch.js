@@ -15,7 +15,7 @@ export const methodOf = (input, init) => String(init.method ?? (typeof Request =
 export function bodyFromRefusal(input, init) {
   const path = init.exactBodyFrom, method = methodOf(input, init);
   if (typeof path !== 'string' || !path.startsWith('app:/')) return 'exactBodyFrom must be an app:/ path';
-  if (path.length > 4096) return 'exactBodyFrom: a path is at most 4096 bytes';
+  if (new TextEncoder().encode(path).length > 4096) return 'exactBodyFrom: a path is at most 4096 bytes';
   if (/(^|\/)\.\.?(\/|$)|\0/.test(path.slice(5))) return 'exactBodyFrom: an app:/ path has no . or .. segment';
   if (method === 'GET' || method === 'HEAD') return `fetch: a ${method} request cannot have a body`;
   if (init.exactStream !== undefined && /^wss?:/i.test(String(input))) return 'exactBodyFrom: a WebSocket sends no body';
@@ -51,7 +51,10 @@ async function fromFile(input, init) {
   const reading = readBodyFile(path, tsGrantSet);
   reading.catch(() => {}); // a read that loses the race is nobody's
   try { body = await Promise.race([reading, ended]); } finally { stop(); }
-  const left = ms === undefined ? undefined : Math.max(1, Math.ceil(ms - (clock.now() - started)));
+  // By the clock too: a read that held the event loop past the deadline fires no timer first.
+  const spent = clock.now() - started;
+  if (ms !== undefined && spent >= ms) throw new FetchError('Timeout', `the request timed out after ${ms} ms`);
+  const left = ms === undefined ? undefined : Math.max(1, Math.ceil(ms - spent));
   return fetchWith(tsGrantSet, input, { ...rest, body, ...(left === undefined ? {} : { exactTimeout: left }) });
 }
 

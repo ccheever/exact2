@@ -650,6 +650,9 @@
     return out.join("");
   }
 
+  // A string's UTF-8 bytes: a surrogate half counts 2, so a pair counts 4.
+  function utf8Length(s) { var n = 0; for (var i = 0; i < s.length; i++) { var c = s.charCodeAt(i); n += c < 0x80 ? 1 : c < 0x800 ? 2 : c >= 0xd800 && c < 0xe000 ? 2 : 3; } return n; }
+
   // --- fetch: a request the host runs; a Promise for its reply -------------
   var nextTicket = 1;
   // ticket -> { resolve, reject, call, claimed, stream, signal, release }:
@@ -795,7 +798,7 @@
     if (bodyFrom !== undefined) {
       if (typeof bodyFrom !== "string" || bodyFrom.slice(0, 5) !== "app:/")
         return Promise.reject(new TypeError("exactBodyFrom must be an app:/ path"));
-      if (bodyFrom.length > 4096)
+      if (utf8Length(bodyFrom) > 4096)
         return Promise.reject(new TypeError("exactBodyFrom: a path is at most 4096 bytes"));
       if (/(^|\/)\.\.?(\/|$)|\0/.test(bodyFrom.slice(5)))
         return Promise.reject(new TypeError("exactBodyFrom: an app:/ path has no . or .. segment"));

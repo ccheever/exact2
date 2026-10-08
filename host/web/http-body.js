@@ -187,17 +187,21 @@ export async function request(op, { grantSet, loadPageNative, moduleLoader, loca
     if (body) return failed(2, 'fetch: a request has one body: body or exactBodyFrom');
     if (/^(GET|HEAD)$/i.test(method)) return failed(2, 'fetch: a GET or HEAD request cannot have a body');
     if (typeof op.bodyFrom !== 'string' || !op.bodyFrom.startsWith('app:/')) return failed(2, 'exactBodyFrom must be an app:/ path');
-    if (op.bodyFrom.length > 4096 || /(^|\/)\.\.?(\/|$)|\0/.test(op.bodyFrom.slice(5))) return failed(2, `exactBodyFrom ${op.bodyFrom.slice(0, 256)}: an app:/ path has no . or .. segment, and is at most 4096 bytes`);
+    if (new TextEncoder().encode(op.bodyFrom).length > 4096 || /(^|\/)\.\.?(\/|$)|\0/.test(op.bodyFrom.slice(5))) return failed(2, `exactBodyFrom ${op.bodyFrom.slice(0, 256)}: an app:/ path has no . or .. segment, and is at most 4096 bytes`);
     // Refused before the storage adapters load, which an app without file grants does not ship.
     if (!coversPath(effective, 'fs.read', op.bodyFrom))
       return failed(2, `exactBodyFrom ${op.bodyFrom}: denied: fs.read ${op.bodyFrom}: no grant covers it; grant \`fs.read ${op.bodyFrom}\``);
     // The read yields to the deadline and to letting go: nothing is sent once either has ended it.
+    if (deadline?.aborted && !controller.signal.aborted) return failed(10, `the request timed out after ${op.timeoutMs} ms`);
+    if (signal.aborted) return failed(4, 'request aborted');
+    const started = performance.now();
     const stopped = new Promise(resolve => signal.addEventListener('abort', resolve, { once: true }));
     const reading = bodyFile(op.bodyFrom, effective);
     reading.catch(() => {}); // a read that loses the race is nobody's
     try { fileBody = await Promise.race([reading, stopped]); }
     catch (error) { return failed(error?.code === 'agent' ? 3 : 2, error); }
-    if (deadline?.aborted && !controller.signal.aborted) return failed(10, `the request timed out after ${op.timeoutMs} ms`);
+    // By the clock too: a read that held the event loop past the deadline fires no timer first.
+    if (deadline && !controller.signal.aborted && (deadline.aborted || performance.now() - started >= op.timeoutMs)) return failed(10, `the request timed out after ${op.timeoutMs} ms`);
     if (signal.aborted) return failed(4, 'request aborted');
     if (!active()) return failed(4, 'request source unloaded');
   }

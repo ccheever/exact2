@@ -502,6 +502,15 @@ fn artifact_graph(
     }
     // A purpose's text is in the installed binary's Info.plist: a bundle
     // whose purposes differ is a binary release (LLP 1069.008 D5).
+    // What a TypeScript module may ask of the binary's prelude (compat.rs
+    // `TYPESCRIPT_RUNTIME`): an older cohort's prelude would ignore it
+    // silently (`exactBodyFrom` sent as an empty body), so it takes no bundle.
+    if inputs.get("typescriptRuntime").is_some() {
+        requires.insert(
+            "typescriptRuntime".into(),
+            inputs["typescriptRuntime"].clone(),
+        );
+    }
     if inputs.get("grantPurposes").is_some() {
         requires.insert("grantPurposes".into(), inputs["grantPurposes"].clone());
     }

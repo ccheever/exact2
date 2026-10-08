@@ -20,7 +20,8 @@ function request(input, init) {
   const bodyFrom = init.exactBodyFrom === undefined ? undefined : init.exactBodyFrom, refusal = bodyFrom === undefined ? null : bodyFromRefusal(input, init);
   if (refusal) throw new TypeError(refusal);
   const raw = init.body == null ? undefined : new TextEncoder().encode(String(init.body));
-  return { method: methodOf(input, init), url: String(input), headers: [...new Headers(init.headers ?? [])], raw, bodyFrom, maxResponseBytes: independent ?? 1048576 };
+  const request = typeof Request === 'function' && input instanceof Request ? input : null;
+  return { method: methodOf(input, init), url: request ? request.url : String(input), headers: [...new Headers(init.headers ?? request?.headers ?? [])], raw, bodyFrom, maxResponseBytes: independent ?? 1048576 };
 }
 export function open({ input, init }, conv, grantSet, deliver, controller) {
   let req;

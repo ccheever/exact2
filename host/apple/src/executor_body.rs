@@ -11,6 +11,12 @@
 //! have been, at most 64 MiB per running request. Like other allocations
 //! during native work it is bounded by the worker and stream counts, not by
 //! the lane's byte reservations (the core's `Core` comment).
+//!
+//! Time: the request's deadline is armed before the read and checked after
+//! it, so a read that outlasts it sends nothing and the request fails
+//! `Timeout`. The read itself, of a local file, is not interrupted: a
+//! stalled disk holds the worker until it returns, as a stalled `readFile`
+//! holds storage's.
 use exact_runner::{FailureKind, Outcome, Request, MAX_BODY_FROM_BYTES};
 use ibex2::stdlib::app_fs::AppDirectories;
 use std::path::PathBuf;

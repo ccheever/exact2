@@ -510,6 +510,14 @@ pins the app's directory handles when the host names them; the deadline and
 an abort cover the file read on every carrier; Windows refuses until it has a
 capped read; the path (at most 4096 bytes) is charged at admission; a
 WebSocket refuses a file body; the web checks the size before making a Blob.
+Round 2 (`code-2026-10-08-body-from-r2.*.md`), folded: the bundle's
+receipt requires `typescriptRuntime` and the classifier refuses a cohort
+whose prelude is older (an id change alone was not enough: delivery lets
+ids differ); both web carriers check the deadline by the clock and an
+already-aborted signal before sending; the JS target's stream takes a
+`Request`'s URL and headers; the path cap counts UTF-8 bytes. Not changed: a
+native read of a local file is not interrupted mid-read (the deadline is
+checked after it, and nothing is sent).
 
 ### D7 — Sessions
 
