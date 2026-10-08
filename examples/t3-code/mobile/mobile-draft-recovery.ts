@@ -1,3 +1,4 @@
+import { mobileDraftAttachmentRecord, mobileDraftAttachmentOrdersHydrate, mobileDraftAttachmentOrdersPersisted, mobileDraftAttachmentsForSend } from './draft-attachment-order';
 import { mobileDraftSettingsHandles } from './mobile-draft-settings';
 // Pinned365aa87982 use-thread-composer-state run-loss recovery and composerContext.
 // @ref llp/1109.005-composer-and-transcript.decision.md#scratch-tasks-and-queue-boundaries
@@ -57,6 +58,7 @@ export function mobileAdoptRecoveredDraft(client: T3Client, edit: Recovery): 'ke
   });
   client.local.drafts[key] = edit.text; client.local.snapshotDrafts[key] = images;
   setDraftFiles(client.local, [...files, ...recoveredFiles]);
+  mobileDraftAttachmentRecord(client, key, edit.attachments.map(file => file.id));
   setMarkers(client, { ...saved, [edit.owner]: clone({ key, owner: edit.owner, revision: edit.revision, origin: edit.origin,
     environmentId: edit.environmentId, context: edit.context ?? null,
     attachments: edit.attachments.map(file => ({ id: file.id, uploadId: file.uploadId })) }) });
@@ -87,6 +89,7 @@ function hydrate(client: T3Client, saved: Obj) {
   }
   setMarkers(client, recovered);
   mobileNewTaskDraftHydrate(client, saved);
+  mobileDraftAttachmentOrdersHydrate(client, saved);
   for (const raw of Object.values(recovered)) {
     const marker = obj(raw); adoptTerminals(client, client.local.drafts[str(marker.key)] ?? '', obj(marker.context));
   }
@@ -188,6 +191,7 @@ export class MobileDraftClient extends T3Client {
     return super.persist({ fs: { ...storage.fs, atomicWriteFile: async (path, bytes) => {
       const document = obj(JSON.parse(new TextDecoder().decode(bytes)));
       document.mobileNewTaskDrafts = mobileNewTaskDraftPersisted(this) as unknown as Obj;
+      document.mobileAttachmentOrder = mobileDraftAttachmentOrdersPersisted(this);
       await storage.fs.atomicWriteFile(path, new TextEncoder().encode(JSON.stringify(document)));
     } } });
   }
@@ -198,8 +202,10 @@ export class MobileDraftClient extends T3Client {
     if (!retry && (launch || pending.method === 'orchestration.dispatchCommand' && pending.payload.type === 'message.dispatch')) {
       const body = launch ? obj(pending.payload.initialMessage) : pending.payload;
       const key = launch ? mobileNewTaskDraftCurrent(this)?.key || `${this.environmentId}:new:${str(pending.payload.projectId)}` : `${this.environmentId}:${str(pending.payload.threadId)}`;
-      const context = mobileRecoveredMessageContext(this, key, str(body.text), arr(body.attachments), body.context ? obj(body.context) : undefined);
-      if (context) pending.payload = launch ? { ...pending.payload, initialMessage: { ...body, context } } : { ...pending.payload, context };
+      const attachments = mobileDraftAttachmentsForSend(this, key, arr(body.attachments), str(body.text));
+      const context = mobileRecoveredMessageContext(this, key, str(body.text), attachments, body.context ? obj(body.context) : undefined);
+      const ordered = { ...body, ...(Array.isArray(body.attachments) ? { attachments } : {}), ...(context ? { context } : {}) };
+      pending.payload = launch ? { ...pending.payload, initialMessage: ordered } : ordered;
     }
     const capture = mobileNewTaskLaunchPrepare(this, pending);
     try {

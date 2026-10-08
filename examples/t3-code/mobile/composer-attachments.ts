@@ -1,3 +1,4 @@
+import { mobileDraftAttachmentIds, mobileDraftAttachmentRecord, mobileDraftAttachmentsOrdered } from './draft-attachment-order';
 import { mobileNewTaskDraftLookup, mobileNewTaskDraftChanged, mobileNewTaskDraftPersisted, mobileNewTaskDraftQueueFiles } from './mobile-new-task-drafts';
 import { mobileQueuedEditPresentation } from './queued-edit';
 import { composerAttachmentPreview, composerAttachmentPreviewRequest, prepareComposerAttachmentPreviews } from './composer-attachment-previews';
@@ -42,7 +43,8 @@ export function mobileComposerAttachments(client: T3Client = mobileClient, now =
   const files = referencedFiles(client.local, client.draftKey, client.draft).map(file => ({ id: file.id, name: file.name,
     kind: file.mimeType.startsWith('video/') ? 'video' : file.mimeType.startsWith('image/') ? 'image' : 'file', mimeType: file.mimeType,
     size: formatAttachmentSize(file.sizeBytes), preview: '', removeOperation: 'editorlocal:r4c-video-remove', disabled }));
-  return { previewRequest: composerAttachmentPreviewRequest(client, [...images, ...files], now), contentOwner: target.owner, items: [...images, ...files].map(item => ({ ...item, preview: composerAttachmentPreview(client, item, now) })), canPick: !!client.projectId && !disabled && remaining > 0 && !activeInput(client),
+  const items = mobileDraftAttachmentsOrdered(client, client.draftKey, [...images, ...files]);
+  return { previewRequest: composerAttachmentPreviewRequest(client, items, now), contentOwner: target.owner, items: items.map(item => ({ ...item, preview: composerAttachmentPreview(client, item, now) })), canPick: !!client.projectId && !disabled && remaining > 0 && !activeInput(client),
     supportsFiles: attachStagingLimit(client) > 0, remaining, error: errors.get(client) ?? '' };
 }
 
@@ -58,9 +60,12 @@ export async function mobileComposerAttachmentAction(source: string, id: string,
   const key = client.draftKey, environmentId = client.environmentId, generation = client.generation;
   const current = () => mobileComposerTargetCurrent(client, target) && key === client.draftKey && environmentId === client.environmentId && generation === client.generation;
   const independent = !!mobileNewTaskDraftLookup(client, key);
-  const content = () => JSON.stringify([client.local.drafts[key], client.local.snapshotDrafts[key], draftFiles(client.local).filter(file => file.draftKey === key)]);
+  const originalOrder = mobileDraftAttachmentIds(client, key);
+  let picked: Obj[] = [];
+  const content = () => JSON.stringify([client.local.drafts[key], client.local.snapshotDrafts[key], draftFiles(client.local).filter(file => file.draftKey === key), mobileDraftAttachmentIds(client, key)]);
   let observed = content();
   const observe = () => {
+    if (picked.length) mobileDraftAttachmentRecord(client, key, [...originalOrder, ...picked.map(file => str(file.id))]);
     const next = content();
     if (independent && next !== observed) mobileNewTaskDraftChanged(client, key);
     observed = next;
@@ -71,7 +76,6 @@ export async function mobileComposerAttachmentAction(source: string, id: string,
     document.mobileNewTaskDrafts = mobileNewTaskDraftPersisted(client) as unknown as Obj;
     await storage.fs.atomicWriteFile(path, new TextEncoder().encode(JSON.stringify(document)));
   } } } : storage;
-  let picked: Obj[] = [];
   const cleanup = async () => { for (const file of picked) if (str(file.id)) await bridgeReply(native,
     { op: file.kind === 'image' ? 'snapshotDraftRemove' : 'composerAttachRemove', id: file.id }).catch(() => undefined); };
   picking.add(client); errors.delete(client);
@@ -113,14 +117,16 @@ export async function mobileComposerAttachmentAction(source: string, id: string,
       const request = obj(input);
       observe();
       if (request.op !== 'composerAttachPick') {
-        if (!independent || request.op !== 'editorInsert') return native.later(input);
+        if (request.op !== 'editorInsert') return native.later(input);
         // Shared image-only fallback reads the current key after this await.
         // Finish that insertion into the captured draft even if another opens.
         let reply: Obj | null = null;
         if (current()) { try { reply = obj(await native.later(input)); } catch { /* Keep accepted bytes and their reference. */ } }
         if (!reply?.ok || obj(reply.value).applied !== true) {
           const prompt = client.local.drafts[key] ?? '', text = str(request.text);
-          if (mobileNewTaskDraftLookup(client, key)) client.local.drafts[key] = `${prompt}${prompt && !/\s$/.test(prompt) ? ' ' : ''}${text} `;
+          const owns = independent ? !!mobileNewTaskDraftLookup(client, key)
+            : mobileDraftAttachmentIds(client, key).some(id => picked.some(file => file.id === id));
+          if (owns) client.local.drafts[key] = `${prompt}${prompt && !/\s$/.test(prompt) ? ' ' : ''}${text} `;
         }
         observe();
         return { ok: true, generation, value: { applied: true } };
