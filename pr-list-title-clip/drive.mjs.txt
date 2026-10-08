@@ -1,0 +1,95 @@
+// pr-list-title-clip live drive (agent mode, one session per build, not committed):
+//   bun drive.mjs <before|after> <outDir>
+// The primary lane server runs on 127.0.0.1:16300 (lane-start.mjs). The drive pairs with a fresh
+// single-use token (never printed), opens Pull Requests, finds #159 ("Describe the vowel counter",
+// the primary's own) and reads its row; then the lane gh renames it on GitHub, a list Refresh reads it
+// again, and the row is read once more (screenshot, the title text's layout and native view); then
+// #149, the longest seeded title, at a narrow window; finally the title is put back and read back.
+import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+const [which, outArg] = process.argv.slice(2);
+if (!['before', 'after'].includes(which) || !outArg) throw new Error('usage: drive.mjs <before|after> <outDir>');
+const W = '/Users/daehyeonmun/orca/workspaces/exact2/t3-code-pr-list-title-clip';
+const T = `${W}/target/pr-list-title-clip`;
+const out = resolve(outArg); mkdirSync(out, { recursive: true });
+process.env.EXACT_APP_DIR = `${W}/examples/t3-code`;
+if (which === 'before') process.env.EXACT_MAC_BIN = `${T}/base/T3 Code (Exact).app/Contents/MacOS/T3 Code (Exact)`;
+const { open } = await import(`${W}/scripts/agent.mjs`);
+const lane = await import(`${W}/examples/t3-code/tools/github-lane/lane.mjs`);
+const lib = await import(`${W}/examples/t3-code/tools/github-lane/lib.mjs`);
+const paths = lib.lanePaths();
+const REPO = 'daehyeonmun2021/playground', PR = 159, LONG = 149;
+const ORIGINAL = 'Describe the vowel counter', EDITED = 'Describe the vowel counter (edited)';
+const origin = 'http://127.0.0.1:16300';
+const rec = (line) => { const text = `${new Date().toISOString()} [${which}] ${line}`; appendFileSync(`${out}/record.txt`, text + '\n'); console.log(text); };
+const gh = (args) => lib.api(paths, 'primary', args);
+const titleOnGitHub = () => gh([`repos/${REPO}/pulls/${PR}`]).body?.title;
+const setTitle = (title) => gh(['-X', 'PATCH', `repos/${REPO}/pulls/${PR}`, '-f', `title=${title}`]).status;
+
+let pid = null;
+const s = await open({ host: 'macos', size: [1280, 840], env: { HOME: `${T}/apphome-${which}` }, storage: `plc-${which}`, epoch: Date.now(),
+  onProcess: (p) => { pid = p?.pid ?? null; writeFileSync(`${out}/app.pid`, String(pid)); } });
+rec(`app pid ${pid}, base binary: ${process.env.EXACT_MAC_BIN ?? '(branch build)'}`);
+const nodes = async () => (await s.tree()).nodes;
+const ids = async () => (await nodes()).map((n) => n.props?.testId).filter(Boolean);
+const has = async (id) => (await ids()).includes(id);
+const settle = async (ms = 600) => { await s.clock(`+${ms} real`); await s.clock('settle'); };
+const waitFor = async (pred, ms = 45_000) => { const end = Date.now() + ms; while (Date.now() < end) { try { if (await pred()) return true; } catch {} await settle(1000); } return false; };
+const shot = async (name, target = true) => { await s.screenshot(`${out}/${name}.png`, target); rec(`shot ${name}`); };
+const clearToasts = async () => { for (const id of (await ids()).filter((id) => id.startsWith('toast-dismiss-'))) { try { await s.tap(id); await settle(300); } catch {} } };
+const rowTitle = async (n) => { const row = (await nodes()).find((x) => x.props?.testId === `pr-row-${n}`); return row ? (row.props?.['aria-label'] ?? row.props?.label ?? row.label ?? JSON.stringify(row).slice(0, 300)) : null; };
+/** The row's box in window points, for cropping the window screenshot. */
+const rowBox = async (name, n) => { const reply = await s.layout(`pr-row-${n}`); const box = reply.node?.space?.viewport ?? null; writeFileSync(`${out}/${name}-rowbox.json`, JSON.stringify(box)); rec(`${name} row box ${JSON.stringify(box)}`); };
+/** The title's text node in the row: its rows (text-align and the overflow pair), frame and native view. */
+const inspect = async (name, text) => {
+  try {
+    const reply = await s.layout(text, null, { native: { depth: 1, limit: 4 } });
+    const node = reply.node ?? {};
+    const rows = Object.fromEntries(['text_align', 'text_overflow', 'overflow_x', 'white_space', 'min_width', 'flex_shrink', 'direction'].map((k) => [k, node.rows?.[k] ?? node.styles?.[k] ?? null]));
+    const summary = { frame: node.frame, absolute: node.absolute, viewport: node.space?.viewport, clip: node.visible, rows, native: node.native };
+    writeFileSync(`${out}/${name}-layout.json`, JSON.stringify(reply, null, 1));
+    rec(`${name}: ${JSON.stringify(summary).slice(0, 1500)}`);
+  } catch (e) { rec(`${name}: layout failed: ${e.message.slice(0, 300)}`); }
+};
+
+try {
+  await settle(2000);
+  if (await waitFor(() => has('welcome-pairing-link'), 30_000)) {
+    await s.type('welcome-pairing-link', `${origin}/pair#token=${lane.pairingToken('primary')}`); await settle(400);
+    await s.tap('welcome-pair'); await settle(5000);
+  }
+  for (const id of ['welcome-continue', 'welcome-agents-continue', 'welcome-skip-import']) if (await has(id)) { await s.tap(id); await settle(); }
+  await settle(3000); await clearToasts();
+  rec(`GitHub title at start: ${JSON.stringify(titleOnGitHub())}`);
+  await s.tap('open-pull-requests'); await settle(5000); await clearToasts();
+  await s.type('pull-requests-search', `#${PR}`); await settle(3000);
+  rec(`row #${PR} shown: ${await waitFor(() => has(`pr-row-${PR}`))}; label ${JSON.stringify(await rowTitle(PR))}`);
+  // Selecting the row opens its panel: the list becomes the narrow column beside it, as in #261's drive.
+  await s.tap(`pr-row-${PR}`); await settle(5000); await clearToasts();
+  await shot('01-original-window');
+  await rowBox('01-original', PR);
+  await inspect('01-original-title', ORIGINAL);
+
+  // The lane gh renames #159 on GitHub, then the list reads it again.
+  rec(`PATCH title -> ${JSON.stringify(EDITED)}: HTTP ${setTitle(EDITED)}; read back ${JSON.stringify(titleOnGitHub())}`);
+  await s.tap('pull-requests-refresh'); await settle(3000);
+  rec(`row shows the new title: ${await waitFor(async () => (await rowTitle(PR))?.includes('(edited)'), 60_000)}; label ${JSON.stringify(await rowTitle(PR))}`);
+  await settle(1500); await clearToasts();
+  await shot('02-edited-window');
+  await rowBox('02-edited', PR);
+  await inspect('02-edited-title', EDITED);
+
+  // The longest seeded title in the same narrow column, overflowing on its first read (no edit).
+  await s.type('pull-requests-search', `#${LONG}`); await settle(3000);
+  rec(`row #${LONG} shown: ${await waitFor(() => has(`pr-row-${LONG}`))}; label ${JSON.stringify(await rowTitle(LONG))}`);
+  await shot('03-long-narrow-window');
+  await rowBox('03-long-narrow', LONG);
+  await inspect('03-long-narrow-title', 'Link the FAQ from the usage notes');
+} catch (e) { rec(`ERROR ${e.stack?.slice(0, 1500)}`); try { await shot('error'); } catch {} }
+finally {
+  rec(`restore title: HTTP ${setTitle(ORIGINAL)}; read back ${JSON.stringify(titleOnGitHub())}`);
+  try { const logs = await s.logs(); writeFileSync(`${out}/logs.json`, JSON.stringify(logs, null, 1)); } catch {}
+  await s.close?.();
+  rec('session closed');
+}
+process.exit(0);
