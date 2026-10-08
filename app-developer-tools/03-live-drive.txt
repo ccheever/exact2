@@ -1,0 +1,41 @@
+app-developer-tools: the live drive (2026-10-08, screen locked, agent mode; one session and its one retry)
+
+Build: branch 58576a847 merged with origin/feat(example)/t3-code 84a52dde0 (a37578082),
+  bun host/apple/build.mjs t3-code-macos --bundle (development build, ad-hoc signed 0F0D033A).
+Lane (target/devtools/lane, temporary, not committed): env -i with HOME, TMPDIR, CODEX_HOME, CLAUDE_CONFIG_DIR, XDG_* under the lane,
+  SHELL=/bin/sh, PATH=<lane>/bin:/usr/bin:/bin:/usr/sbin:/sbin (+ the Rust toolchain dir the driver needs), T3CODE_TELEMETRY_ENABLED=false.
+  T3 homes copied from a seed made by the pinned release's own server (0.0.46-nightly.20261005.2667, 127.0.0.1:16403):
+  two projects, alpha and beta (git repos under <lane>/projects), so the app opens past the first-run wizard.
+Never ~/.t3 (mtimes after the drive: ~/.t3 2026-10-05, ~/.t3/userdata 2026-10-07, ~/.t3/runtime 2026-10-02), never port 3773,
+  never the t3code scheme; no lane preferences plist was written (agent mode).
+
+Ops (target/devtools/drive.sh): bun scripts/agent.mjs macos --size 1280x840 --json
+  "clock +20000 real" "screenshot <label>-1-app.png window" "tap new-thread" "clock +4000 real"
+  "tap <terminal toggle>" "clock +8000 real" "screenshot <label>-2-terminal.png window" "logs"
+
+Attempt 0 (18:42:44): the driver stopped before launching: "rustc did not report its host target" (env -i dropped the toolchain). No app ran.
+
+Attempt 1, development build (18:43:31-18:43:59; T3_LOCAL_HOME=<lane>/t3-home-dev, T3_LOCAL_PORT=16401, T3_LOCAL_RUNTIME_DIR=<lane>/runtime/<version>):
+  clock +20000 real -> {"clock":20000,"real":20029}; screenshot: the app on beta / New thread (dev-1-app.png)
+  tap new-thread -> {"tapped":80,"delivery":"platform","target":"new-thread"}; clock +4000 real
+  tap toggle-terminal -> refused: "view 122 is hidden or inert" (the chat header's terminal toggle, disabled=(not shell.terminalAvailable))
+  -> no terminal web view was created, so no t3.inspection line.
+
+Attempt 2 = the retry (dev 18:43:31 as above; packaged 18:43:59-18:44:26), with "tap panel-toggle-terminal" (the right panel's toggle):
+  development build: same as attempt 1 up to the tap; refused: no view matches panel-toggle-terminal (no right panel is open).
+  packaged copy: the same bundle copied to "<lane>/apps/T3 Code (Lane Devtools Packaged).app", Contents/Resources/distribution.json
+    {"flavor":"packaged"} added, CFBundleIdentifier com.exact.t3code.macos.lanedevtools, codesign --force --deep -s -;
+    EXACT_MAC_BIN=<that>/Contents/MacOS/T3 Code (Exact), T3CODE_HOME=<lane>/t3-home-packaged, T3CODE_PORT=16402 (no T3_LOCAL_*).
+    The running copy took the packaged policy, which reads the same marker as T3WebInspection.enabled
+    (T3LocalPolicy.packaged(resources: Bundle.main.resourceURL)):
+      - its server listened on 127.0.0.1:16402 (T3CODE_PORT; a development build without T3_LOCAL_* starts nothing: "refused"),
+      - it unpacked the bundled runtime into <lane>/t3-home-packaged/runtime/versions/0.0.46-nightly.20261005.2667 (the packaged path;
+        the development run used T3_LOCAL_RUNTIME_DIR and has no runtime/ in its home),
+      - the window reached beta / New thread on that server (packaged-1-app.png).
+    The same terminal toggle refusal followed, so no web view was opened here either.
+
+Result: both flavors ran on their own lane servers; the per-view readback inside the running app (the t3.inspection host line
+through the agent logs) was not reached, because the agent could not open a terminal (the toggle was inert to it). The one-session
+rule stops here. The flag itself is read back from every creation path by the probe (01) and the AppKit tests (02), the
+packaged one from inside a bundle carrying the marker. The in-app readback and Safari's Develop menu go to the real-input batch.
+Every lane server was stopped (seed pid 86215, Mermaid test server pid 26709; the app-owned servers stop with the app).
