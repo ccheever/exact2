@@ -1,0 +1,14 @@
+[before] snooze menu open by mouse; Custom… at x=158.88 before the pointer moves onto it, x=242 after; focus (none)
+[after] snooze menu open by mouse; Custom… at x=158.88 before the pointer moves onto it, x=158.88 after; focus snooze-928faefd-0904-4ff6-9c1f-bc52fd043ce2-keys
+[before] snooze menu keys: open by mouse -> snooze-928faefd-0904-4ff6-9c1f-bc52fd043ce2; ArrowDown -> snooze-928faefd-0904-4ff6-9c1f-bc52fd043ce2; ArrowDown -> snooze-928faefd-0904-4ff6-9c1f-bc52fd043ce2; End -> snooze-928faefd-0904-4ff6-9c1f-bc52fd043ce2; Escape -> snooze-928faefd-0904-4ff6-9c1f-bc52fd043ce2
+[after] snooze menu keys: open by mouse -> snooze-928faefd-0904-4ff6-9c1f-bc52fd043ce2-keys; ArrowDown -> snooze-928faefd-0904-4ff6-9c1f-bc52fd043ce2-hour; ArrowDown -> snooze-928faefd-0904-4ff6-9c1f-bc52fd043ce2-three-hours; End -> snooze-928faefd-0904-4ff6-9c1f-bc52fd043ce2-custom; Escape -> snooze-928faefd-0904-4ff6-9c1f-bc52fd043ce2
+[before] Custom snooze open, focus snooze-mode-date; ⌘K -> palette, focus palette-input
+[before] first Escape: palette open, Custom snooze closed, focus palette-input
+[before] second Escape: palette closed, Custom snooze closed, focus composer
+[after] Custom snooze open, focus snooze-mode-date; ⌘K -> palette, focus palette-input
+[after] first Escape: palette closed, Custom snooze open, focus snooze-mode-date
+[after] second Escape: palette closed, Custom snooze closed, focus thread-928faefd-0904-4ff6-9c1f-bc52fd043ce2
+[before] More menu by keyboard: Return on "…" -> pull-request-more; ArrowDown -> pull-request-more; ArrowDown -> pull-request-more; ArrowUp -> pull-request-more; End -> pull-request-more
+[after] More menu by keyboard: Return on "…" -> pr-more-refresh; ArrowDown -> pr-more-ask; ArrowDown -> pr-more-explain; ArrowUp -> pr-more-ask; End -> pr-more-close
+[before] Close pull request? open, focus pull-request-more; Tab -> pull-request-edit-title; Tab -> pull-request-copy-checkout; Escape -> pull-request-copy-checkout
+[after] Close pull request? open, focus pr-action-dialog-cancel; Tab -> pr-action-dialog-confirm; Tab -> pr-action-dialog-cancel; Escape -> pull-request-more
