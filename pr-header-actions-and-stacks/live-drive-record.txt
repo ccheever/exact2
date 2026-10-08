@@ -1,0 +1,221 @@
+# pr-header-actions-and-stacks live drives (agent mode, macOS, 1280×840 and 840×620; lane servers 127.0.0.1:16720 primary, :16721 second; real GitHub daehyeonmun2021/playground through the lane gh). Pairing tokens were never printed.
+
+## Before: the base build (757d9517a), read-only screens
+2026-10-08T01:52:17.979Z [before] app pid 99802
+2026-10-08T01:52:32.398Z [before] connected: sidebar shows Pull Requests
+2026-10-08T01:52:44.127Z [before] list rows: 99
+2026-10-08T01:52:51.796Z [before] state-open-clean-header: (no pull-request-header-actions: no view matches pull-request-header-actions by testId, label or text; targets he)
+2026-10-08T01:52:51.892Z [before] shot state-open-clean
+2026-10-08T01:52:59.554Z [before] state-failing-header: (no pull-request-header-actions: no view matches pull-request-header-actions by testId, label or text; targets he)
+2026-10-08T01:52:59.639Z [before] shot state-failing
+2026-10-08T01:53:07.301Z [before] state-draft-header: (no pull-request-header-actions: no view matches pull-request-header-actions by testId, label or text; targets he)
+2026-10-08T01:53:07.380Z [before] shot state-draft
+2026-10-08T01:53:14.895Z [before] state-conflict-header: (no pull-request-header-actions: no view matches pull-request-header-actions by testId, label or text; targets he)
+2026-10-08T01:53:14.980Z [before] shot state-conflict
+2026-10-08T01:53:22.621Z [before] state-merged-header: (no pull-request-header-actions: no view matches pull-request-header-actions by testId, label or text; targets he)
+2026-10-08T01:53:22.714Z [before] shot state-merged
+2026-10-08T01:53:30.330Z [before] state-closed-header: (no pull-request-header-actions: no view matches pull-request-header-actions by testId, label or text; targets he)
+2026-10-08T01:53:30.415Z [before] shot state-closed
+2026-10-08T01:53:38.262Z [before] shot more-open-clean
+2026-10-08T01:53:38.263Z [before] more-open-clean: Refresh | Convert to draft | Open on GitHub | Copy link | ⇧⌘C | Copy PR number | ⇧⌘K | Close pull request
+2026-10-08T01:53:38.303Z [before] ax more-open-clean saved
+2026-10-08T01:53:45.866Z [before] behind-header: (no pull-request-header-actions: no view matches pull-request-header-actions by testId, label or text; targets he)
+2026-10-08T01:53:45.953Z [before] shot behind
+2026-10-08T01:53:53.065Z [before] stack-header: (no pull-request-header-actions: no view matches pull-request-header-actions by testId, label or text; targets he)
+2026-10-08T01:53:53.151Z [before] shot stack
+2026-10-08T01:54:01.209Z [before] shot dark-open-clean
+2026-10-08T01:54:01.943Z [before] shot dark-more
+2026-10-08T01:54:09.475Z [before] shot dark-stack
+2026-10-08T01:54:18.389Z [before] shot narrow-open-clean
+2026-10-08T01:54:25.524Z [before] shot narrow-stack
+2026-10-08T01:54:26.405Z [before] log lines 4096; errors: 0
+
+## After: this branch, every action as the primary account (owner)
+2026-10-08T01:54:33.410Z [after] app pid 8685
+2026-10-08T01:54:47.906Z [after] connected: sidebar shows Pull Requests
+2026-10-08T01:55:01.200Z [after] list rows: 99
+2026-10-08T01:55:08.625Z [after] state-open-clean-header: Merge | More pull request actions | Refresh | Convert to draft | Enable auto-merge | Squash and merge | Rebase and merge | Open on GitHub | Copy link | ⇧⌘C | Copy PR number | ⇧⌘K | Close pull request
+2026-10-08T01:55:08.722Z [after] shot state-open-clean
+2026-10-08T01:55:16.168Z [after] state-failing-header: Auto-merge (merge) | More pull request actions | Refresh | Convert to draft | Merge now | Merge | Squash and merge | Rebase and merge | Open on GitHub | Copy link | ⇧⌘C | Copy PR number | ⇧⌘K | Close pull request
+2026-10-08T01:55:16.262Z [after] shot state-failing
+2026-10-08T01:55:23.539Z [after] state-draft-header: Ready for review | More pull request actions | Refresh | Open on GitHub | Copy link | ⇧⌘C | Copy PR number | ⇧⌘K | Close pull request
+2026-10-08T01:55:23.625Z [after] shot state-draft
+2026-10-08T01:55:30.867Z [after] state-conflict-header: Resolve conflicts | More pull request actions | Refresh | Convert to draft | Open on GitHub | Copy link | ⇧⌘C | Copy PR number | ⇧⌘K | Close pull request
+2026-10-08T01:55:30.953Z [after] shot state-conflict
+2026-10-08T01:55:38.281Z [after] state-merged-header: Merged | More pull request actions | Refresh | Open on GitHub | Copy link | ⇧⌘C | Copy PR number | ⇧⌘K | Revert changes
+2026-10-08T01:55:38.363Z [after] shot state-merged
+2026-10-08T01:55:45.722Z [after] state-closed-header: Closed | More pull request actions | Refresh | Open on GitHub | Copy link | ⇧⌘C | Copy PR number | ⇧⌘K | Reopen pull request
+2026-10-08T01:55:45.804Z [after] shot state-closed
+2026-10-08T01:55:53.637Z [after] shot more-open-clean
+2026-10-08T01:55:53.638Z [after] more-open-clean: Refresh | Convert to draft | Enable auto-merge | Merge | Squash and merge | Rebase and merge | Open on GitHub | Copy link | ⇧⌘C | Copy PR number | ⇧⌘K | Close pull request
+2026-10-08T01:55:53.683Z [after] ax more-open-clean saved
+2026-10-08T01:56:01.427Z [after] behind-header: Merge | More pull request actions | Refresh | Convert to draft | Enable auto-merge | Squash and merge | Rebase and merge | Open on GitHub | Copy link | ⇧⌘C | Copy PR number | ⇧⌘K | Close pull request
+2026-10-08T01:56:01.516Z [after] shot behind
+2026-10-08T01:56:09.294Z [after] stack-header: 2/3 | View stack #156, layer 2 of 3 | Stack #156 | Document the report | #155 · docs/report · Open | Print the report as a table | #154 · feature/report-table · Open | Add a report helper | #153 · feature/report · Open | ↳ main | Merge stack (2) | Rebase stack | Merge stack | Merge stack through #154 into main (2 pull requests) | More pull request actions | Refresh | Convert to draft | Merge | Squash and merge | Rebase and merge | Open on GitHub | Copy link | ⇧⌘C | Copy PR number | ⇧⌘K | Close pull request
+2026-10-08T01:56:09.377Z [after] shot stack
+2026-10-08T01:56:17.448Z [after] shot dark-open-clean
+2026-10-08T01:56:18.181Z [after] shot dark-more
+2026-10-08T01:56:25.729Z [after] shot dark-stack
+2026-10-08T01:56:34.674Z [after] shot narrow-open-clean
+2026-10-08T01:56:41.838Z [after] shot narrow-stack
+2026-10-08T01:56:50.444Z [after] shot freshness-hover
+2026-10-08T01:56:50.447Z [after] freshness-hover: This branch is out-of-date with main by 17 commits. | Changes can be cleanly merged. | Update branch | Update with rebase
+2026-10-08T01:56:51.173Z [after] shot freshness-popover
+2026-10-08T01:56:51.174Z [after] freshness-popover: This branch is out-of-date with main by 17 commits. | Changes can be cleanly merged. | Update branch | Update with rebase
+2026-10-08T01:56:51.216Z [after] ax freshness saved
+2026-10-08T01:56:51.657Z [after] after Escape the popover is still open
+2026-10-08T01:56:59.485Z [after] shot stack-menu
+2026-10-08T01:56:59.487Z [after] stack-menu: Stack #156 | Document the report | #155 · docs/report · Open | Print the report as a table | #154 · feature/report-table · Open | Add a report helper | #153 · feature/report · Open | ↳ main | Merge stack (2) | Rebase stack
+2026-10-08T01:56:59.528Z [after] ax stack-menu saved
+2026-10-08T01:57:08.477Z [after] shot close-dialog
+2026-10-08T01:57:08.478Z [after] close-dialog: Close pull request? | This closes #132 without merging it. | Cancel | Close
+2026-10-08T01:57:08.517Z [after] ax close-dialog saved
+2026-10-08T01:57:10.141Z [after] Escape: dialog closed; writes sent: []; #132 {"state":"open","merged":false,"sha":"74ce8f1e0939324ca3012070182b99d337841c76","head":"6c21a1c"}
+2026-10-08T01:57:17.536Z [after] merge-merge-before: Merge | More pull request actions | Refresh | Convert to draft | Enable auto-merge | Squash and merge | Rebase and merge | Open on GitHub | Copy link | ⇧⌘C | Copy PR number | ⇧⌘K | Close pull request
+2026-10-08T01:57:17.537Z [after] merge-merge-chosen-header: Merge | More pull request actions | Refresh | Convert to draft | Enable auto-merge | Squash and merge | Rebase and merge | Open on GitHub | Copy link | ⇧⌘C | Copy PR number | ⇧⌘K | Close pull request
+2026-10-08T01:57:18.402Z [after] shot merge-cancel-dialog
+2026-10-08T01:57:19.242Z [after] Cancel: dialog closed; writes sent: []
+2026-10-08T01:57:20.097Z [after] shot merge-merge-dialog
+2026-10-08T01:57:20.098Z [after] merge-merge-dialog: Merge pull request? | This merges #145 using merge. | Cancel | Merge
+2026-10-08T01:57:26.432Z [after] merge-merge-pending-header: Merged | More pull request actions | Refresh | Open on GitHub | Copy link | ⇧⌘C | Copy PR number | ⇧⌘K | Revert changes
+2026-10-08T01:57:26.519Z [after] shot merge-merge-pending
+2026-10-08T01:57:26.521Z [after] merge-merge toast: Pull request merged
+2026-10-08T01:57:26.606Z [after] shot merge-merge-done
+2026-10-08T01:57:26.607Z [after] merge-merge-done-header: Merged | More pull request actions | Refresh | Open on GitHub | Copy link | ⇧⌘C | Copy PR number | ⇧⌘K | Revert changes
+2026-10-08T01:57:27.683Z [after] #145 merge: gh ["pr merge 145 --repo O/R --merge","api --hostname github.com repos/O/R/stacks?pull_request=145"]; read back {"state":"merged","merged":true,"sha":"c577215dee6f0330663f9c1abb579d355603a456","head":"f5fe9b6"} parents 2
+2026-10-08T01:57:36.893Z [after] merge-squash-chosen-header: Squash and merge | More pull request actions | Refresh | Convert to draft | Enable auto-merge | Merge | Rebase and merge | Open on GitHub | Copy link | ⇧⌘C | Copy PR number | ⇧⌘K | Close pull request
+2026-10-08T01:57:37.760Z [after] shot merge-squash-dialog
+2026-10-08T01:57:37.761Z [after] merge-squash-dialog: Merge pull request? | This merges #146 using squash. | Cancel | Squash and merge
+2026-10-08T01:57:43.926Z [after] merge-squash-pending-header: Merged | More pull request actions | Refresh | Open on GitHub | Copy link | ⇧⌘C | Copy PR number | ⇧⌘K | Revert changes
+2026-10-08T01:57:44.013Z [after] shot merge-squash-pending
+2026-10-08T01:57:44.014Z [after] merge-squash toast: Pull request merged
+2026-10-08T01:57:44.100Z [after] shot merge-squash-done
+2026-10-08T01:57:44.101Z [after] merge-squash-done-header: Merged | More pull request actions | Refresh | Open on GitHub | Copy link | ⇧⌘C | Copy PR number | ⇧⌘K | Revert changes
+2026-10-08T01:57:45.219Z [after] #146 squash: gh ["pr merge 146 --repo O/R --squash","api --hostname github.com repos/O/R/stacks?pull_request=146"]; read back {"state":"merged","merged":true,"sha":"680364cbe5ede5105eb5d512ed84df2565b9065d","head":"3f8366c"} parents 1
+2026-10-08T01:57:54.732Z [after] merge-rebase-chosen-header: Rebase and merge | More pull request actions | Refresh | Convert to draft | Enable auto-merge | Merge | Squash and merge | Open on GitHub | Copy link | ⇧⌘C | Copy PR number | ⇧⌘K | Close pull request
+2026-10-08T01:57:55.598Z [after] shot merge-rebase-dialog
+2026-10-08T01:57:55.599Z [after] merge-rebase-dialog: Merge pull request? | This merges #147 using rebase. | Cancel | Rebase and merge
+2026-10-08T01:58:01.344Z [after] merge-rebase-pending-header: Merged | More pull request actions | Refresh | Open on GitHub | Copy link | ⇧⌘C | Copy PR number | ⇧⌘K | Revert changes
+2026-10-08T01:58:01.436Z [after] shot merge-rebase-pending
+2026-10-08T01:58:01.437Z [after] merge-rebase toast: Pull request merged
+2026-10-08T01:58:01.526Z [after] shot merge-rebase-done
+2026-10-08T01:58:01.527Z [after] merge-rebase-done-header: Merged | More pull request actions | Refresh | Open on GitHub | Copy link | ⇧⌘C | Copy PR number | ⇧⌘K | Revert changes
+2026-10-08T01:58:02.678Z [after] #147 rebase: gh ["pr merge 147 --repo O/R --rebase","api --hostname github.com repos/O/R/stacks?pull_request=147"]; read back {"state":"merged","merged":true,"sha":"9b815ee5600f1d1fac4a11c94f3454faa54045dc","head":"5c41a88"} parents 1
+2026-10-08T01:58:10.061Z [after] auto-before-header: Auto-merge (rebase and merge) | More pull request actions | Refresh | Convert to draft | Merge now | Merge | Squash and merge | Rebase and merge | Open on GitHub | Copy link | ⇧⌘C | Copy PR number | ⇧⌘K | Close pull request
+2026-10-08T01:58:10.150Z [after] shot auto-before
+2026-10-08T01:58:11.007Z [after] shot auto-enable-dialog
+2026-10-08T01:58:11.008Z [after] auto-enable-dialog: Enable auto-merge? | This merges #148 using rebase as soon as the host considers it ready, which may be immediately. | Cancel | Enable auto-merge
+2026-10-08T01:58:14.790Z [after] auto-enable toast: Auto-merge turned on — merges as soon as this is ready, sooner if it already is
+2026-10-08T01:58:17.809Z [after] auto-armed-header: Auto-merge (rebase and merge) | Auto-merge (rebase and merge): the host will merge this on its own once its requirements are met | More pull request actions | Refresh | Convert to draft | Merge now | Disable auto-merge | Merge | Squash and merge | Rebase and merge | Open on GitHub | Copy link | ⇧⌘C | Copy PR number | ⇧⌘K | Close pull request
+2026-10-08T01:58:17.900Z [after] shot auto-armed
+2026-10-08T01:58:18.394Z [after] #148 enable: gh ["pr merge 148 --repo O/R --auto --rebase","api --hostname github.com repos/O/R/stacks?pull_request=148"]; read back autoMergeRequest {"mergeMethod":"REBASE"}
+2026-10-08T01:58:20.096Z [after] shot merge-now-refused-dialog
+2026-10-08T01:58:20.097Z [after] merge-now-refused-dialog: Merge pull request? | This merges #148 using rebase. | Cancel | Rebase and merge
+2026-10-08T01:58:21.283Z [after] merge-now-refused toast: Could not merge this pull request · The host refused the merge. Check that you have write access, that the checks it requires have passed, and that the branch is not conflicting.
+2026-10-08T01:58:21.375Z [after] shot merge-now-refused
+2026-10-08T01:58:21.379Z [after] merge-now-refused-header: Auto-merge (rebase and merge) | Auto-merge (rebase and merge): the host will merge this on its own once its requirements are met | More pull request actions | Refresh | Convert to draft | Merge now | Disable auto-merge | Merge | Squash and merge | Rebase and merge | Open on GitHub | Copy link | ⇧⌘C | Copy PR number | ⇧⌘K | Close pull request
+2026-10-08T01:58:22.042Z [after] #148 merge now: gh ["pr merge 148 --repo O/R --rebase"]; read back {"state":"open","merged":false,"sha":"35b23b14002b6c4a6fc1df32b46d9c0a7290ff62","head":"bb93508"}; toast Could not merge this pull request · The host refused the merge. Check that you have write access, that the checks it requires have passed, and that the branch is not conflicting.
+2026-10-08T01:58:27.374Z [after] auto-disable toast: Auto-merge turned off
+2026-10-08T01:58:29.399Z [after] auto-off-header: Auto-merge (rebase and merge) | More pull request actions | Refresh | Convert to draft | Merge now | Merge | Squash and merge | Rebase and merge | Open on GitHub | Copy link | ⇧⌘C | Copy PR number | ⇧⌘K | Close pull request
+2026-10-08T01:58:29.488Z [after] shot auto-off
+2026-10-08T01:58:29.986Z [after] #148 disable: gh ["pr merge 148 --repo O/R --disable-auto","api --hostname github.com repos/O/R/stacks?pull_request=148"]; read back autoMergeRequest null
+2026-10-08T01:58:41.913Z [after] draft toast: Converted to draft
+2026-10-08T01:58:43.431Z [after] lifecycle-draft-header: Ready for review | More pull request actions | Refresh | Open on GitHub | Copy link | ⇧⌘C | Copy PR number | ⇧⌘K | Close pull request
+2026-10-08T01:58:43.520Z [after] shot lifecycle-draft
+2026-10-08T01:58:44.233Z [after] #149 draft: gh ["pr ready 149 --repo O/R --undo","api --hostname github.com repos/O/R/stacks?pull_request=149"]; read back {"state":"draft","merged":false,"sha":"d9db88d1b4c797b8f7af880d814be89d3ea52826","head":"10d7cea"}
+2026-10-08T01:58:47.830Z [after] ready toast: Marked ready for review
+2026-10-08T01:58:49.348Z [after] lifecycle-ready-header: Rebase and merge | More pull request actions | Refresh | Convert to draft | Enable auto-merge | Merge | Squash and merge | Open on GitHub | Copy link | ⇧⌘C | Copy PR number | ⇧⌘K | Close pull request
+2026-10-08T01:58:49.994Z [after] #149 ready: gh ["pr ready 149 --repo O/R","api --hostname github.com repos/O/R/stacks?pull_request=149"]; read back {"state":"open","merged":false,"sha":"d9db88d1b4c797b8f7af880d814be89d3ea52826","head":"10d7cea"}
+2026-10-08T01:58:57.007Z [after] open list before close: pr-row-149
+2026-10-08T01:58:58.429Z [after] shot close-dialog
+2026-10-08T01:58:58.430Z [after] close-dialog: Close pull request? | This closes #149 without merging it. | Cancel | Close
+2026-10-08T01:59:02.468Z [after] open list right after the press: (no rows)
+2026-10-08T01:59:02.557Z [after] shot close-sent
+2026-10-08T01:59:02.558Z [after] close toast: Pull request closed
+2026-10-08T01:59:04.084Z [after] lifecycle-closed-header: Closed | More pull request actions | Refresh | Open on GitHub | Copy link | ⇧⌘C | Copy PR number | ⇧⌘K | Reopen pull request
+2026-10-08T01:59:04.172Z [after] shot lifecycle-closed
+2026-10-08T01:59:04.806Z [after] #149 close: gh ["pr close 149 --repo O/R","api --hostname github.com repos/O/R/stacks?pull_request=149"]; read back {"state":"closed","merged":false,"sha":"d9db88d1b4c797b8f7af880d814be89d3ea52826","head":"10d7cea"}
+2026-10-08T01:59:10.103Z [after] reopen toast: Pull request reopened
+2026-10-08T01:59:11.622Z [after] lifecycle-reopened-header: Rebase and merge | More pull request actions | Refresh | Convert to draft | Enable auto-merge | Merge | Squash and merge | Open on GitHub | Copy link | ⇧⌘C | Copy PR number | ⇧⌘K | Close pull request
+2026-10-08T01:59:12.409Z [after] #149 reopen: gh ["pr reopen 149 --repo O/R","api --hostname github.com repos/O/R/stacks?pull_request=149"]; read back {"state":"open","merged":false,"sha":"b3a672386cbf35a6f980e57094be3925628c485f","head":"10d7cea"}
+2026-10-08T01:59:24.716Z [after] #150 behind_by before: 21
+2026-10-08T01:59:25.452Z [after] shot update-merge-popover
+2026-10-08T02:00:05.837Z [after] update-merge toast: Branch updated with the base branch
+2026-10-08T02:00:09.256Z [after] update-merge-after-header: Rebase and merge | More pull request actions | Refresh | Convert to draft | Enable auto-merge | Merge | Squash and merge | Open on GitHub | Copy link | ⇧⌘C | Copy PR number | ⇧⌘K | Close pull request
+2026-10-08T02:00:09.338Z [after] shot update-merge-after
+2026-10-08T02:00:10.554Z [after] #150 update (merge): gh ["pr update-branch 150 --repo O/R","api --hostname github.com repos/O/R/stacks?pull_request=150"]; read back behind_by 0
+2026-10-08T02:00:19.876Z [after] #151 behind_by before: 21
+2026-10-08T02:00:20.595Z [after] shot update-rebase-popover
+2026-10-08T02:01:00.090Z [after] update-rebase toast: Branch updated with the base branch
+2026-10-08T02:01:03.111Z [after] update-rebase-after-header: Rebase and merge | More pull request actions | Refresh | Convert to draft | Enable auto-merge | Merge | Squash and merge | Open on GitHub | Copy link | ⇧⌘C | Copy PR number | ⇧⌘K | Close pull request
+2026-10-08T02:01:03.200Z [after] shot update-rebase-after
+2026-10-08T02:01:04.266Z [after] #151 update (rebase): gh ["pr update-branch 151 --repo O/R --rebase","api --hostname github.com repos/O/R/stacks?pull_request=151"]; read back behind_by 0
+2026-10-08T02:01:12.180Z [after] revert-before-header: Merged | More pull request actions | Refresh | Open on GitHub | Copy link | ⇧⌘C | Copy PR number | ⇧⌘K | Revert changes
+2026-10-08T02:01:13.591Z [after] shot revert-dialog
+2026-10-08T02:01:13.595Z [after] revert-dialog: Revert these changes? | This opens a new pull request that reverses the changes merged by #152. | Cancel | Create revert PR
+2026-10-08T02:01:18.774Z [after] revert toast: Revert pull request opened
+2026-10-08T02:01:19.418Z [after] #152 revert: gh ["api --hostname github.com repos/O/R/stacks?pull_request=152"]; read back: #160 "Revert "Add a wave to the greeting"" opened from revert-152-feature/greeting-wave
+2026-10-08T02:01:20.611Z [after] closed the revert pull request #160 again (HTTP 200)
+2026-10-08T02:02:09.462Z [after] pushed a commit to feature/report out of band (HTTP 201); head cfcf796 → cfcf796; ci/build on it: cfcf796
+2026-10-08T02:02:10.322Z [after] shot stack-merge-dialog
+2026-10-08T02:02:10.324Z [after] stack-merge-dialog: Merge 2 pull requests? | Merge #154 and its unmerged layers below into main using rebase. GitHub checks their rules before merging or queueing them and rebases the remaining stack after merging. | Add a report helper | #153 · Open | Print the report as a table | #154 · Open | Cancel | Merge stack
+2026-10-08T02:02:13.982Z [after] shot stack-merge-working
+2026-10-08T02:02:13.983Z [after] stack-stale toast: Stack operation did not complete · PullRequestOperationError: Pull request operation runAction failed: The stack changed. Refresh it before trying again.
+2026-10-08T02:02:14.069Z [after] shot stack-stale-failed
+2026-10-08T02:02:15.615Z [after] stale heads: gh ["api --hostname github.com repos/O/R/stacks?pull_request=154","api --hostname github.com repos/O/R/stacks?pull_request=154","api --hostname github.com repos/O/R/stacks/156"]; read back #153 {"state":"open","merged":false,"sha":"7ef9047565a876f08a8d9a5212276ae17362d414","head":"a838e4f"} #154 {"state":"open","merged":false,"sha":"002cd2e245166b4db216301d8af02bc6f84dcf0d","head":"3671df1"}
+2026-10-08T02:02:20.357Z [after] shot stack-rebase-dialog
+2026-10-08T02:02:20.358Z [after] stack-rebase-dialog: Rebase 3 pull requests? | Rebase the remote branches from bottom to top onto main. This rewrites branch history and may restart checks. If a layer fails, earlier updates remain. | Add a report helper | #153 · Open | Print the report as a table | #154 · Open | Document the report | #155 · Open | Cancel | Rebase stack
+2026-10-08T02:02:30.825Z [after] stack-rebase toast: Stack operation did not complete · PullRequestOperationError: Pull request operation runAction failed: The stack changed at PR #153 after 2 layers. Earlier updates remain on GitHub. Refresh it before trying again.
+2026-10-08T02:02:34.681Z [after] rebase: gh ["api --hostname github.com repos/O/R/stacks?pull_request=155","api --hostname github.com repos/O/R/stacks?pull_request=154","api --hostname github.com repos/O/R/stacks/156"]; read back heads #153 9a6bb15 #154 dad0521 #155 5c8f042; behind #153 0
+2026-10-08T02:02:39.625Z [after] ci/build on the rebased heads: 9a6bb15 dad0521 5c8f042
+2026-10-08T02:03:23.076Z [after] stack-after-rebase-header: 2/3 | View stack #156, layer 2 of 3 | Stack #156 | Document the report | #155 · docs/report · Open | Print the report as a table | #154 · feature/report-table · Open | Add a report helper | #153 · feature/report · Open | ↳ main | Merge stack (2) | Rebase stack | Merge stack | Merge stack through #154 into main (2 pull requests) | More pull request actions | Refresh | Convert to draft | Merge | Squash and merge | Rebase and merge | Open on GitHub | Copy link | ⇧⌘C | Copy PR number | ⇧⌘K | Close pull request
+2026-10-08T02:04:05.550Z [after] stack-merge toast: Stack operation did not complete · PullRequestOperationError: Pull request operation runAction failed: GitHub CLI command failed.
+2026-10-08T02:04:05.638Z [after] shot stack-merged
+2026-10-08T02:04:07.453Z [after] merge stack: gh ["api --hostname github.com repos/O/R/stacks?pull_request=154","api --hostname github.com --method PUT repos/O/R/pulls/154/merge-async -f merge_method=rebase -f merge_action=default -f sha=dad05212b38a439c9577743a81abffcc873","api --hostname github.com repos/O/R/pulls/154/merge-async/c504e27f-83a8-41fe-9969-df580200dbe0","api --hostname github.com repos/O/R/pulls/154/merge-async/c504e27f-83a8-41fe-9969-df580200dbe0","api --hostname github.com repos/O/R/stacks?pull_request=154","api --hostname github.com repos/O/R/stacks/156"]; read back #153 {"state":"merged","merged":true,"sha":"b764786af75e2c69a5eab9ff1dc79258219a580f","head":"9a6bb15"} #154 {"state":"merged","merged":true,"sha":"774f666bc282a2218a9c342bd09bdb141763e07c","head":"dad0521"} #155 {"state":"open","merged":false,"sha":"52d8635cc40e56ebaf761dc1fe8618134e76f5b8","head":"c9d04d9"}
+2026-10-08T02:04:11.470Z [after] stack-after-merge-header: 2/3 | View stack #156, layer 2 of 3 | Stack #156 | Document the report | #155 · docs/report · Open | Print the report as a table | #154 · feature/report-table · Merged | Add a report helper | #153 · feature/report · Merged | ↳ main | Merge stack (0) | Rebase stack | Merged | More pull request actions | Refresh | Open on GitHub | Copy link | ⇧⌘C | Copy PR number | ⇧⌘K | Revert changes
+2026-10-08T02:04:11.556Z [after] shot stack-after-merge
+2026-10-08T02:04:22.603Z [after] stack-menu-155: Stack #156 | Document the report | #155 · docs/report · Open | Print the report as a table | #154 · feature/report-table · Merged | Add a report helper | #153 · feature/report · Merged | ↳ main | Merge stack (1) | Rebase stack
+2026-10-08T02:04:25.667Z [after] pressed pr-stack-layer-154: the panel shows #154
+2026-10-08T02:05:11.883Z [after] shot refresh-reduced
+2026-10-08T02:05:11.923Z [after] ax refresh-trigger saved
+2026-10-08T02:05:11.931Z [after] log lines 4096; errors: 29
+
+## Retry: this branch with the fixes, as the second account (write collaborator)
+2026-10-08T02:08:15.641Z [retry] app pid 58585
+2026-10-08T02:08:30.246Z [retry] connected as the second account: sidebar shows Pull Requests
+2026-10-08T02:08:59.073Z [retry] second-on-132-header: Retry stack lookup | More pull request actions | Refresh | Convert to draft | Merge | Squash and merge | Rebase and merge | Open on GitHub | Copy link | ⇧⌘C | Copy PR number | ⇧⌘K | Close pull request
+2026-10-08T02:08:59.170Z [retry] shot second-on-132
+2026-10-08T02:09:07.471Z [retry] second-on-115-header: Merge | More pull request actions | Refresh | Convert to draft | Enable auto-merge | Squash and merge | Rebase and merge | Open on GitHub | Copy link | ⇧⌘C | Copy PR number | ⇧⌘K | Close pull request
+2026-10-08T02:09:07.563Z [retry] shot second-on-115
+2026-10-08T02:09:15.338Z [retry] shot freshness-hover
+2026-10-08T02:09:15.340Z [retry] freshness-hover: This branch is out-of-date with main by 21 commits. | Changes can be cleanly merged. | Update branch | Update with rebase
+2026-10-08T02:09:15.353Z [retry] STEP freshness ERROR view 4826 is hidden or inert
+2026-10-08T02:09:15.436Z [retry] shot freshness-error
+2026-10-08T02:09:23.514Z [retry] merging-before-header: Merge | More pull request actions | Refresh | Convert to draft | Enable auto-merge | Squash and merge | Rebase and merge | Open on GitHub | Copy link | ⇧⌘C | Copy PR number | ⇧⌘K | Close pull request
+2026-10-08T02:09:24.263Z [retry] merging-dialog: Merge pull request? | This merges #161 using merge. | Cancel | Merge
+2026-10-08T02:09:24.363Z [retry] right after the confirm: Merge | More pull request actions | Refresh
+2026-10-08T02:09:47.839Z [retry] merging toast: Pull request merged
+2026-10-08T02:09:48.453Z [retry] #161 read back: merged true by daehyeon-mun (2caf8c8)
+2026-10-08T02:09:48.454Z [retry] merging-after-header: Merged | More pull request actions | Refresh | Open on GitHub | Copy link | ⇧⌘C | Copy PR number | ⇧⌘K | Revert changes
+2026-10-08T02:09:48.535Z [retry] shot merging-after
+2026-10-08T02:09:57.427Z [retry] stack-163-header: 2/2 | View stack #164, layer 2 of 2 | Stack #164 | Print the report as a table | #163 · feature/report-table-2 · Open | Add a report helper | #162 · feature/report-2 · Open | ↳ main | Merge stack (2) | Rebase stack | Merge stack | Merge stack through #163 into main (2 pull requests) | More pull request actions | Refresh | Convert to draft | Merge | Squash and merge | Rebase and merge | Open on GitHub | Copy link | ⇧⌘C | Copy PR number | ⇧⌘K | Close pull request
+2026-10-08T02:09:57.508Z [retry] shot stack-163
+2026-10-08T02:09:58.134Z [retry] shot stack-menu-163
+2026-10-08T02:09:58.135Z [retry] stack-menu-163: Stack #164 | Print the report as a table | #163 · feature/report-table-2 · Open | Add a report helper | #162 · feature/report-2 · Open | ↳ main | Merge stack (2) | Rebase stack
+2026-10-08T02:10:02.188Z [retry] after pressing layer #162 the panel shows: #162
+2026-10-08T02:10:02.274Z [retry] shot stack-selected-162
+2026-10-08T02:10:10.717Z [retry] stack-rebase-dialog: Rebase 2 pull requests? | Rebase the remote branches from bottom to top onto main. This rewrites branch history and may restart checks. If a layer fails, earlier updates remain. | Add a report helper | #162 · Open | Print the report as a table | #163 · Open | Cancel | Rebase stack
+2026-10-08T02:10:10.739Z [retry] right after the confirm, the dialog says: Cancel | Rebase stack
+2026-10-08T02:10:25.942Z [retry] stack-rebase toast: Stack operation did not complete · PullRequestOperationError: Pull request operation runAction failed: Stack rebase stopped at PR #162 after 0 layers. Earlier updates remain on GitHub; resolve the failing layer before retrying.
+2026-10-08T02:10:26.030Z [retry] shot stack-rebased
+2026-10-08T02:10:30.674Z [retry] rebase read back: #162 f7932d4 #163 b5bc8c9; ci/build on the new heads f7932d4 b5bc8c9
+2026-10-08T02:10:40.463Z [retry] stack-163-refreshed-header: 2/2 | View stack #164, layer 2 of 2 | Stack #164 | Print the report as a table | #163 · feature/report-table-2 · Open | Add a report helper | #162 · feature/report-2 · Open | ↳ main | Merge stack (2) | Rebase stack | Merge stack | Merge stack through #163 into main (2 pull requests) | More pull request actions | Refresh | Convert to draft | Merge | Squash and merge | Rebase and merge | Open on GitHub | Copy link | ⇧⌘C | Copy PR number | ⇧⌘K | Close pull request
+2026-10-08T02:11:09.091Z [retry] stack-merge-dialog: Merge 2 pull requests? | Merge #163 and its unmerged layers below into main using merge. GitHub checks their rules before merging or queueing them and rebases the remaining stack after merging. | Add a report helper | #162 · Open | Print the report as a table | #163 · Open | Cancel | Merge stack
+2026-10-08T02:11:21.226Z [retry] stack-merge toast: Stack merge request completed · GitHub merged the stack or added it to its merge queue.
+2026-10-08T02:11:21.308Z [retry] shot stack-merged
+2026-10-08T02:11:22.629Z [retry] merge read back: #162 merged true, #163 merged true
+2026-10-08T02:12:05.291Z [retry] shot narrow-132
+2026-10-08T02:12:05.293Z [retry] narrow-132-header: Merge | More pull request actions | Refresh | Convert to draft | Enable auto-merge | Squash and merge | Rebase and merge | Open on GitHub | Copy link | ⇧⌘C | Copy PR number | ⇧⌘K | Close pull request
+2026-10-08T02:12:13.607Z [retry] shot narrow-148
+2026-10-08T02:12:21.906Z [retry] shot narrow-110
+2026-10-08T02:12:22.788Z [retry] log lines 4096; errors: 13
