@@ -52,7 +52,7 @@ component HomeMenuChoice
     muted: string
     danger: string
   view
-    button press=action(environmentId, threadId, entry.operation, entry.value)
+    button id=`${menuId}-${entry.id}` press=action(environmentId, threadId, entry.operation, entry.value)
       popovertarget=menuId popovertargetaction="hide"
       disabled=entry.disabled destructive=entry.destructive aria-checked=entry.checked
       role=(entry.parentId == "auto-settle" ? "menuitemradio" : "menuitem") aria-label=entry.label

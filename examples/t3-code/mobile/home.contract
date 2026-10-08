@@ -54,6 +54,7 @@ shape HomeItem
   iconSize: number
   searchExcerpt: string
   menuItems: list<HomeMenuItem>
+  nativeMenu: string
 
 component Home
   props
@@ -161,7 +162,10 @@ component HomeListItem
           text item.title font-size=13 line-height="17px" font-weight=500 color=colors.muted
       else
         button press=selectThread(item.id)
-          contextPopover=(length(item.menuItems) > 0 ? menuId : "")
+          hatch="mobile-home-row"
+          data-mobile-home-menu=(surface == "sidebar-list" ? item.nativeMenu : "")
+          data-mobile-home-menu-id=(surface == "sidebar-list" ? menuId : "")
+          contextPopover=(surface != "sidebar-list" and length(item.menuItems) > 0 ? menuId : "")
           padding=0
           text-align="left"
           aria-label=(item.queued ? `${item.title}, messages queued to send` : item.title)

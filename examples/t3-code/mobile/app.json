@@ -81,11 +81,14 @@
     "mobile-review-owner",
     "mobile-review-section",
     "mobile-review-route",
-    "mobile-review-path"
+    "mobile-review-path",
+    "mobile-home-menu",
+    "mobile-home-menu-id"
   ],
   "hatches": [
     "mobile-voice-editor",
     "mobile-review-list",
-    "mobile-review-row"
+    "mobile-review-row",
+    "mobile-home-row"
   ]
 }
