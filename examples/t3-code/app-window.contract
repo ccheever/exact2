@@ -2,7 +2,9 @@
 // the root keeps its lines for state, resources and actions (X9). Each root name the view reads is a
 // prop of the same name; `pending(providerAuthChanged)` is `providerAuthPending`. A feature that shows
 // a new root value adds its prop here and `name=name` to app.contract's `T3Window(...)`. The use lines
-// keep app.contract's order: the plan orders shapes by first use.
+// keep app.contract's order: the plan orders shapes by first use. The window also owns the view-only
+// state no resource, task or mutation reads (20261008-app-contract-root-rewrite, #108): an action that
+// writes both sets the window's half, then calls the root's half, passed as `<name>Root`.
 use Time from "./app-shapes.contract"
 use Snapshot, Viewport, LicenseSettings, SnapshotSettings, Settings, Canvas from "./shapes.contract"
 use R10PairFields from "./r10-connect-shapes.contract"
