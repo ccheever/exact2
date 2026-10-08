@@ -71,11 +71,62 @@ fn the_relay_saying_the_mac_is_gone_switches_to_a_peer_at_once() {
     m.poll_request();
     m.poll_done(Ok(answer(9, false)));
     assert_eq!(m.windows.len(), 1);
-    // A relaunch is a few seconds off the relay: home is tried again soon.
+    // A relaunch is a few seconds off the relay: home is tried again soon,
+    // and the phone goes back once it answers twice in a row.
     m.tick(m.now + FIRST_HOME_CHECK_MS + 1.0);
     assert!(m.probe_request().unwrap().ends_with("/m/mac/api/health"));
     m.probe_done(true);
+    assert_eq!(m.via, "redwood", "one answer is not yet steady");
+    m.tick(m.now + HOME_STEADY_MS + 1.0);
+    assert!(m.probe_request().unwrap().ends_with("/m/mac/api/health"));
+    m.probe_done(true);
     assert_eq!(m.via, "mac");
+}
+
+#[test]
+fn a_mac_that_keeps_dropping_must_hold_longer_before_the_phone_goes_back() {
+    let gone = || {
+        Err((
+            502,
+            r#"{"error":"machine is not connected to the relay"}"#.to_string(),
+        ))
+    };
+    let mut m = paired();
+    m.tick(1_000.0);
+    m.poll_request();
+    m.poll_done(Ok(answer(1, true)));
+    let mut looks_to_return = Vec::new();
+    for _ in 0..3 {
+        // Home drops: the phone moves to the peer.
+        m.tick(m.poll.next_at.max(m.now));
+        m.poll_request();
+        m.poll_done(gone());
+        m.probe_request().expect("a peer is tried");
+        m.probe_done(true);
+        assert_eq!(m.via, "redwood");
+        m.tick(m.now);
+        m.poll_request();
+        m.poll_done(Ok(answer(2, false)));
+        // Count the looks home it takes to go back.
+        let mut looks = 0;
+        while m.via != "mac" {
+            m.tick(m.now + HOME_CHECK_MS + 1.0);
+            if m.probe_request().is_some() {
+                looks += 1;
+                m.probe_done(true);
+            }
+        }
+        looks_to_return.push(looks);
+        // Back home, and it drops again within a minute.
+        m.tick(m.now + 1.0);
+        m.poll_request();
+        m.poll_done(Ok(answer(3, true)));
+    }
+    assert_eq!(
+        looks_to_return,
+        vec![2, 4, 6],
+        "each flap asks home to hold longer"
+    );
 }
 
 #[test]

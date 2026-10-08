@@ -83,6 +83,13 @@ const HOME_CHECK_MS: f64 = 15_000.0;
 /// The first look home after a switch to a peer: the Mac may only have been
 /// restarting Ocho (a few seconds off the relay), so it comes back quickly.
 const FIRST_HOME_CHECK_MS: f64 = 3_000.0;
+/// Between home checks that must agree before the phone goes back (a Mac
+/// whose connection keeps dropping answers once and is gone again).
+const HOME_STEADY_MS: f64 = 10_000.0;
+/// Leaving home again this soon after coming back is a flap.
+const FLAP_WINDOW_MS: f64 = 120_000.0;
+/// A stay at home this long forgets earlier flaps.
+const SETTLED_MS: f64 = 600_000.0;
 const FAILOVER_RETRY_MS: f64 = 30_000.0;
 const TRANSCRIPT_LIVE_MS: f64 = 2_000.0;
 /// The same, from a server that answers only what changed (a few hundred
@@ -267,6 +274,14 @@ pub struct Model {
     probe_queue: Vec<String>,
     probe_target: String,
     next_home_check: f64,
+    /// The probe out is a look home while a peer answers (not a failover).
+    home_check: bool,
+    /// Looks home in a row that found it answering.
+    home_ok: u32,
+    /// When the phone last came back home, and how often it then had to
+    /// leave again within FLAP_WINDOW_MS.
+    home_since: f64,
+    flaps: u32,
     failover_retry_at: f64,
 
     /// The desktop's windows: live from home, else kept.
@@ -502,6 +517,7 @@ impl Model {
             } else if self.via != self.home() && now >= self.next_home_check {
                 self.next_home_check = now + HOME_CHECK_MS;
                 self.probe_queue = vec![self.home().to_string()];
+                self.home_check = true;
                 self.probe.bump();
             } else if !self.fresh && self.failover_due() && now >= self.failover_retry_at {
                 self.begin_failover();
@@ -1080,6 +1096,7 @@ impl Model {
         if self.probe.inflight || !self.probe_queue.is_empty() {
             return;
         }
+        self.home_check = false;
         let home = self.home().to_string();
         let mut queue: Vec<String> = Vec::new();
         if self.via != home {
@@ -1110,7 +1127,11 @@ impl Model {
     /// A finished probe: answered or not.
     pub fn probe_done(&mut self, ok: bool) {
         self.probe.inflight = false;
+        let home_check = std::mem::take(&mut self.home_check);
         if !ok {
+            if home_check {
+                self.home_ok = 0;
+            }
             return;
         }
         let target = std::mem::take(&mut self.probe_target);
@@ -1118,6 +1139,17 @@ impl Model {
         if target == self.via && self.fresh {
             return;
         }
+        // While a peer answers, home must answer a few looks in a row before
+        // the phone goes back: more after it has flapped (came back, then
+        // had to leave again within minutes).
+        if home_check && self.fresh {
+            self.home_ok += 1;
+            if self.home_ok < 2 + 2 * self.flaps.min(3) {
+                self.next_home_check = self.now + HOME_STEADY_MS;
+                return;
+            }
+        }
+        self.home_ok = 0;
         let to = if target == self.home() {
             "home"
         } else {
@@ -1129,6 +1161,18 @@ impl Model {
             true,
             vec![("to", to.into()), ("target", target_tag.into())],
         );
+        if to == "home" {
+            self.home_since = self.now;
+        } else if self.via == self.home() {
+            // Leaving home: soon after coming back is a flap; a long stay
+            // forgets the earlier ones.
+            let stay = self.now - self.home_since;
+            if self.home_since > 0.0 && stay < FLAP_WINDOW_MS {
+                self.flaps += 1;
+            } else if stay > SETTLED_MS {
+                self.flaps = 0;
+            }
+        }
         self.via = target;
         self.since = 0;
         self.instance.clear();
