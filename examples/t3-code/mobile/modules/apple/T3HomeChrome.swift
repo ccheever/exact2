@@ -1,5 +1,6 @@
 #if os(iOS)
 // @ref llp/1107.002-design-system-parity.spec.md#semantic-colors
+// @ref llp/1107.004-home-projection.decision.md#home-title-fitting
 // Pinned T3 Code 365aa87982: HomeHeader, WorkspaceConnectionTitle,
 // ThreadNavigationSidebar, and patches/react-native-screens@4.28.0.patch.
 import UIKit
@@ -184,6 +185,8 @@ private final class T3HomeChromeView: ExactNativeInstance {
         let item = route.controller.navigationItem
         item.largeTitleDisplayMode = .never
         item.backButtonDisplayMode = .minimal
+        // Pinned Stack.tsx GLASS_HEADER_OPTIONS uses the leading editor title.
+        if #available(iOS 26.0, *) { item.style = .editor }
         let settings = UIBarButtonItem(image: UIImage(systemName: config.layout == "sidebar" ? "gearshape" : "ellipsis"), primaryAction: UIAction { [weak self] _ in self?.emit("settings") })
         settings.accessibilityLabel = "Open settings"; settings.accessibilityIdentifier = "home-settings"
         if config.layout == "sidebar" {
@@ -370,7 +373,11 @@ private final class T3ChromeTitle: UIControl {
     private let stack = UIStackView()
     private let action: () -> Void
     private let offset: CGFloat
-    var availableWidth: CGFloat = .greatestFiniteMagnitude { didSet { if oldValue != availableWidth { invalidateIntrinsicContentSize() } } }
+    var availableWidth: CGFloat = .greatestFiniteMagnitude {
+        didSet {
+            if oldValue != availableWidth { invalidateIntrinsicContentSize(); sizeToFit() }
+        }
+    }
     init(config: T3ChromeConfiguration, status: Bool, action: @escaping () -> Void) {
         self.action = action
         offset = UIDevice.current.userInterfaceIdiom == .pad ? 10 : 0
@@ -413,6 +420,10 @@ private final class T3ChromeTitle: UIControl {
         isAccessibilityElement = true
     }
     required init?(coder: NSCoder) { nil }
+    // UINavigationItem needs a fitting size as well as an intrinsic size.
+    // UIView's default returns the initial zero frame, leaving the title absent.
+    override func sizeThatFits(_ size: CGSize) -> CGSize { intrinsicContentSize }
+
     override var intrinsicContentSize: CGSize {
         let size = stack.systemLayoutSizeFitting(UIView.layoutFittingCompressedSize)
         return CGSize(width: min(availableWidth, size.width + offset), height: max(32, size.height))

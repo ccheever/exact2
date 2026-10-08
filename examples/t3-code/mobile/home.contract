@@ -192,7 +192,9 @@ component Home
                     dragToken = ""
                     dragOffset = 0
                   else if phase == "end"
-                    openToken = dragBase + x < 0 - strip * 0.42 ? token : ""
+                    let projected = x + 0.05 * homeSwipeNumber(parts, 8)
+                    let remainsOpen = dragBase < 0 ? projected < strip * 0.42 : projected < 0 - strip * 0.42
+                    openToken = remainsOpen ? token : ""
                     dragToken = ""
                     dragOffset = 0
                   else
