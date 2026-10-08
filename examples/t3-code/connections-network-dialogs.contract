@@ -1,0 +1,396 @@
+use R4Glyph from "./r4-git.contract"
+use CnGlyph from "./settings-b-kit.contract"
+use CnTooltip from "./settings-b-kit.contract"
+use PvField from "./providers-kit.contract"
+use NetworkView from "./connections-network.contract"
+use NetReveal from "./connections-network.contract"
+
+// The dialogs of Settings → Connections › This machine (20261005-this-machine-network-access;
+// ConnectionsSettings.tsx): "Enable/Disable network access?" and "Disable Tailscale HTTPS?"
+// (AlertDialog: Cancel takes the focus), "Set up Tailscale HTTPS?" and "Create pairing link"
+// (Dialog: the first field takes it, a Close button last), and the clipboard-failure reveal
+// dialog. Each opens on the root's `connectionRemove` with its serial and closes when the serial
+// moves (connections-network.ts); while its command runs nothing dismisses it. Tab and Shift+Tab
+// stay inside (Base UI's focus trap); Escape is Cancel's and gives the focus back to the control
+// that opened it. Motion is the reference's: the backdrop fades and the popup scales from 98 %
+// in 200 ms each way; the spinner turns only while motion is allowed.
+
+keyframes ndFadeIn
+  from opacity=0
+  to opacity=1
+keyframes ndFadeOut
+  from opacity=1
+  to opacity=0
+keyframes ndPopupIn
+  from opacity=0 scale=0.98
+  to opacity=1 scale=1
+keyframes ndPopupOut
+  from opacity=1 scale=1
+  to opacity=0 scale=0.98
+keyframes ndSpin
+  from rotate=0
+  to rotate=360
+
+style NdOverlay
+  position="absolute" left=0 right=0 top=0 bottom=0 z-index=40 display="flex" align-items="center" justify-content="center" padding="1rem" box-sizing="border-box"
+  background-color="light-dark(#fcfcfc99, #0a0a0aa3)" backdrop-filter="blur(4px)"
+style NdPopup
+  width="100%" max-width="28rem" box-sizing="border-box" border-radius="1.125rem" border-style="solid" border-width=1 border-color="light-dark(#27272a1a, #ffffff14)"
+  background-color="light-dark(#fcfcfc, #0a0a0a)" box-shadow="0 24px 64px -24px #000000a6" overflow="hidden" position="relative"
+style NdButton
+  display="flex" flex-direction="row" align-items="center" justify-content="center" gap="0.375rem" height="2rem" padding-left="0.6875rem" padding-right="0.6875rem"
+  box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 box-shadow="0 1px 2px #0000000d"
+
+// One footer button: outline, default (primary) or destructive; busy shows the spinner and "Restarting…"/"Creating…".
+component NdAction
+  props
+    buttonId: string
+    label: string
+    tone: string
+    disabled: bool
+    busyLabel: string
+    still: bool
+    keys: string
+    first: bool
+    press: action
+    key: action
+  view
+    button id=buttonId press=press key=key disabled=disabled autofocus=first aria-keyshortcuts=keys testId=buttonId class=NdButton opacity=(disabled ? 0.64 : 1) border-color=(tone == "outline" ? "light-dark(#d4d4d8, #ffffff14)" : tone == "destructive" ? "light-dark(#fb2c36, #fb414a)" : "light-dark(#1b4ed8, #346bf1)") background-color=(tone == "outline" ? "light-dark(#ffffff, #ffffff07)" : tone == "destructive" ? "light-dark(#fb2c36, #fb414a)" : "light-dark(#1b4ed8, #346bf1)")
+      when busyLabel != ""
+        // Spinner (`motion-safe:animate-spin`): still under reduced motion.
+        box width="0.875rem" height="0.875rem" display="flex" animation=(still ? "none" : "ndSpin 1s linear infinite") testId=`${buttonId}-spinner`
+          R4Glyph(name="loader-circle", size=14, color=(tone == "outline" ? "light-dark(#27272a, #f5f5f5)" : "#ffffff"))
+        text busyLabel font-size="0.875rem" font-weight=500 line-height="1.25rem" color=(tone == "outline" ? "light-dark(#27272a, #f5f5f5)" : "#ffffff")
+      else
+        text label font-size="0.875rem" font-weight=500 line-height="1.25rem" color=(tone == "outline" ? "light-dark(#27272a, #f5f5f5)" : "#ffffff")
+
+// DialogPopup's Close (ghost icon button, top right, last in the tab order).
+component NdClose
+  props
+    buttonId: string
+    disabled: bool
+    press: action
+    key: action
+  view
+    button id=buttonId press=press key=key disabled=disabled aria-label="Close" testId=buttonId position="absolute" right="0.5rem" top="0.5rem" width="2rem" height="2rem" padding=0 border-width=0 border-radius="0.5rem" background-color="#00000000" display="flex" align-items="center" justify-content="center"
+      CnGlyph(name="x", size=16, color="light-dark(#71717b, #818181)")
+
+component NetworkDialogs
+  props
+    net: NetworkView
+    remove: string
+    ask: action
+    command: action
+    busy: bool
+    still: bool
+  view
+    when remove == `network:on:${net.networkSerial}` or remove == `network:off:${net.networkSerial}`
+      NetworkAccessDialog(enabling=(remove == `network:on:${net.networkSerial}`), busy=busy, still=still, ask=ask, command=command)
+    when remove == `tailscale:disable:${net.tailscaleSerial}`
+      TailscaleDisableDialog(busy=busy, still=still, ask=ask, command=command)
+    when remove == `tailscale:setup:${net.tailscaleSerial}`
+      TailscaleSetupDialog(initialPort=net.servePort, baseUrl=net.tailscaleUrl, host=net.tailscaleHost, busy=busy, still=still, ask=ask, command=command)
+    when remove == `pairing:create:${net.createSerial}`
+      CreatePairingDialog(busy=busy, ask=ask, command=command)
+    when net.reveal.open
+      PairingRevealDialog(reveal=net.reveal, busy=busy, command=command)
+
+// "Enable network access?" / "Disable network access?" (AlertDialog, default confirm).
+component NetworkAccessDialog
+  props
+    enabling: bool
+    busy: bool
+    still: bool
+    ask: action
+    command: action
+  action close
+    if not busy
+      ask("")
+      focus("network-access-switch")
+  action confirm
+    if not busy
+      command("network-access", "", enabling ? "on" : "off")
+  action tabCancel(k: string)
+    if k == "Tab"
+      preventDefault()
+      focus("network-access-confirm")
+  action tabConfirm(k: string)
+    if k == "Tab"
+      preventDefault()
+      focus("network-access-cancel")
+  view
+    column class=NdOverlay animation="ndFadeIn 200ms ease-in-out" -exact-exit-animation="ndFadeOut 200ms ease-in-out" testId="network-access-overlay"
+      column class=NdPopup max-width="32rem" animation="ndPopupIn 200ms ease-in-out" -exact-exit-animation="ndPopupOut 200ms ease-in-out" role="alertdialog" aria-modal=true aria-label=(enabling ? "Enable network access?" : "Disable network access?") testId="network-access-dialog"
+        column gap="0.5rem" padding="1.5rem" box-sizing="border-box"
+          text (enabling ? "Enable network access?" : "Disable network access?") font-size="1.25rem" font-weight=600 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=2 testId="network-access-title"
+          text (enabling ? "Let your other devices connect to T3 Code over the network. Pair devices to give them access. T3 Code will restart." : "Devices connected over your local network will disconnect. Existing tunnels, such as T3 Connect or Tailscale HTTPS, keep working. T3 Code will restart.") font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #8f8f8f)" testId="network-access-body"
+        row gap="0.5rem" justify-content="flex-end" padding-left="1.5rem" padding-right="1.5rem" padding-top="1rem" padding-bottom="1rem" box-sizing="border-box" border-top-style="solid" border-top-width=1 border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#fafafab8, #ffffff06)"
+          NdAction(buttonId="network-access-cancel", label="Cancel", tone="outline", disabled=busy, busyLabel="", still=still, keys="Escape", first=true, press=close, key=tabCancel)
+          NdAction(buttonId="network-access-confirm", label=(enabling ? "Restart and enable" : "Restart and disable"), tone="default", disabled=busy, busyLabel=(busy ? "Restarting…" : ""), still=still, keys="", first=false, press=confirm, key=tabConfirm)
+
+// "Disable Tailscale HTTPS?" (AlertDialog, destructive confirm).
+component TailscaleDisableDialog
+  props
+    busy: bool
+    still: bool
+    ask: action
+    command: action
+  action close
+    if not busy
+      ask("")
+      focus("tailscale-https-switch")
+  action confirm
+    if not busy
+      command("tailscale-serve", "", "off")
+  action tabCancel(k: string)
+    if k == "Tab"
+      preventDefault()
+      focus("tailscale-disable-confirm")
+  action tabConfirm(k: string)
+    if k == "Tab"
+      preventDefault()
+      focus("tailscale-disable-cancel")
+  view
+    column class=NdOverlay animation="ndFadeIn 200ms ease-in-out" -exact-exit-animation="ndFadeOut 200ms ease-in-out" testId="tailscale-disable-overlay"
+      column class=NdPopup max-width="32rem" animation="ndPopupIn 200ms ease-in-out" -exact-exit-animation="ndPopupOut 200ms ease-in-out" role="alertdialog" aria-modal=true aria-label="Disable Tailscale HTTPS?" testId="tailscale-disable-dialog"
+        column gap="0.5rem" padding="1.5rem" box-sizing="border-box"
+          text "Disable Tailscale HTTPS?" font-size="1.25rem" font-weight=600 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=2
+          text "T3 Code will restart the local backend without Tailscale Serve." font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #8f8f8f)"
+        row gap="0.5rem" justify-content="flex-end" padding-left="1.5rem" padding-right="1.5rem" padding-top="1rem" padding-bottom="1rem" box-sizing="border-box" border-top-style="solid" border-top-width=1 border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#fafafab8, #ffffff06)"
+          NdAction(buttonId="tailscale-disable-cancel", label="Cancel", tone="outline", disabled=busy, busyLabel="", still=still, keys="Escape", first=true, press=close, key=tabCancel)
+          NdAction(buttonId="tailscale-disable-confirm", label="Restart and disable", tone="destructive", disabled=busy, busyLabel=(busy ? "Restarting…" : ""), still=still, keys="", first=false, press=confirm, key=tabConfirm)
+
+// "Set up Tailscale HTTPS?" (Dialog): the HTTPS port (1-65535) and the endpoint it will have.
+component TailscaleSetupDialog
+  props
+    initialPort: number
+    baseUrl: string
+    host: string
+    busy: bool
+    still: bool
+    ask: action
+    command: action
+  state typed = ""
+  state edited = false
+  state tip = false
+  action edit(value: string)
+    typed = value
+    edited = true
+  action close
+    if not busy
+      ask("")
+      focus("tailscale-https-switch")
+  action confirm
+    if not busy and valid
+      command("tailscale-serve", "", `on:${trim(portText)}`)
+  action hover(over: bool)
+    tip = over
+  action first(k: string, e: KeyboardEvent)
+    if k == "Tab" and e.shiftKey
+      preventDefault()
+      focus("tailscale-setup-close")
+  action last(k: string, e: KeyboardEvent)
+    if k == "Tab" and not e.shiftKey
+      preventDefault()
+      focus("tailscale-port")
+  action submitKey(k: string, e: KeyboardEvent)
+    if k == "Enter"
+      confirm()
+    first(k, e)
+  action plainKey(k: string)
+    if k == "-"
+      tip = false
+  derive portText = edited ? typed : `${initialPort}`
+  derive valid = match parseNumber(portText) { case some(n) => n >= 1 and n <= 65535 and `${n}` == trim(portText), case none => false }
+  derive preview = valid ? (match parseNumber(portText) { case some(n) => (n == 443 ? baseUrl : `https://${host}:${n}`), case none => baseUrl }) : baseUrl
+  view
+    column class=NdOverlay animation="ndFadeIn 200ms ease-in-out" -exact-exit-animation="ndFadeOut 200ms ease-in-out" testId="tailscale-setup-overlay"
+      column class=NdPopup animation="ndPopupIn 200ms ease-in-out" -exact-exit-animation="ndPopupOut 200ms ease-in-out" role="dialog" aria-modal=true aria-label="Set up Tailscale HTTPS?" testId="tailscale-setup-dialog"
+        column gap="0.5rem" padding-left="1.5rem" padding-right="1.5rem" padding-top="1.5rem" padding-bottom="0.75rem" box-sizing="border-box"
+          text "Set up Tailscale HTTPS?" font-size="1.25rem" font-weight=600 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=2
+          text "T3 Code will restart the local backend with Tailscale Serve enabled and ask Tailscale to proxy HTTPS traffic to this backend." font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #8f8f8f)"
+        column gap="1rem" padding-left="1.5rem" padding-right="1.5rem" padding-top="0.25rem" padding-bottom="1.5rem" box-sizing="border-box"
+          column gap="0.5rem"
+            text "HTTPS port" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
+            input id="tailscale-port" value=portText input=edit key=submitKey autofocus=true inputmode="numeric" aria-label="HTTPS port" disabled=busy class=PvField height="2rem" width="100%" testId="tailscale-port"
+            when not valid
+              text "Enter a port from 1 to 65535." font-size="0.75rem" line-height="1rem" color="light-dark(#e7000b, #ff6467)" testId="tailscale-port-error"
+          column padding-left="0.75rem" padding-right="0.75rem" padding-top="0.5rem" padding-bottom="0.5rem" border-radius="0.375rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7b3, #ffffff12)" background-color="light-dark(#f4f4f533, #ffffff05)"
+            text "HTTPS endpoint" font-size="0.75rem" line-height="1rem" font-weight=500 color="light-dark(#71717b, #818181)"
+            box position="relative" hover=hover margin-top="0.25rem"
+              text (preview == "" ? "Pending MagicDNS endpoint" : preview) font-size="0.875rem" line-height="1.25rem" line-clamp=1 color="light-dark(#27272a, #f5f5f5)" testId="tailscale-endpoint-preview"
+              when tip and preview != ""
+                CnTooltip(tip=preview, tipId="tailscale-endpoint-preview-tip", above=24)
+        row gap="0.5rem" justify-content="flex-end" padding-left="1.5rem" padding-right="1.5rem" padding-top="1rem" padding-bottom="1rem" box-sizing="border-box" border-top-style="solid" border-top-width=1 border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#fafafab8, #ffffff06)"
+          NdAction(buttonId="tailscale-setup-cancel", label="Cancel", tone="outline", disabled=busy, busyLabel="", still=still, keys="Escape", first=false, press=close, key=plainKey)
+          NdAction(buttonId="tailscale-setup-confirm", label="Enable", tone="default", disabled=(busy or not valid), busyLabel=(busy ? "Restarting…" : ""), still=still, keys="", first=false, press=confirm, key=plainKey)
+        NdClose(buttonId="tailscale-setup-close", disabled=busy, press=close, key=last)
+
+// "Create pairing link" (Dialog, footer bare): an optional label, Read only / Standard, eight
+// permissions (Standard ticked), "Select at least one permission." or the access:write warning.
+component CreatePairingDialog
+  props
+    busy: bool
+    ask: action
+    command: action
+  state label = ""
+  state s0 = true
+  state s1 = true
+  state s2 = true
+  state s3 = true
+  state s4 = false
+  state s5 = false
+  state s6 = true
+  state s7 = false
+  action editLabel(value: string)
+    label = value
+  action readOnly
+    s0 = true
+    s1 = false
+    s2 = false
+    s3 = false
+    s4 = false
+    s5 = false
+    s6 = false
+    s7 = false
+  action standard
+    s0 = true
+    s1 = true
+    s2 = true
+    s3 = true
+    s4 = false
+    s5 = false
+    s6 = true
+    s7 = false
+  action flip(index: number)
+    if not busy
+      if index == 0
+        s0 = not s0
+      if index == 1
+        s1 = not s1
+      if index == 2
+        s2 = not s2
+      if index == 3
+        s3 = not s3
+      if index == 4
+        s4 = not s4
+      if index == 5
+        s5 = not s5
+      if index == 6
+        s6 = not s6
+      if index == 7
+        s7 = not s7
+  action close
+    if not busy
+      ask("")
+      focus("create-pairing-link")
+  action create
+    if not busy and count > 0
+      command("pairing-create", label, scopes)
+  action first(k: string, e: KeyboardEvent)
+    if k == "Tab" and e.shiftKey
+      preventDefault()
+      focus("pairing-create-close")
+  action last(k: string, e: KeyboardEvent)
+    if k == "Tab" and not e.shiftKey
+      preventDefault()
+      focus("pairing-label")
+  action plainKey(k: string)
+    if k == "-"
+      label = label
+  derive count = (s0 ? 1 : 0) + (s1 ? 1 : 0) + (s2 ? 1 : 0) + (s3 ? 1 : 0) + (s4 ? 1 : 0) + (s5 ? 1 : 0) + (s6 ? 1 : 0) + (s7 ? 1 : 0)
+  derive scopes = `${s0 ? "orchestration:read " : ""}${s1 ? "orchestration:operate " : ""}${s2 ? "terminal:operate " : ""}${s3 ? "review:write " : ""}${s4 ? "access:read " : ""}${s5 ? "access:write " : ""}${s6 ? "relay:read " : ""}${s7 ? "relay:write" : ""}`
+  view
+    column class=NdOverlay animation="ndFadeIn 200ms ease-in-out" -exact-exit-animation="ndFadeOut 200ms ease-in-out" testId="create-pairing-overlay"
+      column class=NdPopup animation="ndPopupIn 200ms ease-in-out" -exact-exit-animation="ndPopupOut 200ms ease-in-out" role="dialog" aria-modal=true aria-label="Create pairing link" testId="create-pairing-dialog"
+        column gap="0.5rem" padding-left="1.5rem" padding-right="1.5rem" padding-top="1.5rem" padding-bottom="0.75rem" box-sizing="border-box"
+          text "Create pairing link" font-size="1.25rem" font-weight=600 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=2
+          text "Generate a one-time link that another device can use to pair with this backend as an authorized client." font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #8f8f8f)"
+        column gap="1rem" padding-left="1.5rem" padding-right="1.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box"
+          column gap="0.375rem"
+            text "Client label (optional)" font-size="0.75rem" line-height="1rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
+            input id="pairing-label" value=label input=editLabel key=first autofocus=true placeholder="e.g. Living room iPad" aria-label="Client label (optional)" disabled=busy class=PvField height="2rem" width="100%" testId="pairing-label"
+          column gap="0.75rem"
+            row gap="0.75rem" align-items="center" justify-content="space-between"
+              column
+                text "Permissions" font-size="0.75rem" line-height="1rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=3
+                text "Limit what the paired client can do." font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
+              row gap="0.25rem"
+                button press=readOnly disabled=busy testId="pairing-read-only" display="flex" align-items="center" height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)"
+                  text "Read only" font-size="0.75rem" line-height="1rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
+                button press=standard disabled=busy testId="pairing-standard" display="flex" align-items="center" height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)"
+                  text "Standard" font-size="0.75rem" line-height="1rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
+            column border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#f4f4f540, #ffffff05)" overflow="hidden"
+              ScopeOption(index=0, checked=s0, title="View environment", description="Read threads, status, diffs, and configuration.", busy=busy, flip=flip)
+              ScopeOption(index=1, checked=s1, title="Operate tasks", description="Start tasks and perform changes in the environment.", busy=busy, flip=flip)
+              ScopeOption(index=2, checked=s2, title="Use terminals", description="Create terminals and send input to running shells.", busy=busy, flip=flip)
+              ScopeOption(index=3, checked=s3, title="Write reviews", description="Create comments while reviewing changes.", busy=busy, flip=flip)
+              ScopeOption(index=4, checked=s4, title="View access", description="Inspect pairing links and authorized clients.", busy=busy, flip=flip)
+              ScopeOption(index=5, checked=s5, title="Manage access", description="Issue and revoke credentials for other clients.", busy=busy, flip=flip)
+              ScopeOption(index=6, checked=s6, title="View relay", description="Inspect managed relay connectivity.", busy=busy, flip=flip)
+              ScopeOption(index=7, checked=s7, title="Manage relay", description="Change managed tunnel connectivity.", busy=busy, flip=flip)
+            when count == 0
+              text "Select at least one permission." font-size="0.75rem" line-height="1rem" color="light-dark(#e7000b, #ff6467)" testId="pairing-scopes-error"
+            else
+              when s5
+                text "This client can create or revoke access for other devices." font-size="0.75rem" line-height="1rem" color="light-dark(#bb4d00, #ffb900)" testId="pairing-scopes-warning"
+        row gap="0.5rem" justify-content="flex-end" padding-left="1.5rem" padding-right="1.5rem" padding-top="1rem" padding-bottom="1rem" box-sizing="border-box"
+          NdAction(buttonId="pairing-create-cancel", label="Cancel", tone="outline", disabled=busy, busyLabel="", still=true, keys="Escape", first=false, press=close, key=plainKey)
+          NdAction(buttonId="pairing-create-confirm", label=(busy ? "Creating…" : "Create link"), tone="default", disabled=(busy or count == 0), busyLabel="", still=true, keys="", first=false, press=create, key=plainKey)
+        NdClose(buttonId="pairing-create-close", disabled=busy, press=close, key=last)
+
+// One permission row: Checkbox, title, description; the whole row toggles it.
+component ScopeOption
+  props
+    index: number
+    checked: bool
+    title: string
+    description: string
+    busy: bool
+    flip: action
+  view
+    button press=flip(index) disabled=busy role="checkbox" aria-checked=checked aria-label=title testId=`pairing-scope-${index}` display="flex" flex-direction="row" align-items="flex-start" gap="0.75rem" width="100%" padding-left="0.75rem" padding-right="0.75rem" padding-top="0.625rem" padding-bottom="0.625rem" box-sizing="border-box" border-width=0 border-top-width=(index == 0 ? 0 : 1) border-top-style="solid" border-color="light-dark(#e4e4e799, #ffffff0a)" background-color="#00000000" opacity=(busy ? 0.64 : 1)
+      box width="1rem" height="1rem" margin-top="0.125rem" flex-shrink=0 box-sizing="border-box" border-radius="0.25rem" border-style="solid" border-width=1 border-color=(checked ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#d4d4d8, #ffffff26)") background-color=(checked ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#ffffff, #ffffff07)") display="flex" align-items="center" justify-content="center"
+        when checked
+          CnGlyph(name="check", size=12, color="#ffffff")
+      column min-width=0 align-items="flex-start"
+        text title font-size="0.75rem" line-height="1rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
+        text description font-size="0.75rem" line-height="1.125rem" text-align="left" color="light-dark(#71717b, #818181)"
+
+// The clipboard-failure reveal dialog: exactly the value that failed to copy, a 132 pt QR for a
+// link (never loopback), Done and Copy code.
+component PairingRevealDialog
+  props
+    reveal: NetReveal
+    busy: bool
+    command: action
+  action close
+    command("pairing-reveal-close", reveal.linkId, "")
+  action first(k: string, e: KeyboardEvent)
+    if k == "Tab" and e.shiftKey
+      preventDefault()
+      focus("pairing-reveal-close")
+  action last(k: string, e: KeyboardEvent)
+    if k == "Tab" and not e.shiftKey
+      preventDefault()
+      focus("pairing-reveal-value")
+  action plainKey(k: string)
+    if k == "-"
+      preventDefault()
+  view
+    column class=NdOverlay animation="ndFadeIn 200ms ease-in-out" -exact-exit-animation="ndFadeOut 200ms ease-in-out" testId="pairing-reveal-overlay"
+      column class=NdPopup animation="ndPopupIn 200ms ease-in-out" -exact-exit-animation="ndPopupOut 200ms ease-in-out" role="dialog" aria-modal=true aria-label=reveal.title testId="pairing-reveal-dialog"
+        column gap="0.5rem" padding-left="1.5rem" padding-right="1.5rem" padding-top="1.5rem" padding-bottom="0.75rem" box-sizing="border-box"
+          text reveal.title font-size="1.25rem" font-weight=600 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=2
+          text reveal.description font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #8f8f8f)"
+        column gap="1rem" padding-left="1.5rem" padding-right="1.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box"
+          textarea id="pairing-reveal-value" value=reveal.value readonly=true rows=reveal.rows key=first autofocus=true aria-label=reveal.title testId="pairing-reveal-value" width="100%" padding="0.5rem" box-sizing="border-box" border-radius="0.625rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#fcfcfc, #ffffff08)" font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"
+          when reveal.qr
+            row justify-content="center" padding="1rem" border-radius="0.75rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e799, #ffffff0a)" background-color="light-dark(#f4f4f54d, #ffffff08)"
+              box width="8.25rem" height="8.25rem" position="relative" background-color="#ffffff" role="img" aria-label="Pairing link — scan to open on another device" testId="pairing-reveal-qr"
+                each cell in reveal.cells key=`${cell.x}:${cell.y}`
+                  box position="absolute" left=cell.x top=cell.y width=cell.w height=cell.h background-color="#000000"
+        row gap="0.5rem" justify-content="flex-end" padding-left="1.5rem" padding-right="1.5rem" padding-top="1rem" padding-bottom="1rem" box-sizing="border-box"
+          NdAction(buttonId="pairing-reveal-done", label="Done", tone="outline", disabled=busy, busyLabel="", still=true, keys="Escape", first=false, press=close, key=plainKey)
+          NdAction(buttonId="pairing-reveal-copy-code", label="Copy code", tone="outline", disabled=busy, busyLabel="", still=true, keys="", first=false, press=command("pairing-copy", reveal.linkId, "code"), key=plainKey)
+        NdClose(buttonId="pairing-reveal-close", disabled=busy, press=close, key=last)

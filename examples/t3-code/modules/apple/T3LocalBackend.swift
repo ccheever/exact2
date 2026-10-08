@@ -229,6 +229,9 @@ final class T3LocalBackend: @unchecked Sendable {
     private var policy: T3LocalPolicy?
     private let auth: T3LocalAuth
     private let session: URLSession
+    /// Network access and Tailscale Serve for the next start (20261005-this-machine-network-access): read
+    /// from t3-code.json at launch, replaced by `restart(exposure:)`.
+    private var exposure = T3LocalExposure()
     /// The Local environment switch's waits for a start (`setEnabled(true)`): each gets nil once ready, else the reason.
     private var readyWaiters: [(String?) -> Void] = []
     private var waitEpoch = 0
@@ -288,12 +291,19 @@ final class T3LocalBackend: @unchecked Sendable {
 
     /// A session's module arrived. The first one starts the backend.
     func attach(_ owner: AnyObject, dataRoot: URL, changed: @escaping (String) -> Void) {
+        T3LocalNetwork.shared.changed = { [weak self] in self?.announce() }
         lock.lock()
         listeners[ObjectIdentifier(owner)] = changed
         let first = !begun
         begun = true
         lock.unlock()
         if first { installQueue.async { self.begin(dataRoot: dataRoot) } }
+    }
+
+    /// `t3.local` without a status change (a background network read landed; T3LocalNetwork.swift).
+    func announce() {
+        lock.lock(); let notify = Array(listeners.values); lock.unlock()
+        notify.forEach { $0(Self.topic) }
     }
 
     /// A session's module was destroyed. The last one stops the backend, waiting at most 5 s
@@ -396,14 +406,23 @@ final class T3LocalBackend: @unchecked Sendable {
                 return (reason, false)
             }
         }
-        let config = Self.startConfig(versionDir: versionDir, port: port, home: home, token: bootstrapToken, env: serverEnvironment(env), cwd: NSHomeDirectory())
+        // configureFromSettings: the exposure the server starts with (loopback unless network access can bind).
+        let launchExposure = T3LocalExposure.atLaunch(settings: T3LocalExposure.settings(dataRoot: dataRoot ?? home),
+                                                      interfaces: (try? T3LocalNetwork.shared.interfaces()) ?? [:], lanHostOverride: T3LocalNetwork.shared.lanHostOverride)
+        lock.lock(); exposure = launchExposure; lock.unlock()
+        let serverEnv = serverEnvironment(env)
+        let config = Self.startConfig(versionDir: versionDir, port: port, home: home, token: bootstrapToken, env: serverEnv, cwd: NSHomeDirectory(), exposure: launchExposure)
         let httpBaseUrl = config.httpBaseUrl
         let logDirectory = home.appendingPathComponent("userdata/logs", isDirectory: true)
         let manager = T3LocalBackendManager(
             executor: T3LocalQueueExecutor(queue: queue), clock: T3LocalQueueClock(queue: queue),
             spawner: makeSpawner(), prober: makeProber(),
             log: T3LocalFileOutputLog(logDirectory: logDirectory, runId: runId),
-            spec: T3LocalBackendSpec(configResolve: { config }))
+            spec: T3LocalBackendSpec(configResolve: { [weak self] in
+                guard let self else { return config }
+                self.lock.lock(); let exposure = self.exposure; self.lock.unlock()
+                return Self.startConfig(versionDir: versionDir, port: port, home: home, token: self.bootstrapToken, env: serverEnv, cwd: NSHomeDirectory(), exposure: exposure)
+            }))
         manager.logger = { [weak self] in self?.log($0) }
         manager.spec.onStarted = { pid, config in T3LocalPidFile.write(pidFile, pid: pid, executable: config.executablePath) }
         manager.spec.onReady = { [weak self] url in self?.exchange(url) }
@@ -415,6 +434,7 @@ final class T3LocalBackend: @unchecked Sendable {
         publish {
             $0["port"] = port; $0["httpBaseUrl"] = httpBaseUrl.absoluteString; $0["wsBaseUrl"] = "ws://127.0.0.1:\(port)"
             $0["version"] = version; $0["t3Home"] = home.path; $0["state"] = "starting"; $0["failure"] = ""
+            Self.describe(launchExposure, into: &$0)
         }
         _ = Self.exitHook
         lock.lock(); self.manager = manager; lock.unlock()
@@ -483,16 +503,79 @@ final class T3LocalBackend: @unchecked Sendable {
     /// `resolvePrimaryStartConfig` for the SEA: `t3 --bootstrap-fd 0` from the version folder, cwd the
     /// home folder (`backendCwd` of a packaged build), local-only (`127.0.0.1`), no Tailscale Serve
     /// (this-machine-network-access adds exposure), the resource monitor when the tree has one.
-    static func startConfig(versionDir: URL, port: Int, home: URL, token: String, env: [String: String], cwd: String) -> T3LocalStartConfig {
+    static func startConfig(versionDir: URL, port: Int, home: URL, token: String, env: [String: String], cwd: String, exposure: T3LocalExposure = T3LocalExposure()) -> T3LocalStartConfig {
         let monitor = versionDir.appendingPathComponent("resource-monitor/darwin-arm64/t3-resource-monitor")
         return T3LocalStartConfig(
             executablePath: versionDir.appendingPathComponent("t3").path,
             args: ["--bootstrap-fd", "0"],
             cwd: cwd,
             env: env,
-            bootstrap: T3LocalBootstrap(port: port, t3Home: home.path, desktopBootstrapToken: token,
+            bootstrap: T3LocalBootstrap(port: port, t3Home: home.path, host: exposure.host, desktopBootstrapToken: token,
+                                        tailscaleServeEnabled: exposure.tailscaleServeEnabled, tailscaleServePort: exposure.tailscaleServePort,
                                         resourceMonitorPath: FileManager.default.isExecutableFile(atPath: monitor.path) ? monitor.path : nil),
+            // The app always reaches its own server over loopback; network access only widens the bind host.
             httpBaseUrl: URL(string: "http://127.0.0.1:\(port)")!)
+    }
+
+    /// The status's exposure fields: the bind host and Tailscale Serve the server runs (or will start) with.
+    static func describe(_ exposure: T3LocalExposure, into status: inout [String: Any]) {
+        status["host"] = exposure.host; status["tailscaleServeEnabled"] = exposure.tailscaleServeEnabled; status["tailscaleServePort"] = exposure.tailscaleServePort
+    }
+
+    /// Network access / Tailscale HTTPS (20261005-this-machine-network-access; U4 stopgap, X45 / #122): the
+    /// reference relaunches the app with the new envelope; this stops the server (SIGTERM, SIGKILL after
+    /// 2 s, at most 5 s), starts it with the new exposure and answers once it is ready (`done(nil)`) or
+    /// why not. A server that is switched off or refused only keeps the envelope for its next start.
+    func restart(exposure next: T3LocalExposure, done: @escaping (String?) -> Void) {
+        installQueue.async { [self] in
+            lock.lock(); exposure = next; let current = manager; lock.unlock()
+            T3LocalNetwork.shared.invalidate()
+            publish { Self.describe(next, into: &$0) }
+            guard let current, statusValue()["enabled"] as? Bool != false else { return done(nil) }
+            queue.async { [self] in
+                failWaiters("The local server restarted.")
+                current.stop(timeoutMs: 5_000) { [self] in
+                    publish { describe(current, into: &$0) }
+                    readyWaiters.append(done)
+                    waitEpoch += 1
+                    let epoch = waitEpoch
+                    queue.asyncAfter(deadline: .now() + startTimeout) { [self] in
+                        guard !readyWaiters.isEmpty, waitEpoch == epoch else { return }
+                        failWaiters("The local server did not start in time.", stop: current)
+                    }
+                    current.start()
+                }
+            }
+        }
+    }
+
+    /// `localAccess`: one of the reference's six `/api/auth/*` calls (environmentHttp.ts EnvironmentAuthHttpApi)
+    /// on the embedded server with its in-memory bearer. Answers the JSON value, or the HTTP status (0: none).
+    static let accessRoutes: Set<String> = ["POST /api/auth/pairing-token", "GET /api/auth/pairing-links", "POST /api/auth/pairing-links/revoke",
+                                            "GET /api/auth/clients", "POST /api/auth/clients/revoke", "POST /api/auth/clients/revoke-others"]
+    func access(method: String, path: String, body: Any?, done: @escaping (Result<Any, T3Failure>) -> Void) {
+        guard Self.accessRoutes.contains("\(method) \(path)") else { return done(.failure(T3Failure(kind: "Arguments", message: "That request is not an access request."))) }
+        let status = statusValue()
+        guard let base = (status["httpBaseUrl"] as? String).flatMap(URL.init(string:)), status["state"] as? String == "ready", let bearer = auth.cached,
+              let url = URL(string: path, relativeTo: base)?.absoluteURL else {
+            return done(.failure(T3Failure(kind: "Http", message: "The local server is not running.")))
+        }
+        var request = URLRequest(url: url, timeoutInterval: 15)
+        request.httpMethod = method
+        request.setValue("Bearer \(bearer)", forHTTPHeaderField: "authorization")
+        if method == "POST" {
+            request.setValue("application/json", forHTTPHeaderField: "content-type")
+            request.httpBody = (try? JSONSerialization.data(withJSONObject: body ?? [String: Any]())) ?? Data("{}".utf8)
+        }
+        session.dataTask(with: request) { data, response, _ in
+            let code = (response as? HTTPURLResponse)?.statusCode ?? 0
+            guard (200..<300).contains(code) else {
+                var failure = T3Failure(kind: "Http", message: code == 0 ? "The local server did not answer." : "HTTP \(code)")
+                failure.detail = code == 0 ? "" : "\(code)"
+                return done(.failure(failure))
+            }
+            done(.success(data.flatMap { try? JSONSerialization.jsonObject(with: $0, options: [.fragmentsAllowed]) } ?? NSNull()))
+        }.resume()
     }
 
     /// The token this app run's servers are started with (tests read it; it is never logged).

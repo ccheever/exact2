@@ -20,6 +20,9 @@ use EnvRoute from "./connections-routes.contract" // lane environment-routes
 use RouteCount from "./connections-routes.contract"
 use RouteMenuItem from "./connections-routes.contract"
 use EnvironmentRoutes from "./connections-routes.contract"
+use NetworkView from "./connections-network.contract" // this-machine-network-access
+use NetworkAccessRows from "./connections-network.contract"
+use AuthorizedClients from "./connections-network.contract"
 
 // animate-status-pulse: full, then half opacity in six steps.
 keyframes cnStatusPulse
@@ -124,6 +127,7 @@ shape ConnectionsPage
   loadSummary: string
   githubSummary: string
   thisMachine: ThisMachine
+  network: NetworkView
 
 // Settings → Connections (ConnectionsSettings.tsx): "This machine" (the embedded
 // server, the primary environment: ThisMachineSection), every paired environment
@@ -152,7 +156,10 @@ component ConnectionsPanel
   derive rowWide = width - 34 >= 512
   view
     column width="100%" gap="2rem" testId="connections-settings"
-      ThisMachineSection(machine=page.thisMachine, wide=rowWide, busy=busy, op=op, ask=remove)
+      ThisMachineSection(machine=page.thisMachine, net=page.network, wide=rowWide, busy=busy, op=op, ask=remove)
+      // this-machine-network-access: shown while network access is on or Tailscale HTTPS answers.
+      when page.network.visible and page.network.clientsVisible
+        AuthorizedClients(net=page.network, busy=busy, ask=remove, op=op)
       column width="100%" gap="0.625rem"
         PvSectionTitle(title="Environments")
           row gap="0.25rem" align-items="center"
@@ -202,12 +209,13 @@ component ConnectionsPanel
 // this machine" (its icon menu), the Local environment row (LocalEnvironmentSetting:
 // the switch asks first, LocalEnvironmentDialog in this-machine.contract), and while
 // this machine can be managed the Version row (`version · url`, "Loading…", "Up to
-// date", the update's progress or its action). Network access, endpoints and
-// clients are 20261005-this-machine-network-access. A development build without
+// date", the update's progress or its action), then Network access, its endpoints
+// and Tailscale HTTPS (20261005-this-machine-network-access). A development build without
 // its lane variables shows why no server runs.
 component ThisMachineSection
   props
     machine: ThisMachine
+    net: NetworkView
     wide: bool
     busy: bool
     op: action
@@ -256,6 +264,9 @@ component ThisMachineSection
                   text machine.updateNote font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)" testId="this-machine-update-note"
                 when machine.upToDate
                   text "Up to date" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)" testId="this-machine-up-to-date"
+        // this-machine-network-access: Network access, its endpoints and Tailscale HTTPS (connections-network.contract).
+        when machine.canManage and net.visible
+          NetworkAccessRows(net=net, wide=wide, busy=busy, ask=ask, op=op)
         when machine.status != ""
           PvRow(title="Local server", description=machine.status, status="", wide=wide, divided=true)
 
