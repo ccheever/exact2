@@ -22,14 +22,6 @@ use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
 
 /// A failed poll's kind, for telemetry.
-/// The platform's description of a failed request, without the fetch
-/// wrapper ("TypeError: Failed to fetch — ").
-fn system_error(why: &str) -> String {
-    let line = why.lines().next().unwrap_or("").trim();
-    let line = line.rsplit(" — ").next().unwrap_or(line).trim();
-    line.chars().take(120).collect()
-}
-
 fn failure_kind((status, why): &(u16, String)) -> &'static str {
     let lower = why.to_lowercase();
     match status {
@@ -57,7 +49,7 @@ fn poll_failure((status, why): &(u16, String)) -> String {
         // iOS's own words: "appears to be offline" is the phone; "the
         // network connection was lost" is a connection that died.
         0 if lower.contains("appears to be offline") => "This phone is offline.".into(),
-        0 => system_error(why),
+        0 => send::system_error(why),
         status => format!(
             "The relay answered {status}: {}",
             why.lines().next().unwrap_or("").trim()

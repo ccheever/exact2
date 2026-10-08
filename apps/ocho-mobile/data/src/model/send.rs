@@ -487,3 +487,11 @@ impl Model {
         }
     }
 }
+
+/// The platform's description of a failed request, without the fetch
+/// wrapper ("TypeError: Failed to fetch — ").
+pub(super) fn system_error(why: &str) -> String {
+    let line = why.lines().next().unwrap_or("").trim();
+    let line = line.rsplit(" — ").next().unwrap_or(line).trim();
+    line.chars().take(120).collect()
+}
