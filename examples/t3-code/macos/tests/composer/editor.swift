@@ -483,6 +483,30 @@ final class ComposerEditorTests: XCTestCase {
         XCTAssertEqual(state?["text"] as? String, "stash two")
     }
 
+    /// ComposerPromptEditorTiptap's skillLabelFor: the selected provider's skill of that name reads as
+    /// its display name; a name the provider does not list is title-cased (formatProviderSkillDisplayName).
+    func testSkillChipsReadTheProvidersDisplayName() {
+        let fixture = EditorFixture()
+        let styler = fixture.composer.editor.styler
+        fixture.type("use $imagegen and $openai-docs then $frontend-design x")
+        XCTAssertEqual(styler.chips.map(\.kind), ["skill", "skill", "skill"])
+        XCTAssertEqual(styler.chips.map(styler.displayLabel), ["Imagegen", "Openai Docs", "Frontend Design"])
+        let font = NSFont.systemFont(ofSize: 14)
+        let before = styler.chipWidth(styler.chips[0], font: font)
+        // Names match exactly, as the reference's `find` does: "Frontend-Design" is not "frontend-design".
+        let synced = fixture.composer.perform(["op": "editorSync", "generation": 1, "skills": ["imagegen": "Image Gen", "openai-docs": "OpenAI Docs", "Frontend-Design": "Not This"]])
+        XCTAssertEqual(synced["ok"] as? Bool, true)
+        XCTAssertEqual(styler.chips.map(styler.displayLabel), ["Image Gen", "OpenAI Docs", "Frontend Design"])
+        let wider = styler.chipWidth(styler.chips[0], font: font)
+        XCTAssertGreaterThan(wider, before, "the pill is as wide as the label it draws")
+        // The sync restyled the text: the space kept for the pill is the new width.
+        let kern = fixture.editor.textStorage?.attribute(.kern, at: styler.chips[0].start, effectiveRange: nil) as? CGFloat
+        XCTAssertEqual(kern ?? 0, wider, accuracy: 0.01)
+        // A provider switch that drops a skill gives its chip the title-cased name back.
+        _ = fixture.composer.perform(["op": "editorSync", "generation": 2, "skills": [String: String]()])
+        XCTAssertEqual(styler.chips.map(styler.displayLabel), ["Imagegen", "Openai Docs", "Frontend Design"])
+    }
+
     func testFileChipsDrawTheirSizeAndTheTextIcon() {
         let fixture = EditorFixture()
         let styler = fixture.composer.editor.styler

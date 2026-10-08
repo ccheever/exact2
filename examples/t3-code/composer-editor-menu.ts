@@ -171,6 +171,18 @@ export function skillRows(skills: Obj[], query: string, driver: string): MenuRow
     description: str(skill.shortDescription) || str(skill.description) || (skill.scope ? `${str(skill.scope)} skill` : 'Run provider skill'),
     badge: `${SOURCE_LABEL[skillSourceKind(skill)]!} Skill`, badgeIcon: SOURCE_ICON[skillSourceKind(skill)]!, insert: `$${str(skill.name)} ` }));
 }
+/** The composer's skill chip labels by skill name (ComposerPromptEditorTiptap `skillLabelFor`): the first
+ *  skill of the selected provider with that exact name reads as formatProviderSkillDisplayName — its own
+ *  display name, else the title-cased name. A name not in the list is title-cased by the editor. */
+export function skillChipLabels(skills: Obj[]): Record<string, string> {
+  const labels: Record<string, string> = {}, seen = new Set<string>();
+  for (const skill of skills) {
+    const name = str(skill.name);
+    if (!name || seen.has(name)) continue;
+    seen.add(name); labels[name] = skillDisplayName(skill);
+  }
+  return labels;
+}
 
 // ── @ paths and threads ────────────────────────────────────────────────────
 export function basename(path: string): string { const index = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\')); return index === -1 ? path : path.slice(index + 1); }

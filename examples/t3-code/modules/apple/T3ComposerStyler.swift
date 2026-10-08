@@ -23,6 +23,9 @@ final class T3ComposerStyler {
     /// Context ids the draft holds a record for, with each record's chip kind
     /// ("thread", "pr-open"…); a reference missing here draws unresolved.
     var contexts: [String: String] = [:] { didSet { if oldValue != contexts { restyle() } } }
+    /// The selected provider's skill chip labels by skill name (composer-editor-menu.ts
+    /// `skillChipLabels`, the reference's `skillLabelFor`): a skill's own display name.
+    var skills: [String: String] = [:] { didSet { if oldValue != skills { restyle() } } }
     /// Where an image chip's draft image lives (T3ComposerImageChip.swift).
     var imageDirectory: URL?
     /// The chips' hover details (T3ComposerChipTips.swift, lane r4-timeline).
@@ -250,7 +253,7 @@ final class T3ComposerStyler {
     }
     func chipWidth(_ chip: T3ComposerChip, font: NSFont) -> CGFloat {
         let size = font.pointSize * 0.86
-        let label = (T3ComposerStyler.displayLabel(chip) as NSString).size(withAttributes: [.font: chipFont(font)]).width
+        let label = (displayLabel(chip) as NSString).size(withAttributes: [.font: chipFont(font)]).width
         let suffix = chipSuffix(chip)
         let extra = suffix.isEmpty ? 0 : size * 0.33 + ceil((suffix as NSString).size(withAttributes: [.font: suffixFont(font)]).width * 10) / 10
         return 2 + size * 0.5 * 2 + size * 1.17 + size * 0.33 + ceil(label * 10) / 10 + extra
@@ -268,14 +271,16 @@ final class T3ComposerStyler {
         let fields = value.split(separator: "\t", omittingEmptySubsequences: false)
         return fields.count > 2 ? T3ComposerImageChip.entry(directory: imageDirectory, id: String(fields[2])) : nil
     }
-    static func displayLabel(_ chip: T3ComposerChip) -> String {
+    func displayLabel(_ chip: T3ComposerChip) -> String {
         if chip.kind == "citation" {
             let quote = chip.label.split(whereSeparator: \.isNewline).joined(separator: " ")
             return quote.count > 40 ? String(quote.prefix(39)) + "…" : quote
         }
-        // A skill reads as formatProviderSkillDisplayName names one without a display name
-        // (ComposerPromptEditorTiptap skillLabelFor): `$frontend-design` is "Frontend Design".
+        // A skill reads as ComposerPromptEditorTiptap's skillLabelFor names it: the provider's skill
+        // of that name by formatProviderSkillDisplayName (its display name), else the name as
+        // formatProviderSkillDisplayName title-cases one without: `$frontend-design` is "Frontend Design".
         if chip.kind == "skill" {
+            if let label = skills[chip.label] { return label }
             return chip.label.split(whereSeparator: { $0.isWhitespace || $0 == ":" || $0 == "_" || $0 == "-" })
                 .map { $0.prefix(1).uppercased() + $0.dropFirst() }.joined(separator: " ")
         }
@@ -644,7 +649,7 @@ final class T3ComposerUnderlay: NSView {
         } else {
             T3ComposerIcons.draw(T3ComposerIcons.name(for: chip, kind: styler.chipKind(chip)), in: iconRect, color: ink, dark: dark, path: chip.detail)
         }
-        let label = T3ComposerStyler.displayLabel(chip) as NSString
+        let label = styler.displayLabel(chip) as NSString
         let labelFont = styler.chipFont(font)
         let labelSize = label.size(withAttributes: [.font: labelFont])
         let x = iconRect.maxX + size * 0.33
