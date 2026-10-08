@@ -106,6 +106,11 @@ final class R10ConnectTests: XCTestCase {
         XCTAssertEqual(topics, ["t3.notify"])
         XCTAssertEqual(replies.map { $0["ok"] as? Bool }, [false, true], "the refusal answers at once; the wake after it emits")
         XCTAssertEqual(replies.last?["generation"] as? Int, 3)
+        // pr-conversation-and-refresh: the pull request panel wakes its own resource.
+        R10Connect.wake(["op": "r10Wake", "topic": "t3.pr", "generation": 4], changed: { topics.append($0) }) { replies.append($0) }
+        tick()
+        XCTAssertEqual(topics, ["t3.notify", "t3.pr"])
+        XCTAssertEqual(replies.last?["ok"] as? Bool, true)
     }
 }
 

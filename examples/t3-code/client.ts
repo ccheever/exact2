@@ -32,6 +32,7 @@ import { adoptShellPrefs } from './shell-prefs';
 import { adoptFilesPrefs } from './r5-panels-prefs';
 import { adoptSidebarWidth } from './r4-polish-sidebar-width'; // r4-polish: the stored sidebar width
 import { VCS_STATUS_KEY, vcsStatusEvent } from './shell-vcs';
+import { PR_REFRESH_KEY, prRefreshEvent, adoptPrSnapshots } from './pages-pr-refresh';
 import { DEVICE_STATE_KEY, deviceStateEvent } from './r4-surfaces-device';
 import { LIVE_KEYS, liveEvent } from './live-streams';
 import { WORKTREE_SETUP_KEY, worktreeSetupEvent } from './timeline-worktree';
@@ -188,7 +189,7 @@ export class T3Client {
       adoptTerminalContexts(next, saved);
       adoptStash(next, saved); // composer-editor: the prompt stash (composer-editor-stash.ts)
       adoptComposerFiles(next, saved); // composer-editor: folded pastes (composer-editor-files.ts)
-      adoptPagesPrefs(next, saved); // pages: page preferences and the first-run flag (pages-prefs.ts)
+      adoptPagesPrefs(next, saved); adoptPrSnapshots(next, saved); // pages: page preferences and the first-run flag (pages-prefs.ts); the kept pull request details (pages-pr-refresh.ts)
       adoptShellPrefs(next, saved); // shell: notice dismissals and closed workspace cards (shell-prefs.ts)
       adoptFilesPrefs(next, saved); // r5-panels: Files explorer and render preferences (r5-panels-prefs.ts)
       adoptTerminalPrefs(next, saved); adoptLocalPrefs(next, saved); // each thread's drawer (terminal-ui-state.ts); the Local environment switch (local-primary.ts)
@@ -479,6 +480,7 @@ export class T3Client {
         if (key === TELEMETRY_KEY) { telemetryEvent(this, entry); continue; } // settings-a-telemetry.ts
         if (key === WORKTREE_SETUP_KEY) { worktreeSetupEvent(this, entry); continue; } // timeline-worktree.ts
         if (key === VCS_STATUS_KEY) { vcsStatusEvent(this, entry); continue; } // shell-vcs.ts: the workspace card's git status
+        if (key === PR_REFRESH_KEY) { prRefreshEvent(this, entry); continue; } // pages-pr-refresh.ts: pullRequests.subscribeRefreshes
         if (key === GIT_ACTION_KEY) { gitActionEvent(this, entry); continue; } // r4-git-actions.ts: the card's git.runStackedAction stream
         if (key === DEVICE_STATE_KEY) { deviceStateEvent(this, entry); continue; } // r4-surfaces-device.ts: the device hub state
         if (providerSetupEvent(this, entry) || keepAliveEvent(this, entry) || composerReplyEvent(this, entry)) continue; // keep-alive.ts: running threads' detail streams, the primary's lifecycle; composer-replies.ts: a /feedback upload's or a redeem's reply

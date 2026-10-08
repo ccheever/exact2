@@ -137,7 +137,7 @@ component T3Code
   state prRefresh = 0
   state prTab = "summary"
   resource prList = prList(utilityPage == "pull-requests", prRefresh, wallTime.epochAtZero + elapsed, prSelected, prApplied, prTyped, data.revision) as shape PrListView
-  resource prDetail = prDetail(utilityPage == "pull-requests" ? prSelected : shell.panel.pr.selected, prRefresh, wallTime.epochAtZero + elapsed, data.revision) as shape PrDetailView
+  resource prDetail = prDetail(utilityPage == "pull-requests" ? prSelected : shell.panel.pr.selected, prRefresh, wallTime.epochAtZero + elapsed, data.revision, page.visibilityState == "visible", page.hasFocus) as shape PrDetailView
   resource prMarkdown = renderPullRequestMarkdown(prDetail.bodies) as shape TranscriptMarkdown
   derive prPanelWidth = min(floor(viewport.width / 2), viewport.width - (data.sidebarOpen ? sidebarWidth : 0) - 224)
   derive prListWidth = viewport.width - (data.sidebarOpen ? sidebarWidth : 0) - (prSelected != "" and prPanelOpen ? prPanelWidth : 0)
@@ -203,10 +203,9 @@ component T3Code
   action welcomeImport(op: string, id: string, value: string) // also the Usage page's pages:usage-* ops
     if op != "import" and op != "usage-prices-save"
       send localChanged = command(startsWith(op, "usage-") ? `pageslocal:${op}` : `pageslocal:welcome-${op}`, id, value, 0)
-    else
-      if not commandPending
-        commandPending = true
-        send changed = command(op == "import" ? "pageslocal:welcome-import" : "pageslocal:usage-prices-save", "", `${wallTime.epochAtZero + now()}`, 0)
+    else if not commandPending
+      commandPending = true
+      send changed = command(op == "import" ? "pageslocal:welcome-import" : "pageslocal:usage-prices-save", "", `${wallTime.epochAtZero + now()}`, 0)
   action openConnectionsPage
     settingsEnvironmentId = settings.environmentId
     settingsOpen = true
@@ -1329,12 +1328,14 @@ component T3Code
     confirmValue = ""
   task shellOpen when shell.openRequest != "" and shell.openRequest != shellOpenHandled and shell.openThreadId != "" and not commandPending key=shell.openRequest
     after(1, shellOpenThread)
-  action shellOpenThread
+  action shellOpenThread // a clicked notification's thread, or a `t3 app` request's draft (desktop-activation.ts), which leaves Settings and the utility pages as the reference's route change does
     shellOpenHandled = shell.openRequest
     draftOwner = "__unset__"
     commandPending = true
-    send changed = command("select-thread", shell.openThreadId, "", 0)
+    send changed = command(startsWith(shell.openThreadId, "activation:") ? "activation:open" : "select-thread", shell.openThreadId, "", 0)
     jumpRequest = jumpRequest + 1
+    settingsOpen = settingsOpen and not startsWith(shell.openThreadId, "activation:")
+    utilityPage = startsWith(shell.openThreadId, "activation:") ? "" : utilityPage
   action toastHovering(over: bool)
     toastHover = over
   action toastAct(id: number, op: string, target: string, value: string)

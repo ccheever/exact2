@@ -85,24 +85,37 @@ function fakeClient(replies: Record<string, Reply>) {
   return { client, calls };
 }
 const native = { available: true } as unknown as Native;
+/**
+ * The panel's resource as the runner asks it (pr-conversation-and-refresh): an answer that showed a new
+ * state (the ghost, then the detail with the conversation ghost) wakes the resource, which is asked again.
+ */
+async function settled(client: T3Client, input: Parameters<typeof pullRequestDetail>[2]) {
+  let wakes = 0;
+  const waking = { available: true, watch: () => {}, later: async () => { wakes++; return { ok: true }; } } as unknown as Native;
+  let view = await pullRequestDetail(client, waking, input);
+  for (let asked = 0; wakes > asked && asked < 8; asked++) view = await pullRequestDetail(client, waking, input);
+  return view;
+}
 const selected = JSON.stringify({ projectId: 'p1', host: 'github.com', repository: 'lane/sandbox', number: 7 });
 const operationError = (reason: string, message: string) => new ClientError(message, 'PullRequestOperationError', false, { reason });
 
 describe('host failures and delays (injected; real GitHub does not fail or stall on request)', () => {
   test('a failed detail read shows the reference\'s unavailable state with the host\'s words, and a GitHub link', async () => {
     const { client } = fakeClient({ 'pullRequests.detail': () => { throw operationError('failed', 'GitHub CLI command failed: HTTP 502 Bad Gateway'); } });
-    const view = await pullRequestDetail(client, native, { selected, refresh: 0, now: 0 });
-    expect(view).toMatchObject({ open: true, number: 7, errorTitle: 'Could not load pull requests', error: 'GitHub CLI command failed: HTTP 502 Bad Gateway', githubUrl: 'https://github.com/lane/sandbox/pull/7' });
+    const view = await settled(client, { selected, refresh: 0, now: 0 });
+    expect(view).toMatchObject({ open: true, phase: 'error', number: 7, errorTitle: 'Could not load pull requests', error: 'GitHub CLI command failed: HTTP 502 Bad Gateway', githubUrl: 'https://github.com/lane/sandbox/pull/7' });
   });
   test('a pull request GitHub does not find reads as not found, not as a failure', async () => {
     const { client } = fakeClient({ 'pullRequests.detail': () => { throw operationError('not-found', 'Pull request lane/sandbox#7 was not found.'); } });
-    const view = await pullRequestDetail(client, native, { selected, refresh: 1, now: 0 });
+    const view = await settled(client, { selected, refresh: 1, now: 0 });
     expect([view.errorTitle, view.error]).toEqual(['Pull request #7 not found', "It may be an issue rather than a pull request, or this account can't see it."]);
   });
   test('a failed activity read leaves the detail standing (the conversation is optional)', async () => {
     const { client } = fakeClient({ 'pullRequests.detail': () => detail(PROFILES.maintainer!), 'pullRequests.activity': () => { throw operationError('rate-limited', 'GitHub rate limit'); } });
-    const view = await pullRequestDetail(client, native, { selected, refresh: 2, now: 0 });
+    const view = await settled(client, { selected, refresh: 2, now: 0 });
     expect([view.error, view.number, view.commentsLabel]).toEqual(['', 7, 'Comments (0)']);
+    // pr-conversation-and-refresh: the failure says so (PullRequestActivityUnavailableState), not "No comments yet."
+    expect([view.activityError, view.summary.activityError, view.timeline.comments]).toEqual(['GitHub rate limit', 'GitHub rate limit', '—']);
   });
   test('a refused write toasts the reference\'s title with GitHub\'s reason and returns it to the form', async () => {
     const { client } = fakeClient({ 'pullRequests.runAction': () => { throw new Error('Pull request is not mergeable: the base branch policy prohibits the merge'); } });
@@ -117,19 +130,21 @@ describe('host failures and delays (injected; real GitHub does not fail or stall
     const { client } = fakeClient({ 'pullRequests.reviewerCandidates': () => { throw new Error('GitHub CLI is not signed in'); } });
     expect(await prCandidates(client, native, selected, 'reviewers')).toMatchObject({ reviewers: [], error: 'GitHub CLI is not signed in' });
   });
-  test('a slow host: the panel shows its loading state until the answer lands, then the pull request', async () => {
+  test('a slow host: the panel shows its ghost at once, reads, and shows the pull request when the answer lands', async () => {
     let release: () => void = () => {};
     const { client, calls } = fakeClient({ 'pullRequests.detail': () => new Promise((resolve) => { release = () => resolve(detail(PROFILES.maintainer!)); }), 'pullRequests.activity': () => null });
-    const answer = pullRequestDetail(client, native, { selected, refresh: 3, now: 0 });
-    // Until the first answer arrives the resource holds its shape's default, which the panel draws as loading
-    // (pages-pr-detail.contract: `when detail.number == 0 and detail.error == ""` → pull-request-loading).
-    const before = emptyDetail();
-    expect([before.number, before.error]).toEqual([0, '']);
+    let wakes = 0;
+    const waking = { available: true, watch: () => {}, later: async () => { wakes++; return { ok: true }; } } as unknown as Native;
+    // PullRequestDetailGhost first: the answer shows it without reading, and wakes the resource.
+    const ghost = await pullRequestDetail(client, waking, { selected, refresh: 3, now: 0 });
+    expect([ghost.phase, ghost.loading, ghost.number, calls.length, wakes]).toEqual(['ghost', true, 7, 0, 1]);
+    // The next answer reads; the ghost stays on screen while it waits.
+    const answer = pullRequestDetail(client, waking, { selected, refresh: 3, now: 0 });
     await Bun.sleep(20);
     expect(calls).toEqual(['pullRequests.detail']);
     release();
     const view = await answer;
-    expect([view.number, view.error, view.title, view.canMerge]).toEqual([7, '', 'Add input validation', true]);
+    expect([view.phase, view.number, view.error, view.title, view.canMerge, view.activityPending]).toEqual(['content', 7, '', 'Add input validation', true, true]);
   });
   test('the row: a read let go mid-flight (its answer replaced while GitHub was answering) settles nothing, and the next answer reads again', async () => {
     // Found by the live drive on real GitHub: the detail takes ~0.8 s, the server's link syncs bump the

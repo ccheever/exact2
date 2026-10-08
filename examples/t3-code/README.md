@@ -277,7 +277,13 @@ before the server is ready, exact2 #117). The window keeps its frame across laun
 (the host's frame autosave, restored after the window's final style since exact2 #113). Settings ›
 Connections shows "This machine" (`this-machine.ts`): the Local environment switch, which asks
 first and then stops or starts the embedded server in place (the reference relaunches the app,
-which exact2 cannot, #122), and the Version row. Every paired server, a loopback one included, is a
+which exact2 cannot, #122), and the Version row. While the embedded server runs, `t3 app <dir>`
+(the server's own CLI; T3 Code's `t3`, or `<T3 home>/runtime/versions/<version>/t3`) reaches the app
+on `<$TMPDIR>/t3code-<uid>/<24 hex of sha256(<T3 home>/userdata)>.sock` (20261005-app-activation,
+`T3AppControl.swift`, `desktop-activation.ts`): the app comes to the front, adds the folder as a
+project of This machine when it is new and opens its draft once the primary is connected and
+loaded, and the CLI prints `Opened <dir> in T3 Code.` or the reference's error code. A lane build
+listens for its own home (`t3 app <dir> --base-dir "$T3_LOCAL_HOME"`). Every paired server, a loopback one included, is a
 saved environment under Environments with its switch and row menu (Icon, Copy trace ID, Remove
 from this device…); a saved one with the primary's environment id (the same T3 home paired before)
 is removed and its credential forgotten. Load balancing and GitHub sharing count environments as
