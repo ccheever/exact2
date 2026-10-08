@@ -6,6 +6,7 @@ kind: framework-gap
 blocks: [20261005-diff-review-engine, 20261005-pr-code-tab, 20261005-pr-handoffs-and-quick-actions, 20261005-round12-wrapup]
 upstream_url: https://github.com/ccheever/exact2/issues/138
 reproduced_on: null
+rest_upstream_url: https://github.com/ccheever/exact2/issues/277
 ---
 
 # X23: Scroll restoration by key, scroll padding/margin, animated scrollIntoView, and same-frame scroll offset compensation
@@ -155,6 +156,10 @@ removed. `R9Input.swift` (X23a) and `T3TimelineTurns.swift`'s hold loop (X23c) s
 `20261005-pr-handoffs-and-quick-actions` no longer holds its fold row for X23d; when it is built, measure
 whether the reference's own `compensationRef` write is still needed on top of anchoring (Chrome anchors
 too), against the reference rather than assumed.
+
+## Rest filed upstream (2026-10-08)
+
+Upstream (the rest): https://github.com/ccheever/exact2/issues/277 (#277, [Design] Scroll: restore a top-level virtualized list, scroll-padding and scroll-margin on any scroller, native smooth element jumps and scrollend (rest of #138)). Reproduced on main `0365ad1a4` (relevant files unchanged on main `e200397ec`) before filing: a top-level list scrolled to 1500 reopens at 0 even with `scroll-restoration="auto"` (LLP 1070:261); `scroll-padding` now works on `list virtualized=true` only and is refused on a plain `scroll` (`lower-scroll-padding`); `scroll-margin-top` and `scrollend` are `lower-unknown-attr`; native element-form smooth lands at once (`IntoView.swift:6`). One "Decision needed" comment. Searched open and closed issues and PRs: no duplicate.
 
 ## Re-checked on main `e200397ec` (2026-10-08, adopt-main-fixes-r6)
 

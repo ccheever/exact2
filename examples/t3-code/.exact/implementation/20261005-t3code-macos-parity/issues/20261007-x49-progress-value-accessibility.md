@@ -1,11 +1,11 @@
 ---
 name: 20261007-x49-progress-value-accessibility
 plan: 20261005-t3code-macos-parity
-status: draft
+status: published
 kind: framework-gap
 blocks: [20261005-provider-sign-in-and-install]
-upstream_url: null
-reproduced_on: 7d3a9d654 (feature branch on main 7fa3fa5b7's framework)
+upstream_url: https://github.com/ccheever/exact2/issues/279
+reproduced_on: 0365ad1a4 (main)
 ---
 
 # X49: a progress value for assistive technology (`progress`, `aria-valuenow`)
@@ -73,6 +73,12 @@ Local draft (2026-10-07, provider-sign-in-and-install). Reproduced with `contrac
 feature branch's framework (main `7fa3fa5b7`). Upstream searched by title for "progress",
 "aria", "value", "meter", "range", "slider" (`gh issue list --state all`): no match. Not
 published: publication needs the user's approval (`issue-open`).
+
+## Upstream (filed 2026-10-08)
+
+Upstream: https://github.com/ccheever/exact2/issues/279 (#279, [Feature] A progress value for assistive technology: determinate `progress` (`value`, `max`) or `aria-valuenow`). Reproduced on main `0365ad1a4` (relevant files unchanged on main `e200397ec`) with a minimal public-API app before filing. `progress value=30 max=100` is refused (`lower-attr-tag`: Exact does not draw the determinate bar yet); `aria-valuenow`, `aria-valuemin` and `aria-valuemax` are `lower-unknown-attr`. Main now has the indeterminate `progress` (LLP 1069.001, amended 2026-10-07), which macOS exposes as `progressbar [busy]` with no value. Searched: progress value, aria-valuenow, progressbar (issues and PRs): no duplicate. The macOS exposure of a drawn `role="progressbar"` box is #278 (X55).
+
+Next: issue-close once #279 lands: replace the drawn bar's `aria-description` in `ProviderRuntimeRow` with the element or attributes.
 
 ## Main's indeterminate `progress` (2026-10-08, adopt-main-fixes-r6)
 

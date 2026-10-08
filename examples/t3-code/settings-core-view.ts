@@ -34,7 +34,7 @@ export async function settingsCore(client: T3Client, native: Native | null | und
   const machineAxis = scopeMachine(client, route, machine); // settings-b: Providers is single-environment
   const scope = resolveScope(client, machineAxis, projectKey, checkout);
   const project = scope.kind === 'project' || scope.kind === 'checkout';
-  const files = active && project && route === 'general' ? await memberFiles(client, native, scope.members, scope) : new Map<string, Obj | null>();
+  const files = active && project && (route === 'general' || route === 'projects') ? await memberFiles(client, native, scope.members, scope) : new Map<string, Obj | null>();
   const context = serverContext(client, scope, files);
   const device = client.local.deviceSettings;
   const custom = (client.local as unknown as { customThemes?: CustomTheme[] }).customThemes || [];
@@ -49,6 +49,8 @@ export async function settingsCore(client: T3Client, native: Native | null | und
   if (active && route === 'general' && scope.kind !== 'unavailable') sections = generalSections(client, context);
   if (active && route === 'appearance') sections = appearanceSections(prefs, true);
   sections = sections.map(section => ({ ...section, rows: section.rows.map((row, index) => ({ ...row, divider: index > 0 })) }));
+  // ProjectSettingsPanel renders ProjectDefaultsSettings' modelRow: the Project page's Model row is General's, in the project scope.
+  const projectModel = active && route === 'projects' && project ? generalSections(client, context).flatMap(section => section.rows).filter(row => row.id === 'default-model').map(row => ({ ...row, divider: false })) : [];
   const labels = restoreLabels(client.local as never, obj(client.config.settings), client.ready);
   // SettingsScopeBoundary: a search target outside the selected scope explains its owning scope.
   const wanted = target ? searchTargetScope(target) : null;
@@ -62,7 +64,7 @@ export async function settingsCore(client: T3Client, native: Native | null | und
     environmentChoices: singleEnvironmentRoute(route) ? scope.environmentChoices.filter(choice => choice.id) : scope.environmentChoices, environmentIcon: scope.environmentIcon, projectChoices: scope.projectChoices,
     environmentKeyed: [keyedLabel(scope.environmentLabel)], projectKeyed: [keyedLabel(scope.projectLabel)],
     representative: String(scope.members[0]?.id ?? ''), scopeKey: `${machine}|${projectKey}|${checkout}`,
-    sections, restoreCount: labels.length, restoreText: labels.length ? `This will reset: ${labels.join(', ')}.` : '',
+    sections, projectModel, restoreCount: labels.length, restoreText: labels.length ? `This will reset: ${labels.join(', ')}.` : '',
     appearanceMode: device.appearanceMode, tiles: modeTiles(device.appearanceMode, prefs, custom), themes: libraryCards(prefs, custom, removalPicks(client, dialogKind === 'remove' ? dialogSubject : '')), typographyAdvanced: prefs.typographyAdvanced, themeLight: prefs.themeLight,
     palette: palette(paintPrefs, paintCustom, device.appearanceMode), editor: editorView(draft), themeImport: importView(client), interfaceFont: fontStack(prefs.fontFamilySans, false) ?? 'system-ui', codeFont: fontStack(prefs.fontFamilyCode, true) ?? 'ui-monospace', interfaceSize: prefs.fontSizeInterface, codeSize: prefs.fontSizeCode, codePreview: fontDiffPreview(prefs.diffColorScheme),
     wordWrap: prefs.wordWrap, panelDuration: prefs.panelAnimationDurationMs,
