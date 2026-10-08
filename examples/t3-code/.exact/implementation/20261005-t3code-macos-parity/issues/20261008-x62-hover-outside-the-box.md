@@ -1,10 +1,10 @@
 ---
 name: 20261008-x62-hover-outside-the-box
 plan: 20261005-t3code-macos-parity
-status: draft
+status: filed
 kind: framework-gap
 blocks: []
-upstream_url: null
+upstream_url: https://github.com/ccheever/exact2/issues/322
 reproduced_on: feature branch c0475fbaa's framework with a one-file app and a real pointer; the hover code (host/apple/Sources/ExactKit/Mac MouseChainMac.swift, PresenterMac.swift `hover`, NodeViewMac.swift `syncHoverTracking`/`mouseMoved`/`mouseExited`) is unchanged on main 9314e7a81
 ---
 
@@ -93,7 +93,13 @@ a `hover` handler, so a card that is a child of its trigger is "inside" it.
   page draws its popover in its scroll content, inside every box around it.
 - A close delay on the root's hover clock (Contract has timers only in the root: `task`) keeps a card open
   while the pointer crosses into it: Base UI's closeDelay, or 50 ms where it has none (safePolygon).
-- A hover node inside the card (its buttons, the email) reports to the card, so (3) cannot close it.
+- A hover node inside the card (its buttons, the email) reports to the card, so (3) cannot close it. The real-pointer
+  session showed (3) still takes the email's own tooltip away: the email's hover box and the card's hover trade the
+  hover on each move, and the tooltip unmounts.
+- A press outside the Usage page drops a hover-opened popover, as Base UI's outside press does. Without it, a
+  pinned popover stayed open after a press in the sidebar: while the pointer crossed the sidebar's resize handle,
+  each move gave the handle an enter and then a usage segment (far from the pointer) an enter again, and the last
+  enter before the press was the segment's.
 
 ## Why it must be resolved
 Every app with hover cards (Base UI, Radix, Floating UI popovers) needs the pointer to reach the popup. On
@@ -109,6 +115,12 @@ the web and macOS disagree for the same Contract (the parity rule of CLAUDE.md).
   card escapes clipping without a hand-made layer.
 
 ## Status
+Filed as [#322](https://github.com/ccheever/exact2/issues/322) by the coordinator (2026-10-08), fixed by
+[#327](https://github.com/ccheever/exact2/pull/327) (open): hit-tested hover takes in the ancestor path and
+overflowing descendants. Once #327 is adopted, only the X62 part of the hover layer's reason changes; the layer stays
+for the clipping (#251, #248) and as the reference's portal.
+
 Reproduced with the probe above on the feature branch's framework; the hover code is unchanged on main `9314e7a81`
-(PresenterMac.swift and NodeViewMac.swift differ there only in key handling). Not searched upstream beyond titles ("hover", "pointerleave", "tooltip clipped": #112 and #139 are
-related, neither covers this). Draft, not published (the task brief: never file upstream; report with a repro).
+(PresenterMac.swift and NodeViewMac.swift differ there only in key handling). Seen again in fix-hover-cards' real-pointer
+session (2026-10-08, 10:41-11:22Z): the email tooltip and the sidebar press above
+(`t3-code-evidence:fix-hover-cards/real-session-record.txt`).
