@@ -1,0 +1,94 @@
+// The keyboard of a menu popup, after Base UI's Menu (MIT reference, see LICENSE-T3; 1e2ecbd975
+// ui/menu.tsx over @base-ui/react Menu: useListNavigation with loopFocus, useTypeahead, and
+// focusItemOnOpen "auto"). The popup takes the focus as it opens; opened from the keyboard (Enter or
+// Space on its trigger) the focus goes on to the first item. ↓ and ↑ move it through the enabled
+// items and wrap, Home and End go to the first and the last, and a letter goes to the next item whose
+// label starts with it. Enter and Space press the focused item, as on any button; Escape stays the
+// popover's (the host closes it and gives the focus back to the trigger).
+//
+// Wrap a menu's rows in `KeyMenu` and give each enabled row an `id` that its `items` entry names, in
+// order. A `popover="auto"` menu's popup takes the focus by `autofocus`; a menu its owner mounts from
+// state calls `focus(menuId)` as it opens it, and passes `keyed` 1 when Enter or Space opened it. The trigger counts Enter and Space (`kmOpenKey`) into
+// `keyed`, so the next opening the popup sees is known to come from the keyboard. `retainFocus`: a
+// click on a row leaves the focus where it was, as Base UI's pointer press does, so a press that
+// closes the menu gives it back to the trigger. `inside` hears the popup itself taking and losing the
+// focus (`KeyMenuWatched`, for an owner that holds its trigger shown while the menu is open; a row's
+// own focus and blur are its owner's).
+shape KmItem
+  id: string
+  label: string
+
+fn kmIndex(items: list<KmItem>, current: string): number = indexOf(map(items, (item) => item.id), current)
+fn kmAfter(items: list<KmItem>, current: string): list<KmItem> = concat(slice(items, kmIndex(items, current) + 1), slice(items, 0, kmIndex(items, current) + 1))
+fn kmLetter(k: string): bool = length(k) == 1 and trim(k) != ""
+// The item a key moves the focus to: ↓ the next (the first from the popup), ↑ the previous (the last
+// from the popup), wrapping; Home, End; a letter the next label that starts with it.
+fn kmTarget(items: list<KmItem>, current: string, k: string): option<KmItem> = k == "ArrowDown" ? first(kmAfter(items, current)) : (k == "ArrowUp" ? at(items, kmIndex(items, current) < 0 ? -1 : kmIndex(items, current) - 1) : (k == "Home" ? first(items) : (k == "End" ? at(items, -1) : (kmLetter(k) ? first(filter(kmAfter(items, current), (item) => startsWith(toLowerCase(item.label), toLowerCase(k)))) : none))))
+// Enter or Space on a trigger opens its menu from the keyboard.
+fn kmOpenKey(k: string): bool = k == "Enter" or k == " " or k == "Space"
+
+component KeyMenu
+  props
+    menuId: string
+    items: list<KmItem>
+    keyed: number
+    gap: string
+  state current = ""
+  state seen = 0
+  action keys(k: string, e: KeyboardEvent)
+    if not e.metaKey and not e.ctrlKey and not e.altKey
+      match kmTarget(items, current, k)
+        case some(item)
+          preventDefault()
+          stopPropagation()
+          current = item.id
+          focus(item.id)
+        case none
+  action entered
+    current = ""
+    if keyed != seen
+      seen = keyed
+      match first(items)
+        case some(item)
+          current = item.id
+          focus(item.id)
+        case none
+  slot
+  view
+    column id=menuId width="100%" gap=gap tabindex=-1 autofocus=true retainFocus=true key=keys focus=entered testId=menuId
+      children
+
+component KeyMenuWatched
+  props
+    menuId: string
+    items: list<KmItem>
+    keyed: number
+    gap: string
+    inside: action
+  state current = ""
+  state seen = 0
+  action keys(k: string, e: KeyboardEvent)
+    if not e.metaKey and not e.ctrlKey and not e.altKey
+      match kmTarget(items, current, k)
+        case some(item)
+          preventDefault()
+          stopPropagation()
+          current = item.id
+          focus(item.id)
+        case none
+  action entered
+    inside(true)
+    current = ""
+    if keyed != seen
+      seen = keyed
+      match first(items)
+        case some(item)
+          current = item.id
+          focus(item.id)
+        case none
+  action left
+    inside(false)
+  slot
+  view
+    column id=menuId width="100%" gap=gap tabindex=-1 autofocus=true retainFocus=true key=keys focus=entered blur=left testId=menuId
+      children

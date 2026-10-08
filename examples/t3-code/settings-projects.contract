@@ -20,6 +20,8 @@ use CnMenu from "./settings-b-kit.contract"
 use CnSeparator from "./settings-b-kit.contract"
 use LucideLayers from "./settings-icons.contract"
 use ProjectIconMark from "./settings-b-iconmark.contract"
+use KmItem from "./menu-keys.contract"
+use kmOpenKey from "./menu-keys.contract"
 
 shape ProjectChoice
   key: string
@@ -234,6 +236,11 @@ component ProjectActionsSection
     busy: bool
     raw: action
     open: action
+  // fix-keyboard-focus: the "Import scripts" menu's keyboard (menu-keys.contract).
+  state keyed = 0
+  action triggerKey(k: string)
+    if kmOpenKey(k)
+      keyed = keyed + 1
   view
     column width="100%" gap="0.625rem" testId="project-actions"
       row min-height="1.75rem" padding-left="1rem" padding-right="1rem" align-items="center"
@@ -252,10 +259,10 @@ component ProjectActionsSection
           row flex-shrink=0 gap="0.375rem" align-items="center" flex-wrap="wrap"
             when length(data.importable) > 0
               box position="relative"
-                button popovertarget="import-scripts-menu" disabled=(busy or not data.actionsWritable) id="import-scripts" testId="import-scripts" display="flex" flex-direction="row" align-items="center" gap="0.25rem" height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" box-sizing="border-box" border-width=1 border-style="solid" border-color="#00000000" border-radius="0.5rem" background-color="#00000000"
+                button popovertarget="import-scripts-menu" key=triggerKey disabled=(busy or not data.actionsWritable) id="import-scripts" testId="import-scripts" display="flex" flex-direction="row" align-items="center" gap="0.25rem" height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" box-sizing="border-box" border-width=1 border-style="solid" border-color="#00000000" border-radius="0.5rem" background-color="#00000000"
                   text "Import scripts" font-size="0.75rem" line-height="1rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
                   CnGlyph(name="chevron-down", size=14, color="light-dark(#71717b, #818181)")
-                CnMenu(menuId="import-scripts-menu", label="Import scripts", width=442, endAlign=111, offsetX=0, offsetY=0)
+                CnMenu(menuId="import-scripts-menu", label="Import scripts", width=442, endAlign=111, offsetX=0, offsetY=0, items=(busy ? [] : map(data.importable, (script) => KmItem(id=`import-script-${script.name}`, label=script.name))), keyed=keyed)
                   text "Import from t3.json" font-size="0.75rem" font-weight=500 line-height="1rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.375rem" padding-bottom="0.375rem" color="light-dark(#71717b, #818181)" role="heading"
                   text "Add actions declared by this checkout without editing them first." font-size="0.875rem" line-height="1.25rem" padding-left="0.5rem" padding-right="0.5rem" padding-bottom="0.5rem" color="light-dark(#71717b, #818181)"
                   CnSeparator()
@@ -287,10 +294,13 @@ component ImportScriptItem
     busy: bool
     raw: action
   state hovered = false
+  state lit = false
   action hover(over: bool)
     hovered = over
+  action focused(on: bool)
+    lit = on
   view
-    button press=raw("sb:action-import", scope, script.payload) popovertarget="import-scripts-menu" popovertargetaction="hide" hover=hover disabled=busy role="menuitem" aria-label=`${script.name} ${script.command}` testId=`import-script-${script.name}` display="flex" flex-direction="row" align-items="center" justify-content="flex-start" gap="0.5rem" width="100%" padding-top="0.25rem" padding-bottom="0.25rem" padding-left="0.375rem" padding-right="0.5rem" box-sizing="border-box" border-width=0 border-radius="0.375rem" background-color=(hovered ? "light-dark(#27272914, #f5f5f514)" : "#00000000")
+    button id=`import-script-${script.name}` press=raw("sb:action-import", scope, script.payload) popovertarget="import-scripts-menu" popovertargetaction="hide" hover=hover focus=focused(true) blur=focused(false) disabled=busy role="menuitem" aria-label=`${script.name} ${script.command}` testId=`import-script-${script.name}` display="flex" flex-direction="row" align-items="center" justify-content="flex-start" gap="0.5rem" width="100%" padding-top="0.25rem" padding-bottom="0.25rem" padding-left="0.375rem" padding-right="0.5rem" box-sizing="border-box" border-width=0 border-radius="0.375rem" background-color=(hovered or lit ? "light-dark(#27272914, #f5f5f514)" : "#00000000")
       CnScriptIcon(icon=script.icon, size=16, color="light-dark(#71717b, #818181)")
       column flex=1 min-width=0 align-items="flex-start"
         text script.name font-size="0.875rem" font-weight=500 line-height="1.25rem" line-clamp=1 color="light-dark(#27272a, #f5f5f5)"

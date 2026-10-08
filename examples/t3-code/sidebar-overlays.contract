@@ -42,6 +42,8 @@ component SidebarOverlays
     finishResize: action
     resetWidth: action
     hoverCard: action
+    // fix-keyboard-focus: the command palette is open over the window, so Escape is its own first.
+    covered: bool
   // The card stays mounted for the last hovered row (else the open one), so
   // its 150 ms open delay has a starting opacity; moving straight to another
   // row swaps it at once, as the reference's tooltip group does.
@@ -91,7 +93,7 @@ component SidebarOverlays
     when data.sidebar.dialog == "delete-worktree"
       SettingsConfirm(title=data.sidebar.dialogTitle, description=data.sidebar.dialogDescription, confirmLabel="Confirm", destructive=true, busy=busy, error="", dialogId="sidebar-delete-worktree", cancel=run("dialog-cancel", "", ""), confirm=run("dialog-confirm", "", ""))
     when data.sidebar.dialog == "snooze"
-      SidebarSnoozeDialog(data=data, busy=busy, local=local, run=run)
+      SidebarSnoozeDialog(data=data, busy=busy, covered=covered, local=local, run=run)
     // legacy-sidebar: Rename project, Project grouping and the removal / archive confirms.
     LegacyDialogs(data=data, busy=busy, local=local, run=run)
 
@@ -145,6 +147,9 @@ component SidebarSnoozeDialog
   props
     data: Snapshot
     busy: bool
+    // The palette over it takes Escape first (Base UI dismisses the topmost layer): the dialog's own
+    // Escape waits, since a shortcut goes to the first button that declares it (fix-keyboard-focus).
+    covered: bool
     local: action
     run: action
   state toggleStop = "date"
@@ -208,7 +213,7 @@ component SidebarSnoozeDialog
           when data.sidebar.dialogError != ""
             text data.sidebar.dialogError font-size="0.875rem" line-height="1.25rem" color="light-dark(#dc2626, #f87171)" role="alert" testId="snooze-error"
         row gap="0.5rem" justify-content="flex-end" padding-left="1.5rem" padding-right="1.5rem" padding-top="1rem" padding-bottom="1rem" box-sizing="border-box" border-top-style="solid" border-top-width=1 border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#f9f9f9b8, #ffffff06)"
-          button press=dismiss disabled=busy aria-keyshortcuts="Escape" testId="snooze-cancel" display="flex" flex-direction="row" align-items="center" justify-content="center" height="2.25rem" padding-left="0.8125rem" padding-right="0.8125rem" box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)"
+          button press=dismiss disabled=busy aria-keyshortcuts=(covered ? "" : "Escape") testId="snooze-cancel" display="flex" flex-direction="row" align-items="center" justify-content="center" height="2.25rem" padding-left="0.8125rem" padding-right="0.8125rem" box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)"
             text "Cancel" font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"
           button press=run("dialog-confirm", "", "") disabled=busy testId="snooze-confirm" display="flex" flex-direction="row" align-items="center" justify-content="center" height="2.25rem" padding-left="0.8125rem" padding-right="0.8125rem" box-sizing="border-box" border-radius="0.5rem" border-width=0 background-color="light-dark(#1b4ed8, #346bf1)"
             text "Snooze" font-size="0.875rem" font-weight=500 line-height="1.25rem" color="#ffffff"

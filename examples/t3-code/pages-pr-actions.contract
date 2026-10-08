@@ -12,6 +12,9 @@ use Tip from "./shell-tip.contract"
 use PrStackView from "./pages-pr-stack.contract"
 use PrdStackControls from "./pages-pr-stack.contract"
 use PrStackDialog from "./pages-pr-stack.contract"
+use KmItem from "./menu-keys.contract"
+use KeyMenu from "./menu-keys.contract"
+use kmOpenKey from "./menu-keys.contract"
 
 keyframes paSpin
   from rotate=0
@@ -133,7 +136,7 @@ component PaPrimaryButton
     over = value
   view
     Tip(label=label, side="top", align="center", offset=20)
-      button press=press hover=hover disabled=disabled aria-label=label testId=testId height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" box-sizing="border-box" gap="0.25rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color=(destructive ? (over ? "light-dark(#fb2c3652, #fb414a52)" : "light-dark(#d4d4d8, #ffffff14)") : paPrimary()) background-color=(destructive ? (over ? "light-dark(#fb2c360a, #fb414a0a)" : "light-dark(#ffffff, #ffffff07)") : (over ? "light-dark(#1b4ed8e6, #346bf1e6)" : paPrimary())) box-shadow=(destructive ? "0 1px 2px #0000000d" : "inset 0 1px 0 #ffffff29, 0 1px 2px #1b4ed83d") opacity=(disabled ? 0.64 : 1) display="flex" flex-direction="row" align-items="center" flex-shrink=0
+      button id=testId press=press hover=hover disabled=disabled aria-label=label testId=testId height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" box-sizing="border-box" gap="0.25rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color=(destructive ? (over ? "light-dark(#fb2c3652, #fb414a52)" : "light-dark(#d4d4d8, #ffffff14)") : paPrimary()) background-color=(destructive ? (over ? "light-dark(#fb2c360a, #fb414a0a)" : "light-dark(#ffffff, #ffffff07)") : (over ? "light-dark(#1b4ed8e6, #346bf1e6)" : paPrimary())) box-shadow=(destructive ? "0 1px 2px #0000000d" : "inset 0 1px 0 #ffffff29, 0 1px 2px #1b4ed83d") opacity=(disabled ? 0.64 : 1) display="flex" flex-direction="row" align-items="center" flex-shrink=0
         PgIcon(name=icon, size=14, color=(destructive ? paDanger() : "#ffffff"))
         when not compact
           text label font-size="0.75rem" line-height="1rem" font-weight=500 white-space="nowrap" color=(destructive ? paDanger() : "#ffffff")
@@ -154,12 +157,20 @@ component PrdActionsMenu
     copy: action
     local: action
   state over = false
+  // fix-keyboard-focus: the menu's keyboard (menu-keys.contract): Enter or Space on "…" opens it with the
+  // focus on its first row, and the arrows, Home, End and a letter move through the enabled rows.
+  state keyed = 0
+  derive gated = not actions.pending and actions.open
+  derive rows = filter(concat(concat([KmItem(id=(actions.refreshing ? "" : "pr-more-refresh"), label="Refresh"), KmItem(id=(gated and actions.draftToggle == "draft" ? "pr-more-draft" : ""), label="Convert to draft"), KmItem(id=(gated and actions.draftToggle == "ready" ? "pr-more-ready" : ""), label="Ready for review"), KmItem(id=(gated and actions.mergeNow ? "pr-more-merge-now" : ""), label="Merge now"), KmItem(id=(gated and actions.autoMerge == "disable" ? "pr-more-disable-auto-merge" : ""), label="Disable auto-merge"), KmItem(id=(gated and actions.autoMerge == "enable" ? "pr-more-enable-auto-merge" : ""), label="Enable auto-merge")], map(actions.methods, (item) => KmItem(id=(gated ? `pr-more-method-${item.method}` : ""), label=item.label))), [KmItem(id="pr-more-open-host", label=`Open on ${hostName}`), KmItem(id="pr-more-copy-link", label="Copy link"), KmItem(id="pr-more-copy-number", label="Copy PR number"), KmItem(id=(actions.closeItem and not actions.pending ? "pr-more-close" : ""), label="Close pull request"), KmItem(id=(actions.reopenItem and not actions.pending ? "pr-more-reopen" : ""), label="Reopen pull request"), KmItem(id=(actions.revertItem and not actions.pending ? "pr-more-revert" : ""), label="Revert changes")]), (item) => item.id != "")
   action hover(value: bool)
     over = value
+  action moreKey(k: string)
+    if kmOpenKey(k)
+      keyed = keyed + 1
   view
     column position="relative" flex-shrink=0
       Tip(label=actions.moreLabel, side="top", align="center", offset=20)
-        button popovertarget="pr-more-menu" hover=hover aria-label=actions.moreLabel testId="pull-request-more" width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 background-color=(over ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center"
+        button id="pull-request-more" popovertarget="pr-more-menu" hover=hover key=moreKey aria-label=actions.moreLabel testId="pull-request-more" width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 background-color=(over ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center"
           when actions.refreshing
             box width="1rem" height="1rem" display="flex" animation=(still ? "none" : "paSpin 1s linear infinite") testId="pull-request-refreshing"
               PgIcon(name="refresh-cw", size=16, color=paMuted())
@@ -167,41 +178,42 @@ component PrdActionsMenu
             PgIcon(name="ellipsis", size=16, color=paMuted())
       row id="pr-more-menu" popover="auto" position="absolute" padding-top="0.25rem" align-items="flex-start" testId="pr-more-layer"
         PrMenuBox(scheme=scheme, width=240, label="More pull request actions")
-          PaMenuItem(icon="refresh-cw", label="Refresh", shortcut="", disabled=actions.refreshing, destructive=false, press=reload, testId="pr-more-refresh")
-          PaSeparator()
-          when actions.open
-            when actions.draftToggle == "draft"
-              PaMenuItem(icon="git-pull-request-draft", label="Convert to draft", shortcut="", disabled=actions.pending, destructive=false, press=act("action", "draft"), testId="pr-more-draft")
-            when actions.draftToggle == "ready"
-              PaMenuItem(icon="git-pull-request-arrow", label="Ready for review", shortcut="", disabled=actions.pending, destructive=false, press=act("action", "ready"), testId="pr-more-ready")
-            when actions.mergeNow
-              PaMenuItem(icon="git-merge", label="Merge now", shortcut="", disabled=actions.pending, destructive=false, press=local("pr-ui-ask", ref, "merge"), testId="pr-more-merge-now")
-            when actions.autoMerge == "disable"
-              PaMenuItem(icon="git-merge", label="Disable auto-merge", shortcut="", disabled=actions.pending, destructive=false, press=act("action", "disable-auto-merge"), testId="pr-more-disable-auto-merge")
-            when actions.autoMerge == "enable"
-              PaMenuItem(icon="git-merge", label="Enable auto-merge", shortcut="", disabled=actions.pending, destructive=false, press=local("pr-ui-ask", ref, "enable-auto-merge"), testId="pr-more-enable-auto-merge")
-            when actions.methodsSeparator
+          KeyMenu(menuId="pr-more-keys", items=rows, keyed=keyed, gap="0px")
+            PaMenuItem(icon="refresh-cw", label="Refresh", shortcut="", disabled=actions.refreshing, destructive=false, press=reload, testId="pr-more-refresh")
+            PaSeparator()
+            when actions.open
+              when actions.draftToggle == "draft"
+                PaMenuItem(icon="git-pull-request-draft", label="Convert to draft", shortcut="", disabled=actions.pending, destructive=false, press=act("action", "draft"), testId="pr-more-draft")
+              when actions.draftToggle == "ready"
+                PaMenuItem(icon="git-pull-request-arrow", label="Ready for review", shortcut="", disabled=actions.pending, destructive=false, press=act("action", "ready"), testId="pr-more-ready")
+              when actions.mergeNow
+                PaMenuItem(icon="git-merge", label="Merge now", shortcut="", disabled=actions.pending, destructive=false, press=local("pr-ui-ask", ref, "merge"), testId="pr-more-merge-now")
+              when actions.autoMerge == "disable"
+                PaMenuItem(icon="git-merge", label="Disable auto-merge", shortcut="", disabled=actions.pending, destructive=false, press=act("action", "disable-auto-merge"), testId="pr-more-disable-auto-merge")
+              when actions.autoMerge == "enable"
+                PaMenuItem(icon="git-merge", label="Enable auto-merge", shortcut="", disabled=actions.pending, destructive=false, press=local("pr-ui-ask", ref, "enable-auto-merge"), testId="pr-more-enable-auto-merge")
+              when actions.methodsSeparator
+                PaSeparator()
+              when length(actions.methods) > 0
+                column width="100%" role="group" aria-label="Merge method"
+                  each item in actions.methods key=item.key
+                    PaRadioItem(label=item.label, selected=item.selected, disabled=actions.pending, press=local("pr-ui-method", ref, item.method), testId=`pr-more-method-${item.method}`)
+              when actions.groupSeparator
+                PaSeparator()
+            link id="pr-more-open-host" cursor="pointer" href=url role="menuitem" testId="pr-more-open-host" width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" gap="0.5rem" border-radius="0.375rem" display="flex" flex-direction="row" align-items="center"
+              PgIcon(name="arrow-up-right", size=14, color=paMuted())
+              text `Open on ${hostName}` font-size="0.875rem" line-height="1.25rem" color=paInk() flex=1 min-width=0 white-space="nowrap"
+            PaMenuItem(icon="link", label="Copy link", shortcut="⇧⌘C", disabled=false, destructive=false, press=copy("PR link", url), testId="pr-more-copy-link")
+            PaMenuItem(icon="copy", label="Copy PR number", shortcut="⇧⌘K", disabled=false, destructive=false, press=copy("PR number", numberLabel), testId="pr-more-copy-number")
+            when actions.closeItem
               PaSeparator()
-            when length(actions.methods) > 0
-              column width="100%" role="group" aria-label="Merge method"
-                each item in actions.methods key=item.key
-                  PaRadioItem(label=item.label, selected=item.selected, disabled=actions.pending, press=local("pr-ui-method", ref, item.method), testId=`pr-more-method-${item.method}`)
-            when actions.groupSeparator
+              PaMenuItem(icon="git-pull-request-closed", label="Close pull request", shortcut="", disabled=actions.pending, destructive=true, press=local("pr-ui-ask", ref, "close"), testId="pr-more-close")
+            when actions.reopenItem
               PaSeparator()
-          link cursor="pointer" href=url role="menuitem" testId="pr-more-open-host" width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" gap="0.5rem" border-radius="0.375rem" display="flex" flex-direction="row" align-items="center"
-            PgIcon(name="arrow-up-right", size=14, color=paMuted())
-            text `Open on ${hostName}` font-size="0.875rem" line-height="1.25rem" color=paInk() flex=1 min-width=0 white-space="nowrap"
-          PaMenuItem(icon="link", label="Copy link", shortcut="⇧⌘C", disabled=false, destructive=false, press=copy("PR link", url), testId="pr-more-copy-link")
-          PaMenuItem(icon="copy", label="Copy PR number", shortcut="⇧⌘K", disabled=false, destructive=false, press=copy("PR number", numberLabel), testId="pr-more-copy-number")
-          when actions.closeItem
-            PaSeparator()
-            PaMenuItem(icon="git-pull-request-closed", label="Close pull request", shortcut="", disabled=actions.pending, destructive=true, press=local("pr-ui-ask", ref, "close"), testId="pr-more-close")
-          when actions.reopenItem
-            PaSeparator()
-            PaMenuItem(icon="git-pull-request-arrow", label="Reopen pull request", shortcut="", disabled=actions.pending, destructive=false, press=act("action", "reopen"), testId="pr-more-reopen")
-          when actions.revertItem
-            PaSeparator()
-            PaMenuItem(icon="rotate-ccw", label="Revert changes", shortcut="", disabled=actions.pending, destructive=false, press=local("pr-ui-ask", ref, "revert"), testId="pr-more-revert")
+              PaMenuItem(icon="git-pull-request-arrow", label="Reopen pull request", shortcut="", disabled=actions.pending, destructive=false, press=act("action", "reopen"), testId="pr-more-reopen")
+            when actions.revertItem
+              PaSeparator()
+              PaMenuItem(icon="rotate-ccw", label="Revert changes", shortcut="", disabled=actions.pending, destructive=false, press=local("pr-ui-ask", ref, "revert"), testId="pr-more-revert")
       box width="1rem" height=1 flex-shrink=0
 
 component PaSeparator
@@ -218,10 +230,13 @@ component PaMenuItem
     press: action
     testId: string
   state over = false
+  state lit = false
   action hover(value: bool)
     over = value
+  action focused(on: bool)
+    lit = on
   view
-    button press=press popovertarget="pr-more-menu" popovertargetaction="hide" hover=hover disabled=disabled role="menuitem" testId=testId width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" gap="0.5rem" border-radius="0.375rem" border-width=0 background-color=(over and not disabled ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") opacity=(disabled ? 0.64 : 1) display="flex" flex-direction="row" align-items="center"
+    button id=testId press=press popovertarget="pr-more-menu" popovertargetaction="hide" hover=hover focus=focused(true) blur=focused(false) disabled=disabled role="menuitem" testId=testId width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" gap="0.5rem" border-radius="0.375rem" border-width=0 background-color=((over or lit) and not disabled ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") opacity=(disabled ? 0.64 : 1) display="flex" flex-direction="row" align-items="center"
       PgIcon(name=icon, size=14, color=(destructive ? paDanger() : paMuted()))
       text label font-size="0.875rem" line-height="1.25rem" color=(destructive ? paDanger() : paInk()) flex=1 min-width=0 text-align="left" white-space="nowrap"
       when shortcut != ""
@@ -236,10 +251,13 @@ component PaRadioItem
     press: action
     testId: string
   state over = false
+  state lit = false
   action hover(value: bool)
     over = value
+  action focused(on: bool)
+    lit = on
   view
-    button press=press popovertarget="pr-more-menu" popovertargetaction="hide" hover=hover disabled=disabled role="menuitemradio" aria-checked=selected testId=testId width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" gap="0.5rem" border-radius="0.375rem" border-width=0 background-color=(over and not disabled ? "light-dark(#f4f4f5, #ffffff0a)" : selected ? "light-dark(#27272a14, #f5f5f514)" : "#00000000") opacity=(disabled ? 0.64 : 1) display="flex" flex-direction="row" align-items="center"
+    button id=testId press=press popovertarget="pr-more-menu" popovertargetaction="hide" hover=hover focus=focused(true) blur=focused(false) disabled=disabled role="menuitemradio" aria-checked=selected testId=testId width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" gap="0.5rem" border-radius="0.375rem" border-width=0 background-color=((over or lit) and not disabled ? "light-dark(#f4f4f5, #ffffff0a)" : selected ? "light-dark(#27272a14, #f5f5f514)" : "#00000000") opacity=(disabled ? 0.64 : 1) display="flex" flex-direction="row" align-items="center"
       PgIcon(name="git-merge", size=14, color=paMuted())
       text label font-size="0.875rem" line-height="1.25rem" color=paInk() flex=1 min-width=0 text-align="left" white-space="nowrap"
 
@@ -330,7 +348,7 @@ component PrdApproveWorkflows
     local: action
   view
     Tip(label=actions.approveLabel, side="top", align="center", offset=20)
-      button press=local("pr-ui-ask", ref, "approve-workflows") disabled=actions.pending aria-label=actions.approveLabel testId="pull-request-approve-workflows" height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" box-sizing="border-box" gap="0.25rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color="#fe9a0052" background-color="light-dark(#fe9a0014, #fe9a0029)" box-shadow="0 1px 2px #0000000d" opacity=(actions.pending ? 0.64 : 1) display="flex" flex-direction="row" align-items="center" flex-shrink=0
+      button id="pull-request-approve-workflows" press=local("pr-ui-ask", ref, "approve-workflows") disabled=actions.pending aria-label=actions.approveLabel testId="pull-request-approve-workflows" height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" box-sizing="border-box" gap="0.25rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color="#fe9a0052" background-color="light-dark(#fe9a0014, #fe9a0029)" box-shadow="0 1px 2px #0000000d" opacity=(actions.pending ? 0.64 : 1) display="flex" flex-direction="row" align-items="center" flex-shrink=0
         PgIcon(name="play", size=14, color=paWarn())
         text actions.approveLabel font-size="0.75rem" line-height="1rem" font-weight=500 white-space="nowrap" color=paWarn()
 
@@ -349,7 +367,11 @@ component PrActionLayers
       PrStackDialog(stack=actions.stack, ref=ref, dark=dark, act=act, local=local)
 
 // AlertDialog: the title, the sentence, Cancel (Escape) and the action's own button (destructive for Close).
-// Focus starts on Cancel and Tab stays on the two buttons (X53's stopgap, as AppConfirm's).
+// Focus starts on Cancel and Tab stays on the two buttons (X53's stopgap, as AppConfirm's). The focus at
+// open is the root's (app.contract prDialogFocus): `autofocus` takes it only when nothing holds it, and the
+// trigger ("…", which the closing menu gives it back to) still did (fix-keyboard-focus). Cancel and Escape
+// give it back to the control that asked (Base UI's finalFocus): the primary button for its own merge or
+// auto-merge, "Approve workflows to run" for its approval, else "…".
 component PrActionDialog
   props
     actions: PrActionsView
@@ -357,10 +379,14 @@ component PrActionDialog
     dark: bool
     act: action
     local: action
+  derive opener = actions.dialogValue == "approve-workflows" ? "pull-request-approve-workflows" : (actions.primary != "" and (actions.dialogValue == actions.primary or startsWith(actions.dialogValue, `${actions.primary}:`)) ? "pull-request-primary" : "pull-request-more")
   action fromCancel(k: string, e: KeyboardEvent)
     if k == "Tab" and not e.metaKey and not e.ctrlKey and not e.altKey
       preventDefault()
       focus("pr-action-dialog-confirm")
+  action dismiss
+    local("pr-ui-cancel", ref, "")
+    focus(opener)
   action fromConfirm(k: string, e: KeyboardEvent)
     if k == "Tab" and not e.metaKey and not e.ctrlKey and not e.altKey
       preventDefault()
@@ -372,7 +398,7 @@ component PrActionDialog
           text actions.dialogTitle font-size="1.25rem" font-weight=600 line-height="1.25rem" color=paInk() role="heading" aria-level=2 testId="pr-action-dialog-title"
           text actions.dialogDescription font-size="0.875rem" line-height="1.25rem" color=paMuted() testId="pr-action-dialog-description"
         row width="100%" gap="0.5rem" justify-content="flex-end" align-items="center" padding-left="1.5rem" padding-right="1.5rem" padding-top="1rem" padding-bottom="1rem" box-sizing="border-box" border-top-width=1 border-top-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#fafafab8, #ffffff06)"
-          button id="pr-action-dialog-cancel" press=local("pr-ui-cancel", ref, "") key=fromCancel autofocus=true aria-keyshortcuts="Escape" testId="pr-action-dialog-cancel" height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)" box-shadow="0 1px 2px #0000000d" display="flex" align-items="center" justify-content="center"
+          button id="pr-action-dialog-cancel" press=dismiss key=fromCancel autofocus=true aria-keyshortcuts="Escape" testId="pr-action-dialog-cancel" height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)" box-shadow="0 1px 2px #0000000d" display="flex" align-items="center" justify-content="center"
             text "Cancel" font-size="0.875rem" line-height="1.25rem" font-weight=500 color=paInk()
           button id="pr-action-dialog-confirm" press=act("action", actions.dialogValue) key=fromConfirm disabled=actions.pending testId="pr-action-dialog-confirm" height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color=(actions.dialogDestructive ? "light-dark(#fb2c36, #fb414a)" : paPrimary()) background-color=(actions.dialogDestructive ? "light-dark(#fb2c36, #fb414a)" : paPrimary()) box-shadow="inset 0 1px 0 #ffffff29, 0 1px 2px #0000000d" opacity=(actions.pending ? 0.64 : 1) display="flex" align-items="center" justify-content="center"
             text actions.dialogConfirm font-size="0.875rem" line-height="1.25rem" font-weight=500 color="#ffffff"

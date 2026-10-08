@@ -10,6 +10,9 @@ use PgIcon from "./pages-icons.contract"
 use PgGlyph from "./pages-icons.contract"
 use BrandGitHub from "./settings-brands.contract"
 use PrEmptyState from "./r5-shell-prs.contract"
+use KmItem from "./menu-keys.contract"
+use KeyMenu from "./menu-keys.contract"
+use kmOpenKey from "./menu-keys.contract"
 
 shape PrChip
   key: string
@@ -261,10 +264,13 @@ component PrMenuItem
     press: action
     testId: string
   state over = false
+  state lit = false
   action hover(value: bool)
     over = value
+  action focused(on: bool)
+    lit = on
   view
-    button press=press popovertarget=menuId popovertargetaction="hide" hover=hover disabled=disabled role="menuitemradio" aria-checked=selected testId=testId width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" gap="0.5rem" border-radius="0.375rem" border-width=0 background-color=(over and not disabled ? "light-dark(#f4f4f5, #ffffff0a)" : selected and not tick ? "light-dark(#27272a14, #f2f2f214)" : "#00000000") opacity=(disabled ? 0.64 : 1) display="flex" flex-direction="row" align-items="center"
+    button id=testId press=press popovertarget=menuId popovertargetaction="hide" hover=hover focus=focused(true) blur=focused(false) disabled=disabled role="menuitemradio" aria-checked=selected testId=testId width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" gap="0.5rem" border-radius="0.375rem" border-width=0 background-color=((over or lit) and not disabled ? "light-dark(#f4f4f5, #ffffff0a)" : selected and not tick ? "light-dark(#27272a14, #f2f2f214)" : "#00000000") opacity=(disabled ? 0.64 : 1) display="flex" flex-direction="row" align-items="center"
       when icon != ""
         PgIcon(name=icon, size=14, color="light-dark(#27272a, #f5f5f5)")
       text label font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" flex=1 min-width=0 line-clamp=1 text-align="left" white-space="nowrap"
@@ -280,20 +286,26 @@ component PrSortMenu
     page: PrListView
     scheme: string
     control: action
+  // fix-keyboard-focus: the menu's keyboard (menu-keys.contract).
+  state keyed = 0
+  action triggerKey(k: string)
+    if kmOpenKey(k)
+      keyed = keyed + 1
   view
     column position="relative" flex-shrink=0
-      button popovertarget="pr-sort-menu" aria-label=`Sort pull requests: ${page.sortLabel}` testId="pull-requests-sort" height="2rem" padding-left="0.625rem" padding-right="0.6875rem" box-sizing="border-box" gap="0.375rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)" box-shadow="0 1px 2px #0000000d" display="flex" flex-direction="row" align-items="center"
+      button popovertarget="pr-sort-menu" key=triggerKey aria-label=`Sort pull requests: ${page.sortLabel}` testId="pull-requests-sort" height="2rem" padding-left="0.625rem" padding-right="0.6875rem" box-sizing="border-box" gap="0.375rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)" box-shadow="0 1px 2px #0000000d" display="flex" flex-direction="row" align-items="center"
         PgIcon(name="arrow-down-up", size=16, color="light-dark(#71717b, #818181)")
         text "Sort" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
       column id="pr-sort-menu" popover="auto" position="absolute" padding-top="0.25rem" testId="pr-sort-layer"
         PrMenuBox(scheme=scheme, width=160, label=`Sort pull requests: ${page.sortLabel}`)
-          PrMenuItem(menuId="pr-sort-menu", icon="list-checks", label="Merge readiness", detail="", selected=(page.sort == "ready"), tick=false, disabled=false, press=control("sort", "ready"), testId="pr-sort-ready")
-          PrMenuItem(menuId="pr-sort-menu", icon="user-lock", label="Blocked on me", detail="", selected=(page.sort == "blocked"), tick=false, disabled=false, press=control("sort", "blocked"), testId="pr-sort-blocked")
-          PrMenuItem(menuId="pr-sort-menu", icon="clock", label="Recently updated", detail="", selected=(page.sort == "updated"), tick=false, disabled=false, press=control("sort", "updated"), testId="pr-sort-updated")
-          PrMenuItem(menuId="pr-sort-menu", icon="calendar-arrow-down", label="Newest shown", detail="", selected=(page.sort == "newest"), tick=false, disabled=false, press=control("sort", "newest"), testId="pr-sort-newest")
-          PrMenuItem(menuId="pr-sort-menu", icon="calendar-arrow-up", label="Oldest shown", detail="", selected=(page.sort == "oldest"), tick=false, disabled=false, press=control("sort", "oldest"), testId="pr-sort-oldest")
-          PrMenuItem(menuId="pr-sort-menu", icon="maximize-2", label="Largest shown", detail="", selected=(page.sort == "largest"), tick=false, disabled=false, press=control("sort", "largest"), testId="pr-sort-largest")
-          PrMenuItem(menuId="pr-sort-menu", icon="minimize-2", label="Smallest shown", detail="", selected=(page.sort == "smallest"), tick=false, disabled=false, press=control("sort", "smallest"), testId="pr-sort-smallest")
+          KeyMenu(menuId="pr-sort-keys", items=[KmItem(id="pr-sort-ready", label="Merge readiness"), KmItem(id="pr-sort-blocked", label="Blocked on me"), KmItem(id="pr-sort-updated", label="Recently updated"), KmItem(id="pr-sort-newest", label="Newest shown"), KmItem(id="pr-sort-oldest", label="Oldest shown"), KmItem(id="pr-sort-largest", label="Largest shown"), KmItem(id="pr-sort-smallest", label="Smallest shown")], keyed=keyed, gap="0px")
+            PrMenuItem(menuId="pr-sort-menu", icon="list-checks", label="Merge readiness", detail="", selected=(page.sort == "ready"), tick=false, disabled=false, press=control("sort", "ready"), testId="pr-sort-ready")
+            PrMenuItem(menuId="pr-sort-menu", icon="user-lock", label="Blocked on me", detail="", selected=(page.sort == "blocked"), tick=false, disabled=false, press=control("sort", "blocked"), testId="pr-sort-blocked")
+            PrMenuItem(menuId="pr-sort-menu", icon="clock", label="Recently updated", detail="", selected=(page.sort == "updated"), tick=false, disabled=false, press=control("sort", "updated"), testId="pr-sort-updated")
+            PrMenuItem(menuId="pr-sort-menu", icon="calendar-arrow-down", label="Newest shown", detail="", selected=(page.sort == "newest"), tick=false, disabled=false, press=control("sort", "newest"), testId="pr-sort-newest")
+            PrMenuItem(menuId="pr-sort-menu", icon="calendar-arrow-up", label="Oldest shown", detail="", selected=(page.sort == "oldest"), tick=false, disabled=false, press=control("sort", "oldest"), testId="pr-sort-oldest")
+            PrMenuItem(menuId="pr-sort-menu", icon="maximize-2", label="Largest shown", detail="", selected=(page.sort == "largest"), tick=false, disabled=false, press=control("sort", "largest"), testId="pr-sort-largest")
+            PrMenuItem(menuId="pr-sort-menu", icon="minimize-2", label="Smallest shown", detail="", selected=(page.sort == "smallest"), tick=false, disabled=false, press=control("sort", "smallest"), testId="pr-sort-smallest")
 
 // The provider filter (CompactFilterMenu outlined): "All" with the plug, end-aligned.
 component PrHostMenu
@@ -302,16 +314,21 @@ component PrHostMenu
     scheme: string
     tail: number
     control: action
+  state keyed = 0
+  action triggerKey(k: string)
+    if kmOpenKey(k)
+      keyed = keyed + 1
   view
     column position="relative" flex-shrink=0
-      button popovertarget="pr-host-menu" aria-label=`Filter by provider: ${page.hostLabel}` testId="pull-requests-provider" height="2rem" min-width="2rem" padding-left=(page.providerIconOnly ? "0px" : "0.625rem") padding-right=(page.providerIconOnly ? "0px" : "0.6875rem") box-sizing="border-box" gap="0.375rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)" box-shadow="0 1px 2px #0000000d" display="flex" flex-direction="row" align-items="center" justify-content="center"
+      button popovertarget="pr-host-menu" key=triggerKey aria-label=`Filter by provider: ${page.hostLabel}` testId="pull-requests-provider" height="2rem" min-width="2rem" padding-left=(page.providerIconOnly ? "0px" : "0.625rem") padding-right=(page.providerIconOnly ? "0px" : "0.6875rem") box-sizing="border-box" gap="0.375rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)" box-shadow="0 1px 2px #0000000d" display="flex" flex-direction="row" align-items="center" justify-content="center"
         PgIcon(name="plug-2", size=16, color="light-dark(#71717b, #818181)")
         when not page.providerIconOnly
           text "All" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
       row id="pr-host-menu" popover="auto" position="absolute" padding-top="0.25rem" align-items="flex-start" testId="pr-host-layer"
         PrMenuBox(scheme=scheme, width=160, label=`Filter by provider: ${page.hostLabel}`)
-          each host in page.hosts key=host.value
-            PrHostItem(host=host, control=control)
+          KeyMenu(menuId="pr-host-keys", items=map(filter(page.hosts, (host) => host.unavailable == ""), (host) => KmItem(id=`pr-host-${host.label}`, label=host.label)), keyed=keyed, gap="0px")
+            each host in page.hosts key=host.value
+              PrHostItem(host=host, control=control)
         box width=tail height=1 flex-shrink=0
 
 component PrHostItem
@@ -319,10 +336,13 @@ component PrHostItem
     host: PrHost
     control: action
   state over = false
+  state lit = false
   action hover(value: bool)
     over = value
+  action focused(on: bool)
+    lit = on
   view
-    button press=control("host", host.value) popovertarget="pr-host-menu" popovertargetaction="hide" hover=hover disabled=(host.unavailable != "") role="menuitemradio" aria-checked=host.selected testId=`pr-host-${host.label}` width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" gap="0.5rem" border-radius="0.375rem" border-width=0 background-color=(over and host.unavailable == "" ? "light-dark(#f4f4f5, #ffffff0a)" : host.selected ? "light-dark(#27272a14, #f2f2f214)" : "#00000000") opacity=(host.unavailable != "" ? 0.64 : 1) display="flex" flex-direction="row" align-items="center"
+    button id=`pr-host-${host.label}` press=control("host", host.value) popovertarget="pr-host-menu" popovertargetaction="hide" hover=hover focus=focused(true) blur=focused(false) disabled=(host.unavailable != "") role="menuitemradio" aria-checked=host.selected testId=`pr-host-${host.label}` width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" gap="0.5rem" border-radius="0.375rem" border-width=0 background-color=((over or lit) and host.unavailable == "" ? "light-dark(#f4f4f5, #ffffff0a)" : host.selected ? "light-dark(#27272a14, #f2f2f214)" : "#00000000") opacity=(host.unavailable != "" ? 0.64 : 1) display="flex" flex-direction="row" align-items="center"
       when host.value == ""
         PgIcon(name="plug-2", size=14, color="light-dark(#27272a, #f5f5f5)")
       else
@@ -341,11 +361,31 @@ component PrFiltersMenu
   state sub = ""
   action open(name: string)
     sub = sub == name ? "" : name
+  // fix-keyboard-focus: the menu's keyboard (menu-keys.contract), and its submenus' (MenuSubTrigger):
+  // → , Enter or Space on a row opens its submenu with the focus on the submenu's first row, ← closes it
+  // and gives the focus back to the row.
+  state keyed = 0
+  state subKeyed = 0
+  derive subItems = sub == "state" ? [KmItem(id="pr-state-all", label="All"), KmItem(id="pr-state-open", label="Open"), KmItem(id="pr-state-closed", label="Closed"), KmItem(id="pr-state-merged", label="Merged")] : (sub == "involvement" ? [KmItem(id="pr-involvement-all", label="All"), KmItem(id="pr-involvement-reviewing", label="Reviewing"), KmItem(id="pr-involvement-authored", label="Authored")] : (sub == "draft" ? [KmItem(id="pr-draft-all", label="All"), KmItem(id="pr-draft-only", label="Drafts only"), KmItem(id="pr-draft-hide", label="Hide drafts")] : (sub == "review" ? [KmItem(id="pr-review-all", label="All"), KmItem(id="pr-review-approved", label="Approved"), KmItem(id="pr-review-changes", label="Changes requested"), KmItem(id="pr-review-required", label="Review required"), KmItem(id="pr-review-none", label="No reviews")] : (sub == "checks" ? [KmItem(id="pr-checks-all", label="All"), KmItem(id="pr-checks-passing", label="Passing"), KmItem(id="pr-checks-failing", label="Failing")] : (sub == "project" ? concat([KmItem(id="pr-project-all", label="All projects")], map(filter(page.projects, (project) => project.unavailable == ""), (project) => KmItem(id=`pr-project-${project.id}`, label=project.name))) : (sub == "author" ? concat([KmItem(id="pr-author-anyone", label="Anyone")], map(page.authors, (person) => KmItem(id=`pr-author-${person.key}`, label=person.login))) : map(page.labelFacets, (label) => KmItem(id=`pr-label-${label.key}`, label=label.name))))))))
+  action triggerKey(k: string)
+    if kmOpenKey(k)
+      keyed = keyed + 1
+  action subKey(name: string, k: string)
+    if k == "ArrowRight" or kmOpenKey(k)
+      preventDefault()
+      sub = name
+      subKeyed = subKeyed + 1
+      focus("pr-filters-sub-keys")
+  action subBack(k: string)
+    if k == "ArrowLeft" and sub != ""
+      preventDefault()
+      focus(`pr-filter-${sub}`)
+      sub = ""
   derive subWidth = sub == "" ? 0 : (sub == "author" or sub == "labels" or sub == "project" ? 232 : 168)
   derive subTop = sub == "involvement" ? 28 : sub == "author" ? 65 : sub == "labels" ? 93 : sub == "draft" ? 121 : sub == "review" ? 149 : sub == "checks" ? 177 : sub == "project" ? 214 : 0
   view
     column position="relative" flex-shrink=0
-      button popovertarget="pr-filters-menu" press=open("") aria-label="Filters" testId="pull-requests-filters" height="2rem" padding-left="0.625rem" padding-right="0.6875rem" box-sizing="border-box" gap="0.375rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)" box-shadow="0 1px 2px #0000000d" display="flex" flex-direction="row" align-items="center"
+      button popovertarget="pr-filters-menu" press=open("") key=triggerKey aria-label="Filters" testId="pull-requests-filters" height="2rem" padding-left="0.625rem" padding-right="0.6875rem" box-sizing="border-box" gap="0.375rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)" box-shadow="0 1px 2px #0000000d" display="flex" flex-direction="row" align-items="center"
         PgIcon(name="list-filter", size=16, color="light-dark(#71717b, #818181)")
         text "Filters" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
         when page.filterBadge != ""
@@ -353,20 +393,22 @@ component PrFiltersMenu
       column id="pr-filters-menu" popover="auto" position="absolute" padding-top="0.25rem" testId="pr-filters-layer"
         row align-items="flex-start"
           when sub != ""
-            column margin-top=subTop margin-right="-0.1875rem"
+            column margin-top=subTop margin-right="-0.1875rem" key=subBack
               PrMenuBox(scheme=scheme, width=subWidth, label=sub)
-                PrFilterSub(page=page, sub=sub, control=control)
+                KeyMenu(menuId="pr-filters-sub-keys", items=subItems, keyed=subKeyed, gap="0px")
+                  PrFilterSub(page=page, sub=sub, control=control)
           PrMenuBox(scheme=scheme, width=184, label="Filters")
-            PrSubTrigger(icon=page.stateIcon, label="State", value=page.stateLabel, open=(sub == "state"), press=open("state"), testId="pr-filter-state")
-            PrSubTrigger(icon=page.involvementIcon, label="Involvement", value=page.involvementLabel, open=(sub == "involvement"), press=open("involvement"), testId="pr-filter-involvement")
-            box width="calc(100% - 16px)" height=1 margin-left="0.5rem" margin-top="0.25rem" margin-bottom="0.25rem" background-color="light-dark(#e4e4e7, #ffffff0f)" role="separator"
-            PrSubTrigger(icon="user-round", label="Author", value=page.authorLabel, open=(sub == "author"), press=open("author"), testId="pr-filter-author")
-            PrSubTrigger(icon="tag", label="Labels", value=page.labelsLabel, open=(sub == "labels"), press=open("labels"), testId="pr-filter-labels")
-            PrSubTrigger(icon=page.draftIcon, label="Draft", value=page.draftLabel, open=(sub == "draft"), press=open("draft"), testId="pr-filter-draft")
-            PrSubTrigger(icon=page.reviewIcon, label="Review", value=page.reviewLabel, open=(sub == "review"), press=open("review"), testId="pr-filter-review")
-            PrSubTrigger(icon=page.checksIcon, label="Checks", value=page.checksLabel, open=(sub == "checks"), press=open("checks"), testId="pr-filter-checks")
-            box width="calc(100% - 16px)" height=1 margin-left="0.5rem" margin-top="0.25rem" margin-bottom="0.25rem" background-color="light-dark(#e4e4e7, #ffffff0f)" role="separator"
-            PrSubTrigger(icon="layers", label="Project", value=page.projectLabel, open=(sub == "project"), press=open("project"), testId="pr-filter-project")
+            KeyMenu(menuId="pr-filters-keys", items=[KmItem(id="pr-filter-state", label="State"), KmItem(id="pr-filter-involvement", label="Involvement"), KmItem(id="pr-filter-author", label="Author"), KmItem(id="pr-filter-labels", label="Labels"), KmItem(id="pr-filter-draft", label="Draft"), KmItem(id="pr-filter-review", label="Review"), KmItem(id="pr-filter-checks", label="Checks"), KmItem(id="pr-filter-project", label="Project")], keyed=keyed, gap="0px")
+              PrSubTrigger(icon=page.stateIcon, label="State", value=page.stateLabel, open=(sub == "state"), press=open("state"), keys=subKey("state"), testId="pr-filter-state")
+              PrSubTrigger(icon=page.involvementIcon, label="Involvement", value=page.involvementLabel, open=(sub == "involvement"), press=open("involvement"), keys=subKey("involvement"), testId="pr-filter-involvement")
+              box width="calc(100% - 16px)" height=1 margin-left="0.5rem" margin-top="0.25rem" margin-bottom="0.25rem" background-color="light-dark(#e4e4e7, #ffffff0f)" role="separator"
+              PrSubTrigger(icon="user-round", label="Author", value=page.authorLabel, open=(sub == "author"), press=open("author"), keys=subKey("author"), testId="pr-filter-author")
+              PrSubTrigger(icon="tag", label="Labels", value=page.labelsLabel, open=(sub == "labels"), press=open("labels"), keys=subKey("labels"), testId="pr-filter-labels")
+              PrSubTrigger(icon=page.draftIcon, label="Draft", value=page.draftLabel, open=(sub == "draft"), press=open("draft"), keys=subKey("draft"), testId="pr-filter-draft")
+              PrSubTrigger(icon=page.reviewIcon, label="Review", value=page.reviewLabel, open=(sub == "review"), press=open("review"), keys=subKey("review"), testId="pr-filter-review")
+              PrSubTrigger(icon=page.checksIcon, label="Checks", value=page.checksLabel, open=(sub == "checks"), press=open("checks"), keys=subKey("checks"), testId="pr-filter-checks")
+              box width="calc(100% - 16px)" height=1 margin-left="0.5rem" margin-top="0.25rem" margin-bottom="0.25rem" background-color="light-dark(#e4e4e7, #ffffff0f)" role="separator"
+              PrSubTrigger(icon="layers", label="Project", value=page.projectLabel, open=(sub == "project"), press=open("project"), keys=subKey("project"), testId="pr-filter-project")
           box width=tail height=1 flex-shrink=0
 
 // MenuSubTrigger: glyph, name, the current value in muted text and a chevron.
@@ -377,12 +419,16 @@ component PrSubTrigger
     value: string
     open: bool
     press: action
+    keys: action
     testId: string
   state over = false
+  state lit = false
   action hover(value: bool)
     over = value
+  action focused(on: bool)
+    lit = on
   view
-    button press=press hover=hover role="menuitem" aria-expanded=open aria-label=`${label} ${value}` testId=testId width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.375rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" gap="0.5rem" border-radius="0.375rem" border-width=0 background-color=(over or open ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center"
+    button id=testId press=press key=keys hover=hover focus=focused(true) blur=focused(false) role="menuitem" aria-expanded=open aria-label=`${label} ${value}` testId=testId width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.375rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" gap="0.5rem" border-radius="0.375rem" border-width=0 background-color=(over or lit or open ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center"
       PgIcon(name=icon, size=14, color="light-dark(#71717b, #818181)")
       text label font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" flex=1 min-width=0 text-align="left" white-space="nowrap"
       text value font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)" max-width="8rem" line-clamp=1 flex-shrink=0 text-align="left"
@@ -442,10 +488,13 @@ component PrAuthorItem
     person: PrAuthor
     control: action
   state over = false
+  state lit = false
   action hover(value: bool)
     over = value
+  action focused(on: bool)
+    lit = on
   view
-    button press=control("author", person.login) popovertarget="pr-filters-menu" popovertargetaction="hide" hover=hover role="menuitemradio" aria-checked=person.selected testId=`pr-author-${person.key}` width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" gap="0.5rem" border-radius="0.375rem" border-width=0 background-color=(over ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center"
+    button id=`pr-author-${person.key}` press=control("author", person.login) popovertarget="pr-filters-menu" popovertargetaction="hide" hover=hover focus=focused(true) blur=focused(false) role="menuitemradio" aria-checked=person.selected testId=`pr-author-${person.key}` width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" gap="0.5rem" border-radius="0.375rem" border-width=0 background-color=(over or lit ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center"
       PrAvatar(avatar=person.avatar, initial=person.initial, size=16)
       text person.login font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" flex=1 min-width=0 line-clamp=1 text-align="left"
       text person.detail font-size="0.75rem" line-height="1rem" font-variant-numeric="tabular-nums" color="light-dark(#71717b, #818181)" flex-shrink=0 white-space="nowrap"
@@ -459,10 +508,13 @@ component PrLabelItem
     label: PrLabelFacet
     control: action
   state over = false
+  state lit = false
   action hover(value: bool)
     over = value
+  action focused(on: bool)
+    lit = on
   view
-    button press=control("label", label.name) hover=hover role="menuitemcheckbox" aria-checked=label.selected testId=`pr-label-${label.key}` width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" gap="0.5rem" border-radius="0.375rem" border-width=0 background-color=(over ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center"
+    button id=`pr-label-${label.key}` press=control("label", label.name) hover=hover focus=focused(true) blur=focused(false) role="menuitemcheckbox" aria-checked=label.selected testId=`pr-label-${label.key}` width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" gap="0.5rem" border-radius="0.375rem" border-width=0 background-color=(over or lit ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center"
       box width="1rem" height="1rem" display="flex" align-items="center" justify-content="center" flex-shrink=0
         when label.selected
           PgIcon(name="check", size=16, color="light-dark(#27272a, #f5f5f5)")

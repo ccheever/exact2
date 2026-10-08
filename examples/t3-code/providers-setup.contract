@@ -18,6 +18,8 @@ use CnGlyph from "./settings-b-kit.contract"
 use RedactedText from "./redacted-text.contract"
 use AppConfirm from "./shell-panels.contract"
 use CodexSetup from "./codex-setup.contract"
+use KmItem from "./menu-keys.contract"
+use kmOpenKey from "./menu-keys.contract"
 
 shape ProviderAuthMethod
   id: string
@@ -157,6 +159,11 @@ component ProviderAccountRow
     methodId = value
   action copyHover(inside: bool)
     copyOver = inside
+  // fix-keyboard-focus: the sign-in method menu's keyboard (menu-keys.contract).
+  state keyed = 0
+  action triggerKey(k: string)
+    if kmOpenKey(k)
+      keyed = keyed + 1
   action authEvent(message: string)
     op("setup:auth-event", account.instanceId, "", message, true)
   derive off = account.disabled or busy
@@ -179,10 +186,10 @@ component ProviderAccountRow
         row flex-shrink=0 min-width=0 gap="0.375rem" align-items="center" flex-wrap="wrap" justify-content=(wide ? "flex-end" : "flex-start")
           when account.pickMethod
             box position="relative" flex-shrink=0
-              button popovertarget=`provider-auth-method-${account.instanceId}-menu` role="combobox" aria-label="Sign-in method" disabled=off testId=`provider-auth-method-${account.instanceId}` display="flex" flex-direction="row" align-items="center" gap="0.25rem" width="11rem" height="1.75rem" padding-left="0.5625rem" padding-right="0.4375rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#fcfcfc, #ffffff08)" opacity=(off ? 0.64 : 1)
+              button popovertarget=`provider-auth-method-${account.instanceId}-menu` key=triggerKey role="combobox" aria-label="Sign-in method" disabled=off testId=`provider-auth-method-${account.instanceId}` display="flex" flex-direction="row" align-items="center" gap="0.25rem" width="11rem" height="1.75rem" padding-left="0.5625rem" padding-right="0.4375rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#fcfcfc, #ffffff08)" opacity=(off ? 0.64 : 1)
                 text (methodLabel == "" ? "Provider default" : methodLabel) font-size="0.875rem" line-height="1.25rem" flex=1 min-width=0 line-clamp=1 text-align="left" color="light-dark(#27272a, #f5f5f5)"
                 CnGlyph(name="chevron-down", size=14, color="light-dark(#71717b, #818181)")
-              CnMenu(menuId=`provider-auth-method-${account.instanceId}-menu`, label="Sign-in method", width=176, endAlign=176, offsetX=0, offsetY=0)
+              CnMenu(menuId=`provider-auth-method-${account.instanceId}-menu`, label="Sign-in method", width=176, endAlign=176, offsetX=0, offsetY=0, items=concat([KmItem(id=`provider-auth-method-${account.instanceId}-default`, label="Provider default")], map(account.methods, (method) => KmItem(id=`provider-auth-method-${account.instanceId}-${method.id}`, label=method.name))), keyed=keyed)
                 CnMenuItem(label="Provider default", menuId=`provider-auth-method-${account.instanceId}-menu`, itemId=`provider-auth-method-${account.instanceId}-default`, destructive=false, disabled=false, highlighted=(methodValue == ""), note="", icon="", submenu="", choose=pickMethod(""))
                 each method in account.methods key=method.id
                   CnMenuItem(label=method.name, menuId=`provider-auth-method-${account.instanceId}-menu`, itemId=`provider-auth-method-${account.instanceId}-${method.id}`, destructive=false, disabled=false, highlighted=(method.id == methodValue), note="", icon="", submenu="", choose=pickMethod(method.id))
