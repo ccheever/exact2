@@ -72,4 +72,33 @@ final class HatchRegionsTests: XCTestCase {
         regions.ended(scope: "app")
         XCTAssertTrue(regions.regions.isEmpty)
     }
+
+    /// The window's walk (§3.4): a recognizer that was there before the call
+    /// is nobody's news; one the call added is journaled once, by class,
+    /// unless a region binds it.
+    func testAWindowsNewRecognizerIsNamedOnceUnlessARegionBindsIt() throws {
+        let session = ExactApp.shared.makeSession(label: "walk")
+        defer { session.destroy() }
+        let regions = session.presenter.elements.regions
+        let root = PlatformView(frame: CGRect(x: 0, y: 0, width: 100, height: 100)), inner = PlatformView(frame: root.bounds)
+        root.addSubview(inner)
+        let old = HatchRecognizer(), added = HatchRecognizer(), declared = HatchRecognizer()
+        inner.addGestureRecognizer(old)
+        let had = regions.recognizers(under: root)
+        XCTAssertEqual(had, [ObjectIdentifier(old)])
+        inner.addGestureRecognizer(added)
+        root.addGestureRecognizer(declared)
+        XCTAssertTrue(regions.owns(scope: "window", node: 0, kind: 1, object: declared, what: "a swipe to dismiss", surface: false))
+        // A view the hatch declared covers the recognizers inside it.
+        let control = PlatformView(frame: root.bounds), within = PlatformView(frame: root.bounds)
+        control.addSubview(within)
+        within.addGestureRecognizer(HatchRecognizer())
+        control.addGestureRecognizer(HatchRecognizer())
+        root.addSubview(control)
+        XCTAssertTrue(regions.owns(scope: "window", node: 0, kind: 0, object: control, what: "a close button", surface: false))
+        // An unstarted session keeps no journal to read: what was said is the check's own record.
+        regions.undeclared(under: root, by: "window") { had.contains(ObjectIdentifier($0)) }
+        regions.undeclared(under: root, by: "window") { had.contains(ObjectIdentifier($0)) }
+        XCTAssertEqual(regions.reported, ["window\n\(String(describing: HatchRecognizer.self))"])
+    }
 }
