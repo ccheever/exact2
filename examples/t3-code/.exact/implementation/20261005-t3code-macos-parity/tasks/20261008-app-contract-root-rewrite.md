@@ -200,22 +200,19 @@ data between the runs; the Agents step by a hover highlight under the resting ag
 `t3-code-evidence/app-contract-root-rewrite/`.
 
 **Not done / not verified.**
-- Usage and the thread title's menu were not reached by the drive (the same in base and branch): the pull request page's
-  sidebar shows Back in place of the footer's Usage button, and a draft thread's title has no `thread-title` id. Closing
-  them needs one more agent session (the drive limit: one run and one retry were used on the branch); steps under
-  "Further drive steps" below.
+- Pinning a Usage segment's popover: blocked by a missing signed-in provider on the lane. The extra drive (below) reached
+  Usage from the home page, but the page has no segment to pin ("Codex: Could not read limits." on Limits), in base and
+  branch alike; it needs a Codex or Claude login with limits on the server the app reads.
 - The `connectionAskRemove` compiler refusal above (not isolated; the move is not made).
-- The README's `timeline-keyboard` recipe does not compile on the base either. ExactKit now uses Swift's `package`
-  access level; with `-package-name` added, `macos/tests/timeline-keyboard/main.swift:31` passes a `KeyPress` where
-  ExactKit expects `String`. Neither `host/` nor that test changes here. Not run.
+- The README's `timeline-keyboard` recipe: broken on the base too (Swift access level and key API); tracked as a
+  separate follow-up (coordinator, 2026-10-09). ExactKit now uses Swift's `package` access level; with `-package-name`
+  added, `macos/tests/timeline-keyboard/main.swift:31` passes a `KeyPress` where ExactKit expects `String`. Neither
+  `host/` nor that test changes here. Not run.
 
-## Further drive steps (one more agent session, if the coordinator approves)
-
-Branch build (`bun host/apple/build.mjs t3-code-macos --bundle` with `EXACT_APP_DIR`), the lane as above (`lane.mjs start
-primary --port 16620`, `project primary`, `pair primary`), the drive script's Welcome steps, then: on the Pull Requests
-page tap `sidebar-back`, tap `open-usage`, wait for `usage-page`, screenshot; open a server thread of the paired project
-(send nothing: tap a `thread-*` row the lane server has, or create one on the lane server by RPC), tap `thread-title`,
-screenshot the title menu, tap `thread-title` again; the same on the base build; compare.
+**Extra drive** (the coordinator's go-ahead, 2026-10-09; Usage and the thread title menu only; base `b53cd7da7`, branch
+`a3b9b094f`, the same script and lane; one titled thread created on the lane server by RPC first): Usage from the home
+page's sidebar, its Limits view; the thread's title menu, Rename thread (the field with the title), Escape (the title,
+unchanged). All six screens pixel-identical; record `drive2-record.md` on `t3-code-evidence/app-contract-root-rewrite/`.
 
 ## Attempts and evidence
 
@@ -230,8 +227,9 @@ screenshot the title menu, tap `thread-title` again; the same on the base build;
 | live drive, branch retry and base | `cbdc478ba`, `96c4c38f2` | the same steps and results; 11/16 screens pixel-identical, the rest live GitHub data or a hover highlight | 11 before/after pairs, `drive-record.md` | Usage and the title menu not reached (script) |
 | X67 probe, branch | `cbdc478ba` | 2048 exit 134 (stack overflow), 3072 and 4096 compile; deepest site 79; base 3072 and 4096 compile | this record | X67 (#320) |
 | final checks | `c8ef3f6f7` | `cargo test -p t3-code-macos --lib` 13 pass (`title_snooze_tests` reads the moved `titleMenuOpen#1`; first run 12/1 before that); AppKit binaries 33/33 (`mermaid` with `T3_SERVER` on the lane server); five checks: build OK, `cargo test` 3,521 passed / 0 failed / 34 ignored in 94 binaries, clippy and fmt clean, caps OK, boot OK | PR body | `timeline-keyboard` recipe pre-existing break |
+| extra drive (go-ahead 2026-10-09) | `b53cd7da7`, `a3b9b094f` | Usage reached from home; title menu, Rename, Escape: the same in both, 6/6 screens pixel-identical; no Usage segment to pin (no signed-in provider) | 5 before/after pairs, `drive2-record.md` | the pin: a signed-in provider |
 
 ## Next action
 
-Review of the draft PR. If the coordinator approves one more agent session, run "Further drive steps" above. Then the
-coordinator's records sync.
+Review of the draft PR, then the coordinator's records sync. Open rows: the Usage pin (a signed-in provider on the lane),
+the `connectionAskRemove` refusal (recorded), and the `timeline-keyboard` recipe (a separate follow-up).
