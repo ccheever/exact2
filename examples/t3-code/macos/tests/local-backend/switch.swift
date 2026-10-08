@@ -65,18 +65,23 @@ final class LocalSwitchTests: XCTestCase {
 
     func testTurningOffStopsAServerThatIgnoresSIGTERMWithinTheBound() {
         // The double ignores SIGTERM: the stop waits 2 s, then SIGKILL (the reference's 2 s grace).
-        let backend = backend(runtime: runtime("trap '' TERM\nwhile :; do sleep 0.1; done"), dataRoot: scratch("data"))
+        // Readiness answers at once (FakeProber), so the stop could reach the shell before its `trap`
+        // ran and end it on the SIGTERM (~1 run in 5). The double marks the trap; the stop waits for it.
+        let trapped = scratch("trap").appendingPathComponent("trapped")
+        let backend = backend(runtime: runtime("trap '' TERM\n: > '\(trapped.path)'\nwhile :; do sleep 0.1; done"), dataRoot: scratch("data"))
         backend.attach(owner, dataRoot: scratch("data"), changed: { _ in })
         XCTAssertTrue(until(10) { backend.statusValue()["state"] as? String == "ready" && backend.statusValue()["bearerReady"] as? Bool == true }, "\(backend.statusValue())")
         XCTAssertTrue(until(5) { backend.statusValue()["environmentId"] as? String == "local-env" }, "the descriptor names the primary")
         XCTAssertEqual(backend.statusValue()["label"] as? String, "Lane Mac")
         let pid = backend.statusValue()["pid"] as? Int ?? 0
         XCTAssertTrue(pid > 1 && alive(pid))
+        XCTAssertTrue(until(5) { FileManager.default.fileExists(atPath: trapped.path) }, "the double ignores SIGTERM")
         let (failure, elapsed) = setEnabled(backend, false)
         XCTAssertNil(failure)
         XCTAssertGreaterThanOrEqual(elapsed, 1.9, "SIGTERM is ignored for 2 s")
         XCTAssertLessThan(elapsed, 5.5, "the stop is bounded")
         XCTAssertTrue(until(2) { !self.alive(pid) }, "the process is gone")
+        XCTAssertEqual(backend.statusValue()["lastExit"] as? String, "signal=9", "SIGKILL ended it")
         XCTAssertEqual(backend.statusValue()["state"] as? String, "stopped")
         XCTAssertEqual(backend.statusValue()["enabled"] as? Bool, false)
         // Turning it on again starts a new process and answers once it is ready.

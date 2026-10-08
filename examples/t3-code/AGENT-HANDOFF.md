@@ -72,13 +72,17 @@ Add to your area's file, or add a file and one entry; do not grow the shared fil
 | A transport op (needs the connection's queue) | `func <area>Ops(_:completion:) throws -> Bool` in `modules/apple/T3Transport+<Area>.swift` | One entry in `T3Transport.areas` |
 | A shape the root uses | `app-shapes.contract` or the feature's own shapes file | A `use` line (keep `app-shapes.contract`'s first: the plan orders shapes by first use) |
 | A resource, root state or root action | `app.contract` (exact2 keeps them in the root component; X9) | The declaration itself |
+| A root value the window shows | A prop of the same name on `T3Window` (`app-window.contract`, the root's view), passed on to the component that shows it | `name=name` in app.contract's `T3Window(...)` call |
+| A `T3Client` test | `client.test.ts`, or `client-settings.test.ts` for projects, scoped defaults and the settings pages; the `Backend` double is `client-fixture.ts` | none |
 
-Not split: `app.contract` is 1,357 lines and holds only the root's state, resources,
-mutations, tasks and actions (its view and shapes are already in other files), so its
-budget is about 140 lines until X9 lands. Two lists in `client.ts` `command()` still name
+Not split: `app.contract` holds only the root's state, resources, mutations, tasks and
+actions; its view moved to `app-window.contract` (task `20261008-app-contract-room`), which
+left it at 1,459 lines, so its budget is about 40 lines until X9 lands: nothing else in it can
+move to another file without X9 or a rewrite of root actions (that task's record says why). Two lists in `client.ts` `command()` still name
 ops one by one: `local` (device-only ops) and `formCommand` (errors that go to their form);
 a new op in an existing prefix needs neither. The `composer`, `menus` and `r5-panels`
-XCTests define their own `exactModule` and leave out `T3Module*.swift` (README recipe).
+XCTests define their own `exactModule` and leave out `T3Module*.swift` (README recipe), so an
+`extension T3Module` lives in a `T3Module+<Area>.swift` file.
 
 ## Real-GitHub lane
 

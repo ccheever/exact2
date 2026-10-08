@@ -119,3 +119,12 @@ Built option A1 on exact2 `origin/main`, branch `daehyeon/fw-x9-child-resources`
 - Evidence: the five checks; contract tests (`child_resource.rs`, 11); a two-file scratch app (`use Search from "./search.contract"`) passes on the web JS target, the wasm web host and macOS; one independent review, its four findings fixed.
 - Before main: LLP 1017.000 "P4c amendment" (proposed) needs Charlie's ruling and a `rules/DEFERRED.md` take or waiver. `Expand.lean` does not lift child requests; `contract-difftest` was not run (no Lean here).
 - Clone adoption: needs the clone on exact2 main (`clone-on-exact2-main`) first.
+
+## The cap reached (2026-10-08)
+
+`app.contract` reached 1,499 lines on `e91fcfc65` with no same-file `use` lines left to merge.
+[20261008-app-contract-room](../tasks/20261008-app-contract-room.md) moved the root's view into
+`T3Window` (`app-window.contract`), the last part the rules let leave the root: 1,459 lines, so
+about 40 lines of room. Everything else is root-owned resources, mutations and tasks, or root state
+and actions tied to them (that record counts them). Further room needs this fix (A1) or a rewrite
+of root actions.
