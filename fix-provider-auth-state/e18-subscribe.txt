@@ -1,0 +1,28 @@
+# fix-provider-auth-state, bug 18: provider.auth.subscribe on the welcome (agent mode, 1280x840, lane server spans)
+# Lane: fresh T3 homes per side, managed Codex runtime 0.156.1 installed through Welcome > Agents > Continue with ChatGPT (sign-in not completed).
+# Drive per side: clock +8000 real; tap welcome-continue; clock +5000 real (agents step); tap welcome-agents-continue; clock +20000 real (projects step).
+# A span is written when its subscription ends; its start time is listed.
+
+## Before: evidence base c0475fbaa (lane b18, port 16255), run 06:38:29-06:39:05 UTC
+06:38:38.840 ws.rpc.provider.auth.subscribe 5158.8ms {"rpc.transport": "websocket", "rpc.system": "effect-rpc", "rpc.method": "provider.auth.subscribe", "rpc.aggregate": "provider"}
+06:38:44.001 ws.rpc.provider.auth.subscribe 18.0ms {"rpc.transport": "websocket", "rpc.system": "effect-rpc", "rpc.method": "provider.auth.subscribe", "rpc.aggregate": "provider"}
+06:38:44.023 ws.rpc.provider.auth.subscribe 13.6ms {"rpc.transport": "websocket", "rpc.system": "effect-rpc", "rpc.method": "provider.auth.subscribe", "rpc.aggregate": "provider"}
+... (one span every ~16 ms) ...
+06:39:04.618 ws.rpc.provider.auth.subscribe 16.0ms {"rpc.transport": "websocket", "rpc.system": "effect-rpc", "rpc.method": "provider.auth.subscribe", "rpc.aggregate": "provider"}
+06:39:04.636 ws.rpc.provider.auth.subscribe 82.1ms {"rpc.transport": "websocket", "rpc.system": "effect-rpc", "rpc.method": "provider.auth.subscribe", "rpc.aggregate": "provider"}
+count 1275
+provider.install.subscribe in the same window:
+count 1275
+
+## After: this branch (lane a18, port 16254), run 06:35:32-06:36:08 UTC
+06:35:42.168 ws.rpc.provider.auth.subscribe 5173.4ms {"rpc.transport": "websocket", "rpc.system": "effect-rpc", "rpc.method": "provider.auth.subscribe", "rpc.aggregate": "provider"}
+count 1
+06:35:42.170 ws.rpc.provider.install.subscribe 5172.5ms {"rpc.transport": "websocket", "rpc.system": "effect-rpc", "rpc.method": "provider.install.subscribe", "rpc.aggregate": "provider"}
+count 1
+
+## Live, after a real ChatGPT sign-in (normal launch of this branch, lane live, port 16260)
+07:30:19.075 ws.rpc.provider.auth.subscribe 101606.5ms {"rpc.transport": "websocket", "rpc.system": "effect-rpc", "rpc.method": "provider.auth.subscribe", "rpc.aggregate": "provider"}
+07:32:00.712 ws.rpc.provider.auth.subscribe 43427.9ms {"rpc.transport": "websocket", "rpc.system": "effect-rpc", "rpc.method": "provider.auth.subscribe", "rpc.aggregate": "provider"}
+07:34:37.787 ws.rpc.provider.auth.subscribe 369918.2ms {"rpc.transport": "websocket", "rpc.system": "effect-rpc", "rpc.method": "provider.auth.subscribe", "rpc.aggregate": "provider"}
+count 3
+Sign-in completed 07:32:00.661 (provider.auth.complete Success). Welcome agents step: 07:30:19 (before sign-in) and 07:32:00 (after, until Projects at 07:32:44); Projects step 07:32:44-07:33:14: none; Settings › Providers editor: 07:34:38 until the app quit (one).
