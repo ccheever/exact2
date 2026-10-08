@@ -4,7 +4,8 @@ import AppKit
 /// Lane r10-connect (MIT reference, see LICENSE-T3):
 /// - Wake (`r10Wake`): the shell resource reads again now, so a command's state is drawn while
 ///   the command still waits (the pull request dialog's "Resolving pull request..." during its
-///   450 ms debounce, r10-connect-timing.ts).
+///   450 ms debounce, r10-connect-timing.ts); `t3.pr` wakes the pull request panel's resource for
+///   the read that follows the ghost it just showed (pr-conversation-and-refresh).
 /// - Select on open (hook `t3-select-on-open`): PullRequestThreadDialog focuses its field and
 ///   selects its text in the frame after it opens (`focus(); select()`).
 /// - Letter chords under a non-Latin source (keybindings.ts resolveEventKeys): when a ⌘/⌃ chord's
@@ -32,7 +33,8 @@ final class R10Connect {
     static func wake(_ request: [String: Any], changed: @escaping (String) -> Void, reply: @escaping ([String: Any]) -> Void) {
         let generation = request["generation"] as? Int ?? 0
         let topic = request["topic"] as? String ?? ""
-        guard ["t3.notify"].contains(topic) else {
+        // `t3.pr`: the pull request panel's resource asks again for the read after the state it showed (pages-pr-detail.ts).
+        guard ["t3.notify", "t3.pr"].contains(topic) else {
             return reply(["ok": false, "generation": generation, "error": ["kind": "Arguments", "message": "r10Wake names an unknown topic.", "uncertain": false]])
         }
         DispatchQueue.main.async { changed(topic); reply(["ok": true, "generation": generation, "value": [:]]) }
