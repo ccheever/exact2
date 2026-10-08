@@ -1,5 +1,5 @@
 ---
-name: 20261008-x51-focus-within-subtree
+name: 20261008-x54-focus-within-subtree
 plan: 20261005-t3code-macos-parity
 status: draft
 kind: framework-gap
@@ -8,7 +8,7 @@ upstream_url: null
 reproduced_on: bdca4216a (feature branch; exact2 main's framework as merged there)
 ---
 
-# X51: an ancestor hearing the focus enter its subtree (`focusin`, `:focus-within`)
+# X54: an ancestor hearing the focus enter its subtree (`focusin`, `:focus-within`)
 
 ## Summary
 

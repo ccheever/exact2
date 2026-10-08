@@ -79,7 +79,7 @@ component PrdReactionBar
             PrdReactionAdd(pickerId=pickerId, testId=`pull-request-reaction-add-${subject}`)
             // PopoverPopup align="start" side="top" padding="compact": a row of the eight, closing on a pick.
             row id=pickerId popover="auto" position="absolute" position-area="top span-right" padding-bottom="0.25rem" testId=`pull-request-reaction-picker-${subject}`
-              row padding-left="0.75rem" padding-right="0.75rem" padding-top="0.5rem" padding-bottom="0.5rem" box-sizing="border-box" gap="0.125rem" align-items="center" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#27272a1a, #f5f5f51a)" background-color="light-dark(#ffffffd5, #111111d5)" box-shadow="0 16px 40px -18px #0000008c" role="group" aria-label="Reactions"
+              row padding-left="0.75rem" padding-right="0.75rem" padding-top="0.5rem" padding-bottom="0.5rem" box-sizing="border-box" gap="0.125rem" align-items="center" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#27272a1a, #f5f5f51a)" background-color="light-dark(#fefefe, #171717)" box-shadow="0 16px 40px -18px #0000008c" role="group" aria-label="Reactions"
                 each choice in choices key=choice.content
                   PrdReactionChoiceButton(choice=choice, pressed=includes(reacted, choice.content), pickerId=pickerId, press=act("react", `${subject}|${choice.content}|${includes(reacted, choice.content) ? "false" : "true"}`), testId=`pull-request-reaction-choose-${subject}-${choice.content}`)
 
