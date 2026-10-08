@@ -1,11 +1,11 @@
 ---
 name: 20261008-x61-field-focus-ring-opt-out
 plan: 20261005-t3code-macos-parity
-status: draft
+status: published
 kind: framework-gap
 blocks: []
-upstream_url: null
-reproduced_on: e200397ec (main; a one-file app from `exact new`) and 74114cde1 (feat(example)/t3-code-adopt-main-fixes-r6, main e200397ec merged)
+upstream_url: https://github.com/ccheever/exact2/issues/302
+reproduced_on: febb2c5fb and e200397ec (main; one-file apps) and 74114cde1 (feat(example)/t3-code-adopt-main-fixes-r6, main e200397ec merged)
 ---
 
 # X61: an app cannot remove the focus ring Exact draws on a bare text field or textarea (no `outline`)
@@ -39,8 +39,8 @@ on fields, honoured by every host's Exact-drawn ring, or another documented opt-
 
 ### Where the clone hits it
 - `settings-prompt-preview.contract` (`prompt-font-preview`, `appearance="none"` for exactly this reason,
-  [editable-font-prompt-preview](../tasks/20261007-editable-font-prompt-preview.md)): no ring on the base
-  `07dcef1ab`, a ring on the merged branch (image 02 of [adopt-main-fixes-r6](../tasks/20261008-adopt-main-fixes-r6.md)).
+  [editable-font-prompt-preview](../tasks/closed/20261007-editable-font-prompt-preview.md)): no ring on the base
+  `07dcef1ab`, a ring on the merged branch (image 02 of [adopt-main-fixes-r6](../tasks/closed/20261008-adopt-main-fixes-r6.md)).
 - `composer.contract` (`composer`): the ring is on both builds (r4's sheet ring on the base, the ring layer
   now; image 03), where the reference shows none.
 - Every other bare field of the clone shows the same ring when focused (the palette input, branch and model
@@ -100,3 +100,15 @@ reference is `outline-none`; keep the ring where the reference keeps the browser
 Local draft (2026-10-08, adopt-main-fixes-r6). Reproduced on main `e200397ec` with a one-file app and in the
 clone. Not searched upstream, not published: publication is the coordinator's (the brief forbids filing from
 task agents).
+
+## Upstream (filed 2026-10-08)
+
+Upstream: https://github.com/ccheever/exact2/issues/302 (#302, [Feature] `outline: none` on `input` and `textarea`, to
+remove the focus ring Exact draws on a bare field). Filed as a feature request, not a bug: LLP 1104 r9 D6 keeps the
+ring on purpose, and what is missing is the author's `outline: none`. Reproduced on main `febb2c5fb` with a one-file
+app: a bare `textarea`, a `textarea appearance="none"` and a bare `input` each show a 2 pt blue ring inside the app's
+card on macOS, and Chrome's focus outline on the web; `outline="none"` is refused (`[lower-unknown-attr]`). Evidence:
+[x61-bare.png](https://raw.githubusercontent.com/ccheever/exact2/649f5649dc51c4f75562485f5cabc5ef74baabd1/file-x59-x61/x61-bare.png), [x61-none.png](https://raw.githubusercontent.com/ccheever/exact2/649f5649dc51c4f75562485f5cabc5ef74baabd1/file-x59-x61/x61-none.png), [x61-input.png](https://raw.githubusercontent.com/ccheever/exact2/649f5649dc51c4f75562485f5cabc5ef74baabd1/file-x59-x61/x61-input.png), transcript
+[x61-ops.txt](https://raw.githubusercontent.com/ccheever/exact2/649f5649dc51c4f75562485f5cabc5ef74baabd1/file-x59-x61/x61-ops.txt).
+
+Next: `issue-close` once #302 lands: add `outline="none"` where the reference is `outline-none` (App adoption above).
