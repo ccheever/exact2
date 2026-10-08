@@ -195,3 +195,111 @@ fn percentage_padding_is_of_the_containing_block() {
         assert_eq!(heights(&first, view(&host, id)), [44.0 + 40.0], "{id}");
     }
 }
+
+/// Grok's r4: a height that reads the viewport's height reads the sheet,
+/// so the trial takes it as `auto`. A route at least `100vh` tall would
+/// pin the sheet where it is, and a child `50vh` tall would halve it at
+/// each pass.
+#[test]
+fn viewport_heights_do_not_read_the_sheet() {
+    let src = r##"component Menu
+  view
+    column position="relative" width="100%" height="100%"
+      column testId="sheet" navigationDetent="fit-content" position="absolute" top=0 right=0 bottom=0 left=0 min-height="100vh" max-height="200vh"
+        row height=44
+          text "Row"
+        box testId="half" height="50vh"
+"##;
+    let plan = contract::compile(src).unwrap();
+    let (mut host, first) = Host::boot(
+        &plan.encode(),
+        NoData,
+        Box::new(MonospaceMeasurer::default()),
+        390.0,
+        844.0,
+    )
+    .unwrap();
+    let sheet = view(&host, "sheet");
+    assert_eq!(heights(&first, sheet), [44.0]);
+    for h in [44.0, 300.0, 600.0] {
+        let resized = host.resize(390.0, h);
+        assert!(heights(&resized, sheet).is_empty(), "{h}: {resized}");
+    }
+}
+
+/// Grok's r4: a block route's percentage padding changes with its
+/// containing block while its own box, its children and its extent stay
+/// where they are, so nothing under it is laid out anew: it refits on its
+/// resolved padding.
+#[test]
+fn a_block_routes_padding_change_alone_refits() {
+    let src = r##"component Menu
+  state wide = false
+  action widen
+    wide = true
+  view
+    column width="100%" height="100%"
+      button press=widen testId="widen" height=44
+        text "Widen"
+      column position="relative" width=(wide ? 800 : 400) flex=1
+        column testId="sheet" navigationDetent="fit-content" display="block" position="absolute" top=0 left=0 bottom=0 width=200 padding-bottom="10%"
+          row height=44
+            text "Row"
+"##;
+    let plan = contract::compile(src).unwrap();
+    let (mut host, first) = Host::boot(
+        &plan.encode(),
+        NoData,
+        Box::new(MonospaceMeasurer::default()),
+        390.0,
+        844.0,
+    )
+    .unwrap();
+    let sheet = view(&host, "sheet");
+    assert_eq!(heights(&first, sheet), [44.0 + 40.0]);
+    let widen = view(&host, "widen");
+    let wide = host.dispatch_at(widen, Event::Press, 0.0);
+    assert_eq!(heights(&wide, sheet), [44.0 + 80.0], "{wide}");
+}
+
+/// A scroller inside the route: one sized by its rows in the trial (`flex:
+/// 1` has no space to grow into there) grows the extent as rows arrive;
+/// one of a fixed height holds them, and the route is not measured again.
+#[test]
+fn a_nested_scroller_grows_the_extent_unless_its_height_is_fixed() {
+    let src = r##"component Menu
+  state rows = [0]
+  action more
+    rows = concat(rows, [length(rows)])
+  view
+    column position="relative" width="100%" height="100%"
+      button press=more testId="more" height=44
+        text "More"
+      column testId="flexed" navigationDetent="fit-content" position="absolute" top=44 right=0 bottom=0 left=0
+        scroll flex=1 min-height=0
+          each i in rows key=i
+            row height=44 flex-shrink=0
+              text `Row ${i}`
+      column testId="fixed" navigationDetent="fit-content" position="absolute" top=44 right=0 bottom=0 left=0
+        scroll height=100
+          each i in rows key=i
+            row height=44 flex-shrink=0
+              text `Row ${i}`
+"##;
+    let plan = contract::compile(src).unwrap();
+    let (mut host, first) = Host::boot(
+        &plan.encode(),
+        NoData,
+        Box::new(MonospaceMeasurer::default()),
+        390.0,
+        844.0,
+    )
+    .unwrap();
+    let (flexed, fixed) = (view(&host, "flexed"), view(&host, "fixed"));
+    assert_eq!(heights(&first, flexed), [44.0]);
+    assert_eq!(heights(&first, fixed), [100.0]);
+    let more = view(&host, "more");
+    let grown = host.dispatch_at(more, Event::Press, 0.0);
+    assert_eq!(heights(&grown, flexed), [88.0], "{grown}");
+    assert!(heights(&grown, fixed).is_empty(), "{grown}");
+}

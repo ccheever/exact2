@@ -97,8 +97,13 @@ impl Kernel {
     /// host cover in it), its min and max heights, and no height, insets or
     /// margins: nothing it is placed in (a sheet, a flex line, insets)
     /// constrains it, so no child shrinks, grows or takes a percentage of
-    /// its height. Exclusions and multi-column fragments are not settled in
-    /// that tree. The ordinary engine tree, its caches, frames and the epoch
+    /// its height. A height, min-height or max-height that reads the
+    /// viewport's height (`vh`, `svh`, `lvh`, `dvh`, and `vmin`/`vmax` or a
+    /// comparison while they do) is `auto` there, on the box and under it:
+    /// the viewport is the box's own sheet, and the kernel knows no
+    /// unclipped screen. A height a transition presents (LLP 1063) is the
+    /// presented one, as in the ordinary layout. Exclusions and
+    /// multi-column fragments are not settled in that tree. The ordinary engine tree, its caches, frames and the epoch
     /// are untouched (LLP 1075.003 §9.11). `None` as for
     /// [`Kernel::laid_out_frame`], or when the trial's layout fails.
     pub fn fit_content_height(&mut self, key: NodeKey) -> Option<f32> {
@@ -113,7 +118,42 @@ impl Kernel {
         let (pad, border) = (laid.padding, laid.border);
         let (mut tree, nodes) = LayoutTree::of_subtree(&self.arena, slot);
         let root = nodes[&slot];
-        let mut style = taffy_style(&self.arena, slot);
+        // What differs under a taller viewport reads the viewport's height.
+        let env = self.arena.env().clone();
+        let mut taller = env.clone();
+        taller.viewport_height = env.viewport_height * 2.0 + 1.0;
+        let sheet = |d: crate::style::Dimension| d.resolve(&env) != d.resolve(&taller);
+        let presented = engine(&mut self.layout).height_samples(self.epoch);
+        let derive = |s: u32, mut t: taffy::style::Style| {
+            let row = self.arena.style(s);
+            if sheet(row.height) {
+                t.size.height = Dimension::auto();
+            }
+            if sheet(row.min_height) {
+                t.min_size.height = LengthPercentageAuto::auto();
+            }
+            if sheet(row.max_height) {
+                t.max_size.height = LengthPercentageAuto::auto();
+            }
+            let shown = presented
+                .iter()
+                .find(|p| p.node.index == s && self.arena.resolve(p.node) == Some(s));
+            if let Some(p) = shown {
+                t.size.height = Dimension::length(p.px);
+            }
+            t
+        };
+        for (&s, &node) in nodes.iter().filter(|(&s, _)| s != slot) {
+            let row = self.arena.style(s);
+            if sheet(row.height)
+                || sheet(row.min_height)
+                || sheet(row.max_height)
+                || presented.iter().any(|p| p.node.index == s)
+            {
+                tree.set_style(node, derive(s, taffy_style(&self.arena, s)));
+            }
+        }
+        let mut style = derive(slot, taffy_style(&self.arena, slot));
         let inline = pad.left + pad.right + border.left + border.right;
         let width = match style.box_sizing {
             taffy::style::BoxSizing::ContentBox => (frame.width - inline).max(0.0),
@@ -174,6 +214,15 @@ impl Kernel {
         let node = self.arena.taffy(slot)?;
         let pad = self.layout.as_deref()?.tree_ref()?.layout(node).padding;
         Some((pad.left, pad.top, pad.right, pad.bottom))
+    }
+
+    /// The border the last layout resolved, in points: left, top, right,
+    /// bottom. `None` when the node has no engine layout.
+    pub fn resolved_border(&self, key: NodeKey) -> Option<(f32, f32, f32, f32)> {
+        let slot = self.arena.resolve(key)?;
+        let node = self.arena.taffy(slot)?;
+        let b = self.layout.as_deref()?.tree_ref()?.layout(node).border;
+        Some((b.left, b.top, b.right, b.bottom))
     }
 
     /// The root `slot` is laid out under, when nothing between them was

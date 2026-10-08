@@ -228,6 +228,15 @@ fn a_fit_content_height_is_the_content_laid_out_alone_and_publishes_nothing() {
     assert_eq!((k.epoch(), k.receipts().count()), (epoch, receipts));
     let receipt = k.compute_layout(1, offer()).unwrap();
     assert!(receipt.changed.is_empty() && receipt.updated.is_empty());
+    // A height a transition presents is the presented one there too.
+    let presented = [PresentedHeight {
+        node: key(&k, 2),
+        epoch: k.epoch(),
+        px: 250.0,
+    }];
+    k.compute_layout_presented(1, offer(), &presented).unwrap();
+    assert_eq!(k.fit_content_height(key(&k, 1)), Some(250.0 + 30.0));
+    k.compute_layout_presented(1, offer(), &[]).unwrap();
     // Squeezed in a 100-point flex column, the two still ask for theirs.
     k.apply(
         0,

@@ -178,9 +178,10 @@ impl<D: DataSource> Host<D> {
             .into_iter()
             .collect();
         pending.sort_unstable();
-        // Fit-content routes whose subtree changed this pass (§9.11): a row
-        // added under one need not move the route's own box or extent.
-        let mut refit: Vec<ViewId> = Vec::new();
+        // What this pass laid out anew, and which of those moved, for the
+        // fit-content routes above them (`emit_fitted`).
+        let mut visited: Vec<ViewId> = Vec::new();
+        let mut moved: IdSet<ViewId> = IdSet::default();
         for key in pending {
             let Some(node) = self.runner.kernel().node_by_key(key) else {
                 continue;
@@ -222,19 +223,13 @@ impl<D: DataSource> Host<D> {
                 .iter()
                 .any(|o| matches!(o, Overflow::Scroll | Overflow::Auto));
             if fits && !scrolls {
-                if !self.fit_routes.contains(&id) {
-                    self.fit_routes.push(id);
+                if !self.fit_routes.iter().any(|(r, _)| *r == id) {
+                    self.fit_routes.push((id, None));
                 }
             } else {
-                self.fit_routes.retain(|r| *r != id);
+                self.fit_routes.retain(|(r, _)| *r != id);
             }
-            let mut at = (!self.fit_routes.is_empty()).then_some(id);
-            while let Some(a) = at {
-                if self.fit_routes.contains(&a) && !refit.contains(&a) {
-                    refit.push(a);
-                }
-                at = kernel.node(a).and_then(|n| n.parent);
-            }
+            visited.push(id);
             let content = (!(fits && !scrolls)
                 && overflow != (Overflow::Visible, Overflow::Visible))
                 .then(|| content_size(&node, kernel));
@@ -261,6 +256,7 @@ impl<D: DataSource> Host<D> {
                 batch.field_content(id, field_content);
             }
             if m.frame != Some(rel) {
+                moved.insert(id);
                 m.frame = Some(rel);
                 batch.frame(id, rel.0, rel.1, rel.2, rel.3);
             }
@@ -275,7 +271,7 @@ impl<D: DataSource> Host<D> {
                 self.observe_layout(key, batch);
             }
         }
-        self.emit_fitted(refit, batch);
+        self.emit_fitted(&visited, &moved, batch);
         self.snap_layout(batch);
         self.emit_sticky(batch);
         self.emit_fragments(batch);
@@ -302,25 +298,63 @@ impl<D: DataSource> Host<D> {
     /// content (`Kernel::fit_content_height`), so the sheet it sizes never
     /// feeds back into it. A bottom cover is the sheet's safe area, which
     /// UIKit adds below the detent itself: not counted.
-    fn emit_fitted(&mut self, refit: Vec<ViewId>, batch: &mut Batch) {
+    ///
+    /// Measured when a node under the route was laid out anew (a row added
+    /// need not move the route's box or extent), or when its width,
+    /// resolved padding, border or cover changed (a block route's
+    /// percentage padding moves nothing it publishes); else the last
+    /// measure stands. A scroller of a fixed length height that did not
+    /// move holds what changes inside it, as it does in the trial.
+    fn emit_fitted(&mut self, visited: &[ViewId], moved: &IdSet<ViewId>, batch: &mut Batch) {
         let kernel = self.runner.kernel();
-        self.fit_routes.retain(|id| kernel.node(*id).is_some());
-        for id in refit {
+        self.fit_routes.retain(|(id, _)| kernel.node(*id).is_some());
+        if self.fit_routes.is_empty() {
+            return;
+        }
+        let mut refit: Vec<ViewId> = Vec::new();
+        for &id in visited {
+            let mut at = Some(id);
+            while let Some(node) = at.and_then(|a| kernel.node(a)) {
+                if self.fit_routes.iter().any(|(r, _)| *r == node.id) && !refit.contains(&node.id) {
+                    refit.push(node.id);
+                }
+                let overflow = style::effective_overflow(&node);
+                let scrolls = [overflow.0, overflow.1]
+                    .iter()
+                    .any(|o| matches!(o, Overflow::Scroll | Overflow::Auto));
+                if scrolls
+                    && matches!(node.style.height, exact_kernel::Dimension::Points(_))
+                    && !moved.contains(&node.id)
+                {
+                    break;
+                }
+                at = node.parent;
+            }
+        }
+        for i in 0..self.fit_routes.len() {
+            let (id, last) = self.fit_routes[i];
             let kernel = self.runner.kernel_mut();
             let Some(node) = kernel.node(id) else {
                 continue;
             };
-            let (key, width) = (node.key, node.frame.width);
+            let key = node.key;
             let cover = match kernel.arena().cover(key.index) {
                 Some(exact_kernel::HostCover::Edges([_, _, bottom, _])) => bottom,
                 _ => 0.0,
             };
+            let (pl, pt, pr, pb) = kernel.resolved_padding(key).unwrap_or_default();
+            let (bl, bt, br, bb) = kernel.resolved_border(key).unwrap_or_default();
+            let sig = [node.frame.width, pl, pt, pr, pb, bl, bt, br, bb, cover];
+            if !self.layout_withheld && !refit.contains(&id) && last == Some(sig) {
+                continue;
+            }
             let Some(height) = kernel.fit_content_height(key) else {
                 continue;
             };
-            let c = (width, (height - cover).max(0.0));
+            self.fit_routes[i].1 = Some(sig);
+            let c = (sig[0], (height - cover).max(0.0));
             let m = self.mirror.entry(id).or_default();
-            if m.content != Some(c) {
+            if self.layout_withheld || m.content != Some(c) {
                 m.content = Some(c);
                 batch.content(id, c.0, c.1);
             }
