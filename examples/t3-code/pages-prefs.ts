@@ -8,7 +8,7 @@ import { obj, str, num, type Obj } from './domain';
 import { storedCompletion } from './r9-connect-onboarding';
 
 export type UsagePrefs = { metric: string; windowDays: number };
-export type PagesPrefs = { usage: UsagePrefs | null; pullRequests: Obj | null; onboardingCompletedAt: string; mergeMethod?: string };
+export type PagesPrefs = { usage: UsagePrefs | null; pullRequests: Obj | null; onboardingCompletedAt: string; mergeMethod?: string; prFileTree?: boolean };
 type Holder = { local: object };
 
 const emptyPrefs = (): PagesPrefs => ({ usage: null, pullRequests: null, onboardingCompletedAt: '' });
@@ -29,5 +29,7 @@ export function adoptPagesPrefs(next: object, saved: Obj): void {
   prefs.onboardingCompletedAt = storedCompletion(value.onboardingCompletedAt); // r9-connect: a 1970 value is unset
   // pr-header-actions-and-stacks: the merge method last chosen on this device (useUiStateStore pullRequestMergeMethod).
   if (value.mergeMethod === 'merge' || value.mergeMethod === 'squash' || value.mergeMethod === 'rebase') prefs.mergeMethod = value.mergeMethod;
+  // pr-code-tab: the Code tab's file tree, open or not (t3code.pullRequestFileTreeOpen).
+  if (value.prFileTree === true) prefs.prFileTree = true;
   (next as { pages?: PagesPrefs }).pages = prefs;
 }
