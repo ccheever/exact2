@@ -117,6 +117,8 @@ component UsagePooled
     pinned: string
     enterSeg: action
     pin: action
+    // fix-hover-cards: a legend row's press, which anchors the popover to that row.
+    pinLegend: action
     op: action
   view
     column width="100%" gap="2rem" testId="usage-pooled"
@@ -125,7 +127,7 @@ component UsagePooled
       each pool in view.pools key=pool.key
         when pool.cursorBefore
           CursorEnableLimits(cursor=view.cursor, op=op)
-        PoolSection(pool=pool, view=view, scheme=scheme, md=md, reduced=reduced, shown=shown, pinned=pinned, enterSeg=enterSeg, pin=pin)
+        PoolSection(pool=pool, view=view, scheme=scheme, md=md, reduced=reduced, shown=shown, pinned=pinned, enterSeg=enterSeg, pin=pin, pinLegend=pinLegend)
       when view.cursorAfter
         CursorEnableLimits(cursor=view.cursor, op=op)
       each link in view.links key=link.key
@@ -146,6 +148,8 @@ component PoolSection
     pinned: string
     enterSeg: action
     pin: action
+    // fix-hover-cards: a legend row's press, which anchors the popover to that row.
+    pinLegend: action
   view
     column width="100%" gap="0.75rem" position="relative" z-index=(startsWith(shown, pool.prefix) ? 1 : 0) testId=`usage-limits-${pool.key}`
       row align-items="center" gap="0.5rem"
@@ -156,7 +160,7 @@ component PoolSection
             DriverMark(driver=pool.driver, size=16, initials="", icon=pool.icon)
         text pool.label font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=2
       each window in pool.windows key=window.key
-        PoolWindowCard(pool=pool, window=window, view=view, scheme=scheme, md=md, reduced=reduced, shown=shown, pinned=pinned, enterSeg=enterSeg, pin=pin)
+        PoolWindowCard(pool=pool, window=window, view=view, scheme=scheme, md=md, reduced=reduced, shown=shown, pinned=pinned, enterSeg=enterSeg, pin=pin, pinLegend=pinLegend)
 
 // PoolWindowCard: the pooled share left with pace and the next refill, beside (md) or above the bar.
 component PoolWindowCard
@@ -173,6 +177,8 @@ component PoolWindowCard
     pinned: string
     enterSeg: action
     pin: action
+    // fix-hover-cards: a legend row's press, which anchors the popover to that row.
+    pinLegend: action
   view
     box width="100%" display="grid" grid-template-columns=(md ? `${11 * rem}px minmax(0, 1fr)` : "minmax(0, 1fr)") column-gap="1.5rem" row-gap="0.75rem" align-items="center" padding="1rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e799, #ffffff09)" position="relative" z-index=(startsWith(shown, window.prefix) ? 1 : 0) testId=`usage-window-${pool.key}-${window.key}`
       column gap="0.25rem" min-width=0
@@ -190,7 +196,7 @@ component PoolWindowCard
           PoolSegment(seg=seg, wide=view.wide, hatch=(view.wide ? view.hatchWide : view.hatchNarrow), light=pool.light, dark=pool.dark, scheme=scheme, reduced=reduced, open=(shown == seg.id), pinned=(pinned == seg.id), enterSeg=enterSeg, pin=pin)
         when not view.wide
           each seg in window.segments key=seg.id
-            LegendRow(seg=seg, light=pool.light, dark=pool.dark, pin=pin)
+            LegendRow(seg=seg, light=pool.light, dark=pool.dark, pin=pinLegend)
         each line in window.statuses key=line.key
           row grid-column="1 / -1" grid-row=line.row min-width=0 align-items="center" gap="0.25rem" role="status" testId=`usage-seg-status-${line.key}`
             AccountName(name=line.name, chip=line.chip, chipBg=line.chipBg, chipFg=line.chipFg, size="0.75rem")
@@ -292,12 +298,16 @@ component SegmentPopup
     y: number
     w: number
     h: number
+    // The trigger that opened it: a legend row places it itself (Base UI anchors the popup to that trigger).
+    place: string
     enterPop: action
     enterMail: action
     redeem: action
+  derive side = place != "" ? place : seg.side
+  derive align = place != "" ? "center" : seg.align
   view
-    column position="absolute" left=(seg.align == "start" ? x : (seg.align == "end" ? x + w - 18 * rem : x + w / 2 - 9 * rem)) width="18rem" top=(seg.side == "bottom" ? y + h : 0) height=(seg.side == "bottom" ? "auto" : y) justify-content=(seg.side == "bottom" ? "flex-start" : "flex-end") pointer-events="none" z-index=50
-      column hover=enterPop(seg.id) padding-top=(seg.side == "bottom" ? "0.375rem" : 0) padding-bottom=(seg.side == "bottom" ? 0 : "0.375rem") pointer-events=(open ? "auto" : "none") inert=(not open) aria-hidden=(not open)
+    column position="absolute" left=(align == "start" ? x : (align == "end" ? x + w - 18 * rem : x + w / 2 - 9 * rem)) width="18rem" top=(side == "bottom" ? y + h : 0) height=(side == "bottom" ? "auto" : y) justify-content=(side == "bottom" ? "flex-start" : "flex-end") pointer-events="none" z-index=50
+      column hover=enterPop(seg.id) padding-top=(side == "bottom" ? "0.375rem" : 0) padding-bottom=(side == "bottom" ? 0 : "0.375rem") pointer-events=(open ? "auto" : "none") inert=(not open) aria-hidden=(not open)
         column width="18rem" padding="1rem" box-sizing="border-box" gap="0.625rem" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#27272a1a, #f5f5f51a)" background-color="light-dark(#ffffff, #111111)" box-shadow=(scheme == "dark" ? "0 18px 44px -18px #000000cc" : "0 16px 40px -18px #0000008c") opacity=(open ? 1 : 0) transition=(reduced ? "opacity 0ms" : "opacity 150ms ease") animation=(open and not pinned and not reduced ? "usagePopIn 150ms ease both" : "none") role="dialog" aria-label=seg.title testId=`usage-seg-pop-${seg.id}`
           column min-width=0 gap="0.125rem"
             row min-width=0 align-items="center" gap="0.5rem"
@@ -346,6 +356,7 @@ component UsagePopups
     y: number
     w: number
     h: number
+    place: string
     enterPop: action
     enterMail: action
     redeem: action
@@ -353,7 +364,7 @@ component UsagePopups
     each pool in view.pools key=pool.key
       each window in pool.windows key=window.key
         each seg in filter(window.segments, (one) => one.id == (shown != "" ? shown : last)) key=seg.id
-          SegmentPopup(seg=seg, scheme=scheme, reduced=reduced, open=(shown == seg.id), pinned=(pinned == seg.id), x=x, y=y, w=w, h=h, enterPop=enterPop, enterMail=enterMail, redeem=redeem)
+          SegmentPopup(seg=seg, scheme=scheme, reduced=reduced, open=(shown == seg.id), pinned=(pinned == seg.id), x=x, y=y, w=w, h=h, place=place, enterPop=enterPop, enterMail=enterMail, redeem=redeem)
 
 // Row: a 4.5rem muted label, then the value.
 component PopRow

@@ -155,26 +155,39 @@ component UsagePage
   state popY = 0
   state popW = 0
   state popH = 0
+  state popPlace = ""
   derive hovered = hoverShown and hoverTip.kind == "usage" ? hoverTip.key : ""
   derive shown = hovered != "" ? hovered : pinned
-  action place(id: string)
-    let seg = frame(`usage-seg-${id}`)
+  // `trigger` "seg" or "legend": Base UI anchors the popup to the trigger that opened it; above a legend row when it
+  // fits (side top), else below it.
+  action place(id: string, trigger: string)
+    let box = frame(`usage-${trigger}-${id}`)
     let content = frame("usage-content")
     last = id
-    popX = seg.x - content.x
-    popY = seg.y - content.y
-    popW = seg.width
-    popH = seg.height
+    popX = box.x - content.x
+    popY = box.y - content.y
+    popW = box.width
+    popH = box.height
+    popPlace = trigger == "legend" ? (box.y - content.y >= 17 * rem ? "top" : "bottom") : ""
   action enterSeg(id: string, inside: bool)
     if inside
-      place(id)
+      place(id, "seg")
     hoverTipAt(HoverTip(key=id, kind="usage", text="", lines=[], side="top", align="center", x=0, y=0, width=0, height=0, estimate=0, testId=`usage-seg-pop-${id}`), "trigger", inside)
   action enterPop(id: string, inside: bool)
     hoverTipAt(HoverTip(key=id, kind="usage", text="", lines=[], side="top", align="center", x=0, y=0, width=0, height=0, estimate=0, testId=`usage-seg-pop-${id}`), "card", inside)
   action enterMail(id: string, inside: bool)
     enterPop(id, inside)
+  // A press on the popover's trigger: pins it, or closes it when pinned, hover-opened state too, which then waits
+  // for the pointer to enter again (Base UI's useClick, and blockMouseMove after a close).
   action pin(id: string)
-    place(id)
+    place(id, "seg")
+    toggle(id)
+  action pinLegend(id: string)
+    place(id, "legend")
+    toggle(id)
+  action toggle(id: string)
+    if pinned == id
+      hoverTipAt(noHoverTip(), "", true)
     pinned = pinned == id ? "" : id
   // Escape (UsageKeys' one shortcut): a showing popover closes and its segment takes the focus; else the page goes back.
   action escape
@@ -228,8 +241,8 @@ component UsagePage
             text page.empty font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #818181)" testId="usage-empty"
           else
             when page.metric == "limits"
-              UsagePooled(view=page.pooled, scheme=scheme, md=md, reduced=reduced, shown=shown, pinned=pinned, enterSeg=enterSeg, pin=pin, op=op)
-              UsagePopups(view=page.pooled, shown=shown, last=last, pinned=pinned, scheme=scheme, reduced=reduced, x=popX, y=popY, w=popW, h=popH, enterPop=enterPop, enterMail=enterMail, redeem=redeem)
+              UsagePooled(view=page.pooled, scheme=scheme, md=md, reduced=reduced, shown=shown, pinned=pinned, enterSeg=enterSeg, pin=pin, pinLegend=pinLegend, op=op)
+              UsagePopups(view=page.pooled, shown=shown, last=last, pinned=pinned, scheme=scheme, reduced=reduced, x=popX, y=popY, w=popW, h=popH, place=popPlace, enterPop=enterPop, enterMail=enterMail, redeem=redeem)
             else
               when page.total == ""
                 UsageSkeleton(lg=lg, md=md)

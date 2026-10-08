@@ -90,22 +90,26 @@ describe('#263 bug 10: the Usage segment popover is drawn in the page scroll con
     expect(popups).toContain('each seg in filter(window.segments, (one) => one.id == (shown != "" ? shown : last)) key=seg.id');
     const popup = await component('usage-pooled.contract', 'SegmentPopup');
     // Its placement box spans from the content top to the segment (side top) or from the segment down (side bottom).
-    expect(popup).toContain('top=(seg.side == "bottom" ? y + h : 0) height=(seg.side == "bottom" ? "auto" : y)');
+    expect(popup).toContain('top=(side == "bottom" ? y + h : 0) height=(side == "bottom" ? "auto" : y)');
+    // A legend row's press anchors it to that row (Base UI anchors the popup to the trigger that opened it).
+    expect(popup).toContain('derive side = place != "" ? place : seg.side');
     expect(popup).toContain('column hover=enterPop(seg.id)');
     const page = await source('pages-usage.contract');
     expect(page).toContain('column id="usage-content" position="relative"');
-    expect(page).toContain('UsagePopups(view=page.pooled, shown=shown, last=last, pinned=pinned, scheme=scheme, reduced=reduced, x=popX, y=popY, w=popW, h=popH, enterPop=enterPop, enterMail=enterMail, redeem=redeem)');
+    expect(page).toContain('x=popX, y=popY, w=popW, h=popH, place=popPlace, enterPop=enterPop, enterMail=enterMail, redeem=redeem)');
+    expect(await component('usage-pooled.contract', 'PoolWindowCard')).toContain('LegendRow(seg=seg, light=pool.light, dark=pool.dark, pin=pinLegend)');
   });
 
   test('the page opens it through the window hover state: the segment is the trigger, the popover and its email the card', async () => {
     const page = await component('pages-usage.contract', 'UsagePage');
     expect(page).toContain('derive hovered = hoverShown and hoverTip.kind == "usage" ? hoverTip.key : ""');
     expect(page).toContain('derive shown = hovered != "" ? hovered : pinned');
-    expect(page).toMatch(/action enterSeg\(id: string, inside: bool\)\n    if inside\n      place\(id\)\n    hoverTipAt\(HoverTip\(key=id, kind="usage"[^\n]*\), "trigger", inside\)/);
+    expect(page).toMatch(/action enterSeg\(id: string, inside: bool\)\n    if inside\n      place\(id, "seg"\)\n    hoverTipAt\(HoverTip\(key=id, kind="usage"[^\n]*\), "trigger", inside\)/);
     expect(page).toMatch(/action enterPop\(id: string, inside: bool\)\n    hoverTipAt\(HoverTip\(key=id, kind="usage"[^\n]*\), "card", inside\)/);
     expect(page).toContain('action enterMail(id: string, inside: bool)\n    enterPop(id, inside)');
-    // Escape and "Use reset" close it at once.
-    expect(page.match(/hoverTipAt\(noHoverTip\(\), "", true\)/g)).toHaveLength(2);
+    // Escape, "Use reset" and a press on its pinned trigger close it at once; the hover waits for a new enter.
+    expect(page.match(/hoverTipAt\(noHoverTip\(\), "", true\)/g)).toHaveLength(3);
+    expect(page).toContain('  action toggle(id: string)\n    if pinned == id\n      hoverTipAt(noHoverTip(), "", true)');
     expect(await source('hover-layer.contract')).toContain('fn hoverDelay(kind: string): number = kind == "scopes" ? 100 : (kind == "freshness" ? 120 : (kind == "usage" ? 50 : 0))');
   });
 });
