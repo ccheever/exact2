@@ -23,9 +23,10 @@ import { replaceComposerPrompt } from './composer-editor';
 import { askInThread, beginCheckoutHandoff, prState, writeTaskToDraft, type HandoffTask } from './r6-pr-actions';
 import { checksRollup, resolveConflictsPrompt } from './r6-pr-logic';
 import {
-  buildAskAboutPullRequestHandoff, buildExplainPullRequestHandoff, buildFixFindingHandoff, buildFixFindingsHandoff, contextMetadata, pullRequestFindingKey,
+  buildAddSelectionToAgentHandoff, buildAskAboutPullRequestHandoff, buildExplainPullRequestHandoff, buildFixFindingHandoff, buildFixFindingsHandoff, contextMetadata, pullRequestFindingKey,
   pullRequestPanelContext, type PullRequestFinding,
 } from './pages-pr-handoffs-logic';
+import type { ReviewCommentContext } from './diff-comments';
 
 /** What the panel's header and Summary show of the hand-offs. */
 export type PrHandoffsView = {
@@ -129,4 +130,21 @@ export async function prHandoffCommand(client: T3Client, native: Native, ctx: Ha
   // The thread opens first and the window shows it (`pr-handoff-next`, app.contract commandCompleted), then
   // `pageslocal:pr-act-handoff-run` runs the checkout (r6-pr-actions.ts finishCheckoutHandoff).
   return (await beginCheckoutHandoff(client, native, kind, task, detail, mode)) ? 'pr-handoff-next' : '';
+}
+
+/**
+ * pr-code-tab: the Code tab's "Add to agent" (PullRequestDetailPanel addSelectionToAgent → startAsk): the
+ * lines and the reader's request beside a thread go into its composer, elsewhere into a new thread.
+ */
+export async function prSelectionHandoff(client: T3Client, native: Native, detail: Obj, surface: string, comment: ReviewCommentContext, request: string): Promise<string> {
+  if (prState(client).handoff) return '';
+  const { pullRequest: _none, ...lines } = comment;
+  const task = buildAddSelectionToAgentHandoff({ ...contextMetadata(detail), comment: lines, request });
+  if (surface === 'thread') {
+    await writeToComposer(client, native, task);
+    pushToast(client, { kind: 'success', title: 'Added to the composer', description: task.prompt.length > 0
+      ? 'The question is in the composer — read it over, then send.' : 'The pull request is in the composer — type your question, then send.' });
+    return '';
+  }
+  return (await askInThread(client, native, `selection:${comment.id}`, task, str(detail.projectId))) ? 'sidebar:new-thread' : '';
 }

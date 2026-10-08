@@ -98,6 +98,7 @@ and its copies) and the never-built `20261005-fake-github-fixture`. Recipe: `too
 | Server | the staged release (`bun examples/t3-code/stage-runtime.mjs`) or `T3_LANE_SERVER`; ports 16520 (primary), 16521 (second) |
 | Commands | `bun tools/github-lane/lane.mjs setup / whoami / start <account> / which <account> / project <account> / pair <account> / stop <account>`; `bun tools/github-lane/seed.mjs`; `bun tools/github-lane/probe.mjs` |
 | Writes (pr-writing-and-metadata) | `seed.mjs --only writes-second,writes-primary`: #158 `feature/vowel-count` (the second account's) and #159 `docs/vowel-count` (the primary's), and the label `area/docs and help` (a space and a slash). Drives comment, review, edit, react, ask for reviews and label there (and react on #115's `comment-1`), read each effect back with the lane gh, and delete their comments and reactions after; submitted reviews stay. A scenario's branch must be new to the repository: the seed reuses whatever pull request a branch already has (a task's first `writes-second` on `feature/word-count` found another task's #145) |
+| Code tab (pr-code-tab) | `seed.mjs --only code-tab`: #168 `feature/catalog` (the primary's): 310 files over 14 commits (GitHub refuses `pr diff` past 300, so the server pages the files API: four slices), a rename with a change (`src/text.js` → `src/strings.js`), a binary `assets/logo.png`, and the second account's COMMENT review on `docs/usage.md` (open on new line 5, resolved on old line 5). A drive that ticks files and has the second account push to the branch ("Changed") leaves that commit; unmark its ticks after (`unmarkFileAsViewed`) |
 
 Rules: the lane never reads `~/.config/gh`, the keyring or a token; sign-in is the user's, with
 `--insecure-storage` into the lane config dirs (the keychain default would overwrite the machine's own
@@ -146,6 +147,24 @@ so the number's menu and the checks/stack indicators are not presses of the row.
 (`decodeStack(...) !== null`), never by truthiness. `PrdBody` is keyed by `detail.ref` at both call sites, as the
 reference keys its panel per pull request, so the fold and the scroll anchors start over on another one
 (`pages-pr-fold.test.ts` guards both call sites).
+
+## Pull request Code tab
+
+Task `20261005-pr-code-tab`, 2026-10-08.
+
+| What | Where |
+|---|---|
+| State, reads, view, presses | `pages-pr-code.ts`: one `CodeState` per client for the pull request on screen (another one starts over); the panel's resource (`pages-pr-detail.ts` `pullRequestDetail`, which now takes `prTab`) mounts it when the tab is Code and runs `readCode` after its own reads (the ticks, the slice owed, a hidden range's contents), showing a change first (`r10Wake`); presses are `chatlocal:pr-code-*` (`prCodeLocal`, no host call) |
+| Slices | `POST /api/pull-requests/diff` through the native `prDiff` op (`modules/apple/T3Transport+PullRequests.swift`: allow-listed body, the bearer in Swift, a 60 s session, an identical read joins the one out); each answer is parsed on its own (`pages-pr-code-logic.ts` `renderablePatch`, `hideWhitespaceChanges`) and ordered within its slice (`orderDiffFiles`); `adoptDiffSlice` keeps or replaces them; the list's `reachend` asks the next (`next`), a failed one waits for Retry |
+| Viewed ticks | `pages-pr-viewed.ts` `FilesViewedStore` (usePullRequestFilesViewed): the overlay, the queue, at most 500 per write, one write out per change request; the resource waits 400 ms with the native sleep once the presses stop and sends one `setFilesViewed` detached (`composer-replies.ts` `startDetached`), so no answer waits on it and no root task is needed (X19) |
+| Rows | `pages-pr-code-rows.ts` (the shared `DiffItem` list: `pr-file` headers with the tick, rows, gaps, and `pr-thread`/`pr-pending`/`pr-draft` under their line); drawn by `pages-pr-code.contract` with the thread diff panel's `DiffRow`/`DiffTool`, now in `diff-rows.contract` (the panel is reachable from `shapes.contract`, so it cannot import `diff.contract`) |
+| Conversations | `pages-pr-threads.ts` (`presentThreads`, `threadCommand`: reply, resolve, edit, more; `pageslocal:pr-act-thread-*`), `pages-pr-threads.contract` (`PrdThreadCard`, `PrdPendingCard`, `PrdCodeDraft`); Fix and reactions reuse the panel's hand-off and reaction ops |
+| Line comments | `begin` resolves the host position (`resolveDiffReviewPosition`), "Add to review" fills `pullRequestReviewStore` (submitted by the composer), "Add to agent" is `pageslocal:pr-act-code-agent` → `pages-pr-handoffs.ts` `prSelectionHandoff` |
+| Timeline | a commit row is a button (`PrdBody` `openCommit`: `pr-code-scope`, then the Code tab) |
+
+Agent drives: the Summary tab's reaction bar carries the same testIds as a thread card's (both are the comment id), so tap a card's pill by
+node id within `pull-request-code-panel`; `tap <list> into <key>` did not move this list in two drives, so reach a file through the tab's
+file tree (`pull-request-code-tree-<path>`), which reveals it and scrolls the list to it.
 
 ## Interface font size
 

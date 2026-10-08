@@ -39,6 +39,10 @@ final class T3Transport: NSObject, URLSessionWebSocketDelegate, @unchecked Senda
     private var restoredFocus = ""
     private let preferencesURL: URL?
     var session: URLSession!
+    /// pr-code-tab (T3Transport+PullRequests.swift): the pull request diff's session (60 s), made on first use,
+    /// and the diff reads in flight by body, which an identical read joins.
+    var longSession: URLSession?
+    var pendingPullRequestDiffs: [String: [Completion]] = [:]
     private var socket: URLSessionWebSocketTask?
     private var httpTasks: [Int: URLSessionDataTask] = [:]
     private var pending: [String: Pending] = [:]
@@ -123,7 +127,7 @@ final class T3Transport: NSObject, URLSessionWebSocketDelegate, @unchecked Senda
     /// Each area's ops (T3Transport+<Area>.swift), tried on the queue after the core ops above:
     /// an area runs the ops it owns and answers false for the rest. No two areas share an op.
     /// A feature adds its area's method in its own file and one entry here.
-    private static let areas: [(T3Transport) -> ([String: Any], @escaping Completion) throws -> Bool] = [T3Transport.environmentOps, T3Transport.routeOps]
+    private static let areas: [(T3Transport) -> ([String: Any], @escaping Completion) throws -> Bool] = [T3Transport.environmentOps, T3Transport.routeOps, T3Transport.pullRequestOps]
 
     func perform(_ request: [String: Any], completion: @escaping Completion) {
         queue.async { [self] in
@@ -192,7 +196,7 @@ final class T3Transport: NSObject, URLSessionWebSocketDelegate, @unchecked Senda
             signals?.cancel(); signals = nil
             retire(T3Failure(kind: "Closed", message: "The window was closed.", uncertain: true))
             token = ""; privateValues.removeAll(); inbox.reset()
-            session.invalidateAndCancel()
+            session.invalidateAndCancel(); longSession?.invalidateAndCancel()
         }
     }
 
@@ -452,8 +456,8 @@ final class T3Transport: NSObject, URLSessionWebSocketDelegate, @unchecked Senda
         }
     }
 
-    private func http(path: String, method: String = "GET", raw: Data? = nil, contentType: String = "application/json",
-                      epoch: Int, authorized: Bool = true, completion: @escaping (Result<Any, T3Failure>) -> Void) {
+    func http(path: String, method: String = "GET", raw: Data? = nil, contentType: String = "application/json",
+              epoch: Int, authorized: Bool = true, long: Bool = false, completion: @escaping (Result<Any, T3Failure>) -> Void) {
         do {
             guard let origin else { throw T3Failure(kind: "Disconnected", message: "Connect to a server first.") }
             var request = URLRequest(url: try T3Endpoint.path(path, at: origin))
@@ -462,7 +466,7 @@ final class T3Transport: NSObject, URLSessionWebSocketDelegate, @unchecked Senda
             request.setValue("application/json", forHTTPHeaderField: "Accept")
             if raw != nil { request.setValue(contentType, forHTTPHeaderField: "Content-Type") }
             if authorized { request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
-            let task = session.dataTask(with: request) { [weak self] data, response, error in
+            let task = (long ? longLived() : session).dataTask(with: request) { [weak self] data, response, error in
                 guard let self else { return }
                 self.queue.async {
                     self.httpTasks = self.httpTasks.filter { $0.value.state != .completed }

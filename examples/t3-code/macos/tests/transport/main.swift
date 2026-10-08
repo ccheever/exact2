@@ -561,7 +561,7 @@ final class ForgetOriginTests: XCTestCase {
 // RemoteScopeTests (remote-scopes.swift): the exchange sends the scope TS names; a narrow link is refused.
 // RouteTests (routes.swift): one environment, several routes.
 // TerminalStreamTests (terminal-streams.swift): the drawer's attach streams beside the app's 16.
-let suites = [TransportTests.defaultTestSuite, R3TransportTests.defaultTestSuite, ForgetOriginTests.defaultTestSuite, RemoteScopeTests.defaultTestSuite, RouteTests.defaultTestSuite, TerminalStreamTests.defaultTestSuite, PrimaryTransportTests.defaultTestSuite]
+let suites = [TransportTests.defaultTestSuite, R3TransportTests.defaultTestSuite, ForgetOriginTests.defaultTestSuite, RemoteScopeTests.defaultTestSuite, RouteTests.defaultTestSuite, TerminalStreamTests.defaultTestSuite, PrimaryTransportTests.defaultTestSuite, PullRequestDiffTransportTests.defaultTestSuite]
 var executed = 0, failures = 0, succeeded = true
 for suite in suites {
     suite.run()

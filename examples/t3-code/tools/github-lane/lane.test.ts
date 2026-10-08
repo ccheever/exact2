@@ -6,7 +6,7 @@ import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ghCallsSince, ghWrapper, lanePaths, run, serverEnv, setup, signedIn, toolEnv } from "./lib.mjs";
-import { ACTION_STACK, BULK, DESCRIPTION, HISTORY, LABELS, Seed, actionScenarios, bulkBranch, branchOf, generationOf, inState, scenarios } from "./seed.mjs";
+import { ACTION_STACK, BULK, DESCRIPTION, HISTORY, LABELS, Seed, actionScenarios, bulkBranch, branchOf, codeScenarios, generationOf, inState, scenarios } from "./seed.mjs";
 import { table, verb } from "./probe.mjs";
 
 const root = mkdtempSync(join(tmpdir(), "github-lane-test-"));
@@ -105,8 +105,15 @@ describe("the seed", () => {
     expect(actions.filter((s) => s.after).map((s) => [s.key, s.after])).toEqual([["act-stack-2", "act-stack-1"], ["act-stack-3", "act-stack-2"]]);
     expect(new Set(actions.map((s) => s.branch)).size).toBe(actions.length);
   });
+  test("the Code tab's change is 310 files over 14 commits, with a rename and a binary file, seeded only by name", () => {
+    const [code] = codeScenarios();
+    expect([code.key, code.history.length, Object.keys(code.files).length]).toEqual(["code-tab", 14, 311]);
+    expect(Object.entries(code.files).filter(([, text]) => text === null).map(([path]) => path)).toEqual(["src/text.js"]);
+    expect((code.files["assets/logo.png"] as string).includes("\u0000")).toBe(true);
+    expect(scenarios({ second: "lane-second" }).some((s) => s.key === "code-tab")).toBe(false);
+  });
   test("no two scenarios share a branch (the seed reuses whatever pull request a branch already has)", () => {
-    const all = [...scenarios({ second: "lane-second" }), ...actionScenarios()];
+    const all = [...scenarios({ second: "lane-second" }), ...actionScenarios(), ...codeScenarios()];
     expect(new Set(all.map((s) => s.branch)).size).toBe(all.length);
   });
 });
@@ -116,7 +123,7 @@ describe("the playground stays neutral (user decision 2026-10-07)", () => {
     const words = /t3|sandbox|exact|clone|lane|probe|fixture/i;
     const texts: string[] = [DESCRIPTION, ...LABELS.flat(), bulkBranch(BULK)];
     for (const [, message, files] of HISTORY) texts.push(message as string, ...Object.entries(files as Record<string, string>).flat());
-    for (const spec of [...scenarios({ second: "someone" }), ...actionScenarios()]) texts.push(spec.branch, spec.title, spec.body, ...Object.entries(spec.files).flat(), ...(spec.labels ?? []), ...(spec.statuses ?? []).flat());
+    for (const spec of [...scenarios({ second: "someone" }), ...actionScenarios(), ...codeScenarios()]) texts.push(spec.branch, spec.title, spec.body, ...Object.entries(spec.files).flat().filter((text) => typeof text === "string"), ...(spec.labels ?? []), ...(spec.statuses ?? []).flat(), ...(spec.history ?? []).map(([message]) => message));
     expect(texts.filter((text) => words.test(text))).toEqual([]);
     // Bodies carry only neutral `<!-- ref:… -->` markers, from the seed and the probe alike.
     for (const file of ["seed.mjs", "probe.mjs"]) expect(readFileSync(join(import.meta.dir, file), "utf8").match(/<!-- (?!ref:)\S+/g)).toBe(null);

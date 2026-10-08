@@ -7,7 +7,6 @@
 // several links open the thread's Pull requests tab. The tooltip (side top, offset 0, glass,
 // w-80) is ThreadPullRequestsMiniList, or the one pull request.
 use PgIcon from "./pages-icons.contract"
-use prdTone from "./pages-pr-detail.contract"
 
 shape StripPrTip
   key: string
@@ -21,7 +20,9 @@ shape StripPrTip
   stack: string
 
 fn r7Muted(): string = "light-dark(#71717b, #818181)"
-fn r7Tone(lifecycle: string): string = lifecycle == "" ? r7Muted() : prdTone(lifecycle)
+// pages-pr-detail.contract prdTone, kept here: shapes.contract reaches this file, and the panel now reaches shapes.contract (pr-code-tab).
+fn r7PrTone(lifecycle: string): string = lifecycle == "draft" ? "light-dark(#71717b, #9f9fa9cc)" : lifecycle == "closed" ? "light-dark(#e7000b, #ffa2a2e6)" : lifecycle == "merged" ? "light-dark(#7f22fe, #c4b4ffe6)" : "light-dark(#009966, #5ee9b5e6)"
+fn r7Tone(lifecycle: string): string = lifecycle == "" ? r7Muted() : r7PrTone(lifecycle)
 
 component StripPrBadge
   inject

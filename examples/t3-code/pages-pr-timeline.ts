@@ -49,7 +49,8 @@ function rows(events: PullRequestTimelineEvent[], newestCommitAt: string | null,
     const event = row.event, base = { ...blank(event.id, event.kind), age: relativeLabel(event.at, now), ageTip: fullDate(event.at) };
     if (event.kind === 'commit') {
       const counted = event.additions !== null && event.deletions !== null && (event.additions > 0 || event.deletions > 0);
-      return { ...base, ...who(event.commitAuthors[0] ?? null), sha: event.id.slice(0, 7), headline: event.body ?? 'Untitled commit',
+      // pr-code-tab: the whole oid, which the row's press opens in the Code tab (CommitEvent onOpen(event.id)).
+      return { ...base, ...who(event.commitAuthors[0] ?? null), id: event.id, sha: event.id.slice(0, 7), headline: event.body ?? 'Untitled commit',
         additions: counted ? `+${event.additions!.toLocaleString('en-US')}` : '', deletions: counted ? `-${event.deletions!.toLocaleString('en-US')}` : '' };
     }
     const outcome = pullRequestReviewOutcome(event.reviewState);
