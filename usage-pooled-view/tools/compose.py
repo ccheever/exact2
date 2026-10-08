@@ -1,0 +1,43 @@
+import sys
+from PIL import Image, ImageDraw, ImageFont
+font = ImageFont.truetype('/System/Library/Fonts/Supplemental/Arial.ttf', 30)
+bold = ImageFont.truetype('/System/Library/Fonts/Supplemental/Arial Bold.ttf', 30)
+def load(path, width):
+    im = Image.open(path).convert('RGB')
+    return im.resize((width, im.height * width // im.width), Image.LANCZOS)
+def pair(out, caption, left, right, labels=('BEFORE: base 757d9517a', 'AFTER: this branch'), width=1280):
+    a, b = load(left, width), load(right, width)
+    h = max(a.height, b.height)
+    canvas = Image.new('RGB', (width * 2 + 30, h + 110), 'white')
+    d = ImageDraw.Draw(canvas)
+    d.text((10, 10), caption, fill='black', font=font)
+    d.text((10, 58), labels[0], fill='#b91c1c', font=bold)
+    d.text((width + 30, 58), labels[1], fill='#15803d', font=bold)
+    canvas.paste(a, (0, 100)); canvas.paste(b, (width + 30, 100))
+    canvas.save(out, optimize=True)
+def single(out, caption, path, label='AFTER only (new UI): this branch', width=1600):
+    a = load(path, width)
+    canvas = Image.new('RGB', (width, a.height + 110), 'white')
+    d = ImageDraw.Draw(canvas)
+    d.text((10, 10), caption, fill='black', font=font)
+    d.text((10, 58), label, fill='#15803d', font=bold)
+    canvas.paste(a, (0, 100)); canvas.save(out, optimize=True)
+B, A, A2 = 'driveBase/', 'driveA/', 'driveB/'
+E = 'evidence/'
+pair(E+'01-limits-1280.png', 'Limits, 1280x840: one per-driver list from the focused environment -> pooled accounts across both environments, hub account, notice and ChatGPT link', B+'b10-limits-1280.png', A2+'e10-limits-1280.png')
+pair(E+'02-limits-840.png', 'Limits, 840x620: narrow bars carry their position; a legend lists the accounts', B+'b22-limits-840.png', A2+'e22-limits-840.png')
+pair(E+'03-limits-1280-dark.png', 'Limits, 1280x840, dark', B+'b25-limits-1280-dark.png', A2+'e25-limits-1280-dark.png')
+pair(E+'04-limits-840-dark.png', 'Limits, 840x620, dark', B+'b24-limits-840-dark.png', A2+'e24-limits-840-dark.png')
+pair(E+'05-environment-menu.png', 'Environment filter: the focused environment only -> every connected environment (focus order differs: base paired Build box first)', B+'b26-env-menu.png', A2+'e26-env-menu.png')
+pair(E+'06-cost-1280.png', 'Cost, 1280x840: one summary -> both environments merged (gpt-5.5 from Studio, gpt-5.5-mini from Build box) with the Cursor Keychain row', B+'b30-cost-1280.png', A+'30-cost-1280.png')
+single(E+'07-segment-popover-1280.png', 'Hovering a segment: Plan, Signed in (both environments), Left, Resets, Restores, banked credits and Use reset; email blurred', A2+'e11-popover-1280.png')
+single(E+'08-legend-popover-840.png', 'Narrow: pressing a legend row opens the same popover (second account: Work, signed in on Build box)', A+'23-legend-popover-840.png', width=1100)
+single(E+'09-reset-confirm.png', 'Use reset asks first (ResetCreditDialog over the window, outside the popover)', A+'14-confirm.png')
+single(E+'10-redeem-using.png', 'Use credit: "Using..." while the redeem runs on Studio (the background environment that showed the credits)', A+'16-using.png')
+single(E+'11-redeem-status.png', 'The outcome sits under the bar ("Codex Reset applied. Your windows have cleared."); Escape closed the popover and the segment keeps the focus', A+'20-escaped.png')
+single(E+'12-cursor-and-links.png', 'Cursor Keychain offer after Codex and Claude, and the ChatGPT usage link section', A+'10-limits-1280.png')
+single(E+'13-filter-studio-off.png', 'Studio switched off in the filter: pools recompute from Build box alone; the hub, its notice and the shared account vanish', A+'27-env-studio-off.png')
+single(E+'14-stopped-environment.png', 'Studio stopped mid-refresh: listed disabled "Reconnecting...", contributes nothing; Build box finished its rescan', A+'33-stopped-env.png')
+pair(E+'15-reduced-motion.png', 'Popover fade 375 ms after hover: reduced motion -> opaque at once (after the hover delay); normal -> still fading', A+'36-reduced-375ms.png', A+'37-motion-375ms.png', labels=('prefers-reduced-motion: reduce', 'no-preference'))
+single(E+'16-weekly-popover-clipped.png', 'Found live (fixed after, not re-driven): the second card\'s popover opened above and the scroll area clipped its top; it now flips below (popoverSides)', A2+'d26-enter.png')
+print('ok')
