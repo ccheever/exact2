@@ -63,11 +63,23 @@ The Rust target is installed once by hand (`rustup target add aarch64-linux-andr
 ## 4. What stage 2 needs (not built)
 
 1. **Hermes for Android (blocking for the bench).** `hermes-lean-sys` refuses `aarch64-linux-android` ("unsupported Hermes target"). The pinned Ibex release ships Apple, Linux and Windows bundles only. A TypeScript data module on Android needs an Ibex release with an Android bundle: Ibex work, outside this repository.
-2. **A Linux crate in `exact new` apps.** The scaffold writes `web/` and `apple/` only. An app needs a `linux/` crate (the `duo-lab-linux` shape: `exact_js` over the baked bytecode, then `exact_linux::run`) to build its host for Linux or Android.
+2. **A Linux crate in `exact new` apps. Built 2026-10-07** (LLP 1086): the scaffold writes `linux/` in the `duo-lab-linux` shape, with `bun exact.mjs linux` and `bun exact.mjs android` build verbs. `--update` adds the crate to an older app. Building it found a break that had stopped every TypeScript app's Linux crate from compiling since LLP 1047.001 D7 (c043bc7f4). With no Rust module the bake's entry was the bare embedded source, which has no `Default`, and the Linux and Windows hosts make their source with `Default`. `js/bake` now emits a replacement-free `Swappable::off` there, which links no executor.
 3. **The bench's Android cells**, once 1 and 2 exist:
-   - **Where:** an adapter in the bench runner (`--platforms web,android`) and cells on the operator Mac, the only machine with an emulator. Or the mini, once an SDK and an AVD are installed there (a setup choice for Charlie).
+   - **Where:** an adapter in the bench runner (`--platforms web,android`), with cells on a machine whose emulator runs (§4.5).
    - **How:** the trial's builder gets `bun exact.mjs agent android …` and `test android` verbs. The scripted graders run the same scenarios through `agent.mjs android`.
 4. **The reader carrier (D1's other half)**, when the Android lane moves its Kotlin reader into the repository.
+5. **The mini's toolchain (installed 2026-10-07; the emulator does not run yet).**
+   - **Installed under `~/android`, no sudo:**
+     - a JDK (Temurin 21, 336 MB);
+     - the SDK (6.4 GB): command-line tools 23.0, platform-tools 37.0.1, emulator 37.2.12, android-36, the `android-36.1` Google Play arm64 image and NDK 27.1.12297006;
+     - emulator 37.3.3 beside it in `~/android/emu373`.
+   - **`. ~/exact2-verify/android-env.sh`** sets `JAVA_HOME`, `ANDROID_HOME`, `ANDROID_NDK_HOME` and `PATH`.
+   - **`~/exact2-verify/android-emulator.sh start|stop`** creates the AVD (`pixel_6` with the Mac AVD's 1080×2400 at 420 dpi; the mini's device list has no `medium_phone`), boots it headless and stops it by its recorded PID.
+   - **The build works there.** The emulator does not:
+     - Both 37.2.12 and 37.3.3 report Hypervisor.framework as working (`-accel-check`), then print "hvf is not enabled on this aarch64 host" when the VM is made, and the guest's CPU threads hang. 37.3.3 got as far as an offline device.
+     - The operator Mac's emulator (36.4.10) runs. The repository no longer offers 36.x.
+     - Another session runs colima/lima VMs (Virtualization.framework) on the mini, a likely contender for the hypervisor, which this lane did not stop.
+   - **Until it runs:** Android cells go on the operator Mac, or the mini once those VMs are stopped or the emulator fixed.
 
 ## 5. Verification (2026-10-07, the operator Mac, emulator `Medium_Phone_API_36.1`, arm64)
 
