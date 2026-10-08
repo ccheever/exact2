@@ -44,8 +44,8 @@ behaves and looks like the reference; features the clone lacks are recorded as t
 | --- | --- |
 | Red "the answer was let go…" / "fetch() called outside an answer" banners; "Select ref"; the composer's workspace strip missing after a let-go branch read | PR #190 (let-go-banner) |
 | Files tree, pull request link and chat file-link context menus | [20261007-context-menu-gaps](20261007-context-menu-gaps.md) |
-| Usage › Limits: in-bar labels, hatching, reset chip, trend arrows, "Claude" title | [20261005-usage-pooled-view](../20261005-usage-pooled-view.md) |
-| Settings › Connections as the local primary (Local environment, Network access, Tailscale, T3 Connect) | [20261005-local-primary-environment](20261005-local-primary-environment.md), [20261005-this-machine-network-access](../20261005-this-machine-network-access.md) |
+| Usage › Limits: in-bar labels, hatching, reset chip, trend arrows, "Claude" title | [20261005-usage-pooled-view](20261005-usage-pooled-view.md) |
+| Settings › Connections as the local primary (Local environment, Network access, Tailscale, T3 Connect) | [20261005-local-primary-environment](20261005-local-primary-environment.md), [20261005-this-machine-network-access](20261005-this-machine-network-access.md) |
 | Integrations › Browser, the surface chooser's Browser row | X1 (browser-surface) |
 | Provider and GitHub account text blurred until hover | X42 |
 | Placeholder colour | X10 |
