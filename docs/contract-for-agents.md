@@ -1378,6 +1378,13 @@ functions accept a narrow set of literal formats; app wording is an app `fn`.
 
 ## Inspection and testing
 
+On Apple development builds, an `iframe`'s web content is inspectable from
+Safari's Develop menu. Enable Safari's web developer features, launch the app,
+and select its web view under Develop. This inspects the embedded page; use the
+agent operations below for Exact's native tree. Production builds
+(`EXACT_UPDATE_TRUST=production`), `exact release`, and IPA archives leave
+web-view inspection disabled.
+
 Build diagnostics include stable ids and original file ranges. Locations are
 1-based line/byte-column coordinates, with exclusive end columns; a usage, I/O or
 manifest error has no range (line and columns 0). Honor related

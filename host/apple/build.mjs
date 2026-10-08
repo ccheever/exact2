@@ -1035,7 +1035,7 @@ async function main(args) {
   const arms = [];
   // tvOS has no WebKit, so no iframe arm there.
   const hasWeb = !tv && carries('web'), hasVideo = carries('video'), hasSvg = carries('svg');
-  if (hasWeb) arms.push(arm(webArgs, resolve(root, 'host/apple/webarm/WebArm.swift'), webBuilt));
+  if (hasWeb) arms.push(arm([...webArgs, ...(!production && !distribution ? ['-D', 'EXACT_DEVELOPMENT'] : [])], resolve(root, 'host/apple/webarm/WebArm.swift'), webBuilt));
   const videoBuilt = resolve(webBuildDir, videoLoadName);
   // The video arm and its media session (LLP 1098 D7): both sources are its key and its inputs, with MediaPlayer.
   const video = ['VideoArm.swift', 'NowPlaying.swift'].map(f => resolve(root, 'host/apple/videoarm', f));
