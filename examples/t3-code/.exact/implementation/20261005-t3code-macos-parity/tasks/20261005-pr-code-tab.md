@@ -73,7 +73,7 @@ Checked sources and time: planning pass 2026-10-05 over `EXACT2-GAPS.md` and `..
 | [X23](../issues/20261005-x23-scroll-restore-offsets.md) | Reveal from the tree/timeline commit, keep scroll per tab | `scrollIntoView` on main | nonblocking | Reuse |
 | [X13](../issues/closed/20261005-x13-hover-keys-during-pan.md) / [X24](../issues/closed/20261005-x24-still-pointer-rehover.md) | Gutter "+" and hover reveals | `t3-rehover` hook | nonblocking | Reuse Update 2026-10-07 (adopt-main-fixes-shell): X24 fixed on main #174; the `t3-rehover` hook no longer exists, the host does it. |
 | [X9](../issues/20261005-x09-root-component-across-files.md) | `app.contract` cap | 1,327/1,500 | nonblocking | No new root resource |
-| [X32](../issues/20261005-x32-sticky-positioning-in-lists.md) | Sticky file headers in the Code tab's list | Same open check as `20261005-diff-review-engine` (`contract vocab --json position`) | unknown | Follow that ticket's result |
+| [X32](../issues/20261005-x32-sticky-positioning-in-lists.md) = [#131](https://github.com/ccheever/exact2/issues/131) | Sticky file headers in the Code tab's list | Charlie deferred #131 on 2026-10-08 "until a list-lifetime design is selected" (grouped containment is one option) | nonblocking (headers scroll as ordinary rows, as the thread diff panel draws them) | Wait for #131; if it lands as grouped containment, `diffItems` becomes per-file groups |
 
 ## Implementation notes
 
@@ -117,47 +117,64 @@ Required environment: macOS 26.6.2, Xcode 27.0, Bun 1.4.2, the real-GitHub lane 
 - **Root budget (coordinator).** No root task: the ticks' 400 ms wait is the panel resource's native sleep and the write is detached (`composer-replies.ts` `startDetached`), so X19's stand-in is the "wait inside" one, with no root line.
 - **Seed.** `tools/github-lane/seed.mjs` `codeScenarios()` (`--only code-tab`, #168), a `history` field for multi-commit scenarios, `codeReviewConversation`; `lane.mjs` ports 16300-16799.
 - **Fixed from the drives:** the Timeline commit row's empty id; the scope menu's glass and headline; the scope trigger at 840; the Refresh storm (the detail's invalidate flag, same fix as #306).
-- **Decisions.** Provisional, user decision pending: none. Kept deviations: headers not sticky (X32 draft); the scope menu's glass on an opaque colour (X11); split-view annotations stack under the row; tooltips through the existing `Tip` until the shared hover layer (fix-hover-cards) lands (a TODO hook on the commit headline).
+- **Decisions.** Provisional, user decision pending: none. Kept deviations: headers not sticky (X32 = #131, deferred by Charlie on 2026-10-08 until a list-lifetime design is selected; if #131 lands as grouped containment, `diffItems` becomes per-file groups); the scope menu's glass on an opaque colour (X11); split-view annotations stack under the row; tooltips through the existing `Tip` until the shared hover layer (#307, fix-hover-cards) lands (a TODO hook on the commit headline).
+- **Merge order (coordinator, 2026-10-08).** fix-keyboard-focus adds `KeyMenu` with an `id` per row to every menu: the scope menu's rows already carry stable ids (= their testIds: `pull-request-code-scope`, `pull-request-code-scope-<short oid>`, `pull-request-code-scope-more`; "All commits" takes `id=testId` from that PR's `PrMenuItem`). Expect a conflict in `diff.contract` (this branch moved `DiffRow`/`DiffTool` out, that one adds its `KeyMenu` uses beside them): keep both. After #307: move the `Tip`s inside the diff list (the "Changed" tick, the conversations-off-the-diff paths, a comment's author and age) and the file tree onto the hover layer.
 
-## Live session steps (one more session requested)
+## Live sessions 3 and 4 (the extra session, 2026-10-08)
 
-The session budget (one drive + one retry) is used; drive 2 lost its second half to a real GitHub failure on #168's
-fourth slice. One more agent session closes the rest. Build: `export PATH="$HOME/.bun-1.4.2/bin:$PATH"
-EXACT_APP_DIR="$PWD/examples/t3-code"; bun host/apple/build.mjs t3-code-macos`. Lane: `cd examples/t3-code/tools/github-lane;
-export T3_GITHUB_LANE_SHARED=/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ui-parity/github-lane;
-bun lane.mjs start primary --port 16310; bun lane.mjs project primary`. Drive: `target/drive/drive.mjs` (uploaded as
-`drive-attempt2.mjs.txt`), with these changes: press Retry when the footer says the rest could not be loaded; keep the
-tree reveal; tap a card's reaction pill by node id within `pull-request-code-panel`. Rows, each read back with the lane gh:
-1. #168 Code tab: docs/usage.md (tree): Resolve then Unresolve the open thread (GraphQL `isResolved` true/false); react 👍 on a
-   comment and take it back (`pulls/comments/<id>/reactions`).
-2. Split view: "Add to review" on added 5, deleted 5, context left 4 of docs/usage.md and added 3 of src/strings.js; the composer's
-   Review mode, Submit review; read back `pulls/168/reviews/<id>/comments` (line/side, `src/strings.js`); delete those comments after.
-3. Escape on a draft and on a reply: nothing sent (gh log).
-4. Timeline: tap a commit row: the Code tab opens scoped to it.
-5. #115 (search may take ~45 s): Code tab, src/validate.js open, "Load more comments" on the long thread; the orphans list opened under
-   `prefer prefers-reduced-motion reduce` (the chevron swaps, does not turn).
-6. A draft on #115 src/validate.js added 4 → "Add to agent": "Asked in a thread" and the composer's chips; then a thread card's
-   "Fix in a thread" (the shared hand-off).
-7. 840×620: the toolbar keeps the scope trigger.
-Cleanup: unmark ticks; delete comments made; `bun lane.mjs stop primary`.
+One `agent.mjs` drive (3) and its retry (4), the session the coordinator allowed; then the real-input session (5). Rows:
+- **Pass (drive 3, 08:42Z):** Resolve then Unresolve the open thread (GraphQL `isResolved` true, then false; the card folds
+  to "Resolved · 1 comment"); 👍 on the second account's comment (+1 by daehyeonmun2021) and taken back (0); split-view
+  "Add to review" on added 5, deleted 5, deleted 4 of docs/usage.md and added 3 of src/strings.js, then the composer's
+  Review mode and Submit review: one `submitReview`, one COMMENTED review with the 4 comments (bodies match), placed back
+  as threads on their lines, pending 0, badge empty. Re-checks of the three fixes: the Timeline's commit row opens Code
+  scoped ("Diff scope: Search the catalog", 1 file); 840×620 keeps the scope trigger (36×24); the scope menu is opaque with
+  its headlines cut by an ellipsis, Escape closes it.
+- **Pass (drive 4, 08:50Z):** Load more comments (the second account added 11 replies first: the card shows 10 of 12,
+  pressed: 12, one `threadComments` call, the button gone; replies deleted after); Escape on a draft (closed, nothing
+  pending, no `submitReview`); Add to agent (a new thread's composer holds the request with the "#168" and "usage.md L11"
+  chips; no toast was read).
+- **Not run:** the review comments' line/side read back from `pulls/comments/<id>` (drive 3 read `reviews/<id>/comments`,
+  which has no line or side; drive 4 stopped when the tree reveal of src/strings.js did not move the list — see below); the
+  opened conversations-off-the-diff list under reduced motion (drive 4 asked for the rename commit, which sits behind
+  "Show more (5 left)": a script error); Fix in a thread (the driver's clock refused a step: "the clock cannot go
+  backwards", not the app); #115 (its search never listed `pr-row-115` in drive 3, so drive 4 used #168).
+- **To check first next time:** in drive 4, after Load more grew the open thread's card from 10 to 12 comments, the tree
+  reveal of `src/strings.js` (a few files from the list's end) left the list where it was. Drive 3 revealed the same file
+  without the grown card. If it reproduces, the list keeps a stale extent after a row grows (a list re-measure bug).
 
 ## Real-input batch steps
 
-Deferred rows (screen locked while the user is away, 2026-10-08): real Tab through the Code toolbar, the scope menu, a file
-header and its tick, the draft and a thread's buttons with the focus ring; Escape closing the scope menu (focus back on the
-trigger); a real drag across line numbers (multi-line selection) ending in "Add to review"; reduced motion from System Settings.
-One session: build as above; copy the bundle to `target/github-lane/realinput/T3 Code (Lane PCT).app` (PlistBuddy:
-`CFBundleIdentifier` `com.exact.t3code.lanepct`, names "T3 Code (Lane PCT)"; `codesign --force --deep --sign <the development
-identity>`); take the real-input lock (owner "pr-code-tab: real-input batch"); launch with
-`CFFIXED_USER_HOME=$PWD/target/github-lane/realinput/home`; pair from `servers/primary/pairing-url`; open #168 › Code.
-1. `press-key Tab` from the scope trigger through whitespace, fold all, Stacked, Split, wrap, tree (a screenshot after each); Return
-   opens the scope menu, Escape closes it with the ring back on the trigger; `gh-calls.tsv` has no write.
-2. Drag from docs/usage.md new line 3 to 5 in the gutter: the selection paints; the gutter "+" on 5 opens the draft with "Comment on
-   lines …"; type with `paste-text`, ⌘↵ adds it; Escape on a second draft sends nothing.
-3. A thread's Reply: ⌘↵ sends (read back), Escape cancels.
-4. System Settings › Accessibility › Display › Reduce motion on (with the user's permission): the orphans' chevron swaps without
-   turning; off again.
-Cleanup: delete what was posted; quit the copy; remove its Keychain item; `bun lane.mjs stop primary`; release the lock.
+Session 5 (2026-10-08, lock 08:55:34Z–09:09:52Z, [record](https://raw.githubusercontent.com/ccheever/exact2/fa5314e640befd51d192ce61fe76877d6e578f6d/pr-code-tab/real-input-record.txt)): lane copy
+`T3 Code (Lane PCT).app` (`com.exact.t3code.lanepct`, re-signed, `CFFIXED_USER_HOME` under `target/github-lane/realinput`,
+no `T3_LOCAL_HOME`/`T3_LOCAL_PORT`, so no embedded server), paired to 127.0.0.1:16310. **Pass:** a real click opens the scope
+menu and real Escape closes it with the ring on the trigger; real Return on the trigger opens it, Escape closes it; real Tab
+from the trigger: whitespace, Expand all, Stacked, Split, wrap, tree, the conversations-off-the-diff row, a file's chevron,
+its name, its Viewed box, the next file, the ring on each; no GitHub write. (A file chevron's ring is clipped by the list's
+left edge.) The screen locked at 09:08:50Z, so the rest waits for the next batch (listed in `STATUS.md`):
+1. Build `EXACT_APP_DIR=$PWD/examples/t3-code bun host/apple/build.mjs t3-code-macos --bundle`; copy the `.app` to
+   `target/github-lane/realinput/T3 Code (Lane PCT).app`; PlistBuddy `CFBundleIdentifier` `com.exact.t3code.lanepct`,
+   `CFBundleName`/`CFBundleDisplayName` "T3 Code (Lane PCT)"; `codesign --force --deep --sign <development identity>`.
+   Lane: `bun lane.mjs start primary --port 16310`. Take the lock. Launch the binary with
+   `CFFIXED_USER_HOME=$PWD/target/github-lane/realinput/home` (record the pid). Pair: click the field by coordinates,
+   ⌘A, `paste-text` a fresh `http://127.0.0.1:16310/pair#token=<lane.pairingToken('primary')>`; Pair, Continue,
+   Continue, Do not import projects. Pull Requests (real click), #168, Code; tree › "Load more files" ×3 (310 files).
+2. Drag in the gutter from docs/usage.md new line 3 to 5 (`orca computer drag`): the lines paint, the draft says
+   "Comment on lines docs/usage.md:3-5"; `paste-text` a body, ⌘↵ adds it (pending card, badge 1); a second draft, Escape:
+   nothing pending, no write in `gh-calls.tsv`. Discard the pending card.
+3. A thread's Reply: `paste-text`, ⌘↵ sends (read back with the lane gh, then delete it); a second Reply, Escape: nothing sent.
+4. System Settings › Accessibility › Display › Reduce motion on (with the user's permission); scope "Rename the text
+   helpers" (after "Show more (5 left)"); open "Conversations not on the current diff": the chevron swaps without turning,
+   the list shows both threads; Reduce motion off, confirm it reads off.
+5. Fix in a thread on a card (real click): the shared hand-off opens its thread.
+6. Submit review read back by line/side: one "Add to review" on added 3 of src/strings.js (the rename), Submit review,
+   `gh api repos/daehyeonmun2021/playground/pulls/comments/<id>` shows `path` src/strings.js, `line` 3, `side` RIGHT;
+   delete it.
+7. Drive 4's reveal: Load more on the open thread (after seeding 11 replies by the second account), then the tree's
+   src/strings.js: the list must bring it into view (delete the replies after).
+Cleanup: delete what was posted; quit the copy (its pid); delete its Keychain item (`com.exact.t3code.macos.access-token`,
+account `http://127.0.0.1:16310` + environment id); remove the copy and its home; restore the pasteboard;
+`bun lane.mjs stop primary`; release the lock.
 
 ## Attempts and evidence
 
@@ -165,8 +182,14 @@ Cleanup: delete what was posted; quit the copy; remove its Keychain item; `bun l
 | --- | --- | --- | --- | --- |
 | 1 (drive 1, 07:46Z) | `e2236599b` build | slices 4/4 (310 files), tree, threads, reply + edit read back, split drafts, scope menu, commit scope, dark: pass; Timeline row, scope menu look, 840 trigger: **fail → fixed** | [record](https://raw.githubusercontent.com/ccheever/exact2/0ed67de567c17c37e007b3dd179bae8550323bdc/pr-code-tab/record-attempt1.txt) | drive script: hidden duplicate testIds, `tap … into` |
 | 2 (drive 2, 08:13Z) | `295b7cac9` build | 3 ticks → one write, VIEWED; push → "Changed"; untick → one write; real slice-4 failure → message + Retry; Refresh storm **found → fixed** | [record](https://raw.githubusercontent.com/ccheever/exact2/b5eafd9801a9897690f81514f8a0606685d18372/pr-code-tab/record-attempt2.txt), [summary](https://raw.githubusercontent.com/ccheever/exact2/a8bec068a6c0aba30b04c7bcb2421fa86888175f/pr-code-tab/live-summary.txt) | rows after slice 4 not run (session budget) |
+| 3 (drive 3, 08:42Z) | `e8845c17d` build | Resolve/Unresolve, 👍 and back, 4 drafts → Submit review (4 comments on GitHub), Timeline row, 840, scope menu: pass; draft Escape unclear; #115 never listed | [record](https://raw.githubusercontent.com/ccheever/exact2/c32c819c1997cec70630591f65275fcb49d0a481/pr-code-tab/record-attempt3.txt), images 14–19 | #115 search; reviews/<id>/comments has no line/side |
+| 4 (drive 4, 08:50Z; retry of 3) | same build | Load more (10 → 12), draft Escape, Add to agent: pass; line/side read back, off-diff list, Fix: not run (reveal after a grown card, a script error, the driver's clock) | [record](https://raw.githubusercontent.com/ccheever/exact2/833fb18ccc01a2176ff436bbed181aae98f0b922/pr-code-tab/record-attempt4.txt), images 20–22 | session budget used |
+| 5 (real input, 08:55–09:09Z) | build of `e8845c17d` + the scope rows' ids | real click/Return/Escape on the scope menu, real Tab through toolbar and file header: pass | [record](https://raw.githubusercontent.com/ccheever/exact2/fa5314e640befd51d192ce61fe76877d6e578f6d/pr-code-tab/real-input-record.txt), images 23–24 | the screen locked: drag, Reply keys, reduced motion, Fix → next real-input batch |
 | gates | `39bed7633` | bun 3219/1 skip/0 fail; tsc clean; contract build 4471 slots; Swift transport 62/0; `t3-code-macos --lib` 13; five checks green (cargo test 3521/0/34) | PR #308 body | — |
 
 ## Next action
 
-Coordinator: one more agent session for the rows in "Live session steps", and the real-input batch rows. Then flip PR #308 to ready.
+Coordinator: the extra session is used (drives 3 and 4, the real-input session cut short by the screen lock). What is left
+is in "Real-input batch steps" 2–7, listed in `STATUS.md` "Next real-input batch". Arrow keys in the scope menu: moved to
+fix-keyboard-focus (batch bug 13). Sticky file headers: blocked on #131 (X32). After #307: the `Tip`s onto the hover layer.
+Then flip PR #308 to ready.
