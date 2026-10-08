@@ -1,0 +1,4 @@
+examples/t3-code/macos/tests/composer/editor.swift:498: error: -[T3composerTests.ComposerEditorTests testSkillChipsReadTheProvidersDisplayName] : XCTAssertEqual failed: ("["Imagegen", "Openai Docs", "Frontend Design"]") is not equal to ("["Image Gen", "OpenAI Docs", "Frontend Design"]")
+examples/t3-code/macos/tests/composer/editor.swift:499: error: -[T3composerTests.ComposerEditorTests testSkillChipsReadTheProvidersDisplayName] : XCTAssertGreaterThan failed: ("89.39999999999999") is not greater than ("89.39999999999999") - the pill is as wide as the label it draws
+Test Case '-[T3composerTests.ComposerEditorTests testSkillChipsReadTheProvidersDisplayName]' failed (0.016 seconds).
+	 Executed 27 tests, with 2 failures (0 unexpected) in 0.470 (0.473) seconds
