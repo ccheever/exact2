@@ -21,7 +21,13 @@ the view-only half of each action, lives in an area child component in the area 
 `app.contract` ends at about 1,200 lines or less (300 lines of room or more). What a person sees and does is unchanged.
 
 User decision (2026-10-08): `app.contract` is to be rewritten so the root stays well under the cap. The task starts only
-after the PRs in flight merge: #290 (popover-escape-parity) and the four `20261008-fix-*` task PRs.
+after the PRs in flight merge: #290 (popover-escape-parity), #307 (fix-hover-cards), #310 (fix-keyboard-focus), #312 (fix-provider-auth-state), #308 (pr-code-tab) and #311 (pr-links-previews-and-routing). (`fix-misc-batch` merged as #306.)
+
+Charlie's ruling on [#108](https://github.com/ccheever/exact2/issues/108#issuecomment-6055587663) (2026-10-08) endorses this rewrite
+as the remedy: "Use child state/actions to reduce the root now; defer request ownership to the existing D5 design. … Use the
+T3 Code root rewrite already planned in #303 as the immediate remedy. … do not add partial-root syntax merely to evade the cap."
+Main PR [#327](https://github.com/ccheever/exact2/pull/327)'s audit (open on main, 2026-10-08) repeats it: "Immediate child-state/action
+root rewrite belongs to #303/T3 example"; general child resources wait for D5.
 
 ## Why (measured at `ec32c8c37`, 2026-10-08)
 
@@ -37,6 +43,8 @@ after the PRs in flight merge: #290 (popover-escape-parity) and the four `202610
     (`docs/contract-for-agents.md`, "Composition and lifetime").
   - A root `derive` moved into a child is inlined at each read.
 - What is left is the rewrite #264 named: split the actions that write both kinds of state.
+- With #307 the file is at about 1,488 lines (its hover tasks add 10 root lines); the other in-flight PRs change it by
+  0 net lines but edit root lines, which this task then moves.
 - A rough count by script (names read by a resource, task or mutation header, directly or through a derive) gives:
   - 93 states that stay in the root;
   - 75 view-only states (#264 counted 74).
@@ -78,9 +86,17 @@ Included:
 
 5. **Records.** `AGENT-HANDOFF.md` "Where a feature adds its code": new state goes to the area owner, not the root. The
    README's source paragraph. Any recipe, test or record that names a moved root state.
+6. **Main's `now()` rename.** Main `9731c8056` (LLP 1109 D1) renames `now()` to `performanceNow()` and refuses `now()`
+   (`type-now-renamed`); the clone has 26 call sites (most in `app.contract`, 3 in `theme-color-picker.contract`, 1 in
+   `r6-device.contract`). Only if main adoption round 7 has merged that main by the time this task starts, its first
+   commit renames them; otherwise round 7 does the rename.
+7. **Retired files.** Remove the comment-only `panels.contract` and `settings-panels.contract`: main's new examples test
+   (`contract/cli/tests/it/button_migration.rs`, `cbd76f7d7`) compiles every `.contract` under `examples/` and refuses
+   them (`analyze-no-component`).
 
 Excluded:
-- Framework changes. X9's option A1 (child resources) stays with Charlie's ruling.
+- Framework changes. Charlie ruled on #108 (2026-10-08): child resources (X9's option A1) are not chosen, request
+  ownership waits for LLP 1035.005.000 D5, and no partial-root syntax is added.
 - Behavior, visual or protocol changes, and new features.
 - `client.ts` and the other TypeScript files, unless a moved name is read there.
 
@@ -100,10 +116,10 @@ Excluded:
 
 | Kind | Item | State | Effect |
 | --- | --- | --- | --- |
-| merged task PR | #290 `popover-escape-parity` | open (draft) on 2026-10-08 | start after it merges (user decision) |
-| merged task PRs | the four `20261008-fix-*` task PRs | in flight on 2026-10-08 | start after they merge (user decision) |
+| merged task PRs | #290 (popover-escape-parity), #307 (fix-hover-cards), #310 (fix-keyboard-focus), #312 (fix-provider-auth-state), #308 (pr-code-tab) and #311 (pr-links-previews-and-routing) | in flight on 2026-10-08; merged: #290 (`84a52dde0`), #312 (`421047c46`), #308 (`0e2901aec`) | start after they all merge (user decision) |
 | recorded decision | rewrite `app.contract` so the root stays well under the cap (user, 2026-10-08) | decided | this task |
-| framework issue | X9 ([#108](https://github.com/ccheever/exact2/issues/108)) | open | not needed: the rewrite keeps every resource, mutation and task in the root |
+| recorded decision | X9 ([#108](https://github.com/ccheever/exact2/issues/108)), Charlie, 2026-10-08 | decided | "Use the T3 Code root rewrite already planned in #303 as the immediate remedy": this task; no framework wait (resources, mutations and tasks stay in the root) |
+| main adoption | round 7 (main `9731c8056`, the `now()` rename) | waits for main fix of X67 | rename in this task's first commit only if round 7 merged main first |
 
 ## Acceptance and reproduction
 
@@ -123,12 +139,17 @@ Planned (2026-10-08, records sync). Not started. No branch or PR yet.
 
 | Attempt | Revision/fingerprint | Checks and outcomes | Evidence | Remaining blocker |
 | --- | --- | --- | --- | --- |
-| none | — | — | — | #290 and the four `20261008-fix-*` PRs |
+| none | — | — | — | #290, #307, #310, #312, #308 and #311 |
 
 ## Next action
 
-Once #290 and the four `20261008-fix-*` PRs have merged into `feat(example)/t3-code`, run `prepare`:
+Once #290, #307, #310, #312, #308 and #311 have merged into `feat(example)/t3-code`, run `prepare`:
 - measure again, since those merges add root lines;
 - confirm the area map above;
 - list, per area, the actions that split, with their child half and root half;
+- check whether round 7 has merged main (then the first commit renames `now()`);
+- note only (an investigation, not a goal): check whether moving views into child components brings the clone's 103-site
+  nesting below the debug build's 2 MiB limit of X67 ([#320](https://github.com/ccheever/exact2/issues/320), still open:
+  #327 withdrew its attempt, so round 7 stays blocked). Record the result in the PR. #320's body says long component
+  chains also overflow in optimized builds, so a lower count does not settle X67;
 - then implement area by area, running the clone checks after each.

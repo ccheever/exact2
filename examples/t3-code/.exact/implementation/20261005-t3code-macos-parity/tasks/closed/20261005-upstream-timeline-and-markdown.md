@@ -70,7 +70,7 @@ Logic reuse (user rule): port `itemDetail.ts`, `markdownLinks.ts`, `SkillInlineT
 | --- | --- | --- | --- | --- |
 | merged task PR | [20261005-hot-file-split](20261005-hot-file-split.md) | pending | Merged into `daehyeon/t3-code` (common prerequisite: room and per-area seams in the shared files) | pending |
 | merged task PR | [20261005-clone-on-exact2-main](../20261005-clone-on-exact2-main.md) | pending | Merged | pending |
-| merged task PR | [20261005-desktop-oracle-and-trace](../20261005-desktop-oracle-and-trace.md) | pending | Merged (oracle shots, trace diff, runtime at the new pin) | pending |
+| merged task PR | [20261005-desktop-oracle-and-trace](20261005-desktop-oracle-and-trace.md) | pending | Merged (oracle shots, trace diff, runtime at the new pin) | pending |
 
 Scheduling preference (not a prerequisite): after `20261005-main-fix-adoption` (A17 touches tooltips). `20261005-hot-file-split` is a merge prerequisite (see the table). It makes room in `client.ts` (1,455 of 1,500 lines) and `app.contract` (1,327) for the new fetch. The A1 removal also frees lines in `client.ts`.
 

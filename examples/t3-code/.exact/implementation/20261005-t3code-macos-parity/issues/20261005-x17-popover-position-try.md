@@ -1,11 +1,11 @@
 ---
 name: 20261005-x17-popover-position-try
 plan: 20261005-t3code-macos-parity
-status: draft
+status: published
 kind: framework-gap
 blocks: [20261005-auto-balance, 20261005-composer-fidelity, 20261005-legacy-sidebar, 20261005-pr-handoffs-and-quick-actions, 20261005-pr-header-actions-and-stacks, 20261005-pr-links-previews-and-routing, 20261005-pr-writing-and-metadata, 20261005-provider-settings-upkeep, 20261005-provider-sign-in-and-install, 20261005-server-update-banner, 20261005-upstream-ui-sync, 20261005-usage-pooled-view, 20261005-usage-reset-and-feedback]
-upstream_url: null
-reproduced_on: null
+upstream_url: https://github.com/ccheever/exact2/issues/112
+reproduced_on: 4c893fef6
 ---
 
 # X17: Popover anchoring with every side/align area and automatic flip and shift (`position-area`, `position-try`)
@@ -119,6 +119,18 @@ differences in the tickets above are deleted. `issue-close` verifies the edge pa
 and the removal of the arithmetic.
 
 ## Status and next action
-Draft; not reproduced on the pinned `main`; not searched upstream; not published.
-Next: `issue-open` (reproduce, search for duplicates, prepare the report for the user's
-approval; publication only after approval).
+Published 2026-10-06 as [#112](https://github.com/ccheever/exact2/issues/112) (reproduced on exact2 `4c893fef6` before filing). Decided upstream on 2026-10-08: see the last section.
+
+## Decided upstream (2026-10-08): waits for main fix of #112 (the next core investment)
+
+[Charlie on #112](https://github.com/ccheever/exact2/issues/112#issuecomment-6055584392): "Choose CSS position-area and flip fallbacks for invoker popovers. … Start with invoker popovers and
+flip-block/inline/start … Prefer CSS fallback order to an unconditional macOS-only clamp."
+- Waits for main fix of [#112](https://github.com/ccheever/exact2/issues/112), then an adoption round: invoker popovers (`popovertarget`: the menus, the Check
+  out, More and stack menus, the update details popover, the machine list) will flip near an edge.
+- **Narrowed:** the first slice does not cover state-driven layers (tooltips, hover cards, the Usage popovers),
+  `anchor-size()` or `position-visibility`. Those keep the app's own placement (the hover layer of
+  `fix-hover-cards`, #307).
+- **Different design:** placements that lean on the macOS clamp (the `tail` in `pages-prs.contract`, the margins
+  under `position-area="bottom span-right"`) move if CSS fallback order replaces the clamp; re-drive them at
+  adoption. No new per-site arithmetic meanwhile.
+- [#327](https://github.com/ccheever/exact2/pull/327) audit (open on main, 2026-10-08): selected next core investment; larger design (amend LLP 1021's no-flip line first).

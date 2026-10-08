@@ -1,9 +1,9 @@
 ---
 name: 20261008-popover-escape-parity
 plan: 20261005-t3code-macos-parity
-implementation: implemented
+implementation: done
 verification: verified-with-unverified-rows
-delivery: draft
+delivery: merged
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-popover-escape-parity
@@ -73,7 +73,7 @@ The user decided on 2026-10-08 that both behave as the reference T3 Code (`1e2ec
   (`outsideFocus`).
 - **The page's ground** (`usage-ground`): a full-height column under the scroll's content. On macOS a press on a
   scroll view's empty area (below or beside its content) reaches no node, so no `pointerdown` hears it (found in
-  session 1; local draft [X65](../issues/20261008-x65-scroll-empty-area-press.md), not published).
+  session 1; local draft [X65](../../issues/20261008-x65-scroll-empty-area-press.md), not published).
 - **The reset confirm's focus (item 12)** (`app-main.contract` PagesCover, `pages-usage.contract`): the confirm's
   buttons (Cancel, its Escape, Use credit) go through PagesCover's `usageConfirm`, which closes it for the page
   at once (`usageClosing`, `derive usageConfirmOpen`); UsagePage is inert while `confirmOpen`, not while the
@@ -111,6 +111,8 @@ The user decided on 2026-10-08 that both behave as the reference T3 Code (`1e2ec
 | Checks | pass | Attempts; PR "Checks" |
 
 ## Progress
+
+2026-10-08 (records sync): merged into `feat(example)/t3-code` as #290 (`84a52dde0`); the record moved to `tasks/closed/`. Its real-input rows are in `STATUS.md` "Next real-input batch".
 
 2026-10-08: implemented on `feat(example)/t3-code-popover-escape-parity` (from `07dcef1ab`). Two agent sessions
 (one retry) and the base session; session 1 found the scroll-ground and the doubled own-segment press (under
@@ -163,7 +165,7 @@ Checked on 2026-10-08 against the filed issues #266–#302, an upstream search (
 text-field pointer) and main `2531fb826`:
 - **A press on a scroll view's empty area reaches no node** (macOS): reproduced in this task's agent session 1
   (a real `NSEvent` through `NSApp.sendEvent`), not filed, unchanged on main by reading. Local draft
-  [X65](../issues/20261008-x65-scroll-empty-area-press.md).
+  [X65](../../issues/20261008-x65-scroll-empty-area-press.md).
 - **A press in a text field never fires `pointerdown`** (macOS): unconfirmed, from reading the host's code
   (`TextAreaMac.swift` `Field`, `FieldEditor`, `TextArea`, and `NativeFieldsMac.swift` on main, never call
   `pointerPressed`). Not reproduced, because the live-session budget was spent, so there is no draft. The

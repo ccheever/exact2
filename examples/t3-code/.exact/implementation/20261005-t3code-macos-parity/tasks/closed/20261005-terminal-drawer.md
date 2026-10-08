@@ -76,7 +76,7 @@ Tools are named by their `target/t3-ui-parity/…` path (committed under `exampl
 | Kind | Readable task/issue/decision | Remote reference | Required condition | Resolution evidence |
 | --- | --- | --- | --- | --- |
 | merged task PR | [20261005-clone-on-exact2-main](../20261005-clone-on-exact2-main.md) | pending | Merged | pending |
-| merged task PR | [20261005-desktop-oracle-and-trace](../20261005-desktop-oracle-and-trace.md) | pending | Merged (oracle and trace) | pending |
+| merged task PR | [20261005-desktop-oracle-and-trace](20261005-desktop-oracle-and-trace.md) | pending | Merged (oracle and trace) | pending |
 | merged task PR | [20261005-terminal-surface](20261005-terminal-surface.md) | pending | Merged with a GO verdict | pending |
 | merged task PR | [20261005-remote-scopes-and-update-commands](20261005-remote-scopes-and-update-commands.md) | pending | Remote pairing asks for the standard 5 scopes including `terminal:operate` (the clone asks for 3, `T3Transport.swift:310,365`) | pending |
 | recorded decision | U12: sessions paired with three scopes before the scope fix (decision owned by `20261005-remote-scopes-and-update-commands`) | none | Answered at that ticket's `prepare`; default: no re-pair offer | pending |

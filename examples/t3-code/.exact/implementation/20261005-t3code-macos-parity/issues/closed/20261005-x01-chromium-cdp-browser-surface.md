@@ -1,11 +1,11 @@
 ---
 name: 20261005-x01-chromium-cdp-browser-surface
 plan: 20261005-t3code-macos-parity
-status: draft
+status: closed-not-planned
 kind: framework-policy + framework-gap
 blocks: [20261005-browser-surface, 20261005-right-panel-tab-menu, 20261005-t3-connect-sign-in]
-upstream_url: null
-reproduced_on: null
+upstream_url: https://github.com/ccheever/exact2/issues/100
+reproduced_on: 4c893fef6
 ---
 
 # X1: An embedded browser engine that an app can drive (Browser surface)
@@ -127,5 +127,18 @@ Unblock `20261005-browser-surface` (`prepare`, then implement). Remove the disab
 connect as a `previewAutomation` host. `issue-close` checks that the agent `preview_*` tools succeed against the clone and that the settings rows work.
 
 ## Status and next action
-Draft; not reproduced on the pinned `main`; not searched upstream; not published.
-Next: `issue-open` (reproduce, search for duplicates, prepare the report for the user's approval; publication only after approval).
+Published 2026-10-06 as [#100](https://github.com/ccheever/exact2/issues/100) (reproduced on exact2 `4c893fef6` before filing). Decided upstream on 2026-10-08: see the last section.
+
+## Closed upstream, not planned (2026-10-08)
+
+[Charlie on #100](https://github.com/ccheever/exact2/issues/100#issuecomment-6055589135): "Keep a browser shell outside core. Close as not planned for now. … Do not add Chromium/CEF or
+browser-control commands as incidental iframe work." Upstream reopens it only for an explicitly admitted
+browser-shell consumer.
+- Path A (Chromium and CDP) is refused. Path B needed no exact2 change, so the Browser surface is clone-side
+  work now, not a framework wait.
+- The user's decision (2026-10-08): **build path B.** A `WKWebView` inside the clone's own module, with no CDP,
+  Safari Web Inspector for the page's tools and injected-script automation. Every path-B row of the table under
+  "Requested support" is a declared difference. [browser-surface](../../tasks/20261005-browser-surface.md) holds
+  the rewritten scope. It starts after the `app.contract` root rewrite, because it adds root resources and the
+  root is at its line cap.
+- Nothing waits on main for this record, so it closes (moved to `issues/closed/`).

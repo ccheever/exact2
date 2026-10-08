@@ -62,7 +62,7 @@ Port changes for headers: `Effect` services become plain Swift types with an inj
 | recorded decision | [X39](../../issues/closed/20261005-x39-telemetry.md) | pending | The user decides each part (1 off or on, 2 pass-through or close, 3 build or close), or closes it | pending |
 | merged task PR | [20261005-hot-file-split](20261005-hot-file-split.md) | pending | Merged into `daehyeon/t3-code` (common prerequisite: room and per-area seams in the shared files) | pending |
 | merged task PR | [20261005-clone-on-exact2-main](../20261005-clone-on-exact2-main.md) | pending | Merged | pending |
-| merged task PR | [20261005-desktop-oracle-and-trace](../20261005-desktop-oracle-and-trace.md) | pending | Merged | pending |
+| merged task PR | [20261005-desktop-oracle-and-trace](20261005-desktop-oracle-and-trace.md) | pending | Merged | pending |
 | scheduling preference | After `20261005-embedded-server-runtime` | none | The server starts and stops under the module; bootstrap fields are in place | pending |
 
 ## Issue assessment at preparation

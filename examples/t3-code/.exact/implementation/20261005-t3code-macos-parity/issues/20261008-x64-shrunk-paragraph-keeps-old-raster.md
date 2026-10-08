@@ -1,10 +1,10 @@
 ---
 name: 20261008-x64-shrunk-paragraph-keeps-old-raster
 plan: 20261005-t3code-macos-parity
-status: draft
+status: filed
 kind: framework-gap
 blocks: []
-upstream_url: null
+upstream_url: https://github.com/ccheever/exact2/issues/316
 reproduced_on: main 475043d20 (after #305, 4fe878a13) and the feature branch's framework (c0475fbaa), one-file app
 ---
 
@@ -105,3 +105,8 @@ threshold in a reported flow.
 Text that the tree says changed keeps showing its old words, so a status reads as the opposite of
 what it is ("Not authenticated" for a signed-in provider) until something remounts it. Every clamped
 or wrapped label whose content can shrink is exposed; a key per value is a workaround, not a fix.
+
+## Filed upstream (2026-10-08)
+Filed as [#316](https://github.com/ccheever/exact2/issues/316), reproduced on main `b896050d7`. The T3 rows it blocks wait for the main fix of #316; the clone keeps its workaround (the provider status texts are keyed by status) until then.
+
+- **Fixed by [#327](https://github.com/ccheever/exact2/pull/327)** (open on main, 2026-10-08); this resumes in the main-adoption round after it merges. Then #312's status-keyed redraw goes (the provider list row's status `each status in [row.status] key=status`, and the editor's status line keyed by its parts).
