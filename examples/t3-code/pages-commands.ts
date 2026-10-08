@@ -4,6 +4,7 @@
 import type { T3Client } from './client';
 import { ClientError, bridgeReply, type Files, type Native } from './protocol';
 import { usageLocal, forgetUsage } from './pages-usage';
+import { usagePoolLocal } from './usage-environments';
 import { usagePricesLocal, usagePricesSave } from './pages-usage-prices';
 import { setOpenModel } from './pages-usage-detail';
 import { prLocal } from './pages-prs';
@@ -26,6 +27,7 @@ export async function pagesLocal(client: T3Client, native: Native | null | undef
     if (native?.available) await bridgeReply(native, { op: 'remoteEditorsOpen', url: CHATGPT_USAGE_URL });
     return '';
   }
+  if (op.startsWith('usage-pool-')) return usagePoolLocal(client, native, op.slice(11), id); // usage-pooled-view: environments, redeem, Cursor
   if (op.startsWith('usage-')) return usageLocal(client, op.slice(6), value);
   if (op.startsWith('welcome-')) {
     if (!native?.available) throw new ClientError('Open on macOS to set up T3 Code.');
