@@ -30,6 +30,7 @@
 pub mod arena;
 pub mod clip;
 pub mod control;
+pub mod control_measurement;
 pub mod corner;
 pub mod error;
 pub mod export;
@@ -61,6 +62,10 @@ pub mod txn;
 pub mod wire;
 
 pub use control::{Choice, ControlKind, PressFace, Range};
+pub use control_measurement::{
+    ButtonFaceStyle, ButtonFonts, ButtonImagePlacement, ButtonMeasure, ButtonMeasureRequest,
+    ControlFont, ControlTextStyles, FieldChrome, FieldChromeRequest, FieldKind,
+};
 pub use error::{
     ApplyError, DecodeError, KernelError, LayoutError, StyleDomainError, StyleValueError,
 };

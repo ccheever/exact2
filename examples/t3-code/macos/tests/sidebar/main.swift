@@ -73,6 +73,56 @@ final class T3SidebarTests: XCTestCase {
         XCTAssertEqual(sidebar.status["sidebarJumpHints"] as? Bool, false)
     }
 
+    /// pr-handoffs-and-quick-actions: the Pull Requests page's quick actions show for ⇧ alone (not ⌘⇧,
+    /// ⌃⇧ or ⌥⇧), never while text is being edited, and go when the app resigns; each change is told
+    /// to the status and to the page's resource, and `sidebarSpeedMode` answers it.
+    func testSpeedModeIsShiftAloneOutsideText() {
+        _ = NSApplication.shared
+        XCTAssertTrue(T3Sidebar.speedModifiers([.shift]))
+        XCTAssertTrue(T3Sidebar.speedModifiers([.shift, .capsLock, .numericPad, .function]))
+        XCTAssertFalse(T3Sidebar.speedModifiers([.shift, .command]))
+        XCTAssertFalse(T3Sidebar.speedModifiers([.shift, .control]))
+        XCTAssertFalse(T3Sidebar.speedModifiers([.shift, .option]))
+        XCTAssertFalse(T3Sidebar.speedModifiers([]))
+        let field = NSTextView()
+        XCTAssertTrue(T3Sidebar.editing(field))
+        field.isEditable = false
+        XCTAssertFalse(T3Sidebar.editing(field))
+        XCTAssertFalse(T3Sidebar.editing(NSButton()))
+        XCTAssertFalse(T3Sidebar.editing(nil))
+        var topics: [String] = []
+        let sidebar = T3Sidebar(agent: false) { topics.append($0) }
+        sidebar.speed([.shift], editing: false)
+        XCTAssertTrue(sidebar.speedMode)
+        XCTAssertEqual(sidebar.status["prSpeedMode"] as? Bool, true)
+        XCTAssertEqual(topics, ["t3.status", "t3.pr"])
+        sidebar.speed([.shift], editing: false)
+        XCTAssertEqual(topics.count, 2, "an unchanged state tells nobody")
+        sidebar.speed([.shift, .command], editing: false)
+        XCTAssertFalse(sidebar.speedMode, "⌘ joining ends it")
+        sidebar.speed([.shift], editing: true)
+        XCTAssertFalse(sidebar.speedMode, "not while a text field has the focus")
+        sidebar.speed([.shift], editing: false)
+        let answer = expectation(description: "speed mode")
+        sidebar.perform(["op": "sidebarSpeedMode", "generation": 2]) { response in
+            XCTAssertEqual((response["value"] as? [String: Any])?["speedMode"] as? Bool, true)
+            answer.fulfill()
+        }
+        wait(for: [answer], timeout: 1)
+        NotificationCenter.default.post(name: NSApplication.didResignActiveNotification, object: nil)
+        sidebar.speed([], editing: false)
+        XCTAssertFalse(sidebar.speedMode, "released")
+        // The monitor's own events: a ⇧ flags change, then a capital letter typed with it, then ⇧ up.
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 100, height: 100), styleMask: [.titled], backing: .buffered, defer: true)
+        func key(_ type: NSEvent.EventType, _ flags: NSEvent.ModifierFlags, _ code: UInt16) -> NSEvent {
+            NSEvent.keyEvent(with: type, location: .zero, modifierFlags: flags, timestamp: 0, windowNumber: window.windowNumber, context: nil, characters: type == .flagsChanged ? "" : "A", charactersIgnoringModifiers: type == .flagsChanged ? "" : "a", isARepeat: false, keyCode: code)!
+        }
+        for (event, expected) in [(key(.flagsChanged, [.shift], 56), true), (key(.keyDown, [.shift], 0), true), (key(.flagsChanged, [], 56), false)] {
+            sidebar.speed(event.modifierFlags, editing: false)
+            XCTAssertEqual(sidebar.speedMode, expected)
+        }
+    }
+
     func testModifiersAndNotifyRequests() {
         var changes = 0
         let sidebar = T3Sidebar(agent: true) { _ in changes += 1 }

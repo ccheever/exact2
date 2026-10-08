@@ -10,8 +10,8 @@
 //    opens its primary environment);
 //  - else the first switched-on saved environment.
 // The primary is connected once its server is ready with its bearer (20261005-local-primary-
-// environment; until then the window shows the connecting state, decision U5 provisional, because
-// the host opens the first window before the server is ready, exact2 #117 / issue X31). When the
+// environment; until then the window shows the connecting state, decision U5 (2026-10-08: kept until
+// exact2 lets an app hold its first window; the host opens it before the server is ready, #117 / X31). When the
 // primary cannot come (switched off, a refused development build, no runtime), the launch falls
 // back to the saved rule. Until the server names its environment, the fleet treats the one being
 // opened as the focus, so it is not opened twice.
@@ -70,6 +70,14 @@ export async function reconnectOnLaunch(client: Focus, native: Native, status: O
   awaitingPrimary.set(client, saved);
   return primaryLaunch(client, native, source);
 }
+
+/**
+ * Decision U6: the fleet just dropped a saved duplicate of the primary that was the focus (Swift
+ * disconnected it). The reference replaces that entry in place with the primary, so the window moves
+ * to the primary: the launch's wait runs again, and the next refresh (the focus is disconnected by
+ * then) connects the primary once it is ready.
+ */
+export function primaryTakesFocus(client: object): void { awaitingPrimary.set(client, []); }
 
 /** The launch's wait for the primary: connect it once ready; fall back once it cannot come. */
 function primaryLaunch(client: Focus, native: Native, source: LocalPrimary): boolean {

@@ -6,7 +6,7 @@
 import AVFoundation
 import Foundation
 
-enum AudioSession {
+package enum AudioSession {
     /// `app.json`'s `audio_session`, baked into the Info.plist as
     /// `ExactAudioSession`: `.ambient` unless the app asks for `playback`
     /// (the ring/silent switch then no longer mutes it).
@@ -16,7 +16,7 @@ enum AudioSession {
     nonisolated(unsafe) private static var configured = false
 
     /// Set the app's category once, then activate the session.
-    static func activate() throws {
+    package static func activate() throws {
         let session = AVAudioSession.sharedInstance()
         if !configured { try session.setCategory(category); configured = true }
         try session.setActive(true)

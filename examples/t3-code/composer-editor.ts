@@ -360,6 +360,10 @@ export async function addReviewCommentChip(client: T3Client, native: Native, rec
   const result = await editorCall(native, { op: 'editorInsert', text: `${contextLink('review-comment', str(record.contextId), str(record.label))} ` });
   if (result.applied !== true) throw new ClientError('The composer is not ready');
 }
+/** pr-handoffs-and-quick-actions: a pull request hand-off's chips (pages-pr-handoffs.ts) resolve to these records when sent. */
+export function rememberReviewCommentRecord(client: T3Client, record: Obj): void { cache(client).prRecords.set(str(record.contextId), record); }
+/** pr-handoffs-and-quick-actions: a hand-off into the composer on screen is one undoable edit of the whole prompt. */
+export async function replaceComposerPrompt(client: T3Client, native: Native, text: string): Promise<void> { await replaceAll(client, native, text); }
 /** removeReviewComment: the chip leaves the prompt as one undoable edit, and its record goes. */
 export async function removeReviewCommentChip(client: T3Client, native: Native, contextId: string): Promise<void> {
   const link = new RegExp(`\\[[^\\]\\n]{0,512}\\]\\(t3-context://v1/review-comment/${contextId.replace(/[^a-z0-9_-]/gi, '')}\\) ?`, 'g');

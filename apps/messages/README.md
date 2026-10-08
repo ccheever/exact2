@@ -1,8 +1,6 @@
 # Messages
 
-The canonical Exact2 Messages test app. The older Snapback-backed app is preserved in
-[`../messages-legacy`](../messages-legacy/README.md), with separate package names and
-`com.exact.messages.legacy` app identity.
+The canonical Exact2 Messages test app.
 
 This is an Exact Contract/TypeScript port of
 [Expo's chat-demo](https://github.com/expo/react-native/tree/chat-demo/packages/chat-demo)

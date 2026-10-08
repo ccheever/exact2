@@ -48,6 +48,7 @@ This guide is documentation, not an additional policy layer. Documents in
 | Network, authentication, storage, sorting, domain algorithms | App TypeScript/Rust data module |
 | Device facts | Reserved source with an admitted shape |
 | A system control (button, list, switch, picker, menu, tabs, bars) | Contract's native form ([below](#views-layout-and-interaction)); an app native module only where none exists |
+| What only the platform's own object can do (a gesture recognizer, a bar's look, drawing into a view) | An access hatch: `hatch="word"` on the node, native code handed its view ([reference](reference.md#access-hatches)); `bun exact.mjs hatch <word>` writes the stubs |
 | Canvas 2D drawing | Data module's canvas surface |
 | GPU scene or game | Optional GPU/game artifact |
 | App identity, grants/deploy selection, module placement | App manifest and data-module declarations |
@@ -715,8 +716,20 @@ list with no bound at all, in its first 390×844 frame, so look at the list in e
 layout it takes. It takes `estimated-item-height`. A horizontal one needs a
 literal `display="flex"` and a literal positive `height`, takes
 `estimated-item-width`, and refuses wrapping, reversed or right-to-left flow, a
-nonzero `gap`, main-axis padding, `justify-content` other than `flex-start`, and
-`reorderdrop`. `reorderdrop` belongs only on a vertical `list virtualized=true`
+nonzero `gap`, `justify-content` other than `flex-start`, and `reorderdrop`.
+Main-axis padding (`padding-top`/`-bottom`, a row list's `-left`/`-right`) is
+CSS's room before the first row and after the last, inside the scroll content:
+room under a header laid over the list, or over a tab bar
+(`padding-bottom="calc(env(safe-area-inset-bottom) + 49px)"`). It takes a
+number, an `env()` length or its `calc()`, or a computed number, not a
+percentage; the end that `reachend`, `scrollFollowEnd` and `scroll-start="end"`
+reach is past it, and on iOS the pull-to-refresh spinner draws below
+`padding-top` (a padding-bottom taller than the port has limits: LLP 1010
+§6.9). `scroll-padding` (`-top`/`-bottom`, a row list's `-left`/`-right`, the
+same forms) is where its `scrollIntoView` aligns a row, as CSS's snapport:
+with `scroll-padding-top` equal to a header's height, the first row's
+`block="start"` is `scrollTop` 0. Only a virtualized list takes it
+(`lower-scroll-padding` elsewhere: native hosts read it nowhere else). `reorderdrop` belongs only on a vertical `list virtualized=true`
 (each row's handle names it with `reorderFor`); the compiler refuses it on any
 other element, where no host could drag. Lists that share a `reorderGroup`
 (each with a `reorderdrop`, an `id` and string keys) exchange rows: the drop
@@ -743,12 +756,51 @@ row being dragged) and keeps its place in the list.
 
 A native button is an explicit `button appearance="auto"` after class merging;
 an ordinary button remains an authored `appearance="none"` pressable. The switch
-must be literal. Native title/symbol children are face data, not general layout.
-A symbol-only face needs a nonempty accessible label. `buttonStyle` is a declared
-styleable host-policy prop; its names and allowable branches are checked against
-`schema.json`'s `buttonStyles`. Follow the native-button allowlist and context
-checks in [`controls.rs`](../contract/lower/src/controls.rs), and test the actual
-platform look. Do not assume arbitrary custom paint or typography is admitted.
+must be literal. Its first `text` is the title, its second is the subtitle, and
+its one `image "symbol:…"` is the symbol. These are semantic face data, not
+layout children. A symbol-only face needs a nonempty `aria-label`. With
+`flex-direction="row"` (or absent), an image before/after the texts is
+leading/trailing; with `flex-direction="column"` it is top/bottom.
+
+Native buttons admit `font-size`, `font-weight`, `color`, `white-space`,
+`line-clamp` and `text-align` on the button or its texts; a text's own row wins.
+Apple uses only rows authored there, including classes; absent rows leave the
+platform's font and colour alone. The web inherits the page's font and colour.
+Tab/menu projections keep their existing ancestor `text-transform` on the
+projected title, which the face query reads as painted.
+`white-space="nowrap"` asks for one truncated line, `line-clamp=N` caps wrapping,
+and `text-align="start"` places the face at the start of its box. The symbol
+admits its own `-exact-tint-color`, `font-size` and `font-weight`; absent symbol rows
+follow the title. Its `width`, `height` and `object-fit` are refused.
+
+`gap` (or `column-gap` for a row, `row-gap` for a column) sets image-to-title
+spacing. Absent means the platform's spacing, not zero; title-to-subtitle
+spacing stays the platform's. `align-items` and `justify-content` accept only
+`center`. `-exact-control-size` takes `mini`, `small`, `medium`, `large`;
+`-exact-corner-style` takes `dynamic`, `small`, `medium`, `large`, `capsule`.
+Both are style rows admitted only on native buttons, including in a class.
+`border-radius` sets the authored radius and wins over the named corner style;
+`padding` and its longhands set content insets. Absent leaves the native
+control's insets/corners alone.
+
+`pointer-events` takes `none` or `auto`. A disabled native button retains
+its authored colours; bind `opacity` for authored dimming. It can open a
+dialog or popover with `commandfor` and `command="show-modal"`,
+`"show-popover"`, `"toggle-popover"`, or with `popovertarget`; targets may be
+bound, and an empty target is no target. `href`, `action` and swipe attributes
+remain refused. `-exact-enabled` transitions are not available.
+
+`buttonStyle` is a styleable host-policy prop; its names and allowable branches
+are checked against `schema.json`'s `buttonStyles`. Backgrounds, borders,
+shadows, filters, `font-family`, other typography or inner layout and
+`-exact-press-scale` are refused with `lower-button-style-attr`, naming a custom
+`button` as the alternative. A native button still takes size, place, opacity
+and transform rows. Hosts implementing the measure hook supply its fitting
+size before the first frame, including height-for-width; hosts without it
+keep the existing intrinsic-size report. This lane admits the rows; platform
+mapping and measurement implementations follow separately. Test the actual
+platform look; macOS can report stand-ins for gap, subtitle and wrapping.
+See [`controls.rs`](../contract/lower/src/controls.rs) for the checks.
 
 **Prefer native controls.** Write the Contract form and each host draws its own
 control; a hand-built lookalike (a painted switch, a row of buttons for tabs, a
@@ -762,6 +814,7 @@ drawn title bar) is a bug. On iOS:
 | `input type="range"` | `UISlider` |
 | `input type="date"`, `"time"`, `"datetime-local"` | `UIDatePicker` |
 | `select` of `option`s | a pop-up button with its menu |
+| `progress` (no `value`) | `UIActivityIndicatorView`, `.large` from a 37-point box (LLP 1069.001) |
 | `popover="auto" role="menu"` of `button`s, opened by `popovertarget` (a row whose `popovertarget` names another menu: its submenu) | `UIMenu`, nested (LLP 1021) |
 | `role="tablist"`: each tab a symbol over a label / one text or image | `UITabBar` / `UISegmentedControl`, the tablist at least its native height unless `min-height` says otherwise (LLP 1059) |
 | a route whose first child is a `header` holding one heading and its buttons | the navigation bar; a level-1 heading (`aria-level=1`) is a large title |
@@ -1052,6 +1105,16 @@ main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow displa
   over the routes and the native bars on every host, as later siblings do in CSS.
 - A modal route (`navigationPresentation="modal"`) paints its own background; the
   route under it is dimmed.
+- A sheet's heights are `navigationDetent`, space-separated words: `large`,
+  `medium`, a point height or `fit-content` (the route's content height; a menu or
+  a short dialog), which goes alone or as `"fit-content large"`. A literal with
+  another word is refused. `fit-content` measures the route laid out alone, its
+  height left to its children, so nothing sized from the sheet counts (a `vh`
+  height or min/max height is `auto` there); a route
+  that scrolls is measured by its scroll extent, so give its rows
+  `flex-shrink: 0`. The route does
+  not pad `env(safe-area-inset-bottom)`: UIKit adds that band below the detent.
+  iOS alone sizes a sheet (LLP 1075.003 §9.11).
 - Without tabs, the routes are the root's own children, laid out the same way.
 - Tests reach a tab by `tap`, or deliver a location as `type <root> "/saved"` (LLP
   1038 D11), which calls the root's `navigate`. On the web a CLI drive goes back as
@@ -1604,6 +1667,19 @@ On native, all viewport variants follow the window; on web, CSS resolves
 small/large/dynamic viewports. Scalar lengths such as font size and gap do
 not yet accept viewport units.
 
+The same rows take `env(safe-area-inset-top|right|bottom|left)`, `calc(env(…) ±
+<n>px)`, and CSS's `min()`, `max()` and `clamp()` over px (and in/cm/mm/pt/pc),
+those insets and viewport lengths, with sums inside them (`max(15px,
+env(safe-area-inset-bottom) - 4px)`) and nested in each other and in `calc()`:
+`padding-bottom="clamp(15px, env(safe-area-inset-bottom), 60px)"`,
+`bottom="calc(clamp(15px, env(safe-area-inset-bottom), 60px) + 59px)"`.
+CSS's order is `clamp(MIN, VAL, MAX)`, not React Native's `clamp(value, min,
+max)`. Native hosts resolve them as the insets change; the web writes CSS's own
+functions. On a size, a padding or a radius a result below zero is 0, as CSS
+clamps it; a margin or an inset keeps it. Refused with the reason: a percentage, `rem`/`em`, a unitless
+number (write `0px`, not `0`), `env(viewport-segment-*)`, two inset or viewport terms in one
+sum, subtracting one, `*` and `/` (LLP 1001 §2, "Comparisons").
+
 `translate` takes one or two lengths, each in px or a percentage of the box's own
 border box, as CSS's does: `left="50%" top="50%" translate="-50% -50%"` on an
 absolute box centres it, a percentage follows the box's size, and transitions and
@@ -1661,18 +1737,21 @@ says so once per box. Refused, each saying what to write: `column-span`, page
 and region breaks, `balance-all`, dashed or dotted rules, and multi-column rows
 on `row` or `column` (CSS ignores them on flex and grid; write `view`).
 
-A bare text field (`input` of type `text`, `email`, `password`, `search`, `tel`,
-`url`, `number` or none, and `textarea`) is visible, as the browser's is: a 1px
-`light-dark(#c6c6c8, #48484a)` border, radius 6, padding 6/8, a
-`light-dark(#ffffff, #1c1c1e)` fill and its own `light-dark(#000000, #ffffff)`
-ink (it does not inherit `color`). These are rows under yours: any row or class
-you write replaces that one row and keeps the rest; `padding` and `width` stay
-content-box, so the field is 18px wider and 14px taller than its content.
-`appearance="none"` (a literal) leaves them all out for a field you draw
-yourself, such as a composer inside a pill (LLP 1104). A field in this look
-shows a focus ring while focused (the web's `:focus-visible`, an accent ring on
-macOS and Linux; iOS shows its caret) and dims to `opacity` 0.5 while
-`disabled`; a bare field draws its own focus and disabled states.
+A text field (`input` of type `text`, `email`, `password`, `search`, `tel`,
+`url`, `number` or no type, and `textarea` outside the Markdown editor) is the
+platform's own field by default (LLP 1104). On the web it inherits the page's
+font and colour, as a CSS reset does; other platforms use their control's own
+text style. Disabled and placeholder appearances are the platform's.
+
+A background, border or radius makes it your own box, as in a browser;
+`appearance="none"` says so explicitly. This is decided once after classes
+and shorthands: a row on any conditional arm counts, even if its value is
+`none` on another arm. `background-clip` and `background-attachment` do not
+make it bare. `appearance="auto"` explicitly asks for the native field and
+refuses background, border and radius rows, naming each longhand. Appearance
+is a literal, resolved from the class then the field's own attribute; to
+switch it, write `when` with two fields. Excluded input types and the Markdown
+editor keep the bare text-input box or their existing specialised control.
 
 `textarea rows=3` sets its preferred height in lines (default 2); explicit CSS
 height and `field-sizing="content"` override it. `maxlength=80` on text inputs

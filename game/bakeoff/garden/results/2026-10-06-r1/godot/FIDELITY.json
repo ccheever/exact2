@@ -1,0 +1,197 @@
+{
+ "engine": "Godot 4.7.2 (stable, official), GDScript",
+ "proof_rerun": {
+  "command": "sh proof/run_proof.sh",
+  "passed": true,
+  "seconds": 4.06,
+  "output_tail": "LOGIC PASS | SHOT title/arrival/planted/shop/backpack/market/grown/rain/night/thunder.png 1280x720 err=0 | plants_100 avg_ms=1.95 | plants_1000 avg_ms=8.40 | weather_for_rain=rain | thunder_flash=true | SHOTS PASS (exit 0)"
+ },
+ "items": {
+  "G1": [
+   2,
+   "Soil plane 2n m square centred at (n-1,0,-(n-1)) so tile (x,z) is at (2x,0,-2z); shader draws lines every 2 m; 6x6 brown grid seen in rerun arrival.png."
+  ],
+  "G2": [
+   2,
+   "Meadow, grass patches, flower tufts, stepping-stone path, picket fence with lanterns on every third post, row of apple/mango/coconut-4 trees scaled 2.15-2.55x, stall with assembled keeper; fence rebuilt around 10x10 in grown.png."
+  ],
+  "G3": [
+   2,
+   "barrel.glb placed at (-2,0.5,0) just west of tile (0,0); R refills within 2.5 m (P6 and my run). Brown cask is the kit's mesh, not scored."
+  ],
+  "G4": [
+   2,
+   "Body+2 arms+2 legs at the ART.md joints; my run: physical D key -> move_x=1, vx reached 4000 mm/s with 16 m/s^2 accel, faces travel, arm swing 0.53 rad, clamped at 20 m beyond the soil (gz=-31000). No hop (optional)."
+  ],
+  "G5": [
+   1,
+   "Camera never follows the gardener: _sync_camera frames the garden centre only; walking 31 m north left the camera at (-1.5,16,18.3) and the gardener off-screen (judge/walk_far_north.png). From the south and above, and the Overview toggle pulls back (judge/overview.png)."
+  ],
+  "G6": [
+   2,
+   "plant-<crop>-<stage> per stage, fruit-<crop>-unripe while fruiting and fruit-<crop> when ripe hung around the plant, body material 0 recoloured per mutation, plants offset 0.55 m east; seen in grown.png."
+  ],
+  "G7": [
+   2,
+   "outline_color(): cyan empty, amber growing, blue watered, purple fed, green ripe; cyan, amber, blue and green seen in rerun and judge shots."
+  ],
+  "G8": [
+   2,
+   "600 s sky/ambient/sun cycle through dusk to night; lantern glass (material 0) emissive at night (night.png, judge/dusk.png). The soil shader is unshaded, so the plot stays bright tan at night."
+  ],
+  "G9": [
+   2,
+   "Rain streak particles (rain.png), snow particles (judge/snow.png, sparse), and a thunder flash shown as an exposure blow-out (thunder.png)."
+  ],
+  "G10": [
+   1,
+   "Dirt burst on plant is visible (judge/plant_fx.png). The can tip, the blue drops and the fruit flying to the gardener with a chime are in code but too small or brief to confirm in stills. None of them touches the sim."
+  ],
+  "R1": [
+   2,
+   "growth_stage: stages at el/span >= 1/4, 1/2, 3/4; maturity event at grow_end; P3 asserts stage 2 at 10 s."
+  ],
+  "R2": [
+   2,
+   "_on_mature sets fruit_end = now + fruit_s; harvest of a regrower resets to fruiting fruit_s later; fruit_s 0 rolls at maturity, and harvest erases the plant."
+  ],
+  "R3": [
+   2,
+   "_roll_one order: Rainbow 0.001 else Gold 0.01; Rain Wet 0.5; Snow Chilled 0.4 else Frozen 0.1; Thunder Wet 0.5 + independent Shocked 0.03; weight base*U(0.8,1.4), x3 at 0.02, x1.25 if fed."
+  ],
+  "R4": [
+   2,
+   "fruit_value = round(base*(w/bw)^2*variant*(1+sum(m-1))), min 1; variant 50/20/1, env 2/2/10/100; proof checks 18/72/360/720/2700 and the name 'Fed Gold Wet Carrot'."
+  ],
+  "R5": [
+   2,
+   "Starts clear, first change U[180,420) s; Rain 0.6 / Snow 0.25 / Thunder 0.15, lasting U[60,120) s, then clear U[180,420) s."
+  ],
+  "R6": [
+   2,
+   "new_game: purse 20, held {carrot:1}; P1 asserts."
+  ],
+  "R7": [
+   2,
+   "act_e plants the held seed on an empty tile or harvests all ripe fruit; otherwise the note/prompt gives the reason (growing timer, no seed, off the garden). The E key path was confirmed in my run."
+  ],
+  "R8": [
+   2,
+   "_scale_phase: end = now + rem*3/4 and start = now - elapsed*3/4 keeps stage proportions; 3 doses, one per growth/fruit cycle, ripe/empty/repeat cost nothing; R within 2.5 m of (-2,0). P6: mature at 16 s, can 2/3, refill 3/3."
+  ],
+  "R9": [
+   2,
+   "Compost removes the fruit and adds a dose up to 3 (full pouch keeps the fruit); fed flag consumed at the next roll, so a seedling carries to its first fruit; repeat feed spends nothing. Compost confirmed (food=1) in my run."
+  ],
+  "R10": [
+   2,
+   "_restock at start and every 300 s: appear with ppm probability, stock 1..max uniform; the current order's seed is forced >= 1 at restock; buy takes price and stock and adds to hand."
+  ],
+  "R11": [
+   2,
+   "Backpack rows show name/weight/value; act_sell and act_sell_all confirmed in my run (sell delta = value, 33.7M¢ after sell all)."
+  ],
+  "R12": [
+   2,
+   "ORDERS match 1 Carrot+30, 4 Straw+400, 5 Blue+600, 4 Tomato+1300, 3 Corn+2400; deliver pays sum of values plus bonus (P5); after five: 'Market regular · all 5 orders filled!'."
+  ],
+  "R13": [
+   2,
+   "expand_cost = n^3*25 (5.4K¢ at n=6 shown on button), capped at 256."
+  ],
+  "R14": [
+   2,
+   "main autosaves every 5 s and on close with unix ms; load_from advances the sim by now-saved via the same event-ordered advance_ms; P8 fresh-process offline equals playing through and equals 360 x 10 s chunks."
+  ],
+  "R15": [
+   2,
+   "A single LCG (1664525/1013904223) drives restock, weather, rolls and the stress tool; decor uses a separate hash; two seeded runs give identical canonical dumps."
+  ],
+  "U1": [
+   2,
+   "Title card 'Grow a Garden' with Play (title.png); Continue/New garden when a save exists."
+  ],
+  "U2": [
+   2,
+   "Pills: purse compact (33.7M¢, 5.4K¢), Restock m:ss, 'N plants · r/t ripe · m mutated', weather (always shown), Day m:ss; Shop/Backpack N/Garden/Pause buttons."
+  ],
+  "U3": [
+   2,
+   "Rows: name, rarity-coloured 'Rarity · price · stock N', 'Xs to first fruit · regrows every Ys', ×N held label, Buy disabled when unaffordable/'Sold out' (shop.png)."
+  ],
+  "U4": [
+   2,
+   "Rows with name+mutations, kg, value, Sell, Compost; 'Sell all' with total; rows virtualised (14 pooled), 3,260 fruit at ~9 ms/frame in my run (judge/pack_thousands.png)."
+  ],
+  "U5": [
+   2,
+   "Harvest all, 'Expand · 5.4K¢', Overview toggle, +100 plants, Skip 1 hour (advance_ms like R14) (judge/garden_panel.png)."
+  ],
+  "U6": [
+   2,
+   "Market panel: order title, 'k/n in backpack · full value + bonus', next-step line, Deliver order (enabled only when deliverable)."
+  ],
+  "U7": [
+   2,
+   "Watering can N/3 with Q Water and R Refill, barrel direction/distance line, Plant food N/3 with F Feed, and a line for each saying what it would do here."
+  ],
+  "U8": [
+   2,
+   "Plot line 'Plot 1, 1 · Carrot · W north…', E prompt, hint 'Empty plot 2, 1: east (D) · about 2 m' or 'Garden: south (S) · about 20 m', action note."
+  ],
+  "U9": [
+   2,
+   "toggle_pause stops advance_ms in _process; the button read 'Resume' in my run."
+  ],
+  "P1": [
+   1,
+   "Proven only on the simulation (logic_proof.gd builds Sim directly; no game scene, no key or click input), so at most 1. Asserts 20¢, one Carrot in hand, garden 6, Carrot stock >= 1 on Sim.new_game(20261006); the assertions are correct and pass."
+  ],
+  "P2": [
+   1,
+   "Proven only on the simulation (logic_proof.gd builds Sim directly; no game scene, no key or click input), so at most 1. Calls sim.set_move, not key events, and compares two sims stepped identically in one process. Asserts moved and identical position/velocity. Frame-sized sub-steps in the real game are not exercised."
+  ],
+  "P3": [
+   1,
+   "Proven only on the simulation (logic_proof.gd builds Sim directly; no game scene, no key or click input), so at most 1. Calls act_e, not the E key: stage 0 and empty hand, then stage 2 at +10 s, then ripe with one fruit at +20 s."
+  ],
+  "P4": [
+   1,
+   "Proven only on the simulation (logic_proof.gd builds Sim directly; no game scene, no key or click input), so at most 1. act_e harvest: backpack size 1, value equals R4 recomputed from the rolled weight, variant and env, and the name matches."
+  ],
+  "P5": [
+   1,
+   "Proven only on the simulation (logic_proof.gd builds Sim directly; no game scene, no key or click input), so at most 1. act_deliver, not the Deliver order button: purse = before + value + 30 asserted."
+  ],
+  "P6": [
+   1,
+   "Proven only on the simulation (logic_proof.gd builds Sim directly; no game scene, no key or click input), so at most 1. Calls act_buy, act_e, act_q, set_move and act_r: watered at 4 s, grow_end = t0+16000, ripe at 16 s not 15.999 s, can 2/3, refill 3/3."
+  ],
+  "P7": [
+   1,
+   "Proven only on the simulation (logic_proof.gd builds Sim directly; no game scene, no key or click input), so at most 1. Sim.save_to at 5 s; a child process running logic_proof.gd (not the game) loads it and advances the same span; canonical dump equals the in-process run. main.gd's own save/load path is not driven."
+  ],
+  "P8": [
+   1,
+   "Proven only on the simulation (logic_proof.gd builds Sim directly; no game scene, no key or click input), so at most 1. A child Sim loads with the clock +1 h; its dump equals a child that played the hour and equals 360 x 10 s in-process chunks. Not driven through the game."
+  ],
+  "P9": [
+   2,
+   "Measured in the real windowed game scene (main.tscn rendering): 1.95 ms at ~100 plants and 8.40 ms at 1000. The stress tool and hour skip are invoked with main.sim.act_stress_plants/act_skip_hour rather than by clicking, but the frame time is of the real game, not the simulation."
+  ],
+  "P10": [
+   2,
+   "The real windowed game wrote all nine PNGs, timestamped by this rerun, plus thunder.png. State is reached through main.sim calls rather than input, but the screenshots are of the running game. arrival.png is framed from the south like the reference, though wider."
+  ]
+ },
+ "look": [
+  6,
+  "The HUD is a close copy of the reference: pill top bar, green market card top right, care panel bottom right, centred prompt stack, Move and E corner buttons. It uses the kit models with correct vertex colour. The world reads differently. The meadow is saturated neon green where the reference is soft and pale. The camera sits high over the whole plot instead of close behind the gardener, so the prompt pills cover the gardener once the garden grows. A south fence crosses in front of the plot, where the reference has flowers. The soil is unshaded, flat in daylight and glowing tan at night."
+ ],
+ "world": 90.0,
+ "rules": 100.0,
+ "ui": 100.0,
+ "proof": 60.0,
+ "fidelity": 87.5,
+ "summary": "Faithful: every rule from R1 to R15 follows the brief's numbers and formulas in one deterministic integer simulation, the HUD closely copies the reference layout, and the proof reruns green in 4 s with fresh-process save and offline checks. Missing: the camera never follows the gardener (it frames the garden centre, so walking away leaves the screen), and the watering, harvest-flight and chime effects could not be confirmed in stills. Wrong or off: the meadow is far more saturated than the reference, the unshaded soil glows at night, a south fence and the high camera change the reference framing, and P1-P8 are proven only on the simulation object (no key or click input into the real game)."
+}

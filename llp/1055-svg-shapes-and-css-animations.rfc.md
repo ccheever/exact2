@@ -413,3 +413,14 @@ D6 and §9 kept colour motion out. LLP 1055.000 D6 admitted it for SVG's
 the same kernel seam (`color_targets`, `Kernel::paint_sync`) and the same
 Apple mechanism (a restyle carrying the presented value). `rules/DEFERRED.md`
 §Motion records it as pending Charlie's ruling on the take.
+
+## Addendum C (2026-10-07): `points` from numbers, and why it stays a string prop
+
+A chart's `points` built point by point in the view (``join(map(series, (p, i) => `${x},${y}`), " ")``) was a tenth of a scrolling crypto list's exact thread on the Android Canvas host: 48 closure calls, 96 number formats and 48 template strings in the VM for each row that mounted. Three ways to carry numbers were weighed.
+
+- **A typed prop** (`PropValue` gains a list of numbers; the plan, the wire, the document export and every host learn it). It removes the string and its parse. Measured, the parse is a fortieth of a row's recording (`exact_num::parse` under `svg::scene::resolve`), 0.3% of the thread; the rest of `resolve` is not the string's. Not worth a fifth prop kind on every carrier.
+- **A kernel cache of the parsed path keyed by the string.** A row that scrolls in has a string no row had; only a turn back hits. Not built.
+- **What Contract already has: `join` over numbers** (LLP 1017.003 D4 prints a number as `toString` does, natively). `points=join(c.points, " ")`, with `points: list<number>` in the row (x then y per point; SVG's grammar takes whitespace alone), is one roster call. No surface changes, and string `points` is untouched.
+
+**Decision: the third.** The numeric form of `points` is a `list<number>` joined with a space; where the mapping to the box is arithmetic per point, the data source does it and the row carries the result. Crypto probe, Pixel 10 Pro XL, five speeds both ways: 6.47 to 5.13 G instructions, the exact thread 8-10% lower at 6,000-12,000 dp/s. A view that maps in Contract (`map` with a closure per point) still pays the VM for it; making that cheap is the VM's business, not SVG's.
+

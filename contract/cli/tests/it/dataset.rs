@@ -274,6 +274,12 @@ fn a_hatch_word_may_name_the_platforms_that_handle_it() {
         3,
         "a word no platform handles is still a word the Contract may mark"
     );
+    // The plan carries the same rows, under its signature (§4.3).
+    let (plan, _) = contract::compile_path_all(&app.0.join("app.contract"), false).unwrap();
+    let plan = exact_plan::Plan::decode(&plan.encode()).unwrap();
+    assert!(plan.handles_hatch("dot", "ios") && plan.handles_hatch("dot", "web"));
+    assert!(!plan.handles_hatch("dot", "macos") && !plan.handles_hatch("nowhere", "ios"));
+    assert!(plan.handles_hatch("avatar", "macos") && !plan.handles_hatch("avatar", "web"));
     // A plain list is every platform's.
     let plain = App::new(
         "hatchplain",
@@ -284,6 +290,8 @@ fn a_hatch_word_may_name_the_platforms_that_handle_it() {
         contract::native::hatches_on(&plain.manifest(), "linux").unwrap(),
         ["dot"]
     );
+    let (plan, _) = contract::compile_path_all(&plain.0.join("app.contract"), false).unwrap();
+    assert!(plan.handles_hatch("dot", "linux") && plan.handles_hatch("dot", "android"));
     for (bad, said) in [
         (r#","hatches":{"dot":["visionos"]}"#, "is not a platform"),
         (
@@ -297,4 +305,51 @@ fn a_hatch_word_may_name_the_platforms_that_handle_it() {
         let error = contract::native::hatch_words(&app.manifest()).unwrap_err();
         assert!(error.contains(said), "{bad}: {error}");
     }
+}
+
+/// LLP 1075.003.000.001 §5: a painting host's hatches are the app's own
+/// `modules/linux/*.rs`, included by its generated entry beside a typed key
+/// of only the words the platform handles.
+#[test]
+fn a_painting_hosts_entry_includes_the_apps_hatches_with_its_platforms_typed_key() {
+    let app = App::new(
+        "rusthatches",
+        r#","hatches":{"detail-list":["ios","linux"],"dot":["linux","web"],"avatar":["ios"],"self":["windows"]}"#,
+        r#"column hatch="dot""#,
+    );
+    let manifest = app.manifest();
+    // An app with no `modules/linux` has no hatches here: its entry is as it was.
+    let none = contract::native::rust_hatches(&app.0, &manifest, "linux").unwrap();
+    assert_eq!(none, None);
+    let modules = app.0.join("modules/linux");
+    std::fs::create_dir_all(&modules).unwrap();
+    std::fs::write(modules.join("b.rs"), "pub type ExactHatches = App;\n").unwrap();
+    std::fs::write(modules.join("a.rs"), "pub struct App;\n").unwrap();
+    std::fs::write(modules.join("notes.md"), "not Rust\n").unwrap();
+    let text = contract::native::rust_hatches(&app.0, &manifest, "linux")
+        .unwrap()
+        .unwrap();
+    // Only this platform's words are keys: naming another's does not compile.
+    let keys = "pub enum HatchKey {\n    /// `hatch=\"detail-list\"`.\n    DetailList,\n    /// `hatch=\"dot\"`.\n    Dot,\n}";
+    assert!(text.contains(keys) && !text.contains("Avatar"), "{text}");
+    let words = r#"pub const WORDS: &'static [&'static str] = &["detail-list", "dot", ];"#;
+    assert!(text.contains(words), "{text}");
+    assert!(
+        text.contains(r#""detail-list" => Some(HatchKey::DetailList),"#),
+        "{text}"
+    );
+    assert!(text.contains(r#"HatchKey::Dot => "dot","#), "{text}");
+    // Each Rust file, in name order, in one module; nothing else.
+    let at = |part: &str| text.find(part).unwrap_or_else(|| panic!("{part}: {text}"));
+    assert!(at("mod hatches {") < at("a.rs\");") && at("a.rs\");") < at("b.rs\");"));
+    assert_eq!(text.matches("include!(").count(), 2, "{text}");
+    // Another platform of the same presenter has its own words.
+    let windows = contract::native::rust_hatches(&app.0, &manifest, "windows")
+        .unwrap()
+        .unwrap();
+    assert!(
+        windows.contains("    Self_,\n") && windows.contains(r#""self" => Some(HatchKey::Self_),"#),
+        "{windows}"
+    );
+    assert!(!windows.contains("Dot"), "{windows}");
 }

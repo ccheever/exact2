@@ -36,12 +36,40 @@ extension ControlHost {
         #endif
         guard let button = control as? UIButton else { return }
         assign(button, \.tintColor, accent)
+        #if os(iOS)
+        if owner.props["type"] == "select" {
+            let alignment = selectAlignment(owner)
+            if button.contentHorizontalAlignment != alignment {
+                button.contentHorizontalAlignment = alignment
+                // UIKit caches this alignment in its configuration layout.
+                // Reapply only on a change; the button and its menu stay put.
+                let configuration = button.configuration
+                button.configuration = nil
+                button.configuration = configuration
+            }
+        }
+        #endif
         let menu = presenter.selectOptions?(owner.id) ?? SelectMenu()
         guard menus[owner.id] != menu else { return }
         menus[owner.id] = menu
         picked.removeValue(forKey: owner.id)
         install(button, menu, id: owner.id, showing: menu.chosen)
     }
+
+    #if os(iOS)
+    /// Align the closed value and its native indicator; an unstyled select
+    /// keeps UIKit's centering. Logical edges follow the computed direction.
+    func selectAlignment(_ owner: NodeView) -> UIControl.ContentHorizontalAlignment {
+        let rtl = owner.style["direction"]?.string == "rtl"
+        switch owner.style["text_align"]?.string {
+        case "left": return .left
+        case "right": return .right
+        case "start", "justify": return rtl ? .right : .left
+        case "end": return rtl ? .left : .right
+        default: return .center
+        }
+    }
+    #endif
 
     /// The menu, with the option at `showing` the one shown.
     private func install(_ button: UIButton, _ menu: SelectMenu, id: UInt32, showing: Int?) {

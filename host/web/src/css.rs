@@ -265,6 +265,25 @@ fn css_text_in(
             (StyleId::ColorScheme, RowValue::Enum("normal")) => {
                 out.push_str("color-scheme:inherit;")
             }
+            // LLP 1069.011.001 D8–D9: browser-owned absolute sizes and corners.
+            (StyleId::ControlSize, RowValue::Enum(size)) => {
+                let size = match *size {
+                    "mini" => "x-small",
+                    "small" => "small",
+                    "large" => "large",
+                    _ => "medium",
+                };
+                push_text!(&mut out, "--exact-control-font-size:{};", size);
+            }
+            (StyleId::ControlCornerStyle, RowValue::Enum(corner)) => {
+                out.push_str("--exact-control-radius:");
+                out.push_str(if *corner == "capsule" {
+                    "calc(infinity * 1px)"
+                } else {
+                    "revert"
+                });
+                out.push(';');
+            }
             (StyleId::LineClamp, RowValue::Number(n)) => {
                 if *n > 0.0 {
                     // The legacy clamp requires an old flex box and clipping. It
@@ -804,6 +823,9 @@ pub(crate) fn dimension(out: &mut String, d: Dimension) {
         // The browser resolves the segment itself too (LLP 1078 D6): the
         // text is CSS-ENV-1's, untouched.
         Dimension::Segment(var, x, y, plus) => exact_kernel::style::env::css(var, x, y, plus, out),
+        // CSS's own `min()`, `max()` and `clamp()`: the browser resolves
+        // them, the insets with the rest (LLP 1001 §2, 2026-10-07).
+        Dimension::Compare(c) => c.css(out),
     }
 }
 

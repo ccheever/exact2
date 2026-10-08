@@ -41,6 +41,13 @@ guide's rules don't make obvious.
   `line-height=1.3` (28.6 px at 22 px). (Authoring bench,
   LLP 1087: three Codex builders, caught only by a screenshot, 2026-10-05.)
 
+- **A ported `clamp(inset, 15, 60)` never stops at 60.** Cause: React Native
+  code's `clamp(value, min, max)` (lodash's order) is not CSS's `clamp(MIN, VAL,
+  MAX)`, which is `max(MIN, min(VAL, MAX))`: `clamp(env(safe-area-inset-bottom),
+  15px, 60px)` is the inset whenever it passes 15. Fix: `clamp(15px,
+  env(safe-area-inset-bottom), 60px)`. (Bluesky clone's bottom bar, the kernel
+  test that caught it, 2026-10-07.)
+
 - **An image tile grows to its picture's size.** An album tile in a flex row became
   900×1200 pt. Cause: a flex item's automatic minimum is its content size (CSS), and
   an image's content size is its intrinsic size. Fix: give the image or its flex
@@ -496,6 +503,25 @@ guide's rules don't make obvious.
   `NSApp.isActive` and the foreground PID before asking someone to type. A key
   window or successful synthetic input alone is insufficient. Keep other test
   windows hidden and name the visible app. (T3 terminal parity, 2026-10-07.)
+- **`xcrun simctl io booted screenshot` can capture the wrong simulator.** With
+  several simulators booted, `booted` names any one of them, not the one the
+  app runs on. Fix: use the UDID the build prints (`… on iPhone 17 <UDID>`), or
+  the agent's own `screenshot`, which targets the app's simulator. (Authoring
+  bench, LLP 1087, t9-profile, 2026-10-07.)
+
+- **Records an agent drive writes are dated 2026-01-01.** The driver's clock
+  starts at a fixed epoch, so `wallTime.epochAtZero + now()` is that date, and a
+  `createdAt` taken from it is too: Bluesky's AppView then sorted the clone's
+  test posts out of the author feed, and they turned up only through search.
+  Fix: `--epoch $(date -u +%Y-%m-%dT%H:%M:%SZ)` on any drive that writes to a
+  real service. (Bluesky clone, b12, 2026-10-07.)
+
+- **`screenshot` of a sheet is the sheet alone, at full width.** On iOS it
+  captures the presented route (a fit-content repost sheet came out 402 × 270
+  points), so its type looks twice its size when viewed as a screen. Fix:
+  `screenshot out.png window` for the screen as a person sees it. (Bluesky clone,
+  b12, 2026-10-07.)
+
 - **A screenshot right after a state change shows a transition's start.** A
   `transition` (a background colour, an opacity) is held by the driver's clock,
   so the frame and the computed style still read the old value: the toggle
@@ -684,6 +710,14 @@ guide's rules don't make obvious.
   `try { … } finally { await db.close(); }`. (LLP 1097 D7, Charlie,
   2026-10-07.)
 
+- **A native button refuses an image's frame or a third text.** Its face is
+  semantic: two texts (title and subtitle) and one symbol. The symbol's size
+  is `font-size` on the image, not `width`, `height` or `object-fit`. Its own
+  colour is `-exact-tint-color`; the title's is `color`. Use a custom `button`
+  without `appearance="auto"` for aligned image frames or arbitrary children.
+  `-exact-control-size` and `-exact-corner-style` are admitted only on an
+  explicit native button, including through classes. (LLP 1069.011.001 D12–D14.)
+
 ## Working on exact2 itself
 
 - **A bisect that shares another worktree's Cargo target directory builds
@@ -780,3 +814,39 @@ guide's rules don't make obvious.
   the bundle, which changes their signature bytes; other files stay identical.
   `exact release` signs these files with the release identity before sealing
   the outer bundle. This field is macOS-only. (Issue #103, 2026-10-07.)
+
+- **A background, border or radius makes a text field your own box.** A text
+  field is the platform's own by default. Any such row, including a shorthand,
+  a class row or a row on just one conditional arm, makes it bare for its whole
+  lifetime. Write `appearance="none"` explicitly when drawing the field yourself.
+  With `appearance="auto"`, those rows are refused; remove them to keep the
+  platform's background, border and corners. `background-clip` and
+  `background-attachment` alone keep the field native. (LLP 1104 r8 D2.)
+
+## Access hatches
+
+- **A view a hatch adds on macOS hears no click while its window is not key.**
+  The click reaches the view by hit test and nothing happens: AppKit spends a
+  first click on activating the window unless the view says otherwise, and an
+  ancestor's click recognizer holds a plain `mouseDown` back. Give the view
+  its own `NSClickGestureRecognizer` (declared with `element.owns(recognizer:)`)
+  and override `acceptsFirstMouse(for:)` to return true, as Exact's own
+  controls do. Found building the fixture's badge seal (LLP 1075.003.000.001
+  §13.10): `tap <node>/<part>` answered `landed: "part"` and the press was
+  never counted.
+- **An absolutely positioned element a web hatch appends is not where its
+  node is.** `position: absolute` resolves against the nearest positioned
+  ancestor, which is rarely the hatched node, and a hatch must not restyle the
+  node to make it one. Put what you add in the node's own flow (a block with a
+  margin). Found the same way: `tree` showed the part's size right and its
+  place elsewhere, and the aimed click was refused as outside the node's box.
+- **A page module that exports `window` loses the global of that name.**
+  `export function window(w)` is the window hatch, and inside that file
+  `window.innerWidth` is then the function's property. Reach the global as
+  `globalThis` (the hatch's `w.window` is it too).
+- **On Linux, Windows and Android `changed` also means the node's size
+  changed.** A hatch that acts whenever `element` is called again (a click, an
+  input) loops when its act changes the node's own size, a label's width, say.
+  Keep the words the node was last told with and act only when they differ.
+  Found building the fixture's Linux hatches (§13.13): the pressing hatch
+  pressed itself forever once its label grew a digit.

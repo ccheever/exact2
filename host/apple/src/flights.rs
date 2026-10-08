@@ -27,9 +27,11 @@ const END: f64 = 1000.0;
 struct Flight {
     view: ViewId,
     node: u64,
-    /// When a spring flight lands (engine seconds): as UIKit's spring
-    /// animators finish, not at the engine's rest.
-    lands_at: Option<f64>,
+    /// How long after its curve starts a spring flight lands (seconds): as
+    /// UIKit's spring animators finish, not at the engine's rest. From the
+    /// curve's own start, which waits for the first presented frame (LLP
+    /// 1003.001 D3).
+    lands_after: Option<f64>,
 }
 
 /// Where a spring flight is done: within 1/1000 of its travel and moving
@@ -104,16 +106,18 @@ impl<D: DataSource> Host<D> {
                 });
                 debug_assert!(observed.is_ok(), "progress is finite");
             }
-            let lands_at = match &h.transition.timing {
+            // The curve's start includes its delay; a negative one lands
+            // from the change, as before.
+            let lands_after = match &h.transition.timing {
                 exact_motion::TimingFunction::Spring(config) => {
-                    land_after(config).map(|t| self.engine.now() + h.transition.delay.max(0.0) + t)
+                    land_after(config).map(|t| t - h.transition.delay.min(0.0))
                 }
                 _ => None,
             };
             self.flights.running.push(Flight {
                 view: to,
                 node,
-                lands_at,
+                lands_after,
             });
         }
     }
@@ -145,10 +149,11 @@ impl<D: DataSource> Host<D> {
     /// Flights whose curve has settled land.
     pub(super) fn land_flights(&mut self, batch: &mut Batch) {
         let engine = &mut self.engine;
-        let now = engine.now();
+        let now = engine.sample_time();
         self.flights.running.retain(|f| {
-            let flying =
-                engine.is_active(f.node, Property::Layout) && f.lands_at.is_none_or(|at| now < at);
+            let start = engine.curve_start(f.node, Property::Layout);
+            let landed = f.lands_after.zip(start).is_some_and(|(t, s)| now >= s + t);
+            let flying = engine.is_active(f.node, Property::Layout) && !landed;
             if !flying {
                 engine.remove(f.node);
                 batch.land(f.view);

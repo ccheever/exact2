@@ -1,14 +1,14 @@
 ---
 name: 20261008-x59-line-clamp-first-layout-ellipsis
 plan: 20261005-t3code-macos-parity
-status: draft
-kind: framework-gap (unconfirmed)
+status: published
+kind: framework-gap
 blocks: []
-upstream_url: null
-reproduced_on: feat(example)/t3-code-visual-parity-followup (07dcef1ab's framework) and base 07dcef1ab
+upstream_url: https://github.com/ccheever/exact2/issues/300
+reproduced_on: febb2c5fb (main; a one-file app, window pixels); first seen in the clone on feat(example)/t3-code-visual-parity-followup and base 07dcef1ab
 ---
 
-# X59: a `line-clamp=1` text that replaces a wrapped one shows its first wrapped line without the ellipsis (macOS, unconfirmed)
+# X59: a `line-clamp` text mounted after launch paints its last line without the ellipsis until a restyle (macOS)
 
 ## Summary
 
@@ -60,3 +60,21 @@ cells" (the light capture above).
 ## Why it must be resolved
 A collapsed cell then reads as complete text cut at a word: nothing tells the reader that more of
 the value is hidden until something else restyles the transcript.
+
+## Upstream (filed 2026-10-08)
+
+Upstream: https://github.com/ccheever/exact2/issues/300 (#300, [Bug] macOS: a `line-clamp` text mounted after launch
+paints its last line without the ellipsis until a restyle). Reproduced on main `febb2c5fb` with a one-file app (macOS
+26.6.2). The bug is wider than this draft said: it is not about replacing a wrapped text. **Any** `line-clamp` text
+mounted after launch (a `when` arm that appears, or an `else` arm swapped for a clamped one; `line-clamp=1` and `=2`
+alike) paints its last kept line cut at a word with no "…", while the layout is right (`layout` reports one line,
+`300×20`). A clamped text present from the first frame, and a mounted `white-space="nowrap"` +
+`text-overflow="ellipsis"` text, do show "…"; any restyle (`prefers-color-scheme`) repaints every row with it. It is on
+the first-raster path, not in layout: a new paragraph's first pixels reuse its plain lines and skip the clamp's last
+line (`TextRasterizer.ensure` → `TextRasterJob.render(lines:)`), and a restyle re-rasterizes through the clamp. The
+agent's default `screenshot` hides it (capture declines the text raster and draws the node itself, with "…"): only `screenshot … window`, the window's own pixels, shows what a person sees.
+The web shows "…" on every row at once. Evidence: [x59-collapse.png](https://raw.githubusercontent.com/ccheever/exact2/649f5649dc51c4f75562485f5cabc5ef74baabd1/file-x59-x61/x59-collapse.png) (web vs macOS after the
+toggle, and macOS after a restyle), transcript [x59-ops.txt](https://raw.githubusercontent.com/ccheever/exact2/649f5649dc51c4f75562485f5cabc5ef74baabd1/file-x59-x61/x59-ops.txt).
+
+Next: `issue-close` once #300 lands: the collapsed table cell's first frame should show "…" in a `screenshot … window`
+capture with no restyle. The clone has no workaround to remove.

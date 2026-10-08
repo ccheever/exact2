@@ -404,6 +404,30 @@ describe('the actions, their confirmations and their toasts', () => {
     await prCommand(silent.client, native, 'action', selected, 'enable-auto-merge:merge');
     expect(toasts(silent.client).at(-1)).toMatchObject({ title: 'Could not turn on auto-merge', description: 'The host refused it. Check that this repository allows auto-merge, that you have write access, and that there is something left for it to wait on.' });
   });
+  // fix-misc-batch (#298 bug 15): refreshFromHost invalidates once. Each invalidate announces a change, the
+  // announcement asks the panel again, and Exact lets the answer that sent it go (its call may already have been
+  // sent). Before, the run that replaced it found the host refresh still owed and sent it again, which announced
+  // again: 237 invalidates and detail reads in 40 s after one Update with rebase, the toast and the up-to-date
+  // header held back until GitHub's reads caught up.
+  test('Update with rebase: one invalidate however often its announcement lets the read go, then the fresh header', async () => {
+    let behind = true, cut = 0;
+    const { client, calls } = fakeClient(defaults(base(), {
+      // The invalidate lands; the announcement it made asks the resource again while GitHub is still read, so
+      // the detail read after it is let go (the live trace: invalidate 3 ms, then a detail read of ~1 s).
+      'pullRequests.detail': () => { if (cut-- > 0) throw new ClientError('The answer was let go before this reply.', 'superseded'); return base(behind ? { baseComparison: 'behind', behindBy: 8 } : {}); },
+    }));
+    expect((await panel(client)).actions.freshnessSummary).toBe('This branch is out-of-date with main by 8 commits.');
+    behind = false; cut = 6;
+    await prCommand(client, native, 'action', selected, 'update-branch:rebase');
+    expect(toasts(client).at(-1)).toMatchObject({ kind: 'success', title: 'Branch updated with the base branch' });
+    const sent = calls.length;
+    let view = null;
+    for (let ask = 0; ask < 8 && !view; ask++) view = await panel(client).catch(() => null);
+    const after = calls.slice(sent).map(call => call.method);
+    expect(after.filter(method => method === 'pullRequests.invalidate')).toHaveLength(1);
+    expect(after.filter(method => method === 'pullRequests.detail')).toHaveLength(7);
+    expect(view?.actions).toMatchObject({ freshness: false, freshnessSummary: '', pending: false });
+  });
 });
 
 describe('the list overrides the panel reports ("sent", "done", "failed")', () => {

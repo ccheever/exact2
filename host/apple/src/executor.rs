@@ -72,3 +72,61 @@ impl Executor {
         self.core.waker()
     }
 }
+
+/// What the bridge asks of the I/O executor (LLP 1047.001): the executor's
+/// own methods, behind a trait so that an archive that links no I/O names
+/// none of them, nor the transports and stores they reach.
+pub trait Io {
+    /// [`Executor::ordered_idle`].
+    fn ordered_idle(&self) -> bool;
+    /// [`Executor::resume_ordered`].
+    fn resume_ordered(&self);
+    /// [`Executor::forget`].
+    fn forget(&self, held: &dyn Fn(u64) -> bool);
+    /// [`Executor::run`].
+    fn run(&self, request: RequestOut, work: Option<Work>) -> Result<(), &'static str>;
+    /// [`Executor::begin_pump`].
+    fn begin_pump(&self);
+    /// [`Executor::drain`].
+    fn drain(&self) -> Vec<(u64, Outcome, Option<u64>)>;
+    /// [`Executor::notify`].
+    fn notify(&self);
+    /// [`Executor::waker`].
+    fn waker(&self) -> std::sync::Arc<dyn Fn() + Send + Sync>;
+}
+
+impl Io for Executor {
+    fn ordered_idle(&self) -> bool {
+        Executor::ordered_idle(self)
+    }
+    fn resume_ordered(&self) {
+        Executor::resume_ordered(self)
+    }
+    fn forget(&self, held: &dyn Fn(u64) -> bool) {
+        Executor::forget(self, held)
+    }
+    fn run(&self, request: RequestOut, work: Option<Work>) -> Result<(), &'static str> {
+        Executor::run(self, request, work)
+    }
+    fn begin_pump(&self) {
+        Executor::begin_pump(self)
+    }
+    fn drain(&self) -> Vec<(u64, Outcome, Option<u64>)> {
+        Executor::drain(self)
+    }
+    fn notify(&self) {
+        Executor::notify(self)
+    }
+    fn waker(&self) -> std::sync::Arc<dyn Fn() + Send + Sync> {
+        Executor::waker(self)
+    }
+}
+
+/// Start the executor as the bridge holds it: [`crate::link::IoLinks`]'s.
+pub fn start_io(
+    bindings: Option<ibex2::host::Bindings>,
+    grants: &str,
+    wake: Option<(WakeFn, *mut c_void)>,
+) -> Box<dyn Io> {
+    Box::new(Executor::start(bindings, grants, wake))
+}

@@ -1,0 +1,36 @@
+# What prepare.sh makes from the generators: the data and the copies each app's build reads.
+/data/
+/vendor/
+/exact-xheavy/assets/
+/exact-xheavy/icon.png
+/exact-xheavy/data/feed.json
+/exact-xheavy/data/motion-*.json
+/exact-xheavy/svgs.contract
+/exact-xheavy/rings.contract
+/exact-xheavy/Cargo.lock
+/expo/data/
+/expo/assets/
+/expo/assets.ts
+/expo/embed.ts
+# Build products and signed bundles (results, shots and traces go to <checkout>/target/bench/extra-heavy).
+/exact-xheavy/target/
+/device/
+/ios/swiftui/build/
+/ios/swiftui/build-sim/
+/ios/swiftui/obj/
+/ios/uikit/build/
+/ios/uikit/build-sim/
+/ios/uikit/obj/
+/mac/swiftui/build/
+/mac/swiftui/obj/
+/mac/probe/*.dylib
+/mac/dist/
+/web/dist/
+/web/profile/
+/web/*.pid
+/expo/node_modules/
+/expo/ios/
+/expo/.expo/
+/expo/dist/
+/expo/build/
+/web/results/

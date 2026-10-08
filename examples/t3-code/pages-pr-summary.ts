@@ -11,6 +11,7 @@ import { relativeLabel } from './pages-prs';
 import { currentTimestampLocale } from './timestamp-format';
 import { checkStatusLabel, checksRollup } from './r6-pr-logic';
 import { latestPullRequestReviewOutcomes, orderPullRequestComments, pullRequestReviewOutcome, pullRequestReviewOutcomeLabel, pullRequestReviewOutcomeStaleLabel, visibleBody } from './pages-pr-logic';
+import { pullRequestFindingKey, remarkFinding } from './pages-pr-handoffs-logic'; // pr-handoffs-and-quick-actions
 
 export const COMMENT_PAGE = 10;
 export type PrFace = { key: string; login: string; avatar: string; initial: string };
@@ -26,10 +27,12 @@ export type PrCommentCard = {
   key: string; id: string; bodyId: string; author: string; avatar: string; initial: string; authorTip: string; age: string; ageTip: string; url: string;
   outcome: string; outcomeLabel: string; stateLabel: string; location: string; outdated: boolean; fromEnd: number; finishedLabel: string; preview: string;
   canEdit: boolean; raw: string; kind: string; saving: boolean; savedSerial: number; reactions: PrReactionPill[]; reacted: string[]; canReact: boolean;
+  /** pr-handoffs-and-quick-actions: the finding its Fix hands over (pullRequestFindingKey), '' for talk and verdicts. */
+  fix: string;
 };
 export type PrCommentGroup = { label: string; authorsText: string; filesText: string; latest: string; latestTip: string; faces: PrFace[]; more: number };
 export type PrReviewerEntry = { key: string; login: string; avatar: string; initial: string; outcome: string; stale: boolean; outcomeText: string; tooltip: string };
-export type PrSummaryCheck = { key: string; name: string; status: string; statusLabel: string; url: string };
+export type PrSummaryCheck = { key: string; name: string; status: string; statusLabel: string; url: string; fix: string };
 export type PrSummaryView = ReturnType<typeof emptySummary>;
 
 export function emptySummary() {
@@ -71,6 +74,7 @@ function card(comment: Obj, threads: Map<string, Obj>, url: string, now: number,
     location: path ? `${path}${thread && line ? `:${line}` : ''}` : '', outdated: thread?.isOutdated === true, fromEnd,
     finishedLabel: thread?.isResolved === true ? 'Resolved' : 'Review dismissed', preview: body === null ? '' : previewText(body),
     canEdit: writes.canEdit, raw: writes.raw, kind: writes.kind, saving: writes.saving, savedSerial: writes.savedSerial, reactions: writes.pills, reacted: writes.reacted, canReact,
+    fix: (finding => (finding ? pullRequestFindingKey(finding) : ''))(remarkFinding(comment, thread, outcome)),
   };
 }
 /** CommentGroup's header: the first three faces, how many wrote, across how many files, and when last. */
@@ -108,7 +112,9 @@ export function presentSummary(input: SummaryInput): PrSummaryView {
   const latestState = listNewer ? (str(input.listEntry!.checksState) || null) : detailState;
   const checksState = latestState !== 'failing' && arr(detail.checks).some(check => check.status === 'action-required') ? 'pending' : latestState;
   view.checksStale = checksState !== detailState; view.checksState = checksState ?? '';
-  view.checks = arr(detail.checks).map((check, index) => ({ key: `${index}:${str(check.name)}:${str(check.url)}`, name: str(check.name), status: str(check.status, 'neutral'), statusLabel: checkStatusLabel(check), url: str(check.url) }));
+  view.checks = arr(detail.checks).map((check, index) => ({ key: `${index}:${str(check.name)}:${str(check.url)}`, name: str(check.name), status: str(check.status, 'neutral'), statusLabel: checkStatusLabel(check), url: str(check.url),
+    // Only where there is something to fix: a failing check (PullRequestSummaryTab's Fix).
+    fix: check.status === 'failure' || check.status === 'cancelled' ? pullRequestFindingKey({ kind: 'check', check }) : '' }));
   // The conversation, as the tab buckets it.
   view.commentsTitle = `Comments (${num(activity?.commentCount)})`;
   view.truncated = activity?.commentsTruncated === true;
