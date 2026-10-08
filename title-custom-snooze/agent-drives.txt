@@ -57,3 +57,22 @@ Final server state:
   tcs-b | Check the tests  | 2026-10-08T07:22:18.723Z
   tcs-c | Draft the notes  | 2026-10-08T06:22:27.723Z
   snooze receipts: exactly three, one per confirm above; none from the Cancel / Escape / Close runs.
+
+== Retry on the final build (after the independent review's fixes), app pid 75999, 2026-10-08 05:07-05:09 UTC
+Fixes under test: a disabled title-menu row hears no pointer (MenuRow `point`); Escape or a press outside
+gives the focus back to the title only when the title opened the menu (`titleMenuFromTitle`); `snooze()`
+refuses a thread waiting on the user (useThreadActions' ThreadSnoozeBlockedError). The lane threads were
+woken first through the server's RPC (three thread.unsnooze receipts at 05:06:58Z).
+1. tcs-a: tap thread-title; hover title-menu-pin -> no submenu; hover title-menu-snooze -> title-submenu
+   with title-menu-snooze:custom (hover still opens an enabled submenu row); tap Custom... -> sidebar-snooze,
+   focused snooze-mode-date; key Escape -> closed, focused thread-title.
+2. key Enter on thread-title -> menu; key Enter on title-menu-snooze -> focused title-menu-snooze:hour;
+   key Escape -> menu closed, focused thread-title.
+3. tap search-threads -> focused search-threads; right-click chat-header -> title-menu-layer; key Escape
+   (sent at search-threads) -> menu closed, focus still search-threads (a right-click leaves the focus
+   where it was). tap thread-title, key Escape -> closed, focused thread-title.
+4. tcs-b: title > Snooze > Custom...; Duration; Snooze -> focused thread-title, threadId tcs-b,
+   "Snoozed 1 thread,". Server: 05:08:19.832Z tcs-b thread.snooze accepted (exactly one).
+Not driven: a disabled Snooze row (a thread waiting on the user needs a provider turn paused on a request;
+no signed-in provider lane exists and logging one in needs the real-input lock). Covered by the
+`snooze()` guard test and the MenuRow change.
