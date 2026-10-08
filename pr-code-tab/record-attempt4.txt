@@ -1,0 +1,38 @@
+2026-10-08T08:50:05.219Z [attempt4] app pid 17344
+2026-10-08T08:50:32.652Z [attempt4] seeded 11 replies by the second account on comment 4216186848
+2026-10-08T08:51:05.440Z [attempt4] files: "310 files" (want 310)
+2026-10-08T08:51:08.332Z [attempt4] Load more button pull-request-thread-more-PRRT_kwDOU_luzM6qQDYR; header "Open · 12 comments"; comments shown 10
+2026-10-08T08:51:08.440Z [attempt4] shot 01-load-more-before
+2026-10-08T08:51:09.745Z [attempt4] after Load more: comments shown 12; threadComments spans +1; button gone
+2026-10-08T08:51:09.826Z [attempt4] shot 02-load-more-after
+2026-10-08T08:51:09.826Z [attempt4]   load-more: done (4386 ms)
+2026-10-08T08:51:10.985Z [attempt4] shot 03-draft-open
+2026-10-08T08:51:12.293Z [attempt4] after Escape: draft node gone; pending cards 0; submitReview spans +0
+2026-10-08T08:51:12.378Z [attempt4] shot 04-draft-after-escape
+2026-10-08T08:51:12.378Z [attempt4]   draft-escape: done (2552 ms)
+2026-10-08T08:51:21.013Z [attempt4] STEP submit-review-readback FAILED: no diff-comment-src/strings.js-additions-3 in pull-request-code-panel
+2026-10-08T08:51:21.103Z [attempt4] shot fail-submit-review-readback
+2026-10-08T08:51:22.497Z [attempt4] STEP orphans-list FAILED: no view matches pull-request-code-scope-1086794 by testId, label or text; targets here: toggle-sidebar, sidebar-brand, search-threads, filter-project, add-project, new-thread, sidebar-back, chat-header, header-project, toggle-thread-details, toggle-terminal, toggle-right-panel, …; tree lists live targets, and a virtualized list's row outside its window comes in by key: `tap <list> into <key>` (fee
+2026-10-08T08:51:22.592Z [attempt4] shot fail-orphans-list
+2026-10-08T08:51:22.608Z [attempt4] files: "310 files" (want 310)
+2026-10-08T08:51:26.932Z [attempt4] shot 08-agent-draft
+2026-10-08T08:51:33.016Z [attempt4] toasts: Notifications
+2026-10-08T08:51:33.102Z [attempt4] shot 09-agent-thread
+2026-10-08T08:51:33.105Z [attempt4] composer: Message
+2026-10-08T08:51:33.105Z [attempt4]   add-to-agent: done (10513 ms)
+2026-10-08T08:51:44.213Z [attempt4] files: "310 files" (want 310)
+2026-10-08T08:51:47.323Z [attempt4] Fix button pull-request-thread-fix-PRRT_kwDOU_luzM6qQDYW
+2026-10-08T08:51:47.394Z [attempt4] STEP fix-in-a-thread FAILED: clock: the clock cannot go backwards (61600.0 → 61599.999999999985)
+2026-10-08T08:51:47.504Z [attempt4] shot fail-fix-in-a-thread
+2026-10-08T08:52:05.650Z [attempt4] cleanup: deleted seeded reply 4216891530 (HTTP 0)
+2026-10-08T08:52:06.887Z [attempt4] cleanup: deleted seeded reply 4216891888 (HTTP 204)
+2026-10-08T08:52:07.888Z [attempt4] cleanup: deleted seeded reply 4216892198 (HTTP 204)
+2026-10-08T08:52:09.253Z [attempt4] cleanup: deleted seeded reply 4216892486 (HTTP 204)
+2026-10-08T08:52:10.501Z [attempt4] cleanup: deleted seeded reply 4216892869 (HTTP 204)
+2026-10-08T08:52:11.886Z [attempt4] cleanup: deleted seeded reply 4216893244 (HTTP 204)
+2026-10-08T08:52:12.885Z [attempt4] cleanup: deleted seeded reply 4216893686 (HTTP 204)
+2026-10-08T08:52:14.174Z [attempt4] cleanup: deleted seeded reply 4216894088 (HTTP 204)
+2026-10-08T08:52:15.373Z [attempt4] cleanup: deleted seeded reply 4216894417 (HTTP 204)
+2026-10-08T08:52:16.533Z [attempt4] cleanup: deleted seeded reply 4216894755 (HTTP 204)
+2026-10-08T08:52:17.881Z [attempt4] cleanup: deleted seeded reply 4216895049 (HTTP 204)
+2026-10-08T08:52:17.881Z [attempt4] closing
