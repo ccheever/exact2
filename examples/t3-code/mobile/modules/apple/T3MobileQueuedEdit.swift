@@ -28,6 +28,8 @@ final class T3MobileQueuedEdit: @unchecked Sendable {
     private var sending = Set<String>()
     // Native-only admission while UUID image files are hashed outside this mutex.
     private var inlinePreparations: [UUID: [String: Any]] = [:]
+    private var inlineSendPreparations: [UUID: [String: Any]] = [:]
+    private var inlineSendAttempts: [String: [String: Any]] = [:]
     // A cold/ambiguous visible journal is not proof of fsync. Only an exact successful save confirms it.
     private var durableOutbox: [String: Int] = [:]
     private var outboxAttempts: [String: Int] = [:]
@@ -242,7 +244,7 @@ final class T3MobileQueuedEdit: @unchecked Sendable {
             let prepared = entry["prepared"] as! [String: Any]
             return prepared["operationId"] as? String == id || (prepared["record"] as? [String: Any])?["commandId"] as? String == id
         } || commands.values.contains { operation in
-            operation["kind"] as? String == "outbox-inline" && unresolved(operation)
+            operation["kind"] as? String == "outbox-inline" && operation["state"] as? String != "retired"
                 && (operation["record"] as? [String: Any])?["commandId"] as? String == id
         }
     }
@@ -262,6 +264,9 @@ final class T3MobileQueuedEdit: @unchecked Sendable {
             }
             guard !inlineIdentityBlocked(id, commands: commands), !inlineIdentityBlocked(command, commands: commands),
                   commands[command] == nil,
+                  !commands.values.contains(where: { $0["kind"] as? String == "outbox-inline" && $0["state"] as? String != "retired"
+                    && $0["origin"] as? String == origin && $0["environmentId"] as? String == environment
+                    && $0["threadId"] as? String == prepared["threadId"] as? String && $0["messageId"] as? String == prepared["messageId"] as? String }),
                   !commands.values.contains(where: { $0["kind"] as? String == "outbox-inline" && ($0["record"] as? [String: Any])?["commandId"] as? String == id }) else {
                 throw refusal("The inline identity collides with an existing command.", kind: "stale")
             }
@@ -333,7 +338,8 @@ final class T3MobileQueuedEdit: @unchecked Sendable {
     func recoverOutboxInline(_ id: String, revision: Int) throws -> [String: Any] {
         try locked {
             let value = try store()
-            guard let operation = operations(value)[id], operation["kind"] as? String == "outbox-inline", operation["revision"] as? Int == revision else {
+            guard let operation = operations(value)[id], operation["kind"] as? String == "outbox-inline", operation["revision"] as? Int == revision,
+                  !inlineSendBusyLocked(id) else {
                 throw refusal("Choose the exact inline reservation revision.", kind: "stale")
             }
             durableOutbox.removeValue(forKey: id)
@@ -346,17 +352,152 @@ final class T3MobileQueuedEdit: @unchecked Sendable {
         try locked {
             var value = try store(), commands = operations(value)
             guard var operation = commands[id], operation["kind"] as? String == "outbox-inline", operation["revision"] as? Int == revision,
-                  ["reserved", "retired"].contains(operation["state"] as? String ?? "") else {
+                  ["reserved", "retired"].contains(operation["state"] as? String ?? ""), !inlineSendBusyLocked(id),
+                  revision < 9_007_199_254_740_991 else {
                 throw refusal("Choose the exact never-issued inline reservation.", kind: "stale")
             }
             durableOutbox.removeValue(forKey: id)
             if operation["state"] as? String == "reserved" {
-                operation["state"] = "retired"; operation["revision"] = 2
+                operation["state"] = "retired"; operation["revision"] = revision + 1
                 enqueueReleases((operation["record"] as! [String: Any])["attachments"] as! [[String: Any]], in: &value)
                 commands[id] = operation; value["operations"] = commands
             }
-            try saveOutboxJournal(value); durableOutbox[id] = 2
+            try saveOutboxJournal(value); durableOutbox[id] = operation["revision"] as? Int
             _ = drainReleases(&value)
+            return ["operation": operation, "durable": true]
+        }
+    }
+    private func inlineSendBusyLocked(_ id: String) -> Bool {
+        inlineSendAttempts[id] != nil || inlineSendPreparations.values.contains { ($0["operation"] as? [String: Any])?["operationId"] as? String == id }
+    }
+    private func inlineSendEnvironmentLocked(_ origin: String, _ environment: String) -> Bool {
+        inlineSendPreparations.values.contains { entry in
+            let operation = entry["operation"] as! [String: Any]
+            return operation["origin"] as? String == origin && operation["environmentId"] as? String == environment
+        }
+    }
+    private func inlineSendRowLocked(_ operation: [String: Any], ownerEpoch: Any?) throws {
+        if operation["state"] as? String == "reserved" {
+            _ = try outboxOwner.deliveryRecordLocked(["ownerEpoch": ownerEpoch ?? NSNull(), "messageId": operation["messageId"]!,
+                "expectedToken": operation["rowToken"]!, "expectedRevision": operation["rowRevision"]!, "record": operation["record"]!])
+        } else if !outboxOwner.deliveryRetryUnheldLocked(operation["messageId"] as! String) {
+            throw refusal("Finish editing this queued message before retrying its images.", kind: "Busy")
+        }
+    }
+    /// Transport owns its memory allowance; native preparation owns only receipt identity and byte retention.
+    func beginOutboxInlineSend(_ request: [String: Any], origin: String, environment: String) throws -> T3OutboxInlineSendAdmission {
+        try locked {
+            let value = try store(), commands = operations(value)
+            guard let id = request["operationId"] as? String, let operation = commands[id], operation["kind"] as? String == "outbox-inline",
+                  T3OutboxDeliveryReceipt.integer(request["revision"], positive: true), request["revision"] as? Int == operation["revision"] as? Int,
+                  operation["origin"] as? String == origin, operation["environmentId"] as? String == environment,
+                  !inlineSendBusyLocked(id) else { throw refusal("The inline send receipt changed or is already active.", kind: "stale") }
+            let state = operation["state"] as! String, revision = operation["revision"] as! Int
+            guard revision < 9_007_199_254_740_990 else { throw refusal("The inline revision is exhausted.", kind: "Persistence") }
+            if state == "acknowledged" {
+                durableOutbox.removeValue(forKey: id); try saveOutboxJournal(value); durableOutbox[id] = revision
+                return .acknowledged(["operation": operation, "durable": true])
+            }
+            let retryRejected = (request["retryRejected"] as? NSNumber).map { CFGetTypeID($0) == CFBooleanGetTypeID() && $0.boolValue } == true
+            guard ["reserved", "issued", "uncertain"].contains(state) || state == "rejected" && retryRejected else {
+                throw refusal("The inline receipt needs an explicit supported retry.", kind: "stale")
+            }
+            try inlineSendRowLocked(operation, ownerEpoch: request["ownerEpoch"])
+            guard !commands.values.contains(where: { $0["operationId"] as? String != id && $0["origin"] as? String == origin && $0["environmentId"] as? String == environment && unresolved($0) }),
+                  !active.values.contains(origin + "\n" + environment), try !hasPending(environment) else {
+                throw refusal("Resolve the previous environment operation before sending images.", kind: "Busy")
+            }
+            durableOutbox.removeValue(forKey: id); try saveOutboxJournal(value); durableOutbox[id] = revision
+            let token = UUID()
+            inlineSendPreparations[token] = ["operation": operation, "ownerEpoch": request["ownerEpoch"] ?? NSNull(), "phase": "preparing"]
+            active[token] = origin + "\n" + environment
+            return .preparing(token)
+        }
+    }
+    func expandOutboxInlineSend(_ token: UUID) throws -> T3OutboxInlinePayload {
+        do {
+            let operation: [String: Any] = try locked {
+                guard var entry = inlineSendPreparations[token], entry["phase"] as? String == "preparing" else {
+                    throw refusal("The inline send preparation ended or is already expanding.", kind: "stale")
+                }
+                entry["phase"] = "expanding"; inlineSendPreparations[token] = entry
+                return entry["operation"] as! [String: Any]
+            }
+            let prepared = try T3OutboxInlinePayload.expand(token: token, root: root, record: operation["record"] as! [String: Any], captured: operation["template"] as! [String: Any])
+            if let digest = operation["payloadDigest"] as? String, digest != prepared.digest {
+                throw refusal("The exact inline payload changed before retry.", kind: "stale")
+            }
+            try locked {
+                guard var entry = inlineSendPreparations[token], entry["phase"] as? String == "expanding" else {
+                    throw refusal("The inline send was canceled during expansion.", kind: "stale")
+                }
+                entry["phase"] = "expanded"; entry["digest"] = prepared.digest; inlineSendPreparations[token] = entry
+            }
+            return prepared
+        } catch { cancelOutboxInlineSend(token); throw error }
+    }
+    /// Parent transport checks endpoint and reserves its exact encoded-frame capacity before this call.
+    func issueOutboxInlineSend(_ prepared: T3OutboxInlinePayload) throws -> [String: Any] {
+        try locked {
+            let token = prepared.token
+            guard let entry = inlineSendPreparations[token], entry["phase"] as? String == "expanded",
+                  entry["digest"] as? String == prepared.digest else { throw refusal("The prepared inline payload ended or changed.", kind: "stale") }
+            var keepLease = false
+            defer { inlineSendPreparations.removeValue(forKey: token); if !keepLease { active.removeValue(forKey: token) } }
+            let original = entry["operation"] as! [String: Any], id = original["operationId"] as! String
+            var value = try store(), commands = operations(value)
+            guard var operation = commands[id], T3MobileOutbox.jsonEqual(operation, original), inlineSendAttempts[id] == nil else {
+                throw refusal("The inline receipt changed during expansion.", kind: "stale")
+            }
+            try inlineSendRowLocked(operation, ownerEpoch: entry["ownerEpoch"])
+            let origin = operation["origin"] as! String, environment = operation["environmentId"] as! String
+            guard !commands.values.contains(where: { $0["operationId"] as? String != id && $0["origin"] as? String == origin && $0["environmentId"] as? String == environment && unresolved($0) }),
+                  !active.contains(where: { $0.key != token && $0.value == origin + "\n" + environment }), try !hasPending(environment) else {
+                throw refusal("The environment changed during inline expansion.", kind: "Busy")
+            }
+            let state = operation["state"] as! String, revision = operation["revision"] as! Int
+            operation["payloadDigest"] = prepared.digest; operation["attemptRevision"] = revision + 1
+            operation["attemptPreviousState"] = state == "issued" ? "uncertain" : state
+            operation["revision"] = revision + 1; operation["state"] = "issued"
+            operation.removeValue(forKey: "result"); operation.removeValue(forKey: "error")
+            guard T3OutboxInlineReceipt.valid(operation, id: id) else { throw refusal("The issued inline receipt is invalid.", kind: "Persistence") }
+            commands[id] = operation; value["operations"] = commands; durableOutbox.removeValue(forKey: id)
+            try saveOutboxJournal(value); durableOutbox[id] = revision + 1
+            inlineSendAttempts[id] = ["token": token, "revision": revision + 1, "digest": prepared.digest, "admitted": false]
+            keepLease = true
+            return operation
+        }
+    }
+    func cancelOutboxInlineSend(_ token: UUID) {
+        locked { if inlineSendPreparations.removeValue(forKey: token) != nil { active.removeValue(forKey: token) } }
+    }
+    /// Transport callback settlement remains owned after the originating Exact answer is disposed.
+    func settleOutboxInline(_ id: String, issuedRevision: Int, result: [String: Any], knownUnsent: Bool = false) throws -> [String: Any] {
+        try locked {
+            var value = try store(), commands = operations(value)
+            guard var operation = commands[id], operation["kind"] as? String == "outbox-inline", operation["state"] as? String == "issued",
+                  operation["revision"] as? Int == issuedRevision, let attempt = inlineSendAttempts[id], attempt["revision"] as? Int == issuedRevision,
+                  let token = attempt["token"] as? UUID else { throw refusal("The inline callback no longer owns its attempt.", kind: "stale") }
+            defer { inlineSendAttempts.removeValue(forKey: id); active.removeValue(forKey: token) }
+            let flag = result["ok"] as? NSNumber
+            let boolean = flag.map { CFGetTypeID($0) == CFBooleanGetTypeID() } == true
+            let okay = boolean && flag!.boolValue, negative = boolean && !flag!.boolValue
+            let prior = operation["attemptPreviousState"] as! String
+            if okay && T3OutboxInlineReceipt.validAcknowledgment(result["value"], receipt: operation) {
+                operation["state"] = "acknowledged"; operation["result"] = result["value"]!; operation.removeValue(forKey: "error")
+            } else {
+                let notAccepted = negative && (result["_outboxNotAccepted"] as? NSNumber).map { CFGetTypeID($0) == CFBooleanGetTypeID() && $0.boolValue } == true
+                let safelyUnsent = negative && knownUnsent && attempt["admitted"] as? Bool != true
+                operation["state"] = safelyUnsent ? prior : prior == "uncertain" ? "uncertain" : notAccepted ? "rejected" : "uncertain"
+                let fallback: [String: Any] = ["kind": "Protocol", "message": "The inline attachment response did not match its captured descriptors."]
+                let error = result["error"] as? [String: Any]
+                operation["error"] = negative && error.map(JSONSerialization.isValidJSONObject) == true ? error! : fallback
+                operation.removeValue(forKey: "result")
+            }
+            operation["revision"] = issuedRevision + 1
+            guard T3OutboxInlineReceipt.valid(operation, id: id) else { throw refusal("The settled inline receipt is invalid.", kind: "Persistence") }
+            commands[id] = operation; value["operations"] = commands; durableOutbox.removeValue(forKey: id)
+            try saveOutboxJournal(value); durableOutbox[id] = issuedRevision + 1
             return ["operation": operation, "durable": true]
         }
     }
@@ -672,7 +813,21 @@ final class T3MobileQueuedEdit: @unchecked Sendable {
             commands[id] = operation; value["operations"] = commands; try save(value); return operation
         }
     }
-    func admit(method: String, origin: String, environment: String, journal: String? = nil, payload: Any? = nil) throws -> UUID? {
+    func admit(method: String, origin: String, environment: String, journal: String? = nil, payload: Any? = nil, inlineAttempt: UUID? = nil) throws -> UUID? {
+        if let inlineAttempt {
+            return try locked {
+                guard method == "assets.persistChatAttachments", let journal, let payload,
+                      let operation = operations(try store())[journal], operation["kind"] as? String == "outbox-inline",
+                      operation["state"] as? String == "issued", operation["origin"] as? String == origin, operation["environmentId"] as? String == environment,
+                      var attempt = inlineSendAttempts[journal], attempt["token"] as? UUID == inlineAttempt,
+                      attempt["revision"] as? Int == operation["revision"] as? Int, attempt["admitted"] as? Bool != true,
+                      try T3OutboxInlinePayload.digest(method: method, payload: payload) == attempt["digest"] as? String else {
+                    throw refusal("The inline RPC does not match its one prepared attempt.", kind: "stale")
+                }
+                attempt["admitted"] = true; inlineSendAttempts[journal] = attempt
+                let token = UUID(); active[token] = origin + "\n" + environment; return token
+            }
+        }
         if !Self.methods.contains(method) {
             if let journal {
                 try locked {
@@ -684,7 +839,7 @@ final class T3MobileQueuedEdit: @unchecked Sendable {
             if method == "assets.persistChatAttachments" {
                 return try locked {
                     let commands = operations(try store())
-                    if inlinePreparations.values.contains(where: { ($0["prepared"] as? [String: Any])?["origin"] as? String == origin && ($0["prepared"] as? [String: Any])?["environmentId"] as? String == environment })
+                    if inlineSendEnvironmentLocked(origin, environment) || inlinePreparations.values.contains(where: { ($0["prepared"] as? [String: Any])?["origin"] as? String == origin && ($0["prepared"] as? [String: Any])?["environmentId"] as? String == environment })
                         || commands.values.contains(where: { $0["kind"] as? String == "outbox-inline" && $0["origin"] as? String == origin && $0["environmentId"] as? String == environment && unresolved($0) }) {
                         throw refusal("The inline asset stage already owns this environment.", kind: "Busy")
                     }
@@ -696,7 +851,7 @@ final class T3MobileQueuedEdit: @unchecked Sendable {
         }
         return try locked {
             let commands = operations(try store())
-            guard !inlinePreparations.values.contains(where: { ($0["prepared"] as? [String: Any])?["origin"] as? String == origin && ($0["prepared"] as? [String: Any])?["environmentId"] as? String == environment }) else {
+            guard !inlineSendEnvironmentLocked(origin, environment), !inlinePreparations.values.contains(where: { ($0["prepared"] as? [String: Any])?["origin"] as? String == origin && ($0["prepared"] as? [String: Any])?["environmentId"] as? String == environment }) else {
                 throw refusal("Inline image preparation owns this environment.", kind: "Busy")
             }
             if let journal {
@@ -722,6 +877,10 @@ final class T3MobileQueuedEdit: @unchecked Sendable {
             guard let value = try JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any],
                   (value["pending"] == nil || value["pending"] is [String: Any]) else { throw refusal("Saved preferences are invalid.", kind: "Persistence") }
             let pending = value["pending"] as? [String: Any] ?? [:]
+            for entry in inlineSendPreparations.values {
+                let operation = entry["operation"] as! [String: Any]
+                if pending[operation["environmentId"] as! String] != nil { throw refusal("Finish inline expansion before saving another pending operation.", kind: "Busy") }
+            }
             for entry in inlinePreparations.values {
                 let prepared = entry["prepared"] as! [String: Any]
                 if pending[prepared["environmentId"] as! String] != nil { throw refusal("Finish inline image preparation before saving another pending operation.", kind: "Busy") }

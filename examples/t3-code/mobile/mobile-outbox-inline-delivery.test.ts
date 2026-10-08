@@ -8,7 +8,7 @@ import { mobileOutboxMessagePlan } from './mobile-outbox-wire';
 import { mobileOutboxCompactInline } from './mobile-outbox-inline';
 import type { MobileOutboxRecord } from './mobile-outbox-model';
 import { mobileOutboxInlineDecode, mobileOutboxInlineReserve, mobileOutboxInlineStatus, mobileOutboxInlineRecover,
-  mobileOutboxInlineRetire, type MobileOutboxInlineReceipt } from './mobile-outbox-inline-delivery';
+  mobileOutboxInlineRetire, mobileOutboxInlineSend, type MobileOutboxInlineReceipt } from './mobile-outbox-inline-delivery';
 
 const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value));
 const id = 'aaaaaaaa-1111-4000-a000-000000000001';
@@ -132,5 +132,110 @@ test('answer cancellation and generation replacement do not trigger another call
     try { await mobileOutboxInlineReserve(f.client, f.native, f.capture(), id, f.template); } catch (error) { caught = error; }
     if (mode === 'cancel') expect(letGo(caught)).toBe(true); else expect(caught).toMatchObject({ kind: 'stale', uncertain: true });
     expect(f.calls).toHaveLength(1); expect(mobileOutboxSnapshot(f.client)).toEqual(before);
+  }
+});
+
+function settled(input = data().receipt, state: MobileOutboxInlineReceipt['state'] = 'acknowledged'): MobileOutboxInlineReceipt {
+  const previous = input.state === 'issued' ? 'uncertain' : input.state as 'reserved' | 'uncertain' | 'rejected';
+  const { result: _result, error: _error, ...base } = clone(input);
+  return { ...base, state, revision: input.revision + 2, attemptRevision: input.revision + 1,
+    attemptPreviousState: previous, payloadDigest: input.payloadDigest ?? 'c'.repeat(64),
+    ...(state === 'acknowledged' ? { result: { attachments: input.template.inline.map(binding => {
+      const local = input.record.attachments[binding.index]!;
+      return { type: 'image', id: 'persisted-image', name: local.name, mimeType: local.mimeType, sizeBytes: local.sizeBytes };
+    }) } } : { error: { kind: 'Transport', message: 'No confirmed reply.' } }) };
+}
+test('inline send carries only saved identity and preserves queue edits and shared Pending', async () => {
+  const f = await fixture(), saved = settled(f.receipt, 'uncertain'); await f.refresh('edited');
+  const before = mobileOutboxSnapshot(f.client), reply = settled(saved); f.answer({ operation: reply, durable: true });
+  const pending = mobileOutboxInlineSend(f.client, f.native, saved);
+  saved.template.commandTemplate.payload.text = 'caller changed'; saved.payloadDigest = 'a'.repeat(64);
+  expect((await pending).operation).toEqual(reply);
+  expect(f.calls).toEqual([{ op: 'mobileOutboxInline', action: 'send', expectedOrigin: f.record.origin,
+    expectedEnvironmentId: 'env', operationId: id, revision: 3, ownerEpoch: 'epoch', generation: 7 }]);
+  expect(mobileOutboxSnapshot(f.client)).toEqual(before); expect(f.client.local.pending).toEqual({});
+});
+test('inline attempt states preserve previous uncertainty and require explicit rejected retry', async () => {
+  for (const previous of ['reserved', 'uncertain', 'issued', 'rejected'] as const) {
+    for (const state of ['acknowledged', 'uncertain', 'rejected', 'reserved'] as const) {
+      const f = await fixture();
+      const saved = previous === 'reserved' ? f.receipt : settled(f.receipt, previous === 'issued' ? 'uncertain' : previous);
+      if (previous === 'issued') { saved.state = 'issued'; saved.revision = saved.attemptRevision!; delete saved.error; }
+      const output = settled(saved, state); f.answer({ operation: output, durable: true });
+      const permitted = ['uncertain', 'issued'].includes(previous) ? ['acknowledged', 'uncertain'].includes(state)
+        : previous === 'rejected' ? state !== 'reserved' : true;
+      const promise = mobileOutboxInlineSend(f.client, f.native, saved, previous === 'rejected');
+      if (permitted) expect((await promise).operation).toEqual(output);
+      else await expect(promise).rejects.toMatchObject({ kind: 'protocol', uncertain: true });
+      expect(f.calls).toHaveLength(1);
+    }
+  }
+  const f = await fixture();
+  await expect(mobileOutboxInlineSend(f.client, f.native, settled(f.receipt, 'rejected'))).rejects.toMatchObject({ kind: 'outbox-stale' });
+  await expect(mobileOutboxInlineSend(f.client, f.native, { ...f.receipt, state: 'retired', revision: 2 })).rejects.toMatchObject({ kind: 'outbox-stale' });
+  expect(f.calls).toHaveLength(0);
+});
+test('ACK replay is exact and recovery never reconstructs bytes or advances attempts', async () => {
+  const f = await fixture(), saved = settled(); f.answer({ operation: saved, durable: true });
+  expect((await mobileOutboxInlineSend(f.client, f.native, saved)).operation).toEqual(saved);
+  expect((await mobileOutboxInlineRecover(f.native, saved)).operation).toEqual(saved);
+  for (const change of [(v: MobileOutboxInlineReceipt) => { v.result!.attachments[0]!.id = 'another-valid-id'; },
+    (v: MobileOutboxInlineReceipt) => { v.payloadDigest = 'd'.repeat(64); },
+    (v: MobileOutboxInlineReceipt) => { v.attemptRevision! += 2; v.revision += 2; }]) {
+    const output = clone(saved); change(output); f.answer({ operation: output, durable: true });
+    await expect(mobileOutboxInlineSend(f.client, f.native, saved)).rejects.toMatchObject({ kind: 'protocol' });
+  }
+  expect(f.calls.every(call => !('template' in call) && !('payload' in call) && !('payloadDigest' in call))).toBe(true);
+});
+test('settled reply cannot replace immutable digest/template or skip the next attempt', async () => {
+  for (const mode of ['digest', 'template', 'file-digest', 'attempt', 'durability', 'missing'] as const) {
+    const f = await fixture(), saved = settled(f.receipt, 'uncertain'), reply = settled(saved);
+    if (mode === 'digest') reply.payloadDigest = 'b'.repeat(64);
+    if (mode === 'template') reply.template.commandTemplate.payload.text = 'other';
+    if (mode === 'file-digest') reply.template.inline[0]!.sha256 = 'b'.repeat(64);
+    if (mode === 'attempt') { reply.attemptRevision! += 2; reply.revision += 2; }
+    f.answer({ operation: mode === 'missing' ? null : reply, durable: mode !== 'durability' });
+    await expect(mobileOutboxInlineSend(f.client, f.native, saved)).rejects.toMatchObject({ kind: 'protocol', uncertain: true });
+  }
+});
+test('ACK descriptors are closed and match the original inline subset', () => {
+  for (const change of [(v: Obj) => { v.attachments = []; }, (v: Obj) => { v.extra = true; },
+    (v: Obj) => { (v.attachments as Obj[])[0]!.name = 'another.png'; },
+    (v: Obj) => { (v.attachments as Obj[])[0]!.mimeType = 'image/jpeg'; },
+    (v: Obj) => { (v.attachments as Obj[])[0]!.sizeBytes = 99; },
+    (v: Obj) => { (v.attachments as Obj[])[0]!.dataUrl = 'data:image/png;base64,YWJj'; },
+    (v: Obj) => { (v.attachments as Obj[])[0]!.id = 'bad/id'; },
+    (v: Obj) => { (v.attachments as Obj[])[0]!.source = {}; }]) {
+    const receipt = settled(); change(receipt.result!); expect(() => mobileOutboxInlineDecode(receipt, id)).toThrow(ClientError);
+  }
+  for (const mode of ['digest', 'previous', 'result-and-error', 'fraction', 'overflow'] as const) {
+    const value = settled() as unknown as Obj;
+    if (mode === 'digest') delete value.payloadDigest;
+    if (mode === 'previous') value.attemptPreviousState = 'acknowledged';
+    if (mode === 'result-and-error') value.error = {};
+    if (mode === 'fraction') value.attemptRevision = 2.5;
+    if (mode === 'overflow') { value.attemptRevision = Number.MAX_SAFE_INTEGER; value.revision = Number.MAX_SAFE_INTEGER; }
+    expect(() => mobileOutboxInlineDecode(value, id)).toThrow(ClientError);
+  }
+});
+test('known-unsent reservation retires at its current attempt revision', async () => {
+  const f = await fixture(), saved = settled(f.receipt, 'reserved'), retired = { ...saved, state: 'retired' as const, revision: saved.revision + 1 };
+  f.answer({ operation: retired, durable: true });
+  expect((await mobileOutboxInlineRetire(f.native, saved)).operation).toEqual(retired);
+  expect((await mobileOutboxInlineRetire(f.native, retired)).operation).toEqual(retired);
+  await expect(mobileOutboxInlineRetire(f.native, settled(f.receipt, 'uncertain'))).rejects.toMatchObject({ kind: 'outbox-stale' });
+  expect(f.calls).toHaveLength(2);
+});
+test('send cancellation and endpoint replacement preserve the saved native owner without retry', async () => {
+  for (const mode of ['cancel', 'generation', 'environment', 'offline'] as const) {
+    const f = await fixture(), before = mobileOutboxSnapshot(f.client); f.answer({ operation: settled(), durable: true });
+    if (mode === 'environment') f.client.environmentId = 'other';
+    if (mode === 'offline') f.client.connection = 'disconnected';
+    f.intercept(() => { if (mode === 'cancel') throw { name: 'FetchError', kind: 'Aborted' }; f.client.generation++; });
+    let failure: unknown; try { await mobileOutboxInlineSend(f.client, f.native, f.receipt); } catch (error) { failure = error; }
+    if (mode === 'cancel') expect(letGo(failure)).toBe(true);
+    else expect(failure).toMatchObject({ kind: mode === 'generation' ? 'stale' : 'outbox-stale' });
+    expect(f.calls).toHaveLength(['offline', 'environment'].includes(mode) ? 0 : 1);
+    expect(mobileOutboxSnapshot(f.client)).toEqual(before);
   }
 });
