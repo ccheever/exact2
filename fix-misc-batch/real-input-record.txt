@@ -1,0 +1,49 @@
+# fix-misc-batch real-input session (#298 bugs 7 and 3), 2026-10-08
+Lock: the shared real-input lock (owner "fix-misc-batch: real input"), taken 07:16:12Z, released after the session (~8 min).
+Builds: branch = this worktree at 08b8ded8a (the fixes + review changes, feature branch ec32c8c37 merged), lane copy
+"T3 Code (Lane MISC)" (com.exact.t3code.macos.lanemisc); base = t3-code-evidence-base at c0475fbaa (built under its
+.build-lock, copied out), lane copy "T3 Code (Lane MISC base)" (com.exact.t3code.macos.lanemiscbase). Ad hoc signed.
+Launch: normal (not agent mode), env built from nothing: HOME = CFFIXED_USER_HOME = <lane>/home (with a lane-only
+keychain file, created with HOME=<lane>/home; the user's keychain list and default read before/after: unchanged),
+CODEX_HOME, CLAUDE_CONFIG_DIR, XDG_* under <lane>, T3_LOCAL_HOME=<lane>/t3home-<branch|base>, T3_LOCAL_PORT 16120/16121,
+T3_LOCAL_RUNTIME_DIR = the pinned release (0.0.46-nightly.20261005.2667) unpacked, T3CODE_TELEMETRY_ENABLED=false,
+TMPDIR = the user's (the socket path), R8_KEYS_LOG=<lane>/r8keys-<which>.log (each ⌘ key, the responder, what the menu sent).
+CLI: env -i HOME=<lane>/clihome PATH=/usr/bin:/bin TMPDIR="$TMPDIR" <runtime>/t3 app <lane>/projects/<dir> --base-dir <T3_LOCAL_HOME>.
+Input: real HID key chords (a CGEvent helper posting at the HID tap, refusing unless the lane app's pid is frontmost),
+orca computer clicks (by coordinate or accessibility element) and pastes, System Events only on the lane app's own
+process (AXMinimized, Edit menu items), Finder activated with osascript.
+Interference: fix-provider-auth-state launched an agent-mode app (pid 95707) whose window overlapped the lane window
+mid-session; one real click (cliclick 649,414) may have landed on that window before the lane window was brought
+back with --restore-window. Every later key was posted only with the lane app frontmost.
+
+## Bug 7: t3 app with the window minimized
+Branch (pid 89570, window 206758):
+- t3 app alpha, window shown: "Opened …/alpha in T3 Code.", exit 0 in 0.9 s.
+- Finder activated; AXMinimized set true on the lane window (read back true); lsappinfo front = Finder.
+- t3 app beta: "Opened …/projects/beta in T3 Code.", exit 0 after 1.21 s; AXMinimized read back false; lsappinfo
+  front = "T3 Code (Lane MISC)"; app log: request arrived, handed to the window, answered: opened project eac5f6d6…
+  thread 4982e412… PASS.
+Base (pid 13125, window 206848), same steps:
+- t3 app alpha: exit 0. Minimized (true), Finder front.
+- t3 app beta: "DesktopAppRequestFailedError: T3 Code could not open …/beta (request-timeout)", exit 1 after
+  16.09 s; AXMinimized still true; Finder still front; app log: answered request-timeout. (= #298 bug 7)
+
+## Bug 3: undo in the composer and the prompt preview
+Branch (pid 89570; relaunched as 20854 for the real-key composer pair):
+- Composer (beta's new-thread draft), focused through its accessibility element: pasted "Undo probe one", then " two"
+  1.6 s later; real ⌘Z -> "Undo probe one"; real ⌘Z -> empty; real ⇧⌘Z -> "Undo probe one"; Edit › Undo (menu bar)
+  -> empty; Edit › Redo -> "Undo probe one". R8_KEYS_LOG: responder=TextArea, "sent Undo/Redo target=R8KeysMenus".
+- Relaunched: ⌘A + Delete, real keys 1 2 3 -> "123"; real ⌘Z -> empty; Edit › Undo -> "Undo probe one" back
+  (the deletion); real ⇧⌘Z -> empty again. PASS.
+- Settings › Appearance › Typography prompt preview (scrolled with a real wheel): ⌘↓, pasted " AUDIT_PROBE";
+  real ⌘Z -> suffix gone; real ⇧⌘Z -> back. Real keys 1 2 -> "…AUDIT_PROBE12"; real ⌘Z -> "…AUDIT_PROBE" with the
+  caret at the end; ⇧⌘Z -> "…AUDIT_PROBE12". PASS. (orca's paste writes the accessibility value, so its undo
+  re-selects the replaced text; real typing leaves a caret.)
+Base (pid 13125): composer focused, real keys 1 2 3 -> "123"; real ⌘Z -> "123"; Edit › Undo -> "123". R8_KEYS_LOG:
+responder=TextArea, "sent Undo target=R8KeysMenus" twice: the item was chosen and nothing changed (= #298 bug 3).
+
+## Cleanup
+Both lane apps quit by pid (SIGTERM); their embedded servers (13265, 20972) and children stopped by pid; the stale
+lane sockets 4def307b… and 130b5990… removed from $TMPDIR/t3code-501 (another app's 09fab84e….sock untouched); the
+lane bundles' preference files that macOS wrote to ~/Library/Preferences (com.exact.t3code.macos.lanemisc[base])
+deleted; lane servers on 16110, 16113, 16114 stopped. Lock released.
