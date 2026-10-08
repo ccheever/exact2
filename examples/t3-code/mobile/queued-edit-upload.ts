@@ -7,12 +7,10 @@ import { ClientError, type Native } from './shared/protocol';
 import { letGo } from './shared/let-go';
 import { fileStagingLimit } from './shared/composer-editor-files';
 import { mobileQueuedEditLookup, mobileQueuedEditPersist, queuedEditState, type MobileQueuedEditAttachment, type MobileQueuedEditSession } from './queued-edit-state';
-const IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp']);
+import { mobileComposerAttachmentWireKindAndMime } from './mobile-attachment-policy';
 export function queuedEditImageMime(file: Pick<MobileQueuedEditAttachment, 'name' | 'mimeType'>): string {
-  const mime = file.mimeType.toLowerCase();
-  if (IMAGE_TYPES.has(mime)) return mime;
-  const ext = file.name.split('.').at(-1)?.toLowerCase();
-  return ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg' : ext === 'png' ? 'image/png' : ext === 'gif' ? 'image/gif' : ext === 'webp' ? 'image/webp' : '';
+  const wire = mobileComposerAttachmentWireKindAndMime({ ...file, kind: 'file' });
+  return wire.type === 'image' ? wire.mimeType : '';
 }
 export function queuedEditResolvePayload(edit: MobileQueuedEditSession, uploaded: Obj[]) {
   if (uploaded.length !== edit.attachments.length) throw new ClientError('Retry or remove failed uploads before saving.');

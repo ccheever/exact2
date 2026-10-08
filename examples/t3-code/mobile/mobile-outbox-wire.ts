@@ -15,9 +15,9 @@ export interface MobileOutboxWireRequest {
   owner: MobileOutboxWireOwner; stage: 'settings-sync' | 'start-turn';
   method: 'orchestration.launchThread' | 'orchestration.dispatchCommand'; payload: Obj;
 }
-/** Native validates the full server ChatAttachment metadata and durably adopts
- * its upload reference before returning it. This pure mapper checks ownership
- * and ordering; it is not a second server attachment schema validator. */
+/** Preparation validates server attachment metadata and native CAS adopts its
+ * upload reference. This final mapper checks ownership and order; legacy inline
+ * images still need the source command's persistence stage before this boundary. */
 export interface MobileOutboxPreparedAttachment { localId: string; attachment: Obj }
 export interface MobileOutboxWireFacts {
   origin: string; environmentId: string; config: Obj;
