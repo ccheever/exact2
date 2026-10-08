@@ -33,6 +33,7 @@ impl Kernel {
             .with_insets(env.top, env.right, env.bottom, env.left);
         let next = Env {
             control_text_styles: env.control_text_styles,
+            button_fonts: env.button_fonts,
             ..next
         };
         self.replace_env(next)
@@ -69,7 +70,8 @@ impl Kernel {
         if *self.arena.env() == env {
             return Ok(false);
         }
-        let control_changed = self.arena.env().control_text_styles != env.control_text_styles;
+        let control_changed = self.arena.env().control_text_styles != env.control_text_styles
+            || self.arena.env().button_fonts != env.button_fonts;
         let before: Vec<_> = if control_changed {
             self.arena
                 .iter_live()

@@ -1118,7 +1118,9 @@ fn style_changed(
     mask: StyleMask,
     receipt: &mut CommitReceipt,
 ) {
-    if mask.has(crate::StyleId::Appearance) && arena.node_type(slot) == NodeType::TextInput {
+    if (mask.has(crate::StyleId::Appearance) && arena.node_type(slot) == NodeType::TextInput)
+        || (mask.has(crate::StyleId::ControlSize) && arena.is_native_button(slot))
+    {
         control_env_changed(arena, layout, slot);
         receipt.layout_invalidated = true;
     }
@@ -1237,6 +1239,15 @@ pub(crate) fn control_env_changed(arena: &mut NodeArena, layout: &mut dyn Layout
         layout.restyle(arena, slot, node);
         layout.mark_dirty(node);
     }
+    let mut receipt = CommitReceipt::default();
+    propagate_inherited(
+        arena,
+        layout,
+        slot,
+        crate::arena::control_text::stopped_rows(),
+        &mut Vec::new(),
+        &mut receipt,
+    );
 }
 
 pub(crate) mod relative;

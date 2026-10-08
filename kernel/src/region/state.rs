@@ -377,6 +377,7 @@ impl RegionState {
             root,
             shell_frames,
             &shell_geometry.field_content,
+            &shell_geometry.button_bases,
             true,
             &mut changed,
         );
@@ -385,6 +386,7 @@ impl RegionState {
             root,
             &frames,
             &geometry.field_content,
+            &geometry.button_bases,
             current || selected.is_none(),
             &mut changed,
         );
@@ -890,6 +892,7 @@ fn publish(
     root: u32,
     frames: &[RegionFrame],
     field_content: &crate::id::IdMap<NodeKey, Frame>,
+    button_bases: &crate::id::IdMap<NodeKey, Option<f32>>,
     current: bool,
     changed: &mut Vec<NodeKey>,
 ) {
@@ -910,6 +913,11 @@ fn publish(
             arena.field_content.insert(s, content);
         } else {
             arena.field_content.remove(&s);
+        }
+        if let Some(&basis) = button_bases.get(&f.node) {
+            arena.button_bases.insert(s, basis);
+        } else {
+            arena.button_bases.remove(&s);
         }
         let flags = arena.flags_mut(s);
         if current {

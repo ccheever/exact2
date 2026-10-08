@@ -241,8 +241,9 @@ pub struct PressFace {
     pub leading: bool,
     /// Its `aria-label`.
     pub label: Option<String>,
-    /// Whether its direct children are at most two `text`s and one `image` and
-    /// nothing else; a native button always fits (LLP 1069.011 D5).
+    /// Whether projections can show its direct children: at most one `text`
+    /// and one `image`, with nothing else (LLP 1069.011.000 D1). A native
+    /// button can additionally carry `subtitle` without fitting a projection.
     pub fits: bool,
 }
 

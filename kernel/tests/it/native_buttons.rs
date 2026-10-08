@@ -213,7 +213,10 @@ fn the_face_has_a_subtitle_and_all_four_placements() {
         assert_eq!(face.placement, placement);
         assert_eq!(face.title.as_deref(), Some("A long title"));
         assert_eq!(face.subtitle.as_deref(), Some("A subtitle"));
-        assert!(face.fits);
+        assert!(
+            !face.fits,
+            "subtitle faces do not fit one-title projections"
+        );
     }
 }
 fn font(size: f32) -> ControlFont {
@@ -379,5 +382,289 @@ fn ordinary_buttons_reset_ancestor_transforms_while_projected_faces_keep_them() 
     assert_eq!(
         k.press_face(2).unwrap().title.as_deref(),
         Some("A LONG TITLE")
+    );
+}
+
+#[test]
+fn unrelated_layout_does_not_remeasure_native_buttons() {
+    let answers = Rc::new(RefCell::new((false, Vec::new())));
+    let mut k = tree(Box::new(Buttons(answers.clone())));
+    layout(&mut k);
+    answers.borrow_mut().1.clear();
+    patch(&mut k, 1, &[(StyleId::Height, "600")]);
+    layout(&mut k);
+    assert_eq!(answers.borrow().1.len(), 0);
+}
+
+#[test]
+fn two_text_custom_face_keeps_the_projected_name() {
+    let mut k = tree(Box::new(MonospaceMeasurer::default()));
+    k.apply(
+        0,
+        2,
+        &[
+            Op::CreateView {
+                id: 6,
+                node_type: NodeType::Pressable,
+            },
+            prop(3, PropId::Text, "Account"),
+            prop(4, PropId::Text, "alice@example.com"),
+            Op::SetChildren {
+                id: 2,
+                children: vec![],
+            },
+            Op::SetChildren {
+                id: 6,
+                children: vec![3, 4],
+            },
+            Op::SetChildren {
+                id: 1,
+                children: vec![6],
+            },
+        ],
+    )
+    .unwrap();
+    let face = k.press_face(6).unwrap();
+    // Projections take the semantic title only for a fitting face; otherwise
+    // they join the rendered children, as menu rows did before subtitles.
+    let name = if face.fits {
+        face.title.unwrap()
+    } else {
+        [3, 4]
+            .iter()
+            .map(|&id| k.node(id).unwrap().props.str(PropId::Text).unwrap())
+            .collect::<Vec<_>>()
+            .join(" ")
+    };
+    assert_eq!(name, "Account alice@example.com");
+}
+
+#[test]
+fn hosts_receive_resolved_padding_and_each_corner() {
+    let answers = Rc::new(RefCell::new((false, Vec::new())));
+    let mut k = tree(Box::new(Buttons(answers.clone())));
+    patch(&mut k, 1, &[(StyleId::Width, "300")]);
+    patch(
+        &mut k,
+        2,
+        &[
+            (StyleId::Width, "80"),
+            (StyleId::PaddingTop, "10%"),
+            (StyleId::PaddingRight, "calc(5% + 2px)"),
+            (StyleId::PaddingBottom, "3"),
+            (StyleId::PaddingLeft, "4"),
+            (StyleId::BorderRadiusTopLeft, "5"),
+            (StyleId::BorderRadiusTopRight, "6"),
+            (StyleId::BorderRadiusBottomRight, "7"),
+            (StyleId::BorderRadiusBottomLeft, "8"),
+        ],
+    );
+    layout(&mut k);
+    let s = k.button_face_style(2).unwrap().button;
+    assert_eq!(s.padding_top, Dimension::Points(30.0));
+    assert_eq!(s.padding_right, Dimension::Points(17.0));
+    assert_eq!(
+        [
+            s.border_radius_top_left,
+            s.border_radius_top_right,
+            s.border_radius_bottom_right,
+            s.border_radius_bottom_left
+        ],
+        [
+            Dimension::Points(5.0),
+            Dimension::Points(6.0),
+            Dimension::Points(7.0),
+            Dimension::Points(8.0)
+        ]
+    );
+    assert!(s.mask.has(StyleId::PaddingTop));
+    let state = answers.borrow();
+    let s = &state.1.last().unwrap().style.button;
+    assert_eq!(s.padding_top, Dimension::Points(30.0));
+    assert_eq!(s.padding_right, Dimension::Points(17.0));
+}
+
+#[test]
+fn control_size_selects_the_font_for_em_and_invalidates_descendants() {
+    let mut k = tree(Box::new(MonospaceMeasurer::default()));
+    let mut e = env(13.0);
+    e.button_fonts = Some(ButtonFonts {
+        mini: Some(font(9.0)),
+        small: Some(font(11.0)),
+        medium: Some(font(13.0)),
+        large: Some(font(17.0)),
+    });
+    k.set_env(e.clone()).unwrap();
+    patch(
+        &mut k,
+        2,
+        &[(StyleId::ControlSize, "mini"), (StyleId::Width, "10em")],
+    );
+    patch(&mut k, 3, &[(StyleId::FontSize, "2em")]);
+    assert_eq!(k.button_face_style(2).unwrap().title.font_size, 18.0);
+    assert_eq!(layout(&mut k).width, 90.0);
+    for (size, px) in [("small", 11.0), ("medium", 13.0), ("large", 17.0)] {
+        let receipt = k
+            .apply(
+                0,
+                3,
+                &[Op::SetStyle {
+                    id: 2,
+                    patch: rows(&[(StyleId::ControlSize, size)]),
+                }],
+            )
+            .unwrap();
+        assert!(receipt.layout_invalidated);
+        assert_eq!(k.button_face_style(2).unwrap().title.font_size, 2.0 * px);
+        assert_eq!(layout(&mut k).width, 10.0 * px);
+    }
+    e.button_fonts.as_mut().unwrap().large = Some(font(20.0));
+    assert!(k.set_env(e).unwrap());
+    assert_eq!(layout(&mut k).width, 200.0);
+    assert_eq!(k.button_face_style(2).unwrap().title.font_size, 40.0);
+    assert!(k.set_env(env(13.0)).unwrap());
+    assert_eq!(
+        layout(&mut k).width,
+        130.0,
+        "old hosts retain their fallback"
+    );
+}
+
+#[test]
+fn face_edits_remeasure_then_the_next_layout_is_free() {
+    let answers = Rc::new(RefCell::new((false, Vec::new())));
+    let mut k = tree(Box::new(Buttons(answers.clone())));
+    layout(&mut k);
+    for op in [
+        prop(3, PropId::Text, "New title"),
+        prop(4, PropId::Text, "New subtitle"),
+        prop(5, PropId::ImageSource, "symbol:add"),
+        Op::SetStyle {
+            id: 3,
+            patch: rows(&[(StyleId::FontSize, "22")]),
+        },
+        Op::SetStyle {
+            id: 5,
+            patch: rows(&[(StyleId::TintColor, "blue")]),
+        },
+        Op::SetChildren {
+            id: 2,
+            children: vec![3, 4, 5],
+        },
+    ] {
+        answers.borrow_mut().1.clear();
+        k.apply(0, 3, &[op]).unwrap();
+        layout(&mut k);
+        assert!(
+            !answers.borrow().1.is_empty(),
+            "changed face must be measured"
+        );
+        answers.borrow_mut().1.clear();
+        layout(&mut k);
+        assert!(answers.borrow().1.is_empty(), "final offers must be reused");
+    }
+    let face = k.press_face(2).unwrap();
+    assert_eq!(face.title.as_deref(), Some("New title"));
+    assert_eq!(face.subtitle.as_deref(), Some("New subtitle"));
+    assert_eq!(face.symbol.as_deref(), Some("add"));
+}
+
+#[test]
+fn resolved_padding_tracks_containing_width_with_both_button_axes_fixed() {
+    let answers = Rc::new(RefCell::new((false, Vec::new())));
+    let mut k = tree(Box::new(Buttons(answers)));
+    patch(
+        &mut k,
+        2,
+        &[
+            (StyleId::Width, "80"),
+            (StyleId::Height, "100"),
+            (StyleId::PaddingTop, "10%"),
+            (StyleId::PaddingLeft, "calc(5% + 2px)"),
+        ],
+    );
+    for (width, top, left) in [(300.0, 30.0, 17.0), (200.0, 20.0, 12.0)] {
+        patch(&mut k, 1, &[(StyleId::Width, &width.to_string())]);
+        layout(&mut k);
+        let s = k.button_face_style(2).unwrap().button;
+        assert_eq!(s.padding_top, Dimension::Points(top));
+        assert_eq!(s.padding_left, Dimension::Points(left));
+    }
+}
+
+#[test]
+fn clearing_control_size_and_authored_font_restore_the_platform_em_base() {
+    let mut k = tree(Box::new(MonospaceMeasurer::default()));
+    let mut e = env(13.0);
+    e.button_fonts = Some(ButtonFonts {
+        mini: Some(font(9.0)),
+        ..ButtonFonts::default()
+    });
+    k.set_env(e.clone()).unwrap();
+    patch(
+        &mut k,
+        2,
+        &[
+            (StyleId::ControlSize, "mini"),
+            (StyleId::FontSize, "20"),
+            (StyleId::Width, "10em"),
+        ],
+    );
+    assert_eq!(layout(&mut k).width, 200.0);
+    k.apply(
+        0,
+        3,
+        &[Op::ClearStyle {
+            id: 2,
+            mask: StyleMask::of(StyleId::FontSize),
+        }],
+    )
+    .unwrap();
+    assert_eq!(layout(&mut k).width, 90.0);
+    k.apply(
+        0,
+        4,
+        &[Op::ClearStyle {
+            id: 2,
+            mask: StyleMask::of(StyleId::ControlSize),
+        }],
+    )
+    .unwrap();
+    assert_eq!(layout(&mut k).width, 130.0);
+    e.button_fonts.as_mut().unwrap().mini = Some(font(f32::NAN));
+    assert!(matches!(
+        k.set_env(e),
+        Err(KernelError::Layout(LayoutError::InvalidEnv))
+    ));
+}
+
+#[test]
+fn a_fully_sized_provisional_button_is_still_withheld() {
+    let answers = Rc::new(RefCell::new((true, Vec::new())));
+    let mut k = tree(Box::new(Buttons(answers.clone())));
+    patch(
+        &mut k,
+        2,
+        &[(StyleId::Width, "80"), (StyleId::Height, "100")],
+    );
+    layout(&mut k);
+    assert_eq!(k.provisional_layouts(), 1);
+    answers.borrow_mut().0 = false;
+    layout(&mut k);
+    assert_eq!(k.provisional_layouts(), 1);
+    answers.borrow_mut().1.clear();
+    layout(&mut k);
+    assert!(answers.borrow().1.is_empty());
+}
+
+#[test]
+fn unresolved_host_still_publishes_resolved_button_padding() {
+    let mut k = tree(Box::new(MonospaceMeasurer::default()));
+    patch(&mut k, 1, &[(StyleId::Width, "300")]);
+    patch(&mut k, 2, &[(StyleId::PaddingTop, "10%")]);
+    layout(&mut k);
+    assert_eq!(
+        k.button_face_style(2).unwrap().button.padding_top,
+        Dimension::Points(30.0)
     );
 }

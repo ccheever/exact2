@@ -2,6 +2,42 @@
 use super::*;
 use crate::{ButtonFaceStyle, ButtonImagePlacement, ControlKind, PressFace};
 
+pub(crate) struct ButtonInputs {
+    env: crate::Env,
+    nodes: Vec<ButtonNode>,
+}
+
+struct ButtonNode {
+    key: NodeKey,
+    kind: NodeType,
+    style: Rc<StyleProps>,
+    props: PropList,
+    inherited: InheritedStyle,
+    paragraph: Option<ParagraphStamp>,
+}
+
+impl ButtonInputs {
+    pub(crate) fn matches(&self, arena: &NodeArena, slot: u32) -> bool {
+        if self.env != *arena.env() {
+            return false;
+        }
+        let slots = arena.subtree(slot);
+        self.nodes.len() == slots.len()
+            && self.nodes.iter().zip(slots).all(|(held, s)| {
+                held.key == arena.key(s)
+                    && held.kind == arena.node_type(s)
+                    && (Rc::ptr_eq(&held.style, &arena.styles[s as usize])
+                        || *held.style == *arena.style(s))
+                    && held.props == *arena.props(s)
+                    && held.paragraph == arena.paragraph_stamp(s)
+                    && held
+                        .inherited
+                        .changed_mask(&arena.computed_inherited(s))
+                        .is_empty()
+            })
+    }
+}
+
 const TITLE_ROWS: &[StyleId] = &[
     StyleId::FontSize,
     StyleId::FontWeight,
@@ -68,7 +104,7 @@ impl NodeArena {
                 _ => face.fits = false,
             }
         }
-        face.fits &= texts <= 2 && images <= 1;
+        face.fits &= texts <= 1 && images <= 1;
         face.placement = match (self.style(slot).flex_direction, face.leading) {
             (crate::FlexDirection::Column | crate::FlexDirection::ColumnReverse, true) => {
                 ButtonImagePlacement::Top
@@ -82,7 +118,35 @@ impl NodeArena {
         Some(face)
     }
 
+    pub(crate) fn button_inputs(&self, slot: u32) -> ButtonInputs {
+        ButtonInputs {
+            env: self.env.clone(),
+            nodes: self
+                .subtree(slot)
+                .into_iter()
+                .map(|s| ButtonNode {
+                    key: self.key(s),
+                    kind: self.node_type(s),
+                    style: self.styles[s as usize].clone(),
+                    props: self.props(s).clone(),
+                    inherited: self.computed_inherited(s),
+                    paragraph: self.paragraph_stamp(s),
+                })
+                .collect(),
+        }
+    }
+
     pub(crate) fn button_face_style(&self, slot: u32) -> Option<ButtonFaceStyle> {
+        let mut face = self.button_face_style_unresolved(slot)?;
+        face.resolve_geometry(
+            self.env(),
+            self.button_bases.get(&slot).copied().flatten(),
+            self.frame(slot),
+        );
+        Some(face)
+    }
+
+    pub(crate) fn button_face_style_unresolved(&self, slot: u32) -> Option<ButtonFaceStyle> {
         if !self.is_native_button(slot) {
             return None;
         }

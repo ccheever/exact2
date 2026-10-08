@@ -112,6 +112,7 @@ pub struct LayoutTree {
     fault: Option<String>,
     field_chrome: IdMap<NodeId, crate::FieldChrome>,
     field_minima: IdMap<NodeId, f32>,
+    button_records: IdMap<NodeId, buttons::ButtonRecord>,
     provisional_chrome: bool,
     slots: IdMap<NodeId, u32>,
     // Invalidation sources since the last layout: true where the node's own
@@ -335,6 +336,7 @@ impl LayoutTree {
             fault: None,
             field_chrome: IdMap::default(),
             field_minima: IdMap::default(),
+            button_records: IdMap::default(),
             provisional_chrome: false,
             slots: IdMap::default(),
             deferred: IdMap::default(),
@@ -435,6 +437,7 @@ impl LayoutTree {
     pub fn remove(&mut self, node: NodeId) {
         self.field_chrome.remove(&node);
         self.field_minima.remove(&node);
+        self.button_records.remove(&node);
         self.deferred.remove(&node);
         if let Some(slot) = self.slots.remove(&node) {
             self.flowing.remove(&slot);
@@ -822,7 +825,7 @@ impl LayoutTree {
         arena: &NodeArena,
         measurer: &mut dyn TextMeasurer,
         node_for: &impl Fn(u32) -> Option<NodeId>,
-        buttons: &IdMap<u32, crate::ButtonMeasureRequest>,
+        buttons: &IdMap<u32, NodeId>,
     ) -> Result<IdMap<NodeId, f32>, LayoutError> {
         if let Some(fault) = &self.fault {
             return Err(LayoutError::Engine(fault.clone()));
@@ -888,6 +891,12 @@ impl LayoutTree {
         let height_free = measurer.height_free();
         let chrome = &self.field_chrome;
         let mut minima = IdMap::default();
+        let baselines_unread: IdSet<_> = boundaries
+            .iter()
+            .filter(|(node, _, _)| self.baselines_unread(*node))
+            .map(|(node, _, _)| *node)
+            .collect();
+        let button_records = &mut self.button_records;
         let mut measure = |inputs: LayoutInput,
                            node,
                            context: Option<&mut MeasureContext>,
@@ -915,6 +924,14 @@ impl LayoutTree {
             } else {
                 style
             };
+
+            if let Some(record) = context
+                .as_ref()
+                .and_then(|c| buttons.get(&c.slot))
+                .and_then(|n| button_records.get_mut(n))
+            {
+                record.parent_width = inputs.parent_size.width;
+            }
 
             // Patch 2's separate API is unnecessary: the upstream callback owns
             // LayoutOutput, including baselines in border-box coordinates.
@@ -965,9 +982,10 @@ impl LayoutTree {
                     {
                         return size;
                     }
-                    if let Some(request) = buttons.get(&slot) {
+                    if let Some(record) = buttons.get(&slot).and_then(|n| button_records.get_mut(n))
+                    {
                         if let Some(answer) =
-                            buttons::measure(request, measurer, known, space, inset)
+                            buttons::measure(record, arena, measurer, known, space, inset)
                         {
                             if !answer.is_valid() {
                                 invalid_button.get_or_insert_with(|| arena.local_id(slot));
@@ -1134,7 +1152,7 @@ impl LayoutTree {
             // Both axes clip here; the changed internal extent is published on
             // this box but cannot contribute to an ancestor's scrollable extent.
             output.scrollable_overflow_rect = previous.scrollable_overflow_rect;
-            if self.baselines_unread(node) {
+            if baselines_unread.contains(&node) {
                 output.baselines = previous.baselines;
             }
             if output != previous {
@@ -1169,6 +1187,10 @@ impl LayoutTree {
         self.taffy
             .get_node_context(node)
             .is_some_and(|c| c.height_measured)
+    }
+
+    pub(crate) fn button_containing_width(&self, node: NodeId) -> Option<Option<f32>> {
+        self.button_records.get(&node).map(|r| r.parent_width)
     }
 
     // The absolute frame publication will write, computed the same way
@@ -1341,6 +1363,11 @@ pub fn compute(
     let (flow_passes, flow_comparisons) =
         tree.settle_flow(root, root_slot, offer, arena, measurer)?;
     crate::fragment::settle(arena, tree, measurer, root_slot, offer)?;
+    for (&node, record) in &tree.button_records {
+        if let Some(&slot) = tree.slots.get(&node) {
+            arena.button_bases.insert(slot, record.parent_width);
+        }
+    }
     let mut receipt = publication::publish(arena, tree, root_slot);
     receipt.flow_passes = flow_passes;
     receipt.flow_comparisons = flow_comparisons;
