@@ -4,6 +4,7 @@
 mod background;
 mod caltrain;
 mod castle;
+mod compress;
 mod ecdsa;
 mod entropy;
 mod forget;
