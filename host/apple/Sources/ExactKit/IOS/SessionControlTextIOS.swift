@@ -19,12 +19,12 @@ extension ExactSession {
     func primeControlText() {
         let traits = view?.traitCollection ?? presenter.viewport.traitCollection
         _ = fieldChrome.configure(traits)
-        _ = buttonMeasurements.configure(traits)
+        _ = buttonMeasurements.configure(traits, in: view ?? presenter.viewport)
     }
     func controlTextChanged() {
         guard state != .destroyed else { return }
         let traits = view?.traitCollection ?? presenter.viewport.traitCollection
-        let fields = fieldChrome.configure(traits), buttons = buttonMeasurements.configure(traits)
+        let fields = fieldChrome.configure(traits), buttons = buttonMeasurements.configure(traits, in: view ?? presenter.viewport)
         if (fields || buttons), booted {
             apply(runtime.on { runtime.read(exact_control_text_changed(runtime.rt)) })
         }

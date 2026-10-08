@@ -132,7 +132,7 @@ enum ButtonConfigurationIOS {
         }
         let nowrap = rows.title["white_space"]?.string == "nowrap"
         let clamp = rows.title["line_clamp"]?.number.map(Int.init) ?? 0
-        if nowrap || clamp > 0 { config.titleLineBreakMode = .byTruncatingTail }
+        if nowrap { config.titleLineBreakMode = .byTruncatingTail }
         switch rows.title["text_align"]?.string {
         case "start": button.contentHorizontalAlignment = .leading; config.titleAlignment = .leading
         case "end": button.contentHorizontalAlignment = .trailing; config.titleAlignment = .trailing
@@ -143,7 +143,6 @@ enum ButtonConfigurationIOS {
         }
         button.tintColor = accent
         button.configuration = config
-        button.titleLabel?.numberOfLines = nowrap ? 1 : clamp
         // Read the real title font for this style/size, after UIKit resolved the configuration.
         let titleFont = button.titleLabel?.font ?? UIFont.preferredFont(forTextStyle: .body, compatibleWith: traits)
         if rows.symbol["font_size"] != nil || rows.symbol["font_weight"] != nil {
@@ -155,9 +154,12 @@ enum ButtonConfigurationIOS {
             config.image = config.image?.withTintColor(tint, renderingMode: .alwaysOriginal)
         }
         button.configuration = config
-        button.titleLabel?.numberOfLines = nowrap ? 1 : clamp
-        // Normal explicitly restores wrapping after a previously clamped configuration.
-        if !nowrap && clamp == 0 && rows.title["white_space"] != nil { button.titleLabel?.numberOfLines = 0 }
+        // Only an authored clamp changes UIKit's line count. Configuration owns
+        // wrapping and nowrap; replacing it restores the factory's default.
+        if clamp > 0 && !nowrap {
+            button.titleLabel?.numberOfLines = clamp
+            button.titleLabel?.lineBreakMode = .byTruncatingTail
+        }
     }
 }
 #endif

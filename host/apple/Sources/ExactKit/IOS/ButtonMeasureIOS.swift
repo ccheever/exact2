@@ -12,14 +12,16 @@ final class ButtonMeasureCache: @unchecked Sendable {
     }
     private let lock = NSLock()
     private var traits = UITraitCollection.current
+    private weak var surface: UIView?
     private var entries: [Key: ExactButtonMeasure] = [:]
     private(set) var misses = 0
     @discardableResult
-    func configure(_ next: UITraitCollection) -> Bool {
+    func configure(_ next: UITraitCollection, in surface: UIView) -> Bool {
         precondition(Thread.isMainThread)
         lock.lock(); defer { lock.unlock() }
         let changed = FieldChromeCache.Traits(next) != FieldChromeCache.Traits(traits)
         traits = next
+        self.surface = surface
         return changed
     }
     func answer(face data: Data, widthKind: UInt8, width: Float) -> ExactButtonMeasure {
@@ -39,31 +41,25 @@ final class ButtonMeasureCache: @unchecked Sendable {
         precondition(Thread.isMainThread)
         var result = ExactButtonMeasure()
         traits.performAsCurrent {
+            // A configured button reads Dynamic Type from its window during fitting.
+            // Keep the probe in that hierarchy, hidden, without publishing any geometry.
+            let container = UIView()
+            container.isHidden = true
+            surface?.addSubview(container)
+            defer { container.removeFromSuperview() }
+            container.traitOverrides.preferredContentSizeCategory = traits.preferredContentSizeCategory
+            container.traitOverrides.legibilityWeight = traits.legibilityWeight
+            container.traitOverrides.displayScale = max(1, traits.displayScale)
             let button = UIButton(configuration: ControlHost.configuration(face).0)
-            button.traitOverrides.preferredContentSizeCategory = traits.preferredContentSizeCategory
-            button.traitOverrides.legibilityWeight = traits.legibilityWeight
-            button.traitOverrides.displayScale = max(1, traits.displayScale)
+            container.addSubview(button)
+            button.updateTraitsIfNeeded()
             ButtonConfigurationIOS.apply(face, to: button, traits: traits, accent: nil)
-            let size: CGSize
-            if widthKind == 0 {
-                button.bounds = CGRect(x: 0, y: 0, width: max(0, width), height: 0)
-                if let config = button.configuration {
-                    var contentWidth = width - config.contentInsets.leading - config.contentInsets.trailing
-                    if config.imagePlacement == .leading || config.imagePlacement == .trailing, let image = config.image {
-                        let configured = config.preferredSymbolConfigurationForImage.flatMap { image.applyingSymbolConfiguration($0) } ?? image
-                        contentWidth -= configured.size.width + config.imagePadding
-                    }
-                    button.titleLabel?.preferredMaxLayoutWidth = max(1, contentWidth)
-                    button.subtitleLabel?.preferredMaxLayoutWidth = max(1, contentWidth)
-                }
-                button.setNeedsLayout(); button.layoutIfNeeded()
-
-                size = button.systemLayoutSizeFitting(CGSize(width: max(0, width), height: UIView.layoutFittingCompressedSize.height),
-                    withHorizontalFittingPriority: .required, verticalFittingPriority: .fittingSizeLevel)
-            } else {
-                size = button.systemLayoutSizeFitting(widthKind == 1 ? UIView.layoutFittingCompressedSize : UIView.layoutFittingExpandedSize,
-                    withHorizontalFittingPriority: .fittingSizeLevel, verticalFittingPriority: .fittingSizeLevel)
-            }
+            // Auto Layout fitting returns a single-line height even for a wrapped
+            // configured title. sizeThatFits matches required-width window layout.
+            let offeredWidth = widthKind == 0 ? max(0, width)
+                : widthKind == 1 ? 0 : CGFloat.greatestFiniteMagnitude
+            button.layoutIfNeeded()
+            let size = button.sizeThatFits(CGSize(width: offeredWidth, height: .greatestFiniteMagnitude))
             let scale = max(1, traits.displayScale)
             result = ExactButtonMeasure(width: Float(ceil(max(0, size.width) * scale) / scale),
                 height: Float(ceil(max(0, size.height) * scale) / scale), provisional: 0)
