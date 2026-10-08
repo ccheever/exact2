@@ -302,7 +302,7 @@ final class Paragraph {
         if let kept = truncated?.lines[index] { return kept }
         let range = CTLineGetStringRange(line)
         let made = TextEngine.ellipsis(line, range: NSRange(location: range.location, length: range.length),
-                                       width: Double(width), source: source, rtl: spec.direction == 1) ?? line
+                                       width: Double(width), source: source) ?? line
         truncated?.lines[index] = made
         return made
     }
@@ -1155,13 +1155,10 @@ package final class TextEngine {
     /// An over-wide line truncated at `width` with the ellipsis in the style
     /// of the character it replaces; the browser keeps the first character
     /// when not even the token fits.
-    static let overflowToken = NSAttributedString.Key("ExactOverflowToken")
-    static func ellipsis(_ line: CTLine, range: NSRange, width: Double, source: NSAttributedString, rtl: Bool = false) -> CTLine? {
+    static func ellipsis(_ line: CTLine, range: NSRange, width: Double, source: NSAttributedString) -> CTLine? {
         let at = max(range.location, min(NSMaxRange(range), source.length) - 1)
-        var attributes = source.attributes(at: at, effectiveRange: nil)
-        attributes[overflowToken] = true
-        let token = CTLineCreateWithAttributedString(NSAttributedString(string: "…", attributes: attributes))
-        return CTLineCreateTruncatedLine(line, width, rtl ? .start : .end, token)
+        let token = CTLineCreateWithAttributedString(NSAttributedString(string: "…", attributes: source.attributes(at: at, effectiveRange: nil)))
+        return CTLineCreateTruncatedLine(line, width, .end, token)
     }
 
     func ellipsizedLine(_ spec: Spec, range: NSRange, width: Double, source: NSAttributedString? = nil) -> CTLine? {

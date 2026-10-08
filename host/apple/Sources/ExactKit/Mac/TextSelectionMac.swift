@@ -370,7 +370,7 @@ package final class TextSelection {
         if mapped.y > content.maxY { return length(node) }
         guard let (p, spec, i) = line(node, at: point) else { return 0 }
         let x = content.minX + p.origin(i, align: spec.align, width: content.width)
-        let offset = p.stringIndex(in: i, at: mapped.x - x, width: content.width)
+        let offset = p.stringIndex(in: i, at: mapped.x - x)
         return offset == kCFNotFound ? length(node) : min(max(0, offset), length(node))
     }
 

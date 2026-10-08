@@ -267,79 +267,6 @@ final class TextGeometryTests: XCTestCase {
              align: 0, lineClamp: 0, color: [0, 0, 0, 255])
     }
 
-    func testOverflowingLinesStartAlignForGeometrySelectionAndRegionHits() throws {
-        for direction in [0, 1] { for alignment in [0, 1, 2] {
-            var input = spec("Describe the vowel counter (edited)")
-            input.whiteSpace = 2 // nowrap
-            input.direction = direction; input.align = alignment
-            let width: CGFloat = 100
-            let p = engine.paragraph(input, width: width)
-            let line = try XCTUnwrap(p.lines.first)
-            let flush: CGFloat = direction == 1 ? 1 : 0
-            let expected = CGFloat(CTLineGetPenOffsetForFlush(line, flush, Double(width)))
-            XCTAssertEqual(p.origin(0, align: alignment, width: width), expected, accuracy: 0.001)
-            let region = RegionLine(line, flush: alignment == 1 ? 0.5 : alignment == 2 ? 1 : 0,
-                                    width: width, rtl: direction == 1)
-            XCTAssertEqual(region.flushOffset, expected, accuracy: 0.001)
-            let rect = try XCTUnwrap(p.selectionRects(NSRange(location: 0, length: 1), align: alignment,
-                in: CGRect(x: 0, y: 0, width: width, height: p.height), dirty: CGRect(x: -500, y: -500, width: 1000, height: 1000)).first)
-            let start = CTLineGetOffsetForStringIndex(line, 0, nil)
-            let end = CTLineGetOffsetForStringIndex(line, 1, nil)
-            XCTAssertEqual(rect.minX, expected + min(start, end), accuracy: 0.001)
-            let hit = p.stringIndex(in: 0, at: (start + end) / 2)
-            XCTAssertEqual(region.index(at: (start + end) / 2), hit)
-        } }
-        for alignment in [1, 2] {
-            var input = spec("fits"); input.align = alignment
-            let p = engine.paragraph(input, width: 200)
-            let line = try XCTUnwrap(p.lines.first)
-            XCTAssertEqual(p.origin(0, align: alignment, width: 200),
-                CGFloat(CTLineGetPenOffsetForFlush(line, alignment == 1 ? 0.5 : 1, 200)), accuracy: 0.001)
-        }
-    }
-
-    func testRTLEllipsisKeepsThePhysicalRightEdgeAndItsSourceHits() throws {
-        // Chrome 154: Latin → "…IJKLMNO"; Hebrew/Latin keeps the Hebrew
-        // at the right edge and ellipsizes the left, independent of align.
-        for text in ["ABCDEFGHIJKLMNO", "אבגדה ABCDEFGHIJKLMNO"] {
-            var input = spec(text)
-            input.direction = 1; input.whiteSpace = 2; input.ellipsis = true
-            let width: CGFloat = 90
-            let p = engine.paragraph(input, width: width)
-            let visible = p.visibleLine(0, width: width)
-            let sourceRuns = (CTLineGetGlyphRuns(visible) as! [CTRun]).filter {
-                (CTRunGetAttributes($0) as NSDictionary)[TextEngine.overflowToken] as? Bool != true
-            }
-            XCTAssertFalse(sourceRuns.isEmpty)
-            let ranges = sourceRuns.map(CTRunGetStringRange)
-            if text == "ABCDEFGHIJKLMNO" {
-                XCTAssertGreaterThan(ranges.map(\.location).min() ?? 0, 0, "Latin prefix is clipped on the left")
-                XCTAssertEqual(ranges.map { $0.location + $0.length }.max(), (text as NSString).length)
-            }
-            for run in sourceRuns {
-                let count = CTRunGetGlyphCount(run)
-                var positions = [CGPoint](repeating: .zero, count: count)
-                var indices = [CFIndex](repeating: 0, count: count)
-                CTRunGetPositions(run, CFRange(), &positions)
-                CTRunGetStringIndices(run, CFRange(), &indices)
-                for (position, index) in zip(positions, indices) {
-                    let hit = p.stringIndex(in: 0, at: position.x + 1, width: width)
-                    XCTAssertGreaterThanOrEqual(hit, CTRunGetStringRange(run).location)
-                    XCTAssertLessThanOrEqual(hit, CTRunGetStringRange(run).location + CTRunGetStringRange(run).length)
-                    let rects = p.selectionRects(NSRange(location: index, length: 1), align: 1,
-                        in: CGRect(x: 0, y: 0, width: width, height: p.height), dirty: CGRect(x: -500, y: -500, width: 1000, height: 1000))
-                    XCTAssertTrue(rects.contains { $0.minX - 1 <= p.origin(0, align: 1, width: width) + position.x && $0.maxX + 1 >= p.origin(0, align: 1, width: width) + position.x })
-                }
-            }
-            let token = try XCTUnwrap((CTLineGetGlyphRuns(visible) as! [CTRun]).first {
-                (CTRunGetAttributes($0) as NSDictionary)[TextEngine.overflowToken] as? Bool == true
-            })
-            var position = CGPoint.zero
-            CTRunGetPositions(token, CFRange(location: 0, length: 1), &position)
-            XCTAssertEqual(p.stringIndex(in: 0, at: position.x + 1, width: width), kCFNotFound, "ellipsis has no source action")
-        }
-    }
-
     func testNormalIncludesTheShapedFallbackFontsMetrics() {
         var input = spec("🧙🏽‍♀️👨‍👩‍👧‍👦")
         input.runs[0].lineHeight = nil
@@ -842,9 +769,7 @@ extension TextGeometryTests {
             let flush: CGFloat = spec.align == 1 ? 0.5 : spec.align == 2 ? 1 : 0
             context.textMatrix = .identity
             for (line, baseline) in zip(paragraph.lines, paragraph.baselines) {
-                let advance = CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil)) - CTLineGetTrailingWhitespaceWidth(line)
-                let cssFlush: CGFloat = advance > bounds.width ? (spec.direction == 1 ? 1 : 0) : flush
-                let x = CGFloat(CTLineGetPenOffsetForFlush(line, cssFlush, Double(bounds.width)))
+                let x = CGFloat(CTLineGetPenOffsetForFlush(line, flush, Double(bounds.width)))
                 context.saveGState()
                 context.translateBy(x: bounds.minX + x, y: bounds.minY + baseline.rounded())
                 context.scaleBy(x: 1, y: -1)
@@ -916,7 +841,7 @@ extension TextGeometryTests {
         }
     }
 
-    func testViewportInkRetainsStartAlignedOverflowOutsideTheContentBox() {
+    func testViewportInkRetainsAlignedOverflowOutsideTheContentBox() {
         let engine = TextEngine(resolve: { _ in nil })
         let run = Run(text: String(repeating: "f", count: 32), size: 19.25, weight: 400,
                       family: 3, italic: true, lineHeight: 24.25, letterSpacing: 0)
@@ -926,7 +851,7 @@ extension TextGeometryTests {
         XCTAssertGreaterThan(paragraph.width, 120)
         assertInkMatches(paragraph, spec: spec,
                          bounds: CGRect(x: 240, y: 35, width: 45, height: paragraph.height),
-                         clip: CGRect(x: 300, y: 20, width: 220, height: 80))
+                         clip: CGRect(x: 0, y: 20, width: 220, height: 80))
     }
 
     func testViewportInkIndexIsReusedAndKeepsZeroHeightPaintOrder() {

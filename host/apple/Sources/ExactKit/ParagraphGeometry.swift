@@ -3,15 +3,6 @@ import Foundation
 import CoreText
 
 extension TextEngine {
-    /// CSS Text 3: an over-wide line is start-aligned, even under center/right.
-    /// Exclude hanging whitespace as CoreText's flush alignment does. Every
-    /// Apple paint and hit path uses the paragraph's authored direction.
-    static func lineOffset(_ line: CTLine, flush: CGFloat, width: CGFloat, rtl: Bool) -> CGFloat {
-        let advance = CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil)) - CTLineGetTrailingWhitespaceWidth(line)
-        let resolved: CGFloat = advance > width ? (rtl ? 1 : 0) : flush
-        return CGFloat(CTLineGetPenOffsetForFlush(line, resolved, Double(width)))
-    }
-
     /// A broken line as CSS finishes it, for every Apple path that makes one
     /// from a range (layout, rasters, regions). A line that ends at a soft
     /// hyphen (U+00AD) shows a hyphen there, as the browser does; CoreText
@@ -129,23 +120,13 @@ extension LineInsets {
 }
 
 extension Paragraph {
-    /// Ellipsis changes visible glyphs, never measurement or logical ownership.
-    /// Paint, selection and hits all consume this same visible line.
-    func visibleLine(_ index: Int, width: CGFloat) -> CTLine {
-        guard let spec = shape?.spec, spec.ellipsis else { return lines[index] }
-        return ellipsized(index, spec: spec, width: width)
-    }
-
     func origin(_ index: Int, align: Int, width: CGFloat) -> CGFloat {
         if origins.indices.contains(index) { return origins[index] }
-        var flush: CGFloat = align == 1 ? 0.5 : align == 2 ? 1 : 0
+        let flush: CGFloat = align == 1 ? 0.5 : align == 2 ? 1 : 0
         // CSS `text-indent` and a list item's indent: the line aligns in
         // what its inset leaves.
         let inset = insets.at(CTLineGetStringRange(lines[index]).location)
-        let available = width - inset.width
-        let original = CGFloat(CTLineGetTypographicBounds(lines[index], nil, nil, nil)) - CTLineGetTrailingWhitespaceWidth(lines[index])
-        if original > available { flush = insets.rtl ? 1 : 0 }
-        return inset.left + TextEngine.lineOffset(visibleLine(index, width: width), flush: flush, width: available, rtl: insets.rtl)
+        return inset.left + CGFloat(CTLineGetPenOffsetForFlush(lines[index], flush, Double(width - inset.width)))
     }
 
     /// First select the band, then the closest painted fragment in that band.
@@ -160,54 +141,34 @@ extension Paragraph {
         var best = first, distance = CGFloat.infinity
         for i in lines.indices where baselines[i] == baseline {
             let x = origin(i, align: align, width: width)
-            let advance = CGFloat(CTLineGetTypographicBounds(visibleLine(i, width: width), nil, nil, nil))
+            let advance = CGFloat(CTLineGetTypographicBounds(lines[i], nil, nil, nil))
             let d = max(0, max(x - point.x, point.x - x - advance))
             if d < distance { best = i; distance = d }
         }
         return best
     }
 
-    func stringIndex(in line: Int, at x: CGFloat, width: CGFloat? = nil) -> Int {
+    func stringIndex(in line: Int, at x: CGFloat) -> Int {
         if fragments.indices.contains(line), CTLineGetGlyphCount(lines[line]) == 0 {
             return fragments[line].utf16_start
         }
-        let visible = width.map { visibleLine(line, width: $0) } ?? lines[line]
-        for run in CTLineGetGlyphRuns(visible) as! [CTRun] {
-            guard (CTRunGetAttributes(run) as NSDictionary)[TextEngine.overflowToken] as? Bool == true else { continue }
-            var position = CGPoint.zero
-            CTRunGetPositions(run, CFRange(location: 0, length: 1), &position)
-            let advance = CGFloat(CTRunGetTypographicBounds(run, CFRange(), nil, nil, nil))
-            if x >= position.x, x <= position.x + advance { return kCFNotFound }
-        }
-        return CTLineGetStringIndexForPosition(visible, CGPoint(x: x, y: 0))
+        return CTLineGetStringIndexForPosition(lines[line], CGPoint(x: x, y: 0))
     }
 
     func selectionRects(_ range: NSRange, align: Int, in bounds: CGRect, dirty: CGRect) -> [CGRect] {
         guard range.location >= 0, range.length > 0 else { return [] }
         var rects: [CGRect] = []
         for i in lines.indices {
-            let line = visibleLine(i, width: bounds.width)
+            let line = lines[i], r = CTLineGetStringRange(line)
+            let lo = max(range.location, r.location), hi = min(NSMaxRange(range), r.location + r.length)
+            guard hi > lo else { continue }
             var above: CGFloat = 0, below: CGFloat = 0
             _ = CTLineGetTypographicBounds(line, &above, &below, nil)
             let y = bounds.minY + baselines[i].rounded()
             guard y + below >= dirty.minY, y - above <= dirty.maxY else { continue }
             let x = bounds.minX + origin(i, align: align, width: bounds.width)
-            if shape?.spec.ellipsis != true {
-                let r = CTLineGetStringRange(line)
-                let lo = max(range.location, r.location), hi = min(NSMaxRange(range), r.location + r.length)
-                guard hi > lo else { continue }
-                let x0 = CTLineGetOffsetForStringIndex(line, lo, nil), x1 = CTLineGetOffsetForStringIndex(line, hi, nil)
-                rects.append(CGRect(x: x + min(x0, x1), y: y - above, width: max(1, abs(x1 - x0)), height: above + below))
-                continue
-            }
-            for run in CTLineGetGlyphRuns(line) as! [CTRun] {
-                if (CTRunGetAttributes(run) as NSDictionary)[TextEngine.overflowToken] as? Bool == true { continue }
-                let r = CTRunGetStringRange(run)
-                let lo = max(range.location, r.location), hi = min(NSMaxRange(range), r.location + r.length)
-                guard hi > lo else { continue }
-                let x0 = CTLineGetOffsetForStringIndex(line, lo, nil), x1 = CTLineGetOffsetForStringIndex(line, hi, nil)
-                rects.append(CGRect(x: x + min(x0, x1), y: y - above, width: max(1, abs(x1 - x0)), height: above + below))
-            }
+            let x0 = CTLineGetOffsetForStringIndex(line, lo, nil), x1 = CTLineGetOffsetForStringIndex(line, hi, nil)
+            rects.append(CGRect(x: x + min(x0, x1), y: y - above, width: max(1, abs(x1 - x0)), height: above + below))
         }
         return rects
     }

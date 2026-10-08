@@ -4,32 +4,6 @@ import XCTest
 @testable import ExactKit
 
 final class InlineHoverMacTests: XCTestCase {
-    func testRTLEllipsisHitsTheVisibleActionRunAndNeverTheHiddenRun() throws {
-        _ = NSApplication.shared
-        let session = ExactApp.shared.makeSession(label: "rtl-action")
-        defer { session.destroy() }
-        let p = session.presenter
-        for (prefix, suffix, expected) in [("Describe the vowel counter (edited) ", "MMMMMMMM", 4),
-                                          ("אבגדה ", "ABCDEFGHIJKLMNOPQRSTUVWXYZ", 3)] {
-            p.apply(wireBatch([
-                ["op": "create", "id": 1, "kind": "view"],
-                ["op": "create", "id": 2, "kind": "text", "style": ["font_size": 20.0, "direction": "rtl", "white_space": "nowrap", "text_align": "center", "text_overflow": "ellipsis", "overflow_x": "hidden"]],
-                ["op": "paragraph", "id": 2, "runs": [
-                    ["id": 3, "parent": 2, "paint": true, "props": ["text": prefix], "style": ["font_size": 20.0], "handlers": ["press"]],
-                    ["id": 4, "parent": 2, "paint": true, "props": ["text": suffix], "style": ["font_size": 20.0], "handlers": ["press"]],
-                ]],
-                ["op": "children", "id": 1, "ids": [2]], ["op": "roots", "ids": [1]],
-                ["op": "frame", "id": 1, "x": 0, "y": 0, "w": 300, "h": 100],
-                ["op": "frame", "id": 2, "x": 0, "y": 0, "w": 100, "h": 30],
-            ]))
-            let node = try XCTUnwrap(p.views[2]), action = try XCTUnwrap(p.inlineText(UInt32(expected)))
-            let rect = try XCTUnwrap(node.inlineRects(action).first)
-            XCTAssertEqual(node.inlineTarget(at: CGPoint(x: rect.midX, y: rect.midY), handler: "press")?.id, UInt32(expected))
-            if expected == 4 { XCTAssertTrue(node.inlineRects(try XCTUnwrap(p.inlineText(3))).isEmpty) }
-            p.apply(wireBatch([["op": "destroy", "id": 2], ["op": "destroy", "id": 1]]))
-        }
-    }
-
     func testAgentAndMouseEnterLeaveAndReenterWrappedLink() throws {
         _ = NSApplication.shared
         let session = ExactApp.shared.makeSession(label: "inline-hover")

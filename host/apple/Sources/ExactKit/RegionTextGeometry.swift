@@ -27,7 +27,7 @@ struct RegionLine: Sendable {
     private let edgeIndices: [CFIndex]
     private let intervalIndices: [CFIndex]
 
-    init(_ line: CTLine, flush: CGFloat, width: CGFloat, rtl: Bool = false, captureHits: Bool = true, conservativeInk: CGRect? = nil) {
+    init(_ line: CTLine, flush: CGFloat, width: CGFloat, captureHits: Bool = true, conservativeInk: CGRect? = nil) {
         let r = CTLineGetStringRange(line)
         range = NSRange(location: r.location, length: r.length)
         var above: CGFloat = 0, below: CGFloat = 0, extra: CGFloat = 0
@@ -37,7 +37,7 @@ struct RegionLine: Sendable {
             ink = CGRect(x: conservativeInk.minX, y: conservativeInk.minY,
                          width: typographicWidth + conservativeInk.width, height: conservativeInk.height)
         } else { ink = CTLineGetBoundsWithOptions(line, .useGlyphPathBounds) }
-        flushOffset = TextEngine.lineOffset(line, flush: flush, width: width, rtl: rtl)
+        flushOffset = CGFloat(CTLineGetPenOffsetForFlush(line, flush, Double(width)))
         if !captureHits {
             self.carets = []; hitEdges = []; edgeIndices = []; intervalIndices = []
             return
@@ -129,7 +129,7 @@ final class RegionParagraph: Sendable {
             captured.reserveCapacity(lines.count)
             for (index, line) in lines.enumerated() {
                 if index > 0 && index % 128 == 0 { try metadataCheckpoint() }
-                captured.append(RegionLine(line, flush: flush, width: offeredWidth, rtl: source.direction == 1, captureHits: captureHits))
+                captured.append(RegionLine(line, flush: flush, width: offeredWidth, captureHits: captureHits))
             }
             // Include the final short tail. No partially initialized metadata
             // or layout binding escapes if the owning request was superseded.

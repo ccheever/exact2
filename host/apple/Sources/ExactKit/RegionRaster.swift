@@ -275,7 +275,7 @@ final class RegionPaintIndex {
                         let p = Self.paragraph(Int(ordinal), starts: starts), i = Int(ordinal) - starts[p]
                         let layout = layouts[p], row = request.rows[p], line = layout.line(at: i)
                         let flush: CGFloat = layout.source.align == 1 ? 0.5 : layout.source.align == 2 ? 1 : 0
-                        let x = row.box.minX - request.scroll.x + TextEngine.lineOffset(line, flush: flush, width: row.box.width, rtl: layout.source.direction == 1)
+                        let x = row.box.minX - request.scroll.x + CGFloat(CTLineGetPenOffsetForFlush(line, flush, Double(row.box.width)))
                         let y = row.box.minY - request.scroll.y + layout.baselines[i].rounded()
                         if selected {
                             let range = CTLineGetStringRange(line)
