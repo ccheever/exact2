@@ -69,6 +69,11 @@ describe('the shared menu keyboard (Base UI Menu)', () => {
     // A menu its owner mounts from state keeps its backdrop's Escape (outside the menu): not modal.
     for (const [file, line] of [['shell-panels.contract', 'KeyMenu(menuId="title-menu-keys"'], ['diff.contract', 'KeyMenu(menuId="diff-scope-keys"']] as const)
       expect((await source(file)).split('\n').find(l => l.includes(line))).toContain('modal=false)');
+    // The diff scope menu: the right panel's toggle declares Escape too (and wins among non-modal shortcuts), so the
+    // menus' box scopes the shortcuts while it shows and closes the menus on Escape itself (the base closed the panel).
+    const scope = await component('diff.contract', 'DiffScopeMenu');
+    expect(scope).toContain('column aria-modal=true key=menuKey position="absolute"');
+    expect(scope).toContain('    if k == "Escape"\n      preventDefault()\n      stopPropagation()\n      command("diff-view", "menu", "", 0)\n      focus("diff-scope")');
   });
 
   test('a row the keys move to has an id: every menuitem in a file with a keyboard menu', async () => {
@@ -171,7 +176,12 @@ describe('↓ and ↑ on a closed trigger open its menu at the first or the last
     const diff = await source('diff.contract');
     expect(diff).toContain('DiffScopeMenu(data=data, command=command, keyed=kmEndKeyed(scopeEnd))');
     expect(diff).toContain('button id="diff-scope" press=openScope key=scopeKey focus=scopeEnd("") ');
-    expect(await component('markdown.contract', 'TableCopyButton')).toContain('button press=openMenu key=menuKey ');
+    // The table's Copy menu mounts at the window: the request itself carries the end, and the menu reads it as `menu.keyed`.
+    const copy = await component('markdown.contract', 'TableCopyButton');
+    expect(copy).toContain('button press=openMenu key=menuKey ');
+    expect(copy).toContain('      if k == "ArrowUp"\n        pressLast()\n      else\n        pressFirst()');
+    expect(await source('markdown.contract')).toContain('pressFirst=local("table-menu", block.id, `keys:first\\t${block.markdown}\\t${block.csv}`), pressLast=local("table-menu", block.id, `keys:last\\t${block.markdown}\\t${block.csv}`)');
+    expect(await source('r8-keys-table-menu.contract')).toContain('keyed=menu.keyed, gap="0px", modal=false)');
   });
 });
 

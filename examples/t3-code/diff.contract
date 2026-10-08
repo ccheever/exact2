@@ -217,8 +217,17 @@ component DiffScopeMenu
   action openTurns
     blur()
     command("diff-view", "menu", "turns", 0)
+  // fix-keyboard-focus: Escape belongs to the open menu (Base UI Menu), not to the right panel. The menu scopes
+  // the window's shortcuts while it shows (`aria-modal`), so the panel toggle's Escape shortcut stays out; an
+  // Escape from either menu reaches this box, which closes the menus and gives the focus back to the trigger.
+  action menuKey(k: string, e: KeyboardEvent)
+    if k == "Escape"
+      preventDefault()
+      stopPropagation()
+      command("diff-view", "menu", "", 0)
+      focus("diff-scope")
   view
-    column position="absolute" left="0.5rem" top="5.09375rem" width="10rem" padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-style="solid" border-width=1 border-color="light-dark(#e9e9ea, #292929)" background-color="light-dark(#ffffff, #111111)" box-shadow="0 16px 40px -18px #0000008c" z-index=30 role="menu" aria-label=`Diff scope: ${data.diffScopeLabel}` testId="diff-scope-menu"
+    column aria-modal=true key=menuKey position="absolute" left="0.5rem" top="5.09375rem" width="10rem" padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-style="solid" border-width=1 border-color="light-dark(#e9e9ea, #292929)" background-color="light-dark(#ffffff, #111111)" box-shadow="0 16px 40px -18px #0000008c" z-index=30 role="menu" aria-label=`Diff scope: ${data.diffScopeLabel}` testId="diff-scope-menu"
       KeyMenu(menuId="diff-scope-keys", items=concat([KmItem(id="diff-scope-branch", label="Changes"), KmItem(id="diff-scope-unstaged", label="Uncommitted")], (length(data.diffTurns) > 0 ? [KmItem(id="diff-scope-latest", label="Latest turn"), KmItem(id="diff-scope-turns", label="Turn")] : [])), keyed=keyed, gap="0px", modal=false)
         DiffMenuItem(label="Changes", time="", selected=(data.diffScope == "branch"), submenu=false, testId="diff-scope-branch", choose=command("diff-scope", "", "branch", 0))
         DiffMenuItem(label="Uncommitted", time="", selected=(data.diffScope == "unstaged"), submenu=false, testId="diff-scope-unstaged", choose=command("diff-scope", "", "unstaged", 0))

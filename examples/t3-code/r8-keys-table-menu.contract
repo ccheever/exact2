@@ -16,6 +16,8 @@ shape TableMenuView
   triggerY: number
   markdown: string
   csv: string
+  // fix-keyboard-focus: 1 when ↓ opened the menu (its first item takes the focus), -1 for ↑ (the last), 0 for none.
+  keyed: number
 
 component R8TableMenu
   props
@@ -35,6 +37,6 @@ component R8TableMenu
       else
         Icon(name="copy", size=12, color="#27272a")
     column position="absolute" left=menu.x top=menu.y width="10rem" padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-style="solid" border-width=1 border-color="light-dark(#e9e9ea, #292929)" background-color="light-dark(#ffffff, #111111)" box-shadow="0 16px 40px -18px #0000008c" z-index=132 role="menu" aria-label="Copy table" testId="table-copy-menu"
-      KeyMenu(menuId="table-copy-keys", items=[KmItem(id=`table-copy-markdown-${menu.id}`, label="Copy as Markdown"), KmItem(id=`table-copy-csv-${menu.id}`, label="Copy as CSV")], keyed=0, gap="0px", modal=false)
+      KeyMenu(menuId="table-copy-keys", items=[KmItem(id=`table-copy-markdown-${menu.id}`, label="Copy as Markdown"), KmItem(id=`table-copy-csv-${menu.id}`, label="Copy as CSV")], keyed=menu.keyed, gap="0px", modal=false)
         TableMenuItem(label="Copy as Markdown", press=local("copy-table", menu.id, menu.markdown), testId=`table-copy-markdown-${menu.id}`)
         TableMenuItem(label="Copy as CSV", press=local("copy-table", menu.id, menu.csv), testId=`table-copy-csv-${menu.id}`)

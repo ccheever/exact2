@@ -824,7 +824,7 @@ component MarkdownTable
         Tip(label=(expanded ? "Collapse table cells" : "Expand table cells"), side="top", align="start", offset=28)
           TableIconButton(label=(expanded ? "Collapse table cells" : "Expand table cells"), icon=(expanded ? "minimize" : "maximize"), pressed=expanded, press=toggleExpanded, testId=`table-expand-${block.id}`)
         Tip(label="Copy table", side="top", align="end", offset=28)
-          TableCopyButton(press=local("table-menu", block.id, `${block.markdown}\t${block.csv}`), copied=copied, open=false, testId=`table-copy-${block.id}`) // lane r8-keys: its popup is the window's (r8-keys-table-menu.contract)
+          TableCopyButton(press=local("table-menu", block.id, `${block.markdown}\t${block.csv}`), pressFirst=local("table-menu", block.id, `keys:first\t${block.markdown}\t${block.csv}`), pressLast=local("table-menu", block.id, `keys:last\t${block.markdown}\t${block.csv}`), copied=copied, open=false, testId=`table-copy-${block.id}`) // lane r8-keys: its popup is the window's (r8-keys-table-menu.contract)
 
 // A th or td: 7.2/12 padding (8.8 in the header), the column's sizing cell
 // drawn invisibly beneath so every row's cell takes the column's width. The
@@ -904,6 +904,9 @@ component TableIconButton
 component TableCopyButton
   props
     press: action
+    // ↓ and ↑: the same request, asking the window's menu to focus its first or last item as it mounts.
+    pressFirst: action
+    pressLast: action
     copied: number
     open: bool
     testId: string
@@ -911,9 +914,8 @@ component TableCopyButton
   action hover(over: bool)
     hovered = over
   // fix-keyboard-focus: the Copy menu opens from the data module; the button lets go of the focus and the
-  // menu's popup takes it as it mounts (`autofocus`, menu-keys.contract), on ↓ and ↑ too. The menu mounts
-  // at the window, past this tree, so from ↓ or ↑ its popup takes the focus and the next ↓ or ↑ reaches
-  // the first or last item.
+  // menu's popup takes it as it mounts (`autofocus`, menu-keys.contract). ↓ and ↑ open it too: the menu
+  // mounts at the window, past this tree, so the request itself carries the end (`menu.keyed`).
   action openMenu
     blur()
     press()
@@ -921,7 +923,10 @@ component TableCopyButton
     if kmArrow(k) and not e.metaKey and not e.ctrlKey and not e.altKey and not open
       preventDefault()
       blur()
-      press()
+      if k == "ArrowUp"
+        pressLast()
+      else
+        pressFirst()
   view
     button press=openMenu key=menuKey hover=hover aria-label="Copy table" aria-expanded=open id=testId hatch="t3-measure" data-frame=testId testId=testId width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 background-color=(hovered or open ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center"
       when copied > 0
