@@ -123,6 +123,27 @@ describe('the composer: comment, close or reopen with comment (PullRequestCommen
     expect(run.sent('pullRequests.comment').map(payload => payload.body)).toEqual(['Superseded by #8.', 'Superseded by #8, for real.']);
     expect(run.sent('pullRequests.runAction').map(payload => payload.action)).toEqual(['close', 'close']);
   });
+  test('close, the list read again without the row, then reopen with comment: the row comes back with the next list answer', async () => {
+    // pr-writing-and-metadata live re-check 2026-10-08: the server announces each write, so the open list is read
+    // again between the close and the reopen and no longer holds the row; the reopen still finds it (the reference's
+    // "from every row held … reopening it has to find it anyway"), and its note replaces the close's.
+    const LIST_NOW = Date.parse('2026-10-08T12:00:00Z');
+    const open7 = { projectId: 'p1', host: 'github.com', repository: 'lane/sandbox', number: 7, title: 'Add input validation', state: 'open', isDraft: false, author: { login: 'second' }, updatedAt: '2026-10-08T10:00:00Z', additions: 3, deletions: 0 };
+    let listed: Obj[] = [open7], state = 'open';
+    const run = lane({ 'pullRequests.detail': () => detail({ state }), 'pullRequests.activity': () => activity(), 'pullRequests.list': () => ({ entries: listed, viewers: {} }), 'pullRequests.listStats': () => ({ stats: [] }),
+      'pullRequests.comment': () => ({}), 'pullRequests.runAction': (payload) => { state = payload.action === 'close' ? 'closed' : 'open'; return {}; } });
+    noteNow(run.client, LIST_NOW);
+    const rows = async (refresh: number) => (await pullRequestsPage(run.client, run.native, { open: true, refresh, now: LIST_NOW, selected, query: '', typed: false })).groups.flatMap(group => group.rows.map(row => `${row.number}:${row.state}`));
+    expect(await rows(0)).toEqual(['7:open']);
+    await run.view();
+    expect(await run.act('comment-close', 'Closing.')).toBe('');
+    listed = [];
+    expect(await rows(1)).toEqual([]); // the host's answer no longer holds it
+    expect((await run.view()).writes.followUp).toBe('reopen');
+    expect(await run.act('comment-reopen', 'Reopening.')).toBe('');
+    listed = [{ ...open7, updatedAt: '2026-10-08T12:00:00Z' }];
+    expect(await rows(2)).toEqual(['7:open']); // the next answer has it open, and nothing written over it hides it
+  });
   test('reopen with comment on a closed pull request, and its toast', async () => {
     const run = lane({ 'pullRequests.detail': () => detail({ state: 'closed' }), 'pullRequests.activity': () => activity(), 'pullRequests.comment': () => ({}), 'pullRequests.runAction': () => ({}) });
     expect((await run.view()).writes.followUp).toBe('reopen');

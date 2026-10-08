@@ -34,7 +34,7 @@ import { emptyTimeline, presentTimeline } from './pages-pr-timeline';
 import { canEditPullRequestChangeRequest } from './pages-pr-writes-logic';
 import { commentEditing, emptyWrites, presentWrites, previewBodies, prWrite, reactionPills, writeReference } from './pages-pr-writes';
 import { composerNow } from './composer-controls';
-import { emptyActions, isActionOp, prActionCommand, prActionUi, presentActions, type PanelContext } from './pages-pr-actions'; // pr-header-actions-and-stacks
+import { emptyActions, isActionOp, notedListEntry, prActionCommand, prActionUi, presentActions, type PanelContext } from './pages-pr-actions'; // pr-header-actions-and-stacks
 import { markStackDue, readPanelStack } from './pages-pr-stack';
 
 export type PrSelection = { projectId: string; host: string; repository: string; number: number };
@@ -276,8 +276,10 @@ function contextOf(client: T3Client, selected: string): PanelContext | null {
   if (!selection) return null;
   const key = JSON.stringify([client.environmentId, selectionRef(selection)]), panel = panelsOf(client).get(key);
   // A pull request the panel has not read yet still names its reference (the action needs nothing more).
-  return panel ? panelContext(client, panel, selected, listEntryFor(client, selection))
-    : { key, selected, reference: selectionRef(selection), detail: null, listEntry: listEntryFor(client, selection), refresh: fromHost => stale(client, fromHost) };
+  // The row acted on: the list's, or the one a note still stands on once the list's answer has let it go.
+  const listEntry = listEntryFor(client, selection) ?? notedListEntry(client, selection);
+  return panel ? panelContext(client, panel, selected, listEntry)
+    : { key, selected, reference: selectionRef(selection), detail: null, listEntry, refresh: fromHost => stale(client, fromHost) };
 }
 /** `chatlocal:pr-ui-*`: the header's menu choices for the selected pull request (pages-pr-actions.ts). */
 export function prUiLocal(client: T3Client, op: string, selected: string, value: string): string {
