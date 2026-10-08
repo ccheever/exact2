@@ -94,13 +94,11 @@ component T3Window
     releaseFold: action
     jumpRequest: number
     composerOwner: string
-    canRest: bool
     chatLocal: action
     markdown: TranscriptMarkdown
     earlier: action
     attachmentUrls: TimelineAttachmentUrls
     conversationWidth: number
-    resting: bool
     scrollToEnd: action
     editor: ComposerEditorView
     composerKey: action
@@ -150,7 +148,6 @@ component T3Window
     openConnectionsPage: action
     welcomeImport: action
     popoverSession: number
-    composerLeft: number
     closeOptions: action
     menuCommand: action
     branchQuery: string
@@ -304,6 +301,7 @@ component T3Window
     // fix-hover-cards: the root's hover clock (hover-layer.contract).
     hoverWait: number
     hoverHold: action
+    composerFocused: bool
     settingsEnvironmentId: string
     settingsProjectId: string
     clearModalError: action
@@ -375,6 +373,10 @@ component T3Window
   derive dragTarget = dragId == "" ? "" : (dragCX > sidebarWidth ? "context" : (dragSettledY > 0 and dragCY >= dragSettledY ? "settled" : (dragSnoozedY > 0 and dragCY >= dragSnoozedY ? "snoozed" : (dragWorkingY > 0 and dragCY >= dragWorkingY ? "working" : (dragCY < dragDividerY + 36 ? "pinned" : "active")))))
   derive dragVerb = (dragTarget == "" or dragTarget == dragSection or dragTarget == "working" or dragTarget == "snoozed" or dragTarget == "context") ? "" : (dragTarget == "pinned" ? "pin" : (dragTarget == "settled" ? "settle" : (dragSection == "pinned" ? "unpin" : (dragSection == "settled" ? "unsettle" : "wake"))))
   derive dragOffset = dragDy - (dragSection == "pinned" ? 24 : (dragSection == "active" ? 48 : 0))
+  // The root rewrite: the composer's resting state and left edge, which only the view reads (moved from app.contract).
+  derive canRest = data.composerCollapseOnScroll and data.threadId != "" and not composerFocused and not includes(composerText, "\n") and length(data.approvals) == 0 and length(data.questions) == 0 and not data.settled
+  derive resting = data.composerResting and canRest
+  derive composerLeft = (data.sidebarOpen ? sidebarWidth : 0) + (canvas.ready ? canvas.left : (conversationWidth - min(data.look.chatMax, conversationWidth - 2.5 * data.look.fontSize)) / 2) // the chat lane (chat-canvas-view.ts)
   // The root rewrite: whether Add provider has tried to go past an invalid id (AddProviderDialog shows its error),
   // moved from app.contract. The wizard's fields stay in the root: providerWizard reads them.
   state wizardAttempted = false
