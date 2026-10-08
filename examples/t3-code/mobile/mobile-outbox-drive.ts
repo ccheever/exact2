@@ -167,3 +167,16 @@ export function mobileOutboxDriveCompleted(client: T3Client): MobileOutboxRecord
     return [JSON.parse(JSON.stringify(record))];
   });
 }
+
+/** Local terminal discovery for root-owned draft publication. The original
+ * receipt is revalidated by recovery; this transient view authorizes no removal. */
+export function mobileOutboxDriveRecoverable(client: T3Client): MobileOutboxRecord[] {
+  const rows = orderedRows(client);
+  return [...state(client).attempts.values()].flatMap(attempt => {
+    const receipt = attempt.result?.delivery?.operation;
+    if (!receipt || receipt.stage !== 'start-turn' || !(receipt.state === 'rejected'
+      || receipt.state === 'acknowledged' && receipt.record.creation && receipt.cleanup?.phase === 'edited')) return [];
+    const row = rows.find(row => identity(row.record) === identity(receipt.record));
+    return row ? [JSON.parse(JSON.stringify(row.record)) as MobileOutboxRecord] : [];
+  });
+}
