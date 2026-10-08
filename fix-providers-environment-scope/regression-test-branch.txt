@@ -1,0 +1,7 @@
+# fix-providers-environment-scope: providers-scope.test.ts on the branch, 2026-10-08T13:10:38Z
+bun test v1.4.2 (744846f84)
+
+ 5 pass
+ 0 fail
+ 28 expect() calls
+Ran 5 tests across 1 file. [181.00ms]
