@@ -371,8 +371,12 @@ fn emit_link_lines(target_os: &str, target_vendor: &str, archives: &[PreparedLin
         println!("cargo:rustc-link-lib=framework=CoreFoundation");
         println!("cargo:rustc-link-lib=framework=Foundation");
     } else if target_os == "android" {
-        // The NDK's static libc++ (the bundle is built with ANDROID_STL=c++_static)
-        // and liblog; Unicode Lite and no Intl link no ICU and no JNI.
+        // The bundle's static ICU (Hermes's Unicode backend: case mapping,
+        // normalization, collation; no Intl), then the NDK's static libc++ (the
+        // bundle is built with ANDROID_STL=c++_static) and liblog. No JNI.
+        println!("cargo:rustc-link-lib=static=icui18n");
+        println!("cargo:rustc-link-lib=static=icuuc");
+        println!("cargo:rustc-link-lib=static=icudata");
         println!("cargo:rustc-link-lib=c++_static");
         println!("cargo:rustc-link-lib=c++abi");
         println!("cargo:rustc-link-lib=log");

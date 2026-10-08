@@ -131,8 +131,9 @@ before `HERMES_LEAN_SYS_DIR`, so a cross build's host instance (exact-js's
 build-dependency) keeps the pinned bundle while the target uses a local one;
 `build.rs` reruns on it and links `aarch64-linux-android`'s bundle with the
 NDK's `c++_static`, `c++abi`, `log`, `dl` and `m`. The bundle itself is built by
-Ibex's release script with the same pending Android target (Unicode Lite, no
-Intl, `ANDROID_STL=c++_static`); `scripts/hermes-android.mjs` runs it and
+Ibex's release script with the same pending Android target (Unicode from a
+static ICU 74, linked here as `icui18n`/`icuuc`/`icudata`; no Intl;
+`ANDROID_STL=c++_static`); `scripts/hermes-android.mjs` runs it and
 installs the result. The upstream patch is Ibex branch `android-hermes-bundle`
 (local, not pushed). Drop this entry when an Ibex release pins the Android
 bundle.
