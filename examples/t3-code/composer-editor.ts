@@ -13,7 +13,7 @@ import { MAX_STASH_ENTRIES, deleteStashEntry, stashPrompt, stashView, takeStashE
 import {
   LIST_LABEL, contextId, contextLabel, contextLink, contextReferences, emptyText, fileLink, historyEntries, pathRows, promptLengthMessage,
   pullRequestRecord, pullRequestRows, pullRequestState, repositorySelector,
-  skillRows, slashRows, threadRows, type EditorTrigger, type MenuRow,
+  skillChipLabels, skillRows, slashRows, threadRows, type EditorTrigger, type MenuRow,
 } from './composer-editor-menu';
 import { composerFileRecords, fileChipContexts, foldLimit, pruneFiles, takeFold } from './composer-editor-files';
 import { imageChipContexts, imageContextRecords } from './composer-editor-attach';
@@ -223,7 +223,8 @@ async function editorView(client: T3Client, native: Native | null | undefined, n
   let state: Obj;
   try {
     state = await editorCall(native, { op: 'editorSync', owner: client.draftKey, richText: prefs(client).composerRichTextEnabled !== false, localEnvironment: folderDropTarget({ localEnvironmentDisabled: primary.disabled, environmentId: client.environmentId, primaryEnvironmentId: primary.target?.environmentId || null }) === 'local', // local-primary.ts: Finder folders reach only the primary
-      history: client.thread ? historyEntries(messages(client.thread)) : [], contexts: chipContexts(client, draft), foldLimit: client.ready ? foldLimit(client) : 0 });
+      history: client.thread ? historyEntries(messages(client.thread)) : [], contexts: chipContexts(client, draft), foldLimit: client.ready ? foldLimit(client) : 0,
+      skills: skillChipLabels(workspaceValues(provider(client), workspaceCwd(client), 'skills')) });
   } catch { return { owner: client.snapshotOwner, menu: CLOSED, promptLimit, overLimit, usageLimits: entry.usageLimits, stash }; }
   for (const notice of arr(state.notices)) pushToast(client, { kind: str(notice.kind) === 'error' ? 'error' : 'info', title: str(notice.title), description: str(notice.description), hideCopy: true });
   // Large pastes the editor held back become pasted-text.txt chips (composer-editor-files.ts).

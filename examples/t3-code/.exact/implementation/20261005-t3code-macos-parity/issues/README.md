@@ -110,6 +110,12 @@ publication was performed during this local audit.
 | --- | --- | --- | --- | --- |
 | [X57](20261008-x57-number-field-semantics.md) | `input type="number"` on macOS: ArrowUp/ArrowDown stepping within `min`/`max`, refusing characters a number cannot hold | framework-gap | none ([provisional-decisions-parity](../tasks/20261008-provisional-decisions-parity.md) steps the Tailscale port field itself; a typed letter still shows, with the error) | reproduced in the clone with the agent (`0443` + ArrowUp stays `0443`); no host code for it; no upstream match by title; draft, not published |
 
+## Pull Requests list live refresh addition, 2026-10-08
+
+| Issue | Capability | Kind | Blocks | Status |
+| --- | --- | --- | --- | --- |
+| [X58](20261008-x58-scroll-lost-after-window-refocus.md) | A wheel-scrolled `scroll` keeping its offset after the window is focused again (macOS) | framework-gap (unconfirmed) | [pr-list-live-refresh](../tasks/20261008-pr-list-live-refresh.md) (its scroll row) | local draft; a one-file app not tried |
+
 ## Upstream issues (filed 2026-10-06)
 
 Each was reproduced on exact2 `4c893fef6` before filing. Not filed: X13 (unverified on macOS; the web behavior is designed), X42 (already supported on main), X38–X41 (product scope, not framework gaps).
