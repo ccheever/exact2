@@ -716,7 +716,7 @@ working fixture, not inferred from JavaScript's Event interface.
 | Four numbers | `transformgeometry` |
 | Six numbers | `transformrelease` |
 | Special: zero or one location string, no captured args | `navigate` |
-| Zero or one `PointerEvent` (the action takes it or leaves it) | `pointerdown`, `pointerup`, `pointermove`, `contextmenu` (UI Events makes it one: where the secondary click or long press was; a keyboard's menu key gives the origin) |
+| Zero or one `PointerEvent` (the action takes it or leaves it) | `pointerdown`, `pointerup`, `pointermove`, `contextmenu` (UI Events makes it one: where the secondary click or long press was; a keyboard's menu key targets the focus) |
 | Zero or one `WheelEvent` (the action takes it or leaves it) | `wheel` |
 | Zero or one `DragEvent` (the action takes it or leaves it) | `drop` |
 | Zero or one `ClipboardEvent` (the action takes it or leaves it) | `copy`, `cut`, `paste` ([clipboard](#clipboard)) |
@@ -843,6 +843,13 @@ canvas surface=ink(points) pointerdown=begin pointermove=stroke touch-action="no
 
 A `contextmenu` (a right-click, a long press) offers the same record: on a Mac
 and in a browser on one it comes on the button's down, after its `pointerdown`.
+On macOS, the unmodified `ContextMenu` key opens it at the focused node's
+visible centre, after `key` handlers run, with `buttons=0` and `pressure=0`.
+A `key` handler's `preventDefault()` cancels it. The nearest `contextmenu`
+handler runs before its `contextPopover` opens; a field keeps its editing
+menu. Drive it with `type "row" key "ContextMenu"`. Shift+F10 has no menu
+default on macOS, matching Chrome on that platform. Native context menus retain
+the existing `disabled` guard, including on plain containers.
 
 `wheel` is DOM's: a wheel's turn or a trackpad's scroll over the node, heard by
 every node from it up that declares it, innermost first. Its `WheelEvent` is
