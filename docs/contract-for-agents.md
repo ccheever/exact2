@@ -744,12 +744,51 @@ row being dragged) and keeps its place in the list.
 
 A native button is an explicit `button appearance="auto"` after class merging;
 an ordinary button remains an authored `appearance="none"` pressable. The switch
-must be literal. Native title/symbol children are face data, not general layout.
-A symbol-only face needs a nonempty accessible label. `buttonStyle` is a declared
-styleable host-policy prop; its names and allowable branches are checked against
-`schema.json`'s `buttonStyles`. Follow the native-button allowlist and context
-checks in [`controls.rs`](../contract/lower/src/controls.rs), and test the actual
-platform look. Do not assume arbitrary custom paint or typography is admitted.
+must be literal. Its first `text` is the title, its second is the subtitle, and
+its one `image "symbol:…"` is the symbol. These are semantic face data, not
+layout children. A symbol-only face needs a nonempty `aria-label`. With
+`flex-direction="row"` (or absent), an image before/after the texts is
+leading/trailing; with `flex-direction="column"` it is top/bottom.
+
+Native buttons admit `font-size`, `font-weight`, `color`, `white-space`,
+`line-clamp` and `text-align` on the button or its texts; a text's own row wins.
+Apple uses only rows authored there, including classes; absent rows leave the
+platform's font and colour alone. The web inherits the page's font and colour.
+Tab/menu projections keep their existing ancestor `text-transform` on the
+projected title, which the face query reads as painted.
+`white-space="nowrap"` asks for one truncated line, `line-clamp=N` caps wrapping,
+and `text-align="start"` places the face at the start of its box. The symbol
+admits its own `-exact-tint-color`, `font-size` and `font-weight`; absent symbol rows
+follow the title. Its `width`, `height` and `object-fit` are refused.
+
+`gap` (or `column-gap` for a row, `row-gap` for a column) sets image-to-title
+spacing. Absent means the platform's spacing, not zero; title-to-subtitle
+spacing stays the platform's. `align-items` and `justify-content` accept only
+`center`. `-exact-control-size` takes `mini`, `small`, `medium`, `large`;
+`-exact-corner-style` takes `dynamic`, `small`, `medium`, `large`, `capsule`.
+Both are style rows admitted only on native buttons, including in a class.
+`border-radius` sets the authored radius and wins over the named corner style;
+`padding` and its longhands set content insets. Absent leaves the native
+control's insets/corners alone.
+
+`pointer-events` takes `none` or `auto`. A disabled native button retains
+its authored colours; bind `opacity` for authored dimming. It can open a
+dialog or popover with `commandfor` and `command="show-modal"`,
+`"show-popover"`, `"toggle-popover"`, or with `popovertarget`; targets may be
+bound, and an empty target is no target. `href`, `action` and swipe attributes
+remain refused. `-exact-enabled` transitions are not available.
+
+`buttonStyle` is a styleable host-policy prop; its names and allowable branches
+are checked against `schema.json`'s `buttonStyles`. Backgrounds, borders,
+shadows, filters, `font-family`, other typography or inner layout and
+`-exact-press-scale` are refused with `lower-button-style-attr`, naming a custom
+`button` as the alternative. A native button still takes size, place, opacity
+and transform rows. Hosts implementing the measure hook supply its fitting
+size before the first frame, including height-for-width; hosts without it
+keep the existing intrinsic-size report. This lane admits the rows; platform
+mapping and measurement implementations follow separately. Test the actual
+platform look; macOS can report stand-ins for gap, subtitle and wrapping.
+See [`controls.rs`](../contract/lower/src/controls.rs) for the checks.
 
 **Prefer native controls.** Write the Contract form and each host draws its own
 control; a hand-built lookalike (a painted switch, a row of buttons for tabs, a

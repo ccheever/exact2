@@ -12,6 +12,7 @@ use crate::id::IdMap;
 use crate::shared_style::SharedStyles;
 use crate::sorted::SlotSet;
 use std::rc::Rc;
+mod button;
 mod control_text;
 
 use taffy::NodeId;
@@ -85,7 +86,7 @@ pub struct NodeArena {
     /// The page's environment (LLP 1001 §2): what `env()` lengths resolve
     /// to. The host's, not the tree's — a reset keeps it.
     env: Env,
-    control_styles: Option<Box<[StyleProps; 2]>>,
+    control_styles: Option<Box<[StyleProps; 4]>>,
     pub(crate) field_content: IdMap<u32, Frame>,
     pub(crate) document_language: String,
     pub(crate) document_style: StyleProps,

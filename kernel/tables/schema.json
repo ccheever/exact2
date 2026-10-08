@@ -1283,6 +1283,7 @@
       "id": 217,
       "name": "buttonStyle",
       "kind": "str",
+      "measure": true,
       "styleable": true,
       "_comment": "@ref LLP 1069.011 D2: a native button's style, a name in `buttonStyles`; absent, `bordered`. Only on a `button` whose appearance is `auto`."
     },
@@ -1510,6 +1511,14 @@
         "contain"
       ],
       "default": "auto"
+    },
+    "ControlSize": {
+      "values": ["mini", "small", "medium", "large"],
+      "default": "medium"
+    },
+    "ControlCornerStyle": {
+      "values": ["dynamic", "small", "medium", "large", "capsule"],
+      "default": "dynamic"
     },
     "FlexDirection": {
       "values": [
@@ -3570,6 +3579,19 @@
       "rare": true,
       "codec": "enum:AnimationTrigger",
       "_comment": "@ref LLP 1055 D13: `-exact-animation-trigger`, the name of CSS's scroll-triggered animations with two values of our own, `view | none`: whether the node's animations start when its list row first shows or at insertion."
+    },
+    {
+      "bit": 194,
+      "field": "control_size",
+      "codec": "enum:ControlSize",
+      "layout": true,
+      "_comment": "@ref LLP 1069.011.001 D8: -exact-control-size, a native button's named platform size. An unset mask means leave the platform's size alone."
+    },
+    {
+      "bit": 195,
+      "field": "control_corner_style",
+      "codec": "enum:ControlCornerStyle",
+      "_comment": "@ref LLP 1069.011.001 D9, D15: -exact-corner-style, a native button's named corners; an authored border-radius wins. An unset mask leaves the platform's corners alone."
     }
   ],
   "_transitions": "The `transition` row is CSS `transition` (LLP 1002): count u8 (\u22648), then per declaration property u8 (0 all, then 1 + `Property`: 1 translate, 2 scale, 3 rotate, 4 opacity, 5 height, 6 stroke-dashoffset, 7 r, 8 color, 9 background-color, 10 fill, 11 stroke, 12 cx, 13 cy, 14 x, 15 y, 16 rx, 17 ry, 18 border-top-color, 19 border-right-color, 20 border-bottom-color, 21 border-left-color, 22 -exact-tint-color, 23 box-shadow \u2014 LLP 1062; 24, box-shadow's colour alone, is refused; 25 is CSS's `border-color` shorthand; 26 is a path's `d`, LLP 1055.000 D15), duration f32 s, delay f32 s, easing u8 (0 linear, 1 ease, 2 ease-in, 3 ease-out, 4 ease-in-out, 5 cubic-bezier + 4\u00d7f32, 6 steps + u16 count + u8 position, 7 spring + f32 stiffness/damping/mass, 8 linear() + u8 count + count\u00d7(f32 input, f32 output)). Its Rust type lives in exact-motion; the kernel owns the bytes.",

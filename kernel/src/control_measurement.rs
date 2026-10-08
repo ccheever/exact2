@@ -1,5 +1,5 @@
 //! Native control measurements and platform fonts. @ref LLP 1104 D4–D5.
-//! Buttons will use the same host seam later; only field chrome is measured here.
+//! Field chrome and native button faces share TextMeasurer's defaulted hooks.
 
 use crate::{FontStyle, PropId, PropList};
 
@@ -21,14 +21,14 @@ pub struct ControlFont {
 }
 
 /// The platform's starting font for each kind. Secure/search use `field`.
-/// The button font is carried now but has no kernel behaviour yet.
+/// Apple supplies these before the first layout; the web inherits the page.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ControlTextStyles {
     /// Single-line field, including secure and search fields.
     pub field: ControlFont,
     /// Multi-line field.
     pub textarea: ControlFont,
-    /// Native button, reserved for the button implementation.
+    /// Native button.
     pub button: ControlFont,
 }
 
@@ -108,5 +108,68 @@ impl FieldChrome {
         ]
         .into_iter()
         .all(|v| v.is_finite() && v >= 0.0)
+    }
+}
+
+/// Image side resolved from the face axis and child order (D3).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum ButtonImagePlacement {
+    /// Before the title in a row.
+    #[default]
+    Leading,
+    /// After the title in a row.
+    Trailing,
+    /// Before the title in a column.
+    Top,
+    /// After the title in a column.
+    Bottom,
+}
+
+/// Resolved values, with each StyleProps mask marking only rows authored on
+/// the button or that semantic child (D1–D2). Values are computed, including
+/// em resolution and the web's inheritance; an unmarked row is the platform's
+/// own answer on Apple, not an instruction to write the computed initial.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ButtonFaceStyle {
+    /// Title typography; its own rows win over the button's.
+    pub title: crate::StyleProps,
+    /// Subtitle typography, resolved independently in the same way.
+    pub subtitle: Option<crate::StyleProps>,
+    /// Symbol tint/font; only rows on the image are marked authored (D14).
+    pub symbol: crate::StyleProps,
+    /// Button padding, radii and platform size/corners, per-side masks included.
+    pub button: crate::StyleProps,
+    /// Image-to-text gap on the face axis. None asks the host's system spacing.
+    pub image_gap: Option<f32>,
+}
+
+/// A native button's semantic face and resolved configuration (D11).
+#[derive(Debug, Clone, PartialEq)]
+pub struct ButtonMeasureRequest {
+    /// Title, subtitle, symbol and placement.
+    pub face: crate::PressFace,
+    /// Resolved rows with authored masks.
+    pub style: ButtonFaceStyle,
+    /// Name from buttonStyles; bordered when absent.
+    pub button_style: String,
+    /// Offered border-box width; hosts answer height-for-width.
+    pub width: crate::AxisOffer,
+}
+
+/// The host's border-box measurement in logical pixels (D11).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ButtonMeasure {
+    /// Fitting width.
+    pub width: f32,
+    /// Fitting height at the offered width.
+    pub height: f32,
+    /// A stand-in; the host must remeasure before it presents a frame.
+    pub provisional: bool,
+}
+
+impl ButtonMeasure {
+    /// Both axes must be finite and nonnegative.
+    pub fn is_valid(self) -> bool {
+        self.width.is_finite() && self.width >= 0.0 && self.height.is_finite() && self.height >= 0.0
     }
 }

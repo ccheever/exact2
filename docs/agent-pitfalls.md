@@ -665,6 +665,14 @@ guide's rules don't make obvious.
   `try { … } finally { await db.close(); }`. (LLP 1097 D7, Charlie,
   2026-10-07.)
 
+- **A native button refuses an image's frame or a third text.** Its face is
+  semantic: two texts (title and subtitle) and one symbol. The symbol's size
+  is `font-size` on the image, not `width`, `height` or `object-fit`. Its own
+  colour is `-exact-tint-color`; the title's is `color`. Use a custom `button`
+  without `appearance="auto"` for aligned image frames or arbitrary children.
+  `-exact-control-size` and `-exact-corner-style` are admitted only on an
+  explicit native button, including through classes. (LLP 1069.011.001 D12–D14.)
+
 ## Working on exact2 itself
 
 - **A bisect that shares another worktree's Cargo target directory builds

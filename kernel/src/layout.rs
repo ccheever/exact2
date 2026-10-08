@@ -9,6 +9,7 @@
 //!
 //! An engine fault is never a panic: it is recorded, reported as
 //! [`LayoutError::Engine`], and the kernel rebuilds the tree from the columns.
+mod buttons;
 #[cfg(test)]
 mod containment_tests;
 #[cfg(test)]
@@ -800,10 +801,11 @@ impl LayoutTree {
         node_for: impl Fn(u32) -> Option<NodeId>,
     ) -> Result<(), LayoutError> {
         self.prepare_fields(root, arena, measurer)?;
+        let buttons = self.prepare_buttons(root, arena, measurer)?;
         // Percentage padding uses the containing block's final width. Settle
         // its frame floor in the engine before publication, never after paint.
         for _ in 0..3 {
-            let minima = self.compute_pass(root, offer, arena, measurer, &node_for)?;
+            let minima = self.compute_pass(root, offer, arena, measurer, &node_for, &buttons)?;
             if !self.settle_field_minima(minima) {
                 return Ok(());
             }
@@ -820,6 +822,7 @@ impl LayoutTree {
         arena: &NodeArena,
         measurer: &mut dyn TextMeasurer,
         node_for: &impl Fn(u32) -> Option<NodeId>,
+        buttons: &IdMap<u32, crate::ButtonMeasureRequest>,
     ) -> Result<IdMap<NodeId, f32>, LayoutError> {
         if let Some(fault) = &self.fault {
             return Err(LayoutError::Engine(fault.clone()));
@@ -880,6 +883,8 @@ impl LayoutTree {
         let pass = self.pass;
         let mut runs: Vec<TextRun<'_>> = Vec::new();
         let mut invalid_metrics = None;
+        let mut invalid_button = None;
+        let mut provisional_button = false;
         let height_free = measurer.height_free();
         let chrome = &self.field_chrome;
         let mut minima = IdMap::default();
@@ -959,6 +964,25 @@ impl LayoutTree {
                         crate::replaced::measure(arena, slot, style, inset, known, space)
                     {
                         return size;
+                    }
+                    if let Some(request) = buttons.get(&slot) {
+                        if let Some(answer) =
+                            buttons::measure(request, measurer, known, space, inset)
+                        {
+                            if !answer.is_valid() {
+                                invalid_button.get_or_insert_with(|| arena.local_id(slot));
+                                return Size::ZERO;
+                            }
+                            provisional_button |= answer.provisional;
+                            return Size {
+                                width: known
+                                    .width
+                                    .unwrap_or((answer.width - inset.left - inset.right).max(0.0)),
+                                height: known
+                                    .height
+                                    .unwrap_or((answer.height - inset.top - inset.bottom).max(0.0)),
+                            };
+                        }
                     }
                     if matches!(
                         arena.node_type(slot),
@@ -1130,6 +1154,10 @@ impl LayoutTree {
             .taffy
             .compute_layout_with_measure(root, available, measure);
         result.map_err(|e| LayoutError::Engine(format!("compute_layout: {e:?}")))?;
+        self.provisional_chrome |= provisional_button;
+        if let Some(view) = invalid_button {
+            return Err(LayoutError::InvalidButtonMeasure(view));
+        }
         if let Some(view) = invalid_metrics {
             return Err(LayoutError::InvalidTextMetrics(view));
         }

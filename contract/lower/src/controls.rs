@@ -84,6 +84,21 @@ pub(crate) fn control(
         }
         return Ok(Some("button"));
     }
+    if let Some(a) = attrs.iter().find(|a| {
+        matches!(
+            a.name.as_str(),
+            "-exact-control-size" | "-exact-corner-style"
+        )
+    }) {
+        return err(
+            "lower-button-style-attr",
+            format!(
+                "`{}` belongs to a native button: `button appearance=\"auto\"`",
+                a.name
+            ),
+            a.span,
+        );
+    }
     if let Some(a) = attrs.iter().find(|a| a.name == "buttonStyle") {
         return err(
             "lower-button-style",
@@ -511,8 +526,31 @@ pub(crate) fn button_context(
 /// The style rows a native button's box may carry (LLP 1069.011 D6): where it
 /// sits and how big it is, whether it shows (`display` is checked to be its
 /// own `flex` or `none`), its opacity and transforms, its clip, its accent.
-/// Everything else is the platform's to draw or hit-test.
+/// Its semantic content rows are LLP 1069.011.001 D2–D9, D14–D17;
+/// chrome and arbitrary inner layout remain the platform's to draw.
 const NATIVE_ROWS: &[StyleId] = &[
+    StyleId::ControlSize,
+    StyleId::ControlCornerStyle,
+    StyleId::FlexDirection,
+    StyleId::RowGap,
+    StyleId::ColumnGap,
+    StyleId::AlignItems,
+    StyleId::JustifyContent,
+    StyleId::FontSize,
+    StyleId::FontWeight,
+    StyleId::WhiteSpace,
+    StyleId::LineClamp,
+    StyleId::TextAlign,
+    StyleId::TextColor,
+    StyleId::BorderRadiusTopLeft,
+    StyleId::BorderRadiusTopRight,
+    StyleId::BorderRadiusBottomRight,
+    StyleId::BorderRadiusBottomLeft,
+    StyleId::PaddingTop,
+    StyleId::PaddingRight,
+    StyleId::PaddingBottom,
+    StyleId::PaddingLeft,
+    StyleId::PointerEvents,
     StyleId::Width,
     StyleId::Height,
     StyleId::MinWidth,
@@ -559,13 +597,6 @@ const NATIVE_ROWS: &[StyleId] = &[
 fn native_motion(p: exact_motion::Property) -> bool {
     use exact_motion::Property as P;
     matches!(p, P::Opacity | P::Translate | P::Scale | P::Rotate)
-}
-
-/// Whether `attrs` has `name` as the literal `value`.
-fn literal(attrs: &[contract_syntax::Attr], name: &str, value: &str) -> bool {
-    attrs
-        .iter()
-        .any(|a| a.name == name && matches!(&a.value, Expr::Str(v, _) if v == value))
 }
 
 /// Whether a value can be empty: a blank literal, `none`, or an arm of a
@@ -628,9 +659,11 @@ impl Lowerer<'_> {
                 // A menu's invoker is a custom button in this version (LLP 1069.011.000
                 // D5); a row that only closes its popover or dialog — a confirmation's
                 // action or cancel — is not an invoker.
-                "popovertarget" if literal(attrs, "popovertargetaction", "hide") => {}
-                "commandfor" if literal(attrs, "command", "close") => {}
-                "popovertarget" | "commandfor" | "href" | "action" | "swipeContent"
+                "popovertarget" => {}
+                "commandfor" if attrs.iter().find(|a| a.name == "command").is_some_and(|a| {
+                    literals(&a.value).is_some_and(|commands| commands.iter().all(|c| matches!(*c, "close" | "show-modal" | "show-popover" | "toggle-popover")))
+                }) => {}
+                "commandfor" | "href" | "action" | "swipeContent"
                 | "swipeLeading" | "swipeTrailing" | "swipeIndicator" | "popover" => {
                     return refuse(
                         "lower-button-context",
@@ -662,7 +695,7 @@ impl Lowerer<'_> {
                 "backgroundMaterial" | "glassGroup" => {
                     return refuse(
                         "lower-button-style-attr",
-                        format!("a native button draws its own glass: no `{name}` on it (put a `glassGroup` on its parent)"),
+                        format!("a native button draws its own glass: no `{name}` on it (put a `glassGroup` on its parent); {alternative}"),
                     )
                 }
                 "display"
@@ -671,8 +704,14 @@ impl Lowerer<'_> {
                 {
                     return refuse(
                         "lower-button-style-attr",
-                        "a native button's `display` is its own `\"flex\"` or `\"none\"` (or a choice between them): the platform lays out its face".into(),
+                        format!("a native button's `display` is its own `\"flex\"` or `\"none\"` (or a choice between them): {alternative}"),
                     )
+                }
+                "align-items" | "justify-content" if !literals(&a.value).is_some_and(|vs| vs.iter().all(|v| *v == "center")) => {
+                    return refuse("lower-button-style-attr", format!("a native button's `{name}` only accepts `center`; use `text-align` to place the face, or {alternative}"));
+                }
+                "flex-direction" if !literals(&a.value).is_some_and(|vs| vs.iter().all(|v| matches!(*v, "row" | "column"))) => {
+                    return refuse("lower-button-style-attr", format!("a native button's `flex-direction` is `row` or `column`: {alternative}"));
                 }
                 "buttonStyle" => match literals(&a.value) {
                     Some(names) => {
@@ -703,7 +742,7 @@ impl Lowerer<'_> {
                     if rows.iter().any(|r| !NATIVE_ROWS.contains(r)) {
                         return refuse(
                             "lower-button-style-attr",
-                            format!("a native button draws its own `{name}`: the platform draws the button; give it a size, a place, `opacity`, a transform or `accent-color`"),
+                            format!("a native button draws its own `{name}`: {alternative}"),
                         );
                     }
                     if rows.contains(&StyleId::Transition) {
@@ -713,6 +752,16 @@ impl Lowerer<'_> {
                     {
                         self.check_native_animation(a)?;
                     }
+                }
+                Some(crate::tags::AttrTarget::Shorthand)
+                    if crate::shorthands::rows(name)
+                        .iter()
+                        .any(|r| !NATIVE_ROWS.contains(r)) =>
+                {
+                    return refuse(
+                        "lower-button-style-attr",
+                        format!("a native button draws its own `{name}`: {alternative}"),
+                    );
                 }
                 Some(crate::tags::AttrTarget::Handler(h))
                     if !matches!(h, "press" | "focus" | "blur" | "key" | "keyup" | "hover") =>
@@ -728,7 +777,7 @@ impl Lowerer<'_> {
         let labelled = attrs
             .iter()
             .any(|a| a.name == "aria-label" && !may_be_empty(&a.value));
-        let faces = face_counts(children)?;
+        let faces = face_counts(self, children)?;
         if faces.contains(&(0, 0)) {
             return err(
                 "lower-button-content",
@@ -736,10 +785,10 @@ impl Lowerer<'_> {
                 span,
             );
         }
-        if faces.iter().any(|f| f.0 > 1 || f.1 > 1) {
+        if faces.iter().any(|f| f.0 > 2 || f.1 > 1) {
             return err(
-                "lower-button-content",
-                "a native button shows at most one `text` and one symbol `image` at a time",
+                "lower-button-style-attr",
+                "a native button shows at most two `text`s and one symbol `image` at a time; write a custom `button` (without `appearance=\"auto\"`) for more",
                 span,
             );
         }
@@ -758,7 +807,7 @@ impl Lowerer<'_> {
         let Some(texts) = literals(&a.value) else {
             return err(
                 "lower-button-style-attr",
-                "a native button's `transition` is a literal, so its properties can be checked",
+                "a native button's `transition` is a literal, so its properties can be checked; write a custom `button` for other motion",
                 a.span,
             );
         };
@@ -771,7 +820,7 @@ impl Lowerer<'_> {
                 if !ok {
                     return err(
                         "lower-button-style-attr",
-                        "a native button transitions only its `opacity` and transforms (`translate`, `scale`, `rotate`): the platform draws the rest",
+                        "a native button transitions only its `opacity` and transforms (`translate`, `scale`, `rotate`): write a custom `button` for other motion",
                         a.span,
                     );
                 }
@@ -786,7 +835,7 @@ impl Lowerer<'_> {
         let Some(texts) = literals(&a.value) else {
             return err(
                 "lower-button-style-attr",
-                "a native button's animation is a literal, so its keyframes can be checked",
+                "a native button's animation is a literal, so its keyframes can be checked; write a custom `button` for other motion",
                 a.span,
             );
         };
@@ -803,7 +852,7 @@ impl Lowerer<'_> {
                 if !ok {
                     return err(
                         "lower-button-style-attr",
-                        format!("a native button animates only its `opacity` and transforms; `{}` animates more (or is not declared here)", anim.name),
+                        format!("a native button animates only its `opacity` and transforms; `{}` animates more (or is not declared here); write a custom `button` for other motion", anim.name),
                         a.span,
                     );
                 }
@@ -814,17 +863,20 @@ impl Lowerer<'_> {
 }
 
 /// Every face a native button's children can show, as (texts, symbol
-/// images), each counted to two; refusing what a face cannot hold
-/// (LLP 1069.011 D5): `each`, any other element, attributes but `testId`, a
-/// source that is not a literal symbol role.
-fn face_counts(nodes: &[contract_syntax::Node]) -> Result<Vec<(u8, u8)>, LowerError> {
+/// images), saturated above two texts/one image; refusing what a face cannot
+/// hold (LLP 1069.011.001 D3, D12): repeated/arbitrary children and non-face
+/// rows, after each child's class merge.
+fn face_counts(
+    lower: &Lowerer<'_>,
+    nodes: &[contract_syntax::Node],
+) -> Result<Vec<(u8, u8)>, LowerError> {
     use contract_syntax::Node;
     let mut faces = vec![(0u8, 0u8)];
     let add = |faces: Vec<(u8, u8)>, more: Vec<(u8, u8)>| {
         let mut out: Vec<(u8, u8)> = Vec::new();
         for f in &faces {
             for m in &more {
-                let sum = ((f.0 + m.0).min(2), (f.1 + m.1).min(2));
+                let sum = ((f.0 + m.0).min(3), (f.1 + m.1).min(2));
                 if !out.contains(&sum) {
                     out.push(sum);
                 }
@@ -844,22 +896,32 @@ fn face_counts(nodes: &[contract_syntax::Node]) -> Result<Vec<(u8, u8)>, LowerEr
             } => {
                 if !matches!(tag.as_str(), "text" | "image") {
                     return err(
-                        "lower-button-content",
-                        format!("a native button shows a `text` and a symbol `image`, not a `{tag}`: the platform draws the button"),
+                        "lower-button-style-attr",
+                        format!("a native button shows `text`s and a symbol `image`, not a `{tag}`; write a custom `button` for other children"),
                         *span,
                     );
                 }
-                if let Some(a) = attrs.iter().find(|a| a.name != "testId") {
-                    return err(
-                        "lower-button-content",
-                        format!("a native button's `{tag}` takes no `{}`: the platform draws its title and image", a.name),
-                        a.span,
-                    );
+                let class = lower.class_rows(attrs)?.map(|(_, rows)| rows).unwrap_or_default();
+                for a in class.iter().chain(attrs) {
+                    if matches!(a.name.as_str(), "class" | "testId") { continue; }
+                    let allowed = match crate::tags::attr(&a.name) {
+                        Some(crate::tags::AttrTarget::Styles(rows)) => rows.iter().all(|r| {
+                            if tag == "text" {
+                                matches!(r, StyleId::FontSize | StyleId::FontWeight | StyleId::TextColor | StyleId::WhiteSpace | StyleId::LineClamp | StyleId::TextAlign)
+                            } else {
+                                matches!(r, StyleId::TintColor | StyleId::FontSize | StyleId::FontWeight)
+                            }
+                        }),
+                        _ => false,
+                    };
+                    if !allowed {
+                        return err("lower-button-style-attr", format!("a native button's `{tag}` takes no `{}`; write a custom `button` for other face rows", a.name), a.span);
+                    }
                 }
                 if !children.is_empty() {
                     return err(
-                        "lower-button-content",
-                        format!("a native button's `{tag}` has no children"),
+                        "lower-button-style-attr",
+                        format!("a native button's `{tag}` has no children; write a custom `button` for inner layout"),
                         *span,
                     );
                 }
@@ -920,8 +982,8 @@ fn face_counts(nodes: &[contract_syntax::Node]) -> Result<Vec<(u8, u8)>, LowerEr
             Node::When {
                 then, otherwise, ..
             } => {
-                let mut out = face_counts(then)?;
-                for f in face_counts(otherwise)? {
+                let mut out = face_counts(lower, then)?;
+                for f in face_counts(lower, otherwise)? {
                     if !out.contains(&f) {
                         out.push(f);
                     }
@@ -929,8 +991,8 @@ fn face_counts(nodes: &[contract_syntax::Node]) -> Result<Vec<(u8, u8)>, LowerEr
                 out
             }
             Node::Match { some, none, .. } => {
-                let mut out = face_counts(&some.1)?;
-                for f in face_counts(none)? {
+                let mut out = face_counts(lower, &some.1)?;
+                for f in face_counts(lower, none)? {
                     if !out.contains(&f) {
                         out.push(f);
                     }
@@ -939,8 +1001,8 @@ fn face_counts(nodes: &[contract_syntax::Node]) -> Result<Vec<(u8, u8)>, LowerEr
             }
             Node::Each { span, .. } => {
                 return err(
-                    "lower-button-content",
-                    "a native button's title and image are fixed in number: no `each` inside it",
+                    "lower-button-style-attr",
+                    "a native button's title and image are fixed in number: no `each` inside it; write a custom `button` for repeated children",
                     *span,
                 )
             }

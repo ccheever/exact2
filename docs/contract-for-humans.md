@@ -1031,13 +1031,44 @@ component NativeButtonExample
       text `${presses}` testId="presses"
 ```
 
-Its text and optional `image "symbol:…"` children describe the button's face;
-they are not arbitrary layout children. A symbol-only face needs a nonempty
-`aria-label`. The platform measures the control and supplies its chrome. UIKit
-and AppKit use native controls, with stand-ins for styles a platform lacks; the
-web and Linux draw their documented looks, which are not a promise of identical
-glass rendering, and Linux draws no symbol image. A native button takes only
-`press`, `focus`, `blur`, `key` and `hover` handlers.
+Its first `text` is the title, its second is the subtitle, and one
+`image "symbol:…"` is the symbol. These are semantic fields; the platform lays
+them out. An image before/after the texts goes leading/trailing with
+`flex-direction="row"`, or top/bottom with `flex-direction="column"`. A
+symbol-only face needs a nonempty `aria-label`. macOS reports stand-ins where
+`NSButton` cannot express gap, subtitle or wrapping.
+
+`font-size`, `font-weight`, `color`, `white-space`, `line-clamp` and `text-align`
+can be on the button or its texts; a text's own row wins. Apple uses the
+platform's typography unless a row is written there (a class counts); the web
+inherits the page's font and colour. Tab/menu projections keep the existing
+ancestor `text-transform` on their projected title. `white-space="nowrap"` is one truncated
+line; `line-clamp=2` caps wrapping; `text-align="start"` places the face at the
+start of the box. An image can set its own `-exact-tint-color`, `font-size` and
+`font-weight`; otherwise its symbol follows the title. Image `width`, `height`
+and `object-fit` are refused.
+
+`gap`, or the gap for the chosen axis (`column-gap` in a row, `row-gap` in a
+column), sets image-to-title spacing. Leave it absent for the platform's
+spacing. Title-to-subtitle spacing stays the platform's. `align-items` and
+`justify-content` accept only `center`. `-exact-control-size` takes `mini`,
+`small`, `medium`, `large`; `-exact-corner-style` takes `dynamic`, `small`,
+`medium`, `large`, `capsule`. These are styleable rows for native buttons only.
+`border-radius` sets a radius and wins over the named corner style. `padding`
+and its longhands set content insets; leave them absent for the style's own.
+
+`pointer-events="none"` passes touches through; `auto` restores them. Disabled
+buttons keep authored colours; bind `opacity` when you want dimming. Native
+buttons can use `commandfor` with `command="show-modal"`, `"show-popover"` or
+`"toggle-popover"`, and `popovertarget`, including bound or empty targets (empty
+means no target). `href`, `action` and swipe attributes stay refused.
+`-exact-enabled` transitions are not available. Handlers are `press`, `focus`,
+`blur`, `key`, `keyup` and `hover`.
+
+The kernel's optional host measure hook supplies the fitting size before the
+first frame and handles wrapping at the offered width. Existing hosts keep
+their intrinsic-size report until they implement it. These rows are admitted
+by Contract; their host mappings are being built in separate lanes.
 
 `buttonStyle` defaults to `bordered`. The accepted styles are `plain`, `gray`,
 `tinted`, `filled`, `borderless`, `bordered`, `bordered-tinted`,
@@ -1047,9 +1078,10 @@ standard property. It can live in a style and can choose among checked literal
 names. `appearance`, however, must resolve to a literal after class application;
 use a view branch if switching between native and custom buttons.
 
-Native buttons deliberately restrict authored paint, typography, face content,
-and parent contexts so the platform can own the control. Do not transfer every
-custom-button style to one. `accent-color` tints the styles that support it
+Native buttons refuse backgrounds, borders, shadows, filters, `font-family`,
+other typography or inner layout and `-exact-press-scale`. A refusal names a
+custom `button` (without `appearance="auto"`) as the alternative. Size, place,
+opacity and transforms remain admitted. `accent-color` tints the styles that support it
 (`gray`, `bordered`, `glass` and `clear-glass` ignore it). Follow
 [the native-button fixture](../scripts/fixtures/native-buttons.contract) and
 [its compiler checks](../contract/lower/src/controls.rs) for the admitted forms.

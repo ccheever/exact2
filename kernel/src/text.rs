@@ -341,6 +341,16 @@ pub trait TextMeasurer {
         crate::FieldChrome::default()
     }
 
+    /// Native button border-box size, including its platform chrome and
+    /// authored content insets (LLP 1069.011.001 D11). None preserves the
+    /// default size / set_intrinsic_size path for existing hosts.
+    fn button_measure(
+        &mut self,
+        _request: &crate::ButtonMeasureRequest,
+    ) -> Option<crate::ButtonMeasure> {
+        None
+    }
+
     /// The resolved document language; an empty language is unknown.
     fn set_language(&mut self, _language: &str) {}
 
