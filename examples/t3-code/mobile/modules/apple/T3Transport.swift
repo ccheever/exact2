@@ -46,7 +46,18 @@ final class T3Transport: NSObject, URLSessionWebSocketDelegate, @unchecked Senda
     private var failedStreams: [String: String] = [:]
     var inbox = T3Inbox()
     private var transfers = T3Transfers()
-    private var outbox: [String] = []
+    private struct OutgoingFrame {
+        let text: String
+        let inlineMemory: T3InlineMemoryLease?
+        var ordinaryBytes: Int { inlineMemory == nil ? text.utf8.count : 0 }
+    }
+    private struct InlineMemory {
+        let id: UUID
+        var physicalReleased = false
+        var rpcFinished = true
+    }
+    private var inlineMemory: InlineMemory?
+    private var outbox: [OutgoingFrame] = []
     private var outboxBytes = 0
     private var sending = false
     var generation = 0
@@ -573,20 +584,72 @@ final class T3Transport: NSObject, URLSessionWebSocketDelegate, @unchecked Senda
     }
 
     func nextID() -> String { serial += 1; return "\(generation)-\(serial)" }
-    func rpc(_ request: [String: Any], journal: String? = nil, completion: @escaping Completion) throws {
+    // The slot survives socket retirement until both the RPC and all native byte owners finish.
+    func reserveInlineMemory() throws -> T3InlineMemoryLease {
+        guard inlineMemory == nil else { throw T3Failure(kind: "Busy", message: "Queued images are still being sent or released.") }
+        let id = UUID(); inlineMemory = InlineMemory(id: id)
+        return T3InlineMemoryLease(id: id) { [weak self] in
+            self?.queue.async { [weak self] in self?.inlineMemoryFinished(id, physical: true) }
+        }
+    }
+    private func inlineMemoryFinished(_ id: UUID, physical: Bool) {
+        guard inlineMemory?.id == id else { return }
+        if physical { inlineMemory?.physicalReleased = true }
+        else { inlineMemory?.rpcFinished = true }
+        if inlineMemory?.physicalReleased == true && inlineMemory?.rpcFinished == true { inlineMemory = nil }
+    }
+    /// Worker-only encoding. The final Request envelope, not just the image payload, is bounded.
+    static func encodeInlineRPC(_ prepared: T3OutboxInlinePayload, memory: T3InlineMemoryLease,
+                                id: String, epoch: Int) throws -> T3InlineRPC {
+        let wire = T3Wire.request(id: id, method: "assets.persistChatAttachments", payload: prepared.payload)
+        let bytes = try JSONSerialization.data(withJSONObject: wire, options: [.sortedKeys, .withoutEscapingSlashes])
+        guard bytes.count <= 100 * 1024 * 1024, let text = String(data: bytes, encoding: .utf8) else {
+            throw T3Failure(kind: "Limit", message: "These queued images exceed the server's 100 MiB encoded request limit.")
+        }
+        return T3InlineRPC(id: id, epoch: epoch, text: text, prepared: prepared, memory: memory)
+    }
+    /// Called immediately before durable issue, on the same queue as registration and enqueue.
+    func checkInlineRPC(_ frame: T3InlineRPC) throws {
+        guard alive, state == "connected", socket != nil, generation == frame.epoch else {
+            throw T3Failure(kind: "Disconnected", message: "The queued image connection changed before sending.")
+        }
+        guard inlineMemory?.id == frame.memory.id, inlineMemory?.physicalReleased == false,
+              inlineMemory?.rpcFinished == true, pending.count < 64, outbox.count < 4096 else {
+            throw T3Failure(kind: "Busy", message: "The connection cannot accept these queued images yet.")
+        }
+    }
+    func rpc(_ request: [String: Any], journal: String? = nil, inline: T3InlineRPC? = nil,
+             completion: @escaping Completion) throws {
         guard state == "connected" else { throw T3Failure(kind: "Disconnected", message: "The server is not connected.") }
         guard let method = request["method"] as? String, !method.isEmpty else { throw arguments("request requires a method.") }
         guard pending.count < 64 else { throw T3Failure(kind: "Busy", message: "Too many server requests are already pending.") }
-        let id = nextID(), wire = T3Wire.request(id: id, method: method, payload: request["payload"] ?? [:])
-        let text = try T3Wire.encode(wire)
+        let id: String, text: String, payload: Any
+        if let inline {
+            guard method == "assets.persistChatAttachments", journal != nil, request["payload"] == nil else {
+                throw arguments("Queued images require their native prepared request.")
+            }
+            try checkInlineRPC(inline)
+            id = inline.id; text = inline.text; payload = inline.prepared.payload
+        } else {
+            id = nextID(); payload = request["payload"] ?? [:]
+            text = try T3Wire.encode(T3Wire.request(id: id, method: method, payload: payload))
+        }
         // auto-balance: a request may ask for a shorter deadline (server.getHostResources waits 5 s).
         let wait = min(30, max(1, (request["timeout"] as? NSNumber)?.doubleValue ?? 30))
-        let lease = try queuedEdits?.admit(method: method, origin: routes.home.isEmpty ? origin?.absoluteString ?? "" : routes.home, environment: descriptor["environmentId"] as? String ?? "", journal: journal, payload: request["payload"] ?? [:])
-        let finishCall: Completion = { [queuedEdits] result in
+        let lease = try queuedEdits?.admit(method: method, origin: routes.home.isEmpty ? origin?.absoluteString ?? "" : routes.home,
+            environment: descriptor["environmentId"] as? String ?? "", journal: journal, payload: payload,
+            inlineAttempt: inline?.prepared.token)
+        let memoryID = inline?.memory.id
+        let finishCall: Completion = { [weak self, queuedEdits] result in
+            if let memoryID { self?.inlineMemoryFinished(memoryID, physical: false) }
             queuedEdits?.release(lease); completion(result)
         }
+        if memoryID != nil { inlineMemory?.rpcFinished = false }
         pending[id] = Pending(completion: finishCall, deadline: Date().addingTimeInterval(wait), journal: journal != nil, trace: request["trace"] as? Int)
-        send(text, epoch: generation)
+        if let inline {
+            outbox.append(OutgoingFrame(text: text, inlineMemory: inline.memory))
+            flush(epoch: generation)
+        } else { send(text, epoch: generation) }
     }
     private func subscribe(_ request: [String: Any], completion: @escaping Completion) throws {
         guard state == "connected" else { throw T3Failure(kind: "Disconnected", message: "The server is not connected.") }
@@ -619,20 +682,22 @@ final class T3Transport: NSObject, URLSessionWebSocketDelegate, @unchecked Senda
         guard outbox.count < 4096, outboxBytes + text.utf8.count <= T3Wire.maximumBytes else {
             return connectionFailed(T3Failure(kind: "Limit", message: "The server is not consuming outgoing messages."), epoch: epoch)
         }
-        outbox.append(text); outboxBytes += text.utf8.count
+        outbox.append(OutgoingFrame(text: text, inlineMemory: nil)); outboxBytes += text.utf8.count
         flush(epoch: epoch)
     }
     private func flush(epoch: Int) {
-        guard !sending, let socket, generation == epoch, let text = outbox.first else { return }
+        guard !sending, let socket, generation == epoch, let frame = outbox.first else { return }
         sending = true
         Task { [weak self, weak socket] in
+            // A stale socket Task may retain its String after retire clears the logical queue.
+            defer { withExtendedLifetime(frame) {} }
             guard let socket else { return }
             do {
-                try await socket.send(.string(text))
+                try await socket.send(.string(frame.text))
                 self?.queue.async { [weak self] in
                     guard let self, self.socket === socket, self.generation == epoch else { return }
                     self.sending = false
-                    if !self.outbox.isEmpty { self.outboxBytes -= self.outbox.removeFirst().utf8.count }
+                    if !self.outbox.isEmpty { self.outboxBytes -= self.outbox.removeFirst().ordinaryBytes }
                     self.flush(epoch: epoch)
                 }
             }
@@ -977,4 +1042,21 @@ final class T3Transport: NSObject, URLSessionWebSocketDelegate, @unchecked Senda
     }
 }
 
+// Native-only values. Their initializers are confined to this file's transport admission.
+final class T3InlineMemoryLease: @unchecked Sendable {
+    let id: UUID
+    private let released: () -> Void
+    fileprivate init(id: UUID, released: @escaping () -> Void) { self.id = id; self.released = released }
+    deinit { released() }
+}
+struct T3InlineRPC {
+    let id: String
+    let epoch: Int
+    let text: String
+    let prepared: T3OutboxInlinePayload
+    let memory: T3InlineMemoryLease
+    fileprivate init(id: String, epoch: Int, text: String, prepared: T3OutboxInlinePayload, memory: T3InlineMemoryLease) {
+        self.id = id; self.epoch = epoch; self.text = text; self.prepared = prepared; self.memory = memory
+    }
+}
 #endif

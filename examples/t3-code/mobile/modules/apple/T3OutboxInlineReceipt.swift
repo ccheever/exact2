@@ -20,8 +20,9 @@ enum T3OutboxInlineReceipt {
         guard data.count <= T3Wire.maximumBytes, let result = try JSONSerialization.jsonObject(with: data) as? Object else { throw failure() }
         return result
     }
+    private static let attemptKeys: Set<String> = ["payloadDigest", "attemptRevision", "attemptPreviousState", "result", "error"]
     private static func identity(_ value: Object, captured: Bool) -> Bool {
-        guard Set(value.keys) == keys, value["kind"] as? String == "outbox-inline",
+        guard keys.isSubset(of: Set(value.keys)), Set(value.keys).isSubset(of: keys.union(attemptKeys)), value["kind"] as? String == "outbox-inline",
               let id = value["operationId"] as? String, UUID(uuidString: id)?.uuidString.lowercased() == id,
               let record = value["record"] as? Object, T3MobileOutbox.validateRecord(record), id != record["commandId"] as? String,
               ["origin", "environmentId", "messageId", "threadId"].allSatisfy({ T3MobileOutbox.jsonEqual(value[$0], record[$0]) }),
@@ -35,9 +36,37 @@ enum T3OutboxInlineReceipt {
     }
     static func valid(_ value: Object, id: String) -> Bool {
         guard value["operationId"] as? String == id, identity(value, captured: true),
-              T3OutboxDeliveryReceipt.integer(value["revision"], positive: true) else { return false }
-        return value["state"] as? String == "reserved" && value["revision"] as? Int == 1
-            || value["state"] as? String == "retired" && value["revision"] as? Int == 2
+              T3OutboxDeliveryReceipt.integer(value["revision"], positive: true),
+              let revision = value["revision"] as? Int, let state = value["state"] as? String else { return false }
+        guard let rawAttempt = value["attemptRevision"] else {
+            return attemptKeys.allSatisfy { value[$0] == nil } && (state == "reserved" && revision == 1 || state == "retired" && revision == 2)
+        }
+        guard T3OutboxDeliveryReceipt.integer(rawAttempt, positive: true), let attempt = rawAttempt as? Int, attempt > 1,
+              let digest = value["payloadDigest"] as? String, digest.utf8.count == 64,
+              digest.range(of: "^[0-9a-f]{64}$", options: .regularExpression) != nil,
+              let previous = value["attemptPreviousState"] as? String, ["reserved", "uncertain", "rejected"].contains(previous),
+              ["reserved", "issued", "uncertain", "acknowledged", "rejected", "retired"].contains(state),
+              revision == attempt + (state == "issued" ? 0 : state == "retired" ? 2 : 1) else { return false }
+        if ["reserved", "retired"].contains(state), previous != "reserved" { return false }
+        if state == "rejected", previous == "uncertain" { return false }
+        if state == "issued" { return value["result"] == nil && value["error"] == nil }
+        if state == "acknowledged" { return value["error"] == nil && validAcknowledgment(value["result"], receipt: value) }
+        return value["result"] == nil && value["error"] is Object
+    }
+    static func validAcknowledgment(_ raw: Any?, receipt: Object) -> Bool {
+        guard let response = raw as? Object, Set(response.keys) == Set(["attachments"]),
+              let attachments = response["attachments"] as? [Object], let template = receipt["template"] as? Object,
+              let bindings = template["inline"] as? [Object], attachments.count == bindings.count,
+              let command = template["commandTemplate"] as? Object, let payload = command["payload"] as? Object,
+              let message = command["method"] as? String == "orchestration.launchThread" ? payload["initialMessage"] as? Object : payload,
+              let originals = message["attachments"] as? [Object] else { return false }
+        return zip(attachments, bindings).allSatisfy { attachment, binding in
+            guard Set(attachment.keys) == Set(["type", "id", "name", "mimeType", "sizeBytes"]), attachment["type"] as? String == "image",
+                  let id = attachment["id"] as? String, (1...128).contains(id.utf8.count),
+                  id.utf8.allSatisfy({ (48...57).contains($0) || (65...90).contains($0) || (97...122).contains($0) || $0 == 45 || $0 == 95 }),
+                  let index = binding["index"] as? Int, originals.indices.contains(index) else { return false }
+            return ["name", "mimeType", "sizeBytes"].allSatisfy { T3MobileOutbox.jsonEqual(attachment[$0], originals[index][$0]) }
+        }
     }
     static func prepare(_ request: Object, origin: String, environment: String) throws -> Object {
         guard let record = request["record"] as? Object else { throw failure() }
@@ -60,7 +89,7 @@ enum T3OutboxInlineReceipt {
         var saved = saved
         guard let template = saved["template"] as? Object else { return false }
         saved["template"] = uncaptured(template)
-        let mutable: Set<String> = ["revision", "state"]
+        let mutable = attemptKeys.union(["revision", "state"])
         return T3MobileOutbox.jsonEqual(saved.filter { !mutable.contains($0.key) }, prepared.filter { !mutable.contains($0.key) })
     }
     static func captured(_ prepared: Object, template: Object) throws -> Object {
