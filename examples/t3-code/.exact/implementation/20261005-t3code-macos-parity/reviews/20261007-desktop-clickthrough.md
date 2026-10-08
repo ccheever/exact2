@@ -86,11 +86,11 @@ use the settled captures cited by the individual tasks.
 | --- | --- | --- |
 | [Invalid pairing URL](../tasks/closed/20261007-invalid-pairing-url-validation.md) | Reference validates malformed Welcome input inline; Exact shows a generic connection failure both inline and globally | New app behavior task |
 | [Installed font picker](../tasks/20261007-installed-font-picker.md) | Reference enumerates installed families and rejects proportional Code fonts; Exact offers a fixed generic catalog | New app task, blocked by X48 for arbitrary family application |
-| [Settings model picker](../tasks/20261007-settings-model-picker.md) | General's model menu lacks the reference's search, provider navigation, favorites and legacy grouping | New app behavior task |
-| [Theme color picker](../tasks/20261007-theme-color-picker.md) | Exact swatch popup offers fixed presets; reference offers arbitrary hue/saturation/brightness and RGB input | New app behavior task |
-| [Editable prompt preview](../tasks/20261007-editable-font-prompt-preview.md) | Reference Appearance sample accepts typing and undo; Exact's clicked sample remains static text/chips | New app behavior task, separate from preview cosmetics |
-| [Title-menu Custom snooze](../tasks/20261007-title-custom-snooze.md) | Reference title action opens the dialog; Exact closes the menu without it, while its sidebar route works | New app behavior task |
-| [Desktop visual parity](../tasks/20261007-desktop-visual-parity.md) | Typography preview icons/highlighting, selector alignment, and clipped Markdown table text | One grouped cosmetic task, as requested |
+| [Settings model picker](../tasks/closed/20261007-settings-model-picker.md) | General's model menu lacks the reference's search, provider navigation, favorites and legacy grouping | New app behavior task |
+| [Theme color picker](../tasks/closed/20261007-theme-color-picker.md) | Exact swatch popup offers fixed presets; reference offers arbitrary hue/saturation/brightness and RGB input | New app behavior task |
+| [Editable prompt preview](../tasks/closed/20261007-editable-font-prompt-preview.md) | Reference Appearance sample accepts typing and undo; Exact's clicked sample remains static text/chips | New app behavior task, separate from preview cosmetics |
+| [Title-menu Custom snooze](../tasks/closed/20261007-title-custom-snooze.md) | Reference title action opens the dialog; Exact closes the menu without it, while its sidebar route works | New app behavior task |
+| [Desktop visual parity](../tasks/closed/20261007-desktop-visual-parity.md) | Typography preview icons/highlighting, selector alignment, and clipped Markdown table text | One grouped cosmetic task, as requested |
 | [X48: runtime font family](../issues/20261007-x48-runtime-font-family.md) | Contract rejects state/data-bound font families; literal and finite literal-choice controls compile | Reproduced local framework draft; no external publication |
 
 Each task includes baseline revisions, live reproduction, local evidence paths, source
@@ -99,7 +99,7 @@ fix; the discovery evidence does not verify an implementation.
 
 ## Existing tracking retained
 
-- [Managed Codex](../tasks/20261005-managed-codex-chatgpt.md) now records Welcome showing
+- [Managed Codex](../tasks/closed/20261005-managed-codex-chatgpt.md) now records Welcome showing
   sign-in choices while the same backend's Electron Agents page already reports Ready.
   [Sign-in terminals](../tasks/closed/20261005-sign-in-terminals.md) is related existing scope.
   The sign-in hold stays in place; no duplicate task was created.
