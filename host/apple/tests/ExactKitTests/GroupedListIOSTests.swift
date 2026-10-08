@@ -109,6 +109,9 @@ final class GroupedListIOSTests: XCTestCase {
             XCTAssertFalse(c.insetsLayoutMarginsFromSafeArea, "row \(id)")
             XCTAssertFalse(c.contentView.insetsLayoutMarginsFromSafeArea, "row \(id)'s content")
         }
+        let l = try list(p)
+        let header = try XCTUnwrap(l.collection.supplementaryView(forElementKind: UICollectionView.elementKindSectionHeader, at: IndexPath(item: 0, section: 0)) as? UICollectionViewListCell)
+        XCTAssertFalse(header.contentView.insetsLayoutMarginsFromSafeArea, "a header's content")
         custom = true
         p.apply(wireBatch([["op": "props", "id": 21, "set": ["testId": "row21"], "clear": [String]()]]))
         XCTAssertFalse(try cell(p, 21).contentView.insetsLayoutMarginsFromSafeArea, "a custom row's content")
@@ -399,6 +402,19 @@ final class GroupedListIOSTests: XCTestCase {
         below = 20
         p.apply(wireBatch([["op": "props", "id": 1, "set": ["testId": "below20"], "clear": [String]()]]))
         XCTAssertEqual(extent() - before, 20, accuracy: 0.5, "and 20 after an update")
+    }
+
+    /// The list's own padding is room before its first section and after its
+    /// last, as a scroll's is: a tab bar's under a settings list.
+    func testTheListsPaddingIsRoomAboveAndBelowItsSections() throws {
+        let p = presenter { self.model() }
+        let l = try list(p)
+        let before = l.collection.contentInset
+        p.apply(wireBatch([["op": "style", "id": 1, "style": ["overflow_y": "scroll", "padding_top": 12.0, "padding_bottom": 83.0]]]))
+        XCTAssertEqual(l.collection.contentInset.top - before.top, 12, accuracy: 0.5)
+        XCTAssertEqual(l.collection.contentInset.bottom - before.bottom, 83, accuracy: 0.5)
+        p.apply(wireBatch([["op": "style", "id": 1, "style": ["overflow_y": "scroll"]]]))
+        XCTAssertEqual(l.collection.contentInset, before, "and none once it is gone")
     }
 
     /// A row moved between a card-less section and a carded one, with
