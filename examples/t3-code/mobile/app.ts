@@ -679,10 +679,14 @@ async function newTaskFlow(args: unknown[], native?: Native | null) {
 
 async function threadView(args: unknown[], native?: Native | null) {
   const [_revision, time, scheme, environmentId, threadId, active] = args;
-  const queued = active === true ? mobileOutboxThread(str(environmentId), str(threadId), Number(time), scheme === 'dark') : null;
-  if (queued) return queued;
+  const queued = mobileOutboxThread(active === true ? str(environmentId) : '', active === true ? str(threadId) : '', Number(time), scheme === 'dark');
   const matched = active === true && environmentId === mobileClient.environmentId && threadId === mobileClient.threadId;
+  if (queued && !matched) return queued;
   if (matched) await mobileThreadPrepare(native, Number(time));
+  if (queued) {
+    const preparing = mobileOutboxThread(str(environmentId), str(threadId), Number(time), scheme === 'dark');
+    if (preparing) return preparing;
+  }
   const view = mobileThread(Number(time), scheme === 'dark');
   if (matched) return view;
   return { ...view, title: '', loaded: false, loading: active === true, rows: [], approvals: [],

@@ -1,10 +1,10 @@
 // Source365aa87982 use-thread-outbox-drain; Contract owns the clock and each invocation.
 // @ref llp/1109.005-composer-and-transcript.decision.md#queued-command-construction
 import { mobileOutboxBackgroundSaved } from './mobile-outbox-connection';
-import { fleet } from './shared/settings-b-fleet';
+import { fleet, environmentKey } from './shared/settings-b-fleet';
 import type { T3Client } from './shared/client';
 import { ClientError, type Native } from './shared/protocol';
-import { obj } from './shared/domain';
+import { obj, type Obj } from './shared/domain';
 import { letGo } from './shared/let-go';
 import { mobileOutboxRead, mobileOutboxSnapshot, type MobileOutboxRow } from './mobile-outbox';
 import { mobileOutboxDeliverOne, type MobileOutboxForegroundResult } from './mobile-outbox-foreground';
@@ -165,13 +165,25 @@ export async function mobileOutboxDriveRun(client: T3Client, native: Native, key
   } finally { drive.busy = ''; client.revision++; }
 }
 
+/** The source's global creation outcome ends at the first shell turn. A mounted
+ * route separately retains its prompt until the matching detail takes over. */
+export function mobileOutboxCreationShell(client: T3Client, record: MobileOutboxRecord): Obj | null {
+  if (client.environmentId === record.environmentId)
+    return client.shell.threads.find(thread => thread.id === record.threadId) ?? null;
+  const entry = fleet.entries.get(environmentKey(record.origin, record.environmentId));
+  return entry && entry.phase === 'connected' && entry.synchronized === entry.generation
+    ? entry.shell.threads.find(thread => thread.id === record.threadId) ?? null : null;
+}
+function shellStarted(thread: Obj | null): boolean {
+  return !!thread && (thread.latestRun != null || ['failed', 'cancelled', 'interrupted'].includes(String(obj(thread.runtime).status)));
+}
 /** Bridge the durable ACK/removal to the shell event without a blank thread.
  * These are presentation copies only; they never authorize another dispatch. */
 export function mobileOutboxDriveCompleted(client: T3Client): MobileOutboxRecord[] {
   return [...state(client).attempts.values()].flatMap(attempt => {
     const result = attempt.result, record = result?.status === 'delivered' ? result.delivery?.operation?.record : undefined;
     if (!record?.creation || attempt.bridgeReconciled) return [];
-    if (record.environmentId === client.environmentId && client.shell.threads.some(thread => thread.id === record.threadId)) {
+    if (shellStarted(mobileOutboxCreationShell(client, record))) {
       attempt.bridgeReconciled = true; return [];
     }
     return [JSON.parse(JSON.stringify(record))];

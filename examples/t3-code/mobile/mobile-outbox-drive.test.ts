@@ -8,6 +8,7 @@ import { ClientError, type Native } from './shared/protocol';
 import { letGo } from './shared/let-go';
 import { mobileHomeAction, mobileHomeActionsObserve } from './home-actions';
 import { EnvironmentFleet } from './shared/settings-b-fleet';
+import { mobileOutboxThread } from './mobile-outbox-presentation';
 import { mobileOutboxSnapshot } from './mobile-outbox';
 import { mobileOutboxDeliverOne } from './mobile-outbox-foreground';
 import { mobileOutboxDriveSnapshot as snapshot, mobileOutboxDriveRead as read, mobileOutboxDriveRun as run,
@@ -277,7 +278,7 @@ test('let-go propagates while releasing the plain busy latch with no follow-up r
   expect(letGo(failure)).toBe(true); expect(f.calls).toHaveLength(1); expect(snapshot(f.client, now).busy).toBe(false);
 });
 
-test('creation ACK bridge retains removed prompt until its exact environment and thread appear', async () => {
+test('creation ACK bridges shell startup and mounted detail independently', async () => {
   const record = { ...queued(), runtimeMode: 'full-access' as const, interactionMode: 'default' as const,
     creation: { projectId: 'project', projectCwd: '/repo', workspaceMode: 'local' as const, branch: null, worktreePath: null } };
   const f = fixture(record), first = await loaded(f);
@@ -298,7 +299,17 @@ test('creation ACK bridge retains removed prompt until its exact environment and
   f.client.shell.threads = [{ id: record.threadId, projectId: 'project' }];
   expect(completed(f.client)).toEqual([record]);
   f.client.environmentId = record.environmentId;
+  expect(completed(f.client)).toEqual([record]);
+  expect(mobileOutboxThread('env', record.threadId, now, false, f.client)?.queuedCanSelect).toBe(true);
+  f.client.shell.threads[0]!.latestRun = { id: 'run' };
   expect(completed(f.client)).toEqual([]);
+  expect(mobileOutboxThread('env', record.threadId, now, false, f.client)?.rows[0]?.body).toBe(record.text);
+  f.client.threadId = record.threadId;
+  f.client.thread = { sequence: 1, historyCursor: null, hasMore: false, latestLocalTurnOrdinal: null,
+    projection: { thread: { id: record.threadId }, runs: [{ id: 'run', status: 'running' }], messages: [] } };
+  expect(mobileOutboxThread('env', record.threadId, now, false, f.client)?.queued).toBe(true);
+  f.client.thread.projection.messages = [{ id: record.messageId }];
+  expect(mobileOutboxThread('env', record.threadId, now, false, f.client)).toBeNull();
   f.client.shell.threads = [];
   expect(completed(f.client)).toEqual([]);
   f.client.environmentId = 'another-environment';
@@ -553,4 +564,20 @@ for (const change of ['removed', 'disabled'] as const) test(`background ACK clea
     expect(f.disk()).toBeNull(); expect(f.calls.slice(before).some(call => call.fleet || call.action === 'send')).toBe(false);
     expect(f.client.environmentId).toBe('other'); expect(snapshot(f.client, now + 20000).next).toBe('');
   } finally { fleet.saved = savedBefore; fleet.entries.clear(); for (const [key, entry] of entriesBefore) fleet.entries.set(key, entry); }
+});
+
+for (const signal of ['run', 'failed', 'cancelled', 'interrupted'] as const) test(`background creation outcome ends on shell ${signal} without selecting it`, async () => {
+  const record = asCreation(queued()), f = fixture(record), first = await loaded(f), before = new Map(fleet.entries);
+  await run(f.client, f.native, first.next, now); expect(completed(f.client)).toHaveLength(1);
+  const key = environmentKey(owner.origin, owner.environmentId);
+  const entry: FleetEntry = { key, origin: owner.origin, environmentId: owner.environmentId, phase: 'connected', message: '', traceId: '',
+    generation: 7, synchronized: 7, lastEvent: 0, subscriptions: {}, config: {}, shell: { sequence: 1, projects: [], threads: [{ id: record.threadId, latestRun: null }] },
+    scopes: [], error: '', requested: true };
+  try {
+    f.client.environmentId = 'different'; fleet.entries.set(key, entry);
+    expect(completed(f.client)).toHaveLength(1);
+    Object.assign(entry.shell.threads[0]!, signal === 'run' ? { latestRun: { id: 'run' } } : { runtime: { status: signal } });
+    expect(completed(f.client)).toEqual([]); expect(f.client.environmentId).toBe('different');
+    entry.shell.threads = []; expect(completed(f.client)).toEqual([]);
+  } finally { fleet.entries.clear(); for (const [key, entry] of before) fleet.entries.set(key, entry); }
 });
