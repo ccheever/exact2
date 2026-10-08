@@ -9,6 +9,7 @@
 //   (behind main), the base branch's hover card: hover, leave toward the card, enter the card, the close delay.
 // Writes steps.ndjson and PNGs into outDir. Lane ports: after 16152, before 16153.
 import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { execSync } from 'node:child_process';
 const [which, out, worktree, part] = process.argv.slice(2);
 if (!['after', 'before'].includes(which) || !out || !worktree || !['settings', 'pr', 'usage'].includes(part)) throw new Error('usage: drive.mjs <after|before> <outDir> <worktree> <settings|pr|usage>');
 process.env.EXACT_APP_DIR = `${worktree}/examples/t3-code`;
@@ -32,8 +33,9 @@ log('launched', { appPid, part });
 const nodes = async () => (await s.tree()).nodes;
 const ids = async () => new Set((await nodes()).map(n => n.props.testId).filter(Boolean));
 const has = async (id) => (await ids()).has(id);
-// `clock +N real` can refuse "the clock cannot go backwards" (#285): then wait on the wall clock and settle.
-const real = async (ms = 500) => { try { await s.clock(`+${ms} real`); } catch (e) { if (!/backwards/.test(String(e.message))) throw e; await Bun.sleep(ms); try { await s.clock('settle'); } catch {} } };
+// `clock +N real` can refuse "the clock cannot go backwards" (#285): then wait N ms on the wall clock and move the app's clock
+// by N, so its timers (the hover clock) run as they would have.
+const real = async (ms = 500) => { try { await s.clock(`+${ms} real`); } catch (e) { if (!/backwards/.test(String(e.message))) throw e; log('clock-fallback', { ms }); await Bun.sleep(ms); try { await s.clock(`+${ms}`); } catch (e2) { log('clock-fallback-error', { m: String(e2.message).slice(0, 120) }); } } };
 const settle = async () => { try { await s.clock('settle'); } catch (e) { log('settle-error', { m: String(e.message).slice(0, 160) }); } };
 const shot = async (name) => { await s.screenshot(`${out}/${which}-${name}.png`, true); log('shot', { name }); };
 async function waitFor(what, pred, ms = 60000) {
@@ -46,9 +48,15 @@ async function step(name, fn) { try { log('step', { name }); await fn(); } catch
 const dismissToasts = async () => { for (let round = 0; round < 6; round++) { const list = [...await ids()].filter(id => id.startsWith('toast-dismiss-')); if (!list.length) return; for (const id of list) { try { await s.tap(id); await settle(); } catch {} } await real(400); } };
 const visible = async (id) => { const all = await nodes(); const n = all.find(x => x.props.testId === id); if (!n) { log('visible', { id, v: 'absent' }); return false; } const parent = all.find(x => x.id === n.parent); const v = { opacity: n.props.opacity, inert: parent?.props?.inert, hidden: parent?.props?.['aria-hidden'] }; log('visible', { id, ...v }); return v; };
 const present = async (id) => { const v = await has(id); log('present', { id, v }); return v; };
-import { execSync } from 'node:child_process';
 const winBox = () => { const w = JSON.parse(execSync(`/Users/daehyeonmun/.local/bin/orca computer list-windows --app pid:${appPid} --json`).toString()).result.windows.find(x => x.width > 600); return w; };
-const front = () => { try { execSync(`osascript -e 'tell application "System Events" to set frontmost of (first process whose unix id is ${appPid}) to true'`); } catch {} };
+const SCRATCH = '/private/tmp/claude-501/-Users-daehyeonmun-orca-workspaces-exact2-t3-code/9d293baa-3a94-4e6f-a91c-a64f957a461f/scratchpad';
+// Bring the app's window to the front (NSRunningApplication.activate) and log which window is frontmost at layer 0: a
+// real pointer reaches only the window on top under it.
+const front = () => {
+  try { execSync(`osascript -e 'tell application "System Events" to set frontmost of (first process whose unix id is ${appPid}) to true'`); } catch (e) { log('frontmost-error', { m: String(e.message).slice(0, 120) }); }
+  try { log('activate', { out: execSync(`${SCRATCH}/activate ${appPid}`).toString().trim().replace(/\n/g, ' | ') }); } catch (e) { log('activate-error', { m: String(e.message).slice(0, 120) }); }
+  try { const top = execSync(`${SCRATCH}/fhc/wins`).toString().split('\n').find(l => / layer=0 /.test(l)); log('front-window', { top }); } catch {}
+};
 async function box(id) {
   const r = await s.layout(id); const v = r.node?.space?.viewport;
   if (!v) { log('box-missing', { id, keys: Object.keys(r.node ?? {}), space: JSON.stringify(r.node?.space ?? null).slice(0, 300) }); throw new Error(`no viewport box for ${id}`); }
@@ -151,31 +159,41 @@ try {
       if (await has('usage-metric-limits')) await tap('usage-metric-limits');
       await real(1500); await settle(); await dismissToasts(); front();
       const id = '0-0-0', seg = `usage-seg-${id}`, pop = `usage-seg-pop-${id}`;
+      // In agent mode the host's resting hit-test after a layout uses the agent's pointer, never the cursor
+      // (MouseChainMac.restingPointer); a contact going down clears it, so only the real pointer's moves count here.
+      await s.tap('No projects yet', { down: true }); await s.pointer('up'); await settle();
       const b = await box(seg); const [sx, sy] = center(b);
       glide(sx - 200, sy - 30, sx - 40, sy); await waitReal(700);
+      log('hover-events', { lines: ((await s.logs()).lines ?? []).filter(l => /hover|pointer/.test(String(l))).slice(-8).map(l => String(l).slice(0, 120)) });
       const shownNow = await visible(pop); const card = shownNow && shownNow.inert === false ? await box(pop) : { x: sx - 60, y: sy + 20, w: 288, h: 260 }; log('card-box', card);
       await shotScreen('21-usage-popover');
       const below = card.y > b.y; const into = below ? card.y + 40 : card.y + card.h - 40;
       glide(sx - 40, sy, sx - 40, into); await waitReal(900);
       await visible(pop);
       await shotScreen('22-pointer-in-usage-popover');
-      // #281: a press on the popover's padding over the next card's bar presses no segment there.
-      const others = [];
-      for (const other of [...await ids()].filter(x => /^usage-seg-\d+-\d+-\d+$/.test(x) && x !== seg)) others.push(await box(other).catch(() => ({ x: 0, y: 0, w: 0, h: 0 })));
-      const spot = overControl(card, others, { x: 17, y: 17 }, [await box(`usage-seg-reset-${id}`).catch(() => ({ x: 0, y: 0, w: 0, h: 0 })), await box(`usage-seg-email-${id}`).catch(() => ({ x: 0, y: 0, w: 0, h: 0 }))]);
-      log('press-spot', spot ?? { none: true });
-      if (spot) { glide(sx - 40, into, spot.x, spot.y); click(spot.x, spot.y); await waitReal(600); await visible(pop); log('expanded', { segs: (await nodes()).filter(n => /^usage-seg-\d+-\d+-\d+$/.test(n.props.testId ?? '')).map(n => [n.props.testId, n.props.ariaExpanded ?? n.props['aria-expanded'] ?? n.props.accessibilityExpanded]) }); await shotScreen('22b-press-on-popover-padding'); glide(spot.x, spot.y, sx - 40, into); }
       const mail = await box(`usage-seg-email-${id}`).catch(() => ({ x: card.x + 16, y: card.y + 40, w: 120, h: 16 })); const [mx, my] = center(mail);
       glide(sx - 40, into, mx, my); await waitReal(700);
+      log('mail-events', { mail, lines: ((await s.logs()).lines ?? []).filter(l => /hover|pointer|press/.test(String(l))).slice(-10).map(l => String(l).slice(0, 120)) });
       await present(`usage-seg-email-${id}-tip`);
       await shotScreen('23-pointer-on-email');
       if (!DRY) execSync(`/opt/homebrew/bin/cliclick c:${toScreen(mx, my).join(',')}`); await waitReal(500);
-      const text = (await nodes()).find(n => n.props.testId === `usage-seg-email-${id}-text`); log('email-text', { revealed: !!text && !/[•*]/.test(String(text.props.text ?? '')) && String(text.props.filter ?? '') === 'none', filter: text?.props?.filter });
+      const text = (await nodes()).find(n => n.props.testId === `usage-seg-email-${id}-text`); log('email-text', { filter: text?.props?.filter, keys: Object.keys(text?.props ?? {}).join(',') });
       await visible(pop);
       await shotScreen('24-email-revealed');
       glide(mx, my, card.x + card.w + 150, my); await waitReal(400);
       await visible(pop);
       await shotScreen('25-usage-popover-left');
+      // #281: a press on the popover's padding over the next card's bar presses no segment there (before #327, a
+      // press on a part with no press of its own reaches the control under it).
+      glide(card.x + card.w + 150, my, sx - 40, sy); await waitReal(700); await visible(pop);
+      glide(sx - 40, sy, sx - 40, into); await waitReal(500);
+      const others = [];
+      for (const other of [...await ids()].filter(x => /^usage-seg-\d+-\d+-\d+$/.test(x) && x !== seg)) others.push(await box(other).catch(() => ({ x: 0, y: 0, w: 0, h: 0 })));
+      const spot = overControl(card, others, { x: 17, y: 17 }, [await box(`usage-seg-reset-${id}`).catch(() => ({ x: 0, y: 0, w: 0, h: 0 })), await box(`usage-seg-email-${id}`).catch(() => ({ x: 0, y: 0, w: 0, h: 0 }))]);
+      log('press-spot', spot ?? { none: true });
+      if (spot) { glide(sx - 40, into, spot.x, spot.y); await waitReal(300); await visible(pop); click(spot.x, spot.y); await waitReal(600); await visible(pop); log('expanded', { segs: (await nodes()).filter(n => /^usage-seg-\d+-\d+-\d+$/.test(n.props.testId ?? '')).map(n => [n.props.testId, n.props.ariaExpanded ?? n.props['aria-expanded'] ?? n.props.accessibilityExpanded]) }); await shotScreen('22b-press-on-popover-padding'); }
+      // Close whatever that press opened: a press on the sidebar (an outside press).
+      const sb0 = await box('No projects yet'); const [qx, qy] = center(sb0); glide(spot?.x ?? sx, spot?.y ?? sy, qx, qy); click(qx, qy); await waitReal(500); await visible(pop);
     });
     // Rows handed over by #290: a press on the sidebar, a second press on the pinned segment under a resting
     // pointer, and a press on the same account's legend row in the narrow layout.
@@ -185,9 +203,12 @@ try {
       const b = await box(seg); const [sx, sy] = center(b);
       glide(sx - 200, sy - 30, sx - 40, sy); click(sx - 40, sy); await waitReal(500);
       await visible(pop); await shotScreen('26-pinned');
-      glide(sx - 40, sy, 120, 420); click(120, 420); await waitReal(500);
+      // A press in the sidebar on a node (its empty scroll area reaches no node on macOS, X65): its "No projects yet".
+      const sb = await box('No projects yet').catch(() => ({ x: 60, y: 120, w: 100, h: 16 })); const [px, py] = center(sb); log('sidebar-press', { at: [px, py] });
+      glide(sx - 40, sy, px, py); click(px, py); await waitReal(500);
+      log('after-sidebar-press', { expanded: (await nodes()).find(n => n.props.testId === seg)?.props?.accessibilityExpanded });
       await visible(pop); await shotScreen('27-after-sidebar-press');
-      glide(120, 420, sx - 40, sy); click(sx - 40, sy); await waitReal(500); await visible(pop);
+      glide(px, py, sx - 40, sy); click(sx - 40, sy); await waitReal(500); await visible(pop);
       click(sx - 40, sy); await waitReal(800);
       await visible(pop); await shotScreen('28-second-press-resting');
       glide(sx - 40, sy, sx - 40, sy + 2); await waitReal(500); await visible(pop);
@@ -241,13 +262,16 @@ try {
       await present('pr-freshness-hover');
       await shotScreen('12-pointer-in-freshness-card');
       // #281: a press on the card's padding over the Summary/Timeline tabs presses no tab.
-      const tabs = [await box('pull-request-tab-summary'), await box('pull-request-tab-timeline')];
+      // Over the unselected tab, so a press that went through would select it.
+      const tabs = [await box('pull-request-tab-timeline')];
       const selected = async () => (await nodes()).filter(n => /^pull-request-tab-/.test(n.props.testId ?? '')).map(n => [n.props.testId, n.props.accessibilitySelected ?? n.props['aria-selected']]);
       log('tabs-before', { tabs: await selected() });
       const buttons = await Promise.all(['pr-freshness-hover-merge', 'pr-freshness-hover-rebase'].map(id => box(id).catch(() => ({ x: 0, y: 0, w: 0, h: 0 }))));
       const spot = overControl(card, tabs, { x: 13, y: 13 }, buttons);
       log('press-spot', spot ?? { none: true });
-      if (spot) { glide(mx + 40, card.y + 30, spot.x, spot.y); click(spot.x, spot.y); await waitReal(600); log('tabs-after', { tabs: await selected() }); await present('pr-freshness-hover'); await shotScreen('12b-press-on-card-padding'); glide(spot.x, spot.y, mx + 40, card.y + 30); }
+      // The driver's own pointer rests where its last tap was (agent mode), and the frame after a batch hit-tests it
+      // (#139): rest it on the card first, as the real pointer is, so that hit-test agrees with the real pointer.
+      if (spot) { await s.tap('pr-freshness-hover', { hover: true }); glide(mx + 40, card.y + 30, spot.x, spot.y); click(spot.x, spot.y); await waitReal(600); log('tabs-after', { tabs: await selected() }); await present('pr-freshness-hover'); await shotScreen('12b-press-on-card-padding'); glide(spot.x, spot.y, mx + 40, card.y + 30); }
       const btn = (await has('pr-freshness-hover-rebase')) ? await box('pr-freshness-hover-rebase') : { x: card.x + 170, y: card.y + 60, w: 130, h: 24 }; const [bx, by] = center(btn);
       glide(mx + 40, card.y + 30, bx, by); await waitReal(900);
       await present('pr-freshness-hover');
