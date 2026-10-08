@@ -43,6 +43,10 @@ use kmBump from "./menu-keys.contract"
 use kmKeyEnd from "./menu-keys.contract"
 use kmArrow from "./menu-keys.contract"
 use kmEndKeyed from "./menu-keys.contract"
+use BrowserSurface from "./browser-surface.contract" // browser-surface: a Browser tab's body, its tab icon and the "+" menu row
+use BrowserTabIcon from "./browser-surface.contract"
+use BrowserAddItem from "./browser-surface.contract"
+use BrowserProfileChoice from "./browser-shapes.contract"
 
 // The panel's top bar (52pt): the surface tabs and "Add panel surface", then the
 // layout controls (details toggle in a sheet, else maximize; the terminal drawer;
@@ -64,11 +68,12 @@ component R4PanelHeader
     details: action
     local: action
     scheme: string
+    urlFocused: bool // browser-surface: a Browser tab's URL field has the focus (its Escape)
   view
     when scheme == "dark"
-      R4HeaderBar(panel=panel, surfaces=surfaces, sheet=sheet, maximized=maximized, detailsOpen=detailsOpen, keyThreadPanel=keyThreadPanel, keyRightPanel=keyRightPanel, terminalAvailable=terminalAvailable, terminalOpen=terminalOpen, keyTerminal=keyTerminal, still=still, ui=ui, details=details, local=local)
+      R4HeaderBar(panel=panel, surfaces=surfaces, sheet=sheet, maximized=maximized, detailsOpen=detailsOpen, keyThreadPanel=keyThreadPanel, keyRightPanel=keyRightPanel, terminalAvailable=terminalAvailable, terminalOpen=terminalOpen, keyTerminal=keyTerminal, still=still, ui=ui, details=details, local=local, urlFocused=urlFocused)
     else
-      R4HeaderBar(panel=panel, surfaces=surfaces, sheet=sheet, maximized=maximized, detailsOpen=detailsOpen, keyThreadPanel=keyThreadPanel, keyRightPanel=keyRightPanel, terminalAvailable=terminalAvailable, terminalOpen=terminalOpen, keyTerminal=keyTerminal, still=still, ui=ui, details=details, local=local)
+      R4HeaderBar(panel=panel, surfaces=surfaces, sheet=sheet, maximized=maximized, detailsOpen=detailsOpen, keyThreadPanel=keyThreadPanel, keyRightPanel=keyRightPanel, terminalAvailable=terminalAvailable, terminalOpen=terminalOpen, keyTerminal=keyTerminal, still=still, ui=ui, details=details, local=local, urlFocused=urlFocused)
 
 // The bar itself, rebuilt per scheme by R4PanelHeader so its SVG glyphs resolve light-dark().
 component R4HeaderBar
@@ -87,6 +92,7 @@ component R4HeaderBar
     ui: action
     details: action
     local: action
+    urlFocused: bool
   state hovered = ""
   action hover(id: string, over: bool)
     hovered = over ? id : (hovered == id ? "" : hovered)
@@ -135,7 +141,7 @@ component R4HeaderBar
           each tab in panel.tabs key=tab.id
             R4TabChip(tab=tab, ui=ui, local=local, menu=tabMenu)
           when panel.count > 0
-            R4AddSurface(surfaces=surfaces, ui=ui)
+            R4AddSurface(surfaces=surfaces, profiles=panel.browser.profiles, ui=ui, local=local)
       when panel.tabStrip.overflow
         R12TabScroll(canLeft=(tabsScroll > 1), canRight=(tabsScroll < panel.tabStrip.max - 1), left=scrollTabs(0 - tabsStep), right=scrollTabs(tabsStep))
       when sheet
@@ -153,7 +159,7 @@ component R4HeaderBar
           ShellIcon(name="panel-bottom", size=16, color="light-dark(#27272acc, #f5f5f5cc)")
         TipBubble(label=(terminalAvailable ? (keyTerminal == "" ? "Toggle terminal drawer" : `Toggle terminal drawer (${keyTerminal})`) : "Terminal drawer is unavailable"), side="bottom", align="end", offset=32, inset=40, shown=(hovered == "terminal"))
       box position="relative" flex-shrink=0
-        button press=ui("toggle", "") hover=hover("toggle") aria-label="Toggle right panel" aria-keyshortcuts=((panel.deviceSetup or panel.files.editorsOpen) ? "" : "Escape") testId="panel-toggle-right" width="1.75rem" height="1.75rem" padding=0 border-radius="0.625rem" border-width=0 display="flex" flex-direction="row" align-items="center" justify-content="center" background-color="light-dark(#f4f4f5, #ffffff0a)"
+        button press=ui("toggle", "") hover=hover("toggle") aria-label="Toggle right panel" aria-keyshortcuts=((panel.deviceSetup or panel.files.editorsOpen or urlFocused) ? "" : "Escape") testId="panel-toggle-right" width="1.75rem" height="1.75rem" padding=0 border-radius="0.625rem" border-width=0 display="flex" flex-direction="row" align-items="center" justify-content="center" background-color="light-dark(#f4f4f5, #ffffff0a)"
           ShellIcon(name="panel-right", size=16, color="light-dark(#27272acc, #f5f5f5cc)")
         TipBubble(label=(keyRightPanel == "" ? "Toggle right panel" : `Toggle right panel (${keyRightPanel})`), side="bottom", align="end", offset=32, inset=8, shown=(hovered == "toggle"))
 
@@ -187,10 +193,13 @@ component R4TabChip
             when tab.kind == "pull-request"
               PgIcon(name=tab.icon, size=12, color=(tab.tone == "" ? "light-dark(#71717b, #818181)" : prdTone(tab.tone)))
             else
-              when tab.icon == "apple" or tab.icon == "android"
-                R7DevPlatformGlyph(platform=tab.icon, size=12, color=(tab.active ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)"))
+              when tab.kind == "browser"
+                BrowserTabIcon(captured=tab.favicon, fallback=tab.faviconFallback, size=12, color=(tab.active ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)"))
               else
-                ShellIcon(name=tab.icon, size=12, color=(tab.active ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)"))
+                when tab.icon == "apple" or tab.icon == "android"
+                  R7DevPlatformGlyph(platform=tab.icon, size=12, color=(tab.active ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)"))
+                else
+                  ShellIcon(name=tab.icon, size=12, color=(tab.active ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)"))
         when tab.pending
           box position="absolute" right=-1 bottom=-1 width="0.375rem" height="0.375rem" border-radius="0.1875rem" background-color=(tab.active ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)")
       box hatch="t3-anchor" data-anchor=`tab-cancel:${tab.id}` press=local("surface-rename-cancel", tab.id, "") tabindex=-1 width=0 height=0 padding=0 border-width=0 opacity=0 aria-hidden=true position="absolute"
@@ -222,7 +231,9 @@ component R4TabNameField
 component R4AddSurface
   props
     surfaces: list<ShellSurface>
+    profiles: list<BrowserProfileChoice>
     ui: action
+    local: action
   state over = false
   action hover(value: bool)
     over = value
@@ -245,7 +256,10 @@ component R4AddSurface
         column width="100%" padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#2727291a, #ffffff1a)" background-color="light-dark(#fffffff7, #171717f7)" box-shadow="0 16px 40px -18px #0000008c" role="menu" aria-label="Add panel surface"
           KeyMenu(menuId="r4-add-surface-keys", items=map(filter(surfaces, (surface) => surface.available), (surface) => KmItem(id=`add-surface-${surface.id}`, label=surface.label)), keyed=keyed, gap="0px", modal=true)
             each surface in surfaces key=surface.id
-              R4AddItem(surface=surface, choose=ui("choose", surface.id))
+              when surface.id == "browser" and surface.available
+                BrowserAddItem(surface=surface, profiles=profiles, choose=ui("choose", surface.id), local=local)
+              else
+                R4AddItem(surface=surface, choose=ui("choose", surface.id))
 
 component R4AddItem
   props
@@ -279,6 +293,7 @@ component R4SurfaceBody
     local: action
     command: action
     paletteShow: action
+    urlFocus: action
   view
     when panel.kind == "terminal"
       TerminalContent(view=panel.terminal, look=look, dark=(scheme == "dark"), closePending=closePending, command=command, confirm=confirm)
@@ -288,6 +303,8 @@ component R4SurfaceBody
       R4PrsBody(prs=panel.prs, scheme=scheme, local=local, command=command, link=paletteShow("command", "link-pr"))
     when panel.kind == "device"
       R4DeviceBody(device=panel.device, scheme=scheme, local=local, command=command)
+    when panel.kind == "browser"
+      BrowserSurface(view=panel.browser, scheme=scheme, local=local, urlFocus=urlFocus)
 
 // ThreadPullRequestsPanel, rebuilt per scheme for its SVG glyphs.
 component R4PrsBody

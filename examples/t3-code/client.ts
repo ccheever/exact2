@@ -270,8 +270,10 @@ export class T3Client {
     this.statusMessage = str(value.message);
     // r5-composer: a ref list scrolled toward its end asks its source again for the next page (r5-composer-paging.ts).
     const scrolled = JSON.stringify(obj(value.presentation).scrollEnds ?? {}) !== JSON.stringify(this.presentation.scrollEnds ?? {});
+    // browser-surface: a Browser tab's page state (T3BrowserSessions.swift) redraws its tab and chrome row.
+    const browsed = JSON.stringify(obj(value.presentation).browserTabs ?? {}) !== JSON.stringify(this.presentation.browserTabs ?? {});
     this.presentation = obj(value.presentation);
-    if (scrolled) this.changed();
+    if (scrolled || browsed) this.changed();
     if (moved) {
       this.environmentId = nextEnvironment;
       const selection = this.local.selections[nextEnvironment];

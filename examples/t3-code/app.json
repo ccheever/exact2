@@ -21,7 +21,8 @@
   "modules": [
     "t3-key-recorder",
     "t3-ssh-password",
-    "t3-terminal"
+    "t3-terminal",
+    "t3-browser"
   ],
   "commands": {
     "terminal": ["bun", "terminal-host/build.mjs"],
