@@ -5,7 +5,7 @@ import AppKit
 
 extension NodeView {
     func textChannels(_ key: String, dark: Bool? = nil) -> [Double]? { style[key]?.textChannels(dark: dark ?? drawsDark, contrast: drawsHighContrast) }
-    func color(_ key: String, _ fallback: NSColor) -> NSColor { cgColor(key).flatMap { NSColor(cgColor: $0) } ?? fallback }
+    package func color(_ key: String, _ fallback: NSColor) -> NSColor { cgColor(key).flatMap { NSColor(cgColor: $0) } ?? fallback }
     /// A colour row as Core Graphics draws it (LLP 1100 D2).
     func cgColor(_ key: String, dark: Bool? = nil) -> CGColor? { style[key]?.cgColor(dark: dark ?? drawsDark, contrast: drawsHighContrast) }
 }

@@ -1,0 +1,362 @@
+//! Motion starts at the first frame that shows it (LLP 1003.001): with the
+//! rule on, a curve an author's commit begins waits at its start until the
+//! next presented frame, which starts it there; inputs keep their own clock.
+
+use exact_motion::{
+    Change, Easing, Engine, HoldEnd, Property, SpringConfig, TimingFunction, Transition,
+    TransitionProperty, Transitions, Value,
+};
+
+const NODE: u64 = 7;
+
+fn engine(seconds: f64, timing: TimingFunction) -> Engine {
+    let mut e = Engine::new();
+    e.set_start_on_frame(true, 0.0).unwrap();
+    e.set_transitions(
+        NODE,
+        Transitions(vec![Transition::new(
+            TransitionProperty::All,
+            seconds,
+            timing,
+        )]),
+    )
+    .unwrap();
+    observe(&mut e, 0.0);
+    e
+}
+
+fn linear() -> TimingFunction {
+    TimingFunction::Easing(Easing::Linear)
+}
+
+fn observe(e: &mut Engine, value: f64) {
+    e.observe(Change {
+        node: NODE,
+        property: Property::Opacity,
+        value: Value::scalar(value),
+        velocity: None,
+    })
+    .unwrap();
+}
+
+fn opacity(e: &Engine) -> f64 {
+    e.value(NODE, Property::Opacity).unwrap().x
+}
+
+#[test]
+fn a_curve_begun_between_frames_starts_at_the_next_frame() {
+    let mut e = engine(1.0, linear());
+    e.advance(0.004).unwrap();
+    observe(&mut e, 1.0);
+    // The commit's own work and the wait for the frame show nothing.
+    e.advance(0.012).unwrap();
+    assert_eq!(opacity(&e), 0.0);
+    e.present_frame(0.030).unwrap();
+    assert_eq!(opacity(&e), 0.0, "the first frame shows the start");
+    e.advance(0.040).unwrap();
+    e.present_frame(0.050).unwrap();
+    assert!((opacity(&e) - 0.020).abs() < 1e-12, "then one interval");
+    assert_eq!(e.settle_time(), Some(1.030));
+}
+
+#[test]
+fn a_pending_curve_is_not_moved_or_retired_by_another_commit() {
+    let mut e = engine(0.005, linear());
+    observe(&mut e, 1.0);
+    e.advance(0.010).unwrap();
+    assert!(!e.quiescent(), "a 5 ms curve still waits for its frame");
+    assert_eq!(opacity(&e), 0.0);
+    e.present_frame(0.016).unwrap();
+    assert_eq!(opacity(&e), 0.0);
+    e.present_frame(0.0185).unwrap();
+    assert!((opacity(&e) - 0.5).abs() < 1e-9);
+}
+
+#[test]
+fn an_interruption_before_the_frame_starts_from_where_it_stood() {
+    let mut e = engine(1.0, linear());
+    observe(&mut e, 1.0);
+    e.advance(0.010).unwrap();
+    observe(&mut e, 0.5);
+    e.present_frame(0.020).unwrap();
+    e.present_frame(0.520).unwrap();
+    assert!(
+        (opacity(&e) - 0.25).abs() < 1e-9,
+        "0 → 0.5 over 1 s, half way"
+    );
+}
+
+#[test]
+fn a_delay_is_kept_and_a_negative_delay_keeps_its_skip() {
+    for (delay, at) in [(0.1, 0.0), (-0.25, 0.25)] {
+        let mut e = Engine::new();
+        e.set_start_on_frame(true, 0.0).unwrap();
+        let mut t = Transition::new(TransitionProperty::All, 1.0, linear());
+        t.delay = delay;
+        e.set_transitions(NODE, Transitions(vec![t])).unwrap();
+        observe(&mut e, 0.0);
+        observe(&mut e, 1.0);
+        e.advance(0.010).unwrap();
+        e.present_frame(0.020).unwrap();
+        assert!((opacity(&e) - at).abs() < 1e-9, "delay {delay}");
+        e.present_frame(0.520).unwrap();
+        assert!((opacity(&e) - (at + (0.5 - delay.max(0.0)).max(0.0))).abs() < 1e-9);
+    }
+}
+
+#[test]
+fn input_keeps_its_own_clock_behind_the_frame() {
+    let mut e = engine(1.0, linear());
+    e.present_frame(1.000).unwrap();
+    // A touch whose time is before the frame the display just presented.
+    let held = e
+        .begin_hold(NODE, Property::Opacity, 0.990, None)
+        .unwrap()
+        .unwrap();
+    assert!(e
+        .update_hold(held.token, 0.995, Value::scalar(0.3))
+        .unwrap());
+    assert!(e.end_hold(held.token, 0.998, HoldEnd::Cancel).unwrap());
+}
+
+#[test]
+fn a_fling_keeps_its_release_instant_and_a_cancel_waits() {
+    let spring = TimingFunction::Spring(SpringConfig::default());
+    let release = |end: HoldEnd, on: bool| {
+        let mut e = engine(0.0, spring.clone());
+        e.set_start_on_frame(on, 0.0).unwrap();
+        observe(&mut e, 1.0);
+        e.advance(0.5).unwrap();
+        if on {
+            e.present_frame(0.5).unwrap();
+        }
+        let held = e
+            .begin_hold(NODE, Property::Opacity, 0.5, None)
+            .unwrap()
+            .unwrap();
+        e.update_hold(held.token, 0.51, Value::scalar(0.2)).unwrap();
+        if on {
+            // The display is already past the release when it arrives.
+            e.present_frame(0.525).unwrap();
+        }
+        e.end_hold(held.token, 0.52, end).unwrap();
+        e.advance(0.53).unwrap();
+        if on {
+            e.present_frame(0.54).unwrap();
+        } else {
+            e.advance(0.54).unwrap();
+        }
+        opacity(&e)
+    };
+    let fling = HoldEnd::Release {
+        velocity: Value::scalar(3.0),
+    };
+    assert_eq!(
+        release(fling, true),
+        release(fling, false),
+        "v·Δt from the release"
+    );
+    let cancel = release(HoldEnd::Cancel, true);
+    assert!(
+        (cancel - 0.2).abs() < 1e-12,
+        "a cancel's first frame is its start: {cancel}"
+    );
+}
+
+#[test]
+fn an_exit_ends_its_own_plays_after_the_frame_starts_them() {
+    let mut e = engine(1.0, linear());
+    let exit = crate::keyframed("fade 300ms @keyframes fade{to{opacity:0}}").unwrap();
+    observe(&mut e, 1.0);
+    e.advance(0.010).unwrap();
+    e.play_exit(NODE, &exit).unwrap();
+    assert_eq!(e.exit_end(NODE, 1), None, "no destroy while it waits");
+    e.present_frame(0.020).unwrap();
+    assert_eq!(e.exit_end(NODE, 1), Some(0.320));
+    assert_eq!(e.curve_start(NODE, Property::Opacity), Some(0.020));
+}
+
+#[test]
+fn a_lowered_play_keeps_the_clock_until_its_frame() {
+    let mut e = Engine::new();
+    e.set_start_on_frame(true, 0.0).unwrap();
+    e.set_lowered(true);
+    let spin = crate::keyframed("spin 1s @keyframes spin{to{opacity:0}}").unwrap();
+    e.set_animations(NODE, &spin).unwrap();
+    e.advance(0.010).unwrap();
+    assert!(!e.quiescent(), "the display link runs to start it");
+    assert_eq!(e.animation_plays(NODE)[0].local(0.010), 0.0);
+    assert_eq!(e.present_frame(0.020).unwrap(), vec![NODE]);
+    assert_eq!(e.animation_plays(NODE)[0].start, 0.020);
+    assert!(e.quiescent(), "Core Animation plays it from here");
+}
+
+#[test]
+fn joins_to_an_idle_clock_before_the_frame_move_with_its_origin() {
+    let row = || {
+        crate::keyframed(
+            "pulse 800ms infinite alternate @keyframes pulse{from{opacity:0.4}to{opacity:1}}",
+        )
+        .unwrap()
+    };
+    let mut e = Engine::new();
+    e.set_start_on_frame(true, 0.0).unwrap();
+    for node in [3, 4] {
+        e.set_animation_clock(node, Some("Pulse"));
+    }
+    e.advance(0.010).unwrap();
+    e.set_animations(3, &row()).unwrap();
+    e.advance(0.015).unwrap();
+    e.set_animations(4, &row()).unwrap();
+    assert!(!e.quiescent());
+    e.present_frame(0.030).unwrap();
+    let starts: Vec<f64> = [3, 4].map(|n| e.animation_plays(n)[0].start).to_vec();
+    assert_eq!(starts, vec![0.030, 0.030], "one phase, from the frame");
+}
+
+#[test]
+fn turning_the_rule_off_starts_what_waits_there() {
+    let mut e = engine(1.0, linear());
+    observe(&mut e, 1.0);
+    e.advance(0.010).unwrap();
+    e.set_start_on_frame(false, 0.025).unwrap();
+    e.advance(0.525).unwrap();
+    assert!((opacity(&e) - 0.5).abs() < 1e-9);
+}
+
+#[test]
+fn a_takeover_before_a_curves_begin_starts_it_at_its_begin_and_forgets_frames() {
+    let mut e = engine(1.0, linear());
+    e.present_frame(0.050).unwrap();
+    e.advance(0.020).unwrap();
+    observe(&mut e, 1.0); // begins at the sampling time, 0.050
+    e.set_start_on_frame(false, 0.030).unwrap();
+    assert!(!e.starts_on_frame());
+    assert_eq!(e.sample_time(), 0.030, "the agent's clock alone from here");
+    e.advance(0.550).unwrap();
+    assert!(
+        (opacity(&e) - 0.5).abs() < 1e-9,
+        "started at its begin, not stranded"
+    );
+}
+
+fn pulse(text: &str) -> exact_motion::Animations {
+    crate::keyframed(&format!(
+        "{text} @keyframes pulse{{from{{opacity:0.4}}to{{opacity:1}}}}"
+    ))
+    .unwrap()
+}
+
+#[test]
+fn a_lone_member_resumed_keeps_its_clocks_phase_with_the_rule_on() {
+    let mut e = Engine::new();
+    e.set_start_on_frame(true, 0.0).unwrap();
+    e.set_animation_clock(3, Some("Pending"));
+    e.set_animations(3, &pulse("pulse 1s infinite")).unwrap();
+    e.present_frame(0.016).unwrap();
+    e.advance(0.4).unwrap();
+    e.set_animations(3, &pulse("pulse 1s infinite paused"))
+        .unwrap();
+    e.advance(7.9).unwrap();
+    e.set_animations(3, &pulse("pulse 1s infinite running"))
+        .unwrap();
+    assert_eq!(
+        e.animation_plays(3)[0].start,
+        7.016,
+        "paused, it kept the clock busy"
+    );
+    assert_eq!(
+        e.animation_plays(3)[0].pending,
+        None,
+        "a running clock's phase"
+    );
+}
+
+#[test]
+fn a_join_to_an_origin_waiting_for_the_frame_waits_with_it() {
+    let mut e = Engine::new();
+    e.set_start_on_frame(true, 0.0).unwrap();
+    e.set_animations(4, &pulse("pulse 1s infinite paused"))
+        .unwrap();
+    e.advance(10.3).unwrap();
+    e.set_animation_clock(4, Some("Pending"));
+    e.advance(10.31).unwrap();
+    e.set_animation_clock(5, Some("Pending"));
+    e.set_animations(5, &pulse("pulse 1s infinite")).unwrap();
+    assert!(!e.quiescent(), "the origin waits for a frame");
+    e.present_frame(10.33).unwrap();
+    assert_eq!(
+        e.animation_plays(5)[0].start,
+        10.33,
+        "the joiner starts with the origin"
+    );
+}
+
+#[test]
+fn a_member_born_after_a_late_frame_waits_for_the_next_and_keeps_the_phase() {
+    let mut e = Engine::new();
+    e.set_start_on_frame(true, 0.0).unwrap();
+    for node in [3, 4] {
+        e.set_animation_clock(node, Some("Pending"));
+    }
+    e.set_animations(3, &pulse("pulse 1s infinite")).unwrap();
+    e.advance(0.020).unwrap();
+    e.set_animations(4, &pulse("pulse 1s infinite")).unwrap();
+    // A tick for the 16 ms frame reaches the engine after the second join.
+    e.present_frame(0.016).unwrap();
+    assert_eq!(e.animation_plays(3)[0].start, 0.016);
+    assert!(
+        e.animation_plays(4)[0].pending.is_some(),
+        "born after that frame"
+    );
+    e.present_frame(0.033).unwrap();
+    assert_eq!(e.animation_plays(4)[0].start, 0.016, "the origin's phase");
+}
+
+#[test]
+fn the_takeover_samples_at_its_own_instant() {
+    let mut e = engine(1.0, linear());
+    observe(&mut e, 1.0);
+    e.present_frame(0.016).unwrap(); // running from 0.016
+    e.present_frame(0.216).unwrap(); // a frame ahead of the wall
+    e.advance(0.150).unwrap();
+    e.set_start_on_frame(false, 0.200).unwrap();
+    assert!(
+        (opacity(&e) - 0.184).abs() < 1e-9,
+        "at the takeover, not the forgotten frame"
+    );
+}
+
+#[test]
+fn a_curve_ending_between_the_takeover_and_the_last_frame_is_still_running() {
+    let mut e = engine(0.2, linear());
+    observe(&mut e, 1.0);
+    e.present_frame(0.016).unwrap(); // ends at 0.216
+    e.present_frame(0.210).unwrap(); // a frame ahead of the wall
+    e.advance(0.150).unwrap();
+    e.set_start_on_frame(false, 0.200).unwrap();
+    assert!(!e.quiescent(), "still running at the takeover");
+    assert!((opacity(&e) - 0.92).abs() < 1e-9);
+}
+
+#[test]
+fn two_plays_of_one_node_born_around_a_late_frame_share_the_origins_phase() {
+    let mut e = Engine::new();
+    e.set_start_on_frame(true, 0.0).unwrap();
+    e.set_animation_clock(3, Some("Pending"));
+    e.set_animations(3, &pulse("pulse 1s infinite")).unwrap();
+    e.advance(0.020).unwrap();
+    let both = crate::keyframed(
+        "pulse 1s infinite, glow 1s infinite @keyframes pulse{from{opacity:0.4}to{opacity:1}} @keyframes glow{from{scale:0.9}to{scale:1}}",
+    )
+    .unwrap();
+    e.set_animations(3, &both).unwrap();
+    e.present_frame(0.016).unwrap();
+    assert_eq!(e.animation_plays(3)[0].start, 0.016);
+    e.present_frame(0.033).unwrap();
+    assert_eq!(
+        e.animation_plays(3)[1].start,
+        0.016,
+        "the origin's phase, not its own frame"
+    );
+}

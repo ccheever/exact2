@@ -1,0 +1,7 @@
+{
+  "proof_command": "sh proof/run_proof.sh",
+  "proof_passed": true,
+  "not_done": [],
+  "game_dirs": ["game", "proof"],
+  "notes": "Last run of sh proof/run_proof.sh exited 0 (LOGIC PASS, SHOTS PASS). Frame time about 1.82 ms at 100 plants and 8.23 ms at 1000. The barrel mesh in the kit is a brown wooden cask; the prompt still calls it the blue barrel. Thunder is a timed exposure flash during the rain, captured in artifacts/thunder.png. Snow is simulated and has particles; the required stills are rain and night."
+}

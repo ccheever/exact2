@@ -1,0 +1,647 @@
+// The GPU module's optional input, message and agent seams (LLP 1046.002 §3).
+// The runner never learns what a surface's world is; the web host is the oracle.
+import Foundation
+#if os(macOS)
+import AppKit
+#else
+import UIKit
+import AVFAudio
+#endif
+import ExactKit
+
+struct SurfaceControl {
+    let node: UInt32
+    let name: String
+    let offset: CGPoint
+    var position: CGPoint
+}
+
+// The file carrier has a product budget before allocation; engine limits remain
+// the second, structural boundary. The same limit applies before base64 capture.
+struct WorldCarrier {
+    static let limit = 256 * 1024 * 1024
+    static let refusal = "world carrier exceeds 256 MiB limit"
+    static func check(_ count: Int) throws {
+        if count > limit { throw NSError(domain: "ExactWorld", code: 1, userInfo: [NSLocalizedDescriptionKey: refusal]) }
+    }
+    static func read(_ path: String?) -> (bytes: Data?, error: String?) {
+        guard let path else { return (nil, nil) }
+        do {
+            let file = try FileHandle(forReadingFrom: URL(fileURLWithPath: (path as NSString).expandingTildeInPath))
+            defer { try? file.close() }
+            let length = try file.seekToEnd()
+            guard length <= UInt64(limit) else { return (nil, refusal) }
+            try file.seek(toOffset: 0)
+            let bytes = try file.read(upToCount: limit + 1) ?? Data()
+            try check(bytes.count)
+            return (bytes, nil)
+        } catch { return (nil, "world carrier: \(error.localizedDescription)") }
+    }
+}
+
+extension CanvasesHost {
+    /// A render recorded into `m`'s open frame (LLP 1009 D7): shown at `flushRecorded`.
+    func recorded(_ m: GpuModule) {
+        if !unflushed.contains(where: { $0 === m }) { unflushed.append(m) }
+    }
+    /// One submit per module for the tick's renders, then their presents.
+    func flushRecorded() {
+        let modules = unflushed
+        unflushed = []
+        for m in modules { m.flush() }
+    }
+
+    func surfaceWork(_ op: [String: Any], generation owner: Int) {
+        guard let s = session, owner == s.generation,
+              let number = op["ticket"] as? NSNumber else { return }
+        let ticket = number.uint64Value
+        guard s.runtime.requestActive(ticket) else { return }
+        func fail(_ kind: UInt32, _ message: String) {
+            s.completeSurface(ticket, generation: owner, kind: kind, body: Data(message.utf8))
+        }
+        if let refusal = op["refusal"] as? String { fail(2, refusal); return }
+        guard let name = op["name"] as? String, let mode = op["mode"] as? String else {
+            fail(2, "invalid surface request"); return
+        }
+        let matches = entries.values.filter { $0.name == name && live($0.view.id) === $0 }
+        guard matches.count == 1 else { fail(2, "surface \(name): expected one live surface, found \(matches.count)"); return }
+        let e = matches[0]
+        guard let m = e.module, e.id != 0 else { fail(3, "surface \(name): unavailable"); return }
+        messages(e)
+        guard owner == s.generation, s.runtime.requestActive(ticket) else { return }
+        guard live(e.view.id) === e else {
+            fail(4, "surface \(name): request retired or surface replaced"); return
+        }
+        if mode == "capture" {
+            guard let carry = m.carry else { fail(3, "surface \(name): capture unsupported"); return }
+            let length = carry(e.id)
+            guard length != UInt32.max else { fail(3, "surface \(name): carries no state"); return }
+            guard length != UInt32.max - 1 else { fail(2, m.error()); return }
+            guard length <= 16 * 1024 * 1024, let bytes = length == 0 ? Data() : m.output(length) else {
+                fail(2, "surface \(name): carried state exceeds 16 MiB"); return
+            }
+            s.completeSurface(ticket, generation: owner, kind: 6, body: bytes); return
+        }
+        guard mode == "restore", let encoded = op["body"] as? String,
+              encoded.utf8.count <= 4 * ((16 * 1024 * 1024 + 2) / 3),
+              let bytes = Data(base64Encoded: encoded), bytes.count <= 16 * 1024 * 1024 else {
+            fail(2, "surface \(name): invalid or oversized restore"); return
+        }
+        guard let restore = m.restore else { fail(3, "surface \(name): restore unsupported"); return }
+        let ok = bytes.withUnsafeBytes { restore(e.id, $0.bindMemory(to: UInt8.self).baseAddress, bytes.count, 0) }
+        guard ok else { fail(2, m.error()); return }
+        messages(e)
+        s.completeSurface(ticket, generation: owner, kind: 7)
+    }
+
+    func cancelControls(_ e: Entry) {
+        guard let m = e.module else { e.controls.removeAll(); return }
+        let owners=e.controls; e.controls.removeAll()
+        for (contact,owner) in owners {
+            _ = input(e,m,["t":"control","name":owner.name,"phase":"cancel","id":contact,"x":owner.position.x,"y":owner.position.y])
+        }
+    }
+    func cancelMovedControls() {
+        for e in entries.values {
+            guard let m = e.module else { continue }
+            for (contact,owner) in e.controls {
+                let retained: Bool
+                if owner.node == e.view.id {
+                    retained = session?.presenter.views.values.contains { $0.props["action"] == owner.name && $0.inputCanvas === e.view } ?? false
+                } else { retained = session?.presenter.views[owner.node]?.inputCanvas === e.view }
+                guard !retained else {continue}
+                e.controls.removeValue(forKey:contact)
+                _ = input(e,m,["t":"control","name":owner.name,"phase":"cancel","id":contact,"x":owner.position.x,"y":owner.position.y])
+            }
+        }
+    }
+    @discardableResult
+    func pressedControlKey(_ code: String, down: Bool, canvas: UInt32? = nil, timestamp: Double? = nil) -> Bool {
+        guard ["Space","Enter","NumpadEnter"].contains(code), !modules.isEmpty else {return false}
+        cancelMovedControls()
+        let contact=code == "Space" ? 4294967294 : 4294967293
+        let candidates=entries.values.filter {canvas == nil || $0.view.id == canvas}.sorted {$0.view.id < $1.view.id}
+        if let e=candidates.first(where: {$0.controls[contact] != nil}), let owner=e.controls[contact], let m=e.module {
+            if down {return true}
+            e.controls.removeValue(forKey:contact)
+            return input(e,m,["t":"control","name":owner.name,"phase":"up","id":contact,"x":owner.position.x,"y":owner.position.y],timestamp:timestamp)
+        }
+        guard down else {return false}
+        for e in candidates {
+            if let id=e.controls.keys.filter({$0 < 4294967293}).sorted().first, let owner=e.controls[id], let m=e.module {
+                e.controls[contact]=owner
+                return input(e,m,["t":"control","name":owner.name,"phase":"down","id":contact,"x":owner.position.x,"y":owner.position.y],timestamp:timestamp)
+            }
+        }
+        return false
+    }
+
+    func releaseContact(_ request: [String: Any]) -> [String: Any]? {
+        guard let id = request["contact"] as? Int else { return nil }
+        guard let phase = request["phase"] as? String, ["up","cancel"].contains(phase),
+              let rawCanvas = request["id"] as? Int, let canvas = UInt32(exactly: rawCanvas), let e = entries[canvas], let m = e.module, let owner = e.controls.removeValue(forKey:id) else { return ["error":"no restored contact to release"] }
+        let ok = input(e,m,["t":"control","name":owner.name,"id":id,"phase":phase,"x":owner.position.x,"y":owner.position.y])
+        return ok ? ["phase":phase,"delivery":"recognized"] : ["error":"control release refused"]
+    }
+
+    func recoveredDevice(_ ok: Bool, error: String?, recovering: Set<ObjectIdentifier> = []) {
+        failed = error
+        if let error { fputs("exact gpu: \(error)\n", stderr); restoreJournal.append(["lines": [error]]) }
+        for entry in entries.values {
+            entry.presentable = true; entry.wants = true
+            entry.uploaded = false; entry.readAt = -1
+            entry.view.needsCapture = true
+            if ok { entry.recoveryRedelivery = recovering.contains(ObjectIdentifier(entry)); messages(entry) }
+        }
+        session?.frames.requestCanvas()
+    }
+    func rendered(_ entry: Entry, _ result: UInt32) {
+        if result == 3 { entry.module?.recoverDevice() }
+        else { entry.rendered(result) }
+    }
+
+    func bindSurface(_ m: GpuModule, _ e: Entry) -> UInt32 {
+        guard let data = try? JSONSerialization.data(withJSONObject: e.values) else { return 1 }
+        let now = session?.now() ?? 0
+        return data.withUnsafeBytes { bytes in
+            if let bindAt = m.bindAt { return bindAt(e.id, bytes.bindMemory(to: UInt8.self).baseAddress, data.count, now) }
+            return m.bind(e.id, bytes.bindMemory(to: UInt8.self).baseAddress, data.count)
+        }
+    }
+    /// Posts held per surface name until one of its canvases is live; past it a
+    /// post is dropped and logged. The same bound and rule on every host.
+    /// The same bound as web glue.js POST_BOUND and Linux surfaces.rs POST_BOUND.
+    static let postBound = 64
+    /// `postMessage(text, name)`: one message event for the live canvas of that
+    /// surface name with the lowest view id, stamped now, held until one is live.
+    func post(_ name: String, _ text: String) {
+        guard pendingPosts.filter({ $0.name == name }).count < CanvasesHost.postBound else {
+            fputs("exact: postMessage: dropped: \(CanvasesHost.postBound) posts already wait for surface \"\(name)\"\n", stderr)
+            return
+        }
+        pendingPosts.append((name, text, session?.clock ?? session?.now() ?? 0))
+        deliverPosts()
+    }
+    func deliverPosts() {
+        guard !pendingPosts.isEmpty else { return }
+        let queued = pendingPosts
+        pendingPosts = []
+        var held: [(name: String, text: String, at: Double)] = []
+        for p in queued {
+            guard let e = entries.values.filter({ $0.name == p.name && live($0.view.id) === $0 })
+                    .min(by: { $0.view.id < $1.view.id }), let m = e.module else { held.append(p); continue }
+            // The surface's own input path, as web and Linux deliver: an inert or
+            // disabled canvas (behind a modal) still receives its app's posts.
+            if !input(e, m, ["t": "message", "text": p.text, "at": p.at]) {
+                fputs("exact: postMessage: surface \"\(p.name)\" refused a message\n", stderr)
+            }
+        }
+        pendingPosts = held + pendingPosts
+    }
+    func live(_ id: UInt32) -> Entry? {
+        guard let e = entries[id], e.id != 0, e.view.window != nil,
+              session?.presenter.views[id] === e.view else { return nil }
+        return e
+    }
+
+    func restoreWorld(_ m: GpuModule, _ e: Entry) {
+        guard !e.restoreAttempted, let bytes = worldInput.bytes else { return }
+        e.restoreAttempted = true
+        guard m.restore != nil else { return }
+        if m.carry?(e.id) == UInt32.max {
+            let request = Array("{\"op\":\"state\"}".utf8)
+            let length = request.withUnsafeBufferPointer { m.agent?(e.id, $0.baseAddress, $0.count) ?? UInt32.max }
+            guard let data = m.output(length), let reply = try? JSONSerialization.jsonObject(with: data) as? [String: Any], reply["world"] != nil else { return }
+        }
+        let ok = bytes.withUnsafeBytes { m.restore?(e.id, $0.bindMemory(to: UInt8.self).baseAddress, bytes.count, 0) ?? false }
+        e.restorePending = true
+        finishRestore(m, e, refusal: ok ? nil : m.error())
+    }
+
+    func finishRestore(_ m: GpuModule, _ e: Entry, refusal: String? = nil) {
+        guard e.restorePending else { return }
+        if let refusal {
+            e.restorePending = false
+            let reason = refusal.hasPrefix("restore refused: ") ? String(refusal.dropFirst(17)) : refusal
+            e.restoreError = "surface \(e.name): restore refused: \(reason)"
+            restoreJournal.append(["canvas": e.view.id, "lines": [e.restoreError!]])
+            return
+        }
+        let request = Array("{\"op\":\"state\"}".utf8)
+        let length = request.withUnsafeBufferPointer { m.agent?(e.id, $0.baseAddress, $0.count) ?? UInt32.max }
+        guard let data = m.output(length),
+              let reply = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let world = reply["world"] as? [String: Any], world["restored"] as? Bool == true else { return }
+        e.restorePending = false
+        worldInput.bytes = nil
+        let input = world["input"] as? [String: Any] ?? [:]
+        e.controls.removeAll()
+        for row in input["controlContacts"] as? [[String: Any]] ?? [] {
+            guard let id = row["id"] as? Int, let name = row["action"] as? String else { continue }
+            let matches = session?.presenter.views.values.filter { $0.props["action"] == name && $0.inputCanvas === e.view } ?? []
+            let node = matches.count == 1 ? matches[0] : nil
+            let point = row["position"] as? [Double] ?? [0,0]
+            e.controls[id] = SurfaceControl(node:node?.id ?? e.view.id, name:name, offset:node?.convert(.zero, to:e.view) ?? .zero, position:CGPoint(x:point[0],y:point[1]))
+        }
+    }
+
+    func restoreReply(_ reply: [String: Any]) -> [String: Any] {
+        guard !terminalRestoreReported else { return reply }
+        let errors = entries.values.compactMap(\.restoreError)
+        let terminal = worldInput.bytes != nil && !errors.isEmpty && entries.values.allSatisfy { $0.id != 0 && $0.restoreAttempted }
+        guard worldInput.error != nil || terminal else { return reply }
+        terminalRestoreReported = true
+        var reply = reply
+        reply["error"] = worldInput.error ?? errors.joined(separator: "; ")
+        return reply
+    }
+
+    func save(_ e: Entry) -> [String: Any] {
+        guard let m = e.module, let carry = m.carry else { return ["error": "world save unavailable on this host yet"] }
+        let length = carry(e.id)
+        if length == UInt32.max - 1 { return ["error": m.error()] }
+        guard length != UInt32.max else { return ["error": "surface carries no state"] }
+        guard length <= WorldCarrier.limit else { return ["error": WorldCarrier.refusal] }
+        guard let bytes = length == 0 ? Data() : m.output(length) else { return ["error": "surface returned no save bytes"] }
+        let state = agent(e.view.id, ["op": "state"])?["world"] as? [String: Any] ?? [:]
+        return ["data": bytes.base64EncodedString(), "bytes": bytes.count, "hash": state["hash"] ?? NSNull(), "tick": state["tick"] ?? NSNull()]
+    }
+
+    func wantsInput(_ id: UInt32) -> Bool { live(id)?.wantsInput == true }
+
+    /// Creation waits for first pixel. An agent read must wait for that same work.
+    func waitUntilReady() -> Bool {
+        let deadline = Date(timeIntervalSinceNow: 20)
+        while !entries.isEmpty && !ready {
+            loadIfNeeded()
+            if ready { break }
+            if Date() >= deadline { return false }
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.01))
+        }
+        return true
+    }
+
+    func claimPublisher(_ e: Entry) {
+        if publishers[e.name] == nil { publishers[e.name] = e }
+        else { fputs("exact gpu: surface \(e.name): duplicate live publisher ignored\n", stderr) }
+    }
+
+    func releasePublisher(_ e: Entry) {
+        guard publishers[e.name] === e else { return }
+        publishers.removeValue(forKey: e.name)
+        surfaceRecord(e.name, nil)
+    }
+
+    func surfaceRecord(_ name: String, _ json: String?) {
+        guard let s = session else { return }
+        s.surfaceRecord(name, json)
+    }
+
+    /// The module's answer when a canvas asks for no asset (`AssetChanges::json`).
+    static let noAssetChanges = Data(#"{"requests":[],"retired":[]}"#.utf8)
+
+    func messages(_ e: Entry) {
+        // Held posts go out whenever a canvas is serviced, including when the
+        // world has nothing to say (the early returns below).
+        defer { deliverPosts() }
+        if live(e.view.id) === e, let m = e.module, let take = m.assets, let deliver = m.asset {
+            var delivered = false
+            for _ in 0..<16 {
+                // Nearly every frame asks for nothing: no JSON parse for the empty answer.
+                guard let data = m.output(take(e.id)), data != CanvasesHost.noAssetChanges,
+                      let changes = try? JSONSerialization.jsonObject(with: data) as? [String: [String]], let names = changes["requests"], !names.isEmpty else { break }
+                delivered = true
+                for name in names {
+                    let delivery = Result { try session?.app.resolver.delivery("assets/" + name) }
+                    let chars = Array(name.utf8)
+                    let ok = chars.withUnsafeBufferPointer { chars in
+                        if case .failure(let error) = delivery {
+                            let reason = Array(error.localizedDescription.utf8)
+                            return reason.withUnsafeBufferPointer { m.assetFailed?(e.id, chars.baseAddress, chars.count, $0.baseAddress, $0.count) ?? false }
+                        }
+                        if case .success(let bytes?) = delivery {
+                            return bytes.withUnsafeBytes { raw in
+                                // Non-null with zero length distinguishes an empty file from missing.
+                                var empty: UInt8 = 0
+                                return withUnsafePointer(to: &empty) { deliver(e.id, chars.baseAddress, chars.count, raw.bindMemory(to: UInt8.self).baseAddress ?? $0, bytes.count) }
+                            }
+                        }
+                        return deliver(e.id, chars.baseAddress, chars.count, nil, 0)
+                    }
+                    let error = ok ? nil : m.error()
+                    if let error { fputs("exact gpu: \(error)\n", stderr) }
+                    finishRestore(m, e, refusal: error)
+                }
+            }
+            // Establish the ready world's epoch at delivery, even when occlusion
+            // prevents its first presentation. Recovery never moves that clock.
+            if delivered, let ask = m.agent,
+               let data = try? JSONSerialization.data(withJSONObject: m.deliveryClock(e, now: session?.now() ?? 0)) {
+                data.withUnsafeBytes { _ = ask(e.id, $0.bindMemory(to: UInt8.self).baseAddress, data.count) }
+            }
+        }
+        if let m = e.module { finishRestore(m, e) }
+        if live(e.view.id) === e, publishers[e.name] === e, let m = e.module, let take = m.published {
+            let length = take(e.id)
+            if length != UInt32.max, let data = length == 0 ? Data() : m.output(length) {
+                surfaceRecord(e.name, String(decoding: data, as: UTF8.self))
+            }
+        }
+        guard live(e.view.id) === e, let m = e.module, let take = m.messages else { return }
+        let length = take(e.id)
+        guard length != UInt32.max, let data = m.output(length) else { return }
+        guard let texts = try? JSONSerialization.jsonObject(with: data) as? [String] else {
+            fputs("exact gpu: view \(e.view.id): messages must be an array of strings\n", stderr)
+            return
+        }
+        for text in texts {
+            guard live(e.view.id) === e else { break }
+            if text == "exact:audio" { lifecycle.requestAudio(userInitiated: false); continue }
+            if e.view.handlers.contains("message") { session?.presenter.message(e.view.id, text) }
+        }
+    }
+
+    /// Real events and recognized driver events enter here, in the same clock domain.
+    @discardableResult
+    func input(_ view: NodeView, _ event: [String: Any], timestamp: Double? = nil) -> Bool {
+        guard let e = live(view.id), e.view === view, e.wantsInput,
+              event["t"] as? String == "blur" || (!view.disabled && !view.inert),
+              let m = e.module else { return false }
+        return input(e, m, event, timestamp: timestamp)
+    }
+
+    /// Already-owned surface/device identity, including a held key's final release.
+    @discardableResult
+    func input(_ e: Entry, _ m: GpuModule, _ event: [String: Any], timestamp: Double? = nil) -> Bool {
+        guard let s = session, let send = m.input else { return false }
+        if (event["t"] as? String == "key" && event["down"] as? Bool == true)
+            || (["pointer", "control"].contains(event["t"] as? String ?? "") && event["phase"] as? String == "down") {
+            lifecycle.gesture()
+        }
+        var value = event
+        // A held post keeps the stamp of its call.
+        if value["at"] == nil { value["at"] = s.clock ?? timestamp.map { ($0 - ExactEnv.t0) * 1000 } ?? s.now() }
+        guard let data = try? JSONSerialization.data(withJSONObject: value) else { return false }
+        let result = data.withUnsafeBytes { send(e.id, $0.bindMemory(to: UInt8.self).baseAddress, data.count) }
+        if result != 0 { fputs("exact gpu: \(m.error())\n", stderr) }
+        messages(e)
+        s.frames.requestCanvas()
+        return result == 0
+    }
+
+    func agent(_ view: UInt32, _ request: [String: Any]) -> [String: Any]? {
+        guard let e = live(view), let s = session, let m = e.module, let ask = m.agent else { return nil }
+        var request = request
+        let size = s.agentInstance.box(e.view)
+        request["width"] = max(1, size.width)
+        request["height"] = max(1, size.height)
+        request["scale"] = e.view.canvasScale
+        if let now = s.clock { request["now"] = now }
+        guard let data = try? JSONSerialization.data(withJSONObject: request) else { return nil }
+        let length = data.withUnsafeBytes { ask(e.id, $0.bindMemory(to: UInt8.self).baseAddress, data.count) }
+        let answer = m.output(length)
+        messages(e)
+        s.frames.requestCanvas()
+        guard let answer else { return nil }
+        guard var value = try? JSONSerialization.jsonObject(with: answer) as? [String: Any] else {
+            fputs("exact gpu: view \(view): world reply must be an object\n", stderr)
+            return nil
+        }
+        if request["op"] as? String == "state", var world = value["world"] as? [String: Any] {
+            if let error = e.restoreError { world["restoreError"] = error }
+            let children = e.view.overlay?.subviews.compactMap { $0 as? NodeView } ?? []
+            world["presentation"] = ["sessionRenders": rendered, "sessionCaptures": captures,
+                "placedChildren": children.filter { $0.placement != nil && !$0.placementHidden }.count,
+                "hiddenChildren": children.filter { $0.placementHidden }.count,
+                "hudChildren": children.filter { $0.placement == nil && !$0.placementHidden }.count]
+            value["world"] = world
+        }
+        return value
+    }
+
+    func worlds(_ request: [String: Any]) -> [[String: Any]] {
+        entries.keys.sorted().compactMap { view in
+            guard let answer = agent(view, request),
+                  var world = answer["world"] as? [String: Any] ?? (request["op"] as? String == "clock" ? answer : nil) else { return nil }
+            world["canvas"] = view
+            return world
+        }
+    }
+
+    func decorate(_ request: [String: Any], _ reply: [String: Any]) -> [String: Any] {
+        guard reply["error"] == nil, !Agent.worldRequest(request) else { return reply }
+        var reply = reply
+        switch request["op"] as? String {
+        case "tree":
+            if var nodes = reply["nodes"] as? [[String: Any]] {
+                for i in nodes.indices {
+                    if let id = nodes[i]["id"] as? UInt32, let summary = agent(id, ["op": "tree", "summary": true]), let world = summary["world"] {
+                        nodes[i]["world"] = world
+                    }
+                }
+                reply["nodes"] = nodes
+            }
+        case "state":
+            let world = worlds(["op": "state"])
+            if !world.isEmpty { reply["world"] = world }
+        case "logs":
+            var world: [[String: Any]] = []
+            for id in entries.keys.sorted() {
+                guard let e = live(id), let journal = agent(id, ["op": "logs", "since": e.logCursor]), journal["error"] == nil,
+                      let from = journal["from"] as? Int, let next = journal["next"] as? Int, let lines = journal["lines"] as? [Any] else { continue }
+                world.append(["canvas": id, "from": from, "next": next, "lines": lines, "dropped": max(0, from - e.logCursor)])
+                e.logCursor = next
+            }
+            world.append(contentsOf: restoreJournal); restoreJournal.removeAll()
+            if !world.isEmpty { reply["world"] = world }
+        default: break
+        }
+        return restoreReply(reply)
+    }
+
+    func clock(settle: Bool) -> WorldClock {
+        let world = worlds(["op": "clock", "settle": settle])
+        let pending = world.filter { $0["quiescent"] as? Bool == false }
+        return WorldClock(pending: settle && !pending.isEmpty,
+                          settleAt: pending.compactMap { $0["settleAt"] as? Double }.filter(\.isFinite).max(),
+                          reply: world.isEmpty ? [:] : ["world": world.map { $0.filter { ["canvas", "tick", "hash", "quiescent", "error", "assets", "changing"].contains($0.key) } }])
+    }
+}
+
+extension CanvasesHost.Entry {
+    func rendered(_ result: UInt32) {
+        if result == 3 { presentable = false }
+        wants = presentable && result == 1
+    }
+    func needsFrame(dirty: Bool, editing: Bool = false) -> Bool {
+        id != 0 && presentable && (wants || dirty || editing)
+    }
+}
+
+// A live surface asks for the session once per process; its category is the
+// app's, set by its one owner (`AudioSession`, LLP 1096 D8).
+private enum CanvasAudio {
+    nonisolated(unsafe) static var active = false
+    nonisolated(unsafe) static var wanted = false
+    nonisolated(unsafe) static var interrupted = false
+    nonisolated(unsafe) static var resumeBlocked = false
+    @discardableResult static func activate() -> Bool {
+        // NotificationCenter delivers on the posting thread, not necessarily main.
+        if !Thread.isMainThread { return Owner.shared.callMain { activate() } }
+        guard !ExactEnv.agentMode else { return false }
+        wanted = true
+        guard !active else { return true }
+        #if os(iOS) || os(tvOS)
+        do { try AudioSession.activate() } catch { fputs("exact audio session: \(error)\n", stderr); return false }
+        #endif
+        active = true
+        return true
+    }
+}
+
+/// Every canvas gets notifications even when its session uses the agent clock.
+final class CanvasLifecycle: NSObject {
+    nonisolated(unsafe) private static let live = NSHashTable<CanvasLifecycle>.weakObjects()
+    weak var owner: CanvasesHost?
+    private(set) var hidden: Bool
+    private var interrupted: Bool
+    private var wantsAudio = false
+    private var resumeAllowed: Bool
+    private var retryFrames = 0
+    private let activate: () -> Bool
+    init(_ owner: CanvasesHost, activate: @escaping () -> Bool = { CanvasAudio.activate() }) {
+        precondition(Thread.isMainThread)
+        self.owner = owner
+        self.activate = activate
+        hidden = !owner.visible
+        interrupted = CanvasAudio.interrupted || CanvasAudio.resumeBlocked
+        resumeAllowed = !interrupted
+        super.init()
+        Self.live.add(self)
+        let center = NotificationCenter.default
+        #if os(macOS)
+        for name in [NSApplication.didResignActiveNotification, NSApplication.didHideNotification,
+                     NSApplication.didBecomeActiveNotification, NSApplication.didUnhideNotification] {
+            center.addObserver(self, selector: #selector(visibilityChanged), name: name, object: nil)
+        }
+        #else
+        for name in [UIApplication.willResignActiveNotification, UIApplication.didEnterBackgroundNotification,
+                     UIApplication.willEnterForegroundNotification, UIApplication.didBecomeActiveNotification] {
+            center.addObserver(self, selector: #selector(visibilityChanged), name: name, object: nil)
+        }
+        center.addObserver(self, selector: #selector(interruption(_:)), name: AVAudioSession.interruptionNotification, object: nil)
+        #endif
+    }
+    deinit { NotificationCenter.default.removeObserver(self) }
+    private func onMain(_ work: @escaping () -> Void) {
+        if Thread.isMainThread { work() } else { DispatchQueue.main.async(execute: work) }
+    }
+    func deliver(_ id: UInt32, module: GpuModule) {
+        precondition(Thread.isMainThread)
+        // Replay the same aggregate that notifications and rendering use.
+        refresh(excluding: id)
+        module.lifecycle?(id, hidden ? 0 : 1)
+        if interrupted { module.lifecycle?(id, 2) }
+    }
+    private func send(_ code: UInt32, excluding id: UInt32? = nil) {
+        precondition(Thread.isMainThread)
+        guard let owner, !owner.modules.isEmpty else { return }
+        // Each canvas's own artifact (LLP 1009 D6).
+        for entry in Array(owner.entries.values) where entry.id != 0 && entry.id != id { entry.module?.lifecycle?(entry.id, code) }
+        if code == 1 || code == 3 { owner.session?.frames.requestCanvas() }
+    }
+    var needsRetry: Bool {
+        wantsAudio && interrupted && !hidden && resumeAllowed
+            && !CanvasAudio.interrupted && !CanvasAudio.resumeBlocked && !ExactEnv.agentMode
+    }
+    func frame() {
+        precondition(Thread.isMainThread)
+        guard needsRetry else { return }
+        if retryFrames > 0 { retryFrames -= 1 }
+        if retryFrames == 0 { retryActivation() }
+    }
+    private func retryActivation(excluding id: UInt32? = nil) {
+        guard wantsAudio, !hidden, resumeAllowed,
+              !CanvasAudio.interrupted, !CanvasAudio.resumeBlocked else { return }
+        if activate() {
+            retryFrames = 0
+            if interrupted { interrupted = false; send(3, excluding: id) }
+        } else {
+            retryFrames = 300
+            if !interrupted { interrupted = true; send(2, excluding: id) }
+            owner?.session?.frames.requestCanvas()
+        }
+    }
+    func gesture() {
+        onMain { [weak self] in
+            guard let self, !ExactEnv.agentMode else { return }
+            if !CanvasAudio.interrupted { Self.allowRecovery(excluding: self) }
+            if self.wantsAudio { self.retryActivation() }
+        }
+    }
+    private static func allowRecovery(excluding trigger: CanvasLifecycle) {
+        precondition(Thread.isMainThread)
+        let blocked = CanvasAudio.resumeBlocked
+        CanvasAudio.resumeBlocked = false
+        for lifecycle in live.allObjects {
+            lifecycle.resumeAllowed = true
+            if blocked && lifecycle !== trigger { lifecycle.retryActivation() }
+        }
+    }
+    func requestAudio(userInitiated: Bool = true) {
+        onMain { [weak self] in
+            guard let self, !ExactEnv.agentMode else { return }
+            self.wantsAudio = true
+            if userInitiated && !CanvasAudio.interrupted {
+                Self.allowRecovery(excluding: self)
+            }
+            // Automatic surface requests neither bypass no-resume nor the cooldown.
+            if userInitiated || self.retryFrames == 0 { self.retryActivation() }
+        }
+    }
+    @objc private func visibilityChanged() {
+        // UIKit's "will" notifications precede the applicationState update.
+        DispatchQueue.main.async { [weak self] in self?.refresh() }
+    }
+    func refresh(excluding id: UInt32? = nil) {
+        precondition(Thread.isMainThread)
+        #if !os(macOS)
+        AppBackground.invalidate()
+        #endif
+        let next = !(owner?.visible ?? false)
+        let becameVisible = hidden && !next
+        if next { CanvasAudio.active = false }
+        if next != hidden { hidden = next; send(hidden ? 0 : 1, excluding: id) }
+        if becameVisible && !CanvasAudio.interrupted {
+            Self.allowRecovery(excluding: self)
+        }
+        if becameVisible || retryFrames == 0 { retryActivation(excluding: id) }
+    }
+    // Keep the complete interruption transition on main, including session policy.
+    func interruption(began: Bool, shouldResume: Bool) {
+        onMain { [weak self] in
+            guard let self else { return }
+            CanvasAudio.interrupted = began
+            CanvasAudio.resumeBlocked = !began && !shouldResume
+            self.resumeAllowed = !began && shouldResume
+            if began {
+                CanvasAudio.active = false
+                self.retryFrames = 0
+                if !self.interrupted { self.interrupted = true; self.send(2) }
+            } else if self.resumeAllowed {
+                if self.wantsAudio { self.retryActivation() }
+                else if self.interrupted { self.interrupted = false; self.send(3) }
+            }
+        }
+    }
+    #if os(iOS) || os(tvOS)
+    @objc private func interruption(_ note: Notification) {
+        // Decode immutable notification values on the poster; touch no UI/ABI here.
+        guard let raw = note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
+              let type = AVAudioSession.InterruptionType(rawValue: raw) else { return }
+        let options = AVAudioSession.InterruptionOptions(rawValue:
+            note.userInfo?[AVAudioSessionInterruptionOptionKey] as? UInt ?? 0)
+        interruption(began: type == .began, shouldResume: options.contains(.shouldResume))
+    }
+    #endif
+}

@@ -427,7 +427,7 @@ pub fn run<D: DataSource + Default>(config: &mut Config, started: Instant) -> i3
         let mut timeout = work_timeout(
             display.pending(),
             p.needs_animation_frame(),
-            p.host().timer_due_ms(),
+            p.timer_due_ms(),
             last_tick,
             now,
             frame_ms,
@@ -498,7 +498,9 @@ pub fn run<D: DataSource + Default>(config: &mut Config, started: Instant) -> i3
         // Work this turn does (input, completions, timers, frame tasks) is
         // wanted from when the loop woke, however long it takes.
         let woke = measured.then(wall);
-        if measured && TRACE.swap(false, std::sync::atomic::Ordering::Relaxed) {
+        // SIGUSR1's, or a hatch's `diagnostics().save_trace()`.
+        let asked = TRACE.swap(false, std::sync::atomic::Ordering::Relaxed);
+        if measured && (asked || p.hatch_trace_asked()) {
             match crate::frames::save_trace(&mut p, &frames, &crate::frames::app_name()) {
                 Ok(path) => println!("exact: trace saved to {}", path.display()),
                 Err(e) => eprintln!("exact: {e}"),
@@ -525,17 +527,20 @@ pub fn run<D: DataSource + Default>(config: &mut Config, started: Instant) -> i3
             }
         }
 
+        // The hatches' turn (LLP 1075.003.000.001 §4.1): what they asked of
+        // elements runs, and the moments this turn's commits caused.
+        p.hatch_turn();
         let now = wall();
-        let due = timer_wake_delay(p.host().timer_due_ms(), now, last_tick, frame_ms)
+        let due = timer_wake_delay(p.timer_due_ms(), now, last_tick, frame_ms)
             .is_some_and(|wait| wait <= 0.0);
-        if due || p.host().wants_frames() {
+        if due || p.wants_frames() {
             if let Some(e) = p.follow_local_offset() {
                 eprintln!("exact: {e}");
             }
         }
         // A frame task (LLP 1073 D5): each frame the display can take is
         // `frame` (timers, then frame tasks), never caught up.
-        if !display.pending() && p.host().wants_frames() {
+        if !display.pending() && p.wants_frames() {
             last_tick = now;
             if let Some(e) = p.animation_frame(now) {
                 eprintln!("exact: {e}");

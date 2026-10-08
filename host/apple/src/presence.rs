@@ -37,7 +37,10 @@ struct Leaving {
     style: String,
     /// The view and everything under it the presenter knew.
     members: Vec<ViewId>,
-    /// The clock time its exit ends, once the engine has heard it.
+    /// Whether the engine has its exit, and the clock time that ends, once
+    /// known: an exit waiting for the first presented frame has none yet
+    /// (LLP 1003.001 D3).
+    played: bool,
     end: Option<f64>,
 }
 
@@ -51,6 +54,9 @@ pub(crate) struct Presence {
     layout: LayoutMotion,
     /// A resize lays out next: positions are taken, not animated.
     pub(super) snap: bool,
+    /// The presented frame a motion tick is for (LLP 1003.001 D5): every
+    /// present while it is set starts what waits for it.
+    pub(super) frame: Option<f64>,
     /// Each virtualized list's data generation, and whether it runs along
     /// x, at the last layout.
     generations: Vec<(ViewId, u64, bool)>,
@@ -95,6 +101,7 @@ impl<D: DataSource> Host<D> {
                 animations: exit.animations.clone(),
                 style: self.mirror.get(&view).map_or("{}", |m| &m.style).to_owned(),
                 members,
+                played: false,
                 end: None,
             });
         }
@@ -133,13 +140,14 @@ impl<D: DataSource> Host<D> {
     /// 1055 D7) follows it, and the ones it had come off.
     pub(super) fn play_exits(&mut self, batch: &mut Batch) {
         for leaving in &mut self.presence.leaving {
-            if leaving.end.is_none() {
+            if !leaving.played {
                 let node = motion_node(leaving.key);
                 self.engine.set_node_sampled(node, true);
                 batch.animations(leaving.view, "[]");
-                let end = self.engine.play_exit(node, &leaving.animations);
-                debug_assert!(end.is_ok(), "the kernel validated the row");
-                leaving.end = Some(end.unwrap_or(0.0));
+                let played = self.engine.play_exit(node, &leaving.animations);
+                debug_assert!(played.is_ok(), "the kernel validated the row");
+                leaving.played = true;
+                leaving.end = self.engine.exit_end(node, leaving.animations.0.len());
             }
         }
     }
@@ -303,7 +311,18 @@ impl<D: DataSource> Host<D> {
     /// motion rows are never in the style dictionary. A list row's views were
     /// four identity ops each, about half of what a fill batch carried.
     pub(super) fn present(&mut self, batch: &mut Batch, boot: bool) {
-        let now = self.engine.now();
+        self.start_frame();
+        let now = self.engine.sample_time();
+        for l in self
+            .presence
+            .leaving
+            .iter_mut()
+            .filter(|l| l.played && l.end.is_none())
+        {
+            l.end = self
+                .engine
+                .exit_end(motion_node(l.key), l.animations.0.len());
+        }
         let (ended, kept): (Vec<_>, Vec<_>) = std::mem::take(&mut self.presence.leaving)
             .into_iter()
             .partition(|l| l.end.is_some_and(|end| end <= now));

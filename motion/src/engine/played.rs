@@ -51,6 +51,7 @@ impl Engine {
     /// when nothing runs there or a hold owns it.
     pub fn play_transition(&mut self, node: u64, property: Property) -> Option<PlayedTransition> {
         let key = (node, property);
+        let at = self.sample_time();
         let slot = self.slots.get_mut(&key)?;
         if slot.owner().is_some() {
             return None;
@@ -66,14 +67,21 @@ impl Engine {
                 PlayedCurve::Frames { duration, values }
             }
         };
+        // A played transition is its host's: it never waits for a frame
+        // here (LLP 1003.001 D8).
         let played = PlayedTransition {
             from: running.from,
             to: running.to,
-            start: running.start,
+            start: running.start_at(at),
             curve,
         };
         let target = slot.target;
         slot.set_presented(target);
+        if let Some(running) = slot.live.as_mut().and_then(|l| l.running.as_mut()) {
+            running.start = played.start;
+            running.pending = None;
+        }
+        self.pending.remove(&key);
         self.running.remove(&key);
         self.played.insert(key);
         self.dirty.insert(key);

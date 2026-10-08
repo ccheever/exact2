@@ -101,6 +101,23 @@ and `prove` (the proof's baseline), its notes point at `game/README.md`, and
 `--update` rewrites only those two, since a game's Cargo workspace is the
 bake's (`.shells/`).
 
+The template's root is full-bleed (2026-10-07, the authoring bench's iOS
+diaries: the status-bar strip was black and finding the fix cost about five
+minutes): `viewport-fit="cover"` on `main`, and padding of
+`calc(env(safe-area-inset-*) + 24px)` on each side, so the background fills
+behind the status bar and the content keeps clear of it. On the web the insets
+are 0 and the page is unchanged.
+
+The app's workspace holds three host crates: `apple/`, `web/` and, since
+2026-10-07 (Charlie, toward Android bench cells, LLP 1107), `linux/`, in the
+shape of the repo's own (`apps/duo-lab/linux`: one executable with the runner,
+the kernel, the baked plan and the TypeScript data module). The Linux host runs
+headless anywhere, so `bun exact.mjs linux` builds it (`scripts/build-linux.mjs`)
+and `test linux` / `agent linux …` drive it on any machine. The Android host is
+the same crate built for Android: `bun exact.mjs android`
+(`scripts/agent-android.mjs build`). `--update` adds `linux/` to an app made
+before, unless the app has its own.
+
 Not taken:
 
 - **A skill directory in the app.** Skills are discovered per harness, and a

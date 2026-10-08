@@ -14,6 +14,7 @@ routes nav
     detail "/detail"
     rows "/rows"
     sheet "/sheet"
+    menu "/menu"
     chat "/chat"
     photo "/photo"
   tab second "/second"
@@ -130,6 +131,23 @@ component NativeFixture
     looping = true
   action stopLoop
     looping = false
+  // The hatches' frame clock (§2.4): while clocking, a frame task counts
+  // frames, and the `clock` hatch's ticket reads the count at each tick. Its
+  // third tick presses the node 65 times; the 65th press changes its words,
+  // and its `changed` presses once more.
+  state clocking = false
+  state frameCount = 0
+  state clockPresses = 0
+  action startClock
+    clocking = true
+  action stopClock
+    clocking = false
+  action countFrame
+    frameCount = frameCount + 1
+  action clockPress
+    clockPresses = clockPresses + 1
+  task framer when clocking
+    every(frame, countFrame)
   action unbump
     count = 0
   action fire
@@ -222,6 +240,18 @@ component NativeFixture
     toast = "Saved"
   action hush
     toast = ""
+  // LLP 1075.003 §9.11: a sheet at its rows' height, following them; with
+  // `menuLarge`, draggable to large from there.
+  state menuItems = [0]
+  state menuLarge = false
+  action openMenu
+    nav = push(nav, "/menu")
+  action moreMenu
+    menuItems = concat(menuItems, [length(menuItems)])
+  action fewerMenu
+    menuItems = slice(menuItems, 0, -1)
+  action toggleMenuLarge
+    menuLarge = not menuLarge
   action openSheet
     nav = push(nav, "/sheet")
   // LLP 1075.003 §9.10: a pressable title with an avatar and a subtitle, a
@@ -246,14 +276,14 @@ component NativeFixture
   action toggleChoosing
     choosing = not choosing
   view
-    main navigationKey=`${top(nav).id}` navigationBack="back" testId="navigation" width="100%" height="100%" display="flex" flex-direction="column" background-color="#ffffff" color="#111111" font-family="system-ui"
+    main data-mood=(composed > 0 ? "busy" : "calm") navigationKey=`${top(nav).id}` navigationBack="back" testId="navigation" width="100%" height="100%" display="flex" flex-direction="column" background-color="#ffffff" color="#111111" font-family="system-ui"
       column testId="panels" flex=1 min-height=0 position="relative"
         each t in nav.tabs key=t.name
           column role="tabpanel" id=`panel-${t.name}` testId=`panel-${t.name}` position="absolute" top=0 right=0 bottom=0 left=0
             each e in t.stack key=e.id
-              column navigationKey=`${e.id}` navigationPresentation=(e.name == "sheet" ? "modal" : "") navigationDetent=(e.name == "sheet" ? "300 large" : "") navigationScroll=(e.name == "second" ? "list-second" : (e.name == "chat" ? "list-chat" : "list-detail")) data-screen=e.name data-menu="compose" data-violate=violate data-transition=transition testId=`route-${e.name}` position="absolute" top=0 right=0 bottom=0 left=0 display="flex" flex-direction="column" background-color="#ffffff"
+              column navigationKey=`${e.id}` navigationPresentation=(e.name == "sheet" or e.name == "menu" ? "modal" : "") navigationDetent=(e.name == "sheet" ? "300 large" : (e.name == "menu" ? (menuLarge ? "fit-content large" : "fit-content") : "")) navigationScroll=(e.name == "second" ? "list-second" : (e.name == "chat" ? "list-chat" : "list-detail")) data-screen=e.name data-menu="compose" data-violate=violate data-transition=transition testId=`route-${e.name}` position="absolute" top=0 right=0 bottom=0 left=0 display="flex" flex-direction="column" background-color="#ffffff"
                 // A route with no header has no bar (§9.10).
-                when e.name != "photo"
+                when e.name != "photo" and e.name != "menu"
                   header testId=`header-${e.name}` display="flex" flex-direction="row" align-items="center" gap=8 padding=12 flex-shrink=0 border-bottom-width=1 border-bottom-style="solid" border-color="#e5e7eb"
                     when e.name == "detail" or e.name == "rows" or e.name == "chat"
                       button id="back" press=back testId="back" aria-label="Back" padding=6 background-color="#e5e7eb"
@@ -315,6 +345,10 @@ component NativeFixture
                         text "Transition"
                       button press=openSheet testId="sheet" padding=6 background-color="#e5e7eb"
                         text "Sheet"
+                      button press=openMenu testId="menu" padding=6 background-color="#e5e7eb"
+                        text "Menu"
+                      button press=toggleMenuLarge testId="menu-large" padding=6 background-color="#e5e7eb"
+                        text (menuLarge ? "Menu: fit-content large" : "Menu: fit-content")
                       button press=openChat testId="chat" padding=6 background-color="#e5e7eb"
                         text "Chat"
                       column hatch="badge" data-tone=(composed > 0 ? "busy" : "info") testId="hatched-badge" width=20 height=20 border-radius=10 background-color="#f59e0b"
@@ -448,6 +482,11 @@ component NativeFixture
                       text "Loop"
                     button press=stopLoop testId="stop-loop" padding=6 background-color="#e5e7eb"
                       text "Stop"
+                    column hatch="clock" data-frames=toString(frameCount) data-run=(clocking ? "true" : "false") data-presses=toString(clockPresses) press=clockPress testId="hatch-clock" width=24 height=24 background-color="#10b981"
+                    button press=startClock testId="clock-start" padding=6 background-color="#e5e7eb"
+                      text "Clock"
+                    button press=stopClock testId="clock-stop" padding=6 background-color="#e5e7eb"
+                      text "Halt"
                 when e.name == "detail"
                   scroll id="list-detail" hatch="detail-list" data-violate=violate testId="list-detail" flex=1 min-height=0 scrollTop=top
                     column padding=12 gap=8
@@ -484,6 +523,16 @@ component NativeFixture
                         text "Muted"
                       text ("title presses " + toString(titlePresses)) testId="title-presses"
                       column testId="tall-chat" height=1600 background-color="#f0fdf4"
+                // Rows that may shrink (CSS's default), measured as asked for.
+                when e.name == "menu"
+                  column testId="menu-rows" padding=16
+                    button press=moreMenu testId="menu-more" height=44
+                      text "More"
+                    button press=fewerMenu testId="menu-fewer" height=44
+                      text "Fewer"
+                    each i in menuItems key=i
+                      row height=44
+                        text `Row ${i}`
                 when e.name == "photo"
                   column testId="photo-view" flex=1 background-color="#000000" padding=12
                     button id="back" press=back testId="photo-back" aria-label="Close" padding=6 background-color="#e5e7eb" align-self="flex-start"

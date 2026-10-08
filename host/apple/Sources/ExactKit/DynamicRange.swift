@@ -4,19 +4,19 @@
 import QuartzCore
 #if canImport(UIKit)
 import UIKit
-typealias PlatformView = UIView
+package typealias PlatformView = UIView
 #else
 import AppKit
-typealias PlatformView = NSView
+package typealias PlatformView = NSView
 #endif
 
-enum DisplayRange {
+package enum DisplayRange {
     /// The agent's pinned display headroom (`prefer dynamic-range`); `nil`
     /// reads the live display. Under the agent it starts SDR (LLP 1069.007 D2).
     nonisolated(unsafe) static var pinned: Double? = ExactEnv.agentMode ? 1 : nil
 
     /// The display's potential headroom over SDR white, not its current one.
-    static func headroom(_ view: PlatformView) -> Double {
+    package static func headroom(_ view: PlatformView) -> Double {
         if let pinned { return pinned }
         #if canImport(UIKit)
         return Double((view.window?.screen ?? UIScreen.main).potentialEDRHeadroom)
@@ -27,7 +27,7 @@ enum DisplayRange {
 
     /// Whether a node's HDR picture decodes as HDR. HDR suppression by the OS
     /// is ignored: it is transient, and the OS already limits the layer.
-    static func showsHDR(_ view: PlatformView, limit: String?) -> Bool {
+    package static func showsHDR(_ view: PlatformView, limit: String?) -> Bool {
         limit != "standard" && headroom(view) > 1
     }
 }
@@ -68,7 +68,7 @@ enum ColorRange {
 
 /// `dynamic-range-limit` as a layer's range.
 @available(iOS 26, macOS 26, tvOS 26, *)
-func layerRange(_ limit: String?) -> CALayer.DynamicRange {
+package func layerRange(_ limit: String?) -> CALayer.DynamicRange {
     limit == "standard" ? .standard : limit == "constrained" ? .constrainedHigh : .high
 }
 
@@ -266,21 +266,6 @@ extension Spec {
         return colors.reduce(Float(0)) { h, c in
             guard let c, c.count == 9 else { return h }
             return max(h, ColorRange.headroom(TextEngine.color(c).cgColor))
-        }
-    }
-}
-
-extension GpuModule {
-    /// Before a frame, an HDR GPU surface's headroom (the display's, or 1
-    /// where the limit or display rules HDR out) and its layer's range
-    /// (LLP 1100 D12b). wgpu already asked for EDR when it configured the target.
-    func syncDynamicRange(_ id: UInt32, view: NodeView, layer: CALayer?) {
-        guard let headroom, highDynamicRange?(id) == 1 else { return }
-        let limit = view.style["dynamic_range_limit"]?.string
-        headroom(id, DisplayRange.showsHDR(view, limit: limit) ? Float(DisplayRange.headroom(view)) : 1)
-        if #available(iOS 26, macOS 26, tvOS 26, *), let layer {
-            let range = layerRange(limit)
-            if layer.preferredDynamicRange != range { layer.preferredDynamicRange = range }
         }
     }
 }

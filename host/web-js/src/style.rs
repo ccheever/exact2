@@ -486,6 +486,27 @@ pub fn style_writes(id: u16, timeline: bool) -> Result<Vec<Write>, String> {
         map: Some(map),
     };
     Ok(match row {
+        StyleId::ControlSize => vec![with("--exact-control-font-size", "v=>v==null?v:({mini:'x-small',small:'small',medium:'medium',large:'large'})[v]??null")],
+        StyleId::ControlCornerStyle => vec![with("--exact-control-radius", "v=>v==null?v:v==='capsule'?'calc(infinity * 1px)':'revert'")],
+        StyleId::ColumnGap | StyleId::RowGap => {
+            let column = row == StyleId::ColumnGap;
+            let mut writes = one(if column { "column-gap" } else { "row-gap" }, "px");
+            writes.extend(one(if column { "--exact-button-column-gap" } else { "--exact-button-row-gap" }, "px"));
+            writes.push(with(if column { "--exact-button-column-space" } else { "--exact-button-row-space" }, r#"v=>v==null?v:'""'"#));
+            writes
+        }
+        StyleId::FlexDirection => vec![
+            with("flex-direction", "v=>v"),
+            with("--exact-button-leading-areas", r#"v=>v==null?v:v.startsWith('column')?'"image" "space" "title"':'"image space title"'"#),
+            with("--exact-button-trailing-areas", r#"v=>v==null?v:v.startsWith('column')?'"title" "space" "image"':'"title space image"'"#),
+            with("--exact-button-leading-subtitle-areas", r#"v=>v==null?v:v.startsWith('column')?'"image" "space" "title" "subtitle"':'"image space title" "image space subtitle"'"#),
+            with("--exact-button-trailing-subtitle-areas", r#"v=>v==null?v:v.startsWith('column')?'"title" "subtitle" "space" "image"':'"title space image" "subtitle space image"'"#),
+            with("--exact-button-space-width", "v=>v==null?v:v.startsWith('column')?'0px':'var(--exact-button-column-gap,auto)'"),
+            with("--exact-button-space-height", "v=>v==null?v:v.startsWith('column')?'var(--exact-button-row-gap,1em)':'0px'"),
+            with("--exact-button-columns", "v=>v==null?v:v.startsWith('column')?'minmax(0,auto)':'auto auto minmax(0,auto)'"),
+            with("--exact-button-space", "v=>v==null?v:v.startsWith('column')?'var(--exact-button-row-space)':'var(--exact-button-column-space)'"),
+        ],
+        StyleId::TextAlign => vec![with("text-align", "v=>v"), with("--exact-button-align", "v=>v==null?v:({left:'start',start:'start',right:'end',end:'end'})[v]??'center'")],
         StyleId::Cursor => vec![with("cursor", &CURSOR_MAP)],
         StyleId::ZIndex => vec![with("z-index", crate::paint::Z_INDEX)],
         // @ref LLP 1055 D5/D7 — the browser runs it; its `@keyframes` are in

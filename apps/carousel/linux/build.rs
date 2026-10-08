@@ -33,10 +33,13 @@ fn main() {
     } else {
         "exact_linux_update"
     };
+    // The app's hatches, when it has `modules/linux/*.rs` (LLP 1075.003.000.001 §5).
+    let (hatches, run) = contract::native::rust_hatch_entry(&app_dir, &manifest, &target)
+        .unwrap_or_else(|e| panic!("hatches: {e}"));
     std::fs::write(
         out_dir.join("entry.rs"),
         format!(
-            "{}\nfn main() {{ std::process::exit({host}::run::<AppData>(PLAN, COMPAT)); }}\n",
+            "{}\n{hatches}fn main() {{ std::process::exit({host}::{run}); }}\n",
             contract::rust_entry(
                 "carousel_data::Cards",
                 "carousel_data::Cards",

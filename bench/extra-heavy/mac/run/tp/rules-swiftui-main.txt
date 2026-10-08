@@ -1,0 +1,22 @@
+# tpx.py buckets rules for the SwiftUI app's main thread (first matching rule wins; see rules-exact2-main.txt).
+map: MapKit render on main	md::MapEngine|ggl::|MKMapView|VectorKit|-[MK
+web: WKWebView create/load	WebKit::|WKWebView
+video: AVPlayer	AVPlayer|FigPlayer|AVFoundation
+lottie	Lottie
+image: decode	CGImageSource|ImageIO|CGAnimateImage
+text: CoreText / glyphs	CTLineDraw|CGContextDelegateDrawGlyphs|CTTypesetter|CTLineCreate|NSAttributedString|TextLayoutManager|ResolvedStyledText
+SwiftUI: row heights (NSTableView automatic heights → sizeThatFits)	_automaticRowHeights|_uncachedAutomaticRowHeight|_doAutomaticRowHeight
+SwiftUI: hosting view layout / sizeThatFits	NSHostingView.layout|sizeThatFits|StackLayout|LayoutEngine|LayoutProxy|placeChildren
+SwiftUI: display list render	renderDisplayList|DisplayList|ViewUpdater
+SwiftUI: AttributeGraph update / body	AG::Graph|AGGraph|ViewGraph|GraphHost|_updateViewGraph
+AppKit table view rows	NSTableRowData|NSTableView|NSTableRowView|NSOutlineView
+AppKit constraints	NSISEngine|updateConstraints
+AppKit layout	_layoutSubtree|layoutSubtreeIfNeeded|_NSViewLayout
+backing store / layer display	CABackingStoreUpdate_|-[NSViewBackingLayer display]|CA::Layer::display_|-[CALayer _display]
+tracking areas	TrackingArea|updateTrackingAreas
+AppKit display cycle / layer tree	NSDisplayCycle|_buildLayerTree|NSWindowUpdateLayerTree|NSViewBuildLayerTree
+CA commit	CA::Transaction::commit|CA::Context::commit_transaction|CA::Layer::
+scroll: clip view move, notifications	-[NSClipView|reflectScrolledClipView|_postBoundsChangeNotification
+# The probe comes LAST: its tick is the outer frame of the whole scroll callback (scrollToPoint → the app's own work),
+# so listed first it swallowed everything the app does inside a scroll callback (found 2026-09-30: 245 ms/s "probe").
+probe itself (its tick and sampler, nothing of the app's under it)	-[LBProbe |CGWindowListCreateImage|probe-mac
