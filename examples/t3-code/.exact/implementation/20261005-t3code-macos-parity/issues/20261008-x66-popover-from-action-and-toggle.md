@@ -1,10 +1,10 @@
 ---
 name: 20261008-x66-popover-from-action-and-toggle
 plan: 20261005-t3code-macos-parity
-status: draft
+status: filed
 kind: framework-gap
 blocks: []
-upstream_url: null
+upstream_url: https://github.com/ccheever/exact2/issues/319
 reproduced_on: 9314e7a81 (main) with two one-file apps; contract/, runner/, plan/ and kernel/tables are unchanged through main 263c8b96e; again on 4bc1fc9ff (feat(example)/t3-code-fix-keyboard-focus)
 ---
 

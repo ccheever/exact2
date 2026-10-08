@@ -41,7 +41,7 @@ UI's Menu (`menu-keys.contract`, `KeyMenu`):
 
 That covers the hand-off and Check out menus from #293, merged before this branch.
 
-Contract cannot open a popover from a key handler (X66). A popover menu therefore opens on ↓/↑ through
+Contract cannot open a popover from a key handler (X66, [#319](https://github.com/ccheever/exact2/issues/319)). A popover menu therefore opens on ↓/↑ through
 `KeyMenuOpen`: two invisible `popovertargetaction="show"` invokers over its trigger, armed with
 `aria-keyshortcuts` only while the trigger holds the focus. This is the approach fix-provider-auth-state found
 for its sign-in method menu. A menu that its owner mounts from state opens from the trigger's own key handler.
@@ -86,7 +86,7 @@ Excluded:
   - The thread, draft and tab context menus are native `NSMenu`s.
   - The Settings icon picker is a Popover in the reference.
   - Listbox selects with a search field (model picker, branch picker) have their own arrows.
-- Framework edits. X66 is reported, not changed.
+- Framework edits. X66 is reported as #319, not changed.
 - ↓/↑ on the sign-in method menu's trigger (`providers-setup.contract` `ProviderAccountRow`).
   fix-provider-auth-state owns that trigger's press, Space and Return, and builds its own invisible invoker
   there. Expected merge work: whoever lands second gives the `KmItem` ids that PR's `idPrefix` and lets its
@@ -173,8 +173,9 @@ The trigger of a state-driven menu that the data module opens lets go of the foc
 - All 31 popover triggers that count keyboard openings, through `KeyMenuOpen`. Not the sign-in method menu
   (fix-provider-auth-state's) or the Icon submenu row.
 - The 12 top-level state-driven menus, from their trigger's key handler.
-- The table Copy menu mounts at the window, outside its trigger's tree. ↓/↑ open it with its popup focused,
-  and the next ↓ or ↑ reaches the first or the last item.
+- The table Copy menu mounts at the window, outside its trigger's tree. Its ↓/↑ request carries the end
+  (`keys:first`/`keys:last` before the table), and the data module hands it back as `menu.keyed`, so the menu
+  opens at its first or last item.
 
 ## Acceptance and reproduction
 
@@ -194,18 +195,17 @@ The trigger of a state-driven menu that the data module opens lets go of the foc
 | 16: Close pull request? focus (real input) | pass | [ri-06](https://raw.githubusercontent.com/ccheever/exact2/44b02d1f0242389c493711ad9248cbf33145133c/fix-keyboard-focus/ri-06-bug16-close-dialog-focus.png). Base: the focus stays on "…" behind the dialog, and Tab goes to Edit title behind it. Branch: opened from the keyboard, a ring on Cancel, Tab to Close, Escape back to "…". After a real click, Cancel is focused (no ring after a pointer open). Agent: [05](https://raw.githubusercontent.com/ccheever/exact2/a591ec840e4c26dc66984d14e4e5667d6b93d7f4/fix-keyboard-focus/05-close-dialog-focus.png) | — |
 | Shared pattern on every menu (agent, base vs branch) | pass | [menus-before](https://raw.githubusercontent.com/ccheever/exact2/74aaea0cd86f7ab37859afe90a48053400de3570/fix-keyboard-focus/menus-before.txt): on the base, the focus never leaves the trigger on any of 9 menus. Branch, after merging `732f0e3f3` ([menus-after-final](https://raw.githubusercontent.com/ccheever/exact2/d2c6ec83ccd14cb340060d84b9a4077780ebadf7/fix-keyboard-focus/menus-after-final.txt)): Enter focuses the first item on 10 menus. ↓ and End move through the items, Escape returns to the trigger, and the title menu's →/← enter and leave its submenu. The Usage environment menu's Escape keeps the page. The row stack popover focuses its popup, then ↓ reaches the first layer | — |
 | ↓/↑ on a closed trigger opens the menu at its first or last item (ruling) | pass (agent) | [06](https://raw.githubusercontent.com/ccheever/exact2/72d540ec9d216bdbc7024f6548cb0d2426a8085e/fix-keyboard-focus/06-arrow-down-opens-more.png): on the base, ↓ on the closed "…" does nothing; on the branch, it opens More with Refresh focused, and ↑ opens it at Close pull request. [arrows-after-final](https://raw.githubusercontent.com/ccheever/exact2/f737afbe121bdb78d5c25d111397a3c059323ec9/fix-keyboard-focus/arrows-after-final.txt) lists the rest. First and last both pass on the snooze, Sort, Filters, More, Check out, thread title and Settings › Source Control select menus (a wrapped trigger: the menu opens under it). The diff scope menu passes as well: ↓ first and ↑ last, and a press focuses the popup. The Settings scope menu was checked on ↓ only. Regression tests: `menu-keys.test.ts` "↓ and ↑ on a closed trigger …" (3 tests, which fail on the base) | Agent only. The real-input session was spent before the ruling, and agent keys go through the same host key route ("delivery": "platform"). The details "Open in" menu was not checked with rows: it lists none in this lane |
+| Escape in the diff scope menu closes only the menu (coordinator, 2026-10-08) | pass (agent) | [record](https://raw.githubusercontent.com/ccheever/exact2/8d441a3e4e9f244ff6b7af1b2a53cb2de935f855/fix-keyboard-focus/diff-escape-record.txt). **Existing issue on the base `ec32c8c37`:** Escape in the open menu also closed the diff panel. Two nodes declare Escape: the right panel's toggle and the menu's backdrop, and among non-modal shortcuts the toggle (lower view id) wins. Branch (build 13): after a press or ↓ opens it, Escape closes the menu, the focus returns to the trigger, and the panel stays. A second Escape closes the panel as before. Regression test: `menu-keys.test.ts` "a popover menu is modal …" (the DiffScopeMenu pin; fails on the base) | — |
+| ↓/↑ open the table Copy menu at its first or last item (coordinator, 2026-10-08) | pass (unit) | `r8-keys.test.ts` "↓ or ↑ on the Copy button opens the menu at its first or last item": `keys:first` gives `keyed` 1, `keys:last` gives -1, and a press gives 0. `menu-keys.test.ts` pins the button and the menu wiring. Both fail on the base | Not driven: no reply in this lane can hold a table, because the lane's provider is unauthenticated |
 | Visual and protocol parity with the oracle | not run | — | user decision 2026-10-06: the desktop oracle and trace tools are not built |
 
 ## Residuals
 
-- **↓/↑ need invisible invokers** (X66). The table Copy menu is the one menu where ↓/↑ focus its popup, not an
-  item.
+- **↓/↑ need invisible invokers** (X66, #319).
 - **Keyboard-focused rows show the AppKit focus ring as well as the highlight.** The reference shows only the
   highlight; its items are `outline-none` with a highlighted background. This is a declared difference (Charlie,
   2026-10-08): #302 (X61) covers only `input` and `textarea`.
 - **The sign-in method menu's ↓/↑** come from fix-provider-auth-state's invoker. The merge wiring is under Scope.
-- **Escape in the diff scope menu closes the diff panel with it.** The menu is state-driven and not modal, so the
-  panel's own Escape shortcut wins. Not checked on the base; nothing here changed either shortcut.
 - **A data-mounted menu's end is cleared when its trigger takes the focus, not on `pointerdown`.** A `pointerdown`
   would take the press from the window's light-dismiss count (#290). Consequence: if the trigger already holds the
   focus from an earlier keyboard opening, and the menu closed without moving it, a pointer press opens the menu at the
