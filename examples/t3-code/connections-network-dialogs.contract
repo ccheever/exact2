@@ -161,6 +161,9 @@ component TailscaleDisableDialog
           NdAction(buttonId="tailscale-disable-confirm", label="Restart and disable", tone="destructive", disabled=busy, busyLabel=(busy ? "Restarting…" : ""), still=still, keys="", first=false, press=confirm, key=tabConfirm)
 
 // "Set up Tailscale HTTPS?" (Dialog): the HTTPS port (1-65535) and the endpoint it will have.
+// `/^\d+$/u` on the trimmed text (ConnectionsSettings isTailscaleServePortValid): digits only, so "0443" is 443.
+fn tsDigitsOnly(t: string): bool = t != "" and replaceAll(replaceAll(replaceAll(replaceAll(replaceAll(replaceAll(replaceAll(replaceAll(replaceAll(replaceAll(t, "0", ""), "1", ""), "2", ""), "3", ""), "4", ""), "5", ""), "6", ""), "7", ""), "8", ""), "9", "") == ""
+
 component TailscaleSetupDialog
   props
     initialPort: number
@@ -201,7 +204,7 @@ component TailscaleSetupDialog
     if k == "-"
       tip = false
   derive portText = edited ? typed : `${initialPort}`
-  derive valid = match parseNumber(portText) { case some(n) => n >= 1 and n <= 65535 and `${n}` == trim(portText), case none => false }
+  derive valid = tsDigitsOnly(trim(portText)) and (match parseNumber(trim(portText)) { case some(n) => n >= 1 and n <= 65535, case none => false })
   derive preview = valid ? (match parseNumber(portText) { case some(n) => (n == 443 ? baseUrl : `https://${host}:${n}`), case none => baseUrl }) : baseUrl
   view
     column class=NdOverlay animation="ndFadeIn 200ms ease-in-out" -exact-exit-animation="ndFadeOut 200ms ease-in-out" testId="tailscale-setup-overlay"
@@ -212,7 +215,7 @@ component TailscaleSetupDialog
         column gap="1rem" padding-left="1.5rem" padding-right="1.5rem" padding-top="0.25rem" padding-bottom="1.5rem" box-sizing="border-box"
           column gap="0.5rem"
             text "HTTPS port" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
-            input id="tailscale-port" value=portText input=edit key=submitKey autofocus=true inputmode="numeric" aria-label="HTTPS port" disabled=busy class=PvField height="2rem" width="100%" testId="tailscale-port"
+            input id="tailscale-port" type="number" min=1 max=65535 step=1 value=portText input=edit key=submitKey autofocus=true inputmode="numeric" aria-label="HTTPS port" disabled=busy class=PvField height="2rem" width="100%" testId="tailscale-port"
             when not valid
               text "Enter a port from 1 to 65535." font-size="0.75rem" line-height="1rem" color="light-dark(#e7000b, #ff6467)" testId="tailscale-port-error"
           column padding-left="0.75rem" padding-right="0.75rem" padding-top="0.5rem" padding-bottom="0.5rem" border-radius="0.375rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7b3, #ffffff12)" background-color="light-dark(#f4f4f533, #ffffff05)"
@@ -391,6 +394,6 @@ component PairingRevealDialog
                 each cell in reveal.cells key=`${cell.x}:${cell.y}`
                   box position="absolute" left=cell.x top=cell.y width=cell.w height=cell.h background-color="#000000"
         row gap="0.5rem" justify-content="flex-end" padding-left="1.5rem" padding-right="1.5rem" padding-top="1rem" padding-bottom="1rem" box-sizing="border-box"
-          NdAction(buttonId="pairing-reveal-done", label="Done", tone="outline", disabled=busy, busyLabel="", still=true, keys="Escape", first=false, press=close, key=plainKey)
-          NdAction(buttonId="pairing-reveal-copy-code", label="Copy code", tone="outline", disabled=busy, busyLabel="", still=true, keys="", first=false, press=command("pairing-copy", reveal.linkId, "code"), key=plainKey)
-        NdClose(buttonId="pairing-reveal-close", disabled=busy, press=close, key=last)
+          NdAction(buttonId="pairing-reveal-done", label="Done", tone="outline", disabled=false, busyLabel="", still=true, keys="Escape", first=false, press=close, key=plainKey)
+          NdAction(buttonId="pairing-reveal-copy-code", label="Copy code", tone="outline", disabled=false, busyLabel="", still=true, keys="", first=false, press=command("pairing-copy", reveal.linkId, "code"), key=plainKey)
+        NdClose(buttonId="pairing-reveal-close", disabled=false, press=close, key=last)

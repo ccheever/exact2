@@ -310,6 +310,25 @@ describe('the Connections page carries the section', () => {
     expect(access.wanted).toBe(false);
   });
 
+  it('keeps its snapshot while the page stays open and revalidates on open once 30 s old (desktopNetworkAccessStateAtom, U9)', async () => {
+    primary.update(ready(), true);
+    const client = new T3Client();
+    Object.assign(client.localBackend.settings, { tailscaleServeEnabled: true, tailscaleServePort: 443 });
+    let reachable = false, reads = 0;
+    const { native } = fakeNative(request => request.op !== 'localNetworkFacts' ? undefined
+      : (reads++, facts(LAN, { probe: { url: String(request.probe ?? ''), read: true, reachable } })));
+    expect((await networkPage(client, native, true, NOW, true)).tailscaleOn).toBe(false);
+    const afterOpen = reads;
+    reachable = true; // Tailscale Serve starts answering while the page is open
+    for (const tick of [1_000, 2_000, 40_000]) expect((await networkPage(client, native, true, NOW + tick, true)).tailscaleOn).toBe(false);
+    expect(reads).toBe(afterOpen); // never polled while open
+    await networkPage(client, native, false, NOW + 41_000, true);
+    expect((await networkPage(client, native, true, NOW + 41_000, true)).tailscaleOn).toBe(true); // stale: revalidated on open
+    reachable = false;
+    await networkPage(client, native, false, NOW + 50_000, true);
+    expect((await networkPage(client, native, true, NOW + 50_000, true)).tailscaleOn).toBe(true); // 9 s old: kept
+  });
+
   it('says Loading… while Tailscale’s first read is pending, then shows its endpoint', async () => {
     primary.update(ready(), true);
     const client = new T3Client();

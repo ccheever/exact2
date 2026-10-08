@@ -177,6 +177,23 @@ final class LocalNetworkTests: XCTestCase {
         XCTAssertEqual((network.facts(tailscale: true, probe: "", refresh: false)["tailscale"] as? [String: Any])?["read"] as? Bool, false, "a restart reads afresh")
     }
 
+    func testTheHttpsProbeIsADeadlineForTheWholeRequest() {
+        // probeTailscaleHttpsEndpoint: `timeoutOption(2_500)` bounds the whole request (U9 check, 2026-10-08).
+        let network = T3LocalNetwork()
+        network.interfaces = { [:] }
+        network.environment = { [:] }
+        let prober = FakeProber(); prober.fallback = nil // a server that never finishes answering
+        network.prober = prober
+        let started = Date()
+        _ = network.facts(tailscale: false, probe: "https://lane.tail.ts.net/", refresh: false)
+        let probe = { network.facts(tailscale: false, probe: "https://lane.tail.ts.net/", refresh: false)["probe"] as? [String: Any] }
+        XCTAssertTrue(until(4) { probe()?["read"] as? Bool == true })
+        let elapsed = Date().timeIntervalSince(started)
+        XCTAssertGreaterThanOrEqual(elapsed, 2.4); XCTAssertLessThan(elapsed, 3.5)
+        XCTAssertEqual(probe()?["reachable"] as? Bool, false)
+        XCTAssertEqual(prober.urls, ["https://lane.tail.ts.net/.well-known/t3/environment"], "one request while it was pending")
+    }
+
     // MARK: The restart with a new envelope and the access calls
 
     func testARestartStartsANewServerWithTheNewEnvelope() {

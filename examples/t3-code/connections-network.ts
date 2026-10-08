@@ -251,11 +251,19 @@ const makeExposure = () => new DesktopServerExposure({
   config: { get desktopLanHostOverride() { return ctx.env.lanHost || undefined; }, get desktopHttpsEndpointUrls() { return ctx.env.httpsEndpoints; } },
 });
 let exposure = makeExposure();
-const live = { port: 0, snapshot: null as null | { state: DesktopServerExposureState; endpoints: AdvertisedEndpoint[] }, open: false, error: '' };
+/**
+ * The page's snapshot, as `desktopNetworkAccessStateAtom` (state/desktopNetworkAccess.ts): kept while
+ * the page is closed and open (keepAlive), revalidated when the page opens and it is older than 30 s
+ * (`Atom.swr({ staleTime: 30_000, revalidateOnMount: true })`), and after a change (`refresh`); never
+ * polled while the page stays open. `at` is the wall time of the snapshot, `revalidating` a read in
+ * progress (the native reads land in the background, so it takes the runs until nothing is pending).
+ */
+export const NETWORK_STALE_TIME_MS = 30_000;
+const live = { port: 0, snapshot: null as null | { state: DesktopServerExposureState; endpoints: AdvertisedEndpoint[] }, open: false, error: '', at: 0, now: 0, revalidating: false };
 /** Tests: forget the exposure state, the last snapshot and the dialogs' serials. */
 export function resetNetwork(): void {
   exposure = makeExposure();
-  Object.assign(live, { port: 0, snapshot: null, open: false, error: '' });
+  Object.assign(live, { port: 0, snapshot: null, open: false, error: '', at: 0, now: 0, revalidating: false });
   Object.assign(networkUi, { exposureError: '', accessError: '', networkSerial: 0, tailscaleSerial: 0, createSerial: 0, settled: 0, reveal: null });
   Object.assign(ctx, { native: null, owner: null, pending: false, refresh: false, facts: null, env: { lanHost: '', httpsEndpoints: [] } });
 }
@@ -267,13 +275,17 @@ async function readNetwork(client: Local, native: Native, revalidate: boolean): 
   bind(client, native);
   const port = primary.status.port;
   if (!port || primary.status.state !== 'ready') return;
+  // revalidateOnMount when stale (or a new server), and every refresh after a change; else the kept snapshot.
+  const stale = !live.snapshot || live.port !== port || live.now - live.at >= NETWORK_STALE_TIME_MS;
+  if (revalidate && stale) live.revalidating = true;
+  if (!live.revalidating && live.snapshot && live.port === port) return;
   ctx.refresh = revalidate;
   try {
     if (live.port !== port) { await exposure.configureFromSettings({ port }); live.port = port; }
     const state = exposure.getState(), endpoints = await exposure.getAdvertisedEndpoints();
-    if (!ctx.pending) live.snapshot = { state, endpoints };
+    if (!ctx.pending) { live.snapshot = { state, endpoints }; live.at = live.now; live.revalidating = false; }
     live.error = '';
-  } catch (error) { if (letGo(error)) throw error; live.error = error instanceof Error ? error.message : String(error); }
+  } catch (error) { if (letGo(error)) throw error; live.error = error instanceof Error ? error.message : String(error); live.revalidating = false; }
   finally { ctx.refresh = false; }
 }
 
@@ -281,6 +293,7 @@ async function readNetwork(client: Local, native: Native, revalidate: boolean): 
 export async function networkPage(client: T3Client, native: Native, open: boolean, now: number, canManage: boolean): Promise<NetworkView> {
   const opened = open && !live.open;
   live.open = open;
+  if (Number.isFinite(now)) live.now = now;
   access.wanted = open && canManage && primary.connectable;
   access.changed = () => { client.revision++; };
   if (!open || !canManage) return networkProjection({ canManage: false, state: null, endpoints: [], defaultKey: null, access: { loaded: false, error: '', pairingLinks: [], clientSessions: [] }, credentials: createdCredentials, now });
@@ -304,7 +317,7 @@ const messageOf = (error: unknown, fallback: string) => (error instanceof Error 
 async function restart(client: T3Client, native: Native): Promise<Result> {
   const config = exposure.backendConfig();
   const result = await applyLocalSetting(client, native, { serverExposure: { host: config.bindHost, tailscaleServeEnabled: config.tailscaleServeEnabled, tailscaleServePort: config.tailscaleServePort } });
-  live.snapshot = null; live.port = 0;
+  live.snapshot = null; live.port = 0; live.revalidating = true; // refreshDesktopNetworkAccessState()
   await readNetwork(client, native, true);
   return result;
 }
@@ -319,6 +332,7 @@ export async function runNetworkOp(client: T3Client, native: Native, op: string,
       if (live.port !== primary.status.port && primary.status.port) { await exposure.configureFromSettings({ port: primary.status.port }); live.port = primary.status.port; }
       previous = exposure.getState().mode;
       const change = await exposure.setMode(value === 'on' ? 'network-accessible' : 'local-only');
+      live.revalidating = true; // refreshDesktopNetworkAccessState() after the change
       if (!change.requiresRelaunch) return none;
       try { return await restart(client, native); }
       catch (error) {
@@ -343,6 +357,7 @@ export async function runNetworkOp(client: T3Client, native: Native, op: string,
       const port = enabled ? Number(value.slice(3)) : exposure.getState().tailscaleServePort;
       if (enabled && (!/^\d+$/u.test(value.slice(3)) || !Number.isInteger(port) || port < 1 || port > 65_535)) throw new Error('Enter a port from 1 to 65535.');
       const change = await exposure.setTailscaleServeEnabled({ enabled, port });
+      live.revalidating = true; // refreshDesktopNetworkAccessState()
       const result = change.requiresRelaunch ? await restart(client, native) : none;
       networkUi.tailscaleSerial++;
       return result;

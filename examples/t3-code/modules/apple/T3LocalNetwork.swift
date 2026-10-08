@@ -294,7 +294,11 @@ final class T3LocalNetwork: @unchecked Sendable {
             }
         }
         if readProbe, let target = URL(string: "/.well-known/t3/environment", relativeTo: URL(string: url)) {
-            prober.probe(target.absoluteURL, timeoutMs: T3TailscaleCLI.probeTimeoutMs) { [self] reachable in
+            // `timeoutOption(2_500)` is a deadline for the whole request; URLSession's own timeout only
+            // bounds silence between bytes, so the first of the answer and the deadline counts.
+            let once = T3Once()
+            let settle = { [self] (reachable: Bool) in
+                guard once.claim() else { return }
                 lock.lock()
                 probing.remove(url)
                 let differs = probes[url]?.reachable != reachable || probes[url] == nil
@@ -302,9 +306,18 @@ final class T3LocalNetwork: @unchecked Sendable {
                 lock.unlock()
                 if differs { changed() }
             }
+            prober.probe(target.absoluteURL, timeoutMs: T3TailscaleCLI.probeTimeoutMs, settle)
+            DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + T3TailscaleCLI.probeTimeoutMs / 1000) { settle(false) }
         } else if readProbe {
             lock.lock(); probing.remove(url); probes[url] = (false, now); lock.unlock()
         }
         return value
     }
+}
+
+/// The first caller wins (a probe's answer or its deadline).
+final class T3Once: @unchecked Sendable {
+    private let lock = NSLock()
+    private var done = false
+    func claim() -> Bool { lock.lock(); defer { lock.unlock() }; if done { return false }; done = true; return true }
 }
