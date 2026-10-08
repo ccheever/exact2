@@ -1,0 +1,22 @@
+fix-keyboard-focus: real-input session 2, 2026-10-08 (shared lock held 11:34:59Z to 11:40:26Z), lane copy
+"T3 Code (Lane FKF after)" built with --bundle at 666b97158 (build 16), launched with env -i and a fixed
+PATH=/usr/bin:/bin:/usr/sbin:/sbin and its own homes; paired through Add environment (no capture while the code
+was on screen). HID keys sent only while the lane app was frontmost; focus read from the AX tree.
+
+Row A, thread title (Snooze-me): click the title, Escape -> AX focus "Thread actions for Snooze-me" (ring).
+  ↓ -> "Pin thread" (first, ring); Escape -> title; ↑ -> the last item, Delete (ring); Escape -> title.  PASS
+Row B, snooze clock: hover the row, click the clock, Escape -> ring on the clock, menu closed.
+  ↓ -> "In 1 hour" (first, ring); Escape; ↑ -> "Custom…" (last, ring); Escape.                       PASS
+Row C, More on #132: click "…", Escape -> AX focus "More pull request actions".
+  ↓ -> Refresh (first); Escape -> "…"; ↑ -> Close pull request (last); Escape -> "…".                 PASS
+Row D, diff scope (Changes in the details panel, then the scope trigger):
+  first open by a click: Escape -> the menu closes, focus on "Diff scope: Changes", the panel stays.  PASS
+  then ↓ (and later a click, and Enter): the menu opened but nothing took the focus (AX: the window);
+  Escape and ↑/↓ did nothing until a click.                                                             FAIL
+  Probe afterwards (agent mode, build 17): a reopened menu's popup also took no focus there, though the
+  first open did. Code reading: on macOS the presenter forgets an autofocus node only on a full
+  accessibility pass (Accessibility.swift formIntersection), while iOS's release() removes it at once
+  (PresenterIOS.swift:1004); a new popup at a released view's address can then read as processed. Not
+  traced further; for the coordinator. Fixed in the clone's half: the menu's Escape is now a shortcut
+  inside its own aria-modal box, so Escape closes it wherever the focus is (agent-verified, build 17).
+Table Copy row: not run (no lane reply holds a table).
