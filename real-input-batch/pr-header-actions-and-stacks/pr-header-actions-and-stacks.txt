@@ -1,0 +1,33 @@
+# pr-header-actions-and-stacks (#262): real-input batch record, 2026-10-08 (UTC ~04:14-04:22)
+Build: 07dcef1ab (contains #262; the lane copy was rebuilt once for #263); lane copy "T3 Code (Lane RIB)", normal launch,
+pid 38677, 1280x840, dark; no local server. The real-GitHub lane's primary server (daehyeonmun2021, sandbox
+daehyeonmun2021/playground) started by lane.mjs's own `start('primary', 16451)` (this batch's port range; the CLI only takes
+16500-16799), paired through Settings › Connections › Add environment (URL from the 0600 file, never printed). Keys: real
+HID chords behind a frontmost guard; pointer: cliclick. gh calls: target/github-lane/logs/gh-calls.tsv (argv only).
+
+5. More menu (#132): Tab from the title goes forward (edit pencil -> "gh pr checkout 132" -> main mark -> head branch …);
+   five Shift+Tabs show no ring on Merge or "…" (pha-stab3-small.png). The menu was then opened by a click and closed with
+   Escape: the ring is on "…" (More); Return opens the menu (Refresh, Convert to draft, Enable auto-merge, Merge, Squash and
+   merge, Rebase and merge, Open on GitHub, Copy link, Copy PR number, Close pull request); ↓ ↓ ↓ ↑ change nothing: the
+   only highlighted row stays "Merge" (the checked method) and the ring stays on "…" (pha-menu-small.png,
+   pha-menu-zoom2.png); Escape closes it, the ring on "…"; no gh write. FAIL (clone bug: a menu opened from the keyboard
+   does not take the focus; arrows do not move a highlight).
+6. Freshness popover by keyboard (#132, behind main by 26): Tab x3 from the title -> the ring on "main ⚠"; Return ->
+   "This branch is out-of-date with main by 26 commits." / "Changes can be cleanly merged." / Update branch, Update with
+   rebase; Tab -> Update branch, Tab -> Update with rebase; Escape -> closed, the ring back on "main ⚠"; nothing sent
+   (pha-fresh-small.png). PASS.
+   By pointer (#150, behind main by 8): the card shows 0.25 s after the pointer reaches the mark (pha-hover.png left) —
+   but moving the pointer down into the card closes it (pha-hover.png right; a direct jump-click on "Update with rebase"
+   also lands on nothing). FAIL (clone bug: the hover card does not stay while the pointer moves into it). Pressing the
+   mark opens it as a popover; click "Update with rebase" at 04:20:06Z: gh-calls.tsv `pr update-branch 150 --repo
+   github.com/daehyeonmun2021/playground --rebase`; GitHub read back with the lane gh: compare main...docs/install-steps
+   behind_by 0 (was 8). The write PASSES — but no "Branch updated with the base branch" toast was seen (captures at +0.8 s
+   and +8.8 s), the panel kept "out-of-date with main by 8 commits", and the app then looped
+   invalidate -> detail -> list ~200 times in 46.7 s (lane server trace after the one runAction: 210
+   pullRequests.detail, 203 invalidate, 213 list; gh-calls 4-5 GraphQL reads per second until 04:20:51Z) (pha-15-now,
+   pha-16-later). FAIL (clone bug: refresh storm and stale freshness after update-branch).
+7. Close dialog (#132): More › Close pull request (click) -> "Close pull request?" / "This closes #132 without merging it."
+   with Cancel and Close; no focus ring on either at open, after Tab, Tab, Shift+Tab (pha-close-zoom.png); Escape closes
+   it; no `pr close` in gh-calls.tsv. Escape/sends-nothing PASS; the visible focus FAIL (clone bug: the dialog shows no
+   focus — #255's AppConfirm rings do show).
+8. Reduced motion (System Settings): waits for the user's permission (READY list).

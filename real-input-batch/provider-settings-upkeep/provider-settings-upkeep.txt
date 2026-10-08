@@ -1,0 +1,23 @@
+# provider-settings-upkeep (#251): real-input batch record, 2026-10-08 (KST 12:05-12:08; UTC 03:05-03:08)
+Build: feat(example)/t3-code b7761f556 (merged tip), `host/apple/build.mjs t3-code-macos --bundle`; lane copy
+"T3 Code (Lane RIB)" (com.exact.t3code.macos.lanerib, ad-hoc signed), launched normally (not agent mode), pid 21714,
+window 202771, 1280x840, dark (system appearance). Lane: T3_LOCAL_HOME=<lane>/t3-home-a, T3_LOCAL_PORT=16450, isolated
+HOME/CFFIXED_USER_HOME/CODEX_HOME/CLAUDE_CONFIG_DIR/XDG_*, T3CODE_TELEMETRY_ENABLED=false. The fixture servers of the task
+worktree are gone (worktree removed after merge); instead "This machine" (the lane's embedded server) runs a real,
+lane-local npm Codex: `npm install -g --prefix <lane>/npm @openai/codex@0.160.1` (latest 0.161.0), first on the lane PATH.
+Input: orca computer click/press-key (window-local points) and cliclick m: (real pointer moves). Real-input lock held.
+
+1. Real hover, list row icon (Codex v0.160.1): pointer moved onto the icon, 1 s and 2 s later: the tooltip opens ABOVE the
+   icon and is clipped by the provider list card: only its bottom edge shows (psu-01-hover-list.png, psu-01b). FAIL (clone bug).
+2. Real hover, editor icon: "Update available" opens above the icon; its top and right are clipped by the editor card
+   (psu-02-hover-editor.png). FAIL (same clone bug).
+3. Real hover, "Update all": tooltip "Daehyeon's MacBook Pro: Codex" (psu-03-hover-updateall.png). PASS.
+4. Click on the list icon: the popover opens under it, right edges aligned (popover right ~473 pt, icon right ~472 pt);
+   the tooltip closed (psu-04-popover-list.png). PASS.
+5. Escape: the popover closes, Settings stays, the icon shows the focus ring (psu-05-escape.png). PASS.
+6. Return on the focused icon: the popover opens; Tab: the ring is on "Update now"; Escape: closed, the ring back on the
+   icon (psu-keys-strip.png). PASS.
+7. Tapped real update: editor icon -> popover (end-aligned, psu-09) -> click "Update now" at 03:07:12Z: "Updating" with the
+   spinner (psu-10-updating-1.png); 03:07:18Z `<lane>/npm/bin/codex --version` = codex-cli 0.161.0 (was 0.160.1); the row and
+   editor read v0.161.0, no update icon, Update all gone, "Checked just now" (psu-11-updated.png). Server trace: one
+   `ws.rpc.server.updateProvider` span with `ProviderMaintenanceRunner.updateProvider`, 5.1 s. PASS.

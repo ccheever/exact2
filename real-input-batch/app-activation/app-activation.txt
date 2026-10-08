@@ -1,0 +1,24 @@
+# app-activation (#254): real-input batch record, 2026-10-08 (UTC 03:31-03:36)
+Build: b7761f556 bundle; lane copy "T3 Code (Lane RIB)" (com.exact.t3code.macos.lanerib), normal launch, pid 61228
+(window 202887), relaunched as pid 32368 for the ⌘Q row. Lane T3 home <lane>/t3-home-a, port 16450, app TMPDIR = the
+user's $TMPDIR (a lane TMPDIR would push the socket path past 104 bytes). The socket: $TMPDIR/t3code-501/3c4058b8c299bdd2c14b6509.sock
+(the lane home's hash; another app's socket 09fab84e….sock in the same folder was never touched).
+CLI: the pinned release's own t3 (0.0.46-nightly.20261005.2667), `env -i HOME=<lane>/clihome PATH=/usr/bin:/bin
+TMPDIR="$TMPDIR" t3 app <dir> --base-dir <lane>/t3-home-a`. Keys: real HID chords (⌘M, ⌘W) behind a frontmost guard;
+⌘Q: a real hold (Command, Q, auto-repeats for 1.6 s).
+
+3. Front: Finder activated (`lsappinfo front` = Finder); 03:31:37 `t3 app <lane>/projects/gamma` -> exit 0 in 2 s,
+   "Opened …/gamma in T3 Code."; `lsappinfo front` = "T3 Code (Lane RIB)"; the window on screen (list-windows: 202887,
+   not minimized) showing "gamma / New thread", "What should we build in gamma?" (act-01-front, act-02-after-cancel).
+   PASS. (A stray "Set up Tailscale HTTPS?" dialog was over the thread view when it came forward — see #248's list.)
+4. Un-minimize: ⌘M (real) -> the window minimized (AXMinimized true, list-windows empty); Finder front; 03:34:19
+   `t3 app …/delta` -> after 15 s "(request-timeout)" "The desktop app did not finish opening the project in time.";
+   the window stayed minimized (AXMinimized true) and Finder stayed front. Retried 03:34:52: the same. App log: "request …
+   arrived", "handed to the window", "answered: request-timeout". FAIL — clone bug (a minimized window is neither
+   un-minimized nor brought forward, and its page does not handle the request). Restored by AX afterwards: still gamma.
+5. ⌘W mid-request: server pid 13905 SIGSTOPped 03:35:32; `t3 app …/iota` in the background; ⌘W (real) 03:35:34: the CLI
+   printed "(renderer-unavailable)" and exited 1 at 03:35:34.43; app log: "the window is closing: its request fails",
+   "answered: renderer-unavailable The T3 Code window closed before it opened the project." The window was the last one,
+   so the app quit with it (its stopped server went with it; `kill -CONT` found no process); no thread opened. PASS.
+6. ⌘Q: relaunched (pid 32368), socket present (srw------- …3c4058b8….sock); real ⌘Q hold 03:35:54 -> the app exited by
+   03:35:57; the socket file is gone and nothing listens on 16450. PASS.

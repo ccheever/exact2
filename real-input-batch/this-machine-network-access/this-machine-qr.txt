@@ -1,0 +1,13 @@
+QR scanned by a phone (attended row, 2026-10-08 05:07-05:09 UTC): lane A (pid 75057), network access on, "Create link" ->
+label "Phone", Standard -> Create link (05:07:35) -> Share: the 168 pt QR, route "Local network" selected; Vision decoded
+one QR = `http://192.168.1.225:16450/pair#token=…` (50 chars; sha256 a2ec9cd1…4ffa; token not printed). The user scanned it
+with the phone's Camera at 14:08 KST (05:08 UTC): the phone's browser opened 192.168.1.225:16450 and went straight into the
+T3 web client — project "gamma", New thread, the composer with "Gemini 3.8 Flash (High)", the "Nightly needs the beta mobile
+app" notice, the plain-http warning in the address bar (the user's own phone screenshot; described, not uploaded).
+Server (lane trace, client.address 192.168.1.84): GET /api/auth/session 200, POST /api/auth/browser-session 200 (the
+redeem), /.well-known/t3/environment, /api/orchestration/shell, /api/connect/link-state — all 05:08:15-05:08:17. App:
+Authorized clients "2 clients"; the "Phone" pairing link is gone (consumed); a new client row "Phone · Mobile · iOS · Chrome
+· 192.168.1.84 · 5 scopes" with the live dot; "T3 Code Desktop · This device" unchanged (qr-07-clients). PASS.
+Revoke on the Phone row (05:09:25): POST /api/auth/clients/revoke 200; the list reads "1 client" (only T3 Code Desktop)
+(qr-08-revoked). PASS. (The app labels the phone's browser "Chrome"; the user reported Safari via Camera — the server's
+user-agent parsing, not checked further.)

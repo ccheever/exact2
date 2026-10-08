@@ -1,0 +1,31 @@
+# theme-color-picker (#252): real-input batch record, 2026-10-08 (UTC 03:09-03:16)
+Build: b7761f556 bundle; lane copy "T3 Code (Lane RIB)", normal launch, pid 21714 (window 202771), relaunched as pid 61228
+(window 202887); 1280x840; lane T3 home <lane>/t3-home-a, port 16450. Real pointer: cliclick dd:/dm:/du: (real mouse
+down/drag/up) and m: (move); keys: orca computer press-key/hotkey; the ⌘Q hold: a CGEvent helper (Command down, Q down,
+auto-repeat Q downs every 60 ms for 1.6 s, Q up). Text by paste (Korean 2-Set input source). Real-input lock held.
+The Mac is in Dark mode; for the preview the lane's Color scheme was set to Light (lane setting only), and set back to
+System / T3 Code at the end.
+
+5. Plane drag (Settings › Appearance › Create theme › Background swatch; the popover opens above it): real drag from plane
+   (60,100) to (140,70): HEX #743636, RGB 116, 54, 54, header swatch, row swatch and row HEX #743636, marker under the
+   release point (tcp-02-plane-drag.png). PASS.
+6. Pause mid-drag: press at (140,70), drag to (200,40), hold still 1 s without release: HEX #af2a2a and the window
+   background already the derived #a13630 while the button is held (tcp-04-mid-drag.png); after release unchanged
+   (tcp-05-released.png). PASS.
+7. Hue drag from slider x 30 to 150: #af2a2a -> #2a79af (max/min channels kept: saturation and brightness kept); plane
+   gradient, thumb, HEX, RGB, row and window background follow (tcp-06-hue-drag.png). PASS. (The record's #365a74 assumed
+   the #743636 start.)
+8. Clicks on the popover over editor controls: plane click over the Theme name field, slider click over the "Dark" toggle
+   (two runs). The editor kept Light: the saved theme reads `appearance: "light"` and pressing Dark for real shows the dark
+   palette's #0a0a0a, the state before it showed the light palette's colour; the name field never took the focus (Escape
+   returned the ring to the swatch) (tcp-13..19, tcp-toggle-test.png). PASS. (In a dark palette the Light segment's pill
+   blends with the panel, which first read as "Dark selected"; the save readback settles it.)
+9. Keys (the popover opens with saturation focused, no ring for a pointer open): Tab -> ring + "Brightness 88%"; ↑ 90%,
+   Shift+↑ 100%, ↓ 98%, Shift+↓ 88%, Home 0% (#000000), End 100%; Shift+Tab -> "Saturation 11%", → 13%, Shift+← 3%;
+   Tab, Tab -> slider ring; Shift+→ +10° (#f8fcff -> #f8faff), → +1° (tcp-kb-sheet.png). Escape: the popover closes, the
+   swatch has the focus ring (and its "Choose Background color" tooltip), Settings stays; Escape again: Settings closes,
+   the editor stays (tcp-esc-pair.png). PASS.
+10. RGB paste "12, 34, 56" (⌘A first): HEX #0c2238, row #0c2238 (tcp-25-zoom.png). Name "Real input" (paste), Create theme:
+    `t3-code.json` customThemes[0] = {id real-input, appearance light, canvas/chrome/toolbar #0c2238}. ⌘Q hold at 03:14:05Z:
+    the app and its server exited by 03:14:10Z. Relaunch: the "Real input" card is there; Edit theme shows Background
+    #0c2238 (tcp-28-relaunch.png, tcp-29-crop.png). PASS.

@@ -1,0 +1,45 @@
+# settings-model-picker (#246): real-input batch record, 2026-10-08 (UTC ~03:37-04:00)
+Builds: after = b7761f556 bundle (contains #246); before = 85cb6f4a1 (the merge's parent), built in the evidence base under
+its .build-lock and copied out. Both as normal launches of lane copies "T3 Code (Lane RIB)" / "T3 Code (Lane RIB b246)".
+Lane (re-created; the task worktree is gone): <rib>/smp/lane, isolated HOME (with its own lane keychain file, see below),
+CODEX_HOME, CLAUDE_CONFIG_DIR, XDG_*, T3_LOCAL_HOME t3-a (after, port 16452) / t3-b (before, port 16453); bin/ symlinks
+codex (/opt/homebrew/bin/codex 0.151.0), node, claude (~/.local/bin/claude 2.1.293); placeholder keys only (codex
+auth.json OPENAI_API_KEY placeholder; Claude instance env ANTHROPIC_API_KEY placeholder); no account, no prompt sent.
+Providers read back ready: Codex (5 models, all legacy), Claude (Claude Opus 5.5, Sonnet 5.5, Fable 5.1, Haiku 5.5, 9 legacy).
+The task's agent-mode drive (drive.mjs.txt) was tried first: every capture was blank (the agent window's own picture) and
+every tap after the first refused ("hidden or inert") — the same failure as live sessions 1-3; so every row was driven
+by real input on the normal launch instead (orca/cliclick clicks, real HID keys, CGEvent wheel).
+
+Provider browsing: the rail Favorites / Codex / Claude / Antigravity; Claude -> four Claude rows + "Legacy models 9";
+Codex -> "Legacy models 5" expanded (smpA-browse-search.png 1-2). PASS. Three real rail clicks found the picker already closed (smpA-05, smpA-07, smpA-08); other worktrees' agent-mode apps
+were taking the front during this session (seen in `lsappinfo front`), and the picker closes when its window resigns, so
+these are not counted against the clone; the same clicks with the app kept in front switch the rail (smpA-10, smpA-14/15).
+Search: "opus" -> Claude Opus 5 / 4.5 / 4.6… across providers (rail hidden); "codex" -> GPT-5.2, 5.5, 5.6-Luna (Codex by
+provider name); "zzzz" -> empty list; cleared -> rail and Codex list back (smpA-browse-search.png 3-6, smpA-search-zoom).
+The empty state shows NO "No models found" text (the clone has it under `count == 0 and setupCount == 0`; the
+reference's ComboboxEmpty shows "No models found"): FAIL (clone bug).
+Favorites: star Claude Opus 5.5 -> star filled; Favorites rail lists only it; settings.json byte-identical (favoriting
+writes no setting) (smpA-fav.png). Composer's picker opens on Favorites with Claude Opus 5.5 starred (smpA-24); back in
+Settings the picker opens on Favorites; unstar -> empty (smpA-26, smpA-legacy 1). PASS (except the missing empty text).
+Legacy: Codex "Legacy models 5" collapse/expand (smpA-legacy 2-4); pick GPT-5.5 -> the row reads GPT-5.5 / Medium, the
+picker closed, settings.json defaultModelSelection {codex, gpt-5.5} (smpA-31). PASS.
+Scoped selection: project model-demo -> the row "Model for new threads in this project"; pick Claude Opus 5.5 ->
+projectSettingsOverrides[<model-demo id>].defaultModelSelection {claudeAgent, claude-opus-5-5} (smpA-35); environment
+"Daehyeon's MacBook Pro" -> pick GPT-5.2 -> defaultModelSelection {codex, gpt-5.2} (smpA-42). With a second paired lane
+server, All environments shows "Mixed" (smpA-52). PASS. (Choosing the environment scope took two tries: the first menu
+pick did not apply — another worktree's agent-mode app had taken the front.)
+Text generation: the rail has no Antigravity (Favorites / Codex / Claude only, smpA-03-text-generation-open); Claude Opus
+5.5 picked -> textGenerationModelSelection {claudeAgent, claude-opus-5-5}, the row reads Claude Opus 5.5 / Medium
+(smpA-13). PASS.
+Keyboard: in search ↓/↑ move the highlight (wraps: ↑ from the first goes to "Legacy models"); ← moves to the rail, ↓
+moves within the rail, → back to search; "opus 5.5" + ↓ + Return -> defaultModelSelection {claudeAgent,
+claude-opus-5-5}; reopen + Escape -> the picker closes, Settings stays, the ring on the trigger (smpA-kb.png,
+smpA-kb3-small.png). PASS. Composer model unchanged throughout (GPT-5.6-Sol, smpA-46). PASS.
+Disabled-row tooltip: a second lane server (port 16454, its own T3 home, claudeAgent disabled) paired through
+Connections › Add environment. At All projects / All environments the Claude rows are dimmed and their stars greyed, and a
+real click on one does nothing (refused) — but a real hover (pointer resting 0.4 s, 1.6 s, 3.6 s) shows NO tooltip
+(smpA-57.png). FAIL (clone bug: the disabled row gives no "This model is unavailable on …" tooltip).
+Note: pairing first failed with macOS "Keychain Not Found" ("A keychain cannot be found to store …") because the lane
+HOME has no keychain; Cancel was pressed (never "Reset To Defaults"), and a lane-only keychain file
+(<lane HOME>/Library/Keychains/login.keychain-db, its own password) was created; the user's keychain list and default
+were read before/after and are unchanged. The pairing then stored its credential in the lane keychain only.

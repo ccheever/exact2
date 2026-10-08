@@ -1,0 +1,34 @@
+# dialog-shortcut-focus (#255): real-input batch record, 2026-10-08 (UTC ~03:25-03:40)
+Build: b7761f556 bundle (after only; the base/after agent pairs are in the PR already); lane copy "T3 Code (Lane RIB)",
+normal launch, pid 61228, window 202887, 1280x840, dark. Lane T3 home <lane>/t3-home-a (port 16450): project `work`,
+threads "Snooze-me", "Delete-me", "Reply OK" (turns fail: a version-only `claude` stand-in), Antigravity added and its
+runtime downloaded for real (316 MB, "Installed."). Keys: real HID chords (CGEvent at the HID tap); before every chord a
+guard re-activates the lane app and checks it is frontmost (another worktree's agent-mode app took the front once,
+12:23:10 KST, pid 86603, `t3-code-pr-list-live-refresh`; two keys of mine reached it before the guard was added: ↑ and
+Return). Pointer: cliclick (real). Rings read from window captures.
+
+1. ⌘, opened Settings; Connections; click "Add environment". Real Tab x7: Remote link -> SSH -> Host -> Pairing code ->
+   Add environment -> Close -> Remote link -> SSH; Shift+Tab x3: Remote link -> Close -> Add environment; Escape: closed,
+   the ring on Settings' "Add environment" (dsf-s1-sheet.png). No toast or 1x1 shortcut button was reached. Same order
+   as the agent drive. PASS. (The record's "ends on Pairing code" miscounted the SSH stop.)
+2. Providers › Antigravity: click the display name, Tab -> "Remove downloaded runtime" (trash) has the ring, Return:
+   "Remove the downloaded Antigravity runtime…?" with the ring on Cancel; Tab x3: Confirm, Cancel, Confirm; Shift+Tab x2:
+   Cancel, Confirm; Escape: closed, ring on the trash button, the runtime still "Installed." (dsf-s2a, dsf-s2-sheet.png).
+   `ws.rpc.provider.install.remove` spans in the lane trace: 0 before and after. PASS.
+3. Custom snooze. a) Opening it with a real pointer FAILS (clone bug): hover "Snooze-me", click its clock button, the
+   menu opens; moving the real pointer onto "Custom…" ends the row's hover (the row shows "Failed" again, the item gets
+   no highlight) and a real click on "Custom…" closes the menu without opening the dialog (dsf-07-strip.png; three tries,
+   orca and cliclick). ↓ keys in the open menu do not move into it either; Return on the clock button closes it
+   (dsf-08-strip.png). The dialog was then opened with orca's element click on the menu item (the pointer stays on the
+   row). b) At open no ring is visible, AX names no focused element, and five real Tabs show no ring anywhere (the Date
+   field's segments appear to hold the focus) (dsf-s3-dialog.png): the record's "ring on Date and time at open" is NOT
+   seen in a normal launch — FAIL (clone bug, see the list). c) After a click on "Date and time": → moves the ring to
+   Duration, ← back; Tab: Cancel -> Snooze -> Close -> Date and time (wrap); Shift+Tab: Close -> Snooze; Date, Time skipped
+   (X52) (dsf-s3b-small.png). PASS. d) Escape: closed, the ring on the Snooze-me row; no `thread.snooze` span. PASS.
+4. "Reply OK": title menu -> Delete (keyboard ↓ in the native menu went to the other app before the guard; then a real
+   click): "Delete thread "Reply OK"?"; Tab: Confirm, Cancel, Confirm; Shift+Tab: Cancel; Escape: closed, the ring on the
+   title button; no `thread.delete` span (dsf-s4-small.png). PASS.
+5. Dialogs closed: ⌘K opens the palette, Escape closes it; click in the composer, ⌘K opens it; ⌘1/⌘2/⌘3 jump to Reply OK /
+   Delete-me / Snooze-me (dsf-s5a.png, dsf-jumps.png). PASS. With Custom snooze open: ⌘K opens the palette over it
+   (dsf-26). PASS. But the first Escape then closes Custom snooze UNDER the palette and leaves the palette open; a second
+   Escape closes the palette (dsf-27-after-esc, dsf-28-esc2). FAIL (clone bug: Escape does not go to the topmost layer).

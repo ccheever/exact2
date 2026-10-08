@@ -1,0 +1,37 @@
+# provider-sign-in-verification-followup (#238's rows): real-input batch record, 2026-10-08 (UTC 04:25-04:34)
+Build: 07dcef1ab; lane copy "T3 Code (Lane RIB)", normal launch, pid 58323 (relaunched), 1280x840; lane T3 home
+<lane>/t3-home-a ("This machine", port 16450, server t3 0.0.46-nightly.20261005.2667), lane HOME <lane>/home. Account: the
+user's PERSONAL Google account (gmail.com; chosen by domain, the expo.dev Workspace account not used), already signed in to
+Chrome. Chrome driven with orca computer (AX presses / window points); no password typed, no setting changed. Emails are
+never shown in kept images (a Chrome capture that showed them was deleted).
+
+Antigravity Google sign-in (runtime agy_acp_server_1.1.1, installed earlier in the batch):
+- Settings › Providers › Antigravity › Account › Sign in (04:26:00): the row reads "Finish signing in in your browser"
+  with Open browser / copy / Cancel and the paste-redirect field; no browser opened by itself. Open browser (04:26:45):
+  Chrome shows Google's account chooser "to continue to Google Antigravity" (client 1071006060591-…, scopes cloud-platform,
+  userinfo.email, aicode; redirect http://127.0.0.1:<port>/ on the lane server) -> the personal account -> "Make sure that
+  you downloaded this app from Google" -> Sign in -> "Authentication successful". App: Antigravity "Authenticated · Google
+  account", Account "Signed in." with Change account / Sign out (ag-10-signed). The row shows no email at all (nothing to
+  blur). The token went to the lane T3 home only (userdata/providers/antigravity/<hash>/antigravity-acp/acp_token.json).
+  PASS.
+- Sign out / Change account row: Sign out -> "Sign out of Antigravity on Daehyeon's MacBook Pro?" (ag-11); Cancel: still
+  "Signed in.", `ws.rpc.provider.auth.logout` spans 0; Sign out -> Confirm (04:27:45): one logout span, the row reads "Not
+  authenticated · Sign in with Google to use Antigravity." and Account offers Sign in (ag-signout.png). PASS. Signed back in
+  the same way (Sign in -> Open browser -> personal account -> Sign in -> "Authentication successful"): "Authenticated ·
+  Google account", "Signed in." (ag-16-signed-again). PASS. "Change account" itself was not pressed (it would only repeat
+  the same flow with the same personal account; no second account is to be used).
+Gemini CLI (ACP registry agent gemini, v0.63.0 via npx; state in the lane HOME's .gemini only):
+- Add provider › ACP Registry "gemini" › Add › Continue to sign-in: instance acpRegistry_gemini_cli created. In the
+  dialog's Sign in step the method select ("Provider default") does not open by click, Space, Return or ↓ (FAIL, clone bug);
+  the same select in Settings › Providers › Gemini CLI › Account opens (Provider default, Log in with Google, Gemini API key,
+  Vertex AI, AI API Gateway).
+- Log in with Google, Retry sign-in (04:32:30.8): `ws.rpc.provider.auth.start` 04:32:31.536; the Gemini agent itself opened
+  Chrome on Google's chooser "to continue to Gemini Code Assist and Gemini CLI" (client 681255809395-…) while the app row
+  read "Starting sign-in…" — there is no in-app consent step and no `provider.auth.respond` before the browser opened
+  (the "consent before open" expectation is not met; this method is agent-managed, so whether the reference shows a consent
+  step here is unverified — reported, not counted as a clone bug). Personal account -> "Make sure that you downloaded this
+  app from Google" -> Sign in -> Google: "Authentication successful … Gemini Code Assist, Cloud Code, Gemini CLI,
+  Antigravity" (gm-chrome-auth-success.png). The agent then FAILED the ACP authenticate (span 04:32:33-04:33:25):
+  "This client is no longer supported for Gemini Code Assist for individuals. To continue using Gemini, please migrate to
+  the Antigravity suite of products". The app shows "The ACP agent could not complete sign-in." and Not authenticated
+  (gm-17-signed). BLOCKED by Google (the personal account is refused for Gemini CLI); not a clone bug.

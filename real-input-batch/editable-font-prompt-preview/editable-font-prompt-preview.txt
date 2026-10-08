@@ -1,0 +1,20 @@
+# editable-font-prompt-preview (#257): real-input batch record, 2026-10-08 (UTC ~03:17-03:24)
+Build: b7761f556 bundle; lane copy "T3 Code (Lane RIB)", normal launch, pid 61228, window 202887, 1280x840, dark.
+Lane T3 home <lane>/t3-home-a (port 16450), project `work`, a new-thread draft "Unsent lane draft for the isolation
+check" typed before Settings was opened. Input: orca computer click/paste-text; real keys posted at the HID event tap
+(a CGEvent helper: modifier downs, key down/up, modifier ups); real wheel (CGEvent scroll, pixel units) to reach
+Typography; cliclick dc: for the double-click. The keyboard layout during the session: ABC (`AppleSelectedInputSources`).
+
+5. Click at the end of the Interface font sample, ⌘↓, paste " AUDIT_FONT_PROBE": the suffix appears after "shipping."
+   with the chips intact (efp-03-typed). ⌘Z (orca hotkey): nothing changes (efp-04-undo); ⌘⇧Z: nothing (efp-05-redo).
+   ⌘Z again as a HID-level chord: nothing (efp-06-undo-hid). Real digit keys "1" "2" type at the caret
+   ("…PROBE12"), then HID ⌘Z: nothing (efp-undo12.png). Edit › Undo pressed in the menu bar (System Events; the menu reads
+   Undo enabled, Redo disabled): nothing (efp-09-menu-undo). Typing mid-text ("U77se") keeps the caret; HID ⌘Z after it:
+   nothing, Redo stays disabled (efp-caret.png, efp-15). FAIL — clone bug (undo does not work in the live preview).
+   Control: the thread composer behaves the same (draft + "12", HID ⌘Z: "12" stays; ⌘A selects, so the chord reaches the
+   app) (efp-composer.png, efp-21-cmd-a).
+6. Double-click "flaky": the word is selected (efp-10); paste "stable": replaced, chips intact (efp-11); HID ⌘Z: "stable"
+   stays (efp-12). Selection/replace PASS; undo FAIL (same bug).
+7. Real Tab from the sample: the ring is on the Monospace family control ("SF Mono"), no tab character typed, no ring on
+   the sample; Shift+Tab: the caret is back in the sample at its place (efp-tab.png). PASS.
+8. Back to the thread: the composer still reads "Unsent lane draft for the isolation check" (efp-18-draft). PASS.

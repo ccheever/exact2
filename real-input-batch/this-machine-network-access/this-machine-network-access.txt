@@ -1,0 +1,48 @@
+# this-machine-network-access (#248): real-input batch record, 2026-10-08 (UTC ~03:41-03:52 on the clock of the lane)
+Build: b7761f556 bundle; lane copy "T3 Code (Lane RIB)", normal launch, pid 61228, window 202887, 1280x840, dark.
+Lane: T3_LOCAL_HOME <lane>/t3-home-a, port 16450, isolated HOME/CODEX_HOME/CLAUDE_CONFIG_DIR/XDG_*,
+T3_TAILSCALE_STUB_STATE=<lane>, examples/t3-code/tools/network-lane first on the lane PATH (the stub `tailscale`).
+The Mac has a real Tailscale interface (utun, 100.x.x.x: redacted in images) and Wi-Fi 192.168.1.225; the firewall is
+off, no OS prompt appeared. Keys: real HID chords behind a frontmost guard; pointer: cliclick (real moves, clicks,
+right-clicks). Pairing URLs and QR payloads are never printed: hashes only.
+
+5a. Enable network access? (opened by a click on the switch): Tab -> "Restart and enable", Tab -> Cancel, Shift+Tab ->
+    Restart and enable, Shift+Tab -> Cancel, Escape: closed, the ring on the switch (nw-s1-small.png, nw-s1-zoom.png). PASS.
+5b. Restart and enable, then Escape at once: the dialog stays with "Restarting…" (no dismissal) (nw-restart.png); then
+    "Reachable at http://192.168.1.225:16450/ +2", `lsof`: t3 pid 99809 `*:16450` (LISTEN). PASS.
+5c. Real hover on the summary URL: no tooltip (none in the reference either: the URL rows carry it). "+2" -> the rail:
+    This machine, Local network (Default), Tailscale IP. Real hover on the Local network URL: tooltip with the URL after
+    1.2 s (nw-07-endpoint-hover). PASS.
+5d. Create pairing link (click "Create link"): focus starts in the label field; Tab x14: Read only -> Standard -> the
+    eight permission rows -> Cancel -> Create link -> Close -> label (wrap); Shift+Tab x2: Close -> Create link
+    (nw-s2-small.png). Escape: closed, the ring on "Create link" (nw-09-esc). PASS. With label "Lane phone" (paste) and
+    Standard, Create link: the row "Lane phone · Expires in 4m 39s · 5 scopes" (nw-13-fold). "Creating…" was too short to
+    press Escape into (the dialog was already closing at 150 ms): not observed.
+5e. Real hover on "5 scopes": nothing at 100 ms, the popover at 700 ms (delay as specified) — but it opens ABOVE the count
+    and is clipped by the client list's top edge: "Granted scopes" and the first three scopes are cut off, only
+    "review:write", "relay:read" show (nw-scopes.png, nw-16-scopes-full). FAIL (clone bug, the same clipping as #251's
+    tooltips).
+5f. Real right-click on the pairing row and on the URL: no menu (the reference defines none there) (nw-rightclick.png).
+4.  QR: Share -> the 168 pt QR; Vision decoded one QR, sha256 a43e037f…b381, 50 chars, http; "Copy link" -> toast "Pairing
+    URL copied"; `pbpaste` sha256 a43e037f…b381, the same 50 chars, host http://192.168.1.225:16450, path /pair#token=.
+    Equal. PASS. (The pasteboard was cleared afterwards.)
+5g. Set up Tailscale HTTPS? (click on the switch): focus in the port field with 443 selected; paste "abc" -> "Enter a port
+    from 1 to 65535." and Enable disabled; ⌘A, real key "0" -> the same; ⌘A, real "70000" -> the same; ⌘A, real "8443" ->
+    no error, preview https://lane-mac.example-tailnet.ts.net:8443 (nw-port.png). Tab: Cancel -> Enable -> Close -> port
+    (wrap); Shift+Tab -> Close; Escape: closed, the ring on the Tailscale switch (nw-s3-small.png). PASS.
+    Then Enable with 8443: the server ran `tailscale serve --bg --https=8443 http://127.0.0.1:16450` (stub log), the app
+    stores tailscaleServeEnabled true / 8443; the switch stays off and no Tailscale HTTPS endpoint becomes available
+    because the stub's name never answers the probe — the reference's switch is `checked={endpoint.status ===
+    "available"}`, so this matches it. "Disable Tailscale HTTPS?" therefore cannot open: blocked by U9 (no tailnet).
+5h. Disable network access? (click on the switch while on): Tab -> Restart and disable, Tab -> Cancel, Shift+Tab ->
+    Restart and disable, Escape: closed, network access still on (nw-s4-small.png). PASS.
+5i. The clipboard-failure reveal dialog: not reachable live (the pasteboard write does not fail); unit-tested only.
+6. Attended rows (the user at the Mac):
+   - Phone QR scan: PASS (record this-machine-qr.txt).
+   - No network address: a local script (offline/armed.sh, no network or agent needed) waited for "no IPv4 but loopback":
+     05:12:06Z network down (Wi-Fi off and Tailscale disconnected by the user; only 127.0.0.1 left). 05:12:13 click on the
+     Network access switch -> "Enable network access?" (02); 05:12:16 "Restart and enable" -> at +0.5 s the dialog has closed,
+     the row stays off ("Limited to this machine") with the red text "No reachable network address is available for desktop
+     network access on port 16450." and the toast "Could not update network access" with the same sentence (03, 04); at
+     +6 s the toast is gone, the red text stays (06). The listener stayed 127.0.0.1:16450 (no restart). 05:14:05 network back
+     (192.168.1.225); the red text is still there until the next action (08). PASS (offline-sheet.png, 03-after-0.5s.png).

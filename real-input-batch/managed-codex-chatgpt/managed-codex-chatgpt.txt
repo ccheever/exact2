@@ -1,0 +1,47 @@
+# managed-codex-chatgpt (#256): real-input batch record, 2026-10-08 (UTC 04:35-05:06)
+Build: 07dcef1ab; lane copy "T3 Code (Lane RIB)", normal launch with T3_LOCAL_HOME=<lane>/t3-home-m (port 16457),
+HOME/CFFIXED_USER_HOME=<lane>/home-m (its own lane keychain file), CODEX_HOME=<lane>/codex-m, CLAUDE_CONFIG_DIR=<lane>/claude-m;
+pids 30832 -> 8165 -> 45304. Account: the user's PERSONAL ChatGPT account (gmail.com; the expo.dev one not used), chosen by
+me in Chrome's OpenAI chooser; each OpenAI consent "Continue" was clicked by the USER (the agent's own click on a grant is
+refused by this session's permission check). Emails blurred/deleted in kept captures.
+
+Real sign-in (Welcome › Agents › Codex › Continue with ChatGPT):
+- Try 1 (04:35:24): the managed runtime downloaded (127.4 MB) and Chrome opened "Use ChatGPT to sign in to T3 Code" ->
+  personal account -> "Connect your T3 Code to ChatGPT" (name T3 Code) -> Continue -> consent "Connect T3 Code to ChatGPT"
+  (basic profile + "Use your ChatGPT plan"). The user's Continue came after the 300 s window: the app read "Sign-in
+  expired. Start again. Could not finish sign-in on this computer…" (mcc-04) — the expiry message as specified.
+- Try 2 (04:53:59, after Cancel 04:53:58): consent page in front at 04:54:21; the user clicked Continue; server
+  `provider.auth.complete` Success 04:55:11.936; the lane app came to the FRONT (lsappinfo front = T3 Code (Lane RIB);
+  Chrome was front before); "Your ChatGPT plan is connected" / "Codex on Daehyeon's MacBook Pro" / Manage usage / Continue
+  (mcc-13); Codex "Signed in as [blurred]" · Ready (mcc-14). Settings › Providers › Codex v0.156.1: "Authenticated as
+  [blurred] · ChatGPT", ChatGPT account "Signed in as [blurred]" with Change account / Disconnect / Manage usage (mcc-25);
+  model picker footer "Using ChatGPT plan" + Manage usage (mcc-22-picker); Usage › Limits: "ChatGPT usage" card with
+  Manage usage (mcc-16-usage). No macOS network prompt appeared. PASS.
+- Relaunch (⌘Q hold, relaunch): no plan dialog; t3-code.json `shell.chatgptSharingWelcome` holds one entry (mcc-23). PASS.
+- Disconnect (04:59:16): one `ws.rpc.provider.auth.logout` (853 ms); the row reads "Not authenticated · Sign in with ChatGPT
+  to use Codex." with Reconnect account / Use a different account (no confirmation, as in the reference). PASS. Finding: the
+  saved account row now shows the email UNBLURRED (signed-in rows blur it) (mcc-26, blurred in the kept image).
+- Reconnect (consent 2): "Reconnect ChatGPT" dialog with the saved account (Connection 1) selected -> Continue with ChatGPT
+  (04:59:58) -> OpenAI went straight to consent with the account preselected; the user's Continue -> `auth.complete`
+  05:00:42.318; editor authenticated, but the provider LIST row stayed "Not authenticated" until Providers was left and
+  reopened (see the finding below). Sign-in PASS; list FAIL.
+- Use a different account (consent 3): Change account -> "Use a different account" radio -> Continue with ChatGPT
+  (05:03:39) -> OpenAI's account chooser (both accounts) -> the same personal account -> name page -> consent; the user's
+  Continue -> `auth.complete` 05:06:01.425; list and editor "Authenticated · ChatGPT" (mcc-32-after-c3). PASS.
+- Single approved reset-credit redeem: NOT DONE — no banked credit on the account: `/usage-limits` in the composer shows only
+  "Usage limits · Codex · ChatGPT — ChatGPT tracks subscription usage across connected apps…" with Manage usage
+  (mcc-21-usage-limits); Usage › Limits (refreshed: server.refreshProviders 04:56:59 / 04:57:13) shows no limit window and
+  no reset-credit row (mcc-17-usage-refresh). Nothing to redeem.
+- Port occupied / waiting out the expiry: the expiry was observed (try 1); the occupied-port case was not run.
+- Remote handoff: not run (binding a LAN interface for a second server is a user decision).
+Findings (clone bugs): (1) unblurred email in the saved-account row after Disconnect; (2) ~224 `provider.auth.subscribe`
+in 20 s right after sign-in (04:56:40-04:57:00, while on Welcome › Agents/Projects), then quiet; (3) stale provider list row
+after Reconnect (details below).
+Stale list row after Reconnect (consent 2, user's click ~05:00:42Z): server `provider.auth.complete` Success 05:00:42.318, then
+`server.refreshProviders` (4174 ms) 05:00:43.546 — the server refreshed. The editor read "Authenticated as [blurred] ·
+ChatGPT" and the ChatGPT account row "Signed in as [blurred]" with Change account / Disconnect, but the provider LIST row
+kept "Not authenticated · Sign…" (mcc-28-after-c2). The page's refresh ("Checked 1m ago" -> "Checked just now", server
+refreshProviders 1075 ms at 05:02:46) did NOT update it (mcc-29-after-refresh). Leaving Providers (General) and coming
+back did: "Authenticated · ChatGPT" (mcc-reopen.png). FAIL (clone bug).
+Also seen: while Settings › Providers is open the app calls `server.refreshProviders` every 11 s (05:00:09 … 05:02:33, 5-8 ms
+each).

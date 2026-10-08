@@ -1,0 +1,30 @@
+# usage-pooled-view (#263): real-input batch record, 2026-10-08 (UTC ~03:59-04:08)
+Build: 07dcef1ab (the feature branch with #263 merged; the lane copy rebuilt once for it), lane copy "T3 Code (Lane RIB)",
+normal launch, pid 95697, 1280x840, dark; no local server (no T3_LOCAL_HOME). Lane: the task's own tools from
+t3-code-evidence:usage-pooled-view/tools (lane.mjs, fixture.mjs, scenario.json) in <worktree>/target/upv/lane, ports moved
+into this batch's range: "Studio" server 16460 behind fixture proxy 16461, "Build box" 16470 behind 16471; scenario epoch
+set to the session's minute. Both paired through Settings › Connections › Add environment (the wizard does not show
+without a local server), pairing URLs pasted from the 0600 files, never printed. Fixture accounts only (…@lane.test,
+blurred in the app). Pointer: cliclick (real); keys: real HID chords behind a frontmost guard.
+
+3. Real hover: pointer onto the first 5h Codex segment: nothing at 120 ms, the popover at 650 ms (Codex · ChatGPT Pro ·
+   Build box, Studio · 62% · resets 3:12 PM · +19% of pool · "2 banked · expires in 27d 22h" · Use reset) (upv-hover.png).
+   PASS. Moving the pointer into the popover (a straight jump from the segment to the popover's email, or a path across
+   the 7-pt gap) closes it within 0.3 s, so the email cannot be clicked to reveal it (upv-hover2.png, upv-hover3.png):
+   FAIL (clone bug: the hover popover does not stay open while the pointer moves into it).
+4. Real click on an unfocused segment (X56 fix): 5h "Work" clicked from a fresh page: its popover opens and stays after
+   the pointer leaves (pinned); clicked again: closes; clicked, Escape: closes, the segment keeps the host ring; Escape
+   again: the page goes back (upv-click.png, upv-click2.png). PASS on the first card. On the second card: a click on the
+   Weekly "Work" segment pinned nothing; the next click, on the 5h "Work" segment, pinned the WEEKLY Work popover
+   instead (and earlier a Weekly click showed the 5h one) (upv-pin.png, upv-flip.png left): FAIL (clone bug: after a
+   click on one segment, a click on another pins the previously clicked segment's popover).
+   Flip: the Weekly row's popovers open below their segment, inside the window (upv-f56.png, upv-flip.png right). PASS.
+5. Real keys: from the refresh button, Tab: 5h Codex -> 5h Work (host ring on each); Return opens Work's popover; Tab ->
+   the blurred account (reveal) -> "Use reset"; Tab -> Weekly Codex; Return opens it (upv-k2-small.png). PASS. Tab, Tab ->
+   "Use reset", Return -> "Use a reset credit?" (Cancel focused); Escape: the confirm and the popover close, no redeem
+   RPC in either fixture log (0 before, 0 after) — but no segment has the focus ring, and the next Tab shows no ring on
+   any segment (upv-k3-small.png, upv-k4z.png): FAIL (clone bug: focus is not returned to the segment after the
+   confirm's Escape). Cursor card: Tab reaches "Enable" (ring), Return: Build box's fixture logged exactly one
+   `server.updateSettings {"patch":{"cursorKeychainUsageEnabled":true}}` at 04:07:14.969Z and the Cursor card gave way
+   (upv-k5-small.png, upv-k6-after). PASS.
+6. Real Cursor Keychain prompt and a real redeem: blocked (user decisions; the Cursor account is on the free plan).

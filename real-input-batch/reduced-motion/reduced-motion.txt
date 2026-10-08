@@ -1,0 +1,17 @@
+# Reduced motion (System Settings), real-input batch, 2026-10-08 (UTC 04:46-04:55)
+The user turned System Settings › Accessibility › Reduce motion ON (read back: `defaults read com.apple.universalaccess
+reduceMotion` = 1). Frames: a ScreenCaptureKit window film (35-60 ms apart) started together with a real click.
+- #247 (lane copy, PR #115 Summary): click on "Comments (20)" (expanded): the first frame at 71 ms already shows the
+  collapsed chevron ">" and every later frame is identical: no rotation (rm/prc-on, prc-on-strip.png). PASS.
+- #262 (#115, More › Refresh): from 119 ms the More trigger shows the refresh glyph, identical in every frame to 472 ms:
+  the glyph does not turn (pha-on-strip.png). PASS.
+- #248 (lane A, Settings › Connections, Network access switch): "Disable network access?" fades in over ~150 ms (68 ms:
+  absent; 132/183 ms: partly transparent; 228 ms on: final), the title at the same place (x 410, y 345) in every frame
+  where it can be measured — no scale is visible, only the opacity fade (nw-on-strip.png). The reference's dialog styles
+  have no reduced-motion variant (record of #248), so the fade under reduce matches it. Fold / "+N" / Share not filmed
+  (the fold click did not toggle in the filmed run). PASS for the dialog; the rest not run.
+- #256 (managed lane, Welcome › Agents, Codex waiting): "Complete sign-in in your browser. >" disclosure: from the first frame
+  (95 ms) the help panel ("If sign-in doesn't return…", the URL field, Connect, "Try sign-in in your browser") is fully
+  open and identical to 350 ms (mcc-on-strip.png). PASS.
+Then Reduce motion was turned OFF by an AX press on System Settings › Accessibility › Motion › "Reduce motion" (the switch
+reads 0; `defaults read com.apple.universalaccess reduceMotion` = 0) and the settings window closed.
