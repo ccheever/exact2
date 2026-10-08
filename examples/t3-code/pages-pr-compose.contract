@@ -31,7 +31,6 @@ shape PrWrites
   commentSerial: number
   reviewSerial: number
   canEditChange: bool
-  rawTitle: string
   rawBody: string
   titleSaving: bool
   titleSerial: number

@@ -7,7 +7,7 @@ delivery: draft
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-pr-writing-and-metadata
-pr_url: PR_URL_PENDING
+pr_url: https://github.com/ccheever/exact2/pull/261
 verified_commit: null
 ---
 
@@ -248,7 +248,7 @@ composer, editors and pickers. One session:
 2026-10-06: on hold (user decision: tasks that need a sign-in waited). 2026-10-07: the user lifted the hold. Rows that need a real account are signed in by the user in person on the lane build; every other sign-in row uses lane fixtures.
 
 2026-10-08: implemented on `feat(example)/t3-code-pr-writing-and-metadata`; unit tests, one live drive and one retry on the
-real-GitHub lane; draft PR (front matter). The real-input rows wait for the batch (steps above): the screen was locked.
+real-GitHub lane; draft PR #261. The real-input rows wait for the batch (steps above): the screen was locked.
 
 ## Attempts and evidence
 

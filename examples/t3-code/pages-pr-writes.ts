@@ -21,6 +21,7 @@ import { pushToast } from './toast';
 import { letGo } from './let-go';
 import { readableFailure } from './r6-pr-logic';
 import type { T3Client } from './client';
+import type { PrReactionPill } from './pages-pr-summary';
 import {
   PULL_REQUEST_REACTION_ORDER, applyPendingPullRequestReactions, canEditPullRequestChangeRequest, canEditPullRequestComment, isReactionContent, pullRequestReactionEmoji,
   pullRequestReactionName, pullRequestReactionTooltip, pullRequestReviewKey, pullRequestReviewStore, reactionsSignature, readReactions, type PullRequestReactionContent,
@@ -74,7 +75,6 @@ function fields(value: string, count: number): string[] {
 
 // ── The view ────────────────────────────────────────────────────────────────
 
-export type PrReactionPill = { content: string; emoji: string; count: number; pressed: boolean; label: string; tooltip: string };
 export type PrPickRow = { key: string; label: string; detail: string; avatar: string; initial: string; color: string; team: boolean; on: boolean; value: string };
 export type PrPicker = { shown: boolean; allowed: boolean; loading: boolean; error: string; truncated: boolean; busy: boolean; rows: PrPickRow[] };
 export type PrWrites = ReturnType<typeof emptyWrites>;
@@ -83,7 +83,7 @@ export function emptyWrites() {
   return {
     key: '', composer: false, canComment: false, verdicts: [] as string[], followUp: '', commentDraft: '', summary: '', summaryRequired: false, pendingCount: 0,
     submitting: '', reviewPending: false, closeSerial: 0, commentSerial: 0, reviewSerial: 0,
-    canEditChange: false, rawTitle: '', rawBody: '', titleSaving: false, titleSerial: 0, bodySaving: false, bodySerial: 0,
+    canEditChange: false, rawBody: '', titleSaving: false, titleSerial: 0, bodySaving: false, bodySerial: 0,
     reactionChoices: PULL_REQUEST_REACTION_ORDER.map(content => ({ content, emoji: pullRequestReactionEmoji(content), name: pullRequestReactionName(content) })),
     reviewers: emptyPicker(), labels: emptyPicker(),
   };
@@ -114,7 +114,7 @@ export function presentWrites(client: object, reference: WriteReference, detail:
   view.reviewPending = state.reviewing.has(key);
   view.closeSerial = serial(state, `${key}|close`); view.commentSerial = serial(state, `${key}|comment`); view.reviewSerial = serial(state, `${key}|review`);
   view.canEditChange = canEditPullRequestChangeRequest(detail);
-  view.rawTitle = str(detail.title); view.rawBody = str(detail.body);
+  view.rawBody = str(detail.body);
   view.titleSaving = state.saving.get(key) === 'title'; view.titleSerial = serial(state, `${key}|title`);
   view.bodySaving = state.saving.get(key) === 'body'; view.bodySerial = serial(state, `${key}|body`);
   // The pickers: shown where the host takes the change at all; disabled with the reason where this account may not.
