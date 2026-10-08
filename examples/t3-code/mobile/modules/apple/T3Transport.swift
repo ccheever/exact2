@@ -155,6 +155,7 @@ final class T3Transport: NSObject, URLSessionWebSocketDelegate, @unchecked Senda
                 case "request": try rpc(request, completion: completion)
                 case "mobileQueuedEdit": try queuedEdit(request, completion: completion)
                 case "mobileOutboxDelivery": try outboxDelivery(request, completion: completion)
+                case "mobileOutboxInline": try outboxInline(request, completion: completion)
                 case "subscribe": try subscribe(request, completion: completion)
                 case "unsubscribe":
                     guard let key = request["key"] as? String else { throw arguments("unsubscribe requires a key.") }

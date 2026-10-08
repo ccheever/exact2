@@ -167,6 +167,31 @@ final class T3MobileModule: ExactModule {
             }
             return
         }
+        if request["op"] as? String == "mobileOutboxInline",
+           ["status", "recover", "retire"].contains(request["action"] as? String ?? "") {
+            let store = queuedEdits
+            DispatchQueue.global(qos: .userInitiated).async {
+                do {
+                    guard let id = request["operationId"] as? String, !id.isEmpty else {
+                        throw T3Failure(kind: "Arguments", message: "Choose a saved image reservation.")
+                    }
+                    let value: [String: Any]
+                    if request["action"] as? String == "status" { value = try store.outboxInlineStatus(id) }
+                    else {
+                        guard T3OutboxDeliveryReceipt.integer(request["revision"], positive: true), let revision = request["revision"] as? Int else {
+                            throw T3Failure(kind: "Arguments", message: "Choose the saved image reservation revision.")
+                        }
+                        if request["action"] as? String == "recover" { value = try store.recoverOutboxInline(id, revision: revision) }
+                        else { value = try store.retireOutboxInline(id, revision: revision) }
+                    }
+                    reply.send(["ok": true, "generation": request["generation"] ?? 0, "value": value])
+                } catch {
+                    let problem = error as? T3Failure ?? T3Failure(kind: "Persistence", message: "The image reservation needs recovery.", uncertain: true)
+                    reply.send(["ok": false, "generation": request["generation"] ?? 0, "error": problem.json])
+                }
+            }
+            return
+        }
         if request["op"] as? String == "mobileOutboxDelivery",
            ["status", "recover", "retire", "complete"].contains(request["action"] as? String ?? "") {
             let store = queuedEdits
