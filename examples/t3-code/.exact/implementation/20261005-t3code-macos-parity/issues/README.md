@@ -245,6 +245,12 @@ all open issues" (open on main, 2026-10-08), with main PRs merged the same day. 
 Framework issues are fixed on separate branches from `main`, outside the T3 work (user, 2026-10-08). A T3 task blocked
 on one resumes after that fix merges to `main` and an adoption round brings it in.
 
+
+## Hover cards fix addition, 2026-10-08
+
+| Issue | Capability | Kind | Blocks | Status |
+| --- | --- | --- | --- | --- |
+| [X62](20261008-x62-hover-outside-the-box.md) | macOS `hover` that counts a node's overflowing descendants (as `pointerenter`/`pointerleave` do) and follows the hit-test, so a hover card beside its trigger hears the pointer | framework-gap | none ([fix-hover-cards](../tasks/20261008-fix-hover-cards.md) draws hover cards in a window-level layer with Base UI's close delay on the root's hover clock) | filed as [#322](https://github.com/ccheever/exact2/issues/322), fixed by [#327](https://github.com/ccheever/exact2/pull/327) (open); reproduced with a one-file app and a real pointer, and seen again in fix-hover-cards' real-pointer session |
 ## Upstream issues (filed 2026-10-06)
 
 Each was reproduced on exact2 `4c893fef6` before filing. Not filed: X13 (unverified on macOS; the web behavior is designed), X42 (already supported on main), X38–X41 (product scope, not framework gaps).

@@ -116,10 +116,9 @@ component UsagePooled
     shown: string
     pinned: string
     enterSeg: action
-    enterPop: action
-    enterMail: action
     pin: action
-    redeem: action
+    // fix-hover-cards: a legend row's press, which anchors the popover to that row.
+    pinLegend: action
     op: action
   view
     column width="100%" gap="2rem" testId="usage-pooled"
@@ -128,7 +127,7 @@ component UsagePooled
       each pool in view.pools key=pool.key
         when pool.cursorBefore
           CursorEnableLimits(cursor=view.cursor, op=op)
-        PoolSection(pool=pool, view=view, scheme=scheme, md=md, reduced=reduced, shown=shown, pinned=pinned, enterSeg=enterSeg, enterPop=enterPop, enterMail=enterMail, pin=pin, redeem=redeem)
+        PoolSection(pool=pool, view=view, scheme=scheme, md=md, reduced=reduced, shown=shown, pinned=pinned, enterSeg=enterSeg, pin=pin, pinLegend=pinLegend)
       when view.cursorAfter
         CursorEnableLimits(cursor=view.cursor, op=op)
       each link in view.links key=link.key
@@ -148,10 +147,9 @@ component PoolSection
     shown: string
     pinned: string
     enterSeg: action
-    enterPop: action
-    enterMail: action
     pin: action
-    redeem: action
+    // fix-hover-cards: a legend row's press, which anchors the popover to that row.
+    pinLegend: action
   view
     column width="100%" gap="0.75rem" position="relative" z-index=(startsWith(shown, pool.prefix) ? 1 : 0) testId=`usage-limits-${pool.key}`
       row align-items="center" gap="0.5rem"
@@ -162,7 +160,7 @@ component PoolSection
             DriverMark(driver=pool.driver, size=16, initials="", icon=pool.icon)
         text pool.label font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=2
       each window in pool.windows key=window.key
-        PoolWindowCard(pool=pool, window=window, view=view, scheme=scheme, md=md, reduced=reduced, shown=shown, pinned=pinned, enterSeg=enterSeg, enterPop=enterPop, enterMail=enterMail, pin=pin, redeem=redeem)
+        PoolWindowCard(pool=pool, window=window, view=view, scheme=scheme, md=md, reduced=reduced, shown=shown, pinned=pinned, enterSeg=enterSeg, pin=pin, pinLegend=pinLegend)
 
 // PoolWindowCard: the pooled share left with pace and the next refill, beside (md) or above the bar.
 component PoolWindowCard
@@ -178,10 +176,9 @@ component PoolWindowCard
     shown: string
     pinned: string
     enterSeg: action
-    enterPop: action
-    enterMail: action
     pin: action
-    redeem: action
+    // fix-hover-cards: a legend row's press, which anchors the popover to that row.
+    pinLegend: action
   view
     box width="100%" display="grid" grid-template-columns=(md ? `${11 * rem}px minmax(0, 1fr)` : "minmax(0, 1fr)") column-gap="1.5rem" row-gap="0.75rem" align-items="center" padding="1rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e799, #ffffff09)" position="relative" z-index=(startsWith(shown, window.prefix) ? 1 : 0) testId=`usage-window-${pool.key}-${window.key}`
       column gap="0.25rem" min-width=0
@@ -196,10 +193,10 @@ component PoolWindowCard
       // PoolBar: equal-width segments, one per account; narrow, a legend under the strip.
       box min-width=0 display="grid" grid-template-columns=`repeat(${window.count}, minmax(0, 1fr))` column-gap="0.25rem" row-gap="0.25rem"
         each seg in window.segments key=seg.id
-          PoolSegment(seg=seg, wide=view.wide, hatch=(view.wide ? view.hatchWide : view.hatchNarrow), light=pool.light, dark=pool.dark, scheme=scheme, reduced=reduced, open=(shown == seg.id), pinned=(pinned == seg.id), enterSeg=enterSeg, enterPop=enterPop, enterMail=enterMail, pin=pin, redeem=redeem)
+          PoolSegment(seg=seg, wide=view.wide, hatch=(view.wide ? view.hatchWide : view.hatchNarrow), light=pool.light, dark=pool.dark, scheme=scheme, reduced=reduced, open=(shown == seg.id), pinned=(pinned == seg.id), enterSeg=enterSeg, pin=pin)
         when not view.wide
           each seg in window.segments key=seg.id
-            LegendRow(seg=seg, light=pool.light, dark=pool.dark, pin=pin)
+            LegendRow(seg=seg, light=pool.light, dark=pool.dark, pin=pinLegend)
         each line in window.statuses key=line.key
           row grid-column="1 / -1" grid-row=line.row min-width=0 align-items="center" gap="0.25rem" role="status" testId=`usage-seg-status-${line.key}`
             AccountName(name=line.name, chip=line.chip, chipBg=line.chipBg, chipFg=line.chipFg, size="0.75rem")
@@ -256,10 +253,7 @@ component PoolSegment
     open: bool
     pinned: bool
     enterSeg: action
-    enterPop: action
-    enterMail: action
     pin: action
-    redeem: action
   view
     box grid-row=1 grid-column=seg.column position="relative" min-width=0 z-index=(open ? 1 : 0)
       button id=`usage-seg-${seg.id}` press=pin(seg.id) hover=enterSeg(seg.id) aria-label=seg.label aria-expanded=open aria-haspopup="dialog" testId=`usage-seg-${seg.id}` width="100%" height=(wide ? "2rem" : "1.25rem") min-width=0 padding=0 border-width=0 border-radius="0.375rem" overflow="hidden" position="relative" cursor="pointer" display="block" background-color="light-dark(#f4f4f5, #ffffff0a)" box-shadow=(open ? "0 0 0 1px light-dark(#e4e4e7, #ffffff1a)" : "none")
@@ -284,25 +278,37 @@ component PoolSegment
         else
           row position="absolute" left=0 top=0 right=0 bottom=0 align-items="center" justify-content="center" aria-hidden=true
             text `${seg.column}` font-size="0.625rem" line-height=1 font-weight=600 font-variant-numeric="tabular-nums" color="light-dark(#27272acc, #f5f5f5cc)"
-      SegmentPopup(seg=seg, scheme=scheme, reduced=reduced, open=open, pinned=pinned, enterPop=enterPop, enterMail=enterMail, redeem=redeem)
 
 // SegmentPopover (PopoverPopup side="top", sideOffset 6, w-72): who the account is, its plan and
 // where it is signed in, what is left and when it resets, and the banked credits with "Use reset".
-// Mounted with its segment so the fade has a start; hidden it takes no hits and no focus.
+// Drawn by the page in its scroll content (UsagePopups) at the segment's rect there (x, y, w, h), the
+// card inside its placement box and every box around it, so the macOS host tracks the pointer on it:
+// beside its segment it lay outside the segment's box, heard no pointer and closed as the pointer moved
+// in (#263; X62, #322). It stays mounted for the segment last shown, so the fade has a start and an end.
 component SegmentPopup
+  inject
+    rem: number
   props
     seg: PooledSegment
     scheme: string
     reduced: bool
     open: bool
     pinned: bool
+    x: number
+    y: number
+    w: number
+    h: number
+    // The trigger that opened it: a legend row places it itself (Base UI anchors the popup to that trigger).
+    place: string
     enterPop: action
     enterMail: action
     redeem: action
+  derive side = place != "" ? place : seg.side
+  derive align = place != "" ? "center" : seg.align
   view
-    row position="absolute" left=(seg.align == "start" ? 0 : "-12rem") right=(seg.align == "end" ? 0 : "-12rem") top=(seg.side == "bottom" ? "100%" : "auto") bottom=(seg.side == "bottom" ? "auto" : "100%") justify-content=(seg.align == "start" ? "flex-start" : seg.align == "end" ? "flex-end" : "center") pointer-events="none" z-index=50
-      column hover=enterPop(seg.id) padding-top=(seg.side == "bottom" ? "0.375rem" : 0) padding-bottom=(seg.side == "bottom" ? 0 : "0.375rem") pointer-events=(open ? "auto" : "none") inert=(not open) aria-hidden=(not open)
-        column width="18rem" padding="1rem" box-sizing="border-box" gap="0.625rem" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#27272a1a, #f5f5f51a)" background-color="light-dark(#ffffff, #111111)" box-shadow=(scheme == "dark" ? "0 18px 44px -18px #000000cc" : "0 16px 40px -18px #0000008c") opacity=(open ? 1 : 0) transition=(open and not pinned ? (reduced ? "opacity 0ms linear 300ms" : "opacity 150ms ease 300ms") : (reduced ? "opacity 0ms" : "opacity 150ms ease")) role="dialog" aria-label=seg.title id=`usage-seg-pop-${seg.id}` testId=`usage-seg-pop-${seg.id}`
+    column position="absolute" left=(align == "start" ? x : (align == "end" ? x + w - 18 * rem : x + w / 2 - 9 * rem)) width="18rem" top=(side == "bottom" ? y + h : 0) height=(side == "bottom" ? "auto" : y) justify-content=(side == "bottom" ? "flex-start" : "flex-end") pointer-events="none" z-index=50
+      column hover=enterPop(seg.id) padding-top=(side == "bottom" ? "0.375rem" : 0) padding-bottom=(side == "bottom" ? 0 : "0.375rem") pointer-events=(open ? "auto" : "none") inert=(not open) aria-hidden=(not open)
+        column width="18rem" padding="1rem" box-sizing="border-box" gap="0.625rem" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#27272a1a, #f5f5f51a)" background-color="light-dark(#ffffff, #111111)" box-shadow=(scheme == "dark" ? "0 18px 44px -18px #000000cc" : "0 16px 40px -18px #0000008c") opacity=(open ? 1 : 0) transition=(reduced ? "opacity 0ms" : "opacity 150ms ease") animation=(open and not pinned and not reduced ? "usagePopIn 150ms ease both" : "none") role="dialog" aria-label=seg.title id=`usage-seg-pop-${seg.id}` testId=`usage-seg-pop-${seg.id}`
           column min-width=0 gap="0.125rem"
             row min-width=0 align-items="center" gap="0.5rem"
               when seg.avatar == "instance"
@@ -329,6 +335,36 @@ component SegmentPopup
               text seg.creditsText font-size="0.75rem" line-height="1rem" font-variant-numeric="tabular-nums" color="light-dark(#71717b, #818181)" testId=`usage-seg-credits-${seg.id}`
               button press=redeem(seg.id) disabled=seg.busy testId=`usage-seg-reset-${seg.id}` margin-left="auto" height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)" box-shadow="0 1px 2px #0000000d" opacity=(seg.busy ? 0.64 : 1) display="flex" flex-direction="row" align-items="center" flex-shrink=0
                 text (seg.busy ? "Using…" : "Use reset") font-size="0.75rem" font-weight=500 line-height="1rem" white-space="nowrap" color="light-dark(#27272a, #f5f5f5)"
+
+// A hover-opened popover drawn afresh (another segment) fades in, as one already mounted does by its transition;
+// Base UI's 300 ms delay before it is the window hover state's (hoverOpenDelay), so nothing waits drawn.
+keyframes usagePopIn
+  from opacity=0
+  to opacity=1
+
+// The segments' popover, drawn by the page in its scroll content: the segment shown, else the one last
+// shown, closed, so it fades out where it was.
+component UsagePopups
+  props
+    view: PooledView
+    shown: string
+    last: string
+    pinned: string
+    scheme: string
+    reduced: bool
+    x: number
+    y: number
+    w: number
+    h: number
+    place: string
+    enterPop: action
+    enterMail: action
+    redeem: action
+  view
+    each pool in view.pools key=pool.key
+      each window in pool.windows key=window.key
+        each seg in filter(window.segments, (one) => one.id == (shown != "" ? shown : last)) key=seg.id
+          SegmentPopup(seg=seg, scheme=scheme, reduced=reduced, open=(shown == seg.id), pinned=(pinned == seg.id), x=x, y=y, w=w, h=h, place=place, enterPop=enterPop, enterMail=enterMail, redeem=redeem)
 
 // Row: a 4.5rem muted label, then the value.
 component PopRow
