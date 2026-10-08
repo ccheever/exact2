@@ -117,26 +117,46 @@ Fix (`92f678e26`):
 | --- | --- | --- |
 | Fails before, passes after | pass | `providers-scope.test.ts` (5 tests through `answer()`): base `44e939f1e` 0 / 5 ([run](https://raw.githubusercontent.com/ccheever/exact2/1360884715864b2d35f81c6b1e42d1a6d8fbfd54/fix-providers-environment-scope/regression-test-base.txt)), branch 5 / 0 ([run](https://raw.githubusercontent.com/ccheever/exact2/49960f609c8d8f0db62c359d4d8860b8e5389d6c/fix-providers-environment-scope/regression-test-branch.txt)) |
 | Live: step 5 shows the second environment's providers | pass | agent drive, [image 1](https://raw.githubusercontent.com/ccheever/exact2/00511e5c11abf857b323a59b31f1f0023c248392/fix-providers-environment-scope/01-second-environment-chosen.png) |
-| Live: the second server's trace shows the provider reads | pass for the page's provider writes and reads (`getSettings`, `updateSettings`, `getConfig` from the Codex switch); Refresh not seen in the trace (see Not verified) | [drive record](https://raw.githubusercontent.com/ccheever/exact2/39a5c500c6d60fbf00b8f0b0bed9431df930c27a/fix-providers-environment-scope/live-drive.txt), [image 3](https://raw.githubusercontent.com/ccheever/exact2/1adea10af4d1ff7c313490459d2aa4c49e63168b/fix-providers-environment-scope/03-codex-switch.png) |
+| Live: the second server's trace shows the provider reads | pass: the page's provider writes and reads (`getSettings`, `updateSettings`, `getConfig` from the Codex switch); Refresh is covered by the regression test `providers-scope.test.ts` (Refresh goes to the chosen server) | [drive record](https://raw.githubusercontent.com/ccheever/exact2/39a5c500c6d60fbf00b8f0b0bed9431df930c27a/fix-providers-environment-scope/live-drive.txt), [image 3](https://raw.githubusercontent.com/ccheever/exact2/1adea10af4d1ff7c313490459d2aa4c49e63168b/fix-providers-environment-scope/03-codex-switch.png) |
 | Live: switching back shows the primary's again | pass | [image 4](https://raw.githubusercontent.com/ccheever/exact2/696627f223eda937c0f6d6a3bd8c4ea74d34bd25/fix-providers-environment-scope/04-back-to-this-mac.png) |
 | Live: reopening Settings follows the reference's scope rule | pass | [image 5](https://raw.githubusercontent.com/ccheever/exact2/d987c0161bc7dd0d86060bae307ce5647c150109/fix-providers-environment-scope/05-settings-reopened.png) |
 | Empty state, disconnected environment | pass | [image 6](https://raw.githubusercontent.com/ccheever/exact2/3240238f8210b988d383cf2218059529f3ea1c7c/fix-providers-environment-scope/06-second-environment-stopped.png); removed and none: unit test |
 | Clone checks | pass | `bun test examples/t3-code` 3,298 pass / 1 skip / 0 fail; strict `tsc` clean; `contract build` 5,505 slots, 46 resources; `cargo test -p t3-code-macos --lib` 13 pass |
 | Repository | pass | caps within; build exit 0; test 3,521 passed / 0 failed / 34 ignored (94 binaries); clippy and fmt clean; boot allowed paths only |
 
-Not verified live: Refresh on the second environment in a server trace. Both drives pressed it, but each lane server's
-trace is written in batches and the drive stopped the server 6 s later; the routing is proven by the unit test "the
-page's actions go to the environment it shows". No further live session for this task (one drive per build).
+Refresh on the second environment: covered by the regression test `providers-scope.test.ts` (Refresh goes to the
+chosen server: `server.refreshProviders` carries the second environment's fleet key). The drives pressed it too, but each
+lane server writes its trace in batches and was stopped 6 s later, so the span is not in the traces.
 
-### Found, not in scope (independent review, round 2 notes)
+### Review notes, closed (coordinator follow-up, 2026-10-08)
 
-- With a project scope and no environment chosen, a setup link from Settings' own model picker opens Providers on the
-  focused environment; the reference uses the project's environment, primary member first
-  (`ProjectDefaultsSettings.tsx:168-173`). Same result whenever the project has a checkout on the focused environment.
-- If the chosen environment drops while the Add provider wizard is open, its sign-in and update commands are refused
-  without a message (the page has no buttons then); the reference closes the panel's dialogs.
-- `FleetSetupHost.rpc` ignores the write flag: a lost write to a background environment is not marked uncertain as the
-  focused connection's is. The page's read-only controls and the setup/update writable checks still apply.
+The independent review's round-2 notes, each closed in this PR (unit tests; no new live session):
+1. **Setup link from Settings' own model picker, with a project scope.** Fixed. The reference opens Providers on the
+   scope's representative environment: `ProjectDefaultsSettings.tsx:60-62, 168-173` (`target`, navigate only
+   `if (representative)`) and `SettingsPanels.tsx:3260-3266` (`useSettingsScope().environment`, no link without one).
+   `settingsCore` now returns that environment (`scopeEnvironment`, from `scopeRepresentative`: the scope's connected
+   environment, the primary first, which Providers uses too); `openProviderSettings` uses it inside Settings and opens
+   nothing without one; outside Settings it keeps the chat's environment (`ChatView.tsx:5217-5223`). Test: "a setup link
+   inside Settings opens Providers on the scope's representative environment" (through `answer()`: a project only on the
+   second environment names it; a project there that dropped names none).
+2. **Wizard commands when its environment drops.** The reference shows no message: the Add provider dialog is a child of
+   `EnvironmentProviderSettings` (`ProviderSettingsPanel.tsx:1377-1385`), which `AccessGatedProviderSettings`
+   (`:551-586`, `classifyProviderEnvironmentAccess` in `ProviderSettingsPanel.logic.ts:150-171`) replaces with a
+   placeholder when the environment is not connected, and the scope boundary replaces the scoped route; the dialog
+   unmounts. Matched: `providerTick` closes the page's dialog when `providerPage.environment` is `-` (within a second).
+   Tested: the page answers `-` and refuses every write when its environment drops ("a disconnected or removed
+   environment leaves the words to the scope boundary"). The close itself is one Contract line, checked by the contract
+   build and review round 3, not by a unit test: the Contract test form (`agent.mjs --test`) launches the app, and this
+   task makes no further live session (one drive per build; the coordinator asked for unit tests only).
+3. **Background writes not marked "uncertain".** Matches the reference: it marks no settings or provider write as
+   uncertain on any environment; its only uncertain handling is the multi-thread submissions of `ChatView.tsx`
+   (`uncertainSubmissions`, :778, :1947, :9092-9096). In the clone the flag only sets `ClientError.uncertain`, which no
+   provider op reads (`runProviderOp`, `settingsFailure`). No change, no new task.
+4. **Refresh trace.** Recorded above as covered by the regression test.
+
+The new test fails on the branch head before the follow-up (`b2c512068`: 5 pass / 1 fail, `scopeEnvironment`
+undefined) and passes after (6 / 0). Review round 3: the code has no findings; its one should-fix was two assertions on
+the text of `app.contract`, which were removed (CLAUDE.md: verify by running, never by grepping).
 
 ## Real-input batch steps
 
