@@ -33,6 +33,8 @@ extension T3Transport {
         switch request["action"] as? String {
         case "reserve":
             finish(completion, value: try queuedEdits.reserveOutboxDelivery(request, origin: expectedOrigin, environment: environment))
+        case "reserveInline":
+            finish(completion, value: try queuedEdits.reserveOutboxInlineDelivery(request, origin: expectedOrigin, environment: environment))
         case "send":
             let operation = try queuedEdits.beginOutboxDelivery(request, origin: expectedOrigin, environment: environment)
             if operation["state"] as? String == "acknowledged" {

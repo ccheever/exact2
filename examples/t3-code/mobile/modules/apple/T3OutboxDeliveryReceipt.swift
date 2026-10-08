@@ -116,8 +116,8 @@ enum T3OutboxDeliveryReceipt {
         if member(dispatch["type"], ["start_immediately", "queue_after_active"]) { return fields(dispatch, ["type"]) }
         return fields(dispatch, ["type", "targetRunId"]) && member(dispatch["type"], ["steer_active", "restart_active"]) && text(dispatch["targetRunId"])
     }
-    static func valid(_ receipt: Object, id: String) -> Bool {
-        guard fields(receipt, ["kind", "operationId", "revision", "origin", "environmentId", "messageId", "threadId", "rowToken", "rowRevision", "record", "stage", "method", "payload", "attachmentIDs", "state"], ["retiredRevision", "attemptRevision", "attemptPreviousState", "result", "error", "cleanup"]),
+    static func valid(_ receipt: Object, id: String, inlineSource: Object? = nil) -> Bool {
+        guard fields(receipt, ["kind", "operationId", "revision", "origin", "environmentId", "messageId", "threadId", "rowToken", "rowRevision", "record", "stage", "method", "payload", "attachmentIDs", "state"], ["retiredRevision", "attemptRevision", "attemptPreviousState", "result", "error", "cleanup", "inlineSource"]),
               receipt["kind"] as? String == "outbox", receipt["operationId"] as? String == id, text(id),
               integer(receipt["revision"], positive: true), integer(receipt["rowRevision"], positive: true), text(receipt["rowToken"]),
               member(receipt["state"], ["reserved", "retired", "issued", "uncertain", "acknowledged", "rejected"]), let record = receipt["record"] as? Object,
@@ -147,7 +147,8 @@ enum T3OutboxDeliveryReceipt {
                   receipt["result"] == nil, receipt["error"] == nil,
                   revision == prior + (state == "reserved" ? 1 : 2) else { return false }
         }
-        return cleanupValid(receipt) && command(receipt)
+        return cleanupValid(receipt) && (receipt["inlineSource"] == nil
+            ? command(receipt) : T3OutboxInlineFinal.matches(receipt, source: inlineSource))
     }
     private static func cleanupValid(_ receipt: Object) -> Bool {
         guard let raw = receipt["cleanup"] else { return true }
@@ -185,7 +186,7 @@ enum T3OutboxDeliveryReceipt {
     static func sameIdentity(_ a: Object, _ b: Object) -> Bool {
         T3MobileOutbox.jsonEqual(a.filter { !["revision", "state", "attemptRevision", "attemptPreviousState", "result", "error", "cleanup"].contains($0.key) }, b.filter { !["revision", "state", "attemptRevision", "attemptPreviousState", "result", "error", "cleanup"].contains($0.key) })
     }
-    static func make(_ request: Object, origin: String, environment: String) throws -> Object {
+    static func make(_ request: Object, origin: String, environment: String, inlineSource: Object? = nil) throws -> Object {
         guard let record = request["record"] as? Object, let payload = request["payload"] as? Object,
               let id = payload["commandId"] as? String else { throw T3Failure(kind: "Outbox", message: "Choose a materialized outbox command.") }
         var receipt: Object = ["kind": "outbox", "operationId": id, "revision": 1, "origin": origin, "environmentId": environment,
@@ -199,7 +200,8 @@ enum T3OutboxDeliveryReceipt {
             }
             receipt["retiredRevision"] = revision; receipt["revision"] = revision + 1
         }
-        guard valid(receipt, id: id) else { throw T3Failure(kind: "Outbox", message: "The outbox command is invalid or still needs attachment materialization.") }
+        if let inlineSource { receipt["inlineSource"] = T3OutboxInlineFinal.link(inlineSource) }
+        guard valid(receipt, id: id, inlineSource: inlineSource) else { throw T3Failure(kind: "Outbox", message: "The outbox command is invalid or still needs attachment materialization.") }
         // Detach mutable Foundation objects owned by the caller before retaining them.
         return try JSONSerialization.jsonObject(with: JSONSerialization.data(withJSONObject: receipt, options: [.sortedKeys])) as! Object
     }
