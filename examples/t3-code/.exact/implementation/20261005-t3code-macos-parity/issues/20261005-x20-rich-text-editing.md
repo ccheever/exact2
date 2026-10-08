@@ -6,6 +6,7 @@ kind: framework-policy
 blocks: [20261005-composer-fidelity, 20261005-diff-review-engine, 20261005-terminal-integrations, 20261005-thread-commands-and-keys]
 upstream_url: https://github.com/ccheever/exact2/issues/125
 reproduced_on: null
+rest_upstream_url: [https://github.com/ccheever/exact2/issues/275, https://github.com/ccheever/exact2/issues/276]
 ---
 
 # X20: No way to build an editor with inline atomic chips, caret/selection access, range replacement, paste interception and undo grouping
@@ -161,3 +162,7 @@ atomic ranges and the menus replace a range in one undo step, the parts still mi
 Contract field, and the composer is not one. No Contract `input` or `textarea` in the clone needs a paste
 handler: the reference's `onPaste` sites are the composer, the terminal's own page, a no-op in
 `SettingsFontPreviews` and the window-level redirect to the composer.
+
+## Rest filed upstream (2026-10-08)
+
+Upstream (the rest): https://github.com/ccheever/exact2/issues/275 (#275, [Feature] Text fields: selectionchange on caret moves, setRangeText and a cancelable beforeinput (rest of #125)); https://github.com/ccheever/exact2/issues/276 (#276, [Policy] Atomic inline ranges (chips) over a text field's plain-string value (rest of #125)). Reproduced on main `0365ad1a4` (relevant files unchanged on main `e200397ec`) before filing: after `setSelectionRange`, ArrowLeft reports nothing (no `selectionchange` on a field), `selectionchange` on a `textarea` is `lower-attr-tag`, `beforeinput` is `lower-unknown-attr`, `setRangeText` and `undo` are `type-unknown-command`, `contenteditable` is refused. #276 is blocked by `rules/DEFERRED.md:155-161` ("no rich value type") and has one "Decision needed" comment. Searched open and closed issues and PRs: no duplicate.

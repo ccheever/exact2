@@ -6,6 +6,7 @@ kind: framework-gap
 blocks: [20261005-app-activation, 20261005-app-update-feed, 20261005-embedded-server-runtime, 20261005-managed-codex-chatgpt, 20261005-telemetry]
 upstream_url: https://github.com/ccheever/exact2/issues/105
 reproduced_on: null
+rest_upstream_url: https://github.com/ccheever/exact2/issues/269
 ---
 
 # X6: A module hook at quit that can delay termination for a bounded time
@@ -125,3 +126,7 @@ it first, which answers a request the window was handling (`renderer-unavailable
 the socket file while it is still this app's inode. Live on a lane copy: an Apple Event quit while a request waited on
 a stopped server answered the CLI at once and left no socket file. For the agent driver's `exit(0)` the file is
 unlinked from `atexit`, with the directory watch held off so it does not bind the path again while the exit runs.
+
+## Rest filed upstream (2026-10-08)
+
+Upstream (the rest): https://github.com/ccheever/exact2/issues/269 (#269, [Design] macOS: a bounded quit hold for native module work, and SIGTERM as an orderly quit (rest of #105)). Reproduced on main `0365ad1a4` (relevant files unchanged on main `e200397ec`) before filing: a module `destroy()` that waits 3 s blocks the main thread through an Apple Event quit (3.42 s, no hold API or budget); `kill -TERM` ends in 0.04 s without `destroy()`. LLP 1069.010 Q4 ("No `.terminateLater`") and LLP 1097 D10 (5 s storage hold) decide it; one "Decision needed" comment. Searched open and closed issues and PRs: no duplicate.

@@ -1,11 +1,11 @@
 ---
 name: 20261008-x52-macos-form-controls-tab-order
 plan: 20261005-t3code-macos-parity
-status: draft
+status: published
 kind: framework-gap
 blocks: [20261008-dialog-shortcut-focus]
-upstream_url: null
-reproduced_on: d82fb6a47 (feature branch on main 1f19b2400's framework; main 462308f9c unchanged)
+upstream_url: https://github.com/ccheever/exact2/issues/280
+reproduced_on: 0365ad1a4 (main)
 ---
 
 # X52: on macOS, `input type="date"`, `input type="time"` and `select` are not Tab stops
@@ -78,3 +78,9 @@ them. Re-run the snooze drive in the task record.
 Local draft (2026-10-08, dialog-shortcut-focus). Reproduced on the feature branch's framework (main
 `1f19b2400`); `tabbable` is unchanged on main `462308f9c`. Not published: publication needs the
 user's approval (`issue-open`).
+
+## Upstream (filed 2026-10-08)
+
+Upstream: https://github.com/ccheever/exact2/issues/280 (#280, [Bug] macOS: date, time and select inputs are not Tab stops). Reproduced on main `0365ad1a4` (relevant files unchanged on main `e200397ec`) with a minimal public-API app before filing. Same scratch app: macOS Tab walk 3 → 10 → 11 → 3, Shift+Tab 11 → 10 → 3; web 3 → 5 (×4) → 6 (×4) → 7 → 10 → 11. An explicit `tabindex=0` on the date input makes it a macOS stop (3 → 5 → 10); its keys were not checked. Searched: Tab date, tabbable, select Tab: no duplicate.
+
+Next: issue-close once #280 lands: re-run the Custom snooze Tab drive.

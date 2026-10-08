@@ -1,7 +1,7 @@
 ---
 name: 20261008-x56-press-lost-on-focus-restyle
 plan: 20261005-t3code-macos-parity
-status: draft
+status: closed-not-reproduced
 kind: framework-gap (unconfirmed)
 blocks: []
 upstream_url: null
@@ -67,3 +67,7 @@ ring for custom pressables (X47, main #189) stands in for `focus-visible:ring-2`
 ## Why it must be resolved
 Any custom control that draws its focus state from `focus`/`blur` (the clone's bars, rows and chips
 did before #189) silently drops the first mouse click. A person sees a ring and no action.
+
+## Upstream (2026-10-08)
+
+Upstream: not reproduced on main `0365ad1a4`, closed (2026-10-08); not filed. A one-file app tried the excerpt above and five variants: the box-shadow ring; a border width that changes layout; a ring child mounted on focus; a hover popup beside a shadow ring; and `z-index` on the wrapper set from focus. Each pressed on the first agent click after another button was clicked (`presses 1`; journal `focus view N` then `press view N`). The clone's earlier observation may have depended on its own refresh after the focus action; nothing in the clone needs it now (the segment draws no ring of its own).
