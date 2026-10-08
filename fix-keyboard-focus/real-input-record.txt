@@ -1,0 +1,58 @@
+fix-keyboard-focus: real-input record, 2026-10-08 (shared lock held 07:58:34Z to 08:28:43Z)
+
+Apparatus: lane copies of the macOS client ("T3 Code (Lane FKF base)" built from ec32c8c37,
+"T3 Code (Lane FKF after)" built from this branch), each launched with env -i and its own HOME,
+CFFIXED_USER_HOME, CODEX_HOME, CLAUDE_CONFIG_DIR, XDG_*, T3CODE_TELEMETRY_ENABLED=false, paired to a
+private github lane server on 127.0.0.1:16181. Pointer: cliclick (real CGEvents). Keys: HID key
+events (hidkey), each sent only after checking that the lane app is frontmost. Focus read from the
+accessibility tree (orca computer get-app-state). Window 1280x840 points at (36,38).
+
+Bug 4: Custom snooze from the sidebar row menu by the real pointer
+  before 08:17:09  hover Snooze-me, click the clock, move the pointer down onto Custom…: the row
+                   loses hover, its actions collapse and the menu jumps right; the click at
+                   Custom…'s old place closes the menu; no dialog.            FAIL (reproduced)
+  after  08:06-08:08 (build 6: pin on focus only): the real mouse-down takes focus from the popup,
+                   the pin drops, the menu moves, no dialog.                   FAIL (attempt 1)
+  after  08:28:00 (build 7: the pointer on a menu row also pins the row): the menu stays put with
+                   Custom… under the pointer; the click opens Custom snooze, focus Date and time.
+                                                                                PASS
+  Bug 4 keys (pointer-opened menu, then keys)
+  before 08:17:32  ↓ ↓: focus stays on the clock (ring on the clock), nothing highlighted.  FAIL
+  after  08:11:03  ↓ ↓: ring and highlight on In 3 hours; End: Custom…; Return: Custom snooze. PASS
+
+Bug 5: Custom snooze focus ring
+  before 08:17:54  opened by an AX press (the base cannot reach it by pointer or keys): no ring at
+                   open; five Tabs: no ring on any frame.                        FAIL (reproduced)
+  after  08:11:15  opened from the keyboard: ring on Date and time; Tabs: rings on Cancel, Snooze,
+                   Close, Date and time.                                         PASS
+  after  08:28:22  opened by the real pointer: focus on Date and time with no ring (pointer
+                   modality, as :focus-visible on the web); Tab: ring on Cancel, Snooze, Close;
+                   Escape: dialog closed, focus back on the Snooze-me row.       PASS
+
+Bug 6: Cmd+K over Custom snooze, Escape order
+  before 08:18:05  Cmd+K opens the palette over the dialog; the first Escape closes Custom snooze
+                   underneath and leaves the palette open (focus in its field).  FAIL (reproduced)
+  after  08:11:39  the first Escape closes the palette; Custom snooze stays with a ring on Date and
+                   time; the second Escape closes the dialog, ring on the row.   PASS
+
+Bug 13: PR header More menu from the keyboard (#132 Add a changelog)
+  before 08:22:38  pointer open, Escape: focus on "…"; Return reopens the menu with focus still on
+                   "…" (AX focused element 802 "More pull request actions"); ↓ ↓ and End: focus
+                   still on "…".                                                 FAIL (reproduced)
+  after  08:12:30  pointer open: no item focused; Escape: ring on "…"; Return: ring on Refresh;
+                   ↓ ↓: Explain this PR; ↑ End: Close pull request; Return: Close pull request?
+                   with a ring on Cancel.                                        PASS
+
+Bug 16: Close pull request? focus
+  before 08:22:56  real click on Close pull request: dialog open, focus still on "…" behind it,
+                   no ring; Tab: focus to Edit title behind the dialog.          FAIL (reproduced)
+  after  08:12:42  opened from the keyboard: ring on Cancel; Tab: ring on Close; Escape: dialog
+                   closed, ring back on "…".                                     PASS
+  after  08:13:47  real click on Close pull request: dialog open, focus on Cancel (no ring after a
+                   pointer open, as on the web).                                 PASS
+
+Prompts: the build-7 copy is a new ad-hoc identity, so reading its own token from the LANE
+keychain (lane-ri/after/home/Library/Keychains, created 08:05Z) raised a keychain prompt. It was
+denied; the stale lane item was deleted from that lane keychain only and the copy was re-paired
+through Add environment (no screenshot while the code was on screen). Nothing was entered for or
+read from the user's login keychain; the user's keychain search list is unchanged.
