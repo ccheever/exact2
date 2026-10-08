@@ -53,6 +53,7 @@ impl<D: DataSource + Default> CanvasHost<D> {
         }
         self.p.slice_collections(limit, velocity);
         let wanted = self.refine_inner();
+        self.leftover = self.p.collections_pending();
         self.p.slice_collections(None, 0.0);
         if measure {
             let mut after = std::mem::take(&mut self.rows_after);
@@ -84,8 +85,8 @@ impl<D: DataSource + Default> CanvasHost<D> {
 
     /// Whether this pass can wait ([`crate::travel::Travel::waits`]): a
     /// scroll step came within the last frame and a half, the windows lead,
-    /// and the last pass was no slice (one may have left rows to build).
-    /// `EXACT_PASS_BATCH=0`: never.
+    /// and the last pass left no rows to build (a slice's rest is not kept
+    /// waiting). `EXACT_PASS_BATCH=0`: never.
     fn batches(&self) -> bool {
         static ON: std::sync::LazyLock<bool> =
             std::sync::LazyLock::new(|| !std::env::var("EXACT_PASS_BATCH").is_ok_and(|v| v == "0"));
@@ -96,7 +97,7 @@ impl<D: DataSource + Default> CanvasHost<D> {
         *ON && self.lead
             && self.now() - self.scrolled_at < 12.0
             && self.travel.waits(viewport)
-            && !self.sliced
+            && !self.leftover
     }
 
     /// The feed's mounted rows, as (view, epoch): a new pair is a row this
@@ -118,9 +119,11 @@ impl<D: DataSource + Default> CanvasHost<D> {
         self.scale
     }
 
-    /// Whether a slice left rows to build.
+    /// Whether a slice left rows to build: the reader then asks for the next
+    /// pass at once. A pass that waits for more travel left none (it is
+    /// asked for again at the reader's next third step, or its timer).
     pub fn refine_pending(&self) -> bool {
-        self.p.collections_pending()
+        !self.waiting && self.p.collections_pending()
     }
 
     fn refine_inner(&mut self) -> bool {

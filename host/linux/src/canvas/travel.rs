@@ -23,8 +23,8 @@ const PASS_MS: f32 = 8.0;
 /// frame: 6,000 dp/s).
 const FAST_STEP: f32 = 50.0;
 
-/// The share of its viewport the feed travels before a pass is worth running
-/// while it travels slowly. A pass each third step mounted a row a commit
+/// The share of its viewport the feed travels before a pass is worth
+/// running. Below 12,000 dp/s a pass each third step mounted a row a commit
 /// (and, below 3,000 dp/s, most found nothing to mount): the list's layout,
 /// its publication, the paint order and the stream were walked for each row.
 /// The window leads the view by a viewport, so what a pass this late mounts
@@ -79,10 +79,11 @@ impl Travel {
         self.step >= FAST_STEP
     }
 
-    /// Whether a pass can wait for more travel: the feed moves, slowly, and
-    /// has come less than [`BATCH`] of its `viewport` since the last pass.
+    /// Whether a pass can wait for more travel: the feed moves and has come
+    /// less than [`BATCH`] of its `viewport` since the last pass. (From
+    /// 12,000 dp/s three steps are more than that, and no pass waits.)
     pub(crate) fn waits(&self, viewport: f32) -> bool {
-        self.step > 0.0 && !self.fast() && self.since_pass < BATCH * viewport
+        self.step > 0.0 && self.since_pass < BATCH * viewport
     }
 
     /// A pass built `rows` in `ms`.
@@ -145,10 +146,9 @@ mod tests {
         let mut t = moving(12.5, 18);
         t.passed(858.0, 6);
         assert!(t.waits(858.0), "counted from the pass");
-        assert!(
-            !moving(100.0, 1).waits(858.0),
-            "fast travel is sliced instead"
-        );
+        assert!(!moving(100.0, 3).waits(858.0), "12,000 dp/s: three steps");
+        assert!(moving(50.0, 3).waits(858.0), "6,000 dp/s: six");
+        assert!(!moving(50.0, 6).waits(858.0));
         assert!(!Travel::default().waits(858.0), "nothing moved");
     }
 

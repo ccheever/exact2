@@ -966,9 +966,11 @@ pub struct CanvasHost<D: DataSource> {
     /// last of them was (ms).
     moved: u32,
     moved_at: f64,
-    /// When the last scroll step came, and whether a pass waits for more.
+    /// When the last scroll step came, whether a pass waits for more, and
+    /// whether the last pass left rows to build.
     scrolled_at: f64,
     waiting: bool,
+    leftover: bool,
     /// A touch began or ended: paint the next frame.
     force: bool,
     /// A scroll came since the last collection pass: the frame drawing it
@@ -1104,6 +1106,7 @@ impl<D: DataSource + Default> CanvasHost<D> {
             moved_at: 0.0,
             scrolled_at: 0.0,
             waiting: false,
+            leftover: false,
             force: false,
             scrolled: false,
             prefetching: false,
