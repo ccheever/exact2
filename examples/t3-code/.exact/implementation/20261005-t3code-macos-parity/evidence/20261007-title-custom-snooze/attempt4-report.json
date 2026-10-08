@@ -1,6 +1,6 @@
 {
  "schema_version": 1,
- "started_at": "2026-10-08T05:21:44.213178+00:00",
+ "started_at": "2026-10-08T05:27:24.015557+00:00",
  "project_root": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code-title-custom-snooze-pr",
  "recipe_sha256": "f52902e8fc6b3812bfa4ee06e2b290847a4683bd4e160c683e03f5dd4f4850ca",
  "environment": {
@@ -9,7 +9,7 @@
  },
  "source": {
   "algorithm": "sha256",
-  "digest": "da1f63f0fc5bc88dc7186929cd83ec5891bc3f07c5c1c86af44bf3ebec38a8f5",
+  "digest": "906feb7b25e423afd68af8b1bc68a8ba2f9df0e435418f15ae8ff7b0dcc7a52e",
   "entries": 998
  },
  "checks": [
@@ -25,12 +25,12 @@
    ],
    "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code-title-custom-snooze-pr",
    "timeout_seconds": 300,
-   "started_at": "2026-10-08T05:21:44.224618+00:00",
+   "started_at": "2026-10-08T05:27:24.031690+00:00",
    "exit_code": 0,
    "stdout": "001.stdout.log",
    "stderr": "001.stderr.log",
    "status": "passed",
-   "finished_at": "2026-10-08T05:21:44.478343+00:00"
+   "finished_at": "2026-10-08T05:27:24.433059+00:00"
   },
   {
    "name": "every clone test",
@@ -42,12 +42,12 @@
    ],
    "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code-title-custom-snooze-pr",
    "timeout_seconds": 900,
-   "started_at": "2026-10-08T05:21:44.481110+00:00",
+   "started_at": "2026-10-08T05:27:24.435620+00:00",
    "exit_code": 0,
    "stdout": "002.stdout.log",
    "stderr": "002.stderr.log",
    "status": "passed",
-   "finished_at": "2026-10-08T05:21:49.855805+00:00"
+   "finished_at": "2026-10-08T05:27:29.834282+00:00"
   },
   {
    "name": "strict tsc",
@@ -70,12 +70,12 @@
    ],
    "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code-title-custom-snooze-pr",
    "timeout_seconds": 600,
-   "started_at": "2026-10-08T05:21:49.858403+00:00",
+   "started_at": "2026-10-08T05:27:29.836856+00:00",
    "exit_code": 0,
    "stdout": "003.stdout.log",
    "stderr": "003.stderr.log",
    "status": "passed",
-   "finished_at": "2026-10-08T05:21:50.051729+00:00"
+   "finished_at": "2026-10-08T05:27:30.072696+00:00"
   },
   {
    "name": "contract build",
@@ -89,12 +89,12 @@
    ],
    "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code-title-custom-snooze-pr",
    "timeout_seconds": 900,
-   "started_at": "2026-10-08T05:21:50.054621+00:00",
+   "started_at": "2026-10-08T05:27:30.075466+00:00",
    "exit_code": 0,
    "stdout": "004.stdout.log",
    "stderr": "004.stderr.log",
    "status": "passed",
-   "finished_at": "2026-10-08T05:22:37.137206+00:00"
+   "finished_at": "2026-10-08T05:28:19.005182+00:00"
   },
   {
    "name": "t3-code-macos lib tests, the compiled-plan title route included (EXACT_APP_DIR set by the caller)",
@@ -108,12 +108,12 @@
    ],
    "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code-title-custom-snooze-pr",
    "timeout_seconds": 1800,
-   "started_at": "2026-10-08T05:22:37.139882+00:00",
+   "started_at": "2026-10-08T05:28:19.007725+00:00",
    "exit_code": 0,
    "stdout": "005.stdout.log",
    "stderr": "005.stderr.log",
    "status": "passed",
-   "finished_at": "2026-10-08T05:25:14.785076+00:00"
+   "finished_at": "2026-10-08T05:30:56.689155+00:00"
   },
   {
    "name": "caps (the caller stages first)",
@@ -124,12 +124,12 @@
    ],
    "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code-title-custom-snooze-pr",
    "timeout_seconds": 300,
-   "started_at": "2026-10-08T05:25:14.788100+00:00",
+   "started_at": "2026-10-08T05:30:56.692004+00:00",
    "exit_code": 0,
    "stdout": "006.stdout.log",
    "stderr": "006.stderr.log",
    "status": "passed",
-   "finished_at": "2026-10-08T05:25:14.969406+00:00"
+   "finished_at": "2026-10-08T05:30:56.870166+00:00"
   },
   {
    "name": "macOS agent drives, base vs branch (one lane)",
@@ -137,13 +137,13 @@
    "argv": null,
    "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code-title-custom-snooze-pr",
    "timeout_seconds": 60,
-   "started_at": "2026-10-08T05:25:14.972230+00:00",
+   "started_at": "2026-10-08T05:30:56.873073+00:00",
    "exit_code": null,
    "stdout": "007.stdout.log",
    "stderr": "007.stderr.log",
    "status": "blocked",
    "reason": "run by hand in the lane with scripts/agent.mjs (two builds, one T3 server): agent-drives.txt and images 01-05",
-   "finished_at": "2026-10-08T05:25:14.972428+00:00"
+   "finished_at": "2026-10-08T05:30:56.873208+00:00"
   },
   {
    "name": "real keys and the focus ring (orca computer)",
@@ -151,22 +151,22 @@
    "argv": null,
    "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code-title-custom-snooze-pr",
    "timeout_seconds": 60,
-   "started_at": "2026-10-08T05:25:14.975589+00:00",
+   "started_at": "2026-10-08T05:30:56.875420+00:00",
    "exit_code": null,
    "stdout": "008.stdout.log",
    "stderr": "008.stderr.log",
    "status": "blocked",
    "reason": "the shared real-input lock was held by the real-input batch agent; steps in the task record",
-   "finished_at": "2026-10-08T05:25:14.975779+00:00"
+   "finished_at": "2026-10-08T05:30:56.875512+00:00"
   }
  ],
  "status": "passed",
  "source_after": {
   "algorithm": "sha256",
-  "digest": "da1f63f0fc5bc88dc7186929cd83ec5891bc3f07c5c1c86af44bf3ebec38a8f5",
+  "digest": "906feb7b25e423afd68af8b1bc68a8ba2f9df0e435418f15ae8ff7b0dcc7a52e",
   "entries": 998
  },
  "source_unchanged": true,
- "finished_at": "2026-10-08T05:25:15.038672+00:00",
- "note": "attempt 3 ran with the then-current recipe (998 paths after merging d3df2c426); recipe.json now holds the attempt-4 recipe"
+ "finished_at": "2026-10-08T05:30:56.934289+00:00",
+ "note": "recipe.json in this folder is the attempt-4 recipe (998 source paths after merging c0475fbaa)"
 }
