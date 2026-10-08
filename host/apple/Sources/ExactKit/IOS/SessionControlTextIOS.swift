@@ -6,15 +6,26 @@ extension ExactSession {
     func installControlText() { installControlText(on: text) }
     func installControlText(on engine: TextEngine) {
         engine.fieldChrome = fieldChrome
-        Owner.shared.sync { engine.measuring.fieldChrome = fieldChrome }
-        runtime.on { exact_set_control_text(runtime.rt, TextEngine.controlText, TextEngine.fieldChromeMeasure) }
+        engine.buttonMeasurements = buttonMeasurements
+        Owner.shared.sync {
+            engine.measuring.fieldChrome = fieldChrome
+            engine.measuring.buttonMeasurements = buttonMeasurements
+        }
+        runtime.on { () -> Void in
+            exact_set_control_text(runtime.rt, TextEngine.controlText, TextEngine.fieldChromeMeasure)
+            exact_set_button_measure(runtime.rt, TextEngine.buttonMeasure)
+        }
     }
     func primeControlText() {
-        _ = fieldChrome.configure(view?.traitCollection ?? presenter.viewport.traitCollection)
+        let traits = view?.traitCollection ?? presenter.viewport.traitCollection
+        _ = fieldChrome.configure(traits)
+        _ = buttonMeasurements.configure(traits)
     }
     func controlTextChanged() {
         guard state != .destroyed else { return }
-        if fieldChrome.configure(view?.traitCollection ?? presenter.viewport.traitCollection), booted {
+        let traits = view?.traitCollection ?? presenter.viewport.traitCollection
+        let fields = fieldChrome.configure(traits), buttons = buttonMeasurements.configure(traits)
+        if (fields || buttons), booted {
             apply(runtime.on { runtime.read(exact_control_text_changed(runtime.rt)) })
         }
     }

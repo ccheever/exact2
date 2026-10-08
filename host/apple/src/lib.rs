@@ -38,6 +38,7 @@
 pub mod abi;
 pub mod app_module;
 pub mod batch;
+mod button;
 pub mod canvas_text;
 pub mod collapse;
 pub mod content_region;

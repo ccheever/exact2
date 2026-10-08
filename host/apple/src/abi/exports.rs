@@ -68,6 +68,11 @@ macro_rules! host {
         pub extern "C" fn exact_set_control_text(rt: u32, text: Option<$crate::control_text::ControlTextFn>, chrome: Option<$crate::control_text::FieldChromeFn>) {
             $crate::abi::with_entry(&EXACT_RUNTIMES, rt, |e| e.bridge.set_control_text(text, chrome));
         }
+        /// Native button height-for-width, with the registered text context.
+        #[no_mangle]
+        pub extern "C" fn exact_set_button_measure(rt: u32, measure: Option<$crate::control_text::ButtonMeasureFn>) {
+            $crate::abi::with_entry(&EXACT_RUNTIMES, rt, |e| e.bridge.set_button_measure(measure));
+        }
         /// Remeasure the controls after a trait change, through set_env.
         #[no_mangle]
         pub extern "C" fn exact_control_text_changed(rt: u32) -> u32 {

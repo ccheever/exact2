@@ -194,7 +194,7 @@ final class ControlHost: NSObject {
                 assign(control, \.accessibilityIdentifier, owner.props["testId"])
             }
             let natural = naturalSize(control, owner)
-            let box = owner.contentBox()
+            let box = control is NativeButtonIOS ? owner.bounds : owner.contentBox()
             // A slider's track spans its box, as the web's does; a native
             // button fills it, its chrome inside (LLP 1069.011 D6); the
             // others keep their own size. A select aligns its closed value
@@ -222,7 +222,7 @@ final class ControlHost: NSObject {
                 assign(control, \.frame, CGRect(x: x, y: box.midY - natural.height / 2,
                                                 width: width, height: natural.height))
             }
-            if reported[owner.id] != natural {
+            if !(control is NativeButtonIOS), reported[owner.id] != natural {
                 reported[owner.id] = natural
                 sizes.append((owner.id, natural))
             }

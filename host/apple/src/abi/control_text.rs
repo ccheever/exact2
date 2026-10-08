@@ -17,6 +17,10 @@ impl<D: DataSource> Bridge<D> {
         self.control_text = text;
         self.field_chrome = chrome;
     }
+    /// Install button measurement before boot; absent leaves AppKit unchanged.
+    pub fn set_button_measure(&mut self, measure: Option<crate::control_text::ButtonMeasureFn>) {
+        self.button_measure = measure;
+    }
     /// Dynamic Type/legibility changed; preserve the safe area and other environment facts.
     pub fn control_text_changed(&mut self, hooks: Hooks) -> u32 {
         let styles = self
