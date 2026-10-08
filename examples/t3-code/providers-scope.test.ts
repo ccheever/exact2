@@ -47,9 +47,9 @@ function servers() {
   return { focus, second, native, files: disk.files };
 }
 /** The second environment as the fleet knows it once its transport synchronized (settings-b-fleet.ts). */
-function background(second: Backend, phase: 'connected' | 'reconnecting' = 'connected') {
+function background(second: Backend, phase: 'connected' | 'reconnecting' = 'connected', projects: Obj[] = []) {
   fleet.entries.set(KEY, { key: KEY, origin: ORIGIN, environmentId: 'env2', phase, message: '', traceId: '', generation: 3, synchronized: phase === 'connected' ? 3 : -1,
-    lastEvent: 0, subscriptions: {}, config: second.config, shell: initialShell(), scopes: ['orchestration:read', 'orchestration:operate'], error: '', requested: true });
+    lastEvent: 0, subscriptions: {}, config: second.config, shell: { ...initialShell(), projects }, scopes: ['orchestration:read', 'orchestration:operate'], error: '', requested: true });
 }
 /** The providerPage resource's arguments (app.contract): selection, active, revision, clock, then the scope. */
 const page = async (native: Native, files: Parameters<typeof answer>[3], machine: string, extra: string[] = ['', '', '']) =>
@@ -134,6 +134,20 @@ describe('Settings › Providers follows the scope selector', () => {
     expect([gone.available, gone.message]).toEqual([false, '']);
     expect((await core('env-removed')).message).toBe('This environment is no longer available.');
   });
+});
+
+test("a setup link inside Settings opens Providers on the scope's representative environment (ProjectDefaultsSettings.tsx:168-173)", async () => {
+  // settingsCore answers the environment Settings' own setup links name (`scopeEnvironment`; openProviderSettings opens none without it).
+  const { second, native, files } = servers();
+  await answer('snapshot', [], null, files, native);
+  background(second, 'connected', [{ id: 'p2', title: 'Lan app', workspaceRoot: '/lan/app' }]);
+  // settingsCore(machine, project, checkout, legacy project, route, target, active): a project only on the second environment.
+  const core = (project: string) => answer('settingsCore', ['', project, '', '', 'general', '', true], null, files, native).then(obj);
+  expect((await core('env2:/lan/app')).scopeEnvironment).toBe('env2');
+  expect((await core('env1:/repo')).scopeEnvironment).toBe('env1');
+  expect((await core('')).scopeEnvironment).toBe('env1');
+  background(second, 'reconnecting', [{ id: 'p2', title: 'Lan app', workspaceRoot: '/lan/app' }]);
+  expect((await core('env2:/lan/app')).scopeEnvironment).toBe('');
 });
 
 test('with no environment chosen, Providers takes the primary, else a connected one (selectSingleEnvironmentScope)', () => {

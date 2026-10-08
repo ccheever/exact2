@@ -8,6 +8,7 @@ import { appearanceSections, fontStack, modeTiles, palette } from './settings-ap
 import { breadcrumbLabel, scopeAvailable, searchTargetScope } from './settings-search';
 import type { CustomTheme } from './settings-themes';
 import { scopeMachine, singleEnvironmentRoute } from './settings-b-scope';
+import { isPrimaryEnvironment } from './local-primary';
 import { backgroundDialog } from './settings-a-background';
 import { archiveConfirmation } from './settings-a-archive';
 import { editorView, previewTheme, syncDraft } from './settings-appearance-editor';
@@ -36,6 +37,12 @@ export function settingsScopeOf(client: T3Client, route: string, machine: string
   const chosen = resolveScope(client, machine, projectKey, checkout);
   const machineAxis = scopeMachine(client, route, machine, chosen.kind === 'unavailable' ? [] : chosen.selected);
   return { projectKey, checkout, scope: machineAxis === machine ? chosen : resolveScope(client, machineAxis, projectKey, checkout) };
+}
+
+/** SettingsScopeContext's `environment`: the scope's connected environment, the primary first (its setup links and Providers name it). */
+export function scopeRepresentative(scope: ReturnType<typeof resolveScope>) {
+  const connected = scope.selected.filter(environment => environment.connection.phase === 'connected' && environment.serverConfig !== null);
+  return connected.find(candidate => isPrimaryEnvironment(candidate.environmentId)) ?? connected[0];
 }
 
 export async function settingsCore(client: T3Client, native: Native | null | undefined, machine: string, projectKeyInput: string, checkoutInput: string, legacyProjectId: string, route: string, target: string, active: boolean, dialogKind = '', dialogSubject = '', deliveryStream = 'embedded', deliveryStaged = false) {
@@ -74,6 +81,8 @@ export async function settingsCore(client: T3Client, native: Native | null | und
     environmentChoices: singleEnvironmentRoute(route) ? scope.environmentChoices.filter(choice => choice.id) : scope.environmentChoices, environmentIcon: scope.environmentIcon, projectChoices: scope.projectChoices,
     environmentKeyed: [keyedLabel(scope.environmentLabel)], projectKeyed: [keyedLabel(scope.projectLabel)],
     representative: String(scope.members[0]?.id ?? ''), scopeKey: `${machine}|${projectKey}|${checkout}`,
+    // A setup link inside Settings opens Providers on this environment (ProjectDefaultsSettings.tsx:60-62, 168-173; SettingsPanels.tsx:3260-3266); '' offers none.
+    scopeEnvironment: scope.kind === 'unavailable' ? '' : scopeRepresentative(scope)?.environmentId ?? '',
     sections, projectModel, restoreCount: labels.length, restoreText: labels.length ? `This will reset: ${labels.join(', ')}.` : '',
     appearanceMode: device.appearanceMode, tiles: modeTiles(device.appearanceMode, prefs, custom), themes: libraryCards(prefs, custom, removalPicks(client, dialogKind === 'remove' ? dialogSubject : '')), typographyAdvanced: prefs.typographyAdvanced, themeLight: prefs.themeLight,
     palette: palette(paintPrefs, paintCustom, device.appearanceMode), editor: editorView(draft), themeImport: importView(client), interfaceFont: fontStack(prefs.fontFamilySans, false) ?? 'system-ui', codeFont: fontStack(prefs.fontFamilyCode, true) ?? 'ui-monospace', interfaceSize: prefs.fontSizeInterface, codeSize: prefs.fontSizeCode, codePreview: fontDiffPreview(prefs.diffColorScheme),

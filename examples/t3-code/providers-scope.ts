@@ -15,8 +15,7 @@ import { FleetSetupHost, fleetSetupHost } from './codex-fleet-host';
 import { acpRegistry, providerPage, providerSetupStreams, providerWizard, wizardSetupStreams, type ProviderHost } from './providers';
 import { providerUpkeepOp, withUpkeep, type UpkeepHost } from './providers-upkeep';
 import { providerSetupOp, watchProviderSetup } from './provider-setup';
-import { settingsScopeOf } from './settings-core-view';
-import { isPrimaryEnvironment } from './local-primary';
+import { scopeRepresentative, settingsScopeOf } from './settings-core-view';
 
 const EMPTY = { auth: [] as string[], install: [] as string[] };
 /**
@@ -32,8 +31,7 @@ export const NO_ENVIRONMENT = '-';
  */
 export function providersEnvironment(client: T3Client, machine: string, projectKey: string, checkout: string, legacyProjectId: string): { environmentId: string; message: string } {
   const { scope } = settingsScopeOf(client, 'providers', machine, projectKey, checkout, legacyProjectId);
-  const connected = scope.selected.filter(environment => environment.connection.phase === 'connected' && environment.serverConfig !== null);
-  const environment = connected.find(candidate => isPrimaryEnvironment(candidate.environmentId)) ?? connected[0];
+  const environment = scopeRepresentative(scope);
   if (environment) return { environmentId: environment.environmentId, message: '' };
   return { environmentId: '', message: scope.kind === 'unavailable' || scope.kind === 'environment' ? '' : 'Connect an environment to set up its providers.' };
 }

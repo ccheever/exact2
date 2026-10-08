@@ -421,7 +421,7 @@ component T3Code
   action providerTick
     if settingsOpen and (settingsRoute == "providers" or (settingsRoute == "connections" and connectionsPage.network.ticking))
       providerNow = now()
-    providerDialog = providerDialog == "chatgpt" and providerWizard.chatgptConnected ? "" : providerDialog // AddCodexAccountDialog closes once the plan is shared
+    providerDialog = (providerDialog == "chatgpt" and providerWizard.chatgptConnected) or providerPage.environment == "-" ? "" : providerDialog // AddCodexAccountDialog closes once the plan is shared; the page's dialogs close when its environment drops (they unmount with EnvironmentProviderSettings, ProviderSettingsPanel.tsx:551-586, 1377-1385)
   task providerClock mount
     every(1000, providerTick)
   resource providerPage = providerPage(providerSelected, settingsOpen and settingsRoute == "providers", data.revision, wallTime.epochAtZero + max(elapsed, providerNow), settingsMachine, settingsProjectKey, settingsCheckout, settingsProjectId) as shape ProviderPage // the scope's environment (providers-scope.ts): its page and its actions name `providerPage.environment`
@@ -772,11 +772,12 @@ component T3Code
     snapshotSetupWasEnabled = snapshotSettings.enabled
     modalError = ""
   action openProviderSettings(id: string)
-    let machine = settingsOpen and settingsMachine != "" ? settingsMachine : settings.environmentId // a setup link names its environment: Settings' own the scope's (SettingsPanels), the chat's its thread's (ChatView)
-    openSettings() // retainSettingsScope: a link from outside Settings starts with no scope
-    settingsRoute = "providers"
-    settingsMachine = id == "" ? "" : machine
-    providerSelected = id == "" ? "" : `target:${id}`
+    let machine = settingsOpen ? settingsCore.scopeEnvironment : settings.environmentId // a setup link names its environment: Settings' own the scope's representative (ProjectDefaultsSettings.tsx:168-173), none without one; the chat's its thread's (ChatView.tsx:5217-5223)
+    if not settingsOpen or machine != ""
+      openSettings() // retainSettingsScope: a link from outside Settings starts with no scope
+      settingsRoute = "providers"
+      settingsMachine = id == "" ? "" : machine
+      providerSelected = id == "" ? "" : `target:${id}`
   action openSettings
     sidebarHoverId = "" // r8-pointer D11: the Settings button's tooltip closes on its press
     settingsEnvironmentId = settings.environmentId
