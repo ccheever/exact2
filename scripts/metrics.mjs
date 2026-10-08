@@ -858,7 +858,9 @@ const WEB_CORE_KIB = { realworld: 304, 'video-player': 249, caltrain: 310 };
 // reason here; lower it when a cut lands. Set at 8,593,568 B (speed) and
 // 5,999,248 B (size): main at 2e48efad1 with the layout pass's measure
 // passed one way (LLP 1047.001, "One layout pass in every app").
-const IOS_HELLO_BYTES = { speed: 8_700_000, size: 6_100_000 };
+// Lowered 2026-10-08 (LLP 1047.001: the motion engine settles unless
+// something moves): 8,495,088 B and 5,949,632 B at e6caf40bf, plus ~100 KB.
+const IOS_HELLO_BYTES = { speed: 8_600_000, size: 6_050_000 };
 
 // The web's gate since 2026-10-02: KiB of brotli-11 app.js, the runtime and the
 // app as one ES module, which is what each app's web build ships (LLP 1071); since
