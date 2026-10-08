@@ -5,7 +5,8 @@ import type { Obj } from './shared/domain';
 import { bridgeReply, ClientError, type Native } from './shared/protocol';
 import { letGoAware } from './shared/let-go';
 import { mobileOutboxCapture, mobileOutboxSnapshot, type MobileOutboxCapture } from './mobile-outbox';
-import { mobileOutboxDecode, type MobileOutboxRecord } from './mobile-outbox-model';
+import { mobileOutboxDecode, mobileOutboxCanonicalOrigin, type MobileOutboxRecord } from './mobile-outbox-model';
+import type { MobileOutboxWireOwner } from './mobile-outbox-wire';
 import { mobileOutboxMaterializeInline, type MobileOutboxInlineTemplate } from './mobile-outbox-inline';
 import { mobileOutboxTransferCanonical as canonical } from './mobile-outbox-transfer-model';
 
@@ -18,6 +19,7 @@ export interface MobileOutboxInlineReceipt {
   result?: { attachments: Obj[] }; error?: Obj;
 }
 export interface MobileOutboxInlineStatus { operation: MobileOutboxInlineReceipt | null; durable: boolean }
+export interface MobileOutboxInlineLookup { operations: MobileOutboxInlineStatus[] }
 const copy = <T>(value: T): T => JSON.parse(JSON.stringify(value));
 const object = (value: unknown): value is Obj => value !== null && typeof value === 'object' && !Array.isArray(value);
 const integer = (value: unknown, minimum = 0): value is number => typeof value === 'number' && Number.isSafeInteger(value) && value >= minimum;
@@ -110,6 +112,26 @@ async function local(handle: Native | null | undefined, request: Obj): Promise<u
   const reply = await bridgeReply(native(handle), { op: 'mobileOutboxInline', ...request });
   if (!reply.ok) throw new ClientError(reply.error!.message, reply.error!.kind, reply.error!.uncertain);
   return reply.value;
+}
+/** Discover saved identities after a lost reply. An empty snapshot is not write admission. */
+export async function mobileOutboxInlineLookup(handle: Native | null | undefined,
+  input: MobileOutboxWireOwner): Promise<MobileOutboxInlineLookup> {
+  const ownerKeys = ['origin', 'environmentId', 'threadId', 'messageId', 'commandId'];
+  if (!object(input) || !fields(input, ownerKeys) || !mobileOutboxCanonicalOrigin(input.origin)
+    || !ownerKeys.slice(1).every(key => typeof input[key] === 'string' && input[key].length > 0 && input[key].trim() === input[key])) return invalid();
+  const owner = copy(input);
+  const raw = await local(handle, { action: 'lookup', owner });
+  if (!object(raw) || !fields(raw, ['operations']) || !Array.isArray(raw.operations)) return invalid();
+  const ids = new Set<string>();
+  let active = 0;
+  const operations = raw.operations.map(value => {
+    if (!object(value) || !fields(value, ['operation', 'durable']) || !object(value.operation)) return invalid();
+    const result = status(value, String(value.operation.operationId)), operation = result.operation!;
+    if (ids.has(operation.operationId) || canonical(operation.template.owner) !== canonical(owner)
+      || operation.state !== 'retired' && ++active > 1) return invalid();
+    ids.add(operation.operationId); return result;
+  });
+  return { operations };
 }
 export async function mobileOutboxInlineStatus(handle: Native | null | undefined, operationId: string): Promise<MobileOutboxInlineStatus> {
   if (!uuid(operationId)) return invalid();

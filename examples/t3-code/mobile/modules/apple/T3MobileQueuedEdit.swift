@@ -343,6 +343,41 @@ final class T3MobileQueuedEdit: @unchecked Sendable {
     func cancelOutboxInlineReservation(_ token: UUID) {
         locked { if inlinePreparations.removeValue(forKey: token) != nil { active.removeValue(forKey: token) } }
     }
+    /// Read-only discovery after a lost local operation ID. No row, transport or durability mutation.
+    func outboxInlineLookup(_ owner: [String: Any]) throws -> [String: Any] {
+        try locked {
+            let commands = operations(try store())
+            let fields = ["origin", "environmentId", "threadId", "messageId", "commandId"]
+            guard Set(owner.keys) == Set(fields), T3MobileOutbox.canonicalOrigin(owner["origin"]),
+                  fields.dropFirst().allSatisfy({ field in
+                      guard let text = owner[field] as? String else { return false }
+                      return !text.isEmpty && text == text.trimmingCharacters(in: T3MobileOutbox.trimCharacters)
+                  }) else { throw refusal("Choose the complete captured image owner.", kind: "Arguments") }
+            func exact(_ record: [String: Any]) -> Bool {
+                fields.allSatisfy { T3MobileOutbox.jsonEqual(owner[$0], record[$0]) }
+            }
+            func collides(_ record: [String: Any]) -> Bool {
+                owner["commandId"] as? String == record["commandId"] as? String
+                    || fields.dropLast().allSatisfy { T3MobileOutbox.jsonEqual(owner[$0], record[$0]) }
+            }
+            guard !inlinePreparations.values.contains(where: { entry in
+                let prepared = entry["prepared"] as! [String: Any]
+                return collides(prepared["record"] as! [String: Any])
+            }) else { throw refusal("The matching image reservation is still being prepared.", kind: "Busy") }
+            var matches: [[String: Any]] = []
+            for id in commands.keys.sorted() {
+                let operation = commands[id]!
+                guard operation["kind"] as? String == "outbox-inline" else { continue }
+                let record = operation["record"] as! [String: Any]
+                if exact(record) {
+                    matches.append(["operation": operation, "durable": durableOutbox[id] == operation["revision"] as? Int])
+                } else if operation["state"] as? String != "retired" && collides(record) {
+                    throw refusal("Another captured owner holds this image reservation identity.", kind: "stale")
+                }
+            }
+            return ["operations": matches]
+        }
+    }
     func outboxInlineStatus(_ id: String) throws -> [String: Any] {
         try locked {
             guard let operation = operations(try store())[id], operation["kind"] as? String == "outbox-inline" else {
