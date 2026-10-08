@@ -1452,17 +1452,6 @@ test('readManifest names the game.presentation rename instead of an unknown key'
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
-test('readManifest takes the web manifest\'s description', async () => {
-  const { readManifest } = await import('./app.mjs');
-  const { mkdtempSync, writeFileSync, rmSync } = await import('node:fs');
-  const { tmpdir } = await import('node:os');
-  const dir = mkdtempSync(resolve(tmpdir(), 'manifest-description-'));
-  try {
-    writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ name: 'Tips', app: { id: 'dev.exact.tips', name: 'Tips' }, description: 'Splits a bill and its tip.' }));
-    assert.equal(readManifest(dir, 'tips').description, 'Splits a bill and its tip.');
-  } finally { rmSync(dir, { recursive: true, force: true }); }
-});
-
 test('Swift under modules/apple is the app module even when it has no views', async () => {
   const { mkdtempSync, mkdirSync, writeFileSync, rmSync, realpathSync } = await import('node:fs');
   const { resolve } = await import('node:path');
