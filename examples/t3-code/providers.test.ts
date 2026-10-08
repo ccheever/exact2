@@ -1,5 +1,6 @@
 import { test, expect } from 'bun:test';
 import { providerRows, providerPage, providerWizard, acpRegistry, runProviderOp, providerFieldValues, healthInterval, type ProviderHost } from './providers';
+import { withUpkeep } from './providers-upkeep';
 import { providerSummary, versionAdvisory, checkedLabel, validateInstanceId } from './providers-meta';
 import { obj, arr, str, type Obj } from './domain';
 import type { Native } from './protocol';
@@ -19,6 +20,7 @@ const fixtureProvider = { instanceId: 'exact_fixture', driver: 'codex', enabled:
   versionAdvisory: { status: 'behind_latest', latestVersion: '0.160.0', updateCommand: null } };
 
 class FakeServer implements ProviderHost {
+  ids?: (native: Native, count: number) => Promise<string[]>;
   ready = true; writable = true; local = { favoriteModels: [] as string[] };
   calls: Obj[] = [];
   settings: Obj = { providers: legacy(), providerInstances: { exact_fixture: { driver: 'codex', displayName: 'Exact verification fixture', enabled: true,
@@ -60,13 +62,13 @@ test('rows follow T3 order: default slots, custom instances, visible cursor only
   const server = new FakeServer();
   expect(providerRows(obj(server.config.settings), server.live).map(row => [row.id, row.isDefault, row.isDirty])).toEqual([
     ['codex', true, true], ['exact_fixture', false, false], ['claudeAgent', true, true]]);
-  const page = providerPage(server, '', Date.parse('2026-10-03T14:07:20Z'));
-  expect(page.rows.map(row => [row.name, row.status, row.enabled, row.version, row.advisory])).toEqual([
-    ['Codex', 'Disabled', false, '', ''], ['Exact verification fixture', 'Authenticated · OpenAI API Key', true, 'v0.145.0', 'warning'], ['Claude', 'Disabled', false, '', '']]);
+  const page = withUpkeep(server, providerPage(server, '', Date.parse('2026-10-03T14:07:20Z')));
+  expect(page.rows.map(row => [row.name, row.status, row.enabled, row.version, row.update.show && row.update.warning])).toEqual([
+    ['Codex', 'Disabled', false, '', false], ['Exact verification fixture', 'Authenticated · OpenAI API Key', true, 'v0.145.0', true], ['Claude', 'Disabled', false, '', false]]);
   expect(page.checked).toBe('Checked just now');
   expect(page.selectedId).toBe('codex');
-  const editor = providerPage(server, 'exact_fixture', 0).editors[0]!;
-  expect([editor.statusLead, editor.statusDetail, editor.canDelete, editor.canReset, editor.advisoryTitle]).toEqual(['Authenticated · OpenAI API Key', '· Incompatible', true, false, 'Known broken version']);
+  const editor = withUpkeep(server, providerPage(server, 'exact_fixture', 0)).editors[0]!;
+  expect([editor.statusLead, editor.statusDetail, editor.canDelete, editor.canReset, editor.update.title]).toEqual(['Authenticated · OpenAI API Key', '· Incompatible', true, false, 'Known broken version']);
   expect(editor.fields.map(field => [field.key, field.value, field.placeholder])).toEqual([
     ['binaryPath', '/fixture/codex', 'codex'], ['homePath', '/fixture/home', '~/.codex'], ['shadowHomePath', '', '~/.codex-t3/personal'], ['launchArgs', '', '']]);
   expect(editor.modelSummary).toBe('1 model');
@@ -189,17 +191,16 @@ test('environment variables stay local until valid, keep redacted secrets and pu
   expect(arr(obj(obj(server.settings.providerInstances).exact_fixture).environment)).toEqual([{ name: 'BASE_URL', value: 'http://127.0.0.1:9', sensitive: false }]);
 });
 
-test('custom models add, rename and remove with T3 validation', async () => {
+test('custom models add and remove with T3 validation (a new bare entry is stored as its slug)', async () => {
   const server = new FakeServer();
   const op = (name: string, key: string, value = '') => runProviderOp(server, native, name, 'exact_fixture', JSON.stringify({ key, value }));
   await expect(op('provider-model-add', '')).rejects.toThrow('Enter a model slug.');
   await expect(op('provider-model-add', 'gpt-5.6-luna')).rejects.toThrow('already saved');
   await op('provider-model-add', 'gpt-fixture-mini');
-  await op('provider-model-rename', 'gpt-fixture-mini', 'Fixture Mini');
-  expect(arr(obj(obj(obj(server.settings.providerInstances).exact_fixture).config).customModels)).toEqual([
-    { slug: 'gpt-5.6-luna', name: 'GPT-5.6-Luna' }, { slug: 'gpt-fixture-mini', name: 'Fixture Mini' }]);
+  const stored = () => obj(obj(obj(server.settings.providerInstances).exact_fixture).config).customModels;
+  expect(stored()).toEqual([{ slug: 'gpt-5.6-luna', name: 'GPT-5.6-Luna' }, 'gpt-fixture-mini']);
   await op('provider-model-remove', 'gpt-fixture-mini');
-  expect(arr(obj(obj(obj(server.settings.providerInstances).exact_fixture).config).customModels)).toHaveLength(1);
+  expect(stored()).toEqual([{ slug: 'gpt-5.6-luna', name: 'GPT-5.6-Luna' }]);
 });
 
 test('enable, delete, refresh and the health interval use the documented server writes', async () => {
@@ -243,11 +244,20 @@ test('usage hubs add with a host-derived id and remove only that entry', async (
   expect(obj(writes(server).at(-1)!.payload).patch).toEqual({ usageLimitSources: { 'cliproxy-hub.example.ts.net-8318': null } });
 });
 
-test('a ChatGPT account becomes one managed Codex instance with a free id', async () => {
-  const server = new FakeServer();
+test('a ChatGPT account becomes one managed Codex instance with a uuid id (AddCodexAccountDialog.tsx:50-53)', async () => {
+  const server = new FakeServer(), uuids = ['5f0c7d2e-1111-4a5b-9c3d-000000000001', '5f0c7d2e-2222-4a5b-9c3d-000000000002'];
+  server.ids = async (_native, count) => uuids.splice(0, count);
+  const before = JSON.stringify(obj(server.settings.providerInstances).exact_fixture);
   await expect(runProviderOp(server, native, 'provider-chatgpt', '', JSON.stringify({ key: ' ', value: '' }))).rejects.toThrow('Enter an account name.');
   await runProviderOp(server, native, 'provider-chatgpt', '', JSON.stringify({ key: 'Personal', value: '' }));
   await runProviderOp(server, native, 'provider-chatgpt', '', JSON.stringify({ key: 'Personal', value: '' }));
-  expect(obj(server.settings.providerInstances).codex_chatgpt_personal).toEqual({ driver: 'codex', displayName: 'ChatGPT - Personal', enabled: true, config: { enabled: true, setupMode: 'managed' } });
-  expect(Object.keys(obj(server.settings.providerInstances))).toContain('codex_chatgpt_personal_2');
+  const instances = obj(server.settings.providerInstances);
+  // "The ID is routing identity; the name is editable and need not be unique."
+  for (const uuid of ['5f0c7d2e-1111-4a5b-9c3d-000000000001', '5f0c7d2e-2222-4a5b-9c3d-000000000002'])
+    expect(instances[`codex_${uuid}`]).toEqual({ driver: 'codex', displayName: 'ChatGPT - Personal', enabled: true, config: { enabled: true, setupMode: 'managed' } });
+  expect(Object.keys(instances).filter(id => id.startsWith('codex_chatgpt'))).toEqual([]);
+  expect(JSON.stringify(instances.exact_fixture)).toBe(before);
+  // Each create is one atomic mutation that names only the new instance.
+  const creates = writes(server).map(call => obj(obj(call.payload).providerInstanceMutation)).filter(mutation => mutation.operation === 'create');
+  expect(creates.map(mutation => mutation.instanceId)).toEqual(['codex_5f0c7d2e-1111-4a5b-9c3d-000000000001', 'codex_5f0c7d2e-2222-4a5b-9c3d-000000000002']);
 });

@@ -7,6 +7,8 @@
 use PgIcon from "./pages-icons.contract"
 use ProviderMark from "./icons.contract"
 use DriverMark from "./provider-icons.contract"
+use CodexSetup from "./codex-setup.contract"
+use CodexWelcomeCard from "./codex-setup.contract"
 
 // CommandBlock's MorphIcon (f2cc80a7a4): Copy becomes Check for the hook's
 // 1.5s; two names let a second copy restart it.
@@ -45,6 +47,7 @@ shape WelcomeAgent
   badge: string
   terminalOpen: bool
   terminalAvailable: bool
+  codex: list<CodexSetup>
 shape WelcomeSetupTerminal
   font: string
   fontSize: number
@@ -192,6 +195,9 @@ component WelcomeWizard
     setup: action
     chatgpt: action
     finish: action
+    setupOp: action
+    setupBusy: bool
+    ui: action
   view
     column position="absolute" left=0 top=0 right=0 bottom=0 display="flex" align-items="center" justify-content="center" padding="1rem" box-sizing="border-box" background-color="light-dark(#fcfcfc99, #0a0a0aa3)" backdrop-filter="blur(4px)" testId="welcome-wizard"
       column width="100%" max-width="48rem" max-height="100%" box-sizing="border-box" border-radius="1.125rem" border-width=1 border-style="solid" border-color="light-dark(#2727271a, #ffffff14)" background-color="light-dark(#fcfcfccc, #0a0a0acc)" backdrop-filter="blur(12px)" box-shadow=(scheme == "dark" ? "inset 0 1px 0 #ffffff0a, 0 24px 72px -20px #000000e6" : "0 24px 64px -24px #000000a6") overflow="hidden" role="dialog" aria-label="Set up T3 Code" testId="welcome-dialog"
@@ -204,7 +210,7 @@ component WelcomeWizard
             when step == "connect"
               WelcomeConnect(view=view, busy=busy, error=error, link=link, pairOpen=pairOpen, helpOpen=helpOpen, local=local, editLink=editLink, pair=pair, togglePair=togglePair, toggleHelp=toggleHelp, copy=copy, setup=setup)
             when step == "agents"
-              WelcomeAgents(view=view, scheme=scheme, busy=busy, local=local, go=go, chatgpt=chatgpt)
+              WelcomeAgents(view=view, scheme=scheme, busy=busy, local=local, go=go, chatgpt=chatgpt, setupOp=setupOp, setupBusy=setupBusy, ui=ui)
             when step == "import"
               WelcomeImport(view=view, busy=busy, local=local, finish=finish)
 
@@ -332,6 +338,9 @@ component WelcomeAgents
     local: action
     go: action
     chatgpt: action
+    setupOp: action
+    setupBusy: bool
+    ui: action
   view
     column width="100%" testId="welcome-agents"
       WelcomeTitle(title="Connect your agents", description="Choose an agent to start coding. You can add more later.")
@@ -341,7 +350,11 @@ component WelcomeAgents
             text machine.label margin-bottom="0.5rem" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=2
             column width="100%" gap="0.375rem"
               each agent in machine.agents key=agent.key
-                WelcomeAgentCard(agent=agent, machine=machine.key, busy=busy, local=local)
+                when length(agent.codex) > 0
+                  each setup in agent.codex key=setup.key
+                    CodexWelcomeCard(setup=setup, busy=setupBusy, op=setupOp, ui=ui)
+                else
+                  WelcomeAgentCard(agent=agent, machine=machine.key, busy=busy, local=local)
             when machine.terminal.open
               WelcomeSetup(terminal=machine.terminal, scheme=scheme, local=local)
             when machine.chatgpt
@@ -361,7 +374,7 @@ component WelcomeAgentCard
       when agent.driver == "codex"
         ProviderMark(driver="codex", size=20, color="light-dark(#27272a, #f5f5f5)")
       else
-        DriverMark(driver=agent.driver, size=20, initials="")
+        DriverMark(driver=agent.driver, size=20, initials="", icon="")
       column flex=1 min-width=0 gap="0.125rem"
         text agent.name font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)" role=(agent.kind == "codex-setup" ? "heading" : "none") aria-level=3
         text agent.summary font-size="0.75rem" line-height="1.21875rem" color="light-dark(#71717b, #818181)"

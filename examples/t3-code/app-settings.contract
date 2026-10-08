@@ -29,12 +29,15 @@ use SettingsADialogs from "./settings-a-dialogs.contract"
 use ProvidersPanel from "./providers.contract"
 use ProviderPage from "./providers.contract"
 use ProviderSetupConfirm from "./providers-setup.contract"
+use AcpConfirm from "./providers-upkeep.contract" // provider-settings-upkeep
 use AddProviderDialog from "./providers-wizard.contract"
 use ProviderWizard from "./providers-wizard.contract"
 use AcpRegistry from "./providers-wizard.contract"
 use UsageHubDialog from "./providers-wizard.contract"
 use HubRemoveDialog from "./providers-wizard.contract"
 use ChatGptAccountDialog from "./providers-wizard.contract"
+use ChatGptAccountPicker from "./codex-setup.contract"
+use ChatGptPlanDialog from "./codex-setup.contract"
 use ConnectionsPanel from "./connections.contract"
 use ConnectionsPage from "./connections.contract"
 use AddEnvironmentDialog from "./connections.contract"
@@ -169,7 +172,7 @@ component SettingsWindow
     when settingsOpen
       row position="absolute" left=0 top=0 width="100%" height="100%" background-color=(settingsCore.palette.canvas == "" ? "light-dark(#fcfcfc, #0a0a0a)" : settingsCore.palette.canvas) inert=(connecting or (settingsThemeDialog != "" and settingsThemeDialog != "create" and settingsThemeDialog != "edit" and settingsThemeDialog != "duplicate") or settingsRestoreOpen or providerDialog != "") role="dialog" aria-label="Settings" testId="settings-dialog"
         when data.sidebarOpen
-          SettingsNav(controlsLeft=data.controlsLeft, nav=settingsNavigation, route=settingsRoute, query=settingsQuery, width=max(max(208, data.sidebarMinWidth), min(sidebarWidth, viewport.width / 5)), pal=settingsCore.palette, active=0, artwork=data.look.artwork, menuOpen=(settingsMenu != "" or modelsOpen or settingsRestoreOpen or settingsEscapeHeld or snapshotSetupOpen), edit=editSettingsQuery, onKey=coreSearchKey, pick=corePick, clear=coreClearSearch, back=closeModal, toggle=toggleSidebar)
+          SettingsNav(controlsLeft=data.controlsLeft, nav=settingsNavigation, route=settingsRoute, query=settingsQuery, width=max(max(208, data.sidebarMinWidth), min(sidebarWidth, viewport.width / 5)), pal=settingsCore.palette, active=0, artwork=data.look.artwork, menuOpen=(settingsMenu != "" or modelsOpen or settingsRestoreOpen or settingsEscapeHeld or snapshotSetupOpen or (settingsRoute == "providers" and providerPage.escapeOwned)), edit=editSettingsQuery, onKey=coreSearchKey, pick=corePick, clear=coreClearSearch, back=closeModal, toggle=toggleSidebar)
         column flex=1 min-width=0 height="100%" box-sizing="border-box"
           SettingsTopBar(controlsLeft=data.controlsLeft, route=settingsRoute, crumb=settingsCore.breadcrumb, pal=settingsCore.palette, busy=commandPending, restorable=(settingsCore.restoreCount > 0), navOpen=data.sidebarOpen, toggle=toggleSidebar, restore=coreRestoreOpen)
           scroll flex=1 min-height=0 width="100%" padding-left="0.375rem" padding-right="0.375rem" box-sizing="border-box" id="settings-content-scroll" scrollTop=settingsScrollTop scroll-behavior="smooth" testId="settings-content-scroll"
@@ -298,7 +301,11 @@ component SettingsModals
         AddProviderDialog(wizard=providerWizard, acp=acpAgents, step=wizardStep, attempted=wizardAttempted, labelSet=wizardLabelSet, label=wizardLabel, idSet=wizardIdSet, id=wizardId, query=acpQuery, manual=wizardManual, viewportHeight=viewport.height, scheme=(data.look.mode == "dark" or (data.look.mode == "system" and viewport.prefersColorScheme == "dark") ? "dark" : "light"), busy=commandPending, setupBusy=setupBusy, error=modalError, ui=providerUi, add=providerAdd, op=providerOp)
     when providerDialog == "chatgpt"
       each session in providerWizard.sessions key=session.key
-        ChatGptAccountDialog(busy=commandPending, error=modalError, close=providerUi("close", ""), create=providerOp("provider-chatgpt", ""))
+        ChatGptAccountDialog(wizard=providerWizard, busy=commandPending, setupBusy=setupBusy, error=modalError, close=providerUi("close", ""), create=providerOp("provider-chatgpt", ""), op=providerOp, ui=providerUi)
+    // managed-codex-chatgpt: Reconnect ChatGPT (ChatGptAccountPicker) for the instance that opened it.
+    when providerDialog == "codex-picker"
+      each picker in providerWizard.codexPicker key=picker.key
+        ChatGptAccountPicker(picker=picker, busy=setupBusy, op=providerOp, ui=providerUi)
     when providerDialog == "hub"
       each session in providerWizard.sessions key=session.key
         UsageHubDialog(environment=providerWizard.environment, busy=commandPending, error=modalError, close=providerUi("close", ""), save=providerOp("provider-hub-add"))
@@ -314,6 +321,16 @@ component SettingsModals
             ProviderSetupConfirm(what=providerDialog, instanceId=editor.id, title=account.signOutTitle, body=account.signOutBody, busy=setupBusy, op=providerOp, ui=providerUi)
           each runtime in (providerDialog == "setup-remove" ? editor.setup.runtime : []) key=runtime.key
             ProviderSetupConfirm(what=providerDialog, instanceId=editor.id, title=runtime.removeTitle, body=runtime.removeBody, busy=setupBusy, op=providerOp, ui=providerUi)
+    // provider-settings-upkeep: an ACP session's Delete and an ACP provider's Disable ask first (dialogs.confirm, destructive).
+    when providerDialog == "acp-delete" or providerDialog == "acp-disable"
+      each editor in providerPage.editors key=editor.key
+        each acp in editor.upkeep.acp key=acp.key
+          each session in (providerDialog == "acp-delete" ? acp.sessions : []) key=session.key
+            when session.confirmKey == providerTarget
+              AcpConfirm(title=session.deleteTitle, instanceId=acp.instanceId, what=providerDialog, target=session.sessionId, busy=setupBusy, op=providerOp, ui=providerUi)
+          each provider in (providerDialog == "acp-disable" ? acp.providers : []) key=provider.key
+            when provider.confirmKey == providerTarget
+              AcpConfirm(title=provider.disableTitle, instanceId=acp.instanceId, what=providerDialog, target=provider.providerId, busy=setupBusy, op=providerOp, ui=providerUi)
     // "Turn off/on local environment?" (this-machine.contract): open until the switch reads the new value.
     when (connectionRemove == "local-environment:off" and connectionsPage.thisMachine.enabled) or (connectionRemove == "local-environment:on" and not connectionsPage.thisMachine.enabled)
       LocalEnvironmentDialog(title=connectionsPage.thisMachine.dialogTitle, body=connectionsPage.thisMachine.dialogBody, confirmLabel=connectionsPage.thisMachine.dialogConfirm, destructive=connectionsPage.thisMachine.enabled, busy=commandPending, error=connectionsPage.thisMachine.error, still=viewport.prefersReducedMotion, cancel=connectionAskRemove(""), confirm=localCommand("local-environment", "", connectionsPage.thisMachine.enabled ? "off" : "on"))
@@ -327,3 +344,6 @@ component SettingsModals
         each route in environment.routes key=route.id
           when route.target == connectionRemove
             RouteRemoveDialog(route=route, busy=commandPending, cancel=connectionAskRemove(""), confirm=connectionOp("environment-route-remove", environment.key, route.id))
+    // managed-codex-chatgpt: ChatGptWelcomeCoordinator's "Your ChatGPT plan is connected", once per profile.
+    each notice in data.chatgptPlan key=notice.key
+      ChatGptPlanDialog(notice=notice, busy=setupBusy, op=providerOp)

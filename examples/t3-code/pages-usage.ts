@@ -3,6 +3,7 @@
 // apps/web/src/components/usage/{UsagePage,UsageProviderChart,usageProviders,
 // usageShortcuts,usagePagePreferences,UsageLimits,UsageLimitsPooled}.tsx and
 // packages/shared/src/{usageFormat,usageMerge,usageLimits}.ts.
+import { resolveOfficialAcpRegistryIconUrl } from './acp-icons';
 import { arr, num, obj, str, type Obj } from './domain';
 import { ClientError, providerAvailable, type Files, type Native } from './protocol';
 import type { T3Client } from './client';
@@ -11,6 +12,7 @@ import { emptyPrices, presentPrices } from './pages-usage-prices';
 import { checkMenu, uniqueProbes, type Probe } from './r5-composer-menus';
 import { emptyDetail, modelDetail, modelKey, modelRows, openModel, pageShares, setOpenModel, type ModelRowView, type ShareBarView } from './pages-usage-detail';
 import { letGo } from './let-go';
+import { usesChatGptSharing } from './chatgpt-plan'; // managed-codex-chatgpt
 
 export const USAGE_CONTRACT_VERSION = 6;
 const MERGE_COMPATIBLE_SINCE = 4;
@@ -292,7 +294,7 @@ export function formatDuration(ms: number): string {
   if (hours > 0) return `${hours}h ${minutes}m`;
   return `${minutes}m`;
 }
-export type LimitPool = { key: string; driver: string; label: string; windows: { key: string; label: string; remaining: number; fill: number; pace: string; resets: string; light: string; dark: string }[] };
+export type LimitPool = { key: string; driver: string; icon: string; label: string; windows: { key: string; label: string; remaining: number; fill: number; pace: string; resets: string; light: string; dark: string }[] };
 /** Providers on this environment that report subscription windows (providersWithLimits), one section each. */
 export function limitPools(providers: Obj[], now: number): LimitPool[] {
   const pools = new Map<string, LimitPool>();
@@ -301,7 +303,8 @@ export function limitPools(providers: Obj[], now: number): LimitPool[] {
     const limits = obj(provider.usageLimits);
     if (!provider.usageLimits) continue;
     const driver = str(provider.driver), meta = LIMIT_DRIVERS[driver] ?? { label: str(provider.displayName, driver), color: ['#27272a', '#f5f5f5'] as [string, string] };
-    const pool = pools.get(driver) ?? { key: driver, driver, label: meta.label, windows: [] };
+    // provider-settings-upkeep: an ACP agent's pool draws its registry icon (the live provider's iconUrl).
+    const pool = pools.get(driver) ?? { key: driver, driver, icon: driver === 'acpRegistry' ? resolveOfficialAcpRegistryIconUrl(str(provider.iconUrl)) ?? '' : '', label: meta.label, windows: [] };
     for (const window of arr(limits.windows)) {
       if (pool.windows.some(existing => existing.key === str(window.id))) continue;
       const used = Math.max(0, Math.min(100, num(window.usedPercent))), remaining = Math.round(100 - used);
@@ -397,6 +400,7 @@ async function usageView(client: T3Client, native: Native | null | undefined, st
   }
   if (!cached.summary) { page.error = cached.error; page.environmentStatus = 'Unavailable'; page.empty = `${page.environmentName} could not report usage.`; return page; }
   const environment = { id: client.environmentId, label: page.environmentName, summary: cached.summary };
+  page.chatgptShared = arr(client.config.providers).some(usesChatGptSharing); // the selected environment shares a ChatGPT plan
   const merged = mergeUsage([environment]);
   presentUsage(page, merged, cached.window, cached.summary);
   // UsageModelDialog for the row the person opened, while it is still in the window.
@@ -411,7 +415,7 @@ export function windowPeriods(window: UsageWindow): string[] {
 
 export function emptyUsage(metric: string, windowDays: number, breakdown: string, width: number) {
   return {
-    metric, windowDays, breakdown, plotWidth: width, menuWidth: 224, menuProbes: [] as Probe[], empty: '', error: '', environmentLabel: 'All environments', environmentName: '', environmentStatus: 'Scanning…',
+    chatgptShared: false, metric, windowDays, breakdown, plotWidth: width, menuWidth: 224, menuProbes: [] as Probe[], empty: '', error: '', environmentLabel: 'All environments', environmentName: '', environmentStatus: 'Scanning…',
     environmentSelected: true, environmentCount: 0, windowLabel: '', total: '', sessions: '', unpriced: '', notices: [] as { key: string; text: string }[],
     providers: [] as { key: string; driver: string; label: string; light: string; dark: string; sessions: string; value: string; detail: string }[],
     chartTitle: '', chart: { ticks: [], series: [], start: '', middle: '', end: '' } as Chart,
