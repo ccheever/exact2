@@ -1,0 +1,29 @@
+# fix-misc-batch, #298 bugs 8 and 9: the Settings model picker (agent mode), 2026-10-08
+Lane (mlane.mjs.txt): two lane T3 servers on the staged release, isolated homes under target/misc/mlane: A on 127.0.0.1:16113 (Codex and Claude ready on placeholder keys, no prompt ever sent),
+B on 127.0.0.1:16114 (claudeAgent disabled in its settings.json). The app in agent mode at 1280x840 pairs A through the welcome wizard and B through Settings > Connections > Add environment (single-use tokens, never printed).
+Drive (drive89.mjs.txt): Settings > General > New threads > Model at All projects / All environments; search 'zzzz'; clear; the Claude rail; the pointer onto Claude Opus 5.5 (agent hover); the pointer onto the search field.
+
+## Before: the base build (t3-code-evidence-base at c0475fbaa)
+2026-10-08T06:37:17.294Z [before1] app pid 7222
+2026-10-08T06:37:38.345Z [before1] after pairing B: dialog closed; error 
+2026-10-08T06:37:38.447Z [before1] shot connections
+2026-10-08T06:37:40.958Z [before1] picker open: rail 
+2026-10-08T06:37:41.810Z [before1] search zzzz: model-empty null; list null; text "No models found"
+2026-10-08T06:37:41.894Z [before1] shot search-empty
+2026-10-08T06:37:43.621Z [before1] claude rows: 
+2026-10-08T06:37:44.178Z [before1] hover model-claude-opus-5-5: tip absent; text ""
+2026-10-08T06:37:44.260Z [before1] shot row-hover
+2026-10-08T06:37:44.701Z [before1] pointer off the row: tip absent
+(The base's 'No models found' is in the tree, inside the list's scroll, which has no height: the screenshot shows none.)
+
+## After: this branch (9ae8c825b: the fix merged with the feature branch)
+2026-10-08T06:50:34.193Z [after1] app pid 70499
+2026-10-08T06:50:56.438Z [after1] after pairing B: dialog closed; error 
+2026-10-08T06:50:56.538Z [after1] shot connections
+2026-10-08T06:50:59.080Z [after1] picker open: rail 
+2026-10-08T06:50:59.933Z [after1] search zzzz: model-empty null; list null; text "No models found"
+2026-10-08T06:51:00.017Z [after1] shot search-empty
+2026-10-08T06:51:01.760Z [after1] claude rows: model-row-claude-opus-5-5, model-row-claude-sonnet-5-5, model-row-claude-fable-5-1, model-row-claude-haiku-5-5
+2026-10-08T06:51:02.328Z [after1] hover model-row-claude-opus-5-5: tip null; text "This model is unavailable on Daehyeon’s MacBook Pro. Select that environment to choose its model separately."
+2026-10-08T06:51:02.410Z [after1] shot row-hover
+2026-10-08T06:51:02.865Z [after1] pointer off the row: tip absent
