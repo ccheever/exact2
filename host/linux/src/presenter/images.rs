@@ -45,6 +45,13 @@ impl<D: DataSource> Presenter<D> {
         moved: &BTreeMap<ViewId, (f32, f32)>,
     ) -> Option<String> {
         let epoch = self.host.kernel().epoch();
+        // A tree whose only images are symbols (a list's icons) has nothing
+        // that loads by whether it shows: once synced at this epoch, a move
+        // or a paint finds the same. Walking them all at every pass and
+        // paint was 8% of a fling's thread on a list of icon rows.
+        if self.images.settled == Some(epoch) {
+            return None;
+        }
         if self.images.order.as_ref().is_none_or(|(e, _)| *e != epoch) {
             let kernel = self.host.kernel();
             let order = if kernel.has_type(NodeType::Image) {
@@ -125,6 +132,7 @@ impl<D: DataSource> Presenter<D> {
         self.images.box_index = Some((self.boxes_serial, order_epoch, index));
         self.images.order = Some((order_epoch, live));
         self.dirty |= !reports.is_empty();
+        self.images.settled = self.images.settled_at(epoch, reports.is_empty());
         if reports.is_empty() {
             return None;
         }
