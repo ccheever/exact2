@@ -1,0 +1,16 @@
+<!doctype html><meta charset="utf-8">
+<style>
+ body{margin:16px;font:14px/20px -apple-system,system-ui,sans-serif}
+ button{all:unset;display:flex;flex-direction:row;align-items:center;gap:8px;width:220px;padding:6px;border:1px solid #ccc;margin-bottom:8px;text-align:center}
+ .t{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex-shrink:1}
+ .n{flex-shrink:0;color:#777;font-family:ui-monospace,monospace;font-size:12px}
+ .g{flex:1;min-width:0}
+ .left{text-align:left}
+ p{margin:4px 0 2px;font-size:11px;color:#555}
+</style>
+<p>button, text-align: center (as the UA sheet), overflowing title</p>
+<button><span class="n">#159</span><span class="t">Describe the vowel counter (edited)</span><span>✓</span><span class="g"></span><span class="n">+3</span></button>
+<p>button with text-align: left (Tailwind text-left)</p>
+<button class="left"><span class="n">#159</span><span class="t">Describe the vowel counter (edited)</span><span>✓</span><span class="g"></span><span class="n">+3</span></button>
+<p>a plain UA button (no reset), overflowing title</p>
+<button style="all:revert;display:flex;width:220px;gap:8px"><span class="n">#159</span><span class="t">Describe the vowel counter (edited)</span><span>✓</span></button>
