@@ -489,14 +489,26 @@ fn a_message_to_a_working_codex_session_is_queued_behind_its_turn() {
     assert_eq!(body["text"], "next, run the tests");
     m.send_done(Ok(json!({"turns": [], "receipt": {"status": "queued"}})));
     assert!(m.failed.is_none());
+    // Every send is "queued" at first: a look a moment later says whether
+    // it was held behind the turn or already taken.
+    assert!(crate::view::session(&m)["queue"]
+        .as_array()
+        .unwrap()
+        .is_empty());
+    assert!(m.send_request().is_none(), "the look waits its moment");
+    m.tick(m.now + 800.0);
+    let look = op(&m.send_request().unwrap().2);
+    assert_eq!(look["operation"], "poll");
+    assert_eq!(look["request_id"], "00000000000000000000000000000001");
+    m.send_done(Ok(json!({"turns": [], "receipt": {"status": "queued"}})));
     let view = crate::view::session(&m);
     assert_eq!(
         view["entries"].as_array().unwrap().len(),
-        0,
-        "not bubbles in the transcript"
+        1,
+        "the second, not yet sent, is a bubble"
     );
     let queue = view["queue"].as_array().unwrap();
-    assert_eq!(queue.len(), 2, "both wait for the turn, in the tray");
+    assert_eq!(queue.len(), 1, "the held one waits in the tray");
     assert_eq!(op(&m.send_request().unwrap().2)["operation"], "detach");
     m.send_done(Ok(json!({"turns": []})));
     // The second message goes the same way, in order.
@@ -730,6 +742,9 @@ fn send_now_asks_for_the_same_message_to_interrupt_the_turn() {
     assert_eq!(sent["operation"], "send");
     let id = sent["request_id"].as_str().unwrap().to_string();
     m.send_done(Ok(json!({"receipt": {"status": "queued"}})));
+    m.tick(m.now + 800.0);
+    assert_eq!(op(&m.send_request().unwrap().2)["operation"], "poll");
+    m.send_done(Ok(json!({"receipt": {"status": "queued"}})));
     m.send_request();
     m.send_done(Ok(json!({"turns": []})));
     assert_eq!(crate::view::session(&m)["queue"][0]["id"], id.as_str());
@@ -819,6 +834,9 @@ fn claude_behind_its_gateway_queues_and_sends_now_as_codex_does() {
     let sent = op(&m.send_request().unwrap().2);
     assert_eq!(sent["operation"], "send");
     let id = sent["request_id"].as_str().unwrap().to_string();
+    m.send_done(Ok(json!({"receipt": {"status": "queued"}})));
+    m.tick(m.now + 800.0);
+    assert_eq!(op(&m.send_request().unwrap().2)["operation"], "poll");
     m.send_done(Ok(json!({"receipt": {"status": "queued"}})));
     m.send_request();
     m.send_done(Ok(json!({"turns": []})));
@@ -993,4 +1011,84 @@ fn a_send_caught_by_a_network_blip_goes_again_when_that_is_safe() {
         m.send_request();
     }
     assert!(m.failed.is_some(), "and gives up after a few");
+}
+
+#[test]
+fn a_message_codex_takes_at_once_is_never_shown_queued() {
+    let mut m = paired();
+    m.poll_request();
+    m.poll_done(Ok(codex_answer("idle")));
+    m.open("mac", "c1");
+    m.send_text("go");
+    let op = |body: &str| serde_json::from_str::<serde_json::Value>(body).unwrap();
+    m.send_request();
+    m.send_done(Ok(json!({"turns": []})));
+    m.send_request();
+    m.send_done(Ok(json!({"receipt": {"status": "queued"}})));
+    // Codex starts on it: the session is working before the look.
+    m.poll_request();
+    m.poll_done(Ok(codex_answer("running")));
+    assert!(crate::view::session(&m)["queue"]
+        .as_array()
+        .unwrap()
+        .is_empty());
+    m.tick(m.now + 800.0);
+    assert_eq!(op(&m.send_request().unwrap().2)["operation"], "poll");
+    m.send_done(Ok(json!({"receipt": {"status": "submitted"}})));
+    let view = crate::view::session(&m);
+    assert!(
+        view["queue"].as_array().unwrap().is_empty(),
+        "taken, not queued"
+    );
+    assert_eq!(
+        view["entries"].as_array().unwrap().len(),
+        1,
+        "a plain bubble"
+    );
+    assert_eq!(op(&m.send_request().unwrap().2)["operation"], "detach");
+}
+
+#[test]
+fn a_receipt_still_unknown_is_looked_at_a_few_times_then_left() {
+    let mut m = paired();
+    m.poll_request();
+    m.poll_done(Ok(codex_answer("running")));
+    m.open("mac", "c1");
+    m.send_text("go");
+    let op = |body: &str| serde_json::from_str::<serde_json::Value>(body).unwrap();
+    m.send_request();
+    m.send_done(Ok(json!({"turns": []})));
+    m.send_request();
+    m.send_done(Ok(json!({"receipt": {"status": "queued"}})));
+    let mut looks = 0;
+    loop {
+        m.tick(m.now + 1_100.0);
+        let body = op(&m.send_request().unwrap().2);
+        if body["operation"] == "detach" {
+            break;
+        }
+        looks += 1;
+        m.send_done(Ok(json!({"receipt": {"status": "unknown"}})));
+    }
+    assert_eq!(looks, 3);
+}
+
+#[test]
+fn an_older_server_without_poll_receipts_still_shows_the_queue() {
+    let mut m = paired();
+    m.poll_request();
+    m.poll_done(Ok(codex_answer("running")));
+    m.open("mac", "c1");
+    m.send_text("later");
+    m.send_request();
+    m.send_done(Ok(json!({"turns": []})));
+    m.send_request();
+    m.send_done(Ok(json!({"receipt": {"status": "queued"}})));
+    m.tick(m.now + 800.0);
+    m.send_request();
+    m.send_done(Ok(json!({"thread_id": "thread-1", "turns": []})));
+    assert_eq!(
+        crate::view::session(&m)["queue"].as_array().unwrap().len(),
+        1
+    );
 }

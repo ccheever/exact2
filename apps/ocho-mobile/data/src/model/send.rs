@@ -33,6 +33,7 @@ impl Model {
             interrupt: true,
             leaf,
             retries: 0,
+            checks: 0,
         });
         self.send.bump();
         self.feel("medium");
@@ -129,7 +130,7 @@ impl Model {
             text: text.clone(),
             after,
             request_id: request_id.clone(),
-            queued: route == SendRoute::Queue,
+            queued: false,
             interrupting: false,
         });
         self.failed = None;
@@ -143,6 +144,7 @@ impl Model {
             interrupt: false,
             leaf,
             retries: 0,
+            checks: 0,
         });
         self.send.bump();
         self.feel("light");
@@ -169,6 +171,11 @@ impl Model {
 
     /// The outgoing message's request: URL, bearer, JSON body.
     pub fn send_request(&mut self) -> Option<(String, String, String)> {
+        // A step that waits its moment (a look at a receipt, a retry after a
+        // blip) goes when `tick` finds it due.
+        if self.now < self.send.next_at {
+            return None;
+        }
         let conn = self.conn.as_ref()?;
         let out = self.outbox.pop_front()?;
         let (leaf, body) = match out.route {
@@ -178,6 +185,7 @@ impl Model {
                         Step::Attach => "attach",
                         Step::Send if out.interrupt => "interrupt-send",
                         Step::Send => "send",
+                        Step::Poll => "poll",
                         Step::Detach => "detach",
                     },
                     "client_id": self.client_id(),
@@ -186,6 +194,9 @@ impl Model {
                 if out.step == Step::Send {
                     body["request_id"] = out.request_id.clone().into();
                     body["text"] = out.text.clone().into();
+                }
+                if out.step == Step::Poll {
+                    body["request_id"] = out.request_id.clone().into();
                 }
                 (out.leaf, body)
             }
@@ -231,6 +242,10 @@ impl Model {
             }
         }
         out.retries = 0;
+        if out.route == SendRoute::Queue && out.step == Step::Poll {
+            self.receipt_seen(out, result);
+            return;
+        }
         if out.route == SendRoute::Queue && out.step != Step::Send {
             let attached = out.step == Step::Attach;
             match result {
@@ -272,6 +287,7 @@ impl Model {
         }
         // The queue answers a snapshot whose receipt is the message's.
         let result = result.map(|reply| reply.get("receipt").cloned().unwrap_or(reply));
+        let result_status = result.as_ref().ok().cloned();
         let failure = match result {
             Ok(reply) => match reply.get("status").and_then(|s| s.as_str()) {
                 Some("not_submitted") => Some(
@@ -298,8 +314,20 @@ impl Model {
             vec![("ok", ok.into()), ("route", route.into())],
         );
         if out.route == SendRoute::Queue {
+            // Taken already, or held behind the turn? Look once delivery has
+            // had its moment (an interrupting send waits for its answer).
+            let next = if failure.is_none()
+                && !out.interrupt
+                && receipt_status(&result_status) != Some("submitted")
+            {
+                self.send.next_at = self.now + RECEIPT_LOOK_MS;
+                Step::Poll
+            } else {
+                Step::Detach
+            };
             self.outbox.push_front(Outgoing {
-                step: Step::Detach,
+                step: next,
+                checks: 0,
                 ..out.clone()
             });
         }
@@ -386,4 +414,76 @@ fn retry_is_safe(out: &Outgoing, why: &str) -> bool {
         || lower.contains("no answer")
         || lower.contains("failed to fetch");
     never_arrived || (maybe_arrived && out.route != SendRoute::Input)
+}
+
+/// How long after a send its receipt is looked at, and how many looks a
+/// message gets before the transcript is left to say.
+const RECEIPT_LOOK_MS: f64 = 700.0;
+const RECEIPT_LOOKS: u32 = 3;
+
+fn receipt_status(receipt: &Option<serde_json::Value>) -> Option<&str> {
+    receipt.as_ref()?.get("status")?.as_str()
+}
+
+impl Model {
+    /// A look at a sent message's receipt: taken (a plain bubble), held
+    /// behind the turn (the queue tray, with "Send now"), refused, or not
+    /// yet known (look again, a few times).
+    fn receipt_seen(&mut self, mut out: Outgoing, result: Result<serde_json::Value, String>) {
+        let receipt = result
+            .ok()
+            .map(|reply| reply.get("receipt").cloned().unwrap_or(reply));
+        let status = receipt_status(&receipt).map(str::to_string);
+        let echoed = !self.pending.iter().any(|p| p.request_id == out.request_id);
+        let mut detach = true;
+        match status.as_deref() {
+            _ if echoed => {}
+            Some("submitted") => self.mark_queued(&out.request_id, false),
+            Some("queued") => self.mark_queued(&out.request_id, true),
+            Some("not_submitted") => {
+                let why = receipt
+                    .as_ref()
+                    .and_then(|r| r.get("reason"))
+                    .and_then(|r| r.as_str())
+                    .filter(|r| !r.is_empty())
+                    .unwrap_or("The session did not take the message.")
+                    .to_string();
+                self.outbox.push_front(Outgoing {
+                    step: Step::Detach,
+                    ..out.clone()
+                });
+                self.send_failed(out, why);
+                return;
+            }
+            // A server whose poll names no receipt (Fleet before #475) can't
+            // say: held while the session works, as before.
+            None if receipt.as_ref().is_some_and(|r| r.get("status").is_none()) => {
+                let working = self.live_session(&out.key).is_some_and(|s| s.working());
+                self.mark_queued(&out.request_id, working);
+            }
+            _ if out.checks + 1 < RECEIPT_LOOKS => {
+                out.checks += 1;
+                self.send.next_at = self.now + 1_000.0;
+                self.outbox.push_front(out.clone());
+                detach = false;
+            }
+            _ => {}
+        }
+        if detach {
+            self.outbox.push_front(Outgoing {
+                step: Step::Detach,
+                ..out
+            });
+            self.send.bump();
+        }
+    }
+
+    fn mark_queued(&mut self, request_id: &str, queued: bool) {
+        if let Some(p) = self.pending.iter_mut().find(|p| p.request_id == request_id) {
+            if p.queued != queued {
+                p.queued = queued;
+                self.version += 1;
+            }
+        }
+    }
 }

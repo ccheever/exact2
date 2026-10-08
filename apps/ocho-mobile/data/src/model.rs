@@ -189,6 +189,8 @@ pub struct Outgoing {
     pub leaf: &'static str,
     /// Tries already made of this step after a network failure.
     pub retries: u32,
+    /// Looks at the receipt so far (Step::Poll).
+    pub checks: u32,
 }
 
 /// A queued Codex message's requests, in order.
@@ -199,6 +201,10 @@ pub enum Step {
     Attach,
     /// Hand Fleet the message; it waits for the running turn.
     Send,
+    /// Ask where the message is: Fleet answers every send "queued" and
+    /// hands it to the session a moment later, so only a look after that
+    /// tells a message held behind a turn from one already taken.
+    Poll,
     /// Unsubscribe, so the desktop's attached badge clears.
     Detach,
 }
@@ -214,8 +220,8 @@ pub struct Pending {
     pub after: usize,
     /// Its idempotency key: what "Send now" asks for again.
     pub request_id: String,
-    /// Through Codex's queue: it waits behind a running turn and can be sent
-    /// now instead, interrupting it.
+    /// Held by Fleet behind a running turn (its receipt said so after
+    /// delivery had its chance): it can be sent now instead, interrupting.
     pub queued: bool,
     /// "Send now" was pressed: the turn is being interrupted for it.
     pub interrupting: bool,
