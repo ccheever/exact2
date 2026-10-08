@@ -621,7 +621,8 @@ try {
     // TypeErrors in both; the page then reads the file from the store into the body (http-body.js) as a Blob.
     const bodyFromRefusals=['TypeError: exactBodyFrom must be an app:/ path','TypeError: exactBodyFrom must be an app:/ path',
       'TypeError: exactBodyFrom: an app:/ path has no . or .. segment','TypeError: fetch: a request has one body: body or exactBodyFrom',
-      'TypeError: fetch: a GET request cannot have a body','TypeError: fetch: a HEAD request cannot have a body'].join('\n');
+      'TypeError: fetch: a GET request cannot have a body','TypeError: fetch: a HEAD request cannot have a body',
+      'TypeError: exactBodyFrom: a path is at most 4096 bytes'].join('\n');
     const uploads=[['main',await invoke(storage,'work',['upload','app:/data/photo.jpg'],[],['session'])],
       ['worker',await workerInvoke('work',['upload','app:/data/photo.jpg'],[],['session'])]];
     for(const [where,up] of uploads)if(up.request?.body_from!=='app:/data/photo.jpg'||up.request.body||up.request.body_base64)throw new Error(`${where}: exactBodyFrom's request ${JSON.stringify(up.request)}`);

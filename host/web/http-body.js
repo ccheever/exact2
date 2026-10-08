@@ -176,6 +176,10 @@ export async function request(op, { grantSet, loadPageNative, moduleLoader, loca
   // counts against it.
   if (op.timeoutMs !== undefined && (!Number.isInteger(op.timeoutMs) || op.timeoutMs < 1 || op.timeoutMs > 3600000)) return failed(2, 'a request timeout must be 1 to 3600000 ms');
   const deadline = op.timeoutMs === undefined ? null : AbortSignal.timeout(op.timeoutMs);
+  // The same deadline as an instant, checked by the clock just before the request goes out:
+  // a body read or grant work that held the event loop past it fires no timer first.
+  const expires = op.timeoutMs === undefined ? Infinity : performance.now() + op.timeoutMs;
+  const expired = () => deadline && !controller.signal.aborted && (deadline.aborted || performance.now() >= expires);
   controllers.add(controller);
   const signal = deadline ? AbortSignal.any([controller.signal, deadline]) : controller.signal;
   // `exactBodyFrom` (LLP 1108 D6 R2): the app file, read now under the
@@ -192,16 +196,14 @@ export async function request(op, { grantSet, loadPageNative, moduleLoader, loca
     if (!coversPath(effective, 'fs.read', op.bodyFrom))
       return failed(2, `exactBodyFrom ${op.bodyFrom}: denied: fs.read ${op.bodyFrom}: no grant covers it; grant \`fs.read ${op.bodyFrom}\``);
     // The read yields to the deadline and to letting go: nothing is sent once either has ended it.
-    if (deadline?.aborted && !controller.signal.aborted) return failed(10, `the request timed out after ${op.timeoutMs} ms`);
+    if (expired()) return failed(10, `the request timed out after ${op.timeoutMs} ms`);
     if (signal.aborted) return failed(4, 'request aborted');
-    const started = performance.now();
     const stopped = new Promise(resolve => signal.addEventListener('abort', resolve, { once: true }));
     const reading = bodyFile(op.bodyFrom, effective);
     reading.catch(() => {}); // a read that loses the race is nobody's
     try { fileBody = await Promise.race([reading, stopped]); }
     catch (error) { return failed(error?.code === 'agent' ? 3 : 2, error); }
-    // By the clock too: a read that held the event loop past the deadline fires no timer first.
-    if (deadline && !controller.signal.aborted && (deadline.aborted || performance.now() - started >= op.timeoutMs)) return failed(10, `the request timed out after ${op.timeoutMs} ms`);
+    if (expired()) return failed(10, `the request timed out after ${op.timeoutMs} ms`);
     if (signal.aborted) return failed(4, 'request aborted');
     if (!active()) return failed(4, 'request source unloaded');
   }
@@ -214,6 +216,7 @@ export async function request(op, { grantSet, loadPageNative, moduleLoader, loca
     // @ref LLP 1103 D1, D2 — a driver fault is a refused connection, never sent; a GET
     // `fetchEarly` already sent (before the fault was armed) is not one it decides.
     if (!early && !asset && !op.stream && takeFault(url)) return failed(1, faultMessage(url));
+    if (!early && expired()) return failed(10, `the request timed out after ${op.timeoutMs} ms`);
     const response = await (early || fetch(asset ? localAssetURL(url) : url, init));
     // A redirect that left the grants names where it led (podcast F5): the
     // browser followed it, and the response's URL is the last hop's.

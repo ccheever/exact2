@@ -12,11 +12,10 @@
 //! during native work it is bounded by the worker and stream counts, not by
 //! the lane's byte reservations (the core's `Core` comment).
 //!
-//! Time: the request's deadline is armed before the read and checked after
-//! it, so a read that outlasts it sends nothing and the request fails
-//! `Timeout`. The read itself, of a local file, is not interrupted: a
-//! stalled disk holds the worker until it returns, as a stalled `readFile`
-//! holds storage's.
+//! Time: the request's deadline is armed before the read, and the read runs
+//! on a thread of its own while the worker watches the deadline and the
+//! abort: either settles the request at once, nothing is sent, and a stalled
+//! read's late bytes are dropped when it returns.
 use exact_runner::{FailureKind, Outcome, Request, MAX_BODY_FROM_BYTES};
 use ibex2::stdlib::app_fs::AppDirectories;
 use std::path::PathBuf;
@@ -39,10 +38,15 @@ pub(super) fn open(roots: &[PathBuf; 3]) -> Result<AppDirectories, String> {
 
 /// Read `request.body_from` into `request.body` under `grants` (the app's,
 /// narrowed by the request's own scope). A request without one is untouched.
+/// `stop` says when the request has ended meanwhile (its deadline passed, it
+/// was aborted): the read runs on a thread of its own, so the worker settles
+/// the request then without waiting for a stalled read, whose late bytes are
+/// dropped.
 pub(super) fn resolve(
     roots: Roots<'_>,
     grants: &str,
     request: &mut Request,
+    stop: &dyn Fn() -> Option<Outcome>,
 ) -> Result<(), Outcome> {
     let Some(path) = request.body_from.clone() else {
         return Ok(());
@@ -50,10 +54,46 @@ pub(super) fn resolve(
     if let Some(why) = request.body_from_refusal() {
         return Err(refused(why.to_string()));
     }
-    let bytes = read(roots, grants, request.grants.as_deref(), &path)?;
+    let (roots, grants, scope) = (roots.cloned(), grants.to_string(), request.grants.clone());
+    let bytes = acquire(
+        move || read(roots.as_ref(), &grants, scope.as_deref(), &path),
+        stop,
+    )?;
     request.body = bytes;
     request.body_from = None;
     Ok(())
+}
+
+/// Run `read` off this thread and wait for it, or for `stop` to end the
+/// request first; a read that loses is left to finish alone and its result
+/// dropped.
+pub(super) fn acquire(
+    read: impl FnOnce() -> Result<Vec<u8>, Outcome> + Send + 'static,
+    stop: &dyn Fn() -> Option<Outcome>,
+) -> Result<Vec<u8>, Outcome> {
+    if let Some(ended) = stop() {
+        return Err(ended);
+    }
+    let (done, result) = std::sync::mpsc::channel();
+    std::thread::Builder::new()
+        .name("exact-body-from".into())
+        .spawn(move || {
+            let _ = done.send(read());
+        })
+        .map_err(|e| refused(format!("exactBodyFrom: the read could not start: {e}")))?;
+    loop {
+        match result.recv_timeout(std::time::Duration::from_millis(5)) {
+            Ok(read) => return stop().map_or(read, Err),
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                if let Some(ended) = stop() {
+                    return Err(ended);
+                }
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                return Err(refused("exactBodyFrom: the read failed".into()));
+            }
+        }
+    }
 }
 
 fn refused(message: String) -> Outcome {

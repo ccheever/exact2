@@ -927,19 +927,25 @@ fn execute(
         Err(why) => return failed(FailureKind::Refused, why),
     };
     // The body from an app file, read now, as late as can be, and refused
-    // before anything is sent (LLP 1108 D6 R2). A read the deadline or an
-    // abort overtook sends nothing.
-    if let Err(outcome) = body::resolve(files.roots, files.grants, &mut request) {
+    // before anything is sent (LLP 1108 D6 R2). The deadline or an abort
+    // ends the request while the file is read, and nothing is sent.
+    let ended = || {
+        if deadline.as_ref().is_some_and(Deadline::passed) {
+            Some(failed(
+                FailureKind::Timeout,
+                format!("the request timed out after {} ms", timeout.unwrap_or(0)),
+            ))
+        } else if abort.signal().aborted() {
+            Some(failed(FailureKind::Aborted, "native request aborted"))
+        } else {
+            None
+        }
+    };
+    if let Err(outcome) = body::resolve(files.roots, files.grants, &mut request, &ended) {
         return outcome;
     }
-    if deadline.as_ref().is_some_and(Deadline::passed) {
-        return failed(
-            FailureKind::Timeout,
-            format!("the request timed out after {} ms", timeout.unwrap_or(0)),
-        );
-    }
-    if abort.signal().aborted() {
-        return failed(FailureKind::Aborted, "native request aborted");
+    if let Some(outcome) = ended() {
+        return outcome;
     }
     let mut req = fetch_request(request, forced);
     req.max_body = Some(limit);

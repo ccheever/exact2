@@ -775,6 +775,25 @@ mod tests {
         assert_eq!(requires(json!({})), Value::Null);
     }
 
+    /// LLP 1108 D6 R2: a TypeScript app's plan requires the prelude runtime
+    /// its compatibility inputs carry (`exactBodyFrom`), so an older cohort
+    /// takes no bundle; an app without one requires none.
+    #[test]
+    fn a_plan_requires_the_typescript_runtime_its_inputs_carry() {
+        let plan = exact_plan::builder::PlanBuilder::new(0, 0)
+            .finish()
+            .unwrap();
+        let requires = |inputs: Value| {
+            let graph = artifact_graph(&plan, &inputs, &[], "aarch64-apple-ios").unwrap();
+            graph["artifacts"][0]["requires"]["typescriptRuntime"].clone()
+        };
+        assert_eq!(
+            requires(json!({"typescriptRuntime": crate::compat::TYPESCRIPT_RUNTIME})),
+            json!(crate::compat::TYPESCRIPT_RUNTIME)
+        );
+        assert_eq!(requires(json!({})), Value::Null);
+    }
+
     /// LLP 1098 D8: the receipt says whether a node claims the media session.
     #[test]
     fn a_plan_with_metadata_claims_the_media_session() {

@@ -167,6 +167,7 @@ fn a_body_from_fetch_refuses_is_a_type_error_before_any_request() {
             "TypeError: fetch: a request has one body: body or exactBodyFrom",
             "TypeError: fetch: a GET request cannot have a body",
             "TypeError: fetch: a HEAD request cannot have a body",
+            "TypeError: exactBodyFrom: a path is at most 4096 bytes",
         ],
         "{refused}"
     );

@@ -18,7 +18,7 @@ export function bodyFromRefusal(input, init) {
   if (new TextEncoder().encode(path).length > 4096) return 'exactBodyFrom: a path is at most 4096 bytes';
   if (/(^|\/)\.\.?(\/|$)|\0/.test(path.slice(5))) return 'exactBodyFrom: an app:/ path has no . or .. segment';
   if (method === 'GET' || method === 'HEAD') return `fetch: a ${method} request cannot have a body`;
-  if (init.exactStream !== undefined && /^wss?:/i.test(String(input))) return 'exactBodyFrom: a WebSocket sends no body';
+  if (init.exactStream !== undefined && /^wss?:/i.test(typeof Request === 'function' && input instanceof Request ? input.url : String(input))) return 'exactBodyFrom: a WebSocket sends no body';
   if (init.body != null || typeof Request === 'function' && input instanceof Request && input.body != null) return 'fetch: a request has one body: body or exactBodyFrom';
   return null;
 }
@@ -48,14 +48,16 @@ async function fromFile(input, init) {
     stop = () => { signal?.removeEventListener?.('abort', aborted); deadline?.removeEventListener('abort', timedOut); };
   });
   let body;
+  if (signal?.aborted) { stop(); throw signal.reason ?? new FetchError('Aborted', 'the fetch was aborted'); }
   const reading = readBodyFile(path, tsGrantSet);
   reading.catch(() => {}); // a read that loses the race is nobody's
   try { body = await Promise.race([reading, ended]); } finally { stop(); }
-  // By the clock too: a read that held the event loop past the deadline fires no timer first.
+  // One deadline for the whole request: its instant goes to fetchWith, which
+  // checks it by the clock just before sending, after its own grant work.
   const spent = clock.now() - started;
   if (ms !== undefined && spent >= ms) throw new FetchError('Timeout', `the request timed out after ${ms} ms`);
   const left = ms === undefined ? undefined : Math.max(1, Math.ceil(ms - spent));
-  return fetchWith(tsGrantSet, input, { ...rest, body, ...(left === undefined ? {} : { exactTimeout: left }) });
+  return fetchWith(tsGrantSet, input, { ...rest, body, ...(left === undefined ? {} : { exactTimeout: left }) }, ms === undefined ? null : { at: started + ms, ms });
 }
 
 // An answer that keeps coming (LLP 1016.000), with Hermes's words

@@ -189,3 +189,54 @@ fn a_root_replaced_after_the_host_named_it_is_not_followed() {
     );
     assert_eq!(sent.lock().unwrap()[0].0, b"the app's");
 }
+
+/// A read that outlasts the request's deadline does not hold it: the worker
+/// settles `Timeout` when the deadline passes, and the read's late bytes are
+/// dropped (Astra, round 3).
+#[test]
+fn a_stalled_read_is_settled_by_the_deadline_without_waiting_for_it() {
+    let passed = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let flag = passed.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(30));
+        flag.store(true, Ordering::Release);
+    });
+    let started = Instant::now();
+    let result = super::body::acquire(
+        || {
+            std::thread::sleep(Duration::from_secs(3));
+            Ok(b"late".to_vec())
+        },
+        &|| {
+            passed
+                .load(Ordering::Acquire)
+                .then(|| failed(FailureKind::Timeout, "the request timed out after 30 ms"))
+        },
+    );
+    assert!(
+        matches!(
+            &result,
+            Err(Outcome::Failed {
+                kind: FailureKind::Timeout,
+                ..
+            })
+        ),
+        "{result:?}"
+    );
+    assert!(
+        started.elapsed() < Duration::from_secs(1),
+        "{:?}",
+        started.elapsed()
+    );
+    // A read that finishes after its request ended is not taken either.
+    let result = super::body::acquire(|| Ok(b"bytes".to_vec()), &|| {
+        Some(failed(FailureKind::Aborted, "native request aborted"))
+    });
+    assert!(matches!(
+        result,
+        Err(Outcome::Failed {
+            kind: FailureKind::Aborted,
+            ..
+        })
+    ));
+}

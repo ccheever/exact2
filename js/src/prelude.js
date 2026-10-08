@@ -650,8 +650,19 @@
     return out.join("");
   }
 
-  // A string's UTF-8 bytes: a surrogate half counts 2, so a pair counts 4.
-  function utf8Length(s) { var n = 0; for (var i = 0; i < s.length; i++) { var c = s.charCodeAt(i); n += c < 0x80 ? 1 : c < 0x800 ? 2 : c >= 0xd800 && c < 0xe000 ? 2 : 3; } return n; }
+  // A string's UTF-8 bytes as TextEncoder makes them: a pair is 4, a lone
+  // surrogate its replacement character's 3.
+  function utf8Length(s) {
+    var n = 0;
+    for (var i = 0; i < s.length; i++) {
+      var c = s.charCodeAt(i);
+      if (c < 0x80) n += 1;
+      else if (c < 0x800) n += 2;
+      else if (c >= 0xd800 && c < 0xdc00 && i + 1 < s.length && (s.charCodeAt(i + 1) & 0xfc00) === 0xdc00) { n += 4; i++; }
+      else n += 3;
+    }
+    return n;
+  }
 
   // --- fetch: a request the host runs; a Promise for its reply -------------
   var nextTicket = 1;

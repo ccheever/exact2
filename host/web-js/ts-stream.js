@@ -26,6 +26,11 @@ function request(input, init) {
 export function open({ input, init }, conv, grantSet, deliver, controller) {
   let req;
   try { req = request(input, init); } catch (e) { return Promise.resolve({ error: String(e?.message ?? e), code: failureCode(e) }); }
+  // The caller's signal, as Fetch picks it (`init.signal` over the Request's),
+  // ends the stream too, before a body is read from a file or after.
+  const own = init.signal !== undefined ? init.signal : typeof Request === 'function' && input instanceof Request ? input.signal : null;
+  if (own?.aborted) controller.abort(own.reason);
+  else own?.addEventListener?.('abort', () => controller.abort(own.reason), { once: true });
   const map = init.exactStream;
   const value = event => {
     try {

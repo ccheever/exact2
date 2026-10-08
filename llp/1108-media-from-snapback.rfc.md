@@ -515,9 +515,13 @@ receipt requires `typescriptRuntime` and the classifier refuses a cohort
 whose prelude is older (an id change alone was not enough: delivery lets
 ids differ); both web carriers check the deadline by the clock and an
 already-aborted signal before sending; the JS target's stream takes a
-`Request`'s URL and headers; the path cap counts UTF-8 bytes. Not changed: a
-native read of a local file is not interrupted mid-read (the deadline is
-checked after it, and nothing is sent).
+`Request`'s URL and headers; the path cap counts UTF-8 bytes. Round 3
+(`code-2026-10-08-body-from-r3.*.md`), folded: the native read runs on a
+thread of its own while the worker watches the deadline and the abort, so a
+stalled read no longer holds the request (its late bytes are dropped); one
+deadline instant per request on both web carriers, checked by the clock just
+before sending; a JS-target stream honours the caller's signal; the
+prelude counts a lone surrogate as `TextEncoder` does.
 
 ### D7 — Sessions
 

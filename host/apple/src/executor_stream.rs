@@ -65,9 +65,14 @@ pub(super) fn run(
         match bindings {
             Ok(b) if is_socket(&request.url) => open_socket(&b, request, &abort).map(|s| (s, b)),
             // A body from an app file, read as the stream opens (LLP 1108 D6 R2).
-            Ok(b) => super::body::resolve(shared.roots.get(), grants, &mut request)
-                .and_then(|()| open(Ok(&b), request, forced, &abort))
-                .map(|(r, limit)| (Opened::Events(r, limit), b)),
+            Ok(b) => super::body::resolve(shared.roots.get(), grants, &mut request, &|| {
+                abort
+                    .signal()
+                    .aborted()
+                    .then(|| failed(FailureKind::Aborted, "native request aborted"))
+            })
+            .and_then(|()| open(Ok(&b), request, forced, &abort))
+            .map(|(r, limit)| (Opened::Events(r, limit), b)),
             Err(message) => Err(failed(FailureKind::Refused, message)),
         }
     }))

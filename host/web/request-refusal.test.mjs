@@ -522,12 +522,24 @@ test('a body read from a file is bounded by the deadline, and a socket refuses o
     const op = { op: 'request', ticket: 1, method: 'POST', url: 'https://x.test/up', headers: [], body: '', bodyFrom: 'app:/data/p.jpg', cache: 'default', timeoutMs: 10 };
     const late = await request(op, host);
     expect([late.kind, text(late)]).toEqual([10, 'the request timed out after 10 ms']);
+    // A read that returns in time but holds the event loop past the deadline: no timer fires first, the clock decides.
+    const blocking = { ...host, bodyFile: async () => { const end = performance.now() + 30; while (performance.now() < end); return new Blob(['held']); } };
+    const held = await request({ ...op, timeoutMs: 5 }, blocking);
+    expect([held.kind, text(held)]).toEqual([10, 'the request timed out after 5 ms']);
+    // An already-aborted request reads nothing.
+    let reads = 0;
+    const aborted = new AbortController(); aborted.abort();
+    const gone = await request({ ...op, timeoutMs: undefined }, { ...host, controller: aborted, bodyFile: async () => { reads++; return new Blob(['x']); } });
+    expect([gone.kind, reads]).toEqual([4, 0]);
     const socket = await request({ ...op, url: 'wss://x.test/feed', stream: true, timeoutMs: undefined }, host);
     expect([socket.kind, text(socket)]).toEqual([2, 'exactBodyFrom: a WebSocket sends no body']);
     const traversal = await request({ ...op, bodyFrom: 'app:/data/../tmp/p.jpg', timeoutMs: undefined }, host);
     expect(text(traversal)).toContain('no . or .. segment');
     await new Promise(r => setTimeout(r, 150));
     expect(sent).toBe(0);
+    // The JS target carries the deadline's instant into fetchWith, which checks it after its grant work.
+    const lateJs = await fetchWith(normalized('net.fetch https://x.test'), 'https://x.test/up', { method: 'POST', exactTimeout: 1000 }, { at: performance.now() - 1, ms: 5 }).catch(e => e);
+    expect([lateJs.kind, lateJs.message]).toEqual(['Timeout', 'the request timed out after 5 ms']);
   } finally { globalThis.fetch = fetchBefore; }
 });
 

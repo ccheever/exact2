@@ -282,6 +282,7 @@ async function work(_source:string, args:unknown[], store:Store, storage:Storage
       { method: "POST", exactBodyFrom: data + "/photo.jpg", body: "x" },
       { exactBodyFrom: data + "/photo.jpg" },
       { method: "HEAD", exactBodyFrom: data + "/photo.jpg" },
+      { method: "POST", exactBodyFrom: data + "/" + "\ud800".repeat(1500) },
     ];
     for (const init of inits) {
       try { await fetch(url, init); out.push("sent"); } catch (e:any) { out.push(e.name + ": " + e.message); }
