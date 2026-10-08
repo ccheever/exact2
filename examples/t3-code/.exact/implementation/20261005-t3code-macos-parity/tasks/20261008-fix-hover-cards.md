@@ -8,7 +8,7 @@ repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: 'feat(example)/t3-code-fix-hover-cards'
 pr_url: https://github.com/ccheever/exact2/pull/307
-verified_commit: 6ef66bc93
+verified_commit: 5752b7be2
 ---
 
 # Tooltips and hover cards stay inside the window and stay open under the pointer
@@ -108,9 +108,10 @@ cross into it.
 | Bug 14: the freshness card stays as the pointer crosses into it and while on its button; closes after leaving (agent) | pass | [05](https://raw.githubusercontent.com/ccheever/exact2/e780f6b871a414f7981cfdf0a9536cffe80d1b77/fix-hover-cards/05-freshness-card.png), [06](https://raw.githubusercontent.com/ccheever/exact2/e780f6b871a414f7981cfdf0a9536cffe80d1b77/fix-hover-cards/06-freshness-card-pointer-inside.png), [07](https://raw.githubusercontent.com/ccheever/exact2/e780f6b871a414f7981cfdf0a9536cffe80d1b77/fix-hover-cards/07-freshness-card-pointer-on-button.png) |
 | Bug 10: the Usage popover stays as the pointer crosses into it; its email's tooltip shows; closes after leaving (agent) | pass | [08](https://raw.githubusercontent.com/ccheever/exact2/e780f6b871a414f7981cfdf0a9536cffe80d1b77/fix-hover-cards/08-usage-popover.png), [09](https://raw.githubusercontent.com/ccheever/exact2/e780f6b871a414f7981cfdf0a9536cffe80d1b77/fix-hover-cards/09-usage-popover-pointer-inside.png) |
 | Bug 9: an unavailable row's reason as a tooltip left of the row, beside the picker (agent) | pass | [10](https://raw.githubusercontent.com/ccheever/exact2/e780f6b871a414f7981cfdf0a9536cffe80d1b77/fix-hover-cards/10-unavailable-model-row.png) |
-| The same rows on the merged head `6ef66bc93` (agent) | pass | [settings](https://raw.githubusercontent.com/ccheever/exact2/e780f6b871a414f7981cfdf0a9536cffe80d1b77/fix-hover-cards/merged-steps-settings-after.ndjson.txt), [pr](https://raw.githubusercontent.com/ccheever/exact2/e780f6b871a414f7981cfdf0a9536cffe80d1b77/fix-hover-cards/merged-steps-pr-after.ndjson.txt), [usage](https://raw.githubusercontent.com/ccheever/exact2/e780f6b871a414f7981cfdf0a9536cffe80d1b77/fix-hover-cards/merged-steps-usage-after.ndjson.txt) |
+| The same rows on the merged heads `6ef66bc93` and `5752b7be2` (after #290) (agent) | pass | [settings](https://raw.githubusercontent.com/ccheever/exact2/92e5b5006c23973be989618a2faa9d6e273293d1/fix-hover-cards/merged2-steps-settings-after.ndjson.txt), [pr](https://raw.githubusercontent.com/ccheever/exact2/92e5b5006c23973be989618a2faa9d6e273293d1/fix-hover-cards/merged2-steps-pr-after.ndjson.txt), [usage](https://raw.githubusercontent.com/ccheever/exact2/92e5b5006c23973be989618a2faa9d6e273293d1/fix-hover-cards/merged2-steps-usage-after.ndjson.txt); earlier: [settings](https://raw.githubusercontent.com/ccheever/exact2/e780f6b871a414f7981cfdf0a9536cffe80d1b77/fix-hover-cards/merged-steps-settings-after.ndjson.txt), [pr](https://raw.githubusercontent.com/ccheever/exact2/e780f6b871a414f7981cfdf0a9536cffe80d1b77/fix-hover-cards/merged-steps-pr-after.ndjson.txt), [usage](https://raw.githubusercontent.com/ccheever/exact2/e780f6b871a414f7981cfdf0a9536cffe80d1b77/fix-hover-cards/merged-steps-usage-after.ndjson.txt) |
 | Regression tests failing on the base | pass: 11 fail on `ec32c8c37`, pass here | `hover-layer.test.ts` |
 | Real pointer: bugs 1, 2, 9, 10, 14 | deferred to the real-input batch: the screen locked (CGSSessionScreenIsLocked = Yes at 07:51Z, user away) right after this task took the lock; the drive is ready and dry-run checked | "Real-input batch steps" below |
+| #290's rows (agent, `5752b7be2`): a press on the segment pins it; a press elsewhere on the page closes it (#290's light dismiss, the hover state too); hover, then a press pins it and a second press on the hovered segment closes it and it stays closed (the hover waits for a new enter); at 840x620 the legend row's press shows it anchored below that row, not over it, and a second press on the row closes it | pass (agent) | [handed-over log](https://raw.githubusercontent.com/ccheever/exact2/92e5b5006c23973be989618a2faa9d6e273293d1/fix-hover-cards/handed-over-steps-usage-after.ndjson.txt), [26](https://raw.githubusercontent.com/ccheever/exact2/92e5b5006c23973be989618a2faa9d6e273293d1/fix-hover-cards/handed-26-after-press-elsewhere.png), [27](https://raw.githubusercontent.com/ccheever/exact2/92e5b5006c23973be989618a2faa9d6e273293d1/fix-hover-cards/handed-27-second-press-hovered.png), [28](https://raw.githubusercontent.com/ccheever/exact2/92e5b5006c23973be989618a2faa9d6e273293d1/fix-hover-cards/handed-28-legend-pinned.png), [29](https://raw.githubusercontent.com/ccheever/exact2/92e5b5006c23973be989618a2faa9d6e273293d1/fix-hover-cards/handed-29-legend-second-press.png) |
 | #281's rule (coordinator, 2026-10-08: "consumption cannot depend on a press handler being present"): a real press on `PaFreshnessCard`'s padding over the Summary/Timeline tabs, and on the Usage popover's padding over the next card's bar, presses nothing under it | pending: the real-pointer session (`real.mjs` logs `press-spot`, `tabs-before`/`tabs-after`, `expanded`) | real-input session |
 | Framework limit recorded | X62 (local draft, not filed: brief) | `issues/20261008-x62-hover-outside-the-box.md` |
 
@@ -162,15 +163,21 @@ move, so a close delay that runs out closes the card. Each step was dry-run with
 | 3 | `53bece1c7` | The state in T3Window, the root keeps the hover clock (+10); usage (bug 10) and model rows (bug 9) on the helper; left/right sides. `bun test examples/t3-code` 3,144 pass / 1 skip / 0 fail; strict tsc clean; contract build clean; five checks all exit 0 | [pairs 01-10](https://raw.githubusercontent.com/ccheever/exact2/e780f6b871a414f7981cfdf0a9536cffe80d1b77/fix-hover-cards/), [agent-drive-record](https://raw.githubusercontent.com/ccheever/exact2/e780f6b871a414f7981cfdf0a9536cffe80d1b77/fix-hover-cards/agent-drive-record.txt), [drive.mjs](https://raw.githubusercontent.com/ccheever/exact2/e780f6b871a414f7981cfdf0a9536cffe80d1b77/fix-hover-cards/drive.mjs.txt) | real input |
 | real input | `53bece1c7` | Lock taken 07:44Z; the first real-pointer drive showed nothing: `loginwindow` over the screen, `CGSSessionScreenIsLocked = Yes` (07:51Z). Lock released at once; no further real input. `real.mjs` dry-run (`REAL_DRY=1`) to its last step for all three lanes | [real.mjs](https://raw.githubusercontent.com/ccheever/exact2/e780f6b871a414f7981cfdf0a9536cffe80d1b77/fix-hover-cards/real.mjs.txt) | the real-input batch |
 | 4 | merge `6ef66bc93` (base `fa46ad5d0`, #306: `model-picker.contract` merged cleanly, X63 kept beside X62) | `bun test examples/t3-code` 3,146 pass / 1 skip / 0 fail; strict tsc clean (app.ts, the new test); contract build 3,941 slots, 46 resources; `cargo test -p t3-code-macos --lib` 13 pass; `app.contract` 1,488 lines (+10 over `fa46ad5d0`); five checks: build ok, test 3,521 passed / 0 failed / 34 ignored (94 binaries), clippy ok, fmt ok, caps within, boot ok; agent drives repeated on the merged build: every row passes | merged step logs | real input; #290's merge |
+| 5 | `0f6f00892`, `55e6eddc0`, merge `5752b7be2` (base `84a52dde0`: #290, #303) | Base UI's open delay on the hover clock (nothing drawn before it: #263 item 11); the legend row anchors the Usage popover; a press on the pinned trigger and #290's light dismiss drop the hover state too; #290's pin, outside press, ground and confirm focus kept; #290's assertions follow the merged lines. `bun test --timeout 60000 examples/t3-code` 3,153 pass / 1 skip / 0 fail; strict tsc clean; contract build 3,950 slots, 46 resources; `cargo test -p t3-code-macos --lib` 13 pass; `app.contract` 1,488 (+10 over `84a52dde0`); five checks on `5752b7be2`: build ok, test 3,521 passed / 0 failed / 34 ignored (94 binaries), clippy ok, fmt ok, caps within, boot ok; agent drives repeated: all rows pass | merged2 logs, handed-over log and 26-29 | real pointer: the screen locked again (09:23Z) |
 
-## Handed over by #290 (coordinator, 2026-10-08), to run after #290 lands and is merged here
+## Handed over by #290 (coordinator, 2026-10-08)
 
-Real-pointer rows that #290 traced to hover: (1) a real press in the sidebar drops the pin, but the hover state kept the
-popover; (2) a press on the pinned segment with the pointer resting on it; (3) a press on a narrow legend row, which the
-popover hung over (the reference anchors it to the trigger that opened it). #290 also saw `pointermove` stop arriving
-after a segment's hover action called a root action (unconfirmed).
+Real-pointer rows that #290 traced to hover, now on this helper (see "Acceptance": they pass by the agent on
+`5752b7be2`): (1) a real press in the sidebar drops the pin, but #263's hover state kept the popover: here the
+hover state follows real leaves (the popover is drawn where the host tracks it) and #290's light dismiss drops it
+too; (2) a press on the pinned segment with the pointer resting on it: `toggle` drops the hover state as it unpins,
+and the hover waits for a new enter (Base UI's blockMouseMove); (3) a press on a narrow legend row, which the popover
+hung over: the legend row now anchors it (`place(id, "legend")`). #290's item 11 (a still-transparent popover over
+the next card takes the click) is answered by the open delay: nothing is drawn before Base UI's 300 ms.
+#290 also saw free `pointermove` stop after a segment's hover action called a root action (unconfirmed); the
+real-pointer session watches for it.
 
 ## Next action
 
-Merge #290 when it lands (resolve `pages-usage.contract`, `usage-pooled.contract`, `app-main.contract`,
-`app-window.contract`), then the handed-over rows; the real-pointer rows in the real-input batch.
+The one real-pointer session (`real.mjs`, "Real-input batch steps") when the screen is unlocked and the lock is
+free; the PR stays a draft.
