@@ -1,6 +1,8 @@
 import { mobileLayoutFacts } from './root-presentation';
 import { expect, test } from 'bun:test';
 import { T3Client } from './shared/client';
+import { MobileDraftClient } from './mobile-draft-recovery';
+import { mobileNewTask } from './new-task';
 import { obj, type Obj } from './shared/domain';
 import type { Native, Files } from './shared/protocol';
 import { EnvironmentFleet } from './shared/settings-b-fleet';
@@ -10,7 +12,7 @@ import { mobileComposerSettingsAction } from './composer-settings';
 import { mobileNewTaskFlowView as view, mobileNewTaskFlowAction as act, mobileNewTaskFlowOwns as owns, mobileNewTaskRoute } from './new-task-flow';
 
 async function fixture() {
-  const client = new T3Client(), fleet = new EnvironmentFleet(), calls: Obj[] = [];
+  const client = new MobileDraftClient(), fleet = new EnvironmentFleet(), calls: Obj[] = [];
   const files: Files = { fs: { async mkdir() {}, async readFile() { throw new Error('not saved'); }, async atomicWriteFile() {} } };
   await client.command('dismiss-error', '', '', 0, { available: true, watch() {}, async later() { return { ok: true, generation: 0, value: {} }; } }, files);
   Object.assign(client, { environmentId: 'env', origin: 'https://example.test', projectId: 'a', connection: 'connected',
@@ -487,4 +489,80 @@ test('New Task keyboard offset uses an explicit docked guide fact, never focus-l
   expect(mobileLayoutFacts('{"safeTop":-1,"safeBottom":34,"keyboardDocked":true,"liquidGlass":true}'))
     .toEqual({ safeTop: 0, safeBottom: 34, liquidGlass: true, keyboardDocked: true });
   expect(mobileLayoutFacts('{"focused":true,"height":300}').keyboardDocked).toBe(false);
+});
+
+function modelConfig(client: T3Client) {
+  client.config = { environment: { capabilities: { serverResolvedCommandContext: true } }, settings: { projectSettingsFolded: true, defaultModelSelection: null,
+    providerInstances: { codex: { driver: 'codex', enabled: true, config: {} } },
+    projectSettingsOverrides: { a: { defaultModelSelection: { instanceId: 'codex', model: 'configured', options: [{ id: 'reasoning', value: 'high' }] } } } },
+    providers: [{ instanceId: 'codex', driver: 'codex', enabled: true, installed: true, status: 'ready', auth: { status: 'authenticated' },
+      models: [{ slug: 'catalog', name: 'Catalog', isDefault: true }] }] };
+}
+
+test('actual New Task flow preserves configured noncatalog model and options through default recalculation', async () => {
+  const f = await fixture(); modelConfig(f.client);
+  f.client.local.composerControls.stickyProvider = 'codex';
+  f.client.local.composerControls.stickyByProvider.codex = { model: 'catalog', options: [] };
+  const chooser = f.snapshot('/new');
+  expect(await f.action(chooser.owner, 'project', '["env","a"]')).toMatchObject({ message: '', submitted: false });
+  expect(f.client.providerId).toBe('codex'); expect(f.client.modelId).toBe('configured');
+  expect(f.client.modelOptions).toEqual([{ id: 'reasoning', value: 'high' }]);
+  expect(mobileNewTask('', f.client, f.fleet).composer).toMatchObject({ modelLabel: 'configured', canSend: true });
+  f.client.chooseDefaults();
+  expect(f.client.modelId).toBe('configured'); expect(f.client.modelOptions).toEqual([{ id: 'reasoning', value: 'high' }]);
+  expect(f.snapshot('/new/draft', 'draft').ready).toBe(true);
+  expect(f.client.draft).toBe('A original');
+  expect(f.calls.some(call => ['orchestration.launchThread', 'orchestration.dispatchCommand'].includes(String(call.method)))).toBe(false);
+  f.client.scopes = [];
+  expect(mobileNewTask('', f.client, f.fleet).composer.canSend).toBe(false);
+});
+
+test('fresh defaults respect folded projects, explicit null and provider disable flags', async () => {
+  const f = await fixture(); modelConfig(f.client);
+  const settings = obj(f.client.config.settings), overrides = obj(settings.projectSettingsOverrides);
+  f.client.shell.projects[0]!.defaultModelSelection = { instanceId: 'codex', model: 'legacy-project' };
+  settings.defaultModelSelection = { instanceId: 'codex', model: 'environment' };
+  overrides.a = {}; f.client.chooseDefaults(); expect(f.client.modelId).toBe('environment');
+  settings.projectSettingsFolded = false;
+  f.client.chooseDefaults(); expect(f.client.modelId).toBe('legacy-project');
+  overrides.a = { defaultModelSelection: null };
+  f.client.chooseDefaults(); expect(f.client.modelId).toBe('catalog');
+  overrides.a = { defaultModelSelection: undefined };
+  f.client.chooseDefaults(); expect(f.client.modelId).toBe('environment');
+  overrides.a = { defaultModelSelection: { instanceId: 'codex', model: 'project' } };
+  obj(obj(settings.providerInstances).codex).config = { enabled: false };
+  f.client.chooseDefaults(); expect(f.client.modelId).toBe('environment');
+});
+
+test('sticky noncatalog choices retain options after implicit legacy defaults fall through', async () => {
+  const f = await fixture(); modelConfig(f.client);
+  const provider = obj((f.client.config.providers as Obj[])[0]);
+  (provider.models as Obj[]).push({ slug: 'configured', name: 'Legacy', isLegacy: true });
+  f.client.local.composerControls.stickyProvider = 'codex';
+  f.client.local.composerControls.stickyByProvider.codex = { model: 'remembered', options: [{ id: 'fast', value: true }] };
+  f.client.chooseDefaults(); expect(f.client.modelId).toBe('remembered');
+  expect(f.client.modelOptions).toEqual([{ id: 'fast', value: true }]);
+  provider.auth = { status: 'unauthenticated' };
+  f.client.chooseDefaults(); expect(f.client.modelId).toBe('');
+  expect(mobileNewTask('', f.client, f.fleet).composer).toMatchObject({ modelLabel: 'Choose model', canSend: false });
+});
+
+test('Antigravity keeps unavailable configured choice while send stays blocked', async () => {
+  const f = await fixture(); modelConfig(f.client);
+  obj(obj(f.client.config.settings).projectSettingsOverrides).a = { defaultModelSelection: { instanceId: 'anti', model: 'retained' } };
+  obj(obj(f.client.config.settings).providerInstances).anti = { driver: 'antigravity', enabled: true };
+  f.client.chooseDefaults(); expect(f.client.providerId).toBe('anti'); expect(f.client.modelId).toBe('retained');
+  expect(mobileNewTask('', f.client, f.fleet).composer).toMatchObject({ modelLabel: 'retained', modelUnavailable: true, canSend: false });
+});
+
+test('automatic choice follows catalog order and defaults without treating model display as send readiness', async () => {
+  const f = await fixture(); modelConfig(f.client);
+  obj(obj(f.client.config.settings).projectSettingsOverrides).a = {};
+  const provider = obj((f.client.config.providers as Obj[])[0]);
+  provider.status = 'error'; provider.models = [{ slug: 'first', name: 'First' }, { slug: 'default', name: 'Default', isDefault: true }];
+  f.client.chooseDefaults(); expect(f.client.modelId).toBe('default');
+  expect(mobileNewTask('', f.client, f.fleet).composer.canSend).toBe(false);
+  provider.models = [{ slug: 'first', name: 'First' }];
+  f.client.chooseDefaults(); expect(f.client.modelId).toBe('first');
+  provider.enabled = false; f.client.chooseDefaults(); expect(f.client.modelId).toBe('');
 });
