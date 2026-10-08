@@ -83,44 +83,86 @@ describe('#262: the base branch hover card is drawn by the window layer and take
   });
 });
 
+describe('#263 bug 10: the Usage segment popover is drawn in the page scroll content and takes the pointer', () => {
+  test('PoolSegment draws no popover; the page draws the shown (or last shown) one where its card lies inside every box around it', async () => {
+    expect(await component('usage-pooled.contract', 'PoolSegment')).not.toContain('SegmentPopup(');
+    const popups = await component('usage-pooled.contract', 'UsagePopups');
+    expect(popups).toContain('each seg in filter(window.segments, (one) => one.id == (shown != "" ? shown : last)) key=seg.id');
+    const popup = await component('usage-pooled.contract', 'SegmentPopup');
+    // Its placement box spans from the content top to the segment (side top) or from the segment down (side bottom).
+    expect(popup).toContain('top=(seg.side == "bottom" ? y + h : 0) height=(seg.side == "bottom" ? "auto" : y)');
+    expect(popup).toContain('column hover=enterPop(seg.id)');
+    const page = await source('pages-usage.contract');
+    expect(page).toContain('column id="usage-content" position="relative"');
+    expect(page).toContain('UsagePopups(view=page.pooled, shown=shown, last=last, pinned=pinned, scheme=scheme, reduced=reduced, x=popX, y=popY, w=popW, h=popH, enterPop=enterPop, enterMail=enterMail, redeem=redeem)');
+  });
+
+  test('the page opens it through the window hover state: the segment is the trigger, the popover and its email the card', async () => {
+    const page = await component('pages-usage.contract', 'UsagePage');
+    expect(page).toContain('derive hovered = hoverShown and hoverTip.kind == "usage" ? hoverTip.key : ""');
+    expect(page).toContain('derive shown = hovered != "" ? hovered : pinned');
+    expect(page).toMatch(/action enterSeg\(id: string, inside: bool\)\n    if inside\n      place\(id\)\n    hoverTipAt\(HoverTip\(key=id, kind="usage"[^\n]*\), "trigger", inside\)/);
+    expect(page).toMatch(/action enterPop\(id: string, inside: bool\)\n    hoverTipAt\(HoverTip\(key=id, kind="usage"[^\n]*\), "card", inside\)/);
+    expect(page).toContain('action enterMail(id: string, inside: bool)\n    enterPop(id, inside)');
+    // Escape and "Use reset" close it at once.
+    expect(page.match(/hoverTipAt\(noHoverTip\(\), "", true\)/g)).toHaveLength(2);
+    expect(await source('hover-layer.contract')).toContain('fn hoverDelay(kind: string): number = kind == "scopes" ? 100 : (kind == "freshness" ? 120 : (kind == "usage" ? 50 : 0))');
+  });
+});
+
+describe('#246 bug 9: an unavailable model row says why beside the picker', () => {
+  test('ModelRow hands the row frame and its reason to the layer, side left, centred', async () => {
+    const row = await component('model-picker.contract', 'ModelRow');
+    expect(row).toContain('    if row.reason != ""\n      hoverTipAt(hoverTipAtFrame(`model-row-tip-${row.key}`, "tip", row.reason, [], "left", "center", frame(`model-row-${row.key}`)');
+    expect(row).toContain('row id=`model-row-${row.key}` hover=hover');
+  });
+});
+
 describe('the layer and its timing', () => {
-  test('T3Window provides hoverTipAt and draws the layer after every page, panel and overlay, inside the SSH-inert row', async () => {
+  test('T3Window holds the hover state, provides it, and draws the layer after every page, panel and overlay, inside the SSH-inert row', async () => {
     const window = await source('app-window.contract');
-    expect(window).toMatch(/\n  provide\n    rem = data\.look\.fontSize\n    still = viewport\.prefersReducedMotion\n    hoverTipAt\n/);
+    expect(window).toMatch(/\n  provide\n    rem = data\.look\.fontSize\n    still = viewport\.prefersReducedMotion\n    hoverTipAt\n    hoverTip\n    hoverShown\n/);
+    expect(window).toContain(`  derive hoverShown = hoverTip.key != "" and (hoverOn != "" ? hoverWait == hoverMark : hoverWait < hoverUntil)
+  action hoverTipAt(tip: HoverTip, part: string, inside: bool)
+    if inside
+      hoverTip = tip
+      hoverOn = part
+      hoverMark = hoverWait
+      hoverHold(hoverWait)
+    else if tip.key == hoverTip.key and hoverOn == part
+      hoverOn = ""
+      hoverUntil = hoverWait + hoverDelay(tip.kind)
+      hoverHold(hoverWait + hoverDelay(tip.kind))`);
     const lines = window.split('\n');
     const overlays = lines.findIndex(line => line.startsWith('        WindowOverlays('));
-    const layer = lines.findIndex(line => line.startsWith('          HoverLayer(tip=hoverTip, viewportHeight=viewport.height, hoverAt=hoverTipAt)'));
+    const layer = lines.findIndex(line => line.startsWith('          HoverLayer(tip=hoverTip, viewportWidth=viewport.width, viewportHeight=viewport.height, hoverAt=hoverTipAt)'));
     const ssh = lines.findIndex(line => line.startsWith('      SshPasswordPrompt('));
     expect(overlays).toBeGreaterThan(0);
     expect(layer).toBeGreaterThan(overlays);
     expect(ssh).toBeGreaterThan(layer);
-    expect(lines[layer - 1]).toBe('        when hoverTip.key != "" and (hoverOn != "" or hoverTip.kind != "tip")');
+    expect(lines[layer - 1]).toBe('        when hoverShown and hoverTip.kind != "usage"');
   });
 
-  test('a tooltip takes no pointer; a hover card hears it, its 4 pt sideOffset included, on either side', async () => {
+  test('a tooltip takes no pointer; a hover card hears it, its 4 pt sideOffset included, on each of the four sides', async () => {
     const body = await component('hover-layer.contract', 'HoverLayer');
-    expect(body.match(/column hover=hoverAt\(tip, "card"\) padding-(top|bottom)=4 max-width="20rem" pointer-events="auto"/g)).toHaveLength(2);
-    expect(body.match(/column padding-(top|bottom)=4 max-width="20rem" pointer-events="none"\n/g)).toHaveLength(2);
-    expect(body).toContain('when card\n');
-    // The trigger's side, flipped when the window leaves no room (Base UI's collision flip).
-    expect(body).toContain('derive below = tip.side == "bottom" ? tip.y + tip.height + 4 + tip.estimate <= viewportHeight - 5 or tip.y - 4 - tip.estimate < 5 : tip.y - 4 - tip.estimate < 5');
+    expect(body.match(/column hover=hoverAt\(tip, "card"\) padding-(top|bottom|left|right)=4 max-width="20(\.25)?rem" pointer-events="auto"/g)).toHaveLength(4);
+    expect(body.match(/column padding-(top|bottom|left|right)=4 max-width="20(\.25)?rem" pointer-events="none"\n/g)).toHaveLength(4);
+    // The side asked for, flipped when the window leaves no room there and more on the other side (Base UI's flip).
+    expect(body).toContain('derive place = tip.side == "left" ? hoverFlip("left", "right", leftRoom, rightRoom, tip.estimate)');
+    expect(await source('hover-layer.contract')).toContain('fn hoverFlip(side: string, other: string, room: number, otherRoom: number, need: number): string = need <= room or (need > otherRoom and room >= otherRoom) ? side : other');
   });
 
-  test('the root closes a tooltip with its trigger, a hover card after the reference closeDelay, and everything on a surface change', async () => {
+  test('the root keeps only the hover clock: a 10 ms tick while a close delay runs, and a tick on a surface change', async () => {
     const root = await source('app.contract');
-    expect(root).toContain('task hoverGrace when hoverTip.key != "" and hoverOn == "" and hoverTip.kind == "scopes" // AccessScopeSummary closeDelay={100}; each leave arms it anew\n    after(100, hoverTipClear)');
-    expect(root).toContain('task hoverGraceFreshness when hoverTip.key != "" and hoverOn == "" and hoverTip.kind == "freshness" // PullRequestBaseFreshnessWarning closeDelay={120}\n    after(120, hoverTipClear)');
-    expect(root).toContain('task hoverSurface key=`${settingsOpen}|${settingsRoute}|${utilityPage}|${modal}|${prSelected}`\n    after(1, hoverTipClear)');
-    expect(root).toContain(`  action hoverTipAt(tip: HoverTip, part: string, inside: bool)
-    if inside
-      hoverTip = tip
-      hoverOn = part
-    else if tip.key == hoverTip.key and hoverOn == part
-      hoverOn = ""
-  action hoverTipClear
-    hoverTip = noHoverTip()`);
-    expect(root).toContain('T3Window(data=data, viewport=viewport, hoverTip=hoverTip, hoverOn=hoverOn, hoverTipAt=hoverTipAt,');
-    // A tooltip shows only while its trigger has the pointer; a card until the close delay clears it.
-    expect(await source('app-window.contract')).toContain('        when hoverTip.key != "" and (hoverOn != "" or hoverTip.kind != "tip")\n          HoverLayer(');
+    expect(root).toContain(`  state hoverEnd = 0
+  task hoverTick when hoverWait < hoverEnd key=hoverEnd
+    every(10, hoverTicked)
+  task hoverSurface key=\`\${settingsOpen}|\${settingsRoute}|\${utilityPage}|\${modal}|\${prSelected}\`
+    after(1, hoverTicked)
+  action hoverTicked
+    hoverWait = hoverWait + 10
+  action hoverHold(end: number)
+    hoverEnd = end`);
+    expect(root).toContain('T3Window(data=data, viewport=viewport, hoverWait=hoverWait, hoverHold=hoverHold,');
   });
 });

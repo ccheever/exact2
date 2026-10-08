@@ -33,27 +33,41 @@ shape HoverTip
   estimate: number
   testId: string
 
+// Base UI's closeDelay after the pointer leaves a hover card or its trigger, on the root's 10 ms hover clock: the
+// scopes' 100, the freshness card's 120; the Usage segment's popover has none, but safePolygon lets the pointer
+// cross the 6 pt gap into it, so it gets 50. A TooltipPopup closes with its trigger.
+fn hoverDelay(kind: string): number = kind == "scopes" ? 100 : (kind == "freshness" ? 120 : (kind == "usage" ? 50 : 0))
+
 fn noHoverTip(): HoverTip = HoverTip(key="", kind="", text="", lines=[], side="top", align="center", x=0, y=0, width=0, height=0, estimate=0, testId="")
 
 // The tip for a trigger at `frame`: placement from Base UI's props, the content from the trigger.
 fn hoverTipAtFrame(key: string, kind: string, text: string, lines: list<string>, side: string, align: string, frame: Geometry, estimate: number, testId: string): HoverTip = HoverTip(key=key, kind=kind, text=text, lines=lines, side=side, align=align, x=frame.x, y=frame.y, width=frame.width, height=frame.height, estimate=estimate, testId=testId)
 
-// The positioned layer: a row as wide as the widest popup (20rem) plus room, at the trigger's side;
-// only the popup takes the pointer, and a hover card's 4 pt sideOffset is part of it (no gap to cross).
+// The positioned layer, on the trigger's side (`place`): top and bottom in a row as wide as the widest
+// popup (20rem) plus room, left and right in a column as tall; only the popup takes the pointer, and a
+// hover card's 4 pt sideOffset is part of it (no gap to cross). A side the window leaves no room on
+// flips to the other one, unless that has less room still (Base UI's flip, fallback best fit); `estimate`
+// is the popup's height for top and bottom and its width for left and right.
 component HoverLayer
   inject
     rem: number
   props
     tip: HoverTip
+    viewportWidth: number
     viewportHeight: number
     hoverAt: action
   slot
-  derive below = tip.side == "bottom" ? tip.y + tip.height + 4 + tip.estimate <= viewportHeight - 5 or tip.y - 4 - tip.estimate < 5 : tip.y - 4 - tip.estimate < 5
+  derive topRoom = tip.y - 9
+  derive bottomRoom = viewportHeight - tip.y - tip.height - 9
+  derive leftRoom = tip.x - 9
+  derive rightRoom = viewportWidth - tip.x - tip.width - 9
+  derive place = tip.side == "left" ? hoverFlip("left", "right", leftRoom, rightRoom, tip.estimate) : (tip.side == "right" ? hoverFlip("right", "left", rightRoom, leftRoom, tip.estimate) : (tip.side == "bottom" ? hoverFlip("bottom", "top", bottomRoom, topRoom, tip.estimate) : hoverFlip("top", "bottom", topRoom, bottomRoom, tip.estimate)))
   derive left = tip.align == "start" ? tip.x : (tip.align == "end" ? tip.x + tip.width - 22.5 * rem : tip.x + tip.width / 2 - 11.25 * rem)
+  derive top = tip.align == "start" ? tip.y : (tip.align == "end" ? tip.y + tip.height - 22.5 * rem : tip.y + tip.height / 2 - 11.25 * rem)
   derive justify = tip.align == "start" ? "flex-start" : (tip.align == "end" ? "flex-end" : "center")
   derive card = tip.kind != "tip"
   view
-    when below
+    when place == "bottom"
       row position="absolute" left=left top=(tip.y + tip.height) width=(22.5 * rem) justify-content=justify align-items="flex-start" pointer-events="none" z-index=140 testId="hover-layer"
         when card
           column hover=hoverAt(tip, "card") padding-top=4 max-width="20rem" pointer-events="auto"
@@ -61,7 +75,7 @@ component HoverLayer
         else
           column padding-top=4 max-width="20rem" pointer-events="none"
             children
-    else
+    else when place == "top"
       row position="absolute" left=left bottom=(viewportHeight - tip.y) width=(22.5 * rem) justify-content=justify align-items="flex-end" pointer-events="none" z-index=140 testId="hover-layer"
         when card
           column hover=hoverAt(tip, "card") padding-bottom=4 max-width="20rem" pointer-events="auto"
@@ -69,6 +83,25 @@ component HoverLayer
         else
           column padding-bottom=4 max-width="20rem" pointer-events="none"
             children
+    else when place == "left"
+      column position="absolute" right=(viewportWidth - tip.x) top=top height=(22.5 * rem) justify-content=justify align-items="flex-end" pointer-events="none" z-index=140 testId="hover-layer"
+        when card
+          column hover=hoverAt(tip, "card") padding-right=4 max-width="20.25rem" pointer-events="auto"
+            children
+        else
+          column padding-right=4 max-width="20.25rem" pointer-events="none"
+            children
+    else
+      column position="absolute" left=(tip.x + tip.width) top=top height=(22.5 * rem) justify-content=justify align-items="flex-start" pointer-events="none" z-index=140 testId="hover-layer"
+        when card
+          column hover=hoverAt(tip, "card") padding-left=4 max-width="20.25rem" pointer-events="auto"
+            children
+        else
+          column padding-left=4 max-width="20.25rem" pointer-events="none"
+            children
+
+// Base UI's flip: the side asked for while the popup fits there, else the other side unless it has less room.
+fn hoverFlip(side: string, other: string, room: number, otherRoom: number, need: number): string = need <= room or (need > otherRoom and room >= otherRoom) ? side : other
 
 // TooltipPopup (CnTooltip's look): the words, max-w-80, taking no pointer.
 component HoverText
