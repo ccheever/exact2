@@ -74,7 +74,7 @@ Tools are named by their `target/t3-ui-parity/…` path (committed under `exampl
 | --- | --- | --- | --- | --- |
 | merged task PR | [20261005-hot-file-split](20261005-hot-file-split.md) | pending | Merged into `daehyeon/t3-code` (common prerequisite: room and per-area seams in the shared files) | pending |
 | merged task PR | [20261005-clone-on-exact2-main](../20261005-clone-on-exact2-main.md) | pending | Merged | pending |
-| merged task PR | [20261005-desktop-oracle-and-trace](../20261005-desktop-oracle-and-trace.md) | pending | Merged (the oracle runs at 12, 16 and 20) | pending |
+| merged task PR | [20261005-desktop-oracle-and-trace](20261005-desktop-oracle-and-trace.md) | pending | Merged (the oracle runs at 12, 16 and 20) | pending |
 | resolved framework issue | [X3 root font size](../../issues/closed/20261005-x03-root-font-size.md) | none yet (local draft) | Fix merged into `main` upstream (this plan files the issue only) and the example pinned to it, or the user waives | resolved: #102 closed by main #185; the branch merged main `cff90b364` |
 | recorded decision | Apparatus approval: the computed-style probe `rem-probe.mjs` | none | User approves | pending |
 | scheduling preference | After `20261005-floating-device-player` and `20261005-terminal-drawer` | none | Not a prerequisite | — |

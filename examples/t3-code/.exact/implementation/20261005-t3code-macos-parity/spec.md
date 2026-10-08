@@ -81,11 +81,12 @@ evidence. Items found **done** are listed there and get no ticket.
 
 - Not implemented now, tracked as **blocked tickets with issues** (implemented or closed after
   the issue is resolved or decided):
-  - Browser surface (Chromium + CDP) — `20261005-browser-surface`, issue X1 (Charlie's waiver
-    of the DEFERRED browser-shell rule and a chosen path; path A also needs framework support). Until then links open in the
-    system browser.
-  - View › Toggle Developer Tools — `20261005-app-developer-tools`, issue X2 (DEFERRED "no
-    devtools UI").
+  - Browser surface (Chromium + CDP) — `20261005-browser-surface`, issue X1. Decided 2026-10-08: #100 was closed
+    upstream as not planned (no Chromium/CDP); the user chose to build the surface on a `WKWebView` in the clone's own
+    module (X1 path B, its deviations declared), after the root rewrite. Until then links open in the system browser.
+  - View › Toggle Developer Tools — `20261005-app-developer-tools`, issue X2. Decided 2026-10-08: #101 allows only a
+    development-only `isInspectable` on the app's web views, so the menu item is a permanent declared difference and
+    the task is narrowed to that inspection.
   - T3 Connect / Clerk sign-in, relay connections and the `t3code://` handoff —
     `20261005-t3-connect-sign-in`, issue X38.
   - Telemetry — `20261005-telemetry`, issue X39.
@@ -130,4 +131,4 @@ decision — and the integrated acceptance in [plan](plan.md) passes on the targ
 | `t3code://` deep link (E4). Its handler in the reference belongs to the Clerk bridge (hosted-web Codex handoff), which the spec excludes. Codex sign-in on the desktop uses a loopback listener, not the scheme. | `20261005-app-activation` | (a) Exclude with T3 Connect / Clerk; (b) build it (needs issue X5). |
 | Real-input checks. The agent cannot send right-click, real hover/drag, real wheel, IME or OS prompts. | Most UI tickets | (a) Batch attended sessions per phase (as rounds 4–11 did); a ticket with an open attended row stays `verification: blocked` until its session passes, so its PR waits (recommended); (b) run them per ticket when computer-use tools are available in the session. |
 | Reference pin refresh. The reference moved 53 commits in one day; this plan pins `1e2ecbd975` (no fetch was made). | Every upstream-sync ticket | Fetch the reference at each sync ticket's `prepare` (user or approved command) and record the new pin. |
-| Policy and scope issues: X1 Browser, X2 DevTools, X19 timers, X28 notification actions (DEFERRED rules; Charlie's waiver), X38 T3 Connect/Clerk, X39 telemetry, X40 update feed, X41 WSL. | The blocked tickets and the rows that carry these differences | Decided per issue after `issue-open` publishes it; each blocked ticket is then implemented or closed. |
+| Policy and scope issues: X1 Browser, X2 DevTools, X19 timers, X28 notification actions (DEFERRED rules; Charlie's waiver), X38 T3 Connect/Clerk, X39 telemetry, X40 update feed, X41 WSL. | The blocked tickets and the rows that carry these differences | Decided: X38–X41 closed by the user (2026-10-08); Charlie decided X1 (#100 not planned), X2 (#101 narrowed), X19 (#124 timers refused) and X28 (#224 click first, badge deferred) on 2026-10-08; the user then chose the Browser surface on a `WKWebView` and the narrowed developer tools. |

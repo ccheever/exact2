@@ -112,3 +112,12 @@ the thread and the sounds (`T3Notifications.swift`), for #224. Not built here (t
 reference's toast timers that run only while visible and focused (git and provider success toasts), DiffPanel's
 refresh on focus, the composer's refocus on window focus, SnapShotCoordinator's drain on focus. They can be built on
 `page.hasFocus` now. The issue stays open for #224.
+
+## Decided upstream (2026-10-08): narrowed; the badge is a declared difference
+
+[Charlie on #224](https://github.com/ccheever/exact2/issues/224#issuecomment-6055588942): "Propose default notification clicks first; keep badges and richer actions deferred. … Retain the
+refusals on push, action buttons/replies, repeating schedules and permission facts."
+- Waits for main fix of [#224](https://github.com/ccheever/exact2/issues/224) for the click that opens the finished thread.
+- **Declared difference (permanent):** the Dock badge and its clearing, and the permission reading, stay in
+  `T3Notifications.swift`.
+- [#327](https://github.com/ccheever/exact2/pull/327) audit (open on main, 2026-10-08): policy pending for the click; the badge and richer actions stay deferred.

@@ -56,7 +56,7 @@ Observed today: flat tree of basenames (`diff.ts:248`, `diff.contract:146-152,34
 | Kind | Readable task/issue/decision | Remote reference | Required condition | Resolution evidence |
 | --- | --- | --- | --- | --- |
 | merged task PR | [20261005-clone-on-exact2-main](../20261005-clone-on-exact2-main.md) | pending | Merged | pending |
-| merged task PR | [20261005-desktop-oracle-and-trace](../20261005-desktop-oracle-and-trace.md) | pending | Merged (oracle can select text and hover) | pending |
+| merged task PR | [20261005-desktop-oracle-and-trace](20261005-desktop-oracle-and-trace.md) | pending | Merged (oracle can select text and hover) | pending |
 | scheduling preference | [20261005-main-fix-adoption](20261005-main-fix-adoption.md) | pending | Merged first (popover/tooltip/sidebar Contract) | pending |
 | merged task PR | [20261005-hot-file-split](20261005-hot-file-split.md) | pending | Merged into `daehyeon/t3-code` (common prerequisite: room and per-area seams in the shared files) | pending |
 | recorded decision | Parser basis: adapt the clone's `parsePatch` model (recommended) or vendor `@pierre/diffs`'s parser (needs a license and size check) | none | User decides at `prepare` | pending |
@@ -118,7 +118,9 @@ Verification: unverified (the one live drive did not reach the Diff panel; see b
   folders flattened and open, reading order, status tint and letter, a file press reveals it (opens, asks for a
   lazy file, selects it, `scrollIntoView("diff-list", file:<path>)`; the same press again reveals again).
   Word marks are off (`lineDiffType: "none"`, confirmed in `DiffPanel.tsx:1147` at 1e2ecbd975).
-  Pinned file headers: not done, held for a user decision (X32, #131: no sticky rows in a virtualized list).
+  Pinned file headers: not done, held for a user decision (X32, #131: no sticky rows in a virtualized list). Decided
+  2026-10-08: a declared difference until #131 lands on main (Charlie deferred virtualized section headers; the user
+  declared the difference); waits for main fix of #131.
 - **G4 large diffs and hidden lines** (`diff-lazy.ts`, `diff-review.ts`): a truncated git preview with per-file
   stats reads `review.getDiffPreview { file }` four files at a time (first batch with the preview, then four per
   `reachend` of the list), header skeletons for up to four remaining files, per-file Retry ("Retry loading diff")

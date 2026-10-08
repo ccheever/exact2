@@ -75,7 +75,7 @@ Edge cases to test: `$TMPDIR` differs between the CLI's shell and the app (the r
 | --- | --- | --- | --- | --- |
 | merged task PR | [20261005-hot-file-split](20261005-hot-file-split.md) | pending | Merged into `daehyeon/t3-code` (common prerequisite: room and per-area seams in the shared files) | pending |
 | merged task PR | [20261005-clone-on-exact2-main](../20261005-clone-on-exact2-main.md) | pending | Merged | pending |
-| merged task PR | [20261005-desktop-oracle-and-trace](../20261005-desktop-oracle-and-trace.md) | pending | Merged | pending |
+| merged task PR | [20261005-desktop-oracle-and-trace](20261005-desktop-oracle-and-trace.md) | pending | Merged | pending |
 | merged task PR | [20261005-local-primary-environment](20261005-local-primary-environment.md) | [#237](https://github.com/ccheever/exact2/pull/237) | Merged | merged into `feat(example)/t3-code` (`ed98ab3c0`); this PR's base |
 | recorded decision | U10 (hosted-web deep link kept or dropped; command-line install action) | none | Answered at `prepare` | decided 2026-10-08 (user: match the original; [provisional-decisions-parity](20261008-provisional-decisions-parity.md)): no command-line install action, as the reference desktop has none; the `t3code://` deep link belongs to T3 Connect, out of scope by user decision (X38) |
 

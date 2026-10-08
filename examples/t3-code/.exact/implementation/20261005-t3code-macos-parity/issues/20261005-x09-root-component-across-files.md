@@ -1,11 +1,11 @@
 ---
 name: 20261005-x09-root-component-across-files
 plan: 20261005-t3code-macos-parity
-status: fix-built
+status: published
 kind: framework-gap
 blocks: [20261005-auto-balance, 20261005-client-activity-reporting, 20261005-composer-fidelity, 20261005-diff-review-engine, 20261005-hot-file-split, 20261005-interface-font-size, 20261005-legacy-sidebar, 20261005-live-automations-and-clones, 20261005-local-primary-environment, 20261005-managed-codex-chatgpt, 20261005-media-actions, 20261005-pr-code-tab, 20261005-pr-conversation-and-refresh, 20261005-pr-handoffs-and-quick-actions, 20261005-pr-header-actions-and-stacks, 20261005-pr-links-previews-and-routing, 20261005-pr-writing-and-metadata, 20261005-provider-settings-upkeep, 20261005-provider-sign-in-and-install, 20261005-right-panel-tab-menu, 20261005-server-update-banner, 20261005-settings-scoped-controls-and-theme-editor, 20261005-terminal-drawer, 20261005-terminal-integrations, 20261005-terminal-layout, 20261005-thread-commands-and-keys, 20261005-upstream-timeline-and-markdown, 20261005-upstream-ui-sync, 20261005-usage-pooled-view, 20261005-usage-reset-and-feedback]
-upstream_url: null
-reproduced_on: null
+upstream_url: https://github.com/ccheever/exact2/issues/108
+reproduced_on: 4c893fef6
 ---
 
 # X9: A child component cannot own a resource, and the root component cannot span files, so the app's data layer is capped at one 1,500-line file
@@ -107,12 +107,11 @@ To confirm on the pinned `main` at `issue-open`.
   moved features pass their original acceptance rows.
 
 ## Status and next action
-Draft; not reproduced on the pinned `main`; not searched upstream; not published.
-Next: `issue-open` (reproduce, search for duplicates, prepare the report for the user's approval;
-publication only after approval).
+Published 2026-10-06 as [#108](https://github.com/ccheever/exact2/issues/108) (reproduced on exact2 `4c893fef6` before filing). Decided upstream on 2026-10-08: see the last section.
 
 ## Fix built (2026-10-06)
 
+**Superseded (2026-10-08):** #108 chose the root rewrite and defers child requests to D5; this branch is not pursued (recorded only; the branch is kept).
 Built option A1 on exact2 `origin/main`, branch `daehyeon/fw-x9-child-resources` (worktree `~/orca/workspaces/exact2/t3-fw`), commits `19e731892` and `c4a2318c3` (review fixes). Not pushed.
 - A child used outside every `when`, `each` and `match` may declare `resource` and `mutation`; the inliner lifts them into the root (`hits#1`). A use inside a region is still `type-child-resource`; a child `task` is still refused. A child state that a lifted resource reads moves to boot when it can (`type-child-resource-state` otherwise). Apps without child requests keep their plan bytes.
 - Not built: a request that lives only while its arm is shown (the "fetch while mounted" half). Gate flags stay, but they can move into the feature's own file.
@@ -128,3 +127,16 @@ Built option A1 on exact2 `origin/main`, branch `daehyeon/fw-x9-child-resources`
 about 40 lines of room. Everything else is root-owned resources, mutations and tasks, or root state
 and actions tied to them (that record counts them). Further room needs this fix (A1) or a rewrite
 of root actions.
+
+## Decided upstream (2026-10-08): a different design
+
+[Charlie on #108](https://github.com/ccheever/exact2/issues/108#issuecomment-6055587663): "Use child state/actions to reduce the root now; defer request ownership to the existing D5 design.
+… Use the T3 Code root rewrite already planned in #303 as the immediate remedy. … do not add partial-root syntax
+merely to evade the cap."
+- **Different design:** neither option under "Requested support" is chosen (A, child resources; B, a root across
+  files). Request ownership waits for LLP 1035.005.000 D5 (navigation-entry ownership), with no date.
+- For the clone: [app-contract-root-rewrite](../tasks/20261008-app-contract-root-rewrite.md) is the endorsed
+  remedy. Resources, mutations and tasks stay in the root; view-only state and action halves move to area children.
+- The local A1 branch ("Fix built" above) is superseded by the decision and not pursued.
+- #108 stays open upstream for D5. Nothing to adopt.
+- [#327](https://github.com/ccheever/exact2/pull/327) audit (open on main, 2026-10-08): request ownership explicitly deferred; "Immediate child-state/action root rewrite belongs to #303/T3 example"; partial-root syntax declined.

@@ -1,7 +1,7 @@
 ---
 name: 20261005-reference-logic-tests-done-areas
 plan: 20261005-t3code-macos-parity
-implementation: blocked
+implementation: dropped
 verification: blocked
 delivery: closed-unmerged
 repository: https://github.com/ccheever/exact2
@@ -62,7 +62,7 @@ Excluded from this ticket: porting any test; fixing any divergence; new features
 
 ## Context and guidance
 
-Parent specification: [spec](../spec.md) (goal and logic reuse row). Research: [research](../research.md). Library revision: `20261005-platforms-v3`. Selected topics: testing-and-debugging (record what each test proves; static evidence is not runtime evidence; keep the source identity), state-and-data (time and persistence enter as arguments), foundations (build commands). The library does not cover app-local Swift modules; the clone's AppKit recipe in `README.md` is the basis for `swift` rows.
+Parent specification: [spec](../../spec.md) (goal and logic reuse row). Research: [research](../../research.md). Library revision: `20261005-platforms-v3`. Selected topics: testing-and-debugging (record what each test proves; static evidence is not runtime evidence; keep the source identity), state-and-data (time and persistence enter as arguments), foundations (build commands). The library does not cover app-local Swift modules; the clone's AppKit recipe in `README.md` is the basis for `swift` rows.
 
 Consumer framework revision and toolchain: the pin chosen by `20261005-clone-on-exact2-main`; pinned Bun 1.4.2.
 
@@ -83,18 +83,18 @@ File headers in the clone name their source (for example "T3 Code, MIT, see LICE
 
 | Kind | Readable task/issue/decision | Remote reference | Required condition | Resolution evidence |
 | --- | --- | --- | --- | --- |
-| merged task PR | [20261005-hot-file-split](closed/20261005-hot-file-split.md) | pending | Merged first: group 1 changes shared files that this ticket also edits (review finding: sequence it first) | pending |
-| merged task PR | [20261005-clone-on-exact2-main](20261005-clone-on-exact2-main.md) | pending | Merged | pending |
+| merged task PR | [20261005-hot-file-split](20261005-hot-file-split.md) | pending | Merged first: group 1 changes shared files that this ticket also edits (review finding: sequence it first) | pending |
+| merged task PR | [20261005-clone-on-exact2-main](../20261005-clone-on-exact2-main.md) | pending | Merged | pending |
 | recorded decision | U2: apparatus: `target/t3-ui-parity/test-map.mjs` | none | User approves (the default is a one-off command recorded in Attempts) | pending |
 
 ## Issue assessment at preparation
 
-Checked sources and time: local issue drafts in [issues](../issues/README.md), `EXACT2-GAPS.md`; no upstream search (planning). Re-check at `prepare`.
+Checked sources and time: local issue drafts in [issues](../../issues/README.md), `EXACT2-GAPS.md`; no upstream search (planning). Re-check at `prepare`.
 
 | Issue / reference | Capability and target | Evidence / affected revision | Impact | Next action |
 | --- | --- | --- | --- | --- |
-| [X36](../issues/closed/20261005-x36-data-runtime-intl-locale.md) | Locale-aware `Intl` in the data runtime | Date, time and number tests use `Intl`; fixed by main #204 (#118: `Intl.Locale`, `getWeekInfo()` as Chrome), adopted in [adopt-main-fixes-r4](closed/20261007-adopt-main-fixes-r4.md) | none | Port the rows; the `ja-JP` long-date space and a `Locale` object passed to a formatter are main's documented differences |
-| [X19](../issues/20261005-x19-data-source-timers.md) | Timers in data sources | Ported tests use a `now` argument | nonblocking | None |
+| [X36](../../issues/closed/20261005-x36-data-runtime-intl-locale.md) | Locale-aware `Intl` in the data runtime | Date, time and number tests use `Intl`; fixed by main #204 (#118: `Intl.Locale`, `getWeekInfo()` as Chrome), adopted in [adopt-main-fixes-r4](20261007-adopt-main-fixes-r4.md) | none | Port the rows; the `ja-JP` long-date space and a `Locale` object passed to a formatter are main's documented differences |
+| [X19](../../issues/20261005-x19-data-source-timers.md) | Timers in data sources | Ported tests use a `now` argument | nonblocking | None |
 | none found | Mapping and classification | — | none | — |
 
 ## Implementation notes
@@ -122,6 +122,8 @@ Task-owned source paths: `REFERENCE-TESTS.md`, `target/t3-ui-parity/test-map.mjs
 Required environment: the read-only reference checkout for the map and title checks; pinned Bun 1.4.2. No fixture backend and no Xcode run beyond the unchanged-code checks.
 
 ## Progress
+
+2026-10-08 (records sync): moved to `tasks/closed/` (`implementation: dropped`): dropped by the user's decision of 2026-10-06 (#151, the map, closed as unnecessary).
 
 2026-10-06: dropped (user decision). The user closed #151, the map, as unnecessary.
 

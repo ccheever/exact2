@@ -1,11 +1,11 @@
 ---
 name: 20261008-x63-textarea-undo-menu
 plan: 20261005-t3code-macos-parity
-status: draft
+status: published
 kind: framework-gap
 blocks: []
-upstream_url: null
-reproduced_on: fa965d3e2 (main; host TextAreaMac.swift unchanged since e200397ec) through the host's own TextArea, and 9ae8c825b (feat(example)/t3-code-fix-misc-batch, main e200397ec merged)
+upstream_url: https://github.com/ccheever/exact2/issues/315
+reproduced_on: b896050d7 (main, agent mode, before filing)
 ---
 
 # X63: Edit › Undo and ⌘Z do nothing in a plain `textarea` on macOS
@@ -97,3 +97,11 @@ Not blocking: the clone already lays the reference's menu bar over the host's (`
 retargets Edit › Undo there; [fix-misc-batch](../tasks/20261008-fix-misc-batch.md) makes that item (and
 now Edit › Redo) act on the focused text view's own manager, which matches the reference (Electron's
 `undo`/`redo` roles act on the focused editor). Remove that routing when the host undoes its textareas.
+
+## Filed upstream (2026-10-08)
+
+Filed as [#315](https://github.com/ccheever/exact2/issues/315) ([Bug] macOS: ⌘Z and Edit › Undo do nothing in a plain `textarea` (the undo reaches the window's manager, not the field's)), reproduced on main `b896050d7` in agent mode before filing (evidence under
+`file-x48-x68/` on `t3-code-evidence`). Under the framework vs T3 split (user, 2026-10-08) the fix is framework work;
+the clone's side waits for main fix of #315, then an adoption round.
+
+- **Fixed by [#327](https://github.com/ccheever/exact2/pull/327)** (open on main, 2026-10-08); this resumes in the main-adoption round after it merges. Then #306's own Edit › Undo and Redo routing in `R8KeysMenus.swift` (to the focused text view's undo manager) goes.

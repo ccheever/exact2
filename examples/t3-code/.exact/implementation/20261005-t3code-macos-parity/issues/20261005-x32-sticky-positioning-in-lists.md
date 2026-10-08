@@ -1,11 +1,11 @@
 ---
 name: 20261005-x32-sticky-positioning-in-lists
 plan: 20261005-t3code-macos-parity
-status: draft
-kind: framework-gap (unconfirmed)
+status: published
+kind: framework-gap
 blocks: [20261005-diff-review-engine, 20261005-pr-code-tab, 20261005-pr-conversation-and-refresh]
-upstream_url: null
-reproduced_on: null
+upstream_url: https://github.com/ccheever/exact2/issues/131
+reproduced_on: 4c893fef6
 ---
 
 # X32: `position: sticky` inside a scroll container and a virtualized list
@@ -110,6 +110,15 @@ port `sectionCollapseAnchorScrollTop` with its four tests; unblock the pinned-he
 three tickets above. `issue-close` verifies the rows and the pairs.
 
 ## Status and next action
-Draft; not reproduced on the pinned `main`; not searched upstream; not published.
-Next: `issue-open` (reproduce, search for duplicates, prepare the report for the user's
-approval; publication only after approval).
+Published 2026-10-06 as [#131](https://github.com/ccheever/exact2/issues/131) (reproduced on exact2 `4c893fef6` before filing). Decided upstream on 2026-10-08: see the last section.
+
+## Decided upstream (2026-10-08): declared difference until #131 lands on main
+
+[Charlie on #131](https://github.com/ccheever/exact2/issues/131#issuecomment-6055588484): "Defer virtualized section headers until a list-lifetime design is selected. … Choose grouped
+containment with its CSS behavior, or explicitly declare a section-header extension."
+- **Correction to "What exact2 does today":** sticky positioning is not unknown. Since LLP 1083, `position="sticky"`
+  works inside a `scroll` and inside one row; `pages-pr-summary.contract:282` uses it. The gap is only a header
+  pinned over several rows of a virtualized list.
+- **Declared difference until #131 lands on main** (user decision, 2026-10-08): the pinned diff file headers of
+  diff-review-engine and pr-code-tab scroll away with their file. Waits for main fix of [#131](https://github.com/ccheever/exact2/issues/131).
+- [#327](https://github.com/ccheever/exact2/pull/327) audit (open on main, 2026-10-08): explicitly deferred pending a list-lifetime design; kept open.
