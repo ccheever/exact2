@@ -23,7 +23,7 @@ package final class Presenter {
     /// turn, without waiting for a batch an idle app may never commit (LLP
     /// 1079's amendment of 2026-10-04): grouped lists remount (frames, cell
     /// heights, switches), then tab bars and controls.
-    func requestProjectionSync() {
+    package func requestProjectionSync() {
         guard !projectionSyncOwed else { return }
         projectionSyncOwed = true
         DispatchQueue.main.async { [weak self] in
@@ -259,7 +259,7 @@ package final class Presenter {
     var hasPendingKeyboardResize: Bool { keyboardDebounce != nil }
     var interactiveKeyboardDrag: Bool {
         views.values.contains { node in
-            guard let sv = node.scroll else { return false }
+            guard let sv = node.scrollView else { return false }
             return sv.keyboardDismissMode == .interactive && (sv.isTracking || sv.isDragging)
         }
     }
@@ -321,13 +321,14 @@ package final class Presenter {
         guard let node, node.window != nil else { return }
         var v: UIView? = node.superview
         while let cur = v {
-            var target = cur as? ScrollView
-            if let waiting = cur as? NodeView, waiting.scrollDormant { waiting.needScroll(); target = waiting.scroll }
+            var target = cur as? UIScrollView
+            if let waiting = cur as? NodeView, waiting.scrollDormant { waiting.needScroll(); target = waiting.scrollView }
             if let sv = target {
                 // The node's box in the container's content space, with a
                 // little air; the visible part of that space.
                 let r = node.convert(node.bounds, to: sv).insetBy(dx: 0, dy: -8)
-                let visible = sv.bounds.inset(by: sv.adjustedContentInset)
+                let owner = (sv.superview as? NodeView).flatMap { $0.scrollView === sv ? $0 : nil }
+                let visible = sv.bounds.inset(by: owner?.scrollPortInsets(sv) ?? sv.adjustedContentInset)
                 var o = sv.contentOffset
                 if r.maxY > visible.maxY { o.y += r.maxY - visible.maxY } else if r.minY < visible.minY { o.y -= visible.minY - r.minY }
                 if r.maxX > visible.maxX { o.x += r.maxX - visible.maxX } else if r.minX < visible.minX { o.x -= visible.minX - r.minX }
@@ -834,6 +835,9 @@ package final class Presenter {
                 if flats.create(op) { continue }
                 let reused = pool.take(id)
                 let v = reused ?? NodeView(id: id, kind: op.kind, presenter: self)
+                #if os(iOS)
+                v.groupedOwner = op.kind == "list" && op.props["listStyle"] != nil
+                #endif
                 v.handlers = op.handlers
                 // Before the style makes it a scroll container: a swipe row's waits.
                 v.swipeOwner = op.props["swipeContent"] != nil
@@ -956,12 +960,21 @@ package final class Presenter {
         session?.canvases.cancelMovedControls()
         PaintOrder.flush()
         session?.canvases.captureIfNeeded()
+        let changed = touchedAndAbove(touchedIDs)
+        groupedLists?.sync(changed: changed)
+        // Bind the physical backend and adopt native bar/keyboard insets
+        // before a logical offset is converted and clamped against them.
+        if !rowsOnly || navigation.syncOwed { navigation.sync(batch) }
+        keyboardToolbars.finishBackendChange()
         for id in scrollers.union(pendingScrolls).union(materialNodes) {
             guard let node = views[id] else { continue }
             // A modal's live source retains its old geometry until release.
             // Its scroll writes must wait too, especially on newly added rows
             // whose extent is still zero. releaseBackground applies both.
             if !modals.defersGeometry(for: node) {
+                // Navigation can resize a native port after its row projection.
+                // Settle that layout before restoring or authoring an offset.
+                if node.groupedOwner { node.scrollView?.layoutIfNeeded() }
                 if !collections.owns(node.id) { node.restoreScrollPosition() }
                 if node.pendingScrollTop != nil || node.pendingScrollLeft != nil { collections.userIntent(node.id) }
                 node.applyPendingScroll()
@@ -970,9 +983,6 @@ package final class Presenter {
         }
         pendingScrolls = pendingScrolls.filter { views[$0]?.pendingScrollTop != nil || views[$0]?.pendingScrollLeft != nil }
         if !flights.isEmpty { flightsBatchApplied() }
-        // A batch that only builds, moves or drops a list's rows changes no
-        // route, header or bar: the projection would come out the same.
-        if !rowsOnly || navigation.syncOwed { navigation.sync(batch) }
         #if os(tvOS)
         menuKey.sync()
         playPauseKey.sync()
@@ -986,9 +996,7 @@ package final class Presenter {
         #endif
         menus.sync()
         glassGroups.reconcile()
-        let changed = touchedAndAbove(touchedIDs)
         swipeActions.sync(changed: changed)
-        groupedLists?.sync(changed: changed)
         positionContexts()
         syncAccessibility(changed: changed)
     }

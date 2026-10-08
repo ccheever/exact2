@@ -179,7 +179,6 @@ export function appleArtifacts(app, { destination = 'macos', composition, trust 
 /** An ephemeral exclusive writer claim. Never steal: even a dead PID needs
  * explicit removal after the operator verifies its owner. */
 export const appleBuildLock = (app, path = appleArtifacts(app).lock) => claimBuildOutput(app, path);
-
 /** Replace a complete directory using new inodes, restoring the previous
  * artifact if its final rename fails. Caller holds the app writer claim. */
 export function placeAppleArtifact(stage, destination) {
@@ -1474,6 +1473,7 @@ function test(args) {
       '-module-cache-path', resolve(fixtureDir, 'cache'), resolve(root, 'host/apple/modules/ExactNativeModule.swift'), resolve(fixtureDir, 'ExactDataKeys.swift'),
       ...fixture.modules.apple, '-target', iosTriple, '-o', env.TEST_RUNNER_EXACT_FIXTURE_MODULE]);
     env.TEST_RUNNER_EXACT_BUTTONS_PLAN = resolve(fixtureDir, 'native-buttons.plan'); run('cargo', ['run', '-q', '-p', 'contract', '--bin', 'contract', '--manifest-path', resolve(root, 'Cargo.toml'), '--', 'build', resolve(root, 'scripts/fixtures/native-buttons.contract'), '-o', env.TEST_RUNNER_EXACT_BUTTONS_PLAN]);
+    env.TEST_RUNNER_EXACT_NATIVE_SCROLL_PLAN = resolve(fixtureDir, 'native-navigation-scroll.plan'); run('cargo', ['run', '-q', '-p', 'contract', '--bin', 'contract', '--manifest-path', resolve(root, 'Cargo.toml'), '--', 'build', resolve(root, 'scripts/fixtures/native-navigation-scroll.contract'), '-o', env.TEST_RUNNER_EXACT_NATIVE_SCROLL_PLAN]);
     const classes = readdirSync(resolve(pkg, 'tests/ExactKitTests')).filter(f => f.endsWith('IOSTests.swift')).map(f => f.slice(0, -'.swift'.length));
     if (!classes.length) { console.log('host/apple: no *IOSTests to run'); return; }
     const pick = args.includes('--sim') ? args[args.indexOf('--sim') + 1] : process.env.EXACT_SIM;

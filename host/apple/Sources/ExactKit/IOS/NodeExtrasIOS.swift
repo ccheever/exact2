@@ -80,11 +80,12 @@ final class NodeExtras {
     var symbolRefusal: String?
     var focusRing: CAShapeLayer?
     var scrollEventQueued: Bool = false
-    var lastScrollEvent: CGPoint = .zero
+    var lastScrollEvent: (offset: CGPoint, topInset: CGFloat) = (.zero, 0)
     var dispatchingScrollEvent: Bool = false
-    var beforeLayoutScroll: CGPoint?
+    var beforeLayoutScroll: (offset: CGPoint, topInset: CGFloat)?
+    /// Logical coordinates survive hiding and physical backend replacement.
     var hiddenScroll: CGPoint?
-    var followedScroll: (top: CGFloat, end: Bool)?
+    var followedScroll: (top: CGFloat, end: Bool, start: Bool)?
     var followsEndAfterInteraction = false
     var followingEndAnimated = false
     var anchoredScrollTop: CGFloat?
@@ -99,12 +100,17 @@ final class NodeExtras {
     var glassSlot: GlassSlot?
     var pendingScrollLeft: Double?
     var pendingScrollTop: Double?
+    var pendingScrollTransfer = false
     /// A collapsing title's scroller (LLP 1075.003 Stage 3): its expanded
     /// title's inset, where `scrollTop` 0 rests; 0 for every other scroller.
     var scrollOrigin: CGFloat = 0
     /// …and the smallest inset it has had: its title collapsed.
     var scrollCollapsed: CGFloat = 0
     /// What the style last said of the scroll view's indicators and deceleration.
+    weak var nativeScrollView: UIScrollView?
+    weak var nativeScrollDelegate: (any UIScrollViewDelegate)?
+    /// Content room implemented as native insets, not a smaller CSS viewport.
+    var nativeScrollContentInsets = UIEdgeInsets.zero
     var scrollWritten: String?
     /// A hatched node whose hatch undoes its own additions: its row may be
     /// reused (LLP 1075.003.000.000 §8).
@@ -178,11 +184,11 @@ extension NodeView {
     var symbolRefusal: String? { get { extras?.symbolRefusal } set { if newValue != nil || extras != nil { more.symbolRefusal = newValue } } }
     var focusRing: CAShapeLayer? { get { extras?.focusRing } set { if newValue != nil || extras != nil { more.focusRing = newValue } } }
     var scrollEventQueued: Bool { get { extras?.scrollEventQueued ?? false } set { if newValue || extras != nil { more.scrollEventQueued = newValue } } }
-    var lastScrollEvent: CGPoint { get { extras?.lastScrollEvent ?? .zero } set { if newValue != .zero || extras != nil { more.lastScrollEvent = newValue } } }
+    var lastScrollEvent: (offset: CGPoint, topInset: CGFloat) { get { extras?.lastScrollEvent ?? (.zero, 0) } set { if newValue.offset != .zero || newValue.topInset != 0 || extras != nil { more.lastScrollEvent = newValue } } }
     var dispatchingScrollEvent: Bool { get { extras?.dispatchingScrollEvent ?? false } set { if newValue || extras != nil { more.dispatchingScrollEvent = newValue } } }
-    var beforeLayoutScroll: CGPoint? { get { extras?.beforeLayoutScroll } set { if newValue != nil || extras != nil { more.beforeLayoutScroll = newValue } } }
+    var beforeLayoutScroll: (offset: CGPoint, topInset: CGFloat)? { get { extras?.beforeLayoutScroll } set { if newValue != nil || extras != nil { more.beforeLayoutScroll = newValue } } }
     var hiddenScroll: CGPoint? { get { extras?.hiddenScroll } set { if newValue != nil || extras != nil { more.hiddenScroll = newValue } } }
-    var followedScroll: (top: CGFloat, end: Bool)? { get { extras?.followedScroll } set { if newValue != nil || extras != nil { more.followedScroll = newValue } } }
+    var followedScroll: (top: CGFloat, end: Bool, start: Bool)? { get { extras?.followedScroll } set { if newValue != nil || extras != nil { more.followedScroll = newValue } } }
     var followingEndAnimated: Bool { get { extras?.followingEndAnimated ?? false } set { if newValue || extras != nil { more.followingEndAnimated = newValue } } }
     var followsEndAfterInteraction: Bool { get { extras?.followsEndAfterInteraction ?? false } set { if newValue || extras != nil { more.followsEndAfterInteraction = newValue } } }
     var anchoredScrollTop: CGFloat? { get { extras?.anchoredScrollTop } set { if newValue != nil || extras != nil { more.anchoredScrollTop = newValue } } }
@@ -215,8 +221,16 @@ extension NodeView {
     /// Where CSS's `scrollTop` 0 is in UIKit's offsets: past the scroller's
     /// top inset when a collapsing title's bar insets it — the scrollport's
     /// top is the bar's bottom, whatever its height (UIKit keeps the offset
-    /// plus that inset fixed while the title collapses) — else 0.
-    func scrollTopInset(_ sv: UIScrollView) -> CGFloat { scrollOrigin > 0 ? sv.adjustedContentInset.top : 0 }
+    /// plus that inset fixed while the title collapses), or past native content room.
+    func scrollTopInset(_ sv: UIScrollView) -> CGFloat {
+        scrollOrigin > 0 ? sv.adjustedContentInset.top : extras?.nativeScrollContentInsets.top ?? 0
+    }
+    /// Native padding and footer space are content, unlike a bar or keyboard.
+    package func scrollPortInsets(_ sv: UIScrollView) -> UIEdgeInsets {
+        let inset = sv.adjustedContentInset, content = extras?.nativeScrollContentInsets ?? .zero
+        return UIEdgeInsets(top: inset.top - content.top, left: inset.left - content.left,
+                            bottom: inset.bottom - content.bottom, right: inset.right - content.right)
+    }
 }
 extension NodeView {
     /// Whether a scroll animation ended at the running animation's target,

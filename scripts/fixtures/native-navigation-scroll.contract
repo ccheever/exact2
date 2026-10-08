@@ -1,0 +1,28 @@
+// Cold UIKit navigation over a native grouped list, without an authored offset.
+component NativeNavigationScroll
+  state heroHeight = 80
+  state taps = 0
+  action measure
+    heroHeight = 80
+  action shrink
+    heroHeight = 0
+  action tap
+    taps = taps + 1
+  view
+    main navigationKey="cold" navigationBack="back" width="100%" height="100%" font-family="system-ui"
+      column navigationKey="cold" navigationScroll="cold-native-list" position="absolute" inset=0 display="flex" flex-direction="column"
+        header display="flex" align-items="center" padding=12 gap=12 flex-shrink=0
+          text "Native Cold Title" aria-level=1 flex=1
+          button press=shrink testId="cold-shrink"
+            text "Shrink"
+          button press=measure testId="cold-measure"
+            text "Measure"
+        list appearance="auto" id="cold-native-list" testId="cold-native-list" flex=1 min-height=0
+          section
+            row testId="cold-hero" height=heroHeight min-height=0 padding=0 border-width=0 box-sizing="border-box"
+              row width=20 height=20 background-color="#4577aa"
+              text `Profile ${taps}`
+          section
+            each name in ["One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten", "Eleven", "Twelve", "Thirteen", "Fourteen", "Fifteen", "Sixteen", "Seventeen", "Eighteen", "Nineteen", "Twenty"] key=name
+              button press=tap testId=`cold-${name}`
+                text name
