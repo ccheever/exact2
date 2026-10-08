@@ -236,10 +236,20 @@ fn display_frame_tasks_do_not_also_schedule_virtual_timer_frames() {
     core.advance(100., false);
     reference.advance(100.);
     assert_kernel_parity(&core, &reference);
+    let core_state: serde_json::Value =
+        serde_json::from_str(&core.agent(r#"{"op":"state"}"#)).unwrap();
+    let mut reference_state: serde_json::Value =
+        serde_json::from_str(&reference.agent(r#"{"op":"state"}"#)).unwrap();
+    assert!(core_state.get("kernelLayout").is_none());
     assert_eq!(
-        core.agent(r#"{"op":"state"}"#),
-        reference.agent(r#"{"op":"state"}"#)
+        reference_state.get("kernelLayout"),
+        Some(&serde_json::json!({ "provisionalLayouts": 0 }))
     );
+    reference_state
+        .as_object_mut()
+        .unwrap()
+        .remove("kernelLayout");
+    assert_eq!(core_state, reference_state);
 }
 
 fn records(wire: &[u8]) -> Vec<(u8, &[u8])> {

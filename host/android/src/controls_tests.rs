@@ -219,7 +219,7 @@ fn native_scroll_facts_preserve_output_lease_and_next_action_core() {
     count = count + 1
   view
     column width=390 height=844
-      button press=increment testId="increment" width=50 height=20
+      button appearance="none" press=increment testId="increment" width=50 height=20
         text `Count ${count}`
       scroll testId="port" width=200 height=100 overflow-x="hidden" overflow-y="scroll"
         column width=200 height=400
