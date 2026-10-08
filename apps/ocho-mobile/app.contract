@@ -160,6 +160,7 @@ shape Compose
   accountMenu: string
   accountSymbol: string
   accountTint: string
+  accountMark: string
   model: string
   modelMenu: string
   effort: string
@@ -401,7 +402,7 @@ component NewSession
       box flex=1 min-height=0
       column padding-left=24 padding-right=24 padding-bottom=6
         menu-picker testId="pick-machine" kind="inline" symbol="desktopcomputer" primary=model.machine menu=model.machineMenu message=machine height=44 width=model.machineWidth align-self="flex-start"
-        menu-picker testId="pick-account" kind="inline" symbol=model.accountSymbol tint=model.accountTint primary=model.account menu=model.accountMenu message=account height=44 width=model.accountWidth align-self="flex-start"
+        menu-picker testId="pick-account" kind="inline" symbol=model.accountSymbol tint=model.accountTint mark=model.accountMark choices="list" primary=model.account menu=model.accountMenu message=account height=44 width=model.accountWidth align-self="flex-start"
       when model.launching
         row justify-content="center" align-items="center" gap=8 padding-top=6
           Spinner(size=14)

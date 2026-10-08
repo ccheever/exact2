@@ -403,7 +403,7 @@ fn account_menu(items: Vec<(String, String, bool, String)>) -> String {
         .into_iter()
         .map(|(id, title, selected, provider)| {
             let (symbol, tint) = provider_symbol(&provider);
-            json!({ "id": id, "title": title, "selected": selected, "symbol": symbol, "tint": tint })
+            json!({ "id": id, "title": title, "selected": selected, "symbol": symbol, "tint": tint, "mark": provider })
         })
         .collect();
     Json::Array(items).to_string()
@@ -462,6 +462,7 @@ fn compose(m: &Model) -> Json {
         "account": account,
         "accountSymbol": crate::model::launch::provider_symbol(&l.provider).0,
         "accountTint": crate::model::launch::provider_symbol(&l.provider).1,
+        "accountMark": l.provider,
         "accountMenu": account_menu(accounts.iter().map(|a| (
             format!("{}/{}", a.provider, a.name),
             account_title(&a.name, &a.provider),
