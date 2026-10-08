@@ -315,6 +315,12 @@ describe('Escape in the theme editor (popover-escape-parity)', () => {
     expect(close).toContain('button press=close aria-label="Close the theme editor" class=SettingsGhost');
   });
 
+  test('Settings\' Back, which an Escape in the editor reaches, blurs the focus before it leaves', async () => {
+    const core = await source('settings-core.contract');
+    expect(core).toContain('  action leave\n    blur()\n    back()');
+    expect(core.split('\n').find(line => line.includes('testId="close-settings"'))).toContain('button press=leave hover=hover("back") aria-label="Back" aria-keyshortcuts=(menuOpen or query != "" ? "" : "Escape")');
+  });
+
   test('Escape in the colour popover closes only the popover and gives the focus to its swatch', async () => {
     const picker = await source('theme-color-picker.contract');
     const popover = picker.split('\n').find(line => line.includes('testId=`theme-color-${row.id}-popover`'))!;

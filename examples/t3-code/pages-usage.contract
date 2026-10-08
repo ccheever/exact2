@@ -163,8 +163,8 @@ component UsagePage
   action enterMail(id: string, inside: bool)
     overMail = inside ? id : (overMail == id ? "" : overMail)
   // A press on the popover's own trigger toggles it (Base UI's useClick, stickIfOpen: a press on a
-  // hover-opened popover keeps it open, the next press closes it); the close holds while the pointer stays
-  // on the segment, until the pointer moves there again (the segment's pointermove, Base UI's restMs hover).
+  // hover-opened popover keeps it open, the next press closes it). Any close holds while the pointer stays on
+  // the segment: hover opens it again only on a new enter (Base UI's blockMouseMove until mouseenter).
   action pin(id: string)
     if held == id
       pinned = ""
@@ -175,19 +175,27 @@ component UsagePage
       pinned = id
     pinnedAt = outside
   // Light dismiss (Base UI Popover's useDismiss, outsidePressEvent "intentional" for a mouse): a primary
-  // press that starts outside the pinned popover's card and both its triggers (the segment, the legend
-  // row) closes it as the press ends, before that press's own action; a press on another segment then
-  // pins that one. Presses on the page come here; the window counts the rest (`outside`).
+  // press that starts and ends outside the pinned popover's card and both its triggers (the segment, the
+  // legend row) closes it as the press ends, before that press's own action; a press on another segment
+  // then pins that one. The hover states go with it (the 6-pt gap under the card is the hover wrapper's,
+  // and Base UI closes at once). Presses on the page come here; the window counts the rest (`outside`).
   action pressDown(e: PointerEvent)
     let seg = frame(`usage-seg-${held}`)
     let pop = frame(`usage-seg-pop-${held}`)
     let leg = frame(`usage-legend-${held}`)
     downOutside = held != "" and e.buttons == 1 and not (usageHit(seg, e.clientX, e.clientY) or usageHit(pop, e.clientX, e.clientY) or usageHit(leg, e.clientX, e.clientY))
-  action pressUp
-    if downOutside
+  action pressUp(e: PointerEvent)
+    let seg = frame(`usage-seg-${held}`)
+    let pop = frame(`usage-seg-pop-${held}`)
+    let leg = frame(`usage-legend-${held}`)
+    if downOutside and not (usageHit(seg, e.clientX, e.clientY) or usageHit(pop, e.clientX, e.clientY) or usageHit(leg, e.clientX, e.clientY))
       pinned = ""
+      overSeg = ""
+      overPop = ""
+      overMail = ""
     downOutside = false
-  // Escape (UsageKeys' one shortcut): a showing popover closes and its segment takes the focus; else the page goes back.
+  // Escape (UsageKeys' one shortcut): a showing popover closes and its segment takes the focus; else the page goes
+  // back, blurring the focus first as useEscapeToGoBack does (a field of the floating theme editor keeps none).
   action escape
     if shown != ""
       focus(`usage-seg-${shown}`)
@@ -196,6 +204,7 @@ component UsagePage
       overPop = ""
       overMail = ""
     else
+      blur()
       back()
   action redeem(id: string)
     pinned = ""

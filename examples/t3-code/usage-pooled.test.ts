@@ -466,15 +466,22 @@ describe('light dismiss of a pinned segment popover (popover-escape-parity)', ()
       + '    let pop = frame(`usage-seg-pop-${held}`)\n'
       + '    let leg = frame(`usage-legend-${held}`)\n'
       + '    downOutside = held != "" and e.buttons == 1 and not (usageHit(seg, e.clientX, e.clientY) or usageHit(pop, e.clientX, e.clientY) or usageHit(leg, e.clientX, e.clientY))');
-    // Up (DOM's order: down, up, then the press): it closes before the press runs, so a press on another
-    // segment then pins that one and a press on the pinned segment (inside) toggles it closed.
-    expect(page).toContain('action pressUp\n    if downOutside\n      pinned = ""\n    downOutside = false');
+    // Up (DOM's order: down, up, then the press): a press that also ends outside closes it before the press
+    // runs, so a press on another segment then pins that one and a press on the pinned segment (inside)
+    // toggles it closed; one that ends inside the card does not (Base UI's insideReactTree). The hover
+    // states go too, so the 6-pt hover gap under the card does not hold it open.
+    expect(page).toContain('action pressUp(e: PointerEvent)\n'
+      + '    let seg = frame(`usage-seg-${held}`)\n'
+      + '    let pop = frame(`usage-seg-pop-${held}`)\n'
+      + '    let leg = frame(`usage-legend-${held}`)\n'
+      + '    if downOutside and not (usageHit(seg, e.clientX, e.clientY) or usageHit(pop, e.clientX, e.clientY) or usageHit(leg, e.clientX, e.clientY))\n'
+      + '      pinned = ""\n      overSeg = ""\n      overPop = ""\n      overMail = ""\n    downOutside = false');
     // A press on the pinned popover's own segment closes it even with the pointer still there (the hover
-    // states too); the segment's next pointer move opens it by hover again, as Base UI's restMs hover does.
+    // states too); hover opens it again only on a new enter (Base UI blocks mouse moves after any close).
     expect(page).toContain('action pin(id: string)\n    if held == id\n      pinned = ""\n      overSeg = ""\n      overPop = ""\n      overMail = ""\n    else\n      pinned = id\n    pinnedAt = outside');
     // The three boxes are the ones usage-pooled.contract draws, by these ids.
     const pooled = await source('usage-pooled.contract');
-    expect(pooled).toContain('button id=`usage-seg-${seg.id}` press=pin(seg.id) hover=enterSeg(seg.id) pointermove=enterSeg(seg.id, true)');
+    expect(pooled).toContain('button id=`usage-seg-${seg.id}` press=pin(seg.id) hover=enterSeg(seg.id) aria-label');
     expect(pooled).toMatch(/column width="18rem"[^\n]*role="dialog" aria-label=seg\.title id=`usage-seg-pop-\$\{seg\.id\}`/);
     expect(pooled).toMatch(/button [^\n]*press=pin\(seg\.id\)[^\n]*id=`usage-legend-\$\{seg\.id\}`/);
   });
@@ -493,14 +500,20 @@ describe('light dismiss of a pinned segment popover (popover-escape-parity)', ()
     const cover = await component('app-main.contract', 'PagesCover');
     expect(cover.split('\n').filter(line => line.includes('UsagePage(')).map(line => line.endsWith('outside=outside)'))).toEqual([true, true]);
     // The nodes that take the pointer themselves hand their presses on (the theme editor's colour controls).
-    expect(window).toContain('outsideDown=outsidePressDown, outsideUp=outsidePressUp)');
+    expect(window).toContain('outsideDown=outsidePressDown, outsideUp=outsidePressUp, outsideFocus=outsideFocus)');
     const picker = await source('theme-color-picker.contract');
     for (const name of ['triggerDown', 'planeDown', 'hueDown']) expect(picker).toMatch(new RegExp(`action ${name}\\(e: PointerEvent\\)\\n(    .*\\n)*?    outsideDown\\(e\\)`));
     for (const name of ['triggerUp', 'planeUp', 'hueUp']) expect(picker).toMatch(new RegExp(`action ${name}(\\(e: PointerEvent\\))?\\n    outsideUp\\(\\)`));
     expect(picker).toContain('pointerdown=triggerDown pointerup=triggerUp');
-    // No other node in the app takes the pointer, so every other press reaches the window's count (a
-    // segment holds its own presses: a press on it is never outside its popover, and one on another
-    // segment pins that one in place of the first).
+    // A text field's press reaches no pointerdown on macOS: the theme editor's fields count their focus.
+    expect(window).toContain('action outsideFocus\n    outsidePresses = outsidePresses + 1');
+    const editor = await source('settings-appearance-editor.contract');
+    expect(editor).toContain('input value=(named ? name : editor.name) input=editName focus=outsideFocus ');
+    expect(editor).toContain('input=edit change=commit focus=touched ');
+    expect(editor).toContain('change=commit("theme-editor", `color:${row.role}`) focus=outsideFocus blur=leave ');
+    // Escape that sends the page back blurs first, as useEscapeToGoBack does.
+    expect(page).toContain('    else\n      blur()\n      back()');
+    // No other node in the app takes the pointer, so every other press reaches the window's count.
     const { readdirSync } = await import('node:fs');
     const takers: string[] = [];
     for (const file of readdirSync(new URL('./', import.meta.url)).filter(name => name.endsWith('.contract')).sort()) {
@@ -512,7 +525,6 @@ describe('light dismiss of a pinned segment popover (popover-escape-parity)', ()
       'theme-color-picker.contract theme-editor-swatch-${row.id}',
       'theme-color-picker.contract theme-color-${row.id}-plane',
       'theme-color-picker.contract theme-color-${row.id}-hue',
-      'usage-pooled.contract usage-seg-${seg.id}',
     ]);
   });
 });
