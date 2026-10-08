@@ -1,6 +1,7 @@
 // Pinned365aa87982 use-thread-composer-state run-loss recovery and composerContext.
 // @ref llp/1107.005-composer-and-transcript.decision.md#scratch-tasks-and-queue-boundaries
 import { T3Client } from './shared/client';
+import { mobileNewTaskDefaultModel } from './new-task-model';
 import { arr, obj, str, type Obj } from './shared/domain';
 import { ClientError, type Native, type Files } from './shared/protocol';
 import { contextId, contextReferences } from './shared/composer-editor-menu';
@@ -140,9 +141,16 @@ function pruneRetiredMarkers(client: T3Client) {
   }
   if (changed) { setMarkers(client, next); client.revision++; }
 }
-/** One shared client. Only a new ordinary send's context is extended, before
- * super.write installs/persists its pending object. Retry payloads stay immutable. */
+/** Mobile default policy and recovery over one shared client. A new send's
+ * context is extended before super.write; retry payloads stay immutable. */
 export class MobileDraftClient extends T3Client {
+  override chooseDefaults(): void {
+    super.chooseDefaults();
+    if (this.threadId) return;
+    const selected = mobileNewTaskDefaultModel(this);
+    this.providerId = selected?.instanceId ?? ''; this.modelId = selected?.model ?? '';
+    this.modelOptions = selected?.options ?? [];
+  }
   override async persist(storage: Files): Promise<void> {
     pruneRetiredMarkers(this);
     return super.persist(storage);

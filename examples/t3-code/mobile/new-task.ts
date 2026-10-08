@@ -58,6 +58,7 @@ export function mobileNewTask(query = '', client: T3Client = mobileClient, backg
   const emptyDetail = needle ? 'Try a different project name or workspace path.' : !hasConnections ? 'Add an environment before creating a task.' : connecting && !client.shellLoaded
     ? 'Loading projects from the saved environment.' : sources.length ? 'The connected environment did not report any projects.' : client.error || 'The saved environment is offline. Check the URL or start the environment, then retry.';
   const composer = { ...mobileThreadComposer(client), placeholder: 'Ask anything…' };
+  if (!client.providerId || !client.modelId) composer.modelLabel = 'Choose model';
   composer.canSend &&= !client.threadId && canSelect && (scratch || context.envMode !== 'worktree' || !!context.branch);
   return { revision: client.revision, environmentId: client.environmentId, projectId: client.projectId, threadId: client.threadId,
     projectTitle: str(project?.title), environmentLabel: environments.find(environment => environment.selected)?.label ?? str(obj(client.config.environment).label),
