@@ -74,7 +74,7 @@ component T3Window
     openProjects: action
     sidebarNewThread: action
     selectThread: action
-    openConnection: action
+    openConnectionRoot: action
     command: action
     resizeSidebar: action
     finishResize: action
@@ -156,7 +156,7 @@ component T3Window
     branchQuery: string
     searchBranches: action
     projectsOpen: bool
-    closeModal: action
+    closeModalRoot: action
     manageProject: action
     selectProject: action
     settingsOpen: bool
@@ -227,10 +227,10 @@ component T3Window
     connectionsPage: ConnectionsPage
     pendingModal: string
     connectionOp: action
-    connectionAskRemove: action
+    connectionRemove: string
     connectionMenu: string
+    connectionAskRemove: action
     connectionToggleMenu: action
-    openRoute: action
     providerPage: ProviderPage
     providerDialog: string
     providerUi: action
@@ -266,13 +266,12 @@ component T3Window
     sbSet: action
     snapshotSetupWasEnabled: bool
     origin: string
-    credential: string
     pairFields: R10PairFields
     sbSshHosts: SbSshHosts
     sbSshHost: string
-    editOrigin: action
-    editCredential: action
-    closeConnection: action
+    editOriginRoot: action
+    editCredentialRoot: action
+    closeConnectionRoot: action
     providerWizard: ProviderWizard
     acpAgents: AcpRegistry
     wizardStep: number
@@ -285,9 +284,6 @@ component T3Window
     wizardManual: bool
     providerAdd: action
     providerTarget: string
-    connectionRemove: string
-    routeTarget: string
-    routeLabel: string
     catalog: PickerCatalog
     modelQuery: string
     modelTarget: PickerTarget
@@ -386,6 +382,37 @@ component T3Window
   derive dragTarget = dragId == "" ? "" : (dragCX > sidebarWidth ? "context" : (dragSettledY > 0 and dragCY >= dragSettledY ? "settled" : (dragSnoozedY > 0 and dragCY >= dragSnoozedY ? "snoozed" : (dragWorkingY > 0 and dragCY >= dragWorkingY ? "working" : (dragCY < dragDividerY + 36 ? "pinned" : "active")))))
   derive dragVerb = (dragTarget == "" or dragTarget == dragSection or dragTarget == "working" or dragTarget == "snoozed" or dragTarget == "context") ? "" : (dragTarget == "pinned" ? "pin" : (dragTarget == "settled" ? "settle" : (dragSection == "pinned" ? "unpin" : (dragSection == "settled" ? "unsettle" : "wake"))))
   derive dragOffset = dragDy - (dragSection == "pinned" ? 24 : (dragSection == "active" ? 48 : 0))
+  // The root rewrite: Add environment's credential and route target (SettingsModals draws the dialog; Settings ›
+  // Connections and the sidebar open it), moved from app.contract. Each wrapper sets the window's half, then calls
+  // the root's (`…Root`). The connections' row menu and remove confirm stay in the root: as a window action,
+  // connectionAskRemove makes the compiler refuse its captured argument in connections-network.contract
+  // (type-cannot-infer, @capture parameter of NetworkAccessRows' `ask`).
+  state routeTarget = "" // lane environment-routes: Add environment as "Add a route to <routeLabel>"
+  state routeLabel = ""
+  state credential = ""
+  action openConnection
+    credential = ""
+    routeTarget = ""
+    openConnectionRoot()
+  action openRoute(target: string, label: string)
+    credential = ""
+    routeTarget = target
+    routeLabel = label
+    openConnectionRoot()
+  action closeConnection
+    routeTarget = ""
+    credential = ""
+    closeConnectionRoot()
+  action editOrigin(value: string)
+    credential = pairFields.host != "" and pairFields.source == origin and credential == "" ? pairFields.code : credential
+    editOriginRoot(value)
+  action editCredential(value: string)
+    credential = value
+    editCredentialRoot()
+  action closeModal
+    routeTarget = ""
+    credential = ""
+    closeModalRoot()
   // The root rewrite: the thread title's menu and rename field, the right panel's maximize and the details card's
   // editors list, moved from app.contract. Each wrapper sets the window's half, then calls the root's (`…Root`),
   // which keeps what resources read and the sends. The fold hold stays in the root: chatLocal is called inside the
