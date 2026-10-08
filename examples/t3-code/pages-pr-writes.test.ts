@@ -11,7 +11,7 @@ import type { T3Client } from './client';
 import type { Native } from './protocol';
 import type { Obj } from './domain';
 import { toasts } from './toast';
-import { prCommand, pullRequestDetail } from './pages-pr-detail';
+import { prCommand, prLocalWrite, pullRequestDetail } from './pages-pr-detail';
 import { heldCandidates, presentWrites } from './pages-pr-writes';
 import { pullRequestReviewKey, pullRequestReviewStore } from './pages-pr-writes-logic';
 
@@ -105,6 +105,22 @@ describe('the composer: comment, close or reopen with comment (PullRequestCommen
     expect([writes.commentDraft, writes.summary]).toEqual(['half a thought', 'a summary']);
     const other = presentWrites(run.client, { ...reference, number: 8 }, detail({ number: 8 }));
     expect([other.commentDraft, other.summary]).toEqual(['', '']);
+  });
+  test('a blur that lands after the post (the press on Comment caused it) does not keep the posted words; the drafts go beside the write route', async () => {
+    const run = lane({ 'pullRequests.detail': () => detail(), 'pullRequests.activity': () => activity(), 'pullRequests.comment': () => ({}), 'pullRequests.submitReview': () => ({}) });
+    await run.view();
+    expect(await prLocalWrite(run.client, run.native, 'draft-comment', selected, 'Typed, then Comment pressed.')).toBe('');
+    expect((await run.view()).writes.commentDraft).toBe('Typed, then Comment pressed.');
+    await run.act('post-comment', 'Typed, then Comment pressed.');
+    await prLocalWrite(run.client, run.native, 'draft-comment', selected, 'Typed, then Comment pressed.');
+    await prLocalWrite(run.client, run.native, 'post-comment', selected, 'not a write this route takes');
+    expect(run.sent('pullRequests.comment').length).toBe(1);
+    await run.act('review', 'comment|Summary sent.');
+    await prLocalWrite(run.client, run.native, 'draft-summary', selected, 'Summary sent.');
+    const writes = (await run.view()).writes;
+    expect([writes.commentDraft, writes.summary]).toEqual(['', '']);
+    await prLocalWrite(run.client, run.native, 'draft-comment', selected, 'A new thought.');
+    expect((await run.view()).writes.commentDraft).toBe('A new thought.');
   });
   test('the composer is hidden where neither a comment nor a verdict is allowed, and the follow-up only where the viewer may', () => {
     const none = presentWrites({}, reference, detail({ viewerPermissions: { ...ADMIN, comment: false, verdicts: [] } }));
