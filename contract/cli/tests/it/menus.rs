@@ -5,7 +5,7 @@
 
 use exact_kernel::{BorderStyle, Color, ColorValue, Dimension, Kernel, Offer, Overflow, PropId};
 use exact_kernel::{StyleId, StyleMask};
-use exact_runner::{DataError, DataSource, Runner, Value};
+use exact_runner::{DataError, DataSource, Event, Runner, Value};
 
 struct NoData;
 
@@ -207,4 +207,65 @@ fn one_cancel_component_on_both_arms_of_a_when_is_one_cancel() {
     let e = contract::compile(&twice).unwrap_err();
     assert_eq!(e.id, "lower-alertdialog", "{}", e.message);
     assert!(e.message.contains("a second cancel"), "{}", e.message);
+}
+
+#[test]
+fn dialog_actions_validate_ids_and_deliver_cancel_and_close_without_payloads() {
+    for command in [
+        "showModal()",
+        "showModal(1)",
+        "showModal(\"a\", \"b\")",
+        "close(false)",
+        "close(\"a\", \"b\")",
+    ] {
+        let source = format!(
+            "component App\n  action go\n    {command}\n  view\n    button \"Go\" press=go\n"
+        );
+        let error = contract::compile(&source).unwrap_err();
+        assert_eq!(error.id, "type-dialog-command", "{command}: {error}");
+    }
+    let mut r = boot(
+        r#"component App
+  state heard = ""
+  action opened
+    showModal("form")
+    close("form")
+    close()
+  action cancelled
+    heard = `${heard}cancel;`
+    preventDefault()
+  action closed
+    heard = `${heard}close;`
+  view
+    column
+      button "Open" press=opened testId="open"
+      dialog id="form" cancel=cancelled close=closed testId="form"
+        text "Dialog"
+      dialog testId="unhandled"
+        text "No handlers"
+      text heard testId="heard"
+"#,
+    );
+    let open = node(&r, "open").id;
+    r.dispatch(open, Event::Press).unwrap();
+    let commands = r.take_commands();
+    assert_eq!(
+        commands
+            .iter()
+            .map(|c| (c.name.as_str(), c.args.len()))
+            .collect::<Vec<_>>(),
+        [("showModal", 1), ("close", 1), ("close", 0)]
+    );
+    let form = node(&r, "form").id;
+    r.dispatch(form, Event::Cancel).unwrap();
+    assert_eq!(r.take_commands()[0].name, "preventDefault");
+    r.dispatch(form, Event::Close).unwrap();
+    assert_eq!(
+        node(&r, "heard").props.str(PropId::Text),
+        Some("cancel;close;")
+    );
+    let unhandled = node(&r, "unhandled").id;
+    r.dispatch(unhandled, Event::Cancel).unwrap();
+    r.dispatch(unhandled, Event::Close).unwrap();
+    assert!(r.take_commands().is_empty());
 }

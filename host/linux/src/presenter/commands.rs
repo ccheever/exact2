@@ -82,7 +82,7 @@ impl<D: DataSource> Presenter<D> {
                 // No clipboard, browser, editor, dev menu or window to close
                 // here, and no media player (LLP 1042 §8): known, and named so.
                 name @ ("copyText" | "openURL" | "format" | "reload" | "close" | "fastSeek"
-                | "load") => {
+                | "load" | "showModal") => {
                     eprintln!("exact: {name} unsupported on the headless/DRM host")
                 }
                 other => eprintln!("exact: unknown command {other}"),

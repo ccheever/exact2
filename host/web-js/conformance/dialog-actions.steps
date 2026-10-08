@@ -1,0 +1,19 @@
+tap missing
+tap open
+key edit Tab
+key protect Shift+Tab
+key edit Shift+Tab
+key cycle Tab
+tap protect
+key edit Escape
+tap allow
+key edit Escape
+tap open
+tap close
+tap open
+tap reopen
+tap close
+tap open
+tap cycle
+key edit Escape
+tap close

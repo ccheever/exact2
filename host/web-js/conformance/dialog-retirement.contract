@@ -1,0 +1,30 @@
+// Closing restores focus before its queued close event. That focus handler
+// removes the dialog, whose DOM remains connected for its exit animation.
+keyframes leave
+  to opacity=0
+
+style Leaving
+  -exact-exit-animation="leave 200ms linear both"
+
+component App
+  state mounted = true
+  state retire = false
+  state closes = 0
+  action openForm
+    showModal("form")
+  action retireForm
+    retire = true
+    close("form")
+  action restored
+    if retire
+      mounted = false
+  action closed
+    closes = closes + 1
+  view
+    column gap=12 padding=24
+      button "Open" press=openForm focus=restored testId="open"
+      text `${closes}` testId="closes"
+      when mounted
+        column class=Leaving min-height=1
+          dialog id="form" close=closed padding=20
+            button "Retire" press=retireForm testId="retire" autofocus=true

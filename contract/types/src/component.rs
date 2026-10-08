@@ -538,6 +538,7 @@ fn refine_params_from_view(
                             | "stop"
                             | "navigate"
                             | "cancel"
+                            | "close"
                             | "resize"
                     ) {
                         let (name, args): (&str, &[Expr]) = match &a.value {

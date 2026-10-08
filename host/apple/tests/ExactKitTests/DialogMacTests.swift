@@ -507,6 +507,164 @@ final class DialogMacTests: XCTestCase {
         XCTAssertFalse(p.viewport.subviews.contains { $0 is DialogBackdrop })
     }
 
+    func testActionDialogsDeliverCancellableRequestsAndQueuedCloseWithoutQuitting() throws {
+        _ = NSApplication.shared
+        final class Delegate: ExactSessionDelegate {
+            var commands: [String] = []
+            func exactSession(_ session: ExactSession, command name: String, args: [Any]) { commands.append(name) }
+        }
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let source = """
+        // Dialog commands and lifecycle events: the browser supplies top-layer focus.
+        component App
+          state cancels = 0
+          state closes = 0
+          state blocked = false
+          state reopen = false
+          state cycle = false
+          action openForm
+            showModal("form")
+            showModal("form")
+          action closeForm
+            close("form")
+            close("form")
+          action protect
+            blocked = true
+          action allow
+            blocked = false
+          action reopenForm
+            reopen = true
+            close("form")
+          action cycleForm
+            cycle = true
+          action cancelled
+            cancels = cancels + 1
+            if cycle
+              cycle = false
+              close("form")
+              showModal("form")
+            else
+              if blocked
+                preventDefault()
+          action closed
+            preventDefault()
+            stopPropagation()
+            closes = closes + 1
+            if reopen
+              reopen = false
+              showModal("form")
+          action missing
+            showModal("missing")
+            close("missing")
+            showModal("outside")
+            close("outside")
+          action quit
+            close()
+          view
+            column gap=12 padding=24
+              input id="outside" testId="outside" value="before" aria-label="Outside"
+              button "Open" press=openForm testId="open"
+              button "Missing" press=missing testId="missing"
+              button "Quit" press=quit testId="quit"
+              text `${cancels}/${closes}` testId="counts"
+              dialog id="form" testId="form" cancel=cancelled close=closed padding=20
+                column gap=12
+                  input id="edit" testId="edit" value="draft" autofocus=true aria-label="Draft"
+                  button "Prevent Escape" press=protect testId="protect"
+                  button "Allow Escape" press=allow testId="allow"
+                  button "Close" press=closeForm testId="close"
+                  button "Close then reopen" press=reopenForm testId="reopen"
+                  button "Reopen during cancel" press=cycleForm testId="cycle"
+
+        """
+        let input = directory.appendingPathComponent("app.contract"), output = directory.appendingPathComponent("app.plan")
+        try source.write(to: input, atomically: true, encoding: .utf8)
+        let compiler = Process()
+        compiler.executableURL = URL(fileURLWithPath: try XCTUnwrap(ProcessInfo.processInfo.environment["EXACT_CONTRACT"]))
+        compiler.arguments = ["build", input.path, "-o", output.path]
+        try compiler.run(); compiler.waitUntilExit()
+        XCTAssertEqual(compiler.terminationStatus, 0)
+        let plan = try Data(contentsOf: output)
+        let session = ExactApp.shared.makeSession(label: "dialog-actions"), delegate = Delegate()
+        session.delegate = delegate
+        defer { session.destroy() }
+        XCTAssertNil(session.boot(plan: plan, size: CGSize(width: 600, height: 600)).error)
+        let view = ExactView(session: session)
+        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 600), styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        let mount = NSView(frame: NSRect(x: 0, y: 0, width: 600, height: 600))
+        window.contentView = mount; view.frame = mount.bounds; mount.addSubview(view)
+        let p = session.presenter
+        func node(_ id: String) throws -> NodeView { try XCTUnwrap(p.views.values.first { $0.props["testId"] == id }) }
+        func tap(_ id: String) throws { p.press(try node(id).id) }
+        func counts() throws -> String { try node("counts").props["text"] ?? "" }
+        func drainClose() {
+            let done = expectation(description: "queued close delivered")
+            DispatchQueue.main.async { done.fulfill() }
+            wait(for: [done], timeout: 2)
+            XCTAssertFalse(p.defaultPrevented, "close is not cancelable and cannot prevent later input")
+            XCTAssertFalse(p.propagationStopped)
+        }
+        try tap("missing")
+        XCTAssertTrue(delegate.commands.isEmpty, "neither an unknown id nor a non-dialog may quit the window")
+        let outside = try XCTUnwrap(try node("outside").field)
+        window.makeFirstResponder(outside)
+        (window.firstResponder as? NSTextView)?.setSelectedRange(NSRange(location: 1, length: 3))
+        try tap("open")
+        XCTAssertNotNil(p.dialogs.active)
+        let field = try XCTUnwrap(try node("edit").field)
+        XCTAssertTrue(field.currentEditor() === window.firstResponder)
+        try tap("protect")
+        XCTAssertTrue(p.dialogs.key(key(53)))
+        XCTAssertEqual(try counts(), "1/0")
+        XCTAssertNotNil(p.dialogs.active)
+        try tap("allow")
+        XCTAssertTrue(p.dialogs.key(key(53)))
+        XCTAssertNil(p.dialogs.active)
+        XCTAssertEqual(try counts(), "2/0", "close runs on a later turn")
+        XCTAssertTrue(outside.currentEditor() === window.firstResponder)
+        XCTAssertEqual((window.firstResponder as? NSTextView)?.selectedRange(), NSRange(location: 1, length: 3))
+        drainClose()
+        XCTAssertEqual(try counts(), "2/1")
+        try tap("open"); try tap("close")
+        XCTAssertNil(p.dialogs.active)
+        drainClose()
+        XCTAssertEqual(try counts(), "2/2", "two close commands close once, without cancel")
+        try tap("open"); try tap("reopen")
+        XCTAssertNil(p.dialogs.active)
+        drainClose()
+        XCTAssertNotNil(p.dialogs.active, "the close handler can reopen the dialog")
+        XCTAssertEqual(try counts(), "2/3")
+        try tap("cycle")
+        XCTAssertTrue(p.dialogs.key(key(53)))
+        XCTAssertNotNil(p.dialogs.active, "the old cancel request must not close the reopened entry")
+        drainClose()
+        XCTAssertEqual(try counts(), "3/4", "reopening still owes the previous close event")
+        view.removeFromSuperview()
+        drainClose()
+        XCTAssertEqual(try counts(), "3/4", "unmount does not dispatch close")
+        mount.addSubview(view)
+        try tap("open"); try tap("close")
+        view.removeFromSuperview(); mount.addSubview(view)
+        drainClose()
+        XCTAssertEqual(try counts(), "3/4", "a queued close cannot cross an unmount and remount")
+        try tap("open"); try tap("close")
+        let generation = session.generation
+        XCTAssertNil(session.boot(plan: plan, size: CGSize(width: 600, height: 600)).error)
+        XCTAssertGreaterThan(session.generation, generation)
+        let afterBoot = try counts()
+        drainClose()
+        XCTAssertEqual(try counts(), afterBoot, "queued events cannot cross a reload")
+        try tap("quit")
+        XCTAssertEqual(delegate.commands, ["close"], "only the zero-argument command reaches the owner")
+        try tap("open"); try tap("close")
+        session.destroy()
+        drainClose()
+        XCTAssertNil(p.dialogs.active)
+    }
+
     /// With nothing focused a bare-key shortcut still presses its button, as
     /// a page's do; a field's `focus` and `blur` arrive when it takes and
     /// loses the focus, not at its first edit (jukebox F11, F23).

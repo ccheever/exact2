@@ -29,6 +29,7 @@ pub(crate) fn binder(event: EventKind) -> Option<&'static str> {
         EventKind::Hover => Some("onHover"),
         EventKind::Key | EventKind::Keyup => Some("onKey"),
         EventKind::Beforeunload => Some("onUnload"),
+        EventKind::Cancel | EventKind::Close => Some("onDialog"),
         EventKind::Submit => Some("onSubmit"),
         EventKind::Message => Some("onMessage"),
         EventKind::Scroll => Some("onScroll"),
@@ -62,6 +63,8 @@ mod tests {
             Key,
             Keyup,
             Beforeunload,
+            Cancel,
+            Close,
             Submit,
             Message,
             Scroll,
@@ -82,7 +85,7 @@ mod tests {
         ] {
             assert!(binder(k).is_some(), "{k:?}");
         }
-        for k in [Load, Cancel, Play, Pause, Timeupdate] {
+        for k in [Load, Play, Pause, Timeupdate] {
             assert!(binder(k).is_none(), "{k:?}");
         }
     }

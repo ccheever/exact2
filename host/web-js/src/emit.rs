@@ -1289,6 +1289,7 @@ impl Em<'_> {
                 | EventKind::Refresh
                 | EventKind::Pan
                 | EventKind::Cancel
+                | EventKind::Close
                 | EventKind::Resize
                 | EventKind::Select => {}
                 // The motion piece's: the swipe's holds, a pan's velocity.

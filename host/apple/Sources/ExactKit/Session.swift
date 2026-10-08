@@ -1044,6 +1044,9 @@ public final class ExactSession {
             let queued = pendingCommands
             pendingCommands = []
             for (name, args, source) in queued {
+                if name == "showModal" || (name == "close" && !args.isEmpty) {
+                    app.deliver { [weak self] in self?.dialogCommand(name, args) }; continue
+                }
                 if name == "copyText" {
                     guard args.count == 1, let text = args.first as? String else {
                         fputs("exact: copyText requires one string\n", stderr)

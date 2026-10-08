@@ -432,6 +432,10 @@ package final class Runtime {
             return read(exact_dispatch(rt, view, 27, n, now))
         }
     }
+    /// A dialog's close request or queued close notification, without a payload.
+    func dialogEvent(_ view: UInt32, closed: Bool, now: Double) -> Batch {
+        on { read(exact_dispatch(rt, view, closed ? 44 : 27, 0, now)) }
+    }
     /// Shared Markdown selection facts; the editor retains its own range.
     func selection(_ view: UInt32, json: String, now: Double) -> Batch? {
         return on(busy: nil) {

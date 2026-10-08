@@ -192,6 +192,8 @@ pub enum Event {
     /// `cancel`, LLP 1069.002 D2). A node without a `cancel` handler takes
     /// it as nothing.
     Cancel,
+    /// A dialog closed; hosts deliver it after restoring focus. No payload.
+    Close,
     /// A text field's selection changed (HTML's `select`, x2apps codeedit
     /// #2): its text, and the selection its `InputEvent` reports.
     FieldSelect(String, super::FieldSelection),
@@ -950,6 +952,7 @@ impl<D: DataSource> Runner<D> {
                 Event::Input(_) => "input",
                 Event::Change(_) => "change",
                 Event::Cancel => "cancel",
+                Event::Close => "close",
                 Event::Select { .. } | Event::FieldSelect(..) => "select",
                 Event::Hover(true) => "hover in",
                 Event::Hover(false) => "hover out",
@@ -1003,13 +1006,18 @@ impl<D: DataSource> Runner<D> {
         let (node, frames) = self.find(view).ok_or(RunnerError::UnknownView(view))?;
         // HTML's `cancel`: a file input's dismissed picker, or the element
         // a `saveFile` names when its panel is dismissed (LLP 1069.010 D3).
-        if matches!(event, Event::Cancel) {
+        if matches!(event, Event::Cancel | Event::Close) {
+            let kind = if matches!(event, Event::Close) {
+                EventKind::Close
+            } else {
+                EventKind::Cancel
+            };
             let has_handler = self
                 .plan
                 .node(node)
                 .handlers
                 .iter()
-                .any(|h| self.plan.handler(h).event == EventKind::Cancel);
+                .any(|h| self.plan.handler(h).event == kind);
             if !has_handler {
                 what.push_str(" (no handler)");
                 return Ok(CommitReceipt::default());
@@ -1046,6 +1054,7 @@ impl<D: DataSource> Runner<D> {
             Event::Input(_) => (EventKind::Input, control, "input"),
             Event::Change(_) => (EventKind::Change, control, "change"),
             Event::Cancel => (EventKind::Cancel, None, "cancel"),
+            Event::Close => (EventKind::Close, None, "close"),
             Event::Select {
                 formats,
                 mixed,

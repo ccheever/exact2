@@ -567,6 +567,7 @@ function attach(el, id, handlers) {
       if (kind === "drop") on("dragover", e => go("dragover", e));
     } else if ((kind === "change" || kind === "cancel") && el.type === "file") { // a picker's files, or its dismissal (LLP 1069.002 D2, D3)
       on(kind, () => { const p = picker().then(m => kind === "change" ? m.change(el, id) : m.cancel(id)); inflight.add(p); p.finally(() => inflight.delete(p)); });
+    } else if (kind === "cancel" || kind === "close") { on(kind, e => { const outer = keyEvent; keyEvent = e; try { send(wasm.exact_dispatch(id, kind === "close" ? 44 : 27, 0, now())); } finally { keyEvent = outer; } });
     } else if (kind === "input" || kind === "change" || (kind === "select" && !el.exactMarkup)) { // navigation.js `controlEvent`: a control's value, a text field's selection
       controlEvent(el, kind, on, (k, text) => send(wasm.exact_dispatch(id, k, writeIn(text), now())));
     } else if (kind === "hover") {
@@ -764,7 +765,7 @@ function apply(batch) {
         // user's preference decides, which is what "follow the system" is on
         // the web. `light`/`dark` are the property's own values.
         if (op.name === "setScheme") { const s = String(op.args[0] ?? ""); document.documentElement.style.colorScheme = s === "system" ? "light dark" : s; } else if (op.name === "haptic") navigator.vibrate?.(op.args?.[0] === "selection" ? 5 : 12); else if (op.name === "setRootFontSize") appRootFontSize(op.args?.[0], log); // LLP 1077 D14; LLP 1069.000 D3: the runner laid out at the size, the document's root takes it
-        else if (op.name === "focus" || op.name === "selectText" || op.name === "setSelectionRange" || op.name === "blur" || op.name === "scrollIntoView") focusCommands.push({ name: op.name, args: op.args }); // an element's scrollIntoView (a list row's is the runner's)
+        else if (op.name === "focus" || op.name === "selectText" || op.name === "setSelectionRange" || op.name === "blur" || op.name === "scrollIntoView" || op.name === "showModal" || (op.name === "close" && op.args?.length)) focusCommands.push({ name: op.name, args: op.args }); // an element's scrollIntoView (a list row's is the runner's)
         else if (op.name === "preventDefault") { keyEvent?.preventDefault(); if (keyEvent?.type === "beforeunload") keyEvent.returnValue = ""; } else if (op.name === "close") window.close(); // studio diary R17
         else if (op.name === "stopPropagation") { if (keyEvent) keyEvent.exactStopped = true; /* no ancestor's `key` handler hears it; its default still happens */ } else if (op.name === "requestFullscreen") { const el = [...views.values()].find(el => el.id === op.args?.[0] && el.exactMedia); if (!el) log(`requestFullscreen: refused: no video with id "${op.args?.[0]}"`); else el.requestFullscreen().catch(e => log(`requestFullscreen: refused: ${e.name}`)); } // HTML's Element.requestFullscreen(); the element reports `fullscreenchange`
         else if (op.name === "postMessage") { // the inverse of `message=`: text into the named surface, every one in order
@@ -1253,7 +1254,6 @@ async function clock(request) {
     if (rounds >= 15) return reply(false);
   }
 }
-
 let ticker = null, timerFactory = null, toldOffset = null;
 // The zone's offset follows the clock (habits F6): told again before an advance whose instant finds it changed (a DST
 // change, a new zone), and after the agent's `clock`; an unchanged one is not told.

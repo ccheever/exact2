@@ -880,7 +880,14 @@ fn dispatch_names_every_kind_and_refuses_unknown_ones() {
     let n = bridge.dispatch(view, 18, len, 0.);
     let out = std::str::from_utf8(bridge.output_bytes(n as usize)).unwrap();
     assert!(out.contains("invalid reorder event"), "{out}");
-    for kind in [44, 99, u32::MAX] {
+    // Cancel and Close have no payload and no effect without a handler.
+    for kind in [27, 44] {
+        let n = bridge.dispatch(view, kind, 0, 0.);
+        let out = std::str::from_utf8(bridge.output_bytes(n as usize)).unwrap();
+        assert!(out.contains("\"error\":null"), "{out}");
+        assert_eq!(slots(&bridge), hello);
+    }
+    for kind in [45, 99, u32::MAX] {
         let len = bridge.input_write(b"typed");
         let n = bridge.dispatch(view, kind, len, 0.);
         let out = std::str::from_utf8(bridge.output_bytes(n as usize)).unwrap();

@@ -814,6 +814,14 @@ dialog or popover with `commandfor` and `command="show-modal"`,
 bound, and an empty target is no target. `href`, `action` and swipe attributes
 remain refused. `-exact-enabled` transitions are not available.
 
+On web and macOS, an action can open a form dialog with `showModal("form")`
+and close it with `close("form")`, where `form` is the dialog's `id`.
+The dialog receives `cancel=` on Escape or permitted outside dismissal;
+`preventDefault()` in that handler keeps it open. `close=` runs once after
+closing and restoring focus, and may reopen it. These handlers take no payload.
+`close()` without an id closes the window. Unknown ids, non-dialog targets and
+unsupported hosts refuse a named dialog command without closing the window.
+
 `buttonStyle` needs a native button; on a default button that comes out bare,
 `lower-button-style` names the first reason and says to remove it or write
 `appearance="none"` without `buttonStyle`. It is a styleable host-policy prop;

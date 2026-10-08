@@ -937,6 +937,7 @@ impl<D: DataSource> Bridge<D> {
                 Event::Change(exact_runner::ControlValue::Files(files))
             }
             27 => Event::Cancel,
+            44 => Event::Close,
             23 => Event::Input(payload.into()),
             24 | 25 => {
                 let Some(on) = Event::checked_payload(&payload) else {

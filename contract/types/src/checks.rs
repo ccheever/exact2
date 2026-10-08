@@ -1030,12 +1030,18 @@ pub(super) fn check_command(
             span,
         );
     }
-    if name == "close" && args.len() > 1 {
-        return err(
-            "type-close",
-            "`close()` closes the window this session shows, without asking its `beforeunload` again; `close(id)` closes the dialog with that `id` (LLP 1101.001 P5); nothing else",
-            span,
-        );
+    if matches!(name, "showModal" | "close") {
+        if name == "close" && args.is_empty() {
+            return Ok(());
+        }
+        if args.len() != 1 || !matches!(infer(&args[0], scope, shapes)?, Ty::String) {
+            return err(
+                "type-dialog-command",
+                "`showModal(id)` and `close(id)` take one string dialog id; only `close()` closes the window",
+                span,
+            );
+        }
+        return Ok(());
     }
     if name == "stopPropagation" && !args.is_empty() {
         return err(

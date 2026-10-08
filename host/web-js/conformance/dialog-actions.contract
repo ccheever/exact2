@@ -1,0 +1,58 @@
+// Dialog commands and lifecycle events: the browser supplies top-layer focus.
+component App
+  state cancels = 0
+  state closes = 0
+  state blocked = false
+  state reopen = false
+  state cycle = false
+  action openForm
+    showModal("form")
+    showModal("form")
+  action closeForm
+    close("form")
+    close("form")
+  action protect
+    blocked = true
+  action allow
+    blocked = false
+  action reopenForm
+    reopen = true
+    close("form")
+  action cycleForm
+    cycle = true
+  action cancelled
+    cancels = cancels + 1
+    if cycle
+      cycle = false
+      close("form")
+      showModal("form")
+    else
+      if blocked
+        preventDefault()
+  action closed
+    closes = closes + 1
+    if reopen
+      reopen = false
+      showModal("form")
+  action missing
+    showModal("missing")
+    close("missing")
+    showModal("outside")
+    close("outside")
+  action quit
+    close()
+  view
+    column gap=12 padding=24
+      input id="outside" testId="outside" value="before" aria-label="Outside"
+      button "Open" press=openForm testId="open"
+      button "Missing" press=missing testId="missing"
+      button "Quit" press=quit testId="quit"
+      text `${cancels}/${closes}` testId="counts"
+      dialog id="form" testId="form" cancel=cancelled close=closed padding=20
+        column gap=12
+          input id="edit" testId="edit" value="draft" autofocus=true aria-label="Draft"
+          button "Prevent Escape" press=protect testId="protect"
+          button "Allow Escape" press=allow testId="allow"
+          button "Close" press=closeForm testId="close"
+          button "Close then reopen" press=reopenForm testId="reopen"
+          button "Reopen during cancel" press=cycleForm testId="cycle"

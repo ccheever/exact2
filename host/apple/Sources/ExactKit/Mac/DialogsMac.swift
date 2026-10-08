@@ -23,6 +23,7 @@ final class DialogHost {
         }
     }
     private var entries: [Entry] = []
+    private var lifetime: UInt64 = 0
     var active: NodeView? { entries.last?.dialog }
     /// LLP 1080.001 D3: an open dialog's backdrop; the dialogs it lifts.
     func inspectionOwns(_ view: NSView) -> Bool { entries.contains { $0.backdrop === view } }
@@ -78,8 +79,9 @@ final class DialogHost {
         presenter.syncAccessibility()
         presenter.shortcuts.sync()
     }
-    func close(_ dialog: NodeView, restoreFocus: Bool = true) {
+    func close(_ dialog: NodeView, restoreFocus: Bool = true, notify: Bool = true) {
         guard let i = entries.firstIndex(where: { $0.dialog === dialog }) else { return }
+        let generation = presenter?.session?.generation, lifetime = self.lifetime
         for popover in presenter?.menus.presented ?? [] where presenter?.menus.contains(dialog, popover) == true {
             presenter?.menus.close(popover, restoreFocus: false)
         }
@@ -108,15 +110,40 @@ final class DialogHost {
         }
         presenter?.syncAccessibility()
         presenter?.shortcuts.sync()
+        // HTML restores focus synchronously, then queues close. Reopening the
+        // same live dialog does not cancel the notification of its old close.
+        if notify, let session = presenter?.session {
+            DispatchQueue.main.async { [weak self, weak session, weak dialog] in
+                guard self?.lifetime == lifetime, let session, let dialog, session.state != .destroyed,
+                      session.generation == generation, session.presenter.views[dialog.id] === dialog,
+                      session.presenter.viewport.window != nil else { return }
+                let p = session.presenter, outer = (session.presenter.defaultPrevented, session.presenter.propagationStopped)
+                p.defaultPrevented = false; p.propagationStopped = false
+                session.apply(session.runtime.dialogEvent(dialog.id, closed: true, now: session.now()))
+                p.defaultPrevented = outer.0; p.propagationStopped = outer.1
+            }
+        }
+    }
+    private func requestClose(_ dialog: NodeView) {
+        guard let presenter, let entry = entries.first(where: { $0.dialog === dialog }) else { return }
+        let outer = (presenter.defaultPrevented, presenter.propagationStopped)
+        presenter.defaultPrevented = false; presenter.propagationStopped = false
+        if let session = presenter.session {
+            session.apply(session.runtime.dialogEvent(dialog.id, closed: false, now: session.now()))
+        }
+        let prevented = presenter.defaultPrevented
+        presenter.defaultPrevented = outer.0; presenter.propagationStopped = outer.1
+        if !prevented, live(dialog), entries.contains(where: { $0 === entry }) { close(dialog) }
     }
     func reset() {
-        while let dialog = active { close(dialog, restoreFocus: false) }
+        lifetime &+= 1
+        while let dialog = active { close(dialog, restoreFocus: false, notify: false) }
     }
     /// A children op still addresses the authored parent, even while a dialog
     /// is in the top layer. Removing that edge retires its presentation.
     func children(_ parent: NSView, _ wanted: [NodeView]) {
         for entry in entries where (entry.parent === parent) != wanted.contains(where: { $0 === entry.dialog }) {
-            close(entry.dialog)
+            close(entry.dialog, notify: false)
         }
     }
     func frame(_ node: NodeView, _ frame: NSRect) -> Bool {
@@ -132,7 +159,7 @@ final class DialogHost {
             let connected = parent === presenter.root || parent?.isDescendant(of: presenter.root) == true
                 || entries.contains { other in other !== entry && (parent === other.dialog || parent?.isDescendant(of: other.dialog) == true) }
             if !live(entry.dialog) || entry.dialog.props["semanticTag"] != "dialog" || !connected || presenter.viewport.window == nil {
-                close(entry.dialog)
+                close(entry.dialog, notify: false)
             }
         }
         var changed = false
@@ -213,7 +240,7 @@ final class DialogHost {
         // Composition owns Escape and Tab until the input method commits it.
         if (dialog.window?.firstResponder as? NSTextInputClient)?.hasMarkedText() == true { return false }
         if event.keyCode == 53 {
-            if event.type == .keyDown, !event.isARepeat, dialog.props["closedby"] != "none" { close(dialog) }
+            if event.type == .keyDown, !event.isARepeat, dialog.props["closedby"] != "none" { requestClose(dialog) }
             return true
         }
         if event.type == .keyDown, event.keyCode == 48 {
@@ -238,7 +265,7 @@ final class DialogHost {
         return false
     }
     func outside() {
-        if let dialog = active, dialog.props["closedby"] == "any" { close(dialog) }
+        if let dialog = active, dialog.props["closedby"] == "any" { requestClose(dialog) }
     }
     var observation: [String: Any]? {
         active.map { ["kind": "dialog", "dialog": Int($0.id), "closedby": $0.props["closedby"] ?? "closerequest", "phase": "open"] }
@@ -263,3 +290,30 @@ final class DialogBackdrop: NSView {
     override func scrollWheel(with event: NSEvent) {}
 }
 #endif
+
+extension ExactSession {
+    /// Named dialog commands never reach the embedding app's window-close hook.
+    package func dialogCommand(_ name: String, _ args: [Any]) {
+        guard args.count == 1, let id = args.first as? String else {
+            log("\(name) refused: requires one string dialog id"); return
+        }
+        #if os(macOS)
+        guard let target = presenter.views.values.first(where: { $0.props["id"] == id }) else {
+            log("\(name) \"\(id)\" refused: no live node with that id"); return
+        }
+        guard target.props["semanticTag"] == "dialog" else {
+            log("\(name) \"\(id)\" refused: not a dialog"); return
+        }
+        guard presenter.viewport.window != nil else {
+            log("\(name) \"\(id)\" refused: session is not mounted"); return
+        }
+        if name == "showModal", presenter.dialogs.owns(target) {
+            log("showModal \"\(id)\" ignored: already open"); return
+        }
+        if name == "showModal" { presenter.dialogs.show(target) }
+        else { presenter.dialogs.close(target) }
+        #else
+        log("\(name) \"\(id)\" unsupported: action dialogs are not available on this host")
+        #endif
+    }
+}

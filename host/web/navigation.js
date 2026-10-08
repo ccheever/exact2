@@ -641,8 +641,19 @@ export function focusController({ready, elements, inert}) {
 
 // The focus, blur, selectText and setSelectionRange commands a batch carried, run once every
 // node and value in it is committed (a focus handler may dispatch an action).
+export function dialogCommand(name, args, log, root = document.getElementById("exact-root")) {
+  if (args?.length !== 1 || typeof args[0] !== "string") return log(`${name} refused: requires one string dialog id`);
+  const dialog = [...(root?.querySelectorAll("[id]") ?? [])].find(node => node.id === args[0]);
+  const reason = !dialog?.isConnected ? "no live node with that id" : !(dialog instanceof HTMLDialogElement) ? "not a dialog" : null;
+  if (reason) return log(`${name} "${args[0]}" refused: ${reason}`);
+  if (name === "showModal" && dialog.open) return log(`showModal "${args[0]}" ignored: already open`);
+  try { name === "showModal" ? dialog.showModal() : dialog.close(); }
+  catch (error) { log(`${name} "${args[0]}" refused: ${error.name}`); }
+}
+
 export function runFocusCommands(commands, { root, ready, inertAncestor, log }) {
   for (const { name, args } of commands) {
+    if (name === "showModal" || name === "close") { dialogCommand(name, args, log, root); continue; }
     if (name === "scrollIntoView") { // `Element.scrollIntoView()` by the element's id, after the batch's layout (minesweeper F3)
       const el = [...root.querySelectorAll("[id]")].find(node => node.id === args?.[0]);
       if (el) el.scrollIntoView({ block: args[1] ?? "start", inline: args[2] ?? "nearest", behavior: args[3] ?? "auto" }); else log(`scrollIntoView "${args?.[0]}" refused: no live node with that id`);

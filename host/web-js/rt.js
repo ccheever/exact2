@@ -896,7 +896,6 @@ export function on(e, kind, f, bind) {
   if (e.localName === "img" && (kind === "load" || kind === "error")) return imageEvent(e, kind, f);
   return bind ? bind(e, kind, f, l) : l(kind, () => f());
 }
-
 // Each event family's binder, passed to `on` by the generated module only where its plan binds that family
 // (emit.rs `binder`), so a plan carries only the families it hears; any other event is a plain listener.
 // A link with a press is the app's navigation: the browser's is prevented. A modified or other-button click, a `target` or `download`, is the browser's alone and the press does not run, with a router or without (`router`, input-glue.js).
@@ -913,6 +912,7 @@ export const onValue = (e, kind, f, l) => { return l(kind, ev => {
 export const onHover = (e, kind, f, l) => { l("pointerenter", () => f(true)); return l("pointerleave", () => f(false)); };
 // `key` is keydown and `keyup` keyup (#140); each bubbles to every ancestor's handler; an action taking one more parameter hears the KeyboardEvent record too (contract/types selection.rs's order: code and repeat last)
 export const onKey = (e, kind, f, l) => { return l(kind === "keyup" ? "keyup" : "keydown", ev => { if (ev.$stopped) return; const outer = KeyEvent; KeyEvent = ev; try { f(ev.key, [ev.key, ev.shiftKey, ev.ctrlKey, ev.altKey, ev.metaKey, ev.code, ev.repeat]); } finally { KeyEvent = outer; } }); };
+export const onDialog = (e, kind, f, l) => { let live = true; onEnd(() => { live = false; }); return l(kind, ev => { if (!live || !e.isConnected) return; const outer = KeyEvent; KeyEvent = ev; try { f(); } finally { KeyEvent = outer; } }); };
 // The window's, heard by every connected element that declares it (studio diary R17).
 export const onUnload = (e, kind, f, l) => { return addEventListener("beforeunload", ev => { if (!e.isConnected) return; const outer = KeyEvent; KeyEvent = ev; try { f(); } finally { KeyEvent = outer; } }); };
 // Enter's default: after every `key` handler on the path (the window's listener is last), unless one prevented it, and after the browser's own default, HTML's `change` on Enter (gallery F26); the field's next key or edit (before it applies; an Enter from a textarea or an editor edits itself) runs it first, so the action reads the text Enter submitted (r27 t2: typing at once after Enter submitted the next text)

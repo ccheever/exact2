@@ -881,6 +881,14 @@ window. `head edited=…` marks the document as unsaved: on macOS the dot in the
 window's close button, beside the proxy icon of the file the window opened;
 other hosts show nothing (a declared deviation: the web has no unsaved mark).
 
+A dialog's `cancel` and `close` handlers take no payload. On web and macOS,
+Escape requests cancellation; `preventDefault()` in `cancel` keeps it open.
+`close` runs after the dialog closes and restores focus, on a later turn;
+it cannot be prevented. Actions use `showModal("form")` and `close("form")`
+for the dialog whose `id` is `form`. Both require one string id; a missing
+or non-dialog target is refused. The zero-argument `close()` above remains
+the window command. UIKit and Linux refuse these named dialog commands.
+
 HTML's global `title` attribute, on any element but `head` (whose `title` is the
 document's), is advisory text: the browser's tooltip on the web, `toolTip` on
 macOS; touch hosts show none.
