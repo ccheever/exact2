@@ -7,7 +7,7 @@ delivery: draft
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: 'feat(example)/t3-code-app-contract-room'
-pr_url: pending
+pr_url: https://github.com/ccheever/exact2/pull/264
 verified_commit: null
 ---
 
