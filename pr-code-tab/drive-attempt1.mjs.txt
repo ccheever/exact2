@@ -1,0 +1,334 @@
+// pr-code-tab live drive (not committed): bun target/drive/drive.mjs <repo> <label> [before]
+// One macOS agent session against the primary lane server (127.0.0.1:16310, real GitHub through the
+// lane gh). Pairs with a fresh single-use token (never printed). Writes only on #168 (the code-tab
+// scenario) and #115's Code tab reads; each write is read back from GitHub with the lane gh and undone
+// where GitHub allows (a submitted review stays; its line comments are deleted).
+import { appendFileSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+const [repo, label, mode = 'after'] = process.argv.slice(2);
+const MINE = '/Users/daehyeonmun/orca/workspaces/exact2/t3-code-pr-code-tab';
+const L = resolve(MINE, 'target/drive'), out = resolve(L, `out-${label}`); mkdirSync(out, { recursive: true });
+process.env.EXACT_APP_DIR = resolve(repo, 'examples/t3-code');
+const { open } = await import(resolve(repo, 'scripts/agent.mjs'));
+const lane = await import(resolve(MINE, 'examples/t3-code/tools/github-lane/lane.mjs'));
+const lib = await import(resolve(MINE, 'examples/t3-code/tools/github-lane/lib.mjs'));
+const paths = lib.lanePaths();
+const origin = 'http://127.0.0.1:16310';
+const REPO = 'daehyeonmun2021/playground', CODE = 168, REVIEWED = 115;
+const tag = `${label}-${mode}`;
+const rec = (line) => { const text = `${new Date().toISOString()} [${tag}] ${line}`; appendFileSync(resolve(out, 'record.txt'), text + '\n'); console.log(text); };
+const gh = (account, args, input) => lib.api(paths, account, args, input === undefined ? {} : { input });
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const TRACE = resolve(MINE, 'target/github-lane/servers/primary/t3home/userdata/logs/server.trace.ndjson');
+const rpcCounts = () => { const counts = {}; try { for (const line of readFileSync(TRACE, 'utf8').split('\n')) { const m = /"name":"(ws\.rpc\.pullRequests\.[a-zA-Z]+|environment\.pullRequests\.diff)"/.exec(line); if (m) counts[m[1]] = (counts[m[1]] ?? 0) + 1; } } catch {} return counts; };
+const delta = (a, b) => Object.fromEntries(Object.keys(b).filter((k) => (b[k] ?? 0) !== (a[k] ?? 0)).map((k) => [k, (b[k] ?? 0) - (a[k] ?? 0)]));
+const logOffset = () => { try { return statSync(paths.ghLog).size; } catch { return 0; } };
+const ghSince = (offset) => { try { return readFileSync(paths.ghLog, 'utf8').slice(offset).split('\n').filter(Boolean).map((line) => line.split('\t').slice(-1)[0].trim().replaceAll(REPO, 'O/R').slice(0, 400)); } catch { return []; } };
+
+const s = await open({ host: 'macos', size: [1280, 840], env: { HOME: resolve(L, `apphome-${mode}`) }, storage: `pr-code-tab-${mode}`, epoch: Date.now(),
+  onProcess: (p) => { writeFileSync(resolve(L, `${tag}-app.pid`), String(p.pid)); rec(`app pid ${p.pid}`); } });
+const nodes = async () => (await s.tree()).nodes;
+const ids = async () => (await nodes()).map((n) => n.props?.testId).filter(Boolean);
+const has = async (id) => (await ids()).includes(id);
+const settle = async (ms = 600) => { await s.clock(`+${ms} real`); await s.clock('settle'); };
+const type = async (id, value) => { await s.type(id, value); await settle(400); };
+const shot = async (name) => { await s.screenshot(resolve(out, `${tag}-${name}.png`), true); rec(`shot ${name}`); };
+const texts = async (target) => {
+  try { const t = await s.tree(target); return t.nodes.flatMap((n) => [n.props?.text, n.props?.value, n.props?.['aria-label'], n.props?.placeholder].filter((v) => typeof v === 'string' && v.trim())).map((v) => v.trim()); }
+  catch (e) { return [`(no ${target}: ${e.message.slice(0, 80)})`]; }
+};
+const dump = async (name, target) => { const t = [...new Set(await texts(target))]; writeFileSync(resolve(out, `${tag}-${name}.txt`), t.join('\n')); rec(`${name}: ${t.slice(0, 40).join(' | ').slice(0, 1400)}`); return t; };
+const node = async (id) => (await nodes()).find((n) => n.props?.testId === id);
+const prop = async (id, key) => (await node(id))?.props?.[key];
+const textOf = async (id) => (await texts(id)).join(' ');
+const clearToasts = async () => { for (const id of (await ids()).filter((id) => id.startsWith('toast-dismiss-'))) { try { await s.tap(id); await settle(300); } catch {} } };
+const toastsNow = async () => (await texts('toast-region')).filter((x) => !/^\(no /.test(x)).join(' | ');
+const waitFor = async (check, ms = 60_000) => { const end = Date.now() + ms; while (Date.now() < end) { if (await check()) return true; await settle(1000); } return false; };
+const step = async (name, body) => {
+  const before = rpcCounts(), offset = logOffset(), started = Date.now();
+  try { await body(); } catch (e) { rec(`STEP ${name} FAILED: ${e.message.slice(0, 500)}`); try { await shot(`fail-${name}`); } catch {} }
+  rec(`  ${name} (${Date.now() - started} ms): server ${JSON.stringify(delta(before, rpcCounts()))}; gh ${JSON.stringify(ghSince(offset).slice(0, 30))}`);
+};
+const openPr = async (n) => {
+  await type('pull-requests-search', `#${n}`); await settle(3000);
+  if (!(await has(`pr-row-${n}`))) await settle(5000);
+  await s.tap(`pr-row-${n}`); await settle(4000); await clearToasts();
+  await waitFor(async () => has('pull-request-tab-summary'));
+};
+const into = async (key) => { try { await s.tap('pull-request-code-list', { into: key }); await settle(500); } catch (e) { rec(`into ${key}: ${e.message.slice(0, 160)}`); } };
+const threadIds = async () => (await ids()).filter((id) => /^pull-request-thread-comment-/.test(id)).map((id) => id.slice('pull-request-thread-comment-'.length));
+
+try {
+  await settle(2000);
+  if (await has('welcome-pairing-link')) { await type('welcome-pairing-link', `${origin}/pair#token=${lane.pairingToken('primary')}`); await s.tap('welcome-pair'); await settle(5000); }
+  for (const id of ['welcome-continue', 'welcome-agents-continue', 'welcome-skip-import']) if (await has(id)) { await s.tap(id); await settle(); }
+  await settle(3000); await clearToasts();
+  rec(`connected: ${(await has('open-pull-requests')) ? 'sidebar shows Pull Requests' : 'no Pull Requests entry'}`);
+  await s.tap('open-pull-requests'); await settle(5000); await clearToasts();
+  await openPr(CODE);
+  await waitFor(async () => (await textOf('pull-request-tab-summary')).length > 0);
+  await settle(3000);
+  await shot('01-tabs-summary');
+  await dump('01-tabs', 'pull-request-panel');
+  if (mode === 'before') {
+    await s.tap('pull-request-tab-timeline'); await settle(4000); await shot('02-timeline');
+    throw new Error('before: done');
+  }
+
+  // ── Tab and slices ────────────────────────────────────────────────────────
+  await step('tab-and-slices', async () => {
+    await s.tap('pull-request-tab-code'); await settle(150);
+    await shot('02-code-loading');
+    rec(`loading state: ${await has('pull-request-code-loading')}`);
+    await waitFor(async () => /files/.test(await textOf('pull-request-code-files')), 60_000);
+    rec(`first slice: files "${await textOf('pull-request-code-files')}", viewed "${await textOf('pull-request-code-viewed')}", withheld ${await has('pull-request-code-withheld')}, scope "${await prop('pull-request-code-scope', 'aria-label')}"`);
+    await shot('03-code-first-slice');
+    for (let i = 0; i < 6 && !/^310 files$/.test(await textOf('pull-request-code-files')); i++) {
+      await into('footer');
+      try { await s.tap('pull-request-code-list', { wheel: [0, 4000] }); } catch {}
+      await settle(800);
+      if (await has('pull-request-code-footer')) rec(`footer: "${await textOf('pull-request-code-footer')}"`);
+      await waitFor(async () => !(await textOf('pull-request-code-footer')).includes('Loading'), 30_000);
+      rec(`after reaching the end ${i + 1}: "${await textOf('pull-request-code-files')}"`);
+      if (i === 0) await shot('04-code-second-slice');
+    }
+    await shot('05-code-all-files');
+    await dump('05-toolbar', 'pull-request-code-toolbar');
+  });
+
+  // ── Tree ──────────────────────────────────────────────────────────────────
+  await step('tree', async () => {
+    await s.tap('pull-request-code-tree-toggle'); await settle(800);
+    await shot('06-tree');
+    await s.tap('pull-request-code-tree-docs/usage.md'); await settle(1500);
+    rec(`reveal docs/usage.md: expanded ${await prop('pull-request-code-fold-docs/usage.md', 'aria-expanded')}`);
+    await shot('07-tree-reveal');
+    await s.tap('pull-request-code-tree-toggle'); await settle(500);
+  });
+
+  // ── Threads on docs/usage.md (open on new 5, resolved on old 5) ───────────
+  let replyId = '';
+  await step('threads', async () => {
+    await into('file:docs/usage.md'); await settle(800);
+    await dump('08-usage-file', 'pull-request-code-list');
+    await shot('08-usage-threads');
+    const before = new Set(await threadIds());
+    const threads = (await ids()).filter((id) => /^pull-request-thread-[A-Za-z0-9_-]+$/.test(id) && !/-(toggle|fix|resolve|reply|more)-/.test(id));
+    rec(`thread cards on screen: ${threads.join(', ')}`);
+    const openId = (await Promise.all(threads.map(async (id) => [id, await textOf(id)]))).find(([, t]) => /Open ·/.test(t))?.[0]?.slice('pull-request-thread-'.length);
+    rec(`open thread ${openId}`);
+    // Reply (⌘↵), read back on GitHub.
+    await s.tap(`pull-request-thread-reply-${openId}`); await settle(500);
+    await type(`pull-request-thread-reply-text-${openId}`, 'Good question: the catalog step can stay second.');
+    await s.type(`pull-request-thread-reply-text-${openId}`, { key: 'Meta+Enter' }); await settle(500);
+    await shot('09-reply-posting');
+    const comments = () => (gh('primary', [`repos/${REPO}/pulls/${CODE}/comments?per_page=100`]).body ?? []);
+    let mine = null;
+    for (let i = 0; i < 20 && !mine; i++) { await sleep(1000); mine = comments().find((c) => c.user?.login === 'daehyeonmun2021' && c.body === 'Good question: the catalog step can stay second.'); }
+    rec(`read back: reply ${mine ? `posted as ${mine.user.login}, in reply to ${mine.in_reply_to_id}` : 'not found'}`);
+    await waitFor(async () => (await threadIds()).some((id) => !before.has(id)), 40_000);
+    replyId = (await threadIds()).find((id) => !before.has(id)) ?? '';
+    rec(`reply shown as ${replyId}`);
+    await shot('10-reply-shown');
+    // Edit own reply (pencil, ⌘↵).
+    await s.tap(`pull-request-thread-comment-${replyId}`, { hover: true }); await settle(300);
+    await s.tap(`pr-code-comment-${replyId}-edit`); await settle(500);
+    rec(`editor seeded: ${(await prop(`pr-code-comment-${replyId}-text`, 'value')) === 'Good question: the catalog step can stay second.'}`);
+    await type(`pr-code-comment-${replyId}-text`, 'Good question: the catalog step can stay second (edited).');
+    await s.type(`pr-code-comment-${replyId}-text`, { key: 'Meta+Enter' }); await settle(500);
+    let edited = null;
+    for (let i = 0; i < 20 && !edited; i++) { await sleep(1000); edited = comments().find((c) => c.id === mine?.id && c.body.endsWith('(edited).')); }
+    rec(`read back: edit ${edited ? 'saved' : 'not seen'}`);
+    await settle(3000); await shot('11-edited');
+    // React 👍 and take it back.
+    await s.tap(`pull-request-reaction-add-${replyId}`); await settle(500);
+    await s.tap(`pull-request-reaction-choose-${replyId}-thumbs-up`); await settle(500);
+    let reactions = [];
+    for (let i = 0; i < 15 && !reactions.length; i++) { await sleep(1000); reactions = gh('primary', [`repos/${REPO}/pulls/comments/${mine?.id}/reactions`]).body ?? []; }
+    rec(`read back: reactions ${reactions.map((r) => r.content).join(',')}`);
+    await settle(3000); await shot('12-reacted');
+    if (await has(`pull-request-reaction-${replyId}-thumbs-up`)) { await s.tap(`pull-request-reaction-${replyId}-thumbs-up`); await settle(500); }
+    for (let i = 0; i < 15 && reactions.length; i++) { await sleep(1000); reactions = gh('primary', [`repos/${REPO}/pulls/comments/${mine?.id}/reactions`]).body ?? []; }
+    rec(`read back: reactions after taking it back ${reactions.length}`);
+    // Resolve, then Unresolve, read back from GraphQL.
+    const resolvedState = () => gh('primary', ['graphql', '-f', `query=query{repository(owner:"daehyeonmun2021",name:"playground"){pullRequest(number:${CODE}){reviewThreads(first:20){nodes{id isResolved diffSide}}}}}`]).body?.data?.repository?.pullRequest?.reviewThreads?.nodes?.find((t) => t.id === openId)?.isResolved;
+    await s.tap(`pull-request-thread-resolve-${openId}`); await settle(500);
+    let state = null;
+    for (let i = 0; i < 15 && state !== true; i++) { await sleep(1000); state = resolvedState(); }
+    rec(`read back: resolve -> isResolved ${state}`);
+    await settle(3000); await shot('13-resolved');
+    await s.tap(`pull-request-thread-toggle-${openId}`); await settle(500);
+    await s.tap(`pull-request-thread-resolve-${openId}`); await settle(500);
+    for (let i = 0; i < 15 && state !== false; i++) { await sleep(1000); state = resolvedState(); }
+    rec(`read back: unresolve -> isResolved ${state}`);
+    await settle(3000); await shot('14-unresolved');
+    // Reply's Escape: nothing is sent.
+    const offset = logOffset();
+    await s.tap(`pull-request-thread-reply-${openId}`); await settle(300);
+    await type(`pull-request-thread-reply-text-${openId}`, 'Not sent.');
+    await s.type(`pull-request-thread-reply-text-${openId}`, { key: 'Escape' }); await settle(800);
+    rec(`reply Escape: box ${await has(`pull-request-thread-reply-text-${openId}`) ? 'still open' : 'closed'}; gh writes ${JSON.stringify(ghSince(offset).filter((l) => /-X|graphql|POST/.test(l)))}`);
+    // Clean up the reply.
+    if (mine) { const del = gh('primary', ['-X', 'DELETE', `repos/${REPO}/pulls/comments/${mine.id}`]); rec(`cleanup: deleted the reply (HTTP ${del.status})`); }
+  });
+
+  // ── Viewed: three quick ticks, one write; a push makes one "Changed" ──────
+  await step('viewed', async () => {
+    const files = ['catalog/entry-001.txt', 'catalog/entry-002.txt', 'catalog/entry-003.txt'];
+    await into('file:catalog/entry-001.txt'); await settle(500);
+    const offset = logOffset();
+    for (const path of files) await s.tap(`pull-request-code-viewed-${path}`);
+    await settle(200); await shot('15-viewed-ticked');
+    rec(`count right after the presses: "${await textOf('pull-request-code-viewed')}"`);
+    await settle(2500);
+    const calls = ghSince(offset).filter((l) => /markFileAsViewed|unmarkFileAsViewed/.test(l));
+    rec(`viewed writes: ${calls.length} gh call(s): ${calls.map((l) => l.replace(/\s+/g, ' ').slice(0, 300)).join(' || ')}`);
+    const states = gh('primary', ['graphql', '-f', `query=query{repository(owner:"daehyeonmun2021",name:"playground"){pullRequest(number:${CODE}){files(first:100){nodes{path viewerViewedState}}}}}`]).body?.data?.repository?.pullRequest?.files?.nodes ?? [];
+    rec(`read back: ${files.map((p) => `${p} ${states.find((f) => f.path === p)?.viewerViewedState}`).join(', ')}`);
+    await settle(2000); await shot('16-viewed-count');
+    rec(`count: "${await textOf('pull-request-code-viewed')}"; ${files[0]} header expanded ${await prop(`pull-request-code-fold-${files[0]}`, 'aria-expanded')}`);
+    // The second account pushes to entry-001; Refresh; the tick reads "Changed".
+    const pushed = await pushAsSecond('catalog/entry-001.txt', 'entry 1 (revised)\n');
+    rec(`second account pushed ${pushed.slice(0, 7)} to the pull request's branch`);
+    await sleep(3000);
+    await s.tap('pull-request-more'); await settle(400); await s.tap('pr-more-refresh'); await settle(3000);
+    await waitFor(async () => /310 files/.test(await textOf('pull-request-code-files')) || false, 20_000);
+    await into('file:catalog/entry-001.txt'); await settle(1000);
+    for (let i = 0; i < 6 && !(await prop(`pull-request-code-viewed-${files[0]}`, 'aria-label') === 'Changed'); i++) await settle(2000);
+    rec(`after the push: ${files[0]} tick "${await prop(`pull-request-code-viewed-${files[0]}`, 'aria-label')}" checked ${await prop(`pull-request-code-viewed-${files[0]}`, 'aria-checked')}; ${files[1]} checked ${await prop(`pull-request-code-viewed-${files[1]}`, 'aria-checked')}`);
+    await shot('17-changed');
+    // Untick all three again (one write), as seeded.
+    const reset = logOffset();
+    for (const path of files.slice(1)) await s.tap(`pull-request-code-viewed-${path}`);
+    await settle(2500);
+    rec(`untick: ${ghSince(reset).filter((l) => /markFileAsViewed|unmarkFileAsViewed/.test(l)).length} gh call(s)`);
+  });
+
+  // ── Line comments to the review (added, deleted, context in split, rename) ─
+  await step('line-comments', async () => {
+    await s.tap('pull-request-code-split'); await settle(800);
+    await into('file:docs/usage.md'); await settle(800);
+    const draft = async (path, side, line, body) => {
+      await s.tap(`diff-comment-${path}-${side}-${line}`); await settle(500);
+      rec(`draft on ${path} ${side} ${line}: "${await prop('pull-request-comment-text', 'aria-label')}"`);
+      await type('pull-request-comment-text', body);
+      await s.tap('pull-request-comment-add'); await settle(600);
+    };
+    await draft('docs/usage.md', 'additions', 5, 'Maybe say where the catalog lives here.');
+    await draft('docs/usage.md', 'deletions', 5, 'The short wording was fine too.');
+    await draft('docs/usage.md', 'deletions', 4, 'This blank line could go.');
+    await shot('18-split-pending');
+    await into('file:src/strings.js'); await settle(500);
+    if (await prop('pull-request-code-fold-src/strings.js', 'aria-expanded') === false) { await s.tap('pull-request-code-fold-src/strings.js'); await settle(500); }
+    await draft('src/strings.js', 'additions', 3, 'A test for mumble would help.');
+    // Escape on a fresh draft sends nothing.
+    await s.tap('diff-comment-src/strings.js-additions-1'); await settle(400);
+    await type('pull-request-comment-text', 'Not kept.');
+    await s.type('pull-request-comment-text', { key: 'Escape' }); await settle(500);
+    rec(`draft after Escape: ${await has('pull-request-comment-text') ? 'open' : 'gone'}; pending cards ${(await ids()).filter((id) => id.startsWith('pull-request-pending-') && !id.includes('discard')).length}`);
+    await shot('19-rename-pending');
+    rec(`composer badge: "${await textOf('pull-request-composer-badge')}"`);
+    await s.tap('pull-request-composer-trigger'); await settle(800);
+    if (await has('pull-request-composer-mode-review')) { await s.tap('pull-request-composer-mode-review'); await settle(500); }
+    await type('pull-request-review-summary', 'Notes on the usage page and the helpers.');
+    await shot('20-review-form');
+    const offset = logOffset();
+    await s.tap('pull-request-review-submit'); await settle(1000);
+    let review = null;
+    for (let i = 0; i < 20 && !review; i++) { await sleep(1000); review = (gh('primary', [`repos/${REPO}/pulls/${CODE}/reviews?per_page=100`]).body ?? []).filter((r) => r.body === 'Notes on the usage page and the helpers.').at(-1); }
+    rec(`gh: ${JSON.stringify(ghSince(offset).filter((l) => /review|graphql/.test(l)).slice(0, 4))}`);
+    const posted = review ? gh('primary', [`repos/${REPO}/pulls/${CODE}/reviews/${review.id}/comments`]).body ?? [] : [];
+    rec(`read back: review ${review?.id} state ${review?.state}; comments ${JSON.stringify(posted.map((c) => ({ path: c.path, line: c.line, side: c.side, original_line: c.original_line, start_line: c.start_line, body: c.body.slice(0, 30) })))}`);
+    await settle(4000); await shot('21-review-sent');
+    rec(`pending cards after submit: ${(await ids()).filter((id) => id.startsWith('pull-request-pending-') && !id.includes('discard')).length}`);
+    for (const c of posted) { const del = gh('primary', ['-X', 'DELETE', `repos/${REPO}/pulls/comments/${c.id}`]); rec(`cleanup: deleted review comment ${c.id} (HTTP ${del.status})`); }
+    await s.tap('pull-request-code-stacked'); await settle(500);
+  });
+
+  // ── Commit scope, its menu, Show more; the Timeline's commit row ──────────
+  await step('commit-scope', async () => {
+    const commits = gh('primary', [`repos/${REPO}/pulls/${CODE}/commits?per_page=100`]).body ?? [];
+    const rename = commits.find((c) => c.commit.message.startsWith('Rename the text helpers'));
+    await s.tap('pull-request-code-scope'); await settle(600);
+    await shot('22-scope-menu');
+    await dump('22-scope-menu', 'pull-request-code-scope-layer');
+    await s.tap('pull-request-code-scope-more'); await settle(500);
+    await shot('23-scope-more');
+    const offset = logOffset();
+    await s.tap(`pull-request-code-scope-${rename.sha.slice(0, 7)}`); await settle(1000);
+    await waitFor(async () => /file/.test(await textOf('pull-request-code-files')) && !(await has('pull-request-code-loading')), 30_000);
+    rec(`scoped: "${await prop('pull-request-code-scope', 'aria-label')}", files "${await textOf('pull-request-code-files')}", comments-off icon ${await has('pull-request-code-comments-off')}, gutter comment button ${(await ids()).some((id) => id.startsWith('diff-comment-'))}`);
+    rec(`gh: ${JSON.stringify(ghSince(offset).filter((l) => /commits|diff|compare/.test(l)).slice(0, 6))}`);
+    await shot('24-commit-scope');
+    await s.tap('pull-request-code-scope'); await settle(400); await s.tap('pull-request-code-scope-all'); await settle(2000);
+    rec(`back: "${await prop('pull-request-code-scope', 'aria-label')}"`);
+    // Timeline: a commit row opens the Code tab on that commit.
+    await s.tap('pull-request-tab-timeline'); await settle(2000);
+    const search = commits.find((c) => c.commit.message.startsWith('Search the catalog'));
+    await s.tap(`pull-request-timeline-commit-${search.sha.slice(0, 7)}`); await settle(2500);
+    rec(`timeline commit row: code tab selected ${await prop('pull-request-tab-code', 'aria-selected')}, scope "${await prop('pull-request-code-scope', 'aria-label')}"`);
+    await shot('25-timeline-opened-commit');
+    await s.tap('pull-request-code-scope'); await settle(400); await s.tap('pull-request-code-scope-all'); await settle(1500);
+  });
+
+  // ── Dark, reduced motion, 840×620 ─────────────────────────────────────────
+  await step('looks', async () => {
+    await s.prefer({ 'prefers-color-scheme': 'dark' }); await settle(1500);
+    await into('file:docs/usage.md'); await settle(500); await shot('26-dark');
+    await s.prefer({ 'prefers-color-scheme': 'light' }); await settle(800);
+    await s.resize(840, 620); await settle(1500); await shot('27-840x620');
+    await s.resize(1280, 840); await settle(1000);
+  });
+
+  // ── #115: Load more, the conversations off the diff (reduced motion) ──────
+  await step('reviewed-pr', async () => {
+    await s.tap('pull-request-tab-summary'); await settle(500);
+    await openPr(REVIEWED); await settle(2000);
+    await s.tap('pull-request-tab-code'); await settle(1000);
+    await waitFor(async () => /file/.test(await textOf('pull-request-code-files')), 60_000);
+    await s.tap('pull-request-code-fold-src/validate.js'); await settle(1500);
+    await shot('28-115-code');
+    rec(`orphans: "${await prop('pull-request-code-orphans-toggle', 'aria-label')}"`);
+    const more = (await ids()).find((id) => id.startsWith('pull-request-thread-more-'));
+    rec(`load more button: ${more}`);
+    if (more) {
+      const before = (await threadIds()).length;
+      await s.tap(more); await settle(1000);
+      await waitFor(async () => (await threadIds()).length > before, 30_000);
+      rec(`comments shown before ${before}, after ${(await threadIds()).length}`);
+      await shot('29-115-load-more');
+    }
+    await s.prefer({ 'prefers-reduced-motion': 'reduce' }); await settle(500);
+    await s.tap('pull-request-code-orphans-toggle'); await settle(1000);
+    rec(`orphans open: ${await prop('pull-request-code-orphans-toggle', 'aria-expanded')}`);
+    await shot('30-115-orphans-reduced-motion');
+    await dump('30-orphans', 'pull-request-code-orphans');
+    await s.prefer({ 'prefers-reduced-motion': 'no-preference' }); await settle(300);
+  });
+
+  // ── Add to agent (a new thread with the lines and the request) ────────────
+  await step('add-to-agent', async () => {
+    await s.tap('diff-comment-src/validate.js-additions-4'); await settle(500);
+    await type('pull-request-comment-text', 'Explain why an empty input is an error here.');
+    await shot('31-agent-draft');
+    await s.tap('pull-request-comment-agent'); await settle(4000);
+    rec(`toasts: ${await toastsNow()}`);
+    await settle(3000); await shot('32-agent-thread');
+    await dump('32-composer', 'composer');
+  });
+} finally {
+  rec('closing');
+  try { await s.close(); } catch {}
+}
+
+async function pushAsSecond(path, text) {
+  const dir = resolve(MINE, 'target/drive/push-clone');
+  const git = (args, opts = {}) => lib.git(paths, 'second', args, opts);
+  const pr = gh('primary', [`repos/${REPO}/pulls/${CODE}`]).body;
+  try { git(['clone', '--quiet', '--branch', pr.head.ref, `https://github.com/${REPO}.git`, dir]); } catch { git(['fetch', '--quiet', 'origin'], { cwd: dir }); git(['checkout', '--quiet', '-B', pr.head.ref, `origin/${pr.head.ref}`], { cwd: dir }); }
+  writeFileSync(resolve(dir, path), text);
+  git(['add', path], { cwd: dir });
+  git(['-c', 'user.name=daehyeon-mun', '-c', 'user.email=<redacted noreply address>', 'commit', '--quiet', '-m', 'Revise the first entry'], { cwd: dir });
+  git(['push', '--quiet', 'origin', `HEAD:${pr.head.ref}`], { cwd: dir });
+  return git(['rev-parse', 'HEAD'], { cwd: dir }).stdout.trim();
+}
