@@ -29,6 +29,9 @@ async function fixture() {
   let serial = 0;
   const native: Native = { available: true, watch() {}, async later(input) {
     const request = obj(input); calls.push(request);
+    if (request.op === 'mobileOutbox') return { ok: true, generation: client.generation, value: request.action === 'read'
+      ? { ownerEpoch: 'epoch', sequenceFloor: 0, complete: true, errors: [], records: [], outcomes: [], mutations: [], revisions: {}, tokens: {}, transfers: [] }
+      : { complete: true, fingerprint: null, claims: [] } };
     const value = request.op === 'ids' ? Array.from({length: Number(request.count)}, () => `id-${++serial}`) : request.op === 'http' ? { authenticated: true, permissions: ['source-control:write'] }
       : request.method === 'vcs.switchRef' ? { refName: 'normalized-branch' } : {};
     return { ok: true, generation: client.generation, value };
@@ -373,7 +376,8 @@ test('scratch branch routes redirect and scratch environment changes cannot stra
   f.client.local.snapshotDrafts[f.client.draftKey] = [{ id: 'owned-file', name: 'keep.txt', type: 'file' }];
   const before = f.calls.length;
   expect((await f.action(chooser.owner, 'environment', 'other', '', 'environment')).message).toContain('no longer available');
-  expect(f.calls).toHaveLength(before); expect(f.client.snapshotDrafts[0]?.id).toBe('owned-file');
+  expect(f.calls.slice(before).map(call => [call.op, call.action])).toEqual([['mobileOutbox', 'read'], ['mobileOutbox', 'transferLookup']]);
+  expect(f.client.snapshotDrafts[0]?.id).toBe('owned-file');
 });
 
 test('scratch Run on attempts the actual connection without treating legacy content as a collision', async () => {

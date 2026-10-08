@@ -2,7 +2,7 @@
 // Native owns accepted FIFO storage work. This owner retains only plain projection data.
 import type { T3Client } from './shared/client';
 import { bridgeReply, ClientError, type Native } from './shared/protocol';
-import { letGoAware } from './shared/let-go';
+import { letGo, letGoAware } from './shared/let-go';
 import { mobileOutboxDecode, mobileOutboxEncode, mobileOutboxGroup, type MobileOutboxRecord } from './mobile-outbox-model';
 
 import { mobileOutboxTransferDecodeCapture, mobileOutboxTransferDecodeClaim, mobileOutboxTransferCanonical,
@@ -185,6 +185,7 @@ export async function mobileOutboxRead(client: Client, native: Native | null | u
     value.errors = errors; value.recovery = clone(raw.mutations); value.complete = raw.complete && errors.length === 0;
     change(client, value); return value.complete;
   } catch (error) {
+    if (letGo(error)) throw error;
     if (ordinal >= value.lastRead) { value.lastRead = ordinal; value.complete = false; value.errors = [{ message: String(error), ownership: 'unknown' }]; change(client, value); }
     return false;
   }

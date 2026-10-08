@@ -10,6 +10,8 @@ import { mobileOutboxTransferApplyCleanup } from './mobile-outbox-transfer-clean
 import { composerNow } from './shared/composer-controls';
 import { ClientError, type Native, type Files } from './shared/protocol';
 import { letGo, letGoAware } from './shared/let-go';
+import { mobileNewTaskTransferGuardAcquire, mobileNewTaskTransferGuardRelease,
+  mobileNewTaskTransferGuardBusy } from './new-task-transfer-guard';
 
 export interface MobileNewTaskTransferInput {
   draftKey: string;
@@ -24,15 +26,13 @@ export interface MobileNewTaskTransferResult {
   status: 'completed' | 'cleanup-pending' | 'recovery-required' | 'failed' | 'blocked' | 'busy';
   claim: MobileOutboxTransferClaim | null; message: string;
 }
-const busy = new WeakMap<MobileDraftClient, Set<string>>();
 const result = (status: MobileNewTaskTransferResult['status'], message = '', claim: MobileOutboxTransferClaim | null = null): MobileNewTaskTransferResult =>
   ({ status, claim, message });
-export const mobileNewTaskTransferBusy = (client: MobileDraftClient, key: string): boolean => busy.get(client)?.has(key) ?? false;
+export const mobileNewTaskTransferBusy = mobileNewTaskTransferGuardBusy;
 function acquire(client: MobileDraftClient, key: string): (() => void) | null {
-  let keys = busy.get(client); if (!keys) { keys = new Set(); busy.set(client, keys); }
-  if (keys.has(key)) return null;
-  keys.add(key); client.revision++;
-  return () => { keys.delete(key); client.revision++; };
+  const lease = mobileNewTaskTransferGuardAcquire(client, key); if (!lease) return null;
+  client.revision++;
+  return () => { mobileNewTaskTransferGuardRelease(client, lease); client.revision++; };
 }
 function invocation(input: Native | null | undefined) {
   if (!input?.available) throw new ClientError('Open T3 Code on your iPhone or iPad to queue this task.');

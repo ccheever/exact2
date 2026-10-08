@@ -11,6 +11,9 @@ test('actual Home source persists Discard through native preferences, not the po
   const writes: Obj[] = [], calls: Obj[] = [];
   const native: Native = { available: true, watch() {}, async later(input) {
     const request = obj(input); calls.push(request);
+    if (request.op === 'mobileOutbox') return { ok: true, generation: mobileClient.generation, value: request.action === 'read'
+      ? { ownerEpoch: 'epoch', sequenceFloor: 0, complete: true, errors: [], records: [], outcomes: [], mutations: [], revisions: {}, tokens: {}, transfers: [] }
+      : { complete: true, fingerprint: null, claims: [] } };
     if (request.op === 'writePreferences') writes.push(obj(JSON.parse(String(request.text))));
     return { ok: true, generation: mobileClient.generation, value: request.op === 'mobileAlert' ? { choice: 'discard' } : request.op === 'readPreferences' ? { text: '{"version":1}' } : {} };
   } };
@@ -28,5 +31,6 @@ test('actual Home source persists Discard through native preferences, not the po
     expect(writes.length).toBeGreaterThan(0); expect(obj(writes[0].drafts)[key]).toBeUndefined();
     expect(obj(obj(writes[0].mobileNewTaskDrafts).records)[key]).toBeUndefined();
     expect(calls.some(call => call.op === 'writePreferences')).toBe(true);
+    expect(calls.filter(call => call.op === 'mobileOutbox').map(call => call.action)).toEqual(['read', 'transferLookup']);
   }
 });
