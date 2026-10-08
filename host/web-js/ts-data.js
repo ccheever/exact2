@@ -224,11 +224,14 @@ function storageOf(grants) {
     }
     return k;
   });
-  // The loaded filesystem, read synchronously when a write is queued (`admit`).
+  // The loaded filesystem, read synchronously when a write is queued (`admit`); writes
+  // queued before it loaded are admitted, in queue order, the moment it does.
   let loaded = null;
+  const unadmitted = [];
   const files = () => fs ??= key().then(k => import(new URL('./storage-fs.js', import.meta.url).href).then(m => {
     const f = m.createFileSystem(k, grants);
     loaded = f;
+    for (const write of unadmitted.splice(0)) write.seq = f.admit(write.m, write.captured);
     // @ref LLP 1097 D8, D10 — a replay from a closed tab that failed is a storage failure.
     void f.recovery?.then(lines => { for (const line of lines) { counts.failed++; counts.last = `storage failed: ${line}`; journal.push(`t=${clock.now} storage failed: ${line}`); } });
     return f;
@@ -279,11 +282,22 @@ function storageOf(grants) {
         const picked = isDocument(captured);
         // @ref LLP 1097 D10 — a write is journaled when this queue accepts it, so one waiting
         // behind others survives a closed tab too (once the filesystem has loaded).
-        const seq = admitted && !picked && WRITES.has(m) ? loaded?.admit(m, captured) : undefined;
-        let ran = false;
-        const run = () => { ran = true; return (picked ? documents() : files()).then(f => seq === undefined ? f[m](...captured) : f.withSeq(seq, () => f[m](...captured))); };
+        const write = admitted && !picked && WRITES.has(m) ? { m, captured, seq: loaded?.admit(m, captured) } : null;
+        if (write && !loaded) unadmitted.push(write);
+        let called = false;
+        const run = () => (picked ? documents() : files()).then(f => {
+          called = true;
+          const at = unadmitted.indexOf(write);
+          if (at >= 0) unadmitted.splice(at, 1);
+          return write?.seq === undefined ? f[m](...captured) : f.withSeq(write.seq, () => f[m](...captured));
+        });
         const result = admitted ? queued(`${m}${typeof args[0] === 'string' ? ` ${args[0]}` : ''}`, run) : denied(`fs.${m}`, picked);
-        if (seq !== undefined) void result.catch(() => {}).finally(() => { if (!ran) loaded?.release(seq); });
+        if (write) void result.catch(() => {}).finally(() => {
+          if (called) return;
+          const at = unadmitted.indexOf(write);
+          if (at >= 0) unadmitted.splice(at, 1);
+          if (write.seq !== undefined) loaded?.release(write.seq);
+        });
         return result.catch(coded);
       }])) }),
     sqlite: Object.freeze({ open: path => { const call = answering.call; return (admitted ? queued(`open ${path}`, () => databases().then(d => d.open(path))).then(d => database(d, path, call)) : denied(`sqlite.open ${path}: no grant covers it; grant \`sqlite.open ${path}\`, or \`sqlite.open ${String(path).slice(0, String(path).lastIndexOf('/'))}\` for every file there (a grant covers its path and what is below it, by whole names)`)).catch(coded); } }),

@@ -666,26 +666,34 @@ One rule per event:
   transaction still running when the page goes away: a setting committed with
   Enter and the tab closed 4 ms later was lost 4 of 4 times.
   - **A journal per realm (a session).** `storage-fs.js` keeps each mutation as
-    an entry from the moment it is accepted until it settles. The JS target's
-    storage queue (`ts-data.js`) accepts it when the app calls (`admit`), so a
-    write waiting behind others is an entry too. The mutation's own transaction
-    writes the session's applied marker (`seq`, under a key no listing reaches)
-    beside its change.
+    an entry from the moment it is accepted until it commits. The JS target's
+    storage queue (`ts-data.js`) accepts it when the app calls (`admit`; a write
+    queued before the filesystem module loaded is admitted, in queue order, when
+    it does), so a write waiting behind others is an entry too. Only a mutation
+    the grants admit is an entry. The mutation's own transaction adds its
+    sequence number to the session's applied set (the last 1,024, under a key no
+    listing reaches), so whether an entry committed does not depend on the order
+    entries ran in. A mutation that fails once the page is going (its
+    transaction dropped) stays in the journal.
   - **Written when the page may go.** While the page is hidden, and from
     `pagehide`, the session's entries are in `localStorage` under its own key
     (`exact-storage-journal:<app>:<session>`), rewritten synchronously as
     entries come and go. A phone may discard a hidden tab with no `pagehide`.
   - **Replayed only when its page is gone.** Each session holds a Web Lock for
-    its realm's life. A later realm's filesystem replays the sessions whose lock
-    it can take, under that lock, oldest first: the entries after the session's
-    marker, in order, each writing its own marker, so a replay cut short resumes
-    and an append lands once. Then it drops the session's key and marker. Its
-    own reads and mutations wait for that.
+    its realm's life. A later realm's filesystem takes the app's recovery lock
+    (one recovery at a time; a page opening during one waits for it), takes the
+    lock of each session whose page is gone, and replays their entries
+    interleaved by the time each was accepted, skipping any its session applied
+    and checking each against this launch's grants. Each replayed entry adds
+    itself to its session's applied set, so a replay cut short resumes and an
+    append lands once. Then it drops what was replayed. This filesystem's own
+    reads and mutations wait for that.
   - **Failures (D8).** A replayed entry that fails for good (`ENOENT`,
     `EISDIR`, `ENOTDIR`, `EEXIST`, `ENOTEMPTY`, a refusal) is skipped; a busy
-    path is retried; any other failure stops the replay and keeps the rest for
-    the next launch. Each is a `storage failed:` line in the runtime's journal
-    on the JS target (`fs.recovery`).
+    path is retried; any other failure stops the whole recovery and keeps every
+    entry left for the next launch. Each is a `storage failed:` line in the
+    runtime's journal on the JS target (`fs.recovery`). On the wasm host and for
+    Rust storage requests it is a console warning only.
   - **Measured after it:** the same close kept the setting 10 of 10 times on the
     JS target and 6 of 6 on the wasm host.
   - **Not covered**, and the pitfall says so:
@@ -694,6 +702,8 @@ One rule per event:
     - writes still queued inside a wasm-realm source (`prelude.js`) behind the
       one running;
     - `compressImage` before its encoded bytes reach the filesystem;
+    - two dead tabs' entries accepted in the same millisecond replay in session
+      order, which may not be the order they ran in;
     - entries past the journal's 2 MB bound (the prefix that fits is kept);
     - a browser that is killed rather than closed (no event fires);
     - `createFileStore`'s direct users (the picker, SQLite's worker), which do

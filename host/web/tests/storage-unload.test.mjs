@@ -65,7 +65,7 @@ const plant = (p, session, entries, marker) => p.evaluate(async ([app, session, 
     const request = indexedDB.open(`exact-storage:${app}`);
     request.onsuccess = () => {
       const t = request.result.transaction('files', 'readwrite');
-      t.objectStore('files').put({ path: `\u0000exact-applied:${session}`, kind: 'marker', session, seq: marker });
+      t.objectStore('files').put({ path: `\u0000exact-applied:${session}`, kind: 'marker', session, applied: marker });
       t.oncomplete = resolve;
     };
   });
@@ -132,18 +132,45 @@ test("a live tab's journal is never replayed by another tab, and is replayed onc
   });
 }, 60_000);
 
-test("a gone session's marker decides by sequence: committed entries never replay, later ones do", async () => {
+test("a gone session's applied set decides: committed entries never replay, the rest do, in acceptance order", async () => {
   await withBrowser(async open => {
     const a = await open();
     await a.evaluate(() => fs.writeFile('app:/data/log.txt', new TextEncoder().encode('a')));
-    // A gone session whose seq 1 and 2 committed (marker 2) though its journal still names 1:
-    // a stale journal. And another whose marker is 1, with 2 and 3 uncommitted.
-    await plant(a, 'gone1', [append(1, 'x')], 2);
-    await plant(a, 'gone2', [append(1, 'y'), append(2, 'b'), append(3, 'c')], 1);
+    // A gone session whose seq 1 committed though its stale journal still names it. Another whose
+    // seq 2 committed before its seq 1 (a later-accepted write that ran first), with 1 and 3 not.
+    await plant(a, 'gone1', [append(1, 'x')], [1]);
+    await plant(a, 'gone2', [{ ...append(1, 'b'), at: 1 }, { ...append(2, 'y'), at: 2 }, { ...append(3, 'c'), at: 3 }], [2]);
     await a.close();
     const b = await open();
     expect(await b.evaluate(async () => text(await fs.readFile('app:/data/log.txt')))).toBe('abc');
     // Markers of replayed sessions are dropped; the marker key is no file.
     expect(await b.evaluate(async () => (await fs.readdir('app:/data')).sort())).toEqual(['log.txt']);
+  });
+}, 60_000);
+
+test('a replayed entry its grants refuse is skipped and reported; admit journals only what the grants admit', async () => {
+  await withBrowser(async open => {
+    const a = await open();
+    expect(await a.evaluate(() => fs.admit('writeFile', ['app:/cache/x', new TextEncoder().encode('x')]) ?? null)).toBeNull();
+    await a.evaluate(() => fs.writeFile('app:/data/log.txt', new TextEncoder().encode('a')));
+    await plant(a, 'gone3', [{ seq: 1, at: 1, method: 'writeFile', args: ['app:/cache/x', { bytes: btoa('x') }] }, append(2, 'b')], null);
+    await a.close();
+    const b = await open();
+    expect(await b.evaluate(async () => text(await fs.readFile('app:/data/log.txt')))).toBe('ab');
+    const lines = await b.evaluate(() => fs.recovery);
+    expect(lines.length).toBe(1);
+    expect(lines[0]).toContain('denied');
+  });
+}, 60_000);
+
+test('two pages opening at once wait for one recovery: the replay lands once and both see it', async () => {
+  await withBrowser(async open => {
+    const a = await open();
+    await a.evaluate(() => fs.writeFile('app:/data/log.txt', new TextEncoder().encode('a')));
+    await plant(a, 'gone4', [append(1, 'b'), append(2, 'c')], null);
+    await a.close();
+    const [b, c] = await Promise.all([open(), open()]);
+    const read = p => p.evaluate(async () => text(await fs.readFile('app:/data/log.txt')));
+    expect(await Promise.all([read(b), read(c)])).toEqual(['abc', 'abc']);
   });
 }, 60_000);
