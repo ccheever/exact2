@@ -9,8 +9,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { createInterface } from 'node:readline';
-import { Snapback } from './snapback.ts';
-import { commitChanges, readKept, type Change, type SqliteStorage } from './web.ts';
+import type { Change, SqliteStorage } from './web.ts';
 
 const SCHEMA = `
 use identity
@@ -39,9 +38,14 @@ const wasm = join(scratch, 'snapback4.wasm');
 let server: ChildProcess;
 let origin = '';
 
+// The driver imports the wasm glue this writes (ts/generated/), so it is
+// built before the driver is loaded, in a fresh checkout too.
+const built = spawnSync('bun', [resolve(import.meta.dir, '../web/build.mjs'), wasm], { stdio: 'inherit' });
+if (built.status !== 0) throw new Error('web/build.mjs failed');
+const { Snapback } = await import('./snapback.ts');
+const { commitChanges, readKept } = await import('./web.ts');
+
 beforeAll(async () => {
-  const built = spawnSync('bun', [resolve(import.meta.dir, '../web/build.mjs'), wasm], { stdio: 'inherit' });
-  if (built.status !== 0) throw new Error('web/build.mjs failed');
   const project = join(scratch, 'server');
   mkdirSync(join(project, 'snapback'), { recursive: true });
   writeFileSync(join(project, 'snapback/schema.q'), SCHEMA);
