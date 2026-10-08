@@ -233,6 +233,7 @@ one lane (above); the real-key rows wait for the real-input batch.
 | 0 (earlier session, 2026-10-08) | uncommitted on `f90277989` (backup `9697b1dd1`) | route and submenu press worked in its drives; its `Host::boot` test failed three rounds (`UnknownSource("snapshot")`, engine not loaded, `markdown` owner thread) | its local `target/title-snooze/` (not published) | superseded |
 | 1 | branch tree before review (runner digest `76a010a3…`) | runner passed (`attempt1-report.json`); new tests fail on the base sources (2 Bun, 1 Rust) and pass here; five checks green; agent drives before/after; review round 1 FAIL (B1) | images 01-05, `agent-drives.txt`, `review.md` | B1 |
 | 2 | branch tree after the repairs (runner digest `53a6e426…`) | runner passed (`attempt2-report.json`: 68 focused tests, 3041 clone tests with 1 skip, tsc, contract build, 13 Rust lib tests, caps); five checks green again (3383 pass / 0 fail / 33 ignored, 94 binaries); retry drive on the rebuilt app | `agent-drives.txt` Retry, `attempt2-report.json` | real-input batch; disabled-row capture (no provider lane) |
+| 3 | `93ca3386f` merged with `feat(example)/t3-code` at `d3df2c426` (runner digest `da1f63f0…`, 998 paths) | runner passed (`attempt3-report.json`: 68 focused tests, 3053 clone tests with 1 skip, tsc, contract build 3847 slots / 4150 actions, 13 Rust lib tests, caps); five checks green (3383 pass / 0 fail / 33 ignored, 94 binaries) | `attempt3-report.json` | real-input batch; disabled-row capture (no provider lane) |
 
 ## Next action
 

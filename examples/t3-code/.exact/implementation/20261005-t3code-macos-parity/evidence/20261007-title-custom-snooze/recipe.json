@@ -421,6 +421,7 @@
   "examples/t3-code/pages-pr-writes.test.ts",
   "examples/t3-code/pages-pr-writes.ts",
   "examples/t3-code/pages-prefs.ts",
+  "examples/t3-code/pages-prs-live.test.ts",
   "examples/t3-code/pages-prs.contract",
   "examples/t3-code/pages-prs.test.ts",
   "examples/t3-code/pages-prs.ts",
