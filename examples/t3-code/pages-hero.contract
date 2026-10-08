@@ -9,6 +9,8 @@ use PgIcon from "./pages-icons.contract"
 use KmItem from "./menu-keys.contract"
 use KeyMenu from "./menu-keys.contract"
 use kmOpenKey from "./menu-keys.contract"
+use KeyMenuOpen from "./menu-keys.contract"
+use kmBump from "./menu-keys.contract"
 
 shape HeroProject
   id: string
@@ -102,17 +104,23 @@ component HeroPicker
     over = value
   // fix-keyboard-focus: Enter or Space opens the menu from the keyboard (menu-keys.contract).
   state keyed = 0
+  state keyArmed = false
+  action keyArm(on: bool)
+    keyArmed = on
+  action keyOpened(last: bool)
+    keyed = kmBump(keyed, last)
   action triggerKey(k: string)
     if kmOpenKey(k)
-      keyed = keyed + 1
+      keyed = kmBump(keyed, false)
   view
     column position="relative" flex-shrink=1 min-width=0 max-width="16rem"
-      button popovertarget="hero-project-menu" key=triggerKey hover=hover testId="empty-choose-project" padding=0 border-width=0 background-color="#00000000" display="flex" flex-direction="column" align-items="flex-start" max-width="16rem" position="relative"
+      button popovertarget="hero-project-menu" key=triggerKey focus=keyArm(true) blur=keyArm(false) hover=hover testId="empty-choose-project" padding=0 border-width=0 background-color="#00000000" display="flex" flex-direction="column" align-items="flex-start" max-width="16rem" position="relative"
         each name in home.projectNames key=name.id
           text name.id font-size=(small ? "0.875rem" : "1.875rem") line-height=(small ? "1.25rem" : "2.25rem") letter-spacing=(small ? "0px" : "-0.75px") font-weight=500 color="light-dark(#27272a, #f5f5f5)" line-clamp=1 max-width="16rem"
         box position="absolute" left=0 right=0 top=(small ? "1.125rem" : "2.0625rem") height=(small ? "1px" : "2px") overflow="hidden"
           svg width="125rem" height=(small ? "1px" : "2px") viewBox=(small ? "0 0 2000 1" : "0 0 2000 2") aria-hidden=true
             path d=(small ? "M0 .5H2000" : "M0 1H2000") stroke=(scheme == "dark" ? (over ? "#f5f5f5" : "#f5f5f54d") : (over ? "#27272a" : "#27272a4d")) stroke-width=(small ? 1 : 2) stroke-dasharray=(over ? "none" : (small ? "1 1" : "2 2"))
+      KeyMenuOpen(menuId="hero-project-menu", armed=keyArmed, opened=keyOpened)
       column id="hero-project-menu" popover="auto" position="absolute" left=0 right=0 top=0 padding-top="0.25rem" align-items="center" testId="hero-project-menu-layer"
         HeroMenu(home=home, scheme=scheme, keyed=keyed, command=command, addProject=addProject)
 

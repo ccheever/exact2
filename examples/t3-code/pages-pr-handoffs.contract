@@ -10,6 +10,8 @@ use Tip from "./shell-tip.contract"
 use KmItem from "./menu-keys.contract"
 use KeyMenu from "./menu-keys.contract"
 use kmOpenKey from "./menu-keys.contract"
+use KeyMenuOpen from "./menu-keys.contract"
+use kmBump from "./menu-keys.contract"
 
 shape PrHandoffsView
   pending: string
@@ -32,15 +34,20 @@ component PrdCheckoutMenu
   derive disabled = handoffs.pending != "" or not handoffs.canCheckout
   // fix-keyboard-focus: the menu's keyboard (menu-keys.contract).
   state keyed = 0
+  state keyArmed = false
+  action keyArm(on: bool)
+    keyArmed = on
+  action keyOpened(last: bool)
+    keyed = kmBump(keyed, last)
   action hover(value: bool)
     over = value
   action triggerKey(k: string)
     if kmOpenKey(k)
-      keyed = keyed + 1
+      keyed = kmBump(keyed, false)
   view
     column position="relative" flex-shrink=0
       Tip(label="Check out this pull request", side="top", align="center", offset=20)
-        button popovertarget="pr-checkout-menu" hover=hover key=triggerKey disabled=disabled aria-label=(checking ? "Checking out..." : "Check out") testId="pull-request-checkout" height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" box-sizing="border-box" gap="0.25rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color=(over and not disabled ? "light-dark(#f4f4f580, #ffffff0d)" : "light-dark(#ffffff, #ffffff07)") box-shadow="0 1px 2px #0000000d" opacity=(disabled ? 0.64 : 1) display="flex" flex-direction="row" align-items="center" flex-shrink=0
+        button popovertarget="pr-checkout-menu" hover=hover key=triggerKey focus=keyArm(true) blur=keyArm(false) disabled=disabled aria-label=(checking ? "Checking out..." : "Check out") testId="pull-request-checkout" height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" box-sizing="border-box" gap="0.25rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color=(over and not disabled ? "light-dark(#f4f4f580, #ffffff0d)" : "light-dark(#ffffff, #ffffff07)") box-shadow="0 1px 2px #0000000d" opacity=(disabled ? 0.64 : 1) display="flex" flex-direction="row" align-items="center" flex-shrink=0
           PgIcon(name="git-branch", size=14, color=phInk())
           when not narrow
             text (checking ? "Checking out..." : "Check out") font-size="0.75rem" line-height="1rem" font-weight=500 white-space="nowrap" color=phInk()
@@ -49,6 +56,7 @@ component PrdCheckoutMenu
       // applies a popover's margins with a `position-area`; `span-left` is not implemented, X17 #112): the menu's 410
       // (its widest line, 350 at 12px, with the glyph, gap and insets) less the button's 111 (52 for the glyphs, padding
       // and border, and the label's 59), or 48 without the label. Opaque: a backdrop blur here sees only its parent.
+      KeyMenuOpen(menuId="pr-checkout-menu", armed=keyArmed, opened=keyOpened)
       row id="pr-checkout-menu" popover="auto" position="absolute" position-area="bottom span-right" margin-left=(narrow ? -362 : -299) padding-top="0.25rem" align-items="flex-start" testId="pr-checkout-layer"
         column width=410 padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#27272a1a, #f5f5f51a)" background-color="light-dark(#ffffff, #121212)" box-shadow=(scheme == "dark" ? "0 18px 44px -18px #000000cc" : "0 16px 40px -18px #0000008c") role="menu" aria-label="Check out" flex-shrink=0
           KeyMenu(menuId="pr-checkout-keys", items=(handoffs.pending != "" ? [] : [KmItem(id="pr-checkout-worktree", label="In a separate worktree"), KmItem(id="pr-checkout-local", label="In this repository")]), keyed=keyed, gap="0px", modal=true)

@@ -12,6 +12,8 @@ use PgIcon from "./pages-icons.contract"
 use KmItem from "./menu-keys.contract"
 use KeyMenu from "./menu-keys.contract"
 use kmOpenKey from "./menu-keys.contract"
+use KeyMenuOpen from "./menu-keys.contract"
+use kmBump from "./menu-keys.contract"
 
 component UsagePricesDialog
   inject
@@ -134,14 +136,20 @@ component UsagePricesApply
     op: action
   // fix-keyboard-focus: Enter or Space opens the menu from the keyboard (menu-keys.contract).
   state keyed = 0
+  state keyArmed = false
+  action keyArm(on: bool)
+    keyArmed = on
+  action keyOpened(last: bool)
+    keyed = kmBump(keyed, last)
   action triggerKey(k: string)
     if kmOpenKey(k)
-      keyed = keyed + 1
+      keyed = kmBump(keyed, false)
   view
     column position="relative" min-width=0
-      button popovertarget="usage-prices-apply" key=triggerKey disabled=(prices.pending or prices.hasChanges) aria-label=`Apply to ${prices.selectionLabel}` testId="usage-prices-apply" height="1.75rem" padding-left="0.5625rem" padding-right="0.4375rem" box-sizing="border-box" gap="0.25rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)" opacity=(prices.pending or prices.hasChanges ? 0.64 : 1) display="flex" flex-direction="row" align-items="center" min-width=0
+      button popovertarget="usage-prices-apply" key=triggerKey focus=keyArm(true) blur=keyArm(false) disabled=(prices.pending or prices.hasChanges) aria-label=`Apply to ${prices.selectionLabel}` testId="usage-prices-apply" height="1.75rem" padding-left="0.5625rem" padding-right="0.4375rem" box-sizing="border-box" gap="0.25rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)" opacity=(prices.pending or prices.hasChanges ? 0.64 : 1) display="flex" flex-direction="row" align-items="center" min-width=0
         text prices.selectionLabel font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)" line-clamp=1 min-width=0
         UsageSchemeIcon(name="chevron-down", size=14, scheme=scheme, light="#27272a", dark="#f5f5f5")
+      KeyMenuOpen(menuId="usage-prices-apply", armed=keyArmed, opened=keyOpened)
       column id="usage-prices-apply" popover="auto" position="absolute" left=0 top=0 padding-top="0.25rem" testId="usage-prices-apply-layer"
         column width=`${prices.menuWidth / 16}rem` padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#27272a1a, #f5f5f51a)" background-color="light-dark(#ffffffd5, #111111d5)" box-shadow=(scheme == "dark" ? "0 18px 44px -18px #000000cc" : "0 16px 40px -18px #0000008c") role="menu" testId="usage-prices-apply-menu"
           KeyMenu(menuId="usage-prices-apply-keys", items=concat([KmItem(id="usage-prices-apply-all", label="All environments")], map(prices.targets, (target) => KmItem(id=`usage-prices-apply-${target.key}`, label=target.label))), keyed=keyed, gap="0px", modal=true)

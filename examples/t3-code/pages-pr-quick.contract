@@ -12,6 +12,8 @@ use R6Check from "./r6-pr-shapes.contract"
 use KmItem from "./menu-keys.contract"
 use KeyMenu from "./menu-keys.contract"
 use kmOpenKey from "./menu-keys.contract"
+use KeyMenuOpen from "./menu-keys.contract"
+use kmBump from "./menu-keys.contract"
 
 keyframes pqSpin
   from rotate=0
@@ -149,16 +151,22 @@ component PrRowStack
     select: action
   // fix-keyboard-focus: the stack menu's keyboard (menu-keys.contract).
   state keyed = 0
+  state keyArmed = false
+  action keyArm(on: bool)
+    keyArmed = on
+  action keyOpened(last: bool)
+    keyed = kmBump(keyed, last)
   derive layerItems = popover.ref != rowRef ? [] : concat((popover.retry ? [KmItem(id=`${popId}-retry`, label="Retry stack refresh")] : []), map(popover.layers, (layer) => KmItem(id=`${popId}-layer-${layer.number}`, label=layer.title)))
   action triggerKey(k: string)
     if kmOpenKey(k)
-      keyed = keyed + 1
+      keyed = kmBump(keyed, false)
   view
     column position="relative" flex-shrink=0 pointer-events="auto"
       Tip(label=tip, side="top", align="center", offset=20)
-        button press=control("quick-stack", rowRef) popovertarget=popId key=triggerKey aria-label=ariaLabel testId=`${popId}-trigger` height="1rem" padding=0 border-width=0 background-color="#00000000" gap="0.25rem" display="flex" flex-direction="row" align-items="center" cursor="pointer"
+        button press=control("quick-stack", rowRef) popovertarget=popId key=triggerKey focus=keyArm(true) blur=keyArm(false) aria-label=ariaLabel testId=`${popId}-trigger` height="1rem" padding=0 border-width=0 background-color="#00000000" gap="0.25rem" display="flex" flex-direction="row" align-items="center" cursor="pointer"
           PgIcon(name="layers", size=12, color=pqMuted())
           text label font-size="0.75rem" line-height="1rem" color=pqMuted() white-space="nowrap" font-variant-numeric="tabular-nums"
+      KeyMenuOpen(menuId=popId, armed=keyArmed, opened=keyOpened)
       row id=popId popover="auto" position="absolute" padding-top="0.25rem" align-items="flex-start" testId=`${popId}-layer`
         column width="18rem" padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#27272a1a, #f5f5f51a)" background-color="light-dark(#ffffff, #121212)" box-shadow=(scheme == "dark" ? "0 18px 44px -18px #000000cc" : "0 16px 40px -18px #0000008c") role="menu" aria-label=ariaLabel testId=popId
           KeyMenu(menuId=`${popId}-keys`, items=layerItems, keyed=keyed, gap="0px", modal=true)

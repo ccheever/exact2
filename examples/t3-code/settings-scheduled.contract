@@ -20,6 +20,8 @@ use LucideSearch from "./settings-icons.contract"
 use LucideRefreshCw from "./settings-icons.contract"
 use KmItem from "./menu-keys.contract"
 use kmOpenKey from "./menu-keys.contract"
+use KeyMenuOpen from "./menu-keys.contract"
+use kmBump from "./menu-keys.contract"
 
 shape TaskRowView
   id: string
@@ -162,9 +164,14 @@ component TaskRow
   derive target = `id=${encodeURIComponent(item.id)}&environmentId=${encodeURIComponent(item.environmentId)}`
   // fix-keyboard-focus: Enter or Space opens the menu from the keyboard (menu-keys.contract).
   state keyed = 0
+  state keyArmed = false
+  action keyArm(on: bool)
+    keyArmed = on
+  action keyOpened(last: bool)
+    keyed = kmBump(keyed, last)
   action triggerKey(k: string)
     if kmOpenKey(k)
-      keyed = keyed + 1
+      keyed = kmBump(keyed, false)
   view
     row width="100%" box-sizing="border-box" padding-top="0.75rem" padding-bottom="0.75rem" padding-left="1rem" padding-right="1rem" gap="2rem" align-items="center" border-top-style="solid" border-top-width=(item.first ? 0 : 1) border-color="light-dark(#e3e3e780, #ffffff08)" testId=`task-row-${item.id}`
       column flex=1 min-width=0 gap="0.25rem"
@@ -178,13 +185,15 @@ component TaskRow
             text item.runError font-size="0.75rem" line-height="1rem" color="light-dark(#dc2626, #f87171)" testId=`task-run-error-${item.id}`
       row flex-shrink=0 align-items="center" gap="0.5rem"
         SettingsSwitch(checked=item.enabled, label=`Enable ${item.title}`, disabled=(busy or not data.writable), switchId=`task-enabled-${item.id}`, toggle=rest("task", `action=toggle&${target}&enabled=${item.enabled ? "false" : "true"}`))
-        button popovertarget=`task-menu-${item.id}` key=triggerKey disabled=(busy or not data.writable) aria-label=`Actions for ${item.title}` testId=`task-actions-${item.id}` width="1.75rem" height="1.75rem" border-width=0 border-radius="0.5rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center"
-          LucideEllipsis(size=16, color="light-dark(#27272a, #f5f5f5)")
-        SkPopup(menuId=`task-menu-${item.id}`, label=`Actions for ${item.title}`, width=160, list=false, endAlign=28, items=[KmItem(id=`task-edit-${item.id}`, label="Edit"), KmItem(id=`task-run-${item.id}`, label="Run now"), KmItem(id=`task-delete-${item.id}`, label="Delete")], keyed=keyed)
-          TaskMenuItem(label="Edit", icon="edit", menuId=`task-menu-${item.id}`, itemId=`task-edit-${item.id}`, destructive=false, choose=open("task", `${item.environmentId}|${item.id}`, item.title))
-          TaskMenuItem(label="Run now", icon="run", menuId=`task-menu-${item.id}`, itemId=`task-run-${item.id}`, destructive=false, choose=rest("task", `action=run&${target}`))
-          box height=1 margin-top="0.25rem" margin-bottom="0.25rem" margin-left="0.5rem" margin-right="0.5rem" background-color="light-dark(#e4e4e7, #ffffff0f)"
-          TaskMenuItem(label="Delete", icon="delete", menuId=`task-menu-${item.id}`, itemId=`task-delete-${item.id}`, destructive=false, choose=rest("task", `action=delete&${target}`))
+        box position="relative" flex-shrink=0
+          button popovertarget=`task-menu-${item.id}` key=triggerKey focus=keyArm(true) blur=keyArm(false) disabled=(busy or not data.writable) aria-label=`Actions for ${item.title}` testId=`task-actions-${item.id}` width="1.75rem" height="1.75rem" border-width=0 border-radius="0.5rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center"
+            LucideEllipsis(size=16, color="light-dark(#27272a, #f5f5f5)")
+          KeyMenuOpen(menuId=`task-menu-${item.id}`, armed=keyArmed, opened=keyOpened)
+          SkPopup(menuId=`task-menu-${item.id}`, label=`Actions for ${item.title}`, width=160, list=false, endAlign=28, items=[KmItem(id=`task-edit-${item.id}`, label="Edit"), KmItem(id=`task-run-${item.id}`, label="Run now"), KmItem(id=`task-delete-${item.id}`, label="Delete")], keyed=keyed)
+            TaskMenuItem(label="Edit", icon="edit", menuId=`task-menu-${item.id}`, itemId=`task-edit-${item.id}`, destructive=false, choose=open("task", `${item.environmentId}|${item.id}`, item.title))
+            TaskMenuItem(label="Run now", icon="run", menuId=`task-menu-${item.id}`, itemId=`task-run-${item.id}`, destructive=false, choose=rest("task", `action=run&${target}`))
+            box height=1 margin-top="0.25rem" margin-bottom="0.25rem" margin-left="0.5rem" margin-right="0.5rem" background-color="light-dark(#e4e4e7, #ffffff0f)"
+            TaskMenuItem(label="Delete", icon="delete", menuId=`task-menu-${item.id}`, itemId=`task-delete-${item.id}`, destructive=false, choose=rest("task", `action=delete&${target}`))
 
 // A task row's menu item with its icon (Edit / Run now / Delete).
 component TaskMenuItem
@@ -298,9 +307,14 @@ component ScheduledEditor
       saturday = not saturday
   // fix-keyboard-focus: Enter or Space opens the menu from the keyboard (menu-keys.contract).
   state environmentOpens = 0
+  state environmentArmed = false
+  action environmentArm(on: bool)
+    environmentArmed = on
+  action environmentOpened(last: bool)
+    environmentOpens = kmBump(environmentOpens, last)
   action environmentKey(k: string)
     if kmOpenKey(k)
-      environmentOpens = environmentOpens + 1
+      environmentOpens = kmBump(environmentOpens, false)
   view
     column position="absolute" left=0 right=0 top=0 bottom=0 z-index=40 display="flex" align-items="center" justify-content="center" padding="1rem" box-sizing="border-box" background-color="light-dark(#fcfcfc99, #090909a3)" testId="scheduled-task-overlay"
       column width="100%" max-width="36rem" max-height="100%" box-sizing="border-box" border-radius="1.125rem" border-style="solid" border-width=1 border-color="light-dark(#2727271a, #ffffff14)" background-color="light-dark(#fcfcfc, #0b0b0b)" box-shadow="0 24px 64px -24px #000000a6" overflow="hidden" role="dialog" aria-label=(draft.id == "" ? "New task" : "Edit task") testId="scheduled-task-dialog"
@@ -318,13 +332,15 @@ component ScheduledEditor
               text error font-size="0.875rem" line-height="1.25rem" color="light-dark(#dc2626, #f87171)" role="alert" testId="scheduled-task-error"
             column gap="0.375rem"
               text "Runs on" class=TkLabel
-              button popovertarget="task-environment-menu" key=environmentKey role="combobox" aria-label="Runs on" disabled=(draft.id != "" or busy) id="task-environment" testId="task-environment" display="flex" flex-direction="row" align-items="center" gap="0.5rem" width="100%" height="2rem" box-sizing="border-box" padding-left="0.6875rem" padding-right="0.5625rem" border-radius="0.625rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#fcfcfc, #ffffff07)" opacity=(draft.id != "" ? 0.64 : 1)
-                LucideLaptop(size=16, color="light-dark(#71717b, #818181)")
-                text data.environment font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" flex=1 min-width=0 line-clamp=1 text-align="left"
-                LucideChevronDown(size=12, color="light-dark(#71717b, #818181)")
-              SkPopup(menuId="task-environment-menu", label="Runs on", width=526, list=true, endAlign=0, items=map(data.environments, (option) => KmItem(id=`task-environment-option-${option.value}`, label=option.label)), keyed=environmentOpens)
-                each option in data.environments key=option.value
-                  SkMenuItem(label=option.label, menuId="task-environment-menu", itemId=`task-environment-option-${option.value}`, selected=option.selected, check=true, destructive=false, disabled=false, choose=choose("environment", option.value))
+              box position="relative"
+                button popovertarget="task-environment-menu" key=environmentKey focus=environmentArm(true) blur=environmentArm(false) role="combobox" aria-label="Runs on" disabled=(draft.id != "" or busy) id="task-environment" testId="task-environment" display="flex" flex-direction="row" align-items="center" gap="0.5rem" width="100%" height="2rem" box-sizing="border-box" padding-left="0.6875rem" padding-right="0.5625rem" border-radius="0.625rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#fcfcfc, #ffffff07)" opacity=(draft.id != "" ? 0.64 : 1)
+                  LucideLaptop(size=16, color="light-dark(#71717b, #818181)")
+                  text data.environment font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" flex=1 min-width=0 line-clamp=1 text-align="left"
+                  LucideChevronDown(size=12, color="light-dark(#71717b, #818181)")
+                KeyMenuOpen(menuId="task-environment-menu", armed=environmentArmed, opened=environmentOpened)
+                SkPopup(menuId="task-environment-menu", label="Runs on", width=526, list=true, endAlign=0, items=map(data.environments, (option) => KmItem(id=`task-environment-option-${option.value}`, label=option.label)), keyed=environmentOpens)
+                  each option in data.environments key=option.value
+                    SkMenuItem(label=option.label, menuId="task-environment-menu", itemId=`task-environment-option-${option.value}`, selected=option.selected, check=true, destructive=false, disabled=false, choose=choose("environment", option.value))
             column gap="0.375rem"
               text "Name" class=TkLabel
               input value=title input=setText("title") placeholder="e.g. Check for Sentry issues" aria-label="Name" class=TkField disabled=busy testId="task-title"

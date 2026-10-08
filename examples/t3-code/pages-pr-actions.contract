@@ -18,6 +18,8 @@ use kmOpenKey from "./menu-keys.contract"
 use PrHandoffsView from "./pages-pr-handoffs.contract"
 use PrdCheckoutMenu from "./pages-pr-handoffs.contract"
 use PrdHandoffItems from "./pages-pr-handoffs.contract"
+use KeyMenuOpen from "./menu-keys.contract"
+use kmBump from "./menu-keys.contract"
 
 keyframes paSpin
   from rotate=0
@@ -177,6 +179,11 @@ component PrdActionsMenu
   // fix-keyboard-focus: the menu's keyboard (menu-keys.contract): Enter or Space on "…" opens it with the
   // focus on its first row, and the arrows, Home, End and a letter move through the enabled rows.
   state keyed = 0
+  state keyArmed = false
+  action keyArm(on: bool)
+    keyArmed = on
+  action keyOpened(last: bool)
+    keyed = kmBump(keyed, last)
   derive gated = not actions.pending and actions.open
   derive handing = handoffs.pending == ""
   derive rows = filter(concat(concat([KmItem(id=(actions.refreshing ? "" : "pr-more-refresh"), label="Refresh"), KmItem(id=(handing ? "pr-more-ask" : ""), label="Ask a question"), KmItem(id=(handing ? "pr-more-explain" : ""), label="Explain this PR"), KmItem(id=(handing ? "pr-more-fix-findings" : ""), label="Fix findings"), KmItem(id=(gated and actions.draftToggle == "draft" ? "pr-more-draft" : ""), label="Convert to draft"), KmItem(id=(gated and actions.draftToggle == "ready" ? "pr-more-ready" : ""), label="Ready for review"), KmItem(id=(gated and actions.mergeNow ? "pr-more-merge-now" : ""), label="Merge now"), KmItem(id=(gated and actions.autoMerge == "disable" ? "pr-more-disable-auto-merge" : ""), label="Disable auto-merge"), KmItem(id=(gated and actions.autoMerge == "enable" ? "pr-more-enable-auto-merge" : ""), label="Enable auto-merge")], map(actions.methods, (item) => KmItem(id=(gated ? `pr-more-method-${item.method}` : ""), label=item.label))), [KmItem(id="pr-more-open-host", label=`Open on ${hostName}`), KmItem(id="pr-more-copy-link", label="Copy link"), KmItem(id="pr-more-copy-number", label="Copy PR number"), KmItem(id=(actions.closeItem and not actions.pending ? "pr-more-close" : ""), label="Close pull request"), KmItem(id=(actions.reopenItem and not actions.pending ? "pr-more-reopen" : ""), label="Reopen pull request"), KmItem(id=(actions.revertItem and not actions.pending ? "pr-more-revert" : ""), label="Revert changes")]), (item) => item.id != "")
@@ -184,7 +191,7 @@ component PrdActionsMenu
     over = value
   action moreKey(k: string)
     if kmOpenKey(k)
-      keyed = keyed + 1
+      keyed = kmBump(keyed, false)
   // A confirmation asked for from the menu (PrdHeaderActions' ask).
   action ask(what: string)
     blur()
@@ -192,12 +199,13 @@ component PrdActionsMenu
   view
     column position="relative" flex-shrink=0
       Tip(label=actions.moreLabel, side="top", align="center", offset=20)
-        button id="pull-request-more" popovertarget="pr-more-menu" hover=hover key=moreKey aria-label=actions.moreLabel testId="pull-request-more" width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 background-color=(over ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center"
+        button id="pull-request-more" popovertarget="pr-more-menu" hover=hover key=moreKey focus=keyArm(true) blur=keyArm(false) aria-label=actions.moreLabel testId="pull-request-more" width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 background-color=(over ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center"
           when actions.refreshing
             box width="1rem" height="1rem" display="flex" animation=(still ? "none" : "paSpin 1s linear infinite") testId="pull-request-refreshing"
               PgIcon(name="refresh-cw", size=16, color=paMuted())
           else
             PgIcon(name="ellipsis", size=16, color=paMuted())
+      KeyMenuOpen(menuId="pr-more-menu", armed=keyArmed, opened=keyOpened)
       row id="pr-more-menu" popover="auto" position="absolute" padding-top="0.25rem" align-items="flex-start" testId="pr-more-layer"
         // As wide as its widest line: "Opens a thread that knows which pull request you mean." (318 at 12px) and the
         // item's glyph, gap and insets (pr-handoffs-and-quick-actions).

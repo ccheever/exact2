@@ -8,46 +8,64 @@ upstream_url: null
 reproduced_on: 9314e7a81 (main) with two one-file apps; contract/, runner/, plan/ and kernel/tables are unchanged through main 263c8b96e; again on 4bc1fc9ff (feat(example)/t3-code-fix-keyboard-focus)
 ---
 
-# X66: A popover cannot be shown or hidden from an action, and it says nothing when it toggles
+# X66: A popover can be shown or hidden from an action only through an invisible invoker, and it says nothing when it toggles
 
 ## Summary
 
-A Contract popover (`popover="auto"`) opens only when the user presses a button that names it
-(`popovertarget`), and it closes only through such a button, light dismiss, or Escape. An action
-cannot open or close one: there is no `showPopover(id)`, `hidePopover(id)` or `togglePopover(id)`
-host command. The popover also has no `toggle` (or `beforetoggle`) event, so the app never learns
-that it opened or closed, or how. The web has all of these (HTML's popover API:
-`HTMLElement.showPopover()`, `hidePopover()`, `togglePopover()`, and the `beforetoggle` and
-`toggle` events with `oldState`/`newState`).
+A Contract popover (`popover="auto"`) opens only when a button that names it is pressed
+(`popovertarget`). It closes only through such a button, by light dismiss, or by Escape. An action
+cannot open or close one directly: `showPopover(id)`, `hidePopover(id)` and `togglePopover(id)`
+are not host commands. The popover also has no `toggle` (or `beforetoggle`) event, so the app
+never learns that it opened or closed, or how.
+
+The web has all of these in HTML's popover API: `HTMLElement.showPopover()`, `hidePopover()`,
+`togglePopover()`, and the `beforetoggle` and `toggle` events with `oldState`/`newState`.
+
+Today an app reaches the same result one way only. It mounts a second, invisible button that names
+the popover (`popovertargetaction="show"` or `"hide"`), lays it over the real trigger so the popover
+anchors where the trigger's own press would anchor it, and presses it through a scoped
+`aria-keyshortcuts`. This is the popover sibling of #282 (`showModal(id)`/`close(id)` from an
+action for dialogs).
 
 ## Why this issue arose
 
-The real-input batch (#298, bugs 4 and 13) found that the clone's menus did not move focus with
+The real-input batch (#298, bugs 4 and 13) found that the clone's menus did not move the focus with
 the arrow keys. The clone matches the reference's Base UI Menu with one pattern
-(`examples/t3-code/menu-keys.contract`, `KeyMenu`): ↑/↓ with wrap, Home/End and typeahead
-inside the open menu, and the first item focused when the menu opens from the keyboard. Three
-parts of Base UI's menu can't be built without this capability:
+(`examples/t3-code/menu-keys.contract`): `KeyMenu` gives ↑/↓ with wrap, Home/End and typeahead
+inside the open menu, and `KeyMenuOpen` lets ↓/↑ on a closed trigger open the menu at its first or
+last item. Base UI's menu is built on Floating UI's list navigation, which opens from the focused
+trigger on ArrowDown and ArrowUp by default (`openOnArrowKeyDown`); the user's rule is to match the
+original.
 
-1. **↓/↑ on a closed trigger.** Base UI's menu is built on Floating UI's list navigation. By
-   default (`openOnArrowKeyDown`) that opens the menu from its focused trigger on ArrowDown and
-   ArrowUp, as WAI-ARIA's menu button pattern does, focusing the first or last item. That is the
-   library default; the reference app itself was not driven to confirm it. With no `showPopover`, a trigger's `key` handler
-   can't open its popover. In the clone, Enter and Space open a menu, and ↓ and ↑ on a closed
-   trigger do nothing.
-2. **Knowing that a menu opened, and how.** With no `toggle` event, `KeyMenu` infers the open
-   from the popup taking focus (`focus=entered` on the `autofocus` column). It infers the
-   modality from a counter that the trigger's `key` handler bumps on Enter or Space. Every
-   trigger carries that counter (`keyed`), a dozen-odd states and actions across the area
-   files.
-3. **State that should follow the menu's open state.** Base UI's sidebar snooze menu keeps the
-   row's hover actions shown while it is open. The clone can't read "open", so it pins the row
-   while the focus is inside the menu or the pointer is over one of its rows
-   (`sidebar-row.contract`: `snoozeFocus`, `snoozeHover`). The first proxy alone failed with the
-   real pointer (bug 4: a real mouse-down takes the focus from the popup before the click lands,
-   so the row collapsed and the menu moved out from under the pointer).
+Three parts of the reference's menu can only be built today with the invisible invoker, or not at
+all:
 
-A state-driven menu (one an `if` mounts) can open from an action. But it gets no popover
-semantics (top layer, light dismiss, Escape, anchoring), and X53 (#282) covers its focus.
+1. **↓/↑ on a closed trigger.** No key handler can open a popover, so `KeyMenuOpen` lays two invisible
+   `popovertargetaction="show"` buttons over each popover menu's trigger. They are armed with
+   `aria-keyshortcuts="ArrowDown"` / `"ArrowUp"` only while the trigger holds the focus. Each trigger
+   needs a positioned box that it fills, so the menu anchors where a press would anchor it. Six
+   triggers had no such box and gained a wrapper, and one container became positioned. The invokers must stay mounted: a menu whose
+   invoker unmounts closes before its item's press lands. fix-provider-auth-state built the same
+   invoker for the sign-in method menu.
+2. **Knowing that a menu opened, and how.** With no `toggle` event, `KeyMenu` infers an open from
+   its popup taking the focus (`focus=entered` on the `autofocus` column). It infers the modality and
+   the end from a count that every trigger keeps (`keyed`, bumped by `kmBump`; its sign is the end).
+   Menus that the data module mounts carry an end that their trigger's keys set and its
+   `pointerdown` clears.
+3. **State that follows the menu's open state.** Base UI's sidebar snooze menu keeps the row's hover
+   actions shown while it is open. The clone cannot read "open", so it pins the row while the focus
+   is inside the menu or the pointer is over one of its rows (`sidebar-row.contract`: `snoozeFocus`,
+   `snoozeHover`). The first proxy alone failed with the real pointer (bug 4).
+
+Other clone work that needs the same capability:
+- **#290** (popover-escape-parity) closes a pinned Usage segment popover by light dismiss and tracks
+  its pinned state by hand. A `toggle` event and `hidePopover` would replace both.
+- **#307** (fix-hover-cards) draws the Usage segment's hover card inside a scroll as an absolute child,
+  because no action can show a top-layer popover on hover (with LLP 1021 §5.1 refusing `interestfor`).
+  `showPopover` from a `hover` action would portal it as the reference's `PopoverPopup` is.
+
+A state-driven menu (one an `if` mounts) can open from an action. But it gets no popover semantics
+(top layer, light dismiss, Escape, anchoring), and #282 (X53) covers its focus.
 
 ## How to reproduce (main 9314e7a81)
 
@@ -99,20 +117,30 @@ component App
 
 ## Why it must be resolved
 
-Every popover menu in the clone (36 menus, see the fix-keyboard-focus task) misses the
-reference's ↓/↑-to-open. Each trigger also carries the opened-by-keyboard counter workaround.
-Any Exact app that builds a menu, combobox or disclosure on `popover` hits the same wall.
+Every popover menu in the clone (36 `KeyMenu` call sites; see the fix-keyboard-focus task) needs the
+invisible invokers, a positioned box over its trigger, a focus-armed state and an opened-by-keyboard
+count, only to do what `showPopover` and a `toggle` event would do. Any Exact app that builds a menu,
+combobox, disclosure or hover card on `popover` hits the same wall. The workaround also depends on
+two host behaviors that nothing declares: a shortcut presses a `pointer-events="none"`, `opacity=0`
+button, and a popover anchors to the invoker that showed it.
 
 ## Proposed resolution
 
-Host commands `showPopover(id)`, `hidePopover(id)` and `togglePopover(id)`, plus a `toggle`
-event on a `popover` node carrying the new state, as on the web. With them, `KeyMenu` drops the
-`keyed` counters (a trigger's ↓/Enter/Space calls `showPopover` and focuses the first item), and
-the snooze row pins on the menu's open state.
+Host commands `showPopover(id)`, `hidePopover(id)` and `togglePopover(id)` (the popover sibling of
+#282's `showModal(id)`/`close(id)`), plus a `toggle` event on a `popover` node carrying the new
+state, as on the web. With them:
+- `KeyMenuOpen` and the wrappers go: a trigger's ↓/↑/Enter/Space call `showPopover`.
+- `KeyMenu` reads the opening from `toggle` instead of the `keyed` counts.
+- The snooze row pins on the menu's open state.
+- #290's and #307's popovers open and close from their own actions.
 
 ## Workaround in the clone
 
-`menu-keys.contract`: the popup focuses itself on open (`autofocus`, `retainFocus`). A trigger's
-`key` handler counts Enter and Space, and the popup's `focus` handler compares that count to
-move focus to the first item. ↓/↑ on a closed trigger do nothing. The snooze row pins on focus
-inside the menu or the pointer on a menu row.
+`menu-keys.contract`:
+- `KeyMenuOpen`: two invisible invokers over the trigger, armed by the trigger's focus.
+- `kmBump`: a keyboard opening's count, with its sign as the end.
+- `kmKeyEnd`, `kmOpenTarget`, `kmEndKeyed`: the same for menus that their owner mounts.
+- `KeyMenu`'s `entered`, `-first` and `-last` focus targets.
+- The snooze row pins on focus inside the menu or the pointer on a menu row.
+- One limit remains. The table Copy menu mounts at the window, outside its trigger's tree, so ↓/↑
+  open it with the popup focused, and the next ↓ or ↑ reaches the first or last item.

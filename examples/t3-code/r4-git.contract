@@ -21,6 +21,8 @@ use R5DetailsPrRows from "./r5-panels.contract"
 use KmItem from "./menu-keys.contract"
 use KeyMenu from "./menu-keys.contract"
 use kmOpenKey from "./menu-keys.contract"
+use KeyMenuOpen from "./menu-keys.contract"
+use kmBump from "./menu-keys.contract"
 
 keyframes r4GitSpin
   from rotate=0
@@ -60,9 +62,14 @@ component R4GitRows
     hovered = over ? id : (hovered == id ? "" : hovered)
   // fix-keyboard-focus: Enter or Space opens the menu from the keyboard (menu-keys.contract).
   state gitMenuKeyed = 0
+  state gitMenuArmed = false
+  action gitMenuArm(on: bool)
+    gitMenuArmed = on
+  action gitMenuOpened(last: bool)
+    gitMenuKeyed = kmBump(gitMenuKeyed, last)
   action gitMenuKey(k: string)
     if kmOpenKey(k)
-      gitMenuKeyed = gitMenuKeyed + 1
+      gitMenuKeyed = kmBump(gitMenuKeyed, false)
   view
     when details.git.branch.show
       // The whole row is the combobox trigger; its chevron sits behind a hairline.
@@ -89,11 +96,12 @@ component R4GitRows
       // action disables the menu and its chevron slot counts the elapsed time instead.
       row width="100%" min-height="2rem" align-items="center" border-radius="0.625rem" position="relative" role="group" aria-label="Git actions" background-color=(details.git.progress ? "light-dark(#00000009, #ffffff0e)" : hovered == "git" or hovered == "git-menu" ? "light-dark(#0000000e, #ffffff13)" : "#00000000") testId="details-git-group"
         when not details.git.progress
-          button popovertarget="details-git-options" key=gitMenuKey press=local("git-open", "menu", "") hover=hover("git-menu") disabled=details.git.menuDisabled aria-label="Git action options" testId="details-git-menu" position="absolute" left=0 top=0 bottom=0 width="100%" padding=0 border-width=0 border-radius="0.625rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="flex-end"
+          button popovertarget="details-git-options" key=gitMenuKey focus=gitMenuArm(true) blur=gitMenuArm(false) press=local("git-open", "menu", "") hover=hover("git-menu") disabled=details.git.menuDisabled aria-label="Git action options" testId="details-git-menu" position="absolute" left=0 top=0 bottom=0 width="100%" padding=0 border-width=0 border-radius="0.625rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="flex-end"
             box width="2rem" height="2rem" border-radius="0.625rem" border-top-left-radius=0 border-bottom-left-radius=0 background-color=(hovered == "git-menu" ? "light-dark(#0000000e, #ffffff13)" : "#00000000") display="flex" align-items="center" justify-content="center"
               ShellIcon(name="chevron-down", size=16, color="light-dark(#71717b, #818181)")
           box position="absolute" right="2rem" top=0 bottom=0 display="flex" align-items="center" pointer-events="none"
             box width=1 height="1rem" background-color="light-dark(#e4e4e7a6, #ffffff10)"
+        KeyMenuOpen(menuId="details-git-options", armed=gitMenuArmed, opened=gitMenuOpened)
         R4GitMenu(git=details.git, cwd=details.cwd, width=((details.inline ? 262 : 246) * rem / 16), keyed=gitMenuKeyed, act=act)
         when details.git.progress
           column flex=1 min-width=0 padding-left="0.6875rem" padding-right="0.625rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" role="status" aria-label=(details.git.progressOutput != "" ? `${details.git.progressStatus} ${details.git.progressOutput}` : details.git.progressStatus) testId="details-git-progress"

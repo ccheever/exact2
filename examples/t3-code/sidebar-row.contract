@@ -18,6 +18,8 @@ use Tip from "./shell-tip.contract"
 use KmItem from "./menu-keys.contract"
 use KeyMenuWatched from "./menu-keys.contract"
 use kmOpenKey from "./menu-keys.contract"
+use KeyMenuOpen from "./menu-keys.contract"
+use kmBump from "./menu-keys.contract"
 
 // ThreadStatusIndicators.tsx: Lucide Terminal, teal, with the shared two-second status pulse.
 keyframes terminalStatusPulse
@@ -97,7 +99,9 @@ component ThreadRow
     snoozeHover = on
   action snoozeKey(k: string)
     if kmOpenKey(k)
-      snoozeKeyed = snoozeKeyed + 1
+      snoozeKeyed = kmBump(snoozeKeyed, false)
+  action snoozeOpened(last: bool)
+    snoozeKeyed = kmBump(snoozeKeyed, last)
   view
     column id=`row-${t.id}` width="100%" position="relative" opacity=(lifted ? 0 : recede and t.status == "Working" and not hovering ? 0.7 : 1)
       column id=`row-${t.hoverKey}` hover=hoverCard(t.hoverKey) contextmenu=menu(t.id) contextPopover="thread-menu" dblclick=local("rename-start", t.id, "") width="100%" position="relative" padding-top=(t.card ? "0.125rem" : "0px") padding-bottom=(t.card ? "0.125rem" : "0px") box-sizing="border-box" testId=`row-${t.id}`
@@ -135,12 +139,12 @@ component ThreadRow
                     when t.woke
                       SidebarWokeButton(t=t, size=16, run=run, hoverCard=hoverCard, hoverId=hoverId)
                       when shown or swept
-                        SidebarCardActions(t=t, busy=busy, run=run, hoverCard=hoverCard, hoverId=hoverId, sweep=sweep, release=dragEnd, sweepKeys=sweepKeys, snoozeKey=snoozeKey)
+                        SidebarCardActions(t=t, busy=busy, run=run, hoverCard=hoverCard, hoverId=hoverId, sweep=sweep, release=dragEnd, sweepKeys=sweepKeys, snoozeKey=snoozeKey, snoozeOpened=snoozeOpened)
                     else
                       row align-items="center" flex-shrink=0 max-width=(shown ? "0px" : "15rem") overflow="hidden" opacity=(shown ? 0 : 1)
                         SidebarStatusSlot(t=t, now=now)
                       row align-items="stretch" flex-shrink=0 max-width=(shown ? "15rem" : "0px") overflow=(shown ? "visible" : "hidden") opacity=(shown ? 1 : 0) pointer-events=(shown ? "auto" : "none") aria-hidden=(not shown)
-                        SidebarCardActions(t=t, busy=busy, run=run, hoverCard=hoverCard, hoverId=hoverId, sweep=sweep, release=dragEnd, sweepKeys=sweepKeys, snoozeKey=snoozeKey)
+                        SidebarCardActions(t=t, busy=busy, run=run, hoverCard=hoverCard, hoverId=hoverId, sweep=sweep, release=dragEnd, sweepKeys=sweepKeys, snoozeKey=snoozeKey, snoozeOpened=snoozeOpened)
                   when swept
                     SidebarDropVerb(verb=sweptBadge, ink="light-dark(#1b4ed8, #346bf1)")
               text t.title width="100%" font-size="0.875rem" line-height="1.25rem" margin-top="0.25rem" font-weight=weight color=ink opacity=(t.regenerating ? 0.55 : 1) line-clamp=1 text-align="left"
@@ -272,8 +276,13 @@ component SidebarCardActions
     sweep: action
     release: action
     sweepKeys: string
-    // fix-keyboard-focus: Enter or Space opens the snooze menu from the keyboard (the row's count, KeyMenuWatched).
+    // fix-keyboard-focus: Enter or Space opens the snooze menu from the keyboard (the row's count, KeyMenuWatched),
+    // and ↓ or ↑ through the invisible invokers over the clock (KeyMenuOpen).
     snoozeKey: action
+    snoozeOpened: action
+  state snoozeArmed = false
+  action snoozeArm(on: bool)
+    snoozeArmed = on
   // text-muted-foreground hover:text-foreground: the control under the pointer inks up.
   derive tool = "light-dark(#71717b, #a3a3a3)"
   derive lit = "light-dark(#27272a, #f1f3f7)"
@@ -285,8 +294,10 @@ component SidebarCardActions
             SidebarIcon(name="x", size=14, color=(hoverId == `${t.hoverKey}#discard` ? lit : tool))
       when t.canSnooze
         SidebarTip(tip=`${t.hoverKey}#snooze`, hoverCard=hoverCard)
-          button cursor="pointer" press=hoverCard("", false) key=snoozeKey popovertarget=`snooze-${t.id}` disabled=busy aria-label="Snooze thread" testId=`snooze-${t.id}` width="1.5rem" height="1.25rem" padding=0 border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center"
-            SidebarIcon(name="clock", size=12, color=(hoverId == `${t.hoverKey}#snooze` ? lit : tool))
+          box position="relative" display="flex"
+            button cursor="pointer" press=hoverCard("", false) key=snoozeKey focus=snoozeArm(true) blur=snoozeArm(false) popovertarget=`snooze-${t.id}` disabled=busy aria-label="Snooze thread" testId=`snooze-${t.id}` width="1.5rem" height="1.25rem" padding=0 border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center"
+              SidebarIcon(name="clock", size=12, color=(hoverId == `${t.hoverKey}#snooze` ? lit : tool))
+            KeyMenuOpen(menuId=`snooze-${t.id}`, armed=snoozeArmed, opened=snoozeOpened)
       when t.canSettle
         SidebarTip(tip=`${t.hoverKey}#settle`, hoverCard=hoverCard)
           button cursor="pointer" id=`sweep-${t.id}` press=run("settle", t.id, "") focus=hoverCard("", false) pan=sweep(t.id, "settle") panrelease=release(`sweep|settle|${t.section}|${t.id}|${sweepKeys}`) touch-action="none" disabled=busy aria-label="Settle thread" testId=`settle-${t.id}` height="1.25rem" margin-right="-0.25rem" padding-left="0.375rem" padding-right="0.375rem" border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" gap="0.25rem"

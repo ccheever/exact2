@@ -9,7 +9,9 @@ use TipBubble from "./shell-tip.contract" // composer-fidelity G15
 use ApprovalOption from "./shapes.contract"
 use KmItem from "./menu-keys.contract"
 use KeyMenu from "./menu-keys.contract"
-use kmOpenKey from "./menu-keys.contract"
+use kmKeyEnd from "./menu-keys.contract"
+use kmArrow from "./menu-keys.contract"
+use kmOpenTarget from "./menu-keys.contract"
 
 // Lucide outline glyphs on a 24px grid (stroke 2), as the reference renders them.
 component ReqIcon
@@ -92,16 +94,22 @@ component ApprovalBanner
     compact: bool
     stacked: bool
   state menuOpen = false
-  // fix-keyboard-focus: the menu takes the focus as it opens (its popup, or its first item from Enter or
-  // Space), and Escape gives it back to "…" (menu-keys.contract).
-  state menuByKey = false
+  // fix-keyboard-focus: the menu takes the focus as it opens (its popup, its first item from Enter, Space
+  // or ↓, its last from ↑), and Escape gives it back to "…" (menu-keys.contract).
+  state menuEnd = ""
   action toggleMenu
     menuOpen = not menuOpen
-    if menuOpen
-      focus(menuByKey ? `approval-menu-${approval.id}-keys-first` : `approval-menu-${approval.id}-keys`)
-    menuByKey = false
-  action menuKey(k: string)
-    menuByKey = kmOpenKey(k)
+    // An action reads the state as it began: `not menuOpen` is the menu opening.
+    if not menuOpen
+      focus(kmOpenTarget(`approval-menu-${approval.id}-keys`, menuEnd))
+    menuEnd = ""
+  action menuKey(k: string, e: KeyboardEvent)
+    menuEnd = kmKeyEnd(k)
+    if kmArrow(k) and not e.metaKey and not e.ctrlKey and not e.altKey
+      preventDefault()
+      menuOpen = true
+      focus(kmOpenTarget(`approval-menu-${approval.id}-keys`, kmKeyEnd(k)))
+      menuEnd = ""
   action closeMenu
     menuOpen = false
     focus(`approval-more-${approval.id}`)

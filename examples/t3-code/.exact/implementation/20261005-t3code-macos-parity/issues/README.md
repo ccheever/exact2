@@ -163,7 +163,7 @@ indeterminate `progress` (X49, #279), neither with anything for the clone to ado
 
 | Issue | Capability | Kind | Blocks | Status |
 | --- | --- | --- | --- | --- |
-| [X66](20261008-x66-popover-from-action-and-toggle.md) | A popover shown or hidden from an action (`showPopover`/`hidePopover`/`togglePopover`) and a `toggle` event when it opens or closes | framework-gap | none ([fix-keyboard-focus](../tasks/20261008-fix-keyboard-focus.md): ↓/↑ on a closed menu trigger do not open the menu; each trigger counts Enter/Space to know a keyboard open, and the snooze row pins on focus and pointer instead of the menu's open state) | reproduced in two one-file apps on main `9314e7a81` (contract/, runner/, plan/ unchanged through `263c8b96e`); not #281/#112/#282 (#282 is `showModal` for dialogs); draft, not published |
+| [X66](20261008-x66-popover-from-action-and-toggle.md) | A popover shown or hidden from an action (`showPopover`/`hidePopover`/`togglePopover`) and a `toggle` event when it opens or closes; today only an invisible `popovertargetaction` invoker over the trigger, pressed by a scoped `aria-keyshortcuts`, can do it (the popover sibling of #282) | framework-gap | none ([fix-keyboard-focus](../tasks/20261008-fix-keyboard-focus.md) builds ↓/↑-to-open on every menu with the invisible invokers (`KeyMenuOpen`) and keyboard-opening counts; the snooze row pins on focus and pointer instead of the menu's open state. Also wanted by #290's light dismiss and #307's in-scroll Usage card) | reproduced in two one-file apps on main `9314e7a81` (contract/, runner/, plan/ unchanged through `263c8b96e`); not #281/#112/#282 (#282 is `showModal` for dialogs); draft, not published (the coordinator files it after review) |
 
 ## Upstream issues (filed 2026-10-06)
 

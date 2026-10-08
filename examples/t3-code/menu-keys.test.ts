@@ -20,12 +20,13 @@ describe('the shared menu keyboard (Base UI Menu)', () => {
     for (const name of ['KeyMenu', 'KeyMenuWatched']) {
       const body = await component('menu-keys.contract', name);
       expect(body).toContain('column id=menuId width="100%" tabindex=-1 autofocus=true retainFocus=true aria-modal=modal key=keys focus=entered');
-      // `${menuId}-first`: a keyboard opening hands the focus on to the first item.
+      // `${menuId}-first` and `${menuId}-last`: an owner that mounts the menu hands the focus on to its first or last item.
+      expect(body).toContain('column id=`${menuId}-last` width="100%" tabindex=-1 focus=enteredLast');
       expect(body).toContain('column id=`${menuId}-first` width="100%" gap=gap tabindex=-1 focus=enteredFirst');
       expect(body).toContain('match kmTarget(items, current, k)');
       expect(body).toContain('preventDefault()\n          stopPropagation()\n          current = item.id\n          focus(item.id)');
-      // Opened from the keyboard (the trigger's count moved): the first item.
-      expect(body).toContain('if keyed != seen\n      seen = keyed\n      match first(items)');
+      // Opened from the keyboard (the trigger's count moved): the first item, or the last when ↑ opened it (a negative count).
+      expect(body).toContain('if keyed != seen\n      seen = keyed\n      match kmEnd(items, keyed)');
     }
     expect(await component('menu-keys.contract', 'KeyMenuWatched')).toContain('blur=left');
   });
@@ -98,6 +99,81 @@ describe('the shared menu keyboard (Base UI Menu)', () => {
   });
 });
 
+describe('↓ and ↑ on a closed trigger open its menu at the first or the last item (Base UI Menu, coordinator ruling 2026-10-08)', () => {
+  test('the helpers: a keyboard opening\'s count carries its end in its sign; a mounted menu\'s owner names the end', async () => {
+    const text = await source('menu-keys.contract');
+    expect(text).toContain('fn kmArrow(k: string): bool = k == "ArrowDown" or k == "ArrowUp"');
+    expect(text).toContain('fn kmBump(keyed: number, last: bool): number = last ? (keyed < 0 ? keyed - 1 : 0 - keyed - 1) : (keyed < 0 ? 1 - keyed : keyed + 1)');
+    expect(text).toContain('fn kmEnd(items: list<KmItem>, keyed: number): option<KmItem> = keyed < 0 ? at(items, -1) : first(items)');
+    expect(text).toContain('fn kmKeyEnd(k: string): string = k == "ArrowUp" ? "last" : (k == "ArrowDown" or kmOpenKey(k) ? "first" : "")');
+    expect(text).toContain('fn kmOpenTarget(menuId: string, end: string): string = end == "" ? menuId : `${menuId}-${end}`');
+    expect(text).toContain('fn kmEndKeyed(end: string): number = end == "last" ? -1 : (end == "first" ? 1 : 0)');
+    // kmBump, as written: every bump differs from the last, and its sign is the end asked for.
+    const bump = (keyed: number, last: boolean) => last ? (keyed < 0 ? keyed - 1 : 0 - keyed - 1) : (keyed < 0 ? 1 - keyed : keyed + 1);
+    let keyed = 0;
+    for (const last of [false, true, true, false, true, false, false]) {
+      const next = bump(keyed, last);
+      expect(next).not.toBe(keyed);
+      expect(next < 0).toBe(last);
+      keyed = next;
+    }
+  });
+
+  test('a popover menu: two invisible invokers over its trigger show it by ↓ and ↑ while the trigger holds the focus', async () => {
+    const open = await component('menu-keys.contract', 'KeyMenuOpen');
+    for (const [press, keys, test] of [['opened(false)', 'ArrowDown', 'open-first'], ['opened(true)', 'ArrowUp', 'open-last']])
+      expect(open).toContain(`button popovertarget=menuId popovertargetaction="show" press=${press} aria-keyshortcuts=(armed ? "${keys}" : "") aria-hidden=true tabindex=-1 pointer-events="none" position="absolute" left=0 top=0 width="100%" height="100%" padding=0 border-width=0 opacity=0 testId=\`\${menuId}-${test}\``);
+    // Every popover menu's trigger that counts its keyboard openings has them, armed by its own focus.
+    // Not: the sign-in method menu (fix-provider-auth-state owns its trigger), the Icon submenu row, the colour picker.
+    const skip = ['provider-auth-method-', 'environment-icon-', 'theme-color-'];
+    const missing: string[] = [];
+    let triggers = 0;
+    for (const file of readdirSync(dir).filter(name => name.endsWith('.contract'))) {
+      const text = await source(file);
+      for (const line of text.split('\n')) {
+        const m = line.match(/^\s*button .*?popovertarget=("[^"]+"|`[^`]+`|[\w.]+) .*?key=(\w+)/);
+        if (!m || /popovertargetaction=/.test(line) || skip.some(s => m[1].includes(s))) continue;
+        triggers++;
+        if (!new RegExp(`focus=\\w+Arm\\(true\\) blur=\\w+Arm\\(false\\)`).test(line)) missing.push(`${file}: ${m[1]} not armed by its focus`);
+        if (!text.includes(`KeyMenuOpen(menuId=${m[1]}, armed=`)) missing.push(`${file}: ${m[1]} has no KeyMenuOpen`);
+      }
+    }
+    expect(missing).toEqual([]);
+    expect(triggers).toBeGreaterThanOrEqual(30);
+    // Each owner bumps its count by the end the invoker reports.
+    for (const [file, comp, counter] of [['pages-prs.contract', 'PrSortMenu', 'keyed'], ['r4-git.contract', 'R4GitRows', 'gitMenuKeyed'], ['settings-rows.contract', 'ScopeSentence', 'projectOpens'], ['settings-kit.contract', 'SettingsSelect', 'keyed']] as const)
+      expect(await component(file, comp)).toMatch(new RegExp(`action \\w+Opened\\(last: bool\\)\\n    ${counter} = kmBump\\(${counter}, last\\)`));
+  });
+
+  test('a menu its owner mounts from state: ↓ and ↑ on its trigger open it, at the first or the last item', async () => {
+    // An action reads the state as it began, so the end comes from the key itself, not from the state it just set.
+    const title = await component('chat.contract', 'ChatHeader');
+    expect(title).toContain('action titleKey(k: string, e: KeyboardEvent)\n    titleEnd = kmKeyEnd(k)\n    if kmArrow(k) and not e.metaKey and not e.ctrlKey and not e.altKey\n      preventDefault()\n      title("open", "")\n      focus(kmOpenTarget("title-menu-keys", kmKeyEnd(k)))');
+    expect(await source('requests.contract')).toContain('      menuOpen = true\n      focus(kmOpenTarget(`approval-menu-${approval.id}-keys`, kmKeyEnd(k)))');
+    const details = await source('shell-details.contract');
+    expect(details).toContain('      scriptsOpen = true\n      focus(kmOpenTarget("details-scripts-keys", kmKeyEnd(k)))');
+    expect(details).toContain('press=toggleEditors key=editorsKey pointerdown=editorsPointer ');
+    expect(details.split('\n').find(l => l.includes('KeyMenu(menuId="details-editors-keys"'))).toContain('keyed=kmEndKeyed(menuEnd)');
+    // A press that toggles reads the state as it began: the focus moves in only when the menu opens.
+    expect(await source('requests.contract')).toContain('    menuOpen = not menuOpen\n    // An action reads the state as it began: `not menuOpen` is the menu opening.\n    if not menuOpen\n');
+    expect(details).toContain('    scriptsOpen = not scriptsOpen\n    // An action reads the state as it began: `not scriptsOpen` is the menu opening.\n    if not scriptsOpen\n');
+    // Menus the data module mounts: the trigger asks for the end, a pointer press for none, and the menu reads it as it mounts.
+    const rail = await component('r6-device.contract', 'R6RailButton');
+    expect(rail).toContain('button id=testId press=press key=keyed pointerdown=menuEnd("")');
+    expect(rail).toContain('    if menu and kmArrow(k) and not e.metaKey and not e.ctrlKey and not e.altKey\n      preventDefault()\n      press()');
+    expect((await source('r6-device.contract')).split('keyed=kmEndKeyed(railEnd)').length - 1).toBe(3);
+    const files = await source('r4-surfaces-files.contract');
+    for (const id of ['crumb-menu-keys', 'file-editors-keys']) expect(files.split('\n').find(l => l.includes(`KeyMenu(menuId="${id}"`))).toContain('keyed=kmEndKeyed(menuEnd)');
+    expect(files).toContain('key=crumbKey pointerdown=menuEnd("")');
+    expect(files).toContain('key=editorsKey pointerdown=menuEnd("")');
+    expect(await source('r4-surfaces.contract')).toContain('R4LinkedMenu(row=row, local=local, command=command, keyed=kmEndKeyed(menuEnd))');
+    const diff = await source('diff.contract');
+    expect(diff).toContain('DiffScopeMenu(data=data, command=command, keyed=kmEndKeyed(scopeEnd))');
+    expect(diff).toContain('button id="diff-scope" press=openScope key=scopeKey pointerdown=scopeEnd("") ');
+    expect(await component('markdown.contract', 'TableCopyButton')).toContain('button press=openMenu key=menuKey ');
+  });
+});
+
 describe('#298 bug 4: Custom snooze from the sidebar row by the real pointer and ↓', () => {
   test('the row keeps its hover actions shown while the snooze menu holds the focus (SnoozeMenuButton pins them)', async () => {
     const row = await component('sidebar-row.contract', 'ThreadRow');
@@ -113,7 +189,10 @@ describe('#298 bug 4: Custom snooze from the sidebar row by the real pointer and
     // A real click's press takes the focus from the popup before its release: the pointer on a row keeps the pin.
     expect(item).toContain('action hover(value: bool)\n    over = value\n    pointer(value)');
     expect(row).toContain('inside=snoozeInside, pointer=snoozePointer)');
-    expect(await component('sidebar-row.contract', 'SidebarCardActions')).toContain('press=hoverCard("", false) key=snoozeKey popovertarget=`snooze-${t.id}`');
+    const actions = await component('sidebar-row.contract', 'SidebarCardActions');
+    expect(actions).toContain('press=hoverCard("", false) key=snoozeKey focus=snoozeArm(true) blur=snoozeArm(false) popovertarget=`snooze-${t.id}`');
+    expect(actions).toContain('KeyMenuOpen(menuId=`snooze-${t.id}`, armed=snoozeArmed, opened=snoozeOpened)');
+    expect(row).toContain('action snoozeOpened(last: bool)\n    snoozeKeyed = kmBump(snoozeKeyed, last)');
   });
 });
 
@@ -136,7 +215,9 @@ describe('#298 bugs 13 and 16: the pull request More menu and its Close dialog b
   test('Enter or Space on "…" counts a keyboard opening; every enabled row, the hand-offs included, is an arrow stop', async () => {
     const menu = await component('pages-pr-actions.contract', 'PrdActionsMenu');
     expect(menu).toContain('button id="pull-request-more" popovertarget="pr-more-menu" hover=hover key=moreKey');
-    expect(menu).toContain('action moreKey(k: string)\n    if kmOpenKey(k)\n      keyed = keyed + 1');
+    expect(menu).toContain('action moreKey(k: string)\n    if kmOpenKey(k)\n      keyed = kmBump(keyed, false)');
+    // ↓ and ↑ on "…" open it at the first or the last row (Base UI Menu's trigger).
+    expect(menu).toContain('KeyMenuOpen(menuId="pr-more-menu", armed=keyArmed, opened=keyOpened)');
     for (const id of ['pr-more-refresh', 'pr-more-ask', 'pr-more-explain', 'pr-more-fix-findings', 'pr-more-draft', 'pr-more-merge-now', 'pr-more-enable-auto-merge', 'pr-more-method-${item.method}', 'pr-more-open-host', 'pr-more-copy-link', 'pr-more-copy-number', 'pr-more-close', 'pr-more-reopen', 'pr-more-revert'])
       expect(menu).toContain(id);
     expect(menu).toContain('KeyMenu(menuId="pr-more-keys", items=rows, keyed=keyed, gap="0px", modal=true)');

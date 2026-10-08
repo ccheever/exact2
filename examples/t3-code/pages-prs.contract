@@ -19,6 +19,8 @@ use PrStackPopover from "./pages-pr-quick.contract"
 use PrQuickActions from "./pages-pr-quick.contract"
 use PrRowChecks from "./pages-pr-quick.contract"
 use PrRowStack from "./pages-pr-quick.contract"
+use KeyMenuOpen from "./menu-keys.contract"
+use kmBump from "./menu-keys.contract"
 
 shape PrChip
   key: string
@@ -306,14 +308,20 @@ component PrSortMenu
     control: action
   // fix-keyboard-focus: the menu's keyboard (menu-keys.contract).
   state keyed = 0
+  state keyArmed = false
+  action keyArm(on: bool)
+    keyArmed = on
+  action keyOpened(last: bool)
+    keyed = kmBump(keyed, last)
   action triggerKey(k: string)
     if kmOpenKey(k)
-      keyed = keyed + 1
+      keyed = kmBump(keyed, false)
   view
     column position="relative" flex-shrink=0
-      button popovertarget="pr-sort-menu" key=triggerKey aria-label=`Sort pull requests: ${page.sortLabel}` testId="pull-requests-sort" height="2rem" padding-left="0.625rem" padding-right="0.6875rem" box-sizing="border-box" gap="0.375rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)" box-shadow="0 1px 2px #0000000d" display="flex" flex-direction="row" align-items="center"
+      button popovertarget="pr-sort-menu" key=triggerKey focus=keyArm(true) blur=keyArm(false) aria-label=`Sort pull requests: ${page.sortLabel}` testId="pull-requests-sort" height="2rem" padding-left="0.625rem" padding-right="0.6875rem" box-sizing="border-box" gap="0.375rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)" box-shadow="0 1px 2px #0000000d" display="flex" flex-direction="row" align-items="center"
         PgIcon(name="arrow-down-up", size=16, color="light-dark(#71717b, #818181)")
         text "Sort" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
+      KeyMenuOpen(menuId="pr-sort-menu", armed=keyArmed, opened=keyOpened)
       column id="pr-sort-menu" popover="auto" position="absolute" padding-top="0.25rem" testId="pr-sort-layer"
         PrMenuBox(scheme=scheme, width=160, label=`Sort pull requests: ${page.sortLabel}`)
           KeyMenu(menuId="pr-sort-keys", items=[KmItem(id="pr-sort-ready", label="Merge readiness"), KmItem(id="pr-sort-blocked", label="Blocked on me"), KmItem(id="pr-sort-updated", label="Recently updated"), KmItem(id="pr-sort-newest", label="Newest shown"), KmItem(id="pr-sort-oldest", label="Oldest shown"), KmItem(id="pr-sort-largest", label="Largest shown"), KmItem(id="pr-sort-smallest", label="Smallest shown")], keyed=keyed, gap="0px", modal=true)
@@ -333,15 +341,21 @@ component PrHostMenu
     tail: number
     control: action
   state keyed = 0
+  state keyArmed = false
+  action keyArm(on: bool)
+    keyArmed = on
+  action keyOpened(last: bool)
+    keyed = kmBump(keyed, last)
   action triggerKey(k: string)
     if kmOpenKey(k)
-      keyed = keyed + 1
+      keyed = kmBump(keyed, false)
   view
     column position="relative" flex-shrink=0
-      button popovertarget="pr-host-menu" key=triggerKey aria-label=`Filter by provider: ${page.hostLabel}` testId="pull-requests-provider" height="2rem" min-width="2rem" padding-left=(page.providerIconOnly ? "0px" : "0.625rem") padding-right=(page.providerIconOnly ? "0px" : "0.6875rem") box-sizing="border-box" gap="0.375rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)" box-shadow="0 1px 2px #0000000d" display="flex" flex-direction="row" align-items="center" justify-content="center"
+      button popovertarget="pr-host-menu" key=triggerKey focus=keyArm(true) blur=keyArm(false) aria-label=`Filter by provider: ${page.hostLabel}` testId="pull-requests-provider" height="2rem" min-width="2rem" padding-left=(page.providerIconOnly ? "0px" : "0.625rem") padding-right=(page.providerIconOnly ? "0px" : "0.6875rem") box-sizing="border-box" gap="0.375rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)" box-shadow="0 1px 2px #0000000d" display="flex" flex-direction="row" align-items="center" justify-content="center"
         PgIcon(name="plug-2", size=16, color="light-dark(#71717b, #818181)")
         when not page.providerIconOnly
           text "All" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
+      KeyMenuOpen(menuId="pr-host-menu", armed=keyArmed, opened=keyOpened)
       row id="pr-host-menu" popover="auto" position="absolute" padding-top="0.25rem" align-items="flex-start" testId="pr-host-layer"
         PrMenuBox(scheme=scheme, width=160, label=`Filter by provider: ${page.hostLabel}`)
           KeyMenu(menuId="pr-host-keys", items=map(filter(page.hosts, (host) => host.unavailable == ""), (host) => KmItem(id=`pr-host-${host.label}`, label=host.label)), keyed=keyed, gap="0px", modal=true)
@@ -383,11 +397,16 @@ component PrFiltersMenu
   // → , Enter or Space on a row opens its submenu with the focus on the submenu's first row, ← closes it
   // and gives the focus back to the row.
   state keyed = 0
+  state keyArmed = false
+  action keyArm(on: bool)
+    keyArmed = on
+  action keyOpened(last: bool)
+    keyed = kmBump(keyed, last)
   state subKeyed = 0
   derive subItems = sub == "state" ? [KmItem(id="pr-state-all", label="All"), KmItem(id="pr-state-open", label="Open"), KmItem(id="pr-state-closed", label="Closed"), KmItem(id="pr-state-merged", label="Merged")] : (sub == "involvement" ? [KmItem(id="pr-involvement-all", label="All"), KmItem(id="pr-involvement-reviewing", label="Reviewing"), KmItem(id="pr-involvement-authored", label="Authored")] : (sub == "draft" ? [KmItem(id="pr-draft-all", label="All"), KmItem(id="pr-draft-only", label="Drafts only"), KmItem(id="pr-draft-hide", label="Hide drafts")] : (sub == "review" ? [KmItem(id="pr-review-all", label="All"), KmItem(id="pr-review-approved", label="Approved"), KmItem(id="pr-review-changes", label="Changes requested"), KmItem(id="pr-review-required", label="Review required"), KmItem(id="pr-review-none", label="No reviews")] : (sub == "checks" ? [KmItem(id="pr-checks-all", label="All"), KmItem(id="pr-checks-passing", label="Passing"), KmItem(id="pr-checks-failing", label="Failing")] : (sub == "project" ? concat([KmItem(id="pr-project-all", label="All projects")], map(filter(page.projects, (project) => project.unavailable == ""), (project) => KmItem(id=`pr-project-${project.id}`, label=project.name))) : (sub == "author" ? concat([KmItem(id="pr-author-anyone", label="Anyone")], map(page.authors, (person) => KmItem(id=`pr-author-${person.key}`, label=person.login))) : map(page.labelFacets, (label) => KmItem(id=`pr-label-${label.key}`, label=label.name))))))))
   action triggerKey(k: string)
     if kmOpenKey(k)
-      keyed = keyed + 1
+      keyed = kmBump(keyed, false)
   action subKey(name: string, k: string)
     if k == "ArrowRight" or kmOpenKey(k)
       preventDefault()
@@ -403,11 +422,12 @@ component PrFiltersMenu
   derive subTop = sub == "involvement" ? 28 : sub == "author" ? 65 : sub == "labels" ? 93 : sub == "draft" ? 121 : sub == "review" ? 149 : sub == "checks" ? 177 : sub == "project" ? 214 : 0
   view
     column position="relative" flex-shrink=0
-      button popovertarget="pr-filters-menu" press=open("") key=triggerKey aria-label="Filters" testId="pull-requests-filters" height="2rem" padding-left="0.625rem" padding-right="0.6875rem" box-sizing="border-box" gap="0.375rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)" box-shadow="0 1px 2px #0000000d" display="flex" flex-direction="row" align-items="center"
+      button popovertarget="pr-filters-menu" press=open("") key=triggerKey focus=keyArm(true) blur=keyArm(false) aria-label="Filters" testId="pull-requests-filters" height="2rem" padding-left="0.625rem" padding-right="0.6875rem" box-sizing="border-box" gap="0.375rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)" box-shadow="0 1px 2px #0000000d" display="flex" flex-direction="row" align-items="center"
         PgIcon(name="list-filter", size=16, color="light-dark(#71717b, #818181)")
         text "Filters" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
         when page.filterBadge != ""
           text page.filterBadge padding-left="0.375rem" padding-right="0.375rem" border-radius="624.9375rem" background-color="light-dark(#f4f4f5, #ffffff0f)" font-size="0.75rem" line-height="1rem" font-variant-numeric="tabular-nums" color="light-dark(#71717b, #818181)"
+      KeyMenuOpen(menuId="pr-filters-menu", armed=keyArmed, opened=keyOpened)
       column id="pr-filters-menu" popover="auto" position="absolute" padding-top="0.25rem" testId="pr-filters-layer"
         row align-items="flex-start"
           when sub != ""

@@ -25,6 +25,8 @@ use NetworkAccessRows from "./connections-network.contract"
 use AuthorizedClients from "./connections-network.contract"
 use KmItem from "./menu-keys.contract"
 use kmOpenKey from "./menu-keys.contract"
+use KeyMenuOpen from "./menu-keys.contract"
+use kmBump from "./menu-keys.contract"
 
 // animate-status-pulse: full, then half opacity in six steps.
 keyframes cnStatusPulse
@@ -224,9 +226,14 @@ component ThisMachineSection
     ask: action
   // fix-keyboard-focus: the "…" menu's keyboard (menu-keys.contract).
   state keyed = 0
+  state keyArmed = false
+  action keyArm(on: bool)
+    keyArmed = on
+  action keyOpened(last: bool)
+    keyed = kmBump(keyed, last)
   action triggerKey(k: string)
     if kmOpenKey(k)
-      keyed = keyed + 1
+      keyed = kmBump(keyed, false)
   // The confirm takes the focus as the reference's AlertDialog gives it to its first button: a
   // mounted node's `autofocus` waits while the switch holds the focus (HTML's rule).
   action toggle
@@ -241,8 +248,9 @@ component ThisMachineSection
         row min-height="1.75rem" min-width="1.75rem" gap="0.5rem" align-items="center" justify-content="flex-end"
           when machine.menu
             box position="relative"
-              button popovertarget="this-machine-menu-popup" key=triggerKey class=PvIconButton aria-label="More actions for this machine" disabled=busy testId="this-machine-menu"
+              button popovertarget="this-machine-menu-popup" key=triggerKey focus=keyArm(true) blur=keyArm(false) class=PvIconButton aria-label="More actions for this machine" disabled=busy testId="this-machine-menu"
                 PvIcon(name="ellipsis", size=14, color="light-dark(#71717b, #818181)")
+              KeyMenuOpen(menuId="this-machine-menu-popup", armed=keyArmed, opened=keyOpened)
               CnMenu(menuId="this-machine-menu-popup", label="More actions for this machine", width=196, endAlign=24, offsetX=0, offsetY=0, items=[KmItem(id=`environment-icon-${machine.environment.environmentId}`, label="Icon")], keyed=keyed)
                 EnvironmentIconMenu(environment=machine.environment, op=op)
       PvGroupOpen()
@@ -293,10 +301,15 @@ component EnvironmentRow
     routesOpen = not routesOpen
   // fix-keyboard-focus: the row menu's keyboard (menu-keys.contract).
   state keyed = 0
+  state keyArmed = false
+  action keyArm(on: bool)
+    keyArmed = on
+  action keyOpened(last: bool)
+    keyed = kmBump(keyed, last)
   derive menuItems = filter([KmItem(id=`environment-icon-${environment.environmentId}`, label="Icon"), KmItem(id=(busy ? "" : `environment-routes-item-${environment.environmentId}`), label=(routesOpen ? "Hide routes" : "Routes")), KmItem(id=(busy or environment.traceId == "" ? "" : `environment-trace-${environment.environmentId}`), label="Copy trace ID"), KmItem(id=(busy ? "" : (environment.active ? "forget-server" : `environment-remove-${environment.environmentId}`)), label="Remove from this device…")], (item) => item.id != "")
   action triggerKey(k: string)
     if kmOpenKey(k)
-      keyed = keyed + 1
+      keyed = kmBump(keyed, false)
   view
     column width="100%" position="relative" border-top-style="solid" border-top-width=(environment.first ? 0 : 1) border-color="light-dark(#e3e3e780, #ffffff08)"
       row width="100%" box-sizing="border-box" padding-left="1rem" padding-right="1rem" padding-top="0.625rem" padding-bottom=(routesOpen ? "0px" : "0.625rem") gap="0.75rem" align-items="center" opacity=(environment.dimmed ? 0.6 : 1) testId=`environment-${environment.environmentId}`
@@ -339,8 +352,9 @@ component EnvironmentRow
             when tip == "switch"
               CnTooltip(tip=environment.switchTip, tipId=`environment-switch-tip-${environment.environmentId}`, above=20)
           box position="relative"
-            button popovertarget=`environment-menu-${environment.environmentId}-popup` key=triggerKey class=PvIconButton aria-label=`More actions for ${environment.label}` disabled=busy testId=`environment-menu-${environment.environmentId}`
+            button popovertarget=`environment-menu-${environment.environmentId}-popup` key=triggerKey focus=keyArm(true) blur=keyArm(false) class=PvIconButton aria-label=`More actions for ${environment.label}` disabled=busy testId=`environment-menu-${environment.environmentId}`
               PvIcon(name="ellipsis", size=14, color="light-dark(#71717b, #818181)")
+            KeyMenuOpen(menuId=`environment-menu-${environment.environmentId}-popup`, armed=keyArmed, opened=keyOpened)
             CnMenu(menuId=`environment-menu-${environment.environmentId}-popup`, label=`More actions for ${environment.label}`, width=196, endAlign=24, offsetX=0, offsetY=0, items=menuItems, keyed=keyed)
               EnvironmentIconMenu(environment=environment, op=op)
               RouteMenuItem(label=(routesOpen ? "Hide routes" : "Routes"), menuId=`environment-menu-${environment.environmentId}-popup`, itemId=`environment-routes-item-${environment.environmentId}`, disabled=busy, choose=toggleRoutes)
