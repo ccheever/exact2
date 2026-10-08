@@ -10,7 +10,8 @@ import { pushToast } from './toast';
 import { beginQueuedEdit, cancelQueuedEdit, queuedDrop, queueState, removeQueuedEditAttachment } from './composer-controls-queue';
 import { branchMenu, selectBranch, setEnvMode } from './composer-controls-branch';
 import { attachFiles } from './composer-controls-attach';
-import { openUsageLimits, closeUsageLimits, changeLimitRecovery } from './composer-controls-usage';
+import { openUsageLimits, closeUsageLimits, changeLimitRecovery, usageLocal } from './composer-controls-usage';
+import { feedbackLocal } from './composer-feedback';
 import type { T3Client } from './client';
 import { dismissResumeCompaction } from './r3-composer-controls-resume';
 import { dispatchSelection } from './composer-ultrathink'; // composer-fidelity: modelOptionsForDispatch
@@ -240,6 +241,10 @@ export async function composerLocal(client: T3Client, _native: Native, _storage:
   if (op === 'balance-load') return loadHostResources(client, _native, id, Number(value) || 0); // auto-balance: the machines' host resources
   if (op === 'usage-limits') { openUsageLimits(client, composerNow(client)); return ''; }
   if (op === 'usage-limits-dismiss') { closeUsageLimits(client); return ''; }
+  // usage-reset-and-feedback: Manage usage and the reset credit confirm (composer-controls-usage.ts), the /feedback banner's
+  // Copy ID and dismiss (composer-feedback.ts).
+  if (op.startsWith('usage-')) return usageLocal(client, _native, op, id);
+  if (op.startsWith('feedback-')) return feedbackLocal(client, _native, op, id);
   if (op === 'queued-cancel') { cancelQueuedEdit(client); return ''; }
   if (op === 'queued-attachment-remove') { removeQueuedEditAttachment(client, id); return ''; } // composer-fidelity G12a
   if (op === 'resume-compaction-dismiss') { dismissResumeCompaction(client, id); return ''; }

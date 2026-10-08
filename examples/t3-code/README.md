@@ -149,7 +149,11 @@ new version and shares that state with Settings › Connections (`server-update.
   slash and @ menus, file and image attachments (videos as first-frame tiles that play in
   an expanded preview; removing an image the prompt references asks first and removes
   every reference), stash, multi-model drafts that start one worktree thread per model,
-  the resume-with-less-context banner. The composer overlays the transcript, which keeps a
+  the resume-with-less-context banner, `/usage-limits` (each account's windows as bars with
+  pace and countdown, Manage usage, banked reset credits with "Use reset" behind a confirm;
+  `usage-limits.ts`, `usage-bars.contract`) and Codex `/feedback [reason]` (uploads the
+  thread with a banner, Copy ID and two local rows; `composer-feedback.ts`). Both long
+  writes are detached requests whose reply joins the inbox (`composer-replies.ts`). The composer overlays the transcript, which keeps a
   measured reservation at its end (`r4-composer-overlay.ts`); with Chat width Wide or Full
   the context strip's workspace control is the desktop Select.
 - Requests: approvals, single/multiple-choice and free-text questions.
