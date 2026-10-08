@@ -1107,3 +1107,34 @@ fn scroll_into_view_aligns_any_element_in_its_scroller() {
         assert_eq!(p.scroll_of(port).1, top, "{button}");
     }
 }
+
+/// An app's `scrollBy("element-id", x, y)`: that scroller moves by the
+/// pixels given, clamped to its travel, as the web's `Element.scrollBy`.
+#[test]
+fn scroll_by_moves_a_scroller_within_its_travel() {
+    let cells: String = (0..20)
+        .map(|i| format!("        box height=50 width=200 testId=\"c{i}\"\n"))
+        .collect();
+    let mut p = boot_source(&format!(
+        r#"component App
+  action down
+    scrollBy("port", 0, 120)
+  action up
+    scrollBy("port", 0, -500)
+  view
+    column
+      button "down" press=down testId="down"
+      button "up" press=up testId="up"
+      scroll id="port" testId="port" width=200 height=100
+        column
+{cells}"#
+    ));
+    settle(&mut p);
+    let port = named(&p, "port");
+    for (button, top) in [("down", 120.), ("down", 240.), ("up", 0.)] {
+        p.tap(named(&p, button)).unwrap();
+        p.run_commands(Rows::default);
+        settle(&mut p);
+        assert_eq!(p.scroll_of(port).1, top, "{button}");
+    }
+}

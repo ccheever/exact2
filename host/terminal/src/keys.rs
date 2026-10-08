@@ -3,8 +3,9 @@
 //! A key goes to the focused node's (or its nearest ancestor's) `key`
 //! handler first, then to its default, as on the web: unless the handler
 //! called `preventDefault()`, a field edits, a dialog's Escape closes it,
-//! `aria-keyshortcuts` presses its node, Tab and the arrows move the focus,
-//! and Ctrl-C leaves — so an app that wants Ctrl-C (an agent interrupting
+//! `aria-keyshortcuts` presses its node (without moving the focus), Tab and
+//! the arrows move the focus — or, with nothing focused, the arrows, Space,
+//! Home and End scroll, as a page's keys do — and Ctrl-C leaves — so an app that wants Ctrl-C (an agent interrupting
 //! a reply) claims it with `preventDefault()`.
 
 use crate::host::{After, Host, Key};
@@ -66,9 +67,7 @@ impl<D: DataSource> Host<D> {
                 kernel.node(*id).is_some_and(|n| {
                     n.props
                         .str(PropId::AccessibilityKeyShortcuts)
-                        .is_some_and(|s| {
-                            s.split_whitespace().any(|k| k.eq_ignore_ascii_case(chord))
-                        })
+                        .is_some_and(|s| s.split_whitespace().any(|k| same_chord(k, chord)))
                 })
             })
     }
@@ -202,7 +201,9 @@ impl<D: DataSource> Host<D> {
             if self.is_field(id) {
                 self.focus(Some(id));
             } else {
-                self.press(id);
+                // A shortcut acts where the person is: the arrows still
+                // scroll what they were reading afterwards.
+                self.press_with(id, false);
             }
             return After::Continue;
         }
@@ -210,6 +211,14 @@ impl<D: DataSource> Host<D> {
             // Ctrl-\ always leaves; Ctrl-C and Ctrl-D leave when nothing took them.
             Key::Ctrl('\\') => return After::Quit,
             Key::Ctrl('c') | Key::Ctrl('d') => return After::Quit,
+            // With nothing focused the keys scroll, as a page's do on the
+            // web; with a control focused the arrows move among controls
+            // (a terminal list's convention, LLP 1101 D6).
+            Key::Named("ArrowDown") if self.focus.is_none() => self.scroll_rows(1),
+            Key::Named("ArrowUp") if self.focus.is_none() => self.scroll_rows(-1),
+            Key::Char(' ') if self.focus.is_none() => self.page(true),
+            Key::Named("Home") if self.focus.is_none() => self.scroll_edge(false),
+            Key::Named("End") if self.focus.is_none() => self.scroll_edge(true),
             Key::Named("Tab") | Key::Named("ArrowDown") => self.step_focus(false),
             Key::BackTab | Key::Named("ArrowUp") => self.step_focus(true),
             Key::Named("Enter") | Key::Char(' ') => {
@@ -224,6 +233,26 @@ impl<D: DataSource> Host<D> {
         }
         After::Continue
     }
+}
+
+/// Whether a declared shortcut names this chord, as the web host matches
+/// one: the same modifiers exactly, the key ignoring case (`Shift+n` is
+/// `Shift+N`; `n` is not `Shift+N`).
+fn same_chord(declared: &str, chord: &str) -> bool {
+    fn split(c: &str) -> (Vec<String>, String) {
+        let mut parts: Vec<&str> = c.split('+').collect();
+        // `+` itself, alone or after modifiers (`Control++`).
+        let key = if c.ends_with('+') && c.len() > 1 && parts.len() >= 2 {
+            parts.truncate(parts.len() - 2);
+            "+".to_string()
+        } else {
+            parts.pop().unwrap_or_default().to_string()
+        };
+        let mut mods: Vec<String> = parts.iter().map(|m| m.to_ascii_lowercase()).collect();
+        mods.sort();
+        (mods, key.to_ascii_lowercase())
+    }
+    split(declared) == split(chord)
 }
 
 /// A textarea's visual lines as (first cluster, end cluster) pairs, broken

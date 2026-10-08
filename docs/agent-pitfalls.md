@@ -55,6 +55,13 @@ guide's rules don't make obvious.
   `min-width=0` on a `flex=1` input in a row. Look at a screenshot on each host.
   (Fresh-agent README trial, 2026-10-04.)
 
+- **A list of buttons is ragged: each is only as wide as its text.** A `button`
+  directly in a `scroll` or another block container shrinks to fit, so a row's
+  `flex-grow` title never grows and its trailing columns sit right after it.
+  Cause: as on the web, a button is `inline-block`; only a flex item, or one given
+  a width, fills its line. Fix: `width="100%"` on the button, or put the rows in
+  a `column`. (The LLP terminal reader's document tree, 2026-10-08.)
+
 - **A raised `z-index` leaves a dragged card under the next column.** A card at
   `position="relative" z-index=10`, dragged over a neighbouring column, paints
   beneath it. Cause: `z-index` orders siblings, not a whole stacking context as in
@@ -349,6 +356,14 @@ guide's rules don't make obvious.
   1098 D8.)
 
 ## Input
+
+- **A keyboard shortcut does nothing.** Two causes, both as on the web.
+  `aria-keyshortcuts` belongs to a node that must be on the screen: a button with
+  `display="none"` (a "hidden" shortcut holder) is not, so its key never fires; give
+  the key a visible control (a status line of keys, as the LLP reader's) or handle
+  it in a `key=` handler. And Shift is part of the shortcut: `n` is the unshifted
+  key, a capital `N` is `Shift+N`, so write `aria-keyshortcuts="Shift+N"` for it (in
+  a terminal too, where a typed capital is reported as `Shift+N`).
 
 - **A hold's `pointerup` never arrives.** Cause: the press started on a node that a
   state change replaced during the hold; the up is not delivered to a node that no

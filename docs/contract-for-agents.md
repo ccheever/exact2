@@ -1372,6 +1372,15 @@ P1; `apps/harness/terminal.contract` shows the task). Declare its shape
 other host it stays unloaded. A new host fact uses this channel before
 anyone proposes a new reserved source (LLP 1101.002 §0 P11).
 
+A `text` inside a paragraph can carry `press=` (a `span`'s `onclick`) and
+`href=` (an `a`). In the terminal a click on the run runs its
+handler; without one (and on every host for `href`) it follows the link: a path naming one of the app's routes is `navigate` on the
+navigation root, and an `http`, `https`, `mailto` or `tel` URL leaves the app,
+as `openURL` does. An app without routes that wants a run to act in the app
+(the LLP reader's cross-references) gives the run `press=`. In a terminal the
+mouse is the app's only full screen or while a dialog is open; inline, ⌘-click
+on the run's link is the terminal's own.
+
 Localized strings use `t("key", name=value)` and app `strings/<locale>.json`
 files. Compile against the files to check keys and placeholders. Formatting
 functions accept a narrow set of literal formats; app wording is an app `fn`.

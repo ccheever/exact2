@@ -2740,6 +2740,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "llp-terminal"
+version = "0.1.0"
+dependencies = [
+ "exact-terminal",
+ "llp-data",
+]
+
+[[package]]
 name = "llp-web"
 version = "0.1.0"
 dependencies = [
