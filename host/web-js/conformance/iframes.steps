@@ -1,0 +1,9 @@
+# The frames mount: the literal opaque sandbox shows its document, which posts.
+tap show
+clock settle
+# The sandbox opens: the literal and the bound `data:` sources show and post.
+tap flip
+clock settle
+# It grants `allow-same-origin`: both are refused again (about:blank).
+tap flip
+clock settle

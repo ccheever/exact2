@@ -675,10 +675,13 @@ impl<S: Source> Walk<'_, '_, S> {
                         attrs.push((name.clone(), None));
                     }
                 }
-                // `navigates` + `navigableURL`: a refused link loses its
-                // href; a refused frame shows about:blank.
+                // `navigates` + `navigableURL`, `frameURL`: a refused link
+                // loses its href; a refused frame shows about:blank.
                 "href" if !navigable(value) => {}
-                "src" if element == "iframe" && !navigable(value) => {
+                "src"
+                    if element == "iframe"
+                        && !frame_navigable(value, props.get("sandbox").map(String::as_str)) =>
+                {
                     attrs.push((name.clone(), Some("about:blank".into())));
                 }
                 _ => attrs.push((name.clone(), Some(value.clone()))),
@@ -1034,37 +1037,20 @@ fn escape(out: &mut String, text: &str, attribute: bool) -> Result<(), &'static 
 /// relative to the page's https base; an http(s) authority whose host does
 /// not parse is refused, as the parser's failure is (IDNA aside).
 pub fn navigable(href: &str) -> bool {
-    let trimmed = href.trim_matches(|c: char| c <= ' ');
-    let url: std::borrow::Cow<'_, str> = if trimmed.contains(['\t', '\n', '\r']) {
-        trimmed
-            .chars()
-            .filter(|c| !matches!(c, '\t' | '\n' | '\r'))
-            .collect::<String>()
-            .into()
-    } else {
-        trimmed.into()
-    };
-    // A scheme is a letter, then letters, digits, `+`, `-` or `.`, then `:`.
-    for (at, b) in url.bytes().enumerate() {
-        match b {
-            b':' if at > 0 => {
-                let (scheme, rest) = (&url[..at], &url[at + 1..]);
-                let is = |name: &str| scheme.eq_ignore_ascii_case(name);
-                return if is("mailto") || is("tel") {
-                    true
-                } else if is("https") && !rest.starts_with("//") {
-                    // The base's own scheme reads the rest as relative
-                    // unless it starts `//`; another special scheme's
-                    // authority follows whatever slashes there are.
-                    true
-                } else {
-                    (is("http") || is("https")) && authority_parses(rest)
-                };
-            }
-            b if b.is_ascii_alphabetic() => {}
-            b if at > 0 && (b.is_ascii_digit() || matches!(b, b'+' | b'-' | b'.')) => {}
-            _ => break,
-        }
+    let url = parsed(href);
+    if let Some(at) = scheme_end(&url) {
+        let (scheme, rest) = (&url[..at], &url[at + 1..]);
+        let is = |name: &str| scheme.eq_ignore_ascii_case(name);
+        return if is("mailto") || is("tel") {
+            true
+        } else if is("https") && !rest.starts_with("//") {
+            // The base's own scheme reads the rest as relative
+            // unless it starts `//`; another special scheme's
+            // authority follows whatever slashes there are.
+            true
+        } else {
+            (is("http") || is("https")) && authority_parses(rest)
+        };
     }
     // Relative: a leading pair of slashes (either way) starts an authority.
     let mut slashes = url.chars().take_while(|c| matches!(c, '/' | '\\'));
@@ -1072,6 +1058,50 @@ pub fn navigable(href: &str) -> bool {
         return authority_parses(&url);
     }
     true
+}
+
+/// Whether an iframe in `sandbox` (its attribute, `None` when absent) shows
+/// `src`: a [`navigable`] URL, or a `data:` document in a sandbox without
+/// `allow-same-origin`, whose opaque origin cannot reach the page
+/// (`navigation.js` `frameURL`, LLP 1020 §10). The browser splits the
+/// sandbox on ASCII whitespace and reads its tokens case-insensitively.
+pub fn frame_navigable(src: &str, sandbox: Option<&str>) -> bool {
+    let opaque = sandbox.is_some_and(|s| {
+        !s.split_ascii_whitespace()
+            .any(|t| t.eq_ignore_ascii_case("allow-same-origin"))
+    });
+    let url = parsed(src);
+    navigable(src)
+        || opaque && scheme_end(&url).is_some_and(|at| url[..at].eq_ignore_ascii_case("data"))
+}
+
+/// `href` as the URL parser reads it: surrounding C0 controls and spaces
+/// stripped, tabs and newlines removed anywhere.
+fn parsed(href: &str) -> std::borrow::Cow<'_, str> {
+    let trimmed = href.trim_matches(|c: char| c <= ' ');
+    if trimmed.contains(['\t', '\n', '\r']) {
+        trimmed
+            .chars()
+            .filter(|c| !matches!(c, '\t' | '\n' | '\r'))
+            .collect::<String>()
+            .into()
+    } else {
+        trimmed.into()
+    }
+}
+
+/// Where a scheme's `:` is: a letter, then letters, digits, `+`, `-` or
+/// `.`, then `:`. `None` when the URL is relative.
+fn scheme_end(url: &str) -> Option<usize> {
+    for (at, b) in url.bytes().enumerate() {
+        match b {
+            b':' if at > 0 => return Some(at),
+            b if b.is_ascii_alphabetic() => {}
+            b if at > 0 && (b.is_ascii_digit() || matches!(b, b'+' | b'-' | b'.')) => {}
+            _ => break,
+        }
+    }
+    None
 }
 
 /// The special authority after any slashes: a host (a bracketed IPv6, an

@@ -71,6 +71,19 @@ fn sweep(js: bool) {
             "          when e.name == \"home\"\n            text \"Home\"\n",
             "          when e.name == \"home\"\n            text \"Home\"\n            link href=\"javascript:globalThis.scriptProbe++\" testId=`script-link-${e.id}` padding=8\n              text \"Script link\"\n            text testId=`script-text-${e.id}`\n              text \"Script run\" href=scriptURL testId=`script-run-${e.id}`\n            iframe scriptURL width=40 height=20 testId=`script-frame-${e.id}`\n",
         )
+        // A `data:` document shows in a sandbox without `allow-same-origin`
+        // and nowhere else (LLP 1020 §10): a literal or bound source, under a
+        // literal or bound sandbox that `flipFrame` opens and closes. A
+        // flipped one posts its letter from the opaque origin (a post at
+        // boot can come before the wasm host hears input, which drops it).
+        .replace(
+            "  state initialUrl",
+            "  state frameSandbox = \"allow-same-origin\"\n  state frameDoc = \"data:text/html,<script>parent.postMessage('b','*')</script>\"\n  state frameHeard = \"\"\n  action flipFrame\n    frameSandbox = frameSandbox == \"allow-scripts\" ? \"allow-same-origin\" : \"allow-scripts\"\n  action heardFrame(m: string)\n    frameHeard = `${frameHeard}${m}`\n  state initialUrl",
+        )
+        .replace(
+            "            iframe scriptURL width=40 height=20 testId=`script-frame-${e.id}`\n",
+            "            iframe scriptURL width=40 height=20 testId=`script-frame-${e.id}`\n            iframe \"data:text/html,<p>s</p>\" sandbox=\"allow-scripts\" width=40 height=20 testId=`data-frame-${e.id}`\n            iframe \"data:text/html,x\" width=40 height=20 testId=`data-bare-${e.id}`\n            iframe \"data:text/html,x\" sandbox=\"allow-scripts allow-same-origin\" width=40 height=20 testId=`data-same-${e.id}`\n            iframe \"data:text/html,<script>parent.postMessage('l','*')</script>\" sandbox=frameSandbox message=heardFrame width=40 height=20 testId=`data-literal-${e.id}`\n            iframe frameDoc sandbox=frameSandbox message=heardFrame width=40 height=20 testId=`data-bound-${e.id}`\n            button press=flipFrame testId=`flip-frame-${e.id}`\n              text \"Flip frame\"\n",
+        )
         .replace(
             "  action followLink(url: string)\n    nav = go(nav, url)",
             "  action followLink(url: string)\n    navigatePresses = navigatePresses + 1\n    if redirectLink\n      nav = push(nav, \"/other\")\n    else\n      if followEnabled\n        nav = go(nav, url)\n  action redirectNextLink\n    redirectLink = true\n  action refuseLink\n    followEnabled = false",
