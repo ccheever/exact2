@@ -356,3 +356,119 @@ D2 then runs the real `frame()` in the epilogue whenever `dirty` is set (`agent.
 ## 6. Verdict
 
 Verdict: NOT READY
+
+## Round 4 (2026-10-08), on r4 (as LLP 1113)
+
+- **Family:** xAI. `grok-4.7` via the grok CLI (`--prompt-file`), reasoning effort xhigh, `--no-subagents`, `--always-approve` with Edit and Write denied, `--output-format plain`, `--cwd` a detached worktree at `371ada597`, with the other family's review files removed; 2026-10-08T07:33:02Z to 2026-10-08T08:02:58Z.
+- **Method:** one brief (sha256 `bed346f232fd6f35bc75d7b5abc2e72478f7e7a75968edf4e3f96968b1035d00`), shared verbatim with the other reviewer; blind to the other family's reviews, though the dispositions sections name concerns both raised. Requested by Charlie ("yeah sounds good do all that" to the r4 narrowing and a review). The author (Claude, Opus 5.5) is not a reviewer. Nothing redacted. This round uses the new numbers (1111, 1112, 1113).
+- **Transcription:** the review as returned, unedited; the sentences before the assessment are the CLI's progress narration.
+- **Verdict:** NOT READY.
+- **Disposition:** pending. The review loop stops after four rounds on this document; the remaining items go to Charlie with a recommendation to prototype the final-capture path.
+
+I'll review LLP 1113 r4 against the binding rules, the earlier reviews, and the code it cites. Reading stays read-only.Binding rules are in. Next I’ll read the earlier reviews, r4, and the sibling command-line RFC.r4’s claims are specific. I’ll check the final-capture loop, session use-up, the settle flag, hatches, and D4 against the current code.The evidence is gathered; I am checking the r4 claims that decide the verdict against the code in this tree before writing the review.The RFC and the round-3 review are in. I am checking the hatch loop, the ghost seek, the observation point, and D4's ownership sites against this tree.r4's narrowing is the right shape, and the citations I re-checked for `handle`, `settle()`, `Presenter::tick`, `has_pending`, and D4's listed copy sites match this tree. An implementer still cannot build the settle loop or the ownership set as written: the hatch drain livelocks, a Landing ghost whose rest is already reached is reported settled, and the observation point, the busy poll, the image reframe, and `forget` each have two readings.
+
+## 1. Overall assessment
+
+The split Charlie approved is sound. A final capture may seek, because the session is then used up. A mid-test capture stays today's `screenshot` plus `motion`, so LLP 1012 stays unamended and the clocks stay together for every later step. D2's flag span matches `agent::handle` (`host/linux/src/agent.rs:59-95`), cleared after `first_pixel` (`:93`) and before `tagged` (`:94`). D5's command-line cells defer to LLP 1101.003 D2. The last-observer rule matches the driver: `unfired` runs after the step loop (`scripts/agent-test.mjs:344`) and before `close`, and `pointer_cancel` / `teardown::finish` run after the stdin loop (`agent.rs:53-54`), so they cannot rewrite a PNG already flushed. The header is right that this specifies nothing until it has an implementer.
+
+What is not buildable is D3's pass and one edge of D4. The hatch line cites a capped, one-turn drain and writes an unbounded `while`. `quiet` treats a Landing ghost as settled once `group_settles_at` is no longer strictly ahead, and `tick_arrange` — the only function that samples that ghost — never runs on that path. The sentence "nothing paints after" does not say what happens to `handle`'s epilogue or to `screenshot()`'s own `frame()`. The busy poll and the image reframe can reach `complete` with a hover or a `then` still outstanding. D4's superseded sentence covers the keep-ticket path and misses `forget` and the remove-and-replace path beside it.
+
+## 2. Round-3 concerns
+
+- **B1, one final seek is not a fixed point; `t_s` missed the ghost.** **Partly.** D3 seeks inside the pass while `settle() > host.now()`, and `settle()` at `agent.rs:755-760` includes `group_settles_at`, so a `Layout` curve born by `observe_layout` is sought again and the seek spends a pass. A Landing ghost whose rest is already `<= host.now()` is never sampled: `tick_arrange` is called only from `Presenter::tick` (`presenter.rs:1425`), and `clock settle` seeks with `Host::tick` (`presenter/clock.rs:28`).
+- **B2, the scratch paint and the epilogue frame.** **Partly.** The row cache, `PaintMotion`, and the live-to-isolated handoff are moved to "Isolated sampling (later)". The epilogue half is open: `answer` still encodes inside `screenshot`, which always calls `frame()` (`agent.rs:461-462`, `presenter.rs:1430-1432`), and `handle` then runs `hatch_moments` and may `frame` and `follow_pointer` (`agent.rs:85-92`).
+- **Flag span misses `run_commands`, `sync_surfaces`, `first_pixel`.** **Resolved.** The span is all of `handle` (`:59-95`), including `:69-72` and `first_pixel` at `:93`.
+- **A mid-test settle can change the engine.** **Moved.** A mid-test capture does not settle.
+- **Refusal predicates are not functions.** **Moved** with the sample. `group_needs_frame` (`presenter/group.rs:443`) is now the mid-test ghost test, which is the right function for that report.
+- **`infinite()` only in the change table.** **Resolved.** The table drops it. D1 says `settle()` `None` means `t_s` is now, which matches `settle_time` omitting infinite animations (`motion/src/engine.rs:711-720`, `motion/src/engine/animate.rs:412-421`).
+- **"read dirty after" has no consequence.** **Resolved.** The frame step is `if dirty: frame()`.
+- **Suggestion: the busy poll pumps.** **Partly.** It pumps announcements. It does not re-enter the pass (new concern below).
+- **Suggestion: citations.** **Resolved** for the r3 line numbers (`has_pending` is `commit.rs:1148-1154`; `settle()` is `agent.rs:755-760`). The new "as clock settle" citation is a new concern.
+
+## 3. New concerns
+
+### BLOCKING — The hatch drain is not the loop it cites, and it does not terminate
+
+**Section:** D3, the data pass.
+
+**Evidence:** The pass says `hatch_moments; while hatch_in_flight() > 0: hatch_turn`, "as clock settle, `agent.rs:888-903`". Those lines do one thing: `hatch_moments`, then if anything is queued, one `hatch_turn` and `continue` of the outer clock loop, and after 16 such drains they return `settled: false, reason: "hatches"`. `hatch_turn` (`presenter/hatch.rs:79-84`) is one snapshot. `hatch_drain` says what that snapshot queues waits for a later drain (`:421-423`), so a click that queues another click never empties inside one `while`. The deadline is checked before each step, and the `while` is inside the data-pass step, so it is never checked there. `quiet` lists `has_pending`, due `then` / queue `next`, commands, collections, `accessibilityBusy`, images, and `settle()`. `hatch_in_flight` (`:437`) is absent, so a pass that stops the loop early can `complete` with acts queued. `reason: "hatches"` is then unreachable; the step name would be `data`. `clock settle` also fires frame ticks and `after`s through `hatch_fire` (`:628`, via `clock_hatched` at `agent.rs:992-999`). D3 does not. That is consistent with timers off, and it is not what the citation does. Moments run before the seek, while `hatches.stale` is set only when `Host::tick` reports a height change (`presenter.rs:1417-1418`) and `hatch_nodes` returns immediately unless that flag is set (`hatch.rs:166-167`), so the geometry the seek just produced is not in this pass's overlays. `frame()` copies `hatches.overlays` at the start of the paint (`content_region/presenter.rs:57-61`).
+
+**Resolution:** One `hatch_turn` per pass, counted toward the 16, ending `deadline` or `exhausted` with `reason: "hatches"` while `hatch_in_flight() > 0`. Put `hatch_in_flight() == 0` in `quiet`. Run `hatch_moments` after the seek and before `frame()`. State that `hatch_fire`'s frame ticks and `after`s stay unfired because the runner clock does not move, and that overlays in the PNG are whatever moments published at that clock.
+
+### MAJOR — A Landing ghost whose rest is not strictly ahead is reported settled
+
+**Section:** D1, "Settled pixels mid-test"; D3, `seek` and `quiet`.
+
+**Evidence:** `group_settles_at` (`presenter/group.rs:428-439`) is `Some` only in `Phase::Landing`. The spring is sampled only in `tick_group` / `land_group`, which `tick_arrange` calls (`presenter/arrange.rs:419`, `presenter/group.rs:386-399`). The comment on `land_group` says a clock that jumped past the rest finishes the ghost, and that happens only when `tick_group` runs. `Presenter::tick` is the only caller of `tick_arrange` (`presenter.rs:1425`). `clock settle` and `clock +N` seek with `Host::tick` (`presenter/clock.rs:26-28`), which advances `Host::now_ms` and the engine and does not sample the ghost. After that, `settle()` equals `host.now()` while the phase is still `Landing` and the ghost is still at the start of the spring. D3 ticks only when `t > host.now()`, and `quiet` uses the same test, so the capture returns `complete` without `finish_group` (`group.rs:294`). D1 tells authors that settled pixels are `clock settle` then `screenshot`, "which already works". When that screenshot is the test's last step it is a final capture, and this is the path that misses the ghost. A direct final capture whose rest is still ahead does tick, and that path is fine. `Phase::Active` is the other gap: `group_settles_at` is `None`, and `group_needs_frame` is true only when an edge scrolls (`group.rs:443-448`), so a stationary held ghost is `motion: "none"` mid-test and can `complete` on a final capture. `Phase::Dropped` during the reorder hold is the same, and the hold is a timer (`reorder_deadline`, `runner/src/runner/reorder_group.rs:452-456`) that D2 will not fire.
+
+**Resolution:** `quiet` includes `group_needs_frame`. When the ghost needs a frame and `settle()` is not strictly ahead, call `Presenter::tick(host.now())` anyway and count it as a seek. State that a reorder hold does not fire under the flag, and that `Phase::Active` without edge autoscroll is not a settle target.
+
+### MAJOR — The observation point is not the last paint
+
+**Section:** D2's span; D3, "The final observation point".
+
+**Evidence:** D3 says the pixels at the end of the first quiet pass are encoded and nothing paints after them. Today's `screenshot` encodes inside `answer`, and `Presenter::screenshot` always calls `frame()` first (`presenter.rs:1430-1432`). `frame()` then publishes scroll, clears `flow_damage`, may `queue_collections`, captures action bindings, sets `dirty` from `collection.pending()` (`content_region/presenter.rs:233`), and calls `sync_images`. After `answer` returns, the epilogue always runs `hatch_moments` and, when `dirty`, `frame` and `follow_pointer` (`agent.rs:85-92`). `Presenter::tick` sets `dirty = true` unconditionally (`presenter.rs:1426`), so a seeking pass leaves a frame behind it. `hatch_moments` can dirty that frame again before the epilogue paints. D2 puts this epilogue inside the flag span and does not say those calls are skipped. An implementer who runs D3 and then calls `screenshot()` encodes a second walk. An implementer who encodes the quiet pixmap and leaves the epilogue in place paints after the observation whenever `hatch_moments` or a pending collection sets `dirty`.
+
+**Resolution:** For `final: true`, encode the pixmap from the quiet pass's `frame()`, and skip the epilogue's `hatch_moments`, `frame`, and `follow_pointer`. Say that this encoding replaces `screenshot()`'s `frame()`, so `sync_images`, scroll publish, and action capture do not run again.
+
+### MAJOR — The busy poll can complete with new work outstanding
+
+**Section:** D3, the `accessibilityBusy` paragraph.
+
+**Evidence:** A pass that is quiet except for `accessibilityBusy` sleeps 20 ms, pumps announcements, and polls again. Polls do not spend the 16. "Polls again" reads as another read of the flag. The pump is a commit path (`presenter.rs:1303-1306` delivers authored scroll, then fulfilments). That commit can clear `aria-busy` and arm a `then`, enqueue a request, or start motion, and this poll does not call `land_then`. The pass was already judged quiet apart from the flag, so the procedure can `complete` on the next read. Separately, a pass that is not quiet only because `has_pending` (`commit.rs:1148-1154`) and that pumps nothing does no work, so it does not spend the 16, and it does not sleep. `wait_for_replies` sleeps 20 ms (`agent.rs:1033-1041`). `has_pending` is also true for a background ticket, which commits nothing (`runner/src/runner/background.rs`, and `fulfill_measured` returns before a commit at `commit.rs:1218-1221`). A picture can therefore sit until the deadline on storage that cannot change pixels, and the closest `reason` is `requests`.
+
+**Resolution:** After each busy pump, re-enter the full pass; a commit from that pump is work and spends the budget. Sleep 20 ms while `has_pending`, as `wait_for_replies` does. Say whether a background ticket holds a picture, and name the `reason` when it does.
+
+### MAJOR — The image reframe never hovers
+
+**Section:** D3, `frame` and `images`. The test "hover over settled geometry that starts a request is waited for".
+
+**Evidence:** The pass does `frame(); follow_pointer()`, then `w = wait_images(remaining); if w: frame() again`. `wait_images` applies reports (`presenter/images.rs:13-33`): `set_intrinsics`, `dirty = true`, clamp, queue collections, refresh transform geometry. The second `frame()` has no `follow_pointer`. `follow_pointer` (`presenter/events.rs:280-287`) is what dispatches hover after a paint, and it no-ops while a contact or a button is down. `w` makes the pass not quiet, so another pass runs. That pass's `frame()` has set `dirty = collection.pending()` (`content_region/presenter.rs:233`). With no collection pending, `dirty` is false, the frame step is skipped, and the post-image layout is never hovered. `frame()` also calls `sync_images`, which can make the loader pending again; `quiet` does re-check `pending()` (`image.rs:459`), so new loads continue. Hover does not.
+
+**Resolution:** Call `follow_pointer` after every `frame()` in the pass, including the image reframe. A hover that starts a request is work, and the next pass paints it before the observation.
+
+### MAJOR — An unowned `forget` or replace drops an owned ticket with no outcome
+
+**Section:** D4, "A kept ticket".
+
+**Evidence:** The superseded sentence covers an owned commit retargeting an unowned ticket at `commit.rs:995-1013` (the keep path: arguments are rewritten, the entry stays) and an overwrite of an owned `then_due` slot (`:539-545`). The branch immediately after the keep path removes the in-flight entry and pushes a new one (`:1015-1018`, `forgot = true`). An unowned commit that enqueues the same target drops the owned ticket there. The new `PendingReq` is stamped at `enqueue` with the new commit's id, so the owned set loses the ticket and can go empty. `forget` (`:953-963`) removes the pending entry outright. Settlement calls it for a resource this commit answered (`settlement.rs:768`) and the commit path calls it for assigned mutations (`commit.rs:815`, `:820`). An unowned settlement that answers an owned target takes that ticket out of the set with no `superseded` end. LLP 1111's current table treats both `forget` and a kept-ticket move as `superseded`; r4 kept only the keep-ticket sentence. The listed copy sites themselves match: `enqueue` `:986`, `arm_then` `:539`, `wait_turn` (`queue.rs:111`), the `unsent` pushes (`commit.rs:661`, `:758`), `force_refresh` `:975`, fulfilment remove-then-arm (`:1236`, `:1242-1243`).
+
+**Resolution:** An unowned `forget`, and an unowned remove-and-replace, of an owned entry end the call `superseded`. Say where the host stamps the root commit before `Runner::dispatch` (LLP 1111 says the action runs as one event with an id; this document never names the write). Say that firing a `then` stamps the commit it runs, the way a queue entry gives its owner to the commit it runs. `refresh_next` is a `Vec<usize>` (`settlement.rs:787`); keeping an owner is a representation change, and two owners forcing one resource need a rule.
+
+### MINOR — D1 describes `Presenter::tick`'s height-gated work as unconditional
+
+**Section:** D1, "A final capture".
+
+**Evidence:** The sentence says the real presenter clamps scroll, queues collections, refreshes transform geometry, marks hatches stale, and runs `tick_arrange`. In `Presenter::tick` (`presenter.rs:1416-1427`) the first four run only when `Host::tick` returns true. `tick_arrange` and `dirty = true` always run. Calling `Presenter::tick` does the right thing. Reimplementing the sentence does not. The pseudocode's `t = settle(); if t > host.now()` also needs D1's rule that `None` means now; `settle()` returns `Option<f64>`.
+
+**Resolution:** Say the four side effects run when height changed, and write `t = settle().unwrap_or(host.now())` in the pass.
+
+### MINOR — A few current-behavior sentences are ahead of this tree
+
+**Section:** Summary; D1's failure bullet; D5's `clock settle` cell.
+
+**Evidence:** The summary says "D3: the procedure (LLP 1112 cites it)". LLP 1112 D1a (c) still says a screenshot moves the session clock and the next `--test` step sees the sought time (`llp/1112-a-url-under-a-state-as-an-image.rfc.md` around the motion fixed point). Its header says a future revision will replace that with a citation. D1 says a failure after the first real seek uses up the session, and also that the driver refuses every later operation once `final: true` was sent. An activation error (`data_activating` is already false once `activation_failed` is set, `presenter/delivery.rs:119-121`, set in `display_frame.rs:302` and `:308`) happens before any tick. The driver cannot see "first real seek" in that reply, and the two sentences disagree about whether later steps run. D5 lists `clock settle`'s `reason` as `"world"`, `"requests"`, `"hatches"`, or `"device"` (`agent.rs:895-981`). A 16-round engine exhaustion returns `settled: false` with no `reason` (`:974-976`) when the extra time is the engine, the press, or the ghost and the worlds are quiescent.
+
+**Resolution:** Change the summary to "LLP 1112 will cite it". Say that `final: true` uses up the session even when activation fails before a seek, or say that it does not and how the driver tells those replies apart. Add the no-reason exhaustion to the `clock settle` cell, since that column is "today, unchanged".
+
+## 4. Suggestions
+
+- Name `Runner::dispatch` as the event half of D2. `Host::dispatch_at` (`host.rs:825-849`) currently calls `Runner::dispatch_at` (`commit.rs:192-202`), which fires timers and moves the runner clock. `land_then` (`commit.rs:289-291`) is the timers-off half. Callers pass `host.now()` during a settle, so the existing `now_ms = max(argument, now)` at `:833` does not jump the host clock further.
+- Name a deadline-reason order when several steps are still working. `requests`, `motion`, and `images` can all be true on the same pass.
+- The activation wait should say it sleeps, the way `land_data` sleeps 20 ms, and that a failed paint (`last_frame_succeeded` false, `content_region/presenter.rs:153`) encodes nothing. The failure path still returns retained or white pixels (`:167-187`).
+- The prelude `pump` under the flag (`agent.rs:66-68`) logs and continues. The same `pump` inside the loop is a D3 `error`. Pick one.
+- A `busy` flag that only a timer clears stays busy for the whole capture, because timers do not fire, and the end is `deadline` / `busy`. Worth one sentence so authors are not surprised.
+- When LLP 1111's next revision cites D4, delete its per-session serialization, its "`returns` / `fails when` reads it" filter on re-asks, and the `superseded` rows that D4 now splits. D4 uses the words `busy` and `superseded` while "Not in this RFC" says outcome names belong to LLP 1111. LLP 1111 today calls both the keep path and `forget` `superseded`.
+- LLP 1101.003 D2's `has_pending` range no longer names that function. LLP 1113's own cite (`commit.rs:1148-1154`) is the right one. The command-line column inherits the drift in the authority document.
+- D2's "a refusal leaves a sibling due, `commit.rs:204-212`" is the `advance_timed` doc comment. The behavior is real (the advance stops, the event still runs, `commit.rs:192-200`). Point at the stop, not the comment.
+
+## 5. Open questions for the author
+
+1. Is the work budget still 16 passes for pictures and final captures?
+2. Is the tool-call lock still one per `ExactApp` (`Session.swift:130`), all windows, consent included, held past the timeout until the owned set drains or the session closes?
+3. Should a mid-test screenshot with `motion: "in-flight"` fail the test? r4 only reports it. A final capture of an infinite-only scene returns `complete` with the animation sampled at now, and D5's final reply has no `motion` field.
+4. A reorder ghost in `Phase::Active` that is not edge-scrolling reports `motion: "none"`, because that is what `group_needs_frame` returns. Is that the intended report?
+5. What does "fresh" mean for a `--test` final capture's deadline? The picture column uses the caller's deadline (LLP 1112 D11).
+6. Should a background ticket hold a picture? It is in `has_pending`, and it commits nothing.
+
+Verdict: NOT READY

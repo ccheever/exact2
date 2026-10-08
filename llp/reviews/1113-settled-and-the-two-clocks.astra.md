@@ -392,3 +392,121 @@ Prioritize these regression cases:
 4. Which shared cache mutations are permitted during isolated sampled painting?
 
 Verdict: NOT READY
+## Round 4 (2026-10-08), on r4 (as LLP 1113)
+
+- **Family:** OpenAI. `gpt-6-astra` via `codex exec`, reasoning effort max, sandbox read-only, `--ephemeral`, `-C` a detached worktree at `371ada597` (origin/main `ce31a47b6` plus the two commits that add these RFCs), with the other family's review files removed; 2026-10-08T07:33:02Z to 2026-10-08T07:48:47Z.
+- **Method:** one brief (sha256 `bed346f232fd6f35bc75d7b5abc2e72478f7e7a75968edf4e3f96968b1035d00`), shared verbatim with the other reviewer; blind to the other family's reviews, though the dispositions sections name concerns both raised. Requested by Charlie ("yeah sounds good do all that" to the r4 narrowing and a review). The author (Claude, Opus 5.5) is not a reviewer. Nothing redacted. This round uses the new numbers (1111, 1112, 1113).
+- **Transcription:** the review as returned, unedited.
+- **Verdict:** NOT READY.
+- **Disposition:** pending. The review loop stops after four rounds on this document; the remaining items go to Charlie with a recommendation to prototype the final-capture path.
+
+**1. Overall assessment**
+
+**r4 is substantially simpler, but still not ready to implement without guessing.** The approved narrowing removes the isolated-presentation problem, and recomputing the finite settle target addresses the original final-seek defect. D5’s command-line column agrees with LLP 1101.003 D2; I have not treated the parked siblings as competing authorities.
+
+The remaining problems concern termination, image waiting, the final observation boundary, and invocation ownership. Most refreshed citations identify the intended code, but several prescribed operations do not provide the guarantees attributed to them.
+
+Reviewed at `371ada597` by source inspection. No files changed; no builds or application tests run.
+
+**2. Round-3 concerns**
+
+| Concern | Status and evidence |
+|---|---|
+| **R3-1 — One final seek is insufficient** | **Resolved.** D3 recomputes `settle()` after work, requires no later finite target, and charges advancing seeks to the budget. This covers Height completion starting another Layout curve. |
+| **R3-2 — Work after the selected frame** | **Partly resolved.** Hover is inside the loop, but D2 still describes the ordinary `handle` epilogue after `answer`; its relationship to D3’s final observation point remains unspecified. See N4. |
+| **R3-3 — PaintMotion cannot come from an engine clone** | **Moved.** The cloned-engine painting proposal is removed; the ownership and inheritance requirements are recorded under “Isolated sampling.” |
+| **R3-4 — Live preparation versus isolated painting** | **Moved.** There is no isolated painting phase in v1. Ordinary live image preparation still has separate problems, N2–N3. |
+| **R3-5 — Last authored step versus last observer** | **Partly resolved.** Session consumption and post-encode teardown are explicit, including failure after a seek. Moving fault checks before capture, however, checks them before capture-generated work finishes. See N5. |
+| **R3-6 — Factual descriptions and counting** | **Partly resolved.** The combined settle helper and sixteen-pass threshold are corrected; paint-only descriptions moved. D3’s claim that only work awaiting another pump spends passes contradicts its own seek and hatch accounting. |
+
+The round-3 question about “armed” background work is resolved: D4 now means an outstanding runner background ticket. Its observation boundary still needs work, N6.
+
+**3. New concerns**
+
+**N1 — BLOCKING — D3: the hatch drain reintroduces an unbounded inner loop.**
+
+**Evidence:** D3:130 specifies `while hatch_in_flight() > 0: hatch_turn`, inside one work-producing pass. The existing `hatch_turn()` drains one snapshot and invokes moments; those moments may enqueue another snapshot. It contains no cumulative drain limit. The queue’s capacity limit does not stop a cycle that consumes one act and creates another. See [hatch.rs:79](/private/tmp/claude-501/-Users-ccheever-projects-exact2/bc4d76d2-3c4d-45d2-8102-28fc48fc9da5/scratchpad/rv7-astra/host/linux/src/presenter/hatch.rs:79) and [session.rs:197](/private/tmp/claude-501/-Users-ccheever-projects-exact2/bc4d76d2-3c4d-45d2-8102-28fc48fc9da5/scratchpad/rv7-astra/host/linux/src/hatches/session.rs:197).
+
+The cited `clock settle` implementation supplies its own counter and stops after sixteen drains; D3 omits that counter. [agent.rs:895](/private/tmp/claude-501/-Users-ccheever-projects-exact2/bc4d76d2-3c4d-45d2-8102-28fc48fc9da5/scratchpad/rv7-astra/host/linux/src/agent.rs:895)
+
+A hatch whose `changed` callback clicks a control that changes its dataset can therefore remain inside this step indefinitely, never spending an outer pass. “Check before each step” does not explicitly establish a checkpoint inside this loop.
+
+**Resolution:** Drain one bounded snapshot per pass, include outstanding hatch acts in `quiet`, and charge the work. Alternatively, specify a separate cumulative drain bound and a deadline check before every drain. State its result mapping.
+
+**N2 — MAJOR — D3, images/quiet: procedural symbols cannot satisfy the prescribed image predicate.**
+
+**Evidence:** A `symbol:` image deliberately has `source_id = None`, a nonempty source, and `symbol_size = Some(...)`. `poll()` skips it. However, `Images::pending()` does not exclude symbols: its missing prepared-source branch returns `true`. See [image.rs:195](/private/tmp/claude-501/-Users-ccheever-projects-exact2/bc4d76d2-3c4d-45d2-8102-28fc48fc9da5/scratchpad/rv7-astra/host/linux/src/image.rs:195), [image.rs:311](/private/tmp/claude-501/-Users-ccheever-projects-exact2/bc4d76d2-3c4d-45d2-8102-28fc48fc9da5/scratchpad/rv7-astra/host/linux/src/image.rs:311), and [image.rs:459](/private/tmp/claude-501/-Users-ccheever-projects-exact2/bc4d76d2-3c4d-45d2-8102-28fc48fc9da5/scratchpad/rv7-astra/host/linux/src/image.rs:459).
+
+Consequently, an otherwise settled page containing a symbol cannot reach D3’s `complete` using the specified helpers. Moving symbol handling into the deferred sampling discussion does not remove this live-loader issue.
+
+**Resolution:** Include correcting the live pending predicate in implementation scope. A procedural symbol contributes no raster work. Add a final-capture regression containing only text and a symbol.
+
+**N3 — MAJOR — D3: waiting for images can prevent the data work needed to finish that wait.**
+
+**Evidence:** `wait_images(remaining)` calls `Images::wait`, which polls only the image backend until it finishes or consumes the entire remaining deadline. It does not pump application replies or announcements. [presenter/images.rs:13](/private/tmp/claude-501/-Users-ccheever-projects-exact2/bc4d76d2-3c4d-45d2-8102-28fc48fc9da5/scratchpad/rv7-astra/host/linux/src/presenter/images.rs:13), [image.rs:528](/private/tmp/claude-501/-Users-ccheever-projects-exact2/bc4d76d2-3c4d-45d2-8102-28fc48fc9da5/scratchpad/rv7-astra/host/linux/src/image.rs:528)
+
+For example, a reply that becomes ready during this wait may remove or replace the image being waited for. D3 cannot apply that reply until the image wait returns, potentially at the deadline. The session could settle, but this schedule prevents it.
+
+Conversely, with requests pending and no image work, D3 specifies no sleep: the busy-only polling exception does not cover that case.
+
+**Resolution:** Specify cooperative waiting across requests, announcements and images. Use bounded polling/wake intervals that return to the data pass; reserve deadline exhaustion for work that remains after servicing those sources. Define no-work waiting for requests as well as `accessibilityBusy`.
+
+**N4 — MAJOR — D1–D3: the final observation point still conflicts with the ordinary operation epilogue.**
+
+**Evidence:** Today `screenshot()` encodes and writes inside `answer`. After `answer` returns, `handle` synchronizes surfaces, checks surface errors, runs commands and hatch moments, potentially paints and delivers hover, then calls `first_pixel`. [presenter.rs:1430](/private/tmp/claude-501/-Users-ccheever-projects-exact2/bc4d76d2-3c4d-45d2-8102-28fc48fc9da5/scratchpad/rv7-astra/host/linux/src/presenter.rs:1430), [agent.rs:78](/private/tmp/claude-501/-Users-ccheever-projects-exact2/bc4d76d2-3c4d-45d2-8102-28fc48fc9da5/scratchpad/rv7-astra/host/linux/src/agent.rs:78)
+
+D2 explicitly includes this epilogue in the guarded span, while D3 declares the first quiet pass final and says nothing paints afterward. Guarding callbacks suppresses timers; it does not eliminate their successful state changes or errors.
+
+**Resolution:** Specify a distinct final-capture control path. Move every required finalization callback before the last completion check, then freeze pixels and reply metadata and encode. Explicitly bypass the ordinary mutating epilogue afterward. Keep the separate teardown exception. This is a sequencing decision, not merely a flag-placement change.
+
+**N5 — MAJOR — D1: moving counted-fault checks before capture changes their meaning.**
+
+**Evidence:** `unfired()` reads current fault hits and immediately records failure when none matched. [agent-test.mjs:206](/private/tmp/claude-501/-Users-ccheever-projects-exact2/bc4d76d2-3c4d-45d2-8102-28fc48fc9da5/scratchpad/rv7-astra/scripts/agent-test.mjs:206)
+
+D3 can subsequently land a pending reply, run its `then`, deliver hover or execute a hatch act that initiates the matching fetch. Checking before the final screenshot can therefore report “matched no fetch” for a fault that the final operation legitimately exercises.
+
+**Resolution:** Evaluate required harness observations at the final operation’s observation point, before sealing the session. Return a frozen fault summary with the final reply and validate it locally. Do not perform another session operation afterward. Define the available summary on failure too.
+
+**N6 — MAJOR — D4: completion can precede background-ticket creation.**
+
+**Evidence:** D4 permits completion once the owned set is empty after commit and continuation arming. Background tickets are created later, by `take_requests()`. A synchronous `Answer::Now` can start background work without creating an owned pending request. The existing background fixture implements precisely that behavior. [commit.rs:1072](/private/tmp/claude-501/-Users-ccheever-projects-exact2/bc4d76d2-3c4d-45d2-8102-28fc48fc9da5/scratchpad/rv7-astra/runner/src/runner/commit.rs:1072), [background/tests.rs:26](/private/tmp/claude-501/-Users-ccheever-projects-exact2/bc4d76d2-3c4d-45d2-8102-28fc48fc9da5/scratchpad/rv7-astra/runner/src/runner/background/tests.rs:26)
+
+On Apple, taking those requests occurs in the bridge’s subsequent emission phase. [abi.rs:230](/private/tmp/claude-501/-Users-ccheever-projects-exact2/bc4d76d2-3c4d-45d2-8102-28fc48fc9da5/scratchpad/rv7-astra/host/apple/src/abi.rs:230)
+
+An implementation checking immediately at D4’s stated commit boundary can finish successfully before the ticket appears, evading “fails if one appears during it.”
+
+**Resolution:** Define completion after background arming and request handoff, with the invocation still active through that boundary. Apply the check to synchronous actions and continuations as well as asynchronous fulfilments. This preserves the chosen ticket-based policy without requiring attribution.
+
+**N7 — MAJOR — D4: deferred-refresh ownership needs consumption and collision rules.**
+
+**Evidence:** `force_refresh` coalesces by resource index; it does not necessarily create a new entry. Later settlement consumes retained refresh intentions and enqueues requests under whichever commit made their arguments available. [commit.rs:975](/private/tmp/claude-501/-Users-ccheever-projects-exact2/bc4d76d2-3c4d-45d2-8102-28fc48fc9da5/scratchpad/rv7-astra/runner/src/runner/commit.rs:975), [settlement.rs:771](/private/tmp/claude-501/-Users-ccheever-projects-exact2/bc4d76d2-3c4d-45d2-8102-28fc48fc9da5/scratchpad/rv7-astra/runner/src/runner/settlement.rs:771)
+
+D4 says both “copy the commit’s invocation id at enqueue” and “a retained refresh keeps its owner.” It does not explicitly say how the latter overrides an unowned consuming commit, or what happens when a tool forces a resource with an existing unowned deferred refresh. The kept-ticket rule covers neither case.
+
+**Resolution:** State that consuming a refresh transfers its owner to the resulting request, independently of the consuming commit. Define coalescing between owned and unowned refresh intentions, including rollback and supersession. A small ownership-transition table is sufficient; outcome names can remain in LLP 1111.
+
+**N8 — MINOR — D1/D3/D5: narrow the remaining absolute claims.**
+
+**Evidence and resolution:**
+
+- **“The engine is untouched” / “session unchanged” is stronger than today’s screenshot.** Its prelude pumps replies, and fulfilment commits can change engine targets. Say “no explicit clock seek; ordinary screenshot processing remains.” The acceptance test should not require equivalence to omitting capture when asynchronous work is pending. [agent.rs:61](/private/tmp/claude-501/-Users-ccheever-projects-exact2/bc4d76d2-3c4d-45d2-8102-28fc48fc9da5/scratchpad/rv7-astra/host/linux/src/agent.rs:61), [host.rs:1281](/private/tmp/claude-501/-Users-ccheever-projects-exact2/bc4d76d2-3c4d-45d2-8102-28fc48fc9da5/scratchpad/rv7-astra/host/linux/src/host.rs:1281)
+- **Unchanged `clock data` is not an operation-wide timer prohibition.** Its unguarded prelude and callback dispatches can reach `advance_timed`. Qualify D5’s cell as the behavior of `land_then`, or deliberately expand the guard. [commit.rs:192](/private/tmp/claude-501/-Users-ccheever-projects-exact2/bc4d76d2-3c4d-45d2-8102-28fc48fc9da5/scratchpad/rv7-astra/runner/src/runner/commit.rs:192)
+- **D3:171–172’s “only work awaiting a later pump spends passes” is false.** Its own definition also charges seeks, hatch work, hover and image reports.
+- **D1’s “failure … reply is D3’s error” conflicts with the separate `deadline` and `exhausted` ends.** Consumption should be independent of which end occurred.
+
+**4. Suggestions**
+
+Keep the narrowing. None of these findings requires reinstating isolated sampling.
+
+Write one end-to-end sequence covering guarded entry, activation, bounded passes, harness observations, frozen pixels and metadata, encoding, and teardown. Include where errors are collected and where the ordinary `handle` path is bypassed.
+
+Extend the existing regression list with a self-requeuing hatch, a symbol-only picture, an image removed by an asynchronous reply, a counted fault first exercised during final capture, synchronous background work, and deferred-refresh ownership crossing an unowned commit.
+
+**5. Open questions for the author**
+
+1. Who implements this scope, and when? The draft correctly records that nobody is assigned yet.
+2. What duration and override define a final test capture’s “fresh” deadline? D5 gives no value; LLP 1112 D11 defines the render child’s deadline.
+3. Is session consumption unconditional once `final: true` is accepted, or conditional on reaching the first seek? Specify all four D3 ends and encoding failure.
+4. Are the sixteen-pass budget and app-wide lock policy now approved, or do the questions for Charlie remain open?
+
+Verdict: NOT READY
