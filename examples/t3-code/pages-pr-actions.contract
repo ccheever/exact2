@@ -285,7 +285,7 @@ component PrdBaseBranch
 // PullRequestBaseFreshnessWarning's trigger: the amber base branch and mark. Pressed (or Return), it opens
 // the card as a popover; pointed at, the window's hover layer draws the same card under it (openOnHover
 // delay 0, closeDelay 120, side bottom, align start: hover-layer.contract), where the pointer can move
-// into it and press its buttons (#262; X62).
+// into it and press its buttons (#262; X62, #322).
 component PaFreshnessMark
   inject
     rem: number

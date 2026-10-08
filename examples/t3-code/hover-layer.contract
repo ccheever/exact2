@@ -10,7 +10,7 @@
 // it, and for the reference's closeDelay after the pointer leaves it or its trigger, so the pointer can
 // cross into it (the root's hover grace). Drawn here, at the window level, it hears the pointer on macOS:
 // a hover card drawn beside its trigger lies outside the trigger's box, where the host gives it no
-// tracking and gives the trigger a leave as the pointer moves in (X62), which closed #262's card.
+// tracking and gives the trigger a leave as the pointer moves in (X62, #322), which closed #262's card.
 //
 // Placement: Base UI's side, align and sideOffset 4 from the trigger's frame; a side that leaves no
 // room in the window flips (Base UI's collision flip; X17, #112: no position-try, so the layer works it

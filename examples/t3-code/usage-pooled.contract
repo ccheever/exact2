@@ -284,7 +284,7 @@ component PoolSegment
 // Drawn by the page in its scroll content (UsagePopups) at the segment's rect there (x, y, w, h), the
 // card inside its placement box and every box around it, so the macOS host tracks the pointer on it:
 // beside its segment it lay outside the segment's box, heard no pointer and closed as the pointer moved
-// in (#263, X62). It stays mounted for the segment last shown, so the fade has a start and an end.
+// in (#263; X62, #322). It stays mounted for the segment last shown, so the fade has a start and an end.
 component SegmentPopup
   inject
     rem: number

@@ -156,9 +156,11 @@ component UsagePage
   // The pooled segments' popovers (usage-pooled.contract, drawn in the scroll content by UsagePopups): the one the
   // pointer opened (the window's hover state, fix-hover-cards: segment, popover or email, then a 50 ms crossing
   // grace), else the pressed one, which holds until a press outside it (`pinnedAt` is `outside` when it was pinned);
-  // at its trigger's rect in the content (x, y, w, h), taken when it opens.
+  // at its trigger's rect in the content (x, y, w, h), taken when it opens. A press outside the page closes the
+  // hover-opened one too (`hoverAt`: `outside` at the last enter), as Base UI's outside press does however it opened.
   state pinned = ""
   state pinnedAt = 0
+  state hoverAt = 0
   state downOutside = false
   state last = ""
   state popX = 0
@@ -167,7 +169,7 @@ component UsagePage
   state popH = 0
   state popPlace = ""
   derive held = pinnedAt == outside ? pinned : ""
-  derive hovered = hoverShown and hoverTip.kind == "usage" ? hoverTip.key : ""
+  derive hovered = hoverShown and hoverTip.kind == "usage" and hoverAt == outside ? hoverTip.key : ""
   derive shown = hovered != "" ? hovered : held
   // `trigger` "seg" or "legend": Base UI anchors the popup to the trigger that opened it; above a legend row when it
   // fits (side top), else below it.
@@ -183,8 +185,10 @@ component UsagePage
   action enterSeg(id: string, inside: bool)
     if inside
       place(id, "seg")
+      hoverAt = outside
     hoverTipAt(HoverTip(key=id, kind="usage", text="", lines=[], side="top", align="center", x=0, y=0, width=0, height=0, estimate=0, testId=`usage-seg-pop-${id}`), "trigger", inside)
   action enterPop(id: string, inside: bool)
+    hoverAt = inside ? outside : hoverAt
     hoverTipAt(HoverTip(key=id, kind="usage", text="", lines=[], side="top", align="center", x=0, y=0, width=0, height=0, estimate=0, testId=`usage-seg-pop-${id}`), "card", inside)
   action enterMail(id: string, inside: bool)
     enterPop(id, inside)
