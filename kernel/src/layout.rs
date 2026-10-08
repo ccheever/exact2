@@ -15,6 +15,8 @@ mod containment_tests;
 mod differential_tests;
 mod fields;
 mod hoist;
+#[cfg(test)]
+mod memo_tests;
 mod order;
 mod publication;
 
@@ -259,6 +261,14 @@ impl LayoutMirror for LayoutTree {
         }
         let ids = order::laid_out(arena, parent, &self.taffy, node, |c| arena.taffy(c));
         LayoutTree::set_children(self, node, &ids);
+        // A list's rows are many boxes of few shapes, rebound and built as
+        // it scrolls: each is laid out by replaying a row like it (Taffy
+        // patch 29), where one was.
+        if arena.node_type(parent) == NodeType::List {
+            for &row in &ids {
+                self.taffy.set_memo_root(row, true);
+            }
+        }
         ids.len()
     }
 
@@ -384,6 +394,17 @@ impl LayoutTree {
                 self.fault = Some(format!("{what}: {e:?}"));
             }
         }
+    }
+
+    /// Lay out a list's rows by replaying rows like them (the default), or
+    /// each by its own algorithm.
+    pub fn set_row_memo(&mut self, on: bool) {
+        self.taffy.enable_memo(on);
+    }
+
+    /// List rows laid out by a replay, and those computed and recorded.
+    pub fn row_memo_counts(&self) -> (usize, usize) {
+        self.taffy.memo_counts()
     }
 
     /// Whether the engine reported a fault since the last rebuild.
