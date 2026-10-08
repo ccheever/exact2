@@ -7,7 +7,7 @@ delivery: draft
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-pr-list-live-refresh
-pr_url: null
+pr_url: https://github.com/ccheever/exact2/pull/265
 verified_commit: null
 ---
 
@@ -82,7 +82,7 @@ such a step and settles instead.
 ## Progress
 
 2026-10-08: implemented on `feat(example)/t3-code-pr-list-live-refresh` (base `b7761f556`, merged
-up to `19714be51` with #261 and #264). Unit tests, the clone checks and the five checks (Checks in
+up to `07dcef1ab` with #261, #264 and #263); draft PR #265. Unit tests, the clone checks and the five checks (Checks in
 the PR). One live session (approved, no retry) reached the reopen and ended on the agent driver's
 clock error before the refocus; #158 was restored (open, both comments deleted, read back).
 
