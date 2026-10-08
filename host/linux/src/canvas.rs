@@ -966,11 +966,12 @@ pub struct CanvasHost<D: DataSource> {
     /// last of them was (ms).
     moved: u32,
     moved_at: f64,
-    /// When the last scroll step came, whether a pass waits for more, and
-    /// whether the last pass left rows to build.
+    /// When the last scroll step came, whether a pass waits for more,
+    /// whether the last pass left rows to build, and whether it led.
     scrolled_at: f64,
     waiting: bool,
     leftover: bool,
+    led: bool,
     /// A touch began or ended: paint the next frame.
     force: bool,
     /// A scroll came since the last collection pass: the frame drawing it
@@ -1107,6 +1108,7 @@ impl<D: DataSource + Default> CanvasHost<D> {
             scrolled_at: 0.0,
             waiting: false,
             leftover: false,
+            led: false,
             force: false,
             scrolled: false,
             prefetching: false,
@@ -1331,12 +1333,6 @@ impl<D: DataSource + Default> CanvasHost<D> {
             || self.surfaces
     }
 
-    /// Whether a moved paint owes a paint: once moves pause (a frame
-    /// without one), the paint brings boxes, hits and pictures up to date.
-    pub fn owed(&self) -> bool {
-        (self.moved > 0 && self.moves < 1000) || self.waiting
-    }
-
     fn owed_at(&self, now: f64) -> bool {
         self.moved > 0 && self.moves < 1000 && now - self.moved_at >= 12.0
     }
@@ -1428,7 +1424,7 @@ impl<D: DataSource + Default> CanvasHost<D> {
         let _s = Section::begin(c"exact scroll");
         self.scrolled = self.prefetching;
         self.scrolled_at = self.now();
-        self.travel.scrolled(dy / self.scale);
+        self.travel.scrolled(dy / self.scale, self.scrolled_at);
         self.p.hold_collections(self.prefetching);
         // The feed: the scroller the first wheel at the centre took, moved
         // directly after (a nested list under the centre would take it).
@@ -1450,6 +1446,7 @@ impl<D: DataSource + Default> CanvasHost<D> {
             self.p.slice_collections(Some(0), 0.0);
             self.responding = true;
             self.lead = false;
+            self.travel.stopped();
         }
         let now = self.now();
         let (x, y) = (x / self.scale, y / self.scale);
