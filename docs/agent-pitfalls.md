@@ -513,6 +513,13 @@ guide's rules don't make obvious.
 
 ## Driving and testing
 
+- **Asserting a boot loading state against a live backend is a race.** The
+  real reply lands on real time, and under load it can arrive before the first
+  `expect`, so `expect tree has "loading"` passes once and fails once. Assert
+  loading against a stand-in that answers late, or with `fail fetch` then
+  `pass fetch` and `retry` (LLP 1103), never by racing the real server.
+  (Authoring bench, LLP 1087, t3-recipes, Studio, 2026-10-08.)
+
 - **On the web, a save still in flight when the tab closes is lost.** A
   `storage.fs` write is one IndexedDB transaction, and the browser drops a
   transaction still running when the page goes away (an immediate close after

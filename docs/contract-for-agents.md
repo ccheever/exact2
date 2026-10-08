@@ -866,7 +866,7 @@ drawn title bar) is a bug. On iOS:
 | `list appearance="auto" listStyle="inset-grouped"` of `section`s (`header`, rows, `footer`) | `UICollectionView` list, as Settings ([human guide](contract-for-humans.md#choosing-a-native-button)) |
 | `input type="checkbox" switch` | `UISwitch` |
 | `input type="range"` | `UISlider` |
-| `input type="date"`, `"time"`, `"datetime-local"` | `UIDatePicker` |
+| `input type="date"`, `"time"`, `"datetime-local"` | `UIDatePicker`; with an empty `value` it shows the format as a placeholder (`mm/dd/yyyy`), as the web and macOS do, and a choice fills it |
 | `select` of `option`s | a pop-up button with its menu |
 | `progress` (no `value`) | `UIActivityIndicatorView`, `.large` from a 37-point box (LLP 1069.001) |
 | `popover="auto" role="menu"` of `button`s, opened by `popovertarget` (a row whose `popovertarget` names another menu: its submenu) | `UIMenu`, nested (LLP 1021) |

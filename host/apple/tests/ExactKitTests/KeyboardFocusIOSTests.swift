@@ -161,6 +161,43 @@ final class KeyboardFocusIOSTests: XCTestCase {
         XCTAssertTrue(last.isFirstResponder, "Shift-Tab walks back")
     }
 
+    /// The driver's `type <field> key "Tab"` does what a hardware Tab does
+    /// (bench t9-profile, 2026-10-08: it used to leave the focus in the field,
+    /// so no blur or change ran): the next stop takes the focus, the field's
+    /// editing ends, Shift goes back, and a handler-free Tab never types.
+    func testAgentTabMovesTheFocusAsAKeyboardTabDoes() throws {
+        let session = ExactApp.shared.makeSession(label: "agent-tab")
+        defer { session.destroy() }
+        let p = session.presenter
+        window = UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 400))
+        p.viewport.frame = window.bounds
+        window.addSubview(p.viewport)
+        let name = NodeView(id: 7001, kind: "input", presenter: p)
+        let email = NodeView(id: 7002, kind: "input", presenter: p)
+        let save = NodeView(id: 7003, kind: "button", presenter: p)
+        name.handlers = ["change", "blur"]; email.handlers = ["change"]; save.handlers = ["press"]
+        for (i, node) in [name, email, save].enumerated() {
+            node.frame = CGRect(x: 0, y: CGFloat(i) * 50, width: 200, height: 40)
+            p.root.addSubview(node); p.views[node.id] = node
+        }
+        window.makeKeyAndVisible()
+        defer { window.endEditing(true) }
+        let nameField = try XCTUnwrap(name.field), emailField = try XCTUnwrap(email.field)
+        var reply = session.agentInstance.type(["id": 7001, "text": "Ada"])
+        XCTAssertNil(reply["error"], "\(reply)")
+        XCTAssertTrue(nameField.isFirstResponder)
+        reply = session.agentInstance.type(["id": 7001, "key": "Tab"])
+        XCTAssertNil(reply["error"], "\(reply)")
+        XCTAssertFalse(nameField.isFirstResponder, "Tab ends the field's editing")
+        XCTAssertTrue(emailField.isFirstResponder, "and the next field takes the focus")
+        XCTAssertEqual(nameField.text, "Ada", "Tab types nothing")
+        _ = session.agentInstance.type(["id": 7002, "key": "Tab"])
+        XCTAssertTrue(save.isFirstResponder, "then the button")
+        _ = session.agentInstance.type(["id": 7003, "key": "Shift+Tab"])
+        XCTAssertTrue(emailField.isFirstResponder, "Shift-Tab goes back")
+        XCTAssertEqual(emailField.text, "", "nor does Shift-Tab type")
+    }
+
     func testFirstTabTakesTheFirstControlAndShowsItsRing() {
         let (p, first, _, _, last) = fixture()
         p.moveFocus(backward: false)

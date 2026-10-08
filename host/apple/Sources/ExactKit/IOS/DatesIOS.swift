@@ -30,6 +30,7 @@ extension ControlHost {
             picker.applied = bound
         }
         let value = DateValue.parse(kind, bound)
+        (picker as? BoundDatePicker)?.kind = kind
         // No date is a state a picker cannot show: it is recorded, and read
         // back as "" until a value is applied or chosen (b6 review B7; the
         // Mac's `DateField.empty`).
@@ -71,11 +72,48 @@ extension ControlHost {
 }
 
 /// A picker that knows the bound value last written into it (`configureDate`).
+/// HTML's empty date, time or datetime shows the format as a placeholder
+/// (Chrome's `mm/dd/yyyy`, `--:-- --`; the Mac's `DateField`), where a
+/// `UIDatePicker`, which always holds a date, showed today (bench t7-wizard,
+/// 2026-10-08): its own content fades to nearly clear, still taking the tap
+/// that opens the calendar, under a pill in the same system fill that holds
+/// the placeholder and lets touches through. Opening it starts at today, and
+/// only a choice commits it.
 final class BoundDatePicker: UIDatePicker {
     var applied: String?
+    var kind = "date"
     /// No date: an empty bound value or a cleared one, which the picker's
     /// own `date` cannot say.
-    var empty = false
+    var empty = false { didSet { if empty != oldValue { setNeedsLayout() } } }
+    private let blank: UILabel = {
+        let label = UILabel()
+        label.textAlignment = .center
+        label.textColor = .placeholderText
+        label.backgroundColor = .tertiarySystemFill
+        label.layer.cornerCurve = .continuous
+        label.clipsToBounds = true
+        label.isUserInteractionEnabled = false
+        label.isAccessibilityElement = false
+        return label
+    }()
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        // UIKit rebuilds its content as the mode or date changes, so the fade
+        // is renewed here, and the alpha stays above UIKit's hit-test floor.
+        for view in subviews where view !== blank { view.alpha = empty ? 0.02 : 1 }
+        guard empty else { blank.removeFromSuperview(); return }
+        if blank.superview !== self { addSubview(blank) }
+        blank.text = DateValue.placeholder(kind, locale ?? .current)
+        blank.font = .preferredFont(forTextStyle: .body)
+        let pill = subviews.filter { $0 !== blank }.map(\.frame).reduce(CGRect.null) { $0.union($1) }
+        blank.frame = pill.isNull ? bounds : pill
+        blank.layer.cornerRadius = min(blank.frame.height / 2, 8)
+        bringSubviewToFront(blank)
+    }
+    override var accessibilityValue: String? {
+        get { empty ? "" : super.accessibilityValue }
+        set { super.accessibilityValue = newValue }
+    }
 }
 
 extension DateValue {

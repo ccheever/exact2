@@ -850,7 +850,15 @@ extension Agent {
                 return ["typed": Int(v.id), "key": key, "shortcut": Int(node.id), "delivery": "recognized"]
             }
             #endif
-            if phase != "up", !presenter.keyDown(at: focus, name, held: downHeld, code: code, repeats: req["repeat"] as? Bool == true), let focus {
+            let unprevented = phase != "up" && !presenter.keyDown(at: focus, name, held: downHeld, code: code, repeats: req["repeat"] as? Bool == true)
+            // Tab's default moves the focus through the sequential order, as a
+            // hardware keyboard's Tab does (`NodeView.tabCommands`), from a field
+            // or textarea too, ending its editing (blur, and change if edited);
+            // Shift goes back. From no focus it takes the first stop. The web and
+            // Linux do the same (LLP 1088 D7.3); bench t9-profile, 2026-10-08.
+            if unprevented, name == "Tab", ["Control+", "Meta+", "Alt+"].allSatisfy({ !held.contains($0) }) {
+                presenter.moveFocus(backward: held.contains("Shift+"))
+            } else if unprevented, let focus {
                 if let f = focus.textArea {
                     if name == "Enter" { f.insertText("\n") } else if name == "Backspace" { f.deleteBackward() }
                     else if Agent.caretKey(name, in: f) {} else if types { f.insertText(name) }
