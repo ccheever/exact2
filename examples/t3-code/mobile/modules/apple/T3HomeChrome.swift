@@ -8,6 +8,8 @@ import UIKit
 /// This app owns UINavigationItem content and the app-specific search toolbar.
 final class T3HomeChrome {
     let rowMenus = T3MobileHomeMenus()
+    let customSnooze = T3MobileCustomSnooze()
+    static func color(_ value: String) -> UIColor { T3ChromeTitle.color(value) }
     private final class RouteRef { weak var value: ExactRoute?; init(_ value: ExactRoute) { self.value = value } }
     private final class ViewRef { weak var value: T3HomeChromeView?; init(_ value: T3HomeChromeView) { self.value = value } }
     private var routes: [String: RouteRef] = [:]
@@ -26,6 +28,7 @@ final class T3HomeChrome {
     }
     func end(_ route: ExactRoute) {
         rowMenus.end(route)
+        customSnooze.routeEnded(route)
         guard routes[route.key]?.value === route else { return }
         views[route.key]?.value?.detach()
         routes.removeValue(forKey: route.key)
@@ -34,11 +37,11 @@ final class T3HomeChrome {
     /// The public workspace holder hides only the app-owned sidebar search.
     /// Keep its query and route attachment; never end editing in the workspace.
     func hideSidebar(key: String) {
-        if key == "t3-workspace-sidebar" { rowMenus.setVisible(false) }
+        if key == "t3-workspace-sidebar" { rowMenus.setVisible(false); customSnooze.setSidebarVisible(false) }
         hiddenSidebars.insert(key); views[key]?.value?.setWorkspaceHidden(true)
     }
     func showSidebar(key: String) {
-        if key == "t3-workspace-sidebar" { rowMenus.setVisible(true) }
+        if key == "t3-workspace-sidebar" { rowMenus.setVisible(true); customSnooze.setSidebarVisible(true) }
         hiddenSidebars.remove(key); views[key]?.value?.setWorkspaceHidden(false)
     }
     fileprivate func bind(_ view: T3HomeChromeView, key: String) {

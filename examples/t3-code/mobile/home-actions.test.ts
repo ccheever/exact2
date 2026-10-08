@@ -37,11 +37,11 @@ function fixture(hook?: (request: Obj) => unknown | Promise<unknown>) {
   return { client, background, native, calls, run, items, writes, remote };
 }
 
-test('ordinary source menus preserve lifecycle order, title actions, submenus and deferred custom picker', () => {
+test('ordinary source menus preserve lifecycle order, title actions, submenus and custom picker', () => {
   const f = fixture(); const top = () => f.items().filter(item => !item.parentId).map(item => item.id);
   expect(top()).toEqual(['new-thread-on-branch', 'copy-thread-id', 'settle', 'snooze', 'pin', 'rename', 'regenerate-title', 'auto-settle', 'delete']);
   expect(f.items().find(item => item.id === 'delete')?.destructive).toBe(true);
-  expect(f.items().find(item => item.id === 'snooze:custom')?.disabled).toBe(true);
+  expect(f.items().find(item => item.id === 'snooze:custom')?.disabled).toBe(false);
   expect(f.items().filter(item => item.parentId === 'auto-settle').map(item => item.checked)).toEqual([true, false]);
   Object.assign(f.client.shell.threads[0]!, { settledOverride: 'settled' });
   expect(top()).toEqual(['new-thread-on-branch', 'copy-thread-id', 'unsettle', 'pin', 'rename', 'regenerate-title', 'auto-settle', 'delete']);
@@ -119,7 +119,7 @@ test('branch navigation keeps literal query data; Copy acknowledges actual clipb
   expect(await g.run('copy-thread-id')).toMatchObject({ message: 'Clipboard access is unavailable in this session.' });
 });
 
-test('snooze resolves relative presets on tap, retains vanished future calendar time and rejects expired/custom', async () => {
+test('snooze resolves relative presets on tap, retains vanished future calendar time and leaves custom to its picker', async () => {
   const shown = presets(now).find(item => item.id === 'hour')!;
   expect(snoozeSelection('snooze:hour', shown.value, now + 60000)).toBe(new Date(now + 3660000).toISOString());
   const late = new Date(2026, 9, 7, 17, 30).getTime(), evening = new Date(2026, 9, 7, 18).toISOString();
@@ -189,4 +189,107 @@ test('changed capabilities and snooze guards report the source-specific errors; 
   f.client.config = { environment: { capabilities: {} } };
   expect(await f.run('pin')).toMatchObject({ message: "This environment's server does not support pinning yet. Update the server to use Pin." });
   expect(f.writes()).toHaveLength(0);
+});
+
+const customAnswer = (patch: Obj = {}, generation = 3) => ({ ok: true, generation,
+  value: { choice: 'snooze', snoozedUntil: '2026-10-07T13:37:42.123Z', confirmedAt: now + 600000, ...patch } });
+
+test('Custom Snooze preserves the native confirmation ISO and uses a fresh grant', async () => {
+  const f = fixture(request => request.op === 'mobileCustomSnooze' ? customAnswer() : undefined);
+  expect(await f.run('snooze:custom', 'ignored displayed preset')).toMatchObject({ message: '', nextLocation: '', uncertain: false });
+  expect(f.calls.find(row => row.op === 'mobileCustomSnooze')).toEqual({ op: 'mobileCustomSnooze', requestRoute: 'route', environmentId: 'one', threadId: 't', origin: 'https://one.test', generation: 3 });
+  expect(f.calls.filter(row => row.path === '/api/auth/session')).toHaveLength(2);
+  expect(f.writes()[0]?.payload).toEqual({ type: 'thread.snooze', threadId: 't', snoozedUntil: '2026-10-07T13:37:42.123Z', commandId: 'command-1' });
+  expect(f.client.threadId).toBe('t'); expect(f.client.draft).toBe('Retain draft');
+});
+
+test('Custom Snooze cancellation releases the row lock and never allocates a command', async () => {
+  const f = fixture(request => request.op === 'mobileCustomSnooze' ? customAnswer({ choice: 'cancel' }) : undefined);
+  await f.run('snooze:custom'); await f.run('snooze:custom');
+  expect(f.calls.filter(row => row.op === 'mobileCustomSnooze')).toHaveLength(2);
+  expect(f.calls.some(row => row.op === 'ids')).toBe(false); expect(f.writes()).toHaveLength(0);
+});
+
+test('Custom Snooze rejects malformed dates and confirmation clocks before a second grant or write', async () => {
+  for (const patch of [{ snoozedUntil: '' }, { snoozedUntil: 'tomorrow' }, { snoozedUntil: '2026-02-30T13:00:00.000Z' },
+    { snoozedUntil: '2026-10-07T13:37:42+00:00' }, { confirmedAt: undefined }, { confirmedAt: '1791374400000' },
+    { confirmedAt: Date.parse('2026-10-07T13:37:42.123Z') }, { confirmedAt: Date.parse('2026-10-07T13:37:42.124Z') },
+    { confirmedAt: NaN }, { confirmedAt: Infinity }, { confirmedAt: 1.5 }, { confirmedAt: 8.64e15 + 1 }]) {
+    const f = fixture(request => request.op === 'mobileCustomSnooze' ? customAnswer(patch) : undefined);
+    expect(await f.run('snooze:custom')).toMatchObject({ message: 'The snooze picker returned an invalid date and time.', uncertain: false });
+    expect(f.calls.filter(row => row.path === '/api/auth/session')).toHaveLength(1); expect(f.writes()).toHaveLength(0);
+  }
+});
+
+test('Custom Snooze background identity and generation stay scoped while the picker is local', async () => {
+  const f = fixture(request => request.op === 'mobileCustomSnooze' ? customAnswer({}, 8) : undefined); f.remote();
+  expect(await f.run('snooze:custom', '', 'two')).toMatchObject({ message: '' });
+  expect(f.calls.find(row => row.op === 'mobileCustomSnooze')).toMatchObject({ environmentId: 'two', threadId: 't', generation: 8, origin: 'https://two.test' });
+  expect(f.calls.find(row => row.op === 'mobileCustomSnooze')?.fleet).toBeUndefined();
+  expect(f.calls.filter(row => row.path === '/api/auth/session').every(row => row.fleet === 'remote')).toBe(true);
+  expect(f.writes()[0]).toMatchObject({ fleet: 'remote', generation: 8, payload: { threadId: 't', type: 'thread.snooze' } });
+  expect(f.client.environmentId).toBe('one'); expect(f.client.draft).toBe('Retain draft');
+});
+
+test('Custom Snooze uses confirmation time to reject newly queued work after a long picker wait', async () => {
+  const started = deferred<void>(), gate = deferred<unknown>();
+  const f = fixture(request => { if (request.op === 'mobileCustomSnooze') { started.resolve(); return gate.promise; } });
+  const pending = f.run('snooze:custom'); await started.promise;
+  f.client.shell.threads[0]!.latestUserMessageAt = new Date(now + 599000).toISOString();
+  gate.resolve(customAnswer());
+  expect(await pending).toMatchObject({ message: "This thread is still starting a turn. Try again once it's running." });
+  expect(f.writes()).toHaveLength(0);
+  const g = fixture(request => { if (request.op === 'mobileCustomSnooze') { g.client.shell.threads[0]!.latestUserMessageAt = new Date(now + 60000).toISOString(); return customAnswer(); } });
+  expect(await g.run('snooze:custom')).toMatchObject({ message: '' }); expect(g.writes()).toHaveLength(1);
+});
+
+test('Custom Snooze double taps share one picker and a stale route or endpoint never dispatches', async () => {
+  for (const change of ['route', 'generation', 'origin', 'disconnect']) {
+    const started = deferred<void>(), gate = deferred<unknown>();
+    const f = fixture(request => { if (request.op === 'mobileCustomSnooze') { started.resolve(); return gate.promise; } });
+    const pending = f.run('snooze:custom'); await started.promise; await f.run('snooze:custom');
+    expect(f.calls.filter(row => row.op === 'mobileCustomSnooze')).toHaveLength(1);
+    if (change === 'route') observe('other', false, false, f.client);
+    if (change === 'generation') f.client.generation++;
+    if (change === 'origin') f.client.origin = 'https://replacement.test';
+    if (change === 'disconnect') f.client.connection = 'disconnected';
+    gate.resolve(customAnswer());
+    if (change === 'route') await expect(pending).rejects.toMatchObject({ kind: 'superseded' });
+    else expect(await pending).toMatchObject({ message: 'The connection changed. Refresh this thread.', uncertain: false });
+    expect(f.writes()).toHaveLength(0);
+  }
+});
+
+test('Custom Snooze refuses changed grants, capabilities, membership and late pending input', async () => {
+  let grants = 0;
+  const denied = fixture(request => request.op === 'mobileCustomSnooze' ? customAnswer()
+    : request.path === '/api/auth/session' ? { ok: true, generation: 3, value: { authenticated: true, permissions: ++grants === 1 ? ['orchestration:operate'] : [] } } : undefined);
+  expect(await denied.run('snooze:custom')).toMatchObject({ message: 'This connection cannot change threads.' }); expect(denied.writes()).toHaveLength(0);
+  for (const change of ['capability', 'deleted', 'settled', 'pending-input']) {
+    const f = fixture(request => {
+      if (request.op === 'mobileCustomSnooze') {
+        if (change === 'capability') obj(obj(f.client.config.environment).capabilities).threadSnooze = false;
+        if (change === 'deleted') f.client.shell.threads = [];
+        if (change === 'settled') f.client.shell.threads[0]!.settledOverride = 'settled';
+        return customAnswer();
+      }
+      if (request.op === 'ids' && change === 'pending-input') f.client.shell.threads[0]!.pendingRuntimeRequest = { kind: 'user_input' };
+    });
+    expect((await f.run('snooze:custom')).message).not.toBe(''); expect(f.writes()).toHaveLength(0);
+  }
+});
+
+test('Custom Snooze keeps the confirmed ISO fixed through network delay and protects uncertain writes', async () => {
+  let prompts = 0;
+  const f = fixture(request => {
+    if (request.op === 'mobileCustomSnooze') { prompts++; return customAnswer(); }
+    if (request.method === 'orchestration.dispatchCommand') return { ok: false, generation: 3, error: { kind: 'transport', message: 'Unknown', uncertain: true } };
+  });
+  expect(await f.run('snooze:custom')).toMatchObject({ uncertain: true }); await f.run('snooze:custom');
+  expect(prompts).toBe(1); expect(f.writes()).toHaveLength(1);
+  f.client.shell.threads[0]!.snoozedUntil = '2026-10-07T13:37:42.123Z';
+  await f.run('unsnooze'); expect(f.writes()).toHaveLength(2);
+  const g = fixture(request => request.op === 'mobileCustomSnooze' ? customAnswer()
+    : request.method === 'orchestration.dispatchCommand' ? { ok: true, generation: 999, value: {} } : undefined);
+  expect(await g.run('snooze:custom')).toMatchObject({ uncertain: true }); await g.run('snooze:custom'); expect(g.writes()).toHaveLength(1);
 });
