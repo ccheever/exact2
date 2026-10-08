@@ -72,6 +72,19 @@ final class NativeButtonFidelityMacTests: XCTestCase {
             reference.attributedTitle.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? NSColor)
         XCTAssertNil(b.contentTintColor); XCTAssertTrue(b.image?.isTemplate == true)
     }
+    func testMinContentUsesTheLongestRunEvenWithAppKitsSingleLineStandIn() {
+        let cache = ButtonMeasureCache(), appearance = NSAppearance(named: .aqua)!
+        var f = ButtonFace(); f.title = "A long title that wraps"; f.macos = "push"
+        f.symbol = "lock.fill"
+        let minimum = cache.measure(f, widthKind: 1, width: 0, appearance: appearance, scale: 2)
+        let maximum = cache.measure(f, widthKind: 2, width: 0, appearance: appearance, scale: 2)
+        var run = f; run.title = "wraps"
+        let expected = configured(run).fittingSize
+        XCTAssertEqual(CGFloat(minimum.width), expected.width, accuracy: 0.5)
+        XCTAssertLessThan(minimum.width, maximum.width)
+        f.rows.title["white_space"] = .string("nowrap")
+        XCTAssertEqual(cache.measure(f, widthKind: 1, width: 0, appearance: appearance, scale: 2).width, maximum.width)
+    }
     func testAbsentControlSizeDoesNotOverwriteThePlatformControl() {
         var f = ButtonFace(); f.title = "Title"
         let b = NSButton(title: "Title", target: nil, action: nil); b.controlSize = .small

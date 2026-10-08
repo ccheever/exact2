@@ -115,6 +115,11 @@ extension ControlHost {
     func makeNativeButton(_ node: NodeView) -> UIControl {
         let button = NativeButtonIOS(configuration: .bordered())
         button.owner = node
+        // The node is not an element. UIKit leaves this default false until
+        // assistive technology loads its runtime, so expose the control's
+        // identity and explicit name from its first frame as on a bare button.
+        button.isAccessibilityElement = true
+        button.accessibilityTraits.insert(.button)
         button.addAction(UIAction { [weak button] _ in button?.owner?.activateNative() }, for: .primaryActionTriggered)
         return button
     }

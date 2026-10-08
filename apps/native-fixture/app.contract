@@ -304,9 +304,11 @@ component NativeFixture
                       input type="search" value=query input=setQuery placeholder="Search the fixture" testId="header-search" width=80
                       // A text tablist in the header: the item's segmented title view.
                       row role="tablist" testId="header-segments"
-                        button role="tab" aria-selected=(segment == "all") press=chooseSegment("all") testId="segment-all"
+                        // The projected segmented control owns the chrome; its
+                        // authored tabs keep their bare text widths.
+                        button appearance="none" role="tab" aria-selected=(segment == "all") press=chooseSegment("all") testId="segment-all"
                           text "All"
-                        button role="tab" aria-selected=(segment == "missed") press=chooseSegment("missed") testId="segment-missed"
+                        button appearance="none" role="tab" aria-selected=(segment == "missed") press=chooseSegment("missed") testId="segment-missed"
                           text "Missed"
                     // A pressable group around the heading, with an avatar and
                     // a subtitle: the item's title, drawn, tapped (§9.10).

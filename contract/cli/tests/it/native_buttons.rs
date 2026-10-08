@@ -68,6 +68,16 @@ fn a_native_button_is_a_control_and_an_explicit_bare_one_is_unchanged() {
 }
 
 #[test]
+fn the_precedence_fixture_keeps_exacts_bare_contact_target() {
+    let mut r = boot(include_str!("../../../corpus/precedence.contract"));
+    let button = view_of(&r, "button");
+    let node = r.kernel().node(button).unwrap();
+    assert_eq!(node.node_type, NodeType::Pressable);
+    assert_eq!(node.style.appearance, exact_kernel::Appearance::None);
+    r.dispatch(button, Event::Press).unwrap();
+    assert_eq!(r.slot("pressed"), Some(&Value::Number(1.0)));
+}
+#[test]
 fn its_face_is_its_children_read_live() {
     let mut r = boot(&app(
         "button appearance=\"auto\" press=go testId=\"b\"\n  image \"symbol:send\"\n  when n == 0\n    text \"Send\"\n  else\n    text \"Sent  again\"",

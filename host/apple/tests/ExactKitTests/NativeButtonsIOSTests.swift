@@ -75,8 +75,15 @@ final class NativeButtonsIOSTests: XCTestCase {
         XCTAssertEqual(seen["style"] as? String, "filled")
         XCTAssertEqual(send.accessibilityLabel, "Send", "the title names it")
         XCTAssertEqual(send.accessibilityIdentifier, "send")
+        XCTAssertTrue(send.isAccessibilityElement, "the native button exposes its explicit name even before UIKit loads its accessibility runtime")
+        XCTAssertTrue(send.accessibilityTraits.contains(.button))
         XCTAssertEqual(p.views[2]?.accessibleName, "Send", "the agent's name for it is its title")
         XCTAssertFalse(try XCTUnwrap(p.views[2]).isAccessibilityElement, "the control is the element, not the node")
+        let ax = p.axElements(roots: [p.viewport])
+        let named = (ax["elements"] as? [[String: Any]])?.filter { $0["testId"] as? String == "send" } ?? []
+        XCTAssertEqual(named.count, 1, "the platform tree exposes the native button once")
+        XCTAssertEqual(named.first?["name"] as? String, "Send")
+        XCTAssertEqual(named.first?["role"] as? String, "button")
     }
 
     func testItsActionPressesOnceItsOwnOrAnAncestorsHandler() throws {

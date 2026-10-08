@@ -821,3 +821,11 @@ guide's rules don't make obvious.
   your own box. Explicit `appearance="auto"` admits a radius as a native
   content field but refuses backgrounds, borders and unsupported children.
   (LLP 1104 r10 D1, D2.)
+
+- **A projected segmented control can widen after its tabs become native
+  buttons.** The projection supplies the tablist's minimum height and fills
+  its content box; the authored children still decide that box's width.
+  Native button insets then contribute even though the segmented control
+  draws the face. If the row was designed around bare text tabs, write
+  `appearance="none"` on those tabs. Native Fixture's header needed this
+  after buttons became native by default. (LLP 1059 D2a, LLP 1104 D9.)
