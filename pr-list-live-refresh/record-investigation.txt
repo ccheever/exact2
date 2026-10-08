@@ -1,0 +1,11 @@
+2026-10-08T04:41:50.858Z [d5] app pid 62216
+2026-10-08T04:42:09.894Z [d5] list: 99 rows; probe pr-row-78 at {"x":286,"y":2469,"h":56}
+2026-10-08T04:42:10.376Z [d5] A: after the wheel pr-row-78 at {"x":286,"y":1269,"h":56}
+2026-10-08T04:42:14.096Z [d5] A (refocus, read held off): list reads 1; pr-row-78 at {"x":286,"y":2469,"h":56}; scroll kept: false
+2026-10-08T04:42:14.210Z [d5] shot A
+2026-10-08T04:42:14.705Z [d5] B: after the wheel pr-row-78 at {"x":286,"y":1269,"h":56}
+2026-10-08T04:42:25.745Z [d5] B (read, no refocus): list reads 1; pr-row-78 at {"x":286,"y":1269,"h":56}; scroll kept: true
+2026-10-08T04:42:25.836Z [d5] shot B
+2026-10-08T04:42:26.343Z [d5] C: after the wheel pr-row-78 at {"x":286,"y":69,"h":56}
+2026-10-08T04:42:30.831Z [d5] C (a minute tick): list reads 0; pr-row-78 at {"x":286,"y":69,"h":56}; scroll kept: true
+2026-10-08T04:42:30.921Z [d5] shot C
