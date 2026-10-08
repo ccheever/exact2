@@ -458,7 +458,7 @@ describe('light dismiss of a pinned segment popover (popover-escape-parity)', ()
     // its port, since on macOS a press on a scroll view's empty area reaches no node.
     expect(page).toMatch(/\n {4}column [^\n]*pointerdown=pressDown pointerup=pressUp testId="usage-page"/);
     expect(page).toContain('scroll flex=1 min-height=0 width="100%" testId="usage-scroll"\n');
-    expect(page).toMatch(/\n {8}column width="100%" min-height="100%" testId="usage-ground"\n {10}column width="100%" max-width="64rem"/);
+    expect(page).toMatch(/\n {8}column width="100%" min-height="100%" testId="usage-ground"\n {10}column id="usage-content" position="relative" width="100%" max-width="64rem"/);
     // Down: outside the card and both handles of the popover on show, by the primary button only (a
     // right-click is no click, so Base UI's intentional dismissal ignores it).
     expect(page).toContain('action pressDown(e: PointerEvent)\n'
@@ -468,15 +468,16 @@ describe('light dismiss of a pinned segment popover (popover-escape-parity)', ()
       + '    downOutside = held != "" and e.buttons == 1 and not (usageHit(seg, e.clientX, e.clientY) or usageHit(pop, e.clientX, e.clientY) or usageHit(leg, e.clientX, e.clientY))');
     // Up (DOM's order: down, up, then the press): a press that does not end in the card closes it before the
     // press runs, so a press on another segment then pins that one and a press on the pinned segment (inside)
-    // toggles it closed; one that ends in the card does not (Base UI's insideReactTree). The pin and the
-    // dismissal touch only the pin: the hover states are the hover helper's (fix-hover-cards).
+    // toggles it closed; one that ends in the card does not (Base UI's insideReactTree). Base UI closes it
+    // however it opened, so the dismissal also drops the hover helper's state (fix-hover-cards).
     expect(page).toContain('action pressUp(e: PointerEvent)\n'
       + '    let id = held\n'
       + '    let pop = frame(`usage-seg-pop-${id}`)\n'
       + '    if downOutside and not usageHit(pop, e.clientX, e.clientY)\n'
-      + '      pinned = ""\n    downOutside = false');
-    expect(page).toContain('action pin(id: string)\n    pinned = held == id ? "" : id\n    pinnedAt = outside');
-    for (const name of ['pin', 'pressDown', 'pressUp']) {
+      + '      pinned = ""\n      hoverTipAt(noHoverTip(), "", true)\n    downOutside = false');
+    expect(page).toContain('action pin(id: string)\n    place(id, "seg")\n    toggle(id)');
+    expect(page).toContain('action toggle(id: string)\n    if held == id\n      hoverTipAt(noHoverTip(), "", true)\n    pinned = held == id ? "" : id\n    pinnedAt = outside');
+    for (const name of ['pin', 'toggle', 'pressDown', 'pressUp']) {
       const body = page.slice(page.indexOf(`  action ${name}(`), page.indexOf('\n  action ', page.indexOf(`  action ${name}(`) + 3));
       expect(body).not.toMatch(/\bover(Seg|Pop|Mail)\b/);
     }
@@ -491,7 +492,7 @@ describe('light dismiss of a pinned segment popover (popover-escape-parity)', ()
     const page = await component('pages-usage.contract', 'UsagePage');
     // A pin holds while the window's count of outside presses is the one it was made at.
     expect(page).toContain('derive held = pinnedAt == outside ? pinned : ""');
-    expect(page).toContain('derive shown = overPop != "" ? overPop : overMail != "" ? overMail : overSeg != "" ? overSeg : held');
+    expect(page).toContain('derive shown = hovered != "" ? hovered : held');
     expect(page).toContain('shown=shown, pinned=held,');
     const window = await component('app-window.contract', 'T3Window');
     expect(window).toContain('main testId="t3-code" pointerdown=outsidePressDown pointerup=outsidePressUp');

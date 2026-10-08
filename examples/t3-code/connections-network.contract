@@ -3,6 +3,7 @@ use PvIconButton from "./providers-kit.contract"
 use PvField from "./providers-kit.contract"
 use CnGlyph from "./settings-b-kit.contract"
 use CnTooltip from "./settings-b-kit.contract"
+use hoverTipAtFrame from "./hover-layer.contract" // fix-hover-cards
 use R4Glyph from "./r4-git.contract"
 use QrCell from "./settings-core.contract"
 
@@ -35,10 +36,6 @@ keyframes netPing
   from opacity=1 scale=1
   75% opacity=0 scale=2
   to opacity=0 scale=2
-// A hover popover opens after its 250 ms delay (PopoverTrigger openOnHover delay={250}).
-keyframes netLate
-  from opacity=0
-  to opacity=1
 
 shape NetText
   key: string
@@ -251,42 +248,43 @@ component EndpointRailRow
             NetXs(label="Set as default", tone="outline", disabled=busy, test=`network-endpoint-set-default-${endpoint.preferenceKey}`, press=op("endpoint-default", "", endpoint.preferenceKey))
 
 // AccessScopeSummary: "N scopes", underlined, opening "Granted scopes" on hover after 250 ms or on focus.
+// The card (PopoverPopup side="top" align="start") is the window's hover layer's (hover-layer.contract):
+// drawn here it opened above the count inside the Authorized clients scroll area and was cut off (#248);
+// there the pointer can also move into it (closeDelay 100).
 component NetScopes
+  inject
+    rem: number
+    hoverTipAt: action
   props
     count: string
     label: string
     scopes: list<NetText>
     tipId: string
-  state open = false
   action show(over: bool)
-    open = over
+    hoverTipAt(hoverTipAtFrame(tipId, "scopes", "Granted scopes", map(scopes, (scope) => scope.text), "top", "start", frame(tipId), (length(scopes) + 1.75) * rem + 2, `${tipId}-popup`), "trigger", over)
   view
     box position="relative" hover=show display="flex"
-      button focus=show(true) blur=show(false) aria-label=label testId=tipId padding=0 border-width=0 border-bottom-width=1 border-bottom-style="solid" border-color="light-dark(#e4e4e7, #ffffff14)" background-color="#00000000" cursor="help"
+      button id=tipId focus=show(true) blur=show(false) aria-label=label testId=tipId padding=0 border-width=0 border-bottom-width=1 border-bottom-style="solid" border-color="light-dark(#e4e4e7, #ffffff14)" background-color="#00000000" cursor="help"
         text count font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
-      when open
-        column position="absolute" left=0 bottom="1.25rem" z-index=60 max-width="20rem" padding-top="0.25rem" padding-bottom="0.25rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#2727291a, #ffffff1a)" background-color="light-dark(#ffffff, #171717)" box-shadow="0 4px 6px -1px #0000000d, 0 2px 4px -2px #0000000d" role="tooltip" animation="netLate 1ms linear 250ms both" testId=`${tipId}-popup`
-          text "Granted scopes" font-size="0.75rem" line-height="1rem" font-weight=500 margin-bottom="0.25rem" color="light-dark(#27272a, #f5f5f5)"
-          each scope in scopes key=scope.key
-            text scope.text font-family="ui-monospace" font-size="0.75rem" line-height="1rem" color="light-dark(#27272ad9, #f5f5f5d9)"
 
 // ConnectionStatusDot: an 8 pt dot (with a ping while live) and its tooltip.
 component NetDot
+  inject
+    rem: number
+    hoverTipAt: action
   props
     color: string
     ping: bool
     tip: string
     tipId: string
-  state open = false
+  // TooltipPopup side="top" (whitespace-pre-wrap): the window's hover layer draws it, above the list's scroll area.
   action show(over: bool)
-    open = over
+    hoverTipAt(hoverTipAtFrame(`${tipId}-tip`, "tip", tip, [], "top", "center", frame(tipId), (length(split(tip, "\n")) + 0.5) * rem + 2, `${tipId}-tip`), "trigger", over)
   view
-    box position="relative" hover=show width="0.75rem" height="0.75rem" flex-shrink=0 display="flex" align-items="center" justify-content="center" testId=tipId
+    box id=tipId position="relative" hover=show width="0.75rem" height="0.75rem" flex-shrink=0 display="flex" align-items="center" justify-content="center" testId=tipId
       when ping
         box position="absolute" left=0 top=0 width="0.75rem" height="0.75rem" border-radius="624.9375rem" background-color="#00bc7d99" animation="netPing 2s cubic-bezier(0, 0, 0.2, 1) infinite"
       box width="0.5rem" height="0.5rem" border-radius="624.9375rem" background-color=color
-      when open
-        CnTooltip(tip=tip, tipId=`${tipId}-tip`, above=16)
 
 // "Authorized clients" (FoldedSettingsSection, closed at first): the summary, "Revoke others" and
 // "Create link", then the pairing links and client sessions in a 22.5rem scroll area.
@@ -339,6 +337,9 @@ component AuthorizedClients
 // time on hover), scopes, the note, then Share (the endpoint radiogroup, the URL, Copy link, Copy
 // code only and the 168 pt QR; never a QR for loopback), Copy code, and Revoke.
 component PairingLinkRow
+  inject
+    rem: number
+    hoverTipAt: action
   props
     row: NetPairingRow
     busy: bool
@@ -347,7 +348,6 @@ component PairingLinkRow
   state shareOpen = false
   state choice = ""
   state revokingAt = -1
-  state tip = ""
   action toggleShare
     shareOpen = not shareOpen
   action pick(id: string)
@@ -355,8 +355,10 @@ component PairingLinkRow
   action revoke
     revokingAt = settled
     op("pairing-revoke", row.id, "")
-  action hover(which: string, over: bool)
-    tip = over ? which : (tip == which ? "" : tip)
+  // The expiry's absolute time and the share URL (TooltipPopup side="top"), drawn by the window's hover layer
+  // above the Authorized clients scroll area.
+  action hover(which: string, text: string, over: bool)
+    hoverTipAt(hoverTipAtFrame(`pairing-link-${which}-tip-${row.id}`, "tip", text, [], "top", "center", frame(`pairing-link-${which}-${row.id}`), 1.625 * rem, `pairing-link-${which}-tip-${row.id}`), "trigger", over)
   derive chosen = length(filter(row.options, option => option.id == choice)) > 0 ? choice : row.defaultOption
   view
     column width="100%" box-sizing="border-box" padding-left="1rem" padding-right="1rem" padding-top="0.75rem" padding-bottom="0.75rem" border-top-style="solid" border-top-width=1 border-color="light-dark(#e3e3e780, #ffffff08)" testId=`pairing-link-${row.id}`
@@ -366,10 +368,8 @@ component PairingLinkRow
             NetDot(color="#fe9a00", ping=false, tip=row.createdTip, tipId=`pairing-link-dot-${row.id}`)
             text row.label font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=3 testId=`pairing-link-label-${row.id}`
           row gap="0.25rem" align-items="center" flex-wrap="wrap"
-            box position="relative" hover=hover("expires")
-              text row.expires font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)" testId=`pairing-link-expires-${row.id}`
-              when tip == "expires"
-                CnTooltip(tip=row.expiresTip, tipId=`pairing-link-expires-tip-${row.id}`, above=18)
+            box position="relative" hover=hover("expires", row.expiresTip)
+              text row.expires id=`pairing-link-expires-${row.id}` font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)" testId=`pairing-link-expires-${row.id}`
             text " · " font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)" aria-hidden=true
             NetScopes(count=row.scopeCount, label=row.scopeLabel, scopes=row.scopes, tipId=`pairing-link-scopes-${row.id}`)
           when row.note != ""
@@ -395,10 +395,8 @@ component PairingLinkRow
                         text choiceOption.label font-size="0.75rem" line-height="1rem" font-weight=500 flex-shrink=0 color=(choiceOption.id == chosen ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)")
                         text choiceOption.detail font-size="0.6875rem" line-height="1rem" min-width=0 line-clamp=1 color="light-dark(#71717bb3, #818181b3)"
                 row gap="0.5rem" align-items="center" padding-left="0.625rem" padding-right="0.625rem" padding-top="0.375rem" padding-bottom="0.375rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e799, #ffffff0a)" background-color="light-dark(#f4f4f54d, #ffffff08)"
-                  box position="relative" hover=hover("url") flex=1 min-width=0
-                    text option.url font-family="ui-monospace" font-size="0.6875rem" line-height="1rem" min-width=0 line-clamp=1 color="light-dark(#71717b, #818181)" testId=`pairing-link-url-${row.id}`
-                    when tip == "url"
-                      CnTooltip(tip=option.url, tipId=`pairing-link-url-tip-${row.id}`, above=18)
+                  box position="relative" hover=hover("url", option.url) flex=1 min-width=0
+                    text option.url id=`pairing-link-url-${row.id}` font-family="ui-monospace" font-size="0.6875rem" line-height="1rem" min-width=0 line-clamp=1 color="light-dark(#71717b, #818181)" testId=`pairing-link-url-${row.id}`
                   NetXs(label="Copy link", tone="ghost", disabled=false, test=`pairing-link-copy-${row.id}`, press=op("pairing-copy", row.id, option.id))
                 row
                   NetXs(label="Copy code only", tone="ghost", disabled=false, test=`pairing-link-copy-code-only-${row.id}`, press=op("pairing-copy", row.id, "code"))

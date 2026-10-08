@@ -14,7 +14,8 @@ use UsageModelDetail from "./pages-usage-shapes.contract"
 use UsagePrices from "./pages-usage-shapes.contract"
 use UsageShareBar from "./pages-usage-shapes.contract"
 use ChatGptUsageButton from "./codex-setup.contract"
-use UsagePooled, PooledView from "./usage-pooled.contract" // usage-pooled-view
+use UsagePooled, PooledView, UsagePopups from "./usage-pooled.contract" // usage-pooled-view
+use HoverTip, noHoverTip from "./hover-layer.contract" // fix-hover-cards
 use CnTooltip from "./settings-b-kit.contract"
 
 keyframes usageSpin
@@ -122,6 +123,10 @@ fn usageHit(g: Geometry, x: number, y: number): bool = x >= g.x and x < g.x + g.
 component UsagePage
   inject
     rem: number
+    // fix-hover-cards: the window's hover state (T3Window, hover-layer.contract) holds a segment's hover-opened popover.
+    hoverTipAt: action
+    hoverTip: HoverTip
+    hoverShown: bool
   props
     // desktop-shell-details: --workspace-controls-left (90 beside the traffic lights; 0.75rem in full screen).
     controlsLeft: number
@@ -148,32 +153,63 @@ component UsagePage
     reduced: bool
     // popover-escape-parity: the window's count of presses outside this page (app-window.contract T3Window).
     outside: number
-  // The pooled segments' popovers (usage-pooled.contract): hovered segment, popover or email, and the pressed one.
-  // A pinned popover holds until a press outside it (`pinnedAt` is `outside` when it was pinned).
-  state overSeg = ""
-  state overPop = ""
-  state overMail = ""
+  // The pooled segments' popovers (usage-pooled.contract, drawn in the scroll content by UsagePopups): the one the
+  // pointer opened (the window's hover state, fix-hover-cards: segment, popover or email, then a 50 ms crossing
+  // grace), else the pressed one, which holds until a press outside it (`pinnedAt` is `outside` when it was pinned);
+  // at its trigger's rect in the content (x, y, w, h), taken when it opens. A press outside the page closes the
+  // hover-opened one too (`hoverAt`: `outside` at the last enter), as Base UI's outside press does however it opened.
   state pinned = ""
   state pinnedAt = 0
+  state hoverAt = 0
   state downOutside = false
+  state last = ""
+  state popX = 0
+  state popY = 0
+  state popW = 0
+  state popH = 0
+  state popPlace = ""
   derive held = pinnedAt == outside ? pinned : ""
-  derive shown = overPop != "" ? overPop : overMail != "" ? overMail : overSeg != "" ? overSeg : held
+  derive hovered = hoverShown and hoverTip.kind == "usage" and hoverAt == outside ? hoverTip.key : ""
+  derive shown = hovered != "" ? hovered : held
+  // `trigger` "seg" or "legend": Base UI anchors the popup to the trigger that opened it; above a legend row when it
+  // fits (side top), else below it.
+  action place(id: string, trigger: string)
+    let box = frame(`usage-${trigger}-${id}`)
+    let content = frame("usage-content")
+    last = id
+    popX = box.x - content.x
+    popY = box.y - content.y
+    popW = box.width
+    popH = box.height
+    popPlace = trigger == "legend" ? (box.y - content.y >= 17 * rem ? "top" : "bottom") : ""
   action enterSeg(id: string, inside: bool)
-    overSeg = inside ? id : (overSeg == id ? "" : overSeg)
+    if inside
+      place(id, "seg")
+      hoverAt = outside
+    hoverTipAt(HoverTip(key=id, kind="usage", text="", lines=[], side="top", align="center", x=0, y=0, width=0, height=0, estimate=0, testId=`usage-seg-pop-${id}`), "trigger", inside)
   action enterPop(id: string, inside: bool)
-    overPop = inside ? id : (overPop == id ? "" : overPop)
+    hoverAt = inside ? outside : hoverAt
+    hoverTipAt(HoverTip(key=id, kind="usage", text="", lines=[], side="top", align="center", x=0, y=0, width=0, height=0, estimate=0, testId=`usage-seg-pop-${id}`), "card", inside)
   action enterMail(id: string, inside: bool)
-    overMail = inside ? id : (overMail == id ? "" : overMail)
-  // A press on the popover's own trigger toggles the pin (Base UI's useClick). The pin and the light dismiss
-  // below touch only the pin, never the hover states, which the hover helper owns (fix-hover-cards).
+    enterPop(id, inside)
+  // A press on the popover's own trigger (Base UI's useClick): pins it, or closes it when pinned, hover-opened state
+  // too, which then waits for the pointer to enter again (Base UI's blockMouseMove after a close).
   action pin(id: string)
+    place(id, "seg")
+    toggle(id)
+  action pinLegend(id: string)
+    place(id, "legend")
+    toggle(id)
+  action toggle(id: string)
+    if held == id
+      hoverTipAt(noHoverTip(), "", true)
     pinned = held == id ? "" : id
     pinnedAt = outside
   // Light dismiss (Base UI Popover's useDismiss, outsidePressEvent "intentional" for a mouse): a primary
   // press that starts outside the pinned popover's card and both its triggers (the segment, the legend
   // row), and does not end in the card, closes it as the press ends, before that press's own action; a
   // press on another segment then pins that one. Presses on the page come here; the window counts the rest
-  // (`outside`).
+  // (`outside`). Base UI closes it however it opened, so the hover-opened state goes too.
   action pressDown(e: PointerEvent)
     let seg = frame(`usage-seg-${held}`)
     let pop = frame(`usage-seg-pop-${held}`)
@@ -184,6 +220,7 @@ component UsagePage
     let pop = frame(`usage-seg-pop-${id}`)
     if downOutside and not usageHit(pop, e.clientX, e.clientY)
       pinned = ""
+      hoverTipAt(noHoverTip(), "", true)
     downOutside = false
   // Escape (UsageKeys' one shortcut): a showing popover closes and its segment takes the focus; else the page goes
   // back, blurring the focus first as useEscapeToGoBack does (a field of the floating theme editor keeps none).
@@ -191,17 +228,13 @@ component UsagePage
     if shown != ""
       focus(`usage-seg-${shown}`)
       pinned = ""
-      overSeg = ""
-      overPop = ""
-      overMail = ""
+      hoverTipAt(noHoverTip(), "", true)
     else
       blur()
       back()
   action redeem(id: string)
     pinned = ""
-    overSeg = ""
-    overPop = ""
-    overMail = ""
+    hoverTipAt(noHoverTip(), "", true)
     command("pageslocal:usage-pool-reset-ask", id, "", 0)
   view
     column position="absolute" left=0 top=0 right=0 bottom=0 background-color="light-dark(#fcfcfc, #0a0a0a)" inert=(page.detail.open or page.prices.open or confirmOpen) pointerdown=pressDown pointerup=pressUp testId="usage-page"
@@ -242,12 +275,13 @@ component UsagePage
         // pointerdown (light dismiss) on macOS, where a press on a scroll view's empty area below or beside
         // its content reaches no node (popover-escape-parity).
         column width="100%" min-height="100%" testId="usage-ground"
-          column width="100%" max-width="64rem" margin-left="auto" margin-right="auto" padding-left="1.5rem" padding-right="1.5rem" padding-top="1.5rem" padding-bottom="3rem" box-sizing="border-box" gap="1.5rem"
+          column id="usage-content" position="relative" width="100%" max-width="64rem" margin-left="auto" margin-right="auto" padding-left="1.5rem" padding-right="1.5rem" padding-top="1.5rem" padding-bottom="3rem" box-sizing="border-box" gap="1.5rem"
             when page.empty != ""
               text page.empty font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #818181)" testId="usage-empty"
             else
               when page.metric == "limits"
-                UsagePooled(view=page.pooled, scheme=scheme, md=md, reduced=reduced, shown=shown, pinned=held, enterSeg=enterSeg, enterPop=enterPop, enterMail=enterMail, pin=pin, redeem=redeem, op=op)
+                UsagePooled(view=page.pooled, scheme=scheme, md=md, reduced=reduced, shown=shown, pinned=held, enterSeg=enterSeg, pin=pin, pinLegend=pinLegend, op=op)
+                UsagePopups(view=page.pooled, shown=shown, last=last, pinned=held, scheme=scheme, reduced=reduced, x=popX, y=popY, w=popW, h=popH, place=popPlace, enterPop=enterPop, enterMail=enterMail, redeem=redeem)
               else
                 when page.total == ""
                   UsageSkeleton(lg=lg, md=md)
