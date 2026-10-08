@@ -120,7 +120,9 @@ test('readCustomModelEntries and toCustomModelSetting keep the reference storage
   const entries = readCustomModelEntries([' a ', { slug: 'a' }, { slug: 'b', name: 'Bee' }, { slug: 'c', capabilities: { optionDescriptors: [{ id: 'x' }] } }, 7, null]);
   expect(entries).toEqual([{ slug: 'a', name: 'a', capabilities: null }, { slug: 'b', name: 'Bee', capabilities: null }, { slug: 'c', name: 'c', capabilities: null }]);
   expect(entries.map(toCustomModelSetting)).toEqual(['a', { slug: 'b', name: 'Bee' }, 'c']);
-  expect(storedCustomModels('acpRegistry', entries)).toEqual(['a', 'b', 'c']);
+  // updateCustomModels writes toCustomModelSetting for ACP Registry too (no driver case in the reference).
+  expect(storedCustomModels('acpRegistry', entries)).toEqual(['a', { slug: 'b', name: 'Bee' }, 'c']);
+  expect(storedCustomModels('acpRegistry', [{ slug: 'x', name: 'x', capabilities: null }])).toEqual(['x']); // an added model is its slug
 });
 
 test('the editor session: open, type, apply a preset, add and default choices, copy from a built-in, validate and save', () => {
