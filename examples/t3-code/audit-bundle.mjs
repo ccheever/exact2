@@ -180,7 +180,8 @@ function checkMachO(file, rel, scope, { bundle, minimumOS, findings, totals }) {
   for (const minos of facts.minos) if (versionAbove(minos, minimumOS)) findings.push({ rule: 'minos', scope, file: rel, detail: `minos ${minos} > ${minimumOS}` });
   // The system's own (the Swift runtime's /usr/lib/swift) is not the build machine's.
   for (const rpath of facts.rpaths) if (rpath.startsWith('/') && !/^\/(usr\/lib|System)\//.test(`${rpath}/`)) findings.push({ rule: 'rpath', scope, file: rel, detail: `LC_RPATH ${rpath}` });
-  if (facts.id?.startsWith('/')) findings.push({ rule: 'dylib', scope, file: rel, detail: `install name ${facts.id}` });
+  // A dylib's own name is the app's to set; the release runtime's addons keep their builders' (dlopen'd by path).
+  if (scope === 'bundle' && facts.id?.startsWith('/')) findings.push({ rule: 'dylib', scope, file: rel, detail: `install name ${facts.id}` });
   if (scope === 'bundle') {
     for (const dependency of facts.libraries) {
       if (!dependencyInside(dependency, { file, bundle, rpaths: facts.rpaths })) findings.push({ rule: 'dylib', scope, file: rel, detail: dependency });

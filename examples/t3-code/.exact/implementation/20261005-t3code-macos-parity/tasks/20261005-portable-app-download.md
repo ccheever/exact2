@@ -1,13 +1,13 @@
 ---
 name: 20261005-portable-app-download
 plan: 20261005-t3code-macos-parity
-implementation: planned
+implementation: implemented
 verification: unverified
-delivery: none
+delivery: draft-pr
 repository: https://github.com/ccheever/exact2
-base_branch: daehyeon/t3-code
-branch: null
-pr_url: null
+base_branch: feat(example)/t3-code
+branch: feat(example)/t3-code-portable-app-download
+pr_url: pending
 verified_commit: null
 ---
 
@@ -123,14 +123,60 @@ Required environment: Xcode 27.0, pinned Bun and Hermes tools on the build machi
 
 ## Progress
 
-Planned.
+Implemented on `feat(example)/t3-code-portable-app-download` (2026-10-08) from `d82fb6a47`. Decisions:
+U11 (decided: ad hoc signature, zip, clean macOS 14 VM). U2 (apparatus: `package-app.mjs`,
+`audit-bundle.mjs`, `bundle-allowlist.json`, the `sandbox-exec` profiles) is open: built as the ticket
+specifies, **provisional, user decision pending**.
+
+| Scope item | Built | Where |
+| --- | --- | --- |
+| 1. Package step | `git archive` of a commit into the fixed `/tmp/t3-code-package/exact2` (outside every checkout; it names no user, see X50); two `sandbox-exec` phases that deny reading and writing this checkout, `~/.t3` and every `--deny` (the reference checkout, the mc-orch tree): the stage step (online, cache kept beside the export), then `bun install --offline`, the terminal page and `host/apple/build.mjs t3-code-macos --bundle --distribution` with outbound IP denied; `EXACT_IDENTITY=-` (ad hoc), Rust paths remapped (`CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS`), SwiftPM's nested sandbox off through a `swift` wrapper (`--disable-sandbox`; `sandbox_apply` cannot nest); then `strip -x` of every Mach-O, toolchain rpaths deleted, dylib ids `@rpath/<name>`, appIcon's empty `.icon-*` folder removed, `distribution.json` `{"flavor":"packaged"}` and `LICENSE-T3` written, ad hoc signature inside out (`signingOrder`), `codesign --verify --deep --strict`, `ditto -c -k --norsrc --noextattr --keepParent`, `SHA256SUMS`, then the audit | `package-app.mjs` (+ `package-app.test.ts`), `stage-runtime.mjs` (`T3_RUNTIME_CACHE`) |
+| 2. Audit | Rules arch, minos, dylib, rpath, machine-path (home, checkout, `~/.bun`, `~/.t3`, the temporary folder, every `--forbid`; never allowed), build-path (generic shapes and `--build-root`; allowed only by an entry with its reason), dev-file (source maps, `app.contract.d.ts`, the TODO file, tests, fixtures, any hidden name, empty folders), unexpected (the allowlist's file list), runtime-part, runtime-tree (manifest equality, executables 0755, `codesign --verify --deep --strict` of every Mach-O, links in the folder, `.install-complete`), signature, info-plist, distribution | `audit-bundle.mjs` (+ `audit-bundle.test.ts`, 13 tests on clang-built synthetic bundles), `bundle-allowlist.json` |
+| 3. First-launch view | "Setting up T3 Code…", "Checking the server files…" / "Unpacking the server files… N%" (N in 25 % steps: the live region), a 4-high bar that follows every report (translate, 160 ms; none under reduced motion), failure "T3 Code could not be set up" with the reason, Retry (autofocus) and Quit; covers the window and its toasts (z-index 200) and makes the base inert; disk space checked before tar (bytes + 4 KiB per entry) and after a tar failure; tar's last error line; `T3_LOCAL_UNPACK_DELAY_MS` holds each stage in a development build only; ops `localBackendRetry`, `localBackendQuit` | `first-launch.contract`, `first-launch.ts` (+ test), `pages-welcome.ts`/`.contract`, `app-overlays.contract`, `app.contract` (the `modal` line), `T3LocalRuntime.swift`, `T3LocalBackend.swift`, `T3Module+Local.swift`, `macos/tests/local-backend/install.swift` (4 new XCTests) |
+| 4. Distribution notes | README "Distribution": requirements (Apple Silicon, macOS 14+), making the zip, opening it the first time (the `xattr` route first, then Open Anyway), first launch, standalone provider installers, where data lives, one app at a time on `~/.t3`, removal, licenses; "Source and checks" describes the audit | `README.md` |
+| 5. Clean-account test and build isolation | The VM is blocked (none on this Mac); the substitute is below | `t3-code-evidence/portable-app-download/clean-environment-run.txt` |
+
+### Acceptance results
+
+| Criterion | Result | Proof |
+| --- | --- | --- |
+| Isolated build | **Pass.** `9e9675e36` exported to `/tmp/t3-code-package/exact2`, built in 293 s under `sandbox-stage.sb` (stage, cache hit; the first sandboxed run downloaded it under the same profile) and `sandbox.sb` (offline: `(deny network-outbound (remote ip "*:*"))`), both denying this checkout, `~/.t3`, the reference checkout and the mc-orch tree. Zip `T3-Code-0.0.46-nightly.20261004.1-arm64.zip` 93,146,865 bytes, sha256 `5b3619a5…c75` | [clean-environment-run.txt](https://raw.githubusercontent.com/ccheever/exact2/df11fb0cc934f4a7c91233950759cbaf8b4b3cfa/portable-app-download/clean-environment-run.txt) §1 |
+| Audit | **Pass, 0 findings** on the packaged app (27 files, 7 Mach-O; 30 allowed hits: 28 hermesc file names under the fixed export folder, X50; 2 `/Users/` literals of `terminal-links.ts`) and, after a first launch in a clean HOME, on app + runtime tree (4,318 files, 18 Mach-O, 4,290 files equal to the manifest, every Mach-O passes `codesign --verify --deep --strict`, executables 0755; 4,277 allowed hits, all the release's upstream bytes or literals, each with its reason). No machine path anywhere | §1, §5 |
+| Archive integrity | **Pass.** `shasum -a 256 -c SHA256SUMS` OK; Archive Utility's unzip lists the same 27 files as the zip (no `._*`); `codesign --verify --deep --strict` valid; Signature=adhoc, no team | §2 |
+| Clean first launch | **Blocked** for the VM: no VM tool or macOS image on this Mac (U11 needs a clean macOS 14 VM). **Substitute, pass headless:** download (local http server, quarantine written as Safari does), Archive Utility unzip (quarantine inherited), `spctl --assess`: rejected; the quarantined copy's `open` started no process (Gatekeeper; its alert is not on screen, the screen is locked); a second copy with the quarantine removed first starts in a clean HOME with no Bun/Node/codex/claude on the server's PATH: unpack 14.3 s (machine under load), ready with the bearer, `/.well-known/t3/environment` on 127.0.0.1:16356. **The alert, Open Anyway and Finder unzip: deferred to the real-input batch — screen locked (user away).** Found: a copy whose Gatekeeper refusal is unanswered stays at `_dyld_start` even after `xattr -dr` (README says to answer the alert first) | §2–§4, [05](https://raw.githubusercontent.com/ccheever/exact2/df11fb0cc934f4a7c91233950759cbaf8b4b3cfa/portable-app-download/05-packaged-first-launch.png) |
+| Server identity equals the pin | **Pass.** `t3 --version` and the descriptor both `0.0.46-nightly.20261005.2667`; `t3` sha256 = manifest; manifest archive sha256 = pin = bundled archive; tag `v0.0.46-nightly.20261005.2667` → `37de6cbde65c` = the pin's commit; GitHub compare `1e2ecbd975...37de6cbde65c`: ahead 4, behind 0 | §5 |
+| Works for the recipient | **Pass headless (agent mode on the packaged copy, clean HOME):** wizard lists This machine Connected; Agents: Claude "Not found · … not found on PATH", Codex "Continue with ChatGPT"; folder `~/work` added as a project, its thread draft open; Settings › Connections shows This machine; Providers: both not found. Standalone `claude.ai/install.sh` into the clean HOME (225 MB, scratch, deleted after), then a relaunch: Claude v2.1.293 found. It reported Authenticated because the clean HOME shares this Mac's login Keychain (the user's own Claude Code item): no message sent; a separate account or VM is what isolates it. Sending with the recipient's account (optional) not run | §6, [06](https://raw.githubusercontent.com/ccheever/exact2/df11fb0cc934f4a7c91233950759cbaf8b4b3cfa/portable-app-download/06-packaged-recipient.png) |
+| Quit and relaunch | **Pass.** A quit Apple event to the pid (as ⌘Q): server gone 2.76 s, app 2.81 s, nothing on the port; relaunch: no `installing`, ready with the bearer in 1.38 s, one server | §5 |
+| Failure paths | **Pass headless.** 48 MB disk image as `~/.t3`: "There is not enough disk space to set up T3 Code: it needs 278.2 MB in …/runtime/versions, and 49.6 MB is free.", Retry fails again, Quit quits, nothing half-installed. One byte flipped in the bundled archive: "…does not match its pinned SHA-256.", Retry fails again, Quit quits. `kill -9` during the unpack: the next launch removes `.staging-*` and installs | §7, [08](https://raw.githubusercontent.com/ccheever/exact2/df11fb0cc934f4a7c91233950759cbaf8b4b3cfa/portable-app-download/08-packaged-failures.png) |
+| Design check of the first-launch view | **Pass.** Column 360 wide, centered (x 460 at 1280, 240 at 840), gap 12, title 20/20/600, status 14/20, bar 4 high at y 450 in all three stages (0 px shift), buttons 32 high, a 130-character reason wraps to 4 lines inside the column (342 px of 360); contrast from pixels 14.52, 4.71, 4.65 (light) and 18.16, 7.04, 6.85 (dark) | [design check](https://raw.githubusercontent.com/ccheever/exact2/df11fb0cc934f4a7c91233950759cbaf8b4b3cfa/portable-app-download/first-launch-design-check.txt), [01](https://raw.githubusercontent.com/ccheever/exact2/df11fb0cc934f4a7c91233950759cbaf8b4b3cfa/portable-app-download/01-first-launch-1280-light.png)–[04](https://raw.githubusercontent.com/ccheever/exact2/df11fb0cc934f4a7c91233950759cbaf8b4b3cfa/portable-app-download/04-first-launch-failure.png) |
+| Accessibility of the first-launch view | **Partly.** Retry has the initial focus; Tab: Retry → Quit; heading and stage text in the AX tree; the stage text changes only per stage and per 25 % (unit test). The macOS host does not expose `progressbar`, `status`/`aria-live`, `alert` or the modal dialog (new gap **X51**; the value: X49): the Contract tree carries them. VoiceOver spot check: deferred to the real-input batch — screen locked (user away) | design check §Accessibility |
+| "This machine" pairs | **After only (pass):** the packaged clean copy's Settings › Connections at all four cells; the section shows the same rows as the pairs accepted in local-primary-environment (this task does not change it) | [07](https://raw.githubusercontent.com/ccheever/exact2/df11fb0cc934f4a7c91233950759cbaf8b4b3cfa/portable-app-download/07-packaged-this-machine-cells.png), [06](https://raw.githubusercontent.com/ccheever/exact2/df11fb0cc934f4a7c91233950759cbaf8b4b3cfa/portable-app-download/06-packaged-recipient.png) |
+| Removal | **Pass in the clean HOME:** the README's commands removed the app, `runtime/versions/<version>`, both Application Support folders and the caches; `statev2.sqlite` (projects, threads) and the settings stayed. The Keychain step was not run (the login Keychain is shared with other lanes; these runs saved no item) | §7 removal |
+
+Real data: `~/.t3` and `~/.t3/userdata` mtimes, the real preferences plist and port 3773 were unchanged across the session; T3 Code (Nightly) was not running.
+
+## Real-input batch steps
+
+Screen locked (user away) for these; run them in one session with the real-input lock held:
+
+1. **Gatekeeper alert and Open Anyway** (macOS 26 here; macOS 14 needs the VM). Build: `bun examples/t3-code/package-app.mjs --out <dir> --deny ~/Documents/work/3.open-source/t3code --deny ~/Documents/work/0.projects/exact2-worktrees/mc-orch-e88043b25805` (or reuse the zip, sha256 `5b3619a5525b65535e715e3233f8d3d1f31b8f83f2e85a2f513f267cd7173c75`). Serve it: `cd <dir> && python3 -m http.server 16353 --bind 127.0.0.1`; download `http://127.0.0.1:16353/T3-Code-…-arm64.zip` in Safari; double-click it in Finder. Open the app (a distinct copy, e.g. renamed "T3 Code (Lane PAD).app", launched with `open -n --env HOME=<clean> --env CFFIXED_USER_HOME=<clean> --env T3CODE_PORT=16352 --env SHELL=<clean login shell>`). Read back: the "Apple could not verify" alert (screenshot), choose **Done**; System Settings › Privacy & Security › **Open Anyway** (needs the user's password: stop there if it is asked and record it); then the app starts translocated or not (`ps` path under `/private/var/folders/…/AppTranslocation/` or not), "Setting up T3 Code…" visible in the window (`screencapture -l`), then This machine Connected.
+2. **The pending alert from this session**: `/private/tmp/t3-clean/home/Applications/T3 Code (Exact).app` was opened once while quarantined (2026-10-07 18:50 UTC); its alert may be waiting behind the lock. Answer **Done** (or **Move to Trash**) for that app only.
+3. **VoiceOver spot check**: lane dev build with `T3_LOCAL_HOME=<empty>`, `T3_LOCAL_PORT=16351`, `T3_LOCAL_UNPACK_DELAY_MS=6500`; turn VoiceOver on (⌘F5), listen for the stage line and, with `T3_LOCAL_HOME=/Volumes/T3LANESMALL` (48 MB image), the failure; Tab Retry → Quit with the focus ring visible. Expected today: the heading and text are read; the live region and the alert are not announced (X51).
+4. **Clean macOS 14 VM** (U11): needs a VM tool and a macOS 14 image, neither on this Mac. Ask the user before installing one (tart/UTM and a ~15 GB image). Then repeat the clean-environment run (`clean-environment-run.txt` §2–§7) inside it.
 
 ## Attempts and evidence
 
 | Attempt | Revision/fingerprint | Checks and outcomes | Evidence | Remaining blocker |
 | --- | --- | --- | --- | --- |
-| none | — | — | — | — |
+| 1 | `a9f600c04` | Package `--no-sandbox`: 42 audit findings (hermesc names, rlib paths in two dylibs, toolchain rpaths missed because otool reads `T3 Code (Exact)` as an archive member) | lane logs | fixed in attempt 2 |
+| 2 | `9b7905e2b` | Sandboxed package: SwiftPM `sandbox_apply: Operation not permitted` (nested sandbox) | lane logs | fixed with the `swift` wrapper |
+| 3 | `85a67be2b` | Sandboxed package: 0 findings, 30 allowed | lane logs | — |
+| 4 | `49d1e21ac` | Design drives d1–d4, f1–f2, m1–m2: pass; the Nightly toast covered the first-launch view (z-index 60 < the toast region's 100): fixed (200) | [01]–[04] | — |
+| 5 | `49d1e21ac` | Clean prep: the zip carried `._*` AppleDouble entries (macOS 26 provenance xattrs) and appIcon's empty `.icon-*` folder, which the audit did not catch | lane logs | fixed in attempt 6 (`--norsrc --noextattr`, the folder removed, the audit flags hidden names and empty folders) |
+| 6 | `9e9675e36` | Final package and clean-environment substitute run; screen locked: GUI rows deferred | [clean-environment-run.txt](https://raw.githubusercontent.com/ccheever/exact2/df11fb0cc934f4a7c91233950759cbaf8b4b3cfa/portable-app-download/clean-environment-run.txt), [05]–[08] | VM (none on this Mac), real-input batch |
 
 ## Next action
 
-`prepare` after the dependencies merge and the two decisions are answered. Close with clone checks green (bun test, strict tsc, contract build, `cargo test -p t3-code-macos --lib`, affected AppKit binaries), `bun scripts/caps.mjs` after `git add -A`, the repository's five checks, and every moved matrix cell fixed or declared in `EXACT2-GAPS.md` with an issue link.
+Review the draft PR. The user answers U2 for the apparatus, and whether to install a VM tool and a
+macOS 14 image for U11's clean VM row. The coordinator runs the real-input batch above. Re-run the
+package, the audit and the clean-environment run as the plan's last step (later tickets add bundled files).

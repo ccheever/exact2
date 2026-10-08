@@ -28,6 +28,30 @@
       "file": "Contents/MacOS/T3 Code (Exact)",
       "text": "^(/private)?/tmp/t3-code-package/exact2/(vendor/ibex/crates/ibex2/src/bindings/[a-z_]+\\.js|target/aarch64-apple-darwin/host-dev/build/exact-js-[0-9a-f]+/out/prelude\\.js)",
       "reason": "package-app.mjs's fixed export folder, the same on every machine (no user, checkout or home path): exact2's ibex2 build.rs and js/build.rs give hermesc absolute source paths, and Hermes keeps them as the bytecode's file names (EXACT2-GAPS X50). Rust paths are remapped and Swift's are stripped; these two cannot be from the app."
+    },
+    {
+      "scope": "runtime",
+      "file": "**",
+      "text": "^/Users/runner/",
+      "reason": "GitHub Actions' macOS runner home: T3 Code's release CI (the executable's bin.mjs path) and the prebuilt binaries the release bundles (ripgrep, fff, keyring, ffi-rs, node-pty, Cursor's sandbox, the resource monitor). The release's own bytes, unpacked unchanged and equal to runtime-manifest.json and the pin's SHA-256."
+    },
+    {
+      "scope": "runtime",
+      "file": "t3",
+      "text": "^/Users/admin/build/ws/",
+      "reason": "Node.js's release build machine: source paths compiled into the Node single executable the T3 release is built on (V8, Temporal, the inspector protocol). The release's own bytes."
+    },
+    {
+      "scope": "runtime",
+      "file": "node_modules/@cursor/sdk-darwin-arm64/vendor/**",
+      "text": "^(/private)?/var/folders/df/djsxfhc17x95674wsm_g8s980000gn/T/tree-sitter-prebuilds\\.",
+      "reason": "The temporary folder Cursor's SDK built its tree-sitter prebuilds in, on its build machine (not this one: this machine's temporary folder is a machine path). The release's own bytes."
+    },
+    {
+      "scope": "runtime",
+      "file": "**",
+      "text": "^((/private)?/var/folders/(/private/var/folders/)?|/var/folders/\\.\\*-cursor|/Users/(\\$\\{t\\[1\\]\\})?|/Volumes/|/opt/homebrew/bin(:/usr/local/bin:\\$PATH)?|/\\.bun/(install/cache/(\\.\\.\\.)?|bin/))$",
+      "reason": "Not a path of any machine: string literals in the release's JavaScript and executable (the temporary-folder and home-folder prefixes its path checks and display use, Homebrew's and Bun's default folders where the server looks for provider CLIs)."
     }
   ]
 }

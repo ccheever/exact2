@@ -162,10 +162,14 @@ ditto -x -k T3-Code-*-arm64.zip . && mv "T3 Code (Exact).app" /Applications/
 
 Then approve it once, either way:
 
-- macOS 15 and later: open the app, choose **Done** in the "Apple could not verify…" alert, open
+- Before the first open, remove the download mark in Terminal:
+  `xattr -dr com.apple.quarantine "/Applications/T3 Code (Exact).app"` (checked on macOS 26.6: the
+  app then starts).
+- Or, after macOS refused it once: choose **Done** in the "Apple could not verify…" alert, open
   **System Settings › Privacy & Security**, choose **Open Anyway** beside "T3 Code (Exact)" and
-  confirm with your password. On macOS 14, Control-click the app, choose **Open**, then **Open**.
-- Or remove the download mark in Terminal: `xattr -dr com.apple.quarantine "/Applications/T3 Code (Exact).app"`.
+  confirm with your password (on macOS 14: Control-click the app, **Open**, then **Open**). Not yet
+  checked on a test machine: answer the alert first, since a copy whose refusal is still unanswered
+  does not start even after `xattr`.
 
 Every new zip is a new code identity: macOS asks again, Keychain items the previous build saved
 ask before they are read, and SnapShot's Screen Recording and Accessibility permissions are
@@ -193,6 +197,7 @@ Then sign in to them (Settings › Providers shows each one's state) and press r
 | Projects, threads, settings, the server's own data (shared with T3 Code) | `~/.t3` |
 | The unpacked server | `~/.t3/runtime/versions/<version>` |
 | This app's own files (its settings file `t3-code.json`, the server pid record) | `~/Library/Application Support/exact/com.exact.t3code.macos` |
+| Its last-shown screens (Exact's kept answers) | `~/Library/Application Support/com.exact.t3code.macos` |
 | Caches | `~/Library/Caches/exact/com.exact.t3code.macos` |
 | Preferences (paired environments, window) | `~/Library/Preferences/com.exact.t3code.macos.plist` |
 | Saved environment credentials | the login Keychain, service `com.exact.t3code.macos.access-token` |
@@ -203,7 +208,8 @@ T3 Code (or T3 Code Nightly) and this app both use `~/.t3`: run only one of them
 
 ```sh
 rm -rf "/Applications/T3 Code (Exact).app" ~/.t3/runtime/versions/<version> \
-  ~/Library/Application\ Support/exact/com.exact.t3code.macos ~/Library/Caches/exact/com.exact.t3code.macos
+  ~/Library/Application\ Support/exact/com.exact.t3code.macos ~/Library/Application\ Support/com.exact.t3code.macos \
+  ~/Library/Caches/exact/com.exact.t3code.macos
 defaults delete com.exact.t3code.macos
 while security delete-generic-password -s com.exact.t3code.macos.access-token >/dev/null 2>&1; do :; done
 ```

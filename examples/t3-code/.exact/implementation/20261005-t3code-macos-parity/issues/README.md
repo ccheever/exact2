@@ -84,6 +84,7 @@ publication was performed during this local audit.
 | --- | --- | --- | --- | --- |
 | [X49](20261007-x49-progress-value-accessibility.md) | A progress value for assistive technology (`progress`, `aria-valuenow`) | framework-gap | [provider-sign-in-and-install](../tasks/closed/20261005-provider-sign-in-and-install.md) (nonblocking: the status text carries the numbers) | reproduced with `contract vocab` on the feature branch's framework (main `7fa3fa5b7`); no upstream match by title; draft, not published |
 | [X50](20261008-x50-distribution-build-paths.md) | A distributed macOS build without the build machine's paths (Rust paths, toolchain rpaths, dylib install names, hermesc source names) | framework-gap | [portable-app-download](../tasks/20261005-portable-app-download.md) (nonblocking: the package step works around all but the hermesc names, which name only its fixed export folder) | reproduced on the feature branch's framework (main `1f19b2400`) with `audit-bundle.mjs`; not published |
+| [X51](20261008-x51-macos-status-alert-progress-roles.md) | Live regions, alerts, modal dialogs and progress bars exposed to accessibility on macOS | framework-gap | [portable-app-download](../tasks/20261005-portable-app-download.md) (the view's accessibility row) | reproduced with `tree --ax` on the lane build (feature branch's framework, main `1f19b2400`); not published |
 
 ## Upstream issues (filed 2026-10-06)
 
