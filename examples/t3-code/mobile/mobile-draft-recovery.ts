@@ -1,6 +1,6 @@
 // Pinned365aa87982 use-thread-composer-state run-loss recovery and composerContext.
 // @ref llp/1107.005-composer-and-transcript.decision.md#scratch-tasks-and-queue-boundaries
-import { T3Client } from './shared/client';
+import { T3Client, type Pending } from './shared/client';
 import { mobileNewTaskDefaultModel } from './new-task-model';
 import { arr, obj, str, type Obj } from './shared/domain';
 import { ClientError, type Native, type Files } from './shared/protocol';
@@ -9,6 +9,9 @@ import { draftFiles, setDraftFiles } from './shared/composer-editor-files';
 import { adoptTerminalContexts } from './shared/terminal-integrations';
 import type { MobileQueuedEditSession } from './queued-edit-state';
 import { mobileQueuedEditOrigin } from './queued-edit-origin';
+
+import { mobileNewTaskDraftBoundKey, mobileNewTaskDraftCurrent, mobileNewTaskDraftChoicesRestore, mobileNewTaskDraftHydrate, mobileNewTaskDraftPersisted, mobileNewTaskDraftStore } from './mobile-new-task-drafts';
+import { mobileNewTaskLaunchPrepare, mobileNewTaskLaunchBeforeRequest, mobileNewTaskLaunchEnd, mobileNewTaskLaunchFinish, mobileNewTaskLaunchCanReconcile, mobileNewTaskLaunchProtectedImages, mobileNewTaskDraftFlushFiles, mobileNewTaskLaunchSlotEnvironment } from './mobile-new-task-launch';
 
 const PATH = 'app:/data/t3-code.json';
 const IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp']);
@@ -82,6 +85,7 @@ function hydrate(client: T3Client, saved: Obj) {
     if (marker.owner === owner && str(marker.key) && str(marker.origin) && str(marker.environmentId) && Number.isSafeInteger(marker.revision)) recovered[owner] = clone(marker);
   }
   setMarkers(client, recovered);
+  mobileNewTaskDraftHydrate(client, saved);
   for (const raw of Object.values(recovered)) {
     const marker = obj(raw); adoptTerminals(client, client.local.drafts[str(marker.key)] ?? '', obj(marker.context));
   }
@@ -144,16 +148,43 @@ function pruneRetiredMarkers(client: T3Client) {
 /** Mobile default policy and recovery over one shared client. A new send's
  * context is extended before super.write; retry payloads stay immutable. */
 export class MobileDraftClient extends T3Client {
+  override get draftKey(): string { return mobileNewTaskDraftBoundKey(this) || super.draftKey; }
+  protected override finishPending(pending: Pending, environmentId = this.environmentId): void {
+    if (!mobileNewTaskLaunchFinish(this, pending, environmentId)) super.finishPending(pending, environmentId);
+  }
+  override reconcilePending(): boolean {
+    return mobileNewTaskLaunchCanReconcile(this) && super.reconcilePending();
+  }
+  override async flushSnapshotReleases(native: Native, storage: Files): Promise<void> {
+    const protectedImages = mobileNewTaskLaunchProtectedImages(this);
+    // Do not let default release work delete bytes still captured by an uncertain launch.
+    if (!this.local.snapshotReleases.some(id => protectedImages.has(id))) await super.flushSnapshotReleases(native, storage);
+    await mobileNewTaskDraftFlushFiles(this, native, storage);
+  }
   override chooseDefaults(): void {
     super.chooseDefaults();
     if (this.threadId) return;
+    const independent = mobileNewTaskDraftCurrent(this);
+    if (independent && mobileNewTaskDraftChoicesRestore(this, independent.key)) return;
     const selected = mobileNewTaskDefaultModel(this);
     this.providerId = selected?.instanceId ?? ''; this.modelId = selected?.model ?? '';
     this.modelOptions = selected?.options ?? [];
   }
   override async persist(storage: Files): Promise<void> {
     pruneRetiredMarkers(this);
-    return super.persist(storage);
+    const store = mobileNewTaskDraftStore(this);
+    for (const slot of Object.keys(store.receipts)) {
+      const environmentId = mobileNewTaskLaunchSlotEnvironment(slot);
+      if (environmentId && !this.local.pending[environmentId]) {
+        delete store.receipts[slot]; delete store.claims[slot];
+      }
+    }
+    // Transform only serialized output; never swap live draft slots around an await.
+    return super.persist({ fs: { ...storage.fs, atomicWriteFile: async (path, bytes) => {
+      const document = obj(JSON.parse(new TextDecoder().decode(bytes)));
+      document.mobileNewTaskDrafts = mobileNewTaskDraftPersisted(this) as unknown as Obj;
+      await storage.fs.atomicWriteFile(path, new TextEncoder().encode(JSON.stringify(document)));
+    } } });
   }
   override async write(native: Native, storage: Files, pending: Parameters<T3Client['write']>[2], beforeRequest?: () => void): Promise<Obj> {
     const previous = this.local.pending[this.environmentId];
@@ -161,10 +192,16 @@ export class MobileDraftClient extends T3Client {
     const launch = pending.method === 'orchestration.launchThread';
     if (!retry && (launch || pending.method === 'orchestration.dispatchCommand' && pending.payload.type === 'message.dispatch')) {
       const body = launch ? obj(pending.payload.initialMessage) : pending.payload;
-      const key = launch ? `${this.environmentId}:new:${str(pending.payload.projectId)}` : `${this.environmentId}:${str(pending.payload.threadId)}`;
+      const key = launch ? mobileNewTaskDraftCurrent(this)?.key || `${this.environmentId}:new:${str(pending.payload.projectId)}` : `${this.environmentId}:${str(pending.payload.threadId)}`;
       const context = mobileRecoveredMessageContext(this, key, str(body.text), arr(body.attachments), body.context ? obj(body.context) : undefined);
       if (context) pending.payload = launch ? { ...pending.payload, initialMessage: { ...body, context } } : { ...pending.payload, context };
     }
-    return super.write(native, storage, pending, beforeRequest);
+    const capture = mobileNewTaskLaunchPrepare(this, pending);
+    try {
+      return await super.write(native, storage, pending, () => {
+        if (capture) mobileNewTaskLaunchBeforeRequest(this, pending, capture);
+        beforeRequest?.();
+      });
+    } finally { if (capture) mobileNewTaskLaunchEnd(this, capture); }
   }
 }

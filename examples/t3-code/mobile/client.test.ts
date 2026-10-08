@@ -216,8 +216,9 @@ describe('pinned shared sources', () => {
     expect(offset).toBe(bytes.length);
     for (const [index, { name, local }] of copies.entries()) {
       let expected = bodies[index]!;
-      if (name === 'client.ts') expected = "// Mobile 365aa87982: selection errors belong to the requesting route, not the thread composer.\n" + expected
-        .replace("const formCommand = ['settings-core',", "const formCommand = ['select-thread', 'settings-core',");
+      if (name === 'client.ts') expected = "// Mobile 365aa87982: selection errors belong to the requesting route, not the thread composer.\n// Additive cleanup visibility from shared commit af0a96dddbd500aa50bc5bbe69ec59597e34efee.\n" + expected
+        .replace("const formCommand = ['settings-core',", "const formCommand = ['select-thread', 'settings-core',")
+        .replace("  private finishPending(", "  protected finishPending(");
       if (name === 'client-ops-composer.ts') expected = "// Mobile 365aa87982: send admission and retained model options differ from this desktop copy.\nimport { mobileModelSelectionUnavailable } from '../model-availability';\nimport { mobileDispatchSelection as dispatchSelection } from '../model-send-selection';\n" + expected
         .replace("import { dispatchSelection, promptForSend, ultrathinkChoice }", "import { promptForSend, ultrathinkChoice }")
         .replace("if (!arr(provider.models).some(model => model.slug === this.modelId)) throw new ClientError('Choose one of the models advertised by T3.');",

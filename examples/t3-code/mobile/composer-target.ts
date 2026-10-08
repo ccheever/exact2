@@ -1,5 +1,7 @@
 // Pinned365aa87982 keeps queued-edit content separate from thread model/runtime settings.
 // @ref llp/1107.005-composer-and-transcript.decision.md#scratch-tasks-and-queue-boundaries
+import { mobileNewTaskDraftIsKey, mobileNewTaskDraftLookup, mobileNewTaskDraftChanged } from './mobile-new-task-drafts';
+import { mobileQueuedEditOrigin } from './queued-edit-origin';
 import type { T3Client } from './shared/client';
 import { arr, str, type Obj } from './shared/domain';
 import type { Files, Native } from './shared/protocol';
@@ -27,17 +29,23 @@ export function mobileComposerTargetCurrent(client: T3Client, target: MobileComp
  * invalidate it; an ended queued-edit session never resolves to a same-key replacement. */
 export function mobileComposerTargetExists(client: T3Client, target: MobileComposerTarget): boolean {
   if (client.origin !== target.origin || client.environmentId !== target.environmentId || client.generation !== target.generation) return false;
-  return target.kind === 'ordinary' || mobileQueuedEditLookup(target.editOwner, client)?.draftKey === target.key;
+  if (target.kind === 'queued-edit') return mobileQueuedEditLookup(target.editOwner, client)?.draftKey === target.key;
+  if (!mobileNewTaskDraftIsKey(target.key)) return true;
+  const draft = mobileNewTaskDraftLookup(client, target.key);
+  return !!draft && draft.environmentId === target.environmentId && draft.projectId === target.projectId
+    && draft.origin === mobileQueuedEditOrigin(client);
 }
 export function mobileComposerTargetText(client: T3Client, target: MobileComposerTarget): string | null {
   if (!mobileComposerTargetExists(client, target)) return null;
   return target.kind === 'ordinary' ? client.local.drafts[target.key] ?? '' : mobileQueuedEditLookup(target.editOwner, client)?.text ?? null;
 }
 /** Queued edits expose a monotonic content revision, including text ABA. Ordinary
- * drafts retain the existing synchronous voice observer's revision counter. */
+ * independent drafts use their persisted revision. Thread drafts retain the
+ * existing synchronous voice observer's revision counter. */
 export function mobileComposerTargetRevision(client: T3Client, target: MobileComposerTarget): number | null {
   if (!mobileComposerTargetExists(client, target)) return null;
-  return target.kind === 'queued-edit' ? mobileQueuedEditLookup(target.editOwner, client)?.revision ?? null : 0;
+  if (target.kind === 'queued-edit') return mobileQueuedEditLookup(target.editOwner, client)?.revision ?? null;
+  return mobileNewTaskDraftIsKey(target.key) ? mobileNewTaskDraftLookup(client, target.key)?.revision ?? null : 0;
 }
 /** Synchronous writes let voice compare its captured text/revision before insertion.
  * Ordinary keyboard input still uses the shared question-aware draft reducer. */
@@ -45,7 +53,7 @@ export function mobileComposerTargetWriteText(client: T3Client, target: MobileCo
   if (!mobileComposerTargetExists(client, target)) return false;
   if (text.length > 1_000_000) throw new ClientError('Keep a draft under 1,000,000 characters.');
   if (target.kind === 'queued-edit') return mobileQueuedEditWriteText(target.editOwner, text, client);
-  client.local.drafts[target.key] = text; client.revision++; return true;
+  client.local.drafts[target.key] = text; mobileNewTaskDraftChanged(client, target.key); client.revision++; return true;
 }
 export async function mobileComposerTargetPersist(client: T3Client, target: MobileComposerTarget, native: Native, storage: Files): Promise<void> {
   if (target.kind === 'queued-edit') return mobileQueuedEditPersist(target.editOwner, native, client);

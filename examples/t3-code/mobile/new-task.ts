@@ -155,7 +155,7 @@ export async function mobileNewTaskAction(kind: string, id: string, value: strin
   }
   if (state.busy) return result('Wait for the current task change to finish.');
   const command = (op: string, id = '', value = '') => client === mobileClient ? mobileCommand([op, id, value], native, suppliedStorage)
-    : op === 'send-alternate' ? mobileSend(client, true, native, storage) : client.command(op, id, value, 0, native, storage);
+    : op === 'send' || op === 'send-alternate' ? mobileSend(client, op === 'send-alternate', native, storage) : client.command(op, id, value, 0, native, storage);
   const run = async (op: string, id = '', value = '') => { const response = await command(op, id, value); if (response.message) throw new ClientError(response.message); };
   state.busy = true; state.error = '';
   try {
@@ -228,8 +228,10 @@ export async function mobileNewTaskAction(kind: string, id: string, value: strin
     else if ((kind === 'send' || kind === 'send-alternate')) {
       if (client.threadId) throw new ClientError('Open a new task draft before sending.');
       if (mobileNewTask('', client, background).scratch) patchDraftContext(client, { envMode: 'local', branch: '', worktreePath: '' });
-      const environmentId = client.environmentId, projectId = client.projectId, generation = client.generation;
+      const environmentId = client.environmentId, projectId = client.projectId, generation = client.generation, draftKey = client.draftKey;
       await run(kind);
+      if (!client.threadId && (draftKey !== client.draftKey || environmentId !== client.environmentId || generation !== client.generation))
+        throw new ClientError('The draft or model changed before sending. Your original draft is preserved.');
       const submitted = !!client.threadId && environmentId === client.environmentId && projectId === client.projectId && generation === client.generation;
       return result('', submitted);
     } else throw new ClientError('Unknown new task action.');

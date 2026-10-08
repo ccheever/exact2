@@ -1,4 +1,5 @@
 // @ref llp/1107.005-composer-and-transcript.decision.md#new-task-ownership
+import { mobileNewTaskDraftChanged } from './mobile-new-task-drafts';
 import { mobileComposerTargetRequire, mobileComposerTargetWriteText, mobileComposerTargetPersist } from './composer-target';
 import { ClientError } from './shared/protocol';
 import type { T3Client } from './shared/client';
@@ -21,6 +22,7 @@ export async function mobileDraftChanged(client: T3Client, value: string, native
       ? composerOps.call(client, 'draft', '', value, 0, native, storage, { message: '', id: '', value })
       : mobileComposerTargetWriteText(client, target, value);
     if (reduction === false) throw new ClientError('The queued edit is no longer editable.', 'superseded');
+    if (target.kind === 'ordinary' && client.local.drafts[target.key] === value) mobileNewTaskDraftChanged(client, target.key);
     mobileVoiceObserveDraft(client);
     await reduction;
     await mobileComposerTargetPersist(client, target, native, storage);
