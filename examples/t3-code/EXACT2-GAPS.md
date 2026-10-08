@@ -10,7 +10,7 @@ REF = `~/Documents/work/3.open-source/t3code`. X2 = exact2 main.
 | ID | Missing in exact2 | T3 feature blocked | Kind | Workaround in the clone |
 |---|---|---|---|---|
 | X1 | Embedded Chromium + CDP | Browser surface (preview browser, agent browser automation) | policy + build | none yet: [#100](https://github.com/ccheever/exact2/issues/100) closed upstream, not planned (2026-10-08); the Browser surface is built in the clone's own module on a `WKWebView` (path B, user decision 2026-10-08), with X1's path-B differences declared; it starts after the root rewrite |
-| X2 | Developer Tools for the app UI | View › Toggle Developer Tools | policy, decided ([#101](https://github.com/ccheever/exact2/issues/101), 2026-10-08): development-only Safari inspection of web views | none: View › Toggle Developer Tools is a permanent declared difference; the clone's own web views become inspectable in development builds (`app-developer-tools`, in progress); main #309 merged 2026-10-08 (`f2f0e7092`): Exact's own development iframe web views are inspectable, release-gated; the clone's module web views still need the clone-side gate (`app-developer-tools`) |
+| X2 | Developer Tools for the app UI | View › Toggle Developer Tools | policy, decided ([#101](https://github.com/ccheever/exact2/issues/101), 2026-10-08): development-only Safari inspection of web views | none: View › Toggle Developer Tools is a permanent declared difference; the clone's own web views (terminal, rendered HTML, Mermaid) are inspectable in development builds and never in release builds (`T3WebInspection.swift`, `app-developer-tools`, [#326](https://github.com/ccheever/exact2/pull/326)); Exact's `iframe` web views get the same from main [#309](https://github.com/ccheever/exact2/pull/309) (merged to main on 2026-10-08 as `f2f0e7092`; not in the T3 branch until a main-adoption round) |
 | X3 | App-settable root font size (`rem` base) (fixed on main #185, adopted) | Interface font size (12–20 px) | framework feature | none: `setRootFontSize` from app.contract `rootFont`; Contract lengths in `rem` (`font-size-map.json`) |
 | X4 | Helper executables and large resource trees in the bundle (fixed on main #215: `host.macos.resources`) | Embedded local T3 server | build | fixed by main #215; the release archive ships as a native resource tree and is unpacked at first launch (U3; #215 re-signs Mach-O without entitlements) |
 | X5 | Custom URL scheme delivered to the app (#104 closed; main #201 only journals an unheard launch URL); rest filed as [#268](https://github.com/ccheever/exact2/issues/268) (2026-10-08) | `t3code://` deep links, provider sign-in return | host | none; #268 narrowed (2026-10-08): delivery still needs a navigation root; no clone consumer left |
@@ -109,7 +109,7 @@ Each open item was reproduced for its upstream issue on exact2 `4c893fef6`, whic
 | X43 | [#120](https://github.com/ccheever/exact2/issues/120) | Closed, not planned. | the app's mixed thumb; the switch reports unchecked |
 | X47 | [#179](https://github.com/ccheever/exact2/issues/179) | Fixed by main #189, which is in this branch since the `cff90b364` merge (adopt-main-fixes-r3); no clone workaround to remove; real Tab presses draw the ring on the custom Settings nav buttons, which the base `4f523ef5c` does not (2026-10-07, `20261007-real-input-checks`). | none |
 
-X1 ([#100](https://github.com/ccheever/exact2/issues/100)) was closed upstream as not planned on 2026-10-08: the Browser surface is built in the clone's own module on a `WKWebView` (user decision, path B). X2 ([#101](https://github.com/ccheever/exact2/issues/101)) was narrowed the same day: View › Toggle Developer Tools stays absent (a declared difference), and development-only inspection of the clone's web views is app code.
+X1 ([#100](https://github.com/ccheever/exact2/issues/100)) was closed upstream as not planned on 2026-10-08: the Browser surface is built in the clone's own module on a `WKWebView` (user decision, path B). X2 ([#101](https://github.com/ccheever/exact2/issues/101)) was narrowed on 2026-10-08: View › Toggle Developer Tools stays absent (a declared difference), and development-only inspection of web views is allowed: the clone's own in `app-developer-tools` ([#326](https://github.com/ccheever/exact2/pull/326)), Exact's `iframe` web views in main [#309](https://github.com/ccheever/exact2/pull/309) (merged to main on 2026-10-08 as `f2f0e7092`; not in the T3 branch until a main-adoption round).
 
 ---
 
@@ -144,13 +144,13 @@ X1 ([#100](https://github.com/ccheever/exact2/issues/100)) was closed upstream a
 
 **Reviewed.** X2 `rules/DEFERRED.md:615`: "no devtools UI". The agent API has `tree`, `state`, `layout`, `logs`, `perf` (DEFERRED Agent API).
 
-**Current state.** The menu item is absent. The View menu has Reload, Force Reload and zoom (`R8KeysMenus.swift`, `T3Menus.swift:78-89`).
+**Current state.** The menu item is absent. The View menu has Reload, Force Reload and zoom (`R8KeysMenus.swift`, `T3Menus.swift:78-89`). Since `app-developer-tools` ([#326](https://github.com/ccheever/exact2/pull/326)) every web view the module creates (the terminal, the rendered-HTML preview, the offscreen Mermaid renderer) is `isInspectable` in a development build, so Safari's Develop menu lists it; a release build's are not: the packaged build (`distribution.json`), a production-trust bake or a distributed bundle (its receipt), the line main [#309](https://github.com/ccheever/exact2/pull/309) draws for Exact's `iframe` arm (`T3WebInspection.swift`).
 
 **Why it does not work.** The clone UI is drawn natively. There is no DOM for an inspector. DEFERRED refuses a devtools UI.
 
 **Support needed / options.** (1) Keep it absent and document it. (2) Show the item disabled. (3) Mark the app's own WKWebViews (terminal, HTML preview) `isInspectable` in development builds so Safari can inspect them. A real equivalent needs a DEFERRED change.
 
-**Decided (2026-10-08).** #101 allows (3) in development builds only and refuses an inspector of the app UI; (1) is the permanent declared difference. `app-developer-tools` builds (3).
+**Decided (2026-10-08).** #101 allows (3) in development builds only and refuses an inspector of the app UI; (1) is the permanent declared difference. `app-developer-tools` built (3) for the clone's own web views ([#326](https://github.com/ccheever/exact2/pull/326)); main [#309](https://github.com/ccheever/exact2/pull/309) does it for Exact's `iframe` web views and needs no clone change when adopted.
 
 ## X3. App-settable root font size
 
