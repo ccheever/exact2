@@ -178,24 +178,18 @@ component T3Window
     settingsOpen: bool
     connecting: bool
     settingsThemeDialog: string
-    settingsRestoreOpen: bool
     settingsNavigation: CoreNav
     settingsRoute: string
     settingsQuery: string
     settingsMenu: string
-    settingsEscapeHeld: bool
     editSettingsQuery: action
     coreSearchKey: action
     corePick: action
     coreClearSearch: action
-    coreRestoreOpen: action
     settingsScrollTop: number
     coreMenuClose: action
-    settingsLegacyOpen: bool
-    coreLegacy: action
     coreMenu: action
     coreChange: action
-    coreSlide: action
     coreNavigate: action
     coreScope: action
     coreThemeDialog: action
@@ -213,7 +207,6 @@ component T3Window
     previewSnapshotSound: action
     bindings: KeybindingPage
     keybindingQuery: string
-    keybindingSearch: bool
     keybindingOpen: bool
     keybindingPrevious: string
     keybindingCommand: string
@@ -221,8 +214,6 @@ component T3Window
     keybindingWhen: string
     keybindingRecording: bool
     editKeybindingQuery: action
-    searchKeybindings: action
-    keybindingSearchKey: action
     newKeybinding: action
     cancelKeybinding: action
     chooseKeybindingCommand: action
@@ -242,11 +233,7 @@ component T3Window
     restClose: action
     licenses: LicenseSettings
     licenseQuery: string
-    licenseSearchOpen: bool
     editLicenseQuery: action
-    openLicenseSearch: action
-    closeLicenseSearch: action
-    licenseSearchKey: action
     toggleLicense: action
     retryLicenses: action
     diagnostics: DiagnosticsPage
@@ -268,8 +255,6 @@ component T3Window
     projectsSettings: ProjectsPage
     settingsThemeSubject: string
     coreThemeChange: action
-    coreRestoreClose: action
-    coreRestoreConfirm: action
     coreThemeLive: action
     welcome: WelcomeView
     welcomeStep: string
@@ -417,7 +402,7 @@ component T3Window
         when optionsOpen != ""
           ComposerMenus(data=data, session=popoverSession, which=optionsOpen, left=composerLeft, viewport=viewport, resting=resting, close=closeOptions, chooseTrait=menuPick("model-option"), chooseRuntime=menuPick("runtime", ""), command=menuCommand, branches=branches, branchQuery=branchQuery, searchBranches=searchBranches, local=chatLocal)
         ProjectPicker(projectsOpen=projectsOpen, viewport=viewport, paletteShow=paletteShow, data=data, closeModal=closeModal, manageProject=manageProject, commandPending=commandPending, selectProject=selectProject)
-        SettingsWindow(settingsOpen=settingsOpen, settingsCore=settingsCore, connecting=connecting, settingsThemeDialog=settingsThemeDialog, settingsRestoreOpen=settingsRestoreOpen, data=data, settingsNavigation=settingsNavigation, settingsRoute=settingsRoute, settingsQuery=settingsQuery, sidebarWidth=sidebarWidth, viewport=viewport, settingsMenu=settingsMenu, modelsOpen=modelsOpen, settingsEscapeHeld=settingsEscapeHeld, editSettingsQuery=editSettingsQuery, coreSearchKey=coreSearchKey, corePick=corePick, coreClearSearch=coreClearSearch, closeModal=closeModal, toggleSidebar=toggleSidebar, commandPending=commandPending, coreRestoreOpen=coreRestoreOpen, settingsScrollTop=settingsScrollTop, coreMenuClose=coreMenuClose, settingsLegacyOpen=settingsLegacyOpen, coreLegacy=coreLegacy, coreMenu=coreMenu, coreChange=coreChange, coreSlide=coreSlide, coreNavigate=coreNavigate, coreScope=coreScope, coreThemeDialog=coreThemeDialog, sourceControl=sourceControl, modalError=modalError, rest=rest, restInput=restInput, restLocal=restLocal, integrations=integrations, snapshotSettings=snapshotSettings, snapshotSetupOpen=snapshotSetupOpen, toggleSnapshots=toggleSnapshots, showSnapshotSetup=showSnapshotSetup, changeSnapshot=settingsCommand("setting-snapshot"), previewSnapshotSound=previewSnapshotSound, recordSnapshotShortcut=settingsCommand("snapshot-shortcut-record", ""), saveSnapshotShortcut=settingsCommand("snapshot-shortcut-save", ""), bindings=bindings, keybindingQuery=keybindingQuery, keybindingSearch=keybindingSearch, keybindingOpen=keybindingOpen, keybindingPrevious=keybindingPrevious, keybindingCommand=keybindingCommand, keybindingKey=keybindingKey, keybindingWhen=keybindingWhen, keybindingRecording=keybindingRecording, editKeybindingQuery=editKeybindingQuery, searchKeybindings=searchKeybindings, keybindingSearchKey=keybindingSearchKey, newKeybinding=newKeybinding, cancelKeybinding=cancelKeybinding, chooseKeybindingCommand=chooseKeybindingCommand, editKeybinding=editKeybinding, editKeybindingKey=editKeybindingKey, editKeybindingWhen=editKeybindingWhen, recordKeybinding=recordKeybinding, captureKeybinding=captureKeybinding, scheduled=scheduled, restEditor=restEditor, restOpen=restOpen, storageSettings=storageSettings, archives=archives, restMenu=restMenu, restRaw=restRaw, restMenuOpen=restMenuOpen, restClose=restClose, licenses=licenses, licenseQuery=licenseQuery, licenseSearchOpen=licenseSearchOpen, editLicenseQuery=editLicenseQuery, openLicenseSearch=openLicenseSearch, closeLicenseSearch=closeLicenseSearch, licenseSearchKey=licenseSearchKey, toggleLicense=toggleLicense, retryLicenses=retryLicenses, diagnostics=diagnostics, selectDiagnosticPeriod=selectDiagnosticPeriod, refreshSettings=refreshSettings, copyDiagnostic=copyDiagnostic, connectionsPage=connectionsPage, pendingModal=pendingModal, openConnection=openConnection, connectionOp=connectionOp, connectionAskRemove=connectionAskRemove, connectionMenu=connectionMenu, connectionToggleMenu=connectionToggleMenu, openRoute=openRoute, providerPage=providerPage, providerDialog=providerDialog, providerUi=providerUi, providerOp=providerOp, providerAccent=providerAccent, setupBusy=providerAuthPending, projectsSettings=projectsSettings, settingsThemeSubject=settingsThemeSubject, coreThemeChange=coreThemeChange, coreRestoreClose=coreRestoreClose, coreRestoreConfirm=coreRestoreConfirm)
+        SettingsWindow(settingsOpen=settingsOpen, settingsCore=settingsCore, connecting=connecting, settingsThemeDialog=settingsThemeDialog, data=data, settingsNavigation=settingsNavigation, settingsRoute=settingsRoute, settingsQuery=settingsQuery, sidebarWidth=sidebarWidth, viewport=viewport, settingsMenu=settingsMenu, modelsOpen=modelsOpen, coreClearSearch=coreClearSearch, closeModal=closeModal, toggleSidebar=toggleSidebar, commandPending=commandPending, settingsScrollTop=settingsScrollTop, coreMenuClose=coreMenuClose, coreMenu=coreMenu, coreChange=coreChange, coreScope=coreScope, coreThemeDialog=coreThemeDialog, sourceControl=sourceControl, modalError=modalError, rest=rest, restInput=restInput, restLocal=restLocal, integrations=integrations, snapshotSettings=snapshotSettings, snapshotSetupOpen=snapshotSetupOpen, toggleSnapshots=toggleSnapshots, showSnapshotSetup=showSnapshotSetup, changeSnapshot=settingsCommand("setting-snapshot"), previewSnapshotSound=previewSnapshotSound, recordSnapshotShortcut=settingsCommand("snapshot-shortcut-record", ""), saveSnapshotShortcut=settingsCommand("snapshot-shortcut-save", ""), bindings=bindings, keybindingQuery=keybindingQuery, keybindingOpen=keybindingOpen, keybindingPrevious=keybindingPrevious, keybindingCommand=keybindingCommand, keybindingKey=keybindingKey, keybindingWhen=keybindingWhen, keybindingRecording=keybindingRecording, editKeybindingQuery=editKeybindingQuery, newKeybinding=newKeybinding, cancelKeybinding=cancelKeybinding, chooseKeybindingCommand=chooseKeybindingCommand, editKeybinding=editKeybinding, editKeybindingKey=editKeybindingKey, editKeybindingWhen=editKeybindingWhen, recordKeybinding=recordKeybinding, captureKeybinding=captureKeybinding, scheduled=scheduled, restEditor=restEditor, restOpen=restOpen, storageSettings=storageSettings, archives=archives, restMenu=restMenu, restRaw=restRaw, restMenuOpen=restMenuOpen, restClose=restClose, licenses=licenses, licenseQuery=licenseQuery, editLicenseQuery=editLicenseQuery, toggleLicense=toggleLicense, retryLicenses=retryLicenses, diagnostics=diagnostics, selectDiagnosticPeriod=selectDiagnosticPeriod, refreshSettings=refreshSettings, copyDiagnostic=copyDiagnostic, connectionsPage=connectionsPage, pendingModal=pendingModal, openConnection=openConnection, connectionOp=connectionOp, connectionAskRemove=connectionAskRemove, connectionMenu=connectionMenu, connectionToggleMenu=connectionToggleMenu, openRoute=openRoute, providerPage=providerPage, providerDialog=providerDialog, providerUi=providerUi, providerOp=providerOp, providerAccent=providerAccent, setupBusy=providerAuthPending, projectsSettings=projectsSettings, settingsThemeSubject=settingsThemeSubject, coreThemeChange=coreThemeChange, editSettingsQueryRoot=editSettingsQuery, coreSearchKeyRoot=coreSearchKey, coreNavigateRoot=coreNavigate, corePickRoot=corePick, settingsCommand=settingsCommand)
         ThemeEditorHost(kind=settingsThemeDialog, core=settingsCore, viewport=viewport, busy=commandPending, error=modalError, close=coreThemeDialog("", ""), commit=coreChange, live=coreThemeLive, save=coreThemeChange("theme-editor-save", ""), outsideDown=outsidePressDown, outsideUp=outsidePressUp, outsideFocus=outsideFocus)
         WelcomeLayer(welcome=welcome, viewport=viewport, welcomeStep=welcomeStep, commandPending=commandPending, modalError=modalError, welcomeLink=welcomeLink, welcomePairOpen=welcomePairOpen, welcomeGo=welcomeGo, welcomeImport=welcomeImport, welcomeEditLink=welcomeEditLink, welcomePair=welcomePair, welcomeTogglePair=welcomeTogglePair, prCopy=prCopy, welcomeSetup=welcomeSetup, providerUi=providerUi, welcomeFinish=welcomeFinish, providerOp=providerOp, setupBusy=providerAuthPending)
         ShortcutDispatch(items=shortcuts, selectThread=selectThread, newThread=newThread, chatNew=sidebarNewThread, deviceSetting=deviceSetting, toggleDiff=panelUi("toggle", ""), openDiff=panelUi("choose", "diff"), closeDiff=panelUi("close", ""), panel=panelUi, prClose=prClose, stop=command("stop", "", "", 0), openOptions=openOptions, selectProvider=selectProvider, selectModel=selectModel, back=closeModal, copyThread=restLocal, palette=paletteShow, run=paletteRun, command=command, settings=openSettings, copy=prCopy, confirm=titleMenuPick)
