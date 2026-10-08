@@ -139,7 +139,7 @@ impl NodeArena {
     pub(crate) fn button_face_style(&self, slot: u32) -> Option<ButtonFaceStyle> {
         let mut face = self.button_face_style_unresolved(slot)?;
         face.resolve_geometry(
-            self.env(),
+            &self.env_for(slot),
             self.button_bases.get(&slot).copied().flatten(),
             self.frame(slot),
         );

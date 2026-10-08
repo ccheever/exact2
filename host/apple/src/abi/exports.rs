@@ -539,11 +539,12 @@ macro_rules! host {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.insets(top, right, bottom, left), |n| n)
         }
 
-        /// The screen a `fit-content` sheet's `vh` resolves against, or none
-        /// (a nonpositive size), LLP 1075.003 §9.11; returns the batch's length.
+        /// The screen a `fit-content` route's viewport units and segments
+        /// resolve against, or none (a nonpositive size), LLP 1075.003 §9.11;
+        /// its segment rects in the input buffer; returns the batch's length.
         #[no_mangle]
-        pub extern "C" fn exact_screen(rt: u32, width: f32, height: f32) -> u32 {
-            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.screen(width, height), |n| n)
+        pub extern "C" fn exact_screen(rt: u32, width: f32, height: f32, cols: u32, rows: u32, count: u32) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.screen(width, height, cols, rows, count), |n| n)
         }
 
         /// The posture and the viewport segments (LLP 1078 D4); returns the batch's length.

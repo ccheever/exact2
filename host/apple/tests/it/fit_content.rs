@@ -4,7 +4,7 @@
 
 use crate::host::{count, view, NoData};
 use exact_apple::Host;
-use exact_kernel::{HostCover, MonospaceMeasurer};
+use exact_kernel::{HostCover, MonospaceMeasurer, Screen};
 use exact_runner::Event;
 
 /// The `content` ops for `id`, in order.
@@ -300,7 +300,7 @@ fn settles_and_agrees(src: &str, routes: &[(&str, f32)]) {
     }
     // The screen, as `ExactViewIOS.fit` sends it before the sheet's
     // resize: the boot's viewport, so nothing moves.
-    let screened = host.set_screen(Some((390.0, 844.0)));
+    let screened = host.set_screen(Some(Screen::sized(390.0, 844.0)));
     for &(id, _) in routes {
         assert!(
             heights(&screened, view(&host, id)).is_empty(),
@@ -503,7 +503,7 @@ fn the_screen_is_a_fit_content_routes_alone() {
             800.0,
         )
         .unwrap();
-        host.set_screen(Some((390.0, 800.0)));
+        host.set_screen(Some(Screen::sized(390.0, 800.0)));
         // A medium sheet owns the viewport now.
         host.resize(390.0, 400.0);
         let height = |host: &Host<NoData>, id: &str| {
@@ -551,7 +551,7 @@ fn a_width_through_a_percentage_height_does_not_cycle() {
         844.0,
     )
     .unwrap();
-    host.set_screen(Some((390.0, 844.0)));
+    host.set_screen(Some(Screen::sized(390.0, 844.0)));
     let ratio = view(&host, "ratio");
     let start = heights(&first, ratio);
     let mut last = *start.last().unwrap();
@@ -566,4 +566,42 @@ fn a_width_through_a_percentage_height_does_not_cycle() {
         );
     }
     assert_eq!(last, 100.0);
+}
+
+/// Grok's review of aff8ce152: the parent's horizontal padding in a
+/// viewport unit is resolved in the route's environment (the screen) in
+/// the trial, not copied from a layout against the sheet, so the wrap
+/// width and the extent hold as the sheet resizes. (A viewport length on
+/// an ancestor's width still follows the sheet: LLP 1075.003 §9.11.)
+#[test]
+fn a_parents_viewport_padding_is_the_screens_in_the_measure() {
+    for sizing in ["border-box", "content-box"] {
+        let src = format!(
+            r##"component Menu
+  view
+    column testId="page" width="100%" height="100%" padding-left="10vh" box-sizing="{sizing}"
+      column testId="menu" navigationDetent="fit-content" flex=1
+        text "Twenty-six letters wrap at each width the route is given, and a long sentence wraps into more lines where the column is narrower, so its height follows that width exactly."
+"##
+        );
+        let plan = contract::compile(&src).unwrap();
+        let (mut host, first) = Host::boot(
+            &plan.encode(),
+            NoData,
+            Box::new(MonospaceMeasurer::default()),
+            390.0,
+            844.0,
+        )
+        .unwrap();
+        host.set_screen(Some(Screen::sized(390.0, 844.0)));
+        let menu = view(&host, "menu");
+        assert_eq!(heights(&first, menu).len(), 1, "{sizing}: {first}");
+        for h in [44.0, 200.0, 844.0, 44.0] {
+            let resized = host.resize(390.0, h);
+            assert!(
+                heights(&resized, menu).is_empty(),
+                "{sizing} at {h}: {resized}"
+            );
+        }
+    }
 }

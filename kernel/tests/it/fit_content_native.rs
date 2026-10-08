@@ -110,7 +110,7 @@ fn route(node_type: NodeType, child: &[(StyleId, &str)], props: &[(PropId, &str)
             textarea: font.clone(),
             button: font,
         }),
-        screen: Some((390.0, 844.0)),
+        screen: Some(Screen::sized(390.0, 844.0)),
         ..Env::default()
     })
     .unwrap();
@@ -154,7 +154,64 @@ fn a_native_buttons_viewport_padding_is_the_screens() {
             (fit - 104.4).abs() < 0.01 && (laid - fit).abs() < 0.01,
             "{sheet}: {fit} {laid}"
         );
+        // The face UIKit draws (`exact_press_face`) has the padding the
+        // measure had (Astra's review): the screen's 84.4, not the sheet's.
+        let face = k.button_face_style(3).unwrap();
+        match face.button.padding_top {
+            Dimension::Points(p) => assert!((p - (fit - 20.0)).abs() < 0.01, "{sheet}: {p}"),
+            other => panic!("{other:?}"),
+        }
     }
+}
+
+/// A fit-content route's segment variables are the screen's grid; the
+/// viewport's grid is every other node's, and the route's once its detent
+/// is no longer `fit-content` (Grok's and Astra's reviews).
+#[test]
+fn a_fit_content_routes_segments_are_the_screens() {
+    exact_kernel::link_segments();
+    let mut k = route(
+        NodeType::View,
+        &[
+            (StyleId::Height, "env(viewport-segment-height 0 0)"),
+            (StyleId::FlexShrink, "0"),
+        ],
+        &[],
+    );
+    let mut env = k.env();
+    env.screen = Some(Screen {
+        cols: 1,
+        rows: 2,
+        segments: vec![
+            Rect::new(0.0, 0.0, 390.0, 400.0),
+            Rect::new(0.0, 444.0, 390.0, 400.0),
+        ],
+        ..Screen::sized(390.0, 844.0)
+    });
+    k.set_env(env).unwrap();
+    // The sheet, folded too: a grid of its own.
+    k.set_segments(
+        1,
+        2,
+        vec![
+            Rect::new(0.0, 0.0, 390.0, 100.0),
+            Rect::new(0.0, 120.0, 390.0, 80.0),
+        ],
+    )
+    .unwrap();
+    let (fit, laid) = fitted(&mut k, 200.0);
+    assert_eq!((fit, laid), (400.0, 400.0));
+    k.apply(
+        0,
+        2,
+        &[Op::ClearProp {
+            id: 2,
+            prop: PropId::NavigationDetent,
+        }],
+    )
+    .unwrap();
+    k.compute_layout(1, Offer::definite(390.0, 200.0)).unwrap();
+    assert_eq!(k.node(3).unwrap().frame.height, 100.0);
 }
 
 fn height(k: &mut Kernel, value: &str) -> f32 {

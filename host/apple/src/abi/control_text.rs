@@ -40,10 +40,19 @@ impl<D: DataSource> Bridge<D> {
         };
         self.emit(out)
     }
-    /// The screen a `fit-content` sheet's height units resolve against;
-    /// a nonpositive size clears it (LLP 1075.003 §9.11).
-    pub fn screen(&mut self, width: f32, height: f32) -> u32 {
-        let screen = (width > 0.0 && height > 0.0).then_some((width, height));
+    /// The screen a `fit-content` route's viewport units and segments
+    /// resolve against: its size, and `cols × rows` segment rects in the
+    /// input buffer as `exact_segments` takes them; a nonpositive size
+    /// clears it (LLP 1075.003 §9.11).
+    pub fn screen(&mut self, width: f32, height: f32, cols: u32, rows: u32, count: u32) -> u32 {
+        let segments = super::segments::segment_rects(&self.input, count);
+        let screen = (width > 0.0 && height > 0.0).then(|| exact_kernel::Screen {
+            width,
+            height,
+            cols: u8::try_from(cols).unwrap_or(u8::MAX),
+            rows: u8::try_from(rows).unwrap_or(u8::MAX),
+            segments,
+        });
         let out = self
             .host
             .as_mut()

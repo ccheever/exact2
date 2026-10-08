@@ -18,6 +18,7 @@ public final class ExactView: UIView {
     private var lastInsets = UIEdgeInsets.zero
     private var lastFold = ViewportFold.flat
     private var lastScreen: CGSize?
+    private var lastScreenFold = ViewportFold.flat
     /// The hinge's last status from `UIHingeInteraction` (1 closed, 2
     /// partially open, 3 fully open; nil before it reports or without a
     /// hinge), and how many layouts have re-read the division regions since
@@ -288,7 +289,6 @@ public final class ExactView: UIView {
         // presented. A fit-content route resolves its viewport units against
         // it, so no length the sheet measures follows the sheet; every other
         // node keeps the viewport.
-        let fits = presenter.modals.fitsContent
         let screenFrame = whole ? bounds : bounds.inset(by: safeAreaInsets)
         var screen: CGSize? = screenFrame.size
         // The agent's explicit viewport size is shared with web/macOS/Linux.
@@ -315,9 +315,9 @@ public final class ExactView: UIView {
         // posture is folded while any is active or the hinge says it is
         // partially open. Below 27.1 there are none.
         let bent = hingeStatus == 2
-        // Under a fit-content sheet the segments are the screen's too.
-        let fold = fits ? Self.fold(of: self, viewport: screenFrame, size: screen ?? size, hingeBent: bent)
-            : Self.fold(of: container, viewport: frame, size: size, hingeBent: bent)
+        let fold = Self.fold(of: container, viewport: frame, size: size, hingeBent: bent)
+        // The screen's own segments, which a fit-content route reads.
+        let screenFold = Self.fold(of: self, viewport: screenFrame, size: screen ?? size, hingeBent: bent).fold
         if fold.hasFold { presenter.hasFold = true }
         // The regions can trail the hinge's update by a frame (the handler
         // runs before UIKit flips `isActive`), so a reading that disagrees
@@ -343,11 +343,12 @@ public final class ExactView: UIView {
             if session.booted { fit() }
             return
         }
-        // Before the resize, so the sheet's viewport is never laid out with
-        // `vh` its own.
-        if screen != lastScreen {
+        // Before the resize, so a fit-content route is never laid out with
+        // the sheet's viewport as its own.
+        if screen != lastScreen || screenFold != lastScreenFold {
             lastScreen = screen
-            session.screen(screen)
+            lastScreenFold = screenFold
+            session.screen(screen, fold: screenFold)
         }
         if insets != lastInsets {
             lastInsets = insets
@@ -386,8 +387,8 @@ public final class ExactView: UIView {
     /// always: the bake's flat answer must never stand in for the device's,
     /// LLP 1078 D5), and fit the root.
     func rebooted() {
-        // A new runner has no screen: tell it again (Grok's review).
-        lastScreen = nil
+        // A new runner has no screen: tell it again first (Grok's review).
+        if let screen = lastScreen { session.screen(screen, fold: lastScreenFold) }
         if lastInsets != .zero { session.insets(top: lastInsets.top, right: lastInsets.right, bottom: lastInsets.bottom, left: lastInsets.left) }
         session.segments(lastFold)
         reportScheme()

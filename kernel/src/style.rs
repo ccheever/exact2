@@ -28,7 +28,7 @@ pub mod compare;
 pub use compare::Comparison;
 pub mod env;
 pub use env::link as link_segments;
-pub use env::{uses_env, Edge, Env, EnvRefusal, Rect, SegmentVar};
+pub use env::{uses_env, Edge, Env, EnvRefusal, Rect, Screen, SegmentVar};
 /// Link the wide colour forms (`lab()`, `lch()`, `oklab()`, `oklch()`,
 /// `color()`) into every colour row's grammar: native hosts and the compiler
 /// at start, a web artifact by use (LLP 1047 D2, LLP 1056 §8.2).

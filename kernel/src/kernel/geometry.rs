@@ -115,7 +115,7 @@ impl Kernel {
         let slot = key.index;
         let tree_ref = self.layout.as_deref().and_then(LayoutMirror::tree_ref)?;
         let parent = self.arena.parent(slot);
-        let holder = parent.and_then(|p| Some((p, tree_ref.layout(self.arena.taffy(p)?))));
+        let holder = parent.map(|p| (p, self.arena.taffy(p).map(|n| tree_ref.layout(n))));
         let (mut tree, nodes) = LayoutTree::of_subtree(&self.arena, slot);
         let root = nodes[&slot];
         let presented = engine(&mut self.layout).height_samples(self.epoch);
@@ -140,25 +140,48 @@ impl Kernel {
         tree.set_style(root, style);
         // The parent, as the containing block: its published width, its
         // resolved edges, no height; positioned, so it holds what the box
-        // positions.
+        // positions. A horizontal edge of its that reads the environment is
+        // resolved in the box's (the screen's, for a fit-content route), not
+        // the sheet's it was laid out in. A viewport length on the parent's
+        // own width, or on any farther ancestor, still follows the sheet
+        // (LLP 1075.003 §9.11, the limitation).
         let lp = LengthPercentage::length;
         let mut outer = match holder {
             Some((p, _)) => taffy_style(&self.arena, p),
             None => taffy::style::Style::default(),
         };
-        let width = holder.map_or(frame.width, |(p, _)| self.arena.frame(p).width);
-        outer.box_sizing = taffy::style::BoxSizing::BorderBox;
-        outer.size = taffy::geometry::Size {
-            width: Dimension::length(width),
-            height: Dimension::auto(),
-        };
-        outer.min_size = taffy::geometry::Size {
-            width: LengthPercentageAuto::auto(),
-            height: LengthPercentageAuto::auto(),
-        };
-        outer.max_size = outer.min_size;
-        if let Some((_, laid)) = holder {
-            let (pad, border) = (laid.padding, laid.border);
+        let mut width = holder.map_or(frame.width, |(p, _)| self.arena.frame(p).width);
+        if let Some((p, Some(laid))) = holder {
+            let (mut pad, mut border) = (laid.padding, laid.border);
+            let before = pad.left + pad.right + border.left + border.right;
+            let own = self.arena.style(p);
+            let here = own.to_taffy(self.arena.node_type(p), &self.arena.env_for(slot));
+            let reads = |d: crate::style::Dimension| {
+                matches!(
+                    d,
+                    crate::style::Dimension::Viewport(..)
+                        | crate::style::Dimension::Compare(..)
+                        | crate::style::Dimension::Segment(..)
+                )
+            };
+            let length = |l: LengthPercentage| {
+                let raw = l.into_raw();
+                (raw.tag() == taffy::CompactLength::LENGTH_TAG).then(|| raw.value())
+            };
+            if reads(own.padding_left) {
+                pad.left = length(here.padding.left).unwrap_or(pad.left);
+            }
+            if reads(own.padding_right) {
+                pad.right = length(here.padding.right).unwrap_or(pad.right);
+            }
+            border.left = length(here.border.left).unwrap_or(border.left);
+            border.right = length(here.border.right).unwrap_or(border.right);
+            // Its authored width is the content box's under `content-box`
+            // (CSS's default): that stays and the edges grow around it;
+            // under `border-box` the border box stays.
+            if own.box_sizing == crate::BoxSizing::ContentBox {
+                width += pad.left + pad.right + border.left + border.right - before;
+            }
             outer.padding = taffy::geometry::Rect {
                 left: lp(pad.left),
                 right: lp(pad.right),
@@ -172,6 +195,17 @@ impl Kernel {
                 bottom: lp(border.bottom),
             };
         }
+        let width = width.max(0.0);
+        outer.box_sizing = taffy::style::BoxSizing::BorderBox;
+        outer.size = taffy::geometry::Size {
+            width: Dimension::length(width),
+            height: Dimension::auto(),
+        };
+        outer.min_size = taffy::geometry::Size {
+            width: LengthPercentageAuto::auto(),
+            height: LengthPercentageAuto::auto(),
+        };
+        outer.max_size = outer.min_size;
         outer.margin = taffy::geometry::Rect {
             left: LengthPercentageAuto::length(0.0),
             right: LengthPercentageAuto::length(0.0),

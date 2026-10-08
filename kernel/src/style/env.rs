@@ -182,15 +182,46 @@ pub struct Env {
     /// Optional per-size button fonts. Separate from `ControlTextStyles` so
     /// existing hosts' control-font struct literals remain source compatible.
     pub button_fonts: Option<crate::ButtonFonts>,
-    /// The screen's width and height — the window's own viewport, whatever
+    /// The screen — the window's own viewport and its segments, whatever
     /// is presented — on a host that can lay a route out in a viewport the
     /// route sizes (an iOS `fit-content` sheet, LLP 1075.003 §9.11). A
     /// `fit-content` route and everything under it resolve the viewport
-    /// units against it ([`crate::NodeArena::env_for`]), as CSS's resolve
-    /// against the viewport and never a dialog, so no length follows the
-    /// sheet it sizes; every other node keeps the layout viewport. `None`:
-    /// the layout viewport everywhere.
-    pub screen: Option<(f32, f32)>,
+    /// units and the segment variables against it
+    /// ([`crate::NodeArena::env_for`]), as CSS's resolve against the
+    /// viewport and never a dialog, so no length follows the sheet it
+    /// sizes; every other node keeps the layout viewport and its segments.
+    /// `None`: the layout viewport everywhere.
+    pub screen: Option<Screen>,
+}
+
+/// The window's own viewport while a route may be laid out in a smaller
+/// one ([`Env::screen`]): its size, and its segment grid as [`Env`]'s (none
+/// for one segment).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Screen {
+    /// Width in points.
+    pub width: f32,
+    /// Height in points.
+    pub height: f32,
+    /// Columns of segments, from 1.
+    pub cols: u8,
+    /// Rows of segments, from 1.
+    pub rows: u8,
+    /// The segments, row-major, in the screen's coordinates — empty for one.
+    pub segments: Vec<Rect>,
+}
+
+impl Screen {
+    /// A screen of one segment.
+    pub fn sized(width: f32, height: f32) -> Screen {
+        Screen {
+            width,
+            height,
+            cols: 1,
+            rows: 1,
+            segments: Vec::new(),
+        }
+    }
 }
 
 impl Default for Env {
@@ -236,9 +267,16 @@ impl Env {
             .is_none_or(crate::ButtonFonts::is_valid)
             && Edge::ALL.iter().all(|e| self.inset(*e).is_finite())
             && self.segments.iter().all(Rect::is_finite)
-            && self
-                .screen
-                .is_none_or(|(w, h)| w.is_finite() && h.is_finite() && w >= 0.0 && h >= 0.0)
+            && self.screen.as_ref().is_none_or(|s| {
+                s.width.is_finite()
+                    && s.height.is_finite()
+                    && s.width >= 0.0
+                    && s.height >= 0.0
+                    && s.segments.iter().all(Rect::is_finite)
+                    && self
+                        .with_segments(s.cols, s.rows, s.segments.clone())
+                        .segments_consistent()
+            })
             && self
                 .control_text_styles
                 .as_ref()
@@ -289,7 +327,7 @@ impl Env {
 
     /// This environment with the screen a `fit-content` route's viewport
     /// units resolve against (`None`: the layout viewport).
-    pub fn with_screen(&self, screen: Option<(f32, f32)>) -> Env {
+    pub fn with_screen(&self, screen: Option<Screen>) -> Env {
         Env {
             screen,
             ..self.clone()
@@ -297,12 +335,15 @@ impl Env {
     }
 
     /// This environment as a `fit-content` route resolves it: the viewport
-    /// is the screen. `None` without a screen.
+    /// and its segments are the screen's. `None` without a screen.
     pub fn screened(&self) -> Option<Env> {
-        let (viewport_width, viewport_height) = self.screen?;
+        let s = self.screen.as_ref()?;
         Some(Env {
-            viewport_width,
-            viewport_height,
+            viewport_width: s.width,
+            viewport_height: s.height,
+            cols: s.cols,
+            rows: s.rows,
+            segments: s.segments.clone(),
             ..self.clone()
         })
     }
