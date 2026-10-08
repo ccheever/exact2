@@ -1,7 +1,7 @@
 use Icon from "./icons.contract"
 use Settings from "./shapes.contract"
 use Snapshot from "./shapes.contract"
-use PickerCatalog from "./composer-shapes.contract"
+use PickerCatalog, PickerTarget from "./composer-shapes.contract"
 use ModelPicker from "./model-picker.contract"
 use Viewport from "./shapes.contract"
 use Ink from "./shapes.contract"
@@ -29,6 +29,7 @@ use R4PublishDialog from "./r4-git-publish.contract"
 use CommandPalette from "./palette.contract"
 use PaletteView from "./palette.contract"
 use VideoPreviewDialog from "./r4-composer.contract"
+use ResetCreditDialog from "./usage-bars.contract" // usage-reset-and-feedback
 use R8TableMenu from "./r8-keys-table-menu.contract"
 use R9CheckoutDialog from "./r9-connect.contract" // lane r9-connect
 
@@ -68,7 +69,7 @@ component ProjectPicker
                     text project.name font-size="0.875rem" font-weight=500 class=Ink
                     text project.path font-size="0.6875rem" class=Muted line-clamp=2
               when length(data.projects) == 0
-                text "Add a workspace folder to start your first thread." font-size="0.8125rem" line-height="0.09375rem" class=Muted padding="0.75rem"
+                text "Add a workspace folder to start your first thread." font-size="0.8125rem" line-height=1.5 class=Muted padding="0.75rem"
 
 // The first-run "Set up T3 Code" wizard (pages-welcome.contract).
 component WelcomeLayer
@@ -91,12 +92,15 @@ component WelcomeLayer
     welcomeSetup: action
     providerUi: action
     welcomeFinish: action
+    // managed-codex-chatgpt: the Codex rows' setup commands (providerOp's setup: queue) and that queue's pending.
+    providerOp: action
+    setupBusy: bool
   view
     when welcome.show
       when viewport.prefersColorScheme == "dark"
-        WelcomeWizard(view=welcome, scheme="dark", viewportHeight=viewport.height, step=welcomeStep, busy=commandPending, error=modalError, link=welcomeLink, pairOpen=welcomePairOpen, helpOpen=welcomeHelpOpen, go=welcomeGo, local=welcomeImport, editLink=welcomeEditLink, pair=welcomePair, togglePair=welcomeTogglePair, toggleHelp=welcomeToggleHelp, copy=prCopy, setup=welcomeSetup, chatgpt=providerUi("open", "chatgpt"), finish=welcomeFinish)
+        WelcomeWizard(view=welcome, scheme="dark", viewportHeight=viewport.height, step=welcomeStep, busy=commandPending, error=modalError, link=welcomeLink, pairOpen=welcomePairOpen, helpOpen=welcomeHelpOpen, go=welcomeGo, local=welcomeImport, editLink=welcomeEditLink, pair=welcomePair, togglePair=welcomeTogglePair, toggleHelp=welcomeToggleHelp, copy=prCopy, setup=welcomeSetup, chatgpt=providerUi("open", "chatgpt"), finish=welcomeFinish, setupOp=providerOp, setupBusy=setupBusy, ui=providerUi)
       else
-        WelcomeWizard(view=welcome, scheme="light", viewportHeight=viewport.height, step=welcomeStep, busy=commandPending, error=modalError, link=welcomeLink, pairOpen=welcomePairOpen, helpOpen=welcomeHelpOpen, go=welcomeGo, local=welcomeImport, editLink=welcomeEditLink, pair=welcomePair, togglePair=welcomeTogglePair, toggleHelp=welcomeToggleHelp, copy=prCopy, setup=welcomeSetup, chatgpt=providerUi("open", "chatgpt"), finish=welcomeFinish)
+        WelcomeWizard(view=welcome, scheme="light", viewportHeight=viewport.height, step=welcomeStep, busy=commandPending, error=modalError, link=welcomeLink, pairOpen=welcomePairOpen, helpOpen=welcomeHelpOpen, go=welcomeGo, local=welcomeImport, editLink=welcomeEditLink, pair=welcomePair, togglePair=welcomeTogglePair, toggleHelp=welcomeToggleHelp, copy=prCopy, setup=welcomeSetup, chatgpt=providerUi("open", "chatgpt"), finish=welcomeFinish, setupOp=providerOp, setupBusy=setupBusy, ui=providerUi)
 
 // Window overlays above everything: model picker, palette, thread details, title menu, dialogs, toasts.
 component WindowOverlays
@@ -109,6 +113,7 @@ component WindowOverlays
     catalog: PickerCatalog
     viewport: Viewport
     modelQuery: string
+    modelTarget: PickerTarget
     composerLeft: number
     resting: bool
     commandPending: bool
@@ -158,7 +163,7 @@ component WindowOverlays
     toastAct: action
   view
     when modelsOpen
-      ModelPicker(data=data, session=popoverSession, catalog=catalog, viewport=viewport, query=modelQuery, left=composerLeft, bottom=(data.composer.toolbarTop > 0 ? viewport.height - data.composer.toolbarTop - (resting ? 4 : 2) + 4 : (resting ? 75 : 71) * rem / 16), busy=commandPending, closePicker=closeModels, select=selectModel, search=searchModels, chooseRail=selectProvider, command=command, openSetup=openProviderSettings)
+      ModelPicker(data=data, session=popoverSession, catalog=catalog, viewport=viewport, query=modelQuery, left=composerLeft, bottom=(data.composer.toolbarTop > 0 ? viewport.height - data.composer.toolbarTop - (resting ? 4 : 2) + 4 : (resting ? 75 : 71) * rem / 16), busy=commandPending, closePicker=closeModels, select=selectModel, search=searchModels, chooseRail=selectProvider, command=command, openSetup=openProviderSettings, anchor=modelTarget)
     when paletteOpen
       CommandPalette(view=palette, query=paletteQuery, highlight=paletteHighlight, scroll=paletteScroll, busy=paletteBusy, viewport=viewport, scheme=viewport.prefersColorScheme, edit=paletteEdit, onKey=paletteKey, run=paletteRun, hover=paletteHover, close=paletteClose, back=paletteKey("Back"), flag=paletteFlag)
     when detailsOpen and conversationWidth < 984 and viewport.prefersColorScheme == "dark"
@@ -189,9 +194,12 @@ component WindowOverlays
       R4DeviceSetup(device=shell.panel.device, scheme=viewport.prefersColorScheme, viewportHeight=viewport.height, local=chatLocal, command=command)
     // server-update-banner: requestConfirmDialog before a desktop-managed server's app updates (server-update-notices.ts).
     when data.serverUpdate.confirmTitle != ""
-      AppConfirm(title=data.serverUpdate.confirmTitle, body=data.serverUpdate.confirmBody, destructive=false, busy=commandPending, cancel=command("su:cancel", "", "", 0), confirm=command("su:confirm", "", "", 0))
+      AppConfirm(title=data.serverUpdate.confirmTitle, body=data.serverUpdate.confirmBody, destructive=false, busy=commandPending, confirmId="server-update-confirm", cancel=command("su:cancel", "", "", 0), confirm=command("su:confirm", "", "", 0))
+    // usage-reset-and-feedback: the /usage-limits banner's reset credit confirm (ResetCreditDialog, outside the banner).
+    when data.composer.resetConfirm != ""
+      ResetCreditDialog(target=data.composer.resetConfirm, busy=commandPending, command=command)
     when confirmOp != ""
-      AppConfirm(title=confirmTitle, body=confirmBody, destructive=confirmDestructive, busy=commandPending, cancel=confirmUi(false), confirm=confirmUi(true))
+      AppConfirm(title=confirmTitle, body=confirmBody, destructive=confirmDestructive, busy=commandPending, confirmId="app-confirm", cancel=confirmUi(false), confirm=confirmUi(true))
     when viewport.prefersColorScheme == "dark"
       ToastStack(toasts=shell.toasts, width=min(22.5 * rem, viewport.width - (viewport.width >= 640 ? 4 : 2) * rem), top=(52 + (viewport.width >= 640 ? 2 : 1) * rem), right=((viewport.width >= 640 ? 2 : 1) * rem), expanded=toastHover, still=viewport.prefersReducedMotion, hover=toastHovering, act=toastAct)
     else

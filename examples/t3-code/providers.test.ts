@@ -19,6 +19,7 @@ const fixtureProvider = { instanceId: 'exact_fixture', driver: 'codex', enabled:
   versionAdvisory: { status: 'behind_latest', latestVersion: '0.160.0', updateCommand: null } };
 
 class FakeServer implements ProviderHost {
+  ids?: (native: Native, count: number) => Promise<string[]>;
   ready = true; writable = true; local = { favoriteModels: [] as string[] };
   calls: Obj[] = [];
   settings: Obj = { providers: legacy(), providerInstances: { exact_fixture: { driver: 'codex', displayName: 'Exact verification fixture', enabled: true,
@@ -243,11 +244,20 @@ test('usage hubs add with a host-derived id and remove only that entry', async (
   expect(obj(writes(server).at(-1)!.payload).patch).toEqual({ usageLimitSources: { 'cliproxy-hub.example.ts.net-8318': null } });
 });
 
-test('a ChatGPT account becomes one managed Codex instance with a free id', async () => {
-  const server = new FakeServer();
+test('a ChatGPT account becomes one managed Codex instance with a uuid id (AddCodexAccountDialog.tsx:50-53)', async () => {
+  const server = new FakeServer(), uuids = ['5f0c7d2e-1111-4a5b-9c3d-000000000001', '5f0c7d2e-2222-4a5b-9c3d-000000000002'];
+  server.ids = async (_native, count) => uuids.splice(0, count);
+  const before = JSON.stringify(obj(server.settings.providerInstances).exact_fixture);
   await expect(runProviderOp(server, native, 'provider-chatgpt', '', JSON.stringify({ key: ' ', value: '' }))).rejects.toThrow('Enter an account name.');
   await runProviderOp(server, native, 'provider-chatgpt', '', JSON.stringify({ key: 'Personal', value: '' }));
   await runProviderOp(server, native, 'provider-chatgpt', '', JSON.stringify({ key: 'Personal', value: '' }));
-  expect(obj(server.settings.providerInstances).codex_chatgpt_personal).toEqual({ driver: 'codex', displayName: 'ChatGPT - Personal', enabled: true, config: { enabled: true, setupMode: 'managed' } });
-  expect(Object.keys(obj(server.settings.providerInstances))).toContain('codex_chatgpt_personal_2');
+  const instances = obj(server.settings.providerInstances);
+  // "The ID is routing identity; the name is editable and need not be unique."
+  for (const uuid of ['5f0c7d2e-1111-4a5b-9c3d-000000000001', '5f0c7d2e-2222-4a5b-9c3d-000000000002'])
+    expect(instances[`codex_${uuid}`]).toEqual({ driver: 'codex', displayName: 'ChatGPT - Personal', enabled: true, config: { enabled: true, setupMode: 'managed' } });
+  expect(Object.keys(instances).filter(id => id.startsWith('codex_chatgpt'))).toEqual([]);
+  expect(JSON.stringify(instances.exact_fixture)).toBe(before);
+  // Each create is one atomic mutation that names only the new instance.
+  const creates = writes(server).map(call => obj(obj(call.payload).providerInstanceMutation)).filter(mutation => mutation.operation === 'create');
+  expect(creates.map(mutation => mutation.instanceId)).toEqual(['codex_5f0c7d2e-1111-4a5b-9c3d-000000000001', 'codex_5f0c7d2e-2222-4a5b-9c3d-000000000002']);
 });

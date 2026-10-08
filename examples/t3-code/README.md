@@ -149,7 +149,11 @@ new version and shares that state with Settings › Connections (`server-update.
   slash and @ menus, file and image attachments (videos as first-frame tiles that play in
   an expanded preview; removing an image the prompt references asks first and removes
   every reference), stash, multi-model drafts that start one worktree thread per model,
-  the resume-with-less-context banner. The composer overlays the transcript, which keeps a
+  the resume-with-less-context banner, `/usage-limits` (each account's windows as bars with
+  pace and countdown, Manage usage, banked reset credits with "Use reset" behind a confirm;
+  `usage-limits.ts`, `usage-bars.contract`) and Codex `/feedback [reason]` (uploads the
+  thread with a banner, Copy ID and two local rows; `composer-feedback.ts`). Both long
+  writes are detached requests whose reply joins the inbox (`composer-replies.ts`). The composer overlays the transcript, which keeps a
   measured reservation at its end (`r4-composer-overlay.ts`); with Chat width Wide or Full
   the context strip's workspace control is the desktop Select.
 - Requests: approvals, single/multiple-choice and free-text questions.
@@ -273,7 +277,18 @@ before the server is ready, exact2 #117). The window keeps its frame across laun
 (the host's frame autosave, restored after the window's final style since exact2 #113). Settings ›
 Connections shows "This machine" (`this-machine.ts`): the Local environment switch, which asks
 first and then stops or starts the embedded server in place (the reference relaunches the app,
-which exact2 cannot, #122), and the Version row. While the embedded server runs, `t3 app <dir>`
+which exact2 cannot, #122), and the Version row. Under it (20261005-this-machine-network-access,
+`connections-network.ts`) are Network access ("Reachable at <url>" and its endpoints; the server
+binds 0.0.0.0 while it is on, loopback otherwise, and refuses when no LAN or Tailscale IPv4
+exists), Tailscale HTTPS (the server runs `tailscale serve` on the chosen port; the app reads
+`tailscale status --json` only while network access or Serve is on, cached 60 s,
+`T3LocalNetwork.swift`), and the Authorized clients fold: pairing links with their permissions,
+expiry, Share (endpoint choice, link, code, QR; HTTPS endpoints pair through the hosted app,
+`pairing-urls.ts`) and Revoke, and the paired clients live from `subscribeAuthAccess`
+(`auth-access.ts`). Each change restarts the embedded server in place with the new envelope.
+The three settings and the default endpoint are top-level keys of `t3-code.json`; a created
+link's credential stays in memory.
+While the embedded server runs, `t3 app <dir>`
 (the server's own CLI; T3 Code's `t3`, or `<T3 home>/runtime/versions/<version>/t3`) reaches the app
 on `<$TMPDIR>/t3code-<uid>/<24 hex of sha256(<T3 home>/userdata)>.sock` (20261005-app-activation,
 `T3AppControl.swift`, `desktop-activation.ts`): the app comes to the front, adds the folder as a

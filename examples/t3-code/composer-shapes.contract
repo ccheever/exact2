@@ -2,6 +2,7 @@ use R5Probe from "./r5-composer.contract"
 use R4EnvOption from "./r4-git-shapes.contract"
 use StripPrTip from "./r7-handoff.contract"
 use R9CheckoutItem from "./r9-connect-shapes.contract" // lane r9-connect
+use UsageAccount from "./usage-bars.contract" // usage-reset-and-feedback: the /usage-limits body
 // The composer's projected toolbar/menu rows (composer-presentation.ts) and the
 // model picker catalog (model-catalog.ts).
 shape ComposerTrait
@@ -58,6 +59,11 @@ shape ComposerNotice
   // auto-balance: the multi-machine update banner's popover rows, and its title's accessible name.
   machines: list<NoticeMachine>
   menuLabel: string
+  // usage-reset-and-feedback: an account address as the description (redacted until clicked, then `redactAfter`) and the /usage-limits body.
+  redact: string
+  redactMask: string
+  redactAfter: string
+  usage: list<UsageAccount>
 // auto-balance: one machine of the banner's popover (status idle, running or failed; a manual copy action or note).
 shape NoticeMachine
   id: string
@@ -175,6 +181,8 @@ shape ComposerView
   syncStatus: string
   activity: string
   notices: list<ComposerNotice>
+  // usage-reset-and-feedback: the account whose reset credit confirm is open ('' when none).
+  resetConfirm: string
   implementX: number
   implementWidth: number
   queued: list<ComposerQueued>
@@ -273,6 +281,8 @@ shape PickerRow
   highlighted: bool
   expanded: bool
   checked: bool
+  // settings-model-picker: getModelDisabledReason; a disabled row cannot be chosen or favorited.
+  reason: string
 shape PickerRail
   id: string
   index: number
@@ -305,3 +315,12 @@ shape PickerCatalog
   providers: list<PickerRail>
   railIndex: number
   setup: list<PickerSetup>
+  chatgptSharing: bool
+  // The active model is a legacy one: its section starts expanded (expandedLegacyInstances).
+  legacyDefault: bool
+// settings-model-picker: the row the open picker chooses for ("" for the composer) and its trigger's window-space edges.
+shape PickerTarget
+  id: string
+  top: number
+  bottom: number
+  left: number

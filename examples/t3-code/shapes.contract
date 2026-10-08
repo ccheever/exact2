@@ -8,6 +8,7 @@ use MessageFile from "./timeline-attachments.contract"
 use ComposerView from "./composer-shapes.contract"
 use SnoozePreset from "./sidebar-shapes.contract"
 use Thread from "./sidebar-shapes.contract"
+use ChatGptPlanNotice from "./codex-setup.contract"
 use SidebarView from "./sidebar-shapes.contract"
 use LegacySidebarView from "./legacy-sidebar-shapes.contract"
 use Look from "./settings-appearance-look.contract"
@@ -231,6 +232,20 @@ shape DiffItem
   expandable: bool
   entry: string
   text: string
+// Appearance › Typography's code sample (settings-font-previews.ts): the sample patch's
+// unified rows, each with its tone, number and syntax/emphasis segments.
+shape FontDiffLine
+  id: string
+  tone: string
+  number: string
+  segments: list<DiffSegment>
+shape FontDiffPreview
+  path: string
+  status: string
+  additions: number
+  deletions: number
+  scheme: string
+  lines: list<FontDiffLine>
 // diff-review: one row of the Diff panel's file tree (diff-tree.ts).
 shape DiffTreeRow
   id: string
@@ -273,6 +288,8 @@ shape Snapshot
   alertClip: string
   snapshotDrafts: list<SnapshotDraft>
   snapshotOwner: string
+  // managed-codex-chatgpt: ChatGptWelcomeCoordinator's next "Your ChatGPT plan is connected" (chatgpt-plan.ts).
+  chatgptPlan: list<ChatGptPlanNotice>
   revision: number
   available: bool
   connected: bool

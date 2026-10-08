@@ -101,6 +101,13 @@ export async function watchProviderSetup(host: Host, native: Native, owner: stri
   }
 }
 
+/** The instances some owner's rows show (their auth streams): managed-codex-chatgpt's mounted setups. */
+export function watchedSetup(host: Host): Set<string> {
+  const ids = new Set<string>();
+  for (const entry of store(host).owners.values()) entry.auth.forEach(id => ids.add(id));
+  return ids;
+}
+
 /** `${flowId}:${interactionId}`: the identity of the auth form a draft belongs to. */
 export function authDraftId(state: Obj | null): string { return `${str(state?.flowId)}:${str(obj(state?.interaction).id)}`; }
 /** The browser or device-code link, else the flow's authorization URL. */

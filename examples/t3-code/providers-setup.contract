@@ -17,6 +17,7 @@ use CnMenuItem from "./settings-b-kit.contract"
 use CnGlyph from "./settings-b-kit.contract"
 use RedactedText from "./redacted-text.contract"
 use AppConfirm from "./shell-panels.contract"
+use CodexSetup from "./codex-setup.contract"
 
 shape ProviderAuthMethod
   id: string
@@ -87,6 +88,7 @@ shape ProviderSetupView
   showEnable: bool
   runtime: list<ProviderRuntime>
   account: list<ProviderAccount>
+  codex: list<CodexSetup>
   cursorNote: string
 shape ProviderWizardAuth
   instanceId: string
@@ -409,7 +411,7 @@ component ProviderSetupConfirm
     ui("close", "")
     focus(what == "setup-logout" ? `provider-sign-out-${instanceId}` : `provider-runtime-remove-${instanceId}`)
   view
-    AppConfirm(title=title, body=body, destructive=false, busy=busy, cancel=cancel, confirm=accept)
+    AppConfirm(title=title, body=body, destructive=false, busy=busy, confirmId="provider-setup-confirm", cancel=cancel, confirm=accept)
 
 // ProviderWizardAuthenticationStep's panel: the Account row once the created agent
 // can sign in (or is signed in), else a plain Account row.

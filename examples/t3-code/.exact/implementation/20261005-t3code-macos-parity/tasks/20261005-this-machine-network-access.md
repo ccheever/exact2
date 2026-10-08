@@ -1,13 +1,13 @@
 ---
 name: 20261005-this-machine-network-access
 plan: 20261005-t3code-macos-parity
-implementation: planned
-verification: unverified
-delivery: none
+implementation: implemented
+verification: verified-with-unverified-rows
+delivery: draft
 repository: https://github.com/ccheever/exact2
-base_branch: daehyeon/t3-code
-branch: null
-pr_url: null
+base_branch: feat(example)/t3-code
+branch: feat(example)/t3-code-this-machine-network-access
+pr_url: https://github.com/ccheever/exact2/pull/248
 verified_commit: null
 ---
 
@@ -81,11 +81,11 @@ Do not grow `app.contract` or `client.ts`; put the section in a new `.contract` 
 
 | Kind | Readable task/issue/decision | Remote reference | Required condition | Resolution evidence |
 | --- | --- | --- | --- | --- |
-| merged task PR | [20261005-hot-file-split](closed/20261005-hot-file-split.md) | pending | Merged into `daehyeon/t3-code` (common prerequisite: room and per-area seams in the shared files) | pending |
-| merged task PR | [20261005-clone-on-exact2-main](20261005-clone-on-exact2-main.md) | pending | Merged | pending |
-| merged task PR | [20261005-desktop-oracle-and-trace](20261005-desktop-oracle-and-trace.md) | pending | Merged | pending |
-| merged task PR | [20261005-local-primary-environment](closed/20261005-local-primary-environment.md) | pending | Merged | pending |
-| recorded decision | U4 decided (relaunch); U8 (hosted link), U9 (Tailscale verification) | none | U8 and U9 answered at `prepare` | U4: user 2026-10-05 |
+| merged task PR | [20261005-hot-file-split](closed/20261005-hot-file-split.md) | [#147](https://github.com/ccheever/exact2/pull/147) | Merged into `daehyeon/t3-code` (common prerequisite: room and per-area seams in the shared files) | merged |
+| merged task PR | [20261005-clone-on-exact2-main](20261005-clone-on-exact2-main.md) | [#99](https://github.com/ccheever/exact2/pull/99) | Merged | the clone is on exact2 in `feat(example)/t3-code` (this PR's base) |
+| merged task PR | [20261005-desktop-oracle-and-trace](20261005-desktop-oracle-and-trace.md) | none | Merged | blocked: not built (user decision 2026-10-06); the Trace row and the oracle comparisons stay blocked |
+| merged task PR | [20261005-local-primary-environment](closed/20261005-local-primary-environment.md) | [#237](https://github.com/ccheever/exact2/pull/237) | Merged | merged (`applyLocalSetting` is the shared seam) |
+| recorded decision | U4 decided (relaunch); U8 (hosted link), U9 (Tailscale verification) | none | U8 and U9 answered at `prepare` | U4: user 2026-10-05; U8 (keep the hosted link) and U9 (stub provider only) taken provisionally for this PR (coordinator brief 2026-10-08), user decision pending |
 
 ## Issue assessment at preparation
 
@@ -127,14 +127,102 @@ Required environment: Xcode 27.0, pinned Bun, the staged runtime, lane ports 160
 
 ## Progress
 
-Planned.
+Implemented on `feat(example)/t3-code-this-machine-network-access` (2026-10-08) from `feat(example)/t3-code` `da4f4512f`,
+with `d82fb6a47` (#244, records only) merged in. Reference `1e2ecbd975`. Decisions taken for this PR, each
+**provisional, user decision pending**: U8 (HTTPS endpoints pair through the hosted app on `app.t3.codes`, as the
+reference; it needs no T3 Connect, so nothing here is blocked by X38) and U9 (Tailscale verified with the stub
+provider only; live Tailscale is blocked by U9, "a tailnet the user provides"). U4 (relaunch) is decided; exact2
+has no process relaunch (#122 / X45), so every change goes through `applyLocalSetting`'s restart-in-place stopgap.
+
+| Scope item | Built | Where |
+| --- | --- | --- |
+| 1. Exposure state | `DesktopServerExposure` ported (`resolveLanAdvertisedHost`, `resolveDesktopServerExposure`, `resolveRuntimeState`, `requiresBackendRelaunch`, `resolveDesktopCoreAdvertisedEndpoints`, the three typed errors, `configureFromSettings`/`setMode`/`setTailscaleServeEnabled`/`getAdvertisedEndpoints`) with its 10 tests by name; `serverExposureMode`, `tailscaleServeEnabled`, `tailscaleServePort` and `defaultAdvertisedEndpointKey` are top-level keys of `t3-code.json`. At launch the native side binds by the same rule (`T3LocalExposure.atLaunch`: a network request with no LAN and no Tailscale IPv4 falls back to loopback, keeping the preference). A change restarts the embedded server in place with the new envelope (`applyLocalSetting` → `localBackendRestart`), reconnects this machine, and on a failed restart puts the mode back. | `server-exposure.ts`, `this-machine.ts`, `T3LocalBackend.swift` (`restart`, `startConfig(exposure:)`), `T3LocalNetwork.swift` |
+| 2. Interfaces and Tailscale | `getifaddrs` in the shape of `os.networkInterfaces()` (2 tests by name); `tailscale status --json` from the login shell's PATH with the 1.5 s limit, stderr diagnostics that never quote the CLI, cached 60 s and read only while network access or Serve is on; the HTTPS probe (2xx on `/.well-known/t3/environment`, 2.5 s). Facts answer at once from the caches and refresh in the background, announcing `t3.local`, so a read never waits on the CLI. The tailscale package's pure functions, `resolveTailscaleAdvertisedEndpoints` (4 tests) and `createAdvertisedEndpoint` ported. `tailscale serve` runs in the server. | `T3LocalNetwork.swift`, `tailscale.ts`, `advertised-endpoint.ts`, `macos/tests/local-backend/network.swift` |
+| 3. Connections rows | Network access (switch "Enable network access"; "Limited to this machine." / "Loading…" / "Reachable at <url>" with "+N"/"Hide" and `aria-expanded` / the three fallbacks; red status text), the endpoint rail (label, URL with tooltip, Default tag and rail, "Set as default", "Setup required", Setup/Disable), Tailscale HTTPS (switch "Enable Tailscale HTTPS" and the three descriptions), the dialogs "Enable/Disable network access?", "Set up Tailscale HTTPS?" (HTTPS port, "Enter a port from 1 to 65535.", the endpoint preview, "Pending MagicDNS endpoint") and "Disable Tailscale HTTPS?", "Restarting…", the three error toasts. No T3 Connect or WSL rows. | `connections-network.ts`, `connections-network.contract`, `connections-network-dialogs.contract`, `connections.contract`, `app-settings.contract` |
+| 4. Authorized clients | The fold ("N clients · M pairing links", Revoke others / "Revoking…", Create link); the stream `subscribeAuthAccess` (focused or fleet primary, while the page is open) reduced by `applyAuthAccessStreamEvent` (2 tests by name); the six `/api/auth/*` calls through `localAccess` with the embedded server's bearer; Create pairing link (label, Read only / Standard, eight permissions, the error and the access:write warning, "Creating…"); pairing rows (dot with "Link created at", "Expires in …" each second and gone at expiry, "N scopes" with "Granted scopes" after 250 ms, Share: "Reach this machine via", the URL, Copy link, Copy code only, the 168 pt QR or the loopback note; Copy code; Revoke / "Revoking…"; "Create a new link to share from this client."); client rows (live dot and "Connected for …", label or "<os> · <browser>", device bits, scopes, "This device", Revoke); the reveal dialog; every toast. Credentials stay in memory by link id. | `auth-access.ts`, `connections-network.ts`, the two contracts, `keep-alive.ts`, `T3Module+Local.swift` |
+| 5. Pairing URLs | `resolveDesktopPairingUrl`, `resolveHostedPairingUrl`/`buildHostedPairingUrl` (U8), `isQrShareableEndpoint`, `selectQrEndpointOption` (6 tests by name with the 2 pairing URL tests), `selectPairingEndpoint`, `endpointDefaultPreferenceKey`, `endpointShareHint`; this app's own pairing reads both link forms back. | `pairing-urls.ts` |
+
+`app.contract` stays at 1,500 lines (two existing lines widened: the Connections page takes the clock, the provider
+tick also ticks Connections while Authorized clients show); `client.ts` is unchanged.
+
+### Acceptance results
+
+Live rows ran as one agent drive of the branch build (run 4, 2026-10-08 18:42–18:45 UTC; lane home `target/lane`,
+port 16101, `tools/network-lane/tailscale` first on PATH, `tools/network-lane/pair-client.mjs` as the second
+client). The Mac's screen was locked for the whole session (`CGSSessionScreenIsLocked`), so agent screenshots and
+pixel samples were empty (all transparent) and real input could not run: the drive read the view tree, the focus
+and the server. Record: `this-machine-network-access/drive-a-run4.txt` on `t3-code-evidence`.
+
+| Criterion | Result | Proof |
+| --- | --- | --- |
+| Ported tests | Pass with the original names: exposure 10, Tailscale provider 4, tailscale package 5 (TS) and its process half 5 (Swift), `applyAuthAccessStreamEvent` 2, pairing URLs 2, QR logic 6, network interfaces 2 (Swift) | `bun test`; `macos/tests/local-backend` 61; `tests.txt` |
+| Network access on | Pass for state and effect: the dialog's words and "Restart and enable", "Restarting…"; server pid 73949 (127.0.0.1) → 77112 (0.0.0.0); `lsof` `t3 78817 *:16101`; rows This machine, Local network (Default), Tailscale IP; "Reachable at http://192.168.1.225:16101/" "+2"/"Hide"; Set as default moved the rail and the summary. png pairs **deferred to the real-input batch — screen locked (user away)** | drive A run 4 |
+| No network address | Pass with the interface stub (error text, toast "Could not update network access", local-only kept, dialog closed). Live with every interface down **deferred to the real-input batch — screen locked (user away)** (attended: the user's Wi-Fi off) | `connections-network.test.ts`, `server-exposure.test.ts` |
+| Tailscale | Pass with the stub (U9): preview `…:8443`; `abc`, `0`, `70000` show "Enter a port from 1 to 65535."; restart with Serve 8443 (pid 78817); the server ran `serve --bg --https=8443 http://127.0.0.1:16101`, `serve status` showed the proxy, `serve --https=8443 off` at quit; the endpoint stays "Setup required" (the stub's name never answers the probe); the app read `tailscale status` once a minute. **Blocked by U9**: the HTTPS endpoint turning available and Disable live (unit-tested) | drive A run 4; stub call log |
+| Create and share | Pass for state and pasteboard: Read only → 1 scope, Standard → 5; expiry ticks 4m 52s → 4m 51s and the row goes at expiry (agent clock +301 s); Copy link put the pairing URL on the pasteboard ("Pairing URL copied"). Second client's view: the second client is a script (no view); here the row appeared at once from the stream. QR decode **deferred to the real-input batch — screen locked (user away)** | drive A run 4 |
+| Pair another client | Pass: the second client redeemed the link (HTTP 200, the five standard scopes, socket open); "Lane phone" listed, "This device" only on T3 Code Desktop; live dot | drive A run 4 |
+| Revoke | Pass: Revoke removed the row and the client's session turned unauthenticated with a 401 for a new websocket ticket; Revoke others: "Revoked 1 other client", same effect. The reference server checks a session when a socket opens and on each request (`apps/server/src/auth/SessionStore.ts` verify), so the open socket is not closed by the revoke itself; this corrects the ticket's expected result | drive A run 4; client logs |
+| Trace | **Blocked**: user decision 2026-10-06 (oracle and trace tools not built) | — |
+| States | Pass in the tree and unit tests: "Loading…" (unit; the native read answers at once), empty (unit; the desktop's own session always lists), error (unit + toast), "Restarting…" with the switch held, "Granted scopes" on hover, tooltips. png pairs **deferred to the real-input batch — screen locked (user away)**; oracle comparison blocked by the user decision of 2026-10-06 | drive A run 4; `connections-network.test.ts` |
+| Dialog keyboard and Escape | Pass under agent keys: Enable network access opens on Cancel; Tab → Confirm → Cancel; Escape closes and focuses the switch; Set up Tailscale opens on the port field, Create pairing link on the label; "Select at least one permission." with Create link disabled. Real keys **deferred to the real-input batch — screen locked (user away)**; `tree --ax` vs oracle blocked by the user decision of 2026-10-06 | drive A run 4 |
+| Reduced motion | Contact sheets **deferred to the real-input batch — screen locked (user away)** (agent pictures are empty while locked). The dialogs use the reference's 200 ms fade and 98 % scale (no reduced-motion variant in `dialog-styles.ts`); the spinner is still under reduced motion | — |
+| Real input | **deferred to the real-input batch — screen locked (user away)**; the phone QR scan also needs the user's phone | — |
 
 ## Attempts and evidence
 
 | Attempt | Revision/fingerprint | Checks and outcomes | Evidence | Remaining blocker |
 | --- | --- | --- | --- | --- |
-| none | — | — | — | — |
+| 1 | `f34f010b6` (build `e56f11ba`) | Drive A runs 1–3 found three drive mistakes and no app fault: `tap Copy link` unquoted; the agent clock's fixed epoch made the expiry read 279 d (fixed with `--epoch` now); a link left from the previous run made `Revoke` ambiguous (the drive now revokes other clients first and waits out the 5-minute links). Run 3 showed the revoked client's socket stays open until it reconnects (the reference server's rule); the client now checks its session | lane logs (not committed) | screen locked |
+| 2 | `f34f010b6` | Drive A run 4: every functional row passes; checks below | `drive-a-run4.txt`, `tests.txt` | real-input batch (png pairs, QR decode, motion, real input); U9; #122 / X45; oracle not built |
+| 3 | `3e4ff1431` (build after it) | A failed restart restores the mode read after the port is known; two unused icon branches removed. Re-run: `bun test` 2574 pass / 1 skip / 0 fail, strict `tsc`, `contract build` (2655 slots), `cargo test -p t3-code-macos --lib` 11, caps | PR #248 | same |
+
+Final checks on `034c223f3` (the implementation `f34f010b6`, #244 merged, the lane tools); the clone checks again on `3e4ff1431`:
+- `bun test examples/t3-code`: 2575 tests in 209 files; 2574 pass, 1 skip, 0 fail.
+- Strict `tsc`: clean. `contract build`: 2655 slots, 46 resources, 2711 actions, 59828 nodes.
+- `cargo test -p t3-code-macos --lib`: 11 passed.
+- AppKit binaries (README recipe): local-backend 61 (LocalNetworkTests 10, new), transport 56, fleet 9, composer 46, menus 45; 0 failures.
+- caps: within cap (`app.contract` 1500 lines, unchanged count; `client.ts` unchanged).
+- The five repository checks all exit 0. `cargo test --lib --bins --tests --no-fail-fast`: 94 test binaries; 3383 passed, 0 failed, 33 ignored.
+
+## Real-input batch steps
+
+Deferred to the real-input batch — screen locked (user away). One session on an unlocked Mac; the firewall is off
+on this Mac (`socketfilterfw --getglobalstate`: disabled), so no "Allow incoming connections" prompt is expected;
+if one appears for the lane's `t3` server or the lane app, answer Allow for that binary only.
+
+1. Build: in `~/orca/workspaces/exact2/t3-code-this-machine-network-access`, `export PATH=$HOME/.bun-1.4.2/bin:$PATH`,
+   `bun examples/t3-code/terminal-host/build.mjs`, `bun examples/t3-code/stage-runtime.mjs --offline`,
+   `EXACT_APP_DIR=$PWD/examples/t3-code bun host/apple/build.mjs t3-code-macos --bundle`. For "before", the base
+   build in `t3-code-evidence-base` (`target/clients/0d02a3550eba6edce4b12b59/…/T3 Code (Exact).app`) with
+   `T3_LOCAL_RUNTIME_DIR=<lane>/t3-home/runtime/versions/0.0.46-nightly.20261005.2667`.
+2. Lane env (`<lane>` = `target/lane`): `HOME=<lane>/home`, `CODEX_HOME=<lane>/codex`, `CLAUDE_CONFIG_DIR=<lane>/claude`,
+   `XDG_{CONFIG,DATA,CACHE,STATE}_HOME=<lane>/xdg-*`, `T3_LOCAL_HOME=<lane>/t3-home`, `T3_LOCAL_PORT=16101`,
+   `T3CODE_TELEMETRY_ENABLED=false`, `RUSTUP_HOME=$REAL_HOME/.rustup`, `CARGO_HOME=$REAL_HOME/.cargo`,
+   `T3_TAILSCALE_STUB_STATE=<lane>`, `PATH=examples/t3-code/tools/network-lane:$REAL_HOME/.bun-1.4.2/bin:$REAL_HOME/.cargo/bin:/usr/bin:/bin:/usr/sbin:/sbin`,
+   `EXACT_MAC_BIN=<the bundle>/Contents/MacOS/T3 Code (Exact)`.
+3. Pictures (agent mode; `bun scripts/agent.mjs macos --size 1280x840 --epoch "$(date -u +%FT%TZ)" …`): skip the wizard
+   (`tap Continue`, `tap welcome-agents-continue`, `tap welcome-skip-import`), `tap connection-settings`, `tap Connections`;
+   then screenshot: local-only (light/dark × 1280×840/840×620, same on the base build for the pairs); `tap
+   network-access-switch` (Enable dialog); `tap network-access-confirm` (Restarting…, then +12 s real: Reachable at);
+   `tap network-access-endpoints-toggle` (the rail, four variants); `tap tailscale-https-switch`, port `70000` then
+   `8443` (error, preview), `tap tailscale-setup-confirm` (+12 s); `tap authorized-clients-toggle`, `tap
+   revoke-other-clients`; `tap create-pairing-link` (dialog, `pairing-scope-5` warning, none ticked), Standard with
+   label "Lane phone", `tap pairing-create-confirm` (row); `tap "Pairing link scopes: show 5 scopes" hover`, `clock +300`
+   (popover); `tap Share` (panel; `layout` for the URL and QR frames); `tap "Copy link"`; run `tools/network-lane/pair-client.mjs`
+   on the pasteboard URL (never print it); +20 s (client row, light and dark); `tap Revoke`; `prefer
+   prefers-reduced-motion reduce`, `tap network-access-switch`, `screenshot … over 300 every 30`, Escape; the same with
+   `no-preference`; `tap network-access-confirm` (local-only again). Blur the pairing URL and both QR codes before upload.
+4. QR: decode the unblurred Share png with Vision (`VNDetectBarcodesRequest`) and compare the SHA-256 of its payload with
+   the SHA-256 of `pbpaste` after Copy link; record hashes only.
+5. Real input (`orca computer`, lane copy renamed "T3 Code (Lane NW)", real-input lock held): right-click and real hover
+   on the scope count (popover after 250 ms) and the endpoint URL (tooltip); real Tab/Shift-Tab/Escape in the five dialogs
+   (initial focus, wrap, Escape returns focus to the opener, no dismissal while Restarting… or Creating…); the port field
+   with letters, 0 and 70000 typed by keyboard (digits are unaffected by Korean 2-Set; letters via `paste-text`).
+6. Attended (the user): Wi-Fi and every other interface down, then Enable network access → the red error and "Could not
+   update network access"; a phone scanning the QR opens the same URL.
 
 ## Next action
 
-`prepare` after the four merged task PRs (`20261005-hot-file-split`, `20261005-clone-on-exact2-main`, `20261005-desktop-oracle-and-trace`, `20261005-local-primary-environment`). Close with clone checks green (bun test, strict tsc, contract build, `cargo test -p t3-code-macos --lib`, affected AppKit binaries), `bun scripts/caps.mjs` after `git add -A`, the repository's five checks, and every moved matrix cell fixed or declared in `EXACT2-GAPS.md` with an issue link.
+Review of draft PR #248; the user answers U8 and U9. The coordinator runs "Real-input batch steps" in the real-input
+batch (pictures, QR decode, motion, real input, the attended rows). Live Tailscale on a tailnet the user provides (U9);
+the relaunch rows when exact2 has a process relaunch (#122 / X45); the oracle rows if the oracle is built.

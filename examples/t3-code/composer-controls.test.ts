@@ -322,11 +322,11 @@ describe('usage limits', () => {
     expect(native.committed.length).toBe(count);
     expect(client.draft).toBe('');
     const notice = snapshot(client, Date.now()).composer.notices.find(entry => entry.title === 'Usage limits')!;
-    expect(notice).toMatchObject({ description: 'Codex · Exact verification fixture · OpenAI API Key', dismissLabel: 'Dismiss usage limits',
-      lines: ['This account has no subscription limits.'] });
+    expect(notice).toMatchObject({ description: 'Codex · Exact verification fixture · OpenAI API Key', dismissLabel: 'Dismiss usage limits', lines: [] });
+    expect(notice.usage).toMatchObject([{ key: 'codex', showLabel: false, notice: 'This account has no subscription limits.', windows: [], showCredits: false }]);
     provider.usageLimits = { windows: [{ label: '5h', usedPercent: 25, resetsAt: new Date(Date.now() + 2 * 3_600_000 + 13 * 60_000 + 30_000).toISOString() }], checkedAt: at };
     await command('cclocal:usage-limits');
-    expect(snapshot(client, Date.now()).composer.notices.find(entry => entry.title === 'Usage limits')!.lines).toEqual(['5h · 75% left · resets in 2h 13m']);
+    expect(snapshot(client, Date.now()).composer.notices.find(entry => entry.title === 'Usage limits')!.usage[0]!.windows).toMatchObject([{ label: '5h', remaining: 75, timeLeft: -1, pace: '', resetsIn: 'resets in 2h 13m', summary: '5h: 75% left, resets in 2h 13m' }]);
     await command('cclocal:usage-limits-dismiss');
     expect(snapshot(client, Date.now()).composer.notices.some(entry => entry.title === 'Usage limits')).toBe(false);
   });

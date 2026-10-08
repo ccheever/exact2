@@ -79,3 +79,22 @@ export function timestampFormatter(format: string, includeSeconds = false): Intl
 export function numericDateFormatter(withYear: boolean): Intl.DateTimeFormat {
   return formatter(withYear ? 'date:y' : 'date', { month: 'numeric', day: 'numeric', ...(withYear ? { year: 'numeric' } : {}) });
 }
+/**
+ * formatUpcomingTimestamp (timestampFormat.ts:197-222): an instant that has not happened yet (a
+ * usage-limit reset): today `12:34 PM`, tomorrow `tomorrow at 12:34 PM`, later `8/13 12:34 PM`;
+ * an instant already past reads as formatDayAwareTimestamp does (`yesterday at …`).
+ */
+export function formatUpcomingTimestamp(isoDate: string, format: string, nowMs: number): string {
+  const date = new Date(isoDate);
+  if (!Number.isFinite(date.getTime())) return '';
+  const time = timestampFormatter(format).format(date);
+  const now = new Date(nowMs);
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const startOfTargetDay = new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+  // Round so DST-shifted 23/25 hour days still count as whole days.
+  const dayDiff = Math.round((startOfTargetDay - startOfToday) / 86_400_000);
+  if (dayDiff < 0) return dayDiff === -1 ? `yesterday at ${time}` : `${numericDateFormatter(date.getFullYear() !== now.getFullYear()).format(date)} ${time}`;
+  if (dayDiff === 0) return time;
+  if (dayDiff === 1) return `tomorrow at ${time}`;
+  return `${numericDateFormatter(date.getFullYear() !== now.getFullYear()).format(date)} ${time}`;
+}
