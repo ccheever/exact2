@@ -1,0 +1,81 @@
+// fix-misc-batch model lane (not committed): two lane T3 servers for the model picker rows (#298 bugs 8 and 9).
+//   bun mlane.mjs start   A on 16113 (Codex and Claude, placeholder keys, no prompt ever sent), B on 16114 (Claude off)
+//   bun mlane.mjs stop
+// Isolated homes under target/misc/mlane; the staged release the GitHub lane unpacked; never ~/.t3, never 3773.
+import { spawn } from 'node:child_process';
+import { existsSync, mkdirSync, openSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+const ROOT = '/Users/daehyeonmun/orca/workspaces/exact2/t3-code-fix-misc-batch';
+const L = join(ROOT, 'target/misc/mlane');
+const pin = JSON.parse(readFileSync(join(ROOT, 'examples/t3-code/server-runtime/runtime-pin.json'), 'utf8'));
+const t3 = join(ROOT, 'target/github-lane/runtime', pin.version, 't3');
+const bin = join(L, 'bin');
+const servers = { a: 16113, b: 16114 };
+
+function prepare(name) {
+  const s = join(L, name);
+  for (const dir of ['home', 'codex', 'claude', 't3home', 'repos/demo', 'tmp', 'xdg/config', 'xdg/data', 'xdg/cache', 'xdg/state']) mkdirSync(join(s, dir), { recursive: true });
+  writeFileSync(join(s, 'home/.zprofile'), `export PATH="${bin}:$PATH"\n`);
+  // A placeholder key: the provider probes as signed in; nothing is ever sent with it.
+  writeFileSync(join(s, 'codex/auth.json'), JSON.stringify({ OPENAI_API_KEY: 'sk-lane-placeholder-not-a-key' }));
+  writeFileSync(join(s, 'codex/config.toml'), 'cli_auth_credentials_store = "file"\n');
+  return s;
+}
+
+async function waitReady(port) {
+  for (let i = 0; i < 120; i++) {
+    try { const r = await fetch(`http://127.0.0.1:${port}/.well-known/t3/environment`, { signal: AbortSignal.timeout(1000) }); if (r.ok) return r.json(); } catch {}
+    await Bun.sleep(500);
+  }
+  throw new Error(`no answer on ${port}`);
+}
+
+async function start() {
+  mkdirSync(bin, { recursive: true });
+  for (const [tool, target] of [['codex', '/opt/homebrew/bin/codex'], ['claude', '/Users/daehyeonmun/.local/bin/claude'], ['node', Bun.which('node') ?? '/opt/homebrew/bin/node']]) {
+    if (!existsSync(join(bin, tool))) symlinkSync(target, join(bin, tool));
+  }
+  if (!existsSync(t3)) throw new Error(`no unpacked runtime at ${t3} (start the GitHub lane once)`);
+  for (const [name, port] of Object.entries(servers)) {
+    const s = prepare(name);
+    const env = {
+      PATH: [bin, '/usr/bin', '/bin', '/usr/sbin', '/sbin'].join(':'), HOME: join(s, 'home'), SHELL: '/bin/zsh', USER: process.env.USER ?? '', LANG: 'en_US.UTF-8',
+      TMPDIR: join(s, 'tmp'), CODEX_HOME: join(s, 'codex'), CLAUDE_CONFIG_DIR: join(s, 'claude'), ANTHROPIC_API_KEY: 'sk-ant-lane-placeholder-not-a-key',
+      XDG_CONFIG_HOME: join(s, 'xdg/config'), XDG_DATA_HOME: join(s, 'xdg/data'), XDG_CACHE_HOME: join(s, 'xdg/cache'), XDG_STATE_HOME: join(s, 'xdg/state'),
+      T3CODE_HOME: join(s, 't3home'), T3CODE_TELEMETRY_ENABLED: 'false',
+    };
+    if (name === 'b') {
+      mkdirSync(join(s, 't3home/userdata'), { recursive: true });
+      writeFileSync(join(s, 't3home/userdata/settings.json'), JSON.stringify({ providers: { claudeAgent: { enabled: false } } }, null, 2));
+    }
+    const log = openSync(join(s, 'server.log'), 'a');
+    const child = spawn(t3, ['serve', '--base-dir', join(s, 't3home'), '--port', String(port), '--host', '127.0.0.1', join(s, 'repos')], { env, cwd: join(s, 'repos'), stdio: ['ignore', log, log], detached: true });
+    child.unref();
+    writeFileSync(join(s, 'server.pid'), String(child.pid));
+    const ready = await waitReady(port);
+    console.log(name, 'pid', child.pid, 'port', port, ready.serverVersion ?? '');
+  }
+}
+
+function stop() {
+  for (const name of Object.keys(servers)) {
+    const file = join(L, name, 'server.pid');
+    if (!existsSync(file)) continue;
+    const pid = Number(readFileSync(file, 'utf8'));
+    try { process.kill(pid, 'SIGTERM'); console.log('stopped', name, pid); } catch (e) { console.log(name, pid, e.message); }
+    rmSync(file);
+  }
+}
+
+/** A single-use pairing token for server `name` (kept off the terminal). */
+export function pairingToken(name) {
+  const s = join(L, name);
+  const out = Bun.spawnSync([t3, 'pair', '--base-dir', join(s, 't3home'), '--ttl', '15m', '--label', 'Model lane'], { env: { PATH: '/usr/bin:/bin', HOME: join(s, 'home'), T3CODE_TELEMETRY_ENABLED: 'false' } }).stdout.toString();
+  const token = /Token: (\S+)/.exec(out)?.[1];
+  if (!token) throw new Error('t3 pair printed no token');
+  return token;
+}
+export const origins = { a: 'http://127.0.0.1:16113', b: 'http://127.0.0.1:16114' };
+
+if (process.argv[2] === 'start') await start();
+else if (process.argv[2] === 'stop') stop();
