@@ -51,8 +51,184 @@ shape Clock
 ```
 
 `exactTime()` is a reserved source, not a function to call inside an
-expression. Under the agent and in tests, `performanceNow()` starts near zero and
-`epochAtZero` places it in real time; pass the sum, never `performanceNow()` alone.
+expression; `performanceNow()` is milliseconds since the app started, never
+the date. Under the agent and in tests the date is the drive's epoch
+(`2026-01-01T00:00:00Z` unless `--epoch` or a test's `epoch` line says
+otherwise), not the real time, while the Snapback server runs on real time.
+So compute deadlines and expiries on the server (`now` in a mutation) and
+compare times the server returned with each other; a deadline the app
+computes from its own clock disagrees with the server in every test.
+
+### A complete app
+
+A guestbook: two personas, a list that syncs and works offline, a post whose
+fate the app reports. `snapback/schema.q`:
+
+```quarry
+use personas alice, bob
+
+table notes:
+  author: principal
+  body: text 1..200
+  at: time
+  by byTime: at, id
+  public 'notes are public'
+  insert <- .author = viewer
+  update <- deny
+  delete <- .author = viewer
+  sync public last 100 by byTime
+
+query recent():
+  return notes last 50 by byTime
+
+mutation post(body: text 1..200):
+  row = insert notes { author: viewer, body, at: now }
+  return { id: row.id }
+```
+
+`app.contract`:
+
+```
+// Guestbook: the view. app.ts answers it through Snapback4.
+shape Clock
+  epochAtZero: number
+shape Note
+  id: string
+  author: string
+  body: string
+  pending: bool
+shape Board
+  online: bool
+  message: string
+  notes: list<Note>
+shape Ack
+  ok: bool
+  message: string
+
+component Guestbook
+  state persona = "alice"
+  state draft = ""
+  state notice = ""
+  resource time = exactTime() as shape Clock
+  resource board = notes(persona, time.epochAtZero + performanceNow()) as shape Board
+  mutation posted as shape Ack queue refreshes board then afterPost
+  task live mount
+    every(5000, refreshBoard)
+  action refreshBoard
+    refresh board
+  action choosePersona(value: string)
+    persona = value
+  action editDraft(value: string)
+    draft = value
+  action postNote
+    send posted = post(persona, trim(draft), time.epochAtZero + performanceNow())
+  action afterPost
+    match posted
+      case some(result)
+        notice = result.message
+        draft = ""
+      case none
+        notice = ""
+  view
+    main testId="root" padding=24
+      column gap=12 max-width=600
+        text "Guestbook" role="heading" aria-level=1 font-size=24
+        select value=persona change=choosePersona appearance="auto" testId="persona" aria-label="Signed in as"
+          option value="alice"
+            text "Alice"
+          option value="bob"
+            text "Bob"
+        text (board.online ? "Synced" : board.message) testId="status"
+        row gap=8
+          input value=draft input=editDraft testId="draft" placeholder="Say something" aria-label="Note" flex=1
+          button appearance="auto" press=postNote disabled=(trim(draft) == "") testId="post"
+            text "Post"
+        text notice testId="notice"
+        each note in board.notes key=note.id
+          text `${note.author}: ${note.body}${note.pending ? " (sending)" : ""}` testId=`note-${note.id}`
+```
+
+`app.ts`:
+
+```ts
+import type { Answer, NativeModule, Result, Sources, Storage } from './app.contract.d.ts';
+import { Snapback } from './snapback4/snapback.ts';
+
+export const appId = 'com.example.guestbook';
+const origin = 'http://127.0.0.1:4400';
+export const grants = `net.fetch ${origin}\nsqlite.open app:/data`;
+
+// One partition per viewer, kept open across answers. Opening one this page
+// already has open shares it, so this cache only saves the reopen.
+const devices = new Map<string, Promise<Snapback>>();
+function device(persona: string, storage: Storage, native: NativeModule | null | undefined): Promise<Snapback> {
+  let opening = devices.get(persona);
+  if (!opening) {
+    opening = Snapback.open({ app: appId, name: `guestbook-${persona}`, origin, viewer: `dev:${persona}`,
+      headers: () => ({ 'x-snapback-persona': persona }), storage, native });
+    devices.set(persona, opening);
+    opening.catch(() => devices.delete(persona));
+  }
+  return opening;
+}
+
+type Row = { id: string; author: string; body: string; pending?: boolean };
+
+const sources: Sources = {
+  notes: async ([persona, now], _store, storage, native): Promise<Result<'notes'>> => {
+    try {
+      const db = await device(persona, storage, native);
+      const round = await db.sync();                    // offline is fine once synced
+      const read = await db.read<Row[]>('recent', {}, now);
+      if (read.denied) return { online: false, message: read.denied.message, notes: [] };
+      // Project each row onto the shape: an answer's extra fields are refused.
+      const notes = (read.data ?? []).map(row => ({ id: row.id, author: row.author, body: row.body, pending: row.pending === true }));
+      return { online: round.ok, message: round.ok ? '' : 'Offline: showing what this device keeps', notes };
+    } catch (error) {
+      // At build (bake) time there is no storage; the app asks again when it runs.
+      if ((error as { code?: string }).code === 'bake') return { online: false, message: 'Connecting…', notes: [] };
+      return { online: false, message: (error as Error).message, notes: [] };
+    }
+  },
+  post: async ([persona, body, now], _store, storage, native): Promise<Result<'post'>> => {
+    const db = await device(persona, storage, native);
+    const written = await db.write('post', { body }, now);
+    if (written.state === 'failed') return { ok: false, message: `Refused: ${written.why.code}` };
+    await db.sync();
+    // A round that ends ok delivered the outbox; the write's own fate is here.
+    const fate = await db.outcome(written.id);
+    if (fate.state === 'failed') return { ok: false, message: `Refused: ${fate.why?.code}` };
+    return { ok: true, message: fate.state === 'sent' ? 'Posted.' : 'Saved on this device; it sends when online.' };
+  },
+};
+export const answer: Answer = (source, args, store, storage, native) =>
+  sources[source](args, store, storage, native);
+```
+
+`app.test.contract` (run `bunx snapback4 dev` first; the tests talk to it):
+
+```
+test "a note posts and appears"
+  clock data
+  expect text "status" == "Synced"
+  type "draft" "hello from a test"
+  tap "post"
+  clock data
+  expect text "notice" == "Posted."
+
+test "offline, a note is kept on the device and marked sending"
+  clock data
+  fail fetch "http://127.0.0.1:4400"
+  type "draft" "from the tunnel"
+  tap "post"
+  clock data
+  expect text "notice" == "Saved on this device; it sends when online."
+```
+
+`app.json` mounts the driver (`"typescript": { "sources": { "snapback4":
+"<this checkout>/snapback4/ts" } }`), `bun add snapback4@0.4.13` installs the
+server, and `node <this checkout>/snapback4/web/build.mjs assets/snapback4.wasm`
+builds the device. Built and tested as written (2026-10-08).
 
 ### Open, sync, read, write
 
@@ -92,7 +268,11 @@ const renewed = await db.refreshSession(now);          // near expiresAt: keep r
   `server: true`; unreached, it answers `denied` with `E_OFFLINE`, never an
   empty page. A synced table holds only its sync horizon (`sync … last 100 by
   byTime`): a read of rows outside it (`first 1` of a `last 100` horizon) is
-  `complete: false`. Read in the horizon's order, or widen it.
+  `complete: false`. Read in the horizon's order, or widen it. A read the
+  device cannot vouch for (`loading` or `speculative`: a total over rows past
+  the horizon, a row it has not acquired) asks the server too, unless a write
+  is still queued here; unreached, it stays `loading` and says `offline: true`.
+  Show such a read as unavailable, never as zero.
 - **A round that ends `ok` delivered the outbox; it does not say each write
   was accepted.** `outcome(id)` does: `sent` with `result`, `failed` with
   `why` (the refusal's code, such as one the mutation `require`s), or
@@ -101,6 +281,9 @@ const renewed = await db.refreshSession(now);          // near expiresAt: keep r
 - **Offline.** `sync()` resolves `{ok: false, offline: true}`; writes are kept
   and predicted (`pending: true` rows) and sent by the next round that
   reaches the server, once each.
+- **In tests.** Let the app sync once (`clock data`) before `fail fetch`: a
+  partition that has never synced cannot open offline. Assert a write's
+  fate (`outcome`), not a notice the app shows while it is still pending.
 - **Live updates.** A data answer has a bounded life and tests settle on
   answers, so do not hold a long `poll(20)` inside a resource. Drive
   freshness from Contract: a `task` that calls an action every few seconds,
@@ -161,8 +344,8 @@ wasm32-unknown-unknown`.
 
 What the TypeScript client of Snapback itself does that this one does not
 yet: media and assets (LLP 1108), native jobs on the device, Following
-feeds, ephemeral reads, search state, the online fallback for a device
-read missing a fact or unsure of a row's presence (here it answers from
-the partition: `complete: false` or `loading`), a server read kept live
+feeds, ephemeral reads, search state, the online fallback fenced by
+intersecting predictions (here a read the device cannot vouch for asks the
+server only when nothing is queued at all), a server read kept live
 (here a query the server answers is asked again, not invalidated by the
 change poll; LLP 1110), and the 0.2.32 legacy fallback. `round.rs` names its source in Snapback's `local.ts`.

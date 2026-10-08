@@ -46,6 +46,9 @@ table drafts:
 query myDrafts():
   return drafts last 50 by byTime
 
+query total():
+  return count(messages)
+
 mutation draft(body: text <=50):
   row = insert drafts { author: viewer, body, at: now }
   return { id: row.id }
@@ -481,3 +484,27 @@ test('a partition that has never synced, offline, refuses reads and writes with 
   expect(ivy.isOpen).toBe(true);
   await ivy.close();
 }, 60_000);
+
+test('a read the device cannot vouch for asks the server; offline it says so', async () => {
+  const jo = await open('jo', join(scratch, 'jo'));
+  expect(await jo.sync()).toEqual({ ok: true });
+  // Past the inbox's sync horizon (last 100), a total over every message is
+  // not the device's to answer.
+  for (let i = 0; i < 105; i++) await jo.write('send', { body: `n${i}` }, Date.now());
+  expect(await jo.sync()).toEqual({ ok: true });
+  const local = await jo.read<number>('total', {}, Date.now());
+  if (local.server) {
+    expect(typeof local.data).toBe('number');
+    expect(local.data!).toBeGreaterThanOrEqual(105);
+    await offline(async () => {
+      const unreached = await jo.read<number>('total', {}, Date.now());
+      expect(unreached.offline).toBe(true);
+      expect(unreached.server).toBeUndefined();
+    });
+  } else {
+    // The device vouched for it (complete coverage): then it must be the truth.
+    expect(local.loading).not.toBe(true);
+    expect(local.data!).toBeGreaterThanOrEqual(105);
+  }
+  await jo.close();
+}, 120_000);

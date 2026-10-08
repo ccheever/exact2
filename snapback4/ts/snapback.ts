@@ -9,9 +9,12 @@
 // Data modules have no clock: pass `now` (milliseconds) from a source argument.
 
 import { webDevice, type SqliteStorage } from './web.ts';
+export type { SqliteStorage } from './web.ts';
 
 export type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
 export type Request = { [key: string]: Json };
+/** A query's or a write's arguments: any JSON object (`undefined` fields are left out). */
+export type Args = Record<string, unknown>;
 
 export interface Refusal { code: string; family?: string; message: string; retryable?: boolean; [key: string]: Json | undefined }
 
@@ -19,8 +22,12 @@ export interface Refusal { code: string; family?: string; message: string; retry
  * predicted carry `pending: true`. */
 export interface Read<T = Json> {
   data?: T;
-  /** The server answered (the query reads an `online only` table or view). */
+  /** The server answered: the query reads an `online only` table or view,
+   * or the device could not vouch for its answer (`loading`, `speculative`). */
   server?: boolean;
+  /** The device could not vouch for this answer and the server was not
+   * reached: show it as unavailable, not as data. */
+  offline?: boolean;
   complete?: boolean;
   next?: string | null;
   loading?: boolean;
@@ -82,8 +89,9 @@ export interface Options {
   viewer: string;
   /** Credentials for each request: `{authorization: 'Bearer …'}`, or in development `{'x-snapback-persona': 'alice'}`. */
   headers?: () => Record<string, string>;
-  /** The dispatcher's `storage` (the web persists the partition there). */
-  storage: SqliteStorage;
+  /** The dispatcher's `storage`, Exact's own (the web persists the partition
+   * there); only its `sqlite` is used. */
+  storage: { readonly sqlite: { open(path: string): Promise<unknown> } };
   /** The dispatcher's `native`; absent on the web. */
   native?: NativeModule | null;
   /** Where the web's wasm is served (default `/assets/snapback4.wasm`). */
@@ -229,7 +237,7 @@ export class Snapback {
     if (this.partition.opened) return;
     const round = await this.sync();
     if (!this.partition.opened) {
-      throw refusal('E_OFFLINE', `this device has never synced and the server was not reached${round.denied ? ` (${round.denied.code}: ${round.denied.message})` : ''}; connect once to open it`, { retryable: true });
+      throw refusal('E_OFFLINE', `this device has never synced and the server was not reached${round.denied ? ` (${round.denied.code}: ${round.denied.message})` : ''}; connect once to open it (in a test, let the app sync once, with \`clock data\`, before \`fail fetch\`)`, { retryable: true });
     }
   }
 
@@ -238,7 +246,7 @@ export class Snapback {
    * server answers it (`POST /q/<name>`), and the answer says `server: true`.
    * Unreached, such a read answers `denied` with `E_OFFLINE`, never an empty
    * page that looks like one. */
-  async read<T = Json>(name: string, args: Request, now: number): Promise<Read<T>> {
+  async read<T = Json>(name: string, args: Args, now: number): Promise<Read<T>> {
     const at = clock(now);
     await this.ready();
     let route = this.partition.routes.get(name);
@@ -247,12 +255,22 @@ export class Snapback {
       this.partition.routes.set(name, route);
     }
     if (route === 'server') return this.serverRead<T>(name, args);
-    return ok<Read<T>>(await this.call({ op: 'read', name, args, now: at }));
+    const local = ok<Read<T>>(await this.call({ op: 'read', name, args: args as Request, now: at }));
+    // A read the device cannot vouch for (a total past its sync horizon, a
+    // point it has not acquired) asks the server, as Snapback's own client
+    // does, unless a write here is still unsent: then the device's
+    // prediction stands until a round settles it.
+    if (local.loading !== true && local.speculative !== true) return local;
+    const queued = (await this.status()).queued ?? [];
+    if (queued.length) return local;
+    const served = await this.serverRead<T>(name, args);
+    if (served.denied?.code === 'E_OFFLINE') return { ...local, offline: true };
+    return served;
   }
 
-  private async serverRead<T>(name: string, args: Request): Promise<Read<T>> {
+  private async serverRead<T>(name: string, args: Args): Promise<Read<T>> {
     if (this.closed) throw new Error('Snapback4: this client is closed');
-    const reply = await this.exchange({ method: 'POST', path: `/q/${encodeURIComponent(name)}`, body: { args } });
+    const reply = await this.exchange({ method: 'POST', path: `/q/${encodeURIComponent(name)}`, body: { args: args as Request } });
     if (reply.error !== undefined) {
       return { server: true, denied: { code: 'E_OFFLINE', family: 'transport', retryable: true,
         message: `${name} reads data this device does not keep (online only), so the server answers it, and it was not reached: ${String(reply.error)}` } };
@@ -269,7 +287,7 @@ export class Snapback {
    * the first page sends no cursor, so an unpaged query reads whole).
    * `limit`, if given, refuses a query that holds more rows than that; by
    * default every row is read, and only a cursor that does not advance stops. */
-  async readAll<T = Json>(name: string, args: Request, now: number, cursor = 'c', limit = Infinity): Promise<T[]> {
+  async readAll<T = Json>(name: string, args: Args, now: number, cursor = 'c', limit = Infinity): Promise<T[]> {
     const rows: T[] = [];
     const seen = new Set<string>();
     let next: string | null = null;
@@ -294,12 +312,12 @@ export class Snapback {
    * the same key again admits nothing: it answers what became of the first.
    * Whether the server took it is `outcome(id)` after a round: a round that
    * ends `ok` has delivered the outbox, not had every write accepted. */
-  async write(name: string, args: Request, now: number): Promise<Write>;
-  async write(name: string, args: Request, now: number, key: string): Promise<Write | Outcome>;
-  async write(name: string, args: Request, now: number, key?: string): Promise<Write | Outcome> {
+  async write(name: string, args: Args, now: number): Promise<Write>;
+  async write(name: string, args: Args, now: number, key: string): Promise<Write | Outcome>;
+  async write(name: string, args: Args, now: number, key?: string): Promise<Write | Outcome> {
     const at = clock(now);
     await this.ready();
-    return ok<Write | Outcome>(await this.call({ op: 'write', name, args, now: at, ...(key === undefined ? {} : { key }) }));
+    return ok<Write | Outcome>(await this.call({ op: 'write', name, args: args as Request, now: at, ...(key === undefined ? {} : { key }) }));
   }
 
   /** The id a write with this idempotency key has (or would have). */
