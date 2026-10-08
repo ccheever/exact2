@@ -1,0 +1,34 @@
+X66 repro: a popover shown from an action, and its toggle event (fix-keyboard-focus, 2026-10-08)
+contract CLI built from 4bc1fc9ff (feat(example)/t3-code-fix-keyboard-focus, main e200397ec merged); first run on main 9314e7a81 with the same result.
+contract/, runner/, plan/ and kernel/tables are unchanged from 9314e7a81 to main 263c8b96e.
+
+=== a.contract
+component App
+  state open = false
+  action down(k: string)
+    if k == "ArrowDown"
+      showPopover("m")
+  view
+    column
+      button popovertarget="m" key=down testId="trigger"
+        text "Menu"
+      column id="m" popover="auto" role="menu"
+        button popovertarget="m" popovertargetaction="hide" role="menuitem"
+          text "One"
+=== contract build a.contract
+a.contract:5:7 [type-unknown-command] `showPopover` is not a host command; the hosts answer blur, copyText, deliveryActivate, deliveryCheck, fastSeek, focus, format, haptic, openURL, load, requestFullscreen, reload, selectText, setSelectionRange, setScheme, setRootFontSize, showPicker, showModal, share, showNotification, closeNotification, saveFile, showOpenFilePicker, showDirectoryPicker, showSaveFilePicker, scrollIntoView, postMessage, preventDefault, stopPropagation, close, playSound, playSounds, stopSounds
+
+=== b.contract
+component App
+  state open = false
+  action toggled(value: bool)
+    open = value
+  view
+    column
+      button popovertarget="m" testId="trigger"
+        text "Menu"
+      column id="m" popover="auto" role="menu" toggle=toggled
+        button popovertarget="m" popovertargetaction="hide" role="menuitem"
+          text "One"
+=== contract build b.contract
+b.contract:9:48 [lower-unknown-attr] `column` has no attribute `toggle`
