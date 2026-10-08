@@ -87,10 +87,14 @@ test('wasm and JS request executors refuse outside origins and redirects, and ad
 });
 
 // LLP 1109 D3: a response over its size limit is the host refusing it (`failure(x)`'s `refused`) on every web
-// executor, as on Apple's: plain HTTP on the wasm host, a stream's one answer, and a Rust source's request on the JS
-// target.
+// executor, as on Apple's: plain HTTP on the wasm host, a stream's one answer, a Rust source's request on the JS
+// target, and a TypeScript source's `fetch` there, which takes `exactIndependentHttp.maxResponseBytes` as native does.
 test('a response over its size limit is Refused on every web executor', async () => {
-  const origin = Bun.serve({ port: 0, fetch() { return new Response('x'.repeat(4096)); } });
+  // `/open` sends its 4096 bytes and never ends: the refusal must not wait for its end.
+  const origin = Bun.serve({ port: 0, fetch(req) {
+    if (new URL(req.url).pathname !== '/open') return new Response('x'.repeat(4096));
+    return new Response(new ReadableStream({ start(c) { c.enqueue(new TextEncoder().encode('x'.repeat(4096))); } }));
+  } });
   const set = normalized(`net.fetch ${origin.url.origin}`);
   const url = `${origin.url}big`;
   try {
@@ -104,7 +108,18 @@ test('a response over its size limit is Refused on every web executor', async ()
     const within = await request({ method: 'GET', url, headers: [], nativeHttp: 'independent', maxResponseBytes: 4096 }, { grantSet: set, controllers: new Set() });
     expect([within.kind, within.body.length]).toEqual([0, 4096]);
     const rust = createRequestExecutor('test.app', set, boundedHttpBody);
-    expect(await rust({ method: 'GET', url, headers: [], maxResponseBytes: 64 })).toEqual({ failed: 2, message: 'HTTP response exceeds limit' });
+    for (const at of [url, `${origin.url}open`]) {
+      expect(await rust({ method: 'GET', url: at, headers: [], maxResponseBytes: 64 })).toEqual({ failed: 2, message: 'HTTP response exceeds limit' });
+      const refused = await fetchWith(set, at, { exactIndependentHttp: { maxResponseBytes: 64 } }).catch(e => e);
+      expect([refused.name, refused.kind, refused.message]).toEqual(['FetchError', 'Refused', 'HTTP response exceeds limit']);
+    }
+    const exact = await fetchWith(set, url, { exactIndependentHttp: { maxResponseBytes: 4096 } });
+    expect((await exact.text()).length).toBe(4096);
+    expect((await (await fetchWith(set, url)).text()).length).toBe(4096);
+    for (const bad of [0, 1.5, 67108865, '64', null]) {
+      const e = await fetchWith(set, url, { exactIndependentHttp: bad === null ? null : { maxResponseBytes: bad } }).catch(e => e);
+      expect([e.name, e.message]).toEqual(['TypeError', 'exactIndependentHttp.maxResponseBytes must be an integer from 1 to 67108864']);
+    }
   } finally { origin.stop(true); }
 });
 
