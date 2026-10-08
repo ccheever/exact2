@@ -1,0 +1,64 @@
+# X66 record: showPopover/hidePopover/togglePopover and a toggle event
+exact2 main b896050d78508aa5cea10cfa875e02037fde4c6e (2026-10-08); macOS 26.6.2 (25G83), Apple Silicon; web: Chrome 154.0.8037.98 (the agent's); agent mode only; contract CLI: cargo build --profile host-dev -p contract --bin contract
+
+## 1. The direct forms are refused
+--- a.contract
+component App
+  state open = false
+  action down(k: string)
+    if k == "ArrowDown"
+      showPopover("m")
+  view
+    column
+      button popovertarget="m" key=down testId="trigger"
+        text "Menu"
+      column id="m" popover="auto" role="menu"
+        button popovertarget="m" popovertargetaction="hide" role="menuitem"
+          text "One"
+--- b.contract
+component App
+  state open = false
+  action toggled(value: bool)
+    open = value
+  view
+    column
+      button popovertarget="m" testId="trigger"
+        text "Menu"
+      column id="m" popover="auto" role="menu" toggle=toggled
+        button popovertarget="m" popovertargetaction="hide" role="menuitem"
+          text "One"
+
+$ contract build a.contract -o a.plan
+a.contract:5:7 [type-unknown-command] `showPopover` is not a host command; the hosts answer blur, copyText, deliveryActivate, deliveryCheck, fastSeek, focus, format, haptic, openURL, load, requestFullscreen, reload, selectText, setSelectionRange, setScheme, setRootFontSize, showPicker, showModal, share, showNotification, closeNotification, saveFile, showOpenFilePicker, showDirectoryPicker, showSaveFilePicker, scrollIntoView, postMessage, preventDefault, stopPropagation, close, playSound, playSounds, stopSounds
+exit 1
+$ contract build b.contract -o b.plan
+b.contract:9:48 [lower-unknown-attr] `column` has no attribute `toggle`
+exit 1
+
+## 2. What works today: an invisible invoker over the trigger (app made with bun scripts/exact.mjs new <dir>, no data sources)
+component X66app
+  state armed = false
+  action focusTrigger
+    armed = true
+  action blurTrigger
+    armed = false
+  view
+    main testId="root" width="100%" height="100%" box-sizing="border-box" padding=24 gap=12 background-color="#ffffff" color="#111111"
+      box position="relative" width=120 height=32
+        button popovertarget="m" focus=focusTrigger blur=blurTrigger testId="trigger" width=120 height=32
+          text "Menu"
+        // The workaround: an invisible invoker over the trigger, pressed by ArrowDown while the trigger has the focus
+        button popovertarget="m" popovertargetaction="show" aria-keyshortcuts=(armed ? "ArrowDown" : "F35") aria-hidden=true tabindex=-1 opacity=0 pointer-events="none" position="absolute" left=0 top=0 width="100%" height="100%" testId="invoker"
+          text "Menu"
+      column id="m" popover="auto" role="menu" testId="menu" padding=8 gap=4 background-color="#f4f4f5"
+        button role="menuitem" testId="one"
+          text "One"
+
+ops: "tap trigger" "clock settle" "type trigger key Escape" "clock settle" state "type trigger key ArrowDown" "clock settle" state
+
+--- macOS (bun exact.mjs mac; bun exact.mjs agent macos --json --size 400x300 <ops>), state.navigation.popover after Escape, then after ArrowDown:
+"popover":null,"route":null,"stack":[],"presentation":null}
+"popover":{"phase":"open","popover":7,"source":5}
+(after Escape: null; after ArrowDown: {"phase":"open","popover":7,"source":5} — opened by node 5, the invisible invoker; the focus stays on the trigger, node 3)
+
+--- web (bun exact.mjs agent web …): the web's state reports no popover (null even right after tapping the trigger), so the screenshot is the read-back: after Escape then ArrowDown the menu is shown (x66-web-after-arrow.png, the UA's default centred popover since the repro sets no position-area).
