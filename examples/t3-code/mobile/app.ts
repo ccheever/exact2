@@ -32,6 +32,7 @@ import { mobileAttachmentMenu, mobileAttachmentDocumentAction } from './attachme
 import { mobileTerminalPrepare, mobileTerminalAction, mobileTerminalEvent, mobileTerminalCapture, mobileTerminalAttachOutput } from './terminal-mobile';
 import { mobileReviewColors } from './review-colors';
 import { mobileReviewRead, mobileReviewSnapshot, mobileReviewAction } from './review-data';
+import { mobileNewTaskFileSnapshot, mobileNewTaskFileRead } from './new-task-file';
 import { mobileFilesRead, mobileFilesSnapshot, mobileFilesAction, mobileFileRead, mobileFileSnapshot } from './file-data';
 import { MOBILE_SERVER_ROUTES, mobileServerSettings, mobileServerSettingsCommand } from './settings-server';
 import { settingsProviderNative, mobileProviderAccounts, mobileProviderAccountsSnapshot, mobileProviderCommand, mobileProviderField } from './settings-provider';
@@ -330,10 +331,12 @@ const sources: Sources = {
   },
   fileSnapshot: (args, _store, storage, nativeInput) => {
     const native = sourceNative('fileSnapshot', args, nativeInput);
+    if (String(args[4]).startsWith('/new/draft/files/')) return mobileNewTaskFileSnapshot(String(args[0] ?? ''), String(args[4]), String(args[6]), String(args[5]), args[1] === 'dark');
     return mobileFileSnapshot(String(args[0] ?? ''), args[1] === 'dark', Number(args[2] ?? 0));
   },
   filePrepare: (args, _store, storage, nativeInput) => {
     const native = sourceNative('filePrepare', args, nativeInput);
+    if (String(args[4]).startsWith('/new/draft/files/')) return mobileNewTaskFileRead(String(args[0] ?? ''), String(args[4]), String(args[6]), String(args[5]), args[1] === 'dark', native);
     return mobileFileRead(String(args[0] ?? ''), native, args[1] === 'dark', Number(args[2] ?? 0), args[3] === true);
   },
   serverSettings: (args, _store, storage, nativeInput) => {
@@ -608,7 +611,7 @@ function sourceNative(source: string, args: unknown[], nativeInput?: Native | nu
   } };
 }
 
-const taskGuardIndices: Record<string, number> = { command: 4, composerAction: 3, composerSettings: 4,
+const taskGuardIndices: Record<string, number> = { filePrepare: 5, command: 4, composerAction: 3, composerSettings: 4,
   attachmentAction: 2, composerAttachments: 1, voiceFocus: 3, voiceAction: 3,
   mediaPreview: 9, attachmentDocument: 8, attachmentDocumentAction: 5, newTaskPrepare: 8 };
 function newTaskGuard(source: string, args: unknown[]): (() => boolean) | null {

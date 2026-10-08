@@ -39,3 +39,11 @@ test('new-task public routes preserve explicit project and branch context', () =
   expect(mobileAppLink('/new/draft/settings', 'visit').location).toBe('/new/draft/settings');
   expect(mobileAppLink('/new/projects', 'visit').location).toBe('/unmatched-link');
 });
+
+
+test('draft file links encode the complete relative path and preserve workspace query', () => {
+  const query = '?environmentId=env&cwd=%2Fworktree&projectName=T3&line=12';
+  expect(mobileAppLink('/new/draft/files/src/a%20b.ts' + query, 'file').location).toBe('/new/draft/files/src%2Fa%20b.ts' + query);
+  expect(mobileAppLink('/new/draft/files/src%2Fa%20b.ts' + query, 'file').location).toBe('/new/draft/files/src%2Fa%20b.ts' + query);
+  expect(mobileAppLink('/new/draft/files/%ZZ', 'file').location).toBe('/unmatched-link');
+});

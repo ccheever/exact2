@@ -136,14 +136,21 @@ export async function mobileFilesAction(owner: string, op: string, path: string,
 
 export function mobileFileSnapshot(path: string, dark = false, initialLine = 0, client: T3Client = mobileClient): FileSnapshot {
   const access = accessOf(client), state = filesState(client), read = access.allowed ? state.reads.get(path) : undefined;
+  return mobileFilePresentation({ owner: access.owner, revision: client.revision, projectName: workspaceOf(client).projectName,
+    loading: access.file.checking || state.loading > 0, error: access.permissionError || access.file.error, read }, path, dark, initialLine);
+}
+/** Thread and draft workspaces share source rendering, not read/cache ownership. */
+export function mobileFilePresentation(input: { owner: string; revision: number; projectName: string; loading: boolean; error: string;
+  read?: { contents: string; error?: string; truncated?: boolean } }, path: string, dark = false, initialLine = 0): FileSnapshot {
+  const read = input.read;
   const contents = (read?.contents ?? '').replace(/\r\n?/g, '\n'), lines = contents.split('\n');
   const target = initialLine > 0 ? Math.min(Math.floor(initialLine) - 1, Math.max(0, lines.length - 1)) : -1;
   const tokens = read && !read.error ? reviewLineTokens(lines.map((content, at) => ({ change: 'context', content, oldLineNumber: null, newLineNumber: at + 1 })), path, dark) : [];
   const parent = path.slice(0, Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'), 0));
   const absolute = path.startsWith('/') || /^[A-Za-z]:[\\/]/.test(path) || path.startsWith('\\\\');
-  return { owner: access.owner, revision: client.revision, path, title: path.split(/[\\/]/).at(-1) || 'File',
-    subtitle: absolute ? parent : [workspaceOf(client).projectName, parent].filter(Boolean).join(' · '),
-    loading: access.file.checking || state.loading > 0, error: access.permissionError || access.file.error || read?.error || '', contents,
+  return { owner: input.owner, revision: input.revision, path, title: path.split(/[\\/]/).at(-1) || 'File',
+    subtitle: absolute ? parent : [input.projectName, parent].filter(Boolean).join(' · '),
+    loading: input.loading, error: input.error || read?.error || '', contents,
     rows: read && !read.error ? lines.map((text, at) => ({ ...reviewRow(`source-line:${at}`, 'line'), path, text: text.replace(/\t/g, '    '),
       oldNumber: '', newNumber: String(at + 1), lineIndex: at, change: 'context', selected: at === target, tokens: tokens[at] ?? [] })) : [],
     truncated: read?.truncated === true, notice: read?.truncated ? 'Preview limited to the first 1 MB of a truncated file.' : '',
