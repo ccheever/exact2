@@ -3,6 +3,7 @@
 import type { T3Client } from './shared/client';
 import type { MobileOutboxWireOwner } from './mobile-outbox-wire';
 import { mobileOutboxDecode, type MobileOutboxRecord } from './mobile-outbox-model';
+import type { MobileOutboxSavedUpdate } from './mobile-outbox';
 
 type Client = Pick<T3Client, 'local' | 'revision'>;
 type ObjectValue = Record<string, unknown>;
@@ -10,7 +11,7 @@ export interface MobilePendingTaskMarker {
   version: 1; owner: MobileOutboxWireOwner; session: string; revision: number;
   draftKey: string; contentRevision: number;
   baseline: { record: MobileOutboxRecord; token: string; revision: number };
-  pending: { mutationId: string; contentRevision: number } | null;
+  pending: { mutationId: string; contentRevision: number; request: MobileOutboxSavedUpdate } | null;
 }
 export type MobilePendingTaskExpected = Pick<MobilePendingTaskMarker, 'owner' | 'session' | 'revision'>;
 export interface MobilePendingTaskEditorsSnapshot {
@@ -22,6 +23,8 @@ const object = (value: unknown): value is ObjectValue => !!value && typeof value
 const text = (value: unknown): value is string => typeof value === 'string' && value.length > 0 && value.trim() === value;
 const integer = (value: unknown, minimum = 0): value is number => typeof value === 'number' && Number.isSafeInteger(value) && value >= minimum;
 const clone = <T>(value: T): T => value === undefined ? value : JSON.parse(JSON.stringify(value));
+const canonical = (value: unknown): string => JSON.stringify(value, (_key, item: unknown) =>
+  object(item) ? Object.fromEntries(Object.entries(item).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)) : item);
 const raw = (client: Client): unknown => (client.local as unknown as ObjectValue)[field];
 const ownerFields = ['origin', 'environmentId', 'threadId', 'messageId', 'commandId'];
 function fields(value: ObjectValue, names: readonly string[]): boolean {
@@ -41,8 +44,20 @@ function valid(value: unknown): value is MobilePendingTaskMarker {
     || !text(value.baseline.token) || !integer(value.baseline.revision)) return false;
   const decoded = mobileOutboxDecode(value.baseline.record);
   if (!decoded.ok || !decoded.record.creation || ownerFields.some(key => decoded.record[key as keyof MobileOutboxRecord] !== (value.owner as ObjectValue)[key])) return false;
-  return value.pending === null || object(value.pending) && fields(value.pending, ['mutationId', 'contentRevision'])
-    && text(value.pending.mutationId) && integer(value.pending.contentRevision) && value.pending.contentRevision <= value.contentRevision;
+  if (value.pending === null) return true;
+  if (!object(value.pending) || !fields(value.pending, ['mutationId', 'contentRevision', 'request'])
+    || !text(value.pending.mutationId) || !integer(value.pending.contentRevision) || value.pending.contentRevision > value.contentRevision
+    || !object(value.pending.request)) return false;
+  const request = value.pending.request;
+  if (!fields(request, ['ownerEpoch', 'mutationId', 'messageId', 'operation', 'record', 'expectedToken', 'expectedRevision', 'requireUnheld'])
+    || !text(request.ownerEpoch) || !text(request.mutationId) || request.mutationId !== value.pending.mutationId || request.messageId !== value.owner.messageId
+    || request.operation !== 'update' || request.requireUnheld !== false || request.expectedToken !== value.baseline.token
+    || request.expectedRevision !== value.baseline.revision) return false;
+  const prefix = `${request.ownerEpoch}:`, sequence = request.mutationId.slice(prefix.length);
+  if (!request.mutationId.startsWith(prefix) || !/^[1-9][0-9]*$/.test(sequence) || !integer(Number(sequence), 1)) return false;
+  const update = mobileOutboxDecode(request.record);
+  return update.ok && !!update.record.creation && ownerFields.every(key => update.record[key as keyof MobileOutboxRecord] === (value.owner as ObjectValue)[key])
+    && update.record.createdAt === decoded.record.createdAt;
 }
 function inspect(client: Client): { markers: MobilePendingTaskMarker[]; errors: string[] } {
   const value = raw(client), markers: MobilePendingTaskMarker[] = [], errors: string[] = [];
@@ -72,6 +87,13 @@ export function mobilePendingTaskEditorsSnapshot(client: Client): MobilePendingT
 }
 /** Ready means the document is understood; active markers still hold their rows. */
 export function mobilePendingTaskEditorsReady(client: Client): boolean { return mobilePendingTaskEditorsSnapshot(client).ready; }
+/** Captures own bytes before their first successful preference write. Unknown
+ * ownership refuses collection; the native collector repeats this on disk. */
+export function mobilePendingTaskAttachmentHeld(client: Client, id: string): boolean {
+  const snapshot = mobilePendingTaskEditorsSnapshot(client);
+  return !snapshot.ready || snapshot.markers.some(marker => [marker.baseline.record, marker.pending?.request.record]
+    .some(record => record?.attachments.some(attachment => attachment.id.toLowerCase() === id.toLowerCase())));
+}
 function write(client: Client, markers: Record<string, MobilePendingTaskMarker>): void {
   Object.assign(client.local, { [field]: { version: 1, markers: clone(markers) } }); client.revision++;
 }
@@ -98,6 +120,7 @@ export function mobilePendingTaskEditorsReplace(client: Client, expected: Mobile
   if (!markers || !previous || !valid(next) || next.revision !== previous.revision + 1
     || mobilePendingTaskEditorKey(next.owner) !== mobilePendingTaskEditorKey(previous.owner) || next.draftKey !== previous.draftKey
     || next.contentRevision < previous.contentRevision || next.baseline.revision < previous.baseline.revision
+    || previous.pending !== null && next.pending !== null && canonical(previous.pending) !== canonical(next.pending)
     || next.baseline.revision === previous.baseline.revision && JSON.stringify(next.baseline) !== JSON.stringify(previous.baseline)) return null;
   markers[mobilePendingTaskEditorKey(next.owner)] = clone(next); write(client, markers); return clone(next);
 }

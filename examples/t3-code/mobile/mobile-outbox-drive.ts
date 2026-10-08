@@ -118,12 +118,18 @@ export async function mobileOutboxDriveRun(client: T3Client, native: Native, key
   if (!manual && (parsed.signature !== current.signature || parsed.sequence !== current.sequence
     || !automatic(current.result) || current.retryAt > now)) return { revision: client.revision, message: '' };
   drive.busy = id; client.revision++;
-  let orderRefused = false;
+  let admissionRefused = false;
   // Inventory and editor ownership may change across the foreground pass's
   // awaits. Local ACK cleanup is harmless to ordering; new wire work is not.
   const orderedNative: Native = { available: native.available, watch: topic => native.watch(topic), later(request) {
-    if ((cleanupOnly || predecessor(client, row.record)) && !localRecovery(request)) {
-      orderRefused = true; throw new ClientError('Resolve the earlier pending message in this thread before sending this task.', 'stale');
+    if (!localRecovery(request)) {
+      const editors = mobilePendingTaskEditorsSnapshot(client);
+      if (!editors.ready || editors.markers.some(marker => mobilePendingTaskEditorKey(marker.owner) === id)) {
+        admissionRefused = true; throw new ClientError('Resolve saved pending edits before sending this task.', 'stale');
+      }
+      if (cleanupOnly || predecessor(client, row.record)) {
+        admissionRefused = true; throw new ClientError('Resolve the earlier pending message in this thread before sending this task.', 'stale');
+      }
     }
     return native.later(request);
   } };
@@ -135,7 +141,7 @@ export async function mobileOutboxDriveRun(client: T3Client, native: Native, key
       ...(cleanupRetry === undefined ? {} : { retryCleanupRevision: cleanupRetry }) });
     current.result = result; current.sequence++; current.tries++;
     current.retryAt = now + mobileOutboxRetryDelay(current.tries);
-    current.waitingFor = orderRefused ? '' : connection(client);
+    current.waitingFor = admissionRefused ? '' : connection(client);
     // The pass may have adopted uploaded descriptors. Keep its outcome attached
     // to that new row, so an unresolved final command cannot become an auto retry.
     const after = mobileOutboxSnapshot(client).rows.find(item => identity(item.record) === id);

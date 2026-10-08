@@ -543,10 +543,10 @@ component App
         composerFocusIdentity = composerFocusIdentity
   mutation selected as shape ThreadSelection refreshes data then didSelectThread
   mutation draftChanged as shape Change refreshes data
-  task selectRouteThread when not pending(selected) and not pending(workspaceNavigation) and (startsWith(top(nav).name, "thread") or startsWith(top(nav).name, "git")) and data.ready and not threadData.queued and (top(nav).params.threadEnvironment != data.environmentId or top(nav).params.threadId != data.threadId) key=top(nav).url
+  task selectRouteThread when not pending(routeSelected) and not pending(selected) and not pending(workspaceNavigation) and (startsWith(top(nav).name, "thread") or startsWith(top(nav).name, "git")) and data.ready and not threadData.queued and (top(nav).params.threadEnvironment != data.environmentId or top(nav).params.threadId != data.threadId) key=top(nav).url
     after(1, loadRouteThread)
   action loadRouteThread
-    if not pending(selected) and not pending(workspaceNavigation)
+    if not pending(routeSelected) and not pending(selected) and not pending(workspaceNavigation)
       send routeSelected = selectThread(top(nav).params.threadEnvironment == data.environmentId ? top(nav).params.threadId : `fleet:${top(nav).params.threadEnvironment}:${top(nav).params.threadId}`, `${top(nav).id}`)
   action didSelectThread
     match selected

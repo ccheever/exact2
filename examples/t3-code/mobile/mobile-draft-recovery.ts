@@ -1,5 +1,7 @@
 import { mobileNewTaskContextCommand } from './mobile-new-task-context-command';
-import { mobilePendingTaskEditorsHydrate, mobilePendingTaskEditorsPersisted } from './mobile-pending-task-state';
+import { mobilePendingTaskEditorsHydrate, mobilePendingTaskEditorsPersisted, mobilePendingTaskEditorKey, mobilePendingTaskAttachmentHeld, type MobilePendingTaskMarker } from './mobile-pending-task-state';
+import { mobilePendingTaskDraftCleanupDocument } from './mobile-pending-task-draft';
+import { mobileOutboxTransferCanonical as canonical } from './mobile-outbox-transfer-model';
 import { mobileDraftAttachmentRecord, mobileDraftAttachmentOrdersHydrate, mobileDraftAttachmentOrdersPersisted, mobileDraftAttachmentsForSend } from './draft-attachment-order';
 import { mobileDraftSettingsHandles } from './mobile-draft-settings';
 import { mobileOutboxTransferCompletionsHydrate, mobileOutboxTransferCompletionsPersisted, mobileOutboxTransferReleaseHandle } from './mobile-outbox-transfer-cleanup';
@@ -117,9 +119,27 @@ export function mobileDraftRecoveryHandles(client: T3Client, native: Native | nu
     } } };
   const handle: Native | null | undefined = native ? { available: native.available, watch: topic => native.watch(topic), later: request => {
     if (obj(request).op === 'devicePresentation' && saved) { hydrate(client, saved); saved = null; }
-    return native.later(request);
+    return pendingAttachmentHandle(client, native).later(request);
   } } : native;
   return { native: handle, storage: files };
+}
+/** Invocation-local handles only; never retain Native across a yielded answer. */
+function pendingAttachmentHandle(client: T3Client, native: Native): Native {
+  return { available: native.available, watch: topic => native.watch(topic), async later(request) {
+    const value = obj(request);
+    if (['snapshotDraftRemove', 'composerAttachRemove'].includes(str(value.op))
+      && mobilePendingTaskAttachmentHeld(client, str(value.id))) {
+      // This guard can precede an attachment adapter that normally records its
+      // deferred release. Preserve that intent here before refusing native work.
+      const id = str(value.id).toLowerCase();
+      if (/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(id)) {
+        const releases = value.op === 'snapshotDraftRemove' ? client.local.snapshotReleases : mobileNewTaskDraftStore(client).fileReleases;
+        if (!releases.some(saved => saved.toLowerCase() === id)) { releases.push(id); client.revision++; }
+      }
+      throw new ClientError('The attachment is still retained by a pending editor.', 'retained');
+    }
+    return native.later(request);
+  } };
 }
 /** Context is filtered to actual outgoing references, then local attachment IDs
  * are rebound only to attachments this same payload sends. Retained remote
@@ -161,9 +181,14 @@ function pruneRetiredMarkers(client: T3Client) {
 /** Mobile default policy and recovery over one shared client. A new send's
  * context is extended before super.write; retry payloads stay immutable. */
 export class MobileDraftClient extends T3Client {
+  /** Plain, invocation-scoped cleanup projection. Concurrent preference writes
+   * must serialize the same removal until live cleanup finishes. No handles. */
+  pendingTaskCleanup: { marker: MobilePendingTaskMarker; fingerprint: string } | null = null;
+
   override get draftKey(): string { return mobileNewTaskDraftBoundKey(this) || super.draftKey; }
   override async command(...args: Parameters<T3Client['command']>): ReturnType<T3Client['command']> {
-    const [op, id, value, n, native, storage] = args, handles = mobileDraftSettingsHandles(this, op, native, storage);
+    const [op, id, value, n, native, storage] = args,
+      handles = mobileDraftSettingsHandles(this, op, native ? pendingAttachmentHandle(this, native) : native, storage);
     if (op.startsWith('editorlocal:')) {
       const context = await mobileNewTaskContextCommand(this, op, id, value, handles.native, handles.storage);
       if (context) return context;
@@ -178,7 +203,7 @@ export class MobileDraftClient extends T3Client {
   }
   override async flushSnapshotReleases(native: Native, storage: Files): Promise<void> {
     const protectedImages = mobileNewTaskLaunchProtectedImages(this);
-    const release = mobileOutboxTransferReleaseHandle(native);
+    const release = mobileOutboxTransferReleaseHandle(pendingAttachmentHandle(this, native));
     // Do not let default release work delete bytes still captured by an uncertain launch.
     if (!this.local.snapshotReleases.some(id => protectedImages.has(id))) await super.flushSnapshotReleases(release, storage);
     await mobileNewTaskDraftFlushFiles(this, release, storage);
@@ -207,8 +232,17 @@ export class MobileDraftClient extends T3Client {
       document.mobileNewTaskDrafts = mobileNewTaskDraftPersisted(this) as unknown as Obj;
       document.mobileAttachmentOrder = mobileDraftAttachmentOrdersPersisted(this);
       document.mobileOutboxTransferCompletions = mobileOutboxTransferCompletionsPersisted(this);
-      await storage.fs.atomicWriteFile(path, new TextEncoder().encode(JSON.stringify({ ...document,
-        mobilePendingTaskEditors: mobilePendingTaskEditorsPersisted(this) })));
+      Object.assign(document, { mobilePendingTaskEditors: mobilePendingTaskEditorsPersisted(this) });
+      const cleanup = this.pendingTaskCleanup;
+      let output = document;
+      if (cleanup) {
+        const key = mobilePendingTaskEditorKey(cleanup.marker.owner);
+        if (canonical(obj(obj(document.mobilePendingTaskEditors).markers)[key]) === canonical(cleanup.marker)) {
+          const projected = mobilePendingTaskDraftCleanupDocument(this, cleanup.marker.draftKey, cleanup.fingerprint, document);
+          if (projected) { delete obj(obj(projected.mobilePendingTaskEditors).markers)[key]; output = projected; }
+        }
+      }
+      await storage.fs.atomicWriteFile(path, new TextEncoder().encode(JSON.stringify(output)));
     } } });
   }
   override async write(native: Native, storage: Files, pending: Parameters<T3Client['write']>[2], beforeRequest?: () => void): Promise<Obj> {

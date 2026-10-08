@@ -16,6 +16,11 @@ function marker(messageId = 'message'): MobilePendingTaskMarker {
       createdAt: '2026-10-08T12:00:00.000Z', creation: { projectId: 'project', workspaceMode: 'local', branch: null, worktreePath: null },
       context: { version: 1, records: [{ version: 1, contextId: 'ref', kind: 'terminal', label: 'Log', text: 'Saved output' }] } } }, pending: null };
 }
+function captured(value: MobilePendingTaskMarker, contentRevision: number, text = 'Captured edit'): NonNullable<MobilePendingTaskMarker['pending']> {
+  return { mutationId: 'epoch:2', contentRevision, request: { ownerEpoch: 'epoch', mutationId: 'epoch:2',
+    messageId: value.owner.messageId, operation: 'update', record: { ...clone(value.baseline.record), text },
+    expectedToken: value.baseline.token, expectedRevision: value.baseline.revision, requireUnheld: false } };
+}
 function opened() { const client = new T3Client(); hydrate(client, {}); return client; }
 const document = (value: unknown) => ({ version: 1, mobilePendingTaskEditors: value });
 const envelope = (value = marker()) => ({ version: 1, markers: { [key(value.owner)]: value } });
@@ -31,7 +36,7 @@ test('explicit hydration distinguishes unread ownership from known-empty prefere
 });
 test('actual preference persistence JSON replays marker and pending mutation while readiness stays cold', async () => {
   const client = opened(), original = marker(); create(client, original);
-  const pending = { ...original, revision: 2, contentRevision: 2, pending: { mutationId: 'epoch:2', contentRevision: 2 } };
+  const pending = { ...original, revision: 2, contentRevision: 2, pending: captured(original, 2) };
   expect(replace(client, original, pending)).toEqual(pending);
   let bytes = new Uint8Array();
   const storage: Files = { fs: { async mkdir() {}, async readFile() { return bytes; }, async atomicWriteFile(_path, value) { bytes = value.slice(); } } };
@@ -47,7 +52,7 @@ test('malformed envelope and entries survive serialization and refuse all mutati
   const cases: unknown[] = [null, [], 'invalid', { version: 2, markers: {} }, { version: 1, markers: [] },
     { version: 1, markers: { bad: original } }, envelope(wrongOwner), envelope({ ...original, revision: 0 }),
     envelope({ ...original, contentRevision: -1 }), envelope({ ...original, revision: Number.MAX_SAFE_INTEGER + 1 }),
-    envelope({ ...original, pending: { mutationId: 'epoch:2', contentRevision: 1 } }),
+    envelope({ ...original, pending: captured(original, 1) }),
     envelope({ ...original, draftKey: 'new-task:unrelated' }), { ...envelope(), future: true }];
   for (const raw of cases) {
     const client = new T3Client(); hydrate(client, document(raw));
@@ -111,7 +116,7 @@ test('late hydration does not erase live edits and replacement local requires a 
 });
 test('a saved native completion can advance baseline while preserving newer editor content', () => {
   const client = opened(), first = marker(); create(client, first);
-  const pending = { ...first, revision: 2, contentRevision: 1, pending: { mutationId: 'epoch:2', contentRevision: 1 } };
+  const pending = { ...first, revision: 2, contentRevision: 1, pending: captured(first, 1, 'Content revision one') };
   expect(replace(client, first, pending)).toEqual(pending);
   const typed = { ...pending, revision: 3, contentRevision: 2 };
   expect(replace(client, pending, typed)).toEqual(typed);
@@ -122,4 +127,58 @@ test('a saved native completion can advance baseline while preserving newer edit
   expect(snapshot(client).markers[0]).toMatchObject({ contentRevision: 2, pending: null, baseline: { record: { text: 'Content revision one' } } });
   expect(replace(client, pending, { ...pending, revision: 3, pending: null })).toBeNull();
   expect(snapshot(client).blocked).toBe(true);
+});
+
+test('saved update identity must use its exact epoch and canonical positive safe sequence', () => {
+  const first = marker(), valid = { ...first, revision: 2, contentRevision: 1, pending: captured(first, 1) };
+  for (const mutationId of ['other:2', 'epoch:0', 'epoch:-1', 'epoch:01', 'epoch:1.0', 'epoch:1e3', 'epoch: 2', 'epoch:9007199254740992', 'epoch:2:3']) {
+    const bad = clone(valid); bad.pending.mutationId = mutationId; bad.pending.request.mutationId = mutationId;
+    const raw = envelope(bad), client = new T3Client(); hydrate(client, document(raw));
+    expect(snapshot(client).ready).toBe(false); expect(persisted(client)).toEqual(raw);
+    expect(replace(client, bad, { ...bad, revision: 3, pending: null })).toBeNull();
+  }
+  for (const mutationId of ['epoch:1', 'epoch:9007199254740991']) {
+    const value = clone(valid); value.pending.mutationId = mutationId; value.pending.request.mutationId = mutationId;
+    const client = new T3Client(); hydrate(client, document(envelope(value))); expect(snapshot(client).ready).toBe(true);
+  }
+});
+test('outstanding request is immutable while newer content and route ownership can advance', () => {
+  const client = opened(), first = marker(); create(client, first);
+  const pending = { ...first, revision: 2, contentRevision: 1, pending: captured(first, 1) };
+  expect(replace(client, first, pending)).toEqual(pending);
+  const mutate: Array<(value: typeof pending) => void> = [
+    value => { value.pending.request.record.text = 'later editor text'; },
+    value => { value.pending.request.record.context!.records[0]!.label = 'Changed context'; },
+    value => { value.pending.request.record.creation!.branch = 'other'; },
+    value => { value.pending.contentRevision = 2; },
+    value => { value.pending.mutationId = 'epoch:3'; value.pending.request.mutationId = 'epoch:3'; },
+    value => { value.pending.request.ownerEpoch = 'new'; value.pending.mutationId = 'new:1'; value.pending.request.mutationId = 'new:1'; },
+  ];
+  for (const edit of mutate) {
+    const next = clone(pending); next.revision++; next.contentRevision++; edit(next);
+    expect(replace(client, pending, next)).toBeNull(); expect(snapshot(client).markers).toEqual([pending]);
+  }
+  const newer = { ...pending, revision: 3, contentRevision: 2, session: 'reopened-route' };
+  expect(replace(client, pending, newer)).toEqual(newer);
+  const reordered = clone(newer); reordered.revision++;
+  reordered.pending.request = Object.fromEntries(Object.entries(reordered.pending.request).reverse()) as typeof reordered.pending.request;
+  expect(replace(client, newer, reordered)).toEqual(reordered);
+  const completed = { ...reordered, revision: 5, pending: null, baseline: { token: 'epoch:2', revision: 2, record: pending.pending.request.record } };
+  expect(replace(client, reordered, completed)).toEqual(completed);
+  const second = { ...completed, revision: 6, pending: { ...captured(completed, 2), mutationId: 'epoch:3',
+    request: { ...captured(completed, 2).request, mutationId: 'epoch:3' } } };
+  expect(replace(client, completed, second)).toEqual(second);
+});
+test('legacy identity-only or request owner/CAS drift stays byte-preserved and blocked', () => {
+  const first = marker(), value = { ...first, revision: 2, contentRevision: 1, pending: captured(first, 1) };
+  const legacy = JSON.parse(JSON.stringify(value)); delete legacy.pending.request;
+  const wrongToken = clone(value); wrongToken.pending.request.expectedToken = 'epoch:9';
+  const wrongRevision = clone(value); wrongRevision.pending.request.expectedRevision = 9;
+  const wrongOwner = clone(value); wrongOwner.pending.request.record.environmentId = 'other';
+  const wrongDate = clone(value); wrongDate.pending.request.record.createdAt = '2026-10-09T12:00:00.000Z';
+  for (const invalid of [legacy, wrongToken, wrongRevision, wrongOwner, wrongDate]) {
+    const raw = envelope(invalid), client = new T3Client(); hydrate(client, document(raw));
+    expect(snapshot(client)).toMatchObject({ ready: false, blocked: true }); expect(persisted(client)).toEqual(raw);
+    expect(remove(client, value)).toBe(false);
+  }
 });

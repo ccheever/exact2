@@ -109,6 +109,12 @@ final class T3MobileOutboxOwner: @unchecked Sendable {
                 if action == "mutate" && request["transfer"] != nil { throw fail("Captured drafts must enter through enqueueTransfer.") }
                 if request["deliveryCleanup"] != nil && !delivery { throw fail("Delivery removal requires its acknowledged journal owner.") }
                 guard loaded else { throw fail("Read the outbox before changing it.") }
+                if action == "resumeUpdate" {
+                    guard request["ownerEpoch"] as? String == epoch else { throw fail("The outbox owner changed. Read it again.") }
+                    let captured = request
+                    worker.async { do { answer(.success(try self.resumeUpdate(captured))) } catch { answer(.failure(error)) } }
+                    return
+                }
                 if ["mutate", "enqueueTransfer", "hold", "releaseHold", "confirmQueued"].contains(action), request["ownerEpoch"] as? String != epoch {
                     throw fail("The outbox owner changed. Read it again.")
                 }
@@ -434,6 +440,86 @@ final class T3MobileOutboxOwner: @unchecked Sendable {
         guard let raw = outcome["request"] as? String, let data = raw.data(using: .utf8),
               let request = try JSONSerialization.jsonObject(with: data) as? Object else { throw fail("The mutation receipt is invalid.") }
         if request["deliveryCleanup"] != nil { try deliveryCleanupEvidence(request) }
+    }
+    /// Saved editor updates keep their original identity across native epochs. This
+    /// bounded recovery owns the coordinator mutex through durable publication.
+    private func resumeUpdate(_ input: Object) throws -> Object {
+        try synced {
+            guard loaded, errors.isEmpty, input["ownerEpoch"] as? String == epoch,
+                  let owner = text(input["holdOwner"]), let request = input["request"] as? Object,
+                  Set(request.keys) == Set(["ownerEpoch", "mutationId", "messageId", "operation", "record", "expectedToken", "expectedRevision", "requireUnheld"]),
+                  let originalEpoch = text(request["ownerEpoch"]), let mutation = text(request["mutationId"]),
+                  mutation.hasPrefix(originalEpoch + ":"), let sequence = Int(mutation.dropFirst(originalEpoch.count + 1)),
+                  sequence > 0, sequence <= 9_007_199_254_740_991, let id = text(request["messageId"]),
+                  request["operation"] as? String == "update", request["requireUnheld"] as? Bool == false,
+                  text(request["expectedToken"]) != nil, request["expectedRevision"] != nil,
+                  T3MobileOutbox.validateMutation(request, id: id), let proposed = request["record"] as? Object,
+                  holds[id]?.contains(owner) == true else { throw fail("Restore the exact pending editor hold before resuming its saved update.") }
+            guard accepted[mutation] == nil,
+                  !cache.contains(where: { $0.key != id && ($0.value["outcomes"] as? [String: Object])?[mutation] != nil }),
+                  !rows.contains(where: { $0.key != id && $0.value.token == mutation }) else {
+                throw fail("The saved mutation identity already belongs to admitted work.")
+            }
+            guard !accepted.values.contains(where: { $0["messageId"] as? String == id }) else {
+                throw fail("An admitted mutation must settle before this editor update can resume.")
+            }
+            let digest = try fingerprint(request), previous = cache[id] ?? blank(id)
+            let initial = rows[id] ?? Row(record: nil, revision: 0, token: "", confirmed: false)
+            if let receipt = (previous["outcomes"] as? [String: Object])?[mutation] {
+                guard receipt["request"] as? String == digest, let outcome = receipt["result"] as? Object else {
+                    throw fail("A saved update identity cannot change its request.")
+                }
+                if unresolved[id] == mutation || uncertainResults.contains(mutation) {
+                    do { try disk.save(previous) }
+                    catch { throw T3Failure(kind: "Persistence", message: "The saved update still needs durability recovery.", uncertain: true) }
+                    if initial.token == previous["token"] as? String || matches(request, initial) {
+                        rows[id] = Row(record: previous["record"] as? Object, revision: max(initial.revision, previous["sourceRevision"] as! Int),
+                            token: previous["token"] as! String, confirmed: previous["confirmed"] as? Bool == true)
+                    }
+                    unresolved.removeValue(forKey: id); uncertainResults.remove(mutation)
+                }
+                return decorated(outcome)
+            }
+            var pending = previous
+            if previous["state"] as? String == "pending" {
+                guard let original = previous["mutation"] as? Object, try fingerprint(original) == digest,
+                      unresolved[id] == mutation, previous["sourceRevision"] as? Int == request["expectedRevision"] as? Int,
+                      matches(request, initial) || initial.token == mutation && T3MobileOutbox.jsonEqual(initial.record, proposed) else {
+                    throw fail("The saved update does not own this interrupted mutation.")
+                }
+            } else {
+                guard unresolved[id] == nil, initial.confirmed else { throw fail("Resolve the pending task's existing storage outcome first.") }
+                pending["revision"] = (previous["revision"] as? Int ?? 0) + 1
+                pending["state"] = "pending"; pending["previous"] = previous["record"] ?? NSNull()
+                pending.removeValue(forKey: "record"); pending["proposed"] = proposed; pending["mutation"] = request
+            }
+            // The original request may have been reserved before a higher sequence,
+            // or by a prior native owner. Only this held, captured API permits it.
+            if originalEpoch == epoch { floor = max(floor, sequence) }
+            let sameOwner = ["origin", "environmentId", "threadId", "messageId", "commandId"].allSatisfy {
+                T3MobileOutbox.jsonEqual(initial.record?[$0], proposed[$0])
+            }
+            let committing = previous["state"] as? String == "pending" || sameOwner && matches(request, initial)
+            let target = committing ? Row(record: proposed, revision: initial.revision + 1, token: mutation, confirmed: true) : initial
+            let outcome = result(request, committing ? "committed" : "stale", revision: target.revision, record: committing ? proposed : nil)
+            let owners = [previous["record"] as? Object, previous["previous"] as? Object, proposed].compactMap { $0 }
+            do {
+                if committing { try disk.save(pending); cache[id] = pending }
+                let saved = try terminal(pending, request: request, row: target, outcome: outcome, owners: owners)
+                try disk.save(saved); cache[id] = saved; rows[id] = target
+                unresolved.removeValue(forKey: id); uncertainResults.remove(mutation)
+                return decorated(outcome)
+            } catch {
+                let visible = (try? disk.load(id))
+                let hasOutcome = ((visible?["outcomes"] as? [String: Object])?[mutation]) != nil
+                if !committing && !hasOutcome {
+                    return decorated(result(request, "unknown", revision: initial.revision, message: "The stale update outcome could not be saved. Resume its exact identity."))
+                }
+                cache[id] = hasOutcome || (visible?["mutation"] as? Object)?["mutationId"] as? String == mutation ? visible! : pending
+                unresolved[id] = mutation; uncertainResults.insert(mutation); rows[id]?.confirmed = false
+                return decorated(result(request, "uncertain", revision: initial.revision, message: "The saved editor update may have reached disk. Resume its exact identity."))
+            }
+        }
     }
     private func control(_ request: Object) throws -> Object {
         let id = request["messageId"] as! String, action = request["action"] as! String

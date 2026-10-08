@@ -420,3 +420,90 @@ test('cached ACK admission never permits replacement wire work if its saved nati
   expect(writes(f)).toEqual([]); expect(f.calls.some(call => call.op === 'http')).toBe(false);
   expect(f.disk()).not.toBeNull();
 });
+
+test('an exact editor appearing during receipt inspection blocks further network and wire admission', async () => {
+  const original = asCreation(queued()), f = fixture(original), scheduled = await loaded(f); let opened = false;
+  f.intercept(request => {
+    if (!opened && request.op === 'mobileOutboxDelivery' && request.action === 'status') {
+      opened = true; expect(mobilePendingTaskEditorsCreate(f.client, editorMarker(original))).not.toBeNull();
+    }
+  });
+  await run(f.client, f.native, scheduled.next, now);
+  expect(opened).toBe(true); expect(writes(f)).toEqual([]);
+  expect(f.calls.some(call => call.op === 'http' || call.op === 'status')).toBe(false);
+  expect(f.disk()?.messageId).toBe(original.messageId); expect(snapshot(f.client, now).next).toBe('');
+});
+test('unhydrated or malformed editor ownership adopted during a pass blocks every later unsafe request', async () => {
+  for (const invalid of [undefined, { version: 2, markers: {} }, { version: 1, markers: { bad: {} } }]) {
+    const f = fixture(), scheduled = await loaded(f); let changed = false;
+    f.intercept(request => {
+      if (!changed && request.op === 'mobileOutboxDelivery' && request.action === 'status') {
+        changed = true; f.client.local = new T3Client().local;
+        if (invalid !== undefined) mobilePendingTaskEditorsHydrate(f.client, { mobilePendingTaskEditors: invalid });
+      }
+    });
+    await run(f.client, f.native, scheduled.next, now);
+    expect(changed).toBe(true); expect(writes(f)).toEqual([]);
+    expect(f.calls.some(call => call.op === 'http' || call.op === 'status')).toBe(false); expect(f.disk()).not.toBeNull();
+  }
+});
+test('opening an editor after auth or final reservation prevents the next delivery admission', async () => {
+  for (const after of ['auth', 'reserve']) {
+    const original = asCreation(queued()), f = fixture(original), scheduled = await loaded(f); let opened = false;
+    f.intercept(request => {
+      if (!opened && (after === 'auth' ? request.op === 'http' : request.op === 'mobileOutboxDelivery' && request.action === 'reserve')) {
+        opened = true; expect(mobilePendingTaskEditorsCreate(f.client, editorMarker(original))).not.toBeNull();
+      }
+    });
+    await run(f.client, f.native, scheduled.next, now);
+    expect(opened).toBe(true); expect(f.calls.some(call => call.action === 'send')).toBe(false);
+    if (after === 'auth') expect(f.calls.some(call => call.action === 'confirmQueued')).toBe(false);
+    else expect(f.deliveries.get('command')?.state).toBe('reserved');
+    expect(f.disk()?.text).toBe('original');
+  }
+});
+test('opening an editor after attachment upload blocks durable row adoption and later send', async () => {
+  const original = asCreation({ ...queued(), attachments: [image()] }), f = fixture(original), scheduled = await loaded(f); let opened = false;
+  f.intercept(request => {
+    if (!opened && request.op === 'uploadAttachment') { opened = true; expect(mobilePendingTaskEditorsCreate(f.client, editorMarker(original))).not.toBeNull(); }
+  });
+  await run(f.client, f.native, scheduled.next, now);
+  expect(opened).toBe(true); expect(f.calls.some(call => call.action === 'mutate' || call.action === 'send')).toBe(false);
+  expect(f.disk()?.attachments[0]?.uploadId).toBe(''); expect(f.deliveries.size).toBe(0);
+});
+test('opening an editor after inline reservation prevents issuing its image command', async () => {
+  const original = asCreation({ ...queued(), attachments: [image()] }), f = fixture(original); obj(f.client.config.environment).capabilities = {
+    serverResolvedCommandContext: true, inlineMessageContext: true, attachmentUploads: false };
+  const scheduled = await loaded(f); let opened = false;
+  f.intercept(request => {
+    if (!opened && request.op === 'mobileOutboxInline' && request.action === 'reserve') { opened = true; expect(mobilePendingTaskEditorsCreate(f.client, editorMarker(original))).not.toBeNull(); }
+  });
+  await run(f.client, f.native, scheduled.next, now);
+  expect(opened).toBe(true); expect([...f.inlines.values()].map(item => item.state)).toEqual(['reserved']);
+  expect(f.calls.some(call => call.action === 'send' || call.action === 'reserveInline')).toBe(false);
+});
+test('an already admitted final ACK retains exact local cleanup after editor ownership appears', async () => {
+  for (const held of [false, true]) {
+    const original = asCreation(queued()), f = fixture(original), scheduled = await loaded(f); let opened = false;
+    f.intercept(request => {
+      if (!opened && request.op === 'mobileOutboxDelivery' && request.action === 'send') {
+        opened = true; expect(mobilePendingTaskEditorsCreate(f.client, editorMarker(original))).not.toBeNull(); f.setHeld(held);
+      }
+    });
+    await run(f.client, f.native, scheduled.next, now);
+    expect(opened).toBe(true); expect(f.calls.filter(call => call.action === 'send')).toHaveLength(1);
+    expect(f.calls.filter(call => call.action === 'complete')).toHaveLength(1);
+    expect(f.deliveries.get('command')?.cleanup?.phase).toBe(held ? 'edited' : 'removed');
+    expect(f.disk() === null).toBe(!held);
+  }
+});
+test('an unrelated editor arriving mid-pass does not block the original full queue owner', async () => {
+  const original = asCreation(queued()), f = fixture(original), scheduled = await loaded(f); let opened = false;
+  f.intercept(request => {
+    if (!opened && request.op === 'mobileOutboxDelivery' && request.action === 'status') {
+      opened = true; expect(mobilePendingTaskEditorsCreate(f.client, editorMarker(asCreation(second())))).not.toBeNull();
+    }
+  });
+  await run(f.client, f.native, scheduled.next, now);
+  expect(f.calls.filter(call => call.action === 'send')).toHaveLength(1); expect(f.disk()).toBeNull();
+});

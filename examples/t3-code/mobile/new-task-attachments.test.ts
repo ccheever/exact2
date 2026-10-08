@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import { MobileDraftClient } from './mobile-draft-recovery';
+import { MobileDraftClient, mobileDraftRecoveryHandles } from './mobile-draft-recovery';
 import { mobileNewTaskDraftCreate as create, mobileNewTaskDraftBind as bind, mobileNewTaskDraftLookup as lookup } from './mobile-new-task-drafts';
 import { mobileComposerAttachmentAction as action } from './composer-attachments';
 import { draftFiles } from './shared/composer-editor-files';
@@ -17,7 +17,9 @@ async function fixture(kind = 'image') {
       { kind, id: kind === 'image' ? imageId : fileId, name: kind === 'image' ? 'photo.jpg' : 'notes.txt',
         mimeType: kind === 'image' ? 'image/jpeg' : 'text/plain', sizeBytes: 50 }] } : { applied: false } };
   } };
-  await client.command('dismiss-error', '', '', 0, native, storage);
+  const handles = mobileDraftRecoveryHandles(client, native, storage);
+  await client.command('dismiss-error', '', '', 0, handles.native, handles.storage);
+  await handles.native!.later({ op: 'devicePresentation' });
   Object.assign(client, { environmentId: 'env', projectId: 'project', origin: 'https://draft.test' });
   for (const id of ['A', 'B']) {
     create(client, { id, environmentId: 'env', projectId: 'project', origin: client.origin, createdAt: '2026-10-08T00:00:00.000Z' });
