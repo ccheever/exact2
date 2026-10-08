@@ -10,7 +10,7 @@ import os
 /// Which live views carry the few props the chrome passes look for.
 ///
 
-final class Presenter {
+package final class Presenter {
     var documentLanguage = ""
     var documentDirection = "ltr"
     /// Intervals a trace can lay beside its frames (Instruments' os_signpost):
@@ -35,7 +35,7 @@ final class Presenter {
     /// A view's props were written (`NodeView.props`' own observer).
     func propsChanged(_ view: NodeView) {
         chrome.note(view.id, props: view.props)
-        if view.fieldFocused, view.disabled || view.props["fieldStyle"] == nil { view.fieldFocused = false }
+        if view.disabled { view.showFieldFocus(false) }
         // HTML's `title`: the platform's tooltip (studio diary R24).
         if view.toolTip != view.props["title"] { view.toolTip = view.props["title"] }
     }
@@ -58,27 +58,26 @@ final class Presenter {
     var pendingScrolls: Set<UInt32> = []
     /// The batch's suppression triggers for scroll anchoring (`ScrollAnchoring.swift`).
     var anchorChanges = ScrollAnchoring.Changes()
-    var heightBindings: [UInt32: HeightDragBinding] = [:]
-    var transformBindings: [UInt32: TransformDragBinding] = [:]
-    lazy var transformGeometry = TransformGeometryHost(self)
+    package var heightBindings: [UInt32: HeightDragBinding] = [:]
+    package var transformBindings: [UInt32: TransformDragBinding] = [:]
+    lazy package var transformGeometry = TransformGeometryHost(self)
     var videoVisibility: VideoVisibilityHost?
-    lazy var collections = CollectionHost(self)
+    lazy package var collections = CollectionHost(self)
     lazy var stickies = StickyHost(self)
     /// Heavy leaves held while their rows are far or flying (LLP 1068 §5.1).
     lazy var leaves = HeavyLeaves(self)
-    lazy var selection = TextSelection(self)
+    lazy package var selection = TextSelection(self)
     let textRasters = TextRasterizer()
     lazy var mouseSwipe = MouseSwipe(self)
     lazy var mouseLayoutPan = MouseLayoutPan(self)
-    lazy var mouseHeightDrag = MouseHeightDrag(self)
-    lazy var mouseTransformDrag = MouseTransformDrag(self)
-    lazy var mouseReorder = MouseReorder(self)
+    /// The mouse drags (LLP 1047.001 D4: the Drag module's, when linked).
+    lazy var mouseDrags = DragLink.installed?.mouseDrags(self) ?? .none
     lazy var mouseChain = MouseChain(self)
     /// The one Arrange contact, until its source settles; a test's calls.
-    var reorder: ReorderHold?
-    var reorderCalls: ReorderCalls?
+    package var reorder: ReorderLift?
+    package var reorderCalls: ReorderCalls?
     /// A grouped session (LLP 1094), until its ghost lands; a test's calls.
-    var reorderGroup: ReorderGroupHold?
+    package var reorderGroup: ReorderGroupHold?
     var reorderGroupCalls: ReorderGroupCalls?
     private var scrollObserver: NSObjectProtocol?
     private var visibleText: [UInt32: NSRect] = [:]
@@ -91,7 +90,7 @@ final class Presenter {
     let svg = SvgHost()
     /// Boxes under CSS `filter`, drawn again after each batch (LLP 1055.000 D14).
     let boxFilters = BoxFilters()
-    let canvas2d = Canvas2DHost()
+    let canvas2d: Canvas2DCanvases = SurfacesLink.installed?.canvas2D() ?? NoCanvas2D()
     lazy var segments = SegmentHost(self)
     lazy var controls = ControlHost(self)
     lazy var fieldSelections = FieldSelections(self)
@@ -573,9 +572,9 @@ final class Presenter {
         session?.rasters.reset()
         mouseSwipe.cancel()
         mouseLayoutPan.abandon()
-        mouseHeightDrag.cancel()
-        mouseTransformDrag.cancel()
-        mouseReorder.cancel()
+        mouseDrags.height.cancel()
+        mouseDrags.transform.cancel()
+        mouseDrags.reorder.cancel()
         reorder?.abandon()
         reorderGroup?.abandon()
         collections.reset()
@@ -750,9 +749,9 @@ final class Presenter {
         if pointerHeld == id { pointerHeld = nil }
         mouseSwipe.retire(id)
         mouseLayoutPan.retire(id)
-        mouseHeightDrag.retire(id)
-        mouseTransformDrag.retire(id)
-        mouseReorder.retire(id)
+        mouseDrags.height.retire(id)
+        mouseDrags.transform.retire(id)
+        mouseDrags.reorder.retire(id)
         session?.canvases.destroy(view: id)
         svg.forget(id)
         canvas2d.forget(id)
@@ -883,7 +882,7 @@ final class Presenter {
     func scroll(_ id: UInt32, _ metrics: [Double]) { send(id) { [self] in onScroll?(id, metrics) } }
     func submit(_ id: UInt32) { send(id) { [self] in onSubmit?(id) } }
     func load(_ id: UInt32) { send(id) { [self] in onLoad?(id) } }
-    func message(_ id: UInt32, _ value: String) {
+    package func message(_ id: UInt32, _ value: String) {
         guard let view = views[id], view.handlers.contains("message") else { return }
         send(id) { [weak self, weak view] in
             guard let self, let view, views[id] === view, view.handlers.contains("message") else { return }
@@ -893,6 +892,7 @@ final class Presenter {
     func intrinsic(_ id: UInt32, _ size: CGSize?) { onIntrinsic?([(id, size)]) }
 
     func apply(_ batch: Batch) {
+        session?.fieldChrome.presented(batch.layoutProvisional)
         defer { applyLanguage(batch) }
         PaintOrder.begin()
         let post = Self.signposts.beginInterval("apply", "\(batch.ops.count) ops")
@@ -1073,7 +1073,7 @@ final class Presenter {
                 v.arrangeShift = .zero
                 v.textRasterGeometryChanged()
                 v.scroll?.frame = v.bounds
-                v.field?.frame = v.contentBox()
+                v.layoutField()
                 v.layoutTextArea()
                 v.metal?.frame = v.bounds
                 v.overlay?.frame = v.bounds
@@ -1081,6 +1081,8 @@ final class Presenter {
                 v.applyShadow()
                 v.fitScroll()
                 v.applyTransform()
+            case .fieldContent:
+                views[id]?.applyFieldContent(op.payload)
             case .content:
                 if let v = views[id] {
                     v.content = CGSize(width: op.w, height: op.h)
@@ -1280,7 +1282,7 @@ final class Presenter {
 }
 
 /// A view's subtree as pixels (LLP 1014 D3).
-enum Capture {
+package enum Capture {
     /// A capture is drawing: its draws are not repaints (D4 b).
     nonisolated(unsafe) static var capturing = false
     /// Guest pictures for this turn; the remote platform views are hidden
@@ -1289,7 +1291,7 @@ enum Capture {
 
     /// The subtree painted at `scale`: premultiplied RGBA, rows top-down,
     /// `pixelsWide * 4` bytes per row, transparent where nothing painted.
-    static func bitmap(of view: NSView, scale: CGFloat) -> NSBitmapImageRep? {
+    package static func bitmap(of view: NSView, scale: CGFloat) -> NSBitmapImageRep? {
         // A subtree painted through its canvas composites at alpha 0; paint
         // it opaque into the bitmap regardless.
         let alpha = view.alphaValue

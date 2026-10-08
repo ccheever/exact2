@@ -206,8 +206,8 @@ test('a sibling app resolves every host dependency from its own manifest', () =>
     const result = spawnSync('cargo', ['metadata', '--offline', '--locked', '--no-deps', '--format-version', '1'], { cwd: dir, encoding: 'utf8' });
     assert.equal(result.status, 0, result.stderr);
     const packages = JSON.parse(result.stdout).packages;
-    assert.equal(packages.length, 2);
-    const paths = { 'exact-logic': 'logic', 'exact-apple': 'host/apple', 'exact-web': 'host/web', 'exact-web-capabilities': 'host/web-capabilities', 'exact-js': 'js', 'exact-js-web': 'js/web', 'exact-js-bake': 'js/bake' };
+    assert.equal(packages.length, 3);
+    const paths = { 'exact-logic': 'logic', 'exact-apple': 'host/apple', 'exact-linux': 'host/linux', 'exact-web': 'host/web', 'exact-web-capabilities': 'host/web-capabilities', 'exact-js': 'js', 'exact-js-web': 'js/web', 'exact-js-bake': 'js/bake' };
     for (const pkg of packages) for (const dep of pkg.dependencies) {
       assert.equal(realpathSync(dep.path), realpathSync(resolve(root, paths[dep.name])), `${pkg.name}: ${dep.name}`);
     }
@@ -267,6 +267,32 @@ test('a new app tells its agent where the guides are, and update keeps what the 
     rmSync(resolve(dir, 'AGENTS.md')); rmSync(resolve(dir, 'CLAUDE.md'));
     createApp(dir, { update: true });
     assert.ok(existsSync(resolve(dir, 'AGENTS.md')) && existsSync(resolve(dir, 'CLAUDE.md')));
+  } finally { rmSync(parent, { recursive: true, force: true }); }
+}, 60_000);
+
+// LLP 1086 / LLP 1107: the scaffold writes a Linux host crate (the Android host is the same crate), with
+// `linux` and `android` build verbs; an app made before it gains the crate on update.
+test('a new app has a Linux host crate, and update adds one to an older app', () => {
+  const parent = mkdtempSync(resolve(tmpdir(), 'exact-new-'));
+  try {
+    const dir = resolve(parent, 'field-log');
+    createApp(dir);
+    const linux = readFileSync(resolve(dir, 'linux/Cargo.toml'), 'utf8');
+    assert.match(linux, /^name = "field-log-linux"$/m);
+    assert.match(linux, /^exact-linux = \{ path = "[^"]*host\/linux" \}$/m);
+    assert.match(readFileSync(resolve(dir, 'linux/src/main.rs'), 'utf8'), /exact_linux::run::<AppData>\(PLAN, COMPAT\)/);
+    assert.match(readFileSync(resolve(dir, 'Cargo.toml'), 'utf8'), /^members = \["apple", "linux", "web"\]$/m);
+    const commands = readFileSync(resolve(dir, 'exact.mjs'), 'utf8');
+    assert.match(commands, /linux: \['scripts\/build-linux\.mjs', 'field-log'\]/);
+    assert.match(commands, /android: \['scripts\/agent-android\.mjs', 'build', 'field-log'\]/);
+    // An older app: no linux/, and a workspace that does not list it.
+    rmSync(resolve(dir, 'linux'), { recursive: true });
+    const manifest = resolve(dir, 'Cargo.toml');
+    writeFileSync(manifest, readFileSync(manifest, 'utf8').replace('members = ["apple", "linux", "web"]', 'members = ["apple", "web"]'));
+    assert.match(createApp(dir, { update: true }), /a linux\/ host crate/);
+    assert.ok(readFileSync(resolve(dir, 'linux/Cargo.toml'), 'utf8').includes('name = "field-log-linux"'));
+    assert.match(readFileSync(manifest, 'utf8'), /^members = \["apple", "linux", "web"\]$/m);
+    assert.doesNotMatch(createApp(dir, { update: true }), /linux\/ host crate/, 'a second update leaves it');
   } finally { rmSync(parent, { recursive: true, force: true }); }
 }, 60_000);
 

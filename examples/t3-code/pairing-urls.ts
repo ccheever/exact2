@@ -4,8 +4,8 @@
 // (isQrShareableEndpoint, selectQrEndpointOption) and ConnectionsSettings.tsx
 // (selectPairingEndpoint, endpointDefaultPreferenceKey, endpointShareHint).
 //  - An HTTP endpoint pairs directly: `<endpoint>/pair#token=<credential>`.
-//  - An HTTPS endpoint pairs through the hosted web app (decision U8, provisional, user decision
-//    pending: as the reference): `https://app.t3.codes/pair?host=<endpoint>[&label=]#token=`. The
+//  - An HTTPS endpoint pairs through the hosted web app (decision U8, 2026-10-08: as the reference,
+//    checked line by line): `https://app.t3.codes/pair?host=<endpoint>[&label=]#token=`. The
 //    hosted app connects to the endpoint itself; nothing goes through T3 Connect.
 //  - A loopback endpoint never gets a QR code: a device scanning it would dial itself.
 // The credential lives only in the URL's fragment, never in a query string the server logs.

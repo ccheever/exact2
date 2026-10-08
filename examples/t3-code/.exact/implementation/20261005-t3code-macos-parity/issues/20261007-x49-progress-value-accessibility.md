@@ -79,3 +79,12 @@ published: publication needs the user's approval (`issue-open`).
 Upstream: https://github.com/ccheever/exact2/issues/279 (#279, [Feature] A progress value for assistive technology: determinate `progress` (`value`, `max`) or `aria-valuenow`). Reproduced on main `0365ad1a4` (relevant files unchanged on main `e200397ec`) with a minimal public-API app before filing. `progress value=30 max=100` is refused (`lower-attr-tag`: Exact does not draw the determinate bar yet); `aria-valuenow`, `aria-valuemin` and `aria-valuemax` are `lower-unknown-attr`. Main now has the indeterminate `progress` (LLP 1069.001, amended 2026-10-07), which macOS exposes as `progressbar [busy]` with no value. Searched: progress value, aria-valuenow, progressbar (issues and PRs): no duplicate. The macOS exposure of a drawn `role="progressbar"` box is #278 (X55).
 
 Next: issue-close once #279 lands: replace the drawn bar's `aria-description` in `ProviderRuntimeRow` with the element or attributes.
+
+## Main's indeterminate `progress` (2026-10-08, adopt-main-fixes-r6)
+
+Upstream as [#279](https://github.com/ccheever/exact2/issues/279) (filed 2026-10-08). Main `d82c12252` (LLP 1069.001,
+amended 2026-10-07; in the feature branch with adopt-main-fixes-r6's merge of `e200397ec`) adds `progress`: the
+platform's activity indicator, role `progressbar` and `aria-busy`. It is indeterminate only: `contract build` refuses
+`value` ("a `value` makes HTML's determinate progress bar, which Exact does not draw yet") and `max`, and
+`contract vocab aria-valuenow` still answers "ARIA's, and Contract does not carry it yet". The Antigravity bar needs the
+value, so nothing is adopted: `ProviderRuntimeRow` keeps its drawn track and fill with `aria-description`.

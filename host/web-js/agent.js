@@ -32,7 +32,7 @@ export function install(exact) {
   // An SVG element's node type, by element.rs's tags (a nested `svg` is a viewport).
   const SVG = { svg: 'Svg', g: 'SvgGroup', path: 'SvgPath', polyline: 'SvgPolyline', polygon: 'SvgPolygon', circle: 'SvgCircle', line: 'SvgLine', rect: 'SvgRect', ellipse: 'SvgEllipse', defs: 'SvgDefs', linearGradient: 'SvgLinearGradient', radialGradient: 'SvgRadialGradient', stop: 'SvgStop', use: 'SvgUse', symbol: 'SvgSymbol', clipPath: 'SvgClipPath', text: 'SvgText', tspan: 'SvgTSpan', marker: 'SvgMarker', mask: 'SvgMask', pattern: 'SvgPattern', foreignObject: 'SvgForeignObject', filter: 'SvgFilter' };
   const svg = el => el.localName === 'svg' && el.parentElement?.namespaceURI === el.namespaceURI ? 'SvgViewport' : SVG[el.localName] ?? (el.localName.startsWith('fe') ? 'SvgFe' : 'View');
-  const type = el => el.exactNative ? 'NativeView' : el.namespaceURI === 'http://www.w3.org/2000/svg' ? svg(el) : el.exactMarkup ? 'TextInput' : el.localName === 'select' || el.localName === 'button' && el.hasAttribute('data-button-style') || el.localName === 'input' && /^(file|checkbox|radio|range|date|time|datetime-local)$/.test(el.type) ? 'Control' : el.localName === 'option' || el.hasAttribute('data-exact-text') || run(el) ? 'Text' : el.querySelector(':scope > canvas[data-surface]') ? 'Canvas' : el.dataset.scroll ? (el.getAttribute('role') === 'list' ? 'List' : 'ScrollView') : TYPES[el.tagName] ?? 'View';
+  const type = el => el.exactNative ? 'NativeView' : el.namespaceURI === 'http://www.w3.org/2000/svg' ? svg(el) : el.exactMarkup ? 'TextInput' : el.localName === 'select' || el.localName === 'button' && el.hasAttribute('data-button-style') || el.localName === 'input' && /^(file|checkbox|radio|range|date|time|datetime-local)$/.test(el.type) || el.hasAttribute('data-exact-progress') ? 'Control' : el.localName === 'option' || el.hasAttribute('data-exact-text') || run(el) ? 'Text' : el.querySelector(':scope > canvas[data-surface]') ? 'Canvas' : el.dataset.scroll ? (el.getAttribute('role') === 'list' ? 'List' : 'ScrollView') : TYPES[el.tagName] ?? 'View';
   const record = (el, depth) => {
     const props = {};
     if (el.dataset.testid) props.testId = el.dataset.testid;
@@ -53,6 +53,7 @@ export function install(exact) {
     if (el.hasAttribute('inert')) props.inert = true;
     if (el.getAttribute('aria-hidden') === 'true') props.accessibilityElementsHidden = true;
     if (el.getAttribute('aria-modal') === 'true') props.accessibilityModal = true;
+    if (el.getAttribute('aria-busy') === 'true') props.accessibilityBusy = true;
     if (el.hasAttribute('autofocus')) props.autofocus = true; else if (el.dataset.autofocus === 'false') props.autofocus = false;
     const n = { id: id(el), type: type(el), depth, props };
     if (el.dataset.exactOn) n.handlers = el.dataset.exactOn.split(' ');
@@ -80,6 +81,23 @@ export function install(exact) {
   // The runner's tags (LLP 1035.002 D3): a commit is an epoch; a JS page
   // has one incarnation (a plan swap is a new page).
   const tags = () => ({ clock: exact.clock.now, epoch: exact.clock.epoch, incarnation: 1 });
+  // `tap <node>/<part>` (LLP 1075.003.000.001 §3.5): the aim (which changes nothing) and the landing; the driver delivers
+  // a real pointer event at the aimed point between them. The token binds the part's element: one replaced since is stale.
+  let PartAim = null, PartAims = 0;
+  const partTap = req => {
+    const node = views.get(req.id), el = node && exact.hatchRegions?.part(node, String(req.part));
+    if (!el) return { error: `part ${req.part}: view ${req.id} has no live part of that id` };
+    const b = el.getBoundingClientRect(), x = b.x + b.width / 2, y = b.y + b.height / 2, under = document.elementFromPoint(x, y), on = t => !!t && (t === el || el.contains(t));
+    if (req.aim) {
+      if (!on(under)) return { error: `part ${req.part}: ${under ? `covered by ${under.localName}${under.id ? '#' + under.id : ''}` : 'nothing is hit at its middle'}` };
+      const aim = PartAim = { token: `${req.id}/${req.part}/${++PartAims}`, el, hit: null }, nb = node.getBoundingClientRect();
+      document.addEventListener('pointerdown', ev => { if (PartAim === aim) aim.hit = ev.target; }, { capture: true, once: true });
+      return { aimed: { at: [Math.round((x - nb.x) * 100) / 100, Math.round((y - nb.y) * 100) / 100], token: aim.token }, ...tags() };
+    }
+    if (!PartAim || PartAim.token !== req.landed || PartAim.el !== el) return { error: `part ${req.part}: it changed between the aim and the delivery (a stale token)` };
+    const hit = PartAim.hit;
+    return { tapped: req.id, part: String(req.part), delivery: 'platform', landed: on(hit) ? 'part' : 'elsewhere', ...(on(hit) ? {} : { hit: hit ? { class: hit.localName } : null }), ...tags() };
+  };
   // An iframe's latest src load (glue.js `iframeLoading`): loading until the
   // load event of the src it has now.
   const loaded = new WeakMap();
@@ -223,6 +241,8 @@ export function install(exact) {
           nodes = req.shallow ? [hit] : nodes.filter(n => n === hit || views.get(hit.id).contains(views.get(n.id)));
           roots = [hit.id];
         }
+        // A hatch's regions and parts, under their node (LLP 1075.003.000.001 §3.4, §3.5; hatches.js).
+        if (exact.hatchRegions) nodes = nodes.map(n => { const o = exact.hatchRegions.of(views.get(n.id)); return o ? { ...n, ...o } : n; });
         return { nodes, roots, ...tags() };
       }
       case 'layout': {
@@ -243,6 +263,7 @@ export function install(exact) {
       }
       case 'focus': { const el = views.get(req.id); if (!el) return { error: `no view ${req.id}` }; el.focus(); if (req.select !== false) el.select?.(); return {}; }
       case 'tap':
+        if (req.part != null) return partTap(req);
         // A virtualized list's row brought into view by key (LLP 1070.000 §5; list.js).
         if (req.into) {
           if (!exact.lists) return { error: `view ${req.id} is not a mounted virtualized list` };
@@ -273,6 +294,7 @@ export function install(exact) {
         return perf.reply(el, tags());
       }
       case 'clock': {
+        exact.hatchActs?.command(); // a command's hatch caps start at nothing (LLP 1075.003.000.001 §2.4)
         // The end of an input (LLP 1012 §2): the `then`s of the answers it
         // settled land, the clock unmoved and no timer fired (Runner::land_then).
         if (req.land) {
@@ -376,7 +398,19 @@ export function install(exact) {
       }
       case 'tags': return tags();
       // @ref LLP 1080.002 D4 — the ids `tree` gives, where CDP's DOM snapshot reads them, and the document's nonce.
-      case 'axStamp': { all(); for (const [i, el] of views) if (el.isConnected && el.getAttribute('data-agent-view') !== String(i)) el.setAttribute('data-agent-view', i); return { ...tags(), nonce: performance.timeOrigin }; }
+      case 'axStamp': {
+        all(); for (const [i, el] of views) if (el.isConnected && el.getAttribute('data-agent-view') !== String(i)) el.setAttribute('data-agent-view', i);
+        // A hatch's parts, stamped on their bound elements: `tree --ax` joins a part by ownership (LLP 1075.003.000.001 §3.5).
+        const parts = [], bound = new Set();
+        if (exact.hatchRegions) for (const [i, el] of views) for (const p of exact.hatchRegions.of(el)?.parts ?? []) {
+          const at = exact.hatchRegions.part(el, p.id), name = `${i}/${p.id}`;
+          if (!at) continue;
+          if (at.getAttribute('data-agent-part') !== name) at.setAttribute('data-agent-part', name);
+          bound.add(at); parts.push({ node: i, id: p.id });
+        }
+        for (const el of document.querySelectorAll('[data-agent-part]')) if (!bound.has(el)) el.removeAttribute('data-agent-part');
+        return { ...tags(), nonce: performance.timeOrigin, ...(parts.length ? { parts } : {}) };
+      }
       case 'state': {
         const [slots, derives, resources] = names.map((list, k) => Object.fromEntries(list.map((n, i) => [n, typed(exact.state[k][i](), types[k][i])])));
         // What is in flight: the network's by resource, then held device requests.

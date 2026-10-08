@@ -140,7 +140,10 @@ extension Agent {
         navigation["popover"] = presenter.menus.observation ?? NSNull()
         // The window's title as AppKit shows it (LLP 1048.003 D1).
         let window: [String: Any] = ["title": presenter.root.window?.title ?? NSNull(), "toolbar": presenter.toolbar.summary]
-        return ["focus": focus, "keyboard": keyboard, "navigation": navigation, "window": window,
+        let kernelState = (try? JSONSerialization.jsonObject(with: Data(session.agent("{\"op\":\"state\"}").utf8))) as? [String: Any]
+        let kernelLayout = kernelState?["kernelLayout"] as? [String: Any] ?? [:]
+        let layout = kernelLayout.merging(["provisional": session.fieldChrome.presentedProvisional]) { _, host in host }
+        return ["layout": layout, "focus": focus, "keyboard": keyboard, "navigation": navigation, "window": window,
                 "dialog": presenter.dialogs.observation ?? NSNull(), "hatches": presenter.elements.observation(presenter.session?.hatchDiagnostics)]
     }
 
@@ -148,7 +151,7 @@ extension Agent {
     /// origin — every enclosing scroll node's offset folded in — with the
     /// presentation transform (translate/scale/rotate on the layer) applied,
     /// as the web's `getBoundingClientRect` includes CSS transforms.
-    func box(_ v: NSView, region: CGRect? = nil) -> NSRect {
+    package func box(_ v: NSView, region: CGRect? = nil) -> NSRect {
         let bounds = region ?? v.bounds
         if (v as? NodeView)?.placedAncestor?.placementHidden == true { return .zero }
         let clip = presenter.viewport.contentView
@@ -632,6 +635,9 @@ extension Agent {
         // `clicks n` is n, each with the count so far (a triple click selects a line).
         let count = req["clicks"] == nil ? (req["dblclick"] as? Bool == true ? 2 : 1) : req["clicks"] as? Int ?? 0
         guard (1...3).contains(count) else { return ["error": "tap: clicks is 1, 2 or 3"] }
+        // What the click will reach, by the window's own hit test: a part's landing reads it (AgentParts.swift).
+        PartLanding.view = win.contentView?.superview?.hitTest(p) ?? win.contentView?.hitTest(p)
+        PartLanding.delivered = true
         for clicks in 1...count {
             let t = ProcessInfo.processInfo.systemUptime
             let eventNumber = AgentMouseRelease.nextEventNumber()

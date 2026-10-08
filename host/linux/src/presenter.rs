@@ -45,6 +45,7 @@ mod field;
 #[cfg(test)]
 mod field_tests;
 mod group;
+mod hatch;
 mod painter;
 mod pan_release;
 mod picker;
@@ -208,6 +209,8 @@ pub struct Presenter<D: DataSource> {
     content_registration: Option<crate::content_region::ContentRegionRegistration>,
     last_region_frame: Option<Arc<Pixmap>>,
     last_region_scale: Option<u32>,
+    /// The app's hatches (LLP 1075.003.000.001; `presenter/hatch.rs`).
+    pub(crate) hatches: crate::hatches::Session,
 }
 /// Two decimals, the agent API's precision.
 fn r2(x: f32) -> f64 {
@@ -420,6 +423,7 @@ impl<D: DataSource> Presenter<D> {
             content_registration: region,
             last_region_frame: None,
             last_region_scale: None,
+            hatches: Default::default(),
         };
         p.set_system_scheme(false);
         let e = p.after_commit();
@@ -624,7 +628,7 @@ impl<D: DataSource> Presenter<D> {
 
     /// A display needs another animation or GPU canvas frame.
     pub fn wants_display_frames(&self) -> bool {
-        self.host.wants_frames() || self.surfaces.has_rendered_canvas()
+        self.wants_frames() || self.surfaces.has_rendered_canvas()
     }
 
     /// The viewport changed.
@@ -670,6 +674,7 @@ impl<D: DataSource> Presenter<D> {
         // What the commit asked the host to run goes to the executor (LLP
         // 1016 D2); the reply comes back through `pump`. Its commands wait
         // for the loop (`run_commands`).
+        self.hatches.stale = true;
         // A continuation is dispatched here, on this thread, after the
         // commit that handed it out (LLP 1027.002 D3); one a source holds
         // is parked and released after a later commit.
@@ -828,6 +833,7 @@ impl<D: DataSource> Presenter<D> {
         for id in &renewed {
             self.dirty |= self.scroll.remove(id).is_some();
         }
+        self.hatches.renewed.extend(&renewed);
         let reports = self.images.renew(self.host.kernel(), &renewed);
         if reports.is_empty() {
             return None;
@@ -1113,7 +1119,9 @@ impl<D: DataSource> Presenter<D> {
                 "view {id} activates view {actual} at its projected center"
             ));
         }
+        let mark = self.hatch_pointer_mark(crate::hatches::Phase::Down, x, y);
         let activated = self.press_at(x, y, now);
+        self.hatch_tapped(mark, x, y);
         if actual.is_some() && activated.is_none() {
             return Err(format!("view {id} did not accept activation"));
         }
@@ -1363,6 +1371,7 @@ impl<D: DataSource> Presenter<D> {
         self.menu = None;
         self.hovered.clear();
         self.pointer_held = None;
+        self.hatch_reset();
         self.hosts += 1;
         self.measure();
     }
@@ -1389,6 +1398,7 @@ impl<D: DataSource> Presenter<D> {
         let (e, paint) = self.host.advance_effects(now_ms);
         self.dirty |= paint;
         let after = self.finish_commit();
+        self.hatch_timers(now_ms);
         e.or(after)
     }
 
@@ -1398,12 +1408,14 @@ impl<D: DataSource> Presenter<D> {
         let (e, paint) = self.host.frame(now_ms);
         self.dirty |= paint;
         let after = self.finish_commit();
+        self.hatch_presented(now_ms);
         e.or(after)
     }
 
     /// A motion frame.
     pub fn tick(&mut self, now_ms: f64) {
         if self.host.tick(now_ms) {
+            self.hatches.stale = true;
             self.clamp_scroll();
             self.queue_collections();
             if let Some(error) = self.refresh_transform_geometry() {

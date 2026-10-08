@@ -16,7 +16,7 @@
 import CoreGraphics
 import QuartzCore
 
-enum BorderPaint {
+package enum BorderPaint {
     /// Percentages use the border box's width and height independently.
     static func radii(_ style: NodeStyle, in rect: CGRect, inset: CGFloat = 0) -> [CGSize] {
         ["top_left", "top_right", "bottom_right", "bottom_left"].map { name in
@@ -69,7 +69,7 @@ enum BorderPaint {
     /// CSS's radius reduction: every corner scaled by the one factor that
     /// keeps two neighbours from overlapping an edge. `radii` are top-left,
     /// top-right, bottom-right, bottom-left, as (horizontal, vertical).
-    static func reduced(_ radii: [CGSize], in rect: CGRect) -> [CGSize] {
+    package static func reduced(_ radii: [CGSize], in rect: CGRect) -> [CGSize] {
         let sums = [radii[0].width + radii[1].width, radii[3].width + radii[2].width,
                     radii[0].height + radii[3].height, radii[1].height + radii[2].height]
         let edges = [rect.width, rect.width, rect.height, rect.height]
@@ -80,7 +80,7 @@ enum BorderPaint {
 
     /// A rectangle with an elliptical radius per corner, clockwise on screen;
     /// with a `corner-shape`, the kernel's outline (LLP 1077 D1).
-    static func roundedRect(_ r: CGRect, _ radii: [CGSize], shape: CornerShape? = nil) -> CGMutablePath {
+    package static func roundedRect(_ r: CGRect, _ radii: [CGSize], shape: CornerShape? = nil) -> CGMutablePath {
         if let shape { return shape.outline(r, radii) }
         let p = CGMutablePath()
         let (tl, tr, br, bl) = (radii[0], radii[1], radii[2], radii[3])

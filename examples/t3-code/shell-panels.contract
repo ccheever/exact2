@@ -120,7 +120,9 @@ component SurfaceKey
 // glyph, 8pt gap, 14/20 label), 1pt separators inset 8pt, a submenu flown out
 // to the right level with its row when that row is hovered. A transparent
 // backdrop closes it; a second click there (a double-click on the title)
-// renames instead. Submenu state is keyed to this opening's serial.
+// renames instead. Submenu state is keyed to this opening's serial. Pressing
+// a submenu's row (a click, Enter or Space) opens it with the focus on its
+// first enabled item, as the fallback's openSubmenu(true) does (title-custom-snooze).
 component TitleMenu
   props
     items: list<ShellMenuItem>
@@ -148,6 +150,12 @@ component TitleMenu
     else
       if hoveredId == id
         hoveredId = ""
+  action expand(id: string, offset: number)
+    hover(id, "ui:submenu", "", offset, true)
+    match first(filter(children, (c) => c.submenu == id and not c.disabled))
+      case some(c)
+        focus(`title-menu-${c.id}`)
+      case none
   view
     box position="absolute" left=0 top=0 right=0 bottom=0 z-index=60 testId="title-menu-layer"
       button press=ui("close", "") dblclick=ui("rename", "") aria-label="Close menu" aria-keyshortcuts="Escape" testId="title-menu-backdrop" position="absolute" left=0 top=0 right=0 bottom=0 padding=0 border-width=0 background-color="#00000000"
@@ -156,13 +164,13 @@ component TitleMenu
           each entry in items key=entry.id
             when entry.separated
               box height=1 margin-top="0.25rem" margin-bottom="0.25rem" margin-left="0.5rem" margin-right="0.5rem" background-color="light-dark(#e4e4e7, #ffffff0f)"
-            MenuRow(entry=entry, highlighted=(hoveredId == entry.id or open == entry.id), pick=pick, hover=hover)
+            MenuRow(entry=entry, highlighted=(hoveredId == entry.id or open == entry.id), pick=pick, hover=hover, expand=expand)
         when open != ""
           column min-width="8rem" max-width="24rem" margin-left=-1 margin-top=subTop padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-style="solid" border-width=1 border-color="light-dark(#27272a1a, #f5f5f51a)" background-color="light-dark(#fefefe, #101010)" box-shadow="0 20px 25px -5px #00000040, 0 8px 10px -6px #00000040" role="menu" aria-label=open testId="title-submenu"
             each entry in filter(children, (c) => c.submenu == open) key=entry.id
               when entry.separated
                 box height=1 margin-top="0.25rem" margin-bottom="0.25rem" margin-left="0.5rem" margin-right="0.5rem" background-color="light-dark(#e4e4e7, #ffffff0f)"
-              MenuRow(entry=entry, highlighted=(hoveredId == entry.id), pick=pick, hover=hover)
+              MenuRow(entry=entry, highlighted=(hoveredId == entry.id), pick=pick, hover=hover, expand=expand)
 
 component MenuRow
   props
@@ -170,15 +178,26 @@ component MenuRow
     highlighted: bool
     pick: action
     hover: action
+    expand: action
+  action activate
+    if entry.op == "ui:submenu"
+      expand(entry.id, entry.offset)
+    else
+      pick(entry.op, entry.target, entry.value, entry.confirmTitle, entry.confirmBody, entry.destructive)
+  // A disabled row hears no pointer (the fallback's pointer-events: none): a disabled Snooze never opens its submenu.
+  action point(over: bool)
+    if not entry.disabled
+      hover(entry.id, entry.op, entry.submenu, entry.offset, over)
   view
-    button press=pick(entry.op, entry.target, entry.value, entry.confirmTitle, entry.confirmBody, entry.destructive) hover=hover(entry.id, entry.op, entry.submenu, entry.offset) disabled=entry.disabled role=(entry.id == "auto-settle:enabled" or entry.id == "auto-settle:disabled" ? "menuitemradio" : "menuitem") aria-checked=entry.checked aria-expanded=(entry.op == "ui:submenu" and highlighted) testId=`title-menu-${entry.id}` width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" gap="0.5rem" border-radius="0.375rem" border-width=0 display="flex" flex-direction="row" align-items="center" opacity=(entry.disabled ? 0.64 : 1) background-color=(highlighted ? (entry.destructive ? "light-dark(#fb2c3614, #fb414a1f)" : "light-dark(#f4f4f5, #ffffff0a)") : "#00000000")
+    button id=`title-menu-${entry.id}` press=activate hover=point disabled=entry.disabled role=(entry.id == "auto-settle:enabled" or entry.id == "auto-settle:disabled" ? "menuitemradio" : "menuitem") aria-checked=entry.checked aria-expanded=(entry.op == "ui:submenu" and highlighted) testId=`title-menu-${entry.id}` width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" gap="0.5rem" border-radius="0.375rem" border-width=0 display="flex" flex-direction="row" align-items="center" opacity=(entry.disabled ? 0.64 : 1) background-color=(highlighted ? (entry.destructive ? "light-dark(#fb2c3614, #fb414a1f)" : "light-dark(#f4f4f5, #ffffff0a)") : "#00000000")
       when entry.icon != ""
         ShellIcon(name=entry.icon, size=16, color=(entry.destructive ? "light-dark(#c10007, #ff6467)" : "light-dark(#71717b, #818181)"))
       when entry.checked
         ShellIcon(name="check", size=16, color="light-dark(#27272a, #f5f5f5)")
       when entry.icon == "" and not entry.checked and (entry.id == "auto-settle:enabled" or entry.id == "auto-settle:disabled")
         box width="1rem" height="1rem" flex-shrink=0
-      text entry.label flex=1 min-width=0 line-clamp=1 white-space="nowrap" font-size="0.875rem" line-height="1.25rem" color=(entry.destructive ? "light-dark(#c10007, #ff6467)" : "light-dark(#27272a, #f5f5f5)")
+      // A button centers its text (text-align: center, as on the web); the fallback menu's rows are start-aligned.
+      text entry.label flex=1 min-width=0 line-clamp=1 white-space="nowrap" text-align="left" font-size="0.875rem" line-height="1.25rem" color=(entry.destructive ? "light-dark(#c10007, #ff6467)" : "light-dark(#27272a, #f5f5f5)")
       when entry.op == "ui:submenu"
         box opacity=0.8 margin-right="-0.125rem" flex-shrink=0 display="flex"
           ShellIcon(name="chevron-right", size=16, color="light-dark(#71717b, #818181)")

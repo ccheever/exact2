@@ -107,6 +107,69 @@ fn endow_in(host: Host, grants: &str) -> Result<Bindings, String> {
     Ok(host.endow(set))
 }
 
+/// Where a commit's kept secrets and answers go (LLP 1018 D6): the
+/// platform's stores, behind the I/O link (LLP 1047.001), so an archive that
+/// links no I/O names neither them nor the Keychain and files under them.
+pub trait KeptStore {
+    /// Write one store change.
+    fn write(&self, w: &StoreWrite) -> Result<(), String>;
+    /// The kept answers the writer failed to write since the last call.
+    fn kept_failures(&self) -> Vec<String>;
+}
+
+impl KeptStore for Platform {
+    fn write(&self, w: &StoreWrite) -> Result<(), String> {
+        Platform::write(self, w).map_err(|e| e.to_string())
+    }
+    fn kept_failures(&self) -> Vec<String> {
+        Platform::kept_failures(self)
+    }
+}
+
+/// The app's I/O as a boot finds it (LLP 1016 D6; LLP 1018 D6): its
+/// bindings, the secrets and answers they kept, where commits keep more,
+/// and why there are none when the grants did not bind.
+pub struct Endowed {
+    /// The bindings the executor takes.
+    pub bindings: Option<Bindings>,
+    /// What the platform's stores held, read before the runner boots.
+    pub snapshot: Vec<(String, String)>,
+    /// Where a commit's writes go.
+    pub secrets: Option<Box<dyn KeptStore>>,
+    /// Why the grants bound nothing.
+    pub unbound: Option<String>,
+}
+
+impl Endowed {
+    /// An archive that links no I/O: nothing bound, nothing kept.
+    pub fn none() -> Endowed {
+        Endowed {
+            bindings: None,
+            snapshot: Vec::new(),
+            secrets: None,
+            unbound: None,
+        }
+    }
+}
+
+/// [`endow_bound`] and, for a fresh session, what its stores held (a reload
+/// carries the running store): [`crate::link::IoLinks`]'s endowment.
+pub fn endowed(grants: &str, app_id: &str, fresh: bool) -> Endowed {
+    let (bindings, unbound) = endow_bound(grants, app_id, fresh);
+    Endowed {
+        snapshot: if fresh {
+            snapshot_of(bindings.as_ref())
+        } else {
+            Vec::new()
+        },
+        secrets: bindings
+            .as_ref()
+            .map(|b| Box::new(Platform::of(b)) as Box<dyn KeptStore>),
+        bindings,
+        unbound,
+    }
+}
+
 /// Where a commit's store writes go (LLP 1018 D6): the app's secrets to the
 /// platform's secret store, the runner's kept answers to its kv store.
 #[derive(Clone)]

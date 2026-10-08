@@ -2,6 +2,20 @@
 use super::*;
 
 impl<D: DataSource> Host<D> {
+    pub(super) fn withhold_layout(&mut self) {
+        // These geometry rows will be withheld. Force a settled retry to
+        // publish them even if the kernel's last guessed boxes compare equal.
+        self.layout_withheld = true;
+        for m in self.mirror.values_mut() {
+            m.frame = None;
+        }
+        self.pending_layout.extend(
+            self.mirror
+                .keys()
+                .filter_map(|id| self.runner.kernel().node(*id).map(|n| n.key)),
+        );
+    }
+
     pub(super) fn record_layout(&mut self, receipt: &exact_kernel::LayoutReceipt) {
         self.pending_layout
             .extend(receipt.updated.iter().chain(&receipt.flow_changed).copied());
@@ -52,20 +66,36 @@ impl<D: DataSource> Host<D> {
             );
         let (w, h) = self.viewport;
         for root in self.runner.roots() {
-            if self.content_region.is_some() {
-                self.region_layout(root, Offer::definite(w, h), batch)?;
-            } else {
-                let receipt = self
-                    .runner
-                    .kernel_mut()
-                    .compute_layout_presented(root, Offer::definite(w, h), &self.height_presented)
-                    .map_err(|e| format!("layout: {e:?}"))?;
-                // @ref LLP 1043.000 §3 D4 — geometry can move without a frame change.
-                self.runner.report_flow_skipped(&receipt.flow_skipped);
-                self.runner
-                    .report_fragment_skipped(&receipt.fragment_skipped);
-                self.runner.moved(&receipt.changed);
-                self.record_layout(&receipt);
+            // A miss has filled its cache on main before returning. Re-run
+            // silently, collecting both receipts so a final unchanged frame
+            // still replaces the provisional geometry the presenter never saw.
+            for attempt in 0..3 {
+                let before = self.runner.kernel().provisional_layouts();
+                if self.content_region.is_some() {
+                    self.region_layout(root, Offer::definite(w, h), batch)?;
+                } else {
+                    let receipt = self
+                        .runner
+                        .kernel_mut()
+                        .compute_layout_presented(
+                            root,
+                            Offer::definite(w, h),
+                            &self.height_presented,
+                        )
+                        .map_err(|e| format!("layout: {e:?}"))?;
+                    self.runner.report_flow_skipped(&receipt.flow_skipped);
+                    self.runner
+                        .report_fragment_skipped(&receipt.fragment_skipped);
+                    self.runner.moved(&receipt.changed);
+                    self.record_layout(&receipt);
+                }
+                batch.layout_provisional = self.runner.kernel().provisional_layouts() != before;
+                if !batch.layout_provisional {
+                    break;
+                }
+                if attempt == 2 {
+                    return Err("layout: field chrome remained provisional after three passes; batch refused before presentation".into());
+                }
             }
         }
         self.height_projection.clear();
@@ -89,7 +119,7 @@ impl<D: DataSource> Host<D> {
                 continue;
             };
             if let Some(c) = kernel.sticky_constraint(key) {
-                if self.stickies.get(&node.id) != Some(&c) {
+                if self.layout_withheld || self.stickies.get(&node.id) != Some(&c) {
                     batch.sticky(node.id, Some(&c));
                 }
                 now.insert(node.id, c);
@@ -117,7 +147,7 @@ impl<D: DataSource> Host<D> {
                 continue;
             };
             let record = crate::batch::fragments_json(kernel.fragments(key), kernel.columns(key));
-            if self.fragments.get(&node.id) != Some(&record) {
+            if self.layout_withheld || self.fragments.get(&node.id) != Some(&record) {
                 batch.fragments(node.id, &record);
             }
             now.insert(node.id, record);
@@ -148,6 +178,10 @@ impl<D: DataSource> Host<D> {
             .into_iter()
             .collect();
         pending.sort_unstable();
+        // What this pass laid out anew, and which of those moved, for the
+        // fit-content routes above them (`emit_fitted`).
+        let mut visited: Vec<ViewId> = Vec::new();
+        let mut moved: IdSet<ViewId> = IdSet::default();
         for key in pending {
             let Some(node) = self.runner.kernel().node_by_key(key) else {
                 continue;
@@ -167,7 +201,7 @@ impl<D: DataSource> Host<D> {
             // views drop this state with their mirror, and [] clears old ink.
             // Region-owned views still receive flow invalidation even when
             // their frames come from the selected native artifact below.
-            if m.flow != node.flow_shapes() {
+            if self.layout_withheld || m.flow != node.flow_shapes() {
                 batch.flow(id, node.flow_shapes());
                 m.flow = node.flow_shapes().to_vec();
             }
@@ -176,8 +210,28 @@ impl<D: DataSource> Host<D> {
             }
             let parent = node.parent.and_then(|p| kernel.node(p)).map(|p| p.frame);
             let rel = relative(node.frame, parent);
-            let content = (style::effective_overflow(&node)
-                != (Overflow::Visible, Overflow::Visible))
+            // A sheet sized to its route's content reads that extent too
+            // (LLP 1075.003 §9.11). A route that scrolls itself keeps its
+            // scroll extent; any other (one that only clips too) is measured
+            // laid out alone (`emit_fitted`) whenever its subtree changes.
+            let overflow = style::effective_overflow(&node);
+            let fits = node
+                .props
+                .str(PropId::NavigationDetent)
+                .is_some_and(|d| d.split(' ').any(|w| w == "fit-content"));
+            let scrolls = [overflow.0, overflow.1]
+                .iter()
+                .any(|o| matches!(o, Overflow::Scroll | Overflow::Auto));
+            if fits && !scrolls {
+                if !self.fit_routes.iter().any(|(r, _)| *r == id) {
+                    self.fit_routes.push((id, None));
+                }
+            } else {
+                self.fit_routes.retain(|(r, _)| *r != id);
+            }
+            visited.push(id);
+            let content = (!(fits && !scrolls)
+                && overflow != (Overflow::Visible, Overflow::Visible))
                 .then(|| content_size(&node, kernel));
             // An ancestor hint may change without touching the editor. Pass
             // its effective value through native containment, or clear it to
@@ -194,12 +248,20 @@ impl<D: DataSource> Host<D> {
                     }
                 }
             }
+            let field_content = node.field_content_rect();
+            if (self.layout_withheld && node.node_type == NodeType::TextInput)
+                || m.field_content != field_content
+            {
+                m.field_content = field_content;
+                batch.field_content(id, field_content);
+            }
             if m.frame != Some(rel) {
+                moved.insert(id);
                 m.frame = Some(rel);
                 batch.frame(id, rel.0, rel.1, rel.2, rel.3);
             }
             if let Some(c) = content {
-                if m.content != Some(c) {
+                if self.layout_withheld || m.content != Some(c) {
                     m.content = Some(c);
                     batch.content(id, c.0, c.1);
                 }
@@ -209,9 +271,11 @@ impl<D: DataSource> Host<D> {
                 self.observe_layout(key, batch);
             }
         }
+        self.emit_fitted(&visited, &moved, batch);
         self.snap_layout(batch);
         self.emit_sticky(batch);
         self.emit_fragments(batch);
+        self.layout_withheld = false;
         self.emit_ranks(batch);
         // Layout/receipt work may change the live window. Motion-only ticks and
         // stale feedback never traverse the tree to collect this metadata.
@@ -226,6 +290,95 @@ impl<D: DataSource> Host<D> {
         }
         Ok(())
     }
+}
+
+impl<D: DataSource> Host<D> {
+    /// A `fit-content` route's extent (LLP 1075.003 §9.11): the height it
+    /// asks for laid out alone at its width, its own height left to its
+    /// content (`Kernel::fit_content_height`), so the sheet it sizes never
+    /// feeds back into it. A bottom cover is the sheet's safe area, which
+    /// UIKit adds below the detent itself: not counted.
+    ///
+    /// Measured when a node under the route was laid out anew (a row added
+    /// need not move the route's box or extent), or when its width,
+    /// resolved padding, border or cover changed (a block route's
+    /// percentage padding moves nothing it publishes); else the last
+    /// measure stands. A scroller of a fixed length height that did not
+    /// move holds what changes inside it, as it does in the trial.
+    fn emit_fitted(&mut self, visited: &[ViewId], moved: &IdSet<ViewId>, batch: &mut Batch) {
+        let kernel = self.runner.kernel();
+        self.fit_routes.retain(|(id, _)| kernel.node(*id).is_some());
+        if self.fit_routes.is_empty() {
+            return;
+        }
+        let mut refit: Vec<ViewId> = Vec::new();
+        for &id in visited {
+            let mut at = Some(id);
+            while let Some(node) = at.and_then(|a| kernel.node(a)) {
+                if self.fit_routes.iter().any(|(r, _)| *r == node.id) && !refit.contains(&node.id) {
+                    refit.push(node.id);
+                }
+                let overflow = style::effective_overflow(&node);
+                let scrolls = [overflow.0, overflow.1]
+                    .iter()
+                    .any(|o| matches!(o, Overflow::Scroll | Overflow::Auto));
+                if scrolls
+                    && matches!(node.style.height, exact_kernel::Dimension::Points(_))
+                    && !moved.contains(&node.id)
+                {
+                    break;
+                }
+                at = node.parent;
+            }
+        }
+        for i in 0..self.fit_routes.len() {
+            let (id, last) = self.fit_routes[i];
+            let kernel = self.runner.kernel_mut();
+            let Some(node) = kernel.node(id) else {
+                continue;
+            };
+            let key = node.key;
+            let cover = match kernel.arena().cover(key.index) {
+                Some(exact_kernel::HostCover::Edges([_, _, bottom, _])) => bottom,
+                _ => 0.0,
+            };
+            let (pl, pt, pr, pb) = kernel.resolved_padding(key).unwrap_or_default();
+            let (bl, bt, br, bb) = kernel.resolved_border(key).unwrap_or_default();
+            let sig = [node.frame.width, pl, pt, pr, pb, bl, bt, br, bb, cover];
+            if !self.layout_withheld && !refit.contains(&id) && last == Some(sig) {
+                continue;
+            }
+            let Some(height) = kernel.fit_content_height(key) else {
+                continue;
+            };
+            self.fit_routes[i].1 = Some(sig);
+            let c = (sig[0], (height - cover).max(0.0));
+            let m = self.mirror.entry(id).or_default();
+            if self.layout_withheld || m.content != Some(c) {
+                m.content = Some(c);
+                batch.content(id, c.0, c.1);
+            }
+        }
+    }
+}
+
+/// Natural scrollable overflow, including padding and descendants. The
+/// presenter applies the CSS client-size minimum against its actual viewport;
+/// flooring here loses the extent a native container needs under its own insets.
+pub(super) fn content_size(node: &NodeRef<'_>, kernel: &Kernel) -> (f32, f32) {
+    // Taffy's block containers do not always count end-edge padding in
+    // `content_size` (its flex containers do); CSS's `scrollHeight` does.
+    // Floor with the direct children's extent plus the end padding, as the
+    // last layout resolved it (a percentage is of the containing block).
+    let (_, _, pad_right, pad_bottom) = kernel.resolved_padding(node.key).unwrap_or_default();
+    let (mut w, mut h) = node.content;
+    for child in node.children() {
+        if let Some(c) = kernel.node(child) {
+            w = w.max(c.frame.x - node.frame.x + c.frame.width + pad_right);
+            h = h.max(c.frame.y - node.frame.y + c.frame.height + pad_bottom);
+        }
+    }
+    (w, h)
 }
 
 #[cfg(test)]

@@ -127,7 +127,8 @@ component R5PrSurfaceBody
       when detail.ref != pr.selected
         box flex=1 width="100%"
       else
-        PrdBody(detail=detail, documents=documents, scheme=scheme, tab=tab, setTab=setTab, reload=reload, act=act, copy=copy, local=local, still=still, select=local("pr-ui-select", ""), compact=compact, scrollId="pr-surface-scroll")
+        each bodyRef in [detail.ref] key=bodyRef
+          PrdBody(detail=detail, documents=documents, scheme=scheme, tab=tab, setTab=setTab, reload=reload, act=act, copy=copy, local=local, still=still, select=local("pr-ui-select", ""), compact=compact, narrow=compact, scrollId="pr-surface-scroll")
 
 // AttachmentFilePreview: "Attachment › name  size" with the icon actions, then the document.
 component R5AttachmentBody

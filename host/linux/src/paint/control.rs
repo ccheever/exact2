@@ -5,11 +5,61 @@
 //! look (D6).
 
 use super::{rgba, Backend, Rect4, Shape};
-use exact_kernel::{Appearance, NodeRef, PropId, StyleMask};
+use exact_kernel::{Appearance, FieldChrome, NodeRef, PropId, StyleMask};
 use tiny_skia::Transform;
 
 /// Chrome's default accent, `#0075ff`, where `accent-color` is `auto`.
 pub(crate) const ACCENT: [u8; 4] = [0x00, 0x75, 0xff, 0xff];
+
+// LLP 1104 D7: the host's field look, outside the author's box rows.
+const FIELD_BORDER: f32 = 1.0;
+const FIELD_RADIUS: f32 = 6.0;
+const FIELD_PADDING: (f32, f32) = (6.0, 8.0);
+
+// The existing system-ui stack selects the host's installed sans-serif face.
+// Linux's own control size is the page's initial 16px, independent of ancestors.
+pub(crate) fn control_text_styles() -> exact_kernel::ControlTextStyles {
+    let font = exact_kernel::ControlFont {
+        family: "system-ui".into(),
+        family_id: 0,
+        size: 16.0,
+        weight: 400,
+        style: exact_kernel::FontStyle::Normal,
+    };
+    exact_kernel::ControlTextStyles {
+        field: font.clone(),
+        textarea: font.clone(),
+        button: font,
+    }
+}
+
+fn field_fill(dark: bool) -> [u8; 4] {
+    if dark {
+        [0x1c, 0x1c, 0x1e, 0xff]
+    } else {
+        [0xff; 4]
+    }
+}
+
+// Keep the fill opaque; disabled border and unauthored ink approach that fill.
+pub(super) fn disabled_field_ink(mut ink: [u8; 4], dark: bool) -> [u8; 4] {
+    let fill = field_fill(dark);
+    for i in 0..3 {
+        ink[i] = ((ink[i] as u16 + fill[i] as u16) / 2) as u8;
+    }
+    ink
+}
+
+pub(crate) fn field_chrome() -> FieldChrome {
+    FieldChrome {
+        top: FIELD_BORDER + FIELD_PADDING.0,
+        right: FIELD_BORDER + FIELD_PADDING.1,
+        bottom: FIELD_BORDER + FIELD_PADDING.0,
+        left: FIELD_BORDER + FIELD_PADDING.1,
+        minimum_height: 0.0,
+        provisional: false,
+    }
+}
 
 /// A control's choice while its bound value is the one it had when the
 /// person chose, as the web build writes an input's `value` only when the
@@ -81,6 +131,28 @@ pub struct MenuPaint {
 pub const MENU_PAD: f32 = 4.0;
 
 impl super::Painter {
+    /// Native text field chrome; text uses the kernel's published content rect.
+    pub(super) fn text_field_chrome(
+        &mut self,
+        rect: Rect4,
+        disabled: bool,
+        ts: Transform,
+    ) -> Shape {
+        let shape = Shape::new(rect, [FIELD_RADIUS; 4]);
+        let fill = field_fill(self.dark);
+        let mut line = if self.dark {
+            [0x48, 0x48, 0x4a, 0xff]
+        } else {
+            [0xc6, 0xc6, 0xc8, 0xff]
+        };
+        if disabled {
+            line = disabled_field_ink(line, self.dark);
+        }
+        self.backend.fill(&shape, line, ts);
+        self.backend.fill(&shape.inset(FIELD_BORDER), fill, ts);
+        shape
+    }
+
     /// A closed select, or a field that shows a value (LLP 1069.001 D7): a
     /// rounded box with the text, and a chevron when it opens a menu.
     pub(super) fn field_control(
@@ -319,122 +391,78 @@ pub(super) fn paint(
     }
 }
 
-/// A native button's look on Linux and its metrics (LLP 1069.011 D2, D6): the
-/// `buttonStyles` row's web/Linux look, as the web's stylesheet draws it.
-/// `ua` is Chrome's own button; the others a pill padded 7/12. Both set the
-/// title in Chrome's 13.33 px button font, without inherited typography.
-pub(crate) fn button_look(node: &NodeRef<'_>) -> &'static str {
-    let name = node.props.str(PropId::ButtonStyle).unwrap_or("bordered");
-    exact_kernel::generated::button_style(name)
-        .or_else(|| exact_kernel::generated::button_style("bordered"))
-        .map_or("ua", |s| s.look)
-}
-
-/// A native button's title as the look sets it: Chrome's button font, no
-/// inherited typography.
-pub(crate) fn button_text_style() -> exact_kernel::StyleProps {
-    exact_kernel::StyleProps {
-        font_size: 13.333,
-        // One line, as the web's face (`white-space: nowrap`) and the
-        // platforms' titles are; its end is ellipsized where it is too wide.
-        white_space: exact_kernel::WhiteSpace::Nowrap,
-        ..Default::default()
+/// An indeterminate `progress` (LLP 1069.001, amended 2026-10-07): UIKit's
+/// activity indicator as one still frame, eight spokes round the centre of
+/// the box's shorter side in `color`, the tail fading behind the brightest
+/// one (counterclockwise: the indicator turns clockwise). Linux paints on
+/// change, not per frame, so it does not turn; every frame is the same,
+/// which is what the agent's held clock shows on the other hosts.
+pub(super) fn progress(
+    backend: &mut dyn Backend,
+    node: &NodeRef<'_>,
+    content: Rect4,
+    ts: Transform,
+    dark: bool,
+) {
+    let (x, y, w, h) = content;
+    let s = w.min(h);
+    if s <= 0.0 {
+        return;
+    }
+    let (cx, cy) = (x + w / 2.0, y + h / 2.0);
+    let ink = rgba(node.text_color().resolve(dark));
+    let (thick, long) = (s * 0.1, s * 0.27);
+    let spoke = Shape::new(
+        (cx - thick / 2.0, cy - s / 2.0, thick, long),
+        [thick / 2.0; 4],
+    );
+    for i in 0..8 {
+        let mut c = ink;
+        c[3] = (c[3] as f32 * (1.0 - i as f32 * 0.1)) as u8;
+        let turn = Transform::from_rotate_at(-45.0 * i as f32, cx, cy);
+        backend.fill(&spoke, c, ts.pre_concat(turn));
     }
 }
 
-/// A look's padding around its title: (horizontal, vertical), each side.
-pub(crate) fn button_padding(look: &str) -> (f32, f32) {
-    if look == "ua" {
-        (7.0, 2.0)
-    } else {
-        (12.0, 7.0)
-    }
-}
+#[cfg(test)]
+mod field_tests {
+    use crate::text::{Measurer, TextEngine};
+    use exact_kernel::{
+        ControlFont, FieldChrome, FieldChromeRequest, FieldKind, FontStyle, TextMeasurer,
+    };
 
-impl super::Painter {
-    /// A native button (LLP 1069.011): its look's fill and its title in
-    /// the look's ink. Linux draws no symbols (LLP 1035.004 D4).
-    pub(super) fn button_control(
-        &mut self,
-        node: &NodeRef<'_>,
-        content: Rect4,
-        ts: Transform,
-        title: &str,
-    ) {
-        let dark = self.dark;
-        let disabled = node.props.bool(PropId::Disabled) == Some(true);
-        let dim = |mut c: [u8; 4]| {
-            if disabled {
-                c[3] = (c[3] as f32 * 0.45) as u8;
+    #[test]
+    fn the_host_answers_every_field_kind_and_font_without_a_provisional_frame() {
+        let mut measurer = Measurer(TextEngine::shared());
+        for kind in [
+            FieldKind::Field,
+            FieldKind::SecureField,
+            FieldKind::SearchField,
+            FieldKind::Textarea,
+        ] {
+            for size in [10.0, 16.0, 32.0] {
+                let chrome = measurer.field_chrome(&FieldChromeRequest {
+                    kind,
+                    font: ControlFont {
+                        family: String::new(),
+                        family_id: 0,
+                        size,
+                        weight: 700,
+                        style: FontStyle::Italic,
+                    },
+                });
+                assert_eq!(
+                    chrome,
+                    FieldChrome {
+                        top: 7.0,
+                        right: 9.0,
+                        bottom: 7.0,
+                        left: 9.0,
+                        minimum_height: 0.0,
+                        provisional: false,
+                    }
+                );
             }
-            c
-        };
-        let accent = accent(node, dark).unwrap_or(ACCENT);
-        let soft = |a: u8| [accent[0], accent[1], accent[2], a];
-        let white = [0xff, 0xff, 0xff, 0xff];
-        let label = if dark { white } else { [0, 0, 0, 0xff] };
-        let look = button_look(node);
-        let (_, _, _, h) = content;
-        let pill = Shape::new(content, [h / 2.0; 4]);
-        let ink = match look {
-            "text" => accent,
-            "soft" => {
-                self.backend.fill(&pill, dim(soft(0x26)), ts);
-                accent
-            }
-            "fill" => {
-                self.backend.fill(&pill, dim(accent), ts);
-                white
-            }
-            "glass" => {
-                let tint = if dark {
-                    [0x26, 0x26, 0x29, 0xb3]
-                } else {
-                    [0xff, 0xff, 0xff, 0xb3]
-                };
-                self.backend.fill(&pill, dim(tint), ts);
-                label
-            }
-            "glass-fill" => {
-                self.backend.fill(&pill, dim(soft(0xd9)), ts);
-                white
-            }
-            _ => {
-                // Chrome's own button: a 1 px border round a grey fill.
-                let frame = Shape::new(content, [4.0; 4]);
-                let (line, fill) = if dark {
-                    ([0x85, 0x85, 0x85, 0xff], [0x6b, 0x6b, 0x6b, 0xff])
-                } else {
-                    ([0x76, 0x76, 0x76, 0xff], [0xef, 0xef, 0xef, 0xff])
-                };
-                self.backend.fill(&frame, dim(line), ts);
-                self.backend.fill(&frame.inset(1.0), dim(fill), ts);
-                label
-            }
-        };
-        if title.is_empty() {
-            return;
         }
-        // One line, ending in "…" where the look's padding leaves too little
-        // room, and clipped to the button, as the platforms draw a title.
-        let spec = super::text_spec(&button_text_style(), title);
-        let full = self.text.borrow_mut().paragraph(&spec, None);
-        let (x, y, w, h) = content;
-        let room = (w - 2.0 * button_padding(look).0).max(0.0);
-        let paragraph = full.ellipsized(room).unwrap_or(full);
-        let origin = (
-            x + ((w - paragraph.width) / 2.0).max(0.0),
-            y + ((h - paragraph.height) / 2.0).max(0.0),
-        );
-        let palette = [crate::text::RunPaint {
-            color: dim(ink),
-            source: node.id,
-        }];
-        self.backend.push_clip(&Shape::rect(content), ts);
-        let mut engine = self.text.borrow_mut();
-        self.backend
-            .text(&mut engine, &paragraph, &palette, origin, ts);
-        drop(engine);
-        self.backend.pop_clip();
     }
 }

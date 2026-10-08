@@ -27,6 +27,13 @@ pub(super) struct Clocks {
     origins: BTreeMap<String, f64>,
     joining: BTreeMap<u64, Joining>,
     held: bool,
+    // Origins set while every member waits for the first presented frame
+    // (LLP 1003.001 D8), each with the time it was set: unchanged until the
+    // frame moves it, and every play that joins meanwhile waits with it.
+    pending: BTreeMap<String, f64>,
+    // Nodes whose plays joined a waiting origin and still wait: the frame
+    // gives them the origin's phase, not a shift of their own.
+    waiting: BTreeSet<u64>,
 }
 
 /// What of a node joins its clock.
@@ -81,7 +88,7 @@ impl Engine {
         if joining.is_empty() {
             return;
         }
-        let now = self.now;
+        let now = self.sample_time();
         // Whether a play of `node` at `index` joins now, and so is not yet
         // a member.
         let joins = |node: u64, index: usize| match joining.get(&node) {
@@ -106,24 +113,29 @@ impl Engine {
                     self.animations.get(n).is_some_and(|plays| {
                         plays.iter().enumerate().any(|(i, p)| {
                             !joins(*n, i)
+                                && p.pending.is_none()
                                 && (p.hold.is_some() || p.local(now) < p.animation.end_time())
                         })
                     })
                 });
+            if self.clocks.pending.contains_key(&name) {
+                continue;
+            }
             if !busy || !self.clocks.origins.contains_key(&name) {
+                if self.start_on_frame {
+                    self.clocks.pending.insert(name.clone(), now);
+                }
                 self.clocks.origins.insert(name, now);
             }
         }
         for (node, what) in &joining {
-            let Some(origin) = self
-                .clocks
-                .of
-                .get(node)
-                .and_then(|name| self.clocks.origins.get(name))
-                .copied()
-            else {
+            let Some(name) = self.clocks.of.get(node) else {
                 continue;
             };
+            let Some(origin) = self.clocks.origins.get(name).copied() else {
+                continue;
+            };
+            let waits = self.clocks.pending.get(name).copied();
             if self.timeline_bound(*node) {
                 continue;
             }
@@ -142,7 +154,16 @@ impl Engine {
                 if !picked || play.hold.is_some() || play.local(now) >= play.animation.end_time() {
                     continue;
                 }
-                play.start = boundary(&play.animation, now, origin);
+                // Joining an origin that waits: the member waits too, from
+                // its own birth, and the frame gives it the origin's phase.
+                play.start = match waits {
+                    Some(_) => now,
+                    None => boundary(&play.animation, now, origin),
+                };
+                play.pending = waits.map(|_| now);
+                if waits.is_some() {
+                    self.clocks.waiting.insert(*node);
+                }
                 for p in play.animation.keyframes.properties() {
                     self.dirty.insert((*node, p));
                 }
@@ -187,7 +208,47 @@ impl Engine {
         }
     }
 
+    /// For a node whose waiting plays joined a waiting origin, that origin
+    /// once the frame has started it (a drag-bound node follows its drag
+    /// instead); taken once.
+    pub(super) fn clock_origin(&mut self, node: u64) -> Option<f64> {
+        let name = self.clocks.of.get(&node)?;
+        if !self.clocks.waiting.contains(&node) || self.clocks.pending.contains_key(name) {
+            return None;
+        }
+        let origin = self.clocks.origins.get(name).copied();
+        self.clocks.waiting.remove(&node);
+        origin.filter(|_| !self.timeline_bound(node))
+    }
+
+    /// `node` still has plays waiting with a clock's origin.
+    pub(super) fn clocks_wait(&mut self, node: u64) {
+        self.clocks.waiting.insert(node);
+    }
+
+    /// Whether a clock's origin waits for the first presented frame.
+    pub(super) fn clock_pending(&self) -> bool {
+        !self.clocks.pending.is_empty()
+    }
+
+    /// The frame at `frame` moves every waiting origin set at or before it
+    /// (with `all`, every one) by the wait; its members move with their own
+    /// pending starts.
+    pub(super) fn start_clocks(&mut self, frame: f64, all: bool) {
+        let origins = &mut self.clocks.origins;
+        self.clocks.pending.retain(|name, begin| {
+            if *begin > frame && !all {
+                return true;
+            }
+            if let Some(origin) = origins.get_mut(name) {
+                *origin += (frame - *begin).max(0.0);
+            }
+            false
+        });
+    }
+
     pub(super) fn forget_clock(&mut self, node: u64) {
+        self.clocks.waiting.remove(&node);
         self.clocks.of.remove(&node);
         self.clocks.joining.remove(&node);
     }
@@ -196,7 +257,7 @@ impl Engine {
 /// The last cycle boundary of `origin`'s timeline at or before `now`: an
 /// iteration, or two under `alternate`, so a joiner's first is forwards and
 /// it ends on the keyframe it would end on alone.
-fn boundary(animation: &Animation, now: f64, origin: f64) -> f64 {
+pub(super) fn boundary(animation: &Animation, now: f64, origin: f64) -> f64 {
     let alternates = matches!(
         animation.direction,
         Direction::Alternate | Direction::AlternateReverse

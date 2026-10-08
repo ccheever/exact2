@@ -230,6 +230,31 @@ fn a_replaced_header_that_cleared_the_status_bar_hands_that_inset_to_the_bar() {
     assert_eq!(frame(&mut kernel, 4).1, 20.0 + 44.0 + 52.0);
 }
 
+/// LLP 1001 §2 (2026-10-07): a header padded by a comparison that reads
+/// the top inset cleared it too; one that reads only another inset did not.
+#[test]
+fn a_replaced_header_padded_by_a_comparison_of_the_top_inset_hands_it_over() {
+    let mut kernel = header_padded();
+    kernel
+        .set_host_cover(2, Some(HostCover::Edges([44.0, 0.0, 0.0, 0.0])))
+        .unwrap();
+    kernel.set_host_cover(3, Some(HostCover::Whole)).unwrap();
+    for (padding, y) in [
+        ("clamp(0px, env(safe-area-inset-top), 200px)", 106.0),
+        ("max(12px, env(safe-area-inset-bottom))", 44.0),
+    ] {
+        let op = Op::SetStyle {
+            id: 3,
+            patch: Box::new(style(&[(
+                StyleId::PaddingTop,
+                StyleValue::Text(padding.into()),
+            )])),
+        };
+        kernel.apply(2, 3, &[op]).unwrap();
+        assert_eq!(frame(&mut kernel, 4).1, y, "{padding}");
+    }
+}
+
 #[test]
 fn a_scroller_under_the_bar_takes_no_inset_from_the_header() {
     let mut kernel = header_padded();

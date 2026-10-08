@@ -52,7 +52,7 @@ acceptance rows wait for the issue or carry its difference until it is resolved.
 | [X28](20261005-x28-notification-actions-badges.md) | Notification click → app action, Dock badge, window-focus fact (DEFERRED refuses actions and badges) | framework-policy | client-activity-reporting | upstream #114 closed (main #219: `exactPage().hasFocus`); **focus fact adopted** for thread notifications, activity reports, the git refresh and SnapShot settings on focus; notification actions and the Dock badge continue in #224 (policy), so `T3Notifications.swift` keeps them ([adopt-main-fixes-r5](../tasks/closed/20261007-adopt-main-fixes-r5.md)) |
 | [X29](20261005-x29-video-pdf-app-files.md) | `video` and `audio` from app-written local files, and a PDF viewer element | framework-gap | media-actions | upstream #115 closed (main #205: bundled PDF iframe); a PDF element and `app:/` iframe still missing; PDFView kept ([adopt-main-fixes-r4](../tasks/closed/20261007-adopt-main-fixes-r4.md)); rest (an `app:/` iframe, a PDF element) filed as [#273](https://github.com/ccheever/exact2/issues/273) ([Design], 2026-10-08) |
 | [X30](20261005-x30-ts-announce-readback-picker.md) | Data-module topic announce and resource invalidation; pixel readback; any-type file pick with bytes and image transcode | framework-gap | composer-fidelity, media-actions, pr-conversation-and-refresh, settings-scoped-controls-and-theme-editor | draft |
-| [X31](20261005-x31-deferred-window-readiness.md) | Defer the first window until the app says it is ready | framework-gap (unconfirmed) | local-primary-environment, portable-app-download | open upstream (#117); interim connecting state shipped by local-primary-environment (U5, provisional) |
+| [X31](20261005-x31-deferred-window-readiness.md) | Defer the first window until the app says it is ready | framework-gap (unconfirmed) | local-primary-environment, portable-app-download | open upstream (#117); interim connecting state shipped by local-primary-environment (U5 decided 2026-10-08: kept until #117; re-checked on main `f464bad43`) |
 | [X32](20261005-x32-sticky-positioning-in-lists.md) | `position: sticky` inside a scroll container and a virtualized list | framework-gap (unconfirmed) | diff-review-engine, pr-code-tab, pr-conversation-and-refresh | draft |
 | [X33](20261005-x33-transcript-selection-range.md) | Selected text, its source message and UTF-16 offsets, and its end rectangle from the rendered transcript | framework-gap (unconfirmed) | diff-review-engine | upstream #132 closed (main #171, part 1); parts 2–3 still missing on main `cff90b364`; parts 2–3 filed as [#274](https://github.com/ccheever/exact2/issues/274) ([Feature], 2026-10-08) |
 | [X34](20261005-x34-inline-span-frame.md) | Hover and frame of an inline link or span inside rendered Markdown text | framework-gap (unconfirmed) | pr-links-previews-and-routing | upstream #133 closed (main #178, agent hover); inline frame still missing on main `cff90b364`; inline `frame()` filed as [#272](https://github.com/ccheever/exact2/issues/272) ([Bug], 2026-10-08) |
@@ -84,7 +84,7 @@ publication was performed during this local audit.
 
 | Issue | Capability | Kind | Blocks | Status |
 | --- | --- | --- | --- | --- |
-| [X49](20261007-x49-progress-value-accessibility.md) | A progress value for assistive technology (`progress`, `aria-valuenow`) | framework-gap | [provider-sign-in-and-install](../tasks/closed/20261005-provider-sign-in-and-install.md) (nonblocking: the status text carries the numbers) | upstream [#279](https://github.com/ccheever/exact2/issues/279) ([Feature], 2026-10-08); reproduced on main `0365ad1a4` |
+| [X49](20261007-x49-progress-value-accessibility.md) | A progress value for assistive technology (`progress`, `aria-valuenow`) | framework-gap | [provider-sign-in-and-install](../tasks/closed/20261005-provider-sign-in-and-install.md) (nonblocking: the status text carries the numbers) | upstream [#279](https://github.com/ccheever/exact2/issues/279) ([Feature], 2026-10-08); reproduced on main `0365ad1a4`; main `d82c12252` (adopt-main-fixes-r6's merge of `e200397ec`) adds an indeterminate `progress` only and refuses `value`/`max`, so nothing to adopt |
 | [X51](20261008-x51-popover-click-passthrough.md) | A click inside an open popover also reaching the page under it (macOS) | framework-gap | [theme-color-picker](../tasks/20261007-theme-color-picker.md) (nonblocking: `press` + `retainFocus` on the popover) | upstream [#281](https://github.com/ccheever/exact2/issues/281) ([Bug], 2026-10-08); reproduced in a one-file app on main `0365ad1a4` (a click on the popover over the button under it) |
 
 ## Dialog focus addition, 2026-10-08
@@ -122,6 +122,12 @@ Those drafts are not on this branch; here X50 and X54 are the records above.
 | --- | --- | --- | --- | --- |
 | [X57](20261008-x57-overflowing-centred-line.md) | A line wider than its box start-aligned whatever `text-align` says (CSS Text 3 §7.1); macOS centres it and cuts its start | framework-gap | none ([pr-list-title-clip](../tasks/20261008-pr-list-title-clip.md): `text-left` on the pull request surfaces; other clone buttons listed in the file) | upstream [#291](https://github.com/ccheever/exact2/issues/291) ([Bug], 2026-10-08); reproduced on main `0365ad1a4` |
 
+## Provisional decisions parity addition, 2026-10-08
+
+| Issue | Capability | Kind | Blocks | Status |
+| --- | --- | --- | --- | --- |
+| [X60](20261008-x60-number-field-semantics.md) | `input type="number"` on macOS: ArrowUp/ArrowDown stepping within `min`/`max`, refusing characters a number cannot hold | framework-gap | none ([provisional-decisions-parity](../tasks/20261008-provisional-decisions-parity.md) steps the Tailscale port field itself; a typed letter still shows, with the error) | reproduced in the clone with the agent (`0443` + ArrowUp stays `0443`); no host code for it; no upstream match by title; draft, not published |
+
 ## Pull Requests list live refresh addition, 2026-10-08
 
 | Issue | Capability | Kind | Blocks | Status |
@@ -133,6 +139,18 @@ Those drafts are not on this branch; here X50 and X54 are the records above.
 | Issue | Capability | Kind | Blocks | Status |
 | --- | --- | --- | --- | --- |
 | [X59](20261008-x59-line-clamp-first-layout-ellipsis.md) | A `line-clamp=1` text that replaces a wrapped one shows its first wrapped line without the ellipsis until restyled (macOS) | framework-gap (unconfirmed) | none ([visual-parity-followup](../tasks/20261008-visual-parity-followup.md): the collapsed table cell's first layout; a restyle draws the ellipsis) | seen in the clone with the agent on this branch and on base `07dcef1ab`; a one-file app not tried; not searched upstream beyond the title; draft, not published |
+
+## Main adoption round 6 addition, 2026-10-08
+
+| Issue | Capability | Kind | Blocks | Status |
+| --- | --- | --- | --- | --- |
+| [X61](20261008-x61-field-focus-ring-opt-out.md) | An app cannot remove the focus ring Exact draws on a bare text field or textarea (no `outline`; `appearance="none"` no longer opts out since main `5b2b77339`) | framework-gap | none ([adopt-main-fixes-r6](../tasks/20261008-adopt-main-fixes-r6.md): the prompt preview gained a ring with the merge; the composer has had one since r4's field sheet) | reproduced on main `e200397ec` with a one-file app and in the clone; draft, not published |
+
+Re-checked on main `e200397ec` ([adopt-main-fixes-r6](../tasks/20261008-adopt-main-fixes-r6.md)): since `1f19b2400` main
+closed none of this plan's issues (#234 was adopted in round 5). #108, #112, #116, #117, #124, #126, #127, #130, #131,
+#140, #141, #224, #235 and #266–#277 are open, and nothing main merged covers them; our drafts #227 and #228 are still
+open, and main took no other route. Main's partial steps: `scroll-padding` on a virtualized list (X23, #277) and an
+indeterminate `progress` (X49, #279), neither with anything for the clone to adopt.
 
 ## Upstream issues (filed 2026-10-06)
 
@@ -161,7 +179,7 @@ Each was reproduced on exact2 `4c893fef6` before filing. Not filed: X13 (unverif
 | X20 | [#125](https://github.com/ccheever/exact2/issues/125) | textarea editing: caret moves, setRangeText, beforeinput, undo, atomic ranges — closed by main #209 (field paste/copy/cut only); the native composer stays (adopt-main-fixes-r4) (rest: #275, #276, 2026-10-08) |
 | X21 | [#126](https://github.com/ccheever/exact2/issues/126) | Data modules cannot send on a WebSocket on native hosts (receive-only) |
 | X22 | [#127](https://github.com/ccheever/exact2/issues/127) | Layout facts beyond size: visibility, live position, container/anchor CSS |
-| X23 | [#138](https://github.com/ccheever/exact2/issues/138) | Scroll: restore a top-level list by key, scroll-padding/margin, smooth jumps, plain-scroll anchoring — closed by main #210 (plain-scroll anchoring only); no clone workaround for it; the PR fold row is unblocked (rest: #277, 2026-10-08) |
+| X23 | [#138](https://github.com/ccheever/exact2/issues/138) | Scroll: restore a top-level list by key, scroll-padding/margin, smooth jumps, plain-scroll anchoring — closed by main #210 (plain-scroll anchoring only); no clone workaround for it; the PR fold row is unblocked (rest: #277, 2026-10-08). Main `2faf6c190` (adopt-main-fixes-r6's merge of `e200397ec`) takes `scroll-padding` on a virtualized `list` only; the reference's scroll-padding sites are plain scrollers in the clone, so nothing to adopt |
 | X24 | [#139](https://github.com/ccheever/exact2/issues/139) | macOS: hover does not follow layout changes under a stationary pointer — **adopted** (main #174; PR #181) |
 | X25 | [#140](https://github.com/ccheever/exact2/issues/140) | Keyboard: add keyup, KeyboardEvent.code and .repeat, held modifiers, capture phase — keyup, `code` and `repeat` landed in main #220; open for a capture-phase handler and held-modifier state; nothing to remove yet (adopt-main-fixes-r5) |
 | X26 | [#141](https://github.com/ccheever/exact2/issues/141) | macOS: let an app declare its menu bar items, and support context-menu submenus — submenus landed in main #223 and Edit ▸ Speech in #226, both **adopted** (adopt-main-fixes-r5: the sidebar's menus are context popovers); open for the menu bar |

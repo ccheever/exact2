@@ -173,9 +173,11 @@ impl Linked {
 
     /// The capabilities registered here.
     pub fn uses(&self) -> Uses {
-        // A grouped list is its authored nodes on the web: nothing to link
-        // (LLP 1047.001 D2).
-        let mut uses = Uses::NONE.with(Capability::GroupedLists);
+        // A grouped list is its authored nodes on the web, and the browser
+        // does its own I/O: nothing to link for either (LLP 1047.001 D2).
+        let mut uses = Uses::NONE
+            .with(Capability::GroupedLists)
+            .with(Capability::Io);
         if self.markup.is_some() {
             uses = uses.with(Capability::Markdown);
         }
@@ -319,6 +321,8 @@ pub(crate) fn runner_links() -> exact_runner::RunnerLinks {
         canvas: linked().canvas,
         format: linked().format,
         geometry: linked().geometry,
+        // The browser's grants are I/O it does itself (LLP 1047.001).
+        grants: exact_runner::RunnerLinks::ALL.grants,
     }
 }
 

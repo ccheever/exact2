@@ -213,6 +213,9 @@ pub fn install_fonts(plan: &Plan, callback: FontsFn, ctx: *mut c_void) {
 /// A kernel measurer backed by the app's callback.
 pub struct CallbackMeasurer {
     f: MeasureFn,
+    field_chrome: Option<crate::control_text::FieldChromeFn>,
+    button_measure: Option<crate::control_text::ButtonMeasureFn>,
+    measure_revision: Option<std::rc::Rc<std::cell::Cell<u64>>>,
     lines: Option<LinesFn>,
     ctx: *mut c_void,
     memo: identified::Memo,
@@ -227,6 +230,9 @@ impl CallbackMeasurer {
     pub fn new(f: MeasureFn, ctx: *mut c_void, lines: Option<LinesFn>) -> CallbackMeasurer {
         CallbackMeasurer {
             f,
+            field_chrome: None,
+            button_measure: None,
+            measure_revision: None,
             lines,
             ctx,
             memo: identified::Memo::default(),
@@ -259,6 +265,33 @@ fn c_run(text: &str, style: exact_kernel::TextStyle) -> CRun {
 }
 
 impl CallbackMeasurer {
+    /// Install the optional UIKit chrome callback with the text engine's context.
+    pub fn with_field_chrome(
+        mut self,
+        callback: Option<crate::control_text::FieldChromeFn>,
+    ) -> Self {
+        self.field_chrome = callback;
+        self
+    }
+
+    /// Install native button measurement beside field chrome.
+    pub fn with_button_measure(
+        mut self,
+        callback: Option<crate::control_text::ButtonMeasureFn>,
+    ) -> Self {
+        self.button_measure = callback;
+        self
+    }
+
+    /// The runtime bumps this when measuring traits change, even if fonts do not.
+    pub(crate) fn with_measure_revision(
+        mut self,
+        revision: std::rc::Rc<std::cell::Cell<u64>>,
+    ) -> Self {
+        self.measure_revision = Some(revision);
+        self
+    }
+
     fn foreign_measure(
         &mut self,
         request: &TextMeasureRequest<'_>,
@@ -360,6 +393,30 @@ fn sanitize(m: CMetrics) -> TextMetrics {
 }
 
 impl TextMeasurer for CallbackMeasurer {
+    fn measure_revision(&self) -> u64 {
+        self.measure_revision
+            .as_ref()
+            .map_or(0, |revision| revision.get())
+    }
+
+    fn field_chrome(
+        &mut self,
+        request: &exact_kernel::FieldChromeRequest,
+    ) -> exact_kernel::FieldChrome {
+        self.field_chrome
+            .map_or_else(exact_kernel::FieldChrome::default, |f| {
+                crate::control_text::chrome(f, self.ctx, request)
+            })
+    }
+
+    fn button_measure(
+        &mut self,
+        request: &exact_kernel::ButtonMeasureRequest,
+    ) -> Option<exact_kernel::ButtonMeasure> {
+        self.button_measure
+            .map(|f| crate::control_text::button_measure(f, self.ctx, request))
+    }
+
     fn set_language(&mut self, language: &str) {
         // `hyphens: auto` breaks by the language's points: answers by the old
         // one are another paragraph's.
