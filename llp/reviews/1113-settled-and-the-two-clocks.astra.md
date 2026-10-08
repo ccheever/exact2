@@ -288,7 +288,7 @@ Verdict: NOT READY
 - **Method:** one brief (sha256 `e3a6b3687dd291405e01f12b859b4c239ea28990b33152ebeb0d5e6d3bdba8f9`), shared verbatim with the other reviewer; blind to the other family's reviews, though the dispositions sections name concerns both raised. Requested by Charlie ("sure do both" to the final-capture/mid-test split and a review of 1107 only). The author (Claude, Opus 5.5) is not a reviewer. Nothing redacted.
 - **Transcription:** the review as returned, unedited.
 - **Verdict:** NOT READY.
-- **Disposition:** pending; not revised against this review.
+- **Disposition:** r4 (2026-10-08) takes it, narrowed by Charlie: mid-test sampling is dropped, so R3-3, R3-4 and the paint-only R3-6 items are moot and recorded under "Isolated sampling (later)". R3-1: the final capture seeks inside each pass until no finite target lies ahead, each seek spending the budget (D3). R3-2: `frame()` and `follow_pointer` run inside the loop, with one final observation point (D3). R3-5: post-step reads run before the final screenshot, teardown runs after encoding, and a failure still uses up the session (D1). Q2: "armed" is an outstanding runner background ticket (D4). The 16/17 wording and citations corrected.
 
 **1. Overall assessment**
 
