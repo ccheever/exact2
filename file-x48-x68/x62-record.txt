@@ -1,0 +1,62 @@
+# X62 record: macOS hover vs pointerenter/pointerleave with descendants
+exact2 main b896050d78508aa5cea10cfa875e02037fde4c6e (2026-10-08); macOS 26.6.2 (25G83), Apple Silicon; web: Chrome 154.0.8037.98 (the agent's); agent mode only (no real input). The web's hover op is a CDP mouseMoved to the target's centre (real pointerenter/pointerleave); the macOS agent's hover hit-tests the window at the point (NSView.hitTest), walks up to the nearest node with a hover handler, and calls the presenter's hover as a tracking area would (AgentMac.swift:544-579).
+
+## app.contract (bun scripts/exact.mjs new <dir>; app.ts has no sources)
+component X62app
+  state log = ""
+  state n = 0
+  state aOver = false
+  action ev(name: string, over: bool)
+    n = n + 1
+    log = `${n}${name}${over ? "+" : "-"} ${log}`
+  action hA(over: bool)
+    aOver = over
+    ev("A", over)
+  view
+    main width="100%" height="100%" padding=24 position="relative" background-color="#ffffff" color="#111111"
+      text `log: ${log}` font-size=13 testId="log"
+      // 1: a box whose card (no hover of its own) appears below it, outside the box
+      box position="absolute" left=24 top=140 width=160 height=20 background-color="#3b82f6" hover=hA testId="a"
+        when aOver
+          box position="absolute" left=0 top=20 width=160 height=80 background-color="#93c5fd" testId="a-card"
+      // 2: a box whose card, outside the box, hears hover itself, with a button in the card
+      box position="absolute" left=300 top=140 width=160 height=20 background-color="#10b981" hover=ev("B") testId="b"
+        box position="absolute" left=0 top=20 width=160 height=80 background-color="#6ee7b7" hover=ev("Bcard") testId="b-card"
+          box position="absolute" left=30 top=50 width=100 height=24 background-color="#047857" hover=ev("Bbtn") testId="b-btn"
+      // 3: a node under a later, overlapping sibling
+      box position="absolute" left=560 top=140 width=160 height=80 background-color="#f59e0b" hover=ev("U") testId="u"
+      box position="absolute" left=590 top=160 width=100 height=40 background-color="#7c2d12" hover=ev("O") testId="o"
+      // 4: a child inside its parent's box, both hearing hover
+      box position="absolute" left=24 top=260 width=200 height=40 background-color="#e9d5ff" hover=ev("P") testId="p"
+        box position="absolute" left=120 top=8 width=60 height=24 background-color="#7e22ce" hover=ev("C") testId="c"
+
+## ops (both hosts; each hover moves to the target's centre)
+"tap a hover" "clock settle" "tree log" "tap a-card hover" … "tap b hover" … "tap b-card hover" … "tap b-btn hover" … "tap b-card hover" … "tap p hover" … "tap c hover" … "tap p hover" … "tap u hover" …   (each followed by "clock settle" "tree log")
+(u's centre lies under o, so the last hover lands on o)
+
+## log after each hover (newest first), macOS | web
+"log: 0A+ "                                                                                                    | "log: 0A+ "
+"log: 0A+ "                                                                                                    | "log: 0A+ "
+"log: 2B+ 1A- 0A+ "                                                                                            | "log: 2B+ 1A- 0A+ "
+"log: 4Bcard+ 3B- 2B+ 1A- 0A+ "                                                                                | "log: 3Bcard+ 2B+ 1A- 0A+ "
+"log: 6Bbtn+ 5Bcard- 4Bcard+ 3B- 2B+ 1A- 0A+ "                                                                 | "log: 4Bbtn+ 3Bcard+ 2B+ 1A- 0A+ "
+"log: 8Bcard+ 7Bbtn- 6Bbtn+ 5Bcard- 4Bcard+ 3B- 2B+ 1A- 0A+ "                                                  | "log: 5Bbtn- 4Bbtn+ 3Bcard+ 2B+ 1A- 0A+ "
+"log: 10P+ 9Bcard- 8Bcard+ 7Bbtn- 6Bbtn+ 5Bcard- 4Bcard+ 3B- 2B+ 1A- 0A+ "                                     | "log: 8P+ 7B- 6Bcard- 5Bbtn- 4Bbtn+ 3Bcard+ 2B+ 1A- 0A+ "
+"log: 12C+ 11P- 10P+ 9Bcard- 8Bcard+ 7Bbtn- 6Bbtn+ 5Bcard- 4Bcard+ 3B- 2B+ 1A- 0A+ "                           | "log: 9C+ 8P+ 7B- 6Bcard- 5Bbtn- 4Bbtn+ 3Bcard+ 2B+ 1A- 0A+ "
+"log: 14P+ 13C- 12C+ 11P- 10P+ 9Bcard- 8Bcard+ 7Bbtn- 6Bbtn+ 5Bcard- 4Bcard+ 3B- 2B+ 1A- 0A+ "                 | "log: 10C- 9C+ 8P+ 7B- 6Bcard- 5Bbtn- 4Bbtn+ 3Bcard+ 2B+ 1A- 0A+ "
+"log: 16O+ 15P- 14P+ 13C- 12C+ 11P- 10P+ 9Bcard- 8Bcard+ 7Bbtn- 6Bbtn+ 5Bcard- 4Bcard+ 3B- 2B+ 1A- 0A+ "       | "log: 12O+ 11P- 10C- 9C+ 8P+ 7B- 6Bcard- 5Bbtn- 4Bbtn+ 3Bcard+ 2B+ 1A- 0A+ "
+
+## Steps where the hosts disagree (the event each hover adds)
+b -> b-card (b-card overflows b, hears hover): macOS 3B- 4Bcard+ | web 3Bcard+ (b stays hovered)
+b-card -> b-btn (inside the card):            macOS 5Bcard- 6Bbtn+ | web 4Bbtn+ (the card stays)
+b-btn -> b-card:                              macOS 7Bbtn- 8Bcard+ | web 5Bbtn-
+b-card -> p:                                  macOS 9Bcard- 10P+   | web 6Bcard- 7B- 8P+
+p -> c (c inside p's own box):                macOS 11P- 12C+      | web 9C+ (p stays hovered)
+c -> p:                                       macOS 13C- 14P+      | web 10C-
+a -> a-card (no hover of its own):            both: nothing (a stays) — in agent mode; a real pointer sends a's leave (below)
+
+## Real-pointer observations (from the draft, feature-branch framework c0475fbaa, 2026-10-08 06:12-06:32 UTC, cliclick moves of 2-8 pt under the real-input lock; not re-run here: this run is agent-only)
+- Pointer onto A, then down into its card: 0A+ … 3A-, and the card goes (web: A stays hovered).
+- Pointer onto B, into its card, onto the button, around it, back to the card, out: 0B+ 1B- 2Bcard+ and nothing more (the card's enter came from the resting-pointer hit-test after B's leave; the button never heard an enter; leaving the card sent no leave).
+- Five moves inside O over U: 5U- 6O+ 7O- 8U+ 9U- 10O+ … (twenty events), ending O+ at rest.
+The hover code (NodeViewMac.swift syncHoverTracking/mouseEntered/mouseMoved/mouseExited, PresenterMac.swift hover, MouseChainMac.swift) differs between c0475fbaa and main b896050d7 only by package access modifiers.
