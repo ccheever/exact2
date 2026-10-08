@@ -1,0 +1,14 @@
+199 |     expect(await synced()).toEqual({ imagegen: 'Image Gen', 'openai-docs': 'OpenAI Docs', 'frontend-design': 'Frontend Design' });
+error: expect(received).toEqual(expected)
+- {
+-   "frontend-design": "Frontend Design",
+-   "imagegen": "Image Gen",
+-   "openai-docs": "OpenAI Docs",
+- }
++ undefined
+- Expected  - 5
++ Received  + 1
+(fail) skill chip labels > the editor is synced with the selected provider's labels, the workspace's own list first [43.86ms]
+ 20 pass
+ 1 fail
+ 59 expect() calls
