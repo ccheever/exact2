@@ -66,7 +66,6 @@ component SettingsWindow
     settingsCore: SettingsCore
     connecting: bool
     settingsThemeDialog: string
-    settingsRestoreOpen: bool
     data: Snapshot
     settingsNavigation: CoreNav
     settingsRoute: string
@@ -75,23 +74,18 @@ component SettingsWindow
     viewport: Viewport
     settingsMenu: string
     modelsOpen: bool // settings-model-picker: Escape closes a General model picker, not Settings
-    settingsEscapeHeld: bool
-    editSettingsQuery: action
-    coreSearchKey: action
-    corePick: action
+    editSettingsQueryRoot: action
+    coreSearchKeyRoot: action
+    corePickRoot: action
     coreClearSearch: action
     closeModal: action
     toggleSidebar: action
     commandPending: bool
-    coreRestoreOpen: action
     settingsScrollTop: number
     coreMenuClose: action
-    settingsLegacyOpen: bool
-    coreLegacy: action
     coreMenu: action
     coreChange: action
-    coreSlide: action
-    coreNavigate: action
+    coreNavigateRoot: action
     coreScope: action
     coreThemeDialog: action
     sourceControl: SourceControlPage
@@ -110,7 +104,6 @@ component SettingsWindow
     saveSnapshotShortcut: action
     bindings: KeybindingPage
     keybindingQuery: string
-    keybindingSearch: bool
     keybindingOpen: bool
     keybindingPrevious: string
     keybindingCommand: string
@@ -118,8 +111,6 @@ component SettingsWindow
     keybindingWhen: string
     keybindingRecording: bool
     editKeybindingQuery: action
-    searchKeybindings: action
-    keybindingSearchKey: action
     newKeybinding: action
     cancelKeybinding: action
     chooseKeybindingCommand: action
@@ -139,11 +130,7 @@ component SettingsWindow
     restClose: action
     licenses: LicenseSettings
     licenseQuery: string
-    licenseSearchOpen: bool
     editLicenseQuery: action
-    openLicenseSearch: action
-    closeLicenseSearch: action
-    licenseSearchKey: action
     toggleLicense: action
     retryLicenses: action
     diagnostics: DiagnosticsPage
@@ -167,8 +154,58 @@ component SettingsWindow
     projectsSettings: ProjectsPage
     settingsThemeSubject: string
     coreThemeChange: action
-    coreRestoreClose: action
-    coreRestoreConfirm: action
+    settingsCommand: action
+  // The root rewrite (20261008-app-contract-root-rewrite): Settings' view-only state lives here, not in app.contract:
+  // the search's held Escape, the legacy rows, the restore dialog and the keybinding and licence searches. A
+  // wrapper sets it, then calls the root's half (`…Root`), which keeps what a resource reads.
+  state settingsEscapeHeld = false
+  state settingsLegacyOpen = false
+  state settingsRestoreOpen = false
+  state keybindingSearch = false
+  state licenseSearchOpen = false
+  action editSettingsQuery(value: string)
+    settingsEscapeHeld = false
+    editSettingsQueryRoot(value)
+  action coreSearchKey(k: string)
+    if k == "Escape"
+      settingsEscapeHeld = settingsQuery != ""
+    if k == "Enter" and settingsNavigation.firstRoute != "" and startsWith(settingsNavigation.firstId, "legacy-")
+      settingsLegacyOpen = true
+    coreSearchKeyRoot(k)
+  action coreNavigate(route: string)
+    settingsEscapeHeld = false
+    coreNavigateRoot(route)
+  action corePick(route: string, target: string, scope: string, id: string)
+    if startsWith(id, "search-result-legacy-")
+      settingsLegacyOpen = true
+    corePickRoot(route, target, scope, id)
+  action coreLegacy
+    settingsLegacyOpen = not settingsLegacyOpen
+  action coreRestoreOpen
+    settingsRestoreOpen = true
+  action coreRestoreClose
+    settingsRestoreOpen = false
+  action coreRestoreConfirm
+    settingsRestoreOpen = false
+    settingsCommand("settings-core", `restore-device-defaults:|${settingsCore.scopeKey}`, "")
+  action coreSlide(row: string, part: string, value: number)
+    settingsCommand("settings-core", `${row}:${part}|${settingsCore.scopeKey}`, `${value}`)
+  action searchKeybindings(open: bool)
+    if open or keybindingQuery == ""
+      keybindingSearch = open
+  action keybindingSearchKey(name: string)
+    if name == "Escape"
+      keybindingSearch = false
+      editKeybindingQuery("")
+  action openLicenseSearch
+    licenseSearchOpen = true
+  action closeLicenseSearch
+    if licenseQuery == ""
+      licenseSearchOpen = false
+  action licenseSearchKey(name: string)
+    if name == "Escape"
+      licenseSearchOpen = false
+      editLicenseQuery("")
   view
     when settingsOpen
       row position="absolute" left=0 top=0 width="100%" height="100%" background-color=(settingsCore.palette.canvas == "" ? "light-dark(#fcfcfc, #0a0a0a)" : settingsCore.palette.canvas) inert=(connecting or (settingsThemeDialog != "" and settingsThemeDialog != "create" and settingsThemeDialog != "edit" and settingsThemeDialog != "duplicate") or settingsRestoreOpen or providerDialog != "") role="dialog" aria-label="Settings" testId="settings-dialog"
