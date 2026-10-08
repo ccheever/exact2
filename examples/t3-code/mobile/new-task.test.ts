@@ -1,3 +1,5 @@
+import { liveEvent } from './shared/live-streams';
+import { mobileNewTaskCloneObserve } from './new-task-clone';
 import { mobileLayoutFacts } from './root-presentation';
 import { expect, test } from 'bun:test';
 import { T3Client } from './shared/client';
@@ -703,4 +705,85 @@ test('draft file runtime abandonment produces no content or sticky spinner', asy
   const native: Native = {available: true, watch() {}, async later() {throw {name:'FetchError',kind:'Aborted'};}};
   await expect(mobileNewTaskFileRead('a.ts', location, 'file', flow.owner, false, native, f.client)).rejects.toMatchObject({kind:'superseded'});
   expect(mobileNewTaskFileSnapshot('a.ts', location, 'file', flow.owner, false, f.client)).toMatchObject({contents:'', loading:false, error:''});
+});
+
+
+test('Add Project routes retain the containing draft while refusing composer actions', async () => {
+  const f = await fixture(), chooser = f.snapshot('/new');
+  await f.action(chooser.owner, 'project', '["env","b"]');
+  const draft = f.snapshot('/new/draft', 'draft');
+  for (const suffix of ['', '/repository', '/destination', '/local', '/new']) {
+    const added = f.snapshot(`/new/add-project${suffix}?environmentId=env`, 'add');
+    expect(added).toMatchObject({ owner: draft.owner, status: 'add-project', ready: false, needsPrepare: false, nextLocation: '', draftOwner: draft.draftOwner });
+    expect(owns(draft.owner, 'add', f.client)).toBe(false);
+    const calls = f.calls.length;
+    for (const kind of ['draft', 'project', 'scratch', 'prepare']) {
+      expect((await f.action(added.owner, kind, '["env","a"]', 'changed', 'add')).message).toContain('Return to the new task');
+    }
+    expect(f.calls).toHaveLength(calls);
+    expect(f.client.projectId).toBe('b'); expect(f.client.draft).toBe('B original');
+    expect(f.snapshot('/new/draft', 'draft')).toMatchObject({ owner: draft.owner, ready: true, draftOwner: draft.draftOwner });
+  }
+  expect(mobileNewTaskRoute('/new/add-project/unknown').context).toBe('');
+});
+
+
+test('chooser Add Project uses connection availability and retains unfiltered project presence', async () => {
+  const f = await fixture();
+  expect(mobileNewTask('unmatched', f.client, f.fleet)).toMatchObject({ canAddProject: true, hasProjects: true, projects: [] });
+  f.client.connection = 'disconnected';
+  expect(mobileNewTask('', f.client, f.fleet).canAddProject).toBe(false);
+  f.client.shell.projects = [];
+  expect(mobileNewTask('', f.client, f.fleet)).toMatchObject({ canAddProject: false, hasProjects: false });
+});
+
+
+test('initial clone draft admits route but guards actual Send until authoritative stream answer', async () => {
+  const f = await fixture();
+  f.client.config = { ...f.client.config, environment: { capabilities: { projectCloneTracking: true, serverResolvedCommandContext: true } } };
+  const location = '/new/draft?environmentId=env&projectId=a&cloning=1';
+  expect(mobileNewTaskRoute(location).unsupported).toBe('');
+  let flow = f.snapshot(location);
+  await f.action(flow.owner, 'prepare'); flow = f.snapshot(location);
+  expect(flow.ready).toBe(true);
+  mobileNewTaskCloneObserve(flow.owner, 'visit', location, true, f.client);
+  expect(mobileNewTask('', f.client, f.fleet).composer).toMatchObject({ canSend: false, blockedReason: 'Cloning repository' });
+  f.calls.length = 0;
+  expect(await f.action(flow.owner, 'send')).toMatchObject({ message: 'Cloning repository', submitted: false });
+  expect(f.calls).toHaveLength(0); expect(f.client.draft).toBe('A original');
+  liveEvent(f.client, { key: 'project-clones', subscriptionId: 'clone-1', value: [{ projectId: 'a', phase: 'failed' }] });
+  expect(await f.action(flow.owner, 'send')).toMatchObject({ message: 'Repository not cloned', submitted: false });
+  expect(f.calls).toHaveLength(0);
+  liveEvent(f.client, { key: 'project-clones', subscriptionId: 'clone-1', value: [] });
+  expect(mobileNewTask('', f.client, f.fleet).composer.blockedReason).not.toBe('Cloning repository');
+});
+
+
+test('acknowledged clone removal survives shell fallback without racing the draft redirect', async () => {
+  for (const leave of [false, true, 'same-visit']) {
+    const f = await fixture(), location = '/new/draft?environmentId=env&projectId=a&cloning=1';
+    f.client.config = { environment: { capabilities: { projectCloneTracking: true, serverResolvedCommandContext: true } }, providers: [] };
+    let flow = f.snapshot(location); await f.action(flow.owner, 'prepare'); flow = f.snapshot(location);
+    liveEvent(f.client, { key: 'project-clones', subscriptionId: 'clone-1', value: [{ projectId: 'a', phase: 'failed' }] });
+    const previous = f.native.later;
+    f.native.later = async input => {
+      const request = obj(input);
+      if (request.path === '/api/auth/session') return { ok: true, generation: f.client.generation,
+        value: { authenticated: true, permissions: ['orchestration:operate'] } };
+      if (request.op === 'ids') return { ok: true, generation: f.client.generation, value: ['delete-project'] };
+      if (request.method === 'projects.mutate') {
+        f.client.shell.projects = f.client.shell.projects.filter(project => project.id !== 'a'); f.client.projectId = 'b';
+        const during = f.snapshot(leave ? '/new' : location, leave === true ? 'other' : 'visit');
+        if (!leave) expect(during).toMatchObject({ busy: true, nextLocation: '' });
+        mobileNewTaskCloneObserve(during.owner, during.requestRoute, leave ? '/new' : location, during.ready || during.busy, f.client);
+        return { ok: true, generation: f.client.generation, value: {} };
+      }
+      return previous(input);
+    };
+    const removed = await f.action(flow.owner, 'clone-remove', 'a', 'env');
+    expect(removed).toMatchObject({ nextLocation: leave ? '' : '/', message: '' });
+    // Exact mutation result records are closed. The helper-only removed flag must not leak.
+    expect(Object.keys(removed).sort()).toEqual(['alertTitle', 'environmentId', 'message', 'nextLocation', 'projectId', 'requestRoute', 'revision', 'submitted', 'threadId']);
+    expect(f.client.local.drafts['env:new:a']).toBe('A original');
+  }
 });

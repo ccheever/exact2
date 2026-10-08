@@ -49,7 +49,7 @@ export function mobileWorkspaceEntries(input: unknown): MobileWorkspaceEntry[] {
  * card at a wider width. Flattened Exact settings/new-task children share the
  * ownership of their pinned source SettingsSheet/NewTaskSheet parent. */
 export function mobileWorkspaceOverlay(name: string) {
-  return name.startsWith('settings') || name.startsWith('newTask') || [
+  return name.startsWith('settings') || name.startsWith('newTask') || name.startsWith('addProject') || [
     'archive', 'connections', 'connect', 'environments', 'environmentDetail', 'connectOnboarding',
     'threadAgents', 'threadQueue', 'threadReviewComment', 'threadBrowser', 'threadDevices',
     'threadModel', 'threadModelOption', 'threadRuntime', 'threadModelFilter',

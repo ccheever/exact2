@@ -19,7 +19,7 @@ test('projection preserves Exact zero/numeric ids and strips no legitimate path 
 });
 
 test('source overlay families preserve underlying workspace even when they are native cards', () => {
-  for (const name of ['settings', 'settingsLegal', 'newTask', 'newTaskBranches', 'threadModel', 'threadDevices', 'threadBrowser', 'threadReviewComment', 'connections', 'environments', 'environmentDetail']) {
+  for (const name of ['settings', 'settingsLegal', 'newTask', 'newTaskBranches', 'addProject', 'addProjectRepository', 'addProjectDestination', 'addProjectLocal', 'addProjectNew', 'threadModel', 'threadDevices', 'threadBrowser', 'threadReviewComment', 'connections', 'environments', 'environmentDetail']) {
     expect(mobileWorkspaceLocation([home, thread, { ...settings, name }]).workspace?.id).toBe('7');
     expect(mobileWorkspaceOverlay(name)).toBe(true);
   }

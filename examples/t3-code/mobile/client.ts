@@ -1,3 +1,4 @@
+import { watchLive } from './shared/live-streams';
 import { mobileThreadHeaderEvents } from './thread-header';
 import { mobileGrantRequest } from './mobile-grants';
 import { mobileComposerTargetRequire } from './composer-target';
@@ -110,6 +111,8 @@ export function mobileRoutingRows(sources: ReturnType<typeof environmentSources>
 export async function mobileSnapshot(nativeInput: Native | null | undefined, suppliedStorage: Files) {
   const { native, storage } = answerHandles(nativeInput, suppliedStorage);
   await mobileClient.refresh(native, storage);
+  // Mobile renders its own shell; initialize the existing shared clone/task streams here.
+  await watchLive(mobileClient, native);
   await mobileQueuedEditRefresh(native, mobileClient);
   mobileVoiceObserveDraft(mobileClient);
   let focusedStatus = {}, savedCatalog = fleet.saved, preferencesText = '{}', routingReady = false;

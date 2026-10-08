@@ -1,5 +1,6 @@
 // Pinned mobile NewTask{Route,Draft,ContextPicker} screens at365aa87982; shared draft and launch ownership.
 // @ref llp/1107.005-composer-and-transcript.decision.md#new-task-ownership
+import { mobileNewTaskCloneSnapshot } from './new-task-clone';
 import { mobileClient, mobileCommand, mobileNative } from './client';
 import { mobileHomeProjects, mobileHomeSources } from './home';
 import { mobileSessionGrants } from './environment-detail';
@@ -24,7 +25,7 @@ export interface NewTaskBranch { id: string; label: string; badge: string; selec
 export interface NewTaskSnapshot { revision: number; environmentId: string; projectId: string; threadId: string; projectTitle: string; environmentLabel: string;
   projects: NewTaskProject[]; environments: NewTaskEnvironment[]; branches: NewTaskBranch[]; query: string; branchQuery: string;
   emptyTitle: string; emptyDetail: string; branchEmpty: string; error: string; busy: boolean; branchLoaded: boolean; branchHasMore: boolean;
-  canSelect: boolean; canStartScratch: boolean; scratchTarget: string; hasProjects: boolean; draft: boolean; scratch: boolean; workspaceMode: string; workspaceLabel: string; branchLabel: string; originOn: boolean;
+  canSelect: boolean; canAddProject: boolean; canStartScratch: boolean; scratchTarget: string; hasProjects: boolean; draft: boolean; scratch: boolean; workspaceMode: string; workspaceLabel: string; branchLabel: string; originOn: boolean;
   composer: ThreadComposerState; }
 export interface NewTaskResult { revision: number; message: string; submitted: boolean; environmentId: string; projectId: string; threadId: string }
 interface TaskState { owner: string; busy: boolean; error: string; branchLoaded: boolean; branchHasMore: boolean; canWriteGit: boolean; branches: NewTaskBranch[]; branchQuery: string; }
@@ -57,15 +58,26 @@ export function mobileNewTask(query = '', client: T3Client = mobileClient, backg
   const emptyTitle = needle ? 'No matching projects' : !hasConnections ? 'No environments connected' : connecting && !client.shellLoaded ? 'Connecting to environment' : sources.length ? 'No projects found' : 'Environment unavailable';
   const emptyDetail = needle ? 'Try a different project name or workspace path.' : !hasConnections ? 'Add an environment before creating a task.' : connecting && !client.shellLoaded
     ? 'Loading projects from the saved environment.' : sources.length ? 'The connected environment did not report any projects.' : client.error || 'The saved environment is offline. Check the URL or start the environment, then retry.';
+  const canAddProject = !!client.environmentId && client.connection === 'connected'
+    || [...background.entries.values()].some(entry => entry.phase === 'connected'
+      && background.saved.some(saved => saved.environmentId === entry.environmentId && saved.enabled !== false));
+  const hasProjects = sources.some(source => source.shell.projects.some(project => project.archivedAt == null
+    && !isScratch(project, scratchRootOf(true, source.config))));
   const composer = { ...mobileThreadComposer(client), placeholder: 'Ask anything…' };
+  const clone = mobileNewTaskCloneSnapshot(client);
+  if (clone.blocked) {
+    composer.canSend = false;
+    composer.blockedReason = clone.pending || clone.phase === 'running' ? 'Cloning repository' : 'Repository not cloned';
+    composer.sendLabel = composer.blockedReason;
+  }
   if (!client.providerId || !client.modelId) composer.modelLabel = 'Choose model';
   composer.canSend &&= !client.threadId && canSelect && (scratch || context.envMode !== 'worktree' || !!context.branch);
   return { revision: client.revision, environmentId: client.environmentId, projectId: client.projectId, threadId: client.threadId,
     projectTitle: str(project?.title), environmentLabel: environments.find(environment => environment.selected)?.label ?? str(obj(client.config.environment).label),
     projects, environments, branches: state.branches, query, branchQuery: state.branchQuery, emptyTitle, emptyDetail,
     branchEmpty: state.branchLoaded ? state.error || (state.branchQuery ? 'No matching branches' : 'No branches available') : 'Loading branches…',
-    error: state.error, busy: state.busy, branchLoaded: state.branchLoaded, branchHasMore: state.branchHasMore, canSelect,
-    canStartScratch: !!mobileScratchTarget(client, background), scratchTarget: mobileScratchTarget(client, background), hasProjects: projects.length > 0,
+    error: state.error, busy: state.busy, branchLoaded: state.branchLoaded, branchHasMore: state.branchHasMore, canSelect, canAddProject,
+    canStartScratch: !!mobileScratchTarget(client, background), scratchTarget: mobileScratchTarget(client, background), hasProjects,
     draft: !client.threadId && !!project, scratch, workspaceMode: scratch ? 'local' : context.envMode,
     workspaceLabel: context.envMode === 'worktree' ? 'New worktree' : context.worktreePath ? 'Current worktree' : 'Current checkout',
     branchLabel: context.branch || 'Select branch', originOn: startFromOrigin(client), composer };

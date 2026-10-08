@@ -1,0 +1,323 @@
+// T3 Code 365aa87982 AddProjectScreen, AppTextInput, ErrorBanner and SourceControlIcon.
+// @ref llp/1107.005-composer-and-transcript.decision.md#new-task-ownership
+// Presentation only. The root owns retained screens, requests, navigation and alerts.
+shape AddProjectColors
+  sheet: string
+  groupedCard: string
+  foreground: string
+  muted: string
+  icon: string
+  iconMuted: string
+  chevron: string
+  borderSubtle: string
+  primary: string
+  primaryForeground: string
+  danger: string
+  dangerBorder: string
+  dangerForeground: string
+  input: string
+  inputBorder: string
+  switchOn: string
+  switchOff: string
+shape AddProjectFolder
+  id: string
+  name: string
+  directory: string
+  separated: bool
+shape AddProjectEnvironment
+  id: string
+  label: string
+  symbol: string
+  selected: bool
+  disabled: bool
+shape AddProjectSource
+  id: string
+  title: string
+  hint: string
+  ready: bool
+shape AddProjectAlert
+  id: string
+  title: string
+  message: string
+shape AddProjectScreen
+  id: string
+  name: string
+  title: string
+  available: bool
+  environmentId: string
+  environmentLabel: string
+  error: string
+  busy: bool
+  uncertain: bool
+  loading: bool
+  permissionPending: bool
+  canCreate: bool
+  canClone: bool
+  canRead: bool
+  hasNewProject: bool
+  input: string
+  placeholder: string
+  primaryLabel: string
+  primaryDisabled: bool
+  pathPreview: string
+  repositoryTitle: string
+  remoteUrl: string
+  source: string
+  publish: bool
+  showPublish: bool
+  publishLabel: string
+  publishSubtitle: string
+  showMachines: bool
+  browsing: bool
+  browseLoading: bool
+  browseError: string
+  browseDirectory: string
+  parentPath: string
+  folders: list<AddProjectFolder>
+  environments: list<AddProjectEnvironment>
+  sources: list<AddProjectSource>
+  alerts: list<AddProjectAlert>
+shape AddProjectNavigation
+  query: string
+  token: string
+  kind: string
+  routeId: string
+  environmentId: string
+  projectId: string
+  title: string
+  cloning: bool
+  source: string
+  remoteUrl: string
+  repositoryName: string
+shape AddProjectSnapshot
+  owner: string
+  activeId: string
+  revision: number
+  screens: list<AddProjectScreen>
+  navigation: AddProjectNavigation
+  waitOperation: string
+  waitRoute: string
+  needsPrepare: bool
+
+component MobileAddProject
+  props
+    owner: string
+    data: AddProjectScreen
+    colors: AddProjectColors
+    safeBottom: number
+    edit: action
+    browse: action
+    action: action
+  action editInput(value: string)
+    edit(owner, data.id, "input", value)
+  action submitInput
+    if not data.primaryDisabled
+      action(owner, data.id, "submit", "")
+  action publish(value: bool)
+    edit(owner, data.id, "publish", value ? "true" : "false")
+  view
+    scroll id=`add-project-scroll-${data.id}` flex=1 min-height=0 background-color=colors.sheet
+      column padding-left=20 padding-right=20 padding-top=16 padding-bottom=(max(safeBottom, 18) + 18) gap=10 font-family="DM Sans" testId=`add-project-${data.name}`
+        when data.error != ""
+          AddProjectError(message=data.error, colors=colors)
+        when data.name == "addProjectDestination" and data.repositoryTitle != ""
+          column border-radius=24 background-color=colors.groupedCard padding-left=14 padding-right=14 padding-top=10.5 padding-bottom=10.5
+            text data.repositoryTitle font-size=16 font-weight=700 color=colors.foreground line-height="23px"
+            text data.remoteUrl margin-top=1.75 font-size=13 line-height="17px" color=colors.muted line-clamp=2
+        when not data.available and not (data.name == "addProjectNew" and length(data.environments) > 0)
+          column align-items="center" gap=10.5 border-radius=14 background-color=colors.groupedCard padding-left=17.5 padding-right=17.5 padding-top=28 padding-bottom=28
+            text "Environment unavailable" font-size=18 line-height="23px" font-weight=700 color=colors.foreground text-align="center"
+            text "Start or reconnect an environment before adding a project." font-size=14 line-height="21px" color=colors.muted text-align="center"
+            button press=action(owner, data.id, "connections", "") border-radius=999 background-color=colors.primary margin-top=3.5 padding-left=14 padding-right=14 padding-top=8.75 padding-bottom=8.75 aria-label="Add environment" testId="add-project-environment"
+              text "Add environment" font-size=14 line-height="19px" font-weight=700 color=colors.primaryForeground
+        when data.name == "addProject" and data.showMachines
+          AddProjectSectionTitle(title="ENVIRONMENTS", colors=colors)
+          AddProjectMachines(owner=owner, data=data, colors=colors, edit=edit)
+        when data.name == "addProject" and data.available
+          column border-radius=24 overflow="hidden" background-color=colors.groupedCard
+            when data.hasNewProject
+              AddProjectRow(title="New project", subtitle="Start a new Git repository from a name", symbol="plus", source="", selected=false, check=false, chevron=true, separated=false, disabled=data.busy, colors=colors, press=action(owner, data.id, "new", ""), target="add-project-new")
+            AddProjectRow(title="Local folder", subtitle=(data.canCreate ? "Browse a folder on disk" : "This connection cannot add projects."), symbol="folder.badge.plus", source="", selected=false, check=false, chevron=true, separated=data.hasNewProject, disabled=(not data.canCreate or data.busy), colors=colors, press=action(owner, data.id, "local", ""), target="add-project-local")
+            each source in data.sources key=source.id
+              AddProjectRow(title=source.title, subtitle=source.hint, symbol="link", source=(source.id == "url" ? "" : source.id), selected=false, check=false, chevron=true, separated=true, disabled=(not source.ready or data.busy), colors=colors, press=action(owner, data.id, "repository", source.id), target=`add-project-source-${source.id}`)
+          when data.loading
+            column align-items="center"
+              t3-archive-spinner spinner-tint=colors.iconMuted width=20 height=20
+        when data.name != "addProject" and data.available
+          when data.name == "addProjectLocal" and not data.canCreate
+            AddProjectError(message="This connection cannot add projects.", colors=colors)
+          input value=data.input input=editInput submit=submitInput disabled=(data.busy or data.uncertain) autofocus=(data.name == "addProjectNew") placeholder=data.placeholder aria-label=data.placeholder testId=`add-project-input-${data.id}` enterkeyhint=(data.name == "addProjectRepository" ? "next" : "done") autocapitalize=(data.name == "addProjectNew" ? "sentences" : "none") spellcheck=false autocomplete="off" height=42 min-height=42 box-sizing="border-box" border-radius=24 border-width=1 border-style="solid" border-color=colors.inputBorder background-color=colors.input color=colors.foreground padding-left=14 padding-right=14 padding-top=0 padding-bottom=0 font-family="DM Sans" font-size=16 line-height="22px"
+          when data.name == "addProjectNew"
+            when data.pathPreview != ""
+              text data.pathPreview padding-left=3.5 padding-right=3.5 font-size=14 line-height="19.25px" color=colors.muted line-clamp=2 testId="add-project-path-preview"
+            when data.showMachines
+              AddProjectMachines(owner=owner, data=data, colors=colors, edit=edit)
+            when data.showPublish
+              column border-radius=24 overflow="hidden" background-color=colors.groupedCard
+                button press=publish(not data.publish) disabled=(data.busy or data.uncertain) text-align="left" padding=0 aria-label=data.publishLabel testId="add-project-publish-row"
+                  row padding-left=12.25 padding-right=12.25 padding-top=8.75 padding-bottom=8.75 align-items="center" gap=10.5
+                    column width=24.5 height=24.5 flex-shrink=0 align-items="center" justify-content="center"
+                      AddProjectProviderIcon(source="github", color=colors.icon)
+                    column flex=1 min-width=0 gap=1.75
+                      text data.publishLabel font-size=16 line-height="22px" font-weight=700 color=colors.foreground
+                      text data.publishSubtitle font-size=14 line-height="19.25px" color=colors.muted line-clamp=2
+                    input type="checkbox" switch checked=data.publish change=publish disabled=(data.busy or data.uncertain) aria-label=data.publishLabel accent-color=colors.switchOn background-color=colors.switchOff margin=0 testId="add-project-publish"
+          button press=action(owner, data.id, "submit", "") disabled=data.primaryDisabled aria-label=data.primaryLabel testId="add-project-submit" height=42 box-sizing="border-box" padding=0 border-radius=999 background-color=colors.primary opacity=(data.primaryDisabled ? 0.45 : 1)
+            when data.busy
+              t3-archive-spinner spinner-tint=colors.primaryForeground width=20 height=20
+            when not data.busy
+              text data.primaryLabel font-size=16 line-height="23px" font-weight=700 color=colors.primaryForeground
+          when data.name == "addProjectNew"
+            column border-radius=24 overflow="hidden" background-color=colors.groupedCard
+              AddProjectRow(title="Add existing project", subtitle="Open a folder or clone a repository", symbol="folder.badge.plus", source="", selected=false, check=false, chevron=true, separated=false, disabled=(data.busy or data.uncertain), colors=colors, press=action(owner, data.id, "existing", ""), target="add-project-existing")
+          when data.name == "addProjectDestination" and not data.canClone
+            text "This connection cannot clone projects." font-size=14 line-height="19px" color=colors.muted
+          when data.name == "addProjectLocal" or data.name == "addProjectDestination"
+            AddProjectSectionTitle(title="BROWSE FOLDERS", colors=colors)
+            when data.browseError != ""
+              AddProjectError(message=data.browseError, colors=colors)
+            column border-radius=24 overflow="hidden" background-color=colors.groupedCard
+              when data.browseLoading
+                column align-items="center" padding-top=17.5 padding-bottom=17.5
+                  t3-archive-spinner spinner-tint=colors.iconMuted width=20 height=20
+              when data.parentPath != ""
+                AddProjectRow(title="..", subtitle="", symbol="arrow.turn.left.up", source="", selected=false, check=false, chevron=false, separated=false, disabled=(data.busy or data.browsing or data.uncertain or not data.canRead), colors=colors, press=browse(owner, data.id, data.parentPath, ""), target="add-project-folder-up")
+              each folder in data.folders key=folder.id
+                AddProjectRow(title=folder.name, subtitle="", symbol="folder", source="", selected=false, check=false, chevron=false, separated=folder.separated, disabled=(data.busy or data.browsing or data.uncertain), colors=colors, press=browse(owner, data.id, folder.directory, folder.name), target=`add-project-folder-${folder.id}`)
+        when data.name == "addProjectNew" and not data.available and data.showMachines
+          AddProjectMachines(owner=owner, data=data, colors=colors, edit=edit)
+
+component AddProjectSectionTitle
+  props
+    title: string
+    colors: AddProjectColors
+  view
+    text title padding-left=3.5 padding-right=3.5 font-size=12 line-height="16px" font-weight=700 letter-spacing=0.7 color=colors.muted
+
+component AddProjectError
+  props
+    message: string
+    colors: AddProjectColors
+  view
+    column border-radius=14 border-width=1 border-style="solid" border-color=colors.dangerBorder background-color=colors.danger padding-left=12.25 padding-right=12.25 padding-top=10.5 padding-bottom=10.5 role="alert"
+      text message font-size=14 line-height="19px" font-weight=500 color=colors.dangerForeground
+
+component AddProjectMachines
+  props
+    owner: string
+    data: AddProjectScreen
+    colors: AddProjectColors
+    edit: action
+  derive firstId = match first(data.environments) { case some(item) => item.id, case none => "" }
+  view
+    column border-radius=24 overflow="hidden" background-color=colors.groupedCard
+      each environment in data.environments key=environment.id
+        AddProjectRow(title=environment.label, subtitle="", symbol=environment.symbol, source="", selected=environment.selected, check=true, chevron=false, separated=(environment.id != firstId), disabled=environment.disabled, colors=colors, press=edit(owner, data.id, "environment", environment.id), target=`add-project-machine-${environment.id}`)
+
+component AddProjectRow
+  props
+    title: string
+    subtitle: string
+    symbol: string
+    source: string
+    selected: bool
+    check: bool
+    chevron: bool
+    separated: bool
+    disabled: bool
+    colors: AddProjectColors
+    press: action
+    target: string
+  view
+    button press=press disabled=disabled aria-label=title testId=target text-align="left" padding=0 background-color=colors.groupedCard border-top-width=(separated ? 1 : 0) border-top-style="solid" border-top-color=colors.borderSubtle opacity=(disabled ? 0.45 : 1)
+      row padding-left=12.25 padding-right=12.25 padding-top=8.75 padding-bottom=8.75 gap=10.5 align-items="center"
+        column width=24.5 height=24.5 flex-shrink=0 align-items="center" justify-content="center" border-radius=999 background-color=(selected ? colors.primary : "transparent")
+          when source == ""
+            t3-symbol symbol-name=symbol point-size=17 symbol-weight="regular" symbol-tint=(symbol == "folder" or symbol == "arrow.turn.left.up" ? colors.iconMuted : colors.icon) width=17 height=17
+          when source != ""
+            AddProjectProviderIcon(source=source, color=colors.icon)
+        column flex=1 min-width=0 gap=1.75
+          text title font-size=16 line-height="22px" font-weight=700 color=colors.foreground
+          when subtitle != ""
+            text subtitle font-size=14 line-height="19.25px" color=colors.muted line-clamp=2
+        when check and selected
+          t3-symbol symbol-name="checkmark" point-size=14 symbol-weight="regular" symbol-tint=colors.icon width=14 height=14
+        when chevron and not disabled
+          t3-symbol symbol-name="chevron.right" point-size=13 symbol-weight="regular" symbol-tint=colors.chevron width=13 height=13
+
+// SourceControlIcon exact source marks. Azure DevOps: selfhst/icons, CC BY 4.0; source attribution retained upstream.
+component AddProjectProviderIcon
+  props
+    source: string
+    color: string
+  view
+    when source == "forgejo"
+      svg width=18 height=18 viewBox="0 0 212 212"
+        g transform="translate(6 6)" fill="none"
+          path d="M58 168 v-98 a50 50 0 0 1 50-50 h20" stroke="#ff6600" stroke-width=25
+          path d="M58 168 v-30 a50 50 0 0 1 50-50 h20" stroke="#d40000" stroke-width=25
+          circle cx=142 cy=20 r=18 stroke="#ff6600" stroke-width=15
+          circle cx=142 cy=88 r=18 stroke="#d40000" stroke-width=15
+          circle cx=58 cy=180 r=18 stroke="#d40000" stroke-width=15
+    when source == "github"
+      svg width=18 height=18 viewBox="0 0 16 16" fill="none"
+        path fill-rule="evenodd" clip-rule="evenodd" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82A7.68 7.68 0 0 1 8.02 3.86c.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z" fill=color
+    when source == "gitlab"
+      svg width=18 height=18 viewBox="0 0 32 32" fill="none"
+        path d="m31.46 12.78-.04-.12-4.35-11.35A1.14 1.14 0 0 0 25.94.6c-.24 0-.47.1-.66.24-.19.15-.33.36-.39.6l-2.94 9h-11.9l-2.94-9A1.14 1.14 0 0 0 6.07.58a1.15 1.15 0 0 0-1.14.72L.58 12.68l-.05.11a8.1 8.1 0 0 0 2.68 9.34l.02.01.04.03 6.63 4.97 3.28 2.48 2 1.52a1.35 1.35 0 0 0 1.62 0l2-1.52 3.28-2.48 6.67-5h.02a8.09 8.09 0 0 0 2.7-9.36Z" fill="#E24329"
+        path d="m31.46 12.78-.04-.12a14.75 14.75 0 0 0-5.86 2.64l-9.55 7.24 6.09 4.6 6.67-5h.02a8.09 8.09 0 0 0 2.67-9.36Z" fill="#FC6D26"
+        path d="m9.9 27.14 3.28 2.48 2 1.52a1.35 1.35 0 0 0 1.62 0l2-1.52 3.28-2.48-6.1-4.6-6.07 4.6Z" fill="#FCA326"
+        path d="M6.44 15.3a14.71 14.71 0 0 0-5.86-2.63l-.05.12a8.1 8.1 0 0 0 2.68 9.34l.02.01.04.03 6.63 4.97 6.1-4.6-9.56-7.24Z" fill="#FC6D26"
+    when source == "azure-devops"
+      svg width=18 height=18 viewBox="0 0 512 512"
+        defs
+          linearGradient id="azure-a" x1="58.027" x2="58.027" y1="356.668" y2="100.668" gradientTransform="matrix(1 0 0 -1 0 514)" gradientUnits="userSpaceOnUse"
+            stop offset="0" stop-color="#163697"
+            stop offset=".276" stop-color="#2052cb"
+            stop offset=".518" stop-color="#2764e7"
+            stop offset=".879" stop-color="#367af2"
+          linearGradient id="azure-b" x1="58.027" x2="58.027" y1="351.334" y2="292.668" gradientTransform="matrix(1 0 0 -1 0 514)" gradientUnits="userSpaceOnUse"
+            stop offset="0" stop-color="#102784"
+            stop offset="1" stop-color="#2052cb" stop-opacity=0
+          linearGradient id="azure-c" x1="389.98" x2="107.314" y1="57.935" y2="193.935" gradientTransform="matrix(1 0 0 -1 0 514)" gradientUnits="userSpaceOnUse"
+            stop offset="0" stop-color="#163697"
+            stop offset=".301" stop-color="#2052cb"
+            stop offset=".626" stop-color="#2764e7"
+            stop offset=".926" stop-color="#367af2"
+          linearGradient id="azure-d" x1="391.996" x2="341.385" y1="76.552" y2="78.224" gradientTransform="matrix(1 0 0 -1 0 514)" gradientUnits="userSpaceOnUse"
+            stop offset="0" stop-color="#102784"
+            stop offset="1" stop-color="#2052cb" stop-opacity=0
+          linearGradient id="azure-e" x1="442.24" x2="442.24" y1="54.769" y2="419.38" gradientTransform="matrix(1 0 0 -1 0 514)" gradientUnits="userSpaceOnUse"
+            stop offset=".043" stop-color="#2052cb"
+            stop offset=".489" stop-color="#367af2"
+            stop offset=".943" stop-color="#16bbda"
+          linearGradient id="azure-f" x1="435.596" x2="425.732" y1="270.413" y2="385.266" gradientTransform="matrix(1 0 0 -1 0 514)" gradientUnits="userSpaceOnUse"
+            stop offset=".134" stop-color="#16bbda" stop-opacity=0
+            stop offset=".932" stop-color="#6be7a0" stop-opacity=0.8629
+          linearGradient id="azure-g" x1="437.081" x2="507.893" y1="204.362" y2="119.081" gradientTransform="matrix(1 0 0 -1 0 514)" gradientUnits="userSpaceOnUse"
+            stop offset="0" stop-color="#2c68e0" stop-opacity=0
+            stop offset=".898" stop-color="#66c0ff" stop-opacity=0.5
+          linearGradient id="azure-h" x1="99.399" x2="352.75" y1="279.26" y2="498.676" gradientTransform="matrix(1 0 0 -1 0 514)" gradientUnits="userSpaceOnUse"
+            stop offset=".005" stop-color="#367af2"
+            stop offset=".507" stop-color="#0fafff"
+            stop offset="1" stop-color="#26cfe8"
+          linearGradient id="azure-i" x1="184.342" x2="338.581" y1="356.795" y2="480.642" gradientTransform="matrix(1 0 0 -1 0 514)" gradientUnits="userSpaceOnUse"
+            stop offset=".443" stop-color="#26cfe8" stop-opacity=0
+            stop offset=".897" stop-color="#6be7a0" stop-opacity=0.8629
+        path d="M116.1 73.4c-5.8 5.8-13.7 13.8-13.7 22.6v216.4c0 8.9-3.3 17.3-9 23.4s-13.3 9.2-21.1 8.5l-42.7-3.1c-7.9-.5-15-3.9-20.3-9.3-5.7-5.7-9.3-13.7-9.3-22.6V202.7c0-8.9 3.6-16.9 9.4-22.6l2-1.9z" fill="url(#azure-a)"
+        path d="M116.1 73.4c-5.8 5.8-13.7 13.8-13.7 22.6v216.4c0 8.9-3.3 17.3-9 23.4s-13.3 9.2-21.1 8.5l-42.7-3.1c-7.9-.5-15-3.9-20.3-9.3-5.7-5.7-9.3-13.7-9.3-22.6V202.7c0-8.9 3.6-16.9 9.4-22.6l2-1.9z" fill="url(#azure-b)"
+        path d="m500.5 366-128 106.7c-5.5 4.6-12.7 7.4-20.5 7.4q-2.4 0-4.8-.3l-112.5-16.9v27.8c0 11.7-9.6 21.3-21.3 21.3-7.3 0-13.5-3.6-17.5-9.1l-36.2-51.4-5.4-7.6-36.6-51.9-7-10c-2.6-3.5-3.9-7.8-3.9-12.3 0-6 2.5-11.6 6.8-15.7 3.8-3.7 9.1-5.8 14.5-5.8.4 0 1 .1 1.5.1l105.2 7.5L384 366.5l93.7 6.7c.7.1 1.6.1 2.3.1 7.8 0 14.9-2.7 20.5-7.3" fill="url(#azure-c)"
+        path d="m500.5 366-128 106.7c-5.5 4.6-12.7 7.4-20.5 7.4q-2.4 0-4.8-.3l-112.5-16.9v27.8c0 11.7-9.6 21.3-21.3 21.3-7.3 0-13.5-3.6-17.5-9.1l-36.2-51.4-5.4-7.6-36.6-51.9-7-10c-2.6-3.5-3.9-7.8-3.9-12.3 0-6 2.5-11.6 6.8-15.7 3.8-3.7 9.1-5.8 14.5-5.8.4 0 1 .1 1.5.1l105.2 7.5L384 366.5l93.7 6.7c.7.1 1.6.1 2.3.1 7.8 0 14.9-2.7 20.5-7.3" fill="url(#azure-d)"
+        path d="M512 170.7v170.7c0 9.9-4.5 18.8-11.5 24.6l-128 106.7c7-5.9 11.5-14.7 11.5-24.6V175.3c0-16.7 13-30.7 29.8-31.9l63.9-4.6c.7-.1 1.6-.1 2.3-.1 7.8 0 14.9 2.8 20.5 7.4 7 5.8 11.5 14.6 11.5 24.6" fill="url(#azure-e)"
+        path d="M512 170.7v170.7c0 9.9-4.5 18.8-11.5 24.6l-128 106.7c7-5.9 11.5-14.7 11.5-24.6V175.3c0-16.7 13-30.7 29.8-31.9l63.9-4.6c.7-.1 1.6-.1 2.3-.1 7.8 0 14.9 2.8 20.5 7.4 7 5.8 11.5 14.6 11.5 24.6" fill="url(#azure-f)" fill-opacity=0.7
+        path d="M512 170.7v170.7c0 9.9-4.5 18.8-11.5 24.6l-128 106.7c7-5.9 11.5-14.7 11.5-24.6V175.3c0-16.7 13-30.7 29.8-31.9l63.9-4.6c.7-.1 1.6-.1 2.3-.1 7.8 0 14.9 2.8 20.5 7.4 7 5.8 11.5 14.6 11.5 24.6" fill="url(#azure-g)"
+        path d="M384 125.5c0 11.2-8.6 20.5-19.8 21.3-.5 0-1.1.1-1.6.1l-127.9 9.2-132.3 9.1-72.7 5.5c-6.9.4-13.2 3.1-18.2 7.4L116.1 73.4c4.7-4.7 10.9-8 17.8-9.1l100.8-15.1V21.3C234.7 9.6 244.3 0 256 0c5.8 0 11.1 2.3 14.9 6.1l33.4 32.6 16.9 16.5 40.3 39.3 16.1 15.8c4.1 3.9 6.4 9.4 6.4 15.2" fill="url(#azure-h)"
+        path d="M384 125.5c0 11.2-8.6 20.5-19.8 21.3-.5 0-1.1.1-1.6.1l-127.9 9.2-132.3 9.1-72.7 5.5c-6.9.4-13.2 3.1-18.2 7.4L116.1 73.4c4.7-4.7 10.9-8 17.8-9.1l100.8-15.1V21.3C234.7 9.6 244.3 0 256 0c5.8 0 11.1 2.3 14.9 6.1l33.4 32.6 16.9 16.5 40.3 39.3 16.1 15.8c4.1 3.9 6.4 9.4 6.4 15.2" fill="url(#azure-i)" fill-opacity=0.5
+    when source == "bitbucket"
+      svg width=18 height=18 viewBox="8.4 14.39 2481.29 2231.21"
+        defs
+          linearGradient id="bitbucket-a" x1="945.1094" y1="1524.8389" x2="944.4923" y2="1524.1893" gradientTransform="matrix(1996.6343 0 0 -1480.3047 -1884485.625 2258195)"
+            stop offset="0.18" stop-color="#0052CC"
+            stop offset="1" stop-color="#2684FF"
+        path fill="#2684FF" d="M88.92,14.4C45.02,13.83,8.97,48.96,8.41,92.86c-0.06,4.61,0.28,9.22,1.02,13.77l337.48,2048.72 c8.68,51.75,53.26,89.8,105.74,90.24h1619.03c39.38,0.5,73.19-27.9,79.49-66.78l337.49-2071.78c7.03-43.34-22.41-84.17-65.75-91.2 c-4.55-0.74-9.15-1.08-13.76-1.02L88.92,14.4z M1509.99,1495.09H993.24l-139.92-731h781.89L1509.99,1495.09z"
+        path fill="url(#bitbucket-a)" d="M2379.27,763.06h-745.5l-125.12,730.42H992.31l-609.67,723.67c19.32,16.71,43.96,26,69.5,26.21h1618.13 c39.35,0.51,73.14-27.88,79.44-66.72L2379.27,763.06z"
