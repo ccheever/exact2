@@ -47,9 +47,9 @@ fn refused(body: &str) -> (String, String) {
 }
 
 #[test]
-fn a_native_button_is_a_control_and_an_ordinary_one_is_unchanged() {
+fn a_native_button_is_a_control_and_an_explicit_bare_one_is_unchanged() {
     let r = boot(&app(
-        "button appearance=\"auto\" buttonStyle=\"glass\" press=go testId=\"native\" aria-label=\"Send\"\n  image \"symbol:send\"\nbutton press=go testId=\"custom\"\n  text \"Plain\"",
+        "button appearance=\"auto\" buttonStyle=\"glass\" press=go testId=\"native\" aria-label=\"Send\"\n  image \"symbol:send\"\nbutton appearance=\"none\" press=go testId=\"custom\"\n  text \"Plain\"",
     ));
     let k = r.kernel();
     let native = k.node(view_of(&r, "native")).unwrap();
@@ -145,7 +145,7 @@ fn the_style_is_a_name_in_the_table_on_a_native_button_only() {
             "not a button style",
         ),
         (
-            "button buttonStyle=\"glass\" press=go\n  text \"Go\"",
+            "button appearance=\"none\" buttonStyle=\"glass\" press=go\n  text \"Go\"",
             "lower-button-style",
             "native button",
         ),
@@ -477,7 +477,6 @@ fn platform_rows_belong_only_to_native_buttons_and_roundtrip_through_classes() {
     for tag in [
         "box width=20 height=20",
         "text \"Go\"",
-        "button",
         "button appearance=\"none\"",
         "input",
     ] {
@@ -555,4 +554,231 @@ fn native_invokers_take_bound_or_empty_targets_and_checked_commands() {
             "{attrs}: {message}"
         );
     }
+}
+
+fn appearance_of(src: &str) -> (NodeType, exact_kernel::Appearance) {
+    let r = boot(src);
+    let node = r.kernel().node(view_of(&r, "b")).unwrap();
+    (node.node_type, node.style.appearance)
+}
+
+#[test]
+fn the_default_is_native_and_explicit_none_is_bare() {
+    for (attrs, native) in [
+        ("", true),
+        ("appearance=\"auto\"", true),
+        ("appearance=\"none\"", false),
+    ] {
+        assert_eq!(
+            appearance_of(&app(&format!("button {attrs} testId=\"b\"\n  text \"Go\""))),
+            if native {
+                (NodeType::Control, exact_kernel::Appearance::Auto)
+            } else {
+                (NodeType::Pressable, exact_kernel::Appearance::None)
+            }
+        );
+    }
+    boot(&app("button buttonStyle=\"filled\"\n  text \"Go\""));
+}
+
+#[test]
+fn disabling_rows_are_bare_by_default_and_refused_under_auto_except_radius() {
+    let mut rows = vec![
+        "background-color=\"transparent\"".to_string(),
+        "background-image=\"none\"".into(),
+        "border=\"0 solid transparent\"".into(),
+        "border-width=0".into(),
+        "border-style=\"none\"".into(),
+        "border-color=\"transparent\"".into(),
+    ];
+    for side in ["top", "right", "bottom", "left"] {
+        for (kind, value) in [
+            ("width", "0"),
+            ("style", "\"none\""),
+            ("color", "\"transparent\""),
+        ] {
+            rows.push(format!("border-{side}-{kind}={value}"));
+        }
+        rows.push(format!("border-{side}=\"0 solid transparent\""));
+    }
+    for row in rows {
+        for appearance in ["", "appearance=\"none\""] {
+            let src = app(&format!(
+                "button {appearance} {row} testId=\"b\"\n  text \"Go\""
+            ));
+            assert_eq!(
+                appearance_of(&src),
+                (NodeType::Pressable, exact_kernel::Appearance::None),
+                "{row}"
+            );
+        }
+        let (id, message) = refused(&format!("button appearance=\"auto\" {row}\n  text \"Go\""));
+        assert_eq!(id, "lower-button-style-attr", "{row}: {message}");
+    }
+    for row in [
+        "border-radius=0",
+        "border-top-left-radius=0",
+        "border-top-right-radius=0",
+        "border-bottom-right-radius=0",
+        "border-bottom-left-radius=0",
+    ] {
+        assert_eq!(
+            appearance_of(&app(&format!("button {row} testId=\"b\"\n  text \"Go\""))),
+            (NodeType::Pressable, exact_kernel::Appearance::None)
+        );
+        assert_eq!(
+            appearance_of(&app(&format!(
+                "button appearance=\"auto\" {row} testId=\"b\"\n  text \"Go\""
+            ))),
+            (NodeType::Control, exact_kernel::Appearance::Auto)
+        );
+    }
+}
+
+#[test]
+fn default_admission_reuses_every_native_refusal_and_face_arm() {
+    for row in [
+        "box-shadow=\"0 1px 2px black\"",
+        "filter=\"blur(2px)\"",
+        "backdrop-filter=\"blur(2px)\"",
+        "font-family=\"system-ui\"",
+        "font-style=\"italic\"",
+        "line-height=2",
+        "letter-spacing=1",
+        "text-transform=\"uppercase\"",
+        "text-indent=2",
+        "text-shadow=\"0 1px black\"",
+        "text-overflow=\"ellipsis\"",
+        "direction=\"rtl\"",
+        "-exact-press-scale=0.9",
+        "flex-wrap=\"wrap\"",
+        "align-items=\"start\"",
+        "justify-content=\"space-between\"",
+        "flex-direction=\"row-reverse\"",
+        "transition=\"background-color 200ms\"",
+        "animation=\"flash 300ms\"",
+        "display=\"grid\"",
+        "href=\"/x\"",
+        "role=\"dialog\"",
+        "type=\"submit\"",
+        "backgroundMaterial=\"glass\"",
+        "glassGroup=8",
+    ] {
+        let src = app(&format!("button {row} testId=\"b\"\n  text \"Go\""));
+        assert_eq!(
+            appearance_of(&src),
+            (NodeType::Pressable, exact_kernel::Appearance::None),
+            "{row}"
+        );
+    }
+    for children in ["box width=4 height=4", "text \"A\"\n  text \"B\"\n  text \"C\"",
+        "image \"photo.png\"", "image \"symbol:add\"", "text \"Go\" font-family=\"system-ui\"",
+        "text \"Go\"\n  when busy\n    box width=4 height=4",
+        "match (busy ? some(1) : none)\n    case some(x)\n      text \"Go\"\n    case none\n      box width=4 height=4",
+        "each x in [1, 2] key=x\n    text \"Go\""] {
+        let src = app(&format!("button testId=\"b\"\n  {children}"));
+        assert_eq!(appearance_of(&src), (NodeType::Pressable, exact_kernel::Appearance::None), "{children}");
+    }
+    let src = app("button testId=\"b\"\n  when busy\n    text \"Busy\"\n  else\n    text \"Go\"");
+    assert_eq!(
+        appearance_of(&src),
+        (NodeType::Control, exact_kernel::Appearance::Auto)
+    );
+    let src = app("button testId=\"b\"\n  match (busy ? some(1) : none)\n    case some(x)\n      text \"Busy\"\n    case none\n      text \"Go\"");
+    assert_eq!(
+        appearance_of(&src),
+        (NodeType::Control, exact_kernel::Appearance::Auto)
+    );
+}
+
+#[test]
+fn any_merged_class_or_none_arm_disables_the_default_permanently() {
+    for src in [
+        format!(
+            "style A\n  background-color=\"red\"\nstyle B\n  opacity=1\n{}",
+            app("button class=(busy ? A : B) press=go testId=\"b\"\n  text \"Go\"")
+        ),
+        app("button background-color=(busy ? \"red\" : none) press=go testId=\"b\"\n  text \"Go\""),
+        format!(
+            "style A\n  border=\"0 solid transparent\"\n{}",
+            app("button class=A press=go testId=\"b\"\n  text \"Go\"")
+        ),
+    ] {
+        let mut r = boot(&src);
+        let id = view_of(&r, "b");
+        assert_eq!(r.kernel().node(id).unwrap().node_type, NodeType::Pressable);
+        r.dispatch(id, Event::Press).unwrap();
+        assert_eq!(
+            r.kernel().node(id).unwrap().style.appearance,
+            exact_kernel::Appearance::None
+        );
+        let auto = src.replace("button ", "button appearance=\"auto\" ");
+        assert_eq!(
+            contract::compile(&auto).unwrap_err().id,
+            "lower-button-style-attr"
+        );
+    }
+    let src = format!(
+        "style A\n  appearance=\"none\"\n{}",
+        app("button class=A appearance=\"auto\" testId=\"b\"\n  text \"Go\"")
+    );
+    assert_eq!(
+        appearance_of(&src),
+        (NodeType::Control, exact_kernel::Appearance::Auto)
+    );
+}
+
+#[test]
+fn a_bare_default_style_refusal_reports_its_first_reason() {
+    for (body, reason) in [
+        ("button background-color=\"red\" border=\"1px solid blue\" buttonStyle=\"filled\"\n  text \"Go\"", "background-color"),
+        ("button border-radius=8 buttonStyle=\"filled\"\n  text \"Go\"", "border-top-left-radius"),
+        ("button font-family=\"system-ui\" buttonStyle=\"filled\"\n  text \"Go\"", "font-family"),
+        ("button href=\"/x\" buttonStyle=\"filled\"\n  text \"Go\"", "href"),
+        ("button buttonStyle=\"filled\"\n  box width=4 height=4", "box"),
+        ("canvas width=40 height=40\n  button buttonStyle=\"filled\"\n    text \"Go\"", "canvas"),
+    ] {
+        let (id, message) = refused(body);
+        assert_eq!(id, "lower-button-style", "{message}");
+        assert!(message.contains(reason) && message.contains("Remove") && message.contains("appearance=\"none\"") && message.contains("without `buttonStyle`"), "{message}");
+    }
+}
+
+#[test]
+fn bare_reasons_live_only_in_the_development_map_and_migration_uses_merged_rows() {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("test-button.contract");
+    for (body, migration) in [
+        ("button testId=\"b\"\n  text \"Go\"", false),
+        (
+            "button width=100 margin=4 flex=1 testId=\"b\"\n  text \"Go\"",
+            false,
+        ),
+        ("button color=\"red\" testId=\"b\"\n  text \"Go\"", true),
+        ("button padding=4 testId=\"b\"\n  text \"Go\"", true),
+        ("button testId=\"b\"\n  text \"Go\" font-weight=600", true),
+        (
+            "button background-color=\"red\" testId=\"b\"\n  text \"Go\"",
+            false,
+        ),
+        (
+            "button appearance=\"auto\" padding=4 testId=\"b\"\n  text \"Go\"",
+            false,
+        ),
+        ("button testId=\"b\"\n  box width=4 height=4", false),
+    ] {
+        let source = app(body);
+        let (plan, map) = contract::compile_path_source_mapped(&path, &source).unwrap();
+        assert_eq!(plan.encode(), contract::compile(&source).unwrap().encode());
+        assert_eq!(!map.button_migrations().is_empty(), migration, "{body}");
+        let json: serde_json::Value = serde_json::from_str(&map.json(&plan.encode())).unwrap();
+        if body.contains("background-color") {
+            assert_eq!(json["nodes"][1]["bare_reason"], "background-color");
+        }
+    }
+    let source = format!(
+        "style Label\n  color=\"red\"\n{}",
+        app("button class=Label testId=\"b\"\n  text \"Go\"")
+    );
+    let (_, map) = contract::compile_path_source_mapped(&path, &source).unwrap();
+    assert_eq!(map.button_migrations().len(), 1);
 }

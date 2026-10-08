@@ -754,9 +754,14 @@ stays there, so rows inserted on top show, and one following its end
 (`translate`, `rotate`, `scale`, a relative `top`/`left`, `z-index`: a lifted
 row being dragged) and keeps its place in the list.
 
-A native button is an explicit `button appearance="auto"` after class merging;
-an ordinary button remains an authored `appearance="none"` pressable. The switch
-must be literal. Its first `text` is the title, its second is the subtitle, and
+A `button` is the platform's own control by default. A background, border or
+radius, rich children, or a row/attribute/context the native control cannot
+support makes it your bare box instead. Classes count after merging, and a
+row or incompatible child on any conditional arm keeps the whole button bare.
+`appearance="none"` explicitly asks for your box. `appearance="auto"` explicitly
+asks for the platform's button and refuses unsupported rows or children. The
+switch must resolve to a literal after class merging; use `when` with two
+buttons to switch. Its first `text` is the title, its second is the subtitle, and
 its one `image "symbol:…"` is the symbol. These are semantic face data, not
 layout children. A symbol-only face needs a nonempty `aria-label`. With
 `flex-direction="row"` (or absent), an image before/after the texts is
@@ -779,7 +784,8 @@ spacing stays the platform's. `align-items` and `justify-content` accept only
 `center`. `-exact-control-size` takes `mini`, `small`, `medium`, `large`;
 `-exact-corner-style` takes `dynamic`, `small`, `medium`, `large`, `capsule`.
 Both are style rows admitted only on native buttons, including in a class.
-`border-radius` sets the authored radius and wins over the named corner style;
+With explicit `appearance="auto"`, `border-radius` sets the authored radius
+and wins over the named corner style; under the default it makes the button bare.
 `padding` and its longhands set content insets. Absent leaves the native
 control's insets/corners alone.
 
@@ -790,15 +796,17 @@ dialog or popover with `commandfor` and `command="show-modal"`,
 bound, and an empty target is no target. `href`, `action` and swipe attributes
 remain refused. `-exact-enabled` transitions are not available.
 
-`buttonStyle` is a styleable host-policy prop; its names and allowable branches
+`buttonStyle` needs a native button; on a default button that comes out bare,
+`lower-button-style` names the first reason and says to remove it or write
+`appearance="none"` without `buttonStyle`. It is a styleable host-policy prop;
+its names and allowable branches
 are checked against `schema.json`'s `buttonStyles`. Backgrounds, borders,
 shadows, filters, `font-family`, other typography or inner layout and
 `-exact-press-scale` are refused with `lower-button-style-attr`, naming a custom
 `button` as the alternative. A native button still takes size, place, opacity
 and transform rows. Hosts implementing the measure hook supply its fitting
 size before the first frame, including height-for-width; hosts without it
-keep the existing intrinsic-size report. This lane admits the rows; platform
-mapping and measurement implementations follow separately. Test the actual
+keep the existing intrinsic-size report. Test the actual
 platform look; macOS can report stand-ins for gap, subtitle and wrapping.
 See [`controls.rs`](../contract/lower/src/controls.rs) for the checks.
 
@@ -808,7 +816,7 @@ drawn title bar) is a bug. On iOS:
 
 | Write | iOS draws |
 | --- | --- |
-| `button appearance="auto"` (`buttonStyle`) | `UIButton` |
+| `button` (`buttonStyle`, native by default) | `UIButton` |
 | `list appearance="auto" listStyle="inset-grouped"` of `section`s (`header`, rows, `footer`) | `UICollectionView` list, as Settings ([human guide](contract-for-humans.md#choosing-a-native-button)) |
 | `input type="checkbox" switch` | `UISwitch` |
 | `input type="range"` | `UISlider` |

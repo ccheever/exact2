@@ -1,6 +1,7 @@
 //! LLP 1084: `list appearance="auto"` is a grouped list. Contract checks its
 //! sections and writes its look as a sheet the author's rows replace; the
-//! kernel reads its sections and rows as a native list draws them.
+//! kernel reads its sections and rows as a native list draws them. Bare row
+//! fixtures explicitly say `appearance="none"` under LLP 1104's default.
 
 use exact_kernel::{Accessory, GroupedRow, Kernel, Offer, PropId};
 use exact_runner::{DataError, DataSource, Runner, Value};
@@ -59,16 +60,16 @@ const SETTINGS: &str = "list appearance=\"auto\" testId=\"list\" flex=1
   section testId=\"s0\"
     header
       text \"Account\"
-    button press=go testId=\"profile\"
+    button appearance=\"none\" press=go testId=\"profile\"
       image \"symbol:sf/person.circle\"
       text \"Profile\"
       image \"symbol:sf/chevron.right\"
-    button press=go testId=\"notes\"
+    button appearance=\"none\" press=go testId=\"notes\"
       image \"symbol:sf/bell\"
       text \"Notifications\"
       text \"On\"
       image \"symbol:forward-chevron\"
-    button press=go testId=\"privacy\"
+    button appearance=\"none\" press=go testId=\"privacy\"
       column
         text \"Privacy\"
         text \"Screen lock\"
@@ -78,15 +79,15 @@ const SETTINGS: &str = "list appearance=\"auto\" testId=\"list\" flex=1
     row testId=\"receipts\"
       text \"Read Receipts\"
       input type=\"checkbox\" switch checked=on input=flip testId=\"toggle\"
-    button press=go testId=\"dark\"
+    button appearance=\"none\" press=go testId=\"dark\"
       text \"Dark\"
       when dark
         image \"symbol:checkmark\"
-    button press=go testId=\"custom\"
+    button appearance=\"none\" press=go testId=\"custom\"
       image \"avatar.png\" width=40 height=40
       text \"Maya\"
   section
-    button press=go destructive=true testId=\"delete\"
+    button appearance=\"none\" press=go destructive=true testId=\"delete\"
       text \"Delete Account\"
 ";
 
@@ -230,7 +231,7 @@ fn a_grouped_list_holds_sections_and_a_section_its_texts_at_its_ends() {
 
 #[test]
 fn a_class_replaces_the_sheet_as_an_attribute_does() {
-    let src = app("list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    button press=go class=Tall testId=\"tall\"\n      text \"Tall\"");
+    let src = app("list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    button appearance=\"none\" press=go class=Tall testId=\"tall\"\n      text \"Tall\"");
     let src = format!("style Tall\n  min-height=80\n{src}");
     let plan = contract::bake(contract::compile(&src).unwrap(), NoData).unwrap();
     let mut r = Runner::boot(
@@ -257,7 +258,7 @@ fn a_class_replaces_the_sheet_as_an_attribute_does() {
 
 #[test]
 fn a_symbol_under_a_condition_moves_the_text_with_it() {
-    let mut r = boot("list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    button press=go testId=\"row\"\n      when dark\n        image \"symbol:person\"\n      text \"Profile\"");
+    let mut r = boot("list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    button appearance=\"none\" press=go testId=\"row\"\n      when dark\n        image \"symbol:person\"\n      text \"Profile\"");
     let x = |r: &Runner<NoData>| r.kernel().node(id(r, "row")).unwrap().frame.x;
     assert_eq!(x(&r), 32.0, "no symbol: 16 into the group");
     let row = id(&r, "row");
@@ -277,7 +278,7 @@ fn a_symbol_under_a_condition_moves_the_text_with_it() {
 
 #[test]
 fn hidden_parts_and_a_row_of_texts_are_read_as_the_web_shows_them() {
-    let r = boot("list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    button press=go testId=\"pair\"\n      row\n        text \"A\"\n        text \"B\"\n    row display=\"none\"\n      text \"Hidden\"\n  section display=\"none\"\n    row\n      text \"Gone\"");
+    let r = boot("list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    button appearance=\"none\" press=go testId=\"pair\"\n      row\n        text \"A\"\n        text \"B\"\n    row display=\"none\"\n      text \"Hidden\"\n  section display=\"none\"\n    row\n      text \"Gone\"");
     let list = r.kernel().grouped_list(id(&r, "list")).unwrap();
     assert_eq!(list.sections.len(), 1, "a hidden section is none");
     assert_eq!(list.sections[0].rows.len(), 1, "a hidden row is none");
@@ -289,7 +290,7 @@ fn hidden_parts_and_a_row_of_texts_are_read_as_the_web_shows_them() {
 
 #[test]
 fn a_plain_lists_sections_meet_and_a_label_is_one_text() {
-    let r = boot("list appearance=\"auto\" listStyle=\"plain\" testId=\"list\" flex=1\n  section testId=\"a\"\n    button press=go\n      text \"A\"\n  section testId=\"b\"\n    button press=go\n      text \"B\"");
+    let r = boot("list appearance=\"auto\" listStyle=\"plain\" testId=\"list\" flex=1\n  section testId=\"a\"\n    button appearance=\"none\" press=go\n      text \"A\"\n  section testId=\"b\"\n    button appearance=\"none\" press=go\n      text \"B\"");
     let k = r.kernel();
     let (a, b) = (
         k.node(id(&r, "a")).unwrap().frame,
@@ -304,7 +305,7 @@ fn a_plain_lists_sections_meet_and_a_label_is_one_text() {
 
 #[test]
 fn a_conditional_text_and_an_authors_column_are_styled_as_the_kernel_reads_them() {
-    let r = boot("list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    button press=go testId=\"row\"\n      when dark\n        text \"New\"\n      text \"Notifications\" testId=\"title\"\n    button press=go testId=\"card\"\n      row width=40 height=40\n      column testId=\"stack\"\n        text \"Maya\"\n        text \"+1 415\"");
+    let r = boot("list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    button appearance=\"none\" press=go testId=\"row\"\n      when dark\n        text \"New\"\n      text \"Notifications\" testId=\"title\"\n    button appearance=\"none\" press=go testId=\"card\"\n      row width=40 height=40\n      column testId=\"stack\"\n        text \"Maya\"\n        text \"+1 415\"");
     let k = r.kernel();
     let list = k.grouped_list(id(&r, "list")).unwrap();
     assert_eq!(
@@ -325,7 +326,7 @@ fn a_conditional_text_and_an_authors_column_are_styled_as_the_kernel_reads_them(
 
 #[test]
 fn a_text_after_a_condition_is_styled_by_the_condition() {
-    let mut r = boot("list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    button press=go testId=\"row\"\n      when dark\n        text \"New\"\n      text \"Notifications\" testId=\"title\"");
+    let mut r = boot("list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    button appearance=\"none\" press=go testId=\"row\"\n      when dark\n        text \"New\"\n      text \"Notifications\" testId=\"title\"");
     let grow = |r: &Runner<NoData>| r.kernel().node(id(r, "title")).unwrap().style.flex_grow;
     assert_eq!(grow(&r), 1.0, "the title while `dark` is false");
     let row = id(&r, "row");
@@ -340,7 +341,7 @@ fn a_text_after_a_condition_is_styled_by_the_condition() {
 
 #[test]
 fn a_subtitle_beside_a_conditional_checkmark_and_a_native_button_row() {
-    let r = boot("list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    button press=go testId=\"row\"\n      column testId=\"stack\"\n        text \"Dark\"\n        text \"Always\"\n      when dark\n        image \"symbol:checkmark\"\n    button press=go testId=\"plain\"\n      column testId=\"other\"\n        text \"A\"\n        text \"B\"\n      button press=go\n        text \"Go\"\n    button appearance=\"auto\" press=go testId=\"native\"\n      text \"Native\"");
+    let r = boot("list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    button appearance=\"none\" press=go testId=\"row\"\n      column testId=\"stack\"\n        text \"Dark\"\n        text \"Always\"\n      when dark\n        image \"symbol:checkmark\"\n    button appearance=\"none\" press=go testId=\"plain\"\n      column testId=\"other\"\n        text \"A\"\n        text \"B\"\n      button appearance=\"none\" press=go\n        text \"Go\"\n    button appearance=\"auto\" press=go testId=\"native\"\n      text \"Native\"");
     let k = r.kernel();
     assert!(
         k.node(id(&r, "stack")).unwrap().frame.height > 60.0,
@@ -361,7 +362,7 @@ fn a_subtitle_beside_a_conditional_checkmark_and_a_native_button_row() {
 
 #[test]
 fn a_subtitle_shown_by_a_condition_and_a_hidden_text() {
-    let r = boot("list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    button press=go testId=\"row\"\n      when dark\n        image \"symbol:notifications\"\n      column testId=\"stack\"\n        text \"Privacy\"\n        when dark\n          text \"Screen lock\"\n    button press=go\n      text \"Gone\" display=\"none\"\n      text \"Stay\" testId=\"stay\"");
+    let r = boot("list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    button appearance=\"none\" press=go testId=\"row\"\n      when dark\n        image \"symbol:notifications\"\n      column testId=\"stack\"\n        text \"Privacy\"\n        when dark\n          text \"Screen lock\"\n    button appearance=\"none\" press=go\n      text \"Gone\" display=\"none\"\n      text \"Stay\" testId=\"stay\"");
     let k = r.kernel();
     assert!(
         k.node(id(&r, "stack")).unwrap().frame.height > 45.0,
@@ -386,7 +387,7 @@ fn round_three_shapes() {
         .unwrap_or_else(|e| panic!("a class-made native button row compiles: {e}"));
     // A conditional first subtitle line, a text field beside a column,
     // and a hidden leading symbol.
-    let mut r = boot("list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    button press=go testId=\"row\"\n      column\n        when dark\n          text \"New\"\n        text \"Notifications\" testId=\"second\"\n    row testId=\"field\"\n      column testId=\"cols\"\n        text \"A\"\n        text \"B\"\n      input type=\"text\" value=\"x\"\n    button press=go testId=\"plain\"\n      image \"symbol:person\" display=\"none\"\n      text \"Title\"");
+    let mut r = boot("list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    button appearance=\"none\" press=go testId=\"row\"\n      column\n        when dark\n          text \"New\"\n        text \"Notifications\" testId=\"second\"\n    row testId=\"field\"\n      column testId=\"cols\"\n        text \"A\"\n        text \"B\"\n      input type=\"text\" value=\"x\"\n    button appearance=\"none\" press=go testId=\"plain\"\n      image \"symbol:person\" display=\"none\"\n      text \"Title\"");
     let size = |r: &Runner<NoData>| r.kernel().node(id(r, "second")).unwrap().frame.height;
     let title = size(&r);
     assert!(
@@ -412,7 +413,7 @@ fn round_three_shapes() {
 
 #[test]
 fn a_hidden_text_in_a_subtitle_column_and_a_hidden_first_line() {
-    let mut r = boot("list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    button press=go\n      column testId=\"stack\"\n        text \"Gone\" display=\"none\"\n        text \"Privacy\"\n        text \"Screen lock\"\n    button press=go testId=\"row\"\n      column\n        when dark\n          text \"Privacy\"\n        text \"Screen lock\" testId=\"lock\"");
+    let mut r = boot("list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    button appearance=\"none\" press=go\n      column testId=\"stack\"\n        text \"Gone\" display=\"none\"\n        text \"Privacy\"\n        text \"Screen lock\"\n    button appearance=\"none\" press=go testId=\"row\"\n      column\n        when dark\n          text \"Privacy\"\n        text \"Screen lock\" testId=\"lock\"");
     assert!(
         r.kernel().node(id(&r, "stack")).unwrap().frame.height > 60.0,
         "two shown lines: the subtitle cell's padding"
@@ -433,7 +434,7 @@ fn a_hidden_text_in_a_subtitle_column_and_a_hidden_first_line() {
 
 #[test]
 fn a_transparent_section_has_no_card() {
-    let r = boot("list appearance=\"auto\" testId=\"list\" flex=1\n  section background-color=\"transparent\" testId=\"head\"\n    row testId=\"profile\"\n      image \"avatar.png\" width=80 height=80\n      text \"Maya Chen\"\n  section\n    button press=go testId=\"mute\"\n      text \"Mute\"");
+    let r = boot("list appearance=\"auto\" testId=\"list\" flex=1\n  section background-color=\"transparent\" testId=\"head\"\n    row testId=\"profile\"\n      image \"avatar.png\" width=80 height=80\n      text \"Maya Chen\"\n  section\n    button appearance=\"none\" press=go testId=\"mute\"\n      text \"Mute\"");
     let k = r.kernel();
     let list = k.grouped_list(id(&r, "list")).unwrap();
     assert!(
@@ -460,7 +461,7 @@ fn a_transparent_section_has_no_card() {
 
 #[test]
 fn a_cardless_section_draws_no_separators_and_takes_only_transparent() {
-    let r = boot("list appearance=\"auto\" testId=\"list\" flex=1\n  section background-color=\"transparent\"\n    button press=go testId=\"a\"\n      text \"A\"\n    button press=go testId=\"b\"\n      text \"B\"");
+    let r = boot("list appearance=\"auto\" testId=\"list\" flex=1\n  section background-color=\"transparent\"\n    button appearance=\"none\" press=go testId=\"a\"\n      text \"A\"\n    button appearance=\"none\" press=go testId=\"b\"\n      text \"B\"");
     let k = r.kernel();
     let a = k.node(id(&r, "a")).unwrap();
     assert_eq!(
@@ -476,7 +477,7 @@ fn a_cardless_section_draws_no_separators_and_takes_only_transparent() {
 
 #[test]
 fn an_authored_margin_is_the_webs_space_and_the_sheets_is_uikits() {
-    let r = boot("list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    button press=go testId=\"a\"\n      text \"Account\"\n  section\n    button press=go testId=\"b\"\n      text \"Chats\"\n  section margin-top=20 margin-bottom=0\n    button press=go testId=\"c\"\n      text \"Help\"");
+    let r = boot("list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    button appearance=\"none\" press=go testId=\"a\"\n      text \"Account\"\n  section\n    button appearance=\"none\" press=go testId=\"b\"\n      text \"Chats\"\n  section margin-top=20 margin-bottom=0\n    button appearance=\"none\" press=go testId=\"c\"\n      text \"Help\"");
     let list = r.kernel().grouped_list(id(&r, "list")).unwrap();
     let above: Vec<_> = list.sections.iter().map(|s| s.space_above).collect();
     assert_eq!(
@@ -489,7 +490,7 @@ fn an_authored_margin_is_the_webs_space_and_the_sheets_is_uikits() {
 
 #[test]
 fn authored_margins_collapse_as_the_web_lays_them_out() {
-    let body = "list appearance=\"auto\" testId=\"list\" flex=1\n  section margin-bottom=30\n    button press=go testId=\"a\"\n      text \"Account\"\n  section margin-top=40\n    header\n      text \"More\"\n    button press=go testId=\"b\"\n      text \"Chats\"\n  section margin-top=0.5\n    button press=go testId=\"c\"\n      text \"Help\"";
+    let body = "list appearance=\"auto\" testId=\"list\" flex=1\n  section margin-bottom=30\n    button appearance=\"none\" press=go testId=\"a\"\n      text \"Account\"\n  section margin-top=40\n    header\n      text \"More\"\n    button appearance=\"none\" press=go testId=\"b\"\n      text \"Chats\"\n  section margin-top=0.5\n    button appearance=\"none\" press=go testId=\"c\"\n      text \"Help\"";
     let r = boot(body);
     let k = r.kernel();
     let list = k.grouped_list(id(&r, "list")).unwrap();
@@ -524,7 +525,7 @@ fn authored_margins_collapse_as_the_web_lays_them_out() {
 
 #[test]
 fn a_negative_margin_collapses_as_css_has_it() {
-    let r = boot("list appearance=\"auto\" listStyle=\"plain\" testId=\"list\" flex=1\n  section margin-bottom=30\n    button press=go testId=\"a\"\n      text \"Account\"\n  section margin-top=-10\n    button press=go testId=\"b\"\n      text \"Chats\"\n  section margin-top=17.33\n    button press=go testId=\"c\"\n      text \"Help\"");
+    let r = boot("list appearance=\"auto\" listStyle=\"plain\" testId=\"list\" flex=1\n  section margin-bottom=30\n    button appearance=\"none\" press=go testId=\"a\"\n      text \"Account\"\n  section margin-top=-10\n    button appearance=\"none\" press=go testId=\"b\"\n      text \"Chats\"\n  section margin-top=17.33\n    button appearance=\"none\" press=go testId=\"c\"\n      text \"Help\"");
     let list = r.kernel().grouped_list(id(&r, "list")).unwrap();
     assert_eq!(
         list.sections[1].space_above,

@@ -19,6 +19,7 @@
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
 
+mod buttons;
 mod class;
 mod collection;
 mod color_profile;
@@ -56,7 +57,7 @@ pub use fields::Profile;
 pub use lint::lint;
 use lint::{unknown_attr, unknown_tag};
 pub use native::{is_module_tag, module_tags};
-pub use sites::{Declared, NodeSite, Origin, Sites};
+pub use sites::{ButtonSite, Declared, NodeSite, Origin, Sites};
 
 use contract_analyze::Analysis;
 use contract_syntax::{Attr, Expr, File, FnDecl, Node, Owner, Span};
@@ -647,15 +648,14 @@ impl<'a> Lowerer<'a> {
                 let (mut sheet, unmarked) = grouped::split(attrs);
                 let attrs = unmarked.as_ref().unwrap_or(attrs);
                 let (class_label, mut expanded) = self.class_rows(attrs)?.unzip();
-                let native = expanded
-                    .iter()
-                    .flatten()
-                    .chain(attrs.iter())
-                    .rev()
-                    .find(|a| a.name == "appearance");
-                if tag == "button"
-                    && native.is_some_and(|a| matches!(&a.value, Expr::Str(v, _) if v == "auto"))
-                {
+                let button = self.button_appearance(
+                    tag,
+                    expanded.as_deref().unwrap_or(&[]),
+                    attrs,
+                    children,
+                    *span,
+                )?;
+                if button.as_ref().is_some_and(|b| b.native) {
                     grouped::native_rows(&mut sheet);
                 }
                 let class_len = expanded.as_ref().map_or(0, Vec::len) + sheet.len();
@@ -708,15 +708,13 @@ impl<'a> Lowerer<'a> {
                 // type is a text field, `checkbox` a form control.
                 let canonical_type = controls::canonical_type_attrs(tag, expanded);
                 let expanded = canonical_type.as_deref().unwrap_or(expanded);
-                let control = controls::control(tag, expanded)?;
+                let control =
+                    controls::control(tag, expanded, button.as_ref().is_some_and(|b| b.native))?;
                 let t = control.map_or(t.clone(), |kind| controls::tag(kind, t.clone()));
                 let face = (control == Some("button"))
                     .then(|| grouped::unsheet(children))
                     .flatten();
                 let children = face.as_ref().unwrap_or(children);
-                if control == Some("button") {
-                    self.check_native_button(expanded, children, *span)?;
-                }
                 controls::check_nesting(tag, parent_tag, *span)?;
                 controls::check_progress(tag, expanded, children)?;
                 self.check_menu_shapes(tag, expanded, children, *span)?;
@@ -937,6 +935,20 @@ impl<'a> Lowerer<'a> {
                         origins.resize(bindings.len(), origin);
                     }
                 }
+                if button.as_ref().is_some_and(|b| !b.native)
+                    && !bindings
+                        .iter()
+                        .any(|b| b.kind == BindingKind::Style && b.id == StyleId::Appearance as u16)
+                {
+                    bindings.push(BindingsRow {
+                        kind: BindingKind::Style,
+                        id: StyleId::Appearance as u16,
+                        expr: self.fixed(true, "none"),
+                    });
+                    if let Some(origins) = &mut origins {
+                        origins.resize(bindings.len(), Origin::Tag);
+                    }
+                }
                 if t.node_type == NodeType::TextInput {
                     self.field_appearance(tag, expanded, *span, &mut bindings)?;
                     if let Some(origins) = &mut origins {
@@ -1063,6 +1075,7 @@ impl<'a> Lowerer<'a> {
                     sites.nodes.push(sites::node_site(
                         *span,
                         *instance,
+                        button,
                         &bindings,
                         origins.as_deref().expect("site origins"),
                     ));

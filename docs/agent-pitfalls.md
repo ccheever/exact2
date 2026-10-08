@@ -812,3 +812,12 @@ guide's rules don't make obvious.
   Keep the words the node was last told with and act only when they differ.
   Found building the fixture's Linux hatches (§13.13): the pressing hatch
   pressed itself forever once its label grew a digit.
+
+- **A background, border or radius makes a default button your own box.**
+  Rich children and rows the native button refuses do too, including on one
+  conditional arm or through a class. `buttonStyle` then refuses with
+  `lower-button-style` and says why. Remove the named reason to keep the
+  platform's button, or write `appearance="none"` without `buttonStyle` for
+  your own box. Explicit `appearance="auto"` admits a radius as a native
+  content field but refuses backgrounds, borders and unsupported children.
+  (LLP 1104 r10 D1, D2.)

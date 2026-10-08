@@ -1027,8 +1027,12 @@ attribute and retain their normal focus order.
 
 ### Choosing a native button
 
-An ordinary `button` is an authored box with `appearance="none"`. Opt into the
-platform control with a literal `appearance="auto"`:
+A `button` is the platform's own control by default. Giving it a background,
+border or radius, rich children, or rows the native control cannot support
+makes it your bare box. A class counts too, even when a row or incompatible
+child appears on only one conditional arm. Write `appearance="none"` to ask
+for your box explicitly, or `appearance="auto"` to require a native button and
+get an error for unsupported rows or children. For example:
 
 ```contract
 component NativeButtonExample
@@ -1037,7 +1041,7 @@ component NativeButtonExample
     presses = presses + 1
   view
     column gap=12
-      button appearance="auto" buttonStyle="filled" press=send testId="send"
+      button buttonStyle="filled" press=send testId="send"
         text "Send"
       text `${presses}` testId="presses"
 ```
@@ -1065,7 +1069,8 @@ spacing. Title-to-subtitle spacing stays the platform's. `align-items` and
 `justify-content` accept only `center`. `-exact-control-size` takes `mini`,
 `small`, `medium`, `large`; `-exact-corner-style` takes `dynamic`, `small`,
 `medium`, `large`, `capsule`. These are styleable rows for native buttons only.
-`border-radius` sets a radius and wins over the named corner style. `padding`
+With explicit `appearance="auto"`, `border-radius` sets a radius and wins over
+the named corner style. Under the default, a radius makes the button bare. `padding`
 and its longhands set content insets; leave them absent for the style's own.
 
 `pointer-events="none"` passes touches through; `auto` restores them. Disabled
@@ -1078,10 +1083,11 @@ means no target). `href`, `action` and swipe attributes stay refused.
 
 The kernel's optional host measure hook supplies the fitting size before the
 first frame and handles wrapping at the offered width. Existing hosts keep
-their intrinsic-size report until they implement it. These rows are admitted
-by Contract; their host mappings are being built in separate lanes.
+their intrinsic-size report until they implement it.
 
-`buttonStyle` defaults to `bordered`. The accepted styles are `plain`, `gray`,
+`buttonStyle` needs a native button and defaults to `bordered`. If the default
+makes your button bare, `lower-button-style` names the first reason: remove it,
+or write `appearance="none"` without `buttonStyle`. The accepted styles are `plain`, `gray`,
 `tinted`, `filled`, `borderless`, `bordered`, `bordered-tinted`,
 `bordered-prominent`, `glass`, `prominent-glass`, `clear-glass`, and
 `prominent-clear-glass`. This is a declared host-policy property, not a CSS

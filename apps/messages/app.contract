@@ -245,7 +245,7 @@ component Messages
           when entry.name == "inbox"
             column testId="inbox" flex=1 min-height=0 width="100%" inert=(selected != "" or choosing or panel)
               row height=48 padding-left=20 padding-right=16 justify-content="space-between" align-items="center" flex-shrink=0
-                button press=editInbox testId="edit-inbox" padding=4
+                button appearance="none" press=editInbox testId="edit-inbox" padding=4
                   text (inboxEditing ? "Done" : "Edit") font-size=17
                 button press=choose(true) testId="compose" aria-label="New message" class=NativeGlass
                   image "symbol:compose"
@@ -297,7 +297,7 @@ component Messages
               row height=44 padding-left=16 padding-right=16 align-items="center" justify-content="space-between" flex-shrink=0 z-index=3
                 button press=back testId="back" aria-label="Back to Messages" class=NativeGlass
                   image "symbol:back"
-                button press=choose(false) disabled=(thread == "demo" or data.busy) testId="model-button" max-width="70%" display="flex" flex-direction="row" align-items="center" justify-content="center" gap=5
+                button appearance="none" press=choose(false) disabled=(thread == "demo" or data.busy) testId="model-button" max-width="70%" display="flex" flex-direction="row" align-items="center" justify-content="center" gap=5
                   text data.name font-size=17 font-weight=600 line-clamp=1
                   when thread != "demo"
                     text "⌄" font-size=14 class=Secondary
@@ -311,7 +311,7 @@ component Messages
                   when data.error != ""
                     column margin-top=12 margin-left=24 margin-right=24 gap=8 align-items="center"
                       text data.error font-size=13 line-height="18px" color="#ff3b30" text-align="center"
-                      button press=operation("retry") testId="retry" padding=8
+                      button appearance="none" press=operation("retry") testId="retry" padding=8
                         text "Try Again" font-size=15 color="#0088ff"
                   when data.count == 0
                     column padding-top=40 padding-left=36 padding-right=36 align-items="center" gap=12
@@ -326,7 +326,7 @@ component Messages
                     column flex=1 min-width=0
                       text "Replying to" font-size=11 color="#0088ff"
                       text replyBody font-size=13 class=Secondary line-clamp=2
-                    button press=cancelReply testId="cancel-reply" width=28 height=28
+                    button appearance="none" press=cancelReply testId="cancel-reply" width=28 height=28
                       text "×" font-size=22 class=Secondary
                 row align-items="flex-end" gap=12
                   button press=togglePanel retainFocus=true testId="add" aria-label="Add" class=GlassButton backgroundMaterial="glass"
@@ -412,16 +412,16 @@ component Messages
                   column contextTarget=`bubble-${selected}` contextMagnify=true max-height=320 overflow="hidden" padding-bottom=6.65
                     Balloon(body=selectedBody, outgoing=selectedOutgoing, tail=true, maximum=maximum, identifier="context-balloon")
                   column width=250 padding-top=6 padding-bottom=6 border-radius=26 backgroundMaterial="glass"
-                    button press=reply(selected, selectedBody) testId="reply" height=44 padding-left=20 display="flex" flex-direction="row" align-items="center" gap=16
+                    button appearance="none" press=reply(selected, selectedBody) testId="reply" height=44 padding-left=20 display="flex" flex-direction="row" align-items="center" gap=16
                       text "↩" font-size=22
                       text "Reply" font-size=17
-                    button press=copy testId="copy-message" height=44 padding-left=20 display="flex" flex-direction="row" align-items="center" gap=16
+                    button appearance="none" press=copy testId="copy-message" height=44 padding-left=20 display="flex" flex-direction="row" align-items="center" gap=16
                       image "symbol:copy" font-size=20 -exact-tint-color="light-dark(#000000, #ffffff)"
                       text "Copy" font-size=17
-                    button press=read(selectedBody) testId="read-message" height=44 padding-left=20 display="flex" flex-direction="row" align-items="center" gap=16
+                    button appearance="none" press=read(selectedBody) testId="read-message" height=44 padding-left=20 display="flex" flex-direction="row" align-items="center" gap=16
                       text "Aa" font-size=18
                       text "Select Text" font-size=17
-                    button press=remove disabled=data.busy testId="delete-message" height=44 padding-left=20 display="flex" flex-direction="row" align-items="center" gap=16
+                    button appearance="none" press=remove disabled=data.busy testId="delete-message" height=44 padding-left=20 display="flex" flex-direction="row" align-items="center" gap=16
                       image "symbol:delete" font-size=20 -exact-tint-color="#ff3b30"
                       text "Delete" font-size=17 color="#ff3b30"
             when choosing

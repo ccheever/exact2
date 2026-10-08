@@ -113,14 +113,11 @@ pub fn tag(name: &str) -> Option<Tag> {
         // content the kernel centres as HTML's anonymous button box does,
         // with the UA sheet's `text-align: center`. An authored `display`
         // makes it a flex or grid container, as in Chrome.
-        // @ref LLP 1069.011 D1 — Exact's UA sheet: a button is the author's
-        // box (`appearance: none`); `appearance="auto"` asks for the platform's.
+        // @ref LLP 1104 D1, D2 — lowering chooses native or bare from the
+        // author's rows and face; the tag has no fixed appearance.
         "button" => Tag {
             node_type: NodeType::Pressable,
-            fixed_styles: &[
-                (StyleId::TextAlign, "center"),
-                (StyleId::Appearance, "none"),
-            ],
+            fixed_styles: &[(StyleId::TextAlign, "center")],
             fixed_props: &[(PropId::AccessibilityRole, "button")],
             positional: None,
         },

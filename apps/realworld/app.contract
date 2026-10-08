@@ -867,7 +867,7 @@ component EditorPage
               background-color="#818a91"
               border-color="#818a91"
               color="#ffffff"
-              button press=removeTag(t)
+              button appearance="none" press=removeTag(t)
                 aria-label=`Remove ${t}`
                 color="#ffffff"
                 testId=`remove-tag-${t}`
