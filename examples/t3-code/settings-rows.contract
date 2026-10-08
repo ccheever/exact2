@@ -18,6 +18,8 @@ use MobileBetaControl from "./settings-mobile-beta.contract"
 use ScopedSwitch from "./settings-scoped-switch.contract"
 use FontFamilyPicker from "./settings-a-fonts.contract"
 use PromptFontPreview from "./settings-prompt-preview.contract"
+use FontCodePreview from "./settings-font-previews.contract"
+use FontDiffPreview from "./shapes.contract"
 
 // "Applying settings for <project> across <environment>" with its two radio menus.
 component ScopeSentence
@@ -106,6 +108,8 @@ component CoreSections
     reduced: bool
     sections: list<CoreSection>
     pal: CorePalette
+    // The Typography code sample (settings-font-previews.ts).
+    codePreview: FontDiffPreview
     busy: bool
     menu: string
     legacyOpen: bool
@@ -135,7 +139,7 @@ component CoreSections
           when not section.collapsible or legacyOpen
             column width="100%" border-radius="0.75rem" border-width=1 border-style="solid" border-color=pal.cardBorder background-color=pal.card box-shadow="0 1px 2px #0000000d" box-sizing="border-box"
               each row in section.rows key=row.id
-                CoreRowView(reduced=reduced, row=row, section=section.id, pal=pal, busy=busy, menu=menu, openMenu=openMenu, closeMenu=closeMenu, change=change, slide=slide, navigate=navigate)
+                CoreRowView(reduced=reduced, row=row, section=section.id, pal=pal, codePreview=codePreview, busy=busy, menu=menu, openMenu=openMenu, closeMenu=closeMenu, change=change, slide=slide, navigate=navigate)
 
 component CoreRowView
   props
@@ -143,6 +147,7 @@ component CoreRowView
     row: CoreRow
     section: string
     pal: CorePalette
+    codePreview: FontDiffPreview
     busy: bool
     menu: string
     openMenu: action
@@ -234,7 +239,7 @@ component CoreRowView
       when row.info == "preview-prompt"
         PromptFontPreview(family=row.driver, size=row.previewSize, pal=pal)
       when row.info == "preview-code" or row.info == "preview-code-terminal"
-        FontCodePreview(family=row.driver, size=row.amount, pal=pal)
+        FontCodePreview(preview=codePreview, family=row.driver, size=row.amount, pal=pal)
       when row.info == "preview-code-terminal" or row.info == "preview-terminal"
         FontTerminalPreview(family=row.driver, size=row.amount, pal=pal)
 
@@ -398,35 +403,6 @@ component CoreSlider
         box position="absolute" left=0 top="0.5625rem" width=trackWidth height="0.375rem" border-radius="0.1875rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e78c, #ffffff0d)" box-sizing="border-box"
         box position="absolute" left=(ratio * (trackWidth - rem)) top="0.25rem" width="1rem" height="1rem" border-radius="0.5rem" border-width=2 border-style="solid" border-color=pal.accent background-color=pal.canvas box-sizing="border-box" box-shadow="0 1px 2px #0000001f"
         input type="range" min=row.min max=row.max step="any" value=`${shown}` input=track change=release key=navigate disabled=disabled aria-label=row.title position="absolute" left=0 top=0 width=trackWidth height="1.5rem" margin=0 opacity=0 id=`setting-${row.id}` testId=`setting-${row.id}`
-
-// SettingsFontPreviews: a diff in the code font (the prompt sample is settings-prompt-preview.contract).
-component FontCodePreview
-  props
-    family: string
-    size: number
-    pal: CorePalette
-  view
-    column width="100%" gap=0 padding-bottom="0.5rem" font-family=(family == "system-ui" ? "system-ui" : family == "ui-sans-serif" ? "ui-sans-serif" : family == "sans-serif" ? "sans-serif" : family == "ui-serif" ? "ui-serif" : family == "serif" ? "serif" : family == "ui-monospace" ? "ui-monospace" : family == "monospace" ? "monospace" : "ui-rounded") aria-label="Code font preview" testId="code-font-preview"
-      row height="2.5rem" align-items="center" gap="0.5rem" padding-left="1rem" padding-right="1rem"
-        box width="1rem" height="1rem" border-radius="0.5rem" border-width=2 border-style="solid" border-color="light-dark(#3b82f6, #60a5fa)" box-sizing="border-box"
-        text "src/formatUser.ts" font-family="system-ui" font-size="0.875rem" line-height="1.25rem" color=pal.text flex=1
-        text "−1" font-size="0.875rem" color="light-dark(#dc2626, #f87171)"
-        text "+1" font-size="0.875rem" color="light-dark(#16a34a, #4ade80)"
-      CodeLine(number="1", code="export function formatUser(user: User) {", kind="", size=size, pal=pal)
-      CodeLine(number="2", code="  return user.name.toUpperCase();", kind="del", size=size, pal=pal)
-      CodeLine(number="2", code="  return `${user.name} <${user.email}>`; // 0O 1lI", kind="add", size=size, pal=pal)
-      CodeLine(number="3", code="}", kind="", size=size, pal=pal)
-component CodeLine
-  props
-    number: string
-    code: string
-    kind: string
-    size: number
-    pal: CorePalette
-  view
-    row width="100%" height=(size * 1.54) align-items="center" gap="1rem" padding-left="1.5rem" border-left-width=(kind == "" ? 0 : 3) border-left-style="solid" border-color=(kind == "del" ? "light-dark(#ef4444, #f87171)" : "light-dark(#22c55e, #4ade80)") background-color=(kind == "del" ? "light-dark(#fee2e2, #7f1d1d40)" : (kind == "add" ? "light-dark(#dcfce7, #14532d40)" : "#00000000")) box-sizing="border-box"
-      text number font-size=size color=(kind == "" ? pal.muted : (kind == "del" ? "light-dark(#dc2626, #f87171)" : "light-dark(#16a34a, #4ade80)")) min-width="1rem" text-align="right"
-      text code font-size=size line-height=`${size * 1.54}px` color=pal.text white-space="pre"
 
 // TerminalFontPreview: the dev-server transcript, kept to its last lines as the terminal is.
 component FontTerminalPreview

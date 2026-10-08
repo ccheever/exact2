@@ -113,6 +113,8 @@ final class T3ActivityReporter: @unchecked Sendable {
     func changed() { queue.async { [self] in requestReport() } }
     /// The page's window facts (document.visibilityState === "visible", document.hasFocus()):
     /// each change is reported, as the reference's visibilitychange, focus and blur listeners do.
+    /// When the reader last pointed, typed or scrolled (Unix ms): the pull request panel's idle rule.
+    func lastInteractionAt() -> Double { queue.sync { lastInteraction } }
     func facts(visible: Bool, focused: Bool) {
         queue.async { [self] in
             guard alive else { return }
