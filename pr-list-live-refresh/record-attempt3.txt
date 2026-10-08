@@ -1,0 +1,29 @@
+2026-10-08T04:16:55.775Z [d3] #158 before the session: {"state":"open","comments":[]}
+2026-10-08T04:16:56.488Z [d3] app pid 6066
+2026-10-08T04:17:12.315Z [d3] connected: sidebar shows Pull Requests
+2026-10-08T04:17:18.838Z [d3] list: no search; row #158 shown: true
+2026-10-08T04:17:25.180Z [d3] shot panel
+2026-10-08T04:17:27.104Z [d3] typed; Close with comment enabled: true
+2026-10-08T04:17:27.226Z [d3] shot close-typed
+2026-10-08T04:17:36.013Z [d3]   +8786 ms: row gone · button "" · toast "Pull request closed" · GitHub closed
+2026-10-08T04:17:36.136Z [d3] shot close-row
+2026-10-08T04:17:36.257Z [d3] shot close-done
+2026-10-08T04:17:37.279Z [d3] read back: state closed (landed +8909 ms); last comment by daehyeonmun2021, body equals the typed bytes: true
+2026-10-08T04:17:40.927Z [d3] after: list read again after the close: yes (started +130 ms, 3582 ms); row #158 gone; GitHub open list holds #158: false; toasts "Pull request closed"
+2026-10-08T04:17:41.046Z [d3] shot closed-reread
+2026-10-08T04:17:43.461Z [d3] typed; Reopen with comment shown: true, Close with comment shown: false
+2026-10-08T04:17:43.589Z [d3] shot reopen-typed
+2026-10-08T04:17:53.174Z [d3]   +9585 ms: row gone · button "" · toast "Pull request reopened" · GitHub open
+2026-10-08T04:18:10.277Z [d3]   +26688 ms: row gone · button "" · toast "" · GitHub open
+2026-10-08T04:18:53.171Z [d3] read back: state open (landed +9585 ms); last comment by daehyeonmun2021, body equals the typed bytes: true
+2026-10-08T04:18:54.184Z [d3] after the reopen: row #158 gone; list reads since the press: [[2274,3829],[4674,3276]]; GitHub open list holds #158: true
+2026-10-08T04:18:54.274Z [d3] shot reopened
+2026-10-08T04:18:54.306Z [d3] 35 s after the last list read: row #158 gone; list reads since the reopen: 2
+2026-10-08T04:19:01.567Z [d3] after the refocus: row #158 shown (+5430 ms); list reads since the focus: [[1483,2836],[1576,2744]]; detail reads: 1
+2026-10-08T04:19:02.306Z [d3] list state: row #158 shown ["#158","Count the vowels in a line","+1","-0","daehyeonmun2021/playground","just now"]; GitHub open list holds #158: true
+2026-10-08T04:19:02.399Z [d3] shot refocused
+2026-10-08T04:19:24.895Z [d3] detail refocus: pullRequests.detail reads since the focus: 1 [[1424,1]]; activity reads: 0; list reads: 1; panel title ["Count the vowels in a line"]
+2026-10-08T04:19:25.010Z [d3] shot detail-refocused
+2026-10-08T04:19:26.739Z [d3] deleted test comment 6052105177
+2026-10-08T04:19:27.409Z [d3] deleted test comment 6052108824
+2026-10-08T04:19:29.794Z [d3] #158 after cleanup: {"state":"open","comments":[]}; matches the start: true
