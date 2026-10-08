@@ -117,3 +117,11 @@ Residual: the agent driver's end of drive (`ExactKit/Agent.swift` `exitAfterStor
 destroying sessions, so `destroy()` does not run there; the module also stops the server from `atexit`. The other
 tickets this issue blocks (app-activation, app-update-feed, managed-codex-chatgpt, telemetry) adopt #200 in their
 own work, so the issue stays open until they do.
+
+## Adopted by app-activation (2026-10-08, #254)
+
+The `t3 app` control socket (`T3AppControl.swift`) closes with the last session's module: `T3Module.destroy()` detaches
+it first, which answers a request the window was handling (`renderer-unavailable`), closes the listener and unlinks
+the socket file while it is still this app's inode. Live on a lane copy: an Apple Event quit while a request waited on
+a stopped server answered the CLI at once and left no socket file. For the agent driver's `exit(0)` the file is
+unlinked from `atexit`, with the directory watch held off so it does not bind the path again while the exit runs.

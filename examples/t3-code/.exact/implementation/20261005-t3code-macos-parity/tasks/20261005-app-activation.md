@@ -1,14 +1,14 @@
 ---
 name: 20261005-app-activation
 plan: 20261005-t3code-macos-parity
-implementation: planned
-verification: unverified
-delivery: none
+implementation: implemented
+verification: verified-with-unverified-rows
+delivery: draft
 repository: https://github.com/ccheever/exact2
-base_branch: daehyeon/t3-code
-branch: null
-pr_url: null
-verified_commit: null
+base_branch: feat(example)/t3-code
+branch: feat(example)/t3-code-app-activation
+pr_url: https://github.com/ccheever/exact2/pull/254
+verified_commit: f31125732
 ---
 
 # `t3 app <dir>` opens a project in the running app
@@ -76,8 +76,8 @@ Edge cases to test: `$TMPDIR` differs between the CLI's shell and the app (the r
 | merged task PR | [20261005-hot-file-split](closed/20261005-hot-file-split.md) | pending | Merged into `daehyeon/t3-code` (common prerequisite: room and per-area seams in the shared files) | pending |
 | merged task PR | [20261005-clone-on-exact2-main](20261005-clone-on-exact2-main.md) | pending | Merged | pending |
 | merged task PR | [20261005-desktop-oracle-and-trace](20261005-desktop-oracle-and-trace.md) | pending | Merged | pending |
-| merged task PR | [20261005-local-primary-environment](closed/20261005-local-primary-environment.md) | pending | Merged | pending |
-| recorded decision | U10 (hosted-web deep link kept or dropped; command-line install action) | none | Answered at `prepare` | pending |
+| merged task PR | [20261005-local-primary-environment](closed/20261005-local-primary-environment.md) | [#237](https://github.com/ccheever/exact2/pull/237) | Merged | merged into `feat(example)/t3-code` (`ed98ab3c0`); this PR's base |
+| recorded decision | U10 (hosted-web deep link kept or dropped; command-line install action) | none | Answered at `prepare` | taken provisionally for this PR (coordinator brief 2026-10-08): the ticket's defaults, neither built; **user decision pending** |
 
 ## Issue assessment at preparation
 
@@ -113,14 +113,101 @@ Required environment: the staged runtime (for the CLI), Xcode 27.0, pinned Bun, 
 
 ## Progress
 
-Planned.
+Implemented on `feat(example)/t3-code-app-activation` (2026-10-08) from `feat(example)/t3-code` `da4f4512f`, with
+`d82fb6a47` (#244, records only) merged in. Reference `1e2ecbd975`; the CLI is the pinned release's own `t3`
+(`0.0.46-nightly.20261005.2667`, 4 commits after the pin). Decision U10 is taken provisionally, **user decision
+pending**: the ticket's defaults, so no "install command line tool" action (the reference desktop has none) and no
+hosted-web deep link (`t3code://` belongs to the excluded `t3-connect-sign-in`; a lane build registers no scheme).
+Neither is built.
+
+| Scope item | Built | Where |
+| --- | --- | --- |
+| 1. Control socket | `<$TMPDIR>/t3code-<uid>/<24 hex of sha256(<T3 home>/userdata)>.sock` (Node's `os.tmpdir()` rule; the home's `userdata` normalized as `path.join` does, symlinks kept); the directory made 0700, refused when it is a symlink or another user's; a staging `<12 hex>.tmp` bound, chmod 0600, then `rename`d onto the address; a directory watch binds the address again (`link`, never over an existing socket) when it vanishes; a close unlinks only its own inode (also from `atexit`, for the agent driver's `exit(0)`, without the watch binding it again); one JSON line per connection: 64 KiB, 5 s idle deadline, `invalid-request` for bad JSON, a bad request (with its id when it has one) and a too-large line; one JSON line back; a client that leaves before its answer cancels its request | `modules/apple/T3AppControl.swift` (`T3AppControlAddress`, `T3ActivationProtocol`, `T3AppControlServer`) |
+| 2. Broker | `DesktopAppActivationBroker`: waits for a ready window, one request handed at a time, the rest queued in order; the window brought forward on arrival (`NSApp.activate`, un-minimize, key); 15 s `request-timeout` (`T3_ACTIVATION_TIMEOUT_MS` in a development build); duplicate id `invalid-request`; window gone `renderer-unavailable` (a module destroyed, its NSWindow starting to close, or a reloaded page's new token); shutdown; a cancelled client. Ten reference tests by name plus 15 of the clone's | `T3AppControl.swift` (`T3ActivationBroker`, `T3AppControl`), `macos/tests/app-control/` (25 tests) |
+| 3. Window side | `handleDesktopAppActivationRequest` and `findProjectByPath`/`inferProjectTitleFromPath` (the whole `projectPaths` module, its 11 tests by name); ready only while the primary is connected with its config and shell snapshot (focused, or in the fleet), not ready on a disconnect or with the Local environment off; a handed request opens like a clicked notification (the shell view's open request), so the root's `shellOpen` task leaves Settings and the utility pages as the reference's route change does and sends `activation:open`; that op reads the request back (a cancelled or expired one opens nothing), finds or adds the project (`project.create`, `createWorkspaceRootIfMissing: false`, no toast on failure, `reportFailure: false`), waits up to 10 s for it in the shell, opens its draft with the draft's own thread id (`ensureDraftThreadId`), and answers with `projectId` and `threadId`. A primary in the fleet gets the project on its own transport, then becomes the focus on the new draft | `desktop-activation.ts`, `project-paths.ts` (+ tests), `client-ops.ts` (one entry), `shell.ts` (one line), `app.ts` (one line), `app.contract` (`shellOpenThread`, net 0 lines) |
+| 4. Lifecycle | Listens once the embedded server's start is under way (its status names the T3 home), never while the Local environment is off or a build is refused; the stopgap switch (X45) closes and reopens it as the reference's relaunch would; a bind failure is logged (`desktop app control socket unavailable: …`) and the app goes on; closed with the last window | `T3AppControl.swift`, `T3Module+Activation.swift`, `T3Module.swift` (area entry, attach, `detachAppControl()` first in `destroy()`) |
+| 5. The CLI | Not shipped (U10, provisional). `t3 app` is the user's own `t3` or `<T3 home>/runtime/versions/<version>/t3`; a lane build listens for its own home (`t3 app <dir> --base-dir "$T3_LOCAL_HOME"`, README) | — |
+
+`app.contract` stays at 1500 lines (two comment lines became trailing comments); `client.ts` is unchanged.
+
+### Acceptance results
+
+All live rows ran on lane builds (`T3_LOCAL_HOME=target/lane/t3-home`, port 16901; isolated HOME/CODEX_HOME/
+CLAUDE_CONFIG_DIR/XDG_*; `T3CODE_TELEMETRY_ENABLED=false`) with the pinned release's own `t3 app … --base-dir <lane
+home>` (HOME a lane folder; never `~/.t3`, never 3773). The socket sat in the user's `$TMPDIR/t3code-501/` under the
+lane home's hash (`55b411b92e964d4addd4e9d1.sock`); the Nightly app's socket there was never touched.
+
+| Criterion | Result | Proof |
+| --- | --- | --- |
+| Ported tests | Pass. Swift: the 4 control-socket and 6 broker tests by name, the address test, and 14 more (25, 0 failures). Bun: `desktopAppActivation` (4), `desktopAppControl`'s Unix case, the shared macOS vector `073e69d4582c50be74c1c2d0` (also checked in Swift, 102-byte limit kept), `projectPaths` (11), 15 more for the window side (31 in all). Before: the modules do not exist on the base | [16-bun-tests.txt](https://github.com/ccheever/exact2/blob/63913cffb2c87d97acd3f436832a001a5b8e3926/app-activation/16-bun-tests.txt), [17-xctest-app-control.txt](https://github.com/ccheever/exact2/blob/5e5a71116dfdecdf6db56d869c77c12a0d400d3c/app-activation/17-xctest-app-control.txt) |
+| Real CLI round trip | Pass (agent drive, 1280×840 light and 840×620 dark): `t3 app <lane>/projects/gamma` exit 0, `Opened <lane>/projects/gamma in T3 Code.` in 0.6 s; the lane database lists `gamma` beside the seed's `alpha`; the window shows "gamma / New thread", "What should we build in gamma?"; the app log has the response's project and thread ids. Base: `Could not reach the T3 Code desktop app…`, window unchanged | pairs `01`, `03`; [10-cli-1280-light.txt](https://github.com/ccheever/exact2/blob/9d3ff4cad8a6cba617ea7eb1480c0da0fe41abe8/app-activation/10-cli-1280-light.txt), [11-cli-840-dark.txt](https://github.com/ccheever/exact2/blob/a79756ef289c096c6f8e19a35e4cd5a5764b7554/app-activation/11-cli-840-dark.txt), [12-cli-base-1280-light.txt](https://github.com/ccheever/exact2/blob/1bec7f351b9e0243ec24f84b59be9fce5e346733/app-activation/12-cli-base-1280-light.txt) |
+| Existing project | Pass: the same folder again, exit 0, no second project; the same empty draft opens with the same thread id (`7b3c6854…` both times, as `useNewThreadHandler` reuses an untouched draft) | 10-cli-1280-light.txt |
+| Errors | App not running: `DesktopAppUnreachableError` "Could not reach…" (after a drive and after a quit). Local environment off (Settings › Connections switch, agent taps): no socket, "Could not reach…"; on again: listens, opens. Nonexistent folder: `project-create-failed` (server: "Failed to mutate project."). Expired request (5 s seam, server held with SIGSTOP): `request-timeout` after 5.4 s; the server, once resumed, still created the project, as in the reference. Window gone mid-request: `renderer-unavailable` "The T3 Code window closed before it opened the project." when the lane copy quits (Apple Event) while it handles a request held by a stopped server; the project was not created. Disconnected primary (server SIGKILLed): at the default 15 s the request was handed after the restart and opened (1.8 s); with the 5 s seam one run expired while reconnecting (queued, never handed). `environment-unavailable` needs the primary to drop between hand-off and handling: unit test only. `$TMPDIR` differing between the CLI and the app: "Could not reach…" (the reference's limit) | [13-lifecycle.txt](https://github.com/ccheever/exact2/blob/a7b42a268efdd770f82260799a71ada063b9404f/app-activation/13-lifecycle.txt), [14-primary-reconnect.txt](https://github.com/ccheever/exact2/blob/143489c2b05bde3cb4e4d7c2be16acfcd15fd908/app-activation/14-primary-reconnect.txt), [15-quit-during-request.txt](https://github.com/ccheever/exact2/blob/43077ab05d5c2d46becff8988739227f4ce331c7/app-activation/15-quit-during-request.txt), 10-cli-1280-light.txt |
+| Concurrency and cancel | Pass: two CLIs at once, both exit 0, handled one after the other (log: the second "arrived" while the first was handed, "handed" only after the first answered). With the first held by a stopped server, the second was Ctrl-C'd (SIGINT, exit 130) while it waited behind it: "its command line closed the connection", answered `renderer-unavailable` "The command closed before T3 Code was ready.", never handed; its folder (`theta`) never became a project; the first opened once the server resumed. Ctrl-C while the window itself is not ready yet (at launch) was not driven: the broker test "removes a queued request when its CLI connection closes" covers that queue | 10-cli-1280-light.txt, 13-lifecycle.txt |
+| Socket hygiene | Pass: `drwx------ $TMPDIR/t3code-501`, `srw------- …/55b411b92e964d4addd4e9d1.sock`; removed while running: bound again within 1 s (`stat` 1 s later) and a CLI request answered; gone after a clean quit (Apple Event) and after an agent drive's `exit(0)` | 10-cli-1280-light.txt, 15-quit-during-request.txt |
+| Paths | `~/tilde proj` (the CLI expands `~`) and a folder with a space open; a symlink (`alpha-link` → `alpha`) is a separate project, since neither the CLI nor the server resolves it (the reference's logic, unchanged) | 10-cli-1280-light.txt |
+| Window to the front | **Deferred to the real-input batch — screen locked (user away)**: with the screen locked `loginwindow` stays frontmost, so the activation (and un-minimizing) cannot be read back. Steps below | — |
+| Trace | **Not run** — user decision 2026-10-06 (the oracle and trace tools are not built). Instead: the payload is a unit test (`project.create`, `createWorkspaceRootIfMissing: false`, `defaultModelSelection: null`, the title from the path, the focused connection's generation) and the server's effect is read from its database | 16-bun-tests.txt |
+| Look | Oracle comparison **not run** — user decision 2026-10-06. Base vs branch at 1280×840 light and 840×620 dark: the new folder's draft, and leaving Settings for it | pairs `01`–`04` |
+
+Before/after pairs (base `da4f4512f` vs this branch; same lane home seed, size and drive):
+
+- ![new folder, 1280x840 light](https://raw.githubusercontent.com/ccheever/exact2/9d82ef5997ae46985569615dc00278f6a0dfc526/app-activation/01-new-folder-1280-light.png)
+- ![from Settings, 1280x840 light](https://raw.githubusercontent.com/ccheever/exact2/b7059cbe56466c8d74d87287ecf32e3878994505/app-activation/02-from-settings-1280-light.png)
+- ![new folder, 840x620 dark](https://raw.githubusercontent.com/ccheever/exact2/325f4c824bb54ee5d8abe84afc89a0d23387bfd0/app-activation/03-new-folder-840-dark.png)
+- ![from Settings, 840x620 dark](https://raw.githubusercontent.com/ccheever/exact2/e1a71b438c165cde2ce602959bb730a7f750b4c0/app-activation/04-from-settings-840-dark.png)
+
+Seen while driving: the agent driver waits for a window's in-flight answers before it runs its next operation, so
+its `close` cannot close a window in the middle of a request (the request then expires); the real ⌘W case is in the
+real-input batch. A lane copy launched with `CFFIXED_USER_HOME` still writes its preferences to the real
+`~/Library/Preferences/<bundle id>.plist`; this task's copy (`com.exact.t3code.macos.laneactivation`) was deleted
+after the run.
+
+### Real-input batch steps
+
+Deferred — screen locked (user away). One session, the real-input lock held (`target/t3-ui-parity/lanes/.realinput-lock`
+in the base checkout, owner "app-activation: real input"):
+
+1. Build: in this worktree, `export PATH="$HOME/.bun-1.4.2/bin:$PATH" EXACT_APP_DIR=$PWD/examples/t3-code; bun
+   examples/t3-code/terminal-host/build.mjs; bun examples/t3-code/stage-runtime.mjs; bun host/apple/build.mjs
+   t3-code-macos --bundle`. Copy the bundle to `target/lane/apps/T3 Code (Lane Activation).app`, set
+   `CFBundleIdentifier` `com.exact.t3code.macos.laneactivation` and the name "T3 Code (Lane Activation)" in its
+   Info.plist, `codesign --force --deep -s -`.
+2. Lane env: `T3_LOCAL_HOME=<worktree>/target/lane/t3-home` (a copy of `t3-home-seed`), `T3_LOCAL_PORT=16901`,
+   `T3_LOCAL_RUNTIME_DIR=<worktree>/target/lane/runtime` (the release archive extracted), `CFFIXED_USER_HOME` and
+   `HOME` = `target/lane/home`, `CODEX_HOME`, `CLAUDE_CONFIG_DIR`, `XDG_*` under `target/lane`,
+   `T3CODE_TELEMETRY_ENABLED=false`. Launch `…/Contents/MacOS/T3 Code (Exact)` with stderr to a file; record its pid.
+   CLI: `env -i HOME=<lane>/clihome PATH=/usr/bin:/bin TMPDIR="$TMPDIR" <lane>/runtime/t3 app <dir> --base-dir <lane>/t3-home`.
+3. Front: click another app's window (Finder) so the lane app is not frontmost; run the CLI on `<lane>/projects/gamma`.
+   Read back: `lsappinfo info -only name $(lsappinfo front)` names "T3 Code (Lane Activation)", and
+   `orca computer list-windows --app pid:<pid> --json` shows its window on screen; the window shows gamma's draft.
+4. Un-minimize: `orca computer hotkey --app pid:<pid> --key CmdOrCtrl+M`; confirm it is minimized (list-windows);
+   run the CLI on `<lane>/projects/delta`. Read back: the window is on screen again, frontmost, delta's draft shown.
+5. ⌘W mid-request: `kill -STOP <server pid>` (the lane `runtime/t3 --bootstrap-fd` child of the app), run the CLI on
+   a new folder (`<lane>/projects/iota`), after 2 s press `CmdOrCtrl+W` on the window. Expect the CLI to print
+   `… (renderer-unavailable).` at once and the app log `the window is closing: its request fails`; then
+   `kill -CONT <server pid>`. Read back the database: `iota` may exist (the reference also keeps a project the
+   server created), but no thread was opened in a window.
+6. Clean quit with ⌘Q (`CmdOrCtrl+Q`, through the quit hold): the socket file is gone (`ls $TMPDIR/t3code-501/`).
+   Then `defaults delete com.exact.t3code.macos.laneactivation` and remove its plist.
 
 ## Attempts and evidence
 
 | Attempt | Revision/fingerprint | Checks and outcomes | Evidence | Remaining blocker |
 | --- | --- | --- | --- | --- |
-| none | — | — | — | — |
+| 1 | working tree on `da4f4512f` | First agent drive: the round trip worked; a socket file stayed after the drive because the directory watch bound the path again while `exit(0)` ran the server's stop. Fixed (exit marks the servers closed). Also `Math.random` is not available in data sources (bake refused it): the page token uses `crypto.getRandomValues` | lane logs (not committed) | — |
+| 2 | working tree | Window closed under the agent while the server was stopped: the request expired instead of failing. `destroy()` now detaches the control first and the module watches its NSWindow's close; the agent's `close` still waits for the in-flight answer (driver behavior), so the ⌘W row moves to the real-input batch; the Apple Event quit passes | 13-lifecycle.txt, 15-quit-during-request.txt | screen locked (⌘W, front, un-minimize) |
+| 3 | `f31125732` (+ merge `c5fab5dbf`) | Final: drives after-1280-light, after-840-dark, base-1280-light, base-840-dark, lifecycle, primary-reconnect, quit-during-request; checks below | PR evidence `app-activation/` | real-input batch; U10 |
+
+Final checks on `c5fab5dbf`:
+- `bun test examples/t3-code`: 2542 pass, 1 skip, 0 fail (206 files; 31 new). Strict `tsc` on `app.ts`: clean.
+- `contract build`: 2629 slots, 46 resources, 2665 actions, 59420 nodes; `app.contract` 1500 lines, `client.ts` unchanged.
+- `cargo test -p t3-code-macos --lib`: 11 passed. AppKit `macos/tests/app-control`: 25 tests, 0 failures (4 runs).
+- caps: within cap. The five repository checks exit 0; `cargo test --lib --bins --tests --no-fail-fast`: 94 binaries,
+  3383 passed, 0 failed, 33 ignored.
+- Evidence: `t3-code-evidence` under `app-activation/`, linked from #254.
 
 ## Next action
 
-`prepare` after the four merged task PRs; ask U10 first. Close with clone checks green (bun test, strict tsc, contract build, `cargo test -p t3-code-macos --lib`, the new AppKit binary), `bun scripts/caps.mjs` after `git add -A`, the repository's five checks, and every moved matrix cell fixed or declared in `EXACT2-GAPS.md` with an issue link.
+Review of the draft PR; the user answers U10 (provisional: no CLI install action, no deep link). The coordinator runs
+the "Real-input batch steps" above (front, un-minimize, ⌘W mid-request, ⌘Q) once the screen is unlocked.

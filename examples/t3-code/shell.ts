@@ -28,6 +28,7 @@ import { refsPageWanted } from './r6-polish-refs'; // r6-polish: a ref list's ne
 import { effectiveShortcut } from './r4-polish-shortcuts'; // r4-polish: header shortcut labels
 import { checkoutView } from './r9-connect-checkout';
 import { cloneToasts } from './project-clones-live';
+import { activationOpen } from './desktop-activation'; // app-activation: a `t3 app` request opens like a clicked notification
 
 export type ShellToastView = {
   id: number; kind: string; title: string; description: string; icon: string; iconColor: string; provider: string;
@@ -266,7 +267,7 @@ export async function shellView(client: T3Client, native: Native | null | undefi
   const menu = titleMenu(client, now);
   return {
     toasts: toastViews(queue, copiedToasts(client, now)), toastCount: queue.length, ticking: tracking(client) || gitTicking(client) || refsPageWanted(client) || revealWaiting(client),
-    openRequest: state.status.opened, openThreadId: state.status.openedThread,
+    ...(await activationOpen(client, native, state.status)), // openRequest, openThreadId: a clicked notification's thread or a `t3 app` request (desktop-activation.ts)
     keyRightPanel: commandShortcut(client.config, 'rightPanel.toggle'), keyThreadPanel: commandShortcut(client.config, 'threadPanel.toggle'),
     keyTerminal: commandShortcut(client.config, 'terminal.toggle'), keyNewThread: commandShortcut(client.config, 'chat.new'),
     terminalAvailable: terminalAvailable(client), terminalOpen: terminalOpen(client), // terminal-drawer: the layout controls' toggle

@@ -19,11 +19,12 @@ import { serverUpdateOps } from './client-ops-server-update';
 import { terminalPanelOps } from './terminal-panel';
 import { terminalOps } from './terminal-drawer-view'; // terminal-drawer
 import { autoBalanceOps } from './client-ops-auto-balance';
+import { activationOps } from './desktop-activation'; // app-activation: `t3 app <dir>`
 
 export type OpOut = { message: string; id: string; value: string };
 export type OpGroup = (this: T3Client, op: string, id: string, value: string, n: number, native: Native, storage: Files, out: OpOut) => Promise<boolean>;
 
-export const READ_OPS: OpGroup[] = [connectionOps, snapshotOps, settingsOps, composerOps, threadOps, sidebarOps, diffOps, laneOps, serverUpdateOps, terminalOps, terminalPanelOps, autoBalanceOps];
+export const READ_OPS: OpGroup[] = [connectionOps, snapshotOps, settingsOps, composerOps, threadOps, sidebarOps, diffOps, laneOps, serverUpdateOps, terminalOps, terminalPanelOps, autoBalanceOps, activationOps];
 export const WRITE_OPS: OpGroup[] = [settingsWrites, composerWrites, threadWrites, sidebarWrites, laneWrites];
 
 /** Runs `op` in the first group that owns it; false when none does. */
