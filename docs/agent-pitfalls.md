@@ -265,6 +265,13 @@ guide's rules don't make obvious.
 
 ## Actions
 
+- **An `every(N, …)` task does not fire at mount.** Its first tick comes `N` ms
+  after it starts, so state it fills is empty until then, after a test `reload`
+  too: a "today" label or a comparison against it reads the stale or empty
+  value. Fix: compute the value in a derive (from the `exactTime` source's
+  `time.epochAtZero + performanceNow()`), or set it in the mount action, and let
+  the task only refresh it. (Authoring bench, LLP 1087, t5-pomodoro, 2026-10-08.)
+
 - **A token kept in an app data file.** Exact has a secret store, and it holds
   strings, not only keys: grant `secret.keep <name>` and use
   `store.set`/`store.get`/`store.forget` in an answer (the Keychain on Apple,
@@ -477,6 +484,14 @@ guide's rules don't make obvious.
   (Authoring bench, LLP 1087, t2-todo on iOS: about 20 minutes, 2026-10-05.)
 
 ## Driving and testing
+
+- **A test fixture that patches `window.fetch` after boot changes nothing.** A
+  data source's `fetch` is captured when the data module loads, so a stub
+  installed later (a browser script's `page.evaluate`, a console patch) never
+  sees its requests. Fix: to test a failure, `fail fetch "<url prefix>"` (the
+  guide's testing section); a fixture that must stand in for the network
+  installs its stub before the document loads (`addInitScript`) or serves a
+  stand-in server. (Authoring bench, LLP 1087, t8-library, codex, 2026-10-08.)
 
 - **`xcrun simctl io booted screenshot` can capture the wrong simulator.** With
   several simulators booted, `booted` names any one of them, not the one the

@@ -1559,7 +1559,12 @@ To test going offline after the data loaded (a Snapback4 partition, which
 cannot open before its first sync, is the usual case), put `clock data` first;
 a runner note names a `fail fetch` armed before the data loaded.
 `times N` fails only the next N; `pass fetch "<prefix>"` stops it; a counted
-fault that never fired fails the test. The app's own `catch`, error record and
+fault that never fired fails the test. A fault reaches only fetches that start
+after it: a request already in flight with the same arguments is reused by the
+runner (one request per resource and arguments), so re-opening the screen while
+it is pending gets that request's answer, not the fault. Arm the fault before
+the request starts (as the launch line, or before the step that first loads
+it), or let the pending one settle (`clock data`) first. The app's own `catch`, error record and
 retry run, so this checks the real error handling (LLP 1103). A drive takes
 `--fail-fetch <prefix>` at open and the ops `"fail fetch <prefix> [times N]"`
 and `"pass fetch <prefix>"`; `state.faults` shows each prefix's hits.
