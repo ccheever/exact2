@@ -16,6 +16,8 @@ import { letGo, letGoAware } from './shared/let-go';
 import { obj, str } from './shared/domain';
 import { fleet, type EnvironmentFleet } from './shared/settings-b-fleet';
 import type { T3Client } from './shared/client';
+import { mobileNewTaskTransferGuardAcquire, mobileNewTaskTransferGuardRead, mobileNewTaskTransferGuardAssert,
+  mobileNewTaskTransferGuardRelease, type NewTaskTransferLease } from './new-task-transfer-guard';
 
 export interface NewTaskFlowSnapshot {
   owner: string; requestRoute: string; status: string; title: string; message: string;
@@ -174,13 +176,24 @@ export async function mobileNewTaskFlowAction(owner: string, visit: string, kind
     return { ...result(edited.message), revision: edited.revision };
   }
   const serial = ++flow.serial, current = () => flows.get(client) === flow && flow.active && flow.visit === visit && flow.serial === serial;
-  const assertCurrent = () => { if (!current()) throw new ClientError('The new task route changed.', 'superseded'); };
+  let transferLease: NewTaskTransferLease | undefined, transferChecked = false;
+  const assertCurrent = () => {
+    if (!current()) throw new ClientError('The new task route changed.', 'superseded');
+    if (transferLease && transferChecked) mobileNewTaskTransferGuardAssert(client, transferLease);
+  };
   const base = letGoAware(mobileNative(nativeInput));
   const native: Native = { available: base.available, watch: topic => base.watch(topic), later: async input => {
     assertCurrent(); const answer = await base.later(input); assertCurrent(); return answer;
   } };
   const storage = client === mobileClient ? nativeFiles(native) : suppliedStorage;
   const route = mobileNewTaskRoute(flow.location);
+  const guardTransfer = async () => {
+    if (!flow.draftKey) return;
+    transferLease = mobileNewTaskTransferGuardAcquire(client, flow.draftKey) ?? undefined;
+    if (!transferLease) throw new ClientError("Wait for this draft's current task operation to finish.");
+    await mobileNewTaskTransferGuardRead(client, native, transferLease, current);
+    transferChecked = true; assertCurrent();
+  };
   if (kind === 'scratch' && (!route.chooser || route.unsupported)) return result('Choose a project before starting this task.');
   flow.busy = true; flow.error = '';
   try {
@@ -199,10 +212,13 @@ export async function mobileNewTaskFlowAction(owner: string, visit: string, kind
           const held = mobileNewTaskDraftLookup(client, flow.draftKey);
           if (!held) return result('', '/new');
           mobileNewTaskDraftRetarget(client, flow.draftKey, held);
+          // Reopening the same saved draft only restores its selection. A branch
+          // request still changes the workspace and needs transfer ownership.
+          if (!saved || route.branch) await guardTransfer();
         }
         const chosen = await mobileNewTaskAction('project', JSON.stringify([requestedEnvironment, requestedProject]), '', native, storage, client, background, current);
         assertCurrent(); if (chosen.message) throw new ClientError(chosen.message);
-        flow.draftKey = await mobileBindNewTaskDraft(client, flow.owner, flow.draftKey, route.draftId, native, storage, current);
+        flow.draftKey = await mobileBindNewTaskDraft(client, flow.owner, flow.draftKey, route.draftId, native, storage, current, transferLease);
         assertCurrent();
         if (route.branch && !mobileNewTask('', client, background).scratch) {
           const target = selection(client), expected = () => current() && sameSelection(target, client);
@@ -244,12 +260,13 @@ export async function mobileNewTaskFlowAction(owner: string, visit: string, kind
       // Validate the existing stamp without changing it, before reducing selection
       // or making a remote scratch request for a captured pending draft.
       mobileNewTaskDraftRetarget(client, flow.draftKey, held);
+      await guardTransfer();
     }
     const response = await mobileNewTaskAction(kind, id, value, native, storage, client, background, current);
     assertCurrent(); if (response.message) throw new ClientError(response.message);
     if (response.submitted) { flow.selected = null; mobileNewTaskDraftUnbind(client, flow.owner); flow.draftKey = ''; return result('', '', true); }
     if (kind === 'project' || kind === 'scratch' || kind === 'environment') {
-      flow.draftKey = await mobileBindNewTaskDraft(client, flow.owner, flow.draftKey, '', native, storage, current);
+      flow.draftKey = await mobileBindNewTaskDraft(client, flow.owner, flow.draftKey, '', native, storage, current, transferLease);
       assertCurrent();
     }
     flow.selected = selection(client); flow.applied.add(visit);
@@ -258,5 +275,5 @@ export async function mobileNewTaskFlowAction(owner: string, visit: string, kind
     if (letGo(error)) throw error;
     if (current()) flow.error = error instanceof Error ? error.message : 'Could not open this task.';
     return result(current() ? flow.error : '');
-  } finally { flow.busy = false; client.revision++; }
+  } finally { if (transferLease) mobileNewTaskTransferGuardRelease(client, transferLease); flow.busy = false; client.revision++; }
 }

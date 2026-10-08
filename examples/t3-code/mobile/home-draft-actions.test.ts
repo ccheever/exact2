@@ -18,6 +18,9 @@ async function fixture(saved: Obj = { version: 1 }) {
   let onPrompt = async () => {};
   const native: Native = { available: true, watch() {}, async later(input) {
     const request = obj(input); calls.push(request);
+    if (request.op === 'mobileOutbox') return { ok: true, generation: client.generation, value: request.action === 'read'
+      ? { ownerEpoch: 'epoch', sequenceFloor: 0, complete: true, errors: [], records: [], outcomes: [], mutations: [], revisions: {}, tokens: {}, transfers: [] }
+      : { complete: true, fingerprint: null, claims: [] } };
     if (request.op === 'mobileAlert') { await onPrompt(); return { ok: true, generation: 1, value: { choice } }; }
     return { ok: true, generation: 1, value: request.op === 'status' ? { phase: 'disconnected' } : {} };
   } };
@@ -51,7 +54,7 @@ test('confirmed discard persists only A removal and releases its images and atta
   expect(mobileNewTaskDraftLookup(f.client, A)).toBeNull(); expect(f.client.local.drafts[B]).toBe('text B');
   expect(mobileNewTaskDraftLookup(f.client, B)).toEqual(beforeB); expect(f.client.local.composerControls.contexts[A]).toBeUndefined();
   expect(draftFiles(f.client.local)).toEqual([]); expect(obj(f.disk().drafts)[A]).toBeUndefined();
-  expect(f.calls[0]).toEqual({ op: 'mobileAlert', kind: 'discard', title: 'Discard draft?', message: '“text A” will be removed.' });
+  expect(f.calls.find(call => call.op === 'mobileAlert')).toEqual({ op: 'mobileAlert', kind: 'discard', title: 'Discard draft?', message: '“text A” will be removed.' });
   expect(f.calls.filter(call => call.op === 'snapshotDraftRemove').map(call => call.id)).toEqual([image.id]);
   expect(f.calls.filter(call => call.op === 'composerAttachRemove').map(call => call.id)).toEqual(['file-A']);
   expect(f.calls.some(call => ['request', 'session', 'ids'].includes(String(call.op)))).toBe(false);

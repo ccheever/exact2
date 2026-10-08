@@ -190,7 +190,7 @@ describe('pinned shared sources', () => {
     const copies = names.map(name => {
       const local = readFileSync(join(directory, name), 'utf8').split('\n');
       expect(local[0]).toContain('GAP 001');
-      const pin = name === 'let-go.ts' ? '669968e248e3a3ca29dbfeada999af2114141223'
+      const pin = name === 'shell-vcs.ts' ? '81c704c7d12afef7233b12b1f2e7118fd6e84677' : name === 'let-go.ts' ? '669968e248e3a3ca29dbfeada999af2114141223'
         : ['client.ts', 'local-backend.ts', 'timestamp-format.ts'].includes(name)
           ? '38352ceaf4cd35a40b7b24ce992db87c2357a99b' : '887b2491b182f851b11253655f6aa84fe2a26708';
       const adapted = ['client.ts', 'client-ops-composer.ts', 'project-clones-live.ts', 'r8-pointer-reconnect.ts', 'r4-git-branch.ts'].includes(name);

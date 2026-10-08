@@ -21,6 +21,9 @@ async function fixture(saved: Obj = { version: 1 }, withClock = true) {
     async atomicWriteFile(_path, bytes) { disk = new TextDecoder().decode(bytes); } } };
   const native: Native = { available: true, watch() {}, async later(input) {
     const request = obj(input); calls.push(request);
+    if (request.op === 'mobileOutbox') return { ok: true, generation: client.generation, value: request.action === 'read'
+      ? { ownerEpoch: 'epoch', sequenceFloor: 0, complete: true, errors: [], records: [], outcomes: [], mutations: [], revisions: {}, tokens: {}, transfers: [] }
+      : { complete: true, fingerprint: null, claims: [] } };
     return { ok: true, generation: client.generation, value: request.op === 'ids' ? Array.from({ length: Number(request.count) }, () => `allocated-${++serial}`)
       : request.op === 'http' ? { authenticated: true, permissions: ['orchestration:operate'], scopes: ['orchestration:operate'] }
         : request.method === 'server.getConfig' ? config(client.environmentId) : {} };
