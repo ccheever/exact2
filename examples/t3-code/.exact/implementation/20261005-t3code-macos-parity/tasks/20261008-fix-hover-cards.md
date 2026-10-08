@@ -8,7 +8,7 @@ repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: 'feat(example)/t3-code-fix-hover-cards'
 pr_url: null
-verified_commit: null
+verified_commit: 6ef66bc93
 ---
 
 # Tooltips and hover cards stay inside the window and stay open under the pointer
@@ -103,11 +103,12 @@ cross into it.
 
 | Row | Result | Proof |
 | --- | --- | --- |
-| Bug 1: the list and editor update icons' tooltip whole, above the icon (agent) | pass | pairs 01, 02; drive record |
-| Bug 2: "5 scopes" whole, above the count; the pointer can cross into it and it stays; it closes 100 ms after leaving (agent) | pass | pairs 03, 04; drive record |
-| Bug 14: the freshness card stays as the pointer crosses into it and while on its button; closes after leaving (agent) | pass | pairs 05-07; drive record |
-| Bug 10: the Usage popover stays as the pointer crosses into it; its email's tooltip shows; closes after leaving (agent) | pass | pairs 08, 09; drive record |
-| Bug 9: an unavailable row's reason as a tooltip left of the row, beside the picker (agent) | pass | pair 10; drive record |
+| Bug 1: the list and editor update icons' tooltip whole, above the icon (agent) | pass | [01](https://raw.githubusercontent.com/ccheever/exact2/e780f6b871a414f7981cfdf0a9536cffe80d1b77/fix-hover-cards/01-update-icon-tooltip-list.png), [02](https://raw.githubusercontent.com/ccheever/exact2/e780f6b871a414f7981cfdf0a9536cffe80d1b77/fix-hover-cards/02-update-icon-tooltip-editor.png); [drive record](https://raw.githubusercontent.com/ccheever/exact2/e780f6b871a414f7981cfdf0a9536cffe80d1b77/fix-hover-cards/agent-drive-record.txt) |
+| Bug 2: "5 scopes" whole, above the count; the pointer can cross into it and it stays; it closes 100 ms after leaving (agent) | pass | [03](https://raw.githubusercontent.com/ccheever/exact2/e780f6b871a414f7981cfdf0a9536cffe80d1b77/fix-hover-cards/03-scopes-card.png), [04](https://raw.githubusercontent.com/ccheever/exact2/e780f6b871a414f7981cfdf0a9536cffe80d1b77/fix-hover-cards/04-scopes-card-pointer-inside.png) |
+| Bug 14: the freshness card stays as the pointer crosses into it and while on its button; closes after leaving (agent) | pass | [05](https://raw.githubusercontent.com/ccheever/exact2/e780f6b871a414f7981cfdf0a9536cffe80d1b77/fix-hover-cards/05-freshness-card.png), [06](https://raw.githubusercontent.com/ccheever/exact2/e780f6b871a414f7981cfdf0a9536cffe80d1b77/fix-hover-cards/06-freshness-card-pointer-inside.png), [07](https://raw.githubusercontent.com/ccheever/exact2/e780f6b871a414f7981cfdf0a9536cffe80d1b77/fix-hover-cards/07-freshness-card-pointer-on-button.png) |
+| Bug 10: the Usage popover stays as the pointer crosses into it; its email's tooltip shows; closes after leaving (agent) | pass | [08](https://raw.githubusercontent.com/ccheever/exact2/e780f6b871a414f7981cfdf0a9536cffe80d1b77/fix-hover-cards/08-usage-popover.png), [09](https://raw.githubusercontent.com/ccheever/exact2/e780f6b871a414f7981cfdf0a9536cffe80d1b77/fix-hover-cards/09-usage-popover-pointer-inside.png) |
+| Bug 9: an unavailable row's reason as a tooltip left of the row, beside the picker (agent) | pass | [10](https://raw.githubusercontent.com/ccheever/exact2/e780f6b871a414f7981cfdf0a9536cffe80d1b77/fix-hover-cards/10-unavailable-model-row.png) |
+| The same rows on the merged head `6ef66bc93` (agent) | pass | [settings](https://raw.githubusercontent.com/ccheever/exact2/e780f6b871a414f7981cfdf0a9536cffe80d1b77/fix-hover-cards/merged-steps-settings-after.ndjson.txt), [pr](https://raw.githubusercontent.com/ccheever/exact2/e780f6b871a414f7981cfdf0a9536cffe80d1b77/fix-hover-cards/merged-steps-pr-after.ndjson.txt), [usage](https://raw.githubusercontent.com/ccheever/exact2/e780f6b871a414f7981cfdf0a9536cffe80d1b77/fix-hover-cards/merged-steps-usage-after.ndjson.txt) |
 | Regression tests failing on the base | pass: 11 fail on `ec32c8c37`, pass here | `hover-layer.test.ts` |
 | Real pointer: bugs 1, 2, 9, 10, 14 | deferred to the real-input batch: the screen locked (CGSSessionScreenIsLocked = Yes at 07:51Z, user away) right after this task took the lock; the drive is ready and dry-run checked | "Real-input batch steps" below |
 | Framework limit recorded | X62 (local draft, not filed: brief) | `issues/20261008-x62-hover-outside-the-box.md` |
@@ -149,8 +150,18 @@ move, so a close delay that runs out closes the card. Each step was dry-run with
 | probe | one-file app, framework of `c0475fbaa` | Real pointer (cliclick) under the lock, 06:12-06:32Z: a card outside its trigger's box gets no tracking and the trigger hears a leave as the pointer moves in; overlapping hover nodes alternate each move; a window-level card hears the pointer | X62 issue file | — |
 | 1 | `5476de8b2` | Layer state in the root (+22 root lines); dev drives found the editor icon under a toast, the authorized clients section behind network access, the pressed popover's duplicate button testId (fixed) | dev drives (not kept) | root lines |
 | 2 | `a33cf290f`, merge `3fa874f59` (base `ec32c8c37`) | Root block compressed to +17 lines; coordinator: at most +10 | — | root lines |
-| 3 | `53bece1c7` | The state in T3Window, the root keeps the hover clock (+10); usage (bug 10) and model rows (bug 9) on the helper; left/right sides. `bun test examples/t3-code` 3,144 pass / 1 skip / 0 fail; strict tsc clean; contract build clean | pairs 01-10, agent-drive-record.txt | real input, checks |
+| 3 | `53bece1c7` | The state in T3Window, the root keeps the hover clock (+10); usage (bug 10) and model rows (bug 9) on the helper; left/right sides. `bun test examples/t3-code` 3,144 pass / 1 skip / 0 fail; strict tsc clean; contract build clean; five checks all exit 0 | [pairs 01-10](https://raw.githubusercontent.com/ccheever/exact2/e780f6b871a414f7981cfdf0a9536cffe80d1b77/fix-hover-cards/), [agent-drive-record](https://raw.githubusercontent.com/ccheever/exact2/e780f6b871a414f7981cfdf0a9536cffe80d1b77/fix-hover-cards/agent-drive-record.txt), [drive.mjs](https://raw.githubusercontent.com/ccheever/exact2/e780f6b871a414f7981cfdf0a9536cffe80d1b77/fix-hover-cards/drive.mjs.txt) | real input |
+| real input | `53bece1c7` | Lock taken 07:44Z; the first real-pointer drive showed nothing: `loginwindow` over the screen, `CGSSessionScreenIsLocked = Yes` (07:51Z). Lock released at once; no further real input. `real.mjs` dry-run (`REAL_DRY=1`) to its last step for all three lanes | [real.mjs](https://raw.githubusercontent.com/ccheever/exact2/e780f6b871a414f7981cfdf0a9536cffe80d1b77/fix-hover-cards/real.mjs.txt) | the real-input batch |
+| 4 | merge `6ef66bc93` (base `fa46ad5d0`, #306: `model-picker.contract` merged cleanly, X63 kept beside X62) | `bun test examples/t3-code` 3,146 pass / 1 skip / 0 fail; strict tsc clean (app.ts, the new test); contract build 3,941 slots, 46 resources; `cargo test -p t3-code-macos --lib` 13 pass; `app.contract` 1,488 lines (+10 over `fa46ad5d0`); five checks: build ok, test 3,521 passed / 0 failed / 34 ignored (94 binaries), clippy ok, fmt ok, caps within, boot ok; agent drives repeated on the merged build: every row passes | merged step logs | real input; #290's merge |
+
+## Handed over by #290 (coordinator, 2026-10-08), to run after #290 lands and is merged here
+
+Real-pointer rows that #290 traced to hover: (1) a real press in the sidebar drops the pin, but the hover state kept the
+popover; (2) a press on the pinned segment with the pointer resting on it; (3) a press on a narrow legend row, which the
+popover hung over (the reference anchors it to the trigger that opened it). #290 also saw `pointermove` stop arriving
+after a segment's hover action called a root action (unconfirmed).
 
 ## Next action
 
-Real-input rows under the lock, then the five checks, records and the PR.
+Merge #290 when it lands (resolve `pages-usage.contract`, `usage-pooled.contract`, `app-main.contract`,
+`app-window.contract`), then the handed-over rows; the real-pointer rows in the real-input batch.
