@@ -1,5 +1,5 @@
 ---
-name: 20261008-x50-distribution-build-paths
+name: 20261008-x54-distribution-build-paths
 plan: 20261005-t3code-macos-parity
 status: draft
 kind: framework-gap
@@ -8,7 +8,7 @@ upstream_url: null
 reproduced_on: feat(example)/t3-code-portable-app-download on the feature branch's framework (main 1f19b2400)
 ---
 
-# X50: a distributed macOS build carries the build machine's paths
+# X54: a distributed macOS build carries the build machine's paths
 
 ## Summary
 

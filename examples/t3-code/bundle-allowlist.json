@@ -27,7 +27,7 @@
       "scope": "bundle",
       "file": "Contents/MacOS/T3 Code (Exact)",
       "text": "^(/private)?/tmp/t3-code-package/exact2/(vendor/ibex/crates/ibex2/src/bindings/[a-z_]+\\.js|target/aarch64-apple-darwin/host-dev/build/exact-js-[0-9a-f]+/out/prelude\\.js)",
-      "reason": "package-app.mjs's fixed export folder, the same on every machine (no user, checkout or home path): exact2's ibex2 build.rs and js/build.rs give hermesc absolute source paths, and Hermes keeps them as the bytecode's file names (EXACT2-GAPS X50). Rust paths are remapped and Swift's are stripped; these two cannot be from the app."
+      "reason": "package-app.mjs's fixed export folder, the same on every machine (no user, checkout or home path): exact2's ibex2 build.rs and js/build.rs give hermesc absolute source paths, and Hermes keeps them as the bytecode's file names (EXACT2-GAPS X54). Rust paths are remapped and Swift's are stripped; these two cannot be from the app."
     },
     {
       "scope": "runtime",

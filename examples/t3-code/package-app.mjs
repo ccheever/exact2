@@ -134,7 +134,7 @@ async function inside(work, phase) {
     const id = /cmd LC_ID_DYLIB\n\s+cmdsize \d+\n\s+name (.+?) \(offset/.exec(loads)?.[1];
     if (id && id.startsWith('/')) run('install_name_tool', ['-id', `@rpath/${name}`, file]);
   }
-  // host/apple/assets.mjs `appIcon` leaves its empty mkdtemp folder (`.icon-XXXXXX`) beside the icon (X50).
+  // host/apple/assets.mjs `appIcon` leaves its empty mkdtemp folder (`.icon-XXXXXX`) beside the icon (X54).
   for (const name of readdirSync(join(contents, 'Resources'))) {
     const path = join(contents, 'Resources', name);
     if (name.startsWith('.icon-') && readdirSync(path).length === 0) rmSync(path, { recursive: true });

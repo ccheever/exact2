@@ -1,5 +1,5 @@
 ---
-name: 20261008-x51-macos-status-alert-progress-roles
+name: 20261008-x55-macos-status-alert-progress-roles
 plan: 20261005-t3code-macos-parity
 status: draft
 kind: framework-gap
@@ -8,7 +8,7 @@ upstream_url: null
 reproduced_on: feat(example)/t3-code-portable-app-download on the feature branch's framework (main 1f19b2400)
 ---
 
-# X51: the macOS host exposes no live region, alert, dialog or progress bar to accessibility
+# X55: the macOS host exposes no live region, alert, dialog or progress bar to accessibility
 
 ## Summary
 

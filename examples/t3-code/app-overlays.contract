@@ -69,7 +69,7 @@ component ProjectPicker
                     text project.name font-size="0.875rem" font-weight=500 class=Ink
                     text project.path font-size="0.6875rem" class=Muted line-clamp=2
               when length(data.projects) == 0
-                text "Add a workspace folder to start your first thread." font-size="0.8125rem" line-height="0.09375rem" class=Muted padding="0.75rem"
+                text "Add a workspace folder to start your first thread." font-size="0.8125rem" line-height=1.5 class=Muted padding="0.75rem"
 
 // The first-run "Set up T3 Code" wizard (pages-welcome.contract).
 component WelcomeLayer
@@ -193,9 +193,9 @@ component WindowOverlays
       R4DeviceSetup(device=shell.panel.device, scheme=viewport.prefersColorScheme, viewportHeight=viewport.height, local=chatLocal, command=command)
     // server-update-banner: requestConfirmDialog before a desktop-managed server's app updates (server-update-notices.ts).
     when data.serverUpdate.confirmTitle != ""
-      AppConfirm(title=data.serverUpdate.confirmTitle, body=data.serverUpdate.confirmBody, destructive=false, busy=commandPending, cancel=command("su:cancel", "", "", 0), confirm=command("su:confirm", "", "", 0))
+      AppConfirm(title=data.serverUpdate.confirmTitle, body=data.serverUpdate.confirmBody, destructive=false, busy=commandPending, confirmId="server-update-confirm", cancel=command("su:cancel", "", "", 0), confirm=command("su:confirm", "", "", 0))
     when confirmOp != ""
-      AppConfirm(title=confirmTitle, body=confirmBody, destructive=confirmDestructive, busy=commandPending, cancel=confirmUi(false), confirm=confirmUi(true))
+      AppConfirm(title=confirmTitle, body=confirmBody, destructive=confirmDestructive, busy=commandPending, confirmId="app-confirm", cancel=confirmUi(false), confirm=confirmUi(true))
     when viewport.prefersColorScheme == "dark"
       ToastStack(toasts=shell.toasts, width=min(22.5 * rem, viewport.width - (viewport.width >= 640 ? 4 : 2) * rem), top=(52 + (viewport.width >= 640 ? 2 : 1) * rem), right=((viewport.width >= 640 ? 2 : 1) * rem), expanded=toastHover, still=viewport.prefersReducedMotion, hover=toastHovering, act=toastAct)
     else
