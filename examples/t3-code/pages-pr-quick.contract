@@ -9,6 +9,11 @@
 use PgIcon from "./pages-icons.contract"
 use Tip from "./shell-tip.contract"
 use R6Check from "./r6-pr-shapes.contract"
+use KmItem from "./menu-keys.contract"
+use KeyMenu from "./menu-keys.contract"
+use kmOpenKey from "./menu-keys.contract"
+use KeyMenuOpen from "./menu-keys.contract"
+use kmBump from "./menu-keys.contract"
 
 keyframes pqSpin
   from rotate=0
@@ -144,31 +149,44 @@ component PrRowStack
     scheme: string
     control: action
     select: action
+  // fix-keyboard-focus: the stack menu's keyboard (menu-keys.contract).
+  state keyed = 0
+  state keyArmed = false
+  action keyArm(on: bool)
+    keyArmed = on
+  action keyOpened(last: bool)
+    keyed = kmBump(keyed, last)
+  derive layerItems = popover.ref != rowRef ? [] : concat((popover.retry ? [KmItem(id=`${popId}-retry`, label="Retry stack refresh")] : []), map(popover.layers, (layer) => KmItem(id=`${popId}-layer-${layer.number}`, label=layer.title)))
+  action triggerKey(k: string)
+    if kmOpenKey(k)
+      keyed = kmBump(keyed, false)
   view
     column position="relative" flex-shrink=0 pointer-events="auto"
       Tip(label=tip, side="top", align="center", offset=20)
-        button press=control("quick-stack", rowRef) popovertarget=popId aria-label=ariaLabel testId=`${popId}-trigger` height="1rem" padding=0 border-width=0 background-color="#00000000" gap="0.25rem" display="flex" flex-direction="row" align-items="center" cursor="pointer"
+        button press=control("quick-stack", rowRef) popovertarget=popId key=triggerKey focus=keyArm(true) blur=keyArm(false) aria-label=ariaLabel testId=`${popId}-trigger` height="1rem" padding=0 border-width=0 background-color="#00000000" gap="0.25rem" display="flex" flex-direction="row" align-items="center" cursor="pointer"
           PgIcon(name="layers", size=12, color=pqMuted())
           text label font-size="0.75rem" line-height="1rem" color=pqMuted() white-space="nowrap" font-variant-numeric="tabular-nums"
+      KeyMenuOpen(menuId=popId, armed=keyArmed, opened=keyOpened)
       row id=popId popover="auto" position="absolute" padding-top="0.25rem" align-items="flex-start" testId=`${popId}-layer`
         column width="18rem" padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#27272a1a, #f5f5f51a)" background-color="light-dark(#ffffff, #121212)" box-shadow=(scheme == "dark" ? "0 18px 44px -18px #000000cc" : "0 16px 40px -18px #0000008c") role="menu" aria-label=ariaLabel testId=popId
-          row width="100%" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.375rem" padding-bottom="0.375rem" box-sizing="border-box" justify-content="space-between" align-items="center" gap="0.5rem"
-            text (popover.ref == rowRef ? popover.label : "") font-size="0.75rem" line-height="1rem" font-weight=500 color=pqMuted()
-            when popover.ref == rowRef and popover.noticeText != ""
-              Tip(label=popover.notice, side="top", align="center", offset=20)
-                text popover.noticeText role="status" font-size="0.75rem" line-height="1rem" color=pqMuted() testId=`${popId}-notice`
-          when popover.ref != rowRef
-            text "Loading stack…" padding-left="0.5rem" padding-right="0.5rem" padding-bottom="0.375rem" font-size="0.75rem" line-height="1rem" font-weight=500 color=pqMuted()
-          else
-            when popover.message != ""
-              text popover.message padding-left="0.5rem" padding-right="0.5rem" padding-bottom="0.375rem" font-size="0.75rem" line-height="1rem" font-weight=500 color=pqMuted() testId=`${popId}-message`
-            when popover.retry
-              PqStackItem(icon="", label="Retry stack refresh", detail="", state="", current=false, popId=popId, press=control("quick-stack-retry", rowRef), testId=`${popId}-retry`)
-            when length(popover.layers) > 0
-              column width="100%" max-height="20rem" overflow-y="auto"
-                each layer in popover.layers key=layer.key
-                  PqStackItem(icon=pqIcon(layer.state), label=layer.title, detail=layer.detail, state=layer.state, current=layer.current, popId=popId, press=select(layer.ref), testId=`${popId}-layer-${layer.number}`)
-                text popover.base padding-left="0.5rem" padding-right="0.5rem" padding-top="0.375rem" padding-bottom="0.375rem" font-size="0.75rem" line-height="1rem" font-weight=500 color=pqMuted() testId=`${popId}-base`
+          KeyMenu(menuId=`${popId}-keys`, items=layerItems, keyed=keyed, gap="0px", modal=true)
+            row width="100%" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.375rem" padding-bottom="0.375rem" box-sizing="border-box" justify-content="space-between" align-items="center" gap="0.5rem"
+              text (popover.ref == rowRef ? popover.label : "") font-size="0.75rem" line-height="1rem" font-weight=500 color=pqMuted()
+              when popover.ref == rowRef and popover.noticeText != ""
+                Tip(label=popover.notice, side="top", align="center", offset=20)
+                  text popover.noticeText role="status" font-size="0.75rem" line-height="1rem" color=pqMuted() testId=`${popId}-notice`
+            when popover.ref != rowRef
+              text "Loading stack…" padding-left="0.5rem" padding-right="0.5rem" padding-bottom="0.375rem" font-size="0.75rem" line-height="1rem" font-weight=500 color=pqMuted()
+            else
+              when popover.message != ""
+                text popover.message padding-left="0.5rem" padding-right="0.5rem" padding-bottom="0.375rem" font-size="0.75rem" line-height="1rem" font-weight=500 color=pqMuted() testId=`${popId}-message`
+              when popover.retry
+                PqStackItem(icon="", label="Retry stack refresh", detail="", state="", current=false, popId=popId, press=control("quick-stack-retry", rowRef), testId=`${popId}-retry`)
+              when length(popover.layers) > 0
+                column width="100%" max-height="20rem" overflow-y="auto"
+                  each layer in popover.layers key=layer.key
+                    PqStackItem(icon=pqIcon(layer.state), label=layer.title, detail=layer.detail, state=layer.state, current=layer.current, popId=popId, press=select(layer.ref), testId=`${popId}-layer-${layer.number}`)
+                  text popover.base padding-left="0.5rem" padding-right="0.5rem" padding-top="0.375rem" padding-bottom="0.375rem" font-size="0.75rem" line-height="1rem" font-weight=500 color=pqMuted() testId=`${popId}-base`
 
 // MenuItem: a layer (state glyph, title over "#n · branch · State", a check on this row's) or Retry.
 component PqStackItem
@@ -182,10 +200,13 @@ component PqStackItem
     press: action
     testId: string
   state over = false
+  state lit = false
   action hover(value: bool)
     over = value
+  action focused(on: bool)
+    lit = on
   view
-    button press=press popovertarget=popId popovertargetaction="hide" hover=hover role="menuitem" aria-current=(current ? "true" : "") testId=testId width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" gap="0.5rem" border-radius="0.375rem" border-width=0 background-color=(over ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center"
+    button id=testId press=press popovertarget=popId popovertargetaction="hide" hover=hover focus=focused(true) blur=focused(false) role="menuitem" aria-current=(current ? "true" : "") testId=testId width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" gap="0.5rem" border-radius="0.375rem" border-width=0 background-color=(over or lit ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center"
       when icon != ""
         PgIcon(name=icon, size=16, color=pqTone(state))
       column flex=1 min-width=0 align-items="flex-start"

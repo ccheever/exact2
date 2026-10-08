@@ -1,0 +1,162 @@
+// The keyboard of a menu popup, after Base UI's Menu (MIT reference, see LICENSE-T3; 1e2ecbd975
+// ui/menu.tsx over @base-ui/react Menu: useListNavigation with loopFocus, useTypeahead, and
+// focusItemOnOpen "auto"). The popup takes the focus as it opens; opened from the keyboard (Enter or
+// Space on its trigger) the focus goes on to the first item. ↓ and ↑ move it through the enabled
+// items and wrap, Home and End go to the first and the last, and a letter goes to the next item whose
+// label starts with it. Enter and Space press the focused item, as on any button; Escape stays the
+// popover's (the host closes it and gives the focus back to the trigger).
+//
+// Wrap a menu's rows in `KeyMenu` and give each enabled row an `id` that its `items` entry names, in
+// order. A `popover="auto"` menu's popup takes the focus by `autofocus`; a menu its owner mounts from
+// state calls `focus(menuId)` as it opens it, or `focus(`${menuId}-first`)` when Enter or Space opened
+// it (the popup's inner box, which hands the focus on to the first item). The trigger counts Enter and Space (`kmOpenKey`) into
+// `keyed`, so the next opening the popup sees is known to come from the keyboard. `retainFocus`: a
+// click on a row leaves the focus where it was, as Base UI's pointer press does, so a press that
+// closes the menu gives it back to the trigger. `inside` hears the popup itself taking and losing the
+// focus (`KeyMenuWatched`, for an owner that holds its trigger shown while the menu is open; a row's
+// own focus and blur are its owner's).
+shape KmItem
+  id: string
+  label: string
+
+fn kmIndex(items: list<KmItem>, current: string): number = indexOf(map(items, (item) => item.id), current)
+fn kmAfter(items: list<KmItem>, current: string): list<KmItem> = concat(slice(items, kmIndex(items, current) + 1), slice(items, 0, kmIndex(items, current) + 1))
+fn kmLetter(k: string): bool = length(k) == 1 and trim(k) != ""
+// The item a key moves the focus to: ↓ the next (the first from the popup), ↑ the previous (the last
+// from the popup), wrapping; Home, End; a letter the next label that starts with it.
+fn kmTarget(items: list<KmItem>, current: string, k: string): option<KmItem> = k == "ArrowDown" ? first(kmAfter(items, current)) : (k == "ArrowUp" ? at(items, kmIndex(items, current) < 0 ? -1 : kmIndex(items, current) - 1) : (k == "Home" ? first(items) : (k == "End" ? at(items, -1) : (kmLetter(k) ? first(filter(kmAfter(items, current), (item) => startsWith(toLowerCase(item.label), toLowerCase(k)))) : none))))
+// Enter or Space on a trigger opens its menu from the keyboard.
+fn kmOpenKey(k: string): bool = k == "Enter" or k == " " or k == "Space"
+// ↓ and ↑ on a trigger open its menu too, at the first and the last item (Base UI Menu's trigger).
+fn kmArrow(k: string): bool = k == "ArrowDown" or k == "ArrowUp"
+// The next value of a trigger's `keyed`: one more keyboard opening, its sign the end the focus goes to
+// (positive the first item, negative the last), so every opening differs from the one the popup saw.
+fn kmBump(keyed: number, last: bool): number = last ? (keyed < 0 ? keyed - 1 : 0 - keyed - 1) : (keyed < 0 ? 1 - keyed : keyed + 1)
+// The first or the last item, by the sign of a keyboard opening.
+fn kmEnd(items: list<KmItem>, keyed: number): option<KmItem> = keyed < 0 ? at(items, -1) : first(items)
+// A menu its owner mounts from state: the end a key on its trigger asks for ("first" from Enter, Space
+// or ↓, "last" from ↑, "" for any other key), and the node the owner focuses as it opens the menu (the
+// popup itself after a pointer press, else its `-first` or `-last` box, which hand the focus on). A menu
+// the data module mounts reads the end as it mounts (`kmEndKeyed`); its trigger clears the end as it takes
+// the focus, which a pointer press gives it, rather than on `pointerdown`, which would keep the press from
+// the window's own count (popover-escape-parity's light dismiss).
+fn kmKeyEnd(k: string): string = k == "ArrowUp" ? "last" : (k == "ArrowDown" or kmOpenKey(k) ? "first" : "")
+fn kmOpenTarget(menuId: string, end: string): string = end == "" ? menuId : `${menuId}-${end}`
+// The `keyed` a freshly mounted menu sees for that end: 1 the first item, -1 the last, 0 the popup.
+fn kmEndKeyed(end: string): number = end == "last" ? -1 : (end == "first" ? 1 : 0)
+
+component KeyMenu
+  props
+    menuId: string
+    items: list<KmItem>
+    keyed: number
+    gap: string
+    // A painted popover menu is modal while it shows (Base UI Menu modal): only shortcuts inside it are
+    // heard, so Escape closes the menu before a page's own Escape shortcut runs.
+    modal: bool
+  state current = ""
+  state seen = 0
+  action keys(k: string, e: KeyboardEvent)
+    if not e.metaKey and not e.ctrlKey and not e.altKey
+      match kmTarget(items, current, k)
+        case some(item)
+          preventDefault()
+          stopPropagation()
+          current = item.id
+          focus(item.id)
+        case none
+  action entered
+    current = ""
+    if keyed != seen
+      seen = keyed
+      match kmEnd(items, keyed)
+        case some(item)
+          current = item.id
+          focus(item.id)
+        case none
+  action enteredFirst
+    match first(items)
+      case some(item)
+        current = item.id
+        focus(item.id)
+      case none
+  action enteredLast
+    match at(items, -1)
+      case some(item)
+        current = item.id
+        focus(item.id)
+      case none
+  slot
+  view
+    column id=menuId width="100%" tabindex=-1 autofocus=true retainFocus=true aria-modal=modal key=keys focus=entered testId=menuId
+      column id=`${menuId}-last` width="100%" tabindex=-1 focus=enteredLast
+        column id=`${menuId}-first` width="100%" gap=gap tabindex=-1 focus=enteredFirst
+          children
+
+component KeyMenuWatched
+  props
+    menuId: string
+    items: list<KmItem>
+    keyed: number
+    gap: string
+    // A painted popover menu is modal while it shows (Base UI Menu modal): only shortcuts inside it are
+    // heard, so Escape closes the menu before a page's own Escape shortcut runs.
+    modal: bool
+    inside: action
+  state current = ""
+  state seen = 0
+  action keys(k: string, e: KeyboardEvent)
+    if not e.metaKey and not e.ctrlKey and not e.altKey
+      match kmTarget(items, current, k)
+        case some(item)
+          preventDefault()
+          stopPropagation()
+          current = item.id
+          focus(item.id)
+        case none
+  action entered
+    inside(true)
+    current = ""
+    if keyed != seen
+      seen = keyed
+      match kmEnd(items, keyed)
+        case some(item)
+          current = item.id
+          focus(item.id)
+        case none
+  action left
+    inside(false)
+  action enteredFirst
+    match first(items)
+      case some(item)
+        current = item.id
+        focus(item.id)
+      case none
+  action enteredLast
+    match at(items, -1)
+      case some(item)
+        current = item.id
+        focus(item.id)
+      case none
+  slot
+  view
+    column id=menuId width="100%" tabindex=-1 autofocus=true retainFocus=true aria-modal=modal key=keys focus=entered blur=left testId=menuId
+      column id=`${menuId}-last` width="100%" tabindex=-1 focus=enteredLast blur=left
+        column id=`${menuId}-first` width="100%" gap=gap tabindex=-1 focus=enteredFirst blur=left
+          children
+
+// ↓ and ↑ on a popover menu's trigger: Contract has no `showPopover` (X66), so two invisible invokers lie
+// over the trigger (its owner puts this in the trigger's `position="relative"` box, which the trigger
+// fills) and show the menu by those keys while the trigger holds the focus. The menu anchors to the
+// invoker that showed it, so it opens where the trigger's own press opens it. `opened(last)` tells the
+// owner which end, so it bumps its `keyed` with `kmBump`. The invokers stay mounted: a menu whose
+// invoker unmounts closes before its item's press lands.
+component KeyMenuOpen
+  props
+    menuId: string
+    armed: bool
+    opened: action
+  view
+    box position="absolute" left=0 top=0 width="100%" height="100%" pointer-events="none" aria-hidden=true
+      button popovertarget=menuId popovertargetaction="show" press=opened(false) aria-keyshortcuts=(armed ? "ArrowDown" : "") aria-hidden=true tabindex=-1 pointer-events="none" position="absolute" left=0 top=0 width="100%" height="100%" padding=0 border-width=0 opacity=0 testId=`${menuId}-open-first`
+      button popovertarget=menuId popovertargetaction="show" press=opened(true) aria-keyshortcuts=(armed ? "ArrowUp" : "") aria-hidden=true tabindex=-1 pointer-events="none" position="absolute" left=0 top=0 width="100%" height="100%" padding=0 border-width=0 opacity=0 testId=`${menuId}-open-last`

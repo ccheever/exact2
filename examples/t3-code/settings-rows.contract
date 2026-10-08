@@ -20,6 +20,11 @@ use FontFamilyPicker from "./settings-a-fonts.contract"
 use PromptFontPreview from "./settings-prompt-preview.contract"
 use FontCodePreview from "./settings-font-previews.contract"
 use FontDiffPreview from "./shapes.contract"
+use KmItem from "./menu-keys.contract"
+use KeyMenu from "./menu-keys.contract"
+use kmOpenKey from "./menu-keys.contract"
+use KeyMenuOpen from "./menu-keys.contract"
+use kmBump from "./menu-keys.contract"
 
 // "Applying settings for <project> across <environment>" with its two radio menus.
 component ScopeSentence
@@ -40,12 +45,31 @@ component ScopeSentence
     openMenu: action
     closeMenu: action
     choose: action
+  // fix-keyboard-focus: the scope menus' keyboard (menu-keys.contract): Enter or Space on a trigger.
+  state projectOpens = 0
+  state projectArmed = false
+  action projectArm(on: bool)
+    projectArmed = on
+  action projectOpened(last: bool)
+    projectOpens = kmBump(projectOpens, last)
+  state environmentOpens = 0
+  state environmentArmed = false
+  action environmentArm(on: bool)
+    environmentArmed = on
+  action environmentOpened(last: bool)
+    environmentOpens = kmBump(environmentOpens, last)
+  action projectKey(k: string)
+    if kmOpenKey(k)
+      projectOpens = kmBump(projectOpens, false)
+  action environmentKey(k: string)
+    if kmOpenKey(k)
+      environmentOpens = kmBump(environmentOpens, false)
   view
     row flex-wrap="wrap" align-items="center" column-gap="0.375rem" row-gap="0.25rem" padding-left="1rem" padding-right="1rem" width="100%" box-sizing="border-box" position="relative" z-index=(startsWith(menu, "scope/") ? 50 : 1) testId="settings-scope-sentence"
       row align-items="center" gap="0.375rem" min-width=0
         text "Applying settings for" font-size="1rem" line-height="1.5rem" color=pal.muted flex-shrink=0
         box position="relative"
-          button popovertarget="settings-scope-project-menu" class=SettingsGhost gap="0.375rem" padding=0 height="1.5rem" aria-label=`Project scope: ${projectLabel}` testId="settings-scope-project"
+          button popovertarget="settings-scope-project-menu" key=projectKey focus=projectArm(true) blur=projectArm(false) class=SettingsGhost gap="0.375rem" padding=0 height="1.5rem" aria-label=`Project scope: ${projectLabel}` testId="settings-scope-project"
             when projectMark != ""
               CoreMark(label=projectMark, ink=projectInk, surface=projectSurface)
             // Keyed by its label: a reused one-line text kept drawing the old string clipped to the new width.
@@ -55,11 +79,12 @@ component ScopeSentence
                 svg position="absolute" left=0 right=0 bottom=1 height=2 width="100%" viewBox="0 0 400 2" preserveAspectRatio="none" aria-hidden=true
                   path d="M0 1H400" stroke=pal.text stroke-opacity=0.3 stroke-width=1.5 stroke-dasharray="1.5 2.5"
             CoreIcon(name="chevron-down", size=14, color=pal.muted)
-          ScopeMenu(pal=pal, choices=projects, project=true, menuId="settings-scope-project-menu", choose=choose)
+          KeyMenuOpen(menuId="settings-scope-project-menu", armed=projectArmed, opened=projectOpened)
+          ScopeMenu(pal=pal, choices=projects, project=true, menuId="settings-scope-project-menu", keyed=projectOpens, choose=choose)
       row align-items="center" gap="0.375rem" min-width=0
         text connective font-size="1rem" line-height="1.5rem" color=pal.muted flex-shrink=0
         box position="relative"
-          button popovertarget="settings-scope-environment-menu" class=SettingsGhost gap="0.375rem" padding=0 height="1.5rem" aria-label=`Environment scope: ${environmentLabel}` testId="settings-scope-environment"
+          button popovertarget="settings-scope-environment-menu" key=environmentKey focus=environmentArm(true) blur=environmentArm(false) class=SettingsGhost gap="0.375rem" padding=0 height="1.5rem" aria-label=`Environment scope: ${environmentLabel}` testId="settings-scope-environment"
             when environmentIcon != ""
               CnMachineIcon(kind=environmentIcon, size=14, color=pal.text)
             each keyed in environmentKeyed key=keyed.id
@@ -68,7 +93,8 @@ component ScopeSentence
                 svg position="absolute" left=0 right=0 bottom=1 height=2 width="100%" viewBox="0 0 400 2" preserveAspectRatio="none" aria-hidden=true
                   path d="M0 1H400" stroke=pal.text stroke-opacity=0.3 stroke-width=1.5 stroke-dasharray="1.5 2.5"
             CoreIcon(name="chevron-down", size=14, color=pal.muted)
-          ScopeMenu(pal=pal, choices=environments, project=false, menuId="settings-scope-environment-menu", choose=choose)
+          KeyMenuOpen(menuId="settings-scope-environment-menu", armed=environmentArmed, opened=environmentOpened)
+          ScopeMenu(pal=pal, choices=environments, project=false, menuId="settings-scope-environment-menu", keyed=environmentOpens, choose=choose)
 
 component ScopeMenu
   props
@@ -76,30 +102,36 @@ component ScopeMenu
     choices: list<ScopeChoice>
     project: bool
     menuId: string
+    keyed: number
     choose: action
   state hovered = ""
+  state lit = ""
+  derive scope = project ? "project" : "environment"
   action hover(id: string, over: bool)
     hovered = over ? id : (hovered == id ? "" : hovered)
+  action focused(id: string, on: bool)
+    lit = on ? id : (lit == id ? "" : lit)
   view
     column id=menuId popover="auto" position="absolute" margin-top="0.25rem" min-width="11rem"
       column width="100%" padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color=pal.popoverBorder background-color=pal.popover box-shadow="0 16px 40px -18px #0000008c" role="menu" testId=(project ? "settings-scope-project-menu" : "settings-scope-environment-menu")
-        each choice in choices key=choice.id
-          column width="100%"
-            button press=choose(project, choice.id, choice.member) popovertarget=menuId popovertargetaction="hide" hover=hover(choice.id) role="menuitemradio" aria-checked=choice.selected class=SettingsGhost justify-content="flex-start" width="100%" height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" gap="0.5rem" border-radius="0.375rem" background-color=(hovered == choice.id or (hovered == "" and choice.selected) ? pal.highlight : "#00000000") testId=`settings-scope-choice-${project ? "project" : "environment"}-${choice.id == "" ? "all" : choice.id}`
-              when project and choice.mark != ""
-                CoreMark(label=choice.mark, ink=choice.ink, surface=choice.surface)
-              when not project and choice.mark != ""
-                CnMachineIcon(kind=choice.mark, size=14, color=pal.text)
-              when not project and choice.id == ""
-                CoreIcon(name="layers", size=14, color=pal.text)
-              text choice.label font-size="0.875rem" line-height="1.25rem" color=pal.text flex=1 min-width=0 line-clamp=1 white-space="nowrap"
-              when choice.offline
-                text "Offline" font-size="0.75rem" color=pal.muted flex-shrink=0
-              box width="0.875rem" height="0.875rem" flex-shrink=0
-                when choice.selected
-                  CoreIcon(name="check", size=14, color=pal.text)
-            when choice.id == ""
-              box height=1 margin-top="0.25rem" margin-bottom="0.25rem" margin-left="0.5rem" margin-right="0.5rem" background-color=pal.divider flex-shrink=0
+        KeyMenu(menuId=`${menuId}-keys`, items=map(choices, (choice) => KmItem(id=`settings-scope-choice-${scope}-${choice.id == "" ? "all" : choice.id}`, label=choice.label)), keyed=keyed, gap="0px", modal=true)
+          each choice in choices key=choice.id
+            column width="100%"
+              button id=`settings-scope-choice-${scope}-${choice.id == "" ? "all" : choice.id}` press=choose(project, choice.id, choice.member) popovertarget=menuId popovertargetaction="hide" hover=hover(choice.id) focus=focused(choice.id, true) blur=focused(choice.id, false) role="menuitemradio" aria-checked=choice.selected class=SettingsGhost justify-content="flex-start" width="100%" height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" gap="0.5rem" border-radius="0.375rem" background-color=(hovered == choice.id or lit == choice.id or (hovered == "" and lit == "" and choice.selected) ? pal.highlight : "#00000000") testId=`settings-scope-choice-${project ? "project" : "environment"}-${choice.id == "" ? "all" : choice.id}`
+                when project and choice.mark != ""
+                  CoreMark(label=choice.mark, ink=choice.ink, surface=choice.surface)
+                when not project and choice.mark != ""
+                  CnMachineIcon(kind=choice.mark, size=14, color=pal.text)
+                when not project and choice.id == ""
+                  CoreIcon(name="layers", size=14, color=pal.text)
+                text choice.label font-size="0.875rem" line-height="1.25rem" color=pal.text flex=1 min-width=0 line-clamp=1 white-space="nowrap"
+                when choice.offline
+                  text "Offline" font-size="0.75rem" color=pal.muted flex-shrink=0
+                box width="0.875rem" height="0.875rem" flex-shrink=0
+                  when choice.selected
+                    CoreIcon(name="check", size=14, color=pal.text)
+              when choice.id == ""
+                box height=1 margin-top="0.25rem" margin-bottom="0.25rem" margin-left="0.5rem" margin-right="0.5rem" background-color=pal.divider flex-shrink=0
 
 // SettingsSection list. Each section header, its card (rounded-xl border bg-card/40 shadow-xs/5)
 // and divided rows; Legacy features folds behind its trigger.
@@ -155,6 +187,16 @@ component CoreRowView
     change: action
     slide: action
     navigate: action
+  // fix-keyboard-focus: the traits menu's keyboard (menu-keys.contract).
+  state traitsOpens = 0
+  state traitsArmed = false
+  action traitsArm(on: bool)
+    traitsArmed = on
+  action traitsOpened(last: bool)
+    traitsOpens = kmBump(traitsOpens, last)
+  action traitsKey(k: string)
+    if kmOpenKey(k)
+      traitsOpens = kmBump(traitsOpens, false)
   view
     column width="100%" padding-top="0.75rem" padding-bottom=(startsWith(row.info, "preview-") ? "0.25rem" : "0.75rem") padding-left="1rem" padding-right="1rem" gap="0.75rem" box-sizing="border-box" border-top-width=(row.divider ? 1 : 0) border-top-style="solid" border-color=pal.divider position="relative" z-index=(startsWith(menu, `${section}/${row.id}`) ? 50 : 1) id=row.id testId=`setting-row-${row.id}`
       row width="100%" gap="2rem" align-items="center"
@@ -215,13 +257,14 @@ component CoreRowView
                   CoreIcon(name="chevron-down", size=14, color=pal.muted)
               when row.label2 != ""
                 box position="relative"
-                  button popovertarget=`effort-${section}-${row.id}` class=SettingsGhost gap="0.375rem" height="1.75rem" padding-left="0.625rem" padding-right="0.625rem" border-radius="0.5rem" disabled=(busy or row.inert) aria-label=row.label2 testId=`setting-${row.id}-effort`
+                  button popovertarget=`effort-${section}-${row.id}` key=traitsKey focus=traitsArm(true) blur=traitsArm(false) class=SettingsGhost gap="0.375rem" height="1.75rem" padding-left="0.625rem" padding-right="0.625rem" border-radius="0.5rem" disabled=(busy or row.inert) aria-label=row.label2 testId=`setting-${row.id}-effort`
                     // TraitsPicker's trigger: a Fast or Ultrafast service tier draws the bolt before the label.
                     when row.icon != ""
                       CcIcon(name=(row.icon == "ultrafast" ? "ultrafast" : "zap"), size=16, color=pal.text, weight=2)
                     text row.label2 font-size="0.875rem" font-weight=500 line-height="1.25rem" color=pal.muted
                     CoreIcon(name="chevron-down", size=14, color=pal.muted)
-                  TraitsMenu(options=row.options2, pal=pal, menuId=`effort-${section}-${row.id}`, choose=change(row.id, "effort"), testId=`setting-${row.id}-effort-menu`)
+                  KeyMenuOpen(menuId=`effort-${section}-${row.id}`, armed=traitsArmed, opened=traitsOpened)
+                  TraitsMenu(options=row.options2, pal=pal, menuId=`effort-${section}-${row.id}`, keyed=traitsOpens, choose=change(row.id, "effort"), testId=`setting-${row.id}-effort-menu`)
             when row.kind == "text-only"
               text row.label font-size="0.875rem" line-height="1.25rem" color=pal.muted
             when row.kind == "mobile-beta"
@@ -262,11 +305,22 @@ component CoreSelect
     menu: string
     openMenu: action
     choose: action
+  // fix-keyboard-focus: the menu's keyboard (menu-keys.contract).
+  state keyed = 0
+  state keyArmed = false
+  action keyArm(on: bool)
+    keyArmed = on
+  action keyOpened(last: bool)
+    keyed = kmBump(keyed, last)
+  action triggerKey(k: string)
+    if kmOpenKey(k)
+      keyed = kmBump(keyed, false)
   view
     box position="relative" flex-shrink=0
-      button popovertarget=`select-${section}-${rowId}` disabled=disabled role="combobox" aria-label=value id=`setting-${rowId}` testId=`setting-${rowId}` border-width=0 padding=0 background-color="#00000000"
+      button popovertarget=`select-${section}-${rowId}` key=triggerKey focus=keyArm(true) blur=keyArm(false) disabled=disabled role="combobox" aria-label=value id=`setting-${rowId}` testId=`setting-${rowId}` border-width=0 padding=0 background-color="#00000000"
         SelectFace(value=value, icon=icon, width=width, pal=pal, dim=dim)
-      CoreMenu(options=options, pal=pal, width=(menuWidth > 0 ? menuWidth : width), checks=(icon == "checks"), menuId=`select-${section}-${rowId}`, choose=choose, testId=`setting-${rowId}-menu`)
+      KeyMenuOpen(menuId=`select-${section}-${rowId}`, armed=keyArmed, opened=keyOpened)
+      CoreMenu(options=options, pal=pal, width=(menuWidth > 0 ? menuWidth : width), checks=(icon == "checks"), menuId=`select-${section}-${rowId}`, keyed=keyed, choose=choose, testId=`setting-${rowId}-menu`)
 
 component SelectFace
   props
@@ -295,25 +349,30 @@ component CoreMenu
     width: number
     checks: bool
     menuId: string
+    keyed: number
     choose: action
     testId: string
   state hovered = ""
+  state lit = ""
   action hover(id: string, over: bool)
     hovered = over ? id : (hovered == id ? "" : hovered)
+  action focused(id: string, on: bool)
+    lit = on ? id : (lit == id ? "" : lit)
   view
     column id=menuId popover="auto" position="absolute" margin-top="0.25rem" min-width=(width > 0 ? `${width / 16}rem` : "10rem") width=(width > 200 ? `${width / 16}rem` : "auto")
       column width="100%" padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color=pal.popoverBorder background-color=pal.popover box-shadow="0 16px 40px -18px #0000008c" role="listbox" testId=testId
-        each option in options key=option.id
-          button press=choose(option.value) popovertarget=menuId popovertargetaction="hide" hover=hover(option.id) role="option" aria-selected=option.selected disabled=option.disabled class=SettingsGhost justify-content="flex-start" align-items=(option.detail != "" ? "flex-start" : "center") width="100%" min-height="1.75rem" padding-top="0.25rem" padding-bottom="0.25rem" padding-left="0.5rem" padding-right="0.5rem" gap="0.5rem" border-radius="0.375rem" opacity=(option.disabled ? 0.64 : 1) background-color=(hovered == option.id or (hovered == "" and option.selected) ? pal.highlight : "#00000000") testId=`${testId}-${option.id}`
-            column flex=1 min-width=0 gap="0.125rem" align-items="flex-start"
-              row gap="0.375rem" align-items="center"
-                when option.icon != "" and option.icon != "codex" and option.icon != "claudeAgent"
-                  CoreIcon(name=option.icon, size=14, color=pal.muted)
-                text option.label font-size="0.875rem" font-weight=(option.detail != "" and option.icon != "codex" ? 500 : 400) line-height="1.25rem" color=pal.text white-space="nowrap"
-              when option.detail != ""
-                text option.detail font-size="0.75rem" line-height="1rem" color=pal.muted
-            when checks and option.selected
-              CoreIcon(name="check", size=14, color=pal.text)
+        KeyMenu(menuId=`${menuId}-keys`, items=map(filter(options, (option) => not option.disabled), (option) => KmItem(id=`${testId}-${option.id}`, label=option.label)), keyed=keyed, gap="0px", modal=true)
+          each option in options key=option.id
+            button id=`${testId}-${option.id}` press=choose(option.value) popovertarget=menuId popovertargetaction="hide" hover=hover(option.id) focus=focused(option.id, true) blur=focused(option.id, false) role="option" aria-selected=option.selected disabled=option.disabled class=SettingsGhost justify-content="flex-start" align-items=(option.detail != "" ? "flex-start" : "center") width="100%" min-height="1.75rem" padding-top="0.25rem" padding-bottom="0.25rem" padding-left="0.5rem" padding-right="0.5rem" gap="0.5rem" border-radius="0.375rem" opacity=(option.disabled ? 0.64 : 1) background-color=(hovered == option.id or lit == option.id or (hovered == "" and lit == "" and option.selected) ? pal.highlight : "#00000000") testId=`${testId}-${option.id}`
+              column flex=1 min-width=0 gap="0.125rem" align-items="flex-start"
+                row gap="0.375rem" align-items="center"
+                  when option.icon != "" and option.icon != "codex" and option.icon != "claudeAgent"
+                    CoreIcon(name=option.icon, size=14, color=pal.muted)
+                  text option.label font-size="0.875rem" font-weight=(option.detail != "" and option.icon != "codex" ? 500 : 400) line-height="1.25rem" color=pal.text white-space="nowrap"
+                when option.detail != ""
+                  text option.detail font-size="0.75rem" line-height="1rem" color=pal.muted
+              when checks and option.selected
+                CoreIcon(name="check", size=14, color=pal.text)
 
 // TraitsPicker's menu: a labelled group per trait (Reasoning, Service Tier) split by a rule, radio
 // rows whose checked row is filled, a "Default" badge and the option's description under its label.
@@ -322,28 +381,33 @@ component TraitsMenu
     options: list<CoreOption>
     pal: CorePalette
     menuId: string
+    keyed: number
     choose: action
     testId: string
   state hovered = ""
+  state lit = ""
   action hover(id: string, over: bool)
     hovered = over ? id : (hovered == id ? "" : hovered)
+  action focused(id: string, on: bool)
+    lit = on ? id : (lit == id ? "" : lit)
   view
     column id=menuId popover="auto" position="absolute" margin-top="0.25rem" min-width="11rem"
       column width="100%" padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color=pal.popoverBorder background-color=pal.popover box-shadow="0 16px 40px -18px #0000008c" role="menu" testId=testId
-        each option in options key=option.id
-          when option.icon == "section" or option.icon == "section-rule"
-            when option.icon == "section-rule"
-              box height=1 margin-left="0.5rem" margin-right="0.5rem" margin-top="0.25rem" margin-bottom="0.25rem" background-color=pal.cardBorder role="separator"
-            text option.label padding-left="0.5rem" padding-right="0.5rem" padding-top="0.375rem" padding-bottom="0.25rem" font-size="0.75rem" font-weight=500 line-height="1rem" color=pal.muted
-          else
-            button press=choose(option.value) popovertarget=menuId popovertargetaction="hide" hover=hover(option.id) role="menuitemradio" aria-checked=option.selected class=SettingsGhost justify-content="flex-start" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" border-radius="0.375rem" background-color=(option.selected or hovered == option.id ? pal.highlight : "#00000000") testId=`${testId}-${option.id}`
-              column flex=1 min-width=0 gap="0.125rem" align-items="flex-start"
-                row gap="0.375rem" align-items="center"
-                  text option.label font-size="0.875rem" line-height="1.25rem" color=pal.text white-space="nowrap"
-                  when option.icon == "default"
-                    text "Default" padding-left="0.25rem" padding-right="0.25rem" border-radius="0.25rem" border-width=1 border-style="solid" border-color=pal.input font-size="0.625rem" font-weight=500 line-height="0.875rem" color=pal.text
-                when option.detail != ""
-                  text option.detail font-size="0.75rem" line-height="1rem" white-space="nowrap" color=pal.muted
+        KeyMenu(menuId=`${menuId}-keys`, items=map(filter(options, (option) => option.icon != "section" and option.icon != "section-rule"), (option) => KmItem(id=`${testId}-${option.id}`, label=option.label)), keyed=keyed, gap="0px", modal=true)
+          each option in options key=option.id
+            when option.icon == "section" or option.icon == "section-rule"
+              when option.icon == "section-rule"
+                box height=1 margin-left="0.5rem" margin-right="0.5rem" margin-top="0.25rem" margin-bottom="0.25rem" background-color=pal.cardBorder role="separator"
+              text option.label padding-left="0.5rem" padding-right="0.5rem" padding-top="0.375rem" padding-bottom="0.25rem" font-size="0.75rem" font-weight=500 line-height="1rem" color=pal.muted
+            else
+              button id=`${testId}-${option.id}` press=choose(option.value) popovertarget=menuId popovertargetaction="hide" hover=hover(option.id) focus=focused(option.id, true) blur=focused(option.id, false) role="menuitemradio" aria-checked=option.selected class=SettingsGhost justify-content="flex-start" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" border-radius="0.375rem" background-color=(option.selected or hovered == option.id or lit == option.id ? pal.highlight : "#00000000") testId=`${testId}-${option.id}`
+                column flex=1 min-width=0 gap="0.125rem" align-items="flex-start"
+                  row gap="0.375rem" align-items="center"
+                    text option.label font-size="0.875rem" line-height="1.25rem" color=pal.text white-space="nowrap"
+                    when option.icon == "default"
+                      text "Default" padding-left="0.25rem" padding-right="0.25rem" border-radius="0.25rem" border-width=1 border-style="solid" border-color=pal.input font-size="0.625rem" font-weight=500 line-height="0.875rem" color=pal.text
+                  when option.detail != ""
+                    text option.detail font-size="0.75rem" line-height="1rem" white-space="nowrap" color=pal.muted
 
 // DraftInput / NumberField: edits stay local until Enter or the field is left.
 component CoreField
