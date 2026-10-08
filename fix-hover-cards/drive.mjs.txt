@@ -1,0 +1,207 @@
+// fix-hover-cards agent drive (not committed): bun drive.mjs <after|before> <outDir> <worktree> <settings|pr>
+// settings: the embedded "This machine" server on a lane with Codex 0.160.1 first on PATH (the update icon), then
+//   Settings › Providers (list and editor update icons' tooltips) and Settings › Connections › Authorized clients
+//   ("N scopes" card after creating a pairing link).
+// pr: the real-GitHub lane's primary server on 16151 (paired from the 0600 file, never printed), Pull Requests › #132
+//   (behind main), the base branch's hover card: hover, leave toward the card, enter the card, the close delay.
+// Writes steps.ndjson and PNGs into outDir. Lane ports: after 16152, before 16153.
+import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+const [which, out, worktree, part] = process.argv.slice(2);
+if (!['after', 'before'].includes(which) || !out || !worktree || !['settings', 'pr', 'usage'].includes(part)) throw new Error('usage: drive.mjs <after|before> <outDir> <worktree> <settings|pr|usage>');
+process.env.EXACT_APP_DIR = `${worktree}/examples/t3-code`;
+const { open } = await import(`${worktree}/scripts/agent.mjs`);
+const F = '/Users/daehyeonmun/orca/workspaces/exact2/t3-code-fix-hover-cards/target/fix-hover-cards';
+const L = `${F}/lane/${part}-${which}`;
+const NL = '/Users/daehyeonmun/orca/workspaces/exact2/t3-code-fix-hover-cards/examples/t3-code/tools/network-lane';
+for (const d of ['home', 'codex', 'claude', 'xdg/config', 'xdg/data', 'xdg/cache', 'xdg/state', 't3-home', 'tmp']) mkdirSync(`${L}/${d}`, { recursive: true });
+mkdirSync(out, { recursive: true });
+const logFile = `${out}/steps-${part}-${which}.ndjson`; writeFileSync(logFile, '');
+const log = (step, data = {}) => { const line = JSON.stringify({ t: new Date().toISOString(), which, step, ...data }); appendFileSync(logFile, line + '\n'); console.log(line.slice(0, 400)); };
+const lanePath = part === 'settings' ? `${F}/lane/npm/bin:${F}/lane/bin:${NL}:/usr/bin:/bin:/usr/sbin:/sbin` : '/usr/bin:/bin:/usr/sbin:/sbin';
+writeFileSync(`${L}/home/.zprofile`, `export PATH="${lanePath}"\n`);
+const env = { HOME: `${L}/home`, SHELL: '/bin/zsh', USER: process.env.USER, CODEX_HOME: `${L}/codex`, CLAUDE_CONFIG_DIR: `${L}/claude`,
+  XDG_CONFIG_HOME: `${L}/xdg/config`, XDG_DATA_HOME: `${L}/xdg/data`, XDG_CACHE_HOME: `${L}/xdg/cache`, XDG_STATE_HOME: `${L}/xdg/state`,
+  T3CODE_TELEMETRY_ENABLED: 'false', TMPDIR: `${L}/tmp/`, PATH: lanePath, GIT_CONFIG_NOSYSTEM: '1', GIT_TERMINAL_PROMPT: '0', T3_TAILSCALE_STUB_STATE: L,
+  ...(part === 'settings' ? { T3_LOCAL_HOME: `${L}/t3-home`, T3_LOCAL_PORT: which === 'after' ? '16152' : '16153', T3_LOCAL_RUNTIME_DIR: '/Users/daehyeonmun/orca/workspaces/exact2/t3-code-fix-hover-cards/target/github-lane/runtime/0.0.46-nightly.20261005.2667' } : {}) };
+let appPid = null;
+const s = await open({ host: 'macos', size: [1280, 840], env, storage: `fhc-${part}-${which}`, epoch: new Date().toISOString(), onProcess: (p) => { appPid = p?.pid ?? null; writeFileSync(`${F}/logs/app-${part}-${which}.pid`, String(appPid)); } });
+log('launched', { appPid, part });
+const nodes = async () => (await s.tree()).nodes;
+const ids = async () => new Set((await nodes()).map(n => n.props.testId).filter(Boolean));
+const has = async (id) => (await ids()).has(id);
+// `clock +N real` can refuse "the clock cannot go backwards" (#285): then wait on the wall clock and settle.
+const real = async (ms = 500) => { try { await s.clock(`+${ms} real`); } catch (e) { if (!/backwards/.test(String(e.message))) throw e; await Bun.sleep(ms); try { await s.clock('settle'); } catch {} } };
+const settle = async () => { try { await s.clock('settle'); } catch (e) { log('settle-error', { m: String(e.message).slice(0, 160) }); } };
+const shot = async (name) => { await s.screenshot(`${out}/${which}-${name}.png`, true); log('shot', { name }); };
+async function waitFor(what, pred, ms = 60000) {
+  const t0 = Date.now();
+  for (;;) { let ok = false; try { ok = await pred(); } catch {} if (ok) { log('ready', { what, ms: Date.now() - t0 }); return true; } if (Date.now() - t0 > ms) { log('timeout', { what }); return false; } await real(700); }
+}
+async function tap(id, opts) { const r = await s.tap(id, opts); await settle(); log('tap', { id, ...(opts ?? {}) }); return r; }
+async function frameOf(id) { try { const lay = await s.layout(id); return lay; } catch (e) { return { error: String(e.message).slice(0, 120) }; } }
+async function step(name, fn) { try { log('step', { name }); await fn(); } catch (e) { log('step-error', { name, m: String(e.stack ?? e.message).slice(0, 600) }); try { await shot(`err-${name}`); } catch {} } }
+const dismissToasts = async () => { for (let round = 0; round < 6; round++) { const list = [...await ids()].filter(id => id.startsWith('toast-dismiss-')); if (!list.length) return; for (const id of list) { try { await s.tap(id); await settle(); } catch {} } await real(400); } };
+const visible = async (id) => { const all = await nodes(); const n = all.find(x => x.props.testId === id); if (!n) { log('visible', { id, v: 'absent' }); return false; } const parent = all.find(x => x.id === n.parent); const v = { opacity: n.props.opacity, inert: parent?.props?.inert, hidden: parent?.props?.['aria-hidden'] }; log('visible', { id, ...v }); return v; };
+const present = async (id) => { const v = await has(id); log('present', { id, v }); return v; };
+try {
+  if (part === 'settings') {
+    const t0 = Date.now(); let booted = false, seen = false;
+    while (Date.now() - t0 < 240000) {
+      if (await has('welcome-wizard')) {
+        seen = true;
+        for (const id of ['welcome-continue', 'welcome-agents-continue', 'welcome-skip-import']) if (await has(id)) { try { await tap(id); } catch {} break; }
+        await real(1500); continue;
+      }
+      if (!seen && Date.now() - t0 < 90000) { await real(1000); continue; }
+      try { await s.tap('connection-settings'); await settle(); } catch { await real(1000); continue; }
+      if (await has('close-settings')) { booted = true; break; }
+      await real(1000);
+    }
+    log(booted ? 'settings-open' : 'settings-timeout', { ms: Date.now() - t0 });
+    await s.prefer({ 'prefers-color-scheme': 'dark' }); await settle();
+    await step('providers', async () => {
+      await tap('Providers');
+      await waitFor('update icon', () => has('provider-advisory-list-codex'), 120000);
+      await real(1500); await settle(); await dismissToasts(); await real(600);
+      await shot('01-providers');
+      await tap('provider-advisory-list-codex', { hover: true }); await s.clock('+700'); await settle();
+      await present('provider-advisory-list-codex-tip'); log('tip-layout', { lay: JSON.stringify(await frameOf('provider-advisory-list-codex-tip')).slice(0, 300) });
+      await shot('02-list-icon-tooltip');
+      await tap('settings-provider-codex'); await real(800); await settle(); await dismissToasts();
+      await tap('provider-advisory-editor-codex', { hover: true }); await s.clock('+700'); await settle();
+      await present('provider-advisory-editor-codex-tip'); await shot('03-editor-icon-tooltip');
+      await tap('refresh-providers', { hover: true }); await settle();
+      await present('provider-advisory-editor-codex-tip');
+      await shot('04-tooltip-gone');
+    });
+    await step('connections', async () => {
+      await tap('Connections'); await real(1500); await settle(); await dismissToasts();
+      if (!(await has('authorized-clients-toggle'))) {
+        await tap('network-access-switch'); await real(600); await tap('network-access-confirm');
+        await waitFor('authorized clients', () => has('authorized-clients-toggle'), 60000); await real(1500); await settle(); await dismissToasts();
+      }
+      if (!(await has('pairing-label'))) {
+        if (await has('authorized-clients-toggle')) { const n = (await nodes()).find(x => x.props.testId === 'authorized-clients-toggle'); if (n?.props?.['aria-expanded'] !== true && n?.props?.ariaExpanded !== true) await tap('authorized-clients-toggle'); }
+        await tap('create-pairing-link'); await real(800); await settle();
+      }
+      if (await has('pairing-standard')) await tap('pairing-standard');
+      await s.type('pairing-label', 'Lane phone'); await settle();
+      await tap('pairing-create-confirm'); await real(2500); await settle();
+      const scopes = [...await ids()].filter(id => /^pairing-link-scopes-/.test(id) && !id.endsWith('-popup'));
+      log('scopes-triggers', { scopes });
+      const trigger = scopes[0];
+      await shot('05-clients');
+      await tap(trigger, { hover: true }); await s.clock('+300'); await settle();
+      await present(`${trigger}-popup`); log('popup-layout', { lay: JSON.stringify(await frameOf(`${trigger}-popup`)).slice(0, 300) });
+      await shot('06-scopes-card');
+      // The pointer leaves the count toward the card: within the close delay it can enter the card.
+      await tap('authorized-clients-summary', { hover: true }); await settle();
+      await present(`${trigger}-popup`);
+      try { await tap(`${trigger}-popup`, { hover: true }); } catch (e) { log('enter-card-error', { m: String(e.message).slice(0, 200) }); }
+      await s.clock('+600'); await settle();
+      await present(`${trigger}-popup`);
+      await shot('07-pointer-on-scopes-card');
+      await tap('create-pairing-link', { hover: true }); await settle(); await s.clock('+150'); await settle();
+      await present(`${trigger}-popup`);
+      await shot('08-scopes-card-closed');
+    });
+  } else if (part === 'usage') {
+    // The usage lane (usage-lane/lane.mjs): Studio and Build box behind the fixture proxy, paired in the welcome.
+    await waitFor('welcome', () => has('welcome-pairing-link'), 120000);
+    for (const name of ['a', 'b']) {
+      const link = readFileSync(`${F}/usage-lane/${name}/pairing-url`, 'utf8').trim();
+      if (!(await has('welcome-pairing-link')) && (await has('welcome-add-computer'))) await tap('welcome-add-computer');
+      await s.type('welcome-pairing-link', link); await settle();
+      await tap('welcome-pair'); await real(5000); await settle();
+    }
+    for (let i = 0; i < 4; i++) for (const id of ['welcome-continue', 'welcome-agents-continue', 'welcome-skip-import']) if (await has(id)) { try { await tap(id); await real(1500); } catch {} }
+    await waitFor('usage entry', () => has('open-usage'), 90000);
+    await s.prefer({ 'prefers-color-scheme': 'dark' }); await settle(); await dismissToasts();
+    await step('usage', async () => {
+      await tap('open-usage'); await real(3000); await settle();
+      if (await has('usage-metric-limits')) await tap('usage-metric-limits');
+      await waitFor('segments', async () => [...await ids()].some(id => /^usage-seg-[^-]+/.test(id) && !/-(pop|fill|hatch|email|credits|reset)-/.test(id)), 60000);
+      await real(1500); await settle(); await dismissToasts();
+      const segs = [...await ids()].filter(id => /^usage-seg-/.test(id) && !/^usage-seg-(pop|fill|hatch|email|credits|reset|status)-/.test(id));
+      log('segments', { segs });
+      const seg = segs[0], id = seg.slice('usage-seg-'.length), pop = `usage-seg-pop-${id}`;
+      await shot('21-usage');
+      await tap(seg, { hover: true }); await s.clock('+400'); await settle();
+      await visible(pop); log('pop-layout', { lay: JSON.stringify(await frameOf(pop)).slice(0, 300) });
+      await shot('22-usage-popover');
+      // The real pointer's path: it leaves the segment (a leave, no enter) and enters the popover.
+      const away = [...await ids()].find(x => x.startsWith('usage-window-left-'));
+      await tap(away, { hover: true }); await settle();
+      await visible(pop);
+      try { await tap(pop, { hover: true }); } catch (e) { log('enter-card-error', { m: String(e.message).slice(0, 200) }); }
+      await s.clock('+600'); await settle();
+      await visible(pop);
+      await shot('23-pointer-on-usage-popover');
+      try { await tap(`usage-seg-email-${id}`, { hover: true }); await s.clock('+600'); await settle(); await present(`usage-seg-email-${id}-tip`); await shot('24-pointer-on-email'); } catch (e) { log('email-hover-error', { m: String(e.message).slice(0, 200) }); }
+      await tap(away, { hover: true }); await settle(); await s.clock('+100'); await settle();
+      await visible(pop);
+      await shot('25-usage-popover-closed');
+    });
+    // #246 bug 9: at All environments, Studio's GPT-6 Luna is unavailable on Build box (the fixture advertises it on Studio only).
+    await step('model-row', async () => {
+      const unavailableRows = async () => (await nodes()).filter(n => typeof n.props.title === 'string' && n.props.title.startsWith('This model is unavailable'));
+      if (await has('sidebar-back')) { await tap('sidebar-back'); await real(1000); }
+      await tap('connection-settings'); await real(1500); await settle();
+      const scope = (await nodes()).find(n => n.props.testId === 'settings-scope-environment');
+      log('scope', { label: JSON.stringify(scope?.props ?? {}).slice(0, 200) });
+      if (!/All environments/.test(scope?.props?.accessibilityLabel ?? '')) { await tap('settings-scope-environment'); await real(500); await tap('settings-scope-choice-environment-all'); await real(1000); await settle(); }
+      await tap('setting-default-model-model'); await real(1500); await settle();
+      const rows = await unavailableRows();
+      log('unavailable-rows', { count: rows.length });
+      const all = await nodes();
+      const button = rows.length ? all.find(n => n.parent === rows[0].id && /^model-/.test(n.props.testId ?? '')) : null;
+      log('row-button', { id: button?.props?.testId, rails: [...await ids()].filter(x => x.startsWith('provider-')).slice(0, 10) });
+      await shot('31-model-picker');
+      if (button) {
+        await tap(button.props.testId, { hover: true }); await settle();
+        const tips = [...await ids()].filter(x => x.startsWith('model-row-tip-'));
+        log('row-tips', { tips });
+        if (tips[0]) log('row-tip-layout', { lay: JSON.stringify(await frameOf(tips[0])).slice(0, 300) });
+        await shot('32-unavailable-row-hover');
+      }
+    });
+  } else {
+    const url = readFileSync('/Users/daehyeonmun/orca/workspaces/exact2/t3-code-fix-hover-cards/target/github-lane/servers/primary/pairing-url', 'utf8').trim();
+    await waitFor('welcome', () => has('welcome-pairing-link'), 120000);
+    await s.type('welcome-pairing-link', url); await settle();
+    await tap('welcome-pair'); await real(6000); await settle();
+    for (const id of ['welcome-continue', 'welcome-agents-continue', 'welcome-skip-import']) if (await has(id)) { try { await tap(id); await real(1500); } catch {} }
+    await waitFor('pull requests entry', () => has('open-pull-requests'), 90000);
+    await s.prefer({ 'prefers-color-scheme': 'dark' }); await settle();
+    await step('freshness', async () => {
+      await tap('open-pull-requests'); await real(5000); await settle();
+      await s.type('pull-requests-search', '#132'); await real(4000); await settle();
+      await waitFor('row 132', () => has('pr-row-132'), 30000);
+      await tap('pr-row-132'); await real(1500);
+      await waitFor('freshness mark', () => has('pull-request-base-freshness'), 40000);
+      await real(2500); await settle();
+      for (const id of (await ids())) if (id.startsWith('toast-dismiss-')) { try { await s.tap(id); } catch {} }
+      await settle();
+      await shot('11-pr-header');
+      await tap('pull-request-base-freshness', { hover: true }); await settle();
+      await present('pr-freshness-hover'); log('card-layout', { lay: JSON.stringify(await frameOf('pr-freshness-hover')).slice(0, 300) });
+      await shot('12-freshness-card');
+      // The real pointer's path: it leaves the mark (a leave, no enter) and enters the card within closeDelay 120.
+      await tap('pull-request-header-actions', { hover: true }); await settle();
+      await present('pr-freshness-hover');
+      try { await tap('pr-freshness-hover', { hover: true }); } catch (e) { log('enter-card-error', { m: String(e.message).slice(0, 200) }); }
+      await s.clock('+600'); await settle();
+      await present('pr-freshness-hover');
+      await shot('13-pointer-on-freshness-card');
+      try { await tap(which === 'after' ? 'pr-freshness-hover-rebase' : 'pr-freshness-rebase', { hover: true }); await s.clock('+600'); await settle(); } catch (e) { log('button-hover-error', { m: String(e.message).slice(0, 200) }); }
+      await present('pr-freshness-hover');
+      await shot('14-pointer-on-card-button');
+      await tap('pull-request-header-actions', { hover: true }).catch(() => {}); await settle(); await s.clock('+200'); await settle();
+      await present('pr-freshness-hover');
+      await shot('15-freshness-card-closed');
+    });
+  }
+} finally {
+  log('done', { appPid });
+  try { await s.close(); } catch {}
+}
