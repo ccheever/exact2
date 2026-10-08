@@ -1,0 +1,272 @@
+# visual-parity-followup: agent REPL transcript, before
+# argv op 0: clock +30000 real -> macos build freshness unchecked: EXACT_MAC_BIN names the binary | {"epoch":14,"inflight":1,"clock":30000,"incarnation":1,"real":30023}
+1 > clock settle
+   {"settled":true,"epoch":14,"clock":30000,"incarnation":1}
+2 > screenshot <worktree>/target/vpf/drive/before/shots/00-start.png window
+   {"scale":2,"h":840,"screenshot":"<worktree>/target/vpf/drive/before/shots/00-start.png","incarnation":1,"window":true,"w":1280,"clock":30000,"epoch":14}
+3 > tree
+   (569 lines)
+4 > tap toast-dismiss-2
+   {"delivery":"platform","tapped":534,"at":[1241,91],"target":"toast-dismiss-2","carrier":"macos","mode":"agent","epoch":14,"incarnation":1,"clock":30000}
+5 > clock +1000
+   {"epoch":15,"inflight":1,"clock":31000,"incarnation":1,"diagnostic":"1 request still in flight on real time (a store's, a worker's, the network's): `clock +N` moved the clock without waiting for it; `clock settle` lands them, and `state` lists them under pendi
+6 > tree toast-region
+   (21 lines)
+7 > tap thread-915bf626-7e70-4b71-a46e-f97605211102
+   {"delivery":"platform","tapped":312,"at":[127.5,141],"target":"thread-915bf626-7e70-4b71-a46e-f97605211102","carrier":"macos","mode":"agent","epoch":16,"incarnation":1,"clock":31000}
+8 > clock settle
+   {"clock":31000,"epoch":21,"settled":true,"incarnation":1}
+9 > clock +1500
+   {"clock":32500,"epoch":21,"incarnation":1,"inflight":1,"diagnostic":"1 request still in flight on real time (a store's, a worker's, the network's): `clock +N` moved the clock without waiting for it; `clock settle` lands them, and `state` lists them under pendi
+10 > screenshot <worktree>/target/vpf/drive/before/shots/10-thread-light.png window
+   {"w":1280,"incarnation":1,"clock":32500,"h":840,"scale":2,"window":true,"screenshot":"<worktree>/target/vpf/drive/before/shots/10-thread-light.png","epoch":21}
+11 > tap toast-dismiss-1
+   {"tapped":614,"at":[1241,91],"delivery":"platform","target":"toast-dismiss-1","carrier":"macos","mode":"agent","epoch":21,"incarnation":1,"clock":32500}
+12 > clock +800
+   {"clock":33300,"epoch":22,"incarnation":1}
+13 > screenshot <worktree>/target/vpf/drive/before/shots/10-thread-light.png window
+   {"clock":33300,"w":1280,"epoch":22,"scale":2,"window":true,"incarnation":1,"h":840,"screenshot":"<worktree>/target/vpf/drive/before/shots/10-thread-light.png"}
+14 > tree
+   (725 lines)
+15 > tap table-expand-1
+   {"at":[292,324.45],"delivery":"platform","tapped":785,"target":"table-expand-1","carrier":"macos","mode":"agent","epoch":23,"incarnation":1,"clock":33300}
+16 > tap table-expand-5
+   {"tapped":855,"delivery":"platform","at":[292,540.9],"target":"table-expand-5","carrier":"macos","mode":"agent","epoch":24,"incarnation":1,"clock":33300}
+17 > clock settle
+   {"settled":true,"epoch":24,"incarnation":1,"clock":34191.666666666664}
+18 > tap connection-settings hover
+   {"tapped":97,"at":[24,820],"hover":true,"target":"connection-settings","delivery":"platform","carrier":"macos","mode":"agent","epoch":25,"incarnation":1,"clock":34191.666666666664}
+19 > clock +600
+   {"clock":34791.666666666664,"incarnation":1,"epoch":25}
+20 > screenshot <worktree>/target/vpf/drive/before/shots/11-thread-light-collapsed.png window
+   {"clock":34791.666666666664,"h":840,"window":true,"scale":2,"w":1280,"screenshot":"<worktree>/target/vpf/drive/before/shots/11-thread-light-collapsed.png","incarnation":1,"epoch":25}
+21 > prefer prefers-color-scheme dark
+   {"clock":34791.666666666664,"media":{"prefers-reduced-transparency":"no-preference","dynamic-range":"standard","prefers-reduced-motion":"no-preference","prefers-contrast":"no-preference","prefers-color-scheme":"dark","color-gamut":"srgb"},"incarnation":1,"fold
+22 > clock +600
+   {"clock":35391.666666666664,"incarnation":1,"epoch":25}
+23 > screenshot <worktree>/target/vpf/drive/before/shots/12-thread-dark-collapsed.png window
+   {"h":840,"incarnation":1,"window":true,"scale":2,"w":1280,"screenshot":"<worktree>/target/vpf/drive/before/shots/12-thread-dark-collapsed.png","clock":35391.666666666664,"epoch":25}
+24 > tap table-expand-1
+   {"tapped":785,"delivery":"platform","at":[292,324.45],"target":"table-expand-1","carrier":"macos","mode":"agent","epoch":26,"incarnation":1,"clock":35391.666666666664}
+25 > tap table-expand-5
+   {"tapped":855,"delivery":"platform","at":[292,501.9],"target":"table-expand-5","carrier":"macos","mode":"agent","epoch":27,"incarnation":1,"clock":35391.666666666664}
+26 > clock settle
+   {"settled":true,"epoch":27,"incarnation":1,"clock":36283.33333333333}
+27 > tap connection-settings hover
+   {"tapped":97,"hover":true,"at":[24,820],"target":"connection-settings","delivery":"platform","carrier":"macos","mode":"agent","epoch":27,"incarnation":1,"clock":36283.33333333333}
+28 > clock +600
+   {"incarnation":1,"clock":36883.33333333333,"epoch":27}
+29 > screenshot <worktree>/target/vpf/drive/before/shots/13-thread-dark-expanded.png window
+   {"w":1280,"incarnation":1,"clock":36883.33333333333,"h":840,"scale":2,"window":true,"screenshot":"<worktree>/target/vpf/drive/before/shots/13-thread-dark-expanded.png","epoch":27}
+30 > prefer prefers-color-scheme light
+   {"clock":36883.33333333333,"epoch":28,"incarnation":1,"page":{"can-share":true,"root-font-size":16,"can-open-files":true,"has-focus":true,"visibility-state":"visible","online":true},"fold":{"vertical-viewport-segments":1,"viewport-segments":[],"device-posture"
+31 > clock +400
+   {"incarnation":1,"clock":37283.33333333333,"epoch":28}
+32 > tap connection-settings
+   {"at":[24,820],"tapped":1057,"delivery":"platform","target":"connection-settings","carrier":"macos","mode":"agent","epoch":30,"incarnation":1,"clock":37283.33333333333}
+33 > clock settle
+   {"settled":true,"clock":37283.33333333333,"epoch":30,"incarnation":1}
+34 > tap Appearance
+   {"at":[128,152],"tapped":1301,"delivery":"platform","target":"Appearance","carrier":"macos","mode":"agent","epoch":31,"incarnation":1,"clock":37283.33333333333}
+35 > clock settle
+   {"settled":true,"clock":37283.33333333333,"epoch":31,"incarnation":1}
+36 > tree
+   (1666 lines)
+37 > tap settings-content-scroll wheel 0 1400
+   {"wheel":[0,1400],"at":[768.5,446],"gesture":false,"delivery":"platform","tapped":1358,"target":"settings-content-scroll","carrier":"macos","mode":"agent","epoch":31,"incarnation":1,"clock":37283.33333333333}
+38 > clock +500
+   {"clock":37783.33333333333,"epoch":32,"incarnation":1}
+39 > layout settings-section-typography
+   (64 lines) space viewport 344.5,94 848×698 · frame 0,611 848×698 (kernel, in the parent) · window 344.5,94 848×698 · screen 452.5,192 848×698 · scale 2
+40 > screenshot <worktree>/target/vpf/drive/before/shots/20-typo-light.png window
+   {"screenshot":"<worktree>/target/vpf/drive/before/shots/20-typo-light.png","scale":2,"epoch":32,"clock":37783.33333333333,"h":840,"incarnation":1,"window":true,"w":1280}
+41 > prefer prefers-color-scheme dark
+   {"page":{"online":true,"has-focus":true,"visibility-state":"visible","root-font-size":16,"can-share":true,"can-open-files":true},"fold":{"horizontal-viewport-segments":1,"viewport-segments":[],"vertical-viewport-segments":1,"device-posture":"continuous"},"inca
+42 > clock +500
+   {"epoch":33,"incarnation":1,"clock":38283.33333333333}
+43 > screenshot <worktree>/target/vpf/drive/before/shots/21-typo-dark.png window
+   {"scale":2,"incarnation":1,"epoch":33,"w":1280,"screenshot":"<worktree>/target/vpf/drive/before/shots/21-typo-dark.png","window":true,"h":840,"clock":38283.33333333333}
+44 > tap setting-typography-advanced
+   {"delivery":"platform","at":[1161.5,108],"tapped":3113,"target":"setting-typography-advanced","carrier":"macos","mode":"agent","epoch":34,"incarnation":1,"clock":38283.33333333333}
+45 > clock settle
+   {"incarnation":1,"settled":true,"epoch":36,"clock":38283.33333333333}
+46 > clock +500
+   {"incarnation":1,"epoch":36,"clock":38783.33333333333}
+47 > screenshot <worktree>/target/vpf/drive/before/shots/22-typo-dark-advanced.png window
+   {"h":840,"w":1280,"incarnation":1,"epoch":36,"clock":38783.33333333333,"scale":2,"screenshot":"<worktree>/target/vpf/drive/before/shots/22-typo-dark-advanced.png","window":true}
+48 > prefer prefers-color-scheme light
+   {"clock":38783.33333333333,"epoch":37,"fold":{"viewport-segments":[],"horizontal-viewport-segments":1,"vertical-viewport-segments":1,"device-posture":"continuous"},"incarnation":1,"page":{"root-font-size":16,"can-open-files":true,"has-focus":true,"online":true
+49 > clock +500
+   {"clock":39283.33333333333,"incarnation":1,"epoch":37}
+50 > screenshot <worktree>/target/vpf/drive/before/shots/23-typo-light-advanced.png window
+   {"window":true,"clock":39283.33333333333,"h":840,"screenshot":"<worktree>/target/vpf/drive/before/shots/23-typo-light-advanced.png","epoch":37,"scale":2,"w":1280,"incarnation":1}
+51 > tap setting-typography-advanced
+   {"delivery":"platform","at":[1161.5,108],"tapped":3113,"target":"setting-typography-advanced","carrier":"macos","mode":"agent","epoch":38,"incarnation":1,"clock":39283.33333333333}
+52 > clock settle
+   {"clock":39283.33333333333,"settled":true,"incarnation":1,"epoch":40}
+53 > tap Storage
+   {"at":[128,404],"delivery":"platform","tapped":1329,"target":"Storage","carrier":"macos","mode":"agent","epoch":41,"incarnation":1,"clock":39283.33333333333}
+54 > clock settle
+   {"epoch":42,"incarnation":1,"clock":39283.33333333333,"settled":true}
+55 > tap settings-scope-project
+   {"tapped":4327,"delivery":"platform","at":[568.18,88],"target":"settings-scope-project","carrier":"macos","mode":"agent","epoch":42,"incarnation":1,"clock":39283.33333333333}
+56 > clock settle
+   {"epoch":42,"incarnation":1,"clock":39283.33333333333,"settled":true}
+57 > tree settings-scope-project-menu
+   (15 lines)
+58 > tap settings-scope-choice-project-0c046725-f2cb-4d17-81f5-cd5a5bf8b1ab:<worktree>/target/lane/project
+   {"at":[604.56,156],"delivery":"platform","tapped":4344,"target":"settings-scope-choice-project-0c046725-f2cb-4d17-81f5-cd5a5bf8b1ab:<worktree>/target/lane/project","carrier":"macos","mode":"agent","
+59 > clock settle
+   {"incarnation":1,"epoch":44,"clock":39283.33333333333,"settled":true}
+60 > clock +1000
+   {"incarnation":1,"clock":40283.33333333333,"epoch":44}
+61 > screenshot <worktree>/target/vpf/drive/before/shots/30-storage.png window
+   {"incarnation":1,"epoch":44,"window":true,"scale":2,"h":840,"screenshot":"<worktree>/target/vpf/drive/before/shots/30-storage.png","clock":40283.33333333333,"w":1280}
+62 > tap storage-mode
+   {"delivery":"platform","tapped":4460,"at":[1123.5,204],"target":"storage-mode","carrier":"macos","mode":"agent","epoch":44,"incarnation":1,"clock":40283.33333333333}
+63 > clock settle
+   {"clock":40283.33333333333,"epoch":44,"settled":true,"incarnation":1}
+64 > screenshot <worktree>/target/vpf/drive/before/shots/31-storage-menu.png window
+   {"window":true,"h":840,"incarnation":1,"epoch":44,"screenshot":"<worktree>/target/vpf/drive/before/shots/31-storage-menu.png","scale":2,"clock":40283.33333333333,"w":1280}
+65 > layout storage-mode-menu
+   (78 lines) space viewport 1071.5,218 104×94 · frame 0,0 104×94 (kernel, in the parent) · window 1071.5,218 104×94 · screen 1179.5,316 104×94 · scale 2
+66 > layout storage-mode
+   (87 lines) space viewport 1071.5,190 104×28 · frame 56,0 104×28 (kernel, in the parent) · window 1071.5,190 104×28 · screen 1179.5,288 104×28 · scale 2
+67 > tap storage-mode
+   {"tapped":4460,"delivery":"platform","at":[1123.5,204],"target":"storage-mode","carrier":"macos","mode":"agent","epoch":44,"incarnation":1,"clock":40283.33333333333}
+68 > clock settle
+   {"incarnation":1,"settled":true,"clock":40283.33333333333,"epoch":44}
+69 > tap "Source Control"
+   {"at":[128,404],"tapped":1325,"delivery":"platform","target":"Source Control","carrier":"macos","mode":"agent","epoch":45,"incarnation":1,"clock":40283.33333333333}
+70 > clock settle
+   {"clock":40283.33333333333,"settled":true,"incarnation":1,"epoch":46}
+71 > clock +1000
+   {"clock":41283.33333333333,"epoch":46,"incarnation":1}
+72 > screenshot <worktree>/target/vpf/drive/before/shots/32-source-control.png window
+   {"clock":41283.33333333333,"scale":2,"screenshot":"<worktree>/target/vpf/drive/before/shots/32-source-control.png","w":1280,"epoch":46,"h":840,"incarnation":1,"window":true}
+73 > tap scoped-pullRequestMergeMethod
+   {"delivery":"platform","tapped":4543,"at":[1095.5,271],"target":"scoped-pullRequestMergeMethod","carrier":"macos","mode":"agent","epoch":46,"incarnation":1,"clock":41283.33333333333}
+74 > clock settle
+   {"incarnation":1,"settled":true,"clock":41283.33333333333,"epoch":46}
+75 > screenshot <worktree>/target/vpf/drive/before/shots/33-source-control-merge-menu.png window
+   {"h":840,"w":1280,"incarnation":1,"clock":41283.33333333333,"epoch":46,"scale":2,"screenshot":"<worktree>/target/vpf/drive/before/shots/33-source-control-merge-menu.png","window":true}
+76 > layout scoped-pullRequestMergeMethod
+   (87 lines) space viewport 1015.5,257 160×28 · frame 0,0 160×28 (kernel, in the parent) · window 1015.5,257 160×28 · screen 1123.5,355 160×28 · scale 2
+77 > layout scoped-pullRequestMergeMethod-menu
+   (78 lines) space viewport 1015.5,285 168.72×122 · frame 0,0 168.71875×122 (kernel, in the parent) · window 1015.5,285 168.72×122 · screen 1123.5,383 168.72×122 · scale 2
+78 > tap scoped-pullRequestMergeMethod
+   {"at":[1095.5,271],"tapped":4543,"delivery":"platform","target":"scoped-pullRequestMergeMethod","carrier":"macos","mode":"agent","epoch":46,"incarnation":1,"clock":41283.33333333333}
+79 > clock settle
+   {"epoch":46,"clock":41283.33333333333,"incarnation":1,"settled":true}
+80 > tap scoped-sourceControlWritingStyle
+   {"at":[1063.5,606],"delivery":"platform","tapped":4861,"target":"scoped-sourceControlWritingStyle","scrolled":{"from":[1063.5,1226],"to":[1063.5,606]},"carrier":"macos","mode":"agent","epoch":46,"incarnation":1,"clock":41283.33333333333}
+81 > clock settle
+   {"clock":41283.33333333333,"epoch":46,"incarnation":1,"settled":true}
+82 > screenshot <worktree>/target/vpf/drive/before/shots/34-source-control-style-menu.png window
+   {"clock":41283.33333333333,"epoch":46,"scale":2,"incarnation":1,"w":1280,"screenshot":"<worktree>/target/vpf/drive/before/shots/34-source-control-style-menu.png","h":840,"window":true}
+83 > layout scoped-sourceControlWritingStyle
+   (87 lines) space viewport 951.5,592 224×28 · frame 0,0 224×28 (kernel, in the parent) · window 951.5,592 224×28 · screen 1059.5,690 224×28 · scale 2
+84 > layout scoped-sourceControlWritingStyle-menu
+   (78 lines) space viewport 951.5,620 224×94 · frame 0,0 224×94 (kernel, in the parent) · window 951.5,620 224×94 · screen 1059.5,718 224×94 · scale 2
+85 > tap scoped-sourceControlWritingStyle
+   {"tapped":4861,"at":[1063.5,606],"delivery":"platform","target":"scoped-sourceControlWritingStyle","carrier":"macos","mode":"agent","epoch":46,"incarnation":1,"clock":41283.33333333333}
+86 > clock settle
+   {"settled":true,"clock":41283.33333333333,"incarnation":1,"epoch":46}
+87 > tap Project
+   {"delivery":"platform","at":[128,116],"tapped":4442,"target":"Project","carrier":"macos","mode":"agent","epoch":47,"incarnation":1,"clock":41283.33333333333}
+88 > clock settle
+   {"epoch":48,"settled":true,"incarnation":1,"clock":41283.33333333333}
+89 > clock +1000
+   {"epoch":48,"clock":42283.33333333333,"incarnation":1}
+90 > screenshot <worktree>/target/vpf/drive/before/shots/40-project.png window
+   {"h":840,"w":1280,"incarnation":1,"epoch":48,"clock":42283.33333333333,"scale":2,"screenshot":"<worktree>/target/vpf/drive/before/shots/40-project.png","window":true}
+91 > tap project-workspace
+   {"delivery":"platform","tapped":5085,"at":[1095.5,522],"target":"project-workspace","carrier":"macos","mode":"agent","epoch":48,"incarnation":1,"clock":42283.33333333333}
+92 > clock settle
+   {"settled":true,"incarnation":1,"clock":42283.33333333333,"epoch":48}
+93 > screenshot <worktree>/target/vpf/drive/before/shots/41-project-workspace-menu.png window
+   {"clock":42283.33333333333,"scale":2,"screenshot":"<worktree>/target/vpf/drive/before/shots/41-project-workspace-menu.png","w":1280,"epoch":48,"h":840,"incarnation":1,"window":true}
+94 > layout project-workspace
+   (87 lines) space viewport 1015.5,508 160×28 · frame 670,20 160×28 (kernel, in the parent) · window 1015.5,508 160×28 · screen 1123.5,606 160×28 · scale 2
+95 > layout project-workspace-menu
+   (78 lines) space viewport 1015.5,536 160.27×66 · frame 0,0 160.265625×66 (kernel, in the parent) · window 1015.5,536 160.27×66 · screen 1123.5,634 160.27×66 · scale 2
+96 > tap project-workspace
+   {"delivery":"platform","tapped":5085,"at":[1095.5,522],"target":"project-workspace","carrier":"macos","mode":"agent","epoch":48,"incarnation":1,"clock":42283.33333333333}
+97 > clock settle
+   {"clock":42283.33333333333,"settled":true,"epoch":48,"incarnation":1}
+98 > tap project-model
+   {"tapped":5000,"delivery":"platform","at":[1044.73,444],"target":"project-model","carrier":"macos","mode":"agent","epoch":48,"incarnation":1,"clock":42283.33333333333}
+99 > clock settle
+   {"settled":true,"incarnation":1,"clock":42283.33333333333,"epoch":48}
+100 > screenshot <worktree>/target/vpf/drive/before/shots/42-project-model-menu.png window
+   {"screenshot":"<worktree>/target/vpf/drive/before/shots/42-project-model-menu.png","window":true,"incarnation":1,"clock":42283.33333333333,"scale":2,"h":840,"epoch":48,"w":1280}
+101 > layout project-model
+   (76 lines) space viewport 959.97,430 169.53×28 · frame 0,0 169.53125×28 (kernel, in the parent) · window 959.97,430 169.53×28 · screen 1067.97,528 169.53×28 · scale 2
+102 > layout project-model-menu
+   (78 lines) space viewport 959.97,458 256×178 · frame 0,0 256×178 (kernel, in the parent) · window 959.97,458 256×178 · screen 1067.97,556 256×178 · scale 2
+103 > tap project-model
+   {"delivery":"platform","tapped":5000,"at":[1044.73,444],"target":"project-model","carrier":"macos","mode":"agent","epoch":48,"incarnation":1,"clock":42283.33333333333}
+104 > clock settle
+   {"clock":42283.33333333333,"incarnation":1,"settled":true,"epoch":48}
+105 > tap settings-scope-project
+   {"delivery":"platform","tapped":4327,"at":[580.44,88],"target":"settings-scope-project","carrier":"macos","mode":"agent","epoch":48,"incarnation":1,"clock":42283.33333333333}
+106 > clock settle
+   {"clock":42283.33333333333,"settled":true,"incarnation":1,"epoch":48}
+107 > tap settings-scope-choice-project-all
+   {"at":[604.56,119],"delivery":"platform","tapped":4337,"target":"settings-scope-choice-project-all","carrier":"macos","mode":"agent","epoch":49,"incarnation":1,"clock":42283.33333333333}
+108 > clock settle
+   {"incarnation":1,"epoch":49,"clock":42283.33333333333,"settled":true}
+109 > tap Keybindings
+   {"at":[128,188],"delivery":"platform","tapped":1305,"target":"Keybindings","carrier":"macos","mode":"agent","epoch":50,"incarnation":1,"clock":42283.33333333333}
+110 > clock settle
+   {"epoch":51,"settled":true,"incarnation":1,"clock":42283.33333333333}
+111 > clock +1000
+   {"clock":43283.33333333333,"epoch":52,"incarnation":1}
+112 > tap keybinding-row-%5B%22appearance.cycle%22%2C%22mod%2Balt%2Bshift%2Ba%22%2C%22terminalFocus%22%5D hover
+   {"tapped":5213,"at":[768.5,207],"hover":true,"target":"keybinding-row-%5B%22appearance.cycle%22%2C%22mod%2Balt%2Bshift%2Ba%22%2C%22terminalFocus%22%5D","delivery":"platform","carrier":"macos","mode":"agent","epoch":54,"incarnation":1,"clock":43283.33333333333}
+113 > clock +300
+   {"clock":43583.33333333333,"epoch":54,"incarnation":1}
+114 > tap keybinding-actions-%5B%22appearance.cycle%22%2C%22mod%2Balt%2Bshift%2Ba%22%2C%22terminalFocus%22%5D
+   {"at":[1055.5,207],"delivery":"platform","tapped":5226,"target":"keybinding-actions-%5B%22appearance.cycle%22%2C%22mod%2Balt%2Bshift%2Ba%22%2C%22terminalFocus%22%5D","carrier":"macos","mode":"agent","epoch":54,"incarnation":1,"clock":43583.33333333333}
+115 > clock settle
+   {"clock":43583.33333333333,"epoch":54,"incarnation":1,"settled":true}
+116 > screenshot <worktree>/target/vpf/drive/before/shots/50-keybinding-row-menu.png window
+   {"epoch":54,"window":true,"w":1280,"clock":43583.33333333333,"h":840,"scale":2,"incarnation":1,"screenshot":"<worktree>/target/vpf/drive/before/shots/50-keybinding-row-menu.png"}
+117 > layout keybinding-actions-%5B%22appearance.cycle%22%2C%22mod%2Balt%2Bshift%2Ba%22%2C%22terminalFocus%22%5D
+   (79 lines) space viewport 1041.5,193 28×28 · frame 0,0 28×28 (kernel, in the parent) · window 1041.5,193 28×28 · screen 1149.5,291 28×28 · scale 2
+118 > layout keybinding-menu-%5B%22appearance.cycle%22%2C%22mod%2Balt%2Bshift%2Ba%22%2C%22terminalFocus%22%5D
+   (78 lines) space viewport 1041.5,221 160×66 · frame 0,0 160×66 (kernel, in the parent) · window 1041.5,221 160×66 · screen 1149.5,319 160×66 · scale 2
+119 > tap keybinding-actions-%5B%22appearance.cycle%22%2C%22mod%2Balt%2Bshift%2Ba%22%2C%22terminalFocus%22%5D
+   {"delivery":"platform","tapped":5226,"at":[1055.5,207],"target":"keybinding-actions-%5B%22appearance.cycle%22%2C%22mod%2Balt%2Bshift%2Ba%22%2C%22terminalFocus%22%5D","carrier":"macos","mode":"agent","epoch":54,"incarnation":1,"clock":43583.33333333333}
+120 > clock settle
+   {"epoch":54,"clock":43583.33333333333,"incarnation":1,"settled":true}
+121 > tap Integrations
+   {"tapped":1317,"delivery":"platform","at":[128,296],"target":"Integrations","carrier":"macos","mode":"agent","epoch":55,"incarnation":1,"clock":43583.33333333333}
+122 > clock settle
+   {"incarnation":1,"epoch":56,"settled":false,"reason":"requests","clock":43583.33333333333,"diagnostic":"clock settle gave up on requests still in flight at its bound (20 s native); state shows them under pending, and logs a `request N` with no `fulfil N`"}
+123 > clock +1500
+   {"epoch":56,"incarnation":1,"inflight":3,"clock":45083.33333333333,"diagnostic":"3 requests still in flight on real time (a store's, a worker's, the network's): `clock +N` moved the clock without waiting for them; `clock settle` lands them, and `state` lists t
+124 > tree
+   (1112 lines)
+125 > tap settings-content-scroll wheel 0 3000
+   {"wheel":[0,3000],"delivery":"platform","at":[768.5,446],"gesture":false,"tapped":1358,"target":"settings-content-scroll","carrier":"macos","mode":"agent","epoch":56,"incarnation":1,"clock":45083.33333333333}
+126 > clock +600
+   {"clock":45683.33333333333,"inflight":2,"incarnation":1,"epoch":56,"diagnostic":"2 requests still in flight on real time (a store's, a worker's, the network's): `clock +N` moved the clock without waiting for them; `clock settle` lands them, and `state` lists t
+127 > screenshot <worktree>/target/vpf/drive/before/shots/60-hosts.png window
+   {"window":true,"incarnation":1,"clock":45683.33333333333,"w":1280,"screenshot":"<worktree>/target/vpf/drive/before/shots/60-hosts.png","scale":2,"epoch":56,"h":840}
+128 > tap device-host-options-lane-mini
+   {"tapped":6702,"delivery":"platform","at":[1028.28,618],"target":"device-host-options-lane-mini","carrier":"macos","mode":"agent","epoch":56,"incarnation":1,"clock":45683.33333333333}
+129 > clock settle
+   {"reason":"requests","clock":45683.33333333333,"settled":false,"epoch":56,"incarnation":1,"diagnostic":"clock settle gave up on requests still in flight at its bound (20 s native); state shows them under pending, and logs a `request N` with no `fulfil N`"}
+130 > screenshot <worktree>/target/vpf/drive/before/shots/61-hosts-row-menu.png window
+   {"epoch":56,"screenshot":"<worktree>/target/vpf/drive/before/shots/61-hosts-row-menu.png","clock":45683.33333333333,"incarnation":1,"w":1280,"window":true,"h":840,"scale":2}
+131 > layout device-host-options-lane-mini
+   (78 lines) space viewport 1014.28,604 28×28 · frame 0,0 28×28 (kernel, in the parent) · window 1014.28,604 28×28 · screen 1122.28,702 28×28 · scale 2
+132 > layout device-host-menu-lane-mini
+   (78 lines) space viewport 1014.28,632 128×66 · frame 0,0 128×66 (kernel, in the parent) · window 1014.28,632 128×66 · screen 1122.28,730 128×66 · scale 2
+133 > tap device-host-options-lane-mini
+   {"tapped":6702,"delivery":"platform","at":[1028.28,618],"target":"device-host-options-lane-mini","carrier":"macos","mode":"agent","epoch":56,"incarnation":1,"clock":45683.33333333333}
+134 > clock settle
+   {"reason":"requests","clock":45683.33333333333,"settled":false,"epoch":56,"incarnation":1,"diagnostic":"clock settle gave up on requests still in flight at its bound (20 s native); state shows them under pending, and logs a `request N` with no `fulfil N`"}
+135 > quit
+   bye
