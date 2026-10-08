@@ -113,6 +113,20 @@ final class PromptPreviewEditorTests: XCTestCase {
         XCTAssertFalse(pressedNodes.contains(13))
         XCTAssertTrue(fixture.view.string.hasSuffix(" /m\n"))
         XCTAssertEqual(fixture.base.editor.string, "")
+        // The composer's key monitor (an NSEvent local monitor, which window.sendEvent skips) passes
+        // the preview's keys through: Return never sends, a letter is never redirected to the composer.
+        let send = ExactElement(hatch: .t3Send, id: "send-message", node: 2, hatches: fixture.base.hooks)
+        let sendView = NSView(frame: NSRect(x: 0, y: 0, width: 10, height: 10))
+        fixture.base.window.contentView?.addSubview(sendView)
+        send.view = sendView
+        fixture.base.composer.install(send)
+        for (characters, code) in [("\r", UInt16(36)), ("x", UInt16(7))] {
+            let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: fixture.base.window.windowNumber,
+                context: nil, characters: characters, charactersIgnoringModifiers: characters, isARepeat: false, keyCode: code)!
+            XCTAssertTrue(fixture.base.composer.handle(event) === event, "\(characters.debugDescription) passes through")
+        }
+        XCTAssertFalse(pressedNodes.contains(2), "no send")
+        XCTAssertEqual(fixture.base.editor.string, "")
     }
 
     func testTabAndShiftTabLeaveThePreviewWithoutTyping() {
