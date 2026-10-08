@@ -382,6 +382,12 @@ Task `20261005-pr-header-actions-and-stacks` (`pages-pr-actions.*`, `pages-pr-st
 - **The freshness popover's hover delay.** Pointing at the base branch's mark shows the card at once (`openOnHover delay={0}`), as a hover card drawn with the trigger; the reference's 120 ms close delay is not timed (no timer in a component), so the card goes when the pointer leaves the mark and the card together. Pressing the mark (or Return on it) opens the same card as a popover, which Escape and a press outside close.
 - **Dialog focus (X53).** The confirmation AlertDialog and the stack's Dialog keep the stopgap the other dialogs use (`20261008-dialog-shortcut-focus`): focus starts on Cancel and Tab cycles their buttons with their own `key` handlers; Escape is Cancel's `aria-keyshortcuts`.
 
+## Pull request hand-offs and quick actions: declared differences
+
+Task `20261005-pr-handoffs-and-quick-actions` (`pages-pr-handoffs.*`, `pages-pr-quick.*`, `T3Sidebar.swift` speed mode).
+- **Popover placement (X17, [#112](https://github.com/ccheever/exact2/issues/112)).** The Check out menu (`align="end"`) is placed by margins from its button's start under `position-area="bottom span-right"` (the menu's width less the button's measured width); the row's checks popover and stack menu sit at their trigger's start. None flips near an edge (no `position-try`).
+- **Quick actions under the agent.** Speed mode is the app's native flags monitor (`NSEvent` local monitor, ⇧ alone, not while an `NSTextView` edits), which the agent's key events do not reach (it delivers to the window). The predicate is the AppKit test's (`macos/tests/sidebar`); a person's ⇧ (or a HID-posted one) shows the buttons.
+
 ## Usage pooled view: declared differences
 
 - **Light dismiss of a pressed popover (no upstream issue yet).** A segment's popover pinned by a press closes on Escape, a second press or another segment's press, not on a click elsewhere; Base UI's non-modal popover closes on an outside press. Exact opens a `popover="auto"` only from a `popovertarget` press (no imperative `showPopover`, compare X53), so a hover-opened popover is a state-driven layer with no host light dismiss. Needs a decision or a filed issue.

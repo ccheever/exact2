@@ -10,6 +10,12 @@ use PgIcon from "./pages-icons.contract"
 use PgGlyph from "./pages-icons.contract"
 use BrandGitHub from "./settings-brands.contract"
 use PrEmptyState from "./r5-shell-prs.contract"
+use PrSpeedAction from "./pages-pr-quick.contract"
+use PrChecksPopover from "./pages-pr-quick.contract"
+use PrStackPopover from "./pages-pr-quick.contract"
+use PrQuickActions from "./pages-pr-quick.contract"
+use PrRowChecks from "./pages-pr-quick.contract"
+use PrRowStack from "./pages-pr-quick.contract"
 
 shape PrChip
   key: string
@@ -42,6 +48,13 @@ shape PrRow
   projectId: string
   host: string
   linkMenu: string
+  // pr-handoffs-and-quick-actions: the Shift quick actions, the stack trigger and the checks popover's headline.
+  speed: list<PrSpeedAction>
+  speedPending: bool
+  stackLabel: string
+  stackAria: string
+  stackTip: string
+  checksHeadline: string
 shape PrGroup
   key: string
   label: string
@@ -127,6 +140,9 @@ shape PrListView
   filterBadge: string
   filtersWidth: number
   providerIconOnly: bool
+  speedMode: bool
+  checksPopover: PrChecksPopover
+  stackPopover: PrStackPopover
 
 // The lifecycle tones (PULL_REQUEST_STATE_PRESENTATION) and the rollup tones.
 fn prStateIcon(lifecycle: string): string = lifecycle == "draft" ? "git-pull-request-draft" : lifecycle == "closed" ? "git-pull-request-closed" : lifecycle == "merged" ? "git-merge" : "git-pull-request-arrow"
@@ -163,6 +179,8 @@ component PrList
     select: action
     reload: action
     addProject: action
+    // pr-handoffs-and-quick-actions: a row's quick action runs as the panel's actions do (prAct).
+    act: action
   // An open popover sits at its invoker's bottom-left, clamped to the window, so
   // an end-aligned menu carries a transparent tail as wide as the gap from its
   // trigger's right edge to the window's: the clamp then lands it end-aligned.
@@ -202,7 +220,7 @@ component PrList
                     text `${group.count}` font-size="0.75rem" line-height="1rem" font-weight=500 font-variant-numeric="tabular-nums" color="light-dark(#72727c80, #81818180)" flex-shrink=0
                     box flex=1 min-width="0.5rem" height=1 background-color="light-dark(#e4e4e7, #ffffff0f)" role="separator"
                   each row in group.rows key=row.key
-                    PrRowButton(row=row, scheme=scheme, compact=compact, select=select, control=control, diff=page.diffScheme)
+                    PrRowButton(row=row, scheme=scheme, compact=compact, select=select, control=control, diff=page.diffScheme, act=act, speedMode=page.speedMode, checks=page.checksPopover, stack=page.stackPopover)
               when length(page.errors) > 0
                 column width="100%" gap="0.25rem" padding-left="0.75rem" padding-right="0.75rem"
                   each note in page.errors key=note.key
@@ -484,8 +502,12 @@ component PrAvatar
         text initial font-size=(size > 14 ? "0.625rem" : "0.5rem") line-height="0.875rem" font-weight=500 color="light-dark(#71717b, #818181)"
 
 // PullRequestRow: the lifecycle glyph (with the conflict badge on its corner),
-// "#n title" with the checks and review glyphs, the diff stat, then author,
-// repository, labels and the age under it.
+// "#n title" with the checks and review glyphs, the stack and the diff stat, then
+// author, repository, labels and the age under it; the Shift quick actions after
+// it (pr-handoffs-and-quick-actions). The selection button lies under the lines,
+// which let the pointer through but for the number (its right-click menu), the
+// checks and the stack indicators, so those are not presses of the row (the
+// reference's spans with stopPropagation inside the row's button).
 component PrRowButton
   props
     row: PrRow
@@ -494,52 +516,62 @@ component PrRowButton
     compact: bool
     select: action
     control: action
+    act: action
+    speedMode: bool
+    checks: PrChecksPopover
+    stack: PrStackPopover
   state over = false
   action hover(value: bool)
     over = value
   view
-    button press=select(row.ref) hover=hover aria-label=`${row.stateLabel} #${row.number} ${row.title}` testId=`pr-row-${row.number}` width="100%" height="3.5rem" padding-left="0.75rem" padding-right="0.75rem" padding-top="0.625rem" padding-bottom="0.625rem" box-sizing="border-box" gap="0.5rem" border-radius="0.5rem" border-width=0 background-color=(row.selected ? "light-dark(#f4f4f5, #ffffff0a)" : over ? "light-dark(#f4f4f599, #ffffff06)" : "#00000000") display="flex" flex-direction="row" align-items="center"
-      column width="1rem" flex-shrink=0 align-self="flex-start" margin-top="0.1875rem" position="relative" aria-label=row.stateLabel
-        PgIcon(name=prStateIcon(row.state), size=16, color=prStateTone(row.state))
-        when row.conflict != ""
-          box position="absolute" left="0.5rem" top="0.5rem" width="0.75rem" height="0.75rem" aria-label=row.conflict
-            box position="absolute" left=0 top=0
-              PgGlyph(name="triangle-fill-filled", size=12, color="light-dark(#fcfcfc, #0a0a0a)", weight=2.5)
-            box position="absolute" left=0 top=0
-              PgGlyph(name="triangle-alert", size=12, color="light-dark(#e40014, #fb414a)", weight=2.5)
-      column flex=1 min-width=0
-        row height="1.25rem" min-width=0 align-items="center" gap="0.375rem"
-          // PullRequestRow: the number carries the link; its right-click is pullRequestLinkContextMenu (Copy link, Open on <host>).
-          box contextmenu=control("link-menu", row.linkMenu) flex-shrink=0 testId=`pr-number-${row.number}`
-            text `#${row.number}` font-family="ui-monospace" font-size="0.75rem" line-height="1rem" font-variant-numeric="tabular-nums" color="light-dark(#71717b, #818181)"
-          text row.title font-size="0.875rem" line-height="1.25rem" color="light-dark(#262626, #f5f5f5)" min-width=0 white-space="nowrap" overflow="hidden" text-overflow="ellipsis" flex-shrink=1
-          when row.checks != "" or row.review != ""
-            row flex-shrink=0 align-items="center" gap="0.25rem"
-              when row.checks != ""
-                box width="0.875rem" height="0.875rem" aria-label=row.checksLabel
-                  PgIcon(name=prChecksIcon(row.checks), size=14, color=prChecksTone(row.checks))
-              when row.review != ""
-                box width="0.875rem" height="0.875rem" aria-label=row.reviewLabel
-                  PgIcon(name=prReviewIcon(row.review), size=14, color=prReviewTone(row.review))
-          box flex=1 min-width=0
-          when row.additions != ""
-            row flex-shrink=0 align-items="baseline" gap="0.25rem"
-              text row.additions font-family="ui-monospace" font-size="0.6875rem" line-height="1rem" font-variant-numeric="tabular-nums" color=(diff == "blue-orange" ? "light-dark(#155dfc, #51a2ff)" : "light-dark(#009966, #00d492)")
-              text row.deletions font-family="ui-monospace" font-size="0.6875rem" line-height="1rem" font-variant-numeric="tabular-nums" color=(diff == "blue-orange" ? "light-dark(#f54900, #ff8904)" : "light-dark(#fb2c36, #fb414a)")
-        row height="1rem" min-width=0 align-items="center" gap="0.375rem" overflow="hidden"
-          row align-items="center" gap="0.25rem" min-width="0.875rem" max-width="10rem" flex-shrink=1
-            PrAvatar(avatar=row.avatar, initial=row.initial, size=14)
-            when not compact
-              text row.author font-size="0.6875rem" line-height="1rem" color="light-dark(#71717b, #818181)" line-clamp=1 min-width=0
-          text row.repository font-size="0.6875rem" line-height="1rem" color="light-dark(#71717b, #818181)" line-clamp=1 min-width=0 flex-shrink=1
-          when length(row.labels) > 0
-            row min-width=0 align-items="center" gap="0.25rem" flex-shrink=1
-              each chip in (compact ? row.firstLabel : row.labels) key=chip.key
-                text chip.name height="1rem" padding-left="0.1875rem" padding-right="0.1875rem" box-sizing="border-box" border-radius="0.25rem" background-color=chip.background font-size="0.625rem" line-height="1rem" color=chip.ink max-width="10rem" line-clamp=1 min-width=0
-              when compact and row.moreLabels > 0
-                text `+${row.moreLabels}` font-size="0.625rem" line-height="1rem" color="light-dark(#71717b, #818181)" flex-shrink=0
-          box flex=1 min-width=0
-          text row.age font-size="0.6875rem" line-height="1rem" font-variant-numeric="tabular-nums" white-space="nowrap" color="light-dark(#71717b, #818181)" flex-shrink=0
+    row position="relative" hover=hover width="100%" height="3.5rem" border-radius="0.5rem" background-color=(row.selected ? "light-dark(#f4f4f5, #ffffff0a)" : over ? "light-dark(#f4f4f599, #ffffff06)" : "#00000000") align-items="center" testId=`pr-row-wrap-${row.number}`
+      button press=select(row.ref) aria-label=`${row.stateLabel} #${row.number} ${row.title}` aria-current=(row.selected ? "true" : "") testId=`pr-row-${row.number}` position="absolute" left=0 top=0 right=0 bottom=0 padding=0 border-radius="0.5rem" border-width=0 background-color="#00000000"
+      row flex=1 min-width=0 height="100%" padding-left="0.75rem" padding-right="0.75rem" padding-top="0.625rem" padding-bottom="0.625rem" box-sizing="border-box" gap="0.5rem" align-items="center" pointer-events="none"
+        column width="1rem" flex-shrink=0 align-self="flex-start" margin-top="0.1875rem" position="relative" aria-label=row.stateLabel
+          PgIcon(name=prStateIcon(row.state), size=16, color=prStateTone(row.state))
+          when row.conflict != ""
+            box position="absolute" left="0.5rem" top="0.5rem" width="0.75rem" height="0.75rem" aria-label=row.conflict
+              box position="absolute" left=0 top=0
+                PgGlyph(name="triangle-fill-filled", size=12, color="light-dark(#fcfcfc, #0a0a0a)", weight=2.5)
+              box position="absolute" left=0 top=0
+                PgGlyph(name="triangle-alert", size=12, color="light-dark(#e40014, #fb414a)", weight=2.5)
+        column flex=1 min-width=0
+          row height="1.25rem" min-width=0 align-items="center" gap="0.375rem"
+            // PullRequestRow: the number carries the link; its right-click is pullRequestLinkContextMenu (Copy link, Open on <host>).
+            box press=select(row.ref) contextmenu=control("link-menu", row.linkMenu) pointer-events="auto" flex-shrink=0 testId=`pr-number-${row.number}`
+              text `#${row.number}` font-family="ui-monospace" font-size="0.75rem" line-height="1rem" font-variant-numeric="tabular-nums" color="light-dark(#71717b, #818181)"
+            text row.title font-size="0.875rem" line-height="1.25rem" color="light-dark(#262626, #f5f5f5)" min-width=0 white-space="nowrap" overflow="hidden" text-overflow="ellipsis" flex-shrink=1
+            when row.checks != "" or row.review != ""
+              row flex-shrink=0 align-items="center" gap="0.25rem"
+                when row.checks != ""
+                  PrRowChecks(rowRef=row.ref, popId=`pr-row-checks-${row.projectId}-${row.number}`, checks=row.checks, label=row.checksLabel, headline=row.checksHeadline, popover=checks, scheme=scheme, control=control)
+                when row.review != ""
+                  box width="0.875rem" height="0.875rem" aria-label=row.reviewLabel
+                    PgIcon(name=prReviewIcon(row.review), size=14, color=prReviewTone(row.review))
+            box flex=1 min-width=0
+            when row.stackLabel != ""
+              PrRowStack(rowRef=row.ref, popId=`pr-row-stack-${row.projectId}-${row.number}`, label=row.stackLabel, ariaLabel=row.stackAria, tip=row.stackTip, popover=stack, scheme=scheme, control=control, select=select)
+            when row.additions != ""
+              row flex-shrink=0 align-items="baseline" gap="0.25rem"
+                text row.additions font-family="ui-monospace" font-size="0.6875rem" line-height="1rem" font-variant-numeric="tabular-nums" color=(diff == "blue-orange" ? "light-dark(#155dfc, #51a2ff)" : "light-dark(#009966, #00d492)")
+                text row.deletions font-family="ui-monospace" font-size="0.6875rem" line-height="1rem" font-variant-numeric="tabular-nums" color=(diff == "blue-orange" ? "light-dark(#f54900, #ff8904)" : "light-dark(#fb2c36, #fb414a)")
+          row height="1rem" min-width=0 align-items="center" gap="0.375rem" overflow="hidden"
+            row align-items="center" gap="0.25rem" min-width="0.875rem" max-width="10rem" flex-shrink=1
+              PrAvatar(avatar=row.avatar, initial=row.initial, size=14)
+              when not compact
+                text row.author font-size="0.6875rem" line-height="1rem" color="light-dark(#71717b, #818181)" line-clamp=1 min-width=0
+            text row.repository font-size="0.6875rem" line-height="1rem" color="light-dark(#71717b, #818181)" line-clamp=1 min-width=0 flex-shrink=1
+            when length(row.labels) > 0
+              row min-width=0 align-items="center" gap="0.25rem" flex-shrink=1
+                each chip in (compact ? row.firstLabel : row.labels) key=chip.key
+                  text chip.name height="1rem" padding-left="0.1875rem" padding-right="0.1875rem" box-sizing="border-box" border-radius="0.25rem" background-color=chip.background font-size="0.625rem" line-height="1rem" color=chip.ink max-width="10rem" line-clamp=1 min-width=0
+                when compact and row.moreLabels > 0
+                  text `+${row.moreLabels}` font-size="0.625rem" line-height="1rem" color="light-dark(#71717b, #818181)" flex-shrink=0
+            box flex=1 min-width=0
+            text row.age font-size="0.6875rem" line-height="1rem" font-variant-numeric="tabular-nums" white-space="nowrap" color="light-dark(#71717b, #818181)" flex-shrink=0
+      // PullRequestSpeedActions: `display: visible || actionPending ? flex : none`.
+      when length(row.speed) > 0 and (speedMode or row.speedPending)
+        PrQuickActions(actions=row.speed, number=row.number, pending=row.speedPending, act=act)
 
 // PullRequestListGhost: seven placeholder rows while the first answer is out.
 component PrGhost

@@ -376,6 +376,7 @@ component T3Code
   mutation providerUpdateRun as shape Change queue refreshes providerPage
   mutation changed as shape Change refreshes data then commandCompleted
   mutation localChanged as shape Change refreshes data
+  mutation prHandoffChanged as shape Change refreshes data // pr-handoffs-and-quick-actions: a checkout hand-off's second half, its own send
   mutation terminalFocusChanged as shape Change refreshes data
   mutation terminalChanged as shape Change refreshes data then terminalCompleted
   action terminalCompleted
@@ -645,11 +646,13 @@ component T3Code
           focus("composer")
         if startsWith(result.message, "focus:") // usage-reset-and-feedback: the reset credit confirm takes the focus and gives it back
           focus(slice(result.message, 6))
-        if result.message == "sidebar:new-thread"
+        if result.message == "sidebar:new-thread" or result.message == "pr-handoff-next"
           draftOwner = "__unset__"
           jumpRequest = jumpRequest + 1
           utilityPage = ""
           focus("composer")
+        if result.message == "pr-handoff-next" // the thread shows first, then its checkout runs (pages-pr-handoffs.ts)
+          send prHandoffChanged = command("pageslocal:pr-act-handoff-run", "", "", 0)
         if result.message == "sidebar:palette-new-thread"
           paletteOpen = true
           paletteMode = "command"
