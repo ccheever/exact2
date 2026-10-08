@@ -404,7 +404,7 @@ component AcpConfirm
     ui("close", "")
     focus(what == "acp-delete" ? `acp-delete-${target}` : `acp-provider-disable-${target}`)
   view
-    AppConfirm(title=title, body="", destructive=true, busy=busy, cancel=cancel, confirm=accept)
+    AppConfirm(title=title, body="", destructive=true, busy=busy, confirmId="acp-confirm", cancel=cancel, confirm=accept)
 
 // CustomModelEditor: Display name, the options shown in the composer (each an id, a label, a
 // type and, for choices, value/label/default rows), Copy from…, presets, Save and Cancel.

@@ -206,7 +206,7 @@ Next: the real-input batch below, then review and merge the PR. Merge the featur
 
 Local apparatus (uncommitted) in this worktree's `target/upkeep-lane`: `fixture.mjs`, `probe-c.mjs`,
 `update-c.mjs`, the lane app `app/T3 Code (Lane PSU).app` (bundle id
-`com.exact.t3code.macos.lanepsu`, ad-hoc signed copy of the `d5e052389` bundle). Steps:
+`com.exact.t3code.macos.lanepsu`, ad-hoc signed copy of the PR head's bundle, refreshed after the 2026-10-08 merges; rebuild and copy again if the head moves). Steps:
 
 1. `export PATH="$HOME/.bun-1.4.2/bin:$PATH"; cd target/upkeep-lane; bun fixture.mjs serve` in the
    background (record its PIDs; servers 16010–16012, proxies 16020 "Mac Studio" and 16021), then
