@@ -1,0 +1,108 @@
+# pr-links-previews-and-routing retry session, 2026-10-08 (agent mode, macOS 1280x840, real GitHub daehyeonmun2021/playground)
+# Lane servers on the primary account: A 127.0.0.1:16360 (the focus), B 127.0.0.1:16361 (paired as a background environment, GitHub sharing Read and act on both).
+# Build: merge of #307/#308/#310 at 00af6adb3 (retry); the fix d4ca27743 + #328 merge abc0afaf5 (retry-fix).
+
+## Retry (00af6adb3)
+2026-10-08T12:15:18.051Z [retry] environments A ab7bfe17-a68e-4815-a64b-a646c2aba3c7 B f479a286-2ab4-4c9f-bc7d-eda2b04b69ee
+2026-10-08T12:15:18.595Z [retry] app pid 68316
+2026-10-08T12:15:34.800Z [retry] connected to A: sidebar shows Pull Requests
+2026-10-08T12:15:35.090Z [retry] STEP pair-b
+2026-10-08T12:15:52.789Z [retry] github-sharing: GitHub sharing | Daehyeon’s MacBook Pro, Daehyeon’s MacBook Pro read and act | Machines you trust here can read PR data through each other's GitHub access. Enable both machines. Read and act may use broader permissions than the machine that owns them. This applies only to this device. | Daehyeon’s MacBook Pro | http://127.0.0.1:16360/ | Read and act | Off | Read PRs | http://127.0.0.1:16361/
+2026-10-08T12:16:00.985Z [retry] STEP load-more
+2026-10-08T12:16:01.032Z [retry] search field: []
+2026-10-08T12:16:13.333Z [retry] shot load-more-before
+2026-10-08T12:16:13.337Z [retry] load-more-before: Load more pull requests
+2026-10-08T12:16:15.827Z [retry] shot load-more-loading
+2026-10-08T12:16:47.989Z [retry] shot load-more-after
+2026-10-08T12:16:47.993Z [retry] load-more-after: Loading more
+2026-10-08T12:16:48.015Z [retry] rows before Load more 99, after 99
+2026-10-08T12:16:48.015Z [retry] A gh during: api graphql --hostname github.com -f query=query PullRequestSummaries {   s0: repository(owner: "daehyeonmun2021", name: "playground") { pullRequest(number: 132) { number title url state isDraft mergeable reviewDecision additions deletions changedFiles updatedAt mergedAt closedAt headRefName baseRefName author { __typename login avatarUrl ... on User { name } } latestReviews(first: 20) { nodes { state author { login } } } commits(last: 1) { nodes { commit { statusCheckRollup { state } } } } stack { number size baseRefName } stackEntry { position } } }    rateLimit { cost limit remaining resetAt } } || api graphql --hostname github.com --input -
+2026-10-08T12:16:48.015Z [retry] B gh during: 
+2026-10-08T12:16:48.693Z [retry] STEP hover-card
+2026-10-08T12:16:59.567Z [retry] link runs: pr-link-pr-link-1, pr-link-pr-link-2, pr-link-pr-link-3
+2026-10-08T12:17:00.654Z [retry] card drawn on the first hover: true; hover layer: true
+2026-10-08T12:17:00.740Z [retry] shot hover-card
+2026-10-08T12:17:00.743Z [retry] hover-card: daehyeonmun2021/playground | #115 | · | Open | Add input validation | Daehyeon Mun (@daehyeon-mun) | opened 22h ago
+2026-10-08T12:17:00.752Z [retry] saved hover-card-layout.json
+2026-10-08T12:17:00.969Z [retry] after leaving: card at +100 ms true, at +140 ms false
+2026-10-08T12:17:01.189Z [retry] second hover: card at +300 ms false, at +370 ms true
+2026-10-08T12:17:01.287Z [retry] shot hover-card-again
+2026-10-08T12:17:01.516Z [retry] commit link tip: true
+2026-10-08T12:17:01.599Z [retry] shot commit-tip
+2026-10-08T12:17:01.606Z [retry] commit-tip: https://github.com/daehyeonmun2021/playground/commit/c46352e19b5d7c31b070eea56750469cdcce9e13
+2026-10-08T12:17:04.452Z [retry] shot hover-card-dark
+2026-10-08T12:17:05.583Z [retry] STEP monospace
+2026-10-08T12:17:14.049Z [retry] saved commit-link-tree.json
+2026-10-08T12:17:14.051Z [retry] saved number-link-tree.json
+2026-10-08T12:17:14.059Z [retry] saved commit-link-layout.json
+2026-10-08T12:17:14.147Z [retry] shot monospace
+2026-10-08T12:17:14.147Z [retry] STEP back-arrow
+2026-10-08T12:17:40.959Z [retry] picker link for #115: pr-row-115 not listed after 25 s
+2026-10-08T12:17:41.446Z [retry] fallback through the server: linked 115
+2026-10-08T12:18:00.809Z [retry] shot thread-badge
+2026-10-08T12:18:00.821Z [retry] badge: ["(no composer-pr-badge: no view matches composer-pr-badge by testId, label or text; targets here: toggle)"]
+2026-10-08T12:18:00.836Z [retry] STEP back-arrow ERROR no view matches composer-pr-badge by testId, label or text; targets here: toggle-sidebar, sidebar-brand, search-threads, filter-project, add-project, new-thread, row-9a68e002-8bb1-4345-999c-7960622cb714, thread-9a68e002-8bb1-4345-999c-7960622cb714, snooze-9a68e002-8bb1-4345-999c-7960622cb714, snooze-9a68e002-8bb1-4345-999c-7960622cb714-open-first, snooze-9a68e002-8bb1-4345-999c-7960622cb714-open-last, settle-9a68e002-8bb1-4345-999c-7960622cb714, …; tree lists live targets, and a virtualized list's row outside its window comes in by key: `tap <list> into <key>` (feed F10)
+2026-10-08T12:18:00.926Z [retry] shot back-arrow-error
+2026-10-08T12:18:00.926Z [retry] STEP code-tips
+2026-10-08T12:18:30.826Z [retry] STEP code-tips ERROR pr-row-168 not listed after 25 s
+2026-10-08T12:18:30.929Z [retry] shot code-tips-error
+2026-10-08T12:18:30.929Z [retry] STEP act-on-keys
+2026-10-08T12:18:53.950Z [retry] focus after Return, ↓, ↓: {"editor":null,"logical":8994,"responder":"NodeView","pending":null}
+2026-10-08T12:18:54.056Z [retry] shot act-on-keys
+2026-10-08T12:18:54.059Z [retry] act-on-keys: In a separate worktree | Its own folder and thread. Nothing you have open moves. | In this repository | Switches the branch you are working in, like `gh pr checkout`. | Daehyeon’s MacBook Pro
+2026-10-08T12:18:54.532Z [retry] drive done
+
+## Search probe (server A only): after the first search, later searches never landed
+2026-10-08T12:22:36.594Z [probe-a2] #132 (settle) listed after 1029 ms
+2026-10-08T12:23:22.095Z [probe-a2] #115 (real) not listed after 45482 ms; rows pr-row-132
+2026-10-08T12:24:08.210Z [probe-a2] #168 (settle) not listed after 46097 ms; rows pr-row-132
+2026-10-08T12:24:54.401Z [probe-a2] #117 (settle) not listed after 46174 ms; rows pr-row-132
+# app log: 'forget request 287 (prList)' then 'fulfil 299 (prList) refused: ... the answer was let go before this reply' (a later answer awaited the read the runner let go with the earlier answer)
+
+## Search probe after the fix (d4ca27743; '(real)' does not advance the agent clock, so the 250 ms typing debounce never fires there)
+2026-10-08T12:45:29.834Z [probe-fix3] #132 (settle) listed after 1242 ms
+2026-10-08T12:45:50.252Z [probe-fix3] #115 (real) not listed after 20293 ms; rows pr-row-132
+2026-10-08T12:45:51.578Z [probe-fix3] #168 (settle) listed after 1314 ms
+2026-10-08T12:45:52.780Z [probe-fix3] #117 (settle) listed after 1192 ms
+
+## Retry, the failed rows again after the fix (abc0afaf5)
+2026-10-08T12:46:26.268Z [retry-fix] environments A ab7bfe17-a68e-4815-a64b-a646c2aba3c7 B f479a286-2ab4-4c9f-bc7d-eda2b04b69ee
+2026-10-08T12:52:04.166Z [retry-fix] environments A ab7bfe17-a68e-4815-a64b-a646c2aba3c7 B f479a286-2ab4-4c9f-bc7d-eda2b04b69ee
+2026-10-08T12:52:04.513Z [retry-fix] app pid 55349
+2026-10-08T12:52:20.413Z [retry-fix] connected to A: sidebar shows Pull Requests
+2026-10-08T12:52:20.702Z [retry-fix] STEP pair-b
+2026-10-08T12:52:38.394Z [retry-fix] github-sharing: GitHub sharing | Daehyeon’s MacBook Pro, Daehyeon’s MacBook Pro read and act | Machines you trust here can read PR data through each other's GitHub access. Enable both machines. Read and act may use broader permissions than the machine that owns them. This applies only to this device. | Daehyeon’s MacBook Pro | http://127.0.0.1:16360/ | Read and act | Off | Read PRs | http://127.0.0.1:16361/
+2026-10-08T12:52:46.072Z [retry-fix] STEP load-more
+2026-10-08T12:52:46.120Z [retry-fix] search field: []
+2026-10-08T12:52:47.327Z [retry-fix] shot load-more-before
+2026-10-08T12:52:47.331Z [retry-fix] load-more-before: Load more pull requests
+2026-10-08T12:52:47.575Z [retry-fix] shot load-more-loading
+2026-10-08T12:53:15.628Z [retry-fix] shot load-more-after
+2026-10-08T12:53:15.669Z [retry-fix] load-more-after: (no pull-requests-list-footer: no view matches pull-requests-list-footer by testId, label or text; targets here)
+2026-10-08T12:53:15.694Z [retry-fix] rows before Load more 99, after 128
+2026-10-08T12:53:15.695Z [retry-fix] A gh during: api graphql --hostname github.com --input - || api graphql --hostname github.com -f query=query {   s0: repository(owner: "daehyeonmun2021", name: "playground") { pullRequest(number: 6) { additions deletions } }   s1: repository(owner: "daehyeonmun2021", name: "playground") { pullRequest(number: 7) { additions deletions } }   s2: repository(owner: "daehyeonmun2021", name: "playground") { pullRequest(number: 8) { additions deletions } }   s3: repository(owner: "daehyeonmun2021", name: "playground") { pullRequest(number: 9) { additions deletions } }    rateLimit { cost limit remaining resetAt } } || api graphql --hostname github.com -f query=query {   s0: repository(owner: "daehyeonmun2021", name: "playground") { pullRequest(number: 1) { additions deletions } }   s1: repository(owner: "daehyeonmun2021", name: "playground") { pullRequest(number: 10) { additions deletions } }   s2: repository(owner: "daehyeonmun2021", name: "playground") { pullRequest(number: 11) { additions deletions } }   s3: repository(owner: "daehyeonmun2021", name: "playground") { pullRequest(number: 12) { additions deletions } }   s4: repository(owner: "daehyeonmun2021", name: "playground") { pullRequest(number: 13) { additions deletions } }   s5: repository(owner: "daehyeonmun2021", name: "playground") { pullRequest(number: 14) { additions deletions } }   s6: repository(owner: "daehyeonmun2021", name: "playground") { pullRequest(number: 15) { additions deletions } }   s7: repository(owner: "daehyeonmun2021
+2026-10-08T12:53:15.695Z [retry-fix] B gh during: 
+2026-10-08T12:53:16.389Z [retry-fix] STEP monospace
+2026-10-08T12:53:26.190Z [retry-fix] saved commit-link-tree.json
+2026-10-08T12:53:26.192Z [retry-fix] saved number-link-tree.json
+2026-10-08T12:53:26.200Z [retry-fix] saved commit-link-layout.json
+2026-10-08T12:53:26.207Z [retry-fix] saved commit-link-native.json
+2026-10-08T12:53:26.290Z [retry-fix] shot monospace
+2026-10-08T12:53:26.290Z [retry-fix] STEP back-arrow
+2026-10-08T12:53:30.374Z [retry-fix] details rows: details-pr-pr-115-https://github.com/daehyeonmun2021/playground/pull/115, details-pr-card-hidden, details-pr-action-pr-115-https://github.com/daehyeonmun2021/playground/pull/115, details-pr-more
+2026-10-08T12:53:30.464Z [retry-fix] shot thread-details
+2026-10-08T12:53:33.576Z [retry-fix] back arrow shown: true; surface true
+2026-10-08T12:53:33.681Z [retry-fix] shot thread-detail-back
+2026-10-08T12:53:33.753Z [retry-fix] ax back-arrow saved
+2026-10-08T12:53:34.241Z [retry-fix] shot back-arrow-hover
+2026-10-08T12:53:37.306Z [retry-fix] after the back arrow: linked-pr-open-132, linked-pr-open-115; back arrow false; surface false
+2026-10-08T12:53:37.402Z [retry-fix] shot thread-list-again
+2026-10-08T12:53:37.408Z [retry-fix] thread-list-again: Toggle main sidebar (⌘B) | Code | Search | PD | daehyeonmun2021/playground | 42m | Settle | Release notes | 132 | In 1 hour | 10:53 PM | In 3 hours | 12:53 AM | Tomorrow | 9:00 AM | Next week | Mon 9:00 AM | Custom… | 35m | Write the changelog | +2 | Settled (0) | playground | New thread in playground | / | Toggle thread details | composer-stash-key | composer-models-key | Ask for changes, send follow-ups, or attach images | Supervised | Ask before commands and file changes. | Auto-accept edits | Auto-approve edits, ask before other actions. | Auto | Supported providers approve routine actions; others still ask. | Full access | Allow commands and edits without prompts. | Submit message | gpt-5-codex | Open provider settings | Attach files | Codex is unauthenticated | Codex CLI is not authenticated. Run `codex login` and try again. | No terminal sessions for this thread yet. | New Terminal | #115 | Pull requests | Browser | B | Only available in the desktop app. | Terminal | T | Files | F | Diff | D | Pull request | P | Linked pull requests | L
+2026-10-08T12:53:37.408Z [retry-fix] STEP code-tips
+2026-10-08T12:53:57.387Z [retry-fix] Code tab tips here: (none)
+2026-10-08T12:53:57.504Z [retry-fix] shot code-tab
+2026-10-08T12:53:57.504Z [retry-fix] STEP act-on-keys
+2026-10-08T12:54:04.570Z [retry-fix] focus after Return, ↓, ↓: {"responder":"NodeView","editor":null,"pending":null,"logical":11565}
+2026-10-08T12:54:04.664Z [retry-fix] shot act-on-keys
+2026-10-08T12:54:04.667Z [retry-fix] act-on-keys: In a separate worktree | Its own folder and thread. Nothing you have open moves. | In this repository | Switches the branch you are working in, like `gh pr checkout`. | Daehyeon’s MacBook Pro
+2026-10-08T12:54:05.133Z [retry-fix] drive done
