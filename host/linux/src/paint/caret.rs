@@ -44,16 +44,35 @@ pub(super) struct FieldText<'a> {
     pub origin: (f32, f32),
     /// The content box's width, which `text-align` places each line within.
     pub width: f32,
+    /// A textarea's: its lines are laid out at the field's width.
+    pub multiline: bool,
 }
 
 /// How far into its free space `text-align` places a field's line, as the
-/// web does: `start`/`end` by direction, `justify` as start (a field's line
-/// is its last); a line wider than the field starts at its start edge.
+/// web does: `start`/`end` by direction, and `justify` as `start`, since a
+/// field's line is its last (right under `rtl`).
 pub(super) fn align_share(style: &StyleProps) -> f32 {
-    match style.text_align.physical(style.direction) {
+    let align = match style.text_align {
+        TextAlign::Justify => TextAlign::Start,
+        other => other,
+    };
+    match align.physical(style.direction) {
         TextAlign::Center => 0.5,
         TextAlign::Right => 1.0,
         _ => 0.0,
+    }
+}
+
+/// The left of a line `w` wide in a field `width` wide: its alignment's share
+/// of the free space, or, when it overflows, its start edge (the right under
+/// `rtl`), where the web keeps an overflowing line.
+pub(super) fn line_left(style: &StyleProps, width: f32, w: f32) -> f32 {
+    if w <= width {
+        align_share(style) * (width - w)
+    } else if style.direction == exact_kernel::Direction::Rtl {
+        width - w
+    } else {
+        0.0
     }
 }
 
@@ -77,15 +96,23 @@ impl super::Painter {
             .paragraph_replacing((field.node, end), &text_spec(style, last), None)
             .width;
         // The whole hard line, for `text-align`'s offset within the field.
-        let share = align_share(style);
-        let offset = if share > 0.0 {
-            let shown = painted_prefix(field.value, u32::MAX, field.masked);
-            let start = prefix.len() - last.len();
-            let full = shown[start..].split('\n').next().unwrap_or("");
+        // A textarea's lines are aligned by the text engine, which hangs a
+        // line's trailing spaces (they take no part in its alignment); a
+        // single line is placed by the painter on its whole width.
+        let shown = painted_prefix(field.value, u32::MAX, field.masked);
+        let start = prefix.len() - last.len();
+        let full = shown[start..].split('\n').next().unwrap_or("");
+        let full = if field.multiline {
+            full.trim_end_matches(' ')
+        } else {
+            full
+        };
+        let offset = if align_share(style) > 0.0 || style.direction == exact_kernel::Direction::Rtl
+        {
             let w = text
                 .paragraph_replacing((field.node, end + 2), &text_spec(style, full), None)
                 .width;
-            share * (field.width - w).max(0.0)
+            line_left(style, field.width, w)
         } else {
             0.0
         };

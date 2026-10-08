@@ -1096,6 +1096,7 @@ impl Painter {
                     masked: node.props.str(PropId::Type) == Some("password"),
                     origin: (content.0, oy),
                     width: content.2,
+                    multiline,
                 };
                 // A single line is shaped unconstrained, so `text-align` places
                 // it here; a textarea's paragraph is laid out at the field's
@@ -1104,7 +1105,7 @@ impl Painter {
                     + if multiline {
                         0.0
                     } else {
-                        caret::align_share(&computed) * (content.2 - paragraph.width).max(0.0)
+                        caret::line_left(&computed, content.2, paragraph.width)
                     };
                 let focused = walk.scene.focus == Some(node.id);
                 let selection = walk.scene.selection.filter(|_| focused);

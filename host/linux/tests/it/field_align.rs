@@ -8,19 +8,21 @@ fn boot() -> Presenter<()> {
     let plan = contract::compile(
         r##"component App
   view
-    column width=400 height=300 background-color="#ffffff" color="#000000" font-size=20 gap=10
+    column width=400 height=400 background-color="#ffffff" color="#000000" font-size=20 gap=10
       input appearance="none" width=300 height=30 value="Hi" text-align="left" testId="left"
       input appearance="none" width=300 height=30 value="Hi" text-align="center" testId="center"
       input appearance="none" width=300 height=30 value="Hi" text-align="right" testId="right"
       input appearance="none" width=300 height=30 value="Hi" text-align="end" direction="rtl" testId="rtl-end"
-      input appearance="none" width=300 height=30 value="Hi" text-align="center" autofocus=true testId="focused"
+      input appearance="none" width=300 height=30 value="Hi" text-align="justify" direction="rtl" testId="rtl-justify"
+      input appearance="none" width=60 height=30 value="A long line" direction="rtl" testId="rtl-wide"
+      input appearance="none" width=300 height=30 value="Hi" text-align="center" caret-color="#ff0000" autofocus=true testId="focused"
 "##,
     )
     .unwrap();
     let (p, err) = Presenter::boot_with(
         &plan.encode(),
         (),
-        (400., 300.),
+        (400., 400.),
         1.,
         std::path::PathBuf::new(),
         PainterChoice::Cpu,
@@ -61,7 +63,11 @@ fn a_fields_text_align_places_its_line() {
     let (c0, c1) = ink(&mut p, "center");
     let (r0, r1) = ink(&mut p, "right");
     let (e0, e1) = ink(&mut p, "rtl-end");
+    let (j0, j1) = ink(&mut p, "rtl-justify");
+    let (_, o1) = ink(&mut p, "rtl-wide");
     let w = l1 - l0;
+    // Glyphs sit on a fraction-of-a-pixel grid: widths agree within a pixel.
+    let same = |a: u32, b: u32| (b - a).abs_diff(w) <= 1;
     assert!(l0 < 10, "left starts at the start edge: {l0}");
     let centre = (c0 + c1) as f32 / 2.0;
     assert!(
@@ -69,23 +75,52 @@ fn a_fields_text_align_places_its_line() {
         "centered about the middle: {c0}..{c1}"
     );
     assert!(
-        r1 > 290 && r1 - r0 == w,
+        r1 > 290 && same(r0, r1),
         "right ends at the end edge: {r0}..{r1}"
     );
     // `end` under `rtl` is the left edge, as CSS has it.
-    assert!(e0 < 10 && e1 - e0 == w, "rtl end is the left: {e0}..{e1}");
+    assert!(e0 < 10 && same(e0, e1), "rtl end is the left: {e0}..{e1}");
+    // `justify` on a field's one line is `start`: the right under `rtl`.
+    assert!(
+        j1 > 290 && same(j0, j1),
+        "rtl justify is the right: {j0}..{j1}"
+    );
+    // An overflowing `rtl` line keeps its start edge, the right.
+    assert!(
+        o1 >= 55,
+        "an overflowing rtl line keeps its right edge: ..{o1}"
+    );
+}
+
+/// The columns where a field paints its red caret.
+fn caret_columns(p: &mut Presenter<()>, name: &str) -> Vec<u32> {
+    let f = p.host().kernel().node(id(p, name)).unwrap().frame;
+    let shot = p.frame();
+    (f.x as u32..(f.x + f.width) as u32)
+        .filter(|&x| {
+            (f.y as u32..(f.y + f.height) as u32).any(|y| {
+                let c = shot.pixel(x, y).unwrap();
+                // A 1 px caret at a fractional x blends half into the white.
+                c.red() > 200
+                    && c.green() < 200
+                    && c.red() - c.green() > 60
+                    && c.green() == c.blue()
+            })
+        })
+        .map(|x| x - f.x as u32)
+        .collect()
 }
 
 #[test]
 fn a_centered_fields_caret_sits_at_its_text() {
     let mut p = boot();
     let (c0, c1) = ink(&mut p, "center");
-    let (f0, f1) = ink(&mut p, "focused");
-    // The caret (at the end of "Hi") is drawn after the centred text, not at
-    // the left edge where an unaligned caret would be.
-    assert_eq!(f0, c0, "nothing drawn left of the text: {f0} vs {c0}");
+    let caret = caret_columns(&mut p, "focused");
+    assert!(!caret.is_empty(), "the focused field paints its caret");
+    // At the end of "Hi": just after the centred text, not at the left edge.
+    let at = caret[0];
     assert!(
-        f1 >= c1 && f1 <= c1 + 4,
-        "the caret just after the text: {f1} vs {c1}"
+        at + 2 >= c1 && at <= c1 + 4,
+        "the caret just after the text: {at} vs {c0}..{c1}"
     );
 }
