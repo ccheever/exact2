@@ -1,4 +1,5 @@
 // @ref llp/1109.005-composer-and-transcript.decision.md#new-task-ownership
+use NewTaskRecovery from "./new-task-recovery.contract"
 shape NewTaskFlowSnapshot
   owner: string
   requestRoute: string
@@ -12,6 +13,7 @@ shape NewTaskFlowSnapshot
   needsPrepare: bool
   busy: bool
   nextLocation: string
+  recovery: NewTaskRecovery
 shape NewTaskFlowResult
   revision: number
   requestRoute: string

@@ -1,5 +1,6 @@
 // @ref llp/1109.005-composer-and-transcript.decision.md#queued-command-construction
 import { expect, test } from 'bun:test';
+import { mobilePendingTaskEditorsHydrate, mobilePendingTaskEditorsCreate, type MobilePendingTaskMarker } from './mobile-pending-task-state';
 import { T3Client } from './shared/client';
 import { obj, type Obj } from './shared/domain';
 import { ClientError, type Native } from './shared/protocol';
@@ -40,6 +41,7 @@ function settled<T extends MobileOutboxDeliveryReceipt | MobileOutboxInlineRecei
 function fixture(input = queued()) {
   const makeClient = () => {
     const result = new T3Client();
+    mobilePendingTaskEditorsHydrate(result, {});
     Object.assign(result, { origin: 'https://relay.test', environmentId: 'env', generation: 7, connection: 'connected', configLive: true, shellLive: true });
     result.scopes = ['orchestration:operate'];
     result.config = { providers: [{ instanceId: 'p', showInteractionModeToggle: true }], environment: { environmentId: 'env', capabilities: {
@@ -304,4 +306,117 @@ test('existing-thread completion and failed creation cleanup do not fabricate a 
   await run(creation.client, creation.native, first.next, now);
   expect(snapshot(creation.client, now).items[0]!.status).toBe('cleanup-pending');
   expect(completed(creation.client)).toEqual([]);
+});
+
+function editorMarker(record: MobileOutboxRecord): MobilePendingTaskMarker {
+  const originalOwner = { origin: record.origin, environmentId: record.environmentId, threadId: record.threadId,
+    messageId: record.messageId, commandId: record.commandId };
+  return { version: 1, owner: originalOwner, session: 'editor-session', revision: 1,
+    draftKey: `new-task:pending-${record.messageId}`, contentRevision: 1,
+    baseline: { record, token: 'epoch:1', revision: 1 }, pending: null };
+}
+const asCreation = (record: MobileOutboxRecord): MobileOutboxRecord => ({ ...record,
+  creation: { projectId: 'project', workspaceMode: 'local', branch: null, worktreePath: null } });
+test('unhydrated and unreadable pending-editor documents block both captured schedule and manual drive without native calls', async () => {
+  for (const document of [undefined, null, { version: 2, markers: {} }, { version: 1, markers: { broken: {} } }]) {
+    const f = fixture(), scheduled = await loaded(f);
+    f.client.local = new T3Client().local;
+    if (document !== undefined) mobilePendingTaskEditorsHydrate(f.client, { mobilePendingTaskEditors: document });
+    expect(snapshot(f.client, now)).toMatchObject({ next: '', items: [{ canRetry: false, reason: 'Read saved pending edits before sending.' }] });
+    await run(f.client, f.native, scheduled.next, now);
+    await run(f.client, f.native, JSON.stringify(owner), now, true);
+    expect(f.calls).toEqual([]); expect(f.disk()?.text).toBe('original');
+  }
+});
+test('exact persisted editor marker blocks schedule and manual delivery even though native row has no live hold', async () => {
+  const original = asCreation(queued()), f = fixture(original), scheduled = await loaded(f);
+  expect(mobilePendingTaskEditorsCreate(f.client, editorMarker(original))).not.toBeNull();
+  expect(mobileOutboxSnapshot(f.client).rows[0]?.held).toBe(false);
+  expect(snapshot(f.client, now)).toMatchObject({ next: '', items: [{ status: 'editing', held: true, canRetry: false }] });
+  await run(f.client, f.native, scheduled.next, now);
+  await run(f.client, f.native, JSON.stringify(owner), now, true);
+  expect(f.calls).toEqual([]); expect(f.deliveries.size).toBe(0);
+});
+test('editor-held first row stops that thread order while a different thread can actually deliver', async () => {
+  const main = asCreation({ ...queued(), createdAt: '2026-10-08T01:00:00.000Z' });
+  const held = asCreation({ ...second(), createdAt: '2026-10-08T00:00:00.000Z' });
+  const follower = { ...second(), messageId: 'message-3', commandId: 'command-3', createdAt: '2026-10-08T02:00:00.000Z' };
+  const f = fixture(main); f.setExtras([held, follower]);
+  expect(mobilePendingTaskEditorsCreate(f.client, editorMarker(held))).not.toBeNull();
+  const scheduled = await loaded(f);
+  expect(JSON.parse(scheduled.next).owner).toEqual(owner);
+  expect(scheduled.items[0]).toMatchObject({ messageId: 'message-2', held: true, status: 'editing' });
+  await run(f.client, f.native, scheduled.next, now);
+  expect(stages(f)).toEqual(['mobileOutboxDelivery:reserve:command', 'mobileOutboxDelivery:send:command', 'mobileOutboxDelivery:complete:command']);
+  expect(snapshot(f.client, now)).toMatchObject({ next: '', count: 2 });
+  expect(f.calls.some(call => call.operationId === 'command-3')).toBe(false);
+});
+
+const older = (): MobileOutboxRecord => asCreation({ ...second('thread'), createdAt: '2026-10-07T23:00:00.000Z' });
+test('manual and stale scheduled admission cannot overtake an earlier persisted editor on the same thread', async () => {
+  const f = fixture(asCreation(queued())), scheduled = await loaded(f), prior = older();
+  f.setExtras([prior]); await read(f.client, f.native);
+  expect(mobilePendingTaskEditorsCreate(f.client, editorMarker(prior))).not.toBeNull(); f.calls.length = 0;
+  expect(snapshot(f.client, now).next).toBe('');
+  for (const [key, manual] of [[scheduled.next, false], [JSON.stringify(owner), true]] as const)
+    expect((await run(f.client, f.native, key, now, manual)).message).toContain('earlier pending message');
+  expect(f.calls).toEqual([]); expect(f.disk()?.messageId).toBe('message'); expect(f.deliveries.size).toBe(0);
+});
+test('ordering admission scopes predecessors by canonical origin and environment, not thread id alone', async () => {
+  for (const patch of [{ origin: 'https://different.test' }, { environmentId: 'another-environment' }]) {
+    const f = fixture(asCreation(queued())), prior = { ...older(), ...patch }; f.setExtras([prior]);
+    expect(mobilePendingTaskEditorsCreate(f.client, editorMarker(prior))).not.toBeNull();
+    const scheduled = await loaded(f); expect(JSON.parse(scheduled.next).owner).toEqual(owner);
+    await run(f.client, f.native, JSON.stringify(owner), now, true);
+    expect(stages(f)).toEqual(['mobileOutboxDelivery:reserve:command', 'mobileOutboxDelivery:send:command', 'mobileOutboxDelivery:complete:command']);
+  }
+});
+test('an editor predecessor adopted during status awaits stops wire admission and removal wakes the waiting task', async () => {
+  const f = fixture(asCreation(queued())), scheduled = await loaded(f), prior = older(); let adopted = false;
+  f.intercept(async request => {
+    if (!adopted && request.op === 'mobileOutboxDelivery' && request.action === 'status') {
+      adopted = true; f.setExtras([prior]); await read(f.client, f.native);
+      expect(mobilePendingTaskEditorsCreate(f.client, editorMarker(prior))).not.toBeNull();
+    }
+  });
+  await run(f.client, f.native, scheduled.next, now);
+  expect(adopted).toBe(true); expect(writes(f)).toEqual([]);
+  expect(snapshot(f.client, now).items.find(item => item.messageId === 'message')?.status).toBe('waiting');
+  expect(snapshot(f.client, now).next).toBe('');
+  f.setExtras([]);
+  // Native removal includes its revision tombstone; absence alone is not proof
+  // that a previously observed row can be forgotten by the projection.
+  const removedNative: Native = { available: true, watch: topic => f.native.watch(topic), async later(request) {
+    const reply = await f.native.later(request), inventory = obj(obj(reply).value);
+    if (obj(request).op === 'mobileOutbox' && obj(request).action === 'read') {
+      obj(inventory.revisions)[prior.messageId] = 2; obj(inventory.tokens)[prior.messageId] = 'epoch:2';
+    }
+    return reply;
+  } };
+  await read(f.client, removedNative); f.calls.length = 0;
+  const retry = snapshot(f.client, now + 10000); expect(JSON.parse(retry.next).owner).toEqual(owner);
+  await run(f.client, f.native, retry.next, now + 10000);
+  expect(f.calls.filter(call => call.action === 'send')).toHaveLength(1);
+});
+test('a later acknowledged row can finish exact local cleanup without overtaking an earlier editor on the wire', async () => {
+  const f = fixture(), scheduled = await loaded(f); f.setCleanupFailure(true);
+  await run(f.client, f.native, scheduled.next, now); const revision = f.deliveries.get('command')!.revision;
+  const prior = older(); f.setExtras([prior]); await read(f.client, f.native);
+  expect(mobilePendingTaskEditorsCreate(f.client, editorMarker(prior))).not.toBeNull();
+  f.setCleanupFailure(false); f.calls.length = 0;
+  expect(snapshot(f.client, now).items.find(item => item.messageId === 'message')?.canRetry).toBe(true);
+  await run(f.client, f.native, JSON.stringify(owner), now + 1, true);
+  expect(f.calls.find(call => call.action === 'complete')).toMatchObject({ retryCleanupRevision: revision });
+  expect(f.calls.some(call => call.op === 'http' || call.op === 'status' || ['send', 'reserve'].includes(String(call.action)))).toBe(false);
+  expect(f.disk()).toBeNull(); expect(snapshot(f.client, now)).toMatchObject({ count: 1, next: '' });
+});
+test('cached ACK admission never permits replacement wire work if its saved native receipt is absent', async () => {
+  const f = fixture(), scheduled = await loaded(f); f.setCleanupFailure(true);
+  await run(f.client, f.native, scheduled.next, now);
+  const prior = older(); f.setExtras([prior]); await read(f.client, f.native);
+  expect(mobilePendingTaskEditorsCreate(f.client, editorMarker(prior))).not.toBeNull();
+  f.deliveries.clear(); f.calls.length = 0;
+  await run(f.client, f.native, JSON.stringify(owner), now + 1, true);
+  expect(writes(f)).toEqual([]); expect(f.calls.some(call => call.op === 'http')).toBe(false);
+  expect(f.disk()).not.toBeNull();
 });

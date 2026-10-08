@@ -1,6 +1,7 @@
 // Pinned NewTaskDraftScreen.tsx 365aa87982: full hero scroll and an always-expanded sheet dock.
 // @ref llp/1109.005-composer-and-transcript.decision.md#new-task-ownership
 use NewTaskSnapshot, ComposerColors from "./composer-shapes.contract"
+use NewTaskRecovery, NewTaskRecoveryNotice from "./new-task-recovery.contract"
 use MobileNewTaskClone, NewTaskCloneSnapshot, NewTaskCloneColors from "./new-task-clone.contract"
 use ThreadColors from "./thread-shapes.contract"
 use NewTaskHero, NewTaskWorkspace from "./new-task.contract"
@@ -14,6 +15,7 @@ component NewTaskDraft
     routeId: string
     editorId: string
     data: NewTaskSnapshot
+    recovery: NewTaskRecovery
     clone: NewTaskCloneSnapshot
     cloneColors: NewTaskCloneColors
     colors: ComposerColors
@@ -62,11 +64,11 @@ component NewTaskDraft
   action typedKey(key: string)
     if (enterBehavior == "send" and key == "Enter") or (enterBehavior == "newline" and key == "Meta+Enter")
       preventDefault()
-      if data.composer.canSend and not dictating
+      if data.composer.canSend and not dictating and not recovery.blocked
         action("send", data.composer.contentOwner, "")
     else if (enterBehavior == "send" and key == "Meta+Enter") or (enterBehavior == "newline" and key == "Shift+Meta+Enter")
       preventDefault()
-      if data.composer.canSend and not dictating
+      if data.composer.canSend and not dictating and not recovery.blocked
         action("send-alternate", data.composer.contentOwner, "")
   view
     view position="absolute" inset=0 background-color=colors.sheet pointer-events="none" aria-hidden=true
@@ -80,6 +82,7 @@ component NewTaskDraft
             NewTaskHero(data=data, chooseProject=chooseProject, chooseEnvironment=chooseEnvironment, colors=colors, iconMuted=threadColors.iconMuted, voiceBusy=dictating)
     column id=`new-task-dock-${routeId}` position="absolute" left=0 right=0 bottom=(keyboardDocked ? -max(bottomPadding - 8, 0) : 0) padding-left=12 padding-right=12 padding-top=3.5 padding-bottom=bottomPadding background-color=colors.sheet font-family="DM Sans" pointer-events="auto"
       MobileNewTaskClone(data=clone, colors=cloneColors, action=action)
+      NewTaskRecoveryNotice(data=recovery, colors=colors, busy=voiceDisabled, action=action)
       NewTaskWorkspace(data=data, action=action, chooseBranch=chooseBranch, colors=colors, iconMuted=threadColors.iconMuted, voiceBusy=dictating)
       when data.composer.showReadOnlyNotice
         text "This connection cannot start tasks." padding-left=10.5 padding-right=10.5 padding-top=7 padding-bottom=7 font-size=13 line-height="17px" color=colors.muted
@@ -109,7 +112,11 @@ component NewTaskDraft
                     text data.composer.modelLabel min-width=0 flex-shrink=1 line-clamp=1 text-overflow="ellipsis" font-size=14 line-height="19px" font-weight=500 color=colors.foreground
                     t3-symbol symbol-name="chevron.down" point-size=10 symbol-weight="regular" symbol-tint=threadColors.foreground width=10 height=10
               VoiceStartAction(data=voice, colors=voiceColors, disabled=voiceDisabled, action=voiceAction)
-              ThreadSendButton(data=data.composer, action=action, colors=threadColors)
+              when recovery.blocked
+                button disabled=true width=44 height=44 padding=0 aria-label="Resolve saved task before sending"
+                  t3-symbol symbol-name="arrow.up" point-size=18 symbol-weight="semibold" symbol-tint=colors.muted width=44 height=44
+              else
+                ThreadSendButton(data=data.composer, action=action, colors=threadColors)
             else when dictating
               column flex=1 min-width=0
                 VoiceDictationToolbar(data=voice, colors=voiceColors, action=voiceAction)

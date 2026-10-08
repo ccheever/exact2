@@ -171,7 +171,9 @@ test('matching saved-draft child resumes through an active claim while explicit 
       expect(f.calls.some(call => call.method === 'vcs.switchRef')).toBe(false);
     } else {
       expect(result.message).toBe('');
-      expect(f.calls.some(call => call.op === 'mobileOutbox')).toBe(false);
+      expect(f.calls.filter(call => call.op === 'mobileOutbox').every(call =>
+        ['read', 'transferLookup', 'transferStatus'].includes(String(call.action)))).toBe(true);
+      expect(f.calls.some(call => call.method === 'vcs.switchRef')).toBe(false);
       expect(mobileNewTaskFlowView('resume', 'child', location, true, true, f.client, fleet).ready).toBe(true);
     }
     expect(f.client.draftKey).toBe(A);

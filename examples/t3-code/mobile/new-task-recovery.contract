@@ -1,0 +1,26 @@
+// @ref llp/1109.005-composer-and-transcript.decision.md#durable-draft-capture-transfer
+use ComposerColors from "./composer-shapes.contract"
+shape NewTaskRecoveryAction
+  key: string
+  label: string
+shape NewTaskRecovery
+  visible: bool
+  blocked: bool
+  message: string
+  actions: list<NewTaskRecoveryAction>
+component NewTaskRecoveryNotice
+  props
+    data: NewTaskRecovery
+    colors: ComposerColors
+    busy: bool
+    action: action
+  view
+    when data.visible
+      column padding=10.5 gap=7
+        text "Saved task needs attention" font-size=14 font-weight=600 color=colors.foreground
+        text data.message font-size=13 line-height="17px" color=colors.muted
+        each item in data.actions key=item.key
+          button press=action("transfer-recovery", item.key, "") disabled=busy padding=7 text-align="left"
+            text item.label font-size=14 color=colors.foreground
+        button press=action("transfer-recovery-refresh", "", "") disabled=busy padding=7 text-align="left"
+          text "Refresh saved status" font-size=13 color=colors.muted

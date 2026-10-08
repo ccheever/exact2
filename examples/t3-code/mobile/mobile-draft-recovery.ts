@@ -1,4 +1,5 @@
 import { mobileNewTaskContextCommand } from './mobile-new-task-context-command';
+import { mobilePendingTaskEditorsHydrate, mobilePendingTaskEditorsPersisted } from './mobile-pending-task-state';
 import { mobileDraftAttachmentRecord, mobileDraftAttachmentOrdersHydrate, mobileDraftAttachmentOrdersPersisted, mobileDraftAttachmentsForSend } from './draft-attachment-order';
 import { mobileDraftSettingsHandles } from './mobile-draft-settings';
 import { mobileOutboxTransferCompletionsHydrate, mobileOutboxTransferCompletionsPersisted, mobileOutboxTransferReleaseHandle } from './mobile-outbox-transfer-cleanup';
@@ -79,6 +80,7 @@ export function mobileRecoveredDraftMarker(client: T3Client, owner: string): Obj
 function hydrate(client: T3Client, saved: Obj) {
   if (!client.preferencesLoaded || hydrated.has(client.local) || saved.version !== 1) return;
   hydrated.add(client.local);
+  mobilePendingTaskEditorsHydrate(client, saved);
   for (const [key, value] of Object.entries(obj(saved.snapshotDrafts))) {
     const raw = arr(value), shared = raw.filter(image => validImage(image) && image.mimeType === 'image/png').slice(0, 100);
     // Do not overwrite a composer changed between load and the first native call.
@@ -106,7 +108,11 @@ export function mobileDraftRecoveryHandles(client: T3Client, native: Native | nu
     async readFile(path) {
       const capture = path === PATH && !client.preferencesLoaded;
       const bytes = await storage.fs.readFile(path);
-      if (capture) { try { saved = obj(JSON.parse(new TextDecoder().decode(bytes))); } catch { /* Shared load reports malformed JSON. */ } }
+      if (capture) {
+        const text = new TextDecoder().decode(bytes);
+        try { saved = text ? obj(JSON.parse(text)) : { version: 1 }; }
+        catch { /* Shared load reports malformed JSON; delivery stays unhydrated. */ }
+      }
       return bytes;
     } } };
   const handle: Native | null | undefined = native ? { available: native.available, watch: topic => native.watch(topic), later: request => {
@@ -201,7 +207,8 @@ export class MobileDraftClient extends T3Client {
       document.mobileNewTaskDrafts = mobileNewTaskDraftPersisted(this) as unknown as Obj;
       document.mobileAttachmentOrder = mobileDraftAttachmentOrdersPersisted(this);
       document.mobileOutboxTransferCompletions = mobileOutboxTransferCompletionsPersisted(this);
-      await storage.fs.atomicWriteFile(path, new TextEncoder().encode(JSON.stringify(document)));
+      await storage.fs.atomicWriteFile(path, new TextEncoder().encode(JSON.stringify({ ...document,
+        mobilePendingTaskEditors: mobilePendingTaskEditorsPersisted(this) })));
     } } });
   }
   override async write(native: Native, storage: Files, pending: Parameters<T3Client['write']>[2], beforeRequest?: () => void): Promise<Obj> {

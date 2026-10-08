@@ -2,6 +2,8 @@ import type { MobileDraftClient } from './mobile-draft-recovery';
 // Mobile365aa87982 NewTaskFlowProvider, NewTaskDraftRouteScreen and DraftScreen.
 // @ref llp/1109.005-composer-and-transcript.decision.md#new-task-ownership
 import { mobileNewTaskSubmit } from './new-task-submit';
+import { mobileNewTaskTransferRecoveryRead, mobileNewTaskTransferRecoveryAction, mobileNewTaskTransferRecoveryPresentation,
+  type MobileNewTaskTransferRecoveryView } from './mobile-new-task-transfer-recovery';
 import { mobileNewTaskDraftNoteBranch } from './mobile-new-task-drafts';
 import { mobileNewTaskCloneObserve, mobileNewTaskCloneAction } from './new-task-clone';
 import { mobileClient, mobileNative } from './client';
@@ -24,6 +26,7 @@ import { mobileNewTaskTransferGuardAcquire, mobileNewTaskTransferGuardRead, mobi
 export interface NewTaskFlowSnapshot {
   owner: string; requestRoute: string; status: string; title: string; message: string;
   draftOwner: string; ready: boolean; fileReady: boolean; chooser: boolean; needsPrepare: boolean; busy: boolean; nextLocation: string;
+  recovery: { visible: boolean; blocked: boolean; message: string; actions: Array<{ key: string; label: string }> };
 }
 export interface NewTaskFlowResult {
   revision: number; requestRoute: string; nextLocation: string; message: string; alertTitle: string;
@@ -33,6 +36,7 @@ interface Selection { environmentId: string; projectId: string; draftKey: string
 interface Flow {
   session: string; owner: string; visit: string; location: string; active: boolean; serial: number;
   draftKey: string; busy: boolean; selected: Selection | null; applied: Set<string>; requests: Map<string, string>; error: string; readyVisit: string;
+  recovery?: MobileNewTaskTransferRecoveryView;
 }
 const flows = new WeakMap<T3Client, Flow>();
 // A checkout already dispatched cannot be cancelled by ignoring its result.
@@ -89,6 +93,8 @@ export function mobileNewTaskFlowView(session: string, visit: string, location: 
   flow.readyVisit = '';
   const selected = !!flow.draftKey && mobileNewTaskDraftCurrent(client)?.key === flow.draftKey && sameSelection(flow.selected, client) && projectExists(client.environmentId, client.projectId, client, background);
   const base: NewTaskFlowSnapshot = { owner: flow.owner, requestRoute: visit, status: 'inactive', title: 'New task', message: flow.error,
+    recovery: { ...mobileNewTaskTransferRecoveryPresentation(flow.recovery?.draftKey === flow.draftKey ? flow.recovery : null),
+      blocked: !!flow.recovery && flow.recovery.draftKey === flow.draftKey && flow.recovery.blocksSend },
     draftOwner: active && client.preferencesLoaded && selected ? mobileComposerTarget(client).owner : '',
     ready: false, fileReady: false, chooser: route.chooser, needsPrepare: false, busy: flow.busy || checkouts.has(client), nextLocation: '' };
   if (!active) { mobileNewTaskDraftUnbind(client, flow.owner); return base; }
@@ -189,9 +195,16 @@ export async function mobileNewTaskFlowAction(owner: string, visit: string, kind
   } };
   const storage = client === mobileClient ? nativeFiles(native) : suppliedStorage;
   const route = mobileNewTaskRoute(flow.location);
-  const guardTransfer = async () => {
-    if (!flow.draftKey) return;
-    transferLease = mobileNewTaskTransferGuardAcquire(client, flow.draftKey) ?? undefined;
+  const refreshRecovery = async () => {
+    if (!flow.draftKey) { flow.recovery = undefined; return; }
+    if (transferLease) { mobileNewTaskTransferGuardRelease(client, transferLease); transferLease = undefined; transferChecked = false; }
+    const target = selection(client), expected = () => current() && sameSelection(target, client);
+    const recovery = await mobileNewTaskTransferRecoveryRead(client, base, { draftKey: flow.draftKey, current: expected });
+    if (expected()) flow.recovery = recovery;
+  };
+  const guardTransfer = async (draftKey = flow.draftKey) => {
+    if (!draftKey) return;
+    transferLease = mobileNewTaskTransferGuardAcquire(client, draftKey) ?? undefined;
     if (!transferLease) throw new ClientError("Wait for this draft's current task operation to finish.");
     await mobileNewTaskTransferGuardRead(client, native, transferLease, current);
     transferChecked = true; assertCurrent();
@@ -202,13 +215,32 @@ export async function mobileNewTaskFlowAction(owner: string, visit: string, kind
     // Root's existing snapshot owns preference hydration. Refuse before that
     // completes rather than creating a competing read of the shared draft store.
     assertCurrent();
+    if (kind === 'transfer-recovery' || kind === 'transfer-recovery-refresh') {
+      const target = selection(client), expected = () => current() && sameSelection(target, client);
+      if (kind === 'transfer-recovery') {
+        const recovered = await mobileNewTaskTransferRecoveryAction(client, base, client === mobileClient ? nativeFiles(base) : storage,
+          { draftKey: flow.draftKey, current: expected }, id);
+        if (!expected()) return result();
+        const submitted = recovered.submit;
+        if (submitted && submitted.disposition !== 'stay' && submitted.owner) {
+          flow.selected = null; mobileNewTaskDraftUnbind(client, flow.owner); flow.draftKey = ''; flow.recovery = undefined;
+          return { ...result('', submitted.disposition === 'pending' ? '/' : '', submitted.disposition === 'thread'),
+            environmentId: submitted.owner.environmentId, threadId: submitted.owner.threadId };
+        }
+        await refreshRecovery(); return result(recovered.message);
+      }
+      await refreshRecovery(); return result();
+    }
     if (kind === 'send' || kind === 'send-alternate') {
       const selected = flow.selected;
       const submitted = await mobileNewTaskSubmit(client, base, client === mobileClient ? nativeFiles(base) : suppliedStorage,
         { draftKey: flow.draftKey, now, current: () => current() && sameSelection(selected, client) });
       if (!current()) return result();
-      if (submitted.disposition === 'stay') return result(submitted.message || (submitted.draftRetained && submitted.status === 'completed'
-        ? 'The original task is queued. Your newer draft has been kept.' : 'Resolve this saved task before submitting again.'));
+      if (submitted.disposition === 'stay') {
+        await refreshRecovery();
+        return result(submitted.message || (submitted.draftRetained && submitted.status === 'completed'
+          ? 'The original task is queued. Your newer draft has been kept.' : 'Resolve this saved task before submitting again.'));
+      }
       const captured = submitted.owner!;
       flow.selected = null; mobileNewTaskDraftUnbind(client, flow.owner); flow.draftKey = '';
       return { ...result('', submitted.disposition === 'pending' ? '/' : '', submitted.disposition === 'thread'),
@@ -222,7 +254,10 @@ export async function mobileNewTaskFlowAction(owner: string, visit: string, kind
       if (route.draftId && !saved) return result('', '/new');
       if (!flow.applied.has(visit) && requestedEnvironment && requestedProject) {
         if (!projectExists(requestedEnvironment, requestedProject, client, background)) return result('', '/new');
-        if (saved && saved.key !== flow.draftKey) mobileNewTaskDraftUnbind(client, flow.owner);
+        if (saved && saved.key !== flow.draftKey) {
+          if (route.branch) await guardTransfer(saved.key);
+          mobileNewTaskDraftUnbind(client, flow.owner);
+        }
         else if (flow.draftKey) {
           const held = mobileNewTaskDraftLookup(client, flow.draftKey);
           if (!held) return result('', '/new');
@@ -266,6 +301,7 @@ export async function mobileNewTaskFlowAction(owner: string, visit: string, kind
         assertCurrent(); if (opened.message) throw new ClientError(opened.message);
       }
       flow.applied.add(visit);
+      await refreshRecovery();
       return result();
     }
     if (kind !== 'project' && kind !== 'scratch' && !sameSelection(flow.selected, client)) throw new ClientError('Choose a project before changing this draft.');
@@ -285,6 +321,7 @@ export async function mobileNewTaskFlowAction(owner: string, visit: string, kind
       assertCurrent();
     }
     flow.selected = selection(client); flow.applied.add(visit);
+    if (kind === 'project' || kind === 'scratch' || kind === 'environment') await refreshRecovery();
     return result('', kind === 'project' || kind === 'scratch' ? '/new/draft' : '');
   } catch (error) {
     if (letGo(error)) throw error;

@@ -1,3 +1,4 @@
+import { mobilePendingTaskEditorsSnapshot, mobilePendingTaskEditorKey, type MobilePendingTaskMarker } from './mobile-pending-task-state';
 import { expect, test } from 'bun:test';
 import { MobileDraftClient, mobileAdoptRecoveredDraft, mobileDraftRecoveryHandles, mobileRecoveredDraftMarker,
   mobileRecoveredMessageContext, mobileRetireRecoveredDraft } from './mobile-draft-recovery';
@@ -9,9 +10,9 @@ import { omitExpiredTerminalContexts } from './shared/terminal-integrations';
 import { queuedEditRefreshOrigin } from './queued-edit-origin';
 const imageId = '11111111-1111-4111-8111-111111111111';
 const link = (kind: string, id: string) => `[${id}](t3-context://v1/${kind}/${id})`;
-function setup(document: Obj = { version: 1 }) {
+function setup(document: Obj | string = { version: 1 }) {
   const client = new MobileDraftClient(); Object.assign(client, { origin: 'https://recovery.test', environmentId: 'e', threadId: 't', projectId: 'p', generation: 3 });
-  let disk = JSON.stringify(document); const writes: Obj[] = [], calls: Obj[] = []; let uncertain = false;
+  let disk = typeof document === 'string' ? document : JSON.stringify(document); const writes: Obj[] = [], calls: Obj[] = []; let uncertain = false;
   const storage: Files = { fs: { async mkdir() {}, async readFile() { return new TextEncoder().encode(disk).buffer; },
     async atomicWriteFile(_path, bytes) { disk = new TextDecoder().decode(bytes); writes.push(obj(JSON.parse(disk))); } } };
   const native: Native = { available: true, watch() {}, async later(input) {
@@ -161,4 +162,51 @@ test('verified same-home failover preserves recovered context while unverified o
     value: { origin: f.client.origin, environmentId: f.client.environmentId, homeOrigin: 'https://different.test' } }; } };
   await queuedEditRefreshOrigin(otherHome, f.client);
   expect(mobileRecoveredMessageContext(f.client, 'e:t', text, [])).toBeUndefined();
+});
+
+function pendingEditorMarker(): MobilePendingTaskMarker {
+  const owner = { origin: 'https://recovery.test', environmentId: 'e', threadId: 'pending-thread', messageId: 'pending-message', commandId: 'pending-command' };
+  return { version: 1, owner, session: 'editor-session', revision: 3, draftKey: 'new-task:pending-pending-message', contentRevision: 4,
+    baseline: { token: 'epoch:2', revision: 2, record: { schemaVersion: 1, ...owner, text: 'Captured text', attachments: [],
+      createdAt: '2026-10-08T12:00:00.000Z', creation: { projectId: 'p', workspaceMode: 'local', branch: 'main', worktreePath: null } } },
+    pending: { mutationId: 'epoch:3', contentRevision: 3 } };
+}
+test('actual cold load presents pending editor marker before first native answer and persists it across restart', async () => {
+  const marker = pendingEditorMarker(), extension = { version: 1, markers: { [mobilePendingTaskEditorKey(marker.owner)]: marker } };
+  const f = setup({ version: 1, mobilePendingTaskEditors: extension, drafts: { [marker.draftKey]: 'Newer text' } });
+  const original = f.native.later; let atPresentation: unknown;
+  f.native.later = async request => {
+    if (obj(request).op === 'devicePresentation') { atPresentation = mobilePendingTaskEditorsSnapshot(f.client); await f.client.persist(f.storage); }
+    return original(request);
+  };
+  expect(mobilePendingTaskEditorsSnapshot(f.client).hydrated).toBe(false);
+  await f.load();
+  expect(atPresentation).toMatchObject({ hydrated: true, ready: true, blocked: true, markers: [marker] });
+  expect(f.disk().mobilePendingTaskEditors).toEqual(extension);
+  expect(obj(f.disk().drafts)[marker.draftKey]).toBe('Newer text');
+  const cold = setup(f.disk()); await cold.load();
+  expect(mobilePendingTaskEditorsSnapshot(cold.client)).toMatchObject({ hydrated: true, ready: true, blocked: true, markers: [marker] });
+  expect(cold.client.local.drafts[marker.draftKey]).toBe('Newer text');
+});
+test('malformed and future pending-editor extensions survive actual load and persistence while gated', async () => {
+  for (const extension of [null, 'bad', { version: 2, markers: {} }, { version: 1, markers: { broken: { version: 9 } } }]) {
+    const f = setup({ version: 1, mobilePendingTaskEditors: extension }); await f.load();
+    expect(mobilePendingTaskEditorsSnapshot(f.client)).toMatchObject({ hydrated: true, ready: false, blocked: true });
+    await f.client.persist(f.storage); expect(f.disk().mobilePendingTaskEditors).toEqual(extension);
+    const cold = setup(f.disk()); await cold.load(); expect(mobilePendingTaskEditorsSnapshot(cold.client).ready).toBe(false);
+  }
+});
+test('empty preference text is explicitly known-empty while malformed and unknown documents stay unhydrated', async () => {
+  const empty = setup(''); await empty.load();
+  expect(mobilePendingTaskEditorsSnapshot(empty.client)).toEqual({ hydrated: true, ready: true, blocked: false, markers: [], errors: [] });
+  for (const document of ['{broken', '{"version":2,"mobilePendingTaskEditors":{"version":1,"markers":{}}}', 'null', '[]']) {
+    const f = setup(document); await f.load();
+    expect(mobilePendingTaskEditorsSnapshot(f.client)).toMatchObject({ hydrated: false, ready: false, blocked: true });
+  }
+});
+test('failed preference read cannot turn absence of a marker into known-empty editor ownership', async () => {
+  const f = setup(); f.storage.fs.readFile = async () => { throw Error('Disk unavailable'); };
+  await f.load();
+  expect(mobilePendingTaskEditorsSnapshot(f.client)).toMatchObject({ hydrated: false, ready: false, blocked: true });
+  expect(f.writes).toEqual([]);
 });
