@@ -1,0 +1,261 @@
+// The pull request's metadata writes (lane "pages"; pr-writing-and-metadata), measured against
+// T3 Code 1e2ecbd975 (MIT, see LICENSE-T3) components/pullRequest/PullRequestReactions.tsx (the
+// reaction pills and the always-visible picker), PullRequestCandidatePicker.tsx with
+// PullRequestReviewerPicker.tsx and PullRequestLabelPicker.tsx (the people and labels a pull request
+// can be given, read when the menu opens), and PullRequestGhosts.tsx PullRequestPeopleGhost. The
+// model is pages-pr-writes.ts; every press is a pages:pr-act-* write (`act`).
+use PgIcon from "./pages-icons.contract"
+use PrAvatar from "./pages-prs.contract"
+use Tip from "./shell-tip.contract"
+
+shape PrReactionPill
+  content: string
+  emoji: string
+  count: number
+  pressed: bool
+  label: string
+  tooltip: string
+shape PrReactionChoice
+  content: string
+  emoji: string
+  name: string
+shape PrPickRow
+  key: string
+  label: string
+  detail: string
+  avatar: string
+  initial: string
+  color: string
+  team: bool
+  on: bool
+  value: string
+shape PrPicker
+  shown: bool
+  allowed: bool
+  loading: bool
+  error: string
+  truncated: bool
+  busy: bool
+  rows: list<PrPickRow>
+
+fn prmMuted(): string = "light-dark(#71717b, #818181)"
+fn prmInk(): string = "light-dark(#27272a, #f5f5f5)"
+fn prmPrimary(): string = "light-dark(#1b4ed8, #346bf1)"
+// Lucide glyphs the pages set does not carry (lucide-react 0.553, ISC).
+fn prmPath(name: string): string = name == "smile-plus" ? "M22 11v1a10 10 0 1 1-9-10M8 14s1.5 2 4 2 4-2 4-2M9 9h.01M15 9h.01M16 5h6M19 2v6" : name == "send" ? "M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11zM21.854 2.147l-10.94 10.939" : name == "trash-2" ? "M10 11v6M14 11v6M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" : ""
+// The candidate menus narrow only what arrived (the host is asked once, when the menu opens).
+fn prmMatches(row: PrPickRow, query: string): bool = query == "" or includes(toLowerCase(row.label), toLowerCase(query)) or includes(toLowerCase(row.detail), toLowerCase(query))
+
+component PrmIcon
+  props
+    name: string
+    size: number
+    color: string
+  view
+    when prmPath(name) != ""
+      svg width=`${size / 16}rem` height=`${size / 16}rem` viewBox="0 0 24 24" color=color fill="none" stroke="currentColor" stroke-width=2 stroke-linecap="round" stroke-linejoin="round" flex-shrink=0 aria-hidden=true
+        path d=prmPath(name)
+    else
+      PgIcon(name=name, size=size, color=color)
+
+// PullRequestReactionBar: the pills the host reported (with this reader's presses in flight laid
+// over) and, where reactions can be added here, the picker. Nothing at all where there is neither.
+component PrdReactionBar
+  props
+    pills: list<PrReactionPill>
+    reacted: list<string>
+    canReact: bool
+    choices: list<PrReactionChoice>
+    subject: string
+    pickerId: string
+    act: action
+  view
+    when length(pills) > 0 or canReact
+      row margin-left="auto" min-width=0 max-width="100%" flex-wrap="wrap" align-items="center" justify-content="flex-end" gap="0.25rem" testId=`pull-request-reactions-${subject}`
+        each pill in pills key=pill.content
+          PrdReactionPillButton(pill=pill, canReact=canReact, press=act("react", `${subject}|${pill.content}|${pill.pressed ? "false" : "true"}`), testId=`pull-request-reaction-${subject}-${pill.content}`)
+        when canReact
+          column position="relative" flex-shrink=0
+            PrdReactionAdd(pickerId=pickerId, testId=`pull-request-reaction-add-${subject}`)
+            // PopoverPopup align="start" side="top" padding="compact": a row of the eight, closing on a pick.
+            row id=pickerId popover="auto" position="absolute" position-area="top span-right" padding-bottom="0.25rem" testId=`pull-request-reaction-picker-${subject}`
+              row padding-left="0.75rem" padding-right="0.75rem" padding-top="0.5rem" padding-bottom="0.5rem" box-sizing="border-box" gap="0.125rem" align-items="center" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#27272a1a, #f5f5f51a)" background-color="light-dark(#ffffffd5, #111111d5)" box-shadow="0 16px 40px -18px #0000008c" role="group" aria-label="Reactions"
+                each choice in choices key=choice.content
+                  PrdReactionChoiceButton(choice=choice, pressed=includes(reacted, choice.content), pickerId=pickerId, press=act("react", `${subject}|${choice.content}|${includes(reacted, choice.content) ? "false" : "true"}`), testId=`pull-request-reaction-choose-${subject}-${choice.content}`)
+
+// PILL_CLASS: a 24pt pill, its emoji and count; pressed where this reader reacted.
+component PrdReactionPillButton
+  props
+    pill: PrReactionPill
+    canReact: bool
+    press: action
+    testId: string
+  state over = false
+  action hover(value: bool)
+    over = value
+  view
+    Tip(label=pill.tooltip, side="top", align="center", offset=28)
+      button press=press hover=hover disabled=(not canReact) aria-pressed=pill.pressed aria-label=pill.label testId=testId height="1.5rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" gap="0.25rem" border-radius="624.9375rem" border-width=1 border-style="solid" border-color=(pill.pressed or (over and canReact) ? "light-dark(#1b4ed899, #346bf199)" : "light-dark(#e4e4e7b3, #ffffff12)") background-color=(pill.pressed ? "light-dark(#1b4ed81a, #346bf11a)" : "light-dark(#f4f4f566, #ffffff06)") display="flex" flex-direction="row" align-items="center" flex-shrink=0 cursor=(canReact ? "pointer" : "default")
+        text pill.emoji font-size="0.75rem" line-height="1rem" aria-hidden=true
+        text `${pill.count}` font-size="0.75rem" line-height="1rem" font-variant-numeric="tabular-nums" color=(pill.pressed ? prmInk() : prmMuted())
+
+component PrdReactionAdd
+  props
+    pickerId: string
+    testId: string
+  state over = false
+  action hover(value: bool)
+    over = value
+  view
+    button popovertarget=pickerId hover=hover aria-label="Add a reaction" testId=testId height="1.5rem" padding-left="0.375rem" padding-right="0.375rem" box-sizing="border-box" border-radius="624.9375rem" border-width=1 border-style="solid" border-color=(over ? "light-dark(#1b4ed899, #346bf199)" : "light-dark(#e4e4e7b3, #ffffff12)") background-color="#00000000" display="flex" flex-direction="row" align-items="center"
+      PrmIcon(name="smile-plus", size=14, color=(over ? prmInk() : prmMuted()))
+
+component PrdReactionChoiceButton
+  props
+    choice: PrReactionChoice
+    pressed: bool
+    pickerId: string
+    press: action
+    testId: string
+  state over = false
+  action hover(value: bool)
+    over = value
+  view
+    button press=press popovertarget=pickerId popovertargetaction="hide" hover=hover aria-pressed=pressed aria-label=choice.name testId=testId width="1.75rem" height="1.75rem" padding=0 border-radius="0.375rem" border-width=0 background-color=(over ? "light-dark(#f4f4f5, #ffffff0f)" : (pressed ? "light-dark(#1b4ed81a, #346bf11a)" : "#00000000")) display="flex" align-items="center" justify-content="center"
+      text choice.emoji font-size="1rem" line-height="1.5rem" aria-hidden=true
+
+// PullRequestCandidatePicker: an icon trigger (disabled with the reason where this account may not
+// change it), then a search box over a list that says when it is loading, could not be read, is
+// empty, matches nothing, or is not all of it. It stays open on a pick; every row locks while one
+// change is in flight. The arrows move the highlight and Enter picks it (the combobox's autoHighlight).
+component PrdCandidatePicker
+  props
+    picker: PrPicker
+    which: string
+    op: string
+    icon: string
+    label: string
+    disabledReason: string
+    searchLabel: string
+    emptyLabel: string
+    noMatchLabel: string
+    errorLabel: string
+    truncatedLabel: string
+    menuId: string
+    still: bool
+    act: action
+  state query = ""
+  state highlight = 0
+  state over = false
+  derive shown = filter(picker.rows, (row) => prmMatches(row, query))
+  action hover(value: bool)
+    over = value
+  action edit(value: string)
+    query = value
+    highlight = 0
+  action opening
+    highlight = 0
+    act("candidates", which)
+  action keys(k: string)
+    if k == "ArrowDown"
+      preventDefault()
+      highlight = min(highlight + 1, max(0, length(shown) - 1))
+    else if k == "ArrowUp"
+      preventDefault()
+      highlight = max(0, highlight - 1)
+    else if k == "Enter"
+      preventDefault()
+      if not picker.busy and not picker.loading
+        match at(shown, highlight)
+          case some(row)
+            act(op, row.value)
+          case none
+  action pointAt(index: number, value: bool)
+    if value
+      highlight = index
+  view
+    when not picker.allowed
+      Tip(label=disabledReason, side="bottom", align="center", offset=28)
+        button disabled=true aria-label=label testId=`pull-request-${which}-picker` width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 background-color="#00000000" opacity=0.64 display="flex" align-items="center" justify-content="center"
+          PgIcon(name=icon, size=14, color=prmMuted())
+    else
+      column position="relative" flex-shrink=0
+        button press=opening popovertarget=menuId hover=hover aria-label=label testId=`pull-request-${which}-picker` width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 background-color=(over ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" align-items="center" justify-content="center"
+          PgIcon(name=icon, size=14, color="light-dark(#71717b, #a1a1a1)")
+        // ComboboxPopup align="start" side="bottom" w-72: below the trigger (no flip near the window's bottom, X17).
+        column id=menuId popover="auto" position="absolute" padding-top="0.25rem" width="18rem" testId=`pull-request-${which}-layer`
+          column width="100%" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#27272a1a, #f5f5f51a)" background-color="light-dark(#fefefe, #171717)" box-shadow="0 16px 40px -18px #0000008c" overflow="hidden" role="dialog" aria-label=label testId=`pull-request-${which}-menu`
+            column width="100%" padding-left="0.75rem" padding-right="0.75rem" padding-top="0.625rem" box-sizing="border-box" flex-shrink=0
+              row height="2.0625rem" padding-bottom="0.375rem" box-sizing="border-box" position="relative" align-items="center" border-bottom-width=1 border-bottom-style="solid" border-color="light-dark(#e4e4e7b3, #ffffff0b)"
+                box position="absolute" left=0 top="0.375rem" display="flex" pointer-events="none"
+                  PgIcon(name="search", size=16, color="light-dark(#71717a8c, #8181818c)")
+                input value=query input=edit key=keys autofocus=true role="combobox" aria-expanded=true aria-label=searchLabel placeholder=searchLabel autocorrect="off" spellcheck="false" testId=`pull-request-${which}-search` flex=1 min-width=0 height="1.625rem" padding-left="1.25rem" padding-right="0.5625rem" padding-top=0 padding-bottom=0 border-width=0 background-color="#00000000" font-size="0.875rem" line-height="1.625rem" color=prmInk()
+            scroll max-height="18rem" width="100%"
+              column width="100%" padding="0.25rem" box-sizing="border-box" role="listbox" aria-label=label
+                when picker.loading
+                  PrdPeopleGhost(still=still)
+                else
+                  when picker.error != ""
+                    text `${errorLabel} ${picker.error}` padding="0.5rem" font-size="0.75rem" line-height="1rem" color=prmMuted() testId=`pull-request-${which}-error`
+                  else
+                    when length(shown) == 0
+                      text (query != "" ? noMatchLabel : emptyLabel) padding="0.5rem" font-size="0.75rem" line-height="1rem" color=prmMuted() testId=`pull-request-${which}-empty`
+                    each row, index in shown key=row.key
+                      PrdCandidateRow(row=row, which=which, highlighted=(index == highlight), busy=picker.busy, press=act(op, row.value), point=pointAt(index))
+                when picker.truncated
+                  text truncatedLabel padding-left="0.5rem" padding-right="0.5rem" padding-top="0.375rem" padding-bottom="0.375rem" font-size="0.75rem" line-height="1rem" color=prmMuted() testId=`pull-request-${which}-truncated`
+
+// One person (their face and login, "team" for a team, a tick when already asked) or one label
+// (its colour dot, name and description, a tick when applied).
+component PrdCandidateRow
+  props
+    row: PrPickRow
+    which: string
+    highlighted: bool
+    busy: bool
+    press: action
+    point: action
+  view
+    button press=press hover=point disabled=busy role="option" aria-selected=row.on testId=`pull-request-${which}-option-${row.key}` width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" gap="0.5rem" border-width=0 border-radius="0.375rem" opacity=(busy ? 0.64 : 1) background-color=(highlighted ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center"
+      when which == "reviewers"
+        PrAvatar(avatar=row.avatar, initial=row.initial, size=16)
+        text row.label flex=1 min-width=0 text-align="left" font-size="0.875rem" line-height="1.25rem" font-weight=500 color=prmInk() white-space="nowrap" overflow="hidden" text-overflow="ellipsis"
+        when row.team
+          text "team" flex-shrink=0 font-size="0.875rem" line-height="1.25rem" color=prmMuted()
+        when row.on
+          box aria-label="Already asked" role="img" flex-shrink=0 display="flex"
+            PgIcon(name="check", size=14, color=prmInk())
+      else
+        box width="0.5rem" height="0.5rem" flex-shrink=0 border-radius="624.9375rem" background-color=(row.color != "" ? row.color : prmMuted()) aria-hidden=true
+        row flex=1 min-width=0 align-items="baseline" overflow="hidden"
+          text row.label flex-shrink=0 max-width="100%" text-align="left" font-size="0.875rem" line-height="1.25rem" color=prmInk() white-space="nowrap" overflow="hidden" text-overflow="ellipsis"
+          when row.detail != ""
+            text ` · ${row.detail}` flex=1 min-width=0 text-align="left" font-size="0.875rem" line-height="1.25rem" color=prmMuted() white-space="nowrap" overflow="hidden" text-overflow="ellipsis"
+        when row.on
+          box aria-label="Applied" role="img" flex-shrink=0 display="flex"
+            PgIcon(name="check", size=14, color=prmInk())
+
+// PullRequestPeopleGhost: four rows of a face and a bar, one pulse (still under reduced motion).
+keyframes prmPulse
+  from opacity=1
+  42% opacity=1
+  50% opacity=0.55
+  92% opacity=0.55
+  to opacity=1
+component PrdPeopleGhost
+  props
+    still: bool
+  view
+    column padding="0.25rem" box-sizing="border-box" gap="0.25rem" role="status" aria-label="Loading people" animation=(still ? "none" : "prmPulse 2.4s steps(4) infinite") testId="pull-request-people-ghost"
+      PrdPeopleGhostRow(width="40%")
+      PrdPeopleGhostRow(width="33%")
+      PrdPeopleGhostRow(width="50%")
+      PrdPeopleGhostRow(width="40%")
+
+component PrdPeopleGhostRow
+  props
+    width: string
+  view
+    row height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" gap="0.5rem" align-items="center"
+      box width="1rem" height="1rem" flex-shrink=0 border-radius="624.9375rem" background-color="light-dark(#71717b26, #81818126)"
+      box width=width height="0.75rem" border-radius="0.25rem" background-color="light-dark(#71717b26, #81818126)"
