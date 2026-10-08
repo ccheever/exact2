@@ -895,7 +895,7 @@ component App
   mutation filePrepared as shape FileSnapshot refreshes fileData
   task prepareFiles when workspaceRouteReady and (top(nav).name == "threadFiles" or (inspectorState.active and (inspectorState.mountedFiles or (inspectorState.mountedRoute and inspectorState.kind != "changed-files")))) key=`${top(nav).id}:${filesData.owner}:${filesQuery}:${selectedFile}:${inspectorState.mountedFiles}:${inspectorState.mountedRoute}`
     after(200, prepareFiles)
-  task prepareFile when (top(nav).name == "threadFile" and workspaceRouteReady) or (top(nav).name == "newTaskFile" and newTaskFlow.ready) key=`${top(nav).id}:${fileData.owner}`
+  task prepareFile when (top(nav).name == "threadFile" and workspaceRouteReady) or (top(nav).name == "newTaskFile" and newTaskFlow.fileReady) key=`${top(nav).id}:${fileData.owner}`
     after(1, prepareFile)
   action prepareFiles
     send filesPrepared = filesPrepare(filesQuery, selectedFile)

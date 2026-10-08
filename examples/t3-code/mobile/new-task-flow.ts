@@ -16,7 +16,7 @@ import type { T3Client } from './shared/client';
 
 export interface NewTaskFlowSnapshot {
   owner: string; requestRoute: string; status: string; title: string; message: string;
-  draftOwner: string; ready: boolean; chooser: boolean; needsPrepare: boolean; busy: boolean; nextLocation: string;
+  draftOwner: string; ready: boolean; fileReady: boolean; chooser: boolean; needsPrepare: boolean; busy: boolean; nextLocation: string;
 }
 export interface NewTaskFlowResult {
   revision: number; requestRoute: string; nextLocation: string; message: string; alertTitle: string;
@@ -55,7 +55,10 @@ export function mobileNewTaskRoute(location: string) {
         : /^\/new\/draft\/settings\/(?:runtime|providers|options\/[^/]+)$/.test(path) ? 'settings-child' : '');
   const unsupported = ['pendingTaskId', 'draftId', 'incomingShareId'].find(key => !!query.get(key))
     ?? (query.get('cloning') && query.get('cloning') !== '1' ? 'cloning' : '');
-  return { chooser, context, environmentId: query.get('environmentId') ?? '', projectId: query.get('projectId') ?? '',
+  const param = (key: string) => { const value = query.get(key); return value?.trim() ? value : ''; };
+  const environmentId = param('environmentId'), projectId = param('projectId'), cwd = param('cwd');
+  const standaloneFile = context === 'file' && !!environmentId && !!cwd && !projectId && !unsupported;
+  return { chooser, context, environmentId, projectId, cwd, standaloneFile,
     branch: query.get('branch') ?? '', worktreePath: query.get('worktreePath') ?? '', unsupported };
 }
 
@@ -79,10 +82,11 @@ export function mobileNewTaskFlowView(session: string, visit: string, location: 
   const selected = sameSelection(flow.selected, client) && projectExists(client.environmentId, client.projectId, client, background);
   const base: NewTaskFlowSnapshot = { owner: flow.owner, requestRoute: visit, status: 'inactive', title: 'New task', message: flow.error,
     draftOwner: active && client.preferencesLoaded && selected ? mobileComposerTarget(client).owner : '',
-    ready: false, chooser: route.chooser, needsPrepare: false, busy: flow.busy || checkouts.has(client), nextLocation: '' };
+    ready: false, fileReady: false, chooser: route.chooser, needsPrepare: false, busy: flow.busy || checkouts.has(client), nextLocation: '' };
   if (!active) return base;
   if (route.context === 'add-project') return { ...base, status: 'add-project', title: 'Add project' };
   if (route.chooser) return { ...base, status: 'choose', title: 'Choose project' };
+  if (route.standaloneFile) return { ...base, status: 'file', title: 'Files', draftOwner: '', fileReady: true, busy: false };
   if (!client.preferencesLoaded) return { ...base, status: 'loading' };
   if (!route.context) return { ...base, status: 'pick', nextLocation: '/new' };
   if (route.unsupported) return { ...base, status: 'pick', nextLocation: '/new', message: 'This saved task or shared-content link is unavailable in this build.' };
@@ -98,12 +102,19 @@ export function mobileNewTaskFlowView(session: string, visit: string, location: 
   // A settings URL needs the same staged session that an explicit button creates.
   if ((route.context === 'settings' && !flow.applied.has(visit)) || route.context === 'settings-child' && !mobileComposerSettings('', '', false, client).open) return { ...base, status: 'prepare', needsPrepare: true };
   flow.readyVisit = visit;
-  return { ...base, status: 'ready', ready: true, title: ({ draft: 'New task', environment: 'Environment', branch: 'Branch', settings: 'Model' })[route.context] ?? 'New task' };
+  return { ...base, status: 'ready', ready: true, fileReady: route.context === 'file', title: ({ draft: 'New task', environment: 'Environment', branch: 'Branch', settings: 'Model' })[route.context] ?? 'New task' };
 }
 
 export function mobileNewTaskFlowCurrent(owner: string, visit: string, location: string, client: T3Client = mobileClient) {
   const flow = flows.get(client);
   return !!flow && flow.active && flow.owner === owner && flow.visit === visit && flow.location === location;
+}
+
+/** File access is route-owned; explicit standalone workspaces grant no draft authority. */
+export function mobileNewTaskFileRouteCurrent(owner: string, visit: string, location: string, client: T3Client = mobileClient) {
+  if (!mobileNewTaskFlowCurrent(owner, visit, location, client)) return false;
+  const route = mobileNewTaskRoute(location);
+  return route.context === 'file' && !route.unsupported && (route.standaloneFile || mobileNewTaskFlowOwns(owner, visit, client));
 }
 
 /** Root must apply ready/owner to draft, attachment, model and voice actions as
@@ -119,6 +130,7 @@ export async function mobileNewTaskFlowAction(owner: string, visit: string, kind
     revision: client.revision, requestRoute: visit, nextLocation, message, alertTitle: '', submitted,
     environmentId: client.environmentId, projectId: client.projectId, threadId: client.threadId });
   if (!flow || !flow.active || flow.owner !== owner || flow.visit !== visit) return result('The new task route changed.');
+  if (mobileNewTaskRoute(flow.location).standaloneFile) return result('Return to the new task before changing its draft.');
   if (mobileNewTaskRoute(flow.location).context === 'add-project') return result('Return to the new task before changing its draft.');
   if (flow.busy || checkouts.has(client)) return result('Wait for the current task change to finish.');
   if (!nativeInput?.available) return result('Open T3 Code on your iPhone or iPad to create a task.');

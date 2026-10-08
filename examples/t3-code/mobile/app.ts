@@ -20,7 +20,7 @@ import { mobileInspectorContext, mobileInspectorTransition, mobileInspectorPrese
 import { mobileWorkspaceEvent, mobileWorkspace, mobileWorkspaceThreadSelection, mobileWorkspaceFileSelection, type MobileWorkspaceOptions } from './mobile-workspace';
 import { workspaceOf } from './shared/r4-surfaces-panel';
 import { mobileStreamingDescriptor } from './haptics';
-import { mobileNewTaskFlowView, mobileNewTaskFlowAction, mobileNewTaskFlowOwns, mobileNewTaskFlowCurrent } from './new-task-flow';
+import { mobileNewTaskFlowView, mobileNewTaskFlowAction, mobileNewTaskFlowOwns, mobileNewTaskFileRouteCurrent, mobileNewTaskFlowCurrent } from './new-task-flow';
 import { mobileThreadPreferences, mobileThreadPreferencesCommand } from './settings-thread-preferences';
 import { mobileProjectOverview, mobileProjectRename } from './settings-project';
 import { mobileAccountRouteEntry } from './settings-account';
@@ -640,6 +640,8 @@ const taskGuardIndices: Record<string, number> = { filePrepare: 5, command: 4, c
 function newTaskGuard(source: string, args: unknown[]): (() => boolean) | null {
   // Existing recordings retain their captured draft and cleanup owner offscreen.
   if (source === 'voiceAction' && args[0] !== 'start') return null;
+  if (source === 'filePrepare' && String(args[4] ?? '').startsWith('/new/draft/files/'))
+    return () => mobileNewTaskFileRouteCurrent(String(args[5] ?? ''), String(args[6] ?? ''), String(args[4]));
   const index = taskGuardIndices[source];
   if (index === undefined || !args[index]) return null;
   const owner = String(args[index]), route = String(args[index + 1] ?? '');
@@ -651,7 +653,7 @@ async function newTaskFlow(args: unknown[], native?: Native | null) {
   // Invalidate departing actions synchronously, before the catalog read or any
   // dependent resource can use the previous flow's composer owner.
   const initial = mobileNewTaskFlowView(session, visit, location, active, false);
-  if (!active || initial.status === 'add-project' || !native?.available) return initial;
+  if (!active || initial.status === 'add-project' || initial.status === 'file' || !native?.available) return initial;
   const catalog = await bridgeReply(native, { op: 'environments' });
   if (!mobileNewTaskFlowCurrent(initial.owner, visit, location)) return initial;
   const saved = catalog.ok ? arr(obj(catalog.value).saved).filter(entry => entry.enabled !== false) : [];
