@@ -6,7 +6,7 @@
 // `__exact_message`).
 import { streamed } from './http-body.js';
 import { failureCode } from './shape.js';
-import { bodyFromRefusal, readBodyFile } from './ts-fetch.js';
+import { bodyFromRefusal, methodOf, readBodyFile } from './ts-fetch.js';
 
 const KINDS = ['Response', 'Network', 'Refused', 'Unsupported', 'Aborted', , , , , , 'Timeout'], said = new TextDecoder();
 // Hermes's checks and words on `init` (js/src/prelude.js `fetch`): a
@@ -20,7 +20,7 @@ function request(input, init) {
   const bodyFrom = init.exactBodyFrom === undefined ? undefined : init.exactBodyFrom, refusal = bodyFrom === undefined ? null : bodyFromRefusal(input, init);
   if (refusal) throw new TypeError(refusal);
   const raw = init.body == null ? undefined : new TextEncoder().encode(String(init.body));
-  return { method: String(init.method ?? 'GET').toUpperCase(), url: String(input), headers: [...new Headers(init.headers ?? [])], raw, bodyFrom, maxResponseBytes: independent ?? 1048576 };
+  return { method: methodOf(input, init), url: String(input), headers: [...new Headers(init.headers ?? [])], raw, bodyFrom, maxResponseBytes: independent ?? 1048576 };
 }
 export function open({ input, init }, conv, grantSet, deliver, controller) {
   let req;

@@ -166,31 +166,41 @@ export async function request(op, { grantSet, loadPageNative, moduleLoader, loca
   }
   // A socket is a stream whose URL is `ws:` or `wss:` (its grant was
   // `net.websocket`, above); its method, headers and body are not sent.
+  if (socket && op.bodyFrom != null) return failed(2, 'exactBodyFrom: a WebSocket sends no body');
   if (socket) return readSocket(url, op.maxResponseBytes ?? 1024 * 1024, message, controller);
   let decodedBody;
   try { if (body) decodedBody = Uint8Array.from(atob(body), c => c.charCodeAt(0)); }
   catch (error) { return failed(4, `invalid request body: ${error}`); }
+  // A deadline for the whole exchange (Request::timeout_ms): kind 10 when it
+  // passes (9 is an auth session's delivery, glue.js). A body read from a file
+  // counts against it.
+  if (op.timeoutMs !== undefined && (!Number.isInteger(op.timeoutMs) || op.timeoutMs < 1 || op.timeoutMs > 3600000)) return failed(2, 'a request timeout must be 1 to 3600000 ms');
+  const deadline = op.timeoutMs === undefined ? null : AbortSignal.timeout(op.timeoutMs);
+  controllers.add(controller);
+  const signal = deadline ? AbortSignal.any([controller.signal, deadline]) : controller.signal;
   // `exactBodyFrom` (LLP 1108 D6 R2): the app file, read now under the
   // request's `fs.read` grant into a Blob body (a picked file is its own
   // File, never copied into a string), or refused before anything is sent.
   let fileBody;
   if (op.bodyFrom != null) {
     if (!bodyFile) return failed(3, `exactBodyFrom ${op.bodyFrom}: this host has no app files (no storage here)`);
-    if (body) return failed(2, 'exactBodyFrom: a request has one body, body or exactBodyFrom');
-    if (/^(GET|HEAD)$/i.test(method)) return failed(2, 'exactBodyFrom: a GET or HEAD request cannot have a body');
+    if (body) return failed(2, 'fetch: a request has one body: body or exactBodyFrom');
+    if (/^(GET|HEAD)$/i.test(method)) return failed(2, 'fetch: a GET or HEAD request cannot have a body');
+    if (typeof op.bodyFrom !== 'string' || !op.bodyFrom.startsWith('app:/')) return failed(2, 'exactBodyFrom must be an app:/ path');
+    if (op.bodyFrom.length > 4096 || /(^|\/)\.\.?(\/|$)|\0/.test(op.bodyFrom.slice(5))) return failed(2, `exactBodyFrom ${op.bodyFrom.slice(0, 256)}: an app:/ path has no . or .. segment, and is at most 4096 bytes`);
     // Refused before the storage adapters load, which an app without file grants does not ship.
-    if (typeof op.bodyFrom !== 'string' || !coversPath(effective, 'fs.read', op.bodyFrom))
+    if (!coversPath(effective, 'fs.read', op.bodyFrom))
       return failed(2, `exactBodyFrom ${op.bodyFrom}: denied: fs.read ${op.bodyFrom}: no grant covers it; grant \`fs.read ${op.bodyFrom}\``);
-    try { fileBody = await bodyFile(op.bodyFrom, effective); }
+    // The read yields to the deadline and to letting go: nothing is sent once either has ended it.
+    const stopped = new Promise(resolve => signal.addEventListener('abort', resolve, { once: true }));
+    const reading = bodyFile(op.bodyFrom, effective);
+    reading.catch(() => {}); // a read that loses the race is nobody's
+    try { fileBody = await Promise.race([reading, stopped]); }
     catch (error) { return failed(error?.code === 'agent' ? 3 : 2, error); }
+    if (deadline?.aborted && !controller.signal.aborted) return failed(10, `the request timed out after ${op.timeoutMs} ms`);
+    if (signal.aborted) return failed(4, 'request aborted');
     if (!active()) return failed(4, 'request source unloaded');
   }
-  // A deadline for the whole exchange (Request::timeout_ms): kind 10 when it
-  // passes (9 is an auth session's delivery, glue.js).
-  if (op.timeoutMs !== undefined && (!Number.isInteger(op.timeoutMs) || op.timeoutMs < 1 || op.timeoutMs > 3600000)) return failed(2, 'a request timeout must be 1 to 3600000 ms');
-  const deadline = op.timeoutMs === undefined ? null : AbortSignal.timeout(op.timeoutMs);
-  controllers.add(controller);
-  const signal = deadline ? AbortSignal.any([controller.signal, deadline]) : controller.signal;
   const init = { method, headers, redirect: 'follow', cache: cache === 'reload' ? 'reload' : 'default', signal };
   if (decodedBody) init.body = decodedBody;
   else if (fileBody) init.body = fileBody;

@@ -795,12 +795,16 @@
     if (bodyFrom !== undefined) {
       if (typeof bodyFrom !== "string" || bodyFrom.slice(0, 5) !== "app:/")
         return Promise.reject(new TypeError("exactBodyFrom must be an app:/ path"));
+      if (bodyFrom.length > 4096)
+        return Promise.reject(new TypeError("exactBodyFrom: a path is at most 4096 bytes"));
       if (/(^|\/)\.\.?(\/|$)|\0/.test(bodyFrom.slice(5)))
         return Promise.reject(new TypeError("exactBodyFrom: an app:/ path has no . or .. segment"));
       if (method === "GET" || method === "HEAD")
         return Promise.reject(new TypeError("fetch: a " + method + " request cannot have a body"));
       if (raw != null)
         return Promise.reject(new TypeError("fetch: a request has one body: body or exactBodyFrom"));
+      if (init.exactStream !== undefined && /^wss?:/i.test(String(url)))
+        return Promise.reject(new TypeError("exactBodyFrom: a WebSocket sends no body"));
     }
     // LLP 1041 §8.4: an explicit promise about both operation and settlement.
     // Browsers ignore this native scheduling hint; their admission is unchanged.

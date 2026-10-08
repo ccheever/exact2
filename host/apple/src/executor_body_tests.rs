@@ -161,7 +161,31 @@ fn a_body_from_a_file_is_refused_unsent_past_its_grant_scope_or_with_another_bod
     both.body = b"x".to_vec();
     assert_eq!(
         core.run(job(4, both), None),
-        Err("exactBodyFrom: a request has one body, body or exactBodyFrom")
+        Err("fetch: a request has one body: body or exactBodyFrom")
     );
     assert!(sent.lock().unwrap().is_empty(), "a refused body was sent");
+}
+
+/// The app's directories are opened when the host names them and pinned: a
+/// root replaced later by a symlink to another tree is not followed, as
+/// storage's own handles do not follow it.
+#[cfg(unix)]
+#[test]
+fn a_root_replaced_after_the_host_named_it_is_not_followed() {
+    let files = Files::new();
+    let other = Files::new();
+    std::fs::write(files.0.join("tmp/photo.jpg"), b"the app's").unwrap();
+    std::fs::write(other.0.join("tmp/photo.jpg"), b"another's").unwrap();
+    let (core, sent, woke) = recording(GRANTS);
+    core.set_app_roots(files.roots());
+    std::fs::rename(files.0.join("tmp"), files.0.join("tmp-moved")).unwrap();
+    std::os::unix::fs::symlink(other.0.join("tmp"), files.0.join("tmp")).unwrap();
+    core.run(job(1, upload("app:/tmp/photo.jpg")), None)
+        .unwrap();
+    let outcomes = collect(&core, &woke, 1);
+    assert!(
+        matches!(&outcomes[0].1, Outcome::Response(_)),
+        "{outcomes:?}"
+    );
+    assert_eq!(sent.lock().unwrap()[0].0, b"the app's");
 }

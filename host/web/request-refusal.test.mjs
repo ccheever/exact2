@@ -510,6 +510,27 @@ test('a built TypeScript source refuses fetch and storage without grants', async
   }
 }, 60_000);
 
+// @ref LLP 1108 D6 R2 — the page's `exactBodyFrom` read counts against the
+// request's deadline and nothing is sent after it; a WebSocket takes no body.
+test('a body read from a file is bounded by the deadline, and a socket refuses one', async () => {
+  const grants = normalized('fs.read app:/data\nnet.fetch https://x.test\nnet.websocket wss://x.test');
+  let sent = 0;
+  const fetchBefore = globalThis.fetch;
+  globalThis.fetch = async () => { sent++; return new Response('sent'); };
+  try {
+    const host = { grantSet: grants, controllers: new Set(), bodyFile: () => new Promise(r => setTimeout(() => r(new Blob(['late'])), 100)) };
+    const op = { op: 'request', ticket: 1, method: 'POST', url: 'https://x.test/up', headers: [], body: '', bodyFrom: 'app:/data/p.jpg', cache: 'default', timeoutMs: 10 };
+    const late = await request(op, host);
+    expect([late.kind, text(late)]).toEqual([10, 'the request timed out after 10 ms']);
+    const socket = await request({ ...op, url: 'wss://x.test/feed', stream: true, timeoutMs: undefined }, host);
+    expect([socket.kind, text(socket)]).toEqual([2, 'exactBodyFrom: a WebSocket sends no body']);
+    const traversal = await request({ ...op, bodyFrom: 'app:/data/../tmp/p.jpg', timeoutMs: undefined }, host);
+    expect(text(traversal)).toContain('no . or .. segment');
+    await new Promise(r => setTimeout(r, 150));
+    expect(sent).toBe(0);
+  } finally { globalThis.fetch = fetchBefore; }
+});
+
 // @ref LLP 1108 D6 R2 — `exactBodyFrom` on the JS target: the app file is the
 // request's body, read from the page's store as a Blob (a picked entry is its
 // own File), with no Content-Type but the author's; a missing file and a path
@@ -849,7 +870,7 @@ test("the JS target refuses a data module's clock, randomness and timers as Herm
   const bound = JSON.parse(/const bound = (\[[^\]]*\]);/.exec(build)[1].replaceAll("'", '"').replace(/\s+/g, ''));
   const guards = resolve(dir, 'ts-fetch.js');
   cpSync(resolve(ROOT, 'host/web-js/ts-fetch.js'), guards);
-  writeFileSync(resolve(dir, 'admission.js'), 'export const fetchWith = () => Promise.reject(new Error("no fetch here")); export class FetchError extends Error {}\n');
+  writeFileSync(resolve(dir, 'admission.js'), 'export const fetchWith = () => Promise.reject(new Error("no fetch here")); export class FetchError extends Error {} export const coversPath = () => false;\n');
   writeFileSync(resolve(dir, 'admission-data.js'), 'export const tsGrantSet = null;\n');
   const fixture = resolve(ROOT, 'js/tests/fixtures/inputs.ts');
   const app = transformSync(fixture, readFileSync(fixture, 'utf8'), { inject: { ...Object.fromEntries(bound.map(name => [name, [guards, name]])),
@@ -897,7 +918,7 @@ test("the JS target refuses a data module's own WebSocket, XMLHttpRequest and Ev
   const bound = JSON.parse(/const bound = (\[[^\]]*\]);/.exec(build)[1].replaceAll("'", '"').replace(/\s+/g, ''));
   const guards = resolve(dir, 'ts-fetch.js');
   cpSync(resolve(ROOT, 'host/web-js/ts-fetch.js'), guards);
-  writeFileSync(resolve(dir, 'admission.js'), 'export const fetchWith = () => Promise.reject(new Error("no fetch here")); export class FetchError extends Error {}\n');
+  writeFileSync(resolve(dir, 'admission.js'), 'export const fetchWith = () => Promise.reject(new Error("no fetch here")); export class FetchError extends Error {} export const coversPath = () => false;\n');
   writeFileSync(resolve(dir, 'admission-data.js'), 'export const tsGrantSet = null;\n');
   const source = resolve(dir, 'source.js');
   writeFileSync(source, `const io = { WebSocket, XMLHttpRequest, EventSource };

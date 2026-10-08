@@ -119,6 +119,9 @@ pub struct Request {
 /// The largest file [`Request::body_from`] sends: 64 MiB.
 pub const MAX_BODY_FROM_BYTES: u64 = 64 << 20;
 
+/// The longest [`Request::body_from`] path, in bytes.
+pub const MAX_BODY_FROM_PATH: usize = 4096;
+
 /// The longest request deadline a source may ask for: one hour.
 pub const MAX_TIMEOUT_MS: u32 = 3_600_000;
 
@@ -330,14 +333,24 @@ impl Request {
     pub fn body_from_refusal(&self) -> Option<&'static str> {
         let path = self.body_from.as_deref()?;
         if !path.starts_with("app:/") {
-            Some("exactBodyFrom needs an app:/ path")
+            Some("exactBodyFrom must be an app:/ path")
+        } else if path.len() > MAX_BODY_FROM_PATH {
+            Some("exactBodyFrom: a path is at most 4096 bytes")
         } else if !self.body.is_empty() {
-            Some("exactBodyFrom: a request has one body, body or exactBodyFrom")
+            Some("fetch: a request has one body: body or exactBodyFrom")
+        } else if self.stream
+            && ["ws:", "wss:"].iter().any(|scheme| {
+                self.url
+                    .get(..scheme.len())
+                    .is_some_and(|s| s.eq_ignore_ascii_case(scheme))
+            })
+        {
+            Some("exactBodyFrom: a WebSocket sends no body")
         } else if ["GET", "HEAD"]
             .iter()
             .any(|m| self.method.eq_ignore_ascii_case(m))
         {
-            Some("exactBodyFrom: a GET or HEAD request cannot have a body")
+            Some("fetch: a GET or HEAD request cannot have a body")
         } else if self.storage.is_some()
             || self.continuation.is_some()
             || self.surface.is_some()
@@ -844,6 +857,12 @@ mod tests {
             read.method = method.into();
             assert!(read.body_from_refusal().unwrap().contains("GET or HEAD"));
         }
+        let socket = Answer::stream(post("app:/tmp/a.jpg"));
+        let Answer::Later(mut socket) = socket else {
+            unreachable!()
+        };
+        socket.url = "WSS://x.test/feed".into();
+        assert!(socket.body_from_refusal().unwrap().contains("WebSocket"));
         let native = Request::native(Vec::new()).body_from("app:/tmp/a.jpg");
         assert_eq!(
             native.body_from_refusal(),

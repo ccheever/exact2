@@ -218,11 +218,11 @@ export function createFileStore(appId) {
     },
     // Trusted host only: a file as a Blob, for an `image` or `video` source
     // (LLP 1069.002 D7), and when it last changed. A picked entry is its File.
-    async blob(path, type, maxBytes = Infinity) {
+    async blob(path, type, maxBytes = Infinity, label = 'compressImage') {
       path = normalizePath(path);
       const { contents, modifiedMs } = await run(false, records => file(records, path), path);
       const size = contents.byteLength ?? contents.size;
-      if (size > maxBytes) throw failure(`compressImage: too-large: ${size} bytes is over ${maxBytes}`, 'too-large');
+      if (size > maxBytes) throw failure(`${label}: too-large: ${size} bytes is over ${maxBytes}`, 'too-large');
       return { blob: contents instanceof Blob ? contents : new Blob([contents], { type }), modifiedMs };
     },
     // Trusted host only: a picked file's entry, backed by the browser's File
@@ -415,8 +415,12 @@ export async function requestBody(appId, grants, path) {
   if (key == null) throw named(appId ? agentStorageRefusal : 'this host has no app files (no storage here)', 'agent');
   const store = createFileStore(key);
   try {
-    const { blob } = await store.blob(normalized, '').catch(error => { throw named(String(error.message).replace(/^filesystem: /, ''), error.code); });
-    if (blob.size > MAX_BODY_FROM_BYTES) throw named(`too-large: ${blob.size} bytes is over ${MAX_BODY_FROM_BYTES}`, 'too-large');
+    // The size is checked before a Blob is made; a byte entry's record is
+    // read whole by IndexedDB first, as for any operation on it.
+    const { blob } = await store.blob(normalized, '', MAX_BODY_FROM_BYTES, 'exactBodyFrom').catch(error => {
+      const why = String(error.message).replace(/^filesystem: (exactBodyFrom: )?/, '');
+      throw named(error.code === 'EISDIR' ? 'not a file' : why, error.code);
+    });
     return blob.type ? blob.slice(0, blob.size, '') : blob;
   } finally { store.close(); }
 }

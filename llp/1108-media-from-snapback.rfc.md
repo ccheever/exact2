@@ -502,6 +502,14 @@ web (the wasm host's page, the JS target) read the file when they send; a
 Rust module across the logic seam (LLP 1029.000) refuses it, as it refuses a
 timeout. `exactSaveTo` is not built and stays in slice 2, with the rest of
 this RFC.
+Code review (GPT-6 Astra and Grok 4.7, `llp/reviews/code-2026-10-08-body-from.*.md`),
+folded: a native TypeScript app's compatibility id now carries
+`typescriptRuntime` (1), so a bundle using `exactBodyFrom` never reaches a
+shell whose older prelude would send an empty body; the executor opens and
+pins the app's directory handles when the host names them; the deadline and
+an abort cover the file read on every carrier; Windows refuses until it has a
+capped read; the path (at most 4096 bytes) is charged at admission; a
+WebSocket refuses a file body; the web checks the size before making a Blob.
 
 ### D7 — Sessions
 
