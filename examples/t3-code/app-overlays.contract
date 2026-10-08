@@ -31,6 +31,8 @@ use PaletteView from "./palette.contract"
 use VideoPreviewDialog from "./r4-composer.contract"
 use R8TableMenu from "./r8-keys-table-menu.contract"
 use R9CheckoutDialog from "./r9-connect.contract" // lane r9-connect
+use PrDetailView from "./pages-pr-detail.contract"
+use PrActionLayers from "./pages-pr-actions.contract"
 
 // The T3Code window's overlays, moved out of app.contract, which keeps the state, resources and
 // actions: each component takes the root names it reads as props of the same names.
@@ -156,6 +158,8 @@ component WindowOverlays
     toastHover: bool
     toastHovering: action
     toastAct: action
+    prDetail: PrDetailView
+    prAct: action
   view
     when modelsOpen
       ModelPicker(data=data, session=popoverSession, catalog=catalog, viewport=viewport, query=modelQuery, left=composerLeft, bottom=(data.composer.toolbarTop > 0 ? viewport.height - data.composer.toolbarTop - (resting ? 4 : 2) + 4 : (resting ? 75 : 71) * rem / 16), busy=commandPending, closePicker=closeModels, select=selectModel, search=searchModels, chooseRail=selectProvider, command=command, openSetup=openProviderSettings)
@@ -167,6 +171,7 @@ component WindowOverlays
       ThreadDetailsPanel(details=details, right=(((rightPanel or data.diffOpen) and not narrowDiff) ? viewport.width - (data.sidebarOpen ? sidebarWidth : 0) - conversationWidth + 13 : 13), maxHeight=(viewport.height - 104), editorsOpen=detailsEditors, act=detailsAct, local=chatLocal, still=viewport.prefersReducedMotion)
     R4GitLayers(details=details, windowHeight=viewport.height, act=detailsAct, local=chatLocal)
     R6PrLayers(details=details, scheme=viewport.prefersColorScheme, act=detailsAct, local=chatLocal) // lane r6-pr: the Merge AlertDialog
+    PrActionLayers(actions=prDetail.actions, ref=prDetail.ref, dark=(viewport.prefersColorScheme == "dark"), act=prAct, local=chatLocal) // pr-header-actions-and-stacks: the panel's confirmations
     when details.ready and details.git.dialog == "publish"
       R4PublishDialog(git=details.git, cwd=details.cwd, act=detailsAct, local=chatLocal)
     // lane r9-connect: the branch pickers' PullRequestThreadDialog (r9-connect.contract).

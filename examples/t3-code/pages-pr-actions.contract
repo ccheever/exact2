@@ -1,0 +1,351 @@
+// The pull request panel header's host actions (lane "pages", pr-header-actions-and-stacks), drawn
+// from pages-pr-actions.ts presentActions: the armed badge, the primary control (Merge with its method,
+// "Auto-merge (method)", Ready for review, Resolve conflicts, Merged/Closed), the More menu (Refresh,
+// the open pull request's group — draft toggle, Merge now, Enable/Disable auto-merge, the merge-method
+// radios — the host links, Close/Reopen/Revert changes), the out-of-date base branch's mark with its
+// popover (Update branch, Update with rebase), "Approve workflows to run", and the confirmation
+// AlertDialog over the window. Sources: T3 Code (MIT, see LICENSE-T3)
+// components/pullRequest/PullRequestDetailPanel.tsx, ui/{button,badge,menu,popover,alert-dialog}.tsx.
+use PgIcon from "./pages-icons.contract"
+use PrMenuBox from "./pages-prs.contract"
+use Tip from "./shell-tip.contract"
+use PrStackView from "./pages-pr-stack.contract"
+use PrdStackControls from "./pages-pr-stack.contract"
+use PrStackDialog from "./pages-pr-stack.contract"
+
+keyframes paSpin
+  from rotate=0
+  to rotate=360
+
+shape PrMergeMethodItem
+  key: string
+  method: string
+  label: string
+  selected: bool
+shape PrUpdateItem
+  key: string
+  value: string
+  label: string
+shape PrActionsView
+  primary: string
+  primaryLabel: string
+  primaryDisabled: bool
+  armedLabel: string
+  armedTip: string
+  stateLabel: string
+  stateKey: string
+  refreshing: bool
+  moreLabel: string
+  pending: bool
+  open: bool
+  draftToggle: string
+  mergeNow: bool
+  autoMerge: string
+  methods: list<PrMergeMethodItem>
+  methodsSeparator: bool
+  groupSeparator: bool
+  closeItem: bool
+  reopenItem: bool
+  revertItem: bool
+  freshness: bool
+  freshnessSummary: string
+  freshnessMethods: list<PrUpdateItem>
+  stacked: bool
+  baseTip: string
+  approveWorkflows: bool
+  approveLabel: string
+  dialogOpen: bool
+  dialogTitle: string
+  dialogDescription: string
+  dialogConfirm: string
+  dialogDestructive: bool
+  dialogValue: string
+  stack: PrStackView
+
+fn paInk(): string = "light-dark(#27272a, #f5f5f5)"
+fn paMuted(): string = "light-dark(#71717b, #818181)"
+fn paPrimary(): string = "light-dark(#1b4ed8, #346bf1)"
+fn paDanger(): string = "light-dark(#e40014, #ff6467)"
+fn paWarn(): string = "light-dark(#bb4d00, #ffb900)"
+fn paTone(state: string): string = state == "closed" ? "light-dark(#e7000b, #ffa2a2e6)" : state == "merged" ? "light-dark(#7f22fe, #c4b4ffe6)" : "light-dark(#009966, #5ee9b5e6)"
+
+// The header row's right side: the stack, the armed badge, the primary control, then More.
+component PrdHeaderActions
+  props
+    actions: PrActionsView
+    ref: string
+    url: string
+    hostName: string
+    numberLabel: string
+    scheme: string
+    still: bool
+    reload: action
+    act: action
+    copy: action
+    local: action
+    select: action
+  view
+    row flex-shrink=0 align-items="center" gap="0.25rem" testId="pull-request-header-actions"
+      PrdStackControls(stack=actions.stack, ref=ref, scheme=scheme, local=local, select=select)
+      when actions.armedLabel != ""
+        PaArmedBadge(label=actions.armedLabel, tip=actions.armedTip, testId="pull-request-auto-merge-armed")
+      when actions.primary == "auto-merge-armed"
+        PaArmedBadge(label=actions.primaryLabel, tip=actions.armedTip, testId="pull-request-primary")
+      when actions.primary == "merge" or actions.primary == "enable-auto-merge"
+        PaPrimaryButton(icon="git-merge", label=actions.primaryLabel, disabled=actions.primaryDisabled, destructive=false, press=local("pr-ui-ask", ref, actions.primary), testId="pull-request-primary")
+      when actions.primary == "ready"
+        PaPrimaryButton(icon="git-pull-request-arrow", label=actions.primaryLabel, disabled=actions.primaryDisabled, destructive=false, press=act("action", "ready"), testId="pull-request-primary")
+      when actions.primary == "resolve"
+        PaPrimaryButton(icon="triangle-alert", label=actions.primaryLabel, disabled=actions.primaryDisabled, destructive=true, press=act("handoff", "conflicts"), testId="pull-request-primary")
+      when actions.stateKey != ""
+        row height="1.5rem" min-width="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" box-sizing="border-box" gap="0.25rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#fcfcfc, #ffffff0a)" align-items="center" flex-shrink=0 testId="pull-request-state-badge"
+          PgIcon(name=(actions.stateKey == "merged" ? "git-merge" : "git-pull-request-closed"), size=14, color=paTone(actions.stateKey))
+          text actions.stateLabel font-size="0.75rem" line-height="1rem" font-weight=500 white-space="nowrap" color=paTone(actions.stateKey)
+      PrdActionsMenu(actions=actions, ref=ref, url=url, hostName=hostName, numberLabel=numberLabel, scheme=scheme, still=still, reload=reload, act=act, copy=copy, local=local)
+
+// Badge size="control" variant="info": the merge the host is holding.
+component PaArmedBadge
+  props
+    label: string
+    tip: string
+    testId: string
+  view
+    Tip(label=tip, side="top", align="center", offset=20)
+      row height="1.5rem" min-width="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" box-sizing="border-box" gap="0.25rem" border-radius="0.5rem" background-color="light-dark(#2b7fff14, #2b7fff29)" align-items="center" flex-shrink=0 role="img" aria-label=label testId=testId
+        PgIcon(name="git-merge", size=14, color="light-dark(#1447e6cc, #51a2ffcc)")
+        text label font-size="0.75rem" line-height="1rem" font-weight=500 white-space="nowrap" color="light-dark(#1447e6, #51a2ff)" aria-hidden=true
+
+// Button size="xs": variant "default" (the merge and readiness), "destructive-outline" (Resolve conflicts); the label is its tooltip.
+component PaPrimaryButton
+  props
+    icon: string
+    label: string
+    disabled: bool
+    destructive: bool
+    press: action
+    testId: string
+  state over = false
+  action hover(value: bool)
+    over = value
+  view
+    Tip(label=label, side="top", align="center", offset=20)
+      button press=press hover=hover disabled=disabled aria-label=label testId=testId height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" box-sizing="border-box" gap="0.25rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color=(destructive ? (over ? "light-dark(#fb2c3652, #fb414a52)" : "light-dark(#d4d4d8, #ffffff14)") : paPrimary()) background-color=(destructive ? (over ? "light-dark(#fb2c360a, #fb414a0a)" : "light-dark(#ffffff, #ffffff07)") : (over ? "light-dark(#1b4ed8e6, #346bf1e6)" : paPrimary())) box-shadow=(destructive ? "0 1px 2px #0000000d" : "inset 0 1px 0 #ffffff29, 0 1px 2px #1b4ed83d") opacity=(disabled ? 0.64 : 1) display="flex" flex-direction="row" align-items="center" flex-shrink=0
+        PgIcon(name=icon, size=14, color=(destructive ? paDanger() : "#ffffff"))
+        text label font-size="0.75rem" line-height="1rem" font-weight=500 white-space="nowrap" color=(destructive ? paDanger() : "#ffffff")
+
+// "More pull request actions" (Button size="icon-xs" variant="ghost-muted"); while the host is read
+// again the dots become the turning refresh glyph and the name "Refreshing pull request".
+component PrdActionsMenu
+  props
+    actions: PrActionsView
+    ref: string
+    url: string
+    hostName: string
+    numberLabel: string
+    scheme: string
+    still: bool
+    reload: action
+    act: action
+    copy: action
+    local: action
+  state over = false
+  action hover(value: bool)
+    over = value
+  view
+    column position="relative" flex-shrink=0
+      Tip(label=actions.moreLabel, side="top", align="center", offset=20)
+        button popovertarget="pr-more-menu" hover=hover aria-label=actions.moreLabel testId="pull-request-more" width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 background-color=(over ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center"
+          when actions.refreshing
+            box width="1rem" height="1rem" display="flex" animation=(still ? "none" : "paSpin 1s linear infinite") testId="pull-request-refreshing"
+              PgIcon(name="refresh-cw", size=16, color=paMuted())
+          else
+            PgIcon(name="ellipsis", size=16, color=paMuted())
+      row id="pr-more-menu" popover="auto" position="absolute" padding-top="0.25rem" align-items="flex-start" testId="pr-more-layer"
+        PrMenuBox(scheme=scheme, width=240, label="More pull request actions")
+          PaMenuItem(icon="refresh-cw", label="Refresh", shortcut="", disabled=actions.refreshing, destructive=false, press=reload, testId="pr-more-refresh")
+          PaSeparator()
+          when actions.open
+            when actions.draftToggle == "draft"
+              PaMenuItem(icon="git-pull-request-draft", label="Convert to draft", shortcut="", disabled=actions.pending, destructive=false, press=act("action", "draft"), testId="pr-more-draft")
+            when actions.draftToggle == "ready"
+              PaMenuItem(icon="git-pull-request-arrow", label="Ready for review", shortcut="", disabled=actions.pending, destructive=false, press=act("action", "ready"), testId="pr-more-ready")
+            when actions.mergeNow
+              PaMenuItem(icon="git-merge", label="Merge now", shortcut="", disabled=actions.pending, destructive=false, press=local("pr-ui-ask", ref, "merge"), testId="pr-more-merge-now")
+            when actions.autoMerge == "disable"
+              PaMenuItem(icon="git-merge", label="Disable auto-merge", shortcut="", disabled=actions.pending, destructive=false, press=act("action", "disable-auto-merge"), testId="pr-more-disable-auto-merge")
+            when actions.autoMerge == "enable"
+              PaMenuItem(icon="git-merge", label="Enable auto-merge", shortcut="", disabled=actions.pending, destructive=false, press=local("pr-ui-ask", ref, "enable-auto-merge"), testId="pr-more-enable-auto-merge")
+            when actions.methodsSeparator
+              PaSeparator()
+            when length(actions.methods) > 0
+              column width="100%" role="group" aria-label="Merge method"
+                each item in actions.methods key=item.key
+                  PaRadioItem(label=item.label, selected=item.selected, disabled=actions.pending, press=local("pr-ui-method", ref, item.method), testId=`pr-more-method-${item.method}`)
+            when actions.groupSeparator
+              PaSeparator()
+          link cursor="pointer" href=url role="menuitem" testId="pr-more-open-host" width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" gap="0.5rem" border-radius="0.375rem" display="flex" flex-direction="row" align-items="center"
+            PgIcon(name="arrow-up-right", size=14, color=paMuted())
+            text `Open on ${hostName}` font-size="0.875rem" line-height="1.25rem" color=paInk() flex=1 min-width=0 white-space="nowrap"
+          PaMenuItem(icon="link", label="Copy link", shortcut="⇧⌘C", disabled=false, destructive=false, press=copy("PR link", url), testId="pr-more-copy-link")
+          PaMenuItem(icon="copy", label="Copy PR number", shortcut="⇧⌘K", disabled=false, destructive=false, press=copy("PR number", numberLabel), testId="pr-more-copy-number")
+          when actions.closeItem
+            PaSeparator()
+            PaMenuItem(icon="git-pull-request-closed", label="Close pull request", shortcut="", disabled=actions.pending, destructive=true, press=local("pr-ui-ask", ref, "close"), testId="pr-more-close")
+          when actions.reopenItem
+            PaSeparator()
+            PaMenuItem(icon="git-pull-request-arrow", label="Reopen pull request", shortcut="", disabled=actions.pending, destructive=false, press=act("action", "reopen"), testId="pr-more-reopen")
+          when actions.revertItem
+            PaSeparator()
+            PaMenuItem(icon="rotate-ccw", label="Revert changes", shortcut="", disabled=actions.pending, destructive=false, press=local("pr-ui-ask", ref, "revert"), testId="pr-more-revert")
+      box width="1rem" height=1 flex-shrink=0
+
+component PaSeparator
+  view
+    box width="calc(100% - 16px)" height=1 margin-left="0.5rem" margin-top="0.25rem" margin-bottom="0.25rem" background-color="light-dark(#e4e4e7, #ffffff0f)" role="separator"
+
+component PaMenuItem
+  props
+    icon: string
+    label: string
+    shortcut: string
+    disabled: bool
+    destructive: bool
+    press: action
+    testId: string
+  state over = false
+  action hover(value: bool)
+    over = value
+  view
+    button press=press popovertarget="pr-more-menu" popovertargetaction="hide" hover=hover disabled=disabled role="menuitem" testId=testId width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" gap="0.5rem" border-radius="0.375rem" border-width=0 background-color=(over and not disabled ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") opacity=(disabled ? 0.64 : 1) display="flex" flex-direction="row" align-items="center"
+      PgIcon(name=icon, size=14, color=(destructive ? paDanger() : paMuted()))
+      text label font-size="0.875rem" line-height="1.25rem" color=(destructive ? paDanger() : paInk()) flex=1 min-width=0 text-align="left" white-space="nowrap"
+      when shortcut != ""
+        text shortcut font-size="0.75rem" line-height="1rem" color=paMuted() flex-shrink=0
+
+// MenuRadioItem (closeOnClick): the chosen method is tinted (bg-foreground/8).
+component PaRadioItem
+  props
+    label: string
+    selected: bool
+    disabled: bool
+    press: action
+    testId: string
+  state over = false
+  action hover(value: bool)
+    over = value
+  view
+    button press=press popovertarget="pr-more-menu" popovertargetaction="hide" hover=hover disabled=disabled role="menuitemradio" aria-checked=selected testId=testId width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" gap="0.5rem" border-radius="0.375rem" border-width=0 background-color=(over and not disabled ? "light-dark(#f4f4f5, #ffffff0a)" : selected ? "light-dark(#27272a14, #f5f5f514)" : "#00000000") opacity=(disabled ? 0.64 : 1) display="flex" flex-direction="row" align-items="center"
+      PgIcon(name="git-merge", size=14, color=paMuted())
+      text label font-size="0.875rem" line-height="1.25rem" color=paInk() flex=1 min-width=0 text-align="left" white-space="nowrap"
+
+// The base branch: out of date, it is amber with the warning mark, and pointing at it (or pressing it)
+// opens PullRequestBaseFreshnessWarning; current, it keeps its plain tooltip ("Stacked on …" for a
+// stacked base, with the layers glyph).
+component PrdBaseBranch
+  props
+    actions: PrActionsView
+    base: string
+    scheme: string
+    act: action
+  state over = false
+  action hover(value: bool)
+    over = value
+  view
+    when actions.freshness
+      column position="relative" flex-shrink=0 min-width=0 max-width="40%" hover=hover
+        button popovertarget="pr-freshness" aria-label=actions.freshnessSummary testId="pull-request-base-freshness" height="1rem" padding=0 border-width=0 border-radius="0.25rem" background-color="#00000000" gap="0.25rem" display="flex" flex-direction="row" align-items="center" min-width=0 cursor="help"
+          when actions.stacked
+            PgIcon(name="layers", size=12, color=paWarn())
+          text base font-family="ui-monospace" font-size="0.75rem" line-height="1rem" color=paWarn() white-space="nowrap" overflow="hidden" text-overflow="ellipsis" min-width=0
+          PgIcon(name="triangle-alert", size=14, color=paWarn())
+        row id="pr-freshness" popover="auto" position="absolute" padding-top="0.25rem" align-items="flex-start" testId="pr-freshness-layer"
+          PaFreshnessCard(actions=actions, scheme=scheme, act=act, testId="pr-freshness-popover")
+        // openOnHover (delay 0): the same card while the pointer is over the mark or the card.
+        when over
+          row position="absolute" left=0 top="1rem" width="20rem" padding-top="0.25rem" align-items="flex-start" z-index=30
+            PaFreshnessCard(actions=actions, scheme=scheme, act=act, testId="pr-freshness-hover")
+    else
+      Tip(label=actions.baseTip, side="top", align="center", offset=20)
+        row min-width=0 align-items="center" gap="0.25rem" flex-shrink=0 testId="pull-request-base"
+          when actions.stacked
+            box width="0.75rem" height="0.75rem" aria-label="Stacked pull request" flex-shrink=0
+              PgIcon(name="layers", size=12, color="light-dark(#71717bb3, #828282b3)")
+          text base font-family="ui-monospace" font-size="0.75rem" line-height="1rem" color="light-dark(#71717bb3, #828282b3)" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" min-width=0
+
+// PopoverPopup (compact, max-w-80): the sentence, "Changes can be cleanly merged.", each way to update.
+component PaFreshnessCard
+  props
+    actions: PrActionsView
+    scheme: string
+    act: action
+    testId: string
+  view
+    column max-width="20rem" flex-shrink=0 padding-left="0.75rem" padding-right="0.75rem" padding-top="0.5rem" padding-bottom="0.5rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#27272a1a, #f5f5f51a)" background-color="light-dark(#ffffff, #121212)" box-shadow=(scheme == "dark" ? "0 18px 44px -18px #000000cc" : "0 10px 15px -3px #0000001a, 0 4px 6px -4px #0000001a") role="dialog" aria-label=actions.freshnessSummary testId=testId
+      text actions.freshnessSummary font-size="0.75rem" line-height="1rem" color=paInk() font-family="system-ui"
+      text "Changes can be cleanly merged." margin-top="0.125rem" font-size="0.75rem" line-height="1rem" color=paMuted() font-family="system-ui"
+      when length(actions.freshnessMethods) > 0
+        row margin-top="0.5rem" flex-wrap="wrap" align-items="center" gap="0.375rem"
+          each item in actions.freshnessMethods key=item.key
+            PaOutlineButton(icon="git-merge", label=item.label, disabled=actions.pending, press=act("action", item.value), testId=`pr-freshness-${item.key}`)
+
+// Button size="xs" variant="outline".
+component PaOutlineButton
+  props
+    icon: string
+    label: string
+    disabled: bool
+    press: action
+    testId: string
+  state over = false
+  action hover(value: bool)
+    over = value
+  view
+    button press=press hover=hover disabled=disabled testId=testId height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" box-sizing="border-box" gap="0.25rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color=(over ? "light-dark(#f4f4f580, #ffffff0d)" : "light-dark(#ffffff, #ffffff07)") box-shadow="0 1px 2px #0000000d" opacity=(disabled ? 0.64 : 1) display="flex" flex-direction="row" align-items="center" flex-shrink=0
+      PgIcon(name=icon, size=12, color=paMuted())
+      text label font-size="0.75rem" line-height="1rem" font-weight=500 white-space="nowrap" color=paInk() font-family="system-ui"
+
+// Button size="xs" variant="warning-outline": the Summary tab bar's "Approve workflows to run".
+component PrdApproveWorkflows
+  props
+    actions: PrActionsView
+    ref: string
+    local: action
+  view
+    Tip(label=actions.approveLabel, side="top", align="center", offset=20)
+      button press=local("pr-ui-ask", ref, "approve-workflows") disabled=actions.pending aria-label=actions.approveLabel testId="pull-request-approve-workflows" height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" box-sizing="border-box" gap="0.25rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color="#fe9a0052" background-color="light-dark(#fe9a0014, #fe9a0029)" box-shadow="0 1px 2px #0000000d" opacity=(actions.pending ? 0.64 : 1) display="flex" flex-direction="row" align-items="center" flex-shrink=0
+        PgIcon(name="play", size=14, color=paWarn())
+        text actions.approveLabel font-size="0.75rem" line-height="1rem" font-weight=500 white-space="nowrap" color=paWarn()
+
+// Over the window: the confirmation AlertDialog and the stack's Dialog for the panel's pull request.
+component PrActionLayers
+  props
+    actions: PrActionsView
+    ref: string
+    dark: bool
+    act: action
+    local: action
+  view
+    when actions.dialogOpen
+      PrActionDialog(actions=actions, ref=ref, dark=dark, act=act, local=local)
+    when actions.stack.dialogOpen
+      PrStackDialog(stack=actions.stack, ref=ref, dark=dark, act=act, local=local)
+
+// AlertDialog: the title, the sentence, Cancel (Escape) and the action's own button (destructive for Close).
+component PrActionDialog
+  props
+    actions: PrActionsView
+    ref: string
+    dark: bool
+    act: action
+    local: action
+  view
+    column position="absolute" left=0 right=0 top=0 bottom=0 z-index=80 display="flex" align-items="center" justify-content="center" padding="1rem" box-sizing="border-box" background-color="light-dark(#fcfcfc99, #0a0a0aa3)" backdrop-filter="blur(4px)" testId="pr-action-dialog-overlay"
+      column width="100%" max-width="32rem" position="relative" box-sizing="border-box" border-radius="1.125rem" border-style="solid" border-width=1 border-color="light-dark(#27272a1a, #ffffff14)" background-color="light-dark(#fcfcfccc, #0a0a0acc)" backdrop-filter="blur(12px)" box-shadow=(dark ? "inset 0 1px 0 #ffffff0a, 0 24px 72px -20px #000000e6" : "0 24px 64px -24px #000000a6") overflow="hidden" retainFocus=true role="alertdialog" aria-modal=true aria-label=actions.dialogTitle testId="pr-action-dialog"
+        column gap="0.5rem" padding="1.5rem" box-sizing="border-box"
+          text actions.dialogTitle font-size="1.25rem" font-weight=600 line-height="1.25rem" color=paInk() role="heading" aria-level=2 testId="pr-action-dialog-title"
+          text actions.dialogDescription font-size="0.875rem" line-height="1.25rem" color=paMuted() testId="pr-action-dialog-description"
+        row width="100%" gap="0.5rem" justify-content="flex-end" align-items="center" padding-left="1.5rem" padding-right="1.5rem" padding-top="1rem" padding-bottom="1rem" box-sizing="border-box" border-top-width=1 border-top-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#fafafab8, #ffffff06)"
+          button press=local("pr-ui-cancel", ref, "") aria-keyshortcuts="Escape" testId="pr-action-dialog-cancel" height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)" box-shadow="0 1px 2px #0000000d" display="flex" align-items="center" justify-content="center"
+            text "Cancel" font-size="0.875rem" line-height="1.25rem" font-weight=500 color=paInk()
+          button press=act("action", actions.dialogValue) disabled=actions.pending testId="pr-action-dialog-confirm" height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color=(actions.dialogDestructive ? "light-dark(#fb2c36, #fb414a)" : paPrimary()) background-color=(actions.dialogDestructive ? "light-dark(#fb2c36, #fb414a)" : paPrimary()) box-shadow="inset 0 1px 0 #ffffff29, 0 1px 2px #0000000d" opacity=(actions.pending ? 0.64 : 1) display="flex" align-items="center" justify-content="center"
+            text actions.dialogConfirm font-size="0.875rem" line-height="1.25rem" font-weight=500 color="#ffffff"
