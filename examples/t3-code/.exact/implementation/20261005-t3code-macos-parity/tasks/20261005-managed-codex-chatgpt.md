@@ -1,13 +1,13 @@
 ---
 name: 20261005-managed-codex-chatgpt
 plan: 20261005-t3code-macos-parity
-implementation: planned
-verification: unverified
-delivery: none
+implementation: implemented
+verification: verified-with-unverified-rows
+delivery: draft
 repository: https://github.com/ccheever/exact2
-base_branch: daehyeon/t3-code
-branch: null
-pr_url: null
+base_branch: feat(example)/t3-code
+branch: feat(example)/t3-code-managed-codex-chatgpt
+pr_url: https://github.com/ccheever/exact2/pull/256
 verified_commit: null
 ---
 
@@ -104,17 +104,45 @@ Required environment: Xcode 27.0, pinned Bun and Hermes, oracle build, isolated 
 
 2026-10-06: on hold (user decision: tasks that need a sign-in waited). 2026-10-07: the user lifted the hold. Rows that need a real account are signed in by the user in person on the lane build; every other sign-in row uses lane fixtures.
 
-Planned. No branch.
+2026-10-08: implemented in [PR #256](https://github.com/ccheever/exact2/pull/256) (draft), all six scope items:
+- **Receiver** `modules/apple/T3CodexAuth.swift` (rules, BSD-socket listener, start/take/cancel ops on `t3.codexAuth`, window reveal; agent runs record the open via `T3RemoteEditors.openOrRecord`), one area entry in `T3Module.swift`; AppKit `macos/tests/codex-auth` (6).
+- **Flow** `codex-setup.ts` (status and the two presentations), `codex-setup-ops.ts` (commands and effects; the snapshot answer runs them, `codex-setup-host.ts`), `codex-auth-request.ts`, `codex-fleet-host.ts` (a background computer's setup in the welcome), `codex-handoff-events.ts`, `provider-readiness.ts` (moved out of `pages-welcome.ts`).
+- **Surfaces** `codex-setup.contract` (Settings row, welcome card, Reconnect ChatGPT, Runtime fold, Add dialog setup, plan dialog, Manage usage); `providers.ts`, `pages-welcome.ts`, `providers-wizard.contract`, `app-settings.contract`, `model-picker.contract`, `pages-usage.*`. The welcome's existing-CLI card now shows Ready/Checking/the summary as the reference does (the desktop audit observation below).
+- **Plan** `chatgpt-plan.ts`, `chatgpt-plan-view.ts`; keys in `shell-prefs.ts` (`chatgptSharingWelcome`).
+- **Ids** `codex_<uuid>` via `ProviderHost.ids`.
+- `app.contract` stays at 1,500 lines (in-place edits; `paletteHover` and `providerUi`'s `select` became single statements to free the lines for `providerTick`'s plan-shared close and `provide still`).
+- Allowed differences: `returnUrl` omitted (client mode; no scheme) and `""` in the handoff; the atomic instance create; start/take instead of one long IPC call (X14).
+- The dialogs keep focus inside with `key` handlers on their first and last controls (`aria-modal` has no Tab containment on macOS, LLP 1080.003); the background toast region is not inert (app-wide, `20261008-dialog-shortcut-focus`).
+
+Lane: `target/lane/mcc` in this worktree (embedded server 16210 with `T3_LOCAL_RUNTIME_DIR`; fixture server 16231 behind the provider-setup fixture proxy 16230, `target/t3-ui-parity/provider-setup-fixture.mjs`, recreated, uncommitted, U2/U23). Fixture-only states: a managed instance signed in with `subscriptionSharing`, a saved profile, the local sign-out notice, the plan shared after Add ChatGPT account.
+
+Real sign-in attempt (03:36–03:41 KST): agent-mode app, the recorded URL opened in Chrome (claude-in-chrome): "Use ChatGPT to sign in to T3 Code" → personal account → "Connect your T3 Code to ChatGPT" → consent (profile + "Use your ChatGPT plan"). The grant click was refused by the session's permission classifier (needs the user's own approval); nothing was granted; the flow expired. `orca computer` then reported AX blocked for every app: the screen was locked (coordinator), so the real-account rows moved to the real-input batch.
 
 ## Attempts and evidence
 
 | Attempt | Revision/fingerprint | Checks and outcomes | Evidence | Remaining blocker |
 | --- | --- | --- | --- | --- |
-| none | — | — | — | — |
+| 1 (2026-10-08) | `3e99e28b6` + merge `90cb6ccf2` | `bun test examples/t3-code` 2530 pass / 1 skip / 0 fail; strict `tsc` clean; contract build 2675 slots, 46 resources; `cargo test -p t3-code-macos --lib` 11; AppKit codex-auth 6/6, transport 56/0, local-backend 51/0; caps within; five checks: build, test (3383 pass / 0 fail / 33 ignored, 94 binaries), clippy, fmt, boot green | PR #256: 9 before/after pairs, 5 after-only images, [runs](https://github.com/ccheever/exact2/blob/fb82d57fc1ca9f7834e87d545c1a84488dae3cea/managed-codex-chatgpt/records/runs.txt), tests on base (fail) / branch (pass) | real-input batch rows |
+| 1a (2026-10-08 03:36) | same | real sign-in reached OpenAI's consent page; grant refused by the session's permission classifier; screen locked afterwards | runs.txt "Attempted real sign-in" | the user's grant; screen locked |
+
+Acceptance rows: Receiver rules, Validation rules, Install then sign-in (up to the OpenAI page: real install, real `auth.start`, real listener, stand-in callback), Welcome/Settings/dialogs (fixture), Fallback, Cancel/failure, No replay (test), Plan surfaces (fixture; relaunch by test), Account id, Ported tests, Keyboard/Escape (reduced motion: bound, not filmed — the driver's film came back empty), Gates: pass. Trace and pixels: not run — user decision 2026-10-06 (before/after pairs instead). Real sign-in, Remote handoff, and the follow-up's real-account Sign out / Change account: deferred to the real-input batch — screen locked (user away).
+
+## Real-input batch steps
+
+Deferred to the real-input batch — screen locked (user away). Run once, in this order, holding the real-input lock (`target/t3-ui-parity/lanes/.realinput-lock` of the base checkout, owner "managed-codex-chatgpt: login"). The final OAuth grant on OpenAI's consent page needs the person's own click (an agent's click was refused). Never read or print tokens, codes or the email.
+
+1. **Build** (worktree `t3-code-managed-codex-chatgpt`, PR head): `export PATH="$HOME/.bun-1.4.2/bin:$PATH"; EXACT_APP_DIR=$PWD/examples/t3-code bun host/apple/build.mjs t3-code-macos --bundle`.
+2. **Lane copy** (L=`<worktree>/target/lane/mcc`): copy `target/clients/*/com.exact.t3code.macos/macos/T3 Code (Exact).app` to `$L/apps/T3 Code (Lane MCC).app`; PlistBuddy `CFBundleIdentifier=com.exact.t3code.macos.lanemcc`, `CFBundleName` and `CFBundleDisplayName` "T3 Code (Lane MCC)"; `codesign --force --deep -s -`.
+3. **Launch** through LaunchServices (record the pid; quit it and its `t3` child at the end): `open -n -a "$L/apps/T3 Code (Lane MCC).app" --env T3_LOCAL_HOME=$L/t3home --env T3_LOCAL_PORT=16210 --env T3CODE_TELEMETRY_ENABLED=false --env CODEX_HOME=$L/codex --env CLAUDE_CONFIG_DIR=$L/claude --env XDG_CONFIG_HOME=$L/xdg/config --env XDG_DATA_HOME=$L/xdg/data --env XDG_CACHE_HOME=$L/xdg/cache --env XDG_STATE_HOME=$L/xdg/state --env T3_LOCAL_RUNTIME_DIR=$L/runtime/t3-0.0.46-nightly.20261005.2667-darwin-arm64 --env TMPDIR=$L/tmp/ --env HOME=$L/home --env CFFIXED_USER_HOME=$L/home`. The lane's default Codex slot is already managed with v0.156.1 installed; no ChatGPT registration is stored.
+4. **Sign-in (Welcome):** Connect → Continue; Agents → Codex row → **Continue with ChatGPT**. Chrome opens auth.openai.com "Use ChatGPT to sign in to T3 Code" → choose the personal ChatGPT account (provisional: the one matching the user's email) → "Connect your T3 Code to ChatGPT" (name "T3 Code") → Continue → consent "Connect T3 Code to ChatGPT" listing "Access your basic profile information" and "Use your ChatGPT plan" → **the person clicks Continue**. Read back: the browser shows "Return to T3 Code"; the app window comes to the front (note any macOS network prompt; answer it for the lane copy only); the Codex row reads Ready; "Your ChatGPT plan is connected" appears → Continue. State: Settings › Providers › Codex reads "Signed in as" + the redacted placeholder and "Authenticated · ChatGPT"; Manage usage opens `https://chatgpt.com/#settings/Usage`; the model picker shows "Using ChatGPT plan" with a Codex model active; Usage › Cost shows "ChatGPT shared usage".
+5. **Relaunch:** quit and launch again (step 3); the plan dialog does not return; the copy's `t3-code.json` (its data folder under `$L/home/Library`) holds one `shell.chatgptSharingWelcome` key.
+6. **Sign out / Change account (follow-up row):** Settings › Providers › Codex › **Disconnect** (the reference has no confirmation, `CodexSetupSection.tsx:943-950`; "Sign out → Cancel" is n/a). Read back: the row shows **Reconnect account** / **Use a different account**; the provider list reads "Not authenticated". Then **Reconnect account** → Reconnect ChatGPT (the saved profile focused) → Continue with ChatGPT → Chrome (the account preselected) → the person grants → signed in again (state as in step 4). Then **Change account** → "Use a different account" → Continue with ChatGPT → Chrome account chooser → choose the **same** account (never another one) → the person grants → signed in with the same account.
+7. **Remote handoff (optional, needs a decision):** a second lane server must be reached at a non-loopback address (for example `t3 serve --host <the Mac's LAN IP> --port 16232` with its own T3 home), paired from Connections; with it selected, Codex (managed) → Continue with ChatGPT opens OpenAI from the primary → the person grants → read back that the remote instance is authenticated and that no code appears in the app journal or the server logs. Binding a LAN interface is a user decision.
+8. **Cleanup:** quit the lane copy, stop its `t3` child, release the lock. Keep `$L/t3home` (the lane's managed sign-in) for later tasks unless told otherwise.
 
 ## Next action
 
-`prepare` from `feat(example)/t3-code` once the prerequisite task PRs above have merged into it; sign-in rows use lane fixtures, and real-account rows wait for the user to sign in.
+Review PR #256 into `feat(example)/t3-code`; run the "Real-input batch steps" when the screen is unlocked; then mark the real-account rows and the follow-up's Sign out / Change account row verified.
 
 ## Desktop audit observation, 2026-10-07
 

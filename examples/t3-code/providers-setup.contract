@@ -17,6 +17,7 @@ use CnMenuItem from "./settings-b-kit.contract"
 use CnGlyph from "./settings-b-kit.contract"
 use RedactedText from "./redacted-text.contract"
 use AppConfirm from "./shell-panels.contract"
+use CodexSetup from "./codex-setup.contract"
 
 shape ProviderAuthMethod
   id: string
@@ -87,6 +88,7 @@ shape ProviderSetupView
   showEnable: bool
   runtime: list<ProviderRuntime>
   account: list<ProviderAccount>
+  codex: list<CodexSetup>
   cursorNote: string
 shape ProviderWizardAuth
   instanceId: string

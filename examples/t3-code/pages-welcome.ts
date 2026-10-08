@@ -26,6 +26,11 @@ import { isFirstRunWorkspaceProvenanceAuthoritative, isFreshFirstRunWorkspace, r
 import { focusedOnPrimary, isPrimaryEnvironment, primary, withoutPrimaryDuplicates } from './local-primary';
 import { primaryWelcome } from './local-lifecycle';
 import type { Shell } from './domain';
+import { codexSetupView, readCodexSetupMode, codexFlow, codexInstance, type CodexSetupView } from './codex-setup'; // managed-codex-chatgpt: OnboardingCodexSetup
+import { watchProviderSetup } from './provider-setup';
+import { setChatGptCreatedHandler } from './providers';
+import { fleetSetupHost } from './codex-fleet-host';
+import type { CodexHost } from './codex-setup';
 const terminals = new WeakMap<T3Client, Map<string, OnboardingTerminal>>();
 function setupTerminal(client: T3Client, native: Native, environmentId: string): OnboardingTerminal {
   let byEnvironment = terminals.get(client);
@@ -54,11 +59,13 @@ type Decision = 'pending' | 'wizard' | 'app';
 type Candidate = { key: string; path: string; title: string; projectId: string; sources: string[]; threadCount: number; lastActiveAt: string; alreadyImported: boolean; git: boolean };
 type Scan = { environmentId: string; loading: boolean; error: string; candidates: Candidate[]; truncated: boolean };
 // Data sources have no wall clock: `now` is the last time the view was handed (LLP 1027.000).
-type State = { decision: Decision; selection: Set<string> | null; auto: Set<string>; setup: string[]; scan: Scan | null; picked: Set<string> | null; importing: boolean; now: number; copied: number; seen: Set<string> };
+type State = { decision: Decision; selection: Set<string> | null; auto: Set<string>; setup: string[]; scan: Scan | null; picked: Set<string> | null; importing: boolean; now: number; copied: number; seen: Set<string>;
+  /** ConnectedAgentsStep's createdAccount: the ChatGPT account Add ChatGPT account just created here. */
+  created: { instanceId: string; displayName: string } | null };
 const states = new WeakMap<object, State>();
 const stateOf = (client: object): State => {
   let state = states.get(client);
-  if (!state) states.set(client, state = { decision: 'pending', selection: null, auto: new Set(), setup: [], scan: null, picked: null, importing: false, now: 0, copied: 0, seen: new Set() });
+  if (!state) states.set(client, state = { decision: 'pending', selection: null, auto: new Set(), setup: [], scan: null, picked: null, importing: false, now: 0, copied: 0, seen: new Set(), created: null });
   return state;
 };
 
@@ -121,29 +128,10 @@ export function transition(current: Decision, next: Decision): Decision {
 
 // ── Agents (providerReadiness.logic.ts, providerStatus.ts) ─────────────────
 
-export function providerState(provider: Obj | undefined): string {
-  if (!provider) return 'checking';
-  const auth = obj(provider.auth);
-  if (provider.enabled === false || provider.status === 'disabled') return 'disabled';
-  if (provider.installed !== true && provider.status === 'warning' && auth.status === 'unknown') return 'checking';
-  if (provider.installed !== true) return 'install';
-  if (auth.status === 'unauthenticated') return 'signIn';
-  if (provider.status === 'ready') return 'ready';
-  return 'attention';
-}
+export { providerState, providerSummary } from './provider-readiness';
+import { providerState, providerSummary } from './provider-readiness';
 const PRIORITY: Record<string, number> = { checking: 0, disabled: 1, install: 2, attention: 3, signIn: 4, ready: 5 };
-export function providerSummary(provider: Obj | undefined): { headline: string; detail: string } {
-  if (!provider) return { headline: 'Checking provider status', detail: 'Waiting for the server to report installation and authentication details.' };
-  const auth = obj(provider.auth), message = str(provider.message), label = str(auth.label) || str(auth.type);
-  if (provider.enabled === false || provider.status === 'disabled') return { headline: 'Disabled', detail: message || 'This provider is installed but disabled for new sessions in T3 Code.' };
-  if (provider.installed !== true) return { headline: 'Not found', detail: message || 'CLI not detected on PATH.' };
-  if (auth.status === 'unauthenticated') return { headline: label ? `Not authenticated · ${label}` : 'Not authenticated', detail: message };
-  if (provider.status === 'warning') return { headline: 'Needs attention', detail: message || 'The provider is installed, but the server could not fully verify it.' };
-  if (provider.status === 'error') return { headline: 'Unavailable', detail: message || 'The provider failed its startup checks.' };
-  if (auth.status === 'authenticated') return { headline: label ? `Authenticated · ${label}` : 'Authenticated', detail: message };
-  return { headline: 'Available', detail: message };
-}
-export type AgentRow = { key: string; driver: string; kind: string; instanceId: string; name: string; summary: string; state: string; badge: string; terminalOpen: boolean; terminalAvailable: boolean };
+export type AgentRow = { key: string; driver: string; kind: string; instanceId: string; name: string; summary: string; state: string; badge: string; terminalOpen: boolean; terminalAvailable: boolean; codex: CodexSetupView[] };
 /** ConnectedAgentsStep: every Codex instance (setup rows until one is pointed at an existing CLI), then Claude. */
 export function agentRows(config: Obj): AgentRow[] {
   const providers = arr(config.providers), settings = obj(config.settings);
@@ -155,7 +143,7 @@ export function agentRows(config: Obj): AgentRow[] {
   const card = (driver: string, provider: Obj | undefined, key: string): AgentRow => {
     const state = providerState(provider), summary = providerSummary(provider);
     const name = str(provider?.displayName) || (driver === 'claudeAgent' ? 'Claude Code' : 'Codex');
-    return { terminalOpen: false, terminalAvailable: false, key, driver, kind: 'card', instanceId: str(provider?.instanceId), name, state,
+    return { terminalOpen: false, terminalAvailable: false, codex: [], key, driver, kind: 'card', instanceId: str(provider?.instanceId), name, state,
       summary: state === 'ready' ? 'Ready to code.' : `${summary.headline}${summary.detail ? ` · ${summary.detail}` : ''}`,
       badge: state === 'ready' ? 'Ready' : state === 'checking' ? 'Checking...' : state === 'disabled' ? 'Disabled' : state === 'attention' ? summary.headline : state === 'signIn' ? 'Sign in' : 'Install' };
   };
@@ -166,11 +154,44 @@ export function agentRows(config: Obj): AgentRow[] {
     const instanceConfig = Object.keys(instance).length ? obj(instance.config) : obj(obj(settings.providers).codex);
     // OnboardingCodexSetup: only an explicit "existing" setup shows the plain readiness card.
     if (instanceConfig.setupMode === 'existing') return card('codex', provider, `codex:${instanceId}:${index}`);
-    return { terminalOpen: false, terminalAvailable: false, key: `codex:${instanceId}:${index}`, driver: 'codex', kind: 'codex-setup', instanceId, name: 'Codex', state: providerState(provider), summary: 'Code with your ChatGPT subscription.', badge: '' };
+    return { terminalOpen: false, terminalAvailable: false, codex: [], key: `codex:${instanceId}:${index}`, driver: 'codex', kind: 'codex-setup', instanceId, name: 'Codex', state: providerState(provider), summary: 'Code with your ChatGPT subscription.', badge: '' };
   });
   rows.push(card('claudeAgent', best.get('claudeAgent'), 'claudeAgent'));
   return rows;
 }
+
+/**
+ * OnboardingCodexSetup for each Codex row of the focused machine: the created account first (kept
+ * while settings and snapshots catch up), then CodexSetupSection's onboarding card. Returns the
+ * instances whose managed setup is mounted (their streams).
+ */
+function codexRows(host: CodexHost, agents: AgentRow[], state: State | null, target: (id: string) => string): string[] {
+  const settings = obj(host.config.settings), providers = arr(host.config.providers), mounted: string[] = [];
+  if (state?.created) {
+    const index = agents.findIndex(agent => agent.instanceId === state.created!.instanceId);
+    const [existing] = index >= 0 ? agents.splice(index, 1) : [];
+    agents.unshift(existing ?? { terminalOpen: false, terminalAvailable: false, codex: [], key: `codex:${state.created.instanceId}:created`, driver: 'codex', kind: 'codex-setup',
+      instanceId: state.created.instanceId, name: 'Codex', state: 'checking', summary: 'Code with your ChatGPT subscription.', badge: '' });
+  }
+  for (const agent of agents) {
+    if (agent.kind !== 'codex-setup') continue;
+    const provider = providers.find(item => item.instanceId === agent.instanceId), created = !!state && state.created?.instanceId === agent.instanceId;
+    const instance = codexInstance(settings, agent.instanceId);
+    const mode = created ? 'managed' : readCodexSetupMode(instance.config);
+    agent.codex = [codexSetupView(host, agent.instanceId, provider, { presentation: 'onboarding', mode, enabled: provider ? provider.enabled !== false : true, readOnly: false,
+      allowExistingCli: true, target: target(agent.instanceId), ...(created ? { displayName: state!.created!.displayName } : {}) })];
+    if (mode === 'managed') mounted.push(agent.instanceId);
+  }
+  return mounted;
+}
+/** The hosts whose Codex setups the welcome last showed, so leaving lets their streams go. */
+let welcomeHosts: { host: CodexHost; native: Native }[] = [];
+// Add ChatGPT account from the welcome (onAccountCreated): the dialog closes and the new row starts here.
+setChatGptCreatedHandler((host, instanceId, displayName) => {
+  if (!welcomeShowing(host)) return;
+  stateOf(host).created = { instanceId, displayName };
+  codexFlow(host, instanceId).autoStart = true;
+});
 
 // ── Projects (projectImport.logic.ts) ──────────────────────────────────────
 
@@ -233,7 +254,11 @@ export async function welcomeView(client: T3Client, native: Native | null | unde
   if (next.persistCompletion && !prefs.onboardingCompletedAt) prefs.onboardingCompletedAt = wallIso(state.now);
   state.decision = transition(state.decision, next.decision);
   view.show = state.decision === 'wizard';
-  if (!view.show || view.step !== 'agents') await closeSetupTerminals(client);
+  if (!view.show || view.step !== 'agents') {
+    await closeSetupTerminals(client);
+    for (const host of welcomeHosts) await watchProviderSetup(host.host, host.native, 'welcome', { auth: [], install: [] });
+    welcomeHosts = [];
+  }
   if (!view.show) return view;
   // A failed pairing registers nothing (PairingForm): the link this client tried
   // and never reached stays out of the list rather than "Connecting…" forever.
@@ -252,13 +277,23 @@ export async function welcomeView(client: T3Client, native: Native | null | unde
   view.ready = view.computers.some(computer => computer.selected) && view.computers.filter(computer => computer.selected).every(computer => computer.status === 'Connected');
   if (view.step === 'connect') return view;
   const setup = sources.filter(source => state.setup.includes(source.key));
+  const mounted: { host: CodexHost; native: Native; ids: string[] }[] = [];
   view.machines = setup.map(source => {
     const agents = Object.keys(source.config).length ? agentRows(source.config) : [];
+    // OnboardingCodexSetup: each machine's Codex rows run the managed setup (codex-setup.ts), the focused
+    // one on this connection, the others on their background ones (codex-fleet-host.ts).
+    const entry = source.focused ? null : fleet.entries.get(source.key);
+    if (source.focused && client.ready) mounted.push({ host: client, native, ids: codexRows(client, agents, state, id => id) });
+    else if (entry && fleetSetupHost(entry).ready) mounted.push({ host: fleetSetupHost(entry), native: EnvironmentFleet.native(native, entry.key), ids: codexRows(fleetSetupHost(entry), agents, null, id => `${entry.key}\t${id}`) });
     const terminal = setupTerminal(client, native, source.environmentId).view(), appearance = look(client);
     const active = terminal.environmentId === source.environmentId;
     for (const agent of agents) { agent.terminalOpen = active && terminal.open && agent.driver === terminal.driver; agent.terminalAvailable = !!str(source.config.cwd); }
     return { key: source.key, label: source.label || 'Computer', agents, terminal: { ...terminal, open: active && terminal.open, font: appearance.terminalFont, fontSize: appearance.terminalSize, light: appearance.terminalLight, dark: appearance.terminalDark }, chatgpt: arr(source.config.providers).some(provider => provider.driver === 'codex' && providerState(provider) === 'ready') };
   });
+  // ManagedCodexSetup's provider.auth / provider.install streams for the rows it shows (a host the welcome stopped showing keeps none).
+  for (const host of welcomeHosts) if (!mounted.some(item => item.host === host.host)) await watchProviderSetup(host.host, host.native, 'welcome', { auth: [], install: [] });
+  welcomeHosts = mounted.map(({ host, native }) => ({ host, native }));
+  for (const { host, native: routed, ids } of mounted) await watchProviderSetup(host, routed, 'welcome', { auth: ids, install: ids });
   if (view.step !== 'import') return view;
   // useProjectScans: this client reads the focused environment's history.
   const focused = setup.find(source => source.focused);
@@ -337,14 +372,6 @@ export async function welcomeLocal(client: T3Client, native: Native, op: string,
     const current = new Set(state.picked ?? recentCandidates(candidates, state.now));
     if (op === 'pick') { if (current.has(id)) current.delete(id); else current.add(id); }
     state.picked = op === 'pick-all' ? new Set(candidates.map(candidate => candidate.key)) : op === 'pick-none' ? new Set() : current;
-    return '';
-  }
-  if (op === 'codex-mode') {
-    // OnboardingCodexSetup.changeMode: point the instance at an existing CLI or at the managed ChatGPT runtime.
-    const settings = obj(client.config.settings), instance = obj(obj(settings.providerInstances)[id]);
-    const config = Object.keys(instance).length ? obj(instance.config) : obj(obj(settings.providers).codex);
-    const patch = { providerInstances: { [id]: { ...instance, driver: 'codex', enabled: true, config: { ...config, enabled: true, setupMode: value === 'managed' ? 'managed' : 'existing' } } } };
-    await client.rpc(native, 'server.updateSettings', { patch }, true);
     return '';
   }
   // The command carries the window's wall time (app.contract: wallTime.epochAtZero + now()). A launch-relative

@@ -10,6 +10,7 @@ import { prLocal } from './pages-prs';
 import { prCommand, noteCopy } from './pages-pr-detail';
 import { pushToast } from './toast';
 import { welcomeLocal } from './pages-welcome';
+import { CHATGPT_USAGE_URL } from './chatgpt-plan';
 import { pullRequestLinkMenu } from './context-menu-actions';
 
 export async function pagesLocal(client: T3Client, native: Native | null | undefined, _storage: Files, op: string, id: string, value: string): Promise<string> {
@@ -20,6 +21,11 @@ export async function pagesLocal(client: T3Client, native: Native | null | undef
   // Set price closes the model dialog and opens Model prices with that model's row (UsagePage).
   if (op === 'usage-prices-open') setOpenModel(client, '');
   if (op.startsWith('usage-prices-')) return usagePricesLocal(client, op.slice(13), id, value);
+  // managed-codex-chatgpt: ChatGptUsageButton on the Usage page and in the model picker opens ChatGPT's usage settings.
+  if (op === 'usage-chatgpt' || op === 'chatgpt-usage') {
+    if (native?.available) await bridgeReply(native, { op: 'remoteEditorsOpen', url: CHATGPT_USAGE_URL });
+    return '';
+  }
   if (op.startsWith('usage-')) return usageLocal(client, op.slice(6), value);
   if (op.startsWith('welcome-')) {
     if (!native?.available) throw new ClientError('Open on macOS to set up T3 Code.');

@@ -7,21 +7,23 @@
 // `t3code:provider-update-dismissals:v1`), the dismissed version-skew notices
 // (versionSkew.ts `t3code:version-mismatch-dismissals:v1`, keyed environment:client:server),
 // and the last editor an Open In menu used (editorPreferences.ts LAST_EDITOR_KEY
-// `t3code:last-editor`; thread-commands-and-keys).
+// `t3code:last-editor`; thread-commands-and-keys), and the ChatGPT plan dialogs already shown
+// (ChatGptWelcomeCoordinator `t3:chatgpt-sharing-welcome:v1`; managed-codex-chatgpt, chatgpt-plan.ts).
 // The client writes the file after every command.
 import { obj, type Obj } from './domain';
 
-export type ShellPrefs = { nightlyNoticeDismissed: boolean; inlineClosed: string[]; providerUpdateDismissals: string[]; versionMismatchDismissals: string[]; lastEditor: string };
+export type ShellPrefs = { nightlyNoticeDismissed: boolean; inlineClosed: string[]; providerUpdateDismissals: string[]; versionMismatchDismissals: string[]; lastEditor: string; chatgptSharingWelcome: string[] };
 type Holder = { local: object };
 
 const MAX_CLOSED = 500;
-const emptyPrefs = (): ShellPrefs => ({ nightlyNoticeDismissed: false, inlineClosed: [], providerUpdateDismissals: [], versionMismatchDismissals: [], lastEditor: '' });
+const emptyPrefs = (): ShellPrefs => ({ nightlyNoticeDismissed: false, inlineClosed: [], providerUpdateDismissals: [], versionMismatchDismissals: [], lastEditor: '', chatgptSharingWelcome: [] });
 
 /** The live prefs object on the client's preference record (created on first use). */
 export function shellPrefs(owner: Holder): ShellPrefs {
   const local = owner.local as { shell?: ShellPrefs };
   if (!local.shell || typeof local.shell !== 'object') local.shell = emptyPrefs();
   if (!Array.isArray(local.shell.versionMismatchDismissals)) local.shell.versionMismatchDismissals = [];
+  if (!Array.isArray(local.shell.chatgptSharingWelcome)) local.shell.chatgptSharingWelcome = [];
   return local.shell;
 }
 
@@ -32,6 +34,7 @@ export function adoptShellPrefs(next: object, saved: Obj): void {
   if (Array.isArray(value.inlineClosed)) prefs.inlineClosed = value.inlineClosed.filter((key): key is string => typeof key === 'string' && key.length > 0 && key.length <= 512).slice(-MAX_CLOSED);
   if (Array.isArray(value.providerUpdateDismissals)) prefs.providerUpdateDismissals = value.providerUpdateDismissals.filter((key): key is string => typeof key === 'string').slice(-100);
   if (Array.isArray(value.versionMismatchDismissals)) prefs.versionMismatchDismissals = value.versionMismatchDismissals.filter((key): key is string => typeof key === 'string' && key.length <= 512).slice(-200);
+  if (Array.isArray(value.chatgptSharingWelcome)) prefs.chatgptSharingWelcome = value.chatgptSharingWelcome.filter((key): key is string => typeof key === 'string' && key.length <= 1024).slice(-200);
   if (typeof value.lastEditor === 'string' && /^[a-z0-9-]{1,64}$/.test(value.lastEditor)) prefs.lastEditor = value.lastEditor;
   (next as { shell?: ShellPrefs }).shell = prefs;
 }
