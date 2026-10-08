@@ -4,7 +4,7 @@ import type { MobileDraftClient } from './mobile-draft-recovery';
 import { obj, str, type Obj } from './shared/domain';
 import { bridgeReply, ClientError, type Native, type Files } from './shared/protocol';
 import { letGo, letGoAware } from './shared/let-go';
-import { mobileQueuedEditOrigin } from './queued-edit-origin';
+import { mobileOutboxHomeAvailable } from './mobile-outbox-connection';
 import type { MobileOutboxWireOwner } from './mobile-outbox-wire';
 import { mobileOutboxTransferCanonical as canonical } from './mobile-outbox-transfer-model';
 import { mobilePendingTaskEditorsSnapshot, mobilePendingTaskEditorHoldOwner, type MobilePendingTaskExpected } from './mobile-pending-task-state';
@@ -49,7 +49,7 @@ export async function mobileOutboxDraftRecover(client: MobileDraftClient, handle
   const initial = canonical([client.origin, client.environmentId, client.generation, client.threadId, client.threadEpoch, client.draftKey]);
   const check = () => {
     if (!input.current() || initial !== canonical([client.origin, client.environmentId, client.generation, client.threadId, client.threadEpoch, client.draftKey])
-      || owner.origin !== mobileQueuedEditOrigin(client) || owner.environmentId !== client.environmentId)
+      || !mobileOutboxHomeAvailable(client, owner))
       throw new ClientError('The recovery destination changed. Reopen its saved status.', 'superseded');
     const editors = mobilePendingTaskEditorsSnapshot(client);
     if (!client.preferencesLoaded || !editors.ready) throw new ClientError('Read complete saved draft ownership first.');

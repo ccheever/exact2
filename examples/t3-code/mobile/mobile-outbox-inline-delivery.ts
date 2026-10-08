@@ -1,5 +1,6 @@
 // @ref llp/1109.005-composer-and-transcript.decision.md#queued-command-construction
 // Invocation-only bridge. Native owns bytes, immutable attempts and the existing journal.
+import type { MobileOutboxConnection } from './mobile-outbox-connection';
 import type { T3Client } from './shared/client';
 import type { Obj } from './shared/domain';
 import { bridgeReply, ClientError, type Native } from './shared/protocol';
@@ -152,7 +153,7 @@ export async function mobileOutboxInlineRetire(handle: Native | null | undefined
   return result;
 }
 export async function mobileOutboxInlineReserve(client: T3Client, handle: Native | null | undefined,
-  capture: MobileOutboxCapture, operationId: string, input: MobileOutboxInlineTemplate): Promise<MobileOutboxInlineStatus> {
+  capture: MobileOutboxCapture, operationId: string, input: MobileOutboxInlineTemplate, connection: MobileOutboxConnection = client): Promise<MobileOutboxInlineStatus> {
   const snapshot = mobileOutboxSnapshot(client), row = snapshot.rows.find(row => row.record.messageId === capture.messageId);
   if (!snapshot.complete || !snapshot.ownerEpoch || !row || row.status !== 'confirmed' || row.held || !integer(capture.nativeRevision, 1)
     || canonical(mobileOutboxCapture(client, capture.messageId)) !== canonical(capture)
@@ -161,11 +162,11 @@ export async function mobileOutboxInlineReserve(client: T3Client, handle: Native
   const record = copy(row.record);
   if (!uuid(operationId) || operationId === record.commandId || !json(input) || !templateValid(input, record, false)) return invalid();
   const template = copy(input), token = capture.token, revision = capture.nativeRevision;
-  if (client.connection !== 'connected' || client.environmentId !== record.environmentId || !integer(client.generation))
+  if (connection.connection !== 'connected' || connection.environmentId !== record.environmentId || !integer(connection.generation))
     throw new ClientError('Connect to this pending task\'s environment before preparing its images.', 'outbox-stale');
-  const raw = await client.call(native(handle), { op: 'mobileOutboxInline', action: 'reserve', operationId,
+  const raw = await connection.call(native(handle), { op: 'mobileOutboxInline', action: 'reserve', operationId,
     expectedOrigin: record.origin, expectedEnvironmentId: record.environmentId, ownerEpoch: snapshot.ownerEpoch,
-    messageId: record.messageId, expectedToken: token, expectedRevision: revision, record, template }, client.generation, true);
+    messageId: record.messageId, expectedToken: token, expectedRevision: revision, record, template }, connection.generation, true);
   const result = status(raw, operationId), saved = result.operation;
   if (!result.durable || !saved || saved.rowToken !== token || saved.rowRevision !== revision || canonical(saved.record) !== canonical(record)
     || canonical({ ...saved.template, inline: saved.template.inline.map(({ index, localId }) => ({ index, localId })) }) !== canonical(template)) return invalid();
@@ -174,16 +175,16 @@ export async function mobileOutboxInlineReserve(client: T3Client, handle: Native
 
 /** Retry only the saved native attempt. The request carries no bytes or replacement template. */
 export async function mobileOutboxInlineSend(client: T3Client, handle: Native | null | undefined,
-  input: MobileOutboxInlineReceipt, retryRejected = false): Promise<MobileOutboxInlineStatus> {
+  input: MobileOutboxInlineReceipt, retryRejected = false, connection: MobileOutboxConnection = client): Promise<MobileOutboxInlineStatus> {
   const receipt = mobileOutboxInlineDecode(input, input.operationId);
   if (receipt.state === 'retired' || receipt.state === 'rejected' && retryRejected !== true)
     throw new ClientError('This image request needs an explicit supported resolution.', 'outbox-stale');
-  if (client.connection !== 'connected' || client.environmentId !== receipt.environmentId || !integer(client.generation))
+  if (connection.connection !== 'connected' || connection.environmentId !== receipt.environmentId || !integer(connection.generation))
     throw new ClientError('Connect to this pending task\'s environment before preparing its images.', 'outbox-stale');
-  const raw = await client.call(native(handle), { op: 'mobileOutboxInline', action: 'send',
+  const raw = await connection.call(native(handle), { op: 'mobileOutboxInline', action: 'send',
     expectedOrigin: receipt.origin, expectedEnvironmentId: receipt.environmentId,
     operationId: receipt.operationId, revision: receipt.revision, ownerEpoch: mobileOutboxSnapshot(client).ownerEpoch,
-    ...(retryRejected ? { retryRejected: true } : {}) }, client.generation, true);
+    ...(retryRejected ? { retryRejected: true } : {}) }, connection.generation, true);
   const result = status(raw, receipt.operationId), saved = result.operation;
   if (!result.durable || !saved) return invalid();
   const mutable = new Set(['revision', 'state', 'attemptRevision', 'attemptPreviousState', 'result', 'error']);

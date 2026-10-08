@@ -1,5 +1,7 @@
 // Source365aa87982 use-thread-outbox-drain; Contract owns the clock and each invocation.
 // @ref llp/1109.005-composer-and-transcript.decision.md#queued-command-construction
+import { mobileOutboxBackgroundSaved } from './mobile-outbox-connection';
+import { fleet } from './shared/settings-b-fleet';
 import type { T3Client } from './shared/client';
 import { ClientError, type Native } from './shared/protocol';
 import { obj } from './shared/domain';
@@ -26,7 +28,8 @@ const ownerOf = (record: MobileOutboxRecord): MobileOutboxWireOwner => ({ origin
   environmentId: record.environmentId, threadId: record.threadId, messageId: record.messageId, commandId: record.commandId });
 const identity = (record: MobileOutboxRecord) => JSON.stringify(ownerOf(record));
 const connection = (client: T3Client) => JSON.stringify([client.generation, client.origin, client.environmentId,
-  client.connection, client.configLive, client.config, client.scopes, client.shellLive, client.shell.sequence]);
+  client.connection, client.configLive, client.config, client.scopes, client.shellLive, client.shell.sequence, fleet.revision, fleet.saved.map(saved => [saved.origin, saved.environmentId, saved.enabled]),
+  [...fleet.entries.values()].map(entry => [entry.key, entry.generation, entry.phase, entry.synchronized, entry.config, entry.scopes, entry.shell.sequence])]);
 const orderedRows = (client: T3Client) => [...mobileOutboxSnapshot(client).rows].sort((a, b) => a.record.createdAt.localeCompare(b.record.createdAt));
 const sameThread = (a: MobileOutboxRecord, b: MobileOutboxRecord) => a.origin === b.origin && a.environmentId === b.environmentId && a.threadId === b.threadId;
 function predecessor(client: T3Client, record: MobileOutboxRecord): boolean {
@@ -73,7 +76,8 @@ export function mobileOutboxDriveSnapshot(client: T3Client, now: number): Mobile
   const threads = new Set<string>();
   const items = rows.map(row => {
     const record = row.record, owner = identity(record), current = attempt(drive, row);
-    const sameEnvironment = record.environmentId === client.environmentId;
+    const rediscover = current.result?.status === 'waiting' && current.waitingFor === '';
+    const sameEnvironment = record.environmentId === client.environmentId || mobileOutboxBackgroundSaved(record) || rediscover;
     const threadKey = JSON.stringify([record.origin, record.environmentId, record.threadId]);
     const first = !threads.has(threadKey); threads.add(threadKey);
     const wait = Math.max(1, current.retryAt - (Number.isFinite(now) ? now : 0));
@@ -107,16 +111,20 @@ export async function mobileOutboxDriveRun(client: T3Client, native: Native, key
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return { revision: client.revision, message: 'The pending task changed.' };
   const owner = manual ? parsed as MobileOutboxWireOwner : parsed.owner;
   const row = mobileOutboxSnapshot(client).rows.find(item => identity(item.record) === JSON.stringify(owner));
-  if (!row || row.record.environmentId !== client.environmentId || row.held || row.status !== 'confirmed') return { revision: client.revision, message: 'The pending task is no longer ready.' };
+  if (!row || row.held || row.status !== 'confirmed') return { revision: client.revision, message: 'The pending task is no longer ready.' };
   const editors = mobilePendingTaskEditorsSnapshot(client);
   if (!editors.ready || editors.markers.some(marker => mobilePendingTaskEditorKey(marker.owner) === identity(row.record)))
     return { revision: client.revision, message: 'Resolve saved pending edits before sending this task.' };
   const current = attempt(drive, row), id = identity(row.record);
+  if (row.record.environmentId !== client.environmentId && !mobileOutboxBackgroundSaved(row.record)
+    && !(current.result?.status === 'waiting' && current.waitingFor === ''))
+    return { revision: client.revision, message: 'The saved environment is no longer available.' };
   const cleanupOnly = predecessor(client, row.record);
   if (cleanupOnly && !finalAcknowledged(current, row.record))
     return { revision: client.revision, message: 'Resolve the earlier pending message in this thread before sending this task.' };
   if (!manual && (parsed.signature !== current.signature || parsed.sequence !== current.sequence
     || !automatic(current.result) || current.retryAt > now)) return { revision: client.revision, message: '' };
+  const admittedConnection = connection(client);
   drive.busy = id; client.revision++;
   let admissionRefused = false;
   // Inventory and editor ownership may change across the foreground pass's
@@ -141,7 +149,9 @@ export async function mobileOutboxDriveRun(client: T3Client, native: Native, key
       ...(cleanupRetry === undefined ? {} : { retryCleanupRevision: cleanupRetry }) });
     current.result = result; current.sequence++; current.tries++;
     current.retryAt = now + mobileOutboxRetryDelay(current.tries);
-    current.waitingFor = admissionRefused ? '' : connection(client);
+    // A wire reply may have become a terminal native receipt while its transport
+    // disappeared. Discover it once before parking on unchanged connection facts.
+    current.waitingFor = admissionRefused || admittedConnection !== connection(client) ? '' : connection(client);
     // The pass may have adopted uploaded descriptors. Keep its outcome attached
     // to that new row, so an unresolved final command cannot become an auto retry.
     const after = mobileOutboxSnapshot(client).rows.find(item => identity(item.record) === id);

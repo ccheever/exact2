@@ -6,7 +6,7 @@ import type { MobileDraftClient } from './mobile-draft-recovery';
 import type { Native, Files } from './shared/protocol';
 import { obj, type Obj } from './shared/domain';
 import { letGo } from './shared/let-go';
-import { mobileQueuedEditOrigin } from './queued-edit-origin';
+import { mobileOutboxHomeAvailable } from './mobile-outbox-connection';
 import { mobileOutboxDecode, mobileOutboxRetryDelay, type MobileOutboxRecord } from './mobile-outbox-model';
 import { mobileOutboxTransferCanonical as canonical } from './mobile-outbox-transfer-model';
 import { mobilePendingTaskEditorsSnapshot } from './mobile-pending-task-state';
@@ -39,8 +39,7 @@ function candidates(client: MobileDraftClient) {
     candidates.set(identity(decoded.record), { record: decoded.record, signature: canonical(value) });
   }
   const editors = mobilePendingTaskEditorsSnapshot(client), root = state(client);
-  const values = [...candidates.values()].filter(({ record }) => record.origin === mobileQueuedEditOrigin(client)
-    && record.environmentId === client.environmentId && !editors.markers.some(marker => identity(marker.owner) === identity(record)))
+  const values = [...candidates.values()].filter(({ record }) => mobileOutboxHomeAvailable(client, record) && !editors.markers.some(marker => identity(marker.owner) === identity(record)))
     .sort((a, b) => a.record.createdAt.localeCompare(b.record.createdAt) || identity(a.record).localeCompare(identity(b.record)));
   const ready = values.map(({ record, signature }) => {
     const id = identity(record); let attempt = root.attempts.get(id);

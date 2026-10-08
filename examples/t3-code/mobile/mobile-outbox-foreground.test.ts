@@ -1,5 +1,6 @@
 // @ref llp/1109.005-composer-and-transcript.decision.md#queued-command-construction
 import { expect, test } from 'bun:test';
+import { fleet, environmentKey, type FleetEntry } from './shared/settings-b-fleet';
 import { T3Client } from './shared/client';
 import { obj, type Obj } from './shared/domain';
 import { ClientError, type Native } from './shared/protocol';
@@ -132,7 +133,7 @@ function fixture(input = queued()) {
         inlines.set(operation.operationId, operation); value = wrapper(operation);
       } else if (r.action === 'send') { operation = settled(operation!); inlines.set(operation.operationId, operation); value = wrapper(operation); }
       else throw Error(`Unexpected ${key(r)}`);
-    } else if (r.op === 'status') value = { origin: 'https://relay.test', homeOrigin: owner.origin, environmentId: owner.environmentId };
+    } else if (r.op === 'status') value = { state: 'connected', origin: 'https://relay.test', homeOrigin: owner.origin, environmentId: owner.environmentId };
     else if (r.op === 'http') value = session;
     else if (r.op === 'ids') value = Array.from({ length: Number(r.count) }, () => `aaaaaaaa-0000-4000-a000-${String(++ids).padStart(12, '0')}`);
     else if (r.op === 'snapshotDraftRead') value = { base64: 'YWJj', sizeBytes: 3 };
@@ -391,4 +392,69 @@ test('let-go after native send makes no follow-on call and propagates lifetime c
   let error: unknown; try { await f.run(); } catch (caught) { error = caught; }
   expect(letGo(error)).toBe(true); expect(f.calls.at(-1)).toMatchObject({ op: 'mobileOutboxDelivery', action: 'send' });
   expect(f.deliveries.get('command')?.state).toBe('acknowledged'); expect(f.disk()?.text).toBe('original');
+});
+
+
+async function inBackground(f: ReturnType<typeof fixture>, check: (entry: FleetEntry) => Promise<void>) {
+  const beforeSaved = fleet.saved, beforeEntries = new Map(fleet.entries), beforeRevision = fleet.revision;
+  const key = environmentKey(owner.origin, owner.environmentId);
+  const entry: FleetEntry = { key, origin: owner.origin, environmentId: owner.environmentId, phase: 'connected', message: '', traceId: '',
+    generation: 7, synchronized: 7, lastEvent: 0, subscriptions: {}, config: copy(f.client.config), shell: copy(f.client.shell),
+    scopes: [...f.client.scopes], error: '', requested: true };
+  fleet.entries.clear(); fleet.entries.set(key, entry); fleet.saved = [{ origin: owner.origin, environmentId: owner.environmentId, enabled: true }];
+  Object.assign(f.client, { environmentId: 'selected-other', origin: 'https://other.test', generation: 19,
+    config: {}, shell: { sequence: 0, projects: [], threads: [] }, scopes: [], threadId: 'visible-thread', projectId: 'visible-project' });
+  const selected = [f.client.environmentId, f.client.origin, f.client.generation, f.client.threadId, f.client.projectId];
+  try {
+    await check(entry);
+    expect([f.client.environmentId, f.client.origin, f.client.generation, f.client.threadId, f.client.projectId]).toEqual(selected);
+  } finally {
+    fleet.saved = beforeSaved; fleet.entries.clear(); for (const [key, value] of beforeEntries) fleet.entries.set(key, value); fleet.revision = beforeRevision;
+  }
+}
+for (const mode of ['text', 'uploaded-image', 'inline-image'] as const) test(`background ${mode} uses its captured fleet connection and the one local outbox`, async () => {
+  const f = fixture({ ...queued(), attachments: mode === 'text' ? [] : [image()], creation: {
+    projectId: 'project', workspaceMode: 'worktree', branch: 'main', worktreePath: null } });
+  if (mode === 'inline-image') obj(f.client.config.environment).capabilities = { serverResolvedCommandContext: true, inlineMessageContext: true, attachmentUploads: false };
+  await inBackground(f, async entry => {
+    expect((await f.run()).status).toBe('delivered'); expect(f.disk()).toBeNull();
+    const remote = f.calls.filter(r => ['status', 'http', 'request', 'uploadAttachment'].includes(String(r.op))
+      || ['reserve', 'reserveInline', 'send'].includes(String(r.action)));
+    expect(remote.length).toBeGreaterThan(3);
+    expect(remote.every(r => r.fleet === entry.key && r.generation === 7)).toBe(true);
+    const local = f.calls.filter(r => ['mobileOutbox', 'ids', 'snapshotDraftRead'].includes(String(r.op))
+      || ['complete', 'lookup', 'recover'].includes(String(r.action)));
+    expect(local.every(r => !r.fleet)).toBe(true);
+    expect(f.deliveries.get('command')?.record.environmentId).toBe(owner.environmentId);
+    expect(f.deliveries.get('command')?.origin).toBe(owner.origin);
+  });
+});
+for (const change of ['disabled', 'removed', 'generation', 'config', 'synchronization', 'permissions'] as const)
+  test(`background delivery stops after ${change} changes during upload`, async () => {
+    const f = fixture({ ...queued(), attachments: [image()] });
+    await inBackground(f, async entry => {
+      f.intercept(r => {
+        if (r.op !== 'uploadAttachment') return;
+        if (change === 'disabled') fleet.saved[0]!.enabled = false;
+        if (change === 'removed') fleet.entries.delete(entry.key);
+        if (change === 'generation') entry.generation++;
+        if (change === 'config') entry.config = {};
+        if (change === 'synchronization') entry.synchronized = -1;
+        if (change === 'permissions') entry.scopes = [];
+      });
+      expect((await f.run()).status).not.toBe('delivered');
+      expect(f.calls.some(r => r.action === 'send' || r.action === 'mutate')).toBe(false);
+      expect(f.disk()?.attachments[0]?.uploadId).toBe('');
+    });
+  });
+test('background final ACK is recovered locally after its fleet connection disappears', async () => {
+  const f = fixture();
+  await inBackground(f, async entry => {
+    f.intercept(r => { if (r.op === 'mobileOutboxDelivery' && r.action === 'send') fleet.entries.delete(entry.key); });
+    expect((await f.run()).status).toBe('waiting');
+    expect(f.deliveries.get('command')?.state).toBe('acknowledged');
+    const before = f.calls.length; expect((await f.run()).status).toBe('delivered');
+    expect(f.calls.slice(before).some(r => r.fleet || r.action === 'send')).toBe(false);
+    expect(f.disk()).toBeNull();
+  });
 });

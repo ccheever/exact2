@@ -111,7 +111,11 @@ export function mobileRoutingRows(sources: ReturnType<typeof environmentSources>
 /** Rendering projection only. Saved credentials and access tokens never enter these rows. */
 export async function mobileSnapshot(nativeInput: Native | null | undefined, suppliedStorage: Files) {
   const { native, storage } = answerHandles(nativeInput, suppliedStorage);
+  const fleetRevision = fleet.revision;
   await mobileClient.refresh(native, storage);
+  // A disconnected foreground skips the shared client's event drain. Background
+  // connection/config changes must still invalidate root outbox scheduling.
+  if (fleet.revision !== fleetRevision) mobileClient.revision++;
   // Mobile renders its own shell; initialize the existing shared clone/task streams here.
   await watchLive(mobileClient, native);
   await mobileQueuedEditRefresh(native, mobileClient);

@@ -1,3 +1,4 @@
+import { fleet } from './shared/settings-b-fleet';
 import { mobileOutboxThread, mobileOutboxOwner, mobileOutboxPendingTasks } from './mobile-outbox-presentation';
 import { mobileNewTaskDraftStore } from './mobile-new-task-drafts';
 import { mobileOutboxRootSnapshot as rootView, mobileOutboxRootAction as rootAction, mobileOutboxRootEdit as editRecovered } from './mobile-outbox-root';
@@ -249,4 +250,36 @@ for (const mode of ['consumed', 'retargeted', 'forged-owner'] as const) test(`Ed
   if (mode === 'consumed') expect(store.records[key]).toBeUndefined();
   if (mode === 'retargeted') expect(store.records[key]).toEqual({ ...original, origin: 'https://replacement.test' });
   expect(mobileOutboxThread('env', 'thread', 1000, false, client)?.queuedCanEdit).toBe(mode === 'forged-owner');
+});
+
+
+test('root restores a saved background rejection without changing the visible environment or draft', async () => {
+  const f = backend(), client = await f.load(), previous = fleet.saved;
+  try {
+    fleet.saved = [{ origin: owner.origin, environmentId: owner.environmentId, enabled: true }];
+    Object.assign(client, { environmentId: 'visible-env', origin: 'https://visible.test', threadId: 'visible-thread', projectId: 'visible-project' });
+    client.local.drafts[client.draftKey] = 'keep typing here';
+    const selected = [client.environmentId, client.origin, client.threadId, client.projectId, client.draftKey];
+    const scheduled = await rootDiscover(f, client);
+    expect(JSON.parse(scheduled.next).recovery).toEqual(owner);
+    await rootAction(client, f.native, f.storage, 'deliver', scheduled.next, 1000);
+    expect(rootView(client, 1000).next).toBe(''); expect(client.local.drafts[key]).toBe('recover me');
+    expect([client.environmentId, client.origin, client.threadId, client.projectId, client.draftKey]).toEqual(selected);
+    expect(client.local.drafts[client.draftKey]).toBe('keep typing here');
+    expect(f.state.row).toBeNull(); expect(f.state.proof).not.toBeNull();
+    expect(f.calls.some(call => call.fleet || call.op === 'connect' || call.op === 'request')).toBe(false);
+    expect(mobileOutboxThread('env', 'thread', 1000, false, client)?.queuedCanEdit).toBe(true);
+  } finally { fleet.saved = previous; }
+});
+test('background recovery rechecks saved home ownership before durable publication', async () => {
+  const f = backend(), client = await f.load(), previous = fleet.saved;
+  try {
+    fleet.saved = [{ origin: owner.origin, environmentId: owner.environmentId, enabled: true }]; client.environmentId = 'other';
+    const scheduled = await rootDiscover(f, client);
+    fleet.saved = [{ origin: 'https://replacement.test', environmentId: owner.environmentId, enabled: true }];
+    expect(rootView(client, 1000).next).toBe('');
+    await rootAction(client, f.native, f.storage, 'deliver', scheduled.next, 1000);
+    expect(client.local.drafts[key]).toBeUndefined(); expect(f.state.row).not.toBeNull();
+    expect(f.state.proof).toBeNull();
+  } finally { fleet.saved = previous; }
 });
