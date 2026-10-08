@@ -285,6 +285,10 @@ final class SvgFilterLive {
             cleared = false
         }
         let (tw, th) = (targets[0].texture.width, targets[0].texture.height)
+        // One instant for the held animations' placement and the render.
+        let at = CACurrentMediaTime()
+        CssAnimations.renderTime = at
+        defer { CssAnimations.renderTime = nil }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         scene.scale = p.k
@@ -314,7 +318,7 @@ final class SvgFilterLive {
         }
         cleared = false
         renderer.bounds = CGRect(x: 0, y: 0, width: tw, height: th)
-        renderer.beginFrame(atTime: CACurrentMediaTime(), timeStamp: nil)
+        renderer.beginFrame(atTime: at, timeStamp: nil)
         renderer.addUpdate(renderer.bounds)
         renderer.render()
         renderer.endFrame()

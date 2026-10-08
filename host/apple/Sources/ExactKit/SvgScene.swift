@@ -86,6 +86,10 @@ private func circle(_ r: Double) -> CGPath {
 /// `paused`, or any under an agent-owned clock) is `speed = 0` at its local
 /// time, so a screenshot and a `clock` seek are deterministic.
 enum CssAnimations {
+    /// The instant an offscreen render draws at, while one is prepared: a
+    /// held animation it runs is placed from that same instant, so it draws
+    /// exactly where it is held (LLP 1003.001 D4).
+    static var renderTime: CFTimeInterval?
     /// Replace `layer`'s CSS animations with `specs`, keeping any whose spec
     /// is unchanged (a data tick must not restart a running pulse).
     static func apply(_ specs: [[String: Any]], to layer: CALayer, clock: Double?, installed: inout [String: String], offscreen: Bool = false) {
@@ -187,7 +191,7 @@ enum CssAnimations {
             if active >= total && !forwards { return nil }
             let at = min(max(0, active), total - 1e-6)
             if offscreen {
-                a.beginTime = layer.convertTime(CACurrentMediaTime(), from: nil) - at
+                a.beginTime = layer.convertTime(renderTime ?? CACurrentMediaTime(), from: nil) - at
             } else {
                 a.speed = 0
                 a.timeOffset = at
