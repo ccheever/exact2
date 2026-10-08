@@ -16,6 +16,7 @@ use PrHandoffsView from "./pages-pr-handoffs.contract"
 use PrdCheckoutMenu from "./pages-pr-handoffs.contract"
 use PrdHandoffItems from "./pages-pr-handoffs.contract"
 use PrLinksView, PrActOnItem, PrdLinkedCount, PrdActOnItems from "./pages-pr-links.contract" // pr-links-previews-and-routing
+use hoverTipAtFrame from "./hover-layer.contract" // fix-hover-cards
 
 keyframes paSpin
   from rotate=0
@@ -284,7 +285,7 @@ component PrdBaseBranch
     when actions.freshness
       // Keyed by the pull request, so a pointer left over another one's mark starts no card here.
       each prKey in [ref] key=prKey
-        PaFreshnessMark(actions=actions, base=base, scheme=scheme, act=act)
+        PaFreshnessMark(actions=actions, prKey=prKey, base=base, scheme=scheme, act=act)
     else
       Tip(label=actions.baseTip, side="top", align="center", offset=20)
         row min-width=0 align-items="center" gap="0.25rem" flex-shrink=0 testId="pull-request-base"
@@ -293,29 +294,35 @@ component PrdBaseBranch
               PgIcon(name="layers", size=12, color="light-dark(#71717bb3, #828282b3)")
           text base font-family="ui-monospace" font-size="0.75rem" line-height="1rem" color="light-dark(#71717bb3, #828282b3)" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" min-width=0
 
-// PullRequestBaseFreshnessWarning's trigger: the amber base branch and mark; its hover state dies with it.
+// PullRequestBaseFreshnessWarning's trigger: the amber base branch and mark. Pressed (or Return), it opens
+// the card as a popover; pointed at, the window's hover layer draws the same card under it (openOnHover
+// delay 0, closeDelay 120, side bottom, align start: hover-layer.contract), where the pointer can move
+// into it and press its buttons (#262; X62, #322).
 component PaFreshnessMark
+  inject
+    rem: number
+    hoverTipAt: action
   props
     actions: PrActionsView
+    prKey: string
     base: string
     scheme: string
     act: action
-  state over = false
   action hover(value: bool)
-    over = value
+    hoverTipAt(hoverTipAtFrame(`pr-freshness-${prKey}`, "freshness", actions.freshnessSummary, [], "bottom", "start", frame("pr-freshness-mark"), 6.5 * rem, "pr-freshness-hover"), "trigger", value)
+  // The pressed popover's buttons keep nothing open (the top layer holds it); their hover is only their own.
+  state popoverButtonOver = false
+  action stay(value: bool)
+    popoverButtonOver = value
   view
     column position="relative" flex-shrink=0 min-width=0 max-width="40%" hover=hover
-      button popovertarget="pr-freshness" aria-label=actions.freshnessSummary testId="pull-request-base-freshness" height="1rem" padding=0 border-width=0 border-radius="0.25rem" background-color="#00000000" gap="0.25rem" display="flex" flex-direction="row" align-items="center" min-width=0 cursor="help"
+      button id="pr-freshness-mark" popovertarget="pr-freshness" aria-label=actions.freshnessSummary testId="pull-request-base-freshness" height="1rem" padding=0 border-width=0 border-radius="0.25rem" background-color="#00000000" gap="0.25rem" display="flex" flex-direction="row" align-items="center" min-width=0 cursor="help"
         when actions.stacked
           PgIcon(name="layers", size=12, color=paWarn())
         text base font-family="ui-monospace" font-size="0.75rem" line-height="1rem" color=paWarn() white-space="nowrap" overflow="hidden" text-overflow="ellipsis" min-width=0 text-align="left"
         PgIcon(name="triangle-alert", size=14, color=paWarn())
       row id="pr-freshness" popover="auto" position="absolute" padding-top="0.25rem" align-items="flex-start" testId="pr-freshness-layer"
-        PaFreshnessCard(actions=actions, scheme=scheme, act=act, testId="pr-freshness-popover")
-      // openOnHover (delay 0): the same card while the pointer is over the mark or the card.
-      when over
-        row position="absolute" left=0 top="1rem" width="20rem" padding-top="0.25rem" align-items="flex-start" z-index=30
-          PaFreshnessCard(actions=actions, scheme=scheme, act=act, testId="pr-freshness-hover")
+        PaFreshnessCard(actions=actions, scheme=scheme, act=act, keep=stay, testId="pr-freshness-popover")
 
 // PopoverPopup (compact, max-w-80): the sentence, "Changes can be cleanly merged.", each way to update.
 component PaFreshnessCard
@@ -323,6 +330,8 @@ component PaFreshnessCard
     actions: PrActionsView
     scheme: string
     act: action
+    // The pointer on a button is still on the card (the hover layer's card hears a leave as it moves onto one).
+    keep: action
     testId: string
   view
     column max-width="20rem" flex-shrink=0 padding-left="0.75rem" padding-right="0.75rem" padding-top="0.5rem" padding-bottom="0.5rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#27272a1a, #f5f5f51a)" background-color="light-dark(#ffffff, #121212)" box-shadow=(scheme == "dark" ? "0 18px 44px -18px #000000cc" : "0 10px 15px -3px #0000001a, 0 4px 6px -4px #0000001a") role="dialog" aria-label=actions.freshnessSummary testId=testId
@@ -331,7 +340,7 @@ component PaFreshnessCard
       when length(actions.freshnessMethods) > 0
         row margin-top="0.5rem" flex-wrap="wrap" align-items="center" gap="0.375rem"
           each item in actions.freshnessMethods key=item.key
-            PaOutlineButton(icon="git-merge", label=item.label, disabled=actions.pending, press=act("action", item.value), testId=`pr-freshness-${item.key}`)
+            PaOutlineButton(icon="git-merge", label=item.label, disabled=actions.pending, press=act("action", item.value), keep=keep, testId=`${testId}-${item.key}`)
 
 // Button size="xs" variant="outline".
 component PaOutlineButton
@@ -340,10 +349,12 @@ component PaOutlineButton
     label: string
     disabled: bool
     press: action
+    keep: action
     testId: string
   state over = false
   action hover(value: bool)
     over = value
+    keep(value)
   view
     button press=press hover=hover disabled=disabled testId=testId height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" box-sizing="border-box" gap="0.25rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color=(over ? "light-dark(#f4f4f580, #ffffff0d)" : "light-dark(#ffffff, #ffffff07)") box-shadow="0 1px 2px #0000000d" opacity=(disabled ? 0.64 : 1) display="flex" flex-direction="row" align-items="center" flex-shrink=0
       PgIcon(name=icon, size=12, color=paMuted())

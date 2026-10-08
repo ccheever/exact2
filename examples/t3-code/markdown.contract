@@ -8,6 +8,7 @@ use Icon from "./icons.contract"
 use MorphMaximize from "./shell-morph.contract"
 use CiteButton, CitePart from "./diff-cite.contract"
 use MarkdownMedia from "./media-markdown.contract"
+use hoverTipAtFrame from "./hover-layer.contract" // pr-links-previews-and-routing: a pull request link's card
 shape ChatRun
   id: string
   text: string
@@ -442,6 +443,9 @@ component FlowRuns
 // (pages-pr-links.ts openLink: the panel for a pull request, the browser for anything else or with a modifier
 // held). A web link keeps its favicon (the globe); a `#N` autolink has none, and a commit's is monospace.
 component PrLinkRun
+  inject
+    rem: number
+    hoverTipAt: action
   props
     run: ChatRun
     chip: ChipView
@@ -449,8 +453,9 @@ component PrLinkRun
     size: number
     weight: number
   // The pointer on the link: the panel reads the card's pull request (`chatlocal:pr-preview`). The card itself is drawn by
-  // the window's hover layer (fix-hover-cards' hover-layer.contract, kind "pr-preview": 350 ms open, 120 ms close), once it lands.
+  // the window's hover layer (hover-layer.contract, kind "pr-preview": 350 ms open, 120 ms close); a commit's link shows its URL as a tip.
   action hover(value: bool)
+    hoverTipAt(hoverTipAtFrame(`pr-preview-${chip.id}`, chip.target != "" ? "pr-preview" : "tip", run.href, [], "top", "center", frame(`pr-link-${chip.id}`), 6.5 * rem, chip.target != "" ? "pull-request-link-preview" : "pull-request-link-url"), "trigger", value)
     if chip.target != ""
       local("pr-preview", chip.target, value ? "1" : "0")
   view

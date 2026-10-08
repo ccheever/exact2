@@ -1,0 +1,235 @@
+// The pull request Code tab's cards (20261005-pr-code-tab), measured against T3 Code 1e2ecbd975
+// (MIT, see LICENSE-T3) components/pullRequest/PullRequestReviewAnnotation.tsx and
+// components/diffs/DiffCommentAnnotation.tsx: a conversation already on the host (ReviewThreadCard),
+// a comment waiting for the review (PendingReviewCommentCard) and the line comment being written,
+// with "Add to review" and "Add to agent". pages-pr-threads.ts and pages-pr-code.ts make them.
+use PgIcon from "./pages-icons.contract"
+use PrAvatar from "./pages-prs.contract"
+use ChatDocument from "./markdown.contract"
+use CodeHighlight from "./markdown.contract"
+use MarkdownEnv from "./markdown.contract"
+use LayerTip from "./hover-layer.contract" // the Tips on the window's hover layer (#307), so the list and the cards around them do not clip them
+use PrReactionPill from "./pages-pr-meta.contract"
+use PrReactionChoice from "./pages-pr-meta.contract"
+use PrdReactionBar from "./pages-pr-meta.contract"
+use PrdEditButton from "./pages-pr-edit.contract"
+use PrdSmallButton from "./pages-pr-edit.contract"
+use PrdWords from "./pages-pr-edit.contract"
+use PrdFixButton from "./pages-pr-handoffs.contract"
+use PrHandoffsView from "./pages-pr-handoffs.contract"
+
+shape PrThreadComment
+  id: string
+  author: string
+  avatar: string
+  initial: string
+  authorTip: string
+  age: string
+  ageTip: string
+  bodyId: string
+  raw: string
+  canEdit: bool
+  saving: bool
+  savedSerial: number
+  reactions: list<PrReactionPill>
+  reacted: list<string>
+shape PrThreadCard
+  id: string
+  key: string
+  resolved: bool
+  outdated: bool
+  countLabel: string
+  canReply: bool
+  canResolve: bool
+  canReact: bool
+  fix: string
+  comments: list<PrThreadComment>
+  more: bool
+  loadingMore: bool
+  pending: bool
+  repliedSerial: number
+  lineLabel: string
+  path: string
+
+fn ptMuted(): string = "light-dark(#71717b, #818181)"
+fn ptInk(): string = "light-dark(#27272a, #f5f5f5)"
+// CARD_CLASS: mx-3 my-2 rounded-xl border border-border/70 bg-background p-3 text-sm shadow-sm.
+fn ptBorder(): string = "light-dark(#e4e4e7b3, #ffffff0b)"
+fn ptCircle(): string = "M2 12a10 10 0 1 0 20 0a10 10 0 1 0 -20 0"
+
+// ReviewThreadCard: open threads start expanded and resolved ones folded to their header; every
+// control waits while a thread write is out (`card.pending`).
+component PrdThreadCard
+  props
+    card: PrThreadCard
+    surface: string
+    handoffs: PrHandoffsView
+    choices: list<PrReactionChoice>
+    documents: list<ChatDocument>
+    code: list<CodeHighlight>
+    env: MarkdownEnv
+    still: bool
+    local: action
+    act: action
+  // `toggled` flips the starting state (open unless resolved), so a refreshed card keeps the reader's choice.
+  state toggled = false
+  state replying = false
+  state seenReply = 0
+  state reply = ""
+  state headerOver = false
+  derive expanded = card.resolved ? toggled : not toggled
+  derive replyOpen = replying and seenReply == card.repliedSerial
+  action flip
+    toggled = not toggled
+  action hoverHeader(value: bool)
+    headerOver = value
+  action openReply
+    replying = true
+    seenReply = card.repliedSerial
+    reply = ""
+  action editReply(text: string)
+    reply = text
+  action cancelReply
+    replying = false
+  action send
+    if not card.pending and trim(reply) != ""
+      act("thread-reply", `${card.id}|${reply}`)
+  action replyKeys(k: string, e: KeyboardEvent)
+    if k == "Escape"
+      preventDefault()
+      cancelReply()
+    else if k == "Enter" and (e.metaKey or e.ctrlKey) and not e.repeat
+      // isCommentSubmitShortcut: a non-empty reply that is not already sending.
+      preventDefault()
+      send()
+  view
+    column margin-left="0.75rem" margin-right="0.75rem" margin-top="0.5rem" margin-bottom="0.5rem" padding="0.75rem" box-sizing="border-box" border-radius="0.75rem" border-width=1 border-style="solid" border-color=ptBorder() background-color="light-dark(#ffffff, #0a0a0a)" box-shadow="0 1px 2px #0000000d" role="article" aria-label=`Conversation on ${card.path}` testId=`pull-request-thread-${card.id}`
+      row align-items="center" gap="0.5rem" min-width=0
+        svg width="0.875rem" height="0.875rem" viewBox="0 0 24 24" color=(card.resolved ? "light-dark(#009966, #00d492)" : ptMuted()) fill="none" stroke="currentColor" stroke-width=2 stroke-linecap="round" stroke-linejoin="round" flex-shrink=0 aria-hidden=true
+          path d=(card.resolved ? "M2 12a10 10 0 1 0 20 0a10 10 0 1 0 -20 0M9 12l2 2 4-4" : ptCircle())
+        button press=flip hover=hoverHeader aria-expanded=expanded testId=`pull-request-thread-toggle-${card.id}` padding=0 border-width=0 background-color="#00000000" flex-shrink=0
+          text card.countLabel font-size="0.75rem" line-height="1rem" white-space="nowrap" color=(headerOver ? ptInk() : ptMuted())
+        when card.outdated
+          text "outdated" font-size="0.75rem" line-height="1rem" color=ptMuted() flex-shrink=0
+        box flex=1 min-width=0
+        PrdFixButton(finding=card.fix, label=(surface == "thread" ? "Fix in this thread" : "Fix in a thread"), pending=(card.pending and handoffs.pending == "" ? "thread-write" : handoffs.pending), surface=surface, act=act, testId=`pull-request-thread-fix-${card.id}`)
+        when card.canResolve
+          PrdSmallButton(label=(card.resolved ? "Unresolve" : "Resolve"), icon="", tone="ghost", disabled=card.pending, press=act("thread-resolve", `${card.id}|${card.resolved ? "false" : "true"}`), testId=`pull-request-thread-resolve-${card.id}`)
+      when expanded
+        column margin-top="0.5rem" gap="0.75rem" min-width=0
+          each comment in card.comments key=comment.id
+            PrdThreadComment(comment=comment, threadId=card.id, canReact=card.canReact, pending=card.pending, choices=choices, documents=documents, code=code, env=env, still=still, local=local, act=act)
+        when card.more
+          row margin-top="0.5rem"
+            PrdSmallButton(label=(card.loadingMore ? "Loading..." : "Load more comments"), icon="", tone="ghost", disabled=card.loadingMore, press=act("thread-more", card.id), testId=`pull-request-thread-more-${card.id}`)
+        when card.canReply
+          when replyOpen
+            column margin-top="0.5rem" gap="0.5rem"
+              textarea value=reply input=editReply key=replyKeys autofocus=true rows=2 placeholder="Reply" aria-label="Reply to this conversation" autocorrect="off" spellcheck="false" testId=`pull-request-thread-reply-text-${card.id}` width="100%" min-height="4rem" padding-left="0.625rem" padding-right="0.625rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff08)" font-size="0.875rem" line-height="1.25rem" color=ptInk()
+              row justify-content="flex-end" gap="0.5rem"
+                PrdSmallButton(label="Cancel", icon="", tone="ghost", disabled=false, press=cancelReply, testId=`pull-request-thread-reply-cancel-${card.id}`)
+                PrdSmallButton(label="Reply", icon="", tone="primary", disabled=(card.pending or trim(reply) == ""), press=send, testId=`pull-request-thread-reply-send-${card.id}`)
+          else
+            row margin-top="0.5rem"
+              PrdSmallButton(label="Reply", icon="", tone="ghost", disabled=false, press=openReply, testId=`pull-request-thread-reply-${card.id}`)
+
+// One remark in a conversation: the author, the age, its reactions, then its words with the
+// reader's own pencil, which turns them into the editor (PullRequestMarkdownEditor).
+component PrdThreadComment
+  props
+    comment: PrThreadComment
+    threadId: string
+    canReact: bool
+    pending: bool
+    choices: list<PrReactionChoice>
+    documents: list<ChatDocument>
+    code: list<CodeHighlight>
+    env: MarkdownEnv
+    still: bool
+    local: action
+    act: action
+  state over = false
+  state editing = false
+  state seen = 0
+  state draft = ""
+  state previewing = false
+  derive open = editing and seen == comment.savedSerial
+  action hover(value: bool)
+    over = value
+  action begin
+    editing = true
+    seen = comment.savedSerial
+    draft = comment.raw
+    previewing = false
+  action edit(text: string)
+    draft = text
+  action preview(on: bool)
+    previewing = on
+    if on
+      act("preview", `comment:${comment.id}|${draft}`)
+  action save
+    if not comment.saving and not pending
+      act("thread-edit", `${threadId}|${comment.id}|${draft}`)
+  action cancel
+    editing = false
+  view
+    column min-width=0 hover=hover role="article" testId=`pull-request-thread-comment-${comment.id}`
+      row min-width=0 flex-wrap="wrap" align-items="center" gap="0.5rem"
+        LayerTip(label=comment.authorTip, side="top", align="start", tipId=`pull-request-thread-author-tip-${comment.id}`)
+          row align-items="center" gap="0.375rem" min-width=0
+            PrAvatar(avatar=comment.avatar, initial=comment.initial, size=16)
+            text comment.author font-size="0.75rem" line-height="1rem" font-weight=500 color=ptInk() white-space="nowrap"
+        LayerTip(label=comment.ageTip, side="top", align="start", tipId=`pull-request-thread-age-tip-${comment.id}`)
+          text comment.age font-size="0.75rem" line-height="1rem" color=ptMuted() white-space="nowrap"
+        PrdReactionBar(pills=comment.reactions, reacted=comment.reacted, canReact=canReact, choices=choices, subject=comment.id, pickerId=`pr-code-react-${comment.id}`, act=act)
+      column margin-top="0.25rem" min-width=0
+        PrdWords(bodyId=comment.bodyId, emptyText="", collapse=false, canEdit=comment.canEdit, pencil=true, hovered=over, open=open, previewing=previewing, draft=draft, saving=comment.saving, allowEmpty=false, label="Edit comment", placeholder="", previewId=`pr-preview:comment:${comment.id}`, pencilLabel="Edit comment", frameId=`pr-code-comment-body-${comment.id}`, testId=`pr-code-comment-${comment.id}`, still=still, documents=documents, code=code, env=env, local=local, begin=begin, edit=edit, preview=preview, save=save, cancel=cancel)
+
+// PendingReviewCommentCard: dashed, "Pending — sent when you submit the review", a trash to discard it.
+component PrdPendingCard
+  props
+    id: string
+    body: string
+    discard: action
+  state over = false
+  action hover(value: bool)
+    over = value
+  view
+    column position="relative" margin-left="0.75rem" margin-right="0.75rem" margin-top="0.5rem" margin-bottom="0.5rem" padding="0.75rem" box-sizing="border-box" border-radius="0.75rem" background-color="light-dark(#ffffff, #0a0a0a)" box-shadow="0 1px 2px #0000000d" testId=`pull-request-pending-${id}`
+      // border-dashed (border-style is solid-only here): one stroked rect, as markdown.contract's unresolved chip.
+      box position="absolute" left=0.5 top=0.5 right=0.5 bottom=0.5 aria-hidden=true
+        svg width="100%" height="100%" color=ptBorder() fill="none" stroke="currentColor" aria-hidden=true
+          rect x=0 y=0 width="100%" height="100%" rx=11.5 stroke-width=1 stroke-dasharray="4 3"
+      row align-items="center" gap="0.5rem"
+        PgIcon(name="message-square", size=14, color=ptMuted())
+        text "Pending — sent when you submit the review" flex=1 min-width=0 font-size="0.75rem" line-height="1rem" color=ptMuted()
+        button press=discard hover=hover aria-label="Discard this comment" testId=`pull-request-pending-discard-${id}` width="1.5rem" height="1.5rem" padding=0 flex-shrink=0 border-radius="0.375rem" border-width=0 background-color=(over ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" align-items="center" justify-content="center"
+          svg width="0.875rem" height="0.875rem" viewBox="0 0 24 24" color=ptMuted() fill="none" stroke="currentColor" stroke-width=2 stroke-linecap="round" stroke-linejoin="round" aria-hidden=true
+            path d="M10 11v6M14 11v6M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"
+      text body margin-top="0.5rem" white-space="pre-wrap" font-size="0.875rem" line-height="1.421875rem" color=ptInk()
+
+// DiffCommentAnnotation kind="draft" with submitLabel "Add to review" and the secondary "Add to agent":
+// Escape cancels, ⌘/Ctrl+Enter adds a non-empty comment to the review.
+component PrdCodeDraft
+  props
+    rangeLabel: string
+    text: string
+    edit: action
+    cancel: action
+    add: action
+    agent: action
+  action keys(k: string, e: KeyboardEvent)
+    if k == "Escape"
+      preventDefault()
+      cancel()
+    else if k == "Enter" and (e.metaKey or e.ctrlKey) and trim(text) != ""
+      preventDefault()
+      add()
+  view
+    column width="100%" padding-left="0.75rem" padding-right="0.75rem" padding-top="0.5rem" padding-bottom="0.5rem" box-sizing="border-box" background-color="light-dark(#fcfcfc, #0a0a0a)" testId="pull-request-comment-draft"
+      textarea id="pr-code-draft-text" value=text input=edit key=keys autofocus=true rows=2 placeholder="Add a comment…" aria-label=`Comment on lines ${rangeLabel}` testId="pull-request-comment-text" width="100%" min-height="3.5rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.375rem" padding-bottom="0.375rem" box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#e4e4e7, #ffffff14)" background-color="light-dark(#ffffff, #ffffff08)" font-size="0.875rem" line-height="1.25rem" color=ptInk() autocorrect="off" spellcheck="false"
+      row margin-top="0.375rem" align-items="center" gap="0.25rem"
+        text "⌘/Ctrl Enter to send" flex=1 font-size="0.625rem" line-height="0.875rem" color="light-dark(#71717ab3, #818181b3)"
+        PrdSmallButton(label="Cancel", icon="", tone="ghost", disabled=false, press=cancel, testId="pull-request-comment-cancel")
+        PrdSmallButton(label="Add to agent", icon="", tone="outline", disabled=(trim(text) == ""), press=agent, testId="pull-request-comment-agent")
+        PrdSmallButton(label="Add to review", icon="", tone="primary", disabled=(trim(text) == ""), press=add, testId="pull-request-comment-add")

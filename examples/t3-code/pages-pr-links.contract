@@ -79,8 +79,10 @@ component PrdBackArrow
       button press=local("surface-open", "pull-requests", "") hover=hover aria-label="Back to this thread's pull requests" testId="pull-request-back" width="1.25rem" height="1.25rem" margin-left="-0.375rem" padding=0 border-radius="0.25rem" border-width=0 background-color=(over ? plAccent() : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0
         PgIcon(name="arrow-left", size=14, color=(over ? plInk() : plMuted()))
 
-// PullRequestLinkPreview's card (PreviewCardPopup w-80, p-3): repository, number · state; the title; the author
-// and "opened <relative>". A failed read with no fallback is the link's own URL as a tooltip instead.
+// PullRequestLinkPreview's card (PreviewCardPopup w-80, p-3), drawn by the window's hover layer (kind "pr-preview": its
+// 350 ms open and 120 ms close delays, hover-layer.contract): repository, number · state; the title; the author and
+// "opened <relative>"; it fades in over 150 ms (none under reduced motion). A failed read with no fallback is the
+// link's own URL as a tooltip instead.
 keyframes plCardIn
   from opacity=0 scale=0.98
   to opacity=1 scale=1
@@ -92,7 +94,7 @@ component PrLinkPreviewCard
     href: string
   view
     when preview.phase == "content"
-      column width="20rem" padding="0.75rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#27272a1a, #f5f5f51a)" background-color="light-dark(#ffffff, #171717)" box-shadow="0 10px 15px -3px #0000001a, 0 4px 6px -4px #0000001a" animation=(still ? "none" : "plCardIn 150ms ease-out 350ms both") role="dialog" aria-label=`${preview.repository} ${preview.number}` testId="pull-request-link-preview"
+      column width="20rem" padding="0.75rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#27272a1a, #f5f5f51a)" background-color="light-dark(#ffffff, #171717)" box-shadow="0 10px 15px -3px #0000001a, 0 4px 6px -4px #0000001a" animation=(still ? "none" : "plCardIn 150ms ease-out both") role="dialog" aria-label=`${preview.repository} ${preview.number}` testId="pull-request-link-preview"
         row min-width=0 align-items="center" gap="0.375rem"
           text preview.repository min-width=0 line-clamp=1 font-size="0.625rem" line-height="0.875rem" color=plMuted()
           text preview.number flex-shrink=0 font-size="0.625rem" line-height="0.875rem" color=plMuted()

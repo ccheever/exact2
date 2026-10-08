@@ -113,6 +113,37 @@ export function actionScenarios() {
   ];
 }
 export const ACTION_STACK = ["act-stack-1", "act-stack-2", "act-stack-3"];
+/** A few bytes git reads as binary (a NUL in the first 8000). */
+export const BINARY = "\u0089PNG\r\n\u001a\n\u0000\u0000\u0000\rIHDR\u0000\u0000\u0000\u0001\u0000\u0000\u0000\u0001\b\u0006\u0000\u0000\u0000\u001f\u0015\u00c4\u0089";
+/**
+ * pr-code-tab: a change read a slice at a time (310 files, past GitHub's 300-file `pr diff`), over 14
+ * commits, with a rename, a binary file, and a review on lines of a file main already has. Seeded only by
+ * name (`--only code-tab`): a drive ticks its files viewed and pushes to it.
+ */
+export function codeScenarios() {
+  const ok = [[REQUIRED, "success", "Build passed"]];
+  const entries = (from, to) => Object.fromEntries(Array.from({ length: to - from }, (_, i) => [`catalog/entry-${String(from + i + 1).padStart(3, "0")}.txt`, `entry ${from + i + 1}\n`]));
+  const catalog = ["// The catalog: every entry, by name.", "export const entries = [];", "export const size = () => entries.length;", "export const add = (entry) => entries.push(entry);", ""].join("\n");
+  const history = [
+    ["Add the first catalog entries", entries(0, 150)],
+    ["Add the rest of the catalog entries", entries(150, 300)],
+    // Most of the old file stays, so GitHub reports a rename with a change (oldPath on a comment) rather than a delete and an add.
+    ["Rename the text helpers", { "src/text.js": null, "src/strings.js": "export const shout = (text) => text.toUpperCase();\nexport const whisper = (text) => text.toLowerCase();\nexport const mumble = (text) => text.replace(/\\s+/g, \" \");\n" }],
+    ["Add the catalog logo", { "assets/logo.png": BINARY }],
+    ["Add the catalog module", { "src/catalog.js": catalog }],
+    ["Describe the catalog", { "docs/catalog.md": "# Catalog\n\nEvery entry lives in `catalog/`.\n" }],
+    ["Add a catalog readme", { "catalog/README.md": "One file per entry.\n" }],
+    ["Format catalog entries", { "src/catalog-format.js": "export const format = (entry) => entry.trim();\n" }],
+    ["Search the catalog", { "src/catalog-search.js": "export const search = (entries, word) => entries.filter((entry) => entry.includes(word));\n" }],
+    ["Mention the catalog in the usage notes", { "docs/usage.md": "# Usage\n\n## Install\n\nCopy the files, then the catalog.\n\n## Use\n\nCall `greet`.\n\nBrowse `catalog/` for the entries.\n" }],
+    ["Link the catalog from the README", { "README.md": "# playground\n\nA small repository for trying things out.\n\nSee docs/usage.md for how to use it, and docs/catalog.md for the catalog.\n" }],
+    ["Update the status", { "STATUS.md": "status: catalog\n" }],
+    ["Tidy the catalog module", { "src/catalog.js": catalog.replace("export const size = () => entries.length;", "export const count = () => entries.length;") }],
+    ["Sort the search results", { "src/catalog-search.js": "export const search = (entries, word) => entries.filter((entry) => entry.includes(word)).sort();\n" }],
+  ];
+  const files = Object.assign({}, ...history.map(([, changed]) => changed));
+  return [{ key: "code-tab", branch: "feature/catalog", title: "Build the catalog", body: "Adds the catalog entries, its module and its notes.", from: "c7", history, files, want: "open", statuses: ok, conversation: "code-review" }];
+}
 export const LABELS = [["area:ui", "1d76db", "Interface"], ["needs-review", "fbca04", "Waiting for a reviewer"], ["priority:high", "b60205", "Do this first"], ["chore", "c5def5", "Housekeeping"],
   // A name with a space and a slash (pr-writing-and-metadata: `DELETE …/labels/<encoded>`).
   ["area/docs and help", "0e8a16", "Pages people read"]];
@@ -333,10 +364,15 @@ export class Seed {
       generation += 1;
     }
     const branch = branchOf(spec.branch, generation);
-    const files = generation > 1 ? { ...spec.files, [`notes/${spec.key}-${generation}.txt`]: `round ${generation}\n` } : spec.files;
+    const extra = generation > 1 ? { [`notes/${spec.key}-${generation}.txt`]: `round ${generation}\n` } : {};
     const parent = spec.after ? this.heads[spec.after]?.sha : this.base[spec.from];
     if (!parent) { this.report.unavailable[spec.key] = `no ${spec.after} to build on`; return null; }
-    const head = this.commit({ parent, files, account, message: spec.title, at: Date.UTC(2026, 9, 2, 9) + generation * 60_000 });
+    // A scenario with a `history` is its commits in order (pr-code-tab); the rest are one commit.
+    const steps = spec.history ?? [[spec.title, spec.files]];
+    let head = parent;
+    steps.forEach(([message, changed], index) => {
+      head = this.commit({ parent: head, files: index === steps.length - 1 ? { ...changed, ...extra } : changed, account, message, at: Date.UTC(2026, 9, 2, 9) + generation * 60_000 + index * 60_000 });
+    });
     this.g(account, ["push", "--quiet", spec.fork ? `https://github.com/${this.fork}.git` : this.url, `${head}:refs/heads/${branch}`]);
     const args = ["-X", "POST", `repos/${this.repo}/pulls`, "-f", `title=${spec.title}`, "-f", `head=${spec.fork ? `${this.secondLogin}:${branch}` : branch}`, "-f", `base=${spec.after ? this.heads[spec.after].ref : "main"}`, "-f", `body=${spec.body}${mark(`pr-${spec.key}`)}`];
     if (spec.want === "draft") args.push("-F", "draft=true");
@@ -365,6 +401,7 @@ export class Seed {
     if (spec.conversation === "review") await this.reviewConversation(pr);
     if (spec.conversation === "approved") await this.approvedConversation(pr);
     if (spec.conversation === "stale-approval") await this.staleApprovalConversation(pr);
+    if (spec.conversation === "code-review") await this.codeReviewConversation(pr);
     return pr.number;
   }
 
@@ -415,6 +452,24 @@ export class Seed {
     for (const content of ["+1", "heart"]) if (!reactions.some((r) => r.content === content && r.user?.login === this.secondLogin)) this.second(["-X", "POST", `repos/${repo}/issues/comments/${thanks.id}/reactions`, "-f", `content=${content}`]);
     const prReactions = this.primary([`repos/${repo}/issues/${n}/reactions`]).body ?? [];
     if (!prReactions.some((r) => r.content === "rocket")) this.primary(["-X", "POST", `repos/${repo}/issues/${n}/reactions`, "-f", "content=rocket"]);
+  }
+
+  /**
+   * pr-code-tab: the second account's review on lines of docs/usage.md (a file main already has, so the
+   * change has old lines too): one on the new line 5, left open, and one on the old line 5, resolved.
+   */
+  async codeReviewConversation(pr) {
+    const n = pr.number, repo = this.repo, path = "docs/usage.md";
+    const reviews = this.primary([`repos/${repo}/pulls/${n}/reviews?per_page=100`]).body ?? [];
+    if (!reviews.some((r) => hasMark(r.body, "code-review"))) {
+      const comments = [{ path, line: 5, side: "RIGHT", body: `Should the catalog step come first?${mark("code-open")}` }, { path, line: 5, side: "LEFT", body: `The old wording was clearer.${mark("code-resolved")}` }];
+      const made = this.second(["-X", "POST", `repos/${repo}/pulls/${n}/reviews`, "--input", "-"], { input: JSON.stringify({ commit_id: pr.head.sha, event: "COMMENT", body: `Two notes on the usage page.${mark("code-review")}`, comments }) });
+      if (made.status !== 200) { this.report.unavailable["code-review"] = `HTTP ${made.status} ${made.body?.message ?? ""}`; return; }
+      this.report.created.push(`#${n} review with 2 line comments`); await sleep(1500);
+    }
+    const threads = this.primary(["graphql", "-f", "query=query($o:String!,$r:String!,$n:Int!){repository(owner:$o,name:$r){pullRequest(number:$n){reviewThreads(first:50){nodes{id isResolved comments(first:1){nodes{body}}}}}}}", "-f", `o=${this.repoOwner}`, "-f", `r=${this.name}`, "-F", `n=${n}`]).body;
+    const resolved = threads?.data?.repository?.pullRequest?.reviewThreads?.nodes?.find((t) => hasMark(t.comments.nodes[0]?.body, "code-resolved"));
+    if (resolved && !resolved.isResolved) this.primary(["graphql", "-f", "query=mutation($id:ID!){resolveReviewThread(input:{threadId:$id}){thread{isResolved}}}", "-f", `id=${resolved.id}`], { allowFail: false });
   }
 
   /** A primary pull request the second account approved and commented on. */
@@ -505,7 +560,7 @@ export class Seed {
     if (bulk && !only) await this.ensureBulk();
     const numbers = {};
     this.heads = {};
-    for (const spec of [...scenarios({ second: this.secondLogin }), ...(only ? actionScenarios() : [])]) if (!only || only.includes(spec.key)) numbers[spec.key] = await this.ensureScenario(spec);
+    for (const spec of [...scenarios({ second: this.secondLogin }), ...(only ? [...actionScenarios(), ...codeScenarios()] : [])]) if (!only || only.includes(spec.key)) numbers[spec.key] = await this.ensureScenario(spec);
     if (only) {
       const held = readSandbox(this.paths) ?? {};
       // The action stack, once its three layers are named together.

@@ -88,7 +88,7 @@ Reference paths in `apps/web/src/`:
 - [Minor UI fixes](20261007-fix-minor-ui-issues.md) fixes title-menu settlement and
   snooze availability rules, not the Custom action route. Its `shell.test.ts` check establishes
   that the Custom label exists; it does not execute the Contract handler.
-- [Reference test inventory](../20261005-reference-logic-tests-done-areas.md) records tests and
+- [Reference test inventory](20261005-reference-logic-tests-done-areas.md) records tests and
   explicitly excludes fixing divergences. It does not track this observed interaction failure.
 - No framework issue is needed for this finding: the same app already opens the dialog from
   the sidebar. This functional omission is separate from the shared visual-parity task.
