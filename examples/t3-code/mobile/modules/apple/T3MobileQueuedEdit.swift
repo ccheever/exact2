@@ -32,6 +32,7 @@ final class T3MobileQueuedEdit: @unchecked Sendable {
     private var inlineSendAttempts: [String: [String: Any]] = [:]
     // A cold/ambiguous visible journal is not proof of fsync. Only an exact successful save confirms it.
     private var durableOutbox: [String: Int] = [:]
+    private var durableDraftHandoffs = Set<String>()
     private var outboxAttempts: [String: Int] = [:]
     private var outboxAdmitted = Set<String>()
     private var outboxCleanupAnswers: [String: [T3MobileOutboxOwner.Answer]] = [:]
@@ -176,6 +177,11 @@ final class T3MobileQueuedEdit: @unchecked Sendable {
         // A non-retired inline owner reserves its original lifecycle identity. A final
         // tombstone is never deleted, so a present command must retain the exact backlink.
         let commands = operations(value)
+        if let raw = value["draftHandoffs"] {
+            guard let handoffs = raw as? [String: [String: Any]], handoffs.allSatisfy({ id, handoff in
+                T3OutboxDraftHandoff.valid(handoff, id: id, receipt: commands[id])
+            }) else { throw refusal("The saved draft handoff is corrupt.", kind: "Persistence") }
+        }
         var inlineCommands = Set<String>(), inlineMessages = Set<Data>()
         for (id, source) in commands where source["kind"] as? String == "outbox-inline" && source["state"] as? String != "retired" {
             let commandId = (source["record"] as! [String: Any])["commandId"] as! String
@@ -194,6 +200,46 @@ final class T3MobileQueuedEdit: @unchecked Sendable {
     private func save(_ value: [String: Any]) throws { try replace(Self.encoded(value), file) }
     private func records(_ value: [String: Any]) -> [String: [String: Any]] { value["records"] as? [String: [String: Any]] ?? [:] }
     private func operations(_ value: [String: Any]) -> [String: [String: Any]] { value["operations"] as? [String: [String: Any]] ?? [:] }
+    func outboxDraftHandoffStatus(_ id: String) throws -> [String: Any] {
+        try locked {
+            let saved = (try store()["draftHandoffs"] as? [String: [String: Any]])?[id]
+            return ["handoff": saved.map { $0 as Any } ?? NSNull(), "durable": saved != nil && durableDraftHandoffs.contains(id)]
+        }
+    }
+    /// Original command receipts remain unchanged. This completion lives beside
+    /// them in the existing journal and ends only their attachment ownership.
+    func completeOutboxDraftHandoff(_ input: [String: Any]) throws -> [String: Any] {
+        try locked {
+            guard let id = input["operationId"] as? String else { throw refusal("Choose the original command receipt.") }
+            var value = try store(), handoffs = value["draftHandoffs"] as? [String: [String: Any]] ?? [:]
+            guard T3OutboxDraftHandoff.valid(input, id: id, receipt: operations(value)[id]) else { throw refusal("The draft handoff does not match its terminal command.") }
+            if let saved = handoffs[id] {
+                guard T3MobileOutbox.jsonEqual(saved, input) else { throw refusal("A completed draft handoff cannot change its captured content.") }
+                // A consumed/edited destination must never be recreated on retry.
+            } else {
+                try outboxOwner.draftRemovalEvidenceLocked(input["request"] as! [String: Any], record: input["record"] as! [String: Any])
+                let preferences = try readJSON(self.preferences)
+                guard T3OutboxDraftHandoff.matchesPreferences(input, preferences: preferences) else {
+                    throw refusal("Save the complete recovered draft and its exact handoff marker first.", kind: "Persistence")
+                }
+                // Sync the current file without rewriting another preference writer's document.
+                let fd = Darwin.open(self.preferences.path, O_RDONLY)
+                guard fd >= 0 else { throw CocoaError(.fileReadUnknown) }
+                defer { Darwin.close(fd) }
+                guard fsync(fd) == 0 else { throw CocoaError(.fileWriteUnknown) }
+                let dir = Darwin.open(root.path, O_RDONLY)
+                guard dir >= 0 else { throw CocoaError(.fileReadUnknown) }
+                defer { Darwin.close(dir) }
+                guard fsync(dir) == 0, T3OutboxDraftHandoff.matchesPreferences(input, preferences: try readJSON(self.preferences)) else {
+                    throw refusal("The recovered draft changed while confirming its durability.", kind: "Persistence")
+                }
+                handoffs[id] = input; value["draftHandoffs"] = handoffs
+            }
+            durableDraftHandoffs.remove(id)
+            try saveOutboxJournal(value); durableDraftHandoffs.insert(id)
+            return ["handoff": input, "durable": true]
+        }
+    }
     private func unresolved(_ value: [String: Any]) -> Bool { ["reserved", "issued", "uncertain"].contains(value["state"] as? String ?? "") }
     private func hasPending(_ environment: String) throws -> Bool {
         let value = try readJSON(preferences)
@@ -923,10 +969,10 @@ final class T3MobileQueuedEdit: @unchecked Sendable {
     /// The final durability stamp covers this whole validated journal, including its inline ACK.
     private func inlineReleased(_ source: [String: Any], commands: [String: [String: Any]]) -> Bool {
         guard let commandId = (source["record"] as? [String: Any])?["commandId"] as? String,
-              let final = commands[commandId], T3OutboxInlineFinal.matches(final, source: source),
-              final["state"] as? String == "acknowledged",
-              (final["cleanup"] as? [String: Any])?["phase"] as? String == "removed" else { return false }
-        return durableOutbox[commandId] == final["revision"] as? Int
+              let final = commands[commandId], T3OutboxInlineFinal.matches(final, source: source) else { return false }
+        return durableDraftHandoffs.contains(commandId) || final["state"] as? String == "acknowledged"
+            && (final["cleanup"] as? [String: Any])?["phase"] as? String == "removed"
+            && durableOutbox[commandId] == final["revision"] as? Int
     }
     private func inlinePayloadBlocked(_ method: String, payload: Any?, origin: String, environment: String, commands: [String: [String: Any]]) -> Bool {
         guard let payload = payload as? [String: Any] else { return false }
@@ -1158,6 +1204,8 @@ final class T3MobileQueuedEdit: @unchecked Sendable {
             (record["attachments"] as? [[String: Any]] ?? []).contains { ($0["id"] as? String)?.lowercased() == identifier }
         } || operations(value).values.contains { operation in
             if operation["kind"] as? String == "outbox-inline", inlineReleased(operation, commands: operations(value)) { return false }
+            if operation["kind"] as? String == "outbox", let id = operation["operationId"] as? String,
+               durableDraftHandoffs.contains(id) { return false }
             if ["outbox", "outbox-inline"].contains(operation["kind"] as? String ?? ""),
                (operation["state"] as? String == "retired" || ["removed", "settings"].contains((operation["cleanup"] as? [String: Any])?["phase"] as? String ?? "")),
                let id = operation["operationId"] as? String, durableOutbox[id] == operation["revision"] as? Int { return false }

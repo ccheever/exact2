@@ -1,4 +1,5 @@
 import { mobileNewTaskContextCommand } from './mobile-new-task-context-command';
+import { mobileOutboxDraftHandoffsHydrate, mobileOutboxDraftHandoffsPersisted } from './mobile-outbox-draft-handoff';
 import { mobilePendingTaskEditorsHydrate, mobilePendingTaskEditorsPersisted, mobilePendingTaskEditorKey, mobilePendingTaskAttachmentHeld, type MobilePendingTaskMarker } from './mobile-pending-task-state';
 import { mobilePendingTaskDraftCleanupDocument } from './mobile-pending-task-draft';
 import { mobileOutboxTransferCanonical as canonical } from './mobile-outbox-transfer-model';
@@ -83,6 +84,7 @@ function hydrate(client: T3Client, saved: Obj) {
   if (!client.preferencesLoaded || hydrated.has(client.local) || saved.version !== 1) return;
   hydrated.add(client.local);
   mobilePendingTaskEditorsHydrate(client, saved);
+  mobileOutboxDraftHandoffsHydrate(client, saved);
   for (const [key, value] of Object.entries(obj(saved.snapshotDrafts))) {
     const raw = arr(value), shared = raw.filter(image => validImage(image) && image.mimeType === 'image/png').slice(0, 100);
     // Do not overwrite a composer changed between load and the first native call.
@@ -236,6 +238,7 @@ export class MobileDraftClient extends T3Client {
       document.mobileNewTaskDrafts = mobileNewTaskDraftPersisted(this) as unknown as Obj;
       document.mobileAttachmentOrder = mobileDraftAttachmentOrdersPersisted(this);
       document.mobileOutboxTransferCompletions = mobileOutboxTransferCompletionsPersisted(this);
+      Object.assign(document, { mobileOutboxDraftHandoffs: mobileOutboxDraftHandoffsPersisted(this) });
       Object.assign(document, { mobilePendingTaskEditors: mobilePendingTaskEditorsPersisted(this) });
       const cleanup = this.pendingTaskCleanup;
       let output = document;

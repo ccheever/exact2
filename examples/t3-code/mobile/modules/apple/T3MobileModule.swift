@@ -204,7 +204,7 @@ final class T3MobileModule: ExactModule {
             return
         }
         if request["op"] as? String == "mobileOutboxDelivery",
-           ["status", "recover", "retire", "complete"].contains(request["action"] as? String ?? "") {
+           ["status", "recover", "retire", "complete", "draftHandoffStatus", "draftHandoffComplete"].contains(request["action"] as? String ?? "") {
             let store = queuedEdits
             DispatchQueue.global(qos: .userInitiated).async {
                 if request["action"] as? String == "complete" {
@@ -223,7 +223,14 @@ final class T3MobileModule: ExactModule {
                         throw T3Failure(kind: "Arguments", message: "Choose a saved queued command.")
                     }
                     let value: [String: Any]
-                    if request["action"] as? String == "status" { value = try store.outboxDeliveryStatus(id) }
+                    if request["action"] as? String == "draftHandoffStatus" { value = try store.outboxDraftHandoffStatus(id) }
+                    else if request["action"] as? String == "draftHandoffComplete" {
+                        guard let handoff = request["handoff"] as? [String: Any], handoff["operationId"] as? String == id else {
+                            throw T3Failure(kind: "Arguments", message: "Choose the exact saved draft handoff.")
+                        }
+                        value = try store.completeOutboxDraftHandoff(handoff)
+                    }
+                    else if request["action"] as? String == "status" { value = try store.outboxDeliveryStatus(id) }
                     else {
                         guard T3OutboxDeliveryReceipt.integer(request["revision"], positive: true), let revision = request["revision"] as? Int else {
                             throw T3Failure(kind: "Arguments", message: "Choose the saved command revision.")
