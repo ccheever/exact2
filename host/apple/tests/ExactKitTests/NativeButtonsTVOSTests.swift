@@ -33,6 +33,7 @@ final class NativeButtonsTVOSTests: XCTestCase {
             ["op": "frame", "id": 3, "x": 0, "y": 0, "w": 120, "h": 40],
             ["op": "children", "id": 1, "ids": [3]], ["op": "destroy", "id": 2]]))
         XCTAssertTrue(p.focusReturn === p.controls.controls[3])
+        XCTAssertTrue(guide.preferredFocusEnvironments.first === p.controls.controls[3], "the batch immediately retargets the guide to the replacement native owner")
     }
 }
 #endif

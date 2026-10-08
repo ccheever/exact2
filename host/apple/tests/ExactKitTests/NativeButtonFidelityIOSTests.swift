@@ -62,6 +62,19 @@ final class NativeButtonFidelityIOSTests: XCTestCase {
             XCTAssertNotNil(c.preferredSymbolConfigurationForImage, name)
         }
     }
+    func testClearingControlSizeRestoresTheFactorySize() throws {
+        for style in ["plain", "gray", "tinted", "filled", "bordered", "glass"] {
+            var f = ButtonFace(); f.title = "Size"; f.ios = style
+            let factory = ControlHost.configuration(f).0
+            let b = UIButton(configuration: factory)
+            f.rows.button["control_size"] = .string("large")
+            ButtonConfigurationIOS.apply(f, to: b, traits: b.traitCollection, accent: nil)
+            XCTAssertEqual(b.configuration?.buttonSize, .large)
+            f.rows.button = [:]
+            ButtonConfigurationIOS.apply(f, to: b, traits: b.traitCollection, accent: nil)
+            XCTAssertEqual(b.configuration?.buttonSize, factory.buttonSize, style)
+        }
+    }
     func testResolvedEmFontIsNotScaledTwiceAtAccessibilitySize() throws {
         let session = try fixture(); defer { session.destroy() }
         window.traitOverrides.preferredContentSizeCategory = .accessibilityExtraExtraLarge
@@ -382,6 +395,31 @@ final class NativeButtonFidelityIOSTests: XCTestCase {
         button.isEnabled = name != "disabled-authored" && name != "disabled"
         return button
     }
+    private func assertPresentedHeight(_ native: UIButton, kernel: NodeView, expected: CGFloat, name: String,
+                                       file: StaticString = #filePath, line: UInt = #line) {
+        XCTAssertEqual(native.bounds.height, kernel.bounds.height, accuracy: 0.01,
+            name + " presented height equals kernel frame", file: file, line: line)
+        XCTAssertEqual(native.bounds.height, expected, accuracy: 0.5,
+            name + " presented height equals independent UIKit height", file: file, line: line)
+    }
+    func testPresentedBoundsMismatchFailsEvenWhenTheProbeStillFits() throws {
+        let session = try fixture(); defer { session.destroy() }
+        let native = try button(session, "sign-in"), owner = try XCTUnwrap(native.owner)
+        let hand = try reference("sign-in")
+        window.rootViewController?.view.addSubview(hand); defer { hand.removeFromSuperview() }
+        let expected = hand.sizeThatFits(CGSize(width: native.bounds.width, height: .greatestFiniteMagnitude)).height
+        let f = try XCTUnwrap(native.written?.face)
+        let measured = session.buttonMeasurements.measure(f, widthKind: 0, width: native.bounds.width, traits: native.traitCollection)
+        XCTAssertEqual(CGFloat(measured.height), expected, accuracy: 0.5, "a fresh probe alone cannot detect a wrong presented bound")
+        let original = native.bounds
+        defer { native.bounds = original }
+        native.bounds.size.height += 5
+        // Strict expected failure also fails if the presented-bounds assertions
+        // are removed: exercise the same assertions the fixture uses.
+        XCTExpectFailure("deliberately corrupt the presented height while the probe remains correct") {
+            assertPresentedHeight(native, kernel: owner, expected: expected, name: "corrupted sign-in")
+        }
+    }
     func testFixtureMeasurementsAgainstHandConfiguredUIKit() throws {
         let session = try fixture(); defer { session.destroy() }
         let host = try XCTUnwrap(window.rootViewController?.view)
@@ -404,6 +442,30 @@ final class NativeButtonFidelityIOSTests: XCTestCase {
             let measured = session.buttonMeasurements.measure(f, widthKind: 0, width: size.width, traits: native.traitCollection)
             let expected = hand.sizeThatFits(CGSize(width: size.width, height: .greatestFiniteMagnitude))
             XCTAssertEqual(CGFloat(measured.height), expected.height, accuracy: 0.5, name + " measured height at the same width")
+            let owner = try XCTUnwrap(native.owner)
+            native.layoutIfNeeded()
+            let stretched: Set<String> = ["defrost-front", "defrost-rear", "control-tile", "subtitle", "method-email", "method-passkey",
+                "get-app", "try-demo", "subscriptions", "sign-out", "clear"]
+            if stretched.contains(name) {
+                let row = try XCTUnwrap(owner.superview as? NodeView)
+                // A wrapping row has several flex lines; stretch uses the
+                // line's cross size, not the whole multi-line container.
+                let peers = row.container.subviews.compactMap { $0 as? NodeView }.filter { abs($0.frame.minY - owner.frame.minY) < 0.01 }
+                var lineHeight: CGFloat = 0
+                for peer in peers {
+                    let peerName = try XCTUnwrap(peer.props["testId"])
+                    let peerHand = try reference(peerName)
+                    host.addSubview(peerHand); peerHand.updateTraitsIfNeeded()
+                    lineHeight = max(lineHeight, peerHand.sizeThatFits(CGSize(width: peer.bounds.width, height: .greatestFiniteMagnitude)).height)
+                    peerHand.removeFromSuperview()
+                }
+                assertPresentedHeight(native, kernel: owner, expected: lineHeight, name: name)
+                if peers.count == row.container.subviews.count {
+                    XCTAssertEqual(native.bounds.height, row.bounds.height, accuracy: 0.01, name + " presented height equals flex row")
+                }
+            } else {
+                assertPresentedHeight(native, kernel: owner, expected: expected.height, name: name)
+            }
             if name == "clamped" {
                 var c = try XCTUnwrap(hand.configuration); c.title = f.title
                 let full = UIButton(configuration: c); host.addSubview(full); defer { full.removeFromSuperview() }

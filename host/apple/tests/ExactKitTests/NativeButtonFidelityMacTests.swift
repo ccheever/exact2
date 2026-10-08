@@ -59,12 +59,15 @@ final class NativeButtonFidelityMacTests: XCTestCase {
         XCTAssertEqual(b.alignment, .center)
         XCTAssertNotNil(b.symbolConfiguration)
         f.rows.title = ["font_size": .number(23), "font_weight": .number(700), "text_color": .array([.number(255), .number(0), .number(0), .number(255)])]
+        f.rows.button["control_size"] = .string("large")
         f.rows.symbol["tint_color"] = .array([.number(0), .number(255), .number(0), .number(255)])
         ButtonConfigurationMac.apply(f, to: b, appearance: NSAppearance(named: .aqua)!, accent: nil)
+        XCTAssertEqual(b.controlSize, .large)
         XCTAssertEqual(b.font?.pointSize, 23); XCTAssertEqual(TextEngine.controlWeight(b.font!), 700)
         f.rows = ButtonFaceRows()
         ButtonConfigurationMac.apply(f, to: b, appearance: NSAppearance(named: .aqua)!, accent: nil)
-        XCTAssertEqual(b.font, NSFont.systemFont(ofSize: NSFont.systemFontSize(for: .regular)))
+        XCTAssertEqual(b.controlSize, reference.controlSize, "clearing restores the pristine platform size")
+        XCTAssertEqual(b.font, NSFont.systemFont(ofSize: NSFont.systemFontSize(for: reference.controlSize)))
         XCTAssertEqual(b.attributedTitle.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? NSColor,
             reference.attributedTitle.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? NSColor)
         XCTAssertNil(b.contentTintColor); XCTAssertTrue(b.image?.isTemplate == true)
@@ -77,6 +80,28 @@ final class NativeButtonFidelityMacTests: XCTestCase {
         f.rows.button["control_size"] = .string("medium")
         ButtonConfigurationMac.apply(f, to: b, appearance: NSAppearance(named: .aqua)!, accent: nil)
         XCTAssertEqual(b.controlSize, .regular, "explicit medium still maps")
+        f.rows.button = [:]
+        ButtonConfigurationMac.apply(f, to: b, appearance: NSAppearance(named: .aqua)!, accent: nil)
+        XCTAssertEqual(b.controlSize, .small, "restore the pristine control's own value")
+    }
+    func testNativeMenuItemKeepsItsSubtitle() throws {
+        _ = NSApplication.shared
+        let p = Presenter()
+        p.buttonFace = { _ in
+            var f = ButtonFace(); f.title = "Last Parked"; f.subtitle = "Updated just now"; return f
+        }
+        p.apply(wireBatch([
+            ["op": "create", "id": 1, "kind": "view", "props": ["popover": "auto", "id": "menu"]],
+            ["op": "create", "id": 2, "kind": "control", "props": ["type": "button"], "handlers": ["press"]],
+            ["op": "children", "id": 1, "ids": [2]], ["op": "roots", "ids": [1]]]))
+        let menu = p.menus.menu(of: try XCTUnwrap(p.views[1]))
+        let item = try XCTUnwrap(menu.items.first)
+        if #available(macOS 14.4, *) {
+            XCTAssertEqual(item.title, "Last Parked")
+            XCTAssertEqual(item.subtitle, "Updated just now")
+        } else {
+            XCTAssertEqual(item.title, "Last Parked — Updated just now")
+        }
     }
     func testAllPlacementsFontAxesAlignmentSizesAndSymbolRows() throws {
         var f = ButtonFace(); f.title = "Title"; f.symbol = "lock.fill"

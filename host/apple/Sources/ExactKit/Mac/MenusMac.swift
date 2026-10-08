@@ -403,6 +403,14 @@ final class MenuHost: NSObject {
         if let heading = pop.props["accessibilityLabel"], !heading.isEmpty { menu.insertItem(.sectionHeader(title: heading), at: 0) }
         return menu
     }
+    private func menuItem(of row: NodeView, action: Selector?) -> NSMenuItem {
+        let item = NSMenuItem(title: title(of: row), action: action, keyEquivalent: "")
+        if #available(macOS 14.4, *), row.isNativeButton {
+            item.title = row.face?.shown ?? ""
+            item.subtitle = row.face?.subtitle
+        }
+        return item
+    }
     /// The menu of `pop`, reached through `path`'s openers (each row that
     /// opened the next popover): an item per button row, a separator per
     /// `hr`, and a submenu per row that opens a menu-shaped popover.
@@ -416,17 +424,17 @@ final class MenuHost: NSObject {
             if row.props["semanticTag"] == "hr" { menu.addItem(.separator()); continue }
             guard row.isButton else { continue }
             if let sub = submenu(of: row, path: popovers) {
-                let item = NSMenuItem(title: title(of: row), action: nil, keyEquivalent: "")
+                let item = menuItem(of: row, action: nil)
                 item.submenu = items(of: sub, path: path + [Step(row, in: pop)], from: source, presentation: presentation, once: once)
                 item.isEnabled = !row.disabled && !row.inert && shown(row, in: popovers + [sub])
                 item.image = image(of: row)
                 menu.addItem(item)
                 continue
             }
-            let item = NSMenuItem(title: title(of: row), action: #selector(pick(_:)), keyEquivalent: "")
+            let item = menuItem(of: row, action: #selector(pick(_:)))
             item.target = self
             item.representedObject = Pick(row, in: pop, path: path, from: source, presentation: presentation,
-                                          title: item.title, once: once)
+                                          title: title(of: row), once: once)
             item.state = row.props["accessibilityChecked"] == "true" ? .on : .off
             // As a chooser's: a hidden or inert row is shown, never chosen.
             item.isEnabled = !row.disabled && !row.inert && shown(row, in: popovers)
@@ -512,7 +520,7 @@ final class MenuHost: NSObject {
     func title(of v: NodeView) -> String {
         if v.kind == "text" { return v.paragraphSpec().runs.map(\.text).joined() }
         // A native button's children are its face, not views: its title, else its label.
-        if v.isNativeButton { return v.face?.shown ?? "" }
+        if v.isNativeButton { return [v.face?.shown, v.face?.subtitle].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " — ") }
         // A custom button whose face fits shows it too: a symbol-only row its
         // label (LLP 1069.011.000 D5); other content keeps its text.
         if v.isButton, let face = v.face, face.fits, let shown = face.shown { return shown }
