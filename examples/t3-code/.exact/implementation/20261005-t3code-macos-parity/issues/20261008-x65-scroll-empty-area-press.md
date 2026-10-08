@@ -10,6 +10,8 @@ reproduced_on: b896050d7 (main, agent mode, before filing)
 
 # X65: on macOS a press on a `scroll`'s empty area reaches no node, so no ancestor hears its `pointerdown`
 
+**Status (reclassified 2026-10-08):** Bucket 7, attempt withdrawn: #327 withdrew its #317 attempt. #317 is open and no fix is in progress.
+
 ## Summary
 
 On macOS, when a `scroll` node's content is shorter or narrower than its port, a primary press in the

@@ -11,6 +11,8 @@ rest_upstream_url: https://github.com/ccheever/exact2/issues/277
 
 # X23: Scroll restoration by key, scroll padding/margin, animated scrollIntoView, and same-frame scroll offset compensation
 
+**Status (reclassified 2026-10-08):** Bucket 4, approved, no fix in progress: #277 (scroll padding and margin, smooth jumps, `scrollend`); no PR.
+
 ## Summary
 T3 Code remembers where each thread's transcript was scrolled, lands jumps with animation and a
 fixed lead, keeps keyboard-navigated rows clear of a menu's edges with `scroll-padding`, and folds

@@ -7,7 +7,7 @@ be resolved (parity impact). The goal is a complete clone, so a declared deviati
 end state: every issue ends resolved upstream and adopted in the app (verified by
 `issue-close`), or closed by the user's decision. Policy issues (DEFERRED rules) need
 Charlie's waiver (decided 2026-10-08: #100 and #117 closed as not planned; #101, #116, #124 and #224 bounded; see
-"Charlie's decisions" below); scope issues (X38–X41) need the user's decision to build or close (decided 2026-10-08: all
+"Charlie's decisions and upstream state, by bucket" below); scope issues (X38–X41) need the user's decision to build or close (decided 2026-10-08: all
 four closed, not built).
 
 A file whose row has no upstream link is a **local draft**: not reproduced on the pinned
@@ -25,16 +25,16 @@ acceptance rows wait for the issue or carry its difference until it is resolved.
 | Issue | Capability | Kind | Blocks | Status |
 | --- | --- | --- | --- | --- |
 | [X1](closed/20261005-x01-chromium-cdp-browser-surface.md) | An embedded browser engine that an app can drive (Browser surface) | framework-policy + framework-gap | browser-surface, right-panel-tab-menu, t3-connect-sign-in | [#100](https://github.com/ccheever/exact2/issues/100) closed upstream, not planned (2026-10-08): path A refused; the user chose path B (a `WKWebView` in the clone's module), so `browser-surface` is clone-side work; **closed** |
-| [X2](20261005-x02-app-developer-tools.md) | A developer-tools inspector for the app's own UI (View › Toggle Developer Tools) | framework-policy | app-developer-tools, desktop-shell-details, terminal-surface | [#101](https://github.com/ccheever/exact2/issues/101) narrowed (2026-10-08): development-only Safari inspection of web views, no inspector of the app UI; the View item is a permanent declared difference; `app-developer-tools` builds the inspection of the clone's own web views ([#326](https://github.com/ccheever/exact2/pull/326), draft); main [#309](https://github.com/ccheever/exact2/pull/309) (merged to main on 2026-10-08 as `f2f0e7092`; not in the T3 branch until a main-adoption round) covers Exact's `iframe` web views |
+| [X2](20261005-x02-app-developer-tools.md) | A developer-tools inspector for the app's own UI (View › Toggle Developer Tools) | framework-policy | app-developer-tools, desktop-shell-details, terminal-surface | [#101](https://github.com/ccheever/exact2/issues/101) narrowed (2026-10-08): development-only Safari inspection of web views, no inspector of the app UI; the View item is a permanent declared difference; `app-developer-tools` built the inspection of the clone's own web views ([#326](https://github.com/ccheever/exact2/pull/326), merged into the T3 branch as `17489a45b`); main [#309](https://github.com/ccheever/exact2/pull/309) (merged to main on 2026-10-08 as `f2f0e7092`; round 7 adopts it) covers Exact's `iframe` web views; bucket 1 |
 | [X3](closed/20261005-x03-root-font-size.md) | An app-settable root font size, the base of `rem` | framework-gap | interface-font-size, interface-font-size-conversion | upstream #102 closed (main #185); adopted |
 | [X4](20261005-x04-bundle-helper-executables.md) | Helper executables and large resource trees in the `.app` | framework-gap | embedded-server-runtime, portable-app-download (dropped 2026-10-08), this-machine-network-access | upstream #103 fixed (main #215); adopted by [embedded-server-runtime](../tasks/closed/20261005-embedded-server-runtime.md) (the release archive as a native resource tree, no parts; the unpack stays: #215 re-signs Mach-O without its entitlements, see file); portable-app-download and this-machine-network-access adopt it next |
 | [X5](20261005-x05-url-scheme-delivery.md) | A custom-scheme URL delivered to a data source or module when no route takes it | framework-gap | app-activation, managed-codex-chatgpt, provider-sign-in-and-install, t3-connect-sign-in | upstream #104 closed (main #201 journals an unheard launch URL only); delivery to a data source or module still missing; nothing to adopt ([adopt-main-fixes-r4](../tasks/closed/20261007-adopt-main-fixes-r4.md)); rest filed as [#268](https://github.com/ccheever/exact2/issues/268) ([Design], 2026-10-08, reproduced on main `0365ad1a4`); #268 narrowed (2026-10-08): `protocol_handlers` still needs a navigation root; no clone consumer left |
-| [X6](20261005-x06-module-quit-shutdown.md) | A module hook at quit that can delay termination for a bounded time | framework-gap | app-activation, app-update-feed, embedded-server-runtime, managed-codex-chatgpt, telemetry | upstream #105 closed (main #200: `destroy()` at quit and last-window close); adopted for SSH ([adopt-main-fixes-r4](../tasks/closed/20261007-adopt-main-fixes-r4.md)) and by [embedded-server-runtime](../tasks/closed/20261005-embedded-server-runtime.md) (server stopped in `destroy()`: gone 0.79 s after a quit); a bounded quit hold is still missing; the other four tickets adopt it next; rest (a bounded quit hold, SIGTERM) filed as [#269](https://github.com/ccheever/exact2/issues/269) ([Design], 2026-10-08); #269 decided (2026-10-08): SIGTERM as an orderly quit and one shared 5 s hold; waits for main fix of #269; main #313 merged (`a3d61c023`): SIGTERM through the orderly quit; the async hold still open |
+| [X6](20261005-x06-module-quit-shutdown.md) | A module hook at quit that can delay termination for a bounded time | framework-gap | app-activation, app-update-feed, embedded-server-runtime, managed-codex-chatgpt, telemetry | upstream #105 closed (main #200: `destroy()` at quit and last-window close); adopted for SSH ([adopt-main-fixes-r4](../tasks/closed/20261007-adopt-main-fixes-r4.md)) and by [embedded-server-runtime](../tasks/closed/20261005-embedded-server-runtime.md) (server stopped in `destroy()`: gone 0.79 s after a quit); a bounded quit hold is still missing; the other four tickets adopt it next; rest (a bounded quit hold, SIGTERM) filed as [#269](https://github.com/ccheever/exact2/issues/269) ([Design], 2026-10-08); #269 decided (2026-10-08): SIGTERM as an orderly quit; one shared 5 s hold proposed; main #313 merged (`a3d61c023`): SIGTERM through the orderly quit; the async hold needs an owner ruling (LLP 1069.010 Q4; bucket 5) |
 | [X7](closed/20261005-x07-ats-keys.md) | App Transport Security keys cannot be set from `app.json`, so a rendered HTML preview cannot load `http://` assets from a named host | framework-gap | media-actions | fixed upstream (main #173), adopted by adopt-main-fixes-shell (PR #181) |
 | [X8](closed/20261005-x08-agent-pointer-native-views.md) | Pointer input (down, move, up, wheel) for native views in the agent driver | framework-gap | browser-surface, diff-review-engine, floating-device-player, right-panel-tab-menu, settings-scoped-controls-and-theme-editor, sign-in-terminals, terminal-drawer, terminal-integrations, terminal-layout, terminal-surface | fixed upstream (main #186); adopted by adopt-main-fixes-r3 in AppKit for terminal, device, panel and diff rows (two terminal bugs fixed); tab middle click driven live; agent rows driven live in adopt-main-fixes-r3's final round; real input in [real-input-checks](../tasks/closed/20261007-real-input-checks.md): middle click, cursor shapes, theme editor dragged out of the window, terminal double-click, right-click and drag select pass ([terminal-real-drag](../tasks/closed/20261007-terminal-real-drag.md)); **adopted** |
 | [X9](20261005-x09-root-component-across-files.md) | A child component cannot own a resource, and the root component cannot span files, so the app's data layer is capped at one 1,500-line file | framework-gap | auto-balance, client-activity-reporting, composer-fidelity, diff-review-engine, hot-file-split, interface-font-size, legacy-sidebar, live-automations-and-clones, local-primary-environment, managed-codex-chatgpt, media-actions, pr-code-tab, pr-conversation-and-refresh, pr-handoffs-and-quick-actions, pr-header-actions-and-stacks, pr-links-previews-and-routing, pr-writing-and-metadata, provider-settings-upkeep, provider-sign-in-and-install, right-panel-tab-menu, server-update-banner, settings-scoped-controls-and-theme-editor, terminal-drawer, terminal-integrations, terminal-layout, thread-commands-and-keys, upstream-timeline-and-markdown, upstream-ui-sync, usage-pooled-view, usage-reset-and-feedback | [#108](https://github.com/ccheever/exact2/issues/108) decided (2026-10-08), a different design: the root rewrite is the remedy, request ownership waits for D5; the local A1 branch is superseded, not pursued |
 | [X10](20261005-x10-text-rendering-parity.md) | Text renders differently from Chrome in five separate ways (ellipsis, code wrap, balance, placeholder, weight) | framework-gap | interface-font-size, live-automations-and-clones, provider-settings-upkeep, shiki-residuals, upstream-timeline-and-markdown, usage-pooled-view | upstream #128 closed (main #208: Chrome line breaks on macOS); balance, placeholder colour and smoothing still missing; no clone workaround ([adopt-main-fixes-r4](../tasks/closed/20261007-adopt-main-fixes-r4.md)); rest (balance, placeholder colour, smoothing) filed as [#266](https://github.com/ccheever/exact2/issues/266) ([Design], 2026-10-08); #266 decided (2026-10-08): balance and `::placeholder` colour wait for main fix of #266; font smoothing deferred, a permanent declared difference |
-| [X11](20261005-x11-shadow-blur-parity.md) | Negative-spread box shadows draw too faint, and `backdrop-filter` blurs only the parent's paint, not the window below | framework-gap | auto-balance, composer-fidelity, managed-codex-chatgpt, provider-sign-in-and-install, server-update-banner, settings-scoped-controls-and-theme-editor, usage-pooled-view, usage-reset-and-feedback | upstream #129 closed (main #221: a backdrop blur mirrors its box at the edges, Chrome's); no clone workaround, the composer drawer's glass edge is clean now; a backdrop beyond the parent's subtree and `saturate()` continue in #225, so the flattened glass stays ([adopt-main-fixes-r5](../tasks/closed/20261007-adopt-main-fixes-r5.md)) |
+| [X11](20261005-x11-shadow-blur-parity.md) | Negative-spread box shadows draw too faint, and `backdrop-filter` blurs only the parent's paint, not the window below | framework-gap | auto-balance, composer-fidelity, managed-codex-chatgpt, provider-sign-in-and-install, server-update-banner, settings-scoped-controls-and-theme-editor, usage-pooled-view, usage-reset-and-feedback | upstream #129 closed (main #221: a backdrop blur mirrors its box at the edges, Chrome's); no clone workaround, the composer drawer's glass edge is clean now; #225 closed by main #232 (`saturate()`, in the branch since round 5, not adopted: user decision); a backdrop beyond the parent's subtree has no upstream issue, so the flattened glass stays (bucket 1) ([adopt-main-fixes-r5](../tasks/closed/20261007-adopt-main-fixes-r5.md)) |
 | [X12](20261005-x12-textarea-field-sizing.md) | A textarea with `field-sizing: content` is sized from its plain string, not from what the native text view draws | framework-gap | composer-fidelity | [#130](https://github.com/ccheever/exact2/issues/130) deferred (2026-10-08): a permanent declared difference (no workaround) |
 | [X13](closed/20261005-x13-hover-keys-during-pan.md) | Hover and key events keep flowing while a pan gesture owns the press | framework-gap | diff-review-engine, floating-device-player, legacy-sidebar, live-automations-and-clones, pr-code-tab, pr-handoffs-and-quick-actions, pr-links-previews-and-routing, provider-settings-upkeep, round12-wrapup, settings-scoped-controls-and-theme-editor, terminal-layout, upstream-timeline-and-markdown, usage-pooled-view, usage-reset-and-feedback | not reproduced on main `0365ad1a4` as described, closed (2026-10-08): keys reach a `key` handler during a pan on macOS; no host delivers hover to other nodes during a pan (the web host's pan holds pointer capture); not filed |
 | [X14](closed/20261005-x14-parked-native-reply.md) | A let-go answer's in-flight native request survives and hands its reply to the next answer | framework-gap | clone-on-exact2-main, managed-codex-chatgpt | fixed upstream (main #183), adopted by adopt-main-fixes-r3: `T3ReadGate.swift` and the reader tags removed |
@@ -49,9 +49,9 @@ acceptance rows wait for the issue or carry its difference until it is resolved.
 | [X23](20261005-x23-scroll-restore-offsets.md) | Scroll restoration by key, scroll padding/margin, animated scrollIntoView, and same-frame scroll offset compensation | framework-gap | diff-review-engine, pr-code-tab, pr-handoffs-and-quick-actions, round12-wrapup | upstream #138 closed (main #210: plain-scroll anchoring, X23d); X23a–c still missing; fold row unblocked ([adopt-main-fixes-r4](../tasks/closed/20261007-adopt-main-fixes-r4.md)); rest (X23a–c) filed as [#277](https://github.com/ccheever/exact2/issues/277) ([Design], 2026-10-08); scroll-padding now works on virtualized lists only; #277 decided (2026-10-08): padding, smooth jumps and `scrollend` wait for main fix of #277; restoration is the app's (a different design) |
 | [X24](closed/20261005-x24-still-pointer-rehover.md) | Hover state follows layout changes under a stationary pointer | framework-gap | diff-review-engine, floating-device-player, legacy-sidebar, pr-code-tab, upstream-timeline-and-markdown | fixed upstream (main #174), adopted by adopt-main-fixes-shell (PR #181) |
 | [X25](20261005-x25-keyboard-keyup-code-capture.md) | Keyboard facts for Contract: keyup, modifiers held, `code`, `repeat`, capture phase, composition end on a chord | framework-gap | browser-surface, desktop-shell-details, diff-review-engine, pr-handoffs-and-quick-actions, pr-header-actions-and-stacks, pr-writing-and-metadata, right-panel-tab-menu, sign-in-terminals, terminal-drawer, terminal-layout, terminal-surface, thread-commands-and-keys | upstream #140 open; main #220 adds `keyup`, `KeyboardEvent.code` and `.repeat`; nothing to remove: every clone monitor needs a window capture-phase handler or held-modifier state (#140), or lives in a native view or the reference's main-process code ([adopt-main-fixes-r5](../tasks/closed/20261007-adopt-main-fixes-r5.md)); #140 decided (2026-10-08): capture phase waits for main fix of #140; no held-modifier fact (a different design: `key`/`keyup` + `hasFocus`) |
-| [X26](20261005-x26-app-menu-control.md) | App menu control (declared application menu, hide host Go/Develop, zoom, submenus, menu at a point) | framework-gap | app-developer-tools, app-update-feed, browser-surface, desktop-shell-details, legacy-sidebar, media-actions, pr-handoffs-and-quick-actions, right-panel-tab-menu, ssh-password-and-remote-open, terminal-integrations, terminal-layout | upstream #141 open (menu bar); main #223 (context-menu submenus) **adopted** for the sidebar's thread and draft menus, now context popovers the agent can drive; main #226 (Edit ▸ Speech, paste variants) adopted: the clone's own Speech removed, Edit's app commands hidden; keyboard-opened row menus stay the module's (#235); Files tree and legacy project menus not converted (follow-up) ([adopt-main-fixes-r5](../tasks/closed/20261007-adopt-main-fixes-r5.md)); #141 decided (2026-10-08): Contract menu extensions wait for main fix of #141, Develop stays in development builds; #235: the ContextMenu key waits for main fix of #235, Shift+F10 stays the module's; main #314 merged (`d236c36d5`): the ContextMenu key; #292 partial in #327 |
+| [X26](20261005-x26-app-menu-control.md) | App menu control (declared application menu, hide host Go/Develop, zoom, submenus, menu at a point) | framework-gap | app-developer-tools, app-update-feed, browser-surface, desktop-shell-details, legacy-sidebar, media-actions, pr-handoffs-and-quick-actions, right-panel-tab-menu, ssh-password-and-remote-open, terminal-integrations, terminal-layout | upstream #141 open (menu bar); main #223 (context-menu submenus) **adopted** for the sidebar's thread and draft menus, now context popovers the agent can drive; main #226 (Edit ▸ Speech, paste variants) adopted: the clone's own Speech removed, Edit's app commands hidden; keyboard-opened row menus stay the module's (#235); Files tree and legacy project menus not converted (follow-up) ([adopt-main-fixes-r5](../tasks/closed/20261007-adopt-main-fixes-r5.md)); #141 decided (2026-10-08): Contract menu extensions wait for main fix of #141, Develop stays in development builds; #235: main #314 merged (`d236c36d5`): the ContextMenu key (round 7); Shift+F10 is an open owner choice (bucket 5) and stays the module's; #292 partial in #327 (bucket 2); #141 bucket 4 |
 | [X27](20261005-x27-window-chrome.md) | Title-row height and traffic-light inset, frame restore after the final style, full-screen state fact | framework-gap | desktop-shell-details | #113 closed with only the frame restore (main #164, adopted by adopt-main-fixes-shell, PR #181); title-row and full-screen facts still missing on main `261dd4e10`; no open upstream issue for the rest ([adopt-main-fixes-r5](../tasks/closed/20261007-adopt-main-fixes-r5.md)); rest (title-row area, full-screen fact) filed as [#267](https://github.com/ccheever/exact2/issues/267) ([Design], 2026-10-08); #267 decided (2026-10-08): Window Controls Overlay `env()` and `displayMode`; waits for main fix of #267 |
-| [X28](20261005-x28-notification-actions-badges.md) | Notification click → app action, Dock badge, window-focus fact (DEFERRED refuses actions and badges) | framework-policy | client-activity-reporting | upstream #114 closed (main #219: `exactPage().hasFocus`); **focus fact adopted** for thread notifications, activity reports, the git refresh and SnapShot settings on focus; notification actions and the Dock badge continue in #224 (policy), so `T3Notifications.swift` keeps them ([adopt-main-fixes-r5](../tasks/closed/20261007-adopt-main-fixes-r5.md)); #224 narrowed (2026-10-08): the click waits for main fix of #224; the Dock badge is a permanent declared difference |
+| [X28](20261005-x28-notification-actions-badges.md) | Notification click → app action, Dock badge, window-focus fact (DEFERRED refuses actions and badges) | framework-policy | client-activity-reporting | upstream #114 closed (main #219: `exactPage().hasFocus`); **focus fact adopted** for thread notifications, activity reports, the git refresh and SnapShot settings on focus; notification actions and the Dock badge continue in #224 (policy), so `T3Notifications.swift` keeps them ([adopt-main-fixes-r5](../tasks/closed/20261007-adopt-main-fixes-r5.md)); #224 narrowed (2026-10-08): the click waits for a click-only DEFERRED ruling (bucket 5); the Dock badge is a permanent declared difference |
 | [X29](20261005-x29-video-pdf-app-files.md) | `video` and `audio` from app-written local files, and a PDF viewer element | framework-gap | media-actions | upstream #115 closed (main #205: bundled PDF iframe); a PDF element and `app:/` iframe still missing; PDFView kept ([adopt-main-fixes-r4](../tasks/closed/20261007-adopt-main-fixes-r4.md)); rest (an `app:/` iframe, a PDF element) filed as [#273](https://github.com/ccheever/exact2/issues/273) ([Design], 2026-10-08); #273 decided (2026-10-08): `app:/` iframe only; `PDFView` is a permanent declared difference |
 | [X30](20261005-x30-ts-announce-readback-picker.md) | Data-module topic announce and resource invalidation; pixel readback; any-type file pick with bytes and image transcode | framework-gap | composer-fidelity, media-actions, pr-conversation-and-refresh, settings-scoped-controls-and-theme-editor | [#116](https://github.com/ccheever/exact2/issues/116) narrowed (2026-10-08): pixel readback and transcode are a permanent declared difference; an any-type file input may come; announce and the Inspect lookup are not in #116 (Inspect: X68, [#321](https://github.com/ccheever/exact2/issues/321)) |
 | [X31](closed/20261005-x31-deferred-window-readiness.md) | Defer the first window until the app says it is ready | framework-gap (unconfirmed) | local-primary-environment, portable-app-download (dropped 2026-10-08) | [#117](https://github.com/ccheever/exact2/issues/117) closed upstream, not planned (2026-10-08): the connecting state is a permanent declared difference (U5 final); **closed** |
@@ -74,7 +74,7 @@ acceptance rows wait for the issue or carry its difference until it is resolved.
 
 | Issue | Capability | Kind | Blocks | Status |
 | --- | --- | --- | --- | --- |
-| [X48](20261007-x48-runtime-font-family.md) | Apply an installed font family supplied by state/data at runtime | framework-gap | [installed-font-picker](../tasks/20261007-installed-font-picker.md) | reproduced locally on `fbce02624d2e33449ee2cde34497083d6fd47457`; filed as [#318](https://github.com/ccheever/exact2/issues/318) (2026-10-08, reproduced on main `b896050d7`); waits for main fix of #318 |
+| [X48](20261007-x48-runtime-font-family.md) | Apply an installed font family supplied by state/data at runtime | framework-gap | [installed-font-picker](../tasks/20261007-installed-font-picker.md) | reproduced locally on `fbce02624d2e33449ee2cde34497083d6fd47457`; filed as [#318](https://github.com/ccheever/exact2/issues/318) (2026-10-08, reproduced on main `b896050d7`); design pending, no owner selection (bucket 5) |
 
 X48 includes a minimal compiler reproduction and successful literal-family controls.
 Installed families already render when named as literals; enumeration can be supplied by
@@ -167,96 +167,134 @@ closed none of this plan's issues (#234 was adopted in round 5). #108, #112, #11
 open, and main took no other route. Main's partial steps: `scroll-padding` on a virtualized list (X23, #277) and an
 indeterminate `progress` (X49, #279), neither with anything for the clone to adopt.
 
-Round 7 (not run; waits for main fix of X67, the compiler's stack overflow in main's examples test): main #305 closes
-#300 (X59) and main #304 closes #285; it unblocks no T3 task today.
+Round 7 (not run; blocked by X67, #320, bucket 7): the "Adoption list" below names what it brings in (main #304,
+#305, #309, #313, #314 and #325). It unblocks no T3 task today.
 
-## Charlie's decisions (2026-10-08)
+## Charlie's decisions and upstream state, by bucket (reclassified 2026-10-08)
 
-Charlie decided 40 of the plan's issues on 2026-10-08 (08:07Z). Each X file ends with a "Decided upstream
-(2026-10-08)" section: the quoted decision, what it means for the clone and the next step. In short:
-- **Permanent declared differences (the workaround is the design):** #100 (X1, closed), #117 (X31, closed), #124
-  (X19), #130 (X12), #131 (X32, until it lands on main), #273 (X29) and #276 (X20); and the parts that #116 (X30:
-  readback and transcode), #127 (X22: the measuring hooks), #224 (X28: the Dock badge) and #266 (X10: font
-  smoothing) leave out.
-- **Waits for main fix of #N** (then an adoption round): #112, #126, #140, #141, #235, #266, #267, #269, #271,
-  #272, #274, #275, #277–#284, #286, #287, #291, #292, #301 and #302.
-- **Narrowed:** #101, #112, #116, #127, #140, #141, #224, #235, #266, #268, #270 and #275.
-- **A different design from the one the issue assumed:** #108 (the root rewrite), #112, #126 (runner-owned
-  streams), #140, #141, #274, #277 (app-owned restoration) and #283.
-- The four local "fix built" branches are superseded by the decisions or by main and not pursued (recorded only):
-  X9 (#108), X19 (#124), X21 (#126) and X22 (main's `resize`, `5949b2b64`).
-- Fixed on main since `e200397ec`: #285 (main #304) and #300 (X59, main #305); round 7 adopts them.
+Last checked against upstream: 2026-10-08T12:30Z (each issue with its comments, every pull request in `ccheever/exact2`,
+main PR [#327](https://github.com/ccheever/exact2/pull/327)'s body).
 
-Per issue: Charlie's decision (08:07Z) and the disposition in main PR [#327](https://github.com/ccheever/exact2/pull/327), "Fix six native regressions and audit
-all open issues" (open on main, 2026-10-08), with main PRs merged the same day. #285 and #300 are closed by main
-#304 and #305.
+Charlie decided 40 of the plan's issues on 2026-10-08 at 08:07Z. Nobody commented a decision after that. Each X file
+starts with a "Status (reclassified 2026-10-08)" line and ends with a "Decided upstream (2026-10-08)" section (the
+quoted decision). Main PR #327 ("Fix six native regressions and audit all open issues", Charlie, open) gives every open
+issue a disposition. Main merged #304, #305, #309, #313, #314 and #325 on 2026-10-08; #325 closed #286. #324 (dialog
+commands, refs #282, daehyeon-mun) was closed unmerged.
 
-| Issue | X | Charlie, 08:07Z | #327 audit and main merges |
-| --- | --- | --- | --- |
-| #100 | X1 | closed, not planned: "Keep a browser shell outside core" | — (closed) |
-| #101 | X2 | "Allow Safari inspection of development WKWebViews; keep Exact's own inspector deferred" | main #309 merged (`f2f0e7092`): development iframe web views inspectable; issue stays open |
-| #108 | X9 | "Use child state/actions to reduce the root now; defer request ownership to the existing D5 design" | request ownership deferred; "Immediate child-state/action root rewrite belongs to #303/T3 example" |
-| #112 | X17 | "Choose CSS position-area and flip fallbacks for invoker popovers" | selected next core investment; larger design |
-| #116 | X30 | "Keep image codecs/readback deferred; propose only the any-type file-input exception" | policy pending; codecs and readback deferred |
-| #117 | X31 | closed, not planned: "Keep the immediate first window" | — (closed) |
-| #124 | X19 | "Keep module timers refused; finish failure-parity repair separately" | draft PR #228 incomplete; timers stay refused |
-| #126 | X21 | "Choose runner-owned bidirectional streams, not ambient WebSocket globals" | selected next core investment; #227 fixes refusals only |
-| #127 | X22 | "Separate intersection visibility from anchor positioning; keep container queries and reactive geometry deferred" | design candidate; deferred parts stay |
-| #130 | X12 | "Keep hatch-driven layout feedback deferred" | explicitly deferred |
-| #131 | X32 | "Defer virtualized section headers until a list-lifetime design is selected" | deferred pending design; kept open |
-| #140 | X25 | "Choose capture-phase key handling; decline a new keyboard fact" | approved; event syntax to design |
-| #141 | X26 | "Choose declarative menu extensions in Contract" | approved larger feature; syntax to design |
-| #224 | X28 | "Propose default notification clicks first; keep badges and richer actions deferred" | policy pending; most deferred |
-| #235 | X26 | "Support the ContextMenu key; treat Shift+F10 as a separate shortcut choice" | main #314 merged (`d236c36d5`): the ContextMenu key; Shift+F10 open |
-| #266 | X10 | "Choose balanced text and authored ::placeholder color; defer font smoothing" | approved; smoothing deferred |
-| #267 | X27 | "Choose Window Controls Overlay env values and displayMode" | approved bounded platform feature |
-| #268 | X5 | "Choose protocol_handlers templates over the existing navigate path" | approved; original criterion narrowed |
-| #269 | X6 | "Route SIGTERM through orderly quit; propose one bounded module hold" | main #313 merged (`a3d61c023`): SIGTERM orderly; the async hold needs a ruling |
-| #270 | X37 | "Fix signing-before-hashing; choose scoped derived helper entitlements and copied staging files" | approved correctness; entitlements design pending |
-| #271 | X45 | "Choose an explicit process relaunch command, after orderly quit is complete" | approved larger lifecycle feature |
-| #272 | X34 | "Expose the union of inline-run rectangles through frame and layout" | medium correctness candidate |
-| #273 | X29 | "Add scoped app:/ iframe loading first; defer a separate PDF element" | approved scoped feature; PDF surface deferred |
-| #274 | X33 | "Add selection rectangles and web-named selection commands" | approved larger text feature |
-| #275 | X20 | "Add field selectionchange and beforeinput; pin range-edit semantics first" | approved; semantic choice first |
-| #276 | X20 | closed, not planned: "Keep atomic chips out of plain Contract fields" | — (closed) |
-| #277 | X23 | "Choose standard scroll padding/margins, native smooth jumps and scrollend; use app-owned top-list restoration" | approved larger feature; amend scope |
-| #278 | X55 | "Complete admitted role mappings, implicit live announcements and macOS modal accessibility" | approved correctness; scoped amendment |
-| #279 | X49 | "Add ARIA range values first; then determinate progress" | approved feature, medium |
-| #280 | X52 | "Put date, time and select controls in the default Tab order" | **fixed by #327** (open on main); resumes in the adoption round after it merges |
-| #281 | X51 | "Make the popover top layer consume its own pointer contacts" | **fixed by #327** (open on main); resumes in the adoption round after it merges |
-| #282 | X53 | "Carry showModal(id) and close(id) on GUI hosts" | partial in #327: macOS and JS/wasm web; dialog-close event and other hosts open |
-| #283 | X54 | "Add bubbling focusin/focusout with enough target information" | approved; acceptance corrected first |
-| #284 | X50 | "Use the named agent store for module roots" | **fixed by #327** (open on main); resumes in the adoption round after it merges |
-| #286 | side | "Queue capacity-limited source reads before execution" | approved correctness, larger |
-| #287 | side | "Admit dotted and dashed borders for the named consumer" | approved feature, medium |
-| #291 | X57 | "Start-align overflowing lines consistently in all text paths" | attempt withdrawn; open |
-| #292 | side (X26) | "Keep native work running while NSMenu tracks" | partial in #327; full-app cadence evidence pending; open |
-| #301 | X60 | "Implement number-field behavior and its adjustable accessible role" | approved correctness, medium |
-| #302 | X61 | "Add the requested outline:none suppression" | approved feature, medium |
-| #315 | X63 | — (filed after) | **fixed by #327** (open on main); resumes in the adoption round after it merges |
-| #316 | X64 | — (filed after) | **fixed by #327** (open on main); resumes in the adoption round after it merges |
-| #317 | X65 | — (filed after) | attempt withdrawn; open |
-| #318 | X48 | — (filed after) | design pending (LLP 1019 interning) |
-| #319 | X66 | — (filed after) | new feature; design not selected |
-| #320 | X67 | — (filed after) | attempt withdrawn; open (round 7 stays blocked) |
-| #321 | X68 | — (filed after) | new feature; design not selected |
-| #322 | X62 | — (filed after) | **fixed by #327** (open on main); resumes in the adoption round after it merges |
+Buckets:
+1. **Done on main:** the issue is closed as completed, or a merged main PR fixes the part T3 needs. Round 7 adopts it.
+2. **Fix in an open PR:** T3 waits and does not touch it.
+3. **Charlie's next core investment:** T3 waits.
+4. **Approved, no fix in progress:** main-side work. T3 keeps its workaround and waits.
+5. **Design or policy pending:** an owner ruling is still needed.
+6. **Closed or deferred:** the clone's workaround is the final design, a permanent declared difference.
+7. **Attempt withdrawn:** the issue is open and no fix is in progress.
+
+A partly merged issue goes in the bucket of the part T3 still tracks; the merged part is in the adoption list below.
+Counts: bucket 1, 7 issues (6 rows); 2, 8 issues and PR #239; 3, 2; 4, 18; 5, 8; 6, 7; 7, 3.
 
 Framework issues are fixed on separate branches from `main`, outside the T3 work (user, 2026-10-08). A T3 task blocked
-on one resumes after that fix merges to `main` and an adoption round brings it in.
+on one resumes after that fix merges to `main` and an adoption round brings it in. No T3 task builds a framework fix.
+
+| Bucket | Issue | X | Capability | Charlie, 08:07Z | Owner or PR | What T3 does | Blocks today |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | [#101](https://github.com/ccheever/exact2/issues/101) (open, bounded) | X2 | Inspector for the app UI | "Allow Safari inspection of development WKWebViews; keep Exact's own inspector deferred" | main #309 (`f2f0e7092`) | Round 7 adopts #309 and removes nothing: `T3WebInspection.swift` stays for the module's own web views. The View item is a permanent declared difference | none |
+| 1 | [#103](https://github.com/ccheever/exact2/issues/103) (closed) | X4 | Helper executables in the bundle | — | main #215 | Adopted (embedded-server-runtime) | none |
+| 1 | [#129](https://github.com/ccheever/exact2/issues/129), [#225](https://github.com/ccheever/exact2/issues/225) (closed) | X11 | Backdrop edges, `saturate()` | — | main #221, #232 (in the branch since round 5) | `saturate()` not adopted (user decision). A backdrop beyond the parent's subtree has no upstream issue; the flattened glass stays | none |
+| 1 | [#285](https://github.com/ccheever/exact2/issues/285) (closed) | side | `clock +N real` going backwards | — | main #304 (`235164b3a`) | Round 7 drops the branch's `QUEUE.md` `clock +N real` entry | none |
+| 1 | [#286](https://github.com/ccheever/exact2/issues/286) (closed 11:15Z) | side | Ordered admission limit (16) | "Queue capacity-limited source reads before execution" | main #325 (`2e48efad1`) | Round 7 re-drives the PR panel's burst. The panel's sequential stack and default-branch reads (pr-header-actions-and-stacks) can go. A refused source is no longer restarted, so re-check the list's "Could not load pull requests" and Retry | none |
+| 1 | [#300](https://github.com/ccheever/exact2/issues/300) (closed) | X59 | `line-clamp` ellipsis at first paint | — | main #305 (`9314e7a81`) | Round 7 adopts it; nothing to remove | none |
+| 2 | [#280](https://github.com/ccheever/exact2/issues/280) | X52 | date, time, select as Tab stops | "Put date, time and select controls in the default Tab order" | #327 (ccheever), full | Wait. Then re-drive Custom snooze's Tab cycle and drop the X52 note in `dialog-focus.test.ts` | dialog-shortcut-focus Tab row (nonblocking) |
+| 2 | [#281](https://github.com/ccheever/exact2/issues/281) | X51 | A popover click reaching the page | "Make the popover top layer consume its own pointer contacts" | #327 (ccheever), full | Wait. Then remove `press` + `retainFocus` on the colour popover | fix-hover-cards' padding press (real-input batch) |
+| 2 | [#284](https://github.com/ccheever/exact2/issues/284) | X50 | Module data folder under `--storage` | "Use the named agent store for module roots" | #327 (ccheever), full | Wait. Then check `T3Storage.dataRoot(agent:)` | pr-conversation-and-refresh and U6 relaunch rows |
+| 2 | [#315](https://github.com/ccheever/exact2/issues/315) | X63 | ⌘Z in a plain textarea | — (filed after) | #327 (ccheever), full | Wait. Then remove #306's Edit › Undo routing in `R8KeysMenus.swift` | none |
+| 2 | [#316](https://github.com/ccheever/exact2/issues/316) | X64 | A shrunk paragraph's old raster | — (filed after) | #327 (ccheever), full | Wait. Then remove #312's status-keyed redraw | none |
+| 2 | [#322](https://github.com/ccheever/exact2/issues/322) | X62 | Hover as `pointerenter`/`pointerleave` | — (filed after) | #327 (ccheever), full | Wait. #307's hover layer stays for its clipping fix | fix-hover-cards' email tooltip (real-input batch) |
+| 2 | [#282](https://github.com/ccheever/exact2/issues/282) | X53 | `showModal(id)`/`close(id)` | "Carry showModal(id) and close(id) on GUI hosts" | #327 (ccheever), partial: macOS and JS/wasm web; the close event and other hosts stay open (#324 closed unmerged) | Wait; per-dialog traps stay. Then #310's focus plumbing for bugs 16, 6 and 5 can go | none |
+| 2 | [#292](https://github.com/ccheever/exact2/issues/292) | side (X26) | Main queue stalls under NSMenu | "Keep native work running while NSMenu tracks" | #327 (ccheever), partial: full-app cadence proof pending | Wait; `T3MenuTurn` stays | none |
+| 2 | none (#121 closed) | X44 | Remote SVG `image` on Apple | — | PR [#239](https://github.com/ccheever/exact2/pull/239) (kmagiera), open | Wait; ACP registry SVG icons stay a declared difference | provider-settings-upkeep ACP icon row (declared) |
+| 3 | [#112](https://github.com/ccheever/exact2/issues/112) | X17 | `position-area` and flip fallbacks | "Choose CSS position-area and flip fallbacks for invoker popovers" | Charlie, selected; no PR | Fixed placement for invoker menus, no new per-site arithmetic; hover layers keep `hoverFlip` | none |
+| 3 | [#126](https://github.com/ccheever/exact2/issues/126) | X21 | Two-way streams for data modules | "Choose runner-owned bidirectional streams, not ambient WebSocket globals" | Charlie, selected; no PR (#227, daehyeon-mun, draft: refusal consistency only) | The Swift transport stays | none |
+| 4 | [#140](https://github.com/ccheever/exact2/issues/140) | X25 | Capture-phase key handler | "Choose capture-phase key handling; decline a new keyboard fact" | no PR (spelling to pin) | Native key monitors; held ⌘ from `key`/`keyup` + `hasFocus` | none |
+| 4 | [#141](https://github.com/ccheever/exact2/issues/141) | X26 | Menu extensions in Contract | "Choose declarative menu extensions in Contract" | no PR (syntax to design) | `T3Menus.swift`, `R8KeysMenus.swift` | none |
+| 4 | [#266](https://github.com/ccheever/exact2/issues/266) | X10 | `text-wrap: balance`, `::placeholder` colour | "Choose balanced text and authored ::placeholder color; defer font smoothing" | no PR | Visible difference; font smoothing is a permanent declared difference | none |
+| 4 | [#267](https://github.com/ccheever/exact2/issues/267) | X27 | Title-bar area, `displayMode` | "Choose Window Controls Overlay env values and displayMode" | no PR | `T3WindowChrome.swift`, `T3FullScreen.swift` | none |
+| 4 | [#268](https://github.com/ccheever/exact2/issues/268) | X5 | A scheme URL to an app | "Choose protocol_handlers templates over the existing navigate path" | no PR (narrowed: still needs a navigation root) | Nothing: no clone consumer | none |
+| 4 | [#270](https://github.com/ccheever/exact2/issues/270) | X37 | Signing order, helper entitlements | "Fix signing-before-hashing; choose scoped derived helper entitlements and copied staging files" | no PR | Nothing (portable-app-download dropped) | none |
+| 4 | [#271](https://github.com/ccheever/exact2/issues/271) | X45 | Process relaunch | "Choose an explicit process relaunch command, after orderly quit is complete" | no PR (after #269) | Restart the server in place | U4 relaunch rows |
+| 4 | [#272](https://github.com/ccheever/exact2/issues/272) | X34 | `frame()` of an inline run | "Expose the union of inline-run rectangles through frame and layout" | no PR | No inline-run frame; #311 anchors its card at the hover point | #311's inline-link card anchor |
+| 4 | [#273](https://github.com/ccheever/exact2/issues/273) | X29 | `app:/` iframe | "Add scoped app:/ iframe loading first; defer a separate PDF element" | no PR | `PDFView` (a permanent declared difference), `AVPlayerView` | none |
+| 4 | [#274](https://github.com/ccheever/exact2/issues/274) | X33 | Selection rectangles, set and clear | "Add selection rectangles and web-named selection commands" | no PR | Cite keeps the selection | none |
+| 4 | [#275](https://github.com/ccheever/exact2/issues/275) | X20 | Field `selectionchange`, `beforeinput` | "Add field selectionchange and beforeinput; pin range-edit semantics first" | no PR | The native composer | none |
+| 4 | [#277](https://github.com/ccheever/exact2/issues/277) | X23 | Scroll padding, smooth jumps, `scrollend` | "Choose standard scroll padding/margins, native smooth jumps and scrollend; use app-owned top-list restoration" | no PR | `R9Input.swift`, `T3TimelineTurns.swift` | none |
+| 4 | [#278](https://github.com/ccheever/exact2/issues/278) | X55 | macOS roles (progressbar, status, alert, modal) | "Complete admitted role mappings, implicit live announcements and macOS modal accessibility" | no PR | Nothing (portable-app-download dropped) | none |
+| 4 | [#279](https://github.com/ccheever/exact2/issues/279) | X49 | ARIA range values | "Add ARIA range values first; then determinate progress" | no PR | A drawn bar with `aria-description` | provider-sign-in-verification-followup X49 row |
+| 4 | [#283](https://github.com/ccheever/exact2/issues/283) | X54 | Bubbling `focusin`/`focusout` | "Add bubbling focusin/focusout with enough target information" | no PR | "Show full comment" is a Tab stop | none |
+| 4 | [#287](https://github.com/ccheever/exact2/issues/287) | side | `dotted` and `dashed` borders | "Admit dotted and dashed borders for the named consumer" | no PR | A solid underline on "+N" | none |
+| 4 | [#301](https://github.com/ccheever/exact2/issues/301) | X60 | Number field | "Implement number-field behavior and its adjustable accessible role" | no PR | `tsStep` in the Tailscale port dialog | none |
+| 4 | [#302](https://github.com/ccheever/exact2/issues/302) | X61 | `outline: none` on fields | "Add the requested outline:none suppression" | no PR | The ring shows | none |
+| 5 | [#269](https://github.com/ccheever/exact2/issues/269) | X6 | A bounded async quit hold | "Route SIGTERM through orderly quit; propose one bounded module hold" | SIGTERM: main #313 (merged). The hold needs an LLP 1069.010 Q4 ruling | Synchronous `destroy()` and the `atexit` stop | none |
+| 5 | [#235](https://github.com/ccheever/exact2/issues/235) | X26 | Shift+F10 | "Support the ContextMenu key; treat Shift+F10 as a separate shortcut choice" | ContextMenu key: main #314 (merged). Shift+F10 not chosen | `T3Sidebar.swift` keeps Shift+F10 | none |
+| 5 | [#224](https://github.com/ccheever/exact2/issues/224) | X28 | A notification click | "Propose default notification clicks first; keep badges and richer actions deferred" | needs a click-only DEFERRED ruling | `T3Notifications.swift`; the Dock badge is a permanent declared difference | none |
+| 5 | [#116](https://github.com/ccheever/exact2/issues/116) | X30 | Any-type file input | "Keep image codecs/readback deferred; propose only the any-type file-input exception" | needs a DEFERRED waiver | `NSOpenPanel`; readback and transcode are a permanent declared difference | none |
+| 5 | [#131](https://github.com/ccheever/exact2/issues/131) | X32 | Sticky headers in a virtualized list | "Defer virtualized section headers until a list-lifetime design is selected" | design not selected | A declared difference until a design lands | pr-code-tab's pinned file headers |
+| 5 | [#318](https://github.com/ccheever/exact2/issues/318) | X48 | `font-family` from a runtime string | — (filed after; "Decision needed" 09:42Z) | design pending (LLP 1019) | Wait | installed-font-picker |
+| 5 | [#319](https://github.com/ccheever/exact2/issues/319) | X66 | `showPopover` from an action, `toggle` | — (filed after) | design not selected | `KeyMenuOpen` invokers (#310) | none |
+| 5 | [#321](https://github.com/ccheever/exact2/issues/321) | X68 | `elementsFromPoint(x, y)` | — (filed after) | design not selected | Inspect not built | U18 (theme editor Inspect) |
+| 6 | [#100](https://github.com/ccheever/exact2/issues/100) (closed, not planned) | X1 | An embedded browser shell | "Keep a browser shell outside core" | — | browser-surface on a `WKWebView` in the module (path B) | none |
+| 6 | [#117](https://github.com/ccheever/exact2/issues/117) (closed, not planned) | X31 | Hold the first window | "Keep the immediate first window" | — | The connecting state (U5 final) | none |
+| 6 | [#276](https://github.com/ccheever/exact2/issues/276) (closed, not planned) | X20 | Atomic chips | "Keep atomic chips out of plain Contract fields" | — | The native composer's chips | none |
+| 6 | [#108](https://github.com/ccheever/exact2/issues/108) | X9 | Child resources | "Use child state/actions to reduce the root now; defer request ownership to the existing D5 design" | request ownership deferred to D5 | `app-contract-root-rewrite`, the remedy Charlie named | none |
+| 6 | [#124](https://github.com/ccheever/exact2/issues/124) | X19 | Module timers | "Keep module timers refused; finish failure-parity repair separately" | #228 (daehyeon-mun, draft, incomplete) holds the parity slice; then not planned | Time as arguments, gated tasks | none |
+| 6 | [#127](https://github.com/ccheever/exact2/issues/127) | X22 | Reactive layout facts | "Separate intersection visibility from anchor positioning; keep container queries and reactive geometry deferred" | deferred; visibility a candidate with no date | `t3-frame`, `t3-anchor`, `t3-turn` hooks | none |
+| 6 | [#130](https://github.com/ccheever/exact2/issues/130) | X12 | `field-sizing` from a hatch | "Keep hatch-driven layout feedback deferred" | deferred | No workaround | none |
+| 7 | [#291](https://github.com/ccheever/exact2/issues/291) | X57 | An overflowing centred line | "Start-align overflowing lines consistently in all text paths" | #327 withdrew its attempt (its author's local branch, `b57db5720`) | `text-align="left"` on the PR surfaces | none |
+| 7 | [#317](https://github.com/ccheever/exact2/issues/317) | X65 | A press on a scroll's empty area | — (filed after) | #327 withdrew its attempt (same branch) | `usage-ground` | none |
+| 7 | [#320](https://github.com/ccheever/exact2/issues/320) | X67 | Compiler stack overflow (103 nested sites) | — (filed after) | #327 withdrew its attempt (a patch its author kept) | Wait | round 7, and so `clone-on-exact2-main` (#99) |
+
+### Adoption list
+
+- **Round 7** (blocked by #320, bucket 7):
+  - main #304 (#285): drop the branch's `QUEUE.md` `clock +N real` entry;
+  - main #305 (#300, X59): nothing to remove;
+  - main #309 (#101, X2): nothing to remove;
+  - main #313 (#269's SIGTERM): nothing to remove; the `atexit` stop stays for the agent's `exit(0)`;
+  - main #314 (#235's ContextMenu key): the sidebar's ContextMenu key moves to the host's context popover;
+    `T3Sidebar.swift` keeps Shift+F10; re-drive both keys;
+  - main #325 (#286): re-drive the PR panel's burst; the stack and default-branch reads can go back beside the activity.
+- **After #327 merges** (bucket 2): X63 (#315), X64 (#316), X62 (#322), X52 (#280), X51 (#281), X50 (#284), and the
+  partial X53 (#282) and #292. `examples/t3-code/STATUS.md` "Next up" lists the workaround each one retires.
+- **After #239 merges:** X44's ACP registry SVG icons on Apple.
+
+### Overlaps to watch
+
+No T3 work duplicates a framework fix today. These in-flight or planned tasks touch a framework issue:
+- `pr-links-previews-and-routing` (#311): its PR-link hover card needs an inline run's frame (#272, bucket 4). It
+  anchors at the hover point; it must not add an inline-run frame or a measuring hook. It places the card with #307's
+  `hoverFlip`, which #112's first slice does not cover (bucket 3); it adds no per-site flip arithmetic. The card joins
+  #307's hover layer, a #322 workaround that stays for clipping after #327.
+- `browser-surface`: its preview RPCs and the `previewAutomation.*` stream go into `T3Transport.swift`, which #126's
+  runner-owned streams replace (bucket 3); keep them behind one transport seam. Its key forwarding uses native
+  monitors (#140, bucket 4). Its `WKWebView` is the module's own, so it uses `T3WebInspection.mark`; #309 covers
+  Exact's `iframe` only.
+- `app-contract-root-rewrite`: the remedy Charlie named for #108 (not a duplicate). Its X67 check (do child views bring
+  the nesting under 2 MiB?) stays a note: fixing #320 is main-side.
+- `fix-providers-environment-scope`: no framework issue.
+- Framework-side, not T3: #227 (refusal consistency, not #126's sending) and #228 (#124's failure parity), both
+  daehyeon-mun drafts; #324's dialog close and cancel events (closed unmerged) are not in #327.
 
 
 ## Hover cards fix addition, 2026-10-08
 
 | Issue | Capability | Kind | Blocks | Status |
 | --- | --- | --- | --- | --- |
-| [X62](20261008-x62-hover-outside-the-box.md) | macOS `hover` that counts a node's overflowing descendants (as `pointerenter`/`pointerleave` do) and follows the hit-test, so a hover card beside its trigger hears the pointer | framework-gap | none ([fix-hover-cards](../tasks/20261008-fix-hover-cards.md) draws hover cards in a window-level layer with Base UI's close delay on the root's hover clock) | filed as [#322](https://github.com/ccheever/exact2/issues/322), fixed by [#327](https://github.com/ccheever/exact2/pull/327) (open); reproduced with a one-file app and a real pointer, and seen again in fix-hover-cards' real-pointer session |
+| [X62](20261008-x62-hover-outside-the-box.md) | macOS `hover` that counts a node's overflowing descendants (as `pointerenter`/`pointerleave` do) and follows the hit-test, so a hover card beside its trigger hears the pointer | framework-gap | none ([fix-hover-cards](../tasks/closed/20261008-fix-hover-cards.md) draws hover cards in a window-level layer with Base UI's close delay on the root's hover clock) | filed as [#322](https://github.com/ccheever/exact2/issues/322), fixed by [#327](https://github.com/ccheever/exact2/pull/327) (open); reproduced with a one-file app and a real pointer, and seen again in fix-hover-cards' real-pointer session |
 
 ## Keyboard and focus fixes addition, 2026-10-08
 
 | Issue | Capability | Kind | Blocks | Status |
 | --- | --- | --- | --- | --- |
-| [X66](20261008-x66-popover-from-action-and-toggle.md) | A popover shown or hidden from an action (`showPopover`/`hidePopover`/`togglePopover`) and a `toggle` event when it opens or closes; today only an invisible `popovertargetaction` invoker over the trigger, pressed by a scoped `aria-keyshortcuts`, can do it (the popover sibling of #282) | framework-gap | none ([fix-keyboard-focus](../tasks/20261008-fix-keyboard-focus.md) builds ↓/↑-to-open on every menu with the invisible invokers (`KeyMenuOpen`) and keyboard-opening counts; the snooze row pins on focus and pointer instead of the menu's open state. Also wanted by #290's light dismiss and #307's in-scroll Usage card) | reproduced in two one-file apps on main `9314e7a81` (contract/, runner/, plan/ unchanged through `263c8b96e`); not #281/#112/#282 (#282 is `showModal` for dialogs); upstream [#319](https://github.com/ccheever/exact2/issues/319) ([Feature] `showPopover`/`hidePopover`/`togglePopover` from an action and a popover `toggle` event, filed by the coordinator 2026-10-08) |
+| [X66](20261008-x66-popover-from-action-and-toggle.md) | A popover shown or hidden from an action (`showPopover`/`hidePopover`/`togglePopover`) and a `toggle` event when it opens or closes; today only an invisible `popovertargetaction` invoker over the trigger, pressed by a scoped `aria-keyshortcuts`, can do it (the popover sibling of #282) | framework-gap | none ([fix-keyboard-focus](../tasks/closed/20261008-fix-keyboard-focus.md) builds ↓/↑-to-open on every menu with the invisible invokers (`KeyMenuOpen`) and keyboard-opening counts; the snooze row pins on focus and pointer instead of the menu's open state. Also wanted by #290's light dismiss and #307's in-scroll Usage card) | reproduced in two one-file apps on main `9314e7a81` (contract/, runner/, plan/ unchanged through `263c8b96e`); not #281/#112/#282 (#282 is `showModal` for dialogs); upstream [#319](https://github.com/ccheever/exact2/issues/319) ([Feature] `showPopover`/`hidePopover`/`togglePopover` from an action and a popover `toggle` event, filed by the coordinator 2026-10-08) |
 
 ## Upstream issues (filed 2026-10-06)
 
@@ -345,7 +383,7 @@ Each was reproduced on main `0365ad1a4` (X59–X61: `febb2c5fb`, evidence in `fi
 | X54 | [#283](https://github.com/ccheever/exact2/issues/283) | [Feature] `focusin`/`focusout` (or `:focus-within`): an ancestor hears the focus enter its subtree |
 | X55 | [#278](https://github.com/ccheever/exact2/issues/278) | [Bug] macOS: progressbar, status, alert and modal dialog roles are not exposed to accessibility |
 | side (agent driver) | [#285](https://github.com/ccheever/exact2/issues/285) | [Bug] Agent driver: `clock +N real` can ask an Apple host for a time just behind its clock ("the clock cannot go backwards") — closed by main #304 (`235164b3a`); round 7 drops the branch's `QUEUE.md` entry |
-| side (native executor) | [#286](https://github.com/ccheever/exact2/issues/286) | [Bug] Native executor: a request a source makes inside its answer fails at the ordered admission limit (16), where the web queues it |
+| side (native executor) | [#286](https://github.com/ccheever/exact2/issues/286) | [Bug] Native executor: a request a source makes inside its answer fails at the ordered admission limit (16), where the web queues it — closed by main #325 (`2e48efad1`, 2026-10-08); round 7 adopts it |
 | side (borders) | [#287](https://github.com/ccheever/exact2/issues/287) | [Feature] `border-style`: `dotted` and `dashed` |
 | X57 | [#291](https://github.com/ccheever/exact2/issues/291) | [Bug] macOS: a centred line wider than its box is centred and clipped at its start (CSS start-aligns it) |
 | side (from X26) | [#292](https://github.com/ccheever/exact2/issues/292) | [Bug] macOS: while a context or button menu is open, main-queue work stalls, so native module calls stop until it closes |
@@ -356,18 +394,17 @@ Each was reproduced on main `0365ad1a4` (X59–X61: `febb2c5fb`, evidence in `fi
 ## Upstream issues (filed 2026-10-08, second round)
 
 Each was reproduced on main `b896050d7` in agent mode before filing (evidence under `file-x48-x68/` on `t3-code-evidence`).
-X62 and X66 have their draft files on the branches in flight (#307, #310), so only their numbers are recorded here;
-those branches update their own files. X64's file arrived with #312's merge and carries #316. X67 (the compiler's stack overflow in main's examples test)
+X62's and X66's files came with #307 and #310 (both merged into the T3 branch on 2026-10-08). X64's file arrived with #312's merge and carries #316. X67 (the compiler's stack overflow in main's examples test)
 and X68 (the element and paint lookup for the theme editor's Inspect) have no local file.
 
 | Gap | Upstream | Title |
 | --- | --- | --- |
 | X48 | [#318](https://github.com/ccheever/exact2/issues/318) | [Design] `font-family` from a string at run time, so a font picker can apply any installed family |
-| X62 (on #307's branch) | [#322](https://github.com/ccheever/exact2/issues/322) | [Bug] macOS: hover is not pointerenter/pointerleave — entering a descendant leaves its ancestors, and a node outside its parent's box hears no pointer — fixed by #327 (open on main) |
+| [X62](20261008-x62-hover-outside-the-box.md) | [#322](https://github.com/ccheever/exact2/issues/322) | [Bug] macOS: hover is not pointerenter/pointerleave — entering a descendant leaves its ancestors, and a node outside its parent's box hears no pointer — fixed by #327 (open on main) |
 | X63 | [#315](https://github.com/ccheever/exact2/issues/315) | [Bug] macOS: ⌘Z and Edit › Undo do nothing in a plain `textarea` (the undo reaches the window's manager, not the field's) — fixed by #327 (open on main) |
 | X64 | [#316](https://github.com/ccheever/exact2/issues/316) | [Bug] macOS: a paragraph that shrinks below the text-raster size keeps painting its old lines — fixed by #327 (open on main) |
 | X65 | [#317](https://github.com/ccheever/exact2/issues/317) | [Bug] macOS: a press on a `scroll`'s empty area reaches no node, so neither it nor an ancestor hears `pointerdown` — #327 attempt withdrawn; open |
-| X66 (on #310's branch) | [#319](https://github.com/ccheever/exact2/issues/319) | [Feature] `showPopover(id)`, `hidePopover(id)`, `togglePopover(id)` from an action and a popover `toggle` event (the popover sibling of #282) |
+| [X66](20261008-x66-popover-from-action-and-toggle.md) | [#319](https://github.com/ccheever/exact2/issues/319) | [Feature] `showPopover(id)`, `hidePopover(id)`, `togglePopover(id)` from an action and a popover `toggle` event (the popover sibling of #282) |
 | X67 (no local file) | [#320](https://github.com/ccheever/exact2/issues/320) | [Bug] Contract compiler: unoptimized, 103 nested view sites overflow a 2 MiB thread (the parser admits 255), so the examples sweep aborts the whole test binary — #327 attempt withdrawn; open |
 | X68 (no local file) | [#321](https://github.com/ccheever/exact2/issues/321) | [Feature] `elementsFromPoint(x, y)`: every node at a point, so an inspect layer can take the click and still name what it covers (theme editor Inspect) |
 

@@ -10,6 +10,8 @@ reproduced_on: 9314e7a81 (main) with two one-file apps; contract/, runner/, plan
 
 # X66: A popover can be shown or hidden from an action only through an invisible invoker, and it says nothing when it toggles
 
+**Status (reclassified 2026-10-08):** Bucket 5, design pending: #319 (popover commands and a `toggle` event) has no selected design. `KeyMenuOpen` stays.
+
 ## Summary
 
 A Contract popover (`popover="auto"`) opens only when a button that names it is pressed

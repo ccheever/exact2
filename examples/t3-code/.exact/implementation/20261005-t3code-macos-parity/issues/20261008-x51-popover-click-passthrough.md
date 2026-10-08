@@ -10,6 +10,8 @@ reproduced_on: 0365ad1a4 (main)
 
 # X51: a click inside an open popover also reaches the page under it (macOS)
 
+**Status (reclassified 2026-10-08):** Bucket 2: #281 is fixed in open main PR #327 (ccheever, full). T3 waits, then an adoption round.
+
 ## Summary
 
 On the macOS host, a click on a node inside an open `popover="auto"` that has no `press` of its

@@ -1,7 +1,7 @@
 ---
 name: 20261005-x25-keyboard-keyup-code-capture
 plan: 20261005-t3code-macos-parity
-status: closed-upstream
+status: published
 kind: framework-gap
 blocks: [20261005-browser-surface, 20261005-desktop-shell-details, 20261005-diff-review-engine, 20261005-pr-handoffs-and-quick-actions, 20261005-pr-header-actions-and-stacks, 20261005-pr-writing-and-metadata, 20261005-right-panel-tab-menu, 20261005-sign-in-terminals, 20261005-terminal-drawer, 20261005-terminal-layout, 20261005-terminal-surface, 20261005-thread-commands-and-keys]
 upstream_url: https://github.com/ccheever/exact2/issues/140
@@ -9,6 +9,8 @@ reproduced_on: null
 ---
 
 # X25: Keyboard facts for Contract: keyup, modifiers held, `code`, `repeat`, capture phase, composition end on a chord
+
+**Status (reclassified 2026-10-08):** Bucket 4, approved, no fix in progress: #140 (a capture-phase key handler; its spelling to pin); no PR. #140 is open upstream.
 
 ## Summary
 

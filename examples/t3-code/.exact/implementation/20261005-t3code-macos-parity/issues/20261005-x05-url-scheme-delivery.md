@@ -11,6 +11,8 @@ rest_upstream_url: https://github.com/ccheever/exact2/issues/268
 
 # X5: A custom-scheme URL delivered to a data source or module when no route takes it
 
+**Status (reclassified 2026-10-08):** Bucket 4, approved, no fix in progress: #268 (`protocol_handlers` templates; it still needs a navigation root); no PR. No clone consumer is left.
+
 ## Summary
 
 T3 Code registers the URL schemes `t3code` and `t3code-dev` and handles two kinds of link: a hosted-web Codex sign-in handoff and a return link into the app.

@@ -11,6 +11,8 @@ rest_upstream_url: https://github.com/ccheever/exact2/issues/274
 
 # X33: Selected text, its source message and UTF-16 offsets, and its end rectangle from the rendered transcript
 
+**Status (reclassified 2026-10-08):** Bucket 4, approved, no fix in progress: #274 (selection rectangles, `removeAllRanges`/`setBaseAndExtent`); no PR.
+
 ## Summary
 In T3 Code the user can select text in an assistant answer and press a floating "Cite" button; the
 quote enters the composer as a chip that stores the message id, the exact text, its UTF-16

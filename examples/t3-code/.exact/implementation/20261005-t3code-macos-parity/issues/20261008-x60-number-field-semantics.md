@@ -10,6 +10,8 @@ reproduced_on: febb2c5fb (main; a one-file app, macOS and the web) and 592657b3a
 
 # X60: `input type="number"` on macOS is a plain text field (no ArrowUp/ArrowDown stepping, no character filter)
 
+**Status (reclassified 2026-10-08):** Bucket 4, approved correctness fix, no PR: #301.
+
 ## Summary
 
 On the macOS host, an `input type="number"` with `min`, `max` and `step` (which the compiler accepts,

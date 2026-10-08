@@ -11,6 +11,8 @@ rest_upstream_url: https://github.com/ccheever/exact2/issues/273
 
 # X29: `video` and `audio` from app-written local files, and a PDF viewer element
 
+**Status (reclassified 2026-10-08):** Bucket 4, approved, no fix in progress: #273 (`app:/` iframe); no PR. `PDFView` is a permanent declared difference.
+
 ## Summary
 
 T3 Code plays video and audio and shows PDFs through ordinary browser elements (`<video>`, `<audio>`, an `<iframe>` with Chromium's PDF viewer) whose sources are local files, blob URLs or signed URLs. Exact2's `video` element accepts only http(s) or bundled-asset sources, `image` accepts `app:/` files, and there is no PDF viewer element (`EXACT2-GAPS.md` X29). The clone covers every surface with app-module native views (AVKit, PDFKit). The result looks right, but each surface needs a native hook that the agent cannot drive. The requested support is `app:/` sources for `video` and `audio`, and a PDF element.

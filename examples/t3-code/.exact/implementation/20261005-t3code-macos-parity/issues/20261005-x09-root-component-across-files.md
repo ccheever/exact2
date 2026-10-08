@@ -10,6 +10,8 @@ reproduced_on: 4c893fef6
 
 # X9: A child component cannot own a resource, and the root component cannot span files, so the app's data layer is capped at one 1,500-line file
 
+**Status (reclassified 2026-10-08):** Bucket 6, deferred: #108's request ownership waits for the unselected D5 design. Charlie named the T3 root rewrite (`app-contract-root-rewrite`) the remedy, so that task is not a duplicate.
+
 ## Summary
 
 In T3 Code any component owns its data, so a feature lives in one folder. Exact2 requires every

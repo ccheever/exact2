@@ -10,6 +10,8 @@ reproduced_on: 4c893fef6
 
 # X12: A textarea with `field-sizing: content` is sized from its plain string, not from what the native text view draws
 
+**Status (reclassified 2026-10-08):** Bucket 6, deferred: #130 keeps hatch-driven layout feedback out; a permanent declared difference.
+
 ## Summary
 
 The T3 Code composer grows with its content, measured as drawn: a file mention is a short pill, so a prompt

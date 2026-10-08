@@ -10,6 +10,8 @@ reproduced_on: 0365ad1a4 (main)
 
 # X55: the macOS host exposes no live region, alert, dialog or progress bar to accessibility
 
+**Status (reclassified 2026-10-08):** Bucket 4, approved correctness fix, no PR: #278. No clone consumer (portable-app-download dropped).
+
 ## Summary
 
 Contract carries `role="status"`, `aria-live="polite"`, `role="alert"`, `role="dialog"`/`"alertdialog"`

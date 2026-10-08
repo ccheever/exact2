@@ -10,6 +10,8 @@ reproduced_on: 4c893fef6
 
 # X30: Data-module topic announce and resource invalidation; pixel readback; any-type file pick with bytes and image transcode
 
+**Status (reclassified 2026-10-08):** Bucket 5, policy pending: #116's any-type file input needs a DEFERRED waiver. Readback and transcode are a permanent declared difference. The topic announce part has no upstream issue.
+
 ## Summary
 
 T3 Code's client code does three things that browser APIs make trivial: it re-renders from code after an async step, reads decoded pixels (image accent, video first frame, theme inspection), and handles any file the user picks, drops or saves, with bytes in script and a decode/re-encode pipeline for images. Exact2 gives TypeScript data modules `native.available/call/watch/later` only, refuses canvas readback, and requires a literal `accept` on a file input (`EXACT2-GAPS.md` X30). The clone uses native Swift for each case. The requested support is a TS-callable announce or invalidate, a pixel-read path, and a picker that returns bytes, plus image decode/encode.

@@ -10,6 +10,8 @@ reproduced_on: 0365ad1a4 (main)
 
 # X52: on macOS, `input type="date"`, `input type="time"` and `select` are not Tab stops
 
+**Status (reclassified 2026-10-08):** Bucket 2: #280 is fixed in open main PR #327 (ccheever, full). T3 waits, then an adoption round.
+
 ## Summary
 
 On the web, a date input, a time input and a `select` are sequential focus stops (Chrome stops in

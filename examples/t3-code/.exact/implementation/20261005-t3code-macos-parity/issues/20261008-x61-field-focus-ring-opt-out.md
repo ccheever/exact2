@@ -10,6 +10,8 @@ reproduced_on: febb2c5fb and e200397ec (main; one-file apps) and 74114cde1 (feat
 
 # X61: an app cannot remove the focus ring Exact draws on a bare text field or textarea (no `outline`)
 
+**Status (reclassified 2026-10-08):** Bucket 4, approved, no fix in progress: #302 (`outline: none` on fields); no PR.
+
 ## Summary
 
 On macOS, Exact draws a 2 pt ring in `keyboardFocusIndicatorColor` around every focused bare `input` and

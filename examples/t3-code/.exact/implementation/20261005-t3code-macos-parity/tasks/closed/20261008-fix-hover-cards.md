@@ -1,9 +1,9 @@
 ---
 name: 20261008-fix-hover-cards
 plan: 20261005-t3code-macos-parity
-implementation: implemented
+implementation: done
 verification: partial
-delivery: draft
+delivery: merged
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: 'feat(example)/t3-code-fix-hover-cards'
@@ -19,11 +19,11 @@ Five clone bugs from the real-input batch (#298) share one cause and one fix:
 
 | Batch bug | Task | Symptom |
 | --- | --- | --- |
-| 1 | [provider-settings-upkeep](closed/20261005-provider-settings-upkeep.md) (#251) | The update icon's tooltip, in the provider list and in the editor, opens above the icon and is cut off by the card |
-| 2 | [this-machine-network-access](closed/20261005-this-machine-network-access.md) (#248) | The "N scopes" popover opens above and is cut off by the Authorized clients list |
-| 14 | [pr-header-actions-and-stacks](closed/20261005-pr-header-actions-and-stacks.md) (#262) | The base branch's hover card closes as the pointer moves into it |
-| 10 | [usage-pooled-view](closed/20261005-usage-pooled-view.md) (#263) | The segment's hover popover closes as the pointer moves into it, so the email cannot be revealed (moved here from #290, coordinator 2026-10-08) |
-| 9 | [settings-model-picker](closed/20261007-settings-model-picker.md) (#246) | No tooltip on a model row that is unavailable on another environment (moved here from fix-misc-batch, coordinator 2026-10-08) |
+| 1 | [provider-settings-upkeep](20261005-provider-settings-upkeep.md) (#251) | The update icon's tooltip, in the provider list and in the editor, opens above the icon and is cut off by the card |
+| 2 | [this-machine-network-access](20261005-this-machine-network-access.md) (#248) | The "N scopes" popover opens above and is cut off by the Authorized clients list |
+| 14 | [pr-header-actions-and-stacks](20261005-pr-header-actions-and-stacks.md) (#262) | The base branch's hover card closes as the pointer moves into it |
+| 10 | [usage-pooled-view](20261005-usage-pooled-view.md) (#263) | The segment's hover popover closes as the pointer moves into it, so the email cannot be revealed (moved here from #290, coordinator 2026-10-08) |
+| 9 | [settings-model-picker](20261007-settings-model-picker.md) (#246) | No tooltip on a model row that is unavailable on another environment (moved here from fix-misc-batch, coordinator 2026-10-08) |
 
 The reference (T3 Code `1e2ecbd975`) portals every `TooltipPopup` and `PopoverPopup` to the body (`ui/tooltip.tsx`,
 `ui/popover.tsx`) and places them with Base UI's side, align, sideOffset 4 and collision flip; an `openOnHover`
@@ -195,7 +195,9 @@ log's `mail-events`).
 
 ## Next action
 
-The PR stays a draft. Two real-pointer rows wait for [#327](https://github.com/ccheever/exact2/pull/327) (open,
+2026-10-08 (records sync, `t3-code-records-reclassify`): merged into `feat(example)/t3-code` as #307 (`3c8c11ef2`); the record moved to `tasks/closed/`. Its deferred real-input rows stay in `STATUS.md` "Next real-input batch".
+
+Two real-pointer rows wait for [#327](https://github.com/ccheever/exact2/pull/327) (open,
 fixes X62 #322 and #281): the Usage popover's email tooltip, and the press on the Usage popover's padding
 (STATUS.md, "Next real-input batch"). When #327 is in the base, rerun `real.mjs … usage`; no code change is planned
 for it here.

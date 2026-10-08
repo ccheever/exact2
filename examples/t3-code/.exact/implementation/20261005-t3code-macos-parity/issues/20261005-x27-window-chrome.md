@@ -11,6 +11,8 @@ rest_upstream_url: https://github.com/ccheever/exact2/issues/267
 
 # X27: Title-row height and traffic-light inset, frame restore after the final style, full-screen state fact
 
+**Status (reclassified 2026-10-08):** Bucket 4, approved, no fix in progress: #267 (Window Controls Overlay `env()`, `displayMode`); no PR.
+
 ## Summary
 
 T3 Code's desktop window has a hidden-inset title bar with its traffic lights placed to fit a 52-point title row, comes back at the size and place it was left, and drops the space reserved for the traffic lights when it goes full screen. exact2's `viewport-fit=cover` gives full-size content but no title-row or traffic-light setting, restores the frame before the final window style, and gives the page no full-screen fact. The clone covers the first two with its own Swift (an empty toolbar and its own frame record) and cannot do the third from the page. What is needed is declarative window chrome, a frame restore that runs after the final style, and a full-screen fact in the page.

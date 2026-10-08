@@ -11,6 +11,8 @@ rest_upstream_url: https://github.com/ccheever/exact2/issues/269
 
 # X6: A module hook at quit that can delay termination for a bounded time
 
+**Status (reclassified 2026-10-08):** Bucket 5, design or policy pending: #269's bounded async hold needs an owner ruling (LLP 1069.010 Q4). Its SIGTERM part merged as main #313; round 7 adopts it and removes nothing.
+
 ## Summary
 
 When a user quits T3 Code, the desktop app holds the quit until it has stopped its server: SIGTERM first, SIGKILL after 2 s, and a total wait of at most 5 s.

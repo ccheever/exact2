@@ -10,6 +10,8 @@ reproduced_on: 0365ad1a4 (main)
 
 # X53: a dialog an app opens from state has no host focus containment on macOS or the web
 
+**Status (reclassified 2026-10-08):** Bucket 2: #282 is partial in open main PR #327 (ccheever): macOS and JS/wasm web. The close event and other hosts stay open (#324 closed unmerged). T3 waits.
+
 ## Summary
 
 Base UI's modal Dialog moves the focus into the popup, keeps Tab and Shift+Tab inside it and gives

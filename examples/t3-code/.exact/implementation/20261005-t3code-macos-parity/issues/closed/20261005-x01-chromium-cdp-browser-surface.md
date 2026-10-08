@@ -10,6 +10,8 @@ reproduced_on: 4c893fef6
 
 # X1: An embedded browser engine that an app can drive (Browser surface)
 
+**Status (reclassified 2026-10-08):** Bucket 6, closed not planned: #100. browser-surface builds path B in the clone's own module.
+
 ## Summary
 
 T3 Code's desktop app has a full Browser surface in the right panel: Chromium tabs, an agent-driven page, annotation,

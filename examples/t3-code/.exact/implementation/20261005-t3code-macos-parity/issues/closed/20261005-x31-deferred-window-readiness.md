@@ -10,6 +10,8 @@ reproduced_on: 4c893fef6
 
 # X31: Defer the first window until the app says it is ready
 
+**Status (reclassified 2026-10-08):** Bucket 6, closed not planned: #117. The connecting state is a permanent declared difference.
+
 ## Summary
 
 The T3 Code desktop app opens its main window only after its embedded server is ready. Until then the user sees no window. With the local environment turned off, the window opens at once.

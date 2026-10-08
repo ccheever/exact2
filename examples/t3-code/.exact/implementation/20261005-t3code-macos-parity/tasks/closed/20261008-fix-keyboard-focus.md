@@ -1,9 +1,9 @@
 ---
 name: 20261008-fix-keyboard-focus
 plan: 20261005-t3code-macos-parity
-implementation: implemented
+implementation: done
 verification: verified
-delivery: draft-pr
+delivery: merged
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: 'feat(example)/t3-code-fix-keyboard-focus'
@@ -18,12 +18,12 @@ verified_commit: d4bdcf955
 Five clone bugs from the real-input batch ([#298](https://github.com/ccheever/exact2/pull/298)) are fixed to match
 T3 Code `1e2ecbd975`. The numbers are #298's:
 
-- **4** ([dialog-shortcut-focus](closed/20261008-dialog-shortcut-focus.md), #255): Custom snooze could not be
+- **4** ([dialog-shortcut-focus](20261008-dialog-shortcut-focus.md), #255): Custom snooze could not be
   opened from the sidebar row's snooze menu by the real pointer. Moving onto "Custom…" ended the row's hover, the
   click only closed the menu, and ↓ did not enter the menu.
 - **5** (#255): Custom snooze showed no focus ring at open, and none after five Tabs.
 - **6** (#255): with ⌘K open over Custom snooze, the first Escape closed the dialog underneath, not the palette.
-- **13** ([pr-header-actions-and-stacks](closed/20261005-pr-header-actions-and-stacks.md), #262): the PR header's
+- **13** ([pr-header-actions-and-stacks](20261005-pr-header-actions-and-stacks.md), #262): the PR header's
   More menu, opened from the keyboard, left the focus on "…", and ↑/↓ did nothing.
 - **16** (#262): the Close pull request dialog showed no focus ring.
 
@@ -292,4 +292,6 @@ PATH and its own homes. [Record](https://raw.githubusercontent.com/ccheever/exac
 
 ## Next action
 
-The coordinator reviews and merges the draft PR. X66 is filed as #319. Run the deferred real-input rows in the next batch.
+2026-10-08 (records sync, `t3-code-records-reclassify`): merged into `feat(example)/t3-code` as #310 (`f45eab04a`); the record moved to `tasks/closed/`. Its deferred real-input rows stay in `STATUS.md` "Next real-input batch".
+
+X66 is filed as #319 (design not selected; the issues README, bucket 5). Run the deferred real-input rows in the next batch.

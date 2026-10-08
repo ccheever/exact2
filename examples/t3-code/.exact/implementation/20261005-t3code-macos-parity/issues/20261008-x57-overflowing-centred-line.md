@@ -10,6 +10,8 @@ reproduced_on: 0365ad1a4 (main)
 
 # X57: macOS centres a line wider than its box, cutting its start (CSS start-aligns it)
 
+**Status (reclassified 2026-10-08):** Bucket 7, attempt withdrawn: #327 withdrew its #291 attempt. #291 is open and no fix is in progress.
+
 ## Summary
 
 CSS Text 3 §7.1 (`text-align`): "If (after justification, if any) the inline contents of a line box

@@ -10,6 +10,8 @@ reproduced_on: 4c893fef6
 
 # X21: A two-way WebSocket for data modules (send, message, close, backpressure)
 
+**Status (reclassified 2026-10-08):** Bucket 3, Charlie's next core investment: #126 (runner-owned two-way streams); no PR. #227 (daehyeon-mun, draft) is refusal consistency only. The Swift transport stays.
+
 ## Summary
 
 T3 Code's client talks to its server over one WebSocket that carries Effect RPC: the client sends Request, Ack, Interrupt, Ping and Pong frames and receives Chunk, Exit and Defect frames.

@@ -10,6 +10,8 @@ reproduced_on: feature branch c0475fbaa's framework with a one-file app and a re
 
 # X62: macOS hover ignores a node's overflowing descendants: a hover card beside its trigger hears no pointer, and the trigger hears a leave as the pointer moves into it
 
+**Status (reclassified 2026-10-08):** Bucket 2: #322 is fixed in open main PR #327 (ccheever, full). T3 waits; #307's hover layer stays for its clipping fix.
+
 ## Summary
 
 On the macOS host a `hover` handler is an `NSTrackingArea` with `.inVisibleRect`, on the node's own bounds,

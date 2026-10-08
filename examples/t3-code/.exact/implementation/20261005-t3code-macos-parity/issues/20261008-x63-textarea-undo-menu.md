@@ -10,6 +10,8 @@ reproduced_on: b896050d7 (main, agent mode, before filing)
 
 # X63: Edit › Undo and ⌘Z do nothing in a plain `textarea` on macOS
 
+**Status (reclassified 2026-10-08):** Bucket 2: #315 is fixed in open main PR #327 (ccheever, full). T3 waits, then removes #306's Edit › Undo routing.
+
 ## Summary
 
 On macOS, Exact's `textarea` keeps its own undo manager (`TextArea.undoManager`, `textUndo`, so an

@@ -10,6 +10,8 @@ reproduced_on: 4c893fef6
 
 # X19: Timers and a clock inside data sources (`setTimeout`, `setInterval`, `Date.now`)
 
+**Status (reclassified 2026-10-08):** Bucket 6, deferred: #124 keeps module timers refused, a permanent declared difference. #228 (daehyeon-mun, draft) holds the failure-parity slice #124 waits on before it closes not planned; not T3 work.
+
 ## Summary
 
 T3 Code runs dozens of timers in its client code: report loops, debounces, retry cooldowns, live-refresh intervals, expiry windows, and per-query refresh intervals. Exact2 data sources have no timer or clock API (`EXACT2-GAPS.md` X19: "policy (LLP 1092 accepted, not built)"). The clone replaces each timer with one of three stand-ins: a Contract `every(ms, action)` task that passes `now` as an argument, a native sleep op capped at 2 s, or a Swift timer. Swift timers are not moved by the agent's virtual clock, and all three stand-ins put time logic outside the ported reference code. The needed support is the web timer API in the data runtime, driven by the same clock the agent controls.

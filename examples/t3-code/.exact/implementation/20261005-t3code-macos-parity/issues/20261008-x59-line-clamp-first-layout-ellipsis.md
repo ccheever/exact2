@@ -1,7 +1,7 @@
 ---
 name: 20261008-x59-line-clamp-first-layout-ellipsis
 plan: 20261005-t3code-macos-parity
-status: published
+status: closed-upstream
 kind: framework-gap
 blocks: []
 upstream_url: https://github.com/ccheever/exact2/issues/300
@@ -9,6 +9,8 @@ reproduced_on: febb2c5fb (main; a one-file app, window pixels); first seen in th
 ---
 
 # X59: a `line-clamp` text mounted after launch paints its last line without the ellipsis until a restyle (macOS)
+
+**Status (reclassified 2026-10-08):** Bucket 1, done on main: #300 closed by main #305 (`9314e7a81`). Round 7 adopts it and removes nothing.
 
 ## Summary
 

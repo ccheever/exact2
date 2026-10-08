@@ -10,6 +10,8 @@ reproduced_on: 4c893fef6
 
 # X2: A developer-tools inspector for the app's own UI (View › Toggle Developer Tools)
 
+**Status (reclassified 2026-10-08):** Bucket 1, done on main: main #309 (`f2f0e7092`) makes development `iframe` web views inspectable; round 7 adopts it and removes nothing. The View item is a permanent declared difference; #101 stays open upstream.
+
 ## Summary
 
 The T3 Code desktop app has a View › Toggle Developer Tools menu item that opens Chromium DevTools for the whole app window. exact2 draws the
