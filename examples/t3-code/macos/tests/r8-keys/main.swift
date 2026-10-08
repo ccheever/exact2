@@ -278,9 +278,20 @@ final class R8KeysTests: XCTestCase {
         XCTAssertEqual(text.string, "", "Edit › Undo from the menu")
         menus.keys.redo(redo)
         XCTAssertEqual(text.string, "stable", "Edit › Redo from the menu")
-        // With nothing left to undo in the text, a keystroke is still the window's thread.undo.
-        text.undoManager?.removeAllActions()
+        // While it composes (marked text, a Korean or Japanese input source), the history is left alone.
         menus.keys.keystroke = { true }
+        text.setMarkedText("ㅎ", selectedRange: NSRange(location: 1, length: 0), replacementRange: NSRange(location: NSNotFound, length: 0))
+        XCTAssertTrue(text.hasMarkedText())
+        XCTAssertFalse(menus.keys.validateMenuItem(undo))
+        XCTAssertTrue(bar.performKeyEquivalent(with: key("z", 6, window: window)))
+        XCTAssertTrue(text.string.hasPrefix("stable"), "no undo under a composition")
+        text.unmarkText()
+        // Editable text with the focus and nothing to undo: ⌘Z is not thread.undo (`!editableFocus`).
+        text.undoManager?.removeAllActions()
+        XCTAssertTrue(bar.performKeyEquivalent(with: key("z", 6, window: window)))
+        XCTAssertEqual(host.pressed, [])
+        // No editable text with the focus: the keystroke is the window's thread.undo.
+        menus.keys.focusedText = { nil }
         XCTAssertTrue(bar.performKeyEquivalent(with: key("z", 6, window: window)))
         XCTAssertEqual(host.pressed, ["Undo"])
         NSApp.mainMenu = nil

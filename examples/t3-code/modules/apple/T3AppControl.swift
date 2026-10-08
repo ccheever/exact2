@@ -513,6 +513,7 @@ final class T3AppControl {
     /// DesktopWindow.activate: the app to the front, its window restored and focused. No toast.
     static func activateMainWindow() {
         NSApp.activate(ignoringOtherApps: true)
+        if NSApp.isHidden { NSApp.unhide(nil) } // ⌘H: the reference's reveal shows a window that is not visible
         guard let window = activationTarget(main: NSApp.mainWindow, windows: NSApp.windows) else { return }
         if window.isMiniaturized { window.deminiaturize(nil) }
         window.makeKeyAndOrderFront(nil)

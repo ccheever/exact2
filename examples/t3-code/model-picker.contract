@@ -10,7 +10,6 @@ use CmpIcon from "./composer.contract"
 use CcIcon from "./composer-controls.contract"
 use ProviderSetupLink from "./providers-setup.contract"
 use ChatGptUsageButton from "./codex-setup.contract"
-use TipCard from "./shell-tip.contract"
 
 // The popovers' glass (popover at 83.6% over a 12px backdrop blur) is drawn as
 // the colour it settles to over the canvas: a native backdrop blur sees only its
@@ -33,14 +32,10 @@ component ModelRow
     favorite: action
     toggleLegacy: action
     legacyOpen: bool
-    // fix-misc-batch (#298 bug 9): a row a selected environment lacks says why while the pointer is on it.
-    tip: action
   state over = false
   state starOver = false
   action hover(value: bool)
     over = value
-    if row.reason != ""
-      tip(row.key, row.reason, value)
   action hoverStar(value: bool)
     starOver = value
   view
@@ -52,7 +47,7 @@ component ModelRow
         box rotate=(legacyOpen ? 90 : 0) display="flex"
           CmpIcon(name="chevron-right", size=16, color="light-dark(#27272a, #f5f5f5)", weight=2)
     else
-      row id=`model-row-${row.key}` hover=hover width="100%" min-height="2.8125rem" border-radius="0.375rem" align-items="center" gap="0.5rem" padding-right="0.25rem" box-sizing="border-box" role="option" aria-selected=row.selected aria-description=row.reason testId=`model-row-${row.id}` opacity=(row.reason != "" ? 0.64 : 1) background-color=((highlighted or over) and row.reason == "" ? "light-dark(#f4f4f5, #ffffff0a)" : row.selected ? "light-dark(#27272a14, #f5f5f514)" : "#00000000")
+      row hover=hover width="100%" min-height="2.8125rem" border-radius="0.375rem" align-items="center" gap="0.5rem" padding-right="0.25rem" box-sizing="border-box" role="option" aria-selected=row.selected title=row.reason opacity=(row.reason != "" ? 0.64 : 1) background-color=((highlighted or over) and row.reason == "" ? "light-dark(#f4f4f5, #ffffff0a)" : row.selected ? "light-dark(#27272a14, #f5f5f514)" : "#00000000")
         button press=select(row.id, row.providerId) disabled=(busy or row.reason != "") testId=`model-${row.id}` aria-keyshortcuts=(row.kind == "model" and row.index < 9 ? `Meta+${row.index + 1}` : "") class=Control flex=1 min-width=0 align-self="stretch" padding-left="0.5rem" padding-right=0 padding-top="0.25rem" padding-bottom="0.25rem" border-radius="0.375rem" justify-content="flex-start" gap=0
           column flex=1 min-width=0 gap="0.25rem" align-items="flex-start"
             row gap="0.5rem" align-items="center" min-width=0 max-width="100%"
@@ -129,32 +124,6 @@ component ModelPicker
   derive y = (below ? triggerBottom + 4 : triggerTop - 4 - height)
   derive edge = (anchored ? anchor.left : left + 7)
   derive x = (edge + width <= viewport.width - 5 ? edge : max(5, viewport.width - 5 - width))
-  // ModelListRow's disabled reason (TooltipPopup side="left", align center, sideOffset 4, the picker's
-  // TooltipProvider delay 0): drawn over the popover rather than in it, which clips; on the right where the
-  // left has less room (Base UI's flip). The hovered row's frame is read when the pointer arrives.
-  state tipKey = ""
-  state tipText = ""
-  state tipSession = -1
-  state tipLeft = 0
-  state tipRight = 0
-  state tipTop = 0
-  state tipHeight = 0
-  derive tipShown = tipSession == session and tipKey != ""
-  derive tipLeftRoom = tipLeft - 9
-  derive tipRightRoom = viewport.width - tipRight - 9
-  derive tipOnLeft = tipLeftRoom >= 192 or tipLeftRoom >= tipRightRoom
-  action rowTip(key: string, reason: string, over: bool)
-    let box = frame(`model-row-${key}`)
-    if over and not box.unavailable
-      tipKey = key
-      tipText = reason
-      tipSession = session
-      tipLeft = box.x
-      tipRight = box.x + box.width
-      tipTop = box.y
-      tipHeight = box.height
-    if not over and tipKey == key
-      tipKey = ""
   action searchFocus
     searchFocused = true
   action searchBlur
@@ -214,7 +183,7 @@ component ModelPicker
               column gap="0.125rem" width="100%" role="listbox"
                 each row in catalog.models key=row.key
                   when row.kind != "legacy-model" or legacyOpen
-                    ModelRow(row=row, highlighted=(row.index == highlight), busy=(busy or (not anchored and data.running)), select=select, favorite=command, toggleLegacy=toggleLegacy, legacyOpen=legacyOpen, tip=rowTip)
+                    ModelRow(row=row, highlighted=(row.index == highlight), busy=(busy or (not anchored and data.running)), select=select, favorite=command, toggleLegacy=toggleLegacy, legacyOpen=legacyOpen)
             // ComboboxEmpty, the list's sibling: inside the list's scroll, which has no height when nothing
             // matches, it was clipped away (fix-misc-batch, #298 bug 8).
             when count == 0 and setupCount == 0
@@ -232,6 +201,3 @@ component ModelPicker
               ProviderMark(driver="codex", size=14, color="light-dark(#71717a, #818181)")
               text "Using ChatGPT plan" font-size="0.75rem" line-height="1rem" color="light-dark(#71717a, #818181)"
             ChatGptUsageButton(small=true, testId="model-picker-manage-usage", press=command("pageslocal:chatgpt-usage", "", "", 0), first=false)
-    when tipShown
-      row position="absolute" left=(tipOnLeft ? 5 : tipRight + 4) top=tipTop width=max(0, tipOnLeft ? tipLeftRoom : tipRightRoom) height=tipHeight justify-content=(tipOnLeft ? "flex-end" : "flex-start") align-items="center" pointer-events="none" z-index=31 testId="model-row-tip"
-        TipCard(label=tipText, shown=true)

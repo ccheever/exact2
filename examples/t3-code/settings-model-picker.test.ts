@@ -168,10 +168,10 @@ describe('keyboard', () => {
   });
 });
 
-// fix-misc-batch (#298 bugs 8 and 9), read from the Contract source as dialog-focus.test.ts reads its dialogs:
-// what the real-input batch found missing on screen. The macOS drive in tasks/20261008-fix-misc-batch.md
-// shows both; these guard the wiring.
-describe('the picker\'s empty and disabled states (model-picker.contract)', () => {
+// fix-misc-batch (#298 bug 8), read from the Contract source as dialog-focus.test.ts reads its dialogs: what
+// the real-input batch found missing on screen. The macOS drive in tasks/20261008-fix-misc-batch.md shows it;
+// this guards the wiring.
+describe('the picker\'s empty state (model-picker.contract)', () => {
   const lines = async () => (await Bun.file(new URL('model-picker.contract', import.meta.url)).text()).split('\n');
   const indent = (line: string) => line.length - line.trimStart().length;
   test('"No models found" is the list\'s sibling, not inside the scroll that has no height when nothing matches', async () => {
@@ -182,22 +182,5 @@ describe('the picker\'s empty and disabled states (model-picker.contract)', () =
     // The `when` that holds it sits at the scroll's own depth (ComboboxEmpty after ComboboxListVirtualized).
     expect(source[empty - 1]!.trim()).toBe('when count == 0 and setupCount == 0');
     expect(indent(source[empty - 1]!)).toBe(indent(source[list]!));
-  });
-  test('an unavailable row says why on hover, over the popover (side left), not as a native title that never showed', async () => {
-    const source = await lines();
-    const row = source.find(line => line.includes('id=`model-row-${row.key}`'))!;
-    expect(row).toContain('hover=hover');
-    expect(row).toContain('aria-description=row.reason');
-    expect(row).not.toContain('title=');
-    const hover = source.findIndex(line => line.trim() === 'action hover(value: bool)');
-    expect(source.slice(hover, hover + 4).map(line => line.trim())).toEqual(['action hover(value: bool)', 'over = value', 'if row.reason != ""', 'tip(row.key, row.reason, value)']);
-    expect(source.some(line => line.includes('ModelRow(') && line.includes('tip=rowTip'))).toBe(true);
-    // The bubble is the picker's last child, beside the dialog's column (whose overflow hides), with the shared TipCard.
-    const column = source.find(line => line.includes('column position="absolute" left=x top=y width=width height=height'))!;
-    const tip = source.findIndex(line => line.includes('testId="model-row-tip"'));
-    expect(indent(source[tip - 1]!)).toBe(indent(column));
-    expect(source[tip - 1]!.trim()).toBe('when tipShown');
-    expect(source[tip]).toContain('pointer-events="none"');
-    expect(source[tip + 1]!.trim()).toBe('TipCard(label=tipText, shown=true)');
   });
 });
