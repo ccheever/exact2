@@ -89,6 +89,7 @@ fn boot(measurer: CachedChrome) -> Result<(Host<NoData>, String), crate::HostErr
         None,
         None,
         "/",
+        false,
         None,
         crate::link::Links::ALL,
         |runner| {
