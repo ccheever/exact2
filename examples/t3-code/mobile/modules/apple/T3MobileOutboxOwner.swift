@@ -13,6 +13,9 @@ final class T3MobileOutboxOwner: @unchecked Sendable {
     private let lock: NSLock
     private let disk: T3MobileOutbox
     private let release: ([Object]) throws -> Void
+    private let transferAdmission: (Object) throws -> Void
+    private let transferEvidence: (Object) throws -> Void
+    private var acceptedTransfers: [String: Object] = [:]
     private let worker = DispatchQueue(label: "t3.mobile.outbox.persistence", qos: .userInitiated)
     private let epoch = UUID().uuidString.lowercased()
     private var floor = 0
@@ -25,14 +28,14 @@ final class T3MobileOutboxOwner: @unchecked Sendable {
     private var errors: [Object] = []
     private var unresolved: [String: String] = [:]
     private var uncertainResults = Set<String>()
-    init(lock: NSLock, disk: T3MobileOutbox, release: @escaping ([Object]) throws -> Void) {
-        self.lock = lock; self.disk = disk; self.release = release
+    init(lock: NSLock, disk: T3MobileOutbox, release: @escaping ([Object]) throws -> Void, transferEvidence: @escaping (Object) throws -> Void, transferAdmission: @escaping (Object) throws -> Void) {
+        self.lock = lock; self.disk = disk; self.release = release; self.transferEvidence = transferEvidence; self.transferAdmission = transferAdmission
     }
     private func synced<T>(_ body: () throws -> T) rethrows -> T { lock.lock(); defer { lock.unlock() }; return try body() }
     private func fail(_ message: String) -> T3Failure { T3Failure(kind: "Persistence", message: message) }
     private func text(_ value: Any?) -> String? { guard let value = value as? String, !value.isEmpty else { return nil }; return value }
     private func fingerprint(_ request: Object) throws -> String {
-        let fields = ["mutationId", "messageId", "operation", "record", "expectedRevision", "expectedToken", "requireUnheld"]
+        let fields = ["mutationId", "messageId", "operation", "record", "expectedRevision", "expectedToken", "requireUnheld", "transfer"]
         let value = request.filter { fields.contains($0.key) }
         return String(data: try JSONSerialization.data(withJSONObject: value, options: [.sortedKeys]), encoding: .utf8)!
     }
@@ -46,14 +49,55 @@ final class T3MobileOutboxOwner: @unchecked Sendable {
         let records = accepted.values.compactMap { $0["record"] as? Object } + rows.values.compactMap(\.record) + cache.values.flatMap(disk.payloads)
         return records.contains { ($0["attachments"] as? [Object] ?? []).contains { ($0["id"] as? String)?.lowercased() == identifier } }
     }
-    func submit(_ request: Object, answer: @escaping Answer) {
+    func submit(_ input: Object, answer originalAnswer: @escaping Answer) {
+        var request = input
+        var answer = originalAnswer
         do {
             try synced {
-                let action = request["action"] as? String ?? ""
+                var action = request["action"] as? String ?? ""
                 if action == "read" { worker.async { self.read(answer) }; return }
+                if action == "mutate" && request["transfer"] != nil { throw fail("Captured drafts must enter through enqueueTransfer.") }
                 guard loaded else { throw fail("Read the outbox before changing it.") }
-                if ["mutate", "hold", "releaseHold", "confirmQueued"].contains(action), request["ownerEpoch"] as? String != epoch {
+                if ["mutate", "enqueueTransfer", "hold", "releaseHold", "confirmQueued"].contains(action), request["ownerEpoch"] as? String != epoch {
                     throw fail("The outbox owner changed. Read it again.")
+                }
+                if ["transferLookup", "transferStatus", "completeTransfer", "releaseFailedTransfer"].contains(action) {
+                    let captured = request
+                    worker.async { do { originalAnswer(.success(try self.transferControl(captured))) } catch { originalAnswer(.failure(error)) } }
+                    return
+                }
+                if action == "enqueueTransfer" {
+                    guard errors.isEmpty, let record = request["record"] as? Object, let capture = request["capture"] as? Object,
+                          T3MobileOutbox.validateCapture(capture, record: record), let mutation = text(request["mutationId"]),
+                          mutation.hasPrefix(epoch + ":"), let sequence = Int(mutation.dropFirst(epoch.count + 1)), sequence > 0,
+                          sequence <= 9_007_199_254_740_991 else { throw fail("Read a complete outbox and provide an owned draft capture.") }
+                    let draft = capture["draft"] as! Object, key = draft["key"] as! String, digest = try T3MobileOutbox.captureFingerprint(capture)
+                    let candidates = transfers().filter { $0["draftKey"] as? String == key }.sorted { ($0["transferId"] as! String) < ($1["transferId"] as! String) }
+                    let existing = candidates.first { claim in
+                        let state = claim["state"] as! String
+                        return unresolved[claim["transferId"] as! String] != nil || !["released", "completed"].contains(state)
+                    } ?? candidates.first { $0["state"] as? String == "completed" && $0["fingerprint"] as? String == digest }
+                    if let existing {
+                        let id = existing["transferId"] as! String
+                        let disposition = existing["fingerprint"] as? String == digest ? "existing" : "conflict"
+                        worker.async { originalAnswer(.success(self.synced { self.transferResponse(id, disposition: disposition) })) }
+                        return
+                    }
+                    let id = record["messageId"] as! String
+                    guard cache[id] == nil, rows[id] == nil, acceptedTransfers[id] == nil else { throw fail("A new transfer needs unused task identities.") }
+                    try transferAdmission(record)
+                    let claim: Object = ["transferId": id, "draftKey": key, "fingerprint": digest, "messageId": id,
+                        "threadId": record["threadId"]!, "commandId": record["commandId"]!, "mutationId": mutation,
+                        "state": "prepared", "record": record, "capture": capture, "outcome": NSNull()]
+                    request = ["action": "mutate", "ownerEpoch": epoch, "mutationId": mutation, "messageId": id,
+                        "operation": "enqueue", "record": record, "transfer": claim]
+                    action = "mutate"
+                    answer = { result in
+                        switch result {
+                        case .failure(let error): originalAnswer(.failure(error))
+                        case .success: originalAnswer(.success(self.synced { self.transferResponse(id, disposition: "created") }))
+                        }
+                    }
                 }
                 guard let id = text(request["messageId"]) else { throw fail("Choose an outbox message.") }
                 if action == "hold" || action == "releaseHold" {
@@ -93,22 +137,34 @@ final class T3MobileOutboxOwner: @unchecked Sendable {
                     guard unresolved[id] == nil else { throw fail("Resolve this message's interrupted storage mutation first.") }
                     floor = max(floor, sequence)
                     accepted[mutation] = request; listeners[mutation] = [answer]
+                    if let transfer = request["transfer"] as? Object { acceptedTransfers[id] = transfer }
                     if operation == "enqueue" {
                         let revision = (rows[id]?.revision ?? 0) + 1
                         rows[id] = Row(record: request["record"] as? Object, revision: revision, token: mutation, confirmed: false)
                         accepted[mutation]?["acceptedRevision"] = revision
                     }
-                    worker.async { self.mutate(request) }; return
+                    let captured = request
+                    worker.async { self.mutate(captured) }; return
                 }
                 guard ["status", "confirmQueued", "recover", "acknowledge", "completeRemoval"].contains(action) else { throw fail("Unknown outbox operation.") }
+                let captured = request, callback = answer
                 worker.async {
-                    do { answer(.success(try self.control(request))) } catch { answer(.failure(error)) }
+                    do { callback(.success(try self.control(captured))) } catch { callback(.failure(error)) }
                 }
             }
         } catch { answer(.failure(error)) }
     }
     private func read(_ answer: Answer) {
         var inventory = disk.envelopes()
+        var claimOwners: [String: String] = [:]
+        for value in inventory.values {
+            guard let claim = value["transfer"] as? Object, !["completed", "released"].contains(claim["state"] as! String) else { continue }
+            let key = claim["draftKey"] as! String, id = claim["transferId"] as! String
+            if let previous = claimOwners[key], previous != id {
+                inventory.errors.append(["messageId": id, "message": "Multiple active outbox transfers claim the same draft."])
+            }
+            claimOwners[key] = id
+        }
         var failedSync = Set<String>(), completedSync = Set<String>()
         do {
             // Visible terminal JSON alone does not prove the prior directory fsync completed.
@@ -124,8 +180,13 @@ final class T3MobileOutboxOwner: @unchecked Sendable {
             for value in inventory.values {
                 let id = value["messageId"] as! String
                 let ids = (value["outcomes"] as? [String: Object] ?? [:]).keys
-                if failedSync.contains(id) { uncertainResults.formUnion(ids) }
+                if failedSync.contains(id) {
+                    uncertainResults.formUnion(ids)
+                    if let claim = value["transfer"] as? Object { unresolved[id] = claim["mutationId"] as? String; uncertainResults.insert(claim["mutationId"] as! String) }
+                }
                 if completedSync.contains(id) {
+                    cache[id] = value
+                    if let claim = value["transfer"] as? Object { uncertainResults.remove(claim["mutationId"] as! String) }
                     for mutation in ids { uncertainResults.remove(mutation) }
                     if value["state"] as? String != "pending" {
                         unresolved.removeValue(forKey: id)
@@ -156,7 +217,7 @@ final class T3MobileOutboxOwner: @unchecked Sendable {
                 }, "outcomes": cache.values.flatMap { ($0["outcomes"] as? [String: Object] ?? [:]).values.compactMap { entry -> Object? in
                     guard let outcome = entry["result"] as? Object else { return nil }; return decorated(outcome)
                 } },
-                "mutations": cache.values.filter { $0["state"] as? String == "pending" }]
+                "mutations": cache.values.filter { $0["state"] as? String == "pending" }, "transfers": transfers().map(publicClaim)]
         }
         answer(.success(result))
     }
@@ -176,6 +237,11 @@ final class T3MobileOutboxOwner: @unchecked Sendable {
         var outcomes = value["outcomes"] as? [String: Object] ?? [:]
         outcomes[request["mutationId"] as! String] = ["request": try fingerprint(request), "result": outcome, "owners": owners]
         value["outcomes"] = outcomes
+        if var transfer = value["transfer"] as? Object, transfer["mutationId"] as? String == request["mutationId"] as? String {
+            transfer["outcome"] = outcome
+            transfer["state"] = outcome["status"] as? String == "committed" ? "queued" : "failed"
+            value["transfer"] = transfer
+        }
         if let removed = outcome["removed"] as? Object {
             var removals = value["removals"] as? [String: Object] ?? [:]; removals[request["mutationId"] as! String] = removed; value["removals"] = removals
         }
@@ -206,7 +272,7 @@ final class T3MobileOutboxOwner: @unchecked Sendable {
     }
     private func finish(_ mutation: String, outcome: Object) {
         let completed: ([Answer], Object) = synced {
-            accepted.removeValue(forKey: mutation)
+            if let request = accepted.removeValue(forKey: mutation), request["transfer"] != nil { acceptedTransfers.removeValue(forKey: request["messageId"] as! String) }
             return (listeners.removeValue(forKey: mutation) ?? [], decorated(outcome))
         }
         for answer in completed.0 { answer(.success(completed.1)) }
@@ -216,7 +282,9 @@ final class T3MobileOutboxOwner: @unchecked Sendable {
         let previous = synced { cache[id] ?? blank(id) }
         let initial = synced { rows[id] ?? Row(record: nil, revision: 0, token: "", confirmed: false) }
         let enqueueRevision = synced { accepted[mutation]?["acceptedRevision"] as? Int ?? initial.revision }
-        var pending = previous; pending["revision"] = (previous["revision"] as? Int ?? 0) + 1
+        var pending = previous
+        if let transfer = request["transfer"] as? Object { pending["transfer"] = transfer }
+        pending["revision"] = (previous["revision"] as? Int ?? 0) + 1
         pending["state"] = "pending"; pending["previous"] = previous["record"] ?? NSNull(); pending.removeValue(forKey: "record")
         pending["proposed"] = request["record"] ?? NSNull(); pending["mutation"] = request
         let owners = [previous["record"] as? Object, request["record"] as? Object].compactMap { $0 }
@@ -353,5 +421,68 @@ final class T3MobileOutboxOwner: @unchecked Sendable {
         try release([removed]); removals.removeValue(forKey: mutation); value["removals"] = removals; try save(value)
         return ["completed": true]
     }
+    // These helpers run under the existing coordinator mutex unless noted otherwise.
+    private func transfers() -> [Object] {
+        var values = cache.compactMapValues { $0["transfer"] as? Object }
+        for (id, claim) in acceptedTransfers { values[id] = claim }
+        return values.values.sorted { ($0["transferId"] as! String) < ($1["transferId"] as! String) }
+    }
+    private func transfer(_ id: String) -> Object? { acceptedTransfers[id] ?? cache[id]?["transfer"] as? Object }
+    private func publicClaim(_ claim: Object) -> Object {
+        var value = claim; value.removeValue(forKey: "outcome")
+        if !["completed", "released"].contains(value["state"] as! String),
+           unresolved[value["transferId"] as! String] == value["mutationId"] as? String || uncertainResults.contains(value["mutationId"] as! String) { value["state"] = "prepared" }
+        return value
+    }
+    private func transferOutcome(_ claim: Object) -> Any {
+        if let outcome = claim["outcome"] as? Object { return decorated(outcome) }
+        let id = claim["transferId"] as! String, mutation = claim["mutationId"] as! String
+        if unresolved[id] == mutation || uncertainResults.contains(mutation) {
+            return decorated(["messageId": id, "mutationId": mutation, "status": "unknown", "message": "Resolve the captured enqueue's durability."])
+        }
+        return NSNull()
+    }
+    private func transferResponse(_ id: String, disposition: String? = nil) -> Object {
+        let claim = transfer(id)
+        var response: Object = ["claim": claim.map { publicClaim($0) as Any } ?? NSNull(), "outcome": claim.map { transferOutcome($0) } ?? NSNull()]
+        if let disposition { response["disposition"] = disposition }
+        return response
+    }
+    // FIFO worker. Preference evidence and byte release use coordinator callbacks with its mutex.
+    private func transferControl(_ request: Object) throws -> Object {
+        let action = request["action"] as! String
+        if action == "transferLookup" {
+            guard let key = text(request["draftKey"]), key.hasPrefix("new-task:") else { throw fail("Choose a full draft identity.") }
+            var digest: Any = NSNull()
+            if let raw = request["capture"] {
+                guard let capture = raw as? Object, T3MobileOutbox.validateCapture(capture),
+                      (capture["draft"] as! Object)["key"] as? String == key else { throw fail("The draft capture is invalid.") }
+                digest = try T3MobileOutbox.captureFingerprint(capture)
+            }
+            return synced { ["complete": errors.isEmpty, "fingerprint": digest,
+                "claims": transfers().filter { $0["draftKey"] as? String == key }.map(publicClaim)] }
+        }
+        guard let id = text(request["transferId"]) else { throw fail("Choose an exact draft transfer.") }
+        if action == "transferStatus" { return synced { transferResponse(id) } }
+        guard var claim = synced({ transfer(id) }), claim["fingerprint"] as? String == request["fingerprint"] as? String else { throw fail("The draft transfer fingerprint changed.") }
+        let state = claim["state"] as! String, mutation = claim["mutationId"] as! String
+        guard synced({ unresolved[id] != mutation && !uncertainResults.contains(mutation) }), let outcome = claim["outcome"] as? Object else { throw fail("Resolve this transfer's exact durable outcome first.") }
+        let releasing = action == "releaseFailedTransfer", finalState = releasing ? "released" : "completed"
+        if state == finalState { return [releasing ? "released" : "completed": true, "claim": publicClaim(claim)] }
+        guard state == (releasing ? "failed" : "queued"), outcome["status"] as? String == (releasing ? "failed" : "committed") else { throw fail("The transfer has not reached the required durable outcome.") }
+        if !releasing { try transferEvidence(claim) }
+        // Queue release work before retirement; a failed retirement leaves capture ownership intact.
+        if let record = claim["record"] as? Object { try release([record]) }
+        var savedOutcome = outcome; savedOutcome["record"] = NSNull(); savedOutcome["removed"] = NSNull()
+        claim["state"] = finalState; claim["record"] = NSNull(); claim["capture"] = NSNull(); claim["outcome"] = savedOutcome
+        var value = synced { cache[id]! }; value["transfer"] = claim
+        do { try save(value) }
+        catch {
+            synced { unresolved[id] = mutation; uncertainResults.insert(mutation) }
+            throw T3Failure(kind: "Persistence", message: "Transfer retirement may have reached disk. Read its exact outcome before retrying.", uncertain: true)
+        }
+        return [releasing ? "released" : "completed": true, "claim": publicClaim(claim)]
+    }
+
 }
 #endif

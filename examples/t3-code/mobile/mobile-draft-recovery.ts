@@ -1,5 +1,6 @@
 import { mobileDraftAttachmentRecord, mobileDraftAttachmentOrdersHydrate, mobileDraftAttachmentOrdersPersisted, mobileDraftAttachmentsForSend } from './draft-attachment-order';
 import { mobileDraftSettingsHandles } from './mobile-draft-settings';
+import { mobileOutboxTransferCompletionsHydrate, mobileOutboxTransferCompletionsPersisted, mobileOutboxTransferReleaseHandle } from './mobile-outbox-transfer-cleanup';
 // Pinned365aa87982 use-thread-composer-state run-loss recovery and composerContext.
 // @ref llp/1109.005-composer-and-transcript.decision.md#scratch-tasks-and-queue-boundaries
 import { T3Client, type Pending } from './shared/client';
@@ -90,6 +91,7 @@ function hydrate(client: T3Client, saved: Obj) {
   setMarkers(client, recovered);
   mobileNewTaskDraftHydrate(client, saved);
   mobileDraftAttachmentOrdersHydrate(client, saved);
+  mobileOutboxTransferCompletionsHydrate(client, saved);
   for (const raw of Object.values(recovered)) {
     const marker = obj(raw); adoptTerminals(client, client.local.drafts[str(marker.key)] ?? '', obj(marker.context));
   }
@@ -165,9 +167,10 @@ export class MobileDraftClient extends T3Client {
   }
   override async flushSnapshotReleases(native: Native, storage: Files): Promise<void> {
     const protectedImages = mobileNewTaskLaunchProtectedImages(this);
+    const release = mobileOutboxTransferReleaseHandle(native);
     // Do not let default release work delete bytes still captured by an uncertain launch.
-    if (!this.local.snapshotReleases.some(id => protectedImages.has(id))) await super.flushSnapshotReleases(native, storage);
-    await mobileNewTaskDraftFlushFiles(this, native, storage);
+    if (!this.local.snapshotReleases.some(id => protectedImages.has(id))) await super.flushSnapshotReleases(release, storage);
+    await mobileNewTaskDraftFlushFiles(this, release, storage);
   }
   override chooseDefaults(): void {
     super.chooseDefaults();
@@ -192,6 +195,7 @@ export class MobileDraftClient extends T3Client {
       const document = obj(JSON.parse(new TextDecoder().decode(bytes)));
       document.mobileNewTaskDrafts = mobileNewTaskDraftPersisted(this) as unknown as Obj;
       document.mobileAttachmentOrder = mobileDraftAttachmentOrdersPersisted(this);
+      document.mobileOutboxTransferCompletions = mobileOutboxTransferCompletionsPersisted(this);
       await storage.fs.atomicWriteFile(path, new TextEncoder().encode(JSON.stringify(document)));
     } } });
   }

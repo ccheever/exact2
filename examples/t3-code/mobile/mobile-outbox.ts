@@ -5,6 +5,9 @@ import { bridgeReply, ClientError, type Native } from './shared/protocol';
 import { letGoAware } from './shared/let-go';
 import { mobileOutboxDecode, mobileOutboxEncode, mobileOutboxGroup, type MobileOutboxRecord } from './mobile-outbox-model';
 
+import { mobileOutboxTransferDecodeCapture, mobileOutboxTransferDecodeClaim, mobileOutboxTransferCanonical,
+  type MobileOutboxTransferCapture, type MobileOutboxTransferClaim } from './mobile-outbox-transfer-model';
+
 type Client = Pick<T3Client, 'revision'>;
 type Plain = Record<string, unknown>;
 export interface MobileOutboxCapture { messageId: string; token: string; localRevision: number; nativeRevision: number | null }
@@ -29,7 +32,7 @@ interface State {
   ownerEpoch: string | null; sequence: number; ordinal: number; lastRead: number; revision: number; published: string;
   initialized: boolean; complete: boolean; errors: unknown[]; recovery: unknown[];
   rows: Record<string, Row>; localRevisions: Record<string, number>; nativeRevisions: Record<string, number>;
-  intents: Record<string, Intent>; outcomes: Record<string, MobileOutboxOutcome>;
+  transfers: Record<string, MobileOutboxTransferClaim>; intents: Record<string, Intent>; outcomes: Record<string, MobileOutboxOutcome>;
 }
 const dictionary = <T>(): Record<string, T> => Object.create(null);
 const states = new WeakMap<Client, State>();
@@ -37,7 +40,7 @@ function state(client: Client): State {
   let value = states.get(client);
   if (!value) { value = { ownerEpoch: null, sequence: 0, ordinal: 0, lastRead: 0, revision: 0, published: '', initialized: false,
     complete: false, errors: [], recovery: [], rows: dictionary(), localRevisions: dictionary(), nativeRevisions: dictionary(),
-    intents: dictionary(), outcomes: dictionary() }; states.set(client, value); }
+    transfers: dictionary(), intents: dictionary(), outcomes: dictionary() }; states.set(client, value); }
   return value;
 }
 const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value));
@@ -51,7 +54,7 @@ function projection(value: State) {
   const rows = Object.values(value.rows).map(({ ordinal: _ordinal, epoch: _epoch, ...row }) => row);
   return { initialized: value.initialized, ownerEpoch: value.ownerEpoch, complete: value.complete, errors: value.errors, rows,
     groups: mobileOutboxGroup(rows.map(row => row.record)), outcomes: Object.values(value.outcomes),
-    intents: Object.values(value.intents), recovery: value.recovery };
+    transfers: Object.values(value.transfers), intents: Object.values(value.intents), recovery: value.recovery };
 }
 function change(client: Client, value: State): void {
   const published = canonical(projection(value));
@@ -145,7 +148,7 @@ export async function mobileOutboxRead(client: Client, native: Native | null | u
   try {
     const raw = await invoke(nativeHandle(native), { action: 'read' });
     if (!object(raw) || !nonempty(raw.ownerEpoch) || !integer(raw.sequenceFloor) || typeof raw.complete !== 'boolean' ||
-        !Array.isArray(raw.errors) || !Array.isArray(raw.records) || !Array.isArray(raw.outcomes) || !Array.isArray(raw.mutations) || !object(raw.revisions) || !object(raw.tokens))
+        !Array.isArray(raw.errors) || !Array.isArray(raw.records) || !Array.isArray(raw.outcomes) || !Array.isArray(raw.mutations) || !Array.isArray(raw.transfers) || !object(raw.revisions) || !object(raw.tokens))
       throw new Error('The outbox inventory is invalid.');
     if (ordinal < value.lastRead) return value.complete;
     const errors: unknown[] = clone(raw.errors), rows: Array<{ id: string; row: MobileOutboxCurrent; held: boolean }> = [];
@@ -158,6 +161,13 @@ export async function mobileOutboxRead(client: Client, native: Native | null | u
       seen.add(record.messageId); rows.push({ id: record.messageId, row: decoded, held: item.held });
     } catch (error) { errors.push({ message: String(error), ownership: 'unknown', raw: item }); }
     for (const item of raw.outcomes) try { results.push(outcome(item)); }
+    catch (error) { errors.push({ message: String(error), ownership: 'unknown', raw: item }); }
+    const transferIds = new Set<string>();
+    for (const item of raw.transfers) try {
+      const claim = mobileOutboxTransferDecodeClaim(item);
+      if (transferIds.has(claim.transferId)) throw new Error('Duplicate draft transfer identity.');
+      transferIds.add(claim.transferId); adoptTransfer(value, claim);
+    }
     catch (error) { errors.push({ message: String(error), ownership: 'unknown', raw: item }); }
     const epochChanged = value.ownerEpoch !== raw.ownerEpoch;
     value.ownerEpoch = raw.ownerEpoch; value.sequence = epochChanged ? raw.sequenceFloor : Math.max(value.sequence, raw.sequenceFloor);
@@ -259,3 +269,113 @@ export async function mobileOutboxRecover(client: Client, native: Native | null 
   const result = outcome(await invoke(nativeHandle(native), { action: 'recover', messageId, mutationId, decision }), messageId, mutationId);
   adoptOutcome(value, result, ordinal); change(client, value); return clone(result);
 }
+
+
+export interface MobileOutboxTransferResult {
+  disposition: 'created' | 'existing' | 'conflict' | 'unknown';
+  claim: MobileOutboxTransferClaim | null; outcome: MobileOutboxOutcome | null;
+}
+function adoptTransfer(value: State, claim: MobileOutboxTransferClaim): void {
+  const old = value.transfers[claim.transferId];
+  if (old) {
+    for (const field of ['draftKey', 'fingerprint', 'messageId', 'threadId', 'commandId', 'mutationId'] as const)
+      if (old[field] !== claim[field]) throw new Error('The draft transfer identity changed.');
+    if (old.record && claim.record && (canonical(old.record) !== canonical(claim.record) || canonical(old.capture) !== canonical(claim.capture)))
+      throw new Error('The original draft transfer capture changed.');
+    if (old.state === 'queued' && claim.state === 'released' || old.state === 'failed' && claim.state === 'completed' ||
+        old.state === 'completed' && claim.state === 'released' || old.state === 'released' && claim.state === 'completed')
+      throw new Error('The draft transfer retirement changed its outcome.');
+    // Responses can arrive after a later durable completion. Never resurrect its capture.
+    if (['completed', 'released'].includes(old.state) || old.state !== 'prepared' && claim.state === 'prepared') return;
+    if (old.state !== 'prepared' && claim.state !== old.state && !['completed', 'released'].includes(claim.state))
+      throw new Error('The draft transfer outcome changed.');
+  }
+  value.transfers[claim.transferId] = clone(claim);
+}
+function transferOutcome(raw: unknown, claim: MobileOutboxTransferClaim): MobileOutboxOutcome | null {
+  const result = raw === null ? null : outcome(raw, claim.messageId, claim.mutationId);
+  if (claim.state === 'queued' && result?.status !== 'committed' || claim.state === 'failed' && !['failed', 'stale'].includes(result?.status ?? '') ||
+      claim.state === 'prepared' && result && !['unknown', 'uncertain'].includes(result.status))
+    throw new Error('The draft transfer and enqueue outcome disagree.');
+  if (claim.state === 'queued' && canonical(result?.record) !== canonical(claim.record))
+    throw new Error('The draft transfer lost its original enqueue record.');
+  return result;
+}
+/** Native deduplicates the full captured draft before accepting the requested IDs. */
+export async function mobileOutboxEnqueueTransfer(client: Client, native: Native | null | undefined,
+  input: MobileOutboxRecord, captured: MobileOutboxTransferCapture): Promise<MobileOutboxTransferResult> {
+  const { value, native: handle, epoch } = readyState(client, native);
+  if (!value.complete) throw new ClientError('Resolve the incomplete pending-task inventory before submitting a draft.');
+  const record = mobileOutboxEncode(input), capture = mobileOutboxTransferDecodeCapture(captured, record);
+  if (!Number.isSafeInteger(value.sequence + 1)) throw new ClientError('The pending task sequence is exhausted.');
+  const mutationId = `${epoch}:${++value.sequence}`, ordinal = ++value.ordinal, messageId = record.messageId;
+  const previous = value.rows[messageId];
+  value.intents[mutationId] = { mutationId, messageId, ownerEpoch: epoch, operation: 'enqueue', ordinal, record: clone(record), expected: {}, status: 'submitted' };
+  value.rows[messageId] = { record: clone(record), token: mutationId, localRevision: bump(value, messageId), nativeRevision: null,
+    status: 'optimistic', held: value.rows[messageId]?.held ?? false, ordinal, epoch };
+  change(client, value);
+  try {
+    const raw = await invoke(handle, { action: 'enqueueTransfer', ownerEpoch: epoch, mutationId, record, capture });
+    if (!object(raw) || !['created', 'existing', 'conflict'].includes(String(raw.disposition))) throw new Error('Invalid draft transfer admission.');
+    const claim = mobileOutboxTransferDecodeClaim(raw.claim), result = transferOutcome(raw.outcome, claim);
+    if (claim.draftKey !== capture.draft.key || raw.disposition === 'created' &&
+        (claim.mutationId !== mutationId || claim.messageId !== messageId || canonical(claim.record) !== canonical(record)) ||
+        raw.disposition !== 'conflict' && claim.capture && mobileOutboxTransferCanonical(claim.capture) !== mobileOutboxTransferCanonical(capture))
+      throw new Error('The draft transfer admission belongs to another capture.');
+    adoptTransfer(value, claim);
+    if (raw.disposition !== 'created') {
+      // Only this rejected proposal is disposable. A later local replacement owns itself.
+      if (value.rows[messageId]?.token === mutationId) {
+        if (!result && previous) value.rows[messageId] = { ...previous, status: 'uncertain' };
+        else { delete value.rows[messageId]; bump(value, messageId); }
+      }
+      delete value.intents[mutationId]; delete value.outcomes[mutationId];
+    }
+    if (result) adoptOutcome(value, result, ordinal);
+    change(client, value);
+    return { disposition: raw.disposition as 'created' | 'existing' | 'conflict', claim: clone(claim), outcome: result ? clone(result) : null };
+  } catch (error) {
+    const result: MobileOutboxOutcome = { mutationId, messageId, status: 'unknown', message: String(error) };
+    adoptOutcome(value, result, ordinal); change(client, value);
+    return { disposition: 'unknown', claim: null, outcome: result };
+  }
+}
+export async function mobileOutboxTransferLookup(client: Client, native: Native | null | undefined, draftKey: string,
+  captured?: MobileOutboxTransferCapture): Promise<{ complete: boolean; fingerprint: string | null; claims: MobileOutboxTransferClaim[] }> {
+  if (!/^new-task:[\w-]{1,128}$/.test(draftKey)) throw new ClientError('Choose an independent draft.');
+  const value = state(client), capture = captured ? mobileOutboxTransferDecodeCapture(captured) : undefined;
+  if (capture && capture.draft.key !== draftKey) throw new ClientError('The captured draft has changed.');
+  const raw = await invoke(nativeHandle(native), { action: 'transferLookup', draftKey, ...(capture ? { capture } : {}) });
+  if (!object(raw) || typeof raw.complete !== 'boolean' || !Array.isArray(raw.claims) ||
+      (capture ? typeof raw.fingerprint !== 'string' || !/^[0-9a-f]{64}$/.test(raw.fingerprint) : raw.fingerprint !== null))
+    throw new Error('Invalid draft transfer lookup.');
+  const claims = raw.claims.map(mobileOutboxTransferDecodeClaim);
+  if (claims.some(claim => claim.draftKey !== draftKey) || new Set(claims.map(claim => claim.transferId)).size !== claims.length)
+    throw new Error('The transfer lookup contains another draft or duplicate owner.');
+  for (const claim of claims) adoptTransfer(value, claim);
+  change(client, value); return clone({ complete: raw.complete, fingerprint: raw.fingerprint as string | null, claims });
+}
+export async function mobileOutboxTransferStatus(client: Client, native: Native | null | undefined, transferId: string) {
+  const value = state(client), ordinal = ++value.ordinal;
+  const raw = await invoke(nativeHandle(native), { action: 'transferStatus', transferId });
+  if (!object(raw)) throw new Error('Invalid draft transfer status.');
+  if (raw.claim === null && raw.outcome === null) return { claim: null, outcome: null };
+  const claim = mobileOutboxTransferDecodeClaim(raw.claim);
+  if (claim.transferId !== transferId) throw new Error('The returned transfer belongs to another task.');
+  const result = transferOutcome(raw.outcome, claim); adoptTransfer(value, claim);
+  if (result) adoptOutcome(value, result, ordinal);
+  change(client, value); return clone({ claim, outcome: result });
+}
+async function retireTransfer(client: Client, native: Native | null | undefined, claim: MobileOutboxTransferClaim, failed: boolean) {
+  const original = mobileOutboxTransferDecodeClaim(claim), value = state(client);
+  const raw = await invoke(nativeHandle(native), { action: failed ? 'releaseFailedTransfer' : 'completeTransfer',
+    transferId: original.transferId, fingerprint: original.fingerprint });
+  if (!object(raw) || typeof raw[failed ? 'released' : 'completed'] !== 'boolean') throw new Error('Invalid transfer retirement result.');
+  const next = mobileOutboxTransferDecodeClaim(raw.claim);
+  if (next.transferId !== original.transferId || next.fingerprint !== original.fingerprint || next.draftKey !== original.draftKey ||
+      raw[failed ? 'released' : 'completed'] && next.state !== (failed ? 'released' : 'completed')) throw new Error('The transfer retirement owner is invalid.');
+  adoptTransfer(value, next); change(client, value); return raw[failed ? 'released' : 'completed'] as boolean;
+}
+/** Native checks the durable preference marker itself; JS cannot declare disk success. */
+export const mobileOutboxCompleteTransfer = (client: Client, native: Native | null | undefined, claim: MobileOutboxTransferClaim) => retireTransfer(client, native, claim, false);
+export const mobileOutboxReleaseFailedTransfer = (client: Client, native: Native | null | undefined, claim: MobileOutboxTransferClaim) => retireTransfer(client, native, claim, true);

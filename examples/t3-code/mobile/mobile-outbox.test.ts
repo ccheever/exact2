@@ -8,7 +8,7 @@ const record = (text = 'original', messageId = 'message'): MobileOutboxRecord =>
   environmentId: 'env', threadId: 'thread', messageId, commandId: 'command', text, attachments: [], createdAt: '2026-10-08T00:00:00.000Z' });
 const row = (record: MobileOutboxRecord | null, revision: number, token: string, pending = false) => ({ record, revision, token, pending, held: false });
 const inventory = (rows: ReturnType<typeof row>[] = [], floor = 0, revisions: Record<string, number> = Object.fromEntries(rows.map(value => [value.record!.messageId, value.revision])), epoch = 'epoch') =>
-  ({ ownerEpoch: epoch, sequenceFloor: floor, complete: true, errors: [], records: rows, revisions, tokens: Object.fromEntries(rows.map(value => [value.record!.messageId, value.token])), outcomes: [], mutations: [] });
+  ({ ownerEpoch: epoch, sequenceFloor: floor, complete: true, errors: [], records: rows, revisions, tokens: Object.fromEntries(rows.map(value => [value.record!.messageId, value.token])), outcomes: [], mutations: [], transfers: [] });
 type Call = { request: any; resolve: (value: unknown) => void; reject: (error: unknown) => void };
 function fixture() {
   const calls: Call[] = [], client = { revision: 0 };

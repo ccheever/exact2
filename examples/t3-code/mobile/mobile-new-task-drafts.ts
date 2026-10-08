@@ -124,6 +124,12 @@ export const mobileNewTaskDraftExists = (client: T3Client, key: string) => !!mob
 export function mobileNewTaskDraftHasContent(client: T3Client, key: string): boolean {
   return !!client.local.drafts[key]?.trim() || !!client.local.snapshotDrafts[key]?.length || draftFiles(client.local).some(file => file.draftKey === key);
 }
+/** Source isEmptyDraft includes explicit settings/workspace, but not the project stamp alone. */
+export function mobileNewTaskDraftHasSelections(client: T3Client, key: string): boolean {
+  const record = mobileNewTaskDraftStore(client).records[key];
+  return !!record && (!!record.choices && Object.keys(record.choices).length > 0
+    || !!record.branchChoice || !!client.local.composerControls.contexts[key]);
+}
 export function mobileNewTaskDraftPresentation(client: T3Client, key: string) {
   const record = mobileNewTaskDraftLookup(client, key);
   return record ? { ...record, attachmentIds: mobileDraftAttachmentIds(client, key), text: client.local.drafts[key] ?? '', images: mobileNewTaskDraftClone(client.local.snapshotDrafts[key] ?? []),
@@ -204,9 +210,10 @@ export function mobileNewTaskDraftDiscard(client: T3Client, key: string): boolea
   delete client.local.drafts[key]; delete client.local.snapshotDrafts[key]; mobileNewTaskDraftRemoveMetadata(client, key);
   client.revision++; return true;
 }
-/** Serialize only contentful drafts or receipt-owned drafts; leave empty live editors in memory. */
+/** Source persistence keeps raw text and explicit selections; stamp-only editors stay in memory. */
 export function mobileNewTaskDraftPersisted(client: T3Client): MobileNewTaskDraftStore {
   const store = mobileNewTaskDraftStore(client), claimed = new Set(Object.values(store.claims));
   return { ...mobileNewTaskDraftClone(store), records: Object.fromEntries(Object.entries(store.records)
-    .filter(([key]) => claimed.has(key) || mobileNewTaskDraftHasContent(client, key)).map(([key, record]) => [key, mobileNewTaskDraftClone(record)])) };
+    .filter(([key]) => claimed.has(key) || !!client.local.drafts[key]?.length || mobileNewTaskDraftHasContent(client, key)
+      || mobileNewTaskDraftHasSelections(client, key)).map(([key, record]) => [key, mobileNewTaskDraftClone(record)])) };
 }

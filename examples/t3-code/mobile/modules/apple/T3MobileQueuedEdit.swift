@@ -38,6 +38,35 @@ final class T3MobileQueuedEdit: @unchecked Sendable {
                 self.enqueueReleases(records.flatMap { $0["attachments"] as? [[String: Any]] ?? [] }, in: &value)
                 try self.save(value)
             }
+        }, transferEvidence: { [weak self] claim in
+            guard let self else { throw T3Failure(kind: "Persistence", message: "The draft preference owner ended.") }
+            try self.locked {
+                let preferences = try self.readJSON(self.preferences)
+                guard let markers = preferences["mobileOutboxTransferCompletions"] as? [String: [String: Any]],
+                      let marker = markers[claim["transferId"] as! String], let version = marker["version"] as? NSNumber,
+                      CFGetTypeID(version) != CFBooleanGetTypeID(), version.intValue == 1, version.doubleValue == 1,
+                      Set(marker.keys) == Set(["version", "draftKey", "fingerprint"]),
+                      marker["draftKey"] as? String == claim["draftKey"] as? String,
+                      marker["fingerprint"] as? String == claim["fingerprint"] as? String else {
+                    throw self.refusal("Save the matching draft cleanup marker before completing this transfer.", kind: "Persistence")
+                }
+                // A visible preference rename may have lost its fsync reply. Establish durability here.
+                try self.replace(Self.encoded(preferences), self.preferences)
+            }
+        }, transferAdmission: { [weak self] record in
+            // submit invokes this while holding this coordinator's mutex.
+            guard let self else { throw T3Failure(kind: "Persistence", message: "The attachment owner ended.") }
+            for attachment in record["attachments"] as! [[String: Any]] {
+                if let upload = attachment["uploadId"] as? String, !upload.isEmpty,
+                   attachment["uploadEnvironmentId"] as? String == record["environmentId"] as? String { continue }
+                let directory = attachment["kind"] as? String == "image" ? "snapshots/drafts" : "composer-files"
+                let path = self.root.appendingPathComponent(directory).appendingPathComponent((attachment["id"] as! String).lowercased())
+                let properties = try path.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey])
+                guard properties.isRegularFile == true, properties.isSymbolicLink != true,
+                      properties.fileSize == attachment["sizeBytes"] as? Int else {
+                    throw self.refusal("Save this draft's local attachment bytes before queuing it.", kind: "Persistence")
+                }
+            }
         })
     }
     /// Registration happens before background scheduling. The existing lock owns all byte inventories.
