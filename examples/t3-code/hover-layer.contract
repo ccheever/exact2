@@ -105,6 +105,10 @@ component HoverLayer
             children
 
 // Base UI's flip: the side asked for while the popup fits there, else the other side unless it has less room.
+// It stands in for CSS anchor positioning on hover-opened popups (X17): #112, picked on 2026-10-08 as the next core
+// investment, starts with `position-area` and flip fallbacks for invoker popovers, which a hover-opened popup is not.
+// Its fallback is Base UI's best fit (floating-ui's flip: the side with more room); CSS's `position-try-fallbacks`
+// keeps the original placement when no fallback fits.
 fn hoverFlip(side: string, other: string, room: number, otherRoom: number, need: number): string = need <= room or (need > otherRoom and room >= otherRoom) ? side : other
 
 // TooltipPopup (CnTooltip's look): the words, max-w-80, taking no pointer.

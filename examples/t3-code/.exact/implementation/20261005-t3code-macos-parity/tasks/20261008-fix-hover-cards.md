@@ -111,6 +111,7 @@ cross into it.
 | The same rows on the merged head `6ef66bc93` (agent) | pass | [settings](https://raw.githubusercontent.com/ccheever/exact2/e780f6b871a414f7981cfdf0a9536cffe80d1b77/fix-hover-cards/merged-steps-settings-after.ndjson.txt), [pr](https://raw.githubusercontent.com/ccheever/exact2/e780f6b871a414f7981cfdf0a9536cffe80d1b77/fix-hover-cards/merged-steps-pr-after.ndjson.txt), [usage](https://raw.githubusercontent.com/ccheever/exact2/e780f6b871a414f7981cfdf0a9536cffe80d1b77/fix-hover-cards/merged-steps-usage-after.ndjson.txt) |
 | Regression tests failing on the base | pass: 11 fail on `ec32c8c37`, pass here | `hover-layer.test.ts` |
 | Real pointer: bugs 1, 2, 9, 10, 14 | deferred to the real-input batch: the screen locked (CGSSessionScreenIsLocked = Yes at 07:51Z, user away) right after this task took the lock; the drive is ready and dry-run checked | "Real-input batch steps" below |
+| #281's rule (coordinator, 2026-10-08: "consumption cannot depend on a press handler being present"): a real press on `PaFreshnessCard`'s padding over the Summary/Timeline tabs, and on the Usage popover's padding over the next card's bar, presses nothing under it | pending: the real-pointer session (`real.mjs` logs `press-spot`, `tabs-before`/`tabs-after`, `expanded`) | real-input session |
 | Framework limit recorded | X62 (local draft, not filed: brief) | `issues/20261008-x62-hover-outside-the-box.md` |
 
 ## Real-input batch steps
@@ -137,6 +138,14 @@ move, so a close delay that runs out closes the card. Each step was dry-run with
      of real time; absent 500 ms after the glide out (bug 2).
    - pr: `pr-freshness-hover` present on the mark; present after the glide down into the card and onto "Update with
      rebase" (900 ms each); absent 500 ms after the glide out (bug 14). Nothing is pressed.
+   - pr (#281): a real press on the card's padding (or, failing a padding point over a control, its text) over a tab:
+     `tabs-after` equals `tabs-before` (no tab pressed) and the card stays.
+   - usage (#281): a real press on the popover's padding over the next card's bar: no segment there gets
+     `aria-expanded`, and the popover stays.
+   - usage (#290's rows): a real press on a segment pins it; a real press in the sidebar (120, 420) closes it; a press,
+     then a second press on the same segment with the pointer resting, leaves it closed after 800 ms; at 840x620 a press
+     on the legend row shows the popover anchored so that it does not cover that row (`legend-anchor` `covers: false`),
+     and a second press on it closes it.
    - usage: `usage-seg-pop-0-0-0` `inert: false` after the glide into the popover (900 ms); the email's tip present
      on the email; after the real click `email-text` revealed; `inert: true` 400 ms after the glide out (bug 10). Then
      `model-row-tip-codex:gpt-6-luna` present on the unavailable row, its `tip-box` left of the row; absent after the
