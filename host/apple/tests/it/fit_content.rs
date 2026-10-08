@@ -316,9 +316,10 @@ fn viewport_comparisons_settle() {
       column testId="max" navigationDetent="fit-content" position="absolute" top=0 right=0 bottom=0 left=0 min-height="max(200px, 80vh)"
         row height=44
           text "Row"
-      column testId="vmax" navigationDetent="fit-content" position="absolute" top=0 right=0 bottom=0 left=0 height="100vmax"
-        row height=44
-          text "Row"
+      column testId="vmax" navigationDetent="fit-content" position="absolute" top=0 right=0 bottom=0 left=0
+        column height="100vmax"
+          row height=44
+            text "Row"
       column testId="clamp" navigationDetent="fit-content" position="absolute" top=0 right=0 bottom=0 left=0 min-height="clamp(100px, 50vh, 400px)"
         row height=44
           text "Row"
@@ -385,4 +386,113 @@ fn bases_margins_and_padding_do_not_read_the_sheet() {
         let resized = host.resize(390.0, h);
         assert!(heights(&resized, sheet).is_empty(), "{h}: {resized}");
     }
+}
+
+/// Every route of `src`'s first extent, by test id, and that none sends
+/// another as the sheet resizes: 844, 44, 200, 844, 44, 200.
+fn settles(src: &str, routes: &[(&str, f32)]) {
+    let plan = contract::compile(src).unwrap();
+    let (mut host, first) = Host::boot(
+        &plan.encode(),
+        NoData,
+        Box::new(MonospaceMeasurer::default()),
+        390.0,
+        844.0,
+    )
+    .unwrap();
+    for &(id, h) in routes {
+        assert_eq!(heights(&first, view(&host, id)), [h], "{id}");
+    }
+    for h in [44.0, 200.0, 844.0, 44.0, 200.0] {
+        let resized = host.resize(390.0, h);
+        for &(id, _) in routes {
+            assert!(
+                heights(&resized, view(&host, id)).is_empty(),
+                "{id} at {h}: {resized}"
+            );
+        }
+    }
+}
+
+/// Astra's and Grok's r6: a height term loses where it can. A cap beside
+/// it stands (`min(80vh, 300px)` is 300, never 0, so a 44-point row under
+/// that max-height measures 44), as does a floor; a value that rests on it
+/// (`max(80vh, 0px)`) is `auto`, as a bare `80vh` is. A negative
+/// coefficient loses a `max`; a bare height margin is none; `0vh` reads
+/// nothing, so a collapsed box stays collapsed.
+#[test]
+fn caps_floors_and_collapses_follow_no_sheet() {
+    let route = |id: &str| {
+        format!(
+            r#"column testId="{id}" navigationDetent="fit-content" position="absolute" top=0 right=0 bottom=0 left=0"#
+        )
+    };
+    let src = format!(
+        r##"component Menu
+  view
+    column position="relative" width="100%" height="100%"
+      {} max-height="min(80vh, 300px)"
+        row height=44
+          text "Row"
+      {}
+        box height="min(80vh, 300px)"
+      {}
+        box height="clamp(10vh, 200px, 40vh)"
+      {}
+        box height="max(80vh, 0px)"
+          row height=44
+            text "Row"
+      {}
+        row height=44
+          text "One"
+        row height=44 margin-top="max(-40px, -10vh)"
+          text "Two"
+        row height=44 margin-top="-20vh"
+          text "Three"
+      {}
+        box height="0vh" overflow="hidden"
+          row height=44
+            text "Hidden"
+        row height=44
+          text "Shown"
+"##,
+        route("cap"),
+        route("min"),
+        route("clamp"),
+        route("rests"),
+        route("margins"),
+        route("zero")
+    );
+    settles(
+        &src,
+        &[
+            ("cap", 44.0),
+            ("min", 300.0),
+            ("clamp", 200.0),
+            ("rests", 44.0),
+            ("margins", 44.0 + 4.0 + 44.0),
+            ("zero", 44.0),
+        ],
+    );
+}
+
+/// Astra's and Grok's r6: widths in a height unit follow no sheet either,
+/// through an aspect ratio or the route's own published width.
+#[test]
+fn widths_in_height_units_follow_no_sheet() {
+    let src = r##"component Menu
+  view
+    column position="relative" width="100%" height="100%"
+      column testId="floor" navigationDetent="fit-content" display="block" position="absolute" top=0 right=0 bottom=0 left=0
+        box width=300 max-width="max(100px, calc(-100vh + 400px))" aspect-ratio=1
+      column testId="ratio" navigationDetent="fit-content" position="absolute" top=0 right=0 bottom=0 left=0
+        box width="100%" max-width="50vh" aspect-ratio=1
+      column testId="own" navigationDetent="fit-content" position="absolute" top=0 right=0 bottom=0 left=0 max-width="50vh" padding-left="10vh"
+        text "Twenty-six letters wrap at each width the route is given, so its height follows that width."
+"##;
+    // The text wraps in three 19.2-point lines at the parent's 390 points.
+    settles(
+        src,
+        &[("floor", 100.0), ("ratio", 390.0), ("own", 3.0 * 19.2)],
+    );
 }
