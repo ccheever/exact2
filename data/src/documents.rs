@@ -43,7 +43,9 @@ pub fn mint(real: &Path, owner: u64) -> Option<String> {
     // on a Mac); a file that does not exist yet (a save) keeps its spelling.
     let canonical = std::fs::canonicalize(real).ok();
     let real = canonical.as_deref().unwrap_or(real);
-    let name = real.file_name()?.to_string_lossy().into_owned();
+    // The relative leaf must name the selected entry exactly. Lossy conversion
+    // could instead read or overwrite a different file containing U+FFFD.
+    let name = real.file_name()?.to_str()?.to_owned();
     if name.is_empty() || name == "." || name == ".." {
         return None;
     }
@@ -108,7 +110,7 @@ pub fn open_route(path: &str, owner: u64) -> Option<String> {
     if std::fs::metadata(&real).ok()?.is_dir() {
         return mint(&real, owner);
     }
-    let name = real.file_name()?.to_string_lossy().into_owned();
+    let name = real.file_name()?.to_str()?.to_owned();
     mint(real.parent()?, owner).map(|folder| format!("{folder}/{name}"))
 }
 
@@ -264,6 +266,29 @@ mod tests {
         );
         forget(7003);
         drop((old_dir, new_dir));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn a_selected_name_that_is_not_utf8_never_addresses_its_lossy_spelling() {
+        use std::ffi::OsString;
+        use std::os::unix::ffi::OsStringExt;
+        let root = std::env::temp_dir().join(format!("exact-docs-name-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let invalid = root.join(OsString::from_vec(b"note-\xff.md".to_vec()));
+        let other = root.join("note-\u{fffd}.md");
+        // Apple's filesystem rejects these names itself. Still test a save
+        // selection there; Unix filesystems that admit the name test opening it.
+        #[cfg(not(target_vendor = "apple"))]
+        std::fs::write(&invalid, "selected").unwrap();
+        std::fs::write(&other, "different").unwrap();
+        assert!(mint(&invalid, 7004).is_none());
+        assert!(open_route(invalid.to_string_lossy().as_ref(), 7004).is_some());
+        // The valid spelling explicitly chooses the different file; the raw
+        // selected filename above must not silently alias it.
+        assert_eq!(std::fs::read_to_string(&other).unwrap(), "different");
+        forget(7004);
         std::fs::remove_dir_all(root).unwrap();
     }
 }
