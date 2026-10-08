@@ -16,7 +16,7 @@ import { reconnectOnLaunch, launchFocus, primaryTakesFocus } from './r8-pointer-
 import { adoptSidebarPrefs } from './sidebar-state';
 import { PROVIDER_OPS } from './providers';
 import { CONNECTION_OPS } from './connections';
-import { READ_OPS, WRITE_OPS, runOps, type OpOut } from './client-ops';
+import { READ_OPS, WRITE_OPS, runOps, type OpOut, type ProvidersRoute } from './client-ops';
 import { groupingModes, message, projectPath } from './client-shared';
 import { letGo } from './let-go';
 import { fleet } from './settings-b-fleet';
@@ -623,7 +623,7 @@ export class T3Client {
       threadId: str(payload.threadId), text: str(payload.text), uncertain: false }, beforeRequest);
   }
 
-  async command(op: string, id: string, value: string, n: number, native: Native | null | undefined, storage: Files): Promise<{ revision: number; message: string }> {
+  async command(op: string, id: string, value: string, n: number, native: Native | null | undefined, storage: Files, providers?: ProvidersRoute): Promise<{ revision: number; message: string }> {
     if (!native?.available) return { revision: ++this.revision, message: 'Open this app on macOS to connect to T3 Code.' };
     const local = ['draft', 'answer', 'choice', 'previous-question', 'search', 'sidebar', 'dismiss-error', 'close-diff', 'favorite-model', 'copy-message', 'grouping-mode', 'grouping-override', 'device-setting', 'setting-snapshot', 'remove-snapshot', 'snapshot-preview-sound', 'snapshot-shortcut-record', 'snapshot-shortcut-save', 'copy-diagnostic'].includes(op) || op.startsWith('restlocal:') || op.startsWith('chatlocal:') || op.startsWith('editorlocal:') || op.startsWith('shelllocal:') || op.startsWith('cclocal:') || op.startsWith('sidebarlocal:') || op.startsWith('themelocal:') || op.startsWith('pageslocal:') || op.startsWith('terminallocal:') || op.startsWith('terminalpanellocal:') || DIFF_LOCAL_OPS.includes(op);
     const epoch = local ? this.commandEpoch : ++this.commandEpoch;
@@ -634,13 +634,13 @@ export class T3Client {
       native = this.ownedNative(native, () => epoch === this.commandEpoch);
     }
     let resultMessage = '';
-    const out: OpOut = { message: '', id, value }; // an area's ops hand back their message (client-ops.ts)
+    const out: OpOut = { message: '', id, value, providers }; // an area's ops hand back their message (client-ops.ts)
     try {
       await this.load(storage);
       await this.raw(native, { op: 'devicePresentation', ...this.local.deviceSettings, confirmQuit: quitMode(this.local), rootFontSize: clampInterfaceFontSize((this.local as { clientSettings?: { fontSizeInterface?: unknown } }).clientSettings?.fontSizeInterface) });
       if (await runOps(this, READ_OPS, op, id, value, n, native, storage, out)) ({ message: resultMessage, id, value } = out);
       else {
-        this.requireWrite();
+        if (providers) providers.requireWrite(); else this.requireWrite(); // a provider write on another environment needs that one's session
         if (await runOps(this, WRITE_OPS, op, id, value, n, native, storage, out)) ({ message: resultMessage, id, value } = out);
         else throw new ClientError(`Unknown action: ${op}`);
       }

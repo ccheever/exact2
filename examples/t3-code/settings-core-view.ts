@@ -8,6 +8,7 @@ import { appearanceSections, fontStack, modeTiles, palette } from './settings-ap
 import { breadcrumbLabel, scopeAvailable, searchTargetScope } from './settings-search';
 import type { CustomTheme } from './settings-themes';
 import { scopeMachine, singleEnvironmentRoute } from './settings-b-scope';
+import { isPrimaryEnvironment } from './local-primary';
 import { backgroundDialog } from './settings-a-background';
 import { archiveConfirmation } from './settings-a-archive';
 import { editorView, previewTheme, syncDraft } from './settings-appearance-editor';
@@ -25,14 +26,29 @@ const keyedLabel = (label: string) => ({ id: `label:${label}`, label, mark: '', 
 const DEVICE_ONLY = new Set(['appearance', 'snap-shot', 'connections']);
 const EDITOR_KINDS = new Set(['create', 'edit', 'duplicate']);
 
-export async function settingsCore(client: T3Client, native: Native | null | undefined, machine: string, projectKeyInput: string, checkoutInput: string, legacyProjectId: string, route: string, target: string, active: boolean, dialogKind = '', dialogSubject = '', deliveryStream = 'embedded', deliveryStaged = false) {
-  rememberDelivery(client, deliveryStream, deliveryStaged); // settings-a-about.ts
-  // Other routes' own scope buttons pick one physical checkout; read that as the checkout axis.
+/**
+ * The settings shell's resolved scope (SettingsScopeContext useResolvedSettingsScope). Other routes' own scope
+ * buttons pick one physical checkout, read as the checkout axis. Providers is single-environment (settings-b):
+ * with no machine chosen it takes selectSingleEnvironmentScope's, so its sentence and its page name one environment.
+ */
+export function settingsScopeOf(client: T3Client, route: string, machine: string, projectKeyInput: string, checkoutInput: string, legacyProjectId: string) {
   const legacyGroup = !projectKeyInput && legacyProjectId ? client.projectGroups().find(group => group.members.some(member => member.id === legacyProjectId)) : undefined;
   const projectKey = legacyGroup ? legacyGroup.key : projectKeyInput, checkout = legacyGroup ? legacyProjectId : checkoutInput;
+  const chosen = resolveScope(client, machine, projectKey, checkout);
+  const machineAxis = scopeMachine(client, route, machine, chosen.kind === 'unavailable' ? [] : chosen.selected);
+  return { projectKey, checkout, scope: machineAxis === machine ? chosen : resolveScope(client, machineAxis, projectKey, checkout) };
+}
+
+/** SettingsScopeContext's `environment`: the scope's connected environment, the primary first (its setup links and Providers name it). */
+export function scopeRepresentative(scope: ReturnType<typeof resolveScope>) {
+  const connected = scope.selected.filter(environment => environment.connection.phase === 'connected' && environment.serverConfig !== null);
+  return connected.find(candidate => isPrimaryEnvironment(candidate.environmentId)) ?? connected[0];
+}
+
+export async function settingsCore(client: T3Client, native: Native | null | undefined, machine: string, projectKeyInput: string, checkoutInput: string, legacyProjectId: string, route: string, target: string, active: boolean, dialogKind = '', dialogSubject = '', deliveryStream = 'embedded', deliveryStaged = false) {
+  rememberDelivery(client, deliveryStream, deliveryStaged); // settings-a-about.ts
+  const { projectKey, checkout, scope } = settingsScopeOf(client, route, machine, projectKeyInput, checkoutInput, legacyProjectId);
   const prefs: ClientPrefs = (client.local as unknown as { clientSettings?: ClientPrefs }).clientSettings || decodeClientPrefs({});
-  const machineAxis = scopeMachine(client, route, machine); // settings-b: Providers is single-environment
-  const scope = resolveScope(client, machineAxis, projectKey, checkout);
   const project = scope.kind === 'project' || scope.kind === 'checkout';
   const files = active && project && (route === 'general' || route === 'projects') ? await memberFiles(client, native, scope.members, scope) : new Map<string, Obj | null>();
   const context = serverContext(client, scope, files);
@@ -56,7 +72,8 @@ export async function settingsCore(client: T3Client, native: Native | null | und
   const wanted = target ? searchTargetScope(target) : null;
   const notice = wanted && scope.kind !== 'unavailable' && !scopeAvailable(wanted.scope, scope.kind) ? `${wanted.title} is not available for the selected target. Choose its owning scope to continue.` : '';
   const unavailableMessage = scope.kind === 'unavailable' ? scope.message
-    : scope.kind === 'environment' && !client.ready ? `Reconnect ${scope.environmentLabel} to change its settings.` : '';
+    // Providers shows the chosen environment's own connection (providers-scope.ts); the other routes read the focused one.
+    : scope.kind === 'environment' && !(singleEnvironmentRoute(route) ? scope.connected : client.ready) ? `Reconnect ${scope.environmentLabel} to change its settings.` : '';
   return {
     ready: active, route, breadcrumb: breadcrumbLabel(route), showScope: !DEVICE_ONLY.has(route), kind: scope.kind, message: unavailableMessage, notice,
     environmentLabel: scope.environmentLabel, projectLabel: scope.projectLabel, projectMark: scope.projectMark, projectInk: scope.projectInk, projectSurface: scope.projectSurface,
@@ -64,6 +81,8 @@ export async function settingsCore(client: T3Client, native: Native | null | und
     environmentChoices: singleEnvironmentRoute(route) ? scope.environmentChoices.filter(choice => choice.id) : scope.environmentChoices, environmentIcon: scope.environmentIcon, projectChoices: scope.projectChoices,
     environmentKeyed: [keyedLabel(scope.environmentLabel)], projectKeyed: [keyedLabel(scope.projectLabel)],
     representative: String(scope.members[0]?.id ?? ''), scopeKey: `${machine}|${projectKey}|${checkout}`,
+    // A setup link inside Settings opens Providers on this environment (ProjectDefaultsSettings.tsx:60-62, 168-173; SettingsPanels.tsx:3260-3266); '' offers none.
+    scopeEnvironment: scope.kind === 'unavailable' ? '' : scopeRepresentative(scope)?.environmentId ?? '',
     sections, projectModel, restoreCount: labels.length, restoreText: labels.length ? `This will reset: ${labels.join(', ')}.` : '',
     appearanceMode: device.appearanceMode, tiles: modeTiles(device.appearanceMode, prefs, custom), themes: libraryCards(prefs, custom, removalPicks(client, dialogKind === 'remove' ? dialogSubject : '')), typographyAdvanced: prefs.typographyAdvanced, themeLight: prefs.themeLight,
     palette: palette(paintPrefs, paintCustom, device.appearanceMode), editor: editorView(draft), themeImport: importView(client), interfaceFont: fontStack(prefs.fontFamilySans, false) ?? 'system-ui', codeFont: fontStack(prefs.fontFamilyCode, true) ?? 'ui-monospace', interfaceSize: prefs.fontSizeInterface, codeSize: prefs.fontSizeCode, codePreview: fontDiffPreview(prefs.diffColorScheme),
