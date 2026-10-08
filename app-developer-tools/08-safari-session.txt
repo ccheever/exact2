@@ -1,0 +1,18 @@
+app-developer-tools: Safari Develop menu row, real-input session (2026-10-08)
+
+20:22:58 KST  real-input lock taken (owner "app-developer-tools: Safari Develop menu rows"), after fix-hover-cards (#307)
+              released it; screen unlocked (no CGSSessionScreenIsLocked key).
+20:23        Safari was not running. `open -a Safari` (pid 30798; it opened a Start Page window).
+              Read back the menu bar with System Events (accessibility):
+              osascript -e 'tell application "System Events" to tell process "Safari" to get name of every menu bar item of menu bar 1'
+              -> Apple, Safari, File, Edit, View, History, Bookmarks, Window, Help
+              There is no Develop menu: Safari's web developer features (Settings > Advanced > "Show features for web
+              developers") are off on this Mac.
+20:23:32     screencapture of the menu bar (07-safari-no-develop-menu.png, cropped to Safari's menus; the right side, which
+              shows the user's own menu bar extras, was cut off).
+20:23:40     Safari quit (it was not running before); lock released 20:23:42.
+
+Not done, by instruction: Safari's setting was not changed. Turning on the web developer features is the user's decision.
+The two Develop-menu rows (the development copy listed, the release copy not listed) and the in-app t3.inspection
+read back wait for that approval. The lane copies are ready under target/devtools/lane/apps/ (task record "Real-input
+batch steps"). The clone app was not launched in this session.
