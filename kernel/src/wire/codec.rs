@@ -711,7 +711,7 @@ mod tests {
         // schema. The literal makes an accidental removal of that coupling a
         // test failure whenever the byte snapshot above is intentionally moved.
         // Recomputed when the schema changes; the digest test prints the value.
-        assert_eq!(SCHEMA_DIGEST, 0x1475_11c5_ed63_ffcb);
+        assert_eq!(SCHEMA_DIGEST, 0x4859_7edd_2044_3b7e);
     }
 
     #[test]
@@ -853,7 +853,8 @@ mod tests {
             r.dimension(StyleId::Width, true),
             Err(DecodeError::InvalidComparison)
         );
-        assert!(r.position() < 7 + 2 + 64 * 5, "read {} bytes", r.position());
+        // The 65th node is refused before its tag: inside the first inner min().
+        assert_eq!(r.position(), 7 + 2 + 62 * 5);
     }
 
     #[test]

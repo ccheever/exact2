@@ -336,6 +336,19 @@ fn a_size_or_padding_comparison_never_resolves_below_zero() {
     // A negative viewport length has no floor: wrapped.
     let vw = text(StyleId::Width, "min(-10vw, 4px)").unwrap();
     assert_eq!(css(vw), "max(0px, min(-10vw, 4px))");
+    // A wrap whose written CSS would pass the parser's limits is refused:
+    // each `calc(env(…) - 1px)` is one node held but two terms written.
+    let near = format!(
+        "min({})",
+        vec!["calc(env(safe-area-inset-top) - 1px)"; 21].join(", ")
+    );
+    assert!(text(StyleId::MarginTop, &near).is_ok());
+    match text(StyleId::Width, &near) {
+        Err(StyleValueError::BadComparison { reason, .. }) => {
+            assert!(reason.contains("max(0px"), "{reason}")
+        }
+        other => panic!("{other:?}"),
+    }
     // Margins and insets keep CSS's negative lengths.
     for row in [StyleId::MarginLeft, StyleId::Top, StyleId::Cx] {
         assert_eq!(

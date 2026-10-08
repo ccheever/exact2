@@ -471,30 +471,7 @@ impl StyleValue {
         style: StyleId,
         admits_auto: bool,
     ) -> Result<Dimension, StyleValueError> {
-        // The rows CSS gives no negative length: sizes, padding, radii, an
-        // SVG radius and a column's width (margins and insets take one).
-        let nonnegative = matches!(
-            style,
-            StyleId::Width
-                | StyleId::Height
-                | StyleId::MinWidth
-                | StyleId::MinHeight
-                | StyleId::MaxWidth
-                | StyleId::MaxHeight
-                | StyleId::PaddingTop
-                | StyleId::PaddingRight
-                | StyleId::PaddingBottom
-                | StyleId::PaddingLeft
-                | StyleId::FlexBasis
-                | StyleId::BorderRadiusTopLeft
-                | StyleId::BorderRadiusTopRight
-                | StyleId::BorderRadiusBottomRight
-                | StyleId::BorderRadiusBottomLeft
-                | StyleId::R
-                | StyleId::Rx
-                | StyleId::Ry
-                | StyleId::ColumnWidth
-        );
+        let nonnegative = compare::no_negative_lengths(style);
         let value = match self {
             StyleValue::Number(n) if (*n as f32).is_finite() => Ok(Dimension::Points(*n as f32)),
             StyleValue::Percent(p) if (*p as f32).is_finite() => Ok(Dimension::Percent(*p as f32)),

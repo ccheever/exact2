@@ -11,7 +11,7 @@
 //! @ref LLP 1001 §2 (the environment; comparisons, 2026-10-07)
 
 use super::{absolute_length, env, parse_pixel_length, viewport, Dimension, Edge, Env};
-use super::{EnvRefusal, ViewportUnit};
+use super::{EnvRefusal, StyleId, ViewportUnit};
 use crate::error::DecodeError;
 use crate::wire::codec::{Reader, Writer};
 use std::collections::HashMap;
@@ -582,6 +582,33 @@ fn token_length(token: &str) -> Result<Val, &'static str> {
     Err(refusal::NOT_A_LENGTH)
 }
 
+/// Whether a row takes no negative length in CSS: sizes, padding, radii, an
+/// SVG radius and a column's width (margins and insets take one).
+pub(super) fn no_negative_lengths(style: StyleId) -> bool {
+    matches!(
+        style,
+        StyleId::Width
+            | StyleId::Height
+            | StyleId::MinWidth
+            | StyleId::MinHeight
+            | StyleId::MaxWidth
+            | StyleId::MaxHeight
+            | StyleId::PaddingTop
+            | StyleId::PaddingRight
+            | StyleId::PaddingBottom
+            | StyleId::PaddingLeft
+            | StyleId::FlexBasis
+            | StyleId::BorderRadiusTopLeft
+            | StyleId::BorderRadiusTopRight
+            | StyleId::BorderRadiusBottomRight
+            | StyleId::BorderRadiusBottomLeft
+            | StyleId::R
+            | StyleId::Rx
+            | StyleId::Ry
+            | StyleId::ColumnWidth
+    )
+}
+
 /// A comparison's length on a row that refuses a negative one (a size, a
 /// padding, a radius), never below zero, as CSS clamps a math function to the
 /// property's range (CSS Values 4 §10.12): folded points at 0 or more, a
@@ -607,7 +634,18 @@ pub(super) fn at_least_zero(d: Dimension) -> Result<Dimension, &'static str> {
     if !wrapped.well_formed() {
         return Err(refusal::NONNEGATIVE);
     }
-    Ok(Dimension::Compare(Comparison::intern(wrapped)))
+    // Its written CSS must read back to it: a folded `calc()` is two of the
+    // parser's terms, so a wrap near the limit can be one only the store holds.
+    let held = Dimension::Compare(Comparison::intern(wrapped));
+    let Dimension::Compare(c) = held else {
+        unreachable!()
+    };
+    let mut text = String::new();
+    c.css(&mut text);
+    if parse(&text) != Ok(Some(held)) {
+        return Err(refusal::NONNEGATIVE);
+    }
+    Ok(held)
 }
 
 /// Whether a length text names a comparison function, so [`parse`] reads it.
