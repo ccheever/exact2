@@ -115,3 +115,4 @@ command."
   does not cover the clone's own web views; #326 follows its release line, and adopting #309 needs no clone change.
 - Verified 2026-10-08 with real input (user-approved Safari setting, off again afterwards): Safari's Develop menu lists the
   development copy's terminal page and not the release copy (`app-developer-tools` record, evidence 09–12).
+- [#327](https://github.com/ccheever/exact2/pull/327) audit (open on main, 2026-10-08): "existing ready PR #309", now merged on main (`f2f0e7092`): development-only `isInspectable` on Exact's own iframe web views, release-gated; the issue stays open. The clone's own module web views still need the clone-side gate (`app-developer-tools`).

@@ -84,3 +84,11 @@ while T3 Code shows the page alone on Chromium's #282828 surface fitted to the p
 ## Rest filed upstream (2026-10-08)
 
 Upstream (the rest): https://github.com/ccheever/exact2/issues/273 (#273, [Design] Show a PDF: an `iframe` of an `app:/` file, and a PDF element fitted to its width (rest of #115)). Reproduced on main `0365ad1a4` (relevant files unchanged on main `e200397ec`) before filing: a PDF the data module wrote to `app:/data/media/doc.pdf`: the web's `iframe` becomes `about:blank`, macOS's stays blank, and both still fire `load`; a bundled `assets/doc.pdf` shows on both; `object`/`embed` are not tags. One "Decision needed" comment (`rules/DEFERRED.md:427-431`). Searched open and closed issues and PRs: no duplicate.
+
+## Decided upstream (2026-10-08): the PDF view is a declared difference
+
+[Charlie on #273](https://github.com/ccheever/exact2/issues/273#issuecomment-6055587160): "Add scoped app:/ iframe loading first; defer a separate PDF element. … Keep fitted PDF UI in a
+module until a separate consumer-driven design is selected."
+- **Declared difference (permanent):** `PDFView` in `R6MediaPreview.swift` (the page alone, fitted to the width, on
+  #282828) stays. The clone's PDF is the server's signed `http` URL, so an `app:/` iframe does not apply.
+- [#327](https://github.com/ccheever/exact2/pull/327) audit (open on main, 2026-10-08): approved scoped `app:/` iframe; the fitted PDF surface stays deferred.
