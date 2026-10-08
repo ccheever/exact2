@@ -918,6 +918,12 @@ fn execute(
             FailureKind::Timeout,
             format!("the request timed out after {} ms", timeout.unwrap_or(0)),
         ),
+        // @ref LLP 1109 D3 — a response over its size limit is the host
+        // refusing it (`refused`), as the event stream, the socket and the
+        // web say; ibex2 spells the overflow one way on every transport.
+        Err(e) if !abort.signal().aborted() && e == ibex2::stdlib::fetch::over_limit(limit) => {
+            failed(FailureKind::Refused, "HTTP response exceeds limit")
+        }
         Err(e) => fetch_failure(e, abort),
     }
 }

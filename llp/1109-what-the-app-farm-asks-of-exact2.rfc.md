@@ -48,8 +48,10 @@
   storage refusal let through) and `error` (everything else, a source's
   own error among them); `runner/src/failure.rs` and
   `docs/contract-grammar.md` hold the table. A response over its size
-  limit still has a different transport kind on Apple's event stream
-  (QUEUE).
+  limit is `refused` on every host (2026-10-08: it was `offline` on the
+  web's and Apple's plain HTTP, `refused` on Apple's event stream; the
+  server answered, so `offline`'s "reached no server" is wrong, and a
+  retry gets the same answer).
 
 ## 0. Summary
 

@@ -6,7 +6,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { spawn, spawnSync } from 'node:child_process';
 import { Worker } from 'node:worker_threads';
 import { Cdp } from '../../scripts/agent.mjs';
-import { request } from './http-body.js';
+import { boundedHttpBody, request } from './http-body.js';
 import { deferredFulfill, refusal } from './navigation.js';
 import { admitsNetwork, coversPath, createGrantSet, grantError, sameGrantDeclaration, scopedGrantSet } from './grant-admission.js';
 import { createRequestExecutor, createSecretFacade, fetchWith } from '../web-js/admission.js';
@@ -84,6 +84,28 @@ test('wasm and JS request executors refuse outside origins and redirects, and ad
     }
     expect(destinationHits).toBe(2);
   } finally { origin.stop(true); destination.stop(true); grantedDestination.stop(true); }
+});
+
+// LLP 1109 D3: a response over its size limit is the host refusing it (`failure(x)`'s `refused`) on every web
+// executor, as on Apple's: plain HTTP on the wasm host, a stream's one answer, and a Rust source's request on the JS
+// target.
+test('a response over its size limit is Refused on every web executor', async () => {
+  const origin = Bun.serve({ port: 0, fetch() { return new Response('x'.repeat(4096)); } });
+  const set = normalized(`net.fetch ${origin.url.origin}`);
+  const url = `${origin.url}big`;
+  try {
+    for (const op of [
+      { method: 'GET', url, headers: [], nativeHttp: 'independent', maxResponseBytes: 64 },
+      { method: 'GET', url, headers: [], stream: true, maxResponseBytes: 64 },
+    ]) {
+      const over = await request(op, { grantSet: set, controllers: new Set() });
+      expect([over.kind, text(over)]).toEqual([2, 'HTTP response exceeds limit']);
+    }
+    const within = await request({ method: 'GET', url, headers: [], nativeHttp: 'independent', maxResponseBytes: 4096 }, { grantSet: set, controllers: new Set() });
+    expect([within.kind, within.body.length]).toEqual([0, 4096]);
+    const rust = createRequestExecutor('test.app', set, boundedHttpBody);
+    expect(await rust({ method: 'GET', url, headers: [], maxResponseBytes: 64 })).toEqual({ failed: 2, message: 'HTTP response exceeds limit' });
+  } finally { origin.stop(true); }
 });
 
 test('a redirect rejected before the browser exposes a Response is the declared Network deviation', async () => {

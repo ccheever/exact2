@@ -587,7 +587,7 @@ Compiler intrinsics and special forms additionally include:
 | --- | --- |
 | `offline` | A request the source made reached no server (no connection, DNS, TLS, a reset, the driver's `fail fetch`) and the source let the rejection through |
 | `timeout` | A request's deadline (`exactTimeout`) passed, let through |
-| `refused` | The host refused a request outside the app's grants or admission limits, let through |
+| `refused` | The host refused a request outside the app's grants or limits (admission, or a response over its size limit), let through |
 | `shape` | The answer is outside the resource's declared shape |
 | `storage` | A storage call failed (a coded storage refusal: `denied`, `full`, `EBUSY`, a filesystem error, storage unavailable here), let through |
 | `error` | Anything else: the source's own error (a TypeScript `throw` or rejection, a Rust source's `Err`), an aborted request, a host that cannot make it, a module over its time budget |
@@ -597,8 +597,10 @@ rejection or did not catch it; an error the module makes of its own is
 `error`. An HTTP error status is an answer, never a failure: a module that
 throws on a 500 fails with `error`. A Rust source's own error is `error` on
 every host. A request the caller aborted is `error`. A response over its size
-limit is `offline` on the web and on Apple's plain HTTP (the transport reports
-it as a lost connection); Apple's event stream still says `refused` (QUEUE). A
+limit (`exactIndependentHttp.maxResponseBytes`, else the host's 64 MiB; a
+stream's event or message over its ceiling) is `refused` on every host: the
+server answered, and the host will not take more than the app said it would;
+asking again gets the same answer, which `offline` would not imply. A
 new code is a breaking change; branch with a default case.
 
 `Router`, `Tab`, `Entry`, and `Params` are introduced by routes. The compiler

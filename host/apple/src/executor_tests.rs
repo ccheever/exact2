@@ -464,13 +464,15 @@ fn response_ceiling_and_missing_continuations_fail_without_poisoning_the_lane() 
         None,
     )
     .unwrap();
-    assert!(matches!(
+    // A response over its size limit is Refused (`failure(x)`'s `refused`),
+    // with the web's words, as a stream's body over its ceiling is.
+    assert_eq!(
         collect(&core, &woke, 1)[0].1,
         Outcome::Failed {
-            kind: FailureKind::Network,
-            ..
+            kind: FailureKind::Refused,
+            message: "HTTP response exceeds limit".into(),
         }
-    ));
+    );
     core.run(job(2, Request::continuation(1)), None).unwrap();
     assert!(matches!(
         collect(&core, &woke, 1)[0].1,
