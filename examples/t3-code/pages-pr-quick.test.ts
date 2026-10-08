@@ -90,7 +90,9 @@ describe('the Shift quick actions (PullRequestSpeedActions)', () => {
     expect(rows(await page(client)).map(entry => entry.number)).toEqual([]);
   });
   test('Merge reads the detail around the cache and merges with the project default where the repository allows it', async () => {
-    const { client, calls } = fakeClient({ ...listOf(entry(8)), 'pullRequests.detail': () => detail(8), 'pullRequests.runAction': () => ({}) });
+    // No stack: the server answers null, which the client hands back as an empty record (the real-input session's find).
+    const { client, calls } = fakeClient({ ...listOf(entry(8)), 'pullRequests.detail': () => detail(8, { capabilities: { actions: ['merge'], mergeMethods: ['merge', 'squash', 'rebase'], stackActions: true } }),
+      'pullRequests.stack': () => ({}), 'pullRequests.runAction': () => ({}) });
     const [row] = rows(await page(client));
     await quick(client, row!, 'merge');
     expect(calls.find(call => call.method === 'pullRequests.detail')!.payload).toMatchObject({ number: 8, allowStale: false });
@@ -102,7 +104,7 @@ describe('the Shift quick actions (PullRequestSpeedActions)', () => {
       [{ isDraft: true }, {}, 'This pull request cannot be merged.'],
       [{ state: 'closed' }, {}, 'This pull request cannot be merged.'],
       [{ viewerPermissions: { actions: ['close'] } }, {}, 'This pull request cannot be merged.'],
-      [{ capabilities: { actions: ['merge'], mergeMethods: ['merge'], stackActions: true } }, { 'pullRequests.stack': () => ({ number: 120, layers: [] }) }, 'Open this pull request to merge its stack.'],
+      [{ capabilities: { actions: ['merge'], mergeMethods: ['merge'], stackActions: true } }, { 'pullRequests.stack': () => ({ number: 120, base: 'main', layers: [{ number: 9, headBranch: 'feature/9', state: 'open' }] }) }, 'Open this pull request to merge its stack.'],
       [{ mergeCapabilities: { merge: false, squash: false, rebase: false } }, {}, 'No merge method is available for this repository.'],
     ];
     for (const [over, extra, sentence] of cases) {

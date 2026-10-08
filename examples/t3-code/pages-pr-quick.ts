@@ -90,7 +90,8 @@ async function resolveMergeMethod(client: T3Client, native: Native, entry: Obj):
   if (detail.state !== 'open' || detail.isDraft === true || !names(obj(detail.capabilities).actions).includes('merge') || !names(obj(detail.viewerPermissions).actions).includes('merge')) {
     throw new Error('This pull request cannot be merged.');
   }
-  if (obj(detail.capabilities).stackActions === true && (await client.rpc(native, 'pullRequests.stack', reference)) !== null) throw new Error('Open this pull request to merge its stack.');
+  // The client hands an absent stack back as an empty record: decoded, it is null.
+  if (obj(detail.capabilities).stackActions === true && decodeStack(await client.rpc(native, 'pullRequests.stack', reference)) !== null) throw new Error('Open this pull request to merge its stack.');
   const allowed = allowedMergeMethods(detail);
   if (!allowed.length) throw new Error('No merge method is available for this repository.');
   return resolvePullRequestMergeMethod(allowed, null, projectDefaultMergeMethod(obj(client.config.settings), str(entry.projectId)), lastMergeMethod(client));
