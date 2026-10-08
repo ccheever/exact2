@@ -128,7 +128,7 @@ component MobileAddProject
           column align-items="center" gap=10.5 border-radius=14 background-color=colors.groupedCard padding-left=17.5 padding-right=17.5 padding-top=28 padding-bottom=28
             text "Environment unavailable" font-size=18 line-height="23px" font-weight=700 color=colors.foreground text-align="center"
             text "Start or reconnect an environment before adding a project." font-size=14 line-height="21px" color=colors.muted text-align="center"
-            button press=action(owner, data.id, "connections", "") border-radius=999 background-color=colors.primary margin-top=3.5 padding-left=14 padding-right=14 padding-top=8.75 padding-bottom=8.75 aria-label="Add environment" testId="add-project-environment"
+            button retainFocus=true press=action(owner, data.id, "connections", "") border-radius=999 background-color=colors.primary margin-top=3.5 padding-left=14 padding-right=14 padding-top=8.75 padding-bottom=8.75 aria-label="Add environment" testId="add-project-environment"
               text "Add environment" font-size=14 line-height="19px" font-weight=700 color=colors.primaryForeground
         when data.name == "addProject" and data.showMachines
           AddProjectSectionTitle(title="ENVIRONMENTS", colors=colors)
@@ -154,7 +154,7 @@ component MobileAddProject
               AddProjectMachines(owner=owner, data=data, colors=colors, edit=edit)
             when data.showPublish
               column border-radius=24 overflow="hidden" background-color=colors.groupedCard
-                button press=publish(not data.publish) disabled=(data.busy or data.uncertain) text-align="left" padding=0 aria-label=data.publishLabel testId="add-project-publish-row"
+                button retainFocus=true press=publish(not data.publish) disabled=(data.busy or data.uncertain) text-align="left" padding=0 aria-label=data.publishLabel testId="add-project-publish-row"
                   row padding-left=12.25 padding-right=12.25 padding-top=8.75 padding-bottom=8.75 align-items="center" gap=10.5
                     column width=24.5 height=24.5 flex-shrink=0 align-items="center" justify-content="center"
                       AddProjectProviderIcon(source="github", color=colors.icon)
@@ -162,7 +162,7 @@ component MobileAddProject
                       text data.publishLabel font-size=16 line-height="22px" font-weight=700 color=colors.foreground
                       text data.publishSubtitle font-size=14 line-height="19.25px" color=colors.muted line-clamp=2
                     input type="checkbox" switch checked=data.publish change=publish disabled=(data.busy or data.uncertain) aria-label=data.publishLabel accent-color=colors.switchOn background-color=colors.switchOff margin=0 testId="add-project-publish"
-          button press=action(owner, data.id, "submit", "") disabled=data.primaryDisabled aria-label=data.primaryLabel testId="add-project-submit" height=42 box-sizing="border-box" padding=0 border-radius=999 background-color=colors.primary opacity=(data.primaryDisabled ? 0.45 : 1)
+          button retainFocus=true press=action(owner, data.id, "submit", "") disabled=data.primaryDisabled aria-label=data.primaryLabel testId="add-project-submit" height=42 box-sizing="border-box" padding=0 border-radius=999 background-color=colors.primary opacity=(data.primaryDisabled ? 0.45 : 1)
             when data.busy
               t3-archive-spinner spinner-tint=colors.primaryForeground width=20 height=20
             when not data.busy
@@ -229,7 +229,7 @@ component AddProjectRow
     press: action
     target: string
   view
-    button press=press disabled=disabled aria-label=title testId=target text-align="left" padding=0 background-color=colors.groupedCard border-top-width=(separated ? 1 : 0) border-top-style="solid" border-top-color=colors.borderSubtle opacity=(disabled ? 0.45 : 1)
+    button retainFocus=true press=press disabled=disabled aria-label=title testId=target text-align="left" padding=0 background-color=colors.groupedCard border-top-width=(separated ? 1 : 0) border-top-style="solid" border-top-color=colors.borderSubtle opacity=(disabled ? 0.45 : 1)
       row padding-left=12.25 padding-right=12.25 padding-top=8.75 padding-bottom=8.75 gap=10.5 align-items="center"
         column width=24.5 height=24.5 flex-shrink=0 align-items="center" justify-content="center" border-radius=999 background-color=(selected ? colors.primary : "transparent")
           when source == ""
