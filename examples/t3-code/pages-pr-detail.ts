@@ -39,6 +39,8 @@ import { markStackDue, readPanelStack } from './pages-pr-stack';
 import { emptyHandoffs, presentHandoffs, prHandoffCommand } from './pages-pr-handoffs'; // pr-handoffs-and-quick-actions
 import { runQuickAction } from './pages-pr-quick';
 import { finishCheckoutHandoff } from './r6-pr-actions';
+import { codeThreadContext, draftSelection, emptyCode, presentCode, prCodeLocal, readCode, threadCommand } from './pages-pr-code'; // pr-code-tab
+import { prSelectionHandoff } from './pages-pr-handoffs';
 
 export type PrSelection = { projectId: string; host: string; repository: string; number: number };
 /** The row key the list wears, parsed back into the reference a read needs. */
@@ -98,6 +100,8 @@ export function emptyDetail() {
     actions: emptyActions(),
     // pr-handoffs-and-quick-actions: which hand-off is preparing, whether the pull request can be checked out, whose it is beside a thread.
     handoffs: emptyHandoffs(),
+    // pr-code-tab: the Code tab (pages-pr-code.ts), drawn once opened for this pull request.
+    codeTab: emptyCode(),
   };
 }
 export type PrDetailView = ReturnType<typeof emptyDetail>;
@@ -126,7 +130,7 @@ const due = (panel: Panel) => panel.detailDue || (panel.activityDue && !!(panel.
 const messageOf = (error: unknown) => (error instanceof Error && error.message.trim() ? error.message : 'The environment request failed.');
 
 /** `returns`: the window focused again (app.contract `windowReturned`, which reads the clock then; pr-list-live-refresh). */
-export type DetailInput = { selected: string; refresh: number; now: number; visible?: boolean; returns?: number };
+export type DetailInput = { selected: string; refresh: number; now: number; visible?: boolean; returns?: number; tab?: string };
 export async function pullRequestDetail(client: T3Client, native: Native | null | undefined, input: DetailInput, storage?: Files): Promise<PrDetailView> {
   const view = emptyDetail();
   view.md = markdownEnv(client); view.diffScheme = diffSchemeOf(client);
@@ -176,6 +180,10 @@ export async function pullRequestDetail(client: T3Client, native: Native | null 
   // Then, once the detail says the host keeps stacks, the stack (one native request at a time: an answer burst can
   // fill the native executor's ordered lane, host/apple/src/executor_core.rs COUNTS).
   if (display) await readPanelStack(client, native!, panel.key, display, panel.reference);
+  // pr-code-tab: the Code tab's reads once it was opened (the ticks, the slice owed, the contents asked for).
+  if (display && await readCode({ client, native: native!, reference: writeReference(selection), detail: display, activity: panel.activity, tab: input.tab ?? '', refresh: input.refresh }) === 'wake') {
+    return wake(client, native!, present(view, panel, selection, listEntry, input.now, client), panel);
+  }
   shown.set(client, phaseOf(panel));
   return present(view, panel, selection, listEntry, input.now, client);
 }
@@ -240,7 +248,9 @@ function present(view: PrDetailView, panel: Panel | null, selection: PrSelection
   const remark = (comment: Obj): RemarkWrites => ({ ...commentEditing(client, reference, display, comment), ...reactionPills(client, reference, str(comment.id), comment.reactions) });
   presentDetail(view, display, panel!.activity, now, { activityPending, activityError: panel!.activity ? '' : panel!.activityError, listEntry, remark });
   view.writes = presentWrites(client, reference, display);
-  view.bodies = [...view.bodies, ...previewBodies(client, reference)];
+  const code = presentCode({ client, reference, detail: display, activity: panel!.activity, now }); // pr-code-tab
+  view.codeTab = code.view;
+  view.bodies = [...view.bodies, ...previewBodies(client, reference), ...code.bodies];
   view.copiedCheckout = copyNonce(client, view.checkoutCommand); view.copiedBranch = copyNonce(client, view.headBranch);
   view.actions = presentActions(client, { ...panelContext(client, panel!, view.ref, listEntry), checksState: view.summary.checksState || null, checksStale: view.summary.checksStale,
     refreshing: !!panel!.detail && panel!.detailDue, threadLinks: client.shell.threads.flatMap(thread => arr(thread.pullRequests)) });
@@ -377,6 +387,16 @@ export async function prCommand(client: T3Client, native: Native, op: string, se
     const ctx = contextOf(client, selected)!, panel = panelsOf(client).get(ctx.key);
     return prHandoffCommand(client, native, { detail: ctx.detail, activity: panel?.activity ?? null, listEntry: ctx.listEntry }, value);
   }
+  // pr-code-tab: the Code tab's conversations (reply, resolve, edit, more) and "Add to agent".
+  if (op.startsWith('thread-')) {
+    const ctx = contextOf(client, selected)!, panel = panelsOf(client).get(ctx.key);
+    return threadCommand(codeThreadContext(client, native, writeReference(selection), () => panel?.activity ?? null, () => stale(client)), op.slice(7), value);
+  }
+  if (op === 'code-agent') {
+    const ctx = contextOf(client, selected)!, bar = value.indexOf('|');
+    const comment = ctx.detail ? draftSelection(client, writeReference(selection), ctx.detail, bar < 0 ? value : value.slice(bar + 1)) : null;
+    return comment && ctx.detail ? prSelectionHandoff(client, native, ctx.detail, bar < 0 ? 'page' : value.slice(0, bar), comment, bar < 0 ? value : value.slice(bar + 1)) : '';
+  }
   if (isActionOp(op)) {
     // pr-header-actions-and-stacks: the host actions run through one runner (pages-pr-actions.ts).
     return prActionCommand(client, native, op, contextOf(client, selected)!, value);
@@ -403,4 +423,12 @@ export async function prLocalWrite(client: T3Client, native: Native, op: string,
   if (!selection || !LOCAL_WRITES.has(op)) return '';
   const panel = panelsOf(client).get(JSON.stringify([client.environmentId, selectionRef(selection)])) ?? null;
   return (await prWrite({ client, native, reference: writeReference(selection), panel, refresh: () => stale(client), now: composerNow(client) }, op, value)) ?? '';
+}
+
+/** `chatlocal:pr-code-*`: the Code tab's presses for the selected pull request (pages-pr-code.ts). */
+export function prCodeLocalFor(client: T3Client, native: Native, op: string, selected: string, value: string): Promise<string> {
+  const selection = parseSelection(selected);
+  if (!selection) return Promise.resolve('');
+  const panel = panelsOf(client).get(JSON.stringify([client.environmentId, selectionRef(selection)]));
+  return prCodeLocal({ client, native, reference: writeReference(selection), detail: panel?.detail ?? panel?.cached ?? null }, op, value);
 }
