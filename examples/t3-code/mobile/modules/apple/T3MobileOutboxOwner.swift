@@ -45,6 +45,20 @@ final class T3MobileOutboxOwner: @unchecked Sendable {
         if let revision = request["expectedRevision"] as? Int, revision != row.revision { return false }
         return true
     }
+    /// The journal owner holds this same mutex until its handoff is saved. Cache
+    /// admission/read has already established durability; visible files alone do not.
+    func draftRemovalEvidenceLocked(_ request: Object, record: Object) throws {
+        guard loaded, errors.isEmpty, let id = request["messageId"] as? String,
+              let mutation = request["mutationId"] as? String, request["operation"] as? String == "remove",
+              unresolved[id] == nil, !uncertainResults.contains(mutation),
+              !accepted.values.contains(where: { $0["messageId"] as? String == id }),
+              let receipt = (cache[id]?["outcomes"] as? [String: Object])?[mutation],
+              receipt["request"] as? String == (try fingerprint(request)),
+              let result = receipt["result"] as? Object, result["status"] as? String == "committed",
+              result["record"] is NSNull, T3MobileOutbox.jsonEqual(result["removed"], record) else {
+            throw fail("Resolve this exact draft removal before completing its attachment handoff.")
+        }
+    }
     /// Caller holds the coordinator mutex through journal persistence. Never reacquire it here.
     func deliveryRecordLocked(_ request: Object) throws -> Object {
         guard loaded, errors.isEmpty, request["ownerEpoch"] as? String == epoch,
