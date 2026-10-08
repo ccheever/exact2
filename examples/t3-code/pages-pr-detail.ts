@@ -3,14 +3,34 @@
 // header and Summary/Timeline tabs, and its writes (runAction, update,
 // requestReviewers, setLabels). Sources: T3 Code (MIT, see LICENSE-T3)
 // apps/web/src/components/pullRequest/{PullRequestDetailPanel,
-// PullRequestSummaryTab,PullRequestTimelineTab,pullRequestPresentation}.tsx.
+// PullRequestSummaryTab,PullRequestTimelineTab,PullRequestGhosts,pullRequestPresentation}.tsx.
+//
+// Reads (pr-conversation-and-refresh). The detail and the activity are two reads, as the
+// reference's two queries are: the panel shows the detail ghost (seeded by the list's row, or
+// the last detail kept in t3-code.json) until the detail lands, then the conversation and
+// timeline ghosts until the activity lands, and a failed activity read is "Could not load pull
+// request activity" with Retry. An answer that has something new to show returns it at once and
+// wakes the resource (`t3.pr`, R10Connect.swift) for the read that follows: the runner lets the
+// reply land and asks once more (LLP 1016.002 D4). A refresh — the server's announcement
+// (pages-pr-refresh.ts), Refresh, the live-refresh interval or an arrival — reads while the last
+// detail stays on screen; the activity reads again when the server announced a change, on
+// Refresh, or when the detail's `updatedAt` moved (shouldRefreshPullRequestActivity).
 import { diffSchemeOf, markdownEnv, type ChipView } from './r4-timeline-chips';
 import { arr, num, obj, str, type Obj } from './domain';
-import { ClientError, type Native } from './protocol';
+import { ClientError, type Files, type Native } from './protocol';
 import { pushToast } from './toast';
-import { relativeLabel, stateKey, conflictLabel, labelChip } from './pages-prs';
+import { relativeLabel, stateKey, conflictLabel, labelChip, listEntryFor } from './pages-prs';
 import type { T3Client } from './client';
 import { letGo } from './let-go';
+import { peekDetail } from './r6-pr-actions';
+import { CHECKS_HEADLINE } from './r6-pr-logic';
+import {
+  LIVE_REFRESH_IDLE_AFTER_MS, LIVE_REFRESH_INTERVAL_MS, readPullRequestDetailSnapshot, resolveDisplayedPullRequestDetail, resolvePullRequestReferenceHost,
+  shouldRefreshOnArrival, shouldRefreshOnInterval, shouldRefreshPullRequestActivity, writePullRequestDetailSnapshot, type PullRequestDetailSnapshotRef,
+} from './pages-pr-logic';
+import { holdPullRequestRefreshes, lastInteraction, noteViewRefreshed, pullRequestRefreshEpoch, snapshotStorage, viewRefreshedAt } from './pages-pr-refresh';
+import { conversationBodies, emptySummary, presentSummary } from './pages-pr-summary';
+import { emptyTimeline, presentTimeline } from './pages-pr-timeline';
 
 export type PrSelection = { projectId: string; host: string; repository: string; number: number };
 /** The row key the list wears, parsed back into the reference a read needs. */
@@ -24,7 +44,6 @@ export function parseSelection(value: string): PrSelection | null {
 export const selectionRef = (selection: PrSelection): Obj => ({ projectId: selection.projectId, ...(selection.host ? { host: selection.host } : {}), repository: selection.repository, number: selection.number });
 
 const STATE_LABELS: Record<string, string> = { open: 'Open', draft: 'Draft', closed: 'Closed', merged: 'Merged' };
-const CHECK_LABELS: Record<string, string> = { pending: 'Running', 'action-required': 'Awaiting action', success: 'Passed', failure: 'Failed', cancelled: 'Cancelled', skipped: 'Skipped', neutral: 'Neutral' };
 const ACTION_DONE: Record<string, string> = { merge: 'Pull request merged', ready: 'Marked ready for review', draft: 'Converted to draft', close: 'Pull request closed', reopen: 'Pull request reopened', 'update-branch': 'Branch updated with the base branch' };
 const ACTION_FAILED: Record<string, string> = { merge: 'Could not merge this pull request', ready: 'Could not mark this ready for review', draft: 'Could not convert this to a draft', close: 'Could not close this pull request', reopen: 'Could not reopen this pull request', 'update-branch': 'Could not update this branch' };
 const count = (value: number) => String(Math.round(value)).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
@@ -51,16 +70,20 @@ export function checksTone(checks: Obj[]): string {
 const person = (value: unknown) => { const actor = obj(value), login = str(actor.login, 'ghost'); return { key: login.toLowerCase(), login, avatar: str(actor.avatarUrl), initial: login.slice(0, 1).toUpperCase() }; };
 const labelColor = (color: unknown) => { const hex = str(color).trim().replace(/^#/, ''); return /^[0-9a-fA-F]{6}$/.test(hex) ? `#${hex}` : ''; };
 
+/** PullRequestDetailGhost's seed: what the list's row (or a kept detail) already says. */
+function emptyGhost() {
+  return { seeded: false, title: '', repository: '', url: '', state: 'open', author: '', avatar: '', initial: '', updated: '', baseBranch: '', headBranch: '',
+    files: '', additions: '', deletions: '', checksLabel: '', checksTone: '', labelsKnown: false, labels: [] as { key: string; name: string; background: string; ink: string }[] };
+}
 export function emptyDetail() {
   return {
-    open: false, loading: false, error: '', errorTitle: '', githubUrl: '', copiedCheckout: 0, copiedBranch: 0, ref: '', number: 0, numberLabel: '', title: '', repository: '', url: '', state: 'open', stateLabel: 'Open', conflict: '',
+    open: false, loading: false, phase: 'ghost', error: '', errorTitle: '', githubUrl: '', copiedCheckout: 0, copiedBranch: 0, ref: '', number: 0, numberLabel: '', title: '', repository: '', url: '', state: 'open', stateLabel: 'Open', conflict: '',
     author: '', authorAvatar: '', authorInitial: '', updated: '', checkoutCommand: '', baseBranch: '', headBranch: '', files: '', additions: '', deletions: '',
     checksSummary: '', checksTone: '', reviewers: [] as { key: string; login: string; avatar: string; initial: string }[],
     labels: [] as { key: string; name: string; background: string; ink: string }[],
     bodies: [] as { id: string; kind: string; title: string; body: string }[], hasBody: false, bodyId: '',
-    checks: [] as { key: string; name: string; status: string; statusLabel: string; description: string; url: string }[],
-    comments: [] as { key: string; bodyId: string; author: string; avatar: string; initial: string; age: string; kind: string }[], commentCount: 0, commentsLabel: 'Comments (0)',
-    timeline: [] as { key: string; kind: string; title: string; detail: string; age: string; author: string; avatar: string; initial: string }[],
+    commentCount: 0, commentsLabel: 'Comments (0)', activityPending: false, activityError: '',
+    ghost: emptyGhost(), summary: emptySummary(), timeline: emptyTimeline(),
     canEdit: false, canClose: false, canReopen: false, canDraft: false, canReady: false, canMerge: false, canUpdateBranch: false, canReview: false, canLabel: false,
     projectId: '', host: '', hostName: 'GitHub', linkMenu: '', code: [] as { id: string; code: string; icon: string; tokens: { id: string; text: string; cls: string }[] }[],
     // r4-timeline: Settings → Appearance code font, size and word wrap for the Markdown.
@@ -69,54 +92,176 @@ export function emptyDetail() {
 }
 export type PrDetailView = ReturnType<typeof emptyDetail>;
 
-type DetailCache = { key: string; detail: Obj | null; activity: Obj | null; error: string; notFound: boolean };
-const details = new WeakMap<object, DetailCache>();
+// ── The panel's reads ───────────────────────────────────────────────────────
 
-export async function pullRequestDetail(client: T3Client, native: Native | null | undefined, input: { selected: string; refresh: number; now: number }): Promise<PrDetailView> {
+/** The topic this resource watches; R10Connect.swift `r10Wake` announces it. */
+export const PR_WAKE_TOPIC = 't3.pr';
+type Panel = {
+  key: string; reference: PullRequestDetailSnapshotRef; cached: Obj | null;
+  detail: Obj | null; detailError: unknown; detailDue: boolean; invalidate: boolean;
+  activity: Obj | null; activityError: string; activityDue: boolean;
+  refresh: number; epoch: number; facts: { visible: boolean; focused: boolean };
+};
+const panels = new WeakMap<object, Map<string, Panel>>();
+/** What the last view this resource returned showed (`key|detail|activity`), so a new state is shown before the read after it. */
+const shown = new WeakMap<object, string>();
+const panelsOf = (client: object) => { let map = panels.get(client); if (!map) { map = new Map(); panels.set(client, map); } return map; };
+const phaseOf = (panel: Panel) => {
+  const detail = (panel.detail ?? panel.cached) ? 'content' : panel.detailError ? 'error' : 'ghost';
+  return `${panel.key}|${detail}|${panel.activity ? 'content' : panel.activityError ? 'error' : 'ghost'}`;
+};
+const due = (panel: Panel) => panel.detailDue || (panel.activityDue && !!(panel.detail ?? panel.cached));
+const messageOf = (error: unknown) => (error instanceof Error && error.message.trim() ? error.message : 'The environment request failed.');
+
+export type DetailInput = { selected: string; refresh: number; now: number; visible?: boolean; focused?: boolean };
+export async function pullRequestDetail(client: T3Client, native: Native | null | undefined, input: DetailInput, storage?: Files): Promise<PrDetailView> {
   const view = emptyDetail();
   view.md = markdownEnv(client); view.diffScheme = diffSchemeOf(client);
   const selection = parseSelection(input.selected);
-  if (!selection) return view;
-  view.open = true; view.ref = input.selected;
-  if (!native?.available || !client.ready) { view.loading = true; return view; }
-  const key = JSON.stringify([client.environmentId, selection, input.refresh]);
-  let cached = details.get(client);
-  if (!cached || cached.key !== key) {
-    const previous = cached;
-    cached = { key, detail: null, activity: null, error: '', notFound: false };
-    const ref = selectionRef(selection);
-    try {
-      if (previous && previous.key !== key && JSON.parse(previous.key)[1]?.number === selection.number && input.refresh > 0) await client.rpc(native, 'pullRequests.invalidate', { reference: ref }).catch(() => ({}));
-      cached.detail = await client.rpc(native, 'pullRequests.detail', ref);
-      cached.activity = await client.rpc(native, 'pullRequests.activity', ref).catch(() => null);
-    } catch (error) {
-      if (letGo(error)) throw error;
-      cached.error = error instanceof Error && error.message.trim() ? error.message : 'The environment request failed.';
-      // 7bc161f869: a link to an issue (or a PR this account cannot see) reads as not found.
-      cached.notFound = isPullRequestNotFound(error);
-    }
-    details.set(client, cached);
-  }
-  if (!cached.detail) {
-    Object.assign(view, { loading: !cached.error, number: selection.number, numberLabel: `#${selection.number}`, repository: selection.repository });
-    if (cached.error) Object.assign(view, unavailable(selection, cached, client.shell.projects.find(project => project.id === selection.projectId)));
+  const live = !!native?.available && client.ready;
+  if (!selection) {
+    shown.delete(client);
+    if (live) await holdPullRequestRefreshes(client, native!, 'detail', false);
     return view;
   }
-  presentDetail(view, cached.detail, cached.activity, input.now);
+  view.open = true; view.ref = input.selected;
+  const project = client.shell.projects.find(item => item.id === selection.projectId);
+  const reference = resolvePullRequestReferenceHost({ projectId: selection.projectId, ...(selection.host ? { host: selection.host } : {}), repository: selection.repository, number: selection.number }, obj(project?.repositoryIdentity));
+  const listEntry = listEntryFor(client, selection);
+  const key = JSON.stringify([client.environmentId, selectionRef(selection)]);
+  let panel = panelsOf(client).get(key);
+  if (!live) return present(view, panel ?? null, selection, listEntry, input.now, client);
+  native!.watch?.(PR_WAKE_TOPIC);
+  await holdPullRequestRefreshes(client, native!, 'detail', true);
+  const viewKey = `pull-request:${key}`, facts = { visible: input.visible !== false, focused: input.focused !== false };
+  const arriving = !shown.get(client)?.startsWith(`${key}|`);
+  if (!panel) {
+    const kept = readPullRequestDetailSnapshot(snapshotStorage(client.local ? client : { local: {} }), client.environmentId, reference);
+    panel = { key, reference, cached: kept ?? resolveDisplayedPullRequestDetail({ live: null, cached: peekDetail(client, selectionRef(selection)), reference }),
+      detail: null, detailError: null, detailDue: true, invalidate: false, activity: null, activityError: '', activityDue: true,
+      refresh: input.refresh, epoch: pullRequestRefreshEpoch(client), facts };
+    panelsOf(client).set(key, panel);
+  } else {
+    // Refresh (the menu's, Retry, "Check details are out of date."): around the server's cache.
+    if (input.refresh !== panel.refresh) { panel.refresh = input.refresh; panel.detailDue = panel.activityDue = panel.invalidate = true; }
+    // pullRequests.subscribeRefreshes: the server announced a change; detail and activity read again.
+    const epoch = pullRequestRefreshEpoch(client);
+    if (epoch !== panel.epoch) { panel.epoch = epoch; panel.detailDue = panel.activityDue = true; }
+    // useLiveRefresh's window listeners: `focus`, and `visibilitychange` to visible, are arrivals.
+    const shownAgain = (facts.visible && !panel.facts.visible) || (facts.focused && !panel.facts.focused);
+    panel.facts = facts;
+    await liveRefresh(client, native!, panel, viewKey, input, arriving || shownAgain);
+  }
+  if (viewRefreshedAt(client, viewKey) === undefined) noteViewRefreshed(client, viewKey, input.now); // the mount's own read fills it in
+  // Something new to show first: show it, and ask again for the read that follows.
+  if (due(panel) && phaseOf(panel) !== shown.get(client)) return wake(client, native!, present(view, panel, selection, listEntry, input.now, client), panel);
+  const ref = { ...selectionRef(selection) };
+  if (panel.detailDue) await readDetail(client, native!, panel, ref, storage);
+  if (due(panel) && phaseOf(panel) !== shown.get(client)) return wake(client, native!, present(view, panel, selection, listEntry, input.now, client), panel);
+  if (panel.activityDue && (panel.detail ?? panel.cached)) await readActivity(client, native!, panel, ref);
+  shown.set(client, phaseOf(panel));
+  return present(view, panel, selection, listEntry, input.now, client);
+}
+async function wake(client: T3Client, native: Native, view: PrDetailView, panel: Panel): Promise<PrDetailView> {
+  shown.set(client, phaseOf(panel));
+  try { await native.later({ op: 'r10Wake', topic: PR_WAKE_TOPIC }); } catch (error) { if (letGo(error)) throw error; }
+  return view;
+}
+/** useLiveRefresh: an arrival (a reopened view, the window shown or focused again) and the 5-minute interval read the detail. */
+async function liveRefresh(client: T3Client, native: Native, panel: Panel, viewKey: string, input: DetailInput, arrival: boolean): Promise<void> {
+  if (panel.detailDue) return;
+  const visible = input.visible !== false, now = input.now, lastRefreshedAt = viewRefreshedAt(client, viewKey);
+  const interval = lastRefreshedAt !== undefined && now - lastRefreshedAt >= LIVE_REFRESH_INTERVAL_MS;
+  if (!arrival && !interval) return;
+  const interacted = (await lastInteraction(native, now)) ?? now;
+  const read = arrival ? now - interacted < LIVE_REFRESH_IDLE_AFTER_MS && shouldRefreshOnArrival({ visible, now, lastRefreshedAt })
+    : shouldRefreshOnInterval({ visible, now, lastRefreshedAt: lastRefreshedAt!, lastInteractedAt: interacted });
+  if (read) { noteViewRefreshed(client, viewKey, now); panel.detailDue = true; }
+}
+async function readDetail(client: T3Client, native: Native, panel: Panel, ref: Obj, storage: Files | undefined): Promise<void> {
+  try {
+    if (panel.invalidate) await client.rpc(native, 'pullRequests.invalidate', { reference: ref }).catch((error: unknown) => { if (letGo(error)) throw error; return {}; });
+    const detail = obj(await client.rpc(native, 'pullRequests.detail', ref));
+    if (panel.detail && shouldRefreshPullRequestActivity({ key: panel.key, updatedAt: str(panel.detail.updatedAt) }, { key: panel.key, updatedAt: str(detail.updatedAt) })) panel.activityDue = true;
+    panel.detail = detail; panel.detailError = null;
+    const store = snapshotStorage(client.local ? client : { local: {} });
+    writePullRequestDetailSnapshot(store, client.environmentId, panel.reference, detail);
+    if (store.changed && storage) await client.savePreferences(storage);
+  } catch (error) {
+    if (letGo(error)) throw error; // still due: the next answer reads
+    panel.detailError = error;
+  }
+  panel.detailDue = false; panel.invalidate = false;
+  // An announcement that landed while this read was out is answered by it (the stream's first value among them).
+  panel.epoch = pullRequestRefreshEpoch(client);
+}
+async function readActivity(client: T3Client, native: Native, panel: Panel, ref: Obj): Promise<void> {
+  try {
+    panel.activity = obj(await client.rpc(native, 'pullRequests.activity', ref));
+    panel.activityError = '';
+  } catch (error) {
+    if (letGo(error)) throw error;
+    // A refresh that fails keeps the conversation it had; only a first read shows the failure.
+    if (!panel.activity) panel.activityError = messageOf(error);
+  }
+  panel.activityDue = false;
+}
+/** The panel as it stands: the ghost, the unavailable state, or the detail with its conversation. */
+function present(view: PrDetailView, panel: Panel | null, selection: PrSelection, listEntry: Obj | null, now: number, client: T3Client): PrDetailView {
+  Object.assign(view, { number: selection.number, numberLabel: `#${selection.number}`, repository: selection.repository });
+  const display = panel?.detail ?? panel?.cached ?? null;
+  if (!display) {
+    if (panel?.detailError) {
+      Object.assign(view, { phase: 'error' }, unavailable(selection, { error: messageOf(panel.detailError), notFound: isPullRequestNotFound(panel.detailError) }, client.shell.projects.find(project => project.id === selection.projectId)));
+    } else {
+      view.phase = 'ghost'; view.loading = true; view.ghost = ghostOf(listEntry, now);
+      // loadingPullRequestCheckoutCommand: a GitHub reference already names its checkout.
+      const identity = obj(client.shell.projects.find(project => project.id === selection.projectId)?.repositoryIdentity);
+      if (identity.provider === 'github' || selection.host.toLowerCase() === 'github.com') view.checkoutCommand = `gh pr checkout ${selection.number}`;
+    }
+    return view;
+  }
+  const activityPending = !panel!.activity && !panel!.activityError;
+  presentDetail(view, display, panel!.activity, now, { activityPending, activityError: panel!.activity ? '' : panel!.activityError, listEntry });
   view.copiedCheckout = copyNonce(client, view.checkoutCommand); view.copiedBranch = copyNonce(client, view.headBranch);
   return view;
 }
+/** PullRequestDetailGhost: the list row's identity and summary stay; the rest are bars. */
+export function ghostOf(entry: Obj | null, now: number): ReturnType<typeof emptyGhost> {
+  const ghost = emptyGhost();
+  if (!entry) return ghost;
+  const author = person(entry.author), measured = num(entry.additions) + num(entry.deletions) > 0;
+  const checks = str(entry.checksState);
+  return { ...ghost, seeded: true, title: str(entry.title), repository: str(entry.repository), url: str(entry.url), state: stateKey(entry), author: author.login, avatar: author.avatar, initial: author.initial,
+    updated: `updated ${relativeLabel(entry.updatedAt, now)}`, baseBranch: str(entry.baseBranch), headBranch: str(entry.headBranch),
+    additions: measured ? `+${count(num(entry.additions))}` : '', deletions: measured ? `-${count(num(entry.deletions))}` : '',
+    // Passing list rollups can omit workflows awaiting approval; wait for the detail to claim success.
+    checksLabel: checks === 'failing' ? 'Some checks were not successful' : checks === 'pending' ? "Some checks haven't completed yet" : '', checksTone: checks === 'failing' || checks === 'pending' ? checks : '',
+    labelsKnown: Array.isArray(entry.labels), labels: arr(entry.labels).map(label => labelChip(str(label.name), labelColor(label.color))) };
+}
+/** pages:pr-act-activity-retry: the activity unavailable state's Retry (the Summary's also reads the detail). */
+export function retryActivity(client: { environmentId: string }, selected: string, which: string): void {
+  const selection = parseSelection(selected);
+  const panel = selection && panelsOf(client).get(JSON.stringify([client.environmentId, selectionRef(selection)]));
+  if (!panel) return;
+  panel.activityError = ''; panel.activityDue = true;
+  if (which === 'summary') panel.detailDue = true; // refreshDetail: the detail, the activity (and the stack)
+}
+/** After a write: read the detail and the conversation again, keeping what is shown meanwhile. */
+function stale(client: object): void { for (const panel of panelsOf(client).values()) { panel.detailDue = true; panel.activityDue = true; } }
+
 /** The last in-place copy per client: the value and a nonce that restarts the "Copied" swap. */
 const copies = new WeakMap<object, { value: string; nonce: number }>();
 export function noteCopy(client: object, value: string): void { copies.set(client, { value, nonce: (copies.get(client)?.nonce ?? 0) + 1 }); }
 export function copyNonce(client: object, value: string): number { const copy = copies.get(client); return copy && value && copy.value === value ? copy.nonce : 0; }
 
-export function presentDetail(view: PrDetailView, detail: Obj, activity: Obj | null, now: number): PrDetailView {
+export type PresentOptions = { activityPending?: boolean; activityError?: string; listEntry?: Obj | null };
+export function presentDetail(view: PrDetailView, detail: Obj, activity: Obj | null, now: number, options: PresentOptions = {}): PrDetailView {
   const author = person(activity?.author ?? detail.author), state = stateKey(detail), checks = arr(detail.checks);
   const permissions = obj(detail.viewerPermissions), capabilities = obj(detail.capabilities);
   const key = `${str(detail.repository)}#${num(detail.number)}`;
   Object.assign(view, {
-    number: num(detail.number), numberLabel: `#${num(detail.number)}`, title: str(detail.title), repository: str(detail.repository),
+    phase: 'content', loading: false, number: num(detail.number), numberLabel: `#${num(detail.number)}`, title: str(detail.title), repository: str(detail.repository),
     url: str(detail.url), state, stateLabel: STATE_LABELS[state] ?? 'Open', conflict: conflictLabel(detail), author: author.login, authorAvatar: author.avatar, authorInitial: author.initial,
     updated: `updated ${relativeLabel(detail.updatedAt, now)}`,
     checkoutCommand: str(detail.provider, 'github') === 'github' ? `gh pr checkout ${num(detail.number)}` : '', baseBranch: str(detail.baseBranch), headBranch: str(detail.headBranch),
@@ -124,27 +269,20 @@ export function presentDetail(view: PrDetailView, detail: Obj, activity: Obj | n
     checksSummary: summarizeChecks(checks), checksTone: checksTone(checks), projectId: str(detail.projectId), host: hostOf(str(detail.url)),
     hostName: HOST_NAMES[str(detail.provider)] ?? 'GitHub',
     linkMenu: `${str(detail.provider)} ${str(detail.url)}`, // context-menu-gaps: the number's right-click
+    activityPending: options.activityPending === true, activityError: options.activityError ?? '',
   });
   view.reviewers = arr(activity?.reviewers ?? detail.reviewers).map(person).map(({ key, login, avatar, initial }) => ({ key, login, avatar, initial }));
   view.labels = arr(detail.labels).map(label => labelChip(str(label.name), labelColor(label.color)));
   view.hasBody = str(detail.body).trim().length > 0;
   view.bodyId = `pr-body:${key}`;
-  const comments = arr(activity?.comments).filter(comment => comment.kind !== 'review-comment');
-  view.bodies = [...(view.hasBody ? [{ id: view.bodyId, kind: 'assistant', title: '', body: str(detail.body) }] : []),
-    ...comments.filter(comment => str(comment.body).trim()).map(comment => ({ id: `pr-comment:${str(comment.id)}`, kind: 'assistant', title: '', body: str(comment.body) }))];
-  view.checks = checks.map((check, index) => ({ key: `${index}:${str(check.name)}`, name: str(check.name), status: str(check.status), statusLabel: CHECK_LABELS[str(check.status)] ?? str(check.status), description: str(check.description), url: str(check.url) }));
-  view.commentCount = num(activity?.commentCount, comments.length);
+  view.bodies = [...(view.hasBody ? [{ id: view.bodyId, kind: 'assistant', title: '', body: str(detail.body) }] : []), ...conversationBodies(activity)];
+  view.commentCount = num(activity?.commentCount, arr(activity?.comments).length);
   view.commentsLabel = `Comments (${view.commentCount})`;
-  view.comments = comments.map(comment => { const by = person(comment.author);
-    return { key: str(comment.id), bodyId: `pr-comment:${str(comment.id)}`, author: by.login, avatar: by.avatar, initial: by.initial, age: relativeLabel(comment.createdAt, now), kind: str(comment.kind) }; })
-    .reverse();
-  // PullRequestTimelineTab: commits and remarks in the order they happened.
-  view.timeline = [
-    ...arr(activity?.commits).map(commit => ({ at: Date.parse(str(commit.committedDate)) || 0, item: { key: `commit:${str(commit.oid)}`, kind: 'commit', title: str(commit.messageHeadline), detail: str(commit.oid).slice(0, 7),
-      age: relativeLabel(commit.committedDate, now), ...authorFields(arr(commit.authors)[0]) } })),
-    ...comments.map(comment => ({ at: Date.parse(str(comment.createdAt)) || 0, item: { key: `comment:${str(comment.id)}`, kind: comment.kind === 'review' ? 'review' : 'comment',
-      title: comment.kind === 'review' ? reviewTitle(str(comment.reviewState)) : 'commented', detail: str(comment.body).split('\n')[0]!.slice(0, 200), age: relativeLabel(comment.createdAt, now), ...authorFields(comment.author) } })),
-  ].sort((a, b) => a.at - b.at).map(event => event.item);
+  const shared = { detail, activity, activityPending: view.activityPending, activityError: view.activityError, now };
+  view.summary = presentSummary({ ...shared, listEntry: options.listEntry ?? null });
+  view.timeline = presentTimeline(shared);
+  // A newer rollup than the detail's checks: its headline, not a count the detail cannot back.
+  if (view.summary.checksStale) { view.checksSummary = view.summary.checksState ? CHECKS_HEADLINE[view.summary.checksState] ?? 'No checks reported' : 'No checks reported'; view.checksTone = view.summary.checksState; }
   // A control belongs on the page only where the host can do it and this viewer may ask (PullRequestViewerPermissions).
   const names = (value: unknown) => (Array.isArray(value) ? value : []).filter((name): name is string => typeof name === 'string');
   const offered = (action: string) => names(capabilities.actions).includes(action) && names(permissions.actions).includes(action);
@@ -184,12 +322,11 @@ export function gitHubPullRequestBrowserUrl(identity: Obj, repository: string, n
   try { const url = new URL(origin || `https://${hostname}`); url.pathname = `/${path.join('/')}/pull/${number}`; return url.toString(); } catch { return ''; }
 }
 const HOST_NAMES: Record<string, string> = { github: 'GitHub', gitlab: 'GitLab', bitbucket: 'Bitbucket', 'azure-devops': 'Azure DevOps', forgejo: 'Forgejo' };
-const authorFields = (value: unknown) => { const by = person(value); return { author: by.login, avatar: by.avatar, initial: by.initial }; };
-const reviewTitle = (state: string) => state === 'APPROVED' || state === 'approved' ? 'approved these changes' : state === 'CHANGES_REQUESTED' || state === 'changes-requested' ? 'requested changes' : 'reviewed';
 const hostOf = (url: string) => { try { return new URL(url).host; } catch { return ''; } };
 
 /** pages:pr-* writes, each against the selected pull request on its host. */
 export async function prCommand(client: T3Client, native: Native, op: string, selected: string, value: string): Promise<string> {
+  if (op === 'activity-retry') { retryActivity(client, selected, value); return ''; }
   const selection = parseSelection(selected);
   if (!selection) throw new ClientError('Choose a pull request first.');
   const ref = selectionRef(selection);
@@ -220,7 +357,7 @@ export async function prCommand(client: T3Client, native: Native, op: string, se
     pushToast(client, { kind: 'error', title: op === 'action' ? ACTION_FAILED[value] ?? 'Could not update this pull request' : 'Could not update this pull request', description: message });
     return message;
   }
-  details.delete(client);
+  stale(client);
   return '';
 }
 

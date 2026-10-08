@@ -4,7 +4,7 @@
 //
 //   bun lane.mjs setup                 homes, wrappers, profiles; says which accounts are signed in
 //   bun lane.mjs whoami                each signed-in account's login (through the lane gh)
-//   bun lane.mjs start <account> [--port N]   a lane server for that account (16500-16599)
+//   bun lane.mjs start <account> [--port N]   a lane server for that account (16500-16799)
 //   bun lane.mjs which <account>       which gh and config dir that server's children resolve
 //   bun lane.mjs pair <account>        a single-use pairing URL, written to <server>/pairing-url (never printed)
 //   bun lane.mjs project <account>     clones the sandbox for the server and adds it as a project
@@ -34,7 +34,7 @@ export function serverCommand() {
 const portOf = (account) => {
   const flag = process.argv.indexOf("--port");
   const port = flag > 0 ? Number(process.argv[flag + 1]) : PORTS[account];
-  if (!(port >= 16500 && port <= 16599)) throw new Error(`lane ports are 16500-16599, not ${port}`);
+  if (!(port >= 16500 && port <= 16799)) throw new Error(`lane ports are 16500-16799 (each task lane its own hundred), not ${port}`);
   return port;
 };
 const accountArg = () => {

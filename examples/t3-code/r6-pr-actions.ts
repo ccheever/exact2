@@ -115,7 +115,7 @@ export async function performAction(client: T3Client, native: Native, reference:
   } catch (error) {
     if (letGo(error)) throw error;
     // The host's own sentence, because it is the only thing that says why.
-    pushToast(client, { kind: 'error', title: ACTION_FAILURE[action]!, description: readableFailure(error instanceof Error ? error.message : '', ACTION_HINT[action]!) });
+    pushToast(client, { kind: 'error', title: ACTION_FAILURE[action]!, description: readableFailure(error, ACTION_HINT[action]!) });
     return '';
   } finally { state.acting.delete(key); }
   pushToast(client, { kind: 'success', title: ACTION_SUCCESS[action]! });

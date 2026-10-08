@@ -11,6 +11,7 @@ import { pagesPrefs } from './pages-prefs';
 import { projectIdentity } from './presentation';
 import type { T3Client } from './client';
 import { letGo } from './let-go';
+import { holdPullRequestRefreshes, pullRequestRefreshEpoch } from './pages-pr-refresh';
 
 export const SORTS = [
   { value: 'ready', label: 'Merge readiness' }, { value: 'blocked', label: 'Blocked on me' }, { value: 'updated', label: 'Recently updated' },
@@ -234,7 +235,7 @@ export type PrRow = ReturnType<typeof presentRow>;
 
 // ── The list resource ───────────────────────────────────────────────────────
 
-type ListCache = { key: string; result: Obj | null; error: string; stats: Map<string, Obj> };
+type ListCache = { key: string; refresh: number; epoch: number; result: Obj | null; error: string; stats: Map<string, Obj> };
 const lists = new WeakMap<object, ListCache>();
 export type PrInput = { open: boolean; refresh: number; now: number; selected: string; query: string; typed: boolean };
 
@@ -265,17 +266,20 @@ export async function pullRequestsPage(client: T3Client, native: Native | null |
     const identity = projectIdentity(str(project.title));
     return { id: str(project.id), name: str(project.title), mark: identity.projectMark, ink: identity.projectInk, surface: identity.projectSurface, selected: prefs.projectId === project.id, unavailable: '' };
   });
+  if (!input.open && native?.available && client.ready) await holdPullRequestRefreshes(client, native, 'list', false);
   if (!input.open || !native?.available || !client.ready) { view.loading = input.open && client.ready; return view; }
   if (!view.available) { view.empty = 'Pull requests unavailable'; view.emptyDetail = 'Update your T3 Code servers to browse pull requests.'; return view; }
   if (!view.hasProjects) { view.empty = 'No projects in this workspace'; view.emptyDetail = 'Add a project, and the pull requests from its repository appear here.'; view.emptyAction = 'add-project'; return view; }
   const payload = listPayload(prefs, query);
+  // pr-conversation-and-refresh: the server's announcements read the list again (its refreshTrigger), the rows staying meanwhile.
+  await holdPullRequestRefreshes(client, native, 'list', true);
   const key = JSON.stringify([client.environmentId, payload, input.refresh]);
   let cached = lists.get(client);
-  if (!cached || cached.key !== key) {
-    const previousStats = cached?.stats ?? new Map<string, Obj>();
-    cached = { key, result: null, error: '', stats: previousStats };
+  if (!cached || cached.key !== key || cached.epoch !== pullRequestRefreshEpoch(client)) {
+    const previous = cached, previousStats = cached?.stats ?? new Map<string, Obj>();
+    cached = { key, refresh: input.refresh, epoch: pullRequestRefreshEpoch(client), result: null, error: '', stats: previousStats };
     try {
-      if (input.refresh > 0 && lists.get(client)?.key.endsWith(`,${input.refresh - 1}]`)) await client.rpc(native, 'pullRequests.invalidate', {}).catch(() => ({}));
+      if (input.refresh > 0 && previous?.refresh === input.refresh - 1) await client.rpc(native, 'pullRequests.invalidate', {}).catch(() => ({}));
       cached.result = await client.rpc(native, 'pullRequests.list', payload);
       const unmeasured = arr(cached.result.entries).filter(entry => !measured(entry) && !cached!.stats.has(entryKey(entry)));
       if (unmeasured.length) {
@@ -285,9 +289,16 @@ export async function pullRequestsPage(client: T3Client, native: Native | null |
         } catch { /* rows draw without counts */ }
       }
     } catch (error) { if (letGo(error)) throw error; cached.error = error instanceof Error ? error.message : 'Pull requests could not be read.'; }
+    cached.epoch = pullRequestRefreshEpoch(client); // an announcement that landed while the read was out is answered by it
     lists.set(client, cached);
   }
   return presentList(view, cached.result, cached.error, cached.stats, prefs, query, input.now, input.selected);
+}
+
+/** The list's row for a selection, as the detail ghost seeds itself from it (PullRequestDetailGhost `seed`). */
+export function listEntryFor(client: object, selection: { projectId: string; host: string; repository: string; number: number }): Obj | null {
+  return arr(lists.get(client)?.result?.entries).find(entry => entry.projectId === selection.projectId && num(entry.number) === selection.number
+    && str(entry.repository).toLowerCase() === selection.repository.toLowerCase() && (!selection.host || str(entry.host).toLowerCase() === selection.host.toLowerCase())) ?? null;
 }
 
 export function emptyList(prefs: PrPrefs, query: string) {

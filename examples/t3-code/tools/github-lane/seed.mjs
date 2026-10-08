@@ -8,7 +8,10 @@
 // it puts a drifted pull request back where that is one call (draft again, closed again,
 // reopened), and otherwise opens the next generation (`feature/changelog-2`) beside the used one.
 //
-//   bun seed.mjs --repo owner/name [--create --visibility private|public] [--skip-bulk]
+//   bun seed.mjs --repo owner/name [--create --visibility private|public] [--skip-bulk] [--only key,key]
+//
+// `--only` seeds just the named scenarios (and merges their numbers into `sandbox.json`), so a task
+// adding one does not put back pull requests another task's drive may be using.
 //
 // `--create` is the only way the repository gets created (the user approves it first). An
 // existing repository the lane did not create is never touched. Writes `sandbox.json` in the
@@ -73,6 +76,8 @@ export function scenarios({ second }) {
     { key: "second-review", author: "second", branch: "feature/input-validation", title: "Add input validation", body: "Adds a small validator.", from: "c7", files: { "src/validate.js": VALIDATE_V1 }, want: "open", conversation: "review", labels: ["needs-review"] },
     { key: "primary-review", branch: "docs/usage-headings", title: "Tidy the usage headings", body: "Renames two headings.", from: "c7", files: { "docs/usage.md": "# Usage\n\n## Installing\n\nCopy the files.\n\n## Using\n\nCall `greet`.\n" }, want: "open", conversation: "approved", statuses: ok },
     { key: "cross-repo", author: "second", fork: true, branch: "docs/contributing", title: "Add contributing notes", body: "How to send a change.", from: "c7", files: { "CONTRIBUTING.md": "# Contributing\n\nOpen a pull request from a fork.\n" }, want: "open" },
+    // pr-conversation-and-refresh: an approval the branch has moved on from (a stale verdict).
+    { key: "stale-approval", branch: "feature/trim-input", title: "Trim the input first", body: "Trims the input before checking it.", from: "c7", files: { "src/trim.js": "export const trim = (text) => text.trim();\n" }, want: "open", conversation: "stale-approval", statuses: ok },
   );
   // Two pull requests in one GitHub stack (the second's base is the first's branch).
   list.push(
@@ -330,6 +335,7 @@ export class Seed {
     }
     if (spec.conversation === "review") await this.reviewConversation(pr);
     if (spec.conversation === "approved") await this.approvedConversation(pr);
+    if (spec.conversation === "stale-approval") await this.staleApprovalConversation(pr);
     return pr.number;
   }
 
@@ -391,6 +397,26 @@ export class Seed {
     if (!comments.some((c) => hasMark(c.body, "approved-comment"))) this.second(["-X", "POST", `repos/${repo}/issues/${n}/comments`, "-f", `body=One small thing for later: the Using section could link the helpers.${mark("approved-comment")}`], { allowFail: false });
   }
 
+  /** A primary pull request the second account approved before a later commit: the approval stands, for older code. */
+  async staleApprovalConversation(pr) {
+    const n = pr.number, repo = this.repo;
+    const reviews = this.primary([`repos/${repo}/pulls/${n}/reviews?per_page=100`]).body ?? [];
+    let approval = reviews.find((r) => hasMark(r.body, "approve-early"));
+    if (!approval) {
+      approval = this.second(["-X", "POST", `repos/${repo}/pulls/${n}/reviews`, "-f", "event=APPROVE", "-f", `body=Approved: trimming first reads well.${mark("approve-early")}`], { allowFail: false }).body;
+      this.report.created.push(`#${n} approval`); await sleep(1500);
+    }
+    const commits = this.primary([`repos/${repo}/pulls/${n}/commits`]).body ?? [];
+    if (commits.some((c) => c.commit.message.startsWith("Trim tabs as well"))) return;
+    // Dated a minute after the approval, so the approval reads as given before the latest commit.
+    const head = this.detail(n), at = (Date.parse(approval.submitted_at) || Date.now()) + 60_000;
+    this.g("primary", ["fetch", "--quiet", this.url, head.head.sha], { allowFail: true });
+    const next = this.commit({ parent: head.head.sha, account: "primary", message: "Trim tabs as well", at, files: { "src/trim.js": "export const trim = (text) => text.replace(/^[ \\t]+|[ \\t]+$/g, \"\");\n" } });
+    this.g("primary", ["push", "--quiet", this.url, `${next}:refs/heads/${head.head.ref}`]);
+    this.report.created.push(`#${n} commit after the approval`); await sleep(1500);
+    this.statuses({ statuses: [[REQUIRED, "success", "Build passed"]] }, next, n);
+  }
+
   /** Enough open pull requests to page the Pull Requests list past its 99-row slice. */
   async ensureBulk() {
     const have = new Set(this.pulls.filter((pr) => /^chore\/note-\d{3}$/.test(pr.head.ref) && pr.head.repo?.owner?.login?.toLowerCase() === this.repoOwner.toLowerCase()).map((pr) => pr.head.ref));
@@ -434,7 +460,7 @@ export class Seed {
     this.capabilities.drafts = !this.report.unavailable.draft;
   }
 
-  async run({ bulk = true } = {}) {
+  async run({ bulk = true, only = null } = {}) {
     setup(this.paths);
     if (!signedIn(this.paths, "primary")) throw new Error("primary is not signed in (README)");
     this.identities();
@@ -447,10 +473,16 @@ export class Seed {
     await this.ensureCollaborator();
     await this.ensureFork();
     this.listPulls();
-    if (bulk) await this.ensureBulk();
+    if (bulk && !only) await this.ensureBulk();
     const numbers = {};
     this.heads = {};
-    for (const spec of scenarios({ second: this.secondLogin })) numbers[spec.key] = await this.ensureScenario(spec);
+    for (const spec of scenarios({ second: this.secondLogin })) if (!only || only.includes(spec.key)) numbers[spec.key] = await this.ensureScenario(spec);
+    if (only) {
+      const held = readSandbox(this.paths) ?? {};
+      const sandbox = { ...held, prs: { ...(held.prs ?? {}), ...numbers }, seededAt: new Date().toISOString() };
+      writeSandbox(this.paths, sandbox);
+      return { sandbox, report: this.report };
+    }
     this.probeCapabilities(numbers);
     if (this.capabilities.stacks === "available") this.stacks = { seed: this.ensureStack([numbers["stack-bottom"], numbers["stack-top"]]) };
     const sandbox = { ...(readSandbox(this.paths) ?? {}), repo: this.repo, repoId: this.repoId, visibility: this.visibility, primary: this.owner, second: this.secondLogin ?? null, fork: this.fork ?? null,
@@ -465,7 +497,8 @@ if (import.meta.main) {
     const visibility = option("--visibility") ?? "private";
     if (!["private", "public"].includes(visibility)) throw new Error("--visibility private|public");
     const seed = new Seed({ repo: option("--repo") ?? readSandbox(lanePaths())?.repo, create: flag("--create"), visibility });
-    const { sandbox, report } = await seed.run({ bulk: !flag("--skip-bulk") });
+    const only = option("--only")?.split(",").map((key) => key.trim()).filter(Boolean) ?? null;
+    const { sandbox, report } = await seed.run({ bulk: !flag("--skip-bulk"), only });
     console.log(JSON.stringify({ repo: sandbox.repo, prs: sandbox.prs, capabilities: sandbox.capabilities, report }, null, 2));
   } catch (error) { console.error(error.message); process.exitCode = 1; }
 }

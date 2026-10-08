@@ -7,6 +7,15 @@ final class ActivityTests: XCTestCase {
         XCTAssertTrue(T3ActivityScopes.recentlyInteracted(0, at: 45_000))
         XCTAssertFalse(T3ActivityScopes.recentlyInteracted(0, at: 45_001))
     }
+    // pr-conversation-and-refresh: the pull request panel's idle rule reads the reporter's last interaction (Unix ms).
+    func testLastInteractionIsAWallClockInstantFromLaunch() {
+        let before = Date().timeIntervalSince1970 * 1000
+        let reporter = T3ActivityReporter(persistent: false, dataDirectory: nil, observeWindows: false)
+        let at = reporter.lastInteractionAt()
+        XCTAssertGreaterThanOrEqual(at, before)
+        XCTAssertLessThanOrEqual(at, Date().timeIntervalSince1970 * 1000)
+        reporter.destroy()
+    }
     func testRejectsFutureTimestamps() {
         // "rejects future timestamps"
         XCTAssertFalse(T3ActivityScopes.recentlyInteracted(100, at: 99))

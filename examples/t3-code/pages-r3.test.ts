@@ -53,9 +53,11 @@ test('a pull request link that names an issue reads as not found; other failures
   const notFound = new ClientError('Pull request operation detail failed: Could not resolve to a PullRequest with the number of 7.', 'PullRequestOperationError', false, { reason: 'not-found', detail: 'Could not resolve' });
   expect(isPullRequestNotFound(notFound)).toBe(true);
   expect(isPullRequestNotFound(new ClientError('x', 'PullRequestsUnavailableError', false, { reason: 'not-found' }))).toBe(false);
-  const view = await pullRequestDetail(prClient(notFound), { available: true } as Native, { selected: selection, refresh: 1, now: 0 });
+  // The panel shows its ghost first and asks again (pr-conversation-and-refresh); the second answer reads.
+  const once = async (client: T3Client) => { await pullRequestDetail(client, { available: true } as Native, { selected: selection, refresh: 1, now: 0 }); return pullRequestDetail(client, { available: true } as Native, { selected: selection, refresh: 1, now: 0 }); };
+  const view = await once(prClient(notFound));
   expect([view.errorTitle, view.error, view.githubUrl, view.numberLabel]).toEqual(['Pull request #7 not found', "It may be an issue rather than a pull request, or this account can't see it.", 'https://github.com/ccheever/exact2/pull/7', '#7']);
-  const other = await pullRequestDetail(prClient(new ClientError('Pull request operation detail failed: gh is not signed in.', 'PullRequestOperationError')), { available: true } as Native, { selected: selection, refresh: 2, now: 0 });
+  const other = await once(prClient(new ClientError('Pull request operation detail failed: gh is not signed in.', 'PullRequestOperationError')));
   expect([other.errorTitle, other.error]).toEqual(['Could not load pull requests', 'Pull request operation detail failed: gh is not signed in.']);
   expect(unavailable({ projectId: 'p', host: '', repository: 'a/b', number: 3 }, { error: 'x', notFound: false }, undefined).githubUrl).toBe('');
   expect(gitHubPullRequestBrowserUrl({ provider: 'github', canonicalKey: 'ghe.example.com/a/b', locator: { remoteUrl: 'https://ghe.example.com/a/b.git' } }, 'a/b', 3)).toBe('https://ghe.example.com/a/b/pull/3');
