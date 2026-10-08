@@ -79,6 +79,7 @@ component PrdHeaderActions
     numberLabel: string
     scheme: string
     still: bool
+    compact: bool
     reload: action
     act: action
     copy: action
@@ -88,15 +89,15 @@ component PrdHeaderActions
     row flex-shrink=0 align-items="center" gap="0.25rem" testId="pull-request-header-actions"
       PrdStackControls(stack=actions.stack, ref=ref, scheme=scheme, local=local, select=select)
       when actions.armedLabel != ""
-        PaArmedBadge(label=actions.armedLabel, tip=actions.armedTip, testId="pull-request-auto-merge-armed")
+        PaArmedBadge(label=actions.armedLabel, tip=actions.armedTip, compact=compact, testId="pull-request-auto-merge-armed")
       when actions.primary == "auto-merge-armed"
-        PaArmedBadge(label=actions.primaryLabel, tip=actions.armedTip, testId="pull-request-primary")
+        PaArmedBadge(label=actions.primaryLabel, tip=actions.armedTip, compact=compact, testId="pull-request-primary")
       when actions.primary == "merge" or actions.primary == "enable-auto-merge"
-        PaPrimaryButton(icon="git-merge", label=actions.primaryLabel, disabled=actions.primaryDisabled, destructive=false, press=local("pr-ui-ask", ref, actions.primary), testId="pull-request-primary")
+        PaPrimaryButton(icon="git-merge", label=actions.primaryLabel, disabled=actions.primaryDisabled, destructive=false, press=local("pr-ui-ask", ref, actions.primary), compact=compact, testId="pull-request-primary")
       when actions.primary == "ready"
-        PaPrimaryButton(icon="git-pull-request-arrow", label=actions.primaryLabel, disabled=actions.primaryDisabled, destructive=false, press=act("action", "ready"), testId="pull-request-primary")
+        PaPrimaryButton(icon="git-pull-request-arrow", label=actions.primaryLabel, disabled=actions.primaryDisabled, destructive=false, press=act("action", "ready"), compact=compact, testId="pull-request-primary")
       when actions.primary == "resolve"
-        PaPrimaryButton(icon="triangle-alert", label=actions.primaryLabel, disabled=actions.primaryDisabled, destructive=true, press=act("handoff", "conflicts"), testId="pull-request-primary")
+        PaPrimaryButton(icon="triangle-alert", label=actions.primaryLabel, disabled=actions.primaryDisabled, destructive=true, press=act("handoff", "conflicts"), compact=compact, testId="pull-request-primary")
       when actions.stateKey != ""
         row height="1.5rem" min-width="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" box-sizing="border-box" gap="0.25rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#fcfcfc, #ffffff0a)" align-items="center" flex-shrink=0 testId="pull-request-state-badge"
           PgIcon(name=(actions.stateKey == "merged" ? "git-merge" : "git-pull-request-closed"), size=14, color=paTone(actions.stateKey))
@@ -108,12 +109,14 @@ component PaArmedBadge
   props
     label: string
     tip: string
+    compact: bool
     testId: string
   view
     Tip(label=tip, side="top", align="center", offset=20)
       row height="1.5rem" min-width="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" box-sizing="border-box" gap="0.25rem" border-radius="0.5rem" background-color="light-dark(#2b7fff14, #2b7fff29)" align-items="center" flex-shrink=0 role="img" aria-label=label testId=testId
         PgIcon(name="git-merge", size=14, color="light-dark(#1447e6cc, #51a2ffcc)")
-        text label font-size="0.75rem" line-height="1rem" font-weight=500 white-space="nowrap" color="light-dark(#1447e6, #51a2ff)" aria-hidden=true
+        when not compact
+          text label font-size="0.75rem" line-height="1rem" font-weight=500 white-space="nowrap" color="light-dark(#1447e6, #51a2ff)" aria-hidden=true
 
 // Button size="xs": variant "default" (the merge and readiness), "destructive-outline" (Resolve conflicts); the label is its tooltip.
 component PaPrimaryButton
@@ -123,6 +126,7 @@ component PaPrimaryButton
     disabled: bool
     destructive: bool
     press: action
+    compact: bool
     testId: string
   state over = false
   action hover(value: bool)
@@ -131,7 +135,8 @@ component PaPrimaryButton
     Tip(label=label, side="top", align="center", offset=20)
       button press=press hover=hover disabled=disabled aria-label=label testId=testId height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" box-sizing="border-box" gap="0.25rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color=(destructive ? (over ? "light-dark(#fb2c3652, #fb414a52)" : "light-dark(#d4d4d8, #ffffff14)") : paPrimary()) background-color=(destructive ? (over ? "light-dark(#fb2c360a, #fb414a0a)" : "light-dark(#ffffff, #ffffff07)") : (over ? "light-dark(#1b4ed8e6, #346bf1e6)" : paPrimary())) box-shadow=(destructive ? "0 1px 2px #0000000d" : "inset 0 1px 0 #ffffff29, 0 1px 2px #1b4ed83d") opacity=(disabled ? 0.64 : 1) display="flex" flex-direction="row" align-items="center" flex-shrink=0
         PgIcon(name=icon, size=14, color=(destructive ? paDanger() : "#ffffff"))
-        text label font-size="0.75rem" line-height="1rem" font-weight=500 white-space="nowrap" color=(destructive ? paDanger() : "#ffffff")
+        when not compact
+          text label font-size="0.75rem" line-height="1rem" font-weight=500 white-space="nowrap" color=(destructive ? paDanger() : "#ffffff")
 
 // "More pull request actions" (Button size="icon-xs" variant="ghost-muted"); while the host is read
 // again the dots become the turning refresh glyph and the name "Refreshing pull request".
@@ -244,26 +249,15 @@ component PaRadioItem
 component PrdBaseBranch
   props
     actions: PrActionsView
+    ref: string
     base: string
     scheme: string
     act: action
-  state over = false
-  action hover(value: bool)
-    over = value
   view
     when actions.freshness
-      column position="relative" flex-shrink=0 min-width=0 max-width="40%" hover=hover
-        button popovertarget="pr-freshness" aria-label=actions.freshnessSummary testId="pull-request-base-freshness" height="1rem" padding=0 border-width=0 border-radius="0.25rem" background-color="#00000000" gap="0.25rem" display="flex" flex-direction="row" align-items="center" min-width=0 cursor="help"
-          when actions.stacked
-            PgIcon(name="layers", size=12, color=paWarn())
-          text base font-family="ui-monospace" font-size="0.75rem" line-height="1rem" color=paWarn() white-space="nowrap" overflow="hidden" text-overflow="ellipsis" min-width=0
-          PgIcon(name="triangle-alert", size=14, color=paWarn())
-        row id="pr-freshness" popover="auto" position="absolute" padding-top="0.25rem" align-items="flex-start" testId="pr-freshness-layer"
-          PaFreshnessCard(actions=actions, scheme=scheme, act=act, testId="pr-freshness-popover")
-        // openOnHover (delay 0): the same card while the pointer is over the mark or the card.
-        when over
-          row position="absolute" left=0 top="1rem" width="20rem" padding-top="0.25rem" align-items="flex-start" z-index=30
-            PaFreshnessCard(actions=actions, scheme=scheme, act=act, testId="pr-freshness-hover")
+      // Keyed by the pull request, so a pointer left over another one's mark starts no card here.
+      each prKey in [ref] key=prKey
+        PaFreshnessMark(actions=actions, base=base, scheme=scheme, act=act)
     else
       Tip(label=actions.baseTip, side="top", align="center", offset=20)
         row min-width=0 align-items="center" gap="0.25rem" flex-shrink=0 testId="pull-request-base"
@@ -271,6 +265,30 @@ component PrdBaseBranch
             box width="0.75rem" height="0.75rem" aria-label="Stacked pull request" flex-shrink=0
               PgIcon(name="layers", size=12, color="light-dark(#71717bb3, #828282b3)")
           text base font-family="ui-monospace" font-size="0.75rem" line-height="1rem" color="light-dark(#71717bb3, #828282b3)" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" min-width=0
+
+// PullRequestBaseFreshnessWarning's trigger: the amber base branch and mark; its hover state dies with it.
+component PaFreshnessMark
+  props
+    actions: PrActionsView
+    base: string
+    scheme: string
+    act: action
+  state over = false
+  action hover(value: bool)
+    over = value
+  view
+    column position="relative" flex-shrink=0 min-width=0 max-width="40%" hover=hover
+      button popovertarget="pr-freshness" aria-label=actions.freshnessSummary testId="pull-request-base-freshness" height="1rem" padding=0 border-width=0 border-radius="0.25rem" background-color="#00000000" gap="0.25rem" display="flex" flex-direction="row" align-items="center" min-width=0 cursor="help"
+        when actions.stacked
+          PgIcon(name="layers", size=12, color=paWarn())
+        text base font-family="ui-monospace" font-size="0.75rem" line-height="1rem" color=paWarn() white-space="nowrap" overflow="hidden" text-overflow="ellipsis" min-width=0
+        PgIcon(name="triangle-alert", size=14, color=paWarn())
+      row id="pr-freshness" popover="auto" position="absolute" padding-top="0.25rem" align-items="flex-start" testId="pr-freshness-layer"
+        PaFreshnessCard(actions=actions, scheme=scheme, act=act, testId="pr-freshness-popover")
+      // openOnHover (delay 0): the same card while the pointer is over the mark or the card.
+      when over
+        row position="absolute" left=0 top="1rem" width="20rem" padding-top="0.25rem" align-items="flex-start" z-index=30
+          PaFreshnessCard(actions=actions, scheme=scheme, act=act, testId="pr-freshness-hover")
 
 // PopoverPopup (compact, max-w-80): the sentence, "Changes can be cleanly merged.", each way to update.
 component PaFreshnessCard
@@ -331,6 +349,7 @@ component PrActionLayers
       PrStackDialog(stack=actions.stack, ref=ref, dark=dark, act=act, local=local)
 
 // AlertDialog: the title, the sentence, Cancel (Escape) and the action's own button (destructive for Close).
+// Focus starts on Cancel and Tab stays on the two buttons (X53's stopgap, as AppConfirm's).
 component PrActionDialog
   props
     actions: PrActionsView
@@ -338,6 +357,14 @@ component PrActionDialog
     dark: bool
     act: action
     local: action
+  action fromCancel(k: string, e: KeyboardEvent)
+    if k == "Tab" and not e.metaKey and not e.ctrlKey and not e.altKey
+      preventDefault()
+      focus("pr-action-dialog-confirm")
+  action fromConfirm(k: string, e: KeyboardEvent)
+    if k == "Tab" and not e.metaKey and not e.ctrlKey and not e.altKey
+      preventDefault()
+      focus("pr-action-dialog-cancel")
   view
     column position="absolute" left=0 right=0 top=0 bottom=0 z-index=80 display="flex" align-items="center" justify-content="center" padding="1rem" box-sizing="border-box" background-color="light-dark(#fcfcfc99, #0a0a0aa3)" backdrop-filter="blur(4px)" testId="pr-action-dialog-overlay"
       column width="100%" max-width="32rem" position="relative" box-sizing="border-box" border-radius="1.125rem" border-style="solid" border-width=1 border-color="light-dark(#27272a1a, #ffffff14)" background-color="light-dark(#fcfcfccc, #0a0a0acc)" backdrop-filter="blur(12px)" box-shadow=(dark ? "inset 0 1px 0 #ffffff0a, 0 24px 72px -20px #000000e6" : "0 24px 64px -24px #000000a6") overflow="hidden" retainFocus=true role="alertdialog" aria-modal=true aria-label=actions.dialogTitle testId="pr-action-dialog"
@@ -345,7 +372,7 @@ component PrActionDialog
           text actions.dialogTitle font-size="1.25rem" font-weight=600 line-height="1.25rem" color=paInk() role="heading" aria-level=2 testId="pr-action-dialog-title"
           text actions.dialogDescription font-size="0.875rem" line-height="1.25rem" color=paMuted() testId="pr-action-dialog-description"
         row width="100%" gap="0.5rem" justify-content="flex-end" align-items="center" padding-left="1.5rem" padding-right="1.5rem" padding-top="1rem" padding-bottom="1rem" box-sizing="border-box" border-top-width=1 border-top-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#fafafab8, #ffffff06)"
-          button press=local("pr-ui-cancel", ref, "") aria-keyshortcuts="Escape" testId="pr-action-dialog-cancel" height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)" box-shadow="0 1px 2px #0000000d" display="flex" align-items="center" justify-content="center"
+          button id="pr-action-dialog-cancel" press=local("pr-ui-cancel", ref, "") key=fromCancel autofocus=true aria-keyshortcuts="Escape" testId="pr-action-dialog-cancel" height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)" box-shadow="0 1px 2px #0000000d" display="flex" align-items="center" justify-content="center"
             text "Cancel" font-size="0.875rem" line-height="1.25rem" font-weight=500 color=paInk()
-          button press=act("action", actions.dialogValue) disabled=actions.pending testId="pr-action-dialog-confirm" height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color=(actions.dialogDestructive ? "light-dark(#fb2c36, #fb414a)" : paPrimary()) background-color=(actions.dialogDestructive ? "light-dark(#fb2c36, #fb414a)" : paPrimary()) box-shadow="inset 0 1px 0 #ffffff29, 0 1px 2px #0000000d" opacity=(actions.pending ? 0.64 : 1) display="flex" align-items="center" justify-content="center"
+          button id="pr-action-dialog-confirm" press=act("action", actions.dialogValue) key=fromConfirm disabled=actions.pending testId="pr-action-dialog-confirm" height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color=(actions.dialogDestructive ? "light-dark(#fb2c36, #fb414a)" : paPrimary()) background-color=(actions.dialogDestructive ? "light-dark(#fb2c36, #fb414a)" : paPrimary()) box-shadow="inset 0 1px 0 #ffffff29, 0 1px 2px #0000000d" opacity=(actions.pending ? 0.64 : 1) display="flex" align-items="center" justify-content="center"
             text actions.dialogConfirm font-size="0.875rem" line-height="1.25rem" font-weight=500 color="#ffffff"

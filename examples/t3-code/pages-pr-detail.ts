@@ -163,9 +163,10 @@ export async function pullRequestDetail(client: T3Client, native: Native | null 
   if (panel.detailDue) await readDetail(client, native!, panel, ref, storage);
   if (due(panel) && phaseOf(panel) !== shown.get(client)) return wake(client, native!, present(view, panel, selection, listEntry, input.now, client), panel);
   const display = panel.detail ?? panel.cached;
-  // The activity and (once the detail says the host keeps stacks) the stack are read together.
-  await Promise.all([panel.activityDue && display ? readActivity(client, native!, panel, ref) : null,
-    display ? readPanelStack(client, native!, panel.key, display, panel.reference) : null]);
+  if (panel.activityDue && display) await readActivity(client, native!, panel, ref);
+  // Then, once the detail says the host keeps stacks, the stack (one native request at a time: an answer burst can
+  // fill the native executor's ordered lane, host/apple/src/executor_core.rs COUNTS).
+  if (display) await readPanelStack(client, native!, panel.key, display, panel.reference);
   shown.set(client, phaseOf(panel));
   return present(view, panel, selection, listEntry, input.now, client);
 }

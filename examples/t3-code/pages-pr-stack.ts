@@ -91,17 +91,17 @@ export function markStackDue(client: object, key?: string): void {
 }
 /**
  * The panel's stack read (usePullRequestStack) and the base branch's default-branch check
- * (isStackedPullRequestBase over vcs.listRefs, limit 2), each when due; a failure keeps what was held.
+ * (isStackedPullRequestBase over vcs.listRefs, limit 2), each when due and one after the other; a failure keeps
+ * what was held.
  */
 export async function readPanelStack(client: T3Client, native: Native, key: string, detail: Obj | null, reference: Obj): Promise<void> {
   const map = entriesOf(client);
   let entry = map.get(key);
   const ref = stackReference(client, detail, reference);
   if (!entry) { entry = { data: null, isSuccess: false, isPending: !!ref, error: null, due: true, refsFor: '', stacked: false }; map.set(key, entry); }
-  const reads: Promise<void>[] = [];
   if (ref && entry.due) {
     const held = entry;
-    reads.push((async () => {
+    {
       try {
         held.data = decodeStack(await client.rpc(native, 'pullRequests.stack', ref));
         held.isSuccess = true; held.error = null;
@@ -110,20 +110,19 @@ export async function readPanelStack(client: T3Client, native: Native, key: stri
         held.isSuccess = false; held.error = error instanceof Error && error.message ? error.message : 'The stack lookup failed.';
       }
       held.isPending = false; held.due = false;
-    })());
+    }
   } else if (!ref) { entry.isPending = false; entry.due = false; }
   const cwd = str(detail?.workspaceRoot), refsFor = `${cwd}|${str(detail?.baseBranch)}`;
   if (detail && cwd && entry.refsFor !== refsFor) {
     const held = entry;
-    reads.push((async () => {
+    {
       try {
         const listed = obj(await client.rpc(native, 'vcs.listRefs', { cwd, includeMatchingRemoteRefs: true, limit: 2 }));
         held.stacked = isStackedPullRequestBase(str(detail.baseBranch), arr(listed.refs).map(entryRef => ({ name: str(entryRef.name), isDefault: entryRef.isDefault === true, isRemote: entryRef.isRemote === true, ...(str(entryRef.remoteName) ? { remoteName: str(entryRef.remoteName) } : {}) })));
       } catch (error) { if (letGo(error)) throw error; held.stacked = false; }
       held.refsFor = refsFor;
-    })());
+    }
   }
-  await Promise.all(reads);
 }
 export function forgetStacks(client: object): void { entries.delete(client); }
 
