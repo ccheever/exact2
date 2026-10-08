@@ -7,7 +7,7 @@ delivery: draft
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: 'feat(example)/t3-code-fix-misc-batch'
-pr_url: pending
+pr_url: https://github.com/ccheever/exact2/pull/306
 verified_commit: 08b8ded8a
 ---
 
@@ -134,5 +134,5 @@ Tests:
 
 ## Next action
 
-The coordinator reviews and merges the draft PR. fix-hover-cards picks up bug 9 from the handoff. X63 waits for the
+The coordinator reviews and merges draft PR #306. fix-hover-cards picks up bug 9 from the handoff. X63 waits for the
 user's approval to publish.
