@@ -200,6 +200,9 @@ export function settingsFailure(client: T3Client, op: string, id: string, value:
   else if (op === 'unarchive-thread') title = 'Failed to unarchive thread';
   else if (op === 'delete-archived-thread') title = 'Failed to delete thread';
   else if (op === 'settings-core' && id.startsWith('textGenerationModelSelection:')) title = 'Text generation model not saved';
+  // settings-model-picker: General's model picks (ProjectDefaultsSettings setModel, SettingsPanels onInstanceModelChange).
+  else if (op === 'settings-core' && id.startsWith('default-model:|')) title = 'Default model not saved';
+  else if (op === 'settings-core' && id.startsWith('text-generation-model:|')) title = 'Text generation model not saved';
   else if (op === 'settings-core' && id.startsWith('sourceControlWriterModelSelection:')) title = 'Source control writer model not saved';
   if (!title) return '';
   pushToast(client, { kind: 'error', title, description, stacked: true });
