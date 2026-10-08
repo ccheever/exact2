@@ -100,3 +100,23 @@ stayed and Weekly Work was not pinned (image 11 left); the confirm's Escape gave
 clock too (`focus("usage-seg-0-0-1")`), so item 12 shows only in real time (the batch's `upv-k4z`). Item 10's
 close on entry needs a real pointer (the agent's hover move is one step); the batch's `upv-hover2`/`upv-hover3`
 are its base images.
+
+Session 3's hover model was dropped afterwards (coordinator: hover belongs to fix-hover-cards); its rest, bridge and
+pass-over rows no longer describe this branch.
+
+## Session 7 (AFTER, the final code: pin and dismissal touch no hover state; item 12 in PagesCover; feature branch `fa46ad5d0` merged; app pid 54085)
+
+Agent mode, macOS dev build, 1280x840, epoch 1791432540000, lane b (fixture proxy 16591). Ops are session 6's, unchanged;
+the read-backs are identical to session 6's (16:14 KST, before the last edit to `pin`/`pressUp`).
+
+| Row | Ops | Read back (expanded segment, focus) |
+| --- | --- | --- |
+| Pin | `tap usage-seg-0-0-0` | 0-0-0 expanded, focus on it |
+| Page ground press | `tap usage-scroll clicks 1 at 600 700` | none expanded |
+| Sidebar press (outside the page) | pin 0-0-0, `tap sidebar clicks 1 at 120 500` | none expanded |
+| Another segment | pin 0-0-0, `tap usage-seg-0-0-1` | only 0-0-1 expanded |
+| Own segment | `tap usage-seg-0-0-1` again | none expanded |
+| Inside the card, then a right-click | pin 0-0-0, `tap usage-seg-pop-0-0-0 clicks 1 at 100 150`, `tap usage-pooled contextmenu at 168 52` | 0-0-0 still expanded |
+| Escape | `type usage-seg-0-0-0 key Escape` | none expanded, focus on usage-seg-0-0-0 |
+| Item 12 | pin 0-0-1, `tap usage-seg-reset-0-0-1`, `type reset-credit-cancel key Escape` | focus `reset-credit-cancel`, then `usage-seg-0-0-1` |
+| Editor Escape | Settings, Appearance, Create theme, `type theme-editor-name key Escape` | Settings gone, editor stays, no focus; a second Escape (the agent's `type` focuses the field first): the editor stays |
