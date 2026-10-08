@@ -25,6 +25,8 @@ export interface MobileNewTaskDraftStore {
 }
 const bindings = new WeakMap<T3Client, { key: string; owner: string }>();
 export const mobileNewTaskDraftIsKey = (key: string) => /^new-task:[\w-]{1,128}$/.test(key);
+/** Reserved editor ownership stays reserved even when its saved key is malformed. */
+export const mobileNewTaskDraftIsPendingKey = (key: string) => key.startsWith('new-task:pending-');
 export const mobileNewTaskDraftClone = <T>(value: T): T => JSON.parse(JSON.stringify(value));
 export function mobileNewTaskDraftStore(client: T3Client): MobileNewTaskDraftStore {
   const local = client.local as typeof client.local & { mobileNewTaskDrafts?: MobileNewTaskDraftStore };
@@ -159,6 +161,10 @@ export function mobileNewTaskDraftBind(client: T3Client, key: string, owner: str
   if (!owner || !record || client.threadId || !matches(client, record)) return false;
   bindings.set(client, { key, owner }); client.revision++; return true;
 }
+export function mobileNewTaskDraftOwned(client: T3Client, key: string, owner: string): boolean {
+  const binding = bindings.get(client);
+  return !!owner && binding?.owner === owner && binding.key === key && mobileNewTaskDraftCurrent(client)?.key === key;
+}
 export function mobileNewTaskDraftUnbind(client: T3Client, owner?: string): void {
   if (owner !== undefined && bindings.get(client)?.owner !== owner) return;
   if (bindings.delete(client)) client.revision++;
@@ -183,6 +189,7 @@ function unlocked(client: T3Client, key: string) {
   if (Object.values(store.claims).includes(key) || Object.values(store.receipts).some(raw => obj(raw).key === key)) throw new ClientError('Resolve the captured launch before changing this draft.');
 }
 export function mobileNewTaskDraftRetarget(client: T3Client, key: string, target: { environmentId: string; projectId: string; origin: string }): boolean {
+  if (mobileNewTaskDraftIsPendingKey(key)) return false;
   const record = mobileNewTaskDraftStore(client).records[key]; if (!record || !validStamp(target)) return false;
   unlocked(client, key);
   const crossing = record.environmentId !== target.environmentId || record.origin !== target.origin;
@@ -209,6 +216,7 @@ export function mobileNewTaskDraftQueueFiles(client: T3Client, files: DraftFile[
   for (const file of files) if (file.source === 'attached' && !releases.includes(file.id)) releases.push(file.id);
 }
 export function mobileNewTaskDraftDiscard(client: T3Client, key: string): boolean {
+  if (mobileNewTaskDraftIsPendingKey(key)) return false;
   if (!mobileNewTaskDraftExists(client, key)) return false; unlocked(client, key);
   for (const image of client.local.snapshotDrafts[key] ?? []) if (str(image.id)) client.local.snapshotReleases.push(str(image.id));
   const files = draftFiles(client.local).filter(file => file.draftKey === key); mobileNewTaskDraftQueueFiles(client, files);

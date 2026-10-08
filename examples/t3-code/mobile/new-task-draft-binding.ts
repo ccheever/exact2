@@ -9,7 +9,7 @@ import { mobileQueuedEditOrigin } from './queued-edit-origin';
 import { mobileNewTaskTransferGuardAcquire, mobileNewTaskTransferGuardRead, mobileNewTaskTransferGuardAssert,
   mobileNewTaskTransferGuardRelease, type NewTaskTransferLease } from './new-task-transfer-guard';
 import { mobileNewTaskDraftCreate, mobileNewTaskDraftLookup, mobileNewTaskDraftRetarget, mobileNewTaskDraftBind,
-  mobileNewTaskDraftChoicesRestore } from './mobile-new-task-drafts';
+  mobileNewTaskDraftChoicesRestore, mobileNewTaskDraftIsPendingKey } from './mobile-new-task-drafts';
 
 /** Selection is already the actual loaded server project. The outer native
  * scope rejects every stale await, including ID allocation and persistence. */
@@ -21,6 +21,8 @@ export async function mobileBindNewTaskDraft(client: T3Client, owner: string, pr
       throw new ClientError('The new task selection changed.', 'superseded');
   };
   assertCurrent();
+  if ([previousKey, resumeKey].some(mobileNewTaskDraftIsPendingKey))
+    throw new ClientError('This saved edit belongs to a pending task. Open that task to review it.');
   let lease = transferLease;
   const destructive = !!previousKey && !resumeKey;
   if (destructive && !lease) {
@@ -49,6 +51,7 @@ export async function mobileBindNewTaskDraft(client: T3Client, owner: string, pr
       const now = composerNow(client);
       if (!Number.isFinite(now) || now <= 0) throw new ClientError('Wait for the app clock before creating this draft.');
       const [id] = await client.ids(native, 1); assertCurrent();
+      if (mobileNewTaskDraftIsPendingKey(`new-task:${id}`)) throw new ClientError('The new draft identifier is reserved for a pending task.');
       key = mobileNewTaskDraftCreate(client, { ...stamp, id, createdAt: new Date(now).toISOString() }).key;
     }
     if (!mobileNewTaskDraftBind(client, key, owner)) throw new ClientError('The new task selection changed.', 'superseded');

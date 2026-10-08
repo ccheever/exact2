@@ -1,7 +1,8 @@
+import { mobileNewTaskPendingContext } from './new-task-pending-context';
 import { mobileModelSelectionReady } from './model-availability';
 // Pinned mobile NewTask{Route,Draft,ContextPicker} screens at365aa87982; shared draft and launch ownership.
 // @ref llp/1109.005-composer-and-transcript.decision.md#new-task-ownership
-import { mobileNewTaskDraftNoteBranch, mobileNewTaskDraftLookup, mobileNewTaskDraftPresentation, mobileNewTaskDraftSelectedBranch } from './mobile-new-task-drafts';
+import { mobileNewTaskDraftIsPendingKey, mobileNewTaskDraftNoteBranch, mobileNewTaskDraftLookup, mobileNewTaskDraftPresentation, mobileNewTaskDraftSelectedBranch } from './mobile-new-task-drafts';
 import { mobileNewTaskTransferBusy } from './new-task-transfer';
 import { mobileNewTaskLaunchPendingOwned } from './mobile-new-task-launch';
 import { mobileNewTaskCloneSnapshot } from './new-task-clone';
@@ -26,7 +27,7 @@ import { threadOps } from './shared/client-ops-threads';
 export interface NewTaskProject { id: string; environmentId: string; projectId: string; title: string; subtitle: string; path: string; selected: boolean; disabled: boolean; last: boolean }
 export interface NewTaskEnvironment { id: string; label: string; machine: string; selected: boolean; disabled: boolean; last: boolean }
 export interface NewTaskBranch { id: string; label: string; badge: string; selected: boolean; disabled: boolean; last: boolean }
-export interface NewTaskSnapshot { revision: number; environmentId: string; projectId: string; threadId: string; projectTitle: string; environmentLabel: string;
+export interface NewTaskSnapshot { pendingEditor: boolean; revision: number; environmentId: string; projectId: string; threadId: string; projectTitle: string; environmentLabel: string;
   projects: NewTaskProject[]; environments: NewTaskEnvironment[]; branches: NewTaskBranch[]; query: string; branchQuery: string;
   emptyTitle: string; emptyDetail: string; branchEmpty: string; error: string; busy: boolean; branchLoaded: boolean; branchHasMore: boolean;
   canSelect: boolean; canAddProject: boolean; canStartScratch: boolean; scratchTarget: string; hasProjects: boolean; draft: boolean; scratch: boolean; workspaceMode: string; workspaceLabel: string; branchLabel: string; originOn: boolean;
@@ -49,7 +50,7 @@ const machineSymbols: Record<string, string> = { server: 'server.rack', cloud: '
 /** Source-derived project chooser. Each action key contains both identities, never a bare cross-environment project id. */
 export function mobileNewTask(query = '', client: T3Client = mobileClient, background: EnvironmentFleet = fleet): NewTaskSnapshot {
   const state = stateFor(client), sources = mobileHomeSources(client, background), needle = query.trim().toLocaleLowerCase();
-  const context = draftContext(client), pendingDraft = mobileNewTaskLaunchPendingOwned(client);
+  const context = draftContext(client), pendingDraft = mobileNewTaskLaunchPendingOwned(client), pendingEditor = mobileNewTaskPendingContext(client);
   const canSelect = !state.busy && ((!client.busy && !client.pending) || pendingDraft);
   const projects = sources.flatMap(source => source.shell.projects.filter(project => project.archivedAt == null && !isScratch(project, scratchRootOf(true, source.config)))
     .filter(project => !needle || [str(project.title), str(project.workspaceRoot)].some(value => value.toLocaleLowerCase().includes(needle)))
@@ -90,13 +91,17 @@ export function mobileNewTask(query = '', client: T3Client = mobileClient, backg
     && !mobileNewTaskTransferBusy(client, client.draftKey) && (client.connection !== 'connected' || composer.canOperate
       && mobileModelSelectionReady(client.config, { instanceId: client.providerId, model: client.modelId }))
     && (scratch || context.envMode !== 'worktree' || !!context.branch);
-  return { revision: client.revision, environmentId: client.environmentId, projectId: client.projectId, threadId: client.threadId,
-    projectTitle: str(project?.title), environmentLabel: environments.find(environment => environment.selected)?.label ?? str(obj(client.config.environment).label),
+  if (pendingEditor) {
+    composer.canSend = !!client.draft.trim() && !!client.providerId && !!client.modelId && !client.busy;
+    composer.sendLabel = 'Save changes'; composer.showReadOnlyNotice = false; composer.blockedReason = '';
+  }
+  return { pendingEditor: !!pendingEditor, revision: client.revision, environmentId: client.environmentId, projectId: client.projectId, threadId: client.threadId,
+    projectTitle: pendingEditor?.title ?? str(project?.title), environmentLabel: environments.find(environment => environment.selected)?.label ?? str(obj(client.config.environment).label),
     projects, environments, branches: state.branches, query, branchQuery: state.branchQuery, emptyTitle, emptyDetail,
     branchEmpty: state.branchLoaded ? state.error || (state.branchQuery ? 'No matching branches' : 'No branches available') : 'Loading branches…',
     error: state.error, busy: state.busy, branchLoaded: state.branchLoaded, branchHasMore: state.branchHasMore, canSelect, canAddProject,
     canStartScratch: !!mobileScratchTarget(client, background), scratchTarget: mobileScratchTarget(client, background), hasProjects,
-    draft: !client.threadId && !!project, scratch, workspaceMode: scratch ? 'local' : context.envMode,
+    draft: !client.threadId && (!!project || !!pendingEditor), scratch, workspaceMode: scratch ? 'local' : context.envMode,
     workspaceLabel: context.envMode === 'worktree' ? 'New worktree' : context.worktreePath ? 'Current worktree' : 'Current checkout',
     branchLabel: context.branch || 'Select branch', originOn: startFromOrigin(client), composer };
 }
@@ -126,7 +131,7 @@ export function mobileNewTaskChooser(query = '', groupingMode = 'repository', cl
 /** Awaited root resource, real repository reads; only projected rows/permission booleans survive the answer. */
 export async function mobileNewTaskPrepare(branchQuery: string, nativeInput: Native | null | undefined, client: T3Client = mobileClient) {
   const state = stateFor(client), expected = owner(client), request = ++state.prepare;
-  if (!nativeInput?.available || !client.ready || client.threadId || !client.projectId || mobileNewTask('', client).scratch) return { revision: client.revision, loaded: false };
+  if (mobileNewTaskPendingContext(client) || !nativeInput?.available || !client.ready || client.threadId || !client.projectId || mobileNewTask('', client).scratch) return { revision: client.revision, loaded: false };
   const native = letGoAware(mobileNative(nativeInput)), context = draftContext(client);
   const stamp = () => JSON.stringify([draftContext(client), mobileNewTaskDraftLookup(client, client.draftKey)?.branchChoice]);
   const captured = stamp(), current = () => owner(client) === expected && state.prepare === request && stamp() === captured;
@@ -167,6 +172,7 @@ export async function mobileNewTaskAction(kind: string, id: string, value: strin
   client: T3Client = mobileClient, background: EnvironmentFleet = fleet, current: () => boolean = () => true): Promise<NewTaskResult> {
   const state = stateFor(client), result = (message = '', submitted = false) => ({ revision: client.revision, message, submitted,
     environmentId: client.environmentId, projectId: client.projectId, threadId: client.threadId });
+  if (mobileNewTaskDraftIsPendingKey(client.draftKey) && kind !== 'draft') return result('Use the pending task editor to save these changes.');
   if (!nativeInput?.available) return result('Open T3 Code on your iPhone or iPad to create a task.');
   const assertCurrent = () => { if (!current()) throw new ClientError('The new task route changed.', 'superseded'); };
   const base = letGoAware(mobileNative(nativeInput));

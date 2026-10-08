@@ -1,6 +1,7 @@
 // @ref llp/1109.005-composer-and-transcript.decision.md#new-task-ownership
 use NewTaskRecovery from "./new-task-recovery.contract"
 shape NewTaskFlowSnapshot
+  pendingEditor: bool
   owner: string
   requestRoute: string
   status: string

@@ -1,3 +1,8 @@
+import { mobileNewTaskFlowView, mobileNewTaskFlowAction, mobileNewTaskFlowOwns } from './new-task-flow';
+import { EnvironmentFleet } from './shared/settings-b-fleet';
+import { mobileNewTaskPendingOpen, mobileNewTaskPendingClose } from './new-task-pending';
+import { mobileNewTaskPendingContext } from './new-task-pending-context';
+import { mobileNewTask, mobileNewTaskPrepare } from './new-task';
 // @ref llp/1109.005-composer-and-transcript.decision.md#local-outbox-storage
 import { expect, test } from 'bun:test';
 import { MobileDraftClient, mobileDraftRecoveryHandles } from './mobile-draft-recovery';
@@ -27,6 +32,7 @@ function backend() {
     let value: unknown;
     if (request.op === 'status') value = { phase: 'disconnected' };
     else if (request.op === 'devicePresentation') value = {};
+    else if (request.op === 'environments') value = { saved: [] };
     else if (request.op === 'ids') value = ['aaaaaaaa-1111-4111-8111-111111111111'];
     else if (request.op === 'mobileOutboxDelivery' && request.action === 'status') value = { operation: null, durable: false };
     else if (request.op === 'mobileOutboxInline' && request.action === 'lookup') value = { operations: [] };
@@ -240,5 +246,196 @@ test('release refusal, failure or admitted release with lost reply preserves pre
       expect(f.host.calls.filter(call => call.op === 'ids')).toHaveLength(1);
       expect(f.client.local.drafts[key]).toBeUndefined();
     }
+  }
+});
+
+
+const pendingRoute = { environmentId: 'env', projectId: 'project', pendingTaskId: 'message' };
+async function pendingFlow() {
+  const f = await fixture();
+  f.client.local.drafts['env:new:project'] = 'ordinary project draft';
+  const input = { flowOwner: 'flow-one', current: f.input.current };
+  const result = await mobileNewTaskPendingOpen(f.client, f.host.native, f.storage, pendingRoute, input);
+  expect(result.status).toBe('ready');
+  return { ...f, flowInput: input };
+}
+test('pending entry binds original identity offline and preserves absent captured project through shell selection and defaults', async () => {
+  const f = await pendingFlow();
+  expect(f.client.draftKey).toBe(key); expect(f.client.draft).toBe('original');
+  expect(f.client.shell.projects).toEqual([]);
+  f.client.shell.projects = [{ id: 'other', title: 'Other', workspaceRoot: '/other', updatedAt: '2026-10-09T00:00:00Z' }];
+  f.client.ensureSelection(); f.client.chooseDefaults();
+  expect(f.client.projectId).toBe('project'); expect(f.client.providerId).toBe('provider'); expect(f.client.modelId).toBe('model');
+  expect(mobileNewTaskPendingContext(f.client)).toMatchObject({ title: 'Captured project', cwd: '/captured' });
+  const view = mobileNewTask('', f.client);
+  expect(view.draft).toBe(true); expect(view.projectTitle).toBe('Captured project');
+  const before = f.host.calls.length;
+  await mobileNewTaskPrepare('', f.host.native, f.client);
+  expect(f.host.calls.length).toBe(before); expect(f.client.shell.projects.map(project => project.id)).toEqual(['other']);
+  expect(f.client.local.drafts['env:new:project']).toBe('ordinary project draft');
+});
+test('pending entry refuses URL retarget and foreign origin before draft selection or creation', async () => {
+  for (const patch of [{ projectId: 'other' }, { environmentId: 'foreign' }, { pendingTaskId: 'missing' }]) {
+    const f = await fixture();
+    await expect(mobileNewTaskPendingOpen(f.client, f.host.native, f.storage, { ...pendingRoute, ...patch },
+      { flowOwner: 'one', current: f.input.current })).rejects.toBeDefined();
+    expect(f.client.threadEpoch).toBe(0); expect(f.client.local.drafts[key]).toBeUndefined();
+  }
+  const f = await fixture(); f.client.origin = 'https://wrong.test';
+  await expect(mobileNewTaskPendingOpen(f.client, f.host.native, f.storage, pendingRoute,
+    { flowOwner: 'one', current: f.input.current })).rejects.toBeDefined();
+  expect(f.client.local.drafts[key]).toBeUndefined();
+});
+test('pending save and close commits original IDs, unbinds, finishes ownership and preserves unrelated draft', async () => {
+  const f = await pendingFlow(); edit(f, 'edited in flow');
+  const result = await mobileNewTaskPendingClose(f.client, f.host.native, f.storage, live(f), f.flowInput);
+  expect(result.status).toBe('finished'); expect(f.host.state.record).toMatchObject({ ...owner, text: 'edited in flow' });
+  expect(f.host.state.held.size).toBe(0); expect(mobilePendingTaskEditorsSnapshot(f.client).markers).toEqual([]);
+  expect(f.client.local.drafts[key]).toBeUndefined(); expect(f.client.local.drafts['env:new:project']).toBe('ordinary project draft');
+  expect(f.client.draftKey).not.toBe(key); expect(f.host.writes()).toHaveLength(1);
+});
+test('empty edits stay bound and held; failed Finish rebinds exact current flow and retries the same identity', async () => {
+  const f = await pendingFlow(); edit(f, '');
+  expect((await mobileNewTaskPendingClose(f.client, f.host.native, f.storage, live(f), f.flowInput)).status).toBe('retained');
+  expect(f.client.draftKey).toBe(key); expect(f.host.state.held.size).toBe(1); expect(f.host.writes()).toHaveLength(0);
+  edit(f, 'valid edit'); f.host.state.releaseFalse = true;
+  const retained = await mobileNewTaskPendingClose(f.client, f.host.native, f.storage, live(f), f.flowInput);
+  expect(retained.status).toBe('retained'); expect(f.client.draftKey).toBe(key); expect(f.client.draft).toBe('valid edit');
+  f.host.state.releaseFalse = false;
+  expect((await mobileNewTaskPendingClose(f.client, f.host.native, f.storage, live(f), f.flowInput)).status).toBe('finished');
+  expect(f.host.writes()).toHaveLength(1);
+});
+test('late Finish after containing flow departs never rebinds its saved editor', async () => {
+  const f = await pendingFlow(); edit(f, 'saved before departure');
+  f.host.hooks.set('mobileOutbox:releaseHold', () => f.route(false));
+  await expect(mobileNewTaskPendingClose(f.client, f.host.native, f.storage, live(f), f.flowInput)).rejects.toBeDefined();
+  expect(f.client.draftKey).not.toBe(key); expect(f.client.local.drafts[key]).toBe('saved before departure');
+  expect(mobilePendingTaskEditorsSnapshot(f.client).markers).toHaveLength(1);
+});
+test('reopen missing queue row retains saved content and does not bind it as an editable ordinary draft', async () => {
+  const f = await pendingFlow(); edit(f, 'orphan edit'); unbind(f.client, f.flowInput.flowOwner); f.host.remove();
+  const result = await mobileNewTaskPendingOpen(f.client, f.host.native, f.storage, pendingRoute, f.flowInput);
+  expect(result.status).toBe('retained'); expect(result.marker?.draftKey).toBe(key);
+  expect(f.client.draftKey).not.toBe(key); expect(f.client.local.drafts[key]).toBe('orphan edit'); expect(f.host.writes()).toHaveLength(0);
+});
+
+
+test('pending close rejects a different binding owner before saving edited bytes', async () => {
+  const f = await pendingFlow(); edit(f, 'not authorized by this flow');
+  await expect(mobileNewTaskPendingClose(f.client, f.host.native, f.storage, live(f),
+    { ...f.flowInput, flowOwner: 'other-flow' })).rejects.toBeDefined();
+  expect(f.host.writes()).toHaveLength(0); expect(f.client.draftKey).toBe(key);
+});
+test('captured project display fallbacks are not persisted as creation metadata', async () => {
+  const host = backend(); delete host.state.record!.creation!.projectTitle; delete host.state.record!.creation!.projectCwd;
+  const f = await fixture({ version: 1 }, host);
+  const input = { flowOwner: 'one', current: f.input.current };
+  expect((await mobileNewTaskPendingOpen(f.client, host.native, f.storage, pendingRoute, input)).status).toBe('ready');
+  expect(mobileNewTaskPendingContext(f.client)).toMatchObject({ title: 'Unknown project', cwd: '' });
+  edit(f, 'new content');
+  expect((await mobileNewTaskPendingClose(f.client, host.native, f.storage, live(f), input)).status).toBe('finished');
+  expect(host.state.record!.creation).not.toHaveProperty('projectTitle'); expect(host.state.record!.creation).not.toHaveProperty('projectCwd');
+});
+test('route replacement while reading pending ownership does not change selection or bind saved content', async () => {
+  const f = await fixture(); f.client.projectId = 'unrelated';
+  f.host.hooks.set('mobileOutbox:read', () => f.route(false));
+  await expect(mobileNewTaskPendingOpen(f.client, f.host.native, f.storage, pendingRoute,
+    { flowOwner: 'one', current: f.input.current })).rejects.toBeDefined();
+  expect(f.client.projectId).toBe('unrelated'); expect(f.client.threadEpoch).toBe(0); expect(f.client.local.drafts[key]).toBeUndefined();
+});
+
+
+test('root flow prepares a pending URL offline, retains its owner through a child, and closes only after original-ID save', async () => {
+  const f = await fixture(), fleet = new EnvironmentFleet(), url = '/new/draft?environmentId=env&projectId=project&pendingTaskId=message';
+  const view = (visit = 'draft', location = url) => mobileNewTaskFlowView('pending-flow', visit, location, true, false, f.client, fleet);
+  const initial = view(); expect(initial.pendingEditor).toBe(true); expect(initial.needsPrepare).toBe(true);
+  const act = (kind: string, visit = 'draft') => mobileNewTaskFlowAction(initial.owner, visit, kind, '', '', f.host.native, f.storage, f.client, fleet);
+  expect((await act('prepare')).message).toBe('');
+  expect(view().ready).toBe(true); expect(mobileNewTaskFlowOwns(initial.owner, 'draft', f.client)).toBe(true);
+  const child = view('attachment', '/new/draft/attachments/image'); expect(child.ready).toBe(true); expect(child.pendingEditor).toBe(true);
+  expect(view().ready).toBe(true); edit(f, 'root editor text');
+  const blocked = await act('scratch'); expect(blocked.message).toContain('pending task');
+  expect(f.host.writes()).toHaveLength(0);
+  const result = await act('send-alternate');
+  expect(result.nextLocation).toBe('@close'); expect(result.submitted).toBe(false); expect(result.message).toBe('');
+  expect(f.host.state.record).toMatchObject({ ...owner, text: 'root editor text' }); expect(f.host.writes()).toHaveLength(1);
+  expect(mobilePendingTaskEditorsSnapshot(f.client).markers).toEqual([]);
+});
+test('pending preparation errors stop automatic attempts and allow explicit refresh without granting draft mutation', async () => {
+  const f = await fixture(), fleet = new EnvironmentFleet(), url = '/new/draft?environmentId=env&projectId=wrong&pendingTaskId=message';
+  const view = () => mobileNewTaskFlowView('error-flow', 'draft', url, true, false, f.client, fleet);
+  const initial = view();
+  const act = (kind: string) => mobileNewTaskFlowAction(initial.owner, 'draft', kind, '', '', f.host.native, f.storage, f.client, fleet);
+  expect((await act('prepare')).message).toContain('selected environment and project');
+  expect(view()).toMatchObject({ pendingEditor: true, ready: false, needsPrepare: false, status: 'retained' });
+  expect(mobileNewTaskFlowOwns(initial.owner, 'draft', f.client)).toBe(false);
+  expect((await act('pending-refresh')).message).toContain('selected environment and project');
+  expect(f.host.writes()).toHaveLength(0);
+});
+
+
+test('pending entry focuses only its exact paired home and needs no live project or thread', async () => {
+  const f = await fixture(); f.client.environmentId = 'previous'; f.client.origin = 'https://previous.test';
+  const calls: Obj[] = [], native: Native = { ...f.host.native, async later(raw) {
+    const request = obj(raw); calls.push(request);
+    if (request.op === 'environments') return { ok: true, generation: 1, value: { saved: [{ environmentId: 'env', origin: owner.origin, enabled: true }] } };
+    if (request.op === 'mobileSelectSavedEnvironment') return { ok: true, generation: 2, value: { state: 'disconnected', environmentId: 'env', origin: owner.origin, message: '' } };
+    if (request.op === 'status') return { ok: true, generation: 2, value: { state: 'disconnected', environmentId: 'env', origin: owner.origin, homeOrigin: owner.origin } };
+    const reply = obj(await f.host.native.later(raw)); return { ...reply, generation: f.client.generation };
+  } };
+  const result = await mobileNewTaskPendingOpen(f.client, native, f.storage, pendingRoute, { flowOwner: 'remote-editor', current: f.input.current });
+  expect(result.status).toBe('ready'); expect(f.client.environmentId).toBe('env'); expect(f.client.projectId).toBe('project');
+  expect(f.client.shell.projects).toEqual([]); expect(f.client.draft).toBe('original');
+  expect(calls.filter(call => call.op === 'mobileSelectSavedEnvironment')).toEqual([{ op: 'mobileSelectSavedEnvironment', origin: owner.origin, environmentId: 'env', generation: 1 }]);
+  expect(calls.some(call => call.op === 'http' || call.op === 'request')).toBe(false);
+});
+test('an unpaired or conflicting saved home never authorizes a pending-editor connection', async () => {
+  for (const saved of [[], [{ environmentId: 'env', origin: 'https://other.test' }], [{ environmentId: 'env', origin: owner.origin, enabled: false }]]) {
+    const f = await fixture(); f.client.environmentId = 'previous'; f.client.origin = 'https://previous.test';
+    const calls: Obj[] = [], native: Native = { ...f.host.native, async later(raw) {
+      const request = obj(raw); calls.push(request);
+      if (request.op === 'environments') return { ok: true, generation: 1, value: { saved } };
+      return f.host.native.later(raw);
+    } };
+    await expect(mobileNewTaskPendingOpen(f.client, native, f.storage, pendingRoute, { flowOwner: 'remote', current: f.input.current })).rejects.toThrow('Reconnect');
+    expect(calls.some(call => call.op === 'mobileSelectSavedEnvironment')).toBe(false); expect(f.client.environmentId).toBe('previous');
+    expect(f.client.local.drafts[key]).toBeUndefined();
+  }
+});
+
+
+test('retained pending route can leave after durable local save without releasing its queue hold', async () => {
+  const f = await fixture(), fleet = new EnvironmentFleet(), url = '/new/draft?environmentId=env&projectId=project&pendingTaskId=message';
+  const view = () => mobileNewTaskFlowView('retained-close', 'draft', url, true, false, f.client, fleet);
+  const initial = view(), act = (kind: string) => mobileNewTaskFlowAction(initial.owner, 'draft', kind, '', '', f.host.native, f.storage, f.client, fleet);
+  expect((await act('prepare')).message).toBe(''); view(); edit(f, '');
+  expect((await act('send')).nextLocation).toBe(''); expect(view().status).toBe('retained');
+  const result = await act('pending-close'); expect(result.nextLocation).toBe('@close'); expect(result.message).toBe('');
+  expect(f.client.draftKey).not.toBe(key); expect(f.host.state.held.size).toBe(1);
+  expect(savedMarker(f.disk()).session).toBe(live(f).session); expect(obj(f.disk().drafts)[key]).toBe('');
+  expect(f.host.calls.some(call => call.action === 'releaseHold')).toBe(false); expect(f.host.writes()).toHaveLength(0);
+});
+
+
+test('late or refused saved-environment focus cannot bind a pending editor', async () => {
+  for (const mode of ['stale-native', 'changed-route']) {
+    const f = await fixture(); f.client.environmentId = 'previous'; f.client.origin = 'https://previous.test';
+    const native: Native = { ...f.host.native, async later(raw) {
+      const request = obj(raw);
+      if (request.op === 'environments') return { ok: true, generation: 1,
+        value: { saved: [{ environmentId: 'env', origin: owner.origin, enabled: true }] } };
+      if (request.op === 'mobileSelectSavedEnvironment') {
+        if (mode === 'stale-native') return { ok: false, generation: 2,
+          error: { kind: 'stale', message: 'The connection changed before the pending task opened.' } };
+        f.route(false);
+        return { ok: true, generation: 2, value: { state: 'connecting', environmentId: 'env', origin: owner.origin, message: '' } };
+      }
+      return f.host.native.later(raw);
+    } };
+    await expect(mobileNewTaskPendingOpen(f.client, native, f.storage, pendingRoute,
+      { flowOwner: 'late-remote', current: f.input.current })).rejects.toThrow();
+    expect(f.client.environmentId).toBe('previous'); expect(f.client.local.drafts[key]).toBeUndefined();
+    expect(mobilePendingTaskEditorsSnapshot(f.client).markers).toEqual([]);
+    expect(f.host.calls.some(call => call.action === 'hold' || call.action === 'resumeUpdate')).toBe(false);
   }
 });

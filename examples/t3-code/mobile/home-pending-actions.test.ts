@@ -8,6 +8,7 @@ import { mobileOutboxRead } from './mobile-outbox';
 import { mobileOutboxOwner, mobileOutboxThread } from './mobile-outbox-presentation';
 import { mobileOutboxDriveSnapshot } from './mobile-outbox-drive';
 import type { MobileOutboxRecord } from './mobile-outbox-model';
+import { mobilePendingTaskEditorsHydrate, mobilePendingTaskEditorsCreate, type MobilePendingTaskMarker } from './mobile-pending-task-state';
 
 const now = Date.parse('2026-10-08T12:00:00Z');
 const original = (): MobileOutboxRecord => ({ schemaVersion: 1, origin: 'https://home.test', environmentId: 'queued/env ?#',
@@ -31,13 +32,13 @@ async function fixture(record = original()) {
 test('pending-open matches exact owner on visible Home and encodes original route without selecting a shared thread', async () => {
   const f = await fixture(), before = [f.client.environmentId, f.client.threadId, f.client.projectId, f.client.draft, f.client.pending];
   mobileHomeActionsObserve('home-route', true, false, f.client);
-  expect(await f.act()).toMatchObject({ message: '', nextLocation: '/threads/queued%2Fenv%20%3F%23/queued%2Fthread%20%3F%23' });
+  expect(await f.act()).toMatchObject({ message: '', nextLocation: '/new/draft?environmentId=queued%2Fenv%20%3F%23&projectId=project&pendingTaskId=original-message' });
   expect([f.client.environmentId, f.client.threadId, f.client.projectId, f.client.draft, f.client.pending]).toEqual(before);
   expect(f.calls).toEqual([]);
 });
 test('visible sidebar admits original pending row while Home is hidden', async () => {
   const f = await fixture(); mobileHomeActionsObserve('home-route', false, true, f.client);
-  expect((await f.act()).nextLocation).toContain('/threads/'); expect(f.calls).toEqual([]);
+  expect((await f.act()).nextLocation).toContain('/new/draft?'); expect(f.calls).toEqual([]);
 });
 test('unobserved, hidden and superseded Home routes do not navigate or call native', async () => {
   const f = await fixture();
@@ -67,7 +68,7 @@ test('invalid serialized owners cannot navigate or trigger endpoint operations',
 test('queue content edits preserve the original navigation identity', async () => {
   const record = original(); record.text = 'Edited while still queued';
   const f = await fixture(record); mobileHomeActionsObserve('home-route', true, false, f.client);
-  expect((await f.act()).nextLocation).toContain('/threads/');
+  expect((await f.act()).nextLocation).toContain('/new/draft?');
   expect(mobileOutboxThread(record.environmentId, record.threadId, now, false, f.client)?.rows[0]?.body).toBe(record.text);
 });
 test('ordinary follow-up is not a pending creation and cannot be opened through the pending row action', async () => {
@@ -91,4 +92,28 @@ test('removed pending owner cannot be reopened from a stale visible row', async 
   expect(await mobileOutboxRead(f.client, removed)).toBe(true);
   expect(await f.act()).toMatchObject({ nextLocation: '', message: 'This pending task changed. Refresh the list before opening it.' });
   expect(f.calls).toEqual([]);
+});
+
+test('validated retained marker routes its saved editor after the queued row is absent', async () => {
+  const f = await fixture(); mobileHomeActionsObserve('home-route', true, false, f.client);
+  mobilePendingTaskEditorsHydrate(f.client, {});
+  const marker: MobilePendingTaskMarker = { version: 1, owner: JSON.parse(f.owner), session: 'retained-session', revision: 1,
+    draftKey: `new-task:pending-${f.record.messageId}`, contentRevision: 0,
+    baseline: { record: f.record, token: 'epoch:1', revision: 1 }, pending: null };
+  expect(mobilePendingTaskEditorsCreate(f.client, marker)).not.toBeNull();
+  const empty: Native = { available: true, watch() {}, async later() { return { ok: true, generation: 0, value: {
+    ownerEpoch: 'epoch', sequenceFloor: 2, complete: true, errors: [], records: [], revisions: {}, tokens: {}, outcomes: [], mutations: [], transfers: [] } }; } };
+  expect(await mobileOutboxRead(f.client, empty)).toBe(true);
+  expect(await f.act()).toMatchObject({ message: '', nextLocation: '/new/draft?environmentId=queued%2Fenv%20%3F%23&projectId=project&pendingTaskId=original-message' });
+  const before = JSON.stringify(f.client.local);
+  for (const field of ['origin', 'environmentId', 'threadId', 'messageId', 'commandId']) {
+    expect((await f.act(JSON.stringify({ ...marker.owner, [field]: 'forged' }))).nextLocation).toBe('');
+  }
+  expect(JSON.stringify(f.client.local)).toBe(before); expect(f.calls).toEqual([]);
+});
+test('pending route URL encodes saved project and task IDs without accepting extra action fields', async () => {
+  const record = original(); record.creation!.projectId = 'project /?#'; record.messageId = 'message /?#';
+  const f = await fixture(record); mobileHomeActionsObserve('home-route', true, false, f.client);
+  expect((await f.act()).nextLocation).toBe('/new/draft?environmentId=queued%2Fenv%20%3F%23&projectId=project%20%2F%3F%23&pendingTaskId=message%20%2F%3F%23');
+  expect((await f.act(JSON.stringify({ ...JSON.parse(f.owner), projectId: 'other' }))).nextLocation).toBe('');
 });

@@ -3,7 +3,7 @@
 import type { MobileDraftClient } from './mobile-draft-recovery';
 import { mobileNewTaskCaptureFacts } from './new-task-capture-facts';
 import { mobileNewTaskTransferSubmit, mobileNewTaskTransferResume, type MobileNewTaskTransferResult } from './new-task-transfer';
-import { mobileNewTaskDraftPresentation } from './mobile-new-task-drafts';
+import { mobileNewTaskDraftPresentation, mobileNewTaskDraftIsPendingKey } from './mobile-new-task-drafts';
 import { mobilePrepareNewTaskOutbox } from './mobile-outbox-capture';
 import { mobileOutboxSnapshot } from './mobile-outbox';
 import type { MobileOutboxWireOwner } from './mobile-outbox-wire';
@@ -45,6 +45,8 @@ function presentation(client: MobileDraftClient, transfer: MobileNewTaskTransfer
  * Recovered transfers prefer the pending list; they never borrow new draft facts. */
 export async function mobileNewTaskSubmit(client: MobileDraftClient, native: Native | null | undefined,
   storage: Files, input: MobileNewTaskSubmitInput): Promise<MobileNewTaskSubmitResult> {
+  if (mobileNewTaskDraftIsPendingKey(input.draftKey)) return presentation(client, { status: 'blocked', claim: null,
+    message: 'Save these changes through the pending task editor.' }, input.draftKey, false, false);
   const stamp = destination(client), capture = mobileNewTaskCaptureFacts(client, input.draftKey, input.current, input.now);
   const initial = mobileNewTaskDraftPresentation(client, input.draftKey);
   let startsNow = false;

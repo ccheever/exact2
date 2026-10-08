@@ -17,7 +17,7 @@ import { adoptTerminalContexts } from './shared/terminal-integrations';
 import type { MobileQueuedEditSession } from './queued-edit-state';
 import { mobileQueuedEditOrigin } from './queued-edit-origin';
 
-import { mobileNewTaskDraftBoundKey, mobileNewTaskDraftCurrent, mobileNewTaskDraftChoicesRestore, mobileNewTaskDraftHydrate, mobileNewTaskDraftPersisted, mobileNewTaskDraftStore } from './mobile-new-task-drafts';
+import { mobileNewTaskDraftIsPendingKey, mobileNewTaskDraftBoundKey, mobileNewTaskDraftCurrent, mobileNewTaskDraftChoicesRestore, mobileNewTaskDraftHydrate, mobileNewTaskDraftPersisted, mobileNewTaskDraftStore } from './mobile-new-task-drafts';
 import { mobileNewTaskLaunchPrepare, mobileNewTaskLaunchBeforeRequest, mobileNewTaskLaunchEnd, mobileNewTaskLaunchFinish, mobileNewTaskLaunchCanReconcile, mobileNewTaskLaunchProtectedImages, mobileNewTaskDraftFlushFiles, mobileNewTaskLaunchSlotEnvironment } from './mobile-new-task-launch';
 
 const PATH = 'app:/data/t3-code.json';
@@ -186,6 +186,10 @@ export class MobileDraftClient extends T3Client {
   pendingTaskCleanup: { marker: MobilePendingTaskMarker; fingerprint: string } | null = null;
 
   override get draftKey(): string { return mobileNewTaskDraftBoundKey(this) || super.draftKey; }
+  override ensureSelection(): void {
+    // A pending editor owns its captured project even while absent from the shell.
+    if (!mobileNewTaskDraftIsPendingKey(mobileNewTaskDraftCurrent(this)?.key ?? '')) super.ensureSelection();
+  }
   override async command(...args: Parameters<T3Client['command']>): ReturnType<T3Client['command']> {
     const [op, id, value, n, native, storage] = args,
       handles = mobileDraftSettingsHandles(this, op, native ? pendingAttachmentHandle(this, native) : native, storage);

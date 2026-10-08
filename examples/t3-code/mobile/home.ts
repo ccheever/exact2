@@ -4,7 +4,8 @@ import { blankHomeSwipe, type HomeSwipeData } from './home-swipe';
 // @ref llp/1109.000-mobile-app-layout.decision.md#shared-typescript
 // @ref llp/1109.002-design-system-parity.spec.md#typography-and-font-assets
 import { mobileClient } from './client';
-import { mobileOutboxPendingTasks, projectHomePending, mobileOutboxStatus, type MobilePendingTask } from './mobile-outbox-presentation';
+import { mobileOutboxPendingTasks, projectHomePending, mobileOutboxStatus, mobileOutboxOwner, type MobilePendingTask } from './mobile-outbox-presentation';
+import { mobilePendingTaskEditorsSnapshot, type MobilePendingTaskMarker } from './mobile-pending-task-state';
 import { homeDraftTitle } from './home-drafts';
 import { projectHomeDrafts, type HomeDraftInput, type HomeDraftEnvironment } from './home-drafts';
 import { homeApplyPending, mobileHomeOrder, type HomePendingOrder, type HomeOrderSnapshot } from './home-order';
@@ -23,6 +24,7 @@ import { capabilities, effectiveSnoozed, isWorkingThread, lastVisited, unseenCom
 
 export interface HomeOptions {
   pendingTasks?: readonly MobilePendingTask[];
+  pendingEditors?: readonly MobilePendingTaskMarker[];
   drafts?: readonly HomeDraftInput[];
   draftEnvironments?: readonly HomeDraftEnvironment[];
   returnedAt?: Readonly<Record<string, number>>;
@@ -179,8 +181,29 @@ export function projectMobileHome(sources: HomeSource[], now: number, options: H
   parts.pinned.forEach(thread => append(thread, 'pinned')); parts.active.forEach(thread => append(thread, 'active'));
   const draftProjects = sources.flatMap(source => source.shell.projects.map(project => ({ environmentId: source.environmentId,
     projectId: str(project.id), title: str(project.title), groupTitle: titles.get(scoped(source.environmentId, project.id)) })));
-  const draftRows = projectHomeDrafts(options.drafts ?? [], { query: options.query, environmentId: options.environmentId,
-    projectRefs: selectedProject ? draftProjects.filter(project => selectedProject.projectKeys.includes(scoped(project.environmentId, project.projectId))) : null,
+  const projectRefs = selectedProject ? draftProjects.filter(project => selectedProject.projectKeys.includes(scoped(project.environmentId, project.projectId))) : null;
+  const pendingTasks = new Map((options.pendingTasks ?? []).map(task => [task.owner, task]));
+  const editorTitles = new Map<string, string>(), editorDrafts = new Map<string, string>();
+  for (const marker of options.pendingEditors ?? []) {
+    const record = marker.baseline.record, owner = mobileOutboxOwner(record);
+    if (!record.creation) continue;
+    const draft = options.drafts?.find(draft => draft.key === marker.draftKey && draft.origin === record.origin
+      && draft.environmentId === record.environmentId && draft.projectId === record.creation!.projectId);
+    editorTitles.set(owner, draft ? homeDraftTitle(draft.text, draft.images.length + draft.files.length)
+      : homeDraftTitle(record.text, record.attachments.length));
+    if (draft) editorDrafts.set(owner, draft.key);
+    pendingTasks.set(owner, { owner, record, status: 'edited-after-ack', canRetry: false,
+      reason: 'Your saved edits are retained. Open this task to review them.' });
+  }
+  const pendingTitle = (task: MobilePendingTask) => editorTitles.get(task.owner) ?? homeDraftTitle(task.record.text, task.record.attachments.length);
+  const pendingRows = projectHomePending([...pendingTasks.values()], { environmentId: options.environmentId, projectRefs })
+    .filter(task => (!query || pendingTitle(task).toLowerCase().includes(query)) && (editorTitles.has(task.owner)
+      || !sources.find(source => source.environmentId === task.record.environmentId)?.shell.threads.some(thread => thread.id === task.record.threadId)));
+  // Only hide a duplicate if its actual replacement survived this view's filters.
+  // Unknown/orphan content without validated marker ownership remains visible.
+  const replacedDrafts = new Set(pendingRows.flatMap(task => editorDrafts.has(task.owner) ? [editorDrafts.get(task.owner)!] : []));
+  const draftRows = projectHomeDrafts((options.drafts ?? []).filter(draft => !replacedDrafts.has(draft.key)), { query: options.query, environmentId: options.environmentId,
+    projectRefs,
     projects: draftProjects, environments: options.draftEnvironments });
   for (const draft of draftRows) {
     const project = sources.find(source => source.environmentId === draft.environmentId)?.shell.projects.find(project => project.id === draft.projectId);
@@ -193,12 +216,9 @@ export function projectMobileHome(sources: HomeSource[], now: number, options: H
       status: draft.status, statusTone: 'draft', card: true, menuItems: draft.menuItems, iconKind, iconText, iconColor,
       iconSurface: iconColor ? `${iconColor}26` : '', iconSize: 15 * (Array.from(iconText.replace(/\p{M}/gu, '')).length === 1 ? 0.6 : 0.515625) });
   }
-  const pendingRows = projectHomePending(options.pendingTasks ?? [], { query: options.query, environmentId: options.environmentId,
-    projectRefs: selectedProject ? draftProjects.filter(project => selectedProject.projectKeys.includes(scoped(project.environmentId, project.projectId))) : null });
   for (const pending of pendingRows) {
     const record = pending.record, creation = record.creation!;
     const source = sources.find(source => source.environmentId === record.environmentId);
-    if (source?.shell.threads.some(thread => thread.id === record.threadId)) continue;
     const project = source?.shell.projects.find(project => project.id === creation.projectId);
     const environment = options.draftEnvironments?.find(environment => environment.environmentId === record.environmentId);
     const icon = obj(project?.projectIcon), iconKind = icon.kind === 'lucide' ? 'monogram' : str(icon.kind);
@@ -206,7 +226,7 @@ export function projectMobileHome(sources: HomeSource[], now: number, options: H
     const iconColor = ICON_COLORS.find(color => color.value === icon.color)?.swatch ?? '';
     items.push({ ...blankItem(`pending-task:${record.environmentId}:${record.messageId}`), kind: 'pending', queuedOwner: pending.owner,
       environmentId: record.environmentId, threadId: record.threadId, section: 'unsent', queued: true, card: true,
-      showPendingDivider: !items.some(item => item.kind === 'draft' || item.kind === 'pending'), title: homeDraftTitle(record.text, record.attachments.length),
+      showPendingDivider: !items.some(item => item.kind === 'draft' || item.kind === 'pending'), title: pendingTitle(pending),
       projectTitle: titles.get(scoped(record.environmentId, creation.projectId)) ?? str(project?.title, creation.projectTitle ?? ''),
       projectPresent: !!project, branch: creation.branch ?? '', status: mobileOutboxStatus(pending.status), statusTone: 'pending',
       error: pending.reason, environmentLabel: (options.draftEnvironments?.length ?? 0) > 1 ? environment?.label ?? '' : '',
@@ -244,7 +264,8 @@ export function projectMobileHome(sources: HomeSource[], now: number, options: H
 
 /** Call after mobileSnapshot refresh. Root owns watches, timer, navigation, shelf persistence, and search RPC. */
 export function mobileHome(now: number, options: HomeOptions = {}, client: T3Client = mobileClient, background: EnvironmentFleet = fleet) {
-  options = { ...options, pendingTasks: options.pendingTasks ?? mobileOutboxPendingTasks(client, now) };
+  options = { ...options, pendingTasks: options.pendingTasks ?? mobileOutboxPendingTasks(client, now),
+    pendingEditors: options.pendingEditors ?? mobilePendingTaskEditorsSnapshot(client).markers };
   const sources = mobileHomeSources(client, background);
   const matches = options.messageMatches ?? new Map((options.query?.trim() === client.query.trim() ? [...serverMatches(client)] : []).map(([id, match]) => [scoped(client.environmentId, id), match]));
   const order = options.orderSnapshot ?? mobileHomeOrder(client, sources, now, { ...options, observeReturns: true });
@@ -263,7 +284,7 @@ export function mobileHome(now: number, options: HomeOptions = {}, client: T3Cli
     hasLoadedShell: sources.length > 0, connecting: ['connecting', 'reconnecting'].includes(state) || entries.some(entry => ['connecting', 'reconnecting'].includes(entry.phase)),
     connectionState: state, error: client.error || entries.find(entry => entry.error)?.error || '' };
   const anyThreads = sources.some(source => source.shell.threads.some(thread => thread.archivedAt == null && thread.deletedAt == null));
-  const anyContent = anyThreads || projectHomeDrafts(options.drafts ?? []).length > 0 || (options.pendingTasks?.length ?? 0) > 0;
+  const anyContent = anyThreads || projectHomeDrafts(options.drafts ?? []).length > 0 || (options.pendingTasks?.length ?? 0) > 0 || (options.pendingEditors?.length ?? 0) > 0;
   const empty = anyContent ? null : mobileHomeEmpty(catalog, sources.reduce((sum, source) => sum + source.shell.projects.length, 0));
   return { ...projection, emptyTitle: empty?.title ?? projection.emptyTitle, emptyDetail: empty?.detail ?? projection.emptyDetail,
     loading: empty?.loading ?? false, addEnvironment: !anyContent && !catalog.hasReadyEnvironment, hasAnyThreads: anyThreads };

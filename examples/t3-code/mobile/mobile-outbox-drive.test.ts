@@ -5,6 +5,8 @@ import { T3Client } from './shared/client';
 import { obj, type Obj } from './shared/domain';
 import { ClientError, type Native } from './shared/protocol';
 import { letGo } from './shared/let-go';
+import { mobileHomeAction, mobileHomeActionsObserve } from './home-actions';
+import { EnvironmentFleet } from './shared/settings-b-fleet';
 import { mobileOutboxSnapshot } from './mobile-outbox';
 import { mobileOutboxDeliverOne } from './mobile-outbox-foreground';
 import { mobileOutboxDriveSnapshot as snapshot, mobileOutboxDriveRead as read, mobileOutboxDriveRun as run,
@@ -282,6 +284,11 @@ test('creation ACK bridge retains removed prompt until its exact environment and
   await run(f.client, f.native, first.next, now);
   expect(f.disk()).toBeNull(); expect(snapshot(f.client, now).count).toBe(0);
   expect(completed(f.client)).toEqual([record]);
+  mobileHomeActionsObserve('completed-home', true, false, f.client);
+  const countBeforeOpen = f.calls.length;
+  expect((await mobileHomeAction('completed-home', record.environmentId, record.threadId, 'pending-open', JSON.stringify(owner), now,
+    f.native, f.client, new EnvironmentFleet())).nextLocation).toBe('/threads/env/thread');
+  expect(f.calls).toHaveLength(countBeforeOpen);
   const presented = completed(f.client); presented[0]!.text = 'UI copy changed';
   expect(completed(f.client)[0]!.text).toBe('original');
   f.client.shell.threads = [{ id: 'unrelated', projectId: 'project' }];
