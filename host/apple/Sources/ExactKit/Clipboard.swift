@@ -100,15 +100,15 @@ extension NodeView {
     @objc func cut(_ sender: Any?) { clipboard(#selector(cut(_:))) }
     @objc func paste(_ sender: Any?) { clipboard(#selector(paste(_:))) }
     /// A cut or paste is this node's only while a node hears it.
-    override func responds(to aSelector: Selector!) -> Bool {
+    package override func responds(to aSelector: Selector!) -> Bool {
         if [#selector(cut(_:)), #selector(paste(_:))].contains(aSelector) { return clipboardTarget(aSelector) != nil }
         return super.responds(to: aSelector)
     }
     #else
-    override func copy(_ sender: Any?) { if !clipboard(#selector(copy(_:))) { super.copy(sender) } }
-    override func cut(_ sender: Any?) { if !clipboard(#selector(cut(_:))) { super.cut(sender) } }
-    override func paste(_ sender: Any?) { if !clipboard(#selector(paste(_:))) { super.paste(sender) } }
-    override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
+    package override func copy(_ sender: Any?) { if !clipboard(#selector(copy(_:))) { super.copy(sender) } }
+    package override func cut(_ sender: Any?) { if !clipboard(#selector(cut(_:))) { super.cut(sender) } }
+    package override func paste(_ sender: Any?) { if !clipboard(#selector(paste(_:))) { super.paste(sender) } }
+    package override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
         clipboardTarget(action) != nil || super.canPerformAction(action, withSender: sender)
     }
     #endif
@@ -153,8 +153,11 @@ extension Agent {
         // web's capture listener does: a button declaring Meta+V takes it.
         // Its release comes up through the `keyup` handlers last, whatever
         // took the down, as the web driver's (#140).
-        defer { if edit == "paste" { v.presenter?.keyUp(at: v, "v", held: "Meta+", code: "KeyV") } }
+        // Command's own keyup after it, without its own bit, as a keyboard's.
+        defer { if edit == "paste" { v.presenter?.keyUp(at: v, "v", held: "Meta+", code: "KeyV"); v.presenter?.keyUp(at: v, "Meta", held: "", code: "MetaLeft") } }
         if edit == "paste", let presenter = v.presenter {
+            // Command's own keydown first, as a keyboard's (Charlie, 2026-10-07).
+            _ = presenter.keyDown(at: v, "Meta", held: "Meta+", code: "MetaLeft")
             if pasteShortcut(v, presenter) {
                 return ["typed": Int(v.id), "clipboard": edit, "shortcut": true, "delivery": "recognized"]
             }

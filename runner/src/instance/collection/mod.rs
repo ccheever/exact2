@@ -2,6 +2,8 @@
 //! @ref LLP 1010 §6 / LLP 1041 §8. No historical instance or row-state cache.
 mod api;
 mod index;
+mod inset;
+pub(crate) use inset::Insets;
 mod into_view;
 mod nest;
 mod rekey;
@@ -16,6 +18,7 @@ mod start;
 mod tests;
 mod traversal;
 pub(crate) mod views;
+mod within;
 use super::*;
 pub use api::*;
 use exact_kernel::PropId;
@@ -111,6 +114,8 @@ struct Mounted {
     row: Row,
     /// Mounted out of the port and not shown since ([`shown`]).
     awaiting: bool,
+    /// Past the window, kept for the next row it needs ([`reuse`]).
+    held: bool,
 }
 #[derive(Debug)]
 pub(crate) struct Collection {
@@ -190,6 +195,11 @@ pub(crate) struct Collection {
     /// What a retiring row may be rebound to another item under (LLP 1078):
     /// `None` when no row of this list can be.
     reuse: Option<Rc<reuse::Reuse>>,
+    /// The padding before the first row and after the last that the next
+    /// report brings ([`Collection::set_insets`]).
+    padding_next: Option<[f64; 2]>,
+    /// The scroll padding at each end, along the axis (@ref LLP 1010 §6.9).
+    scroll_padding: [f64; 2],
 }
 fn index_error(e: index::IndexError) -> InstanceError {
     InstanceError::Collection(e.to_string())
@@ -456,6 +466,8 @@ impl Collection {
             end_travel: 0,
             end_sent: f64::NAN,
             reuse,
+            padding_next: None,
+            scroll_padding: [0.0; 2],
         });
         this.update_data(u, frames, true)?;
         Ok(Some(this))
@@ -886,6 +898,7 @@ impl Collection {
             let text = self.index.key(position).unwrap().to_owned();
             let mounted = match old.remove(&text) {
                 Some(mut mounted) => {
+                    mounted.held = false;
                     let dirty = self.reposition(&mut mounted, position);
                     if update {
                         let body = &u.sites.deps.bodies[self.region.0 as usize];
@@ -911,7 +924,7 @@ impl Collection {
         // A build-only report retires nothing (LLP 1072 §5): rows past the
         // window stay, and the report is pending until an immediate one.
         if fill.create_only && !update {
-            self.build_needed(u, needed, Vec::new(), Vec::new(), frames)?;
+            self.build_needed(u, needed, Vec::new(), Vec::new(), None, frames)?;
             let mut kept = false;
             for (text, mut mounted) in old {
                 match self.index.position(&text) {
@@ -988,7 +1001,8 @@ impl Collection {
         }
         // Rows still needed after the retiring ones may take the kept rows
         // past the window, farthest first.
-        let kept = self.build_needed(u, needed, retiring, kept, frames)?;
+        let hold = port.filter(|_| reusing && !update);
+        let kept = self.build_needed(u, needed, retiring, kept, hold, frames)?;
         pending |= !kept.is_empty();
         for (_, text, mut mounted) in kept {
             let position = self.index.position(&text).unwrap();
@@ -1076,6 +1090,7 @@ impl Collection {
             published: (usize::MAX, usize::MAX),
             row,
             awaiting: false,
+            held: false,
         };
         self.mounted_shown(u, &mut mounted);
         Ok(mounted)
@@ -1215,9 +1230,15 @@ impl Collection {
         {
             return Err(InstanceError::InvalidCollectionFeedback);
         }
-        if let Some(edge) = self.travel_within(u, &feedback, by_view, fill)? {
-            self.reveal_shown(u);
-            return Ok((false, edge));
+        // @ref LLP 1010 §6.9 — a new padding (a rotation's safe area) is no
+        // travel: the anchor is taken on the old range and restored on the
+        // new, so a followed end follows it.
+        let padding = self.padding_next.take().unwrap_or(self.padding());
+        if padding == self.padding() {
+            if let Some(edge) = self.travel_within(u, &feedback, by_view, fill)? {
+                self.reveal_shown(u);
+                return Ok((false, edge));
+            }
         }
         let changed_width = self
             .geometry
@@ -1284,15 +1305,9 @@ impl Collection {
         let extent = self.index.total_height();
         let anchor = Some(match self.restoring(&feedback) {
             Some(anchor) => anchor,
-            None => self
-                .index
-                .capture_anchor(
-                    self.anchor_offset(feedback.offset),
-                    anchor_height,
-                    self.follows(),
-                )
-                .map_err(index_error)?,
+            None => self.report_anchor(feedback.offset, anchor_height, padding)?,
         });
+        self.set_padding(padding);
         self.set_geometry(CollectionFeedback {
             measurements: Vec::new(),
             ..feedback.clone()
@@ -1365,96 +1380,6 @@ impl Collection {
                 end_after_noop: ready[0] && ready[1],
             }
         }))
-    }
-    /// Travel inside the realized window, which is most reports while a list
-    /// moves: the same port, pins and heights, no measurement, nothing owed,
-    /// no correction before or after, and the window it leads to is the
-    /// mounted rows. Realizing it would reuse every row and emit nothing, so
-    /// only the geometry moves (@ref LLP 1050.000 §6). None: realize.
-    fn travel_within(
-        &mut self,
-        u: &mut Update<'_>,
-        feedback: &CollectionFeedback,
-        by_view: &BTreeMap<ViewId, usize>,
-        fill: CollectionFill,
-    ) -> Result<Option<Option<CollectionEdges>>, InstanceError> {
-        let Some(g) = &self.geometry else {
-            return Ok(None);
-        };
-        // A host reports every mounted row's height each time; one the
-        // index already holds, measured, changes nothing (`feedback`'s own
-        // loop would set it again).
-        let remeasures = |m: &RowMeasurement| {
-            let row = &self.mounted[by_view[&m.view]];
-            let key = self.index.key(row.position).unwrap();
-            self.index.measurement_token(key) == Some(row.token)
-                && !(self.index.noise_at(row.position, m.size)
-                    && (m.size == 0.0) == self.zero_heights.contains(key))
-        };
-        if feedback.measurements.iter().any(remeasures)
-            || self.restored_at.is_some()
-            || self.at_end
-            || self.target.is_some()
-            || self.pending
-            || self.preview.is_some()
-            || self.incoming.is_some()
-            || self.hidden.is_some()
-            || self.correction.is_some()
-            || (
-                g.port_cross,
-                g.port_main,
-                g.cross,
-                g.focus_view,
-                g.interaction_view,
-            ) != (
-                feedback.port_cross,
-                feedback.port_main,
-                feedback.cross,
-                feedback.focus_view,
-                feedback.interaction_view,
-            )
-        {
-            return Ok(None);
-        }
-        let anchor = self
-            .index
-            .capture_anchor(feedback.offset, g.port_main, self.follow_end)
-            .map_err(index_error)?;
-        let corrected = self
-            .index
-            .restore_anchor(&anchor, g.port_main)
-            .map_err(index_error)?;
-        if !start::at_target(&anchor, corrected, feedback.offset, self.end_sent) {
-            return Ok(None);
-        }
-        let pins = self.pins();
-        let (focus, interaction) = (self.pin(pins[0]), self.pin(pins[1]));
-        let window = self
-            .index
-            .window_led(
-                feedback.offset,
-                feedback.port_main,
-                lead(feedback.port_main, fill.velocity),
-                [focus.as_deref(), interaction.as_deref()],
-            )
-            .map_err(index_error)?;
-        let mut mounted = self.mounted.iter().map(|row| row.position);
-        let same = window
-            .segments
-            .iter()
-            .cloned()
-            .flatten()
-            .all(|p| mounted.next() == Some(p))
-            && mounted.next().is_none();
-        if !same {
-            return Ok(None);
-        }
-        u.work.rows_reused += self.mounted.len();
-        self.set_geometry(CollectionFeedback {
-            measurements: Vec::new(),
-            ..feedback.clone()
-        });
-        Ok(Some(self.edge_event(fill)?))
     }
     fn release_pins(
         &mut self,

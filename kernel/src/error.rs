@@ -51,6 +51,8 @@ pub enum DecodeError {
     BadBackgroundImage,
     /// Invalid or unsupported CSS `box-shadow` (LLP 1077 D4).
     BadBoxShadow,
+    /// Invalid or unsupported CSS `backdrop-filter` (LLP 1053.000 D1).
+    BadBackdropFilter,
     /// Invalid CSS `rotate` axis (LLP 1077 D8).
     BadRotateAxis,
     /// Invalid `-exact-symbol-palette` (LLP 1077 D10).
@@ -319,7 +321,7 @@ pub enum LayoutError {
     NotAnImage(ViewId),
     /// An intrinsic size that is not finite and positive on both axes.
     InvalidIntrinsicSize(ViewId),
-    /// An environment with a non-finite inset.
+    /// An environment with a non-finite inset or invalid control font size.
     InvalidEnv,
     /// A segment grid with a count that is not `cols × rows` (or any
     /// segment on a 1 × 1 grid), a zero count, or a non-finite rect
@@ -329,6 +331,8 @@ pub enum LayoutError {
     InvalidRootFontSize,
     /// A host text callback returned a non-finite or negative metric.
     InvalidTextMetrics(ViewId),
+    /// A host returned non-finite or negative field chrome.
+    InvalidFieldChrome(ViewId),
     /// A sampled CSS height is non-finite or negative.
     InvalidPresentedHeight,
     /// More than one sample supplies the same generational node.

@@ -19,6 +19,10 @@ struct CollectionFacts: Equatable {
     var measurements: [CollectionMeasurement]
     var focus: UInt32?
     var interaction: UInt32?
+    /// The main-axis padding before the rows and after them: not on the
+    /// wire (the runner reads it from its kernel), but a change of it alone
+    /// is still news to the runner (LLP 1010 §6.9).
+    var padding: [Double] = []
 
     /// Wire version 3: `velocity` (points/s, positive toward the end),
     /// `limit`, the rows past what it owes this report may build (nil: any),
@@ -144,8 +148,8 @@ struct CollectionSnapshot {
         var correction: Correction?
         if let raw = value["correction"], !(raw is NSNull) {
             guard let raw = raw as? [String: Any], let seq = Self.uint(raw["scrollSequence"]),
-                  let offset = Self.number(raw["offset"]) else { return nil }
-            correction = Correction(sequence: seq, offset: offset, from: Self.number(raw["from"]), smooth: raw["smooth"] as? Bool == true)
+                  let offset = Self.signed(raw["offset"]) else { return nil }
+            correction = Correction(sequence: seq, offset: offset, from: Self.signed(raw["from"]), smooth: raw["smooth"] as? Bool == true)
         }
         self.view = view; self.revision = revision; self.sequence = sequence
         self.horizontal = (value["axis"] as? String) == "x"
@@ -172,6 +176,13 @@ struct CollectionSnapshot {
     private static func viewID(_ value: Any?) -> UInt32? {
         guard let n = uint(value), n > 0 else { return nil }
         return UInt32(exactly: n)
+    }
+    /// A correction's offset and an anchor's `from`: negative only in the
+    /// padding before the first row (LLP 1010 §6.9; a `scrollIntoView` there,
+    /// or a report from there that a kept row's correction moves on from).
+    private static func signed(_ value: Any?) -> Double? {
+        guard let n = value as? NSNumber, n.doubleValue.isFinite else { return nil }
+        return abs(n.doubleValue) <= Double(Float.greatestFiniteMagnitude) ? n.doubleValue : nil
     }
     private static func number(_ value: Any?) -> Double? {
         guard let n = value as? NSNumber else { return nil }

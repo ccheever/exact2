@@ -335,6 +335,12 @@ impl TextMetrics {
 
 /// A host's text engine, injected per kernel.
 pub trait TextMeasurer {
+    /// Native field chrome (LLP 1104 D5). Existing/painted measurers answer
+    /// no chrome until they implement their own control look.
+    fn field_chrome(&mut self, _request: &crate::FieldChromeRequest) -> crate::FieldChrome {
+        crate::FieldChrome::default()
+    }
+
     /// The resolved document language; an empty language is unknown.
     fn set_language(&mut self, _language: &str) {}
 

@@ -34,7 +34,7 @@ extension NodeView {
         // tvOS has no pointer interactions.
         #if !os(tvOS)
         let effect = style["hover_effect"]?.string ?? "auto"
-        // Only the interaction this row added: a native hook's stays.
+        // Only the interaction this row added: a native hatch's stays.
         let ours = interactions.compactMap { $0 as? UIPointerInteraction }.first { $0.delegate is HoverEffect }
         guard effect != "auto", effect != "none" else {
             if let ours { removeInteraction(ours) }

@@ -12,14 +12,14 @@ import UIKit
 import AppKit
 #endif
 
-enum SystemColor {
+package enum SystemColor {
     /// CSS's `CanvasText`, the initial `color` (LLP 1095
     /// stage 2): the platform's own dynamic text colour, so a row the
     /// presenter has no value for still follows appearance and contrast.
     #if os(iOS) || os(tvOS)
-    static let canvasText: UIColor = .label
+    package static let canvasText: UIColor = .label
     #else
-    static let canvasText: NSColor = .textColor
+    package static let canvasText: NSColor = .textColor
     #endif
     /// `canvasText`'s channels under an appearance, for a painter that takes
     /// channels; the role's pair where the platform has no answer.
@@ -238,7 +238,7 @@ extension NodeView {
     }
     #if os(iOS) || os(tvOS)
     /// A window or ancestor tint changed: the rows naming it apply again.
-    override func tintColorDidChange() {
+    package override func tintColorDidChange() {
         super.tintColorDidChange()
         // A symbol counts: hierarchical and palette glyphs bake the tint in.
         guard style.values.contains(where: \.namesTint) || inlineText.contains(where: \.namesTint) || symbolView != nil else { return }

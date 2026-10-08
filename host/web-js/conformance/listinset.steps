@@ -1,0 +1,14 @@
+# A padded long list: at its top the padding shows under the header; a
+# wheel past its end lands at the true end (rows and padding-bottom), where
+# reachend grows it; back to the top. A padded transcript follows its true
+# end as lines come, and as its padding-bottom alone grows. Requests on the
+# long list align within its scroll padding: the first row's start is the
+# very top, row 30's end sits above the tab bar.
+wheel long 1500
+wheel long 9000
+wheel long -40000
+tap say
+tap say
+tap grow
+tap top
+tap endof

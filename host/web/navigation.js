@@ -250,7 +250,7 @@ export const navigation = {
         }
       }
     }
-    // The page module's container hooks, when it has them (LLP 1075.003.000 §3.7).
+    // The page module's container hatches, when it has them (LLP 1075.003.000 §3.7).
     globalThis.exact?.onProject?.(root);
   },
   observation(root) {
@@ -322,6 +322,7 @@ export function afterPaintPieces(load, o) {
   const collections = { commit: items => (items.length ? commit : reconcile)(items) };
   for (const name of ['reset', 'dataReady', 'releaseInteraction', 'settle']) collections[name] = call('collections', name, false);
   collections.jump = call('collections', 'jump');
+  collections.restyled = () => live?.collections.restyled(); // nothing to restyle before the piece
   // @ref LLP 1056 D7 — Canvas 2D's replayer and ResizeObserver: its own
   // piece, injected two animation frames after the first 2D canvas's op.
   let c2d = null, c2dLoading = null; const c2dQueue = [];

@@ -37,8 +37,9 @@
 //!   only over `region` with those corner radii (a clip-free rounded image; `clip.rs`)
 //! - `26 ANIMATED id len utf8-path(padded to 4)` — after `IMAGE_DEF`: the picture is a GIF's or
 //!   WebP's first frame; a reader may draw that file's animated drawable in its place
-//! - `27 BACKDROP sigma x y w h radii×8` — blur what this recording drew so far (the row's
-//!   content beneath) by `sigma` (local units), within that rounded rect: a material's backdrop
+//! - `42 BACKDROP n (kind amount)×n x y w h radii×8` — filter what this recording drew so far
+//!   inside that rounded rect, in order: kind 0 blur (local units), 1 saturation (multiplier)
+//!   (replaces the radius-only op 27; an older reader must refuse the new op)
 //! - `28 NATIVE view kind x y w h radii×8 len utf8-json` — a platform element (`paint/native.rs`;
 //!   kind 0 video, 1 web view, 2 module) shown in that rounded rect: the reader draws the
 //!   platform view's own drawing there
@@ -85,8 +86,8 @@ const IMAGE_RRECT: u32 = 14;
 const DASH: u32 = 25;
 /// A picture's animated file: id, length, path.
 const ANIMATED: u32 = 26;
-/// A backdrop blur: sigma, then the rounded rect.
-const BACKDROP: u32 = 27;
+/// Ordered backdrop functions (kind, amount), then the rounded rect.
+const BACKDROP: u32 = 42;
 /// A platform element: view, kind, rounded rect, props.
 const NATIVE: u32 = 28;
 /// A row's recording: id, the id of the row it replaces (0 for none; the top
@@ -115,6 +116,8 @@ const SLOT: u32 = 23;
 const SLOT_SET: u32 = 24;
 /// Instead of a stream: the last one moved. A count, then per scroller its
 /// id and the move (device pixels) of its rows from where they were drawn.
+/// With `EXACT_MOVE_TRACKS=1`, `CLOCK` and `TRACKS` ops may follow: layers of
+/// the last stream whose plays changed since.
 const SHIFT: u32 = 22;
 
 /// Room (points) left of and above a row's origin in its recording, so what
@@ -565,10 +568,15 @@ impl Backend for Recorder {
         self.shadow(shape, color, sigma, outer, ts)
     }
 
-    fn backdrop_blur(&mut self, shape: &Shape, sigma: f32, ts: Transform) {
+    fn backdrop_filter(
+        &mut self,
+        shape: &Shape,
+        filter: &exact_kernel::style::BackdropFilter,
+        ts: Transform,
+    ) {
         // What is beneath is what the reader already drew in this row; it
-        // blurs that, clipped to the shape (LLP 1053.000 D2).
-        if sigma <= 0.0 || shape.rect.2 <= 0.0 || shape.rect.3 <= 0.0 {
+        // filters that, clipped to the shape (LLP 1053.000 D2).
+        if filter.is_none() || shape.rect.2 <= 0.0 || shape.rect.3 <= 0.0 {
             return;
         }
         let bounds = clip::map(shape.rect, ts);
@@ -578,7 +586,15 @@ impl Backend for Recorder {
         self.need(bounds);
         self.transform(ts);
         self.ops.push(BACKDROP);
-        self.f(sigma);
+        self.ops.push(filter.0.len() as u32);
+        for op in &filter.0 {
+            let (kind, amount) = match op {
+                exact_kernel::style::BackdropOp::Blur(n) => (0, *n),
+                exact_kernel::style::BackdropOp::Saturate(n) => (1, *n),
+            };
+            self.ops.push(kind);
+            self.f(amount);
+        }
         self.rect_radii(shape);
     }
 
@@ -818,6 +834,10 @@ impl Backend for Recorder {
         true
     }
 
+    fn layer_recolored(&mut self) {
+        self.layers.note_recolored();
+    }
+
     fn layer_end(&mut self) {
         self.layer_close();
     }
@@ -970,6 +990,13 @@ pub struct CanvasHost<D: DataSource> {
     rows_before: Vec<(ViewId, u64)>,
     rows_after: Vec<(ViewId, u64)>,
     paint_by: Option<u32>,
+    /// The reader takes layers' tracks after a move (`EXACT_MOVE_TRACKS=1`,
+    /// which its launcher sets): a row that comes into view then starts its
+    /// animations without a paint, and a paint is owed only by the frame
+    /// rows mounted out of view can first show ([`CanvasHost::unhurried`]).
+    move_tracks: bool,
+    /// The last pass was a slice: it may have left rows of its window unbuilt.
+    sliced: bool,
     /// A GPU canvas wants another frame (Android: they present each frame).
     surfaces: bool,
     /// GPU canvases wait for the host's own thread: it booted on another
@@ -1010,7 +1037,8 @@ struct Painted {
 /// At most this many frames move the last paint before one paints again:
 /// what it leaves stale (boxes, hits, which pictures show) stays this fresh.
 const MOVES: u32 = 30;
-/// The same, once rows have mounted out of view since the last paint.
+/// The same, once rows have mounted out of view since the last paint, where
+/// the frame they can first show is not known ([`CanvasHost::unhurried`]).
 const MOVES_MOUNTED: u32 = 6;
 
 impl<D: DataSource + Default> CanvasHost<D> {
@@ -1081,6 +1109,8 @@ impl<D: DataSource + Default> CanvasHost<D> {
             rows_before: Vec::new(),
             rows_after: Vec::new(),
             paint_by: None,
+            move_tracks: std::env::var("EXACT_MOVE_TRACKS").is_ok_and(|v| v == "1"),
+            sliced: false,
             moves: std::env::var("EXACT_MOVES")
                 .ok()
                 .and_then(|v| v.parse().ok())
@@ -1194,7 +1224,13 @@ impl<D: DataSource + Default> CanvasHost<D> {
                 p.first_pixel();
             }
         }
-        if let Some(shift) = self.shift(now) {
+        if let Some(mut shift) = self.shift(now) {
+            // A play that changed since the last stream (a row that came
+            // into view starts its animations): its layer's tracks go with
+            // the move, where the reader takes them there.
+            if self.move_tracks && self.p.host().lowered_epoch() != self.tracks_epoch {
+                self.layer_tracks(&mut shift);
+            }
             return Some(shift);
         }
         if !self.p.dirty() && !self.owed_at(now) {
@@ -1238,7 +1274,8 @@ impl<D: DataSource + Default> CanvasHost<D> {
                 (self.origin_ns >> 32) as u32,
             ]);
         }
-        self.tracks.retain(|id, _| alive.iter().any(|a| a.0 == *id));
+        let ids: std::collections::HashSet<u32> = alive.iter().map(|a| a.0).collect();
+        self.tracks.retain(|id, _| ids.contains(id));
         // Plays change only in a sync: until one, only new layers' tracks;
         // after one, the layers of the nodes it changed.
         let epoch = self.p.host().lowered_epoch();
@@ -1305,7 +1342,7 @@ impl<D: DataSource + Default> CanvasHost<D> {
         // Rows mounted out of view since the paint (a quiet epoch) show at the
         // next one, so it comes sooner: they may scroll in within a quarter
         // second.
-        let limit = if self.quiet.is_some() {
+        let limit = if self.quiet.is_some() && !self.unhurried() {
             self.moves.min(MOVES_MOUNTED)
         } else {
             self.moves

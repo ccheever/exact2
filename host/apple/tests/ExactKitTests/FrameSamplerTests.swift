@@ -64,6 +64,35 @@ final class FrameSamplerTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(through["overrun"] as? Double), 6, accuracy: 0.05)
     }
 
+    /// LLP 1075.003.000.001 §3.1: a late frame names the hatch calls that
+    /// overlapped its interval, each charged its overlap; an on-time one names none.
+    func testALateFrameNamesTheHatchesThatRanInIt() throws {
+        let session = ExactApp.shared.makeSession()
+        defer { session.destroy() }
+        XCTAssertNil(session.boot(size: CGSize(width: 390, height: 844)).error)
+        let sampler = try XCTUnwrap(session.sampler, "a development build samples")
+        let p = 1.0 / 60
+        var t = CACurrentMediaTime()
+        sampler.observe(now: t, target: t + p)
+        session.hatchDiagnostics.timed("element avatar", "built", counts: false) { Thread.sleep(forTimeInterval: 0.03) }
+        session.hatchDiagnostics.timed("element avatar", "changed", counts: false) { Thread.sleep(forTimeInterval: 0.005) }
+        t = CACurrentMediaTime()
+        sampler.observe(now: t, target: t + p)                       // 35 ms and more since the last: late
+        sampler.observe(now: t + p, target: t + 2 * p)               // on time, and no call in it
+        let late = try XCTUnwrap(sampler.reply()["late"] as? [[String: Any]])
+        XCTAssertEqual(late.count, 1)
+        let ran = try XCTUnwrap(late[0]["hatches"] as? [[String: Any]])
+        XCTAssertEqual(ran.count, 1)
+        XCTAssertEqual(ran[0]["hatch"] as? String, "element avatar")
+        XCTAssertEqual(ran[0]["calls"] as? Int, 2)
+        XCTAssertGreaterThanOrEqual(try XCTUnwrap(ran[0]["ms"] as? Double), 35)
+        XCTAssertNil(late[0]["coverage"], "every call in the window is still kept")
+        // A window before any call names none; one that cuts a call charges the part inside it.
+        XCTAssertNil(session.hatchDiagnostics.window(from: t - 100, to: t - 99))
+        let half = try XCTUnwrap(session.hatchDiagnostics.window(from: t - 0.010, to: t)?["hatches"] as? [[String: Any]])
+        XCTAssertLessThanOrEqual(try XCTUnwrap(half[0]["ms"] as? Double), 10.01)
+    }
+
     func testALateFrameIsCountedAgainstTheTargetPeriodJournaledAndSaved() throws {
         let session = ExactApp.shared.makeSession()
         defer { session.destroy() }
@@ -86,10 +115,16 @@ final class FrameSamplerTests: XCTestCase {
         XCTAssertEqual((reply["period"] as? [String: Any])?["source"] as? String, "target")
         XCTAssertTrue(session.agent(#"{"op":"logs","since":0}"#).contains("frame late at "), "a late frame is one journal line")
 
+        // What a hatch recorded is in the trace's `hatches`, as `state` and `perf hatches` give it (LLP 1075.003.000.001 §3.3).
+        _ = session.hatchDiagnostics.record(kind: 1, node: 0, scope: "module", name: "swipes", value: 3, text: Data())
         let url = try session.saveTrace().get()
         defer { try? FileManager.default.removeItem(at: url) }
         let trace = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
-        for key in ["identity", "proxies", "plan", "journal", "frames", "perf"] { XCTAssertNotNil(trace[key], key) }
+        for key in ["identity", "proxies", "plan", "journal", "frames", "perf", "hatches"] { XCTAssertNotNil(trace[key], key) }
+        let hatches = try XCTUnwrap(trace["hatches"] as? [String: [String: Any]])
+        XCTAssertEqual(((hatches["perf"]?["counters"] as? [String: Any])?["module"] as? [String: Int])?["swipes"], 3)
+        XCTAssertEqual((((hatches["state"]?["scopes"] as? [String: Any])?["module"] as? [String: Any])?["counters"] as? [String: Int])?["swipes"], 3)
+        XCTAssertEqual(hatches["perf"]?["plan"] as? String, (trace["perf"] as? [String: Any])?["plan"] as? String, "the hatches' read names the plan `perf` does")
         XCTAssertEqual((trace["frames"] as? [String: Any])?["records"].map { ($0 as? [Any])?.count }, 2)
         XCTAssertNotNil((trace["perf"] as? [String: Any])?["sites"], "the runner measures in a development build")
         // The last one also under the name a phone's is copied off by

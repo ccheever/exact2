@@ -1,0 +1,3 @@
+# The exact app's lock is a copy of the root's, resolved by its first build (README).
+exact-listbench/Cargo.lock
+exact-listbench/target/

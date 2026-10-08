@@ -28,10 +28,10 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
     private var headEdited = false
     private var refusal: String?
     var onChange: (() -> Void)?
-    /// LLP 1075.003.000 §3.7: the app module's `toolbar` hook, once a
+    /// LLP 1075.003.000 §3.7: the app module's `toolbar` hatch, once a
     /// toolbar is installed; the items it adds after Exact's, which Exact
     /// never removes; its delegate, which hears what Exact does not answer.
-    private var hooked = false
+    private var hatched = false
     private(set) var appItems: [NSToolbarItem] = []
     private weak var appDelegate: NSToolbarDelegate?
 
@@ -102,25 +102,25 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
         }
         items.removeAll(); symbols.removeAll(); order.removeAll(); owner = nil; heading = nil
         // The app's items and delegate were for that toolbar; the next one's
-        // hook says its own.
-        hooked = false; appItems.removeAll(); appDelegate = nil
+        // hatch says its own.
+        hatched = false; appItems.removeAll(); appDelegate = nil
         if hadToolbar { onChange?() }
     }
 
-    /// The `toolbar` hook for the installed toolbar, once (at a cold launch,
+    /// The `toolbar` hatch for the installed toolbar, once (at a cold launch,
     /// when the module connects).
-    func hookToolbar() {
-        guard !hooked, let toolbar, let window, let natives = presenter.session?.natives, natives.hooksConnected else { return }
-        hooked = true
-        natives.toolbarHook(toolbar, window: window)
+    func hatchToolbar() {
+        guard !hatched, let toolbar, let window, let natives = presenter.session?.natives, natives.hatchesConnected else { return }
+        hatched = true
+        natives.toolbarHatch(toolbar, window: window)
     }
 
     /// An item the app adds after Exact's (`ExactToolbar.add`).
     func addAppItem(_ item: NSToolbarItem) {
         guard toolbar != nil, !appItems.contains(where: { $0 === item || $0.itemIdentifier == item.itemIdentifier }) else { return }
         appItems.append(item)
-        presenter.session?.log("hook toolbar: the app added \(item.itemIdentifier.rawValue)")
-        // From the hook, inside a sync: the next turn inserts it.
+        presenter.session?.log("hatch toolbar: the app added \(item.itemIdentifier.rawValue)")
+        // From the hatch, inside a sync: the next turn inserts it.
         if syncing { DispatchQueue.main.async { [weak self] in self?.sync() } } else { sync() }
     }
 
@@ -131,7 +131,7 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
         appDelegate = delegate
         toolbar?.delegate = nil
         toolbar?.delegate = self
-        presenter.session?.log("hook toolbar: delegate \(delegate.map { "\(type(of: $0))" } ?? "cleared")")
+        presenter.session?.log("hatch toolbar: delegate \(delegate.map { "\(type(of: $0))" } ?? "cleared")")
     }
 
     override func responds(to selector: Selector!) -> Bool {
@@ -287,7 +287,7 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
         // Hide only the authored rendering. Its logical nodes/actions survive.
         if window.toolbar !== toolbar { window.toolbar = toolbar }
         if installing { onChange?() }
-        hookToolbar()
+        hatchToolbar()
         savedAccessibilityHidden = next.isAccessibilityHidden()
         next.isHidden = true; next.setAccessibilityHidden(true); projected = true
     }

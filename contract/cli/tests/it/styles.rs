@@ -535,10 +535,27 @@ fn background_image_takes_one_gradient_and_refuses_the_rest_by_name() {
 }
 
 #[test]
+fn backdrop_saturation_is_admitted_alone_and_beside_blur() {
+    for value in [
+        "saturate(0)",
+        "saturate(1.14)",
+        "saturate(180%)",
+        "saturate()",
+        "blur(12px) saturate(1.14)",
+        "saturate(180%) blur(4px)",
+    ] {
+        contract::compile(&format!(
+            "component App\n  view\n    box backdrop-filter=\"{value}\"\n"
+        ))
+        .unwrap_or_else(|e| panic!("{value}: {e}"));
+    }
+}
+
+#[test]
 fn pre_and_backdrop_filter_reach_the_kernel_and_the_rest_of_css_filters_is_refused_by_name() {
     // @ref LLP 1053 G5; LLP 1053.000 D1 — a dynamic value takes the same
     // grammar at run time as a literal at compile time.
-    let source = "component App\n  state blur = 8\n  view\n    main\n      box testId=\"glass\" backdrop-filter=\"blur(\" + toString(blur) + \"px)\"\n        text \"a\\tb\" testId=\"code\" white-space=\"pre\"\n      box testId=\"plain\" backdrop-filter=\"none\"\n";
+    let source = "component App\n  state blur = 8\n  state saturation = 1.14\n  view\n    main\n      box testId=\"glass\" backdrop-filter=\"blur(\" + toString(blur) + \"px) saturate(\" + toString(saturation) + \" )\"\n        text \"a\\tb\" testId=\"code\" white-space=\"pre\"\n      box testId=\"plain\" backdrop-filter=\"none\"\n";
     let plan = contract::compile(source).unwrap();
     let r = Runner::boot(
         plan,
@@ -556,10 +573,13 @@ fn pre_and_backdrop_filter_reach_the_kernel_and_the_rest_of_css_filters_is_refus
             .clone()
     };
     assert_eq!(style("code").white_space, exact_kernel::WhiteSpace::Pre);
-    assert_eq!(style("glass").backdrop_blur, 8.0);
-    assert_eq!(style("plain").backdrop_blur, 0.0);
+    assert_eq!(
+        style("glass").backdrop_filter.css(),
+        "blur(8px) saturate(1.14)"
+    );
+    assert_eq!(style("plain").backdrop_filter.css(), "none");
     for (value, named) in [
-        ("blur(20px) saturate(180%)", "`saturate()` is CSS"),
+        ("saturate(-1)", "nonnegative"),
         ("brightness(1.2)", "`brightness()` is CSS"),
         ("url(#f)", "`url()` is CSS"),
         ("blur(2em)", "a length in px"),

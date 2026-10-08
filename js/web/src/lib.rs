@@ -341,7 +341,12 @@ impl Module {
                 request.headers = string_pairs(&r["headers"]).ok_or_else(|| {
                     unavailable("fetch headers are not an array of [name, value] strings")
                 })?;
-                request.body = r["body"].as_str().unwrap_or("").as_bytes().to_vec();
+                // A BufferSource body travels as base64 beside the text one.
+                request.body = match r["body_base64"].as_str() {
+                    Some(b64) => exact_runner::agent::unbase64(b64)
+                        .ok_or_else(|| unavailable("fetch body is not base64"))?,
+                    None => r["body"].as_str().unwrap_or("").as_bytes().to_vec(),
+                };
                 // `exactTimeout`, as the prelude checked it (1..=3600000 ms).
                 if let Some(ms) = r["timeout_ms"].as_u64() {
                     request.timeout_ms =

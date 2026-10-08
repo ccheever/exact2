@@ -33,7 +33,7 @@ pub use contract_types::strings::Strings;
 /// The data seam, re-exported for an app's build script: the bake asks the
 /// crate its grants for the compatibility id (`Caltrain.grants()`).
 pub use exact_runner::DataSource;
-pub use logic::{rust_entry, web_linked, web_rust_mode};
+pub use logic::{apple_linked, rust_entry, web_linked, web_rust_mode};
 pub use manifest::Manifest;
 pub use map::{plan_digest, SourceMap};
 pub use resolve::Origin;
@@ -602,6 +602,22 @@ fn compile_path_checked(
                 file: Some(path.into()),
                 related: Box::new([]),
             }]);
+        }
+        // @ref LLP 1075.003.000.001 §4.3 — each hatch word with the
+        // platforms that handle it, under the plan's signature: a host calls
+        // a word only where the plan says its platform handles it.
+        let rows = native::hatch_rows(&manifest).map_err(|message| {
+            vec![CompileError {
+                pass: "app",
+                id: "app-manifest".into(),
+                message,
+                span: Span::default(),
+                file: Some(path.into()),
+                related: Box::new([]),
+            }]
+        })?;
+        for (word, platforms) in rows {
+            plan.add_hatch(&word, platforms);
         }
         plan.app_id = manifest.id;
     }

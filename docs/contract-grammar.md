@@ -587,7 +587,7 @@ Several tags share a kernel node type with different fixed properties.
 | --- | --- |
 | Boxes / layout | `view`, `box`, `row`, `column`, `scroll`, `list` |
 | Structure | `main`, `header`, `nav`, `section`, `footer`, `article`, `aside`, `dialog`, `hr` |
-| Text and controls | `text`, `button`, `link`, `input`, `textarea`, `select`, `option` |
+| Text and controls | `text`, `button`, `link`, `input`, `textarea`, `select`, `option`, `progress` |
 | Media / metadata | `image`, `video`, `audio`, `iframe`, `canvas`, `head` |
 | SVG scene | `svg`, `g`, `path`, `polyline`, `polygon`, `circle`, `ellipse`, `line`, `rect` |
 | SVG definitions | `defs`, `symbol`, `use`, `clipPath`, `marker`, `mask`, `pattern` |
@@ -922,6 +922,28 @@ action mark(para: string, s: Selection)
 text para.body selectionchange=mark(para.id)
 ```
 
+### Activity: `progress`
+
+`progress` with no `value` is HTML's indeterminate progress, shown as the
+platform's activity indicator: `UIActivityIndicatorView` on iOS (`.medium`,
+`.large` where the box's shorter side is 37 points or more), a spinning
+`NSProgressIndicator` on macOS (small, regular from 32 points), and on the web
+and Linux a spinner the host draws, since HTML's own indeterminate progress is
+a bar (the one deliberate divergence, [LLP 1069.001](../llp/1069.001-form-controls.rfc.md)).
+It is a 20 × 20 box until `width` or `height` sizes it, and the indicator is
+centred in it. `color` colours it on iOS, the web and Linux; macOS draws the
+system's colour, as AppKit gives a spinner no tint. Its role is `progressbar`,
+busy (`aria-busy`); name it with `aria-label`. It turns while it shows, and
+stops where it is hidden or gone; under the agent's held clock it shows one
+still frame (on the web, the frame at the agent's time, as every CSS animation;
+Linux paints one still frame always). `value` (a determinate bar) and `max` (that
+bar's) are refused for now, and so are children and `type`.
+
+```text
+progress aria-label="Loading"
+progress width=37 height=37 color="#1083fe" aria-label="Loading posts"
+```
+
 ### Form controls: radio, `InputEvent`, `setSelectionRange`
 
 `input type="radio"` is HTML's (x2apps survey #2). Its `name` is its group:
@@ -988,8 +1010,17 @@ macOS, iOS and iPadOS with a hardware keyboard, Linux):
   included (`"a"`, `"A"`, `"7"`, `" "`, `"/"`), or the key's name (`"Enter"`,
   `"Escape"`, `"Tab"`, `"Backspace"`, `"Delete"`, `"ArrowUp"`…, `"Home"`,
   `"End"`, `"PageUp"`, `"PageDown"`, `"F1"`…, `"Shift"`). Every key is heard,
-  printable ones in a field included. Keys an input method is composing are
-  its own.
+  printable ones in a field included. On macOS and iOS, keys an input
+  method is composing are its own, but for two: a modifier's own press and
+  release (so a Shift let go mid-syllable is still a keyup), and a ⌘ chord,
+  whose keydown commits the composed text first: the field's `input` hears
+  the text, then the chord's `key` handlers run and read the value Chrome's
+  would (there the page's value already holds the composed text). A
+  composer's ⌘Enter `key` action sends what was typed. On macOS such a chord
+  presses no `aria-keyshortcuts` button, as the web's skip a key that came
+  composing. On the web, Chrome hands the `key` handlers every key while
+  composing (`isComposing`, which Contract does not carry) and commits
+  nothing first.
 - **Modifiers.** An action that takes one more parameter, typed
   `KeyboardEvent`, hears the event too: the record `{ key: string, shiftKey:
   bool, ctrlKey: bool, altKey: bool, metaKey: bool, code: string, repeat:
@@ -1052,24 +1083,34 @@ Mac and elsewhere. The driver presses chords in Playwright's spelling (`type
 "composer" key "Shift+Enter"`, `key "Meta+s"`).
 
 Hints while ⌘ is held, and a held ⌘W that closes one panel, not one per
-repeat, by the physical key whatever the layout types:
+repeat, by the physical key whatever the layout types. Held modifiers are
+tracked as a page tracks them: every keydown and keyup says what is held,
+and losing the window's focus forgets it, since a key let go while another
+app or window has the focus sends no keyup, here as in Chrome. A page's
+`window` `blur` listener is `exactPage().hasFocus` turning false, the gate of
+a task that clears the flag:
 
 ```text
 action down(k: string, e: KeyboardEvent)
-  if k == "Meta"
-    hints = true
+  hints = e.metaKey
   if e.metaKey and e.code == "KeyW" and not e.repeat
     closed = closed + 1
     preventDefault()
-action up(k: string)
-  if k == "Meta"
-    hints = false
+action up(k: string, e: KeyboardEvent)
+  hints = e.metaKey
+action forget()
+  hints = false
+task release when hints and not page.hasFocus
+  after(1, forget)
 ```
 
-`column key=down keyup=up`. The driver holds and releases a key with `type
-"list" key "Meta" down` and `key "Meta" up`, and `key "a" for 1200` repeats it
-while held, as a keyboard does (the first repeat 500 ms after the down, then
-every 83 ms, on the virtual clock).
+`resource page = exactPage() as shape Page` (`hasFocus: bool`), `column
+key=down keyup=up`, and `when hints and page.hasFocus` around the hints. The
+driver holds and releases a key with `type "list" key "Meta" down` and `key
+"Meta" up`, takes the focus away with `prefer has-focus false` (then `clock
++1` for the task), and `key "a" for 1200` repeats a key while held, as a
+keyboard does (the first repeat 500 ms after the down, then every 83 ms, on
+the virtual clock).
 
 - **A game's canvas.** A key at a canvas whose world takes input, or at a
   node inside one, goes the same way first: a shortcut takes it, then the
@@ -1093,13 +1134,17 @@ every 83 ms, on the virtual clock).
 - **The Mac's menu bar.** Every button whose chord holds ⌘ is also a menu
   item, titled by its `aria-label` (or its text), placed by its chord as
   Apple's HIG places one: ⌘, is Settings…; ⌘[ ⌘] and a `tablist`'s tabs are
-  Go; ⌘Z ⇧⌘Z ⌘X ⌘C ⌘V ⌘A ⌘D ⌘F ⌘G ⇧⌘G are Edit; ⌘= ⌘+ ⌘- ⌘0 and any ⌃⌘
-  chord are View; the rest are File. One whose chord is the host's own Edit
-  item's (Undo, Redo, Cut, Copy, Paste, Select All) takes that item's place,
-  so Edit ▸ Undo is the app's "Undo Move"; any other host item whose chord a
-  button declares keeps its place without the chord (File ▸ Close Window
-  beside the app's ⌘W). Drop the chord while a field is being edited and the
-  host's text Undo, Cut, Copy and Paste come back (studio diary R16).
+  Go; ⌘Z ⇧⌘Z ⌘X ⌘C ⌘V ⇧⌘V ⌥⇧⌘V ⌘A ⌘D ⌘F ⌘G ⇧⌘G are Edit; ⌘= ⌘+ ⌘- ⌘0 and
+  any ⌃⌘ chord are View; the rest are File. One whose chord is the host's own
+  Edit item's (Undo, Redo, Cut, Copy, Paste, Select All) takes that item's
+  place, so Edit ▸ Undo is the app's "Undo Move"; a paste variant (⇧⌘V,
+  ⌥⇧⌘V) follows Paste, as Paste and Match Style does in TextEdit, Safari and
+  Chrome ("Paste as Text"); the rest follow Select All. Any other host item
+  whose chord a button declares keeps its place without the chord (File ▸
+  Close Window beside the app's ⌘W). Drop the chord while a field is being
+  edited and the host's text Undo, Cut, Copy and Paste come back (studio
+  diary R16). Edit also holds Speech ▸ Start Speaking and Stop Speaking, which
+  read the selected text aloud, in a field or out of one (#141).
 
 ### Focus order: `tabindex`
 
@@ -1139,7 +1184,7 @@ argument validation. Use the working implementation when selecting arguments:
 | `focus(id)` | [Markdown Stress](../apps/markdown-stress/app.contract) |
 | `format(id, command[, argument])`: a Markdown editor's toolbar command ([Markdown](#markdown-markup-format-select)) | [Markdown Stress](../apps/markdown-stress/app.contract) |
 | `blur()`, `blur(id)` | [Messages](../apps/messages/app.contract), [keyboard-bar corpus](../contract/corpus/keyboard-bar.contract) |
-| `selectText(...)` | [Messages Legacy](../apps/messages-legacy/app.contract) |
+| `selectText(...)` | No app fixture; the hosts' field selection, such as [`FieldSelections.swift`](../host/apple/Sources/ExactKit/FieldSelections.swift) |
 | `setSelectionRange(id, start, end[, direction])`: a text field's selection, by its `id` ([form controls](#form-controls-radio-inputevent-setselectionrange)) | [radios conformance](../host/web-js/conformance/radios.contract), [control tests](../contract/cli/tests/it/controls.rs) |
 | `copyText(text)` | [Messages](../apps/messages/app.contract) |
 | `openURL(url)` | No Contract fixture; the hosts' dispatch, such as [`host/web-js/commands.js`](../host/web-js/commands.js) |

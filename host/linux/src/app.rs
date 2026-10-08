@@ -126,6 +126,9 @@ pub struct Config {
     /// The update store, opened before the boot it selects (`run`); the
     /// presenter takes it at boot.
     pub updates: Option<Box<dyn Store>>,
+    /// The app's hatches (LLP 1075.003.000.001 §5): only their type, until
+    /// the presenter makes the value after first pixel.
+    pub hatches: Option<crate::hatches::Install>,
 }
 
 impl Config {
@@ -251,6 +254,7 @@ impl Config {
                     crate::delivery::Module::local(std::path::Path::new(path), compat)
                 }),
             updates: None,
+            hatches: None,
         }
     }
 
@@ -311,11 +315,13 @@ pub(crate) fn boot_presenter_with_painter<D: DataSource + Default>(
     let agent_time = crate::zone::agent_time(|key| std::env::var(key).ok(), &place.time_zone)?;
     let dev_url = config.dev_url.clone();
     let dev_identity = config.dev_identity.clone();
+    let hatches = config.hatches;
     let delivered = |mut booted: (Presenter<D>, Option<String>),
                      updates: Option<Box<dyn Store>>| {
         // The accepted runner already has the complete facts. Attaching the
         // adapter must never reintroduce intermediate embedded answers.
         booted.0.set_updates(updates);
+        booted.0.set_hatches(hatches);
         if let Some(e) = booted.0.set_place(&place) {
             eprintln!("exact: {e}");
         }
@@ -442,7 +448,20 @@ pub fn run_empty(baked: &[u8], compat: &str) -> i32 {
 /// Run the app: the process's exit code. `compat` is the binary's
 /// `compat.json` (LLP 1030 D3a), which the `delivery` resource answers from.
 pub fn run<D: DataSource + Default>(baked: &[u8], compat: &str) -> i32 {
-    run_registered::<D>(baked, compat, None)
+    run_registered::<D>(baked, compat, None, None)
+}
+
+/// [`run`] with the app's hatches (LLP 1075.003.000.001 §5): `H` is the one
+/// type its `modules/linux` names, and `words` the hatch words `app.json`
+/// gives this platform. Nothing of `H` is made before the first frame is
+/// presented.
+pub fn run_with_hatches<D: DataSource + Default, H: crate::hatches::Hatches>(
+    baked: &[u8],
+    compat: &str,
+    words: &'static [&'static str],
+) -> i32 {
+    let hatches = crate::hatches::install::<H>(words);
+    run_registered::<D>(baked, compat, None, Some(hatches))
 }
 
 /// Launch an explicitly registered consumer using the ordinary environment,
@@ -452,7 +471,7 @@ pub fn run_with_content_region<D: DataSource + Default>(
     compat: &str,
     region: crate::content_region::ContentRegionRegistration,
 ) -> i32 {
-    run_registered::<D>(baked, compat, Some(region))
+    run_registered::<D>(baked, compat, Some(region), None)
 }
 
 static ROW_REUSE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
@@ -474,6 +493,7 @@ fn run_registered<D: DataSource + Default>(
     baked: &[u8],
     compat: &str,
     region: Option<crate::content_region::ContentRegionRegistration>,
+    hatches: Option<crate::hatches::Install>,
 ) -> i32 {
     row_reuse_from_env(false);
     if print_baked_receipt(compat) {
@@ -492,16 +512,18 @@ fn run_registered<D: DataSource + Default>(
     let started = Instant::now();
     let mut config = Config::from_env(baked, compat);
     config.content_region = region;
+    config.hatches = hatches;
     run_config::<D>(&mut config, started)
 }
 
-/// Drop `EXACT_AGENT` and every `EXACT_AGENT_*` variable from this process,
+/// Drop `EXACT_AGENT`, every `EXACT_AGENT_*` variable and `EXACT_HATCHES`
+/// (a development switch, LLP 1075.003.000.001 §2.6) from this process,
 /// saying so once on stderr when one was set: a production bake runs as a
 /// production launch whatever its environment says (LLP 1069.007 D2).
 fn ignore_agent_variables() {
     let named: Vec<_> = std::env::vars_os()
         .filter_map(|(k, _)| k.to_str().map(str::to_owned))
-        .filter(|k| k == "EXACT_AGENT" || k.starts_with("EXACT_AGENT_"))
+        .filter(|k| k == "EXACT_AGENT" || k == "EXACT_HATCHES" || k.starts_with("EXACT_AGENT_"))
         .collect();
     if named.is_empty() {
         return;

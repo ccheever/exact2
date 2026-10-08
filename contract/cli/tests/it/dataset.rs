@@ -138,6 +138,9 @@ impl App {
     fn compile(&self) -> Result<(), Vec<contract::CompileError>> {
         contract::compile_path_all(&self.0.join("app.contract"), false).map(|_| ())
     }
+    fn manifest(&self) -> contract::Manifest {
+        contract::Manifest::read(&self.0).unwrap()
+    }
 }
 impl Drop for App {
     fn drop(&mut self) {
@@ -195,23 +198,23 @@ fn a_word_the_manifest_does_not_declare_fails_the_bake_by_name() {
     assert!(errors[0].message.contains("listed twice"), "{errors:?}");
 }
 
-/// LLP 1075.003.000 §3.1: `hook` is one literal word on a node that is not a
+/// LLP 1075.003.000 §3.1: `hatch` is one literal word on a node that is not a
 /// module view, lowered to its own row.
 #[test]
-fn a_hook_is_one_literal_word_on_a_node_lowered_to_its_row() {
-    let r = boot("component A\n  view\n    column\n      column testId=\"a\" hook=\"avatar\" data-size=\"small\"\n      text \"x\" testId=\"t\"\n");
+fn a_hatch_is_one_literal_word_on_a_node_lowered_to_its_row() {
+    let r = boot("component A\n  view\n    column\n      column testId=\"a\" hatch=\"avatar\" data-size=\"small\"\n      text \"x\" testId=\"t\"\n");
     let row = |id: &str| {
         let key = r.kernel().find_by_test_id(id)[0];
         let node = r.kernel().node_by_key(key).unwrap();
-        node.props.str(PropId::Hook).map(str::to_owned)
+        node.props.str(PropId::Hatch).map(str::to_owned)
     };
     assert_eq!(row("a").as_deref(), Some("avatar"));
     assert_eq!(row("t"), None);
     assert_eq!(dataset(&r, "a").as_deref(), Some(r#"{"size":"small"}"#));
     for (tag, attr, id) in [
-        ("column", "hook=name", "lower-hook-value"),
-        ("column", "hook=\"Avatar\"", "lower-hook-word"),
-        ("ghostty-terminal", "hook=\"term\"", "lower-hook-module"),
+        ("column", "hatch=name", "lower-hatch-value"),
+        ("column", "hatch=\"Avatar\"", "lower-hatch-word"),
+        ("ghostty-terminal", "hatch=\"term\"", "lower-hatch-module"),
     ] {
         let src = format!("component A\n  state name = \"a\"\n  view\n    {tag} {attr}\n");
         let e = contract::compile(&src).unwrap_err();
@@ -220,31 +223,133 @@ fn a_hook_is_one_literal_word_on_a_node_lowered_to_its_row() {
 }
 
 #[test]
-fn a_hook_word_the_manifest_does_not_declare_fails_the_bake_by_name() {
+fn a_hatch_word_the_manifest_does_not_declare_fails_the_bake_by_name() {
     let ok = App::new(
-        "hooked",
-        r#","hooks":["avatar"]"#,
-        r#"column hook="avatar""#,
+        "hatched",
+        r#","hatches":["avatar"]"#,
+        r#"column hatch="avatar""#,
     );
     ok.compile().unwrap_or_else(|e| panic!("{e:?}"));
     let typo = App::new(
-        "hooktypo",
-        r#","hooks":["avatar"]"#,
-        r#"column hook="avatr""#,
+        "hatchtypo",
+        r#","hatches":["avatar"]"#,
+        r#"column hatch="avatr""#,
     );
     let errors = typo.compile().unwrap_err();
-    assert_eq!(errors[0].id, "bake-undeclared-hook", "{errors:?}");
+    assert_eq!(errors[0].id, "bake-undeclared-hatch", "{errors:?}");
     assert!(
         errors[0]
             .message
-            .contains("did you mean `hook=\"avatar\"`?"),
+            .contains("did you mean `hatch=\"avatar\"`?"),
         "{}",
         errors[0].message
     );
-    let none = App::new("hooknone", "", r#"column hook="avatar""#);
+    let none = App::new("hatchnone", "", r#"column hatch="avatar""#);
     let errors = none.compile().unwrap_err();
     assert!(
-        errors[0].message.contains("declares no hook words"),
+        errors[0].message.contains("declares no hatch words"),
         "{errors:?}"
     );
+}
+
+/// LLP 1075.003.000.001 §5: `hatches` may give each word the platforms whose
+/// module handles it. Every word is declared for the Contract; each platform
+/// is told only its own.
+#[test]
+fn a_hatch_word_may_name_the_platforms_that_handle_it() {
+    let app = App::new(
+        "hatchplatforms",
+        r#","hatches":{"dot":["web","ios"],"avatar":["ios","macos"],"nowhere":[]}"#,
+        r#"column hatch="dot""#,
+    );
+    app.compile().unwrap_or_else(|e| panic!("{e:?}"));
+    let manifest = app.manifest();
+    let on = |platform: &str| contract::native::hatches_on(&manifest, platform).unwrap();
+    assert_eq!(on("ios"), ["avatar", "dot"]);
+    assert_eq!(on("macos"), ["avatar"]);
+    assert_eq!(on("web"), ["dot"]);
+    assert!(on("linux").is_empty());
+    assert_eq!(
+        contract::native::hatch_words(&manifest).unwrap().len(),
+        3,
+        "a word no platform handles is still a word the Contract may mark"
+    );
+    // The plan carries the same rows, under its signature (§4.3).
+    let (plan, _) = contract::compile_path_all(&app.0.join("app.contract"), false).unwrap();
+    let plan = exact_plan::Plan::decode(&plan.encode()).unwrap();
+    assert!(plan.handles_hatch("dot", "ios") && plan.handles_hatch("dot", "web"));
+    assert!(!plan.handles_hatch("dot", "macos") && !plan.handles_hatch("nowhere", "ios"));
+    assert!(plan.handles_hatch("avatar", "macos") && !plan.handles_hatch("avatar", "web"));
+    // A plain list is every platform's.
+    let plain = App::new(
+        "hatchplain",
+        r#","hatches":["dot"]"#,
+        r#"column hatch="dot""#,
+    );
+    assert_eq!(
+        contract::native::hatches_on(&plain.manifest(), "linux").unwrap(),
+        ["dot"]
+    );
+    let (plan, _) = contract::compile_path_all(&plain.0.join("app.contract"), false).unwrap();
+    assert!(plan.handles_hatch("dot", "linux") && plan.handles_hatch("dot", "android"));
+    for (bad, said) in [
+        (r#","hatches":{"dot":["visionos"]}"#, "is not a platform"),
+        (
+            r#","hatches":{"dot":"ios"}"#,
+            "names its platforms as a list",
+        ),
+        (r#","hatches":{"dot":["ios","ios"]}"#, "lists `ios` twice"),
+        (r#","hatches":{"Dot":["ios"]}"#, "is not a word"),
+    ] {
+        let app = App::new("hatchbad", bad, r#"column hatch="dot""#);
+        let error = contract::native::hatch_words(&app.manifest()).unwrap_err();
+        assert!(error.contains(said), "{bad}: {error}");
+    }
+}
+
+/// LLP 1075.003.000.001 §5: a painting host's hatches are the app's own
+/// `modules/linux/*.rs`, included by its generated entry beside a typed key
+/// of only the words the platform handles.
+#[test]
+fn a_painting_hosts_entry_includes_the_apps_hatches_with_its_platforms_typed_key() {
+    let app = App::new(
+        "rusthatches",
+        r#","hatches":{"detail-list":["ios","linux"],"dot":["linux","web"],"avatar":["ios"],"self":["windows"]}"#,
+        r#"column hatch="dot""#,
+    );
+    let manifest = app.manifest();
+    // An app with no `modules/linux` has no hatches here: its entry is as it was.
+    let none = contract::native::rust_hatches(&app.0, &manifest, "linux").unwrap();
+    assert_eq!(none, None);
+    let modules = app.0.join("modules/linux");
+    std::fs::create_dir_all(&modules).unwrap();
+    std::fs::write(modules.join("b.rs"), "pub type ExactHatches = App;\n").unwrap();
+    std::fs::write(modules.join("a.rs"), "pub struct App;\n").unwrap();
+    std::fs::write(modules.join("notes.md"), "not Rust\n").unwrap();
+    let text = contract::native::rust_hatches(&app.0, &manifest, "linux")
+        .unwrap()
+        .unwrap();
+    // Only this platform's words are keys: naming another's does not compile.
+    let keys = "pub enum HatchKey {\n    /// `hatch=\"detail-list\"`.\n    DetailList,\n    /// `hatch=\"dot\"`.\n    Dot,\n}";
+    assert!(text.contains(keys) && !text.contains("Avatar"), "{text}");
+    let words = r#"pub const WORDS: &'static [&'static str] = &["detail-list", "dot", ];"#;
+    assert!(text.contains(words), "{text}");
+    assert!(
+        text.contains(r#""detail-list" => Some(HatchKey::DetailList),"#),
+        "{text}"
+    );
+    assert!(text.contains(r#"HatchKey::Dot => "dot","#), "{text}");
+    // Each Rust file, in name order, in one module; nothing else.
+    let at = |part: &str| text.find(part).unwrap_or_else(|| panic!("{part}: {text}"));
+    assert!(at("mod hatches {") < at("a.rs\");") && at("a.rs\");") < at("b.rs\");"));
+    assert_eq!(text.matches("include!(").count(), 2, "{text}");
+    // Another platform of the same presenter has its own words.
+    let windows = contract::native::rust_hatches(&app.0, &manifest, "windows")
+        .unwrap()
+        .unwrap();
+    assert!(
+        windows.contains("    Self_,\n") && windows.contains(r#""self" => Some(HatchKey::Self_),"#),
+        "{windows}"
+    );
+    assert!(!windows.contains("Dot"), "{windows}");
 }

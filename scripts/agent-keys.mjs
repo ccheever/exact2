@@ -71,6 +71,55 @@ export function cdpKey(chord) {
   return { code, key, vk, modifiers, text, location };
 }
 
+/** A chord's modifiers in the order it names them (`Shift+Control+x` is
+ * Shift, then Control); a modifier pressed alone is the key, not a prefix. */
+export function chordModifiers(chord) {
+  const held = [];
+  for (let m, rest = String(chord); (m = /^(Shift|Control|Alt|Meta)\+(.+)$/.exec(rest)); rest = m[2]) held.push(m[1]);
+  return held;
+}
+const MODIFIER_KEYS = { Shift: ['ShiftLeft', 16], Control: ['ControlLeft', 17], Alt: ['AltLeft', 18], Meta: ['MetaLeft', 91] };
+/** A keyboard's modifier edges around a key or a click (Charlie, 2026-10-07):
+ * each modifier's own keydown in order before, its keyup in reverse after, as
+ * a person's keyboard sends them and Playwright's `press` does, so a `key`
+ * handler hears `Shift` before `Enter` on every engine. CDP's flags follow
+ * from the keys held (`withHeldModifiers`). */
+const modifierEdge = (call, name, type) => {
+  const [code, vk] = MODIFIER_KEYS[name];
+  return call('Input.dispatchKeyEvent', { type, key: name, code, windowsVirtualKeyCode: vk, location: 1, modifiers: 0 });
+};
+/** Each modifier's keyup in reverse, every one attempted; the first failure is thrown after. */
+async function releaseModifiers(call, pressed) {
+  let failed;
+  for (const name of [...pressed].reverse()) await modifierEdge(call, name, 'keyUp').catch(error => { failed ??= error; });
+  if (failed) throw failed;
+}
+/** Each modifier's keydown in order; one that fails lets the earlier ones go and throws. */
+async function pressModifiers(call, names) {
+  const pressed = [];
+  for (const name of names) {
+    try { await modifierEdge(call, name, 'keyDown'); } catch (error) { await releaseModifiers(call, pressed).catch(() => {}); throw error; }
+    pressed.push(name);
+  }
+  return pressed;
+}
+export async function modifierEdges(call, names, type) {
+  if (type === 'keyUp') return releaseModifiers(call, names);
+  await pressModifiers(call, names);
+}
+
+/** `act` with a chord's modifiers held around it, released when it throws. */
+export async function withChordModifiers(call, mods, act) {
+  const pressed = await pressModifiers(call, mods);
+  try { return await act(); } finally { await releaseModifiers(call, pressed); }
+}
+/** A click, a run of clicks or a wheel with modifiers named holds them as a
+ * keyboard does, as Playwright's carrier holds them (`withHeldKeys`). */
+export function heldForClick(call, kind, opts, act) {
+  const clicks = ['press', 'contextmenu', 'dblclick', 'auxclick', 'clicks', 'mouse', 'wheel'].includes(kind) && opts?.modifiers;
+  return clicks ? withChordModifiers(call, String(opts.modifiers).split('+').filter(Boolean), act) : act();
+}
+
 /** The chord a real paste sends: ⌘V on macOS, Ctrl+V elsewhere. */
 export function pasteChord() {
   return process.platform === 'darwin' ? 'Meta+v' : 'Control+v';
@@ -90,9 +139,10 @@ export async function deliverClipboard({ id, opts, evaluate, ask, call, keyDown,
     if (opts.clipboard === 'paste' && heard.editable && !heard.prevented) await (insertText ?? (text => call('Input.insertText', { text })))(opts.text ?? '');
   };
   if (opts.clipboard !== 'paste') { await send(); return; }
-  const chord = cdpKey(pasteChord());
-  const down = keyDown ?? (() => call('Input.dispatchKeyEvent', { type: 'keyDown', key: chord.key, code: chord.code, windowsVirtualKeyCode: chord.vk, modifiers: chord.modifiers, location: chord.location }));
-  const up = keyUp ?? (() => call('Input.dispatchKeyEvent', { type: 'keyUp', key: chord.key, code: chord.code, windowsVirtualKeyCode: chord.vk, modifiers: chord.modifiers, location: chord.location }));
+  const chord = cdpKey(pasteChord()), mods = chordModifiers(pasteChord());
+  // A key that fails after its modifier went down lets the modifier go again.
+  const down = keyDown ?? (async () => { await modifierEdges(call, mods, 'keyDown'); try { await call('Input.dispatchKeyEvent', { type: 'keyDown', key: chord.key, code: chord.code, windowsVirtualKeyCode: chord.vk, modifiers: chord.modifiers, location: chord.location }); } catch (error) { await modifierEdges(call, mods, 'keyUp').catch(() => {}); throw error; } });
+  const up = keyUp ?? (async () => { try { await call('Input.dispatchKeyEvent', { type: 'keyUp', key: chord.key, code: chord.code, windowsVirtualKeyCode: chord.vk, modifiers: chord.modifiers, location: chord.location }); } finally { await modifierEdges(call, mods, 'keyUp'); } });
   // The keydown itself is kept and read once its dispatch is over, so every
   // listener's preventDefault counts: the target's key handler (the contract's
   // stopPropagation marks the event, host/web/glue.js, host/web-js/rt.js) and
@@ -119,19 +169,34 @@ export async function deliverClipboard({ id, opts, evaluate, ask, call, keyDown,
 /** Browser-owned key release carries device identity, never a canvas lookup. */
 export async function browserKey({id, opts, evaluate, ask, call, frame}) {
   if (opts.phase != null && !['down', 'up'].includes(opts.phase)) throw new Error(`key: not a phase: ${opts.phase}`);
-  const { code, key, vk, modifiers, text, location } = cdpKey(opts.key);
+  const { code, key, vk, modifiers, text, location } = cdpKey(opts.key), mods = chordModifiers(opts.key);
   const isWorld = await evaluate(`exact.gpu?.wantsInput(${id}) ?? false`);
   const f = isWorld ? await ask({ op: 'focus', id, world: true }) : await evaluate(`(() => { const el = exact.views.get(${id}); el?.focus(); return {ok:document.activeElement === el}; })()`);
   if (f.error || !f.ok) throw new Error(f.error ?? `view ${id} could not take focus`);
   const reply = phase => ({ typed: id, key: opts.key, ...(phase != null ? { phase } : {}), delivery: 'platform' });
+  // A key's text goes with its down, as a keyboard's does: a held printable key types, and each
+  // auto-repeat types again (#140); a Control or Meta chord has none (`cdpKey`).
+  // The chord's modifiers go down before the key and up after it (`modifierEdges`); a held
+  // key's auto-repeat (`opts.repeat`, #140) finds them down already. A key that fails to go
+  // down lets its modifiers go again, held or not.
+  // Whether the modifiers are down, so each comes up once: a lone `up` finds them held.
+  const pressing = phase => phase === 'down' && !opts.repeat;
+  let modsDown = opts.phase === 'up' || !!opts.repeat;
+  const letGo = async () => { if (modsDown) { modsDown = false; await modifierEdges(call, mods, 'keyUp'); } };
+  const edge = async phase => {
+    if (pressing(phase)) { await modifierEdges(call, mods, 'keyDown'); modsDown = true; }
+    try { await call('Input.dispatchKeyEvent', { type: phase === 'down' ? 'keyDown' : 'keyUp', code, key, windowsVirtualKeyCode: vk, modifiers, location, ...(phase === 'down' && text ? { text } : {}), ...(phase === 'down' && opts.repeat ? { autoRepeat: true } : {}) }); }
+    catch (error) { if (pressing(phase)) await letGo().catch(() => {}); throw error; }
+    finally { if (phase === 'up') await letGo(); }
+  };
   const release = async () => {
-    await call('Input.dispatchKeyEvent', { type: 'keyUp', code, key, windowsVirtualKeyCode: vk, modifiers, location });
+    await edge('up');
     await frame();
     return reply('up');
   };
   try {
     // A held key's later down is the platform's auto-repeat (`KeyboardEvent.repeat`, #140).
-    for (const phase of opts.phase == null ? ['down', 'up'] : [opts.phase]) await call('Input.dispatchKeyEvent', { type: phase === 'down' ? 'keyDown' : 'keyUp', code, key, windowsVirtualKeyCode: vk, modifiers, location, ...(phase === 'down' && text === '\r' ? { text } : {}), ...(phase === 'down' && opts.repeat ? { autoRepeat: true } : {}) });
+    for (const phase of opts.phase == null ? ['down', 'up'] : [opts.phase]) await edge(phase);
     await frame();
   } catch (error) { if (opts.phase === 'down') error.release = release; throw error; }
   return { ...reply(opts.phase), ...(opts.phase === 'down' ? { release } : {}) };

@@ -1083,19 +1083,6 @@ fn the_clock_in_a_data_module_is_refused_at_build_by_file_and_line() {
         ),
         "{error}"
     );
-    // A property named by a literal (`globalThis['setTimeout']`, Date[`now`]);
-    // one the module computes (`'set' + 'Timeout'`) is the runtime's to refuse.
-    f.write("logic.ts", "export const prefix = 'old: ';\nexport const a = () => globalThis['setTimeout'](() => {}, 1);\nexport const b = () => Date[`now`]() + Math['random']();\n");
-    let error = producer.bake(&f.0, None).err().unwrap();
-    assert!(error.contains("logic.ts:2:24: setTimeout()"), "{error}");
-    assert!(error.contains("logic.ts:3:24: Date.now()"), "{error}");
-    assert!(error.contains("logic.ts:3:40: Math.random()"), "{error}");
-    f.write("logic.ts", "export const prefix = 'old: ';\nexport const a = () => (globalThis as any)['set' + 'Timeout'](() => {}, 1);\n");
-    assert!(
-        producer.bake(&f.0, None).is_ok(),
-        "{:?}",
-        producer.bake(&f.0, None).err()
-    );
     // An angle-bracket assertion, a `declare`d class and a type-only
     // namespace are erased: the global runs.
     f.write("logic.ts", "export const prefix = 'old: ';\ndeclare class Date { static now(): number }\nnamespace Math { export type R = number }\nexport const a = () => (<any>Date).now() + Math.random();\n");
@@ -1116,6 +1103,64 @@ fn the_clock_in_a_data_module_is_refused_at_build_by_file_and_line() {
         "{:?}",
         producer.bake(&f.0, None).err()
     );
+}
+
+/// Literal property access has the same build diagnostic as dot access.
+#[test]
+fn literal_members_keep_ambient_diagnostics_in_both_producers() {
+    if !exact_js::ENGINE_LINKED {
+        return;
+    }
+    let f = Fixture::new();
+    f.write(
+        "logic.ts",
+        r#"export const prefix = 'old: ';
+export const a = () => Date['now']();
+export const b = () => globalThis['setTimeout'](() => {}, 1);
+export const c = () => Math[`random`]();
+export const d = () => globalThis['performance'][`now`]();
+export const e = () => new globalThis['Date']();
+export const f = () => self[`Date`]();
+export const g = () => globalThis['Date'].now?.();
+export const h = () => Date[('now' as const)]!();
+export const i = () => Date['n\u006fw']();
+"#,
+    );
+    let mut producer = exact_js_bake::Producer::new(Tools::default()).unwrap();
+    for result in [bake(&f.0, &Tools::default()), producer.bake(&f.0, None)] {
+        let error = result
+            .err()
+            .expect("literal ambient calls refused at build");
+        for (line, api) in [
+            (2, "Date.now()"),
+            (3, "setTimeout()"),
+            (4, "Math.random()"),
+            (5, "performance.now()"),
+            (6, "new Date()"),
+            (7, "Date()"),
+            (8, "Date.now()"),
+            (9, "Date.now()"),
+            (10, "Date.now()"),
+        ] {
+            assert!(
+                error.contains(&format!(
+                    "logic.ts:{line}:24: {api} is unavailable in data sources"
+                )),
+                "{error}"
+            );
+        }
+    }
+    // Dynamic keys still reach the runtime guard; explicit dates and
+    // unrelated objects are valid. None of these functions reads the clock at bake.
+    f.write("logic.ts", "export const prefix = 'old: ';\nexport const epoch = new globalThis['Date'](0).getTime();\nexport const dynamic = (key: 'now') => Date[key]();\nexport const template = (part: 'ow') => Date[`n${part}`]();\nexport const other = () => ({ now: () => 1 })['now']();\n");
+    for result in [bake(&f.0, &Tools::default()), producer.bake(&f.0, None)] {
+        assert!(result.is_ok(), "{:?}", result.err());
+    }
+    // Literal access on locally bound names is not an ambient read.
+    f.write("logic.ts", "export const prefix = 'old: ';\nexport const a = (Date: { now(): number }) => Date['now']();\nexport const b = (Math: { random(): number }) => Math[`random`]();\nexport const c = (globalThis: { setTimeout(): number }) => globalThis['setTimeout']();\nexport const d = (performance: { now(): number }) => performance[`now`]();\n");
+    for result in [bake(&f.0, &Tools::default()), producer.bake(&f.0, None)] {
+        assert!(result.is_ok(), "{:?}", result.err());
+    }
 }
 
 /// LLP 1091.001: a native producer keeps package identity without symlink privilege.

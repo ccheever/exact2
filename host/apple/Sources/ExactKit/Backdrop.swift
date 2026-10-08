@@ -1,4 +1,4 @@
-// CSS `backdrop-filter: blur(σ)` on both Apple platforms (LLP 1053.000 D2).
+// CSS `backdrop-filter` on both Apple platforms (LLP 1053.000 D2).
 //
 // macOS: Core Image's Gaussian as the node layer's public
 // `backgroundFilters`, run between the sRGB tone curves because Core Image
@@ -127,25 +127,40 @@ enum Materials {
     #endif
 }
 
+/// The kernel's ordered backdrop operations, decoded once from its typed wire.
+enum BackdropOperation: Equatable {
+    case blur(CGFloat), saturate(CGFloat)
+
+    init?(_ value: BatchValue) {
+        guard case .object(let fields) = value else { return nil }
+        if let n = fields["blur"]?.number { self = .blur(CGFloat(n)) }
+        else if let n = fields["saturate"]?.number { self = .saturate(CGFloat(n)) }
+        else { return nil }
+    }
+}
+
 extension NodeView {
-    /// The material this node asks for: the host-policy prop, else a
-    /// backdrop blur, else none.
+    var backdropOperations: [BackdropOperation] {
+        style["backdrop_filter"]?.array?.compactMap(BackdropOperation.init) ?? []
+    }
+
+    /// The material this node asks for: the host-policy prop, else a backdrop.
     var materialRequest: String? {
         if let material = props["backgroundMaterial"] { return material }
-        return number("backdrop_blur") > 0 ? "backdrop" : nil
+        return backdropOperations.isEmpty ? nil : "backdrop"
     }
 }
 
 #if os(iOS) || os(tvOS)
-/// A backdrop blur's material view, remembering the σ it was made for.
+/// The system material approximation, remembering its authored functions.
 final class BackdropEffectView: UIVisualEffectView {
-    var sigma: CGFloat = -1
+    var operations: [BackdropOperation] = []
 }
 
 extension NodeView {
-    /// Whether the backdrop's effect no longer matches its σ.
+    /// Whether the approximation is stale after a style update.
     var backdropStale: Bool {
-        (materialView as? BackdropEffectView).map { $0.sigma != number("backdrop_blur") } ?? false
+        (materialView as? BackdropEffectView).map { $0.operations != backdropOperations } ?? false
     }
 
     /// The effect for material `kind` (LLP 1053.000 D4): a glass effect on
@@ -175,8 +190,8 @@ extension NodeView {
     /// The backdrop blur's effect, nil when this is not a backdrop.
     func backdropEffect() -> UIVisualEffect? {
         guard let view = materialView as? BackdropEffectView else { return nil }
-        view.sigma = number("backdrop_blur")
-        return UIBlurEffect(style: Backdrop.material(sigma: view.sigma))
+        view.operations = backdropOperations
+        return UIBlurEffect(style: Backdrop.material)
     }
 }
 
@@ -187,7 +202,7 @@ enum Backdrop {
     /// Chrome over the parity page, `.light` is nearest in every case, the
     /// tinted glass included (LLP 1053.000 §3; Charlie, 2026-09-27: "yes
     /// switch to regular or light"). It does not follow the appearance.
-    static func material(sigma _: CGFloat) -> UIBlurEffect.Style { .light }
+    static var material: UIBlurEffect.Style { .light }
 }
 #else
 import CoreImage
@@ -197,8 +212,8 @@ extension NodeView {
     /// takes the node's backdrop instead.
     func applyBackdrop() {
         guard let l = layer else { return }
-        let sigma = materialView == nil && props["backgroundMaterial"] == nil ? max(0, number("backdrop_blur")) : 0
-        guard sigma > 0 else {
+        let operations = materialView == nil && props["backgroundMaterial"] == nil ? backdropOperations : []
+        guard !operations.isEmpty else {
             if l.backgroundFilters != nil { l.backgroundFilters = nil; backdropDrawn = nil; syncEllipticalClip() }
             return
         }
@@ -215,7 +230,7 @@ extension NodeView {
             ? CGRect(origin: CGPoint(x: -anchor.x, y: -anchor.y), size: size).applying(CATransform3DGetAffineTransform(t))
                 .offsetBy(dx: frame.minX + anchor.x, dy: frame.minY + anchor.y)
             : nil
-        let drawn = BackdropDrawn(sigma: sigma, box: box)
+        let drawn = BackdropDrawn(operations: operations, box: box)
         if backdropDrawn != drawn || l.backgroundFilters == nil {
             l.backgroundFilters = Backdrop.filters(drawn)
             backdropDrawn = drawn
@@ -230,10 +245,9 @@ extension NodeView {
     }
 }
 
-/// A backdrop blur of σ points over `box`, the layer's frame in its
-/// superlayer (nil: the blur reads past the box).
+/// The filter list and its box in the superlayer (nil: blur reads past the box).
 struct BackdropDrawn: Equatable {
-    var sigma: CGFloat
+    var operations: [BackdropOperation]
     var box: CGRect?
 }
 
@@ -255,15 +269,35 @@ enum Backdrop {
             return filter("CIAffineTransform", [kCIInputTransformKey: ns])
         }
         var chain: [CIFilter?] = []
-        if let box = drawn.box, box.width > 0, box.height > 0 {
+        let blurs = drawn.operations.contains { if case .blur(let sigma) = $0 { return sigma > 0 }; return false }
+        if blurs, let box = drawn.box, box.width > 0, box.height > 0 {
             let side = max(box.width, box.height)
             let square = CGAffineTransform(scaleX: side / box.width, y: side / box.height).translatedBy(x: -box.minX, y: -box.minY)
             let mirror = filter("CIFourfoldReflectedTile", [kCIInputCenterKey: CIVector(x: 0, y: 0), kCIInputWidthKey: Double(side),
                                                              kCIInputAngleKey: 0.0, "inputAcuteAngle": Double.pi / 2])
             chain = [transform(square), mirror, transform(square.inverted())]
         }
-        chain += [filter("CILinearToSRGBToneCurve"), filter("CIGaussianBlur", [kCIInputRadiusKey: Double(drawn.sigma)]),
-                  filter("CISRGBToneCurveToLinear")]
+        chain.append(filter("CILinearToSRGBToneCurve"))
+        for operation in drawn.operations {
+            switch operation {
+            case .blur(let sigma):
+                chain.append(filter("CIGaussianBlur", [kCIInputRadiusKey: Double(sigma)]))
+            case .saturate(let amount):
+                // Filter Effects 1's saturation matrix, in encoded sRGB.
+                // CIColorControls chooses its own grayscale weights. The
+                // explicit matrix keeps CSS's weights, and its output must
+                // clamp before a later blur sees it (amount may exceed one).
+                let r = 0.213 * (1 - amount), g = 0.715 * (1 - amount), b = 0.072 * (1 - amount)
+                chain.append(filter("CIColorMatrix", [
+                    "inputRVector": CIVector(x: r + amount, y: g, z: b, w: 0),
+                    "inputGVector": CIVector(x: r, y: g + amount, z: b, w: 0),
+                    "inputBVector": CIVector(x: r, y: g, z: b + amount, w: 0)]))
+                chain.append(filter("CIColorClamp", [
+                    "inputMinComponents": CIVector(x: 0, y: 0, z: 0, w: 0),
+                    "inputMaxComponents": CIVector(x: 1, y: 1, z: 1, w: 1)]))
+            }
+        }
+        chain.append(filter("CISRGBToneCurveToLinear"))
         return chain.compactMap { $0 }
     }
 }

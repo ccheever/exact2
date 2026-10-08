@@ -55,17 +55,15 @@ not require `HOME`. App and scratch
 identities and `app:/` path components must be safe Windows leaves; drive, UNC,
 backslash traversal, alternate-stream and reserved-device forms are refused.
 
-Snapback4 consumers use release **0.2.30**: the CLI and browser device are pinned
-in `bun.lock`; Cargo pins native devices and schema compilers to the matching
-release source commit `a397218e2332964ebe29aa1d30918c436713cc8a`.
-Run `bun install --frozen-lockfile` before baking Messages Legacy, and use the pinned CLI
-with `bun run --bun snapback4` from an app directory.
-Messages Legacy and the optional `exact-snapback4` adapter belong to the separate
-`snapback4/` Cargo workspace. Its lock carries the private source; root Cargo
-commands need no Snapback access. The `messages-legacy` build commands select
-that workspace automatically; direct Cargo commands use
-`--manifest-path snapback4/Cargo.toml`. External consumers keep their path
-dependency on `snapback4/`.
+Snapback4 consumers use release **0.4.13**: the CLI is pinned in `bun.lock`;
+Cargo pins the device and its client to the matching release source commit
+`67b2ce28a3823f3dd1728dc4a2421995e1b12ac8`. `snapback4/` is one client for an
+app's Rust and TypeScript on every host ([its README](../snapback4/README.md)):
+the protocol in Rust without I/O, the native device, the web's wasm, and the
+TypeScript driver an app mounts with `typescript.sources`. The client is its
+own Cargo workspace, `snapback4/`; its lock carries the private source, so
+root Cargo commands need no Snapback access. Direct Cargo commands use
+`--manifest-path snapback4/Cargo.toml`; apps depend on `snapback4/` by path.
 
 The canonical [Messages](../apps/messages/README.md) app is the Exact port of Expo's
 chat demo, with model conversations through a local OpenRouter service. It belongs
@@ -371,7 +369,7 @@ on the web and these on Hermes (macOS, iOS, Linux):
 
 | Available on every executor | Notes on Hermes |
 | --- | --- |
-| `fetch`, `Headers`, `Response` | Grant-checked; `signal` aborts. A `Response` has `status`, `ok`, `headers`, `text()`, `json()`, `arrayBuffer()`; no `Request`, `Blob` or `FormData` |
+| `fetch`, `Headers`, `Response` | Grant-checked; `signal` aborts. A `body` is a string or an `ArrayBuffer` or view, sent as its bytes (an upload of `storage.fs.readFile`'s bytes); as Fetch does, a body on a GET or HEAD, or a view on a `SharedArrayBuffer` or resizable buffer, rejects, and a detached buffer sends no bytes. A `Response` has `status`, `ok`, `headers`, `text()`, `json()`, `arrayBuffer()`; no `Request`, `Blob` or `FormData` |
 | `structuredClone` | No transfer list |
 | `TextEncoder`, `TextDecoder` | `TextEncoder` emits UTF-8. Hermes 0.4's built-in WHATWG decoder keeps the browser-style encoding labels, including UTF-8 and UTF-16LE/BE, plus `fatal`, streaming and `ignoreBOM` behavior |
 | `URL`, `URLSearchParams`, `atob`, `btoa` | |
@@ -391,12 +389,16 @@ page's (LLP 1027.000 D3), so an app that reads the clock fails in the web loop
 as it would on a device. The type check cannot see the difference, but every
 build refuses a direct use in a module `app.ts` reaches, by file and line
 (`logic.ts:2:28: Date.now() is unavailable in data sources; …`), so a test that
-runs the module under Bun, which has no such guard, cannot hide it. A use the
-build cannot see (`globalThis['set' + 'Timeout']`) is refused when it runs, and
-the answer fails as any answer that throws, rejects or answers outside its shape
-does, the same on every host: the input that asked lands, the resource keeps its
-value (else its placeholder), `failed(resource)` is true, a `send` ends unsent,
-and the logs name the refusal (LLP 1027.000 D3). Development JS builds name a derive
+runs the module under Bun, which has no such guard, cannot hide it.
+Literal bracket access such as `Date['now']()` and `globalThis['setTimeout']()`
+gets the same diagnostic as dot access, including in the web build's summary.
+Aliases and dynamic property keys still reach the runtime guard: such a use
+(`globalThis['set' + 'Timeout']`) is refused when it runs, and the answer fails
+as any answer that throws, rejects or answers outside its shape does, the same
+on every host: the input that asked lands, the resource keeps its value (else
+its placeholder), `failed(resource)` is true, a `send` ends unsent, and the logs
+name the refusal (LLP 1027.000 D3).
+Development JS builds name a derive
 whose value fails its type check and report failed resource/source dependencies
 that it read.
 ES2024's resizable `ArrayBuffer`, shared memory and the RegExp `v` flag are not
@@ -789,6 +791,94 @@ modules isn't implemented, so set `deploy.store` to `"0"`. The history of how th
 was proved on each host is in [LLP 1027](../llp/1027-typescript-data-sources.rfc.md)
 and git.
 
+## Access hatches
+
+An access hatch hands the app's native code the platform object Exact built for
+a node, at defined moments, so the app can do what only that object can: add a
+gesture recognizer, set a navigation bar's look, draw into a view. It configures
+what Exact made; it never replaces a route's authored tree. (LLP 1075.003,
+1075.003.000, 1075.003.000.001; its §13 is the as-built record.)
+
+```sh
+bun scripts/exact.mjs hatch avatar <app>     # in an app `exact new` made: bun exact.mjs hatch avatar
+bun scripts/exact.mjs hatch --app <app>      # the app scope; --window for the window's
+```
+
+The verb writes a stub for each target the app builds (Swift in
+`modules/apple/`, the page module in `modules/web/`, Rust in
+`modules/linux/`), adds the word to
+`app.json` `hatches` with those platforms, and tells you the node to mark:
+
+```
+column hatch="avatar" data-tone=(busy ? "busy" : "idle")
+```
+
+`"hatches": ["avatar"]` means every platform the app builds; `"hatches":
+{"avatar": ["ios", "web"]}` names the platforms whose module handles the word.
+Elsewhere the node is shown and no hatch is called for it. A hatch reads state
+only through the node's `data-*` words (declared in `app.json` `data`), and is
+called again when one changes.
+
+| Scope | Swift (`ExactModule`) | Page module (`modules/web/index.js`) |
+|---|---|---|
+| A node marked `hatch="word"` | `element(_:)`, `elementEnded(_:)` | `element(e)`, `elementEnded(e)` |
+| A route, a navigation stack, tabs (iOS; the web's elements) | `route`, `routeEnded`, `navigation`, `tabs`, `tabContainer` | `route`, `routeEnded`, `navigation`, `tabs` |
+| The window toolbar (macOS) | `toolbar(_:)` | none |
+| The app: its facts, by the web's names, and the root node's `data-*` words as `data` | `app(_:)`, `appEnded(_:)` | `app(a)`, `appEnded(a)` |
+| The window the session presents into | `window(_:)`, `windowEnded(_:)` | `window(w)`, `windowEnded(w)` |
+
+**Linux, Windows and Android paint their own pixels**, so there is no platform
+object to hand over. A hatch there is Rust: one type that implements
+`exact_linux::Hatches` in `modules/linux/*.rs` (or `modules/android/`,
+`modules/windows/`), named once with `pub type ExactHatches = App;` and
+included by the app's Linux crate (`contract::native::rust_hatch_entry` in its
+`build.rs`, which the Rust-data apps here already call). Its handle carries the
+node's box and words, the same acts, and two things in place of a view:
+`element.overlay().draw(|c, w, h| …)`, a Canvas 2D recording that replaces the
+last one whole, clipped to the node and painted over it; and
+`context.observe(&element, |me, input, cx| …)`, the pointer and key input that
+lands in the box, after Exact has handled it, to read only. It has the app and
+window scopes, `context.frames` and `context.after`, and `diagnostics`. There
+`changed` is also called when the node's size alone changes, and `ended` after
+the commit that removed the node. An Android build is the same crate built for
+Android; its words are the ones `app.json` gives `android`.
+
+No hatch runs before first pixel. A node's end runs while its view is still
+there, so take back there whatever the hatch added. On iOS a hatched node is a
+view of its own and its list row is not reused unless the hatch sets
+`element.reusable`; `logs` says what each word gives up.
+
+**Into Contract only as a person could.** A handle acts on an authored node:
+`click()`, `focus()`, `blur()`, and `input(text)`, which replaces a text
+field's whole value without moving focus. Each is queued and runs after the
+hatch returns. There is no dispatch and no state write.
+
+**The frame clock.** `context.frames { frame in … }` (the web:
+`exact.hatches.frames(frame => …)`) ticks once a frame after that frame's
+tasks, and `context.after(ms) { … }` waits on the session clock. Under the
+agent both run on the virtual display, so a drive repeats. They are for
+behaviour, not for measuring the display.
+
+**Whose window.** `window.window` is nil unless the embedder set
+`session.hatchesOwnWindow`, and `app.application` unless it set
+`session.hatchesOwnProcess`. The standalone iOS app sets both; the standalone
+Mac app sets the first for each document's session.
+
+**Make the hatch visible to the agent.**
+
+| In hatch code | Where it shows |
+|---|---|
+| `diagnostics.log("…")` | `logs`, as `hatch element avatar: …` |
+| `diagnostics.count("swipes")`, `publish("last", value)` | `state.hatches` |
+| `diagnostics.measure("swipe.worst", ms:)`, `begin("swipe") … end()` | `perf hatches`, with Exact's own timing of every call |
+| `element.owns(view: added, "what it is")`, `owns(recognizer:…)` | `tree`, under the node, beside what the host observes of it |
+| `element.parts = [ExactPart(id: "seal", view: v, role: "button", label: "Verified")]` | `tree`; `tap avatar/seal` clicks it as a real pointer event |
+
+Diagnostics are bounded and kept only in a development build. `EXACT_HATCHES=off`
+(`?hatches=off` on a web page) runs a development build with no hatch
+connected; the app must still work. If a run dies inside a hatch, the next
+launch's `logs` say which one.
+
 ## Rust data sources
 
 A data crate answers the view's sources in Rust instead of `app.ts`: an app's
@@ -882,8 +972,10 @@ impl DataSource for Scores {
 ```
 
 `Store` (`store.get`, `store.set`, under `secret.keep <name>`) is for
-**secrets**: a session token, a key. Apple keeps them in the Keychain and the
-web in `localStorage`; the host reads them into a snapshot before boot, so a
+**secrets**: a session token, a key. Apple keeps them in the Keychain, Linux
+in a file per secret only the user can read (`0600`, under
+`$XDG_DATA_HOME/exact/<app id>/secrets`; not encrypted), and the web in
+`localStorage`; Windows keeps them in memory for now. The host reads them into a snapshot before boot, so a
 read is synchronous, and a scripted drive never keeps them. A best time is not
 a secret: keep it in app storage.
 

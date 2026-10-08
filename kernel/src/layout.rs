@@ -13,6 +13,7 @@
 mod containment_tests;
 #[cfg(test)]
 mod differential_tests;
+mod fields;
 mod hoist;
 mod order;
 mod publication;
@@ -108,6 +109,9 @@ pub struct LayoutTree {
     taffy: TaffyTree<MeasureContext>,
     pass: u64,
     fault: Option<String>,
+    field_chrome: IdMap<NodeId, crate::FieldChrome>,
+    field_minima: IdMap<NodeId, f32>,
+    provisional_chrome: bool,
     slots: IdMap<NodeId, u32>,
     // Invalidation sources since the last layout: true where the node's own
     // style changed (its parent's questions change), false for content only.
@@ -328,6 +332,9 @@ impl LayoutTree {
             taffy,
             pass: 0,
             fault: None,
+            field_chrome: IdMap::default(),
+            field_minima: IdMap::default(),
+            provisional_chrome: false,
             slots: IdMap::default(),
             deferred: IdMap::default(),
             walks: IdMap::default(),
@@ -425,6 +432,8 @@ impl LayoutTree {
 
     /// Remove a node.
     pub fn remove(&mut self, node: NodeId) {
+        self.field_chrome.remove(&node);
+        self.field_minima.remove(&node);
         self.deferred.remove(&node);
         if let Some(slot) = self.slots.remove(&node) {
             self.flowing.remove(&slot);
@@ -673,7 +682,6 @@ impl LayoutTree {
                 (offer.width, offer.height),
                 (AxisOffer::Definite(_), AxisOffer::Definite(_))
             )
-            && !self.taffy.dirty(root).unwrap_or(true)
             && arena.exclusion_slots.is_empty()
             && arena.flow.is_empty();
         // Both scratch maps keep their capacity from layout to layout.
@@ -706,44 +714,41 @@ impl LayoutTree {
         walks.clear();
         self.deferred = deferred;
         self.walks = walks;
-        // One unrelated dirty source may invalidate the root after the first
-        // boundary was chosen. A regular root pass then handles all sources.
-        if self.taffy.dirty(root).unwrap_or(true) {
-            for node in boundaries {
-                if let Some(parent) = self.taffy.parent(node) {
-                    let r = self.taffy.mark_dirty(parent);
-                    self.note("mark_dirty", r);
-                }
+        // An unrelated source may have invalidated the root (a list whose
+        // rows moved, a change no box contains): the root pass that follows
+        // handles those, and each boundary is still replayed first. Its
+        // caches were cleared through it, so an ancestor that pass computes
+        // again finds this replay's layout or asks the box anew, never an
+        // answer from before the change; a boundary an ordinary source
+        // dirtied through has lost its saved input and is not replayed.
+        // A boundary inside another is replayed first: when its output
+        // stands, nothing above it reads the change, and the outer replay
+        // (for its own sources) finds every box between them as it was. When
+        // it does not, the replay marks its parent, and the outer box is
+        // computed again through it. So a list whose rows moved, a boundary
+        // for its spacers, no longer forfeits the boxes inside a row that
+        // contain the row's own changes (it had every changed row laid out
+        // whole).
+        let depth = |mut node: NodeId| {
+            let mut d = 0usize;
+            while let Some(parent) = self.taffy.parent(node) {
+                d += 1;
+                node = parent;
             }
-            return Vec::new();
-        }
-        // Nested candidates cannot be replayed independently: the outer one
-        // owns the final constraints, so recompute the root in that rare case.
-        if boundaries.iter().any(|&node| {
-            let mut at = self.taffy.parent(node);
-            while let Some(n) = at {
-                if boundaries.contains(&n) {
-                    return true;
-                }
-                at = self.taffy.parent(n);
-            }
-            false
-        }) {
-            for node in boundaries {
-                if let Some(parent) = self.taffy.parent(node) {
-                    let r = self.taffy.mark_dirty(parent);
-                    self.note("mark_dirty", r);
-                }
-            }
-            return Vec::new();
-        }
-        boundaries
+            d
+        };
+        let mut replays: Vec<(usize, NodeId, LayoutInput, taffy::tree::LayoutOutput)> = boundaries
             .into_iter()
             .filter_map(|node| {
                 self.taffy
                     .last_layout_input(node)
-                    .map(|(input, output)| (node, input, output))
+                    .map(|(input, output)| (depth(node), node, input, output))
             })
+            .collect();
+        replays.sort_by(|a, b| b.0.cmp(&a.0).then(u64::from(a.1).cmp(&u64::from(b.1))));
+        replays
+            .into_iter()
+            .map(|(_, node, input, output)| (node, input, output))
             .collect()
     }
 
@@ -794,6 +799,28 @@ impl LayoutTree {
         measurer: &mut dyn TextMeasurer,
         node_for: impl Fn(u32) -> Option<NodeId>,
     ) -> Result<(), LayoutError> {
+        self.prepare_fields(root, arena, measurer)?;
+        // Percentage padding uses the containing block's final width. Settle
+        // its frame floor in the engine before publication, never after paint.
+        for _ in 0..3 {
+            let minima = self.compute_pass(root, offer, arena, measurer, &node_for)?;
+            if !self.settle_field_minima(minima) {
+                return Ok(());
+            }
+        }
+        Err(LayoutError::Engine(
+            "field minimum did not settle in three passes".into(),
+        ))
+    }
+
+    fn compute_pass(
+        &mut self,
+        root: NodeId,
+        offer: Offer,
+        arena: &NodeArena,
+        measurer: &mut dyn TextMeasurer,
+        node_for: &impl Fn(u32) -> Option<NodeId>,
+    ) -> Result<IdMap<NodeId, f32>, LayoutError> {
         if let Some(fault) = &self.fault {
             return Err(LayoutError::Engine(fault.clone()));
         }
@@ -854,11 +881,36 @@ impl LayoutTree {
         let mut runs: Vec<TextRun<'_>> = Vec::new();
         let mut invalid_metrics = None;
         let height_free = measurer.height_free();
+        let chrome = &self.field_chrome;
+        let mut minima = IdMap::default();
         let mut measure = |inputs: LayoutInput,
-                           _node,
+                           node,
                            context: Option<&mut MeasureContext>,
                            style: &taffy::Style| {
             let mut first_baseline = None;
+            let mut line_height = 0.0;
+            let native_slot = context
+                .as_ref()
+                .map(|c| c.slot)
+                .filter(|&s| arena.is_native_text_control(s));
+            let mut adjusted;
+            let style = if let Some(minimum) = native_slot.and_then(|slot| {
+                fields::minimum(
+                    arena,
+                    slot,
+                    inputs,
+                    style,
+                    chrome.get(&node).copied().unwrap_or_default(),
+                )
+            }) {
+                minima.insert(node, minimum);
+                adjusted = style.clone();
+                adjusted.min_size.height = taffy::LengthPercentageAuto::length(minimum);
+                &adjusted
+            } else {
+                style
+            };
+
             // Patch 2's separate API is unnecessary: the upstream callback owns
             // LayoutOutput, including baselines in border-box coordinates.
             let inset = style
@@ -1028,13 +1080,23 @@ impl LayoutTree {
                         metrics.height *= rows as f32 / 2.0;
                     }
                     first_baseline = metrics.first_baseline;
+                    line_height = metrics.height;
                     Size {
                         width: metrics.width,
                         height: metrics.height,
                     }
                 },
             );
-            output.baselines = Baselines::from_first(first_baseline.map(|b| b + inset.top));
+            let centered = native_slot.is_some_and(|slot| {
+                crate::FieldKind::from_props(arena.props(slot)) != crate::FieldKind::Textarea
+            });
+            let offset = if centered {
+                (output.size.height - inset.top - inset.bottom - line_height) / 2.0
+            } else {
+                0.0
+            };
+            output.baselines =
+                Baselines::from_first(first_baseline.map(|b| b + inset.top + offset));
             output
         };
         #[cfg(test)]
@@ -1072,7 +1134,7 @@ impl LayoutTree {
             return Err(LayoutError::InvalidTextMetrics(view));
         }
         self.offers.insert(root, offer);
-        Ok(())
+        Ok(minima)
     }
 
     pub(crate) fn height_measured(&self, node: NodeId) -> bool {

@@ -84,6 +84,9 @@ final class ControlHost: NSObject {
     var radioGroup: ((UInt32) -> RadioGroup)?
     /// A select's choice the bound value has not caught up with yet.
     var picked: [UInt32: String] = [:]
+    /// Each `progress`'s activity indicator (ProgressIOS.swift): a view,
+    /// not a control, so beside `controls`.
+    var spinners: [UInt32: UIActivityIndicatorView] = [:]
     /// Each native button's face as the runner last gave it. A face is the
     /// control's viewless contents, which change only in a batch that says
     /// so (`Batch.controls`), and its own props, which change only in a
@@ -197,7 +200,8 @@ final class ControlHost: NSObject {
             let box = owner.contentBox()
             // A slider's track spans its box, as the web's does; a native
             // button fills it, its chrome inside (LLP 1069.011 D6); the
-            // others keep their own size, centred.
+            // others keep their own size. A select aligns its closed value
+            // inside the box; unstyled controls stay centred.
             if control is NativeButtonIOS {
                 // The box is the button's alignment rect, as its natural size is.
                 let frame = control.frame(forAlignmentRect: box)
@@ -208,7 +212,17 @@ final class ControlHost: NSObject {
                 #else
                 let width = control is UISlider ? box.width : natural.width
                 #endif
-                assign(control, \.frame, CGRect(x: box.midX - width / 2, y: box.midY - natural.height / 2,
+                var x = box.midX - width / 2
+                #if os(iOS)
+                if owner.props["type"] == "select" {
+                    switch selectAlignment(owner) {
+                    case .left: x = box.minX
+                    case .right: x = box.maxX - width
+                    default: break
+                    }
+                }
+                #endif
+                assign(control, \.frame, CGRect(x: x, y: box.midY - natural.height / 2,
                                                 width: width, height: natural.height))
             }
             if reported[owner.id] != natural {
@@ -225,6 +239,7 @@ final class ControlHost: NSObject {
                 if !live.isEmpty { self.presenter.onIntrinsic?(live) }
             }
         }
+        syncProgress()
     }
 
     @objc private func changed(_ sender: UIControl) {
@@ -265,6 +280,7 @@ final class ControlHost: NSObject {
     }
 
     func observation(_ node: NodeView) -> [String: Any]? {
+        if let progress = progressObservation(node) { return progress }
         guard let control = controls[node.id] else { return nil }
         if let b = control as? NativeButtonIOS { return nativeObservation(b) }
         if let value = valueObservation(control) {
@@ -284,6 +300,8 @@ final class ControlHost: NSObject {
     func reset() {
         for control in controls.values { control.removeFromSuperview() }
         controls.removeAll()
+        for spinner in spinners.values { spinner.removeFromSuperview() }
+        spinners.removeAll()
         reported.removeAll()
         kinds.removeAll()
         menus.removeAll()
@@ -298,7 +316,7 @@ final class ControlHost: NSObject {
 /// (LLP 1075.003 §3.5, from James's review): a control set again to what it
 /// already shows can restart its own animation — a Liquid Glass switch's
 /// thumb wobbled when every batch re-set its colour, frame and state.
-@inline(__always) func assign<O: AnyObject, V: Equatable>(_ object: O, _ key: ReferenceWritableKeyPath<O, V>, _ value: V) {
+@inline(__always) package func assign<O: AnyObject, V: Equatable>(_ object: O, _ key: ReferenceWritableKeyPath<O, V>, _ value: V) {
     if object[keyPath: key] != value { object[keyPath: key] = value }
 }
 #endif

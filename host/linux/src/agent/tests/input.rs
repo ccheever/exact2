@@ -98,7 +98,7 @@ fn a_paste_is_ctrl_v_and_a_prevented_chord_skips_the_clipboard() {
         assert!(!reply.contains("error"), "{reply}");
         let log = text_of(&p);
         assert!(
-            log.starts_with("key:v:true;"),
+            log.starts_with("key:Control:true;key:v:true;"),
             "prevent={prevent} the chord was not delivered: {log}"
         );
         if prevent {
@@ -107,7 +107,7 @@ fn a_paste_is_ctrl_v_and_a_prevented_chord_skips_the_clipboard() {
                 "a prevented chord still pasted: {log}"
             );
         } else {
-            assert_eq!(log, "key:v:true;paste:secret;");
+            assert_eq!(log, "key:Control:true;key:v:true;paste:secret;");
         }
         handle(
             &mut p,
@@ -115,7 +115,7 @@ fn a_paste_is_ctrl_v_and_a_prevented_chord_skips_the_clipboard() {
         );
         let log = text_of(&p);
         assert!(
-            log.ends_with("copy;") && log.matches("key:").count() == 1,
+            log.ends_with("copy;") && log.matches("key:").count() == 2,
             "copy sent a key or dropped the chord: {log}"
         );
         let reply = handle(&mut p, &format!(r#"{{"op":"type","id":{cell},"key":"a"}}"#));
@@ -363,7 +363,7 @@ fn aria_keyshortcuts_press_their_button_before_the_key_handlers() {
     };
     for (chord, want) in [
         ("F13", "f13;"),
-        ("Shift+F24", "f24;"),
+        ("Shift+F24", "key:Shift;f24;"),
         ("F24", "key:F24;"),
         ("s", "s;"),
     ] {
@@ -390,14 +390,14 @@ fn aria_keyshortcuts_press_their_button_before_the_key_handlers() {
     };
     let before = log(&mut p);
     paste(&mut p);
-    assert_eq!(log(&mut p), format!("{before}key:v;paste:x;"));
+    assert_eq!(log(&mut p), format!("{before}key:Control;key:v;paste:x;"));
     p.tap(named(&p, "arm")).unwrap();
     let before = log(&mut p);
     paste(&mut p);
     assert_eq!(
         log(&mut p),
-        format!("{before}button-paste;"),
-        "the button took the chord"
+        format!("{before}key:Control;button-paste;"),
+        "Control's own keydown, then the button took the chord"
     );
     // Behind a shown `aria-modal`, only its own shortcuts.
     let before = log(&mut p);
@@ -463,7 +463,8 @@ fn keyup_hears_a_release_and_both_carry_code_and_repeat() {
         log(&mut p),
         "d:Meta:MetaLeft:false:true;u:Meta:MetaLeft:false:false;\
          d:a:KeyA:false:false;d:a:KeyA:true:false;u:a:KeyA:false:false;\
-         d:b:KeyB:false:true;u:b:KeyB:false:true;"
+         d:Meta:MetaLeft:false:true;d:b:KeyB:false:true;u:b:KeyB:false:true;\
+         u:Meta:MetaLeft:false:false;"
     );
     // A hardware keyboard's ⌘W, held then released, then ⌘ released.
     let before = log(&mut p).len();

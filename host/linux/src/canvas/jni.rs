@@ -552,6 +552,17 @@ macro_rules! canvas_jni {
                 }
             }
 
+            /// Thread `tid` on the fast cores only (`fast`), or anywhere again.
+            #[no_mangle]
+            pub unsafe extern "system" fn Java_dev_exact_bench_exactcanvas_Native_fastThread(
+                _env: *mut JNIEnv,
+                _class: jclass,
+                tid: jint,
+                fast: jboolean,
+            ) -> jboolean {
+                flag($crate::android_hint::fast_thread(tid, fast != 0))
+            }
+
             /// The scroller `scroll` moves (its group's id in the stream), or 0.
             #[no_mangle]
             pub unsafe extern "system" fn Java_dev_exact_bench_exactcanvas_Native_feed(

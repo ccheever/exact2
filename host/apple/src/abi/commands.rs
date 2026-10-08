@@ -91,7 +91,7 @@ impl<D: DataSource> Bridge<D> {
     /// instead (`exact_auth` `hold`).
     pub(super) fn auth_arm(
         h: &mut crate::host::Host<D>,
-        x: &crate::executor::Executor,
+        x: &dyn crate::executor::Io,
         presenter: &mut crate::batch::Batch,
         r: &exact_runner::RequestOut,
     ) {
@@ -137,7 +137,7 @@ impl<D: DataSource> Bridge<D> {
                 _ => {}
             }
         }
-        if let Some(x) = self.executor.as_ref() {
+        if let Some(x) = self.executor.as_deref() {
             x.notify();
         }
         0

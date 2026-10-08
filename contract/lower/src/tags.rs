@@ -309,6 +309,19 @@ pub fn tag(name: &str) -> Option<Tag> {
             ],
             positional: None,
         },
+        // @ref LLP 1069.001 (amended 2026-10-07) — HTML's `progress` with no
+        // `value`, indeterminate: the platform's activity indicator, a
+        // measured leaf (20 × 20 until sized). ARIA's role is `progressbar`;
+        // the lowering adds `aria-busy` (`Lowerer::progress_rows`).
+        "progress" => Tag {
+            node_type: NodeType::Control,
+            fixed_styles: &[],
+            fixed_props: &[
+                (PropId::Type, "progress"),
+                (PropId::AccessibilityRole, "progressbar"),
+            ],
+            positional: None,
+        },
         // An option is a paragraph a closed select never lays out: HTML's
         // `option` shows only in the menu the host builds from it.
         "option" => Tag {
@@ -520,7 +533,7 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         // @ref LLP 1075.003 §3.5 — the route's content scroll view, by HTML id.
         "navigationScroll" => AttrTarget::Prop(p("navigationScroll")),
         // @ref LLP 1075.003.000 — the node the app's native code receives.
-        "hook" => AttrTarget::Prop(p("hook")),
+        "hatch" => AttrTarget::Prop(p("hatch")),
         "closedby" => AttrTarget::Prop(p("closedby")),
         "contextTarget" => AttrTarget::Prop(p("contextTarget")),
         "contextMagnify" => AttrTarget::Prop(p("contextMagnify")),

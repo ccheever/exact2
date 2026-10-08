@@ -279,8 +279,15 @@ impl<D: DataSource> Presenter<D> {
     /// synthesis; then the node's `pointerdown` (LLP 1005 §3), which the
     /// contact never waits for.
     pub fn pointer_down(&mut self, x: f32, y: f32, now_ms: f64) -> Result<bool, String> {
-        let taken = self.contact_down(x, y, now_ms)?;
-        self.pointer_pressed(x, y, now_ms).map_or(Ok(taken), Err)
+        // A hatch observes after this dispatch, and claims nothing
+        // (LLP 1075.003.000.001 §2.2.2); so for a move, an up and a cancel.
+        let mark = self.hatch_pointer_mark(crate::hatches::Phase::Down, x, y);
+        let result = match self.contact_down(x, y, now_ms) {
+            Ok(taken) => self.pointer_pressed(x, y, now_ms).map_or(Ok(taken), Err),
+            Err(e) => Err(e),
+        };
+        self.hatch_pointer(mark, crate::hatches::Phase::Down, x, y);
+        result
     }
     fn contact_down(&mut self, x: f32, y: f32, now_ms: f64) -> Result<bool, String> {
         self.pointer_sample(x, y, now_ms)?;
@@ -410,12 +417,17 @@ impl<D: DataSource> Presenter<D> {
     }
     /// Recognize one dominant axis. Recognition has zero displacement at catch.
     pub fn pointer_move(&mut self, x: f32, y: f32, now_ms: f64) -> Result<bool, String> {
+        let mark = self.hatch_pointer_mark(crate::hatches::Phase::Move, x, y);
         let moved = self.pointer_moved(x, y, now_ms);
         // The device's motion belongs to this move alone, sent or not.
         self.clear_raw_motion();
-        let moved = moved?;
         // A node's `pointermove` (LLP 1056 §3 stage 3), as pan's, per move.
-        self.pointer_moved_over(x, y, now_ms).map_or(Ok(moved), Err)
+        let over = match moved.is_ok() {
+            true => self.pointer_moved_over(x, y, now_ms),
+            false => None,
+        };
+        self.hatch_pointer(mark, crate::hatches::Phase::Move, x, y);
+        over.map_or(moved, Err)
     }
     fn pointer_moved(&mut self, x: f32, y: f32, now_ms: f64) -> Result<bool, String> {
         self.retire_pointer();
@@ -635,6 +647,12 @@ impl<D: DataSource> Presenter<D> {
     }
     /// Accepted final sample, typed action while held, end once, pin released last.
     pub fn pointer_up(&mut self, x: f32, y: f32, now_ms: f64) -> Result<bool, String> {
+        let mark = self.hatch_pointer_mark(crate::hatches::Phase::Up, x, y);
+        let result = self.pointer_lift(x, y, now_ms);
+        self.hatch_pointer(mark, crate::hatches::Phase::Up, x, y);
+        result
+    }
+    fn pointer_lift(&mut self, x: f32, y: f32, now_ms: f64) -> Result<bool, String> {
         // DOM's order: the node's `pointerup`, then any click.
         if let Some(error) = self.pointer_lifted(Some((x, y)), now_ms) {
             return Err(error);
@@ -771,6 +789,13 @@ impl<D: DataSource> Presenter<D> {
     /// Escape, wheel takeover, disconnection, or invalidated binding: no
     /// release event, except a pan that began, which releases at rest.
     pub fn pointer_cancel(&mut self, now_ms: f64) -> Result<(), String> {
+        let at = self.contact_position().or(self.pointer).unwrap_or((0., 0.));
+        let mark = self.hatch_pointer_mark(crate::hatches::Phase::Cancel, at.0, at.1);
+        let result = self.pointer_abandon(now_ms);
+        self.hatch_pointer(mark, crate::hatches::Phase::Cancel, at.0, at.1);
+        result
+    }
+    fn pointer_abandon(&mut self, now_ms: f64) -> Result<(), String> {
         // A cancel is an up (LLP 1005 §3).
         if let Some(error) = self.pointer_lifted(None, now_ms) {
             return Err(error);

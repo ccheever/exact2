@@ -192,8 +192,46 @@ final class ClipMacTests: XCTestCase {
         XCTAssertEqual(n.layer?.cornerRadius ?? 0, 14, accuracy: 0.001, "the kernel's new size reduces it again")
     }
 
+    func testBackdropSaturationFollowsOrderUpdatesAndRemoval() throws {
+        let n = node("view", ["backdrop_filter": [["saturate": 1.8], ["blur": 4]]])
+        func names() -> [String] { n.layer?.backgroundFilters?.compactMap { ($0 as? CIFilter)?.name } ?? [] }
+        XCTAssertEqual(Array(names().suffix(5)),
+                       ["CILinearToSRGBToneCurve", "CIColorMatrix", "CIColorClamp", "CIGaussianBlur", "CISRGBToneCurveToLinear"])
+        XCTAssertEqual(n.appliedMaterial, "backgroundFilters(CIColorMatrix,CIGaussianBlur)")
+        n.applyStyle(["backdrop_filter": [["blur": 4], ["saturate": 0]]])
+        XCTAssertEqual(Array(names().suffix(5)),
+                       ["CILinearToSRGBToneCurve", "CIGaussianBlur", "CIColorMatrix", "CIColorClamp", "CISRGBToneCurveToLinear"])
+        n.applyStyle(["backdrop_filter": [["saturate": 1]]])
+        XCTAssertEqual(n.backdropDrawn?.operations, [.saturate(1)])
+        XCTAssertFalse(names().contains("CIGaussianBlur"))
+        XCTAssertEqual(n.appliedMaterial, "backgroundFilters(CIColorMatrix)")
+        n.applyStyle([:])
+        XCTAssertNil(n.layer?.backgroundFilters)
+        XCTAssertNil(n.backdropDrawn)
+        XCTAssertFalse(n.clipsToBounds)
+    }
+
+    func testBackdropSaturationUsesCSSWeightsInSRGB() throws {
+        let srgb = try XCTUnwrap(CGColorSpace(name: CGColorSpace.sRGB))
+        let linear = try XCTUnwrap(CGColorSpace(name: CGColorSpace.extendedLinearSRGB))
+        let context = CIContext(options: [.workingColorSpace: linear, .outputColorSpace: srgb])
+        for (amount, expected) in [(0.0, [74, 74, 74]), (1.0, [40, 80, 120]), (2.0, [6, 86, 166])] {
+            var image = CIImage(bitmapData: Data([40, 80, 120, 255]), bytesPerRow: 4,
+                                size: CGSize(width: 1, height: 1), format: .RGBA8, colorSpace: srgb)
+            for filter in Backdrop.filters(BackdropDrawn(operations: [.saturate(CGFloat(amount))], box: nil)) {
+                filter.setValue(image, forKey: kCIInputImageKey)
+                image = try XCTUnwrap(filter.outputImage)
+            }
+            var pixel = [UInt8](repeating: 0, count: 4)
+            context.render(image, toBitmap: &pixel, rowBytes: 4, bounds: CGRect(x: 0, y: 0, width: 1, height: 1),
+                           format: .RGBA8, colorSpace: srgb)
+            for channel in 0..<3 { XCTAssertEqual(Double(pixel[channel]), Double(expected[channel]), accuracy: 1) }
+            XCTAssertEqual(pixel[3], 255)
+        }
+    }
+
     func testPercentageBackdropClipsAnEllipseAndFollowsResize() throws {
-        var style: NodeStyle = ["backdrop_blur": 4]
+        var style: NodeStyle = ["backdrop_filter": [["blur": 4]]]
         for corner in ["top_left", "top_right", "bottom_right", "bottom_left"] {
             style["border_radius_" + corner] = ["pct": 50]
         }
@@ -213,7 +251,7 @@ final class ClipMacTests: XCTestCase {
     /// reads it (#129): the chain mirrors the frame, follows it and its
     /// scale, and a turned box reads past its edges.
     func testABackdropMirrorsItsBoxAndFollowsItsFrame() throws {
-        let n = node("view", ["backdrop_blur": 4])
+        let n = node("view", ["backdrop_filter": [["blur": 4]]])
         n.frame = NSRect(x: 10, y: 20, width: 60, height: 30)
         XCTAssertEqual(n.backdropDrawn?.box, NSRect(x: 10, y: 20, width: 60, height: 30))
         XCTAssertEqual(n.layer?.backgroundFilters?.compactMap { ($0 as? CIFilter)?.name },
@@ -229,7 +267,7 @@ final class ClipMacTests: XCTestCase {
         n.rotate = 30
         n.applyTransform()
         XCTAssertEqual(n.layer?.backgroundFilters?.count, 3)
-        XCTAssertEqual(n.backdropDrawn?.sigma, 4)
+        XCTAssertEqual(n.backdropDrawn?.operations, [.blur(4)])
         XCTAssertNil(n.backdropDrawn?.box)
         n.rotate = 0
         n.scale = 1
@@ -246,7 +284,7 @@ final class ClipMacTests: XCTestCase {
             bytes[((side - 1 - y) * side + x) * 4] = UInt8(x * 4); bytes[((side - 1 - y) * side + x) * 4 + 1] = UInt8(y * 4)
         } }
         var image = CIImage(bitmapData: Data(bytes), bytesPerRow: side * 4, size: CGSize(width: side, height: side), format: .RGBA8, colorSpace: nil)
-        for f in Backdrop.filters(BackdropDrawn(sigma: 4, box: CGRect(x: 8, y: 16, width: 32, height: 20))).prefix(3) {
+        for f in Backdrop.filters(BackdropDrawn(operations: [.blur(4)], box: CGRect(x: 8, y: 16, width: 32, height: 20))).prefix(3) {
             f.setValue(image, forKey: kCIInputImageKey)
             image = try XCTUnwrap(f.outputImage)
         }

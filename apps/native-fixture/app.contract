@@ -3,9 +3,9 @@
 // `exact-fixture` (a coloured box that takes the snapshot bit, fires every
 // event on request, and rejects a `reject` prop), `exact-plain` (a box the
 // ordinary capture paints) and `exact-absent` (in the roster, never in the
-// artifact: its node reports the missing factory) — and the hooks: two
+// artifact: its node reports the missing factory) — and the hatches: two
 // routes, a header-shaped one whose heading iOS lifts into its navigation
-// bar and one pushed over it, `data-*` words the module's hooks read, and
+// bar and one pushed over it, `data-*` words the module's hatches read, and
 // the scroll view the route names. `bun scripts/smoke.mjs <web|macos|ios>
 // --app native-fixture` drives it through the eight operations.
 
@@ -18,7 +18,7 @@ routes nav
     photo "/photo"
   tab second "/second"
 
-// The hooked list's rows (LLP 1075.003.000), from the fixture's data source,
+// The hatched list's rows (LLP 1075.003.000), from the fixture's data source,
 // asked for when the Rows route is pushed: a session without that source
 // (the UIKit tests' host) never asks.
 shape Row
@@ -109,6 +109,44 @@ component NativeFixture
   state received = ""
   action bump
     count = count + 1
+  // What hatches ask of authored nodes (LLP 1075.003.000.001 §2.5): the `feed`
+  // hatch replaces a field's value with `input`; the `presser` hatch clicks
+  // its own button once when armed, and on every change while looping, which
+  // never settles until it is stopped.
+  state fed = ""
+  state feedWith = ""
+  state armed = false
+  state looping = false
+  state hatchPresses = 0
+  action setFed(v: string)
+    fed = v
+  action feed
+    feedWith = "Palo Alto"
+  action arm
+    armed = true
+  action hatchPress
+    hatchPresses = hatchPresses + 1
+  action loop
+    looping = true
+  action stopLoop
+    looping = false
+  // The hatches' frame clock (§2.4): while clocking, a frame task counts
+  // frames, and the `clock` hatch's ticket reads the count at each tick. Its
+  // third tick presses the node 65 times; the 65th press changes its words,
+  // and its `changed` presses once more.
+  state clocking = false
+  state frameCount = 0
+  state clockPresses = 0
+  action startClock
+    clocking = true
+  action stopClock
+    clocking = false
+  action countFrame
+    frameCount = frameCount + 1
+  action clockPress
+    clockPresses = clockPresses + 1
+  task framer when clocking
+    every(frame, countFrame)
   action unbump
     count = 0
   action fire
@@ -225,7 +263,7 @@ component NativeFixture
   action toggleChoosing
     choosing = not choosing
   view
-    main navigationKey=`${top(nav).id}` navigationBack="back" testId="navigation" width="100%" height="100%" display="flex" flex-direction="column" background-color="#ffffff" color="#111111" font-family="system-ui"
+    main data-mood=(composed > 0 ? "busy" : "calm") navigationKey=`${top(nav).id}` navigationBack="back" testId="navigation" width="100%" height="100%" display="flex" flex-direction="column" background-color="#ffffff" color="#111111" font-family="system-ui"
       column testId="panels" flex=1 min-height=0 position="relative"
         each t in nav.tabs key=t.name
           column role="tabpanel" id=`panel-${t.name}` testId=`panel-${t.name}` position="absolute" top=0 right=0 bottom=0 left=0
@@ -296,7 +334,7 @@ component NativeFixture
                         text "Sheet"
                       button press=openChat testId="chat" padding=6 background-color="#e5e7eb"
                         text "Chat"
-                      column hook="badge" data-tone=(composed > 0 ? "busy" : "info") testId="hooked-badge" width=20 height=20 border-radius=10 background-color="#f59e0b"
+                      column hatch="badge" data-tone=(composed > 0 ? "busy" : "info") testId="hatched-badge" width=20 height=20 border-radius=10 background-color="#f59e0b"
                     text ("composed " + toString(composed)) testId="composed"
                     row role="toolbar" toolbarPlacement="window" aria-label="Window" testId="window-toolbar" gap=6
                       button press=compose aria-label="Compose" testId="toolbar-compose" padding=6 background-color="#e5e7eb"
@@ -405,7 +443,7 @@ component NativeFixture
                       exact-plain id="popover-input" testId="popover-input" customInput=true natural=false width=280 height=48 change=popoverChange
                       button "Close popover" testId="popover-close" popovertarget="native-popover" popovertargetaction="hide"
                 when e.name == "rows"
-                  HookedRows(items=rowItems)
+                  HatchedRows(items=rowItems)
                 when e.name == "detail"
                   row gap=6 padding=12 flex-shrink=0
                     button press=breakOwnership testId="violate" padding=6 background-color="#e5e7eb"
@@ -415,7 +453,25 @@ component NativeFixture
                     button press=scrollTo(0) testId="scroll-0" padding=6 background-color="#e5e7eb"
                       text "Scroll 0"
                 when e.name == "detail"
-                  scroll id="list-detail" hook="detail-list" data-violate=violate testId="list-detail" flex=1 min-height=0 scrollTop=top
+                  row gap=6 padding-left=12 padding-right=12 padding-bottom=12 flex-shrink=0 flex-wrap="wrap"
+                    input hatch="feed" data-feed=feedWith value=fed input=setFed testId="fed" aria-label="Fed" placeholder="Fed" width=90 padding=6 border-width=1 border-style="solid" border-color="#d1d5db"
+                    button press=feed testId="feed" padding=6 background-color="#e5e7eb"
+                      text "Feed"
+                    button hatch="presser" data-armed=(armed ? "true" : "false") data-loop=(looping && hatchPresses < 4000 ? toString(hatchPresses) : "off") press=hatchPress testId="hatch-press" padding=6 background-color="#e5e7eb"
+                      text ("Pressed " + toString(hatchPresses))
+                    button press=arm testId="arm" padding=6 background-color="#e5e7eb"
+                      text "Arm"
+                    button press=loop testId="loop" padding=6 background-color="#e5e7eb"
+                      text "Loop"
+                    button press=stopLoop testId="stop-loop" padding=6 background-color="#e5e7eb"
+                      text "Stop"
+                    column hatch="clock" data-frames=toString(frameCount) data-run=(clocking ? "true" : "false") data-presses=toString(clockPresses) press=clockPress testId="hatch-clock" width=24 height=24 background-color="#10b981"
+                    button press=startClock testId="clock-start" padding=6 background-color="#e5e7eb"
+                      text "Clock"
+                    button press=stopClock testId="clock-stop" padding=6 background-color="#e5e7eb"
+                      text "Halt"
+                when e.name == "detail"
+                  scroll id="list-detail" hatch="detail-list" data-violate=violate testId="list-detail" flex=1 min-height=0 scrollTop=top
                     column padding=12 gap=8
                       text ("composed " + toString(composed)) testId="composed-detail"
                       column testId="tall" height=1600 background-color="#f3f4f6"
@@ -498,7 +554,7 @@ component NativeFixture
           button press=hideOverlay testId="hide-overlay" padding=12 background-color="#ffffff"
             text "Close"
 
-component HookedRows
+component HatchedRows
   props
     items: list<Row>
   state reuse = false
@@ -513,8 +569,8 @@ component HookedRows
       column id="row-menu" popover="auto" position="absolute" role="menu" width=200 padding=8 background-color="#ffffff"
         button popovertarget="row-menu" popovertargetaction="hide" testId="row-menu-close" height=44
           text "Close"
-      list virtualized=true width="100%" flex=1 min-height=0 overflow-x="hidden" estimated-item-height=40 testId="hooked-list"
+      list virtualized=true width="100%" flex=1 min-height=0 overflow-x="hidden" estimated-item-height=40 testId="hatched-list"
         each r in items key=r.n
           row contextPopover="row-menu" height=40 align-items="center" gap=8 padding-left=12 testId=`row-${r.n}`
-            column hook="dot" data-reuse=(reuse ? "true" : "false") width=12 height=12 border-radius=6 background-color="#6366f1"
+            column hatch="dot" data-reuse=(reuse ? "true" : "false") width=12 height=12 border-radius=6 background-color="#6366f1"
             text ("Row " + toString(r.n))

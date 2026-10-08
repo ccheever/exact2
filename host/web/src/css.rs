@@ -545,7 +545,7 @@ fn spell_property(out: &mut String, id: StyleId) {
         StyleId::TextColor => return out.push_str("color"),
         StyleId::TintColor => return out.push_str("--exact-tint"),
         StyleId::PositionType => return out.push_str("position"),
-        StyleId::BackdropBlur => return out.push_str("backdrop-filter"),
+        StyleId::BackdropFilter => return out.push_str("backdrop-filter"),
         StyleId::SvgMask => return out.push_str("mask"),
         // @ref LLP 1077 D7 — the Compat Standard's prefixed names.
         StyleId::TextStrokeWidth => return out.push_str("-webkit-text-stroke-width"),
@@ -618,6 +618,7 @@ fn declared(out: &mut String, id: StyleId, value: &RowValue<'_>) {
         RowValue::PaintOrder(p) => out.push_str(&p.css()),
         RowValue::Marker(m) => out.push_str(&m.css()),
         RowValue::Filter(f) => out.push_str(&f.css()),
+        RowValue::BackdropFilter(f) => out.push_str(&f.css()),
         // The kernel's canonical CSS: explicit stops, `#rrggbbaa` colours and
         // `light-dark()` pairs the browser resolves per element (LLP 1034
         // D2); the browser mixes premultiplied, as CSS says (LLP 1066).
@@ -661,14 +662,6 @@ fn declared(out: &mut String, id: StyleId, value: &RowValue<'_>) {
             StyleId::Rotate => {
                 num_into(out, *n as f32);
                 out.push_str("deg");
-            }
-            // @ref LLP 1053.000 D1 — `none` is 0, which paints nothing and
-            // makes no backdrop root, where `blur(0px)` would.
-            StyleId::BackdropBlur if *n == 0.0 => out.push_str("none"),
-            StyleId::BackdropBlur => {
-                out.push_str("blur(");
-                num_into(out, *n as f32);
-                out.push_str("px)");
             }
             _ => {
                 num_into(out, *n as f32);
@@ -1019,6 +1012,27 @@ mod declaration_tests {
         }
         let fonts: Vec<String> = fonts.iter().map(|f| f.to_string()).collect();
         css_text(&style, &fonts).0
+    }
+
+    #[test]
+    fn backdrop_filters_keep_order_and_identity_in_css() {
+        exact_kernel::style::link_backdrop_filter();
+        for value in [
+            "none",
+            "blur(0px)",
+            "saturate(1)",
+            "saturate(0)",
+            "blur(12px) saturate(1.14)",
+            "saturate(1.8) blur(4px)",
+        ] {
+            assert_eq!(
+                css(
+                    &[(StyleId::BackdropFilter, StyleValue::Text(value.into()))],
+                    &[]
+                ),
+                format!("backdrop-filter:{value};")
+            );
+        }
     }
 
     #[test]

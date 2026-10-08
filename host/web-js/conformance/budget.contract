@@ -255,4 +255,4 @@ component Row
       text `${x.label} ${a} ${b} ${got}`
       button press=both(length(map(big, y => y)), length(map(big, y => y))) testId=`both-${x.n}`
         text "both"
-      input value=got input=take testId=`in-${x.n}`
+      input value=got input=take testId=`in-${x.n}` width=120 height=20

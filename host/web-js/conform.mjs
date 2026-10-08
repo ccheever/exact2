@@ -50,8 +50,9 @@
 //   the comparison needs no Rust wasm reference.
 //   Typed state and the existing wasm/JS tree fields (plus focus) compare
 //   exactly. Boxes compare by testId in their parent's coordinate space:
-//   positions tolerate 1 CSS px and sizes 6 CSS px, chosen from measured
-//   subpixel and one-line native-control/text metric drift. Larger
+//   positions and sizes tolerate 4 CSS px (Charlie, 2026-10-07: engines shape
+//   glyphs 1.6-3.3 px apart), scroll offsets 1 px; a wrap moves a box by a
+//   whole line at the pinned line height, so it still fails. Larger
 //   CSS-permitted differences must be named in
 //   conformance/known-<engine>.json and print as KNOWN. Screenshots from both
 //   engines are saved for inspection and are never pixel-compared. Install
@@ -165,7 +166,11 @@ function diffLayout(a, b, treeA, treeB, relative = false, reference = 'wasm', ot
     if (!y) { out.push({ field: `layout.${t}.present`, what: `layout ${t}: on screen in ${reference}, not in ${other}` }); continue; }
     for (const k of ['x', 'y', 'w', 'h', 'sx', 'sy']) {
       if (!(k in x) && !(k in y)) continue;
-      const d = Math.abs((x[k] ?? 0) - (y[k] ?? 0)), tolerance = relative ? (k === 'w' || k === 'h' ? 6 : 1) : 0.5;
+      // Cross-browser (relative) geometry is each box against its parent, within 4 px either way: engines
+      // shape glyphs 1.6–3.3 px apart (Charlie, 2026-10-07). A wrap moves a box by a line (19.2 px for 16 px
+      // text at the pinned line-height 1.2; less for small authored text) and fails; scroll offsets stay at 1 px;
+      // Chrome conformance stays at 0.5 px.
+      const d = Math.abs((x[k] ?? 0) - (y[k] ?? 0)), tolerance = relative ? (k === 'sx' || k === 'sy' ? 1 : 4) : 0.5;
       maxDelta = Math.max(maxDelta, d);
       if (d > tolerance) out.push({ field: `layout.${t}.${k}`, what: `layout ${t}.${k}: ${reference} ${Number(x[k] ?? 0).toFixed(2)} ${other} ${Number(y[k] ?? 0).toFixed(2)} (delta ${d.toFixed(2)} px, tolerance ${tolerance} px)`, delta: d });
     }

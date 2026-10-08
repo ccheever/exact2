@@ -309,7 +309,7 @@ extension NodeView {
     /// keeps hearing its moves and its up, as on the web (`holdPresenter`).
     /// Removing it then is AppKit's `removeFromSuperview`, the one way the
     /// presenter takes a view out.
-    override func removeFromSuperview() {
+    package override func removeFromSuperview() {
         if let presenter = holdPresenter, presenter.pointerHeld != nil, presenter.pointerSource === self, superview != nil {
             // Transparent, not hidden: AppKit sends a hidden view no drags either.
             let box = holdBox(presenter)
@@ -351,7 +351,7 @@ extension NodeView {
 }
 private var holdKey: UInt8 = 0
 private final class HoldBox {
-    weak var presenter: Presenter?
+    weak package var presenter: Presenter?
     /// The batch removed the view under the hold: it stayed, transparent,
     /// its own opacity kept here.
     var hid = false

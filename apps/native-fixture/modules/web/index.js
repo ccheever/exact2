@@ -56,22 +56,104 @@ export function destroy(h) {
   if (h.tag === 'exact-fixture') setTimeout(() => h.event(8, 'late'), 50);
 }
 
-// The hooks on the web (LLP 1075.003.000): the badge takes a context menu of
-// its own, an interaction Exact leaves to the app; each row's dot hook does
-// nothing; every call is counted where the smoke reads it.
-const calls = (globalThis.exactFixtureHooks ??= {});
-const count = (e, moment) => { const key = `${e.hook}:${moment}`; calls[key] = (calls[key] ?? 0) + 1; };
+// The hatches on the web (LLP 1075.003.000): the badge takes a context menu of
+// its own, an interaction Exact leaves to the app; each row's dot hatch does
+// nothing; every call is counted where the smoke reads it. Each also says what
+// it did through its diagnostics (LLP 1075.003.000.001 §3.2): a counter per
+// moment, and for the badge a line, a span from its mount to its end and a
+// snapshot of its last tone.
+const calls = (globalThis.exactFixtureHatches ??= {});
+const count = (e, moment) => { const key = `${e.hatch}:${moment}`; calls[key] = (calls[key] ?? 0) + 1; };
+const shown = new WeakMap();
 
 export function element(e) {
-  count(e, e.isNew ? 'built' : 'changed');
-  if (e.hook === 'badge' && e.isNew) e.element.addEventListener('contextmenu', (event) => event.preventDefault());
+  const moment = e.isNew ? 'built' : 'changed';
+  count(e, moment);
+  e.diagnostics.count(moment);
+  // What a hatch asks of an authored node (§2.5), each queued: `feed` replaces
+  // its field's value, `presser` clicks its own button once when armed and on
+  // every change while looping.
+  if (e.hatch === 'feed' && !e.isNew && e.data.feed) e.input(e.data.feed);
+  if (e.hatch === 'presser' && !e.isNew && (e.data.loop !== 'off' || e.data.armed === 'true')) e.click();
+  // The frame clock (§2.4): a ticket while the node says to run.
+  if (e.hatch === 'clock') {
+    const run = e.data.run === 'true';
+    if (run && !clockStop) startClock(e);
+    if (!run && clockStop) { clockStop(); clockStop = null; }
+    if (!e.isNew && e.data.presses === '65') e.click();
+  }
+  if (e.hatch !== 'badge') return;
+  // Regions and parts (§3.4, §3.5): the badge draws a seal over itself and
+  // says so; with `data-tone` busy the seal goes, and its region stays a
+  // while as a tombstone.
+  let seal = e.element.querySelector('[data-fixture-seal]');
+  if (e.data.tone === 'busy') { seal?.remove(); e.parts = []; }
+  else if (!seal) {
+    seal = document.createElement('div');
+    seal.setAttribute('data-fixture-seal', '');
+    seal.setAttribute('role', 'button');
+    seal.setAttribute('aria-label', 'Verified');
+    // In the badge's own flow, at (4, 4): a hatch leaves the node's own box and position to Exact.
+    seal.style.cssText = 'width:12px;height:12px;margin:4px;background:#fff;flex:none';
+    // What the seal does when pressed is the hatch's own code: here it counts the press.
+    seal.addEventListener('click', () => globalThis.exact.diagnostics.count('seal.presses'));
+    e.element.append(seal);
+    e.owns(seal, 'seal: a white square the hatch draws on the badge');
+    e.parts = [{ id: 'seal', element: seal, role: 'button', label: 'Verified' }];
+  }
+  e.diagnostics.log(`${moment}, tone ${e.data.tone}`);
+  e.diagnostics.publish('tone', { tone: e.data.tone, moment });
+  if (!e.isNew) return;
+  shown.set(e, e.diagnostics.begin('shown'));
+  e.element.addEventListener('contextmenu', (event) => event.preventDefault());
 }
 
-export function elementEnded(e) { count(e, 'ended'); }
+// The frame clock (LLP 1075.003.000.001 §2.4), as the Swift module's: each
+// tick counts itself and whether the node's `data-frames`, which a frame task
+// advances, is the tick's own number; the first chains `after`s; the third
+// presses the node 65 times.
+let clockStop = null;
+function startClock(e) {
+  const { frames, after, diagnostics: d } = globalThis.exact.hatches;
+  let ticks = 0, agreed = 0;
+  clockStop = frames((frame) => {
+    ticks++;
+    if (e.data.frames === String(ticks)) agreed++;
+    d.count('clock.ticks');
+    if (ticks === 1) {
+      after(0, () => { d.count('clock.after0'); after(20, () => d.count('clock.after20')); });
+      after(30, () => d.count('clock.stopped'))();
+    }
+    if (ticks === 3) for (let i = 0; i < 65; i++) e.click();
+    d.publish('clock', { ticks, agreed, now: frame.now });
+  });
+}
 
-// The container hooks on the web: each counted, as the element hooks are.
+export function elementEnded(e) {
+  count(e, 'ended');
+  e.diagnostics.count('ended');
+  shown.get(e)?.end();
+}
+
+// The container hatches on the web: each counted, as the element hatches are.
 const tally = (key) => { calls[key] = (calls[key] ?? 0) + 1; };
-export function navigation() { tally('navigation:built'); }
+export function navigation() { tally('navigation:built'); globalThis.exact.diagnostics.count('navigations'); }
 export function route() { tally('route:built'); }
 export function routeEnded() { tally('route:ended'); }
 export function tabs() { tally('tabs:built'); }
+
+// The app and window scopes (LLP 1075.003.000.001 §2.1): each moment is
+// counted and published for the smoke, as the Swift module does.
+let scheme = 'light', own = null;
+const publishScopes = (moment) => {
+  globalThis.exact.diagnostics.count(`scope.${moment}`);
+  globalThis.exact.diagnostics.publish('scopes', { scheme, exclusive: own?.exclusive ?? false, hasWindow: !!own?.window, frame: own ? own.frame.slice(2) : [], last: moment });
+};
+export function app(a) {
+  scheme = a.prefersColorScheme;
+  globalThis.exact.diagnostics.publish('app', { processOwner: a.processOwner, hasApplication: true, visibilityState: a.visibilityState, onLine: a.onLine, mood: a.data.mood ?? '' });
+  publishScopes(a.isNew ? 'app-built' : 'app-changed');
+}
+export function appEnded() { publishScopes('app-ended'); }
+export function window(w) { own = w; publishScopes(w.isNew ? 'window-built' : 'window-changed'); }
+export function windowEnded() { publishScopes('window-ended'); }

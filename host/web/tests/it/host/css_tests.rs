@@ -84,9 +84,18 @@ fn style_rows_lower_to_css_by_their_names() {
         .unwrap();
     s.set_dynamic(StyleId::ScrollBehavior, &StyleValue::Text("smooth".into()))
         .unwrap();
+    s.set_dynamic(StyleId::ScrollPaddingTop, &StyleValue::Number(92.0))
+        .unwrap();
+    s.set_dynamic(
+        StyleId::ScrollPaddingBottom,
+        &StyleValue::Text("calc(env(safe-area-inset-bottom) + 49px)".into()),
+    )
+    .unwrap();
     let (css, skipped) = css_text(&s, &[]);
     for expected in [
         "scroll-behavior:smooth;",
+        "scroll-padding-top:92px;",
+        "scroll-padding-bottom:calc(env(safe-area-inset-bottom) + 49px);",
         "display:-webkit-box;",
         "-webkit-box-orient:vertical;",
         "-webkit-line-clamp:2;",

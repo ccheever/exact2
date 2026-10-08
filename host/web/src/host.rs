@@ -836,6 +836,12 @@ impl<D: DataSource> Host<D> {
                 let error = result.error.map(|e| format!("collection: {e:?}"));
                 let mut batch = Batch::new();
                 batch.accept_collection();
+                // A report can bind a grip with no commit: a row's first
+                // measurement at its estimate travels only (30fbf7f15), and a
+                // grip binds once its row is measured. Publish what changed.
+                if let Some(drag) = self.drag.filter(|_| result.receipts.is_empty()) {
+                    (drag.publish)(self, &mut batch);
+                }
                 self.batch_from(batch, &result.receipts, error.as_deref())
             }
             Err(error) => self.finish(Batch::new(), Some(&format!("collection: {error:?}"))),
@@ -1355,7 +1361,7 @@ impl<D: DataSource> Host<D> {
                 let (css, _skipped) = css::css_text(&css_style(kernel, &node), &self.font_names);
                 let mut props = props_for(&node);
                 svg_props(kernel, &node, &mut props);
-                let css = host_css(&node, css, tag);
+                let css = host_css(kernel, &node, css, tag);
                 let css = element::folded_css(kernel, &node, css, !kinds.is_empty());
                 let handled = |c| self.mirror.get(&c).is_some_and(|m| m.handled);
                 let css = element::blocks(css, element::holds_folded(kernel, &node, &handled));

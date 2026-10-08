@@ -34,6 +34,10 @@
      as the kernel resolves an `em` under no sized ancestor. */
   body { font: 1rem system-ui, sans-serif; }
   button, input, textarea { all: unset; display: block; box-sizing: content-box; cursor: default; }
+  /* Native text fields keep the UA's chrome and content-box sizing, with
+     the common reset's inherited typography (LLP 1104 D4, D8). */
+  #exact-root [data-native] { all: revert; display: block; font: inherit; letter-spacing: inherit; color: inherit; }
+  #exact-root [data-native]:disabled { color: revert; }
   select { display: block; }
   /* A link is a bare node too: the UA's link colour, underline and pointer
      go, as a button's control styling does. A \`link\` is block-level like any
@@ -45,12 +49,12 @@
      tree; its box is a bare div's, so the UA's heading margins, size and
      weight go. The node's own style rows, inline, still win. */
   h1, h2, h3, h4, h5, h6 { margin: 0; font-size: inherit; font-weight: inherit; }
-  #exact-root button:focus-visible { outline: revert; outline-offset: 2px; }
-  /* A field in its default look shows the UA's focus ring (LLP 1104 D4); a bare one (appearance="none") draws its own. */
-  #exact-root [data-fieldstyle]:focus-visible { outline: revert; outline-offset: 0; }
+  #exact-root button:focus-visible,
+  #exact-root input:not([data-native]):focus-visible,
+  #exact-root textarea:not([data-native]):not([markup="markdown"]):focus-visible { outline: revert; outline-offset: 2px; }
   /* The UA's own reset, which \`all: unset\` undid: a field shows what was
      typed, as the kernel measures it and native fields draw it (LLP 1064 D6). */
-  input, textarea { cursor: text; -webkit-user-select: text; user-select: text; text-transform: none; }
+  #exact-root [data-native], input, textarea { cursor: text; -webkit-user-select: text; user-select: text; text-transform: none; }
   /* A checkbox, radio, range or date control is the platform's again (LLP 1069.001 D3, D6): its
      size is the UA's; `appearance: none` on the node hands it to the author. */
   input[type="checkbox"], input[type="radio"], input[type="file"], input[type="range"], input[type="date"], input[type="time"], input[type="datetime-local"] { appearance: auto; cursor: default; -webkit-user-select: none; user-select: none; }
@@ -74,6 +78,14 @@
   button:is([data-button-style="prominent-glass"], [data-button-style="prominent-clear-glass"]) { background: color-mix(in srgb, var(--exact-accent, AccentColor) 85%, transparent); color: #fff; }
   /* Dimmed by a filter, so an authored opacity (inline, bound or animated) composes with it. */
   button[data-button-style]:not([data-button-style="bordered"], [data-button-style="gray"]):disabled { filter: opacity(.45) !important; }
+  /* An indeterminate progress (LLP 1069.001, amended 2026-10-07): HTML's draws a bar, so the page draws the
+     platform's spinner instead, the one deliberate divergence from the web's own control: an arc fading to `color`
+     in a circle at the shorter side of the content box, centred, a turn a second (UIActivityIndicatorView's period).
+     The box is a grid (element.rs `progress_css`), so this item fills its content box, sized or not; the mask's
+     circle and the gradient's centre stay put as it turns. Under the agent it follows the agent's clock, as every
+     CSS animation does. */
+  [data-exact-progress]::before { content: ""; pointer-events: none; background: conic-gradient(transparent 10%, currentColor); mask: radial-gradient(circle closest-side, transparent 76%, #000 calc(76% + .5px) calc(100% - .5px), transparent 100%); animation: exact-progress 1s linear infinite; }
+  @keyframes exact-progress { to { rotate: 1turn; } }
   /* Keep the textarea's native long-word wrapping through the control reset. */
   textarea { overflow-wrap: revert; }
   /* Authored flex/grid display must not expose a closed native popover. */
@@ -86,7 +98,7 @@
   [navigationPresentation="modal"] { isolation: isolate; position: relative; }
   [data-exact-covered]::after { content: ""; position: absolute; inset: 0; background: #00000033; pointer-events: none; }
   /* `all: unset` would inherit the field's color onto the placeholder. */
-  input::placeholder, textarea::placeholder { color: light-dark(#3c3c434c, #ebebf54c); opacity: 1; }
+  input:not([data-native])::placeholder, textarea:not([data-native])::placeholder { color: light-dark(#3c3c434c, #ebebf54c); opacity: 1; }
   /* A platform material (host policy, LLP 1053.000 D3, D4): the schema's approximation of the named material, from the variables the host sets
      (element.rs `material_css`). It wins over an authored backdrop-filter on the same node, as the native hosts do. */
   [backgroundMaterial] { backdrop-filter: blur(var(--exact-material-blur)) saturate(var(--exact-material-saturate)) !important; background-color: light-dark(var(--exact-material-light), var(--exact-material-dark)); }
