@@ -87,3 +87,11 @@ filing one is the user's decision ([adopt-main-fixes-r5](../tasks/closed/2026100
 ## Rest filed upstream (2026-10-08)
 
 Upstream (the rest): https://github.com/ccheever/exact2/issues/267 (#267, [Design] macOS: a title-bar area beside the traffic lights, and a full-screen fact (rest of #113)). Reproduced on main `0365ad1a4` (relevant files unchanged on main `e200397ec`) before filing: macOS `layout` gives `safe-area 32 0 0 0` against a 52 pt title row and the traffic lights stay centred at about y = 16 pt; `env(titlebar-area-*)` is `lower-attr-value`; `host.macos.window` has no title-row key; `exactPage().fullscreen` and `exactViewport().displayMode` are refused at bake. One "Decision needed" comment. Searched open and closed issues and PRs: no duplicate.
+
+## Decided upstream (2026-10-08): waits for main fix of #267
+
+[Charlie on #267](https://github.com/ccheever/exact2/issues/267#issuecomment-6055585917): "Choose Window Controls Overlay env values and displayMode. … Implement the fact/env slice before
+arbitrary button positioning."
+- Waits for main fix of [#267](https://github.com/ccheever/exact2/issues/267): the fact and `env()` slice retires `T3FullScreen.swift` and the hard-coded
+  90 pt inset; `T3WindowChrome.swift` (the title-row height) waits for the manifest field.
+- [#327](https://github.com/ccheever/exact2/pull/327) audit (open on main, 2026-10-08): approved bounded platform feature.

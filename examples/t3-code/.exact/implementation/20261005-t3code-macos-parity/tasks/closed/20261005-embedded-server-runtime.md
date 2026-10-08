@@ -123,7 +123,7 @@ Consumer framework revision: the pin from `20261005-clone-on-exact2-main`; Xcode
 | --- | --- | --- | --- | --- |
 | merged task PR | [20261005-hot-file-split](20261005-hot-file-split.md) | pending | Merged into `daehyeon/t3-code` (common prerequisite: room and per-area seams in the shared files) | pending |
 | merged task PR | [20261005-clone-on-exact2-main](../20261005-clone-on-exact2-main.md) | pending | Merged | pending |
-| merged task PR | [20261005-desktop-oracle-and-trace](../20261005-desktop-oracle-and-trace.md) | pending | Merged (trace of the token exchange) | pending |
+| merged task PR | [20261005-desktop-oracle-and-trace](20261005-desktop-oracle-and-trace.md) | pending | Merged (trace of the token exchange) | pending |
 | recorded decision | U2 (apparatus): stage script, fake server for AppKit tests | none | User approves | pending |
 | recorded decision | U3 (decided: CLI archive at the release matching the reference pin, `<T3 home>/runtime/versions`; items 3–4 settled by measurement) | none | Decided | user 2026-10-05 |
 

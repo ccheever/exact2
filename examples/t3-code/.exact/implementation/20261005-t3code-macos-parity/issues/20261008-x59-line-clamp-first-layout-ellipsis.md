@@ -78,3 +78,10 @@ toggle, and macOS after a restyle), transcript [x59-ops.txt](https://raw.githubu
 
 Next: `issue-close` once #300 lands: the collapsed table cell's first frame should show "…" in a `screenshot … window`
 capture with no restyle. The clone has no workaround to remove.
+
+## Fixed on main (2026-10-08)
+
+[#300](https://github.com/ccheever/exact2/issues/300) was closed by main #305 (`9314e7a81`). Main adoption round 7
+brings it in (round 7 waits for main fix of X67, the compiler's stack overflow in main's examples test); then
+`issue-close`: the collapsed table cell's first frame shows "…" in a `screenshot … window` capture. Nothing to
+remove.

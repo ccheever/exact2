@@ -1,11 +1,11 @@
 ---
 name: 20261005-x02-app-developer-tools
 plan: 20261005-t3code-macos-parity
-status: draft
+status: published
 kind: framework-policy
 blocks: [20261005-app-developer-tools, 20261005-desktop-shell-details, 20261005-terminal-surface]
-upstream_url: null
-reproduced_on: null
+upstream_url: https://github.com/ccheever/exact2/issues/101
+reproduced_on: 4c893fef6
 ---
 
 # X2: A developer-tools inspector for the app's own UI (View › Toggle Developer Tools)
@@ -95,5 +95,18 @@ development builds only. `issue-close` checks that the item toggles the inspecto
 
 ## Status and next action
 
-Draft; not reproduced on the pinned `main`; not searched upstream; not published.
-Next: `issue-open` (reproduce, search for duplicates, prepare the report for the user's approval; publication only after approval).
+Published 2026-10-06 as [#101](https://github.com/ccheever/exact2/issues/101) (reproduced on exact2 `4c893fef6` before filing). Decided upstream on 2026-10-08: see the last section.
+
+## Decided upstream (2026-10-08): narrowed
+
+[Charlie on #101](https://github.com/ccheever/exact2/issues/101#issuecomment-6055584890): "Allow Safari inspection of development WKWebViews; keep Exact's own inspector deferred. … Use
+public isInspectable only in development, with release gating verified. … no new inspector window or inspect
+command."
+- Narrowed to option (3) under "Requested support": a development-only `isInspectable` on the app's own web
+  views. An inspector for the app's UI is refused.
+- **Declared difference (permanent):** View › Toggle Developer Tools stays absent; there is no inspector for it to
+  open.
+- The user's decision (2026-10-08): `app-developer-tools` is narrowed to a development-only `isInspectable` on the
+  clone's web views (terminal, rendered HTML, Mermaid). That is app code; it is being built on
+  `feat(example)/t3-code-app-developer-tools`. Nothing waits on main for the clone.
+- [#327](https://github.com/ccheever/exact2/pull/327) audit (open on main, 2026-10-08): "existing ready PR #309", now merged on main (`f2f0e7092`): development-only `isInspectable` on Exact's own iframe web views, release-gated; the issue stays open. The clone's own module web views still need the clone-side gate (`app-developer-tools`).

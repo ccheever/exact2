@@ -1,11 +1,11 @@
 ---
 name: 20261005-x19-data-source-timers
 plan: 20261005-t3code-macos-parity
-status: fix-built
+status: published
 kind: framework-policy
 blocks: [20261005-auto-balance, 20261005-client-activity-reporting, 20261005-embedded-server-runtime, 20261005-environment-routes, 20261005-live-automations-and-clones, 20261005-pr-code-tab, 20261005-pr-conversation-and-refresh, 20261005-pr-links-previews-and-routing, 20261005-reference-logic-test-ports, 20261005-reference-logic-tests-done-areas, 20261005-server-update-banner, 20261005-telemetry, 20261005-this-machine-network-access, 20261005-usage-pooled-view, 20261005-usage-reset-and-feedback]
 upstream_url: https://github.com/ccheever/exact2/issues/124
-reproduced_on: null
+reproduced_on: 4c893fef6
 ---
 
 # X19: Timers and a clock inside data sources (`setTimeout`, `setInterval`, `Date.now`)
@@ -82,11 +82,11 @@ Remove `timelineSleep` and `r10Wake` waits (`r10-connect-timing.ts`), the `every
 
 ## Status and next action
 
-Draft; not reproduced on the pinned `main`; not searched upstream; not published.
-Next: `issue-open` (reproduce, search for duplicates, prepare the report for the user's approval; publication only after approval).
+Published 2026-10-06 as [#124](https://github.com/ccheever/exact2/issues/124) (reproduced on exact2 `4c893fef6` before filing). Decided upstream on 2026-10-08: see the last section.
 
 ## Fix built (2026-10-06)
 
+**Declined (2026-10-08):** #124 keeps module timers refused; this branch is not pursued (recorded only; the branch is kept).
 Built on exact2 `origin/main`, branch `daehyeon/fw-x19-source-waits` (worktree `~/orca/workspaces/exact2/t3-fw-x19`), commits `822e2502d` and `5969c4819` (review fixes). Not pushed.
 - `setTimeout`/`clearTimeout` inside an answer: a wait the runner holds (`exact-wait:<ms>`) and lands from its own clock, so the agent's `clock +N` moves it and a device wakes for it through `timer_due_ms`. Not I/O: `clock settle`/`clock data` do not wait on it. A newer request forgets it (a debounce restarts). Hosts note their input time so a wait after an idle spell is due from then. `setInterval`, and `setTimeout` outside an answer, stay refused.
 - Known limits: two waits in one answer run in sequence on native hosts, and a wait raced against a fetch cannot fire first; on the JS target a let-go answer runs past its next wait.
@@ -108,3 +108,14 @@ poll, so up to 500 ms late) now run at once (`task terminalCloseAsk`, `task shel
 clocks (`clock`, `liveClock`, `providerClock`, `sshClock`, `shellTicks`' toast clock) stay: each advances a
 shown time or retries a read on a fixed cadence rather than bridging an event. #124 (timers in data
 sources) is still open.
+
+## Decided upstream (2026-10-08): declared difference
+
+[Charlie on #124](https://github.com/ccheever/exact2/issues/124#issuecomment-6055589736): "Keep module timers refused; finish failure-parity repair separately. … Keep open until #228's
+parity slice is resolved, then close the timer request not planned."
+- **Declared difference (permanent):** time passed as arguments, gated tasks (`task … when … key=` with
+  `after(…)`), `timelineSleep` and `r10Wake` stay wherever they differ from the reference's timers.
+- The local fix ("Fix built" above) is declined by the decision and not pursued.
+- Main renamed `now()` to `performanceNow()` (`9731c8056`); the clone's 26 sites are renamed by round 7 or by the
+  root rewrite, whichever runs on that main first.
+- [#327](https://github.com/ccheever/exact2/pull/327) audit (open on main, 2026-10-08): "existing draft PR #228, incomplete" (JS sync-send and queued-send cases missing); timers stay refused.
