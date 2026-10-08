@@ -7,8 +7,8 @@ delivery: draft
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: 'feat(example)/t3-code-pr-list-title-clip'
-pr_url: null
-verified_commit: null
+pr_url: https://github.com/ccheever/exact2/pull/289
+verified_commit: 74e953039
 ---
 
 # A Pull Requests row keeps the start of an edited title
@@ -113,6 +113,11 @@ vowel counter": the kept detail snapshot of #159 was shown and not yet read agai
 | independent review | the staged diff | no blocking findings. Taken: `PrdCopy` (the reference says `text-left`), the submenu value, the test widened to `line-clamp=1` and clipped `nowrap` texts with the nearest `text-align` deciding, X57's other host sites (region rasters, text flow, iOS) and its `line-clamp=1` count. Noted: under the clone's `align-items="flex-start"` column the timeline's authors line may be as wide as its text and never show an ellipsis (predates this task) | — | — |
 | after retry (agent, final build; the one retry) | this branch with the review's changes | every row above passes again; the copy buttons read as before | [record-after](https://raw.githubusercontent.com/ccheever/exact2/7743b3792cece4728bcf787f910fd0ed355abb39/pr-list-title-clip/record-after.txt), 00–02 | — |
 | checks | this branch | `bun test examples/t3-code` 3037 pass / 1 skip / 0 fail (base 3036 + 1); strict tsc clean; contract build 3844 slots, 46 resources; `cargo test -p t3-code-macos --lib` 11 pass; caps within; five checks: build exit 0, test 3,383 passed / 0 failed / 33 ignored (94 binaries), clippy and fmt clean, boot allowed paths only; verify runner passed, `source_unchanged: true` | `target/pr-list-title-clip/verify` (not committed) | — |
+
+## Progress
+
+2026-10-08: implemented, reviewed (no blocking findings; the review's additions taken), verified
+(`74e953039`; runner attempt 2 passed and the committed tree matches it) and opened as draft PR #289.
 
 ## Next action
 
