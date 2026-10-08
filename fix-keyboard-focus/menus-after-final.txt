@@ -1,0 +1,14 @@
+fix-keyboard-focus: menu keys on the branch after merging 732f0e3f3 (agent mode, macOS, 1280x840, build 8 = HEAD 4bc1fc9ff sources). Each row: Enter on the trigger, then keys, reading the focused node's testId.
+Sidebar row snooze menu: Enter on snooze-928faefd-0904-4ff6-9c1f-bc52fd043ce2 -> snooze-928faefd-0904-4ff6-9c1f-bc52fd043ce2-hour; ArrowDown -> snooze-928faefd-0904-4ff6-9c1f-bc52fd043ce2-three-hours; End -> snooze-928faefd-0904-4ff6-9c1f-bc52fd043ce2-custom; Escape -> snooze-928faefd-0904-4ff6-9c1f-bc52fd043ce2
+Thread title menu: Enter on thread-title -> title-menu-pin; ArrowDown -> title-menu-settle; ArrowDown -> title-menu-snooze; ArrowRight -> title-menu-snooze:hour; ArrowDown -> title-menu-snooze:three-hours; ArrowLeft -> title-menu-snooze; Escape -> thread-title
+Empty thread project menu: Enter on empty-choose-project -> hero-project-e3f4b86b-468a-400d-ae1c-8217e17f03cb; ArrowDown -> hero-add-project; End -> hero-add-project; Escape -> empty-choose-project
+Pull requests Sort: Enter on pull-requests-sort -> pr-sort-ready; ArrowDown -> pr-sort-blocked; End -> pr-sort-smallest; Escape -> pull-requests-sort
+Pull requests Filters: Enter on pull-requests-filters -> pr-filter-state; ArrowRight -> pr-state-all; ArrowDown -> pr-state-open; ArrowLeft -> pr-filter-state; End -> pr-filter-project; Escape -> pull-requests-filters
+Pull requests provider: Enter on pull-requests-provider -> pr-host-All; ArrowDown -> pr-host-GitHub; End -> pr-host-GitHub; Escape -> pull-requests-provider
+PR More: Enter on pull-request-more -> pr-more-refresh; ArrowDown -> pr-more-ask; End -> pr-more-close; Escape -> pull-request-more
+PR Check out: Enter on pull-request-checkout -> pr-checkout-worktree; ArrowDown -> pr-checkout-local; End -> pr-checkout-local; Escape -> pull-request-checkout
+PR stack menu: Enter on pull-request-stack -> pr-stack-layer-119; ArrowDown -> pr-stack-layer-118; End -> pr-stack-rebase; Escape -> pull-request-stack
+Usage environment menu: Enter on usage-environment -> usage-environment-all; ArrowDown -> usage-environment-29424100-ebee-4032-aea4-e67ebb304762; End -> usage-model-prices; Escape -> usage-environment; menu open: False; still on Usage: True
+
+Earlier run (build 6 sources, 16:24 local), PR row stack popover:
+PR row stack popover: Enter on pr-row-stack-e3f4b86b-468a-400d-ae1c-8217e17f03cb-119-trigger -> pr-row-stack-e3f4b86b-468a-400d-ae1c-8217e17f03cb-119-keys; ArrowDown -> pr-row-stack-e3f4b86b-468a-400d-ae1c-8217e17f03cb-119-layer-119; End -> pr-row-stack-e3f4b86b-468a-400d-ae1c-8217e17f03cb-119-layer-118; Escape -> pr-row-stack-e3f4b86b-468a-400d-ae1c-8217e17f03cb-119-trigger
