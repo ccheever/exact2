@@ -73,10 +73,11 @@ Records: `.exact/implementation/20261005-t3code-macos-parity/` (`plan.md` "Statu
 **Next up.**
 1. In flight: `pr-links-previews-and-routing` (#311); its hover card is on #307's layer. Merged: `fix-misc-batch` (#306), `popover-escape-parity` (#290), `fix-provider-auth-state` (#312), `pr-code-tab` (#308), `fix-hover-cards` (#307), `fix-keyboard-focus` (#310) and `app-developer-tools` (#326).
 2. In flight: [fix-providers-environment-scope](.exact/implementation/20261005-t3code-macos-parity/tasks/20261008-fix-providers-environment-scope.md), draft [#329](https://github.com/ccheever/exact2/pull/329): Settings › Providers shows the environment the scope menu chose and its actions go there (found by #312); `app.contract` 1,488 → 1,468 lines on 96c4c38f2.
-3. Then [app-contract-root-rewrite](.exact/implementation/20261005-t3code-macos-parity/tasks/20261008-app-contract-root-rewrite.md), after #311 merges (#290, #312, #308, #307 and #310 have merged; user decision; Charlie's ruling on #108 and #327's audit name it the remedy). `app.contract` is at 1,478 of 1,500 lines (about 1,488 with #307).
-4. [browser-surface](.exact/implementation/20261005-t3code-macos-parity/tasks/20261005-browser-surface.md), after the root rewrite: the Browser surface on a `WKWebView` in the clone's module (user decision, 2026-10-08).
-5. The next real-input batch (below).
-6. Main adoption, round 7: blocked, it waits for X67 ([#320](https://github.com/ccheever/exact2/issues/320), bucket 7: main's examples test overflows the compiler's 2 MiB test-thread stack on the clone; #327 withdrew its attempt and no fix is in progress), and it unblocks no T3 task today. #297 was squash-merged, so the round first runs `git merge -s ours e200397ec`, then merges main. The adoption list (bucket 1 now, bucket 2 once its PR merges):
+3. In flight: [fix-timeline-keyboard-recipe](.exact/implementation/20261005-t3code-macos-parity/tasks/20261009-fix-timeline-keyboard-recipe.md), draft [#333](https://github.com/ccheever/exact2/pull/333): the `timeline-keyboard` AppKit regression builds and passes again (the README recipe passes `-package-name apple`; the test takes `KeyPress`); found by #332 and app-contract-room.
+4. Then [app-contract-root-rewrite](.exact/implementation/20261005-t3code-macos-parity/tasks/20261008-app-contract-root-rewrite.md), after #311 merges (#290, #312, #308, #307 and #310 have merged; user decision; Charlie's ruling on #108 and #327's audit name it the remedy). `app.contract` is at 1,478 of 1,500 lines (about 1,488 with #307).
+5. [browser-surface](.exact/implementation/20261005-t3code-macos-parity/tasks/20261005-browser-surface.md), after the root rewrite: the Browser surface on a `WKWebView` in the clone's module (user decision, 2026-10-08).
+6. The next real-input batch (below).
+7. Main adoption, round 7: blocked, it waits for X67 ([#320](https://github.com/ccheever/exact2/issues/320), bucket 7: main's examples test overflows the compiler's 2 MiB test-thread stack on the clone; #327 withdrew its attempt and no fix is in progress), and it unblocks no T3 task today. #297 was squash-merged, so the round first runs `git merge -s ours e200397ec`, then merges main. The adoption list (bucket 1 now, bucket 2 once its PR merges):
    - main #304 (closes #285): drop the branch's `QUEUE.md` `clock +N real` entry;
    - main #305 (closes #300, X59): nothing to remove;
    - main #309 (#101, X2): nothing to remove; the clone keeps `T3WebInspection.swift` for its module's own web views;
@@ -95,7 +96,7 @@ Records: `.exact/implementation/20261005-t3code-macos-parity/` (`plan.md` "Statu
      - #282 (partial): `fix-keyboard-focus` (#310) can drop its focus plumbing for bugs 16, 6 and 5;
      - #292 (partial): `T3MenuTurn` stays until #292 closes;
    - once PR #239 (kmagiera) has merged: X44's ACP registry SVG icons on Apple.
-7. Held:
+8. Held:
    - `provider-sign-in-verification-followup`: its X49 row waits for main fix of #279 (bucket 4: approved, no fix in progress). The Cursor row is closed (the user has no Cursor Pro account).
    - `installed-font-picker` waits for X48 ([#318](https://github.com/ccheever/exact2/issues/318), bucket 5: design pending, no owner selection).
    - Every other issue's workaround stays as its bucket says (the issues README).

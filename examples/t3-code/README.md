@@ -425,11 +425,16 @@ done
 ```
 
 The `timeline-keyboard` regression uses the actual ExactKit key loop and scroll
-views. After building the macOS app, run it from the repository root:
+views. It compiles ExactKit's sources into its own binary, so it passes
+`-package-name apple`, the name SwiftPM gives `host/apple/Package.swift`'s
+package (ExactKit's `package` declarations need one). After building the macOS
+app (`bun host/apple/build.mjs t3-code-macos`, which writes
+`target/aarch64-apple-darwin/host-dev/libt3_code_macos.a`), run it from the
+repository root:
 
 ```sh
 mkdir -p target/t3-tests
-xcrun swiftc -swift-version 5 -module-name ExactKit -I host/apple/Sources/CExact \
+xcrun swiftc -swift-version 5 -package-name apple -module-name ExactKit -I host/apple/Sources/CExact \
   $(rg --files host/apple/Sources/ExactKit -g '*.swift') \
   examples/t3-code/macos/tests/timeline-keyboard/main.swift \
   -L target/aarch64-apple-darwin/host-dev -lt3_code_macos -lc++ \

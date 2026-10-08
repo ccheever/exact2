@@ -26,9 +26,10 @@ var blurred: [UInt32] = []
 var keys: [String] = []
 presenter.onFocus = { focused.append($0) }
 presenter.onBlur = { blurred.append($0) }
-presenter.onKey = { id, name in
+presenter.onKey = { id, press in
     precondition(id == output.id)
-    keys.append(name)
+    precondition(!press.up, "a keydown must not reach the keyup handlers")
+    keys.append(press.chord)
 }
 presenter.syncKeyViewLoop()
 precondition(output.scroll != nil, "fixture must create actual scroll")
