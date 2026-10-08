@@ -20,7 +20,7 @@ Code. Earlier task PRs took a recommended default for open decisions U5–U10 an
 marked it provisional. Each one was read against the reference (`~/Documents/work/3.open-source/t3code` at
 `1e2ecbd975`: desktop app, web client, server), the clone was changed where it differed, and the provisional marks
 are gone from the records. A difference stays only where a framework limit forces it: U5 (#117 / X31) and the
-number field's character filter (X60, a local draft; the user files issues).
+number field's character filter (X60, a local draft; the user files issues; X57 as assigned was taken by #289).
 
 ## Scope and exclusions
 
@@ -88,7 +88,7 @@ this decision), the relaunch rows (#122 / X45), T3 Connect (X38, out of scope by
 
 | Attempt | Revision | Checks and outcomes | Evidence | Remaining blocker |
 | --- | --- | --- | --- | --- |
-| 1 (2026-10-08) | `106483621`…`6936a71ee`, merge `708419bec` | Clone: `bun test examples/t3-code` 3058 pass / 1 skip / 0 fail (base `07dcef1ab` 3036 pass / 1 skip); strict `tsc` clean; contract build 3845 slots, 46 resources; Swift module tests: local-backend 82, transport 59 and every other recipe directory 0 failures (mermaid, timeline-keyboard not run: own setups); `cargo test -p t3-code-macos --lib` 11 pass; caps within; five checks green: build, test 3383 passed / 0 failed / 33 ignored (94 binaries), clippy, fmt, boot | [evidence](https://github.com/ccheever/exact2/tree/t3-code-evidence/provisional-decisions-parity) | rows above |
+| 1 (2026-10-08) | `106483621`…`6936a71ee`, merges `708419bec`, `7b3824707` (feature branch `d3df2c426`) | Clone: `bun test examples/t3-code` 3058 pass / 1 skip / 0 fail (3059 after the second merge) (base `07dcef1ab` 3036 pass / 1 skip); strict `tsc` clean; contract build 3845 slots, 46 resources; Swift module tests: local-backend 82, transport 59 and every other recipe directory 0 failures (mermaid, timeline-keyboard not run: own setups); `cargo test -p t3-code-macos --lib` 11 pass; caps within; five checks green: build, test 3383 passed / 0 failed / 33 ignored (94 binaries), clippy, fmt, boot | [evidence](https://github.com/ccheever/exact2/tree/t3-code-evidence/provisional-decisions-parity) | rows above |
 | live drive | before `07dcef1ab`, after `592657b3a` / `6936a71ee`, agent mode, lane ports 16601/16602 | First screenshots were white: taken before the first paint; a 6 s real wait fixed it. Drive A's `tap welcome-continue` failed on a Local-off launch (no wizard): the script was fixed. The U9 drive first found no Tailscale switch: the reference reads Tailscale only with network access or Serve on, so the drive turns network access on first | [record](https://raw.githubusercontent.com/ccheever/exact2/82b35ee9e658228de317416e75525da72b7da1f9/provisional-decisions-parity/drive-record.txt) | — |
 
 ## Real-input batch steps
