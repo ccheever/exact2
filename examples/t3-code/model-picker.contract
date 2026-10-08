@@ -184,8 +184,10 @@ component ModelPicker
                 each row in catalog.models key=row.key
                   when row.kind != "legacy-model" or legacyOpen
                     ModelRow(row=row, highlighted=(row.index == highlight), busy=(busy or (not anchored and data.running)), select=select, favorite=command, toggleLegacy=toggleLegacy, legacyOpen=legacyOpen)
-                when count == 0 and setupCount == 0
-                  text "No models found" font-size="0.875rem" line-height="1.25rem" text-align="center" padding="0.5rem" color="light-dark(#71717a, #818181)" testId="model-empty"
+            // ComboboxEmpty, the list's sibling: inside the list's scroll, which has no height when nothing
+            // matches, it was clipped away (fix-misc-batch, #298 bug 8).
+            when count == 0 and setupCount == 0
+              text "No models found" flex-shrink=0 font-size="0.875rem" line-height="1.25rem" text-align="center" padding="0.5rem" color="light-dark(#71717a, #818181)" testId="model-empty"
             when setupCount > 0
               scroll max-height="11rem" flex-shrink=0 width="100%" box-sizing="border-box" padding="0.5rem" border-top-style="solid" border-top-width=1 border-color="light-dark(#e4e4e7b3, #ffffff12)" testId="model-picker-setup"
                 each entry in catalog.setup key=entry.id
