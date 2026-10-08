@@ -25,10 +25,10 @@ import { letGo } from './let-go';
 import { peekDetail } from './r6-pr-actions';
 import { CHECKS_HEADLINE } from './r6-pr-logic';
 import {
-  LIVE_REFRESH_IDLE_AFTER_MS, LIVE_REFRESH_INTERVAL_MS, readPullRequestDetailSnapshot, resolveDisplayedPullRequestDetail, resolvePullRequestReferenceHost,
-  shouldRefreshOnArrival, shouldRefreshOnInterval, shouldRefreshPullRequestActivity, writePullRequestDetailSnapshot, type PullRequestDetailSnapshotRef,
+  readPullRequestDetailSnapshot, resolveDisplayedPullRequestDetail, resolvePullRequestReferenceHost,
+  shouldRefreshPullRequestActivity, writePullRequestDetailSnapshot, type PullRequestDetailSnapshotRef,
 } from './pages-pr-logic';
-import { holdPullRequestRefreshes, lastInteraction, noteViewRefreshed, pullRequestRefreshEpoch, snapshotStorage, viewRefreshedAt } from './pages-pr-refresh';
+import { holdPullRequestRefreshes, liveRefreshDue, noteViewRefreshed, pullRequestRefreshEpoch, snapshotStorage, viewRefreshedAt } from './pages-pr-refresh';
 import { conversationBodies, emptySummary, presentSummary } from './pages-pr-summary';
 import { emptyTimeline, presentTimeline } from './pages-pr-timeline';
 import { emptyActions, isActionOp, prActionCommand, prActionUi, presentActions, type PanelContext } from './pages-pr-actions'; // pr-header-actions-and-stacks
@@ -178,13 +178,7 @@ async function wake(client: T3Client, native: Native, view: PrDetailView, panel:
 /** useLiveRefresh: an arrival (a reopened view, the window shown or focused again) and the 5-minute interval read the detail. */
 async function liveRefresh(client: T3Client, native: Native, panel: Panel, viewKey: string, input: DetailInput, arrival: boolean): Promise<void> {
   if (panel.detailDue) return;
-  const visible = input.visible !== false, now = input.now, lastRefreshedAt = viewRefreshedAt(client, viewKey);
-  const interval = lastRefreshedAt !== undefined && now - lastRefreshedAt >= LIVE_REFRESH_INTERVAL_MS;
-  if (!arrival && !interval) return;
-  const interacted = (await lastInteraction(native, now)) ?? now;
-  const read = arrival ? now - interacted < LIVE_REFRESH_IDLE_AFTER_MS && shouldRefreshOnArrival({ visible, now, lastRefreshedAt })
-    : shouldRefreshOnInterval({ visible, now, lastRefreshedAt: lastRefreshedAt!, lastInteractedAt: interacted });
-  if (read) { noteViewRefreshed(client, viewKey, now); panel.detailDue = true; }
+  if (await liveRefreshDue(client, native, viewKey, { visible: input.visible !== false, now: input.now, arrival })) panel.detailDue = true;
 }
 async function readDetail(client: T3Client, native: Native, panel: Panel, ref: Obj, storage: Files | undefined): Promise<void> {
   try {
