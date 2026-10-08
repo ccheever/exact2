@@ -15,7 +15,7 @@ verified_commit: null
 
 ## Outcome
 
-Three problems the coordinator found on the base (`e91fcfc65`, then `b7761f556` after #262):
+Three problems the coordinator found on the base (`e91fcfc65`; merged forward to `b7761f556` (#262) and `e784c8fb1` (#261)):
 `app.contract` at 1,499 of the 1,500 lines `bun scripts/caps.mjs` allows, with no same-file `use`
 lines left to merge (`client.test.ts` at 1,486); the `composer` AppKit test binary failing to
 compile; and local-backend's `testTurningOffStopsAServerThatIgnoresSIGTERMWithinTheBound` failing
@@ -83,20 +83,21 @@ The plan cannot stay byte-identical with any wrapper component: the inliner numb
 use in preorder (`contract/syntax/src/inline.rs`, `lifted(name, n)` and `@capture:{n}:…`), and
 `T3Window` is use 1, so every other instance's number moves up by one. Proof that this is the only
 difference: a scratch decoder (`exact_plan::Plan::decode`, not committed) renumbers the branch's
-lifted names back (`name#N` → `name#(N-1)`, `@capture:N:…` → `@capture:(N-1):…`; 18,576 of 29,743
-strings) and re-encodes it: the bytes equal the base's.
+lifted names back (`name#N` → `name#(N-1)`, `@capture:N:…` → `@capture:(N-1):…`) and re-encodes it: the
+bytes equal the base's.
 
 | Plan | SHA-256 |
 | --- | --- |
-| base `b7761f556` (`git archive`, no moves) | `714abbdc6c71c0ef39035a2f1fd1cbba7eb1389372d709c47aa07a61891aff81` |
-| this branch | `0145ad3d3564626cf34a4f654320dbae7e9ef1a3a7ccaed3e8570d797a5912f6` |
-| this branch, instance numbers renumbered back | `714abbdc6c71c0ef39035a2f1fd1cbba7eb1389372d709c47aa07a61891aff81` (equal to the base) |
+| base `e784c8fb1` (`git archive`, no moves) | `6e5739b447cf3884a97058867b5b4a7b339f577105798c8712616e0119ad67ef` |
+| this branch (merged with `e784c8fb1`) | `5ef66f29f31f39628e20367c7e8b7c6a0be9505ecc6cb4179bb5381440066b34` |
+| this branch, instance numbers renumbered back (21,105 of 32,528 strings) | `6e5739b447cf3884a97058867b5b4a7b339f577105798c8712616e0119ad67ef` (equal to the base) |
+| earlier base `b7761f556` / branch on it / renumbered | `714abbdc…aff81` / `0145ad3d…12f6` / `714abbdc…aff81` (equal) |
 
-Controls: without renumbering, 18,576 strings differ; the base against itself is equal. Both plans:
-3435 slots, 20 derives, 46 resources, 3668 actions, 72892 nodes, 29264 regions, 14,452,503 bytes.
+Controls: without renumbering, every renumbered string differs; the base against itself is equal. Both plans
+on `e784c8fb1`: 3807 slots, 20 derives, 46 resources, 4100 actions, 74209 nodes, 29714 regions, 14,964,344 bytes.
 The moved view is the base's text with `pending(providerAuthChanged)` → `providerAuthPending` at its
 three uses (`diff`). No script, test or record in the clone names a lifted instance name (searched
-for the base plan's 487 lifted names). `contract fmt --check` fails on `app.contract` at the base
+for every lifted name in the base plan). `contract fmt --check` fails on `app.contract` at the base
 (long view lines) and on both files here, for the same lines.
 
 ## Acceptance and reproduction
@@ -108,7 +109,7 @@ for the base plan's 487 lifted names). `contract fmt --check` fails on `app.cont
 | `client.test.ts` split, names kept | 1,486 → 865 + 477 (`client-settings.test.ts`) + 160 (`client-fixture.ts`); the 100 test names are the same (junit report, sorted, `diff` empty); 480 expect calls before and after | runner reports |
 | Composer binary compiles and passes | before: `T3CodexAuth.swift:236:11: error: cannot find type 'T3Module' in scope` (menus and r5-panels the same); after: composer 51 tests, 0 failures; menus 45, 0; r5-panels 6, 0; codex-auth 6, 0 | build and run logs |
 | SIGTERM test deterministic, 20 in a row | before: 5 of 30 full-binary runs failed (elapsed 0.0003–0.0016 s < 1.9), plus 1 of 6 earlier; a scratch copy with `sleep 0.3` before the trap failed 3 of 3 (`lastExit` `signal=15`). After: 30 of 30 full-binary runs pass (61 tests, 0 failures each); the `sleep 0.3` copy passes 3 of 3 (`signal=9`, 2.15–2.19 s) | loop logs |
-| Clone checks | pass: `bun test examples/t3-code` 2922 pass, 1 skip, 0 fail (2923 tests; base `b7761f556` the same in 232 files, here 233); strict `tsc` on `app.ts` clean; `contract build` OK; `cargo test -p t3-code-macos --lib` 11 passed | logs |
+| Clone checks | pass: `bun test examples/t3-code` 2984 pass, 1 skip, 0 fail (2985 tests; base `e784c8fb1` the same in 234 files, here 235; on `b7761f556` 2922/1/0 both); strict `tsc` on `app.ts` clean; `contract build` OK; `cargo test -p t3-code-macos --lib` 11 passed | logs |
 | AppKit binaries (README recipe; every one compiles `T3Module+CodexAuth.swift` or leaves it out) | 32 of 33 pass: activity 9, app-control 25, attach 3, codex-auth 6, composer-files 4, composer 51, contextmenu 19, fleet 9, intent 4, local-backend 61, media-actions 7, menus 45, notifications 4, r10-connect 4, r10-device 4, r11-device 3, r11-upstream 3, r12-sidebar 3, r5-composer 3, r5-panels 6, r6-device 3, r6-media 5, r7-device 14, r8-keys 4, r8-pointer 2, r9-device 13, r9-input 13, sidebar 5, snapshot 12 checks, ssh 15 (1 skipped), terminal 38 (1 skipped; after `terminal-host/build.mjs`, which the recipe assumes), transport 57, all 0 failures. mermaid compiles; not run: needs a running T3 server (`T3_SERVER`) | logs |
 | Repository checks | pass: `cargo build --all-targets --keep-going` 0; `cargo test --lib --bins --tests --no-fail-fast` 0 (3383 passed, 0 failed, 33 ignored); `cargo clippy --all-targets --keep-going -- -D warnings` 0; `cargo fmt --all -- --check` 0; `bun scripts/caps.mjs` 0 (after `git add -A`); `bun scripts/boot.mjs` 0 | logs |
 | macOS app builds | pass: `bun host/apple/build.mjs t3-code-macos` (development, no launch; cargo 126.3 s) | build log |
@@ -126,6 +127,7 @@ Not done or not verified, each with its blocker:
 | 1 (2026-10-08) | `e91fcfc65` | Base reproduced: composer, menus and r5-panels fail to compile (`T3CodexAuth.swift:236:11`); the SIGTERM test fails 5 of 30 full-binary runs, 0 of 20 alone; a scratch copy with the trap delayed 0.3 s fails 3 of 3 | build and loop logs (`target/room`, not committed) | — |
 | 2 (2026-10-08) | `c2c68d287`, `8d9ef03a0`, `b827e78cc` | Composer recipe fixed (composer 51, menus 45, r5-panels 6, codex-auth 6); SIGTERM 30 of 30; `client.test.ts` split. The split's first run failed 1 test (the settings file started without the favicon request made): `beforeAll` connection added, then 100 of 100 | logs | — |
 | 3 (2026-10-08) | merge of `b7761f556` (#262), then the window move | Plan comparisons: identical after renumbering instance numbers (the only way any wrapper can differ); every check row above passes | plan hashes, `plancmp` output | `app.contract` ≈ 1,200 needs X9 |
+| 4 (2026-10-08) | merge of `e784c8fb1` (#261; no `app.contract`, Swift or Rust change) | Plan identical to `e784c8fb1`'s after renumbering; `bun test` 2984/1/0; strict `tsc` clean; caps 0. The Rust checks and AppKit binaries are unaffected by #261 and were not rerun | plan hashes | as above |
 
 ## Next action
 
