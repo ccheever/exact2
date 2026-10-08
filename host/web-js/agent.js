@@ -398,7 +398,19 @@ export function install(exact) {
       }
       case 'tags': return tags();
       // @ref LLP 1080.002 D4 — the ids `tree` gives, where CDP's DOM snapshot reads them, and the document's nonce.
-      case 'axStamp': { all(); for (const [i, el] of views) if (el.isConnected && el.getAttribute('data-agent-view') !== String(i)) el.setAttribute('data-agent-view', i); return { ...tags(), nonce: performance.timeOrigin }; }
+      case 'axStamp': {
+        all(); for (const [i, el] of views) if (el.isConnected && el.getAttribute('data-agent-view') !== String(i)) el.setAttribute('data-agent-view', i);
+        // A hatch's parts, stamped on their bound elements: `tree --ax` joins a part by ownership (LLP 1075.003.000.001 §3.5).
+        const parts = [], bound = new Set();
+        if (exact.hatchRegions) for (const [i, el] of views) for (const p of exact.hatchRegions.of(el)?.parts ?? []) {
+          const at = exact.hatchRegions.part(el, p.id), name = `${i}/${p.id}`;
+          if (!at) continue;
+          if (at.getAttribute('data-agent-part') !== name) at.setAttribute('data-agent-part', name);
+          bound.add(at); parts.push({ node: i, id: p.id });
+        }
+        for (const el of document.querySelectorAll('[data-agent-part]')) if (!bound.has(el)) el.removeAttribute('data-agent-part');
+        return { ...tags(), nonce: performance.timeOrigin, ...(parts.length ? { parts } : {}) };
+      }
       case 'state': {
         const [slots, derives, resources] = names.map((list, k) => Object.fromEntries(list.map((n, i) => [n, typed(exact.state[k][i](), types[k][i])])));
         // What is in flight: the network's by resource, then held device requests.

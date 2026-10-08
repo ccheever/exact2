@@ -550,6 +550,13 @@ export async function nativeSmoke({ host, open, check: record, webDist, shots })
           `${host} native: tree shows a region's declaration and what the host observes of it: ${JSON.stringify(b?.owns)}`);
         check(b?.parts?.length === 1 && part.id === 'seal' && part.role === 'button' && part.label === 'Verified' && part.live === true && part.frame?.w === 12,
           `${host} native: tree lists a part under its node, by id, with its observed frame: ${JSON.stringify(b?.parts)}`);
+        // `tree --ax` joins the part by ownership and says whether the platform's tree exposes it (§3.5).
+        const ax = await d.tree(undefined, { ax: true }).catch((error) => ({ error: error.message }));
+        if (!ax.error && ax.ax && !ax.ax.unavailable) {
+          const listed = ax.ax.coverage?.parts?.find((p) => p.id === 'seal' && p.node === b.id), joined = (ax.ax.elements ?? []).filter((e) => e.part === `${b.id}/seal`);
+          check(listed && (listed.ax === 'exposed') === (joined.length > 0) && (host !== 'web' || listed.ax === 'exposed'),
+            `${host} native: tree --ax joins the seal by ownership and lists it in coverage: ${JSON.stringify(listed)} ${JSON.stringify(joined.map((e) => e.role))} of ${JSON.stringify(ax.ax.coverage?.parts)}`);
+        } else check(host !== 'web', `${host} native: tree --ax answers: ${JSON.stringify(ax.error ?? ax.ax)}`);
         const hs = (await d.state()).hatches;
         check(hs?.owns?.some((o) => o.by === 'element badge' && o.kind === 'view'), `${host} native: state.hatches lists the regions: ${JSON.stringify(hs?.owns)}`);
         // `tap <node>/<part>` reaches the seal as a real pointer event at its place (§3.5): it lands
