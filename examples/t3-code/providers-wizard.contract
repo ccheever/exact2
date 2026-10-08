@@ -288,7 +288,7 @@ component AddProviderDialog
       when signOutOpen
         each auth in wizard.auth key=auth.instanceId
           each account in auth.account key=account.key
-            AppConfirm(title=account.signOutTitle, body=account.signOutBody, destructive=false, busy=setupBusy, cancel=cancelSignOut, confirm=confirmSignOut)
+            AppConfirm(title=account.signOutTitle, body=account.signOutBody, destructive=false, busy=setupBusy, confirmId="wizard-sign-out-confirm", cancel=cancelSignOut, confirm=confirmSignOut)
 
 // A plain-group SettingsRow inside the wizard (title left, control right).
 component WizardRow

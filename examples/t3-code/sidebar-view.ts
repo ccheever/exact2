@@ -66,7 +66,7 @@ export interface SidebarView {
   scopeKey: string; scopeLabel: string; scopeMark: string; scopeInk: string; scopeSurface: string; scopeGlyph: ProjectGlyph; scopes: SidebarScope[];
   scopeOpen: boolean; scopeQuery: string; scopeFirst: string; navigateKind: string; navigateProject: string;
   renameId: string; renameTitle: string; selectionCount: number; undoText: string; undoLabel: string; undoUntil: number;
-  dialog: string; dialogTitle: string; dialogDescription: string; dialogMode: string; dialogDate: string; dialogTime: string; dialogAmount: string; dialogUnit: string; dialogError: string; jumpHints: boolean;
+  dialog: string; dialogTitle: string; dialogDescription: string; dialogMode: string; dialogDate: string; dialogTime: string; dialogAmount: string; dialogUnit: string; dialogError: string; dialogReturn: string; jumpHints: boolean;
   pillKey: string; pillTone: string; pillTitle: string; pillDescription: string; pillDismissible: boolean; sweepEpoch: number;
 }
 
@@ -273,6 +273,7 @@ export function sidebarSnapshot(client: T3Client, now: number, helpers: SidebarH
       undoLabel: shortcutLabel(client, 'thread.undo') ? `${shortcutLabel(client, 'thread.undo')} to undo` : 'Undo',
       dialog: session.dialog.kind, dialogTitle: dialogTitle(session.dialog), dialogDescription: dialogDescription(session.dialog),
       dialogMode: session.dialogMode, dialogDate: session.dialogDate, dialogTime: session.dialogTime, dialogAmount: session.dialogAmount, dialogUnit: session.dialogUnit, dialogError: session.dialogError,
+      dialogReturn: dialogReturn(session.dialog), // dialog-shortcut-focus: Base UI's finalFocus
       jumpHints: hints,
       pillKey: pill?.key ?? '', pillTone: pill?.tone ?? '', pillTitle: pill?.title ?? '', pillDescription: pill?.description ?? '', pillDismissible: pill?.dismissible ?? false,
       sweepEpoch: session.sweepEpoch, // lane r11-upstream (1826fb55cc)
@@ -288,6 +289,11 @@ function dialogTitle(dialog: { kind: string; threadIds: string[]; title: string 
   if (dialog.kind === 'unpin') return `Unpin thread "${dialog.title}"?`;
   if (dialog.kind === 'delete-worktree') return WORKTREE_DIALOG_TITLE;
   return '';
+}
+/** Where a dialog the sidebar opened gives the focus back as it closes (Base UI's finalFocus): its one
+ * thread's row (`sidebar-row.contract`), whose own snooze and menu triggers collapse once the pointer leaves. */
+export function dialogReturn(dialog: { kind: string; threadIds: string[] }): string {
+  return dialog.kind !== '' && dialog.threadIds.length === 1 ? `thread-${dialog.threadIds[0]}` : '';
 }
 function dialogDescription(dialog: { kind: string; threadIds: string[]; title: string }): string {
   if (dialog.kind === 'delete-worktree') return worktreeDialogDescription(dialog.title);

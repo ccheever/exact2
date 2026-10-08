@@ -342,14 +342,14 @@ component UsageKeys
   view
     box position="absolute" left=0 top=0 width=0 height=0 overflow="hidden" testId="usage-keys"
       when not dialog
-        button press=back aria-keyshortcuts="Escape" aria-label="Back" testId="usage-key-back" width=1 height=1 overflow="hidden" padding=0 border-width=0 background-color="#00000000"
+        button press=back aria-keyshortcuts="Escape" aria-label="Back" tabindex=-1 testId="usage-key-back" width=1 height=1 overflow="hidden" padding=0 border-width=0 background-color="#00000000"
           text "Back" font-size=1
       each entry in keys key=entry.id
         when entry.kind == "metric"
-          button press=setMetric(entry.value) aria-keyshortcuts=entry.chord aria-label=entry.label testId=`usage-key-${entry.id}` width=1 height=1 overflow="hidden" padding=0 border-width=0 background-color="#00000000"
+          button press=setMetric(entry.value) aria-keyshortcuts=entry.chord aria-label=entry.label tabindex=-1 testId=`usage-key-${entry.id}` width=1 height=1 overflow="hidden" padding=0 border-width=0 background-color="#00000000"
             text entry.label font-size=1
         when entry.kind == "window" and not limits
-          button press=setWindow(entry.days) aria-keyshortcuts=entry.chord aria-label=entry.label testId=`usage-key-${entry.id}` width=1 height=1 overflow="hidden" padding=0 border-width=0 background-color="#00000000"
+          button press=setWindow(entry.days) aria-keyshortcuts=entry.chord aria-label=entry.label tabindex=-1 testId=`usage-key-${entry.id}` width=1 height=1 overflow="hidden" padding=0 border-width=0 background-color="#00000000"
             text entry.label font-size=1
 
 component UsageSummary
