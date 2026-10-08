@@ -296,7 +296,7 @@ component PaFreshnessMark
       button popovertarget="pr-freshness" aria-label=actions.freshnessSummary testId="pull-request-base-freshness" height="1rem" padding=0 border-width=0 border-radius="0.25rem" background-color="#00000000" gap="0.25rem" display="flex" flex-direction="row" align-items="center" min-width=0 cursor="help"
         when actions.stacked
           PgIcon(name="layers", size=12, color=paWarn())
-        text base font-family="ui-monospace" font-size="0.75rem" line-height="1rem" color=paWarn() white-space="nowrap" overflow="hidden" text-overflow="ellipsis" min-width=0
+        text base font-family="ui-monospace" font-size="0.75rem" line-height="1rem" color=paWarn() white-space="nowrap" overflow="hidden" text-overflow="ellipsis" min-width=0 text-align="left"
         PgIcon(name="triangle-alert", size=14, color=paWarn())
       row id="pr-freshness" popover="auto" position="absolute" padding-top="0.25rem" align-items="flex-start" testId="pr-freshness-layer"
         PaFreshnessCard(actions=actions, scheme=scheme, act=act, testId="pr-freshness-popover")

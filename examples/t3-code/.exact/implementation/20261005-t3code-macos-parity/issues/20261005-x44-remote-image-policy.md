@@ -4,7 +4,7 @@ plan: 20261005-t3code-macos-parity
 status: draft
 kind: framework-gap (unconfirmed)
 blocks: [20261005-provider-settings-upkeep]
-upstream_url: null
+upstream_url: https://github.com/ccheever/exact2/issues/121
 reproduced_on: null
 ---
 
@@ -63,3 +63,9 @@ In `20261005-provider-settings-upkeep`: draw `registryIconUrl` (or the agent-id 
 
 Draft; not reproduced on the pinned `main`; not searched upstream; not published.
 Next: `issue-open` (reproduce, search for duplicates, prepare the report for the user's approval; publication only after approval).
+
+## Rest checked upstream (2026-10-08)
+
+Upstream: the rest (a remote SVG `image` on Apple) reproduced on main `0365ad1a4`: macOS raises `error` "not an image format this host decodes" for a remote SVG and for a bundled `assets/icon.svg` and draws nothing, while Chrome draws both and a remote PNG loads on both. Not filed: open PR https://github.com/ccheever/exact2/pull/239 ("Support efficient SVG image decoding on Apple hosts", not merged) decodes SVG for any `image` source on Apple, remote included. Parent: #121, closed by #177 (load/error, fetch policy documented).
+
+Next: when #239 merges, re-check the remote SVG on macOS and adopt it.
