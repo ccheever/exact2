@@ -337,8 +337,9 @@ fn is_progress(node: &NodeFacts<'_>) -> bool {
 /// A progress's box sized as the kernel's measured leaf: 20 × 20 content,
 /// each axis CSS's where it is given. Size containment (`container-type:
 /// size`) with a `contain-intrinsic-size` is that content, a flex item's
-/// automatic minimum included, and lets the base sheet's ring fill the
-/// content box in container units. Like the kernel's form controls (`item_is_table`), it
+/// automatic minimum included; a grid, so the base sheet's ring (its
+/// `::before`) fills the content box whether or not a height is given
+/// (container units resolve to 0 in an automatic height). Like the kernel's form controls (`item_is_table`), it
 /// keeps that width in block flow, where a `div` would stretch
 /// (`justify-self: start`, as a canvas's), and stretches where the kernel
 /// does: in a flex or grid container, and between an absolute box's insets.
@@ -346,6 +347,9 @@ fn progress_css(node: &NodeFacts<'_>, parent: Option<&NodeFacts<'_>>, css: &mut 
     use exact_kernel::{Display, PositionType};
     let position = node.style.position_type;
     css.push_str("container-type:size;contain-intrinsic-size:20px 20px;");
+    if node.style.display != Display::None {
+        css.push_str("display:grid;");
+    }
     // Sticky is laid out as relative, in flow (kernel `style.rs`).
     let in_flow = matches!(
         position,
@@ -1335,10 +1339,21 @@ mod dataset_tests {
         assert_eq!(get("type"), None, "{out:?}");
         let css = super::host_css_of(&facts, None, String::new(), "div");
         assert!(
-            css.contains("container-type:size;contain-intrinsic-size:20px 20px;"),
+            css.contains("container-type:size;contain-intrinsic-size:20px 20px;display:grid;"),
             "{css}"
         );
         assert!(css.contains("justify-self:start;"), "a block's: {css}");
+        // A hidden one stays hidden: its grid is not written over `none`.
+        let hidden_style = StyleProps {
+            display: exact_kernel::Display::None,
+            ..StyleProps::default()
+        };
+        let hidden = NodeFacts {
+            style: &hidden_style,
+            ..facts
+        };
+        let css = super::host_css_of(&hidden, None, String::new(), "div");
+        assert!(!css.contains("display:grid"), "{css}");
         // In a grid or a flex container it stretches as the kernel's does.
         for display in [exact_kernel::Display::Grid, exact_kernel::Display::Flex] {
             let grid = StyleProps {

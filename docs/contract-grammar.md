@@ -936,8 +936,8 @@ system's colour, as AppKit gives a spinner no tint. Its role is `progressbar`,
 busy (`aria-busy`); name it with `aria-label`. It turns while it shows, and
 stops where it is hidden or gone; under the agent's held clock it shows one
 still frame (on the web, the frame at the agent's time, as every CSS animation;
-Linux paints one still frame always). `value` and `max` (a determinate bar)
-are refused for now, and so are children and `type`.
+Linux paints one still frame always). `value` (a determinate bar) and `max` (that
+bar's) are refused for now, and so are children and `type`.
 
 ```text
 progress aria-label="Loading"

@@ -401,10 +401,10 @@ pub(crate) fn check_progress(
         .iter()
         .find(|a| matches!(a.name.as_str(), "value" | "max" | "type"))
     {
-        let why = if a.name == "type" {
-            "it is always the activity indicator".to_string()
-        } else {
-            format!("a `{}` makes HTML's determinate progress bar, which Exact does not draw yet; without one it is the platform's activity indicator", a.name)
+        let why = match a.name.as_str() {
+            "type" => "it is always the activity indicator",
+            "value" => "a `value` makes HTML's determinate progress bar, which Exact does not draw yet; without one it is the platform's activity indicator",
+            _ => "`max` belongs to HTML's determinate progress bar, which Exact does not draw yet; without a `value` it is the platform's activity indicator",
         };
         return err(
             "lower-attr-tag",
