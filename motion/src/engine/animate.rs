@@ -34,6 +34,10 @@ pub struct AnimationPlay {
     /// engine time it began: it holds the local time it had then, and the
     /// frame moves its start by the wait.
     pub pending: Option<f64>,
+    /// While pending, whether it joined a clock origin that waits for the
+    /// frame too: then the frame gives it the origin's phase (LLP 1003.001
+    /// D8), not a start of its own.
+    pub(crate) clock_wait: bool,
 }
 
 impl AnimationPlay {
@@ -130,6 +134,7 @@ impl Engine {
                         start,
                         hold,
                         dark: prior.dark,
+                        clock_wait: prior.clock_wait && pending.is_some(),
                         pending,
                     }
                 }
@@ -141,6 +146,7 @@ impl Engine {
                         hold: a.paused.then_some(0.0),
                         dark: self.dark_of(node),
                         pending: pend.filter(|_| !a.paused && !bound && !on_clock),
+                        clock_wait: false,
                     }
                 }
             };
@@ -316,6 +322,7 @@ impl Engine {
             hold: None,
             dark,
             pending,
+            clock_wait: false,
         }));
         self.animating.insert(node);
         Ok(now + exit.end_time())

@@ -31,9 +31,6 @@ pub(super) struct Clocks {
     // (LLP 1003.001 D8), each with the time it was set: unchanged until the
     // frame moves it, and every play that joins meanwhile waits with it.
     pending: BTreeMap<String, f64>,
-    // Nodes whose plays joined a waiting origin and still wait: the frame
-    // gives them the origin's phase, not a shift of their own.
-    waiting: BTreeSet<u64>,
 }
 
 /// What of a node joins its clock.
@@ -161,9 +158,7 @@ impl Engine {
                     None => boundary(&play.animation, now, origin),
                 };
                 play.pending = waits.map(|_| now);
-                if waits.is_some() {
-                    self.clocks.waiting.insert(*node);
-                }
+                play.clock_wait = waits.is_some();
                 for p in play.animation.keyframes.properties() {
                     self.dirty.insert((*node, p));
                 }
@@ -208,22 +203,14 @@ impl Engine {
         }
     }
 
-    /// For a node whose waiting plays joined a waiting origin, that origin
-    /// once the frame has started it (a drag-bound node follows its drag
-    /// instead); taken once.
-    pub(super) fn clock_origin(&mut self, node: u64) -> Option<f64> {
+    /// The origin of the clock `node`'s plays are on, once the frame has
+    /// started it (a drag-bound node follows its drag instead).
+    pub(super) fn clock_origin(&self, node: u64) -> Option<f64> {
         let name = self.clocks.of.get(&node)?;
-        if !self.clocks.waiting.contains(&node) || self.clocks.pending.contains_key(name) {
+        if self.clocks.pending.contains_key(name) || self.timeline_bound(node) {
             return None;
         }
-        let origin = self.clocks.origins.get(name).copied();
-        self.clocks.waiting.remove(&node);
-        origin.filter(|_| !self.timeline_bound(node))
-    }
-
-    /// `node` still has plays waiting with a clock's origin.
-    pub(super) fn clocks_wait(&mut self, node: u64) {
-        self.clocks.waiting.insert(node);
+        self.clocks.origins.get(name).copied()
     }
 
     /// Whether a clock's origin waits for the first presented frame.
@@ -248,7 +235,6 @@ impl Engine {
     }
 
     pub(super) fn forget_clock(&mut self, node: u64) {
-        self.clocks.waiting.remove(&node);
         self.clocks.of.remove(&node);
         self.clocks.joining.remove(&node);
     }
