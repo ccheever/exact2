@@ -145,13 +145,17 @@ From exact2 LLP 1069.002 Amendment A1 (2026-10-08): opcode 121
 is `fs.compressImage(from, to, maxDimension, maxBytes)`, answered
 `"width\theight\tsize"`. `src/stdlib/fs_image.rs` admits `fs.write` on `to`
 and `fs.read` on `from` before reading, checks the size by `stat`, reads
-through the app-directory handles, hands the bytes to the embedder's codec
+through `AppDirectories::read_capped` (`app_fs_unix.rs`: a `take` on the
+opened descriptor), hands the bytes to the embedder's codec
 (`Context::set_image_codec`, `task.rs`), and writes its JPEG with the atomic
-write; both paths must be `app:/`. Its deadlines count from the guest's issue
-(`ibex2_async_begin`): the codec starts nothing after `TRIAL_BUDGET` (20 s) and
-nothing is written after `COMMIT_BUDGET` (24 s), inside an embedder's
-`EMBEDDER_WAIT` (30 s). `bindings/storage.d.ts` declares it. Ibex holds no
-codec: without one the op answers `unsupported`.
+write; both paths must be `app:/`. The write holds the call's `CommitGate`,
+its right to write, which `ibex2_async_begin` registers on the guest's
+thread; `Context::abandon_image_work` (`bindings.rs`, `task.rs`), called by
+an embedder that gives up waiting, takes every unwritten call's right away
+and waits for one mid-write, so nothing is written after the guest was told
+the call failed. The codec starts nothing after `TRIAL_BUDGET` (20 s) from
+the job's start. `bindings/storage.d.ts` declares it. Ibex holds no codec:
+without one the op answers `unsupported` before reading.
 
 ### Windows chosen-document EISDIR
 

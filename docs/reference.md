@@ -677,8 +677,11 @@ storage operation in the module's queue, run off the JS thread. A bad option
 rejects with a `TypeError`; otherwise a refusal's `code` is `denied`, a
 filesystem code, `failed` (a path that is not `app:/`), `too-large` (over 64 MiB,
 or a header over 64 Mi pixels, checked before decoding), `undecodable`, `unfit`
-(nothing fits `maxBytes`), `timeout` (20 s) or `unsupported`. macOS and iOS
-encode with ImageIO, the web with a canvas (in the page or the module's worker);
+(nothing fits `maxBytes`), `timeout` (the search's 20 s, or a native wait that
+ran out with nothing written) or `unsupported`. macOS and iOS encode with
+ImageIO (an HDR photo is tone-mapped), the web with a canvas (in the page or the
+module's worker; JPEG, PNG, GIF, WebP and BMP, never HEIF or AVIF, whose size it
+cannot read before decoding);
 Linux, Windows and Android have no JPEG encoder and answer `unsupported`, so
 upload the original when it already fits. Under the agent it runs for real with
 `--storage <name>`.
