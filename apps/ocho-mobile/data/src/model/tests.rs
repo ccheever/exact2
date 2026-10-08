@@ -55,13 +55,17 @@ fn the_relay_saying_the_mac_is_gone_switches_to_a_peer_at_once() {
     m.tick(1_000.0);
     m.poll_request();
     m.poll_done(Ok(answer(1, true)));
-    // The lid closes: the relay answers the next poll "not connected".
-    m.tick(m.poll.next_at);
-    m.poll_request();
-    m.poll_done(Err((
-        502,
-        r#"{"error":"machine is not connected to the relay"}"#.into(),
-    )));
+    // The lid closes: the relay answers the next poll "not connected", and
+    // the quick retry half a second later says it again.
+    for _ in 0..2 {
+        m.tick(m.poll.next_at);
+        m.poll_request();
+        m.poll_done(Err((
+            502,
+            r#"{"error":"machine is not connected to the relay"}"#.into(),
+        )));
+    }
+    assert!(m.now - 1_000.0 <= 3_000.0, "{}", m.now);
     let probe = m.probe_request().expect("a peer is tried at once");
     assert!(probe.ends_with("/m/redwood/api/health"));
     m.probe_done(true);
@@ -98,9 +102,11 @@ fn a_mac_that_keeps_dropping_must_hold_longer_before_the_phone_goes_back() {
     let mut looks_to_return = Vec::new();
     for _ in 0..3 {
         // Home drops: the phone moves to the peer.
-        m.tick(m.poll.next_at.max(m.now));
-        m.poll_request();
-        m.poll_done(gone());
+        for _ in 0..2 {
+            m.tick(m.poll.next_at.max(m.now));
+            m.poll_request();
+            m.poll_done(gone());
+        }
         m.probe_request().expect("a peer is tried");
         m.probe_done(true);
         assert_eq!(m.via, "redwood");
@@ -135,9 +141,11 @@ fn a_dropped_mid_request_counts_as_gone() {
     m.tick(1_000.0);
     m.poll_request();
     m.poll_done(Ok(answer(1, true)));
-    m.tick(m.poll.next_at);
-    m.poll_request();
-    m.poll_done(Err((502, r#"{"error":"machine disconnected"}"#.into())));
+    for _ in 0..2 {
+        m.tick(m.poll.next_at);
+        m.poll_request();
+        m.poll_done(Err((502, r#"{"error":"machine disconnected"}"#.into())));
+    }
     assert!(m.probe_request().is_some());
 }
 
@@ -1246,4 +1254,84 @@ fn a_working_codex_reply_streams_into_the_conversation() {
     assert!(m.streaming_text().is_none());
     m.tick(m.now + 800.0);
     assert!(m.stream_request().is_none(), "nothing more to stream");
+}
+
+#[test]
+fn a_message_read_back_behind_a_stray_terminal_reply_still_echoes() {
+    let sent = "Yes I am expecting it to be paid only, that’s fine.";
+    assert!(send::echoes(sent, sent));
+    assert!(
+        send::echoes(&format!("2;35R{sent}"), sent),
+        "cursor report leaked in front"
+    );
+    assert!(
+        !send::echoes(&format!("earlier words {sent}"), sent),
+        "another message"
+    );
+    assert!(!send::echoes("2;35R", ""), "nothing sent");
+}
+
+#[test]
+fn a_failover_queued_in_the_background_is_dropped_once_home_answers() {
+    let mut m = paired();
+    m.page(true);
+    m.tick(1_000.0);
+    m.poll_request();
+    m.poll_done(Ok(answer(1, true)));
+    m.page(false);
+    // Suspended: polls fail until a look for a peer is under way.
+    while m.probe_queue.is_empty() && !m.probe.inflight {
+        m.tick(m.poll.next_at);
+        m.poll_request();
+        m.poll_done(Err((0, "The network connection was lost.".into())));
+    }
+    let probing = m.probe_request().is_some();
+    // Back in the foreground, home answers before the probe does.
+    m.page(true);
+    m.tick(m.now + 100.0);
+    m.poll_request();
+    m.poll_done(Ok(answer(2, true)));
+    if probing {
+        m.probe_done(true);
+    }
+    assert_eq!(m.via, "mac", "stays on the machine that answers");
+    assert!(m.probe_request().is_none(), "nothing left to look for");
+}
+
+#[test]
+fn a_relay_handover_neither_moves_the_phone_nor_shows() {
+    let mut m = paired();
+    m.tick(1_000.0);
+    m.poll_request();
+    m.poll_done(Ok(answer(1, true)));
+    // The Mac's relay connection is replaced: one poll hears "not connected".
+    m.tick(m.poll.next_at);
+    m.poll_request();
+    m.poll_done(Err((
+        502,
+        r#"{"error":"machine is not connected to the relay"}"#.into(),
+    )));
+    assert!(m.probe_request().is_none(), "no look elsewhere yet");
+    assert!(!m.unreachable(), "and nothing said");
+    assert_eq!(m.poll.next_at - m.now, FIRST_RETRY_MS, "retried quickly");
+    m.tick(m.poll.next_at);
+    m.poll_request();
+    m.poll_done(Ok(answer(2, true)));
+    assert_eq!(m.via, "mac");
+    assert!(!m.unreachable());
+}
+
+#[test]
+fn polls_failing_for_a_while_say_so() {
+    let mut m = paired();
+    m.tick(1_000.0);
+    m.poll_request();
+    m.poll_done(Ok(answer(1, true)));
+    while m.now < 1_000.0 + UNREACHABLE_AFTER_MS + 2_000.0 {
+        m.tick(m.poll.next_at.max(m.now + 1_000.0));
+        if m.poll_request().is_some() {
+            m.poll_done(Err((0, "The request timed out.".into())));
+        }
+    }
+    assert!(m.unreachable());
 }

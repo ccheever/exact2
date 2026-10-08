@@ -67,6 +67,10 @@ pub const KEY_DESKTOP: &str = "ocho.desktop";
 pub const KEY_DRAFTS: &str = "ocho.drafts";
 
 const FAILURES_BEFORE_FAILOVER: u32 = 3;
+/// The retry after a first failure.
+const FIRST_RETRY_MS: f64 = 500.0;
+/// How long polls fail before the phone says the machine can't be reached.
+const UNREACHABLE_AFTER_MS: f64 = 5_000.0;
 /// How long the Mac must be unreachable before a peer answers instead: an
 /// update or relaunch of the desktop restarts `fleet serve`, which is off the
 /// relay for a few seconds, and that is not the laptop closing.
@@ -338,6 +342,8 @@ pub struct Model {
     pub drafts: HashMap<String, String>,
     /// When the current run of failed polls began (ms), for recovery time.
     failing_since: f64,
+    /// The view has been told the machine can't be reached.
+    shown_unreachable: bool,
     /// A stall (no answer for a while) was reported and not yet over.
     stall_reported: bool,
 
@@ -515,6 +521,10 @@ impl Model {
                 vec![("quiet_s", quiet.into()), ("inflight", inflight.into())],
             );
         }
+        if self.unreachable() && !self.shown_unreachable {
+            self.shown_unreachable = true;
+            self.version += 1;
+        }
         if !self.fresh && !self.expired && !self.trusted() {
             // The grace ran out: sessions grey now, not at the next event.
             self.expired = true;
@@ -571,6 +581,11 @@ impl Model {
                 lane.next_at = 0.0;
             }
             self.transcript_key = None;
+            // Probes queued while suspended were for a poll that failed
+            // there; the fresh poll decides whether to look elsewhere.
+            if !self.home_check {
+                self.probe_queue.clear();
+            }
             self.reads.inflight = false;
             if !self.reads_out.is_empty() {
                 let out = std::mem::take(&mut self.reads_out);
@@ -847,6 +862,12 @@ impl Model {
         self.version += 1;
     }
 
+    /// Whether to say the machine can't be reached: only once polls have
+    /// failed for a while, so a blip the next retry covers never shows.
+    pub fn unreachable(&self) -> bool {
+        !self.fresh && self.now - self.failing_since >= UNREACHABLE_AFTER_MS
+    }
+
     /// How long since the server answered (ms); 0 before it ever has.
     pub fn since_answer(&self) -> f64 {
         if self.fleet.is_none() {
@@ -927,7 +948,6 @@ impl Model {
             }
             None => {
                 if self.poll.failures == 0 {
-                    self.failing_since = self.now;
                     let mut attrs = vec![("kind", kind.into()), ("status", status.into())];
                     // The platform's own words (never the app's content).
                     if status == 0 {
@@ -943,9 +963,14 @@ impl Model {
                 self.poll_failed();
                 // The relay itself says the machine is gone (asleep, quit, or
                 // its connection just dropped): no reason to wait out the
-                // retries for a peer; look for one now. A timeout or a
-                // dropped request could be the network, so it still waits.
-                if kind == "not_connected" && self.via_is_definitely_gone() {
+                // retries for a peer; look for one once the quick retry says
+                // so too (the relay passing a reconnecting machine over says
+                // it once). A timeout or a dropped request could be the
+                // network, so it still waits.
+                if kind == "not_connected"
+                    && self.poll.failures >= 2
+                    && self.via_is_definitely_gone()
+                {
                     self.begin_failover();
                 }
             }
@@ -958,13 +983,22 @@ impl Model {
     }
 
     fn poll_failed(&mut self) {
+        if self.poll.failures == 0 {
+            self.failing_since = self.now;
+        }
         self.poll.failures += 1;
-        let backoff = (1u64 << self.poll.failures.min(5)) as f64 * 1000.0;
+        // The first retry is quick: most failures are the relay passing a
+        // machine's connection over, which takes a second or two.
+        let backoff = match self.poll.failures {
+            1 => FIRST_RETRY_MS,
+            n => (1u64 << n.min(5)) as f64 * 1000.0,
+        };
         self.poll.next_at = self.now + backoff.min(30_000.0);
-        if self.fresh || self.poll.failures == FAILURES_BEFORE_FAILOVER {
+        if self.poll.failures == FAILURES_BEFORE_FAILOVER {
             self.version += 1;
         }
         self.fresh = false;
+        self.shown_unreachable = false;
         if self.failover_due() {
             self.begin_failover();
         }
@@ -1102,7 +1136,10 @@ impl Model {
         }
         let target = std::mem::take(&mut self.probe_target);
         self.probe_queue.clear();
-        if target == self.via && self.fresh {
+        // A failover asked for while the poll failed (often in the
+        // background, where iOS starves it) is moot once the machine in use
+        // answers again: staying is never worse than moving.
+        if self.fresh && (target == self.via || !home_check) {
             return;
         }
         // While a peer answers, home must answer a few looks in a row before

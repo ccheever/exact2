@@ -392,11 +392,16 @@ pub fn split_files(text: &str) -> (String, String) {
 
 /// Whether a transcript's user entry is `sent` read back. Attached files come
 /// back as the agent shows them (`[Image #1]`, its own path), so a message
-/// with files matches on its words.
+/// with files matches on its words. A terminal can put a stray reply in
+/// front of what was pasted (a cursor report losing its escape, `2;35R`),
+/// so a short unbroken prefix before the whole message still matches.
 pub fn echoes(entry: &str, sent: &str) -> bool {
     let (words, files) = split_files(sent);
     if files.is_empty() {
-        entry.trim() == sent.trim()
+        let (entry, sent) = (entry.trim(), sent.trim());
+        entry.strip_suffix(sent).is_some_and(|junk| {
+            !sent.is_empty() && junk.len() <= 16 && !junk.contains(char::is_whitespace)
+        })
     } else {
         entry.contains(words.trim())
     }

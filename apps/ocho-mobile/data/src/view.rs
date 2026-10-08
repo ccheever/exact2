@@ -105,7 +105,7 @@ fn connection_line(m: &Model) -> (String, bool) {
             (format!("Connecting to {home}…"), false)
         };
     }
-    if !m.fresh {
+    if m.unreachable() {
         return (
             format!("Can't reach {home} — showing the last update"),
             true,
