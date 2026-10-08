@@ -1,0 +1,63 @@
+# X65 record: a press on a scroll's empty area reaches no node (macOS)
+exact2 main b896050d78508aa5cea10cfa875e02037fde4c6e (2026-10-08); macOS 26.6.2 (25G83), Apple Silicon; web: Chrome 154.0.8037.98 (the agent's); agent mode only (no real input); every tap below is a platform click (delivery: platform)
+
+## app.contract (bun scripts/exact.mjs new <dir>; app.ts has no sources)
+component X65app
+  state outer = 0
+  state port = 0
+  action downOuter(e: PointerEvent)
+    outer = outer + 1
+  action downPort(e: PointerEvent)
+    port = port + 1
+  view
+    row width="100%" height="100%" gap=16 padding=16 box-sizing="border-box" background-color="#ffffff" color="#111111"
+      // A: only an ancestor of the scroll hears pointerdown (the clone's Usage page)
+      column testId="outer" width=200 height=240 pointerdown=downOuter border-width=1 border-style="solid" border-color="#999999"
+        text `outer ${outer}` testId="count-a"
+        scroll testId="port-a" flex=1 min-height=0 width="100%" background-color="#eef2ff"
+          box testId="content-a" height=60 width="100%" background-color="#cccccc"
+      // B: the scroll itself hears pointerdown
+      column width=200 height=240 border-width=1 border-style="solid" border-color="#999999"
+        text `port ${port}` testId="count-b"
+        scroll testId="port-b" flex=1 min-height=0 width="100%" pointerdown=downPort background-color="#eef2ff"
+          box testId="content-b" height=60 width="100%" background-color="#cccccc"
+
+## The ops (both hosts)
+"tap content-a clicks 1" "tap port-a clicks 1 at 100 150" "tap content-b clicks 1" "tap port-b clicks 1 at 100 150" "clock settle" tree "screenshot <png>"
+(at 100 150 is in each port below its 60-pt content: each port is 200 x 222 pt)
+
+## macOS: bun exact.mjs mac; bun exact.mjs agent macos --size 480x300 <ops>
+{"delivery":"platform","tapped":5,"at":[117,65],"target":"content-a","carrier":"macos","mode":"agent","epoch":2,"incarnation":1,"clock":0}
+{"tapped":4,"delivery":"platform","at":[100,150],"target":"port-a","carrier":"macos","mode":"agent","epoch":2,"incarnation":1,"clock":0}
+{"tapped":9,"delivery":"platform","at":[335,65],"target":"content-b","carrier":"macos","mode":"agent","epoch":3,"incarnation":1,"clock":0}
+{"delivery":"platform","at":[100,150],"tapped":8,"target":"port-b","carrier":"macos","mode":"agent","epoch":3,"incarnation":1,"clock":0}
+{"clock":0,"incarnation":1,"settled":true,"epoch":3}
+epoch 3 · incarnation 1 · clock 0 ms · 9 nodes
+View#1
+  View#2 [outer] (pointerdown)
+    Text#3 [count-a] "outer 1"
+    ScrollView#4 [port-a]
+      View#5 [content-a]
+  View#6
+    Text#7 [count-b] "port 1"
+    ScrollView#8 [port-b] (pointerdown)
+      View#9 [content-b]
+{"screenshot":"/private/tmp/claude-501/-Users-daehyeonmun-orca-workspaces-exact2-t3-code/9d293baa-3a94-4e6f-a91c-a64f957a461f/scratchpad/file-x48-x68/x65app/.exact/x65-macos.png","clock":0,"epoch":3,"incarnation":1,"h":300,"w":480}
+
+## web: bun exact.mjs agent web --size 480x300 <ops>
+{"at":[117,65],"tapped":5,"target":"content-a","delivery":"platform","carrier":"web","mode":"agent","clock":0,"epoch":2,"incarnation":1}
+{"at":[117,185],"tapped":4,"target":"port-a","delivery":"platform","carrier":"web","mode":"agent","clock":0,"epoch":3,"incarnation":1}
+{"at":[335,65],"tapped":9,"target":"content-b","delivery":"platform","carrier":"web","mode":"agent","clock":0,"epoch":4,"incarnation":1}
+{"at":[335,185],"tapped":8,"target":"port-b","delivery":"platform","carrier":"web","mode":"agent","clock":0,"epoch":5,"incarnation":1}
+{"clock":0,"settled":true}
+epoch 5 · incarnation 1 · clock 0 ms · 9 nodes
+View#1
+  View#2 [outer] (pointerdown)
+    Text#3 [count-a] "outer 2"
+    ScrollView#4 [port-a]
+      View#5 [content-a]
+  View#6
+    Text#7 [count-b] "port 2"
+    ScrollView#8 [port-b] (pointerdown)
+      View#9 [content-b]
+{"clock":0,"epoch":5,"incarnation":1,"screenshot":"/private/tmp/claude-501/-Users-daehyeonmun-orca-workspaces-exact2-t3-code/9d293baa-3a94-4e6f-a91c-a64f957a461f/scratchpad/file-x48-x68/x65app/.exact/x65-web.png","w":480,"h":300}
