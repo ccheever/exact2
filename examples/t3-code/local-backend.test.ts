@@ -1,6 +1,7 @@
 // 20261005-embedded-server-runtime: the TypeScript side of the embedded server's status.
 import { describe, expect, test } from 'bun:test';
 import { parseLocalBackendStatus, readLocalBackend, unknownLocalBackend } from './local-backend';
+import { CLIENT_VERSION } from './version-skew';
 
 describe('local backend status', () => {
   test('reads a ready server', () => {
@@ -40,5 +41,17 @@ describe('local backend status', () => {
   test('a failed read is the empty status', async () => {
     const native = { available: true, watch: () => {}, later: async () => ({ ok: false, generation: 0, error: { kind: 'x', message: 'no', uncertain: false } }) };
     expect(await readLocalBackend(native)).toEqual(unknownLocalBackend());
+  });
+});
+
+describe('desktop-settings.json (decision U7, T3DesktopSettings.swift)', () => {
+  test('the native side picks the default update channel from the version this client mirrors', async () => {
+    const swift = await Bun.file(new URL('./modules/apple/T3DesktopSettings.swift', import.meta.url)).text();
+    expect(/static let appVersion = "([^"]+)"/.exec(swift)?.[1]).toBe(CLIENT_VERSION);
+  });
+  test('the status carries the four keys; anything missing is the default', () => {
+    expect(parseLocalBackendStatus({ desktopSettings: { localEnvironmentEnabled: false, serverExposureMode: 'network-accessible', tailscaleServeEnabled: true, tailscaleServePort: 8443 } }).settings)
+      .toEqual({ localEnvironmentEnabled: false, serverExposureMode: 'network-accessible', tailscaleServeEnabled: true, tailscaleServePort: 8443 });
+    expect(parseLocalBackendStatus({}).settings).toEqual({ localEnvironmentEnabled: true, serverExposureMode: 'local-only', tailscaleServeEnabled: false, tailscaleServePort: 443 });
   });
 });
