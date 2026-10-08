@@ -1,0 +1,37 @@
+app-developer-tools: Safari Develop menu check, real-input session 2 (2026-10-08; the user approved turning Safari's web
+developer features on for the check and off afterwards)
+
+Lane copies built at caf50cab9 (the gate this PR ships): "T3 Code (Lane Devtools).app" (bundle id
+com.exact.t3code.macos.lanedevtools.dev, a development build) and "T3 Code (Lane Devtools Packaged).app"
+(com.exact.t3code.macos.lanedevtools, the same bundle plus Contents/Resources/distribution.json {"flavor":"packaged"}),
+both ad-hoc re-signed. Launched with `open -n -a … --stdout/--stderr <lane>/…` and
+--env PATH=<lane>/bin:/usr/bin:/bin:/usr/sbin:/sbin, HOME/TMPDIR/CODEX_HOME/CLAUDE_CONFIG_DIR/XDG_* under the lane,
+SHELL=/bin/sh, T3CODE_TELEMETRY_ENABLED=false; development: T3_LOCAL_HOME=<lane>/t3-home-dev, T3_LOCAL_PORT=16401,
+T3_LOCAL_RUNTIME_DIR; release copy: T3CODE_HOME=<lane>/t3-home-packaged, T3CODE_PORT=16402 (homes copied from the seed).
+
+20:27:16 KST lock taken (owner "app-developer-tools: Safari Develop menu check …"); screen unlocked (no
+             CGSSessionScreenIsLocked key).
+20:27       Safari was already running (pid 37388, started 20:25:45 by someone else) and its menu bar already had
+             Develop; Settings > Advanced showed "Show features for web developers" checked (Value: 1). Nothing to turn on.
+             Screenshot 11 (left).
+20:27:45    development copy launched, pid 44391; 20:27:58 release copy launched, pid 45167.
+20:28:58    development copy: real click on the header's terminal toggle (window 210200, point 1220,26). Read back: the
+             drawer shows `sh-3.2$`; <lane>/dev.err:
+             t3.inspection: terminal web view isInspectable=true (development build)
+20:29       release copy: the coordinate clicks were refused by the driver (window_not_focused), the AX press of
+             "Toggle terminal drawer" (element 18) reported the same, yet the drawer opened. Read back: `sh-3.2$` in its
+             window and <lane>/packaged.err:
+             t3.inspection: terminal web view isInspectable=false (release build)
+20:30:05    Safari > Develop > "Daehyeon's MacBook Pro / macOS 26.6.2" submenu, read by System Events:
+             "T3 Code (Lane Devtools)", "host — terminal-host.html"
+             (the release copy, running with its terminal open, is not listed; the other Develop entries are this Mac's
+             simulators). The menu opened on screen and captured at 20:30:15 (09).
+20:30:3x    A macOS prompt "“T3 Code (Lane Devtools)” would like to access files in your Documents folder" (the lane
+             copy's own request, UserNotificationCenter) was answered Don't Allow; read back: no prompt window left.
+20:31:19    Settings > Advanced: "Show features for web developers" unchecked through its checkbox; read back Value: 0
+             and the menu bar without Develop (Apple, Safari, File, Edit, View, History, Bookmarks, Window, Help).
+             Screenshot 11 (right).
+20:31:29    Safari quit (as instructed); both lane copies quit by Apple Event to their bundle ids; pids 44391 and 45167
+             gone; no lane server left.
+20:31:34    lock released. Lane copies' preference plists removed (defaults delete). ~/.t3 untouched (mtimes 2026-10-05
+             and 2026-10-07), port 3773 not used.
