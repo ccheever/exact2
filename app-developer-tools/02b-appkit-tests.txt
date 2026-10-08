@@ -1,0 +1,104 @@
+app-developer-tools: AppKit binaries after aligning with main #309 (commit caf50cab9; README recipe, target/devtools/apptest.sh), 2026-10-08T19:51:13+0900.
+r6-media now runs 4 WebInspectionTests (testTheReceiptMarksProductionAndDistributedBundles added). mermaid: unchanged since 02 (10 checks against a lane server; its web view goes through the same mark()).
+
+== build r6-media
+== run r6-media
+Test Case '-[T3r6mediaTests.MediaPreviewTests testFailedLoadSaysSo]' passed (0.109 seconds).
+t3.inspection: html-preview web view isInspectable=true (development build)
+Test Case '-[T3r6mediaTests.MediaPreviewTests testHtmlRunsInTheReferenceSandbox]' passed (1.719 seconds).
+Test Case '-[T3r6mediaTests.MediaPreviewTests testPdfFitsTheWidthOnTheViewerSurface]' passed (0.070 seconds).
+Test Case '-[T3r6mediaTests.MediaPreviewTests testRefusesAnythingButASignedAssetRoute]' passed (0.007 seconds).
+t3.inspection: html-preview web view isInspectable=true (development build)
+Test Case '-[T3r6mediaTests.MediaPreviewTests testSiblingAssetsLoadThroughTheTokenDirectory]' passed (1.173 seconds).
+	 Executed 5 tests, with 0 failures (0 unexpected) in 3.079 (3.080) seconds
+t3.inspection: terminal web view isInspectable=true (development build)
+t3.inspection: html-preview web view isInspectable=true (development build)
+t3.inspection: mermaid web view isInspectable=true (development build)
+Test Case '-[T3r6mediaTests.WebInspectionTests testEveryWebViewTheModuleCreatesFollowsTheBuild]' passed (0.033 seconds).
+t3.inspection: test web view isInspectable=true (development build)
+t3.inspection: test web view isInspectable=false (release build)
+Test Case '-[T3r6mediaTests.WebInspectionTests testMarkSetsAndClearsTheFlag]' passed (0.007 seconds).
+Test Case '-[T3r6mediaTests.WebInspectionTests testThePackagedFlavorIsTheReleaseLine]' passed (0.002 seconds).
+Test Case '-[T3r6mediaTests.WebInspectionTests testTheReceiptMarksProductionAndDistributedBundles]' passed (0.002 seconds).
+	 Executed 4 tests, with 0 failures (0 unexpected) in 0.045 (0.045) seconds
+	 Executed 9 tests, with 0 failures (0 unexpected) in 3.123 (3.125) seconds
+Executed 9 tests, with 0 failures
+== build terminal
+== run terminal
+t3.inspection: terminal web view isInspectable=true (development build)
+Test Case '-[T3terminalTests.TerminalSurfaceTests testCompositionCommitsOnce]' passed (0.562 seconds).
+<worktree>/examples/t3-code/macos/tests/terminal/main.swift:363: -[T3terminalTests.TerminalSurfaceTests testCostByViewCount] : Test skipped - set T3_TERMINAL_SCALE=1
+Test Case '-[T3terminalTests.TerminalSurfaceTests testCostByViewCount]' skipped (0.012 seconds).
+t3.inspection: terminal web view isInspectable=true (development build)
+t3.inspection: terminal web view isInspectable=true (development build)
+Test Case '-[T3terminalTests.TerminalSurfaceTests testEvidencePictures]' passed (0.984 seconds).
+t3.inspection: terminal web view isInspectable=true (development build)
+Test Case '-[T3terminalTests.TerminalSurfaceTests testFloodArrivesWhole]' passed (0.323 seconds).
+t3.inspection: terminal web view isInspectable=true (development build)
+Test Case '-[T3terminalTests.TerminalSurfaceTests testHiddenKeepsParsing]' passed (0.239 seconds).
+t3.inspection: terminal web view isInspectable=true (development build)
+Test Case '-[T3terminalTests.TerminalSurfaceTests testHostPaste]' passed (0.158 seconds).
+t3.inspection: terminal web view isInspectable=true (development build)
+Test Case '-[T3terminalTests.TerminalSurfaceTests testKeysReachThePageOrTheApp]' passed (0.287 seconds).
+t3.inspection: terminal web view isInspectable=true (development build)
+Test Case '-[T3terminalTests.TerminalSurfaceTests testLoadsOfflineAndRendersHarnessBytes]' passed (0.320 seconds).
+t3.inspection: terminal web view isInspectable=true (development build)
+Test Case '-[T3terminalTests.TerminalSurfaceTests testNativePasteShortcutsPreserveUnicodeBracketsAndLaterInputAndOutput]' passed (0.259 seconds).
+t3.inspection: terminal web view isInspectable=true (development build)
+Test Case '-[T3terminalTests.TerminalSurfaceTests testThemeChangesPreserveOutputAndResizeFont]' passed (0.807 seconds).
+	 Executed 10 tests, with 1 test skipped and 0 failures (0 unexpected) in 3.951 (3.952) seconds
+t3.inspection: terminal web view isInspectable=true (development build)
+Test Case '-[T3terminalTests.TerminalDrawerTests testAddToChatDoesNotForwardSelectionClearOrFocusAsAnotherCommand]' passed (0.126 seconds).
+t3.inspection: terminal web view isInspectable=true (development build)
+t3.inspection: terminal web view isInspectable=true (development build)
+Test Case '-[T3terminalTests.TerminalDrawerTests testAMountedThreadKeepsItsSessionWithoutAViewAndAnUnmountedOneLetsGo]' passed (0.344 seconds).
+t3.inspection: terminal web view isInspectable=true (development build)
+Test Case '-[T3terminalTests.TerminalDrawerTests testASessionViewShowsTheBufferWritesErrorsAndReportsTheExitOnce]' passed (0.496 seconds).
+Test Case '-[T3terminalTests.TerminalDrawerTests testAttachEventsFoldAsTheReferenceReducer]' passed (0.006 seconds).
+t3.inspection: terminal web view isInspectable=true (development build)
+Test Case '-[T3terminalTests.TerminalDrawerTests testLoadingTerminalDoesNotStealComposerFocus]' passed (0.310 seconds).
+t3.inspection: terminal web view isInspectable=true (development build)
+Test Case '-[T3terminalTests.TerminalDrawerTests testMountFocusPublishesAfterTheContractListenerIsInstalled]' passed (0.046 seconds).
+t3.inspection: terminal web view isInspectable=true (development build)
+Test Case '-[T3terminalTests.TerminalDrawerTests testNativeFocusAndConfiguredCommandsKeepPaneIdentityAndBlockRepeatedClose]' passed (0.066 seconds).
+t3.inspection: terminal web view isInspectable=true (development build)
+Test Case '-[T3terminalTests.TerminalDrawerTests testOpeningTerminalFocusesItBeforeAndAfterLoading]' passed (0.107 seconds).
+Test Case '-[T3terminalTests.TerminalDrawerTests testOutputBufferMatchesTheSharedVectors]' passed (0.084 seconds).
+t3.inspection: terminal web view isInspectable=true (development build)
+Test Case '-[T3terminalTests.TerminalDrawerTests testProviderAuthEscapeReachesItsPTYWithoutDismissingTheForm]' passed (0.105 seconds).
+t3.inspection: terminal web view isInspectable=true (development build)
+Test Case '-[T3terminalTests.TerminalDrawerTests testProviderAuthOutputOffsetsInputReadonlyAndTabTraversal]' passed (0.455 seconds).
+t3.inspection: terminal web view isInspectable=true (development build)
+Test Case '-[T3terminalTests.TerminalDrawerTests testProviderAuthTabWaitsForHostKeyLoopWithoutDoubleTraversal]' passed (0.205 seconds).
+t3.inspection: terminal web view isInspectable=true (development build)
+Test Case '-[T3terminalTests.TerminalDrawerTests testReadyRepublishesFocusWhenTheHostDroppedTheMountFact]' passed (0.107 seconds).
+t3.inspection: terminal web view isInspectable=true (development build)
+Test Case '-[T3terminalTests.TerminalDrawerTests testTerminalNativeTextInputPreventsComposerTypeToFocus]' passed (0.026 seconds).
+t3.inspection: terminal web view isInspectable=true (development build)
+Test Case '-[T3terminalTests.TerminalDrawerTests testTerminalReadlineKeysSendTheReferenceBytesWithoutMenuDispatch]' passed (0.024 seconds).
+t3.inspection: terminal web view isInspectable=true (development build)
+Test Case '-[T3terminalTests.TerminalDrawerTests testTerminalSelectionMenusCaptureLinesAndSupersededActionsStaySilent]' passed (0.025 seconds).
+t3.inspection: terminal web view isInspectable=true (development build)
+Test Case '-[T3terminalTests.TerminalDrawerTests testTheStatusOfShownTerminalsIsJSON]' passed (0.326 seconds).
+	 Executed 17 tests, with 0 failures (0 unexpected) in 2.858 (2.860) seconds
+Test Case '-[T3terminalTests.TerminalAuthTests testReadOnlyAndUnmountDropPendingDataAndSize]' passed (0.001 seconds).
+Test Case '-[T3terminalTests.TerminalAuthTests testReplacementIgnoresOldReplyAndUsesCurrentIdentity]' passed (0.001 seconds).
+Test Case '-[T3terminalTests.TerminalAuthTests testSecondSliceFailureClearsRemainingAndSuccessfulInputRecovers]' passed (0.001 seconds).
+Test Case '-[T3terminalTests.TerminalAuthTests testSerialChunksKeepUTF16AndResize]' passed (0.001 seconds).
+Test Case '-[T3terminalTests.TerminalAuthTests testUnicodePairIsNotSplit]' passed (0.000 seconds).
+	 Executed 5 tests, with 0 failures (0 unexpected) in 0.003 (0.003) seconds
+t3.inspection: terminal web view isInspectable=true (development build)
+Test Case '-[T3terminalTests.TerminalPointerTests testClickAndMetaClickActivateALink]' passed (0.249 seconds).
+t3.inspection: terminal web view isInspectable=true (development build)
+Test Case '-[T3terminalTests.TerminalPointerTests testDoubleAndTripleClickSelectWordAndLine]' passed (1.011 seconds).
+t3.inspection: terminal web view isInspectable=true (development build)
+Test Case '-[T3terminalTests.TerminalPointerTests testDragSelectsText]' passed (0.198 seconds).
+t3.inspection: terminal web view isInspectable=true (development build)
+Test Case '-[T3terminalTests.TerminalPointerTests testRightClickReportsTheContextMenu]' passed (0.194 seconds).
+t3.inspection: terminal web view isInspectable=true (development build)
+Test Case '-[T3terminalTests.TerminalPointerTests testScrollbarThumbDragScrollsBack]' passed (0.320 seconds).
+t3.inspection: terminal web view isInspectable=true (development build)
+Test Case '-[T3terminalTests.TerminalPointerTests testWheelScrollsTheScrollback]' passed (0.271 seconds).
+	 Executed 6 tests, with 0 failures (0 unexpected) in 2.243 (2.244) seconds
+	 Executed 38 tests, with 1 test skipped and 0 failures (0 unexpected) in 9.055 (9.059) seconds
+Executed 38 tests, with 0 failures
