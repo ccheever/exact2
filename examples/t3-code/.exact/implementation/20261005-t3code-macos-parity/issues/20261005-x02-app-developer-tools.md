@@ -113,5 +113,5 @@ command."
 - Main [#309](https://github.com/ccheever/exact2/pull/309) (merged to main on 2026-10-08 as `f2f0e7092`; not in the T3 branch until a main-adoption round) is the main-side half: Exact's `iframe` web views,
   inspectable from the development web arm only (left out for production trust, `exact release` and IPA archives). It
   does not cover the clone's own web views; #326 follows its release line, and adopting #309 needs no clone change.
-- Left: Safari's Develop menu read back by a person (the real-input batch, `app-developer-tools` record). Safari's web developer
-  features were off on this Mac (2026-10-08) and wait for the user's approval.
+- Verified 2026-10-08 with real input (user-approved Safari setting, off again afterwards): Safari's Develop menu lists the
+  development copy's terminal page and not the release copy (`app-developer-tools` record, evidence 09–12).
