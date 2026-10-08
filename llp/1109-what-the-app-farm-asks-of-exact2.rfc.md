@@ -1,7 +1,7 @@
 # LLP 1109: What the app farm asks of Exact2 — the decisions left after round 1
 
 **Type:** RFC (a decision brief: each item proposes, Charlie decides)
-**Status:** Draft, 2026-10-08; Charlie's first rulings recorded in §R (D2 ruled; D1 and D3 leaning). Not reviewed.
+**Status:** Accepted, 2026-10-08: every question ruled by Charlie (§R). D1 and D3 are being implemented; D2 is "no change".
 **Systems:** Contract's `now()` (the roster, the runner's clock and every host's clock origin, the JS target's runtime, the Lean semantics and `contract-difftest`); the data seam's answer check (`host/web-js/ts-data.js`, `js/src/lib.rs`, `js/web/src/lib.rs`, the runner's `conform`); `failed(x)`; the agent driver and authored tests (`scripts/agent.mjs`, `scripts/agent-test.mjs`)
 **Author:** Claude (Opus 5.5) for Charlie Cheever
 **Date:** 2026-10-08
@@ -10,12 +10,29 @@
 
 ## R. Rulings (Charlie, 2026-10-08)
 
-- **D1:** leans **(c)**, rename `now()` to `elapsed()` with a refusal that
-  names the repair, over (b). Not yet ruled: confirm before a lane starts.
-- **D2:** **(a)**, keep refusing, loudly, for now; revisit with round 2's
-  numbers.
-- **D3:** inclined to add `failure(x)` if it has no real downside; the
-  downsides and a proposed shape go back to Charlie before a lane starts.
+- **D1: (c), and the name is `performanceNow()`.** `now()` is deleted,
+  not deprecated; writing it is a compile error whose message gives both
+  repairs in one sentence: `performanceNow()` for durations and timers,
+  `time.epochAtZero + performanceNow()` for the date. Every app, test,
+  conformance case, the Lean semantics, difftest's corpus, the docs and
+  `exact new`'s templates move to the new name. The name was chosen after
+  asking GPT-6 Astra (xhigh) and Grok 4.7 (xhigh) blind, with one brief:
+  both picked `performanceNow()` over `elapsed()` (88% and 72%), because
+  it is `performance.now()`, which agents already know as milliseconds
+  from a time origin and not a date, and `time.epochAtZero +
+  performanceNow()` mirrors the web's `performance.timeOrigin +
+  performance.now()`; both refused the abbreviation `perfNow()` (the
+  alias rule). Grok's caveat stands: the rename shrinks the trap without
+  removing it, so the refusal's date form is required.
+- **D2: (a).** Keep refusing, loudly, as `0ddec5d6b` does; revisit with
+  round 2's numbers.
+- **D3: add `failure(x)`, answering `option<{code, message}>`**: `none`
+  while `x` has not failed, else a stable `code` from a small closed
+  vocabulary (an app branches on it and it is the same on every host)
+  and the `message` `state.failed` shows (for a developer, or an app
+  that chooses to show it). The vocabulary is fixed by the implementing
+  lane from the runner's actual failure classes and documented in the
+  grammar. `failed(x)` stays.
 
 ## 0. Summary
 
