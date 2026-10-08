@@ -27,6 +27,8 @@ import { preparationFailureRunId, retryableActivities } from './r11-upstream-ret
 import { numericDateFormatter, timestampFormatter } from './timestamp-format'; // desktop-shell-details: the host's locale
 import { letGo } from './let-go';
 import { pullRequestLinkMenu } from './context-menu-actions'; // context-menu-gaps
+import { prUiLocal } from './pages-pr-detail'; // pr-header-actions-and-stacks
+import { stackLayerTarget } from './pages-pr-stack';
 
 /** formatShortTimestamp: the wall-clock time alone, in the selected format. */
 export function shortTime(value: unknown, format: string): string {
@@ -77,6 +79,8 @@ export async function chatLocal(client: T3Client, native: Native, op: string, id
   if (op === 'run-terminal' && storage) { await runTerminalCommand(client, native, storage, value.trim()); return ''; }
   if (op.startsWith('surface-')) return surfaceLocal(client, native, op.slice(8), id, value); // r4-surfaces: the right panel's surfaces (window chatLocal)
   if (op === 'pr-link-menu') { await pullRequestLinkMenu(client, native, value); return ''; } // context-menu-gaps: the detail header's number
+  if (op === 'pr-ui-select') return surfaceLocal(client, native, 'r5-pr-open', stackLayerTarget(value), ''); // pr-header-actions-and-stacks: a stack layer beside a thread
+  if (op.startsWith('pr-ui-')) return prUiLocal(client, op.slice(6), id, value); // pr-header-actions-and-stacks: the panel header's menu choices
   if (op.startsWith('git-')) return gitChatLocal(client, native, op.slice(4), id, value); // lane r4-git (r4-git-route.ts)
   if (op.startsWith('media-')) return mediaLocal(client, native, op.slice(6), id, value, { urlOf: attachmentId => cachedAttachmentUrl(client, attachmentId), // media-actions (media-views.ts)
     openFile: relativePath => openFileSurface(client, native, relativePath, 0), forgetAttachment: attachmentId => { if (!forgetMediaPreviewUrl(client, attachmentId)) forgetAttachmentUrl(client, attachmentId); } });

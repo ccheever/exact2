@@ -31,6 +31,8 @@ import {
 import { holdPullRequestRefreshes, lastInteraction, noteViewRefreshed, pullRequestRefreshEpoch, snapshotStorage, viewRefreshedAt } from './pages-pr-refresh';
 import { conversationBodies, emptySummary, presentSummary } from './pages-pr-summary';
 import { emptyTimeline, presentTimeline } from './pages-pr-timeline';
+import { emptyActions, isActionOp, prActionCommand, prActionUi, presentActions, type PanelContext } from './pages-pr-actions'; // pr-header-actions-and-stacks
+import { markStackDue, readPanelStack } from './pages-pr-stack';
 
 export type PrSelection = { projectId: string; host: string; repository: string; number: number };
 /** The row key the list wears, parsed back into the reference a read needs. */
@@ -44,8 +46,6 @@ export function parseSelection(value: string): PrSelection | null {
 export const selectionRef = (selection: PrSelection): Obj => ({ projectId: selection.projectId, ...(selection.host ? { host: selection.host } : {}), repository: selection.repository, number: selection.number });
 
 const STATE_LABELS: Record<string, string> = { open: 'Open', draft: 'Draft', closed: 'Closed', merged: 'Merged' };
-const ACTION_DONE: Record<string, string> = { merge: 'Pull request merged', ready: 'Marked ready for review', draft: 'Converted to draft', close: 'Pull request closed', reopen: 'Pull request reopened', 'update-branch': 'Branch updated with the base branch' };
-const ACTION_FAILED: Record<string, string> = { merge: 'Could not merge this pull request', ready: 'Could not mark this ready for review', draft: 'Could not convert this to a draft', close: 'Could not close this pull request', reopen: 'Could not reopen this pull request', 'update-branch': 'Could not update this branch' };
 const count = (value: number) => String(Math.round(value)).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 
 /** summarizePullRequestChecks: GitHub's own headline for the rollup. */
@@ -88,6 +88,8 @@ export function emptyDetail() {
     projectId: '', host: '', hostName: 'GitHub', linkMenu: '', code: [] as { id: string; code: string; icon: string; tokens: { id: string; text: string; cls: string }[] }[],
     // r4-timeline: Settings → Appearance code font, size and word wrap for the Markdown.
     md: { codeFont: 'ui-monospace', codeSize: 13, wrap: true, chips: [] as ChipView[], runCommands: [] as string[] }, diffScheme: 'red-green',
+    // pr-header-actions-and-stacks: the header's primary control, the More menu, the dialogs, the base branch's mark, the stack.
+    actions: emptyActions(),
   };
 }
 export type PrDetailView = ReturnType<typeof emptyDetail>;
@@ -108,7 +110,9 @@ const shown = new WeakMap<object, string>();
 const panelsOf = (client: object) => { let map = panels.get(client); if (!map) { map = new Map(); panels.set(client, map); } return map; };
 const phaseOf = (panel: Panel) => {
   const detail = (panel.detail ?? panel.cached) ? 'content' : panel.detailError ? 'error' : 'ghost';
-  return `${panel.key}|${detail}|${panel.activity ? 'content' : panel.activityError ? 'error' : 'ghost'}`;
+  // pr-header-actions-and-stacks: a refresh of a shown detail is drawn first (the More trigger's spinner).
+  const refreshing = panel.detail && panel.detailDue ? '|refreshing' : '';
+  return `${panel.key}|${detail}|${panel.activity ? 'content' : panel.activityError ? 'error' : 'ghost'}${refreshing}`;
 };
 const due = (panel: Panel) => panel.detailDue || (panel.activityDue && !!(panel.detail ?? panel.cached));
 const messageOf = (error: unknown) => (error instanceof Error && error.message.trim() ? error.message : 'The environment request failed.');
@@ -158,7 +162,11 @@ export async function pullRequestDetail(client: T3Client, native: Native | null 
   const ref = { ...selectionRef(selection) };
   if (panel.detailDue) await readDetail(client, native!, panel, ref, storage);
   if (due(panel) && phaseOf(panel) !== shown.get(client)) return wake(client, native!, present(view, panel, selection, listEntry, input.now, client), panel);
-  if (panel.activityDue && (panel.detail ?? panel.cached)) await readActivity(client, native!, panel, ref);
+  const display = panel.detail ?? panel.cached;
+  if (panel.activityDue && display) await readActivity(client, native!, panel, ref);
+  // Then, once the detail says the host keeps stacks, the stack (one native request at a time: an answer burst can
+  // fill the native executor's ordered lane, host/apple/src/executor_core.rs COUNTS).
+  if (display) await readPanelStack(client, native!, panel.key, display, panel.reference);
   shown.set(client, phaseOf(panel));
   return present(view, panel, selection, listEntry, input.now, client);
 }
@@ -224,6 +232,8 @@ function present(view: PrDetailView, panel: Panel | null, selection: PrSelection
   const activityPending = !panel!.activity && !panel!.activityError;
   presentDetail(view, display, panel!.activity, now, { activityPending, activityError: panel!.activity ? '' : panel!.activityError, listEntry });
   view.copiedCheckout = copyNonce(client, view.checkoutCommand); view.copiedBranch = copyNonce(client, view.headBranch);
+  view.actions = presentActions(client, { ...panelContext(client, panel!, view.ref, listEntry), checksState: view.summary.checksState || null, checksStale: view.summary.checksStale,
+    refreshing: !!panel!.detail && panel!.detailDue, threadLinks: client.shell.threads.flatMap(thread => arr(thread.pullRequests)) });
   return view;
 }
 /** PullRequestDetailGhost: the list row's identity and summary stay; the rest are bars. */
@@ -247,8 +257,25 @@ export function retryActivity(client: { environmentId: string }, selected: strin
   panel.activityError = ''; panel.activityDue = true;
   if (which === 'summary') panel.detailDue = true; // refreshDetail: the detail, the activity (and the stack)
 }
-/** After a write: read the detail and the conversation again, keeping what is shown meanwhile. */
-function stale(client: object): void { for (const panel of panelsOf(client).values()) { panel.detailDue = true; panel.activityDue = true; } }
+/** After a write: read the detail and the conversation again, keeping what is shown meanwhile; `fromHost` goes around the server's cache first. */
+function stale(client: object, fromHost = false): void { for (const panel of panelsOf(client).values()) { panel.detailDue = true; panel.activityDue = true; if (fromHost) panel.invalidate = true; } markStackDue(client); }
+/** pr-header-actions-and-stacks: what the header's actions speak for — the panel's key, reference and detail, and its re-read. */
+function panelContext(client: T3Client, panel: Panel, selected: string, listEntry: Obj | null): PanelContext {
+  return { key: panel.key, selected, reference: { ...panel.reference }, detail: panel.detail ?? panel.cached, listEntry, refresh: fromHost => stale(client, fromHost) };
+}
+function contextOf(client: T3Client, selected: string): PanelContext | null {
+  const selection = parseSelection(selected);
+  if (!selection) return null;
+  const key = JSON.stringify([client.environmentId, selectionRef(selection)]), panel = panelsOf(client).get(key);
+  // A pull request the panel has not read yet still names its reference (the action needs nothing more).
+  return panel ? panelContext(client, panel, selected, listEntryFor(client, selection))
+    : { key, selected, reference: selectionRef(selection), detail: null, listEntry: listEntryFor(client, selection), refresh: fromHost => stale(client, fromHost) };
+}
+/** `chatlocal:pr-ui-*`: the header's menu choices for the selected pull request (pages-pr-actions.ts). */
+export function prUiLocal(client: T3Client, op: string, selected: string, value: string): string {
+  const ctx = contextOf(client, selected);
+  return ctx ? prActionUi(client, op, ctx, value) : '';
+}
 
 /** The last in-place copy per client: the value and a nonce that restarts the "Copied" swap. */
 const copies = new WeakMap<object, { value: string; nonce: number }>();
@@ -329,14 +356,14 @@ export async function prCommand(client: T3Client, native: Native, op: string, se
   if (op === 'activity-retry') { retryActivity(client, selected, value); return ''; }
   const selection = parseSelection(selected);
   if (!selection) throw new ClientError('Choose a pull request first.');
+  if (isActionOp(op)) {
+    // pr-header-actions-and-stacks: the host actions run through one runner (pages-pr-actions.ts).
+    return prActionCommand(client, native, op, contextOf(client, selected)!, value);
+  }
   const ref = selectionRef(selection);
   const label = `#${selection.number}`;
   try {
-    if (op === 'action') {
-      if (!ACTION_DONE[value]) throw new ClientError(`Unknown pull request action: ${value}`);
-      await client.rpc(native, 'pullRequests.runAction', { ...ref, action: value }, true);
-      pushToast(client, { kind: 'success', title: ACTION_DONE[value]!, description: label });
-    } else if (op === 'title') {
+    if (op === 'title') {
       const title = value.trim();
       if (!title) throw new ClientError('A pull request needs a title.');
       await client.rpc(native, 'pullRequests.update', { ...ref, title: title.slice(0, 1024) }, true);
@@ -354,7 +381,7 @@ export async function prCommand(client: T3Client, native: Native, op: string, se
   } catch (error) {
     if (letGo(error)) throw error;
     const message = error instanceof Error ? error.message : 'The host refused it.';
-    pushToast(client, { kind: 'error', title: op === 'action' ? ACTION_FAILED[value] ?? 'Could not update this pull request' : 'Could not update this pull request', description: message });
+    pushToast(client, { kind: 'error', title: 'Could not update this pull request', description: message });
     return message;
   }
   stale(client);

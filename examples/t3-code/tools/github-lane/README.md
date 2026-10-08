@@ -71,7 +71,7 @@ The seed finds its pull requests by branch (`feature/changelog`, then `feature/c
 its comments by an invisible `<!-- ref:… -->` marker, puts a drifted one back where one call does
 it (draft again, closed again, reopened, merged), and otherwise opens the next generation, so a
 drive that merged or readied a seeded pull request is undone by the next `bun seed.mjs`. It also
-keeps a two-layer GitHub stack (`POST /repos/{o}/{r}/stacks`). The probe writes only to its own
+keeps a two-layer GitHub stack (`POST /repos/{o}/{r}/stacks`). The action scenarios (`actionScenarios`: pull requests a drive merges, readies, closes, updates and reverts, and a three-layer stack) are seeded only by name, `bun seed.mjs --only act-merge,…`, each run opening the next generation of one a drive used up (pr-header-actions-and-stacks). The probe writes only to its own
 pull requests and stack. A worktree setup script for hand-off checks goes into the project's
 settings override (`ensureProject(…, { scripts })`): this server reads project scripts from
 settings, not from the project record. The repository, its fork and both logins stay in place

@@ -44,6 +44,8 @@ component SurfacePanel
     look: Look
     confirm: action
     closePending: bool
+    // pr-header-actions-and-stacks: the panel's width (the pull request header's labels go below 30rem).
+    width: number
   state hovered = ""
   action hover(id: string, over: bool)
     hovered = over ? id : (hovered == id ? "" : hovered)
@@ -55,7 +57,7 @@ component SurfacePanel
         R4SurfaceBody(panel=shell.panel, scheme=scheme, sheet=sheet, local=local, command=command, paletteShow=paletteShow, look=look, confirm=confirm, closePending=closePending)
         // lane r5-panels: the pull request beside the thread and a sent attachment (r5-panels.contract).
         when shell.panel.kind == "pull-request"
-          R5PrSurfaceBody(pr=shell.panel.pr, detail=prDetail, documents=prDocuments, scheme=scheme, tab=prTab, setTab=prSetTab, reload=prReload, act=prAct, copy=prCopy, local=local, still=still)
+          R5PrSurfaceBody(pr=shell.panel.pr, detail=prDetail, documents=prDocuments, scheme=scheme, tab=prTab, setTab=prSetTab, reload=prReload, act=prAct, copy=prCopy, local=local, still=still, compact=(width < 480))
         when shell.panel.kind == "attachment"
           R5AttachmentBody(att=shell.panel.attachment, scheme=scheme, sheet=sheet, local=local)
       else
