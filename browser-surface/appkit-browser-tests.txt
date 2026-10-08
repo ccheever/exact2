@@ -1,0 +1,74 @@
+Test Case '-[T3browserTests.BrowserReferenceTests testAllowsRecoveryAgainAfterTheCrashWindowExpires]' passed (0.000 seconds).
+Test Case '-[T3browserTests.BrowserReferenceTests testBacksOffAndStopsAfterABoundedNumberOfRapidCrashes]' passed (0.000 seconds).
+Test Case '-[T3browserTests.BrowserReferenceTests testDoesNotHandAWindowToSchemesThatCannotBeHardened]' passed (0.000 seconds).
+Test Case '-[T3browserTests.BrowserReferenceTests testFaviconCandidatesAreBoundedAsTheReferenceBoundsThem]' passed (0.002 seconds).
+Test Case '-[T3browserTests.BrowserReferenceTests testKeepsTargetBlankLinksInThePreviewTab]' passed (0.000 seconds).
+Test Case '-[T3browserTests.BrowserReferenceTests testOpensARealWindowForScriptedPopupsSoTheOpenerSurvives]' passed (0.000 seconds).
+	 Executed 6 tests, with 0 failures (0 unexpected) in 0.003 (0.003) seconds
+t3.inspection: browser web view isInspectable=true (development build)
+t3.browser: open tab-crash
+t3.browser: close tab-crash
+Test Case '-[T3browserTests.BrowserSessionTests testACrashedPageRecoversAtItsURL]' passed (0.531 seconds).
+t3.inspection: browser web view isInspectable=true (development build)
+t3.browser: open tab-fail
+t3.browser: navigate http://127.0.0.1:52138/
+t3.browser: navigate http://127.0.0.1:52137/ok
+t3.browser: close tab-fail
+Test Case '-[T3browserTests.BrowserSessionTests testALoadFailureIsReportedUntilTheNextLoad]' passed (0.087 seconds).
+t3.inspection: browser web view isInspectable=true (development build)
+t3.browser: open tab-404
+t3.browser: close tab-404
+Test Case '-[T3browserTests.BrowserSessionTests testAMissingPageIsAPageNotAFailure]' passed (0.066 seconds).
+t3.inspection: browser web view isInspectable=true (development build)
+t3.browser: open tab-states
+t3.browser: navigate http://127.0.0.1:52140/slow
+t3.browser: close tab-states
+Test Case '-[T3browserTests.BrowserSessionTests testAnIdleTabLoadsAPageAndReportsItsStates]' passed (1.094 seconds).
+t3.inspection: browser web view isInspectable=true (development build)
+t3.browser: open tab-schemes
+t3.browser: close tab-schemes
+Test Case '-[T3browserTests.BrowserSessionTests testAPageCannotLeaveTheWebOrDownload]' passed (0.113 seconds).
+t3.inspection: browser web view isInspectable=true (development build)
+t3.browser: open tab-kept
+t3.inspection: browser web view isInspectable=true (development build)
+t3.browser: open other
+t3.browser: close tab-kept
+t3.browser: close other
+Test Case '-[T3browserTests.BrowserSessionTests testATabOutlivesItsViewAndClosesWithItsSession]' passed (0.113 seconds).
+t3.inspection: browser web view isInspectable=true (development build)
+t3.browser: open tab-history
+t3.browser: back tab-history
+t3.browser: forward tab-history
+t3.browser: refresh tab-history
+t3.browser: hard-reload tab-history
+t3.browser: close tab-history
+Test Case '-[T3browserTests.BrowserSessionTests testBackForwardRefreshAndHardReload]' passed (0.169 seconds).
+Test Case '-[T3browserTests.BrowserSessionTests testCancelledAndPolicyStoppedLoadsAreNotFailures]' passed (0.005 seconds).
+Test Case '-[T3browserTests.BrowserSessionTests testEachEnvironmentProfileHasItsOwnStore]' passed (0.005 seconds).
+t3.inspection: browser web view isInspectable=true (development build)
+t3.browser: open tab-stop
+t3.browser: navigate http://127.0.0.1:52146/very-slow
+t3.browser: refresh tab-stop
+t3.browser: close tab-stop
+Test Case '-[T3browserTests.BrowserSessionTests testRefreshWhileLoadingAsksForThePendingPageAgain]' passed (1.587 seconds).
+t3.inspection: browser web view isInspectable=true (development build)
+t3.browser: open tab-popups
+t3.inspection: browser pop-up web view isInspectable=true (development build)
+t3.browser: close tab-popups
+Test Case '-[T3browserTests.BrowserSessionTests testScriptedPopupsOpenAWindowAndBlankLinksStayInTheTab]' passed (0.246 seconds).
+t3.inspection: browser web view isInspectable=true (development build)
+t3.browser: open tab-media
+t3.browser: close tab-media
+Test Case '-[T3browserTests.BrowserSessionTests testTheCameraAndMicrophoneAreDenied]' passed (0.178 seconds).
+t3.inspection: browser web view isInspectable=true (development build)
+t3.browser: open tab-op
+t3.browser: navigate http://127.0.0.1:52149/op
+t3.browser: close tab-op
+Test Case '-[T3browserTests.BrowserSessionTests testTheModuleOps]' passed (0.067 seconds).
+t3.inspection: browser web view isInspectable=true (development build)
+t3.browser: open tab-ua
+t3.browser: close tab-ua
+Test Case '-[T3browserTests.BrowserSessionTests testThePageKeepsWebKitsNativeUserAgentAndIsInspectableInDevelopment]' passed (0.088 seconds).
+	 Executed 14 tests, with 0 failures (0 unexpected) in 4.349 (4.351) seconds
+	 Executed 20 tests, with 0 failures (0 unexpected) in 4.352 (4.355) seconds
+Executed 20 tests, with 0 failures
