@@ -15,6 +15,7 @@ component MobileSidebarPanel
     sidebarChrome: HomeChromeView
     homeLook: HomeColors
     chooseThread: action
+    homeMenuAction: action
     toggleHomeShelf: action
     showMoreSidebar: action
     addEnvironment: action
@@ -25,7 +26,7 @@ component MobileSidebarPanel
         header
           text "T3 Code" role="heading" aria-level=2
         when workspace.sidebarMounted
-          Home(listId="sidebar-list", items=sidebarHome.items, emptyTitle=sidebarHome.emptyTitle, emptyDetail=sidebarHome.emptyDetail, loading=sidebarHome.loading, addEnvironment=sidebarHome.addEnvironment, bottomClearance=sidebarChrome.bottomClearance, emptyClearance=sidebarChrome.emptyClearance, selectThread=chooseThread, toggleShelf=toggleHomeShelf, showMore=showMoreSidebar, addConnection=addEnvironment, colors=homeLook)
+          Home(listId="sidebar-list", items=sidebarHome.items, emptyTitle=sidebarHome.emptyTitle, emptyDetail=sidebarHome.emptyDetail, loading=sidebarHome.loading, addEnvironment=sidebarHome.addEnvironment, bottomClearance=sidebarChrome.bottomClearance, emptyClearance=sidebarChrome.emptyClearance, selectThread=chooseThread, menuAction=homeMenuAction, toggleShelf=toggleHomeShelf, showMore=showMoreSidebar, addConnection=addEnvironment, colors=homeLook)
           HomeChrome(configuration=sidebarChrome.configuration, event=sidebarChromeEvent, height=0)
 component MobileInspectorPanel
   props

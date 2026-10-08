@@ -215,6 +215,20 @@ final class T3MobileModule: ExactModule {
             releases.perform(request, reply: reply)
         case "mobileCameraPermission":
             T3QRScanner.requestCameraPermission(agent: context.agent) { status in answer(["status": status]) }
+        case "mobilePrompt":
+            do {
+                try alerts.prompt(title: request["title"] as? String ?? "Rename thread",
+                                  initialValue: request["initialValue"] as? String ?? "",
+                                  cancelLabel: request["cancelLabel"] as? String ?? "Cancel",
+                                  submitLabel: request["submitLabel"] as? String ?? "OK") { choice, text in
+                    answer(["choice": choice, "text": text])
+                }
+            } catch { reply.fail(String(describing: error)) }
+        case "mobileHomeHaptic":
+            if request["kind"] as? String == "light" { UIImpactFeedbackGenerator(style: .light).impactOccurred() }
+            else if request["kind"] as? String == "success" { UINotificationFeedbackGenerator().notificationOccurred(.success) }
+            else { reply.fail("Unknown Home feedback."); return }
+            answer()
         case "mobileAlert":
             let title = request["title"] as? String ?? "T3 Code"
             let message = request["message"] as? String ?? ""

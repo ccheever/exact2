@@ -1,3 +1,4 @@
+use homeChromeChange, homeAutomationPath from "./home-routes.contract"
 use NewTaskCloneSnapshot, NewTaskCloneColors from "./new-task-clone.contract"
 // @ref llp/1107.011-responsive-workspace.decision.md#navigation-and-data-ownership
 // Explicit root dependencies; request ownership and route identity stay in App.
@@ -13,7 +14,7 @@ use MobileRouteContent from "./route-content.contract"
 use MobileWorkspace, WorkspaceEntry, WorkspaceParams, WorkspaceOptions, WorkspaceNavigation from "./mobile-workspace.contract"
 use ThreadPreferencesData from "./settings-thread-preferences.contract"
 use SettingsProjectOverview, SettingsProjectData from "./settings-project.contract"
-use AccountEntry, SettingsWrite, StreamingAssistant, StreamingHapticState, AppLink, MediaCompletion, Appearance, SettingsView, SettingsScopeEvent, MobileLayout, HomeChromeView, ChromeEvent, ThreadSelection, HomeView, HomePreferences, Time, Viewport, PairingFields, Theme, Camera, Notice, Snapshot, ScheduledHeader, AutomationChange, VoiceFocus, PreviewOwner, PreviewMenus, InformationRoute, InformationRead, InformationConfiguration, InformationChange, Change from "./app-shapes.contract"
+use AccountEntry, SettingsWrite, StreamingAssistant, StreamingHapticState, AppLink, MediaCompletion, Appearance, SettingsView, SettingsScopeEvent, MobileLayout, HomeChromeView, ChromeEvent, HomeActionResult, ThreadSelection, HomeView, HomePreferences, Time, Viewport, PairingFields, Theme, Camera, Notice, Snapshot, ScheduledHeader, AutomationChange, VoiceFocus, PreviewOwner, PreviewMenus, InformationRoute, InformationRead, InformationConfiguration, InformationChange, Change from "./app-shapes.contract"
 use NotificationsData from "./settings-notifications.contract"
 use MobileBrowserSnapshot, MobilePreviewColors from "./browser-mobile.contract"
 use MobileDevicesSnapshot from "./devices-mobile.contract"

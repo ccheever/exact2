@@ -1,5 +1,5 @@
-use NewTaskCloneSnapshot, NewTaskCloneColors, AddProjectSnapshot, AddProjectColors, addProjectLocation, addProjectNextAlert, mobileInformationPath, mobileSettingPath, ThreadHeaderOptions, ThreadHeaderSnapshot, ThreadHeaderRead, ThreadHeaderResult, WorkingControlData, MobileSidebarPanel, MobileInspectorPanel, MobileWorkspaceMarkers, MobileQueueSnapshot, GitColors, MobileGitSnapshot, MobileGitResult, MobileGitBranchesSnapshot, MobileGitBranchResult, InspectorState, InspectorContext, InspectorChange, InspectorPresentation, WorkspaceEvent, MobileRouteContent, MobileWorkspace, WorkspaceEntry, WorkspaceParams, WorkspaceOptions, WorkspaceNavigation from "./root-imports.contract"
-use ThreadPreferencesData, SettingsProjectOverview, SettingsProjectData, AccountEntry, SettingsWrite, StreamingAssistant, StreamingHapticState, AppLink, MediaCompletion, Appearance, SettingsView, SettingsScopeEvent, MobileLayout, HomeChromeView, ChromeEvent, ThreadSelection, HomeView, HomePreferences, Time, Viewport, PairingFields, Theme, Camera, Notice, Snapshot, ScheduledHeader, AutomationChange, VoiceFocus, PreviewOwner, PreviewMenus, InformationRoute, InformationRead, InformationConfiguration, InformationChange, Change, NotificationsData, MobileBrowserSnapshot, MobilePreviewColors, MobileDevicesSnapshot, InformationData, AttachmentAudioStatus, AutomationPrepared, AutomationData, VoiceGlobalPill, VoiceSnapshot, VoiceStatus, VoiceResult, VoiceColors from "./root-imports.contract"
+use homeChromeChange, homeAutomationPath, NewTaskCloneSnapshot, NewTaskCloneColors, AddProjectSnapshot, AddProjectColors, addProjectLocation, addProjectNextAlert, mobileInformationPath, mobileSettingPath, ThreadHeaderOptions, ThreadHeaderSnapshot, ThreadHeaderRead, ThreadHeaderResult, WorkingControlData, MobileSidebarPanel, MobileInspectorPanel, MobileWorkspaceMarkers, MobileQueueSnapshot, GitColors, MobileGitSnapshot, MobileGitResult, MobileGitBranchesSnapshot, MobileGitBranchResult, InspectorState, InspectorContext, InspectorChange, InspectorPresentation, WorkspaceEvent, MobileRouteContent, MobileWorkspace, WorkspaceEntry, WorkspaceParams, WorkspaceOptions, WorkspaceNavigation from "./root-imports.contract"
+use ThreadPreferencesData, SettingsProjectOverview, SettingsProjectData, AccountEntry, SettingsWrite, StreamingAssistant, StreamingHapticState, AppLink, MediaCompletion, Appearance, SettingsView, SettingsScopeEvent, MobileLayout, HomeChromeView, ChromeEvent, HomeActionResult, ThreadSelection, HomeView, HomePreferences, Time, Viewport, PairingFields, Theme, Camera, Notice, Snapshot, ScheduledHeader, AutomationChange, VoiceFocus, PreviewOwner, PreviewMenus, InformationRoute, InformationRead, InformationConfiguration, InformationChange, Change, NotificationsData, MobileBrowserSnapshot, MobilePreviewColors, MobileDevicesSnapshot, InformationData, AttachmentAudioStatus, AutomationPrepared, AutomationData, VoiceGlobalPill, VoiceSnapshot, VoiceStatus, VoiceResult, VoiceColors from "./root-imports.contract"
 use AttachmentDocumentSnapshot, AttachmentDocumentMenu, AttachmentDocumentAction, MobileTerminalSnapshot, MobileTerminalResult, MobileTerminalEvent, MobileTerminalCapture, ReviewSnapshot, ReviewResult, ReviewColors, FileTreeSnapshot, FileTreeResult, FileSnapshot, ServerSettingsData, SettingsProviderAccounts, ProviderSettingsData, MediaPreviewSnapshot, ComposerAttachmentsSnapshot, SettingsChoicesData, MobilePreferencesResource from "./root-imports.contract"
 use SettingsAppearance, SettingsAppearanceData, ArchiveData, ArchiveColors, AgentActivityData, AgentActivityColors, EnvironmentDetailData, NewTaskFlowSnapshot, NewTaskFlowResult, ComposerSettingsSnapshot, ComposerActionResult, ComposerColors, NewTaskSnapshot, NewTaskPreparation, ThreadSnapshot, ThreadColors, ComposerFocusReturn, composerReturnPhase, HomeColors from "./root-imports.contract"
 // @ref llp/1107.002-design-system-parity.spec.md#typography-and-font-assets
@@ -335,16 +335,10 @@ component App
             automationRefresh = automationRefresh + 1
           if result.closed
             nav = back(nav)
-          else if result.route == "settingsScheduledNew"
-            nav = push(nav, path("settingsScheduledNew"))
-          else if result.route == "settingsScheduledEdit"
-            nav = push(nav, path("settingsScheduledEdit"))
-          else if result.route == "settingsScheduledModel"
-            nav = push(nav, path("settingsScheduledModel"))
-          else if result.route == "settingsScheduledBranch"
-            nav = push(nav, path("settingsScheduledBranch"))
-          else if result.route == "settingsUsageAccount"
-            nav = push(nav, path("settingsUsageAccount", result.accountKey, result.windowId, result.windowKind))
+          else
+            let location = homeAutomationPath(result.route, result.accountKey, result.windowId, result.windowKind)
+            if location != ""
+              nav = push(nav, location)
       case none
         automationRefresh = automationRefresh
   state providerLogoutKey = ""
@@ -435,29 +429,20 @@ component App
   state sidebarProject = ""
   state sidebarSettledCount = 10
   resource sidebarChrome = homeChrome(workspace.sidebarRouteKey, sidebarQuery, sidebarEnvironment, sidebarProject, appearance.scheme, layout.safeBottom, layout.liquidGlass, data.revision, data.environments, appearance.groupingMode, "sidebar") as shape HomeChromeView
-  resource sidebarHome = homeView(data.revision, wallTime.epochAtZero + elapsed, sidebarQuery, sidebarSettledCount, shelves.loaded, shelves.workingEnabled, shelves.workingExpanded, shelves.snoozedExpanded, shelves.settledExpanded, sidebarChrome.environmentId, sidebarChrome.projectKey, `${workspace.environmentId}:${workspace.threadId}`, appearance.groupingMode) as shape HomeView
+  resource sidebarHome = homeView(data.revision, wallTime.epochAtZero + elapsed, sidebarQuery, sidebarSettledCount, shelves.loaded, shelves.workingEnabled, shelves.workingExpanded, shelves.snoozedExpanded, shelves.settledExpanded, sidebarChrome.environmentId, sidebarChrome.projectKey, `${workspace.environmentId}:${workspace.threadId}`, appearance.groupingMode, `${top(nav).id}`, top(nav).name == "home", workspace.usesSplitView and workspace.sidebarVisible) as shape HomeView
   mutation sidebarEvent as shape ChromeEvent then didSidebarEvent
   action sidebarChromeEvent(value: string)
     send sidebarEvent = homeChromeEvent(value)
   action didSidebarEvent
     match sidebarEvent
       case some(event)
-        if event.kind == "search"
-          sidebarQuery = event.value
-          sidebarSettledCount = 10
-        else if event.kind == "environment"
-          sidebarEnvironment = event.value
-          sidebarProject = ""
-          sidebarSettledCount = 10
-        else if event.kind == "project"
-          sidebarProject = event.value
-          sidebarSettledCount = 10
-        else if event.kind == "settings"
-          nav = push(nav, path("settings"))
-        else if event.kind == "environments"
-          openEnvironments()
-        else if event.kind == "compose"
-          nav = push(nav, path("newTask"))
+        let change = homeChromeChange(event.kind, event.value, sidebarQuery, sidebarEnvironment, sidebarProject, sidebarSettledCount)
+        sidebarQuery = change.query
+        sidebarEnvironment = change.environment
+        sidebarProject = change.project
+        sidebarSettledCount = change.count
+        if change.location != ""
+          nav = push(nav, change.location)
       case none
         sidebarQuery = sidebarQuery
   action showMoreSidebar
@@ -473,22 +458,13 @@ component App
   action didChromeEvent
     match chromeEvent
       case some(event)
-        if event.kind == "search"
-          homeQuery = event.value
-          settledCount = 10
-        else if event.kind == "environment"
-          homeEnvironment = event.value
-          homeProject = ""
-          settledCount = 10
-        else if event.kind == "project"
-          homeProject = event.value
-          settledCount = 10
-        else if event.kind == "settings"
-          nav = push(nav, path("settings"))
-        else if event.kind == "environments"
-          openEnvironments()
-        else if event.kind == "compose"
-          nav = push(nav, path("newTask"))
+        let change = homeChromeChange(event.kind, event.value, homeQuery, homeEnvironment, homeProject, settledCount)
+        homeQuery = change.query
+        homeEnvironment = change.environment
+        homeProject = change.project
+        settledCount = change.count
+        if change.location != ""
+          nav = push(nav, change.location)
       case none
         homeQuery = homeQuery
   state composerFocusIdentity = ""
@@ -1277,7 +1253,7 @@ component App
   state settledCount = 10
   resource shelves = homePreferences() as shape HomePreferences
   resource homeLook = homeColors(appearance.scheme, appearance.themeId) as shape HomeColors
-  resource home = homeView(data.revision, wallTime.epochAtZero + elapsed, homeQuery, settledCount, shelves.loaded, shelves.workingEnabled, shelves.workingExpanded, shelves.snoozedExpanded, shelves.settledExpanded, chrome.environmentId, chrome.projectKey, "", appearance.groupingMode) as shape HomeView
+  resource home = homeView(data.revision, wallTime.epochAtZero + elapsed, homeQuery, settledCount, shelves.loaded, shelves.workingEnabled, shelves.workingExpanded, shelves.snoozedExpanded, shelves.settledExpanded, chrome.environmentId, chrome.projectKey, "", appearance.groupingMode, `${top(nav).id}`, top(nav).name == "home", workspace.usesSplitView and workspace.sidebarVisible) as shape HomeView
   mutation shelfChanged as shape Change refreshes shelves
   task clock mount
     every(60000, tick)
@@ -1287,6 +1263,21 @@ component App
     send shelfChanged = toggleShelf(section)
   action showMore
     settledCount = settledCount + 25
+  mutation homeChanged as shape HomeActionResult queue refreshes data then didHomeChange
+  action homeMenuAction(environmentId: string, threadId: string, kind: string, value: string)
+    send homeChanged = homeAction(`${top(nav).id}`, environmentId, threadId, kind, value, wallTime.epochAtZero + now())
+  action didHomeChange
+    match homeChanged
+      case some(result)
+        if result.archiveChanged
+          archiveRefresh = archiveRefresh + 1
+        if result.requestRoute == `${top(nav).id}`
+          if result.message != ""
+            send notice = alert("info", result.alertTitle, result.message)
+          if result.nextLocation != ""
+            nav = push(push(nav, path("newTask")), result.nextLocation)
+      case none
+        archiveRefresh = archiveRefresh
   action chooseThread(id: string)
     if not pending(routeSelected) and not pending(selected) and not pending(workspaceNavigation)
       send selected = selectThread(id, `${top(nav).id}`)
@@ -1452,7 +1443,7 @@ component App
     send changed = command("save-environment", id, label, url, taskGuardOwner, taskGuardRoute)
   view
     main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow width="100%" height="100%" background-color=look.screen color=look.foreground display="flex" flex-direction="row" font-family="DM Sans" font-size=16 interactive-widget="resizes-content" testId="mobile-root"
-      MobileSidebarPanel(workspace=workspace, look=look, sidebarHome=sidebarHome, sidebarChrome=sidebarChrome, homeLook=homeLook, chooseThread=chooseThread, toggleHomeShelf=toggleHomeShelf, showMoreSidebar=showMoreSidebar, addEnvironment=addEnvironment, sidebarChromeEvent=sidebarChromeEvent)
+      MobileSidebarPanel(workspace=workspace, look=look, sidebarHome=sidebarHome, sidebarChrome=sidebarChrome, homeLook=homeLook, chooseThread=chooseThread, homeMenuAction=homeMenuAction, toggleHomeShelf=toggleHomeShelf, showMoreSidebar=showMoreSidebar, addEnvironment=addEnvironment, sidebarChromeEvent=sidebarChromeEvent)
       column id="workspace-panel" role="tabpanel" pointer-events="none" position="relative" width=workspace.contentSettledWidth height="100%" flex-shrink=0 min-width=0
         each entry in stack(nav) key = entry.id
           column id=`mobile-route-${entry.id}` navigationKey=`${entry.id}` pointer-events="auto" position="absolute" inset=0 background-color=look.sheet display="flex" flex-direction="column"
@@ -1478,7 +1469,7 @@ component App
               openFiles=openFiles, editFilesQuery=editFilesQuery, toggleDirectory=toggleDirectory, refreshFiles=refreshFiles, openFile=openFile, refreshFile=refreshFile, toggleFileWrap=toggleFileWrap, toggleFilePreview=toggleFilePreview, audioStatusChanged=audioStatusChanged, audioControl=audioControl, documentAction=documentAction, documentNativeEvent=documentNativeEvent,
               retryDocument=retryDocument, mediaComplete=mediaComplete, openDraftMedia=openDraftMedia, openMedia=openMedia, removeAttachment=removeAttachment, pickAttachments=pickAttachments, openModelSettings=openModelSettings, modelAction=modelAction, editModelQuery=editModelQuery, toggleLegacy=toggleLegacy, openModelFilter=openModelFilter, chooseModelFilter=chooseModelFilter,
               openModelOption=openModelOption, chooseModelOption=modelAction("option", top(nav).params.modelOption), openRuntime=openRuntime, chooseRuntime=modelAction("runtime", ""), taskAction=taskAction, editNewDraft=editNewDraft, editNewQuery=editNewQuery, editBranchQuery=editBranchQuery, chooseNewProject=chooseNewProject, chooseNewEnvironment=chooseNewEnvironment, chooseNewBranch=chooseNewBranch, openAgents=openAgents,
-              openAgent=openAgent, editArchiveQuery=editArchiveQuery, editArchiveEnvironment=editArchiveEnvironment, toggleArchiveSort=toggleArchiveSort, refreshArchive=refreshArchive, archiveAction=archiveAction, toggleHomeShelf=toggleHomeShelf, showMore=showMore, chooseThread=chooseThread, editHost=editHost, editCode=editCode, connect=connect,
+              openAgent=openAgent, editArchiveQuery=editArchiveQuery, editArchiveEnvironment=editArchiveEnvironment, toggleArchiveSort=toggleArchiveSort, refreshArchive=refreshArchive, archiveAction=archiveAction, toggleHomeShelf=toggleHomeShelf, showMore=showMore, chooseThread=chooseThread, homeMenuAction=homeMenuAction, editHost=editHost, editCode=editCode, connect=connect,
               scan=scan, permissionChanged=permissionChanged, receiveScan=receiveScan, addEnvironment=addEnvironment, back=back, closeNewTask=closeNewTask, toggle=toggle, detailAction=detailAction, setEnabled=setEnabled, changeRouting=changeRouting, reconnect=reconnect, remove=remove, save=save
             )
       MobileInspectorPanel(workspace=workspace, reviewLook=reviewLook, gitLook=gitLook, inspectorPresentation=inspectorPresentation, inspectorState=inspectorState, layout=layout, toggleDirectory=toggleDirectory, openFile=openFile, refreshFiles=refreshFiles, reviewFile=reviewFile, gitAction=gitAction, refreshGit=refreshGit, inspectorEvent=inspectorEvent)

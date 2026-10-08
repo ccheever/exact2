@@ -1,6 +1,8 @@
 // @ref llp/1107.004-home-projection.decision.md#decision
 // Upstream 365aa87982 HomeScreen, thread-list-v2-items, EmptyState (screen pane).
 // @ref llp/1107.002-design-system-parity.spec.md#typography-and-font-assets
+use HomeMenu, HomeMenuItem from "./home-menu.contract"
+
 shape HomeColors
   foreground: string
   muted: string
@@ -16,6 +18,7 @@ shape HomeColors
   workingStatus: string
   dangerForeground: string
   done: string
+  menuBackground: string
 
 shape HomeItem
   key: string
@@ -50,6 +53,7 @@ shape HomeItem
   iconSurface: string
   iconSize: number
   searchExcerpt: string
+  menuItems: list<HomeMenuItem>
 
 component Home
   props
@@ -61,6 +65,7 @@ component Home
     addEnvironment: bool
     bottomClearance: number
     emptyClearance: number
+    menuAction: action
     selectThread: action
     toggleShelf: action
     showMore: action
@@ -107,16 +112,21 @@ component Home
         estimated-item-height=72
         testId="home-thread-list"
         each item in items key=item.key
-          HomeListItem(item=item, bottomClearance=bottomClearance, selectThread=selectThread, toggleShelf=toggleShelf, showMore=showMore, colors=colors)
+          HomeListItem(surface=listId, item=item, bottomClearance=bottomClearance, selectThread=selectThread, toggleShelf=toggleShelf, showMore=showMore, colors=colors)
+      each item in items key=item.key
+        when length(item.menuItems) > 0
+          HomeMenu(menuId=`home-menu-${listId}-${item.key}`, items=item.menuItems, environmentId=item.environmentId, threadId=item.threadId, action=menuAction, foreground=colors.foreground, muted=colors.muted, danger=colors.dangerForeground, background=colors.menuBackground)
 
 component HomeListItem
   props
+    surface: string
     item: HomeItem
     bottomClearance: number
     selectThread: action
     toggleShelf: action
     showMore: action
     colors: HomeColors
+  derive menuId = `home-menu-${surface}-${item.key}`
   derive statusColor = item.statusTone == "approval" or item.statusTone == "limited" ? colors.warning : item.statusTone == "input" ? colors.inputStatus : item.statusTone == "working" ? colors.workingStatus : item.statusTone == "failed" ? colors.dangerForeground : item.statusTone == "done" ? colors.done : colors.tertiary
   view
     column padding-bottom=(item.last ? bottomClearance : 0)
@@ -151,6 +161,7 @@ component HomeListItem
           text item.title font-size=13 line-height="17px" font-weight=500 color=colors.muted
       else
         button press=selectThread(item.id)
+          contextPopover=(length(item.menuItems) > 0 ? menuId : "")
           padding=0
           text-align="left"
           aria-label=(item.queued ? `${item.title}, messages queued to send` : item.title)
@@ -203,6 +214,7 @@ component HomeListItem
               when item.queued
                 t3-symbol symbol-name="tray.and.arrow.up" point-size=12 symbol-weight="regular" symbol-tint=colors.muted width=12 height=12
               text item.time font-family="Menlo" font-size=14 line-height="19px" color=(item.section == "snoozed" ? colors.muted : colors.tertiary)
+
 
 component HomeProjectIcon
   props

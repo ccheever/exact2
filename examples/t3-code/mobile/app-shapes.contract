@@ -160,3 +160,12 @@ shape AccountEntry
   kind: string
   route: string
   requestRoute: string
+
+shape HomeActionResult
+  revision: number
+  requestRoute: string
+  message: string
+  alertTitle: string
+  nextLocation: string
+  archiveChanged: bool
+  uncertain: bool
