@@ -303,3 +303,86 @@ fn a_nested_scroller_grows_the_extent_unless_its_height_is_fixed() {
     assert_eq!(heights(&grown, flexed), [88.0], "{grown}");
     assert!(heights(&grown, fixed).is_empty(), "{grown}");
 }
+
+/// Grok's r5: a comparison is not one taller sample. A bare height-axis
+/// unit is `auto`; a comparison that also holds a length is that length,
+/// its viewport terms at zero. A sampled stand-in flipped between them as
+/// the sheet resized (44, 200, 44, …); each of these settles.
+#[test]
+fn viewport_comparisons_settle() {
+    let src = r##"component Menu
+  view
+    column position="relative" width="100%" height="100%"
+      column testId="max" navigationDetent="fit-content" position="absolute" top=0 right=0 bottom=0 left=0 min-height="max(200px, 80vh)"
+        row height=44
+          text "Row"
+      column testId="vmax" navigationDetent="fit-content" position="absolute" top=0 right=0 bottom=0 left=0 height="100vmax"
+        row height=44
+          text "Row"
+      column testId="clamp" navigationDetent="fit-content" position="absolute" top=0 right=0 bottom=0 left=0 min-height="clamp(100px, 50vh, 400px)"
+        row height=44
+          text "Row"
+      column testId="only" navigationDetent="fit-content" position="absolute" top=0 right=0 bottom=0 left=0 min-height="max(50vh, 30dvh)"
+        row height=44
+          text "Row"
+"##;
+    let plan = contract::compile(src).unwrap();
+    let (mut host, first) = Host::boot(
+        &plan.encode(),
+        NoData,
+        Box::new(MonospaceMeasurer::default()),
+        390.0,
+        844.0,
+    )
+    .unwrap();
+    // A comparison of nothing but viewport heights is `auto`, as a bare one.
+    let routes = [
+        ("max", 200.0),
+        ("vmax", 44.0),
+        ("clamp", 100.0),
+        ("only", 44.0),
+    ];
+    for (id, h) in routes {
+        assert_eq!(heights(&first, view(&host, id)), [h], "{id}");
+    }
+    for h in [44.0, 200.0, 844.0, 44.0, 200.0] {
+        let resized = host.resize(390.0, h);
+        for (id, _) in routes {
+            assert!(
+                heights(&resized, view(&host, id)).is_empty(),
+                "{id} at {h}: {resized}"
+            );
+        }
+    }
+}
+
+/// Grok's r5: a flex basis and block-axis margins and padding are taken
+/// without the viewport's height too, on the route and under it.
+#[test]
+fn bases_margins_and_padding_do_not_read_the_sheet() {
+    let src = r##"component Menu
+  view
+    column position="relative" width="100%" height="100%"
+      column testId="sheet" navigationDetent="fit-content" position="absolute" top=0 right=0 bottom=0 left=0 padding-bottom="50vh"
+        row height=44 margin-top="20vh"
+          text "Row"
+        box flex-basis="100vh"
+        box padding-top="100vh"
+        box padding-top="max(10px, 5vh)"
+"##;
+    let plan = contract::compile(src).unwrap();
+    let (mut host, first) = Host::boot(
+        &plan.encode(),
+        NoData,
+        Box::new(MonospaceMeasurer::default()),
+        390.0,
+        844.0,
+    )
+    .unwrap();
+    let sheet = view(&host, "sheet");
+    assert_eq!(heights(&first, sheet), [44.0 + 10.0]);
+    for h in [54.0, 300.0, 844.0] {
+        let resized = host.resize(390.0, h);
+        assert!(heights(&resized, sheet).is_empty(), "{h}: {resized}");
+    }
+}

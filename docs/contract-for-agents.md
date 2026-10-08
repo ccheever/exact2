@@ -1167,7 +1167,8 @@ main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow displa
   a short dialog), which goes alone or as `"fit-content large"`. A literal with
   another word is refused. `fit-content` measures the route laid out alone, its
   height left to its children, so nothing sized from the sheet counts (a `vh`
-  height or min/max height is `auto` there); a route
+  height, min/max height or flex-basis is `auto` there, a `vh` vertical margin or
+  padding none, and `max(200px, 80vh)` is 200px); a route
   that scrolls is measured by its scroll extent, so give its rows
   `flex-shrink: 0`. The route does
   not pad `env(safe-area-inset-bottom)`: UIKit adds that band below the detent.

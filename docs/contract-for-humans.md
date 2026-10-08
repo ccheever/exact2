@@ -1217,8 +1217,10 @@ them, the first to start. `fit-content` goes alone or as `"fit-content large"`.
 It measures the route laid out on its own with its height left to its
 content, as CSS's `fit-content` does, so nothing the sheet gives it counts:
 rows do not shrink into it, and a percentage `height` or `flex-grow` takes
-nothing from it; a height in `vh` (the sheet's height on iOS) counts as
-`auto`. A route that scrolls itself is measured by what it scrolls,
+nothing from it; a height, flex basis, vertical margin or vertical padding
+in `vh` (the sheet's height on iOS) counts as unset, and a `min()`, `max()`
+or `clamp()` that also holds a length as that length (`max(200px, 80vh)` is
+200px). A route that scrolls itself is measured by what it scrolls,
 laid out in the sheet, so give its rows `flex-shrink: 0`. macOS, the web and
 Linux show a modal route as authored and ignore the detent
 ([LLP 1075.003](../llp/1075.003-native-platform-control-merged.plan.md) §9.11).
