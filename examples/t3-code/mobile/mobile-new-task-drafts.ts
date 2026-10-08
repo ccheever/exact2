@@ -1,3 +1,4 @@
+import { mobileDraftAttachmentIds, mobileDraftAttachmentForget } from './draft-attachment-order';
 // App-owned foreground drafts; source365aa87982 use-composer-drafts/new-task-flow-provider.
 // @ref llp/1109.005-composer-and-transcript.decision.md#new-task-ownership
 import type { T3Client } from './shared/client';
@@ -97,7 +98,7 @@ export function mobileNewTaskDraftHasContent(client: T3Client, key: string): boo
 }
 export function mobileNewTaskDraftPresentation(client: T3Client, key: string) {
   const record = mobileNewTaskDraftLookup(client, key);
-  return record ? { ...record, text: client.local.drafts[key] ?? '', images: mobileNewTaskDraftClone(client.local.snapshotDrafts[key] ?? []),
+  return record ? { ...record, attachmentIds: mobileDraftAttachmentIds(client, key), text: client.local.drafts[key] ?? '', images: mobileNewTaskDraftClone(client.local.snapshotDrafts[key] ?? []),
     files: mobileNewTaskDraftClone(draftFiles(client.local).filter(file => file.draftKey === key)),
     workspace: mobileNewTaskDraftClone(client.local.composerControls.contexts[key] ?? null) } : null;
 }
@@ -158,6 +159,7 @@ export function mobileNewTaskDraftRetarget(client: T3Client, key: string, target
   client.revision++; return true;
 }
 export function mobileNewTaskDraftRemoveMetadata(client: T3Client, key: string): void {
+  mobileDraftAttachmentForget(client, key);
   delete mobileNewTaskDraftStore(client).records[key]; delete client.local.composerControls.contexts[key];
   delete client.local.composerControls.draftThreads?.[key]; delete client.local.composerControls.staged[key];
   delete client.local.composerControls.balance?.[key];
