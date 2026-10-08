@@ -187,7 +187,7 @@ internal class NativeCollections(
     fun mountedRows(id: Int): List<Row> = entries[id]?.snapshot?.rows ?: emptyList()
     fun beginBatch() {
         if (closed) return
-        if (depth == 0) for ((id, entry) in entries) entry.batchStart = facts(id, entry)?.offset
+        if (depth == 0) for ((id, entry) in entries) entry.batchStart = portFacts(id, entry)?.offset
         depth++
     }
     /** A failed publication must not keep the collection adapter inside a batch.
@@ -225,7 +225,7 @@ internal class NativeCollections(
                 val port = geometry(id) ?: continue
                 watch(id, entry, port.scroll)
                 fit(port, entry.snapshot.extent)
-                val facts = facts(id, entry) ?: continue
+                val facts = portFacts(id, entry) ?: continue
                 val dimensions = listOf(facts.main, facts.portCross, facts.cross)
                 val planned = entry.cursor.sequence
                 val jumped = entry.cursor.jumpedAt
@@ -331,6 +331,22 @@ internal class NativeCollections(
                 port.content.layout(port.content.left, port.content.top, port.content.left + width, port.content.top + height)
             }
         }
+    }
+    private data class PortFacts(val offset: Double, val main: Double, val portCross: Double, val cross: Double)
+    // Begin/end need coherent port dimensions and the first available row width,
+    // not the full mounted-row measurement list used by the feedback report.
+    private fun portFacts(id: Int, entry: Entry): PortFacts? {
+        val port = geometry(id) ?: return null
+        val scroll = port.scroll
+        if (!scroll.isShown || scroll.width <= 0 || scroll.height <= 0) return null
+        val main = (scroll.height - scroll.paddingTop - scroll.paddingBottom).coerceAtLeast(0) / density.toDouble()
+        val portCross = (scroll.width - scroll.paddingLeft - scroll.paddingRight).coerceAtLeast(0) / density.toDouble()
+        val cross = entry.snapshot.rows.firstNotNullOfOrNull { row -> rowGeometry(row.view)?.cross }
+            ?: (portCross - port.paddingLeft - port.paddingRight).coerceAtLeast(0.0)
+        val native = scroll as? NativeCollectionScrollView
+        val offset = ((native?.reportedTarget ?: scroll.scrollY) / density.toDouble() - port.paddingTop).coerceAtLeast(0.0)
+        if (!valid(main) || !valid(portCross) || !valid(cross) || !valid(offset)) return null
+        return PortFacts(offset, main, portCross, cross)
     }
     private fun facts(id: Int, entry: Entry): Facts? {
         val port = geometry(id) ?: return null
