@@ -1,6 +1,7 @@
-import { mobileComposerTargetRequire, mobileComposerTargetCurrent, mobileComposerTargetText, mobileComposerEditContext } from './composer-target';
+import { mobileComposerTargetRequire, mobileComposerTargetCurrent, mobileComposerTargetText, mobileComposerEditContext, mobileComposerNewTaskContext } from './composer-target';
 // Pinned365aa87982 ThreadTerminalRouteScreen over existing terminal metadata/UI/transport owners.
 // @ref llp/1109.007-mobile-terminal.decision.md#root-seam
+import { mobileNewTaskDraftIsKey } from './mobile-new-task-drafts';
 import { mobileDraftChanged } from './draft';
 import { saveTerminalContext, formatTerminalContextReference, terminalContextRecord } from './shared/terminal-integrations';
 import { contextReferences } from './shared/composer-editor-menu';
@@ -180,6 +181,10 @@ export async function mobileTerminalAttachOutput(key: string, text: string, star
     const text = `${previous}${previous ? ' ' : ''}${formatTerminalContextReference(context)} `;
     if (draft.kind === 'queued-edit') {
       await mobileComposerEditContext(client, draft, text, terminalContextRecord(context), '', native);
+      return result();
+    }
+    if (mobileNewTaskDraftIsKey(draft.key)) {
+      await mobileComposerNewTaskContext(client, draft, text, terminalContextRecord(context), '', native, storage);
       return result();
     }
     saveTerminalContext(client, context);

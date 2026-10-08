@@ -1,5 +1,6 @@
 // @ref llp/1109.005-composer-and-transcript.decision.md#new-task-ownership
-import { mobileNewTaskDraftChanged } from './mobile-new-task-drafts';
+import { mobileNewTaskDraftIsKey } from './mobile-new-task-drafts';
+import { mobileNewTaskContextGuard, mobileNewTaskContextWrite } from './mobile-new-task-context';
 import { mobileComposerTargetRequire, mobileComposerTargetWriteText, mobileComposerTargetPersist } from './composer-target';
 import { ClientError } from './shared/protocol';
 import type { T3Client } from './shared/client';
@@ -18,11 +19,12 @@ export async function mobileDraftChanged(client: T3Client, value: string, native
     // Calling the async reducer executes its draft branch synchronously; it does not load,
     // refresh presentation, or select another thread before reading the current draftKey.
     const target = mobileComposerTargetRequire(client, expectedOwner);
-    const reduction = target.kind === 'ordinary'
+    const guard = target.kind === 'ordinary' && mobileNewTaskDraftIsKey(target.key) ? mobileNewTaskContextGuard(client, target.key) : null;
+    if (value.length > 1_000_000) throw new ClientError('Keep a draft under 1,000,000 characters.');
+    const reduction = guard ? mobileNewTaskContextWrite(client, guard, value) : target.kind === 'ordinary'
       ? composerOps.call(client, 'draft', '', value, 0, native, storage, { message: '', id: '', value })
       : mobileComposerTargetWriteText(client, target, value);
     if (reduction === false) throw new ClientError('The queued edit is no longer editable.', 'superseded');
-    if (target.kind === 'ordinary' && client.local.drafts[target.key] === value) mobileNewTaskDraftChanged(client, target.key);
     mobileVoiceObserveDraft(client);
     await reduction;
     await mobileComposerTargetPersist(client, target, native, storage);

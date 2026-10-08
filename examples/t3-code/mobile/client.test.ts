@@ -193,11 +193,12 @@ describe('pinned shared sources', () => {
       const pin = name === 'shell-vcs.ts' ? '81c704c7d12afef7233b12b1f2e7118fd6e84677' : name === 'let-go.ts' ? '669968e248e3a3ca29dbfeada999af2114141223'
         : ['client.ts', 'local-backend.ts', 'timestamp-format.ts'].includes(name)
           ? '38352ceaf4cd35a40b7b24ce992db87c2357a99b' : '887b2491b182f851b11253655f6aa84fe2a26708';
-      const adapted = ['client.ts', 'client-ops-composer.ts', 'project-clones-live.ts', 'r8-pointer-reconnect.ts', 'r4-git-branch.ts'].includes(name);
+      const adapted = ['client.ts', 'client-ops-composer.ts', 'project-clones-live.ts', 'r8-pointer-reconnect.ts', 'r4-git-branch.ts', 'composer-editor.ts'].includes(name);
       expect(local[1]).toBe(`// ${adapted ? 'Adapted' : 'Unchanged'} body from examples/t3-code/${name} at ${pin}.`);
       return { name, local, pin };
     });
     const objects = copies.map(copy => `${copy.pin}:examples/t3-code/${copy.name}`);
+    objects.push('758e03d8c48f086698e9cbf2da838da7ccb16ad2:examples/t3-code/composer-editor.ts');
     const result = Bun.spawnSync(['git', 'cat-file', '--batch'], {
       cwd: directory, stdin: new TextEncoder().encode(objects.join('\n') + '\n'),
     });
@@ -219,7 +220,7 @@ describe('pinned shared sources', () => {
       if (name === 'client.ts') expected = "// Mobile 365aa87982: selection errors belong to the requesting route, not the thread composer.\n// Additive cleanup visibility from shared commit af0a96dddbd500aa50bc5bbe69ec59597e34efee.\n" + expected
         .replace("const formCommand = ['settings-core',", "const formCommand = ['select-thread', 'settings-core',")
         .replace("  private finishPending(", "  protected finishPending(");
-      if (name === 'client-ops-composer.ts') expected = "// Mobile 365aa87982: send admission, retained options and independent model-pick ownership differ.\nimport { mobileModelSelectionUnavailable } from '../model-availability';\nimport { mobileDispatchSelection as dispatchSelection } from '../model-send-selection';\n" + expected
+      if (name === 'client-ops-composer.ts') expected = "// Mobile 365aa87982: send admission, retained options and independent model-pick ownership differ.\nimport { mobileNewTaskDirectText, mobileNewTaskMessageContext as withMessageContext, mobileNewTaskSendGuard } from '../mobile-new-task-context-send';\nimport { mobileModelSelectionUnavailable } from '../model-availability';\nimport { mobileDispatchSelection as dispatchSelection } from '../model-send-selection';\n" + expected
         .replace("import { dispatchSelection, promptForSend, ultrathinkChoice }", "import { promptForSend, ultrathinkChoice }")
         .replace("if (!arr(provider.models).some(model => model.slug === this.modelId)) throw new ClientError('Choose one of the models advertised by T3.');",
           "if (!this.modelId || mobileModelSelectionUnavailable(this.config, { instanceId: this.providerId, model: this.modelId })) throw new ClientError('Model unavailable. Open model settings.');")
@@ -229,7 +230,25 @@ describe('pinned shared sources', () => {
   // additiveGesture tolerates native errors. Recheck before it can mutate a newer draft.
   if (independent && owner !== JSON.stringify([this.origin, this.environmentId, this.generation, this.projectId, this.threadId, this.draftKey]))
     throw new ClientError('The draft changed while settings were saving.', 'superseded');
-  if (additive) {`);
+  if (additive) {`)
+        .replace("import { withMessageContext } from './composer-editor';\n", '')
+        .replace('async function send(this: T3Client, native: Native, storage: Files, value: string): Promise<void> {', 'async function send(this: T3Client, native: Native, storage: Files, value: string): Promise<void> {\n  const assertDraft = mobileNewTaskSendGuard(this);')
+        .replace('const terminalSubmission = omitExpiredTerminalContexts(this, rawText, this.snapshotDrafts.length > 0);', 'const terminalSubmission = mobileNewTaskDirectText(this, rawText) ?? omitExpiredTerminalContexts(this, rawText, this.snapshotDrafts.length > 0);')
+        .replace('  assertOwner();\n  const [commandId,', '  assertOwner(); assertDraft();\n  const [commandId,')
+        .replace('  assertOwner();\n  if (selection.threadId)', '  assertOwner(); assertDraft();\n  if (selection.threadId)')
+        .replace("description: 'Create thread', threadId, text, uncertain: false }, assertOwner);", "description: 'Create thread', threadId, text, uncertain: false }, () => { assertOwner(); assertDraft(); });")
+        .replace('} else if (fanoutSelections(this)) {', "} else if (!this.draftKey.startsWith('new-task:') && fanoutSelections(this)) {");
+
+      if (name === 'composer-editor.ts') {
+        const source = bodies[copies.length]!;
+        const pick = source.slice(source.indexOf('const contextPickStamp ='), source.indexOf('const CLOSED:'))
+          .replace('client.snapshotOwner, client.draftKey, client.draft]);', 'client.snapshotOwner, client.draftKey, mobileNewTaskDraftCurrent(client)?.createdAt, client.draft]);');
+        expected = "// Mobile additive context selection export from shared commit 758e03d8c48f086698e9cbf2da838da7ccb16ad2.\nimport { mobileNewTaskDraftCurrent } from '../mobile-new-task-drafts';\n" + expected
+          .replace('  trigger: EditorTrigger | null; rows: MenuRow[]; owner: string;', '  trigger: EditorTrigger | null; rows: MenuRow[]; owner: string;\n  pickStamp?: string;')
+          .replace('const CLOSED:', pick + 'const CLOSED:')
+          .replace("async function editorView(client: T3Client, native: Native | null | undefined, now: number): Promise<Omit<ComposerEditorView, 'drawer'>> {\n  const entry = cache(client);", "async function editorView(client: T3Client, native: Native | null | undefined, now: number): Promise<Omit<ComposerEditorView, 'drawer'>> {\n  const pickStamp = contextPickStamp(client), entry = cache(client);")
+          .replace('  entry.rows = rows;', "  entry.rows = rows;\n  entry.pickStamp = contextPickStamp(client) === pickStamp ? pickStamp : '';");
+      }
       if (name === 'project-clones-live.ts') expected = "// Mobile 365aa87982 apps/mobile/src/state/projectClones.ts: failed subscriptions read as empty.\n" + expected
         .replace("  const clones = liveEnvironment(client, null, client.environmentId)?.clones.value ?? [];",
           "  const stream = liveEnvironment(client, null, client.environmentId)?.clones;\n  const clones = stream?.error ? [] : stream?.value ?? [];");

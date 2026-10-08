@@ -149,22 +149,22 @@ test('supplied attachment context must match its actual local kind and metadata'
   const draft = mixed(), generated = ready(draft).record.context!;
   const records = generated.records as Record<string, unknown>[];
   for (const patch of [{ kind: 'image' }, { name: 'other' }, { mimeType: 'image/png' }, { sizeBytes: 51 }])
-    expect(blocked(draft, { ...facts(), context: { version: 1, records: [{ ...records[0], ...patch }, records[1]] } })).toContain('local owner');
-  expect(ready(draft, { ...facts(), context: generated }).record.context).toEqual(generated);
+    expect(blocked({ ...draft, context: { version: 1, records: [{ ...records[0], ...patch }, records[1]] } })).toContain('local owner');
+  expect(ready({ ...draft, context: generated }).record.context).toEqual(generated);
 });
 test('actual known context payloads preserved; unresolved/unsupported references remain blocked', () => {
   const record = { version: 1, contextId: 'term', label: 'Terminal', kind: 'terminal', terminalId: 't', terminalLabel: 'Shell', lineStart: 0, lineEnd: 2, text: 'output' };
   const draft = { ...base(), text: contextLink('terminal', 'term', 'Terminal') };
   expect(blocked(draft)).toContain('cannot be resolved');
-  expect(ready(draft, { ...facts(), context: { version: 1, records: [record] } }).record.context).toEqual({ version: 1, records: [record] });
-  expect(blocked(draft, { ...facts(), context: { version: 1, records: [{ ...record, lineEnd: -1 }] } })).toContain('invalid context');
-  expect(blocked(draft, { ...facts(), context: { version: 1, records: [{ ...record, kind: 'element' }] } })).toContain('unsupported');
+  expect(ready({ ...draft, context: { version: 1, records: [record] } }).record.context).toEqual({ version: 1, records: [record] });
+  expect(blocked({ ...draft, context: { version: 1, records: [{ ...record, lineEnd: -1 }] } })).toContain('invalid context');
+  expect(blocked({ ...draft, context: { version: 1, records: [{ ...record, kind: 'element' }] } })).toContain('unsupported');
 });
 test('context count and known record boundaries are enforced independently of storage decoder', () => {
   const records = Array.from({ length: 200 }, (_, i) => ({ version: 1, contextId: `t${i}`, label: '', kind: 'thread', environmentId: 'env', threadId: `thread${i}`, title: '' }));
-  expect((ready(base(), { ...facts(), context: { version: 1, records } }).record.context!.records as unknown[]).length).toBe(200);
-  expect(blocked(base(), { ...facts(), context: { version: 1, records: [...records, { ...records[0], contextId: 'extra' }] } })).toContain('too much context');
-  expect(blocked(base(), { ...facts(), context: { version: 1, records: [records[0], records[0]] } })).toContain('invalid context');
+  expect((ready({ ...base(), text: records.map(record => contextLink('thread', record.contextId, '')).join(' '), context: { version: 1, records } }).record.context!.records as unknown[]).length).toBe(200);
+  expect(blocked({ ...base(), text: [...records.map(record => contextLink('thread', record.contextId, '')), contextLink('thread', 'extra', '')].join(' '), context: { version: 1, records: [...records, { ...records[0], contextId: 'extra' }] } })).toContain('too much context');
+  expect(blocked({ ...base(), context: { version: 1, records: [records[0], records[0]] } })).toContain('invalid context');
 });
 test('unsupported memory-only files, invalid identities and broken order do not produce queue records', () => {
   const draft = mixed(); draft.files[0]!.source = 'pasted-text'; expect(blocked(draft)).toContain('Save the local file bytes');
