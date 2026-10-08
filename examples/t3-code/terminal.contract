@@ -127,6 +127,10 @@ component TerminalContent
     command(`${view.commandPrefix}:message`, target, value, 0)
   action focused(target: string, active: bool)
     command(`${view.commandPrefix}:${active ? "focus-in" : "focus-out"}`, target, view.surface, 0)
+  // A close that asks moves the focus into the confirm (Base UI's initialFocus); Cancel gives it back to the terminal.
+  action askClose(target: string, title: string, body: string)
+    confirm("ui:confirm", target, `${view.commandPrefix}:close`, title, body, true)
+    focus("app-confirm-cancel")
   view
     row flex=1 min-width=0 min-height=0 overflow="hidden" position="relative" testId=(view.surface == "drawer" ? "terminal-drawer-content" : "terminal-panel-content")
       when length(view.panes) == 0
@@ -158,7 +162,7 @@ component TerminalContent
                     text `${tab.count}` font-size="0.5625rem" line-height="0.75rem" color="light-dark(#71717bb3, #818181b3)"
                 row align-items="center" gap="0.125rem" height="1.5rem" padding-left="0.375rem" padding-right="0.5rem" border-radius="0.375rem" background-color=(tab.active ? "light-dark(#f4f4f5, #ffffff14)" : (hovered == tab.id ? "light-dark(#f4f4f599, #ffffff0f)" : "#00000000")) hover=hover(tab.id) testId=`terminal-tab-${tab.id}`
                   box position="relative" flex-shrink=0
-                    button press=confirm("ui:confirm", tab.target, `${view.commandPrefix}:close`, tab.closeTitle, tab.closeBody, true) hover=hoverClose(tab.id) aria-label=tab.closeLabel testId=`terminal-tab-close-${tab.id}` width="1rem" height="1rem" padding="0.125rem" border-width=0 border-radius="0.125rem" background-color=(closeHovered == tab.id ? "light-dark(#f4f4f5, #ffffff14)" : "#00000000")
+                    button press=askClose(tab.target, tab.closeTitle, tab.closeBody) hover=hoverClose(tab.id) aria-label=tab.closeLabel testId=`terminal-tab-close-${tab.id}` width="1rem" height="1rem" padding="0.125rem" border-width=0 border-radius="0.125rem" background-color=(closeHovered == tab.id ? "light-dark(#f4f4f5, #ffffff14)" : "#00000000")
                       ShellIcon(name=(hovered == tab.id ? "x" : "square-terminal"), size=12, color=(tab.active ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)"))
                     TipBubble(label=tab.closeLabel, side="top", align="start", offset=22, inset=0, shown=(closeHovered == tab.id))
                   button press=command(`${view.commandPrefix}:activate`, tab.target, "", 0) aria-label=tab.label aria-pressed=tab.active testId=`terminal-tab-select-${tab.id}` flex=1 min-width=0 height="1.5rem" padding=0 border-width=0 background-color="#00000000" text-align="left"
@@ -172,6 +176,9 @@ component TerminalToolbar
     command: action
     confirm: action
     strip: bool
+  action askClose
+    confirm("ui:confirm", `${view.threadKey}|${view.terminalId}`, `${view.commandPrefix}:close`, view.closeTitle, view.closeBody, true)
+    focus("app-confirm-cancel")
   view
     row align-items=(strip ? "stretch" : "center") align-self=(strip ? "stretch" : "auto") border-radius=(strip ? "0px" : "0.375rem") border-width=(strip ? 0 : 1) border-style="solid" border-color="light-dark(#e4e4e7cc, #ffffffcc)" background-color=(strip ? "#00000000" : "light-dark(#fcfcfc, #0a0a0a)") box-shadow=(strip ? "none" : "0 1px 2px #0000000d") testId="terminal-drawer-toolbar"
       TerminalAction(icon="split-horizontal", label=view.splitLabel, disabled=view.splitDisabled, id="terminal-split", strip=strip, edge=false, press=command(`${view.commandPrefix}:split`, `${view.threadKey}|${view.terminalId}`, "", 0))
@@ -183,7 +190,7 @@ component TerminalToolbar
       TerminalAction(icon="plus", label=view.newLabel, disabled=false, id="terminal-new", strip=strip, edge=true, press=command(`${view.commandPrefix}:new`, view.threadKey, "", 0))
       when not strip
         box width=1 height="1rem" background-color="light-dark(#e4e4e7, #ffffff1a)"
-      TerminalAction(icon="trash", label=view.closeLabel, disabled=false, id="terminal-close", strip=strip, edge=true, press=confirm("ui:confirm", `${view.threadKey}|${view.terminalId}`, `${view.commandPrefix}:close`, view.closeTitle, view.closeBody, true))
+      TerminalAction(icon="trash", label=view.closeLabel, disabled=false, id="terminal-close", strip=strip, edge=true, press=askClose)
 
 component TerminalAction
   props

@@ -48,6 +48,11 @@ component SidebarOverlays
   // A row's controls hover `${key}#control`: the card stays mounted for its row, and
   // closes while a control's own tooltip is up (one tooltip at a time, as the reference's group).
   derive hovered = filter(data.threads, (t) => hoverLast == "" ? t.id == data.threadId : t.hoverKey == hoverLast or startsWith(hoverLast, `${t.hoverKey}#`))
+  // A confirmation closed without acting gives the focus back to its thread's row, as Base UI's finalFocus does.
+  action dismissDialog
+    local("dialog-close", "", "")
+    if data.sidebar.dialogReturn != ""
+      focus(data.sidebar.dialogReturn)
   view
     // r5-shell: the 16pt full-height resize rail over the sidebar's edge (r5-shell.contract).
     when open
@@ -79,9 +84,9 @@ component SidebarOverlays
       button press=local("scope-open", "", "close") position="absolute" left=0 top=0 width="100%" height="100%" z-index=30 background-color="#00000000" border-width=0 aria-label="Close project filter" testId="scope-backdrop"
       SidebarScopeMenu(data=data, width=width, local=local, run=run)
     when data.sidebar.dialog == "archive" or data.sidebar.dialog == "unpin"
-      SettingsConfirm(title=data.sidebar.dialogTitle, description=data.sidebar.dialogDescription, confirmLabel="Confirm", destructive=false, busy=busy, error="", dialogId=`sidebar-${data.sidebar.dialog}`, cancel=local("dialog-close", "", ""), confirm=run("dialog-confirm", "", ""))
+      SettingsConfirm(title=data.sidebar.dialogTitle, description=data.sidebar.dialogDescription, confirmLabel="Confirm", destructive=false, busy=busy, error="", dialogId=`sidebar-${data.sidebar.dialog}`, cancel=dismissDialog, confirm=run("dialog-confirm", "", ""))
     when data.sidebar.dialog == "delete" or data.sidebar.dialog == "delete-many"
-      SettingsConfirm(title=data.sidebar.dialogTitle, description=data.sidebar.dialogDescription, confirmLabel="Confirm", destructive=true, busy=busy, error="", dialogId=`sidebar-${data.sidebar.dialog}`, cancel=local("dialog-close", "", ""), confirm=run("dialog-confirm", "", ""))
+      SettingsConfirm(title=data.sidebar.dialogTitle, description=data.sidebar.dialogDescription, confirmLabel="Confirm", destructive=true, busy=busy, error="", dialogId=`sidebar-${data.sidebar.dialog}`, cancel=dismissDialog, confirm=run("dialog-confirm", "", ""))
     // thread-commands-and-keys G5: "Delete the worktree too?" (useThreadActions deleteThread); Cancel still deletes the thread.
     when data.sidebar.dialog == "delete-worktree"
       SettingsConfirm(title=data.sidebar.dialogTitle, description=data.sidebar.dialogDescription, confirmLabel="Confirm", destructive=true, busy=busy, error="", dialogId="sidebar-delete-worktree", cancel=run("dialog-cancel", "", ""), confirm=run("dialog-confirm", "", ""))
@@ -127,6 +132,13 @@ component SidebarScopeMenu
 // CustomSnoozeDialog: Date and time / Duration, then Snooze. The window's
 // clock seeds the date and time an hour out; resolveCustomSnooze runs in the
 // client, which keeps the dialog open with its error for a past or empty time.
+// Its focus is Base UI's Dialog: the first stop takes it as the dialog opens
+// (app.contract's sidebarDialogFocus), Tab and Shift+Tab cycle the stops in
+// DialogPopup's order — the schedule type, the fields, Cancel, Snooze, then
+// Close, which the popup renders last — and closing gives it back to the thread's
+// row (`dialogReturn`). The schedule type is ToggleGroup's CompositeRoot: one
+// stop, the first toggle until another takes the focus, and the arrows, Home
+// and End move between the toggles (loopFocus).
 component SidebarSnoozeDialog
   inject
     rem: number
@@ -135,19 +147,36 @@ component SidebarSnoozeDialog
     busy: bool
     local: action
     run: action
+  state toggleStop = "date"
+  derive toggleId = toggleStop == "date" ? "snooze-mode-date" : "snooze-mode-duration"
+  action toggleFocus(mode: string)
+    toggleStop = mode
+  action toggleKey(mode: string, k: string, e: KeyboardEvent)
+    if k == "Tab" and e.shiftKey and not e.metaKey and not e.ctrlKey and not e.altKey
+      preventDefault()
+      focus("snooze-close")
+    else if not e.metaKey and not e.ctrlKey and not e.altKey and (k == "ArrowLeft" or k == "ArrowRight" or k == "Home" or k == "End")
+      preventDefault()
+      focus(k == "Home" ? "snooze-mode-date" : (k == "End" ? "snooze-mode-duration" : (mode == "date" ? "snooze-mode-duration" : "snooze-mode-date")))
+  action closeKey(k: string, e: KeyboardEvent)
+    if k == "Tab" and not e.shiftKey and not e.metaKey and not e.ctrlKey and not e.altKey
+      preventDefault()
+      focus(toggleId)
+  action dismiss
+    local("dialog-close", "", "")
+    if data.sidebar.dialogReturn != ""
+      focus(data.sidebar.dialogReturn)
   view
     column position="absolute" left=0 right=0 top=0 bottom=0 z-index=40 display="flex" align-items="center" justify-content="center" padding="1rem" box-sizing="border-box" background-color="light-dark(#fcfcfc99, #0a0a0aa3)" backdrop-filter="blur(4px)" testId="sidebar-snooze-overlay"
       column width="100%" max-width="24rem" position="relative" box-sizing="border-box" border-radius="1.125rem" border-style="solid" border-width=1 border-color="light-dark(#2727271a, #ffffff14)" background-color="light-dark(#fcfcfc, #0b0b0b)" box-shadow="0 24px 64px -24px #000000a6" overflow="hidden" role="dialog" aria-label="Custom snooze" testId="sidebar-snooze"
-        button press=local("dialog-close", "", "") disabled=busy aria-label="Close" testId="snooze-close" position="absolute" top="0.5rem" right="0.5rem" z-index=1 width="2rem" height="2rem" padding=0 border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center"
-          SidebarIcon(name="x", size=16, color="light-dark(#27272a, #f5f5f5)")
         column gap="0.5rem" padding-left="1.5rem" padding-right="1.5rem" padding-top="1.5rem" box-sizing="border-box"
           text "Custom snooze" font-size="1.25rem" font-weight=600 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=2
           text "Choose when snoozed threads return to your inbox." font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #818181)"
         column gap="1rem" padding="1.5rem" box-sizing="border-box"
           row height="2rem" padding="0.125rem" box-sizing="border-box" border-radius="0.5rem" background-color="light-dark(#f4f4f5, #ffffff0a)" role="group" aria-label="Schedule type"
-            button press=local("dialog-field", "mode", "date") testId="snooze-mode-date" flex=1 height="1.75rem" border-radius="0.375rem" border-width=0 background-color=(data.sidebar.dialogMode == "date" ? "light-dark(#ffffff, #ffffff14)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center"
+            button id="snooze-mode-date" press=local("dialog-field", "mode", "date") focus=toggleFocus("date") key=toggleKey("date") tabindex=(toggleStop == "date" ? 0 : -1) testId="snooze-mode-date" flex=1 height="1.75rem" border-radius="0.375rem" border-width=0 background-color=(data.sidebar.dialogMode == "date" ? "light-dark(#ffffff, #ffffff14)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center"
               text "Date and time" font-size="0.875rem" font-weight=500 color=(data.sidebar.dialogMode == "date" ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)")
-            button press=local("dialog-field", "mode", "duration") testId="snooze-mode-duration" flex=1 height="1.75rem" border-radius="0.375rem" border-width=0 background-color=(data.sidebar.dialogMode == "duration" ? "light-dark(#ffffff, #ffffff14)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center"
+            button id="snooze-mode-duration" press=local("dialog-field", "mode", "duration") focus=toggleFocus("duration") key=toggleKey("duration") tabindex=(toggleStop == "duration" ? 0 : -1) testId="snooze-mode-duration" flex=1 height="1.75rem" border-radius="0.375rem" border-width=0 background-color=(data.sidebar.dialogMode == "duration" ? "light-dark(#ffffff, #ffffff14)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center"
               text "Duration" font-size="0.875rem" font-weight=500 color=(data.sidebar.dialogMode == "duration" ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)")
           when data.sidebar.dialogMode == "date"
             row gap="0.75rem"
@@ -179,10 +208,12 @@ component SidebarSnoozeDialog
           when data.sidebar.dialogError != ""
             text data.sidebar.dialogError font-size="0.875rem" line-height="1.25rem" color="light-dark(#dc2626, #f87171)" role="alert" testId="snooze-error"
         row gap="0.5rem" justify-content="flex-end" padding-left="1.5rem" padding-right="1.5rem" padding-top="1rem" padding-bottom="1rem" box-sizing="border-box" border-top-style="solid" border-top-width=1 border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#f9f9f9b8, #ffffff06)"
-          button press=local("dialog-close", "", "") disabled=busy aria-keyshortcuts="Escape" testId="snooze-cancel" display="flex" flex-direction="row" align-items="center" justify-content="center" height="2.25rem" padding-left="0.8125rem" padding-right="0.8125rem" box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)"
+          button press=dismiss disabled=busy aria-keyshortcuts="Escape" testId="snooze-cancel" display="flex" flex-direction="row" align-items="center" justify-content="center" height="2.25rem" padding-left="0.8125rem" padding-right="0.8125rem" box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)"
             text "Cancel" font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"
           button press=run("dialog-confirm", "", "") disabled=busy testId="snooze-confirm" display="flex" flex-direction="row" align-items="center" justify-content="center" height="2.25rem" padding-left="0.8125rem" padding-right="0.8125rem" box-sizing="border-box" border-radius="0.5rem" border-width=0 background-color="light-dark(#1b4ed8, #346bf1)"
             text "Snooze" font-size="0.875rem" font-weight=500 line-height="1.25rem" color="#ffffff"
+        button id="snooze-close" press=dismiss key=closeKey disabled=busy aria-label="Close" testId="snooze-close" position="absolute" top="0.5rem" right="0.5rem" z-index=1 width="2rem" height="2rem" padding=0 border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center"
+          SidebarIcon(name="x", size=16, color="light-dark(#27272a, #f5f5f5)")
 
 // ui/tooltip.tsx TooltipPopup for a sidebar row control, centered over the
 // control's top (x, y) with the shell's bubble. Hidden bubbles move off-screen.
