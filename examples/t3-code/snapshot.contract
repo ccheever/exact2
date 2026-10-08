@@ -179,7 +179,7 @@ component SnapshotPanel
                     text "(Default)" font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #818181)" white-space="nowrap"
                 SnapIcon(name="chevron-down", size=12, color="light-dark(#27272a80, #f5f5f580)")
               column id="snapshot-sound-menu" popover="auto" role="menu" aria-label="Snapshot sound" class=SnapMenu position="absolute" top="100%" right=0 testId="snapshot-sound-menu"
-                KeyMenu(menuId="snapshot-sound-keys", items=[KmItem(id="snapshot-sound-off", label="Off"), KmItem(id="snapshot-sound-whoosh", label="Whoosh"), KmItem(id="snapshot-play-whoosh", label="Play Whoosh"), KmItem(id="snapshot-sound-click", label="Click"), KmItem(id="snapshot-play-click", label="Play Click")], keyed=keyed, gap="0px")
+                KeyMenu(menuId="snapshot-sound-keys", items=[KmItem(id="snapshot-sound-off", label="Off"), KmItem(id="snapshot-sound-whoosh", label="Whoosh"), KmItem(id="snapshot-play-whoosh", label="Play Whoosh"), KmItem(id="snapshot-sound-click", label="Click"), KmItem(id="snapshot-play-click", label="Play Click")], keyed=keyed, gap="0px", modal=true)
                   button id="snapshot-sound-off" press=change("snapShotPlaySound", "false") popovertarget="snapshot-sound-menu" popovertargetaction="hide" role="menuitemradio" aria-checked=(data.soundSelection == "off") class=SnapMenuItem width="100%" background-color=(data.soundSelection == "off" ? "light-dark(#27272a14, #f5f5f514)" : "#00000000") testId="snapshot-sound-off"
                     text "Off" class=SnapInk
                   row width="100%" align-items="center"

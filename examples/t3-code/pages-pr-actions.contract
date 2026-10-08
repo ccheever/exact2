@@ -95,6 +95,11 @@ component PrdHeaderActions
     copy: action
     local: action
     select: action
+  // fix-keyboard-focus: a confirmation is asked for through the data module, so the asking control lets
+  // go of the focus, and the dialog's Cancel takes it by `autofocus` as it mounts (Base UI's initialFocus).
+  action ask(what: string)
+    blur()
+    local("pr-ui-ask", ref, what)
   view
     row flex-shrink=0 align-items="center" gap="0.25rem" testId="pull-request-header-actions"
       PrdStackControls(stack=actions.stack, ref=ref, scheme=scheme, local=local, select=select)
@@ -106,7 +111,7 @@ component PrdHeaderActions
       when actions.primary == "auto-merge-armed"
         PaArmedBadge(label=actions.primaryLabel, tip=actions.armedTip, compact=compact, testId="pull-request-primary")
       when actions.primary == "merge" or actions.primary == "enable-auto-merge"
-        PaPrimaryButton(icon="git-merge", label=actions.primaryLabel, disabled=actions.primaryDisabled, destructive=false, press=local("pr-ui-ask", ref, actions.primary), compact=compact, testId="pull-request-primary")
+        PaPrimaryButton(icon="git-merge", label=actions.primaryLabel, disabled=actions.primaryDisabled, destructive=false, press=ask(actions.primary), compact=compact, testId="pull-request-primary")
       when actions.primary == "ready"
         PaPrimaryButton(icon="git-pull-request-arrow", label=actions.primaryLabel, disabled=actions.primaryDisabled, destructive=false, press=act("action", "ready"), compact=compact, testId="pull-request-primary")
       when actions.primary == "resolve"
@@ -180,6 +185,10 @@ component PrdActionsMenu
   action moreKey(k: string)
     if kmOpenKey(k)
       keyed = keyed + 1
+  // A confirmation asked for from the menu (PrdHeaderActions' ask).
+  action ask(what: string)
+    blur()
+    local("pr-ui-ask", ref, what)
   view
     column position="relative" flex-shrink=0
       Tip(label=actions.moreLabel, side="top", align="center", offset=20)
@@ -193,7 +202,7 @@ component PrdActionsMenu
         // As wide as its widest line: "Opens a thread that knows which pull request you mean." (318 at 12px) and the
         // item's glyph, gap and insets (pr-handoffs-and-quick-actions).
         PrMenuBox(scheme=scheme, width=380, label="More pull request actions")
-          KeyMenu(menuId="pr-more-keys", items=rows, keyed=keyed, gap="0px")
+          KeyMenu(menuId="pr-more-keys", items=rows, keyed=keyed, gap="0px", modal=true)
             PaMenuItem(icon="refresh-cw", label="Refresh", shortcut="", disabled=actions.refreshing, destructive=false, press=reload, testId="pr-more-refresh")
             PrdHandoffItems(handoffs=handoffs, surface=surface, menuId="pr-more-menu", act=act)
             PaSeparator()
@@ -203,11 +212,11 @@ component PrdActionsMenu
               when actions.draftToggle == "ready"
                 PaMenuItem(icon="git-pull-request-arrow", label="Ready for review", shortcut="", disabled=actions.pending, destructive=false, press=act("action", "ready"), testId="pr-more-ready")
               when actions.mergeNow
-                PaMenuItem(icon="git-merge", label="Merge now", shortcut="", disabled=actions.pending, destructive=false, press=local("pr-ui-ask", ref, "merge"), testId="pr-more-merge-now")
+                PaMenuItem(icon="git-merge", label="Merge now", shortcut="", disabled=actions.pending, destructive=false, press=ask("merge"), testId="pr-more-merge-now")
               when actions.autoMerge == "disable"
                 PaMenuItem(icon="git-merge", label="Disable auto-merge", shortcut="", disabled=actions.pending, destructive=false, press=act("action", "disable-auto-merge"), testId="pr-more-disable-auto-merge")
               when actions.autoMerge == "enable"
-                PaMenuItem(icon="git-merge", label="Enable auto-merge", shortcut="", disabled=actions.pending, destructive=false, press=local("pr-ui-ask", ref, "enable-auto-merge"), testId="pr-more-enable-auto-merge")
+                PaMenuItem(icon="git-merge", label="Enable auto-merge", shortcut="", disabled=actions.pending, destructive=false, press=ask("enable-auto-merge"), testId="pr-more-enable-auto-merge")
               when actions.methodsSeparator
                 PaSeparator()
               when length(actions.methods) > 0
@@ -223,13 +232,13 @@ component PrdActionsMenu
             PaMenuItem(icon="copy", label="Copy PR number", shortcut="⇧⌘K", disabled=false, destructive=false, press=copy("PR number", numberLabel), testId="pr-more-copy-number")
             when actions.closeItem
               PaSeparator()
-              PaMenuItem(icon="git-pull-request-closed", label="Close pull request", shortcut="", disabled=actions.pending, destructive=true, press=local("pr-ui-ask", ref, "close"), testId="pr-more-close")
+              PaMenuItem(icon="git-pull-request-closed", label="Close pull request", shortcut="", disabled=actions.pending, destructive=true, press=ask("close"), testId="pr-more-close")
             when actions.reopenItem
               PaSeparator()
               PaMenuItem(icon="git-pull-request-arrow", label="Reopen pull request", shortcut="", disabled=actions.pending, destructive=false, press=act("action", "reopen"), testId="pr-more-reopen")
             when actions.revertItem
               PaSeparator()
-              PaMenuItem(icon="rotate-ccw", label="Revert changes", shortcut="", disabled=actions.pending, destructive=false, press=local("pr-ui-ask", ref, "revert"), testId="pr-more-revert")
+              PaMenuItem(icon="rotate-ccw", label="Revert changes", shortcut="", disabled=actions.pending, destructive=false, press=ask("revert"), testId="pr-more-revert")
       box width="1rem" height=1 flex-shrink=0
 
 component PaSeparator
@@ -362,9 +371,12 @@ component PrdApproveWorkflows
     actions: PrActionsView
     ref: string
     local: action
+  action ask
+    blur()
+    local("pr-ui-ask", ref, "approve-workflows")
   view
     Tip(label=actions.approveLabel, side="top", align="center", offset=20)
-      button id="pull-request-approve-workflows" press=local("pr-ui-ask", ref, "approve-workflows") disabled=actions.pending aria-label=actions.approveLabel testId="pull-request-approve-workflows" height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" box-sizing="border-box" gap="0.25rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color="#fe9a0052" background-color="light-dark(#fe9a0014, #fe9a0029)" box-shadow="0 1px 2px #0000000d" opacity=(actions.pending ? 0.64 : 1) display="flex" flex-direction="row" align-items="center" flex-shrink=0
+      button id="pull-request-approve-workflows" press=ask disabled=actions.pending aria-label=actions.approveLabel testId="pull-request-approve-workflows" height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" box-sizing="border-box" gap="0.25rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color="#fe9a0052" background-color="light-dark(#fe9a0014, #fe9a0029)" box-shadow="0 1px 2px #0000000d" opacity=(actions.pending ? 0.64 : 1) display="flex" flex-direction="row" align-items="center" flex-shrink=0
         PgIcon(name="play", size=14, color=paWarn())
         text actions.approveLabel font-size="0.75rem" line-height="1rem" font-weight=500 white-space="nowrap" color=paWarn()
 
@@ -384,8 +396,8 @@ component PrActionLayers
 
 // AlertDialog: the title, the sentence, Cancel (Escape) and the action's own button (destructive for Close).
 // Focus starts on Cancel and Tab stays on the two buttons (X53's stopgap, as AppConfirm's). The focus at
-// open is the root's (app.contract prDialogFocus): `autofocus` takes it only when nothing holds it, and the
-// trigger ("…", which the closing menu gives it back to) still did (fix-keyboard-focus). Cancel and Escape
+// open is Cancel's `autofocus`, which takes it only when nothing holds it: the asking control lets go of
+// it first (fix-keyboard-focus; "…" held it, given back by the closing menu). Cancel and Escape
 // give it back to the control that asked (Base UI's finalFocus): the primary button for its own merge or
 // auto-merge, "Approve workflows to run" for its approval, else "…".
 component PrActionDialog

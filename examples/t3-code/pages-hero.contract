@@ -133,7 +133,7 @@ component HeroMenu
     lit = on ? id : (lit == id ? "" : lit)
   view
     column min-width="10rem" max-height="20rem" flex-shrink=0 box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#27272a1a, #f5f5f51a)" background-color="light-dark(#ffffffd5, #111111d5)" box-shadow=(scheme == "dark" ? "0 18px 44px -18px #000000cc" : "0 16px 40px -18px #0000008c") role="menu" aria-label="Choose project" testId="hero-project-menu"
-      KeyMenu(menuId="hero-project-keys", items=concat(concat((home.noProjectItem ? [KmItem(id="hero-project-none", label="No project")] : []), map(home.projects, (project) => KmItem(id=`hero-project-${project.id}`, label=project.name))), [KmItem(id="hero-add-project", label="Add project")]), keyed=keyed, gap="0px")
+      KeyMenu(menuId="hero-project-keys", items=concat(concat((home.noProjectItem ? [KmItem(id="hero-project-none", label="No project")] : []), map(home.projects, (project) => KmItem(id=`hero-project-${project.id}`, label=project.name))), [KmItem(id="hero-add-project", label="Add project")]), keyed=keyed, gap="0px", modal=true)
         scroll width="100%" max-height="19.875rem" padding="0.25rem" box-sizing="border-box"
           column width="100%" role="group"
             when home.noProjectItem

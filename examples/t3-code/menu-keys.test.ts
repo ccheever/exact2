@@ -19,7 +19,7 @@ describe('the shared menu keyboard (Base UI Menu)', () => {
   test('the popup takes the focus as it opens, keeps it on a click, and hears the keys of its rows', async () => {
     for (const name of ['KeyMenu', 'KeyMenuWatched']) {
       const body = await component('menu-keys.contract', name);
-      expect(body).toContain('column id=menuId width="100%" tabindex=-1 autofocus=true retainFocus=true key=keys focus=entered');
+      expect(body).toContain('column id=menuId width="100%" tabindex=-1 autofocus=true retainFocus=true aria-modal=modal key=keys focus=entered');
       // `${menuId}-first`: a keyboard opening hands the focus on to the first item.
       expect(body).toContain('column id=`${menuId}-first` width="100%" gap=gap tabindex=-1 focus=enteredFirst');
       expect(body).toContain('match kmTarget(items, current, k)');
@@ -58,7 +58,16 @@ describe('the shared menu keyboard (Base UI Menu)', () => {
   test.each(menus)('%s wraps its rows in the keyboard menu %s', async (file, menuId) => {
     const text = await source(file);
     const quoted = menuId.includes('${') ? `menuId=\`${menuId}\`` : `menuId="${menuId}"`;
-    expect(text).toMatch(new RegExp(`KeyMenu(Watched)?\\(${quoted.replace(/[$(){}`.]/g, ch => `\\${ch}`)}, items=`));
+    expect(text).toMatch(new RegExp(`KeyMenu(Watched)?\\(${quoted.replace(/[$(){}`.]/g, ch => `\\${ch}`)}, items=.*, modal=(true|false)\\)`));
+  });
+
+  test('a popover menu is modal while it shows, so Escape closes it before a page\'s own Escape shortcut (Usage\'s Back, Settings\')', async () => {
+    for (const [file, line] of [['pages-usage.contract', 'KeyMenu(menuId="usage-environment-keys"'], ['pages-pr-actions.contract', 'KeyMenu(menuId="pr-more-keys"'],
+      ['settings-kit.contract', 'KeyMenu(menuId=`${menuId}-keys`'], ['settings-b-kit.contract', 'KeyMenu(menuId=`${menuId}-keys`'], ['sidebar-row.contract', 'KeyMenuWatched(menuId=`snooze-${t.id}-keys`']] as const)
+      expect((await source(file)).split('\n').find(l => l.includes(line))).toContain('modal=true)');
+    // A menu its owner mounts from state keeps its backdrop's Escape (outside the menu): not modal.
+    for (const [file, line] of [['shell-panels.contract', 'KeyMenu(menuId="title-menu-keys"'], ['diff.contract', 'KeyMenu(menuId="diff-scope-keys"']] as const)
+      expect((await source(file)).split('\n').find(l => l.includes(line))).toContain('modal=false)');
   });
 
   test('a row the keys move to has an id: every menuitem in a file with a keyboard menu', async () => {
@@ -96,7 +105,7 @@ describe('#298 bug 4: Custom snooze from the sidebar row by the real pointer and
     expect(row).toContain('when shown or swept\n                        SidebarCardActions(');
     expect(row).toContain('max-width=(shown ? "0px" : "15rem")');
     expect(row).toContain('max-width=(shown ? "15rem" : "0px") overflow=(shown ? "visible" : "hidden") opacity=(shown ? 1 : 0) pointer-events=(shown ? "auto" : "none") aria-hidden=(not shown)');
-    expect(row).toContain('KeyMenuWatched(menuId=`snooze-${t.id}-keys`, items=snoozeItems, keyed=snoozeKeyed, gap="0px", inside=snoozeInside)');
+    expect(row).toContain('KeyMenuWatched(menuId=`snooze-${t.id}-keys`, items=snoozeItems, keyed=snoozeKeyed, gap="0px", inside=snoozeInside, modal=true)');
     expect(row).toContain('[KmItem(id=`snooze-${t.id}-custom`, label="Custom…")]');
     const item = await component('sidebar-row.contract', 'SnoozeMenuItem');
     expect(item).toContain('button id=itemId cursor="pointer" press=press popovertarget=popId popovertargetaction="hide" hover=hover focus=focused(true) blur=focused(false) role="menuitem"');
@@ -127,16 +136,22 @@ describe('#298 bugs 13 and 16: the pull request More menu and its Close dialog b
     expect(menu).toContain('action moreKey(k: string)\n    if kmOpenKey(k)\n      keyed = keyed + 1');
     for (const id of ['pr-more-refresh', 'pr-more-ask', 'pr-more-explain', 'pr-more-fix-findings', 'pr-more-draft', 'pr-more-merge-now', 'pr-more-enable-auto-merge', 'pr-more-method-${item.method}', 'pr-more-open-host', 'pr-more-copy-link', 'pr-more-copy-number', 'pr-more-close', 'pr-more-reopen', 'pr-more-revert'])
       expect(menu).toContain(id);
-    expect(menu).toContain('KeyMenu(menuId="pr-more-keys", items=rows, keyed=keyed, gap="0px")');
+    expect(menu).toContain('KeyMenu(menuId="pr-more-keys", items=rows, keyed=keyed, gap="0px", modal=true)');
   });
 
-  test('the confirmation takes the focus at Cancel from "…" (a root task: autofocus waits while a control holds it) and Cancel gives it back', async () => {
-    const app = await source('app.contract');
-    expect(app).toContain('task prDialogFocus when prDetail.actions.dialogOpen key=prDetail.actions.dialogValue');
-    expect(app).toContain('  action focusPrDialog\n    focus("pr-action-dialog-cancel")');
+  test('the confirmation takes the focus at Cancel: the asking control lets go of it first, so Cancel\'s autofocus applies; Cancel gives it back', async () => {
+    // `autofocus` waits while a control holds the focus (HTML's rule); "…" held it, given back by the closing menu.
+    expect(await component('pages-pr-actions.contract', 'PrdHeaderActions')).toContain('action ask(what: string)\n    blur()\n    local("pr-ui-ask", ref, what)');
+    const menu = await component('pages-pr-actions.contract', 'PrdActionsMenu');
+    expect(menu).toContain('action ask(what: string)\n    blur()\n    local("pr-ui-ask", ref, what)');
+    for (const what of ['merge', 'enable-auto-merge', 'close', 'revert']) expect(menu).toContain(`press=ask("${what}")`);
+    expect(menu.split('local("pr-ui-ask"').length - 1).toBe(1); // only inside `ask`
+    expect(await component('pages-pr-actions.contract', 'PrdApproveWorkflows')).toContain('action ask\n    blur()\n    local("pr-ui-ask", ref, "approve-workflows")');
     const dialog = await component('pages-pr-actions.contract', 'PrActionDialog');
     expect(dialog).toContain('button id="pr-action-dialog-cancel" press=dismiss key=fromCancel autofocus=true aria-keyshortcuts="Escape"');
     expect(dialog).toContain('action dismiss\n    local("pr-ui-cancel", ref, "")\n    focus(opener)');
     expect(dialog).toContain('"pull-request-approve-workflows" : (actions.primary != "" and (actions.dialogValue == actions.primary or startsWith(actions.dialogValue, `${actions.primary}:`)) ? "pull-request-primary" : "pull-request-more")');
+    // No root line for it (app.contract's budget).
+    expect(await source('app.contract')).not.toContain('pr-action-dialog-cancel');
   });
 });

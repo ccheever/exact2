@@ -61,7 +61,7 @@ component R4FilesSurface
       when files.crumbMenu.open
         button press=local("surface-files-crumb-close", "", "") aria-label="Close folder menu" position="absolute" left=0 top=0 right=0 bottom=0 z-index=9 padding=0 border-width=0 background-color="#00000000" testId="crumb-menu-backdrop"
         column position="absolute" left=files.crumbMenu.x top=(sheet ? "2rem" : "1.625rem") z-index=10 min-width="10rem" max-width="20rem" padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#2727291a, #ffffff1a)" background-color="light-dark(#fefefe, #171717)" box-shadow="0 16px 40px -18px #0000008c" role="menu" testId="crumb-menu"
-          KeyMenu(menuId="crumb-menu-keys", items=concat((files.crumbMenu.back != "" ? [KmItem(id="crumb-back", label=files.crumbMenu.back)] : []), map(files.crumbMenu.entries, (entry) => KmItem(id=`crumb-entry-${entry.path}`, label=entry.label))), keyed=0, gap="0px")
+          KeyMenu(menuId="crumb-menu-keys", items=concat((files.crumbMenu.back != "" ? [KmItem(id="crumb-back", label=files.crumbMenu.back)] : []), map(files.crumbMenu.entries, (entry) => KmItem(id=`crumb-entry-${entry.path}`, label=entry.label))), keyed=0, gap="0px", modal=false)
             when files.crumbMenu.back != ""
               R4CrumbItem(label=files.crumbMenu.back, icon="arrow-left", token="", trailing=false, current=false, ignored=false, test="crumb-back", press=local("surface-files-crumb-dir", files.crumbMenu.backPath, ""))
               box height=1 margin-top="0.25rem" margin-bottom="0.25rem" margin-left="0.5rem" margin-right="0.5rem" background-color="light-dark(#e4e4e7, #ffffff0f)"
@@ -72,7 +72,7 @@ component R4FilesSurface
       when files.editorsOpen and files.editorShow
         button press=closeEditors aria-label="Close editor menu" aria-keyshortcuts="Escape" tabindex=-1 position="absolute" left=0 top=0 right=0 bottom=0 z-index=9 padding=0 border-width=0 background-color="#00000000" testId="file-editors-backdrop"
         column position="absolute" right="6.5rem" top=(sheet ? "2.25rem" : "1.875rem") z-index=10 min-width="10rem" padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#2727291a, #ffffff1a)" background-color="light-dark(#fefefe, #171717)" box-shadow="0 16px 40px -18px #0000008c" role="menu" aria-label="Open in" testId="file-editors"
-          KeyMenu(menuId="file-editors-keys", items=(files.editorUnavailable != "" ? [] : map(files.editors, (editor) => KmItem(id=`file-editor-${editor.id}`, label=editor.label))), keyed=0, gap="0px")
+          KeyMenu(menuId="file-editors-keys", items=(files.editorUnavailable != "" ? [] : map(files.editors, (editor) => KmItem(id=`file-editor-${editor.id}`, label=editor.label))), keyed=0, gap="0px", modal=false)
             when files.editorUnavailable != "" or length(files.editors) == 0
               text (files.editorUnavailable != "" ? files.editorUnavailable : "No installed editors found") padding="0.5rem" font-size="0.75rem" color="light-dark(#71717b, #a1a1aa)" testId="file-editor-unavailable"
             when files.editorHint != "" and files.editorUnavailable == ""

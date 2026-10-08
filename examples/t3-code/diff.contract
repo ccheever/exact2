@@ -204,7 +204,7 @@ component DiffScopeMenu
     command("diff-view", "menu", "turns", 0)
   view
     column position="absolute" left="0.5rem" top="5.09375rem" width="10rem" padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-style="solid" border-width=1 border-color="light-dark(#e9e9ea, #292929)" background-color="light-dark(#ffffff, #111111)" box-shadow="0 16px 40px -18px #0000008c" z-index=30 role="menu" aria-label=`Diff scope: ${data.diffScopeLabel}` testId="diff-scope-menu"
-      KeyMenu(menuId="diff-scope-keys", items=concat([KmItem(id="diff-scope-branch", label="Changes"), KmItem(id="diff-scope-unstaged", label="Uncommitted")], (length(data.diffTurns) > 0 ? [KmItem(id="diff-scope-latest", label="Latest turn"), KmItem(id="diff-scope-turns", label="Turn")] : [])), keyed=0, gap="0px")
+      KeyMenu(menuId="diff-scope-keys", items=concat([KmItem(id="diff-scope-branch", label="Changes"), KmItem(id="diff-scope-unstaged", label="Uncommitted")], (length(data.diffTurns) > 0 ? [KmItem(id="diff-scope-latest", label="Latest turn"), KmItem(id="diff-scope-turns", label="Turn")] : [])), keyed=0, gap="0px", modal=false)
         DiffMenuItem(label="Changes", time="", selected=(data.diffScope == "branch"), submenu=false, testId="diff-scope-branch", choose=command("diff-scope", "", "branch", 0))
         DiffMenuItem(label="Uncommitted", time="", selected=(data.diffScope == "unstaged"), submenu=false, testId="diff-scope-unstaged", choose=command("diff-scope", "", "unstaged", 0))
         when length(data.diffTurns) > 0
@@ -212,7 +212,7 @@ component DiffScopeMenu
           DiffMenuItem(label="Turn", time="", selected=(data.diffMenu == "turns"), submenu=true, testId="diff-scope-turns", choose=openTurns)
       when data.diffMenu == "turns"
         column position="absolute" left="9.6875rem" top="5.25rem" width="10rem" padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-style="solid" border-width=1 border-color="light-dark(#e9e9ea, #292929)" background-color="light-dark(#ffffff, #111111)" box-shadow="0 16px 40px -18px #0000008c" role="menu" aria-label="Turn" testId="diff-turn-menu"
-          KeyMenu(menuId="diff-turns-keys", items=map(data.diffTurns, (turn) => KmItem(id=`diff-${turn.id}`, label=turn.label)), keyed=1, gap="0px")
+          KeyMenu(menuId="diff-turns-keys", items=map(data.diffTurns, (turn) => KmItem(id=`diff-${turn.id}`, label=turn.label)), keyed=1, gap="0px", modal=false)
             each turn in data.diffTurns key=turn.id
               DiffMenuItem(label=turn.label, time=turn.time, selected=turn.selected, submenu=false, testId=`diff-${turn.id}`, choose=command("diff-scope", "", turn.id, 0))
 

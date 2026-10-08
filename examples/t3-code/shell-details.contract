@@ -184,7 +184,7 @@ component DetailsBody
               DisabledEditorItem(label=details.editorUnavailable, testId="details-editor-no-route")
             when details.editorEmpty
               DisabledEditorItem(label="No installed editors found", testId="details-editor-none")
-            KeyMenu(menuId="details-editors-keys", items=map(details.editors, (editor) => KmItem(id=`details-editor-${editor.id}`, label=editor.label)), keyed=0, gap="0px")
+            KeyMenu(menuId="details-editors-keys", items=map(details.editors, (editor) => KmItem(id=`details-editor-${editor.id}`, label=editor.label)), keyed=0, gap="0px", modal=false)
               each editor in details.editors key=editor.id
                 EditorOption(editor=editor, cwd=details.cwd, shortcut=details.editorShortcut, act=act)
             when details.editorHint != ""

@@ -161,7 +161,7 @@ component PrRowStack
           text label font-size="0.75rem" line-height="1rem" color=pqMuted() white-space="nowrap" font-variant-numeric="tabular-nums"
       row id=popId popover="auto" position="absolute" padding-top="0.25rem" align-items="flex-start" testId=`${popId}-layer`
         column width="18rem" padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#27272a1a, #f5f5f51a)" background-color="light-dark(#ffffff, #121212)" box-shadow=(scheme == "dark" ? "0 18px 44px -18px #000000cc" : "0 16px 40px -18px #0000008c") role="menu" aria-label=ariaLabel testId=popId
-          KeyMenu(menuId=`${popId}-keys`, items=layerItems, keyed=keyed, gap="0px")
+          KeyMenu(menuId=`${popId}-keys`, items=layerItems, keyed=keyed, gap="0px", modal=true)
             row width="100%" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.375rem" padding-bottom="0.375rem" box-sizing="border-box" justify-content="space-between" align-items="center" gap="0.5rem"
               text (popover.ref == rowRef ? popover.label : "") font-size="0.75rem" line-height="1rem" font-weight=500 color=pqMuted()
               when popover.ref == rowRef and popover.noticeText != ""

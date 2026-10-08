@@ -169,14 +169,14 @@ component TitleMenu
       button press=ui("close", "") dblclick=ui("rename", "") aria-label="Close menu" aria-keyshortcuts="Escape" testId="title-menu-backdrop" position="absolute" left=0 top=0 right=0 bottom=0 padding=0 border-width=0 background-color="#00000000"
       row position="absolute" left=x top=y align-items="flex-start"
         column min-width="8rem" max-width="24rem" padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-style="solid" border-width=1 border-color="light-dark(#27272a1a, #f5f5f51a)" background-color="light-dark(#fefefe, #101010)" box-shadow="0 20px 25px -5px #00000040, 0 8px 10px -6px #00000040" role="menu" aria-label="Thread actions" testId="title-menu"
-          KeyMenu(menuId="title-menu-keys", items=map(filter(items, (entry) => not entry.disabled), (entry) => KmItem(id=`title-menu-${entry.id}`, label=entry.label)), keyed=0, gap="0px")
+          KeyMenu(menuId="title-menu-keys", items=map(filter(items, (entry) => not entry.disabled), (entry) => KmItem(id=`title-menu-${entry.id}`, label=entry.label)), keyed=0, gap="0px", modal=false)
             each entry in items key=entry.id
               when entry.separated
                 box height=1 margin-top="0.25rem" margin-bottom="0.25rem" margin-left="0.5rem" margin-right="0.5rem" background-color="light-dark(#e4e4e7, #ffffff0f)"
               MenuRow(entry=entry, highlighted=(hoveredId == entry.id or open == entry.id), pick=pick, hover=hover, expand=expand)
         when open != ""
           column min-width="8rem" max-width="24rem" margin-left=-1 margin-top=subTop padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-style="solid" border-width=1 border-color="light-dark(#27272a1a, #f5f5f51a)" background-color="light-dark(#fefefe, #101010)" box-shadow="0 20px 25px -5px #00000040, 0 8px 10px -6px #00000040" key=subBack role="menu" aria-label=open testId="title-submenu"
-            KeyMenu(menuId="title-submenu-keys", items=map(filter(children, (c) => c.submenu == open and not c.disabled), (entry) => KmItem(id=`title-menu-${entry.id}`, label=entry.label)), keyed=subKeyed, gap="0px")
+            KeyMenu(menuId="title-submenu-keys", items=map(filter(children, (c) => c.submenu == open and not c.disabled), (entry) => KmItem(id=`title-menu-${entry.id}`, label=entry.label)), keyed=subKeyed, gap="0px", modal=false)
               each entry in filter(children, (c) => c.submenu == open) key=entry.id
                 when entry.separated
                   box height=1 margin-top="0.25rem" margin-bottom="0.25rem" margin-left="0.5rem" margin-right="0.5rem" background-color="light-dark(#e4e4e7, #ffffff0f)"

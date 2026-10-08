@@ -316,7 +316,7 @@ component PrSortMenu
         text "Sort" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
       column id="pr-sort-menu" popover="auto" position="absolute" padding-top="0.25rem" testId="pr-sort-layer"
         PrMenuBox(scheme=scheme, width=160, label=`Sort pull requests: ${page.sortLabel}`)
-          KeyMenu(menuId="pr-sort-keys", items=[KmItem(id="pr-sort-ready", label="Merge readiness"), KmItem(id="pr-sort-blocked", label="Blocked on me"), KmItem(id="pr-sort-updated", label="Recently updated"), KmItem(id="pr-sort-newest", label="Newest shown"), KmItem(id="pr-sort-oldest", label="Oldest shown"), KmItem(id="pr-sort-largest", label="Largest shown"), KmItem(id="pr-sort-smallest", label="Smallest shown")], keyed=keyed, gap="0px")
+          KeyMenu(menuId="pr-sort-keys", items=[KmItem(id="pr-sort-ready", label="Merge readiness"), KmItem(id="pr-sort-blocked", label="Blocked on me"), KmItem(id="pr-sort-updated", label="Recently updated"), KmItem(id="pr-sort-newest", label="Newest shown"), KmItem(id="pr-sort-oldest", label="Oldest shown"), KmItem(id="pr-sort-largest", label="Largest shown"), KmItem(id="pr-sort-smallest", label="Smallest shown")], keyed=keyed, gap="0px", modal=true)
             PrMenuItem(menuId="pr-sort-menu", icon="list-checks", label="Merge readiness", detail="", selected=(page.sort == "ready"), tick=false, disabled=false, press=control("sort", "ready"), testId="pr-sort-ready")
             PrMenuItem(menuId="pr-sort-menu", icon="user-lock", label="Blocked on me", detail="", selected=(page.sort == "blocked"), tick=false, disabled=false, press=control("sort", "blocked"), testId="pr-sort-blocked")
             PrMenuItem(menuId="pr-sort-menu", icon="clock", label="Recently updated", detail="", selected=(page.sort == "updated"), tick=false, disabled=false, press=control("sort", "updated"), testId="pr-sort-updated")
@@ -344,7 +344,7 @@ component PrHostMenu
           text "All" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
       row id="pr-host-menu" popover="auto" position="absolute" padding-top="0.25rem" align-items="flex-start" testId="pr-host-layer"
         PrMenuBox(scheme=scheme, width=160, label=`Filter by provider: ${page.hostLabel}`)
-          KeyMenu(menuId="pr-host-keys", items=map(filter(page.hosts, (host) => host.unavailable == ""), (host) => KmItem(id=`pr-host-${host.label}`, label=host.label)), keyed=keyed, gap="0px")
+          KeyMenu(menuId="pr-host-keys", items=map(filter(page.hosts, (host) => host.unavailable == ""), (host) => KmItem(id=`pr-host-${host.label}`, label=host.label)), keyed=keyed, gap="0px", modal=true)
             each host in page.hosts key=host.value
               PrHostItem(host=host, control=control)
         box width=tail height=1 flex-shrink=0
@@ -413,10 +413,10 @@ component PrFiltersMenu
           when sub != ""
             column margin-top=subTop margin-right="-0.1875rem" key=subBack
               PrMenuBox(scheme=scheme, width=subWidth, label=sub)
-                KeyMenu(menuId="pr-filters-sub-keys", items=subItems, keyed=subKeyed, gap="0px")
+                KeyMenu(menuId="pr-filters-sub-keys", items=subItems, keyed=subKeyed, gap="0px", modal=true)
                   PrFilterSub(page=page, sub=sub, control=control)
           PrMenuBox(scheme=scheme, width=184, label="Filters")
-            KeyMenu(menuId="pr-filters-keys", items=[KmItem(id="pr-filter-state", label="State"), KmItem(id="pr-filter-involvement", label="Involvement"), KmItem(id="pr-filter-author", label="Author"), KmItem(id="pr-filter-labels", label="Labels"), KmItem(id="pr-filter-draft", label="Draft"), KmItem(id="pr-filter-review", label="Review"), KmItem(id="pr-filter-checks", label="Checks"), KmItem(id="pr-filter-project", label="Project")], keyed=keyed, gap="0px")
+            KeyMenu(menuId="pr-filters-keys", items=[KmItem(id="pr-filter-state", label="State"), KmItem(id="pr-filter-involvement", label="Involvement"), KmItem(id="pr-filter-author", label="Author"), KmItem(id="pr-filter-labels", label="Labels"), KmItem(id="pr-filter-draft", label="Draft"), KmItem(id="pr-filter-review", label="Review"), KmItem(id="pr-filter-checks", label="Checks"), KmItem(id="pr-filter-project", label="Project")], keyed=keyed, gap="0px", modal=true)
               PrSubTrigger(icon=page.stateIcon, label="State", value=page.stateLabel, open=(sub == "state"), press=open("state"), keys=subKey("state"), testId="pr-filter-state")
               PrSubTrigger(icon=page.involvementIcon, label="Involvement", value=page.involvementLabel, open=(sub == "involvement"), press=open("involvement"), keys=subKey("involvement"), testId="pr-filter-involvement")
               box width="calc(100% - 16px)" height=1 margin-left="0.5rem" margin-top="0.25rem" margin-bottom="0.25rem" background-color="light-dark(#e4e4e7, #ffffff0f)" role="separator"

@@ -34,6 +34,9 @@ component KeyMenu
     items: list<KmItem>
     keyed: number
     gap: string
+    // A painted popover menu is modal while it shows (Base UI Menu modal): only shortcuts inside it are
+    // heard, so Escape closes the menu before a page's own Escape shortcut runs.
+    modal: bool
   state current = ""
   state seen = 0
   action keys(k: string, e: KeyboardEvent)
@@ -62,7 +65,7 @@ component KeyMenu
       case none
   slot
   view
-    column id=menuId width="100%" tabindex=-1 autofocus=true retainFocus=true key=keys focus=entered testId=menuId
+    column id=menuId width="100%" tabindex=-1 autofocus=true retainFocus=true aria-modal=modal key=keys focus=entered testId=menuId
       column id=`${menuId}-first` width="100%" gap=gap tabindex=-1 focus=enteredFirst
         children
 
@@ -72,6 +75,9 @@ component KeyMenuWatched
     items: list<KmItem>
     keyed: number
     gap: string
+    // A painted popover menu is modal while it shows (Base UI Menu modal): only shortcuts inside it are
+    // heard, so Escape closes the menu before a page's own Escape shortcut runs.
+    modal: bool
     inside: action
   state current = ""
   state seen = 0
@@ -104,6 +110,6 @@ component KeyMenuWatched
       case none
   slot
   view
-    column id=menuId width="100%" tabindex=-1 autofocus=true retainFocus=true key=keys focus=entered blur=left testId=menuId
+    column id=menuId width="100%" tabindex=-1 autofocus=true retainFocus=true aria-modal=modal key=keys focus=entered blur=left testId=menuId
       column id=`${menuId}-first` width="100%" gap=gap tabindex=-1 focus=enteredFirst blur=left
         children

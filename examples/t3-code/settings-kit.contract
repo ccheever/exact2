@@ -139,7 +139,7 @@ component SkPopup
     column id=menuId popover="auto" position="absolute" position-area="bottom span-right" margin-top="0.25rem" min-width=(width > 0 ? width : 160) width=(endAlign > 0 ? width : "auto") margin-left=(endAlign > 0 ? endAlign - width : 0)
       scroll width="100%" max-height="22.5rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#2727271a, #ffffff1a)" background-color="light-dark(#ffffff, #111111)" box-shadow="0 16px 40px -18px #0000008c" role=(list ? "listbox" : "menu") aria-label=label testId=menuId
         column width="100%" padding="0.25rem" box-sizing="border-box"
-          KeyMenu(menuId=`${menuId}-keys`, items=items, keyed=keyed, gap="0px")
+          KeyMenu(menuId=`${menuId}-keys`, items=items, keyed=keyed, gap="0px", modal=true)
             children
 
 component SkMenuItem

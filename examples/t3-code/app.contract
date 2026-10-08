@@ -1327,10 +1327,6 @@ component T3Code
     confirmTarget = shell.panel.terminalClose.target
     confirmValue = ""
     focus("app-confirm-cancel") // dialog-shortcut-focus: the confirm takes the focus from the terminal (Base UI's initialFocus); Cancel gives it back
-  task prDialogFocus when prDetail.actions.dialogOpen key=prDetail.actions.dialogValue // fix-keyboard-focus: a pull request's confirmation takes the focus at Cancel (Base UI's initialFocus) from "…", which kept it past `autofocus`
-    after(1, focusPrDialog)
-  action focusPrDialog
-    focus("pr-action-dialog-cancel")
   task shellOpen when shell.openRequest != "" and shell.openRequest != shellOpenHandled and shell.openThreadId != "" and not commandPending key=shell.openRequest
     after(1, shellOpenThread)
   action shellOpenThread // a clicked notification's thread, or a `t3 app` request's draft (desktop-activation.ts), which leaves Settings and the utility pages as the reference's route change does
