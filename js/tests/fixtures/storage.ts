@@ -232,6 +232,11 @@ async function work(_source:string, args:unknown[], store:Store, storage:Storage
     catch (e) { return {text:"denied"}; }
     return {text:"leaked"};
   }
+  if (op === "sqlite-refused") {
+    try { await storage.sqlite.open("app:/data/notes-bob.db"); }
+    catch (e:any) { return {text:e.code + " " + e.message}; }
+    return {text:"leaked"};
+  }
   if (op === "bake") {
     try { await storage.fs.readFile(path); }
     catch (e:any) { return {text:e.kind + ":" + e.code + ":" + e.message}; }

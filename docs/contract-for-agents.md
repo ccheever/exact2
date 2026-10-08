@@ -660,7 +660,10 @@ cleartext `http` reaches only a local host, and only with `app.json`'s
 `host.macos.appTransportSecurity` or `host.ios.appTransportSecurity` set to
 `{ "allowsArbitraryLoadsInWebContent": true }`, which relaxes web views only and
 not an `http:` sub-resource of the app's own `assets/` page),
-and how to drive it with storage.
+and how to drive it with storage. A path grant covers its path and what is below
+it, by whole names: `sqlite.open app:/data` covers `app:/data/inbox-amy.sqlite`,
+`sqlite.open app:/data/inbox` does not. A refused open names the file it wanted
+and the grant line that would admit it.
 A token, a password or a key the module keeps is a secret, not a file: grant
 `secret.keep <name>` (one line per name, `secret.keep signal.token`) and use
 `store.set(name, value)`, `store.get(name)` (a string, or `null`) and

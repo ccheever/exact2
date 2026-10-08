@@ -915,6 +915,13 @@
     if (errno && ERRNO[errno[1]]) return ERRNO[errno[1]];
     return /\bbusy\b|database is locked/.test(message) ? "EBUSY" : "failed";
   }
+  // As host/web/storage-fs.js `deniedPath` words it on the web (app farm round 2: a bare
+  // `denied: sqlite.open` left builds guessing which per-persona file it wanted).
+  function deniedPath(operation, path) {
+    var dir = path.slice(0, path.lastIndexOf("/"));
+    var directory = /^[a-z]+:\/[^/]/.test(dir) ? ", or `" + operation + " " + dir + "` for every file there" : "";
+    return "denied: " + operation + " " + path + ": no grant covers it; grant `" + operation + " " + path + "`" + directory + " (a grant covers its path and what is below it, by whole names)";
+  }
   function storageError(message, code) {
     var error = new Error(message);
     error.kind = "Unavailable";
@@ -975,7 +982,9 @@
           return;
         }
         var error = value;
-        if (!error || !error.kind) error = storageError(error && error.message || String(error), error && error.code);
+        // The host's grant refusal names no path: name it, and the lines that would admit it.
+        if (method === "open" && typeof argv[0] === "string" && /^denied: sqlite\.open$/.test(error && error.message || String(error))) error = storageError(deniedPath("sqlite.open", argv[0]), "denied");
+        else if (!error || !error.kind) error = storageError(error && error.message || String(error), error && error.code);
         else if (!error.code) try { error.code = storageCode(String(error.message)); } catch (_) { /* a frozen error keeps its own */ }
         // Every failed operation is journaled, an answer's or the
         // background's, so one nobody catches is still seen (D8).

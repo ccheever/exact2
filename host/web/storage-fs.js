@@ -35,9 +35,17 @@ export function normalizePath(path) {
 export function authorize(grants, operation, path) {
   const normalized = normalizePath(path);
   if (coversPath(grants, operation, normalized)) return normalized;
-  const error = new Error(`denied: ${operation}`);
+  const error = new Error(deniedPath(operation, normalized));
   error.kind = 'Unavailable';
   throw error;
+}
+
+/** A path refusal names the path and the grant lines that would admit it (app farm round 2: a bare
+ * `denied: sqlite.open` left builds guessing which per-persona file it wanted). As js/src/prelude.js says it natively. */
+export function deniedPath(operation, path) {
+  const dir = path.slice(0, path.lastIndexOf('/'));
+  const directory = /^[a-z]+:\/[^/]/.test(dir) ? `, or \`${operation} ${dir}\` for every file there` : '';
+  return `denied: ${operation} ${path}: no grant covers it; grant \`${operation} ${path}\`${directory} (a grant covers its path and what is below it, by whole names)`;
 }
 
 function parentOf(path) { return path.slice(0, path.lastIndexOf('/')); }

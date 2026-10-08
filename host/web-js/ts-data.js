@@ -257,7 +257,7 @@ function storageOf(grants) {
         const run = () => (isDocument(captured) ? documents() : files()).then(f => f[m](...captured));
         return (admitted ? queued(`${m}${typeof args[0] === 'string' ? ` ${args[0]}` : ''}`, run) : denied(`fs.${m}`, isDocument(captured))).catch(coded);
       }])) }),
-    sqlite: Object.freeze({ open: path => { const call = answering.call; return (admitted ? queued(`open ${path}`, () => databases().then(d => d.open(path))).then(d => database(d, path, call)) : denied('sqlite.open')).catch(coded); } }),
+    sqlite: Object.freeze({ open: path => { const call = answering.call; return (admitted ? queued(`open ${path}`, () => databases().then(d => d.open(path))).then(d => database(d, path, call)) : denied(`sqlite.open ${path}: no grant covers it; grant \`sqlite.open ${path}\`, or \`sqlite.open ${String(path).slice(0, String(path).lastIndexOf('/'))}\` for every file there (a grant covers its path and what is below it, by whole names)`)).catch(coded); } }),
     work: promise => Promise.resolve(promise),
   });
 }
