@@ -466,16 +466,17 @@ describe('light dismiss of a pinned segment popover (popover-escape-parity)', ()
       + '    let pop = frame(`usage-seg-pop-${held}`)\n'
       + '    let leg = frame(`usage-legend-${held}`)\n'
       + '    downOutside = held != "" and e.buttons == 1 and not (usageHit(seg, e.clientX, e.clientY) or usageHit(pop, e.clientX, e.clientY) or usageHit(leg, e.clientX, e.clientY))');
-    // Up (DOM's order: down, up, then the press): a press that also ends outside closes it before the press
-    // runs, so a press on another segment then pins that one and a press on the pinned segment (inside)
-    // toggles it closed; one that ends inside the card does not (Base UI's insideReactTree). The hover
-    // states go too, so the 6-pt hover gap under the card does not hold it open.
+    // Up (DOM's order: down, up, then the press): a press that does not end in the card closes it before the
+    // press runs, so a press on another segment then pins that one and a press on the pinned segment (inside)
+    // toggles it closed; one that ends in the card does not (Base UI's insideReactTree). Its own hover states
+    // go too (the 6-pt hover gap under the card), and only its own: another segment's hover-shown popover,
+    // where the press may land, stays (and the pressed segment B is not restyled between the up and its press).
     expect(page).toContain('action pressUp(e: PointerEvent)\n'
-      + '    let seg = frame(`usage-seg-${held}`)\n'
-      + '    let pop = frame(`usage-seg-pop-${held}`)\n'
-      + '    let leg = frame(`usage-legend-${held}`)\n'
-      + '    if downOutside and not (usageHit(seg, e.clientX, e.clientY) or usageHit(pop, e.clientX, e.clientY) or usageHit(leg, e.clientX, e.clientY))\n'
-      + '      pinned = ""\n      overSeg = ""\n      overPop = ""\n      overMail = ""\n    downOutside = false');
+      + '    let id = held\n'
+      + '    let pop = frame(`usage-seg-pop-${id}`)\n'
+      + '    if downOutside and not usageHit(pop, e.clientX, e.clientY)\n'
+      + '      overSeg = overSeg == id ? "" : overSeg\n      overPop = overPop == id ? "" : overPop\n      overMail = overMail == id ? "" : overMail\n'
+      + '      pinned = ""\n    downOutside = false');
     // A press on the pinned popover's own segment closes it even with the pointer still there (the hover
     // states too); hover opens it again only on a new enter (Base UI blocks mouse moves after any close).
     expect(page).toContain('action pin(id: string)\n    if held == id\n      pinned = ""\n      overSeg = ""\n      overPop = ""\n      overMail = ""\n    else\n      pinned = id\n    pinnedAt = outside');

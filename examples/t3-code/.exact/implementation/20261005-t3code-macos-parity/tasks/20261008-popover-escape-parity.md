@@ -51,8 +51,9 @@ The user decided on 2026-10-08 that both behave as the reference T3 Code (`1e2ec
   pointerup=pressUp`. `pressDown(e)` notes whether a primary press (`e.buttons == 1`) starts outside the shown
   pinned popover's card (`usage-seg-pop-<id>`), its segment (`usage-seg-<id>`) and its legend row
   (`usage-legend-<id>`), by `frame()` and the event's `clientX`/`clientY` (`fn usageHit`); `pressUp(e)` closes it
-  when the press also ends outside them, before the press's own action (DOM's order), so a press on another
-  segment pins that one. The hover states go with it (the 6-pt gap under the card is the hover wrapper's).
+  unless the press ends in the card, before the press's own action (DOM's order), so a press on another
+  segment pins that one. Its own hover states go with it (the 6-pt gap under the card is the hover
+  wrapper's); another segment's hover-shown popover stays.
   `usage-pooled.contract` gives the card and the legend row their ids.
 - **Presses elsewhere in the window** (`app-window.contract` T3Window): the window's root counts primary presses
   that end (`outsidePressDown` / `outsidePressUp`, `outsidePresses`), passed through PagesCover to UsagePage as
@@ -82,18 +83,18 @@ The user decided on 2026-10-08 that both behave as the reference T3 Code (`1e2ec
 | --- | --- | --- |
 | A primary press on the page outside the pinned popover and its triggers closes it (empty ground, a card's body, narrow card text) | pass (agent, macOS) | images 01, 10; drive record session 2 |
 | A press outside the page closes it: the sidebar, a toast, the floating theme editor, the editor's swatch | pass (agent, macOS) | images 02, 08, 09; drive record |
-| Presses that do not count: inside the card; a right-click; another segment (pins that one instead); Escape closes it and the segment keeps the focus | pass (agent, macOS) | drive record |
-| A press on the pinned segment closes it, also with the pointer resting on it | pass (agent, without hover); with a real resting pointer: see the real-input rows | drive record; base with hover: image 07 |
+| Presses that do not count: inside the card; a right-click; another segment (pins that one instead); Escape closes it and the segment keeps the focus | pass (agent, macOS) on `e5d0ce63a`, where a segment held its own presses; since `e6ceb5efd` a press on a segment goes through the page's handlers: unit-tested, real-input step 3 | drive record |
+| A press on the pinned segment closes it, also with the pointer resting on it | pass (agent, without hover, on `e5d0ce63a`); with a real resting pointer and the present path: real-input step 3 | drive record; base with hover: image 07 |
 | A press on the same account's legend row (narrow) closes it | not passing, pre-existing (#263's layout, not this task's dismissal): the popover hangs off the segment and covers the legend row's upper half, so the press lands in the popover; the reference anchors the popup to the trigger that opened it. Follow-up for #263's owner (popover anchoring) | drive record "Not passing" |
 | A press in the floating editor's text fields closes it (macOS fields reach no `pointerdown`) | implemented after the drives (their `focus` counts); unit-tested, not driven | tests; real-input step 3 |
-| A press that ends inside the card, or in the 6-pt gap, behaves as Base UI's | implemented after the drives (independent review N1, N2); unit-tested, not driven | tests |
+| A press that ends inside the card, or in the 6-pt gap, behaves as Base UI's; a press in another segment's hover-shown popover keeps that one | implemented after the drives (independent review N1, N2, second round); unit-tested, not driven | tests; real-input step 3 |
 | Escape in the theme editor never closes it; it reaches the page under it (Settings closes, the editor stays), also with Settings reopened over the editor | pass (agent, macOS) | images 03, 04 |
 | That Escape blurs the editor's field, as `useEscapeToGoBack` does | implemented after the drives (review N3); unit-tested, not driven (image 03 shows the field still focused) | tests; real-input step 4 |
 | Escape in the colour popover closes only the popover and focuses its swatch | pass (agent, macOS), unchanged | image 05 |
 | Regression tests that fail on the base | pass: 5 new tests fail on `07dcef1ab`'s sources and pass here; 1 guards the unchanged colour-popover Escape | `usage-pooled.test.ts` "light dismiss of a pinned segment popover (popover-escape-parity)" (3), `theme-color-picker.test.ts` "Escape in the theme editor (popover-escape-parity)" (3) |
 | Real outside press (real input, lock) | pending | Real-input batch steps |
 | Real Escape in the theme editor (real input, lock) | pending | Real-input batch steps |
-| Checks | pass | Attempts 2 and 3; PR "Checks" |
+| Checks | pass | Attempts 2-4; PR "Checks" |
 
 ## Progress
 
@@ -118,16 +119,19 @@ Given the diff, this record, the drive record, the reference and Base UI 1.5.0 s
 | N3: Escape left the editor's field focused | nit | fixed: Settings' Back and the Usage page's back blur first |
 | N4: cost per click of the root handlers not measured | nit | not measured (two actions per press, one counter slot) |
 | N5: a history row of #263's record was edited | nit | reverted; the note is in its Next action only |
-| N6: images 08-10 are after-only | nit | they show new behavior; the base keeps the popover pinned in the same steps (01, 02) |
+| N6: images 08-10 are after-only | nit | they show new behavior; the base was not driven for those steps (01 and 02 show the base keeping the popover pinned on the page ground and the sidebar) |
 | N7: no drive of a colour plane or hue drag since the change | nit | real-input step 4 drags the plane |
+| Second round (on `e6ceb5efd`): no blocking finding; B1 resolved. Should-fix: a dismissal cleared every hover state, so a press in another segment's hover-shown popover (Use reset, the email) closed that one too; the "another segment" and "own segment" rows ran before presses on segments went through the page | should-fix | fixed in attempt 4: only the dismissed popover's states are cleared (which also keeps segment B unrestyled between the up and its press, X56); the rows marked as driven on `e5d0ce63a`, real-input step 3 adds "A pinned, pointer on B, click B" |
+| Second round nits: the release check also exempted the triggers (Base UI exempts only the popup); a focus no press causes counts (a window refocus on the web); Escape leaves Settings only while the sidebar is open (SettingsNav renders under `when data.sidebarOpen`, pre-existing); a keyboard-pinned popover does not close when focus leaves it (Base UI's closeOnFocusOut, pre-existing from #263); record wording | nit | release check fixed (card only); the rest recorded here as found, not in this task's scope |
 
 ## Attempts and evidence
 
 | Attempt | Revision | Checks and outcomes | Evidence | Remaining |
 | --- | --- | --- | --- | --- |
 | 1 (2026-10-08) | uncommitted, before the ground | agent session 1 (pid 3041): the press under the cards did not dismiss (no `pointerdown` journalled); a second press on segment 0-0-1 kept it open (the segment lay under a toast) | drive record session 1 | fixed in 2 |
-| 2 (2026-10-08) | `e5d0ce63a` | `bun test examples/t3-code` 3,041 pass / 1 skip / 0 fail (base 3,036); strict `tsc` clean; contract build 3,850 slots (base 3,844); `cargo test -p t3-code-macos --lib` 11 pass; five checks: build ok, test 3,383 pass / 0 fail / 33 ignored, clippy ok, fmt ok, caps within, boot ok; agent session 2 (pid 75713) and base session (pid 98359): rows above | images 01-10, drive record | review findings |
-| 3 (2026-10-08) | review fixes (B1, S2, N1-N3, records) | `bun test examples/t3-code` 3,042 pass / 1 skip / 0 fail; strict `tsc` clean; contract build 3,850 slots; `app.contract` 1,456 lines (unchanged); `cargo test -p t3-code-macos --lib` 11 pass; macOS dev and `--bundle` builds; five checks: build ok, test 3,383 pass / 0 fail / 33 ignored, clippy ok, fmt ok, caps within, boot ok; the 5 new tests fail on `07dcef1ab`'s sources (1 guard passes) | tests | real-input rows |
+| 2 (2026-10-08) | `e5d0ce63a` | `bun test examples/t3-code` 3,041 pass / 1 skip / 0 fail (base 3,036); strict `tsc` clean; contract build 3,850 slots (base 3,844); `cargo test -p t3-code-macos --lib` 11 pass; five checks (run 13:40-13:55 KST before the commit, logs in the worktree's `target/pep/checks`, not committed): build ok, test 3,383 pass / 0 fail / 33 ignored, clippy ok, fmt ok, caps within, boot ok; agent session 2 (pid 75713) and base session (pid 98359): rows above | images 01-10, drive record | review findings |
+| 3 (2026-10-08) | `e6ceb5efd` (review fixes B1, S2, N1-N3, records) | `bun test examples/t3-code` 3,042 pass / 1 skip / 0 fail; strict `tsc` clean; contract build 3,850 slots; `app.contract` 1,456 lines (unchanged); `cargo test -p t3-code-macos --lib` 11 pass; macOS dev and `--bundle` builds; five checks: build ok, test 3,383 pass / 0 fail / 33 ignored, clippy ok, fmt ok, caps within, boot ok; the 5 new tests fail on `07dcef1ab`'s sources (1 guard passes) | tests | real-input rows |
+| 4 (2026-10-08) | second-round fixes (own hover states only; release check on the card) | `bun test examples/t3-code` 3,042 pass / 1 skip / 0 fail; strict `tsc` clean; contract build 3,850 slots; `cargo test -p t3-code-macos --lib` 11 pass; macOS `--bundle` builds; five checks: build ok, test 3,383 pass / 0 fail / 33 ignored, clippy ok, fmt ok, caps within, boot ok | tests | real-input rows |
 
 ## Next action
 
@@ -149,8 +153,11 @@ Lock `target/t3-ui-parity/lanes/.realinput-lock` (owner note "popover-escape-par
 3. Light dismiss: Usage (sidebar gauge) → Limits. Click the Codex 5h segment: its popover pins. Click the empty
    page below the cards: it closes. Pin again, click the sidebar's empty area: it closes. Pin again, click the
    same segment without moving: it closes; move the pointer within the segment: it stays closed; leave and
-   re-enter: it opens by hover. With the theme editor open over Usage (step 4 first), pin, click into the
-   editor's Theme name field: it closes. Read back with window screenshots (`screencapture -l`).
+   re-enter: it opens by hover. Pin the Codex 5h segment, point at the Weekly Work segment (its popover shows
+   by hover), click it: the first closes, Work pins and stays. Pin Codex 5h again, point at Weekly Work, move
+   into its card and click the blurred email: Codex closes, Work's popover stays and the email shows. With the
+   theme editor open over Usage (step 4 first), pin, click into the editor's Theme name field: it closes.
+   Read back with window screenshots (`screencapture -l`).
 4. Theme editor Escape: Settings (sidebar) → Appearance → Create theme; click the Theme name field; press
    Escape: Settings closes, the editor stays and the field shows no focus ring; press Escape again: the editor
    stays. Click the Accent swatch; drag on the plane (the colour follows); press Escape: only the colour popover

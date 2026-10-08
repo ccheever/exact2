@@ -175,24 +175,24 @@ component UsagePage
       pinned = id
     pinnedAt = outside
   // Light dismiss (Base UI Popover's useDismiss, outsidePressEvent "intentional" for a mouse): a primary
-  // press that starts and ends outside the pinned popover's card and both its triggers (the segment, the
-  // legend row) closes it as the press ends, before that press's own action; a press on another segment
-  // then pins that one. The hover states go with it (the 6-pt gap under the card is the hover wrapper's,
-  // and Base UI closes at once). Presses on the page come here; the window counts the rest (`outside`).
+  // press that starts outside the pinned popover's card and both its triggers (the segment, the legend
+  // row), and does not end in the card, closes it as the press ends, before that press's own action; a
+  // press on another segment then pins that one. Its own hover states go with it (the 6-pt gap under the
+  // card is the hover wrapper's, and Base UI closes at once); another segment's hover-shown popover stays.
+  // Presses on the page come here; the window counts the rest (`outside`).
   action pressDown(e: PointerEvent)
     let seg = frame(`usage-seg-${held}`)
     let pop = frame(`usage-seg-pop-${held}`)
     let leg = frame(`usage-legend-${held}`)
     downOutside = held != "" and e.buttons == 1 and not (usageHit(seg, e.clientX, e.clientY) or usageHit(pop, e.clientX, e.clientY) or usageHit(leg, e.clientX, e.clientY))
   action pressUp(e: PointerEvent)
-    let seg = frame(`usage-seg-${held}`)
-    let pop = frame(`usage-seg-pop-${held}`)
-    let leg = frame(`usage-legend-${held}`)
-    if downOutside and not (usageHit(seg, e.clientX, e.clientY) or usageHit(pop, e.clientX, e.clientY) or usageHit(leg, e.clientX, e.clientY))
+    let id = held
+    let pop = frame(`usage-seg-pop-${id}`)
+    if downOutside and not usageHit(pop, e.clientX, e.clientY)
+      overSeg = overSeg == id ? "" : overSeg
+      overPop = overPop == id ? "" : overPop
+      overMail = overMail == id ? "" : overMail
       pinned = ""
-      overSeg = ""
-      overPop = ""
-      overMail = ""
     downOutside = false
   // Escape (UsageKeys' one shortcut): a showing popover closes and its segment takes the focus; else the page goes
   // back, blurring the focus first as useEscapeToGoBack does (a field of the floating theme editor keeps none).
