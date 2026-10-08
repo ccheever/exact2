@@ -1,0 +1,343 @@
+// pr-writing-and-metadata live drive, attempt 2 (the retry; not committed): bun drive2.mjs <repo> <label>
+// One macOS agent session against the primary lane server (127.0.0.1:16760, real GitHub through the
+// lane gh); the second account's lane server (16761) for "the second asks the primary". Pairs with a
+// fresh single-use token (never printed). Every write is on the task's own pull requests (#158 by the
+// second account, #159 by the primary) or #115's seeded comment with two reactions; each effect is read
+// back from GitHub with the lane gh and undone where GitHub allows (submitted reviews stay).
+// Attempt 1's lessons: wait for a posted comment to appear (a GitHub activity read took 18 s); a
+// settle after every type (the agent clears a field before it types); no Refresh press; the 40-line
+// comment is posted before the session; a popover's content stays in the tree while it is hidden,
+// so its state is read from screenshots.
+import { appendFileSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+const [repo, label] = process.argv.slice(2);
+const MINE = '/Users/daehyeonmun/orca/workspaces/exact2/t3-code-pr-writing-and-metadata';
+const L = resolve(import.meta.dir), out = resolve(L, `out-${label}`); mkdirSync(out, { recursive: true });
+process.env.EXACT_APP_DIR = resolve(repo, 'examples/t3-code');
+const { open } = await import(resolve(repo, 'scripts/agent.mjs'));
+const lane = await import(resolve(MINE, 'examples/t3-code/tools/github-lane/lane.mjs'));
+const lib = await import(resolve(MINE, 'examples/t3-code/tools/github-lane/lib.mjs'));
+const paths = lib.lanePaths();
+const origin = 'http://127.0.0.1:16760';
+const REPO = 'daehyeonmun2021/playground', SECOND_PR = 158, PRIMARY_PR = 159, SEEDED = 115;
+const tag = `${label}-after`;
+const rec = (line) => { const text = `${new Date().toISOString()} [${tag}] ${line}`; appendFileSync(resolve(out, 'record.txt'), text + '\n'); console.log(text); };
+const gh = (account, args) => lib.api(paths, account, args);
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// Before the session: the 40-line remark (the second account's), so the collapse has a body to hold.
+const longBody = Array.from({ length: 40 }, (_, i) => `Line ${i + 1} of a long note about vowels.`).join('\n\n');
+const long = gh('second', ['-X', 'POST', `repos/${REPO}/issues/${SECOND_PR}/comments`, '-f', `body=${longBody}`]).body;
+rec(`posted a 40-line comment on #${SECOND_PR} as the second account: ${long?.node_id}`);
+
+const s = await open({ host: 'macos', size: [1280, 840], env: { HOME: resolve(L, `apphome-${label}`) }, storage: `prw-${label}`, epoch: Date.now(),
+  onProcess: (p) => { writeFileSync(resolve(L, `${tag}-app.pid`), String(p.pid)); rec(`app pid ${p.pid}`); } });
+const nodes = async () => (await s.tree()).nodes;
+const ids = async () => (await nodes()).map((n) => n.props?.testId).filter(Boolean);
+const has = async (id) => (await ids()).includes(id);
+const settle = async (ms = 600) => { await s.clock(`+${ms} real`); await s.clock('settle'); };
+const type = async (id, value) => { await s.type(id, value); await settle(400); };
+const shot = async (name) => { await s.screenshot(resolve(out, `${tag}-${name}.png`), true); rec(`shot ${name}`); };
+const texts = async (target) => {
+  try { const t = await s.tree(target); return t.nodes.flatMap((n) => [n.props?.text, n.props?.value, n.props?.['aria-label'], n.props?.placeholder].filter((v) => typeof v === 'string' && v.trim())).map((v) => v.trim()); }
+  catch (e) { return [`(no ${target}: ${e.message.slice(0, 80)})`]; }
+};
+const dump = async (name, target) => { const t = [...new Set(await texts(target))]; writeFileSync(resolve(out, `${tag}-${name}.txt`), t.join('\n')); rec(`${name}: ${t.slice(0, 50).join(' | ').slice(0, 1200)}`); return t; };
+const node = async (id) => (await nodes()).find((n) => n.props?.testId === id);
+const prop = async (id, key) => (await node(id))?.props?.[key];
+const focused = async () => { const all = await nodes(); const f = all.filter((n) => n.props?.focused === true || n.focused === true); return f.map((n) => n.props?.testId ?? n.props?.['aria-label'] ?? n.type).join(','); };
+const clearToasts = async () => { for (const id of (await ids()).filter((id) => id.startsWith('toast-dismiss-'))) { try { await s.tap(id); await settle(300); } catch {} } };
+const toastsNow = async () => { const t = (await texts('toast-region')).filter((x) => !/^\(no /.test(x)); return t.join(' | '); };
+const waitFor = async (id, ms = 45_000) => { const end = Date.now() + ms; while (Date.now() < end) { if (await has(id)) return true; await settle(1000); } return false; };
+const openPr = async (n) => {
+  await type('pull-requests-search', `#${n}`); await settle(3000);
+  if (!(await has(`pr-row-${n}`))) await settle(4000);
+  await s.tap(`pr-row-${n}`); await settle(5000); await clearToasts();
+};
+const TRACE = resolve(MINE, 'target/github-lane/servers/primary/t3home/userdata/logs/server.trace.ndjson');
+const rpcCounts = () => { const counts = {}; try { for (const line of readFileSync(TRACE, 'utf8').split('\n')) { const m = /"name":"ws\.rpc\.(pullRequests\.[a-zA-Z]+)"/.exec(line); if (m) counts[m[1]] = (counts[m[1]] ?? 0) + 1; } } catch {} return counts; };
+const delta = (a, b) => Object.fromEntries(Object.keys(b).filter((k) => (b[k] ?? 0) !== (a[k] ?? 0)).map((k) => [k, (b[k] ?? 0) - (a[k] ?? 0)]));
+const logOffset = () => { try { return statSync(paths.ghLog).size; } catch { return 0; } };
+const ghSince = (offset) => { try { return readFileSync(paths.ghLog, 'utf8').slice(offset).split('\n').filter(Boolean).map((line) => line.split('\t').slice(-1)[0].trim().replaceAll(REPO, 'O/R').slice(0, 170)); } catch { return []; } };
+const WRITES = /--method|-X (POST|PATCH|DELETE|PUT)|pr (comment|close|reopen|edit|review)|addReaction|removeReaction|updateIssueComment|updatePullRequestReviewComment|updatePullRequest\b|addPullRequestReview|submitPullRequestReview/;
+const step = async (name, body) => {
+  const before = rpcCounts(), offset = logOffset();
+  try { await body(); } catch (e) { rec(`STEP ${name} FAILED: ${e.message.slice(0, 400)}`); try { await shot(`fail-${name}`); } catch {} }
+  rec(`  ${name}: server RPCs ${JSON.stringify(delta(before, rpcCounts()))}; gh writes ${JSON.stringify(ghSince(offset).filter((l) => WRITES.test(l)).slice(0, 12))}`);
+};
+const lastComment = (n) => (gh('primary', [`repos/${REPO}/issues/${n}/comments?per_page=100`]).body ?? []).at(-1) ?? null;
+const reviews = (n) => gh('primary', [`repos/${REPO}/pulls/${n}/reviews?per_page=100`]).body ?? [];
+const made = [long].filter(Boolean);
+
+try {
+  await settle(2000);
+  if (await has('welcome-pairing-link')) { await type('welcome-pairing-link', `${origin}/pair#token=${lane.pairingToken('primary')}`); await s.tap('welcome-pair'); await settle(5000); }
+  for (const id of ['welcome-continue', 'welcome-agents-continue', 'welcome-skip-import']) if (await has(id)) { await s.tap(id); await settle(); }
+  await settle(3000); await clearToasts();
+  rec(`connected: ${(await has('open-pull-requests')) ? 'sidebar shows Pull Requests' : 'no Pull Requests entry'}`);
+  const atStart = rpcCounts();
+  await s.tap('open-pull-requests'); await settle(5000); await clearToasts();
+
+  // ── #158 (the second account's), as the primary (admin, reviewer) ──
+  await openPr(SECOND_PR);
+  await waitFor(`pull-request-comment-${long.node_id}`);
+  await shot('158-summary'); await dump('158-summary', 'pull-request-panel');
+  await s.tap('pull-request-description', { hover: true }); await settle(300); await shot('158-hover-description');
+
+  // C1: a comment by ⌘↵; the exact bytes reach GitHub.
+  const words = 'Does `y` count as a vowel here?\n\nI think it should not — "rhythm" has none.';
+  let posted = null;
+  await step('comment', async () => {
+    await s.tap('pull-request-composer-trigger'); await settle(800); await shot('composer-comment');
+    rec(`focus after opening: ${await focused()}`);
+    await type('pull-request-comment-text', words); await shot('composer-typed');
+    await s.type('pull-request-comment-text', { key: 'Meta+Enter' }); await settle(300); await shot('composer-posting');
+    for (let i = 0; i < 15 && !posted?.body?.includes('rhythm'); i++) { await sleep(1000); posted = lastComment(SECOND_PR); }
+    rec(`read back #${SECOND_PR}: last comment by ${posted?.user?.login}, body equals the typed bytes: ${posted?.body === words}`);
+    made.push(posted);
+    rec(`comment shown: ${await waitFor(`pull-request-comment-${posted.node_id}`)}`);
+    await shot('comment-posted');
+  });
+  // C2: the remark rewritten in the Write/Preview editor (⌘↵), Escape cancels; no pencil on others' remarks.
+  await step('comment-edit', async () => {
+    const card = `pr-page-scroll-s-comment-${posted.node_id}`;
+    rec(`pencil on the second account's 40-line remark: ${await has(`pr-page-scroll-s-comment-${long.node_id}-edit`)}; on the primary's: ${await has(`${card}-edit`)}`);
+    await s.tap(`pull-request-comment-${posted.node_id}`, { hover: true }); await settle(300); await shot('comment-hover-pencil');
+    await s.tap(`${card}-edit`); await settle(600);
+    rec(`editor seeded with the raw words: ${(await prop(`${card}-text`, 'value')) === words}`);
+    await type(`${card}-text`, `${words}\n\nEdited: a **second** thought.`); await shot('comment-editor');
+    await s.tap(`${card}-preview`); await settle(2500); await shot('comment-preview');
+    await dump('comment-preview', `${card}-preview-body`);
+    await s.tap(`${card}-write`); await settle(400);
+    await s.type(`${card}-text`, { key: 'Meta+Enter' }); await settle(300); await shot('comment-saving');
+    let back = null;
+    for (let i = 0; i < 15 && !back?.body?.endsWith('thought.'); i++) { await sleep(1000); back = gh('primary', [`repos/${REPO}/issues/comments/${posted.id}`]).body; }
+    rec(`read back: the comment now ends with the edit: ${back?.body?.endsWith('Edited: a **second** thought.')}`);
+    await settle(4000); await shot('comment-edited');
+    await s.tap(`pull-request-comment-${posted.node_id}`, { hover: true }); await s.tap(`${card}-edit`); await settle(400);
+    const before = rpcCounts()['pullRequests.updateComment'] ?? 0;
+    await s.type(`${card}-text`, { key: 'Escape' }); await settle(500);
+    rec(`after Escape the editor is ${await has(`${card}-text`) ? 'still open' : 'closed'}; updateComment calls ${(rpcCounts()['pullRequests.updateComment'] ?? 0) - before}`);
+  });
+  // C2: the 40-line remark is held at 240pt behind "Show full comment".
+  await step('collapse', async () => {
+    const frame = `pr-page-scroll-s-comment-body-${long.node_id}`;
+    await s.tap(`pull-request-comment-${long.node_id}`, { hover: true }); await settle(300);
+    const box = await s.layout(frame).catch(() => null);
+    rec(`held frame height: ${JSON.stringify(box?.frame ?? box?.node?.frame ?? box?.height ?? null).slice(0, 120)}`);
+    await shot('collapse-held');
+    rec(`toggle: aria-expanded ${await prop(`${frame}-toggle`, 'aria-expanded')} ${JSON.stringify(await texts(`${frame}-toggle`))}`);
+    await s.tap(`${frame}-toggle`); await settle(600); await shot('collapse-expanded');
+    rec(`toggle after: aria-expanded ${await prop(`${frame}-toggle`, 'aria-expanded')} ${JSON.stringify(await texts(`${frame}-toggle`))}`);
+    await s.tap(`${frame}-toggle`); await settle(600);
+  });
+  // C6: a reaction added from the picker, then taken back from its pill.
+  await step('reactions-own', async () => {
+    await s.tap(`pull-request-reaction-add-${posted.node_id}`); await settle(500); await shot('reaction-picker');
+    await dump('reaction-picker', `pull-request-reaction-picker-${posted.node_id}`);
+    await s.tap(`pull-request-reaction-choose-${posted.node_id}-heart`); await settle(100); await shot('reaction-optimistic');
+    rec(`at once: ${await prop(`pull-request-reaction-${posted.node_id}-heart`, 'aria-label')} pressed ${await prop(`pull-request-reaction-${posted.node_id}-heart`, 'aria-pressed')}`);
+    await settle(5000);
+    rec(`read back: ${JSON.stringify((gh('primary', [`repos/${REPO}/issues/comments/${posted.id}/reactions`]).body ?? []).map((r) => [r.content, r.user?.login]))}`);
+    await s.tap(`pull-request-reaction-${posted.node_id}-heart`); await settle(5000);
+    rec(`read back after the pill press: ${JSON.stringify((gh('primary', [`repos/${REPO}/issues/comments/${posted.id}/reactions`]).body ?? []).map((r) => [r.content, r.user?.login]))}`);
+  });
+  // C3: labels: a name with a space and a slash, applied and taken off; the menu stays open; Escape closes it.
+  await step('labels', async () => {
+    await s.tap('pull-request-labels-picker'); await settle(200); await shot('labels-loading');
+    await settle(4000); await shot('labels-menu'); await dump('labels-menu', 'pull-request-labels-menu');
+    rec(`focus in the menu: ${await focused()}`);
+    await type('pull-request-labels-search', 'docs'); await shot('labels-search');
+    await s.type('pull-request-labels-search', { key: 'Enter' }); await settle(5000);
+    rec(`Enter picked the highlighted row; read back labels: ${JSON.stringify((gh('primary', [`repos/${REPO}/issues/${SECOND_PR}/labels`]).body ?? []).map((l) => l.name))}`);
+    await shot('labels-applied'); rec(`toasts: ${await toastsNow()}`);
+    await s.tap('pull-request-labels-option-area/docs and help'); await settle(5000);
+    rec(`read back after taking it off: ${JSON.stringify((gh('primary', [`repos/${REPO}/issues/${SECOND_PR}/labels`]).body ?? []).map((l) => l.name))}`);
+    await type('pull-request-labels-search', 'zzz'); await dump('labels-nomatch', 'pull-request-labels-menu'); await shot('labels-nomatch');
+    await s.type('pull-request-labels-search', { key: 'Escape' }); await settle(500); await shot('labels-escape');
+    rec(`focus after Escape: ${await focused()}`);
+  });
+  // C1: review verdicts with summaries, as the reviewer.
+  for (const [verdict, summary, state] of [['comment', 'A first pass: reads well.', 'COMMENTED'], ['approve', 'Approved: the counter is right.', 'APPROVED'], ['request-changes', 'Please handle uppercase vowels too.', 'CHANGES_REQUESTED']]) {
+    await step(`review-${verdict}`, async () => {
+      const count = reviews(SECOND_PR).length;
+      await s.tap('pull-request-composer-trigger'); await settle(600);
+      await s.tap('pull-request-composer-mode-review'); await settle(300);
+      await type('pull-request-review-summary', summary);
+      await type('pull-request-review-verdict', verdict); await shot(`review-${verdict}`);
+      await dump(`review-${verdict}-form`, 'pull-request-review-form');
+      await s.tap('pull-request-review-submit'); await settle(200); await shot(`review-${verdict}-submitting`);
+      let last = null;
+      for (let i = 0; i < 15 && reviews(SECOND_PR).length === count; i++) await sleep(1000);
+      last = reviews(SECOND_PR).at(-1);
+      rec(`read back: last review ${last?.state} by ${last?.user?.login}, summary equals: ${last?.body === summary} (want ${state})`);
+      await settle(1500); rec(`toasts: ${await toastsNow()}`); await shot(`review-${verdict}-done`);
+      await clearToasts();
+    });
+  }
+  // Close with comment, then reopen with comment.
+  await step('close-reopen-with-comment', async () => {
+    await s.tap('pull-request-composer-trigger'); await settle(600);
+    await s.tap('pull-request-composer-mode-comment'); await settle(300);
+    await type('pull-request-comment-text', 'Closing for now; will reopen.'); await shot('close-with-comment');
+    await s.tap('pull-request-comment-close'); await settle(200); await shot('closing');
+    for (let i = 0; i < 15 && gh('primary', [`repos/${REPO}/pulls/${SECOND_PR}`]).body?.state !== 'closed'; i++) await sleep(1000);
+    rec(`read back: state ${gh('primary', [`repos/${REPO}/pulls/${SECOND_PR}`]).body?.state}; last comment ${JSON.stringify(lastComment(SECOND_PR)?.body)}`);
+    made.push(lastComment(SECOND_PR));
+    await settle(4000); rec(`toasts: ${await toastsNow()}`); await shot('closed'); await clearToasts();
+    await s.tap('pull-request-composer-trigger'); await settle(600);
+    await type('pull-request-comment-text', 'Reopening.'); await shot('reopen-with-comment');
+    await s.tap('pull-request-comment-reopen'); await settle(200);
+    for (let i = 0; i < 15 && gh('primary', [`repos/${REPO}/pulls/${SECOND_PR}`]).body?.state !== 'open'; i++) await sleep(1000);
+    rec(`read back: state ${gh('primary', [`repos/${REPO}/pulls/${SECOND_PR}`]).body?.state}; last comment ${JSON.stringify(lastComment(SECOND_PR)?.body)}`);
+    made.push(lastComment(SECOND_PR));
+    await settle(4000); rec(`toasts: ${await toastsNow()}`); await shot('reopened'); await clearToasts();
+  });
+  // The composer's drafts: a comment typed and left (Close composer), then another pull request and back.
+  await step('drafts', async () => {
+    await s.tap('pull-request-composer-trigger'); await settle(600);
+    await type('pull-request-comment-text', 'A thought I will finish later.');
+    await s.tap('pull-request-composer-close'); await settle(1500);
+    await openPr(PRIMARY_PR); await openPr(SECOND_PR);
+    await s.tap('pull-request-composer-trigger'); await settle(600); await shot('draft-kept');
+    rec(`after another pull request and back, the box holds: ${JSON.stringify(await prop('pull-request-comment-text', 'value'))}`);
+    await type('pull-request-comment-text', ''); await s.tap('pull-request-composer-close'); await settle(800);
+  });
+
+  // ── #115: the seeded comment with two reactions (join the heart, leave it) ──
+  await step('reactions-seeded', async () => {
+    await openPr(SEEDED);
+    const thanks = (gh('primary', [`repos/${REPO}/issues/${SEEDED}/comments?per_page=100`]).body ?? []).find((c) => c.body?.includes('<!-- ref:comment-1 -->'));
+    const pill = `pull-request-reaction-${thanks.node_id}-heart`;
+    rec(`seeded comment: pills ${JSON.stringify(await texts(`pull-request-reactions-${thanks.node_id}`))}`);
+    await s.tap(pill, { hover: true }); await settle(1200); await shot('115-reaction-tooltip');
+    await s.tap(pill); await settle(100);
+    rec(`at once: ${await prop(pill, 'aria-label')} pressed ${await prop(pill, 'aria-pressed')}`);
+    await settle(5000);
+    rec(`read back: ${JSON.stringify((gh('primary', [`repos/${REPO}/issues/comments/${thanks.id}/reactions`]).body ?? []).map((r) => [r.content, r.user?.login]))}`);
+    await s.tap(pill, { hover: true }); await settle(1200); await shot('115-reaction-joined');
+    rec(`tooltip: ${JSON.stringify((await texts(`pull-request-reactions-${thanks.node_id}`)).filter((t) => t.includes('reacted')))}`);
+    await s.tap(pill); await settle(5000);
+    rec(`read back after leaving: ${JSON.stringify((gh('primary', [`repos/${REPO}/issues/comments/${thanks.id}/reactions`]).body ?? []).map((r) => [r.content, r.user?.login]))}`);
+    await s.tap('pull-request-tab-timeline'); await settle(800);
+    const group = (await ids()).find((id) => id.startsWith('pull-request-timeline-group-toggle-'));
+    if (group) { await s.tap(group); await settle(600); }
+    await shot('115-timeline-reactions');
+    await s.tap('pull-request-tab-summary'); await settle(600);
+  });
+
+  // ── #159 (the primary's own): the author's composer, title, description, reviewers ──
+  await openPr(PRIMARY_PR);
+  await step('author-composer', async () => {
+    await s.tap('pull-request-composer-trigger'); await settle(600);
+    await s.tap('pull-request-composer-mode-review'); await settle(300);
+    await shot('author-review'); await dump('author-review', 'pull-request-review-form');
+    rec(`Submit review enabled with an empty summary: ${!(await prop('pull-request-review-submit', 'disabled'))}`);
+    await s.type('pull-request-review-summary', { key: 'Escape' }); await settle(500); await shot('author-escape');
+    rec(`focus after Escape: ${await focused()}`);
+  });
+  await step('title', async () => {
+    const original = gh('primary', [`repos/${REPO}/pulls/${PRIMARY_PR}`]).body.title;
+    await s.tap('pull-request-title', { hover: true }); await settle(300); await shot('title-hover');
+    await s.tap('pull-request-edit-title'); await settle(400); await shot('title-editor');
+    const before = rpcCounts()['pullRequests.update'] ?? 0;
+    await s.type('pull-request-title-input', { key: 'Enter' }); await settle(1500);
+    rec(`unchanged title: pullRequests.update calls ${(rpcCounts()['pullRequests.update'] ?? 0) - before}`);
+    await s.tap('pull-request-edit-title'); await settle(400);
+    await type('pull-request-title-input', '  Describe the vowel counter (edited)  ');
+    await s.type('pull-request-title-input', { key: 'Enter' }); await settle(300); await shot('title-saving');
+    for (let i = 0; i < 10 && !gh('primary', [`repos/${REPO}/pulls/${PRIMARY_PR}`]).body.title.includes('edited'); i++) await sleep(1000);
+    rec(`read back title: ${JSON.stringify(gh('primary', [`repos/${REPO}/pulls/${PRIMARY_PR}`]).body.title)}`);
+    await settle(3000); await shot('title-saved');
+    await s.tap('pull-request-title', { hover: true }); await s.tap('pull-request-edit-title'); await settle(400);
+    await type('pull-request-title-input', original); await s.type('pull-request-title-input', { key: 'Enter' }); await settle(5000);
+    rec(`restored title: ${JSON.stringify(gh('primary', [`repos/${REPO}/pulls/${PRIMARY_PR}`]).body.title)}`);
+  });
+  await step('description', async () => {
+    const original = gh('primary', [`repos/${REPO}/pulls/${PRIMARY_PR}`]).body.body;
+    await s.tap('pull-request-description', { hover: true }); await settle(300); await shot('description-hover');
+    await s.tap('pr-page-scroll-description-edit'); await settle(500);
+    await type('pr-page-scroll-description-text', '## Counting vowels\n\n- `a e i o u`\n- not `y`'); await shot('description-editor');
+    await s.tap('pr-page-scroll-description-preview'); await settle(2500); await shot('description-preview');
+    await dump('description-preview', 'pr-page-scroll-description-preview-body');
+    await s.tap('pr-page-scroll-description-write'); await settle(300);
+    await s.type('pr-page-scroll-description-text', { key: 'Meta+Enter' }); await settle(300); await shot('description-saving');
+    for (let i = 0; i < 10 && !(gh('primary', [`repos/${REPO}/pulls/${PRIMARY_PR}`]).body.body ?? '').includes('Counting'); i++) await sleep(1000);
+    rec(`read back body: ${JSON.stringify(gh('primary', [`repos/${REPO}/pulls/${PRIMARY_PR}`]).body.body)}`);
+    await settle(3000); await shot('description-saved');
+    // Restored through the editor; the field's value is read before Save.
+    await s.tap('pull-request-description', { hover: true }); await s.tap('pr-page-scroll-description-edit'); await settle(500);
+    await type('pr-page-scroll-description-text', original ?? '');
+    rec(`the editor holds the original before Save: ${(await prop('pr-page-scroll-description-text', 'value')) === (original ?? '')}`);
+    await s.tap('pr-page-scroll-description-save'); await settle(6000);
+    let now = gh('primary', [`repos/${REPO}/pulls/${PRIMARY_PR}`]).body.body;
+    if (now !== original) { gh('primary', ['-X', 'PATCH', `repos/${REPO}/pulls/${PRIMARY_PR}`, '-f', `body=${original ?? ''}`]); now = gh('primary', [`repos/${REPO}/pulls/${PRIMARY_PR}`]).body.body; rec('restored with the lane gh'); }
+    rec(`restored body equals the original: ${now === original}`);
+  });
+  await step('reviewers', async () => {
+    await s.tap('pull-request-reviewers-picker'); await settle(200); await shot('reviewers-loading');
+    await settle(5000); await shot('reviewers-menu'); await dump('reviewers-menu', 'pull-request-reviewers-menu');
+    const option = (await ids()).find((id) => id.startsWith('pull-request-reviewers-option-'));
+    await s.tap(option); await settle(5000);
+    rec(`read back requested: ${JSON.stringify((gh('primary', [`repos/${REPO}/pulls/${PRIMARY_PR}/requested_reviewers`]).body?.users ?? []).map((u) => u.login))}; faces ${JSON.stringify(await texts('pull-request-reviewers'))}; toasts: ${await toastsNow()}`);
+    await shot('reviewers-asked');
+    await s.tap(option); await settle(5000);
+    rec(`read back after taking it back: ${JSON.stringify((gh('primary', [`repos/${REPO}/pulls/${PRIMARY_PR}/requested_reviewers`]).body?.users ?? []).map((u) => u.login))}; toasts: ${await toastsNow()}`);
+    await s.type('pull-request-reviewers-search', { key: 'Escape' }); await settle(300);
+    await clearToasts();
+  });
+  // The second account asks the primary for a review on #158 (its own), through its lane server.
+  await step('second-asks-primary', async () => {
+    const { projectId } = await lane.addProject('second');
+    const conn = await lane.connectTo('second');
+    try {
+      const ref = { projectId, repository: REPO, number: SECOND_PR };
+      const candidates = await conn.request('pullRequests.reviewerCandidates', ref);
+      const me = candidates.candidates.find((c) => c.login === 'daehyeonmun2021');
+      rec(`second's candidates: ${JSON.stringify(candidates.candidates.map((c) => [c.login, c.kind, c.isRequested]))}`);
+      await conn.request('pullRequests.requestReviewers', { ...ref, reviewers: [{ id: me.id, kind: me.kind }], requested: true });
+      rec(`read back: ${JSON.stringify((gh('primary', [`repos/${REPO}/pulls/${SECOND_PR}/requested_reviewers`]).body?.users ?? []).map((u) => u.login))}`);
+      await conn.request('pullRequests.requestReviewers', { ...ref, reviewers: [{ id: me.id, kind: me.kind }], requested: false });
+      rec(`read back after taking it back: ${JSON.stringify((gh('primary', [`repos/${REPO}/pulls/${SECOND_PR}/requested_reviewers`]).body?.users ?? []).map((u) => u.login))}`);
+    } finally { conn.close(); }
+  });
+  // Reduced motion: the pencil reveals at once (no 150 ms fade) with `prefers-reduced-motion: reduce`.
+  await step('reduced-motion', async () => {
+    await s.tap('pull-request-reviewers-picker', { hover: true }); await settle(300);
+    await s.clock('settle');
+    await s.tap('pull-request-title', { hover: true }); await s.clock('+40'); await shot('motion-default-40ms');
+    await s.tap('pull-request-reviewers-picker', { hover: true }); await settle(400);
+    await s.prefer({ 'prefers-reduced-motion': 'reduce' }); await settle(300);
+    await s.tap('pull-request-title', { hover: true }); await s.clock('+0'); await shot('motion-reduce-0ms');
+    await s.prefer({ 'prefers-reduced-motion': 'no-preference' }); await settle(300);
+  });
+  // Dark, then the narrow window: the composer and a picker.
+  await step('dark-and-narrow', async () => {
+    await s.prefer({ 'prefers-color-scheme': 'dark' }); await settle(800);
+    await s.tap('pull-request-composer-trigger'); await settle(600); await shot('dark-composer');
+    await s.type('pull-request-comment-text', { key: 'Escape' }); await settle(400);
+    await s.prefer({ 'prefers-color-scheme': 'light' }); await settle(800);
+    await s.resize(840, 620); await settle(1000);
+    await openPr(SEEDED); await shot('115-narrow');
+    await openPr(SECOND_PR); await shot('158-narrow');
+    await s.tap('pull-request-composer-trigger'); await settle(600); await shot('narrow-composer');
+    await s.type('pull-request-comment-text', { key: 'Escape' }); await settle(300);
+    await s.tap('pull-request-labels-picker'); await settle(4000); await shot('narrow-labels');
+    await s.type('pull-request-labels-search', { key: 'Escape' }); await settle(300);
+  });
+  rec(`server RPCs this session: ${JSON.stringify(delta(atStart, rpcCounts()))}`);
+  const logs = await s.logs();
+  writeFileSync(resolve(out, `${tag}-logs.json`), JSON.stringify(logs, null, 1));
+  rec(`log lines ${logs.lines.length}; errors: ${logs.lines.filter((l) => /error|refused|failed/i.test(JSON.stringify(l))).length}`);
+} catch (e) { rec(`ERROR ${e.stack?.slice(0, 1200)}`); try { await shot('error'); writeFileSync(resolve(out, `${tag}-error-tree.json`), JSON.stringify(await s.tree(), null, 1)); } catch {} }
+finally {
+  await s.close?.();
+  // Cleanup: every comment this drive made (submitted reviews stay: GitHub keeps them).
+  for (const c of made.filter(Boolean)) {
+    const account = c.user?.login === 'daehyeon-mun' || c === long ? 'second' : 'primary';
+    rec(`deleted comment ${c.id} (${account}): HTTP ${gh(account, ['-X', 'DELETE', `repos/${REPO}/issues/comments/${c.id}`]).status}`);
+  }
+  const pr = gh('primary', [`repos/${REPO}/pulls/${SECOND_PR}`]).body;
+  rec(`after cleanup: #${SECOND_PR} ${pr.state}, labels ${JSON.stringify(pr.labels.map((l) => l.name))}, requested ${JSON.stringify(pr.requested_reviewers.map((u) => u.login))}; #${PRIMARY_PR} title ${JSON.stringify(gh('primary', [`repos/${REPO}/pulls/${PRIMARY_PR}`]).body.title)}`);
+}
+process.exit(0);
