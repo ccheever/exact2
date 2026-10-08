@@ -40,7 +40,8 @@ export function sidebarPrefs(client: T3Client): SidebarPrefs {
 
 export type UndoAction = 'Settled' | 'Snoozed' | 'Unpinned' | 'Archived' | 'Discarded'; // lane r11-upstream: Discarded (95edeb753b)
 export interface UndoEntry { action: UndoAction; threadIds: string[]; at: number }
-export interface SidebarDialog { kind: '' | 'archive' | 'delete' | 'delete-many' | 'snooze' | 'unpin' | 'delete-worktree'; threadIds: string[]; title: string }
+/** `from: 'title'`: the chat header's title menu opened it (title-custom-snooze), so it confirms without moving on and gives the focus back to the title. */
+export interface SidebarDialog { kind: '' | 'archive' | 'delete' | 'delete-many' | 'snooze' | 'unpin' | 'delete-worktree'; threadIds: string[]; title: string; from?: 'title' }
 export interface SidebarSession {
   settledVisible: number; settledScope: string;
   searchIndex: number; searchQuery: string; searchPending: boolean;
@@ -78,10 +79,10 @@ const pad = (value: number, width = 2) => String(value).padStart(width, '0');
 /** localSnoozeDate / localSnoozeTime. */
 export const localDate = (date: Date) => `${pad(date.getFullYear(), 4)}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 export const localTime = (date: Date) => `${pad(date.getHours())}:${pad(date.getMinutes())}`;
-/** CustomSnoozeDialog opens an hour out. */
-export function openSnoozeDialog(session: SidebarSession, threadIds: string[], title: string, now: number): void {
+/** CustomSnoozeDialog opens an hour out, from a sidebar row, a selection or the chat header's title menu. */
+export function openSnoozeDialog(session: SidebarSession, threadIds: string[], title: string, now: number, from?: 'title'): void {
   const initial = new Date(now + 3_600_000);
-  session.dialog = { kind: 'snooze', threadIds, title };
+  session.dialog = from ? { kind: 'snooze', threadIds, title, from } : { kind: 'snooze', threadIds, title };
   session.dialogMode = 'date'; session.dialogDate = localDate(initial); session.dialogTime = localTime(initial);
   session.dialogAmount = '2'; session.dialogUnit = 'hours'; session.dialogError = '';
 }

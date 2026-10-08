@@ -291,8 +291,10 @@ function dialogTitle(dialog: { kind: string; threadIds: string[]; title: string 
   return '';
 }
 /** Where a dialog the sidebar opened gives the focus back as it closes (Base UI's finalFocus): its one
- * thread's row (`sidebar-row.contract`), whose own snooze and menu triggers collapse once the pointer leaves. */
-export function dialogReturn(dialog: { kind: string; threadIds: string[] }): string {
+ * thread's row (`sidebar-row.contract`), whose own snooze and menu triggers collapse once the pointer leaves;
+ * the chat header's title (`chat.contract`) for the Custom snooze its menu opened (title-custom-snooze). */
+export function dialogReturn(dialog: { kind: string; threadIds: string[]; from?: string }): string {
+  if (dialog.kind !== '' && dialog.from === 'title') return 'thread-title';
   return dialog.kind !== '' && dialog.threadIds.length === 1 ? `thread-${dialog.threadIds[0]}` : '';
 }
 function dialogDescription(dialog: { kind: string; threadIds: string[]; title: string }): string {
