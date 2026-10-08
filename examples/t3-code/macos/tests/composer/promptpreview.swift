@@ -44,7 +44,12 @@ final class PromptPreviewEditorTests: XCTestCase {
         XCTAssertTrue(fixture.preview.textView === fixture.view)
         XCTAssertTrue(fixture.base.composer.editor.textView === fixture.base.editor, "the composer keeps its own text view")
         XCTAssertEqual(fixture.preview.styler.chips.map(\.kind), ["skill", "mention", "mention"])
-        XCTAssertEqual(fixture.preview.styler.chips.map(T3ComposerStyler.displayLabel), ["Frontend Design", "surface.test.ts", "SettingsPanels.tsx"])
+        XCTAssertEqual(fixture.preview.styler.chips.map(fixture.preview.styler.displayLabel), ["Frontend Design", "surface.test.ts", "SettingsPanels.tsx"])
+        // The composer's provider skills are the composer's: the sample keeps the title-cased name
+        // (SettingsFontPreviews passes EMPTY_SKILLS).
+        _ = fixture.base.composer.perform(["op": "editorSync", "generation": 1, "skills": ["frontend-design": "Composer Only"]])
+        XCTAssertEqual(fixture.base.composer.editor.styler.skills, ["frontend-design": "Composer Only"])
+        XCTAssertEqual(fixture.preview.styler.chips.map(fixture.preview.styler.displayLabel).first, "Frontend Design")
         XCTAssertEqual(fixture.base.composer.editor.styler.chips.count, 0, "the composer's prompt is untouched")
         // A chip's label is the prompt's own family (New York here) at weight 500, matched as CSS
         // does: the family's medium face, else its regular one (Menlo has no medium), never bold.
