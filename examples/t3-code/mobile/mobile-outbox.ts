@@ -212,7 +212,7 @@ async function mutate(client: Client, native: Native | null | undefined, operati
   // invoke enters native.later synchronously. There is no prior await or shared promise tail.
   try {
     const raw = await invoke(handle, { action: 'mutate', ownerEpoch: epoch, mutationId, messageId, operation,
-      ...(record ? { record: clone(record) } : {}), ...expected, ...(operation === 'remove' ? { requireUnheld } : {}) });
+      ...(record ? { record: clone(record) } : {}), ...expected, ...(operation === 'remove' || requireUnheld ? { requireUnheld } : {}) });
     const result = outcome(raw, messageId, mutationId); adoptOutcome(value, result, ordinal); change(client, value); return clone(result);
   } catch (error) {
     const result: MobileOutboxOutcome = { mutationId, messageId, status: 'unknown', message: String(error) };
@@ -221,8 +221,8 @@ async function mutate(client: Client, native: Native | null | undefined, operati
 }
 export const mobileOutboxEnqueue = (client: Client, native: Native | null | undefined, record: MobileOutboxRecord) =>
   mutate(client, native, 'enqueue', record.messageId, record, {}, false);
-export const mobileOutboxUpdate = (client: Client, native: Native | null | undefined, record: MobileOutboxRecord, expected: MobileOutboxExpected = {}) =>
-  mutate(client, native, 'update', record.messageId, record, expected, false);
+export const mobileOutboxUpdate = (client: Client, native: Native | null | undefined, record: MobileOutboxRecord, expected: MobileOutboxExpected = {}, requireUnheld = false) =>
+  mutate(client, native, 'update', record.messageId, record, expected, requireUnheld);
 export const mobileOutboxRemove = (client: Client, native: Native | null | undefined, messageId: string, expected: MobileOutboxExpected = {}, requireUnheld = true) =>
   mutate(client, native, 'remove', messageId, undefined, expected, requireUnheld);
 export async function mobileOutboxStatus(client: Client, native: Native | null | undefined, messageId: string, mutationId: string): Promise<MobileOutboxOutcome> {

@@ -1,7 +1,9 @@
 #if os(iOS)
 // Source: examples/t3-code/modules/apple/T3Transport.swift at 887b2491b182f851b11253655f6aa84fe2a26708.
-// Mobile adaptations: LLP 1109.003, native identity and lifecycle. Shared source is unchanged.
+// Mobile adaptations: LLP 1109.003, native identity/lifecycle and endpoint-owned upload admission.
+// Original desktop source is unchanged.
 import Foundation
+import CoreFoundation
 
 /// A serial owner keeps wire delivery lossless. Topic invalidations may coalesce;
 /// the underlying journal cannot. All completion closures run on this queue.
@@ -117,7 +119,7 @@ final class T3Transport: NSObject, URLSessionWebSocketDelegate, @unchecked Senda
         queue.async { [self] in
             guard alive else { return finish(completion, failure: T3Failure(kind: "Closed", message: "The window was closed.")) }
             do {
-                if ["http", "request", "subscribe", "unsubscribe", "events", "ack", "readChunk", "releaseChunk"].contains(request["op"] as? String ?? ""),
+                if ["http", "uploadAttachment", "request", "subscribe", "unsubscribe", "events", "ack", "readChunk", "releaseChunk"].contains(request["op"] as? String ?? ""),
                    let expected = request["generation"] as? Int, expected != generation {
                     throw T3Failure(kind: "stale", message: "The connection changed before this operation was sent.")
                 }
@@ -496,6 +498,35 @@ final class T3Transport: NSObject, URLSessionWebSocketDelegate, @unchecked Senda
 
     private func uploadAttachment(_ request: [String: Any], completion: @escaping Completion) throws {
         guard state == "connected" else { throw T3Failure(kind: "Disconnected", message: "The server is not connected.") }
+        // Admission and POST creation share this transport queue. New durable
+        // upload owners supply the full tuple; existing callers may omit it.
+        if let raw = request["generation"] {
+            guard let number = raw as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID(),
+                  number.doubleValue.isFinite, number.doubleValue >= 0, number.doubleValue <= 9_007_199_254_740_991,
+                  number.doubleValue.rounded() == number.doubleValue, let expected = raw as? Int else {
+                throw arguments("The attachment generation is invalid.")
+            }
+            guard expected == generation else { throw T3Failure(kind: "stale", message: "The attachment connection changed before upload.") }
+        }
+        if let raw = request["expectedOrigin"] {
+            guard let expected = raw as? String, !expected.isEmpty,
+                  let canonical = try? T3Endpoint.origin(expected), canonical.absoluteString == expected else {
+                throw arguments("The attachment origin is invalid.")
+            }
+            let home = routes.home.isEmpty ? origin?.absoluteString ?? "" : routes.home
+            guard let canonicalHome = try? T3Endpoint.origin(home), canonicalHome == canonical else {
+                throw T3Failure(kind: "stale", message: "The attachment endpoint changed before upload.")
+            }
+        }
+        if let raw = request["expectedEnvironmentId"] {
+            guard let expected = raw as? String, !expected.isEmpty,
+                  expected.trimmingCharacters(in: .whitespacesAndNewlines) == expected else {
+                throw arguments("The attachment environment is invalid.")
+            }
+            guard expected == descriptor["environmentId"] as? String else {
+                throw T3Failure(kind: "stale", message: "The attachment environment changed before upload.")
+            }
+        }
         // A folded paste uploads as UTF-8 text and an attached file under its own type, up to 50MB
         // (composer-editor-files.ts); anything without a type is a captured PNG.
         let declared = request["contentType"] as? String ?? ""
