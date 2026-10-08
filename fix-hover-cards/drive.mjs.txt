@@ -142,6 +142,32 @@ try {
       await visible(pop);
       await shot('25-usage-popover-closed');
     });
+    // #290's handed-over rows by the agent (a press with no real pointer): a sidebar press, a second press on the
+    // pinned segment while hovered, the narrow legend row's press and second press, and a press on the popover
+    // over the next card's bar (#281's rule, the agent's half).
+    await step('handed-over', async () => {
+      const id = '0-0-0', seg = `usage-seg-${id}`, pop = `usage-seg-pop-${id}`;
+      await tap(seg); await settle(); await visible(pop);
+      await tap('sidebar-back', { hover: true }).catch(() => {}); await settle();
+      const side = [...await ids()].find(x => /^(search-threads|sidebar-brand)$/.test(x)); log('sidebar-target', { side });
+      // A press on the sidebar's empty list area (no action of its own), through the agent's mouse.
+      await s.tap('usage-page', { mouse: true, at: [10, 10] }).catch(e => log('mouse-error', { m: String(e.message).slice(0, 160) }));
+      await settle(); await visible(pop); await shot('26-after-press-elsewhere');
+      await tap(seg, { hover: true }); await s.clock('+400'); await settle(); await tap(seg); await settle(); await visible(pop);
+      await tap(seg); await settle(); await s.clock('+600'); await settle(); await visible(pop); await shot('27-second-press-hovered');
+      await s.resize(840, 620); await real(1500); await settle();
+      const legend = `usage-legend-${id}`;
+      log('legend-present', { v: await has(legend) });
+      if (await has(legend)) {
+        await tap(legend); await settle(); await s.clock('+200'); await settle();
+        const v = await visible(pop); const l = await frameOf(legend); const c = await frameOf(pop);
+        const lb = l.node?.space?.viewport, cb = c.node?.space?.viewport;
+        log('legend-anchor', { legend: lb, card: cb });
+        await shot('28-legend-pinned');
+        await tap(legend); await settle(); await visible(pop); await shot('29-legend-second-press');
+      }
+      await s.resize(1280, 840); await real(1500); await settle();
+    });
     // #246 bug 9: at All environments, Studio's GPT-6 Luna is unavailable on Build box (the fixture advertises it on Studio only).
     await step('model-row', async () => {
       const unavailableRows = async () => (await nodes()).filter(n => typeof n.props.title === 'string' && n.props.title.startsWith('This model is unavailable'));
