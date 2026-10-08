@@ -215,7 +215,9 @@ void *exact_js_create(uint32_t max_heap_bytes, HostFn host, BytesFn bytes, void 
     constexpr auto groups = ibex2::jsi_adapter::GROUP_PURE |
                             ibex2::jsi_adapter::GROUP_CRYPTO |
                             ibex2::jsi_adapter::GROUP_ABORT
-#if defined(__linux__) || defined(_WIN32)
+// Android defines __linux__ too, but its Hermes bundle has no Intl (Unicode
+// Lite) and ibex2 builds no Intl shims there.
+#if (defined(__linux__) && !defined(__ANDROID__)) || defined(_WIN32)
                             | ibex2::jsi_adapter::GROUP_INTL
 #endif
                             ;

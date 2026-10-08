@@ -9,6 +9,9 @@
 //   bun scripts/agent-android.mjs build <app>     build the app's Linux crate for Android
 //   bun scripts/agent.mjs android --app <app> …   drive it on the first adb device or emulator
 //
+// An app with a TypeScript data module also needs the Android Hermes bundle:
+// `bun scripts/hermes-android.mjs build` once (scripts/hermes-android.mjs).
+//
 // The NDK comes from ANDROID_NDK_HOME, else the newest under the SDK's ndk/
 // (ANDROID_HOME, else ~/Library/Android/sdk or ~/Android/Sdk); ANDROID_SERIAL
 // picks a device. Fonts are the phone's (/system/fonts) unless the drive names
@@ -20,6 +23,7 @@ import { existsSync, readdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, dirname, resolve } from 'node:path';
 import { HOST_DEV, linuxBuild, resolveApp } from './app.mjs';
+import { hermesAndroidBundle } from './hermes-android.mjs';
 
 export const ANDROID_TARGET = 'aarch64-linux-android';
 /** The oldest Android the binary runs on (the NDK's clang wrapper names it). */
@@ -46,8 +50,15 @@ export function androidToolchainEnv(env = process.env) {
   const bin = resolve(ndk, 'toolchains/llvm/prebuilt', process.platform === 'darwin' ? 'darwin-x86_64' : 'linux-x86_64', 'bin');
   const cc = resolve(bin, `aarch64-linux-android${API}-clang`);
   if (!existsSync(cc)) throw new Error(`the NDK at ${ndk} has no ${basename(cc)}`);
+  // A TypeScript data module's lean Hermes VM: the Android bundle
+  // `hermes-android.mjs build` made, for the target only (the host keeps its pinned one).
+  const hermes = env.HERMES_LEAN_SYS_DIR_aarch64_linux_android ?? hermesAndroidBundle();
   return { ...env, CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER: cc, CC_aarch64_linux_android: cc,
-    CXX_aarch64_linux_android: `${cc}++`, AR_aarch64_linux_android: resolve(bin, 'llvm-ar') };
+    CXX_aarch64_linux_android: `${cc}++`, AR_aarch64_linux_android: resolve(bin, 'llvm-ar'),
+    // One C++ runtime, static, as the Hermes bundle links it (ANDROID_STL=c++_static):
+    // the cc crate's Android default, c++_shared, needs libc++_shared.so beside the binary.
+    CXXSTDLIB_aarch64_linux_android: 'c++_static',
+    ...(hermes ? { HERMES_LEAN_SYS_DIR_aarch64_linux_android: hermes } : {}) };
 }
 
 /** The device a drive uses: ANDROID_SERIAL, else the only (or first) one adb lists as ready. */

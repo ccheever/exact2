@@ -1,7 +1,7 @@
 # LLP 1107: Driving an exact2 app on Android
 
 **Type:** RFC
-**Status:** Stage 1 built, 2026-10-07. Charlie approved an Android build and agent carrier (2026-10-07: "go ahead then yes"); Android is admitted (`rules/DEFERRED.md` §Surfaces, 2026-10-07).
+**Status:** Stage 1 built, 2026-10-07; §4.1 (Hermes for Android) built the same day with a locally built bundle, pending an Ibex release. Charlie approved an Android build and agent carrier (2026-10-07: "go ahead then yes"); Android is admitted (`rules/DEFERRED.md` §Surfaces, 2026-10-07).
 **Systems:** `scripts/agent-android.mjs` (new), `scripts/agent.mjs` (the `android` carrier), the Linux host's agent (`host/linux/src/agent.rs`, unchanged), the authoring bench (`ccheever/authoring-bench`)
 **Author:** Claude (Opus 5.5) for Charlie Cheever
 **Date:** 2026-10-07
@@ -15,7 +15,7 @@ The carrier runs the app's **Linux host built for `aarch64-linux-android`**, hea
 - It runs the runner, kernel, layout, text and painter, compiled with the host's Android-gated code, against bionic and the phone's own fonts (`/system/fonts`).
 - It does not run the Android lane's Canvas reader (LLP 1076 §3.3), which paints through a Kotlin view kept outside this repository.
 
-It works today for apps whose data is Rust (Caltrain and the other in-repo apps). An app whose data is TypeScript (every app `exact new` makes, so every bench app) cannot run natively on Android yet, because the pinned Hermes release has no Android bundle (§4).
+It works for apps whose data is Rust (Caltrain and the other in-repo apps), and, with a locally built Hermes bundle (§4.1, `scripts/hermes-android.mjs`), for apps whose data is TypeScript (duo-lab's four sources answer on the emulator). What `exact new` writes still lacks the `linux/` crate an Android build needs (§4.2).
 
 ## 2. What was found (2026-10-07)
 
@@ -62,7 +62,12 @@ The Rust target is installed once by hand (`rustup target add aarch64-linux-andr
 
 ## 4. What stage 2 needs (not built)
 
-1. **Hermes for Android (blocking for the bench).** `hermes-lean-sys` refuses `aarch64-linux-android` ("unsupported Hermes target"). The pinned Ibex release ships Apple, Linux and Windows bundles only. A TypeScript data module on Android needs an Ibex release with an Android bundle: Ibex work, outside this repository.
+1. **Hermes for Android: built locally, an Ibex release owed.** The pinned Ibex release ships Apple, Linux and Windows bundles only. Charlie: "give it a shot" (2026-10-07). As built:
+   - **The bundle:** Ibex's own `scripts/build-hermes-vanilla-release.sh` gains an `aarch64-linux-android` target (Ibex branch `android-hermes-bundle`, local and not pushed; the patch is for Charlie to send). The pinned Hermes commit, unmodified (an empty patch set, as the receipt requires), cross-built with the NDK at API 30: MinSizeRel, `ANDROID_STL=c++_static`, Unicode Lite and no Intl (Hermes's own `HERMES_IS_ANDROID` build needs fbjni and a JVM for Unicode and Intl, which a native process has neither of). `hermes.cpp` includes `<fbjni/fbjni.h>` under `__ANDROID__` only to attach its finalizer thread to the JVM; a no-op stand-in header (recorded in the receipt by digest) keeps the source unmodified, since exact's JavaScript holds no JNI references. The canonical receipt (schema 2, HBC 99, the same bytecode as the host's `hermesc`) binds the four archives. 63 MB compressed; the lean VM archive is 103 MB before linking.
+   - **Installing it:** `bun scripts/hermes-android.mjs build` runs that script from an Ibex checkout with the target (`IBEX_DIR`) and unpacks the result to `~/.cache/exact/hermes-android/<sha256>/` (`current` names it). `agent-android.mjs build` passes it as `HERMES_LEAN_SYS_DIR_aarch64_linux_android`.
+   - **`hermes-lean-sys`** (vendored, EXACT-PATCHES.md §8, the same change on the Ibex branch): a per-target install override, `HERMES_LEAN_SYS_DIR_<target>`, read before `HERMES_LEAN_SYS_DIR`, so the host's instance (exact-js's build-dependency) keeps its pinned bundle; and Android's link line (`c++_static`, `c++abi`, `log`, `dl`, `m`).
+   - **exact2:** `js/engine_os.rs` lists `android` (a target left out builds, then refuses every TypeScript app at run time); `js/src/shim.cc` leaves Ibex's Intl group out on Android (which defines `__linux__` too, so the Linux check asked for an Intl the bundle lacks and creating the runtime threw); the NDK build links one static C++ runtime (`CXXSTDLIB_aarch64_linux_android=c++_static`, as the bundle does).
+   - **No Intl on Android yet:** `Intl.*` is absent in a TypeScript source there. Apple and Linux keep theirs.
 2. **A Linux crate in `exact new` apps. Built 2026-10-07** (LLP 1086): the scaffold writes `linux/` in the `duo-lab-linux` shape, with `bun exact.mjs linux` and `bun exact.mjs android` build verbs. `--update` adds the crate to an older app. Building it found a break that had stopped every TypeScript app's Linux crate from compiling since LLP 1047.001 D7 (c043bc7f4). With no Rust module the bake's entry was the bare embedded source, which has no `Default`, and the Linux and Windows hosts make their source with `Default`. `js/bake` now emits a replacement-free `Swappable::off` there, which links no executor.
 3. **The bench's Android cells**, once 1 and 2 exist:
    - **Where:** an adapter in the bench runner (`--platforms web,android`), with cells on a machine whose emulator runs (§4.5).
@@ -87,7 +92,8 @@ The Rust target is installed once by hand (`rustup target add aarch64-linux-andr
 - **Screenshot:** a headless screenshot (`EXACT_SHOT`) of Caltrain's home screen on the emulator draws with Roboto from `/system/fonts`.
 - **Drive:** `agent.mjs android --app caltrain "tap change-station" "type station-search Palo" "clock +500" "screenshot …" state` answered every operation (`carrier: "android"`). The screenshot shows the station search with "Palo Alto" matched and the train picture from the pushed assets.
 - **Tests:** `agent.mjs android --app caltrain --test apps/caltrain/app.test.contract` passed 3 of 3.
-- **The TypeScript blocker:** `agent-android.mjs build duo-lab` stops at `hermes-lean-sys`: "unsupported Hermes target aarch64-linux-android".
+- **The TypeScript blocker, first:** `agent-android.mjs build duo-lab` stopped at `hermes-lean-sys`: "unsupported Hermes target aarch64-linux-android".
+- **With the Android bundle (§4.1):** `agent-android.mjs build duo-lab` links (31 MB, host-dev); `agent.mjs android --app duo-lab "clock data" logs screenshot` journals `query items`, `query rows`, `query doc`, `query feed` and each `answered`, then `data_ready`, and the screenshot shows the Fold page's list and document. The same app on the Linux host (macOS, headless) answers the same four.
 
 ## 6. Revisions
 

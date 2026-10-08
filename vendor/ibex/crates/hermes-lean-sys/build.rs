@@ -63,6 +63,10 @@ fn main() {
         .nth(2)
         .expect("crate lives two levels below the repository root");
     let target = std::env::var("TARGET").expect("Cargo supplies TARGET");
+    println!(
+        "cargo:rerun-if-env-changed={}",
+        build_support::target_override_variable(&target)
+    );
     let host = std::env::var("HOST").expect("Cargo supplies HOST");
     let target_os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
     let target_vendor = std::env::var("CARGO_CFG_TARGET_VENDOR").unwrap_or_default();
@@ -366,6 +370,14 @@ fn emit_link_lines(target_os: &str, target_vendor: &str, archives: &[PreparedLin
         println!("cargo:rustc-link-lib=c++");
         println!("cargo:rustc-link-lib=framework=CoreFoundation");
         println!("cargo:rustc-link-lib=framework=Foundation");
+    } else if target_os == "android" {
+        // The NDK's static libc++ (the bundle is built with ANDROID_STL=c++_static)
+        // and liblog; Unicode Lite and no Intl link no ICU and no JNI.
+        println!("cargo:rustc-link-lib=c++_static");
+        println!("cargo:rustc-link-lib=c++abi");
+        println!("cargo:rustc-link-lib=log");
+        println!("cargo:rustc-link-lib=dl");
+        println!("cargo:rustc-link-lib=m");
     } else if target_os == "windows" {
         println!("cargo:rustc-link-lib=icuuc");
         println!("cargo:rustc-link-lib=icuin");
