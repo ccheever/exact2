@@ -1,12 +1,12 @@
 # LLP 1108: Photos and video from Snapback, as the app's own files
 
 **Type:** RFC
-**Status:** Draft r6, 2026-10-08: NOT READY after review rounds 3 and 4 (GPT-6 Astra and Grok 4.7, both NOT READY on r5 and on r6). Round 2 is folded in r5 (§0.3), round 3 in r6 (§0.4); round 4's findings are open (§0.5). Charlie's order ruling is recorded (§0). Slice 1 is built against r6 on the local branch `lane/media` (not landed) and driven on the web, macOS and an iOS simulator. r4 was NOT READY after two review rounds (GPT-6 Astra and Grok 4.7, both NOT READY on r3 and on r4). r3 brought it up to the client as it is on 2026-10-08 and to the app farm's evidence (§0.1), and made the stages slices. r2 (2026-10-07) folded Charlie's rulings (§0).
+**Status:** Draft r7, 2026-10-08: NOT READY after review round 5 (GPT-6 Astra NOT READY, one BLOCKER; Grok 4.7 READY WITH CHANGES); its findings are open in §0.7. r7 simplified slice 1 by Charlie's ruling (option A, §0 and §0.6) after rounds 3 and 4 found r5 and r6 NOT READY. Slice 1's code is on the local branch `lane/media-r7` (not landed), driven on the web, macOS and an iOS simulator.
 **Systems:** the Snapback4 client (`snapback4/client`: the protocol core; `snapback4/src`: the native module; `snapback4/web`: the wasm; `snapback4/ts`: the driver); the data-module runtime on every executor (`exactSaveTo`/`exactBodyFrom`, `Blob`, `Response.blob()`, `URL.createObjectURL`/`revokeObjectURL`: `js/src/prelude.js`, `js/src/wire.rs`, the runner's request, `host/web-js/ts-fetch.js`); `image` and `video` sources on the Apple, Linux and web hosts (`blob:` URLs); a profile photo (the first consumer)
 **Author:** Claude (Opus 5.5) for Charlie Cheever
 **Date:** 2026-10-07
 **Revised:** 2026-10-08
-**Implementer:** Claude (Opus 5.5) lanes: slice 1 (lane D) first, 2026-10-08, once §0.5 is folded and a review agrees (its code is on the local branch `lane/media` in `~/projects/exact2-wt-laneD`, not landed); slices 2 and 3 (another lane, concurrently, from 2026-10-08); slice 4 when Interview's maintainer takes it; slice 5 after slice 3 (§4)
+**Implementer:** Claude (Opus 5.5) lanes: slice 1 (lane D), once §0.7 is folded and a review agrees (its code is on the local branch `lane/media-r7` in `~/projects/exact2-wt-laneD`, not landed); slices 2 and 3 (another lane, concurrently, LLP 1108.001); slice 4 when Interview's maintainer takes it; slice 5 after slice 3 (§4)
 **Related:** LLP 1011 §2 (`app:/data|cache|tmp` image sources on every host, the 1 MiB `data:` bound), LLP 1042 (video takes the same sources), LLP 1069.002 (the file picker hands back `app:/tmp/picked` paths; its D4 byte bodies, landed 2026-10-07, and `readFile` under `fs.read`), LLP 1027.001 (the `fs.*` grants and `storage.fs`), LLP 1027.000 (no clock or timers in a data module); Snapback 0.4.13: `CLIENT-AND-OPERATIONS.md` §Assets, `dist/assets.js`, `dist/asset-download.js`, `dist/local-assets.js`, device ops `upload_facts`, `forget_upload_facts`, `asset_home`; the web's [File API](https://www.w3.org/TR/FileAPI/) (`Blob`, `URL.createObjectURL`, `blob:` URLs); the app farm, `~/appfarm/synthesis/round-01.md` and `round-02.md`
 
 ## 0. Rulings (Charlie, 2026-10-07)
@@ -19,6 +19,7 @@
 | Q4 — fetch straight to and from files | **Now, not with video** | D6 R2, slice 2 |
 | Q5 — web storage eviction | **Re-download quietly**; no `navigator.storage.persist()` | D3 |
 | r4 §6 — the order of slices 1–3 (2026-10-08) | **Slice 1 first ("after"), then slices 2 and 3 ("let's do all of these")** | §4 |
+| r6 §0.5 — slice 1 after four review rounds (2026-10-08) | **Option A: simplify so the races cannot arise, then one more review round** | §0.6, D2–D4, D7, D8 |
 
 "Now" in Q2 and Q4 places those parts in this RFC's slices, ahead of video.
 On 2026-10-08 Charlie answered r4's §6 question: slice 1 goes first, and
@@ -204,7 +205,7 @@ it at its awaits. What r6 changes, each with a test that failed before it:
 - **D3's "what is kept"** (Astra) said a response that is not whole becomes
   transient; it is refused, as D2 says.
 
-### 0.5 Review round 4 (r6): open
+### 0.5 Review round 4 (r6): answered by r7's simplification (§0.6)
 
 Both reviews (`llp/reviews/rfc-2026-10-08-1108-r6.{astra,grok}.md`), over r6
 and its code, were NOT READY. They agree the design is sound (the queues,
@@ -244,6 +245,79 @@ and the core's handling of interleavings:
   before the reply" case needs a TypeScript test that releases the body
   after the lifting round.
 
+### 0.6 r7: what was removed and why (Charlie, 2026-10-08)
+
+Four review rounds kept finding races in r5 and r6 between a fence, a clear
+or a close and the awaits around them. Charlie ruled (option A): simplify so
+those races cannot arise, rather than patch each, then one more review
+round. r7 keeps only what slice 1 needs: pick → upload → place → show from a
+kept file → offline after the first view → the other persona sees it →
+sign-out shows nothing.
+
+- **One queue, and a wipe that is a step on it.** Every step that touches
+  the photo files or the manifest runs on the partition's one media queue:
+  showing, publishing, an upload's reply, the check after a round, the
+  cleanup at open and at close. Sign-out (`clearMedia()`), and a round
+  refused with `E_AUTH` or `E_STORE_RESTORE`, **wipe**: one step that empties
+  the manifest, lets every exchange in flight go and removes the
+  partition's photo folders, and that runs before any other step still
+  waiting. A download or upload handed out before the wipe is discarded when
+  its reply comes (`E_STALE`: the core no longer holds its exchange), so
+  nothing is written or recorded. Removed: the
+  persistent fence (`exact:media-fence`), its count, its re-checks after
+  every await (`media_fence`), its carriage through rebuilds and closes.
+  After a wipe nothing refuses: the next `asset` asks the server, which is
+  the authority on the session.
+- **No keep-nothing setting, and no policy at all.** The partition keeps
+  what was shown, up to 64 MiB (ruling Q3). Removed: `assets` in `open`,
+  `keep: "none"`, `maxBytes`, `E_PARTITION_ASSETS`.
+- **No holding of shown photos.** Eviction may remove a photo a screen
+  still shows; the next ask downloads it again, quietly (ruling Q5's
+  reasoning). Removed: pins, `release(path)`. A transient file now has one
+  path per asset (`<id>.<ext>` under `app:/tmp/snapback4/<partition>/`),
+  written over by the next answer, so nothing accumulates without a release.
+- **Cleanup that fails waits for the next open.** The open's sweep removes
+  every file the manifest does not name and the whole transient directory,
+  so a removal that failed at a wipe or a close is done then. Removed:
+  `E_MEDIA_CLEANUP`, `Round.media`, the in-page retry set.
+- **Less around sessions and time.** An upload's facts are recorded under
+  the partition's viewer, which no session refresh can change (a refreshed
+  session for another principal is refused); sign-out is the wipe. Removed:
+  the "session changed during the upload" checks, `refreshSession`'s
+  `adopt`, downloads waiting on a refresh, `sync(now)` and `open({now})`.
+  Expiry is checked when an asset is asked for (`asset(id, now)`).
+- **The web host keeps its part.** Removing a file through `storage.fs`
+  revokes the object URL the page made for it, and a path removed while its
+  URL was being made gets none. Removed: the `BroadcastChannel` for
+  removals in other realms; slice 1 removes files only from the page.
+
+### 0.7 Review round 5 (r7): open
+
+The reviews (`llp/reviews/rfc-2026-10-08-1108-r7.{astra,grok}.md`): GPT-6
+Astra NOT READY, Grok 4.7 READY WITH CHANGES. Both find r7's shape sound
+(the one queue, the core checks, `once`, the cap, time, the web's URLs);
+what is left is in the wipe's own edges:
+
+- **A wipe whose manifest write fails is forgotten** (Astra BLOCKER, Grok
+  MAJOR). `wipeNow` clears the pending flag before `media_wipe` succeeds,
+  and the round swallows the failure; the core lets the exchanges go before
+  it saves the empty manifest. Kept photos are then still served, and a
+  reopen keeps them. Keep the wipe pending (and serve nothing) until the
+  manifest change lands; save before letting exchanges go; only a failed
+  file removal waits for the next open.
+- **A closed client's round skips the wipe** (Astra). A round started by a
+  client that then closes cannot make its device calls, so its `E_AUTH`
+  never wipes the partition another client still uses. Let the round's
+  authority handling run through the partition.
+- **A closed native handle can wipe another viewer's partition** (Astra).
+  An old client's `clearMedia()` after the module reopened for another
+  persona reaches the new partition. Refuse calls from closed clients.
+- **An upload's exchange is handed out off the queue** (Grok). A wipe that
+  finishes between `readFile` and `op: upload` does not discard that upload.
+  Hand the exchange out on the queue.
+- **Smaller:** the wipe-priority test passes with a FIFO queue too (Astra);
+  a picked path's URL skips the removal generation (Grok).
+
 ## 1. Summary
 
 A Snapback app stores photos and video as **assets**. A column declared `image <=N` or
@@ -260,15 +334,13 @@ The Snapback4 client in exact2 does none of this yet. This RFC proposes:
   `app:/cache/snapback4/<partition>/<asset id>.<ext>`. `image` and `video`
   already show an `app:/` file on every host (LLP 1011 §2, LLP 1042), so
   their file loading does not change.
-- **Keeping.** Snapback's own retention rules, defaulting to keep what was
-  shown up to 64 MiB, least recently used first. A file is purged when its
-  row leaves the partition, is deleted or expires, and when the app clears the
-  partition's media. The bytes live in files and the manifest lives in the
-  partition.
+- **Keeping.** What was shown, up to 64 MiB, least recently used first. A
+  file is removed when its row leaves the partition, is deleted or expires,
+  and at a wipe: sign-out, a refused session or a restore. The bytes live in
+  files and the manifest lives in the partition.
 - **Not keeping.** An ordinary asset the cache does not keep is a transient
-  file under `app:/tmp/snapback4/<partition>/`, one per answer. It is removed
-  when the app releases it, at sign-out, when the partition closes and when
-  it next opens.
+  file under `app:/tmp/snapback4/<partition>/`, one per asset. It is removed
+  at a wipe, when the partition closes and when it next opens.
 - **One-view assets.** These are shown from memory and never written to disk,
   through the web's own primitive: a `Blob` and `URL.createObjectURL`, which
   every executor gets (D5).
@@ -321,15 +393,15 @@ it would be pointless. The core holds the manifest and the exchanges in
 flight. Since partitions are shared (§0.1), there is one core per partition,
 and every client of the partition asks the same one.
 
-| Step | Core (`Client`, `media.rs`) | Driver (TS `Snapback`) |
+| Step | Core (`Client`, `media.rs`) | Driver (TS `Snapback`), on the media queue |
 | --- | --- | --- |
-| Show asset `id` | `asset {id, now}`. An id that is not one ASCII alphanumeric segment is refused (`E_INPUT`), as the server refuses it. Fenced (D3, "Authority"): the refusal, with every kept path in `remove` and `purge`. A kept entry whose home the device still confirms at `now` answers `{path, type, bytes, kept: true}` and is pinned (D3, "A returned path"). Otherwise `{fetch}` for `GET /assets/<id>` with `range: bytes=0-` (D5). | In the queue: checks a kept path is whole (`stat`: present, `bytes` long); if not, `asset_lost {id}` and asks again. Out of it: performs the fetch. |
-| The reply | `asset_reply {exchange, reply: {status, headers, size} \| {status, body} \| {error}, now}`. Refused, publishing nothing, if a fence stands or was observed after the download was handed out. Its answer carries the fence count it saw (`fences`). It reads the status and the headers `content-type`, `x-snapback-asset-home`, `accept-ranges` and `content-range`, applies D5's `once` rules, and asks the device for the home (`asset_home`). Kept: it records the manifest entry **before** the file counts, makes room among unpinned entries, and answers `{keep: path}`, pinned. Not kept (no confirmed home, over the cap, no room among unpinned entries, `keep: "none"`): `{transient: path}`. A refusal: `{denied}`. | In the queue, with the reply's core call: removes what it names, then writes the bytes to the path (`atomicWriteFile`). A failed write is `asset_lost {id}`. After the write it asks `media_fence`: a fence observed since `fences`, a `clearMedia()` or a close since the download began removes the file (`asset_lost` for a kept one) and answers the refusal. |
-| After every round | `media_due {now?}`. Fenced: every kept path, with `purge`. Otherwise entries whose home changed or left, those expired by `now` when the round was given one, and the least recently used unpinned entries above the cap. Entries leave the manifest first. | Removes the files, in the queue; on `purge`, every transient file too. |
-| At open | `media_open {now?}`: nothing when the partition has never shown an asset. Otherwise `media_due`'s removals, every path the manifest names, and the two directories. | In the queue, before `open` returns: removes those files, every other file under `app:/cache/snapback4/<partition>` (its entry was dropped, and a crash came before the file was removed), and everything under `app:/tmp/snapback4/<partition>` (an earlier run's transient files). Nothing else under `app:/tmp`. |
-| Release | `media_release {path}`: unpins a kept path once. | Removes a transient file (`release(path)`). |
-| `clearMedia()` (sign-out) | `media_clear`: every kept path; the manifest empties, pins drop, and every download and upload in flight is let go: their replies are stale. | Waits for uploads already keeping their facts (D4.5), then removes those files and every transient file, in the queue. |
-| Upload | `upload` answers `{fetch}` for `POST /assets`. `upload_reply {exchange, reply, changed}` records `upload_facts` under the opened viewer, only while the device is open and no fence was observed since the upload began, and answers `{ok: true, asset}` or the refusal. `upload_forget {id}` forgets them (`forget_upload_facts`). | Reads the picked file (`readFile`; `exactBodyFrom` from slice 2) and posts it. `changed` is whether a session refresh started, ran or is running, or `headers()` now gives other credentials. Checks again after `upload_reply` (D4.5). |
+| Show asset `id` | `asset {id, now}`. An id that is not one ASCII alphanumeric segment is refused (`E_INPUT`), as the server refuses it. A kept entry whose home the device still confirms at `now`, and that has not expired by it, answers `{path, type, bytes, kept: true}`. Otherwise `{fetch}` for `GET /assets/<id>` with `range: bytes=0-` (D5), with `remove` naming an entry that no longer stands. | Checks a kept path is whole (`stat`: present, `bytes` long); if not, `asset_lost {id}` and asks again. The fetch itself runs off the queue. |
+| The reply | `asset_reply {exchange, reply: {status, headers, size} \| {status, body} \| {error}, now}`. An exchange the core no longer holds (a wipe let it go, or the partition reopened) is refused `E_STALE`. It reads the status and the headers `content-type`, `x-snapback-asset-home`, `accept-ranges` and `content-range`, applies D5's `once` rules, and asks the device for the home (`asset_home`). Kept: the cap makes room by evicting the least recently used, the entry is recorded **before** the file counts, and the answer is `{keep: path}`. Not kept (no confirmed home, or larger than the cap): `{transient: path}`. A refusal: `{denied}`. | One step: the core call, its removals, then the write (`atomicWriteFile`). A failed write is `asset_lost {id}`. |
+| After every round | `media_due`: entries whose home changed or left, and the least recently used above the cap. | Removes the files. A round refused with `E_AUTH` or `E_STORE_RESTORE` asks for the wipe instead. |
+| The wipe | `media_wipe`: the manifest empties and every download and upload in flight is let go; the answer names the partition's two folders. | Removes both folders. It runs before any other step still waiting on the queue. |
+| At open | `media_open`: nothing when the partition has never shown an asset. Otherwise `media_due`'s removals, the paths the manifest names, and the two folders. | Before `open` returns: removes those files, every other file under `app:/cache/snapback4/<partition>`, and the whole `app:/tmp/snapback4/<partition>`. |
+| At close | — | The last client's close removes `app:/tmp/snapback4/<partition>`, after every waiting step. |
+| Upload | `upload` answers `{fetch}` for `POST /assets`. `upload_reply {exchange, reply}` refuses an exchange it no longer holds (`E_STALE`), else records `upload_facts` under the partition's viewer, only while the device is open, and answers `{ok: true, asset}` or the refusal. | Reads the picked file (`readFile`; `exactBodyFrom` from slice 2) and posts it, off the queue; the reply's core call is a step on it. |
 
 **Replies.** A media reply carries what these steps need: the status, the
 four headers above and `retry-after`, and the body's length (`size`) or, for
@@ -347,7 +419,7 @@ untouched. As Snapback's `local-assets.js` reads them:
   `(store_id, table, row, column, generation)` is unchanged. A changed one is
   dropped, never rewritten.
 - **On the web, through CORS.** `content-type` is safelisted. The others reach
-  the driver only if exposed. Snapback 0.4.13's asset response names
+  the driver only if exposed. Snapback's asset response names
   `content-range, accept-ranges, x-snapback-asset-home` in one
   `Access-Control-Expose-Headers`, and its CORS layer adds a second
   (`X-Snapback-Time, X-Snapback-Clock`). The Fetch standard combines them, and
@@ -355,35 +427,34 @@ untouched. As Snapback's `local-assets.js` reads them:
   `accept-ranges`, and D5 then writes nothing. `Retry-After` is not exposed,
   so on the web an upload's `E_RATE_LIMIT` carries no `retryAfter`.
 
-**The queue.** One media queue per partition runs every step that reads or
-changes the manifest, with the file changes that step asks for:
-- the kept check (`asset`, `stat`, `asset_lost`);
-- a publication (`asset_reply`, its removals, the write);
-- `media_due`, `media_open` and its sweep, `media_release`, `media_clear`.
+**The queue.** One media queue per partition runs every step that touches
+the photo files or the manifest, each step with the file changes it asks
+for: the kept check, a publication, an upload's reply, the check after a
+round, the wipe, the sweep at open and the cleanup at close. Downloads and
+uploads themselves run off it, so a slow transfer holds nothing up. A round
+never touches the manifest itself: at its end it puts its check (or the
+wipe) on the queue and waits for it. No step awaits another step or calls
+`sync()`, and `asset()` and `upload()` take the queue only after the `sync()`
+that opens a never-synced partition has returned, so no two waits form a
+cycle. Because steps do not interleave, a write never races a removal, and a
+path the core answered exists when its step returns it.
 
-A round never touches the manifest itself. At its end, still in the round
-queue, it puts `media_due` on the media queue and waits for it. No media step
-calls `sync()`, and `asset()` and `upload()` take the media queue only after
-the `sync()` that opens a never-synced partition has returned, so neither
-queue waits on the other in a cycle. So a write never races a removal, and a
-path the core answered exists when it is returned. Downloads and uploads
-themselves run outside both queues, so one slow transfer does not hold up the
-others.
+**The order a wipe takes.** A wipe takes effect at its place on the queue,
+ahead of every step still waiting. A step that finished before it (a
+publication, a kept answer) happened before the sign-out, as a read of a
+row's text before it would have; the wipe then removes that file, and on the
+web its object URL with it (D3). A download or upload whose reply comes
+after it is discarded: the wipe let its exchange go.
 
 **Exchanges.** Each media exchange is named, as the round's are
 (`<incarnation>.asset<n>`, `.upload<n>`). A reply naming an exchange the core
-did not hand out is refused (`E_STALE`), and so is one it already answered or
-one `media_clear` let go. Each exchange records the partition's fence count
-when it is handed out (D3, "Authority"). Downloads and uploads run beside
-rounds. Several may be in flight at once.
+did not hand out, one it already answered, one a wipe let go, or one from
+before a reopen is refused (`E_STALE`). Several may be in flight at once.
 
-**Time.** The driver never reads a clock (LLP 1027.000), and never reuses one
-call's `now` for another. Every `asset(id, now)` checks its own entry at its
-own `now`, so an expired file is never handed out. `sync(now)` and
-`Snapback.open({now})` check every entry's expiry at that `now`. A round or an
-open without `now` checks everything else: homes, the cap, the policy, the
-fence, and (at open) stray files. An app that wants expired files gone
-without showing an asset passes `now` to the `sync()` its `task` runs.
+**Time.** The driver never reads a clock (LLP 1027.000). Each `asset(id,
+now)` checks its own entry's expiry at its own `now`, so an expired file is
+never handed out; the check after a round reads homes at the time each entry
+was last shown and checks no expiry.
 
 **The manifest.** It lives in the partition's metadata as `exact:media`:
 `[{id, path, type, home, bytes, used}]`.
@@ -396,26 +467,20 @@ without showing an asset passes `now` to the `sync()` its `task` runs.
   (`stat`). A file the manifest does not name is removed at the next open.
 - **Absent** means the partition has never shown an asset. The first
   `asset` writes `[]` before any file, so an app that never shows one pays
-  no sweep at open.
+  no sweep at open. A wipe leaves it present and empty, so the next open
+  still sweeps what a failed removal left.
 
-### D3 — Retention follows Snapback's rules; Exact keeps what was shown
+### D3 — Retention: Exact keeps what was shown
 
-**Default (ruling Q3):** `keep: "viewed"` with `maxBytes: 64 MiB`. Snapback's own
-default is `keep: "none"`. An offline-first app that forgets every photo looks
-broken offline, so Exact's driver defaults the other way. An app can set
-`keep: "none"`, or another cap, when it opens the client. Within a page, the
-partition's first opener sets the policy, and a later open with another
-policy is refused (`E_PARTITION_ASSETS`). Across launches the policy is the
-opener's, and the open applies it to what the manifest holds:
-`keep: "none"` purges everything, as Snapback's does on open, and a smaller
-cap trims the least recently used.
-
-Under `viewed`:
+**What is kept (ruling Q3):** what was shown, up to 64 MiB, least recently
+used first. Snapback's own default is to keep nothing; an offline-first app
+that forgets every photo looks broken offline, so Exact's driver keeps.
+There is no setting (r7, §0.6).
 
 - **What is kept.** All of these must hold:
   - the response is the whole object (`200`, or a `206` covering every byte);
   - it says `accept-ranges: bytes`;
-  - its size is within the cap, with room among unpinned entries;
+  - its size is within the cap;
   - the device confirms the home (`asset_home`): the row is synced here, the
     viewer may read it, and it holds this asset in a non-`once` column.
 
@@ -425,19 +490,19 @@ Under `viewed`:
 - **When it is checked.**
   - After every round, on the media queue, which the round waits for (D2).
   - At open, before `open` returns.
-  - At each `asset` call, for the one entry asked about.
+  - At each `asset` call, for the one entry asked about, with expiry.
 
   Every entry is checked after a round. Snapback skips entries whose home's
   `tables` the commit did not touch. The client has no per-round footprint
   yet, and an entry costs one device call.
 - **When it is removed.**
   - Its home no longer matches, or its generation changed.
-  - It expired, by a `now` the app passed (D2, "Time").
-  - It is the least recently used unpinned entry and the total is over the
-    cap. The cap is enforced at each publication, against every other
-    entry, as well as after rounds and at open.
-  - The app calls `clearMedia()`.
-  - The partition's media are fenced (below).
+  - It expired, by the `now` an `asset` call passed.
+  - It is the least recently used and a publication needs its room, or the
+    total is over the cap after a round. A photo a screen still shows may be
+    evicted; the next ask downloads it again, quietly (ruling Q5's
+    reasoning).
+  - The wipe (below).
 - **Online, a kept file is shown without a download.** This differs from
   Snapback, whose `client.asset` downloads again on every online fetch and
   uses kept bytes only offline. Here the device's rows are the authority, as
@@ -447,33 +512,18 @@ Under `viewed`:
   Until then it shows, exactly as that row's text does. The cost of the other
   choice is a download per avatar per screen. The farm's hand-written caches
   existed to avoid that (museum-miles-0554:70-71).
-- **Authority.** `asset_home` checks the row, not the session. A round that
-  ends refused with `E_AUTH`, or with `E_STORE_RESTORE`, **fences** the
-  partition's media:
-  - every kept file is removed at once (the round's `media_due` names them
-    all and empties the manifest), and so is every transient file;
-  - `asset` answers the refusal and fetches nothing;
-  - a download handed out before the fence publishes nothing when its reply
-    comes, kept or transient, whatever its status;
-  - an upload records no facts (D4.5).
-
-  The fence is kept in the partition (`exact:media-fence`), so a reopen keeps
-  it, and no other refusal (a conflict, a rate limit, a refused write) lifts
-  it. Only a round that succeeds does. A revocation no round has observed
-  waits for one, as the row does.
+- **The wipe.** `asset_home` checks the row, not the session. Sign-out
+  (`clearMedia()`), a round refused with `E_AUTH`, and a partition restore
+  (`E_STORE_RESTORE`) wipe: the manifest empties, every exchange in flight is
+  let go, and the partition's two photo folders are removed, in one step that
+  runs ahead of every other step waiting on the media queue (D2). Nothing is
+  kept about it afterwards and nothing refuses: the next `asset` asks the
+  server, which is the authority on the session, and a refused session is
+  refused there. A revocation no round has observed waits for one, as the
+  row does.
 - **What "stops showing" means.** The next `asset` answer for it no longer
   names the file, and the file is removed. A view already showing it keeps
   its pixels until its resource answers again, as a browser's `<img>` does.
-- **A returned path.** A kept answer is pinned: the cap does not evict it
-  until the app releases it (`release(path)`, once per answer), calls
-  `clearMedia()`, or the partition closes. So two photos in one answer never
-  evict each other before either loads. A photo that needs room only pinned
-  entries hold is written as a transient file instead, so the kept total
-  never exceeds the cap. A pin never holds a file against authority: a
-  changed home, an expiry, the fence and `clearMedia()` remove a pinned file
-  as they remove any other. Pins live in memory. An app that never releases
-  keeps its pinned files for the page; photos past the cap are then
-  transient, and go at close.
 - **Offline.** A kept file is shown. An asset that is not kept answers
   `E_OFFLINE` with `retryable: true`, as Snapback's does.
 - **Evicted by the browser (ruling Q5).** A browser may clear the page's file
@@ -483,40 +533,33 @@ Under `viewed`:
   `navigator.storage.persist()`.
 
 **Transient files.** An ordinary asset the cache does not keep is written to
-its own file, `app:/tmp/snapback4/<partition>/<id>-<n>.<ext>`, one per answer,
-so one consumer's `release(path)` never removes another's. This covers:
-- a home the device cannot confirm, such as a row from a server read;
-- an asset over the cap, or one that needs room only pinned entries hold;
-- everything under `keep: "none"`.
+`app:/tmp/snapback4/<partition>/<id>.<ext>`, one path per asset, written over
+by the next answer for it. This covers:
+- a home the device cannot confirm, such as a row from a server read, or one
+  whose write has not synced;
+- an asset larger than the cap.
 
-The file is removed when the app releases it, at `clearMedia()`, at a fence,
-when the partition closes, and when it next opens. It never counts as kept:
-offline, a fresh `asset` call for it answers `E_OFFLINE`, though a path the
-app already holds keeps showing until it is removed. A transient file is not
-a one-view photo, which never reaches the disk (D5).
+The folder is removed at a wipe, when the partition closes, and when it next
+opens. A transient file never counts as kept: offline, a fresh `asset` call
+for it answers `E_OFFLINE`, though a path the app already holds keeps showing
+until it is removed. A transient file is not a one-view photo, which never
+reaches the disk (D5).
 
-**Removals that fail.** Only a file already gone counts as removed. A
-removal that fails otherwise (a permission, the disk) is kept and tried
-again at every media step. `clearMedia()` rejects with `E_MEDIA_CLEANUP`
-while any remain, so a sign-out never looks complete with a photo still on
-the device, and a round says so in `Round.media`. A transient file stays
-tracked until it is gone. An open sweep that failed runs again after the
-next round. The fence's own write is tried again the same way, and the
-web's rebuild of a device (after a failed save) carries the fence with the
-outcomes it carries; the fence holds in memory meanwhile.
+**Cleanup that fails.** A removal is done once: a file already gone counts
+as removed, and one the disk refuses is left for the next open, whose sweep
+removes every file under the cache folder that the manifest does not name
+and the whole transient folder. Nothing in the page tracks or retries it
+meanwhile.
 
 **Removed files on the web.** `appURL` (`host/web/picker-glue.js`) keeps the
 object URL it made for each `app:/` path an `image` or `video` shows.
 Removing a file through the app's `storage.fs` (`rm`, or the source of a
 `rename`) revokes the URL made for that path and for every path under it,
-at once, so a released, cleared or swept file's bytes do not stay reachable
-for the page's life. The removal is also announced on the store's channel
-(`BroadcastChannel`, `exact-files:<store>`), so a removal in a worker or
-another tab revokes this page's URL too. A path removed while `appURL` was
-reading it, or under a folder removed then, gets no URL. `appURL` also
-revokes the URL of a path it finds gone.
-That is slice 1's only host change. Native hosts read the file when the
-source answers and hold no URL.
+at once, so a wiped, evicted or swept photo's bytes do not stay reachable
+for the page's life. A path removed while `appURL` was reading it, or under a
+folder removed then, gets no URL. `appURL` also revokes the URL of a path it
+finds gone. Slice 1 removes files only from the page's realm. Native hosts
+read the file when the source answers and hold no URL.
 
 ### D4 — Upload
 
@@ -543,29 +586,19 @@ source answers and hold no URL.
    action a `task` runs. An upload is never retried by the driver. A lost reply
    may follow a stored upload, and the server's one-asset-one-home rule
    (`E_ASSET_PLACED`) makes a duplicate harmless but wasteful.
-5. **A changed session, or a closed client.** The facts are recorded only
-   while the device is open, under the viewer the partition opened with,
-   never one the caller names, and only if no fence (D3) was observed since
-   the upload began. The driver checks twice, as Snapback's `local.js` does:
-   - **Before the facts are kept.** If the session changed while the bytes
-     were in flight (`changed`), the core records nothing.
-   - **After they are kept, before the upload answers.** If the session
-     changed meanwhile, or the client was closed, or `clearMedia()` ran, or
-     a fence was observed (`media_fence` against the count `upload_reply`
-     answered with), the driver forgets the facts (`upload_forget`)
-     and answers `E_AUTH` ("start the upload again") or, for a close or a
-     clear, `E_CLOSED`. If forgetting fails, the answer says the facts may
-     remain on this device.
+5. **A wipe, or a close.** The facts are recorded only while the device is
+   open, under the viewer the partition opened with, never one the caller
+   names. An upload's reply is taken on the media queue (D2): one whose
+   exchange a wipe let go, or that comes after its client closed, records
+   nothing and answers `E_STALE` or `E_CLOSED`, "start the upload again". An
+   upload whose reply was taken before the wipe finished before the
+   sign-out, as a write sent before it did; its facts stay, keyed by the
+   partition's viewer, harmless to anyone else.
 
-   "Changed" means a session refresh of the partition started, ran or is
-   running, or `headers()` gives other credentials than it sent. So the asset
-   is never recorded against the wrong session. The upload's answer is the
-   promise that this check settles, in the same step, so nothing comes
-   between the check and the answer. `close()` and `clearMedia()` wait for
-   uploads in the second step to settle before they finish. An
-   upload still on the network is let go instead: `media_clear` makes its
-   reply stale, and a closed client never delivers it, so nothing is
-   recorded.
+   A session refresh does not change the facts' owner: a refreshed session
+   for another principal is refused (`refreshed`), so the viewer is fixed for
+   the partition's life. r5's "session changed during the upload" checks are
+   gone (§0.6).
 
 ### D5 — A memory-only source: `Blob` and object URLs, on every executor (ruling Q2)
 
@@ -700,20 +733,10 @@ and D5's and D8's 256 MiB bound (Hermes only; the web's is the browser's).
 ### D7 — Sessions
 
 Every asset exchange carries the bearer that the driver's `headers()` gives
-at that moment.
-- **One session per partition.** Every client of a partition presents the
-  same viewer's session through `headers()`. `refreshSession(now, adopt)`
-  takes the function that installs the new session where `headers()` reads
-  it. The partition runs one refresh at a time, and awaits `adopt(session)`
-  **before** the refresh settles, so every exchange waiting for the refresh
-  (a download, an upload, another caller's `refreshSession`) resumes with
-  the new bearer already in `headers()`. A caller that shares a refresh in
-  flight shares its adoption. Without `adopt`, a waiter may still read the
-  retired token; the next bullet covers downloads, and an upload then ends
-  `E_AUTH`.
-- **A download refused with `E_AUTH`** after a refresh rotated the token is
-  asked once more with the new token.
-- **An upload is not asked again** (D4.5).
+when it is sent. A download refused with `E_AUTH` answers that refusal; the
+app asks again, as for any read. An upload is not asked again (D4). A round
+refused with `E_AUTH` wipes the photos (D3). Nothing in the media path waits
+for a session refresh (§0.6).
 
 ### D8 — Testing and agents
 
@@ -726,21 +749,21 @@ at that moment.
     and Linux;
   - a revoked one fails;
   - the 256 MiB bound refuses.
-- **Client tests** against a real `snapback4 dev` with an `image <=1MB` column
-  and an `image <=1MB once` column, in `tests/media.rs` (the core through
-  the native module) and `ts/media.test.ts` (the TS driver and the wasm
-  over a file store). Slice 1 covers:
-  - upload, write, sync, download, retention across a reopen;
-  - a home row deleted on another device, so its file is removed after the
+- **Client tests** against a real `snapback4 dev` with an `image <=1MB` column,
+  an `image <=1MB once` column and an `online only` table, in `tests/media.rs`
+  (the core through the native module), `ts/media.test.ts` (the TS driver
+  and the wasm over a file store) and `client/src/media_tests.rs` (the core
+  over a stand-in device). Slice 1 covers:
+  - upload, write, sync, download, retention across a reopen, and offline;
+  - a second persona sees the photo, kept in its own partition's files;
+  - a home row changed on another device, so its file is removed after the
     next round;
-  - expiry by `now` (the core, over a manifest entry whose home expires);
-  - the LRU cap, and the cap enforced at a publication with no round between;
-  - two different photos over the cap in one answer: both files stay until
-    released, the second transient;
-  - offline shows the kept file;
+  - expiry by the `now` of an `asset` call, and none at a round;
+  - the LRU cap at a publication, and a home gone after a round;
   - a missing file (browser eviction, or an entry whose write a crash cut
     off) is fetched again;
-  - a server-read home is transient;
+  - a server-read home, a photo whose write has not synced and one larger
+    than the cap are transient, at one path per asset;
   - a reply naming no exchange is refused, and an id that is not one ASCII
     alphanumeric segment;
   - `once`: a `416` answers `E_ASSET_ONCE_UNSUPPORTED` and a second plain
@@ -748,39 +771,21 @@ at that moment.
     `accept-ranges: none` answers it with the view spent; neither, nor a
     `2xx` without `accept-ranges`, writes a byte;
   - two sources showing the same asset at once share one whole kept file;
-  - `clearMedia()` while a download is in flight: the reply is stale and
-    writes nothing;
-  - the fence: a round refused with `E_AUTH` removes every kept and
-    transient file; a download held across that round publishes nothing,
-    nor does one handed out before it whose reply comes after a round lifted
-    it; an upload records nothing; the fence holds across a reopen until a
-    round succeeds;
-  - at open, with no `asset` call: `keep: "none"` purges, and a stray file
-    (a file the manifest does not name) is swept;
-  - a session that changes while the upload's bytes are in flight records
-    nothing; a close after the facts are kept forgets them before the upload
-    answers;
-  - a refresh with `adopt`: a download waiting on it, from another client of
-    the partition, presents the new token;
-  - a fence raised while a publication is under way (between the core's
-    answer and the write): the file goes and the answer is the refusal;
-  - a fence raised after an upload's facts are kept, with `headers()`
-    unchanged: the facts are forgotten and the upload answers `E_AUTH`;
-  - a removal that fails: `clearMedia()` rejects, a round says so, and the
-    next step removes the file once it can;
-  - a fence whose write fails holds, and is kept once a write lands; a
-    rebuilt device takes it over (`held`/`hold`);
-  - natively, a round whose answer ended before its reply: the next round
-    cancels it instead of answering `busy` (`ts/snapback.test.ts`);
-  - each transient answer is its own file, released alone;
-  - a second client of the partition with another policy is refused.
+  - the wipe: a round refused with `E_AUTH` removes every kept and transient
+    file, a download and an upload on the network then are discarded when
+    they finish, and after it nothing refuses; `clearMedia()` does the same,
+    and an upload it overtakes records no facts, so a write naming it does
+    not predict;
+  - at open, with no `asset` call: a stray file and the transient folder are
+    swept, and a wipe whose removal failed is finished;
+  - the transient folder goes at close.
 
   The web host's tests: a file removed loses its object URL at once, a
-  removed directory takes its files' URLs with it, a removal announced from
-  another realm revokes the page's URL, and a path removed while its URL was
-  being made gets none (`host/web/tests/picker-app-url.test.mjs`); in Chrome,
-  a file removed through the app's `storage.fs` stops being served by the
-  object URL an `image` showed (`host/web/request-refusal.test.mjs`).
+  removed folder takes its files' URLs with it, and a path removed (or a
+  folder above it, a root included) while its URL was being made gets none
+  (`host/web/tests/picker-app-url.test.mjs`); in Chrome, a file removed
+  through the app's `storage.fs` stops being served by the object URL an
+  `image` showed (`host/web/request-refusal.test.mjs`).
 
   Slice 3 adds a `once` asset shown from memory, never written, whose second
   request is `E_ASSET_VIEWED`.
@@ -826,8 +831,7 @@ adopts it in slice 4.
    Charlie's ruling, §0):
    - **Core.** `media.rs` holds the asset, upload and retention calls of D2,
      with their exchanges and the manifest.
-   - **TS driver.** `asset`, `upload`, `release` and `clearMedia`; `now` on
-     `sync` and `open` (D2, "Time"); `adopt` on `refreshSession` (D7). Over the
+   - **TS driver.** `asset`, `upload` and `clearMedia`, over the
      runtime as it is: `fetch` with an `ArrayBuffer` body,
      `Response.arrayBuffer()`, and `storage.fs` (`readFile`,
      `atomicWriteFile`, `stat`, `readdir`, `rm`, `mkdir`). It runs on every
@@ -861,8 +865,8 @@ earlier one: `asset` keeps answering a path, or a `blob:` URL from slice 3.
 
 ## 5. Cost
 
-- **Slice 1:** about 600 lines in the core, 350 in the TS driver, and 900
-  of tests. No runtime change; about 20 lines in the web host (`appURL` and
+- **Slice 1:** about 450 lines in the core, 250 in the TS driver, and 800
+  of tests. No runtime change; about 25 lines in the web host (`appURL` and
   `storage.fs` removal).
 - **Slice 2:** about 300 lines over Hermes, the JS target and the native HTTP
   executors, plus about 100 in the drivers.
