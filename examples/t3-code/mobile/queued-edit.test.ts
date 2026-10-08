@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test';
 import { T3Client } from './shared/client';
 import { obj, type Obj } from './shared/domain';
-import type { Native } from './shared/protocol';
+import { ClientError, type Native } from './shared/protocol';
 import { mobileQueueSnapshot, mobileQueueCommand } from './queue';
 import { mobileQueuedEditBegin, mobileQueuedEditCancel, mobileQueuedEditSave, mobileQueuedEditRetry, mobileQueuedEditRefresh, mobileQueuedEditPresentation } from './queued-edit';
 import { mobileQueuedEditCurrent, mobileQueuedEditLookup, mobileQueuedEditPersist, mobileQueuedEditWriteText, queuedEditState, queuedEditReplaceAttachments } from './queued-edit-state';
@@ -236,4 +236,51 @@ test('queued edit refuses Antigravity or lost provider auth before attachment or
     await expect(mobileQueuedEditSave(edit.owner, f.native, f.client)).rejects.toThrow('Model unavailable. Open model settings.');
     expect(f.calls).toHaveLength(0); expect(f.sent).toHaveLength(0);
   }
+});
+
+
+test('a newer native status during startup hydration is superseded without a composer notice', async () => {
+  const f = fixture(), original = f.native.later;
+  f.client.generation = 0; f.client.environmentId = ''; f.client.connection = 'disconnected';
+  f.native.later = async input => obj(input).op === 'status'
+    ? { ok: true, generation: 1, value: { origin: f.client.origin, environmentId: 'e', homeOrigin: f.client.origin } }
+    : original(input);
+  await expect(mobileQueuedEditRefresh(f.native, f.client)).rejects.toMatchObject({ kind: 'superseded' });
+  expect(mobileQueuedEditPresentation(f.client).error).toBe('');
+  expect(f.calls.some(call => call.op === 'mobileQueuedEdit')).toBe(false);
+  f.client.generation = 1; f.client.environmentId = 'e'; f.client.connection = 'connected';
+  for (let i = 0; i < 3; i++) expect((await mobileQueuedEditRefresh(f.native, f.client)).message).toBe('');
+  expect(mobileQueuedEditPresentation(f.client).error).toBe('');
+  expect(mobileQueuedEditPresentation(f.client).editing).toBe(false);
+});
+
+test('superseded origin reads and later healthy hydration preserve a prior queued-write notice', async () => {
+  const f = fixture(), original = f.native.later;
+  queuedEditState(f.client).notice = 'The server has not confirmed the queued edit.';
+  f.native.later = async input => obj(input).op === 'status'
+    ? { ok: true, generation: f.client.generation + 1, value: { origin: f.client.origin, environmentId: f.client.environmentId } }
+    : original(input);
+  await expect(mobileQueuedEditRefresh(f.native, f.client)).rejects.toMatchObject({ kind: 'superseded' });
+  expect(mobileQueuedEditPresentation(f.client).error).toBe('The server has not confirmed the queued edit.');
+  f.native.later = original;
+  await mobileQueuedEditRefresh(f.native, f.client);
+  expect(mobileQueuedEditPresentation(f.client).error).toBe('The server has not confirmed the queued edit.');
+});
+
+test('current origin-read failure remains visible instead of being treated as a generation race', async () => {
+  const f = fixture(), original = f.native.later;
+  f.native.later = async input => obj(input).op === 'status'
+    ? { ok: false, generation: f.client.generation, error: { kind: 'Persistence', message: 'Saved origin could not be read.', uncertain: false } }
+    : original(input);
+  expect((await mobileQueuedEditRefresh(f.native, f.client)).message).toBe('Saved origin could not be read.');
+  expect(mobileQueuedEditPresentation(f.client).error).toBe('Saved origin could not be read.');
+});
+
+test('stale durable cleanup after a valid origin read remains an actionable queued notice', async () => {
+  const f = fixture();
+  f.records.set('orphan', { owner: 'orphan', revision: 1 });
+  f.hook(input => { if (input.op === 'mobileQueuedEdit' && input.action === 'cleanup') throw new ClientError('The editor changed before cleanup.', 'stale'); });
+  expect((await mobileQueuedEditRefresh(f.native, f.client)).message).toBe('The editor changed before cleanup.');
+  expect(mobileQueuedEditPresentation(f.client).error).toBe('The editor changed before cleanup.');
+  expect(f.records.has('orphan')).toBe(true);
 });

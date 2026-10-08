@@ -4,6 +4,7 @@ import { join, relative } from 'node:path';
 import { mobileCommand, mobileNative, mobilePairingFields, mobilePairingTarget, mobilePairingUrl, mobileSnapshot } from './client';
 import { ClientError, type Files, type Native } from './shared/protocol';
 import { T3Client } from './shared/client';
+import { requestPresentation } from './shared/requests';
 import { letGoAware } from './shared/let-go';
 import { obj, str, type Obj } from './shared/domain';
 
@@ -101,6 +102,79 @@ describe('mobile refresh ownership', () => {
   });
 });
 
+describe('mobile thread selection error ownership', () => {
+  const storage: Files = { fs: {
+    async mkdir() {}, async readFile() { return new TextEncoder().encode('{}').buffer; }, async atomicWriteFile() {},
+  } };
+  async function ready() { const f = refreshFixture(); await f.client.refresh(f.native, storage); return f; }
+  function oldSelection(f: ReturnType<typeof refreshFixture>) {
+    const original = f.native.later;
+    f.native.later = async input => {
+      const response = await original(input);
+      return str(obj(input).path).endsWith('/bounded') ? { ...obj(response), generation: 0 } : response;
+    };
+    return () => { f.native.later = original; };
+  }
+  const select = (f: ReturnType<typeof refreshFixture>) => f.client.command('select-thread', 'thread', '', 0, f.native, storage);
+
+  test('stale selection returns its route error; successful retry and refresh have no composer notice', async () => {
+    const f = await ready(), restore = oldSelection(f);
+    const failed = await select(f);
+    expect(failed.message).toBe('The connection changed. Refresh before continuing.');
+    expect(f.client.thread).toBeNull();
+    expect(requestPresentation(f.client).error).toBe('');
+    restore();
+    expect((await select(f)).message).toBe('');
+    await f.client.refresh(f.native, storage);
+    expect(obj(f.client.thread?.projection.thread).id).toBe('thread');
+    expect(f.client.ready).toBe(true);
+    expect(requestPresentation(f.client).error).toBe('');
+  });
+
+  test('current selection failures remain available to the route alert', async () => {
+    const f = await ready(), original = f.native.later;
+    f.native.later = async input => str(obj(input).path).endsWith('/bounded')
+      ? { ok: false, generation: 1, error: { kind: 'Permission', message: 'Thread read permission denied.', uncertain: false } }
+      : original(input);
+    expect((await select(f)).message).toBe('Thread read permission denied.');
+    expect(requestPresentation(f.client).error).toBe('');
+  });
+
+  test('failed and successful selections preserve an unrelated existing notice', async () => {
+    const f = await ready(); f.client.error = 'Could not save local drafts.';
+    const restore = oldSelection(f);
+    expect((await select(f)).message).not.toBe('');
+    expect(f.client.error).toBe('Could not save local drafts.');
+    restore();
+    expect((await select(f)).message).toBe('');
+    expect(requestPresentation(f.client).error).toBe('Could not save local drafts.');
+  });
+
+  test('a real uncertain write remains pending and visible through selection failure and retry', async () => {
+    const f = await ready(), original = f.native.later;
+    f.native.later = async input => {
+      if (obj(input).method === 'orchestration.dispatchCommand') throw new Error('Connection lost after dispatch.');
+      return original(input);
+    };
+    const pending = { method: 'orchestration.dispatchCommand', payload: { type: 'thread.message.send', commandId: 'write-command', threadId: 'thread' },
+      description: 'Send message', threadId: 'thread', text: 'Keep my draft', uncertain: false };
+    await expect(f.client.write(f.native, storage, pending)).rejects.toThrow('Connection lost after dispatch.');
+    expect(pending.uncertain).toBe(true);
+    const writeError = f.client.error;
+    expect(writeError).not.toBe('');
+    f.native.later = original;
+    const restore = oldSelection(f);
+    expect((await select(f)).message).not.toBe('');
+    expect(f.client.pending).toBe(pending);
+    expect(requestPresentation(f.client).error).toBe(writeError);
+    restore();
+    expect((await select(f)).message).toBe('');
+    expect(f.client.pending).toBe(pending);
+    expect(pending.uncertain).toBe(true);
+    expect(requestPresentation(f.client).error).toBe(writeError);
+  });
+});
+
 describe('pinned shared sources', () => {
   test('every TS copy matches its immutable pin apart from explicit mobile adaptations', () => {
     const directory = new URL('./shared/', import.meta.url).pathname;
@@ -119,7 +193,7 @@ describe('pinned shared sources', () => {
       const pin = name === 'let-go.ts' ? '669968e248e3a3ca29dbfeada999af2114141223'
         : ['client.ts', 'local-backend.ts', 'timestamp-format.ts'].includes(name)
           ? '38352ceaf4cd35a40b7b24ce992db87c2357a99b' : '887b2491b182f851b11253655f6aa84fe2a26708';
-      const adapted = ['client-ops-composer.ts', 'project-clones-live.ts', 'r8-pointer-reconnect.ts'].includes(name);
+      const adapted = ['client.ts', 'client-ops-composer.ts', 'project-clones-live.ts', 'r8-pointer-reconnect.ts'].includes(name);
       expect(local[1]).toBe(`// ${adapted ? 'Adapted' : 'Unchanged'} body from examples/t3-code/${name} at ${pin}.`);
       return { name, local, pin };
     });
@@ -142,6 +216,8 @@ describe('pinned shared sources', () => {
     expect(offset).toBe(bytes.length);
     for (const [index, { name, local }] of copies.entries()) {
       let expected = bodies[index]!;
+      if (name === 'client.ts') expected = "// Mobile 365aa87982: selection errors belong to the requesting route, not the thread composer.\n" + expected
+        .replace("const formCommand = ['settings-core',", "const formCommand = ['select-thread', 'settings-core',");
       if (name === 'client-ops-composer.ts') expected = "// Mobile 365aa87982: send admission and retained model options differ from this desktop copy.\nimport { mobileModelSelectionUnavailable } from '../model-availability';\nimport { mobileDispatchSelection as dispatchSelection } from '../model-send-selection';\n" + expected
         .replace("import { dispatchSelection, promptForSend, ultrathinkChoice }", "import { promptForSend, ultrathinkChoice }")
         .replace("if (!arr(provider.models).some(model => model.slug === this.modelId)) throw new ClientError('Choose one of the models advertised by T3.');",
