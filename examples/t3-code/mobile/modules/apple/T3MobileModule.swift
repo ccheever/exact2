@@ -1,5 +1,5 @@
 #if os(iOS)
-// @ref llp/1107.003-pairing-and-transport.decision.md#mobile-adaptations
+// @ref llp/1109.003-pairing-and-transport.decision.md#mobile-adaptations
 import UIKit
 
 /// The shared transport owns I/O and credentials; mobile supplies UIKit presentation and lifecycle.

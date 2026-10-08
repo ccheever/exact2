@@ -1,6 +1,6 @@
 #if os(iOS)
 // Source: examples/t3-code/modules/apple/T3Protocol.swift at 887b2491b182f851b11253655f6aa84fe2a26708.
-// Mobile adaptations: LLP 1107.003, native identity and lifecycle. Shared source is unchanged.
+// Mobile adaptations: LLP 1109.003, native identity and lifecycle. Shared source is unchanged.
 // App-local Effect RPC wire and retained inbox. No Exact transport is extended.
 import Foundation
 import Network

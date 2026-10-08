@@ -1,4 +1,4 @@
-// @ref llp/1107.005-composer-and-transcript.decision.md#work-log-detail-rows
+// @ref llp/1109.005-composer-and-transcript.decision.md#work-log-detail-rows
 // Pinned thread-work-log.tsx and work-log-layout.tsx; mobile rem is 14px.
 use ThreadActivity, ThreadColors from "./thread-shapes.contract"
 use ThreadMarkdown from "./thread-markdown.contract"

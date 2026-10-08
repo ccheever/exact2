@@ -2,7 +2,7 @@
 // Adapted from T3 Code (MIT), 365aa87982 apps/mobile/modules/t3-terminal/ios/T3TerminalView.swift.
 // Expo ownership/events become UIKit callbacks; an accessory setter exposes the pinned input field.
 // The pinned Ghostty input/rendering implementation remains.
-// @ref llp/1107.007-mobile-terminal.decision.md#native-renderer
+// @ref llp/1109.007-mobile-terminal.decision.md#native-renderer
 import Foundation
 import GhosttyKit
 import QuartzCore

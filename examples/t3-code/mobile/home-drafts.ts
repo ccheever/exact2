@@ -1,6 +1,6 @@
 // Source365aa87982 pending-new-tasks-model, HomeScreen and ThreadListV2PendingRow.
-// @ref llp/1107.004-home-projection.decision.md#decision
-// @ref llp/1107.005-composer-and-transcript.decision.md#new-task-ownership
+// @ref llp/1109.004-home-projection.decision.md#decision
+// @ref llp/1109.005-composer-and-transcript.decision.md#new-task-ownership
 import { assistantCitationsToPlainText } from './shared/diff-citations';
 import type { MobileNewTaskDraft } from './mobile-new-task-drafts';
 

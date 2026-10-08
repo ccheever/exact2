@@ -1,6 +1,6 @@
 import { mobileDraftSettingsHandles } from './mobile-draft-settings';
 // Pinned365aa87982 use-thread-composer-state run-loss recovery and composerContext.
-// @ref llp/1107.005-composer-and-transcript.decision.md#scratch-tasks-and-queue-boundaries
+// @ref llp/1109.005-composer-and-transcript.decision.md#scratch-tasks-and-queue-boundaries
 import { T3Client, type Pending } from './shared/client';
 import { mobileNewTaskDefaultModel } from './new-task-model';
 import { arr, obj, str, type Obj } from './shared/domain';

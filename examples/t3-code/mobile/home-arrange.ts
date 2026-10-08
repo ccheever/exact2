@@ -1,4 +1,4 @@
-// @ref llp/1107.004-home-projection.decision.md#arrange-threads
+// @ref llp/1109.004-home-projection.decision.md#arrange-threads
 // Pinned ThreadArrangementSheet.tsx and threadOrder.ts. Pure projection over the existing order owner.
 import { obj, str, type Obj } from './shared/domain';
 import { capabilities, effectiveSnoozed, sortByReturn } from './shared/sidebar-model';

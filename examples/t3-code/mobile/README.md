@@ -24,4 +24,4 @@ Run the mobile data tests from the repository root:
 bun test examples/t3-code/mobile/*.test.ts
 ```
 
-LLP 1107 and its children record the design, source pins and verification limits. They remain Draft.
+LLP 1109 and its children record the design, source pins and verification limits. They remain Draft.

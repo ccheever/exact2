@@ -1,5 +1,5 @@
 #if os(iOS)
-// @ref llp/1107.003-pairing-and-transport.decision.md#mobile-adaptations
+// @ref llp/1109.003-pairing-and-transport.decision.md#mobile-adaptations
 // T3 Code mobile 365aa87982, ConnectionsNewRouteScreen: QR-only capture,
 // raw payload delivery and a 600ms scan lock. This app view uses real camera input.
 import AVFoundation

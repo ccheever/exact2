@@ -1,5 +1,5 @@
 // Pinned nativeReviewDiffAdapter.ts and FileTreeBrowser; theme values remain literal imports.
-// @ref llp/1107.002-design-system-parity.spec.md#semantic-colors
+// @ref llp/1109.002-design-system-parity.spec.md#semantic-colors
 import light from './themes/light.json';
 import dark from './themes/dark.json';
 import t3Light from './themes/t3-chat-light.json';

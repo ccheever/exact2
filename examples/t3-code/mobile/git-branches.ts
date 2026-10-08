@@ -1,5 +1,5 @@
 // Pinned365aa87982 GitBranchesSheet/use-selected-thread-git-actions (MIT).
-// @ref llp/1107.011-responsive-workspace.decision.md#navigation-and-data-ownership
+// @ref llp/1109.011-responsive-workspace.decision.md#navigation-and-data-ownership
 import { mobileClient, mobileNative } from './client';
 import type { T3Client } from './shared/client';
 import { arr, obj, str, type Obj } from './shared/domain';

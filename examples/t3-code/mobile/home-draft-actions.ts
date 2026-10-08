@@ -1,6 +1,6 @@
 // Pinned365aa87982 usePendingTaskListActions: local open and confirmed optimistic discard.
-// @ref llp/1107.004-home-projection.decision.md#decision
-// @ref llp/1107.005-composer-and-transcript.decision.md#new-task-ownership
+// @ref llp/1109.004-home-projection.decision.md#decision
+// @ref llp/1109.005-composer-and-transcript.decision.md#new-task-ownership
 import type { T3Client } from './shared/client';
 import { bridgeReply, nativeFiles, type Files, type Native } from './shared/protocol';
 import { obj } from './shared/domain';

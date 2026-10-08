@@ -1,4 +1,4 @@
-// @ref llp/1107.003-pairing-and-transport.decision.md#mobile-adaptations
+// @ref llp/1109.003-pairing-and-transport.decision.md#mobile-adaptations
 // T3 Code 365aa87982 ConnectionsNewRouteScreen. The root requests permission
 // before opening the scanner and validates raw payloads through the pairing parser.
 use ConnectionColors from "./connect.contract"

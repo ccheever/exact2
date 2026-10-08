@@ -1,5 +1,5 @@
 // Pinned T3 Code 365aa87982 AddProjectScreen and AppTextInput semantic colors.
-// @ref llp/1107.002-design-system-parity.spec.md#semantic-colors
+// @ref llp/1109.002-design-system-parity.spec.md#semantic-colors
 import { settingsTokens } from './settings-appearance';
 
 export function mobileAddProjectColors(scheme: string, themeId = 't3-code') {

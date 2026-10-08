@@ -1,5 +1,5 @@
 // Pinned365aa87982 ComposerAttachmentStrip dimensions; preview/share transitions remain pending.
-// @ref llp/1107.005-composer-and-transcript.decision.md#root-seam
+// @ref llp/1109.005-composer-and-transcript.decision.md#root-seam
 use ThreadColors from "./thread-shapes.contract"
 use ComposerAttachmentsSnapshot from "./composer-attachment-shapes.contract"
 component ComposerAttachmentStrip

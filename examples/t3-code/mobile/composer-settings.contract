@@ -1,5 +1,5 @@
 // iOS ThreadSettingsRows + ThreadSettingsSheet365aa87982; native header is owned by root.
-// @ref llp/1107.005-composer-and-transcript.decision.md#settings-ownership
+// @ref llp/1109.005-composer-and-transcript.decision.md#settings-ownership
 use ComposerSettingsSnapshot, ComposerChoice, ComposerColors from "./composer-shapes.contract"
 use ProviderIcon from "./provider-icon.contract"
 component ComposerSettings

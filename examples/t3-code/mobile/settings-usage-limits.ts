@@ -1,5 +1,5 @@
-// @ref llp/1107.009-mobile-settings.decision.md#root-and-native-lifetime
-// @ref llp/1107.003-pairing-and-transport.decision.md#mobile-adaptations
+// @ref llp/1109.009-mobile-settings.decision.md#root-and-native-lifetime
+// @ref llp/1109.003-pairing-and-transport.decision.md#mobile-adaptations
 // MIT T3 Code365aa87982 packages/shared/src/usageLimits.ts pure account/pool helpers.
 // Function bodies retained; schema-only imports replaced by local structural types.
 import { isProviderAvailable, type EnvironmentId, type ServerProvider, type ServerProviderUsageLimits, type ServerProviderUsageWindow, type UsageLimitSourceSnapshots, type ProviderConsumeResetCreditInput } from "./settings-usage-types";

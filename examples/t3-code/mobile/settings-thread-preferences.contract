@@ -1,4 +1,4 @@
-// @ref llp/1107.009-mobile-settings.decision.md#scoped-server-settings
+// @ref llp/1109.009-mobile-settings.decision.md#scoped-server-settings
 use SettingsColors, SettingsTextRoles, SettingsSectionLabel from "./settings.contract"
 shape ThreadPreferencesData
   scopeJSON: string

@@ -1,5 +1,5 @@
 // Pinned365aa87982 modelOptions.ts and projectSettings.ts default resolution.
-// @ref llp/1107.005-composer-and-transcript.decision.md#new-task-ownership
+// @ref llp/1109.005-composer-and-transcript.decision.md#new-task-ownership
 import { arr, obj, str, type Obj } from './shared/domain';
 import { driverMeta } from './shared/providers-meta';
 import type { T3Client } from './shared/client';

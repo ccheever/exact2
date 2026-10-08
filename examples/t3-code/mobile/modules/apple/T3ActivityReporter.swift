@@ -1,7 +1,7 @@
 #if os(iOS)
 // Source: T3ActivityReporter.swift at 887b2491b182f851b11253655f6aa84fe2a26708.
 // Mobile policy: upstream 365aa87982 apps/mobile/src/connection/background-activity.ts.
-// @ref llp/1107.003-pairing-and-transport.decision.md#mobile-adaptations
+// @ref llp/1109.003-pairing-and-transport.decision.md#mobile-adaptations
 import UIKit
 
 final class T3ActivityScopes {

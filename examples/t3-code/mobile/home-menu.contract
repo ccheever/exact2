@@ -1,4 +1,4 @@
-// @ref llp/1107.004-home-projection.decision.md#decision
+// @ref llp/1109.004-home-projection.decision.md#decision
 // Pinned 365aa87982 thread-list-v2-items. Root owns every command and prompt.
 shape HomeMenuItem
   id: string

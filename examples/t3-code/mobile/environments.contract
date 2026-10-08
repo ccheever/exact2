@@ -1,4 +1,4 @@
-// @ref llp/1107.002-design-system-parity.spec.md#motion
+// @ref llp/1109.002-design-system-parity.spec.md#motion
 // T3 Code 365aa87982: LocalEnvironmentList, ConnectionEnvironmentRow,
 // ConnectionStatusDot and EnvironmentMachineSymbol. Root supplies live state.
 use ConnectionColors, ConnectionField from "./connect.contract"

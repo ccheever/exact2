@@ -1,4 +1,4 @@
-// @ref llp/1107.005-composer-and-transcript.decision.md#transcript-ownership
+// @ref llp/1109.005-composer-and-transcript.decision.md#transcript-ownership
 // FloatingWorkingControl at365aa87982. The parent places this at the composer overlay's top.
 use ThreadColors from "./thread-shapes.contract"
 shape WorkingControlData

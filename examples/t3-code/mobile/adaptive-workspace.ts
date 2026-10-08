@@ -1,4 +1,4 @@
-// @ref llp/1107.011-responsive-workspace.decision.md#source-helpers
+// @ref llp/1109.011-responsive-workspace.decision.md#source-helpers
 // Adapted from pinned365aa87982 AdaptiveWorkspaceLayout.tsx and workspace-inspector-pane.tsx.
 // Pure geometry only: root retains preferences, search, route/inspector ownership and animations.
 import { deriveLayout, deriveWorkspacePaneLayout, deriveFileInspectorPaneLayout,

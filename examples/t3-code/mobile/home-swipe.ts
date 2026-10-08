@@ -1,4 +1,4 @@
-// @ref llp/1107.004-home-projection.decision.md#decision
+// @ref llp/1109.004-home-projection.decision.md#decision
 // Pinned threadListV2.ts swipe resolver; raw guards remain shared with Home commands.
 import { str, type Obj } from './shared/domain';
 import { canSnooze, hasQueuedTurnStart, pendingApproval, pendingInput, sectionOf, sidebarVisible, type Caps } from './shared/sidebar-model';

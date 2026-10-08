@@ -1,4 +1,4 @@
-// @ref llp/1107.002-design-system-parity.spec.md#user-preference-and-accessibility-scaling
+// @ref llp/1109.002-design-system-parity.spec.md#user-preference-and-accessibility-scaling
 // Upstream 365aa87982 appearance/sections and appearance/components.
 use SettingsColors, SettingsTextRoles, SettingsSectionLabel from "./settings.contract"
 shape SettingsWire

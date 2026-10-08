@@ -1,5 +1,5 @@
 // Strict mobile settings/new task resource responses.
-// @ref llp/1107.005-composer-and-transcript.decision.md#root-seam
+// @ref llp/1109.005-composer-and-transcript.decision.md#root-seam
 use ThreadComposerState from "./thread-shapes.contract"
 shape ComposerCatalogRow
   key: string

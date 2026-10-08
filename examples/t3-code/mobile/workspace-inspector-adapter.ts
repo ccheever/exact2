@@ -1,4 +1,4 @@
-// @ref llp/1107.011-responsive-workspace.decision.md#navigation-and-data-ownership
+// @ref llp/1109.011-responsive-workspace.decision.md#navigation-and-data-ownership
 // Root owns serialized UI state. These projections reuse the existing client caches.
 import { mobileClient } from './client';
 import type { T3Client } from './shared/client';

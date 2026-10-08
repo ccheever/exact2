@@ -1,6 +1,6 @@
 // Pinned T3 Code365aa87982 packages/client-runtime/src/voice-input/transcription.ts; imports adapted only.
 // Original SHA256 71245e9543a02ebd9dd3cc044df5fc82699426813beb979a73d402c42fc70b54. MIT: voice-LICENSE.
-// @ref llp/1107.008-mobile-voice.decision.md#controller-reuse
+// @ref llp/1109.008-mobile-voice.decision.md#controller-reuse
 /** Cancellation is cooperative: settle only after the underlying work has stopped. */
 export type VoiceTranscriptionOptions = {
   readonly signal: AbortSignal;

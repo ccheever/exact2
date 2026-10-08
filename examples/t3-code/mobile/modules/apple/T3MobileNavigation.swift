@@ -1,5 +1,5 @@
 #if os(iOS)
-// @ref llp/1107.003-pairing-and-transport.decision.md#mobile-adaptations
+// @ref llp/1109.003-pairing-and-transport.decision.md#mobile-adaptations
 // T3 Code 365aa87982 Stack.tsx header presets and ConnectionsNewRouteScreen.
 // Exact owns stacks, presentation/detents, route views and scroll geometry.
 import UIKit
@@ -55,7 +55,7 @@ enum T3MobileNavigation {
     }
 }
 
-// @ref llp/1107.005-composer-and-transcript.decision.md#settings-ownership
+// @ref llp/1109.005-composer-and-transcript.decision.md#settings-ownership
 // GAP 009: no pre-presentation modal-wrapper hook; keep Exact's pageSheet style.
 // Pinned Stack.tsx: Model uses one full-height detent; compact New Task
 // uses 92% of UIKit's maximum detent. Exact owns presentation style and pops.

@@ -1,4 +1,4 @@
-// @ref llp/1107.003-pairing-and-transport.decision.md#mobile-adaptations
+// @ref llp/1109.003-pairing-and-transport.decision.md#mobile-adaptations
 // Mobile presentation and permission rules: T3 Code 365aa87982
 // SettingsEnvironmentDetailRouteScreen.tsx, environment-maintenance.ts, auth.ts.
 import { mobileClient, mobileNative } from './client';

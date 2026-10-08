@@ -1,6 +1,6 @@
 use homeChromeChange, homeAutomationPath from "./home-routes.contract"
 use NewTaskCloneSnapshot, NewTaskCloneColors from "./new-task-clone.contract"
-// @ref llp/1107.011-responsive-workspace.decision.md#navigation-and-data-ownership
+// @ref llp/1109.011-responsive-workspace.decision.md#navigation-and-data-ownership
 // Explicit root dependencies; request ownership and route identity stay in App.
 use mobileInformationPath, mobileSettingPath from "./settings-routes.contract"
 use ThreadHeaderOptions, ThreadHeaderSnapshot, ThreadHeaderRead, ThreadHeaderResult from "./thread-header.contract"
@@ -35,7 +35,7 @@ use SettingsChoicesData, MobilePreferencesResource from "./settings.contract"
 use SettingsAppearance, SettingsAppearanceData from "./settings-appearance.contract"
 use ArchiveData, ArchiveColors from "./archive.contract"
 use AgentActivityData, AgentActivityColors from "./agent-activity.contract"
-use EnvironmentDetailData from "./environment-detail.contract" // @ref llp/1107.003-pairing-and-transport.decision.md#decision
+use EnvironmentDetailData from "./environment-detail.contract" // @ref llp/1109.003-pairing-and-transport.decision.md#decision
 use NewTaskFlowSnapshot, NewTaskFlowResult from "./new-task-flow.contract"
 use ComposerSettingsSnapshot, ComposerActionResult, ComposerColors, NewTaskSnapshot, NewTaskPreparation from "./composer-shapes.contract"
 use ThreadSnapshot, ThreadColors from "./thread-shapes.contract"

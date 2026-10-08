@@ -1,6 +1,6 @@
 import { mobileComposerTarget } from './composer-target';
 // AttachmentFileScreen365aa87982 menu actions over the document's captured owner.
-// @ref llp/1107.005-composer-and-transcript.decision.md#media-presentation
+// @ref llp/1109.005-composer-and-transcript.decision.md#media-presentation
 import { mobileClient, mobileNative } from './client';
 import type { T3Client } from './shared/client';
 import { obj, str } from './shared/domain';
