@@ -6,14 +6,12 @@ use SshPromptView, SshPromptAnswer, SshPasswordPrompt from "./ssh-prompt.contrac
 use TranscriptMarkdown from "./markdown.contract"
 use TimelineAttachmentUrls from "./timeline-attachments.contract"
 use PagesHome from "./pages-hero.contract"
-use UsageView from "./pages-usage.contract"
-use UsageKey from "./pages-usage.contract"
+use UsageView, UsageKey from "./pages-usage.contract"
 use PrListView from "./pages-prs.contract"
 use PrDetailView from "./pages-pr-detail.contract"
 use WelcomeView from "./pages-welcome.contract"
 use Viewport from "./shapes.contract"
-use PaletteView from "./palette.contract"
-use PaletteResult from "./palette.contract"
+use PaletteView, PaletteResult from "./palette.contract"
 use Change from "./shapes.contract"
 use ProviderPage from "./providers.contract"
 use ProviderWizard from "./providers-wizard.contract"
@@ -22,8 +20,7 @@ use AcpRegistry from "./providers-wizard.contract"
 use KeybindingPage from "./settings-keybindings.contract"
 use ScheduledPage from "./settings-scheduled.contract"
 use KeyDispatch from "./settings-shortcuts.contract"
-use SourceControlPage from "./settings-source-control.contract"
-use IntegrationsPage from "./settings-source-control.contract"
+use SourceControlPage, IntegrationsPage from "./settings-source-control.contract"
 use StoragePage from "./settings-storage.contract"
 use ArchivePage from "./settings-archive.contract"
 use LicenseSettings from "./shapes.contract"
@@ -39,15 +36,11 @@ use SbPicker from "./settings-b-icons.contract"
 use PickerCatalog from "./composer-shapes.contract"
 use ComposerEditorView from "./composer-editor.contract"
 use ComposerBranches from "./composer-shapes.contract"
-use ShellView from "./shell-shapes.contract"
-use ShellDetails from "./shell-shapes.contract"
+use ShellView, ShellDetails from "./shell-shapes.contract"
 use Canvas from "./shapes.contract"
 use Sidebar from "./sidebar.contract"
 use LegacySidebar from "./legacy-sidebar.contract" // legacy-sidebar
-use ChatColumn from "./app-main.contract"
-use RightPanels from "./app-main.contract"
-use PagesCover from "./app-main.contract"
-use RightSheets from "./app-main.contract"
+use ChatColumn, RightPanels, PagesCover, RightSheets from "./app-main.contract"
 use ComposerMenus from "./composer-controls.contract"
 use ProjectPicker from "./app-overlays.contract"
 use SettingsWindow from "./app-settings.contract"
@@ -1315,6 +1308,10 @@ component T3Code
   action shellTick
     if shell.toastCount > 0 or shell.ticking or commandPending
       shellClock = now()
+  task sidebarDialogFocus when data.sidebar.dialog != "" key=data.sidebar.dialog // dialog-shortcut-focus: a dialog the sidebar opens takes the focus at its first stop, however it opened (Base UI's initialFocus)
+    after(1, focusSidebarDialog)
+  action focusSidebarDialog
+    focus(data.sidebar.dialog == "snooze" ? "snooze-mode-date" : `sidebar-${data.sidebar.dialog}-cancel`)
   task terminalCloseAsk when shell.panel.terminalClose.serial > terminalCloseHandled and confirmOp == "" key=shell.panel.terminalClose.serial // Gated tasks (exact2 #192), not a 500 ms poll: a terminal close asks, and a thread the module opened is selected, at once.
     after(1, terminalCloseConfirm)
   action terminalCloseConfirm
@@ -1325,6 +1322,7 @@ component T3Code
     confirmOp = shell.panel.terminalClose.op
     confirmTarget = shell.panel.terminalClose.target
     confirmValue = ""
+    focus("app-confirm-cancel") // dialog-shortcut-focus: the confirm takes the focus from the terminal (Base UI's initialFocus); Cancel gives it back
   task shellOpen when shell.openRequest != "" and shell.openRequest != shellOpenHandled and shell.openThreadId != "" and not commandPending key=shell.openRequest
     after(1, shellOpenThread)
   action shellOpenThread // a clicked notification's thread, or a `t3 app` request's draft (desktop-activation.ts), which leaves Settings and the utility pages as the reference's route change does
@@ -1454,6 +1452,8 @@ component T3Code
       send changed = command(op == "ui:new-thread" ? "new-thread" : op, target, value, 0)
   action confirmUi(accept: bool)
     confirmOp = ""
+    if startsWith(confirmOp, "shell:") // dialog-shortcut-focus: the title menu's confirms give the focus back to its trigger (Base UI's finalFocus)
+      focus("thread-title")
     if accept and (confirmOp == "terminallocal:close" or confirmOp == "terminalpanellocal:close")
       send terminalChanged = command(confirmOp, confirmTarget, confirmValue, 0)
     else if accept and not commandPending
