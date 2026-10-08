@@ -227,9 +227,10 @@ Full record: [usage-pooled-view.txt](https://raw.githubusercontent.com/ccheever/
 Review and merge PR #263 into `feat(example)/t3-code`. The coordinator's real-input batch runs the steps
 below (real hover, a real click on an unfocused segment for X56, the popover side, the Cursor Enable
 buttons with Return). A real redeem waits for the user's decision on spending a banked credit; the real
-Cursor Keychain prompt waits for a Cursor account on a paid plan. Light dismiss (an outside press closing a
-pinned popover) is declared in `EXACT2-GAPS.md` against the local draft X53 only, with no GitHub issue:
-it needs the user's decision or an issue. The review fixes (`9472711ee`) are unit-tested, not re-driven.
+Cursor Keychain prompt waits for a Cursor account on a paid plan. The review fixes (`9472711ee`) are
+unit-tested, not re-driven. Light dismiss (an outside press closing a pinned popover) is no longer declared:
+the user decided on 2026-10-08 that it behaves as the reference, and
+[`20261008-popover-escape-parity`](../20261008-popover-escape-parity.md) built it.
 
 ## Real-input batch steps
 

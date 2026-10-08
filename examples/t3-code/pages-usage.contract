@@ -116,6 +116,9 @@ shape UsageKey
   days: number
   label: string
 
+// Whether a viewport point lies in a box `frame()` read (a missing box is 0 by 0 and holds none).
+fn usageHit(g: Geometry, x: number, y: number): bool = x >= g.x and x < g.x + g.width and y >= g.y and y < g.y + g.height
+
 component UsagePage
   inject
     rem: number
@@ -140,22 +143,50 @@ component UsagePage
     back: action
     // usage-pooled-view: the reset credit confirm's commands report the focus back (app.contract commandCompleted).
     command: action
+    // popover-escape-parity: the confirm shows (PagesCover closes it for the page as it is answered).
+    confirmOpen: bool
     reduced: bool
+    // popover-escape-parity: the window's count of presses outside this page (app-window.contract T3Window).
+    outside: number
   // The pooled segments' popovers (usage-pooled.contract): hovered segment, popover or email, and the pressed one.
+  // A pinned popover holds until a press outside it (`pinnedAt` is `outside` when it was pinned).
   state overSeg = ""
   state overPop = ""
   state overMail = ""
   state pinned = ""
-  derive shown = overPop != "" ? overPop : overMail != "" ? overMail : overSeg != "" ? overSeg : pinned
+  state pinnedAt = 0
+  state downOutside = false
+  derive held = pinnedAt == outside ? pinned : ""
+  derive shown = overPop != "" ? overPop : overMail != "" ? overMail : overSeg != "" ? overSeg : held
   action enterSeg(id: string, inside: bool)
     overSeg = inside ? id : (overSeg == id ? "" : overSeg)
   action enterPop(id: string, inside: bool)
     overPop = inside ? id : (overPop == id ? "" : overPop)
   action enterMail(id: string, inside: bool)
     overMail = inside ? id : (overMail == id ? "" : overMail)
+  // A press on the popover's own trigger toggles the pin (Base UI's useClick). The pin and the light dismiss
+  // below touch only the pin, never the hover states, which the hover helper owns (fix-hover-cards).
   action pin(id: string)
-    pinned = pinned == id ? "" : id
-  // Escape (UsageKeys' one shortcut): a showing popover closes and its segment takes the focus; else the page goes back.
+    pinned = held == id ? "" : id
+    pinnedAt = outside
+  // Light dismiss (Base UI Popover's useDismiss, outsidePressEvent "intentional" for a mouse): a primary
+  // press that starts outside the pinned popover's card and both its triggers (the segment, the legend
+  // row), and does not end in the card, closes it as the press ends, before that press's own action; a
+  // press on another segment then pins that one. Presses on the page come here; the window counts the rest
+  // (`outside`).
+  action pressDown(e: PointerEvent)
+    let seg = frame(`usage-seg-${held}`)
+    let pop = frame(`usage-seg-pop-${held}`)
+    let leg = frame(`usage-legend-${held}`)
+    downOutside = held != "" and e.buttons == 1 and not (usageHit(seg, e.clientX, e.clientY) or usageHit(pop, e.clientX, e.clientY) or usageHit(leg, e.clientX, e.clientY))
+  action pressUp(e: PointerEvent)
+    let id = held
+    let pop = frame(`usage-seg-pop-${id}`)
+    if downOutside and not usageHit(pop, e.clientX, e.clientY)
+      pinned = ""
+    downOutside = false
+  // Escape (UsageKeys' one shortcut): a showing popover closes and its segment takes the focus; else the page goes
+  // back, blurring the focus first as useEscapeToGoBack does (a field of the floating theme editor keeps none).
   action escape
     if shown != ""
       focus(`usage-seg-${shown}`)
@@ -164,6 +195,7 @@ component UsagePage
       overPop = ""
       overMail = ""
     else
+      blur()
       back()
   action redeem(id: string)
     pinned = ""
@@ -172,8 +204,8 @@ component UsagePage
     overMail = ""
     command("pageslocal:usage-pool-reset-ask", id, "", 0)
   view
-    column position="absolute" left=0 top=0 right=0 bottom=0 background-color="light-dark(#fcfcfc, #0a0a0a)" inert=(page.detail.open or page.prices.open or page.pooled.confirm != "") testId="usage-page"
-      UsageKeys(keys=keys, limits=(page.metric == "limits"), dialog=(page.detail.open or page.prices.open or page.pooled.confirm != ""), setMetric=setMetric, setWindow=setWindow, back=escape)
+    column position="absolute" left=0 top=0 right=0 bottom=0 background-color="light-dark(#fcfcfc, #0a0a0a)" inert=(page.detail.open or page.prices.open or confirmOpen) pointerdown=pressDown pointerup=pressUp testId="usage-page"
+      UsageKeys(keys=keys, limits=(page.metric == "limits"), dialog=(page.detail.open or page.prices.open or confirmOpen), setMetric=setMetric, setWindow=setWindow, back=escape)
       when wide
         row width="100%" height=52 flex-shrink=0 padding-left=(sidebarOpen ? 1.25 * rem : controlsLeft + 2.5 * rem) padding-right="1.25rem" box-sizing="border-box" align-items="center" gap="0.75rem" position="relative"
           UsageSidebarToggle(sidebarOpen=sidebarOpen, controlsLeft=controlsLeft, keySidebar=keySidebar, toggle=toggleSidebar)
@@ -206,17 +238,21 @@ component UsagePage
               UsageOption(menuId="usage-period-select", label="90 days", selected=(page.windowDays == 90), press=setWindow(90))
             UsageRefresh(limits=(page.metric == "limits"), busy=page.refreshing, reduced=reduced, reload=reload)
       scroll flex=1 min-height=0 width="100%" testId="usage-scroll"
-        column width="100%" max-width="64rem" margin-left="auto" margin-right="auto" padding-left="1.5rem" padding-right="1.5rem" padding-top="1.5rem" padding-bottom="3rem" box-sizing="border-box" gap="1.5rem"
-          when page.empty != ""
-            text page.empty font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #818181)" testId="usage-empty"
-          else
-            when page.metric == "limits"
-              UsagePooled(view=page.pooled, scheme=scheme, md=md, reduced=reduced, shown=shown, pinned=pinned, enterSeg=enterSeg, enterPop=enterPop, enterMail=enterMail, pin=pin, redeem=redeem, op=op)
+        // The ground under and beside the content is the page's too: a press there reaches the page's
+        // pointerdown (light dismiss) on macOS, where a press on a scroll view's empty area below or beside
+        // its content reaches no node (popover-escape-parity).
+        column width="100%" min-height="100%" testId="usage-ground"
+          column width="100%" max-width="64rem" margin-left="auto" margin-right="auto" padding-left="1.5rem" padding-right="1.5rem" padding-top="1.5rem" padding-bottom="3rem" box-sizing="border-box" gap="1.5rem"
+            when page.empty != ""
+              text page.empty font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #818181)" testId="usage-empty"
             else
-              when page.total == ""
-                UsageSkeleton(lg=lg, md=md)
+              when page.metric == "limits"
+                UsagePooled(view=page.pooled, scheme=scheme, md=md, reduced=reduced, shown=shown, pinned=held, enterSeg=enterSeg, enterPop=enterPop, enterMail=enterMail, pin=pin, redeem=redeem, op=op)
               else
-                UsageSummary(page=page, scheme=scheme, lg=lg, md=md, sm=sm, setBreakdown=setBreakdown, op=op)
+                when page.total == ""
+                  UsageSkeleton(lg=lg, md=md)
+                else
+                  UsageSummary(page=page, scheme=scheme, lg=lg, md=md, sm=sm, setBreakdown=setBreakdown, op=op)
 
 // SidebarControl: the global sidebar toggle sits at the window controls when the sidebar is closed.
 component UsageSidebarToggle
