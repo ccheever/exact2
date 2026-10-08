@@ -1,0 +1,76 @@
+app-developer-tools: web view inspectability, read back from each WKWebView the clone's module creates
+Probe: a main.swift compiled with the module facade, the generated data keys and every modules/apple/*.swift
+(BEFORE: the base 732f0e3f3's sources via git archive; AFTER: this branch's), run as a bare executable
+(a development build: no distribution.json) and, AFTER only, from Packaged.app whose Contents/Resources holds
+distribution.json {"flavor":"packaged"} (the packaged/release line, T3LocalPolicy.packaged).
+Run 2026-10-08T18:53:21+0900 on macOS 26.6.2.
+
+== BEFORE (base 732f0e3f3), bare executable
+terminal (no EXACT_ASSETS) isInspectable=false
+terminal (EXACT_ASSETS set) isInspectable=true
+html-preview isInspectable=false
+   mermaid: base T3TimelineMermaid.load(base:) creates its WKWebView privately and never sets isInspectable (WebKit default false); no factory to call.
+
+== AFTER (branch), bare executable = development build
+t3.inspection: terminal web view isInspectable=true (development build)
+t3.inspection: terminal web view isInspectable=true (development build)
+t3.inspection: html-preview web view isInspectable=true (development build)
+t3.inspection: mermaid web view isInspectable=true (development build)
+bundle resources: <worktree>/target/devtools/after-probe, T3WebInspection.enabled=true
+terminal (no EXACT_ASSETS) isInspectable=true
+terminal (EXACT_ASSETS and T3_TERMINAL_INSPECTABLE=1 set) isInspectable=true
+html-preview isInspectable=true
+mermaid isInspectable=true
+
+== AFTER (branch), Packaged.app = packaged (release) build
+t3.inspection: terminal web view isInspectable=false (packaged build)
+t3.inspection: terminal web view isInspectable=false (packaged build)
+t3.inspection: html-preview web view isInspectable=false (packaged build)
+t3.inspection: mermaid web view isInspectable=false (packaged build)
+bundle resources: <worktree>/target/devtools/after-probe/Packaged.app/Contents/Resources, T3WebInspection.enabled=false
+terminal (no EXACT_ASSETS) isInspectable=false
+terminal (EXACT_ASSETS and T3_TERMINAL_INSPECTABLE=1 set) isInspectable=false
+html-preview isInspectable=false
+mermaid isInspectable=false
+
+== Probe source (AFTER, target/devtools/after-probe/main.swift; the BEFORE probe is the same without the mermaid line)
+import AppKit
+import WebKit
+// app-developer-tools AFTER probe: this branch's web views, built from the branch's module sources.
+// Run as a bare executable (a development build) and from a bundle whose Resources carry
+// distribution.json {"flavor":"packaged"} (the release line).
+private let ignoreEvent: ExactNativeEventFn = { _, _, _, _, _ in }
+_ = NSApplication.shared
+NSApp.setActivationPolicy(.accessory)
+print("bundle resources: \(Bundle.main.resourceURL?.path ?? "nil"), T3WebInspection.enabled=\(T3WebInspection.enabled)")
+unsetenv("EXACT_ASSETS"); unsetenv("T3_TERMINAL_INSPECTABLE")
+let plain = T3TerminalView(props: [:], events: ExactNativeEvents(fn: ignoreEvent, ctx: nil, nonce: 1), agent: true)
+print("terminal (no EXACT_ASSETS) isInspectable=\(plain.web.isInspectable)")
+plain.destroy()
+setenv("EXACT_ASSETS", "/tmp", 1); setenv("T3_TERMINAL_INSPECTABLE", "1", 1)
+let dev = T3TerminalView(props: [:], events: ExactNativeEvents(fn: ignoreEvent, ctx: nil, nonce: 1), agent: true)
+print("terminal (EXACT_ASSETS and T3_TERMINAL_INSPECTABLE=1 set) isInspectable=\(dev.web.isInspectable)")
+dev.destroy()
+let media = R6MediaPreview(agent: true), host = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
+media.mount(host: host, kind: "html", raw: "http://127.0.0.1:9/api/assets/page?sig=1", name: "page.html")
+print("html-preview isInspectable=\((host.subviews.first as? WKWebView)?.isInspectable.description ?? "no view")")
+media.destroy()
+print("mermaid isInspectable=\(T3TimelineMermaid.renderer().isInspectable)")
+
+== Build and packaged copy (target/devtools/afterprobe.sh)
+#!/bin/bash
+set -u
+cd "$(dirname "$0")/../.."
+X=$(xcode-select -p); F="$X/Platforms/MacOSX.platform/Developer/Library/Frameworks"; L="$X/Platforms/MacOSX.platform/Developer/usr/lib"
+A=target/devtools/after-probe; R="$PWD/target/t3-tests"
+M=$(ls examples/t3-code/modules/apple/*.swift)
+xcrun swiftc -swift-version 5 -module-name T3AfterProbe -F "$F" -I "$L" -L "$L" -Xlinker -rpath -Xlinker "$F" -Xlinker -rpath -Xlinker "$L" \
+  host/apple/modules/ExactNativeModule.swift "$R/ExactDataKeys.swift" $M $A/main.swift -o $A/probe 2>&1 | grep -E "error:"
+echo "== development (bare executable, no distribution.json)"
+$A/probe 2>&1 | grep -E "isInspectable|enabled="
+rm -rf $A/Packaged.app; mkdir -p $A/Packaged.app/Contents/MacOS $A/Packaged.app/Contents/Resources
+cp $A/probe $A/Packaged.app/Contents/MacOS/probe
+printf '{"flavor":"packaged"}' > $A/Packaged.app/Contents/Resources/distribution.json
+/usr/libexec/PlistBuddy -c 'Add :CFBundleExecutable string probe' -c 'Add :CFBundleIdentifier string com.exact.t3code.inspection-probe' -c 'Add :CFBundlePackageType string APPL' $A/Packaged.app/Contents/Info.plist >/dev/null
+echo "== packaged (Packaged.app/Contents/Resources/distribution.json {\"flavor\":\"packaged\"})"
+$A/Packaged.app/Contents/MacOS/probe 2>&1 | grep -E "isInspectable|enabled="
