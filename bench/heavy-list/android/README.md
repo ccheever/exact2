@@ -166,3 +166,13 @@ normalized by the measured wall interval; a process can exceed100% by using seve
 cores. Memory is post-interval PSS/RSS and Java heap, reported separately at each
 speed; image exposure and allocator residency vary. APK bytes include application
 data and assets, so an APK comparison is not a pure framework-runtime comparison.
+
+
+Known Galaxy limitation: a later balanced capture exported128 occupied records,
+including a zero actual-present timestamp. The three-column dump does not identify
+its PresentState. The collector conservatively rejects this unsupported/ambiguous
+history; the failed32-phase plan is preserved with27 completed phases and supplies
+no cohort headline. A separate four-app24k smoke passed all checks, but one sample
+per app is exploratory and does not establish an FPS ranking. The startup/CPU/memory
+cohort completed independently. Do not raise a count limit or classify zero as a
+dropped frame without binding and verifying the device's export semantics.
