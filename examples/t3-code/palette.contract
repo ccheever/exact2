@@ -273,6 +273,10 @@ component PaletteRowView
             box opacity=0.64 display="flex" flex-direction="row" align-items="center" gap="0.5rem" flex=1 min-width=0
               PaletteGlyph(name=row.icon, project=row.project, ink=row.projectInk, surface=row.projectSurface, dark=dark)
               PaletteText(row=row, highlighted=false, dark=dark)
+              // pr-links-previews-and-routing: the thread picker's linked thread (CheckIcon and "Linked").
+              when row.trailing == "Linked"
+                PaletteIcon(name="check", size=14, color=(dark ? "#f5f5f5" : "#27272a"))
+                text "Linked" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)" flex-shrink=0
             when row.badge != ""
               button press=run("settings", row.badgeOp, "") aria-label=row.badge testId=`palette-setup-${row.key}` opacity=0.64 height="1.25rem" padding-left="0.3125rem" padding-right="0.3125rem" border-radius="0.375rem" border-width=1 border-style="solid" border-color="light-dark(#fe9a0052, #fe9a0052)" background-color="light-dark(#ff9a0029, #ff9a0029)" display="flex" flex-direction="row" align-items="center" flex-shrink=0
                 text row.badge font-size="0.6875rem" line-height="0.98125rem" font-weight=500 color="light-dark(#bb4d00, #ffb900)"

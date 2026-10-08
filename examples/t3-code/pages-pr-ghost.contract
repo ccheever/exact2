@@ -5,6 +5,7 @@
 // panel's tab, the Reviewers and Labels rows and the Description's opening — so the loaded
 // detail replaces placeholders in place instead of one layout with another. Without a seed the
 // whole ghost breathes (animate-skeleton, off under reduced motion).
+use noActOn from "./pages-pr-links.contract" // pr-links-previews-and-routing
 use PgIcon from "./pages-icons.contract"
 use PrAvatar from "./pages-prs.contract"
 use PrChip from "./pages-prs.contract"
@@ -72,7 +73,7 @@ component PrdGhost
               text `#${number}` font-size="0.75rem" line-height="1rem" color=pgMuted() flex-shrink=0
           when ghost.seeded
             when surface == "page" or not handoffs.threadOwn
-              PrdCheckoutMenu(handoffs=handoffs, surface=surface, scheme=scheme, narrow=narrow, act=act)
+              PrdCheckoutMenu(handoffs=handoffs, surface=surface, scheme=scheme, narrow=narrow, act=act, actOn=noActOn())
             when ghost.conflicting
               button press=act("handoff", `${surface}|conflicts`) disabled=(handoffs.pending != "" or (surface != "thread" and not handoffs.canCheckout)) aria-label=(handoffs.pending == "conflicts" ? "Preparing..." : "Resolve conflicts") testId="pull-request-ghost-resolve" height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" box-sizing="border-box" gap="0.25rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)" box-shadow="0 1px 2px #0000000d" opacity=(handoffs.pending != "" ? 0.64 : 1) display="flex" flex-direction="row" align-items="center" flex-shrink=0
                 PgIcon(name="triangle-alert", size=14, color="light-dark(#e40014, #ff6467)")

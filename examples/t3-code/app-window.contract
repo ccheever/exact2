@@ -43,6 +43,7 @@ use ChatCanvasView from "./chat-canvas.contract"
 use TerminalDrawerView, TerminalDrawer from "./terminal.contract"
 use HoverTip, HoverLayer, HoverText, HoverScopes, noHoverTip, hoverDelay, hoverOpenDelay from "./hover-layer.contract" // fix-hover-cards
 use PaFreshnessCard from "./pages-pr-actions.contract"
+use PrLinkPreviewCard from "./pages-pr-links.contract" // pr-links-previews-and-routing
 component T3Window
   props
     data: Snapshot
@@ -439,6 +440,8 @@ component T3Window
           HoverLayer(tip=hoverTip, viewportWidth=viewport.width, viewportHeight=viewport.height, hoverAt=hoverTipAt)
             when hoverTip.kind == "freshness"
               PaFreshnessCard(actions=prDetail.actions, scheme=viewport.prefersColorScheme, act=prAct, keep=hoverTipAt(hoverTip, "card"), testId=hoverTip.testId)
+            else when hoverTip.kind == "pr-preview"
+              PrLinkPreviewCard(preview=prDetail.preview, href=hoverTip.text)
             else when hoverTip.kind == "scopes"
               HoverScopes(tip=hoverTip)
             else

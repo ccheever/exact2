@@ -115,7 +115,7 @@ describe('#263 bug 10: the Usage segment popover is drawn in the page scroll con
     // macOS can hand the segment an enter while the pointer is elsewhere (X62, #322), and Base UI's outside press
     // closes the popover however it opened.
     expect(page).toContain('state hoverAt = 0');
-    expect(await source('hover-layer.contract')).toContain('fn hoverDelay(kind: string): number = kind == "scopes" ? 100 : (kind == "freshness" ? 120 : (kind == "usage" ? 50 : 0))');
+    expect(await source('hover-layer.contract')).toContain('fn hoverDelay(kind: string): number = kind == "scopes" ? 100 : (kind == "freshness" or kind == "pr-preview" ? 120 : (kind == "usage" ? 50 : 0))');
   });
 });
 
@@ -145,7 +145,7 @@ describe('the layer and its timing', () => {
       hoverUntil = until
       hoverHold(until)`);
     // Base UI's open delay (nothing drawn before it) and closeDelay, on the root's hover clock.
-    expect(await source('hover-layer.contract')).toContain('fn hoverOpenDelay(kind: string): number = kind == "scopes" ? 250 : (kind == "usage" ? 300 : 0)');
+    expect(await source('hover-layer.contract')).toContain('fn hoverOpenDelay(kind: string): number = kind == "pr-preview" ? 350 : kind == "scopes" ? 250 : (kind == "usage" ? 300 : 0)');
     const lines = window.split('\n');
     const overlays = lines.findIndex(line => line.startsWith('        WindowOverlays('));
     const layer = lines.findIndex(line => line.startsWith('          HoverLayer(tip=hoverTip, viewportWidth=viewport.width, viewportHeight=viewport.height, hoverAt=hoverTipAt)'));
