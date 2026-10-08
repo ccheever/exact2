@@ -1092,3 +1092,14 @@ fn an_older_server_without_poll_receipts_still_shows_the_queue() {
         1
     );
 }
+
+#[test]
+fn a_peer_is_asked_for_every_open_session() {
+    let mut m = paired();
+    let (url, _) = m.poll_request().unwrap();
+    assert!(!url.contains("sessions=open"), "home keeps its tabs: {url}");
+    m.via = "redwood".into();
+    m.poll.inflight = false;
+    let (url, _) = m.poll_request().unwrap();
+    assert!(url.contains("&sessions=open"), "{url}");
+}

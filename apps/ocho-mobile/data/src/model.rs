@@ -914,6 +914,10 @@ impl Model {
             &self.instance,
             &self.tag,
         );
+        // A peer would trim to its own desktop's tabs, not the Mac's (Fleet #482).
+        if self.via != self.home() {
+            url.push_str("&sessions=open");
+        }
         // Exact keeps a request in flight when it is asked for an equal one
         // (LLP 1054.000.000 D3), so a retry of a poll that hung, a relay
         // that never answered, would wait on that same request until its 60 s
