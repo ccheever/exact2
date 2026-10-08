@@ -1,0 +1,56 @@
+# X61 repro on ccheever/exact2 main febb2c5fb, macOS 26.6.2 (25G83), Apple Silicon; web = the agent's Chrome 154
+# app.contract:
+// X61: the focus ring on a bare textarea, with and without appearance="none".
+component RingProbe
+  state text = "A bare textarea"
+  state other = "appearance none"
+  state line = "A bare input"
+  action write(value: string)
+    text = value
+  action note(value: string)
+    other = value
+  action edit(value: string)
+    line = value
+  view
+    column testId="root" width="100%" height="100%" box-sizing="border-box" padding=24 gap=16 background-color="#ffffff" color="#111111" font-size=14
+      column padding=12 border-radius=16 border-width=1 border-style="solid" border-color="#d4d4d8"
+        textarea value=text input=write testId="bare-textarea" height=48 padding=0 border-width=0 background-color="#00000000"
+      column padding=12 border-radius=16 border-width=1 border-style="solid" border-color="#d4d4d8"
+        textarea value=other input=note testId="none-textarea" appearance="none" height=48 padding=0 border-width=0 background-color="#00000000"
+      column padding=12 border-radius=16 border-width=1 border-style="solid" border-color="#d4d4d8"
+        input value=line input=edit testId="bare-input" padding=0 border-width=0 background-color="#00000000"
+
+$ bun exact.mjs mac
+$ bun exact.mjs agent <web|macos> --size 420x320 tree "tap bare-textarea" "type bare-textarea key ArrowRight" "screenshot bare.png[ window]" "tap none-textarea" "type none-textarea key ArrowRight" "screenshot none.png[ window]" "tap bare-input" "type bare-input key ArrowRight" "screenshot input.png[ window]" tree
+
+## macos
+epoch 1 · incarnation 1 · clock 0 ms · 7 nodes
+View#1 [root]
+  View#2
+    TextInput#3 [bare-textarea] value="A bare textarea" (input)
+  View#4
+    TextInput#5 [none-textarea] value="appearance none" (input)
+  View#6
+    TextInput#7 [bare-input] value="A bare input" (input)
+{"tapped":3,"at":[210,61],"delivery":"platform","target":"bare-textarea","carrier":"macos","mode":"agent","epoch":1,"incarnation":1,"clock":0}
+{"value":"A bare textarea","key":"ArrowRight","typed":3,"target":"bare-textarea","delivery":"platform","carrier":"macos","mode":"agent","epoch":1,"incarnation":1,"clock":0}
+{"h":320,"scale":2,"screenshot":".exact/ev/x61-macos-bare.png","window":true,"incarnation":1,"w":420,"clock":0,"epoch":1}
+{"tapped":5,"at":[210,151],"delivery":"platform","target":"none-textarea","carrier":"macos","mode":"agent","epoch":1,"incarnation":1,"clock":0}
+{"value":"appearance none","key":"ArrowRight","typed":5,"target":"none-textarea","delivery":"platform","carrier":"macos","mode":"agent","epoch":1,"incarnation":1,"clock":0}
+{"incarnation":1,"epoch":1,"clock":0,"window":true,"scale":2,"w":420,"h":320,"screenshot":".exact/ev/x61-macos-none.png"}
+{"at":[210,225.5],"delivery":"platform","tapped":7,"target":"bare-input","carrier":"macos","mode":"agent","epoch":1,"incarnation":1,"clock":0}
+{"value":"A bare input","typed":7,"key":"ArrowRight","target":"bare-input","delivery":"platform","carrier":"macos","mode":"agent","epoch":1,"incarnation":1,"clock":0}
+{"h":320,"w":420,"scale":2,"incarnation":1,"screenshot":".exact/ev/x61-macos-input.png","window":true,"clock":0,"epoch":1}
+epoch 1 · incarnation 1 · clock 0 ms · 7 nodes
+View#1 [root]
+  View#2
+    TextInput#3 [bare-textarea] value="A bare textarea" (input)
+  View#4
+    TextInput#5 [none-textarea] value="appearance none" (input)
+  View#6
+    TextInput#7 [bare-input] value="A bare input" [focused] (input)
+
+$ bun scripts/exact.mjs contract vocab outline
+`outline` is not a tag or an attribute
+$ bun scripts/exact.mjs contract build p.contract   # textarea value=t input=w outline="none" testId="x"
+p.contract:6:30 [lower-unknown-attr] `textarea` has no attribute `outline`
