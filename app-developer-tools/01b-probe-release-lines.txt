@@ -1,0 +1,40 @@
+app-developer-tools: the release line after aligning with main #309 (commit caf50cab9)
+#309 leaves the iframe arm's opt-in out for production trust, exact release (--distribution) and IPA archives.
+The clone's gate now reads the same facts from its bundle at run time (receipt.json build.trust; the shipped receipt
+of a distributed bundle) besides the packaged marker. Probe: target/devtools/afterprobe.sh, the same main.swift as 01.
+Receipts: the development bundle's own receipt.json at caf50cab9's build; the distributed one is shippedReceipt() from
+host/apple/build.mjs applied to it (exactly what --distribution writes); the production one is that receipt with
+build.trust edited to production (a production bake needs a signing receipt). Run 2026-10-08T19:47:15+0900.
+
+== development (bare executable, nothing beside it)
+bundle resources: <worktree>/target/devtools/after-probe, T3WebInspection.enabled=true
+terminal (no EXACT_ASSETS) isInspectable=true
+terminal (EXACT_ASSETS and T3_TERMINAL_INSPECTABLE=1 set) isInspectable=true
+html-preview isInspectable=true
+mermaid isInspectable=true
+== development bundle: the built app's own receipt.json (build.trust development, full binary record)
+bundle resources: <worktree>/target/devtools/after-probe/Development.app/Contents/Resources, T3WebInspection.enabled=true
+terminal (no EXACT_ASSETS) isInspectable=true
+terminal (EXACT_ASSETS and T3_TERMINAL_INSPECTABLE=1 set) isInspectable=true
+html-preview isInspectable=true
+mermaid isInspectable=true
+== packaged: the same receipt plus distribution.json {"flavor":"packaged"}
+bundle resources: <worktree>/target/devtools/after-probe/Packaged.app/Contents/Resources, T3WebInspection.enabled=false
+terminal (no EXACT_ASSETS) isInspectable=false
+terminal (EXACT_ASSETS and T3_TERMINAL_INSPECTABLE=1 set) isInspectable=false
+html-preview isInspectable=false
+mermaid isInspectable=false
+== distributed: shippedReceipt() of that receipt, as build.mjs --distribution writes it (binary reduced to its sha256)
+bundle resources: <worktree>/target/devtools/after-probe/Distributed.app/Contents/Resources, T3WebInspection.enabled=false
+terminal (no EXACT_ASSETS) isInspectable=false
+terminal (EXACT_ASSETS and T3_TERMINAL_INSPECTABLE=1 set) isInspectable=false
+html-preview isInspectable=false
+mermaid isInspectable=false
+== production trust: that receipt with build.trust set to production (edited copy; a production bake needs a signing receipt)
+bundle resources: <worktree>/target/devtools/after-probe/Production.app/Contents/Resources, T3WebInspection.enabled=false
+terminal (no EXACT_ASSETS) isInspectable=false
+terminal (EXACT_ASSETS and T3_TERMINAL_INSPECTABLE=1 set) isInspectable=false
+html-preview isInspectable=false
+mermaid isInspectable=false
+
+== AppKit r6-media (inspection.swift: 4 tests)
