@@ -1,3 +1,4 @@
+use mobileInformationPath, mobileSettingPath from "./settings-routes.contract"
 use ThreadHeaderOptions, ThreadHeaderSnapshot, ThreadHeaderRead, ThreadHeaderResult from "./thread-header.contract"
 use WorkingControlData from "./working-control.contract"
 use MobileSidebarPanel, MobileInspectorPanel, MobileWorkspaceMarkers from "./workspace-panels.contract"
@@ -266,19 +267,11 @@ component App
   action informationSearch(value: string)
     informationQuery = value
   action openInformation(target: string, key: string)
-    if target == "settingsAbout"
-      nav = push(nav, path("settingsAbout"))
-    else if target == "settingsClientStorage"
-      nav = push(nav, path("settingsClientStorage"))
-    else if target == "settingsDiagnostics"
-      nav = push(nav, path("settingsDiagnostics"))
-    else if target == "settingsOpenSourceLicenses"
-      informationQuery = ""
-      nav = push(nav, path("settingsOpenSourceLicenses"))
-    else if target == "settingsOpenSourceLicense"
-      nav = push(nav, path("settingsOpenSourceLicense", key))
-    else if target == "settingsLegal"
-      nav = push(nav, path("settingsLegal"))
+    let location = mobileInformationPath(target, key)
+    if location != ""
+      if target == "settingsOpenSourceLicenses"
+        informationQuery = ""
+      nav = push(nav, location)
   state settingsSelection = ""
   derive settingsRouteKey = match first(filter(stack(nav), route => route.name == "settings")) { case some(route) => `${route.id}`, case none => "settings" }
   resource settingsData = settingsRoot(preferences.serialized, viewport.prefersColorScheme, data.environments, layout.safeBottom, settingsRouteKey, settingsSelection, data.revision) as shape SettingsView
@@ -448,28 +441,9 @@ component App
       case none
         settingsSelection = settingsSelection
   action openSetting(target: string)
-    if target == "SettingsAbout"
-      openInformation("settingsAbout", "")
-    else if target == "SettingsEnvironments"
-      openEnvironments()
-    else if target == "SettingsThreads"
-      nav = push(nav, path("settingsThreads"))
-    else if target == "SettingsProjectOverview"
-      nav = push(nav, path("settingsProjectOverview"))
-    else if target == "SettingsAppearance"
-      nav = push(nav, path("settingsAppearance"))
-    else if target == "SettingsScheduledTasks"
-      nav = push(nav, path("settingsScheduledTasks"))
-    else if target == "SettingsUsage"
-      nav = push(nav, path("settingsUsage"))
-    else if target == "SettingsProviderAccounts"
-      nav = push(nav, path("settingsProviders"))
-    else if target == "SettingsEnvironmentNewThreads" or target == "SettingsEnvironmentSourceControl" or target == "SettingsEnvironmentAgentBehavior" or target == "SettingsEnvironmentMaintenance"
-      nav = push(nav, path("settingsServer", target))
-    else if target == "SettingsArchive"
-      nav = push(nav, path("archive"))
-    else if target == "SettingsKeyboard" or target == "SettingsFollowUp" or target == "SettingsOrganization" or target == "SettingsProjectGrouping"
-      nav = push(nav, path("settingsChoice", target))
+    let location = mobileSettingPath(target)
+    if location != ""
+      nav = push(nav, location)
   state targetEnvironment = ""
   state confirmKind = ""
   state confirmKey = ""
