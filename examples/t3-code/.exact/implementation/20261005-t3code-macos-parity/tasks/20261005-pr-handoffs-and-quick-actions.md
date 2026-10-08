@@ -111,7 +111,8 @@ gate checks green; one agent-mode live session and one retry on the real-GitHub 
 16701, primary account); draft PR #293. Real-input session 05:23–06:06Z under the shared lock (record:
 `real-input-record.txt` on the evidence branch; PR images 21–28). It found the quick Merge refusing every unstacked pull
 request (`client.rpc` answers `{}` for no stack) and the header fold outliving the pull request; both fixed in
-`115fb3a5c` (the Merge then merged #165 for real). Merged `feat(example)/t3-code` at `c0475fbaa`.
+`115fb3a5c` (the Merge then merged #165 for real; `pages-pr-fold.test.ts` fails on `23f721f08` and passes now). Merged
+`feat(example)/t3-code` at `c0475fbaa`.
 
 **Built.**
 - Hand-offs (`pages-pr-handoffs.ts`, `pages-pr-handoffs.contract`; core in `r6-pr-actions.ts`): More › Ask a question /
@@ -132,13 +133,13 @@ request (`client.rpc` answers `{}` for no stack) and the header fold outliving t
 
 | Row | Result | Proof | Blocker |
 | --- | --- | --- | --- |
-| Hand-offs | pass (live + unit) | PR images 12–17, 28, `live-drive-record.txt`; unit "the panel hands the pull request over" (11); real input: Return on Ask a question (25), two-phase checkout on #144: thread first with "Preparing the pull request checkout...", then the clone on `feature/trim-input` (28; the first try's server-side `gh pr checkout` exited 1, one retry passed) | sending the drafted task: not run — the reference never sends (startAsk/startHandoff leave it for the reader); `provider-lane/` had no `READY-claude` and no login was taken, to free the real-input lock |
+| Hand-offs | pass (live + unit) | PR images 12–17, 28, `live-drive-record.txt`; unit "the panel hands the pull request over" (11); real input: Return on Ask a question (25), two-phase checkout on #144: thread first with "Preparing the pull request checkout...", then the clone on `feature/trim-input` (28; the first try's server-side `gh pr checkout` exited 1, one retry passed) | sending the drafted task: no change needed — the reference never sends from a hand-off; it leaves the task in the composer |
 | Hand-off failures | pass (live + unit) | image 18 ("already checked out in the main repo"), unit failures | — |
 | Per-finding Fix | pass (live + unit) | images 03, 04, 15, 16; unit "one hand-off at a time" | — |
 | Quick actions | pass (real ⇧ + AppKit + unit) | images 21–23: ⇧ alone shows the groups, stacked Merge dimmed, none with the search focused; Ready for review, Close, Reopen on #149 and Merge on #165 read back with the lane gh (isDraft false, CLOSED, OPEN, MERGED 05:39:32Z); `macos/tests/sidebar` (6/6), `pages-pr-quick.test.ts` (9) | — |
 | Row menu and popovers | pass (real right-click + live) | image 24: native Copy link / Open on GitHub, the pasteboard held the #132 URL; images 05, 10, 11 | — |
-| Header fold | pass (live + real wheel) | images 04, 19, 20; 27: per-tab memory by a real wheel; another pull request now opens unfolded (`115fb3a5c`, keyed per pull request as the reference keys its panel) | the per-PR reset is not driven live (rule 3: sessions used); contract build and suites pass |
-| Keyboard focus, Escape, reduced motion | partial | images 25–26: real Tab moves the ring through More, Return activates, Escape closes Check out; reduced-motion frames | arrow keys do not move focus in the clone's popover menus (the base More, Sort and Filters menus included): a menu-wide roving-focus pattern, not started |
+| Header fold | pass (live + real wheel) | images 04, 19, 20; 27: per-tab memory by a real wheel; another pull request now opens unfolded (`115fb3a5c`, keyed per pull request as the reference keys its panel) | the per-PR reset live: deferred to the next real-input batch; guarded by `pages-pr-fold.test.ts` (fails on `23f721f08`, passes on `115fb3a5c`) |
+| Keyboard focus, Escape, reduced motion | partial | images 25–26: real Tab moves the ring through More, Return activates, Escape closes Check out; reduced-motion frames | arrow keys: moved to fix-keyboard-focus (batch bug 13): one shared menu pattern |
 | Visual and protocol parity | not run | before/after pairs 01–07 instead | user decision 2026-10-06 (no oracle or trace tools) |
 | Ported tests | pass | `pages-pr-handoffs.test.ts` (original names; two n/a recorded in its header) | — |
 | Gates | pass | PR body | — |
@@ -158,9 +159,10 @@ Cleanup done: copy quit, lane server stopped, the copy's Keychain item (`com.exa
 | --- | --- | --- | --- | --- |
 | 1 (agent live) | `a94f7f47b` (build before the two-phase change) | before screens on the base build; after session: every hand-off ran on real GitHub; fix-check and fix-remark were refused by a GitHub CLI timeout (18 s `gh pr view`, server `getChangeRequest`), shown as the server's sentence; the agent's own `screenshot over` film wrote transparent frames | `live-drive-record.txt` | — |
 | 2 (agent retry) | same build + menu widths, opaque new popovers | More and Check out menus no longer wrap; Escape closes both; fold frames 30 ms apart; both Fix presses checked out and wrote their prompts | PR images 02, 08–11, 15, 16, 19, 20 | — |
-| 3 (real input) | `23f721f08` build, then `115fb3a5c` (pid 87517) | ⇧ groups, Ready/Close/Reopen read back; Merge refused on the first build (fixed, rebuilt, merged); right-click menu and Copy link; Tab/Return/Escape; per-tab fold by wheel; two-phase checkout (server gh failed once, retry passed) | PR images 21–28, `real-input-record.txt` | arrow keys in menus (no roving focus) |
+| 3 (real input) | `23f721f08` build, then `115fb3a5c` (pid 87517) | ⇧ groups, Ready/Close/Reopen read back; Merge refused on the first build (fixed, rebuilt, merged); right-click menu and Copy link; Tab/Return/Escape; per-tab fold by wheel; two-phase checkout (server gh failed once, retry passed) | PR images 21–28, `real-input-record.txt` | arrow keys moved to fix-keyboard-focus (batch bug 13); the per-PR fold reset live deferred to the next real-input batch |
 
 ## Next action
 
-Arrow-key focus in the clone's popover menus (More, Check out, Sort, Filters): a roving-focus pattern for every menu,
-outside this task's files; then drive the per-PR fold reset once. Otherwise the coordinator's review of draft PR #293.
+The coordinator's conflict check and ready flip of draft PR #293. Owned elsewhere: arrow keys in the hand-off and Check
+out menus (fix-keyboard-focus, batch bug 13: one shared menu pattern, applied after #293 merges). The per-PR fold reset
+live: the next real-input batch (open #115, scroll Summary until it folds, open #144: its header is open).
