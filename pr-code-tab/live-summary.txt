@@ -1,0 +1,50 @@
+pr-code-tab — live macOS drives (agent mode, 1280x840), development build of feat(example)/t3-code-pr-code-tab,
+paired with the primary lane server (127.0.0.1:16310, pid 75297, t3 0.0.46-nightly.20261005.2667) whose gh is the
+real GitHub CLI signed in as daehyeonmun2021 (lane config dir). Pull request: daehyeonmun2021/playground#168
+("Build the catalog", seeded by `bun seed.mjs --only code-tab`: 310 files over 14 commits, a rename, a binary file,
+a COMMENT review by daehyeon-mun with an open thread on new line 5 and a resolved one on old line 5 of docs/usage.md).
+
+Attempt 1 (07:46-07:49Z, app pid 28511) — record-attempt1.txt
+  tab and slices   PASS  Code tab opened; 4 POST /api/pull-requests/diff (server trace environment.pullRequests.diff x4:
+                         1.6 s, 0.5 s, 0.6 s, 0.5 s); "100 files+" -> "200 files+" -> "300 files+" -> "310 files"; the
+                         server paged GitHub's files API (`pr diff` refused past 300 files; gh log: pulls/168/files?page=1..4)
+  file tree        PASS  "Files 310"; tree press on docs/usage.md opened, selected and scrolled to it
+  threads          PASS  open thread under new 5, resolved thread (folded) under old 5
+  reply            PASS  ⌘↵ posted the reply; read back on GitHub: by daehyeonmun2021, in_reply_to the thread's first comment;
+                         shown in the card ("Open · 2 comments")
+  edit own comment PASS  pencil -> editor seeded with the raw words -> ⌘↵ -> read back on GitHub ending "(edited)."
+  reactions        NOT RUN (drive: the hidden Summary tab's reaction bar carries the same testId; fixed in the drive for attempt 2)
+  split + drafts   PASS  split view; gutter "+" on context left 4, deleted left 5, added right 5 -> "Add to review": three
+                         pending cards, composer badge 3
+  rename comment   NOT RUN (drive: `tap … into` did not move this list; attempt 2 used the file tree)
+  scope menu       PASS  All commits + 10 commits newest first (headline + 7-char oid) + "Show more (4 left)"
+  commit scope     PASS  "Rename the text helpers": 1 file (src/text.js -> src/strings.js), comments-off icon, no gutter "+";
+                         gh: repos/O/R/commits/<sha>?per_page=100 --jq .files
+  timeline commit  FAIL -> fixed: the row's press scoped nothing (the row's id was empty); fixed in pages-pr-timeline.ts
+                         (`id: event.id`), unit test "a commit row carries its whole oid, which scopes the Code tab"
+  scope menu look  FAIL -> fixed: the menu's glass let the list read through and a long headline pushed the oid out;
+                         fixed (opaque popover colour under the glass; the headline truncates)
+  840x620          FAIL -> fixed: the scope trigger collapsed to nothing; fixed (min width 2.25rem, chevron kept)
+  cleanup          the reply was deleted afterwards (HTTP 204); the thread states are as seeded
+
+Attempt 2 (08:13-08:19Z, app pid 51815) — record-attempt2.txt
+  slices           PASS  slices 1-3 as before; slice 4 failed on GitHub ("PullRequestOperationError: Pull request operation
+                         diff failed: GitHub CLI command failed", server span 08:14:08, 7.1 s): the footer said "The rest of this
+                         diff could not be loaded." with Retry, and reaching the end again asked nothing (prDiff count stayed 4)
+  viewed ticks     PASS  entries 001-003 revealed and ticked in under a second: count "3 / 300 viewed", the files folded;
+                         ONE pullRequests.setFilesViewed (server span 08:14:31.662, 1425 ms; gh: one `api graphql --input -`);
+                         GitHub read back: catalog/entry-001..003 VIEWED
+  Changed          PASS  the second account (daehyeon-mun) pushed "Revise the first entry" (20ebd93) to entry-001; Refresh:
+                         entry-001's tick reads "Changed" (orange), entry-002/003 still ticked, count "2 / 100 viewed"
+                         (Refresh rereads from the first slice)
+  untick           PASS  002 and 003 unticked: ONE setFilesViewed (08:18:00.991, 539 ms); GitHub read back UNVIEWED
+  scope menu       PASS  "Revise the first entry" listed first; "Show more (5 left)"; headlines truncate
+  refresh storm    FOUND  after Refresh, ~5 pullRequests.invalidate/detail/list per second for 3 minutes (server trace:
+                         786 invalidate, 790 detail, 703 list): the detail's invalidate flag survived a let-go read. Fixed
+                         (the flag is taken as the call goes out; the feature branch's #306 made the same fix, merged);
+                         unit test "one press is one invalidate, even when the read after it is let go and asked again"
+  rows after the slice failure (threads on docs/usage.md, the rename comment, review submit, #115 Load more, orphans,
+  reduced motion, Add to agent, Fix in a thread): NOT RUN — docs/usage.md and src/strings.js are in slice 4, which
+  GitHub failed, and the #115 search did not answer in 45 s; the session budget (one drive + one retry) is used.
+  cleanup          entry-001's dismissed mark unmarked afterwards (GraphQL unmarkFileAsViewed); the pushed commit stays
+                   (the pull request now has 15 commits)
