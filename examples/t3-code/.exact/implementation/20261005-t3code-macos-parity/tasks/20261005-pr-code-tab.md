@@ -186,6 +186,7 @@ account `http://127.0.0.1:16310` + environment id); remove the copy and its home
 | 4 (drive 4, 08:50Z; retry of 3) | same build | Load more (10 → 12), draft Escape, Add to agent: pass; line/side read back, off-diff list, Fix: not run (reveal after a grown card, a script error, the driver's clock) | [record](https://raw.githubusercontent.com/ccheever/exact2/833fb18ccc01a2176ff436bbed181aae98f0b922/pr-code-tab/record-attempt4.txt), images 20–22 | session budget used |
 | 5 (real input, 08:55–09:09Z) | build of `e8845c17d` + the scope rows' ids | real click/Return/Escape on the scope menu, real Tab through toolbar and file header: pass | [record](https://raw.githubusercontent.com/ccheever/exact2/fa5314e640befd51d192ce61fe76877d6e578f6d/pr-code-tab/real-input-record.txt), images 23–24 | the screen locked: drag, Reply keys, reduced motion, Fix → next real-input batch |
 | gates | `39bed7633` | bun 3219/1 skip/0 fail; tsc clean; contract build 4471 slots; Swift transport 62/0; `t3-code-macos --lib` 13; five checks green (cargo test 3521/0/34) | PR #308 body | — |
+| gates (session 4) | `10d4773b5` (merged #290 `84a52dde0`) | bun 3227/1 skip/0 fail; contract build 4478 slots; caps within; `app.contract` 1478; `--bundle` build of the scope-id change passed; five checks not rerun (only `.contract` ids and records since `39bed7633`, plus #290's own checked change) | PR #308 body | — |
 
 ## Next action
 
