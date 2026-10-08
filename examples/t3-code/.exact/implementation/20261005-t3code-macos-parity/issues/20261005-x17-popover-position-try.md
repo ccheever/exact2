@@ -10,6 +10,8 @@ reproduced_on: 4c893fef6
 
 # X17: Popover anchoring with every side/align area and automatic flip and shift (`position-area`, `position-try`)
 
+**Status (reclassified 2026-10-08):** Bucket 3, Charlie's next core investment: #112 (invoker popovers first); no PR. T3 waits and adds no per-site flip arithmetic.
+
 ## Summary
 T3 Code positions tooltips, hover cards, menus and popovers with Base UI's positioner: a side
 (top/bottom/left/right/inline-start/inline-end), an alignment (start/center/end), an offset, and

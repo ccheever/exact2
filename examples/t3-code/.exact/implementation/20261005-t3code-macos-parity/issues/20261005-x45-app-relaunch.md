@@ -11,6 +11,8 @@ rest_upstream_url: https://github.com/ccheever/exact2/issues/271
 
 # X45: An app cannot relaunch itself
 
+**Status (reclassified 2026-10-08):** Bucket 4, approved, no fix in progress: #271 (a process relaunch, after #269's hold); no PR.
+
 ## Summary
 The T3 Code desktop app relaunches the whole app after the user changes the Local environment,
 Network access or Tailscale HTTPS setting. Whether an exact2 app can relaunch itself is not

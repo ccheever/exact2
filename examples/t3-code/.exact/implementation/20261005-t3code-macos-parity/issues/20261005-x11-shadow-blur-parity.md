@@ -10,6 +10,8 @@ reproduced_on: null
 
 # X11: Negative-spread box shadows draw too faint, and `backdrop-filter` blurs only the parent's paint, not the window below
 
+**Status (reclassified 2026-10-08):** Bucket 1, done on main: #129 (main #221) and #225 (main #232) are closed, both in the branch. `saturate()` is not adopted (user decision); a backdrop beyond the parent's subtree has no upstream issue.
+
 ## Summary
 
 T3 Code's menus, popovers, dialogs and composer are glass panels: a soft shadow with a negative spread, and
@@ -126,4 +128,5 @@ Nothing to remove; the clone's real backdrops changed with no clone edit. The co
 card's shadow below the box) and a clean edge after (agent drive, before/after image). The dialog backdrops
 (`blur(4px)`) and the SnapShot menu take the same mirror. Kept for #225: the flattened glass (composer card, model
 picker, toasts, PR tooltips, the confirm dialog, the alert stack), since each is nested below what it would blur and
-the reference's `saturate(1.14)` is refused. The issue stays open for #225.
+the reference's `saturate(1.14)` is refused. Main #232 closed #225 on 2026-10-07 with `saturate()` only (in the branch since round 5,
+not adopted: user decision); a backdrop beyond the parent's subtree has no open upstream issue (reclassified 2026-10-08).

@@ -10,6 +10,8 @@ reproduced_on: 4c893fef6
 
 # X22: Reactive layout facts (size, position, text width, row visibility)
 
+**Status (reclassified 2026-10-08):** Bucket 6, deferred: #127 keeps reactive geometry and container queries deferred; the hooks are a permanent declared difference. Visibility is a candidate with no date; anchors go to #112.
+
 ## Summary
 
 T3 Code reads layout facts all over its UI: a composer height that the transcript must reserve, a menu that follows its anchor while a panel slides, a minimap that follows the scroll area, and sidebar rows that

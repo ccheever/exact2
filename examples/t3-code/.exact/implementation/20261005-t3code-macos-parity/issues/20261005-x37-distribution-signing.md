@@ -11,6 +11,8 @@ rest_upstream_url: https://github.com/ccheever/exact2/issues/270
 
 # X37: Developer ID signing, notarization and a pre-seal hook in the host build
 
+**Status (reclassified 2026-10-08):** Bucket 4, approved, no fix in progress: #270 (signing order, scoped entitlements); no PR. No clone consumer (portable-app-download dropped).
+
 ## Summary
 
 T3 Code ships to users as a signed, notarized Apple Silicon app when the project's signing secrets are present. The clone must run on another person's Mac, so the Gatekeeper experience of its downloadable `.app` is part of the goal.

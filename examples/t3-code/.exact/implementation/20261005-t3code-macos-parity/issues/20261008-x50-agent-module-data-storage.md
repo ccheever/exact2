@@ -10,6 +10,8 @@ reproduced_on: 0365ad1a4 (main)
 
 # X50: in agent mode a native module's data folder ignores `--storage`
 
+**Status (reclassified 2026-10-08):** Bucket 2: #284 is fixed in open main PR #327 (ccheever, full). T3 waits, then an adoption round.
+
 Numbering note: the closed #260 branch (`feat(example)/t3-code-portable-app-download`) used X50
 for "a distributed macOS build without the build machine's paths". That draft never reached this
 branch. On this branch X50 is the agent's module data folder, as `EXACT2-GAPS.md` has it.

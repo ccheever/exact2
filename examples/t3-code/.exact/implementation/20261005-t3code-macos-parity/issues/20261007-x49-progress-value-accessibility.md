@@ -10,6 +10,8 @@ reproduced_on: 0365ad1a4 (main)
 
 # X49: a progress value for assistive technology (`progress`, `aria-valuenow`)
 
+**Status (reclassified 2026-10-08):** Bucket 4, approved, no fix in progress: #279 (ARIA range values first); no PR. The provider follow-up's X49 row waits.
+
 ## Summary
 
 T3 Code shows the Antigravity runtime download as a native `<progress value max>` labelled

@@ -10,6 +10,8 @@ reproduced_on: main 475043d20 (after #305, 4fe878a13) and the feature branch's f
 
 # X64: a paragraph that shrinks below the text-raster size keeps painting its old pixels (macOS)
 
+**Status (reclassified 2026-10-08):** Bucket 2: #316 is fixed in open main PR #327 (ccheever, full). T3 waits, then removes #312's status-keyed redraw.
+
 ## Summary
 
 On the macOS host, a wrapped paragraph that the host draws from a text raster keeps showing that

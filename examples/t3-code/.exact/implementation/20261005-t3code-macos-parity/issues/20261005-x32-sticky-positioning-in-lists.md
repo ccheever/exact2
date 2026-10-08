@@ -10,6 +10,8 @@ reproduced_on: 4c893fef6
 
 # X32: `position: sticky` inside a scroll container and a virtualized list
 
+**Status (reclassified 2026-10-08):** Bucket 5, design pending: #131 waits for a list-lifetime design. Pinned diff file headers are a declared difference until it lands.
+
 ## Summary
 T3 Code pins headers while their content scrolls: each file header in a diff stays at the top
 until the next file pushes it away; the pull request Summary section headings stay while the
