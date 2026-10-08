@@ -32,6 +32,7 @@ impl Model {
             step: Step::Attach,
             interrupt: true,
             leaf,
+            retries: 0,
         });
         self.send.bump();
         self.feel("medium");
@@ -141,6 +142,7 @@ impl Model {
             step: Step::Attach,
             interrupt: false,
             leaf,
+            retries: 0,
         });
         self.send.bump();
         self.feel("light");
@@ -218,6 +220,17 @@ impl Model {
         let Some(mut out) = self.sending.take() else {
             return;
         };
+        // A network blip (a VPN reconnecting, a lost connection) is tried
+        // again, a few times, where that cannot deliver the message twice.
+        if let Err(why) = &result {
+            if out.retries < SEND_RETRIES && retry_is_safe(&out, why) {
+                out.retries += 1;
+                self.send.next_at = self.now + 1_000.0 * f64::from(1u32 << out.retries);
+                self.outbox.push_front(out);
+                return;
+            }
+        }
+        out.retries = 0;
         if out.route == SendRoute::Queue && out.step != Step::Send {
             let attached = out.step == Step::Attach;
             match result {
@@ -353,4 +366,24 @@ pub fn echoes(entry: &str, sent: &str) -> bool {
     } else {
         entry.contains(words.trim())
     }
+}
+
+/// How many times a step is tried again after a network failure.
+const SEND_RETRIES: u32 = 4;
+
+/// Whether a failed step can be sent again without delivering it twice:
+/// always when it never left the phone or never reached the machine; when
+/// it may have arrived, only on a route that names it (`request_id`), where
+/// Fleet answers a repeat with the first one's outcome.
+fn retry_is_safe(out: &Outgoing, why: &str) -> bool {
+    let lower = why.to_lowercase();
+    let never_arrived =
+        lower.contains("appears to be offline") || lower.contains("not connected to the relay");
+    let maybe_arrived = lower.contains("connection was lost")
+        || lower.contains("timed out")
+        || lower.contains("did not answer in time")
+        || lower.contains("machine disconnected")
+        || lower.contains("no answer")
+        || lower.contains("failed to fetch");
+    never_arrived || (maybe_arrived && out.route != SendRoute::Input)
 }

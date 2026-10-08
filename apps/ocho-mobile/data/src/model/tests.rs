@@ -895,3 +895,51 @@ fn a_lost_connection_is_not_called_offline() {
     assert_eq!(failure_kind(&offline), "offline");
     assert_eq!(poll_failure(&offline), "This phone is offline.");
 }
+
+#[test]
+fn a_send_caught_by_a_network_blip_goes_again_when_that_is_safe() {
+    let offline = "TypeError: Failed to fetch — The Internet connection appears to be offline.";
+    let lost = "TypeError: Failed to fetch — The network connection was lost.";
+    // Typed input: tried again only when it never left the phone.
+    let mut m = paired();
+    m.poll_request();
+    m.poll_done(Ok(answer(1, true)));
+    m.open("mac", "s1");
+    m.send_text("hello");
+    m.send_request().unwrap();
+    m.send_done(Err(offline.into()));
+    assert!(m.failed.is_none(), "not given up");
+    let turn = m.send.turn;
+    m.tick(m.now + 500.0);
+    assert_eq!(m.send.turn, turn, "waits out its backoff");
+    m.tick(m.now + 2_500.0);
+    assert!(m.send.turn > turn, "then goes again");
+    let (_, _, body) = m.send_request().unwrap();
+    assert_eq!(body, r#"{"enter":true,"text":"hello"}"#);
+    m.send_done(Err(lost.into()));
+    assert!(
+        m.failed.is_some(),
+        "it may have arrived: typing it again could double it"
+    );
+    // A queued message names itself: the same request again, until it lands.
+    let mut m = paired();
+    m.poll_request();
+    m.poll_done(Ok(codex_answer("running")));
+    m.open("mac", "c1");
+    m.send_text("later");
+    m.send_request();
+    m.send_done(Ok(json!({"turns": []})));
+    let op = |body: &str| serde_json::from_str::<serde_json::Value>(body).unwrap();
+    let first = op(&m.send_request().unwrap().2);
+    m.send_done(Err(lost.into()));
+    m.tick(m.now + 2_500.0);
+    let again = op(&m.send_request().unwrap().2);
+    assert_eq!(again["operation"], "send");
+    assert_eq!(again["request_id"], first["request_id"]);
+    for _ in 0..4 {
+        m.send_done(Err(lost.into()));
+        m.tick(m.now + 20_000.0);
+        m.send_request();
+    }
+    assert!(m.failed.is_some(), "and gives up after a few");
+}

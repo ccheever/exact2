@@ -180,6 +180,8 @@ pub struct Outgoing {
     pub interrupt: bool,
     /// A queued message's route (`codex-client`, `session-client`).
     pub leaf: &'static str,
+    /// Tries already made of this step after a network failure.
+    pub retries: u32,
 }
 
 /// A queued Codex message's requests, in order.
@@ -508,7 +510,7 @@ impl Model {
         if self.open.is_some() && self.transcript.due(now) {
             self.transcript.bump();
         }
-        if !self.outbox.is_empty() && !self.send.inflight {
+        if !self.outbox.is_empty() && !self.send.inflight && now >= self.send.next_at {
             self.send.bump();
         }
         if self.haptic.is_some() && !self.buzz.inflight {
