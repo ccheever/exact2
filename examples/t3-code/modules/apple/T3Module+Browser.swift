@@ -2,9 +2,9 @@
 // a tab's navigation and its chrome row's commands, answered by the page registry (T3BrowserSessions.swift).
 import Foundation
 
-extension T3Module {
+extension T3Module: T3BrowserSessionOwner {
     func browserOps(_ request: [String: Any], reply: ExactReply, next: () -> Void) {
-        guard let answer = T3BrowserSessions.shared.perform(request) else { return next() }
+        guard let answer = browserSessions.perform(request) else { return next() }
         reply.send(answer)
     }
 }

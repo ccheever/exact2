@@ -34,6 +34,10 @@ final class T3BrowserSession: NSObject, WKNavigationDelegate, WKUIDelegate {
     /// Called when the reported state changes (the registry coalesces it into one `t3.status`).
     var changed: (() -> Void)?
     private(set) var failure: (url: String, code: Int, description: String)?
+    /// Failed loads so far: the data module reports each failure to the server once (`buildReportInput`).
+    private(set) var failures = 0
+    /// Alerts, confirms and the file chooser show; an agent run answers them at once instead.
+    var dialogs = true
     /// The URL a load was asked for, while WebKit has not committed it (the reference's pending Loading url).
     private(set) var pending: URL?
     private(set) var crashed = false, crashes = 0
@@ -65,6 +69,7 @@ final class T3BrowserSession: NSObject, WKNavigationDelegate, WKUIDelegate {
         // Under the agent the window is often covered; WebKit would then stop painting the page (as for the terminal).
         let occlusion = Selector(("_setWindowOcclusionDetectionEnabled:"))
         if agent, web.responds(to: occlusion) { web.perform(occlusion, with: false) }
+        favicon.page = web
         favicon.captured = { [weak self] in self?.changed?() }
         favicon.currentURL = { [weak self] in self?.web.url }
         let publish: () -> Void = { [weak self] in self?.changed?() }
@@ -73,7 +78,11 @@ final class T3BrowserSession: NSObject, WKNavigationDelegate, WKUIDelegate {
             web.observe(\.url, options: [.new]) { [weak self] _, _ in self?.urlChanged() },
             web.observe(\.canGoBack, options: [.new]) { _, _ in publish() },
             web.observe(\.canGoForward, options: [.new]) { _, _ in publish() },
-            web.observe(\.isLoading, options: [.new]) { _, _ in publish() },
+            web.observe(\.isLoading, options: [.new]) { [weak self] web, _ in
+                // A load that ends with no navigation in flight (a same-document jump, a stop) ends its pending URL too.
+                if let self, !web.isLoading, !self.provisional { self.pending = nil }
+                publish()
+            },
         ]
     }
 
@@ -91,6 +100,7 @@ final class T3BrowserSession: NSObject, WKNavigationDelegate, WKUIDelegate {
         var value: [String: Any] = ["kind": nav.kind, "url": nav.url, "title": web.title ?? "", "canGoBack": web.canGoBack, "canGoForward": web.canGoForward,
                                     "profile": profile, "crashed": crashed, "crashes": crashes, "attached": web.window != nil, "inspectable": web.isInspectable,
                                     "popups": popups.count, "refused": Array(refused.suffix(8))]
+        value["failures"] = failures
         if let failure { value["code"] = failure.code; value["description"] = failure.description }
         if let icon = favicon.current { value["favicon"] = ["dataUrl": icon.dataUrl, "pageUrl": icon.pageUrl, "capturedAt": icon.capturedAt] }
         return value
@@ -107,8 +117,17 @@ final class T3BrowserSession: NSObject, WKNavigationDelegate, WKUIDelegate {
     func navigate(_ url: URL) {
         failure = nil
         crashed = false
-        if web.url == url { web.reload() } else { pending = url; web.load(URLRequest(url: url)) }
+        if web.url == url { web.reload() }
+        else if let current = web.url, Self.sameDocument(url, current) { web.load(URLRequest(url: url)) } // a fragment jump: no load to wait for
+        else { pending = url; web.load(URLRequest(url: url)) }
         changed?()
+    }
+
+    /// The same document at another fragment: WebKit scrolls to it without a provisional navigation.
+    static func sameDocument(_ target: URL, _ current: URL) -> Bool {
+        guard target.fragment != nil, var a = URLComponents(url: target, resolvingAgainstBaseURL: false), var b = URLComponents(url: current, resolvingAgainstBaseURL: false) else { return false }
+        a.fragment = nil; b.fragment = nil
+        return a.url == b.url
     }
 
     func command(_ name: String) -> Bool {
@@ -165,13 +184,23 @@ final class T3BrowserSession: NSObject, WKNavigationDelegate, WKUIDelegate {
         decisionHandler(.allow)
     }
 
+    /// A main-frame navigation has started and not yet committed or failed.
+    private(set) var provisional = false
+
     func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
         failure = nil // the reference keeps a failure until a new load actually starts
+        provisional = true
         if let url = webView.url, url.absoluteString != "about:blank" { pending = url }
         changed?()
     }
 
+    func webView(_ webView: WKWebView, didReceiveServerRedirectForProvisionalNavigation navigation: WKNavigation!) {
+        if let url = webView.url { pending = url } // the pending URL follows the redirect
+        changed?()
+    }
+
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
+        provisional = false
         pending = nil
         changed?()
     }
@@ -188,12 +217,15 @@ final class T3BrowserSession: NSObject, WKNavigationDelegate, WKUIDelegate {
     private func failed(_ error: Error) {
         let failingURL = ((error as NSError).userInfo[NSURLErrorFailingURLErrorKey] as? URL)?.absoluteString ?? pending?.absoluteString ?? web.url?.absoluteString ?? ""
         // A load superseded by the next one (cancelled) leaves that one's pending URL alone; a load stopped for
-        // itself (a download refused by policy) ends its own.
+        // itself (a download refused by policy, after a redirect too) ends its own.
         guard let failure = Self.loadFailure(error, url: failingURL) else {
-            if pending?.absoluteString == failingURL { pending = nil }
+            let error = error as NSError
+            if !(error.domain == NSURLErrorDomain && error.code == NSURLErrorCancelled) || pending?.absoluteString == failingURL { pending = nil; provisional = false }
             return changed?() ?? ()
         }
         pending = nil
+        provisional = false
+        failures += 1
         self.failure = failure
         changed?()
     }
@@ -283,7 +315,7 @@ final class T3BrowserSession: NSObject, WKNavigationDelegate, WKUIDelegate {
 
     func webView(_ webView: WKWebView, runOpenPanelWith parameters: WKOpenPanelParameters, initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping ([URL]?) -> Void) {
         // A file input opens Chromium's chooser; under the agent nothing modal opens.
-        guard !T3BrowserSessions.shared.agent else { return completionHandler(nil) }
+        guard dialogs else { return completionHandler(nil) }
         let panel = NSOpenPanel()
         panel.allowsMultipleSelection = parameters.allowsMultipleSelection
         panel.canChooseDirectories = parameters.allowsDirectories
@@ -293,7 +325,7 @@ final class T3BrowserSession: NSObject, WKNavigationDelegate, WKUIDelegate {
     }
 
     func webView(_ webView: WKWebView, runJavaScriptAlertPanelWithMessage message: String, initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping () -> Void) {
-        guard let window = webView.window, !T3BrowserSessions.shared.agent else { return completionHandler() }
+        guard let window = webView.window, dialogs else { return completionHandler() }
         let alert = NSAlert()
         alert.messageText = message
         alert.addButton(withTitle: "OK")
@@ -301,7 +333,7 @@ final class T3BrowserSession: NSObject, WKNavigationDelegate, WKUIDelegate {
     }
 
     func webView(_ webView: WKWebView, runJavaScriptConfirmPanelWithMessage message: String, initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping (Bool) -> Void) {
-        guard let window = webView.window, !T3BrowserSessions.shared.agent else { return completionHandler(false) }
+        guard let window = webView.window, dialogs else { return completionHandler(false) }
         let alert = NSAlert()
         alert.messageText = message
         alert.addButton(withTitle: "OK")

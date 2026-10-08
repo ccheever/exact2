@@ -37,6 +37,9 @@ final class T3BrowserFavicon: NSObject, WKScriptMessageHandler, URLSessionTaskDe
     private(set) var current: (dataUrl: String, pageUrl: String, capturedAt: Double)?
     var captured: (() -> Void)?
     var currentURL: (() -> URL?)?
+    /// The tab's own page: a pop-up shares its configuration (and so this script), and its messages are not the tab's.
+    weak var page: WKWebView?
+    private var cancelled = false
     private var lastKey = ""
     private var task: URLSessionDataTask?
     private var request = 0
@@ -59,6 +62,8 @@ final class T3BrowserFavicon: NSObject, WKScriptMessageHandler, URLSessionTaskDe
     }
 
     func cancel() {
+        cancelled = true
+        request += 1 // a fetch already answering is no longer current
         task?.cancel(); task = nil
         controller?.removeScriptMessageHandler(forName: Self.handlerName, contentWorld: .defaultClient)
         session.invalidateAndCancel()
@@ -76,7 +81,7 @@ final class T3BrowserFavicon: NSObject, WKScriptMessageHandler, URLSessionTaskDe
     func collect(in web: WKWebView) {}
 
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
-        guard let body = message.body as? [String: Any], let page = body["page"] as? String, let raw = body["icons"] as? [Any] else { return }
+        guard !cancelled, message.webView === page, let body = message.body as? [String: Any], let page = body["page"] as? String, let raw = body["icons"] as? [Any] else { return }
         let candidates = Self.selectCandidates(raw.compactMap { $0 as? String })
         guard let origin = Self.origin(URL(string: page)), !candidates.isEmpty else { return }
         let key = ([page] + candidates).joined(separator: "\n")
@@ -88,7 +93,7 @@ final class T3BrowserFavicon: NSObject, WKScriptMessageHandler, URLSessionTaskDe
     }
 
     private func fetch(_ candidates: ArraySlice<String>, origin: String, request: Int) {
-        guard request == self.request, let candidate = candidates.first else { return }
+        guard !cancelled, request == self.request, let candidate = candidates.first else { return }
         let next = candidates.dropFirst()
         if let image = Self.inlineImage(candidate) { return finish(image, origin: origin, request: request, rest: next) }
         guard let url = URL(string: candidate) else { return fetch(next, origin: origin, request: request) }

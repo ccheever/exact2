@@ -7,7 +7,7 @@ delivery: draft-pr
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-browser-surface
-pr_url: null
+pr_url: https://github.com/ccheever/exact2/pull/337
 verified_commit: null
 ---
 
@@ -157,11 +157,11 @@ public page.
 Tests (`bun:test`; reference names unless marked "clone"): `browser-url.test.ts` 17 (preview.test.ts's
 `isLoopbackHost` 9, its `it.each` rows, and `normalizePreviewUrl` 6; clone: the load-failed page's words 2),
 `browser-state.test.ts` 32 (`previewStateStore.test.ts` 26, `previewRuntimeTabId` 3, `shouldShowPreviewEmptyState` 2,
-clone `readSnapshot` 1), `browser-surface.test.ts` 18 (`openPreviewSession` 3 of 4, `addBrowserSurface` 2,
+clone `readSnapshot` 1), `browser-surface.test.ts` 20 (`openPreviewSession` 3 of 4, `addBrowserSurface` 2,
 `closePreviewSession` 2; clone rows for reconcile, tab title and favicon, `projectDesktopState`, `buildReportInput`,
-profiles, the chrome row's ops, the live set, and `desktopTabLifetime` through `panelView`). AppKit
-`macos/tests/browser` 20 (`webviewCrashRecovery` 2 and `previewWindowOpenAction` 3 ported; 15 against a loopback
-fixture). Substitutions are in each file's header. Not ported here (owned by parts 2–5): the rest of the original
+profiles, the chrome row's ops, the live set, `desktopTabLifetime` through `panelView`, and the two let-go answers of
+review round 1). AppKit `macos/tests/browser` 23 (`webviewCrashRecovery` 2 and `previewWindowOpenAction` 3 ported; 18
+against a loopback fixture, three of them from review round 1). Substitutions are in each file's header. Not ported here (owned by parts 2–5): the rest of the original
 list.
 
 ## Progress
@@ -178,6 +178,31 @@ navigation rows is asked of the coordinator.
 | --- | --- | --- | --- | --- |
 | Drive 1 (agent mode) | branch sources before the Contract fix | Stopped at op 5: the app showed the first-run wizard; the lane home was empty (no `T3_LOCAL_RUNTIME_DIR`, the embedded runtime was still unpacking) and had no project | image `00-start` (not uploaded) | lane setup, fixed for drive 2 |
 | Drive 2 (agent mode, the retry) | same build | Ops 1–53 of 92: the launcher's Browser row available; `tap surface-browser` opened `tab_1` (module `t3.browser: open`, `t3.inspection: browser web view isInspectable=true (development build)`); the chrome row, the More menu rows (tree) and "No preview yet" drawn. Typing an address and Enter sent nothing to the page (no request reached the fixture, `Refresh` stayed disabled); the drive stopped at op 54 (`tap browser-failed-reload`: no failed page) | drive record; images 01–03 | **Found and fixed after the drive:** the field's focus and blur sent `surface-browser-url-focus` through the window's `chatLocal` mutation, so the blur after Enter let go of the navigation just sent through it (a newer send forgets the reply, and `letGoAware` rejects that answer's native calls). The focus is now view state in `SurfacePanel` (no send), and text that arrives before the focus is kept as the draft. Not re-driven: session limit |
+
+### Independent review, round 1 (2026-10-09)
+
+A read-only review of the branch found nine issues; all are fixed in the follow-up commit, each with a test where one
+can run without the app:
+1. The close hook kept the native of the first answer that installed it; once that answer was let go, every later
+   close threw before `preview.close` (and "Close all" stopped part way). Now installed again by every answer, as the
+   terminal's (test: "closing a tab calls through the closing answer …").
+2. A tab closed while its favicon downloaded could ask an invalidated `URLSession` for the next candidate (an
+   exception). Now cancelled for good (AppKit `testAFaviconFetchCancelledWithItsTabDoesNotRunOn`).
+3. A failed load was reported to the server on every projection (the reference reports per desktop state change). Now
+   once per failure: the module counts failures (`failures`), `buildReportInput` dedupes on it.
+4. The page could stay Loading: a fragment jump (no provisional navigation) and a refused download behind a redirect
+   kept the pending URL. Now a fragment jump sets none, the pending URL follows a redirect, and a load that ends
+   without a navigation in flight ends it (AppKit `testAFragmentJumpAndARedirectedRefusedDownloadDoNotStayLoading`).
+5. A `preview.list` started by another answer was shared; if that answer was let go, the waiting one (opening a tab)
+   failed silently. Now it lists again for itself (test: "a listing another answer started and lost …").
+6. One process-wide page registry: two sessions in one process (the sample host's) would close each other's pages.
+   Now one per module (`T3Module.browserSessions`, `T3BrowserSessionOwner`) (AppKit `testTwoSessionsKeepTheirOwnPages`).
+7. Server sessions could add Browser tabs before the saved panel was restored, so `restoreRightPanel` skipped it and the
+   saved Files/Diff tabs were lost. The reconcile now waits for `client.ready` (restore runs first in `panelView`).
+8. A pop-up shares the tab's configuration, so the favicon script ran in it and could cancel the tab's icon. Messages
+   from any page but the tab's own are ignored.
+9. The URL field's focus could outlive the field (a tab switch without a blur), keeping Escape from the panel toggle;
+   and one tab's draft carried over to another. The focus is now kept by tab, and the chrome row is mounted per tab.
 
 ## Real-input batch steps
 

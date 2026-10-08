@@ -11,12 +11,13 @@
 import { describe, expect, it } from 'bun:test';
 import {
   BROWSER_PROFILES, DEFAULT_BROWSER_PROFILE_ID, addBrowserSurface, browserHost, browserLocal, browserProfileName, browserTabFavicon, browserTabTitle, browserView,
-  buildReportInput, closePreviewSession, launcherOffersProfiles, liveSessions, openBrowserIn, openPreviewSession, projectDesktopState, reconcileBrowserSurfaces, type NativeTab, type Rpc,
+  buildReportInput, closePreviewSession, installBrowserCleanup, launcherOffersProfiles, listPreviewSessions, liveSessions, openBrowserIn, openPreviewSession, projectDesktopState,
+  reconcileBrowserSurfaces, type NativeTab, type Rpc,
 } from './browser-surface';
 import { PreviewStateStore, previewRuntimeTabId, type PreviewSessionSnapshot } from './browser-state';
-import { panelState, panelView, surfaceLocal, type PanelState } from './r4-surfaces-panel';
+import { panelState, panelView, surfaceLocal, surfaceStore, panelKey, type PanelState } from './r4-surfaces-panel';
 import type { T3Client } from './client';
-import type { Native } from './protocol';
+import { ClientError, type Native } from './protocol';
 import type { Obj } from './domain';
 
 const threadRef = { environmentId: 'local', threadId: 'thread-1' };
@@ -43,7 +44,12 @@ function fakeClient(answer: (method: string, payload: Obj) => Obj | Promise<Obj>
   return { client, calls, native };
 }
 const module = { available: true, watch() {}, later: async () => ({ ok: true, generation: 0, value: {} }) } as Native;
-const nativeTab = (overrides: Partial<NativeTab> = {}): NativeTab => ({ kind: 'Success', url: 'https://example.com/', title: 'Example Domain', code: 0, description: '', canGoBack: false, canGoForward: false, favicon: null, ...overrides });
+/** `surface-<op>` on a given panel state (the client's own panel for its thread). */
+async function surfaceLocalIn(client: T3Client, state: PanelState, op: string, id: string) {
+  surfaceStore(client).panels.set(panelKey(client), state);
+  return surfaceLocal(client, module, op, id, '');
+}
+const nativeTab = (overrides: Partial<NativeTab> = {}): NativeTab => ({ kind: 'Success', url: 'https://example.com/', title: 'Example Domain', code: 0, description: '', canGoBack: false, canGoForward: false, favicon: null, failures: 0, ...overrides });
 
 describe('openPreviewSession', () => {
   it('creates an idle tab without recording a recently visited URL', async () => {
@@ -164,16 +170,18 @@ describe('usePreviewBridge', () => {
     expect(projectDesktopState(nativeTab({ kind: 'Loading' }))).toMatchObject({ loading: true, hasWebContents: true, canGoBack: false });
   });
 
-  it('buildReportInput: Idle never reports, (kind, url) repeats collapse, LoadFailed always reports', () => {
+  it('buildReportInput: Idle never reports, (kind, url) repeats collapse, each failure reports once', () => {
     expect(buildReportInput('thread-1', 'tab-1', nativeTab({ kind: 'Idle' }), null)).toBeNull();
     const first = buildReportInput('thread-1', 'tab-1', nativeTab({ kind: 'Loading', title: '' }), null)!;
     expect(first.input).toEqual({ threadId: 'thread-1', tabId: 'tab-1', canGoBack: false, canGoForward: false, navStatus: { _tag: 'Loading', url: 'https://example.com/', title: '' } });
     expect(buildReportInput('thread-1', 'tab-1', nativeTab({ kind: 'Loading' }), first.report)).toBeNull();
     expect(buildReportInput('thread-1', 'tab-1', nativeTab(), first.report)?.input.navStatus).toEqual({ _tag: 'Success', url: 'https://example.com/', title: 'Example Domain' });
-    const failed = nativeTab({ kind: 'LoadFailed', url: 'http://localhost:16699/', title: '', code: -1004, description: 'ERR_CONNECTION_REFUSED' });
+    const failed = nativeTab({ kind: 'LoadFailed', url: 'http://localhost:16699/', title: '', code: -1004, description: 'ERR_CONNECTION_REFUSED', failures: 1 });
     const report = buildReportInput('thread-1', 'tab-1', failed, null)!;
     expect(report.input.navStatus).toEqual({ _tag: 'LoadFailed', url: 'http://localhost:16699/', title: '', code: -1004, description: 'ERR_CONNECTION_REFUSED' });
-    expect(buildReportInput('thread-1', 'tab-1', failed, report.report)).not.toBeNull();
+    // The projection runs on every answer: the same failure is not sent again; the next failure of the same URL is.
+    expect(buildReportInput('thread-1', 'tab-1', failed, report.report)).toBeNull();
+    expect(buildReportInput('thread-1', 'tab-1', { ...failed, failures: 2 }, report.report)).not.toBeNull();
   });
 });
 
@@ -237,6 +245,39 @@ describe('the chrome row and the native host', () => {
       { id: previewRuntimeTabId(threadRef, 'epoch-1', 'tab-2'), url: 'https://example.com/', profile: 'default', environment: 'local' },
       { id: previewRuntimeTabId({ environmentId: 'local', threadId: 'thread-2' }, 'epoch-1', 'tab-1'), url: '', profile: 'default', environment: 'local' },
     ]);
+  });
+});
+
+describe('answers that are let go (review round 1)', () => {
+  const superseded = () => new ClientError('This operation was superseded.', 'superseded');
+
+  it('closing a tab calls through the closing answer, not the first answer that installed the hook', async () => {
+    const { client, calls } = fakeClient(() => ({}));
+    const state = emptyPanel();
+    browserHost(client).store.reconcileServerSessions(threadRef, { sessions: [idle('tab-1')], serverEpoch: 'epoch-1', revision: 1 });
+    openBrowserIn(state, 'tab-1', 'local:thread-1');
+    // An early answer installs the hook, then is let go: its native rejects every call.
+    const gone = { available: true, watch() {}, later: async () => { throw superseded(); } } as Native;
+    const rpc = (client as unknown as { rpc: (n: Native, m: string, p: Obj) => Promise<Obj> }).rpc;
+    (client as unknown as { rpc: typeof rpc }).rpc = async (native, method, payload) => { if (native === gone) throw superseded(); return rpc.call(client, native, method, payload); };
+    installBrowserCleanup(client, gone);
+    // The close comes from a live answer, which installs the hook again before it closes.
+    await surfaceLocalIn(client, state, 'close', 'browser:tab-1');
+    expect(calls.filter(call => call.method === 'preview.close').map(call => call.payload)).toEqual([{ threadId: 'thread-1', tabId: 'tab-1' }]);
+  });
+
+  it('a listing another answer started and lost is done again by the answer that waits for it', async () => {
+    let first = true;
+    const { client, calls } = fakeClient(method => {
+      if (method !== 'preview.list') return idle('tab-1');
+      if (first) { first = false; return new Promise<Obj>((_resolve, reject) => setTimeout(() => reject(superseded()), 5)); }
+      return { sessions: [], serverEpoch: 'epoch-1', revision: 0 };
+    });
+    const lost = listPreviewSessions(client, module, threadRef).catch(error => error);
+    await addBrowserSurface(client, module, emptyPanel());
+    expect((await lost).kind).toBe('superseded');
+    expect(calls.map(call => call.method)).toEqual(['preview.list', 'preview.list', 'preview.open']);
+    expect(Object.keys(browserHost(client).store.read(threadRef).sessions)).toEqual(['tab-1']);
   });
 });
 

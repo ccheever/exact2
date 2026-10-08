@@ -12,8 +12,9 @@ import WebKit
 /// `profile`, `environment`. The agent can `type` and `press` into the page (real key events, as the terminal's
 /// view), and its screenshots read the page (`takeSnapshot`).
 final class T3BrowserView: ExactNativeInstance {
-    static let factory = ExactNativeFactory(snapshot: true) { (_: ExactModule, props: [String: String], events: ExactNativeEvents) in
-        T3BrowserView(props: props, events: events)
+    static let factory = ExactNativeFactory(snapshot: true) { (owner: ExactModule, props: [String: String], events: ExactNativeEvents) in
+        guard let sessions = (owner as? T3BrowserSessionOwner)?.browserSessions else { throw ExactNativeRefusal("t3-browser needs the T3 module") }
+        return T3BrowserView(props: props, events: events, sessions: sessions)
     }
 
     /// The page's box: the borrowed web view fills it.
@@ -30,7 +31,7 @@ final class T3BrowserView: ExactNativeInstance {
     private(set) weak var session: T3BrowserSession?
     private let sessions: T3BrowserSessions
 
-    init(props: [String: String], events: ExactNativeEvents, sessions: T3BrowserSessions = .shared) {
+    init(props: [String: String], events: ExactNativeEvents, sessions: T3BrowserSessions) {
         self.props = props
         self.sessions = sessions
         super.init(events: events)

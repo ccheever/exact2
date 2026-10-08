@@ -15,17 +15,19 @@ import WebKit
 /// `persist:t3code-preview-<scope>` partition), identified by a UUID derived from the environment and the
 /// profile, apart from the app's other web views. Agent runs keep everything in memory. (Profiles beyond the
 /// built-in Default, Incognito's in-memory store and clearing arrive with part 4.)
+///
+/// One registry per module, so per session: two sessions in one process (the sample host's) keep their own
+/// pages, and a session that ends closes only its own (T3Module `browserSessions`, `T3BrowserSessionOwner`).
 final class T3BrowserSessions {
-    static let shared = T3BrowserSessions()
-    private(set) var agent = false
-    private var announce: (String) -> Void = { _ in }
+    let agent: Bool
+    private let announce: (String) -> Void
     private(set) var sessions: [String: T3BrowserSession] = [:]
     private var stores: [String: WKWebsiteDataStore] = [:]
     private var scheduled = false
     /// The module's ops and syncs, newest last (the agent's status).
     private(set) var log: [String] = []
 
-    func configure(agent: Bool, changed: @escaping (String) -> Void) {
+    init(agent: Bool, changed: @escaping (String) -> Void) {
         self.agent = agent
         announce = changed
     }
@@ -67,6 +69,7 @@ final class T3BrowserSessions {
         let session = T3BrowserSession(id: id, profile: profile.isEmpty ? "default" : profile, environment: environment,
                                        store: store(environment: environment, profile: profile.isEmpty ? "default" : profile), agent: agent)
         session.changed = { [weak self] in self?.publish() }
+        session.dialogs = !agent
         sessions[id] = session
         if let target = URL(string: url), ["http", "https"].contains(target.scheme?.lowercased() ?? "") { session.navigate(target) }
         note("open \(id)")
@@ -137,5 +140,10 @@ final class T3BrowserSessions {
             return nil
         }
     }
+}
+
+/// The module that owns a session's Browser pages (T3Module+Browser.swift); a view finds its registry through it.
+protocol T3BrowserSessionOwner: AnyObject {
+    var browserSessions: T3BrowserSessions { get }
 }
 #endif

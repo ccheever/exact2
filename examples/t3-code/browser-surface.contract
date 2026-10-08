@@ -59,7 +59,9 @@ component BrowserBody
     urlFocus: action
   view
     column flex=1 min-height=0 width="100%" testId="browser-surface"
-      BrowserChrome(view=view, local=local, urlFocus=urlFocus)
+      // One chrome per tab: a draft typed in one tab's field never carries over to another.
+      each tabKey in [view.tabId] key=tabKey
+        BrowserChrome(view=view, local=local, urlFocus=urlFocus)
       box flex=1 min-height=0 position="relative" overflow="hidden"
         when view.live
           t3-browser tab=view.runtimeId url=view.url profile=view.profileId environment=view.environment aria-label="Browser page" testId="browser-page" position="absolute" left=0 top=0 right=0 bottom=0
@@ -92,7 +94,7 @@ component BrowserChrome
     focused = on
     draft = on and not touched ? view.url : draft
     touched = on ? touched : false
-    urlFocus(on)
+    urlFocus(view.tabId, on)
     if on and not touched
       selectText("browser-url")
   action edit(text: string)

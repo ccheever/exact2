@@ -14,6 +14,8 @@ final class Fixture {
     private(set) var paths: [String] = []
     /// path → (status, content type, body, delay in seconds)
     var routes: [String: (Int, String, Data, Double)] = [:]
+    /// path → Location (a 302)
+    var redirects: [String: String] = [:]
     private(set) var port: UInt16 = 0
     private let queue = DispatchQueue(label: "browser-fixture")
 
@@ -37,6 +39,10 @@ final class Fixture {
             let path = String(head.split(separator: " ").dropFirst().first ?? "")
             self.paths.append(path)
             let route = String(path.split(separator: "?").first ?? "")
+            if let location = self.redirects[route] {
+                let response = Data("HTTP/1.1 302 Found\r\nLocation: \(location)\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".utf8)
+                return connection.send(content: response, completion: .contentProcessed { _ in connection.cancel() })
+            }
             let (status, type, body, delay) = self.routes[route] ?? (404, "text/html", Data("<title>Not found</title>missing".utf8), 0)
             var response = Data("HTTP/1.1 \(status) \(status == 200 ? "OK" : "Not Found")\r\nContent-Type: \(type)\r\nContent-Length: \(body.count)\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n".utf8)
             response.append(body)
@@ -58,12 +64,12 @@ let redPNG: Data = {
 final class BrowserSessionTests: XCTestCase {
     private var window: NSWindow!
     private var fixture: Fixture!
-    private let sessions = T3BrowserSessions.shared
+    private var sessions: T3BrowserSessions!
     private var statuses = 0
 
     override func setUpWithError() throws {
         fixture = try Fixture()
-        sessions.configure(agent: true, changed: { [weak self] _ in self?.statuses += 1 })
+        sessions = T3BrowserSessions(agent: true, changed: { [weak self] _ in self?.statuses += 1 })
         window = NSWindow(contentRect: NSRect(x: 80, y: 80, width: 720, height: 560), styleMask: [.titled], backing: .buffered, defer: false)
         window.orderFrontRegardless()
     }
@@ -80,7 +86,7 @@ final class BrowserSessionTests: XCTestCase {
         return value ?? "timeout"
     }
     private func mounted(_ id: String, url: String = "") -> (T3BrowserView, T3BrowserSession) {
-        let view = T3BrowserView(props: ["tab": id, "url": url, "profile": "default", "environment": "env-1"], events: ExactNativeEvents(fn: { _, _, _, _, _ in }, ctx: nil, nonce: 1))
+        let view = T3BrowserView(props: ["tab": id, "url": url, "profile": "default", "environment": "env-1"], events: ExactNativeEvents(fn: { _, _, _, _, _ in }, ctx: nil, nonce: 1), sessions: sessions)
         view.host.frame = window.contentView!.bounds
         window.contentView!.addSubview(view.host)
         return (view, sessions.sessions[id]!)
@@ -166,11 +172,57 @@ final class BrowserSessionTests: XCTestCase {
         XCTAssertEqual(kind(session), "LoadFailed")
         XCTAssertEqual(session.report["description"] as? String, "ERR_CONNECTION_REFUSED")
         XCTAssertEqual(session.report["code"] as? Int, NSURLErrorCannotConnectToHost)
+        XCTAssertEqual(session.report["failures"] as? Int, 1, "each failure counted once (the data module reports it once)")
         fixture.page("/ok", "<!doctype html><title>Recovered</title>")
         _ = sessions.navigate(id: "tab-fail", url: "\(fixture.base)/ok", profile: "default", environment: "env-1")
         spin(until: { self.kind(session) == "Success" })
         XCTAssertNil(session.report["description"], "a new load clears the failure")
         view.destroy()
+    }
+
+    // Review round 1: a pending address must end with its load, whatever way the load ends.
+    func testAFragmentJumpAndARedirectedRefusedDownloadDoNotStayLoading() throws {
+        fixture.page("/doc", "<!doctype html><title>Doc</title><p id=top>top</p><div style='height:3000px'></div><p id=end>end</p>")
+        fixture.redirects["/redirect-to-file"] = "/file.bin"
+        fixture.routes["/file.bin"] = (200, "application/octet-stream", Data(repeating: 2, count: 32), 0)
+        let (view, session) = mounted("tab-pending", url: "\(fixture.base)/doc")
+        spin(until: { self.kind(session) == "Success" })
+        _ = sessions.navigate(id: "tab-pending", url: "\(fixture.base)/doc#end", profile: "default", environment: "env-1")
+        spin(until: { session.web.url?.fragment == "end" }, timeout: 3)
+        spin(until: { self.kind(session) == "Success" }, timeout: 3)
+        XCTAssertEqual(kind(session), "Success", "a fragment jump has no load to wait for")
+        XCTAssertEqual(session.report["url"] as? String, "\(fixture.base)/doc#end")
+        _ = sessions.navigate(id: "tab-pending", url: "\(fixture.base)/redirect-to-file", profile: "default", environment: "env-1")
+        spin(until: { self.fixture.seen.contains("/file.bin") }, timeout: 5)
+        spin(until: { self.kind(session) != "Loading" }, timeout: 5)
+        XCTAssertEqual(kind(session), "Success", "a refused download behind a redirect ends its load; the page stays")
+        XCTAssertTrue((session.report["refused"] as? [String] ?? []).contains { $0.hasPrefix("download:") })
+        view.destroy()
+    }
+
+    func testTwoSessionsKeepTheirOwnPages() {
+        let other = T3BrowserSessions(agent: true, changed: { _ in })
+        sessions.sync([["id": "mine", "url": "", "profile": "default", "environment": "env-1"]])
+        other.sync([["id": "theirs", "url": "", "profile": "default", "environment": "env-1"]])
+        sessions.sync([])
+        XCTAssertNil(sessions.sessions["mine"])
+        XCTAssertNotNil(other.sessions["theirs"], "one session's sync closes only its own pages")
+        other.sync([])
+    }
+
+    func testAFaviconFetchCancelledWithItsTabDoesNotRunOn() throws {
+        // Several icons, the first slow: the tab closes while it downloads; the next candidate must not be asked
+        // for on the invalidated session (NSGenericException).
+        fixture.page("/icons", "<!doctype html><title>Icons</title><link rel=icon href=/slow-icon.png><link rel=icon href=/icon-2.png><link rel=icon href=/icon-3.png>")
+        fixture.routes["/slow-icon.png"] = (404, "image/png", Data(), 0.6)
+        fixture.routes["/icon-2.png"] = (200, "image/png", redPNG, 0)
+        let (view, session) = mounted("tab-icons", url: "\(fixture.base)/icons")
+        spin(until: { self.fixture.seen.contains("/slow-icon.png") })
+        view.destroy()
+        sessions.close("tab-icons")
+        XCTAssertTrue(session.closed)
+        RunLoop.main.run(until: Date().addingTimeInterval(1.2))
+        XCTAssertFalse(fixture.seen.contains("/icon-2.png"), "no candidate is fetched after the tab closed")
     }
 
     func testAMissingPageIsAPageNotAFailure() throws {

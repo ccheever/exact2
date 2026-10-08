@@ -43,7 +43,8 @@ export const DEFAULT_OPEN_VIEWPORT: PreviewViewportSetting = { _tag: 'fill' };
 
 // ── The data module's browser host, one per client ─────────────────────────────────────────────
 export type Rpc = (method: string, payload: Obj) => Promise<Obj>;
-type Report = { kind: string; url: string };
+/** The last report per tab: its kind and URL, and for a failure the module's failure count (one report per failure). */
+type Report = { kind: string; url: string; failures: number };
 type Host = {
   store: PreviewStateStore;
   /** Threads whose sessions were listed on this connection (thread key → client generation). */
@@ -53,12 +54,11 @@ type Host = {
   reported: Map<string, Report>;
   /** The live set last sent to the module (`browserSync`). */
   synced: string;
-  cleanup: boolean;
 };
 const hosts = new WeakMap<T3Client, Host>();
 export function browserHost(client: T3Client): Host {
   let host = hosts.get(client);
-  if (!host) { host = { store: new PreviewStateStore(), listed: new Map(), listing: new Map(), reported: new Map(), synced: '', cleanup: false }; hosts.set(client, host); }
+  if (!host) { host = { store: new PreviewStateStore(), listed: new Map(), listing: new Map(), reported: new Map(), synced: '' }; hosts.set(client, host); }
   return host;
 }
 const rpcOf = (client: T3Client, native: Native): Rpc => (method, payload) => client.rpc(native, method, payload, method !== 'preview.list');
@@ -90,7 +90,11 @@ export async function listPreviewSessions(client: T3Client, native: Native, ref:
   const host = browserHost(client), key = scopedThreadKey(ref);
   if (host.listed.get(key) === client.generation) return;
   const pending = host.listing.get(key);
-  if (pending) return pending;
+  if (pending) {
+    // Another answer's listing runs through that answer's native: if it was let go, this one lists for itself.
+    try { await pending; } catch (error) { if (!letGo(error)) throw error; }
+    if (host.listed.get(key) === client.generation) return;
+  }
   const generation = client.generation;
   const listing = (async () => {
     try {
@@ -145,11 +149,10 @@ export async function addBrowserSurface(client: T3Client, native: Native, state:
   return '';
 }
 
-/** Closing a tab closes its session (closePreviewSession) and drops its web view. */
+/** Closing a tab closes its session (closePreviewSession) and drops its web view. Registered again by every answer
+ *  that can close a tab, as the terminal's hook is: the hook calls through that answer's native, never an older one's. */
 export function installBrowserCleanup(client: T3Client, native: Native): void {
   const host = browserHost(client);
-  if (host.cleanup) return;
-  host.cleanup = true;
   registerSurfaceClose(client, 'browser', { cleanup: async surface => {
     const ref = surface.browser ? parseScopedThreadKey(surface.browser.threadKey) : null;
     if (!ref || !surface.browser) return;
@@ -165,6 +168,8 @@ export function installBrowserCleanup(client: T3Client, native: Native): void {
 export type NativeTab = {
   kind: 'Idle' | 'Loading' | 'Success' | 'LoadFailed'; url: string; title: string; code: number; description: string;
   canGoBack: boolean; canGoForward: boolean; favicon: { dataUrl: string; pageUrl: string; capturedAt: number } | null;
+  /** How many loads of this page have failed: each failure is reported once. */
+  failures: number;
 };
 export function nativeTabs(client: T3Client): Record<string, NativeTab> {
   const tabs: Record<string, NativeTab> = {};
@@ -174,6 +179,7 @@ export function nativeTabs(client: T3Client): Record<string, NativeTab> {
       kind: kind === 'Loading' || kind === 'Success' || kind === 'LoadFailed' ? kind : 'Idle', url: str(value.url), title: str(value.title),
       code: Number(value.code) || 0, description: str(value.description), canGoBack: value.canGoBack === true, canGoForward: value.canGoForward === true,
       favicon: str(favicon.dataUrl) && str(favicon.pageUrl) ? { dataUrl: str(favicon.dataUrl), pageUrl: str(favicon.pageUrl), capturedAt: Number(favicon.capturedAt) || 0 } : null,
+      failures: Number(value.failures) || 0,
     };
   }
   return tabs;
@@ -190,13 +196,15 @@ export function projectDesktopState(tab: NativeTab): DesktopPreviewOverlay {
     favicon: tab.favicon && originOf(tab.favicon.pageUrl) === navOrigin ? tab.favicon : null,
   };
 }
-/** usePreviewBridge buildReportInput: Idle never reports; (kind, url) repeats collapse; LoadFailed always reports. */
+/** usePreviewBridge buildReportInput: Idle never reports; (kind, url) repeats collapse; every failure reports. The reference
+ *  runs it once per desktop state change; here it runs on every projection, so a failure is told apart by the
+ *  module's failure count and reported once. */
 export function buildReportInput(threadId: string, tabId: string, tab: NativeTab, last: Report | null): { input: Obj; report: Report } | null {
   if (tab.kind === 'Idle') return null;
-  if (tab.kind !== 'LoadFailed' && last && tab.kind === last.kind && tab.url === last.url) return null;
+  if (last && tab.kind === last.kind && tab.url === last.url && (tab.kind !== 'LoadFailed' || tab.failures === last.failures)) return null;
   const base = { threadId, tabId, canGoBack: tab.canGoBack, canGoForward: tab.canGoForward };
   const navStatus = tab.kind === 'LoadFailed' ? { _tag: 'LoadFailed', url: tab.url, title: tab.title, code: tab.code, description: tab.description } : { _tag: tab.kind, url: tab.url, title: tab.title };
-  return { input: { ...base, navStatus }, report: { kind: tab.kind, url: tab.url } };
+  return { input: { ...base, navStatus }, report: { kind: tab.kind, url: tab.url, failures: tab.failures } };
 }
 
 type Live = { id: string; url: string; profile: string; environment: string };
@@ -318,11 +326,11 @@ export async function browserPrepare(client: T3Client, native: Native | null | u
   installBrowserCleanup(client, native);
   try {
     if (ref && client.connection === 'connected' && ref.environmentId === client.environmentId) {
-      const listedBefore = host.listed.get(scopedThreadKey(ref)) === client.generation;
       await listPreviewSessions(client, native, ref);
-      // The reference reconciles on every session change; here only once the thread was listed, so a tab
-      // the panel restored is not dropped before the server answers.
-      if (listedBefore || host.listed.get(scopedThreadKey(ref)) === client.generation) reconcileBrowserSurfaces(state, Object.keys(host.store.read(ref).sessions), scopedThreadKey(ref));
+      // The reference reconciles on every session change; here once the thread was listed (a tab the panel shows is
+      // not dropped before the server answers) and the client is ready (the saved panel is restored first:
+      // restoreRightPanel takes only a panel with no surfaces).
+      if (client.ready && host.listed.get(scopedThreadKey(ref)) === client.generation) reconcileBrowserSurfaces(state, Object.keys(host.store.read(ref).sessions), scopedThreadKey(ref));
     }
     await mirrorNativeState(client, native);
     await syncNativeSessions(client, native);
