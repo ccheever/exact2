@@ -1147,7 +1147,11 @@ fn a_new_session_launches_with_its_choices_and_opens() {
     m.launch_done(Ok(json!({"request_id": "r", "session": {"id": "new1"}})));
     assert_eq!(m.launcher.goto, Some(("mac".into(), "new1".into())));
     let key = ("mac".to_string(), "new1".to_string());
-    assert_eq!(m.pending_for(&key).count(), 1, "the message moved to the named session");
+    assert_eq!(
+        m.pending_for(&key).count(),
+        1,
+        "the message moved to the named session"
+    );
     m.goto_done();
     assert!(m.launcher.goto.is_none());
 }

@@ -407,14 +407,21 @@ fn menu(items: impl IntoIterator<Item = (String, String, bool)>) -> String {
     Json::Array(items).to_string()
 }
 
-/// The accounts' menu: each with its provider's mark.
+/// The accounts' menu, UIKit's own: each with its harness's mark.
 fn account_menu(items: Vec<(String, String, bool, String)>) -> String {
-    use crate::model::launch::provider_symbol;
+    use crate::model::launch::{provider_name, provider_symbol};
     let items: Vec<Json> = items
         .into_iter()
         .map(|(id, title, selected, provider)| {
             let (symbol, tint) = provider_symbol(&provider);
-            json!({ "id": id, "title": title, "selected": selected, "symbol": symbol, "tint": tint, "mark": provider })
+            // An address splits at its @: the name, then the domain under
+            // it (the logo says which harness). A menu is too narrow for
+            // a whole address on one line.
+            let (title, subtitle) = match title.split_once('@') {
+                Some((name, domain)) => (name.to_string(), format!("@{domain}")),
+                None => (provider_name(&provider), String::new()),
+            };
+            json!({ "id": id, "title": title, "subtitle": subtitle, "selected": selected, "symbol": symbol, "tint": tint, "mark": provider })
         })
         .collect();
     Json::Array(items).to_string()
