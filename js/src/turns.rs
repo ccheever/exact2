@@ -150,6 +150,12 @@ impl Module {
         {
             if let Outcome::Failed { message, .. } = session.continuation()() {
                 let _ = engine.call("__exact_let_go", ["failed", &message, ""]);
+                // A compression so failed was settled and what was queued
+                // behind it issued (LLP 1069.002 A1.5): a progress.
+                if message.starts_with(crate::storage::IMAGE_ABANDONED) {
+                    let _ = engine.drain();
+                    delivered = true;
+                }
                 break;
             }
             if engine.deliver_storage_one().is_err() || engine.drain().is_err() {

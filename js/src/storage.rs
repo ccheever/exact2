@@ -25,6 +25,11 @@ pub(crate) struct Directories {
     pub temporary: PathBuf,
 }
 
+/// What a waiter that took a compression's right to write away fails with
+/// (LLP 1069.002 A1.5); the prelude settles that operation on it.
+pub(crate) const IMAGE_ABANDONED: &str =
+    "compressImage: timeout: the storage wait ran out; nothing was written";
+
 /// How long a storage step is waited for before its answer fails.
 pub(crate) const WAIT: Duration = Duration::from_secs(30);
 
@@ -127,9 +132,7 @@ impl Session {
                         continue;
                     }
                     let message = match abandoned {
-                        Abandoned::Abandoned => {
-                            "compressImage: timeout: the storage wait ran out; nothing was written"
-                        }
+                        Abandoned::Abandoned => IMAGE_ABANDONED,
                         _ => "storage continuation timed out",
                     };
                     return Outcome::Failed {

@@ -159,13 +159,15 @@ function surface(w, h) {
   throw failure('unsupported', 'no canvas in this realm');
 }
 
-/** `blob` as a JPEG within the budget: `{bytes: ArrayBuffer, width, height}`. */
-export async function compress(blob, maxDimension, maxBytes) {
-  const deadline = now() + DEADLINE_MS;
+/** `blob` as a JPEG within the budget: `{bytes: ArrayBuffer, width, height}`.
+ * Nothing is decoded or tried at or after `deadline`. */
+export async function compress(blob, maxDimension, maxBytes, deadline = now() + DEADLINE_MS) {
+  const late = () => { if (now() >= deadline) throw failure('timeout', `the search ran past ${DEADLINE_MS / 1000} s`); };
   if (blob.size > MAX_BYTES) throw failure('too-large', `${blob.size} bytes is over ${MAX_BYTES}`);
   const stored = await headerSize(blob);
   if (!stored) throw failure('undecodable', 'not an image whose size the web reads before decoding (JPEG, PNG, GIF, WebP, BMP)');
   if (stored[0] * stored[1] > MAX_SOURCE_PIXELS) throw failure('too-large', `${stored[0]}×${stored[1]} pixels is over ${MAX_SOURCE_PIXELS}`);
+  late(); // the header's read may have taken the time
   const bitmap = await decode(blob);
   try {
     const { width, height } = bitmap;
@@ -174,7 +176,7 @@ export async function compress(blob, maxDimension, maxBytes) {
     if (width * height > MAX_SOURCE_PIXELS) throw failure('too-large', `${width}×${height} pixels is over ${MAX_SOURCE_PIXELS}`);
     let drawn = null;
     const best = await search(width, height, maxDimension, maxBytes, async (w, h, quality) => {
-      if (now() >= deadline) throw failure('timeout', `the search ran past ${DEADLINE_MS / 1000} s`);
+      late();
       if (!drawn || drawn.w !== w || drawn.h !== h) {
         drawn = null; // the last size's canvas goes before the next is made
         const { context, encode } = surface(w, h);

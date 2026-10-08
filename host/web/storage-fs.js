@@ -218,9 +218,11 @@ export function createFileStore(appId) {
     },
     // Trusted host only: a file as a Blob, for an `image` or `video` source
     // (LLP 1069.002 D7), and when it last changed. A picked entry is its File.
-    async blob(path, type) {
+    async blob(path, type, maxBytes = Infinity) {
       path = normalizePath(path);
       const { contents, modifiedMs } = await run(false, records => file(records, path), path);
+      const size = contents.byteLength ?? contents.size;
+      if (size > maxBytes) throw failure(`compressImage: too-large: ${size} bytes is over ${maxBytes}`, 'too-large');
       return { blob: contents instanceof Blob ? contents : new Blob([contents], { type }), modifiedMs };
     },
     // Trusted host only: a picked file's entry, backed by the browser's File
@@ -384,7 +386,9 @@ export function createFileSystem(appId, grants) {
     from = authorize(grants, 'fs.read', from);
     to = authorize(grants, 'fs.write', to);
     requireBelowRoot(to);
-    const { blob } = await store.blob(from);
+    // An entry is one IndexedDB record, read whole by any operation (`stat`
+    // too); its size is checked before it becomes a Blob or is decoded.
+    const { blob } = await store.blob(from, undefined, image.MAX_BYTES);
     const out = await image.compress(blob, maxDimension, maxBytes);
     const size = out.bytes.byteLength;
     await mutate([to], () => store.atomicWriteOwnedFile(to, out.bytes));

@@ -3,7 +3,7 @@
 // `exact_data::image::search` is checked against. `bun test ./host/web/storage-image.test.mjs`.
 import { expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
-import { contain, headerSize, limits, search } from './storage-image.js';
+import { compress, contain, headerSize, limits, search } from './storage-image.js';
 
 const recorded = JSON.parse(readFileSync(new URL('../../scripts/fixtures/picker/compress-trials.json', import.meta.url), 'utf8'));
 const models = {
@@ -77,4 +77,15 @@ test('the header gives the stored size before anything is decoded', async () => 
   expect(await headerSize(bytes(ascii('RIFF'), le32(0), ascii('WEBP'), vp8x(100, 100).flat(), anim, anmf(32, 32, 0xfffff)))).toEqual([100, 100]);
   expect(await headerSize(bytes(ascii('RIFF'), le32(0), ascii('WEBP'), vp8x(16, 16).flat(), anim, anmf(9000, 9000, 100)))).toEqual([9000, 9000]);
   expect(await headerSize(bytes(ascii('not an image at all, not one bit')))).toBe(null);
+});
+
+test('a deadline already past decodes nothing', async () => {
+  const fixture = new Blob([readFileSync(new URL('../../scripts/fixtures/picker/oriented-gps.jpg', import.meta.url))]);
+  let decodes = 0;
+  const before = globalThis.createImageBitmap;
+  globalThis.createImageBitmap = async () => { decodes++; throw new Error('decoded'); };
+  try {
+    const error = await compress(fixture, 4000, 2_000_000, 0).then(() => null, e => e);
+    expect([error?.code, decodes]).toEqual(['timeout', 0]);
+  } finally { globalThis.createImageBitmap = before; }
 });

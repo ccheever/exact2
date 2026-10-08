@@ -970,7 +970,7 @@
     if (typeof global.__exact_reserve_storage === "function") held = global.__exact_reserve_storage();
     var argv = Array.prototype.slice.call(args);
     return new Promise(function (resolve, reject) {
-      var op = { call: call, run: function () {
+      var op = { call: call, method: method, run: function () {
         try { return receiver[method].apply(receiver, argv); }
         catch (e) {
           if (held != null && typeof global.__exact_abandon_storage === "function") global.__exact_abandon_storage(held);
@@ -1368,6 +1368,9 @@
     return rejected.trim();
   };
   global.__exact_let_go = function (failed, message) {
+    // A let-go call's compression so failed: settled, so what is queued
+    // behind it is issued (LLP 1069.002 A1.5).
+    if (failed && head && headOwner() && headOwner().letGo) failAbandonedImage(String(message));
     var owed = false;
     calls.forEach(function (c) {
       if (!c.letGo) return;
@@ -1414,12 +1417,20 @@
   // A background round delivers with the background current: what its
   // completion's reaction issues is the background's too.
   global.__exact_enter_background = function () { currentCall = background; };
-  // The background's operation in flight, failed because the wait for it
-  // gave up: its rejection runs and the queue moves on. "1" if one was.
+  // A compression whose wait gave up, and whose right to write the waiter
+  // took away (LLP 1069.002 A1.5): it can write nothing now, so it is
+  // failed and the queue moves on. Any other operation whose wait ran out
+  // may still write, so its queue waits for it, as before. Whether it was.
+  var IMAGE_ABANDONED = /^compressImage: timeout: the storage wait ran out/;
+  function failAbandonedImage(message) {
+    if (!head || head.method !== "compressImage" || !IMAGE_ABANDONED.test(message)) return false;
+    landed(head, false, storageError(message));
+    return true;
+  }
+  // The background's operation in flight, so failed: its rejection runs.
   global.__exact_background_failed = function (outcomeJson) {
     if (!head || owner(head.call) !== background) return "";
-    landed(head, false, storageError(JSON.parse(outcomeJson).failed.message));
-    return "1";
+    return failAbandonedImage(JSON.parse(outcomeJson).failed.message) ? "1" : "";
   };
   global.__exact_storage_failed = function (id, outcomeJson) {
     var call = calls.get(Number(id));

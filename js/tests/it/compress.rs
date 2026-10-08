@@ -1,8 +1,13 @@
 //! `storage.fs.compressImage` from TypeScript (LLP 1069.002 Amendment A1),
 //! over the storage fixture module (`tests/fixtures/storage.ts`).
 #![cfg(exact_js_engine)]
-use super::storage::{args, call, Root, GRANTS};
-use exact_runner::{Answer, DataSource, Dispatch, Store, Work};
+use super::storage::{call, Root, GRANTS};
+use exact_runner::{DataSource, Store};
+#[cfg(target_vendor = "apple")]
+use {
+    super::storage::args,
+    exact_runner::{Answer, Dispatch, Work},
+};
 
 /// `storage.fs.compressImage` from TypeScript (LLP 1069.002 A1): Hermes,
 /// the prelude, ibex2's opcode 121 and the platform codec. On Apple the
@@ -111,6 +116,7 @@ fn a_compression_the_wait_gave_up_on_never_writes() {
 
 /// 2000 × 1500 of noise as a 24-bit BMP: seconds of trials at full size,
 /// the first fitting a large budget, then a write.
+#[cfg(target_vendor = "apple")]
 fn noise_bmp() -> Vec<u8> {
     let (w, h) = (2000u32, 1500u32);
     let row = (w * 3).div_ceil(4) * 4;
@@ -156,5 +162,52 @@ fn a_background_compression_the_wait_gave_up_on_rejects_and_the_queue_moves() {
     assert_eq!(
         std::fs::read(root.0.join("data/slow.jpg")).unwrap(),
         b"after"
+    );
+}
+
+/// And for a call the runner let go of (superseded here, by the same call
+/// again): its compression's wait gives up, the operation is failed, and
+/// what was queued behind it runs; the JPEG never lands.
+#[cfg(target_vendor = "apple")]
+#[test]
+fn a_let_go_compression_the_wait_gave_up_on_does_not_strand_the_queue() {
+    let root = Root::new();
+    let mut m = root.module();
+    m.set_storage_wait(std::time::Duration::from_millis(1));
+    m.activate().unwrap();
+    let mut s = Store::new(GRANTS, Vec::<(String, String)>::new());
+    assert_eq!(call(&mut m, &mut s, "file", "x"), "x");
+    std::fs::write(root.0.join("data/noise.bmp"), noise_bmp()).unwrap();
+    let a = args("compress-abandoned", "");
+    let Answer::Later(_) = m.answer(&mut s, "work", &a).unwrap() else {
+        panic!("the compression waits on storage")
+    };
+    // The same call again replaces the first, which is let go; its
+    // compression is the one in flight.
+    let mut next = m.answer(&mut s, "work", &a);
+    for _ in 0..20 {
+        let Ok(Answer::Later(request)) = next else {
+            break;
+        };
+        let Dispatch::Run(Work::Now(work)) = m.dispatch(request.continuation.unwrap(), &s) else {
+            panic!("native storage work runs")
+        };
+        let outcome = std::thread::spawn(work).join().unwrap();
+        next = m.parse(&mut s, "work", &a, outcome);
+    }
+    // The second waits on the let-go first, then on its own compression,
+    // whose wait gives up in turn.
+    let Err(err) = next else {
+        panic!("the second compression's wait gave up")
+    };
+    assert!(
+        format!("{err:?}").contains("compressImage: timeout: "),
+        "{err:?}"
+    );
+    assert_eq!(call(&mut m, &mut s, "write-slow", "next"), "wrote next");
+    std::thread::sleep(std::time::Duration::from_secs(4));
+    assert_eq!(
+        std::fs::read(root.0.join("data/slow.jpg")).unwrap(),
+        b"next"
     );
 }

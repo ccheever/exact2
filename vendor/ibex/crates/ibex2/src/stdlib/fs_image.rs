@@ -37,7 +37,7 @@ pub struct CommitGate(pub(crate) Mutex<Abandoned>);
 /// What giving up found, in increasing order of what the waiter must do.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default)]
 pub enum Abandoned {
-    /// No call was in flight, or none had begun anything it could lose.
+    /// No call was in flight, or none had anything left to lose.
     #[default]
     Nothing,
     /// A call lost its right to write: it will write nothing.
@@ -47,12 +47,19 @@ pub enum Abandoned {
 }
 
 impl CommitGate {
+    /// What giving up did to this call: `Abandoned` only if it took the
+    /// right away now; a call already abandoned is `Nothing` (a waiter for a
+    /// later operation must not take an old call's loss for its own).
     pub(crate) fn abandon(&self) -> Abandoned {
         let mut state = self.0.lock().unwrap_or_else(|e| e.into_inner());
-        if *state != Abandoned::Written {
-            *state = Abandoned::Abandoned;
+        match *state {
+            Abandoned::Nothing => {
+                *state = Abandoned::Abandoned;
+                Abandoned::Abandoned
+            }
+            Abandoned::Abandoned => Abandoned::Nothing,
+            Abandoned::Written => Abandoned::Written,
         }
-        *state
     }
 }
 
