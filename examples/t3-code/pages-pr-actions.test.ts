@@ -429,6 +429,20 @@ describe('the list overrides the panel reports ("sent", "done", "failed")', () =
     await prCommand(client, native, 'action', selected, 'close');
     expect(rows(await page())).toEqual([]); // "done": the note stands until a list answer agrees
   });
+  test('a reopen finds the row a close took off the open list, after the list has read it gone (heldPullRequestsBySurface)', async () => {
+    let listed = entries;
+    const { client } = fakeClient(defaults(base(), { 'pullRequests.list': () => ({ entries: listed, viewers: {} }), 'pullRequests.listStats': () => ({ stats: [] }), 'pullRequests.runAction': () => ({}) }));
+    noteNow(client, LIST_NOW);
+    const page = (pageRefresh: number) => pullRequestsPage(client, native, { open: true, refresh: pageRefresh, now: LIST_NOW, selected, query: '', typed: false });
+    expect(rows(await page(0))).toEqual(['7:open']);
+    await panel(client);
+    await prCommand(client, native, 'action', selected, 'close');
+    listed = [];
+    expect(rows(await page(1))).toEqual([]);
+    await prCommand(client, native, 'action', selected, 'reopen');
+    listed = entries;
+    expect(rows(await page(2))).toEqual(['7:open']); // the reopen's note replaced the close's, and the answer agrees
+  });
   test('a merge is written on only once the host has done it', async () => {
     let release: () => void = () => {};
     const { client } = fakeClient(defaults(base(), { 'pullRequests.list': () => ({ entries, viewers: {} }), 'pullRequests.listStats': () => ({ stats: [] }),

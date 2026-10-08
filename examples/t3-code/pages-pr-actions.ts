@@ -86,13 +86,15 @@ type State = {
   /** mergeMethodSelection, per pull request; and the armed method last seen (it becomes the selection). */
   methods: Map<string, MergeMethod>; armed: Map<string, string>;
   overrides: Map<string, ListOverride>; token: number; detailTokens: Map<string, number | null>;
+  /** The rows a note was written on, by the same key: a pull request closed from an open list leaves the list's next answer, and reopening it has to find it anyway. */
+  noted: Map<string, Obj>;
   /** The list's relist request (refreshListAndStats), bumped after an action that changed more than a state. */
   relist: number;
 };
 const states = new WeakMap<object, State>();
 export function actionState(client: object): State {
   let state = states.get(client);
-  if (!state) { state = { pending: null, confirm: null, methods: new Map(), armed: new Map(), overrides: new Map(), token: 0, detailTokens: new Map(), relist: 0 }; states.set(client, state); }
+  if (!state) { state = { pending: null, confirm: null, methods: new Map(), armed: new Map(), overrides: new Map(), token: 0, detailTokens: new Map(), noted: new Map(), relist: 0 }; states.set(client, state); }
   return state;
 }
 const MERGE_METHODS: readonly MergeMethod[] = ['merge', 'squash', 'rebase'];
@@ -236,7 +238,7 @@ export function noteActed(client: object, listEntry: Obj | null, action: string 
   const stateOnly = action !== undefined && listEntry !== null && pullRequestOverrideAfterAction(listEntry, action, now, 0) !== null;
   if (stateOnly) {
     const key = entryKeyOf(listEntry!);
-    const write = () => { const token = ++state.token; const override = pullRequestOverrideAfterAction(listEntry!, action!, now, token); if (!override) return null; state.overrides.set(key, override); return token; };
+    const write = () => { const token = ++state.token; const override = pullRequestOverrideAfterAction(listEntry!, action!, now, token); if (!override) return null; state.overrides.set(key, override); state.noted.set(key, listEntry!); return token; };
     if (phase === 'sent' && action !== 'merge') state.detailTokens.set(key, write());
     if (phase === 'failed' && action !== 'merge') { const token = state.detailTokens.get(key) ?? null; if (token !== null && state.overrides.get(key)?.token === token) state.overrides.delete(key); }
     if (phase !== 'sent') state.detailTokens.delete(key);
@@ -244,6 +246,19 @@ export function noteActed(client: object, listEntry: Obj | null, action: string 
     return;
   }
   if (phase === 'done') state.relist++;
+}
+/**
+ * heldPullRequestsBySurface's "from every row held, not the ones on screen": the row a note still stands on,
+ * for a selection the list's latest answer no longer holds (closed from an open list, then reopened).
+ */
+export function notedListEntry(client: object, selection: { projectId: string; host: string; repository: string; number: number }): Obj | null {
+  const state = actionState(client);
+  for (const [key, entry] of state.noted) {
+    if (!state.overrides.has(key)) { state.noted.delete(key); continue; }
+    if (entry.projectId === selection.projectId && num(entry.number) === selection.number && str(entry.repository).toLowerCase() === selection.repository.toLowerCase()
+      && (!selection.host || str(entry.host).toLowerCase() === selection.host.toLowerCase())) return entry;
+  }
+  return null;
 }
 /** The list's rows with the panel's overrides over them (applyPullRequestOverrides), for pages-prs.ts. */
 export function overrideListEntries(client: object, entries: Obj[], listState: string): Obj[] {
@@ -265,6 +280,14 @@ export async function performAction(client: T3Client, native: Native, ctx: Panel
   if (state.pending) return '';
   if (!(PULL_REQUEST_ACTIONS as readonly string[]).includes(action)) throw new ClientError(`Unknown pull request action: ${action}`);
   state.pending = { key: ctx.key, action };
+  return finishAction(client, native, ctx, action, method, updateMethod);
+}
+/**
+ * finishAction: the action once `pending` holds it — performAction's, and performCommentAction's after its
+ * comment landed (pr-writing-and-metadata: Close/Reopen with comment, pages-pr-writes.ts). '' when it landed.
+ */
+export async function finishAction(client: T3Client, native: Native, ctx: PanelContext, action: string, method?: MergeMethod, updateMethod?: UpdateMethod): Promise<string> {
+  const state = actionState(client);
   if (state.confirm?.key === ctx.key) state.confirm = null;
   noteActed(client, ctx.listEntry, action, 'sent');
   try {

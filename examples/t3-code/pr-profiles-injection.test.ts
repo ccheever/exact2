@@ -9,7 +9,8 @@ import { describe, expect, test } from 'bun:test';
 import type { T3Client } from './client';
 import { ClientError, type Native } from './protocol';
 import { toasts } from './toast';
-import { emptyDetail, presentDetail, prCandidates, prCommand, pullRequestDetail } from './pages-pr-detail';
+import { emptyDetail, presentDetail, prCommand, pullRequestDetail } from './pages-pr-detail';
+import { presentWrites } from './pages-pr-writes';
 import { rowAction } from './r6-pr-logic';
 import { readDetail, forgetDetails } from './r6-pr-actions';
 
@@ -122,13 +123,16 @@ describe('host failures and delays (injected; real GitHub does not fail or stall
     const message = await prCommand(client, native, 'action', selected, 'merge');
     expect(message).toBe('Pull request is not mergeable: the base branch policy prohibits the merge');
     expect(toasts(client).at(-1)).toMatchObject({ kind: 'error', title: 'Could not merge this pull request' });
+    // pr-writing-and-metadata: the comment form's own failure (PullRequestCommentForm), its words kept.
     const failedComment = fakeClient({ 'pullRequests.comment': () => { throw new Error('HTTP 403: Resource not accessible by integration'); } });
-    expect(await prCommand(failedComment.client, native, 'comment', selected, 'hello')).toBe('HTTP 403: Resource not accessible by integration');
-    expect(toasts(failedComment.client).at(-1)).toMatchObject({ kind: 'error', title: 'Could not update this pull request' });
+    expect(await prCommand(failedComment.client, native, 'post-comment', selected, 'hello')).toBe('HTTP 403: Resource not accessible by integration');
+    expect(toasts(failedComment.client).at(-1)).toMatchObject({ kind: 'error', title: 'Could not post the comment' });
   });
   test('a failed candidate read says so in the menu instead of an empty list', async () => {
     const { client } = fakeClient({ 'pullRequests.reviewerCandidates': () => { throw new Error('GitHub CLI is not signed in'); } });
-    expect(await prCandidates(client, native, selected, 'reviewers')).toMatchObject({ reviewers: [], error: 'GitHub CLI is not signed in' });
+    expect(await prCommand(client, native, 'candidates', selected, 'reviewers')).toBe('');
+    const reference = { projectId: 'p1', host: 'github.com', repository: 'lane/sandbox', number: 7 };
+    expect(presentWrites(client, reference, detail(PROFILES.maintainer!)).reviewers).toMatchObject({ shown: true, allowed: true, loading: false, rows: [], error: 'GitHub CLI is not signed in' });
   });
   test('a slow host: the panel shows its ghost at once, reads, and shows the pull request when the answer lands', async () => {
     let release: () => void = () => {};

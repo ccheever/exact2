@@ -93,6 +93,7 @@ and its copies) and the never-built `20261005-fake-github-fixture`. Recipe: `too
 | Per-checkout lane (`T3_GITHUB_LANE`) | `target/github-lane`: `bin/<account>/gh` wrappers, `home/<account>` (`.zprofile`, `.gitconfig`), `servers/<account>` (T3 home, Codex, Claude, XDG, tmp, sandbox clone, `server.log`), `logs/gh-calls.tsv`, `logs/probe-*.json` |
 | Server | the staged release (`bun examples/t3-code/stage-runtime.mjs`) or `T3_LANE_SERVER`; ports 16520 (primary), 16521 (second) |
 | Commands | `bun tools/github-lane/lane.mjs setup / whoami / start <account> / which <account> / project <account> / pair <account> / stop <account>`; `bun tools/github-lane/seed.mjs`; `bun tools/github-lane/probe.mjs` |
+| Writes (pr-writing-and-metadata) | `seed.mjs --only writes-second,writes-primary`: #158 `feature/vowel-count` (the second account's) and #159 `docs/vowel-count` (the primary's), and the label `area/docs and help` (a space and a slash). Drives comment, review, edit, react, ask for reviews and label there (and react on #115's `comment-1`), read each effect back with the lane gh, and delete their comments and reactions after; submitted reviews stay. A scenario's branch must be new to the repository: the seed reuses whatever pull request a branch already has (a task's first `writes-second` on `feature/word-count` found another task's #145) |
 
 Rules: the lane never reads `~/.config/gh`, the keyring or a token; sign-in is the user's, with
 `--insecure-storage` into the lane config dirs (the keychain default would overwrite the machine's own

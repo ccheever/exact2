@@ -94,7 +94,7 @@ describe("the seed", () => {
     const two = scenarios({ second: "lane-second" });
     expect(one).toEqual(["open-clean", "draft", "closed", "merged", "conflict", "failing", "running", "behind", "many-files", "stack-bottom", "stack-top"]);
     expect(two.find((s) => s.key === "stack-top")?.after).toBe("stack-bottom");
-    expect(two.filter((s) => s.author === "second").map((s) => s.key)).toEqual(["second-review", "cross-repo"]);
+    expect(two.filter((s) => s.author === "second").map((s) => s.key)).toEqual(["second-review", "cross-repo", "writes-second"]);
     expect(two.find((s) => s.key === "cross-repo")?.fork).toBe(true);
     expect(Object.keys(two.find((s) => s.key === "many-files")!.files).length).toBe(310);
   });
@@ -104,6 +104,10 @@ describe("the seed", () => {
     expect(scenarios({ second: "lane-second" }).some((s) => s.key.startsWith("act-"))).toBe(false);
     expect(actions.filter((s) => s.after).map((s) => [s.key, s.after])).toEqual([["act-stack-2", "act-stack-1"], ["act-stack-3", "act-stack-2"]]);
     expect(new Set(actions.map((s) => s.branch)).size).toBe(actions.length);
+  });
+  test("no two scenarios share a branch (the seed reuses whatever pull request a branch already has)", () => {
+    const all = [...scenarios({ second: "lane-second" }), ...actionScenarios()];
+    expect(new Set(all.map((s) => s.branch)).size).toBe(all.length);
   });
 });
 
