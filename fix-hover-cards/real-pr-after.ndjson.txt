@@ -1,0 +1,35 @@
+{"t":"2026-10-08T10:44:10.370Z","which":"after","step":"launched","appPid":22844,"part":"pr"}
+{"t":"2026-10-08T10:44:10.557Z","which":"after","step":"ready","what":"welcome","ms":35}
+{"t":"2026-10-08T10:44:10.958Z","which":"after","step":"tap","id":"welcome-pair"}
+{"t":"2026-10-08T10:44:17.068Z","which":"after","step":"tap","id":"welcome-continue"}
+{"t":"2026-10-08T10:44:18.627Z","which":"after","step":"tap","id":"welcome-agents-continue"}
+{"t":"2026-10-08T10:44:20.274Z","which":"after","step":"tap","id":"welcome-skip-import"}
+{"t":"2026-10-08T10:44:21.794Z","which":"after","step":"ready","what":"pull requests entry","ms":6}
+{"t":"2026-10-08T10:44:21.847Z","which":"after","step":"step","name":"freshness"}
+{"t":"2026-10-08T10:44:27.391Z","which":"after","step":"tap","id":"open-pull-requests"}
+{"t":"2026-10-08T10:44:36.593Z","which":"after","step":"ready","what":"row 132","ms":21}
+{"t":"2026-10-08T10:44:38.178Z","which":"after","step":"tap","id":"pr-row-132"}
+{"t":"2026-10-08T10:44:39.718Z","which":"after","step":"ready","what":"freshness mark","ms":10}
+{"t":"2026-10-08T10:44:46.132Z","which":"after","step":"glide","from":[761,132],"to":[681,162],"steps":29}
+{"t":"2026-10-08T10:44:46.664Z","which":"after","step":"present","id":"pr-freshness-hover","v":true}
+{"t":"2026-10-08T10:44:46.671Z","which":"after","step":"card-box","x":657,"y":174,"w":320,"h":100}
+{"t":"2026-10-08T10:44:46.771Z","which":"after","step":"shot","name":"11-freshness-card"}
+{"t":"2026-10-08T10:44:48.061Z","which":"after","step":"glide","from":[681,162],"to":[681,194],"steps":11}
+{"t":"2026-10-08T10:44:49.661Z","which":"after","step":"glide","from":[681,194],"to":[721,204],"steps":14}
+{"t":"2026-10-08T10:44:50.591Z","which":"after","step":"present","id":"pr-freshness-hover","v":true}
+{"t":"2026-10-08T10:44:50.671Z","which":"after","step":"shot","name":"12-pointer-in-freshness-card"}
+{"t":"2026-10-08T10:44:50.689Z","which":"after","step":"tabs-before","tabs":[["pull-request-tab-summary",true],["pull-request-tab-timeline",false]]}
+{"t":"2026-10-08T10:44:50.703Z","which":"after","step":"press-spot","x":746,"y":200,"padding":false}
+{"t":"2026-10-08T10:44:51.812Z","which":"after","step":"glide","from":[721,204],"to":[746,200],"steps":9}
+{"t":"2026-10-08T10:44:51.984Z","which":"after","step":"click","at":[746,200]}
+{"t":"2026-10-08T10:44:52.621Z","which":"after","step":"tabs-after","tabs":[["pull-request-tab-summary",true],["pull-request-tab-timeline",false]]}
+{"t":"2026-10-08T10:44:52.631Z","which":"after","step":"present","id":"pr-freshness-hover","v":true}
+{"t":"2026-10-08T10:44:52.711Z","which":"after","step":"shot","name":"12b-press-on-card-padding"}
+{"t":"2026-10-08T10:44:53.784Z","which":"after","step":"glide","from":[746,200],"to":[721,204],"steps":9}
+{"t":"2026-10-08T10:44:59.314Z","which":"after","step":"glide","from":[721,204],"to":[866,253],"steps":52}
+{"t":"2026-10-08T10:45:00.258Z","which":"after","step":"present","id":"pr-freshness-hover","v":true}
+{"t":"2026-10-08T10:45:00.345Z","which":"after","step":"shot","name":"13-pointer-on-update-with-rebase"}
+{"t":"2026-10-08T10:45:08.441Z","which":"after","step":"glide","from":[866,253],"to":[1097,253],"steps":77}
+{"t":"2026-10-08T10:45:08.974Z","which":"after","step":"present","id":"pr-freshness-hover","v":false}
+{"t":"2026-10-08T10:45:09.057Z","which":"after","step":"shot","name":"14-freshness-card-left"}
+{"t":"2026-10-08T10:45:09.058Z","which":"after","step":"done","appPid":22844}
