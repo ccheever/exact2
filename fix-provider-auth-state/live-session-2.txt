@@ -1,0 +1,38 @@
+# fix-provider-auth-state: live session 2 (normal launch of this branch's bundle, real input), 2026-10-08 UTC
+Lock: taken 08:31:15Z, released 08:53:45Z. Lane copy 'T3 Code (Lane FPAS)' (com.exact.t3code.macos.lanefpas), lane 'live' (primary on 127.0.0.1:16260); second server on 192.168.1.225:16261 (lane 'remote') for the handoff row only.
+Input: orca computer clicks by window coordinates (tools/click.sh retries), cliclick real mouse and keys, paste-text from stdin. No token, pairing code or email is in this record or the kept images.
+
+08:15:36 remote server 60908 started on 192.168.1.225:16261 (handoff row, agent mode); pairing URL minted to a 0600 file
+08:27:36 remote server 60908 stopped until the real-input session
+08:31:26 session 2: lock taken 08:31:15; remote server 31264 on 192.168.1.225:16261; pairing URL minted (0600 file)
+08:31:34 lane app pid 31477 window 207840 launched; remote server pid 31264
+08:32:15 Documents-folder prompt for T3 Code (Lane FPAS) at launch: answered Don't Allow (UserNotificationCenter pid 18115, AX press)
+08:32:57 Settings > Providers opened
+08:33:21 Settings > Providers opened
+08:33:44 Providers
+08:33:57 Reconnect account
+08:34:08 Reconnect ChatGPT dialog: Continue with ChatGPT (saved profile selected)
+08:34:27 Chrome consent Continue (Reconnect, the same personal account preselected)
+08:34:41 provider.auth.complete 08:34:28.969 (Reconnect); lane app in front
+08:35:27 composer: Codex GPT-6.1-Sol picked; composer visible from T0=1791448527.899422
+08:36:12 Settings > Providers open from T2=1791448572.722682
+08:37:28 Settings window end T3=1791448647.752296
+08:38:02 Connections > Add environment: pasted the LAN pairing URL (0600 file), Add environment
+08:39:03 SecurityAgent 'Keychain Not Found' for the remote's credential (lane HOME has no keychain): Cancel
+08:40:09 lane keychain created (lane HOME only; real search list unchanged); new pairing URL pasted; Add environment
+08:40:28 remote environment paired (Connections lists it, connected)
+08:43:18 handoff: opened the primary's recorded sign-in URL (auth.openai.com authorize, redirect 127.0.0.1:<port>) in Chrome
+08:43:33 handoff: opened the recorded sign-in URL with open -a 'Google Chrome' (no Chrome window was on screen)
+08:44:21 Chrome: OpenAI returned to 127.0.0.1:<port>/auth/callback 'You're signed in' (no consent page this time: the account had granted T3 Code minutes before)
+08:48:25 handoff PASS: 'Your ChatGPT plan is connected · Codex on Daehyeon's MacBook Pro'; the LAN environment's Codex row 'Signed in as' + placeholder, Ready; remote caches/codex.json: ready, authenticated chatgpt; primary CodexChatGptAuth.exchange Success 08:43:57; remote chatGptModels 08:44:00
+08:48:47 remote: revoked 5 of 5 client sessions (all 'Lane FPAS client'); t3 auth session list afterwards: 0 sessions
+08:48:57 remote server 31264 stopped; lsof: nothing listening on 16261
+08:48:57 tccutil reset SystemPolicyDocumentsFolder com.exact.t3code.macos.lanefpas (the lane copy's Documents decision cleared)
+08:48:57 lane keychain deleted (lane HOME only); real search list unchanged
+pid  window 207993
+08:49:44 Documents prompt again at launch (after the TCC reset): Don't Allow clicked (cliclick 607,338); the layer-8 prompt window is gone
+08:49:53 app pid 12160 window 207993 (third launch, wizard check)
+08:51:59 Add provider: Gemini CLI Add (real click; the first try answered 'The server did not confirm the request', the second advanced); Continue to sign-in
+08:53:18 wizard Sign-in method select: real click (cliclick) at 859,385, click again, Space, Space, Return; captures r1-r4
+08:53:41 real Space/Return after the click and after Tabs: no menu; no focus ring is drawn, so where the focus sits is not visible (keyboard focus and rings: fix-keyboard-focus); agent-mode keys on the focused trigger pass
+08:53:45 lane app quit; nothing listening on 16260-16262; real-input lock released
