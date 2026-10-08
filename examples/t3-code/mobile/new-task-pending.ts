@@ -22,23 +22,12 @@ const stamp = (client: MobileDraftClient) => JSON.stringify([client.origin, mobi
 const ownerOf = (value: MobileOutboxWireOwner): MobileOutboxWireOwner => ({ origin: value.origin,
   environmentId: value.environmentId, threadId: value.threadId, messageId: value.messageId, commandId: value.commandId });
 
-/** The URL selects saved ownership; it cannot supply command IDs or a new origin.
- * Foreign environments are focused from saved identity without awaiting a network connection. */
-export async function mobileNewTaskPendingOpen(client: MobileDraftClient, native: Native, storage: Files,
-  route: MobileNewTaskPendingRoute, input: MobileNewTaskPendingInput): Promise<MobilePendingTaskEditorResult> {
-  const before = stamp(client), current = () => input.current() && stamp(client) === before;
-  if (!route.pendingTaskId || !route.projectId || !route.environmentId || !current()) throw stale();
-  if (!await mobileOutboxRead(client, native)) throw new ClientError('Read complete pending task storage before editing.');
+/** Focus only the unique enabled saved home. Local restored drafts and pending
+ * editors share this path; neither waits on the offline project's catalog. */
+export async function mobileNewTaskFocusSavedEnvironment(client: MobileDraftClient, native: Native,
+  record: { origin: string; environmentId: string }, routeCurrent: () => boolean): Promise<void> {
+  const before = stamp(client), current = () => routeCurrent() && stamp(client) === before;
   if (!current()) throw stale();
-  const markers = mobilePendingTaskEditorsSnapshot(client);
-  if (!markers.ready) throw new ClientError('Wait for saved pending editors to load.');
-  const matches = markers.markers.filter(marker => marker.owner.messageId === route.pendingTaskId);
-  const row = mobileOutboxSnapshot(client).rows.find(row => row.record.messageId === route.pendingTaskId);
-  if (matches.length > 1) throw new ClientError('The saved pending task ownership is ambiguous.');
-  const saved = matches[0], record = saved?.baseline.record ?? row?.record;
-  if (!record?.creation || record.environmentId !== route.environmentId || record.creation.projectId !== route.projectId
-    || saved && mobilePendingTaskEditorKey(saved.owner) !== mobilePendingTaskEditorKey(record))
-    throw new ClientError('This pending task does not belong to the selected environment and project.');
   if (record.environmentId !== client.environmentId) {
     if (client.busy || client.pending || mobileOutboxDriveSnapshot(client, 0).busy)
       throw new ClientError('Wait for the current send before switching pending tasks.');
@@ -59,11 +48,33 @@ export async function mobileNewTaskPendingOpen(client: MobileDraftClient, native
     if (client.environmentId !== record.environmentId) throw new ClientError('The saved environment identity changed.');
     const focused = JSON.stringify([client.origin, client.environmentId, client.generation, client.projectId, client.threadId, client.threadEpoch]);
     await queuedEditRefreshOrigin(native, client);
-    if (!input.current() || focused !== JSON.stringify([client.origin, client.environmentId, client.generation, client.projectId, client.threadId, client.threadEpoch]))
+    if (!routeCurrent() || focused !== JSON.stringify([client.origin, client.environmentId, client.generation, client.projectId, client.threadId, client.threadEpoch]))
       throw stale();
   }
   if (record.origin !== mobileQueuedEditOrigin(client))
     throw new ClientError('This pending task does not belong to the selected environment and project.');
+  if (!routeCurrent()) throw stale();
+}
+
+/** The URL selects saved ownership; it cannot supply command IDs or a new origin.
+ * Foreign environments are focused from saved identity without awaiting a network connection. */
+export async function mobileNewTaskPendingOpen(client: MobileDraftClient, native: Native, storage: Files,
+  route: MobileNewTaskPendingRoute, input: MobileNewTaskPendingInput): Promise<MobilePendingTaskEditorResult> {
+  const before = stamp(client), current = () => input.current() && stamp(client) === before;
+  if (!route.pendingTaskId || !route.projectId || !route.environmentId || !current()) throw stale();
+  if (!await mobileOutboxRead(client, native)) throw new ClientError('Read complete pending task storage before editing.');
+  if (!current()) throw stale();
+  const markers = mobilePendingTaskEditorsSnapshot(client);
+  if (!markers.ready) throw new ClientError('Wait for saved pending editors to load.');
+  const matches = markers.markers.filter(marker => marker.owner.messageId === route.pendingTaskId);
+  const row = mobileOutboxSnapshot(client).rows.find(row => row.record.messageId === route.pendingTaskId);
+  if (matches.length > 1) throw new ClientError('The saved pending task ownership is ambiguous.');
+  const saved = matches[0], record = saved?.baseline.record ?? row?.record;
+  if (!record?.creation || record.environmentId !== route.environmentId || record.creation.projectId !== route.projectId
+    || saved && mobilePendingTaskEditorKey(saved.owner) !== mobilePendingTaskEditorKey(record))
+    throw new ClientError('This pending task does not belong to the selected environment and project.');
+  await mobileNewTaskFocusSavedEnvironment(client, native, record, input.current);
+  if (!input.current()) throw stale();
   // openDraft performs existing subscription teardown. No project is fabricated,
   // no checkout occurs, and its temporary defaults never replace captured choices.
   mobileNewTaskDraftUnbind(client);

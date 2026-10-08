@@ -5,6 +5,7 @@ import { mobileNewTaskPendingContext } from './new-task-pending-context';
 import { mobileNewTask, mobileNewTaskPrepare } from './new-task';
 // @ref llp/1109.005-composer-and-transcript.decision.md#local-outbox-storage
 import { expect, test } from 'bun:test';
+import { mobilePendingTaskRecover } from './mobile-pending-task-recovery';
 import { mobileOutboxDeliveryDecode } from './mobile-outbox-delivery';
 import { MobileDraftClient, mobileDraftRecoveryHandles } from './mobile-draft-recovery';
 import { mobilePendingTaskEditorOpen as open, mobilePendingTaskEditorSave as save, mobilePendingTaskEditorFinish as finish, mobilePendingTaskEditorSaveForRecovery as saveForRecovery } from './mobile-pending-task-editor';
@@ -24,8 +25,8 @@ function original(): MobileOutboxRecord {
 }
 function backend() {
   const state: { record: MobileOutboxRecord | null; epoch: string; token: string; revision: number; floor: number;
-    terminal: Obj | null; terminalDurable: boolean; held: Set<string>; outcomes: Map<string, Obj>; requests: Map<string, Obj>; unknown: boolean; releaseFalse: boolean } = { record: original(), epoch: 'epoch', token: 'epoch:1', revision: 1, floor: 1,
-    terminal: null, terminalDurable: true, held: new Set<string>(), outcomes: new Map<string, Obj>(), requests: new Map<string, Obj>(), unknown: false, releaseFalse: false };
+    proof: Obj | null; removal: boolean; terminal: Obj | null; terminalDurable: boolean; held: Set<string>; outcomes: Map<string, Obj>; requests: Map<string, Obj>; unknown: boolean; releaseFalse: boolean } = { record: original(), epoch: 'epoch', token: 'epoch:1', revision: 1, floor: 1,
+    proof: null, removal: false, terminal: null, terminalDurable: true, held: new Set<string>(), outcomes: new Map<string, Obj>(), requests: new Map<string, Obj>(), unknown: false, releaseFalse: false };
   const calls: Obj[] = [], hooks = new Map<string, (request: Obj) => void | Promise<void>>();
   const current = () => ({ record: copy(state.record), revision: state.revision, token: state.token, pending: false });
   const native: Native = { available: true, watch() {}, async later(raw) {
@@ -37,7 +38,8 @@ function backend() {
     else if (request.op === 'ids') value = ['aaaaaaaa-1111-4111-8111-111111111111'];
     else if (request.op === 'mobileOutboxDelivery' && request.action === 'status') value = { operation: request.operationId === 'command' ? state.terminal : null, durable: request.operationId === 'command' && !!state.terminal && state.terminalDurable };
     else if (request.op === 'mobileOutboxDelivery' && request.action === 'recover') { expect(request.revision).toBe(state.terminal?.revision); state.terminalDurable = true; value = { operation: state.terminal, durable: true }; }
-    else if (request.op === 'mobileOutboxDelivery' && request.action === 'draftHandoffStatus') value = { handoff: null, durable: false };
+    else if (request.op === 'mobileOutboxDelivery' && request.action === 'draftHandoffStatus') value = { handoff: state.proof, durable: !!state.proof };
+    else if (request.op === 'mobileOutboxDelivery' && request.action === 'draftHandoffComplete') { state.proof ??= copy(obj(request.handoff)); expect(request.handoff).toEqual(state.proof); value = { handoff: state.proof, durable: true }; }
     else if (request.op === 'mobileOutboxInline' && request.action === 'lookup') value = { operations: [] };
     else if (request.op === 'mobileOutbox') {
       if (request.action === 'read') value = { ownerEpoch: state.epoch, sequenceFloor: state.floor, complete: true, errors: [],
@@ -48,6 +50,22 @@ function backend() {
         if (held) state.held.add(str(request.owner)); value = { held };
       } else if (request.action === 'releaseHold') value = { released: state.releaseFalse ? false : state.held.delete(str(request.owner)) };
       else if (request.action === 'acknowledge') { state.outcomes.delete(str(request.mutationId)); value = { acknowledged: true }; }
+      else if (request.action === 'completeRemoval') { value = state.removal ? { completed: true } : { completed: false, absent: true }; state.removal = false; }
+      else if (request.action === 'resumeRemoval') {
+        const saved = obj(request.request), mutation = str(saved.mutationId), previous = state.requests.get(mutation);
+        if (previous) expect(saved).toEqual(previous); else state.requests.set(mutation, copy(saved));
+        const known = state.outcomes.get(mutation);
+        if (known) value = known;
+        else {
+          const committed = !!state.record && saved.expectedToken === state.token && saved.expectedRevision === state.revision
+            && state.held.size === 1 && state.held.has(str(request.holdOwner));
+          const removed = committed ? copy(state.record) : null; state.floor++;
+          if (committed) { state.record = null; state.token = mutation; state.revision++; state.removal = true; }
+          value = { status: committed ? 'committed' : 'stale', mutationId: mutation, messageId: 'message', message: '', revision: state.revision,
+            record: null, removed, current: current(), ownerEpoch: state.epoch, sequenceFloor: state.floor };
+          state.outcomes.set(mutation, obj(copy(value)));
+        }
+      }
       else if (request.action === 'resumeUpdate') {
         const saved = obj(request.request), mutation = str(saved.mutationId), previous = state.requests.get(mutation);
         if (previous) expect(saved).toEqual(previous); else state.requests.set(mutation, copy(saved));
@@ -513,4 +531,102 @@ test('terminal recovery save retains newer typing during update and sends no pro
   expect(f.host.state.record?.text).toBe('captured'); expect(f.client.local.drafts[key]).toBe('typed while saving');
   expect(obj(f.disk().drafts)[key]).toBe('typed while saving');
   expect(f.host.calls.some(call => ['send', 'reserve', 'releaseHold'].includes(str(call.action)) || call.op === 'request')).toBe(false);
+});
+
+
+for (const outcome of ['acknowledged', 'rejected'] as const) test(`explicit ${outcome} editor handoff saves latest edits, transfers under one hold and cleans only its internal editor`, async () => {
+  const f = await opened(); edit(f, 'latest handoff content'); f.host.state.terminal = terminalRecord(outcome);
+  const expected = live(f), originalTerminal = copy(f.host.state.terminal), destination = outcome === 'rejected' ? 'new-task:restored-message' : 'env:thread';
+  f.host.hooks.set('mobileOutbox:resumeRemoval', request => { expect(f.host.state.held.size).toBe(1); expect(str(request.holdOwner)).toStartWith('pending-editor:');
+    expect(obj(f.disk().drafts)[destination]).toBe('latest handoff content'); expect(savedMarker(f.disk()).session).toBe(expected.session); });
+  const recovered = await mobilePendingTaskRecover(f.client, f.host.native, f.storage, { expected, current: f.input.current });
+  expect({ status: recovered.status, reason: recovered.reason }).toEqual({ status: 'recovered', reason: '' }); expect(recovered.draftKey).toBe(destination);
+  expect(f.client.local.drafts[destination]).toBe('latest handoff content'); expect(f.client.local.drafts[key]).toBeUndefined();
+  expect(mobilePendingTaskEditorsSnapshot(f.client).markers).toEqual([]); expect(f.host.state.record).toBeNull(); expect(f.host.state.held.size).toBe(0);
+  expect(f.host.state.terminal).toEqual(originalTerminal); expect(savedMarker(f.disk())).toEqual({});
+  f.client.local.drafts[destination] = 'consumed and replaced'; await f.client.persist(f.storage);
+  const restart = await fixture(f.disk(), f.host);
+  expect((await mobilePendingTaskRecover(restart.client, f.host.native, restart.storage, { expected, current: restart.input.current })).status).toBe('recovered');
+  expect(restart.client.local.drafts[destination]).toBe('consumed and replaced'); expect(f.host.writes()).toHaveLength(1);
+});
+for (const mode of ['removal-reply', 'completion-reply', 'cleanup-write', 'typing'] as const) test(`explicit editor handoff retains and resumes after ${mode}`, async () => {
+  const f = await opened(); edit(f, 'captured handoff'); f.host.state.terminal = terminalRecord('rejected'); let fired = false;
+  const expected = live(f), destination = 'new-task:restored-message';
+  const native: Native = { ...f.host.native, async later(request) { const answer = await f.host.native.later(request);
+    if (!fired && (mode === 'removal-reply' && obj(request).action === 'resumeRemoval' || mode === 'completion-reply' && obj(request).action === 'draftHandoffComplete')) { fired = true; throw Error('reply lost'); } return answer; } };
+  f.hooks.write = document => {
+    if (!fired && f.host.state.proof && !savedMarker(document).session) {
+      if (mode === 'cleanup-write') { fired = true; throw Error('cleanup failed'); }
+      if (mode === 'typing') { fired = true; edit(f, 'newer source editor'); }
+    }
+  };
+  const first = await mobilePendingTaskRecover(f.client, native, f.storage, { expected, current: f.input.current });
+  expect(first.status).toBe('retained'); expect(fired).toBe(true); expect(f.client.local.drafts[key]).toBe(mode === 'typing' ? 'newer source editor' : 'captured handoff');
+  expect(mobilePendingTaskEditorsSnapshot(f.client).markers).toHaveLength(1); delete f.hooks.write;
+  f.host.state.held.clear(); f.host.state.epoch = 'cold'; const restart = await fixture(f.disk(), f.host);
+  const replay = await mobilePendingTaskRecover(restart.client, f.host.native, restart.storage, { expected: live(restart), current: restart.input.current });
+  expect(replay.status).toBe(mode === 'typing' ? 'retained' : 'recovered');
+  expect(restart.client.local.drafts[destination]).toBe('captured handoff');
+  if (mode === 'typing') expect(restart.client.local.drafts[key]).toBe('newer source editor');
+  else expect(restart.client.local.drafts[key]).toBeUndefined();
+  expect(f.host.writes()).toHaveLength(1);
+  expect(new Set(f.host.calls.filter(call => call.action === 'resumeRemoval').map(call => obj(call.request).mutationId)).size).toBe(1);
+});
+
+
+for (const rejected of [true, false]) test(`root pending recovery opens ${rejected ? 'restored local draft' : 'original thread'} only after handoff and editor cleanup`, async () => {
+  const f = await fixture(); f.host.state.terminal = terminalRecord(rejected ? 'rejected' : 'acknowledged');
+  const location = '/new/draft?environmentId=env&projectId=project&pendingTaskId=message';
+  const view = mobileNewTaskFlowView('recover-flow', 'pending-visit', location, true, true, f.client);
+  await mobileNewTaskFlowAction(view.owner, 'pending-visit', 'prepare', '', '', f.host.native, f.storage, f.client);
+  const retained = mobileNewTaskFlowView('recover-flow', 'pending-visit', location, true, true, f.client);
+  expect(retained.status).toBe('retained'); edit(f, 'current retained text');
+  const result = await mobileNewTaskFlowAction(view.owner, 'pending-visit', 'pending-recover', '', '', f.host.native, f.storage, f.client);
+  expect(result.message).toBe(''); expect(mobilePendingTaskEditorsSnapshot(f.client).markers).toEqual([]);
+  if (rejected) {
+    expect(result.nextLocation).toContain('draftId=new-task%3Arestored-message');
+    const next = mobileNewTaskFlowView('recover-flow', 'restored-visit', result.nextLocation, true, false, f.client);
+    expect(next.needsPrepare).toBe(true);
+    const prepared = await mobileNewTaskFlowAction(next.owner, 'restored-visit', 'prepare', '', '', f.host.native, f.storage, f.client);
+    expect(prepared.message).toBe(''); expect(prepared.nextLocation).toBe('');
+    f.client.ensureSelection();
+    expect(mobileNewTaskFlowView('recover-flow', 'restored-visit', result.nextLocation, true, true, f.client).ready).toBe(true);
+    expect(f.client.draftKey).toBe('new-task:restored-message'); expect(f.client.draft).toBe('current retained text');
+    expect(mobileNewTask('', f.client)).toMatchObject({ draft: true, pendingEditor: false, projectTitle: 'Captured project' });
+    expect(f.client.shell.projects).toEqual([]);
+  } else { expect(result.submitted).toBe(true); expect(result.threadId).toBe('thread'); expect(f.client.local.drafts['env:thread']).toBe('current retained text'); }
+});
+
+for (const mode of ['offline', 'unpaired', 'late'] as const) test(`cold restored draft uses its paired saved home: ${mode}`, async () => {
+  const f = await opened(); edit(f, 'saved recovery text'); f.host.state.terminal = terminalRecord('rejected');
+  const recovered = await mobilePendingTaskRecover(f.client, f.host.native, f.storage, { expected: live(f), current: f.input.current });
+  expect(recovered.status).toBe('recovered');
+  const restart = await fixture(f.disk(), f.host), client = restart.client;
+  client.environmentId = 'previous'; client.origin = 'https://previous.test';
+  const url = '/new/draft?draftId=new-task%3Arestored-message', calls: Obj[] = [];
+  const view = () => mobileNewTaskFlowView('cold-restored', 'cold-visit', url, true, false, client);
+  const initial = view(); expect(initial.needsPrepare).toBe(true);
+  const native: Native = { ...f.host.native, async later(raw) {
+    const request = obj(raw); calls.push(request);
+    if (request.op === 'environments') return { ok: true, generation: 1, value: { saved: mode === 'unpaired' ? [] : [{ environmentId: 'env', origin: owner.origin, enabled: true }] } };
+    if (request.op === 'mobileSelectSavedEnvironment') {
+      if (mode === 'late') mobileNewTaskFlowView('cold-restored', 'gone', '/', false, false, client);
+      return { ok: true, generation: 2, value: { state: 'disconnected', environmentId: 'env', origin: owner.origin, message: '' } };
+    }
+    if (request.op === 'status') return { ok: true, generation: 2, value: { state: 'disconnected', environmentId: 'env', origin: owner.origin, homeOrigin: owner.origin } };
+    return { ...obj(await f.host.native.later(raw)), generation: client.generation };
+  } };
+  const preparing = mobileNewTaskFlowAction(initial.owner, 'cold-visit', 'prepare', '', '', native, restart.storage, client);
+  if (mode === 'late') await expect(preparing).rejects.toThrow('route changed');
+  const result = mode === 'late' ? { message: '' } : await preparing;
+  if (mode === 'offline') {
+    expect(result.message).toBe(''); client.ensureSelection(); expect(view().ready).toBe(true);
+    expect(client.draft).toBe('saved recovery text'); expect(client.projectId).toBe('project'); expect(client.shell.projects).toEqual([]);
+    expect(calls.filter(call => call.op === 'mobileSelectSavedEnvironment')).toHaveLength(1);
+  } else {
+    expect(client.environmentId).toBe('previous'); expect(client.draftKey).not.toBe(recovered.draftKey);
+    if (mode === 'unpaired') expect(result.message).toContain('Reconnect');
+  }
+  expect(client.local.drafts[recovered.draftKey]).toBe('saved recovery text');
+  expect(calls.some(call => call.op === 'http' || call.op === 'request')).toBe(false);
 });

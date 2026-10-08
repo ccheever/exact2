@@ -9,12 +9,13 @@ import { mobileOutboxTransferCanonical as canonical } from './mobile-outbox-tran
 import { mobileOutboxRead, mobileOutboxSnapshot, mobileOutboxCapture, mobileOutboxHold, mobileOutboxReleaseHold,
   mobileOutboxPrepareUpdate, mobileOutboxResumeUpdate, mobileOutboxAcknowledge, type MobileOutboxRow } from './mobile-outbox';
 import { mobilePendingTaskEditorKey, mobilePendingTaskEditorsSnapshot, mobilePendingTaskEditorsCreate,
-  mobilePendingTaskEditorsReplace, mobilePendingTaskEditorsRemove,
+  mobilePendingTaskEditorsReplace, mobilePendingTaskEditorsRemove, mobilePendingTaskEditorHoldOwner,
   type MobilePendingTaskMarker, type MobilePendingTaskExpected } from './mobile-pending-task-state';
 import { mobilePendingTaskDraftAdopt, mobilePendingTaskDraftBuildRecord, mobilePendingTaskDraftFingerprint,
   mobilePendingTaskDraftCleanup } from './mobile-pending-task-draft';
 import { mobileNewTaskDraftBoundKey, mobileNewTaskDraftLookup } from './mobile-new-task-drafts';
-import { mobileOutboxDraftHandoffStatus } from './mobile-outbox-draft-handoff';
+import { mobileOutboxDeliveryStatus, mobileOutboxDeliveryRecover } from './mobile-outbox-delivery';
+import { mobileOutboxDraftHandoffStatus, mobileOutboxDraftHandoffComplete, type MobileOutboxDraftHandoff } from './mobile-outbox-draft-handoff';
 import { mobilePendingTaskReceiptsPrepare, mobilePendingTaskReceiptsRead } from './mobile-pending-task-receipts';
 
 export interface MobilePendingTaskEditorInput { owner: MobileOutboxWireOwner; current(): boolean }
@@ -24,7 +25,7 @@ export interface MobilePendingTaskEditorResult {
 }
 const busy = new WeakMap<MobileDraftClient, Set<string>>();
 const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value));
-const holdOwner = (marker: MobilePendingTaskMarker) => `pending-editor:${mobilePendingTaskEditorKey(marker.owner)}:${marker.session}`;
+const holdOwner = mobilePendingTaskEditorHoldOwner;
 const changed = () => new ClientError('The pending task editor changed. Reopen its saved status.', 'superseded');
 function lookup(client: MobileDraftClient, owner: MobileOutboxWireOwner): MobilePendingTaskMarker | null {
   return mobilePendingTaskEditorsSnapshot(client).markers.find(marker => mobilePendingTaskEditorKey(marker.owner) === mobilePendingTaskEditorKey(owner)) ?? null;
@@ -213,6 +214,15 @@ function saveEditor(client: MobileDraftClient, native: Native | null | undefined
  * through the existing persisted release queues and ownership filters. */
 export function mobilePendingTaskEditorFinish(client: MobileDraftClient, native: Native | null | undefined, storage: Files,
   input: MobilePendingTaskEditorInput & { expected: MobilePendingTaskExpected; fingerprint: string }): Promise<MobilePendingTaskEditorResult> {
+  return finishEditor(client, native, storage, input);
+}
+/** Completion, not queue absence, authorizes retirement of the transferred editor. */
+export function mobilePendingTaskEditorFinishRecovery(client: MobileDraftClient, native: Native | null | undefined, storage: Files,
+  input: MobilePendingTaskEditorInput & { expected: MobilePendingTaskExpected; fingerprint: string; handoff: MobileOutboxDraftHandoff }): Promise<MobilePendingTaskEditorResult> {
+  return finishEditor(client, native, storage, input, input.handoff);
+}
+function finishEditor(client: MobileDraftClient, native: Native | null | undefined, storage: Files,
+  input: MobilePendingTaskEditorInput & { expected: MobilePendingTaskExpected; fingerprint: string }, handoff?: MobileOutboxDraftHandoff): Promise<MobilePendingTaskEditorResult> {
   return run(client, native, storage, input, async ctx => {
     const marker = lookup(client, input.owner);
     if (!marker || mobilePendingTaskEditorKey(input.expected.owner) !== mobilePendingTaskEditorKey(input.owner)
@@ -221,11 +231,24 @@ export function mobilePendingTaskEditorFinish(client: MobileDraftClient, native:
       && mobilePendingTaskDraftFingerprint(client, marker.draftKey) === input.fingerprint;
     if (!unchanged()) return result('retained', marker, 'Finish the current editor before releasing its saved task.');
     await read(client, ctx); if (!unchanged()) throw changed();
-    // A released hold's reply may have been lost. Reacquire this same session
-    // before retrying Finish; the baseline check still rejects another winner.
-    if (!await hold(client, ctx, marker)) return result('retained', marker, 'The queued task is unavailable. Keep the saved editor.');
-    if (!unchanged() || !exactRow(client, marker)) throw changed();
-    const reason = await receipts(client, ctx, marker); if (reason) return result('retained', marker, reason);
+    if (handoff) {
+      let terminal = await mobileOutboxDeliveryStatus(ctx.native, marker.owner.commandId);
+      if (!terminal.operation) throw new ClientError('Read the original terminal receipt before releasing this editor.');
+      if (!terminal.durable) terminal = await mobileOutboxDeliveryRecover(ctx.native, terminal.operation);
+      const completed = await mobileOutboxDraftHandoffStatus(ctx.native, terminal.operation!);
+      if (canonical(completed.handoff) !== canonical(handoff)) throw new ClientError('The saved destination completion does not match this editor.');
+      if (!completed.durable) await mobileOutboxDraftHandoffComplete(ctx.native, terminal.operation!, handoff);
+      const context = handoff.draft.recovered as Record<string, { pendingEditor?: { session?: string; draftKey?: string; fingerprint?: string } }>;
+      const source = context[`outbox:${JSON.stringify([marker.owner.origin, marker.owner.environmentId, marker.owner.commandId])}`]?.pendingEditor;
+      if (source?.session !== marker.session || source.draftKey !== marker.draftKey || source.fingerprint !== input.fingerprint
+        || canonical(handoff.record) !== canonical(marker.baseline.record))
+        return result('retained', marker, 'Newer saved editor content was kept. Its earlier destination is already recovered.');
+    } else {
+      // A lost release reply needs the same session hold before ordinary Finish.
+      if (!await hold(client, ctx, marker)) return result('retained', marker, 'The queued task is unavailable. Keep the saved editor.');
+      if (!unchanged() || !exactRow(client, marker)) throw changed();
+      const reason = await receipts(client, ctx, marker); if (reason) return result('retained', marker, reason);
+    }
     if (!unchanged()) throw changed();
     const captured = mobilePendingTaskDraftBuildRecord(client, marker);
     if (captured.status !== 'ready' || canonical(captured.record) !== canonical(marker.baseline.record))
@@ -247,7 +270,7 @@ export function mobilePendingTaskEditorFinish(client: MobileDraftClient, native:
         // local ownership before reporting a route change. No native retry.
         client.pendingTaskCleanup = null; await client.persist(storage); throw error;
       }
-      if (!await mobileOutboxReleaseHold(client, ctx.native, marker.owner.messageId, holdOwner(marker)))
+      if (!await mobileOutboxReleaseHold(client, ctx.native, marker.owner.messageId, holdOwner(marker)) && !handoff)
         throw new ClientError('The pending task hold was not released. Keep the editor and retry.');
       ctx.check();
       if (!unchanged()) {

@@ -106,7 +106,7 @@ export function mobileOutboxRecoveryDraftPrepare(client: T3Client, input: Mobile
   }
   const owner = ownerFor(record);
   after.recovered = { ...obj(after.recovered), [owner]: { key, owner, origin: record.origin, environmentId: record.environmentId,
-    revision: 1, context: content.context ?? null, attachments: content.attachments.map(file => ({ id: file.id, uploadId: file.uploadId })),
+    revision: 1, ...(independent ? { creation: obj(record.creation) } : {}), context: content.context ?? null, attachments: content.attachments.map(file => ({ id: file.id, uploadId: file.uploadId })),
     // Partial settings survive offline recovery without inventing missing thread defaults.
     ...(!independent && Object.keys(selected).length ? { choices: selected } : {}) } };
   return copy({ key, origin: record.origin, environmentId: record.environmentId, before, after, terminalBefore: obj(obj(client.local).terminalContexts) });

@@ -1,3 +1,4 @@
+import { mobileNewTaskRestoredContext } from './new-task-restored-context';
 import { mobileNewTaskPendingContext } from './new-task-pending-context';
 import { mobileModelSelectionReady } from './model-availability';
 // Pinned mobile NewTask{Route,Draft,ContextPicker} screens at365aa87982; shared draft and launch ownership.
@@ -51,6 +52,7 @@ const machineSymbols: Record<string, string> = { server: 'server.rack', cloud: '
 export function mobileNewTask(query = '', client: T3Client = mobileClient, background: EnvironmentFleet = fleet): NewTaskSnapshot {
   const state = stateFor(client), sources = mobileHomeSources(client, background), needle = query.trim().toLocaleLowerCase();
   const context = draftContext(client), pendingDraft = mobileNewTaskLaunchPendingOwned(client), pendingEditor = mobileNewTaskPendingContext(client);
+  const restored = mobileNewTaskRestoredContext(client);
   const canSelect = !state.busy && ((!client.busy && !client.pending) || pendingDraft);
   const projects = sources.flatMap(source => source.shell.projects.filter(project => project.archivedAt == null && !isScratch(project, scratchRootOf(true, source.config)))
     .filter(project => !needle || [str(project.title), str(project.workspaceRoot)].some(value => value.toLocaleLowerCase().includes(needle)))
@@ -75,8 +77,8 @@ export function mobileNewTask(query = '', client: T3Client = mobileClient, backg
       && background.saved.some(saved => saved.environmentId === entry.environmentId && saved.enabled !== false));
   const hasProjects = sources.some(source => source.shell.projects.some(project => project.archivedAt == null
     && !isScratch(project, scratchRootOf(true, source.config))));
-  const savedEnvironment = pendingEditor ? background.saved.filter(entry => entry.environmentId === client.environmentId
-    && (entry.homeOrigin ?? entry.origin) === pendingEditor.marker.owner.origin) : [];
+  const savedEnvironment = pendingEditor || restored ? background.saved.filter(entry => entry.environmentId === client.environmentId
+    && (entry.homeOrigin ?? entry.origin) === (pendingEditor?.marker.owner.origin ?? restored?.draft.origin)) : [];
   const savedLabel = savedEnvironment.length === 1 ? str(savedEnvironment[0].mobileLabel) || str(savedEnvironment[0].label) : '';
   const environmentLabel = environments.find(environment => environment.selected)?.label
     || str(obj(client.config.environment).label) || savedLabel || 'Environment';
@@ -101,12 +103,12 @@ export function mobileNewTask(query = '', client: T3Client = mobileClient, backg
     composer.sendLabel = 'Save changes'; composer.showReadOnlyNotice = false; composer.blockedReason = '';
   }
   return { pendingEditor: !!pendingEditor, revision: client.revision, environmentId: client.environmentId, projectId: client.projectId, threadId: client.threadId,
-    projectTitle: pendingEditor?.title ?? str(project?.title), environmentLabel,
+    projectTitle: pendingEditor?.title ?? (str(project?.title) || restored?.title || ''), environmentLabel,
     projects, environments, branches: state.branches, query, branchQuery: state.branchQuery, emptyTitle, emptyDetail,
     branchEmpty: state.branchLoaded ? state.error || (state.branchQuery ? 'No matching branches' : 'No branches available') : 'Loading branches…',
     error: state.error, busy: state.busy, branchLoaded: state.branchLoaded, branchHasMore: state.branchHasMore, canSelect, canAddProject,
     canStartScratch: !!mobileScratchTarget(client, background), scratchTarget: mobileScratchTarget(client, background), hasProjects,
-    draft: !client.threadId && (!!project || !!pendingEditor), scratch, workspaceMode: scratch ? 'local' : context.envMode,
+    draft: !client.threadId && (!!project || !!pendingEditor || !!restored), scratch, workspaceMode: scratch ? 'local' : context.envMode,
     workspaceLabel: context.envMode === 'worktree' ? 'New worktree' : context.worktreePath ? 'Current worktree' : 'Current checkout',
     branchLabel: context.branch || 'Select branch', originOn: startFromOrigin(client), composer };
 }
@@ -136,7 +138,7 @@ export function mobileNewTaskChooser(query = '', groupingMode = 'repository', cl
 /** Awaited root resource, real repository reads; only projected rows/permission booleans survive the answer. */
 export async function mobileNewTaskPrepare(branchQuery: string, nativeInput: Native | null | undefined, client: T3Client = mobileClient) {
   const state = stateFor(client), expected = owner(client), request = ++state.prepare;
-  if (mobileNewTaskPendingContext(client) || !nativeInput?.available || !client.ready || client.threadId || !client.projectId || mobileNewTask('', client).scratch) return { revision: client.revision, loaded: false };
+  if (mobileNewTaskPendingContext(client) || mobileNewTaskRestoredContext(client) && !client.shell.projects.some(project => project.id === client.projectId) || !nativeInput?.available || !client.ready || client.threadId || !client.projectId || mobileNewTask('', client).scratch) return { revision: client.revision, loaded: false };
   const native = letGoAware(mobileNative(nativeInput)), context = draftContext(client);
   const stamp = () => JSON.stringify([draftContext(client), mobileNewTaskDraftLookup(client, client.draftKey)?.branchChoice]);
   const captured = stamp(), current = () => owner(client) === expected && state.prepare === request && stamp() === captured;

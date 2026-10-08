@@ -479,6 +479,8 @@ component MobileRouteContent
         when newTaskFlow.pendingEditor
           button press=taskAction("pending-refresh", "", "") disabled=newTaskFlow.busy
             text "Reopen saved edits"
+          button press=taskAction("pending-recover", "", "") disabled=newTaskFlow.busy
+            text "Recover draft"
         else when newTaskFlow.status == "error"
           button press=chooseNewProject
             text "Choose project"
