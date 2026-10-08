@@ -1,6 +1,7 @@
 // GAP 001: bake cannot capture parent imports. Remove this copy when ancestor mounts work.
 // Adapted body from examples/t3-code/client-ops-composer.ts at 887b2491b182f851b11253655f6aa84fe2a26708.
 // Mobile 365aa87982: send admission, retained options and independent model-pick ownership differ.
+import { mobileNewTaskDirectText, mobileNewTaskMessageContext as withMessageContext, mobileNewTaskSendGuard } from '../mobile-new-task-context-send';
 import { mobileModelSelectionUnavailable } from '../model-availability';
 import { mobileDispatchSelection as dispatchSelection } from '../model-send-selection';
 import { omitExpiredTerminalContexts } from './terminal-integrations';
@@ -20,7 +21,6 @@ import { promptForSend, ultrathinkChoice } from './composer-ultrathink'; // comp
 import { queuedEdit, saveQueuedEdit } from './composer-controls-queue';
 import { fanoutBase, workspaceStrategy } from './composer-controls-branch';
 import { isUsageLimitsCommand, usageLimitsOffered, openUsageLimits } from './composer-controls-usage';
-import { withMessageContext } from './composer-editor';
 import { sendIntent } from './composer-editor-intent';
 import { launchTitle } from './composer-editor-title';
 import { promptLengthMessage } from './composer-editor-menu';
@@ -88,6 +88,7 @@ export async function composerWrites(this: T3Client, op: string, id: string, val
   } finally { Object.assign(out, { message: resultMessage, id, value }); }
 }
 async function send(this: T3Client, native: Native, storage: Files, value: string): Promise<void> {
+  const assertDraft = mobileNewTaskSendGuard(this);
   const selection = { generation: this.generation, environmentId: this.environmentId, origin: this.origin, projectId: this.projectId, threadId: this.threadId, providerId: this.providerId, modelId: this.modelId, options: JSON.stringify(this.modelOptions), runtimeMode: this.runtimeMode, interactionMode: this.interactionMode };
   const assertOwner = () => {
     if (selection.generation !== this.generation || selection.environmentId !== this.environmentId || selection.origin !== this.origin || selection.projectId !== this.projectId || selection.threadId !== this.threadId || selection.providerId !== this.providerId || selection.modelId !== this.modelId || selection.options !== JSON.stringify(this.modelOptions) || selection.runtimeMode !== this.runtimeMode || selection.interactionMode !== this.interactionMode) throw new ClientError('The draft or model changed before sending. Your original draft is preserved.');
@@ -98,7 +99,7 @@ async function send(this: T3Client, native: Native, storage: Files, value: strin
   const plan = planFollowUp(this);
   const submission = plan ? resolvePlanSubmission(value || this.draft, plan.markdown) : null;
   const rawText = promptForSend(this, selection.providerId, selection.modelId, JSON.parse(selection.options), submission ? submission.text : value || this.draft);
-  const terminalSubmission = omitExpiredTerminalContexts(this, rawText, this.snapshotDrafts.length > 0);
+  const terminalSubmission = mobileNewTaskDirectText(this, rawText) ?? omitExpiredTerminalContexts(this, rawText, this.snapshotDrafts.length > 0);
   if (terminalSubmission.empty) return;
   const text = terminalSubmission.text;
   if (!text.trim() && !this.snapshotDrafts.length) throw new ClientError('Write a message or attach an image first.');
@@ -116,9 +117,9 @@ async function send(this: T3Client, native: Native, storage: Files, value: strin
     throw new ClientError('Choose a permission mode supported by this provider.');
   }
   const attachments = [...await this.uploadSnapshots(native, storage), ...await composerFileAttachments(this, native, text)]; // + folded pastes (composer-editor-files.ts)
-  assertOwner();
+  assertOwner(); assertDraft();
   const [commandId, messageId, freshThreadId] = await this.ids(native, 3), launchKey = this.draftKey, threadId = selection.threadId ? freshThreadId : launchThreadId(this, launchKey, freshThreadId); // r7-handoff: a draft launches as its own id
-  assertOwner();
+  assertOwner(); assertDraft();
   if (selection.threadId) {
     const key = this.draftKey, staged = stagedFor(this);
     for (const command of nextTurnCommands(obj(this.projection.thread), staged, submission?.interactionMode ?? '')) {
@@ -136,7 +137,7 @@ async function send(this: T3Client, native: Native, storage: Files, value: strin
     await acknowledgeWoke(this, selection.threadId, native);
     // composer.sendAndNewThread: the sent thread keeps running; a fresh new-thread composer opens in its project.
     if (intent === 'background' && this.threadId === selection.threadId) await this.openFreshDraft(native);
-  } else if (fanoutSelections(this)) {
+  } else if (!this.draftKey.startsWith('new-task:') && fanoutSelections(this)) {
     // Several models: one background thread each, in its own worktree (r3-composer-controls-fanout.ts).
     await sendFanout(this, native, storage, { text, attachments, ...fanoutBase(this), runtimeMode: selection.runtimeMode, interactionMode: selection.interactionMode });
   } else {
@@ -145,7 +146,7 @@ async function send(this: T3Client, native: Native, storage: Files, value: strin
     payload.workspaceStrategy = workspaceStrategy(this);
     payload.title = launchTitle(text, str(this.snapshotDrafts[0]?.name), str(attachments.find(attachment => attachment.type === 'file')?.name)); // composer-editor-title.ts
     const result = await this.write(native, storage, { method: 'orchestration.launchThread', payload: withMessageContext(this, payload, text),
-      description: 'Create thread', threadId, text, uncertain: false }, assertOwner);
+      description: 'Create thread', threadId, text, uncertain: false }, () => { assertOwner(); assertDraft(); });
     forgetDraftThreadId(this, launchKey);
     assertOwner();
     // composer.sendBackground: the thread starts out of view and a fresh draft stays open.

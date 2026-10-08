@@ -12,7 +12,7 @@ import { branchState } from './shared/r4-git-branch';
 import { vcsStatusEvent } from './shared/shell-vcs';
 import { contextLink, contextId } from './shared/composer-editor-menu';
 import { setDraftFiles } from './shared/composer-editor-files';
-import { saveTerminalContext, terminalContextReference } from './shared/terminal-integrations';
+import { saveTerminalContext, terminalContextReference, terminalContextRecord } from './shared/terminal-integrations';
 
 const now = Date.parse('2026-10-08T05:00:00.000Z'), key = 'new-task:one';
 const metadata = { threadId: 't', messageId: 'm', commandId: 'c', createdAt: new Date(now).toISOString() };
@@ -169,6 +169,7 @@ test('durable selected terminal content resolves while thread chips cannot borro
   const f = await fixture(), terminal = { id: 'selection', threadId: 'old-thread', createdAt: new Date(now).toISOString(), terminalId: 'term', terminalLabel: 'Shell', lineStart: 1, lineEnd: 2, text: 'captured output' };
   saveTerminalContext(f.client, terminal); const ref = terminalContextReference(terminal);
   f.client.local.drafts[key] = `Task ${contextLink(ref.kind, ref.contextId, ref.label)}`;
+  mobileNewTaskDraftStore(f.client).records[key]!.context = { version: 1, records: [terminalContextRecord(terminal)] };
   const a = f.adapter(); await a.prepareFacts(f.native);
   expect(f.capture(a.facts())).toMatchObject({ status: 'ready', record: { context: { records: [{ kind: 'terminal', text: 'captured output' }] } } });
   f.client.local.drafts[key] = `Task ${contextLink('thread', 'thread_equal-id', 'Other environment')}`;

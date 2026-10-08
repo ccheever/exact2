@@ -5,6 +5,8 @@ import { arr, obj, str, type Obj } from './shared/domain';
 import { contextId, contextLabel, contextReferences } from './shared/composer-editor-menu';
 import { MAX_FILE_BYTES } from './shared/composer-editor-files';
 import { mobileModelSelectionUnavailable } from './model-availability';
+import { mobileNewTaskContextProject } from './mobile-new-task-context';
+import { mobileContextRecordValid } from './mobile-context-record';
 import { mobileOutboxTitle } from './mobile-outbox-wire';
 import { mobileOutboxEncode, type MobileOutboxAttachment, type MobileOutboxRecord,
   type MobileOutboxModelSelection, type MobileOutboxRuntimeMode } from './mobile-outbox-model';
@@ -21,8 +23,6 @@ export interface MobileOutboxCaptureFacts {
     /** Includes a source-selected automatic worktree base. undefined means provenance
      * is unresolved; null means untouched local checkout or no selected base. */
     explicitBranch: string | null | undefined; currentCheckoutBranch: string | null; startFromOrigin: boolean };
-  /** Existing context owner supplies payloads; unsupported or unresolved records block capture. */
-  context?: Obj;
   /** Source upload states are not native byte-existence or durability evidence. */
   uploadStates?: Record<string, 'uploading' | 'ready' | 'failed'>;
   /** Required for an existing remote upload ID; do not infer its owner from current selection. */
@@ -40,11 +40,6 @@ export type MobileOutboxPreparationResult = { status: 'blocked'; reason: string 
 };
 const copy = <T>(value: T): T => JSON.parse(JSON.stringify(value));
 function fail(reason: string): never { throw new Error(reason); }
-const bounded = (value: unknown, max: number) => typeof value === 'string' && value.length <= max;
-const nonempty = (value: unknown, max = Infinity) => bounded(value, max) && String(value).trim() === value && String(value).length > 0;
-const integer = (value: unknown) => typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
-const id = (value: unknown) => nonempty(value, 128) && /^[a-z0-9_-]+$/i.test(String(value));
-
 /** Pinned resolveSelectableModelSelection; defaults are supplied by the existing display owner. */
 function selectedModel(draft: MobileOutboxDraftPresentation, facts: MobileOutboxCaptureFacts): MobileOutboxModelSelection | null {
   const choices = draft.choices;
@@ -95,41 +90,21 @@ function attachments(draft: MobileOutboxDraftPresentation, facts: MobileOutboxCa
   return draft.attachmentIds.map(localId => indexed.get(localId)!);
 }
 
-/** Narrow source-schema subset supported by current app context producers.
- * Element/preview/future kinds need their own verified capture owner; no boolean bypass. */
-function contextRecordValid(record: Obj): boolean {
-  if (record.version !== 1 || !id(record.contextId) || !bounded(record.label, 200)) return false;
-  switch (record.kind) {
-    case 'image': case 'file': return id(record.attachmentId) && nonempty(record.name, 255) &&
-      nonempty(record.mimeType, 100) && integer(record.sizeBytes);
-    case 'thread': return nonempty(record.environmentId) && nonempty(record.threadId) && bounded(record.title, 200);
-    case 'terminal': return nonempty(record.terminalId, 255) && nonempty(record.terminalLabel, 255) &&
-      integer(record.lineStart) && integer(record.lineEnd) && Number(record.lineEnd) >= Number(record.lineStart) && bounded(record.text, 64000);
-    case 'mention': return nonempty(record.path, 2048);
-    case 'skill': return nonempty(record.name, 255);
-    case 'review-comment': {
-      const pr = record.pullRequest === undefined ? null : obj(record.pullRequest);
-      return nonempty(record.sectionId, 255) && bounded(record.sectionTitle, 2048) && nonempty(record.filePath, 2048) &&
-        integer(record.startIndex) && integer(record.endIndex) && Number(record.endIndex) >= Number(record.startIndex) &&
-        bounded(record.rangeLabel, 2048) && bounded(record.text, 16000) && bounded(record.diff, 32000) &&
-        (record.fenceLanguage === undefined || bounded(record.fenceLanguage, 64)) && (!pr || integer(pr.number) && Number(pr.number) > 0 &&
-          ['title', 'url', 'headBranch', 'baseBranch'].every(key => bounded(pr[key], 2048)) &&
-          ['open', 'closed', 'merged'].includes(str(pr.state)) && typeof pr.isDraft === 'boolean');
-    }
-    default: return false;
-  }
-}
-function messageContext(draft: MobileOutboxDraftPresentation, files: MobileOutboxAttachment[], supplied: Obj | undefined): Obj | undefined {
+function messageContext(draft: MobileOutboxDraftPresentation, files: MobileOutboxAttachment[]): Obj | undefined {
+  const projected = mobileNewTaskContextProject(draft.text, draft.context);
+  if (!projected.ok) fail(projected.error);
+  const supplied = projected.context;
   if (supplied && (supplied.version !== 1 || !Array.isArray(supplied.records))) fail('The draft context is invalid.');
   const records = arr(supplied?.records).map(record => ({ ...record })), byId = new Map<string, Obj>();
   if (supplied && records.length !== (supplied.records as unknown[]).length) fail('The draft context is invalid.');
   for (const record of records) {
-    if (!contextRecordValid(record) || byId.has(str(record.contextId))) fail('This draft contains unsupported or invalid context.');
+    if (!mobileContextRecordValid(record) || byId.has(str(record.contextId))) fail('This draft contains unsupported or invalid context.');
     if (record.kind === 'file' || record.kind === 'image') {
-      const file = files.find(file => file.id === record.attachmentId);
+      const file = files.find(file => file.id === record.attachmentId) ?? files.find(file => !!file.uploadId && file.uploadId === record.attachmentId);
       if (!file) fail('The draft context references an attachment it no longer owns.');
       if (record.kind !== file.kind || record.name !== file.name || record.mimeType !== file.mimeType || record.sizeBytes !== file.sizeBytes)
         fail('The attachment context does not match its local owner.');
+      record.attachmentId = file.id;
     }
     byId.set(str(record.contextId), record);
   }
@@ -141,7 +116,7 @@ function messageContext(draft: MobileOutboxDraftPresentation, files: MobileOutbo
     if (!file) fail('A context reference cannot be resolved. Keep the draft and restore its context first.');
     const record = { version: 1, contextId: reference.id, kind: file.kind, label: contextLabel(file.name, file.kind),
       attachmentId: file.id, name: file.name, mimeType: file.mimeType, sizeBytes: file.sizeBytes };
-    if (!contextRecordValid(record)) fail('An attachment context exceeds the supported limits.');
+    if (!mobileContextRecordValid(record)) fail('An attachment context exceeds the supported limits.');
     records.push(record); byId.set(reference.id, record);
   }
   // contracts/src/composerContext.ts:284–299 bounds serialized record characters, not bytes.
@@ -178,7 +153,7 @@ export function mobilePrepareNewTaskOutbox(draft: MobileOutboxDraftPresentation,
     const provider = arr(facts.config?.providers).find(value => value.instanceId === model.instanceId);
     const interactionMode = provider?.showInteractionModeToggle === false || !facts.planPreferenceLoaded || !facts.planModeEnabled
       ? 'default' : draft.choices?.interactionMode ?? 'default';
-    const context = messageContext(draft, files, facts.context);
+    const context = messageContext(draft, files);
     const record: Omit<MobileOutboxRecord, keyof MobileOutboxCaptureMetadata> = { schemaVersion: 1, origin: draft.origin, environmentId: draft.environmentId,
       text, attachments: files, ...(context ? { context } : {}), modelSelection: model,
       runtimeMode: (draft.choices?.runtimeMode ?? facts.defaultRuntimeMode) as MobileOutboxRuntimeMode,

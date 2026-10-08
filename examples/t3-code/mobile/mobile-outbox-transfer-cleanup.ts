@@ -39,8 +39,8 @@ export function mobileOutboxTransferApplyCleanup(client: T3Client, claim: Mobile
   if (current && current.environmentId === captured.environmentId && current.origin === captured.origin
     && current.projectId === captured.projectId && current.createdAt === captured.createdAt) {
     const key = captured.key, record = mobileNewTaskDraftStore(client).records[key]!;
-    if (current.revision === captured.revision) {
-      if (current.text === captured.text) delete client.local.drafts[key];
+    if (current.revision === captured.revision && equal(current.context, captured.context)) {
+      if (current.text === captured.text) { delete client.local.drafts[key]; delete record.context; }
       const references = new Set(contextReferences(client.local.drafts[key] ?? '').map(reference => reference.id));
       client.local.snapshotDrafts[key] = current.images.filter(image => !captured.images.some(sent => equal(sent, image))
         || references.has(contextId('image', String(image.id))));
@@ -48,7 +48,7 @@ export function mobileOutboxTransferApplyCleanup(client: T3Client, claim: Mobile
         || references.has(file.contextId) || !captured.files.some(sent => equal(sent, file))));
     }
     // Residual content keeps its settings; choices can change without incrementing revision.
-    if (!(client.local.drafts[key] ?? '').length && !mobileNewTaskDraftHasContent(client, key)) {
+    if (equal(current.context, captured.context) && !(client.local.drafts[key] ?? '').length && !mobileNewTaskDraftHasContent(client, key)) {
       if (equal(record.choices, captured.choices)) record.choices = null;
       if (equal(client.local.composerControls.contexts[key] ?? null, captured.workspace)) delete client.local.composerControls.contexts[key];
       if (equal(record.branchChoice, captured.branchChoice)) delete record.branchChoice;

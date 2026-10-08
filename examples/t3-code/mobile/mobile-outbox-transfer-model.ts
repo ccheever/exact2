@@ -1,5 +1,8 @@
 // App-owned durable capture, separate from the provider's queued command payload.
 // @ref llp/1109.005-composer-and-transcript.decision.md#local-outbox-storage
+import { mobileContextRecordValid } from './mobile-context-record';
+import { contextReferences, contextId, contextLabel } from './shared/composer-editor-menu';
+import type { Obj } from './shared/domain';
 import type { MobileOutboxDraftPresentation } from './mobile-outbox-capture';
 import { mobileOutboxCanonicalOrigin, mobileOutboxDecode, type MobileOutboxRecord } from './mobile-outbox-model';
 
@@ -46,15 +49,64 @@ function choices(value: unknown): boolean {
 function descriptor(value: unknown): value is Plain & { id: string } {
   return object(value) && uuid(value.id) && nonempty(value.name) && nonempty(value.mimeType) && integer(value.sizeBytes);
 }
+/** Original context is preserved verbatim; only its referenced ordered projection
+ * may enter the queued record. Unknown payloads remain owned by the draft. */
+function capturedContext(raw: unknown): Plain[] | null {
+  if (raw === undefined) return [];
+  if (!object(raw) || raw.version !== 1 || !Array.isArray(raw.records)) return null;
+  const seen = new Set<string>();
+  for (const record of raw.records) {
+    if (!object(record) || !mobileContextRecordValid(record as Obj) || seen.has(String(record.contextId))) return null;
+    seen.add(String(record.contextId));
+  }
+  return raw.records as Plain[];
+}
+function contextMatches(draft: Plain, record: MobileOutboxRecord, originals: Plain[]): boolean {
+  const references = contextReferences(String(draft.text));
+  const selected = originals.filter(item => references.some(ref => ref.id === item.contextId));
+  const expected: Plain[] = [];
+  const submitted = record.context === undefined ? [] : object(record.context) && record.context.version === 1
+    && fields(record.context, ['version', 'records']) && Array.isArray(record.context.records) ? record.context.records : null;
+  if (!submitted) return false;
+  for (const original of selected) {
+    if (references.some(ref => ref.id === original.contextId && ref.kind !== original.kind)) return false;
+    const actual = submitted[expected.length];
+    if (!object(actual)) return false;
+    let normalized = original;
+    if (original.kind === 'image' || original.kind === 'file') {
+      const attachment = record.attachments.find(item => item.id === original.attachmentId) ??
+        record.attachments.find(item => !!item.uploadId && item.uploadId === original.attachmentId);
+      if (!attachment || attachment.kind !== original.kind || actual.attachmentId !== attachment.id ||
+          !['name', 'mimeType', 'sizeBytes'].every(field => original[field] === (attachment as unknown as Plain)[field])) return false;
+      normalized = { ...original, attachmentId: attachment.id };
+    }
+    expected.push(normalized);
+  }
+  for (const reference of references) {
+    if (selected.some(item => item.contextId === reference.id)) continue;
+    const attachment = record.attachments.find(item => item.kind === reference.kind &&
+      reference.id === (item.kind === 'file' ? item.contextId : contextId('image', item.id)));
+    if (!attachment) return false;
+    expected.push({ version: 1, contextId: reference.id, kind: attachment.kind, label: contextLabel(attachment.name, attachment.kind),
+      attachmentId: attachment.id, name: attachment.name, mimeType: attachment.mimeType, sizeBytes: attachment.sizeBytes });
+  }
+  if (expected.length > 200 || JSON.stringify(expected).length > 16_000_000 || !capturedContext({ version: 1, records: expected })) return false;
+  if (draft.context !== undefined && originals.length === 0 || expected.length) {
+    return record.context !== undefined && mobileOutboxTransferCanonical(submitted) === mobileOutboxTransferCanonical(expected);
+  }
+  return record.context === undefined;
+}
 export function mobileOutboxTransferDecodeCapture(raw: unknown, record?: MobileOutboxRecord): MobileOutboxTransferCapture {
   const bad = () => { throw new Error('The draft transfer capture is invalid.'); };
   if (!object(raw) || raw.version !== 1 || !fields(raw, ['version', 'draft']) || !object(raw.draft) || !json(raw)) return bad();
   const draft = raw.draft;
-  if (!fields(draft, ['key', 'environmentId', 'projectId', 'origin', 'createdAt', 'revision', 'choices', 'branchChoice', 'attachmentIds', 'text', 'images', 'files', 'workspace']) ||
+  if (!fields(draft, ['key', 'environmentId', 'projectId', 'origin', 'createdAt', 'revision', 'choices', 'branchChoice', 'context', 'attachmentIds', 'text', 'images', 'files', 'workspace']) ||
       !key(draft.key) || !nonempty(draft.environmentId) || !nonempty(draft.projectId) || !mobileOutboxCanonicalOrigin(draft.origin) ||
       !text(draft.createdAt) || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(draft.createdAt) || !Number.isFinite(Date.parse(draft.createdAt)) || new Date(draft.createdAt).toISOString() !== draft.createdAt || !integer(draft.revision) || !text(draft.text) || !choices(draft.choices) ||
       draft.workspace !== null && !workspace(draft.workspace) || draft.branchChoice !== undefined && !workspace(draft.branchChoice, true) ||
       !Array.isArray(draft.images) || !Array.isArray(draft.files) || !Array.isArray(draft.attachmentIds)) return bad();
+  const context = capturedContext(draft.context);
+  if (!context) return bad();
   const images = draft.images, files = draft.files;
   if (!images.every(image => descriptor(image) && (image.uploadId === undefined || text(image.uploadId)) &&
         (image.source === undefined || object(image.source))) ||
@@ -66,6 +118,7 @@ export function mobileOutboxTransferDecodeCapture(raw: unknown, record?: MobileO
       draft.attachmentIds.length !== all.length || new Set(draft.attachmentIds).size !== all.length ||
       !draft.attachmentIds.every(id => all.some(item => item.id === id))) return bad();
   if (record) {
+    if (!contextMatches(draft, record, context)) return bad();
     if (draft.origin !== record.origin || draft.environmentId !== record.environmentId || draft.projectId !== record.creation?.projectId ||
         draft.text.trim() !== record.text || mobileOutboxTransferCanonical(draft.attachmentIds) !== mobileOutboxTransferCanonical(record.attachments.map(a => a.id))) return bad();
     for (const attachment of record.attachments) {

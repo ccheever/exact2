@@ -1,7 +1,7 @@
 // Source365aa87982 new-task-flow-provider and NewTaskDraftScreen capture inputs.
 // @ref llp/1109.005-composer-and-transcript.decision.md#local-outbox-storage
 import type { MobileDraftClient } from './mobile-draft-recovery';
-import { mobileRecoveredDraftMarker } from './mobile-draft-recovery';
+import { mobileNewTaskContextProject } from './mobile-new-task-context';
 import { mobileNewTaskDraftPresentation, mobileNewTaskDraftSelectedBranch } from './mobile-new-task-drafts';
 import type { MobileOutboxCaptureFacts, MobileOutboxDraftPresentation } from './mobile-outbox-capture';
 import type { MobileOutboxRuntimeMode } from './mobile-outbox-model';
@@ -22,7 +22,6 @@ import { branchState } from './shared/r4-git-branch';
 import { isScratch, scratchRootOf } from './shared/r12-threads-scratch';
 import { peekCurrentVcsStatus, watchVcsStatus } from './shared/shell-vcs';
 import { contextReferences } from './shared/composer-editor-menu';
-import { terminalDraftRecords, isTerminalContextExpired } from './shared/terminal-integrations';
 
 const FILE_BYTES = 1024 * 1024; // WorkspaceFileSystem.ts PROJECT_READ_FILE_MAX_BYTES.
 const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value));
@@ -49,38 +48,18 @@ function fileContents(value: Obj): Obj | null {
   return mobileParseProjectFile(value.contents);
 }
 
-/** Preserve actual stored payloads. PR cache/thread-shell reconstruction has no
- * per-draft provenance and cannot resolve a retained draft's chip after retarget.
- * Terminal IDs identify durable, self-contained selected text, not a live host lookup. */
-function captureContext(client: MobileDraftClient, draft: MobileOutboxDraftPresentation): { context?: Obj; error: string } {
-  const references = contextReferences(draft.text), wanted = new Set(references.map(reference => reference.id));
-  const records = new Map<string, Obj>();
-  let error = '';
-  const add = (record: Obj) => {
-    const id = str(record.contextId), previous = records.get(id);
-    if (previous && JSON.stringify(previous) !== JSON.stringify(record)) error = 'A context reference has conflicting saved payloads.';
-    else records.set(id, clone(record));
-  };
-  for (const owner of Object.keys(obj(obj(client.local).mobileRecoveredDrafts))) {
-    const marker = mobileRecoveredDraftMarker(client, owner);
-    if (!marker || marker.owner !== owner || marker.key !== draft.key || marker.origin !== draft.origin || marker.environmentId !== draft.environmentId
-      || !Number.isSafeInteger(marker.revision) || Number(marker.revision) < 0) continue;
-    const saved = arr(obj(marker.context).records), ids = new Set(wanted);
-    for (const record of saved) if (ids.has(str(record.contextId)) && record.kind === 'preview-annotation' && str(record.screenshotContextId)) ids.add(str(record.screenshotContextId));
-    for (const record of saved.filter(record => ids.has(str(record.contextId)))) {
-      if (!('attachmentId' in record)) { add(record); continue; }
-      const pair = arr(marker.attachments).find(file => file.id === record.attachmentId || file.uploadId && file.uploadId === record.attachmentId);
-      const localId = str(pair?.id);
-      if (localId && draft.attachmentIds.includes(localId)) add({ ...record, attachmentId: localId });
-    }
+/** Only this draft's stored payload is capture authority, including after retarget/restart. */
+function contextError(draft: MobileOutboxDraftPresentation): string {
+  const projected = mobileNewTaskContextProject(draft.text, draft.context);
+  if (!projected.ok) return projected.error;
+  const records = projected.context?.records ?? [];
+  for (const reference of contextReferences(draft.text)) {
+    if (['image', 'file'].includes(reference.kind)) continue;
+    const record = records.find(record => record.contextId === reference.id && record.kind === reference.kind);
+    if (!record || record.kind === 'terminal' && !str(record.text).trim())
+      return 'Restore the saved context for this draft before queuing it.';
   }
-  for (const record of terminalDraftRecords(client, draft.text)) {
-    if (!isTerminalContextExpired({ text: str(record.text) })) add(record);
-  }
-  for (const reference of references) if (!['image', 'file'].includes(reference.kind) && !records.has(reference.id)) {
-    error ||= 'Restore the saved context for this draft before queuing it.';
-  }
-  return { ...(records.size ? { context: { version: 1, records: [...records.values()] } } : {}), error };
+  return '';
 }
 
 /** One foreground invocation. No native handle, Promise, timer or cache survives
@@ -112,7 +91,7 @@ export function mobileNewTaskCaptureFacts(client: MobileDraftClient, draftKey: s
     const vcs = connected && cwd ? peekCurrentVcsStatus(client, cwd) : null;
     const currentCheckoutBranch = vcs?.origin === origin && vcs.environmentId === draft.environmentId && vcs.generation === generation
       && vcs.status.isRepo === true ? str(vcs.status.refName) || null : null;
-    const context = captureContext(client, draft);
+    const context = contextError(draft);
     const runtime = runtimeModes.includes(str(settings.defaultRuntimeMode)) ? str(settings.defaultRuntimeMode) as MobileOutboxRuntimeMode : 'full-access';
     let blockReason = !prepared ? 'Wait for the task settings to load.' : readError;
     if (!config || !client.shellLoaded || !selectedProject || selectedProject.archivedAt != null || !cwd) blockReason ||= 'Wait for this environment and project to load.';
@@ -120,7 +99,7 @@ export function mobileNewTaskCaptureFacts(client: MobileDraftClient, draftKey: s
     if (!originVerified || mobileQueuedEditOrigin(client) !== draft.origin) blockReason ||= 'The draft environment identity is not verified.';
     if (client.busy || client.pending || mobileComposerAttachmentPicking(client) || mobileVoiceBlocksSubmission(client)) blockReason ||= 'Wait for the current composer operation to finish.';
     if (mobileNewTaskCloneBlocks(client)) blockReason ||= 'Wait for this repository to finish cloning.';
-    blockReason ||= context.error;
+    blockReason ||= context;
     const selectedModel = config && selectedProject ? mobileNewTaskDefaultModel(client) : null;
     return { key: draftKey, origin: draft.origin, environmentId: draft.environmentId, projectId: draft.projectId,
       ...(selectedProject ? { projectTitle: str(selectedProject.title), projectCwd: cwd } : {}),
@@ -129,7 +108,6 @@ export function mobileNewTaskCaptureFacts(client: MobileDraftClient, draftKey: s
       planPreferenceLoaded: preferencesLoaded, planModeEnabled: preferencesLoaded && planEnabled,
       workspace: { canChoose: !scratch, mode, worktreePath, explicitBranch: scratch ? null : mobileNewTaskDraftSelectedBranch(draft),
         currentCheckoutBranch, startFromOrigin: branchState(client).origin.get(draftKey) ?? settings.newWorktreesStartFromOrigin !== false },
-      ...context.context ? { context: context.context } : {},
       // No app-owned independent background upload producer or persisted origin
       // adoption exists yet. A remote ID alone must fail the pure capture check.
       uploadOwners: {}, uploadStates: {}, ...(blockReason ? { blockReason } : {}) };

@@ -1,6 +1,7 @@
 // Pinned365aa87982 keeps queued-edit content separate from thread model/runtime settings.
 // @ref llp/1109.005-composer-and-transcript.decision.md#scratch-tasks-and-queue-boundaries
 import { mobileNewTaskDraftIsKey, mobileNewTaskDraftLookup, mobileNewTaskDraftChanged } from './mobile-new-task-drafts';
+import { mobileNewTaskContextGuard, mobileNewTaskContextWrite } from './mobile-new-task-context';
 import { mobileQueuedEditOrigin } from './queued-edit-origin';
 import type { T3Client } from './shared/client';
 import { arr, str, type Obj } from './shared/domain';
@@ -12,14 +13,14 @@ import { mobileQueuedEditCurrent, mobileQueuedEditLookup, mobileQueuedEditWriteT
  * Keep the captured value through awaits; never resolve an ended edit as an ordinary draft. */
 export interface MobileComposerTarget {
   kind: 'ordinary' | 'queued-edit'; owner: string; key: string; editorOwner: string; editOwner: string;
-  origin: string; environmentId: string; generation: number; projectId: string; threadId: string;
+  origin: string; environmentId: string; generation: number; projectId: string; threadId: string; incarnation: string;
 }
 export function mobileComposerTarget(client: T3Client): MobileComposerTarget {
   const edit = mobileQueuedEditCurrent(client);
   const base = { origin: client.origin, environmentId: client.environmentId, generation: client.generation,
-    projectId: client.projectId, threadId: client.threadId };
+    projectId: client.projectId, threadId: client.threadId, incarnation: mobileNewTaskDraftLookup(client, client.draftKey)?.createdAt ?? '' };
   return edit ? { ...base, kind: 'queued-edit', owner: JSON.stringify(['queued-edit', edit.owner]), key: edit.draftKey, editorOwner: edit.owner, editOwner: edit.owner }
-    : { ...base, kind: 'ordinary', owner: JSON.stringify(['ordinary', client.origin, client.environmentId, client.generation, client.draftKey]),
+    : { ...base, kind: 'ordinary', owner: JSON.stringify(['ordinary', client.origin, client.environmentId, client.generation, client.draftKey, ...(base.incarnation ? [base.incarnation] : [])]),
       key: client.draftKey, editorOwner: client.draftKey, editOwner: '' };
 }
 export function mobileComposerTargetCurrent(client: T3Client, target: MobileComposerTarget): boolean {
@@ -32,7 +33,7 @@ export function mobileComposerTargetExists(client: T3Client, target: MobileCompo
   if (target.kind === 'queued-edit') return mobileQueuedEditLookup(target.editOwner, client)?.draftKey === target.key;
   if (!mobileNewTaskDraftIsKey(target.key)) return true;
   const draft = mobileNewTaskDraftLookup(client, target.key);
-  return !!draft && draft.environmentId === target.environmentId && draft.projectId === target.projectId
+  return !!draft && draft.createdAt === target.incarnation && draft.environmentId === target.environmentId && draft.projectId === target.projectId
     && draft.origin === mobileQueuedEditOrigin(client);
 }
 export function mobileComposerTargetText(client: T3Client, target: MobileComposerTarget): string | null {
@@ -53,6 +54,8 @@ export function mobileComposerTargetWriteText(client: T3Client, target: MobileCo
   if (!mobileComposerTargetExists(client, target)) return false;
   if (text.length > 1_000_000) throw new ClientError('Keep a draft under 1,000,000 characters.');
   if (target.kind === 'queued-edit') return mobileQueuedEditWriteText(target.editOwner, text, client);
+  const guard = mobileNewTaskContextGuard(client, target.key);
+  if (guard) return mobileNewTaskContextWrite(client, guard, text);
   client.local.drafts[target.key] = text; mobileNewTaskDraftChanged(client, target.key); client.revision++; return true;
 }
 export async function mobileComposerTargetPersist(client: T3Client, target: MobileComposerTarget, native: Native, storage: Files): Promise<void> {
@@ -81,4 +84,15 @@ export async function mobileComposerEditContext(client: T3Client, target: Mobile
   if (!mobileQueuedEditWriteContent(target.editOwner, { text, context: records.length ? { version: 1, records } : undefined }, client))
     throw new ClientError('The queued edit is no longer editable.', 'superseded');
   await mobileQueuedEditPersist(target.editOwner, native, client);
+}
+
+/** Independent drafts keep context beside the text before the single preference write. */
+export async function mobileComposerNewTaskContext(client: T3Client, target: MobileComposerTarget, text: string,
+  record: Obj | undefined, removeId: string, native: Native, storage: Files): Promise<void> {
+  const guard = mobileNewTaskContextGuard(client, target.key);
+  if (target.kind !== 'ordinary' || !guard || guard.createdAt !== target.incarnation || !mobileComposerTargetCurrent(client, target))
+    throw new ClientError('The composer changed.', 'superseded');
+  if (!mobileNewTaskContextWrite(client, guard, text, record, removeId))
+    throw new ClientError('This draft context could not be changed. Keep the original draft.');
+  await mobileComposerTargetPersist(client, target, native, storage);
 }

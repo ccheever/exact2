@@ -278,14 +278,142 @@ final class T3MobileOutbox {
     private static func fields(_ value: Object, required: [String], optional: [String] = []) -> Bool {
         Set(required).isSubset(of: Set(value.keys)) && Set(value.keys).isSubset(of: Set(required + optional))
     }
+    // Transfer-specific supported context admission. The ordinary outbox record
+    // decoder remains unchanged; captured payloads require stronger provenance.
+    private static func contextRecord(_ item: Object) -> Bool {
+        func string(_ key: String, _ limit: Int, required: Bool = false) -> Bool {
+            guard let value = item[key] as? String, value.utf16.count <= limit else { return false }
+            return !required || nonempty(value)
+        }
+        func identifier(_ value: Any?) -> Bool {
+            guard let value = value as? String, nonempty(value) else { return false }
+            return matches(value, "^[a-zA-Z0-9_-]{1,128}$")
+        }
+        guard integer(item["version"], positive: true), item["version"] as? Int == 1,
+              identifier(item["contextId"]), string("label", 200), let kind = item["kind"] as? String else { return false }
+        switch kind {
+        case "image", "file":
+            return identifier(item["attachmentId"]) && string("name", 255, required: true)
+                && string("mimeType", 100, required: true) && integer(item["sizeBytes"])
+        case "thread":
+            return nonempty(item["environmentId"]) && nonempty(item["threadId"]) && string("title", 200)
+        case "terminal":
+            return string("terminalId", 255, required: true) && string("terminalLabel", 255, required: true)
+                && integer(item["lineStart"]) && integer(item["lineEnd"])
+                && (item["lineEnd"] as! NSNumber).doubleValue >= (item["lineStart"] as! NSNumber).doubleValue && string("text", 64000)
+        case "mention": return string("path", 2048, required: true)
+        case "skill": return string("name", 255, required: true)
+        case "review-comment":
+            guard string("sectionId", 255, required: true), string("sectionTitle", 2048), string("filePath", 2048, required: true),
+                  integer(item["startIndex"]), integer(item["endIndex"]),
+                  (item["endIndex"] as! NSNumber).doubleValue >= (item["startIndex"] as! NSNumber).doubleValue,
+                  string("rangeLabel", 2048), string("text", 16000), string("diff", 32000),
+                  item["fenceLanguage"] == nil || string("fenceLanguage", 64) else { return false }
+            if let raw = item["pullRequest"] {
+                guard let pr = raw as? Object, integer(pr["number"], positive: true),
+                      ["title", "url", "headBranch", "baseBranch"].allSatisfy({ (pr[$0] as? String).map { $0.utf16.count <= 2048 } == true }),
+                      member(pr["state"], ["open", "closed", "merged"]), boolean(pr["isDraft"]) else { return false }
+            }
+            return true
+        default: return false
+        }
+    }
+    private static func contextRecords(_ raw: Any?, bounded: Bool = false) -> [Object]? {
+        guard let raw else { return [] }
+        guard let value = raw as? Object, integer(value["version"], positive: true), value["version"] as? Int == 1,
+              let records = value["records"] as? [Object], !bounded || records.count <= 200,
+              let data = try? JSONSerialization.data(withJSONObject: records, options: [.withoutEscapingSlashes]),
+              let serialized = String(data: data, encoding: .utf8), !bounded || serialized.utf16.count <= 16_000_000 else { return nil }
+        var seen = Set<String>()
+        guard records.allSatisfy({ contextRecord($0) && seen.insert($0["contextId"] as! String).inserted }) else { return nil }
+        return records
+    }
+    private static func contextReferences(_ text: String) -> [(kind: String, id: String)] {
+        // The source regex counts UTF-16 units and uses ECMAScript whitespace.
+        // ICU quantifiers count Unicode scalars, so scan its bounded grammar directly.
+        let units = Array(text.utf16), prefix = Array("(t3-context://v1/".utf16)
+        var seen = Set<String>(), result: [(kind: String, id: String)] = [], start = 0
+        while start < units.count {
+            guard units[start] == 91 else { start += 1; continue }
+            var close = start + 1
+            while close < units.count && close - start - 1 <= 512 && units[close] != 93 && units[close] != 10 { close += 1 }
+            guard close < units.count, close - start - 1 <= 512, units[close] == 93,
+                  close + 1 + prefix.count <= units.count,
+                  Array(units[(close + 1)..<(close + 1 + prefix.count)]) == prefix else { start += 1; continue }
+            let begin = close + 1 + prefix.count
+            var end = begin
+            while end < units.count && end - begin <= 200 && units[end] != 41 {
+                if let scalar = UnicodeScalar(UInt32(units[end])), trimCharacters.contains(scalar) { break }
+                end += 1
+            }
+            guard end < units.count, end > begin, end - begin <= 200, units[end] == 41 else { start += 1; continue }
+            let parts = String(decoding: units[begin..<end], as: UTF16.self).split(separator: "/", omittingEmptySubsequences: false).map(String.init)
+            start = end + 1
+            guard parts.count == 2, matches(parts[0], "^[a-z][a-z0-9-]{0,39}$"), matches(parts[1], "^[a-zA-Z0-9_-]{1,128}$"),
+                  seen.insert(parts.joined(separator: "/")).inserted else { continue }
+            result.append((parts[0], parts[1]))
+        }
+        return result
+    }
+    private static func contextLabel(_ name: String, kind: String) -> String {
+        let replaced = name.replacingOccurrences(of: #"[\[\]\\\r\n]"#, with: " ", options: .regularExpression)
+        let words = replaced.components(separatedBy: trimCharacters).filter { !$0.isEmpty }
+        // Match the source label normalization and its UTF-16 length bound.
+        let joined = words.joined(separator: " ") as NSString
+        let result = joined.substring(to: min(joined.length, 200))
+        return result.isEmpty ? kind : result
+    }
+    private static func contextMatches(_ draft: Object, _ record: Object, _ originals: [Object], _ attachments: [Object]) -> Bool {
+        let references = contextReferences(draft["text"] as! String)
+        let selected = originals.filter { original in references.contains { $0.id == original["contextId"] as? String } }
+        let submitted: [Object]
+        if let raw = record["context"] {
+            guard let context = raw as? Object, fields(context, required: ["version", "records"]),
+                  integer(context["version"], positive: true), context["version"] as? Int == 1,
+                  let records = context["records"] as? [Object] else { return false }
+            submitted = records
+        } else { submitted = [] }
+        var expected: [Object] = []
+        for original in selected {
+            guard !references.contains(where: { $0.id == original["contextId"] as? String && $0.kind != original["kind"] as? String }),
+                  expected.count < submitted.count else { return false }
+            var normalized = original
+            if member(original["kind"], ["image", "file"]) {
+                let actual = submitted[expected.count]
+                guard let attachment = attachments.first(where: { $0["id"] as? String == original["attachmentId"] as? String })
+                    ?? attachments.first(where: { nonempty($0["uploadId"]) && $0["uploadId"] as? String == original["attachmentId"] as? String }),
+                    attachment["kind"] as? String == original["kind"] as? String,
+                    actual["attachmentId"] as? String == attachment["id"] as? String,
+                    ["name", "mimeType", "sizeBytes"].allSatisfy({ jsonEqual(original[$0], attachment[$0]) }) else { return false }
+                normalized["attachmentId"] = attachment["id"]
+            }
+            expected.append(normalized)
+        }
+        for reference in references {
+            if selected.contains(where: { $0["contextId"] as? String == reference.id }) { continue }
+            guard let attachment = attachments.first(where: {
+                let id = $0["kind"] as? String == "file" ? $0["contextId"] as? String : "image_\($0["id"] as? String ?? "")"
+                return $0["kind"] as? String == reference.kind && id == reference.id
+            }) else { return false }
+            expected.append(["version": 1, "contextId": reference.id, "kind": reference.kind,
+                "label": contextLabel(attachment["name"] as! String, kind: reference.kind), "attachmentId": attachment["id"]!,
+                "name": attachment["name"]!, "mimeType": attachment["mimeType"]!, "sizeBytes": attachment["sizeBytes"]!])
+        }
+        guard contextRecords(["version": 1, "records": expected], bounded: true) != nil else { return false }
+        if draft["context"] != nil && originals.isEmpty || !expected.isEmpty {
+            return record["context"] != nil && jsonEqual(submitted, expected)
+        }
+        return record["context"] == nil
+    }
     static func validateCapture(_ capture: Object, record: Object? = nil) -> Bool {
         guard fields(capture, required: ["version", "draft"]), integer(capture["version"], positive: true), capture["version"] as? Int == 1,
               let draft = capture["draft"] as? Object,
-              fields(draft, required: ["key", "revision", "createdAt", "environmentId", "origin", "projectId", "text", "images", "files", "attachmentIds", "choices", "workspace"], optional: ["branchChoice"]),
+              fields(draft, required: ["key", "revision", "createdAt", "environmentId", "origin", "projectId", "text", "images", "files", "attachmentIds", "choices", "workspace"], optional: ["branchChoice", "context"]),
               let key = draft["key"] as? String, nonempty(key), matches(key, "^new-task:[a-zA-Z0-9_-]{1,128}$"),
               integer(draft["revision"]), canonicalOrigin(draft["origin"]), nonempty(draft["environmentId"]), nonempty(draft["projectId"]),
               draft["text"] is String, let images = draft["images"] as? [Object], let files = draft["files"] as? [Object],
               let order = draft["attachmentIds"] as? [String], JSONSerialization.isValidJSONObject(capture) else { return false }
+        guard let context = contextRecords(draft["context"]) else { return false }
         if !(draft["choices"] is NSNull) {
             guard let choices = draft["choices"] as? Object,
                   fields(choices, required: [], optional: ["providerId", "modelId", "modelOptions", "runtimeMode", "interactionMode"]) else { return false }
@@ -334,7 +462,7 @@ final class T3MobileOutbox {
                   record["environmentId"] as? String == draft["environmentId"] as? String,
                   (record["creation"] as? Object)?["projectId"] as? String == draft["projectId"] as? String,
                   record["text"] as? String == (draft["text"] as! String).trimmingCharacters(in: trimCharacters),
-                  jsonEqual(record["attachments"], attachments) else { return false }
+                  jsonEqual(record["attachments"], attachments), contextMatches(draft, record, context, attachments) else { return false }
         }
         return true
     }

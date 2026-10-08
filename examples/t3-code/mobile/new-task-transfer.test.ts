@@ -1,7 +1,7 @@
 // Sequencing regressions use controlled native replies. Native durability is checked separately.
 import { expect, test } from 'bun:test';
 import { MobileDraftClient, mobileDraftRecoveryHandles } from './mobile-draft-recovery';
-import { mobileNewTaskDraftCreate, mobileNewTaskDraftPresentation, mobileNewTaskDraftChanged } from './mobile-new-task-drafts';
+import { mobileNewTaskDraftCreate, mobileNewTaskDraftPresentation, mobileNewTaskDraftChanged, mobileNewTaskDraftStore } from './mobile-new-task-drafts';
 import { mobileNewTaskTransferSubmit as submit, mobileNewTaskTransferResume as resume,
   mobileNewTaskTransferBusy as busy } from './new-task-transfer';
 import { mobileCaptureNewTaskOutbox, type MobileOutboxCaptureFacts } from './mobile-outbox-capture';
@@ -350,7 +350,7 @@ test('known source admission refusals precede preference writes and ID allocatio
     if (reason === 'text') f.client.local.drafts[key] = '  ';
     if (reason === 'model') f.facts.selectedModel = null;
     if (reason === 'worktree') { f.facts.workspace.mode = 'worktree'; f.facts.workspace.explicitBranch = null; }
-    if (reason === 'context') f.facts.context = { version: 1, records: [{ kind: 'unsupported' }] };
+    if (reason === 'context') mobileNewTaskDraftStore(f.client).records[key]!.context = { version: 1, records: [{ kind: 'unsupported' }] };
     f.hooks.set('persist:1', async () => { throw Error('must not mask admission with disk failure'); });
     const before = mobileNewTaskDraftPresentation(f.client, key), result = await submit(f.client, f.native, f.storage, f.input);
     expect(result.status).toBe('blocked'); expect(result.message).not.toContain('mask');

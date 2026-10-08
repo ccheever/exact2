@@ -15,6 +15,8 @@ export interface MobileNewTaskBranchChoice extends DraftContext { kind: 'automat
 export interface MobileNewTaskDraft {
   key: string; environmentId: string; projectId: string; origin: string; createdAt: string;
   revision: number; choices: MobileNewTaskChoices | null; branchChoice?: MobileNewTaskBranchChoice;
+  /** Raw saved message context survives even when a future or malformed payload blocks capture. */
+  context?: unknown;
 }
 export interface MobileNewTaskDraftStore {
   version: 1; records: Record<string, MobileNewTaskDraft>; receipts: Record<string, unknown>;
@@ -50,7 +52,8 @@ export function mobileNewTaskDraftHydrate(client: T3Client, saved: Obj): void {
     const choices = obj(record.choices), branchChoice = decodeBranchChoice(record.branchChoice);
     records[key] = { key, environmentId: str(record.environmentId), projectId: str(record.projectId), origin: str(record.origin),
       createdAt: str(record.createdAt), revision: Number(record.revision), choices: decodeChoices(choices),
-      ...(branchChoice ? { branchChoice } : {}) };
+      ...(branchChoice ? { branchChoice } : {}),
+      ...(Object.hasOwn(record, 'context') ? { context: mobileNewTaskDraftClone(record.context) } : {}) };
   }
   // Keep invalid receipt values visible to admission. Silently dropping one could
   // route its pending launch through the ordinary project-slot cleanup.

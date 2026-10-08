@@ -1,4 +1,5 @@
-import { mobileComposerTarget, mobileComposerTargetText, mobileComposerEditContext } from './composer-target';
+import { mobileComposerTarget, mobileComposerTargetText, mobileComposerEditContext, mobileComposerNewTaskContext } from './composer-target';
+import { mobileNewTaskDraftIsKey } from './mobile-new-task-drafts';
 import { contextLink } from './shared/composer-editor-menu';
 // T3 Code365aa87982 ReviewSheet/useReviewSections/useReviewDiffData.
 // @ref llp/1109.006-review-and-files.decision.md#ownership
@@ -246,6 +247,10 @@ export async function mobileReviewAction(owner: string, op: string, id: string, 
         const link = contextLink('review-comment', id, str(reviewCommentContextRecord(entry.comment).label));
         const text = (mobileComposerTargetText(client, target) ?? '').replace(link, '');
         await mobileComposerEditContext(client, target, text, null, id, native);
+      } else if (mobileNewTaskDraftIsKey(target.key)) {
+        const link = new RegExp(`\\[[^\\]\\n]{0,512}\\]\\(t3-context://v1/review-comment/${id.replace(/[^a-z0-9_-]/gi, '')}\\) ?`, 'g');
+        const text = (mobileComposerTargetText(client, target) ?? '').replace(link, '');
+        await mobileComposerNewTaskContext(client, target, text, undefined, id, native, storage);
       } else await removeReviewCommentChip(client, reviewComposerNative(client, native, storage, owner), id);
       assertReviewComposerOwner(client, target.owner);
       state.comments = state.comments.filter(row => row !== entry);
@@ -259,6 +264,9 @@ export async function mobileReviewAction(owner: string, op: string, id: string, 
       if (target.kind === 'queued-edit') {
         const text = `${mobileComposerTargetText(client, target) ?? ''}${contextLink('review-comment', str(record.contextId), str(record.label))} `;
         await mobileComposerEditContext(client, target, text, record, '', native);
+      } else if (mobileNewTaskDraftIsKey(target.key)) {
+        const text = `${mobileComposerTargetText(client, target) ?? ''}${contextLink('review-comment', str(record.contextId), str(record.label))} `;
+        await mobileComposerNewTaskContext(client, target, text, record, '', native, storage);
       } else await addReviewCommentChip(client, reviewComposerNative(client, native, storage, owner), record);
       assertReviewComposerOwner(client, target.owner);
       state.comments.push({ composerOwner: target.owner, contextId: record.contextId, comment }); state.pick = null; state.ranging = false; state.commentOpen = false;

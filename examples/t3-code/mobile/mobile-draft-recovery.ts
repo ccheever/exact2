@@ -1,3 +1,4 @@
+import { mobileNewTaskContextCommand } from './mobile-new-task-context-command';
 import { mobileDraftAttachmentRecord, mobileDraftAttachmentOrdersHydrate, mobileDraftAttachmentOrdersPersisted, mobileDraftAttachmentsForSend } from './draft-attachment-order';
 import { mobileDraftSettingsHandles } from './mobile-draft-settings';
 import { mobileOutboxTransferCompletionsHydrate, mobileOutboxTransferCompletionsPersisted, mobileOutboxTransferReleaseHandle } from './mobile-outbox-transfer-cleanup';
@@ -157,6 +158,10 @@ export class MobileDraftClient extends T3Client {
   override get draftKey(): string { return mobileNewTaskDraftBoundKey(this) || super.draftKey; }
   override async command(...args: Parameters<T3Client['command']>): ReturnType<T3Client['command']> {
     const [op, id, value, n, native, storage] = args, handles = mobileDraftSettingsHandles(this, op, native, storage);
+    if (op.startsWith('editorlocal:')) {
+      const context = await mobileNewTaskContextCommand(this, op, id, value, handles.native, handles.storage);
+      if (context) return context;
+    }
     return super.command(op, id, value, n, handles.native, handles.storage);
   }
   protected override finishPending(pending: Pending, environmentId = this.environmentId): void {

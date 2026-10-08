@@ -63,6 +63,24 @@ test('revision mismatch preserves content, mixed order and ABA-identical attachm
   expect(apply(f.client, f.claim)).toBe('applied'); expect(presentation(f.client, A)).toEqual(before);
   expect(mobileDraftAttachmentIds(f.client, A)).toEqual([image.id, file.id]);
 });
+test('cleanup preserves a changed context payload even when its revision and text match', async () => {
+  const context = { version: 1, records: [{ version: 1, kind: 'thread', contextId: 'thread_original', label: 'Original thread',
+    environmentId: 'env', threadId: 'original', title: 'Original thread' }] };
+  const f = await populated(); store(f.client).records[A]!.context = context;
+  f.claim.capture!.draft = presentation(f.client, A)!;
+  context.records[0]!.environmentId = 'other-env';
+  const before = presentation(f.client, A);
+  expect(apply(f.client, f.claim)).toBe('applied');
+  expect(presentation(f.client, A)).toEqual(before);
+  await f.client.persist(f.storage);
+  const restarted = await fixture(f.disk());
+  expect(presentation(restarted.client, A)?.context).toEqual(context);
+  expect(apply(restarted.client, f.claim)).toBe('already-applied');
+  const unchanged = await populated(); store(unchanged.client).records[A]!.context = context;
+  unchanged.claim.capture!.draft = presentation(unchanged.client, A)!;
+  expect(apply(unchanged.client, unchanged.claim)).toBe('applied');
+  expect(presentation(unchanged.client, A)).toBeNull();
+});
 test('same revision removes only exact descriptors and preserves new referenced file metadata', async () => {
   const f = await populated(); f.client.local.drafts[A] = '[notes](t3-context://v1/file/file_2)';
   f.client.local.snapshotDrafts[A]![0]!.name = 'renamed.png';
