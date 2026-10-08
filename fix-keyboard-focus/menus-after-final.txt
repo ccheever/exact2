@@ -10,5 +10,5 @@ PR Check out: Enter on pull-request-checkout -> pr-checkout-worktree; ArrowDown 
 PR stack menu: Enter on pull-request-stack -> pr-stack-layer-119; ArrowDown -> pr-stack-layer-118; End -> pr-stack-rebase; Escape -> pull-request-stack
 Usage environment menu: Enter on usage-environment -> usage-environment-all; ArrowDown -> usage-environment-29424100-ebee-4032-aea4-e67ebb304762; End -> usage-model-prices; Escape -> usage-environment; menu open: False; still on Usage: True
 
-Earlier run (build 6 sources, 16:24 local), PR row stack popover:
+Earlier run on this branch at 13473beee (16:24 local), PR row stack popover:
 PR row stack popover: Enter on pr-row-stack-e3f4b86b-468a-400d-ae1c-8217e17f03cb-119-trigger -> pr-row-stack-e3f4b86b-468a-400d-ae1c-8217e17f03cb-119-keys; ArrowDown -> pr-row-stack-e3f4b86b-468a-400d-ae1c-8217e17f03cb-119-layer-119; End -> pr-row-stack-e3f4b86b-468a-400d-ae1c-8217e17f03cb-119-layer-118; Escape -> pr-row-stack-e3f4b86b-468a-400d-ae1c-8217e17f03cb-119-trigger
