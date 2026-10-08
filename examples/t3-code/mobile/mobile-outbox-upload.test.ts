@@ -88,14 +88,16 @@ test('only a missing asset permits reupload; auth and transport errors preserve 
     expect(ops(f)).not.toContain('attachments.delete');
   }
 });
-test('older-server images remain inline with no adoption or early persistChatAttachments', async () => {
+test('older-server image metadata requires no JavaScript bytes, adoption or early assets RPC', async () => {
   const f = await fixture(); obj(f.client.config.environment).capabilities = {};
   const result = await f.run(); expect(result.status).toBe('ready');
   if (result.status !== 'ready') throw new Error(result.reason);
-  expect(result.attachments).toEqual([{ localId: image().id, kind: 'inline-image', attachment: {
-    type: 'image', name: 'image.png', mimeType: 'image/png', sizeBytes: 3, dataUrl: 'data:image/png;base64,YWJj' } }]);
+  expect(result.attachments).toEqual([{ localId: image().id, kind: 'inline-image-metadata', attachment: {
+    type: 'image', name: 'image.png', mimeType: 'image/png', sizeBytes: 3 } }]);
   expect(result.pendingAttachmentIds).toEqual([]); expect(f.disk().attachments[0]!.uploadId).toBe('');
   expect(ops(f)).not.toContain('mutate'); expect(ops(f)).not.toContain('assets.persistChatAttachments');
+  expect(ops(f)).not.toContain('snapshotDraftRead'); expect(ops(f)).not.toContain('composerAttachRead');
+  expect(JSON.stringify(result)).not.toContain('dataUrl');
 });
 test('Files-selected image requires file capability before wire promotion', async () => {
   const f = await fixture([{ ...file(), name: 'photo.png', mimeType: 'image/png' }]);
@@ -163,4 +165,15 @@ test('invalid retained wire IDs are refused before verification or adoption', as
     expect((await f.run()).status).toBe('blocked'); expect(ops(f)).not.toContain('assets.createUrl');
     expect(ops(f)).not.toContain('mutate');
   }
+});
+
+test('legacy attachment capability still refuses mixed files before bytes, upload or adoption', async () => {
+  const f = await fixture([image(), file(), image('3')]);
+  obj(f.client.config.environment).capabilities = { attachmentUploads: false, fileAttachments: { maxUploadBytes: 50 * 1024 * 1024 } };
+  const result = await f.run(); expect(result.status).toBe('blocked');
+  if (result.status !== 'blocked') throw Error('Expected source file capability refusal');
+  expect(result.reason).toBe('This server does not support file attachments.');
+  expect(f.disk().attachments.map(entry => entry.uploadId)).toEqual(['', '', '']);
+  for (const operation of ['snapshotDraftRead', 'composerAttachRead', 'uploadAttachment', 'mutate', 'assets.persistChatAttachments'])
+    expect(ops(f)).not.toContain(operation);
 });
