@@ -13,6 +13,7 @@ import { pullRequestReviewKey, pullRequestReviewStore } from './pages-pr-writes-
 import { toasts } from './toast';
 import { renderablePatch } from './pages-pr-code-logic';
 import { composerReplyEvent } from './composer-replies';
+import { presentTimeline } from './pages-pr-timeline';
 
 const NOW = Date.parse('2026-10-08T12:00:00Z');
 const at = (minutesAgo: number) => new Date(NOW - minutesAgo * 60_000).toISOString();
@@ -345,5 +346,18 @@ describe('hidden lines (createPullRequestDiffFileContentsLoader)', () => {
     const view = await f.settle();
     expect(f.of('pullRequests.diffFileContents').map(call => call.payload.changeType)).toEqual(['rename-changed']);
     expect(view.codeTab.items.filter(item => item.path === 'src/strings.js' && item.kind === 'line').map(item => item.number)).toEqual(['1', '2', '2', '3']);
+  });
+});
+
+describe('the Timeline opens a commit in the Code tab (PullRequestTimelineTab CommitEvent onOpen)', () => {
+  test('a commit row carries its whole oid, which scopes the Code tab', async () => {
+    const timeline = presentTimeline({ detail: detail(), activity: activity(), activityPending: false, activityError: '', now: NOW });
+    const row = timeline.newest.find(entry => entry.kind === 'commit' && entry.headline === 'Commit 6')!;
+    expect([row.id, row.sha]).toEqual([commits[5]!.oid, commits[5]!.oid.slice(0, 7)]);
+    const f = fixture();
+    await f.settle({ tab: 'timeline' });
+    await f.press('scope', row.id); // PrdBody openCommit: the scope, then setTab("code")
+    const view = await f.settle({ tab: 'code' });
+    expect([view.codeTab.mounted, view.codeTab.scopeLabel, f.of('prDiff').map(call => call.payload.commit)]).toEqual([true, 'Commit 6', [row.id]]);
   });
 });
