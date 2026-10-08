@@ -83,13 +83,11 @@ component WelcomeLayer
     modalError: string
     welcomeLink: string
     welcomePairOpen: bool
-    welcomeHelpOpen: bool
     welcomeGo: action
     welcomeImport: action
     welcomeEditLink: action
     welcomePair: action
     welcomeTogglePair: action
-    welcomeToggleHelp: action
     prCopy: action
     welcomeSetup: action
     providerUi: action
@@ -97,6 +95,10 @@ component WelcomeLayer
     // managed-codex-chatgpt: the Codex rows' setup commands (providerOp's setup: queue) and that queue's pending.
     providerOp: action
     setupBusy: bool
+  // The wizard's help disclosure (moved from app.contract: only this layer reads or writes it).
+  state welcomeHelpOpen = false
+  action welcomeToggleHelp
+    welcomeHelpOpen = not welcomeHelpOpen
   view
     when welcome.show
       when viewport.prefersColorScheme == "dark"
