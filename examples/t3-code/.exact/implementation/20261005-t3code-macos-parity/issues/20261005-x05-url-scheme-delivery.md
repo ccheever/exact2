@@ -6,6 +6,7 @@ kind: framework-gap
 blocks: [20261005-app-activation, 20261005-managed-codex-chatgpt, 20261005-provider-sign-in-and-install, 20261005-t3-connect-sign-in]
 upstream_url: https://github.com/ccheever/exact2/issues/104
 reproduced_on: null
+rest_upstream_url: https://github.com/ccheever/exact2/issues/268
 ---
 
 # X5: A custom-scheme URL delivered to a data source or module when no route takes it
@@ -98,3 +99,7 @@ was. A scheme URL is still delivered only to a navigation root's `navigate`; not
 or module (this issue's request). Adoption: none. The clone has no scheme workaround, and
 `20261005-app-activation` is not built (user decision U10 pending); its rows and `t3-connect-sign-in`'s
 stay blocked as before.
+
+## Rest filed upstream (2026-10-08)
+
+Upstream (the rest): https://github.com/ccheever/exact2/issues/268 (#268, [Design] Deliver a custom-scheme URL, whole, to an app with no navigation root (rest of #104)). Reproduced on main `0365ad1a4` (relevant files unchanged on main `e200397ec`) before filing: cold launch: `launch URL refused: no navigation root handler`; warm GetURL: `navigate refused: no navigation root handler`; `location_of` drops the scheme and fragment; no `protocol_handlers` key or module URL callback. Blocked by LLP 1038 D8 (a URL is only the navigation root's location); one "Decision needed" comment. Searched open and closed issues and PRs: no duplicate.

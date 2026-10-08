@@ -1,11 +1,11 @@
 ---
 name: 20261008-x58-scroll-lost-after-window-refocus
 plan: 20261005-t3code-macos-parity
-status: draft
+status: closed-not-reproduced
 kind: framework-gap (unconfirmed)
 blocks: [20261008-pr-list-live-refresh]
 upstream_url: null
-reproduced_on: 02c61c110 (feat(example)/t3-code-pr-list-live-refresh on 07dcef1ab; main's framework at that base)
+reproduced_on: not reproduced on main 0365ad1a4 (one-file app)
 ---
 
 # X58: a wheel-scrolled `scroll` goes back to its top after the window is focused again (macOS, unconfirmed)
@@ -69,3 +69,13 @@ scrolled down back at the top every time they come back to the window.
 ## Progress
 2026-10-08: drafted from pr-list-live-refresh's investigation session (A, B, C above). Not reproduced on
 `main` with a one-file app, not searched upstream, not published.
+
+## Upstream (2026-10-08)
+
+Upstream: not reproduced on main `0365ad1a4`, closed (2026-10-08); not filed. The relevant files (`Session.tellPage`, `ScrollAnchoringMac.swift`) are unchanged on main `e200397ec`. One-file app: `resource page = exactPage()`, and `resource rows = listRows(page.hasFocus)` answering the same 100 keyed rows in a `scroll` of height 400, beside a plain `scroll` of 20 literal rows. Drive: `tap list wheel 0 1200`, `prefer has-focus false`, `prefer has-focus true`, `clock settle`, `layout row-40`. Four variants each kept the offset:
+1. A synchronous re-read: `row-40` at viewport y 431 before and after; the plain scroller's row also kept (533).
+2. The same read behind a 1.5 s network `fetch`: 431 throughout, read pending included.
+3. Two refocuses in quick succession: 431.
+4. Rows inside two keyed groups, with a `when pending(rows)` line at the scroller's top: 455 throughout.
+
+What the clone does beyond these (its own carried answer while a read is out, its grouping, its live-refresh rules) remains the lead. A drive on the clone with the list read held off would tell whether a host or the app moves it. The draft came with PR #265; this round closed it.

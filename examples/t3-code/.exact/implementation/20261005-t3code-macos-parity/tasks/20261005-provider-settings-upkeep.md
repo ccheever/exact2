@@ -54,7 +54,7 @@ Scheduling preference (not a prerequisite): after `20261005-main-fix-adoption` (
 
 ## Issue assessment at preparation
 
-Checked sources and time: plan `issues/` drafts read 2026-10-05; no upstream search (no network). Records: [X17](../issues/20261005-x17-popover-position-try.md), [X9](../issues/20261005-x09-root-component-across-files.md), [X21](../issues/20261005-x21-two-way-websocket.md), [X10](../issues/20261005-x10-text-rendering-parity.md), [X13](../issues/20261005-x13-hover-keys-during-pan.md), [X35](../issues/closed/20261005-x35-secure-text-entry.md), [X44](../issues/20261005-x44-remote-image-policy.md).
+Checked sources and time: plan `issues/` drafts read 2026-10-05; no upstream search (no network). Records: [X17](../issues/20261005-x17-popover-position-try.md), [X9](../issues/20261005-x09-root-component-across-files.md), [X21](../issues/20261005-x21-two-way-websocket.md), [X10](../issues/20261005-x10-text-rendering-parity.md), [X13](../issues/closed/20261005-x13-hover-keys-during-pan.md), [X35](../issues/closed/20261005-x35-secure-text-entry.md), [X44](../issues/20261005-x44-remote-image-policy.md).
 
 | Issue / reference | Capability and target | Evidence / affected revision | Impact | Next action |
 | --- | --- | --- | --- | --- |
@@ -193,7 +193,7 @@ Acceptance rows (2026-10-08, after the approved session):
 - **Blocked:** a real ACP session import (the user chose not to sign in to Gemini CLI or Antigravity).
 - **Not run:** Trace and pixels (user decision 2026-10-06: no oracle or trace tools).
 
-Framework problem (not filed): `scripts/agent.mjs` `clock "+N real"` (around line 1240) sent a
+Framework problem (filed 2026-10-08 as [#285](https://github.com/ccheever/exact2/issues/285), reproduced on main `0365ad1a4`): `scripts/agent.mjs` `clock "+N real"` (around line 1240) sent a
 `to` a hair below the macOS host's clock and the host refused it (`host/apple/Sources/ExactKit/Agent.swift:521`:
 `the clock cannot go backwards (59100.0 → 59099.99999999999)`). Seen once, 19:19:18Z in
 `after-drive-part2-record.txt`, in a `settle` (`clock "+600 real"` then `clock settle`) after a

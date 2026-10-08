@@ -1,7 +1,7 @@
 ---
 name: 20261005-x42-text-blur-filter
 plan: 20261005-t3code-macos-parity
-status: draft
+status: closed-supported
 kind: framework-gap (unconfirmed)
 blocks: [20261005-provider-sign-in-and-install]
 upstream_url: null
@@ -57,3 +57,7 @@ Add `filter="blur(4px)"` (hidden state only) to `RedactedText` in `redacted-text
 
 Draft; not reproduced on the pinned `main`; not searched upstream; not published.
 Next: `issue-open` (reproduce, search for duplicates, prepare the report for the user's approval; publication only after approval).
+
+## Upstream (2026-10-08)
+
+Upstream: supported on main `0365ad1a4`, closed (2026-10-08); not filed. `contract vocab filter` lists the `filter` style row; `text "someone@example.com" filter="blur(4px)"` and a `box filter="blur(4px)"` compile and render blurred on macOS and the web (agent screenshots, the same radius by eye). The app can add `filter="blur(4px)"` to the hidden state of its redacted text.

@@ -6,6 +6,7 @@ kind: framework-gap
 blocks: [20261005-desktop-shell-details]
 upstream_url: https://github.com/ccheever/exact2/issues/113
 reproduced_on: null
+rest_upstream_url: https://github.com/ccheever/exact2/issues/267
 ---
 
 # X27: Title-row height and traffic-light inset, frame restore after the final style, full-screen state fact
@@ -82,3 +83,7 @@ adopted earlier). Still missing on `261dd4e10`: `env()` accepts only `safe-area-
 `exactPage()` no full-screen field (its fields are `visibilityState`, `onLine`, `canShare`, `canOpenFiles`,
 `hasFocus`). `T3WindowChrome.swift` and `T3FullScreen.swift` stay. No open upstream issue tracks the rest of #113;
 filing one is the user's decision ([adopt-main-fixes-r5](../tasks/closed/20261007-adopt-main-fixes-r5.md)).
+
+## Rest filed upstream (2026-10-08)
+
+Upstream (the rest): https://github.com/ccheever/exact2/issues/267 (#267, [Design] macOS: a title-bar area beside the traffic lights, and a full-screen fact (rest of #113)). Reproduced on main `0365ad1a4` (relevant files unchanged on main `e200397ec`) before filing: macOS `layout` gives `safe-area 32 0 0 0` against a 52 pt title row and the traffic lights stay centred at about y = 16 pt; `env(titlebar-area-*)` is `lower-attr-value`; `host.macos.window` has no title-row key; `exactPage().fullscreen` and `exactViewport().displayMode` are refused at bake. One "Decision needed" comment. Searched open and closed issues and PRs: no duplicate.

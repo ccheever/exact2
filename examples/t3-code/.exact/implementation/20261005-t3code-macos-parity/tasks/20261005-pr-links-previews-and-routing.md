@@ -66,7 +66,7 @@ Checked sources and time: planning pass 2026-10-05 over `EXACT2-GAPS.md` and `..
 
 | Issue / reference | Capability and target | Evidence / affected revision | Impact | Next action |
 | --- | --- | --- | --- | --- |
-| [X13](../issues/20261005-x13-hover-keys-during-pan.md) | Hover close/cancel during a pan | Documented clone limit | nonblocking (workaround: partial, r12) | Declare in matrix |
+| [X13](../issues/closed/20261005-x13-hover-keys-during-pan.md) | Hover close/cancel during a pan | Documented clone limit | nonblocking (workaround: partial, r12) | Declare in matrix |
 | [X17](../issues/20261005-x17-popover-position-try.md) | Hover card flips near window edges | AGENT-HANDOFF "flipped hover card overhang" | nonblocking (workaround: fixed placement) | Declare |
 | [X19](../issues/20261005-x19-data-source-timers.md) | 350 ms open / 120 ms close hover delays; 10 s linked-thread poll | Delays held in Contract/`now` args today | nonblocking (workaround: `now` arguments, Contract tasks) | Reuse the details-card hover card's delay mechanism |
 | [X34](../issues/20261005-x34-inline-span-frame.md) | Frame and hover of an inline link inside rendered Markdown, to anchor the card | `t3-anchor`/`t3-frame` hooks cover boxes ([X22](../issues/20261005-x22-reactive-layout-facts.md)), not inline runs | unknown | Spike at `prepare`; if the renderer cannot expose a link's frame, the hover card on inline links is held for a user decision (no matching workaround); autolinks still link 2026-10-07: #133 closed; main #178 makes the macOS agent hover inline runs (enter, leave, a point's hit test), so an inline link's hover can be built and driven; `frame()` of an inline run is still missing, so the card's anchor remains the open question (adopt-main-fixes-input). |

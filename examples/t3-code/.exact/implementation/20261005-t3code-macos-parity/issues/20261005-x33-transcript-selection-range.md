@@ -6,6 +6,7 @@ kind: framework-gap (unconfirmed)
 blocks: [20261005-diff-review-engine]
 upstream_url: https://github.com/ccheever/exact2/issues/132
 reproduced_on: null
+rest_upstream_url: https://github.com/ccheever/exact2/issues/274
 ---
 
 # X33: Selected text, its source message and UTF-16 offsets, and its end rectangle from the rendered transcript
@@ -126,3 +127,7 @@ Implement G3 in `20261005-diff-review-engine`: port `createAssistantTextSelector
 Filed as #132 and closed. Main #171 fixed part 1 only (a press on a `button` keeps the selection). task `20261007-adopt-main-fixes-input`: nothing to remove; Cite's `retainFocus=true` is the reference's `onPointerDown` `preventDefault()`, not a workaround. Still missing on main: part 2 (the selection's end rectangle, so the Cite button sits under the block, not under the selection's end) and part 3 (`clearSelection()`: the reference clears the selection after citing; the clone leaves it).
 
 Re-checked 2026-10-07 on main `cff90b364` (task [20261007-adopt-main-fixes-r3](../tasks/closed/20261007-adopt-main-fixes-r3.md)): parts 2 and 3 still missing (no selection end rectangle, no `clearSelection()`); nothing to adopt.
+
+## Rest filed upstream (2026-10-08)
+
+Upstream (the rest): https://github.com/ccheever/exact2/issues/274 (#274, [Feature] Text selection: its rectangles, and clearing or setting it on a text (rest of #132)). Reproduced on main `0365ad1a4` (relevant files unchanged on main `e200397ec`) before filing: part 1 (#171, the button press) still passes; `setSelectionRange` on a `text` logs `refused: not a text field` on the web and macOS, `clearSelection()` is `type-unknown-command`, `Selection.rect`/`.rects` are `type-unknown-field`. Searched open and closed issues and PRs: no duplicate.

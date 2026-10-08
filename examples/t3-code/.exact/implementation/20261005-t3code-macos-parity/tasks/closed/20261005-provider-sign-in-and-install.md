@@ -53,7 +53,7 @@ Scheduling preference (not a prerequisite): after `20261005-main-fix-adoption` (
 
 ## Issue assessment at preparation
 
-Checked sources and time: plan `issues/` drafts (local, unpublished) read 2026-10-05; no upstream search (no network); library topics above. Issue records: [X21](../../issues/20261005-x21-two-way-websocket.md), [X9](../../issues/20261005-x09-root-component-across-files.md), [X17](../../issues/20261005-x17-popover-position-try.md), [X5](../../issues/20261005-x05-url-scheme-delivery.md), [X35](../../issues/closed/20261005-x35-secure-text-entry.md), [X42](../../issues/20261005-x42-text-blur-filter.md).
+Checked sources and time: plan `issues/` drafts (local, unpublished) read 2026-10-05; no upstream search (no network); library topics above. Issue records: [X21](../../issues/20261005-x21-two-way-websocket.md), [X9](../../issues/20261005-x09-root-component-across-files.md), [X17](../../issues/20261005-x17-popover-position-try.md), [X5](../../issues/20261005-x05-url-scheme-delivery.md), [X35](../../issues/closed/20261005-x35-secure-text-entry.md), [X42](../../issues/closed/20261005-x42-text-blur-filter.md).
 
 | Issue / reference | Capability and target | Evidence / affected revision | Impact | Next action |
 | --- | --- | --- | --- | --- |
@@ -63,7 +63,7 @@ Checked sources and time: plan `issues/` drafts (local, unpublished) read 2026-1
 | X17 | Popover flips | The picker footer lives inside the existing picker popover; no flip needed | nonblocking | none |
 | X5 | URL scheme delivery | Not used: the `t3code://` handler serves hosted web only | not applicable | none |
 | X11 | Tooltip and popover shadow | Redaction tooltip, confirm dialogs | nonblocking (visible difference declared) | Cite in the matrix |
-| [X42](../../issues/20261005-x42-text-blur-filter.md) | `filter: blur()` on text and boxes | The reference blurs the hidden placeholder (`blur-xs`, `RedactedSensitiveText.tsx:48`); the only `filter` precedent in the clone is on SVG groups (`settings-a-collections.contract:110`) | unknown until checked; if absent, nonblocking only when the user waives the blur (the placeholder text still hides the value) | Check `filter` on a text node at `prepare`; apply the X42 adoption steps when it lands |
+| [X42](../../issues/closed/20261005-x42-text-blur-filter.md) | `filter: blur()` on text and boxes | The reference blurs the hidden placeholder (`blur-xs`, `RedactedSensitiveText.tsx:48`); the only `filter` precedent in the clone is on SVG groups (`settings-a-collections.contract:110`) | unknown until checked; if absent, nonblocking only when the user waives the blur (the placeholder text still hides the value) | Check `filter` on a text node at `prepare`; apply the X42 adoption steps when it lands |
 | open an external URL from app code | App-local Swift op (`NSWorkspace.shared.open`; precedent `C/modules/apple/R6MediaPreview.swift:248-250`) | Not an exact2 gap; unknown in the library | nonblocking (workaround matches the reference result) | Confirm the reference's scheme rules in `ElectronShell.openExternal` at implementation |
 
 ## Implementation notes

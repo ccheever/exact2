@@ -85,7 +85,7 @@ Checked sources and time: plan issue drafts in [issues](../../issues/README.md),
 | --- | --- | --- | --- | --- |
 | [X22](../../issues/20261005-x22-reactive-layout-facts.md) | Reactive layout facts (container size, composer height, card rect) | `EXACT2-GAPS.md` X22 | nonblocking (workaround: `t3-frame` hooks) | Reuse frames `chat`, `overlay`; add a frame for the details card if it is not measured |
 | [X8](../../issues/closed/20261005-x08-agent-pointer-native-views.md) | Pointer input for native views | `EXACT2-GAPS.md` X8 | nonblocking (workaround: `(attended session)`) | Handle, pill and grab zones are Contract nodes: drive them with the agent pointer form; drags over the native stream are attended |
-| [X13](../../issues/20261005-x13-hover-keys-during-pan.md) | No hover events during a pan | `EXACT2-GAPS.md` X13 | nonblocking (workaround: state) | Keep the pill visible while `dragging` is true |
+| [X13](../../issues/closed/20261005-x13-hover-keys-during-pan.md) | No hover events during a pan | `EXACT2-GAPS.md` X13 | nonblocking (workaround: state) | Keep the pill visible while `dragging` is true |
 | [X24](../../issues/closed/20261005-x24-still-pointer-rehover.md) | Hover under a still pointer after layout | `R10Connect.swift` | nonblocking | Check the pill after the lane moves Update 2026-10-07 (adopt-main-fixes-shell): fixed on main #174; the host re-hovers a resting pointer after layout and scrolling, and R10Connect's re-hover is removed. |
 | Cursor keywords for resize and grab | `cursor` on macOS (`20261005-main-fix-adoption`) | Keyword list unknown | unknown | `contract vocab --json cursor` at prepare; if a keyword is missing, record a new gap (new — record at prepare) |
 

@@ -1,7 +1,7 @@
 ---
 name: 20261005-x13-hover-keys-during-pan
 plan: 20261005-t3code-macos-parity
-status: draft
+status: closed-not-reproduced
 kind: framework-gap
 blocks: [20261005-diff-review-engine, 20261005-floating-device-player, 20261005-legacy-sidebar, 20261005-live-automations-and-clones, 20261005-pr-code-tab, 20261005-pr-handoffs-and-quick-actions, 20261005-pr-links-previews-and-routing, 20261005-provider-settings-upkeep, 20261005-round12-wrapup, 20261005-settings-scoped-controls-and-theme-editor, 20261005-terminal-layout, 20261005-upstream-timeline-and-markdown, 20261005-usage-pooled-view, 20261005-usage-reset-and-feedback]
 upstream_url: null
@@ -120,3 +120,7 @@ rows pass and that no workaround remains in `sidebar.contract`.
 Draft; not reproduced on the pinned `main`; not searched upstream; not published.
 Next: `issue-open` (reproduce, search for duplicates, prepare the report for the user's
 approval; publication only after approval).
+
+## Upstream (2026-10-08)
+
+Upstream: not reproduced on main `0365ad1a4` as described, closed (2026-10-08); not filed. One-file app: five rows with `hover`, each with a `pan`/`panrelease` handle, and `key` on their column. Keys: an Escape typed while the pan holds the press reaches the column's `key` handler on macOS (`key view 2 (keyed)` between the pan moves and `panrelease`). Hover: during the pan no other row gets hover on macOS. The web host pans with `setPointerCapture` (`host/web/input-glue.js:267-324`): it clears the origin row's hover at the press, and no row is hovered until release. So neither host delivers hover to other nodes during a pan, which is pointer capture's rule. Differences left, not filed: macOS keeps the origin row hovered through the pan, and neither host re-hovers the row under the pointer at release until the pointer moves.

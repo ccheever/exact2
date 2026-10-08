@@ -6,6 +6,7 @@ kind: framework-gap
 blocks: [20261005-interface-font-size, 20261005-live-automations-and-clones, 20261005-provider-settings-upkeep, 20261005-shiki-residuals, 20261005-upstream-timeline-and-markdown, 20261005-usage-pooled-view]
 upstream_url: https://github.com/ccheever/exact2/issues/128
 reproduced_on: null
+rest_upstream_url: https://github.com/ccheever/exact2/issues/266
 ---
 
 # X10: Text renders differently from Chrome in five separate ways (ellipsis, code wrap, balance, placeholder, weight)
@@ -153,3 +154,7 @@ two long paths do not break at all: they run past the bubble's right edge and th
 ([image](https://raw.githubusercontent.com/ccheever/exact2/t3-code-evidence/adopt-main-fixes-r4/03-x10-wrap-840-before-after.png)). #208 does not change that line. The clone's `UserMarkdown` paragraphs
 (`markdown.contract`) set no `overflow-wrap`; whether T3 Code breaks these paths inside the word needs a
 reference capture of the same message (follow-up finding, task record). The stored font-smoothing setting stays unapplied (item 5). The issue stays open.
+
+## Rest filed upstream (2026-10-08)
+
+Upstream (the rest): https://github.com/ccheever/exact2/issues/266 (#266, [Design] Text rows: `text-wrap: balance`, an authored placeholder colour, `-webkit-font-smoothing` (rest of #128)). Reproduced on main `0365ad1a4` (relevant files unchanged on main `e200397ec`) before filing: `text-wrap="balance"`, `text-wrap-style`, `-webkit-font-smoothing` and `placeholder-color` are `lower-unknown-attr`; `::placeholder` is not a tag or attribute (the default placeholder colour differs per platform by LLP 1104). One "Decision needed" comment (LLP 1104:165, LLP 1077:127). Searched open and closed issues and PRs: no duplicate.

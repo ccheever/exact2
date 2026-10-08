@@ -1,11 +1,11 @@
 ---
 name: 20261008-x54-focus-within-subtree
 plan: 20261005-t3code-macos-parity
-status: draft
+status: published
 kind: framework-gap
 blocks: [20261005-pr-writing-and-metadata]
-upstream_url: null
-reproduced_on: bdca4216a (feature branch; exact2 main's framework as merged there)
+upstream_url: https://github.com/ccheever/exact2/issues/283
+reproduced_on: 0365ad1a4 (main)
 ---
 
 # X54: an ancestor hearing the focus enter its subtree (`focusin`, `:focus-within`)
@@ -66,3 +66,9 @@ Tab onto the link does not run `opened`.
 ## Status and next action
 Draft; reproduced with `contract vocab` on the feature branch's framework; no upstream match by
 title; not published (the brief: report framework problems with a repro, file nothing).
+
+## Upstream (filed 2026-10-08)
+
+Upstream: https://github.com/ccheever/exact2/issues/283 (#283, [Feature] `focusin`/`focusout` (or `:focus-within`): an ancestor hears the focus enter its subtree). Reproduced on main `0365ad1a4` (relevant files unchanged on main `e200397ec`) with a minimal public-API app before filing. `contract vocab focusin`/`focusout`/`focus-within`: not a tag or an attribute. A `column focus=open` around a `link` is a stop of its own (3 → 5 → 7 → 9) and Tab onto the link leaves `opened 1`, on macOS and the web. Searched: focusin, focus-within: no duplicate.
+
+Next: issue-close once #283 lands: `PrdWords` expands on it; `PrdEditButton` shows while its remark has the focus.
