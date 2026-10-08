@@ -1,0 +1,59 @@
+title-custom-snooze: agent-mode drives on macOS (2026-10-08 UTC 04:16-04:25)
+
+Builds: before = t3-code-evidence-base at 07dcef1ab (built under its .build-lock); after = this branch's
+working tree (the PR head's sources). Each was one `scripts/agent.mjs` session (`open({host:'macos',
+size:[1280,840], storage})`), driven op by op; "focused" is the node the agent tree marks [focused].
+Lane: a standalone T3 server from the staged runtime (t3 v0.0.46-nightly.20261005.2667) on
+127.0.0.1:16551 (--base-dir target/title-snooze/lane/t3-home, its own HOME); server and apps with
+isolated CODEX_HOME, CLAUDE_CONFIG_DIR, XDG_* and T3CODE_TELEMETRY_ENABLED=false. Seeded through the server's own pairing
+token and orchestration RPC: project "Snooze lane" (a git repo in the lane) and three idle threads
+tcs-a "Review the patch", tcs-b "Check the tests", tcs-c "Draft the notes" (no provider turn). Each
+app paired through the welcome wizard's pairing link (token redacted), then Continue, Continue,
+"Do not import projects". The server's state is read from its database (read-only):
+orchestration_command_receipts, orchestration_events, orchestration_v2_projection_threads.
+
+== Before (base 07dcef1ab), app pid 99845
+1. tcs-a open; tap thread-title; hover title-menu-snooze -> title-submenu with In 1 hour ... Custom...
+2. tap title-menu-snooze:custom; clock +500 real; settle -> no title-menu, no sidebar-snooze, nothing
+   focused (the reported bug). Server: no thread.snooze receipt.
+3. tap thread-title; key Enter on title-menu-snooze -> focus stays on title-menu-snooze.
+4. key Escape -> menu closed, nothing focused.
+5. Sidebar: hover thread-tcs-b, tap snooze-tcs-b, tap snooze-tcs-b-custom -> sidebar-snooze open,
+   focused snooze-mode-date; dialog date/time 2026-10-08 14:16 (an hour out), Date and time, 2 hours.
+   key Escape -> closed, focused thread-tcs-b. Server: no snooze receipt.
+
+== After (this branch), app pid 43570
+1. tcs-a open; tap thread-title; hover title-menu-snooze; tap title-menu-snooze:custom ->
+   sidebar-snooze open, focused snooze-mode-date; data.sidebar = {dialog: snooze, dialogMode: date,
+   dialogDate: 2026-10-08, dialogTime: 14:22 (an hour out), dialogAmount: 2, dialogUnit: hours,
+   dialogReturn: thread-title}; threadId tcs-a. Server: no receipt.
+2. key Escape -> closed, focused thread-title. Reopen; tap snooze-cancel -> focused thread-title.
+   Reopen; tap snooze-close -> focused thread-title. Server: still no snooze receipt.
+3. Reopen; type snooze-date 2026-10-08, snooze-time 00:00; tap snooze-confirm -> dialog stays,
+   snooze-error shown; no receipt. type 2026-10-09 / 10:30; tap snooze-confirm -> closed, focused
+   thread-title, threadId still tcs-a, "Snoozed 1 thread," undo notice, Snoozed (1).
+   Server: 04:23:04.569Z tcs-a thread.snooze accepted; event thread.snoozed tcs-a
+   snoozedUntil 2026-10-09T01:30:00.000Z (10:30 KST); tcs-b and tcs-c unchanged.
+4. Switch threads: tap thread-tcs-b; title > Snooze > Custom... -> dialog for threadId tcs-b
+   (title "Snooze until"); tap snooze-mode-duration; tap snooze-increase (2 -> 3 hours);
+   tap snooze-confirm -> focused thread-title, threadId tcs-b, "Snoozed 2 threads,".
+   Server: 04:23:23.981Z tcs-b thread.snooze accepted, snoozedUntil 2026-10-08T07:22:18.723Z
+   (three hours after the window's clock, which in agent mode is the driver's virtual clock);
+   tcs-a keeps 2026-10-09T01:30:00.000Z.
+5. Keyboard: tap thread-tcs-c; key Enter on thread-title -> title menu open; key Enter on
+   title-menu-snooze -> focused title-menu-snooze:hour; Tab x5 (sent to the focused node) ->
+   three-hours, evening, tomorrow, next-week, custom; key Enter on title-menu-snooze:custom ->
+   sidebar-snooze, focused snooze-mode-date, threadId tcs-c, dialogReturn thread-title;
+   key Escape -> closed, focused thread-title. Reopen menu by Enter, Enter on Snooze, key Escape on
+   the focused preset -> menu closed, focused thread-title. Server: tcs-c unchanged.
+6. Sidebar regression: hover thread-tcs-c, tap snooze-tcs-c, tap snooze-tcs-c-custom -> dialog,
+   focused snooze-mode-date, dialogReturn thread-tcs-c; key Escape -> focused thread-tcs-c.
+   Reopen from the row; Duration; tap snooze-confirm -> tcs-c snoozed and the window moved on to a
+   new draft (threadId "", the sidebar's planForwardNavigation: no unparked card was left), as before.
+   Server: 04:24:22.307Z tcs-c thread.snooze accepted, snoozedUntil 2026-10-08T06:22:27.723Z.
+
+Final server state:
+  tcs-a | Review the patch | 2026-10-09T01:30:00.000Z
+  tcs-b | Check the tests  | 2026-10-08T07:22:18.723Z
+  tcs-c | Draft the notes  | 2026-10-08T06:22:27.723Z
+  snooze receipts: exactly three, one per confirm above; none from the Cancel / Escape / Close runs.
