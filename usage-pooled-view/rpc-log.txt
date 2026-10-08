@@ -1,0 +1,64 @@
+== a
+2026-10-08T02:27:52.939Z a server.getConfig {}
+2026-10-08T02:27:53.091Z a subscribeServerConfig {"usageLimitSources":true}
+2026-10-08T02:27:53.095Z a subscribeServerConfig {}
+2026-10-08T02:27:53.099Z a server.getUsageSummary {"sinceDay":"2026-10-01","untilDay":"2026-10-08","timeZone":"Asia/Seoul","resolution":"day"}
+2026-10-08T02:30:23.157Z a server.getConfig {}
+2026-10-08T02:30:23.174Z a subscribeServerConfig {"usageLimitSources":true}
+2026-10-08T02:30:50.587Z a server.getUsageSummary {"timeZone":"Asia/Seoul","untilDay":"2026-10-08","sinceDay":"2026-09-09","resolution":"day"}
+2026-10-08T02:30:50.591Z a server.refreshProviders {}
+2026-10-08T02:31:31.254Z a provider.consumeResetCredit {"instanceId":"codex"}
+2026-10-08T02:31:32.759Z a reply provider.consumeResetCredit reset
+2026-10-08T02:32:54.971Z a server.refreshProviders {}
+2026-10-08T02:33:14.036Z a server.refreshProviders {}
+2026-10-08T02:33:25.970Z a server.refreshUsageRates {}
+2026-10-08T02:33:26.772Z a reply server.refreshUsageRates ok
+2026-10-08T02:33:26.812Z a server.getUsageSummary {"timeZone":"Asia/Seoul","untilDay":"2026-10-08","sinceDay":"2026-09-09","resolution":"day"}
+2026-10-08T02:33:41.177Z a server.refreshUsageRates {}
+2026-10-08T02:33:41.180Z a server.refreshProviders {}
+2026-10-08T02:33:41.979Z a reply server.refreshUsageRates ok
+2026-10-08T02:33:42.010Z a server.getUsageSummary {"timeZone":"Asia/Seoul","untilDay":"2026-10-08","sinceDay":"2026-09-09","resolution":"day"}
+2026-10-08T02:33:51.969Z a server.refreshUsageRates {}
+2026-10-08T02:33:55.972Z a reply server.refreshUsageRates ok
+2026-10-08T02:36:45.597Z a server.getConfig {}
+2026-10-08T02:36:45.672Z a subscribeServerConfig {"usageLimitSources":true}
+2026-10-08T02:36:45.863Z a server.getConfig {}
+2026-10-08T02:36:45.876Z a subscribeServerConfig {"usageLimitSources":true}
+2026-10-08T02:36:45.976Z a server.getUsageSummary {"timeZone":"Asia/Seoul","untilDay":"2026-10-08","sinceDay":"2026-09-09","resolution":"day"}
+2026-10-08T02:41:14.797Z a server.getConfig {}
+2026-10-08T02:41:14.825Z a subscribeServerConfig {}
+2026-10-08T02:42:40.615Z a server.getConfig {}
+2026-10-08T02:42:40.632Z a subscribeServerConfig {"usageLimitSources":true,"usageLimitsCommand":true,"environmentThemes":true}
+2026-10-08T02:43:45.032Z a server.getUsageSummary {"timeZone":"Asia/Seoul","untilDay":"2026-10-08","sinceDay":"2026-09-09","resolution":"day"}
+2026-10-08T02:43:45.035Z a server.refreshProviders {}
+== b
+2026-10-08T02:27:53.192Z b server.getConfig {}
+2026-10-08T02:27:53.306Z b subscribeServerConfig {"usageLimitSources":true}
+2026-10-08T02:27:53.310Z b subscribeServerConfig {}
+2026-10-08T02:27:53.315Z b server.getUsageSummary {"sinceDay":"2026-10-01","untilDay":"2026-10-08","timeZone":"Asia/Seoul","resolution":"day"}
+2026-10-08T02:30:11.539Z b server.getConfig {}
+2026-10-08T02:30:11.557Z b subscribeServerConfig {"usageLimitSources":true,"usageLimitsCommand":true,"environmentThemes":true}
+2026-10-08T02:30:50.585Z b server.getUsageSummary {"timeZone":"Asia/Seoul","untilDay":"2026-10-08","sinceDay":"2026-09-09","resolution":"day"}
+2026-10-08T02:30:50.589Z b server.refreshProviders {}
+2026-10-08T02:32:54.962Z b server.refreshProviders {}
+2026-10-08T02:33:14.034Z b server.refreshProviders {}
+2026-10-08T02:33:25.969Z b server.refreshUsageRates {}
+2026-10-08T02:33:26.772Z b reply server.refreshUsageRates fail
+2026-10-08T02:33:26.814Z b server.getUsageSummary {"timeZone":"Asia/Seoul","untilDay":"2026-10-08","sinceDay":"2026-09-09","resolution":"day"}
+2026-10-08T02:33:40.859Z b server.updateSettings {"patch":{"cursorKeychainUsageEnabled":true}}
+2026-10-08T02:33:41.162Z b reply server.updateSettings cursorKeychainUsageEnabled (scripted, no Keychain read)
+2026-10-08T02:33:41.175Z b server.refreshUsageRates {}
+2026-10-08T02:33:41.179Z b server.refreshProviders {}
+2026-10-08T02:33:41.976Z b reply server.refreshUsageRates fail
+2026-10-08T02:33:42.011Z b server.getUsageSummary {"timeZone":"Asia/Seoul","untilDay":"2026-10-08","sinceDay":"2026-09-09","resolution":"day"}
+2026-10-08T02:33:51.968Z b server.refreshUsageRates {}
+2026-10-08T02:33:55.970Z b reply server.refreshUsageRates fail
+2026-10-08T02:33:56.003Z b server.getUsageSummary {"timeZone":"Asia/Seoul","untilDay":"2026-10-08","sinceDay":"2026-09-09","resolution":"day"}
+2026-10-08T02:41:10.536Z b server.getConfig {}
+2026-10-08T02:41:10.575Z b subscribeServerConfig {"usageLimitSources":true,"usageLimitsCommand":true,"environmentThemes":true}
+2026-10-08T02:41:33.906Z b server.refreshProviders {}
+2026-10-08T02:41:38.121Z b server.getUsageSummary {"timeZone":"Asia/Seoul","untilDay":"2026-10-08","sinceDay":"2026-09-09","resolution":"day"}
+2026-10-08T02:43:15.767Z b server.getConfig {}
+2026-10-08T02:43:15.786Z b subscribeServerConfig {"usageLimitSources":true}
+2026-10-08T02:43:45.034Z b server.getUsageSummary {"timeZone":"Asia/Seoul","untilDay":"2026-10-08","sinceDay":"2026-09-09","resolution":"day"}
+2026-10-08T02:43:45.037Z b server.refreshProviders {}
