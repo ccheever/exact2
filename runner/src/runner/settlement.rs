@@ -594,6 +594,7 @@ impl<D: DataSource> Runner<D> {
                                         &why,
                                     ));
                                     self.failed_args[i] = Some(args.clone());
+                                    self.failed_why[i] = Some(why);
                                     force.retain(|forced| *forced != i);
                                     let state = states[i].as_ref().expect("checked");
                                     resources[i] = Some(state.value.clone());
@@ -664,6 +665,7 @@ impl<D: DataSource> Runner<D> {
                                     }
                                     self.log(super::lines::failed_now(&resource, &why));
                                     self.failed_args[i] = Some(args.clone());
+                                    self.failed_why[i] = Some(why);
                                     kept
                                 }
                                 Err(error) => return Err(error),

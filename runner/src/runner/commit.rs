@@ -1261,14 +1261,12 @@ impl<D: DataSource> Runner<D> {
         if refused && result.is_err() && self.holds(ticket) {
             return self.release_refused(ticket, target);
         }
-        if matches!(
-            result,
-            Err(RunnerError::Data { .. } | RunnerError::Shape { .. })
-        ) && self.holds(ticket)
-        {
-            // The failure is in the journal (above); what the host needs now
-            // is the commit that takes the target out of `pending`.
-            return self.release_failed(ticket, target);
+        if let Err(e @ (RunnerError::Data { .. } | RunnerError::Shape { .. })) = &result {
+            if self.holds(ticket) {
+                // The failure is in the journal (above); what the host needs now
+                // is the commit that takes the target out of `pending`.
+                return self.release_failed(ticket, target, super::admission::failure_text(e));
+            }
         }
         result.map(Some)
     }
@@ -1299,8 +1297,8 @@ impl<D: DataSource> Runner<D> {
         self.arm_then(result.is_ok());
         self.arm_next(result.is_ok());
         self.log_outcome(&what, &result, was_poisoned);
-        if result.is_err() && self.holds(ticket) {
-            return self.release_failed(ticket, target);
+        if let (Err(e), true) = (&result, self.holds(ticket)) {
+            return self.release_failed(ticket, target, super::admission::failure_text(e));
         }
         result.map(Some)
     }

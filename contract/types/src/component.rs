@@ -297,6 +297,19 @@ pub(crate) fn check_component(
                 }
                 continue;
             }
+            // `else Row(title="…")` (app farm round 1): a shape's call
+            // builds a record, and a placeholder is a source's.
+            if shapes.declared.contains(&p.source) {
+                sink.push(TypeError {
+                    id: "type-placeholder-shape",
+                    message: format!(
+                        "`{}`'s placeholder calls the shape `{}`: write `else empty(field=…)`, the shape's zero with `field=constant` overrides",
+                        r.name, p.source
+                    ),
+                    span: p.span,
+                });
+                continue;
+            }
             if let Some((name, span)) = p.args.iter().find_map(|a| reads_state(a, &scope)) {
                 sink.push(TypeError {
                     id: "type-placeholder-reads",

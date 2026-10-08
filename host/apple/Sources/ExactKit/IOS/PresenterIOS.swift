@@ -50,14 +50,14 @@ package final class Presenter {
     /// The document: the roots live here, content-sized like a page.
     let root = PlainView(frame: .zero)
     /// The viewport over it: the window's content, scrolling like a browser's.
-    let viewport: ScrollView = Viewport(frame: .zero)
+    package let viewport: ScrollView = Viewport(frame: .zero)
     package var views: [UInt32: NodeView] = [:]
     /// Views leaving with their exit, by id (LLP 1063, `PresenceIOS.swift`).
     var leaving: [UInt32: Leaving] = [:]
     /// Shared elements in flight, by the arriver's id (LLP 1013.000, `FlightsIOS.swift`).
     var flights: [UInt32: Flight] = [:]
     private(set) var chrome = ChromeIndex()
-    func propsChanged(_ view: NodeView) { chrome.note(view.id, props: view.props); view.updateReorderGesture(); view.updateRefresh() }
+    func propsChanged(_ view: NodeView) { chrome.note(view.id, props: view.props); DragLink.installed?.updateReorderGesture(view); view.updateRefresh() }
     package func carrying(_ key: String) -> [NodeView] { chrome.ids(key).sorted().compactMap { views[$0] } }
     func takeChangedNames() -> Set<String> { chrome.takeChangedNames() }
     var scrollers: Set<UInt32> = []
@@ -68,15 +68,15 @@ package final class Presenter {
     let glassGroups = GlassGroups()
     var contextNodes: Set<UInt32> = []
     var inlineOwners: [UInt32: (owner: UInt32, index: Int)] = [:]
-    var heightBindings: [UInt32: HeightDragBinding] = [:]
-    var transformBindings: [UInt32: TransformDragBinding] = [:]
+    package var heightBindings: [UInt32: HeightDragBinding] = [:]
+    package var transformBindings: [UInt32: TransformDragBinding] = [:]
     /// The one Arrange contact, until its source settles; a test's calls.
-    var reorder: ReorderHold?
-    var reorderCalls: ReorderCalls?
+    package var reorder: ReorderLift?
+    package var reorderCalls: ReorderCalls?
     /// A grouped session (LLP 1094), until its ghost lands; a test's calls.
-    var reorderGroup: ReorderGroupHold?
+    package var reorderGroup: ReorderGroupHold?
     var reorderGroupCalls: ReorderGroupCalls?
-    lazy var transformGeometry = TransformGeometryHost(self)
+    lazy package var transformGeometry = TransformGeometryHost(self)
     /// Nodes showing a `background-attachment: fixed` gradient (LLP 1066
     /// D7): re-aimed at the viewport when anything scrolls or a batch lands.
     let fixedGradients = NSHashTable<NodeView>.weakObjects()
@@ -85,7 +85,7 @@ package final class Presenter {
         for node in fixedGradients.allObjects where node.window != nil { node.reaimFixedGradient() }
     }
     var videoVisibility: VideoVisibilityHost?
-    lazy var collections = CollectionHost(self)
+    lazy package var collections = CollectionHost(self)
     lazy var stickies = StickyHost(self)
     lazy var pool = NodePool(self)
     /// Heavy leaves held mid-fling (LLP 1068 §5.1).
@@ -119,11 +119,11 @@ package final class Presenter {
     let svg = SvgHost()
     /// Boxes under CSS `filter`, drawn again after each batch (LLP 1055.000 D14).
     let boxFilters = BoxFilters()
-    let canvas2d = Canvas2DHost()
+    let canvas2d: Canvas2DCanvases = SurfacesLink.installed?.canvas2D() ?? NoCanvas2D()
     /// The input being edited, if any (UIKit exposes no first responder):
     /// what a canvas painted through its surface captures every frame for
     /// (LLP 1014 D4 d), and what the keyboard reveals.
-    weak var editing: NodeView?
+    weak package var editing: NodeView?
     /// The first root's `viewportFit` prop (`"cover"` or nothing), as of the
     /// last batch; `onViewportFit` fires when it changes.
     private(set) var viewportFit: String?
@@ -601,7 +601,9 @@ package final class Presenter {
     package func press(_ id: UInt32, held: String = "") {
         pressHeld = held; defer { pressHeld = "" }
         if let node = views[id], let url = node.defaultLink, node.activateLink(url) { return }
+        let original = views[id]
         onPress?(id)
+        if let original, views[id] === original { menus.invoke(original) }
     }
     func change(_ id: UInt32, _ value: String) { onChange?(id, value) }
     /// A text field typed into since it took the focus: its `change` fires
@@ -674,7 +676,7 @@ package final class Presenter {
     func scroll(_ id: UInt32, _ metrics: [Double]) { send(id) { [self] in onScroll?(id, metrics) } }
     func submit(_ id: UInt32) { send(id) { [self] in onSubmit?(id) } }
     func load(_ id: UInt32) { send(id) { [self] in onLoad?(id) } }
-    func message(_ id: UInt32, _ value: String) {
+    package func message(_ id: UInt32, _ value: String) {
         guard let view = views[id], view.handlers.contains("message") else { return }
         send(id) { [weak self, weak view] in
             guard let self, let view, views[id] === view, view.handlers.contains("message") else { return }
@@ -810,7 +812,7 @@ package final class Presenter {
                             transformGeometry.retire(binding.id)
                         }
                     } else { transformBindings[binding.id] = binding }
-                    views[binding.id]?.updateTransformDragGesture()
+                    if let v = views[binding.id] { DragLink.installed?.updateTransformGesture(v) }
                 }
             case .retireMotion:
                 if let rawRuntime = op.payload["runtime"] as? String, let runtime = UInt64(rawRuntime),
@@ -825,7 +827,7 @@ package final class Presenter {
                             heightBindings.removeValue(forKey: binding.id)
                         }
                     } else { heightBindings[binding.id] = binding }
-                    views[binding.id]?.updateHeightDragGesture()
+                    if let v = views[binding.id] { DragLink.installed?.updateHeightGesture(v) }
                 }
             case .create:
                 // An inert leaf box is a layer in its parent's (LLP 1068 §6.1).
@@ -973,11 +975,15 @@ package final class Presenter {
         if !rowsOnly || navigation.syncOwed { navigation.sync(batch) }
         #if os(tvOS)
         menuKey.sync()
-        focusGuides.sync()
         playPauseKey.sync()
         #endif
         segments.sync()
         controls.sync(contents: batch.controls, touched: touchedIDs)
+        #if os(tvOS)
+        // A remembered node's replacement owns focus only after its native
+        // control exists, so retarget guides in this same batch after sync.
+        focusGuides.sync()
+        #endif
         menus.sync()
         glassGroups.reconcile()
         let changed = touchedAndAbove(touchedIDs)
@@ -1081,6 +1087,7 @@ package final class Presenter {
         case .content:
             v.content = CGSize(width: op.w, height: op.h)
             v.fitScroll()
+            if v.props["navigationDetent"] != nil { modals.contentChanged(v) }
         default: break
         }
     }
@@ -1326,24 +1333,24 @@ package final class Presenter {
 
 /// Pixels a view's subtree was painted into: premultiplied RGBA, rows
 /// top-down, `width * 4` bytes per row, owned by the context.
-struct Bitmap {
+package struct Bitmap {
     let context: CGContext
-    let width: Int
-    let height: Int
-    var bytes: UnsafeMutableRawPointer? { context.data }
-    var bytesPerRow: Int { context.bytesPerRow }
+    package let width: Int
+    package let height: Int
+    package var bytes: UnsafeMutableRawPointer? { context.data }
+    package var bytesPerRow: Int { context.bytesPerRow }
     /// Empty pixels for the module to fill (a readback).
-    static func blank(width: Int, height: Int) -> Bitmap? {
+    package static func blank(width: Int, height: Int) -> Bitmap? {
         guard width > 0, height > 0, let space = CGColorSpace(name: CGColorSpace.sRGB),
               let ctx = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4, space: space, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue)
         else { return nil }
         return Bitmap(context: ctx, width: width, height: height)
     }
-    var image: UIImage? { context.makeImage().map { UIImage(cgImage: $0) } }
+    package var image: UIImage? { context.makeImage().map { UIImage(cgImage: $0) } }
 }
 
 /// A view's subtree as pixels (LLP 1014 D3).
-enum Capture {
+package enum Capture {
     /// A capture is drawing: its draws are not repaints (D4 b).
     nonisolated(unsafe) static var capturing = false
     /// Guest pictures when this turn chooses arm snapshots; their remote
@@ -1351,10 +1358,10 @@ enum Capture {
     nonisolated(unsafe) static var web: [UInt32: ExactWebImage] = [:]
     /// EXACT_CAPTURE=cpu: the Core Graphics capture even where Metal is
     /// present — the measure's baseline, and the fixture's oracle.
-    static let cpu = ProcessInfo.processInfo.environment["EXACT_CAPTURE"] == "cpu"
+    package static let cpu = ProcessInfo.processInfo.environment["EXACT_CAPTURE"] == "cpu"
     /// The subtree painted at `scale`: premultiplied RGBA, rows top-down,
     /// transparent where nothing painted.
-    static func bitmap(of view: UIView, scale: CGFloat) -> Bitmap? {
+    package static func bitmap(of view: UIView, scale: CGFloat) -> Bitmap? {
         let w = Int((view.bounds.width * scale).rounded()), h = Int((view.bounds.height * scale).rounded())
         guard let bitmap = Bitmap.blank(width: w, height: h) else { return nil }
         // The GPU, where there is one (`Shadow`); Core Graphics otherwise.

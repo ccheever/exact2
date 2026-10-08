@@ -12,7 +12,7 @@ import QuartzCore
 /// has something to render (LLP 1009 D4), per session. iOS takes them from
 /// the app's clock (`FrameClock`); macOS's link comes from the viewport, so
 /// from its window's screen.
-final class Frames: NSObject {
+package final class Frames: NSObject {
     weak var session: ExactSession?
     #if canImport(UIKit)
     /// The app's link while this session takes frames from it.
@@ -20,7 +20,7 @@ final class Frames: NSObject {
     #else
     var link: CADisplayLink?
     #endif
-    var motion = false, spatial = false
+    package var motion = false, spatial = false
     /// A 2D canvas asked for a frame (LLP 1056 D5): ticks run while it does.
     var canvas2d = false
     var timerSoon = false
@@ -31,7 +31,7 @@ final class Frames: NSObject {
     private var canvasRequested = false
 
     /// Input and reads ask for one frame; an agent-owned clock never self-reschedules.
-    func requestCanvas() {
+    package func requestCanvas() {
         guard let s = session else { return }
         if s.clock == nil { run(true); return }
         guard !canvasRequested else { return }
@@ -45,8 +45,8 @@ final class Frames: NSObject {
     }
     @objc func tick(_ link: CADisplayLink) {
         guard let s = session else { return }
-        s.canvases.lifecycle.frame()
-        // Motion keeps its existing sampling clock; canvas frames target presentation.
+        s.canvases.lifecycleFrame()
+        // Motion (below) and canvas frames target presentation.
         let frameNow = s.clock ?? (link.targetTimestamp - ExactEnv.t0) * 1000
         // ProMotion changes callback cadence (e.g. 120 → 80 Hz) while duration
         // can remain the nominal base interval. The target interval is actual;
@@ -64,20 +64,23 @@ final class Frames: NSObject {
             if timerSoon, !ExactEnv.agentMode, s.clock == nil {
                 let now = s.now()
                 s.followOffset()
-                if tasks { s.apply(s.runtime.frame(now: frameNow)) }
+                if tasks { s.apply(s.runtime.frame(now: frameNow, wall: now)) }
                 else if s.timerDue.map({ now >= $0 }) ?? true { s.apply(s.runtime.advance(now: now)) }
             }
+            // Motion samples at the frame's target, and starts there what
+            // waits for it (LLP 1003.001 D5); the agent's clock has no frames.
             if motion || canvas2d {
+                let frame = s.clock == nil ? frameNow : nil
                 if ExactSession.asyncFills {
-                    if !s.tickInFlight { s.sendTick(now: s.now()) }
+                    if !s.tickInFlight { s.sendTick(now: s.now(), frame: frame) }
                 } else {
-                    s.apply(s.runtime.tick(now: s.now()))
+                    s.apply(s.runtime.tick(now: s.now(), frame: frame))
                 }
             }
         }
         if hatches, s.clock == nil { s.natives.hatchClock.presented(frameNow) }
         let more = s.canvases.tick(now: frameNow)
-        run(motion || canvas2d || timerSoon || more || s.canvases.wantsFrames || s.canvases.lifecycle.needsRetry)
+        run(motion || canvas2d || timerSoon || more || s.canvases.wantsFrames || s.canvases.lifecycleNeedsRetry)
     }
 
     func run(_ wanted: Bool) {

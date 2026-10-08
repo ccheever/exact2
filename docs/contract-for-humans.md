@@ -869,7 +869,11 @@ parenthood, and do not assume border-box sizing. Set it when it matters.
 
 Numeric dimensions normally mean pixels. Unit-bearing values and keywords are
 strings: `width="50%"`, `height="auto"`, `padding-top="env(safe-area-inset-top)"`,
-`width="calc(100% - 24px)"`. Supported values are property-specific; this is not
+`width="calc(100% - 24px)"`, and CSS's `min()`, `max()` and `clamp()` over px,
+the safe-area insets and viewport lengths: `padding-bottom="clamp(15px,
+env(safe-area-inset-bottom), 60px)"`, `bottom="calc(max(15px,
+env(safe-area-inset-bottom)) + 44px)"` (no percentage inside one: the kernel
+resolves them before layout). Supported values are property-specific; this is not
 an unrestricted browser stylesheet. The compiler and kernel reject unsupported
 names or values. `line-height=1.5` is a ratio; `line-height="24px"` is fixed.
 
@@ -1023,8 +1027,12 @@ attribute and retain their normal focus order.
 
 ### Choosing a native button
 
-An ordinary `button` is an authored box with `appearance="none"`. Opt into the
-platform control with a literal `appearance="auto"`:
+A `button` is the platform's own control by default. Giving it a background,
+border or radius, rich children, or rows the native control cannot support
+makes it your bare box. A class counts too, even when a row or incompatible
+child appears on only one conditional arm. Write `appearance="none"` to ask
+for your box explicitly, or `appearance="auto"` to require a native button and
+get an error for unsupported rows or children. For example:
 
 ```contract
 component NativeButtonExample
@@ -1033,20 +1041,53 @@ component NativeButtonExample
     presses = presses + 1
   view
     column gap=12
-      button appearance="auto" buttonStyle="filled" press=send testId="send"
+      button buttonStyle="filled" press=send testId="send"
         text "Send"
       text `${presses}` testId="presses"
 ```
 
-Its text and optional `image "symbol:…"` children describe the button's face;
-they are not arbitrary layout children. A symbol-only face needs a nonempty
-`aria-label`. The platform measures the control and supplies its chrome. UIKit
-and AppKit use native controls, with stand-ins for styles a platform lacks; the
-web and Linux draw their documented looks, which are not a promise of identical
-glass rendering, and Linux draws no symbol image. A native button takes only
-`press`, `focus`, `blur`, `key` and `hover` handlers.
+Its first `text` is the title, its second is the subtitle, and one
+`image "symbol:…"` is the symbol. These are semantic fields; the platform lays
+them out. An image before/after the texts goes leading/trailing with
+`flex-direction="row"`, or top/bottom with `flex-direction="column"`. A
+symbol-only face needs a nonempty `aria-label`. macOS reports stand-ins where
+`NSButton` cannot express gap, subtitle or wrapping.
 
-`buttonStyle` defaults to `bordered`. The accepted styles are `plain`, `gray`,
+`font-size`, `font-weight`, `color`, `white-space`, `line-clamp` and `text-align`
+can be on the button or its texts; a text's own row wins. Apple uses the
+platform's typography unless a row is written there (a class counts); the web
+inherits the page's font and colour. Tab/menu projections keep the existing
+ancestor `text-transform` on their projected title. `white-space="nowrap"` is one truncated
+line; `line-clamp=2` caps wrapping; `text-align="start"` places the face at the
+start of the box. An image can set its own `-exact-tint-color`, `font-size` and
+`font-weight`; otherwise its symbol follows the title. Image `width`, `height`
+and `object-fit` are refused.
+
+`gap`, or the gap for the chosen axis (`column-gap` in a row, `row-gap` in a
+column), sets image-to-title spacing. Leave it absent for the platform's
+spacing. Title-to-subtitle spacing stays the platform's. `align-items` and
+`justify-content` accept only `center`. `-exact-control-size` takes `mini`,
+`small`, `medium`, `large`; `-exact-corner-style` takes `dynamic`, `small`,
+`medium`, `large`, `capsule`. These are styleable rows for native buttons only.
+With explicit `appearance="auto"`, `border-radius` sets a radius and wins over
+the named corner style. Under the default, a radius makes the button bare. `padding`
+and its longhands set content insets; leave them absent for the style's own.
+
+`pointer-events="none"` passes touches through; `auto` restores them. Disabled
+buttons keep authored colours; bind `opacity` when you want dimming. Native
+buttons can use `commandfor` with `command="show-modal"`, `"show-popover"` or
+`"toggle-popover"`, and `popovertarget`, including bound or empty targets (empty
+means no target). `href`, `action` and swipe attributes stay refused.
+`-exact-enabled` transitions are not available. Handlers are `press`, `focus`,
+`blur`, `key`, `keyup` and `hover`.
+
+The kernel's optional host measure hook supplies the fitting size before the
+first frame and handles wrapping at the offered width. Existing hosts keep
+their intrinsic-size report until they implement it.
+
+`buttonStyle` needs a native button and defaults to `bordered`. If the default
+makes your button bare, `lower-button-style` names the first reason: remove it,
+or write `appearance="none"` without `buttonStyle`. The accepted styles are `plain`, `gray`,
 `tinted`, `filled`, `borderless`, `bordered`, `bordered-tinted`,
 `bordered-prominent`, `glass`, `prominent-glass`, `clear-glass`, and
 `prominent-clear-glass`. This is a declared host-policy property, not a CSS
@@ -1054,9 +1095,10 @@ standard property. It can live in a style and can choose among checked literal
 names. `appearance`, however, must resolve to a literal after class application;
 use a view branch if switching between native and custom buttons.
 
-Native buttons deliberately restrict authored paint, typography, face content,
-and parent contexts so the platform can own the control. Do not transfer every
-custom-button style to one. `accent-color` tints the styles that support it
+Native buttons refuse backgrounds, borders, shadows, filters, `font-family`,
+other typography or inner layout and `-exact-press-scale`. A refusal names a
+custom `button` (without `appearance="auto"`) as the alternative. Size, place,
+opacity and transforms remain admitted. `accent-color` tints the styles that support it
 (`gray`, `bordered`, `glass` and `clear-glass` ignore it). Follow
 [the native-button fixture](../scripts/fixtures/native-buttons.contract) and
 [its compiler checks](../contract/lower/src/controls.rs) for the admitted forms.
@@ -1083,6 +1125,9 @@ list appearance="auto" listStyle="inset-grouped" flex=1
     footer
       text "Who can see you."
 ```
+
+Row buttons and their detail accessories stay bare by default, preserving the
+cell's title and action. Explicit `appearance="auto"` makes one a custom native control.
 
 `listStyle` is `inset-grouped` (the default), `grouped` or `plain`, a literal.
 iOS draws UIKit's own list (`UICollectionView` with a list configuration); the
@@ -1133,6 +1178,24 @@ removed, so one in the flow would still take its room. Tabs with a stack each ar
 laid out as [the tabs corpus](../contract/corpus/tabs.contract) shows.
 `navigate=` receives locations the host navigates to itself, such as link clicks
 and browser history.
+
+A row with `navigationPresentation="modal"` is a sheet on iOS; `navigationDetent`
+sets its resting heights, space-separated: `large` (the default), `medium`, a
+point height (`"300"`), or `fit-content`, the route's content height, which
+follows the content as rows arrive or text wraps. A point height and
+`fit-content` stop at the sheet's tallest and leave out the bottom safe area,
+which UIKit adds below; so under `viewport-fit="cover"` a route that pads
+`env(safe-area-inset-bottom)` gets it twice. With one height the sheet does not
+expand and shows no grabber; with several (`"300 large"`) it is dragged between
+them, the first to start. `fit-content` goes alone or as `"fit-content large"`.
+It measures the route laid out on its own with its height left to its
+content, as CSS's `fit-content` does, so nothing the sheet gives it counts:
+rows do not shrink into it, and a percentage `height` or `flex-grow` takes
+nothing from it; a height in `vh` (the sheet's height on iOS) counts as
+`auto`. A route that scrolls itself is measured by what it scrolls,
+laid out in the sheet, so give its rows `flex-shrink: 0`. macOS, the web and
+Linux show a modal route as authored and ignore the detent
+([LLP 1075.003](../llp/1075.003-native-platform-control-merged.plan.md) §9.11).
 
 `path("item", value)` checks the route and encodes its parameters. Always build
 locations with it: a template literal as a location is refused and a string

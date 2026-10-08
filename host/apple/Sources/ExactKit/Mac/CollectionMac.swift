@@ -7,14 +7,14 @@ import AppKit
 /// it may carry only the rows the collection has built, so a concurrent
 /// scroll pauses at their edge until the main thread builds more, rather
 /// than carrying the background into view (LLP 1050.000 D5).
-final class FlippedView: NSView {
-    override var isFlipped: Bool { true }
-    override func hitTest(_ point: NSPoint) -> NSView? { raisedHit(super.hitTest(point), point) }
+package final class FlippedView: NSView {
+    package override var isFlipped: Bool { true }
+    package override func hitTest(_ point: NSPoint) -> NSView? { raisedHit(super.hitTest(point), point) }
     /// What the mounted rows cover, in this view's coordinates; nil: anything.
     var preparedLimit: (() -> NSRect?)?
     /// AppKit's last request, kept so rows built later can widen the answer.
     private(set) var requestedPrepared: NSRect?
-    override func prepareContent(in rect: NSRect) {
+    package override func prepareContent(in rect: NSRect) {
         requestedPrepared = rect
         super.prepareContent(in: clampPrepared(rect))
     }
@@ -249,7 +249,7 @@ extension CollectionHost {
     }
 
     /// A list's facts on its own axes (LLP 1070 H1).
-    func geometry(_ id: UInt32) -> CollectionFacts? {
+    package func geometry(_ id: UInt32) -> CollectionFacts? {
         guard let node = presenter?.views[id], let scroll = node.scroll,
               !node.isHiddenOrHasHiddenAncestor else { return nil }
         let bounds = scroll.contentView.bounds
@@ -392,11 +392,7 @@ extension CollectionHost {
     }
     func focusedView() -> UInt32? {
         guard let presenter, let responder = presenter.viewport.window?.firstResponder else { return nil }
-        for node in presenter.views.values {
-            if responder === node || responder === node.textArea ||
-                (node.field.flatMap { $0.currentEditor() }.map { responder === $0 } ?? false) { return node.id }
-        }
-        return nil
+        return presenter.keyTarget(responder)?.id
     }
     private func nodeID(_ hit: NSView?) -> UInt32? {
         var view = hit

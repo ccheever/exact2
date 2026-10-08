@@ -118,6 +118,13 @@ are animatable and constant-call values can be evaluated at compilation.
 Styles accept literal style attributes and explicitly styleable props (currently
 `buttonStyle`), not arbitrary expressions or event props.
 
+A length attribute's string is CSS's own text, read by the kernel: a px or
+other absolute length, a percentage, a viewport length, `auto`,
+`calc(<percent> ± <px>)`, `env(safe-area-inset-*)` and `calc(env(…) ± <px>)`,
+or `min()`, `max()` and `clamp()` over px, insets and viewport lengths
+(`clamp(15px, env(safe-area-inset-bottom), 60px)`; LLP 1001 §2). Anything else
+is `lower-attr-value`, with the kernel's reason.
+
 A `sound` names a WAV under the app's `assets/` (LLP 1096 D1): 16-bit integer
 or 32-bit float PCM (or `WAVE_FORMAT_EXTENSIBLE` naming one), one or two
 channels, 8–96 kHz, at most 10 s. The compiler reads its header and refuses
@@ -485,7 +492,7 @@ never breaks an app that declared it first.
 
 | Call | Result / restriction |
 | --- | --- |
-| `now()` | Milliseconds on the runner's clock since boot (the driver's clock under the agent), not a date: the date is `exactTime().epochAtZero + now()`. A read does not schedule a render, and a derive that reads it is not read again as time passes (when it is depends on the host's clock), so a value that follows the clock comes from a timer: keep the time in state that a `task … every` action writes |
+| `now()` | Milliseconds on the runner's clock since boot (the driver's clock under the agent, from 0), as the web's `performance.now()`, not `Date.now()`: the date is `time.epochAtZero + now()`, with `resource time = exactTime() as shape T` declared. A read does not schedule a render, and a derive that reads it is not read again as time passes (when it is depends on the host's clock), so a value that follows the clock comes from a timer: keep the time in state that a `task … every` action writes |
 | `formatTime(ms, offsetMinutes, "short")` | String; fixed offset east of UTC, en-US formatting (`exactTime().utcOffset` is the zone's offset now, answered again when it changes) |
 | `formatDate(ms, offsetMinutes, "medium" or "month-year" or "iso")` | String; format is a literal choice, not an expression containing `or`. `"iso"` is `YYYY-MM-DD`: the date at that wall time, which is `toISOString`'s date part at a whole-minute offset (a fractional offset's sub-millisecond wall time is not clipped again, as no style's is) (LLP 1102 §3.4); every style prints `""` outside years 1–9999 |
 | `formatNumber(n, "compact")` | String; admitted deterministic compact format |

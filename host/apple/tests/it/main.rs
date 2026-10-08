@@ -6,6 +6,7 @@ mod canvas_defer;
 mod content_region;
 mod controls;
 mod development;
+mod fit_content;
 mod flights;
 mod glass;
 mod hatches;

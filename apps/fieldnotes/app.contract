@@ -216,7 +216,7 @@ component Fieldnotes
           when backupText != ""
             textarea appearance="none" font-family="sans-serif" value=backupText readonly=true aria-label="Backup text to copy" testId="backup-text" height=130 width="100%" box-sizing="border-box" padding=12 font-size=12 background-color="#ffffff" border-style="solid" border-width=1 border-color="#cbd3c8" border-radius=7
             row gap=10 align-items="center" flex-wrap="wrap"
-              button press=exportBackup disabled=busy testId="export-backup" padding=10
+              button appearance="none" press=exportBackup disabled=busy testId="export-backup" padding=10
                 text "Export backup file…" color="#31554a"
               when exportNote != ""
                 text exportNote font-size=13 color="#63766a" testId="export-note"
@@ -227,13 +227,13 @@ component Fieldnotes
               text (importName == "" ? "Replace all notes with this backup?" : `Replace all notes with ${importName}?`) font-size=14 testId="restore-question"
               button press=restore disabled=(busy or dirty) testId="confirm-restore" padding=10 background-color="#a34336" border-radius=7
                 text "Replace notes" color="#ffffff"
-              button press=cancelRestore testId="cancel-restore" padding=10
+              button appearance="none" press=cancelRestore testId="cancel-restore" padding=10
                 text "Cancel"
           else
             row gap=10 flex-wrap="wrap"
-              button press=askRestore disabled=(busy or dirty) testId="restore-backup" padding=10
+              button appearance="none" press=askRestore disabled=(busy or dirty) testId="restore-backup" padding=10
                 text "Restore backup…" color="#a34336"
-              button press=chooseImport disabled=(busy or dirty) testId="import-backup" padding=10
+              button appearance="none" press=chooseImport disabled=(busy or dirty) testId="import-backup" padding=10
                 text "Import backup file…" color="#31554a"
       else
         row testId="workspace" flex=1 min-height=400 gap=16 flex-wrap="wrap" align-items="stretch"
@@ -260,7 +260,7 @@ component Fieldnotes
           column testId="editor" flex=3 min-width=300 min-height=400 gap=14 padding=20 box-sizing="border-box" background-color="#fffefa" border-style="solid" border-width=1 border-color="#dedfd5" border-radius=12
             row justify-content="space-between" align-items="center"
               text (editingId == "" ? "A NEW PAGE" : "YOUR NOTE") font-size=11 font-weight=700 letter-spacing=2 color="#63766a"
-              button press=togglePin disabled=(busy or not openedReady) testId="pin-note" padding=8
+              button appearance="none" press=togglePin disabled=(busy or not openedReady) testId="pin-note" padding=8
                 text (fields.pinned ? "Pinned" : "Pin note") font-size=13 color="#63766a"
             input appearance="none" id="note-title" value=(pending(opened) ? "" : fields.title) readonly=(pending(opened) or not openedReady) input=changeTitle placeholder="Untitled note" aria-label="Note title" testId="note-title" width="100%" box-sizing="border-box" padding=10 font-family="serif" font-size=27 border-width=0 background-color="#fffefa"
             textarea appearance="none" id="note-body" font-family="sans-serif" value=(pending(opened) ? "" : fields.body) readonly=(pending(opened) or not openedReady) input=changeBody placeholder="What's on your mind?" aria-label="Note body" testId="note-body" width="100%" flex=1 min-height=160 box-sizing="border-box" padding=10 font-size=16 line-height="24px" border-width=0 background-color="#fffefa"
@@ -268,24 +268,24 @@ component Fieldnotes
               button press=save disabled=(busy or not openedReady or not dirty or (fields.title == "" and fields.body == "")) testId="save-note" aria-keyshortcuts="Meta+S Control+S" padding=12 background-color="#31554a" border-radius=7
                 text "Save note" color="#ffffff" font-weight=600
               when dirty
-                button press=discard disabled=busy testId="discard" padding=12
+                button appearance="none" press=discard disabled=busy testId="discard" padding=12
                   text "Discard changes" color="#63766a"
               when page.canShare and (fields.title != "" or fields.body != "")
-                button press=shareNote disabled=busy testId="share-note" aria-label="Share note" padding=12
+                button appearance="none" press=shareNote disabled=busy testId="share-note" aria-label="Share note" padding=12
                   text "Share…" color="#31554a"
               when editingId != ""
-                button press=askDelete disabled=busy testId="delete-note" padding=12
+                button appearance="none" press=askDelete disabled=busy testId="delete-note" padding=12
                   text "Delete…" color="#a34336"
             when session.confirmDelete
               row gap=12 align-items="center" flex-wrap="wrap"
                 text "Delete this note?" color="#a34336" font-size=14
-                button press=remove disabled=busy testId="confirm-delete" padding=10
+                button appearance="none" press=remove disabled=busy testId="confirm-delete" padding=10
                   text "Delete note" color="#a34336" font-weight=700
-                button press=cancelDelete testId="cancel-delete" padding=10
+                button appearance="none" press=cancelDelete testId="cancel-delete" padding=10
                   text "Keep it"
             when openInterrupted
               text "Opening this note was interrupted. Try again." font-size=13 color="#a34336" testId="open-interrupted"
-              button press=edit(session.noteId) disabled=busy testId="retry-open" padding=10 align-self="flex-start"
+              button appearance="none" press=edit(session.noteId) disabled=busy testId="retry-open" padding=10 align-self="flex-start"
                 text "Retry opening note" color="#31554a"
             when openedMessage != ""
               text openedMessage font-size=13 color="#a34336" testId="open-message"

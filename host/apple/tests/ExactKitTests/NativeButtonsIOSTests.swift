@@ -24,6 +24,21 @@ final class NativeButtonsIOSTests: XCTestCase {
         p.apply(wireBatch(ops))
         return p
     }
+    func testReferencedAccessibleNameWinsAndFollowsItsText() throws {
+        let p = presenter(box(1) + native(2, ["accessibilityLabelledBy": "name", "accessibilityLabel": "Fallback"])
+                          + box(3, ["id": "name", "text": "Delete permanent copy"])
+                          + [["op": "children", "id": 1, "ids": [2, 3]], ["op": "roots", "ids": [1]]],
+                          faces: [2: face("Go")])
+        let button = try XCTUnwrap(p.controls.controls[2] as? NativeButtonIOS)
+        XCTAssertEqual(button.accessibilityLabel, "Delete permanent copy", "aria-labelledby precedes aria-label and the face")
+        p.apply(wireBatch([["op": "props", "id": 3, "set": ["text": "Delete archived copy"]]]))
+        XCTAssertEqual(button.accessibilityLabel, "Delete archived copy", "a referenced text-only batch refreshes the control")
+        p.apply(wireBatch([["op": "props", "id": 3, "set": ["text": ""]]]))
+        XCTAssertEqual(button.accessibilityLabel, "Fallback", "an empty referenced name falls back to aria-label")
+        p.apply(wireBatch([["op": "props", "id": 2, "clear": ["accessibilityLabel"]]]))
+        XCTAssertEqual(button.accessibilityLabel, "Go", "without an authored name the face names the control")
+    }
+
     private func face(_ title: String?, symbol: String? = nil, style: String = "bordered", ios: String = "bordered") -> ButtonFace {
         var f = ButtonFace()
         f.title = title; f.symbol = symbol; f.style = style; f.ios = ios; f.iosBefore26 = "bordered"
@@ -75,8 +90,15 @@ final class NativeButtonsIOSTests: XCTestCase {
         XCTAssertEqual(seen["style"] as? String, "filled")
         XCTAssertEqual(send.accessibilityLabel, "Send", "the title names it")
         XCTAssertEqual(send.accessibilityIdentifier, "send")
+        XCTAssertTrue(send.isAccessibilityElement, "the native button exposes its explicit name even before UIKit loads its accessibility runtime")
+        XCTAssertTrue(send.accessibilityTraits.contains(.button))
         XCTAssertEqual(p.views[2]?.accessibleName, "Send", "the agent's name for it is its title")
         XCTAssertFalse(try XCTUnwrap(p.views[2]).isAccessibilityElement, "the control is the element, not the node")
+        let ax = p.axElements(roots: [p.viewport])
+        let named = (ax["elements"] as? [[String: Any]])?.filter { $0["testId"] as? String == "send" } ?? []
+        XCTAssertEqual(named.count, 1, "the platform tree exposes the native button once")
+        XCTAssertEqual(named.first?["name"] as? String, "Send")
+        XCTAssertEqual(named.first?["role"] as? String, "button")
     }
 
     func testItsActionPressesOnceItsOwnOrAnAncestorsHandler() throws {
@@ -125,6 +147,52 @@ final class NativeButtonsIOSTests: XCTestCase {
         XCTAssertEqual(focused, [2])
     }
 
+    func testAuthoredColoursFollowALightToDarkSwitch() throws {
+        var f = face("Scheme", symbol: "lock.fill", style: "filled", ios: "filled")
+        let pair: BatchValue = .array([.array([.number(0), .number(0), .number(0), .number(255)]),
+            .array([.number(255), .number(255), .number(255), .number(255)])])
+        f.rows.title["text_color"] = pair; f.rows.symbol["tint_color"] = pair
+        let p = presenter(native(2) + [["op": "roots", "ids": [2]]], faces: [2: f])
+        window.overrideUserInterfaceStyle = .light; window.updateTraitsIfNeeded()
+        let b = try button(p, 2); b.updateTraitsIfNeeded(); p.controls.sync()
+        let old = b.written
+        XCTAssertEqual(b.configuration?.baseForegroundColor?.cgColor.components, [0, 0, 0, 1])
+        window.overrideUserInterfaceStyle = .dark; window.updateTraitsIfNeeded(); b.updateTraitsIfNeeded(); p.controls.sync()
+        XCTAssertNotEqual(b.written, old, "appearance invalidates the title and baked symbol tint")
+        XCTAssertEqual(b.configuration?.baseForegroundColor?.cgColor.components, [1, 1, 1, 1])
+        XCTAssertEqual(b.configuration?.image?.renderingMode, .alwaysOriginal)
+    }
+    private final class LocatedTouch: UITouch {
+        let target: UIView
+        init(_ target: UIView) { self.target = target; super.init() }
+        override var view: UIView? { target }
+        override func location(in view: UIView?) -> CGPoint { target.convert(CGPoint(x: target.bounds.midX, y: target.bounds.midY), to: view) }
+    }
+    func testProductionTouchesLightDismissAndHideANativeInvokersPopover() throws {
+        let p = presenter(box(1) + native(2, ["popovertarget": "choices"]) + native(3)
+            + box(4, ["popover": "auto", "id": "choices"]) + native(5, ["popovertarget": "choices", "popovertargetaction": "hide"], handlers: [])
+            + [["op": "children", "id": 1, "ids": [2, 3, 4]], ["op": "children", "id": 4, "ids": [5]], ["op": "roots", "ids": [1]]],
+            faces: [2: face("Open"), 3: face("Outside"), 5: face("Hide")])
+        let pop = try XCTUnwrap(p.views[4]), opener = try button(p, 2)
+        opener.sendActions(for: .primaryActionTriggered)
+        XCTAssertTrue(p.menus.isOpen(pop))
+        let watcher = try XCTUnwrap(p.viewport.gestureRecognizers?.first { String(describing: type(of: $0)) == "PopoverTouch" }, "production touch observer")
+        XCTAssertFalse(watcher.cancelsTouchesInView); XCTAssertFalse(watcher.delaysTouchesBegan)
+        watcher.touchesBegan([LocatedTouch(opener)], with: UIEvent())
+        XCTAssertTrue(p.menus.isOpen(pop), "its invoker is excluded from light dismiss")
+        watcher.reset()
+        watcher.touchesBegan([LocatedTouch(try button(p, 5))], with: UIEvent())
+        XCTAssertTrue(p.menus.isOpen(pop), "a touch inside keeps it until activation")
+        try button(p, 5).sendActions(for: .primaryActionTriggered)
+        XCTAssertFalse(p.menus.isOpen(pop), "hide-only native button closes it")
+        p.apply(wireBatch([["op": "props", "id": 5, "set": ["commandfor": "choices", "command": "hide-popover"]]]))
+        opener.sendActions(for: .primaryActionTriggered)
+        try button(p, 5).sendActions(for: .primaryActionTriggered)
+        XCTAssertFalse(p.menus.isOpen(pop), "the command invoker closes it too")
+        opener.sendActions(for: .primaryActionTriggered)
+        watcher.reset(); watcher.touchesBegan([LocatedTouch(try button(p, 3))], with: UIEvent())
+        XCTAssertFalse(p.menus.isOpen(pop), "outside touch reaches production dismissal without agentTap")
+    }
     func testAPanCancelsItsTouchAsACustomButtons() {
         let scroll = ScrollView()
         XCTAssertTrue(scroll.touchesShouldCancel(in: NativeButtonIOS(configuration: .bordered())))

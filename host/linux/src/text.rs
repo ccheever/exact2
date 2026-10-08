@@ -226,6 +226,10 @@ pub struct Paragraph {
     /// storage spike's arrangement (c)): the first paint breaks the shared
     /// shape at `remake` again and keeps them (b).
     record: std::cell::OnceCell<Arc<Lines>>,
+    /// The lines its measure broke, held until this frame's paint takes
+    /// them for `record` ([`TextEngine::finish_text_frame`] drops any left),
+    /// so a width measured and painted in one frame is broken once.
+    measured: RefCell<Option<Arc<Lines>>>,
     /// The width to break again for `record`; `None` when it is always kept
     /// (flowed, clamped, ellipsized and adopted widths).
     remake: Option<Option<f32>>,
@@ -277,6 +281,9 @@ impl Paragraph {
     /// The shared record of this width's lines, made on first use.
     pub(crate) fn layouts(&self) -> &Arc<Lines> {
         self.record.get_or_init(|| {
+            if let Some(lines) = self.measured.borrow_mut().take() {
+                return lines;
+            }
             let width = self.remake.expect("a kept record is present");
             Arc::new(self.source.remake(width))
         })
@@ -532,6 +539,9 @@ pub struct TextEngine {
     pub flow_walk: Duration,
     /// The family sans-serif resolves to.
     pub sans: String,
+    /// Paragraphs holding their measure's lines for this frame's paint,
+    /// one per shaped source (the latest width measured).
+    held: HashMap<*const ShapedSource, std::rc::Weak<Paragraph>>,
 }
 
 /// The engine shared between the measurer and the painter.
@@ -555,6 +565,7 @@ impl TextEngine {
     fn with_catalog(catalog: catalog::Catalog) -> Self {
         Self {
             sans: catalog.sans.clone(),
+            held: HashMap::new(),
             catalog: Rc::new(RefCell::new(catalog)),
             paragraphs: cache::Cache::default(),
             shape_calls: 0,
@@ -645,6 +656,7 @@ impl TextEngine {
     }
 
     pub(crate) fn finish_text_frame(&mut self) {
+        self.release_held();
         self.paragraphs.finish_handoff();
         self.paragraphs.maintain();
     }
@@ -738,7 +750,8 @@ impl TextEngine {
         }
         self.paragraphs.before_shape(key);
         let source = self.source(key);
-        let p = Rc::new(self.layout_source(&source, width));
+        let p = Rc::new(self.layout_source(&source, width, true));
+        self.hold(&source, &p);
         self.paragraphs.insert(key, width.into(), &p);
         p
     }
@@ -760,19 +773,56 @@ impl TextEngine {
         Rc::new(ShapedSource::new(self.catalog.clone(), spec))
     }
 
-    fn layout_source(&mut self, source: &Rc<ShapedSource>, width: Option<f32>) -> Paragraph {
+    /// Keep `p`'s measured lines for this frame's paint; another width of
+    /// the same source measured before it lets its lines go.
+    fn hold(&mut self, source: &Rc<ShapedSource>, p: &Rc<Paragraph>) {
+        if p.measured.borrow().is_none() {
+            return;
+        }
+        if let Some(earlier) = self
+            .held
+            .insert(Rc::as_ptr(source), Rc::downgrade(p))
+            .and_then(|w| w.upgrade())
+        {
+            if !Rc::ptr_eq(&earlier, p) {
+                earlier.measured.borrow_mut().take();
+            }
+        }
+    }
+
+    /// The end of a frame: measured lines no paint took are let go.
+    fn release_held(&mut self) {
+        for (_, p) in self.held.drain() {
+            if let Some(p) = p.upgrade() {
+                p.measured.borrow_mut().take();
+            }
+        }
+    }
+
+    /// A width of `source`; `hold` keeps the lines it broke for this
+    /// frame's paint ([`Self::hold`]).
+    fn layout_source(
+        &mut self,
+        source: &Rc<ShapedSource>,
+        width: Option<f32>,
+        hold: bool,
+    ) -> Paragraph {
         #[cfg(test)]
         if let Some(callback) = &mut self.before_layout {
             callback();
         }
         self.layout_calls += 1;
-        source.layout(width)
+        if hold {
+            source.layout_held(width)
+        } else {
+            source.layout(width)
+        }
     }
 
     #[cfg(test)]
     fn layout(&mut self, spec: &Spec, width: Option<f32>) -> Paragraph {
         let source = self.build_source(Arc::new(spec.clone()));
-        self.layout_source(&source, width)
+        self.layout_source(&source, width, false)
     }
 
     // Intrinsic questions retain the shared source and scalar answers only.
@@ -786,7 +836,7 @@ impl TextEngine {
         self.paragraphs.before_shape(key);
         let source = self.source(key);
         let width = minimum.then(|| source.min_content().ceil());
-        let mut metrics = paragraph_metrics(&self.layout_source(&source, width));
+        let mut metrics = paragraph_metrics(&self.layout_source(&source, width, false));
         // Min-content is the widest unbreakable run, not the widest line at that
         // width: a preserved trailing space counts toward a line but not toward
         // min-content, as in Chrome.
@@ -986,6 +1036,16 @@ fn premultiply(r: u8, g: u8, b: u8, a: u8) -> [u8; 4] {
 pub struct Measurer(pub Shared);
 
 impl TextMeasurer for Measurer {
+    fn button_measure(
+        &mut self,
+        request: &exact_kernel::ButtonMeasureRequest,
+    ) -> Option<exact_kernel::ButtonMeasure> {
+        Some(crate::paint::button::measure(
+            &mut self.0.borrow_mut(),
+            request,
+        ))
+    }
+
     fn field_chrome(
         &mut self,
         _request: &exact_kernel::FieldChromeRequest,
@@ -1004,6 +1064,7 @@ impl TextMeasurer for Measurer {
         drop(catalog);
         engine.catalog = Rc::new(RefCell::new(next));
         engine.paragraphs = cache::Cache::default();
+        engine.release_held();
     }
 
     fn measure_identified(

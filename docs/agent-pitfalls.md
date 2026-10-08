@@ -25,6 +25,13 @@ guide's rules don't make obvious.
   `line-height=1.3` (28.6 px at 22 px). (Authoring bench,
   LLP 1087: three Codex builders, caught only by a screenshot, 2026-10-05.)
 
+- **A ported `clamp(inset, 15, 60)` never stops at 60.** Cause: React Native
+  code's `clamp(value, min, max)` (lodash's order) is not CSS's `clamp(MIN, VAL,
+  MAX)`, which is `max(MIN, min(VAL, MAX))`: `clamp(env(safe-area-inset-bottom),
+  15px, 60px)` is the inset whenever it passes 15. Fix: `clamp(15px,
+  env(safe-area-inset-bottom), 60px)`. (Bluesky clone's bottom bar, the kernel
+  test that caught it, 2026-10-07.)
+
 - **An image tile grows to its picture's size.** An album tile in a flex row became
   900×1200 pt. Cause: a flex item's automatic minimum is its content size (CSS), and
   an image's content size is its intrinsic size. Fix: give the image or its flex
@@ -477,6 +484,31 @@ guide's rules don't make obvious.
   the agent's own `screenshot`, which targets the app's simulator. (Authoring
   bench, LLP 1087, t9-profile, 2026-10-07.)
 
+- **A deadline the app computed lands in 1970, and the server sweeps it at once.**
+  `closesAt = now() + 7 * 86400000` was sent as `604800000`: a row the backend's
+  expiry job removed while the mutation said `sent`, a label reading "due in
+  20732d". Cause: `now()` is milliseconds since the runner's clock started, as the
+  web's `performance.now()`, not `Date.now()`; on every host, production included,
+  and from 0 under the agent and in tests. Fix: the date is `time.epochAtZero +
+  now()`, from `resource time = exactTime() as shape Clock` with `shape Clock` /
+  `epochAtZero: number` declared (`exactTime()` is a resource, never a call in an
+  expression); or let the server compute the deadline from a duration. LLP 1109 D1
+  asks whether `now()` should be the date. (App farm round 1, 12 builds,
+  2026-10-07.)
+
+- **Records an agent drive writes are dated 2026-01-01.** The driver's clock
+  starts at a fixed epoch, so `wallTime.epochAtZero + now()` is that date, and a
+  `createdAt` taken from it is too: Bluesky's AppView then sorted the clone's
+  test posts out of the author feed, and they turned up only through search.
+  Fix: `--epoch $(date -u +%Y-%m-%dT%H:%M:%SZ)` on any drive that writes to a
+  real service. (Bluesky clone, b12, 2026-10-07.)
+
+- **`screenshot` of a sheet is the sheet alone, at full width.** On iOS it
+  captures the presented route (a fit-content repost sheet came out 402 × 270
+  points), so its type looks twice its size when viewed as a screen. Fix:
+  `screenshot out.png window` for the screen as a person sees it. (Bluesky clone,
+  b12, 2026-10-07.)
+
 - **A screenshot right after a state change shows a transition's start.** A
   `transition` (a background colour, an opacity) is held by the driver's clock,
   so the frame and the computed style still read the old value: the toggle
@@ -665,6 +697,14 @@ guide's rules don't make obvious.
   `try { … } finally { await db.close(); }`. (LLP 1097 D7, Charlie,
   2026-10-07.)
 
+- **A native button refuses an image's frame or a third text.** Its face is
+  semantic: two texts (title and subtitle) and one symbol. The symbol's size
+  is `font-size` on the image, not `width`, `height` or `object-fit`. Its own
+  colour is `-exact-tint-color`; the title's is `color`. Use a custom `button`
+  without `appearance="auto"` for aligned image frames or arbitrary children.
+  `-exact-control-size` and `-exact-corner-style` are admitted only on an
+  explicit native button, including through classes. (LLP 1069.011.001 D12–D14.)
+
 ## Working on exact2 itself
 
 - **A bisect that shares another worktree's Cargo target directory builds
@@ -797,3 +837,20 @@ guide's rules don't make obvious.
   Keep the words the node was last told with and act only when they differ.
   Found building the fixture's Linux hatches (§13.13): the pressing hatch
   pressed itself forever once its label grew a digit.
+
+- **A background, border or radius makes a default button your own box.**
+  Rich children and rows the native button refuses do too, including on one
+  conditional arm or through a class. `buttonStyle` then refuses with
+  `lower-button-style` and says why. Remove the named reason to keep the
+  platform's button, or write `appearance="none"` without `buttonStyle` for
+  your own box. Explicit `appearance="auto"` admits a radius as a native
+  content field but refuses backgrounds, borders and unsupported children.
+  (LLP 1104 r10 D1, D2.)
+
+- **A projected segmented control can widen after its tabs become native
+  buttons.** The projection supplies the tablist's minimum height and fills
+  its content box; the authored children still decide that box's width.
+  Native button insets then contribute even though the segmented control
+  draws the face. If the row was designed around bare text tabs, write
+  `appearance="none"` on those tabs. Native Fixture's header needed this
+  after buttons became native by default. (LLP 1059 D2a, LLP 1104 D9.)

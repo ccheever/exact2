@@ -17,8 +17,12 @@ is handed to whoever drives it. Pinned to Snapback4 **0.4.13**
 
 ## From TypeScript
 
-Mount the driver in the app's `app.json`, and build the wasm (and its glue,
-which every host's bake type-checks) before a build:
+### Mount it and build the wasm
+
+Mount the driver in the app's `app.json` (the path is relative to the app,
+or absolute; an app made by `exact new` outside this checkout names this
+checkout's `snapback4/ts`), and build the wasm and its glue, which every
+host's bake type-checks, before a build:
 
 ```json
 "typescript": { "sources": { "snapback4": "../exact2/snapback4/ts" } }
@@ -28,22 +32,87 @@ which every host's bake type-checks) before a build:
 node ../exact2/snapback4/web/build.mjs assets/snapback4.wasm   # the web; no argument writes only the glue
 ```
 
+The first build compiles the client for a few minutes; later ones take
+seconds. The web host serves `assets/snapback4.wasm` at
+`/assets/snapback4.wasm`, the driver's default. It is pinned to Snapback4
+0.4.13: install that version of `snapback4` for the server.
+
+### Time
+
+A data module has no clock. Declare the host's clock as a resource and pass
+milliseconds since the epoch into every source that reads or writes:
+
+```
+shape Clock
+  epochAtZero: number
+
+  resource time = exactTime() as shape Clock
+  resource inbox = inbox(time.epochAtZero + now()) as list<Message>
+```
+
+`exactTime()` is a reserved source, not a function to call inside an
+expression. Under the agent and in tests, `now()` starts near zero and
+`epochAtZero` places it in real time; pass the sum, never `now()` alone.
+
+### Open, sync, read, write
+
 ```ts
 import { Snapback } from './snapback4/snapback.ts';
 export const grants = `net.fetch ${origin}\nsqlite.open app:/data`;
 
-const db = await Snapback.open({ app: appId, name: 'inbox', origin, viewer: session.principal,
-  headers: () => ({ authorization: `Bearer ${session.token}` }), storage, native });
+const db = await Snapback.open({ app: appId, name: `inbox-${persona}`, origin, viewer,
+  headers: () => ({ authorization: `Bearer ${session.token}` }),  // or { 'x-snapback-persona': persona } in development
+  storage, native });                                  // Exact's own `storage` and `native`, as the source receives them
 await db.sync();                                       // open on first sync, page, send the outbox
 const inbox = await db.read('inbox', {}, now);         // the device answers; pending rows say so
 const sent = await db.write('send', { body }, now);    // kept and predicted now, sent by the next sync
-if (await db.poll(20)) await db.sync();                // the server's head moved
+await db.sync();
+const fate = await db.outcome(sent.id);                // 'sent' with the server's result, or 'failed' and why
+if (await db.poll(0)) await db.sync();                 // the server's head moved
 const renewed = await db.refreshSession(now);          // near expiresAt: keep renewed.session at once
 ```
 
-A data module has no clock: pass `now` from a source argument
-(`exactTime().epochAtZero + now()` in the contract). Natively the device is
-the app's native module; link it in the app's Rust:
+- **Every source may open for itself.** Opening a partition this page already
+  has open shares it (one device per file: Exact's storage locks an open
+  database), and `close()` lets it go with the last client.
+- **Rounds run one at a time.** A `sync()` while another runs, from any source,
+  waits for it and then runs its own, so writes admitted meanwhile go too. It
+  never answers `busy`.
+- **A partition that has never synced** opens in its first round. The first
+  `read` or `write` starts that round (or waits for the one running); if the
+  server is not reached, it throws `E_OFFLINE`. After one sync the device
+  answers offline from what it keeps.
+- **One partition per viewer.** A partition binds its origin and viewer. Two
+  personas (or a sign-out and a sign-in) need two names, such as
+  `inbox-${persona}`, each covered by the `sqlite.open` grant; opening a name
+  already open for another viewer refuses with `E_PARTITION_VIEWER`.
+- **What the device answers.** A query whose tables are all synced is read
+  from the partition, offline included. A query that reads an `online only`
+  table or view is answered by the server (`POST /q/<name>`), marked
+  `server: true`; unreached, it answers `denied` with `E_OFFLINE`, never an
+  empty page. A synced table holds only its sync horizon (`sync … last 100 by
+  byTime`): a read of rows outside it (`first 1` of a `last 100` horizon) is
+  `complete: false`. Read in the horizon's order, or widen it.
+- **A round that ends `ok` delivered the outbox; it does not say each write
+  was accepted.** `outcome(id)` does: `sent` with `result`, `failed` with
+  `why` (the refusal's code, such as one the mutation `require`s), or
+  `pending` while unsent. `refusals()` lists every refused write with its
+  input until `dismiss()`.
+- **Offline.** `sync()` resolves `{ok: false, offline: true}`; writes are kept
+  and predicted (`pending: true` rows) and sent by the next round that
+  reaches the server, once each.
+- **Live updates.** A data answer has a bounded life and tests settle on
+  answers, so do not hold a long `poll(20)` inside a resource. Drive
+  freshness from Contract: a `task` that calls an action every few seconds,
+  whose resources `sync()` (or `poll(0)`) and read again, and `refreshes` on
+  the mutations that change them.
+
+On the web the partition is the wasm device, persisted through Exact SQLite
+after every call, one call at a time; a failed save rebuilds the device from
+the disk and keeps what the server said. A second tab finds its database
+busy.
+
+Natively the device is the app's native module; link it in the app's Rust:
 
 ```rust
 struct Snapback(exact_snapback4::Module);
@@ -55,10 +124,7 @@ impl exact_js::NativeModule for Snapback {
 }
 ```
 
-On the web it is the wasm, persisted through Exact SQLite after every call,
-one call at a time; a failed save rebuilds the device from the disk and keeps
-what the server said. One open partition per page: a second tab finds its
-database busy.
+The native module holds one partition at a time.
 
 Every exchange names itself (`fetch.exchange`); deliver its reply with that
 name. A reply for a round that was cancelled, or a client since reopened, is
@@ -94,6 +160,9 @@ snapback4/ts`, and clippy for `exact-snapback4-web` with `--target
 wasm32-unknown-unknown`.
 
 What the TypeScript client of Snapback itself does that this one does not
-yet: media and assets, native jobs on the device, Following feeds,
-ephemeral reads, search state, session refresh, and the 0.2.32 legacy
-fallback. `round.rs` names its source in Snapback's `local.ts`.
+yet: media and assets (LLP 1108), native jobs on the device, Following
+feeds, ephemeral reads, search state, the online fallback for a device
+read missing a fact or unsure of a row's presence (here it answers from
+the partition: `complete: false` or `loading`), a server read kept live
+(here a query the server answers is asked again, not invalidated by the
+change poll; LLP 1110), and the 0.2.32 legacy fallback. `round.rs` names its source in Snapback's `local.ts`.

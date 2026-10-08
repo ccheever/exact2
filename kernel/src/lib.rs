@@ -63,6 +63,7 @@ pub mod wire;
 
 pub use control::{Choice, ControlKind, PressFace, Range};
 pub use control_measurement::{
+    ButtonFaceStyle, ButtonFonts, ButtonImagePlacement, ButtonMeasure, ButtonMeasureRequest,
     ControlFont, ControlTextStyles, FieldChrome, FieldChromeRequest, FieldKind,
 };
 pub use error::{

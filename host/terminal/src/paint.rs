@@ -167,6 +167,8 @@ fn node(
     let visible =
         n.computed_row(exact_kernel::StyleId::Visibility, |s| s.visibility) == Visibility::Visible;
     let current = n.text_color();
+    let native_button =
+        n.node_type == NodeType::Control && n.props.str(PropId::Type) == Some("button");
     let native_field =
         n.node_type == NodeType::TextInput && n.style.appearance == exact_kernel::Appearance::Auto;
     if visible {
@@ -215,6 +217,7 @@ fn node(
                 let px = f.width - bl - br - pl - pr;
                 text(scene, out, &n, content, columns(px), clip, current)
             }
+            NodeType::Control if native_button => button(scene, out, &n, rect, clip),
             NodeType::TextInput => field(scene, out, &n, content, clip, current),
             NodeType::Image => image(scene, out, &n, content, clip),
             _ => {}
@@ -268,13 +271,66 @@ fn node(
             }
         }
     }
-    if n.node_type != NodeType::Text {
+    if n.node_type != NodeType::Text && !native_button {
         for child in n.children() {
             node(scene, out, child, child_clip, dx, child_dy, false);
         }
     }
-    if visible && scene.focus == Some(id) && n.node_type != NodeType::TextInput {
+    if visible && scene.focus == Some(id) && n.node_type != NodeType::TextInput && !native_button {
         out.grid.reverse(rect, clip);
+    }
+}
+
+/// LLP 1104 D7: a native face is host paint, never its unlaid-out children.
+fn button(scene: &Scene<'_>, out: &mut Painted, n: &NodeRef<'_>, rect: CellRect, clip: CellRect) {
+    let face = scene.kernel.press_face(n.id).unwrap_or_default();
+    let rows = scene.kernel.button_face_style(n.id).expect("button");
+    let lines = crate::measure::button_lines(
+        &face,
+        &rows,
+        exact_kernel::AxisOffer::Definite(rect.w as f32 * COLUMN),
+    );
+    let style = Style {
+        fg: rgb(rows.title.text_color.resolve(scene.dark)),
+        reverse: true,
+        bold: scene.focus == Some(n.id) || rows.title.font_weight >= 600,
+        faint: faded(scene.kernel, n.id) || n.props.bool(PropId::Disabled) == Some(true),
+        ..Style::default()
+    };
+    let inner = rect.intersect(clip);
+    for y in rect.y..rect.y + rect.h {
+        for x in rect.x..rect.x + rect.w {
+            out.grid.put(x, y, " ", 1, style, inner);
+        }
+    }
+    let width = rect.w.saturating_sub(2).max(0) as usize;
+    let title_clip = inner.intersect(CellRect {
+        x: rect.x + 1,
+        y: rect.y,
+        w: width as i32,
+        h: rect.h,
+    });
+    let top = rect.y + (rect.h - lines.len() as i32).max(0) / 2;
+    for (row, line) in lines.iter().enumerate() {
+        let slack = width.saturating_sub(line.cols()) as i32;
+        let mut x = rect.x
+            + 1
+            + match rows.button.text_align {
+                exact_kernel::TextAlign::Left | exact_kernel::TextAlign::Start => 0,
+                exact_kernel::TextAlign::Right | exact_kernel::TextAlign::End => slack,
+                _ => slack / 2,
+            };
+        for glyph in &line.glyphs {
+            out.grid.put(
+                x,
+                top + row as i32,
+                &glyph.text,
+                glyph.cols,
+                style,
+                title_clip,
+            );
+            x += glyph.cols as i32;
+        }
     }
 }
 

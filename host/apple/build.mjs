@@ -1473,6 +1473,7 @@ function test(args) {
     runApple('xcrun', ['--sdk', 'iphonesimulator', 'swiftc', '-parse-as-library', '-emit-library', '-O', '-swift-version', '5', '-module-name', 'ExactAppModules',
       '-module-cache-path', resolve(fixtureDir, 'cache'), resolve(root, 'host/apple/modules/ExactNativeModule.swift'), resolve(fixtureDir, 'ExactDataKeys.swift'),
       ...fixture.modules.apple, '-target', iosTriple, '-o', env.TEST_RUNNER_EXACT_FIXTURE_MODULE]);
+    env.TEST_RUNNER_EXACT_BUTTONS_PLAN = resolve(fixtureDir, 'native-buttons.plan'); run('cargo', ['run', '-q', '-p', 'contract', '--bin', 'contract', '--manifest-path', resolve(root, 'Cargo.toml'), '--', 'build', resolve(root, 'scripts/fixtures/native-buttons.contract'), '-o', env.TEST_RUNNER_EXACT_BUTTONS_PLAN]);
     const classes = readdirSync(resolve(pkg, 'tests/ExactKitTests')).filter(f => f.endsWith('IOSTests.swift')).map(f => f.slice(0, -'.swift'.length));
     if (!classes.length) { console.log('host/apple: no *IOSTests to run'); return; }
     const pick = args.includes('--sim') ? args[args.indexOf('--sim') + 1] : process.env.EXACT_SIM;
@@ -1489,7 +1490,6 @@ function test(args) {
     } finally { if (bootedHere) read('xcrun', ['simctl', 'shutdown', dev.udid]); }
   } finally { cargoRelease?.(); release(); }
 }
-
 if (process.argv[1] && resolve(process.argv[1]) === new URL(import.meta.url).pathname) {
   const args = process.argv.slice(2);
   useXcode();

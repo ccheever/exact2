@@ -374,6 +374,9 @@ pub struct Runner<D: DataSource> {
     refused_asks: Vec<usize>,
     /// Failed arguments suppress another ask until they change or refresh.
     failed_args: Vec<Option<Vec<Value>>>,
+    /// Why each resource last failed, shown in `state.failed` while
+    /// `failed_args` holds (app farm round 1: a refusal only in the journal).
+    failed_why: Vec<Option<String>>,
     /// `pending` as flags, by resource and by mutation, for expressions.
     pending_res: Vec<bool>,
     pending_mut: Vec<bool>,
@@ -810,6 +813,7 @@ impl<D: DataSource> Runner<D> {
             forgot: false,
             refused_asks: Vec::new(),
             failed_args: Vec::new(),
+            failed_why: Vec::new(),
             deferred_edges: Vec::new(),
             held_edges: Vec::new(),
             requests: Vec::new(),
@@ -945,6 +949,7 @@ impl<D: DataSource> Runner<D> {
         runner.pending_mut = vec![false; runner.plan.mutations.len()];
         runner.watching = vec![Vec::new(); runner.plan.resources.len()];
         runner.failed_args = vec![None; runner.plan.resources.len()];
+        runner.failed_why = vec![None; runner.plan.resources.len()];
         runner.then_due = vec![f64::INFINITY; runner.plan.mutations.len()];
         runner.queues = queue::Queues::new(runner.plan.mutations.len());
         // A carried boot never takes compiled data: it was baked for the
@@ -1184,6 +1189,19 @@ impl<D: DataSource> Runner<D> {
             .iter()
             .position(|d| self.plan.str(d.name) == name)
             .and_then(|i| self.derives[i].as_ref())
+    }
+
+    /// Each resource whose last request failed, by name, with why: what
+    /// `failed(x)` reads, for the agent's `state.failed`.
+    pub fn failed_resources(&self) -> Vec<(&str, &str)> {
+        let failed = self.failed_args.iter().zip(&self.failed_why).enumerate();
+        failed
+            .filter(|(_, (args, _))| args.is_some())
+            .map(|(i, (_, why))| {
+                let name = self.plan.str(self.plan.resources[i].name);
+                (name, why.as_deref().unwrap_or("it failed"))
+            })
+            .collect()
     }
 
     /// Current value of a resource by name.

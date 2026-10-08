@@ -108,6 +108,7 @@ let appViewport;
 check(transcript() === readFileSync(pinned, 'utf8'), 'the transcript form drifted from scripts/fixtures/transcript.txt (a deliberate change: bun scripts/smoke.mjs --record)');
 check(browserDiagnosticNoise('CVDisplayLinkCreateWithCGDisplay failed. CVReturn: -6670'), 'the known headless display-service diagnostic is no longer classified as browser noise');
 check(browserDiagnosticNoise("(process:3727907): GLib-GIO-CRITICAL **: 09:48:52.460: g_settings_schema_source_lookup: assertion 'source != NULL' failed"), 'GLib\'s missing-GSettings-schema diagnostic on Linux is browser noise');
+check(browserDiagnosticNoise('Trying to load the allocator multiple times. This is *not* supported.'), 'macOS Chrome\'s allocator-shim line at launch is browser noise');
 check(!browserDiagnosticNoise('console.error: exact: failed'), 'page/runtime errors must not be classified as browser noise');
 check(browserDiagnosticNoise('[1:2:0927/223530.638588:ERROR:components/page_load_metrics/browser/page_load_metrics_update_dispatcher.cc:179] Invalid first_paint 0.059 s for first_image_paint 0.057 s'), 'Chrome\'s paint-timing bookkeeping is no longer classified as browser noise');
 check(!browserDiagnosticNoise('[1:2:0927/223530.286557:ERROR:components/os_crypt/common/keychain_password_mac.mm:102] Keychain lookup failed'), 'a keychain lookup must fail the smoke: the carrier launches Chrome with a mock keychain');

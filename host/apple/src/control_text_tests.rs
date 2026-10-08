@@ -89,6 +89,7 @@ fn boot(measurer: CachedChrome) -> Result<(Host<NoData>, String), crate::HostErr
         None,
         None,
         "/",
+        false,
         None,
         crate::link::Links::ALL,
         |runner| {
@@ -262,4 +263,217 @@ fn running_session_chrome_failure_keeps_updates_but_withholds_staged_geometry() 
             .any(|op| op["op"] == "fieldContent" && op["id"] == native),
         "withheld editor rects must be republished: {settled}"
     );
+}
+
+#[test]
+fn resolved_button_geometry_has_one_measurement_and_presentation_payload() {
+    use exact_kernel::{ButtonMeasure, ButtonMeasureRequest, Dimension, StyleId};
+    use std::{cell::RefCell, rc::Rc};
+    struct Capture(Rc<RefCell<Vec<String>>>);
+    #[allow(unsafe_code)] // Borrow the test-owned callback context and request synchronously.
+    extern "C" fn measure(
+        ctx: *mut std::ffi::c_void,
+        r: *const crate::control_text::CButtonMeasureRequest,
+    ) -> crate::control_text::CButtonMeasure {
+        // This callback borrows the payload only for the synchronous call.
+        let (out, r) = unsafe { (&*(ctx as *const RefCell<Vec<String>>), &*r) };
+        let face = unsafe { std::slice::from_raw_parts(r.face, r.face_len) };
+        out.borrow_mut()
+            .push(String::from_utf8(face.to_vec()).unwrap());
+        crate::control_text::CButtonMeasure {
+            width: r.width,
+            height: 60.,
+            provisional: 0,
+        }
+    }
+    impl TextMeasurer for Capture {
+        fn measure(&mut self, r: &TextMeasureRequest<'_>) -> TextMetrics {
+            MonospaceMeasurer::default().measure(r)
+        }
+        fn button_measure(&mut self, r: &ButtonMeasureRequest) -> Option<ButtonMeasure> {
+            Some(crate::control_text::button_measure(
+                measure,
+                Rc::as_ptr(&self.0) as *mut _,
+                r,
+            ))
+        }
+    }
+    let source = r#"component Buttons
+  view
+    column width=400
+      button testId="resolved" appearance="auto" width=200 padding-top="env(safe-area-inset-top)" padding-left="calc(10% + 2px)" padding-right="5%" border-radius="6px 12px 14px 16px"
+        text "Measure"
+"#;
+    let plan = contract::compile(source).unwrap().encode();
+    let captured = Rc::new(RefCell::new(Vec::new()));
+    let (mut host, _) = Host::boot(
+        &plan,
+        NoData,
+        Box::new(Capture(captured.clone())),
+        400.,
+        800.,
+    )
+    .unwrap();
+    host.set_insets(31., 0., 0., 0.);
+    let kernel = host.runner().kernel();
+    let id = kernel
+        .node_by_key(kernel.find_by_test_id("resolved")[0])
+        .unwrap()
+        .id;
+    let rows = kernel.button_face_style(id).unwrap();
+    assert_eq!(rows.button.padding_top, Dimension::Points(31.));
+    assert_eq!(rows.button.padding_left, Dimension::Points(42.));
+    assert_eq!(rows.button.padding_right, Dimension::Points(20.));
+    assert!(rows.button.mask.has(StyleId::PaddingTop));
+    let presented =
+        crate::button::face_json(kernel.press_face(id).as_ref(), Some(&rows), "bordered");
+    assert_eq!(captured.borrow().last().unwrap(), &presented);
+    let json: serde_json::Value = serde_json::from_str(&presented).unwrap();
+    assert_eq!(json["rows"]["button"]["padding_top"], 31.);
+    assert_eq!(json["rows"]["button"]["border_radius_top_left"], 6.);
+    assert_eq!(json["rows"]["button"]["border_radius_top_right"], 12.);
+}
+
+#[test]
+fn control_size_fonts_feed_em_resolution_and_the_shared_face_payload() {
+    extern "C" fn font(_: *mut std::ffi::c_void, kind: u8) -> crate::control_text::CControlFont {
+        crate::control_text::CControlFont {
+            family: std::ptr::null(),
+            family_len: 0,
+            family_id: 42,
+            size: 17. + 10. * f32::from(kind),
+            weight: 400,
+            italic: 0,
+        }
+    }
+    let fonts = crate::control_text::button_fonts(font, std::ptr::null_mut());
+    let platform = crate::control_text::text_styles(font, std::ptr::null_mut());
+    assert_eq!(
+        platform
+            .button_font(exact_kernel::ControlSize::Large, Some(&fonts))
+            .size,
+        57.
+    );
+    let plan = contract::compile(
+        r#"component Buttons
+  view
+    column
+      button appearance="auto" testId="em" -exact-control-size="large" font-size="1em"
+        text "Large"
+"#,
+    )
+    .unwrap()
+    .encode();
+    let (host, _) = Host::boot_stored_after_decode(
+        crate::host::PlanBytes::Copied(&plan),
+        NoData,
+        Box::new(MonospaceMeasurer::default()),
+        exact_runner::Viewport::sized(400., 800.),
+        None,
+        Vec::new(),
+        None,
+        None,
+        None,
+        None,
+        "/",
+        false,
+        None,
+        crate::link::Links::ALL,
+        |runner| {
+            let mut env = runner.kernel().env();
+            env.control_text_styles = Some(platform);
+            env.button_fonts = Some(fonts);
+            runner.kernel_mut().set_env(env).unwrap();
+            Ok(())
+        },
+    )
+    .unwrap();
+    let kernel = host.runner().kernel();
+    let id = kernel
+        .node_by_key(kernel.find_by_test_id("em")[0])
+        .unwrap()
+        .id;
+    let rows = kernel.button_face_style(id).unwrap();
+    assert_eq!(rows.title.font_size, 57.);
+    let json: serde_json::Value = serde_json::from_str(&crate::button::face_json(
+        kernel.press_face(id).as_ref(),
+        Some(&rows),
+        "bordered",
+    ))
+    .unwrap();
+    assert_eq!(json["rows"]["title"]["font_size"], 57.);
+    assert_eq!(json["rows"]["title"]["font_size_resolved"], 1);
+}
+
+#[test]
+fn trait_notification_remeasures_buttons_when_control_fonts_are_unchanged() {
+    use std::cell::Cell;
+    thread_local! {
+        static SCALE: Cell<f32> = const { Cell::new(1.0) };
+        static CALLS: Cell<usize> = const { Cell::new(0) };
+    }
+    extern "C" fn text(
+        _: *mut std::ffi::c_void,
+        _: *const crate::measure::CRequest,
+    ) -> crate::measure::CMetrics {
+        crate::measure::CMetrics {
+            width: 50.0,
+            height: 17.0,
+            baseline: 14.0,
+        }
+    }
+    extern "C" fn font(_: *mut std::ffi::c_void, _: u8) -> crate::control_text::CControlFont {
+        crate::control_text::CControlFont {
+            family: std::ptr::null(),
+            family_len: 0,
+            family_id: 0,
+            size: 17.0,
+            weight: 400,
+            italic: 0,
+        }
+    }
+    extern "C" fn button(
+        _: *mut std::ffi::c_void,
+        _: *const crate::control_text::CButtonMeasureRequest,
+    ) -> crate::control_text::CButtonMeasure {
+        CALLS.set(CALLS.get() + 1);
+        let scale = SCALE.get();
+        crate::control_text::CButtonMeasure {
+            width: 100.0,
+            height: (30.2 * scale).ceil() / scale,
+            provisional: 0,
+        }
+    }
+    let plan = contract::compile(
+        "component Buttons\n  view\n    button \"Measure\" appearance=\"auto\" testId=\"button\"\n",
+    )
+    .unwrap()
+    .encode();
+    let hooks = crate::abi::Hooks {
+        measure: Some(text),
+        ..crate::abi::Hooks::none()
+    };
+    let mut bridge = crate::abi::Bridge::new();
+    bridge.set_control_text(Some(font), None);
+    bridge.set_button_measure(Some(button));
+    SCALE.set(1.0);
+    let n = bridge.boot(&plan, NoData, hooks, 400.0, 800.0);
+    assert!(String::from_utf8_lossy(bridge.output_bytes(n as usize)).contains("\"error\":null"));
+    assert!(CALLS.get() > 0, "the fixture must boot a native button");
+    CALLS.set(0);
+    let n = bridge.control_text_changed(hooks);
+    assert!(
+        CALLS.get() > 0,
+        "a measuring-trait notification must reach the button cache even with identical fonts"
+    );
+    assert!(String::from_utf8_lossy(bridge.output_bytes(n as usize)).contains("\"error\":null"));
+    CALLS.set(0);
+    SCALE.set(2.0);
+    let n = bridge.control_text_changed(hooks);
+    let batch = String::from_utf8_lossy(bridge.output_bytes(n as usize));
+    assert!(CALLS.get() > 0, "scale-only changes must measure again");
+    assert!(batch.contains("\"h\":30.5"), "{batch}");
+    CALLS.set(0);
+    bridge.resize(400.0, 800.0);
+    assert_eq!(CALLS.get(), 0, "ordinary layouts reuse the new revision");
 }

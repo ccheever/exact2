@@ -316,6 +316,7 @@ pub(crate) struct RegionGeometry {
     // Local editor boxes belong to this immutable pass, not every retained node.
     // An empty map allocates nothing for regions without native text fields.
     field_content: crate::id::IdMap<NodeKey, Frame>,
+    button_bases: crate::id::IdMap<NodeKey, Option<f32>>,
     provisional_chrome: bool,
 }
 impl RegionGeometry {

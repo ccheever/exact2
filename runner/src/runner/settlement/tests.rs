@@ -265,6 +265,11 @@ fn a_typescript_answer_that_failed_now_fails_the_resource() {
     assert_eq!(r.slot("revision"), Some(&Value::Number(2.)));
     assert_eq!(rows(&r), Some(records(2)), "the value it had stays");
     assert_eq!(r.failed_args[0], Some(vec![Value::Number(2.)]));
+    assert_eq!(
+        r.failed_resources(),
+        [("rows", why)],
+        "`state.failed` says why"
+    );
     assert!(!r.holds(older[0].ticket), "the older reply is not wanted");
     assert!(!r.has_pending());
     assert!(r
@@ -562,6 +567,11 @@ fn async_answers_validate_before_reuse_and_refusal_releases_ticket_but_keeps_sto
         .unwrap()
         .is_some());
     assert!(!r.has_pending());
+    let failed = r.failed_resources(); // `state.failed` says why
+    assert!(
+        matches!(failed[..], [("rows", why)] if why.contains("outside its shape")),
+        "{failed:?}"
+    );
     assert_eq!(
         r.resource("rows"),
         Some(&records(1)),
@@ -584,6 +594,7 @@ fn async_answers_validate_before_reuse_and_refusal_releases_ticket_but_keeps_sto
         .unwrap()
         .is_some());
     assert_eq!(r.resource("rows"), Some(&records(2)));
+    assert!(r.failed_resources().is_empty());
     assert!(r
         .carry()
         .store

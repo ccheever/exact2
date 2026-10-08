@@ -179,6 +179,9 @@ pub struct Env {
     pub cell_borders: bool,
     /// Platform control fonts (LLP 1104 D4). None preserves page inheritance.
     pub control_text_styles: Option<crate::ControlTextStyles>,
+    /// Optional per-size button fonts. Separate from `ControlTextStyles` so
+    /// existing hosts' control-font struct literals remain source compatible.
+    pub button_fonts: Option<crate::ButtonFonts>,
 }
 
 impl Default for Env {
@@ -202,6 +205,7 @@ impl Env {
             viewport_height: 0.0,
             cell_borders: false,
             control_text_styles: None,
+            button_fonts: None,
         }
     }
 
@@ -217,7 +221,10 @@ impl Env {
 
     /// Whether every inset and every segment side is a finite number.
     pub fn is_finite(&self) -> bool {
-        Edge::ALL.iter().all(|e| self.inset(*e).is_finite())
+        self.button_fonts
+            .as_ref()
+            .is_none_or(crate::ButtonFonts::is_valid)
+            && Edge::ALL.iter().all(|e| self.inset(*e).is_finite())
             && self.segments.iter().all(Rect::is_finite)
             && self
                 .control_text_styles
@@ -428,7 +435,7 @@ pub const ENV_NAMES: [(&str, &str); 2] = [
     ("viewport-segment-", "css CSS Environment Variables 1"),
 ];
 
-fn term(inner: &str) -> Result<Dimension, EnvRefusal> {
+pub(super) fn term(inner: &str) -> Result<Dimension, EnvRefusal> {
     let inner = inner.trim();
     let body = inner
         .strip_prefix("env(")
@@ -542,7 +549,10 @@ pub fn uses_env(style: &crate::StyleProps) -> bool {
         matches!(
             style.get(id),
             crate::RowValue::Dimension(
-                Dimension::Env(..) | Dimension::Segment(..) | Dimension::Viewport(..)
+                Dimension::Env(..)
+                    | Dimension::Segment(..)
+                    | Dimension::Viewport(..)
+                    | Dimension::Compare(..)
             )
         )
     })

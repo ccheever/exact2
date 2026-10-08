@@ -74,7 +74,7 @@ final class NativeFieldsMacTests: XCTestCase {
         let cache = FieldChromeCache()
         engine.fieldChrome = cache
         Owner.shared.sync { engine.measuring.fieldChrome = cache }
-        let answer = Owner.shared.sync { TextEngine.controlText(engine.measuring.opaque) }
+        let answer = Owner.shared.sync { TextEngine.controlText(engine.measuring.opaque, 0) }
         let standard = NSFont.systemFont(ofSize: NSFont.systemFontSize(for: .regular))
         XCTAssertEqual(answer.size, Float(standard.pointSize))
         XCTAssertEqual(engine.font(size: CGFloat(answer.size), weight: Int(answer.weight), family: Int(answer.family_id), italic: answer.italic != 0), standard)

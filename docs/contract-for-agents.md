@@ -584,6 +584,14 @@ Resources read as their declared type. Mutations read as `option<T>` and start a
 `none`, so a mutation's `T` is not itself an option. Do not treat a resource as an optional wrapper unless its declared type
 itself is optional. A mutation reply is unwrapped with match.
 
+An answer is held to its shape exactly: a field the shape does not declare, at any
+depth, fails the resource as a thrown error does (TypeScript lets a spread such as
+`{ ...row }` through). The view keeps its placeholder or last value and
+`failed(x)` is true, so a banner on `failed` reads "unreachable" for what is a
+shape mismatch: `state` names the field under `failed`, a CLI drive says so on
+stderr, and a failing `expect` names it. Project a backend row onto the shape
+field by field (`({ id: row.id, title: row.title })`).
+
 `with` takes one or more expressions, before `as shape`, and appends them to the
 source's arguments. All arguments still trigger re-asks and identify live
 requests. Only an eligible persisted answer admitted while the source is unready
@@ -685,7 +693,12 @@ HTML names Contract spells otherwise (the compiler names each): `div` is `column
 `text role="heading" aria-level=N`; `label` is `text` beside its field, which
 `aria-label` (or `aria-labelledby`) names; `img` is `image`; `a` is `link`; `ul`,
 `ol` and `li` are a `list` or a `column` of rows; `title` and `meta` are `head
-title=… description=…`. A component
+title=… description=…`; a `table` is `view display="grid"` with
+`grid-template-columns` (or a `column` of `row`s); there is no `form` (a field's
+Enter is its `submit`) and no `details` (keep `open` in state, show the body `when
+open`). In expressions a view chooses with `when`, not `if`; a count is
+`length(xs)`, never `count`, `len` or `.size`; a resource's placeholder is `else
+empty()` (`[]` for a list), never `else []`. A component
 call uses parentheses; a built-in element uses space-separated attributes.
 `button "Save" press=save` is text-child sugar; an explicit text child is useful
 when that label needs its own styling or driver id. A `button` is the web's
@@ -754,14 +767,63 @@ stays there, so rows inserted on top show, and one following its end
 (`translate`, `rotate`, `scale`, a relative `top`/`left`, `z-index`: a lifted
 row being dragged) and keeps its place in the list.
 
-A native button is an explicit `button appearance="auto"` after class merging;
-an ordinary button remains an authored `appearance="none"` pressable. The switch
-must be literal. Native title/symbol children are face data, not general layout.
-A symbol-only face needs a nonempty accessible label. `buttonStyle` is a declared
-styleable host-policy prop; its names and allowable branches are checked against
-`schema.json`'s `buttonStyles`. Follow the native-button allowlist and context
-checks in [`controls.rs`](../contract/lower/src/controls.rs), and test the actual
-platform look. Do not assume arbitrary custom paint or typography is admitted.
+A `button` is the platform's own control by default. A background, border or
+radius, rich children, or a row/attribute/context the native control cannot
+support makes it your bare box instead. Classes count after merging, and a
+row or incompatible child on any conditional arm keeps the whole button bare.
+Grouped-list row buttons and their detail accessories stay bare by default so
+UIKit can read the cell's face; explicit `appearance="auto"` carries a custom native control.
+`appearance="none"` explicitly asks for your box. `appearance="auto"` explicitly
+asks for the platform's button and refuses unsupported rows or children. The
+switch must resolve to a literal after class merging; use `when` with two
+buttons to switch. Its first `text` is the title, its second is the subtitle, and
+its one `image "symbol:…"` is the symbol. These are semantic face data, not
+layout children. A symbol-only face needs a nonempty `aria-label`. With
+`flex-direction="row"` (or absent), an image before/after the texts is
+leading/trailing; with `flex-direction="column"` it is top/bottom.
+
+Native buttons admit `font-size`, `font-weight`, `color`, `white-space`,
+`line-clamp` and `text-align` on the button or its texts; a text's own row wins.
+Apple uses only rows authored there, including classes; absent rows leave the
+platform's font and colour alone. The web inherits the page's font and colour.
+Tab/menu projections keep their existing ancestor `text-transform` on the
+projected title, which the face query reads as painted.
+`white-space="nowrap"` asks for one truncated line, `line-clamp=N` caps wrapping,
+and `text-align="start"` places the face at the start of its box. The symbol
+admits its own `-exact-tint-color`, `font-size` and `font-weight`; absent symbol rows
+follow the title. Its `width`, `height` and `object-fit` are refused.
+
+`gap` (or `column-gap` for a row, `row-gap` for a column) sets image-to-title
+spacing. Absent means the platform's spacing, not zero; title-to-subtitle
+spacing stays the platform's. `align-items` and `justify-content` accept only
+`center`. `-exact-control-size` takes `mini`, `small`, `medium`, `large`;
+`-exact-corner-style` takes `dynamic`, `small`, `medium`, `large`, `capsule`.
+Both are style rows admitted only on native buttons, including in a class.
+With explicit `appearance="auto"`, `border-radius` sets the authored radius
+and wins over the named corner style; under the default it makes the button bare.
+`padding` and its longhands set content insets. Absent leaves the native
+control's insets/corners alone.
+
+`pointer-events` takes `none` or `auto`. A disabled native button retains
+its authored colours; bind `opacity` for authored dimming. It can open a
+dialog or popover with `commandfor` and `command="show-modal"`,
+`"show-popover"`, `"toggle-popover"`, or with `popovertarget`; targets may be
+bound, and an empty target is no target. `href`, `action` and swipe attributes
+remain refused. `-exact-enabled` transitions are not available.
+
+`buttonStyle` needs a native button; on a default button that comes out bare,
+`lower-button-style` names the first reason and says to remove it or write
+`appearance="none"` without `buttonStyle`. It is a styleable host-policy prop;
+its names and allowable branches
+are checked against `schema.json`'s `buttonStyles`. Backgrounds, borders,
+shadows, filters, `font-family`, other typography or inner layout and
+`-exact-press-scale` are refused with `lower-button-style-attr`, naming a custom
+`button` as the alternative. A native button still takes size, place, opacity
+and transform rows. Hosts implementing the measure hook supply its fitting
+size before the first frame, including height-for-width; hosts without it
+keep the existing intrinsic-size report. Test the actual
+platform look; macOS can report stand-ins for gap, subtitle and wrapping.
+See [`controls.rs`](../contract/lower/src/controls.rs) for the checks.
 
 **Prefer native controls.** Write the Contract form and each host draws its own
 control; a hand-built lookalike (a painted switch, a row of buttons for tabs, a
@@ -769,7 +831,7 @@ drawn title bar) is a bug. On iOS:
 
 | Write | iOS draws |
 | --- | --- |
-| `button appearance="auto"` (`buttonStyle`) | `UIButton` |
+| `button` (`buttonStyle`, native by default) | `UIButton` |
 | `list appearance="auto" listStyle="inset-grouped"` of `section`s (`header`, rows, `footer`) | `UICollectionView` list, as Settings ([human guide](contract-for-humans.md#choosing-a-native-button)) |
 | `input type="checkbox" switch` | `UISwitch` |
 | `input type="range"` | `UISlider` |
@@ -1066,6 +1128,16 @@ main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow displa
   over the routes and the native bars on every host, as later siblings do in CSS.
 - A modal route (`navigationPresentation="modal"`) paints its own background; the
   route under it is dimmed.
+- A sheet's heights are `navigationDetent`, space-separated words: `large`,
+  `medium`, a point height or `fit-content` (the route's content height; a menu or
+  a short dialog), which goes alone or as `"fit-content large"`. A literal with
+  another word is refused. `fit-content` measures the route laid out alone, its
+  height left to its children, so nothing sized from the sheet counts (a `vh`
+  height or min/max height is `auto` there); a route
+  that scrolls is measured by its scroll extent, so give its rows
+  `flex-shrink: 0`. The route does
+  not pad `env(safe-area-inset-bottom)`: UIKit adds that band below the detent.
+  iOS alone sizes a sheet (LLP 1075.003 §9.11).
 - Without tabs, the routes are the root's own children, laid out the same way.
 - Tests reach a tab by `tap`, or deliver a location as `type <root> "/saved"` (LLP
   1038 D11), which calls the root's `navigate`. On the web a CLI drive goes back as
@@ -1144,8 +1216,9 @@ a loop from mutations: a `then` cannot send its own mutation
 instead.
 
 `now()` is the runner's clock in milliseconds since boot (the driver's clock under
-the agent), not a date. For the date, read the reserved `exactTime` source and add
-`time.epochAtZero + now()`. Its fields, which a shape declares as it reads them:
+the agent, from 0), as the web's `performance.now()`, not a date: a deadline of
+`now() + ms` sent to a server is in 1970. For the date, read the reserved
+`exactTime` source and add `time.epochAtZero + now()`. Its fields, which a shape declares as it reads them:
 `epochAtZero` (Unix milliseconds when `now()` read zero), `utcOffset` (minutes east
 of UTC), `locale` (BCP 47), `timeZone` (IANA), `resolvedLocale` (the language of
 the string table the app shows, `""` with no tables) and `seed` (a whole number
@@ -1398,7 +1471,9 @@ transition or animation ends, firing the timers due on the way, so a test on a t
 `clock data` lands it without moving the clock: the data module's activation and
 every request in flight, each answer's `then` with it, no timer fired. A CLI drive's
 first operation runs at boot and may come before that has landed (an authored test
-lands it before its first step), so a drive that reads or taps data starts with `clock data`.
+lands it before its first step), so a drive that reads or taps data starts with `clock data`
+(a `tree`, `layout` or `screenshot` taken before the clock first moves, with a request
+in flight, says so on stderr).
 A playing `video` or `audio` is on real time too: the clock never seeks or holds it, so
 between operations it moves only as far as the drive took. `clock +N real` lets
 N ms of real time pass with the clock moving beside it, a step at a time: a
@@ -1501,9 +1576,9 @@ changes?"; macOS and the web),
 options, and a checkbox with a `checked` binding `true` or `false`; else its descendants' — a button's label — else a field's value), and
 `expect state name == <number|string|bool|none|[]>`, where `name` may go on into
 a record's fields (`board.active.present`) or a list index (`rows.0`), and the
-number may be negative (`== -3`). A failed expect with no input before
-it names the requests still in flight (the boot's own, or what a `clock +N` left
-on real time). An input step ends with what it settled: an answer the data
+number may be negative (`== -3`). A failed expect names any resource that
+failed, and why; with no input before it, the requests still in flight (the boot's
+own, or what a `clock +N` left on real time). An input step ends with what it settled: an answer the data
 module gave in the input's turn, and its mutation's `then`, are there for the
 next step. Otherwise the clock stands still between steps: a reply on real time
 (a store's, the network's) or a transition an input started lands at a `clock`
@@ -1617,6 +1692,19 @@ border radii) accept `vw`, `vh`, `vmin`, `vmax`, and `svw/svh/lvw/lvh/dvw/dvh`.
 On native, all viewport variants follow the window; on web, CSS resolves
 small/large/dynamic viewports. Scalar lengths such as font size and gap do
 not yet accept viewport units.
+
+The same rows take `env(safe-area-inset-top|right|bottom|left)`, `calc(env(…) ±
+<n>px)`, and CSS's `min()`, `max()` and `clamp()` over px (and in/cm/mm/pt/pc),
+those insets and viewport lengths, with sums inside them (`max(15px,
+env(safe-area-inset-bottom) - 4px)`) and nested in each other and in `calc()`:
+`padding-bottom="clamp(15px, env(safe-area-inset-bottom), 60px)"`,
+`bottom="calc(clamp(15px, env(safe-area-inset-bottom), 60px) + 59px)"`.
+CSS's order is `clamp(MIN, VAL, MAX)`, not React Native's `clamp(value, min,
+max)`. Native hosts resolve them as the insets change; the web writes CSS's own
+functions. On a size, a padding or a radius a result below zero is 0, as CSS
+clamps it; a margin or an inset keeps it. Refused with the reason: a percentage, `rem`/`em`, a unitless
+number (write `0px`, not `0`), `env(viewport-segment-*)`, two inset or viewport terms in one
+sum, subtracting one, `*` and `/` (LLP 1001 §2, "Comparisons").
 
 `translate` takes one or two lengths, each in px or a percentage of the box's own
 border box, as CSS's does: `left="50%" top="50%" translate="-50% -50%"` on an
