@@ -1,6 +1,7 @@
 // @ref llp/1109.005-composer-and-transcript.decision.md#queued-command-construction
 import { expect, test } from 'bun:test';
 import { mobilePendingTaskEditorsHydrate, mobilePendingTaskEditorsCreate, type MobilePendingTaskMarker } from './mobile-pending-task-state';
+import { fleet, environmentKey, type FleetEntry } from './shared/settings-b-fleet';
 import { T3Client } from './shared/client';
 import { obj, type Obj } from './shared/domain';
 import { ClientError, type Native } from './shared/protocol';
@@ -140,7 +141,7 @@ function fixture(input = queued()) {
         inlines.set(operation.operationId, operation); value = wrapper(operation);
       } else if (r.action === 'send') { operation = settled(operation!); inlines.set(operation.operationId, operation); value = wrapper(operation); }
       else throw Error(`Unexpected ${key(r)}`);
-    } else if (r.op === 'status') value = { origin: 'https://relay.test', homeOrigin: owner.origin, environmentId: owner.environmentId };
+    } else if (r.op === 'status') value = { state: 'connected', origin: 'https://relay.test', homeOrigin: owner.origin, environmentId: owner.environmentId };
     else if (r.op === 'http') value = session;
     else if (r.op === 'ids') value = Array.from({ length: Number(r.count) }, () => `aaaaaaaa-0000-4000-a000-${String(++ids).padStart(12, '0')}`);
     else if (r.op === 'snapshotDraftRead') value = { base64: 'YWJj', sizeBytes: 3 };
@@ -513,4 +514,43 @@ test('an unrelated editor arriving mid-pass does not block the original full que
   });
   await run(f.client, f.native, scheduled.next, now);
   expect(f.calls.filter(call => call.action === 'send')).toHaveLength(1); expect(f.disk()).toBeNull();
+});
+
+
+test('root scheduling includes saved background tasks and wakes them on fleet changes', async () => {
+  const f = fixture(), beforeSaved = fleet.saved, revision = fleet.revision;
+  try {
+    f.client.environmentId = 'other'; fleet.saved = [{ origin: owner.origin, environmentId: owner.environmentId, enabled: true }];
+    const first = await loaded(f); expect(JSON.parse(first.next).owner).toEqual(owner);
+    await run(f.client, f.native, first.next, now);
+    expect(snapshot(f.client, now + 10000).next).toBe('');
+    fleet.revision++;
+    expect(snapshot(f.client, now + 10000).next).not.toBe('');
+    fleet.saved[0]!.enabled = false;
+    expect(snapshot(f.client, now + 10000).next).toBe('');
+  } finally { fleet.saved = beforeSaved; fleet.revision = revision; }
+});
+
+for (const change of ['removed', 'disabled'] as const) test(`background ACK cleanup is scheduled once after its connection is ${change}`, async () => {
+  const f = fixture(asCreation(queued())), savedBefore = fleet.saved, entriesBefore = new Map(fleet.entries);
+  const key = environmentKey(owner.origin, owner.environmentId);
+  const entry: FleetEntry = { key, origin: owner.origin, environmentId: owner.environmentId, phase: 'connected', message: '', traceId: '',
+    generation: 7, synchronized: 7, lastEvent: 0, subscriptions: {}, config: copy(f.client.config), shell: copy(f.client.shell),
+    scopes: [...f.client.scopes], error: '', requested: true };
+  try {
+    fleet.entries.clear(); fleet.entries.set(key, entry); fleet.saved = [{ origin: owner.origin, environmentId: owner.environmentId, enabled: true }];
+    Object.assign(f.client, { origin: 'https://other.test', environmentId: 'other', generation: 19, config: {}, scopes: [], shell: { sequence: 0, projects: [], threads: [] } });
+    const first = await loaded(f);
+    f.intercept(request => {
+      if (request.op === 'mobileOutboxDelivery' && request.action === 'send') {
+        if (change === 'removed') fleet.entries.delete(key); else fleet.saved[0]!.enabled = false;
+      }
+    });
+    await run(f.client, f.native, first.next, now);
+    expect(f.deliveries.get('command')?.state).toBe('acknowledged');
+    const next = snapshot(f.client, now + 10000); expect(next.next).not.toBe('');
+    const before = f.calls.length; await run(f.client, f.native, next.next, now + 10000);
+    expect(f.disk()).toBeNull(); expect(f.calls.slice(before).some(call => call.fleet || call.action === 'send')).toBe(false);
+    expect(f.client.environmentId).toBe('other'); expect(snapshot(f.client, now + 20000).next).toBe('');
+  } finally { fleet.saved = savedBefore; fleet.entries.clear(); for (const [key, entry] of entriesBefore) fleet.entries.set(key, entry); }
 });

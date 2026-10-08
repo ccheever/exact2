@@ -1,5 +1,6 @@
 // Pinned365aa87982 attachmentUpload.ts and use-thread-outbox-drain.ts.
 // @ref llp/1109.005-composer-and-transcript.decision.md#local-outbox-storage
+import type { MobileOutboxConnection } from './mobile-outbox-connection';
 import type { T3Client } from './shared/client';
 import { obj, str } from './shared/domain';
 import { ClientError, type Native } from './shared/protocol';
@@ -28,20 +29,20 @@ const validId = (id: string) => id.length > 0 && id.length <= 128 && /^[a-z0-9_-
 /** One caller-owned foreground pass. Existing native FIFO/CAS owns adoption;
  * this function retains no handle or Promise after returning and never sends a turn. */
 export async function mobileOutboxPrepareAttachments(client: T3Client, handle: Native,
-  captured: MobileOutboxCapture): Promise<MobileOutboxUploadResult> {
-  const native = letGoAware(handle), generation = client.generation, activeOrigin = client.origin;
-  const environmentId = client.environmentId, config = JSON.stringify(client.config), scopes = JSON.stringify(client.scopes);
+  captured: MobileOutboxCapture, connection: MobileOutboxConnection = client): Promise<MobileOutboxUploadResult> {
+  const native = letGoAware(handle), generation = connection.generation, activeOrigin = connection.origin;
+  const environmentId = connection.environmentId, config = JSON.stringify(connection.config), scopes = JSON.stringify(connection.scopes);
   let capture = { ...captured }, adopted = false, mutation: MobileOutboxOutcome | null = null;
   let endpointVerified = false;
   const minted: string[] = [], prepared: MobileOutboxUploadAttachment[] = [], pending: string[] = [];
   const initial = mobileOutboxSnapshot(client).rows.find(row => row.record.messageId === capture.messageId);
   if (!initial) return { status: 'abandoned', reason: 'That pending task no longer exists.' };
-  const record = initial.record, capabilities = obj(obj(client.config.environment).capabilities);
-  const sameEndpoint = () => client.generation === generation && client.origin === activeOrigin && client.environmentId === environmentId
-    && record.environmentId === environmentId && client.connection === 'connected';
+  const record = initial.record, capabilities = obj(obj(connection.config.environment).capabilities);
+  const sameEndpoint = () => connection.generation === generation && connection.origin === activeOrigin && connection.environmentId === environmentId
+    && record.environmentId === environmentId && connection.connection === 'connected';
   function current() {
     const snapshot = mobileOutboxSnapshot(client), row = snapshot.rows.find(row => row.record.messageId === capture.messageId);
-    if (!sameEndpoint() || !client.configLive || JSON.stringify(client.config) !== config || JSON.stringify(client.scopes) !== scopes
+    if (!sameEndpoint() || !connection.configLive || JSON.stringify(connection.config) !== config || JSON.stringify(connection.scopes) !== scopes
       || !snapshot.complete || !row || row.held || row.status !== 'confirmed' || !sameCapture(mobileOutboxCapture(client, capture.messageId), capture)
       || snapshot.outcomes.some(outcome => outcome.messageId === capture.messageId && ['unknown', 'uncertain'].includes(outcome.status))) throw stale();
     return row;
@@ -53,7 +54,7 @@ export async function mobileOutboxPrepareAttachments(client: T3Client, handle: N
   }
   async function bytes(file: MobileOutboxAttachment) {
     current();
-    const value = await client.call(native, { op: file.kind === 'image' ? 'snapshotDraftRead' : 'composerAttachRead', id: file.id }, generation);
+    const value = await connection.call(native, { op: file.kind === 'image' ? 'snapshotDraftRead' : 'composerAttachRead', id: file.id }, generation);
     current();
     if (!str(value.base64) || value.sizeBytes !== file.sizeBytes) throw new ClientError(`'${file.name}' is no longer available. Attach it again.`);
     return str(value.base64);
@@ -63,16 +64,16 @@ export async function mobileOutboxPrepareAttachments(client: T3Client, handle: N
     // mutation status must settle before anyone decides to release those IDs.
     if (adopted || mutation && ['unknown', 'uncertain'].includes(mutation.status) || !endpointVerified) return;
     for (const id of minted) for (let attempt = 0; attempt < 2 && sameEndpoint(); attempt++) {
-      try { await client.request(native, 'attachments.delete', { attachmentId: id }, generation, true); break; }
+      try { await connection.request(native, 'attachments.delete', { attachmentId: id }, generation, true); break; }
       catch (error) { if (letGo(error) || error instanceof ClientError && error.kind === 'AssetAttachmentNotFoundError') break; }
     }
   }
   try {
     await confirm();
-    const status = await client.call(native, { op: 'status' }, generation); current();
+    const status = await connection.call(native, { op: 'status' }, generation); current();
     if (status.environmentId !== environmentId || status.origin !== activeOrigin || (str(status.homeOrigin) || activeOrigin) !== record.origin) throw stale();
     endpointVerified = true;
-    const session = await client.http(native, '/api/auth/session', generation); current();
+    const session = await connection.http(native, '/api/auth/session', generation); current();
     if (!mobileSessionGrants(session, 'orchestration:operate')) throw new ClientError('This connection cannot upload attachments.');
     if (record.attachments.length > 100) throw new ClientError('You can attach up to 100 attachments per message.');
     const limit = fileStagingLimit(capabilities);
@@ -100,7 +101,7 @@ export async function mobileOutboxPrepareAttachments(client: T3Client, handle: N
       let id = file.uploadId;
       if (id) {
         if (file.uploadEnvironmentId !== environmentId || !validId(id)) throw new ClientError('The saved upload does not belong to this environment.');
-        try { await client.request(native, 'assets.createUrl', { resource: { _tag: 'attachment', attachmentId: id } }, generation); current(); }
+        try { await connection.request(native, 'assets.createUrl', { resource: { _tag: 'attachment', attachmentId: id } }, generation); current(); }
         catch (error) {
           current();
           if (error instanceof ClientError && error.kind === 'AssetAttachmentNotFoundError') id = '';
@@ -109,14 +110,14 @@ export async function mobileOutboxPrepareAttachments(client: T3Client, handle: N
       }
       if (!id) {
         const base64 = await bytes(file);
-        const upload = await client.request(native, 'attachments.createUploadUrl', { name: file.name, mimeType: wire.mimeType,
+        const upload = await connection.request(native, 'attachments.createUploadUrl', { name: file.name, mimeType: wire.mimeType,
           sizeBytes: file.sizeBytes, ...(wire.type === 'file' ? { type: 'file' } : {}) }, generation, true);
         id = str(upload.attachmentId);
         // Remember a valid minted ID before checking whether the row changed.
         if (validId(id)) minted.push(id);
         current();
         if (!validId(id) || !str(upload.relativeUrl).startsWith('/api/attachments/upload/')) throw new ClientError('The server returned an invalid attachment upload.');
-        await client.call(native, { op: 'uploadAttachment', path: upload.relativeUrl, base64, contentType: wire.mimeType,
+        await connection.call(native, { op: 'uploadAttachment', path: upload.relativeUrl, base64, contentType: wire.mimeType,
           expectedOrigin: record.origin, expectedEnvironmentId: environmentId }, generation, true);
         current();
       }

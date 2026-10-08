@@ -8,6 +8,7 @@ import { draftFiles, setDraftFiles, type DraftFile } from './shared/composer-edi
 import { adoptTerminalContexts } from './shared/terminal-integrations';
 import { branchState } from './shared/r4-git-branch';
 import { applyStaged } from './shared/composer-controls';
+import { mobileOutboxHomeAvailable } from './mobile-outbox-connection';
 import { mobileQueuedEditOrigin } from './queued-edit-origin';
 import { mobileNewTaskDraftStore, mobileNewTaskDraftIsKey, type MobileNewTaskDraftStore } from './mobile-new-task-drafts';
 import { mobileDraftAttachmentIds, mobileDraftAttachmentRecord, mobileDraftAttachmentForget } from './draft-attachment-order';
@@ -51,7 +52,7 @@ function attachments(client: T3Client, key: string, record: MobileOutboxRecord):
 /** Build before mutating. A saved handoff must resume its proof, never call this merge again. */
 export function mobileOutboxRecoveryDraftPrepare(client: T3Client, input: MobileOutboxRecord,
   kind: MobileOutboxRecoveryKind): MobileOutboxRecoveryDraftChange {
-  if (!client.preferencesLoaded || input.origin !== mobileQueuedEditOrigin(client) || input.environmentId !== client.environmentId)
+  if (!client.preferencesLoaded || !mobileOutboxHomeAvailable(client, input))
     return fail('Read this environment’s saved drafts before recovering the message.');
   const decoded = mobileOutboxDecode(input); if (!decoded.ok) return fail(decoded.error);
   const record = decoded.record, key = mobileOutboxRecoveryKey(record, kind), before = mobileOutboxRecoveryDraftCapture(client, key);
@@ -138,13 +139,13 @@ function apply(client: T3Client, key: string, projection: Obj): void {
 /** Synchronous CAS, then caller publishes the handoff marker and awaits persistence.
  * This never clears source/editor ownership and never proves native durability. */
 export function mobileOutboxRecoveryDraftAdopt(client: T3Client, change: MobileOutboxRecoveryDraftChange): boolean {
-  if (change.origin !== mobileQueuedEditOrigin(client) || change.environmentId !== client.environmentId) return false;
+  if (!mobileOutboxHomeAvailable(client, change)) return false;
   if (canonical(mobileOutboxRecoveryDraftCapture(client, change.key)) !== canonical(change.before)) return false;
   apply(client, change.key, change.after); return true;
 }
 /** A stale native removal can undo only the exact untouched contribution. */
 export function mobileOutboxRecoveryDraftRollback(client: T3Client, change: MobileOutboxRecoveryDraftChange): boolean {
-  if (change.origin !== mobileQueuedEditOrigin(client) || change.environmentId !== client.environmentId) return false;
+  if (!mobileOutboxHomeAvailable(client, change)) return false;
   if (canonical(mobileOutboxRecoveryDraftCapture(client, change.key)) !== canonical(change.after)) return false;
   const terminals = { ...obj(obj(client.local).terminalContexts) };
   for (const marker of Object.values(obj(change.after.recovered))) for (const record of arr(obj(obj(marker).context).records)) {

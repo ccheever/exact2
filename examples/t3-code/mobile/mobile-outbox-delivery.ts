@@ -1,5 +1,6 @@
 // @ref llp/1109.005-composer-and-transcript.decision.md#queued-command-construction
 // Invocation-only bridge. The native journal owns attempts, outcomes and recovery.
+import type { MobileOutboxConnection } from './mobile-outbox-connection';
 import type { T3Client } from './shared/client';
 import type { Obj } from './shared/domain';
 import { bridgeReply, ClientError, type Native } from './shared/protocol';
@@ -152,13 +153,13 @@ export async function mobileOutboxDeliveryRetire(handle: Native | null | undefin
   if (!result.durable || canonical(result.operation) !== canonical(expected)) return invalid();
   return result;
 }
-function endpoint(client: T3Client, environmentId: string): number {
+function endpoint(client: MobileOutboxConnection, environmentId: string): number {
   if (client.connection !== 'connected' || client.environmentId !== environmentId || !integer(client.generation))
     throw new ClientError('Connect to this pending task\'s environment before delivery.', 'outbox-stale');
   return client.generation;
 }
 export async function mobileOutboxDeliveryReserve(client: T3Client, handle: Native | null | undefined,
-  capture: MobileOutboxCapture, input: MobileOutboxWireRequest, expectedRetiredRevision?: number): Promise<MobileOutboxDeliveryStatus> {
+  capture: MobileOutboxCapture, input: MobileOutboxWireRequest, expectedRetiredRevision?: number, connection: MobileOutboxConnection = client): Promise<MobileOutboxDeliveryStatus> {
   const snapshot = mobileOutboxSnapshot(client), row = snapshot.rows.find(row => row.record.messageId === capture.messageId);
   if (!snapshot.complete || !snapshot.ownerEpoch || !row || row.status !== 'confirmed' || row.held || !integer(capture.nativeRevision, 1)
     || canonical(mobileOutboxCapture(client, capture.messageId)) !== canonical(capture)
@@ -174,8 +175,8 @@ export async function mobileOutboxDeliveryReserve(client: T3Client, handle: Nati
     record, stage: command.stage, method: command.method, payload: command.payload,
     attachmentIDs: record.attachments.map(file => file.id), state: 'reserved',
     ...(expectedRetiredRevision === undefined ? {} : { retiredRevision: expectedRetiredRevision }) }, String(command.payload.commandId));
-  const generation = endpoint(client, record.environmentId);
-  const raw = await client.call(native(handle), { op: 'mobileOutboxDelivery', action: 'reserve',
+  const generation = endpoint(connection, record.environmentId);
+  const raw = await connection.call(native(handle), { op: 'mobileOutboxDelivery', action: 'reserve',
     expectedOrigin: record.origin, expectedEnvironmentId: record.environmentId, ownerEpoch: snapshot.ownerEpoch,
     messageId: record.messageId, expectedToken: capture.token, expectedRevision: capture.nativeRevision,
     record: copy(record), stage: command.stage, method: command.method, payload: command.payload,
@@ -185,7 +186,7 @@ export async function mobileOutboxDeliveryReserve(client: T3Client, handle: Nati
 /** Bind the final command to the native journal's exact saved inline ACK. Native
  * validates the whole saved pair; JavaScript sends no replacement payload or record. */
 export async function mobileOutboxDeliveryReserveInline(client: T3Client, handle: Native | null | undefined,
-  input: MobileOutboxInlineReceipt, expectedRetiredRevision?: number): Promise<MobileOutboxDeliveryStatus> {
+  input: MobileOutboxInlineReceipt, expectedRetiredRevision?: number, connection: MobileOutboxConnection = client): Promise<MobileOutboxDeliveryStatus> {
   const source = mobileOutboxInlineDecode(input, input.operationId);
   if (source.state !== 'acknowledged') throw new ClientError('Confirm the saved image result before reserving its command.', 'outbox-stale');
   if (expectedRetiredRevision !== undefined && !integer(expectedRetiredRevision, 1)) return invalid();
@@ -199,8 +200,8 @@ export async function mobileOutboxDeliveryReserveInline(client: T3Client, handle
     attachmentIDs: source.attachmentIDs, state: 'reserved',
     inlineSource: { operationId: source.operationId, ackRevision: source.revision, payloadDigest: source.payloadDigest },
     ...(expectedRetiredRevision === undefined ? {} : { retiredRevision: expectedRetiredRevision }) }, record.commandId);
-  const generation = endpoint(client, source.environmentId);
-  const raw = await client.call(native(handle), { op: 'mobileOutboxDelivery', action: 'reserveInline',
+  const generation = endpoint(connection, source.environmentId);
+  const raw = await connection.call(native(handle), { op: 'mobileOutboxDelivery', action: 'reserveInline',
     inlineOperationId: source.operationId, inlineRevision: source.revision, ownerEpoch: mobileOutboxSnapshot(client).ownerEpoch,
     expectedOrigin: source.origin, expectedEnvironmentId: source.environmentId,
     ...(expectedRetiredRevision === undefined ? {} : { expectedRetiredRevision }) }, generation, true);
@@ -211,12 +212,12 @@ export async function mobileOutboxDeliveryReserveInline(client: T3Client, handle
 }
 /** Retry by native receipt identity only. Never rebuild a payload from the current row. */
 export async function mobileOutboxDeliverySend(client: T3Client, handle: Native | null | undefined,
-  input: MobileOutboxDeliveryReceipt, retryRejected = false): Promise<MobileOutboxDeliveryStatus> {
-  const receipt = mobileOutboxDeliveryDecode(input, input.operationId), generation = endpoint(client, receipt.environmentId);
+  input: MobileOutboxDeliveryReceipt, retryRejected = false, connection: MobileOutboxConnection = client): Promise<MobileOutboxDeliveryStatus> {
+  const receipt = mobileOutboxDeliveryDecode(input, input.operationId), generation = endpoint(connection, receipt.environmentId);
   if (receipt.state === 'retired' || receipt.state === 'rejected' && (receipt.stage !== 'settings-sync' || retryRejected !== true))
     throw new ClientError('This command needs an explicit supported resolution.', 'outbox-stale');
   const snapshot = mobileOutboxSnapshot(client);
-  const raw = await client.call(native(handle), { op: 'mobileOutboxDelivery', action: 'send',
+  const raw = await connection.call(native(handle), { op: 'mobileOutboxDelivery', action: 'send',
     expectedOrigin: receipt.origin, expectedEnvironmentId: receipt.environmentId,
     operationId: receipt.operationId, revision: receipt.revision, ownerEpoch: snapshot.ownerEpoch,
     ...(retryRejected ? { retryRejected: true } : {}) }, generation, true);
