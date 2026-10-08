@@ -1,0 +1,2 @@
+  space viewport 25,71 200×20 · frame 1,1 200×20 (kernel, in the parent) · window 25,71 200×20 · screen 533,268 200×20 · scale 2
+  space viewport 25,241 420×20 · frame 1,1 420×20 (kernel, in the parent) · window 25,241 420×20 · screen 533,438 420×20 · scale 2
