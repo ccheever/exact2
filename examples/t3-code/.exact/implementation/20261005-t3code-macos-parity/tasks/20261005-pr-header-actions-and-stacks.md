@@ -7,7 +7,7 @@ delivery: draft
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-pr-header-actions-and-stacks
-pr_url: PR_URL_PLACEHOLDER
+pr_url: https://github.com/ccheever/exact2/pull/262
 verified_commit: null
 ---
 
@@ -253,7 +253,7 @@ and reduced motion from System Settings. Everything else ran in agent mode. One 
 2026-10-06: on hold (user decision: tasks that need a sign-in waited). 2026-10-07: the user lifted the hold. Rows that need a real account are signed in by the user in person on the lane build; every other sign-in row uses lane fixtures.
 
 2026-10-08: implemented on `feat(example)/t3-code-pr-header-actions-and-stacks`; unit tests; one live session and one
-retry on the real-GitHub lane (agent mode; the screen is locked, so the real-input rows wait for the batch); draft PR.
+retry on the real-GitHub lane (agent mode; the screen is locked, so the real-input rows wait for the batch); draft PR #262.
 
 ## Attempts and evidence
 
