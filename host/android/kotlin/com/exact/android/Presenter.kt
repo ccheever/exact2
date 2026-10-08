@@ -358,7 +358,7 @@ internal class Presenter(
             // PAINT updates retain the latest authored pairs separately from
             // immutable cold JSON. Re-reading its older colors would regress
             // an unchanged target; Rust republishes changed motion paint.
-            decodedStyle = decodeStyle(style); styleDirty = true; styleUnchecked = true
+            decodedStyle = decodedStyle ?: decodeStyle(style); styleDirty = true; styleUnchecked = true
             updateFlat(); markParent(this)
         }
         private var imageSource: String? = null
@@ -652,7 +652,6 @@ internal class Presenter(
             actualBox?.let(::applyGeometry)
             markParent(this)
             applyPaint()
-            decodedStyle = null
         }
         fun paint(mask: Int, buffer: ByteBuffer) {
             // A preceding cold style in this same batch must establish its
