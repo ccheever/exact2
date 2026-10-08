@@ -235,6 +235,72 @@ final class R8KeysTests: XCTestCase {
         measure.remove(element)
         XCTAssertEqual(measure.perform(["name": "table-copy-1"])["ok"] as? Bool, false)
     }
+    /// fix-misc-batch (#298 bug 3): ⌘Z, ⇧⌘Z and Edit › Undo undo typing in an Exact textarea, whose text view keeps
+    /// its own history (host TextAreaMac.swift `textUndo`), as the composer and the prompt preview are.
+    func testUndoAndRedoActOnTheFocusedTextsOwnHistory() {
+        _ = NSApplication.shared
+        let host = ShortcutHost(), dev = DevTarget()
+        let bar = hostBar(host, dev)
+        NSApp.mainMenu = bar
+        let menus = T3Menus()
+        menus.updatesDisabledReason = { "no feed" }
+        menus.augment(bar)
+        menus.keys.keystroke = { true }
+        sync(bar, chords)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 100), styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        let text = OwnHistoryText(frame: NSRect(x: 0, y: 0, width: 300, height: 100))
+        text.allowsUndo = true
+        window.contentView = text
+        window.makeFirstResponder(text)
+        // Why the old route did nothing: `undo:` up the responder chain is NSWindow's, on the window's manager.
+        text.insertText("stable", replacementRange: NSRange(location: NSNotFound, length: 0))
+        XCTAssertTrue(text.tryToPerform(Selector(("undo:")), with: nil))
+        XCTAssertEqual(text.string, "stable", "the window's manager holds none of the text's steps")
+        menus.keys.focusedText = { text }
+        let edit = bar.items.first { $0.submenu?.title == "Edit" }!.submenu!
+        let undo = edit.items.first { $0.title == "Undo" }!, redo = edit.items.first { $0.title == "Redo" }!
+        XCTAssertTrue(menus.keys.validateMenuItem(undo))
+        XCTAssertFalse(menus.keys.validateMenuItem(redo), "nothing undone yet")
+        host.pressed = []
+        XCTAssertTrue(bar.performKeyEquivalent(with: key("z", 6, window: window)))
+        XCTAssertEqual(text.string, "", "⌘Z undoes the typing")
+        XCTAssertEqual(host.pressed, [], "and is not thread.undo")
+        XCTAssertTrue(menus.keys.validateMenuItem(redo))
+        // ⇧⌘Z is Edit › Redo's own chord, now on this target (a synthetic shifted event does not match a menu
+        // item reliably, so the item's action is sent as the menu sends it; the real chord is in the live drive).
+        XCTAssertTrue(redo.target === menus.keys)
+        XCTAssertEqual(redo.keyEquivalent, "z"); XCTAssertEqual(redo.keyEquivalentModifierMask.intersection(.deviceIndependentFlagsMask), [.command, .shift])
+        XCTAssertTrue(NSApp.sendAction(redo.action!, to: redo.target, from: redo))
+        XCTAssertEqual(text.string, "stable", "⇧⌘Z redoes it")
+        menus.keys.keystroke = { false } // a click on the item
+        menus.keys.undo(undo)
+        XCTAssertEqual(text.string, "", "Edit › Undo from the menu")
+        menus.keys.redo(redo)
+        XCTAssertEqual(text.string, "stable", "Edit › Redo from the menu")
+        // While it composes (marked text, a Korean or Japanese input source), the history is left alone.
+        menus.keys.keystroke = { true }
+        text.setMarkedText("ㅎ", selectedRange: NSRange(location: 1, length: 0), replacementRange: NSRange(location: NSNotFound, length: 0))
+        XCTAssertTrue(text.hasMarkedText())
+        XCTAssertFalse(menus.keys.validateMenuItem(undo))
+        XCTAssertTrue(bar.performKeyEquivalent(with: key("z", 6, window: window)))
+        XCTAssertTrue(text.string.hasPrefix("stable"), "no undo under a composition")
+        text.unmarkText()
+        // Editable text with the focus and nothing to undo: ⌘Z is not thread.undo (`!editableFocus`).
+        text.undoManager?.removeAllActions()
+        XCTAssertTrue(bar.performKeyEquivalent(with: key("z", 6, window: window)))
+        XCTAssertEqual(host.pressed, [])
+        // No editable text with the focus: the keystroke is the window's thread.undo.
+        menus.keys.focusedText = { nil }
+        XCTAssertTrue(bar.performKeyEquivalent(with: key("z", 6, window: window)))
+        XCTAssertEqual(host.pressed, ["Undo"])
+        NSApp.mainMenu = nil
+    }
+}
+/// Exact's textarea (host TextAreaMac.swift `TextArea`): its own undo manager, not the window's.
+final class OwnHistoryText: NSTextView {
+    private let history = UndoManager()
+    override var undoManager: UndoManager? { history }
 }
 final class LauncherView: NSView {
     var keys: [String] = []
@@ -246,4 +312,4 @@ let suite = XCTestSuite(forTestCaseClass: R8KeysTests.self)
 suite.run()
 let run = suite.testRun!
 print("R8 keys tests: \(run.executionCount) run, \(run.totalFailureCount) failed")
-exit(run.executionCount == 4 && run.totalFailureCount == 0 ? 0 : 1)
+exit(run.executionCount == 5 && run.totalFailureCount == 0 ? 0 : 1)
