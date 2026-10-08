@@ -7,7 +7,7 @@ delivery: draft
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: 'feat(example)/t3-code-adopt-main-fixes-r6'
-pr_url: null
+pr_url: https://github.com/ccheever/exact2/pull/297
 verified_commit: null
 ---
 
@@ -92,7 +92,7 @@ filing agent's new issues are cited as they appeared: #266–#277 (the rests of 
 
 ## Progress
 
-Implemented and verified 2026-10-08. One live session per build in agent mode (the coordinator's override: the screen is
+Implemented and verified 2026-10-08; draft PR [#297](https://github.com/ccheever/exact2/pull/297). One live session per build in agent mode (the coordinator's override: the screen is
 unlocked; no real input was needed, so the real-input lock was not taken). No user decision was taken provisionally.
 The task stays under `tasks/` for the coordinator's records sync; the PR stays a draft.
 
@@ -102,6 +102,7 @@ The task stays under `tasks/` for the coordinator's records sync; the PR stays a
 | --- | --- | --- | --- | --- |
 | 1 (merged base, no clone change) | `74114cde1` | `bun test examples/t3-code` 3036 pass / 1 skip / 0 fail (3037 tests, 238 files); a first run under the parallel cold `cargo` build had 2 timeouts in `tools/github-lane/lane.test.ts` (5 s), which pass alone (14/0) and in the rerun. Strict `tsc` (ES2023) clean. `contract build` 3844 slots, 20 derives, 46 resources, 74,797 nodes. `cargo test -p t3-code-macos --lib` 11 pass. `bun host/apple/build.mjs t3-code-macos --bundle` builds with no shim | `target/r6/*.log` (not committed) | the field padding (fixed in attempt 2) |
 | 2 (final) | `f920f9cab` + records | see Checks below. Live: before `07dcef1ab` 04:40–04:42 UTC, after 04:42–04:43 UTC, the same ops; op errors 1 before (a toast already gone) and 0 after; app logs flag no error, refusal or failure in either | images 01–05, record 06 | none |
+| 3 (feature branch merged) | `c5641a15e` (`d3df2c426` merged) | `bun test examples/t3-code` 3048 pass / 1 skip / 0 fail (3049 tests, 239 files); strict `tsc` clean; `contract build` 3845 slots, 46 resources; `cargo test -p t3-code-macos --lib` 11 pass; caps within every budget. AppKit binaries again: 33 binaries, 343 XCTest tests, 0 failures, 1 skipped; `snapshot` aborted once at its "actual current layout translates printable letter" precondition (the input source changed under it: the real-input batch shares this Mac) and passed all 12 checks when re-run alone; `mermaid` 9 render failures without `T3_SERVER` (the lane was stopped; it passed with the lane in attempt 2). The five cargo checks were not re-run: the merge touched only `examples/t3-code`, outside `default-members` | `target/r6/appkit/*.log` (not committed) | none |
 
 Checks (final source, `f920f9cab` + records): `bun test examples/t3-code` 3036 pass / 1 skip / 0 fail (3037 tests, 238 files); strict `tsc` (ES2023) clean; `contract build examples/t3-code/app.contract` 3844 slots, 20 derives, 46 resources, 74,797 nodes; `cargo test -p t3-code-macos --lib` 11 pass; the macOS bundle builds with no shim. AppKit binaries (README recipe, `target/r6/appkit-tests.sh`): 33 binaries, 343 XCTest tests, 0 failures, 1 skipped (`ssh` live); `snapshot` 12 checks pass; `mermaid` fails its 9 render checks without `T3_SERVER` and passes all 10 with `T3_SERVER=http://127.0.0.1:16210` (the lane's staged release serves its web bundle); `timeline-keyboard` (its own recipe) not run. Five checks: `cargo build --all-targets --keep-going` ok; `cargo test --lib --bins --tests --no-fail-fast` 3521 passed, 0 failed, 34 ignored (94 test binaries); `cargo clippy --all-targets --keep-going -- -D warnings` ok; `cargo fmt --all -- --check` ok; `git add -A && bun scripts/caps.mjs` all budgets within cap; `bun scripts/boot.mjs` ok.
 
