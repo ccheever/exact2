@@ -1,5 +1,6 @@
 // Mobile365aa87982 NewTaskFlowProvider, NewTaskDraftRouteScreen and DraftScreen.
 // @ref llp/1107.005-composer-and-transcript.decision.md#new-task-ownership
+import { mobileNewTaskCloneObserve, mobileNewTaskCloneAction } from './new-task-clone';
 import { mobileClient, mobileNative } from './client';
 import { mobileHomeSources } from './home';
 import { mobileNewTask, mobileNewTaskAction } from './new-task';
@@ -18,7 +19,7 @@ export interface NewTaskFlowSnapshot {
   draftOwner: string; ready: boolean; chooser: boolean; needsPrepare: boolean; busy: boolean; nextLocation: string;
 }
 export interface NewTaskFlowResult {
-  revision: number; requestRoute: string; nextLocation: string; message: string;
+  revision: number; requestRoute: string; nextLocation: string; message: string; alertTitle: string;
   submitted: boolean; environmentId: string; projectId: string; threadId: string;
 }
 interface Selection { environmentId: string; projectId: string; draftKey: string; generation: number; threadEpoch: number }
@@ -48,10 +49,12 @@ export function mobileNewTaskRoute(location: string) {
   const chooser = path === '/new' || path === '/new/projects';
   const context = ({ '/new/draft': 'draft', '/new/draft/environment': 'environment', '/new/draft/branch': 'branch',
     '/new/draft/settings': 'settings' } as Record<string, string>)[path]
-    ?? (/^\/new\/draft\/attachments\/[^/]+$/.test(path) ? 'attachment'
+    ?? (/^\/new\/add-project(?:\/(?:repository|destination|local|new))?$/.test(path) ? 'add-project'
+      : /^\/new\/draft\/attachments\/[^/]+$/.test(path) ? 'attachment'
       : /^\/new\/draft\/files\/.+$/.test(path) ? 'file'
         : /^\/new\/draft\/settings\/(?:runtime|providers|options\/[^/]+)$/.test(path) ? 'settings-child' : '');
-  const unsupported = ['pendingTaskId', 'draftId', 'incomingShareId', 'cloning'].find(key => !!query.get(key)) ?? '';
+  const unsupported = ['pendingTaskId', 'draftId', 'incomingShareId'].find(key => !!query.get(key))
+    ?? (query.get('cloning') && query.get('cloning') !== '1' ? 'cloning' : '');
   return { chooser, context, environmentId: query.get('environmentId') ?? '', projectId: query.get('projectId') ?? '',
     branch: query.get('branch') ?? '', worktreePath: query.get('worktreePath') ?? '', unsupported };
 }
@@ -78,6 +81,7 @@ export function mobileNewTaskFlowView(session: string, visit: string, location: 
     draftOwner: active && client.preferencesLoaded && selected ? mobileComposerTarget(client).owner : '',
     ready: false, chooser: route.chooser, needsPrepare: false, busy: flow.busy || checkouts.has(client), nextLocation: '' };
   if (!active) return base;
+  if (route.context === 'add-project') return { ...base, status: 'add-project', title: 'Add project' };
   if (route.chooser) return { ...base, status: 'choose', title: 'Choose project' };
   if (!client.preferencesLoaded) return { ...base, status: 'loading' };
   if (!route.context) return { ...base, status: 'pick', nextLocation: '/new' };
@@ -112,13 +116,35 @@ export function mobileNewTaskFlowOwns(owner: string, visit: string, client: T3Cl
 export async function mobileNewTaskFlowAction(owner: string, visit: string, kind: string, id: string, value: string,
   nativeInput: Native | null | undefined, suppliedStorage: Files, client: T3Client = mobileClient, background: EnvironmentFleet = fleet): Promise<NewTaskFlowResult> {
   const flow = flows.get(client), result = (message = '', nextLocation = '', submitted = false): NewTaskFlowResult => ({
-    revision: client.revision, requestRoute: visit, nextLocation, message, submitted,
+    revision: client.revision, requestRoute: visit, nextLocation, message, alertTitle: '', submitted,
     environmentId: client.environmentId, projectId: client.projectId, threadId: client.threadId });
   if (!flow || !flow.active || flow.owner !== owner || flow.visit !== visit) return result('The new task route changed.');
+  if (mobileNewTaskRoute(flow.location).context === 'add-project') return result('Return to the new task before changing its draft.');
   if (flow.busy || checkouts.has(client)) return result('Wait for the current task change to finish.');
   if (!nativeInput?.available) return result('Open T3 Code on your iPhone or iPad to create a task.');
   if (!client.preferencesLoaded) return result('Wait for saved drafts to load.');
   if (kind !== 'project' && kind !== 'scratch' && kind !== 'prepare' && !mobileNewTaskFlowOwns(owner, visit, client)) return result('Wait for the current draft to be ready.');
+  if (kind.startsWith('clone-')) {
+    mobileNewTaskCloneObserve(owner, visit, flow.location, true, client);
+    if (id !== client.projectId || value !== client.environmentId) return result('The project clone changed.');
+    const generation = client.generation, environmentId = client.environmentId, origin = client.origin, location = flow.location;
+    // Keep the draft route while its acknowledged deletion reaches the shell stream.
+    // That shared refresh may select a fallback before this answer returns.
+    flow.busy = true;
+    try {
+      const changed = await mobileNewTaskCloneAction(owner, visit, kind.slice(6), nativeInput, client);
+      const stillHere = flows.get(client) === flow && flow.active && flow.visit === visit && flow.location === location
+        && client.generation === generation && client.environmentId === environmentId && client.origin === origin;
+      const removedHere = changed.removed && stillHere && !client.threadId
+        && !client.shell.projects.some(project => project.id === id);
+      return { ...result(changed.message, !stillHere ? '' : removedHere ? '/' : changed.nextLocation),
+        revision: changed.revision, alertTitle: changed.alertTitle };
+    } finally { flow.busy = false; client.revision++; }
+  }
+  if (kind === 'send' || kind === 'send-alternate') {
+    const clone = mobileNewTaskCloneObserve(owner, visit, flow.location, true, client);
+    if (clone.blocked) return result(clone.pending || clone.phase === 'running' ? 'Cloning repository' : 'Repository not cloned');
+  }
   if (kind === 'draft') {
     const target = flow.selected, current = () => flows.get(client) === flow && flow.active && flow.visit === visit && sameSelection(target, client);
     if (!current()) return result('Choose a project before changing this draft.');

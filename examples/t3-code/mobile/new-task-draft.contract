@@ -1,6 +1,7 @@
 // Pinned NewTaskDraftScreen.tsx 365aa87982: full hero scroll and an always-expanded sheet dock.
 // @ref llp/1107.005-composer-and-transcript.decision.md#new-task-ownership
 use NewTaskSnapshot, ComposerColors from "./composer-shapes.contract"
+use MobileNewTaskClone, NewTaskCloneSnapshot, NewTaskCloneColors from "./new-task-clone.contract"
 use ThreadColors from "./thread-shapes.contract"
 use NewTaskHero, NewTaskWorkspace from "./new-task.contract"
 use ComposerAttachmentStrip from "./composer-attachments.contract"
@@ -13,6 +14,8 @@ component NewTaskDraft
     routeId: string
     editorId: string
     data: NewTaskSnapshot
+    clone: NewTaskCloneSnapshot
+    cloneColors: NewTaskCloneColors
     colors: ComposerColors
     threadColors: ThreadColors
     attachments: ComposerAttachmentsSnapshot
@@ -76,6 +79,7 @@ component NewTaskDraft
           column min-height="100%" box-sizing="border-box" align-items="center" padding-top=72 padding-bottom=236 font-family="DM Sans"
             NewTaskHero(data=data, chooseProject=chooseProject, chooseEnvironment=chooseEnvironment, colors=colors, iconMuted=threadColors.iconMuted, voiceBusy=dictating)
     column id=`new-task-dock-${routeId}` position="absolute" left=0 right=0 bottom=(keyboardDocked ? -max(bottomPadding - 8, 0) : 0) padding-left=12 padding-right=12 padding-top=3.5 padding-bottom=bottomPadding background-color=colors.sheet font-family="DM Sans" pointer-events="auto"
+      MobileNewTaskClone(data=clone, colors=cloneColors, action=action)
       NewTaskWorkspace(data=data, action=action, chooseBranch=chooseBranch, colors=colors, iconMuted=threadColors.iconMuted, voiceBusy=dictating)
       when data.composer.showReadOnlyNotice
         text "This connection cannot start tasks." padding-left=10.5 padding-right=10.5 padding-top=7 padding-bottom=7 font-size=13 line-height="17px" color=colors.muted

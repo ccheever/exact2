@@ -1,3 +1,7 @@
+import { mobileAddProjectObserve, mobileAddProjectPrepare, mobileAddProjectEdit, mobileAddProjectBrowse, mobileAddProjectAction, type AddProjectRoute } from './add-project';
+import { mobileNewTaskCloneObserve } from './new-task-clone';
+import { mobileNewTaskCloneColors } from './add-project-presentation';
+import { mobileAddProjectColors } from './add-project-presentation';
 import { mobileThreadHeaderSnapshot, mobileThreadHeaderPrepare, mobileThreadHeaderAction } from './thread-header';
 import { mobileThreadHeaderLaunch } from './thread-header-terminal';
 import { mobileWorkingControl } from './working-control';
@@ -129,6 +133,14 @@ const sources: Sources = {
     const native = nativeInput;
     return mobileWorkspaceFileSelection(args[0], args[1] === true, str(args[2]), str(args[3]), str(args[4]));
   },
+  addProjectObserve: args => mobileAddProjectObserve(str(args[0]), args[1] as AddProjectRoute[], str(args[2])),
+  addProjectColors: args => mobileAddProjectColors(str(args[0]), str(args[1])),
+  addProjectPrepare: (args, _store, _storage, native) => mobileAddProjectPrepare(str(args[0]), str(args[1]), sourceNative('addProjectPrepare', args, native)),
+  addProjectEdit: args => mobileAddProjectEdit(str(args[0]), str(args[1]), str(args[2]), str(args[3])),
+  addProjectBrowse: (args, _store, _storage, native) => mobileAddProjectBrowse(str(args[0]), str(args[1]), str(args[2]), str(args[3]), sourceNative('addProjectBrowse', args, native)),
+  addProjectAction: (args, _store, _storage, native) => mobileAddProjectAction(str(args[0]), str(args[1]), str(args[2]), str(args[3]), sourceNative('addProjectAction', args, native)),
+  newTaskClone: args => mobileNewTaskCloneObserve(str(args[0]), str(args[1]), str(args[2]), args[3] === true),
+  newTaskCloneColors: args => mobileNewTaskCloneColors(str(args[0]), str(args[1])),
   newTaskFlow: (args, _store, storage, nativeInput) => {
     const native = nativeInput;
     return newTaskFlow(args, native);
@@ -628,7 +640,7 @@ async function newTaskFlow(args: unknown[], native?: Native | null) {
   // Invalidate departing actions synchronously, before the catalog read or any
   // dependent resource can use the previous flow's composer owner.
   const initial = mobileNewTaskFlowView(session, visit, location, active, false);
-  if (!active || !native?.available) return initial;
+  if (!active || initial.status === 'add-project' || !native?.available) return initial;
   const catalog = await bridgeReply(native, { op: 'environments' });
   if (!mobileNewTaskFlowCurrent(initial.owner, visit, location)) return initial;
   const saved = catalog.ok ? arr(obj(catalog.value).saved).filter(entry => entry.enabled !== false) : [];

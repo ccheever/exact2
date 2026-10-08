@@ -5,6 +5,9 @@ component NewTaskProjects
   props
     data: NewTaskSnapshot
     action: action
+    addProject: action
+    addEnvironment: action
+    primaryForeground: string
     colors: ComposerColors
   view
     list flex=1 min-height=0 padding-left=20 padding-right=20 padding-top=8 padding-bottom=36 background-color=colors.sheet
@@ -21,9 +24,16 @@ component NewTaskProjects
         column align-items="center" justify-content="center" padding=28 gap=10.5
           text data.emptyTitle font-size=18 line-height="23px" font-weight=700 color=colors.foreground text-align="center"
           text data.emptyDetail font-size=14 line-height="19px" color=colors.muted text-align="center"
-          when data.canStartScratch and not data.hasProjects
-            button press=action("scratch", data.scratchTarget, "") disabled=(not data.canSelect) border-radius=999 background-color=colors.subtle padding-left=14 padding-right=14 padding-top=8.75 padding-bottom=8.75
-              text "Start without a project" font-size=14 line-height="19px" font-weight=700 color=colors.foreground
+          when not data.hasProjects
+            when not data.canAddProject
+              button press=addEnvironment testId="new-task-empty-add-environment" border-radius=999 background-color=colors.primary padding-left=14 padding-right=14 padding-top=8.75 padding-bottom=8.75
+                text "Add environment" font-size=14 line-height="19px" font-weight=700 color=primaryForeground
+            else
+              button press=addProject testId="new-task-empty-add-project" border-radius=999 background-color=colors.primary padding-left=14 padding-right=14 padding-top=8.75 padding-bottom=8.75
+                text "Add new project" font-size=14 line-height="19px" font-weight=700 color=primaryForeground
+              when data.canStartScratch
+                button press=action("scratch", data.scratchTarget, "") disabled=(not data.canSelect) border-radius=999 background-color=colors.subtle padding-left=14 padding-right=14 padding-top=8.75 padding-bottom=8.75
+                  text "Start without a project" font-size=14 line-height="19px" font-weight=700 color=colors.foreground
       column border-radius=24 overflow="hidden" background-color=colors.groupedCard
         each project in data.projects key=project.id
           button press=action("project", project.id, "") disabled=project.disabled text-align="left"

@@ -1,42 +1,7 @@
-use mobileInformationPath, mobileSettingPath from "./settings-routes.contract"
-use ThreadHeaderOptions, ThreadHeaderSnapshot, ThreadHeaderRead, ThreadHeaderResult from "./thread-header.contract"
-use WorkingControlData from "./working-control.contract"
-use MobileSidebarPanel, MobileInspectorPanel, MobileWorkspaceMarkers from "./workspace-panels.contract"
-use MobileQueueSnapshot from "./queue.contract"
-use GitColors, MobileGitSnapshot, MobileGitResult from "./git-overview.contract"
-use MobileGitBranchesSnapshot, MobileGitBranchResult from "./git-branches.contract"
-use InspectorState, InspectorContext, InspectorChange, InspectorPresentation, WorkspaceEvent from "./workspace-inspector.contract"
-use MobileRouteContent from "./route-content.contract"
-use MobileWorkspace, WorkspaceEntry, WorkspaceParams, WorkspaceOptions, WorkspaceNavigation from "./mobile-workspace.contract"
-use ThreadPreferencesData from "./settings-thread-preferences.contract"
-use SettingsProjectOverview, SettingsProjectData from "./settings-project.contract"
-use AccountEntry, SettingsWrite, StreamingAssistant, StreamingHapticState, AppLink, MediaCompletion, Appearance, SettingsView, SettingsScopeEvent, MobileLayout, HomeChromeView, ChromeEvent, ThreadSelection, HomeView, HomePreferences, Time, Viewport, PairingFields, Theme, Camera, Notice, Snapshot, ScheduledHeader, AutomationChange, VoiceFocus, PreviewOwner, PreviewMenus, InformationRoute, InformationRead, InformationConfiguration, InformationChange, Change from "./app-shapes.contract"
-use NotificationsData from "./settings-notifications.contract"
-use MobileBrowserSnapshot, MobilePreviewColors from "./browser-mobile.contract"
-use MobileDevicesSnapshot from "./devices-mobile.contract"
-use InformationData from "./settings-information.contract"
-use AttachmentAudioStatus from "./attachment-audio.contract"
-use AutomationPrepared, AutomationData from "./settings-scheduled-flow.contract"
-use VoiceGlobalPill, VoiceSnapshot, VoiceStatus, VoiceResult, VoiceColors from "./voice-controls.contract"
-use AttachmentDocumentSnapshot, AttachmentDocumentMenu, AttachmentDocumentAction from "./attachment-document.contract"
-use MobileTerminalSnapshot, MobileTerminalResult, MobileTerminalEvent, MobileTerminalCapture from "./terminal-mobile.contract"
-use ReviewSnapshot, ReviewResult, ReviewColors from "./review-shapes.contract"
-use FileTreeSnapshot, FileTreeResult from "./file-tree.contract"
-use FileSnapshot from "./file-view.contract"
-use ServerSettingsData from "./settings-server.contract"
-use SettingsProviderAccounts, ProviderSettingsData from "./settings-provider.contract"
-use MediaPreviewSnapshot from "./media-preview.contract"
-use ComposerAttachmentsSnapshot from "./composer-attachment-shapes.contract"
-use SettingsChoicesData, MobilePreferencesResource from "./settings.contract"
-use SettingsAppearance, SettingsAppearanceData from "./settings-appearance.contract"
-use ArchiveData, ArchiveColors from "./archive.contract"
-use AgentActivityData, AgentActivityColors from "./agent-activity.contract"
-use EnvironmentDetailData from "./environment-detail.contract" // @ref llp/1107.003-pairing-and-transport.decision.md#decision
-use NewTaskFlowSnapshot, NewTaskFlowResult from "./new-task-flow.contract"
-use ComposerSettingsSnapshot, ComposerActionResult, ComposerColors, NewTaskSnapshot, NewTaskPreparation from "./composer-shapes.contract"
-use ThreadSnapshot, ThreadColors from "./thread-shapes.contract"
-use ComposerFocusReturn, composerReturnPhase from "./thread-composer.contract"
-use HomeColors from "./home.contract"
+use NewTaskCloneSnapshot, NewTaskCloneColors, AddProjectSnapshot, AddProjectColors, addProjectLocation, addProjectNextAlert, mobileInformationPath, mobileSettingPath, ThreadHeaderOptions, ThreadHeaderSnapshot, ThreadHeaderRead, ThreadHeaderResult, WorkingControlData, MobileSidebarPanel, MobileInspectorPanel, MobileWorkspaceMarkers, MobileQueueSnapshot, GitColors, MobileGitSnapshot, MobileGitResult, MobileGitBranchesSnapshot, MobileGitBranchResult, InspectorState, InspectorContext, InspectorChange, InspectorPresentation, WorkspaceEvent, MobileRouteContent, MobileWorkspace, WorkspaceEntry, WorkspaceParams, WorkspaceOptions, WorkspaceNavigation from "./root-imports.contract"
+use ThreadPreferencesData, SettingsProjectOverview, SettingsProjectData, AccountEntry, SettingsWrite, StreamingAssistant, StreamingHapticState, AppLink, MediaCompletion, Appearance, SettingsView, SettingsScopeEvent, MobileLayout, HomeChromeView, ChromeEvent, ThreadSelection, HomeView, HomePreferences, Time, Viewport, PairingFields, Theme, Camera, Notice, Snapshot, ScheduledHeader, AutomationChange, VoiceFocus, PreviewOwner, PreviewMenus, InformationRoute, InformationRead, InformationConfiguration, InformationChange, Change, NotificationsData, MobileBrowserSnapshot, MobilePreviewColors, MobileDevicesSnapshot, InformationData, AttachmentAudioStatus, AutomationPrepared, AutomationData, VoiceGlobalPill, VoiceSnapshot, VoiceStatus, VoiceResult, VoiceColors from "./root-imports.contract"
+use AttachmentDocumentSnapshot, AttachmentDocumentMenu, AttachmentDocumentAction, MobileTerminalSnapshot, MobileTerminalResult, MobileTerminalEvent, MobileTerminalCapture, ReviewSnapshot, ReviewResult, ReviewColors, FileTreeSnapshot, FileTreeResult, FileSnapshot, ServerSettingsData, SettingsProviderAccounts, ProviderSettingsData, MediaPreviewSnapshot, ComposerAttachmentsSnapshot, SettingsChoicesData, MobilePreferencesResource from "./root-imports.contract"
+use SettingsAppearance, SettingsAppearanceData, ArchiveData, ArchiveColors, AgentActivityData, AgentActivityColors, EnvironmentDetailData, NewTaskFlowSnapshot, NewTaskFlowResult, ComposerSettingsSnapshot, ComposerActionResult, ComposerColors, NewTaskSnapshot, NewTaskPreparation, ThreadSnapshot, ThreadColors, ComposerFocusReturn, composerReturnPhase, HomeColors from "./root-imports.contract"
 // @ref llp/1107.002-design-system-parity.spec.md#typography-and-font-assets
 font "DM Sans"
   400 = "assets/fonts/DMSans_400Regular.ttf"
@@ -91,6 +56,11 @@ routes nav
     settingsUsage "/settings/usage"
     settingsUsageAccount "/settings/usage/account/:usageAccount/:usageWindow/:usageKind"
     newTask "/new"
+      addProject "/new/add-project"
+      addProjectRepository "/new/add-project/repository"
+      addProjectDestination "/new/add-project/destination"
+      addProjectLocal "/new/add-project/local"
+      addProjectNew "/new/add-project/new"
       newTaskDraft "/new/draft"
         newTaskEnvironments "/new/draft/environment"
         newTaskBranches "/new/draft/branch"
@@ -1114,18 +1084,60 @@ component App
   resource modelData = composerSettings(modelQuery, modelFilter, modelLegacy, data.revision, taskGuardOwner, taskGuardRoute) as shape ComposerSettingsSnapshot
   derive newTaskActive = startsWith(top(nav).name, "newTask")
   derive newTaskSession = match first(filter(stack(nav), route => route.name == "newTask")) { case some(route) => `${route.id}`, case none => "" }
-  resource newTaskFlow = newTaskFlow(newTaskSession, `${top(nav).id}`, top(nav).url, newTaskActive, data.revision) as shape NewTaskFlowSnapshot
+  resource newTaskFlow = newTaskFlow(newTaskSession, `${top(nav).id}`, top(nav).url, newTaskActive or startsWith(top(nav).name, "addProject"), data.revision) as shape NewTaskFlowSnapshot
+  resource addProjectData = addProjectObserve(newTaskSession, workspaceEntries, `${top(nav).id}`, data.revision) as shape AddProjectSnapshot
+  resource addProjectLook = addProjectColors(appearance.scheme, appearance.themeId) as shape AddProjectColors
+  derive addProjectAlert = addProjectNextAlert(addProjectData)
+  state addProjectHandled = ""
+  mutation addProjectRead as shape AddProjectSnapshot refreshes addProjectData
+  mutation addProjectEdited as shape AddProjectSnapshot refreshes addProjectData
+  mutation addProjectBrowsed as shape AddProjectSnapshot refreshes addProjectData
+  mutation addProjectChanged as shape AddProjectSnapshot refreshes data, addProjectData
+  mutation addProjectNoticed as shape AddProjectSnapshot refreshes addProjectData
+  task prepareAddProject when addProjectData.needsPrepare key=`${addProjectData.owner}:${addProjectData.activeId}:${addProjectData.revision}`
+    after(1, prepareAddProject)
+  action prepareAddProject
+    send addProjectRead = addProjectPrepare(addProjectData.owner, addProjectData.activeId)
+  task navigateAddProject when addProjectData.navigation.token != "" and addProjectData.navigation.token != addProjectHandled key=addProjectData.navigation.token
+    after(1, navigateAddProject)
+  action navigateAddProject
+    let result = addProjectData.navigation
+    let location = addProjectLocation(result.kind, result.query)
+    if result.routeId == `${top(nav).id}` and addProjectData.owner == newTaskSession and location != ""
+      addProjectHandled = result.token
+      if result.kind == "draft" or result.kind == "source"
+        nav = push(go(nav, path("newTask")), location)
+      else if result.kind == "connections"
+        nav = replace(go(nav, path("newTask")), location)
+      else
+        nav = push(nav, location)
+  task awaitAddedProject when addProjectData.waitOperation != "" key=addProjectData.waitOperation
+    after(15000, addedProjectDeadline)
+  action addedProjectDeadline
+    send addProjectChanged = addProjectAction(addProjectData.owner, addProjectData.waitRoute, "deadline", addProjectData.waitOperation)
+  task showAddProjectNotice when addProjectAlert.id != "" key=addProjectAlert.id
+    after(1, showAddProjectNotice)
+  action showAddProjectNotice
+    send addProjectNoticed = addProjectAction(addProjectData.owner, addProjectData.activeId, "alert", addProjectAlert.id)
+  action editAddProject(owner: string, route: string, field: string, value: string)
+    send addProjectEdited = addProjectEdit(owner, route, field, value)
+  action browseAddProject(owner: string, route: string, directory: string, name: string)
+    send addProjectBrowsed = addProjectBrowse(owner, route, directory, name)
+  action actAddProject(owner: string, route: string, kind: string, value: string)
+    send addProjectChanged = addProjectAction(owner, route, kind, value)
+  action openAddProject
+    nav = push(nav, path("addProject"))
   derive taskGuardOwner = newTaskActive ? newTaskFlow.owner : ""
   derive taskGuardRoute = newTaskActive ? `${top(nav).id}` : ""
   task prepareNewTask when newTaskFlow.needsPrepare key=`${newTaskFlow.owner}:${top(nav).id}:${top(nav).url}`
     after(1, prepareNewTask)
-  task redirectNewTask when newTaskFlow.nextLocation != "" key=`${newTaskFlow.owner}:${top(nav).id}:${newTaskFlow.nextLocation}`
+  task redirectNewTask when newTaskFlow.nextLocation != "" and not pending(taskChanged) and not pending(taskPrepared) key=`${newTaskFlow.owner}:${top(nav).id}:${newTaskFlow.nextLocation}`
     after(1, redirectNewTask)
   action prepareNewTask
     if newTaskFlow.requestRoute == `${top(nav).id}` and newTaskFlow.needsPrepare
       send taskPrepared = newTaskAction(newTaskFlow.owner, `${top(nav).id}`, "prepare", "", "")
   action redirectNewTask
-    if newTaskFlow.requestRoute == `${top(nav).id}` and newTaskFlow.nextLocation != ""
+    if newTaskFlow.requestRoute == `${top(nav).id}` and newTaskFlow.nextLocation != "" and not pending(taskChanged) and not pending(taskPrepared)
       nav = open(nav, newTaskFlow.nextLocation)
   mutation taskPrepared as shape NewTaskFlowResult refreshes data, newTaskFlow then didTaskPrepare
   action didTaskPrepare
@@ -1136,7 +1148,9 @@ component App
       case none
         newTaskOperation = ""
   resource newTaskBranchesReady = newTaskPrepare(branchQuery, newTaskActive and newTaskFlow.ready and top(nav).name != "newTask", newTaskContextRevision, data.ready, data.environmentId, data.projectId, data.threadId, data.generation, taskGuardOwner, taskGuardRoute) as shape NewTaskPreparation
-  resource newTaskData = newTaskView(newTaskQuery, data.revision, newTaskBranchesReady.revision, newTaskBranchesReady.loaded, top(nav).name == "newTask", appearance.groupingMode) as shape NewTaskSnapshot
+  resource newTaskClone = newTaskClone(newTaskFlow.owner, `${top(nav).id}`, top(nav).url, newTaskFlow.ready or newTaskFlow.busy, data.revision) as shape NewTaskCloneSnapshot
+  resource newTaskCloneLook = newTaskCloneColors(appearance.scheme, appearance.themeId) as shape NewTaskCloneColors
+  resource newTaskData = newTaskView(newTaskQuery, data.revision, newTaskBranchesReady.revision, newTaskBranchesReady.loaded, top(nav).name == "newTask", appearance.groupingMode, newTaskClone.blocked, newTaskClone.revision) as shape NewTaskSnapshot
   mutation modelChanged as shape ComposerActionResult refreshes data, modelData then didModelChange
   mutation taskChanged as shape NewTaskFlowResult refreshes data, newTaskData, newTaskFlow then didTaskChange
   action modelAction(kind: string, id: string, value: string)
@@ -1183,9 +1197,11 @@ component App
           if newTaskOperation != "draft" and newTaskOperation != "send" and newTaskOperation != "send-alternate"
             newTaskContextRevision = newTaskContextRevision + 1
           if result.message != ""
-            send notice = alert("info", (newTaskOperation == "scratch" ? "Could not start without a project" : "Could not update task"), result.message)
+            send notice = alert("info", (result.alertTitle != "" ? result.alertTitle : newTaskOperation == "scratch" ? "Could not start without a project" : "Could not update task"), result.message)
           else if result.submitted
             nav = open(nav, path("thread", result.environmentId, result.threadId))
+          else if newTaskOperation == "clone-remove" and result.nextLocation == "/"
+            nav = replace(go(nav, path("newTask")), path("home"))
           else if result.nextLocation != ""
             nav = push(nav, result.nextLocation)
           else if newTaskOperation == "environment" or newTaskOperation == "branch"
@@ -1200,7 +1216,7 @@ component App
   action editBranchQuery(value: string)
     branchQuery = value
   action chooseNewProject
-    nav = open(nav, path("newTask"))
+    nav = go(nav, path("newTask"))
   action chooseNewEnvironment
     nav = push(nav, path("newTaskEnvironments"))
   action chooseNewBranch
@@ -1383,7 +1399,7 @@ component App
   action openEnvironments
     nav = push(nav, path("environments"))
   action closeNewTask
-    nav = back(open(nav, path("newTask")))
+    nav = back(go(nav, path("newTask")))
   action back
     if top(nav).name == "settingsScheduledNew" or top(nav).name == "settingsScheduledEdit"
       automationAction("close", "", "", "")
@@ -1452,7 +1468,7 @@ component App
               data=data, detail=detail, informationRoute=informationRoute, informationData=informationData, informationLegal=informationLegal, settingsData=settingsData, settingsAppearance=settingsAppearance, settingsChoice=settingsChoice, threadPreferences=threadPreferences, projectOverview=projectOverview, serverSettings=serverSettings, providerAccounts=providerAccounts,
               automationData=automationData, scheduledHeader=scheduledHeader, layout=layout, chrome=chrome, threadLook=threadLook, threadData=threadData, previewLook=previewLook, browserData=browserData, devicesData=devicesData, browserMenus=browserMenus, devicesMenus=devicesMenus, terminalData=terminalData,
               terminalCapture=terminalCapture, reviewLook=reviewLook, reviewData=reviewData, filesData=filesData, fileData=fileData, audioData=audioData, mediaViewerData=mediaViewerData, documentData=documentData, documentMenu=documentMenu, mediaData=mediaData, composerAttachments=composerAttachments, composerLook=composerLook,
-              modelData=modelData, newTaskFlow=newTaskFlow, newTaskData=newTaskData, archiveLook=archiveLook, archiveData=archiveData, agentLook=agentLook, agents=agents, homeLook=homeLook, home=home, informationQuery=informationQuery, projectSavedRevision=projectSavedRevision, composerFocused=composerFocused,
+              addProjectData=addProjectData, addProjectLook=addProjectLook, editAddProject=editAddProject, browseAddProject=browseAddProject, actAddProject=actAddProject, openAddProject=openAddProject, newTaskClone=newTaskClone, newTaskCloneLook=newTaskCloneLook, modelData=modelData, newTaskFlow=newTaskFlow, newTaskData=newTaskData, archiveLook=archiveLook, archiveData=archiveData, agentLook=agentLook, agents=agents, homeLook=homeLook, home=home, informationQuery=informationQuery, projectSavedRevision=projectSavedRevision, composerFocused=composerFocused,
               reviewWrap=reviewWrap, reviewComment=reviewComment, filesQuery=filesQuery, fileWrap=fileWrap, filePreview=filePreview, mediaNativeOpen=mediaNativeOpen, mediaNativeError=mediaNativeError, modelQuery=modelQuery, modelLegacy=modelLegacy, newTaskQuery=newTaskQuery, branchQuery=branchQuery, archiveQuery=archiveQuery,
               archiveEnvironment=archiveEnvironment, archiveSort=archiveSort, host=host, code=code, formError=formError, expanded=expanded, scannerOpen=scannerOpen, cameraStatus=cameraStatus, composerExpanded=(composerExpanded and (composerEditor == `thread-composer-${entry.id}` or composerReturn.editorId == `thread-composer-${entry.id}`)), archiveDataPending=(pending(archiveData)), archivedPending=(pending(archived)), automationChangedPending=(pending(automationChanged)),
               changedPending=(pending(changed)), detailChangedPending=(pending(detailChanged)), modelChangedPending=(pending(modelChanged)), projectRenamedPending=(pending(projectRenamed)), taskChangedPending=(pending(taskChanged)), threadPreferencesChangedPending=(pending(threadPreferencesChanged)), toggleSidebar=toggleSidebar, openNewTask=openNewTask, voiceAction=voiceAction, informationCommand=informationCommand, informationSearch=informationSearch, openInformation=openInformation,

@@ -16,6 +16,7 @@ shape NewTaskFlowResult
   requestRoute: string
   nextLocation: string
   message: string
+  alertTitle: string
   submitted: bool
   environmentId: string
   projectId: string

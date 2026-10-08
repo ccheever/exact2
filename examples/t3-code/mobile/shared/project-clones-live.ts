@@ -1,5 +1,6 @@
 // GAP 001: bake cannot capture parent imports. Remove this copy when ancestor mounts work.
-// Unchanged body from examples/t3-code/project-clones-live.ts at 887b2491b182f851b11253655f6aa84fe2a26708.
+// Adapted body from examples/t3-code/project-clones-live.ts at 887b2491b182f851b11253655f6aa84fe2a26708.
+// Mobile 365aa87982 apps/mobile/src/state/projectClones.ts: failed subscriptions read as empty.
 // Tracked project clones on the client (MIT reference, see LICENSE-T3; T3 Code 1e2ecbd975:
 // components/ProjectCloneToastCoordinator.tsx, hooks/useRemoveClonedProject.ts,
 // state/projectClones.ts useProjectClone, components/ChatView.tsx runProjectCloneAction,
@@ -36,7 +37,8 @@ function port(client: T3Client): ToastPort {
 /** The focused environment's tracked clone for the viewed project (useProjectClone), or null. */
 export function activeProjectClone(client: T3Client): Obj | null {
   if (!client.projectId || !cloneTracking(client.config)) return null;
-  const clones = liveEnvironment(client, null, client.environmentId)?.clones.value ?? [];
+  const stream = liveEnvironment(client, null, client.environmentId)?.clones;
+  const clones = stream?.error ? [] : stream?.value ?? [];
   return clones.find(clone => clone.projectId === client.projectId) ?? null;
 }
 /** The send status and block for the viewed project (composer-controls-view.ts, client-ops-composer.ts send). */

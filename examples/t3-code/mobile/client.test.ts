@@ -119,7 +119,7 @@ describe('pinned shared sources', () => {
       const pin = name === 'let-go.ts' ? '669968e248e3a3ca29dbfeada999af2114141223'
         : ['client.ts', 'local-backend.ts', 'timestamp-format.ts'].includes(name)
           ? '38352ceaf4cd35a40b7b24ce992db87c2357a99b' : '887b2491b182f851b11253655f6aa84fe2a26708';
-      const adapted = name === 'client-ops-composer.ts';
+      const adapted = ['client-ops-composer.ts', 'project-clones-live.ts'].includes(name);
       expect(local[1]).toBe(`// ${adapted ? 'Adapted' : 'Unchanged'} body from examples/t3-code/${name} at ${pin}.`);
       return { name, local, pin };
     });
@@ -146,6 +146,9 @@ describe('pinned shared sources', () => {
         .replace("import { dispatchSelection, promptForSend, ultrathinkChoice }", "import { promptForSend, ultrathinkChoice }")
         .replace("if (!arr(provider.models).some(model => model.slug === this.modelId)) throw new ClientError('Choose one of the models advertised by T3.');",
           "if (!this.modelId || mobileModelSelectionUnavailable(this.config, { instanceId: this.providerId, model: this.modelId })) throw new ClientError('Model unavailable. Open model settings.');");
+      if (name === 'project-clones-live.ts') expected = "// Mobile 365aa87982 apps/mobile/src/state/projectClones.ts: failed subscriptions read as empty.\n" + expected
+        .replace("  const clones = liveEnvironment(client, null, client.environmentId)?.clones.value ?? [];",
+          "  const stream = liveEnvironment(client, null, client.environmentId)?.clones;\n  const clones = stream?.error ? [] : stream?.value ?? [];");
       expect(local.slice(2).join('\n')).toBe(expected);
     }
   });
