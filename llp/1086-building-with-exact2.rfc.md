@@ -9,6 +9,10 @@
 
 ## Summary
 
+The first submitted diaries are recorded in [LLP 1086.000](1086.000-the-first-submitted-diaries.research.md),
+with proposed follow-up work in [LLP 1086.000.000](1086.000.000-improvements-from-the-first-diaries.rfc.md).
+They distinguish these original fixes from later reported friction.
+
 Charlie asked what the repository still needs so that people, and the agents
 working for them, can build with exact2 as easily as possible.
 
