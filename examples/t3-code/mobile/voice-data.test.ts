@@ -3,7 +3,7 @@ import { mobileDraftChanged } from './draft';
 import { T3Client } from './shared/client';
 import { obj, type Obj } from './shared/domain';
 import type { Native, Files } from './shared/protocol';
-import { mobileVoiceAction, mobileVoiceObserveDraft, mobileVoiceSnapshot, mobileVoiceStatus } from './voice-data';
+import { mobileVoiceAction, mobileVoiceBlocksSubmission, mobileVoiceObserveDraft, mobileVoiceSnapshot, mobileVoiceStatus } from './voice-data';
 import { resetVoiceInputGlobalsForTests } from './voice-controller';
 import { mobileComposerTarget } from './composer-target';
 import { queuedEditState, queuedEditThreadKey, queuedEditEndMemory, mobileQueuedEditLookup, mobileQueuedEditWriteText, type MobileQueuedEditSession } from './queued-edit-state';
@@ -30,8 +30,9 @@ function fixture() {
 }
 describe('mobile voice ownership and answer lifetime, mocked native only', () => {
   test('completed recording replaces captured selection and persists shared draft', async () => {
-    const f = fixture(); expect((await f.action('start')).data.phase).toBe('recording');
-    expect((await f.action('stop')).data.phase).toBe('idle');
+    const f = fixture(); expect(mobileVoiceBlocksSubmission(f.client)).toBe(false);
+    expect((await f.action('start')).data.phase).toBe('recording'); expect(mobileVoiceBlocksSubmission(f.client)).toBe(true);
+    expect((await f.action('stop')).data.phase).toBe('idle'); expect(mobileVoiceBlocksSubmission(f.client)).toBe(false);
     expect(f.client.draft).toBe('Hello spoken words'); expect(f.saves()).toBeGreaterThan(0);
     expect(mobileVoiceSnapshot('env:one', f.client)).toMatchObject({ selectionOwner: 'env:one', selectionStart: 18, selectionEnd: 18 });
     expect(f.calls.filter(call => call.action === 'delete')).toHaveLength(1);

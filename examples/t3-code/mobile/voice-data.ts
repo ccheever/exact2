@@ -25,6 +25,11 @@ interface Target { key: string; content: MobileComposerTarget; text: string | nu
 interface Runtime { client: T3Client; session: VoiceInputSession; scope: Scope | null; serial: number; id: string; uri: string | null;
   status: VoiceStatus; handledEvent: number; target: Target | null; selection: { owner: string; start: number; end: number; revision: number; content: MobileComposerTarget | null; text: string; contentRevision: number | null } }
 const states = new WeakMap<T3Client, Runtime>();
+/** Admission reads existing voice state without creating a session or observing edits. */
+export function mobileVoiceBlocksSubmission(client: T3Client): boolean {
+  const runtime = states.get(client);
+  return !!runtime && voiceInputBlocksSubmission(runtime.session.controller.currentState);
+}
 const emptyStatus = (): VoiceStatus => ({ available: false, locale: '', reason: '', session: '', event: 0, eventKind: '', error: '', uri: '', elapsed: 0, levels: [], phase: 'idle' });
 function stateFor(client: T3Client): Runtime {
   const existing = states.get(client); if (existing) return existing;

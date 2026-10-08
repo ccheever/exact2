@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { T3Client } from './shared/client';
 import { obj, type Obj } from './shared/domain';
 import { type Native, type Files } from './shared/protocol';
-import { mobileComposerAttachmentAction, mobileComposerAttachments, mobileComposerAttachmentPreviews } from './composer-attachments';
+import { mobileComposerAttachmentAction, mobileComposerAttachmentPicking, mobileComposerAttachments, mobileComposerAttachmentPreviews } from './composer-attachments';
 
 const imageId = '11111111-1111-4111-a111-111111111111';
 const fileId = '22222222-2222-4222-a222-222222222222';
@@ -45,6 +45,7 @@ describe('mobile native attachment bridge over shared draft ownership', () => {
   test('100 attachment and pending submission guards do not open native picker', async () => {
     const f = fixture(); f.client.local.snapshotDrafts[f.client.draftKey] = Array.from({ length: 100 }, (_, n) => ({ id: String(n) }));
     expect(mobileComposerAttachments(f.client).canPick).toBe(false);
+    expect(mobileComposerAttachmentPicking(f.client)).toBe(false);
     expect((await pick(f)).message).toContain('100'); expect(f.calls).toHaveLength(0);
     f.client.local.snapshotDrafts[f.client.draftKey] = []; f.client.busy = true;
     expect((await pick(f)).message).toContain('submission'); expect(f.calls).toHaveLength(0);
@@ -97,4 +98,22 @@ test('ordinary removal refuses a changed target during shared command preamble',
   expect(f.client.local.snapshotDrafts[priorKey]).toHaveLength(1);
   expect(f.client.local.snapshotDrafts[nextKey]).toHaveLength(1);
   expect(f.calls.some(call => call.op === 'snapshotDraftRemove' || call.method === 'attachments.delete')).toBe(false);
+});
+
+
+test('picker admission evidence tracks the native request and releases on cancellation', async () => {
+  const f = fixture(), original = f.native.later;
+  let held!: () => void, arrived!: () => void;
+  const waiting = new Promise<void>(resolve => { held = resolve; });
+  const started = new Promise<void>(resolve => { arrived = resolve; });
+  f.native.later = async input => {
+    if (obj(input).op === 'composerAttachPick') { arrived(); await waiting; }
+    return original(input);
+  };
+  const task = pick(f); await started;
+  expect(mobileComposerAttachmentPicking(f.client)).toBe(true);
+  expect((await pick(f)).message).toContain('submission');
+  held(); await task;
+  expect(mobileComposerAttachmentPicking(f.client)).toBe(false);
+  expect(f.client.snapshotDrafts).toHaveLength(0);
 });

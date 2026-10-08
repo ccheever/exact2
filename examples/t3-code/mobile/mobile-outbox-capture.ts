@@ -34,6 +34,10 @@ export type MobileOutboxCaptureResult = { status: 'blocked'; reason: string } | 
   draftCapture: MobileOutboxDraftPresentation;
   presentation: { queuesInsteadOfStarting: boolean; title: string };
 };
+export type MobileOutboxPreparationResult = { status: 'blocked'; reason: string } | {
+  status: 'ready'; record: Omit<MobileOutboxRecord, keyof MobileOutboxCaptureMetadata>;
+  draftCapture: MobileOutboxDraftPresentation; presentation: { queuesInsteadOfStarting: boolean; title: string };
+};
 const copy = <T>(value: T): T => JSON.parse(JSON.stringify(value));
 function fail(reason: string): never { throw new Error(reason); }
 const bounded = (value: unknown, max: number) => typeof value === 'string' && value.length <= max;
@@ -148,8 +152,8 @@ function messageContext(draft: MobileOutboxDraftPresentation, files: MobileOutbo
 /** Pure capture only. Ready means serializable mapping, NOT native byte existence,
  * upload verification, durable enqueue or permission to clear the original draft.
  * Caller must recheck the live owner after asynchronous metadata/fact preparation. */
-export function mobileCaptureNewTaskOutbox(draft: MobileOutboxDraftPresentation,
-  facts: MobileOutboxCaptureFacts, metadata: MobileOutboxCaptureMetadata): MobileOutboxCaptureResult {
+export function mobilePrepareNewTaskOutbox(draft: MobileOutboxDraftPresentation,
+  facts: MobileOutboxCaptureFacts): MobileOutboxPreparationResult {
   try {
     if (facts.key !== draft.key || facts.origin !== draft.origin || facts.environmentId !== draft.environmentId || facts.projectId !== draft.projectId)
       fail('The draft destination changed before it could be captured.');
@@ -175,16 +179,27 @@ export function mobileCaptureNewTaskOutbox(draft: MobileOutboxDraftPresentation,
     const interactionMode = provider?.showInteractionModeToggle === false || !facts.planPreferenceLoaded || !facts.planModeEnabled
       ? 'default' : draft.choices?.interactionMode ?? 'default';
     const context = messageContext(draft, files, facts.context);
-    const record = mobileOutboxEncode({ schemaVersion: 1, origin: draft.origin, environmentId: draft.environmentId,
-      threadId: metadata.threadId, messageId: metadata.messageId, commandId: metadata.commandId, createdAt: metadata.createdAt,
+    const record: Omit<MobileOutboxRecord, keyof MobileOutboxCaptureMetadata> = { schemaVersion: 1, origin: draft.origin, environmentId: draft.environmentId,
       text, attachments: files, ...(context ? { context } : {}), modelSelection: model,
       runtimeMode: (draft.choices?.runtimeMode ?? facts.defaultRuntimeMode) as MobileOutboxRuntimeMode,
       interactionMode: interactionMode as MobileOutboxRecord['interactionMode'],
       creation: { projectId: draft.projectId, ...(facts.projectTitle === undefined ? {} : { projectTitle: facts.projectTitle }),
         ...(facts.projectCwd === undefined ? {} : { projectCwd: facts.projectCwd }), workspaceMode: mode, branch,
         worktreePath: workspace.canChoose && mode === 'local' ? workspace.worktreePath : null,
-        ...(workspace.startFromOrigin ? { startFromOrigin: true } : {}) } });
-    return { status: 'ready', record, draftCapture: copy(draft),
+        ...(workspace.startFromOrigin ? { startFromOrigin: true } : {}) } };
+    return { status: 'ready', record: copy(record), draftCapture: copy(draft),
       presentation: { queuesInsteadOfStarting, title: mobileOutboxTitle(text, files) } };
   } catch (error) { return { status: 'blocked', reason: error instanceof Error ? error.message : 'The draft could not be captured.' }; }
+}
+
+
+/** Supply real submission metadata after preparation. The complete record still
+ * crosses the one wire/schema encoder before native admission. */
+export function mobileCaptureNewTaskOutbox(draft: MobileOutboxDraftPresentation,
+  facts: MobileOutboxCaptureFacts, metadata: MobileOutboxCaptureMetadata): MobileOutboxCaptureResult {
+  const prepared = mobilePrepareNewTaskOutbox(draft, facts);
+  if (prepared.status !== 'ready') return prepared;
+  try { return { ...prepared, record: mobileOutboxEncode({ ...prepared.record, threadId: metadata.threadId,
+    messageId: metadata.messageId, commandId: metadata.commandId, createdAt: metadata.createdAt }) }; }
+  catch (error) { return { status: 'blocked', reason: error instanceof Error ? error.message : 'The draft could not be captured.' }; }
 }

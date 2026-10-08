@@ -21,6 +21,8 @@ export interface ComposerAttachment { id: string; name: string; kind: string; si
 export interface ComposerAttachmentsSnapshot { previewRequest: string; contentOwner: string; items: ComposerAttachment[]; canPick: boolean; supportsFiles: boolean; remaining: number; error: string; }
 const errors = new WeakMap<T3Client, string>();
 const picking = new WeakSet<T3Client>();
+/** Read current picker work without conflating it with attachment capacity. */
+export const mobileComposerAttachmentPicking = (client: T3Client): boolean => picking.has(client);
 const imageTypes = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp']);
 /** Plain files retain inline shared references; media entries can feed the source's attachment strip. */
 export function mobileComposerAttachments(client: T3Client = mobileClient, now = 0): ComposerAttachmentsSnapshot {
