@@ -35,6 +35,7 @@ pub const UI: Shape = Record(&[
     ("launches", Num),
     ("gotoMachine", Str),
     ("gotoSession", Str),
+    ("composeMachine", Str),
 ]);
 
 /// `Version`.

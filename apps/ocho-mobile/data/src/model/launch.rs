@@ -6,6 +6,10 @@
 
 use super::*;
 
+/// The session id a launch's conversation goes by until the machine names
+/// it: the message shows at once, the session starting as its status.
+pub const LAUNCHING: &str = "launching";
+
 /// Effort levels by provider, as the desktop offers them; "" is the
 /// provider's own default.
 fn efforts(provider: &str) -> &'static [&'static str] {
@@ -329,6 +333,23 @@ impl Model {
         self.launcher.prompt = text.to_string();
         self.launcher.launching = true;
         self.launcher.error.clear();
+        // The conversation, at once: the message as the user's, the session
+        // starting as its status, until the machine names it.
+        let key = (self.launcher.machine.clone(), LAUNCHING.to_string());
+        self.pending.retain(|p| p.key != key);
+        if self.failed.as_ref().is_some_and(|f| f.0 == key) {
+            self.failed = None;
+        }
+        self.pending.push(Pending {
+            key: key.clone(),
+            text: text.to_string(),
+            after: 0,
+            request_id: self.launcher.request_id.clone(),
+            queued: false,
+            interrupting: false,
+        });
+        self.conversations.entry(key.clone()).or_default().loaded = true;
+        self.open = Some(key);
         self.launch.inflight = false;
         self.launch.bump();
         self.feel("light");
@@ -391,7 +412,14 @@ impl Model {
         match result {
             Ok(reply) => match reply.pointer("/session/id").and_then(|v| v.as_str()) {
                 Some(id) if !id.is_empty() => {
-                    self.launcher.goto = Some((self.launcher.machine.clone(), id.to_string()));
+                    // The message moves to the session the machine named.
+                    let from = (self.launcher.machine.clone(), LAUNCHING.to_string());
+                    let to = (self.launcher.machine.clone(), id.to_string());
+                    for p in self.pending.iter_mut().filter(|p| p.key == from) {
+                        p.key = to.clone();
+                    }
+                    self.conversations.remove(&from);
+                    self.launcher.goto = Some(to);
                     self.launcher.prompt.clear();
                     self.feel("success");
                     self.track(
@@ -413,6 +441,10 @@ impl Model {
     }
 
     fn launch_failed(&mut self, why: String) {
+        // The message comes back to be tried again, with why.
+        let key = (self.launcher.machine.clone(), LAUNCHING.to_string());
+        self.pending.retain(|p| p.key != key);
+        self.failed = Some((key, self.launcher.prompt.clone(), why.clone()));
         self.launcher.error = why;
         self.feel("error");
         self.track(

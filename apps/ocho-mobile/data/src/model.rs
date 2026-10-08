@@ -1151,7 +1151,7 @@ impl Model {
     /// The open session's transcript URL and bearer.
     pub fn transcript_request(&mut self) -> Option<(String, String)> {
         let conn = self.conn.as_ref()?;
-        let key = self.open.clone()?;
+        let key = self.open.clone().filter(|k| k.1 != launch::LAUNCHING)?;
         let mut url = conn.session_url(&self.route_of(&self.via), &key.0, &key.1, "transcript");
         // What this phone holds, so the server answers "unchanged" or only
         // the entries that moved (a long conversation is hundreds of KB).

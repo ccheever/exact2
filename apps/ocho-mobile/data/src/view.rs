@@ -281,9 +281,15 @@ pub(crate) fn session(m: &Model) -> Json {
     };
     let live = m.live_session(key);
     let known = live.or_else(|| m.known_session(key));
-    let (title, host) = tab_title(m, key).unwrap_or_else(|| {
+    // A session starting: the message is shown, the launch is its status.
+    let starting = key.1 == crate::model::launch::LAUNCHING;
+    let (title, host) = tab_title(m, key).filter(|_| !starting).unwrap_or_else(|| {
         (
-            known.map(|s| s.title.clone()).unwrap_or_default(),
+            if starting {
+                "New session".into()
+            } else {
+                known.map(|s| s.title.clone()).unwrap_or_default()
+            },
             m.name_of(&key.0),
         )
     });
@@ -345,6 +351,7 @@ pub(crate) fn session(m: &Model) -> Json {
         "No messages yet."
     };
     let (can_send, note) = match live.map(Session::send_route) {
+        _ if starting => (false, String::new()),
         None if m.fresh => (false, format!("{host} is offline.")),
         None => (false, "Reconnecting…".to_string()),
         Some(SendRoute::None(why)) => (false, why.to_string()),
@@ -358,10 +365,14 @@ pub(crate) fn session(m: &Model) -> Json {
         "open": true,
         "title": title,
         "host": host,
-        "working": live.is_some_and(Session::working),
+        "working": live.is_some_and(Session::working) || (starting && m.launcher.launching),
         "blocked": live.is_some_and(Session::blocked),
-        "offline": live.is_none(),
-        "status": live.filter(|s| s.working() || s.blocked()).map(Session::status_line).unwrap_or_default(),
+        "offline": live.is_none() && !starting,
+        "status": if starting && m.launcher.launching {
+            "Starting session…".to_string()
+        } else {
+            live.filter(|s| s.working() || s.blocked()).map(Session::status_line).unwrap_or_default()
+        },
         "entries": out,
         "earlier": if start > 0 { format!("Show {} earlier messages", start.min(PAGE_ENTRIES)) } else { String::new() },
         "empty": empty,

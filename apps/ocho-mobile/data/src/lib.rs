@@ -70,6 +70,7 @@ fn counters(m: &Model) -> Value {
             "launches": m.launch.turn,
             "gotoMachine": m.launcher.goto.as_ref().map(|g| g.0.clone()).unwrap_or_default(),
             "gotoSession": m.launcher.goto.as_ref().map(|g| g.1.clone()).unwrap_or_default(),
+            "composeMachine": m.launcher.machine,
         }),
     )
 }

@@ -157,6 +157,10 @@ impl Model {
     /// Send the failed message again.
     pub fn retry(&mut self) {
         if let Some((key, text, _)) = self.failed.take() {
+            if key.1 == launch::LAUNCHING {
+                self.compose_send(&text);
+                return;
+            }
             if self.open.as_ref() == Some(&key) {
                 self.send_text(&text);
                 return;

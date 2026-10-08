@@ -52,6 +52,7 @@ shape Ui
   launches: number
   gotoMachine: string
   gotoSession: string
+  composeMachine: string
 shape Version
   version: number
 shape MarkdownRun
@@ -211,6 +212,7 @@ component OchoMobile
   // A launched session, to open: the data names it once the launch answers.
   derive gotoMachine = match ui { case some(r) => r.gotoMachine, case none => "" }
   derive gotoSession = match ui { case some(r) => r.gotoSession, case none => "" }
+  derive composeMachine = match ui { case some(r) => r.composeMachine, case none => "" }
   // Coming back to the foreground re-asks the poll at once: iOS drops a
   // request in flight while the app is suspended. iOS's word on the network
   // is its own resource: as a poll argument, every flicker of the path
@@ -235,7 +237,7 @@ component OchoMobile
   // Each second: start what is due, and open a session just launched (in
   // place of the new-session screen when that is still showing).
   action tick writes ui, nav
-    nav = (gotoSession == "" ? nav : (top(nav).name == "new" ? open(back(nav), path("session", gotoMachine, gotoSession)) : open(nav, path("session", gotoMachine, gotoSession))))
+    nav = (gotoSession == "" ? nav : (top(nav).name == "new" or (top(nav).name == "session" and top(nav).params.id == "launching") ? open(back(nav), path("session", gotoMachine, gotoSession)) : open(nav, path("session", gotoMachine, gotoSession))))
     send ui = dispatch((gotoSession == "" ? "tick" : "open"), gotoMachine, gotoSession, now())
   task ticker mount
     every(1000, tick)
@@ -284,7 +286,8 @@ component OchoMobile
     nav = push(nav, "/model")
   // The new session's composer: `s:<text>` launches it, `h:` sizes it.
   action composeSaid(value: string) writes ui, nav
-    nav = (value == "m:" ? push(nav, "/model") : nav)
+    // Sent: the conversation at once, the session starting as its status.
+    nav = (value == "m:" ? push(nav, "/model") : (startsWith(value, "s:") and composeMachine != "" ? open(back(nav), path("session", composeMachine, "launching")) : nav))
     send ui = dispatch("compose-said", value, "", now())
   // The native composer's height, which its wrapped text decides.
   // "Send now" on a queued message: interrupt the running turn for it.
