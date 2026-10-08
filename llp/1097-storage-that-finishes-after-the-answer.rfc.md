@@ -165,7 +165,8 @@ code that started it has returned, and an unhandled rejection reaches the
 console. Order is the store's own. IndexedDB runs transactions with
 overlapping scopes in creation order, and a SQLite worker runs its queue in
 order. But `storage-fs.js`'s reads do not wait for an earlier write
-(`:349–350`). A page being unloaded may lose what is in flight.
+(`:349–350`). A page being unloaded may lose what is in flight; D10's web row
+(2026-10-08) journals the filesystem's share of it.
 
 This RFC makes Hermes and the wasm realm finish storage as a browser does. It
 adds what the web leaves to chance, on every host including the JS target:
@@ -657,8 +658,30 @@ One rule per event:
 | macOS quit | `applicationShouldTerminate` returns `NSApplication.TerminateReply.terminateLater` while a ticket is out. The app calls `NSApp.reply(toApplicationShouldTerminate: true)` at the ticket's end, or when its own 5 s timer fires. | 5 s |
 | iOS and tvOS suspension | `UIApplication.beginBackgroundTask` is held while a ticket is out and ended when it ends. The expiration handler calls `endBackgroundTask`. A suspension can still cut a write once the assertion expires. | the system's |
 | Linux orderly exit | The presenter finishes it before exit. | 5 s |
-| Web `pagehide` | The browser commits or loses what is in flight; the docs say so. | — |
+| Web `pagehide` (amended 2026-10-08) | The filesystem journals its uncommitted mutations to `localStorage`, synchronously, and the next page replays them first, exactly once (below). SQLite, a worker realm and a killed browser still commit or lose; the docs say so. | the event's own (synchronous) |
 
+- **The web filesystem across a closed tab** (amended 2026-10-08, Charlie: "look
+  at the exact2 side first"; the authoring bench, t5-pomodoro on Android's web
+  cell). A `storage.fs` mutation is one IndexedDB transaction, and Chrome drops a
+  transaction still running when the page goes away: a setting committed with
+  Enter and the tab closed 4 ms later was lost 4 of 4 times. `storage-fs.js`
+  now keeps each mutation in a journal from its call until it settles, and the
+  mutation's own transaction writes an applied marker (`{session, seq}`, under
+  a key no listing reaches) beside its change. On `pagehide`, and on
+  `visibilitychange: hidden` (a phone may discard a hidden tab with no
+  `pagehide`), the journal's entries go to `localStorage` under
+  `exact-storage-journal:<app>`, synchronously; while a journal is written, each
+  later mutation and settlement rewrites it. The next realm's
+  `createFileSystem` reads the marker, replays the entries after it in order,
+  each writing its own original marker (so a replay cut short resumes, and an
+  append lands once), and only then runs any read or mutation. It serves every
+  caller of `createFileSystem`: the JS target's sources, the wasm realm's
+  (`storage.js`) and Rust storage requests (`storage-request.js`). Measured
+  after it: the same close kept the setting 10 of 10 times. Not covered, and
+  the guide says so: SQLite (its worker's transaction is its own), a source
+  placed in a worker (no `pagehide`, no synchronous storage), a write over the
+  journal's 2 MB bound, and a browser that is killed rather than closed (no
+  event fires).
 - **A dev edit and the 100 ms budget.** A dev edit never waits on the web. A
   native dev restart waits only for work actually in flight, which is usually
   none, so the p50 budget (`rules/RULES.md`) is untouched.

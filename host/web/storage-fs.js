@@ -155,7 +155,12 @@ export function createFileStore(appId) {
     }
     return opening;
   }
+  // The applied marker a mutation's own transaction writes (`unloadJournal`): taken here,
+  // before the first await, from the one mutation `mutate` lets run at a time.
+  let pendingMark = null;
   async function run(write, operation, path, list, subtree) {
+    const mark = write ? pendingMark : null;
+    pendingMark = null;
     const db = await open();
     if (closed) throw failure('storage was unloaded');
     return new Promise((resolve, reject) => {
@@ -181,7 +186,10 @@ export function createFileStore(appId) {
           remove(path) { records.delete(path); store.delete(path); },
           touch(path) { const value = directory(records, path); this.put({ ...value, modifiedMs: now() }); },
         };
-        try { result = operation(records, changes, keys.flatMap(request => request.result ?? [])); }
+        try {
+          result = operation(records, changes, keys.flatMap(request => request.result ?? []));
+          if (mark) store.put({ path: APPLIED, kind: 'marker', ...mark });
+        }
         catch (cause) { error = cause; transaction.abort(); }
       };
       for (const request of [...requests, ...keys]) request.onsuccess = ready;
@@ -209,6 +217,17 @@ export function createFileStore(appId) {
   }
   return Object.freeze({
     directories: roots,
+    /** The next mutation's applied marker ({session, seq}), written in its transaction. */
+    mark(value) { pendingMark = value; },
+    /** The last committed mutation's marker, or null. */
+    async applied() {
+      const db = await open();
+      return new Promise((resolve, reject) => {
+        const request = db.transaction('files', 'readonly').objectStore('files').get(APPLIED);
+        request.onsuccess = () => resolve(request.result ?? null);
+        request.onerror = () => reject(failure(request.error?.message || 'IndexedDB read failed'));
+      });
+    },
     async readFile(path) {
       path = normalizePath(path);
       // IndexedDB already returns an independent structured clone for this read.
@@ -338,17 +357,113 @@ export function createFileStore(appId) {
   });
 }
 
+// @ref LLP 1097 D10 — a write in flight when the tab closes. A mutation is one IndexedDB
+// transaction, and the browser drops a transaction still running when the page goes away.
+// So each mutation is journaled from its call until it settles, and its transaction
+// writes an applied marker ({session, seq}) beside its change. On `pagehide` (and on
+// `visibilitychange: hidden`, after which a phone may discard the tab with no pagehide),
+// what is still pending is written to localStorage, synchronously. The next realm's
+// filesystem replays the entries after the last applied marker, in order, before any
+// read or mutation: exactly once, an append included. A window realm only: a worker has
+// neither event nor synchronous storage, and a killed browser (no pagehide) loses its
+// journal too.
+const APPLIED = '\u0000exact-applied';
+const journals = new Map();
+const MAX_JOURNAL = 2_000_000;
+const journalKey = appId => `exact-storage-journal:${appId}`;
+function windowRealm() {
+  try { return typeof document !== 'undefined' && typeof addEventListener === 'function' && !!globalThis.localStorage; }
+  catch { return false; }
+}
+function encodeArg(value) {
+  if (value instanceof ArrayBuffer || ArrayBuffer.isView(value)) {
+    const view = value instanceof ArrayBuffer ? new Uint8Array(value) : new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
+    let binary = '';
+    for (let i = 0; i < view.length; i += 0x8000) binary += String.fromCharCode(...view.subarray(i, i + 0x8000));
+    return { bytes: btoa(binary) };
+  }
+  return value;
+}
+function decodeArg(value) {
+  if (value && typeof value === 'object' && typeof value.bytes === 'string') {
+    const binary = atob(value.bytes);
+    const out = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) out[i] = binary.charCodeAt(i);
+    return out.buffer;
+  }
+  return value;
+}
+function mutationPaths(method, args) {
+  return method === 'rename' ? [args[0], args[1]] : method === 'copyFile' ? [args[1]] : [args[0]];
+}
+function unloadJournal(appId) {
+  if (!windowRealm()) return null;
+  if (journals.has(appId)) return journals.get(appId);
+  const random = new Uint32Array(2);
+  globalThis.crypto?.getRandomValues?.(random);
+  const session = `${random[0].toString(36)}${random[1].toString(36)}${now().toString(36)}`;
+  let seq = 0, written = false, warned = false;
+  const pending = new Map();
+  let left = [];
+  try { left = JSON.parse(localStorage.getItem(journalKey(appId)) ?? '{}').entries ?? []; } catch { left = []; }
+  function write() {
+    const entries = [...left, ...[...pending].map(([n, e]) => ({ session, seq: n, method: e.method, args: e.args }))];
+    try {
+      if (!entries.length) { localStorage.removeItem(journalKey(appId)); written = false; return; }
+      const text = JSON.stringify({ entries });
+      if (text.length > MAX_JOURNAL) throw new Error(`${text.length} characters`);
+      localStorage.setItem(journalKey(appId), text);
+      written = true;
+    } catch (error) {
+      if (!warned) { warned = true; console.warn(`storage: could not journal ${entries.length} pending write(s) for a closed tab: ${error.message}`); }
+    }
+  }
+  const journal = {
+    session,
+    get left() { return left.length > 0; },
+    add(method, args) {
+      const n = ++seq;
+      pending.set(n, { method, args: args.map(encodeArg) });
+      if (written) write();
+      return n;
+    },
+    done(n) {
+      if (n === undefined || !pending.delete(n)) return;
+      if (written) write();
+    },
+    flush() { if (pending.size || left.length) write(); },
+    async replay(store, runOne) {
+      const marker = await store.applied().catch(() => null);
+      const at = marker ? left.findIndex(e => e.session === marker.session && e.seq === marker.seq) : -1;
+      left = left.slice(at + 1);
+      while (left.length) {
+        const entry = left[0];
+        try { await runOne(entry.method, entry.args.map(decodeArg), { session: entry.session, seq: entry.seq }); }
+        catch (error) { console.warn(`storage: replaying ${entry.method} ${entry.args[0]} from a closed tab failed: ${error.message}`); }
+        left = left.slice(1);
+        if (written) write();
+      }
+      write();
+    },
+  };
+  journals.set(appId, journal);
+  if (!windowRealm.hooked) {
+    windowRealm.hooked = true;
+    const flushAll = () => { for (const j of journals.values()) j.flush(); };
+    addEventListener('pagehide', flushAll);
+    addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flushAll(); });
+  }
+  return journal;
+}
+
 /** Public capability. Every operation is admitted before opening IndexedDB. */
 export function createFileSystem(appId, grants) {
   const store = createFileStore(appId);
   const fs = { directories: roots, dispose() { store.close(); } };
-  function mutate(paths, operation) {
+  const journal = unloadJournal(appId);
+  function chain(step) {
     const previous = mutationTails.get(appId) || Promise.resolve();
-    const result = previous.then(async () => {
-      const release = await lockPaths(appId, paths);
-      try { return await operation(); }
-      finally { await release(); }
-    });
+    const result = previous.then(step);
     const settled = result.then(() => {}, () => {});
     mutationTails.set(appId, settled);
     void settled.then(() => {
@@ -356,15 +471,34 @@ export function createFileSystem(appId, grants) {
     });
     return result;
   }
+  async function locked(paths, operation) {
+    const release = await lockPaths(appId, paths);
+    try { return await operation(); }
+    finally { await release(); }
+  }
+  // Each mutation is journaled from its call until it settles; its transaction writes its marker.
+  function mutate(paths, method, args, operation) {
+    const seq = journal?.add(method, args);
+    return chain(() => locked(paths, () => {
+      if (seq !== undefined) store.mark({ session: journal.session, seq });
+      return operation();
+    })).finally(() => journal?.done(seq));
+  }
+  // @ref LLP 1097 D10 — what a closed tab left uncommitted runs first, in order, before
+  // any read or mutation of this realm.
+  const replayed = journal?.left ? chain(() => journal.replay(store, (method, args, mark) =>
+    locked(mutationPaths(method, args), () => { store.mark(mark); return store[method](...args); })))
+    : null;
+  const ready = () => replayed?.catch(() => {});
   for (const method of ['readFile', 'readdir', 'stat', 'realpath']) {
-    fs[method] = async path => store[method](authorize(grants, 'fs.read', path));
+    fs[method] = async path => { const at = authorize(grants, 'fs.read', path); await ready(); return store[method](at); };
   }
   for (const method of ['writeFile', 'atomicWriteFile', 'appendFile', 'mkdir', 'rm']) {
     fs[method] = async (path, data) => {
       path = authorize(grants, 'fs.write', path);
       // Preserve call-time bytes even when lock acquisition crosses a task.
       if (['writeFile', 'atomicWriteFile', 'appendFile'].includes(method)) data = bytes(data);
-      return mutate([path], () => store[method](path, data));
+      return mutate([path], method, [path, data], () => store[method](path, data));
     };
   }
   for (const method of ['rename', 'copyFile']) {
@@ -372,7 +506,7 @@ export function createFileSystem(appId, grants) {
       from = authorize(grants, 'fs.read', from);
       to = authorize(grants, 'fs.write', to);
       if (method === 'rename') authorize(grants, 'fs.write', from);
-      return mutate(method === 'rename' ? [from, to] : [to], () => store[method](from, to));
+      return mutate(method === 'rename' ? [from, to] : [to], method, [from, to], () => store[method](from, to));
     };
   }
   // `compressImage(from, to, {maxDimension, maxBytes})` (LLP 1069.002 A1):
@@ -388,10 +522,11 @@ export function createFileSystem(appId, grants) {
     requireBelowRoot(to);
     // An entry is one IndexedDB record, read whole by any operation (`stat`
     // too); its size is checked before it becomes a Blob or is decoded.
+    await ready();
     const { blob } = await store.blob(from, undefined, image.MAX_BYTES);
     const out = await image.compress(blob, maxDimension, maxBytes);
     const size = out.bytes.byteLength;
-    await mutate([to], () => store.atomicWriteOwnedFile(to, out.bytes));
+    await mutate([to], 'atomicWriteFile', [to, out.bytes.slice(0)], () => store.atomicWriteOwnedFile(to, out.bytes));
     return { path: to, type: 'image/jpeg', size, width: out.width, height: out.height };
   };
   return Object.freeze(fs);
