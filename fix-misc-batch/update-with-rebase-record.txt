@@ -1,0 +1,138 @@
+# fix-misc-batch, #298 bug 15: Update with rebase (agent mode, real GitHub lane), 2026-10-08
+Lane: primary real-GitHub lane server (daehyeonmun2021, sandbox daehyeonmun2021/playground) on 127.0.0.1:16110, started by lane.mjs start('primary', 16110);
+the app in agent mode at 1280x840, isolated HOME, its own --storage, the real wall clock (epoch Date.now()), paired by a single-use token (never printed).
+Drive (drive15.mjs.txt): Pull Requests > State All > #N > press the amber base mark (popover) > Update with rebase; then once a second for 50 s:
+the toast, the freshness mark, the lane gh's GraphQL reads (logs/gh-calls.tsv) and the server's ws.rpc.pullRequests.* spans (userdata/logs/server.trace.ndjson) since the press.
+Fresh pull requests for the pair: bun seed.mjs --only act-update-rebase,act-update-merge -> #166 and #167, both 31 commits behind main.
+
+## Before: the base build (t3-code-evidence-base at c0475fbaa, built under its .build-lock), #166
+2026-10-08T06:39:03.834Z [before] app pid 15482
+2026-10-08T06:39:39.262Z [before] before: behind_by 31; mark: main
+2026-10-08T06:39:39.359Z [before] shot before
+2026-10-08T06:39:40.008Z [before] popover: This branch is out-of-date with main by 31 commits. | Changes can be cleanly merged. | Update branch | Update with rebase
+2026-10-08T06:39:40.086Z [before] shot popover
+2026-10-08T06:40:20.665Z [before] +1s toast="Branch updated with the base branch" behind mark shown graphql=162 rpcs=(trace rotated at 10 MB during this run; counted below)
+2026-10-08T06:40:21.685Z [before] +2s toast="Branch updated with the base branch" behind mark shown graphql=162 rpcs=(trace rotated at 10 MB during this run; counted below)
+2026-10-08T06:40:21.764Z [before] shot after-2s
+2026-10-08T06:40:22.787Z [before] +3s toast="Branch updated with the base branch" behind mark shown graphql=162 rpcs=(trace rotated at 10 MB during this run; counted below)
+2026-10-08T06:40:23.809Z [before] +4s toast="Branch updated with the base branch" behind mark shown graphql=162 rpcs=(trace rotated at 10 MB during this run; counted below)
+2026-10-08T06:40:24.830Z [before] +5s toast="" behind mark shown graphql=162 rpcs=(trace rotated at 10 MB during this run; counted below)
+2026-10-08T06:40:25.852Z [before] +6s toast="" behind mark shown graphql=162 rpcs=(trace rotated at 10 MB during this run; counted below)
+2026-10-08T06:40:26.874Z [before] +7s toast="" behind mark shown graphql=162 rpcs=(trace rotated at 10 MB during this run; counted below)
+2026-10-08T06:40:27.895Z [before] +8s toast="" behind mark shown graphql=162 rpcs=(trace rotated at 10 MB during this run; counted below)
+2026-10-08T06:40:28.916Z [before] +9s toast="" behind mark shown graphql=162 rpcs=(trace rotated at 10 MB during this run; counted below)
+2026-10-08T06:40:29.937Z [before] +10s toast="" behind mark shown graphql=162 rpcs=(trace rotated at 10 MB during this run; counted below)
+2026-10-08T06:40:30.018Z [before] shot after-10s
+2026-10-08T06:40:31.040Z [before] +11s toast="" behind mark shown graphql=162 rpcs=(trace rotated at 10 MB during this run; counted below)
+2026-10-08T06:40:32.063Z [before] +12s toast="" behind mark shown graphql=162 rpcs=(trace rotated at 10 MB during this run; counted below)
+2026-10-08T06:40:33.084Z [before] +13s toast="" behind mark shown graphql=162 rpcs=(trace rotated at 10 MB during this run; counted below)
+2026-10-08T06:40:34.104Z [before] +14s toast="" behind mark shown graphql=162 rpcs=(trace rotated at 10 MB during this run; counted below)
+2026-10-08T06:40:35.126Z [before] +15s toast="" behind mark shown graphql=162 rpcs=(trace rotated at 10 MB during this run; counted below)
+2026-10-08T06:40:36.149Z [before] +16s toast="" behind mark shown graphql=162 rpcs=(trace rotated at 10 MB during this run; counted below)
+2026-10-08T06:40:37.171Z [before] +17s toast="" behind mark shown graphql=162 rpcs=(trace rotated at 10 MB during this run; counted below)
+2026-10-08T06:40:38.193Z [before] +18s toast="" behind mark shown graphql=162 rpcs=(trace rotated at 10 MB during this run; counted below)
+2026-10-08T06:40:39.213Z [before] +19s toast="" behind mark shown graphql=162 rpcs=(trace rotated at 10 MB during this run; counted below)
+2026-10-08T06:40:40.236Z [before] +20s toast="" behind mark shown graphql=162 rpcs=(trace rotated at 10 MB during this run; counted below)
+2026-10-08T06:40:41.257Z [before] +21s toast="" behind mark shown graphql=162 rpcs=(trace rotated at 10 MB during this run; counted below)
+2026-10-08T06:40:42.277Z [before] +22s toast="" behind mark shown graphql=162 rpcs=(trace rotated at 10 MB during this run; counted below)
+2026-10-08T06:40:43.299Z [before] +23s toast="" behind mark shown graphql=162 rpcs=(trace rotated at 10 MB during this run; counted below)
+2026-10-08T06:40:44.320Z [before] +24s toast="" behind mark shown graphql=162 rpcs=(trace rotated at 10 MB during this run; counted below)
+2026-10-08T06:40:45.339Z [before] +25s toast="" behind mark shown graphql=162 rpcs=(trace rotated at 10 MB during this run; counted below)
+2026-10-08T06:40:46.360Z [before] +26s toast="" behind mark shown graphql=162 rpcs=(trace rotated at 10 MB during this run; counted below)
+2026-10-08T06:40:47.381Z [before] +27s toast="" behind mark shown graphql=162 rpcs=(trace rotated at 10 MB during this run; counted below)
+2026-10-08T06:40:48.402Z [before] +28s toast="" behind mark shown graphql=162 rpcs=(trace rotated at 10 MB during this run; counted below)
+2026-10-08T06:40:49.422Z [before] +29s toast="" behind mark shown graphql=162 rpcs=(trace rotated at 10 MB during this run; counted below)
+2026-10-08T06:40:50.442Z [before] +30s toast="" behind mark shown graphql=162 rpcs=(trace rotated at 10 MB during this run; counted below)
+2026-10-08T06:40:51.462Z [before] +31s toast="" behind mark shown graphql=162 rpcs=(trace rotated at 10 MB during this run; counted below)
+2026-10-08T06:40:52.482Z [before] +32s toast="" behind mark shown graphql=162 rpcs=(trace rotated at 10 MB during this run; counted below)
+2026-10-08T06:40:53.503Z [before] +33s toast="" behind mark shown graphql=162 rpcs=(trace rotated at 10 MB during this run; counted below)
+2026-10-08T06:40:54.527Z [before] +34s toast="" behind mark shown graphql=162 rpcs=(trace rotated at 10 MB during this run; counted below)
+2026-10-08T06:40:55.547Z [before] +35s toast="" behind mark shown graphql=162 rpcs=(trace rotated at 10 MB during this run; counted below)
+2026-10-08T06:40:56.568Z [before] +36s toast="" behind mark shown graphql=162 rpcs=(trace rotated at 10 MB during this run; counted below)
+2026-10-08T06:40:57.592Z [before] +37s toast="" behind mark shown graphql=162 rpcs=(trace rotated at 10 MB during this run; counted below)
+2026-10-08T06:40:58.612Z [before] +38s toast="" behind mark shown graphql=162 rpcs=(trace rotated at 10 MB during this run; counted below)
+2026-10-08T06:40:59.633Z [before] +39s toast="" behind mark shown graphql=162 rpcs=(trace rotated at 10 MB during this run; counted below)
+2026-10-08T06:41:00.654Z [before] +40s toast="" behind mark shown graphql=162 rpcs=(trace rotated at 10 MB during this run; counted below)
+2026-10-08T06:41:01.674Z [before] +41s toast="" behind mark shown graphql=162 rpcs=(trace rotated at 10 MB during this run; counted below)
+2026-10-08T06:41:02.693Z [before] +42s toast="" behind mark shown graphql=162 rpcs=(trace rotated at 10 MB during this run; counted below)
+2026-10-08T06:41:03.713Z [before] +43s toast="" behind mark shown graphql=162 rpcs=(trace rotated at 10 MB during this run; counted below)
+2026-10-08T06:41:04.733Z [before] +44s toast="" behind mark shown graphql=162 rpcs=(trace rotated at 10 MB during this run; counted below)
+2026-10-08T06:41:05.753Z [before] +45s toast="" behind mark shown graphql=162 rpcs=(trace rotated at 10 MB during this run; counted below)
+2026-10-08T06:41:06.773Z [before] +46s toast="" behind mark shown graphql=162 rpcs=(trace rotated at 10 MB during this run; counted below)
+2026-10-08T06:41:07.795Z [before] +47s toast="" behind mark shown graphql=162 rpcs=(trace rotated at 10 MB during this run; counted below)
+2026-10-08T06:41:08.815Z [before] +48s toast="" behind mark shown graphql=162 rpcs=(trace rotated at 10 MB during this run; counted below)
+2026-10-08T06:41:09.838Z [before] +49s toast="" behind mark shown graphql=162 rpcs=(trace rotated at 10 MB during this run; counted below)
+2026-10-08T06:41:10.858Z [before] +50s toast="" behind mark shown graphql=162 rpcs=(trace rotated at 10 MB during this run; counted below)
+2026-10-08T06:41:12.072Z [before] summary: toast first seen at 40.568 s; writes ["pr update-branch 166 --repo O/R --rebase"]; behind_by now 0; graphql reads 162; server rpcs {}
+2026-10-08T06:41:12.149Z [before] shot after-50s
+Server spans from the press to +50 s, counted by time over server.trace.ndjson.1 and server.trace.ndjson: runAction 1, invalidate 157, detail 157, list 150, activity 1, stack 1.
+
+## After: this branch's fix on c0475fbaa (the sources committed as 829a0d39f, before the feature branch merge), #167
+2026-10-08T06:41:39.783Z [after] app pid 25036
+2026-10-08T06:42:55.511Z [after] before: behind_by 31; mark: main
+2026-10-08T06:42:55.612Z [after] shot before
+2026-10-08T06:42:56.264Z [after] popover: This branch is out-of-date with main by 31 commits. | Changes can be cleanly merged. | Update branch | Update with rebase
+2026-10-08T06:42:56.344Z [after] shot popover
+2026-10-08T06:43:03.888Z [after] +1s toast="Branch updated with the base branch" no behind mark graphql=6 rpcs={"pullRequests.runAction":1,"pullRequests.invalidate":1,"pullRequests.list":1,"pullRequests.detail":2,"pullRequests.activity":1}
+2026-10-08T06:43:04.924Z [after] +2s toast="Branch updated with the base branch" no behind mark graphql=6 rpcs={"pullRequests.runAction":1,"pullRequests.invalidate":1,"pullRequests.list":1,"pullRequests.detail":2,"pullRequests.activity":1,"pullRequests.stack":1}
+2026-10-08T06:43:05.008Z [after] shot after-2s
+2026-10-08T06:43:06.036Z [after] +3s toast="Branch updated with the base branch" no behind mark graphql=6 rpcs={"pullRequests.runAction":1,"pullRequests.invalidate":1,"pullRequests.list":1,"pullRequests.detail":2,"pullRequests.activity":1,"pullRequests.stack":1}
+2026-10-08T06:43:07.068Z [after] +4s toast="Branch updated with the base branch" no behind mark graphql=6 rpcs={"pullRequests.runAction":1,"pullRequests.invalidate":1,"pullRequests.list":1,"pullRequests.detail":2,"pullRequests.activity":1,"pullRequests.stack":1}
+2026-10-08T06:43:08.096Z [after] +5s toast="" no behind mark graphql=6 rpcs={"pullRequests.runAction":1,"pullRequests.invalidate":1,"pullRequests.list":1,"pullRequests.detail":2,"pullRequests.activity":1,"pullRequests.stack":1}
+2026-10-08T06:43:09.123Z [after] +6s toast="" no behind mark graphql=6 rpcs={"pullRequests.runAction":1,"pullRequests.invalidate":1,"pullRequests.list":1,"pullRequests.detail":2,"pullRequests.activity":1,"pullRequests.stack":1}
+2026-10-08T06:43:10.156Z [after] +7s toast="" no behind mark graphql=6 rpcs={"pullRequests.runAction":1,"pullRequests.invalidate":1,"pullRequests.list":1,"pullRequests.detail":2,"pullRequests.activity":1,"pullRequests.stack":1}
+2026-10-08T06:43:11.186Z [after] +8s toast="" no behind mark graphql=6 rpcs={"pullRequests.runAction":1,"pullRequests.invalidate":1,"pullRequests.list":1,"pullRequests.detail":2,"pullRequests.activity":1,"pullRequests.stack":1}
+2026-10-08T06:43:12.213Z [after] +9s toast="" no behind mark graphql=6 rpcs={"pullRequests.runAction":1,"pullRequests.invalidate":1,"pullRequests.list":1,"pullRequests.detail":2,"pullRequests.activity":1,"pullRequests.stack":1}
+2026-10-08T06:43:13.240Z [after] +10s toast="" no behind mark graphql=6 rpcs={"pullRequests.runAction":1,"pullRequests.invalidate":1,"pullRequests.list":1,"pullRequests.detail":2,"pullRequests.activity":1,"pullRequests.stack":1}
+2026-10-08T06:43:13.319Z [after] shot after-10s
+2026-10-08T06:43:14.346Z [after] +11s toast="" no behind mark graphql=6 rpcs={"pullRequests.runAction":1,"pullRequests.invalidate":1,"pullRequests.list":1,"pullRequests.detail":2,"pullRequests.activity":1,"pullRequests.stack":1}
+2026-10-08T06:43:15.374Z [after] +12s toast="" no behind mark graphql=6 rpcs={"pullRequests.runAction":1,"pullRequests.invalidate":1,"pullRequests.list":1,"pullRequests.detail":2,"pullRequests.activity":1,"pullRequests.stack":1}
+2026-10-08T06:43:16.402Z [after] +13s toast="" no behind mark graphql=6 rpcs={"pullRequests.runAction":1,"pullRequests.invalidate":1,"pullRequests.list":1,"pullRequests.detail":2,"pullRequests.activity":1,"pullRequests.stack":1}
+2026-10-08T06:43:17.433Z [after] +14s toast="" no behind mark graphql=6 rpcs={"pullRequests.runAction":1,"pullRequests.invalidate":1,"pullRequests.list":1,"pullRequests.detail":2,"pullRequests.activity":1,"pullRequests.stack":1}
+2026-10-08T06:43:18.462Z [after] +15s toast="" no behind mark graphql=6 rpcs={"pullRequests.runAction":1,"pullRequests.invalidate":1,"pullRequests.list":1,"pullRequests.detail":2,"pullRequests.activity":1,"pullRequests.stack":1}
+2026-10-08T06:43:19.494Z [after] +16s toast="" no behind mark graphql=6 rpcs={"pullRequests.runAction":1,"pullRequests.invalidate":1,"pullRequests.list":1,"pullRequests.detail":2,"pullRequests.activity":1,"pullRequests.stack":1}
+2026-10-08T06:43:20.522Z [after] +17s toast="" no behind mark graphql=6 rpcs={"pullRequests.runAction":1,"pullRequests.invalidate":1,"pullRequests.list":1,"pullRequests.detail":2,"pullRequests.activity":1,"pullRequests.stack":1}
+2026-10-08T06:43:21.559Z [after] +18s toast="" no behind mark graphql=6 rpcs={"pullRequests.runAction":1,"pullRequests.invalidate":1,"pullRequests.list":1,"pullRequests.detail":2,"pullRequests.activity":1,"pullRequests.stack":1}
+2026-10-08T06:43:22.593Z [after] +19s toast="" no behind mark graphql=6 rpcs={"pullRequests.runAction":1,"pullRequests.invalidate":1,"pullRequests.list":1,"pullRequests.detail":2,"pullRequests.activity":1,"pullRequests.stack":1}
+2026-10-08T06:43:23.620Z [after] +20s toast="" no behind mark graphql=6 rpcs={"pullRequests.runAction":1,"pullRequests.invalidate":1,"pullRequests.list":1,"pullRequests.detail":2,"pullRequests.activity":1,"pullRequests.stack":1}
+2026-10-08T06:43:24.646Z [after] +21s toast="" no behind mark graphql=6 rpcs={"pullRequests.runAction":1,"pullRequests.invalidate":1,"pullRequests.list":1,"pullRequests.detail":2,"pullRequests.activity":1,"pullRequests.stack":1}
+2026-10-08T06:43:25.677Z [after] +22s toast="" no behind mark graphql=6 rpcs={"pullRequests.runAction":1,"pullRequests.invalidate":1,"pullRequests.list":1,"pullRequests.detail":2,"pullRequests.activity":1,"pullRequests.stack":1}
+2026-10-08T06:43:26.716Z [after] +23s toast="" no behind mark graphql=6 rpcs={"pullRequests.runAction":1,"pullRequests.invalidate":1,"pullRequests.list":1,"pullRequests.detail":2,"pullRequests.activity":1,"pullRequests.stack":1}
+2026-10-08T06:43:27.744Z [after] +24s toast="" no behind mark graphql=6 rpcs={"pullRequests.runAction":1,"pullRequests.invalidate":1,"pullRequests.list":1,"pullRequests.detail":2,"pullRequests.activity":1,"pullRequests.stack":1}
+2026-10-08T06:43:28.771Z [after] +25s toast="" no behind mark graphql=6 rpcs={"pullRequests.runAction":1,"pullRequests.invalidate":1,"pullRequests.list":1,"pullRequests.detail":2,"pullRequests.activity":1,"pullRequests.stack":1}
+2026-10-08T06:43:29.806Z [after] +26s toast="" no behind mark graphql=6 rpcs={"pullRequests.runAction":1,"pullRequests.invalidate":1,"pullRequests.list":1,"pullRequests.detail":2,"pullRequests.activity":1,"pullRequests.stack":1}
+2026-10-08T06:43:30.836Z [after] +27s toast="" no behind mark graphql=6 rpcs={"pullRequests.runAction":1,"pullRequests.invalidate":1,"pullRequests.list":1,"pullRequests.detail":2,"pullRequests.activity":1,"pullRequests.stack":1}
+2026-10-08T06:43:31.861Z [after] +28s toast="" no behind mark graphql=6 rpcs={"pullRequests.runAction":1,"pullRequests.invalidate":1,"pullRequests.list":1,"pullRequests.detail":2,"pullRequests.activity":1,"pullRequests.stack":1}
+2026-10-08T06:43:32.888Z [after] +29s toast="" no behind mark graphql=6 rpcs={"pullRequests.runAction":1,"pullRequests.invalidate":1,"pullRequests.list":1,"pullRequests.detail":2,"pullRequests.activity":1,"pullRequests.stack":1}
+2026-10-08T06:43:33.915Z [after] +30s toast="" no behind mark graphql=6 rpcs={"pullRequests.runAction":1,"pullRequests.invalidate":1,"pullRequests.list":1,"pullRequests.detail":2,"pullRequests.activity":1,"pullRequests.stack":1}
+2026-10-08T06:43:34.942Z [after] +31s toast="" no behind mark graphql=6 rpcs={"pullRequests.runAction":1,"pullRequests.invalidate":1,"pullRequests.list":1,"pullRequests.detail":2,"pullRequests.activity":1,"pullRequests.stack":1}
+2026-10-08T06:43:35.973Z [after] +32s toast="" no behind mark graphql=7 rpcs={"pullRequests.runAction":1,"pullRequests.invalidate":1,"pullRequests.list":1,"pullRequests.detail":2,"pullRequests.activity":1,"pullRequests.stack":1}
+2026-10-08T06:43:37.001Z [after] +33s toast="" no behind mark graphql=7 rpcs={"pullRequests.runAction":1,"pullRequests.invalidate":1,"pullRequests.list":2,"pullRequests.detail":2,"pullRequests.activity":1,"pullRequests.stack":1}
+2026-10-08T06:43:38.026Z [after] +34s toast="" no behind mark graphql=7 rpcs={"pullRequests.runAction":1,"pullRequests.invalidate":1,"pullRequests.list":2,"pullRequests.detail":2,"pullRequests.activity":1,"pullRequests.stack":1}
+2026-10-08T06:43:39.057Z [after] +35s toast="" no behind mark graphql=7 rpcs={"pullRequests.runAction":1,"pullRequests.invalidate":1,"pullRequests.list":2,"pullRequests.detail":2,"pullRequests.activity":1,"pullRequests.stack":1}
+2026-10-08T06:43:40.087Z [after] +36s toast="" no behind mark graphql=7 rpcs={"pullRequests.runAction":1,"pullRequests.invalidate":1,"pullRequests.list":2,"pullRequests.detail":2,"pullRequests.activity":1,"pullRequests.stack":1}
+2026-10-08T06:43:41.116Z [after] +37s toast="" no behind mark graphql=7 rpcs={"pullRequests.runAction":1,"pullRequests.invalidate":1,"pullRequests.list":2,"pullRequests.detail":2,"pullRequests.activity":1,"pullRequests.stack":1}
+2026-10-08T06:43:42.144Z [after] +38s toast="" no behind mark graphql=7 rpcs={"pullRequests.runAction":1,"pullRequests.invalidate":1,"pullRequests.list":2,"pullRequests.detail":2,"pullRequests.activity":1,"pullRequests.stack":1}
+2026-10-08T06:43:43.175Z [after] +39s toast="" no behind mark graphql=7 rpcs={"pullRequests.runAction":1,"pullRequests.invalidate":1,"pullRequests.list":2,"pullRequests.detail":2,"pullRequests.activity":1,"pullRequests.stack":1}
+2026-10-08T06:43:44.206Z [after] +40s toast="" no behind mark graphql=7 rpcs={"pullRequests.runAction":1,"pullRequests.invalidate":1,"pullRequests.list":2,"pullRequests.detail":2,"pullRequests.activity":1,"pullRequests.stack":1}
+2026-10-08T06:43:45.234Z [after] +41s toast="" no behind mark graphql=7 rpcs={"pullRequests.runAction":1,"pullRequests.invalidate":1,"pullRequests.list":2,"pullRequests.detail":2,"pullRequests.activity":1,"pullRequests.stack":1}
+2026-10-08T06:43:46.263Z [after] +42s toast="" no behind mark graphql=7 rpcs={"pullRequests.runAction":1,"pullRequests.invalidate":1,"pullRequests.list":2,"pullRequests.detail":2,"pullRequests.activity":1,"pullRequests.stack":1}
+2026-10-08T06:43:47.296Z [after] +43s toast="" no behind mark graphql=7 rpcs={"pullRequests.runAction":1,"pullRequests.invalidate":1,"pullRequests.list":2,"pullRequests.detail":2,"pullRequests.activity":1,"pullRequests.stack":1}
+2026-10-08T06:43:48.327Z [after] +44s toast="" no behind mark graphql=7 rpcs={"pullRequests.runAction":1,"pullRequests.invalidate":1,"pullRequests.list":2,"pullRequests.detail":2,"pullRequests.activity":1,"pullRequests.stack":1}
+2026-10-08T06:43:49.358Z [after] +45s toast="" no behind mark graphql=7 rpcs={"pullRequests.runAction":1,"pullRequests.invalidate":1,"pullRequests.list":2,"pullRequests.detail":2,"pullRequests.activity":1,"pullRequests.stack":1}
+2026-10-08T06:43:50.391Z [after] +46s toast="" no behind mark graphql=7 rpcs={"pullRequests.runAction":1,"pullRequests.invalidate":1,"pullRequests.list":2,"pullRequests.detail":2,"pullRequests.activity":1,"pullRequests.stack":1}
+2026-10-08T06:43:51.419Z [after] +47s toast="" no behind mark graphql=7 rpcs={"pullRequests.runAction":1,"pullRequests.invalidate":1,"pullRequests.list":2,"pullRequests.detail":2,"pullRequests.activity":1,"pullRequests.stack":1}
+2026-10-08T06:43:52.449Z [after] +48s toast="" no behind mark graphql=7 rpcs={"pullRequests.runAction":1,"pullRequests.invalidate":1,"pullRequests.list":2,"pullRequests.detail":2,"pullRequests.activity":1,"pullRequests.stack":1}
+2026-10-08T06:43:53.480Z [after] +49s toast="" no behind mark graphql=7 rpcs={"pullRequests.runAction":1,"pullRequests.invalidate":1,"pullRequests.list":2,"pullRequests.detail":2,"pullRequests.activity":1,"pullRequests.stack":1}
+2026-10-08T06:43:54.509Z [after] +50s toast="" no behind mark graphql=7 rpcs={"pullRequests.runAction":1,"pullRequests.invalidate":1,"pullRequests.list":2,"pullRequests.detail":2,"pullRequests.activity":1,"pullRequests.stack":1}
+2026-10-08T06:43:55.745Z [after] summary: toast first seen at 7.528 s; writes ["pr update-branch 167 --repo O/R --rebase"]; behind_by now 0; graphql reads 7; server rpcs {"pullRequests.runAction":1,"pullRequests.invalidate":1,"pullRequests.list":2,"pullRequests.detail":2,"pullRequests.activity":1,"pullRequests.stack":1}
+2026-10-08T06:43:55.822Z [after] shot after-50s
+
+## First reproduction on this worktree before any edit (c0475fbaa), #151 (10 behind)
+2026-10-08T06:12:57.519Z [repro1] before: behind_by 10; mark: main
+2026-10-08T06:12:58.359Z [repro1] popover: This branch is out-of-date with main by 10 commits. | Changes can be cleanly merged. | Update branch | Update with rebase
+2026-10-08T06:12:58.471Z [repro1] shot popover
+2026-10-08T06:13:39.105Z [repro1] +1s toast="Branch updated with the base branch" behind mark shown graphql=164 rpcs={"pullRequests.runAction":1,"pullRequests.invalidate":237,"pullRequests.detail":154,"pullRequests.list":233}
+2026-10-08T06:13:57.431Z [repro1] +2s toast="Branch updated with the base branch" behind mark shown graphql=240 rpcs={"pullRequests.runAction":1,"pullRequests.invalidate":237,"pullRequests.detail":237,"pullRequests.list":233,"pullRequests.activity":1}
+2026-10-08T06:14:46.993Z [repro1] +50s toast="" behind mark shown graphql=240 rpcs={"pullRequests.runAction":1,"pullRequests.invalidate":237,"pullRequests.detail":237,"pullRequests.list":233,"pullRequests.activity":1,"pullRequests.stack":1}
+2026-10-08T06:14:48.246Z [repro1] summary: toast first seen at 40.615 s; writes ["pr update-branch 151 --repo O/R --rebase"]; behind_by now 0; graphql reads 240; server rpcs {"pullRequests.runAction":1,"pullRequests.invalidate":237,"pullRequests.detail":237,"pullRequests.list":233,"pullRequests.activity":1,"pullRequests.stack":1}
