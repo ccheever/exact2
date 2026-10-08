@@ -1,0 +1,242 @@
+// pr-header-actions-and-stacks live drive (not committed): bun drive.mjs <repo> <label> <before|after>
+// One macOS agent session against the primary lane server (127.0.0.1:16720, real GitHub through the lane gh).
+// Pairs with a fresh single-use token (never printed). `before` (the base build) takes the read-only screens;
+// `after` (this branch) takes the same screens, then runs every action on the pull requests seeded for this task
+// (#145-#155, stack 156) and reads each effect back with the lane gh.
+import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+const [repo, label, mode = 'after'] = process.argv.slice(2);
+const MINE = '/Users/daehyeonmun/orca/workspaces/exact2/t3-code-pr-header-actions-and-stacks';
+const L = resolve(import.meta.dir), out = resolve(L, `out-${label}`); mkdirSync(out, { recursive: true });
+process.env.EXACT_APP_DIR = resolve(repo, 'examples/t3-code');
+const { open } = await import(resolve(repo, 'scripts/agent.mjs'));
+const lane = await import(resolve(MINE, 'examples/t3-code/tools/github-lane/lane.mjs'));
+const lib = await import(resolve(MINE, 'examples/t3-code/tools/github-lane/lib.mjs'));
+const paths = lib.lanePaths();
+const REPO = 'daehyeonmun2021/playground';
+const origin = 'http://127.0.0.1:16720';
+const rec = (line) => { const text = `${new Date().toISOString()} [${label}] ${line}`; appendFileSync(resolve(out, 'record.txt'), text + '\n'); console.log(text); };
+const s = await open({ host: 'macos', size: [1280, 840], env: { HOME: resolve(L, `apphome-${label}`) }, storage: `pha-${label}`, epoch: Date.now(),
+  onProcess: (p) => { writeFileSync(resolve(L, `${label}-app.pid`), String(p.pid)); rec(`app pid ${p.pid}`); } });
+const nodes = async (target) => (await s.tree(target)).nodes;
+const ids = async () => (await nodes()).map((n) => n.testId ?? n.props?.testId).filter(Boolean);
+const has = async (id) => (await ids()).includes(id);
+const settle = async (ms = 600) => { await s.clock(`+${ms} real`); await s.clock('settle'); };
+const tapIf = async (id, opts) => { if (await has(id)) { await s.tap(id, opts); await settle(); return true; } return false; };
+const shot = async (name) => { await s.screenshot(resolve(out, `${label}-${name}.png`), true); rec(`shot ${name}`); };
+const texts = async (target) => {
+  try { const t = await s.tree(target); return t.nodes.flatMap((n) => [n.text, n.props?.text, n.props?.['aria-label'], n.label].filter((v) => typeof v === 'string' && v.trim())).map((v) => v.trim()); }
+  catch (e) { return [`(no ${target}: ${e.message.slice(0, 80)})`]; }
+};
+const dump = async (name, target) => { const t = [...new Set(await texts(target))]; writeFileSync(resolve(out, `${label}-${name}.txt`), t.join('\n')); rec(`${name}: ${t.slice(0, 40).join(' | ').slice(0, 900)}`); return t; };
+const ax = async (name, target) => { try { const t = await s.tree(target, { ax: true }); writeFileSync(resolve(out, `${label}-${name}-ax.json`), JSON.stringify(t, null, 1)); rec(`ax ${name} saved`); } catch (e) { rec(`ax ${name}: ${e.message.slice(0, 200)}`); } };
+const waitFor = async (pred, ms = 20000, step = 700) => { const end = Date.now() + ms; while (Date.now() < end) { if (await pred()) return true; await settle(step); } return false; };
+const clearToasts = async () => { for (const id of (await ids()).filter((id) => id.startsWith('toast-dismiss-'))) { try { await s.tap(id); await settle(250); } catch {} } };
+const toastText = async () => (await texts('toast-region')).filter((t) => !/^(Dismiss|Copy|Close)/.test(t)).join(' · ');
+/** Waits for a toast whose text matches, and records it. */
+const toast = async (name, pattern, ms = 30000) => {
+  let seen = '';
+  const ok = await waitFor(async () => { seen = await toastText(); return pattern.test(seen); }, ms);
+  rec(`${name} toast: ${ok ? '' : '(not seen) '}${seen.slice(0, 400)}`);
+  return seen;
+};
+const openPr = async (n) => {
+  await s.type('pull-requests-search', `#${n}`); await settle(3500);
+  if (!(await has(`pr-row-${n}`))) await settle(4000);
+  await s.tap(`pr-row-${n}`); await settle(1000);
+  await waitFor(async () => (await has('pull-request-header-actions')) || (await has('pull-request-more')), 15000);
+  await settle(2500); await clearToasts();
+};
+const pull = (n) => lib.api(paths, 'primary', [`repos/${REPO}/pulls/${n}`]).body ?? {};
+const prState = (n) => { const p = pull(n); return { state: p.merged_at ? 'merged' : p.draft ? 'draft' : p.state, merged: !!p.merged_at, sha: p.merge_commit_sha, head: p.head?.sha?.slice(0, 7) }; };
+const graphql = (query, vars) => lib.api(paths, 'primary', ['graphql', '-f', `query=${query}`, ...Object.entries(vars).flatMap(([k, v]) => [typeof v === 'number' ? '-F' : '-f', `${k}=${v}`])]).body?.data;
+const autoState = (n) => graphql('query($o:String!,$r:String!,$n:Int!){repository(owner:$o,name:$r){pullRequest(number:$n){autoMergeRequest{mergeMethod}}}}', { o: 'daehyeonmun2021', r: 'playground', n })?.repository?.pullRequest?.autoMergeRequest ?? null;
+const behind = (n) => { const p = pull(n); return lib.api(paths, 'primary', [`repos/${REPO}/compare/${p.base?.ref}...${p.head?.ref}`]).body?.behind_by; };
+const parents = (sha) => lib.api(paths, 'primary', [`repos/${REPO}/commits/${sha}`]).body?.parents?.length;
+const passHead = (n) => { const sha = pull(n).head?.sha; lib.api(paths, 'primary', ['-X', 'POST', `repos/${REPO}/statuses/${sha}`, '-f', 'state=success', '-f', 'context=ci/build', '-f', 'description=Build passed']); return sha?.slice(0, 7); };
+const logOffset = () => lib.ghLogSize(paths);
+const ghSince = (offset, filter = /pr (merge|ready|close|reopen|update-branch)|merge-async|pulls\/\d+\/merge|stacks|revert|updatePullRequestBranch|graphql \(stdin\)|-X (PUT|POST|PATCH)/) =>
+  lib.ghCallsSince(paths, offset).map((c) => c.argv.replace(/--repo github\.com\/\S+/, '--repo O/R').replace(/repos\/daehyeonmun2021\/playground/g, 'repos/O/R').slice(0, 160)).filter((a) => filter.test(a));
+/** Opens the More menu, taps an item, and closes nothing else. */
+const more = async (item) => { await s.tap('pull-request-more'); await settle(500); await s.tap(item); await settle(700); };
+const confirm = async (name) => {
+  await waitFor(() => has('pr-action-dialog'), 8000);
+  await shot(`${name}-dialog`); await dump(`${name}-dialog`, 'pr-action-dialog');
+  await s.tap('pr-action-dialog-confirm'); await settle(300);
+};
+const header = async (name) => { await dump(`${name}-header`, 'pull-request-header-actions'); };
+const step = async (name, fn) => { try { await fn(); } catch (e) { rec(`STEP ${name} ERROR ${e.message?.slice(0, 600)}`); try { await shot(`${name}-error`); } catch {} } };
+
+try {
+  await settle(2000);
+  if (await has('welcome-pairing-link')) {
+    await s.type('welcome-pairing-link', `${origin}/pair#token=${lane.pairingToken('primary')}`);
+    await s.tap('welcome-pair'); await settle(5000);
+  }
+  for (const id of ['welcome-continue', 'welcome-agents-continue', 'welcome-skip-import']) await tapIf(id);
+  await settle(3000);
+  rec(`connected: ${(await has('open-pull-requests')) ? 'sidebar shows Pull Requests' : 'no Pull Requests entry'}`);
+  await clearToasts();
+  await s.tap('open-pull-requests'); await settle(5000); await clearToasts();
+  // Every state reachable by number: the state filter at All.
+  await step('filter-all', async () => { await s.tap('pull-requests-filters'); await settle(400); await s.tap('pr-filter-state'); await settle(400); await s.tap('pr-state-all'); await settle(3000); });
+  rec(`list rows: ${(await ids()).filter((id) => id.startsWith('pr-row-')).length}`);
+
+  // ── The header per state (both builds) ──
+  for (const [name, n] of [['open-clean', 132], ['failing', 111], ['draft', 107], ['conflict', 110], ['merged', 109], ['closed', 108]]) {
+    await step(`state-${name}`, async () => { await openPr(n); await header(`state-${name}`); await shot(`state-${name}`); });
+  }
+  await step('more-open-clean', async () => { await openPr(132); await s.tap('pull-request-more'); await settle(600); await shot('more-open-clean'); await dump('more-open-clean', 'pr-more-layer'); await ax('more-open-clean', 'pr-more-layer'); await s.type('pull-request-more', { key: 'Escape' }); await settle(400); });
+  await step('base-behind', async () => { await openPr(150); await header('behind'); await shot('behind'); });
+  await step('stack-layer2', async () => { await openPr(154); await header('stack'); await shot('stack'); });
+  await step('dark', async () => { await s.prefer({ 'prefers-color-scheme': 'dark' }); await settle(800); await openPr(132); await shot('dark-open-clean'); await s.tap('pull-request-more'); await settle(600); await shot('dark-more'); await s.type('pull-request-more', { key: 'Escape' }); await settle(300); await openPr(154); await shot('dark-stack'); await s.prefer({ 'prefers-color-scheme': 'light' }); await settle(800); });
+  await step('narrow', async () => { await s.resize(840, 620); await settle(800); await openPr(132); await shot('narrow-open-clean'); await openPr(154); await shot('narrow-stack'); await s.resize(1280, 840); await settle(800); });
+
+  if (mode === 'after') {
+    // ── The freshness popover and the stack menu (read-only first) ──
+    await step('freshness', async () => {
+      await openPr(150);
+      await s.tap('pull-request-base-freshness', { hover: true }); await settle(500); await shot('freshness-hover'); await dump('freshness-hover', 'pr-freshness-hover');
+      await s.tap('pull-request-base-freshness'); await settle(600); await shot('freshness-popover'); await dump('freshness-popover', 'pr-freshness-popover'); await ax('freshness', 'pr-freshness-popover');
+      await s.type('pull-request-base-freshness', { key: 'Escape' }); await settle(400); rec(`after Escape the popover is ${(await has('pr-freshness-popover')) ? 'still open' : 'closed'}`);
+    });
+    await step('stack-menu', async () => {
+      await openPr(154);
+      await s.tap('pull-request-stack'); await settle(600); await shot('stack-menu'); await dump('stack-menu', 'pr-stack-layer'); await ax('stack-menu', 'pr-stack-layer');
+      await s.type('pull-request-stack', { key: 'Escape' }); await settle(400);
+    });
+    // Escape closes a dialog and sends nothing (Close on the shared #132).
+    await step('escape-close-dialog', async () => {
+      await openPr(132); const offset = logOffset();
+      await more('pr-more-close'); await waitFor(() => has('pr-action-dialog'), 6000); await shot('close-dialog'); await dump('close-dialog', 'pr-action-dialog'); await ax('close-dialog', 'pr-action-dialog');
+      await s.type('pr-action-dialog-cancel', { key: 'Escape' }); await settle(800);
+      rec(`Escape: dialog ${(await has('pr-action-dialog')) ? 'still open' : 'closed'}; writes sent: ${JSON.stringify(ghSince(offset))}; #132 ${JSON.stringify(prState(132))}`);
+    });
+
+    // ── Merge with each method (#145 merge, #146 squash, #147 rebase); Cancel first on #145 ──
+    for (const [n, method, label2] of [[145, 'merge', 'Merge'], [146, 'squash', 'Squash and merge'], [147, 'rebase', 'Rebase and merge']]) {
+      await step(`merge-${method}`, async () => {
+        await openPr(n);
+        if (method !== 'merge' || !(await dump(`merge-${method}-before`, 'pull-request-header-actions')).includes('Merge')) { await more(`pr-more-method-${method}`); }
+        await header(`merge-${method}-chosen`);
+        const offset = logOffset();
+        if (method === 'merge') {
+          await s.tap('pull-request-primary'); await waitFor(() => has('pr-action-dialog'), 6000); await shot('merge-cancel-dialog');
+          await s.tap('pr-action-dialog-cancel'); await settle(800);
+          rec(`Cancel: dialog ${(await has('pr-action-dialog')) ? 'open' : 'closed'}; writes sent: ${JSON.stringify(ghSince(offset))}`);
+        }
+        await s.tap('pull-request-primary'); await confirm(`merge-${method}`);
+        await settle(200); await header(`merge-${method}-pending`); await shot(`merge-${method}-pending`);
+        await toast(`merge-${method}`, /merged|Could not/);
+        await shot(`merge-${method}-done`); await header(`merge-${method}-done`);
+        const after = prState(n);
+        rec(`#${n} ${method}: gh ${JSON.stringify(ghSince(offset))}; read back ${JSON.stringify(after)} parents ${after.sha ? parents(after.sha) : '-'}`);
+      });
+    }
+    // ── Auto-merge on (#148, ci/build pending), Merge now refused by GitHub, auto-merge off ──
+    await step('auto-merge', async () => {
+      await openPr(148); await header('auto-before'); await shot('auto-before');
+      let offset = logOffset();
+      await s.tap('pull-request-primary'); await confirm('auto-enable');
+      await toast('auto-enable', /Auto-merge turned on|Could not/);
+      await settle(3000); await header('auto-armed'); await shot('auto-armed');
+      rec(`#148 enable: gh ${JSON.stringify(ghSince(offset))}; read back autoMergeRequest ${JSON.stringify(autoState(148))}`);
+      offset = logOffset(); await clearToasts();
+      await more('pr-more-merge-now'); await confirm('merge-now-refused');
+      const said = await toast('merge-now-refused', /Could not|merged/);
+      await shot('merge-now-refused'); await header('merge-now-refused');
+      rec(`#148 merge now: gh ${JSON.stringify(ghSince(offset))}; read back ${JSON.stringify(prState(148))}; toast ${said}`);
+      offset = logOffset(); await clearToasts();
+      await more('pr-more-disable-auto-merge');
+      await toast('auto-disable', /Auto-merge turned off|Could not/);
+      await settle(2000); await header('auto-off'); await shot('auto-off');
+      rec(`#148 disable: gh ${JSON.stringify(ghSince(offset))}; read back autoMergeRequest ${JSON.stringify(autoState(148))}`);
+    });
+    // ── Draft, ready, close (the list row leaves the open list on the press), reopen (#149) ──
+    await step('lifecycle', async () => {
+      await openPr(149);
+      let offset = logOffset();
+      await more('pr-more-draft'); await toast('draft', /Converted to draft|Could not/); await settle(1500); await header('lifecycle-draft'); await shot('lifecycle-draft');
+      rec(`#149 draft: gh ${JSON.stringify(ghSince(offset))}; read back ${JSON.stringify(prState(149))}`);
+      offset = logOffset(); await clearToasts();
+      await s.tap('pull-request-primary'); await toast('ready', /Marked ready|Could not/); await settle(1500); await header('lifecycle-ready');
+      rec(`#149 ready: gh ${JSON.stringify(ghSince(offset))}; read back ${JSON.stringify(prState(149))}`);
+      // The Open list: the row goes on the press.
+      await s.tap('pull-requests-filters'); await settle(400); await s.tap('pr-filter-state'); await settle(400); await s.tap('pr-state-open'); await settle(3000);
+      await s.type('pull-requests-search', '#149'); await settle(3000);
+      rec(`open list before close: ${(await ids()).filter((id) => id.startsWith('pr-row-')).join(' ')}`);
+      offset = logOffset(); await clearToasts();
+      await more('pr-more-close'); await confirm('close');
+      await settle(300); rec(`open list right after the press: ${(await ids()).filter((id) => id.startsWith('pr-row-')).join(' ') || '(no rows)'}`); await shot('close-sent');
+      await toast('close', /Pull request closed|Could not/); await settle(1500); await header('lifecycle-closed'); await shot('lifecycle-closed');
+      rec(`#149 close: gh ${JSON.stringify(ghSince(offset))}; read back ${JSON.stringify(prState(149))}`);
+      offset = logOffset(); await clearToasts();
+      await more('pr-more-reopen'); await toast('reopen', /reopened|Could not/); await settle(1500); await header('lifecycle-reopened');
+      rec(`#149 reopen: gh ${JSON.stringify(ghSince(offset))}; read back ${JSON.stringify(prState(149))}`);
+      await s.tap('pull-requests-filters'); await settle(400); await s.tap('pr-filter-state'); await settle(400); await s.tap('pr-state-all'); await settle(3000);
+    });
+    // ── Update branch (#150, merge) and Update with rebase (#151) from the base branch's popover ──
+    for (const [n, method] of [[150, 'merge'], [151, 'rebase']]) {
+      await step(`update-${method}`, async () => {
+        await openPr(n); rec(`#${n} behind_by before: ${behind(n)}`);
+        const offset = logOffset();
+        await s.tap('pull-request-base-freshness'); await settle(600); await shot(`update-${method}-popover`);
+        await s.tap(`pr-freshness-${method}`); await settle(300);
+        await toast(`update-${method}`, /Branch updated|Could not/); await settle(3000); await header(`update-${method}-after`); await shot(`update-${method}-after`);
+        rec(`#${n} update (${method}): gh ${JSON.stringify(ghSince(offset))}; read back behind_by ${behind(n)}`);
+      });
+    }
+    // ── Revert changes on the merged #152 (the revert pull request is closed again afterwards) ──
+    await step('revert', async () => {
+      await openPr(152); await header('revert-before');
+      const offset = logOffset();
+      await more('pr-more-revert'); await confirm('revert');
+      await toast('revert', /Revert pull request opened|Could not/);
+      const opened = (lib.api(paths, 'primary', [`repos/${REPO}/pulls?state=open&per_page=20&sort=created&direction=desc`]).body ?? []).find((p) => /^Revert "Add a wave to the greeting"/.test(p.title));
+      rec(`#152 revert: gh ${JSON.stringify(ghSince(offset))}; read back: ${opened ? `#${opened.number} "${opened.title}" opened from ${opened.head?.ref}` : 'no revert pull request found'}`);
+      if (opened) { const closed = lib.api(paths, 'primary', ['-X', 'PATCH', `repos/${REPO}/pulls/${opened.number}`, '-f', 'state=closed']); rec(`closed the revert pull request #${opened.number} again (HTTP ${closed.status})`); }
+    });
+    // ── The stack (#154, layer 2 of 3): a stale head fails once, Rebase stack, then Merge stack ──
+    await step('stack-actions', async () => {
+      await openPr(154); await clearToasts();
+      // A commit on the bottom layer's branch, out of band, so the heads the panel holds are stale.
+      const bottom = pull(153);
+      const put = lib.api(paths, 'primary', ['-X', 'PUT', `repos/${REPO}/contents/notes/report-order.txt`, '-f', 'message=Note the report order', '-f', `content=${Buffer.from('Counts first, then the table.\n').toString('base64')}`, '-f', `branch=${bottom.head.ref}`]);
+      rec(`pushed a commit to ${bottom.head.ref} out of band (HTTP ${put.status}); head ${bottom.head.sha.slice(0, 7)} → ${pull(153).head?.sha?.slice(0, 7)}; ci/build on it: ${passHead(153)}`);
+      let offset = logOffset();
+      await s.tap('pull-request-stack-merge'); await waitFor(() => has('pr-stack-dialog'), 6000); await shot('stack-merge-dialog'); await dump('stack-merge-dialog', 'pr-stack-dialog');
+      await s.tap('pr-stack-dialog-confirm'); await settle(300); await shot('stack-merge-working');
+      await toast('stack-stale', /Stack operation did not complete|Stack merge request completed/);
+      await shot('stack-stale-failed');
+      rec(`stale heads: gh ${JSON.stringify(ghSince(offset))}; read back #153 ${JSON.stringify(prState(153))} #154 ${JSON.stringify(prState(154))}`);
+      await settle(3000); await clearToasts();
+      offset = logOffset();
+      await s.tap('pull-request-stack'); await settle(500); await s.tap('pr-stack-rebase'); await waitFor(() => has('pr-stack-dialog'), 6000); await shot('stack-rebase-dialog'); await dump('stack-rebase-dialog', 'pr-stack-dialog');
+      await s.tap('pr-stack-dialog-confirm');
+      await toast('stack-rebase', /Stack rebased|Stack operation did not complete/, 60000);
+      rec(`rebase: gh ${JSON.stringify(ghSince(offset))}; read back heads #153 ${pull(153).head?.sha?.slice(0, 7)} #154 ${pull(154).head?.sha?.slice(0, 7)} #155 ${pull(155).head?.sha?.slice(0, 7)}; behind #153 ${behind(153)}`);
+      rec(`ci/build on the rebased heads: ${[153, 154, 155].map(passHead).join(' ')}`);
+      await settle(3000); await clearToasts();
+      await more('pr-more-refresh'); await settle(6000); await header('stack-after-rebase');
+      offset = logOffset();
+      await s.tap('pull-request-stack-merge'); await waitFor(() => has('pr-stack-dialog'), 6000); await s.tap('pr-stack-dialog-confirm');
+      await toast('stack-merge', /Stack merge request completed|Stack operation did not complete/, 90000);
+      await shot('stack-merged');
+      rec(`merge stack: gh ${JSON.stringify(ghSince(offset))}; read back #153 ${JSON.stringify(prState(153))} #154 ${JSON.stringify(prState(154))} #155 ${JSON.stringify(prState(155))}`);
+      await settle(4000); await header('stack-after-merge'); await shot('stack-after-merge');
+    });
+    // ── A layer opens in the panel (onSelectPullRequest) ──
+    await step('stack-select', async () => {
+      await openPr(155); await settle(2000);
+      if (await has('pull-request-stack')) { await s.tap('pull-request-stack'); await settle(500); await dump('stack-menu-155', 'pr-stack-layer'); const layer = (await ids()).find((id) => /^pr-stack-layer-\d+$/.test(id) && id !== 'pr-stack-layer-155'); if (layer) { await s.tap(layer); await settle(3000); rec(`pressed ${layer}: the panel shows ${(await texts('pull-request-open-host')).join(' ')}`); } }
+      else rec('#155 shows no stack menu (the stack was merged down)');
+    });
+    // ── Reduced motion: the refresh glyph does not turn ──
+    await step('reduced-motion', async () => { await s.prefer({ 'prefers-reduced-motion': 'reduce' }); await openPr(132); await more('pr-more-refresh'); await settle(100); await shot('refresh-reduced'); await ax('refresh-trigger', 'pull-request-more'); await s.prefer({ 'prefers-reduced-motion': 'no-preference' }); });
+  }
+  const logs = await s.logs();
+  writeFileSync(resolve(out, `${label}-logs.json`), JSON.stringify(logs, null, 1));
+  rec(`log lines ${logs.lines.length}; errors: ${logs.lines.filter((l) => /error|refused|failed/i.test(JSON.stringify(l))).length}`);
+} catch (e) { rec(`ERROR ${e.stack?.slice(0, 1200)}`); try { await shot('error'); writeFileSync(resolve(out, `${label}-error-tree.json`), JSON.stringify(await s.tree(), null, 1)); } catch {} }
+finally { await s.close?.(); }
+process.exit(0);
