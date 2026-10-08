@@ -1,0 +1,132 @@
+# pr-links-previews-and-routing live drive record (agent mode, macOS 1280x840, real GitHub daehyeonmun2021/playground)
+# Lane servers on the primary account: A 127.0.0.1:16360 (target/github-lane, the focus), B 127.0.0.1:16361 (target/github-lane-b, paired as a background environment); each with its own gh log.
+# before: base ec32c8c37 build in the evidence worktree; after: this branch (a3d15d561 + records merge), the one live session.
+
+## before
+2026-10-08T07:43:19.991Z [before] environments A ab7bfe17-a68e-4815-a64b-a646c2aba3c7 B f479a286-2ab4-4c9f-bc7d-eda2b04b69ee
+2026-10-08T07:43:21.723Z [before] app pid 10188
+2026-10-08T07:43:39.775Z [before] connected to A: sidebar shows Pull Requests
+2026-10-08T07:43:46.289Z [before] STEP list-footer
+2026-10-08T07:43:48.432Z [before] rows on the first page: 99
+2026-10-08T07:43:49.929Z [before] shot list-footer
+2026-10-08T07:43:49.999Z [before] list-footer: (no pull-requests-list-footer: no view matches pull-requests-list-footer by testId, label or text; targets here)
+2026-10-08T07:43:49.999Z [before] STEP header
+2026-10-08T07:43:59.363Z [before] shot header-132
+2026-10-08T07:43:59.371Z [before] header-132: Check out | Check out this pull request | In a separate worktree | Its own folder and thread. Nothing you have open moves. | In this repository | Switches the branch you are working in, like `gh pr checkout`. | Merge | More pull request actions | Refresh | Ask a question | Opens a thread that knows which pull request you mean. | Explain this PR | A walk through the diff and what to read closely. | Fix findings in a thread | Convert to draft | Enable auto-merge | Squash and merge | Rebase and merge | Open on GitHub | Copy link | ⇧⌘C | Copy PR number | ⇧⌘K | Close pull request
+2026-10-08T07:43:59.371Z [before] STEP more
+2026-10-08T07:44:07.533Z [before] shot more-132
+2026-10-08T07:44:07.539Z [before] more-132: Refresh | Ask a question | Opens a thread that knows which pull request you mean. | Explain this PR | A walk through the diff and what to read closely. | Fix findings in a thread | Convert to draft | Enable auto-merge | Merge | Squash and merge | Rebase and merge | Open on GitHub | Copy link | ⇧⌘C | Copy PR number | ⇧⌘K | Close pull request
+2026-10-08T07:44:08.040Z [before] STEP checkout-menu
+2026-10-08T07:44:16.169Z [before] shot checkout-132
+2026-10-08T07:44:16.174Z [before] checkout-132: In a separate worktree | Its own folder and thread. Nothing you have open moves. | In this repository | Switches the branch you are working in, like `gh pr checkout`.
+2026-10-08T07:44:16.666Z [before] STEP comment
+2026-10-08T07:44:27.743Z [before] shot timeline-comment
+2026-10-08T07:44:27.749Z [before] timeline-comment: 1 comment | 1 author · just now | daehyeonmun2021 | Pull request opened | 17h ago | 10/7/2026, 11:17:25 PM | Add a changelog | 6c21a1c | 5d ago | 10/2/2026, 6:02:00 PM | +4 | -0
+2026-10-08T07:44:28.691Z [before] drive done
+2026-10-08T07:44:49.922Z [before] environments A ab7bfe17-a68e-4815-a64b-a646c2aba3c7 B f479a286-2ab4-4c9f-bc7d-eda2b04b69ee
+2026-10-08T07:44:50.463Z [before] app pid 15806
+2026-10-08T07:45:05.258Z [before] connected to A: sidebar shows Pull Requests
+2026-10-08T07:45:11.775Z [before] STEP comment
+2026-10-08T07:45:24.201Z [before] shot summary-comment
+2026-10-08T07:45:24.209Z [before] summary-comment: Reviewers | Daehyeon Mun (@daehyeon-mun) | Labels | enhancement | area:ui | Description | Adds a changelog file. | Checks | Comments (1) | Newest first | daehyeonmun2021 | 2m ago | 10/8/2026, 4:42:38 PM · Open comment on host | 👍 | 👎 | 😄 | 🎉 | 😕 | ❤️ | 🚀 | 👀 | Follows | #115 | and | c46352e19b5d7c31b070eea56750469cdcce9e13, | not | #2 | a#3. | See | https://github.com/daehyeonmun2021/playground/pull/116 | too.
+2026-10-08T07:45:24.696Z [before] drive done
+
+## after
+2026-10-08T08:49:30.225Z [after] environments A ab7bfe17-a68e-4815-a64b-a646c2aba3c7 B f479a286-2ab4-4c9f-bc7d-eda2b04b69ee
+2026-10-08T08:52:02.117Z [after] environments A ab7bfe17-a68e-4815-a64b-a646c2aba3c7 B f479a286-2ab4-4c9f-bc7d-eda2b04b69ee
+2026-10-08T08:52:02.597Z [after] app pid 24685
+2026-10-08T08:52:18.243Z [after] connected to A: sidebar shows Pull Requests
+2026-10-08T08:52:18.526Z [after] STEP pair-b
+2026-10-08T08:52:31.566Z [after] shot connections-two
+2026-10-08T08:52:31.580Z [after] connections-two: (no settings-content: no view matches settings-content by testId, label or text; targets here: toggle-)
+2026-10-08T08:52:36.336Z [after] shot github-sharing
+2026-10-08T08:52:36.339Z [after] github-sharing: GitHub sharing | Daehyeon’s MacBook Pro, Daehyeon’s MacBook Pro read and act | Machines you trust here can read PR data through each other's GitHub access. Enable both machines. Read and act may use broader permissions than the machine that owns them. This applies only to this device. | Daehyeon’s MacBook Pro | http://127.0.0.1:16360/ | Read and act | Off | Read PRs | http://127.0.0.1:16361/
+2026-10-08T08:52:44.003Z [after] STEP list-footer
+2026-10-08T08:52:46.079Z [after] rows on the first page: 99
+2026-10-08T08:52:47.434Z [after] shot list-footer
+2026-10-08T08:52:47.438Z [after] list-footer: Load more pull requests
+2026-10-08T08:52:47.438Z [after] STEP header
+2026-10-08T08:52:56.262Z [after] shot header-132
+2026-10-08T08:52:56.266Z [after] header-132: 2 | Linked from 2 threads. Search in the command palette. | Check out | Check out this pull request | In a separate worktree | Its own folder and thread. Nothing you have open moves. | In this repository | Switches the branch you are working in, like `gh pr checkout`. | Daehyeon’s MacBook Pro | Merge | More pull request actions | Link to thread | Refresh | Ask a question | Opens a thread that knows which pull request you mean. | Explain this PR | A walk through the diff and what to read closely. | Fix findings in a thread | Convert to draft | Enable auto-merge | Squash and merge | Rebase and merge | Open on GitHub | Copy link | ⇧⌘C | Copy PR number | ⇧⌘K | Close pull request
+2026-10-08T08:52:56.266Z [after] STEP more
+2026-10-08T08:53:04.212Z [after] shot more-132
+2026-10-08T08:53:04.215Z [after] more-132: Link to thread | Refresh | Ask a question | Opens a thread that knows which pull request you mean. | Explain this PR | A walk through the diff and what to read closely. | Fix findings in a thread | Daehyeon’s MacBook Pro | Convert to draft | Enable auto-merge | Merge | Squash and merge | Rebase and merge | Open on GitHub | Copy link | ⇧⌘C | Copy PR number | ⇧⌘K | Close pull request
+2026-10-08T08:53:04.668Z [after] STEP checkout-menu
+2026-10-08T08:53:12.583Z [after] shot checkout-132
+2026-10-08T08:53:12.586Z [after] checkout-132: In a separate worktree | Its own folder and thread. Nothing you have open moves. | In this repository | Switches the branch you are working in, like `gh pr checkout`. | Daehyeon’s MacBook Pro
+2026-10-08T08:53:13.049Z [after] STEP comment
+2026-10-08T08:53:24.103Z [after] shot summary-comment
+2026-10-08T08:53:24.107Z [after] summary-comment: Reviewers | Daehyeon Mun (@daehyeon-mun) | Labels | enhancement | area:ui | Description | Adds a changelog file. | Checks | Comments (1) | Newest first | daehyeonmun2021 | 1h ago | 10/8/2026, 4:42:38 PM · Open comment on host | 👍 | 👎 | 😄 | 🎉 | 😕 | ❤️ | 🚀 | 👀 | Follows | #115 | and | c46352e | , | not | #2 | a#3. | See | https://github.com/daehyeonmun2021/playground/pull/116 | too.
+2026-10-08T08:53:24.556Z [after] STEP load-more
+2026-10-08T08:53:27.010Z [after] STEP load-more ERROR no view matches pull-requests-load-more by testId, label or text; targets here: toggle-sidebar, sidebar-brand, search-threads, filter-project, add-project, new-thread, row-9a68e002-8bb1-4345-999c-7960622cb714, thread-9a68e002-8bb1-4345-999c-7960622cb714, snooze-9a68e002-8bb1-4345-999c-7960622cb714, settle-9a68e002-8bb1-4345-999c-7960622cb714, snooze-9a68e002-8bb1-4345-999c-7960622cb714-hour, snooze-9a68e002-8bb1-4345-999c-7960622cb714-three-hours, …; tree lists live targets, and a virtualized list's row outside its window comes in by key: `tap <list> into <key>` (feed F10)
+2026-10-08T08:53:27.103Z [after] shot load-more-error
+2026-10-08T08:53:27.104Z [after] STEP count
+2026-10-08T08:53:34.384Z [after] shot count-132
+2026-10-08T08:53:34.387Z [after] count-132: 2
+2026-10-08T08:53:34.443Z [after] ax count saved
+2026-10-08T08:53:34.589Z [after] state around the 10 s tick saved
+2026-10-08T08:53:37.234Z [after] shot linked-palette
+2026-10-08T08:53:37.237Z [after] linked-palette: https://github.com/daehyeonmun2021/playground/pull/132 | Threads | Release notes | Linked thread | Old work | Archived thread | Navigate | Enter | Select | Esc | Close
+2026-10-08T08:53:37.907Z [after] focus after Escape: {"responder":"NodeView","logical":5992,"editor":null,"pending":null}
+2026-10-08T08:53:44.621Z [after] shot linked-archived-opened
+2026-10-08T08:53:44.627Z [after] linked-archived-opened: Toggle main sidebar (⌘B) | Code | Search | PD | daehyeonmun2021/playground | 13m | Settle | Release notes | 132 | In 1 hour | 6:53 PM | In 3 hours | 8:53 PM | Tomorrow | 9:00 AM | Next week | Mon 9:00 AM | Custom… | 1h | Write the changelog | Settled (0) | playground | New thread in playground | / | Old work | Toggle thread details | Toggle terminal drawer (⌘J) | Toggle right panel (⌥⌘B) | composer-stash-key | composer-models-key | Ask for changes, send follow-ups, or attach images | Supervised | Ask before commands and file changes. | Auto-accept edits | Auto-approve edits, ask before other actions. | Auto | Supported providers approve routine actions; others still ask. | Full access | Allow commands and edits without prompts. | Submit message | gpt-5-codex | Open provider settings | Attach files | Codex is unauthenticated | Codex CLI is not authenticated. Run `codex login` and try again. | Daehyeon’s MacBook Pro | Workspace | Current checkout | New worktree | Open in VS Code | Add project script | main | Search refs... | current | origin/docs/usage-steps-2 | remote | origin/docs/install-steps-2 | origin/docs/install-steps | origin/docs/usage-steps | origin/docs/report
+2026-10-08T08:53:44.627Z [after] STEP picker
+2026-10-08T08:53:55.637Z [after] shot more-link-item
+2026-10-08T08:53:55.640Z [after] more-link-item: Link to thread | Refresh | Ask a question | Opens a thread that knows which pull request you mean. | Explain this PR | A walk through the diff and what to read closely. | Fix findings in a thread | Daehyeon’s MacBook Pro | Convert to draft | Enable auto-merge | Merge | Squash and merge | Rebase and merge | Open on GitHub | Copy link | ⇧⌘C | Copy PR number | ⇧⌘K | Close pull request
+2026-10-08T08:53:58.338Z [after] shot picker
+2026-10-08T08:53:58.355Z [after] picker: (no command-palette: no view matches command-palette by testId, label or text; targets here: toggle-s)
+2026-10-08T08:53:58.367Z [after] ax picker: tree: no view matches command-palette
+2026-10-08T08:53:59.304Z [after] shot picker-search
+2026-10-08T08:54:00.181Z [after] focus after the picker's Escape: {"logical":6722,"editor":null,"pending":null,"responder":"NodeView"}
+2026-10-08T08:54:10.627Z [after] shot count-after-link
+2026-10-08T08:54:10.629Z [after] count-after-link: 3
+2026-10-08T08:54:10.629Z [after] STEP autolinks
+2026-10-08T08:54:21.664Z [after] shot autolinks
+2026-10-08T08:54:21.675Z [after] link runs: pr-link-pr-link-1, pr-link-pr-link-2, pr-link-pr-link-3
+2026-10-08T08:54:26.832Z [after] shot autolink-opened
+2026-10-08T08:54:26.844Z [after] autolink-opened: #115 | daehyeonmun2021/playground | Check out | Check out this pull request | In a separate worktree | Its own folder and thread. Nothing you have open moves. | In this repository | Switches the branch you are working in, like `gh pr checkout`. | Daehyeon’s MacBook Pro | Merge | More pull request actions | Link to thread | Refresh | Ask a question | Opens a thread that knows which pull request you mean. | Explain this PR | A walk through the diff and what to read closely. | Fix findings in a thread | Convert to draft | Enable auto-merge | Squash and merge | Rebase and merge | Open on GitHub | Copy link | ⇧⌘C | Copy PR number | ⇧⌘K | Close pull request | 18h ago | main | feature/input-validation | 1 | +11 | -0 | Add input validation | daehyeon-mun | · | updated 18h ago | gh pr checkout 115 | This branch is out-of-date with main by 28 commits. | Changes can be cleanly merged. | Update branch | Update with rebase | 1 file | Summary | Timeline | No checks reported | Reviewers | daehyeonmun2021 — Changes requested | Labels | needs-review | Description | Adds a small validator. | Checks | Comments (20) | Newest first | This conversation is longer than this page reads in one go. The most recent 17 are here; open it on the host to read the rest. | 10/7/2026, 10:54:38 PM · Open comment on host | 👍 | 👎
+2026-10-08T08:54:26.844Z [after] STEP thread-surface
+2026-10-08T08:54:34.525Z [after] STEP thread-surface ERROR no view matches pr-row-115 by testId, label or text; targets here: toggle-sidebar, sidebar-brand, search-threads, filter-project, add-project, new-thread, row-9a68e002-8bb1-4345-999c-7960622cb714, thread-9a68e002-8bb1-4345-999c-7960622cb714, snooze-9a68e002-8bb1-4345-999c-7960622cb714, settle-9a68e002-8bb1-4345-999c-7960622cb714, snooze-9a68e002-8bb1-4345-999c-7960622cb714-hour, snooze-9a68e002-8bb1-4345-999c-7960622cb714-three-hours, …; tree lists live targets, and a virtualized list's row outside its window comes in by key: `tap <list> into <key>` (feed F10)
+2026-10-08T08:54:34.621Z [after] shot thread-surface-error
+2026-10-08T08:54:34.621Z [after] STEP keyboard
+2026-10-08T08:54:44.460Z [after] shot keys-count-enter
+2026-10-08T08:54:45.154Z [after] after Escape: palette closed, focus {"logical":9459,"responder":"NodeView","editor":null,"pending":null}
+2026-10-08T08:54:45.211Z [after] ax header-count saved
+2026-10-08T08:54:46.086Z [after] STEP dark-narrow
+2026-10-08T08:54:54.255Z [after] shot dark-count
+2026-10-08T08:54:54.925Z [after] shot dark-more
+2026-10-08T08:54:57.123Z [after] shot dark-picker
+2026-10-08T08:55:06.023Z [after] shot narrow-dark-count
+2026-10-08T08:55:07.022Z [after] shot narrow-count
+2026-10-08T08:55:07.654Z [after] shot narrow-checkout-act-on
+2026-10-08T08:55:09.178Z [after] STEP act-on
+2026-10-08T08:55:17.148Z [after] shot checkout-act-on
+2026-10-08T08:55:17.152Z [after] checkout-act-on: In a separate worktree | Its own folder and thread. Nothing you have open moves. | In this repository | Switches the branch you are working in, like `gh pr checkout`. | Daehyeon’s MacBook Pro
+2026-10-08T08:55:18.809Z [after] shot checkout-act-on-b
+2026-10-08T08:55:18.829Z [after] B worktrees before: /Users/daehyeonmun/orca/workspaces/exact2/t3-code-pr-links-previews-and-routing/target/github-lane-b/servers/primary/repos/playground 63a84f6 [main]
+2026-10-08T08:55:30.988Z [after] shot act-on-b-moved
+2026-10-08T08:55:30.997Z [after] act-on-b-moved: Toggle main sidebar (⌘B) | Code | Search | PD | daehyeonmun2021/playground | 15m | Settle | Release notes | 132 | In 1 hour | 6:55 PM | In 3 hours | 8:55 PM | Tomorrow | 9:00 AM | Next week | Mon 9:00 AM | Custom… | now | Write the changelog | Settled (0) | playground | New thread in playground | / | New thread | Toggle thread details | Toggle terminal drawer (⌘J) | Toggle right panel (⌥⌘B) | What should we build in | Add project | ? | composer-stash-key | composer-models-key | Ask for changes, send follow-ups, or attach images | Supervised | Ask before commands and file changes. | Auto-accept edits | Auto-approve edits, ask before other actions. | Auto | Supported providers approve routine actions; others still ask. | Full access | Allow commands and edits without prompts. | Run on | Workspace | Daehyeon’s MacBook Pro | Current checkout | New worktree | Current worktree | Submit message | Choose model | Open provider settings | Attach files | #132 | Add a changelog | feature/changelog-2 | feature-changelog-2 | Worktree | Open in VS Code | Add project script | Search refs...
+2026-10-08T08:55:31.012Z [after] B worktrees after: /Users/daehyeonmun/orca/workspaces/exact2/t3-code-pr-links-previews-and-routing/target/github-lane-b/servers/primary/repos/playground                                63a84f6 [main]
+/Users/daehyeonmun/orca/workspaces/exact2/t3-code-pr-links-previews-and-routing/target/github-lane-b/servers/primary/t3home/worktrees/playground/feature-changelog-2 6c21a1c [feature/changelog-2]
+2026-10-08T08:55:31.026Z [after] A worktrees after: /Users/daehyeonmun/orca/workspaces/exact2/t3-code-pr-links-previews-and-routing/target/github-lane/servers/primary/repos/playground 63a84f6 [main]
+2026-10-08T08:55:31.027Z [after] A gh during: api graphql --hostname github.com -f owner=daehyeonmun2021 -f name=playground -F number=132 -f headRef=refs/pull/132/head -f query=query($owner: String!, $name: String!, $number: Int!, $headRef: String!) {   repository(owner: $owner, name: $name) {     mergeCommitAllowed squashMergeAllowed rebaseMergeAllowed viewerPermission     pullRequest(number: $number) {       number title url body state isDraft mergeable reviewDecision       additions deletions changedFiles createdAt updatedAt mergedAt closedAt       headRefName baseRefName headRefOid isCrossRepository       headRepositoryOwner { login }       author { login avatarUrl ... on User { id name } }       autoMergeRequest { mergeMethod }       viewerCanUpdate viewerDidAuthor viewerCanUpdateBranch       baseRef { compare(headRef: $headRef) { behindBy } }       reviewRequests(first: 100) {         nodes { requestedReviewer { ... on User { login name } ... on Bot { login } ... on Team { slug name } } }       }       labels(first: 100) { nodes { name color } }       commits(last: 1) {         nodes { commit { statusCheckRollup { contexts(first: 100) {           nodes {             __typename             ... on StatusContext { context state targetUrl createdAt description isRequired(pullRequestNumber: $number) }             ... on CheckRun {               name status conclusion startedAt completedAt detailsUrl isRequired(pullRequestNumber: $number)               checkSuite { workflowRun { workflow { name } } }             } || pr 
+2026-10-08T08:55:31.027Z [after] B gh during: api graphql --hostname github.com -f query=query { rateLimit { cost limit remaining resetAt } } || pr view https://github.com/daehyeonmun2021/playground/pull/132 --json number,title,url,baseRefName,headRefName,state,isDraft,mergedAt,closedAt,updatedAt,isCrossRepository,headRepository,headRepositoryOwner || repo view daehyeonmun2021/playground --json nameWithOwner,url,sshUrl || repo view daehyeonmun2021/playground --json nameWithOwner,url,sshUrl || auth token --hostname github.com || api graphql --hostname github.com --input - || api graphql --hostname github.com -f owner=daehyeonmun2021 -f name=playground -F number=132 -f headRef=refs/pull/132/head -f query=query($owner: String!, $name: String!, $number: Int!, $headRef: String!) {   repository(owner: $owner, name: $name) {     mergeCommitAllowed squashMergeAllowed rebaseMergeAllowed viewerPermission     pullRequest(number: $number) {       number title url body state isDraft mergeable reviewDecision       additions deletions changedFiles createdAt updatedAt mergedAt closedAt       headRefName baseRefName headRefOid isCrossRepository       headRepositoryOwner { login }       author { login avatarUrl ... on User { id name } }       autoMergeRequest { mergeMethod }       viewerCanUpdate viewerDidAuthor viewerCanUpdateBranch       baseRef { compare(headRef: $headRef) { behindBy } }       reviewRequests(first: 100) {         nodes { requestedReviewer { ... on User { login name } ... on Bot { login } ... on Team { slug name } } }  
+2026-10-08T08:55:31.027Z [after] drive done
+
+## read back after the drive
+pullRequests.linkedThreads on A for #132:
+   "title": "Write the changelog",
+   "archivedAt": null
+   "title": "Release notes",
+   "archivedAt": null
+   "title": "Old work",
+   "archivedAt": "2026-10-08T07:27:21.101Z"
+B's worktrees:
+/Users/daehyeonmun/orca/workspaces/exact2/t3-code-pr-links-previews-and-routing/target/github-lane-b/servers/primary/repos/playground                                63a84f6 [main]
+/Users/daehyeonmun/orca/workspaces/exact2/t3-code-pr-links-previews-and-routing/target/github-lane-b/servers/primary/t3home/worktrees/playground/feature-changelog-2 6c21a1c [feature/changelog-2]
+A's worktrees:
+/Users/daehyeonmun/orca/workspaces/exact2/t3-code-pr-links-previews-and-routing/target/github-lane/servers/primary/repos/playground 63a84f6 [main]
+
+## the 10 s tick (prDetail's arguments in the agent state, before and after clock +10000)
+before clock +10000: liveNow=83000 -> prDetail linked-thread tick floor(liveNow/10000)=8; prDetail.links={"shown": true, "url": "https://github.com/daehyeonmun2021/playground/pull/132", "countShown": true, "countText": "2", "countLabel": "Linked from 2 threads", "countTip": "Linked from 2 threads. Search in the command palette.", "menuShown": true, "menuLabel": "Link to thread", "menuIcon": "link-2", "menuPicker": true, "pending": false, "polling": true, "backShown": false}
+after clock +10000: liveNow=93000 -> prDetail linked-thread tick floor(liveNow/10000)=9; prDetail.links={"shown": true, "url": "https://github.com/daehyeonmun2021/playground/pull/132", "countShown": true, "countText": "2", "countLabel": "Linked from 2 threads", "countTip": "Linked from 2 threads. Search in the command palette.", "menuShown": true, "menuLabel": "Link to thread", "menuIcon": "link-2", "menuPicker": true, "pending": false, "polling": true, "backShown": false}
