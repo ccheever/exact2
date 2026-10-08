@@ -1,0 +1,80 @@
+# fix-providers-environment-scope: the agent-mode live drive (2026-10-08), one drive per build, 1280x840, screen unlocked, no real input
+# before = evidence base f45eab04a (dev build in t3-code-evidence-base; #328 since then changed records only).
+# after = this branch's final source (staged on 44e939f1e, dev build). A first branch drive ran on the source before the review follow-ups
+#   (12:46-12:47Z) with the same readings; the second server's state was reset (same environment id) before this one.
+# Lane (target/fpes/lane, not committed): the app's embedded primary ('this Mac') with its own HOME/CFFIXED_USER_HOME, CODEX_HOME,
+#   CLAUDE_CONFIG_DIR, XDG_*, T3_LOCAL_HOME, T3_LOCAL_PORT=16552 (before) / 16550 (after), T3_LOCAL_RUNTIME_DIR = the pinned t3 0.0.46-nightly.20261005.2667,
+#   environment id 6dabbc0e-ad49-40c9-b8b9-ac524dbe9446 (pre-written so the drive can choose it back), PATH = lane bin + /usr/bin:/bin:/usr/sbin:/sbin
+#   (its login shell adds /opt/homebrew/bin, so Codex 0.151.0 is found; no claude). Never ~/.t3, never 3773, never the user's PATH.
+# Second environment: the same t3 release, 't3 serve --base-dir lane/second/t3home --port 16551 --host 127.0.0.1', env built from nothing,
+#   PATH without codex or claude (so its Codex reads 'Not found'), environment id 9e7c9ab1-d3da-4854-bb22-80c412099476. Both servers' friendly label
+#   is this Mac's name, so the scope menu names them with their URLs, as in #312's report (#312 used a LAN address; loopback changes nothing here).
+# Pairing tokens were read from a file and never printed. Screenshots use the driver's window capture ('screenshot <png> window').
+
+## Steps (both builds, the same script)
+launch; wait 8 s; welcome: Continue, Agents continue, Do not import; Settings; Connections; Add environment; type the second server's pairing link (redacted)
+into Host; Connect; wait 8 s; Providers; scope menu; choose …:16551; Codex enable switch; scope menu; choose this Mac; Back (close Settings);
+Settings; Providers; scope menu; choose …:16551; Refresh; wait 4 s; [watcher: 6 s later the second server is stopped]; wait 15 s; tree, state, logs.
+All 19 taps answered 'tapped' with their targets in both drives.
+
+## before
+  before: checkout f45eab04a, primary port 16552 id 6dabbc0e-ad49-40c9-b8b9-ac524dbe9446, second pid 38216 id 9e7c9ab1-d3da-4854-bb22-80c412099476, start 2026-10-08T12:44:13Z
+  12:45:32 after-refresh picture taken; stopping the second server pid 38216
+  stopped pid 38216
+  agent exit 0 at 2026-10-08T12:45:43Z
+  Page with …:16551 chosen (tree):
+    Pressable#2166 [settings-scope-environment] label="Environment scope: Daehyeon’s MacBook Pro · http://127.0.0.1:16551" [focused] (key, focus, blur)
+    Text#2255 [provider-list-status-codex] "Not authenticated · Unsupported"
+    Text#2272 [provider-list-status-claudeAgent] "Not found · Claude Agent CLI (`claude`) was not found on PATH."
+  Last page, the second server stopped (tree):
+    Text#3884 [provider-list-status-codex] "Disabled"
+    Text#3901 [provider-list-status-claudeAgent] "Not found · Claude Agent CLI (`claude`) was not found on PATH."
+  Second server (16551) RPC spans from the drive's start to its end (2026-10-08T12:44:13Z .. 2026-10-08T12:45:43Z), reportClientActivity left out:
+    12:44:42.601 server.getConfig Success
+    12:44:42.653 subscribeServerConfig Interrupted
+    12:44:42.656 orchestration.subscribeShell Interrupted
+    12:44:42.659 subscribeTerminalMetadata Interrupted
+    12:44:42.661 scheduledTasks.subscribe Success
+    12:44:42.663 subscribeProjectClones Interrupted
+  This Mac's server, settings and provider RPC spans during the drive:
+    12:44:59.912 server.getSettings Success
+    12:44:59.918 server.updateSettings Success
+
+## after
+  after: checkout 44e939f1e, primary port 16550 id 6dabbc0e-ad49-40c9-b8b9-ac524dbe9446, second pid 2728 id 9e7c9ab1-d3da-4854-bb22-80c412099476, start 2026-10-08T13:15:35Z
+  13:16:58 after-refresh picture taken; stopping the second server pid 2728
+  stopped pid 2728
+  agent exit 0 at 2026-10-08T13:17:09Z
+  Page with …:16551 chosen (tree):
+    Pressable#2166 [settings-scope-environment] label="Environment scope: Daehyeon’s MacBook Pro · http://127.0.0.1:16551" [focused] (key, focus, blur)
+    Text#2472 [provider-list-status-codex] "Not found · Could not start Codex CLI (`codex`). Check Settings → Providers → Codex → Binary path on the server. Installing ChatGPT or Codex deskt
+    Text#2272 [provider-list-status-claudeAgent] "Not found · Claude Agent CLI (`claude`) was not found on PATH."
+  Last page, the second server stopped (tree):
+    Text#4179 [settings-unavailable] "Reconnect Daehyeon’s MacBook Pro · http://127.0.0.1:16551 to change its settings."
+  Second server (16551) RPC spans from the drive's start to its end (2026-10-08T13:15:35Z .. 2026-10-08T13:17:09Z), reportClientActivity left out:
+    13:16:08.349 server.getConfig Success
+    13:16:08.401 subscribeServerConfig Interrupted
+    13:16:08.406 orchestration.subscribeShell Interrupted
+    13:16:08.408 subscribeTerminalMetadata Interrupted
+    13:16:08.410 scheduledTasks.subscribe Success
+    13:16:08.411 subscribeProjectClones Interrupted
+    13:16:25.641 server.getSettings Success
+    13:16:25.646 server.updateSettings Success
+    13:16:25.653 server.getConfig Success
+  This Mac's server, settings and provider RPC spans during the drive:
+
+## Reading
+- before: with …:16551 chosen the page lists this Mac's Codex (v0.151.0, 'Not authenticated · Unsupported'); the Codex switch wrote to this Mac's
+  server (getSettings/updateSettings at 12:44:59 there; the second server got only its connection reads); with the second server stopped,
+  the page kept this Mac's providers.
+- after: with …:16551 chosen the page lists the second server's Codex ('Not found': no codex on its PATH); the Codex switch wrote to the second
+  server (13:16:25) and this Mac's server got no settings write; choosing this Mac again shows its Codex still on; closing and reopening Settings
+  starts the scope over on this Mac; with the second server stopped the page says 'Reconnect Daehyeon’s MacBook Pro · http://127.0.0.1:16551 to
+  change its settings.' (SettingsScopeBoundary).
+- Showing a page sends no request in either build: the page reads the server config each connection already streams (subscribeServerConfig),
+  as the reference reads providersValueAtom. An editor's Account row would also open provider.auth/install streams; Codex on the second server is
+  not installed, so it has none. The provider requests the second server got are the page's own write (getSettings, updateSettings, getConfig).
+- Refresh: both drives pressed it on …:16551; neither server's trace holds a refreshProviders span, because each server stopped before its batched
+  trace was written. Its routing is proven by the unit test 'the page's actions go to the environment it shows'.
+- Processes: the second server (pids 30663, 38216, 42406, 2728) was stopped by pid each time; the app quit at each drive's end and took its embedded
+  server with it; nothing listened on 16550-16599 afterwards (lsof).
