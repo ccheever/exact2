@@ -41,6 +41,50 @@ impl ControlTextStyles {
     }
 }
 
+/// Optional platform fonts for each native button size. Missing entries use
+/// `ControlTextStyles::button`; hosts obtain these from their platform.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct ButtonFonts {
+    /// Mini control font.
+    pub mini: Option<ControlFont>,
+    /// Small control font.
+    pub small: Option<ControlFont>,
+    /// Medium (default) control font.
+    pub medium: Option<ControlFont>,
+    /// Large control font.
+    pub large: Option<ControlFont>,
+}
+
+impl ButtonFonts {
+    pub(crate) fn get(&self, size: crate::ControlSize) -> Option<&ControlFont> {
+        match size {
+            crate::ControlSize::Mini => &self.mini,
+            crate::ControlSize::Small => &self.small,
+            crate::ControlSize::Medium => &self.medium,
+            crate::ControlSize::Large => &self.large,
+        }
+        .as_ref()
+    }
+
+    pub(crate) fn is_valid(&self) -> bool {
+        [&self.mini, &self.small, &self.medium, &self.large]
+            .into_iter()
+            .flatten()
+            .all(|f| f.size.is_finite() && f.size > 0.0)
+    }
+}
+
+impl ControlTextStyles {
+    /// Select the size's platform font, retaining the original fallback.
+    pub fn button_font<'a>(
+        &'a self,
+        size: crate::ControlSize,
+        fonts: Option<&'a ButtonFonts>,
+    ) -> &'a ControlFont {
+        fonts.and_then(|f| f.get(size)).unwrap_or(&self.button)
+    }
+}
+
 /// The native text control whose chrome the host measures.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FieldKind {
@@ -141,6 +185,47 @@ pub struct ButtonFaceStyle {
     pub button: crate::StyleProps,
     /// Image-to-text gap on the face axis. None asks the host's system spacing.
     pub image_gap: Option<f32>,
+}
+
+impl ButtonFaceStyle {
+    pub(crate) fn resolve_geometry(
+        &mut self,
+        env: &crate::Env,
+        containing_width: Option<f32>,
+        frame: crate::Frame,
+    ) {
+        let length = |d: crate::Dimension, basis: Option<f32>| {
+            crate::Dimension::Points(
+                match d.resolve(env) {
+                    crate::Dimension::Points(n) => n,
+                    crate::Dimension::Percent(p) => basis.map_or(0.0, |b| b * p / 100.0),
+                    crate::Dimension::Calc(p, n) => basis.map_or(0.0, |b| b * p / 100.0 + n),
+                    _ => 0.0,
+                }
+                .max(0.0),
+            )
+        };
+        let s = &mut self.button;
+        for side in [
+            &mut s.padding_top,
+            &mut s.padding_right,
+            &mut s.padding_bottom,
+            &mut s.padding_left,
+        ] {
+            *side = length(*side, containing_width);
+        }
+        // Native configurations and the painted button use circular corners;
+        // retain their scalar-radius approximation for percentage corners.
+        let basis = Some(frame.width.min(frame.height));
+        for corner in [
+            &mut s.border_radius_top_left,
+            &mut s.border_radius_top_right,
+            &mut s.border_radius_bottom_right,
+            &mut s.border_radius_bottom_left,
+        ] {
+            *corner = length(*corner, basis);
+        }
+    }
 }
 
 /// A native button's semantic face and resolved configuration (D11).

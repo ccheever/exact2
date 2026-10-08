@@ -81,19 +81,33 @@ impl NodeArena {
 
     pub(crate) fn refresh_control_styles(&mut self) {
         self.control_styles = self.env.control_text_styles.as_ref().map(|styles| {
-            let mut button = starting_style(&styles.button);
-            button.text_align = crate::TextAlign::Center;
-            button.mask.set(StyleId::WhiteSpace);
-            button.text_color = crate::ColorValue::Role(
-                crate::style::roles::role("ButtonText").expect("schema role"),
-            );
-            let projection = projected(button.clone());
-            Box::new([
-                starting_style(&styles.field),
-                starting_style(&styles.textarea),
-                button,
-                projection,
-            ])
+            Box::new(std::array::from_fn(|index| {
+                if index < 2 {
+                    return starting_style(if index == 0 {
+                        &styles.field
+                    } else {
+                        &styles.textarea
+                    });
+                }
+                let size = [
+                    crate::ControlSize::Mini,
+                    crate::ControlSize::Small,
+                    crate::ControlSize::Medium,
+                    crate::ControlSize::Large,
+                ][(index - 2) % 4];
+                let mut button =
+                    starting_style(styles.button_font(size, self.env.button_fonts.as_ref()));
+                button.text_align = crate::TextAlign::Center;
+                button.mask.set(StyleId::WhiteSpace);
+                button.text_color = crate::ColorValue::Role(
+                    crate::style::roles::role("ButtonText").expect("schema role"),
+                );
+                if index >= 6 {
+                    projected(button)
+                } else {
+                    button
+                }
+            }))
         });
     }
 
@@ -103,7 +117,10 @@ impl NodeArena {
         }
         let styles = self.env.control_text_styles.as_ref()?;
         Some(if self.is_native_button(slot) {
-            &styles.button
+            styles.button_font(
+                self.style(slot).control_size,
+                self.env.button_fonts.as_ref(),
+            )
         } else if FieldKind::from_props(self.props(slot)) == FieldKind::Textarea {
             &styles.textarea
         } else {
@@ -121,18 +138,18 @@ impl NodeArena {
                 self.props(slot).str(crate::PropId::AccessibilityRole),
                 Some("tab" | "menuitem" | "menuitemcheckbox" | "menuitemradio")
             ) {
-                3
+                6 + self.button_font_index(slot)
             } else {
-                2
+                2 + self.button_font_index(slot)
             }
         } else {
             usize::from(FieldKind::from_props(self.props(slot)) == FieldKind::Textarea)
         };
         Some(self.control_styles.as_ref().map_or_else(
             || {
-                if index == 3 {
+                if index >= 6 {
                     &*WEB_PROJECTED_BUTTON_START
-                } else if index == 2 {
+                } else if index >= 2 {
                     &*WEB_BUTTON_START
                 } else {
                     &*WEB_START
@@ -140,6 +157,15 @@ impl NodeArena {
             },
             |s| &s[index],
         ))
+    }
+
+    fn button_font_index(&self, slot: u32) -> usize {
+        match self.style(slot).control_size {
+            crate::ControlSize::Mini => 0,
+            crate::ControlSize::Small => 1,
+            crate::ControlSize::Medium => 2,
+            crate::ControlSize::Large => 3,
+        }
     }
 
     /// Content box in the field's local frame, including no chrome/padding/border.
