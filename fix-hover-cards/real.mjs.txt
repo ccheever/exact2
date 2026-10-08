@@ -1,0 +1,208 @@
+// fix-hover-cards real-pointer drive (not committed): bun real.mjs <after|before> <outDir> <worktree> <settings|pr|usage>
+// The app runs in agent mode (the driver sets up the screen and reads the tree back), but every hover below is a real
+// pointer: cliclick moves on screen (CGEvent mouse moves, through the window's tracking areas), and real time passes with
+// `clock +N real` after each move, so a close delay that runs out closes the card. Run under the real-input lock.
+// settings: the embedded "This machine" server on a lane with Codex 0.160.1 first on PATH (the update icon), then
+//   Settings › Providers (list and editor update icons' tooltips) and Settings › Connections › Authorized clients
+//   ("N scopes" card after creating a pairing link).
+// pr: the real-GitHub lane's primary server on 16151 (paired from the 0600 file, never printed), Pull Requests › #132
+//   (behind main), the base branch's hover card: hover, leave toward the card, enter the card, the close delay.
+// Writes steps.ndjson and PNGs into outDir. Lane ports: after 16152, before 16153.
+import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+const [which, out, worktree, part] = process.argv.slice(2);
+if (!['after', 'before'].includes(which) || !out || !worktree || !['settings', 'pr', 'usage'].includes(part)) throw new Error('usage: drive.mjs <after|before> <outDir> <worktree> <settings|pr|usage>');
+process.env.EXACT_APP_DIR = `${worktree}/examples/t3-code`;
+const { open } = await import(`${worktree}/scripts/agent.mjs`);
+const F = '/Users/daehyeonmun/orca/workspaces/exact2/t3-code-fix-hover-cards/target/fix-hover-cards';
+const L = `${F}/lane/${part}-${which}`;
+const NL = '/Users/daehyeonmun/orca/workspaces/exact2/t3-code-fix-hover-cards/examples/t3-code/tools/network-lane';
+for (const d of ['home', 'codex', 'claude', 'xdg/config', 'xdg/data', 'xdg/cache', 'xdg/state', 't3-home', 'tmp']) mkdirSync(`${L}/${d}`, { recursive: true });
+mkdirSync(out, { recursive: true });
+const logFile = `${out}/real-${part}-${which}.ndjson`; writeFileSync(logFile, '');
+const log = (step, data = {}) => { const line = JSON.stringify({ t: new Date().toISOString(), which, step, ...data }); appendFileSync(logFile, line + '\n'); console.log(line.slice(0, 400)); };
+const lanePath = part === 'settings' ? `${F}/lane/npm/bin:${F}/lane/bin:${NL}:/usr/bin:/bin:/usr/sbin:/sbin` : '/usr/bin:/bin:/usr/sbin:/sbin';
+writeFileSync(`${L}/home/.zprofile`, `export PATH="${lanePath}"\n`);
+const env = { HOME: `${L}/home`, SHELL: '/bin/zsh', USER: process.env.USER, CODEX_HOME: `${L}/codex`, CLAUDE_CONFIG_DIR: `${L}/claude`,
+  XDG_CONFIG_HOME: `${L}/xdg/config`, XDG_DATA_HOME: `${L}/xdg/data`, XDG_CACHE_HOME: `${L}/xdg/cache`, XDG_STATE_HOME: `${L}/xdg/state`,
+  T3CODE_TELEMETRY_ENABLED: 'false', TMPDIR: `${L}/tmp/`, PATH: lanePath, GIT_CONFIG_NOSYSTEM: '1', GIT_TERMINAL_PROMPT: '0', T3_TAILSCALE_STUB_STATE: L,
+  ...(part === 'settings' ? { T3_LOCAL_HOME: `${L}/t3-home`, T3_LOCAL_PORT: which === 'after' ? '16152' : '16153', T3_LOCAL_RUNTIME_DIR: '/Users/daehyeonmun/orca/workspaces/exact2/t3-code-fix-hover-cards/target/github-lane/runtime/0.0.46-nightly.20261005.2667' } : {}) };
+let appPid = null;
+const s = await open({ host: 'macos', size: [1280, 840], env, storage: `fhc-${part}-${which}`, epoch: new Date().toISOString(), onProcess: (p) => { appPid = p?.pid ?? null; writeFileSync(`${F}/logs/app-${part}-${which}.pid`, String(appPid)); } });
+log('launched', { appPid, part });
+const nodes = async () => (await s.tree()).nodes;
+const ids = async () => new Set((await nodes()).map(n => n.props.testId).filter(Boolean));
+const has = async (id) => (await ids()).has(id);
+// `clock +N real` can refuse "the clock cannot go backwards" (#285): then wait on the wall clock and settle.
+const real = async (ms = 500) => { try { await s.clock(`+${ms} real`); } catch (e) { if (!/backwards/.test(String(e.message))) throw e; await Bun.sleep(ms); try { await s.clock('settle'); } catch {} } };
+const settle = async () => { try { await s.clock('settle'); } catch (e) { log('settle-error', { m: String(e.message).slice(0, 160) }); } };
+const shot = async (name) => { await s.screenshot(`${out}/${which}-${name}.png`, true); log('shot', { name }); };
+async function waitFor(what, pred, ms = 60000) {
+  const t0 = Date.now();
+  for (;;) { let ok = false; try { ok = await pred(); } catch {} if (ok) { log('ready', { what, ms: Date.now() - t0 }); return true; } if (Date.now() - t0 > ms) { log('timeout', { what }); return false; } await real(700); }
+}
+async function tap(id, opts) { const r = await s.tap(id, opts); await settle(); log('tap', { id, ...(opts ?? {}) }); return r; }
+async function frameOf(id) { try { const lay = await s.layout(id); return lay; } catch (e) { return { error: String(e.message).slice(0, 120) }; } }
+async function step(name, fn) { try { log('step', { name }); await fn(); } catch (e) { log('step-error', { name, m: String(e.stack ?? e.message).slice(0, 600) }); try { await shot(`err-${name}`); } catch {} } }
+const dismissToasts = async () => { for (let round = 0; round < 6; round++) { const list = [...await ids()].filter(id => id.startsWith('toast-dismiss-')); if (!list.length) return; for (const id of list) { try { await s.tap(id); await settle(); } catch {} } await real(400); } };
+const visible = async (id) => { const all = await nodes(); const n = all.find(x => x.props.testId === id); if (!n) { log('visible', { id, v: 'absent' }); return false; } const parent = all.find(x => x.id === n.parent); const v = { opacity: n.props.opacity, inert: parent?.props?.inert, hidden: parent?.props?.['aria-hidden'] }; log('visible', { id, ...v }); return v; };
+const present = async (id) => { const v = await has(id); log('present', { id, v }); return v; };
+import { execSync } from 'node:child_process';
+const winBox = () => { const w = JSON.parse(execSync(`/Users/daehyeonmun/.local/bin/orca computer list-windows --app pid:${appPid} --json`).toString()).result.windows.find(x => x.width > 600); return w; };
+const front = () => { try { execSync(`osascript -e 'tell application "System Events" to set frontmost of (first process whose unix id is ${appPid}) to true'`); } catch {} };
+async function box(id) {
+  const r = await s.layout(id); const v = r.node?.space?.viewport;
+  if (!v) { log('box-missing', { id, keys: Object.keys(r.node ?? {}), space: JSON.stringify(r.node?.space ?? null).slice(0, 300) }); throw new Error(`no viewport box for ${id}`); }
+  return Array.isArray(v) ? { x: v[0], y: v[1], w: v[2], h: v[3] } : { x: v.x, y: v.y, w: v.width ?? v.w, h: v.height ?? v.h };
+}
+// REAL_DRY=1: every step but the pointer (a check of the boxes and the flow while the screen is locked).
+const DRY = process.env.REAL_DRY === '1';
+let top = null;
+let win = null;
+const toScreen = (x, y, fresh = false) => { if (!win || fresh) win = winBox(); if (top === null) top = win.height - 840; return [Math.round(win.x + x), Math.round(win.y + top + y)]; };
+// A real pointer path from (x0,y0) to (x1,y1) in viewport points, 3 pt steps, 25 ms apart.
+function glide(x0, y0, x1, y1) {
+  const n = Math.max(2, Math.ceil(Math.hypot(x1 - x0, y1 - y0) / 3)); const pts = [];
+  toScreen(0, 0, true); // the window's place, once a glide
+  for (let i = 0; i <= n; i++) { const [sx, sy] = toScreen(x0 + (x1 - x0) * i / n, y0 + (y1 - y0) * i / n); pts.push(`m:${sx},${sy}`); }
+  if (!DRY) for (let i = 0; i < pts.length; i += 40) execSync(`/opt/homebrew/bin/cliclick -w 25 ${pts.slice(i, i + 40).join(' ')}`);
+  log('glide', { from: [Math.round(x0), Math.round(y0)], to: [Math.round(x1), Math.round(y1)], steps: n });
+}
+const center = (b) => [b.x + b.w / 2, b.y + b.h / 2];
+const waitReal = async (ms) => { await real(ms); };
+const shotScreen = async (name) => { await s.screenshot(`${out}/${which}-real-${name}.png`, true); log('shot', { name }); };
+try {
+  front();
+  if (part === 'settings') {
+    const t0 = Date.now(); let seen = false;
+    while (Date.now() - t0 < 240000) {
+      if (await has('welcome-wizard')) { seen = true; for (const id of ['welcome-continue', 'welcome-agents-continue', 'welcome-skip-import']) if (await has(id)) { try { await tap(id); } catch {} break; } await real(1500); continue; }
+      if (!seen && Date.now() - t0 < 90000) { await real(1000); continue; }
+      try { await s.tap('connection-settings'); await settle(); } catch { await real(1000); continue; }
+      if (await has('close-settings')) break;
+      await real(1000);
+    }
+    await s.prefer({ 'prefers-color-scheme': 'dark' }); await settle();
+    await step('providers', async () => {
+      await tap('Providers');
+      await waitFor('update icon', () => has('provider-advisory-list-codex'), 120000);
+      await real(1500); await settle(); await dismissToasts(); await real(600); front();
+      const icon = await box('provider-advisory-list-codex'); const [cx, cy] = center(icon);
+      glide(cx - 120, cy + 60, cx, cy); await waitReal(800);
+      if (await present('provider-advisory-list-codex-tip')) log('tip-box', await box('provider-advisory-list-codex-tip'));
+      await shotScreen('01-list-icon');
+      glide(cx, cy, cx - 120, cy + 60); await waitReal(300);
+      await present('provider-advisory-list-codex-tip');
+      await tap('settings-provider-codex'); await real(800); await settle(); await dismissToasts(); front();
+      const ed = await box('provider-advisory-editor-codex'); const [ex, ey] = center(ed);
+      glide(ex - 150, ey + 80, ex, ey); await waitReal(800);
+      if (await present('provider-advisory-editor-codex-tip')) log('tip-box', await box('provider-advisory-editor-codex-tip'));
+      await shotScreen('02-editor-icon');
+      glide(ex, ey, ex - 150, ey + 80); await waitReal(300);
+      await present('provider-advisory-editor-codex-tip');
+    });
+    await step('connections', async () => {
+      await tap('Connections'); await real(1500); await settle(); await dismissToasts();
+      if (!(await has('authorized-clients-toggle'))) { await tap('network-access-switch'); await real(600); await tap('network-access-confirm'); await waitFor('authorized clients', () => has('authorized-clients-toggle'), 60000); await real(1500); await settle(); await dismissToasts(); }
+      if (!(await has('authorized-clients-scroll-area'))) await tap('authorized-clients-toggle');
+      await tap('create-pairing-link'); await real(800); await settle();
+      if (await has('pairing-standard')) await tap('pairing-standard');
+      await s.type('pairing-label', 'Lane phone'); await settle();
+      await tap('pairing-create-confirm'); await real(2500); await settle(); front();
+      const trigger = [...await ids()].filter(id => /^pairing-link-scopes-/.test(id) && !id.endsWith('-popup'))[0];
+      const t = await box(trigger); const [tx, ty] = center(t);
+      glide(tx + 160, ty + 40, tx, ty); await waitReal(600);
+      const cardShown = await present(`${trigger}-popup`); const card = cardShown ? await box(`${trigger}-popup`) : { x: tx - 10, y: ty - 120, w: 180, h: 110 }; log('card-box', card);
+      await shotScreen('03-scopes-card');
+      // Up from the count into the card (it lies above), then around inside it.
+      glide(tx, ty, tx, card.y + card.h / 2); glide(tx, card.y + card.h / 2, tx + 30, card.y + card.h / 3);
+      await waitReal(900);
+      await present(`${trigger}-popup`);
+      await shotScreen('04-pointer-in-scopes-card');
+      glide(tx + 30, card.y + card.h / 3, card.x + card.w + 120, card.y + card.h / 3); await waitReal(500);
+      await present(`${trigger}-popup`);
+      await shotScreen('05-scopes-card-left');
+    });
+  } else if (part === 'usage') {
+    await waitFor('welcome', () => has('welcome-pairing-link'), 120000);
+    for (const name of ['a', 'b']) {
+      const link = readFileSync(`${F}/usage-lane/${name}/pairing-url`, 'utf8').trim();
+      if (!(await has('welcome-pairing-link')) && (await has('welcome-add-computer'))) await tap('welcome-add-computer');
+      await s.type('welcome-pairing-link', link); await settle(); await tap('welcome-pair'); await real(5000); await settle();
+    }
+    for (let i = 0; i < 4; i++) for (const id of ['welcome-continue', 'welcome-agents-continue', 'welcome-skip-import']) if (await has(id)) { try { await tap(id); await real(1500); } catch {} }
+    await waitFor('usage entry', () => has('open-usage'), 90000);
+    await s.prefer({ 'prefers-color-scheme': 'dark' }); await settle(); await dismissToasts();
+    await step('usage', async () => {
+      await tap('open-usage'); await real(3000); await settle();
+      if (await has('usage-metric-limits')) await tap('usage-metric-limits');
+      await real(1500); await settle(); await dismissToasts(); front();
+      const id = '0-0-0', seg = `usage-seg-${id}`, pop = `usage-seg-pop-${id}`;
+      const b = await box(seg); const [sx, sy] = center(b);
+      glide(sx - 200, sy - 30, sx - 40, sy); await waitReal(700);
+      const shownNow = await visible(pop); const card = shownNow && shownNow.inert === false ? await box(pop) : { x: sx - 60, y: sy + 20, w: 288, h: 260 }; log('card-box', card);
+      await shotScreen('21-usage-popover');
+      const below = card.y > b.y; const into = below ? card.y + 40 : card.y + card.h - 40;
+      glide(sx - 40, sy, sx - 40, into); await waitReal(900);
+      await visible(pop);
+      await shotScreen('22-pointer-in-usage-popover');
+      const mail = await box(`usage-seg-email-${id}`).catch(() => ({ x: card.x + 16, y: card.y + 40, w: 120, h: 16 })); const [mx, my] = center(mail);
+      glide(sx - 40, into, mx, my); await waitReal(700);
+      await present(`usage-seg-email-${id}-tip`);
+      await shotScreen('23-pointer-on-email');
+      if (!DRY) execSync(`/opt/homebrew/bin/cliclick c:${toScreen(mx, my).join(',')}`); await waitReal(500);
+      const text = (await nodes()).find(n => n.props.testId === `usage-seg-email-${id}-text`); log('email-text', { revealed: !!text && !/[•*]/.test(String(text.props.text ?? '')) && String(text.props.filter ?? '') === 'none', filter: text?.props?.filter });
+      await visible(pop);
+      await shotScreen('24-email-revealed');
+      glide(mx, my, card.x + card.w + 150, my); await waitReal(400);
+      await visible(pop);
+      await shotScreen('25-usage-popover-left');
+    });
+    await step('model-row', async () => {
+      if (await has('sidebar-back')) { await tap('sidebar-back'); await real(1000); }
+      await tap('connection-settings'); await real(1500); await settle();
+      await tap('setting-default-model-model'); await real(1500); await settle(); front();
+      const rows = (await nodes()).filter(n => typeof n.props.title === 'string' && n.props.title.startsWith('This model is unavailable'));
+      const button = rows.length ? (await nodes()).find(n => n.parent === rows[0].id && /^model-/.test(n.props.testId ?? '')) : null;
+      log('row-button', { id: button?.props?.testId });
+      const r = await box(button.props.testId); const [rx, ry] = center(r);
+      glide(rx + 60, ry - 50, rx, ry); await waitReal(400);
+      const tips = [...await ids()].filter(x => x.startsWith('model-row-tip-')); log('row-tips', { tips });
+      if (tips[0]) log('tip-box', await box(tips[0]).catch(() => null));
+      await shotScreen('31-unavailable-row');
+      glide(rx, ry, rx + 60, ry - 50); await waitReal(300);
+      log('row-tips-after-leave', { tips: [...await ids()].filter(x => x.startsWith('model-row-tip-')) });
+    });
+  } else {
+    const url = readFileSync('/Users/daehyeonmun/orca/workspaces/exact2/t3-code-fix-hover-cards/target/github-lane/servers/primary/pairing-url', 'utf8').trim();
+    await waitFor('welcome', () => has('welcome-pairing-link'), 120000);
+    await s.type('welcome-pairing-link', url); await settle(); await tap('welcome-pair'); await real(6000); await settle();
+    for (const id of ['welcome-continue', 'welcome-agents-continue', 'welcome-skip-import']) if (await has(id)) { try { await tap(id); await real(1500); } catch {} }
+    await waitFor('pull requests entry', () => has('open-pull-requests'), 90000);
+    await s.prefer({ 'prefers-color-scheme': 'dark' }); await settle();
+    await step('freshness', async () => {
+      await tap('open-pull-requests'); await real(5000); await settle();
+      await s.type('pull-requests-search', '#132'); await real(4000); await settle();
+      await waitFor('row 132', () => has('pr-row-132'), 30000);
+      await tap('pr-row-132'); await real(1500);
+      await waitFor('freshness mark', () => has('pull-request-base-freshness'), 40000);
+      await real(2500); await settle(); await dismissToasts(); front();
+      const m = await box('pull-request-base-freshness'); const [mx, my] = center(m);
+      glide(mx + 80, my - 30, mx, my); await waitReal(500);
+      const cardShown = await present('pr-freshness-hover'); const card = cardShown ? await box('pr-freshness-hover') : { x: mx - 20, y: my + 12, w: 320, h: 90 }; log('card-box', card);
+      await shotScreen('11-freshness-card');
+      glide(mx, my, mx, card.y + 20); glide(mx, card.y + 20, mx + 40, card.y + 30); await waitReal(900);
+      await present('pr-freshness-hover');
+      await shotScreen('12-pointer-in-freshness-card');
+      const btn = (await has('pr-freshness-hover-rebase')) ? await box('pr-freshness-hover-rebase') : { x: card.x + 170, y: card.y + 60, w: 130, h: 24 }; const [bx, by] = center(btn);
+      glide(mx + 40, card.y + 30, bx, by); await waitReal(900);
+      await present('pr-freshness-hover');
+      await shotScreen('13-pointer-on-update-with-rebase');
+      glide(bx, by, card.x + card.w + 120, by); await waitReal(500);
+      await present('pr-freshness-hover');
+      await shotScreen('14-freshness-card-left');
+    });
+  }
+} finally {
+  log('done', { appPid });
+  try { await s.close(); } catch {}
+}
