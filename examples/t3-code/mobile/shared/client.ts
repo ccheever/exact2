@@ -1,5 +1,6 @@
 // GAP 001: bake cannot capture parent imports. Remove this copy when ancestor mounts work.
-// Unchanged body from examples/t3-code/client.ts at 38352ceaf4cd35a40b7b24ce992db87c2357a99b.
+// Adapted body from examples/t3-code/client.ts at 38352ceaf4cd35a40b7b24ce992db87c2357a99b.
+// Mobile 365aa87982: selection errors belong to the requesting route, not the thread composer.
 import { snapshotShortcut } from './snapshot-shortcut';
 import { snapshotIdentity, snapshotDefaultProject, snapshotDestinationExists, withoutSnapshot, snapshotNoProjectMessage, snapshotFailureMessage } from './snapshot-adopt';
 import { decodeClientPrefs, type ClientPrefs } from './settings-core';
@@ -645,7 +646,7 @@ export class T3Client {
       resultMessage = message(error);
       // These commands return their error to the owning form. Do not copy it
       // into the unrelated transcript banner or a later form.
-      const formCommand = ['settings-core', 'snapshot-shortcut-save', 'snapshot-shortcut-record', 'setting-snapshot', 'rename-project', 'remove-project', 'rename-group', 'remove-group', 'remove-group-member', 'setting-permissions', 'setting-model', 'setting-storage', 'setting-scoped', 'task-save', 'task-toggle', 'task-delete', 'task-run', 'keybinding-save', 'keybinding-remove', 'unarchive-thread', 'delete-archived-thread', 'provider-create', 'provider-name', 'provider-enabled', 'provider-remove'].includes(op) || PROVIDER_OPS.includes(op) || CONNECTION_OPS.includes(op) || op.startsWith('rest:') || op.startsWith('restlocal:') || op.startsWith('sb:');
+      const formCommand = ['select-thread', 'settings-core', 'snapshot-shortcut-save', 'snapshot-shortcut-record', 'setting-snapshot', 'rename-project', 'remove-project', 'rename-group', 'remove-group', 'remove-group-member', 'setting-permissions', 'setting-model', 'setting-storage', 'setting-scoped', 'task-save', 'task-toggle', 'task-delete', 'task-run', 'keybinding-save', 'keybinding-remove', 'unarchive-thread', 'delete-archived-thread', 'provider-create', 'provider-name', 'provider-enabled', 'provider-remove'].includes(op) || PROVIDER_OPS.includes(op) || CONNECTION_OPS.includes(op) || op.startsWith('rest:') || op.startsWith('restlocal:') || op.startsWith('sb:');
       // Main-window actions the reference toasts (shell-commands.ts) leave the transcript banner alone.
       if (!this.pending?.uncertain && !formCommand) { if (!shellFailure(this, op, resultMessage)) this.error = resultMessage; else if (this.error === resultMessage) this.error = ''; }
       else if (formCommand && !this.pending?.uncertain && settingsFailure(this, op, id, value, resultMessage)) resultMessage = `toasted:${resultMessage}`;
