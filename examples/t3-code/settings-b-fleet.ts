@@ -18,6 +18,7 @@ import { liveFleetEvent, liveFleetPass } from './live-streams';
 import { applyTerminalMetadataStreamEvent, type TerminalSummary, type TerminalMetadataStreamEvent } from './terminal-session';
 import { letGo } from './let-go';
 import { dropPrimaryDuplicates, primary, primaryEntry, withoutPrimaryDuplicates } from './local-primary';
+import { usageFleetEvent, usageFleetSynced } from './usage-replies'; // usage-pooled-view
 import { handoffKeptThread, keepAliveFleetEvent, keepAliveFleetPass } from './keep-alive';
 import { codexHandoffEvent } from './codex-handoff-events'; // managed-codex-chatgpt: the primary's handoff stream
 import { providerSetupEvent } from './provider-setup';
@@ -121,6 +122,7 @@ export class EnvironmentFleet {
       const entry = [...this.entries.values()].find(candidate => candidate.environmentId === environmentId);
       return entry?.phase === 'connected' ? str(obj(entry.config.environment).serverVersion) || null : null;
     }).catch(() => {});
+    usageFleetSynced(this.revision); // usage-replies.ts: a background change redraws the open Usage page
   }
 
   private async syncOne(native: Native, entry: FleetEntry, epoch: number): Promise<void> {
@@ -167,7 +169,7 @@ export class EnvironmentFleet {
     const auth = await this.call(remote, entry, { op: 'http', path: '/api/auth/session' });
     entry.scopes = Array.isArray(auth.scopes) ? auth.scopes.filter((scope): scope is string => typeof scope === 'string') : [];
     entry.config = await this.call(remote, entry, { op: 'request', method: 'server.getConfig', payload: {} });
-    entry.subscriptions.config = str((await this.call(remote, entry, { op: 'subscribe', key: 'config', method: 'subscribeServerConfig', payload: {} })).id);
+    entry.subscriptions.config = str((await this.call(remote, entry, { op: 'subscribe', key: 'config', method: 'subscribeServerConfig', payload: { usageLimitSources: true } })).id); // usage-pooled-view: hub sources, as the focused client asks
     entry.shell = applyShell(initialShell(), await this.call(remote, entry, { op: 'http', path: '/api/orchestration/shell' }));
     entry.subscriptions.shell = str((await this.call(remote, entry, { op: 'subscribe', key: 'shell', method: 'orchestration.subscribeShell', payload: { afterSequence: entry.shell.sequence } })).id);
     if (generation === entry.generation) { entry.synchronized = generation; entry.error = ''; this.revision++; }
@@ -193,6 +195,7 @@ export class EnvironmentFleet {
         through = Math.max(through, seq);
         if (liveFleetEvent(entry, event)) { this.revision++; continue; } // live-streams.ts
         if (keepAliveFleetEvent(entry, event)) { this.revision++; continue; } // keep-alive.ts
+        if (usageFleetEvent(entry, event)) { this.revision++; continue; } // usage-replies.ts: the Usage page's detached requests
         if (num(event.generation, -1) === entry.generation && (codexHandoffEvent(event) || providerSetupEvent(fleetSetupHost(entry), event))) { this.revision++; continue; } // codex-handoff-events.ts, codex-fleet-host.ts
         const key = str(event.key), item = obj(event.value);
         if (num(event.generation, -1) !== entry.generation || str(event.subscriptionId) !== entry.subscriptions[key]) continue;

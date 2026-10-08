@@ -23,7 +23,7 @@ import { needsCursorKeychainAccess, refreshUsage, refreshUsageLimits, sessionUna
 import { REDEEM_IDLE, redeemStep, type RedeemEvent, type RedeemState } from './reset-credits';
 import type { LimitAccount } from './usage-limits-pools';
 
-export type UsageWindowInput = { sinceDay: string; untilDay: string; timeZone: string; resolution: string; sinceTime?: string; untilTime?: string };
+export type UsageWindowInput = { sinceDay: string; untilDay: string; timeZone: string; resolution: 'day' | 'hour'; sinceTime?: string; untilTime?: string };
 const PHASE_TEXT: Record<string, string> = { available: 'Disconnected', connecting: 'Connecting…', reconnecting: 'Reconnecting…', error: 'Unavailable', unsupported: 'Update required',
   disconnected: 'Disconnected', connected: 'Synchronizing…' };
 
@@ -66,12 +66,14 @@ export type UsageState = {
   /** The accounts behind the segments last drawn, so a command finds what it redeems. */
   segments: Map<string, { account: LimitAccount; name: string }>;
   cursorPending: Set<string>;
+  /** The external usage pages last drawn: the only addresses `open` may hand to the system. */
+  links: string[];
 };
 const states = new WeakMap<object, UsageState>();
 export function usageState(client: object): UsageState {
   let state = states.get(client);
   if (!state) states.set(client, state = { selected: null, envs: [], clock: 0, open: false, metric: '', windowDays: 0, window: null, refreshSeen: null,
-    summaries: new Map(), outbox: [], listeners: new Map(), refreshing: false, limitsNow: 0, autoKey: '', redeems: new Map(), confirm: '', segments: new Map(), cursorPending: new Set() });
+    summaries: new Map(), outbox: [], listeners: new Map(), refreshing: false, limitsNow: 0, autoKey: '', redeems: new Map(), confirm: '', segments: new Map(), cursorPending: new Set(), links: [] });
   return state;
 }
 /** Tests and a closed page start over. */
@@ -104,7 +106,10 @@ const turns = async (count = 8) => { for (let index = 0; index < count; index++)
 
 /** Sends the queued requests on their transports, letting each continuation queue the next (bounded). */
 export async function flush(client: T3Client, native: Native, state: UsageState): Promise<void> {
-  for (let pass = 0; pass < 6 && state.outbox.length; pass++) {
+  for (let pass = 0; pass < 6; pass++) {
+    // A refresh queues its request a turn after it starts (refreshUsageLimits runs `refresh` in a then).
+    await turns();
+    if (!state.outbox.length) break;
     const batch = state.outbox.splice(0);
     await Promise.all(batch.map(async item => {
       const env = state.envs.find(candidate => candidate.id === item.environmentId);
@@ -113,7 +118,6 @@ export async function flush(client: T3Client, native: Native, state: UsageState)
         : await startFleetDetached(native, { key: env.fleet, generation: env.generation }, item.method, item.payload);
       void sent.reply.then(item.resolve);
     }));
-    await turns();
   }
 }
 
@@ -152,6 +156,11 @@ function ensureSummaries(state: UsageState): void {
     const entry = summaryEntry(state, env.id);
     if (entry?.stale && !entry.pending) void readSummary(state, env.id);
   }
+}
+
+/** Prices or mappings changed: every summary reads again; the last one shows until then ("Refreshing…"). */
+export function forgetSummaries(state: UsageState): void {
+  for (const entry of state.summaries.values()) { entry.token++; entry.pending = false; entry.stale = true; }
 }
 
 /** EnvironmentUsageStatus for each listed environment with what it reported for the current window. */
@@ -280,6 +289,11 @@ export async function usagePoolLocal(client: T3Client, native: Native | null | u
       .then(reply => { state.redeems.set(segment, redeemStep(state.redeems.get(segment) ?? REDEEM_IDLE, redeemEvent(reply))); });
     if (native?.available) await flush(client, native, state);
     return segmentFocus(segment);
+  }
+  if (op === 'open') {
+    // ExternalUsage "Manage usage": shell.openExternal of a link the view showed (a failure is ignored, as `void` there).
+    if (native?.available && state.links.includes(id)) await bridgeReply(native, { op: 'remoteEditorsOpen', url: id }).catch(() => undefined);
+    return '';
   }
   if (op === 'cursor') {
     const env = state.envs.find(candidate => candidate.id === id && candidate.connected);

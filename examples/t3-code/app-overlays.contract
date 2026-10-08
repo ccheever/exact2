@@ -197,7 +197,7 @@ component WindowOverlays
       AppConfirm(title=data.serverUpdate.confirmTitle, body=data.serverUpdate.confirmBody, destructive=false, busy=commandPending, confirmId="server-update-confirm", cancel=command("su:cancel", "", "", 0), confirm=command("su:confirm", "", "", 0))
     // usage-reset-and-feedback: the /usage-limits banner's reset credit confirm (ResetCreditDialog, outside the banner).
     when data.composer.resetConfirm != ""
-      ResetCreditDialog(target=data.composer.resetConfirm, busy=commandPending, command=command)
+      ResetCreditDialog(prefix="cclocal:usage", target=data.composer.resetConfirm, busy=commandPending, command=command)
     when confirmOp != ""
       AppConfirm(title=confirmTitle, body=confirmBody, destructive=confirmDestructive, busy=commandPending, confirmId="app-confirm", cancel=confirmUi(false), confirm=confirmUi(true))
     when viewport.prefersColorScheme == "dark"

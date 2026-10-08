@@ -58,6 +58,8 @@ export async function refreshUsageLimits<A>(environmentId: string, refresh: () =
   limitsRefreshes.set(environmentId, current);
   return await current;
 }
+/** Tests start each case without the module's checks and windows (the reference test uses a fresh environment id each). */
+export function forgetLimitsRefreshes(): void { limitsRefreshAfter.clear(); limitsRefreshes.clear(); }
 /** Whether a limits check is in flight for the environment (the Usage page's busy refresh button). */
 export const limitsRefreshPending = (environmentId: string) => limitsRefreshes.has(environmentId);
 

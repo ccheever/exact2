@@ -8,7 +8,9 @@
 // stripes 5px apart at 135°; the popover's side is the one the reference lands on after its
 // collision flip on an unscrolled page (below the first card, where the page top leaves no room,
 // above every other); every figure and word is otherwise the reference's.
+import { arr, str } from './domain';
 import { driverMeta } from './providers-meta';
+import { resolveOfficialAcpRegistryIconUrl } from './acp-icons';
 import { PACE_LABEL, barColor, formatResetsIn, remainingPercent } from './usage-limits';
 import { REDEEM_IDLE, resetCreditsSummary } from './reset-credits';
 import { redactedValue } from './redacted-text';
@@ -54,7 +56,7 @@ function accountName(account: LimitAccount) {
 }
 
 export type PooledSegment = ReturnType<typeof segmentView>;
-function segmentView(state: UsageState, id: string, account: LimitAccount, window: import('./domain').Obj, reset: { restoresPercent: number } | undefined, column: number, showName: boolean, now: number, format: string, side: string) {
+function segmentView(state: UsageState, id: string, account: LimitAccount, window: import('./domain').Obj, reset: { restoresPercent: number } | undefined, column: number, count: number, now: number, format: string, side: string) {
   const remaining = remainingPercent(window), resetsIn = formatResetsIn(window, now);
   const credits = Number(account.limits.resetCredits && (account.limits.resetCredits as { availableCount?: number }).availableCount) || 0;
   const label = account.displayName ?? (account.email ? accountInitials(account.email) : account.driver);
@@ -64,7 +66,9 @@ function segmentView(state: UsageState, id: string, account: LimitAccount, windo
   const resetCredits = account.limits.resetCredits as import('./domain').Obj | undefined;
   const avatar = account.redeem ? 'instance' : account.email ? 'chip' : '';
   return {
-    id, column, side, remaining, credits, ...named, showName,
+    id, column, side, remaining, credits, ...named, showName: count > 1,
+    // PopoverPopup align center, shifted inside the page at the bar's ends (Base UI's collision shift).
+    align: count > 1 && column === 1 ? 'start' : count > 1 && column === count ? 'end' : 'center',
     label: `${label}: ${remaining}% left${resetsIn ? `, ${resetsIn}` : ''}${credits ? `, ${credits} reset ${credits === 1 ? 'credit' : 'credits'} banked` : ''}`,
     resets: resetsIn ? resetsIn.replace('resets in ', '↻ ') : '',
     creditsAria: credits ? `${credits} reset ${credits === 1 ? 'credit' : 'credits'} banked` : '',
@@ -108,19 +112,24 @@ export function pooledView(state: UsageState, statuses: EnvironmentUsageStatus[]
         if (!member.window) return [];
         const id = `${poolIndex}-${windowIndex}-${position}`;
         state.segments.set(id, { account: member.account, name: accountName(member.account).name });
-        return [segmentView(state, id, member.account, member.window, restores.get(member.account.key), position + 1, window.columns.length > 1, now, layout.format, side)];
+        return [segmentView(state, id, member.account, member.window, restores.get(member.account.key), position + 1, window.columns.length, now, layout.format, side)];
       });
       return {
-        key: `${window.kind}:${window.id}`, label: details?.label ?? window.label, description: details?.description ?? '',
+        key: `${window.kind}:${window.id}`, prefix: `${poolIndex}-${windowIndex}-`, label: details?.label ?? window.label, description: details?.description ?? '',
         remaining: window.remainingPercent, pace: window.pace ?? '', paceLabel: window.pace ? PACE_LABEL[window.pace] : '',
         refill: nextRefill && window.columns.length > 1 ? `↻ +${nextRefill.restoresPercent}%` : '',
         count: window.columns.length, segments,
         // The popover closed before the confirm, so each outcome needs a home outside it: under the bar.
-        statuses: segments.filter(segment => segment.status !== '').map(segment => ({ key: segment.id, name: segment.name, chip: segment.chip, chipBg: segment.chipBg, chipFg: segment.chipFg, text: segment.status })),
+        // Explicit rows after the strip (and, narrow, after its legend), as the grid places them.
+        statuses: segments.filter(segment => segment.status !== '').map((segment, index) => ({ key: segment.id, row: (wide ? 2 : window.columns.length + 2) + index,
+          name: segment.name, chip: segment.chip, chipBg: segment.chipBg, chipFg: segment.chipFg, text: segment.status })),
       };
     });
-    return { key: pool.driver, driver: pool.driver, label: driverLabel(pool.driver), light, dark, windows, cursorBefore: cursorEnvironments.length > 0 && poolIndex === cursorPromptAt };
+    // provider-settings-upkeep: an ACP agent's pool draws its registry icon (a live provider's iconUrl).
+    const acp = pool.driver === 'acpRegistry' ? [...presentations.values()].flatMap(entry => arr(entry.serverConfig?.providers)).find(provider => provider.driver === 'acpRegistry' && str(provider.iconUrl)) : undefined;
+    return { key: pool.driver, prefix: `${poolIndex}-`, driver: pool.driver, icon: acp ? resolveOfficialAcpRegistryIconUrl(str(acp.iconUrl)) ?? '' : '', label: driverLabel(pool.driver), light, dark, windows, cursorBefore: cursorEnvironments.length > 0 && poolIndex === cursorPromptAt };
   });
+  state.links = links.map(link => link.url);
   return {
     wide, hatchWide: hatchPath(32), hatchNarrow: hatchPath(20),
     empty: pools.length === 0 && notices.length === 0 && cursorEnvironments.length === 0 && links.length === 0,

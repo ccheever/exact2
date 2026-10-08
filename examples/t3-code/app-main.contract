@@ -21,6 +21,7 @@ use UsageView from "./pages-usage.contract"
 use UsageKey from "./pages-usage.contract"
 use UsagePricesLayer from "./pages-usage-dialogs.contract"
 use UsageModelLayer from "./pages-usage-dialogs.contract"
+use ResetCreditDialog from "./usage-bars.contract" // usage-pooled-view
 use PrList from "./pages-prs.contract"
 use PgIcon from "./pages-icons.contract"
 use PrListView from "./pages-prs.contract"
@@ -265,7 +266,6 @@ component PagesCover
     usageWindowSet: action
     usageBreakdownSet: action
     usageRefreshNow: action
-    usageEnvironmentToggle: action
     openPage: action
     prList: PrListView
     prTyped: bool
@@ -298,9 +298,9 @@ component PagesCover
       box position="absolute" left=(data.sidebarOpen ? sidebarWidth : 0) top=0 right=0 bottom=0 inert=modal testId="pages-cover"
         when utilityPage == "usage"
           when viewport.prefersColorScheme == "dark"
-            UsagePage(controlsLeft=data.controlsLeft, page=usage, keys=usageShortcuts, scheme="dark", wide=(viewport.width >= 1280), lg=(viewport.width >= 1024), md=(viewport.width >= 768), sm=(viewport.width >= 640), sidebarOpen=data.sidebarOpen, keySidebar=settings.keySidebar, toggleSidebar=toggleSidebar, op=pagesOp, setMetric=usageMetricSet, setWindow=usageWindowSet, setBreakdown=usageBreakdownSet, reload=usageRefreshNow, toggleEnvironment=usageEnvironmentToggle, back=openPage(""))
+            UsagePage(controlsLeft=data.controlsLeft, page=usage, keys=usageShortcuts, scheme="dark", wide=(viewport.width >= 1280), lg=(viewport.width >= 1024), md=(viewport.width >= 768), sm=(viewport.width >= 640), sidebarOpen=data.sidebarOpen, keySidebar=settings.keySidebar, toggleSidebar=toggleSidebar, op=pagesOp, setMetric=usageMetricSet, setWindow=usageWindowSet, setBreakdown=usageBreakdownSet, reload=usageRefreshNow, back=openPage(""), command=command, reduced=viewport.prefersReducedMotion)
           else
-            UsagePage(controlsLeft=data.controlsLeft, page=usage, keys=usageShortcuts, scheme="light", wide=(viewport.width >= 1280), lg=(viewport.width >= 1024), md=(viewport.width >= 768), sm=(viewport.width >= 640), sidebarOpen=data.sidebarOpen, keySidebar=settings.keySidebar, toggleSidebar=toggleSidebar, op=pagesOp, setMetric=usageMetricSet, setWindow=usageWindowSet, setBreakdown=usageBreakdownSet, reload=usageRefreshNow, toggleEnvironment=usageEnvironmentToggle, back=openPage(""))
+            UsagePage(controlsLeft=data.controlsLeft, page=usage, keys=usageShortcuts, scheme="light", wide=(viewport.width >= 1280), lg=(viewport.width >= 1024), md=(viewport.width >= 768), sm=(viewport.width >= 640), sidebarOpen=data.sidebarOpen, keySidebar=settings.keySidebar, toggleSidebar=toggleSidebar, op=pagesOp, setMetric=usageMetricSet, setWindow=usageWindowSet, setBreakdown=usageBreakdownSet, reload=usageRefreshNow, back=openPage(""), command=command, reduced=viewport.prefersReducedMotion)
         when utilityPage == "pull-requests"
           row position="absolute" left=0 top=0 right=0 bottom=0
             when viewport.prefersColorScheme == "dark"
@@ -317,6 +317,9 @@ component PagesCover
           else
             PagesLanding(controlsLeft=data.controlsLeft, home=home, scheme="light", sidebarOpen=data.sidebarOpen, keySidebar=settings.keySidebar, busy=commandPending, toggleSidebar=toggleSidebar, command=command, addProject=paletteShow("command", "add-project"), openConnections=openConnectionsPage)
     // Usage's model and Model prices dialogs cover the whole window, sidebar included (pages-usage-dialogs).
+    // usage-pooled-view: a pooled segment's reset credit confirm, outside its popover (UsageLimitsPooled RedeemableSegmentPopup).
+    when pageCover and utilityPage == "usage" and usage.pooled.confirm != ""
+      ResetCreditDialog(prefix="pageslocal:usage-pool", target=usage.pooled.confirm, busy=commandPending, command=command)
     when pageCover and utilityPage == "usage" and usage.prices.open
       UsagePricesLayer(page=usage, scheme=viewport.prefersColorScheme, viewportHeight=viewport.height, busy=commandPending, op=pagesOp)
     when pageCover and utilityPage == "usage" and usage.detail.open and not usage.prices.open

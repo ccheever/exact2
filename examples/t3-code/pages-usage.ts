@@ -10,7 +10,7 @@ import { pagesPrefs, type UsagePrefs } from './pages-prefs';
 import { emptyPrices, presentPrices } from './pages-usage-prices';
 import { checkMenu, uniqueProbes, type Probe } from './r5-composer-menus';
 import { emptyDetail, modelDetail, modelKey, modelRows, openModel, pageShares, setOpenModel, type ModelRowView, type ShareBarView } from './pages-usage-detail';
-import { contractVersionOf, environmentStatuses, forgetSummaries, isSelected, phaseText, prepareUsage, usagePoolLocal, usageState, type EnvironmentUsageStatus } from './usage-environments';
+import { contractVersionOf, environmentStatuses, forgetSummaries, isSelected, phaseText, prepareUsage, usageState, type EnvironmentUsageStatus } from './usage-environments';
 import { cursorRows, emptyPooled, poolBarWidth, pooledView } from './usage-pooled-view';
 import { usesChatGptSharing } from './chatgpt-plan'; // managed-codex-chatgpt
 
@@ -379,7 +379,7 @@ async function usageView(client: T3Client, native: Native | null | undefined, _s
   }
   // UsageModelDialog for the row the person opened, while it is still in the window.
   const open = merged.models.find(model => modelKey(model) === openModel(client));
-  if (open) page.detail = modelDetail(open, environments, windowPeriods(state.window), state.window.resolution === 'hour' ? 'hour' : 'day', metric, input.viewport ?? 1280);
+  if (open) page.detail = modelDetail(open, environments, windowPeriods(state.window), state.window.resolution, metric, input.viewport ?? 1280);
   else if (openModel(client)) setOpenModel(client, '');
   return page;
 }
