@@ -118,19 +118,45 @@ describe('the Pull Requests list reads again as the reference page does (useLive
     expect(await rows({ now: NOW + 50_000, returns: 1 })).toEqual(['158:open']); // the window's focus reads it, and it is back (inside the close note's minute)
   });
 
-  test('a live read that a later run overtakes still shows: the later run reads too (the five ticks of the live check)', async () => {
+  test('a run that asks while a read is out joins it: one read, and its answer is what shows (the five ticks of the live check)', async () => {
     // Live check, 2026-10-08: `clock +300000` ran the page five times; the interval's read answered with #158 back,
-    // but a later tick's run had already answered from the old list, and nothing ran the page again.
+    // but a later tick's run had already answered from the old list. Attempt 3: a refocus read the list twice.
     const later = [...entries, { ...entries[0]!, number: 159, title: 'Explain the vowel rule' }];
     let answers = 0, release: () => void = () => {};
     const run = fixture(NOW + 4 * MINUTE, { 'pullRequests.list': () => { answers++; if (answers === 1) return { entries, viewers: {} }; if (answers === 2) return new Promise(resolve => { release = () => resolve({ entries: later, viewers: {} }); }); return { entries: later, viewers: {} }; } });
     const numbers = (view: Awaited<ReturnType<typeof run.page>>) => view.groups.flatMap(group => group.rows.map(row => row.number)).sort();
     expect(numbers(await run.page())).toEqual([158]);
-    const overtaken = run.page({ now: NOW + 5 * MINUTE }); // the interval's read goes out
+    const first = run.page({ now: NOW + 5 * MINUTE }); // the interval's read goes out
     await Bun.sleep(1);
-    expect(numbers(await run.page({ now: NOW + 6 * MINUTE }))).toEqual([158, 159]); // the next tick's run reads too, and shows it
-    release(); await overtaken;
+    const second = run.page({ now: NOW + 6 * MINUTE }); // the next tick's run asks while it is out
+    const third = run.page({ now: NOW + 6 * MINUTE, returns: 1 }); // and a focus
+    await Bun.sleep(1);
+    release();
+    expect([numbers(await first), numbers(await second), numbers(await third)]).toEqual([[158, 159], [158, 159], [158, 159]]);
+    expect(run.reads()).toBe(2); // the first read and the interval's; the tick and the focus joined it
     expect(numbers(await run.page({ now: NOW + 6 * MINUTE }))).toEqual([158, 159]);
-    expect(run.reads()).toBe(3); // and the read is no longer due once one has landed
+    expect(run.reads()).toBe(2);
+  });
+
+  test('a server announcement while a live read is out joins it', async () => {
+    let answers = 0, release: () => void = () => {};
+    const run = fixture(NOW, { 'pullRequests.list': () => { answers++; if (answers === 2) return new Promise(resolve => { release = () => resolve({ entries, viewers: {} }); }); return { entries, viewers: {} }; } });
+    await run.page();
+    const focused = run.page({ now: NOW + 30_000, returns: 1 }); // the window's focus: a read goes out
+    await Bun.sleep(1);
+    prRefreshEvent(run.client, { key: PR_REFRESH_KEY, subscriptionId: '1-1', value: 1 }); // the server's word arrives meanwhile
+    const announced = run.page({ now: NOW + 30_000, returns: 1 });
+    await Bun.sleep(1);
+    release(); await focused; await announced;
+    expect(run.reads()).toBe(2);
+  });
+
+  test('a re-read that fails keeps the rows on screen (the reference\'s `answered ?? carried`), so the list keeps its place', async () => {
+    let fail = false;
+    const run = fixture(NOW, { 'pullRequests.list': () => { if (fail) throw new Error('GitHub CLI command failed: HTTP 502'); return { entries, viewers: {} }; } });
+    expect((await run.page()).groups.flatMap(group => group.rows.map(row => row.number))).toEqual([158]);
+    fail = true;
+    const view = await run.page({ now: NOW + 30_000, returns: 1 });
+    expect([view.groups.flatMap(group => group.rows.map(row => row.number)), view.empty]).toEqual([[158], '']);
   });
 });
