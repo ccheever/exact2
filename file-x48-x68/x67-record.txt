@@ -1,0 +1,121 @@
+# X67 record: the Contract compiler overflows a 2 MiB stack below its own depth limits
+exact2 main b896050d78508aa5cea10cfa875e02037fde4c6e (2026-10-08); macOS 26.6.2 (25G83), Apple Silicon; rustc per rust-toolchain.toml; debug = cargo build -p contract --bin contract (dev profile, opt-level 0); host-dev = cargo build --profile host-dev -p contract --bin contract
+
+## Generators
+--- gen-nest.py (N nested columns in one component)
+import sys
+n = int(sys.argv[1])
+out = ["component App", "  view"]
+for i in range(n):
+    out.append("    " + "  " * i + "column")
+out.append("    " + "  " * n + 'text "leaf"')
+print("\n".join(out))
+--- gen-chain.py (k components, each d columns deep, each using the next at its deepest point)
+import sys
+# k components, each d columns deep; each uses the next at its deepest point.
+k, d = int(sys.argv[1]), int(sys.argv[2])
+out = []
+for c in range(k):
+    out.append(f"component C{c}" if c else "component App")
+    out.append("  view")
+    for i in range(d):
+        out.append("    " + "  " * i + "column")
+    inner = "    " + "  " * d
+    out.append(inner + (f"C{c+1}()" if c + 1 < k else 'text "leaf"'))
+    out.append("")
+print("\n".join(out))
+
+## 1. CLI runs (ulimit -s sets the main thread's stack; a Rust test thread gets 2 MiB)
+$ (ulimit -s 2048; contract build nest102.contract -o p.plan)   # debug
+  exit 0: nest102.contract: 0 slots, 0 derives, 0 resources, 0 actions, 103 nodes, 0 regions, 5988 bytes
+$ (ulimit -s 2048; contract build nest103.contract -o p.plan)   # debug
+  exit 134: fatal runtime error: stack overflow, aborting
+$ (ulimit -s 4096; contract build nest103.contract -o p.plan)   # debug
+  exit 0: nest103.contract: 0 slots, 0 derives, 0 resources, 0 actions, 104 nodes, 0 regions, 6043 bytes
+$ (ulimit -s 8192; contract build nest255.contract -o p.plan)   # debug
+  exit 0: nest255.contract: 0 slots, 0 derives, 0 resources, 0 actions, 256 nodes, 0 regions, 14403 bytes
+$ (ulimit -s 2048; contract build nest255.contract -o p.plan)   # host-dev (optimized)
+  exit 0: nest255.contract: 0 slots, 0 derives, 0 resources, 0 actions, 256 nodes, 0 regions, 14403 bytes
+$ (ulimit -s 2048; contract build deep.contract -o p.plan)   # debug
+  exit 134: fatal runtime error: stack overflow, aborting
+$ (ulimit -s 8192; contract build deep.contract -o p.plan)   # debug
+  exit 0:   nodes by component, inlined uses included: C1 106 (1×), C2 91 (1×), C3 76 (1×), C4 61 (1×), C5 46 (1×)
+$ (ulimit -s 2048; contract build deep.contract -o p.plan)   # host-dev (optimized)
+  exit 0:   nodes by component, inlined uses included: C1 106 (1×), C2 91 (1×), C3 76 (1×), C4 61 (1×), C5 46 (1×)
+$ (ulimit -s 2048; contract build chain-40-60.contract -o p.plan)   # host-dev (optimized)
+  exit 134: fatal runtime error: stack overflow, aborting
+$ (ulimit -s 8192; contract build chain-40-60.contract -o p.plan)   # host-dev (optimized)
+  exit 1: chain-40-60.contract:2111:125 [syntax-inline-depth] component `C33` nests too deeply (a cycle?)
+
+deep.contract = python3 gen-chain.py 8 15 (8 components x 15 columns = 120 nested sites; full file: x67-deep.contract.txt)
+
+## 2. Bisection: the deepest single-file nesting that compiles (gen-nest.py N)
+debug, 2 MiB:    passes 102, aborts 103
+debug, 4 MiB:    passes 209, aborts 210
+debug, 8 MiB:    passes 255; 256 is refused by name: [syntax-view-depth] views nest more than 256 sites deep
+host-dev, 2 MiB: passes 255; 256 refused by name
+
+## 3. Where the stack goes (lldb on the debug binary, ulimit -s 2048, nest103.contract)
+frames 231
+0 <contract_lower::Lowerer>::node line 620 frame bytes 18960
+1 <contract_lower::Lowerer>::nodes line 612 frame bytes 512
+2 <contract_lower::Lowerer>::node line 1109 frame bytes 18960
+3 <contract_lower::Lowerer>::nodes line 612 frame bytes 512
+4 <contract_lower::Lowerer>::node line 1109 frame bytes 18960
+5 <contract_lower::Lowerer>::nodes line 612 frame bytes 512
+6 <contract_lower::Lowerer>::node line 1109 frame bytes 18960
+7 <contract_lower::Lowerer>::nodes line 612 frame bytes 512
+206 <contract_lower::Lowerer>::node line 1109 frame bytes 18960
+207 <contract_lower::Lowerer>::nodes line 612 frame bytes 512
+208 contract_lower::lower_with_sites line 475 frame bytes 22256
+209 contract_lower::lower_all line 192 frame bytes 384
+210 contract::compile_file_output line 998 frame bytes 5088
+211 contract::compile_path_checked line 573 frame bytes 13296
+212 contract::compile_path_all_unchecked line 507 frame bytes 432
+213 contract::build::run line 105 frame bytes 5696
+214 contract::run line 56 frame bytes 672
+215 contract::main line 46 frame bytes 16
+216 <fn() -> std::process::ExitCode as core::ops::function::FnOnce<()>>::call_once line 250 frame bytes 32
+217 std::sys::backtrace::__rust_begin_short_backtrace::<fn() -> std::process::ExitCode, std::p line 166 frame bytes 32
+218 std::rt::lang_start::<std::process::ExitCode>::{closure#0} line 206 frame bytes 32
+219 <&dyn core::ops::function::Fn<(), Output = i32> + core::marker::Sync + core::panic::unwind line 287 frame bytes 0
+220 std::panicking::catch_unwind::do_call::<&dyn core::ops::function::Fn<(), Output = i32> + c line 581 frame bytes 0
+221 std::panicking::catch_unwind::<i32, &dyn core::ops::function::Fn<(), Output = i32> + core: line 544 frame bytes 0
+222 std::panic::catch_unwind::<&dyn core::ops::function::Fn<(), Output = i32> + core::marker:: line 359 frame bytes 0
+223 std::rt::lang_start_internal::{closure#0} line 175 frame bytes 0
+224 std::panicking::catch_unwind::do_call::<std::rt::lang_start_internal::{closure#0}, isize> line 581 frame bytes 0
+225 std::panicking::catch_unwind::<isize, std::rt::lang_start_internal::{closure#0}> line 544 frame bytes 0
+226 std::panic::catch_unwind::<std::rt::lang_start_internal::{closure#0}, isize> line 359 frame bytes 0
+227 std::rt::lang_start_internal line 171 frame bytes 160
+228 std::rt::lang_start::<std::process::ExitCode> line 205 frame bytes 80
+229 main line 4294967295 frame bytes 16
+230 start line 4294967295 frame bytes 0
+
+## 3b. Optimized, chain-40-60.contract (40 components x 60 = 2,400 sites through inlining), ulimit -s 2048
+frames 1361; frames 0-1340 are contract_syntax::inline::inline_nodes, 1,536 bytes each; then expand_with_sites, contract_types::check_with_sites, contract::compile_file_output, ... The inliner recurses through every node of every inlined component before its 32-component limit (contract/syntax/src/inline.rs:425, ctx.depth > 32) or the plan's 256-site limit (lower-invalid-plan SiteTooDeep, seen for gen-chain.py 10 60) refuses it.
+
+## 4. main's source sweep in a test thread (contract/cli/tests/it/button_migration.rs, added in cbd76f7d7)
+With deep.contract copied to examples/x67-deep/app.contract:
+$ cargo test -p contract --test it button_migration -- --nocapture
+running 1 test
+
+thread 'button_migration::every_app_corpus_and_example_compiles_and_the_button_migration_is_complete' (141139121) has overflowed its stack
+fatal runtime error: stack overflow, aborting
+error: test failed, to rerun pass `-p contract --test it`
+
+Caused by:
+  process didn't exit successfully: `/Users/daehyeonmun/orca/workspaces/exact2/t3-code-file-x48-x68/target/debug/deps/it-6873a7b7050866e0 button_migration --nocapture` (signal: 6, SIGABRT: process abort signal)
+exit 101
+
+Control, the same command after removing examples/x67-deep:
+running 1 test
+source sweep: 88 roots, 13 imported source files, 0 failures
+test button_migration::every_app_corpus_and_example_compiles_and_the_button_migration_is_complete ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 996 filtered out; finished in 1.11s
+
+## 5. The consumer: the T3 Code clone (examples/t3-code, feat(example)/t3-code 732f0e3f3), its own branch's debug compiler, from a review probe on 2026-10-08
+ulimit -s 2048: thread 'main' (140810846) has overflowed its stackfatal runtime error: stack overflow, aborting  (exit 134)
+ulimit -s 4096: app.contract: 3931 slots, 20 derives, 46 resources, 4225 actions, 75582 nodes, 30105 regions, 15234136 bytes
+main's own debug compiler (4fe878a13) on a copy of main with the clone copied in (its now() calls renamed to performanceNow(), as main requires): 2048 aborts the same way, 4096 and 8192 pass. main's sweep test in that copy: SIGABRT of the whole it binary:
+thread 'button_migration::every_app_corpus_and_example_compiles_and_the_button_migration_is_complete' (140700966) has overflowed its stack
+  process didn't exit successfully: `<probe>/target/debug/deps/it-6873a7b7050866e0 button_migration --nocapture` (signal: 6, SIGABRT: process abort signal)
