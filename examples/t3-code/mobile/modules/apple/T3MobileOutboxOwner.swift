@@ -44,6 +44,21 @@ final class T3MobileOutboxOwner: @unchecked Sendable {
         if let revision = request["expectedRevision"] as? Int, revision != row.revision { return false }
         return true
     }
+    /// Caller holds the coordinator mutex through journal persistence. Never reacquire it here.
+    func deliveryRecordLocked(_ request: Object) throws -> Object {
+        guard loaded, errors.isEmpty, request["ownerEpoch"] as? String == epoch,
+              let id = request["messageId"] as? String, let row = rows[id], let record = row.record,
+              row.confirmed, unresolved[id] == nil,
+              !accepted.values.contains(where: { $0["messageId"] as? String == id }),
+              (holds[id] ?? []).isEmpty,
+              request["expectedToken"] as? String == row.token,
+              T3OutboxDeliveryReceipt.integer(request["expectedRevision"], positive: true),
+              request["expectedRevision"] as? Int == row.revision,
+              let captured = request["record"] as? Object, T3MobileOutbox.jsonEqual(captured, record) else {
+            throw fail("The queued message changed or is not durably available for delivery.")
+        }
+        return record
+    }
     // Called with the coordinator lock already held by byte removal.
     func protects(_ identifier: String) -> Bool {
         let records = accepted.values.compactMap { $0["record"] as? Object } + rows.values.compactMap(\.record) + cache.values.flatMap(disk.payloads)

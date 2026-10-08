@@ -26,6 +26,8 @@ final class T3MobileQueuedEdit: @unchecked Sendable {
     private var preferences: URL { root.appendingPathComponent("t3-code.json") }
     private var active: [UUID: String] = [:]
     private var sending = Set<String>()
+    // A cold/ambiguous visible journal is not proof of fsync. Only an exact successful save confirms it.
+    private var durableOutbox: [String: Int] = [:]
     // Failure injection belongs to isolated source tests; shipping initializer uses durableReplace.
     private let replace: (Data, URL) throws -> Void
     init(root: URL, replace: @escaping (Data, URL) throws -> Void = T3MobileQueuedEdit.durableReplace) {
@@ -133,6 +135,12 @@ final class T3MobileQueuedEdit: @unchecked Sendable {
                   record["attachments"] is [[String: Any]] else { throw refusal("The queued editor record is corrupt.", kind: "Persistence") }
         }
         for (id, operation) in operations(value) {
+            if operation["kind"] != nil {
+                guard T3OutboxDeliveryReceipt.valid(operation, id: id) else {
+                    throw refusal("The saved outbox delivery receipt is corrupt.", kind: "Persistence")
+                }
+                continue
+            }
             guard operation["operationId"] as? String == id, operation["owner"] is String,
                   operation["environmentId"] is String, operation["origin"] is String,
                   operation["method"] as? String == "orchestration.dispatchCommand",
@@ -157,7 +165,7 @@ final class T3MobileQueuedEdit: @unchecked Sendable {
         try locked {
             let value = try store()
             return ["records": records(value).values.map { ["owner": $0["owner"] ?? "", "revision": $0["revision"] ?? 0, "record": $0] },
-                    "operations": Array(operations(value).values), "releases": value["releases"] ?? []]
+                    "operations": operations(value).values.filter { $0["kind"] == nil }, "releases": value["releases"] ?? []]
         }
     }
     func cas(_ request: [String: Any]) throws -> [String: Any] {
@@ -208,10 +216,71 @@ final class T3MobileQueuedEdit: @unchecked Sendable {
             commands[id] = operation; value["operations"] = commands; try save(value); return operation
         }
     }
+    /// Stage one only: this receipt cannot enter the queued-edit sender.
+    func reserveOutboxDelivery(_ request: [String: Any], origin: String, environment: String) throws -> [String: Any] {
+        try locked {
+            let candidate = try T3OutboxDeliveryReceipt.make(request, origin: origin, environment: environment)
+            let id = candidate["operationId"] as! String
+            var value = try store(), commands = operations(value)
+            if let existing = commands[id] {
+                guard existing["kind"] as? String == "outbox" else {
+                    throw refusal("This command identity belongs to another journal operation.", kind: "stale")
+                }
+                let identical = T3OutboxDeliveryReceipt.sameIdentity(existing, candidate)
+                guard identical || (existing["state"] as? String == "retired"
+                    && candidate["retiredRevision"] as? Int == existing["revision"] as? Int) else {
+                    throw refusal("This command identity already owns another payload.", kind: "stale")
+                }
+                // Re-sync retirement before admitting a new row. Exact lost-reply retries return their receipt.
+                durableOutbox.removeValue(forKey: id)
+                try save(value); durableOutbox[id] = existing["revision"] as? Int
+                if identical { return ["operation": existing, "durable": true] }
+            } else if candidate["retiredRevision"] != nil {
+                throw refusal("The expected retired reservation is missing.", kind: "stale")
+            }
+            _ = try outboxOwner.deliveryRecordLocked(request)
+            guard !commands.values.contains(where: { $0["origin"] as? String == origin && $0["environmentId"] as? String == environment && unresolved($0) }),
+                  !active.values.contains(origin + "\n" + environment), try !hasPending(environment) else {
+                throw refusal("Resolve the previous environment operation first.", kind: "Busy")
+            }
+            commands[id] = candidate; value["operations"] = commands
+            durableOutbox.removeValue(forKey: id)
+            try save(value); durableOutbox[id] = candidate["revision"] as? Int
+            return ["operation": candidate, "durable": true]
+        }
+    }
+    /// Read-only: a visible receipt after restart is deliberately not called durable.
+    func outboxDeliveryStatus(_ id: String) throws -> [String: Any] {
+        try locked {
+            guard let operation = operations(try store())[id], operation["kind"] as? String == "outbox" else {
+                return ["operation": NSNull(), "durable": false]
+            }
+            return ["operation": operation, "durable": durableOutbox[id] == operation["revision"] as? Int]
+        }
+    }
+    /// Only never-issued reservations retire. Replacing one requires its exact retired revision and fresh row admission.
+    func retireOutboxDelivery(_ id: String, revision: Int) throws -> [String: Any] {
+        try locked {
+            var value = try store(), commands = operations(value)
+            guard var operation = commands[id], operation["kind"] as? String == "outbox",
+                  operation["revision"] as? Int == revision,
+                  ["reserved", "retired"].contains(operation["state"] as? String ?? ""), !sending.contains(id) else {
+                throw refusal("The outbox reservation changed or needs delivery resolution.", kind: "stale")
+            }
+            durableOutbox.removeValue(forKey: id)
+            if operation["state"] as? String == "reserved" {
+                operation["state"] = "retired"; operation["revision"] = revision + 1
+                enqueueReleases((operation["record"] as? [String: Any])?["attachments"] as? [[String: Any]] ?? [], in: &value)
+                commands[id] = operation; value["operations"] = commands
+            }
+            try save(value); durableOutbox[id] = operation["revision"] as? Int
+            return ["operation": operation, "durable": true, "releases": drainReleases(&value)]
+        }
+    }
     func beginSend(_ id: String, revision: Int, origin: String, environment: String) throws -> [String: Any] {
         try locked {
             var value = try store(), commands = operations(value)
-            guard var operation = commands[id], operation["revision"] as? Int == revision,
+            guard var operation = commands[id], operation["kind"] == nil, operation["revision"] as? Int == revision,
                   operation["origin"] as? String == origin, operation["environmentId"] as? String == environment else { throw refusal("The queued operation or environment changed.", kind: "stale") }
             if operation["state"] as? String == "acknowledged" { return operation }
             guard unresolved(operation), !sending.contains(id), !active.values.contains(origin + "\n" + environment), try !hasPending(environment) else { throw refusal("The queued operation is already sending or blocked.", kind: "Busy") }
@@ -224,7 +293,7 @@ final class T3MobileQueuedEdit: @unchecked Sendable {
         try locked {
             defer { sending.remove(id) }
             var value = try store(), commands = operations(value)
-            guard var operation = commands[id] else { throw refusal("The queued operation is missing.", kind: "Persistence") }
+            guard var operation = commands[id], operation["kind"] == nil else { throw refusal("The queued operation is missing.", kind: "Persistence") }
             let success = result["ok"] as? Bool == true
             operation["state"] = success ? "acknowledged" : knownUnsent ? "reserved" : result["_definitiveFailure"] as? Bool == true ? "rejected" : "uncertain"
             operation["revision"] = (operation["revision"] as? Int ?? 0) + 1
@@ -238,7 +307,7 @@ final class T3MobileQueuedEdit: @unchecked Sendable {
         return try locked {
             let commands = operations(try store())
             if let journal {
-                guard sending.contains(journal), let operation = commands[journal], operation["origin"] as? String == origin, operation["environmentId"] as? String == environment,
+                guard sending.contains(journal), let operation = commands[journal], operation["kind"] == nil, operation["origin"] as? String == origin, operation["environmentId"] as? String == environment,
                       operation["state"] as? String == "issued" else { throw refusal("The queued send is no longer admitted.", kind: "stale") }
             } else if commands.values.contains(where: { $0["origin"] as? String == origin && $0["environmentId"] as? String == environment && unresolved($0) }) {
                 throw refusal("Resolve the queued update before making another change in this environment.", kind: "Busy")
@@ -263,7 +332,7 @@ final class T3MobileQueuedEdit: @unchecked Sendable {
             var value = try store(), commands = operations(value)
             guard let owner = request["owner"] as? String, let record = records(value)[owner],
                   record["revision"] as? Int == request["editorRevision"] as? Int,
-                  let id = request["operationId"] as? String, let operation = commands[id], operation["owner"] as? String == owner,
+                  let id = request["operationId"] as? String, let operation = commands[id], operation["kind"] == nil, operation["owner"] as? String == owner,
                   operation["revision"] as? Int == request["revision"] as? Int,
                   ["reserved", "acknowledged", "rejected"].contains(operation["state"] as? String ?? ""), !sending.contains(id) else {
                 throw refusal("The queued operation changed or still needs resolution.", kind: "stale")
@@ -277,7 +346,7 @@ final class T3MobileQueuedEdit: @unchecked Sendable {
             var value = try store(), entries = records(value), commands = operations(value)
             guard let owner = request["owner"] as? String, let record = entries[owner],
                   record["revision"] as? Int == request["editorRevision"] as? Int else { throw refusal("The editor changed before cleanup.", kind: "stale") }
-            let owned = commands.values.filter { $0["owner"] as? String == owner }
+            let owned = commands.values.filter { $0["kind"] == nil && $0["owner"] as? String == owner }
             for operation in owned {
                 guard operation["operationId"] as? String == request["operationId"] as? String,
                       operation["revision"] as? Int == request["operationRevision"] as? Int,
@@ -326,7 +395,11 @@ final class T3MobileQueuedEdit: @unchecked Sendable {
     private func held(_ identifier: String, value: [String: Any]) throws -> Bool {
         let owned = records(value).values.contains { record in
             (record["attachments"] as? [[String: Any]] ?? []).contains { ($0["id"] as? String)?.lowercased() == identifier }
-        } || operations(value).values.contains { ($0["attachmentIDs"] as? [String] ?? []).map { $0.lowercased() }.contains(identifier) }
+        } || operations(value).values.contains { operation in
+            if operation["kind"] as? String == "outbox", operation["state"] as? String == "retired",
+               let id = operation["operationId"] as? String, durableOutbox[id] == operation["revision"] as? Int { return false }
+            return (operation["attachmentIDs"] as? [String] ?? []).map { $0.lowercased() }.contains(identifier)
+        }
         if owned { return true }
         if outboxOwner.protects(identifier) { return true }
         if try outboxStore.inventoryHolds(identifier) { return true }
