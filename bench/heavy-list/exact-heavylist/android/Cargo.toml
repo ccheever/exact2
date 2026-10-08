@@ -1,0 +1,20 @@
+[package]
+name = "exact-heavylist-android"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+build = "build.rs"
+
+[lib]
+name = "exact_heavylist_android"
+crate-type = ["rlib"]
+
+[dependencies]
+exact-heavylist-data = { path = "../data" }
+exact-android = { path = "../../../../host/android" }
+
+[build-dependencies]
+exact-heavylist-data = { path = "../data" }
+contract = { path = "../../../../contract/cli" }
+exact-bake = { path = "../../../../bake" }

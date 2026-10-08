@@ -68,6 +68,8 @@ mod paint;
 mod paragraph;
 #[path = "presence.rs"]
 mod presence;
+#[path = "row_reuse.rs"]
+mod row_reuse;
 #[cfg(test)]
 #[path = "transform_drag_tests.rs"]
 mod transform_drag_tests;
@@ -221,12 +223,12 @@ pub struct Host<D: DataSource> {
     colors_seen: Option<u64>,
 }
 
-/// A plan's bytes at boot: copied from while decoding, or linked into the
-/// program, whose data pool the decoded plan then keeps in place.
-#[derive(Clone, Copy)]
+/// A plan at boot: bytes copied while decoding, linked static bytes whose
+/// data pool stays in place, or a plan already decoded and validated.
 pub(crate) enum PlanBytes<'a> {
     Copied(&'a [u8]),
     Static(&'static [u8]),
+    Decoded(Box<Plan>),
 }
 
 impl PlanBytes<'_> {
@@ -234,6 +236,7 @@ impl PlanBytes<'_> {
         match self {
             PlanBytes::Copied(bytes) => Plan::decode(bytes),
             PlanBytes::Static(bytes) => Plan::decode_static(bytes),
+            PlanBytes::Decoded(plan) => Ok(*plan),
         }
     }
 }
@@ -1181,6 +1184,7 @@ impl<D: DataSource> Host<D> {
     ) -> (Batch, Option<String>) {
         self.native_retire_removed_owner(&mut batch);
         self.native_note_receipts(receipts);
+        self.renew_rows(receipts, &mut batch);
         let bulk_handlers = (receipts
             .iter()
             .map(|t| t.receipt.created.len())

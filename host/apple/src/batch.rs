@@ -11,6 +11,8 @@ use crate::style::push_int;
 #[derive(Debug, Default)]
 pub struct Batch {
     ops: Vec<String>,
+    /// Carrier incarnations reset before any delta in this publication.
+    renewed: Vec<u32>,
     /// The views this batch creates: each starts at its presentation's
     /// identity (`Host::present`).
     created: std::collections::HashSet<u32>,
@@ -76,6 +78,13 @@ fn id_list(ids: &[u32], out: &mut String) {
 }
 
 impl Batch {
+    /// Reset existing carriers before updates; unchanged authored state survives.
+    pub fn renew(&mut self, ids: &[u32]) {
+        self.renewed.extend_from_slice(ids);
+        self.renewed.sort_unstable();
+        self.renewed.dedup();
+    }
+
     /// The resolved strings table owns the document's language and direction.
     pub fn language(&mut self, lang: &str, dir: &str) {
         let mut s = String::from("{\"op\":\"language\",\"lang\":");
@@ -244,7 +253,7 @@ impl Batch {
 
     /// Whether nothing was recorded.
     pub fn is_empty(&self) -> bool {
-        self.ops.is_empty()
+        self.ops.is_empty() && self.renewed.is_empty()
     }
 
     /// Mounted collection metadata from the runner's common JSON array writer.
@@ -284,6 +293,11 @@ impl Batch {
     /// Whether this batch creates `id`.
     pub fn creates(&self, id: u32) -> bool {
         self.created.contains(&id)
+    }
+
+    /// A new or renewed carrier starts from identity motion before deltas.
+    pub(crate) fn starts_presentation(&self, id: u32) -> bool {
+        self.created.contains(&id) || self.renewed.binary_search(&id).is_ok()
     }
 
     /// `{"op":"props","id":…,"set":{…},"clear":[…]}`.
@@ -682,9 +696,16 @@ impl Batch {
         // hundred: growing the string as it went copied it a dozen times.
         let ops: usize = self.ops.iter().map(|op| op.len() + 1).sum();
         let mut s = String::with_capacity(
-            ops + 256 + self.images.iter().map(|i| i.len() + 3).sum::<usize>(),
+            ops + 256
+                + self.renewed.len() * 11
+                + self.images.iter().map(|i| i.len() + 3).sum::<usize>(),
         );
         s.push_str("{\"ops\":[");
+        if !self.renewed.is_empty() {
+            s.push_str("{\"op\":\"renew\",\"ids\":");
+            id_list(&self.renewed, &mut s);
+            s.push('}');
+        }
         // A failed three-pass layout can retain native-region geometry staged
         // before the miss. Publish its other updates, never guessed boxes.
         let published = self
@@ -692,7 +713,7 @@ impl Batch {
             .iter()
             .filter(|op| !self.layout_provisional || !layout_geometry(op));
         for (i, op) in published.enumerate() {
-            if i != 0 {
+            if i != 0 || !self.renewed.is_empty() {
                 s.push(',');
             }
             s.push_str(op);

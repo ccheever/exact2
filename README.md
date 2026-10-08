@@ -59,6 +59,74 @@ in the UI, and no app JavaScript runs before the first pixel.
 > repository, `exact2`, is a rebuild of an earlier one ("exact1"). Its design documents
 > are imported under `llp/research/` as research, never as authority.
 
+## Android Views prototype (C9)
+
+`host/android/` is an experimental imperative Android presenter. Its goal is to
+make Android Views and platform controls available to Exact apps, following the
+same host-component direction as React Native and the UIKit/AppKit hosts, while
+targeting native performance. Rust remains the app-state and CSS-layout owner;
+Android retains the platform view tree. This is an alternative to the Android
+Canvas painter experiments built over `host/linux`.
+
+The presenter uses `EditText`, `ImageView`, vertical `ScrollView`, and SDK
+`Button`, `CheckBox`, `Switch`, `RadioButton`, `SeekBar` and picker dialogs for
+native controls. `button appearance="auto"` uses the SDK button; authored CSS
+buttons keep the existing container and platform ripple. Text uses the public
+Compose `Paragraph` API without a composition tree; text and backgrounds draw
+through Android Canvas, with retained RenderNodes for eligible passive text.
+
+Authored `navigationKey` state selects retained routes. A route's first `header`
+with one heading projects its title and actions into an SDK `Toolbar`; system
+back invokes the live authored back action. Horizontal `tablist` and inline
+`toolbar` roles use SDK controls too. The runner remains the route/state owner.
+Virtualized vertical lists use the shared collection snapshots, measurements and
+anchor-correction protocol, with native scrolling and bounded feedback turns.
+`ExactView` also accepts a per-session `NativeViewFactory` for embedding a View
+in an existing native host; loading native module artifacts is still unsupported.
+
+One borrowed direct-buffer transaction crosses JNI for each event or active
+animation frame. Changed paint, geometry and transform values use binary records;
+cold tree and style operations retain the existing native dictionary vocabulary.
+Native scrolling without an authored handler stays in Android. Scroll offsets
+are coalesced before the next authored turn so `frame()` and `measure()` read the
+visible geometry. Control-content queries run after the borrowed publication has
+been consumed. The adapter reuses the existing Rust runner/kernel and the Apple host's portable bridge and
+request executor rather than introducing another layout engine.
+
+`apps/android-core` provides a counter, native text editing, eager scrollable
+lists, bulk paint changes and retained-subtree transforms, plus separate Views
+and Compose references. The rich-list case retains 1,000 cards with eight text
+leaves per card; it is not a virtualized or media-heavy list.
+
+```sh
+bun install --frozen-lockfile
+bun host/android/build.mjs android-core --run --serial <device>
+bun host/android/build.mjs android-core --compare --serial <device>
+```
+
+`apps/android-native` exercises SDK controls, toolbar and tab navigation, and a
+1,000-row virtualized vertical list with interactive row buttons. It reuses the
+core example's immutable row source. Run it with:
+
+```sh
+bun host/android/build.mjs android-native --run --serial <device>
+bun host/web/dev.mjs --app android-native
+```
+
+Set `ANDROID_HOME` and `JAVA_HOME`; the build requires JDK 17, Gradle 9.3.1,
+SDK platform 37.0, build tools 36.0.0 and NDK 28.2.13676358. `EXACT_GRADLE`
+can select the Gradle executable. APKs use Rust release, R8 and resource shrinking;
+local builds use a development signing key. Delivery and Rust replacement must
+be disabled in the Android app manifest.
+
+This draft does not implement horizontal virtualized collections, Canvas 2D,
+SVG, Markdown, WebViews, video, GPU/native module artifacts, delivery or Rust
+replacement. Native chrome covers the route/header/tab subset above; rich search
+headers, keyboard toolbars and modal transitions remain outside that subset.
+Advanced text/font cases fail explicitly. The core presenter captures styles
+after layout updates the kernel's viewport environment; viewport resize and
+inset changes refresh retained styles, while paint-only turns stay sparse.
+
 ## Contents
 
 - [Three principles](#three-principles)

@@ -1,0 +1,21 @@
+[package]
+name = "android-core-apple"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "The shared core example on the standard Apple host"
+publish = false
+build = "build.rs"
+
+[lib]
+name = "android_core_apple"
+crate-type = ["rlib"]
+
+[dependencies]
+exact-apple = { path = "../../../host/apple" }
+android-core-data = { path = "../data" }
+
+[build-dependencies]
+contract = { path = "../../../contract/cli" }
+exact-bake = { path = "../../../bake" }
+android-core-data = { path = "../data" }

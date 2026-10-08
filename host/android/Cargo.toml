@@ -1,0 +1,23 @@
+[package]
+name = "exact-android"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Imperative Android adapter over the shared native runtime with borrowed batched JNI output"
+publish = false
+
+[lib]
+name = "exact_android"
+crate-type = ["rlib"]
+
+[dependencies]
+exact-apple = { path = "../apple" }
+exact-runner = { path = "../../runner" }
+exact-kernel = { path = "../../kernel" }
+exact-plan = { path = "../../plan" }
+
+[dev-dependencies]
+caltrain-data = { path = "../../apps/caltrain/data" }
+contract = { path = "../../contract/cli" }
+android-core-data = { path = "../../apps/android-core/data" }
+serde_json = "1.0"

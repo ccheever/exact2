@@ -1,0 +1,27 @@
+[package]
+name = "android-native-android"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "The Android core example: the shared Contract over the imperative native adapter"
+publish = false
+build = "build.rs"
+
+[lib]
+name = "android_native_android"
+crate-type = ["rlib"]
+
+[dependencies]
+exact-android = { path = "../../../host/android" }
+android-core-data = { path = "../../android-core/data" }
+
+[build-dependencies]
+exact-android = { path = "../../../host/android" }
+exact-plan = { path = "../../../plan" }
+android-core-data = { path = "../../android-core/data" }
+contract = { path = "../../../contract/cli" }
+exact-bake = { path = "../../../bake" }
+
+[dev-dependencies]
+exact-runner = { path = "../../../runner" }
+serde_json = "1.0"

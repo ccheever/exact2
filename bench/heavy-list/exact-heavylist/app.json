@@ -7,12 +7,37 @@
   "display": "standalone",
   "theme_color": "#ffffff",
   "background_color": "#ffffff",
-  "app": { "id": "dev.exact.heavybench.exact", "name": "Heavy list" },
-  "rust": { "mode": "off" },
-  "host": {
-    "ios": { "minimumOS": "17.0", "deviceFamily": ["iphone", "ipad"] },
-    "macos": { "minimumOS": "14.0" },
-    "web": {}
+  "app": {
+    "id": "dev.exact.heavybench.exact",
+    "name": "Heavy list"
   },
-  "deploy": { "store": { "web": "0", "macos": "0", "ios": "0", "linux": "0" } }
+  "rust": {
+    "mode": "off"
+  },
+  "host": {
+    "ios": {
+      "minimumOS": "17.0",
+      "deviceFamily": [
+        "iphone",
+        "ipad"
+      ]
+    },
+    "macos": {
+      "minimumOS": "14.0"
+    },
+    "web": {},
+    "android": {
+      "minSdk": 29,
+      "targetSdk": 36
+    }
+  },
+  "deploy": {
+    "store": {
+      "web": "0",
+      "macos": "0",
+      "ios": "0",
+      "linux": "0",
+      "android": "0"
+    }
+  }
 }

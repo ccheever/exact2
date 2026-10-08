@@ -1,0 +1,50 @@
+{
+  "$schema": "../../scripts/app.schema.json",
+  "name": "Exact Android Native",
+  "short_name": "Exact Native",
+  "app": {
+    "id": "com.exact.androidnative",
+    "name": "Exact Android Native"
+  },
+  "start_url": "/",
+  "display": "standalone",
+  "theme_color": "#0061a4",
+  "background_color": "#f8f9ff",
+  "host": {
+    "android": {
+      "minSdk": 29
+    },
+    "ios": {
+      "minimumOS": "17.0",
+      "deviceFamily": [
+        "iphone"
+      ]
+    },
+    "macos": {
+      "minimumOS": "14.0",
+      "window": {
+        "width": 390,
+        "height": 844,
+        "minWidth": 340,
+        "minHeight": 600
+      }
+    },
+    "web": {}
+  },
+  "rust": {
+    "platforms": {
+      "android": false,
+      "ios": false,
+      "macos": false,
+      "web": false
+    }
+  },
+  "deploy": {
+    "store": {
+      "android": "0",
+      "ios": "0",
+      "macos": "0",
+      "web": "0"
+    }
+  }
+}

@@ -274,6 +274,17 @@
       "description": "Per-platform host settings the build bakes into each native app; a platform's key may be empty.",
       "type": "object",
       "properties": {
+        "android": {
+          "type": "object",
+          "description": "Android carrier metadata. The shared host requires API 29; the build pins its compile SDK independently.",
+          "properties": {
+            "minSdk": { "type": "number", "minimum": 29, "maximum": 37 },
+            "targetSdk": { "type": "number", "minimum": 29, "maximum": 37 },
+            "versionCode": { "type": "number", "minimum": 1, "maximum": 2100000000 },
+            "versionName": { "type": "string", "minLength": 1 }
+          },
+          "additionalProperties": false
+        },
         "ios": {
           "description": "iOS: `minimumOS` (default 17.0), `deviceFamily` (iphone, ipad), and the keys below.",
           "type": "object",

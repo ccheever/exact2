@@ -28,6 +28,11 @@ const ABI_HEADER: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../host/apple/include/exact.h"
 ));
+/// Android's owner-thread C entrypoints and EXA1 transaction version.
+const ANDROID_ABI_HEADER: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../host/android/include/exact_android.h"
+));
 /// The GPU module's C ABI (LLP 1009 D2): unnumbered in the module today.
 pub const GPU_MODULE_ABI: u32 = 1;
 /// The separately linked Rust data-source request/outcome wire ABI.
@@ -320,7 +325,7 @@ fn compatibility_with_trust(
         "kernelSchema": format!("{:016x}", exact_kernel::SCHEMA_DIGEST),
         "formatVersion": exact_plan::FORMAT_VERSION,
         "formatDigest": format!("{:016x}", exact_plan::FORMAT_DIGEST),
-        "abi": { "c": abi_version()?, "gpuModule": GPU_MODULE_ABI, "storeCodec": if binary_only { Value::Null } else { json!(exact_update::STORE_CODEC) } },
+        "abi": { "c": abi_version(platform)?, "gpuModule": GPU_MODULE_ABI, "storeCodec": if binary_only { Value::Null } else { json!(exact_update::STORE_CODEC) } },
         "executors": executors,
         "rustMode": rust_mode,
         "rustAbi": if rust_mode == "off" { Value::Null } else { json!(RUST_ABI) },
@@ -393,13 +398,18 @@ fn compatibility_with_trust(
     })
 }
 
-/// `EXACT_ABI_VERSION` from the C header.
-fn abi_version() -> Result<u32, String> {
-    ABI_HEADER
+/// The selected host's C entrypoint version.
+fn abi_version(platform: &str) -> Result<u32, String> {
+    let (header, declaration) = if platform == "android" {
+        (ANDROID_ABI_HEADER, "#define EXACT_ANDROID_ABI_VERSION")
+    } else {
+        (ABI_HEADER, "#define EXACT_ABI_VERSION")
+    };
+    header
         .lines()
-        .find_map(|l| l.trim().strip_prefix("#define EXACT_ABI_VERSION"))
+        .find_map(|l| l.trim().strip_prefix(declaration))
         .and_then(|rest| rest.trim().parse().ok())
-        .ok_or_else(|| "exact.h declares no EXACT_ABI_VERSION".to_string())
+        .ok_or_else(|| format!("{platform} C header declares no ABI version"))
 }
 
 /// The executors the app's composition links (LLP 1029 D2): the native
@@ -917,7 +927,7 @@ mod tests {
         ] {
             assert!(i.get(key).is_some(), "missing {key}: {i}");
         }
-        assert_eq!(i["abi"]["c"], super::abi_version().unwrap());
+        assert_eq!(i["abi"]["c"], super::abi_version("ios").unwrap());
         // No `rust.module`: nothing to replace, so no executor (LLP 1047.001 D7).
         assert_eq!(i["rustMode"], "off");
         assert!(i["rustAbi"].is_null());

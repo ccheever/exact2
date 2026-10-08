@@ -1,0 +1,95 @@
+// Shared source exercises actual platform controls and bounded viewport rows.
+component AndroidNative
+  state count = 0
+  state enabled = false
+  state switched = false
+  state choice = "blue"
+  state slider = 50
+  state date = "2026-10-07"
+  state time = "14:30"
+  state mode = "fast"
+  state page = "home"
+  state controlsLocked = false
+  resource rows = rows() as shape list<number>
+  action lockControls(value: bool)
+    controlsLocked = value
+  action increment
+    count = count + 1
+  action check(value: bool)
+    enabled = value
+  action switch(value: bool)
+    switched = value
+  action choose(value: string)
+    choice = value
+  action range(value: number)
+    slider = value
+  action pickDate(value: string)
+    date = value
+  action pickTime(value: string)
+    time = value
+  action chooseMode(value: string)
+    mode = value
+  action showHome
+    page = "home"
+  action showDetails
+    page = "details"
+  action back
+    page = "home"
+  view
+    main navigationKey=page navigationBack="back" testId="native-root" viewport-fit="cover" box-sizing="border-box" width="100%" height="100%" display="flex" flex-direction="column" background-color="#f8f9ff" color="#1a1c1e" font-size=16 padding-top="env(safe-area-inset-top)" padding-bottom="env(safe-area-inset-bottom)"
+      column navigationKey="home" testId="home" flex=1 min-height=0
+        header height=56 box-sizing="border-box" padding=8 display="flex" flex-direction="row" align-items="center" justify-content="space-between"
+          text "Native controls" role="heading" aria-level=1 font-size=20
+          button appearance="auto" press=showDetails testId="details" aria-label="Open details"
+            text "Details"
+        row padding-left=12 padding-right=12 align-items="center" gap=12
+          input type="checkbox" checked=controlsLocked change=lockControls testId="native-lock" aria-label="Block controls"
+          text "Block controls"
+        column inert=controlsLocked testId="controls-group" padding=12 gap=8
+          row align-items="center" gap=12
+            button appearance="auto" press=increment testId="native-increment"
+              text "Increment"
+            text `Count: ${count}` testId="native-count"
+          row align-items="center" gap=12
+            input type="checkbox" checked=enabled change=check testId="native-checkbox" aria-label="Enable feature"
+            text `Checked: ${enabled}` testId="checked-value"
+            input type="checkbox" role="switch" checked=switched change=switch testId="native-switch" aria-label="Switch feature"
+          row align-items="center" gap=12
+            select value=choice change=choose testId="native-select" aria-label="Color"
+              option value="blue"
+                text "Blue"
+              option value="green"
+                text "Green"
+              option value="disabled" disabled=true
+                text "Unavailable"
+            text `Color: ${choice}` testId="choice-value"
+          row align-items="center" gap=12
+            input type="range" min=0 max=100 step=5 value=slider input=range testId="native-range" width=180 aria-label="Intensity"
+            text `Range: ${slider}` testId="range-value"
+          row align-items="center" gap=12
+            input type="date" value=date change=pickDate testId="native-date" aria-label="Date"
+            input type="time" value=time change=pickTime testId="native-time" aria-label="Time"
+          row align-items="center" gap=8
+            input type="radio" name="mode" value="fast" checked=(mode == "fast") change=chooseMode testId="native-fast" aria-label="Fast mode"
+            text "Fast"
+            input type="radio" name="mode" value="safe" checked=(mode == "safe") change=chooseMode testId="native-safe" aria-label="Safe mode"
+            text "Safe"
+            text `Mode: ${mode}` testId="mode-value"
+        list virtualized=true estimated-item-height=80 testId="native-list" flex=1 min-height=0 overflow-x="hidden"
+          each n in rows key=n
+            row testId=`virtual-row-${n}` height=80 box-sizing="border-box" padding=12 align-items="center" gap=12 background-color=(n % 2 == 0 ? "#ffffff" : "#eef1f8")
+              text `Row ${n + 1}` font-weight=700
+              text "Native viewport collection" color="#44474e"
+              button appearance="auto" press=increment testId=`row-action-${n}` aria-label=`Add to count from Row ${n + 1}`
+                text "+1"
+      column navigationKey="details" testId="detail-page" position="absolute" top=0 right=0 bottom=0 left=0 display="flex" flex-direction="column" background-color="#f8f9ff" padding-top="env(safe-area-inset-top)" padding-bottom="env(safe-area-inset-bottom)"
+        header height=56 box-sizing="border-box" padding=8 display="flex" flex-direction="row" align-items="center" gap=12
+          button id="back" appearance="auto" press=back testId="native-back"
+            text "Back"
+          text "Details" role="heading" aria-level=1 font-size=20
+        text "System back and the toolbar return to the same retained list." padding=20
+      row role="tablist" testId="native-tabs" height=48 position="relative"
+        button role="tab" aria-selected=(page == "home") press=showHome testId="tab-home" aria-label="Home tab"
+          text "Home"
+        button role="tab" aria-selected=(page == "details") press=showDetails testId="tab-details" aria-label="Details tab"
+          text "Details"

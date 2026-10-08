@@ -1,0 +1,79 @@
+// One authored source for the Android core presenter and the web oracle.
+// Static paragraphs stay unchanged while the batch button changes 100 paints.
+component AndroidCore
+  state count = 0
+  state draft = ""
+  state highlighted = false
+  state rowCount = 100
+  state moved = false
+  state heavy = false
+  resource rows = rows() as shape list<number>
+  derive shown = filter(rows, n => n < rowCount)
+
+  action increment
+    count = count + 1
+  action edit(value: string)
+    draft = value
+  action toggleBatch
+    highlighted = not highlighted
+  action setRows(n: number)
+    rowCount = n
+  action toggleMove
+    moved = not moved
+  action heavyList
+    heavy = true
+    rowCount = 1000
+    highlighted = false
+    moved = false
+  action simpleList
+    heavy = false
+
+  view
+    main testId="core-root" viewport-fit="cover" interactive-widget="resizes-content" width="100%" height="100%" box-sizing="border-box" display="flex" flex-direction="column" background-color="#f8f9ff" color="#1a1c1e" font-size=16 padding-top="env(safe-area-inset-top)" padding-bottom="env(safe-area-inset-bottom)"
+      when heavy
+        row height=64 padding=16 box-sizing="border-box" align-items="center" justify-content="space-between" flex-shrink=0
+          text "Heavy list · 1,000" font-size=18 font-weight=700 line-height="22px"
+          button press=simpleList testId="simple-list" padding-top=6 padding-bottom=6 padding-left=8 padding-right=8 border-radius=8 background-color="#e1e2ec"
+            text "Simple" font-size=14 font-weight=400 line-height="20px"
+        scroll testId="core-scroll" flex=1 min-height=0 overflow-x="hidden"
+          column testId="rows-container" padding-left=20 padding-right=20 padding-bottom=20 gap=8
+            each n in shown key=n
+              column testId=`row-${n}` height=200 box-sizing="border-box" padding=12 gap=8 border-width=1 border-style="solid" border-color="#d9dce3" border-radius=12 background-color="#ffffff" overflow="hidden"
+                row height=40 flex-shrink=0 gap=10 align-items="center"
+                  text "EX" width=40 height=40 box-sizing="border-box" line-height="40px" text-align="center" font-size=22 border-radius=20 background-color="#d1e4ff"
+                  column flex=1 min-width=0 gap=2
+                    text `Heavy row ${n + 1}` font-size=16 font-weight=700 line-height="18px"
+                    text "Native rendering / retained content" font-size=12 line-height="16px" color="#44474e"
+                text `Card ${n + 1}: Retained content with a detailed status update. This card wraps text across several lines while the long list moves.` font-size=14 line-height="20px" height=60 flex-shrink=0 overflow="hidden"
+                row height=18 flex-shrink=0 justify-content="space-between" align-items="center"
+                  text "- 128 / 32 + 256" font-size=12 line-height="18px" color="#44474e"
+                  text "12:34" font-size=12 line-height="18px" color="#44474e"
+                row height=28 flex-shrink=0 gap=8 align-items="center"
+                  text "Android" font-size=12 line-height="16px" padding-top=6 padding-bottom=6 padding-left=8 padding-right=8 border-radius=6 background-color="#e1e2ec"
+                  text `Row ${n + 1}` font-size=12 line-height="16px" padding-top=6 padding-bottom=6 padding-left=8 padding-right=8 border-radius=6 background-color="#d1e4ff" color="#001d36"
+      else
+        column padding=20 gap=14 flex-shrink=0 box-sizing="border-box"
+          button press=heavyList testId="heavy-list" padding=0 background-color="transparent"
+            text "Exact on Android" font-size=28 font-weight=700
+          text "One Contract, native text, retained Android views." color="#44474e" line-height="22px"
+          row gap=12 align-items="center"
+            button press=increment testId="increment" aria-label="Increment counter" background-color="#0061a4" color="#ffffff" border-radius=20 padding=12
+              text "Increment" font-weight=600
+            text `Count: ${count}` testId="counter" font-size=20
+          input value=draft input=edit testId="draft" aria-label="Message" placeholder="Type a message" padding=12 border-width=1 border-style="solid" border-color="#74777f" border-radius=8 background-color="#ffffff"
+          text `You typed: ${draft}` testId="echo" line-height="22px"
+          button press=toggleBatch testId="toggle-batch" aria-label="Change all row backgrounds" background-color="#d1e4ff" color="#001d36" border-radius=20 padding=12
+            text `Change ${rowCount} row backgrounds` font-weight=600
+          row gap=8 align-items="center"
+            button press=setRows(1) testId="rows-1" padding=8 border-radius=8 background-color="#e1e2ec"
+              text "1 row"
+            button press=setRows(100) testId="rows-100" padding=8 border-radius=8 background-color="#e1e2ec"
+              text "100 rows"
+            button press=setRows(1000) testId="rows-1000" padding=8 border-radius=8 background-color="#e1e2ec"
+              text "1,000 rows"
+            button press=toggleMove testId="toggle-move" padding=8 border-radius=8 background-color="#e1e2ec"
+              text "Move rows"
+        scroll testId="core-scroll" flex=1 min-height=0 overflow-x="hidden"
+          column testId="rows-container" padding-left=20 padding-right=20 padding-bottom=20 gap=6 translate=(moved ? "12px 0px" : "0px 0px")
+            each n in shown key=n
+              text `Native row ${n + 1}` testId=`row-${n}` padding=12 border-radius=8 background-color=(highlighted ? "#d1e4ff" : "#ffffff")

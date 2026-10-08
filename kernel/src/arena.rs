@@ -331,6 +331,12 @@ impl NodeArena {
         &self.styles[slot as usize]
     }
 
+    /// Retain the immutable interned authored style. Later writes replace the
+    /// slot's allocation; a retained reader keeps its original rows and identity.
+    pub fn shared_style(&self, slot: u32) -> Rc<StyleProps> {
+        Rc::clone(&self.styles[slot as usize])
+    }
+
     /// Props.
     pub fn props(&self, slot: u32) -> &PropList {
         &self.props[slot as usize]
