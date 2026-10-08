@@ -419,7 +419,7 @@ fn a_build_time_answer_is_the_first_frame_and_asked_again_when_the_module_loads(
 }
 
 #[test]
-fn asks_refused_admission_are_asked_again_once_the_last_refusal_settles() {
+fn asks_refused_admission_fail_without_restarting_their_sources() {
     let plan = contract::bake(contract::compile(&corpus()).unwrap(), Blog::default()).unwrap();
     let data = Blog {
         refuse_failures: true,
@@ -431,23 +431,25 @@ fn asks_refused_admission_are_asked_again_once_the_last_refusal_settles() {
     for q in &asked {
         r.refuse_request(q.ticket, "native executor admission limit reached", true);
     }
-    // The source can't shape the refusal: the ticket isn't kept pending
-    // forever. Asked again now, it would be refused behind the other one.
+    // Each refusal ends pending and publishes failure, even while another
+    // refusal waits. Neither one restarts its source after the cohort ends.
     let (first, outcome) = r.take_request_refusal(true).unwrap();
-    assert_eq!(r.fulfill(first, outcome).unwrap(), None);
+    assert!(r.fulfill(first, outcome).unwrap().is_some());
     assert!(!r.holds(first));
     assert!(r.take_requests().is_empty());
+    assert_eq!(r.failed_resources().len(), 1);
     let (second, outcome) = r.take_request_refusal(true).unwrap();
     assert!(r.fulfill(second, outcome).unwrap().is_some());
     assert!(!r.holds(second));
-    let again = r.take_requests();
-    let targets: Vec<&str> = again.iter().map(|q| q.target.as_str()).collect();
-    assert_eq!(targets, ["post", "comments"]);
-    assert!(again.iter().all(|q| r.holds(q.ticket)));
-    assert_eq!(text_of(&r, "state"), "loading");
+    assert!(r.take_requests().is_empty());
+    assert!(r.pending().is_empty());
+    assert_eq!(r.failed_resources().len(), 2);
+    assert_eq!(text_of(&r, "state"), "failed");
+    assert_eq!(text_of(&r, "title"), "");
+    assert_eq!(text_of(&r, "comments"), "0 comments");
     assert_eq!(
         r.journal()
-            .filter(|l| l.contains("was refused admission: asked again"))
+            .filter(|l| l.contains("failed and is no longer pending: it keeps its last value"))
             .count(),
         2
     );

@@ -22,7 +22,7 @@ pub enum FailureCode {
     Offline,
     /// A request's deadline (`exactTimeout`) passed (`FailureKind::Timeout`).
     Timeout,
-    /// The host refused a request outside the app's grants
+    /// The host refused a request outside the app's grants or admission limits
     /// (`FailureKind::Refused`).
     Refused,
     /// The answer is outside the resource's declared shape.
