@@ -29,7 +29,8 @@ import {
   type DiffFoldOverride, type DiffSlice, type PrDiffFile, type PrDiffSide, type PullRequestReviewPosition, type RenderablePatch,
 } from './pages-pr-code-logic';
 import { BASE, codeRows, fileKey, hiddenCount, isCollapsed, type CodeItem } from './pages-pr-code-rows';
-import { FilesViewedStore } from './pages-pr-viewed';
+import { FLUSH_DELAY_MS, FilesViewedStore } from './pages-pr-viewed';
+import { startDetached } from './composer-replies';
 import { emptyThreadState, presentThreads, threadBodies, threadCommand, type PrThreadCard, type ThreadState } from './pages-pr-threads';
 
 /** Commits per press of "Show more" in the scope menu. */
@@ -85,7 +86,7 @@ const contentsKeyOf = (code: CodeState, path: string) => `${scopeKey(code)}::${p
 
 /** What the tab shows that a read changes; a change is shown before the next read. */
 function signature(code: CodeState): string {
-  return [scopeKey(code), code.slices.length, code.cursor, code.diffDue, code.diffError, code.viewed.due, code.contentsDue.size].join('|');
+  return [scopeKey(code), code.slices.length, code.cursor, code.diffDue, code.diffError, code.viewed.due, code.viewed.key(), code.contentsDue.size].join('|');
 }
 /**
  * The tab's reads, after the panel's own: the ticks, the slice owed, the contents a hidden range
@@ -102,8 +103,14 @@ export async function readCode(ctx: CodeContext & { native: Native; tab: string;
   // A rebase can take the scoped commit out of the change: the scope goes back to the whole change.
   if (code.commit !== null && activity && !commitsOf(activity).some(entry => str(entry.oid) === code.commit)) scope(code, null);
   const viewedOn = obj(detail.capabilities).viewedFiles !== undefined;
-  if (!(code.diffDue || (viewedOn && code.viewed.due) || code.contentsDue.size > 0)) { code.shown = signature(code); return 'done'; }
+  if (!(code.diffDue || (viewedOn && code.viewed.due) || code.contentsDue.size > 0 || code.viewed.flushable())) { code.shown = signature(code); return 'done'; }
   if (code.shown !== signature(code)) { code.shown = signature(code); return 'wake'; }
+  // The Viewed ticks gather FLUSH_DELAY_MS after the last press, then go in one write.
+  if (code.viewed.flushable()) {
+    const presses = code.viewed.key();
+    await sleep(native, FLUSH_DELAY_MS);
+    if (code.viewed.key() === presses) await flushViewed(client, native, code, reference);
+  }
   if (viewedOn && code.viewed.due) {
     try { code.viewed.adopt(obj(await client.call(native, { op: 'request', method: 'pullRequests.filesViewed', payload: host(reference), share: true })) as never); }
     catch (error) { if (letGo(error)) throw error; code.viewed.failed(error instanceof Error && error.message ? error.message : 'The host did not answer.'); }
@@ -175,7 +182,7 @@ export function emptyCode() {
     items: [] as CodeItem[], truncated: false, threads: [] as PrThreadCard[], footer: '', footerFailed: false,
     orphansLabel: '', orphanCount: 0, orphanSummary: '', orphansOpen: false, orphans: [] as { path: string; threads: { id: string; line: string }[] }[],
     treeRows: [] as DiffTreeRow[], treeLabel: '', treeCount: 0, treeFolders: false, treeAllOpen: true, treeFooter: '', treeBusy: false,
-    draftOpen: false, canComment: false, viewedQueued: 0, viewedKey: '', threadPending: false,
+    draftOpen: false, canComment: false, viewedQueued: 0, threadPending: false,
   };
 }
 type Body = { id: string; kind: string; title: string; body: string };
@@ -208,7 +215,7 @@ export function presentCode(ctx: CodeContext & { now: number }): { view: PrCodeV
   view.viewedCount = `${code.viewed.count(paths)} / ${files.length}`; view.viewedHere = store === 'environment';
   view.viewedWord = store === 'environment' ? 'viewed in T3 Code' : 'viewed';
   view.viewedError = code.viewed.error ?? ''; view.viewedTruncated = code.viewed.truncated;
-  view.viewedQueued = code.viewed.queuedCount(); view.viewedKey = code.viewed.key();
+  view.viewedQueued = code.viewed.queuedCount();
   // A conversation is placed only on a line a rendered hunk holds, and never under a commit scope.
   const threads = arr(activity?.reviewThreads), placed = new Set<string>();
   if (code.commit === null) for (const file of files) for (const thread of threads) {
@@ -267,8 +274,8 @@ const effectiveFold = (client: { local: object }, code: CodeState): DiffFoldOver
 const fields = (value: string, count: number) => { const parts: string[] = []; let rest = value; for (let i = 1; i < count; i++) { const bar = rest.indexOf('|'); if (bar < 0) break; parts.push(rest.slice(0, bar)); rest = rest.slice(bar + 1); } parts.push(rest); return parts; };
 export type CodeLocalContext = { client: T3Client; reference: WriteReference; detail: Obj | null };
 /**
- * `chatlocal:pr-code-<op>`: what the tab's controls change. None of them reads or writes the host
- * (the resource does, once they made something due) except `flush`, the gathered ticks' write.
+ * `chatlocal:pr-code-<op>`: what the tab's controls change. None of them reads or writes the host:
+ * the resource does, once they made something due (the ticks' write too).
  */
 export async function prCodeLocal(ctx: CodeLocalContext & { native: Native }, op: string, value: string): Promise<string> {
   const { client, reference } = ctx;
@@ -296,7 +303,6 @@ export async function prCodeLocal(ctx: CodeLocalContext & { native: Native }, op
       code.toggled = toggleFileDiffFoldForViewed(path, on, effectiveFold(client, code), code.toggled);
       return '';
     }
-    case 'flush': return flushViewed(ctx.client, ctx.native, code, reference);
     case 'next': {
       const nextCursor = code.slices.at(-1)?.nextCursor ?? null;
       // A failed slice is not asked for again on its own: Retry asks.
@@ -376,29 +382,30 @@ function beginComment(client: T3Client, code: CodeState, detail: Obj | null, val
   void client;
   return '';
 }
-/** The flush (app.contract `prViewedFlush`, 400 ms after the last press): one write, after the one in flight. */
-async function flushViewed(client: T3Client, native: Native, code: CodeState, reference: WriteReference): Promise<string> {
+/**
+ * The flush: one `setFilesViewed` of the gathered presses, sent detached (its reply lands with the
+ * next snapshot's drain, composer-replies.ts), so no answer waits on it and none can lose it. A
+ * write that never left (its answer let go first) is put back for the next flush: the write is
+ * idempotent, so sending it again is safe.
+ */
+async function flushViewed(client: T3Client, native: Native, code: CodeState, reference: WriteReference): Promise<void> {
   const taken = code.viewed.takeBatch();
-  if (!taken) return '';
+  if (!taken) return;
   const key = code.key;
-  const run = async () => {
-    let outcome: 'ok' | 'failed' | 'unknown' = 'ok', interrupted = false;
-    try { await client.rpc(native, 'pullRequests.setFilesViewed', { ...host(reference), files: taken.batch }, true); }
-    catch (error) {
-      // Let go (a newer press's answer) or the connection gone mid-flight: the host may have it; the next read says.
-      const kind = error instanceof ClientError ? error.kind : '';
-      interrupted = letGo(error) || ['stale', 'Disconnected', 'Closed', 'Replaced', 'transport'].includes(kind);
-      outcome = interrupted ? 'unknown' : 'failed';
-    }
+  const { reply } = await startDetached(client, native, 'pullRequests.setFilesViewed', { ...host(reference), files: taken.batch });
+  void reply.then(answer => {
     // The reader has moved on: what is on screen has nothing to do with this answer.
     if (peekCode(client)?.key !== key) return;
-    const { reverted } = code.viewed.landed(taken, outcome);
-    if (outcome === 'failed' && reverted) pushToast(client, { kind: 'error', title: 'Could not update viewed files' });
-  };
-  const previous = code.viewed.writing;
-  code.viewed.writing = previous.then(run, run);
-  await code.viewed.writing;
-  return '';
+    if (answer.ok) { code.viewed.landed(taken, 'ok'); return; }
+    if (answer.error.kind === 'superseded') { code.viewed.requeue(taken); return; }
+    // Silent when the connection went away mid-flight (the host may have it; the next read says).
+    const { reverted } = code.viewed.landed(taken, answer.interrupted ? 'unknown' : 'failed');
+    if (!answer.interrupted && reverted) pushToast(client, { kind: 'error', title: 'Could not update viewed files' });
+  });
+}
+/** The native sleep (r10-connect-timing.ts settle), but a let-go answer stops here. */
+async function sleep(native: Native, ms: number): Promise<void> {
+  try { await native.later({ op: 'timelineSleep', ms }); } catch (error) { if (letGo(error)) throw error; }
 }
 
 // ── The tab's host writes (pageslocal:pr-act-code-agent, thread-*) ──────────

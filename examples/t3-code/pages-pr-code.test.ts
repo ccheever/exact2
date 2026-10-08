@@ -12,6 +12,7 @@ import { diffFileContentsInput } from './pages-pr-code';
 import { pullRequestReviewKey, pullRequestReviewStore } from './pages-pr-writes-logic';
 import { toasts } from './toast';
 import { renderablePatch } from './pages-pr-code-logic';
+import { composerReplyEvent } from './composer-replies';
 
 const NOW = Date.parse('2026-10-08T12:00:00Z');
 const at = (minutesAgo: number) => new Date(NOW - minutesAgo * 60_000).toISOString();
@@ -53,6 +54,8 @@ const SLICES: Record<string, Obj> = {
 type Reply = (payload: Obj) => unknown;
 function fixture(replies: Record<string, Reply> = {}, slices: (payload: Obj) => unknown = payload => SLICES[String(payload.cursor ?? 'first')]) {
   const calls: { method: string; payload: Obj }[] = [];
+  // A detached write (composer-replies.ts): sent at once, its reply filed for the next drain.
+  const delivered: { key: string; reply: Promise<unknown> }[] = [];
   const answer = async (method: string, payload: Obj) => {
     calls.push({ method, payload });
     if (method === 'prDiff') return slices(payload);
@@ -64,7 +67,11 @@ function fixture(replies: Record<string, Reply> = {}, slices: (payload: Obj) => 
     environmentId: 'env', ready: true, generation: 1, revision: 0, local: {} as Obj, diffState: {},
     config: { environment: { capabilities: { pullRequests: true } } }, shell: { projects: [{ id: 'p1', repositoryIdentity: { provider: 'github', canonicalKey: 'github.com/acme/playground' } }], threads: [] },
     rpc: async (_native: unknown, method: string, payload: Obj) => answer(method, payload),
-    call: async (_native: unknown, request: Obj) => answer(request.op === 'prDiff' ? 'prDiff' : String(request.method), (request.payload ?? {}) as Obj),
+    call: async (_native: unknown, request: Obj) => {
+      if (request.deliver) { delivered.push({ key: String(request.deliver), reply: answer(String(request.method), (request.payload ?? {}) as Obj) }); return { id: 'sent' }; }
+      return answer(request.op === 'prDiff' ? 'prDiff' : String(request.method), (request.payload ?? {}) as Obj);
+    },
+    ids: async () => [`r${delivered.length + 1}`],
     restAccess: () => ({ call: async () => ({ id: '1-1' }) }),
     savePreferences: async () => {},
   } as unknown as T3Client;
@@ -74,7 +81,15 @@ function fixture(replies: Record<string, Reply> = {}, slices: (payload: Obj) => 
   const settle = async (input: Partial<DetailInput> = {}) => { let before = wakes, view = await ask(input); for (let i = 0; wakes > before && i < 12; i++) { before = wakes; view = await ask(input); } return view; };
   const press = (op: string, value = '') => prCodeLocalFor(client, native, op, selected, value);
   const act = (op: string, value = '') => prCommand(client, native, op, selected, value);
-  return { client, calls, settle, ask, press, act, wakes: () => wakes, of: (method: string) => calls.filter(call => call.method === method) };
+  /** The snapshot's drain: every detached reply lands (client.ts composerReplyEvent). */
+  const drain = async () => {
+    for (const entry of delivered.splice(0)) {
+      const value = await entry.reply.then(reply => ({ _reply: reply ?? {} }), (error: unknown) => ({ _replyError: { kind: error instanceof ClientError ? error.kind : 'RPC', message: error instanceof Error ? error.message : String(error) } }));
+      composerReplyEvent(client, { key: entry.key, value });
+    }
+    await Bun.sleep(0);
+  };
+  return { client, calls, settle, ask, press, act, drain, wakes: () => wakes, of: (method: string) => calls.filter(call => call.method === method) };
 }
 const DEFAULTS: Record<string, Reply> = {
   'pullRequests.detail': () => detail(), 'pullRequests.activity': () => activity(), 'pullRequests.filesViewed': () => ({ files: [], truncated: false }),
@@ -179,26 +194,30 @@ describe('the scope menu (commits newest first, ten at a time)', () => {
 
 describe('Viewed ticks (usePullRequestFilesViewed)', () => {
   test('three quick ticks are one write after the flush; the count and the folds follow', async () => {
-    const f = fixture();
+    // The host keeps what it was told (GitHub's markFileAsViewed).
+    const host = new Map<string, string>();
+    const f = fixture({ 'pullRequests.setFilesViewed': payload => { for (const file of payload.files as Obj[]) host.set(String(file.path), file.viewed ? 'viewed' : 'unviewed'); return {}; },
+      'pullRequests.filesViewed': () => ({ files: [...host].map(([path, state]) => ({ path, state })), truncated: false }) });
     let view = await walk(f);
     await f.press('fold-all'); // everything open: a tick folds its file
     for (const path of ['data/item-001.txt', 'data/item-002.txt', 'data/item-003.txt']) await f.press('viewed', `${path}|true`);
     view = await f.settle();
-    expect([view.codeTab.viewedCount, view.codeTab.viewedQueued]).toEqual(['3 / 310', 3]);
+    expect(view.codeTab.viewedCount).toBe('3 / 310');
     expect(view.codeTab.items.filter(item => item.kind === 'pr-file' && item.label === 'viewed').map(item => [item.path, item.expanded])).toEqual([
       ['data/item-001.txt', false], ['data/item-002.txt', false], ['data/item-003.txt', false]]);
-    expect(f.of('pullRequests.setFilesViewed')).toHaveLength(0);
-    await f.press('flush');
+    // The resource waited (the native sleep) and sent the three in one write.
     expect(f.of('pullRequests.setFilesViewed').map(call => call.payload)).toEqual([{ ...reference, files: [
       { path: 'data/item-001.txt', viewed: true }, { path: 'data/item-002.txt', viewed: true }, { path: 'data/item-003.txt', viewed: true }] }]);
+    expect(view.codeTab.viewedQueued).toBe(0);
+    await f.drain();
     view = await f.settle();
-    expect([view.codeTab.viewedQueued, f.of('pullRequests.filesViewed').length]).toEqual([0, 2]); // read again after the write
+    expect([view.codeTab.viewedCount, f.of('pullRequests.filesViewed').length]).toEqual(['3 / 310', 2]); // read again after the write
   });
   test('a failed write takes the ticks back and says "Could not update viewed files"', async () => {
     const f = fixture({ 'pullRequests.setFilesViewed': () => { throw new ClientError('Resource not accessible by integration', 'PullRequestOperationError'); } });
     await walk(f);
     await f.press('viewed', 'data/item-001.txt|true');
-    await f.press('flush');
+    await f.settle(); await f.drain();
     const view = await f.settle();
     expect([view.codeTab.viewedCount, toasts(f.client).map(toast => toast.title)]).toEqual(['0 / 310', ['Could not update viewed files']]);
   });

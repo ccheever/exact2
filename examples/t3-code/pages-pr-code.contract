@@ -86,7 +86,6 @@ shape PrCodeView
   draftOpen: bool
   canComment: bool
   viewedQueued: number
-  viewedKey: string
   threadPending: bool
 
 fn pcMuted(): string = "light-dark(#71717b, #818181)"

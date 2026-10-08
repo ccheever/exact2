@@ -2,11 +2,12 @@
 // MIT, see LICENSE-T3: apps/web/src/components/pullRequest/usePullRequestFilesViewed.ts) as a plain
 // store the panel's resource and its commands share, one per change request on one environment.
 //
-// Presses show at once (the overlay) and gather until the flush: the reference's 400 ms timer is a
-// root task here (app.contract `prViewedFlush`, keyed by `key()`, X19: a data source has no timer), and
-// the flush sends one `pullRequests.setFilesViewed` of at most 500 presses. One write is in flight
-// per change request (the reference's serial command scheduler); a press made while a write is out
-// belongs to the next one. A press is held over the host's answers until a read that could have seen
+// Presses show at once (the overlay) and gather until the flush: the panel's resource waits the
+// reference's 400 ms with the native sleep once the presses stop moving `key()` (X19: a data source
+// has no timer; a press meanwhile asks the resource again and lets the wait go), and the flush sends
+// one `pullRequests.setFilesViewed` of at most 500 presses, detached from the answer that sent it
+// (composer-replies.ts). One write is in flight per change request (the reference's serial command
+// scheduler); presses made while a write is out wait for the next flush. A press is held over the host's answers until a read that could have seen
 // it comes back (`answeredFrom`); a failed write takes its own presses back and says "Could not
 // update viewed files" unless nothing on screen went back or the connection went away.
 import {
@@ -39,8 +40,6 @@ export class FilesViewedStore {
   private answeredFrom = new Map<string, FileViewedStates | null>();
   private presses = 0;
   private flushes = 0;
-  /** The write in flight, which the next one waits for. */
-  writing: Promise<void> = Promise.resolve();
 
   /** A read landed: adopt it, and retire the presses it answers for. */
   adopt(result: { files: readonly { path: string; state: PullRequestFileViewedState }[]; truncated?: boolean }): void {
@@ -62,6 +61,17 @@ export class FilesViewedStore {
   /** How many presses wait for a flush, and the key that re-arms the flush timer on each press. */
   queuedCount(): number { return this.queued.size; }
   key(): string { return `${this.presses}:${this.flushes}`; }
+  /** Presses wait and no write is out: what the resource's wait-then-flush is for. */
+  flushable(): boolean { return this.queued.size > 0 && this.sentBy.size === 0; }
+  /** A write that never left (its answer was let go first): its presses wait for the next flush, unless pressed again since. */
+  requeue(taken: ViewedBatch): void {
+    for (const file of taken.batch) {
+      if (this.sentBy.get(file.path) !== taken.request) continue;
+      this.sentBy.delete(file.path);
+      if (!this.queued.has(file.path)) this.queued.set(file.path, file.viewed);
+    }
+    this.flushes += 1;
+  }
   /** The flush: up to 500 queued presses, carried by a new request from here on. */
   takeBatch(): ViewedBatch | null {
     this.flushes += 1;
