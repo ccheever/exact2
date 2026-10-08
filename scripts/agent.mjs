@@ -20,7 +20,7 @@
 // `tap … wheel <dx> <dy> gesture` sends the wheel as a trackpad's gesture —
 // began, changed, and the zero-delta lift that ends it (LLP 1033 D4a, macOS
 // only); `tap … hover` moves the pointer onto the target (LLP 1005 §3). --device: build/install first with build.mjs --device; no Mac-local plan/assets paths.
-import { Cdp, closePage, exclusiveIOS, copyCdpFailureContext, chromium, closeWindowsBrowser, retainCleanupError, removeBrowserProfile, driveStore, traceLocators, parseFlags, launchFacts, launchEnvironment, withFaults, refuseStale, unchecked, depInfoChanges, packagedBuildChanges, receiptChanges, webChanges, bakedPlans, parityScript } from './agent-launch.mjs';
+import { Cdp, browserDiagnosticNoise, closePage, exclusiveIOS, copyCdpFailureContext, chromium, closeWindowsBrowser, retainCleanupError, removeBrowserProfile, driveStore, traceLocators, parseFlags, launchFacts, launchEnvironment, withFaults, refuseStale, unchecked, depInfoChanges, packagedBuildChanges, receiptChanges, webChanges, bakedPlans, parityScript } from './agent-launch.mjs';
 export { Cdp } from './agent-launch.mjs';
 import { sourceMapReaders, identifyInspectedNode, identifyLayoutNodes, render, perfOp, partTap, readTrace, renderTrace, layoutArgs, tapRefusal, worldView, phoneTrace } from './agent-inspect.mjs';
 import { LAUNCH_MEDIA, preferGroups, preferOp, preferWeb } from './agent-prefer.mjs';
@@ -62,18 +62,6 @@ async function waitAtMost(operation, ms, onTimeout) {
   const deadline = new Promise(resolve => { timer = setTimeout(resolve, ms); }).then(onTimeout);
   try { return await Promise.race([operation, deadline]); }
   finally { clearTimeout(timer); }
-}
-/** Browser-process diagnostics that do not describe the page or Exact. Page
- * exceptions and console errors arrive over CDP separately and remain logs. */
-export function browserDiagnosticNoise(line) {
-  return /crashpad|updater|gcm|VERBOSE|DevTools listening/i.test(line)
-    // Linux without a session bus or GSettings schemas: Chrome's dbus client and GLib report it on every launch.
-    || /:ERROR:dbus\/(bus|object_proxy)\.cc:\d+\] (Failed to connect to the bus|Failed to call method: org\.freedesktop\.DBus)/.test(line) || /GLib-GIO-CRITICAL \*\*: [\d:.]+: g_settings_schema_source_lookup: assertion 'source != NULL' failed$/.test(line)
-    || /CVDisplayLinkCreateWithCGDisplay failed|CVReturn:\s*-6670/i.test(line)
-    // The browser process checking the renderer's paint-timing report
-    // against itself (two paints in one frame, image before first): its
-    // bookkeeping, not the page's. The page's own errors come over CDP.
-    || /\bpage_load_metrics_update_dispatcher\.cc:\d+\] Invalid first_\w+ [\d.]+ s for \w+ [\d.]+ s$/.test(line);
 }
 // web
 /** Every desktop carrier's viewport unless a drive names one (LLP 1012.001.000 D8, Charlie 2026-09-30: 900, the page's and the conformance run's), so one drive gives one set of numbers on every host. A phone or simulator is its device's size. */
@@ -1367,6 +1355,7 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
 // ---------------------------------------------------------------- the CLI
 // Authored tests (LLP 1017 P7): agent-test.mjs drives a file's `test` blocks through `open`.
 export { runTests, textOf } from './agent-test.mjs';
+export { browserDiagnosticNoise };
 async function main(argv) {
   const { flags, rest } = parseFlags(argv);
   const [host, ...ops] = rest;
