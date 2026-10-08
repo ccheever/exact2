@@ -519,8 +519,10 @@ guide's rules don't make obvious.
   starts at a fixed epoch, so `wallTime.epochAtZero + performanceNow()` is that date, and a
   `createdAt` taken from it is too: Bluesky's AppView then sorted the clone's
   test posts out of the author feed, and they turned up only through search.
-  Fix: `--epoch $(date -u +%Y-%m-%dT%H:%M:%SZ)` on any drive that writes to a
-  real service. (Bluesky clone, b12, 2026-10-07.)
+  Fix: `--epoch now` (the machine's clock, read once at launch; a test file's
+  `epoch now`) on any drive or test that talks to a real service, `snapback4 dev`
+  included: a backend on real time otherwise sees the app's dates months early
+  ("Due in 403783 min"). (Bluesky clone, b12, 2026-10-07; app farm round 2.)
 
 - **`screenshot` of a sheet is the sheet alone, at full width.** On iOS it
   captures the presented route (a fit-content repost sheet came out 402 × 270
@@ -624,6 +626,7 @@ guide's rules don't make obvious.
   Cause: the agent's clock starts at `2026-01-01T00:00:00Z`, in UTC. Fix: `--epoch <ISO time> --time-zone <zone>` on
   `scripts/agent.mjs` for dates that read as intended and stay reproducible; in a test
   file, `epoch "…"` and `time-zone "…"` lines, so a run without the flags still means it.
+  Against a live backend, `--epoch now` (`epoch now`) instead.
 - **A simulator measurement shows a 100–200 ms stall the app never makes.** A
   plain launch's frames hold 16.7 ms, but a run driven with `axe` shows one
   stall with no batch applied about 0.4 s after `axe` first reads the screen

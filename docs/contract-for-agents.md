@@ -1589,7 +1589,10 @@ tested against a stand-in server that never answers (the reference's
 "exactTimeout").
 
 A test whose text depends on the date names its `epoch`; without one it runs at
-the driver's 2026-01-01 UTC. The steps are `tap "id" [hover|dblclick|contextmenu]`,
+the driver's 2026-01-01 UTC. A drive or test whose app talks to a live backend
+(`snapback4 dev` runs on real time) says `--epoch now` or `epoch now`: the
+machine's clock, read once at launch, from which `clock` moves the date as
+before, so the app's dates agree with the server's but differ run to run. The steps are `tap "id" [hover|dblclick|contextmenu]`,
 `tap "id" modifiers "Shift+Meta"` (a press with keys held),
 `tap "list" into "key"` (a virtualized list's row brought into view by its key,
 so the next step can tap a row outside the rendered window),

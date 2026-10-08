@@ -252,12 +252,37 @@ fn a_file_and_a_test_carry_their_launch_facts() {
         ("test \"t\"\n  locale \"fr\"\n  locale \"de\"\n", 3),
         ("seed 1\nseed 2\n", 2),
         ("test \"t\"\n  epoch \"Sept 21\"\n", 2),
+        ("test \"t\"\n  epoch today\n", 2),
+        ("test \"t\"\n  epoch \"now\"\n", 2),
         ("test \"t\"\n  seed 1.5\n", 2),
         ("test \"t\"\n  time-zone UTC\n", 2),
     ] {
         let e = contract::tests(src).unwrap_err();
         assert_eq!(e.span.line, line, "{src}: {e}");
     }
+}
+
+#[test]
+fn epoch_now_is_the_machines_clock_read_by_the_driver_at_launch() {
+    // App farm round 2: a test against a live backend (Snapback 4's dev
+    // server runs on real time) opts into the machine's clock; the driver
+    // reads it once at launch, so the word travels as written.
+    let src = "epoch now\n\ntest \"a\"\n  tap \"x\"\n\ntest \"b\"\n  epoch now\n  tap \"y\"\n";
+    let tests = contract::tests(src).unwrap();
+    assert!(matches!(&tests[0].steps[0], Step::Epoch { value, .. } if value == "now"));
+    let json = contract::tests_json(&tests);
+    assert!(
+        json.starts_with(
+            "[{\"name\":\"a\",\"steps\":[{\"op\":\"epoch\",\"value\":\"now\",\"line\":1},"
+        ),
+        "{json}"
+    );
+    assert!(
+        json.contains(
+            "{\"name\":\"b\",\"steps\":[{\"op\":\"epoch\",\"value\":\"now\",\"line\":7},"
+        ),
+        "{json}"
+    );
 }
 
 #[test]

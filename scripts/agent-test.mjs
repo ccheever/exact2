@@ -181,8 +181,9 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
       lines.push(st.line);
       leading++;
     }
-    // A zone or locale the driver refuses fails this test at its line, not the run.
-    try { launchFacts({ ...facts, env: env ?? {} }); } catch (e) {
+    // A zone or locale the driver refuses fails this test at its line, not the run. `epoch now` is read here, once
+    // a test, so a `reload` relaunches at the same date on every host (the web's page keeps its launch URL's).
+    try { facts.epoch = launchFacts({ ...facts, env: env ?? {} }).epoch; } catch (e) {
       results.push({ name: t.name, failures: [`${t.name}: ${lines.length ? `line ${lines.join(', ')}` : "the drive's launch flags"}: ${e.message}`] });
       continue;
     }

@@ -57,7 +57,10 @@ the date. Under the agent and in tests the date is the drive's epoch
 otherwise), not the real time, while the Snapback server runs on real time.
 So compute deadlines and expiries on the server (`now` in a mutation) and
 compare times the server returned with each other; a deadline the app
-computes from its own clock disagrees with the server in every test.
+computes from its own clock disagrees with the server in every test on
+the fixed epoch. For a drive or test against `snapback4 dev`, say `--epoch now` (a test
+file's `epoch now`): the date is then the machine's clock, read once at
+launch, and agrees with the server's (the agent's `clock` still moves it).
 
 ### A complete app
 

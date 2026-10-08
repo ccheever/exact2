@@ -354,7 +354,7 @@ special typing; it is not a source-language type annotation.
 test-file     = { launch | test } ;                   (* a top-level launch line: every test's *)
 test          = "test" STRING block( { launch } { step } ) ;
 launch        = "size" NUMBER "x" NUMBER NL          (* written 1200x800 *)
-              | "epoch" ( STRING | NUMBER ) NL       (* "2026-09-21T12:00:00Z" or Unix ms *)
+              | "epoch" ( STRING | NUMBER | "now" ) NL (* "2026-09-21T12:00:00Z", Unix ms, or now *)
               | "time-zone" STRING NL                (* an IANA zone, "America/New_York" *)
               | "locale" STRING NL                   (* a BCP 47 tag, "fr-FR" *)
               | "seed" NUMBER NL                     (* 0 through 2^53 - 1 *)
@@ -396,7 +396,10 @@ launch lines: `size 1200x800`, `epoch "2026-09-21T12:00:00Z"`, `time-zone
 `--epoch`, `--time-zone`, `--locale` and `--seed`, so they lead the test's steps,
 each once. Written at the top of the file they apply to every test that does not
 name its own; either way they override the drive's flags. A file whose
-assertions depend on the date says so in the file. Before the first step, and
+assertions depend on the date says so in the file. `epoch now` is the machine's
+clock, read once as each test launches, for a test whose app talks to a live
+backend on real time (`snapback4 dev`); its dates differ run to run, so its
+expects do not name them. Before the first step, and
 after a `reload`, the driver waits for the app's data as `clock data` does (its
 module activated, every request in flight answered and each answer's `then`
 landed, the clock unmoved); `before data` skips the wait. `fail fetch "<prefix>"`
