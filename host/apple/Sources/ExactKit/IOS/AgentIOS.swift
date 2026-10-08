@@ -423,21 +423,30 @@ extension Agent {
     /// view whose middle is out of view is scrolled to the middle of each
     /// enclosing scroll view it is outside of, innermost first, then the
     /// page's — as the web's `scrollIntoView` does there (block centre,
-    /// inline only as far as it takes) — by `scrollRectToVisible`, unanimated,
-    /// as far as each one's range allows; their delegates tell the app, as a
-    /// finger's scroll does.
+    /// inline only as far as it takes) — unanimated, as far as each one's
+    /// range allows; their delegates tell the app, as a finger's scroll does.
+    /// In view is what a person sees: inside the scroll view's insets, as the
+    /// presenter's own reveal of a focused field measures it, so the bars and,
+    /// under the default `interactive-widget`, the keyboard (the viewport's
+    /// bottom inset) are out of view. `overlays-content` insets nothing, so
+    /// there the keyboard's top bounds it (LLP 1086.000.000 D2).
     func reveal(_ req: [String: Any]) -> [String: Any] {
         guard let v = view(req), v.window != nil else { return ["error": "no view \(req["id"] ?? "?") on screen"] }
         let from = box(v)
+        // The keyboard's top in the window, as the presenter last applied it.
+        let keyboard = presenter.interactiveWidget == "overlays-content" ? presenter.keyboardTop : nil
         var scrolled = false
         for case let sv as UIScrollView in sequence(first: v.superview, next: { $0?.superview }).compactMap({ $0 }) where sv.isScrollEnabled {
-            let frame = v.convert(v.bounds, to: sv), port = sv.bounds, mid = CGPoint(x: frame.midX, y: frame.midY)
+            let frame = v.convert(v.bounds, to: sv), mid = CGPoint(x: frame.midX, y: frame.midY), i = sv.adjustedContentInset
+            var port = sv.bounds.inset(by: i)
+            if let keyboard { port.size.height = max(0, min(port.maxY, sv.convert(CGPoint(x: 0, y: keyboard), from: nil).y) - port.minY) }
             if port.contains(mid) { continue }
-            var rect = port
-            if mid.y < port.minY || mid.y >= port.maxY { rect.origin.y = mid.y - port.height / 2 }
-            if mid.x < port.minX || mid.x >= port.maxX { rect.origin.x = frame.minX; rect.size.width = frame.width }
-            sv.scrollRectToVisible(rect, animated: false)
-            scrolled = true
+            var o = sv.contentOffset
+            if mid.y < port.minY || mid.y >= port.maxY { o.y += mid.y - port.midY }
+            if mid.x < port.minX || mid.x >= port.maxX { o.x += frame.maxX > port.maxX ? frame.maxX - port.maxX : frame.minX - port.minX }
+            o.y = min(max(o.y, -i.top), max(-i.top, sv.contentSize.height + i.bottom - sv.bounds.height))
+            o.x = min(max(o.x, -i.left), max(-i.left, sv.contentSize.width + i.right - sv.bounds.width))
+            if o != sv.contentOffset { sv.contentOffset = o; scrolled = true }
         }
         guard scrolled else { return ["revealed": Int(v.id), "scrolled": false] }
         presenter.settlePump()
