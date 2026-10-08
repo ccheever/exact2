@@ -94,7 +94,7 @@ describe('the layer and its timing', () => {
     expect(overlays).toBeGreaterThan(0);
     expect(layer).toBeGreaterThan(overlays);
     expect(ssh).toBeGreaterThan(layer);
-    expect(lines[layer - 1]).toBe('        when hoverTip.key != ""');
+    expect(lines[layer - 1]).toBe('        when hoverTip.key != "" and (hoverOn != "" or hoverTip.kind != "tip")');
   });
 
   test('a tooltip takes no pointer; a hover card hears it, its 4 pt sideOffset included, on either side', async () => {
@@ -108,8 +108,8 @@ describe('the layer and its timing', () => {
 
   test('the root closes a tooltip with its trigger, a hover card after the reference closeDelay, and everything on a surface change', async () => {
     const root = await source('app.contract');
-    expect(root).toContain('task hoverGrace when hoverTip.key != "" and hoverOn == "" and hoverTip.kind == "scopes" key=hoverLeft // AccessScopeSummary closeDelay={100}\n    after(100, hoverTipClear)');
-    expect(root).toContain('task hoverGraceFreshness when hoverTip.key != "" and hoverOn == "" and hoverTip.kind == "freshness" key=hoverLeft // PullRequestBaseFreshnessWarning closeDelay={120}\n    after(120, hoverTipClear)');
+    expect(root).toContain('task hoverGrace when hoverTip.key != "" and hoverOn == "" and hoverTip.kind == "scopes" // AccessScopeSummary closeDelay={100}; each leave arms it anew\n    after(100, hoverTipClear)');
+    expect(root).toContain('task hoverGraceFreshness when hoverTip.key != "" and hoverOn == "" and hoverTip.kind == "freshness" // PullRequestBaseFreshnessWarning closeDelay={120}\n    after(120, hoverTipClear)');
     expect(root).toContain('task hoverSurface key=`${settingsOpen}|${settingsRoute}|${utilityPage}|${modal}|${prSelected}`\n    after(1, hoverTipClear)');
     expect(root).toContain(`  action hoverTipAt(tip: HoverTip, part: string, inside: bool)
     if inside
@@ -117,9 +117,10 @@ describe('the layer and its timing', () => {
       hoverOn = part
     else if tip.key == hoverTip.key and hoverOn == part
       hoverOn = ""
-      hoverLeft = hoverLeft + 1
-      if tip.kind == "tip" // a TooltipPopup closes with its trigger
-        hoverTip = noHoverTip()`);
-    expect(root).toContain('T3Window(data=data, viewport=viewport, hoverTip=hoverTip, hoverTipAt=hoverTipAt,');
+  action hoverTipClear
+    hoverTip = noHoverTip()`);
+    expect(root).toContain('T3Window(data=data, viewport=viewport, hoverTip=hoverTip, hoverOn=hoverOn, hoverTipAt=hoverTipAt,');
+    // A tooltip shows only while its trigger has the pointer; a card until the close delay clears it.
+    expect(await source('app-window.contract')).toContain('        when hoverTip.key != "" and (hoverOn != "" or hoverTip.kind != "tip")\n          HoverLayer(');
   });
 });
