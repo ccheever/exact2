@@ -5,8 +5,8 @@ the device (its partition in SQLite, its outbox, local queries and
 predictions) and the client protocol over it (opening, sync rounds, store
 identity and generation adoption, at-most-once sends with receipts, the
 change poll), written once in Rust and performing no I/O. Each HTTP exchange
-is handed to whoever drives it. Pinned to Snapback4 **0.4.13**
-(`67b2ce28a3`); the npm CLI in the root `package.json` matches.
+is handed to whoever drives it. Pinned to Snapback4 **0.4.16**
+(`468d3aa5be`); the npm CLI in the root `package.json` matches.
 
 | | |
 |---|---|
@@ -35,7 +35,7 @@ node ../exact2/snapback4/web/build.mjs assets/snapback4.wasm   # the web; no arg
 The first build compiles the client for a few minutes; later ones take
 seconds. The web host serves `assets/snapback4.wasm` at
 `/assets/snapback4.wasm`, the driver's default. It is pinned to Snapback4
-0.4.13: install that version of `snapback4` for the server.
+0.4.16: install that version of `snapback4` for the server.
 
 ### Time
 
@@ -259,10 +259,10 @@ test "offline, a note is kept, then delivered on reconnect"
 ```
 
 `app.json` mounts the driver (`"typescript": { "sources": { "snapback4":
-"<this checkout>/snapback4/ts" } }`), `bun add snapback4@0.4.13` installs the
+"<this checkout>/snapback4/ts" } }`), `bun add snapback4@0.4.16` installs the
 server, and `node <this checkout>/snapback4/web/build.mjs assets/snapback4.wasm`
-builds the device. Built and tested as written (2026-10-08): both tests pass,
-and pass again on the data a first run leaves.
+builds the device. Built and tested as written against 0.4.16 (2026-10-08):
+both tests pass, and pass again on the data a first run leaves.
 
 ### Open, sync, read, write
 

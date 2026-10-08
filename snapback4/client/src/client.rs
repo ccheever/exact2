@@ -155,6 +155,8 @@ pub(crate) struct Unpersisted {
     pub id: String,
     pub outcome: Json,
     pub revalidated: Option<Json>,
+    /// The store the write was sent to: a late success settles only there.
+    pub dispatched: Option<Json>,
     pub kept: bool,
 }
 
@@ -630,7 +632,7 @@ impl Client {
         let mut held: Vec<Json> = shared
             .unpersisted
             .iter()
-            .map(|held| json!({"id": held.id, "outcome": held.outcome, "revalidated": held.revalidated}))
+            .map(|held| json!({"id": held.id, "outcome": held.outcome, "revalidated": held.revalidated, "dispatched": held.dispatched}))
             .collect();
         for (id, outcome) in &shared.outcomes {
             if !shared.unpersisted.iter().any(|held| &held.id == id) {
@@ -657,6 +659,7 @@ impl Client {
                 id: id.into(),
                 outcome: item["outcome"].clone(),
                 revalidated: item.get("revalidated").filter(|v| !v.is_null()).cloned(),
+                dispatched: item.get("dispatched").filter(|v| !v.is_null()).cloned(),
                 kept: false,
             });
         }
