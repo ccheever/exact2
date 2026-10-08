@@ -383,13 +383,22 @@ pub fn svg_islands(plan: &Plan) -> bool {
             .any(|node| NodeType::from_wire(node.node_type) == Some(NodeType::SvgMask))
 }
 
-/// Whether an image can select an SVG document. Only literals whose URL path
-/// ends in `.svg` need the decoder; computed sources can select one at runtime.
+/// Whether an image can select an SVG document. Literals whose URL path ends
+/// in `.svg` or whose data URL MIME is `image/svg+xml` need the decoder; computed
+/// sources can select one at runtime.
 pub fn svg_images(plan: &Plan) -> bool {
     plan.bindings.iter().any(|binding| {
         binding.kind == BindingKind::Prop
             && PropId::from_wire(binding.id) == Some(PropId::ImageSource)
             && constant_str(plan, plan.code(binding.expr)).is_none_or(|source| {
+                if let Some(data) = source.strip_prefix("data:") {
+                    return data.split_once(',').is_some_and(|(header, _)| {
+                        header
+                            .split(';')
+                            .next()
+                            .is_some_and(|mime| mime.trim().eq_ignore_ascii_case("image/svg+xml"))
+                    });
+                }
                 !source.starts_with("symbol:")
                     && source
                         .split(['?', '#'])

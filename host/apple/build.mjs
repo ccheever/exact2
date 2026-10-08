@@ -144,7 +144,7 @@ export function appleArtifacts(app, { destination = 'macos', composition, trust 
   // Share SwiftPM compilation per destination/deployment target; only the link
   // is app-owned, under `swiftLock`, then copied to its private stage. `scratch`
   // keeps the app's link inputs (LLP 1036.000 §2).
-  const swift = resolve(app.target, 'apple-swift', `${destination}-${deploymentTargets(app)[platform]}${optimize === 'size' ? '-size' : ''}`);
+  const swift = resolve(app.target, 'apple-swift', `${destination}-${deploymentTargets(app)[platform]}`);
 
   return { owner, namespace, target, product, executable, products, composition, scratch: resolve(namespace, 'link'), swift, swiftLock: `${swift}.lock`,
     lock: resolve(owner, '.apple-build.lock'), capture: resolve(namespace, 'capture'),

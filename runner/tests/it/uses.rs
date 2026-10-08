@@ -353,6 +353,10 @@ fn svg_image_module_is_needed_only_for_svg_literals_and_computed_sources() {
         "https://example.com/photo.JPEG?format=svg#icon.svg",
         "https://example.com/icon.svg/photo.webp",
         "symbol:sf/icon.svg",
+        "data:image/png;base64,iVBORw0KGgo=",
+        "data:image/jpeg;base64,/9j/",
+        "data:image/png,name.svg",
+        "data:image/svg+xml",
         "",
     ] {
         assert!(
@@ -364,6 +368,9 @@ fn svg_image_module_is_needed_only_for_svg_literals_and_computed_sources() {
         "icon.SVG",
         "https://example.com/icon.SvG?v=1#art",
         "icon.svg#shape?ignored",
+        "data:image/svg+xml,%3Csvg%2F%3E",
+        "data:IMAGE/SVG+XML;CHARSET=UTF-8;BASE64,PHN2Zy8+",
+        "data:image/svg+xml;charset=utf-8,%3Csvg%2F%3E",
     ] {
         assert!(
             images(&format!("component A\n  view\n    image {source:?}\n")),

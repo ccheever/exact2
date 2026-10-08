@@ -291,8 +291,8 @@ bitmap stays shared and unchanged; no tinted asset enters the image cache.
   (`resvg`), off the main thread and through the raster pipeline's source,
   cancellation, reservation and cache rules. A fixed build carries that
   module for a literal URL whose path ends in `.svg` (case-insensitive,
-  ignoring its query and fragment), a computed image source, or an SVG
-  island; a plan with only literal PNG/JPEG images needs no SVG module.
+  ignoring its query and fragment), a `data:` source with the
+  `image/svg+xml` MIME type, a computed image source, or an SVG island; a plan with only literal PNG/JPEG images needs no SVG module.
   The document is capped at 256 KiB and 10,000 XML nodes; DTDs are refused.
   Natural SVG dimensions retain fractional values; the source-pixel cap
   uses their rounded-up pixel bounds. The worker renders for the concrete
@@ -300,6 +300,9 @@ bitmap stays shared and unchanged; no tinted asset enters the image cache.
   `preserveAspectRatio`, directly into reserved, premultiplied BGRA8 pixels
   with the host's row stride. Root percentage/missing dimensions use the
   `viewBox` ratio and default 300×150 sizing fallback, as an HTML image does.
+  Root CSS sizing does not supply intrinsic image dimensions. A document with
+  `preserveAspectRatio="none"` and fewer than two absolute root dimensions
+  uses the 300×150 fallback without taking a ratio from its `viewBox`.
   The intrinsic seam still publishes one width/height pair rather than independent
   dimensions and an optional ratio. For an SVG without an intrinsic ratio, setting
   only one CSS axis can therefore size the other differently from the browser
@@ -388,11 +391,13 @@ frames.
 Observed, not blocking (both smokes say so in their first lines; they need
 Chrome / a window server): `host/apple/smoke.mjs` greps the app's report
 for `caltrain.png 320x120` and `first image frame 96x36` — a real
-`loadImage` through the ABI, not a painted pixel. No harness exercises
-`draw`, the fit values other than `contain`, padding/border/radius on an
-image, a changed source, or the broken-image presentation; the author
-viewed both hosts' screenshots on 2026-08-29 and found the train in the
-same place — an observation, not a check.
+`loadImage` through the ABI, not a painted pixel. The author viewed both
+hosts' screenshots on 2026-08-29 and found the train in the same place —
+an observation, not a check. The SVG document tests added for #239 read
+coloured pixels for fractional viewports, default `fill`, and
+`preserveAspectRatio` meet/none/slice. `RasterLoaderTests` cover viewport
+cache changes and source replacement. Padding/border/radius and the
+broken-image presentation still lack pixel assertions.
 
 **Symbol verification (2026-09-10):** the compiler corpus and Apple/web host
 tests cover literal refusal, generated mappings, inherited font configuration,
@@ -438,5 +443,5 @@ a byte cap below the host's (`max-bytes`) — each a vocabulary proposal
 (#121), not built; Linux remote sources; a block-flow image at its intrinsic
 width (the
 declared deviation, §1); `object-position`; animated images on Linux (it
-decodes PNG only; Apple plays GIF and WebP, LLP 1011.000); `hint`/`role`/`headingLevel` on macOS images; pixel
-or screenshot assertions for `object-fit` (§5).
+decodes PNG only; Apple plays GIF and WebP, LLP 1011.000); `hint`/`role`/`headingLevel` on macOS images; full pixel
+coverage of every `object-fit` value and padded/rounded images (§5).

@@ -74,6 +74,23 @@ final class RasterImageTests: XCTestCase {
         XCTAssertEqual(try RasterMetadata.read(prefix: percentage, encodedBytes: percentage.count).naturalSize, CGSize(width: 150, height: 150))
     }
 
+    func testSVGIntrinsicMetadataMatchesRootAttributesAndAspectRatioNone() throws {
+        let cases: [(String, CGSize)] = [
+            ("<svg width='100' height='100' style='width:10px;height:20px'/>", CGSize(width: 100, height: 100)),
+            ("<svg viewBox='0 0 100 100' style='width:10px;height:20px'/>", CGSize(width: 150, height: 150)),
+            ("<svg class='art' viewBox='0 0 100 100'><style>.art {width:10px;height:20px}</style></svg>", CGSize(width: 150, height: 150)),
+            ("<svg width='200' viewBox='0 0 200 200' preserveAspectRatio='none'/>", CGSize(width: 300, height: 150)),
+            ("<svg height='100' viewBox='0 0 200 200' preserveAspectRatio='none'/>", CGSize(width: 300, height: 150)),
+            ("<svg width='80' height='250' viewBox='0 0 200 200' preserveAspectRatio='none'/>", CGSize(width: 80, height: 250)),
+        ]
+        for (source, expected) in cases {
+            let bytes = Data(source.utf8)
+            let metadata = try RasterMetadata.read(prefix: bytes, encodedBytes: bytes.count)
+            XCTAssertTrue(metadata.svg)
+            XCTAssertEqual(metadata.naturalSize, expected, source)
+        }
+    }
+
     func testSVGClippedGroupsPaintAtLargeDecodeScalesWithinReservation() throws {
         let bytes = Data("<svg xmlns='http://www.w3.org/2000/svg' width='64' height='64' viewBox='0 0 64 64'><defs><clipPath id='c'><circle cx='32' cy='32' r='24'/></clipPath></defs><g clip-path='url(#c)'><rect width='64' height='32' fill='red'/><rect y='32' width='64' height='32' fill='blue'/></g></svg>".utf8)
         let metadata = try RasterMetadata.read(prefix: bytes, encodedBytes: bytes.count)

@@ -109,7 +109,7 @@ fn tree(xml: &roxmltree::Document<'_>, resolve_fonts: bool) -> Result<usvg::Tree
 }
 
 /// Explicit pixel viewports need no path conversion or font discovery during
-/// metadata inspection. CSS and other units take the complete SVG size resolver.
+/// metadata inspection. Other units take SVG's size resolver.
 fn pixel_viewport(xml: &roxmltree::Document<'_>) -> Option<(f32, f32)> {
     if xml.descendants().any(|n| {
         n.has_tag_name("style") || n.attribute("style").is_some() || n.attribute("filter").is_some()
@@ -165,77 +165,14 @@ fn with_lengths(xml: &roxmltree::Document<'_>, lengths: (&str, &str)) -> String 
     text
 }
 
-struct CssNode<'a, 'input>(roxmltree::Node<'a, 'input>);
-impl simplecss::Element for CssNode<'_, '_> {
-    fn parent_element(&self) -> Option<Self> {
-        self.0.parent_element().map(CssNode)
-    }
-    fn prev_sibling_element(&self) -> Option<Self> {
-        self.0.prev_sibling_element().map(CssNode)
-    }
-    fn has_local_name(&self, name: &str) -> bool {
-        self.0.tag_name().name() == name
-    }
-    fn attribute_matches(&self, name: &str, operator: simplecss::AttributeOperator) -> bool {
-        self.0
-            .attribute(name)
-            .is_some_and(|value| operator.matches(value))
-    }
-    fn pseudo_class_matches(&self, class: simplecss::PseudoClass) -> bool {
-        matches!(class, simplecss::PseudoClass::FirstChild)
-            && self.0.prev_sibling_element().is_none()
-    }
-}
-
-/// usvg 0.48 resolves SVG presentation CSS but not the SVG 2 sizing
-/// properties. Apply those two root properties with the same selector parser.
-fn root_lengths<'a>(xml: &'a roxmltree::Document<'a>) -> [Option<&'a str>; 2] {
-    let root = xml.root_element();
-    let mut lengths = [
-        (root.attribute("width"), false),
-        (root.attribute("height"), false),
-    ];
-    let mut css = simplecss::StyleSheet::new();
-    for node in xml.descendants().filter(|n| n.has_tag_name("style")) {
-        if node.attribute("type").is_none_or(|t| t == "text/css") {
-            if let Some(text) = node.text() {
-                css.parse_more(text);
-            }
-        }
-    }
-    let mut apply = |declaration: simplecss::Declaration<'a>| {
-        let axis = match declaration.name {
-            "width" => 0,
-            "height" => 1,
-            _ => return,
-        };
-        if (declaration.value == "auto" || declaration.value.parse::<svgtypes::Length>().is_ok())
-            && (declaration.important || !lengths[axis].1)
-        {
-            lengths[axis] = (Some(declaration.value), declaration.important);
-        }
-    };
-    for rule in &css.rules {
-        if rule.selector.matches(&CssNode(root)) {
-            for declaration in &rule.declarations {
-                apply(*declaration);
-            }
-        }
-    }
-    if let Some(style) = root.attribute("style") {
-        for declaration in simplecss::DeclarationTokenizer::from(style) {
-            apply(declaration);
-        }
-    }
-    lengths.map(|(value, _)| value)
-}
-
 fn natural_size(xml: &roxmltree::Document<'_>) -> Result<(f32, f32), Error> {
     if let Some(size) = pixel_viewport(xml) {
         return Ok(size);
     }
     let root = xml.root_element();
-    let lengths = root_lengths(xml);
+    // An SVG image takes intrinsic dimensions from root attributes; CSS sizing
+    // inside the document does not override those dimensions in the browser.
+    let lengths = [root.attribute("width"), root.attribute("height")];
     let absolute = |value: Option<&str>| {
         value
             .and_then(|v| v.parse::<svgtypes::Length>().ok())
@@ -253,15 +190,17 @@ fn natural_size(xml: &roxmltree::Document<'_>) -> Result<(f32, f32), Error> {
     if width && height {
         return dimensions(actual.width(), actual.height());
     }
+    let no_ratio = root
+        .attribute("preserveAspectRatio")
+        .and_then(|v| v.split_whitespace().next())
+        == Some("none");
+    if no_ratio {
+        return dimensions(300.0, 150.0);
+    }
     let viewbox = root
         .attribute("viewBox")
         .and_then(|v| v.parse::<svgtypes::ViewBox>().ok());
     let ratio = viewbox
-        .filter(|_| {
-            root.attribute("preserveAspectRatio")
-                .and_then(|v| v.split_whitespace().next())
-                != Some("none")
-        })
         .filter(|v| v.w.is_finite() && v.h.is_finite() && v.w > 0.0 && v.h > 0.0)
         .map(|v| (v.w / v.h) as f32);
     let size = match (width, height, ratio) {
@@ -402,14 +341,6 @@ mod tests {
     fn natural_dimensions_keep_fractional_lengths_and_ignore_percentages() {
         assert_eq!(size(b"<svg width='5.2px' height='7px'/>"), Ok((5.2, 7.0)));
         assert_eq!(
-            size(b"<svg width='5' height='7' style='width:10px;height:20px'/>"),
-            Ok((10.0, 20.0))
-        );
-        assert_eq!(
-            size(b"<svg class='art'><style>.art {width:10px;height:20px}</style></svg>"),
-            Ok((10.0, 20.0))
-        );
-        assert_eq!(
             size(b"<svg width='100%' height='50%' viewBox='0 0 200 200'/>"),
             Ok((150.0, 150.0))
         );
@@ -431,6 +362,42 @@ mod tests {
         );
     }
 
+    #[test]
+    fn svg_image_intrinsic_dimensions_ignore_root_css_sizing() {
+        for svg in [
+            "<svg width='100' height='100' style='width:10px;height:20px'/>",
+            "<svg width='100' height='100' class='art'><style>.art {width:10px;height:20px}</style></svg>",
+        ] {
+            assert_eq!(size(svg.as_bytes()), Ok((100.0, 100.0)));
+        }
+        for svg in [
+            "<svg viewBox='0 0 100 100' style='width:10px;height:20px'/>",
+            "<svg class='art' viewBox='0 0 100 100'><style>.art {width:10px;height:20px}</style></svg>",
+        ] {
+            assert_eq!(size(svg.as_bytes()), Ok((150.0, 150.0)));
+        }
+    }
+
+    #[test]
+    fn preserve_aspect_ratio_none_requires_both_intrinsic_dimensions() {
+        for attrs in [
+            "width='200' viewBox='0 0 200 200'",
+            "height='100' viewBox='0 0 200 200'",
+            "width='80'",
+        ] {
+            let svg = format!("<svg {attrs} preserveAspectRatio='none'/>");
+            assert_eq!(size(svg.as_bytes()), Ok((300.0, 150.0)));
+        }
+        assert_eq!(
+            size(
+                b"<svg width='80' height='250' viewBox='0 0 200 200' preserveAspectRatio='none'/>"
+            ),
+            Ok((80.0, 250.0))
+        );
+        // Omitting `none` retains an authored single dimension.
+        assert_eq!(size(b"<svg width='80'/>"), Ok((80.0, 150.0)));
+    }
+
     fn pixel(pixels: &[u8], width: usize, x: usize, y: usize) -> &[u8] {
         &pixels[(y * width + x) * 4..(y * width + x + 1) * 4]
     }
@@ -442,7 +409,7 @@ mod tests {
             ("none", true, true),
             ("xMinYMin meet", true, true),
         ] {
-            let svg = format!("<svg width='100' height='100' viewBox='0 0 100 100' preserveAspectRatio='{aspect}' style='width:10px;height:20px'><rect width='100' height='50' fill='red'/><rect y='50' width='100' height='50' fill='blue'/></svg>");
+            let svg = format!("<svg width='100' height='100' viewBox='0 0 100 100' preserveAspectRatio='{aspect}'><rect width='100' height='50' fill='red'/><rect y='50' width='100' height='50' fill='blue'/></svg>");
             let mut pixels = vec![0; 200 * 100 * 4];
             render(
                 svg.as_bytes(),
@@ -450,7 +417,7 @@ mod tests {
                 200,
                 100,
                 800,
-                (10.0, 20.0),
+                (100.0, 100.0),
                 (200.0, 100.0),
             )
             .unwrap();
