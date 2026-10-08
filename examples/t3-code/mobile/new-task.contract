@@ -115,7 +115,7 @@ component NewTaskHero
         column width="100%" align-items="center" gap=5.25
           text "What should we build" font-size=26 line-height="32px" font-weight=500 letter-spacing="-0.025em" color=colors.foreground text-align="center"
           row max-width="100%" align-items="center" justify-content="center"
-            text "in " font-size=26 line-height="32px" font-weight=500 letter-spacing="-0.025em" color=colors.foreground
+            text "in" margin-right=6.5 font-size=26 line-height="32px" font-weight=500 letter-spacing="-0.025em" color=colors.foreground
             button press=chooseProject disabled=(not data.canSelect or data.pendingEditor) max-width=250 min-width=0 padding=0 border-bottom-width=1 border-bottom-style="solid" border-bottom-color=colors.muted aria-label=data.projectTitle
               text data.projectTitle line-clamp=1 text-overflow="ellipsis" font-size=26 line-height="32px" font-weight=500 letter-spacing="-0.025em" color=colors.foreground
             text "?" font-size=26 line-height="32px" font-weight=500 letter-spacing="-0.025em" color=colors.foreground

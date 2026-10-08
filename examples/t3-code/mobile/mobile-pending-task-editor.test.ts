@@ -439,3 +439,20 @@ test('late or refused saved-environment focus cannot bind a pending editor', asy
     expect(f.host.calls.some(call => call.action === 'hold' || call.action === 'resumeUpdate')).toBe(false);
   }
 });
+
+
+test('offline pending header uses only the exact saved home label without changing captured metadata', async () => {
+  const f = await pendingFlow(), fleet = new EnvironmentFleet();
+  expect(mobileNewTask('', f.client, fleet).environmentLabel).toBe('Environment');
+  fleet.saved = [{ environmentId: 'env', origin: owner.origin, label: 'Saved server', mobileLabel: 'My server' }];
+  expect(mobileNewTask('', f.client, fleet)).toMatchObject({ environmentLabel: 'My server', projectTitle: 'Captured project' });
+  delete fleet.saved[0].mobileLabel;
+  expect(mobileNewTask('', f.client, fleet).environmentLabel).toBe('Saved server');
+  fleet.saved[0].origin = 'https://replacement.test';
+  expect(mobileNewTask('', f.client, fleet).environmentLabel).toBe('Environment');
+  fleet.saved.push({ environmentId: 'env', origin: owner.origin, label: 'Exact server' });
+  expect(mobileNewTask('', f.client, fleet).environmentLabel).toBe('Exact server');
+  fleet.saved.push({ environmentId: 'env', origin: owner.origin, label: 'Ambiguous server' });
+  expect(mobileNewTask('', f.client, fleet).environmentLabel).toBe('Environment');
+  expect(f.host.state.record).toEqual(original()); expect(f.client.shell.projects).toEqual([]);
+});

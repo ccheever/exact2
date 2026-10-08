@@ -75,6 +75,11 @@ export function mobileNewTask(query = '', client: T3Client = mobileClient, backg
       && background.saved.some(saved => saved.environmentId === entry.environmentId && saved.enabled !== false));
   const hasProjects = sources.some(source => source.shell.projects.some(project => project.archivedAt == null
     && !isScratch(project, scratchRootOf(true, source.config))));
+  const savedEnvironment = pendingEditor ? background.saved.filter(entry => entry.environmentId === client.environmentId
+    && (entry.homeOrigin ?? entry.origin) === pendingEditor.marker.owner.origin) : [];
+  const savedLabel = savedEnvironment.length === 1 ? str(savedEnvironment[0].mobileLabel) || str(savedEnvironment[0].label) : '';
+  const environmentLabel = environments.find(environment => environment.selected)?.label
+    || str(obj(client.config.environment).label) || savedLabel || 'Environment';
   const composer = { ...mobileThreadComposer(client), placeholder: 'Ask anything…' };
   const clone = mobileNewTaskCloneSnapshot(client);
   if (clone.blocked) {
@@ -96,7 +101,7 @@ export function mobileNewTask(query = '', client: T3Client = mobileClient, backg
     composer.sendLabel = 'Save changes'; composer.showReadOnlyNotice = false; composer.blockedReason = '';
   }
   return { pendingEditor: !!pendingEditor, revision: client.revision, environmentId: client.environmentId, projectId: client.projectId, threadId: client.threadId,
-    projectTitle: pendingEditor?.title ?? str(project?.title), environmentLabel: environments.find(environment => environment.selected)?.label ?? str(obj(client.config.environment).label),
+    projectTitle: pendingEditor?.title ?? str(project?.title), environmentLabel,
     projects, environments, branches: state.branches, query, branchQuery: state.branchQuery, emptyTitle, emptyDetail,
     branchEmpty: state.branchLoaded ? state.error || (state.branchQuery ? 'No matching branches' : 'No branches available') : 'Loading branches…',
     error: state.error, busy: state.busy, branchLoaded: state.branchLoaded, branchHasMore: state.branchHasMore, canSelect, canAddProject,
