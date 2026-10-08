@@ -84,7 +84,7 @@ export async function answer(source: string, args: unknown[], _store: unknown, _
   if (source === 'usagePage') return usagePage(client, native, storage, { open: args[0] === true, metric: String(args[1] || ''), windowDays: Number(args[2]) || 0, breakdown: String(args[3] || 'model'), refresh: Number(args[4]) || 0, width: plotWidth(Number(args[5]) || 1280, Number(args[6]) || 0), now: Number(args[7]) || 0, environmentOff: args[8] === true, viewport: Number(args[5]) || 1280 });
   if (source === 'usageKeys') return usageKeys(client.config, ariaChord);
   if (source === 'timelineAttachments') return attachmentUrls(client, native, Number(args[1]) || 0); // timeline-attachments.ts
-  if (source === 'prList' || source === 'prDetail' || source === 'welcome') return pagesSource(client, native, source, args);
+  if (source === 'prList' || source === 'prDetail' || source === 'welcome') return pagesSource(client, native, source, args, storage);
   if (source === 'connectionsPage') return connectionsPage(client, native, args[0] === true, Number(args[5]) || 0); // args[5]: the clock, each second while Authorized clients show
   if (source === 'pairingFields') return pairingFields(String(args[0] ?? '')); // lane r10-connect (r10-connect-pairing.ts)
   if (source === 'sshPrompt') return sshPromptSource(native, Number(args[0]) || 0); // ssh-auth.ts: the password dialog's queue

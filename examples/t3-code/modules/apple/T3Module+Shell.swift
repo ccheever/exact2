@@ -11,6 +11,10 @@ extension T3Module {
             activity.facts(visible: request["visible"] as? Bool ?? false, focused: request["focused"] as? Bool ?? false)
             return reply.send(["ok": true, "generation": request["generation"] as? Int ?? 0, "value": [:] as [String: Any]])
         }
+        // useLiveRefresh's last interaction (pages-pr-refresh.ts): the reporter's pointer, key and wheel time, in Unix ms.
+        if request["op"] as? String == "activityLastInteraction" {
+            return reply.send(["ok": true, "generation": request["generation"] as? Int ?? 0, "value": ["at": activity.lastInteractionAt()] as [String: Any]])
+        }
         if request["op"] as? String == "pickProjectFavicon" {
             let imports = exportsRoot.map { $0.deletingLastPathComponent().appendingPathComponent("imports", isDirectory: true) }
             DispatchQueue.main.async { [weak self] in
