@@ -692,8 +692,10 @@ told its request ended stops at its next 1 MiB chunk (Ibex patch 10 adds
 making a rejection nobody handles.
 
 **Slices 2 and 3's design** (`exactSaveTo`; `Blob`, `Response.blob()`,
-object URLs, `blob:` sources) is LLP 1108.001: r3, 2026-10-08, NOT READY after
-two review rounds, with round 2 folded and not yet reviewed again.
+object URLs, `blob:` sources) is LLP 1108.001. It amends D2's reply sum (a
+headers arm without `size` for a reply not written) and D5's URL form and
+lifetime (the browser's own URL on the web; natively until the engine ends),
+and D5's and D8's 256 MiB bound (Hermes only; the web's is the browser's).
 
 ### D7 — Sessions
 
