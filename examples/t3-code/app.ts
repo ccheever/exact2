@@ -79,7 +79,7 @@ export async function answer(source: string, args: unknown[], _store: unknown, _
     await refreshTimelineReads(client, native);
     return { complete: true };
   }
-  if (source === 'composerWorkspace') return composerWorkspaceView(client);
+  if (source === 'composerWorkspace') return composerWorkspaceView(client, args[1] !== false); // args[1]: the chat view is on screen (ChatComposer mounted)
   if (source === 'refreshComposerWorkspace') return refreshComposerWorkspace(client, native, String(args[0] || ''));
   if (source === 'composerEditor') return composerEditorView(client, native, Number(args[1]) || 0);
   if (source === 'snapshotSettings') return snapshotSettings(client, native, args[0] === true);
