@@ -3,9 +3,10 @@ import WebKit
 import XCTest
 
 // Task app-developer-tools (exact2 #101, EXACT2-GAPS X2): every web view the module creates is
-// inspectable from Safari in a development build and never in the packaged (release) build. The
-// flavor is the bundle's `distribution.json` (T3LocalPolicy.packaged); this binary has none beside
-// it, so it is a development build, whatever the environment says.
+// inspectable from Safari in a development build and never in a release build: the clone's packaged
+// build (`distribution.json`, T3LocalPolicy.packaged), a production-trust bake or a distributed bundle
+// (its receipt), as main #309 decides for the iframe arm. This binary has neither file beside it, so
+// it is a development build, whatever the environment says.
 private let ignoreEvent: ExactNativeEventFn = { _, _, _, _, _ in }
 
 final class WebInspectionTests: XCTestCase {
@@ -24,6 +25,23 @@ final class WebInspectionTests: XCTestCase {
         XCTAssertTrue(T3WebInspection.permits(resources: other), "another flavor is not the packaged build")
         XCTAssertTrue(T3WebInspection.permits(resources: nil))
         XCTAssertEqual(T3WebInspection.permits(resources: packaged), !T3LocalPolicy.packaged(resources: packaged), "one line with the embedded server's policy")
+    }
+
+    /// The receipt's lines, as main #309 draws them for the iframe arm: production trust and a
+    /// distributed bundle (the shipped receipt: its binary is a digest alone) are release builds.
+    func testTheReceiptMarksProductionAndDistributedBundles() throws {
+        func resources(_ receipt: String) throws -> URL {
+            let url = scratch("receipt")
+            try receipt.write(to: url.appendingPathComponent("receipt.json"), atomically: true, encoding: .utf8)
+            return url
+        }
+        XCTAssertTrue(T3WebInspection.permits(resources: try resources(#"{"build":{"trust":"development","binary":{"sha256":"ab","metadata":{}}}}"#)), "a development bake")
+        XCTAssertFalse(T3WebInspection.permits(resources: try resources(#"{"build":{"trust":"production","binary":{"sha256":"ab","metadata":{}}}}"#)), "production trust")
+        XCTAssertFalse(T3WebInspection.permits(resources: try resources(#"{"build":{"trust":"development","binary":{"sha256":"ab"}}}"#)), "the shipped receipt of a distributed bundle")
+        XCTAssertTrue(T3WebInspection.permits(resources: try resources("not json")), "an unreadable receipt decides nothing")
+        let both = try resources(#"{"build":{"trust":"development","binary":{"sha256":"ab","metadata":{}}}}"#)
+        try #"{"flavor":"packaged"}"#.write(to: both.appendingPathComponent("distribution.json"), atomically: true, encoding: .utf8)
+        XCTAssertFalse(T3WebInspection.permits(resources: both), "the packaged marker wins over a development receipt")
     }
 
     func testMarkSetsAndClearsTheFlag() {
