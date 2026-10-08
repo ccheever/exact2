@@ -233,6 +233,30 @@ test "offline, a note is kept on the device and marked sending"
 server, and `node <this checkout>/snapback4/web/build.mjs assets/snapback4.wasm`
 builds the device. Built and tested as written (2026-10-08).
 
+### Typed rows from the schema
+
+`bunx snapback4 types` (and `snapback4 check`) write
+`snapback/generated/api.ts`: each table's row (`Rows`) and each operation's
+arguments and result (`Ops`). Import them as types from any of the app's
+modules, and give `read` its result type, so a misspelled field is a type
+error at build on every host instead of a row retyped by hand:
+
+```ts
+import type { ArgsOf, ResultOf } from 'snapback4/contract';
+import type { Ops, Rows } from './snapback/generated/api.ts';
+
+type Note = Rows['notes'];                      // { id, author, body, at, pending? }
+const read = await db.read<ResultOf<Ops['recent']>>('recent', {} satisfies ArgsOf<Ops['recent']>, now);
+const notes: Note[] = read.data ?? [];
+```
+
+The build checks these against the installed `snapback4` package's
+declarations and never runs any of it: an `import type` from a package is
+admitted, a value import (`import { … } from 'snapback4/…'`) is refused as
+`module outside captured app`. The driver is the mounted
+`./snapback4/snapback.ts`. Rerun `bunx snapback4 types` after changing the
+schema.
+
 ### Open, sync, read, write
 
 ```ts

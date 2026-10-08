@@ -843,7 +843,12 @@ call outside them fails. The capabilities are:
 - *A domain failure is data.* `addBook` returns `ok: false` with a message
   rather than throwing, so the view can say what happened. A thrown error
   leaves a resource `failed(…)` and a mutation without an answer.
-- *`app.ts` imports only local files.* npm packages are not bundled yet.
+- *`app.ts` imports local files, and only types from packages.* An `import
+  type` (or a name used only as a type) may reach a package's declarations,
+  such as the rows `snapback4 types` writes to `snapback/generated/api.ts`,
+  and every build checks against them. Importing a package's code is refused
+  (`module outside captured app: …/node_modules/…`): npm packages are not
+  bundled yet.
 
 **Testing with storage.** Each authored test gets an empty store of its own,
 apart from the app's real data. An ad hoc `agent` drive has none unless it
