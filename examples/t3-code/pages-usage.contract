@@ -155,12 +155,16 @@ component UsagePage
     overMail = inside ? id : (overMail == id ? "" : overMail)
   action pin(id: string)
     pinned = pinned == id ? "" : id
-  action close(id: string)
-    pinned = ""
-    overSeg = ""
-    overPop = ""
-    overMail = ""
-    focus(`usage-seg-${id}`)
+  // Escape (UsageKeys' one shortcut): a showing popover closes and its segment takes the focus; else the page goes back.
+  action escape
+    if shown != ""
+      focus(`usage-seg-${shown}`)
+      pinned = ""
+      overSeg = ""
+      overPop = ""
+      overMail = ""
+    else
+      back()
   action redeem(id: string)
     pinned = ""
     overSeg = ""
@@ -169,7 +173,7 @@ component UsagePage
     command("pageslocal:usage-pool-reset-ask", id, "", 0)
   view
     column position="absolute" left=0 top=0 right=0 bottom=0 background-color="light-dark(#fcfcfc, #0a0a0a)" inert=(page.detail.open or page.prices.open or page.pooled.confirm != "") testId="usage-page"
-      UsageKeys(keys=keys, limits=(page.metric == "limits"), dialog=(page.detail.open or page.prices.open or page.pooled.confirm != "" or shown != ""), setMetric=setMetric, setWindow=setWindow, back=back)
+      UsageKeys(keys=keys, limits=(page.metric == "limits"), dialog=(page.detail.open or page.prices.open or page.pooled.confirm != ""), setMetric=setMetric, setWindow=setWindow, back=escape)
       when wide
         row width="100%" height=52 flex-shrink=0 padding-left=(sidebarOpen ? 1.25 * rem : controlsLeft + 2.5 * rem) padding-right="1.25rem" box-sizing="border-box" align-items="center" gap="0.75rem" position="relative"
           UsageSidebarToggle(sidebarOpen=sidebarOpen, controlsLeft=controlsLeft, keySidebar=keySidebar, toggle=toggleSidebar)
@@ -207,7 +211,7 @@ component UsagePage
             text page.empty font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #818181)" testId="usage-empty"
           else
             when page.metric == "limits"
-              UsagePooled(view=page.pooled, scheme=scheme, md=md, reduced=reduced, shown=shown, pinned=pinned, enterSeg=enterSeg, enterPop=enterPop, enterMail=enterMail, pin=pin, dismiss=close, redeem=redeem, op=op)
+              UsagePooled(view=page.pooled, scheme=scheme, md=md, reduced=reduced, shown=shown, pinned=pinned, enterSeg=enterSeg, enterPop=enterPop, enterMail=enterMail, pin=pin, redeem=redeem, op=op)
             else
               when page.total == ""
                 UsageSkeleton(lg=lg, md=md)

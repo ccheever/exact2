@@ -11,7 +11,8 @@ use CnTooltip from "./settings-b-kit.contract"
 // AccountAvatar, AccountName, AccountChip, LimitNotices) and UsagePage.tsx (CursorEnableLimits).
 // The figures and words come from usage-pooled-view.ts. A segment's popover opens on hover (its
 // 300 ms delay is the fade's) and stays while the pointer is on it or its email, opens and pins on
-// a press (Return or Space too), and closes on Escape, a second press or "Use reset". The popover
+// a press (Return or Space too), and closes on Escape (the page's shortcut), a second press or
+// "Use reset". The popover
 // state is the page's (UsagePage), so one shows at a time and Escape there never goes back.
 
 // One account's share of one pooled window (segmentView).
@@ -118,7 +119,6 @@ component UsagePooled
     enterPop: action
     enterMail: action
     pin: action
-    dismiss: action
     redeem: action
     op: action
   view
@@ -128,7 +128,7 @@ component UsagePooled
       each pool in view.pools key=pool.key
         when pool.cursorBefore
           CursorEnableLimits(cursor=view.cursor, op=op)
-        PoolSection(pool=pool, view=view, scheme=scheme, md=md, reduced=reduced, shown=shown, pinned=pinned, enterSeg=enterSeg, enterPop=enterPop, enterMail=enterMail, pin=pin, dismiss=dismiss, redeem=redeem)
+        PoolSection(pool=pool, view=view, scheme=scheme, md=md, reduced=reduced, shown=shown, pinned=pinned, enterSeg=enterSeg, enterPop=enterPop, enterMail=enterMail, pin=pin, redeem=redeem)
       when view.cursorAfter
         CursorEnableLimits(cursor=view.cursor, op=op)
       each link in view.links key=link.key
@@ -151,7 +151,6 @@ component PoolSection
     enterPop: action
     enterMail: action
     pin: action
-    dismiss: action
     redeem: action
   view
     column width="100%" gap="0.75rem" position="relative" z-index=(startsWith(shown, pool.prefix) ? 1 : 0) testId=`usage-limits-${pool.key}`
@@ -163,7 +162,7 @@ component PoolSection
             DriverMark(driver=pool.driver, size=16, initials="", icon=pool.icon)
         text pool.label font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=2
       each window in pool.windows key=window.key
-        PoolWindowCard(pool=pool, window=window, view=view, scheme=scheme, md=md, reduced=reduced, shown=shown, pinned=pinned, enterSeg=enterSeg, enterPop=enterPop, enterMail=enterMail, pin=pin, dismiss=dismiss, redeem=redeem)
+        PoolWindowCard(pool=pool, window=window, view=view, scheme=scheme, md=md, reduced=reduced, shown=shown, pinned=pinned, enterSeg=enterSeg, enterPop=enterPop, enterMail=enterMail, pin=pin, redeem=redeem)
 
 // PoolWindowCard: the pooled share left with pace and the next refill, beside (md) or above the bar.
 component PoolWindowCard
@@ -182,7 +181,6 @@ component PoolWindowCard
     enterPop: action
     enterMail: action
     pin: action
-    dismiss: action
     redeem: action
   view
     box width="100%" display="grid" grid-template-columns=(md ? `${11 * rem}px minmax(0, 1fr)` : "minmax(0, 1fr)") column-gap="1.5rem" row-gap="0.75rem" align-items="center" padding="1rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e799, #ffffff09)" position="relative" z-index=(startsWith(shown, window.prefix) ? 1 : 0) testId=`usage-window-${pool.key}-${window.key}`
@@ -198,7 +196,7 @@ component PoolWindowCard
       // PoolBar: equal-width segments, one per account; narrow, a legend under the strip.
       box min-width=0 display="grid" grid-template-columns=`repeat(${window.count}, minmax(0, 1fr))` column-gap="0.25rem" row-gap="0.25rem"
         each seg in window.segments key=seg.id
-          PoolSegment(seg=seg, wide=view.wide, hatch=(view.wide ? view.hatchWide : view.hatchNarrow), light=pool.light, dark=pool.dark, scheme=scheme, reduced=reduced, open=(shown == seg.id), pinned=(pinned == seg.id), enterSeg=enterSeg, enterPop=enterPop, enterMail=enterMail, pin=pin, dismiss=dismiss, redeem=redeem)
+          PoolSegment(seg=seg, wide=view.wide, hatch=(view.wide ? view.hatchWide : view.hatchNarrow), light=pool.light, dark=pool.dark, scheme=scheme, reduced=reduced, open=(shown == seg.id), pinned=(pinned == seg.id), enterSeg=enterSeg, enterPop=enterPop, enterMail=enterMail, pin=pin, redeem=redeem)
         when not view.wide
           each seg in window.segments key=seg.id
             LegendRow(seg=seg, light=pool.light, dark=pool.dark, pin=pin)
@@ -259,18 +257,13 @@ component PoolSegment
     enterPop: action
     enterMail: action
     pin: action
-    dismiss: action
     redeem: action
   state focused = false
   action focusChanged(inside: bool)
     focused = inside
-  action keyed(k: string, e: KeyboardEvent)
-    if k == "Escape" and open
-      preventDefault()
-      dismiss(seg.id)
   view
     box grid-row=1 grid-column=seg.column position="relative" min-width=0 z-index=(open ? 1 : 0)
-      button id=`usage-seg-${seg.id}` press=pin(seg.id) hover=enterSeg(seg.id) focus=focusChanged(true) blur=focusChanged(false) key=keyed aria-label=seg.label aria-expanded=open aria-haspopup="dialog" testId=`usage-seg-${seg.id}` width="100%" height=(wide ? "2rem" : "1.25rem") min-width=0 padding=0 border-width=0 border-radius="0.375rem" overflow="hidden" position="relative" cursor="pointer" display="block" background-color="light-dark(#f4f4f5, #ffffff0a)" box-shadow=(focused ? "0 0 0 2px light-dark(#ffffff, #0a0a0a), 0 0 0 4px light-dark(#1b4ed8, #346bf1)" : open ? "0 0 0 1px light-dark(#e4e4e7, #ffffff1a)" : "none")
+      button id=`usage-seg-${seg.id}` press=pin(seg.id) hover=enterSeg(seg.id) focus=focusChanged(true) blur=focusChanged(false) aria-label=seg.label aria-expanded=open aria-haspopup="dialog" testId=`usage-seg-${seg.id}` width="100%" height=(wide ? "2rem" : "1.25rem") min-width=0 padding=0 border-width=0 border-radius="0.375rem" overflow="hidden" position="relative" cursor="pointer" display="block" background-color="light-dark(#f4f4f5, #ffffff0a)" box-shadow=(focused ? "0 0 0 2px light-dark(#ffffff, #0a0a0a), 0 0 0 4px light-dark(#1b4ed8, #346bf1)" : open ? "0 0 0 1px light-dark(#e4e4e7, #ffffff1a)" : "none")
         box position="absolute" left=0 top=0 bottom=0 width=`${seg.remaining}%` border-radius="0.375rem" opacity=0.35 background-color=`light-dark(${light}, ${dark})` aria-hidden=true testId=`usage-seg-fill-${seg.id}`
         when seg.hatch
           box position="absolute" right=0 top=0 bottom=0 width=`${100 - seg.remaining}%` overflow="hidden" opacity=0.2 aria-hidden=true testId=`usage-seg-hatch-${seg.id}`
@@ -292,7 +285,7 @@ component PoolSegment
         else
           row position="absolute" left=0 top=0 right=0 bottom=0 align-items="center" justify-content="center" aria-hidden=true
             text `${seg.column}` font-size="0.625rem" line-height=1 font-weight=600 font-variant-numeric="tabular-nums" color="light-dark(#27272acc, #f5f5f5cc)"
-      SegmentPopup(seg=seg, scheme=scheme, reduced=reduced, open=open, pinned=pinned, enterPop=enterPop, enterMail=enterMail, dismiss=dismiss, redeem=redeem)
+      SegmentPopup(seg=seg, scheme=scheme, reduced=reduced, open=open, pinned=pinned, enterPop=enterPop, enterMail=enterMail, redeem=redeem)
 
 // SegmentPopover (PopoverPopup side="top", sideOffset 6, w-72): who the account is, its plan and
 // where it is signed in, what is left and when it resets, and the banked credits with "Use reset".
@@ -306,16 +299,11 @@ component SegmentPopup
     pinned: bool
     enterPop: action
     enterMail: action
-    dismiss: action
     redeem: action
-  action keyed(k: string, e: KeyboardEvent)
-    if k == "Escape"
-      preventDefault()
-      dismiss(seg.id)
   view
     row position="absolute" left=(seg.align == "start" ? 0 : "-12rem") right=(seg.align == "end" ? 0 : "-12rem") top=(seg.side == "bottom" ? "100%" : "auto") bottom=(seg.side == "bottom" ? "auto" : "100%") justify-content=(seg.align == "start" ? "flex-start" : seg.align == "end" ? "flex-end" : "center") pointer-events="none" z-index=50
       column hover=enterPop(seg.id) padding-top=(seg.side == "bottom" ? "0.375rem" : 0) padding-bottom=(seg.side == "bottom" ? 0 : "0.375rem") pointer-events=(open ? "auto" : "none") inert=(not open) aria-hidden=(not open)
-        column width="18rem" padding="1rem" box-sizing="border-box" gap="0.625rem" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#27272a1a, #f5f5f51a)" background-color="light-dark(#fffffff2, #111111f2)" box-shadow=(scheme == "dark" ? "0 18px 44px -18px #000000cc" : "0 16px 40px -18px #0000008c") opacity=(open ? 1 : 0) transition=(open and not pinned ? (reduced ? "opacity 0ms linear 300ms" : "opacity 150ms ease 300ms") : (reduced ? "opacity 0ms" : "opacity 150ms ease")) role="dialog" aria-label=seg.title testId=`usage-seg-pop-${seg.id}`
+        column width="18rem" padding="1rem" box-sizing="border-box" gap="0.625rem" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#27272a1a, #f5f5f51a)" background-color="light-dark(#ffffff, #111111)" box-shadow=(scheme == "dark" ? "0 18px 44px -18px #000000cc" : "0 16px 40px -18px #0000008c") opacity=(open ? 1 : 0) transition=(open and not pinned ? (reduced ? "opacity 0ms linear 300ms" : "opacity 150ms ease 300ms") : (reduced ? "opacity 0ms" : "opacity 150ms ease")) role="dialog" aria-label=seg.title testId=`usage-seg-pop-${seg.id}`
           column min-width=0 gap="0.125rem"
             row min-width=0 align-items="center" gap="0.5rem"
               when seg.avatar == "instance"
@@ -325,7 +313,7 @@ component SegmentPopup
                 AccountChip(chip=seg.chip, chipBg=seg.chipBg, chipFg=seg.chipFg)
               text seg.title min-width=0 font-size="0.875rem" line-height="1.25rem" font-weight=500 white-space="nowrap" overflow="hidden" text-overflow="ellipsis" color="light-dark(#27272a, #f5f5f5)"
             when seg.email != ""
-              PoolEmail(value=seg.email, placeholder=seg.emailMask, testId=`usage-seg-email-${seg.id}`, keep=enterMail(seg.id), keyed=keyed)
+              PoolEmail(value=seg.email, placeholder=seg.emailMask, testId=`usage-seg-email-${seg.id}`, keep=enterMail(seg.id))
           column gap="0.25rem" padding-top="0.625rem" border-top-width=1 border-top-style="solid" border-color="light-dark(#e4e4e799, #ffffff09)"
             when seg.plan != ""
               PopRow(label="Plan", value=seg.plan)
@@ -340,7 +328,7 @@ component SegmentPopup
           when seg.redeemable
             row align-items="center" gap="0.75rem" padding-top="0.625rem" border-top-width=1 border-top-style="solid" border-color="light-dark(#e4e4e799, #ffffff09)"
               text seg.creditsText font-size="0.75rem" line-height="1rem" font-variant-numeric="tabular-nums" color="light-dark(#71717b, #818181)" testId=`usage-seg-credits-${seg.id}`
-              button press=redeem(seg.id) key=keyed disabled=seg.busy testId=`usage-seg-reset-${seg.id}` margin-left="auto" height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)" box-shadow="0 1px 2px #0000000d" opacity=(seg.busy ? 0.64 : 1) display="flex" flex-direction="row" align-items="center" flex-shrink=0
+              button press=redeem(seg.id) disabled=seg.busy testId=`usage-seg-reset-${seg.id}` margin-left="auto" height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)" box-shadow="0 1px 2px #0000000d" opacity=(seg.busy ? 0.64 : 1) display="flex" flex-direction="row" align-items="center" flex-shrink=0
                 text (seg.busy ? "Using…" : "Use reset") font-size="0.75rem" font-weight=500 line-height="1rem" white-space="nowrap" color="light-dark(#27272a, #f5f5f5)"
 
 // Row: a 4.5rem muted label, then the value.
@@ -363,7 +351,6 @@ component PoolEmail
     placeholder: string
     testId: string
     keep: action
-    keyed: action
   state revealed = false
   state over = false
   action toggle
@@ -373,7 +360,7 @@ component PoolEmail
     keep(inside)
   view
     box position="relative" align-self="flex-start" min-width=0 max-width="100%" hover=hover
-      button press=toggle key=keyed aria-label="Toggle account email visibility" testId=testId cursor="pointer" min-width=0 max-width="100%" padding=0 border-width=0 border-radius="0.25rem" background-color="#00000000" display="flex" flex-direction="row" align-items="baseline"
+      button press=toggle aria-label="Toggle account email visibility" testId=testId cursor="pointer" min-width=0 max-width="100%" padding=0 border-width=0 border-radius="0.25rem" background-color="#00000000" display="flex" flex-direction="row" align-items="baseline"
         text (revealed ? value : placeholder) font-family="ui-monospace" font-size="0.6875rem" line-height="1.03125rem" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" min-width=0 user-select=(revealed ? "auto" : "none") filter=(revealed ? "none" : "blur(4px)") color=(over ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)") testId=`${testId}-text`
       when over
         CnTooltip(tip=(revealed ? "Click to hide email" : "Click to reveal email"), tipId=`${testId}-tip`, above=20)
