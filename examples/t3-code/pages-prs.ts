@@ -294,7 +294,7 @@ function listLiveAsk(client: object, input: LiveInput): { visible: boolean; now:
   return asked ? ask : null;
 }
 /** The read out per client, which a later run with the same question joins. */
-const inflight = new WeakMap<object, { key: string; relist: number; read: Promise<ListCache> }>();
+const inflight = new WeakMap<object, { key: string; relist: number; read: Promise<ListCache>; native: Native }>();
 let listReads = 0;
 const listStored = new WeakMap<object, number>();
 /** The round whose "Loading more" / "Updating pull requests" was drawn before its read (the footer's spinner). */
@@ -401,11 +401,15 @@ export async function pullRequestsPage(client: T3Client, native: Native | null |
     // One read out at a time per question: a run that asks while it is out (a second focus, an announcement, a
     // revision) joins it, as the reference's query layer coalesces a refresh with the fetch in flight. A relist
     // asked for after it went out (an action that changed more than a state) is a new question.
+    // Only a read this answer started is joined (pr-links-previews-and-routing retry): the runner lets an earlier
+    // answer go when it asks the resource again (a data revision, a typed search), and that answer's read is rejected
+    // with it; another answer awaiting it waits on work it does not own (js/src/prelude.js) and failed, keeping the
+    // old rows for good ("Loading more" stayed; a second search never landed). A new answer reads for itself.
     const out = inflight.get(client);
-    if (out && out.key === key && out.relist === listRelist(client)) cached = await out.read;
+    if (out && out.key === key && out.relist === listRelist(client) && out.native === native) cached = await out.read;
     else {
       const read = readList(client, native, input, round, key, cached, live);
-      inflight.set(client, { key, relist: listRelist(client), read });
+      inflight.set(client, { key, relist: listRelist(client), read, native });
       try { cached = await read; } finally { if (inflight.get(client)?.read === read) inflight.delete(client); }
     }
   }
