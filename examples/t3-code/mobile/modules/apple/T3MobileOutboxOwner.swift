@@ -389,7 +389,7 @@ final class T3MobileOutboxOwner: @unchecked Sendable {
                 let commit = request["decision"] as? String == "commit"
                 let record = !commit && original["operation"] as? String == "enqueue" ? nil : value[commit ? "proposed" : "previous"] as? Object
                 let revision = (value["sourceRevision"] as? Int ?? 0) + 1
-                let row = Row(record: record, revision: revision, token: commit ? mutation : originalToken, confirmed: commit || original["operation"] as? String != "enqueue")
+                let row = Row(record: record, revision: revision, token: commit || original["operation"] as? String == "enqueue" ? mutation : originalToken, confirmed: commit || original["operation"] as? String != "enqueue")
                 let outcome = result(original, commit ? "committed" : "failed", revision: revision, record: record,
                     removed: commit && record == nil ? value["previous"] as? Object : nil)
                 value = try terminal(value, request: original, row: row, outcome: outcome, owners: disk.payloads(value))
