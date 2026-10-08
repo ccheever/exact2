@@ -184,6 +184,7 @@ internal class NativeCollections(
 
     init { require(density.isFinite() && density > 0) }
     fun owns(id: Int): Boolean = entries.containsKey(id)
+    fun mountedRows(id: Int): List<Row> = entries[id]?.snapshot?.rows ?: emptyList()
     fun beginBatch() {
         if (closed) return
         if (depth == 0) for ((id, entry) in entries) entry.batchStart = facts(id, entry)?.offset

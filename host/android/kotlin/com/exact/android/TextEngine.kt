@@ -3,6 +3,7 @@ package com.exact.android
 import android.content.Context
 import android.graphics.Canvas as AndroidCanvas
 import android.graphics.RenderNode
+import android.graphics.Typeface
 import android.os.Handler
 import android.os.Looper
 import android.util.SparseArray
@@ -21,11 +22,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.font.createFontFamilyResolver
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDirection
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.sp
+import org.json.JSONArray
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.lang.ref.WeakReference
@@ -59,6 +62,9 @@ internal class TextEngine(private val context: Context, private val onWake: () -
     }
     private var closed = false
     private var configurationVersion = 0L
+    private val inlinePaint = SparseArray<InlinePaintModel>()
+    private val decorations = SparseArray<Int>()
+    private var paintDark = false
 
     private data class Run(val text: String, val style: Style)
     private data class Style(
@@ -147,6 +153,7 @@ internal class TextEngine(private val context: Context, private val onWake: () -
         var drawn: Paragraph? = null
         var drawnWidth = -1
         var drawnEllipsis = false
+        var richPaint: RichParagraph? = null
         // Cache the Compose paragraph's drawing commands, never a bitmap or a
         // second text layout. Background-only changes keep this display list.
         var paintNode: RenderNode? = null
@@ -160,6 +167,14 @@ internal class TextEngine(private val context: Context, private val onWake: () -
         }
     }
     private data class Key(val source: Source, val width: Int, val ellipsis: Boolean)
+    private class RichParagraph(
+        val model: InlinePaintModel?, val decoration: Int, val dark: Boolean,
+        val configuration: Long, val intrinsic: ParagraphIntrinsics
+    ) {
+        var paragraph: Paragraph? = null
+        var width = -1
+        var ellipsis = false
+    }
 
     private fun ByteBuffer.bodyWord(offset: Int, count: Int): Long {
         if (count == 8) return getLong(offset)
@@ -209,15 +224,47 @@ internal class TextEngine(private val context: Context, private val onWake: () -
         }
         sources.clear()
     }
-    fun close() { closed = true; clearSources(); paragraphs.clear(); sharedTexts.clear(); families.clear() }
+    fun close() {
+        closed = true; clearSources(); paragraphs.clear(); sharedTexts.clear(); families.clear()
+        inlinePaint.clear(); decorations.clear()
+    }
     fun configurationChanged() {
         configurationVersion++
         sharedTexts.clear()
-        for (index in 0 until sources.size()) sources.valueAt(index).discardPaint()
+        for (index in 0 until sources.size()) sources.valueAt(index).let { it.richPaint = null; it.discardPaint() }
     }
     fun remove(view: Int) {
         sources[view]?.let { source -> source.discardPaint(); clearParagraphs(source) }
         sources.remove(view)
+        inlinePaint.remove(view); decorations.remove(view)
+    }
+
+    /** Paint-only paragraph updates do not evict the kernel's metric answers. */
+    fun setParagraphPaint(view: Int, runs: JSONArray) {
+        val model = InlineTextPaint.read(view, runs).takeIf { it.pieces.isNotEmpty() }
+        if (inlinePaint[view] == model) return
+        if (model == null) inlinePaint.remove(view) else inlinePaint.put(view, model)
+        sources[view]?.let { it.richPaint = null; it.discardPaint() }
+    }
+    /** Accessibility reads the same collapsed string as platform measurement. */
+    fun paragraphText(view: Int): String? = sources[view]?.runs?.joinToString("") { it.text }
+
+    fun clearParagraphPaint(view: Int) {
+        if (inlinePaint[view] == null) return
+        inlinePaint.remove(view)
+        sources[view]?.let { it.richPaint = null; it.discardPaint() }
+    }
+    fun setTextDecoration(view: Int, value: String) {
+        val decoration = InlinePaintModel.decoration(value)
+        if ((decorations[view] ?: 0) == decoration) return
+        if (decoration == 0) decorations.remove(view) else decorations.put(view, decoration)
+        sources[view]?.let { it.richPaint = null; it.discardPaint() }
+    }
+    /** The presenter invalidates text boxes/groups when the owner scheme changes. */
+    fun setPaintDark(dark: Boolean) {
+        if (paintDark == dark) return
+        paintDark = dark
+        for (index in 0 until sources.size()) sources.valueAt(index).let { it.richPaint = null; it.discardPaint() }
     }
 
     private fun ByteBuffer.utf8(): String {
@@ -241,24 +288,51 @@ internal class TextEngine(private val context: Context, private val onWake: () -
         val count = input.int
         require(count in 0..65536)
         val faces = HashMap<Int, MutableList<Font>>()
+        val generic = HashMap<Int, FontFamily>()
         repeat(count) {
             val stack = input.int; val weight = input.int; val italic = input.int != 0
-            input.utf8() // Contract alias; stacks carry identity, file name tables do not.
+            val alias = input.utf8()
             val source = input.utf8()
-            faces.getOrPut(stack) { ArrayList() }.add(
-                Font(source, context.assets, FontWeight(weight), if (italic) FontStyle.Italic else FontStyle.Normal)
-            )
+            if (source.isEmpty()) {
+                require(weight == 1 && !italic && !faces.containsKey(stack)) { "invalid Android generic font member" }
+                require(!generic.containsKey(stack)) { "Android ordered font fallback is not implemented" }
+                generic[stack] = genericFamily(alias)
+            } else {
+                require(!generic.containsKey(stack)) { "Android ordered font fallback is not implemented" }
+                faces.getOrPut(stack) { ArrayList() }.add(
+                    Font(source, context.assets, FontWeight(weight), if (italic) FontStyle.Italic else FontStyle.Normal)
+                )
+            }
         }
         require(!input.hasRemaining())
         families.clear()
+        families.putAll(generic)
         for ((stack, fonts) in faces) families[stack] = FontFamily(fonts)
         configurationVersion++
         clearSources(); paragraphs.clear(); sharedTexts.clear()
     }
 
+    private fun genericFamily(name: String): FontFamily = when (name) {
+        "system-ui", "ui-rounded" -> FontFamily.Default
+        "ui-sans-serif", "sans-serif" -> FontFamily.SansSerif
+        "ui-serif", "serif" -> FontFamily.Serif
+        "ui-monospace", "monospace" -> FontFamily.Monospace
+        "cursive" -> FontFamily.Cursive
+        "fantasy" -> FontFamily(Typeface.create("fantasy", Typeface.NORMAL))
+        else -> error("Android generic font '$name' is not implemented")
+    }
+    private fun family(id: Int): FontFamily = families[id] ?: when (id) {
+        // PlanBuilder's eight stock stacks never enter the font catalog.
+        0, 7 -> FontFamily.Default
+        1, 2 -> FontFamily.SansSerif
+        3, 4 -> FontFamily.Serif
+        5, 6 -> FontFamily.Monospace
+        else -> error("Android font stack $id was not installed")
+    }
+
     private fun Style.span() = SpanStyle(
         fontSize = size.sp, fontWeight = FontWeight(weight.coerceIn(1, 1000)),
-        fontFamily = families[family] ?: FontFamily.Default,
+        fontFamily = family(family),
         fontStyle = if (italic) FontStyle.Italic else FontStyle.Normal,
         letterSpacing = spacing.sp,
         fontFeatureSettings = if (numeric and 1 != 0) "tnum" else null
@@ -285,7 +359,7 @@ internal class TextEngine(private val context: Context, private val onWake: () -
     }
     private fun Source.style() = TextStyle(
         fontSize = strut.size.sp, fontWeight = FontWeight(strut.weight.coerceIn(1, 1000)),
-        fontFamily = families[strut.family] ?: FontFamily.Default,
+        fontFamily = family(strut.family),
         fontStyle = if (strut.italic) FontStyle.Italic else FontStyle.Normal,
         letterSpacing = strut.spacing.sp,
         lineHeight = strut.lineHeight?.sp ?: TextUnit.Unspecified,
@@ -297,6 +371,7 @@ internal class TextEngine(private val context: Context, private val onWake: () -
         val cached = source.intrinsic
         if (cached != null && !cached.hasStaleResolvedFonts) return cached
         if (cached != null) {
+            source.richPaint = null
             source.discardPaint()
             source.drawn = null
             clearParagraphs(source)
@@ -359,6 +434,55 @@ internal class TextEngine(private val context: Context, private val onWake: () -
     }
     private fun drawnParagraph(source: Source, width: Int, ellipsis: Boolean = false) =
         paragraph(source, width, ellipsis, retain = true)
+
+    private fun decoration(flags: Int): TextDecoration = when (flags) {
+        1 -> TextDecoration.Underline
+        2 -> TextDecoration.LineThrough
+        3 -> TextDecoration.combine(listOf(TextDecoration.Underline, TextDecoration.LineThrough))
+        else -> TextDecoration.None
+    }
+
+    private fun paintedParagraph(source: Source, width: Int, ellipsis: Boolean = false): Paragraph {
+        val model = inlinePaint[source.view]
+        val ownDecoration = decorations[source.view] ?: 0
+        if (model == null && ownDecoration == 0) return drawnParagraph(source, width, ellipsis)
+        // Check font leases on the existing measurement path first. The paint
+        // projection uses its exact string, metric spans and width offer.
+        val measured = intrinsics(source)
+        var rich = source.richPaint
+        if (rich == null || rich.model !== model || rich.decoration != ownDecoration ||
+            rich.dark != paintDark || rich.configuration != configurationVersion || rich.intrinsic.hasStaleResolvedFonts) {
+            val (text, metricSpans) = source.text()
+            val painted = model?.ranges(source.whiteSpace, paintDark, ownDecoration)
+            require(painted == null || painted.text == text) { "Android inline paint text differs from measured paragraph" }
+            val spans = ArrayList<AnnotatedString.Range<SpanStyle>>(metricSpans.size + (painted?.ranges?.size ?: 1))
+            spans.addAll(metricSpans)
+            if (painted == null) {
+                if (text.isNotEmpty()) spans.add(AnnotatedString.Range(SpanStyle(textDecoration = decoration(ownDecoration)), 0, text.length))
+            } else for (range in painted.ranges) {
+                spans.add(AnnotatedString.Range(SpanStyle(
+                    color = range.color?.let { Color(it) } ?: Color.Unspecified,
+                    background = range.background?.let { Color(it) } ?: Color.Unspecified,
+                    textDecoration = decoration(range.decoration)
+                ), range.start, range.end))
+            }
+            rich = RichParagraph(model, ownDecoration, paintDark, configurationVersion, ParagraphIntrinsics(
+                text = text, style = source.style(), spanStyles = spans, placeholders = emptyList(),
+                density = density, fontFamilyResolver = resolver
+            ))
+            source.richPaint = rich
+        }
+        val used = normalizedWidth(source, measured, width, ellipsis) ?: width
+        if (rich.paragraph == null || rich.width != used || rich.ellipsis != ellipsis) {
+            rich.paragraph = Paragraph(
+                paragraphIntrinsics = rich.intrinsic, constraints = Constraints(maxWidth = used),
+                maxLines = if (ellipsis) 1 else if (source.clamp == 0) Int.MAX_VALUE else source.clamp,
+                overflow = if (ellipsis) TextOverflow.Ellipsis else TextOverflow.Clip
+            )
+            rich.width = used; rich.ellipsis = ellipsis
+        }
+        return checkNotNull(rich.paragraph)
+    }
 
     /** One callback per complete paragraph cache miss, never one per run or glyph. */
     fun measure(input: ByteBuffer, length: Int = input.limit()): ByteBuffer {
@@ -430,9 +554,9 @@ internal class TextEngine(private val context: Context, private val onWake: () -
         return metrics
     }
 
-    // Compose paint mutates the intrinsic TextPaint. All calls are main-owned,
-    // pass an explicit color, and this engine exposes no paint spans/brushes or
-    // shadow/decoration overrides. Never let a shared lease escape this owner.
+    // Compose paint mutates its intrinsic TextPaint. Metric leases stay shared;
+    // rich paint leases belong to one source and never enter the metric index.
+    // Every main-owned draw passes the owner's current default color explicitly.
     private fun paint(source: Source, paragraph: Paragraph, canvas: AndroidCanvas, color: Int, cachePaint: Boolean = true) {
         if (!canvas.isHardwareAccelerated || !cachePaint) {
             canvasHolder.drawInto(canvas) { paragraph.paint(this, Color(color)) }
@@ -475,7 +599,7 @@ internal class TextEngine(private val context: Context, private val onWake: () -
     private fun drawImpl(view: Int, canvas: AndroidCanvas, width: Int, color: Int, ellipsis: Boolean, cachePaint: Boolean) {
         val source = sources[view] ?: return
         if (ellipsis && !source.wraps()) {
-            val laidOut = drawnParagraph(source, width.coerceIn(0, 32767), true)
+            val laidOut = paintedParagraph(source, width.coerceIn(0, 32767), true)
             paint(source, laidOut, canvas, color, cachePaint)
             return
         }
@@ -487,7 +611,7 @@ internal class TextEngine(private val context: Context, private val onWake: () -
         }
         val checkpoint = canvas.save()
         canvas.translate(offset, 0f)
-        val laidOut = drawnParagraph(source, used.coerceIn(0, 32767))
+        val laidOut = paintedParagraph(source, used.coerceIn(0, 32767))
         paint(source, laidOut, canvas, color, cachePaint)
         canvas.restoreToCount(checkpoint)
     }

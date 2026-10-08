@@ -287,27 +287,32 @@ void fonts(void *context, const ExactFontCatalog *catalog) {
         uint32_t installed = 0;
         for (size_t index = 0; index < catalog->count; ++index) {
             const auto &face = catalog->faces[index];
-            const bool system_default = face.source_len == 0 && face.weight == 1 &&
-                face.family_len == 9 && std::memcmp(face.family, "system-ui", 9) == 0;
-            if (face.source_len == 0 && !system_default)
-                throw std::invalid_argument("Android C9 local and non-system generic font members are not implemented");
+            bool generic = false;
+            if (face.source_len == 0 && face.weight == 1) {
+                constexpr const char *families[] = {"system-ui", "sans-serif", "ui-sans-serif", "serif", "ui-serif", "monospace", "ui-monospace", "cursive", "fantasy"};
+                for (const char *family : families) {
+                    const size_t length = std::strlen(family);
+                    generic = generic || (face.family_len == length && std::memcmp(face.family, family, length) == 0);
+                }
+            }
+            if (face.source_len == 0 && !generic)
+                throw std::invalid_argument("Android C9 local font members are not implemented");
             for (size_t other = 0; other < catalog->count; ++other) {
                 const auto &member = catalog->faces[other];
                 if (other == index || member.stack != face.stack) continue;
-                if (system_default || member.source_len == 0 ||
+                if (generic || member.source_len == 0 ||
                     member.family_len != face.family_len ||
                     std::memcmp(member.family, face.family, face.family_len) != 0)
                     throw std::invalid_argument("Android C9 ordered font fallback stacks are not implemented");
             }
-            if (!system_default) ++installed;
+            ++installed;
         }
         wire.word(1);
         wire.word(installed);
         for (size_t index = 0; index < catalog->count; ++index) {
             const auto &face = catalog->faces[index];
-            // C9 already renders the standalone system-ui stack with the
-            // platform default; it has no packaged face to install.
-            if (face.source_len == 0) continue;
+            // An empty source with the generic marker names the platform's
+            // family. Packaged faces keep their asset-backed install record.
             wire.word(face.stack);
             wire.word(face.weight);
             wire.word(face.italic);

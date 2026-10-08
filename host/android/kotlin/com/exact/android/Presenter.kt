@@ -40,6 +40,7 @@ internal class Presenter(
     private val scrolled: (Int, Double, Double) -> Unit
 ) {
     private val scale = context.resources.displayMetrics.density
+    private val images = NativeImages(context)
     val root = Box(context)
         .apply { isFocusableInTouchMode = true }
     private val nodes = SparseArray<Node>()
@@ -215,6 +216,37 @@ internal class Presenter(
         }
         return null
     }
+    data class CollectionInfo(val mounted: Int, val visible: Int, val firstVisibleTestId: String?, val scroll: ScrollView)
+    fun collectionInfo(testId: String): CollectionInfo? {
+        var owner: Node? = null
+        for (index in 0 until nodes.size()) {
+            val candidate = nodes.valueAt(index)
+            if (candidate.props.optString("testId") == testId) { owner = candidate; break }
+        }
+        val collection = owner ?: return null
+        val scroll = collection.control as? ScrollView ?: return null
+        val rows = collections.mountedRows(collection.key)
+        val start = scroll.scrollY
+        val end = start + scroll.height - scroll.paddingTop - scroll.paddingBottom
+        var visible = 0
+        var first: NativeCollections.Row? = null
+        var firstTop = Int.MAX_VALUE
+        for (row in rows) {
+            val n = nodes[row.view] ?: continue
+            if (n.frame.bottom > start && n.frame.top < end) {
+                visible++
+                if (n.frame.top < firstTop) { firstTop = n.frame.top; first = row }
+            }
+        }
+        fun rowName(id: Int): String? {
+            val n = nodes[id] ?: return null
+            val name = n.props.optString("testId")
+            if (name.startsWith("row-")) return name.removePrefix("row-")
+            for (child in n.logicalChildren) rowName(child)?.let { return it }
+            return null
+        }
+        return CollectionInfo(rows.size, visible, first?.let { rowName(it.root) }, scroll)
+    }
     fun textGeometries(prefix: String): List<Geometry> = (0 until nodes.size()).map { nodes.valueAt(it) }
         .filter { it.kind == "text" && it.props.optString("testId").startsWith(prefix) }
         .map { Geometry(it.key, it.kind, Rect(it.frame), it.logicalParent != null || it.rootAttached, it.flatParent != null, it.materialized) }
@@ -297,6 +329,14 @@ internal class Presenter(
         var logicalWidth = 0f
         private var logicalTextInset = 0f
         private var imageSource: String? = null
+        private var imageRequest: NativeImages.Request? = null
+        private var imageSize = 0L
+        private var imageFit = ""
+        private var intrinsicSource: String? = null
+        fun releaseImage() {
+            images.cancel(imageRequest); imageRequest = null
+            (control as? ImageView)?.setImageDrawable(null)
+        }
         var tx = 0f; var ty = 0f; var sx = 1f; var angle = 0f
         var lx = 0f; var ly = 0f; var lw = 1f; var lh = 1f
         private var matrix: Matrix? = null
@@ -383,7 +423,12 @@ internal class Presenter(
                     if ("submit" in handlers) { dispatchInteractive(key, 7, null); true } else false
                 }
             }
-            "image" -> ImageView(context).apply { scaleType = ImageView.ScaleType.FIT_CENTER }
+            "image" -> ImageView(context).apply {
+                scaleType = ImageView.ScaleType.FIT_CENTER
+                // Replaced content clips to its own viewport even when the
+                // surrounding CSS box allows descendants to overflow.
+                cropToPadding = true
+            }
             "native" -> checkNotNull(nativeComponent).view
             "control" -> controls.create(key, props)
             "scroll", "list" -> (if (kind == "list") NativeCollectionScrollView(context) else ScrollView(context)).apply {
@@ -473,7 +518,7 @@ internal class Presenter(
             val next = leaf ?: FlatTextGroup.Leaf(key).also { leaf = it }
             next.bounds.set(Math.addExact(frame.left, dx), Math.addExact(frame.top, dy),
                 Math.addExact(frame.right, dx), Math.addExact(frame.bottom, dy))
-            next.text = props.optString("text")
+            next.text = props.optString("text").ifEmpty { text.paragraphText(key) ?: "" }
             next.label = props.optString("accessibilityLabel").ifEmpty { null }
             next.enabled = props.optString("disabled") != "true"
             next.accessibilityHidden = props.optString("inert") == "true" || props.optString("accessibilityElementsHidden") == "true"
@@ -554,6 +599,7 @@ internal class Presenter(
                     (number(style, "padding_right") + number(style, "border_width_right"))
             }
             ellipsis = decoded?.ellipsis ?: (style.optString("text_overflow") == "ellipsis")
+            if (kind == "text") text.setTextDecoration(key, style.optString("text_decoration_line", "none"))
             buttonFill?.cornerRadii = radii
             buttonMask?.cornerRadii = radii
             visible = decoded?.visible ?: (style.optString("display") != "none" && style.optString("visibility") != "hidden")
@@ -593,21 +639,9 @@ internal class Presenter(
                 textColor = ink; changed = true
                 (control as? EditText)?.setTextColor(ink)
             }
-            var borderColor = 0
-            var hasBorder = false
-            var sameWidths = true
             for (side in 0..3) {
                 val color = resolveColor(borderPairs[side])
                 if (borderColors[side] != color) { borderColors[side] = color; changed = true }
-                if (borderWidths[side] > 0f) {
-                    require(!hasBorder || borderColor == color) { "Android borders with different side colors are not implemented" }
-                    borderColor = color
-                    hasBorder = true
-                }
-                if (borderWidths[side] != borderWidths[0]) sameWidths = false
-            }
-            require(radii.all { it == 0f } || !hasBorder || sameWidths) {
-                "Android rounded borders with different side widths are not implemented"
             }
             if (changed) {
                 leaf?.let { it.backgroundColor = backgroundColor; it.textColor = textColor }
@@ -618,6 +652,33 @@ internal class Presenter(
         fun collectionPort(scroll: ScrollView) = NativeCollections.Port(scroll, childrenBox,
             (inset[0] - controlInset[0]) / scale.toDouble(), (inset[1] - controlInset[1]) / scale.toDouble(),
             (inset[2] - controlInset[2]) / scale.toDouble(), (inset[3] - controlInset[3]) / scale.toDouble())
+        private fun loadImage(control: ImageView) {
+            val src = props.optString("imageSource")
+            require(!src.contains(":") && !src.startsWith("/") && !src.split('/').contains("..")) { "Android remote images are not implemented" }
+            val width = (frame.width() - inset[0] - inset[2]).roundToInt().coerceAtLeast(1)
+            val height = (frame.height() - inset[1] - inset[3]).roundToInt().coerceAtLeast(1)
+            val size = (width.toLong() shl 32) or height.toLong()
+            val fit = style.optString("object_fit", "fill")
+            if (src != imageSource || size != imageSize || fit != imageFit) {
+                images.cancel(imageRequest)
+                imageRequest = null
+                if (src != imageSource) control.setImageDrawable(null)
+                imageSource = src; imageSize = size; imageFit = fit
+                if (src.isEmpty()) {
+                    intrinsicSource = null
+                    intrinsic(key, -1f, -1f)
+                } else imageRequest = images.request(src, width, height, fit) { image ->
+                    if (!closed && nodes[key] === this && imageSource == src && imageSize == size && imageFit == fit) {
+                        control.setImageBitmap(image.bitmap)
+                        if (intrinsicSource != src) {
+                            intrinsicSource = src
+                            intrinsic(key, image.width.toFloat(), image.height.toFloat())
+                            viewportChanged()
+                        }
+                    }
+                }
+            }
+        }
         fun placeControl() {
             if (control == null) return
             // The native editor owns its content padding; an image has no such
@@ -626,6 +687,7 @@ internal class Presenter(
             box.place(control, edges[0].roundToInt(), edges[1].roundToInt(),
                 (frame.width() - edges[0] - edges[2]).roundToInt().coerceAtLeast(0),
                 (frame.height() - edges[1] - edges[3]).roundToInt().coerceAtLeast(0))
+            if (control is ImageView) loadImage(control)
         }
         fun transform() {
             if (tx == 0f && ty == 0f && sx == 1f && angle == 0f && lx == 0f && ly == 0f && lw == 1f && lh == 1f) {
@@ -705,7 +767,7 @@ internal class Presenter(
                 box.inert = props.optString("inert") == "true"
                 val accessibility = if (box.inert || props.optString("accessibilityElementsHidden") == "true") View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS else View.IMPORTANT_FOR_ACCESSIBILITY_AUTO
                 if (widget.importantForAccessibility != accessibility) widget.importantForAccessibility = accessibility
-                box.accessibilityText = props.optString("text")
+                box.accessibilityText = props.optString("text").ifEmpty { text.paragraphText(key) ?: "" }
                 val tag = props.optString("testId")
                 if (widget.tag != tag) widget.tag = tag
                 installEvents()
@@ -760,21 +822,7 @@ internal class Presenter(
                         "none" -> ImageView.ScaleType.CENTER
                         else -> error("Android object-fit '${style.optString("object_fit")}' is not implemented")
                     }
-                    val src = props.optString("imageSource")
-                    require(!src.contains(":") && !src.startsWith("/") && !src.split('/').contains("..")) { "Android remote images are not implemented" }
-                    if (src != imageSource) {
-                        if (src.isEmpty()) {
-                            control.setImageDrawable(null)
-                            intrinsic(key, -1f, -1f)
-                        } else context.assets.open(src).use { stream ->
-                            val options = android.graphics.BitmapFactory.Options().apply { inScaled = false }
-                            val bitmap = android.graphics.BitmapFactory.decodeStream(stream, null, options)
-                                ?: error("Android asset image '$src' could not be decoded")
-                            control.setImageDrawable(android.graphics.drawable.BitmapDrawable(context.resources, bitmap))
-                            intrinsic(key, bitmap.width.toFloat(), bitmap.height.toFloat())
-                        }
-                        imageSource = src
-                    }
+                    loadImage(control)
                 }
                 placeControl()
                 transformDirty.add(this)
@@ -790,7 +838,6 @@ internal class Presenter(
             val decoded = decodedStyle
             val unsupported = if (decoded != null) decoded.unsupported else UNSUPPORTED_STYLE.firstOrNull { style.has(it) }
             require(unsupported == null) { "Android style '$unsupported' is not implemented" }
-            require(!(decoded?.decorated ?: (style.optString("text_decoration_line", "none") != "none"))) { "Android text decoration is not implemented" }
             require(!(decoded?.stacked ?: (style.optInt("z_index", 0) != 0))) { "Android z-index stacking is not implemented" }
             require(!(decoded?.pointerOverride ?: (style.optString("pointer_events", "auto") != "auto"))) { "Android pointer-events override is not implemented" }
             val ox = decoded?.overflowX ?: style.optString("overflow_x", "visible")
@@ -847,14 +894,11 @@ internal class Presenter(
         var clipContents = false
         var contentWidth: Int? = null
         var contentHeight: Int? = null
-        private var borderPaint: android.graphics.Paint? = null
+        private val borders = NativeBorders()
         private var fillPaint: android.graphics.Paint? = null
         private var fillColor = Color.TRANSPARENT
         private var outline: Path? = null
-        private var borderPath: Path? = null
-        private var innerRadii: FloatArray? = null
         private var outlineDirty = true
-        private var borderDirty = true
         private val frames = HashMap<View, Rect>()
         var paintRank = 0L
             set(value) {
@@ -891,9 +935,7 @@ internal class Presenter(
         fun setFillColor(color: Int) { fillColor = color; fillPaint?.color = color }
         private fun fillPaint() = fillPaint ?: android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
             .apply { color = fillColor }.also { fillPaint = it }
-        private fun borderPaint() = borderPaint ?: android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
-            .also { borderPaint = it }
-        fun geometryChanged() { outlineDirty = true; borderDirty = true }
+        fun geometryChanged() { outlineDirty = true; borders.invalidate() }
         override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
             super.onSizeChanged(w, h, oldw, oldh)
             geometryChanged()
@@ -930,24 +972,7 @@ internal class Presenter(
                     canvas.drawRoundRect(0f, 0f, width.toFloat(), height.toFloat(), radii[0], radii[0], fillPaint)
                 } else canvas.drawPath(outline(), fillPaint)
             }
-            if (rounded && borderWidths[0] > 0f) {
-                val borderPaint = borderPaint()
-                borderPaint.color = borderColors[0]
-                canvas.drawPath(borderOutline(), borderPaint)
-            } else {
-                for (side in 0..3) {
-                    val thickness = borderWidths[side]
-                    if (thickness <= 0f) continue
-                    val borderPaint = borderPaint()
-                    borderPaint.color = borderColors[side]
-                    when (side) {
-                        0 -> canvas.drawRect(0f, 0f, width.toFloat(), thickness, borderPaint)
-                        1 -> canvas.drawRect(width - thickness, 0f, width.toFloat(), height.toFloat(), borderPaint)
-                        2 -> canvas.drawRect(0f, height - thickness, width.toFloat(), height.toFloat(), borderPaint)
-                        3 -> canvas.drawRect(0f, 0f, thickness, height.toFloat(), borderPaint)
-                    }
-                }
-            }
+            borders.draw(canvas, width.toFloat(), height.toFloat(), borderWidths, borderColors, radii)
             if (clipContents) {
                 val saved = canvas.save()
                 try { clip(canvas); paintText?.invoke(canvas) }
@@ -966,21 +991,6 @@ internal class Presenter(
                 path.reset()
                 path.addRoundRect(0f, 0f, width.toFloat(), height.toFloat(), radii, Path.Direction.CW)
                 outlineDirty = false
-            }
-            return path
-        }
-        private fun borderOutline(): Path {
-            val path = borderPath ?: Path().also { borderPath = it }
-            if (borderDirty) {
-                val thickness = borderWidths[0]
-                path.reset(); path.fillType = Path.FillType.EVEN_ODD
-                path.addRoundRect(0f, 0f, width.toFloat(), height.toFloat(), radii, Path.Direction.CW)
-                if (width > thickness * 2 && height > thickness * 2) {
-                    val inner = innerRadii ?: FloatArray(8).also { innerRadii = it }
-                    for (i in 0..7) inner[i] = (radii[i] - thickness).coerceAtLeast(0f)
-                    path.addRoundRect(thickness, thickness, width - thickness, height - thickness, inner, Path.Direction.CW)
-                }
-                borderDirty = false
             }
             return path
         }
@@ -1028,8 +1038,14 @@ internal class Presenter(
         return colorPair(value, value)
     }
     private fun repaintScheme() {
+        val before = paintDark
         paintDark = authoredDark ?: (context.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK == Configuration.UI_MODE_NIGHT_YES)
-        for (index in 0 until nodes.size()) nodes.valueAt(index).applyPaint()
+        text.setPaintDark(paintDark)
+        for (index in 0 until nodes.size()) {
+            val n = nodes.valueAt(index)
+            n.applyPaint()
+            if (before != paintDark && n.kind == "text") n.invalidatePaint()
+        }
     }
     private fun node(id: Int) = nodes[id] ?: error("Android batch references absent node $id")
     private fun ownerOf(box: Box): Node? {
@@ -1204,11 +1220,11 @@ internal class Presenter(
                 n.releaseChildren()
                 nodes.remove(id); navigationOwners.remove(id)
                 n.detachNative(); n.detachFlat()
-                dirty.remove(n); transformDirty.remove(n); text.remove(id); controls.remove(id); n.nativeComponent?.close()
+                dirty.remove(n); transformDirty.remove(n); text.remove(id); controls.remove(id); n.releaseImage(); n.nativeComponent?.close()
             }
             "paragraph" -> {
                 val runs = op.getJSONArray("runs")
-                require(runs.length() == 0) { "Android styled inline paragraph paint is not implemented" }
+                text.setParagraphPaint(id, runs)
                 node(id).invalidatePaint()
             }
             "rank" -> nodes[id]?.let { n ->
@@ -1299,7 +1315,10 @@ internal class Presenter(
     /** Opcode 5 changes only cached paint, preserving cold style geometry and events. */
     fun paint(id: Int, mask: Int, buffer: ByteBuffer) = node(id).paint(mask, buffer)
     /** Opcode 6 preserves paragraph invalidations without parsing an empty JSON run list. */
-    fun invalidate(id: Int) = node(id).invalidatePaint()
+    fun invalidate(id: Int) {
+        text.clearParagraphPaint(id)
+        node(id).invalidatePaint()
+    }
     fun finish() {
         try {
             val ancestorChanged = semanticsGeometryDirty || dirty.isNotEmpty() || transformDirty.isNotEmpty() || parentsDirty.isNotEmpty()
@@ -1351,7 +1370,7 @@ internal class Presenter(
         closed = true
         root.touchDispatch = null
         if (root.viewTreeObserver.isAlive) root.viewTreeObserver.removeOnGlobalFocusChangeListener(focusListener)
-        controls.close(); collections.close(); navigation.close()
+        controls.close(); collections.close(); navigation.close(); images.close()
         for (index in 0 until nodes.size()) nodes.valueAt(index).nativeComponent?.close()
         for (parent in flatParents.toList()) releaseGroup(parent)
         groupMembers.clear(); boxOwners.clear()

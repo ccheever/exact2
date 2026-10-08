@@ -56,7 +56,7 @@ class ExactView(context: Context, initialPress: String? = null, nativeFactory: N
     private val text = TextEngine(context) { requestPump() }
     private val presenter = Presenter(context, text, ::event,
         ::notifyTitle, { id, w, h -> imageSizes[id] = w to h }, ::requestFit, ::collectionFeedback, nativeFactory, { id, x, y -> scrollPositions[id] = x to y })
-    private var handle = Native.create(text)
+    private var handle = run { NativeEnvironment.configure(context); Native.create(text) }
     var onTitle: ((String) -> Unit)? = null
     internal var onBoot: (() -> Unit)? = null
     internal var onFirstDraw: (() -> Unit)? = null
@@ -66,6 +66,7 @@ class ExactView(context: Context, initialPress: String? = null, nativeFactory: N
     internal val retainedNodes: Int get() = presenter.retainedNodes
     internal val materializedNodes: Int get() = presenter.materializedNodes
     internal fun geometry(testId: String): Presenter.Geometry? = presenter.geometry(testId)
+    internal fun collectionInfo(testId: String): Presenter.CollectionInfo? = presenter.collectionInfo(testId)
     internal fun textGeometries(prefix: String): List<Presenter.Geometry> = presenter.textGeometries(prefix)
     internal fun groupInfo(): List<Presenter.GroupInfo> = presenter.groupInfo()
     internal fun accessibility(testId: String): Pair<android.view.accessibility.AccessibilityNodeProvider, Int>? = presenter.accessibility(testId)

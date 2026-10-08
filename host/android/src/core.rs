@@ -743,9 +743,11 @@ fn content_size(node: NodeRef<'_>, kernel: &Kernel) -> (f32, f32) {
         Dimension::Points(v) => v,
         Dimension::Percent(v) => node.frame.width * v / 100.,
         Dimension::Calc(p, v) => node.frame.width * p / 100. + v,
-        Dimension::Auto | Dimension::Env(..) | Dimension::Segment(..) | Dimension::Viewport(..) => {
-            0.
-        }
+        Dimension::Auto => 0.,
+        Dimension::Env(..)
+        | Dimension::Segment(..)
+        | Dimension::Viewport(..)
+        | Dimension::Compare(..) => unreachable!("resolved above"),
     };
     let (right, bottom) = (
         pad(node.style.padding_right),

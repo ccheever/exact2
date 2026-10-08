@@ -37,15 +37,37 @@ pub(crate) fn app_dirs(app_id: &str) -> Result<Option<([PathBuf; 3], Option<Path
     {
         return Err(DataError::Unavailable("unsafe app storage identity".into()));
     }
-    let home = std::env::var_os("HOME")
-        .map(PathBuf::from)
-        .filter(|p| p.is_absolute())
-        .ok_or_else(|| DataError::Unavailable("app storage needs an absolute HOME".into()))?;
-    let mut data = home
-        .join("Library/Application Support/exact")
-        .join(app_id)
-        .join("data");
-    let mut cache = home.join("Library/Caches/exact").join(app_id);
+    #[cfg(target_os = "android")]
+    let (mut data, mut cache) = {
+        // The Android Context owns these roots. The retained host supplies the
+        // same XDG inputs as the native-window Android host, inside its sandbox.
+        let base = |name: &str| {
+            std::env::var_os(name)
+                .map(PathBuf::from)
+                .filter(|p| p.is_absolute())
+                .ok_or_else(|| DataError::Unavailable(format!("Android app storage needs {name}")))
+        };
+        (
+            base("XDG_DATA_HOME")?
+                .join("exact")
+                .join(app_id)
+                .join("data"),
+            base("XDG_CACHE_HOME")?.join("exact").join(app_id),
+        )
+    };
+    #[cfg(not(target_os = "android"))]
+    let (mut data, mut cache) = {
+        let home = std::env::var_os("HOME")
+            .map(PathBuf::from)
+            .filter(|p| p.is_absolute())
+            .ok_or_else(|| DataError::Unavailable("app storage needs an absolute HOME".into()))?;
+        let data = home
+            .join("Library/Application Support/exact")
+            .join(app_id)
+            .join("data");
+        let cache = home.join("Library/Caches/exact").join(app_id);
+        (data, cache)
+    };
     let mut fresh = None;
     if let Some(name) = scratch {
         cache = cache.join("agent").join(name);
