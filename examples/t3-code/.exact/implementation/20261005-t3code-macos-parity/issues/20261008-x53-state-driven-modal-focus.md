@@ -89,3 +89,8 @@ Local draft (2026-10-08, dialog-shortcut-focus). Reproduced on the feature branc
 Upstream: https://github.com/ccheever/exact2/issues/282 (#282, [Feature] `showModal(id)` and `close(id)` from an action on macOS and the web). Reproduced on main `0365ad1a4` (relevant files unchanged on main `e200397ec`) with a minimal public-API app before filing. macOS logs `exact: unknown command showModal`, the web `refused: showModal is not a command this runtime carries`. The invoker form (`command="show-modal"`) traps Tab and returns the focus on Escape on both hosts. A `role="dialog" aria-modal=true` overlay lets Tab leave on both hosts (22 → 3). The API is LLP 1101.001 P5's, built on the terminal host only. Searched: showModal, modal focus, focus trap: no duplicate (PR #69 is session-owned host dialogs).
 
 Next: issue-close once #282 lands: replace the per-dialog traps with `dialog` + `showModal`.
+
+## Decided upstream (2026-10-08): waits for main fix of #282
+
+[Charlie on #282](https://github.com/ccheever/exact2/issues/282#issuecomment-6055581523): "Carry showModal(id) and close(id) on GUI hosts."
+- Waits for main fix of [#282](https://github.com/ccheever/exact2/issues/282), then an adoption round. On adoption, `showModal`/`close` replace the per-dialog `key` traps, `sidebarDialogFocus`, `dialogReturn` and the `focus()` returns (AppConfirm, SettingsConfirm, Custom snooze, Add Environment, the Local environment dialog, the pull request confirmation and stack dialogs).

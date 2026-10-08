@@ -122,3 +122,14 @@ Nothing to remove. Every clone monitor needs what is still missing, or lives whe
 
 Found, not this round: the Send gesture's and the sidebar row's click modifiers could read `press`'s `MouseEvent`
 (`T3ComposerIntent.take`, `T3Sidebar.pressModifiers`), which main already had before #220. The issue stays open for #140.
+
+## Decided upstream (2026-10-08): waits for main fix of #140; no held-modifier fact
+
+[Charlie on #140](https://github.com/ccheever/exact2/issues/140#issuecomment-6055585110): "Choose capture-phase key handling; decline a new keyboard fact. … existing keyup plus page focus
+covers held modifiers."
+- Waits for main fix of [#140](https://github.com/ccheever/exact2/issues/140): a capture handler covers `R8KeysLauncher.swift`, `T3KeyRecorder.swift` and the
+  Escape and chords of `RightPanelTabsInput.swift`.
+- **Different design:** held ⌘ (the jump hints in `T3Sidebar.swift`, the Send label in `T3ComposerIntent.swift`) is
+  rebuilt as a root capture `key`/`keyup` handler plus `exactPage().hasFocus`. At adoption, check that a root
+  capture handler hears keys while nothing is focused.
+- The ⌘W repeat drop and the ⌘Q hold stay native (the reference does both in its main process).

@@ -105,3 +105,11 @@ stapling were not run upstream (no identity). Not adopted here: `20261005-portab
 ## Rest filed upstream (2026-10-08)
 
 Upstream (the rest): https://github.com/ccheever/exact2/issues/270 (#270, [Design] macOS release: entitlements for the app and its nested code, and a pre-seal step (rest of #119)). Reproduced on main `0365ad1a4` (relevant files unchanged on main `e200397ec`) before filing: `host.macos.entitlements` and `host.macos.preseal` are refused as unknown keys; `exact release` signs nested code with no entitlements (`scripts/exact.mjs:254-266`); `exact release` itself was not run (no Developer ID on the machine). LLP 1069.008 derives entitlements from grants; one "Decision needed" comment. Searched open and closed issues and PRs: no duplicate.
+
+## Decided upstream (2026-10-08): narrowed
+
+[Charlie on #270](https://github.com/ccheever/exact2/issues/270#issuecomment-6055586737): "Fix signing-before-hashing; choose scoped derived helper entitlements and copied staging files. … use
+the existing build/staging flow rather than an arbitrary preseal callback."
+- **Narrowed:** no pre-seal hook. The clone no longer needs one (portable-app-download was dropped). Only
+  embedded-server-runtime's first-launch unpack could gain, if derived helper entitlements can give `t3` its JIT
+  entitlements. Nothing waits on it.

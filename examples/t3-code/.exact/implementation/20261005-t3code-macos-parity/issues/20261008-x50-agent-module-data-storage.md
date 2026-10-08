@@ -46,3 +46,8 @@ module data, agent storage (issues and PRs): no duplicate.
 
 Next: issue-close once #284 lands; then the pull request panel's relaunch check can read the
 module's file instead of replaying it.
+
+## Decided upstream (2026-10-08): waits for main fix of #284
+
+[Charlie on #284](https://github.com/ccheever/exact2/issues/284#issuecomment-6055581761): "Use the named agent store for module roots."
+- Waits for main fix of [#284](https://github.com/ccheever/exact2/issues/284), then an adoption round. Then the pull request panel's relaunch row and U6's relaunch row run in agent mode with `--storage`.

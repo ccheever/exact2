@@ -57,3 +57,8 @@ stage change and the failure.
 Upstream: https://github.com/ccheever/exact2/issues/278 (#278, [Bug] macOS: progressbar, status, alert and modal dialog roles are not exposed to accessibility). Reproduced on main `0365ad1a4` (relevant files unchanged on main `e200397ec`) with a minimal public-API app before filing. One-file app (an indeterminate `progress`, a `box role="progressbar"`, `text role="status" aria-live="polite"`, `text role="alert"`, `column role="dialog" aria-modal=true`): macOS `tree --ax` lists the `progress` element (`progressbar "Working" [busy]`), plain `text` for the status and the alert, and no drawn bar, dialog or modal; the web lists `progressbar "Download"`, `status`, `alert` and `dialog "Setup" [modal]`. On main an explicit `aria-live` posts `.announcementRequested` on macOS (`Accessibility.swift:279-287`); the roles are still unmapped (`NodeViewMac.swift:354-370`), and LLP 1080.003 D3 deferred `aria-modal` on macOS. Searched: live region, role alert, aria-modal macOS, progressbar: no duplicate. Local record only on this branch (copied from the closed #260 branch).
 
 Next: issue-close once #278 lands: re-run `tree --ax first-launch`.
+
+## Decided upstream (2026-10-08): waits for main fix of #278
+
+[Charlie on #278](https://github.com/ccheever/exact2/issues/278#issuecomment-6055581241): "Complete admitted role mappings, implicit live announcements and macOS modal accessibility."
+- Waits for main fix of [#278](https://github.com/ccheever/exact2/issues/278), then an adoption round. The clone's `role="status"`/`"alert"` nodes, the drawn progress bar and its dialogs then reach VoiceOver; there is no workaround to remove.

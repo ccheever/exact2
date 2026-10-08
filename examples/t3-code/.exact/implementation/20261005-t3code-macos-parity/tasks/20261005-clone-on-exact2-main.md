@@ -175,3 +175,9 @@ Preparation started 2026-10-06; import and branch reset not executed.
 ## Next action
 
 #99 goes to `main` at the end, as the user scheduled (2026-10-07). Before it goes: drop `.exact/`, `STATUS.md`, `AGENT-HANDOFF.md` and `EXACT2-GAPS.md`; export the clone as one commit on current `main` so the evidence never enters main's history; rewrite the `EXACT2-GAPS X<n>` citations in source and README to GitHub issue numbers; build and drive there; report the async lane's `--workspace` build time before and after; move the three `docs/agent-pitfalls.md` entries to their own PR.
+
+2026-10-08 (records sync): #99 also waits for main adoption round 7, which waits for main fix of X67 (main's examples test
+overflows the compiler's 2 MiB test-thread stack on the clone; without the fix the merged branch cannot pass `cargo test`).
+Round 7 brings in the `now()` → `performanceNow()` rename (main `9731c8056`) and drops `panels.contract` and
+`settings-panels.contract`, which main's examples test refuses (unless the root rewrite did these first). In the cleanup,
+cite #100, #117 and #276 as declined upstream: the app's own code is the design there.

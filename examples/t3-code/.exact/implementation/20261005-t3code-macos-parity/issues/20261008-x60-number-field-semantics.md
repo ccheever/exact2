@@ -76,3 +76,8 @@ things: stepping, the character filter and the accessibility role. Evidence: [x6
 
 Next: `issue-close` once #301 lands: remove `tsStep` and the ArrowUp/ArrowDown branch of
 `TailscaleSetupDialog.submitKey`; a typed letter should then never show in the port field.
+
+## Decided upstream (2026-10-08): waits for main fix of #301
+
+[Charlie on #301](https://github.com/ccheever/exact2/issues/301#issuecomment-6055580503): "Implement number-field behavior and its adjustable accessible role."
+- Waits for main fix of [#301](https://github.com/ccheever/exact2/issues/301), then an adoption round. On adoption, `tsStep` goes.

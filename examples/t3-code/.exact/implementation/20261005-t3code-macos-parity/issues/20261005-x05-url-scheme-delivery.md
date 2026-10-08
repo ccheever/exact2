@@ -103,3 +103,11 @@ stay blocked as before.
 ## Rest filed upstream (2026-10-08)
 
 Upstream (the rest): https://github.com/ccheever/exact2/issues/268 (#268, [Design] Deliver a custom-scheme URL, whole, to an app with no navigation root (rest of #104)). Reproduced on main `0365ad1a4` (relevant files unchanged on main `e200397ec`) before filing: cold launch: `launch URL refused: no navigation root handler`; warm GetURL: `navigate refused: no navigation root handler`; `location_of` drops the scheme and fragment; no `protocol_handlers` key or module URL callback. Blocked by LLP 1038 D8 (a URL is only the navigation root's location); one "Decision needed" comment. Searched open and closed issues and PRs: no duplicate.
+
+## Decided upstream (2026-10-08): narrowed
+
+[Charlie on #268](https://github.com/ccheever/exact2/issues/268#issuecomment-6055586204): "Choose protocol_handlers templates over the existing navigate path. … this choice still requires a
+navigation root and does not satisfy the no-router criterion."
+- Narrowed: delivery still needs a navigation root; no-router delivery is not chosen.
+- For the clone: no consumer is left. E4 (`t3code://`) went out of scope with T3 Connect (X38, closed by the user)
+  and U10 is decided (no CLI install action). Nothing waits on it.

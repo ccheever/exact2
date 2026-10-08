@@ -124,3 +124,8 @@ Re-checked 2026-10-07 on main `cff90b364` (task [20261007-adopt-main-fixes-r3](.
 ## Rest filed upstream (2026-10-08)
 
 Upstream (the rest): https://github.com/ccheever/exact2/issues/272 (#272, [Bug] macOS: frame() of an inline text run is unavailable, and agent layout omits inline runs (rest of #133)). Reproduced on main `0365ad1a4` (relevant files unchanged on main `e200397ec`) before filing: macOS `frame("link")` gives `0,0 0x0 unavailable=true` and `layout` lists no inline runs; the web gives `24,24 228.34375×36`. Agent hover (#178) still passes. Searched open and closed issues and PRs: no duplicate.
+
+## Decided upstream (2026-10-08): waits for main fix of #272
+
+[Charlie on #272](https://github.com/ccheever/exact2/issues/272#issuecomment-6055582661): "Expose the union of inline-run rectangles through frame and layout." A correctness fix.
+- Waits for main fix of [#272](https://github.com/ccheever/exact2/issues/272): the `#N` inline-link hover card of pr-links-previews-and-routing anchors to it.

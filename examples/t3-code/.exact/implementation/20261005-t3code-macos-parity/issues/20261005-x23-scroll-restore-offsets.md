@@ -169,3 +169,13 @@ The rest of #138 is [#277](https://github.com/ccheever/exact2/issues/277). Main 
 reference's scroll-padding sites (the palette results, the work-group list, the composer menu, the combobox, command and
 autocomplete lists) are plain scrollers in the clone, so nothing is adopted (X23b). X23a and X23c are unchanged:
 `R9Input.swift` and `T3TimelineTurns.swift` stay (the latter also measures which turns are in view, X22).
+
+## Decided upstream (2026-10-08): waits for main fix of #277; restoration is the app's
+
+[Charlie on #277](https://github.com/ccheever/exact2/issues/277#issuecomment-6055587411): "Choose standard scroll padding/margins, native smooth jumps and scrollend; use app-owned top-list
+restoration. … Expose a first-visible key/offset and a matching explicit restore."
+- Waits for main fix of [#277](https://github.com/ccheever/exact2/issues/277) for X23b–c: then the hold loop in `T3TimelineTurns.swift` and the menus'
+  TypeScript offsets go.
+- **Different design (X23a):** exact2 will not restore a list by key. At adoption, port the reference's
+  `rememberTimelinePosition`/`readTimelinePosition` into app state over the first-visible key and offset, then
+  retire the restore code in `R9Input.swift`.

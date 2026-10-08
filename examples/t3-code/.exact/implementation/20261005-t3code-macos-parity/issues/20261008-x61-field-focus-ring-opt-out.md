@@ -112,3 +112,8 @@ card on macOS, and Chrome's focus outline on the web; `outline="none"` is refuse
 [x61-ops.txt](https://raw.githubusercontent.com/ccheever/exact2/649f5649dc51c4f75562485f5cabc5ef74baabd1/file-x59-x61/x61-ops.txt).
 
 Next: `issue-close` once #302 lands: add `outline="none"` where the reference is `outline-none` (App adoption above).
+
+## Decided upstream (2026-10-08): waits for main fix of #302
+
+[Charlie on #302](https://github.com/ccheever/exact2/issues/302#issuecomment-6055582892): "Add the requested outline:none suppression."
+- Waits for main fix of [#302](https://github.com/ccheever/exact2/issues/302), then an adoption round. On adoption, `outline="none"` goes on the composer and the Appearance prompt preview.

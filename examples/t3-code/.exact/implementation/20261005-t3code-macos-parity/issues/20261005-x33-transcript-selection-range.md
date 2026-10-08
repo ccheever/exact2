@@ -131,3 +131,12 @@ Re-checked 2026-10-07 on main `cff90b364` (task [20261007-adopt-main-fixes-r3](.
 ## Rest filed upstream (2026-10-08)
 
 Upstream (the rest): https://github.com/ccheever/exact2/issues/274 (#274, [Feature] Text selection: its rectangles, and clearing or setting it on a text (rest of #132)). Reproduced on main `0365ad1a4` (relevant files unchanged on main `e200397ec`) before filing: part 1 (#171, the button press) still passes; `setSelectionRange` on a `text` logs `refused: not a text field` on the web and macOS, `clearSelection()` is `type-unknown-command`, `Selection.rect`/`.rects` are `type-unknown-field`. Searched open and closed issues and PRs: no duplicate.
+
+## Decided upstream (2026-10-08): waits for main fix of #274
+
+[Charlie on #274](https://github.com/ccheever/exact2/issues/274#issuecomment-6055583756): "Add selection rectangles and web-named selection commands. … Use
+Selection.removeAllRanges/setBaseAndExtent semantics … avoid inventing clearSelection where the web already names
+the operation."
+- Waits for main fix of [#274](https://github.com/ccheever/exact2/issues/274): Cite sits under the selection's end and clears the selection after citing.
+- **Different design:** where this record says `clearSelection()`, read the web's `removeAllRanges` (and
+  `setBaseAndExtent` to set one).

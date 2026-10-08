@@ -54,7 +54,7 @@ Reference rules to keep: line comments only on the whole change (not under a com
 | Kind | Readable task/issue/decision | Remote reference | Required condition | Resolution evidence |
 | --- | --- | --- | --- | --- |
 | merged task PR | [20261005-clone-on-exact2-main](20261005-clone-on-exact2-main.md) | pending | Merged | pending |
-| merged task PR | [20261005-desktop-oracle-and-trace](20261005-desktop-oracle-and-trace.md) | pending | Merged | pending |
+| merged task PR | [20261005-desktop-oracle-and-trace](closed/20261005-desktop-oracle-and-trace.md) | pending | Merged | pending |
 | merged task PR | [20261005-pr-conversation-and-refresh](closed/20261005-pr-conversation-and-refresh.md) | pending | Merged (threads, activity, refresh) | pending |
 | merged task PR | [20261005-pr-writing-and-metadata](closed/20261005-pr-writing-and-metadata.md) | pending | Merged (composer, review store, editor, reactions) | pending |
 | merged task PR | [20261005-diff-review-engine](closed/20261005-diff-review-engine.md) | pending | Merged (annotation rows, tree, lazy rows, line-comment cards) | pending |

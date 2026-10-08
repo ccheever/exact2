@@ -84,3 +84,8 @@ user's approval (`issue-open`).
 Upstream: https://github.com/ccheever/exact2/issues/280 (#280, [Bug] macOS: date, time and select inputs are not Tab stops). Reproduced on main `0365ad1a4` (relevant files unchanged on main `e200397ec`) with a minimal public-API app before filing. Same scratch app: macOS Tab walk 3 → 10 → 11 → 3, Shift+Tab 11 → 10 → 3; web 3 → 5 (×4) → 6 (×4) → 7 → 10 → 11. An explicit `tabindex=0` on the date input makes it a macOS stop (3 → 5 → 10); its keys were not checked. Searched: Tab date, tabbable, select Tab: no duplicate.
 
 Next: issue-close once #280 lands: re-run the Custom snooze Tab drive.
+
+## Decided upstream (2026-10-08): waits for main fix of #280
+
+[Charlie on #280](https://github.com/ccheever/exact2/issues/280#issuecomment-6055580836): "Put date, time and select controls in the default Tab order."
+- Waits for main fix of [#280](https://github.com/ccheever/exact2/issues/280), then an adoption round. On adoption, re-drive Custom snooze's Tab order.

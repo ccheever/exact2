@@ -166,3 +166,12 @@ handler: the reference's `onPaste` sites are the composer, the terminal's own pa
 ## Rest filed upstream (2026-10-08)
 
 Upstream (the rest): https://github.com/ccheever/exact2/issues/275 (#275, [Feature] Text fields: selectionchange on caret moves, setRangeText and a cancelable beforeinput (rest of #125)); https://github.com/ccheever/exact2/issues/276 (#276, [Policy] Atomic inline ranges (chips) over a text field's plain-string value (rest of #125)). Reproduced on main `0365ad1a4` (relevant files unchanged on main `e200397ec`) before filing: after `setSelectionRange`, ArrowLeft reports nothing (no `selectionchange` on a field), `selectionchange` on a `textarea` is `lower-attr-tag`, `beforeinput` is `lower-unknown-attr`, `setRangeText` and `undo` are `type-unknown-command`, `contenteditable` is refused. #276 is blocked by `rules/DEFERRED.md:155-161` ("no rich value type") and has one "Decision needed" comment. Searched open and closed issues and PRs: no duplicate.
+
+## Decided upstream (2026-10-08)
+
+[Charlie on #276](https://github.com/ccheever/exact2/issues/276#issuecomment-6055589942) (closed, not planned): "Keep atomic chips out of plain Contract fields." [Charlie on #275](https://github.com/ccheever/exact2/issues/275#issuecomment-6055583546): "Add field
+selectionchange and beforeinput; pin range-edit semantics first."
+- **Declared difference (permanent), #276:** the composer's atomic chips stay in the native composer
+  (`T3Composer*.swift`, styled ranges over `[label](t3-context://…)`).
+- Waits for main fix of [#275](https://github.com/ccheever/exact2/issues/275) for plain Contract fields. It does not retire the native composer: the chips,
+  the trigger and menu keys and the history recall live in the same view.

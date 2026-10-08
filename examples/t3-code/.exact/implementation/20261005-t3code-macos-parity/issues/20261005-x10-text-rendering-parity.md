@@ -158,3 +158,12 @@ reference capture of the same message (follow-up finding, task record). The stor
 ## Rest filed upstream (2026-10-08)
 
 Upstream (the rest): https://github.com/ccheever/exact2/issues/266 (#266, [Design] Text rows: `text-wrap: balance`, an authored placeholder colour, `-webkit-font-smoothing` (rest of #128)). Reproduced on main `0365ad1a4` (relevant files unchanged on main `e200397ec`) before filing: `text-wrap="balance"`, `text-wrap-style`, `-webkit-font-smoothing` and `placeholder-color` are `lower-unknown-attr`; `::placeholder` is not a tag or attribute (the default placeholder colour differs per platform by LLP 1104). One "Decision needed" comment (LLP 1104:165, LLP 1077:127). Searched open and closed issues and PRs: no duplicate.
+
+## Decided upstream (2026-10-08): narrowed; smoothing is a declared difference
+
+[Charlie on #266](https://github.com/ccheever/exact2/issues/266#issuecomment-6055585630): "Choose balanced text and authored ::placeholder color; defer font smoothing. … Keep platform
+defaults when absent."
+- Waits for main fix of [#266](https://github.com/ccheever/exact2/issues/266): `text-wrap: balance` and an authored placeholder colour (the planned
+  adoption follow-up).
+- **Declared difference (permanent):** font smoothing is deferred. The stored font-smoothing setting stays
+  unapplied, and text looks heavier than in Chrome (item 5).

@@ -1,7 +1,7 @@
 ---
 name: 20261005-desktop-oracle-and-trace
 plan: 20261005-t3code-macos-parity
-implementation: blocked
+implementation: dropped
 verification: blocked
 delivery: none
 repository: https://github.com/ccheever/exact2
@@ -73,7 +73,7 @@ Browser surface capture.
 
 ## Context and guidance
 
-Parent specification: [spec](../spec.md) (fidelity row: the oracle is the desktop app).
+Parent specification: [spec](../../spec.md) (fidelity row: the oracle is the desktop app).
 Source behavior: reference `apps/desktop/` (Electron main, preload, `DesktopBridge` in
 `packages/contracts/src/ipc.ts`), `packages/contracts` `WS_METHODS`. Base for the proxy:
 mc-orch `target/t3-ui-parity/lanes/r7-integrate-dev/tools/devproxy.mjs`.
@@ -87,7 +87,7 @@ only by counting RPC use, and found that earlier rounds compared against the web
 
 | Kind | Readable task/issue/decision | Remote reference | Required condition | Resolution evidence |
 | --- | --- | --- | --- | --- |
-| merged task PR | [20261005-clone-on-exact2-main](20261005-clone-on-exact2-main.md) | pending | Merged into `daehyeon/t3-code` | pending |
+| merged task PR | [20261005-clone-on-exact2-main](../20261005-clone-on-exact2-main.md) | pending | Merged into `daehyeon/t3-code` | pending |
 | recorded decision | Apparatus approval for items 1–5 | none | User approves | pending |
 | recorded decision | Network installs: pnpm (reference-pinned version), `vp`, the Electron version the reference pins, Playwright core | none | User approves | pending |
 
@@ -125,6 +125,8 @@ Required environment: network access for the approved installs; optional Screen 
 permission for native chrome captures.
 
 ## Progress
+
+2026-10-08 (records sync): moved to `tasks/closed/` (`implementation: dropped`): not built by the user's decision of 2026-10-06 (no reference oracle or trace tooling); rows that need it stay "not run — user decision 2026-10-06".
 
 2026-10-06: not to be built (user decision). Tasks whose acceptance rows need the reference oracle or the trace diff record those rows as not run, and this ticket is no longer a prerequisite of any task.
 

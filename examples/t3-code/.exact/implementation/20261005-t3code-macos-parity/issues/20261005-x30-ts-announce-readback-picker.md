@@ -1,11 +1,11 @@
 ---
 name: 20261005-x30-ts-announce-readback-picker
 plan: 20261005-t3code-macos-parity
-status: draft
+status: published
 kind: framework-gap
 blocks: [20261005-composer-fidelity, 20261005-media-actions, 20261005-pr-conversation-and-refresh, 20261005-settings-scoped-controls-and-theme-editor]
-upstream_url: null
-reproduced_on: null
+upstream_url: https://github.com/ccheever/exact2/issues/116
+reproduced_on: 4c893fef6
 ---
 
 # X30: Data-module topic announce and resource invalidation; pixel readback; any-type file pick with bytes and image transcode
@@ -79,5 +79,16 @@ Remove `r10Wake` and `wakeShell` (`r10-connect-timing.ts`), `T3ImageAccent.swift
 
 ## Status and next action
 
-Draft; not reproduced on the pinned `main`; not searched upstream; not published.
-Next: `issue-open` (reproduce, search for duplicates, prepare the report for the user's approval; publication only after approval).
+Published 2026-10-06 as [#116](https://github.com/ccheever/exact2/issues/116) (reproduced on exact2 `4c893fef6` before filing). Decided upstream on 2026-10-08: see the last section.
+
+## Decided upstream (2026-10-08): narrowed; readback and transcode are a declared difference
+
+[Charlie on #116](https://github.com/ccheever/exact2/issues/116#issuecomment-6055588711): "Keep image codecs/readback deferred; propose only the any-type file-input exception. … Until that
+ruling, use the shipped picker. Keep re-encoding/average-color logic in a native module."
+- **Declared difference (permanent):** `T3ImageAccent.swift`, the averaging in `T3ComposerImageChip.swift`, and
+  the frame cutter and HEIC/PNG transcode in `T3ComposerAttach.swift` stay native.
+- **Narrowed:** an any-type `input type="file"` may come later; it would replace only the `NSOpenPanel` in
+  `T3ComposerAttach.swift`.
+- Not in #116: the topic announce and resource invalidation part (#116's "Not in this issue"), so `r10Wake` stays;
+  and the theme editor's Inspect lookup (the element under a point and its paint provenance), which is X68
+  (@@X68@@). U18 waits for main fix of that issue.

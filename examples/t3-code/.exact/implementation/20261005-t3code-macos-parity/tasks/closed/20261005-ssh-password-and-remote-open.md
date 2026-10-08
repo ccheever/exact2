@@ -71,7 +71,7 @@ Port changes for headers: `Effect` services become plain functions; the prompt s
 | --- | --- | --- | --- | --- |
 | merged task PR | [20261005-hot-file-split](20261005-hot-file-split.md) | [#147](https://github.com/ccheever/exact2/pull/147) | Merged into feature integration | Merged 2026-10-06, `7f692c9a1`; split sources present in this checkout |
 | merged task PR | [20261005-clone-on-exact2-main](../20261005-clone-on-exact2-main.md) | none | Merged | Task remains planned/unverified; direct native builds and app checks are recorded below, without claiming this prerequisite merged |
-| merged task PR | [20261005-desktop-oracle-and-trace](../20261005-desktop-oracle-and-trace.md) | none | Merged | Still planned/unverified as reusable tooling; this task now has a direct pinned Electron oracle for SSH prompt/input evidence (linked below) |
+| merged task PR | [20261005-desktop-oracle-and-trace](20261005-desktop-oracle-and-trace.md) | none | Merged | Still planned/unverified as reusable tooling; this task now has a direct pinned Electron oracle for SSH prompt/input evidence (linked below) |
 | scheduling preference | After `20261005-environment-routes` | [#148](https://github.com/ccheever/exact2/pull/148) | Shared route call sites | Merged 2026-10-06, `01f4cbb0a`; route code present, both merges are included after the final feature-base merge |
 
 ## Issue assessment at preparation

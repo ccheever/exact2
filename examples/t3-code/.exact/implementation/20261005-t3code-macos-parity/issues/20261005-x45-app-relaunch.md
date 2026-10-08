@@ -1,7 +1,7 @@
 ---
 name: 20261005-x45-app-relaunch
 plan: 20261005-t3code-macos-parity
-status: draft
+status: closed-upstream
 kind: framework-gap (unconfirmed)
 blocks: [20261005-local-primary-environment, 20261005-this-machine-network-access]
 upstream_url: https://github.com/ccheever/exact2/issues/122
@@ -77,3 +77,10 @@ stays. Its "Relaunch after a setting change" row stays blocked until a relaunch 
 ## Rest filed upstream (2026-10-08)
 
 Upstream (the rest): https://github.com/ccheever/exact2/issues/271 (#271, [Design] A host command that relaunches the app's process (rest of #122)). Reproduced on main `0365ad1a4` (relevant files unchanged on main `e200397ec`) before filing: `relaunch()` is `type-unknown-command`; `reload()` resets the session in the same pid; with `EXACT_DEV_MENU=0` `reload()` does nothing. One "Decision needed" comment. Searched open and closed issues and PRs: no duplicate.
+
+## Decided upstream (2026-10-08): waits for main fix of #271 (after #269)
+
+[Charlie on #271](https://github.com/ccheever/exact2/issues/271#issuecomment-6055586957): "Choose an explicit process relaunch command, after orderly quit is complete. … Depends on #269 and
+durable-write teardown."
+- Waits for main fix of [#271](https://github.com/ccheever/exact2/issues/271), which follows #269 (X6). The U4 relaunch rows stay blocked, and the
+  restart-in-place stopgap stays, until then.

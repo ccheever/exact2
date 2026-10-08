@@ -111,3 +111,16 @@ are not converted in this round: the Files tree row's (Open with ▸) and the le
 project's per-member submenus). They look the same as the reference's; the agent cannot choose from them. Converting
 them as the sidebar's were is a follow-up task (user decision: this round's live-drive budget was spent on the sidebar
 menus #223 was filed for). The issue stays open for #141 and #235.
+
+## Decided upstream (2026-10-08): waits for main fix of #141 and #235
+
+[Charlie on #141](https://github.com/ccheever/exact2/issues/141#issuecomment-6055585362): "Choose declarative menu extensions in Contract. … Keep the host's standard menus and add chordless
+items, explicit menu placement and stable removal identifiers. … Keep Develop in development builds."
+[Charlie on #235](https://github.com/ccheever/exact2/issues/235#issuecomment-6055583989): "Support the ContextMenu key; treat Shift+F10 as a separate shortcut choice."
+- Waits for main fix of [#141](https://github.com/ccheever/exact2/issues/141): `T3Menus.swift` and `R8KeysMenus.swift` become Contract menu items (zoom, Check
+  for Updates…, Help, the hidden key equivalents, Go's removal).
+- **Different design:** option A (an app template that replaces the host's menu bar) is not chosen. Develop stays
+  in development builds: a declared difference in development builds only.
+- Waits for main fix of [#235](https://github.com/ccheever/exact2/issues/235) for the ContextMenu key. Shift+F10 stays in `T3Sidebar.swift` (the reference
+  binds it in its own key handlers).
+- [#292](https://github.com/ccheever/exact2/issues/292) (`NSMenu` stalls main-queue work): waits for main fix of #292; `T3MenuTurn` can stay meanwhile.

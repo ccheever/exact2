@@ -80,7 +80,7 @@ Tools are named by their `target/t3-ui-parity/…` path (committed under `exampl
 | --- | --- | --- | --- | --- |
 | merged task PR | [20261005-hot-file-split](20261005-hot-file-split.md) | pending | Merged into `daehyeon/t3-code` (common prerequisite: room and per-area seams in the shared files) | pending |
 | merged task PR | [20261005-clone-on-exact2-main](../20261005-clone-on-exact2-main.md) | pending | Merged | pending |
-| merged task PR | [20261005-desktop-oracle-and-trace](../20261005-desktop-oracle-and-trace.md) | pending | Merged (`target/t3-ui-parity/electron-oracle.mjs` for the render pair) | pending |
+| merged task PR | [20261005-desktop-oracle-and-trace](20261005-desktop-oracle-and-trace.md) | pending | Merged (`target/t3-ui-parity/electron-oracle.mjs` for the render pair) | pending |
 | recorded decision | Apparatus approval: `verify-vendor.mjs`, optional `refresh` script (spec open decisions) | none | User approves | pending |
 | recorded decision | GO verdict of this ticket's spike | none | User accepts the verdict and the S2 budget | pending |
 
