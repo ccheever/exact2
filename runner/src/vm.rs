@@ -119,6 +119,8 @@ pub struct Env<'a> {
     pub pending_resources: &'a [bool],
     /// Arguments whose latest request failed, by resource (LLP 1054.000.002).
     pub failed_resources: &'a [Option<Vec<Value>>],
+    /// Why, while `failed_resources` holds (LLP 1109 D3); may be shorter.
+    pub failed_why: &'a [Option<crate::failure::Failure>],
     /// Whether each mutation has a request in flight.
     pub pending_mutations: &'a [bool],
     /// Store dependence of settled derives, for bake provenance propagation.
@@ -671,6 +673,22 @@ impl Host<Value> for Run<'_, '_> {
         })
     }
 
+    // @ref LLP 1109 D3 — `failure(x)`: known once settled, as `failed(x)`;
+    // the `Failure` record is `{ code, message }` by position.
+    fn resource_failure(&mut self, i: u64, pc: usize) -> Result<Value, Trap> {
+        if !self.resource_flag(Opcode::FailedResource, i, pc)? {
+            return Ok(Value::Option(None));
+        }
+        let why = self.env.failed_why.get(i as usize).and_then(Option::as_ref);
+        let (code, message) = why.map_or(("error", "it failed"), |w| (w.code.name(), &w.message));
+        let record = Value::Record(
+            [Value::str(code), Value::str(message)]
+                .into_iter()
+                .collect(),
+        );
+        self.some(record, pc)
+    }
+
     #[inline]
     fn pending_mutation(&self, i: u64) -> bool {
         self.env
@@ -871,6 +889,7 @@ mod tests {
             now_ms: 0.0,
             pending_resources: &[],
             failed_resources: &[],
+            failed_why: &[],
             pending_mutations: &[],
             store_dependent_derives: &[],
             store_dependent_resources: &[],
@@ -975,6 +994,7 @@ mod tests {
             now_ms: 0.0,
             pending_resources: &[],
             failed_resources: &[],
+            failed_why: &[],
             pending_mutations: &[],
             store_dependent_derives: &[],
             store_dependent_resources: &[],
@@ -1196,6 +1216,7 @@ mod tests {
                 now_ms: 0.0,
                 pending_resources: &[],
                 failed_resources: &[],
+                failed_why: &[],
                 pending_mutations: &[],
                 store_dependent_derives: &[],
                 store_dependent_resources: &[],

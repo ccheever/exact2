@@ -139,6 +139,9 @@ fn execute(
             Err(e) => Err(e),
         };
     }
+    if op == "fs.compressImage" {
+        return compress_image(grants, directories, args);
+    }
     let (operation, destination, data) = operation(op, args)?;
     if path.starts_with("app:/") && destination.is_some_and(|d| !d.starts_with("app:/")) {
         return Err("portable storage needs an app:/ destination".into());
@@ -170,6 +173,59 @@ fn operation<'a>(op: &str, args: &'a Value) -> Result<Operation<'a>, String> {
         "fs.rename" => (FsOp::Rename, Some(text(args, "destination")?), None),
         "fs.copyFile" => (FsOp::CopyFile, Some(text(args, "destination")?), None),
         _ => return Err(format!("unsupported storage operation {op}")),
+    })
+}
+/// `fs.compressImage` (LLP 1069.002 A1): the operation a TypeScript source's
+/// `storage.fs.compressImage` runs, through ibex2's one executor and the
+/// same codec, so a grant and a failure mean the same in either language.
+fn compress_image(
+    grants: &GrantSet,
+    directories: Option<&AppDirectories>,
+    args: &Value,
+) -> Result<Value, String> {
+    let (from, to) = (text(args, "path")?, text(args, "destination")?);
+    let number = |k: &str| {
+        args[k]
+            .as_f64()
+            .ok_or_else(|| format!("storage: {k} must be a number"))
+    };
+    let (max_dimension, max_bytes) =
+        exact_data::image::check_limits(number("maxDimension")?, number("maxBytes")?)?;
+    let file = fs::compress_image(
+        grants,
+        directories,
+        // Only where there is a codec (LLP 1069.002 A1.3).
+        cfg!(target_vendor = "apple").then_some(&image_codec as &fs::ImageCodec),
+        from,
+        to,
+        max_dimension,
+        max_bytes,
+        // This worker runs the request to its end and no one gives up on it
+        // (data/host/src/lib.rs): there is no right to write to take away.
+        None,
+    )
+    .map_err(error)?;
+    Ok(json!({
+        "path": to,
+        "type": "image/jpeg",
+        "size": file.size,
+        "width": file.width,
+        "height": file.height
+    }))
+}
+/// [`exact_data::image::compress`] as ibex2's codec.
+fn image_codec(
+    bytes: &[u8],
+    max_dimension: u32,
+    max_bytes: u64,
+    deadline: std::time::Instant,
+) -> Result<fs::CompressedImage, String> {
+    exact_data::image::compress(bytes, max_dimension, max_bytes, deadline).map(|c| {
+        fs::CompressedImage {
+            bytes: c.bytes,
+            width: c.width,
+            height: c.height,
+        }
     })
 }
 fn fs_value(result: FsResult) -> Value {
@@ -248,6 +304,14 @@ pub(super) fn run(paths: Option<&Directories>, grants: &str, payload: &[u8]) -> 
         let op = text(&request, "op")?;
         let grants = GrantSet::parse(&exact_runner::io_grants(grants)).map_err(error)?;
         let args = &request["args"];
+        // Two app files, never a document or a disk path (LLP 1069.002 A1.1).
+        if op == "fs.compressImage"
+            && ![&args["path"], &args["destination"]]
+                .iter()
+                .all(|p| p.as_str().is_some_and(|p| p.starts_with("app:/")))
+        {
+            return Err("compressImage: needs app:/ paths".into());
+        }
         if args["path"]
             .as_str()
             .is_some_and(exact_data::documents::is_document)

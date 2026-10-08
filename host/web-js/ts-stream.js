@@ -5,6 +5,7 @@
 // answer now, with the event Hermes gives it (js/src/prelude.js
 // `__exact_message`).
 import { streamed } from './http-body.js';
+import { failureCode } from './shape.js';
 
 const KINDS = ['Response', 'Network', 'Refused', 'Unsupported', 'Aborted', , , , , , 'Timeout'], said = new TextDecoder();
 // Hermes's checks and words on `init` (js/src/prelude.js `fetch`): a
@@ -19,14 +20,14 @@ function request(input, init) {
 }
 export function open({ input, init }, conv, grantSet, deliver, controller) {
   let req;
-  try { req = request(input, init); } catch (e) { return Promise.resolve({ error: String(e?.message ?? e) }); }
+  try { req = request(input, init); } catch (e) { return Promise.resolve({ error: String(e?.message ?? e), code: failureCode(e) }); }
   const map = init.exactStream;
   const value = event => {
     try {
       const v = map(event);
       if (v && typeof v.then === 'function') throw new Error('exactStream answers each event now; it cannot await');
       return { v: conv(v) };
-    } catch (e) { return { error: String(e?.message ?? e) }; }
+    } catch (e) { return { error: String(e?.message ?? e), code: failureCode(e) }; }
   };
   return streamed(req, grantSet, m => deliver({ ...value({ type: m.event || 'message', data: m.data, lastEventId: m.id, coalesced: m.coalesced }), coalesced: m.coalesced }), controller)
     .then(o => value(o.kind

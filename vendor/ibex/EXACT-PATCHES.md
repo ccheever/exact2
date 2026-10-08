@@ -138,6 +138,28 @@ installs the result. The upstream patch is Ibex branch `android-hermes-bundle`
 (local, not pushed). Drop this entry when an Ibex release pins the Android
 bundle.
 
+### 9. `fs.compressImage` over an embedder codec
+
+From exact2 LLP 1069.002 Amendment A1 (2026-10-08): opcode 121
+(`host_opcodes.rs`, `boundary_abi.rs`, `bindings/install.cc`'s `fs_methods`)
+is `fs.compressImage(from, to, maxDimension, maxBytes)`, answered
+`"width\theight\tsize"`. `src/stdlib/fs_image.rs` admits `fs.write` on `to`
+and `fs.read` on `from` before reading, checks the size by `stat`, reads
+through `AppDirectories::read_capped` (`app_fs_unix.rs`: a `take` on the
+opened descriptor), hands the bytes to the embedder's codec
+(`Context::set_image_codec`, `task.rs`), and writes its JPEG with the atomic
+write; both paths must be `app:/`. The write holds the call's `CommitGate`,
+its right to write, which `ibex2_async_begin` registers on the guest's
+thread; `Context::abandon_image_work` (`bindings.rs`, `task.rs`), called by
+an embedder that gives up waiting, takes every unwritten call's right away
+and waits for one mid-write, so nothing is written after the guest was told
+the call failed; a written call's right lasts until `take_task` hands its
+completion out, and `RuntimeState::shutdown` takes unwritten rights away.
+`Context::abandon_image_work_if` asks a retired waiter's `live` under the
+registry's lock, so it abandons no call registered after its retirement. The codec starts nothing after `TRIAL_BUDGET` (20 s) from
+the job's start. `bindings/storage.d.ts` declares it. Ibex holds no codec:
+without one the op answers `unsupported` before reading.
+
 ### Windows chosen-document EISDIR
 
 `src/stdlib/fs.rs` opens one handle with backup semantics, checks that same

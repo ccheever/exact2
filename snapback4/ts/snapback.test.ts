@@ -52,6 +52,44 @@ query total():
 mutation draft(body: text <=50):
   row = insert drafts { author: viewer, body, at: now }
   return { id: row.id }
+
+-- What the device refuses itself: another's ticket (a row rule), and an
+-- approval by a member it knows is not a lead (a require).
+table members:
+  person: principal
+  role: enum('member', 'lead')
+  unique person
+  public 'the directory is public'
+  insert <- .person = viewer
+  update <- deny
+  delete <- deny
+  sync public last 100 by .id
+
+mutation join(role: enum('member', 'lead')):
+  return insert members { person: viewer, role }
+
+mutation approve(body: text <=50):
+  require exists members[person = viewer, role = 'lead'] else NOT_LEAD
+  row = insert messages { author: viewer, body, at: now }
+  return { id: row.id }
+
+table tickets:
+  title: text <=50
+  status: enum('open', 'closed')
+  owner: principal
+  public 'tickets are shared'
+  insert <- .owner = viewer
+  update (old, next) <- old.owner = viewer and next.owner = viewer
+  delete <- deny
+  sync public last 100 by .id
+
+mutation file(title: text <=50):
+  return insert tickets { title, status: 'open', owner: viewer }
+
+mutation close(t: tickets):
+  row = tickets[t] ! else NOT_FOUND
+  update tickets[row.id] { status: 'closed' }
+  return null
 `;
 
 const scratch = mkdtempSync(join(tmpdir(), 'exact-snapback4-ts-'));
@@ -508,3 +546,39 @@ test('a read the device cannot vouch for asks the server; offline it says so', a
   }
   await jo.close();
 }, 120_000);
+
+test('a write the device refuses is failed at once, never sent, and answered by outcome and refusals', async () => {
+  const ned = await open('ned', join(scratch, 'ned'));
+  expect(await ned.sync()).toEqual({ ok: true });
+  const filed = await ned.write('file', { title: 'disk full' }, Date.now());
+  expect(await ned.sync()).toEqual({ ok: true });
+  const ticket = ((await ned.outcome(filed.id)).result as { id: string }).id;
+  await ned.close();
+
+  const olga = await open('olga', join(scratch, 'olga'));
+  await olga.write('join', { role: 'member' }, Date.now());
+  expect(await olga.sync()).toEqual({ ok: true });
+  // Another's ticket (a row rule) and an approval by a known non-lead (a
+  // require): the device refuses both, as the server would.
+  const closed = await olga.write('close', { t: ticket }, Date.now());
+  const approved = await olga.write('approve', { body: 'ok' }, Date.now());
+  expect(closed.state === 'failed' && closed.why.code).toBe('E_RULE');
+  expect(approved.state === 'failed' && approved.why.code).toBe('NOT_LEAD');
+  const next = await olga.write('send', { body: 'after two refusals' }, Date.now());
+  expect(new Set([closed.id, approved.id, next.id]).size).toBe(3);
+  const sends: string[] = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    if (String(input).includes('/m/')) sends.push(new URL(String(input)).pathname);
+    return realFetch(input as never, init);
+  }) as typeof fetch;
+  try { expect(await olga.sync()).toEqual({ ok: true }); } finally { globalThis.fetch = realFetch; }
+  expect(sends).toEqual(['/m/send']);
+  expect(await olga.outcome(closed.id)).toMatchObject({ state: 'failed', why: { code: 'E_RULE' } });
+  expect(await olga.outcome(approved.id)).toMatchObject({ state: 'failed', why: { code: 'NOT_LEAD' } });
+  expect((await olga.refusals()).map(r => [r.op, r.why.code])).toEqual([['close', 'E_RULE'], ['approve', 'NOT_LEAD']]);
+  await olga.dismiss();
+  expect(await olga.refusals()).toEqual([]);
+  expect((await olga.outcome(approved.id)).state).toBe('failed');
+  await olga.close();
+}, 60_000);

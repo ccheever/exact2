@@ -570,14 +570,37 @@ Compiler intrinsics and special forms additionally include:
 | --- | --- |
 | `pending(resourceOrMutationName)` | Boolean; request is in flight |
 | `failed(resourceName)` | Boolean; current resource request failed without an answer |
+| `failure(resourceName)` | `option<Failure>`: `none` until the current request fails without an answer, then `some({ code, message })` (LLP 1109 D3); `code` is one of the closed vocabulary below, the same on every host; `message` is what the agent's `state.failed` shows, and says more and differs by host |
 | `path("routeName", args…)` | Checked encoded route location |
 | `empty(field=constant, …)` | Resource placeholder's zero record with overrides |
 | `some(expr)` | Construct an option |
 | `DeclaredShape(field=value, …)` | Construct a record |
 | `DeclaredShape(base, field=value, …)` | Copy a record |
 
+`failure(x).code` is exactly one of six words, by what reached the runner
+(`runner/src/failure.rs`):
+
+| Code | When |
+| --- | --- |
+| `offline` | A request the source made reached no server (no connection, DNS, TLS, a reset, the driver's `fail fetch`) and the source let the rejection through |
+| `timeout` | A request's deadline (`exactTimeout`) passed, let through |
+| `refused` | The host refused a request outside the app's grants, let through |
+| `shape` | The answer is outside the resource's declared shape |
+| `storage` | A storage call failed (a coded storage refusal: `denied`, `full`, `EBUSY`, a filesystem error, storage unavailable here), let through |
+| `error` | Anything else: the source's own error (a TypeScript `throw` or rejection, a Rust source's `Err`), an aborted request, a host that cannot make it, a module over its time budget |
+
+"Let through" means the TypeScript module rethrew the `fetch` or storage
+rejection or did not catch it; an error the module makes of its own is
+`error`. An HTTP error status is an answer, never a failure: a module that
+throws on a 500 fails with `error`. A Rust source's own error is `error` on
+every host. A request the caller aborted is `error`. A response over its size
+limit is `offline` on the web and on Apple's plain HTTP (the transport reports
+it as a lost connection); Apple's event stream still says `refused` (QUEUE). A
+new code is a breaking change; branch with a default case.
+
 `Router`, `Tab`, `Entry`, and `Params` are introduced by routes. The compiler
-also declares `Geometry` (geometry reads), `MarkdownSelection` (the `select`
+also declares `Geometry` (geometry reads), `Failure` (`failure(x)`'s
+`{ code: string, message: string }`), `MarkdownSelection` (the `select`
 payload) and `Picked` (a file input's `change` payload). None of these is
 constructible. The actual sources are [`format.json`](../plan/tables/format.json),
 [`runner/src/stdlib.rs`](../runner/src/stdlib.rs), and the compiler's type/lowering

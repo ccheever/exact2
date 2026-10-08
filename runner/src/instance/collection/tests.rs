@@ -141,6 +141,7 @@ fn env<'a>(plan: &'a Plan, slots: &'a [Value]) -> Env<'a> {
         now_ms: 0.0,
         pending_resources: &[],
         failed_resources: &[],
+        failed_why: &[],
         pending_mutations: &[],
         store_dependent_derives: &[],
         store_dependent_resources: &[],

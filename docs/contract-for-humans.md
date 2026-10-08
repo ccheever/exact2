@@ -581,6 +581,27 @@ accept a mutation: a mutation whose request fails without an answer stops being
 pending and keeps its previous value, and its `then` does not run. A domain error
 returned in a shaped answer is data to inspect, not a failed transport request.
 
+`failure(resource)` says why, so the view can tell a lost connection from a bug:
+`none` until the request fails, then `some` of a `Failure` record with a `code`
+from a short closed list (`offline`, `timeout`, `refused`, `shape`, `storage`,
+`error`; the grammar says when each applies) and a `message` for a developer.
+The code is the same on every host; the message is not, so branch on the code:
+
+```contract
+shape Item
+  id: string
+
+component Items
+  resource items = loadItems() as shape list<Item> else empty()
+  derive banner = match failure(items) { case some(f) => f.code == "offline" ? "You're offline" : "Couldn't load items", case none => "" }
+  view
+    text banner testId="banner"
+```
+
+A data module reports `offline`, `timeout`, `refused` or `storage` only by letting
+the `fetch` or storage rejection reach the runner; an error it throws of its own,
+for an HTTP error status say, is `error`.
+
 Requests use newest-request-wins behavior; stale answers do not overwrite newer
 requests. A failed resource keeps its retained value or placeholder and clears
 pending. A changed argument or explicit refresh allows another attempt.

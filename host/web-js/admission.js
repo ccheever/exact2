@@ -60,18 +60,20 @@ export async function fetchWith(set, input, init = {}) {
     if (response.url && (asset
       ? new URL(response.url).origin !== globalThis.location?.origin
       : !admitsNetwork(set, response.url, 'fetch'))) throw new FetchError('Refused', `${refusal('net.fetch')}: redirected to ${new URL(response.url).origin}`);
-    // Its clone is read whole within the deadline, so a stalled body is this
-    // fetch's Timeout; the response keeps its URL, type and null body, and
-    // its own read is served from what the clone took.
-    if (deadline) {
-      await response.clone().arrayBuffer();
-      deadline.signal.removeEventListener('abort', relay);
-    }
+    // Its clone is read whole before it answers, as the native executor
+    // collects a body: within the deadline, so a stalled body is this fetch's
+    // Timeout, and a body the network cuts off is its Network failure
+    // (`failure(x)`'s `offline`, LLP 1109 D3); the response keeps its URL,
+    // type and null body, and its own read is served from what the clone took.
+    await response.clone().arrayBuffer();
+    if (deadline) deadline.signal.removeEventListener('abort', relay);
     return response;
   }
   catch (error) {
     if (error instanceof FetchError) throw error;
     if (deadline && signal?.aborted && signal.reason === deadline.signal.reason) throw new FetchError('Timeout', `the request timed out after ${deadline.ms} ms`);
+    // The caller's own abort is the native executor's `Aborted`, not a lost connection.
+    if (error?.name === 'AbortError') throw new FetchError('Aborted', error?.message ?? error);
     throw new FetchError('Network', error?.message ?? error);
   }
 }

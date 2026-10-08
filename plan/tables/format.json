@@ -1006,6 +1006,13 @@
         "u32"
       ],
       "_comment": "@ref LLP 1017.003 D5: as `Map`, keeping each item whose body leaves `true`."
+    },
+    {
+      "name": "FailureResource",
+      "operands": [
+        "idx:resources"
+      ],
+      "_comment": "@ref LLP 1109 D3: `failure(x)`: once the resource settled, `none` while its latest request for its current arguments has not failed, else `some` of the compiler's `Failure` record, `{ code, message }` by position."
     }
   ],
   "_stdlib": "The enumerated roster (LLP 1004 D2/D4): every callable an expression may name, with its parameter types and return type (`any` = one of number, string, bool, list). The compiler checks calls against this table; the runner's VM implements each entry once; entries are added by fixture, never by speculation. LLP 1038 D3: Router and Entry name reserved record shapes; list<Router>, list<Entry>, and list<string> are typed lists.",

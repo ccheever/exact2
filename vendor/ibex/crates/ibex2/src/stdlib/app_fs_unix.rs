@@ -242,6 +242,24 @@ impl AppDirectories {
         let (parent, leaf) = self.open_parent(path)?;
         open_at(&parent, &leaf, libc::O_RDONLY | libc::O_NONBLOCK).map_err(error)
     }
+    /// Exact patch 9 (`fs.compressImage`): a regular file's bytes, at most
+    /// `cap` of them, read through the opened descriptor, under `fs.read`.
+    pub(crate) fn read_capped(
+        &self,
+        grants: &GrantSet,
+        path: &str,
+        cap: u64,
+    ) -> Result<Vec<u8>, HostError> {
+        self.parse(path)?;
+        crate::boundary::admit(grants, &Operation::FsRead { path: path.into() })?;
+        let file = self.open(path)?;
+        if !file.metadata().map_err(error)?.is_file() {
+            return Err(error("read needs a regular file"));
+        }
+        let mut bytes = Vec::new();
+        file.take(cap).read_to_end(&mut bytes).map_err(error)?;
+        Ok(bytes)
+    }
     pub(crate) fn run(
         &self,
         grants: &GrantSet,

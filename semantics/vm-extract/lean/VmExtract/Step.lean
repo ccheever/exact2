@@ -63,6 +63,7 @@ theorem exec_ok : ∀ i, ExecOk i
   | .nativeProps n => exec_nativeProps n
   | .map off => exec_map off
   | .filter off => exec_filter off
+  | .failureResource r => exec_failureResource r
 
 /-- Fetch and run the instruction at `m.pos`: what the model does with the
 code at `M.pc`. -/

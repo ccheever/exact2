@@ -35,12 +35,16 @@ export interface Read<T = Json> {
   [key: string]: unknown;
 }
 
-/** A write as admitted: kept and predicted on this device, sent by a round. */
+/** A write as admitted: kept and predicted on this device, sent by a round;
+ * or refused by the device itself (its prediction refused it, as the server
+ * would on the same rows), which is final: never sent, and `outcome(id)` and
+ * `refusals()` answer it as they answer a refusal the server gave. */
 export type Write =
   | { id: string; state: 'pending'; newIds: string[] }
   | { id: string; state: 'failed'; why: Refusal };
 
-/** A write the server refused, kept in the partition until dismissed: what
+/** A refused write (by the server or by the device), kept in the partition
+ * until dismissed: what
  * it was (`op`, `args`, so its input is not lost), why, and when written.
  * A refusal too large to store (over 8 MiB once encoded) keeps all but its
  * `args`, which are then null and `argsOmitted` is true. */
@@ -311,7 +315,11 @@ export class Snapback {
    * draft version a post publishes), its id derives from the key, and writing
    * the same key again admits nothing: it answers what became of the first.
    * Whether the server took it is `outcome(id)` after a round: a round that
-   * ends `ok` has delivered the outbox, not had every write accepted. */
+   * ends `ok` has delivered the outbox, not had every write accepted.
+   * `failed` here is final and `outcome(id)` keeps answering it; a keyed
+   * write is never refused by a prediction (the server decides it), and the
+   * same key with other input answers `E_WRITE_ID_REUSE` while `outcome(id)`
+   * still answers the first write's fate. */
   async write(name: string, args: Args, now: number): Promise<Write>;
   async write(name: string, args: Args, now: number, key: string): Promise<Write | Outcome>;
   async write(name: string, args: Args, now: number, key?: string): Promise<Write | Outcome> {
@@ -325,7 +333,9 @@ export class Snapback {
     return ok<string>(await this.call({ op: 'write_id', key }));
   }
 
-  /** What became of a write. */
+  /** What became of a write: `pending` while unsent, `sent` or `failed`
+   * (the server's verdict, or the device's at `write`), `unknown` if this
+   * device never admitted it. */
   async outcome(id: string): Promise<Outcome> {
     return ok<Outcome>(await this.call({ op: 'outcome', id }));
   }
@@ -421,7 +431,8 @@ export class Snapback {
     try { await cleanup; } finally { if (closing.get(partition.path) === cleanup) closing.delete(partition.path); }
   }
 
-  /** Writes the server refused, oldest first, until dismissed. */
+  /** Refused writes (by the server or by the device at `write`), oldest
+   * first, until dismissed. */
   async refusals(): Promise<Refused[]> {
     return ok<Refused[]>(await this.call({ op: 'refusals' }));
   }

@@ -1235,9 +1235,7 @@ impl<D: DataSource + Default> CanvasHost<D> {
             return None;
         }
         let p = &mut self.p;
-        let frame = crate::android::trace(c"exact paint", || {
-            crate::text::cache::deferring_eviction(|| p.display_frame())
-        })?;
+        let frame = crate::android::trace(c"exact paint", || p.display_frame())?;
         p.display_complete(&frame);
         if p.module_pending() {
             p.first_pixel();

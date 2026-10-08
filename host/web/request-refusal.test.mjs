@@ -237,6 +237,14 @@ test('filesystem admission is component-based and refuses traversal', () => {
   expect(coversPath(set, 'fs.write', 'app:/data/other')).toBe(false);
 });
 
+test('a refused sqlite.open names the file it wanted and the grant lines that admit it', async () => {
+  const { authorize } = await import('./storage-fs.js');
+  const set = normalized('sqlite.open app:/data/garden');
+  expect(() => authorize(set, 'sqlite.open', 'app:/data/garden-amy.sqlite')).toThrow(
+    'denied: sqlite.open app:/data/garden-amy.sqlite: no grant covers it; grant `sqlite.open app:/data/garden-amy.sqlite`, or `sqlite.open app:/data` for every file there');
+  expect(authorize(normalized('sqlite.open app:/data'), 'sqlite.open', 'app:/data/garden-amy.sqlite')).toBe('app:/data/garden-amy.sqlite');
+});
+
 // LLP 1069.010 D1, files F2: a folder the person chose is one reach on the
 // web, for a TypeScript source (`files`) and a Rust request (`run`), with
 // the codes and refusals ibex2's `run_document` gives both on Hermes.

@@ -1081,11 +1081,22 @@ theorem ty_sound_aux {p : Program} (hfn : ProgOK p) {E : Err → Prop}
             simp [hv, GoodW, ValTy]
           · cases lookup _ env.resources <;> simp [GoodW, ValTy, hs]
         · simp [GoodW, ValTy]
+      | failure hfd hr _ hin' =>
+        simp only [eval, hp, hfd]
+        split
+        · next hr =>
+          rcases hres _ hin' hr with hs | hs
+          · obtain ⟨v, hv⟩ := Option.isSome_iff_exists.mp hs
+            simp [hv, GoodW, ValTy]
+          · cases lookup _ env.resources <;> simp [GoodW, ValTy, hs]
+        · simp [GoodW, ValTy]
       | roster hfd hargs hr =>
         simp only [eval, hp, hfd]
         split
         · cases hargs with | cons _ h2 => cases h2 with | cons h3 _ => cases h3
         · cases hargs with | cons _ h2 => cases h2 with | cons h3 _ => cases h3
+        · cases hargs with | cons _ h2 => cases h2 with | nil =>
+            delta rosterTy routerTy unsupportedTy at hr; simp at hr
         · cases hargs with | cons _ h2 => cases h2 with | nil =>
             delta rosterTy routerTy unsupportedTy at hr; simp at hr
         · cases hargs with | cons _ h2 => cases h2 with | nil =>
