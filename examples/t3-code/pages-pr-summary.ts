@@ -14,9 +14,18 @@ import { latestPullRequestReviewOutcomes, orderPullRequestComments, pullRequestR
 
 export const COMMENT_PAGE = 10;
 export type PrFace = { key: string; login: string; avatar: string; initial: string };
+/**
+ * What a remark carries for the writes (pr-writing-and-metadata, pages-pr-writes.ts): whether this
+ * reader may rewrite it (and its raw words and kind for the editor), whether a save is out and how
+ * many have landed, and its reaction pills with this client's presses in flight laid over.
+ */
+export type PrReactionPill = { content: string; emoji: string; count: number; pressed: boolean; label: string; tooltip: string };
+export type RemarkWrites = { canEdit: boolean; raw: string; kind: string; saving: boolean; savedSerial: number; pills: PrReactionPill[]; reacted: string[] };
+export const noRemarkWrites = (comment: Obj): RemarkWrites => ({ canEdit: false, raw: str(comment.body), kind: str(comment.kind), saving: false, savedSerial: 0, pills: [], reacted: [] });
 export type PrCommentCard = {
   key: string; id: string; bodyId: string; author: string; avatar: string; initial: string; authorTip: string; age: string; ageTip: string; url: string;
   outcome: string; outcomeLabel: string; stateLabel: string; location: string; outdated: boolean; fromEnd: number; finishedLabel: string; preview: string;
+  canEdit: boolean; raw: string; kind: string; saving: boolean; savedSerial: number; reactions: PrReactionPill[]; reacted: string[]; canReact: boolean;
 };
 export type PrCommentGroup = { label: string; authorsText: string; filesText: string; latest: string; latestTip: string; faces: PrFace[]; more: number };
 export type PrReviewerEntry = { key: string; login: string; avatar: string; initial: string; outcome: string; stale: boolean; outcomeText: string; tooltip: string };
@@ -50,8 +59,8 @@ export function conversationBodies(activity: Obj | null): { id: string; kind: st
   return arr(activity?.comments).flatMap(comment => { const body = visibleBody(str(comment.body)); return body === null ? [] : [{ id: `pr-comment:${str(comment.id)}`, kind: 'assistant', title: '', body }]; });
 }
 
-function card(comment: Obj, threads: Map<string, Obj>, url: string, now: number, fromEnd: number): PrCommentCard {
-  const thread = threads.get(str(comment.id)), person = face(comment.author);
+function card(comment: Obj, threads: Map<string, Obj>, url: string, now: number, fromEnd: number, remark: (comment: Obj) => RemarkWrites, canReact: boolean): PrCommentCard {
+  const thread = threads.get(str(comment.id)), person = face(comment.author), writes = remark(comment);
   const outcome = pullRequestReviewOutcome(str(comment.reviewState) || null), body = visibleBody(str(comment.body));
   const path = str(thread?.path) || str(comment.path), line = num(thread?.line);
   return {
@@ -61,6 +70,7 @@ function card(comment: Obj, threads: Map<string, Obj>, url: string, now: number,
     outcome: outcome ?? '', outcomeLabel: outcome ? pullRequestReviewOutcomeLabel(outcome) : '', stateLabel: !outcome && str(comment.reviewState) ? reviewStateLabel(str(comment.reviewState)) : '',
     location: path ? `${path}${thread && line ? `:${line}` : ''}` : '', outdated: thread?.isOutdated === true, fromEnd,
     finishedLabel: thread?.isResolved === true ? 'Resolved' : 'Review dismissed', preview: body === null ? '' : previewText(body),
+    canEdit: writes.canEdit, raw: writes.raw, kind: writes.kind, saving: writes.saving, savedSerial: writes.savedSerial, reactions: writes.pills, reacted: writes.reacted, canReact,
   };
 }
 /** CommentGroup's header: the first three faces, how many wrote, across how many files, and when last. */
@@ -73,7 +83,7 @@ function group(label: string, comments: Obj[], now: number): PrCommentGroup {
 }
 const both = (cards: PrCommentCard[]) => ({ newest: [...orderPullRequestComments(cards, 'newest')], oldest: cards });
 
-export type SummaryInput = { detail: Obj; activity: Obj | null; activityPending: boolean; activityError: string; now: number; listEntry: Obj | null };
+export type SummaryInput = { detail: Obj; activity: Obj | null; activityPending: boolean; activityError: string; now: number; listEntry: Obj | null; remark?: (comment: Obj) => RemarkWrites };
 export function presentSummary(input: SummaryInput): PrSummaryView {
   const { detail, activity, now } = input;
   const view = emptySummary(), url = str(detail.url), capabilities = obj(detail.capabilities);
@@ -110,7 +120,8 @@ export function presentSummary(input: SummaryInput): PrSummaryView {
     const done = threads.get(str(comment.id))?.isResolved === true || pullRequestReviewOutcome(str(comment.reviewState) || null) === 'dismissed';
     (done ? finished : isBot(comment.author) ? bots : active).push(comment);
   }
-  const cards = (list: Obj[]) => list.map((comment, index) => card(comment, threads, url, now, list.length - 1 - index));
+  const remark = input.remark ?? noRemarkWrites, canReact = capabilities.reactions === true;
+  const cards = (list: Obj[]) => list.map((comment, index) => card(comment, threads, url, now, list.length - 1 - index, remark, canReact));
   const activeCards = both(cards(active)), botCards = both(cards(bots)), finishedCards = both(cards(finished));
   view.activeCount = active.length; view.newest = activeCards.newest; view.oldest = activeCards.oldest;
   view.botCount = bots.length; view.botsNewest = botCards.newest; view.botsOldest = botCards.oldest;
