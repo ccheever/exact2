@@ -966,6 +966,9 @@ pub struct CanvasHost<D: DataSource> {
     /// last of them was (ms).
     moved: u32,
     moved_at: f64,
+    /// When the last scroll step came, and whether a pass waits for more.
+    scrolled_at: f64,
+    waiting: bool,
     /// A touch began or ended: paint the next frame.
     force: bool,
     /// A scroll came since the last collection pass: the frame drawing it
@@ -1099,6 +1102,8 @@ impl<D: DataSource + Default> CanvasHost<D> {
             painted: None,
             moved: 0,
             moved_at: 0.0,
+            scrolled_at: 0.0,
+            waiting: false,
             force: false,
             scrolled: false,
             prefetching: false,
@@ -1326,11 +1331,11 @@ impl<D: DataSource + Default> CanvasHost<D> {
     /// Whether a moved paint owes a paint: once moves pause (a frame
     /// without one), the paint brings boxes, hits and pictures up to date.
     pub fn owed(&self) -> bool {
-        self.moved > 0 && self.moves < 1000
+        (self.moved > 0 && self.moves < 1000) || self.waiting
     }
 
     fn owed_at(&self, now: f64) -> bool {
-        self.owed() && now - self.moved_at >= 12.0
+        self.moved > 0 && self.moves < 1000 && now - self.moved_at >= 12.0
     }
 
     fn shift(&mut self, at: f64) -> Option<Vec<u32>> {
@@ -1419,6 +1424,7 @@ impl<D: DataSource + Default> CanvasHost<D> {
         let (x, y) = (self.viewport.0 / 2.0, self.viewport.1 / 2.0);
         let _s = Section::begin(c"exact scroll");
         self.scrolled = self.prefetching;
+        self.scrolled_at = self.now();
         self.travel.scrolled(dy / self.scale);
         self.p.hold_collections(self.prefetching);
         // The feed: the scroller the first wheel at the centre took, moved

@@ -32,6 +32,13 @@ impl<D: DataSource + Default> CanvasHost<D> {
     /// while the view ran past the last drawn row).
     pub fn refine_slice(&mut self, limit: Option<u32>, velocity: f64) -> bool {
         let _s = Section::begin(c"exact refine");
+        // A pass that can wait for more travel does: the rows the travel
+        // brings into the window then mount in one commit. Owed once the
+        // steps stop (`CanvasHost::owed`).
+        self.waiting = limit.is_none() && self.batches();
+        if self.waiting {
+            return false;
+        }
         let started = std::time::Instant::now();
         let limit = limit.or_else(|| self.travel.limit());
         self.sliced = limit.is_some();
@@ -73,6 +80,23 @@ impl<D: DataSource + Default> CanvasHost<D> {
     /// travel, rows left pending) mounts nearer, so its paint comes as before.
     pub(super) fn unhurried(&self) -> bool {
         self.move_tracks && self.lead && !self.sliced
+    }
+
+    /// Whether this pass can wait ([`crate::travel::Travel::waits`]): a
+    /// scroll step came within the last frame and a half, the windows lead,
+    /// and the last pass was no slice (one may have left rows to build).
+    /// `EXACT_PASS_BATCH=0`: never.
+    fn batches(&self) -> bool {
+        static ON: std::sync::LazyLock<bool> =
+            std::sync::LazyLock::new(|| !std::env::var("EXACT_PASS_BATCH").is_ok_and(|v| v == "0"));
+        let viewport = self
+            .feed
+            .and_then(|id| self.p.host().kernel().node(id))
+            .map_or(self.viewport.1, |n| n.frame.height);
+        *ON && self.lead
+            && self.now() - self.scrolled_at < 12.0
+            && self.travel.waits(viewport)
+            && !self.sliced
     }
 
     /// The feed's mounted rows, as (view, epoch): a new pair is a row this
