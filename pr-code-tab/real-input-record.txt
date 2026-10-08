@@ -1,0 +1,30 @@
+pr-code-tab: real-input session, 2026-10-08 (orca computer, real clicks and keys)
+
+Lock: taken 08:55:34Z (owner "pr-code-tab: real-input batch ..."), released 09:09:52Z.
+Build: bun host/apple/build.mjs t3-code-macos --bundle (worktree head e8845c17d + the scope-menu row ids).
+Lane copy: target/github-lane/realinput/T3 Code (Lane PCT).app, CFBundleIdentifier com.exact.t3code.lanepct, names
+"T3 Code (Lane PCT)", re-signed (development identity 0F0D033A). Launched with CFFIXED_USER_HOME under
+target/github-lane/realinput/home and without T3_LOCAL_HOME/T3_LOCAL_PORT (no embedded server: the development build
+refuses one; never ~/.t3 or 3773). Pid 53987. Paired to this worktree's lane server (127.0.0.1:16310) by pasting a fresh
+pairing link (paste-text; the link is not in this record); welcome: Continue, Continue, Do not import projects.
+Window 1280x840, system appearance dark.
+
+Rows
+1. Pull Requests (real click), #168 (real click), Code. Real click on the scope trigger opens the menu; real Escape closes it
+   and the focus ring is on the trigger (AX focus: "Diff scope: All commits"). PASS
+2. Real Return on the focused trigger opens the menu (AX lists "All commits", "Revise the first entry 20ebd93", ...,
+   "Show more (5 left)"); real Escape closes it, ring back on the trigger. PASS (evidence 23)
+3. Real Tab x10 from the trigger, a 1 s pause before each capture: Show whitespace changes, Expand all files, Stacked diff
+   view, Split diff view, Disable diff line wrapping, Show file tree, "Conversations not on the diff loaded so far,
+   2 conversations", Expand diff (a file's chevron), assets/logo.png, Viewed (checkbox), the next file's chevron. The ring
+   shows on each (evidence 24). Captures taken right after the key press (no pause) sometimes show the frame before the
+   ring paints: a capture race, not a missing ring (a paused capture shows it). PASS
+   Note: the file chevron's ring is clipped by the list's left edge (the row has no left inset).
+4. Tree: "Load more files" (real clicks) asked for slices 2-4: "310 files".
+5. Interrupted 09:08:50Z: the screen locked (loginwindow frontmost; just before, Slack came to the front and the HID idle
+   time stayed near 0, so someone was at this Mac; real input stopped there). Not run: the drag across line numbers, a thread's Reply with real Cmd-Return / Escape,
+   reduced motion from System Settings. They are in STATUS.md "Next real-input batch".
+gh-calls.tsv during the session: 21 calls, reads only (no POST/PATCH/PUT/DELETE, no mutation).
+
+Cleanup: copy quit (SIGTERM to the recorded pid), its Keychain item (com.exact.t3code.macos.access-token, account
+http://127.0.0.1:16310 + environment id) deleted, the copy and its home removed, the pasteboard restored, lock released.
