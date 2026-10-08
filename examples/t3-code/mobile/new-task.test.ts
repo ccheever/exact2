@@ -141,11 +141,16 @@ test('unknown direct identity waits for catalog, then returns chooser without se
   expect(f.snapshot('/new/draft/branch?projectId=b')).toMatchObject({ status: 'pick', nextLocation: '/new' });
 });
 
-test('unknown draft and unavailable outbox/share identity never fall through to an existing project', async () => {
+test('unknown draft and unavailable share identity never fall through to an existing project', async () => {
   const f = await fixture();
-  for (const key of ['draftId', 'pendingTaskId', 'incomingShareId', 'cloning']) {
+  for (const key of ['draftId', 'incomingShareId', 'cloning']) {
     expect(f.snapshot(`/new/draft?environmentId=env&projectId=b&${key}=real-id`)).toMatchObject({ status: 'pick', ready: false, needsPrepare: false, nextLocation: '/new' });
   }
+  const pendingURL = '/new/draft?environmentId=env&projectId=b&pendingTaskId=missing';
+  const pending = f.snapshot(pendingURL);
+  expect(pending).toMatchObject({ ready: false, needsPrepare: true, pendingEditor: true });
+  expect((await f.action(pending.owner, 'prepare')).message).not.toBe('');
+  expect(f.snapshot(pendingURL)).toMatchObject({ ready: false, needsPrepare: false, status: 'retained' });
   expect(f.client.projectId).toBe('a'); expect(mobileNewTaskRoute('/new/draft?environmentId=one&environmentId=two&projectId=a').environmentId).toBe('one');
 });
 

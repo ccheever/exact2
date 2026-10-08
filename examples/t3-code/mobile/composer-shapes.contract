@@ -87,6 +87,7 @@ shape NewTaskBranch
   disabled: bool
   last: bool
 shape NewTaskSnapshot
+  pendingEditor: bool
   revision: number
   environmentId: string
   projectId: string

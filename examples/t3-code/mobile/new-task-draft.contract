@@ -81,7 +81,8 @@ component NewTaskDraft
           column min-height="100%" box-sizing="border-box" align-items="center" padding-top=72 padding-bottom=236 font-family="DM Sans"
             NewTaskHero(data=data, chooseProject=chooseProject, chooseEnvironment=chooseEnvironment, colors=colors, iconMuted=threadColors.iconMuted, voiceBusy=dictating)
     column id=`new-task-dock-${routeId}` position="absolute" left=0 right=0 bottom=(keyboardDocked ? -max(bottomPadding - 8, 0) : 0) padding-left=12 padding-right=12 padding-top=3.5 padding-bottom=bottomPadding background-color=colors.sheet font-family="DM Sans" pointer-events="auto"
-      MobileNewTaskClone(data=clone, colors=cloneColors, action=action)
+      when not data.pendingEditor
+        MobileNewTaskClone(data=clone, colors=cloneColors, action=action)
       NewTaskRecoveryNotice(data=recovery, colors=colors, busy=voiceDisabled, action=action)
       NewTaskWorkspace(data=data, action=action, chooseBranch=chooseBranch, colors=colors, iconMuted=threadColors.iconMuted, voiceBusy=dictating)
       when data.composer.showReadOnlyNotice

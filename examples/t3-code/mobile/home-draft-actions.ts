@@ -6,7 +6,7 @@ import { bridgeReply, nativeFiles, type Files, type Native } from './shared/prot
 import { obj } from './shared/domain';
 import { letGo, letGoAware } from './shared/let-go';
 import { homeDraftLocation, homeDraftTitle } from './home-drafts';
-import { mobileNewTaskDraftDiscard, mobileNewTaskDraftHasContent, mobileNewTaskDraftPresentation } from './mobile-new-task-drafts';
+import { mobileNewTaskDraftDiscard, mobileNewTaskDraftHasContent, mobileNewTaskDraftPresentation, mobileNewTaskDraftIsPendingKey } from './mobile-new-task-drafts';
 import type { HomeActionResult } from './home-actions';
 import { mobileNewTaskTransferGuardAcquire, mobileNewTaskTransferGuardRead, mobileNewTaskTransferGuardAssert,
   mobileNewTaskTransferGuardRelease } from './new-task-transfer-guard';
@@ -19,6 +19,7 @@ export async function mobileHomeDraftAction(requestRoute: string, environmentId:
     message, alertTitle: message ? operation === 'draft-open' ? 'Could not open draft' : 'Could not discard draft' : '',
     nextLocation, archiveChanged: false, uncertain: false });
   if (!currentSurface() || threadId || !client.preferencesLoaded) return result();
+  if (mobileNewTaskDraftIsPendingKey(key)) return result('This saved edit belongs to a pending task. Open that task to review it.');
   const captured = mobileNewTaskDraftPresentation(client, key);
   if (!captured || captured.environmentId !== environmentId || !mobileNewTaskDraftHasContent(client, key)) return result();
   if (operation === 'draft-open') return result('', homeDraftLocation(captured));

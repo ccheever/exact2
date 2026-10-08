@@ -146,6 +146,7 @@ final class T3Transport: NSObject, URLSessionWebSocketDelegate, @unchecked Senda
                     guard let text = request["text"] as? String else { throw arguments("writePreferences requires text.") }
                     try writePreferences(text); finish(completion, value: [:])
                 case "mobileUpdateEnvironment": try updateMobileEnvironment(request, completion: completion)
+                case "mobileSelectSavedEnvironment": try selectMobileSavedEnvironment(request, completion: completion)
                 case "connect": try connect(request, completion: completion)
                 case "retry": try retryNow(request, completion: completion)
                 case "disconnect":
@@ -327,6 +328,42 @@ final class T3Transport: NSObject, URLSessionWebSocketDelegate, @unchecked Senda
         }
         if alive { changed("t3.status"); changed("t3.fleet") }
         finish(completion, value: ["saved": savedEnvironments.all])
+    }
+
+    // Pending drafts can open from disk while their saved server is offline.
+    // This focuses an existing identity; only the ordinary handshake grants a live session.
+    private func selectMobileSavedEnvironment(_ request: [String: Any], completion: @escaping Completion) throws {
+        guard let expected = request["generation"] as? Int, expected == generation else {
+            throw T3Failure(kind: "stale", message: "The connection changed before the pending task opened.")
+        }
+        let target = try T3Endpoint.origin(request["origin"] as? String ?? "")
+        let home = T3SavedEnvironments.trimmed(target.absoluteString)
+        guard let environment = request["environmentId"] as? String, !environment.isEmpty else {
+            throw arguments("Choose the pending task's saved environment.")
+        }
+        let matches = savedEnvironments.all.filter { entry in
+            T3SavedEnvironments.trimmed(entry["origin"] as? String ?? "") == home
+        }
+        guard matches.count == 1, let entry = matches.first,
+              entry["environmentId"] as? String == environment, entry["enabled"] as? Bool != false else {
+            throw arguments("The pending task's saved environment is unavailable or ambiguous.")
+        }
+        // Validate the exact routing result before touching the existing connection.
+        let selectedRoutes = T3RouteState(queue: queue, session: { [unowned self] in self.session })
+        selectedRoutes.load(origin: home, saved: savedEnvironments)
+        guard selectedRoutes.environmentId == environment, selectedRoutes.home == home else {
+            throw arguments("The pending task's saved environment routes changed.")
+        }
+        wantsConnection = false; reconnect?.cancel(); reconnect = nil; routes.stop()
+        retire(T3Failure(kind: "Replaced", message: "The saved environment was selected.", uncertain: true))
+        origin = target; routes = selectedRoutes
+        descriptor = ["environmentId": environment, "label": entry["label"] as? String ?? ""]
+        token = ""; privateValues = []; exchangeScope = ""
+        failureKind = ""; failureTrace = ""; lastHTTPTrace = ""; walkExhausted = false
+        wantsConnection = true; failures = 0; everConnected = false
+        if persistent, remembersOrigin { defaults.set(home, forKey: Self.originKey) }
+        start()
+        finish(completion, value: status())
     }
 
     private func connect(_ request: [String: Any], completion: @escaping Completion) throws {

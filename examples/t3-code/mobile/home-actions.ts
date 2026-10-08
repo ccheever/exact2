@@ -1,5 +1,7 @@
 import { mobileOutboxSnapshot } from './mobile-outbox';
 import { mobileOutboxDriveCompleted } from './mobile-outbox-drive';
+import { mobileOutboxOwner } from './mobile-outbox-presentation';
+import { mobilePendingTaskEditorsSnapshot } from './mobile-pending-task-state';
 // Pinned T3 Code365aa87982 thread-list-v2-items, useThreadListActions and HomeRouteScreen.
 // @ref llp/1109.004-home-projection.decision.md#decision
 // @ref llp/1109.011-responsive-workspace.decision.md#navigation-and-data-ownership
@@ -157,10 +159,16 @@ export async function mobileHomeAction(requestRoute: string, environmentId: stri
   if (!currentSurface() || held.has(key)) return result();
   if (kind === 'pending-open') {
     const inventory = mobileOutboxSnapshot(client);
-    const saved = [...inventory.rows.map(item => item.record), ...mobileOutboxDriveCompleted(client)].find(record =>
-      record.creation && record.environmentId === environmentId && record.threadId === threadId && JSON.stringify({ origin: record.origin,
-        environmentId: record.environmentId, threadId: record.threadId, messageId: record.messageId, commandId: record.commandId }) === value);
-    return saved ? result('', `/threads/${encodeURIComponent(environmentId)}/${encodeURIComponent(threadId)}`)
+    const exact = (record: typeof inventory.rows[number]['record']) => record.creation
+      && record.environmentId === environmentId && record.threadId === threadId && mobileOutboxOwner(record) === value;
+    // A retained editor remains reachable after its queue row disappears. Its
+    // validated baseline owns the project; the action supplies no new identity.
+    const editor = mobilePendingTaskEditorsSnapshot(client).markers.find(marker => exact(marker.baseline.record));
+    const queued = inventory.rows.find(item => exact(item.record));
+    const saved = editor?.baseline.record ?? queued?.record;
+    if (saved?.creation) return result('', `/new/draft?environmentId=${encodeURIComponent(saved.environmentId)}&projectId=${encodeURIComponent(saved.creation.projectId)}&pendingTaskId=${encodeURIComponent(saved.messageId)}`);
+    const completed = mobileOutboxDriveCompleted(client).find(exact);
+    return completed ? result('', `/threads/${encodeURIComponent(environmentId)}/${encodeURIComponent(threadId)}`)
       : result('This pending task changed. Refresh the list before opening it.');
   }
   const initial = row(environmentId, threadId, client, background), focused = initial.environment?.focused;

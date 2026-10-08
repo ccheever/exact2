@@ -1,4 +1,4 @@
-import { mobileNewTaskDraftCurrent, mobileNewTaskDraftLookup } from './mobile-new-task-drafts';
+import { mobileNewTaskDraftIsPendingKey, mobileNewTaskDraftCurrent, mobileNewTaskDraftLookup } from './mobile-new-task-drafts';
 import { mobileComposerTarget, mobileComposerTargetCurrent } from './composer-target';
 // Pinned365aa87982 ComposerTextView key commands and followUpBehavior.ts.
 // @ref llp/1109.005-composer-and-transcript.decision.md#settings-ownership
@@ -48,6 +48,7 @@ export async function mobileSend(client: T3Client, alternate: boolean, native: N
   let projectedBuild = false;
   const assertOwner = () => { if (owner !== identity()) throw new ClientError('The draft or model changed before the message could be sent.', 'superseded'); };
   try {
+    if (mobileNewTaskDraftIsPendingKey(client.draftKey)) throw new ClientError('Save these changes from the pending task editor.');
     if (mobileComposerTarget(client).kind !== 'ordinary') throw new ClientError('Save the queued edit from its composer.');
     const reply = await bridgeReply(native, { op: 'mobilePreferences' });
     if (!reply.ok) throw new ClientError(reply.error!.message, reply.error!.kind);

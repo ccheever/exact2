@@ -476,7 +476,10 @@ component MobileRouteContent
     else when startsWith(routeName, "newTask") and routeName != "newTask" and not newTaskFlow.ready
       column flex=1 align-items="center" justify-content="center" padding=28 gap=14
         text (newTaskFlow.message != "" ? newTaskFlow.message : newTaskFlow.title) color=composerLook.muted text-align="center"
-        when newTaskFlow.status == "error"
+        when newTaskFlow.pendingEditor
+          button press=taskAction("pending-refresh", "", "") disabled=newTaskFlow.busy
+            text "Reopen saved edits"
+        else when newTaskFlow.status == "error"
           button press=chooseNewProject
             text "Choose project"
     else when routeName == "threadModel" or routeName == "newTaskModel"
