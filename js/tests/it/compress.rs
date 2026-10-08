@@ -6,6 +6,7 @@ use exact_runner::{DataSource, Store};
 /// The timing tests run one at a time: each compresses seconds of noise
 /// against a wait far shorter, and two at once would slow the small writes
 /// they also wait on past it.
+#[cfg(target_vendor = "apple")]
 static SERIAL: std::sync::Mutex<()> = std::sync::Mutex::new(());
 /// A wait no compression of [`noise_bmp`] finishes inside, and every small
 /// write does.

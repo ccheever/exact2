@@ -97,6 +97,16 @@ impl Session {
     }
 
     pub fn continuation(&self) -> Box<dyn FnOnce() -> Outcome + Send> {
+        self.continuation_for(None)
+    }
+
+    /// A waiter for an answer's step, which gives up without taking any
+    /// compression's right once `retired` is set (its call was let go, and
+    /// another waiter now watches the work: LLP 1069.002 A1.5).
+    pub fn continuation_for(
+        &self,
+        retired: Option<Arc<AtomicBool>>,
+    ) -> Box<dyn FnOnce() -> Outcome + Send> {
         let context = self.context.clone();
         let alive = self.alive.clone();
         let wait = self.wait;
@@ -117,6 +127,12 @@ impl Session {
                         headers: vec![],
                         body: vec![],
                     });
+                }
+                if retired.as_ref().is_some_and(|r| r.load(Ordering::Acquire)) {
+                    return Outcome::Failed {
+                        kind: FailureKind::Aborted,
+                        message: "storage continuation retired: its call was let go".into(),
+                    };
                 }
                 if Instant::now() >= deadline {
                     // Giving up: an `fs.compressImage` that has not written

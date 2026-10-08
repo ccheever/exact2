@@ -75,7 +75,8 @@ export async function headerSize(blob) {
   const ascii = (i, k) => i + k <= n ? String.fromCharCode(...Array.from({ length: k }, (_, j) => u8(i + j))) : '';
   const le24 = i => u8(i) | u8(i + 1) << 8 | u8(i + 2) << 16;
   const positive = size => size && size.every(side => Number.isInteger(side) && side > 0) ? size : null;
-  const larger = (a, b) => a && b ? [Math.max(a[0], b[0]), Math.max(a[1], b[1])] : null;
+  // Of two rectangles (a screen or canvas and a frame), the one of more pixels.
+  const larger = (a, b) => a && b ? (a[0] * a[1] >= b[0] * b[1] ? a : b) : null;
   if (n < 12) return null;
   if (u8(0) === 0x89 && ascii(1, 3) === 'PNG' && ascii(12, 4) === 'IHDR' && n >= 24) return positive([v.getUint32(16), v.getUint32(20)]);
   if (ascii(0, 6) === 'GIF87a' || ascii(0, 6) === 'GIF89a') {

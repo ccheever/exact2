@@ -104,8 +104,13 @@ impl DataSource for Module {
             .parked
             .iter_mut()
             .find(|(_, p)| p.call == token && p.ticket == 0 && !p.work_taken)?;
-        let work = self.storage.as_ref()?.continuation();
+        let retired = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let work = self
+            .storage
+            .as_ref()?
+            .continuation_for(Some(retired.clone()));
         parked.work_taken = true;
+        self.retired.insert(token, retired);
         Some(work)
     }
 

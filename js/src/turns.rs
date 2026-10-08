@@ -55,6 +55,13 @@ impl Module {
             return;
         };
         let (mut owed, mut rejected) = (false, false);
+        for call in &calls {
+            // Its waiter, if one is still running, now gives up without
+            // taking any compression's right (LLP 1069.002 A1.5).
+            if let Some(retired) = self.retired.remove(call) {
+                retired.store(true, std::sync::atomic::Ordering::Release);
+            }
+        }
         for call in calls {
             if let Ok(said) = engine.call("__exact_forget", [&call.to_string(), "", ""]) {
                 owed |= said.starts_with("storage");

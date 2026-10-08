@@ -213,6 +213,10 @@ pub struct Module {
     plan: Option<Plan>,
     sigs: HashMap<String, Sig>,
     parked: Vec<(Key, Parked)>,
+    /// Each dispatched waiter's flag, by its call: set when the call is let
+    /// go, so a waiter whose outcome will be discarded takes no
+    /// compression's right to write (LLP 1069.002 A1.5).
+    retired: std::collections::HashMap<u64, std::sync::Arc<std::sync::atomic::AtomicBool>>,
     /// Stream answers (LLP 1016.000): each message is mapped by the call's
     /// `exactStream`, never resumed; forgetting the ticket ends the call.
     streams: Vec<(Key, Parked)>,
@@ -283,6 +287,7 @@ impl Module {
             plan: None,
             sigs: HashMap::new(),
             parked: Vec::new(),
+            retired: std::collections::HashMap::new(),
             streams: Vec::new(),
             waiters: Vec::new(),
             progress: 0,
@@ -883,6 +888,7 @@ impl Module {
         let Parked {
             call, ticket, last, ..
         } = self.parked.remove(pos).1;
+        self.retired.remove(&call);
         if ticket == WAITING {
             if let Outcome::Failed { message, .. } = &outcome {
                 return Err(DataError::Unavailable(message.clone()));
