@@ -65,7 +65,7 @@ impl Engine {
         if *track.target == path {
             return;
         }
-        let now = self.now;
+        let now = self.sample_time();
         let running = self.slots.get(&key).and_then(Slot::running).cloned();
         let current = match &running {
             Some(r) => Arc::new(track.from.lerp(&track.target, r.sample(now).value.x)),
@@ -103,7 +103,7 @@ impl Engine {
             ),
             None => (current.clone(), 1.0),
         };
-        let curve = Running::start(
+        let mut curve = Running::start(
             &declaration,
             Value::scalar(0.0),
             Value::scalar(1.0),
@@ -120,6 +120,10 @@ impl Engine {
                 reversing_adjusted_start: adjusted,
             },
         );
+        curve.pending = self.start_on_frame.then_some(now);
+        if curve.pending.is_some() {
+            self.pending.insert(key);
+        }
         let presented = curve.sample(now).value;
         self.slots.insert(
             key,

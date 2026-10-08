@@ -12,6 +12,9 @@ use Tip from "./shell-tip.contract"
 use PrStackView from "./pages-pr-stack.contract"
 use PrdStackControls from "./pages-pr-stack.contract"
 use PrStackDialog from "./pages-pr-stack.contract"
+use PrHandoffsView from "./pages-pr-handoffs.contract"
+use PrdCheckoutMenu from "./pages-pr-handoffs.contract"
+use PrdHandoffItems from "./pages-pr-handoffs.contract"
 use hoverTipAtFrame from "./hover-layer.contract" // fix-hover-cards
 
 keyframes paSpin
@@ -70,10 +73,14 @@ fn paDanger(): string = "light-dark(#e40014, #ff6467)"
 fn paWarn(): string = "light-dark(#bb4d00, #ffb900)"
 fn paTone(state: string): string = state == "closed" ? "light-dark(#e7000b, #ffa2a2e6)" : state == "merged" ? "light-dark(#7f22fe, #c4b4ffe6)" : "light-dark(#009966, #5ee9b5e6)"
 
-// The header row's right side: the stack, the armed badge, the primary control, then More.
+// The header row's right side: the stack, the Check out menu, the armed badge, the primary control, then More.
 component PrdHeaderActions
   props
     actions: PrActionsView
+    // pr-handoffs-and-quick-actions: the hand-offs, which surface the panel is on, and a header narrower than 35rem.
+    handoffs: PrHandoffsView
+    surface: string
+    narrow: bool
     ref: string
     url: string
     hostName: string
@@ -89,6 +96,9 @@ component PrdHeaderActions
   view
     row flex-shrink=0 align-items="center" gap="0.25rem" testId="pull-request-header-actions"
       PrdStackControls(stack=actions.stack, ref=ref, scheme=scheme, local=local, select=select)
+      // Beside a thread, its own pull request's branch is already under the reader's feet (context "thread").
+      when surface == "page" or not handoffs.threadOwn
+        PrdCheckoutMenu(handoffs=handoffs, surface=surface, scheme=scheme, narrow=narrow, act=act)
       when actions.armedLabel != ""
         PaArmedBadge(label=actions.armedLabel, tip=actions.armedTip, compact=compact, testId="pull-request-auto-merge-armed")
       when actions.primary == "auto-merge-armed"
@@ -98,12 +108,12 @@ component PrdHeaderActions
       when actions.primary == "ready"
         PaPrimaryButton(icon="git-pull-request-arrow", label=actions.primaryLabel, disabled=actions.primaryDisabled, destructive=false, press=act("action", "ready"), compact=compact, testId="pull-request-primary")
       when actions.primary == "resolve"
-        PaPrimaryButton(icon="triangle-alert", label=actions.primaryLabel, disabled=actions.primaryDisabled, destructive=true, press=act("handoff", "conflicts"), compact=compact, testId="pull-request-primary")
+        PaPrimaryButton(icon="triangle-alert", label=actions.primaryLabel, disabled=(handoffs.pending != "" or (surface != "thread" and not handoffs.canCheckout)), destructive=true, press=act("handoff", `${surface}|conflicts`), compact=compact, testId="pull-request-primary")
       when actions.stateKey != ""
         row height="1.5rem" min-width="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" box-sizing="border-box" gap="0.25rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#fcfcfc, #ffffff0a)" align-items="center" flex-shrink=0 testId="pull-request-state-badge"
           PgIcon(name=(actions.stateKey == "merged" ? "git-merge" : "git-pull-request-closed"), size=14, color=paTone(actions.stateKey))
           text actions.stateLabel font-size="0.75rem" line-height="1rem" font-weight=500 white-space="nowrap" color=paTone(actions.stateKey)
-      PrdActionsMenu(actions=actions, ref=ref, url=url, hostName=hostName, numberLabel=numberLabel, scheme=scheme, still=still, reload=reload, act=act, copy=copy, local=local)
+      PrdActionsMenu(actions=actions, handoffs=handoffs, surface=surface, ref=ref, url=url, hostName=hostName, numberLabel=numberLabel, scheme=scheme, still=still, reload=reload, act=act, copy=copy, local=local)
 
 // Badge size="control" variant="info": the merge the host is holding.
 component PaArmedBadge
@@ -144,6 +154,8 @@ component PaPrimaryButton
 component PrdActionsMenu
   props
     actions: PrActionsView
+    handoffs: PrHandoffsView
+    surface: string
     ref: string
     url: string
     hostName: string
@@ -167,8 +179,11 @@ component PrdActionsMenu
           else
             PgIcon(name="ellipsis", size=16, color=paMuted())
       row id="pr-more-menu" popover="auto" position="absolute" padding-top="0.25rem" align-items="flex-start" testId="pr-more-layer"
-        PrMenuBox(scheme=scheme, width=240, label="More pull request actions")
+        // As wide as its widest line: "Opens a thread that knows which pull request you mean." (318 at 12px) and the
+        // item's glyph, gap and insets (pr-handoffs-and-quick-actions).
+        PrMenuBox(scheme=scheme, width=380, label="More pull request actions")
           PaMenuItem(icon="refresh-cw", label="Refresh", shortcut="", disabled=actions.refreshing, destructive=false, press=reload, testId="pr-more-refresh")
+          PrdHandoffItems(handoffs=handoffs, surface=surface, menuId="pr-more-menu", act=act)
           PaSeparator()
           when actions.open
             when actions.draftToggle == "draft"

@@ -1,0 +1,8 @@
+type plain Palo
+type password secret
+type search station
+type multiline Two lines
+type padded Padding
+type inherited Page font
+type inherited-area Page textarea
+type bare Bare

@@ -118,6 +118,13 @@ are animatable and constant-call values can be evaluated at compilation.
 Styles accept literal style attributes and explicitly styleable props (currently
 `buttonStyle`), not arbitrary expressions or event props.
 
+A length attribute's string is CSS's own text, read by the kernel: a px or
+other absolute length, a percentage, a viewport length, `auto`,
+`calc(<percent> ± <px>)`, `env(safe-area-inset-*)` and `calc(env(…) ± <px>)`,
+or `min()`, `max()` and `clamp()` over px, insets and viewport lengths
+(`clamp(15px, env(safe-area-inset-bottom), 60px)`; LLP 1001 §2). Anything else
+is `lower-attr-value`, with the kernel's reason.
+
 A `sound` names a WAV under the app's `assets/` (LLP 1096 D1): 16-bit integer
 or 32-bit float PCM (or `WAVE_FORMAT_EXTENSIBLE` naming one), one or two
 channels, 8–96 kHz, at most 10 s. The compiler reads its header and refuses
@@ -587,7 +594,7 @@ Several tags share a kernel node type with different fixed properties.
 | --- | --- |
 | Boxes / layout | `view`, `box`, `row`, `column`, `scroll`, `list` |
 | Structure | `main`, `header`, `nav`, `section`, `footer`, `article`, `aside`, `dialog`, `hr` |
-| Text and controls | `text`, `button`, `link`, `input`, `textarea`, `select`, `option` |
+| Text and controls | `text`, `button`, `link`, `input`, `textarea`, `select`, `option`, `progress` |
 | Media / metadata | `image`, `video`, `audio`, `iframe`, `canvas`, `head` |
 | SVG scene | `svg`, `g`, `path`, `polyline`, `polygon`, `circle`, `ellipse`, `line`, `rect` |
 | SVG definitions | `defs`, `symbol`, `use`, `clipPath`, `marker`, `mask`, `pattern` |
@@ -922,6 +929,28 @@ action mark(para: string, s: Selection)
 text para.body selectionchange=mark(para.id)
 ```
 
+### Activity: `progress`
+
+`progress` with no `value` is HTML's indeterminate progress, shown as the
+platform's activity indicator: `UIActivityIndicatorView` on iOS (`.medium`,
+`.large` where the box's shorter side is 37 points or more), a spinning
+`NSProgressIndicator` on macOS (small, regular from 32 points), and on the web
+and Linux a spinner the host draws, since HTML's own indeterminate progress is
+a bar (the one deliberate divergence, [LLP 1069.001](../llp/1069.001-form-controls.rfc.md)).
+It is a 20 × 20 box until `width` or `height` sizes it, and the indicator is
+centred in it. `color` colours it on iOS, the web and Linux; macOS draws the
+system's colour, as AppKit gives a spinner no tint. Its role is `progressbar`,
+busy (`aria-busy`); name it with `aria-label`. It turns while it shows, and
+stops where it is hidden or gone; under the agent's held clock it shows one
+still frame (on the web, the frame at the agent's time, as every CSS animation;
+Linux paints one still frame always). `value` (a determinate bar) and `max` (that
+bar's) are refused for now, and so are children and `type`.
+
+```text
+progress aria-label="Loading"
+progress width=37 height=37 color="#1083fe" aria-label="Loading posts"
+```
+
 ### Form controls: radio, `InputEvent`, `setSelectionRange`
 
 `input type="radio"` is HTML's (x2apps survey #2). Its `name` is its group:
@@ -1162,7 +1191,7 @@ argument validation. Use the working implementation when selecting arguments:
 | `focus(id)` | [Markdown Stress](../apps/markdown-stress/app.contract) |
 | `format(id, command[, argument])`: a Markdown editor's toolbar command ([Markdown](#markdown-markup-format-select)) | [Markdown Stress](../apps/markdown-stress/app.contract) |
 | `blur()`, `blur(id)` | [Messages](../apps/messages/app.contract), [keyboard-bar corpus](../contract/corpus/keyboard-bar.contract) |
-| `selectText(...)` | [Messages Legacy](../apps/messages-legacy/app.contract) |
+| `selectText(...)` | No app fixture; the hosts' field selection, such as [`FieldSelections.swift`](../host/apple/Sources/ExactKit/FieldSelections.swift) |
 | `setSelectionRange(id, start, end[, direction])`: a text field's selection, by its `id` ([form controls](#form-controls-radio-inputevent-setselectionrange)) | [radios conformance](../host/web-js/conformance/radios.contract), [control tests](../contract/cli/tests/it/controls.rs) |
 | `copyText(text)` | [Messages](../apps/messages/app.contract) |
 | `openURL(url)` | No Contract fixture; the hosts' dispatch, such as [`host/web-js/commands.js`](../host/web-js/commands.js) |

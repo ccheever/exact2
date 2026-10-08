@@ -21,6 +21,8 @@ final class NativeButtonMac: NSButton {
         var selected: Bool
         var expanded: String?
         var pressed: String?
+        var appearance: String
+        var interactive: Bool
     }
     var written: Written?
     /// Whether it draws glass: the glass bezel, in the macOS 26 design.
@@ -28,6 +30,10 @@ final class NativeButtonMac: NSButton {
     /// The look drawn, its name in the table's macOS column.
     var drawn = "push"
     override var acceptsFirstResponder: Bool { false }
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        guard written?.interactive != false else { return nil }
+        return super.hitTest(point)
+    }
     // `pointerdown`/`pointerup` (LLP 1005 §Events): AppKit's tracking loop
     // takes the button's mouse events, so the node hears them here. The up
     // goes before the action the loop sends, DOM's order.
@@ -133,30 +139,14 @@ extension ControlHost {
             face: face, accent: accent, enabled: !owner.disabled,
             label: owner.props["accessibilityLabel"].flatMap { $0.isEmpty ? nil : $0 } ?? face.title, testId: owner.props["testId"],
             selected: owner.props["accessibilitySelected"] == "true", expanded: owner.props["accessibilityExpanded"],
-            pressed: owner.pressedState)
+            pressed: owner.pressedState, appearance: owner.effectiveAppearance.name.rawValue,
+            interactive: owner.style["pointer_events"]?.string != "none")
         guard button.written != written else { return }
         if !face.known, button.written?.face.style != face.style {
             presenter.session?.log("buttonStyle `\(face.style)` is not a button style; drawing bordered")
         }
         button.written = written
-        var look = ButtonFace.drawn(face.macos).name
-        var glass = false
-        if look == "glass" || look == "glass-accent" {
-            if #available(macOS 26.0, *), LinkedDesign.liquidGlass {
-                button.bezelStyle = .glass
-                glass = true
-            } else {
-                look = look == "glass" ? "push" : "push-accent"
-            }
-        }
-        if !glass { button.bezelStyle = .push }
-        button.isBordered = look != "borderless"
-        button.bezelColor = look.hasSuffix("-accent") ? (accent ?? .controlAccentColor) : nil
-        button.contentTintColor = look == "borderless" ? (accent ?? .controlAccentColor) : nil
-        button.title = face.title ?? ""
-        button.image = face.symbol.flatMap { NSImage(systemSymbolName: $0, accessibilityDescription: nil) }
-        button.imagePosition = button.image == nil ? .noImage : face.title == nil ? .imageOnly : face.leading ? .imageLeading : .imageTrailing
-        button.lineBreakMode = .byTruncatingTail
+        let (look, glass) = ButtonConfigurationMac.apply(face, to: button, appearance: owner.effectiveAppearance, accent: accent)
         button.isEnabled = written.enabled
         button.setAccessibilityLabel(written.label)
         button.setAccessibilityIdentifier(written.testId)
@@ -173,8 +163,19 @@ extension ControlHost {
     /// What the agent's `layout` says of a native button (D10).
     func nativeObservation(_ button: NativeButtonMac) -> [String: Any] {
         let face = button.written?.face ?? ButtonFace()
+        let rows = ButtonConfigurationMac.observation(face, button: button)
+        var standIns = rows.compactMapValues { ($0 as? [String: Any])?["standIn"] as? String }
+        let mapped = ButtonFace.drawn(face.macos)
+        if mapped.standIn || mapped.name != button.drawn {
+            standIns["buttonStyle"] = "AppKit draws \(button.drawn) for \(face.style)"
+        }
+        if !button.isEnabled, button.written?.accent != nil, button.bezelColor != nil {
+            standIns["accent-color"] = "AppKit applies its disabled bezel tint despite the authored accent"
+        }
         return ["view": "NSButton", "style": face.style, "drawn": button.drawn, "title": face.title as Any,
                 "symbol": face.symbol as Any, "enabled": button.isEnabled,
+                "rows": rows, "standIns": standIns, "imagePosition": button.imagePosition.rawValue,
+                "pointerEvents": button.written?.interactive == false ? "none" : "auto",
                 "size": [Agent.r2(button.frame.width), Agent.r2(button.frame.height)]]
     }
 }

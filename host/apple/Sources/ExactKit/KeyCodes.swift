@@ -4,9 +4,9 @@ import Foundation
 import Carbon.HIToolbox
 #endif
 
-enum KeyCodes {
+package enum KeyCodes {
     #if os(macOS)
-    static let mac: [Int: String] = [
+    package static let mac: [Int: String] = [
         kVK_ANSI_A: "KeyA", kVK_ANSI_B: "KeyB", kVK_ANSI_C: "KeyC", kVK_ANSI_D: "KeyD",
         kVK_ANSI_E: "KeyE", kVK_ANSI_F: "KeyF", kVK_ANSI_G: "KeyG", kVK_ANSI_H: "KeyH",
         kVK_ANSI_I: "KeyI", kVK_ANSI_J: "KeyJ", kVK_ANSI_K: "KeyK", kVK_ANSI_L: "KeyL",
@@ -52,7 +52,7 @@ enum KeyCodes {
 
     /// UIKeyboardHIDUsage's USB keyboard page. Letters, digits, F1–F12 and
     /// F13–F24 are contiguous.
-    static func hid(_ usage: Int) -> String {
+    package static func hid(_ usage: Int) -> String {
         if (4...29).contains(usage) { return "Key" + String(UnicodeScalar(65 + usage - 4)!) }
         if (30...38).contains(usage) { return "Digit\(usage - 29)" }
         if (58...69).contains(usage) { return "F\(usage - 57)" }
@@ -68,14 +68,14 @@ enum KeyCodes {
 
     static let characters = ["Space": " ", "Minus": "-", "Equal": "=", "BracketLeft": "[", "BracketRight": "]",
                              "Backslash": "\\", "Semicolon": ";", "Quote": "'", "Backquote": "`", "Comma": ",", "Period": ".", "Slash": "/"]
-    static func key(_ code: String) -> String {
+    package static func key(_ code: String) -> String {
         if code.hasPrefix("Key"), code.count == 4 { return String(code.suffix(1)).lowercased() }
         if code.hasPrefix("Digit"), code.count == 6 { return String(code.suffix(1)) }
         for modifier in ["Shift", "Control", "Alt", "Meta"] where code == modifier + "Left" || code == modifier + "Right" { return modifier }
         return characters[code] ?? (code == "NumpadEnter" ? "Enter" : code)
     }
     /// A key whose `KeyboardEvent.key` is a name, not the character it types.
-    static func named(_ code: String) -> Bool {
+    package static func named(_ code: String) -> Bool {
         ["Enter", "NumpadEnter", "Escape", "Tab", "Backspace", "Delete", "Insert", "Home", "End", "PageUp", "PageDown",
          "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "CapsLock"].contains(code)
             || (code.hasPrefix("F") && Int(code.dropFirst()) != nil) || modifier(code)
@@ -155,7 +155,7 @@ enum KeyCodes {
         }
         return presses
     }
-    static func device(_ name: String) -> (code: String, key: String)? {
+    package static func device(_ name: String) -> (code: String, key: String)? {
         let code = codeName(name)
         // F13–F24 as the web's driver takes them (CDP has every one).
         let known = (4...100).map(hid) + (104...115).map(hid) + (224...231).map(hid)

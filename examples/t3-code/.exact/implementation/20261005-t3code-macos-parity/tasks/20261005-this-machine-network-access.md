@@ -85,7 +85,7 @@ Do not grow `app.contract` or `client.ts`; put the section in a new `.contract` 
 | merged task PR | [20261005-clone-on-exact2-main](20261005-clone-on-exact2-main.md) | [#99](https://github.com/ccheever/exact2/pull/99) | Merged | the clone is on exact2 in `feat(example)/t3-code` (this PR's base) |
 | merged task PR | [20261005-desktop-oracle-and-trace](20261005-desktop-oracle-and-trace.md) | none | Merged | blocked: not built (user decision 2026-10-06); the Trace row and the oracle comparisons stay blocked |
 | merged task PR | [20261005-local-primary-environment](closed/20261005-local-primary-environment.md) | [#237](https://github.com/ccheever/exact2/pull/237) | Merged | merged (`applyLocalSetting` is the shared seam) |
-| recorded decision | U4 decided (relaunch); U8 (hosted link), U9 (Tailscale verification) | none | U8 and U9 answered at `prepare` | U4: user 2026-10-05; U8 (keep the hosted link) and U9 (stub provider only) taken provisionally for this PR (coordinator brief 2026-10-08), user decision pending |
+| recorded decision | U4 decided (relaunch); U8 (hosted link), U9 (Tailscale verification) | none | U8 and U9 answered at `prepare` | U4: user 2026-10-05; U8 and U9 decided 2026-10-08 (user: match the original): the hosted link is the reference's, checked line by line, and the implementation matches the reference (the probe deadline, the SWR snapshot cadence, the port rule and stepping were fixed in [provisional-decisions-parity](20261008-provisional-decisions-parity.md)); live Tailscale needs a tailnet the user provides |
 
 ## Issue assessment at preparation
 
@@ -128,10 +128,11 @@ Required environment: Xcode 27.0, pinned Bun, the staged runtime, lane ports 160
 ## Progress
 
 Implemented on `feat(example)/t3-code-this-machine-network-access` (2026-10-08) from `feat(example)/t3-code` `da4f4512f`,
-with `d82fb6a47` (#244, records only) merged in. Reference `1e2ecbd975`. Decisions taken for this PR, each
-**provisional, user decision pending**: U8 (HTTPS endpoints pair through the hosted app on `app.t3.codes`, as the
-reference; it needs no T3 Connect, so nothing here is blocked by X38) and U9 (Tailscale verified with the stub
-provider only; live Tailscale is blocked by U9, "a tailnet the user provides"). U4 (relaunch) is decided; exact2
+with `d82fb6a47` (#244, records only) merged in. Reference `1e2ecbd975`. Decisions (user, 2026-10-08: match the
+original; [provisional-decisions-parity](20261008-provisional-decisions-parity.md)): U8, HTTPS endpoints pair through the hosted app on `app.t3.codes` exactly as the reference
+(conditions, URL, strings; it needs no T3 Connect, so nothing here is blocked by X38); U9, Tailscale is verified with
+the stub provider in lanes and was checked against the reference line by line; live Tailscale needs a tailnet the
+user provides (a verification gap, not a function difference). U4 (relaunch) is decided; exact2
 has no process relaunch (#122 / X45), so every change goes through `applyLocalSetting`'s restart-in-place stopgap.
 
 | Scope item | Built | Where |
@@ -167,6 +168,8 @@ and the server. Record: `this-machine-network-access/drive-a-run4.txt` on `t3-co
 | Dialog keyboard and Escape | Pass under agent keys: Enable network access opens on Cancel; Tab → Confirm → Cancel; Escape closes and focuses the switch; Set up Tailscale opens on the port field, Create pairing link on the label; "Select at least one permission." with Create link disabled. Real keys **deferred to the real-input batch — screen locked (user away)**; `tree --ax` vs oracle blocked by the user decision of 2026-10-06 | drive A run 4 |
 | Reduced motion | Contact sheets **deferred to the real-input batch — screen locked (user away)** (agent pictures are empty while locked). The dialogs use the reference's 200 ms fade and 98 % scale (no reduced-motion variant in `dialog-styles.ts`); the spinner is still under reduced motion | — |
 | Real input | **deferred to the real-input batch — screen locked (user away)**; the phone QR scan also needs the user's phone | — |
+
+2026-10-08 (real-input batch, records PR): pairs made (base 05043629d); real keys, hover, QR decode, phone scan and the no-network row pass; the scopes popover is clipped (clone bug). Results and proof: "Real-input batch (2026-10-08)" below.
 
 ## Attempts and evidence
 
@@ -220,6 +223,27 @@ if one appears for the lane's `t3` server or the lane app, answer Allow for that
    with letters, 0 and 70000 typed by keyboard (digits are unaffected by Korean 2-Set; letters via `paste-text`).
 6. Attended (the user): Wi-Fi and every other interface down, then Enable network access → the red error and "Could not
    update network access"; a phone scanning the QR opens the same URL.
+
+## Real-input batch (2026-10-08)
+
+Run by the coordinator's real-input batch on an unlocked Mac (2026-10-08, 02:58-05:15 UTC), under the shared real-input lock (owner "real-input batch"), on the merged feature branch (`b7761f556`, rebuilt once at `07dcef1ab` for #263): one lane copy "T3 Code (Lane RIB)" launched normally (not agent mode) with isolated homes and lane ports 16450-16499. Real input: cliclick / CGEvent real mouse and wheel events, real HID key chords (posted only after a check that the lane app is frontmost), orca computer clicks and pastes. Records PR: draft "T3 Code clone: real-input batch for the tasks merged on 2026-10-08".
+
+| Row | Result | Proof |
+| --- | --- | --- |
+| Before/after pairs (base `05043629d` vs `b7761f556`), 1280/840 × light/dark | Done | [01-connections-local-only-1280-light-before-after](https://raw.githubusercontent.com/ccheever/exact2/ec2aeba0830cebdf6f0af0275e53a46bc330b90a/real-input-batch/this-machine-network-access/p01-01-connections-local-only-1280-light-before-after.png), [01-connections-local-only-1280-dark-before-after](https://raw.githubusercontent.com/ccheever/exact2/ec2aeba0830cebdf6f0af0275e53a46bc330b90a/real-input-batch/this-machine-network-access/p02-01-connections-local-only-1280-dark-before-after.png), [01-connections-local-only-840-light-before-after](https://raw.githubusercontent.com/ccheever/exact2/ec2aeba0830cebdf6f0af0275e53a46bc330b90a/real-input-batch/this-machine-network-access/p03-01-connections-local-only-840-light-before-after.png), [01-connections-local-only-840-dark-before-after](https://raw.githubusercontent.com/ccheever/exact2/ec2aeba0830cebdf6f0af0275e53a46bc330b90a/real-input-batch/this-machine-network-access/p04-01-connections-local-only-840-dark-before-after.png) |
+| Enable dialog keys; no dismissal while Restarting…; listener `*:16450` | PASS | [nw-s1-small](https://raw.githubusercontent.com/ccheever/exact2/ec2aeba0830cebdf6f0af0275e53a46bc330b90a/real-input-batch/this-machine-network-access/01-nw-s1-small.png), [nw-restart](https://raw.githubusercontent.com/ccheever/exact2/ec2aeba0830cebdf6f0af0275e53a46bc330b90a/real-input-batch/this-machine-network-access/02-nw-restart.png) |
+| Endpoint URL hover tooltip | PASS | [nw-07-endpoint-hover-crop](https://raw.githubusercontent.com/ccheever/exact2/ec2aeba0830cebdf6f0af0275e53a46bc330b90a/real-input-batch/this-machine-network-access/03-nw-07-endpoint-hover-crop.png) |
+| Create pairing link keys / Escape / create | PASS | [nw-s2-small](https://raw.githubusercontent.com/ccheever/exact2/ec2aeba0830cebdf6f0af0275e53a46bc330b90a/real-input-batch/this-machine-network-access/04-nw-s2-small.png), [nw-create](https://raw.githubusercontent.com/ccheever/exact2/ec2aeba0830cebdf6f0af0275e53a46bc330b90a/real-input-batch/this-machine-network-access/05-nw-create.png) |
+| "5 scopes" hover popover | Delay PASS; FAIL (clone bug): the popover opens above and is clipped by the list (title and three scopes cut) | [nw-scopes](https://raw.githubusercontent.com/ccheever/exact2/ec2aeba0830cebdf6f0af0275e53a46bc330b90a/real-input-batch/this-machine-network-access/06-nw-scopes.png), [nw-16-scopes-full-crop](https://raw.githubusercontent.com/ccheever/exact2/ec2aeba0830cebdf6f0af0275e53a46bc330b90a/real-input-batch/this-machine-network-access/07-nw-16-scopes-full-crop.png) |
+| Right-click on rows | PASS (no menu, as the reference) | [nw-rightclick](https://raw.githubusercontent.com/ccheever/exact2/ec2aeba0830cebdf6f0af0275e53a46bc330b90a/real-input-batch/this-machine-network-access/08-nw-rightclick.png) |
+| QR decode vs Copy link | PASS: equal SHA-256 (URL never printed) | [nw-19-share-blur-preview](https://raw.githubusercontent.com/ccheever/exact2/ec2aeba0830cebdf6f0af0275e53a46bc330b90a/real-input-batch/this-machine-network-access/09-nw-19-share-blur-preview.png), [nw-20-toast](https://raw.githubusercontent.com/ccheever/exact2/ec2aeba0830cebdf6f0af0275e53a46bc330b90a/real-input-batch/this-machine-network-access/10-nw-20-toast.png) |
+| Tailscale setup port field, keys; serve 8443 | PASS (stub); the HTTPS endpoint never becomes available with the stub, so Disable cannot open (U9) | [nw-port](https://raw.githubusercontent.com/ccheever/exact2/ec2aeba0830cebdf6f0af0275e53a46bc330b90a/real-input-batch/this-machine-network-access/11-nw-port.png), [nw-s3-small](https://raw.githubusercontent.com/ccheever/exact2/ec2aeba0830cebdf6f0af0275e53a46bc330b90a/real-input-batch/this-machine-network-access/12-nw-s3-small.png) |
+| Disable dialog keys | PASS | [nw-s4-small](https://raw.githubusercontent.com/ccheever/exact2/ec2aeba0830cebdf6f0af0275e53a46bc330b90a/real-input-batch/this-machine-network-access/13-nw-s4-small.png) |
+| Attended: phone scans the QR | PASS: the phone redeemed (browser-session 200 from 192.168.1.84), client row "Phone · Mobile · iOS", link consumed; revoked afterwards | [qr-07-clients-crop](https://raw.githubusercontent.com/ccheever/exact2/ec2aeba0830cebdf6f0af0275e53a46bc330b90a/real-input-batch/this-machine-network-access/14-qr-07-clients-crop.png), [qr-08-revoked-crop](https://raw.githubusercontent.com/ccheever/exact2/ec2aeba0830cebdf6f0af0275e53a46bc330b90a/real-input-batch/this-machine-network-access/15-qr-08-revoked-crop.png) |
+| Attended: no network address (Wi-Fi and Tailscale off) | PASS: red "No reachable network address is available for desktop network access on port 16450." + toast "Could not update network access"; switch stays off; listener stays 127.0.0.1 | [offline-sheet](https://raw.githubusercontent.com/ccheever/exact2/ec2aeba0830cebdf6f0af0275e53a46bc330b90a/real-input-batch/this-machine-network-access/p05-offline-sheet.png) |
+| Reduced motion (System Settings) | Dialog fades ~150 ms with no visible scale (the reference has no reduced-motion variant); fold/+N/Share not filmed | [nw-on-strip](https://raw.githubusercontent.com/ccheever/exact2/ec2aeba0830cebdf6f0af0275e53a46bc330b90a/real-input-batch/this-machine-network-access/16-nw-on-strip.png) |
+
+Full record: [this-machine-network-access.txt](https://raw.githubusercontent.com/ccheever/exact2/ec2aeba0830cebdf6f0af0275e53a46bc330b90a/real-input-batch/this-machine-network-access/this-machine-network-access.txt). Reduced-motion details: [reduced-motion.txt](https://raw.githubusercontent.com/ccheever/exact2/ec2aeba0830cebdf6f0af0275e53a46bc330b90a/real-input-batch/reduced-motion/reduced-motion.txt).
 
 ## Next action
 

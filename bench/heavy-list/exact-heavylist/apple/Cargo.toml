@@ -1,0 +1,21 @@
+[package]
+name = "exact-heavylist-apple"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Heavy list on the Apple host: the app's static library"
+publish = false
+build = "build.rs"
+
+[lib]
+name = "exact_heavylist_apple"
+crate-type = ["staticlib", "rlib"]
+
+[dependencies]
+exact-heavylist-data = { path = "../data" }
+exact-apple = { path = "../../../../host/apple" }
+
+[build-dependencies]
+exact-heavylist-data = { path = "../data" }
+contract = { path = "../../../../contract/cli" }
+exact-bake = { path = "../../../../bake" }

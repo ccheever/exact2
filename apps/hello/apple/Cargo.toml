@@ -1,0 +1,22 @@
+[package]
+name = "hello-apple"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Hello on Apple platforms: the core over one text node"
+publish = false
+build = "build.rs"
+
+[lib]
+name = "hello_apple"
+crate-type = ["rlib"]
+
+[dependencies]
+exact-logic = { path = "../../../logic" }
+exact-apple = { path = "../../../host/apple" }
+hello-data = { path = "../data" }
+
+[build-dependencies]
+contract = { path = "../../../contract/cli" }
+exact-bake = { path = "../../../bake" }
+hello-data = { path = "../data" }

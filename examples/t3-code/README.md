@@ -286,8 +286,12 @@ exists), Tailscale HTTPS (the server runs `tailscale serve` on the chosen port; 
 expiry, Share (endpoint choice, link, code, QR; HTTPS endpoints pair through the hosted app,
 `pairing-urls.ts`) and Revoke, and the paired clients live from `subscribeAuthAccess`
 (`auth-access.ts`). Each change restarts the embedded server in place with the new envelope.
-The three settings and the default endpoint are top-level keys of `t3-code.json`; a created
-link's credential stays in memory.
+The Local environment switch, Network access and Tailscale Serve (enabled, port) live where T3 Code
+keeps them, `<T3 home>/userdata/desktop-settings.json` (`T3DesktopSettings.swift`: read once at the
+first session, sparse compact writes through a temp file and a rename), so the clone and T3 Code
+share them; the keys an older clone kept in `t3-code.json` are carried over once. The default
+endpoint stays in `t3-code.json` (the reference's renderer localStorage); a created link's
+credential stays in memory.
 While the embedded server runs, `t3 app <dir>`
 (the server's own CLI; T3 Code's `t3`, or `<T3 home>/runtime/versions/<version>/t3`) reaches the app
 on `<$TMPDIR>/t3code-<uid>/<24 hex of sha256(<T3 home>/userdata)>.sock` (20261005-app-activation,
@@ -297,7 +301,8 @@ loaded, and the CLI prints `Opened <dir> in T3 Code.` or the reference's error c
 listens for its own home (`t3 app <dir> --base-dir "$T3_LOCAL_HOME"`). Every paired server, a loopback one included, is a
 saved environment under Environments with its switch and row menu (Icon, Copy trace ID, Remove
 from this device…); a saved one with the primary's environment id (the same T3 home paired before)
-is removed and its credential forgotten. Load balancing and GitHub sharing count environments as
+is removed with its credential and GitHub sharing trust, as the reference's registry does (a window
+focused on it moves to the primary), and pairing this machine's own server saves nothing. Load balancing and GitHub sharing count environments as
 the reference's `loadBalancingEnvironments` does: this machine first, then every switched-on
 saved environment; both sections show from two (`r11-misc-connections.ts`). Every running thread
 of every connected environment keeps its detail stream (`keep-alive.ts`), so opening one shows it

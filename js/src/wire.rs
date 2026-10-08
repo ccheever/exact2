@@ -37,7 +37,11 @@ pub(crate) fn request_from_json(text: &str) -> Result<Request, String> {
         method: field("method").ok_or("no method")?,
         url: field("url").ok_or("no url")?,
         headers,
-        body: field("body").unwrap_or_default().into_bytes(),
+        // A BufferSource body travels as base64 beside the text one.
+        body: match field("body_base64") {
+            Some(b64) => exact_runner::agent::unbase64(&b64).ok_or("a body that is not base64")?,
+            None => field("body").unwrap_or_default().into_bytes(),
+        },
         stream: j.get("stream").and_then(Json::as_bool).unwrap_or(false),
         timeout_ms: match j.get("timeout_ms") {
             None | Some(Json::Null) => None,

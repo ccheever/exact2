@@ -8,6 +8,7 @@ import { usagePoolLocal } from './usage-environments';
 import { usagePricesLocal, usagePricesSave } from './pages-usage-prices';
 import { setOpenModel } from './pages-usage-detail';
 import { prLocal } from './pages-prs';
+import { prQuickLocal } from './pages-pr-quick';
 import { prCommand, noteCopy } from './pages-pr-detail';
 import { pushToast } from './toast';
 import { welcomeLocal } from './pages-welcome';
@@ -42,6 +43,7 @@ export async function pagesLocal(client: T3Client, native: Native | null | undef
     if (!native?.available) throw new ClientError('Open on macOS to change pull requests.');
     return prCommand(client, native, op.slice(7), id, value);
   }
+  if (op.startsWith('pr-quick-')) return prQuickLocal(client, op.slice(9), value); // pr-handoffs-and-quick-actions: a row's popovers
   if (op.startsWith('pr-')) return prLocal(client, op.slice(3), value);
   if (op === 'copy') {
     if (!native?.available) throw new ClientError('Open on macOS to copy.');
