@@ -15,6 +15,7 @@ import { pagesLocal } from './pages-commands';
 import { fleet, environmentKey, EnvironmentFleet } from './settings-b-fleet';
 import { initialShell } from './domain';
 import { forgetUsageState } from './usage-environments';
+import { popoverSides } from './usage-pooled-view';
 import { usageFleetEvent } from './usage-replies';
 import { forgetLimitsRefreshes } from './usage-refresh';
 
@@ -125,7 +126,8 @@ describe('pooled limits across environments', () => {
     expect(row.segments.map(segment => [segment.name, segment.column, segment.side, segment.align, segment.showName])).toEqual([['Codex', 1, 'bottom', 'start', true], ['Work', 2, 'bottom', 'end', true]]);
     expect(row.refill).toBe('↻ +20%'); // the soonest reset that hands anything back
     expect(row.remaining).toBe(75);
-    expect(wide.pools[0]!.windows[1]!.segments[0]!.side).toBe('top');
+    // The weekly bar's top lies about 223 pt down the scroll area, short of the popover's ~250: it flips below too.
+    expect(wide.pools[0]!.windows[1]!.segments[0]!.side).toBe('bottom');
     expect((await rig.page({ viewport: 840, sidebar: 256 })).pooled.wide).toBe(false);
   });
 
@@ -187,6 +189,16 @@ describe('pooled limits across environments', () => {
     expect(segment).toMatchObject({ where: 'Laptop', credits: 1 });
     await rig.command('usage-pool-reset-ask', segment.id); await rig.command('usage-pool-reset-confirm', segment.id);
     expect(rig.of('provider.consumeResetCredit')).toEqual([expect.objectContaining({ env: 'env-b', payload: { sourceId: 'hub-b', accountId: 'codex-same.json', creditId: 'credit-9' } })]);
+  });
+});
+
+describe('popover sides (Base UI collision flip on an unscrolled page)', () => {
+  test('a bar too near the top opens its popover below; one with room above opens above', () => {
+    const segment = () => ({ side: '', email: 'a@b.c', plan: 'Pro', whereLabel: 'Signed in', resetsAt: 'x', restores: '+1% of pool', redeemable: true });
+    const window = () => ({ count: 2, refill: '↻ +5%', description: '', statuses: [], segments: [segment(), segment()] });
+    const pools = [{ cursorBefore: false, windows: [window(), window()] }, { cursorBefore: false, windows: [window(), window()] }];
+    popoverSides(pools, { wide: true, md: true, cursorRows: 0 });
+    expect(pools.flatMap(pool => pool.windows.map(entry => entry.segments[0]!.side))).toEqual(['bottom', 'bottom', 'top', 'top']);
   });
 });
 

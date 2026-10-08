@@ -356,7 +356,7 @@ async function usageView(client: T3Client, native: Native | null | undefined, _s
   page.environmentPending = pendingCount > 0 ? `${pendingCount} ${pendingCount === 1 ? 'environment' : 'environments'} still scanning` : '';
   if (!input.open || !native?.available || !state.window) return page;
   if (limits) {
-    page.pooled = pooledView(state, statuses, { barWidth: poolBarWidth(input.viewport ?? 1280, input.sidebar ?? 0), format: client.local.deviceSettings.timestampFormat });
+    page.pooled = pooledView(state, statuses, { barWidth: poolBarWidth(input.viewport ?? 1280, input.sidebar ?? 0), format: client.local.deviceSettings.timestampFormat, md: (input.viewport ?? 1280) >= 768 });
     return page;
   }
   // useUsage: merge every selected environment that has answered; the rest are still scanning or failed.

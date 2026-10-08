@@ -6,8 +6,8 @@
 // (42rem) is worked out here from the page's layout (`poolBarWidth`); the hatching of the spent share
 // (a repeating-linear-gradient, which the kernel does not paint) is one SVG path of the same 1px
 // stripes 5px apart at 135°; the popover's side is the one the reference lands on after its
-// collision flip on an unscrolled page (below the first card, where the page top leaves no room,
-// above every other); every figure and word is otherwise the reference's.
+// collision flip on an unscrolled page (`popoverSides`: below a bar too near the page's top for the
+// popover, above every other; EXACT2-GAPS X17); every figure and word is otherwise the reference's.
 import { arr, str } from './domain';
 import { driverMeta } from './providers-meta';
 import { resolveOfficialAcpRegistryIconUrl } from './acp-icons';
@@ -89,7 +89,7 @@ function segmentView(state: UsageState, id: string, account: LimitAccount, windo
 }
 
 /** Everything UsageLimitsPooled draws for the selected environments at the page's limits clock. */
-export function pooledView(state: UsageState, statuses: EnvironmentUsageStatus[], layout: { barWidth: number; format: string }) {
+export function pooledView(state: UsageState, statuses: EnvironmentUsageStatus[], layout: { barWidth: number; format: string; md: boolean }) {
   const now = state.limitsNow;
   const presentations = new Map<string, LimitPresentation>(selectedConnected(state).map(env => [env.id, { entry: { target: { label: env.label } }, serverConfig: env.config }]));
   const pools = collectLimitPools(collectLimitAccounts(presentations), now);
@@ -107,12 +107,11 @@ export function pooledView(state: UsageState, statuses: EnvironmentUsageStatus[]
       const restores = new Map(window.resets.map(reset => [reset.member.account.key, reset]));
       // The soonest reset that hands anything back; an untouched account resets to no effect.
       const nextRefill = window.resets.find(reset => reset.restoresPercent > 0);
-      const side = poolIndex === 0 && windowIndex === 0 ? 'bottom' : 'top';
       const segments = window.columns.flatMap((member, position) => {
         if (!member.window) return [];
         const id = `${poolIndex}-${windowIndex}-${position}`;
         state.segments.set(id, { account: member.account, name: accountName(member.account).name });
-        return [segmentView(state, id, member.account, member.window, restores.get(member.account.key), position + 1, window.columns.length, now, layout.format, side)];
+        return [segmentView(state, id, member.account, member.window, restores.get(member.account.key), position + 1, window.columns.length, now, layout.format, 'top')];
       });
       return {
         key: `${window.kind}:${window.id}`, prefix: `${poolIndex}-${windowIndex}-`, label: details?.label ?? window.label, description: details?.description ?? '',
@@ -130,6 +129,7 @@ export function pooledView(state: UsageState, statuses: EnvironmentUsageStatus[]
     return { key: pool.driver, prefix: `${poolIndex}-`, driver: pool.driver, icon: acp ? resolveOfficialAcpRegistryIconUrl(str(acp.iconUrl)) ?? '' : '', label: driverLabel(pool.driver), light, dark, windows, cursorBefore: cursorEnvironments.length > 0 && poolIndex === cursorPromptAt };
   });
   state.links = links.map(link => link.url);
+  popoverSides(views, { wide, md: layout.md, cursorRows: cursorEnvironments.length });
   return {
     wide, hatchWide: hatchPath(32), hatchNarrow: hatchPath(20),
     empty: pools.length === 0 && notices.length === 0 && cursorEnvironments.length === 0 && links.length === 0,
@@ -143,6 +143,37 @@ export function pooledView(state: UsageState, statuses: EnvironmentUsageStatus[]
   };
 }
 export type PooledView = ReturnType<typeof pooledView>;
+
+type SideWindow = { count: number; refill: string; description: string; statuses: unknown[];
+  segments: { side: string; email: string; plan: string; whereLabel: string; resetsAt: string; restores: string; redeemable: boolean }[] };
+/**
+ * The side each popover takes, as Base UI's collision flip would on an unscrolled page: a bar whose top
+ * lies nearer the scroll area's top than the popover is tall opens below it, every other above. The
+ * heights are the layout's (UsageLimitsPooled's gaps, PoolWindowCard's padding, SegmentPopover's rows),
+ * in points; Contract has no position-try fallback to measure it (X17, exact2 #112).
+ */
+export function popoverSides(pools: { cursorBefore: boolean; windows: SideWindow[] }[], layout: { wide: boolean; md: boolean; cursorRows: number }): void {
+  const cursorHeight = 20 + 12 + 34 + 16 + 12 + 28;
+  let y = 24; // the page's top padding
+  pools.forEach((pool, poolIndex) => {
+    if (poolIndex > 0) y += 32;
+    if (pool.cursorBefore && layout.cursorRows) y += cursorHeight + 32;
+    y += 20 + 12; // the section heading and its gap
+    pool.windows.forEach((window, windowIndex) => {
+      if (windowIndex > 0) y += 12;
+      const figures = 20 + 4 + 36 + (window.refill ? 4 + 16 : 0);
+      const bar = (layout.wide ? 32 : 20) + (layout.wide ? 0 : window.count * 32) + window.statuses.length * 20;
+      const row = layout.md ? Math.max(figures, bar) : figures + 12 + bar;
+      const barTop = y + 17 + (layout.md ? (row - bar) / 2 : figures + 12);
+      for (const segment of window.segments) {
+        const people = (segment.plan ? 1 : 0) + (segment.whereLabel ? 1 : 0), times = 1 + (segment.resetsAt ? 1 : 0) + (segment.restores ? 1 : 0);
+        const popover = 32 + 20 + (segment.email ? 18 : 0) + (people ? 10 + 11 + people * 20 - 4 : 0) + 10 + 11 + times * 20 - 4 + (segment.redeemable ? 10 + 11 + 24 : 0) + 6;
+        segment.side = barTop < popover ? 'bottom' : 'top';
+      }
+      y += 34 + row + (window.description ? 12 + 16 : 0);
+    });
+  });
+}
 export function emptyPooled(): PooledView {
   return { wide: false, hatchWide: '', hatchNarrow: '', empty: false, pools: [], cursorAfter: false, cursor: [], links: [], notices: [], confirm: '' };
 }
