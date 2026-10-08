@@ -142,6 +142,9 @@ The agent cannot hold ⇧ for the native monitor (its key events go to the windo
 quick actions are shown in agent mode only by the AppKit test (`macos/tests/sidebar`) and in a normal launch
 with a real or HID-posted ⇧. A row's selection button lies under the row's lines (`pointer-events="none"`),
 so the number's menu and the checks/stack indicators are not presses of the row.
+`client.rpc` answers `{}` for a null result, so a read that may be empty (the stack) is decided by its decoder
+(`decodeStack(...) !== null`), never by truthiness. `PrdBody` is keyed by `detail.ref` at both call sites, as the
+reference keys its panel per pull request, so the fold and the scroll anchors start over on another one.
 
 ## Interface font size
 

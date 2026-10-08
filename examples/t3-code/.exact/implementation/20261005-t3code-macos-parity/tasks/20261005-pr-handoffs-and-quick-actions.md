@@ -108,7 +108,10 @@ Required environment: macOS 26.6.2, Xcode 27.0, Bun 1.4.2, git, the real-GitHub 
 
 2026-10-08: implemented on `feat(example)/t3-code-pr-handoffs-and-quick-actions` from `07dcef1ab`; unit, AppKit and
 gate checks green; one agent-mode live session and one retry on the real-GitHub lane (this worktree's server on port
-16701, primary account); draft PR #293. Real input waits for the shared lock (held by the real-input batch).
+16701, primary account); draft PR #293. Real-input session 05:23–06:06Z under the shared lock (record:
+`real-input-record.txt` on the evidence branch; PR images 21–28). It found the quick Merge refusing every unstacked pull
+request (`client.rpc` answers `{}` for no stack) and the header fold outliving the pull request; both fixed in
+`115fb3a5c` (the Merge then merged #165 for real). Merged `feat(example)/t3-code` at `c0475fbaa`.
 
 **Built.**
 - Hand-offs (`pages-pr-handoffs.ts`, `pages-pr-handoffs.contract`; core in `r6-pr-actions.ts`): More › Ask a question /
@@ -129,46 +132,25 @@ gate checks green; one agent-mode live session and one retry on the real-GitHub 
 
 | Row | Result | Proof | Blocker |
 | --- | --- | --- | --- |
-| Hand-offs | pass (live + unit) | PR images 12–17, `live-drive-record.txt`; unit "the panel hands the pull request over" (11) | the two-phase page checkout landed after the live session: unit-tested; live in the real-input session |
+| Hand-offs | pass (live + unit) | PR images 12–17, 28, `live-drive-record.txt`; unit "the panel hands the pull request over" (11); real input: Return on Ask a question (25), two-phase checkout on #144: thread first with "Preparing the pull request checkout...", then the clone on `feature/trim-input` (28; the first try's server-side `gh pr checkout` exited 1, one retry passed) | sending the drafted task: not run — the reference never sends (startAsk/startHandoff leave it for the reader); `provider-lane/` had no `READY-claude` and no login was taken, to free the real-input lock |
 | Hand-off failures | pass (live + unit) | image 18 ("already checked out in the main repo"), unit failures | — |
 | Per-finding Fix | pass (live + unit) | images 03, 04, 15, 16; unit "one hand-off at a time" | — |
-| Quick actions | AppKit + unit pass; real ⇧ pending | `macos/tests/sidebar` (6/6), `pages-pr-quick.test.ts` (9) | real-input lock (held by the real-input batch) — steps below |
-| Row menu and popovers | popovers pass (live); right-click pending | images 05, 10, 11 | real-input lock — steps below |
-| Header fold | pass (live) | images 04, 19, 20 | per-tab memory by a real wheel: steps below |
-| Keyboard focus, Escape, reduced motion | partial | agent Escape closes More and Check out; reduced-motion frames | real Tab/arrows/Return: steps below |
+| Quick actions | pass (real ⇧ + AppKit + unit) | images 21–23: ⇧ alone shows the groups, stacked Merge dimmed, none with the search focused; Ready for review, Close, Reopen on #149 and Merge on #165 read back with the lane gh (isDraft false, CLOSED, OPEN, MERGED 05:39:32Z); `macos/tests/sidebar` (6/6), `pages-pr-quick.test.ts` (9) | — |
+| Row menu and popovers | pass (real right-click + live) | image 24: native Copy link / Open on GitHub, the pasteboard held the #132 URL; images 05, 10, 11 | — |
+| Header fold | pass (live + real wheel) | images 04, 19, 20; 27: per-tab memory by a real wheel; another pull request now opens unfolded (`115fb3a5c`, keyed per pull request as the reference keys its panel) | the per-PR reset is not driven live (rule 3: sessions used); contract build and suites pass |
+| Keyboard focus, Escape, reduced motion | partial | images 25–26: real Tab moves the ring through More, Return activates, Escape closes Check out; reduced-motion frames | arrow keys do not move focus in the clone's popover menus (the base More, Sort and Filters menus included): a menu-wide roving-focus pattern, not started |
 | Visual and protocol parity | not run | before/after pairs 01–07 instead | user decision 2026-10-06 (no oracle or trace tools) |
 | Ported tests | pass | `pages-pr-handoffs.test.ts` (original names; two n/a recorded in its header) | — |
 | Gates | pass | PR body | — |
 
-## Real-input batch steps
+## Real-input session (done 2026-10-08)
 
-Run as one session holding the shared lock (owner "pr-handoffs-and-quick-actions: real input"):
-
-1. Worktree at the PR head: `export PATH="$HOME/.bun-1.4.2/bin:$PATH" EXACT_APP_DIR="$PWD/examples/t3-code"`;
-   `bun host/apple/build.mjs t3-code-macos --bundle`. Lane server: in `examples/t3-code/tools/github-lane` with
-   `T3_GITHUB_LANE_SHARED=<base checkout>/target/t3-ui-parity/github-lane`, `bun lane.mjs start primary --port 16701`,
-   `bun lane.mjs project primary`, `bun lane.mjs pair primary` (URL in `target/github-lane/servers/primary/pairing-url`, 0600).
-   Fixtures: `bun seed.mjs --only act-merge` (a fresh mergeable pull request); `gh pr ready <act-lifecycle> --undo` with the
-   lane gh for a draft to ready.
-2. Lane copy `T3 Code (Lane PHA2).app` (bundle id `com.exact.t3code.lanepha2`, re-signed with the build's identity),
-   launched by path with `CFFIXED_USER_HOME=<worktree>/target/pr-handoffs/realinput/home`; pair through the welcome
-   wizard (`set-value` the URL), open Pull Requests, Filters › State › All.
-3. **Quick actions**: hold ⇧ (a HID flagsChanged; `target/pr-handoffs/shift-key down|up`): each GitHub row not merged
-   shows its group (closed: Reopen; draft: Close + Ready for review; open: Close + Merge; the stacked #118's Merge disabled
-   with "Open this pull request to merge its stack"). With the search field focused, ⇧ shows nothing. Ready for review on
-   the draft, Close then Reopen on it, Merge on the `act-merge` pull request; read each back with the lane gh
-   (`gh pr view <n> --json state,isDraft,mergedAt`).
-4. **Row menu**: right-click a row's number (#132): the native menu has "Copy link" and "Open on GitHub"; Copy link puts
-   `https://github.com/daehyeonmun2021/playground/pull/132` on the pasteboard (restore the pasteboard after).
-5. **Keys**: Tab to More, Return opens it, ↓/↑ move across Ask a question / Explain this PR / Fix findings, Escape closes
-   it with the ring back on More; the same on Check out.
-6. **Fold per tab** (#115): real wheel down on Summary (folds), switch to Timeline (open: its own state), back to Summary
-   (still folded); wheel to the top reopens.
-7. **Two-phase checkout**: on #132 › Check out › In a separate worktree (after `git -C <clone> switch main`): the thread
-   shows first with "Preparing the pull request checkout...", then "Checked out"; `git worktree list` lists it.
-8. Cleanup: quit the copy; `bun lane.mjs stop primary`; delete the copy's Keychain item
-   (`com.exact.t3code.macos.access-token`, account `http://127.0.0.1:16701\n<environment id>`) and its preferences;
-   remove `target/pr-handoffs/realinput`; release the lock.
+Lock 05:23:46Z–06:06:02Z. Lane copy `T3 Code (Lane PHA2).app` (`com.exact.t3code.lanepha2`, re-signed, `CFFIXED_USER_HOME`
+and `T3_LOCAL_HOME` under `target/pr-handoffs/realinput`, port 16705, telemetry off) paired to this worktree's lane
+server (16701). ⇧ as a HID flagsChanged (`target/pr-handoffs/shift-key`), the wheel as a HID scroll
+(`target/pr-handoffs/wheel-key`). Results per row above; the full record is `real-input-record.txt` beside the PR images.
+Cleanup done: copy quit, lane server stopped, the copy's Keychain item (`com.exact.t3code.macos.access-token`, account
+`http://127.0.0.1:16701` + environment id) deleted, the copy and its homes removed, the pasteboard restored.
 
 ## Attempts and evidence
 
@@ -176,7 +158,9 @@ Run as one session holding the shared lock (owner "pr-handoffs-and-quick-actions
 | --- | --- | --- | --- | --- |
 | 1 (agent live) | `a94f7f47b` (build before the two-phase change) | before screens on the base build; after session: every hand-off ran on real GitHub; fix-check and fix-remark were refused by a GitHub CLI timeout (18 s `gh pr view`, server `getChangeRequest`), shown as the server's sentence; the agent's own `screenshot over` film wrote transparent frames | `live-drive-record.txt` | — |
 | 2 (agent retry) | same build + menu widths, opaque new popovers | More and Check out menus no longer wrap; Escape closes both; fold frames 30 ms apart; both Fix presses checked out and wrote their prompts | PR images 02, 08–11, 15, 16, 19, 20 | — |
+| 3 (real input) | `23f721f08` build, then `115fb3a5c` (pid 87517) | ⇧ groups, Ready/Close/Reopen read back; Merge refused on the first build (fixed, rebuilt, merged); right-click menu and Copy link; Tab/Return/Escape; per-tab fold by wheel; two-phase checkout (server gh failed once, retry passed) | PR images 21–28, `real-input-record.txt` | arrow keys in menus (no roving focus) |
 
 ## Next action
 
-The real-input session above when the shared lock frees; then the coordinator's records sync.
+Arrow-key focus in the clone's popover menus (More, Check out, Sort, Filters): a roving-focus pattern for every menu,
+outside this task's files; then drive the per-PR fold reset once. Otherwise the coordinator's review of draft PR #293.
