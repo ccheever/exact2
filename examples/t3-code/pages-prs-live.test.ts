@@ -8,6 +8,9 @@ import type { T3Client } from './client';
 import type { Obj } from './domain';
 import type { Native } from './protocol';
 import { pullRequestsPage, type PrInput } from './pages-prs';
+import { prCommand, pullRequestDetail } from './pages-pr-detail';
+import { PR_REFRESH_KEY, prRefreshEvent } from './pages-pr-refresh';
+import { noteNow } from './composer-controls';
 
 const NOW = Date.parse('2026-10-08T12:00:00Z');
 const MINUTE = 60_000;
@@ -15,14 +18,16 @@ const entries = [{ projectId: 'p1', host: 'github.com', repository: 'acme/playgr
   author: { login: 'second' }, updatedAt: '2026-10-08T11:00:00Z', additions: 1, deletions: 0 }];
 
 /** A client whose reader last pointed or typed at `interactedAt` (the activity reporter's answer). */
-function fixture(interactedAt = NOW) {
+function fixture(interactedAt = NOW, more: Record<string, (payload: Obj) => unknown> = {}) {
   const calls: string[] = [];
+  let listed: Obj[] = entries;
   const client = {
     environmentId: 'env', ready: true, generation: 1, revision: 0, local: {} as Obj,
     config: { environment: { capabilities: { pullRequests: true } } }, shell: { projects: [{ id: 'p1', title: 'playground', repositoryIdentity: { provider: 'github', canonicalKey: 'github.com/acme/playground' } }], threads: [] },
-    rpc: async (_native: unknown, method: string) => {
+    rpc: async (_native: unknown, method: string, payload: Obj) => {
       calls.push(method);
-      if (method === 'pullRequests.list') return { entries, viewers: {} };
+      if (more[method]) return more[method]!(payload);
+      if (method === 'pullRequests.list') return { entries: listed, viewers: {} };
       if (method === 'pullRequests.listStats') return { stats: [] };
       throw new Error(`no reply for ${method}`);
     },
@@ -32,7 +37,7 @@ function fixture(interactedAt = NOW) {
   const page = (input: Partial<PrInput> & { visible?: boolean; focused?: boolean } = {}) =>
     pullRequestsPage(client, native, { open: true, refresh: 0, now: NOW, selected: '', query: '', typed: false, ...input });
   const reads = () => calls.filter(method => method === 'pullRequests.list').length;
-  return { calls, page, reads };
+  return { client, native, calls, page, reads, list: (next: Obj[]) => { listed = next; } };
 }
 
 describe('the Pull Requests list reads again as the reference page does (useLiveRefresh)', () => {
@@ -87,5 +92,33 @@ describe('the Pull Requests list reads again as the reference page does (useLive
     await hidden.page();
     await hidden.page({ now: NOW + 5 * MINUTE, visible: false });
     expect(hidden.reads()).toBe(1); // a hidden window costs the host nothing
+  });
+
+  test('close #158, the list read without it, reopen, an answer that has not seen the reopen yet, then the window focused again: the row is back', async () => {
+    // The live check of 2026-10-08 (pr-writing-and-metadata): the server lists through GitHub search, so the read
+    // right after the reopen can still lack the row; nothing read the list again. The focus read (through the
+    // server's cache, its 30 s gone) brings it back, the reopen's note (notedListEntry, #261) agreeing with it.
+    let state = 'open';
+    const selected = JSON.stringify({ projectId: 'p1', host: 'github.com', repository: 'acme/playground', number: 158 });
+    const detail = () => ({ provider: 'github', projectId: 'p1', repository: 'acme/playground', number: 158, title: 'Count the vowels in a line', state, isDraft: false, author: { login: 'second' },
+      viewer: 'primary', checks: [], labels: [], reviewers: [], updatedAt: '2026-10-08T11:00:00Z', capabilities: { actions: ['close', 'reopen'], comment: true }, viewerPermissions: { actions: ['close', 'reopen'], comment: true } });
+    const run = fixture(NOW, { 'pullRequests.detail': detail, 'pullRequests.activity': () => ({ comments: [], commits: [], reviewers: [], commentCount: 0 }), 'pullRequests.stack': () => null,
+      'pullRequests.runAction': (payload) => { state = payload.action === 'close' ? 'closed' : 'open'; return {}; } });
+    noteNow(run.client, NOW);
+    const rows = async (input: Partial<PrInput> & { visible?: boolean; focused?: boolean } = {}) => (await run.page({ selected, ...input })).groups.flatMap(group => group.rows.map(row => `${row.number}:${row.state}`));
+    let announced = 0;
+    const announce = () => prRefreshEvent(run.client, { key: PR_REFRESH_KEY, subscriptionId: '1-1', value: ++announced }); // the server's word after each write
+    expect(await rows()).toEqual(['158:open']);
+    await pullRequestDetail(run.client, run.native, { selected, refresh: 0, now: NOW });
+    expect(await prCommand(run.client, run.native, 'action', selected, 'close')).toBe('');
+    run.list([]); announce();
+    expect(await rows({ now: NOW + 10_000 })).toEqual([]); // read again without it
+    expect(await prCommand(run.client, run.native, 'action', selected, 'reopen')).toBe('');
+    announce();
+    expect(await rows({ now: NOW + 20_000 })).toEqual([]); // the search has not seen the reopen yet
+    run.list(entries);
+    expect(await rows({ now: NOW + 50_000 })).toEqual([]); // nothing asks the list again on its own
+    await rows({ now: NOW + 50_000, focused: false });
+    expect(await rows({ now: NOW + 50_000, focused: true })).toEqual(['158:open']); // the window's focus reads it, and it is back (inside the close note's minute)
   });
 });

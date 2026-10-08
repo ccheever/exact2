@@ -28,10 +28,13 @@ import {
   readPullRequestDetailSnapshot, resolveDisplayedPullRequestDetail, resolvePullRequestReferenceHost,
   shouldRefreshPullRequestActivity, writePullRequestDetailSnapshot, type PullRequestDetailSnapshotRef,
 } from './pages-pr-logic';
-import { holdPullRequestRefreshes, liveRefreshDue, noteViewRefreshed, pullRequestRefreshEpoch, snapshotStorage, viewRefreshedAt } from './pages-pr-refresh';
-import { conversationBodies, emptySummary, presentSummary } from './pages-pr-summary';
+import { holdPullRequestRefreshes, liveRefreshAsked, liveRefreshDue, noteViewRefreshed, pullRequestRefreshEpoch, snapshotStorage, viewRefreshedAt } from './pages-pr-refresh';
+import { conversationBodies, emptySummary, presentSummary, type RemarkWrites } from './pages-pr-summary';
 import { emptyTimeline, presentTimeline } from './pages-pr-timeline';
-import { emptyActions, isActionOp, prActionCommand, prActionUi, presentActions, type PanelContext } from './pages-pr-actions'; // pr-header-actions-and-stacks
+import { canEditPullRequestChangeRequest } from './pages-pr-writes-logic';
+import { commentEditing, emptyWrites, presentWrites, previewBodies, prWrite, reactionPills, writeReference } from './pages-pr-writes';
+import { composerNow } from './composer-controls';
+import { emptyActions, isActionOp, notedListEntry, prActionCommand, prActionUi, presentActions, type PanelContext } from './pages-pr-actions'; // pr-header-actions-and-stacks
 import { markStackDue, readPanelStack } from './pages-pr-stack';
 
 export type PrSelection = { projectId: string; host: string; repository: string; number: number };
@@ -83,7 +86,7 @@ export function emptyDetail() {
     labels: [] as { key: string; name: string; background: string; ink: string }[],
     bodies: [] as { id: string; kind: string; title: string; body: string }[], hasBody: false, bodyId: '',
     commentCount: 0, commentsLabel: 'Comments (0)', activityPending: false, activityError: '',
-    ghost: emptyGhost(), summary: emptySummary(), timeline: emptyTimeline(),
+    ghost: emptyGhost(), summary: emptySummary(), timeline: emptyTimeline(), writes: emptyWrites(),
     canEdit: false, canClose: false, canReopen: false, canDraft: false, canReady: false, canMerge: false, canUpdateBranch: false, canReview: false, canLabel: false,
     projectId: '', host: '', hostName: 'GitHub', linkMenu: '', code: [] as { id: string; code: string; icon: string; tokens: { id: string; text: string; cls: string }[] }[],
     // r4-timeline: Settings → Appearance code font, size and word wrap for the Markdown.
@@ -178,7 +181,8 @@ async function wake(client: T3Client, native: Native, view: PrDetailView, panel:
 /** useLiveRefresh: an arrival (a reopened view, the window shown or focused again) and the 5-minute interval read the detail. */
 async function liveRefresh(client: T3Client, native: Native, panel: Panel, viewKey: string, input: DetailInput, arrival: boolean): Promise<void> {
   if (panel.detailDue) return;
-  if (await liveRefreshDue(client, native, viewKey, { visible: input.visible !== false, now: input.now, arrival })) panel.detailDue = true;
+  const ask = { visible: input.visible !== false, now: input.now, arrival };
+  if (liveRefreshAsked(client, viewKey, ask) && await liveRefreshDue(client, native, viewKey, ask)) panel.detailDue = true;
 }
 async function readDetail(client: T3Client, native: Native, panel: Panel, ref: Obj, storage: Files | undefined): Promise<void> {
   try {
@@ -224,7 +228,12 @@ function present(view: PrDetailView, panel: Panel | null, selection: PrSelection
     return view;
   }
   const activityPending = !panel!.activity && !panel!.activityError;
-  presentDetail(view, display, panel!.activity, now, { activityPending, activityError: panel!.activity ? '' : panel!.activityError, listEntry });
+  // pr-writing-and-metadata: each remark's pencil and reactions, this client's presses in flight laid over.
+  const reference = writeReference(selection);
+  const remark = (comment: Obj): RemarkWrites => ({ ...commentEditing(client, reference, display, comment), ...reactionPills(client, reference, str(comment.id), comment.reactions) });
+  presentDetail(view, display, panel!.activity, now, { activityPending, activityError: panel!.activity ? '' : panel!.activityError, listEntry, remark });
+  view.writes = presentWrites(client, reference, display);
+  view.bodies = [...view.bodies, ...previewBodies(client, reference)];
   view.copiedCheckout = copyNonce(client, view.checkoutCommand); view.copiedBranch = copyNonce(client, view.headBranch);
   view.actions = presentActions(client, { ...panelContext(client, panel!, view.ref, listEntry), checksState: view.summary.checksState || null, checksStale: view.summary.checksStale,
     refreshing: !!panel!.detail && panel!.detailDue, threadLinks: client.shell.threads.flatMap(thread => arr(thread.pullRequests)) });
@@ -262,8 +271,10 @@ function contextOf(client: T3Client, selected: string): PanelContext | null {
   if (!selection) return null;
   const key = JSON.stringify([client.environmentId, selectionRef(selection)]), panel = panelsOf(client).get(key);
   // A pull request the panel has not read yet still names its reference (the action needs nothing more).
-  return panel ? panelContext(client, panel, selected, listEntryFor(client, selection))
-    : { key, selected, reference: selectionRef(selection), detail: null, listEntry: listEntryFor(client, selection), refresh: fromHost => stale(client, fromHost) };
+  // The row acted on: the list's, or the one a note still stands on once the list's answer has let it go.
+  const listEntry = listEntryFor(client, selection) ?? notedListEntry(client, selection);
+  return panel ? panelContext(client, panel, selected, listEntry)
+    : { key, selected, reference: selectionRef(selection), detail: null, listEntry, refresh: fromHost => stale(client, fromHost) };
 }
 /** `chatlocal:pr-ui-*`: the header's menu choices for the selected pull request (pages-pr-actions.ts). */
 export function prUiLocal(client: T3Client, op: string, selected: string, value: string): string {
@@ -276,7 +287,7 @@ const copies = new WeakMap<object, { value: string; nonce: number }>();
 export function noteCopy(client: object, value: string): void { copies.set(client, { value, nonce: (copies.get(client)?.nonce ?? 0) + 1 }); }
 export function copyNonce(client: object, value: string): number { const copy = copies.get(client); return copy && value && copy.value === value ? copy.nonce : 0; }
 
-export type PresentOptions = { activityPending?: boolean; activityError?: string; listEntry?: Obj | null };
+export type PresentOptions = { activityPending?: boolean; activityError?: string; listEntry?: Obj | null; remark?: (comment: Obj) => RemarkWrites };
 export function presentDetail(view: PrDetailView, detail: Obj, activity: Obj | null, now: number, options: PresentOptions = {}): PrDetailView {
   const author = person(activity?.author ?? detail.author), state = stateKey(detail), checks = arr(detail.checks);
   const permissions = obj(detail.viewerPermissions), capabilities = obj(detail.capabilities);
@@ -299,7 +310,7 @@ export function presentDetail(view: PrDetailView, detail: Obj, activity: Obj | n
   view.bodies = [...(view.hasBody ? [{ id: view.bodyId, kind: 'assistant', title: '', body: str(detail.body) }] : []), ...conversationBodies(activity)];
   view.commentCount = num(activity?.commentCount, arr(activity?.comments).length);
   view.commentsLabel = `Comments (${view.commentCount})`;
-  const shared = { detail, activity, activityPending: view.activityPending, activityError: view.activityError, now };
+  const shared = { detail, activity, activityPending: view.activityPending, activityError: view.activityError, now, ...(options.remark ? { remark: options.remark } : {}) };
   view.summary = presentSummary({ ...shared, listEntry: options.listEntry ?? null });
   view.timeline = presentTimeline(shared);
   // A newer rollup than the detail's checks: its headline, not a count the detail cannot back.
@@ -308,7 +319,7 @@ export function presentDetail(view: PrDetailView, detail: Obj, activity: Obj | n
   const names = (value: unknown) => (Array.isArray(value) ? value : []).filter((name): name is string => typeof name === 'string');
   const offered = (action: string) => names(capabilities.actions).includes(action) && names(permissions.actions).includes(action);
   const open = detail.state === 'open';
-  view.canEdit = obj(capabilities.edit).changeRequest !== false;
+  view.canEdit = canEditPullRequestChangeRequest(detail);
   view.canClose = open && offered('close');
   view.canReopen = detail.state === 'closed' && offered('reopen');
   view.canDraft = open && detail.isDraft !== true && offered('draft');
@@ -355,53 +366,25 @@ export async function prCommand(client: T3Client, native: Native, op: string, se
     return prActionCommand(client, native, op, contextOf(client, selected)!, value);
   }
   const ref = selectionRef(selection);
-  const label = `#${selection.number}`;
   try {
-    if (op === 'title') {
-      const title = value.trim();
-      if (!title) throw new ClientError('A pull request needs a title.');
-      await client.rpc(native, 'pullRequests.update', { ...ref, title: title.slice(0, 1024) }, true);
-      pushToast(client, { kind: 'success', title: 'Title updated', description: label });
-    } else if (op === 'label' || op === 'unlabel') {
-      await client.rpc(native, 'pullRequests.setLabels', { ...ref, labels: [value], applied: op === 'label' }, true);
-    } else if (op === 'request-review' || op === 'remove-review') {
-      const reviewer = obj(JSON.parse(value));
-      await client.rpc(native, 'pullRequests.requestReviewers', { ...ref, reviewers: [{ id: str(reviewer.id), kind: str(reviewer.kind, 'user') }], requested: op === 'request-review' }, true);
-    } else if (op === 'comment') {
-      if (!value.trim()) throw new ClientError('Write a comment first.');
-      await client.rpc(native, 'pullRequests.comment', { ...ref, body: value.slice(0, 65_536) }, true);
-      pushToast(client, { kind: 'success', title: 'Comment posted', description: label });
-    } else throw new ClientError(`Unknown pull request action: ${op}`);
+    // pr-writing-and-metadata: the composer, the editors, reactions, reviewers and labels (pages-pr-writes.ts);
+    // Close/Reopen with comment finish through the header's action runner (actionContext).
+    const panel = panelsOf(client).get(JSON.stringify([client.environmentId, ref])) ?? null;
+    const written = await prWrite({ client, native, reference: writeReference(selection), panel, refresh: () => stale(client), now: composerNow(client), actionContext: () => contextOf(client, selected) }, op, value);
+    if (written === null) throw new ClientError(`Unknown pull request action: ${op}`);
+    return written;
   } catch (error) {
     if (letGo(error)) throw error;
     const message = error instanceof Error ? error.message : 'The host refused it.';
     pushToast(client, { kind: 'error', title: 'Could not update this pull request', description: message });
     return message;
   }
-  stale(client);
-  return '';
 }
-
-type Candidates = { key: string; reviewers: Obj[]; labels: Obj[]; error: string };
-const candidates = new WeakMap<object, Candidates>();
-/** Reviewer and label candidates, read when their menu opens (not with every detail). */
-export async function prCandidates(client: T3Client, native: Native | null | undefined, selected: string, which: string) {
+/** The ops a pull request panel sends beside the writes' one-at-a-time route (chatlocal:prw-*): the boxes' drafts. */
+const LOCAL_WRITES = new Set(['draft-comment', 'draft-summary']);
+export async function prLocalWrite(client: T3Client, native: Native, op: string, selected: string, value: string): Promise<string> {
   const selection = parseSelection(selected);
-  const empty = { reviewers: [] as { key: string; id: string; kind: string; login: string; avatar: string; initial: string; requested: boolean }[], labels: [] as { key: string; name: string; color: string; applied: boolean; description: string }[], loading: false, error: '' };
-  if (!selection || !which || !native?.available || !client.ready) return empty;
-  const key = JSON.stringify([selection, which]);
-  let cached = candidates.get(client);
-  if (!cached || cached.key !== key) {
-    cached = { key, reviewers: [], labels: [], error: '' };
-    try {
-      if (which === 'reviewers') cached.reviewers = arr((await client.rpc(native, 'pullRequests.reviewerCandidates', selectionRef(selection))).candidates);
-      else cached.labels = arr((await client.rpc(native, 'pullRequests.labelCandidates', selectionRef(selection))).candidates);
-    } catch (error) { if (letGo(error)) throw error; cached.error = error instanceof Error ? error.message : 'Could not read the candidates.'; }
-    candidates.set(client, cached);
-  }
-  empty.error = cached.error;
-  empty.reviewers = cached.reviewers.map(candidate => { const by = person(candidate); return { key: str(candidate.id), id: str(candidate.id), kind: str(candidate.kind, 'user'), login: by.login, avatar: by.avatar, initial: by.initial, requested: candidate.isRequested === true }; });
-  empty.labels = cached.labels.map(candidate => ({ key: str(candidate.name), name: str(candidate.name), color: labelColor(candidate.color), applied: candidate.isApplied === true, description: str(candidate.description) }));
-  return empty;
+  if (!selection || !LOCAL_WRITES.has(op)) return '';
+  const panel = panelsOf(client).get(JSON.stringify([client.environmentId, selectionRef(selection)])) ?? null;
+  return (await prWrite({ client, native, reference: writeReference(selection), panel, refresh: () => stale(client), now: composerNow(client) }, op, value)) ?? '';
 }
-export function forgetCandidates(client: object): void { candidates.delete(client); }

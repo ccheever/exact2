@@ -113,13 +113,18 @@ export async function lastInteraction(native: Native, now: number): Promise<numb
  */
 export async function liveRefreshDue(client: object, native: Native, view: string, input: { visible: boolean; now: number; arrival: boolean }): Promise<boolean> {
   const { visible, now, arrival } = input, lastRefreshedAt = viewRefreshedAt(client, view);
-  const interval = lastRefreshedAt !== undefined && now - lastRefreshedAt >= LIVE_REFRESH_INTERVAL_MS;
-  if (!arrival && !interval) return false;
+  if (!liveRefreshAsked(client, view, input)) return false;
   const interacted = (await lastInteraction(native, now)) ?? now;
   const read = arrival ? now - interacted < LIVE_REFRESH_IDLE_AFTER_MS && shouldRefreshOnArrival({ visible, now, lastRefreshedAt })
     : shouldRefreshOnInterval({ visible, now, lastRefreshedAt: lastRefreshedAt!, lastInteractedAt: interacted });
   if (read) noteViewRefreshed(client, view, now);
   return read;
+}
+
+/** Whether a view has anything to ask liveRefreshDue (an arrival, or the five-minute interval come round), without waiting. */
+export function liveRefreshAsked(client: object, view: string, input: { now: number; arrival: boolean }): boolean {
+  const lastRefreshedAt = viewRefreshedAt(client, view);
+  return input.arrival || (lastRefreshedAt !== undefined && input.now - lastRefreshedAt >= LIVE_REFRESH_INTERVAL_MS);
 }
 
 // ── Snapshot storage (t3-code.json) ─────────────────────────────────────────

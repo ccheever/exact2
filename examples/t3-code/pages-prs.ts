@@ -11,7 +11,7 @@ import { pagesPrefs } from './pages-prefs';
 import { projectIdentity } from './presentation';
 import type { T3Client } from './client';
 import { letGo } from './let-go';
-import { holdPullRequestRefreshes, liveRefreshDue, noteViewRefreshed, pullRequestRefreshEpoch, viewRefreshedAt } from './pages-pr-refresh';
+import { holdPullRequestRefreshes, liveRefreshAsked, liveRefreshDue, noteViewRefreshed, pullRequestRefreshEpoch, viewRefreshedAt } from './pages-pr-refresh';
 import { listRelist, overrideListEntries, settleListOverrides } from './pages-pr-actions'; // pr-header-actions-and-stacks: the panel's onActed
 
 export const SORTS = [
@@ -238,6 +238,8 @@ export type PrRow = ReturnType<typeof presentRow>;
 
 type ListCache = { key: string; refresh: number; epoch: number; relist: number; result: Obj | null; error: string; stats: Map<string, Obj> };
 const lists = new WeakMap<object, ListCache>();
+/** The Refresh press whose invalidate was sent, per client. */
+const invalidated = new WeakMap<object, number>();
 export type PrInput = { open: boolean; refresh: number; now: number; selected: string; query: string; typed: boolean };
 
 export function listPayload(prefs: PrPrefs, query: string): Obj {
@@ -259,19 +261,20 @@ export function listPayload(prefs: PrPrefs, query: string): Obj {
 /**
  * The page's useLiveRefresh (`refreshList(true)`, through the server's cache): arriving at the page, the window
  * shown or focused again, and every five minutes while somebody reads it — the detail panel's rule
- * (pages-pr-refresh.ts liveRefreshDue), for the view "pull-requests-list". True when the list reads again now.
+ * (pages-pr-refresh.ts liveRefreshDue), for the view "pull-requests-list".
  */
 const LIST_VIEW = 'pull-requests-list';
 const listLives = new WeakMap<object, { open: boolean; visible: boolean; focused: boolean }>();
-async function listLiveDue(client: T3Client, native: Native, input: { open: boolean; now: number; visible?: boolean; focused?: boolean }): Promise<boolean> {
+/** The page's facts noted; what to ask liveRefreshDue, or null when nothing is asked (no wait then). */
+function listLiveAsk(client: object, input: { open: boolean; now: number; visible?: boolean; focused?: boolean }): { visible: boolean; now: number; arrival: boolean } | null {
   const held = listLives.get(client), visible = input.visible !== false, focused = input.focused !== false;
   listLives.set(client, { open: input.open, visible, focused });
-  if (!input.open) return false;
+  if (!input.open) return null;
   // The hook's mount, its window `focus` and `visibilitychange` to visible.
-  const arrival = !held?.open || (visible && !held.visible) || (focused && !held.focused);
-  const due = lists.has(client) && await liveRefreshDue(client, native, LIST_VIEW, { visible, now: input.now, arrival });
+  const ask = { visible, now: input.now, arrival: !held?.open || (visible && !held.visible) || (focused && !held.focused) };
+  const asked = lists.has(client) && liveRefreshAsked(client, LIST_VIEW, ask);
   if (viewRefreshedAt(client, LIST_VIEW) === undefined) noteViewRefreshed(client, LIST_VIEW, input.now); // the page's own first read fills it in
-  return due;
+  return asked ? ask : null;
 }
 export async function pullRequestsPage(client: T3Client, native: Native | null | undefined, input: PrInput & { visible?: boolean; focused?: boolean }) {
   const prefs = prPrefs(client);
@@ -284,7 +287,7 @@ export async function pullRequestsPage(client: T3Client, native: Native | null |
     const identity = projectIdentity(str(project.title));
     return { id: str(project.id), name: str(project.title), mark: identity.projectMark, ink: identity.projectInk, surface: identity.projectSurface, selected: prefs.projectId === project.id, unavailable: '' };
   });
-  if (!input.open) listLives.set(client, { open: false, visible: input.visible !== false, focused: input.focused !== false });
+  if (!input.open) listLiveAsk(client, input);
   if (!input.open && native?.available && client.ready) await holdPullRequestRefreshes(client, native, 'list', false);
   if (!input.open || !native?.available || !client.ready) { view.loading = input.open && client.ready; return view; }
   if (!view.available) { view.empty = 'Pull requests unavailable'; view.emptyDetail = 'Update your T3 Code servers to browse pull requests.'; return view; }
@@ -293,13 +296,19 @@ export async function pullRequestsPage(client: T3Client, native: Native | null |
   // pr-conversation-and-refresh: the server's announcements read the list again (its refreshTrigger), the rows staying meanwhile.
   await holdPullRequestRefreshes(client, native, 'list', true);
   const key = JSON.stringify([client.environmentId, payload, input.refresh]);
-  const live = await listLiveDue(client, native, input);
+  const ask = listLiveAsk(client, input), live = ask !== null && await liveRefreshDue(client, native, LIST_VIEW, ask);
   let cached = lists.get(client);
   if (!cached || cached.key !== key || cached.epoch !== pullRequestRefreshEpoch(client) || cached.relist !== listRelist(client) || live) {
     const previous = cached, previousStats = cached?.stats ?? new Map<string, Obj>();
     cached = { key, refresh: input.refresh, epoch: pullRequestRefreshEpoch(client), relist: listRelist(client), result: null, error: '', stats: previousStats };
     try {
-      if (input.refresh > 0 && previous?.refresh === input.refresh - 1) await client.rpc(native, 'pullRequests.invalidate', {}).catch(() => ({}));
+      // One invalidate per Refresh press: each one announces a change, which asks this read again while
+      // the first is still out, and that read would invalidate (and announce) again (pr-writing-and-metadata
+      // live drive: 141 invalidates, ~50 detail and list reads in 3 s after one press).
+      if (input.refresh > 0 && previous?.refresh === input.refresh - 1 && invalidated.get(client) !== input.refresh) {
+        invalidated.set(client, input.refresh);
+        await client.rpc(native, 'pullRequests.invalidate', {}).catch(() => ({}));
+      }
       cached.result = await client.rpc(native, 'pullRequests.list', payload);
       // The host's word outranks the reader's once it has said it: an override goes when an answer agrees with it.
       settleListOverrides(client, arr(cached.result.entries), input.now);
