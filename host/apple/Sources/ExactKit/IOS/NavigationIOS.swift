@@ -21,6 +21,8 @@ final class RouteController: UIViewController {
     weak var collapseScroll: NodeView?
     /// The physical scroller bound to UIKit; a node can replace its backend.
     var collapseScrollView: UIScrollView?
+    /// Exact's explicit bottom binding; UIKit's getter can discover a heuristic owner.
+    weak var bottomScrollView: UIScrollView?
     /// The targets of the bar items projected from its header.
     var barPresses: [BarPress] = []
     /// The header's search field as UIKit's search controller (§9.6).

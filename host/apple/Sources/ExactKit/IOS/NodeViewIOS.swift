@@ -629,6 +629,10 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         if !decelerate { followEndIfOwed() }
     }
     package func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) { if scrollView === self.scrollView { followEndIfOwed() } }
+    package func scrollViewDidChangeAdjustedContentInset(_ scrollView: UIScrollView) {
+        guard scrollView === scroll else { return } // native collections own their content size
+        fitScroll()
+    }
     package func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) {
         guard scrollView === self.scrollView else { return }
         followingEndAnimated = false
@@ -1228,10 +1232,13 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
 
     /// The scroll container's content size: the kernel's extent on an axis
     /// that scrolls, the box on one that does not (so UIKit cannot pan it
-    /// there), never less than the box.
+    /// there). UIKit's automatic bottom obstruction already completes the
+    /// vertical viewport; manual keyboard/content insets remain scroll room.
     func fitScroll() {
         guard let sv = scroll else { return }
-        let size = CGSize(width: sv.scrollsX ? max(content.width, sv.bounds.width) : sv.bounds.width, height: sv.scrollsY ? max(content.height, sv.bounds.height) : sv.bounds.height)
+        let automaticBottom = max(0, sv.adjustedContentInset.bottom - sv.contentInset.bottom)
+        let height = max(0, sv.bounds.height - automaticBottom)
+        let size = CGSize(width: sv.scrollsX ? max(content.width, sv.bounds.width) : sv.bounds.width, height: sv.scrollsY ? max(content.height, height) : sv.bounds.height)
         if sv.contentSize != size { sv.contentSize = size }
         // Forced bounce on a carousel's computed y traps Mac wheel input; one travels a quarter of its width or lays a
         // row (itself, or a child wider than the port), and a page a few points too wide keeps its bounce.
