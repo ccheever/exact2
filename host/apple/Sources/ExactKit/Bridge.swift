@@ -494,6 +494,8 @@ package final class Runtime {
         }
     }
     func insets(top: CGFloat, right: CGFloat, bottom: CGFloat, left: CGFloat) -> Batch { on { read(exact_insets(rt, Float(top), Float(right), Float(bottom), Float(left))) } }
+    /// The screen a fit-content sheet's height units resolve against; zero clears it (LLP 1075.003 §9.11).
+    func screen(width: CGFloat, height: CGFloat) -> Batch { on { read(exact_screen(rt, Float(width), Float(height))) } }
     /// The posture and the viewport segments (LLP 1078 D4): the rects as `x y w h` floats in the input buffer, none for one segment.
     func segments(_ fold: ViewportFold) -> Batch {
         on {

@@ -196,37 +196,6 @@ fn percentage_padding_is_of_the_containing_block() {
     }
 }
 
-/// Grok's r4: a height that reads the viewport's height reads the sheet,
-/// so the trial takes it as `auto`. A route at least `100vh` tall would
-/// pin the sheet where it is, and a child `50vh` tall would halve it at
-/// each pass.
-#[test]
-fn viewport_heights_do_not_read_the_sheet() {
-    let src = r##"component Menu
-  view
-    column position="relative" width="100%" height="100%"
-      column testId="sheet" navigationDetent="fit-content" position="absolute" top=0 right=0 bottom=0 left=0 min-height="100vh" max-height="200vh"
-        row height=44
-          text "Row"
-        box testId="half" height="50vh"
-"##;
-    let plan = contract::compile(src).unwrap();
-    let (mut host, first) = Host::boot(
-        &plan.encode(),
-        NoData,
-        Box::new(MonospaceMeasurer::default()),
-        390.0,
-        844.0,
-    )
-    .unwrap();
-    let sheet = view(&host, "sheet");
-    assert_eq!(heights(&first, sheet), [44.0]);
-    for h in [44.0, 300.0, 600.0] {
-        let resized = host.resize(390.0, h);
-        assert!(heights(&resized, sheet).is_empty(), "{h}: {resized}");
-    }
-}
-
 /// Grok's r4: a block route's percentage padding changes with its
 /// containing block while its own box, its children and its extent stay
 /// where they are, so nothing under it is laid out anew: it refits on its
@@ -304,29 +273,13 @@ fn a_nested_scroller_grows_the_extent_unless_its_height_is_fixed() {
     assert!(heights(&grown, fixed).is_empty(), "{grown}");
 }
 
-/// Grok's r5: a comparison is not one taller sample. A bare height-axis
-/// unit is `auto`; a comparison that also holds a length is that length,
-/// its viewport terms at zero. A sampled stand-in flipped between them as
-/// the sheet resized (44, 200, 44, …); each of these settles.
-#[test]
-fn viewport_comparisons_settle() {
-    let src = r##"component Menu
-  view
-    column position="relative" width="100%" height="100%"
-      column testId="max" navigationDetent="fit-content" position="absolute" top=0 right=0 bottom=0 left=0 min-height="max(200px, 80vh)"
-        row height=44
-          text "Row"
-      column testId="vmax" navigationDetent="fit-content" position="absolute" top=0 right=0 bottom=0 left=0
-        column height="100vmax"
-          row height=44
-            text "Row"
-      column testId="clamp" navigationDetent="fit-content" position="absolute" top=0 right=0 bottom=0 left=0 min-height="clamp(100px, 50vh, 400px)"
-        row height=44
-          text "Row"
-      column testId="only" navigationDetent="fit-content" position="absolute" top=0 right=0 bottom=0 left=0 min-height="max(50vh, 30dvh)"
-        row height=44
-          text "Row"
-"##;
+/// The routes of `src`, booted at 390 × 844 with that screen set as a
+/// fit-content sheet's host sets it (LLP 1075.003 §9.11): each route's
+/// first extent is `routes`' height; none sends another as the sheet
+/// resizes (844, 44, 200, 844, 44, 200); and the sheet laid out at a
+/// route's extent lays that route's content out at exactly that height —
+/// the measure and the layout agree.
+fn settles_and_agrees(src: &str, routes: &[(&str, f32)]) {
     let plan = contract::compile(src).unwrap();
     let (mut host, first) = Host::boot(
         &plan.encode(),
@@ -336,72 +289,23 @@ fn viewport_comparisons_settle() {
         844.0,
     )
     .unwrap();
-    // A comparison of nothing but viewport heights is `auto`, as a bare one.
-    let routes = [
-        ("max", 200.0),
-        ("vmax", 44.0),
-        ("clamp", 100.0),
-        ("only", 44.0),
-    ];
-    for (id, h) in routes {
-        assert_eq!(heights(&first, view(&host, id)), [h], "{id}");
-    }
-    for h in [44.0, 200.0, 844.0, 44.0, 200.0] {
-        let resized = host.resize(390.0, h);
-        for (id, _) in routes {
-            assert!(
-                heights(&resized, view(&host, id)).is_empty(),
-                "{id} at {h}: {resized}"
-            );
-        }
-    }
-}
-
-/// Grok's r5: a flex basis and block-axis margins and padding are taken
-/// without the viewport's height too, on the route and under it.
-#[test]
-fn bases_margins_and_padding_do_not_read_the_sheet() {
-    let src = r##"component Menu
-  view
-    column position="relative" width="100%" height="100%"
-      column testId="sheet" navigationDetent="fit-content" position="absolute" top=0 right=0 bottom=0 left=0 padding-bottom="50vh"
-        row height=44 margin-top="20vh"
-          text "Row"
-        box flex-basis="100vh"
-        box padding-top="100vh"
-        box padding-top="max(10px, 5vh)"
-"##;
-    let plan = contract::compile(src).unwrap();
-    let (mut host, first) = Host::boot(
-        &plan.encode(),
-        NoData,
-        Box::new(MonospaceMeasurer::default()),
-        390.0,
-        844.0,
-    )
-    .unwrap();
-    let sheet = view(&host, "sheet");
-    assert_eq!(heights(&first, sheet), [44.0 + 10.0]);
-    for h in [54.0, 300.0, 844.0] {
-        let resized = host.resize(390.0, h);
-        assert!(heights(&resized, sheet).is_empty(), "{h}: {resized}");
-    }
-}
-
-/// Every route of `src`'s first extent, by test id, and that none sends
-/// another as the sheet resizes: 844, 44, 200, 844, 44, 200.
-fn settles(src: &str, routes: &[(&str, f32)]) {
-    let plan = contract::compile(src).unwrap();
-    let (mut host, first) = Host::boot(
-        &plan.encode(),
-        NoData,
-        Box::new(MonospaceMeasurer::default()),
-        390.0,
-        844.0,
-    )
-    .unwrap();
+    let mut extent = Vec::new();
     for &(id, h) in routes {
-        assert_eq!(heights(&first, view(&host, id)), [h], "{id}");
+        let sent = heights(&first, view(&host, id));
+        assert!(
+            sent.len() == 1 && (sent[0] - h).abs() < 0.01,
+            "{id}: {sent:?}, not {h}"
+        );
+        extent.push(sent[0]);
+    }
+    // The screen, as `ExactViewIOS.fit` sends it before the sheet's
+    // resize: the boot's viewport, so nothing moves.
+    let screened = host.set_screen(Some((390.0, 844.0)));
+    for &(id, _) in routes {
+        assert!(
+            heights(&screened, view(&host, id)).is_empty(),
+            "{id}: {screened}"
+        );
     }
     for h in [44.0, 200.0, 844.0, 44.0, 200.0] {
         let resized = host.resize(390.0, h);
@@ -412,26 +316,65 @@ fn settles(src: &str, routes: &[(&str, f32)]) {
             );
         }
     }
+    // Each child's height in a sheet as tall as the screen, where none
+    // is squeezed.
+    let sizes = |host: &Host<NoData>, id: &str| {
+        let k = host.runner().kernel();
+        let route = k.node(view(host, id)).unwrap();
+        let (_, _, _, pad) = k.resolved_padding(route.key).unwrap();
+        let children: Vec<_> = route
+            .children()
+            .into_iter()
+            .filter_map(|c| k.node(c))
+            .map(|c| (c.frame.height, c.frame.y + c.frame.height - route.frame.y))
+            .collect();
+        (route.frame.height, pad, children)
+    };
+    host.resize(390.0, 844.0);
+    let tall: Vec<_> = routes.iter().map(|&(id, _)| sizes(&host, id).2).collect();
+    for ((&(id, _), &h), tall) in routes.iter().zip(&extent).zip(tall) {
+        host.resize(390.0, h);
+        let (laid, pad, children) = sizes(&host, id);
+        assert!(
+            (laid - h).abs() < 0.01,
+            "{id}: laid out {laid}, measured {h}"
+        );
+        let heights: Vec<_> = children.iter().map(|c| c.0).collect();
+        assert_eq!(
+            heights,
+            tall.iter().map(|c| c.0).collect::<Vec<_>>(),
+            "{id}: squeezed"
+        );
+        let bottom = children.iter().map(|c| c.1).fold(0.0_f32, f32::max);
+        assert!(
+            bottom + pad <= h + 0.01,
+            "{id}: content {} past {h}",
+            bottom + pad
+        );
+    }
 }
 
-/// Astra's and Grok's r6: a height term loses where it can. A cap beside
-/// it stands (`min(80vh, 300px)` is 300, never 0, so a 44-point row under
-/// that max-height measures 44), as does a floor; a value that rests on it
-/// (`max(80vh, 0px)`) is `auto`, as a bare `80vh` is. A negative
-/// coefficient loses a `max`; a bare height margin is none; `0vh` reads
-/// nothing, so a collapsed box stays collapsed.
+/// `r` as a route that fills the sheet, with `rest` on it.
+fn route(id: &str, rest: &str) -> String {
+    format!(
+        r#"column testId="{id}" navigationDetent="fit-content" position="absolute" top=0 right=0 bottom=0 left=0 {rest}"#
+    )
+}
+
+/// LLP 1075.003 §9.11, the lead's option (b) after the r4–r6 reviews: in a
+/// fit-content sheet `vh` and its kin are the screen's, so a comparison,
+/// a cap, a floor, a `vmax` and a floor of a route all settle, each at
+/// what it is against the 844-point screen, and the layout agrees.
 #[test]
-fn caps_floors_and_collapses_follow_no_sheet() {
-    let route = |id: &str| {
-        format!(
-            r#"column testId="{id}" navigationDetent="fit-content" position="absolute" top=0 right=0 bottom=0 left=0"#
-        )
-    };
+fn viewport_lengths_are_the_screens_and_settle() {
     let src = format!(
         r##"component Menu
   view
     column position="relative" width="100%" height="100%"
-      {} max-height="min(80vh, 300px)"
+      {}
+        row height=44
+          text "Row"
+      {}
         row height=44
           text "Row"
       {}
@@ -439,60 +382,77 @@ fn caps_floors_and_collapses_follow_no_sheet() {
       {}
         box height="clamp(10vh, 200px, 40vh)"
       {}
-        box height="max(80vh, 0px)"
+        column height="100vmax"
           row height=44
             text "Row"
+      {}
+        row height=44
+          text "Row"
+        box height="50vh"
       {}
         row height=44
           text "One"
         row height=44 margin-top="max(-40px, -10vh)"
           text "Two"
-        row height=44 margin-top="-20vh"
-          text "Three"
-      {}
-        box height="0vh" overflow="hidden"
-          row height=44
-            text "Hidden"
-        row height=44
-          text "Shown"
 "##,
-        route("cap"),
-        route("min"),
-        route("clamp"),
-        route("rests"),
-        route("margins"),
-        route("zero")
+        route("max", r#"min-height="max(200px, 80vh)""#),
+        route("cap", r#"max-height="min(80vh, 300px)""#),
+        route("min", ""),
+        route("clamp", ""),
+        route("vmax", ""),
+        route("floor", r#"min-height="100vh""#),
+        route("margins", ""),
     );
-    settles(
+    settles_and_agrees(
         &src,
         &[
+            ("max", 0.8 * 844.0),
             ("cap", 44.0),
             ("min", 300.0),
             ("clamp", 200.0),
-            ("rests", 44.0),
-            ("margins", 44.0 + 4.0 + 44.0),
-            ("zero", 44.0),
+            ("vmax", 844.0),
+            ("floor", 844.0),
+            ("margins", 48.0),
         ],
     );
 }
 
-/// Astra's and Grok's r6: widths in a height unit follow no sheet either,
-/// through an aspect ratio or the route's own published width.
+/// The same for padding, a flex basis, a native field's floor and widths
+/// in a height unit (through an aspect ratio, and the route's own width),
+/// the cases of Astra's and Grok's r6.
 #[test]
-fn widths_in_height_units_follow_no_sheet() {
-    let src = r##"component Menu
+fn padding_bases_fields_and_widths_in_viewport_lengths_settle() {
+    let src = format!(
+        r##"component Menu
   view
     column position="relative" width="100%" height="100%"
-      column testId="floor" navigationDetent="fit-content" display="block" position="absolute" top=0 right=0 bottom=0 left=0
+      {}
+        row height=44
+          text "Row"
+        box flex-basis="10vh" flex-shrink=0
+      {}
+        input min-height="100vh" flex-shrink=0
+      {}
         box width=300 max-width="max(100px, calc(-100vh + 400px))" aspect-ratio=1
-      column testId="ratio" navigationDetent="fit-content" position="absolute" top=0 right=0 bottom=0 left=0
+      {}
         box width="100%" max-width="50vh" aspect-ratio=1
-      column testId="own" navigationDetent="fit-content" position="absolute" top=0 right=0 bottom=0 left=0 max-width="50vh" padding-left="10vh"
+      {}
         text "Twenty-six letters wrap at each width the route is given, so its height follows that width."
-"##;
-    // The text wraps in three 19.2-point lines at the parent's 390 points.
-    settles(
-        src,
-        &[("floor", 100.0), ("ratio", 390.0), ("own", 3.0 * 19.2)],
+"##,
+        route("padding", r#"padding-bottom="50vh""#),
+        route("field", ""),
+        route("floor", r#"display="block""#),
+        route("ratio", ""),
+        route("own", r#"max-width="50vh" padding-left="10vh""#),
+    );
+    settles_and_agrees(
+        &src,
+        &[
+            ("padding", 44.0 + 84.4 + 422.0),
+            ("field", 844.0),
+            ("floor", 100.0),
+            ("ratio", 390.0),
+            ("own", 3.0 * 19.2),
+        ],
     );
 }

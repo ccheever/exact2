@@ -33,7 +33,7 @@ pub use env::{uses_env, Edge, Env, EnvRefusal, Rect, SegmentVar};
 /// `color()`) into every colour row's grammar: native hosts and the compiler
 /// at start, a web artifact by use (LLP 1047 D2, LLP 1056 §8.2).
 pub use exact_motion::color::css::link_wide as link_wide_colors;
-pub(crate) mod viewport;
+mod viewport;
 pub use viewport::ViewportUnit;
 pub mod cells;
 mod color_parse;
@@ -171,11 +171,6 @@ impl Dimension {
     /// define is `Auto` — the stand-in for the row's initial value, which
     /// [`StyleProps::to_taffy`] substitutes exactly before lowering.
     pub fn resolve(self, env: &Env) -> Dimension {
-        if viewport::Heightless::active() {
-            if let Some(d) = self.without_viewport_height(env) {
-                return d;
-            }
-        }
         match self {
             Dimension::Env(edge, plus) => Dimension::Points(env.inset(edge) + plus),
             Dimension::Viewport(unit, n) => Dimension::Points(unit.basis(env) * n / 100.0),

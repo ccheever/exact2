@@ -30,7 +30,7 @@
 #include <stdint.h>
 
 /* The ABI's version: part of the compatibility id (LLP 1030 D3a). */
-#define EXACT_ABI_VERSION 13
+#define EXACT_ABI_VERSION 14
 
 #ifdef __cplusplus
 extern "C" {
@@ -510,6 +510,11 @@ uint32_t exact_list_text(ExactRuntime rt, uint32_t view, uint32_t first_len,
  * safe area itself. A change re-sends the style of every node that reads
  * them and lays out again. */
 uint32_t exact_insets(ExactRuntime rt, float top, float right, float bottom, float left);
+/* @ref LLP 1075.003 §9.11: the screen's size (points) while a fit-content
+ * sheet owns the viewport — what vh, svh, lvh, dvh, vmin and vmax resolve
+ * against there, never the sheet's height; a nonpositive size clears it,
+ * the viewport being the screen's again. */
+uint32_t exact_screen(ExactRuntime rt, float width, float height);
 /* @ref LLP 1078 D4: the device's posture (0 continuous, 1 folded) and the
  * viewport segments a fold makes — cols × rows rects, row-major, each
  * x y w h as four little-endian floats in the input buffer (count rects;

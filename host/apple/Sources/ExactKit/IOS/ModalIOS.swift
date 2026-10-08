@@ -240,6 +240,17 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
     var closedby: String? { layers.last?.route.props["closedby"] }
     var presentation: String? { layers.last?.kind }
     var coordinateView: UIView? { layers.last?.controller.viewIfLoaded }
+    /// Whether the topmost presentation is a sheet at its content's height
+    /// (LLP 1075.003 §9.11): the viewport is that sheet, and the page's
+    /// height units the screen's, which the sheet cannot move.
+    var fitsContent: Bool {
+        #if os(iOS)
+        guard let layer = layers.last, layer.kind != "fullscreen" else { return false }
+        return (layer.route.props["navigationDetent"] ?? "").split(separator: " ").contains("fit-content")
+        #else
+        return false
+        #endif
+    }
     var owner: UIViewController? { layers.last?.controller }
     var routes: [(node: NodeView, kind: String)] { layers.map { ($0.route, $0.kind) } }
     #if os(iOS)

@@ -97,15 +97,11 @@ impl Kernel {
     /// host cover in it), its min and max heights, and no height, insets or
     /// margins: nothing it is placed in (a sheet, a flex line, insets)
     /// constrains it, so no child shrinks, grows or takes a percentage of
-    /// its height. The viewport is the box's own sheet and the kernel knows
-    /// no unclipped screen, so the trial is lowered and measured, native
-    /// fields and buttons included, with every length resolving without
-    /// the viewport's height (`Dimension::without_viewport_height`): a
-    /// height term loses to a cap or floor beside it, and a length resting
-    /// on one is unknown (`auto`, no padding, no margin). Where its own
-    /// width or horizontal edges read the height, the box fills its
-    /// parent's width instead of its published one. A height a transition presents (LLP 1063) is the
-    /// presented one, as in the ordinary layout. Exclusions and
+    /// its height. Viewport lengths resolve as in the ordinary layout: a
+    /// host that lays the box out in a sheet resolves them against the
+    /// screen ([`crate::Env::screen`]), so the measure and the layout agree
+    /// and neither reads the sheet. A height a transition presents (LLP
+    /// 1063) is the presented one, as in the ordinary layout. Exclusions and
     /// multi-column fragments are not settled in that tree. The ordinary engine tree, its caches, frames and the epoch
     /// are untouched (LLP 1075.003 §9.11). `None` as for
     /// [`Kernel::laid_out_frame`], or when the trial's layout fails.
@@ -119,33 +115,10 @@ impl Kernel {
             .and_then(LayoutMirror::tree_ref)?
             .layout(self.arena.taffy(slot)?);
         let (pad, border) = (laid.padding, laid.border);
-        let env = self.arena.env().clone();
-        let reads = |d: crate::style::Dimension| d.without_viewport_height(&env).is_some();
-        let unknown = |d: crate::style::Dimension| {
-            d.without_viewport_height(&env) == Some(crate::Dimension::Auto)
-        };
-        let presented = engine(&mut self.layout).height_samples(self.epoch);
-        // Lowered and measured without the viewport's height: lengths that
-        // read it lose it (`Dimension::without_viewport_height`).
-        let _heightless = crate::style::viewport::Heightless::enter();
         let (mut tree, nodes) = LayoutTree::of_subtree(&self.arena, slot);
         let root = nodes[&slot];
-        // A margin resting on the sheet is none, not `auto`, which would
-        // take free space; a height a transition presents is the presented
-        // one, as in the ordinary layout.
+        let presented = engine(&mut self.layout).height_samples(self.epoch);
         let derive = |s: u32, mut t: taffy::style::Style| {
-            let row = self.arena.style(s);
-            let zero = LengthPercentageAuto::length(0.0);
-            for (d, m) in [
-                (row.margin_top, &mut t.margin.top),
-                (row.margin_right, &mut t.margin.right),
-                (row.margin_bottom, &mut t.margin.bottom),
-                (row.margin_left, &mut t.margin.left),
-            ] {
-                if unknown(d) {
-                    *m = zero;
-                }
-            }
             let shown = presented
                 .iter()
                 .find(|p| p.node.index == s && self.arena.resolve(p.node) == Some(s));
@@ -155,77 +128,22 @@ impl Kernel {
             t
         };
         for (&s, &node) in nodes.iter().filter(|(&s, _)| s != slot) {
-            let row = self.arena.style(s);
-            let margins = [
-                row.margin_top,
-                row.margin_right,
-                row.margin_bottom,
-                row.margin_left,
-            ];
-            if margins.into_iter().any(unknown) || presented.iter().any(|p| p.node.index == s) {
+            if presented.iter().any(|p| p.node.index == s) {
                 tree.set_style(node, derive(s, taffy_style(&self.arena, s)));
             }
         }
-        let mut style = taffy_style(&self.arena, slot);
-        // Its own padding is the last layout's (a percentage of its
-        // containing block) but where that read the sheet: then this
-        // lowering's, a covered edge's points in it (§3.5).
-        let row = self.arena.style(slot);
-        let mut pad = pad;
-        let lowered = |e: LengthPercentage| {
-            let raw = e.into_raw();
-            if raw.tag() == taffy::CompactLength::LENGTH_TAG {
-                raw.value()
-            } else {
-                0.0
-            }
-        };
-        for (d, edge, now) in [
-            (row.padding_top, &mut pad.top, style.padding.top),
-            (row.padding_right, &mut pad.right, style.padding.right),
-            (row.padding_bottom, &mut pad.bottom, style.padding.bottom),
-            (row.padding_left, &mut pad.left, style.padding.left),
-        ] {
-            if reads(d) {
-                *edge = lowered(now);
-            }
-        }
-        // A published width that read the sheet is not its width here: the
-        // root then fills its parent's width, as a block does.
-        let width_reads = [
-            row.width,
-            row.min_width,
-            row.max_width,
-            row.left,
-            row.right,
-            row.margin_left,
-            row.margin_right,
-            row.padding_left,
-            row.padding_right,
-        ]
-        .into_iter()
-        .any(reads);
-        let available = match self.arena.parent(slot) {
-            Some(p) if width_reads => self.arena.frame(p).width,
-            _ => frame.width,
-        };
+        let mut style = derive(slot, taffy_style(&self.arena, slot));
         let inline = pad.left + pad.right + border.left + border.right;
         let width = match style.box_sizing {
             taffy::style::BoxSizing::ContentBox => (frame.width - inline).max(0.0),
             taffy::style::BoxSizing::BorderBox => frame.width,
         };
         style.size = taffy::geometry::Size {
-            width: if width_reads {
-                Dimension::auto()
-            } else {
-                Dimension::length(width)
-            },
+            width: Dimension::length(width),
             height: Dimension::auto(),
         };
-        if !width_reads {
-            style.min_size.width = LengthPercentageAuto::auto();
-            style.max_size.width = LengthPercentageAuto::auto();
-        }
+        style.min_size.width = LengthPercentageAuto::auto();
+        style.max_size.width = LengthPercentageAuto::auto();
         let lp = LengthPercentage::length;
         style.padding = taffy::geometry::Rect {
             left: lp(pad.left),
@@ -255,7 +173,7 @@ impl Kernel {
         style.position = taffy::style::Position::Relative;
         tree.set_style(root, style);
         let offer = Offer {
-            width: AxisOffer::Definite(available),
+            width: AxisOffer::Definite(frame.width),
             height: AxisOffer::MaxContent,
         };
         tree.compute_mapped(root, offer, &self.arena, self.measurer.as_mut(), &|s| {

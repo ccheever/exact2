@@ -22,6 +22,15 @@ impl<D: DataSource> Host<D> {
         self.set_environment(env)
     }
 
+    /// The screen the height units resolve against while a `fit-content`
+    /// sheet owns the viewport (LLP 1075.003 §9.11), or `None` when the
+    /// viewport is the screen's: `vh` is the screen's height, never the
+    /// sheet's, so nothing the sheet's content measures follows the sheet.
+    pub fn set_screen(&mut self, screen: Option<(f32, f32)>) -> String {
+        let env = self.runner.kernel().env().with_screen(screen);
+        self.set_environment(env)
+    }
+
     pub(super) fn set_environment(&mut self, env: Env) -> String {
         let mut batch = Batch::new();
         let error = match self.runner.kernel_mut().set_env(env) {

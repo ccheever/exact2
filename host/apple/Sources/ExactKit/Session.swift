@@ -1295,6 +1295,8 @@ public final class ExactSession {
     }
     public func resize(_ size: CGSize) { guard booted, state != .destroyed else { return }; apply(runtime.resize(width: size.width, height: size.height)) }
     public func insets(top: CGFloat, right: CGFloat, bottom: CGFloat, left: CGFloat) { guard booted, state != .destroyed else { return }; apply(runtime.insets(top: top, right: right, bottom: bottom, left: left)) }
+    /// The screen `vh` resolves against while a fit-content sheet owns the viewport; nil when the viewport is the screen's (LLP 1075.003 §9.11).
+    func screen(_ size: CGSize?) { guard booted, state != .destroyed else { return }; apply(runtime.screen(width: size?.width ?? 0, height: size?.height ?? 0)) }
     /// The device's posture and the viewport segments a fold makes (LLP 1078 D4, D5): the view's reading,
     /// kept for the agent's `layout.env` and told to the kernel and the runner in one batch.
     /// Returns the batch's error, when the runtime refused the grid; the fold is kept only when it took it.

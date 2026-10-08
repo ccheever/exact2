@@ -182,6 +182,12 @@ pub struct Env {
     /// Optional per-size button fonts. Separate from `ControlTextStyles` so
     /// existing hosts' control-font struct literals remain source compatible.
     pub button_fonts: Option<crate::ButtonFonts>,
+    /// The screen's width and height, when a host lays the page out in a
+    /// viewport the page sizes (an iOS `fit-content` sheet, LLP 1075.003
+    /// §9.11): the height units and `vmin`/`vmax` resolve against it, as
+    /// CSS's do against the viewport and never a dialog, so no length
+    /// follows the sheet it sizes. `None`: the layout viewport.
+    pub screen: Option<(f32, f32)>,
 }
 
 impl Default for Env {
@@ -206,6 +212,7 @@ impl Env {
             cell_borders: false,
             control_text_styles: None,
             button_fonts: None,
+            screen: None,
         }
     }
 
@@ -226,6 +233,9 @@ impl Env {
             .is_none_or(crate::ButtonFonts::is_valid)
             && Edge::ALL.iter().all(|e| self.inset(*e).is_finite())
             && self.segments.iter().all(Rect::is_finite)
+            && self
+                .screen
+                .is_none_or(|(w, h)| w.is_finite() && h.is_finite() && w >= 0.0 && h >= 0.0)
             && self
                 .control_text_styles
                 .as_ref()
@@ -270,6 +280,15 @@ impl Env {
     pub fn with_cell_borders(&self, on: bool) -> Env {
         Env {
             cell_borders: on,
+            ..self.clone()
+        }
+    }
+
+    /// This environment with the screen the height units resolve against
+    /// (`None`: the layout viewport).
+    pub fn with_screen(&self, screen: Option<(f32, f32)>) -> Env {
+        Env {
+            screen,
             ..self.clone()
         }
     }

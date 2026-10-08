@@ -1,6 +1,7 @@
-//! LLP 1075.003 §9.11: a sheet's content laid out alone reads no viewport
-//! height through native measurement either — a field's floor or a native
-//! button's padding (Astra's r6).
+//! LLP 1075.003 §9.11: in a fit-content sheet the height units are the
+//! screen's (`Env::screen`), through native measurement too — a field's
+//! floor, a native button's padding — so the measure is the same at any
+//! sheet height and the layout agrees with it (Astra's r6 cases).
 use exact_kernel::*;
 
 struct Native;
@@ -104,37 +105,88 @@ fn route(node_type: NodeType, child: &[(StyleId, &str)], props: &[(PropId, &str)
             textarea: font.clone(),
             button: font,
         }),
+        screen: Some((390.0, 844.0)),
         ..Env::default()
     })
     .unwrap();
     k
 }
 
-fn fitted(k: &mut Kernel, height: f32) -> f32 {
+/// The route's measure with the sheet `height` tall, and the child's laid
+/// out height there.
+fn fitted(k: &mut Kernel, height: f32) -> (f32, f32) {
     k.compute_layout(1, Offer::definite(390.0, height)).unwrap();
     let key = k.arena().key_of(2).unwrap();
-    k.fit_content_height(key).unwrap()
+    (
+        k.fit_content_height(key).unwrap(),
+        k.node(3).unwrap().frame.height,
+    )
 }
 
+/// Its floor is the screen's 844 points (and the field's chrome below it)
+/// at every sheet height, measured and laid out alike.
 #[test]
-fn a_native_fields_viewport_floor_does_not_read_the_sheet() {
+fn a_native_fields_viewport_floor_is_the_screens() {
     let mut k = route(NodeType::TextInput, &[(StyleId::MinHeight, "100vh")], &[]);
-    let tall = fitted(&mut k, 844.0);
-    assert!(
-        tall < 100.0,
-        "the field's own height, not the sheet's: {tall}"
-    );
-    assert_eq!(fitted(&mut k, 200.0), tall);
+    let (fit, laid) = fitted(&mut k, 844.0);
+    assert!(fit >= 844.0 && fit == laid, "{fit} {laid}");
+    for sheet in [200.0, 44.0] {
+        assert_eq!(fitted(&mut k, sheet), (fit, laid), "{sheet}");
+    }
 }
 
 #[test]
-fn a_native_buttons_viewport_padding_does_not_read_the_sheet() {
+fn a_native_buttons_viewport_padding_is_the_screens() {
     let mut k = route(
         NodeType::Control,
-        &[(StyleId::PaddingTop, "100vh")],
+        &[(StyleId::PaddingTop, "10vh")],
         &[(PropId::Type, "button")],
     );
     assert_eq!(k.node(3).map(|n| n.node_type), Some(NodeType::Control));
-    assert_eq!(fitted(&mut k, 844.0), 20.0);
-    assert_eq!(fitted(&mut k, 200.0), 20.0);
+    for sheet in [844.0, 200.0, 44.0] {
+        let (fit, laid) = fitted(&mut k, sheet);
+        assert!(
+            (fit - 104.4).abs() < 0.01 && (laid - fit).abs() < 0.01,
+            "{sheet}: {fit} {laid}"
+        );
+    }
+}
+
+fn height(k: &mut Kernel, value: &str) -> f32 {
+    k.apply(
+        0,
+        2,
+        &[Op::SetStyle {
+            id: 3,
+            patch: rows(&[(StyleId::Height, value), (StyleId::FlexShrink, "0")]),
+        }],
+    )
+    .unwrap();
+    k.compute_layout(1, Offer::definite(300.0, 200.0)).unwrap();
+    k.node(3).unwrap().frame.height
+}
+
+/// The height units and `vmin`/`vmax` read the screen; `vw` the viewport;
+/// without a screen, all read the viewport.
+#[test]
+fn the_screen_is_what_the_height_units_read() {
+    let mut k = route(NodeType::View, &[], &[]);
+    for (value, want) in [
+        ("50vh", 422.0),
+        ("10vmin", 39.0),
+        ("10vmax", 84.4),
+        ("10vw", 30.0),
+    ] {
+        let got = height(&mut k, value);
+        assert!((got - want).abs() < 0.01, "{value}: {got}");
+    }
+    let env = Env {
+        screen: None,
+        ..k.env()
+    };
+    k.set_env(env).unwrap();
+    for (value, want) in [("50vh", 100.0), ("10vmin", 20.0), ("10vmax", 30.0)] {
+        let got = height(&mut k, value);
+        assert!((got - want).abs() < 0.01, "{value}: {got}");
+    }
 }
