@@ -1193,9 +1193,12 @@ impl LayoutTree {
                 }
             }
         }
+        // `&mut measure`, as the boundaries take it: one measure type, so the
+        // engine's algorithms compile once (by value, every app carried two
+        // copies; LLP 1047.001).
         let result = self
             .taffy
-            .compute_layout_with_measure(root, available, measure);
+            .compute_layout_with_measure(root, available, &mut measure);
         result.map_err(|e| LayoutError::Engine(format!("compute_layout: {e:?}")))?;
         self.provisional_chrome |= provisional_button;
         if let Some(view) = invalid_button {

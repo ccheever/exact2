@@ -776,11 +776,18 @@ if (long) {
   // The iOS binary (LLP 1047.001 D8): the hello app — one text node, the core
   // and nothing a plan adds — built for production on the simulator for speed
   // and for size (D9), its executable stripped, against an empty UIKit app's
-  // (`host/apple/ios/floor.swift`). Reported, never gated: on 2026-10-06 the
-  // one-text probe had grown from 7.2 MB to 9.8 MB in a week and nothing said so.
+  // (`host/apple/ios/floor.swift`). Gated by IOS_HELLO_BYTES below: on
+  // 2026-10-06 the one-text probe had grown from 7.2 MB to 9.8 MB in a week and
+  // nothing said so.
   await step('ios-size', () => {
-    const hello = resolveApp('hello');
-    const env = { ...process.env, EXACT_UPDATE_TRUST: 'production', EXACT_UPDATE_GENESIS: '1' };
+    // hello is this checkout's own app, never the fixture's: a capture sets
+    // EXACT_APP_DIR to the app under measure, which resolveApp returns for
+    // any name (the row read Caltrain's receipt against hello's bake).
+    const { EXACT_APP_DIR: fixtureApp, ...own } = process.env;
+    delete process.env.EXACT_APP_DIR;
+    let hello;
+    try { hello = resolveApp('hello'); } finally { if (fixtureApp !== undefined) process.env.EXACT_APP_DIR = fixtureApp; }
+    const env = { ...own, EXACT_UPDATE_TRUST: 'production', EXACT_UPDATE_GENESIS: '1' };
     const strippedSize = (file) => {
       const copy = resolve(ROOT, 'target/exact-ios-size.tmp');
       const s = spawnSync('xcrun', ['strip', '-o', copy, file], { encoding: 'utf8' });
@@ -838,6 +845,20 @@ if (long) {
 // what a web app downloads. Over a reference number prints "over", which no
 // lane files; the gate is JS_TARGET_KIB below.
 const WEB_CORE_KIB = { realworld: 304, 'video-player': 249, caltrain: 310 };
+
+// The iOS gate since 2026-10-08 (Charlie: a tripwire, today's size plus
+// ~100 KB): bytes of the hello app's stripped executable over the empty UIKit
+// app, as the ios-size step measures them. Over one is a VIOLATION the async
+// lane files against the commit. The measurement is deterministic (two commits
+// with no Apple change built byte-identical), so the headroom is for growth,
+// not noise. It would have stopped the fit-content series (LLP 1075.003
+// §9.11), which grew every app by 427 KB (speed) and 115 KB (size) before
+// c81074f19 cut the copy it added. A feature that costs every app ~100 KB
+// should link by use (LLP 1047.001). Raise one only on purpose, with the
+// reason here; lower it when a cut lands. Set at 8,593,568 B (speed) and
+// 5,999,248 B (size): main at 2e48efad1 with the layout pass's measure
+// passed one way (LLP 1047.001, "One layout pass in every app").
+const IOS_HELLO_BYTES = { speed: 8_700_000, size: 6_100_000 };
 
 // The web's gate since 2026-10-02: KiB of brotli-11 app.js, the runtime and the
 // app as one ES module, which is what each app's web build ships (LLP 1071); since
@@ -1032,8 +1053,12 @@ if (long) {
     ['  optional: GPU module (dlopen)', mib(out.gpu_module_bytes), Number.isFinite(out.gpu_module_bytes) ? `${mib(out.gpu_module_gzip_bytes)} gzip; paid at the first canvas` : 'no GPU crate'],
     ['  optional: web arm (dlopen)', mib(out.web_module_bytes), Number.isFinite(out.web_module_bytes) ? `${mib(out.web_module_gzip_bytes)} gzip; paid at the first iframe` : 'n/a'],
   );
-  // LLP 1047.001 D8: the hello app's iOS binary over an empty UIKit app's, for speed and for size (reported).
-  for (const optimize of ['speed', 'size']) rows.push([`iOS: hello app, optimized for ${optimize}`, out[`ios_${optimize}_failed`] ? 'FAILED' : mib(out[`ios_${optimize}_bytes`]), out[`ios_${optimize}_failed`] ?? `production, simulator, stripped, over an empty UIKit app (${mib(out.ios_floor_bytes)}); one text node: the core and nothing a plan adds; ${optimize === 'size' ? 'what an embed builds' : 'what an app builds'} unless its manifest says otherwise`]);
+  // LLP 1047.001 D8: the hello app's iOS binary over an empty UIKit app's, for speed and for size (gated: IOS_HELLO_BYTES).
+  for (const optimize of ['speed', 'size']) {
+    const bytes = out[`ios_${optimize}_bytes`], limit = IOS_HELLO_BYTES[optimize];
+    const budget = Number.isFinite(bytes) ? `; budget ${limit.toLocaleString('en-US')} B, ${bytes.toLocaleString('en-US')} B ${bytes <= limit ? 'within' : 'VIOLATION'}` : '';
+    rows.push([`iOS: hello app, optimized for ${optimize}`, out[`ios_${optimize}_failed`] ? 'FAILED' : mib(bytes), out[`ios_${optimize}_failed`] ?? `production, simulator, stripped, over an empty UIKit app (${mib(out.ios_floor_bytes)}); one text node: the core and nothing a plan adds; ${optimize === 'size' ? 'what an embed builds' : 'what an app builds'} unless its manifest says otherwise${budget}`]);
+  }
   rows.push(['macOS: touch one line, rebuild', out.macos_touch_failed ? 'FAILED' : s(out.macos_touch_s), out.macos_touch_failed ?? `host/apple/src/host.rs; budget ${budget('Touch one line')}`]);
   // LLP 1047 D9: each app's wasm, and its code by capability (KiB of code).
   for (const [name, m] of Object.entries(out.web_bytes ?? {})) {
