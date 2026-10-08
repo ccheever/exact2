@@ -25,7 +25,7 @@ focused node, whether `theme-editor`, `close-settings` (Settings) and `usage-pag
   press. The segment lay under a toast ("Update Available", then "Nightly needs the beta mobile app"): the
   toast takes that click, so a real hand presses the toast there. Re-run without toasts (session 2): passes.
   Fixed on the way: a press on the popover's own segment now also clears the hover states, so a real pointer
-  resting on the segment no longer holds it open (base: image 07); the segment's next pointer move reopens it.
+  resting on the segment no longer holds it open (base: image 07).
 - Theme editor (unchanged since): Escape in Theme name left Settings and kept the editor; a second Escape kept
   it; Settings reopened over the editor, Escape left Settings and kept the editor; Escape in the Accent
   colour popover closed it and focused `theme-editor-swatch-accent`.
@@ -72,3 +72,12 @@ popup to the trigger that opened it.
 | Escape 1 in the editor | Settings gone, editor stays |
 | Escape 2 in the editor | editor gone |
 | Settings reopened over the editor, Escape | editor gone, Settings stays |
+
+## After session 2: independent-review fixes (not driven; session budget)
+
+`pressUp` also checks the release point (a press ending inside the card does not dismiss) and clears the hover
+states with the pin; the segment's `pointermove` (it reopened a just-closed popover on any move) is removed, so
+hover opens it again only on a new enter, as Base UI's `blockMouseMove`; the theme editor's text fields count
+their `focus` as an outside press (a macOS text field reaches no `pointerdown`); Settings' Back and the Usage
+page's back blur the focus first, as `useEscapeToGoBack` does. Unit-tested; the real-input steps in the task
+record cover them.
