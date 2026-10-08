@@ -33,6 +33,7 @@ type Search = { entries: Obj[]; failed: boolean; providers?: Obj[] };
 type EditorCache = {
   discovery: WorkspaceDiscovery;
   trigger: EditorTrigger | null; rows: MenuRow[]; owner: string;
+  pickStamp?: string;
   searches: Map<string, Search>; pending: Map<string, number>; usageLimits: number;
   /** A send was refused for length: the line shows until the prompt fits. */
   limitArmed: boolean;
@@ -45,6 +46,21 @@ function cache(client: T3Client): EditorCache {
   let entry = caches.get(client);
   if (!entry) { entry = { discovery: new WorkspaceDiscovery(), trigger: null, rows: [], owner: '', searches: new Map(), pending: new Map(), usageLimits: 0, limitArmed: false, stashOpen: false, prRecords: new Map() }; caches.set(client, entry); }
   return entry;
+}
+
+const contextPickStamp = (client: T3Client): string => JSON.stringify([client.origin, client.environmentId, client.generation,
+  client.projectId, client.threadId, client.snapshotOwner, client.draftKey, client.draft]);
+
+/** Read the active suggestion before a platform adapter applies its context payload.
+ * Includes the original insertion data, without consuming the row or touching native state. */
+export function peekComposerContextPick(client: T3Client, id: string): { trigger: EditorTrigger; row: MenuRow } | null {
+  const entry = caches.get(client), trigger = entry?.trigger;
+  if (!entry || !trigger || !client.ready || !client.snapshotOwner || entry.owner !== client.snapshotOwner || entry.pickStamp !== contextPickStamp(client)
+    || !['path', 'pull-request', 'skill', 'slash-command'].includes(trigger.kind)
+    || !Number.isInteger(trigger.start) || !Number.isInteger(trigger.end)
+    || trigger.start < 0 || trigger.end < trigger.start || trigger.end > client.draft.length) return null;
+  const row = entry.rows.find(candidate => candidate.id === id);
+  return row ? JSON.parse(JSON.stringify({ trigger, row })) : null;
 }
 
 const CLOSED: ComposerMenu = { open: false, kind: '', listLabel: '', searchKey: '', loading: false, emptyText: '', count: 0, rows: [] };
@@ -213,7 +229,7 @@ export async function refreshComposerWorkspace(client: T3Client, native: Native 
   return cache(client).discovery.refresh(key, (method, payload) => client.restAccess(native).request(method, payload, true));
 }
 async function editorView(client: T3Client, native: Native | null | undefined, now: number): Promise<Omit<ComposerEditorView, 'drawer'>> {
-  const entry = cache(client);
+  const pickStamp = contextPickStamp(client), entry = cache(client);
   const stash: ComposerStash = { ...stashView(client.local, now), menuOpen: entry.stashOpen && stashView(client.local, now).count > 0, keyStash: commandChord(client, 'composer.stash', 'Meta+S') };
   const limit = promptLengthMessage(client.draft);
   if (!limit) entry.limitArmed = false;
@@ -274,6 +290,7 @@ async function editorView(client: T3Client, native: Native | null | undefined, n
   }
   rows = rows.map((row, index) => ({ ...row, index }));
   entry.rows = rows;
+  entry.pickStamp = contextPickStamp(client) === pickStamp ? pickStamp : '';
   const searchKey = `${client.snapshotOwner}:${trigger.kind}:${trigger.query.trim().toLowerCase()}`;
   return {
     owner: client.snapshotOwner, promptLimit, overLimit, usageLimits: entry.usageLimits, stash,
