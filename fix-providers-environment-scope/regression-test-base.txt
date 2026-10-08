@@ -1,0 +1,100 @@
+# fix-providers-environment-scope: providers-scope.test.ts on the base sources (44e939f1e, git archive), 2026-10-08T13:10:31Z
+bun test v1.4.2 (744846f84)
+
+target/fpes/base/examples/t3-code/providers-scope.test.ts:
+68 |     const mine = await page(native, files, '');
+69 |     expect(statuses(mine)).toEqual(['Codex: Authenticated · ChatGPT']);
+70 | 
+71 |     const before = native.calls.length;
+72 |     const theirs = await page(native, files, 'env2');
+73 |     expect(statuses(theirs)).toEqual(['Codex: Not authenticated']);
+                                  ^
+error: expect(received).toEqual(expected)
+
+  [
+-   "Codex: Not authenticated",
++   "Codex: Authenticated · ChatGPT",
+  ]
+
+- Expected  - 1
++ Received  + 1
+
+      at <anonymous> (/Users/daehyeonmun/orca/workspaces/exact2/t3-code-fix-providers-environment-scope/target/fpes/base/examples/t3-code/providers-scope.test.ts:73:30)
+(fail) Settings › Providers follows the scope selector > choosing a second environment shows its providers and sends the page reads there; choosing back shows this Mac again [14.70ms]
+88 |     background(second);
+89 |     await page(native, files, 'env2');
+90 | 
+91 |     // "Refresh provider status": providerChange(op, id, field, value, providerPage.environment).
+92 |     await answer('providerChange', ['provider-refresh', '', '', '', 'env2'], null, files, native);
+93 |     expect(native.calls.filter(call => obj(call).method === 'server.refreshProviders').map(call => call.fleet ?? 'focused')).toEqual([KEY]);
+                                                                                                                                  ^
+error: expect(received).toEqual(expected)
+
+  [
+-   
+- "http://192.168.1.225:16261
+- env2"
+- ,
++   "focused",
+  ]
+
+- Expected  - 4
++ Received  + 1
+
+      at <anonymous> (/Users/daehyeonmun/orca/workspaces/exact2/t3-code-fix-providers-environment-scope/target/fpes/base/examples/t3-code/providers-scope.test.ts:93:126)
+(fail) Settings › Providers follows the scope selector > the page's actions go to the environment it shows [3.44ms]
+111 |     const { second, native, files } = servers();
+112 |     await answer('snapshot', [], null, files, native);
+113 |     background(second);
+114 |     await answer('providerChange', ['provider-env-add', 'codex', '', '', 'env1'], null, files, native);
+115 |     expect(obj(arr((await page(native, files, 'env1')).editors)[0]).hasVariables).toBe(true);
+116 |     expect(obj(arr((await page(native, files, 'env2')).editors)[0]).hasVariables).toBe(false);
+                                                                                        ^
+error: expect(received).toBe(expected)
+
+Expected: false
+Received: true
+
+      at <anonymous> (/Users/daehyeonmun/orca/workspaces/exact2/t3-code-fix-providers-environment-scope/target/fpes/base/examples/t3-code/providers-scope.test.ts:116:83)
+(fail) Settings › Providers follows the scope selector > an environment's unsaved variable rows stay on that environment [0.99ms]
+121 |     await answer('snapshot', [], null, files, native);
+122 |     background(second, 'reconnecting');
+123 |     const core = (machine: string) => answer('settingsCore', [machine, '', '', '', 'providers', '', true], null, files, native).then(obj);
+124 | 
+125 |     const offline = await page(native, files, 'env2');
+126 |     expect([offline.available, offline.message, offline.environment]).toEqual([false, '', '-']);
+                                                                            ^
+error: expect(received).toEqual(expected)
+
+  [
+-   false,
++   true,
+    "",
+-   "-",
++   undefined,
+  ]
+
+- Expected  - 2
++ Received  + 2
+
+      at <anonymous> (/Users/daehyeonmun/orca/workspaces/exact2/t3-code-fix-providers-environment-scope/target/fpes/base/examples/t3-code/providers-scope.test.ts:126:71)
+(fail) Settings › Providers follows the scope selector > a disconnected or removed environment leaves the words to the scope boundary [0.98ms]
+139 | test('with no environment chosen, Providers takes the primary, else a connected one (selectSingleEnvironmentScope)', () => {
+140 |   const client = { environmentId: 'env-remote' };
+141 |   const candidates = [{ environmentId: 'env-remote', connection: { phase: 'connected' } }, { environmentId: 'env-mac', connection: { phase: 'connected' } }];
+142 |   expect(scopeMachine(client, 'providers', '', candidates)).toBe('env-remote');
+143 |   primaryAt('http://127.0.0.1:16550', 'env-mac');
+144 |   expect(scopeMachine(client, 'providers', '', candidates)).toBe('env-mac');
+                                                                  ^
+error: expect(received).toBe(expected)
+
+Expected: "env-mac"
+Received: "env-remote"
+
+      at <anonymous> (/Users/daehyeonmun/orca/workspaces/exact2/t3-code-fix-providers-environment-scope/target/fpes/base/examples/t3-code/providers-scope.test.ts:144:61)
+(fail) with no environment chosen, Providers takes the primary, else a connected one (selectSingleEnvironmentScope) [0.38ms]
+
+ 0 pass
+ 5 fail
+ 8 expect() calls
+Ran 5 tests across 1 file. [171.00ms]
