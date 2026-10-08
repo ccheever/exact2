@@ -1,0 +1,14 @@
+# fix-provider-auth-state, bug 20: server.refreshProviders while Settings › Providers is open (this branch)
+
+## Live session 2 (normal launch, lane live, Codex signed in through Reconnect, the demo draft with Codex GPT-6.1-Sol in the composer)
+count 0
+08:34:30 is the setup's refresh after Reconnect (refreshProviders {instanceId}); 08:35:28 the composer's workspace refresh after Codex was picked.
+Composer visible 08:35:27.9-08:36:07.9: 1 call. Settings › Providers open 08:36:12.7-08:37:27.8 (75 s): 0 calls.
+
+## Live session 1 (07:34:38-07:40:47, Settings › Providers open 6 min after Disconnect; Claude in the composer)
+07:32:01.854 ws.rpc.server.refreshProviders 23177.2ms {"rpc.transport": "websocket", "rpc.system": "effect-rpc", "rpc.method": "server.refreshProviders", "rpc.aggregate": "server"}
+07:33:54.870 ws.rpc.server.refreshProviders 731.8ms {"rpc.transport": "websocket", "rpc.system": "effect-rpc", "rpc.method": "server.refreshProviders", "rpc.aggregate": "server"}
+count 2
+07:32:01 is the setup's refresh after sign-in; 07:33:54 came right after the demo draft opened. Settings open 07:34:38-07:40:47: none.
+
+## Before (base 07dcef1ab, real-input batch #298): 'while Settings › Providers is open the app calls server.refreshProviders every 11 s (05:00:09 … 05:02:33, 5-8 ms each)'.
