@@ -1291,7 +1291,10 @@ internal class Presenter(
             5 -> { n.lx = x.toFloat() * scale; n.ly = y.toFloat() * scale; n.lw = w.toFloat(); n.lh = h.toFloat() }
         }
         if (property != 4) transformDirty.add(n)
-        markParent(n)
+        // A retained carrier cannot become flat again. Its presentation only
+        // changes native properties, not containment or layout. Unmaterialized
+        // leaves still reconcile so their first transform/opacity can promote.
+        if (!n.materialized) markParent(n)
     }
     /** Opcode 5 changes only cached paint, preserving cold style geometry and events. */
     fun paint(id: Int, mask: Int, buffer: ByteBuffer) = node(id).paint(mask, buffer)
