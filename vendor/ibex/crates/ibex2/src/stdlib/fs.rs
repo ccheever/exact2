@@ -25,6 +25,12 @@ use std::path::{Path, PathBuf};
 use crate::boundary::HostError;
 use crate::grant::{GrantSet, Operation};
 
+// Exact patch 9: `fs.compressImage`, over the embedder's image codec.
+pub use super::fs_image::{
+    compress_image, CompressedImage, ImageCodec, ImageFile, COMMIT_BUDGET, EMBEDDER_WAIT,
+    TRIAL_BUDGET,
+};
+
 /// The operations, each one a distinct host op.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FsOp {

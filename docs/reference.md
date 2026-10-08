@@ -650,6 +650,39 @@ declaration, `playbackStateDeclared`); `artworkError` says why an artwork was
 not published. `tap <element> mediasession <action> [seconds]` calls the handler
 the platform would call (`delivery: "substituted"`).
 
+### Shrink a picked image for upload (`storage.fs.compressImage`)
+
+`storage.fs.compressImage(from, to, {maxDimension, maxBytes})` decodes the image
+at `from`, scales it so its longer side is at most `maxDimension` pixels, and
+writes a JPEG of at most `maxBytes` bytes at `to`, searching JPEG quality the way
+Bluesky's composer does (from quality 51 down and up; when 51 and 26 both miss,
+the size shrinks by 0.8, at most four sizes). Orientation is applied, and none
+of the source's metadata is written (no EXIF, GPS or orientation); transparency
+becomes white and the colour is sRGB. It resolves `{path, type: 'image/jpeg',
+size, width, height}` ([LLP 1069.002](../llp/1069.002-media-picker.rfc.md)
+Amendment A1):
+
+```ts
+export const grants = 'fs.read app:/tmp\nfs.write app:/tmp';
+// files from `change` on an `input type="file"`; posts: 4000 px and 2 MB
+const out = await storage.fs.compressImage(files[0].path, `app:/tmp/upload/${seed}.jpg`,
+  { maxDimension: 4000, maxBytes: 2_000_000 });
+const body = await storage.fs.readFile(out.path);
+```
+
+Both paths are `app:/` files (`fs.read` on `from`, `fs.write` on `to`); `to` is
+replaced atomically, and left as it was on any failure. It always re-encodes, so
+compare the pick's `size`, `width` and `height` first to skip it. It is one
+storage operation in the module's queue, run off the JS thread. A bad option
+rejects with a `TypeError`; otherwise a refusal's `code` is `denied`, a
+filesystem code, `failed` (a path that is not `app:/`), `too-large` (over 64 MiB,
+or a header over 64 Mi pixels, checked before decoding), `undecodable`, `unfit`
+(nothing fits `maxBytes`), `timeout` (20 s) or `unsupported`. macOS and iOS
+encode with ImageIO, the web with a canvas (in the page or the module's worker);
+Linux, Windows and Android have no JPEG encoder and answer `unsupported`, so
+upload the original when it already fits. Under the agent it runs for real with
+`--storage <name>`.
+
 ### Documents the person chose (`doc:`)
 
 A file or folder the person picks (`showOpenFilePicker`, `showDirectoryPicker`,
@@ -910,6 +943,7 @@ JSON result or the host's message. The operations:
 | `"sqlite.transaction"` | the same, `execute` commands only | the executes' results, all or none |
 | `"fs.readFile"`, `"fs.atomicWriteFile"`, `"fs.writeFile"`, `"fs.appendFile"` | `{"path"}`, and `"text"` (or `"bytes"`) to write | read: `{"base64"}`; write: `null` |
 | `"fs.mkdir"`, `"fs.rm"`, `"fs.stat"`, `"fs.readdir"`, `"fs.rename"`, `"fs.copyFile"` | `{"path"}`, and `"destination"` to move or copy | as `storage.fs` answers |
+| `"fs.compressImage"` | `{"path", "destination", "maxDimension", "maxBytes"}` | `{"path", "type", "size", "width", "height"}`, as `storage.fs.compressImage` answers |
 
 Grant what it touches: `sqlite.open app:/data/x.db`, `fs.read app:/data`,
 `fs.write app:/data`. Storage is asynchronous and starts after first pixel. It

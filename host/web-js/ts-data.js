@@ -251,8 +251,20 @@ function storageOf(grants) {
     } });
   };
   const methods = ['readFile', 'writeFile', 'atomicWriteFile', 'appendFile', 'readdir', 'mkdir', 'rm', 'stat', 'rename', 'copyFile', 'realpath'];
+  // `compressImage` (LLP 1069.002 A1): its options are checked before it is
+  // queued, as the native prelude checks them; app files only.
+  const compressImage = (from, to, options) => {
+    const api = 'storage.fs.compressImage()', d = options?.maxDimension, b = options?.maxBytes;
+    if (typeof from !== 'string' || typeof to !== 'string') return Promise.reject(new TypeError(`${api}: from and to must be app:/ paths`));
+    if (!options || typeof options !== 'object') return Promise.reject(new TypeError(`${api}: options must be {maxDimension, maxBytes}`));
+    if (!Number.isInteger(d) || d < 1 || d > 8192) return Promise.reject(new TypeError(`${api}: maxDimension must be an integer from 1 to 8192`));
+    if (!Number.isInteger(b) || b < 1 || b > 67108864) return Promise.reject(new TypeError(`${api}: maxBytes must be an integer from 1 to 67108864`));
+    const limits = { maxDimension: d, maxBytes: b };
+    return (admitted ? queued(`compressImage ${from}`, () => files().then(f => f.compressImage(from, to, limits))) : denied('fs.compressImage')).catch(coded);
+  };
   return Object.freeze({
     fs: Object.freeze({ directories: Object.freeze({ data: 'app:/data', cache: 'app:/cache', temporary: 'app:/tmp' }),
+      compressImage,
       ...Object.fromEntries(methods.map(m => [m, (...args) => {
         const captured = structuredClone(args);
         const run = () => (isDocument(captured) ? documents() : files()).then(f => f[m](...captured));

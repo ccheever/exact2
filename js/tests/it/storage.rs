@@ -1081,6 +1081,69 @@ fn storage_refusals_carry_a_stable_code() {
     );
 }
 
+/// `storage.fs.compressImage` from TypeScript (LLP 1069.002 A1): Hermes,
+/// the prelude, ibex2's opcode 121 and the platform codec. On Apple the
+/// fixture comes back upright as a JPEG; elsewhere the call is refused as
+/// `unsupported`. Either way each refusal carries its code.
+#[test]
+fn compress_image_writes_an_upright_jpeg_or_refuses_by_name() {
+    let root = Root::new();
+    let mut m = root.module();
+    m.activate().unwrap();
+    let mut s = Store::new(GRANTS, Vec::<(String, String)>::new());
+    assert_eq!(call(&mut m, &mut s, "file", "x"), "x"); // app:/data/note, a text file
+    std::fs::write(
+        root.0.join("data/in.jpg"),
+        include_bytes!("../../../scripts/fixtures/picker/oriented-gps.jpg"),
+    )
+    .unwrap();
+    let text = call(&mut m, &mut s, "compress", "4000");
+    let lines: Vec<&str> = text.lines().collect();
+    let code = |l: &str| l.split(' ').take(2).collect::<Vec<_>>().join(" ");
+    let refusals: Vec<String> = lines[1..].iter().map(|l| code(l)).collect();
+    if cfg!(target_vendor = "apple") {
+        let size = std::fs::metadata(root.0.join("data/out.jpg"))
+            .unwrap()
+            .len();
+        assert_eq!(
+            lines[0],
+            format!("app:/data/out.jpg image/jpeg {size} 48 64 {size}")
+        );
+        assert_eq!(
+            refusals,
+            [
+                "Error denied",
+                "Error ENOENT",
+                "Error undecodable",
+                "Error unfit",
+                "Error failed",
+                "TypeError undefined",
+                "TypeError undefined"
+            ],
+            "{text}"
+        );
+        assert!(lines[4].contains("compressImage: unfit: "), "{text}");
+    } else {
+        assert!(
+            lines[0].starts_with("Error unsupported compressImage: unsupported: "),
+            "{text}"
+        );
+        assert_eq!(refusals[..2], ["Error denied", "Error ENOENT"], "{text}");
+    }
+    assert!(
+        lines[5].contains("compressImage: needs app:/ paths"),
+        "{text}"
+    );
+    assert!(
+        lines[6].contains("maxDimension must be an integer from 1 to 8192"),
+        "{text}"
+    );
+    assert!(
+        lines[7].contains("options must be {maxDimension, maxBytes}"),
+        "{text}"
+    );
+}
+
 /// A folder the person chose is reached from TypeScript as from Rust (LLP
 /// 1069.010 D1, files F2): the same `doc:` path, the same grants, the same
 /// executor, and with no app storage at all (a drive with no scratch store),

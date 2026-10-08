@@ -373,5 +373,22 @@ export function createFileSystem(appId, grants) {
       return mutate(method === 'rename' ? [from, to] : [to], () => store[method](from, to));
     };
   }
+  // `compressImage(from, to, {maxDimension, maxBytes})` (LLP 1069.002 A1):
+  // both grants are checked and the options too before anything is read;
+  // the codec runs outside the mutation lock, and only the write takes it.
+  fs.compressImage = async (from, to, options) => {
+    if (typeof from !== 'string' || typeof to !== 'string' || !from.startsWith('app:/') || !to.startsWith('app:/'))
+      throw failure('compressImage: needs app:/ paths', 'failed');
+    const image = await import('./storage-image.js');
+    const { maxDimension, maxBytes } = image.limits(options);
+    from = authorize(grants, 'fs.read', from);
+    to = authorize(grants, 'fs.write', to);
+    requireBelowRoot(to);
+    const { blob } = await store.blob(from);
+    const out = await image.compress(blob, maxDimension, maxBytes);
+    const size = out.bytes.byteLength;
+    await mutate([to], () => store.atomicWriteOwnedFile(to, out.bytes));
+    return { path: to, type: 'image/jpeg', size, width: out.width, height: out.height };
+  };
   return Object.freeze(fs);
 }

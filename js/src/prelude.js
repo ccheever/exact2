@@ -906,8 +906,13 @@
   var ERRNO = windowsStorage
     ? { 2: "ENOENT", 3: "ENOENT", 32: "EBUSY", 33: "EBUSY", 80: "EEXIST", 145: "ENOTEMPTY", 170: "EBUSY", 183: "EEXIST", 267: "ENOTDIR" }
     : { 2: "ENOENT", 16: "EBUSY", 17: "EEXIST", 20: "ENOTDIR", 21: "EISDIR", 39: "ENOTEMPTY", 66: "ENOTEMPTY" };
+  // `fs.compressImage`'s own failures (LLP 1069.002 A1.4), named in the
+  // message natively; the web sets the code itself.
+  var IMAGE_CODE = /^(?:filesystem: )?compressImage: (unsupported|undecodable|too-large|unfit|timeout): /;
   function storageCode(message) {
     if (/^denied: /.test(message)) return "denied";
+    var image = IMAGE_CODE.exec(message);
+    if (image) return image[1];
     // The Windows document adapter emits this only after same-handle type
     // inspection; incidental text and numeric access denial are insufficient.
     if (windowsStorage && /\(filesystem code EISDIR\)$/.test(message)) return "EISDIR";
@@ -1040,6 +1045,27 @@
   ["readFile", "writeFile", "atomicWriteFile", "appendFile", "readdir", "mkdir", "rm", "stat", "rename", "copyFile", "realpath"].forEach(function (method) {
     files[method] = function () { return storageCall(nativeStorage && nativeStorage.fs, method, arguments); };
   });
+  // `fs.compressImage(from, to, {maxDimension, maxBytes})` (LLP 1069.002
+  // A1): its options are checked here, before anything is queued, and travel
+  // to the host as two numbers; natively the reply is `width\theight\tsize`,
+  // on the web the record.
+  var MAX_IMAGE_DIMENSION = 8192, MAX_IMAGE_BYTES = 67108864;
+  files.compressImage = function (from, to, options) {
+    var api = "storage.fs.compressImage()";
+    try {
+      if (typeof from !== "string" || typeof to !== "string") throw new TypeError(api + ": from and to must be app:/ paths");
+      if (!options || typeof options !== "object") throw new TypeError(api + ": options must be {maxDimension, maxBytes}");
+      var dimension = options.maxDimension, bytes = options.maxBytes;
+      if (!Number.isInteger(dimension) || dimension < 1 || dimension > MAX_IMAGE_DIMENSION) throw new TypeError(api + ": maxDimension must be an integer from 1 to " + MAX_IMAGE_DIMENSION);
+      if (!Number.isInteger(bytes) || bytes < 1 || bytes > MAX_IMAGE_BYTES) throw new TypeError(api + ": maxBytes must be an integer from 1 to " + MAX_IMAGE_BYTES);
+    } catch (e) {
+      return Promise.reject(e);
+    }
+    return storageCall(nativeStorage && nativeStorage.fs, "compressImage", [from, to, dimension, bytes], function (value) {
+      var parts = typeof value === "string" ? value.split("\t") : [value.width, value.height, value.size];
+      return { path: to, type: "image/jpeg", size: +parts[2], width: +parts[0], height: +parts[1] };
+    });
+  };
   var storage = Object.freeze({ fs:Object.freeze(files), sqlite:Object.freeze({
     open:function (path) {
       // Its owner as storageCall reckons it: storage after an answer replied is the background's.

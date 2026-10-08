@@ -4,7 +4,10 @@ use exact_runner::{FailureKind, Outcome, Response};
 use ibex2::{
     bindings::Context,
     grant::GrantSet,
-    stdlib::{app_fs::AppDirectories, fs::Document},
+    stdlib::{
+        app_fs::AppDirectories,
+        fs::{CompressedImage, Document, EMBEDDER_WAIT},
+    },
 };
 use std::{
     path::PathBuf,
@@ -39,6 +42,9 @@ impl Session {
             .map_err(|e| e.to_string())?;
         context
             .set_documents(Arc::new(documents))
+            .map_err(|e| e.to_string())?;
+        context
+            .set_image_codec(Arc::new(image_codec))
             .map_err(|e| e.to_string())?;
         Ok(Self {
             context: Arc::new(context),
@@ -80,7 +86,9 @@ impl Session {
         let context = self.context.clone();
         let alive = self.alive.clone();
         Box::new(move || {
-            let deadline = Instant::now() + Duration::from_secs(30);
+            // No sooner than ibex2 allows: `fs.compressImage` writes nothing
+            // after its commit budget, inside this wait (LLP 1069.002 A1.5).
+            let deadline = Instant::now() + EMBEDDER_WAIT;
             loop {
                 if !alive.load(Ordering::Acquire) {
                     return Outcome::Failed {
@@ -125,6 +133,24 @@ fn documents(path: &str) -> Result<Document, String> {
     Ok(match resolve(path)? {
         Resolved::Root(name) => Document::Root(name),
         Resolved::Real(real) => Document::Real(real),
+    })
+}
+
+/// The platform's image codec ([`exact_data::image`]), as ibex2's
+/// (`fs.compressImage`, LLP 1069.002 A1): the one a Rust source's storage
+/// requests run too.
+pub(crate) fn image_codec(
+    bytes: &[u8],
+    max_dimension: u32,
+    max_bytes: u64,
+    deadline: Instant,
+) -> Result<CompressedImage, String> {
+    exact_data::image::compress(bytes, max_dimension, max_bytes, deadline).map(|c| {
+        CompressedImage {
+            bytes: c.bytes,
+            width: c.width,
+            height: c.height,
+        }
     })
 }
 

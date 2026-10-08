@@ -892,6 +892,9 @@ pub unsafe extern "C" fn ibex2_async_begin(
     let Some(op) = AsyncOp::from_u32(op) else {
         return 1;
     };
+    // When the guest issued it, on its own thread: before the embedder can
+    // start waiting on it (`fs.compressImage`'s deadlines, Exact patch 9).
+    let issued = std::time::Instant::now();
     // A JS wrapper may become unreachable as soon as this host call returns.
     // Snapshot handle-backed inputs while its native owner must still be live;
     // no worker may resolve a Headers registry id later.
@@ -910,7 +913,7 @@ pub unsafe extern "C" fn ibex2_async_begin(
     state.task_started();
     let work = move || {
         let result = match fetch_headers {
-            Ok(headers) => run_async(op, &owned, headers, &state, &grants),
+            Ok(headers) => run_async(op, &owned, headers, &state, &grants, issued),
             Err(error) => Err(error),
         };
         if !state.is_shutdown() {
@@ -950,6 +953,8 @@ enum AsyncOp {
     FsCopyFile = host_opcodes::async_ops::FS_COPY_FILE,
     FsRealpath = host_opcodes::async_ops::FS_REALPATH,
     FsAtomicWriteFile = host_opcodes::async_ops::FS_ATOMIC_WRITE_FILE,
+    /// Exact patch 9: decode, scale and encode an image file as a JPEG.
+    FsCompressImage = host_opcodes::async_ops::FS_COMPRESS_IMAGE,
     SqliteOpen = host_opcodes::sqlite_async::OPEN,
     SqlitePrepare = host_opcodes::sqlite_async::PREPARE,
     SqliteExecute = host_opcodes::sqlite_async::EXECUTE,
@@ -978,6 +983,7 @@ impl AsyncOp {
             host_opcodes::async_ops::FS_COPY_FILE => Some(AsyncOp::FsCopyFile),
             host_opcodes::async_ops::FS_REALPATH => Some(AsyncOp::FsRealpath),
             host_opcodes::async_ops::FS_ATOMIC_WRITE_FILE => Some(AsyncOp::FsAtomicWriteFile),
+            host_opcodes::async_ops::FS_COMPRESS_IMAGE => Some(AsyncOp::FsCompressImage),
             host_opcodes::sqlite_async::OPEN => Some(AsyncOp::SqliteOpen),
             host_opcodes::sqlite_async::PREPARE => Some(AsyncOp::SqlitePrepare),
             host_opcodes::sqlite_async::EXECUTE => Some(AsyncOp::SqliteExecute),
@@ -1038,6 +1044,7 @@ fn run_async(
     fetch_headers: Option<crate::stdlib::fetch::Headers>,
     state: &crate::task::RuntimeState,
     grants: &GrantSet,
+    issued: std::time::Instant,
 ) -> Result<HostValue, HostError> {
     if (host_opcodes::sqlite_async::OPEN..=host_opcodes::sqlite_async::STATEMENT_CLOSE)
         .contains(&(op as u32))
@@ -1046,6 +1053,9 @@ fn run_async(
     }
     if let Some(fs_op) = fs_op_for(op) {
         return run_fs(fs_op, args, grants, state);
+    }
+    if op == AsyncOp::FsCompressImage {
+        return run_compress_image(args, grants, state, issued);
     }
     match op {
         AsyncOp::Fetch => {
@@ -1138,6 +1148,42 @@ fn fs_op_for(op: AsyncOp) -> Option<crate::stdlib::fs::FsOp> {
         AsyncOp::FsAtomicWriteFile => FsOp::AtomicWriteFile,
         _ => return None,
     })
+}
+
+/// `fs.compressImage(from, to, maxDimension, maxBytes)` (Exact patch 9):
+/// `"width\theight\tsize"`, flat as `stat`'s record is.
+fn run_compress_image(
+    args: &[HostValue],
+    grants: &GrantSet,
+    state: &crate::task::RuntimeState,
+    issued: std::time::Instant,
+) -> Result<HostValue, HostError> {
+    let path = |index: usize| match args.get(index) {
+        Some(HostValue::Str(text)) => Ok(text.as_str()),
+        _ => Err(HostError::InvalidArgument(
+            "compressImage expects two paths".into(),
+        )),
+    };
+    let limit = |index: usize, max: f64| match args.get(index) {
+        Some(HostValue::Number(n)) if n.fract() == 0.0 && (1.0..=max).contains(n) => Ok(*n),
+        _ => Err(HostError::InvalidArgument(format!(
+            "compressImage expects integer limits from 1 to {max}"
+        ))),
+    };
+    let file = crate::stdlib::fs::compress_image(
+        grants,
+        state.app_directories(),
+        state.image_codec(),
+        path(0)?,
+        path(1)?,
+        limit(2, f64::from(u32::MAX))? as u32,
+        limit(3, 9_007_199_254_740_991.0)? as u64,
+        issued,
+    )?;
+    Ok(HostValue::Str(format!(
+        "{}\t{}\t{}",
+        file.width, file.height, file.size
+    )))
 }
 
 /// Normalize, admit, then act — in that order, always.

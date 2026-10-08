@@ -369,6 +369,8 @@ pub struct RuntimeState {
     app_directories: std::sync::OnceLock<crate::stdlib::app_fs::AppDirectories>,
     /// The embedder's table of documents the person chose (Exact patch 5).
     documents: std::sync::OnceLock<Arc<crate::stdlib::fs::Documents>>,
+    /// The embedder's image codec for `fs.compressImage` (Exact patch 9).
+    image_codec: std::sync::OnceLock<Arc<crate::stdlib::fs::ImageCodec>>,
     responses: Mutex<std::collections::HashMap<u64, Arc<StoredResponse>>>,
     controls: Mutex<std::collections::HashMap<u64, crate::stdlib::abort::AbortController>>,
     subscriptions: Mutex<HashMap<u64, Arc<EventSubscriptionState>>>,
@@ -531,6 +533,7 @@ impl RuntimeState {
             sqlite: crate::sqlite_abi::Registry::default(),
             app_directories,
             documents: std::sync::OnceLock::new(),
+            image_codec: std::sync::OnceLock::new(),
             responses: Mutex::new(std::collections::HashMap::new()),
             controls: Mutex::new(std::collections::HashMap::new()),
             subscriptions: Mutex::new(HashMap::new()),
@@ -580,6 +583,18 @@ impl RuntimeState {
     }
     pub fn documents(&self) -> Option<&crate::stdlib::fs::Documents> {
         self.documents.get().map(|d| &**d)
+    }
+    /// Install the codec `fs.compressImage` runs (Exact patch 9).
+    pub fn set_image_codec(
+        &self,
+        codec: Arc<crate::stdlib::fs::ImageCodec>,
+    ) -> Result<(), HostError> {
+        self.image_codec
+            .set(codec)
+            .map_err(|_| HostError::InvalidArgument("An image codec is already configured".into()))
+    }
+    pub fn image_codec(&self) -> Option<&crate::stdlib::fs::ImageCodec> {
+        self.image_codec.get().map(|c| &**c)
     }
     pub fn set_sqlite_provider(
         &self,

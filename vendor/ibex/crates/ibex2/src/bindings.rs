@@ -554,6 +554,15 @@ impl Context {
         self.endowment.state.set_sqlite_provider(provider)
     }
 
+    /// The codec `fs.compressImage` runs (Exact patch 9). Without one the
+    /// operation refuses as unsupported.
+    pub fn set_image_codec(
+        &self,
+        codec: Arc<crate::stdlib::fs::ImageCodec>,
+    ) -> Result<(), crate::boundary::HostError> {
+        self.endowment.state.set_image_codec(codec)
+    }
+
     /// Worker-safe, edge-triggered notification that schedules the embedder's
     /// loop. Admissions coalesce and at most one callback runs at a time; a
     /// publisher that finds one running records another edge and returns.

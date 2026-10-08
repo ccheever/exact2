@@ -138,6 +138,21 @@ installs the result. The upstream patch is Ibex branch `android-hermes-bundle`
 (local, not pushed). Drop this entry when an Ibex release pins the Android
 bundle.
 
+### 9. `fs.compressImage` over an embedder codec
+
+From exact2 LLP 1069.002 Amendment A1 (2026-10-08): opcode 121
+(`host_opcodes.rs`, `boundary_abi.rs`, `bindings/install.cc`'s `fs_methods`)
+is `fs.compressImage(from, to, maxDimension, maxBytes)`, answered
+`"width\theight\tsize"`. `src/stdlib/fs_image.rs` admits `fs.write` on `to`
+and `fs.read` on `from` before reading, checks the size by `stat`, reads
+through the app-directory handles, hands the bytes to the embedder's codec
+(`Context::set_image_codec`, `task.rs`), and writes its JPEG with the atomic
+write; both paths must be `app:/`. Its deadlines count from the guest's issue
+(`ibex2_async_begin`): the codec starts nothing after `TRIAL_BUDGET` (20 s) and
+nothing is written after `COMMIT_BUDGET` (24 s), inside an embedder's
+`EMBEDDER_WAIT` (30 s). `bindings/storage.d.ts` declares it. Ibex holds no
+codec: without one the op answers `unsupported`.
+
 ### Windows chosen-document EISDIR
 
 `src/stdlib/fs.rs` opens one handle with backup semantics, checks that same

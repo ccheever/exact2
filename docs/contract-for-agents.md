@@ -890,7 +890,10 @@ An `image` source is the same string on every host: a path under the app's
 `skip-forward-30`, `speaker`, `speaker-mute` and `moon`), an `app:/data|cache|tmp/…` file
 (a picked photo, or one the data module kept with `storage.fs`; it shows after a
 relaunch too), or a `data:` URL of at most 1 MiB, past which every host shows
-nothing (the web and Apple journal `image refused`). Keep a picked photo by copying it to
+nothing (the web and Apple journal `image refused`). Shrink a picked photo for an upload limit with
+`storage.fs.compressImage(path, to, {maxDimension, maxBytes})`, which writes an
+upright JPEG with no location metadata ([reference](reference.md#shrink-a-picked-image-for-upload-storagefscompressimage));
+Linux answers `unsupported`. Keep a picked photo by copying it to
 `app:/data` and answering that path; never tell hosts apart in the data module
 (`HermesInternal`) to choose a source
 ([LLP 1069.002](../llp/1069.002-media-picker.rfc.md) D7, [LLP 1011](../llp/1011-image-v1.spec.md) §2).

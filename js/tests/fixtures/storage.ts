@@ -213,6 +213,29 @@ async function work(_source:string, args:unknown[], store:Store, storage:Storage
     }
     return {text: out.join("\n")};
   }
+  // `fs.compressImage` (LLP 1069.002 A1): the record, then each refusal's
+  // name and code, in one answer.
+  if (op === "compress") {
+    const data = storage.fs.directories.data, out: string[] = [];
+    try {
+      const r = await storage.fs.compressImage(data + "/in.jpg", data + "/out.jpg", { maxDimension: Number(value), maxBytes: 2_000_000 });
+      const back = await storage.fs.readFile(r.path);
+      out.push([r.path, r.type, r.size, r.width, r.height, back.byteLength].join(" "));
+    } catch (e:any) { out.push(e.name + " " + e.code + " " + e.message); }
+    const steps: (() => Promise<unknown>)[] = [
+      () => storage.fs.compressImage(data + "/in.jpg", "app:/tmp/out.jpg", { maxDimension: 10, maxBytes: 10 }),
+      () => storage.fs.compressImage(data + "/absent.jpg", data + "/x.jpg", { maxDimension: 10, maxBytes: 10000 }),
+      () => storage.fs.compressImage(data + "/note", data + "/x.jpg", { maxDimension: 10, maxBytes: 10000 }),
+      () => storage.fs.compressImage(data + "/in.jpg", data + "/x.jpg", { maxDimension: 64, maxBytes: 1 }),
+      () => storage.fs.compressImage(data + "/in.jpg", "doc:/1/x.jpg", { maxDimension: 10, maxBytes: 10 }),
+      () => storage.fs.compressImage(data + "/in.jpg", data + "/x.jpg", { maxDimension: 0, maxBytes: 10 }),
+      () => (storage.fs.compressImage as any)(data + "/in.jpg", data + "/x.jpg"),
+    ];
+    for (const step of steps) {
+      try { await step(); out.push("ok"); } catch (e:any) { out.push(e.name + " " + e.code + " " + e.message); }
+    }
+    return {text: out.join("\n")};
+  }
   // A long read (files F18: a folder's preview walking its tree), one
   // storage step after another in one answer.
   if (op === "walk") {
