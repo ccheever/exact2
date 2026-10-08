@@ -179,8 +179,6 @@ component T3Window
     coreThemeDialog: action
     sourceControl: SourceControlPage
     modalError: string
-    rest: action
-    restInput: action
     restLocal: action
     integrations: IntegrationsPage
     snapshotSettings: SnapshotSettings
@@ -205,13 +203,11 @@ component T3Window
     captureKeybinding: action
     scheduled: ScheduledPage
     restEditor: string
-    restOpen: action
+    restOpenRoot: action
     storageSettings: StoragePage
     archives: ArchivePage
-    restMenu: string
-    restRaw: action
-    restMenuOpen: action
-    restClose: action
+    restRawRoot: action
+    restCloseRoot: action
     licenses: LicenseSettings
     licenseQuery: string
     editLicenseQuery: action
@@ -254,7 +250,6 @@ component T3Window
     selectModel: action
     paletteRun: action
     restSubject: string
-    restLabel: string
     sbPicker: SbPicker
     sbQuery: string
     sbLettersEdited: bool
@@ -310,6 +305,8 @@ component T3Window
     // fix-hover-cards: the root's hover clock (hover-layer.contract).
     hoverWait: number
     hoverHold: action
+    settingsEnvironmentId: string
+    settingsProjectId: string
     clearModalError: action
     titleSend: action
   provide
@@ -379,6 +376,26 @@ component T3Window
   derive dragTarget = dragId == "" ? "" : (dragCX > sidebarWidth ? "context" : (dragSettledY > 0 and dragCY >= dragSettledY ? "settled" : (dragSnoozedY > 0 and dragCY >= dragSnoozedY ? "snoozed" : (dragWorkingY > 0 and dragCY >= dragWorkingY ? "working" : (dragCY < dragDividerY + 36 ? "pinned" : "active")))))
   derive dragVerb = (dragTarget == "" or dragTarget == dragSection or dragTarget == "working" or dragTarget == "snoozed" or dragTarget == "context") ? "" : (dragTarget == "pinned" ? "pin" : (dragTarget == "settled" ? "settle" : (dragSection == "pinned" ? "unpin" : (dragSection == "settled" ? "unsettle" : "wake"))))
   derive dragOffset = dragDy - (dragSection == "pinned" ? 24 : (dragSection == "active" ? 48 : 0))
+  // The root rewrite: the settings editors' row menu and dialog label (Settings' panels and ProjectDialogs), moved
+  // from app.contract. A settings editor's command is the root's restRaw; rest and restInput name its op and scope.
+  state restLabel = ""
+  state restMenu = ""
+  action restOpen(editor: string, subject: string, label: string)
+    restLabel = label
+    restMenu = ""
+    restOpenRoot(editor, subject)
+  action restMenuOpen(id: string)
+    restMenu = id
+  action restClose
+    restMenu = ""
+    restCloseRoot()
+  action restRaw(op: string, id: string, value: string)
+    restMenu = ""
+    restRawRoot(op, id, value)
+  action rest(op: string, value: string)
+    restRaw(`rest:${op}`, `${settingsEnvironmentId}:${settingsProjectId}`, value)
+  action restInput(op: string, value: string, input: string)
+    restRawRoot(`rest:${op}`, `${settingsEnvironmentId}:${settingsProjectId}`, `${value}${encodeURIComponent(input)}`)
   // The root rewrite: SnapShot's setup dialog (Settings' SnapShot panel and SettingsModals), moved from app.contract.
   state snapshotSetupOpen = false
   state snapshotSetupWasEnabled = false
