@@ -1,0 +1,69 @@
+// fix-misc-batch bugs 8 and 9 drive (not committed): bun drive89.mjs <repo> <label> [scheme]
+// One macOS agent session paired with the model lane's server A (Codex and Claude) and B (Claude off): Settings ›
+// General › Model at All environments, a search with no match, then the Claude rail with the pointer on an
+// unavailable row. Pairing tokens are single-use and never printed.
+import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+const [repo, label, scheme = 'light'] = process.argv.slice(2);
+const MINE = '/Users/daehyeonmun/orca/workspaces/exact2/t3-code-fix-misc-batch';
+const L = resolve(MINE, 'target/misc'), out = resolve(L, `out89-${label}`); mkdirSync(out, { recursive: true });
+process.env.EXACT_APP_DIR = resolve(repo, 'examples/t3-code');
+const { open } = await import(resolve(repo, 'scripts/agent.mjs'));
+const m = await import(resolve(L, 'mlane.mjs'));
+const rec = (line) => { const text = `${new Date().toISOString()} [${label}] ${line}`; appendFileSync(resolve(out, 'record.txt'), text + '\n'); console.log(text); };
+const home = resolve(L, `apphome89-${label}`); mkdirSync(home, { recursive: true });
+const s = await open({ host: 'macos', size: [1280, 840], env: { HOME: home, T3_LOCAL_HOME: resolve(L, `t3local89-${label}`), T3_LOCAL_PORT: '16115', T3CODE_TELEMETRY_ENABLED: 'false' }, storage: `misc89-${label}`, epoch: Date.now(),
+  onProcess: (p) => { writeFileSync(resolve(L, `${label}-app89.pid`), String(p.pid)); rec(`app pid ${p.pid}`); } });
+const nodes = async (target) => (await s.tree(target)).nodes;
+const ids = async () => (await nodes()).map((n) => n.testId ?? n.props?.testId).filter(Boolean);
+const has = async (id) => (await ids()).includes(id);
+const settle = async (ms = 600) => { await s.clock(`+${ms} real`); await s.clock('settle'); };
+const tapIf = async (id) => { if (await has(id)) { await s.tap(id); await settle(); return true; } return false; };
+const shot = async (name) => { await s.screenshot(resolve(out, `${label}-${name}.png`), true); rec(`shot ${name}`); };
+const texts = async (target) => { try { return (await s.tree(target)).nodes.flatMap((n) => [n.text, n.props?.text, n.label].filter((v) => typeof v === 'string' && v.trim())).map((v) => v.trim()); } catch { return []; } };
+const waitFor = async (pred, ms = 20000) => { const end = Date.now() + ms; while (Date.now() < end) { if (await pred()) return true; await settle(700); } return false; };
+const layoutOf = async (id) => { const node = (await nodes()).find((n) => (n.testId ?? n.props?.testId) === id); return node ? JSON.stringify(node.layout ?? node.frame ?? node.rect ?? null) : 'absent'; };
+
+try {
+  await settle(2000);
+  if (scheme === 'dark') { await s.prefer({ 'prefers-color-scheme': 'dark' }); await settle(500); }
+  await waitFor(() => has('welcome-pairing-link'), 15000);
+  await s.type('welcome-pairing-link', `${m.origins.a}/pair#token=${m.pairingToken('a')}`);
+  await s.tap('welcome-pair'); await settle(5000);
+  for (const id of ['welcome-continue', 'welcome-agents-continue', 'welcome-skip-import']) await tapIf(id);
+  await settle(2000);
+  // The second environment, through Settings › Connections › Add environment (a full pairing URL in Host).
+  await waitFor(() => has('connection-settings'), 15000);
+  await s.tap('connection-settings'); await settle(1500);
+  await s.tap('settings-connections'); await settle(1000);
+  await s.tap('manage-connection'); await settle(800);
+  await s.type('server-origin', `${m.origins.b}/pair#token=${m.pairingToken('b')}`); await settle(500);
+  await s.tap('connect'); await settle(4000);
+  rec(`after pairing B: dialog ${(await has('connection-dialog')) ? 'open' : 'closed'}; error ${(await texts('connection-error')).join(' ')}`);
+  await shot('connections');
+  await s.tap('settings-general'); await settle(1500);
+  await waitFor(() => has('setting-default-model-model'), 20000);
+  await s.tap('setting-default-model-model'); await waitFor(() => has('model-dialog'), 10000); await settle(800);
+  rec(`picker open: rail ${(await texts('model-picker-rail')).join(' | ')}`);
+  // Bug 8: a search with no match.
+  await s.type('model-search', 'zzzz'); await settle(800);
+  rec(`search zzzz: model-empty ${await layoutOf('model-empty')}; list ${await layoutOf('model-list')}; text "${(await texts('model-empty')).join(' ')}"`);
+  await shot('search-empty');
+  await s.type('model-search', ''); await settle(800);
+  // Bug 9: the Claude rail at All environments (B has Claude off), the pointer on an unavailable row.
+  await s.tap('provider-claudeAgent'); await settle(800);
+  const rows = (await ids()).filter((id) => id.startsWith('model-row-claude'));
+  rec(`claude rows: ${rows.join(', ')}`);
+  // The base has no row testId: its row's button (the row's hover covers it).
+  const target = rows.includes('model-row-claude-opus-5-5') ? 'model-row-claude-opus-5-5' : 'model-claude-opus-5-5';
+  await s.tap(target, { hover: true }); await settle(500);
+  rec(`hover ${target}: tip ${await layoutOf('model-row-tip')}; text "${(await texts('model-row-tip')).join(' ')}"`);
+  await shot('row-hover');
+  await s.tap('model-search', { hover: true }); await settle(400);
+  rec(`pointer off the row: tip ${await layoutOf('model-row-tip')}`);
+} catch (e) {
+  rec(`ERROR ${e.message?.slice(0, 600)}`);
+  try { await shot('error'); } catch {}
+} finally {
+  try { await s.close(); } catch {}
+}
