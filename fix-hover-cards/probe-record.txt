@@ -1,0 +1,25 @@
+# fix-hover-cards: macOS hover under a real pointer (probe app), 2026-10-08 06:12-06:32 UTC
+Probe: a one-file Exact app (`exact new`, app.contract below), exact2 at the feature branch c0475fbaa (framework identical
+to main for host/apple/Sources/ExactKit/Mac/{MouseChainMac,PresenterMac,NodeViewMac}.swift), `bun exact.mjs mac`, launched
+normally (pid recorded, killed after), window 900x700 at screen (226,59). Real pointer: cliclick moves (2-8 pt steps, 30-40 ms
+apart). Read back: full-screen captures of the window (the log line and the boxes' colours). Real-input lock held
+(owner "fix-hover-cards: real-input probe ...") from 06:13 to 06:32 UTC.
+
+A. A hover box (160x20) with an absolutely positioned child (160x80) below it, outside the box; the child is drawn while the
+   box is hovered. Pointer: onto the box (the child appears), then down into the child.
+   Log: "0A+ ... 3A-": moving into the child sends the box a leave and the child goes. (The web: pointerleave fires only
+   when the pointer leaves the element and all its descendants, so the box stays hovered.)
+B. The same shape, always drawn: box B (hover), its child card outside it (hover), and a button inside the card (hover).
+   Pointer: onto B, into the card, onto the button, moves on it, back to the card, out of the card.
+   Log: "0B+ 1B- 2Bcard+" and nothing after: the card's enter came once (the frame's resting-pointer hit-test after the
+   batch), the button never heard an enter, and leaving the card sent no leave. A node outside its parent's box gets no
+   tracking (its NSTrackingArea is `.inVisibleRect`, clipped by every ancestor's bounds).
+C. Two overlapping siblings, both hover: an under node and a later (topmost) node over it. Pointer moves inside the top node:
+   every move logs "U- O+" and "O- U+" pairs (both tracking areas hear each move; the presenter keeps one hovered node, so
+   each move hands the hover back and forth); the last one each move is the topmost (O+), so at rest the topmost is hovered.
+E/F. Overlap at rest with no log side effect (colours only), with and without a translate nudge on the card's leave:
+   after every one of 1..7 moves the card (topmost) reads hovered and the under node not, in both. The nudge is not needed.
+
+Consequences for the clone: a hover card drawn beside its trigger (outside the trigger's box) cannot hear the pointer on
+macOS, and the trigger hears a leave as the pointer moves in (#262's freshness card, #263's usage popover). A card drawn
+in a window-level layer (all its ancestors span the window) hears it (C, E).
