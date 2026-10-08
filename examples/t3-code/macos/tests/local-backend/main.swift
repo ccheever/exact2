@@ -7,8 +7,8 @@ let suite = XCTestSuite(name: "T3 local backend")
 for tests in [LocalBackendManagerTests.defaultTestSuite, LocalShellEnvironmentTests.defaultTestSuite, LocalOutputLogTests.defaultTestSuite,
               LocalRuntimeInstallTests.defaultTestSuite, LocalPolicyTests.defaultTestSuite, LocalCrashReaperTests.defaultTestSuite,
               LocalProcessTests.defaultTestSuite, LocalAuthTests.defaultTestSuite, LocalSwitchTests.defaultTestSuite,
-              LocalNetworkTests.defaultTestSuite] { suite.addTest(tests) }
+              LocalNetworkTests.defaultTestSuite, LocalDesktopSettingsTests.defaultTestSuite] { suite.addTest(tests) }
 suite.run()
-guard let run = suite.testRun, run.executionCount == 61 else { print("T3 local backend: \(suite.testRun?.executionCount ?? 0) tests ran, expected 61"); exit(1) }
+guard let run = suite.testRun, run.executionCount == 82 else { print("T3 local backend: \(suite.testRun?.executionCount ?? 0) tests ran, expected 82"); exit(1) }
 print("T3 local backend: \(run.executionCount) tests, \(run.totalFailureCount) failures")
 exit(run.hasSucceeded ? 0 : 1)

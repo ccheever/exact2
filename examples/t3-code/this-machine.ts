@@ -8,16 +8,17 @@
 //    Network access, its endpoints, Tailscale HTTPS and Authorized clients are connections-network.ts
 //    (20261005-this-machine-network-access), which restarts the server through the same seam.
 //  - The switch (`applyLocalSetting`, one seam for every local setting): the reference persists the
-//    setting and relaunches the app (decision U4). exact2 has no process relaunch (issue X45, exact2
-//    #122 closed without one), so this is the stopgap: persist, then stop or start the embedded server
-//    in place and reconnect, keeping the window. A failure puts the setting back and shows its reason
-//    under the dialog's description.
+//    setting to desktop-settings.json (decision U7: the same file, written by the native side) and
+//    relaunches the app (decision U4). exact2 has no process relaunch (issue X45, exact2 #122 closed
+//    without one), so this is the stopgap: persist, then stop or start the embedded server in place
+//    and reconnect, keeping the window. A failure puts the setting back and shows its reason under
+//    the dialog's description (a write failure is the reference's DesktopSettingsWriteError text).
 // A refused development build (no T3_LOCAL_HOME / T3_LOCAL_PORT) draws no primary and shows the
 // refusal here only; a missing or failed runtime shows its reason here too.
 import { obj, str, type Obj } from './domain';
 import { ClientError, bridgeReply, type Native } from './protocol';
-import { parseLocalBackendStatus } from './local-backend';
-import { canManageLocalBackend, focusedOnPrimary, localEnvironmentEnabled, primary, primaryEntry, setLocalEnvironmentEnabled, type LocalPrimary } from './local-primary';
+import { parseLocalBackendStatus, writeDesktopSettings } from './local-backend';
+import { canManageLocalBackend, focusedOnPrimary, localEnvironmentEnabled, primary, primaryEntry, type LocalPrimary } from './local-primary';
 import { fleet, environmentKey } from './settings-b-fleet';
 import { versionMismatch } from './version-skew';
 import { desktopManagedOnly, DESKTOP_MANAGED_NOTE } from './server-installation';
@@ -102,10 +103,12 @@ export async function applyLocalSetting(client: T3Client, native: Native, change
   const enabled = change.localEnvironmentEnabled, before = localEnvironmentEnabled(client);
   if (enabled === before && primary.status.enabled === enabled) return { status: null, generation: -1 };
   applyingAny = before; held = last; failure = '';
-  setLocalEnvironmentEnabled(client, enabled); // T3Client saves the preference file after the command
-  let result: Result = { status: null, generation: -1 };
+  let result: Result = { status: null, generation: -1 }, persisted = false;
   const local = primaryEntry();
   try {
+    // desktop:set-local-environment-enabled: DesktopAppSettings.setLocalEnvironmentEnabled persists first.
+    await writeDesktopSettings(native, { localEnvironmentEnabled: enabled }, client);
+    persisted = true;
     if (!enabled) {
       if (focusedOnPrimary(client)) {
         let reply = await call(native, { op: 'disconnect', forget: false });
@@ -132,7 +135,7 @@ export async function applyLocalSetting(client: T3Client, native: Native, change
     }
     return result;
   } catch (error) {
-    setLocalEnvironmentEnabled(client, before);
+    if (persisted) await writeDesktopSettings(native, { localEnvironmentEnabled: before }, client).catch(() => undefined);
     primary.update(primary.status, before);
     if (letGo(error)) throw error;
     // The dialog shows the reason and stays open; nothing else on the page names it.

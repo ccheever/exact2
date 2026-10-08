@@ -282,6 +282,18 @@ describe('answer cancellation', () => {
     expect(look(client).fontSize).toBe(20);
     expect(native.calls.filter(call => call.op === 'devicePresentation').slice(-1)[0]).toMatchObject({ rootFontSize: 20 });
   });
+  test('a t3-code.json from before decision U7 is saved once without the keys desktop-settings.json took over', async () => {
+    const client = new T3Client(), native = new Backend();
+    const disk = storage({ version: 1, sidebarWidth: 310, localEnvironmentEnabled: false, serverExposureMode: 'network-accessible', tailscaleServeEnabled: true,
+      tailscaleServePort: 8443, defaultAdvertisedEndpointKey: 'desktop-core:lan:http' });
+    await client.refresh(native, disk.files);
+    const saved = disk.data();
+    for (const key of ['localEnvironmentEnabled', 'serverExposureMode', 'tailscaleServeEnabled', 'tailscaleServePort']) expect(saved).not.toHaveProperty(key);
+    expect([saved.sidebarWidth, saved.defaultAdvertisedEndpointKey]).toEqual([310, 'desktop-core:lan:http']);
+    const writes = disk.writes();
+    await client.refresh(native, disk.files);
+    expect(disk.writes()).toBe(writes); // once
+  });
   test('an abandoned preferences read is retried by the next answer', async () => {
     const client = new T3Client(), native = new Backend();
     const disk = storage({ version: 1, sidebarWidth: 310, drafts: { 'env1:new:p1': 'Saved draft' } });

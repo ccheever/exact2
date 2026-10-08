@@ -6,6 +6,8 @@ import { describe, expect, it } from 'bun:test';
 import { DEFAULT_EXPOSURE_SETTINGS, DesktopServerExposure, DesktopServerExposureModePersistenceError, DesktopTailscaleServePersistenceError, adoptNetworkPrefs,
   decodeExposureSettings, memoryExposureSettings, requiresBackendRelaunch, type ExposureSettings, type ExposureSettingsStore } from './server-exposure';
 import type { NetworkInterfaces } from './tailscale';
+import { parseDesktopSettings } from './local-backend';
+import { adoptLocalPrefs } from './local-environment';
 
 const emptyNetworkInterfaces: NetworkInterfaces = {};
 const lanNetworkInterfaces: NetworkInterfaces = { en0: [{ address: '192.168.1.20', family: 'IPv4', internal: false }] };
@@ -148,16 +150,26 @@ describe('DesktopServerExposure', () => {
   });
 });
 
-describe('t3-code.json exposure keys (DesktopAppSettings decoding)', () => {
-  it('decodes the three keys with the reference defaults and carries them on load', () => {
+describe('exposure keys (DesktopAppSettings decoding; desktop-settings.json, decision U7)', () => {
+  it('decodes the three keys with the reference defaults; t3-code.json carries only the default endpoint', () => {
     expect(decodeExposureSettings({})).toEqual({ serverExposureMode: 'local-only', tailscaleServeEnabled: false, tailscaleServePort: 443 });
     expect(decodeExposureSettings({ serverExposureMode: 'network-accessible', tailscaleServeEnabled: true, tailscaleServePort: 8443 }))
       .toEqual({ serverExposureMode: 'network-accessible', tailscaleServeEnabled: true, tailscaleServePort: 8443 });
     // normalizeTailscaleServePort: out of range, fractional or not a number falls back to 443.
     for (const port of [0, 70_000, 44.5, '8443']) expect(decodeExposureSettings({ tailscaleServePort: port }).tailscaleServePort).toBe(443);
+    // The native status's desktopSettings parse the same way (local-backend.ts).
+    expect(parseDesktopSettings({ serverExposureMode: 'network-accessible', tailscaleServeEnabled: true, tailscaleServePort: 8443, localEnvironmentEnabled: false }))
+      .toEqual({ localEnvironmentEnabled: false, serverExposureMode: 'network-accessible', tailscaleServeEnabled: true, tailscaleServePort: 8443 });
+    expect(parseDesktopSettings(undefined)).toEqual({ localEnvironmentEnabled: true, serverExposureMode: 'local-only', tailscaleServeEnabled: false, tailscaleServePort: 443 });
+    // A saved t3-code.json from before U7: only the default endpoint stays (uiStateStore's key); the rest moved.
     const next: Record<string, unknown> = {};
     adoptNetworkPrefs(next, { serverExposureMode: 'network-accessible', tailscaleServePort: 8443, defaultAdvertisedEndpointKey: 'tailscale:ip:http' });
-    expect(next).toEqual({ serverExposureMode: 'network-accessible', tailscaleServeEnabled: false, tailscaleServePort: 8443, defaultAdvertisedEndpointKey: 'tailscale:ip:http' });
+    expect(next).toEqual({ defaultAdvertisedEndpointKey: 'tailscale:ip:http' });
+    const saved = { version: 1, localEnvironmentEnabled: false, serverExposureMode: 'network-accessible', defaultAdvertisedEndpointKey: 'desktop-core:lan:http' };
+    const local: Record<string, unknown> = {};
+    expect(adoptLocalPrefs(local, saved)).toBe(true); // the next refresh saves t3-code.json without them
+    expect(local).toEqual({ defaultAdvertisedEndpointKey: 'desktop-core:lan:http' });
+    expect(adoptLocalPrefs({}, { version: 1, defaultAdvertisedEndpointKey: 'x' })).toBe(false);
   });
 
   it('asks for a relaunch only when the port, bind host or local URL changes', () => {

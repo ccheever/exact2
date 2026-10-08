@@ -8,8 +8,10 @@ import { obj, type Obj } from './domain';
 import type { Native } from './protocol';
 import { providerPage, runProviderOp } from './providers';
 import { advisoryView, providerUpkeepOp, runProviderUpdate, runUpdateAll, updateAllView, withUpkeep } from './providers-upkeep';
-import { providerUpdates, resetProviderUpdateNotifications, runLaunchUpdates, type UpdateTarget } from './provider-update-notify';
+import { primaryTarget, providerUpdates, resetProviderUpdateNotifications, runLaunchUpdates, type UpdateTarget } from './provider-update-notify';
+import { primaryAt, primaryOff, resetPrimary } from './local-primary-fixture';
 import { toasts } from './toast';
+import { adoptShellPrefs } from './shell-prefs';
 import type { T3Client } from './client';
 
 const codex = (extra: Obj = {}): Obj => ({ instanceId: 'codex', driver: 'codex', enabled: true, installed: true, version: '1.0.0', status: 'ready', auth: { status: 'authenticated' },
@@ -119,6 +121,28 @@ test('the launch notification: one prompt, Update runs the one-click providers, 
   expect(toasts(client).map(toast => [toast.kind, toast.title, toast.description, toast.action?.label])).toEqual([['warning', 'Provider still needs an update', 'Codex still appears outdated. Check provider settings for details.', 'Settings']]);
 });
 
+test('the launch prompt follows the primary only: with no primary there is no prompt, whatever is focused', () => {
+  // ProviderUpdateLaunchNotification is mounted only for an authenticated primary and reads primaryServerProvidersAtom.
+  resetProviderUpdateNotifications();
+  const fake = new Fake(); // an outdated Codex on the focused (remote) environment
+  resetPrimary();
+  expect(primaryTarget(fake as never, null)).toBeNull();
+  providerUpdates(fake as never); // the source is primaryTarget
+  expect(toasts(fake as unknown as T3Client)).toEqual([]);
+  primaryOff(); // the Local environment switched off: the same
+  providerUpdates(fake as never);
+  expect(toasts(fake as unknown as T3Client)).toEqual([]);
+  // A primary that is not the focus and has no background connection: still nothing (its providers are unknown).
+  primaryAt('http://127.0.0.1:16437', 'env-local');
+  expect(primaryTarget(fake as never, null)).toBeNull();
+  // The focused environment is the primary: its providers prompt.
+  fake.environmentId = 'env-local';
+  expect(primaryTarget(fake as never, null)?.key).toBe('focus:env-local');
+  providerUpdates(fake as never);
+  expect(toasts(fake as unknown as T3Client).map(toast => toast.title)).toEqual(['Update Available: Codex v1.1.0']);
+  resetPrimary();
+});
+
 test('the launch outcome: succeeded leaves after 3 s; a rejected request is the error toast', async () => {
   resetProviderUpdateNotifications();
   const fake = new Fake([codex({ versionAdvisory: { status: 'behind_latest', latestVersion: '1.2.0', updateCommand: 'pnpm add -g @openai/codex@latest', canUpdate: true } })]);
@@ -155,4 +179,11 @@ test('Copy update command copies and toasts; the custom model editor saves throu
   editor = withUpkeep(fake, providerPage(fake, 'codex', 0)).editors[0]!;
   expect(editor.upkeep.modelEditor).toEqual([]);
   expect(withUpkeep(fake, providerPage(fake, 'codex', 0)).escapeOwned).toBe(false);
+});
+
+test('dismissed launch prompts are all kept (dismissProviderUpdateNotification has no limit)', () => {
+  const keys = Array.from({ length: 150 }, (_, index) => `codex:1.${index}.0`);
+  const next: Obj = {};
+  adoptShellPrefs(next, { shell: { providerUpdateDismissals: keys } });
+  expect((obj(next.shell).providerUpdateDismissals as string[]).length).toBe(150);
 });

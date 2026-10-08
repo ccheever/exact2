@@ -148,7 +148,7 @@ test('adding pairs beside the focused connection, connects when there is none, a
   await expect(runConnectionOp(native, 'environment-add', 'http://127.0.0.1:14806', 'invalid-fixture-code', true)).rejects.toThrow('The environment credential is invalid.');
   expect(await runConnectionOp(native, 'environment-add', 'http://127.0.0.1:14806', 'PAIRCODE', true)).toEqual({ status: null, generation: -1 });
   expect(native.calls.filter(call => call.op === 'connect' && !call.fleet)).toHaveLength(0);
-  expect(native.calls.find(call => call.op === 'pairEnvironment' && call.credential === 'PAIRCODE')).toEqual({ op: 'pairEnvironment', origin: 'http://127.0.0.1:14806', credential: 'PAIRCODE', scope: 'orchestration:read orchestration:operate terminal:operate review:write relay:read' });
+  expect(native.calls.find(call => call.op === 'pairEnvironment' && call.credential === 'PAIRCODE')).toEqual({ op: 'pairEnvironment', origin: 'http://127.0.0.1:14806', credential: 'PAIRCODE', scope: 'orchestration:read orchestration:operate terminal:operate review:write relay:read', primaryEnvironmentId: '' });
   const result = await runConnectionOp(native, 'environment-add', 'http://127.0.0.1:14806', 'PAIRCODE', false);
   expect(result.status).toMatchObject({ state: 'connected', environmentId: 'env-b' });
   const page = await connectionsPage(host(), native, true);

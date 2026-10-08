@@ -147,9 +147,14 @@ export function toCustomModelSetting(entry: CustomModelDefinition): Json {
   if (!name && descriptors.length === 0) return entry.slug;
   return { slug: entry.slug, ...(name ? { name } : {}), ...(descriptors.length > 0 ? { capabilities: createModelCapabilities({ optionDescriptors: descriptors }) as unknown as Json } : {}) } as Json;
 }
-/** The stored `customModels` for a driver: ACP Registry keeps plain slugs. */
-export function storedCustomModels(driver: string, entries: readonly CustomModelDefinition[]): Json[] {
-  return driver === 'acpRegistry' ? entries.map(entry => entry.slug) : entries.map(toCustomModelSetting);
+/**
+ * The stored `customModels` (ProviderInstanceCard `updateCustomModels`): `toCustomModelSetting` for every
+ * driver, ACP Registry included (decision (c) of provider-settings-upkeep, 2026-10-08: as the original).
+ * An added model is a bare slug; a name or options make an entry, which the server's ACP schema (a string
+ * list) refuses when it next loads the instance, as it does for the reference.
+ */
+export function storedCustomModels(_driver: string, entries: readonly CustomModelDefinition[]): Json[] {
+  return entries.map(toCustomModelSetting);
 }
 
 /**

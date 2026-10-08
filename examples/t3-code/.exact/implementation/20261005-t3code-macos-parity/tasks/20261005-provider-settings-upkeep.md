@@ -153,11 +153,14 @@ Required environment: Xcode 27.0, pinned Bun and Hermes, oracle build, isolated 
   hover highlight until the pointer leaves (one `over` state drives both); a separate tooltip-closed
   state would match Base UI. The web target was not driven for this popover.
 
-Provisional, user decision pending: (1) the launch prompt follows the primary environment and,
-with no primary known (a lane or remote-only launch), the focused one; (2) the toast flow follows
-the reference (no "Updating" toast: the sidebar pill shows a running update), not this record's
-"Loading → … in place" wording; (3) a custom ACP model keeps only its slug (name and options are
-not saved), the clone's existing rule, because the server's ACP schema is a string list.
+Decided 2026-10-08 (user: match the original; [provisional-decisions-parity](20261008-provisional-decisions-parity.md)): (1) the launch prompt and the sidebar pill
+read the primary's providers only; with no primary (the Local environment off, a remote-only or refused
+launch) there is no prompt, as the reference mounts it only for an authenticated primary
+(`__root.tsx:247`, `ProviderUpdatePrimaryNotification.tsx:101-102`); (2) no "Updating" toast while an
+update runs (`shouldShowPrimaryProviderUpdateToast`, verified: the clone matched); (3) a custom ACP model
+is stored with `toCustomModelSetting` like every driver (`ProviderInstanceCard.tsx:673-681`): an added
+model is its slug; a name or options make an entry, which the server's ACP schema (a string list) refuses
+when it next loads the instance, as for the reference.
 
 ## Attempts and evidence
 

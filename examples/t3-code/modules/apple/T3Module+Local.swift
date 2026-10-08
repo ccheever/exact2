@@ -7,7 +7,8 @@ import Foundation
 extension T3Module {
     /// `localBackendStatus`: `{state, enabled, port, httpBaseUrl, wsBaseUrl, bearerReady, environmentId,
     /// label, serverVersion, restartAttempt, nextRestartMs, lastExit, install, refused, …}`; `t3.local`
-    /// announces each change. `localBackendSetEnabled {enabled}`: the switch's stopgap (stop, or start
+    /// announces each change; its `desktopSettings` are the four keys of desktop-settings.json this app
+    /// changes, written by `desktopSettingsSet`. `localBackendSetEnabled {enabled}`: the switch's stopgap (stop, or start
     /// and wait until ready); it answers the status, or the reason it could not. `localNetworkFacts`,
     /// `localBackendRestart {host, tailscaleServe*}` and `localAccess {method, path, body}`: Network access,
     /// Tailscale HTTPS and the Authorized clients (20261005-this-machine-network-access).
@@ -24,6 +25,13 @@ extension T3Module {
                 if let failure { reply.send(["ok": false, "generation": generation, "error": T3Failure(kind: "LocalEnvironment", message: failure).json]) }
                 else { reply.send(["ok": true, "generation": generation, "value": T3LocalBackend.shared.statusValue()]) }
             }
+        // Decision U7: the desktop settings file (T3DesktopSettings.swift); a write failure is the reference's
+        // DesktopSettingsWriteError message.
+        case "desktopSettingsSet":
+            do { reply.send(["ok": true, "generation": generation, "value": try T3LocalBackend.shared.setDesktopSettings(request)]) }
+            catch let failure as T3Failure { reply.send(["ok": false, "generation": generation, "error": failure.json]) }
+            catch let failure as T3DesktopSettingsWriteError { reply.send(["ok": false, "generation": generation, "error": T3Failure(kind: "DesktopSettings", message: failure.message).json]) }
+            catch { reply.send(["ok": false, "generation": generation, "error": T3Failure(kind: "DesktopSettings", message: "\(error)").json]) }
         // 20261005-this-machine-network-access (T3LocalNetwork.swift, T3LocalBackend.swift).
         case "localNetworkFacts":
             let tailscale = request["tailscale"] as? Bool == true, probe = request["probe"] as? String ?? "", refresh = request["refresh"] as? Bool == true

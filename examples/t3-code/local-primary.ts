@@ -11,10 +11,14 @@
 // under Environments, and leads Load balancing and GitHub sharing. Its port can change every
 // launch, so its origin is never remembered: the transport keeps the focus token `primary` beside
 // `t3.server.origin`. A saved entry with the primary's environment id (the same T3 home, paired
-// before) is a duplicate: it is removed and its credential forgotten (decision U6, provisional).
-import { str, type Obj } from './domain';
+// before) is a duplicate: as the reference's `installPlatformRegistration` (registry.ts), its GitHub
+// sharing trust is forgotten, then the entry and its credential are removed without a word, and a
+// window focused on it moves to the primary (the reference replaces the entry in place). Pairing this
+// machine's own server saves nothing (`register` is a no-op for a platform id), decision U6.
+import { obj, str, type Obj } from './domain';
 import { bridgeReply, type Native } from './protocol';
 import { readLocalBackend, unknownLocalBackend, type LocalBackendStatus } from './local-backend';
+import { routingKeyEnvironment } from './connection-routes';
 
 /** PRIMARY_LOCAL_ENVIRONMENT_ID: the bootstrap's id and the fleet's name for the primary. */
 export const PRIMARY_LOCAL_ENVIRONMENT_ID = 'primary';
@@ -84,7 +88,7 @@ export function primaryPhase(status: LocalBackendStatus, socket: { phase: Primar
 /** The app's one primary: what the backend reports and the switch this client keeps. */
 export class LocalPrimary {
   status: LocalBackendStatus = unknownLocalBackend();
-  /** The Local environment switch as this client saved it (t3-code.json `localEnvironmentEnabled`). */
+  /** The Local environment switch as saved (desktop-settings.json `localEnvironmentEnabled`, decision U7). */
   setting = true;
   target: PrimaryTarget | null = null;
   /** A bootstrap the primary cannot be built from (one base URL only). */
@@ -125,21 +129,21 @@ export const sessionScopes = (environmentId: string, scopes: string[], source: L
 export const canManageLocalBackend = (source: LocalPrimary = primary) =>
   !source.disabled && source.status.state !== 'refused' && (AUTH_ADMINISTRATIVE_SCOPES as readonly string[]).includes('access:write');
 
-// ── The switch in the client's preferences (t3-code.json, decision U7: the clone's own file) ──
-type Holder = { local: object };
-/** The saved switch (default on, as DesktopAppSettings). */
-export function localEnvironmentEnabled(owner: Holder): boolean { return (owner.local as { localEnvironmentEnabled?: boolean }).localEnvironmentEnabled !== false; }
-export function setLocalEnvironmentEnabled(owner: Holder, enabled: boolean): void { (owner.local as { localEnvironmentEnabled?: boolean }).localEnvironmentEnabled = enabled; }
+// ── The switch in desktop-settings.json (decision U7, 2026-10-08: the original app's file) ──
+type Holder = { localBackend: LocalBackendStatus };
+/** The saved switch (default on, as DesktopAppSettings), as the native side read or last wrote it. */
+export function localEnvironmentEnabled(owner: Holder): boolean { return owner.localBackend.settings.localEnvironmentEnabled; }
 /** client.ts refresh: read the embedded server's status into the client and the primary; true when it changed (it redraws "This machine"). */
-export async function refreshLocal(client: Holder & { localBackend: LocalBackendStatus }, native: Native, source: LocalPrimary = primary): Promise<boolean> {
+export async function refreshLocal(client: Holder, native: Native, source: LocalPrimary = primary): Promise<boolean> {
   const status = await readLocalBackend(native);
   const changed = JSON.stringify(status) !== JSON.stringify(client.localBackend);
   if (changed) client.localBackend = status;
   source.update(client.localBackend, localEnvironmentEnabled(client));
   return changed;
 }
-/** load(): carry the saved switch (top level, as the reference's desktop-settings.json key). */
-export function adoptLocalPrefs(next: object, saved: Obj): void { (next as { localEnvironmentEnabled?: boolean }).localEnvironmentEnabled = saved.localEnvironmentEnabled !== false; }
+/** The keys the clone kept in t3-code.json before decision U7; the native side carried them over once, so a load drops them. */
+export const LEGACY_DESKTOP_KEYS = ['localEnvironmentEnabled', 'serverExposureMode', 'tailscaleServeEnabled', 'tailscaleServePort'] as const;
+export const hasLegacyDesktopKeys = (saved: Obj) => LEGACY_DESKTOP_KEYS.some(key => saved[key] !== undefined);
 
 /** folderDropTarget: a dropped Finder folder reaches only the primary, and only while it is on. */
 export function folderDropTarget(input: { localEnvironmentDisabled: boolean; environmentId: string; primaryEnvironmentId: string | null }): 'local' | 'remote' {
@@ -156,19 +160,39 @@ export function primaryEntry(source: LocalPrimary = primary): Obj | null {
 }
 
 /**
- * Decision U6 (provisional, user decision pending): a saved environment with the primary's id is
- * the same machine paired before; it is removed without a word and its credential forgotten
- * (`forgetEnvironment` forgets every route's Keychain item and leaves the primary connected).
+ * githubRoutingPermissions.forget(environmentId): every stored sharing permission of that environment.
+ * False when the preferences could not be written (the reference then leaves the saved entry alone).
  */
-export async function dropPrimaryDuplicates(native: Native, saved: Obj[], source: LocalPrimary = primary): Promise<string[]> {
+export async function forgetGitHubRouting(native: Native, environmentId: string): Promise<boolean> {
+  const read = await bridgeReply(native, { op: 'connectionPreferences' }).catch(() => null);
+  if (!read?.ok) return false;
+  let raw: Obj;
+  try { raw = obj(JSON.parse(str(obj(read.value).text, '{}') || '{}')); } catch { raw = {}; }
+  const routing = obj(raw.githubRouting), kept = Object.fromEntries(Object.entries(routing).filter(([key]) => routingKeyEnvironment(key) !== environmentId));
+  if (Object.keys(kept).length === Object.keys(routing).length) return true;
+  const written = await bridgeReply(native, { op: 'setConnectionPreferences', text: JSON.stringify({ ...raw, githubRouting: kept }) }).catch(() => null);
+  return written?.ok === true;
+}
+
+/**
+ * Decision U6 (2026-10-08: as the reference, `installPlatformRegistration`): a saved environment with
+ * the primary's id is the same machine paired before. Its GitHub sharing trust goes first (a failure
+ * keeps the entry), then the entry and every route's Keychain item (`forgetEnvironment`, which leaves
+ * the primary connected), without a word. `focusDropped`: the window was focused on it, so the
+ * primary takes the focus (client.ts, r8-pointer-reconnect.ts `primaryTakesFocus`).
+ */
+export async function dropPrimaryDuplicates(native: Native, saved: Obj[], source: LocalPrimary = primary): Promise<{ origins: string[]; focusDropped: boolean }> {
   const id = source.target?.environmentId;
-  if (!id) return [];
+  if (!id) return { origins: [], focusDropped: false };
   const duplicates = saved.filter(entry => str(entry.environmentId) === id && entry.primary !== true);
+  if (!duplicates.length || !(await forgetGitHubRouting(native, id))) return { origins: [], focusDropped: false };
+  let focusDropped = false;
   for (const entry of duplicates) {
     await native.later({ op: 'fleetStop', fleet: `${trim(str(entry.origin))}\n${id}` }).catch(() => undefined);
-    await bridgeReply(native, { op: 'forgetEnvironment', origin: str(entry.origin), environmentId: id }).catch(() => undefined);
+    const reply = await bridgeReply(native, { op: 'forgetEnvironment', origin: str(entry.origin), environmentId: id }).catch(() => null);
+    if (reply?.ok && obj(reply.value).forgotFocus === true) focusDropped = true;
   }
-  return duplicates.map(entry => str(entry.origin));
+  return { origins: duplicates.map(entry => str(entry.origin)), focusDropped };
 }
 
 /** The saved list without the primary's duplicates (what every list reads). */

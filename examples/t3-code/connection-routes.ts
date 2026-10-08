@@ -220,6 +220,19 @@ export function gitHubRoutingConnectionKey(entry: RouteEntry): string | null {
   const keys = routes.map(route => routeConnectionKey(entry.environmentId, route));
   return keys.every(key => key !== null) ? JSON.stringify([...keys].sort()) : null;
 }
+/**
+ * The environment a stored GitHub sharing key belongs to (the reference stores `environmentId` beside
+ * each key, githubRoutingPermissions.ts; the clone's keys carry it inside): a single route's
+ * `[environmentId, origin]`, a tagged route's `[tag, environmentId, …]`, or several routes' sorted keys.
+ */
+export function routingKeyEnvironment(key: string): string | null {
+  let parsed: unknown;
+  try { parsed = JSON.parse(key); } catch { return null; }
+  if (!Array.isArray(parsed) || parsed.length === 0) return null;
+  if (parsed.every(item => typeof item === 'string' && item.startsWith('['))) return routingKeyEnvironment(parsed[0] as string);
+  if (['RelayConnectionTarget', 'SshConnectionTarget', 'BearerConnectionTarget'].includes(String(parsed[0]))) return typeof parsed[1] === 'string' ? parsed[1] : null;
+  return typeof parsed[0] === 'string' ? parsed[0] : null;
+}
 function routeConnectionKey(environmentId: string, route: ConnectionRoute): string | null {
   if (route.kind === 'relay') return JSON.stringify(['RelayConnectionTarget', environmentId]);
   if (route.kind === 'ssh') {

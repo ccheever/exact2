@@ -3,9 +3,12 @@
 // MIT, see LICENSE-T3): above the footer icons while a provider updates, then
 // its outcome — failed and still-outdated notices until dismissed, a success
 // for three seconds. Outcomes older than the window's first provider check
-// never show; a dismissal holds until that provider's status changes (key).
-import { arr, obj, str, type Obj } from './domain';
+// never show; a dismissal holds until that provider's status changes (key). Its providers are the
+// primary's (`primaryServerProvidersAtom`, as the launch prompt's, provider-update-notify.ts): none
+// without a primary, whichever environment is focused.
+import { obj, str, type Obj } from './domain';
 import type { T3Client } from './client';
+import { primaryTarget } from './provider-update-notify';
 
 export interface ProviderPill { key: string; tone: 'loading' | 'success' | 'warning' | 'error'; title: string; description: string; dismissible: boolean; dismissAfterMs: number }
 
@@ -78,7 +81,7 @@ function pillState(client: T3Client) {
   return state;
 }
 export function sidebarProviderPill(client: T3Client, now: number): ProviderPill | null {
-  const providers = arr(client.config.providers), state = pillState(client);
+  const providers = primaryTarget(client, null)?.providers ?? [], state = pillState(client);
   if (state.visibleAfter === undefined && providers.length) {
     state.visibleAfter = providers.reduce<string | undefined>((latest, provider) => latest === undefined || str(provider.checkedAt) > latest ? str(provider.checkedAt) : latest, undefined);
   }

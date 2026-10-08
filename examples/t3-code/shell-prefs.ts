@@ -32,7 +32,7 @@ export function adoptShellPrefs(next: object, saved: Obj): void {
   const value = obj(saved.shell), prefs = emptyPrefs();
   prefs.nightlyNoticeDismissed = value.nightlyNoticeDismissed === true;
   if (Array.isArray(value.inlineClosed)) prefs.inlineClosed = value.inlineClosed.filter((key): key is string => typeof key === 'string' && key.length > 0 && key.length <= 512).slice(-MAX_CLOSED);
-  if (Array.isArray(value.providerUpdateDismissals)) prefs.providerUpdateDismissals = value.providerUpdateDismissals.filter((key): key is string => typeof key === 'string').slice(-100);
+  if (Array.isArray(value.providerUpdateDismissals)) prefs.providerUpdateDismissals = value.providerUpdateDismissals.filter((key): key is string => typeof key === 'string'); // no limit, as providerUpdateDismissal.ts
   if (Array.isArray(value.versionMismatchDismissals)) prefs.versionMismatchDismissals = value.versionMismatchDismissals.filter((key): key is string => typeof key === 'string' && key.length <= 512).slice(-200);
   if (Array.isArray(value.chatgptSharingWelcome)) prefs.chatgptSharingWelcome = value.chatgptSharingWelcome.filter((key): key is string => typeof key === 'string' && key.length <= 1024).slice(-200);
   if (typeof value.lastEditor === 'string' && /^[a-z0-9-]{1,64}$/.test(value.lastEditor)) prefs.lastEditor = value.lastEditor;

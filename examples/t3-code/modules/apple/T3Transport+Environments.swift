@@ -41,7 +41,9 @@ extension T3Transport {
                 setStatus("disconnected", "Disconnected.")
             }
             forgotten(saved, wasFocused: focused)
-            finish(completion, value: status())
+            // `forgotFocus`: the window was on it (a saved duplicate of the primary then hands the focus to the primary, U6).
+            var value = status(); value["forgotFocus"] = focused
+            finish(completion, value: value)
         case "pairEnvironment": try pairEnvironment(request, completion: completion)
         default: return false
         }
@@ -96,6 +98,11 @@ extension T3Transport {
             send("/oauth/token", body: body) { [self] grant in
                 guard grant["token_type"] as? String == "Bearer", let access = grant["access_token"] as? String, !access.isEmpty else {
                     return finish(completion, failure: T3Failure(kind: "Protocol", message: "The server did not issue a bearer access token."))
+                }
+                // This machine's own server (the primary's environment id, U6): the code is spent, nothing is
+                // saved, as the reference's `register` for a platform environment (registry.ts).
+                if let primaryId = request["primaryEnvironmentId"] as? String, !primaryId.isEmpty, primaryId == environment {
+                    return finish(completion, value: ["origin": target.absoluteString, "environmentId": environment, "label": descriptor["label"] as? String ?? "", "primary": true])
                 }
                 do { try credentials.save(access, origin: target.absoluteString, environment: environment) }
                 catch { return finish(completion, failure: failure(error)) }

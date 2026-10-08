@@ -380,7 +380,7 @@ component PairingLinkRow
               NetQrGlyph(size=14, color="light-dark(#71717b, #818181)")
               text "Share" font-size="0.75rem" line-height="1rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
           when row.copyCode
-            NetXs(label="Copy code", tone="outline", disabled=busy, test=`pairing-link-copy-code-${row.id}`, press=op("pairing-copy", row.id, "code"))
+            NetXs(label="Copy code", tone="outline", disabled=false, test=`pairing-link-copy-code-${row.id}`, press=op("pairing-copy", row.id, "code"))
           NetXs(label=(busy and revokingAt == settled ? "Revoking…" : "Revoke"), tone="destructive", disabled=(busy and revokingAt == settled), test=`pairing-link-revoke-${row.id}`, press=revoke)
       when shareOpen and row.share
         each option in row.options key=option.id
@@ -399,9 +399,9 @@ component PairingLinkRow
                     text option.url font-family="ui-monospace" font-size="0.6875rem" line-height="1rem" min-width=0 line-clamp=1 color="light-dark(#71717b, #818181)" testId=`pairing-link-url-${row.id}`
                     when tip == "url"
                       CnTooltip(tip=option.url, tipId=`pairing-link-url-tip-${row.id}`, above=18)
-                  NetXs(label="Copy link", tone="ghost", disabled=busy, test=`pairing-link-copy-${row.id}`, press=op("pairing-copy", row.id, option.id))
+                  NetXs(label="Copy link", tone="ghost", disabled=false, test=`pairing-link-copy-${row.id}`, press=op("pairing-copy", row.id, option.id))
                 row
-                  NetXs(label="Copy code only", tone="ghost", disabled=busy, test=`pairing-link-copy-code-only-${row.id}`, press=op("pairing-copy", row.id, "code"))
+                  NetXs(label="Copy code only", tone="ghost", disabled=false, test=`pairing-link-copy-code-only-${row.id}`, press=op("pairing-copy", row.id, "code"))
               when option.qr
                 box padding="0.75rem" border-radius="0.75rem" background-color="#ffffff" flex-shrink=0
                   box width="10.5rem" height="10.5rem" position="relative" background-color="#ffffff" role="img" aria-label="Pairing link — scan to open on another device" testId=`pairing-link-qr-${row.id}`

@@ -4,7 +4,8 @@ import XCTest
 
 // 20261005-local-primary-environment: the Local environment switch's stopgap (decision U4; exact2
 // cannot relaunch, issue X45 / #122), the primary's descriptor in the status, the switch read at
-// launch from t3-code.json, and `handleFatalStartupError` (T3LocalFatal.swift). Each test runs its own
+// launch (desktop-settings.json since decision U7: settings.swift; the failed-start test starts from an
+// old t3-code.json, which the attach carries over), and `handleFatalStartupError` (T3LocalFatal.swift). Each test runs its own
 // T3LocalBackend over a real child (a fake `t3` shell script on a lane port) with an HTTP double for
 // the token exchange and the descriptor; readiness answers at once (FakeProber).
 private final class LocalServer: URLProtocol, @unchecked Sendable {
@@ -120,15 +121,6 @@ final class LocalSwitchTests: XCTestCase {
         let (failure, _) = setEnabled(backend, true)
         XCTAssertEqual(failure, T3LocalPolicy.developmentMissing)
         backend.detach(owner)
-    }
-
-    func testTheSwitchIsReadFromTheAppsOwnPreferenceFile() {
-        let data = scratch("prefs")
-        XCTAssertTrue(T3LocalBackend.localEnvironmentEnabled(dataRoot: data), "no file: on")
-        try! #"{"version":1}"#.write(to: data.appendingPathComponent("t3-code.json"), atomically: true, encoding: .utf8)
-        XCTAssertTrue(T3LocalBackend.localEnvironmentEnabled(dataRoot: data), "no key: on")
-        try! #"{"version":1,"localEnvironmentEnabled":false}"#.write(to: data.appendingPathComponent("t3-code.json"), atomically: true, encoding: .utf8)
-        XCTAssertFalse(T3LocalBackend.localEnvironmentEnabled(dataRoot: data))
     }
 
     // MARK: handleFatalStartupError

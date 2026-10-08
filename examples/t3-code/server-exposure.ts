@@ -3,9 +3,10 @@
 // Local-only binds 127.0.0.1; network access binds 0.0.0.0 and advertises the first usable LAN IPv4
 // (or an explicit host). A network request with neither a LAN nor a Tailscale IPv4 is unavailable:
 // `setMode` refuses it, and at launch it falls back to local-only without losing the preference.
-// The settings are the clone's own `t3-code.json` (decision U7): `serverExposureMode`,
-// `tailscaleServeEnabled`, `tailscaleServePort`. Facts come from the native module (interfaces,
-// the MagicDNS name, the HTTPS probe); the restart is `applyLocalSetting` (this-machine.ts).
+// The settings are desktop-settings.json's `serverExposureMode`, `tailscaleServeEnabled` and
+// `tailscaleServePort` (decision U7: the original app's file; the native side reads and writes it,
+// T3DesktopSettings.swift). Facts come from the native module (interfaces, the MagicDNS name, the
+// HTTPS probe); the restart is `applyLocalSetting` (this-machine.ts).
 import { createAdvertisedEndpoint, type AdvertisedEndpoint, type AdvertisedEndpointProvider, type CreateAdvertisedEndpointInput } from './advertised-endpoint';
 import { DEFAULT_TAILSCALE_SERVE_PORT, isTailscaleIpv4Address, resolveTailscaleAdvertisedEndpoints, type NetworkInterfaces } from './tailscale';
 
@@ -220,16 +221,13 @@ export class DesktopServerExposure {
   }
 }
 
-// ── t3-code.json (decision U7: the clone's own file; top-level keys as desktop-settings.json) ──
+// ── The default endpoint: t3-code.json (the reference's renderer localStorage `t3code:ui-state:v1`) ──
 type LocalHolder = { local: object };
 const prefsOf = (owner: LocalHolder) => owner.local as Record<string, unknown>;
-export function exposureSettings(owner: LocalHolder): ExposureSettings { return decodeExposureSettings(prefsOf(owner)); }
-export function writeExposureSettings(owner: LocalHolder, settings: ExposureSettings): void { Object.assign(prefsOf(owner), settings); }
 /** The chosen default endpoint (ConnectionsSettings `defaultAdvertisedEndpointKey`, endpointDefaultPreferenceKey). */
 export const defaultEndpointKey = (owner: LocalHolder): string | null => { const key = prefsOf(owner).defaultAdvertisedEndpointKey; return typeof key === 'string' && key ? key : null; };
 export function setDefaultEndpointKey(owner: LocalHolder, key: string): void { prefsOf(owner).defaultAdvertisedEndpointKey = key; }
-/** load(): carry the exposure keys and the default endpoint from the saved file. */
+/** load(): carry the default endpoint from the saved file (`sanitizeOptionalKey`: a non-empty string). */
 export function adoptNetworkPrefs(next: object, saved: Record<string, unknown>): void {
-  writeExposureSettings({ local: next }, decodeExposureSettings(saved));
   if (typeof saved.defaultAdvertisedEndpointKey === 'string' && saved.defaultAdvertisedEndpointKey) prefsOf({ local: next }).defaultAdvertisedEndpointKey = saved.defaultAdvertisedEndpointKey;
 }

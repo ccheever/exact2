@@ -78,4 +78,9 @@ Update the oracle pairs so the first window needs no ready wait. `issue-close` c
 
 ## Status and next action
 Filed upstream as [#117](https://github.com/ccheever/exact2/issues/117) (open).
-2026-10-07: `20261005-local-primary-environment` ships the interim (U5, **provisional, user decision pending**): the first window opens at launch and shows the connecting state until the primary connects; with the Local environment off it matches the reference. The window-gate rows of that task stay blocked on #117.
+2026-10-07: `20261005-local-primary-environment` ships the interim (U5): the first window opens at launch and shows the connecting state until the primary connects; with the Local environment off it matches the reference. The window-gate rows of that task stay blocked on #117.
+2026-10-08: U5 decided (user: match the original; `20261008-provisional-decisions-parity`): adopt the hold as soon as exact2
+offers it; until then the interim stays with #117 as the blocker. Re-checked on main `f464bad43`: `scripts/app.schema.json`
+`host.macos.window` allows only `width`, `height`, `minWidth`, `minHeight` (`additionalProperties: false`), and
+`host/apple/Sources/ExactMac/main.swift` calls `window.makeKeyAndOrderFront(nil)` after the first boot with no condition;
+#117 is open ("Decision needed", last comment re-checked on main `78286adc1`).

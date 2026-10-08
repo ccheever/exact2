@@ -12,7 +12,7 @@ import { type ComposerControlsPrefs, emptyComposerControls, decodeComposerContro
 import { adoptStash } from './composer-editor-stash';
 import { adoptComposerFiles } from './composer-editor-files';
 import { sidebarOpened, sidebarRefreshed } from './sidebar-commands';
-import { reconnectOnLaunch, launchFocus } from './r8-pointer-reconnect';
+import { reconnectOnLaunch, launchFocus, primaryTakesFocus } from './r8-pointer-reconnect';
 import { adoptSidebarPrefs } from './sidebar-state';
 import { PROVIDER_OPS } from './providers';
 import { CONNECTION_OPS } from './connections';
@@ -95,6 +95,8 @@ export class T3Client {
   local = preferences();
   busy = false;
   private loaded = false;
+  /** load() found keys desktop-settings.json took over (decision U7): the next refresh saves without them. */
+  private dropLegacyKeys = false;
   shellLoaded = false;
   private synchronizedGeneration = -1;
   private synchronizationEpoch = 0;
@@ -193,7 +195,7 @@ export class T3Client {
       adoptPagesPrefs(next, saved); adoptPrSnapshots(next, saved); // pages: page preferences and the first-run flag (pages-prefs.ts); the kept pull request details (pages-pr-refresh.ts)
       adoptShellPrefs(next, saved); // shell: notice dismissals and closed workspace cards (shell-prefs.ts)
       adoptFilesPrefs(next, saved); // r5-panels: Files explorer and render preferences (r5-panels-prefs.ts)
-      adoptTerminalPrefs(next, saved); adoptLocalPrefs(next, saved); // each thread's drawer (terminal-ui-state.ts); the Local environment switch (local-primary.ts)
+      adoptTerminalPrefs(next, saved); this.dropLegacyKeys = adoptLocalPrefs(next, saved); // each thread's drawer (terminal-ui-state.ts); the default endpoint (local-environment.ts: the switch and exposure moved to desktop-settings.json)
       if (groupingModes.includes(str(saved.lastGroupingMode))) next.lastGroupingMode = str(saved.lastGroupingMode);
       const device = obj(saved.deviceSettings);
       next.deviceSettings.composerCollapseOnScroll = device.composerCollapseOnScroll !== false;
@@ -313,8 +315,10 @@ export class T3Client {
       if (!status.ok) throw new ClientError(status.error!.message);
       this.adoptStatus(obj(status.value), status.generation);
       if (await refreshLocal(this, native)) this.changed(); // the embedded server and the primary: a change redraws "This machine" (local-primary.ts)
+      if (this.dropLegacyKeys) { this.dropLegacyKeys = false; await this.save(storage); } // U7: the native side carried the old keys over at attach; save once without them
       await reconnectOnLaunch(this, native, obj(status.value)); // r8-pointer D14 and the primary: a launch reconnects (r8-pointer-reconnect.ts)
       await fleet.sync(native, launchFocus(this)); // settings-b: background environments, the primary among them (settings-b-fleet.ts)
+      if (fleet.takeFocusDropped()) primaryTakesFocus(this); // U6: a focused duplicate of the primary went; the primary takes the window (r8-pointer-reconnect.ts)
       await this.flushSnapshotReleases(native, storage);
       if (this.connection !== 'connected') { if (this.local.deviceSettings.snapShotEnabled) await this.adoptSnapshots(native, storage); return; }
       if (this.synchronizedGeneration !== this.generation) await this.synchronize(native);

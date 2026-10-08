@@ -6,8 +6,11 @@
 // Changes: the effects run on each shell answer (shellView → providerUpdates) instead of on
 // React renders; "Update" is the `upkeep:update-launch` op (providers-upkeep.ts), sent through
 // its own queue mutation so the app stays usable while it runs. The primary is the embedded
-// server ("This machine"): the focus when it is the primary, else its background connection;
-// with no primary known, the focused environment stands in (a lane or remote-only launch).
+// server ("This machine"): the focus when it is the primary, else its background connection.
+// With no primary (the Local environment off, a remote-only or refused launch) there is no prompt
+// and no update: the reference mounts the prompt only for an authenticated primary (__root.tsx
+// `primaryEnvironmentAuthenticated`) and reads only `primaryServerProvidersAtom` (decision (a) of
+// provider-settings-upkeep, 2026-10-08: as the original).
 import type { T3Client } from './client';
 import { pushToast, dismissToast } from './toast';
 import { arr, obj, str, type Obj } from './domain';
@@ -47,9 +50,10 @@ export function fleetTarget(entry: FleetEntry, native: Native | null, label = ''
       return obj(reply.value);
     } };
 }
-/** usePrimaryEnvironment + primaryServerProvidersAtom: the embedded server, wherever it is connected. */
+/** usePrimaryEnvironment + primaryServerProvidersAtom: the embedded server, wherever it is connected; null without one. */
 export function primaryTarget(client: Client, native: Native | null): UpdateTarget | null {
-  if (client.ready && (isPrimaryEnvironment(client.environmentId) || !primary.target?.environmentId)) return focusedTarget(client, native);
+  if (!primary.target?.environmentId) return null;
+  if (client.ready && isPrimaryEnvironment(client.environmentId)) return focusedTarget(client, native);
   const entry = [...fleet.entries.values()].find(candidate => candidate.primary === true && candidate.phase === 'connected' && Object.keys(candidate.config).length > 0);
   return entry ? fleetTarget(entry, native, primary.target?.label || '') : null;
 }
@@ -95,7 +99,7 @@ export function providerUpdates(client: Client, source: UpdateTarget | null = pr
   const toastId = pushToast(client as T3Client, { kind: 'warning', title: initialView.title, description: initialView.description, timeoutMs: 0, stacked: true, actionVariant: 'outline', hideCopy: true,
     ...(updateProviders.length === 1 ? { leading: `provider:${str(updateProviders[0]!.driver)}` } : {}),
     ...(oneClickProviders.length > 0 ? { action: { label: 'Update', op: 'upkeep:update-launch', id: key }, secondary: settingsAction, secondaryVariant: 'outline' as const } : { action: settingsAction }),
-    onClose: () => { dismissed.add(key); shellPrefs(client as T3Client).providerUpdateDismissals = [...dismissed].slice(-100); } });
+    onClose: () => { dismissed.add(key); shellPrefs(client as T3Client).providerUpdateDismissals = [...dismissed]; } }); // dismissProviderUpdateNotification keeps every key
   state.active = { kind: 'prompt', key, toastId, oneClick: oneClickProviders };
 }
 

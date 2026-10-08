@@ -1,6 +1,6 @@
 #!/bin/sh
-# Lane stub of the Tailscale CLI for 20261005-this-machine-network-access (decision U9, provisional:
-# the stub provider only; plan tool "Tailscale stub endpoint provider", U23). Put this directory first
+# Lane stub of the Tailscale CLI for 20261005-this-machine-network-access (decision U9: lanes verify
+# with this stub; live Tailscale needs a tailnet the user provides; plan tool "Tailscale stub endpoint provider", U23). Put this directory first
 # on the lane app's PATH and set T3_TAILSCALE_STUB_STATE to a lane folder. It answers
 # `status --json` with a fake MagicDNS name (T3_TAILSCALE_STUB_DNS, default lane-mac.example-tailnet.ts.net)
 # and keeps what `serve` asked for, so `tailscale serve status` shows the proxy the embedded server set
