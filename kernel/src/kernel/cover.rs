@@ -107,3 +107,28 @@ pub(crate) fn header_inset(arena: &NodeArena, slot: u32, top: f32) -> f32 {
         _ => 0.0,
     }
 }
+
+/// `slot` entered or left a `fit-content` route's scope, or a route's
+/// detent changed (LLP 1075.003 §9.11): every node under it whose style
+/// reads the environment is derived again against the viewport its scope
+/// gives it. Nothing to do without a screen.
+pub(crate) fn rescope(
+    arena: &mut NodeArena,
+    layout: &mut dyn LayoutMirror,
+    slot: u32,
+    touched: &mut Vec<crate::id::NodeKey>,
+) {
+    if arena.env().screen.is_none() {
+        return;
+    }
+    for s in arena.subtree(slot) {
+        if crate::style::uses_env(arena.style(s)) {
+            if let Some(node) = arena.taffy(s) {
+                layout.restyle(arena, s, node);
+                layout.mark_dirty(node);
+            }
+            arena.flags_mut(s).insert(crate::id::NodeFlags::STYLE_DIRTY);
+            touched.push(arena.key(s));
+        }
+    }
+}

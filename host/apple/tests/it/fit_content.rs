@@ -456,3 +456,114 @@ fn padding_bases_fields_and_widths_in_viewport_lengths_settle() {
         ],
     );
 }
+
+/// Astra's review of option (b): the screen is a fit-content route's, not
+/// the session's. With sheets stacked in either order, a medium sheet's
+/// `50vh` is half its own viewport and a fit-content one's half the
+/// screen; a route's detent turning to `fit-content` turns its lengths to
+/// the screen; and a fit-content route that appears over a 400-point sheet
+/// in an 800-point window measures against the screen from its first
+/// extent.
+#[test]
+fn the_screen_is_a_fit_content_routes_alone() {
+    for fit_first in [true, false] {
+        let fit = r#"      column testId="fit" navigationDetent="fit-content" position="absolute" top=0 right=0 bottom=0 left=0
+        box testId="fit-half" height="50vh" flex-shrink=0
+"#;
+        let medium = r#"      column testId="medium" navigationDetent=(fitted ? "fit-content" : "medium") position="absolute" top=0 right=0 bottom=0 left=0
+        box testId="medium-half" height="50vh" flex-shrink=0
+"#;
+        let src = format!(
+            r##"component Menu
+  state fitted = false
+  state shown = false
+  action fit
+    fitted = true
+  action show
+    shown = true
+  view
+    column position="relative" width="100%" height="100%"
+      button press=fit testId="to-fit" height=44
+        text "Fit"
+      button press=show testId="show" height=44
+        text "Show"
+{}{}      when shown
+        column testId="late" navigationDetent="fit-content" position="absolute" top=0 right=0 bottom=0 left=0
+          box height="50vh" flex-shrink=0
+"##,
+            if fit_first { fit } else { medium },
+            if fit_first { medium } else { fit },
+        );
+        let plan = contract::compile(&src).unwrap();
+        let (mut host, _) = Host::boot(
+            &plan.encode(),
+            NoData,
+            Box::new(MonospaceMeasurer::default()),
+            390.0,
+            800.0,
+        )
+        .unwrap();
+        host.set_screen(Some((390.0, 800.0)));
+        // A medium sheet owns the viewport now.
+        host.resize(390.0, 400.0);
+        let height = |host: &Host<NoData>, id: &str| {
+            let k = host.runner().kernel();
+            k.node(view(host, id)).unwrap().frame.height
+        };
+        assert_eq!(height(&host, "fit-half"), 400.0, "fit first: {fit_first}");
+        assert_eq!(
+            height(&host, "medium-half"),
+            200.0,
+            "fit first: {fit_first}"
+        );
+        let to_fit = view(&host, "to-fit");
+        host.dispatch_at(to_fit, Event::Press, 0.0);
+        assert_eq!(
+            height(&host, "medium-half"),
+            400.0,
+            "fit first: {fit_first}"
+        );
+        let show = view(&host, "show");
+        let shown = host.dispatch_at(show, Event::Press, 0.0);
+        assert_eq!(heights(&shown, view(&host, "late")), [400.0], "{shown}");
+    }
+}
+
+/// Astra's review of option (b): a route whose width follows the sheet
+/// through a percentage of its height and a ratio (100, 300, 100, … when
+/// the trial took its published width) is measured with its width derived
+/// as the layout derives it, its block size indefinite: it settles.
+#[test]
+fn a_width_through_a_percentage_height_does_not_cycle() {
+    let src = r##"component Menu
+  view
+    column position="relative" width="100%" height="100%"
+      column testId="ratio" navigationDetent="fit-content" position="absolute" top=0 left=0 height="calc(400px - 100%)" aspect-ratio=1 min-width=100 max-width=300
+        row height=44
+          text "Row"
+"##;
+    let plan = contract::compile(src).unwrap();
+    let (mut host, first) = Host::boot(
+        &plan.encode(),
+        NoData,
+        Box::new(MonospaceMeasurer::default()),
+        390.0,
+        844.0,
+    )
+    .unwrap();
+    host.set_screen(Some((390.0, 844.0)));
+    let ratio = view(&host, "ratio");
+    let start = heights(&first, ratio);
+    let mut last = *start.last().unwrap();
+    for h in [100.0, 300.0, 100.0, 300.0, 100.0] {
+        let resized = host.resize(390.0, h);
+        if let Some(&next) = heights(&resized, ratio).last() {
+            last = next;
+        }
+        assert!(
+            heights(&host.resize(390.0, last), ratio).is_empty(),
+            "at {last}: the next measure moved"
+        );
+    }
+    assert_eq!(last, 100.0);
+}

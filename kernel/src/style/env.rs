@@ -182,11 +182,14 @@ pub struct Env {
     /// Optional per-size button fonts. Separate from `ControlTextStyles` so
     /// existing hosts' control-font struct literals remain source compatible.
     pub button_fonts: Option<crate::ButtonFonts>,
-    /// The screen's width and height, when a host lays the page out in a
-    /// viewport the page sizes (an iOS `fit-content` sheet, LLP 1075.003
-    /// §9.11): the height units and `vmin`/`vmax` resolve against it, as
-    /// CSS's do against the viewport and never a dialog, so no length
-    /// follows the sheet it sizes. `None`: the layout viewport.
+    /// The screen's width and height — the window's own viewport, whatever
+    /// is presented — on a host that can lay a route out in a viewport the
+    /// route sizes (an iOS `fit-content` sheet, LLP 1075.003 §9.11). A
+    /// `fit-content` route and everything under it resolve the viewport
+    /// units against it ([`crate::NodeArena::env_for`]), as CSS's resolve
+    /// against the viewport and never a dialog, so no length follows the
+    /// sheet it sizes; every other node keeps the layout viewport. `None`:
+    /// the layout viewport everywhere.
     pub screen: Option<(f32, f32)>,
 }
 
@@ -284,13 +287,24 @@ impl Env {
         }
     }
 
-    /// This environment with the screen the height units resolve against
-    /// (`None`: the layout viewport).
+    /// This environment with the screen a `fit-content` route's viewport
+    /// units resolve against (`None`: the layout viewport).
     pub fn with_screen(&self, screen: Option<(f32, f32)>) -> Env {
         Env {
             screen,
             ..self.clone()
         }
+    }
+
+    /// This environment as a `fit-content` route resolves it: the viewport
+    /// is the screen. `None` without a screen.
+    pub fn screened(&self) -> Option<Env> {
+        let (viewport_width, viewport_height) = self.screen?;
+        Some(Env {
+            viewport_width,
+            viewport_height,
+            ..self.clone()
+        })
     }
 
     /// This environment with its insets replaced, the grid kept.

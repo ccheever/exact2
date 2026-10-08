@@ -84,6 +84,11 @@ fn route(node_type: NodeType, child: &[(StyleId, &str)], props: &[(PropId, &str)
         },
         Op::AttachRoot { id: 1 },
     ];
+    ops.push(Op::SetProp {
+        id: 2,
+        prop: PropId::NavigationDetent,
+        value: PropValue::Str("fit-content".into()),
+    });
     for &(prop, value) in props {
         ops.push(Op::SetProp {
             id: 3,
@@ -166,8 +171,8 @@ fn height(k: &mut Kernel, value: &str) -> f32 {
     k.node(3).unwrap().frame.height
 }
 
-/// The height units and `vmin`/`vmax` read the screen; `vw` the viewport;
-/// without a screen, all read the viewport.
+/// Under a fit-content route every viewport unit reads the screen; without
+/// a screen, all read the viewport.
 #[test]
 fn the_screen_is_what_the_height_units_read() {
     let mut k = route(NodeType::View, &[], &[]);
@@ -175,7 +180,7 @@ fn the_screen_is_what_the_height_units_read() {
         ("50vh", 422.0),
         ("10vmin", 39.0),
         ("10vmax", 84.4),
-        ("10vw", 30.0),
+        ("10vw", 39.0),
     ] {
         let got = height(&mut k, value);
         assert!((got - want).abs() < 0.01, "{value}: {got}");

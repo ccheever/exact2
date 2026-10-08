@@ -88,7 +88,7 @@ fn own_length(d: Dimension, env: &Env) -> bool {
 // independent of what the flowed text makes that size.
 fn placed(arena: &NodeArena, exclusion: u32) -> bool {
     let s = arena.style(exclusion);
-    let env = arena.env();
+    let env = &*arena.env_for(exclusion);
     let bounded = |d: Dimension| matches!(d, Dimension::Auto) || own_length(d, env);
     own_length(s.top, env)
         && (own_length(s.height, env)
@@ -107,7 +107,8 @@ fn orders(arena: &NodeArena, slot: u32) -> bool {
 
 fn in_flow(arena: &NodeArena, slot: u32) -> bool {
     let s = arena.style(slot);
-    let offset = |d: Dimension| d == Dimension::Auto || own_length(d, arena.env());
+    let env = arena.env_for(slot);
+    let offset = |d: Dimension| d == Dimension::Auto || own_length(d, &env);
     // A static or sticky box's insets do not move its layout; a relative one's
     // must not depend on the context's height.
     matches!(s.position_type, PositionType::Static | PositionType::Sticky)

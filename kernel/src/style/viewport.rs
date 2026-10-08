@@ -53,21 +53,9 @@ impl ViewportUnit {
     pub fn basis(self, env: &Env) -> f32 {
         match self {
             Self::Vw | Self::Svw | Self::Lvw | Self::Dvw => env.viewport_width,
-            Self::Vh | Self::Svh | Self::Lvh | Self::Dvh => {
-                env.screen.map_or(env.viewport_height, |s| s.1)
-            }
-            Self::Vmin => {
-                let (w, h) = env
-                    .screen
-                    .unwrap_or((env.viewport_width, env.viewport_height));
-                w.min(h)
-            }
-            Self::Vmax => {
-                let (w, h) = env
-                    .screen
-                    .unwrap_or((env.viewport_width, env.viewport_height));
-                w.max(h)
-            }
+            Self::Vh | Self::Svh | Self::Lvh | Self::Dvh => env.viewport_height,
+            Self::Vmin => env.viewport_width.min(env.viewport_height),
+            Self::Vmax => env.viewport_width.max(env.viewport_height),
         }
     }
 }

@@ -283,12 +283,14 @@ public final class ExactView: UIView {
             session.rasters.displayChanged()
         }
         var size = frame.size
-        // LLP 1075.003 §9.11: a fit-content sheet's viewport is the sheet,
-        // and its `vh` the screen's — this view's own viewport, as it is
-        // without the sheet — so no length the sheet measures follows it.
+        // LLP 1075.003 §9.11: the screen — this view's own viewport, as it
+        // is without a sheet or the keyboard — always told, whatever is
+        // presented. A fit-content route resolves its viewport units against
+        // it, so no length the sheet measures follows the sheet; every other
+        // node keeps the viewport.
         let fits = presenter.modals.fitsContent
         let screenFrame = whole ? bounds : bounds.inset(by: safeAreaInsets)
-        var screen = fits ? screenFrame.size : nil
+        var screen: CGSize? = screenFrame.size
         // The agent's explicit viewport size is shared with web/macOS/Linux.
         // Fit those logical points into the device window; hit testing and
         // captures still use the viewport's own coordinate system.
@@ -297,7 +299,7 @@ public final class ExactView: UIView {
            let height = Double(env["EXACT_WINDOW_HEIGHT"] ?? ""),
            width.isFinite, height.isFinite, width > 0, height > 0 {
             size = CGSize(width: width, height: height)
-            if fits { screen = size }
+            screen = size
             let scale = min(frame.width / size.width, frame.height / size.height)
             presenter.viewport.transform = CGAffineTransform(scaleX: scale, y: scale)
             presenter.viewport.bounds = CGRect(origin: .zero, size: size)
@@ -384,6 +386,8 @@ public final class ExactView: UIView {
     /// always: the bake's flat answer must never stand in for the device's,
     /// LLP 1078 D5), and fit the root.
     func rebooted() {
+        // A new runner has no screen: tell it again (Grok's review).
+        lastScreen = nil
         if lastInsets != .zero { session.insets(top: lastInsets.top, right: lastInsets.right, bottom: lastInsets.bottom, left: lastInsets.left) }
         session.segments(lastFold)
         reportScheme()

@@ -632,6 +632,10 @@ pub(crate) fn apply_document(
                     }
                     arena.flags_mut(slot).insert(NodeFlags::PROPS_DIRTY);
                     view_box_changed(arena, layout, slot, *prop, &mut receipt);
+                    if *prop == PropId::NavigationDetent {
+                        crate::kernel::rescope(arena, layout, slot, &mut touched);
+                        receipt.layout_invalidated = true;
+                    }
                     if matches!(
                         prop,
                         PropId::Type | PropId::AccessibilityRole | PropId::Href
@@ -663,6 +667,10 @@ pub(crate) fn apply_document(
                         }
                         arena.flags_mut(slot).insert(NodeFlags::PROPS_DIRTY);
                         view_box_changed(arena, layout, slot, *prop, &mut receipt);
+                        if *prop == PropId::NavigationDetent {
+                            crate::kernel::rescope(arena, layout, slot, &mut touched);
+                            receipt.layout_invalidated = true;
+                        }
                         if matches!(
                             prop,
                             PropId::Type | PropId::AccessibilityRole | PropId::Href
@@ -742,7 +750,7 @@ pub(crate) fn apply_document(
                         .iter()
                         .copied()
                         .filter(|o| !retained.contains(o))
-                        .map(|o| (o, arena.computed_inherited(o)))
+                        .map(|o| (o, arena.computed_inherited(o), arena.screened(o)))
                         .collect();
                     for o in &old {
                         if !retained.contains(o) {
@@ -758,13 +766,13 @@ pub(crate) fn apply_document(
                     // rows from its new ancestors: remember what it computed
                     // under the old ones, to propagate only what differs. Orphans
                     // and fresh nodes already compute their own/default rows too.
-                    let moved: Vec<(u32, InheritedStyle)> = new
+                    let moved: Vec<(u32, InheritedStyle, bool)> = new
                         .iter()
                         .copied()
                         .filter(|n| arena.parent(*n) != Some(slot))
                         .map(|n| {
                             let before = arena.computed_inherited(n);
-                            (n, before)
+                            (n, before, arena.screened(n))
                         })
                         .collect();
                     // Each arriving child leaves its previous parent, and each
@@ -801,7 +809,7 @@ pub(crate) fn apply_document(
                     }
                     touched.push(arena.key(slot));
                     receipt.layout_invalidated = true;
-                    for (orphan, before) in detached {
+                    for (orphan, before, screened) in detached {
                         inherited_after_move(
                             arena,
                             layout,
@@ -810,9 +818,17 @@ pub(crate) fn apply_document(
                             &mut touched,
                             &mut receipt,
                         );
+                        if screened != arena.screened(orphan) {
+                            crate::kernel::rescope(arena, layout, orphan, &mut touched);
+                        }
                     }
-                    for (m, before) in moved {
+                    // A child entering or leaving a fit-content route takes
+                    // the viewport its new scope gives (LLP 1075.003 §9.11).
+                    for (m, before, screened) in moved {
                         inherited_after_move(arena, layout, m, before, &mut touched, &mut receipt);
+                        if screened != arena.screened(m) {
+                            crate::kernel::rescope(arena, layout, m, &mut touched);
+                        }
                     }
                 }
                 Op::AttachRoot { id } => {

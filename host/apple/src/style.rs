@@ -855,6 +855,10 @@ pub fn style_json_presented(
     env: &Env,
     shown: &Shown,
 ) -> (String, Vec<Skipped>) {
+    // LLP 1075.003 §9.11: a fit-content route's viewport units, painted
+    // ones too, are the screen's.
+    let screened = node.screened().then(|| env.screened()).flatten();
+    let env = screened.as_ref().unwrap_or(env);
     let rows = if matches!(
         node.node_type,
         NodeType::Text

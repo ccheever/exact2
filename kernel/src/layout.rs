@@ -1010,7 +1010,7 @@ impl LayoutTree {
                     if let Some(record) = buttons.get(&slot).and_then(|n| button_records.get_mut(n))
                     {
                         if let Some(answer) =
-                            buttons::measure(record, arena, measurer, known, space, inset)
+                            buttons::measure(record, arena, slot, measurer, known, space, inset)
                         {
                             if !answer.is_valid() {
                                 invalid_button.get_or_insert_with(|| arena.local_id(slot));

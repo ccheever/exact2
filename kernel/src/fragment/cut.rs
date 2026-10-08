@@ -394,7 +394,7 @@ pub(crate) fn container(
         return Cut::default();
     };
     let s = arena.style(slot);
-    let env = arena.env();
+    let env = &*arena.env_for(slot);
     let l = tree.layout(node);
     let (p, b) = (l.padding, l.border);
     let (x0, y0) = (p.left + b.left, p.top + b.top);
