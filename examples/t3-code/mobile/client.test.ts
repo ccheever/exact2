@@ -102,7 +102,7 @@ describe('mobile refresh ownership', () => {
 });
 
 describe('pinned shared sources', () => {
-  test('every TS copy matches its immutable pin apart from explicit mobile send adaptations', () => {
+  test('every TS copy matches its immutable pin apart from explicit mobile adaptations', () => {
     const directory = new URL('./shared/', import.meta.url).pathname;
     const names: string[] = [];
     function visit(dir: string) {
@@ -119,7 +119,7 @@ describe('pinned shared sources', () => {
       const pin = name === 'let-go.ts' ? '669968e248e3a3ca29dbfeada999af2114141223'
         : ['client.ts', 'local-backend.ts', 'timestamp-format.ts'].includes(name)
           ? '38352ceaf4cd35a40b7b24ce992db87c2357a99b' : '887b2491b182f851b11253655f6aa84fe2a26708';
-      const adapted = ['client-ops-composer.ts', 'project-clones-live.ts'].includes(name);
+      const adapted = ['client-ops-composer.ts', 'project-clones-live.ts', 'r8-pointer-reconnect.ts'].includes(name);
       expect(local[1]).toBe(`// ${adapted ? 'Adapted' : 'Unchanged'} body from examples/t3-code/${name} at ${pin}.`);
       return { name, local, pin };
     });
@@ -149,6 +149,12 @@ describe('pinned shared sources', () => {
       if (name === 'project-clones-live.ts') expected = "// Mobile 365aa87982 apps/mobile/src/state/projectClones.ts: failed subscriptions read as empty.\n" + expected
         .replace("  const clones = liveEnvironment(client, null, client.environmentId)?.clones.value ?? [];",
           "  const stream = liveEnvironment(client, null, client.environmentId)?.clones;\n  const clones = stream?.error ? [] : stream?.value ?? [];");
+      if (name === 'r8-pointer-reconnect.ts') expected = "// Mobile: interrupted catalog reads do not consume reconnect-on-launch; only the newest read may connect.\n" + expected
+        .replace('const asked = new WeakSet<object>();', 'const asked = new WeakSet<object>();\nconst reading = new WeakMap<object, object>();')
+        .replace("  asked.add(client);\n  if (str(status.state) !== 'disconnected' || str(status.environmentId)) return false;",
+          "  if (str(status.state) !== 'disconnected' || str(status.environmentId)) {\n    asked.add(client);\n    return false;\n  }\n  const attempt = {};\n  reading.set(client, attempt);")
+        .replace('  const target = relaunchTarget(saved, str(status.origin));',
+          '  if (asked.has(client) || reading.get(client) !== attempt) return false;\n  reading.delete(client);\n  asked.add(client);\n  const target = relaunchTarget(saved, str(status.origin));');
       expect(local.slice(2).join('\n')).toBe(expected);
     }
   });
