@@ -7,7 +7,7 @@ delivery: draft
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: 'feat(example)/t3-code-provisional-decisions-parity'
-pr_url: null
+pr_url: https://github.com/ccheever/exact2/pull/296
 verified_commit: null
 ---
 
@@ -88,7 +88,7 @@ this decision), the relaunch rows (#122 / X45), T3 Connect (X38, out of scope by
 
 | Attempt | Revision | Checks and outcomes | Evidence | Remaining blocker |
 | --- | --- | --- | --- | --- |
-| 1 (2026-10-08) | `106483621`…`6936a71ee`, merge `708419bec` | Clone: `bun test examples/t3-code` 3058 pass / 1 skip / 0 fail (base `07dcef1ab` 3036 pass / 1 skip); strict `tsc` clean; contract build 3845 slots, 46 resources; Swift local-backend 82 tests, transport 59 tests, 0 failures | [evidence](https://github.com/ccheever/exact2/tree/t3-code-evidence/provisional-decisions-parity) | rows above |
+| 1 (2026-10-08) | `106483621`…`6936a71ee`, merge `708419bec` | Clone: `bun test examples/t3-code` 3058 pass / 1 skip / 0 fail (base `07dcef1ab` 3036 pass / 1 skip); strict `tsc` clean; contract build 3845 slots, 46 resources; Swift module tests: local-backend 82, transport 59 and every other recipe directory 0 failures (mermaid, timeline-keyboard not run: own setups); `cargo test -p t3-code-macos --lib` 11 pass; caps within; five checks green: build, test 3383 passed / 0 failed / 33 ignored (94 binaries), clippy, fmt, boot | [evidence](https://github.com/ccheever/exact2/tree/t3-code-evidence/provisional-decisions-parity) | rows above |
 | live drive | before `07dcef1ab`, after `592657b3a` / `6936a71ee`, agent mode, lane ports 16601/16602 | First screenshots were white: taken before the first paint; a 6 s real wait fixed it. Drive A's `tap welcome-continue` failed on a Local-off launch (no wizard): the script was fixed. The U9 drive first found no Tailscale switch: the reference reads Tailscale only with network access or Serve on, so the drive turns network access on first | [record](https://raw.githubusercontent.com/ccheever/exact2/82b35ee9e658228de317416e75525da72b7da1f9/provisional-decisions-parity/drive-record.txt) | — |
 
 ## Real-input batch steps
