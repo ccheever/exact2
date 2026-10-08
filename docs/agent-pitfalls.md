@@ -484,6 +484,18 @@ guide's rules don't make obvious.
   the agent's own `screenshot`, which targets the app's simulator. (Authoring
   bench, LLP 1087, t9-profile, 2026-10-07.)
 
+- **A deadline the app computed lands in 1970, and the server sweeps it at once.**
+  `closesAt = now() + 7 * 86400000` was sent as `604800000`: a row the backend's
+  expiry job removed while the mutation said `sent`, a label reading "due in
+  20732d". Cause: `now()` is milliseconds since the runner's clock started, as the
+  web's `performance.now()`, not `Date.now()`; on every host, production included,
+  and from 0 under the agent and in tests. Fix: the date is `time.epochAtZero +
+  now()`, from `resource time = exactTime() as shape Clock` with `shape Clock` /
+  `epochAtZero: number` declared (`exactTime()` is a resource, never a call in an
+  expression); or let the server compute the deadline from a duration. LLP 1109 D1
+  asks whether `now()` should be the date. (App farm round 1, 12 builds,
+  2026-10-07.)
+
 - **Records an agent drive writes are dated 2026-01-01.** The driver's clock
   starts at a fixed epoch, so `wallTime.epochAtZero + now()` is that date, and a
   `createdAt` taken from it is too: Bluesky's AppView then sorted the clone's

@@ -1216,8 +1216,9 @@ a loop from mutations: a `then` cannot send its own mutation
 instead.
 
 `now()` is the runner's clock in milliseconds since boot (the driver's clock under
-the agent), not a date. For the date, read the reserved `exactTime` source and add
-`time.epochAtZero + now()`. Its fields, which a shape declares as it reads them:
+the agent, from 0), as the web's `performance.now()`, not a date: a deadline of
+`now() + ms` sent to a server is in 1970. For the date, read the reserved
+`exactTime` source and add `time.epochAtZero + now()`. Its fields, which a shape declares as it reads them:
 `epochAtZero` (Unix milliseconds when `now()` read zero), `utcOffset` (minutes east
 of UTC), `locale` (BCP 47), `timeZone` (IANA), `resolvedLocale` (the language of
 the string table the app shows, `""` with no tables) and `seed` (a whole number
