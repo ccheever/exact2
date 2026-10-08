@@ -484,6 +484,19 @@ guide's rules don't make obvious.
   the agent's own `screenshot`, which targets the app's simulator. (Authoring
   bench, LLP 1087, t9-profile, 2026-10-07.)
 
+- **Records an agent drive writes are dated 2026-01-01.** The driver's clock
+  starts at a fixed epoch, so `wallTime.epochAtZero + now()` is that date, and a
+  `createdAt` taken from it is too: Bluesky's AppView then sorted the clone's
+  test posts out of the author feed, and they turned up only through search.
+  Fix: `--epoch $(date -u +%Y-%m-%dT%H:%M:%SZ)` on any drive that writes to a
+  real service. (Bluesky clone, b12, 2026-10-07.)
+
+- **`screenshot` of a sheet is the sheet alone, at full width.** On iOS it
+  captures the presented route (a fit-content repost sheet came out 402 × 270
+  points), so its type looks twice its size when viewed as a screen. Fix:
+  `screenshot out.png window` for the screen as a person sees it. (Bluesky clone,
+  b12, 2026-10-07.)
+
 - **A screenshot right after a state change shows a transition's start.** A
   `transition` (a background colour, an opacity) is held by the driver's clock,
   so the frame and the computed style still read the old value: the toggle
