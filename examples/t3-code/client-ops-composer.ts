@@ -24,6 +24,7 @@ import { composerFileAttachments } from './composer-editor-files';
 import { activeInput, pendingRequests, setCustomAnswer, chooseOption, advanceQuestion, previousQuestion, dismissPayload, approvalPayload } from './requests';
 import { threadPhase } from './composer-presentation';
 import { autoBalanceSend } from './auto-balance'; // auto-balance
+import { fleet } from './settings-b-fleet'; // settings-model-picker: favorites from another environment's catalog
 import { obj, str, arr, type Obj } from './domain';
 import { ClientError, activeRun, providerAvailable, modelSelection, sendPayload,
   launchPayload, type Native, type Files } from './protocol';
@@ -37,7 +38,9 @@ export async function composerOps(this: T3Client, op: string, id: string, value:
       if (!setCustomAnswer(this, value)) this.local.drafts[this.draftKey] = value;
      } else if (op === 'favorite-model') {
       const key = JSON.stringify([id, value]);
-      if (!arr(this.config.providers).some(provider => provider.instanceId === id && arr(provider.models).some(model => model.slug === value))) {
+      // A Settings scope's representative may be another environment (settings-model-picker.ts): any known catalog counts.
+      const catalogs = [this.config, ...[...fleet.entries.values()].map(entry => entry.config)];
+      if (!catalogs.some(config => arr(obj(config).providers).some(provider => provider.instanceId === id && arr(provider.models).some(model => model.slug === value)))) {
         throw new ClientError('That model is no longer advertised by T3.');
       }
       this.local.favoriteModels = this.local.favoriteModels.includes(key)

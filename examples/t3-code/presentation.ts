@@ -18,6 +18,7 @@ import { diffNotGit, diffSnapshot, NOT_GIT_REPO } from './diff';
 import { composerSnapshot } from './composer-presentation';
 import { triggerModelName } from './r3-composer-controls-model';
 import { pickerCatalog } from './model-catalog';
+import { settingsPickerCatalog } from './settings-model-picker'; // settings-model-picker: General's model rows
 import { look } from './settings-appearance-look';
 import { composerOverlaySnapshot } from './r4-composer-overlay';
 import { composerVideoSnapshot } from './r4-composer-attachments';
@@ -158,7 +159,10 @@ export function snapshot(client: T3Client, now = 0) {
   };
 }
 
-/** T3's picker catalog (model-catalog.ts); browsing and searching never change the selected model. */
-export function modelCatalog(client: T3Client, providerId: string, query: string) {
-  return pickerCatalog(client, providerId, query, providerBadge);
+/**
+ * T3's picker catalog (model-catalog.ts); browsing and searching never change the selected model.
+ * A target names the Settings → General row the picker chooses for (settings-model-picker.ts).
+ */
+export function modelCatalog(client: T3Client, providerId: string, query: string, target = '') {
+  return target ? settingsPickerCatalog(client, target, providerId, query, providerBadge) : pickerCatalog(client, providerId, query, providerBadge);
 }

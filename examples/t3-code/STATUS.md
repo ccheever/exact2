@@ -16,7 +16,7 @@ Checks at round 11: `bun test` 991/0, strict `tsc` clean, `contract build` OK, 2
 - **Version control:** branch picker, git actions, commit dialog, pull, publish wizard, new worktree, pull request checkout dialog.
 - **Right panel:** workspace card, diffs, Files (tree, previews, editor, rendered HTML), linked pull requests, pull request surface (read and Ready/Merge), attachment previews (PDF, HTML, audio, video), Device surface (3D phone, tools, iPhone Duo, foldable).
 - **Pages:** Pull Requests list and detail (read), Usage, welcome wizard, command palette, toasts, notifications.
-- **Settings:** all 14 routes, theme editor and VS Code theme import, keybindings, providers (config only), connections, SnapShots, diagnostics, licenses.
+- **Settings:** all 14 routes, theme editor and VS Code theme import, keybindings, providers (config only), connections, SnapShots, diagnostics, licenses. General's two model rows open the composer's picker (search, provider rail, favorites, legacy models, scoped disabled reasons; draft PR #246, live rows pending).
 - **Desktop shell:** reference menu bar, ⌘Q hold, window frame persistence, Korean 2-Set chord handling.
 
 Round 12 (unfinished, in mc-orch): r12-sidebar and r12-render done (`bun test` 1025/0); r12-threads stopped mid-work; no native build or Swift tests after the stop.
