@@ -17,7 +17,8 @@ use AboutUpdateButton from "./settings-a-about.contract"
 use MobileBetaControl from "./settings-mobile-beta.contract"
 use ScopedSwitch from "./settings-scoped-switch.contract"
 use FontFamilyPicker from "./settings-a-fonts.contract"
-use FontPromptPreview, FontCodePreview from "./settings-font-previews.contract"
+use PromptFontPreview from "./settings-prompt-preview.contract"
+use FontCodePreview from "./settings-font-previews.contract"
 use FontDiffPreview from "./shapes.contract"
 
 // "Applying settings for <project> across <environment>" with its two radio menus.
@@ -236,7 +237,7 @@ component CoreRowView
               FontFamilyPicker(rowId=row.id, label=`${row.title} family`, value=row.label, families=row.options, pal=pal, disabled=busy, choose=change(row.id, row.target))
               CoreSelect(rowId=`${row.id}-size`, section=section, value=row.label2, icon="", width=144, menuWidth=0, options=row.options2, pal=pal, disabled=busy, dim=false, menu=menu, openMenu=openMenu, choose=change(row.id, row.suffix))
       when row.info == "preview-prompt"
-        FontPromptPreview(family=row.driver, size=row.previewSize, pal=pal)
+        PromptFontPreview(family=row.driver, size=row.previewSize, pal=pal)
       when row.info == "preview-code" or row.info == "preview-code-terminal"
         FontCodePreview(preview=codePreview, family=row.driver, size=row.amount, pal=pal)
       when row.info == "preview-code-terminal" or row.info == "preview-terminal"
