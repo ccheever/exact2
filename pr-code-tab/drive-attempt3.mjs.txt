@@ -1,0 +1,243 @@
+// pr-code-tab live drive 3 (not committed): bun target/drive/drive3.mjs <repo> <label>
+// The rows drives 1-2 never reached (drive 2 lost its second half to GitHub failing #168's 4th slice), and
+// re-checks of the three fixes. One macOS agent session against the primary lane server (127.0.0.1:16310,
+// real GitHub through the lane gh). Every write is read back with the lane gh and undone after.
+// Drives 1-2's lessons: the tree's props are schema names (accessibilityLabel/Expanded/Checked/Selected); the
+// Summary's reaction bar shares a thread card's testIds, so a card's controls are tapped by node id inside the
+// Code panel; a file is reached through the tab's own file tree; a failed slice is retried with its Retry.
+import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+const [repo, label] = process.argv.slice(2);
+const MINE = '/Users/daehyeonmun/orca/workspaces/exact2/t3-code-pr-code-tab';
+const L = resolve(MINE, 'target/drive'), out = resolve(L, `out-${label}`); mkdirSync(out, { recursive: true });
+process.env.EXACT_APP_DIR = resolve(repo, 'examples/t3-code');
+const { open } = await import(resolve(repo, 'scripts/agent.mjs'));
+const lane = await import(resolve(MINE, 'examples/t3-code/tools/github-lane/lane.mjs'));
+const lib = await import(resolve(MINE, 'examples/t3-code/tools/github-lane/lib.mjs'));
+const paths = lib.lanePaths();
+const origin = 'http://127.0.0.1:16310', REPO = 'daehyeonmun2021/playground', CODE = 168, REVIEWED = 115, ME = 'daehyeonmun2021';
+const rec = (line) => { const text = `${new Date().toISOString()} [${label}] ${line}`; appendFileSync(resolve(out, 'record.txt'), text + '\n'); console.log(text); };
+const gh = (args) => lib.api(paths, 'primary', args);
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const TRACE = resolve(MINE, 'target/github-lane/servers/primary/t3home/userdata/logs/server.trace.ndjson');
+const spans = (name) => { try { return readFileSync(TRACE, 'utf8').split('\n').filter((l) => l.includes(`"name":"${name}"`)).length; } catch { return 0; } };
+
+const s = await open({ host: 'macos', size: [1280, 840], env: { HOME: resolve(L, `apphome-${label}`) }, storage: `pr-code-tab-${label}`, epoch: Date.now(),
+  onProcess: (p) => { writeFileSync(resolve(L, `${label}-app.pid`), String(p.pid)); rec(`app pid ${p.pid}`); } });
+const settle = async (ms = 600) => { await s.clock(`+${ms} real`); await s.clock('settle'); };
+const has = async (id) => !!(await s.find(id, false).catch(() => null));
+const sub = async (scope) => { try { return (await s.tree(scope)).nodes; } catch { return []; } };
+const node = async (id, scope) => (await sub(scope ?? id)).find((n) => n.props?.testId === id);
+const NAMES = { 'aria-label': 'accessibilityLabel', 'aria-expanded': 'accessibilityExpanded', 'aria-checked': 'accessibilityChecked', 'aria-selected': 'accessibilitySelected' };
+const prop = async (id, key, scope) => (await node(id, scope))?.props?.[NAMES[key] ?? key];
+const textOf = async (id) => (await sub(id)).flatMap((n) => [n.props?.text, n.props?.accessibilityLabel].filter((v) => typeof v === 'string' && v.trim())).join(' | ');
+const idsIn = async (scope) => (await sub(scope)).map((n) => n.props?.testId).filter(Boolean);
+const tapIn = async (scope, id, opts) => { const n = (await sub(scope)).find((x) => x.props?.testId === id); if (!n) throw new Error(`no ${id} in ${scope}`); return s.tap(n.id, opts); };
+const type = async (id, value) => { await s.type(id, value); await settle(400); };
+const shot = async (name) => { await s.screenshot(resolve(out, `${label}-${name}.png`), true); rec(`shot ${name}`); };
+const clearToasts = async () => { for (const id of (await idsIn('toast-region')).filter((id) => id.startsWith('toast-dismiss-'))) { try { await s.tap(id); await settle(300); } catch {} } };
+const toastsNow = async () => await textOf('toast-region');
+const waitFor = async (check, ms = 60_000) => { const end = Date.now() + ms; while (Date.now() < end) { if (await check()) return true; await settle(1000); } return false; };
+const step = async (name, body) => { const t0 = Date.now(); try { await body(); rec(`  ${name}: done (${Date.now() - t0} ms)`); } catch (e) { rec(`STEP ${name} FAILED: ${e.message.slice(0, 400)}`); try { await shot(`fail-${name}`); } catch {} } };
+const openPr = async (n) => {
+  await type('pull-requests-search', `#${n}`); await settle(2000);
+  await waitFor(async () => has(`pr-row-${n}`), 90_000);
+  await s.tap(`pr-row-${n}`); await settle(3000); await clearToasts();
+  await waitFor(async () => has('pull-request-tab-code'), 60_000);
+};
+/** Every slice, pressing Retry when GitHub failed one. */
+const allSlices = async (want) => {
+  await waitFor(async () => /files/.test(await textOf('pull-request-code-files')), 90_000);
+  for (let i = 0; i < 10; i++) {
+    const files = await textOf('pull-request-code-files');
+    if (!files.includes('+')) break;
+    if (await has('pull-request-code-retry')) { rec(`retry after "${await textOf('pull-request-code-footer')}"`); await s.tap('pull-request-code-retry'); await settle(3000); continue; }
+    try { await s.tap('pull-request-code-list', { wheel: [0, 6000] }); } catch {}
+    await settle(1500);
+  }
+  rec(`files: "${await textOf('pull-request-code-files')}" (want ${want})`);
+};
+const reveal = async (path) => {
+  if (!(await has('pull-request-code-tree'))) { await s.tap('pull-request-code-tree-toggle'); await settle(600); }
+  await s.tap(`pull-request-code-tree-${path}`); await settle(1200);
+  await s.tap('pull-request-code-tree-toggle'); await settle(600);
+};
+const cardsIn = async () => (await idsIn('pull-request-code-panel')).filter((id) => /^pull-request-thread-PRRT_[A-Za-z0-9_-]+$/.test(id)).map((id) => id.slice('pull-request-thread-'.length));
+const threadState = () => gh(['graphql', '-f', `query=query{repository(owner:"daehyeonmun2021",name:"playground"){pullRequest(number:${CODE}){reviewThreads(first:20){nodes{id isResolved diffSide comments(first:5){nodes{databaseId author{login}}}}}}}}`]).body?.data?.repository?.pullRequest?.reviewThreads?.nodes ?? [];
+const made = { comments: [] };
+
+try {
+  await settle(2000);
+  if (await has('welcome-pairing-link')) { await type('welcome-pairing-link', `${origin}/pair#token=${lane.pairingToken('primary')}`); await s.tap('welcome-pair'); await settle(5000); }
+  for (const id of ['welcome-continue', 'welcome-agents-continue', 'welcome-skip-import']) if (await has(id)) { await s.tap(id); await settle(); }
+  await settle(2000); await clearToasts();
+  await s.tap('open-pull-requests'); await settle(4000); await clearToasts();
+  await openPr(CODE);
+  await s.tap('pull-request-tab-code'); await settle(1000);
+  await allSlices(310);
+  const sample = await node('pull-request-code-scope');
+  rec(`scope trigger props: ${JSON.stringify(sample?.props ?? {}).slice(0, 400)}`);
+
+  // ── Re-check: the scope menu's glass and headlines ───────────────────────
+  await step('recheck-scope-menu', async () => {
+    await s.tap('pull-request-code-scope'); await settle(800);
+    await shot('01-scope-menu');
+    await s.type('pull-request-code-scope-all', { key: 'Escape' }); await settle(600);
+    await shot('01b-scope-menu-escape');
+  });
+
+  // ── Resolve / Unresolve and a reaction on #168's open thread ─────────────
+  await step('resolve-and-react', async () => {
+    await reveal('docs/usage.md');
+    const cards = await cardsIn();
+    const nodes = threadState();
+    const openThread = nodes.find((t) => !t.isResolved && t.diffSide === 'RIGHT');
+    rec(`cards ${cards.join(', ')}; the open thread ${openThread?.id}`);
+    await shot('02-usage-threads');
+    await tapIn('pull-request-code-panel', `pull-request-thread-resolve-${openThread.id}`); await settle(800);
+    let state = null;
+    for (let i = 0; i < 20 && state !== true; i++) { await sleep(1000); state = threadState().find((t) => t.id === openThread.id)?.isResolved; }
+    rec(`Resolve: GitHub isResolved ${state}`);
+    await settle(3000); await shot('03-resolved');
+    rec(`card header: "${await textOf(`pull-request-thread-toggle-${openThread.id}`)}"`);
+    await tapIn('pull-request-code-panel', `pull-request-thread-resolve-${openThread.id}`); await settle(800);
+    for (let i = 0; i < 20 && state !== false; i++) { await sleep(1000); state = threadState().find((t) => t.id === openThread.id)?.isResolved; }
+    rec(`Unresolve: GitHub isResolved ${state}`);
+    await settle(3000); await shot('04-unresolved');
+    // 👍 on the second account's comment in that thread, then taken back.
+    const commentIds = (await idsIn('pull-request-code-panel')).filter((id) => id.startsWith('pull-request-reaction-add-')).map((id) => id.slice('pull-request-reaction-add-'.length));
+    const dbId = openThread.comments.nodes[0].databaseId, subject = commentIds[commentIds.length - 1];
+    rec(`reaction subjects in the panel: ${commentIds.join(', ')}; using ${subject} (GitHub comment ${dbId})`);
+    await tapIn('pull-request-code-panel', `pull-request-reaction-add-${subject}`); await settle(500);
+    await tapIn('pull-request-code-panel', `pull-request-reaction-choose-${subject}-thumbs-up`); await settle(500);
+    let mine = [];
+    for (let i = 0; i < 20 && !mine.length; i++) { await sleep(1000); mine = (gh([`repos/${REPO}/pulls/comments/${dbId}/reactions`]).body ?? []).filter((r) => r.user?.login === ME); }
+    rec(`react: GitHub reactions by ${ME}: ${mine.map((r) => r.content).join(',')}`);
+    await settle(2500); await shot('05-reacted');
+    await tapIn('pull-request-code-panel', `pull-request-reaction-${subject}-thumbs-up`); await settle(500);
+    for (let i = 0; i < 20 && mine.length; i++) { await sleep(1000); mine = (gh([`repos/${REPO}/pulls/comments/${dbId}/reactions`]).body ?? []).filter((r) => r.user?.login === ME); }
+    rec(`take back: GitHub reactions by ${ME}: ${mine.length}`);
+    await settle(2000); await shot('06-reaction-taken-back');
+  });
+
+  // ── Line comments into the review, Submit review, read back ──────────────
+  await step('submit-review', async () => {
+    await s.tap('pull-request-code-split'); await settle(800);
+    await reveal('docs/usage.md');
+    const draft = async (path, side, line, body) => {
+      await tapIn('pull-request-code-panel', `diff-comment-${path}-${side}-${line}`); await settle(500);
+      rec(`draft on ${path} ${side} ${line}: "${await prop('pull-request-comment-text', 'aria-label')}"`);
+      await type('pull-request-comment-text', body);
+      await s.tap('pull-request-comment-add'); await settle(600);
+    };
+    await draft('docs/usage.md', 'additions', 5, 'Maybe say where the catalog lives here.');
+    await draft('docs/usage.md', 'deletions', 5, 'The short wording was fine too.');
+    await draft('docs/usage.md', 'deletions', 4, 'This blank line could go.');
+    await reveal('src/strings.js');
+    await draft('src/strings.js', 'additions', 3, 'A test for mumble would help.');
+    await shot('07-rename-pending');
+    // Escape on a fresh draft keeps nothing.
+    await tapIn('pull-request-code-panel', 'diff-comment-src/strings.js-additions-1'); await settle(400);
+    await type('pull-request-comment-text', 'Not kept.');
+    await s.type('pull-request-comment-text', { key: 'Escape' }); await settle(500);
+    const pending = (await idsIn('pull-request-code-panel')).filter((id) => /^pull-request-pending-[^d]/.test(id) && !id.includes('discard'));
+    rec(`after Escape: draft ${await has('pull-request-comment-text') ? 'open' : 'gone'}; pending cards ${pending.length}`);
+    await s.tap('pull-request-composer-trigger'); await settle(800);
+    if (await has('pull-request-composer-mode-review')) { await s.tap('pull-request-composer-mode-review'); await settle(500); }
+    await type('pull-request-review-summary', 'Notes on the usage page and the helpers.');
+    await shot('08-review-form');
+    const before = spans('ws.rpc.pullRequests.submitReview');
+    await s.tap('pull-request-review-submit'); await settle(1000);
+    let review = null;
+    for (let i = 0; i < 25 && !review; i++) { await sleep(1000); review = (gh([`repos/${REPO}/pulls/${CODE}/reviews?per_page=100`]).body ?? []).filter((r) => r.body === 'Notes on the usage page and the helpers.').at(-1); }
+    const posted = review ? gh([`repos/${REPO}/pulls/${CODE}/reviews/${review.id}/comments`]).body ?? [] : [];
+    rec(`submitReview spans +${spans('ws.rpc.pullRequests.submitReview') - before}; GitHub review ${review?.id} by ${review?.user?.login} state ${review?.state}`);
+    for (const c of posted) rec(`  comment ${c.id}: ${c.path} line ${c.line} side ${c.side} (original ${c.original_line}) "${c.body}"`);
+    made.comments.push(...posted.map((c) => c.id));
+    await settle(4000); await shot('09-review-sent');
+    rec(`pending cards after submit: ${(await idsIn('pull-request-code-panel')).filter((id) => /^pull-request-pending-[^d]/.test(id) && !id.includes('discard')).length}; composer badge "${await textOf('pull-request-composer-badge')}"`);
+    await s.tap('pull-request-code-stacked'); await settle(500);
+  });
+
+  // ── Re-check: the Timeline's commit row ──────────────────────────────────
+  await step('recheck-timeline', async () => {
+    const commits = gh([`repos/${REPO}/pulls/${CODE}/commits?per_page=100`]).body ?? [];
+    const search = commits.find((c) => c.commit.message.startsWith('Search the catalog'));
+    await s.tap('pull-request-tab-timeline'); await settle(2000);
+    await s.tap(`pull-request-timeline-commit-${search.sha.slice(0, 7)}`); await settle(3000);
+    rec(`commit row: Code tab selected ${await prop('pull-request-tab-code', 'aria-selected')}; scope "${await prop('pull-request-code-scope', 'aria-label')}"; files "${await textOf('pull-request-code-files')}"`);
+    await shot('10-timeline-commit');
+    await s.tap('pull-request-code-scope'); await settle(500); await s.tap('pull-request-code-scope-all'); await settle(2000);
+  });
+
+  // ── Re-check: 840×620 keeps the scope trigger ─────────────────────────────
+  await step('recheck-840', async () => {
+    await s.resize(840, 620); await settle(1500);
+    const n = await node('pull-request-code-scope');
+    const layout = await s.layout().catch(() => null);
+    const box = layout?.nodes?.find((x) => x.id === n?.id);
+    rec(`840x620: scope trigger box ${box ? `${Math.round(box.w)}x${Math.round(box.h)}` : 'unknown'}`);
+    await shot('11-840x620');
+    await s.resize(1280, 840); await settle(1000);
+  });
+
+  // ── #115: Load more, the conversations off the diff (reduced motion) ──────
+  await step('reviewed-pr', async () => {
+    await s.tap('pull-request-tab-summary'); await settle(500);
+    await openPr(REVIEWED);
+    await s.tap('pull-request-tab-code'); await settle(1500);
+    await waitFor(async () => /file/.test(await textOf('pull-request-code-files')), 60_000);
+    if ((await prop('pull-request-code-fold-src/validate.js', 'aria-expanded')) !== true) { await s.tap('pull-request-code-fold-src/validate.js'); await settle(1500); }
+    await shot('12-115-code');
+    const more = (await idsIn('pull-request-code-panel')).find((id) => id.startsWith('pull-request-thread-more-'));
+    const count = async () => (await idsIn('pull-request-code-panel')).filter((id) => id.startsWith('pull-request-thread-comment-')).length;
+    rec(`Load more button ${more}; comments shown ${await count()}`);
+    if (more) {
+      const before = await count(), calls = spans('ws.rpc.pullRequests.threadComments');
+      await tapIn('pull-request-code-panel', more); await settle(1000);
+      await waitFor(async () => (await count()) > before, 30_000);
+      rec(`after Load more: comments shown ${await count()}; threadComments spans +${spans('ws.rpc.pullRequests.threadComments') - calls}`);
+      await shot('13-115-load-more');
+    }
+    await s.prefer({ 'prefers-reduced-motion': 'reduce' }); await settle(500);
+    rec(`orphans: "${await prop('pull-request-code-orphans-toggle', 'aria-label')}"`);
+    await s.tap('pull-request-code-orphans-toggle'); await settle(1200);
+    rec(`orphans open: ${await prop('pull-request-code-orphans-toggle', 'aria-expanded')}; list: ${(await textOf('pull-request-code-orphans-list')).slice(0, 300)}`);
+    await shot('14-115-orphans-reduced-motion');
+    await s.prefer({ 'prefers-reduced-motion': 'no-preference' }); await settle(300);
+    await s.tap('pull-request-code-orphans-toggle'); await settle(500);
+  });
+
+  // ── Add to agent (a new thread with the lines and the request) ────────────
+  await step('add-to-agent', async () => {
+    await tapIn('pull-request-code-panel', 'diff-comment-src/validate.js-additions-4'); await settle(500);
+    await type('pull-request-comment-text', 'Explain why an empty input is an error here.');
+    await shot('15-agent-draft');
+    await s.tap('pull-request-comment-agent'); await settle(5000);
+    rec(`toasts: ${await toastsNow()}`);
+    await settle(3000); await shot('16-agent-thread');
+    rec(`composer: ${(await textOf('composer')).slice(0, 400)}`);
+  });
+
+  // ── Fix in a thread from a conversation card on #115 ──────────────────────
+  await step('fix-in-a-thread', async () => {
+    await clearToasts();
+    await s.tap('open-pull-requests'); await settle(3000);
+    await openPr(REVIEWED);
+    await s.tap('pull-request-tab-code'); await settle(3000);
+    await waitFor(async () => /file/.test(await textOf('pull-request-code-files')), 60_000);
+    if ((await prop('pull-request-code-fold-src/validate.js', 'aria-expanded')) !== true) { await s.tap('pull-request-code-fold-src/validate.js'); await settle(1500); }
+    const fix = (await idsIn('pull-request-code-panel')).find((id) => id.startsWith('pull-request-thread-fix-'));
+    rec(`Fix button ${fix}`);
+    await tapIn('pull-request-code-panel', fix); await settle(1500);
+    await shot('17-fix-preparing');
+    await settle(8000);
+    rec(`toasts: ${await toastsNow()}`);
+    await shot('18-fix-thread');
+    rec(`composer: ${(await textOf('composer')).slice(0, 400)}`);
+  });
+} finally {
+  for (const id of made.comments) { const d = gh(['-X', 'DELETE', `repos/${REPO}/pulls/comments/${id}`]); rec(`cleanup: deleted review comment ${id} (HTTP ${d.status})`); }
+  rec('closing');
+  try { await s.close(); } catch {}
+}
