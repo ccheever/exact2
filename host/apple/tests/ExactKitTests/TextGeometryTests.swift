@@ -842,7 +842,9 @@ extension TextGeometryTests {
             let flush: CGFloat = spec.align == 1 ? 0.5 : spec.align == 2 ? 1 : 0
             context.textMatrix = .identity
             for (line, baseline) in zip(paragraph.lines, paragraph.baselines) {
-                let x = CGFloat(CTLineGetPenOffsetForFlush(line, flush, Double(bounds.width)))
+                let advance = CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil)) - CTLineGetTrailingWhitespaceWidth(line)
+                let cssFlush: CGFloat = advance > bounds.width ? (spec.direction == 1 ? 1 : 0) : flush
+                let x = CGFloat(CTLineGetPenOffsetForFlush(line, cssFlush, Double(bounds.width)))
                 context.saveGState()
                 context.translateBy(x: bounds.minX + x, y: bounds.minY + baseline.rounded())
                 context.scaleBy(x: 1, y: -1)
@@ -914,7 +916,7 @@ extension TextGeometryTests {
         }
     }
 
-    func testViewportInkRetainsAlignedOverflowOutsideTheContentBox() {
+    func testViewportInkRetainsStartAlignedOverflowOutsideTheContentBox() {
         let engine = TextEngine(resolve: { _ in nil })
         let run = Run(text: String(repeating: "f", count: 32), size: 19.25, weight: 400,
                       family: 3, italic: true, lineHeight: 24.25, letterSpacing: 0)
@@ -924,7 +926,7 @@ extension TextGeometryTests {
         XCTAssertGreaterThan(paragraph.width, 120)
         assertInkMatches(paragraph, spec: spec,
                          bounds: CGRect(x: 240, y: 35, width: 45, height: paragraph.height),
-                         clip: CGRect(x: 0, y: 20, width: 220, height: 80))
+                         clip: CGRect(x: 300, y: 20, width: 220, height: 80))
     }
 
     func testViewportInkIndexIsReusedAndKeepsZeroHeightPaintOrder() {

@@ -257,9 +257,13 @@ final class NativeButtonFocusMacTests: XCTestCase {
             node.isHidden = true
             XCTAssertFalse(control.acceptsFirstResponder); XCTAssertFalse(Presenter.tabbable(node))
             node.isHidden = false
-            p.apply(wireBatch([["op": "style", "id": id, "set": ["visibility": "hidden"]]]))
+            p.apply(wireBatch([["op": "style", "id": id, "style": ["visibility": "hidden"]]]))
+            XCTAssertTrue(node.cssVisibilityHidden, "the style op applies visibility to native control \(id)")
             XCTAssertFalse(control.acceptsFirstResponder); XCTAssertFalse(Presenter.tabbable(node))
-            p.apply(wireBatch([["op": "style", "id": id, "set": ["visibility": "visible"]]]))
+            p.focusElement([node.props["id"]!]); XCTAssertFalse(window.firstResponder === control)
+            p.apply(wireBatch([["op": "style", "id": id, "style": ["visibility": "visible"]]]))
+            XCTAssertFalse(node.cssVisibilityHidden)
+            XCTAssertTrue(control.acceptsFirstResponder, "visibility restoration restores explicit focus")
         }
     }
 

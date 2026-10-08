@@ -13,7 +13,7 @@ final class InlineHoverMacTests: XCTestCase {
                                           ("אבגדה ", "ABCDEFGHIJKLMNOPQRSTUVWXYZ", 3)] {
             p.apply(wireBatch([
                 ["op": "create", "id": 1, "kind": "view"],
-                ["op": "create", "id": 2, "kind": "text", "style": ["font_size": 20.0, "direction": "rtl", "white_space": "nowrap", "text_align": "center", "text_overflow": "ellipsis"]],
+                ["op": "create", "id": 2, "kind": "text", "style": ["font_size": 20.0, "direction": "rtl", "white_space": "nowrap", "text_align": "center", "text_overflow": "ellipsis", "overflow_x": "hidden"]],
                 ["op": "paragraph", "id": 2, "runs": [
                     ["id": 3, "parent": 2, "paint": true, "props": ["text": prefix], "style": ["font_size": 20.0], "handlers": ["press"]],
                     ["id": 4, "parent": 2, "paint": true, "props": ["text": suffix], "style": ["font_size": 20.0], "handlers": ["press"]],

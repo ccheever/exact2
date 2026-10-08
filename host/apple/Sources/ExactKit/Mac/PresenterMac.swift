@@ -856,6 +856,7 @@ package final class Presenter {
     func setHoverPath(_ nodes: [NodeView], inline: UInt32? = nil) {
         if applying { afterBatch { [weak self] in self?.setHoverPath(nodes, inline: inline) }; return }
         hoverTransition &+= 1
+        inlineHoverTransition &+= 1 // cancel an inline enter awaiting its leave callback
         let generation = hoverTransition
         func eligible(_ node: NodeView) -> Bool {
             views[node.id] === node && node.isDescendant(of: viewport) && !node.inert && !node.isHiddenOrHasHiddenAncestor && node.handlers.contains("hover")

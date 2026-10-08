@@ -27,6 +27,7 @@ final class ScrollRoutingTests: XCTestCase {
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 240),
                                   styleMask: [.titled], backing: .buffered, defer: false)
             window.isReleasedWhenClosed = false; window.contentView = p.viewport
+            window.makeKeyAndOrderFront(nil)
             defer { p.collections.reset(); window.close() }
             p.apply(wireBatch([
                 ["op": "collections", "items": kind == "list" ? [["view": 2, "revision": 1, "scrollSequence": 0, "count": 0, "totalExtent": 0, "rows": []]] : []],

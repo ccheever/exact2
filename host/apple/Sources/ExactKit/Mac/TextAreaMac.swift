@@ -9,9 +9,11 @@ package final class TextArea: NSTextView {
     private lazy var textUndo = NativeTextUndo(before: { [weak self] in
         self?.markup?.applying = true
     }, after: { [weak self] in
-        guard let self, let editor = markup else { return }
-        editor.applying = false
-        editor.bookmark = selectedRange()
+        guard let self else { return }
+        if let editor = markup {
+            editor.applying = false
+            editor.bookmark = selectedRange()
+        }
         owner?.textDidChange(Notification(name: NSText.didChangeNotification, object: self))
     })
     package override var undoManager: UndoManager? { textUndo.manager }
