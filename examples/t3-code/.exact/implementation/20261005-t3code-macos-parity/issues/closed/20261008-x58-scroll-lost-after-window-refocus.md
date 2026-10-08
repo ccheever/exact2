@@ -78,4 +78,4 @@ Upstream: not reproduced on main `0365ad1a4`, closed (2026-10-08); not filed. Th
 3. Two refocuses in quick succession: 431.
 4. Rows inside two keyed groups, with a `when pending(rows)` line at the scroller's top: 455 throughout.
 
-What the clone does beyond these (its own carried answer while a read is out, its grouping, its live-refresh rules) remains the lead. A drive on the clone with the list read held off would tell whether a host or the app moves it. This record also travels on PR #265's branch; this copy adds this section and closes it.
+What the clone does beyond these (its own carried answer while a read is out, its grouping, its live-refresh rules) remains the lead. A drive on the clone with the list read held off would tell whether a host or the app moves it. The draft came with PR #265; this round closed it.
