@@ -986,6 +986,16 @@ fn premultiply(r: u8, g: u8, b: u8, a: u8) -> [u8; 4] {
 pub struct Measurer(pub Shared);
 
 impl TextMeasurer for Measurer {
+    fn button_measure(
+        &mut self,
+        request: &exact_kernel::ButtonMeasureRequest,
+    ) -> Option<exact_kernel::ButtonMeasure> {
+        Some(crate::paint::button::measure(
+            &mut self.0.borrow_mut(),
+            request,
+        ))
+    }
+
     fn field_chrome(
         &mut self,
         _request: &exact_kernel::FieldChromeRequest,

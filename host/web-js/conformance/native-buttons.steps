@@ -1,0 +1,4 @@
+tap change
+prefer prefers-color-scheme dark
+tap open-dialog
+type open-dialog key Escape

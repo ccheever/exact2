@@ -32,6 +32,7 @@ use std::sync::Arc;
 use tiny_skia::{Pixmap, Point, Transform};
 mod backend;
 pub mod border;
+pub(crate) mod button;
 mod caret;
 pub(crate) mod control;
 pub(crate) mod damage;
@@ -1159,8 +1160,20 @@ impl Painter {
                 self.range_control(node, content, ts, walk.scene.chosen.get(&node.id))
             }
             NodeType::Control if node.props.str(PropId::Type) == Some("button") => {
-                let title = walk.scene.kernel.press_face(node.id).and_then(|f| f.title);
-                self.button_control(node, content, ts, title.as_deref().unwrap_or(""));
+                let face = walk.scene.kernel.press_face(node.id).unwrap_or_default();
+                let rows = walk
+                    .scene
+                    .kernel
+                    .button_face_style(node.id)
+                    .expect("button");
+                self.button_control(
+                    node,
+                    surface.outer.rect,
+                    ts,
+                    &face,
+                    &rows,
+                    walk.scene.focus == Some(node.id),
+                );
             }
             NodeType::Control => control::paint(
                 self.backend.as_mut(),

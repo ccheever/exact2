@@ -339,31 +339,8 @@ impl<D: DataSource> Presenter<D> {
                     sizes.push((id, size));
                     continue;
                 }
-                // A native button: its title in its look's font, padded
-                // (LLP 1069.011 D6); Linux draws no symbol, which keeps the
-                // room the other hosts give it.
-                if node.props.str(PropId::Type) == Some("button") {
-                    let face = kernel.press_face(id).unwrap_or_default();
-                    let (px, py) = crate::paint::control::button_padding(
-                        crate::paint::control::button_look(&node),
-                    );
-                    let p = text.paragraph(
-                        &crate::paint::text_spec(
-                            &crate::paint::control::button_text_style(),
-                            face.title.as_deref().unwrap_or(" "),
-                        ),
-                        None,
-                    );
-                    let symbol = if face.symbol.is_some() {
-                        p.height + if face.title.is_some() { 4.0 } else { 0.0 }
-                    } else {
-                        0.0
-                    };
-                    let w = if face.title.is_some() { p.width } else { 0.0 };
-                    sizes.push((
-                        id,
-                        ((w + symbol + 2.0 * px).ceil(), (p.height + 2.0 * py).ceil()),
-                    ));
+                // Native buttons measure synchronously through TextMeasurer before layout.
+                if kind == exact_kernel::ControlKind::Button {
                     continue;
                 }
                 // A select fits its widest option; a date control its widest

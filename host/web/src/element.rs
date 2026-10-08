@@ -4,6 +4,8 @@
 //!
 //! @ref LLP 1007 §1 (a bare node is a bare `<div>`) / LLP 1048 D1
 
+#[path = "button_css.rs"]
+mod button_css;
 use exact_kernel::svg::Paint;
 use exact_kernel::SortedMap;
 use exact_kernel::{Kernel, NodeFacts, NodeRef, NodeType, ObjectFit, PropId, PropValue, StyleId};
@@ -210,6 +212,40 @@ pub fn host_css_of(node: &NodeFacts<'_>, mut css: String, tag: &str) -> String {
     if tag == "span" && !node.is_inline_run() && !css.split(';').any(|d| d.starts_with("display:"))
     {
         css.push_str("display:block;");
+    }
+    if node.node_type == NodeType::Control && node.props.str(PropId::Type) == Some("button") {
+        let authored_css = css.clone();
+        button_css::rows(node.style, &mut css, &|out, id| {
+            let property = match id {
+                StyleId::RowGap => "row-gap:",
+                StyleId::ColumnGap => "column-gap:",
+                _ => return false,
+            };
+            if let Some(value) = authored_css
+                .split(';')
+                .find_map(|row| row.strip_prefix(property))
+            {
+                out.push_str(value);
+                true
+            } else {
+                false
+            }
+        });
+        // Children are semantic face fields, arranged by the browser before paint.
+        if node.style.display != exact_kernel::Display::None {
+            css.push_str("display:grid;");
+        }
+        if node.style.mask.has(StyleId::LineClamp) {
+            css = css.replace("display:-webkit-box;", "");
+            css.push_str(&format!("--exact-button-clamp:{};", node.style.line_clamp));
+        }
+    }
+    if node.node_type == NodeType::Image {
+        for (id, name) in [(StyleId::FontSize, "size"), (StyleId::FontWeight, "weight")] {
+            if node.style.mask.has(id) {
+                css.push_str(&format!("--exact-symbol-{name}-authored:1;"));
+            }
+        }
     }
     if node.node_type == NodeType::Canvas {
         if !(css.starts_with("position:") || css.contains(";position:")) {
@@ -1002,6 +1038,7 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
     // A native button's look, its default named too (LLP 1069.011 D8).
     if node.node_type == NodeType::Control && node.props.str(PropId::Type) == Some("button") {
         out.get_or_insert_with("data-button-style".into(), || "bordered".into());
+        out.insert("data-native".into(), String::new());
     }
     if node.node_type == NodeType::Image {
         if let Some(role) = node
@@ -1094,6 +1131,9 @@ mod name_tests {
             }
             if selectors.split(',').any(|selector| {
                 let selector = selector.trim();
+                if selector.contains("::") || selector.contains(" > ") {
+                    return false;
+                }
                 selector.contains("input")
                     || selector.contains("textarea")
                     || selector.contains("select")

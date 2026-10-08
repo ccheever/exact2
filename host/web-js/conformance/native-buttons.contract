@@ -1,0 +1,29 @@
+// LLP 1069.011.001: semantic faces, inherited web typography and native invokers.
+component Buttons
+  state changed = false
+  action change
+    changed = not changed
+  view
+    column padding=20 gap=12 font-size=20 color="light-dark(#205030,#b0f0c0)" background-color="Canvas"
+      button "Change face rows" press=change testId="change"
+      button "Unsized bordered" appearance="auto" testId="default"
+      button "Sign In" appearance="auto" buttonStyle="filled" -exact-control-size=(changed ? "mini" : "large") -exact-corner-style=(changed ? "small" : "capsule") font-weight=600 testId="sign-in"
+      button "Resend Code" appearance="auto" buttonStyle="gray" color="AccentColor" testId="resend"
+      button appearance="auto" buttonStyle="tinted" testId="method"
+        image "symbol:lock"
+        text "Password"
+      button appearance="auto" buttonStyle="tinted" flex-direction=(changed ? "row" : "column") gap=(changed ? 0 : 10) testId="tile"
+        image "symbol:lock" font-size=(changed ? 18 : 26) -exact-tint-color=(changed ? "#8855ff" : "#18a050")
+        text "Lock" font-weight=600
+      button "Learn more" appearance="auto" buttonStyle="plain" -exact-control-size="small" testId="link"
+      button appearance="auto" buttonStyle="gray" testId="subtitle"
+        text "Updates"
+        text "Last checked today" font-size=12 color="-exact-secondary-label"
+      button appearance="auto" width=170 line-clamp=(changed ? 1 : 2) text-align="start" testId="wrapped"
+        text "A title long enough to wrap onto several lines" font-size=22
+        image "symbol:lock"
+      button "Rounded" appearance="auto" buttonStyle="filled" border-radius=18 padding="12px 24px" testId="rounded"
+      button "Disabled" appearance="auto" disabled=true testId="disabled"
+      button "Open dialog" appearance="auto" commandfor="confirm" command="show-modal" testId="open-dialog"
+      dialog id="confirm" testId="dialog"
+        text "Native invoker opened this dialog"

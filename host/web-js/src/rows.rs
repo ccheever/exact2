@@ -180,6 +180,7 @@ impl Em<'_> {
                 one("font-family", Some(format!("v=>{table}[v]??null")))
             }
             // css.rs's legacy clamp, on a non-scrolling block only.
+            StyleId::LineClamp if parts.props.contains_key("data-button-style") => one("--exact-button-clamp", Some("v=>v>0?v:null".into())),
             StyleId::LineClamp => {
                 let display = parts.css.split(';').find_map(|d| d.strip_prefix("display:"));
                 if display.is_some_and(|d| d != "block")
@@ -227,6 +228,12 @@ impl Em<'_> {
                         Some("v=>v==null||v===1?null:\"calc(var(--exact-scale,1) * var(--exact-press-factor,1))\"".into()),
                     ),
                 ]
+            }
+            StyleId::FontSize | StyleId::FontWeight if parts.tag == "img" => {
+                let size = id == StyleId::FontSize;
+                let mut writes = vec![(if size { "font-size" } else { "font-weight" }.into(), if size { "px" } else { "" }.into(), None)];
+                writes.push((if size { "--exact-symbol-size-authored" } else { "--exact-symbol-weight-authored" }.into(), String::new(), Some("v=>v==null?null:1".into())));
+                writes
             }
             StyleId::FontVariantNumeric => one("font-variant-numeric", None),
             // SVG's transform grammar, restated as CSS's (kernel TransformList).
