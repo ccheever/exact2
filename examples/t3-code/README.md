@@ -365,10 +365,14 @@ terminal. This is renderer evidence; the drawer and PTY session integrations bel
 
 ## Source and checks
 
-`app.contract` keeps the window's state, resources and actions (a child component may
-not own resources or assign root state); its view is `T3Window` in `app-window.contract`,
-which lays out the components of `app-main.contract`, `app-settings.contract` and
-`app-overlays.contract`; each takes the root names it reads as props of the same names. Feature areas live in their own files
+`app.contract` keeps the window's resources, mutations and tasks, the state they read and
+the actions that write it or send (a child component may not own resources or assign root
+state); its view is `T3Window` in `app-window.contract`, which owns the window's view-only
+state (the sidebar's hover and drag, the title menu, the settings editors' menus, Add
+environment's fields) and lays out the components of `app-main.contract`,
+`app-settings.contract` and `app-overlays.contract`; each takes the root names it reads as
+props of the same names, and an action that writes both sets the window's half and calls the
+root's (`…Root`). Feature areas live in their own files
 (`sidebar-*`, `timeline-*`, `composer-*`, `shell-*`, `pages-*`, `settings-*`,
 `palette*`, `r3-*`), each `.ts` with its Contract view and tests. `client.ts`,
 `protocol.ts`, `domain.ts` and `presentation.ts` own the data source, commands and

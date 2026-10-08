@@ -82,7 +82,6 @@ component ChatColumn
     markdown: TranscriptMarkdown
     earlier: action
     attachmentUrls: TimelineAttachmentUrls
-    dismissedProviderBanner: string
     settingsCore: SettingsCore
     conversationWidth: number
     resting: bool
@@ -107,7 +106,6 @@ component ChatColumn
     interaction: action
     openProviderSettings: action
     branches: ComposerBranches
-    dismissProviderBanner: action
     timelineNow: number
     contextOver: bool
     // r8-pointer D11: the chat column's right edge in the window is (sidebar) + conversationWidth; the Send tooltip
@@ -121,6 +119,9 @@ component ChatColumn
     noticeExit: string
     noticeDismiss: action
   // r8-pointer D9/D10: the transcript's hovered row (message.hoverKey) and its hovered tooltip part.
+  state dismissedProviderBanner = "" // moved from app.contract: only the chat column reads or writes it
+  action dismissProviderBanner
+    dismissedProviderBanner = data.providerBannerKey
   state rowHover = ""
   state partHover = ""
   action hoverPart(row: string, part: string, over: bool)
@@ -272,7 +273,6 @@ component PagesCover
     prList: PrListView
     prTyped: bool
     prQuery: string
-    prListWidth: number
     prSelected: string
     prPanelOpen: bool
     prTogglePanel: action
@@ -283,7 +283,6 @@ component PagesCover
     paletteShow: action
     prDetail: PrDetailView
     prMarkdown: TranscriptMarkdown
-    prPanelWidth: number
     prTab: string
     prSetTab: action
     prClose: action
@@ -299,6 +298,9 @@ component PagesCover
   // pressed, so the page is no longer inert when the command's answer gives the segment the focus back (the
   // usage answer that drops the confirm comes later; Base UI's AlertDialog returns the focus as it closes).
   // A new ask from the page opens it again.
+  // The pull request page's list and panel widths (moved from app.contract: only this page reads them).
+  derive prPanelWidth = min(floor(viewport.width / 2), viewport.width - (data.sidebarOpen ? sidebarWidth : 0) - 224)
+  derive prListWidth = viewport.width - (data.sidebarOpen ? sidebarWidth : 0) - (prSelected != "" and prPanelOpen ? prPanelWidth : 0)
   state usageClosing = ""
   derive usageConfirmOpen = usage.pooled.confirm != "" and usageClosing != usage.pooled.confirm
   action usageCommand(op: string, id: string, value: string, n: number)

@@ -117,8 +117,6 @@ component T3Code
   resource prList = prList(utilityPage == "pull-requests", prRefresh, wallTime.epochAtZero + elapsed, prSelected, prApplied, prTyped, data.revision, page.visibilityState == "visible", windowReturns) as shape PrListView
   resource prDetail = prDetail(utilityPage == "pull-requests" ? prSelected : shell.panel.pr.selected, prRefresh, wallTime.epochAtZero + elapsed, data.revision, page.visibilityState == "visible", windowReturns, prTab, utilityPage == "pull-requests", floor(liveNow / 10000)) as shape PrDetailView // pr-links-previews-and-routing: the page, the linked threads' 10 s tick
   resource prMarkdown = renderPullRequestMarkdown(prDetail.bodies) as shape TranscriptMarkdown
-  derive prPanelWidth = min(floor(viewport.width / 2), viewport.width - (data.sidebarOpen ? sidebarWidth : 0) - 224)
-  derive prListWidth = viewport.width - (data.sidebarOpen ? sidebarWidth : 0) - (prSelected != "" and prPanelOpen ? prPanelWidth : 0)
   action prType(value: string)
     prQuery = value
     prTyped = true
@@ -152,7 +150,6 @@ component T3Code
   state welcomeStep = "connect"
   state welcomeLink = ""
   state welcomePairOpen = true
-  state welcomeHelpOpen = false
   resource welcome = welcome(welcomeStep, wallTime.epochAtZero + elapsed, data.revision) as shape WelcomeView
   action welcomeGo(step: string)
     welcomeStep = step
@@ -170,8 +167,6 @@ component T3Code
       send changed = command("welcome-pair", "", welcomeLink, 0)
   action welcomeTogglePair
     welcomePairOpen = not welcomePairOpen
-  action welcomeToggleHelp
-    welcomeHelpOpen = not welcomeHelpOpen
   action welcomeFinish
     if not commandPending
       commandPending = true
@@ -219,10 +214,7 @@ component T3Code
         workspaceRetryAt = now() + 10000
   action liveTick
     if data.timelineReadsNeeded
-      if not pending(timelineReadsRefreshed)
-        send timelineReadsRefreshed = refreshTimelineReads(wallTime.epochAtZero + now())
-      if not pending(timelineReadsRefreshedNext)
-        send timelineReadsRefreshedNext = refreshTimelineReads(wallTime.epochAtZero + now())
+      dispatchTimelineReads()
     if workspaceDiscovery.needed and not pending(workspaceRefreshed)
       if workspaceRetryKey != workspaceDiscovery.key or (now() >= workspaceRetryAt and (workspaceDiscovery.timer or workspaceDiscovery.wake != workspaceRetryWake))
         send workspaceRefreshed = refreshComposerWorkspace(workspaceDiscovery.key)
@@ -412,7 +404,6 @@ component T3Code
   state wizardId = ""
   state wizardIdSet = false
   state wizardStep = 0
-  state wizardAttempted = false
   state wizardManual = false
   state acpQuery = ""
   state providerNow = 0
@@ -425,8 +416,6 @@ component T3Code
   resource providerPage = providerPage(providerSelected, settingsOpen and settingsRoute == "providers", data.revision, wallTime.epochAtZero + max(elapsed, providerNow), settingsMachine, settingsProjectKey, settingsCheckout, settingsProjectId) as shape ProviderPage // the scope's environment (providers-scope.ts): its page and its actions name `providerPage.environment`
   resource providerWizard = providerWizard(providerDialog != "", providerSerial, wizardManual ? "acpRegistry" : wizardDriver, wizardLabelSet, wizardLabel, wizardIdSet, wizardId, data.revision, providerDialog, providerTarget, providerPage.environment) as shape ProviderWizard
   state connectionRemove = ""
-  state routeTarget = "" // lane environment-routes: Add environment as "Add a route to <routeLabel>"
-  state routeLabel = ""
   state connectionMenu = ""
   resource connectionsPage = connectionsPage(settingsOpen and settingsRoute == "connections", data.revision, data.status, data.connected, data.connecting, wallTime.epochAtZero + max(elapsed, providerNow)) as shape ConnectionsPage
   resource acpAgents = acpRegistry(acpQuery, providerDialog == "add" and wizardStep == 0, data.revision, providerPage.environment) as shape AcpRegistry
@@ -439,13 +428,11 @@ component T3Code
   state keybindingCommand = ""
   state keybindingKey = ""
   state keybindingWhen = ""
-  state keybindingSearch = false
   state keybindingRecording = false
   resource bindings = keybindingSettings(settingsEnvironmentId, keybindingQuery, settingsOpen and settingsRoute == "keybindings", keybindingPrevious, keybindingKey, keybindingWhen, keybindingCommand, settingsRefresh, data.revision) as shape KeybindingPage
   resource scheduled = scheduledSettings(settingsEnvironmentId, settingsProjectId, restEditor, restSubject, settingsOpen and settingsRoute == "scheduled-tasks", wallTime.epochAtZero + elapsed, settingsRefresh, data.revision, settingsMachine, settingsProjectKey, settingsCheckout) as shape ScheduledPage
   state licenseQuery = ""
   state licenseExpanded = ""
-  state licenseSearchOpen = false
   state licenseRetry = 0
   state diagnosticPeriod = "15m"
   resource shortcuts = keyboardDispatch(data.threads, browseProvider, modelQuery, composerFocused, data.running, modelsOpen, data.threadId == "", modal, settingsOpen, data.diffOpen or shell.panel.open, data.revision, paletteOpen, paletteMode, utilityPage == "pull-requests" and prSelected != "" and prPanelOpen ? prDetail.numberLabel : "", data.sidebar.undoUntil > wallTime.epochAtZero + max(liveNow, elapsed), settingsRoute, utilityPage, modelTarget.id) as shape list<KeyDispatch>
@@ -456,8 +443,6 @@ component T3Code
   resource licenses = licenseSettings(licenseQuery, licenseExpanded, licenseRetry, settingsOpen and settingsRoute == "open-source-licenses", data.revision) as shape LicenseSettings
   resource diagnostics = diagnosticsSettings(settingsEnvironmentId, diagnosticPeriod, settingsOpen and settingsRoute == "diagnostics", wallTime.epochAtZero + elapsed, settingsRefresh, data.revision) as shape DiagnosticsPage
   state settingsFocusTarget = ""
-  state snapshotSetupOpen = false
-  state snapshotSetupWasEnabled = false
   resource snapshotSettings = snapshotSettings(settingsOpen and settingsRoute == "snap-shot", settingsRefresh, data.revision, page.hasFocus) as shape SnapshotSettings // SnapShotSettings refreshState on window focus (exact2 #219): back from System Settings, the permissions read again
   state settingsQuery = ""
   resource settingsNavigation = settingsNavigation(settingsQuery, settingsCore.kind, settingsResultIndex, data.revision) as shape CoreNav
@@ -468,10 +453,7 @@ component T3Code
   state settingsCheckout = ""
   state settingsMenu = ""
   state settingsResultIndex = 0
-  state settingsEscapeHeld = false
-  state settingsLegacyOpen = false
   state settingsScrollTop = 0 // settings search jump: the reveal offset (settings-a)
-  state settingsRestoreOpen = false
   state settingsThemeDialog = ""
   state settingsThemeSubject = ""
   state settingsThemeRequest = 0
@@ -521,9 +503,6 @@ component T3Code
   state browseProvider = ""
   state modelQuery = ""
   state modelTarget = PickerTarget(id="", top=0, bottom=0, left=0) // settings-model-picker: a General model row's picker
-  state dismissedProviderBanner = ""
-  action dismissProviderBanner
-    dismissedProviderBanner = data.providerBannerKey
   resource catalog = modelCatalog(browseProvider, modelQuery, data.revision, modelTarget.id) as shape PickerCatalog
   resource editor = composerEditor(data.revision, wallTime.epochAtZero + elapsed) as shape ComposerEditorView // composer-editor.ts
   state optionsOpen = ""
@@ -532,33 +511,10 @@ component T3Code
   state popoverSession = 0
   state origin = ""
   state originEdited = false
-  state credential = ""
   state draft = ""
   state draftOwner = "__unset__"
   state draggedWidth = 0
   state sidebarHoverId = ""
-  state sidebarHoverLast = ""
-  state sidebarHoverY = 0 // the hovered row's frame in the window (r5-shell: less the list's scroll)
-  state sidebarHoverH = 0
-  state sidebarScrollY = 0
-  state dragId = ""
-  state dragSection = ""
-  state dragDx = 0
-  state dragDy = 0
-  state dragX0 = 0
-  state dragY0 = 0
-  state dragW = 0
-  state dragH = 0
-  state dragTopY = 0
-  state dragDividerY = 0
-  state dragWorkingY = 0
-  state dragSnoozedY = 0
-  state dragSettledY = 0
-  derive dragCX = dragX0 + dragW / 2 + dragDx
-  derive dragCY = dragY0 + dragH / 2 + dragDy
-  derive dragTarget = dragId == "" ? "" : (dragCX > sidebarWidth ? "context" : (dragSettledY > 0 and dragCY >= dragSettledY ? "settled" : (dragSnoozedY > 0 and dragCY >= dragSnoozedY ? "snoozed" : (dragWorkingY > 0 and dragCY >= dragWorkingY ? "working" : (dragCY < dragDividerY + 36 ? "pinned" : "active")))))
-  derive dragVerb = (dragTarget == "" or dragTarget == dragSection or dragTarget == "working" or dragTarget == "snoozed" or dragTarget == "context") ? "" : (dragTarget == "pinned" ? "pin" : (dragTarget == "settled" ? "settle" : (dragSection == "pinned" ? "unpin" : (dragSection == "settled" ? "unsettle" : "wake"))))
-  derive dragOffset = dragDy - (dragSection == "pinned" ? 24 : (dragSection == "active" ? 48 : 0))
   state jumpRequest = 0
   state composerFocused = false
   action composerFocus
@@ -568,8 +524,6 @@ component T3Code
   action scrollToEnd
     jumpRequest = jumpRequest + 1
     foldHold = false
-  derive canRest = data.composerCollapseOnScroll and data.threadId != "" and not composerFocused and not includes(composerText, "\n") and length(data.approvals) == 0 and length(data.questions) == 0 and not data.settled
-  derive resting = data.composerResting and canRest
   derive modal = connecting or projectsOpen or paletteOpen or settingsOpen or providerDialog != "" or restEditor != "" or welcome.show
   resource sidebarLaunch = sidebarLaunchWidth(viewport.width, data.revision) as shape number // threadSidebarWidth.ts (r4-polish-sidebar-width.ts): no stored width sizes the sidebar once at load
   derive sidebarWidth = draggedWidth == 0 and sidebarLaunch > 0 ? sidebarLaunch : min(max(max(208, data.sidebarMinWidth), draggedWidth > 0 ? draggedWidth : data.sidebarWidth), max(max(208, data.sidebarMinWidth), viewport.width - 640)) // a stored width: at least the minimum (13rem, or the brand at the Interface font size: r12-sidebar-width.ts), leaving 40rem of main content
@@ -581,7 +535,6 @@ component T3Code
   action finishDiffResize(vx: number, vy: number)
     diffUserWidth = diffWidth
   derive conversationWidth = viewport.width - (data.sidebarOpen ? sidebarWidth : 0) - ((data.diffOpen or rightPanel or shell.panel.open) and not narrowDiff ? diffWidth : 0)
-  derive composerLeft = (data.sidebarOpen ? sidebarWidth : 0) + (canvas.ready ? canvas.left : (conversationWidth - min(data.look.chatMax, conversationWidth - 2.5 * data.look.fontSize)) / 2) // the chat lane (chat-canvas-view.ts)
   derive composerOwner = data.composerOwner // `${serverUrl}:${projectId}:${threadId}`; a draft Auto balance moved keeps its own (auto-balance-owner.ts)
   derive composerText = draftOwner == `${composerOwner}${data.requestKey}` ? draft : data.draft
   action closeOptions
@@ -736,13 +689,6 @@ component T3Code
     keybindingPrevious = ""
     keybindingRecording = false
     modalError = ""
-  action searchKeybindings(open: bool)
-    if open or keybindingQuery == ""
-      keybindingSearch = open
-  action keybindingSearchKey(name: string)
-    if name == "Escape"
-      keybindingQuery = ""
-      keybindingSearch = false
   action settingsCommand(op: string, id: string, value: string)
     if not commandPending
       commandPending = true
@@ -756,20 +702,7 @@ component T3Code
       send changed = command("snapshot-preview-sound", "", sound, 0)
   action removeSnapshot(imageId: string)
     send changed = command("remove-snapshot", imageId, "", 0)
-  action toggleSnapshots
-    if snapshotSettings.enabled and not commandPending
-      commandPending = true
-      pendingModal = "settings"
-      modalError = ""
-      send changed = command("setting-snapshot", "snapShotEnabled", "false", 0)
-      snapshotSetupOpen = false
-    else
-      snapshotSetupOpen = true
-      snapshotSetupWasEnabled = false
-      modalError = ""
-  action showSnapshotSetup(open: bool)
-    snapshotSetupOpen = open
-    snapshotSetupWasEnabled = snapshotSettings.enabled
+  action clearModalError // SnapShot's setup dialog (T3Window toggleSnapshots, showSnapshotSetup)
     modalError = ""
   action openProviderSettings(id: string)
     let machine = settingsOpen ? settingsCore.scopeEnvironment : settings.environmentId // a setup link names its environment: Settings' own the scope's representative (ProjectDefaultsSettings.tsx:168-173), none without one; the chat's its thread's (ChatView.tsx:5217-5223)
@@ -807,7 +740,6 @@ component T3Code
     settingsFocusTarget = ""
     settingsQuery = value
     settingsResultIndex = 0
-    settingsEscapeHeld = false
   action deviceSetting(id: string, value: string)
     send localChanged = command("device-setting", id, value, 0)
   action coreChange(row: string, part: string, value: string)
@@ -819,17 +751,7 @@ component T3Code
       settingsThemeDialog = "background-activity"
       modalError = ""
     else
-      if not commandPending
-        commandPending = true
-        pendingModal = "settings"
-        modalError = ""
-        send changed = command("settings-core", `${row}:${part}|${settingsCore.scopeKey}`, value, 0)
-  action coreSlide(row: string, part: string, value: number)
-    if not commandPending
-      commandPending = true
-      pendingModal = "settings"
-      modalError = ""
-      send changed = command("settings-core", `${row}:${part}|${settingsCore.scopeKey}`, `${value}`, 0)
+      settingsCommand("settings-core", `${row}:${part}|${settingsCore.scopeKey}`, value)
   action coreMenu(section: string, id: string)
     settingsMenu = (id == "" or settingsMenu == id) ? "" : id
   action coreMenuClose
@@ -842,10 +764,7 @@ component T3Code
     settingsCheckout = project ? "" : settingsCheckout
     settingsProjectId = project ? member : settingsProjectId
     settingsMachine = project ? settingsMachine : id
-  action coreLegacy
-    settingsLegacyOpen = not settingsLegacyOpen
   action coreNavigate(route: string)
-    settingsEscapeHeld = false
     settingsRoute = route
     if route == "diagnostics" and settings.environmentId != ""
       settingsMachine = settings.environmentId
@@ -861,13 +780,10 @@ component T3Code
     settingsQuery = ""
     settingsMenu = ""
     modalError = ""
-    if startsWith(id, "search-result-legacy-")
-      settingsLegacyOpen = true
   action coreSearchKey(k: string)
     if k == "/"
       focus("settings-search")
     if k == "Escape"
-      settingsEscapeHeld = settingsQuery != ""
       settingsQuery = ""
       settingsResultIndex = 0
     if k == "ArrowDown"
@@ -880,22 +796,9 @@ component T3Code
       settingsQuery = ""
       settingsMenu = ""
       modalError = ""
-      if startsWith(settingsNavigation.firstId, "legacy-")
-        settingsLegacyOpen = true
   action coreClearSearch
     settingsQuery = ""
     focus("settings-search")
-  action coreRestoreOpen
-    settingsRestoreOpen = true
-  action coreRestoreClose
-    settingsRestoreOpen = false
-  action coreRestoreConfirm
-    settingsRestoreOpen = false
-    if not commandPending
-      commandPending = true
-      pendingModal = "settings"
-      modalError = ""
-      send changed = command("settings-core", `restore-device-defaults:|${settingsCore.scopeKey}`, "", 0)
   action coreThemeDialog(kind: string, theme: string)
     settingsThemeDialog = kind
     settingsThemeRequest = settingsThemeRequest + 1
@@ -912,56 +815,26 @@ component T3Code
     send themeLive = command(`themelocal:${part}`, id, value, n)
   state restEditor = ""
   state restSubject = ""
-  state restLabel = ""
-  state restMenu = ""
-  action restOpen(editor: string, subject: string, label: string)
+  action restOpen(editor: string, subject: string) // the window's half: the dialog label, the row menu
     sbQuery = ""
     sbLettersEdited = false
     sbEmoji = ""
     restEditor = editor
     restSubject = subject
-    restLabel = label
-    restMenu = ""
     modalError = ""
-  action restMenuOpen(id: string)
-    restMenu = id
   action restClose
     restEditor = ""
-    restMenu = ""
     modalError = ""
-  action rest(op: string, value: string)
-    restMenu = ""
-    if not commandPending
-      commandPending = true
-      pendingModal = "rest"
-      modalError = ""
-      send changed = command(`rest:${op}`, `${settingsEnvironmentId}:${settingsProjectId}`, value, 0)
   action restLocal(op: string, value: string)
     send localChanged = command(`restlocal:${op}`, `${settingsEnvironmentId}:${settingsProjectId}`, value, 0)
-  action restRaw(op: string, id: string, value: string)
-    restMenu = ""
+  action restRaw(op: string, id: string, value: string) // a settings editor's command, also as rest and restInput (T3Window)
     if not commandPending
       commandPending = true
       pendingModal = "rest"
       modalError = ""
       send changed = command(op, id, value, 0)
-  action restInput(op: string, value: string, input: string)
-    if not commandPending
-      commandPending = true
-      pendingModal = "rest"
-      modalError = ""
-      send changed = command(`rest:${op}`, `${settingsEnvironmentId}:${settingsProjectId}`, `${value}${encodeURIComponent(input)}`, 0)
   action refreshSettings
     settingsRefresh = settingsRefresh + 1
-  action openLicenseSearch
-    licenseSearchOpen = true
-  action closeLicenseSearch
-    if licenseQuery == ""
-      licenseSearchOpen = false
-  action licenseSearchKey(name: string)
-    if name == "Escape"
-      licenseQuery = ""
-      licenseSearchOpen = false
   action editLicenseQuery(value: string)
     licenseQuery = value
   action toggleLicense(id: string)
@@ -972,7 +845,7 @@ component T3Code
     diagnosticPeriod = value
   action copyDiagnostic(value: string)
     send localChanged = command("copy-diagnostic", "", value, 0)
-  action providerUi(what: string, value: string)
+  action providerUi(what: string, value: string) // the window's half: whether the wizard tried to go on
     modalError = ""
     providerSelected = what == "select" ? value : providerSelected
     if what == "open"
@@ -984,7 +857,6 @@ component T3Code
       wizardId = ""
       wizardIdSet = false
       wizardStep = 0
-      wizardAttempted = false
       wizardManual = false
       acpQuery = ""
     if what == "close"
@@ -997,7 +869,6 @@ component T3Code
       wizardManual = what == "manual" and value == "true"
       wizardLabelSet = false
       wizardIdSet = false
-      wizardAttempted = false
     if what == "label"
       wizardLabel = value
       wizardLabelSet = true
@@ -1008,11 +879,7 @@ component T3Code
       acpQuery = value
     if what == "step"
       let target = value == "back" ? max(0, wizardStep - 1) : min(wizardManual ? 1 : 2, value == "next" ? wizardStep + 1 : (value == "2" ? 2 : (value == "1" ? 1 : 0)))
-      if wizardStep <= 1 and target > 1 and providerWizard.idError != ""
-        wizardAttempted = true
-        wizardStep = 1
-      else
-        wizardStep = target
+      wizardStep = wizardStep <= 1 and target > 1 and providerWizard.idError != "" ? 1 : target // the window's half marks the attempt
   action providerOp(op: string, id: string, field: string, value: string, apply: bool)
     if startsWith(op, "upkeep:update") and apply
       send providerUpdateRun = providerChange(op, id, field, value, providerPage.environment)
@@ -1029,8 +896,7 @@ component T3Code
       pendingModal = "provider"
       modalError = ""
       send changed = providerChange("provider-accent", id, "", hex, providerPage.environment)
-  action providerAdd(driver: string, label: string, id: string, accent: string, f0: string, f1: string, f2: string, f3: string, f4: string)
-    wizardAttempted = true
+  action providerAdd(driver: string, label: string, id: string, accent: string, f0: string, f1: string, f2: string, f3: string, f4: string) // the window's half marks the attempt
     if not commandPending
       commandPending = true
       pendingModal = "provider-add"
@@ -1051,25 +917,14 @@ component T3Code
     connectionMenu = ""
   action connectionToggleMenu(target: string)
     connectionMenu = connectionMenu == target ? "" : target
-  action openConnection
+  action openConnection // and Add a route (T3Window openRoute); the window's half: the credential, the route target
     modalError = ""
     connecting = true
-    credential = ""
     sbSshHost = ""
-    routeTarget = ""
-  action openRoute(target: string, label: string)
-    modalError = ""
-    connecting = true
-    credential = ""
-    sbSshHost = ""
-    routeTarget = target
-    routeLabel = label
   action closeConnection
     modalError = "" // lane r9-connect: closing Add Environment clears its error (setSavedBackendError(null))
     pendingModal = ""
     connecting = false
-    routeTarget = ""
-    credential = ""
     origin = ""
     originEdited = false
   action closeModal
@@ -1078,30 +933,19 @@ component T3Code
     projectsOpen = false
     paletteOpen = false
     settingsOpen = false
-    snapshotSetupOpen = false
     keybindingOpen = false
     providerDialog = ""
     connectionRemove = ""
-    routeTarget = ""
     modelsOpen = false
-    credential = ""
     origin = ""
     originEdited = false
-  action editOrigin(value: string)
-    credential = pairFields.host != "" and pairFields.source == origin and credential == "" ? pairFields.code : credential
+  action editOrigin(value: string) // the window's half fills the credential from a pasted pairing URL
     origin = value
     originEdited = true
-  action editCredential(value: string)
+  action editCredential // the window's half keeps the typed credential
     origin = pairFields.host != "" and pairFields.source == origin ? pairFields.host : origin
-    credential = value
-  action toggleSidebar
-    send localChanged = command("sidebar", "", data.sidebarOpen ? "closed" : "open", 0)
   action resizeSidebar(dx: number, dy: number)
     draggedWidth = min(max(max(208, data.sidebarMinWidth), viewport.width - 640), max(max(208, data.sidebarMinWidth), sidebarWidth + dx))
-  action finishResize(vx: number, vy: number)
-    send localChanged = command("sidebar", "", "open", sidebarWidth)
-  action search(value: string)
-    send localChanged = command("search", "", value, 0)
   action openProjects
     projectsOpen = true
   action selectProject(id: string)
@@ -1135,54 +979,13 @@ component T3Code
     if not commandPending and (op != "row-key" or (value != "Enter" and value != " ")) // r12-sidebar: a focused row's keys look for its menu key; Enter and Space stay its press
       commandPending = true
       send changed = command(`sidebar:${op}`, id, value, wallTime.epochAtZero + now())
-  action sidebarScrolled(x: number, y: number)
-    sidebarScrollY = y
-  action sidebarHover(id: string, over: bool)
+  action sidebarHover(id: string, over: bool) // the window's half sets the card's geometry (app-window.contract)
     if over
       sidebarHoverId = id
-      sidebarHoverLast = id
-      sidebarHoverY = frame(`row-${id}`).y - sidebarScrollY
-      sidebarHoverH = frame(`row-${id}`).height
       if data.sidebar.searching
         send localChanged = command("sidebarlocal:search-hover", id, "", 0)
-    else
-      if sidebarHoverId == id
-        sidebarHoverId = ""
-      if id == ""
-        sidebarHoverY = -10000
-  action sidebarDrag(id: string, section: string, dx: number, dy: number)
-    if section != "working" and data.sidebar.dragEnabled and not commandPending
-      if dragId != id
-        dragId = id
-        dragSection = section
-        dragDx = 0
-        dragDy = 0
-        sidebarHoverId = ""
-        dragX0 = frame(`row-${id}`).x
-        dragY0 = frame(`row-${id}`).y
-        dragW = frame(`row-${id}`).width
-        dragH = frame(`row-${id}`).height
-        dragTopY = frame("sidebar-list-top").y
-        dragDividerY = frame("sidebar-pinned-divider").y
-        dragWorkingY = data.sidebar.workingCount > 0 ? frame("shelf-working").y : 0
-        dragSnoozedY = data.sidebar.snoozedCount > 0 ? frame("shelf-snoozed").y : 0
-        dragSettledY = frame("shelf-settled").y
-      dragDx = dragDx + dx
-      dragDy = dragDy + dy
-  action sidebarDragEnd(id: string, vx: number, vy: number) // r11-upstream: a row-action sweep's release (`sweep|…`, sidebar.contract ThreadSection) is a drop too
-    if dragId == id or startsWith(id, "sweep|")
-      if dragTarget == "context"
-        if not commandPending
-          commandPending = true
-          send changed = command("sidebar:drop", id, `context|${dragCY}|${dragTopY}|${dragDividerY}|${dragCX >= frame("composer").x - 16 and dragCX <= frame("composer").x + frame("composer").width + 16 and dragCY >= frame("composer").y - 24 and dragCY <= frame("composer").y + frame("composer").height + 64}`, wallTime.epochAtZero + now())
-      else
-        if not commandPending and (dragTarget != "" or startsWith(id, "sweep|"))
-          commandPending = true
-          send changed = command("sidebar:drop", id, `${dragTarget}|${dragCY}|${dragTopY}|${dragDividerY}|false`, wallTime.epochAtZero + now())
-      dragId = ""
-      dragSection = ""
-      dragDx = 0
-      dragDy = 0
+    else if sidebarHoverId == id
+      sidebarHoverId = ""
   action resetSidebarWidth
     draggedWidth = 0
     send localChanged = command("sidebarlocal:width-reset", "", "", 0)
@@ -1275,23 +1078,14 @@ component T3Code
   resource page = exactPage() as shape Page // the window's focus and visibility (document.hasFocus(), exact2 #219): thread notifications and activity reports
   resource shell = shellView(data.revision, wallTime.epochAtZero + shellClock, toastDismissed, toastHover, viewport.width <= 980, page.hasFocus, page.visibilityState) as shape ShellView
   state rightPanel = false
-  state rightMaximized = false
   state detailsOpen = false
-  state detailsEditors = false
   resource details = shellDetails(detailsOpen, data.threadId, data.revision, conversationWidth >= 984, wallTime.epochAtZero + shellClock, floor(viewport.width - (data.sidebarOpen ? sidebarWidth : 0) - conversationWidth), page.hasFocus and page.visibilityState == "visible") as shape ShellDetails
   state canvasGestureValue = ""
   action canvasGesture(value: string)
     canvasGestureValue = value
   resource canvas = chatCanvas(data.revision, conversationWidth, viewport.height, details.inline, data.look.chatMax, length(data.messages) > 0, canvasGestureValue, shell.panel.deviceMini.key, shell.panel.deviceMini.show) as shape ChatCanvasView
   resource terminalDrawer = terminalDrawer(data.revision, viewport.height, wallTime.epochAtZero + elapsed) as shape TerminalDrawerView // terminal-drawer (terminal-drawer-view.ts)
-  state titleMenuOpen = false
   state titleDialog = false
-  state titleMenuFromTitle = false
-  state titleMenuSerial = 0
-  state titleMenuX = 0
-  state titleMenuY = 0
-  state renaming = false
-  state renameText = ""
   state confirmTitle = ""
   state confirmBody = ""
   state confirmDestructive = false
@@ -1359,23 +1153,17 @@ component T3Code
         jumpRequest = jumpRequest + 1
   action panelUi(what: string, id: string) // r4-surfaces: tabs and surfaces live in the client (r4-surfaces-panel.ts, shell.panel)
     let closingTerminal = what == "tab-close" and length(filter(shell.panel.tabs, (tab) => tab.id == id and tab.closeTitle != "")) > 0
-    titleMenuOpen = false
     rightPanel = closingTerminal ? rightPanel : what == "toggle" or what == "close" or what == "tab-close" or (what == "key" and id == "Escape") ? ((what == "toggle" and not data.diffOpen and not rightPanel and not shell.panel.open) or (what == "tab-close" and shell.panel.count > 1)) : (rightPanel or what == "choose")
     if what == "toggle" or what == "close" or what == "tab-close" or (what == "key" and id == "Escape")
-      rightMaximized = closingTerminal ? rightMaximized : what == "tab-close" and shell.panel.count > 1 and rightMaximized
       send localChanged = command(what == "tab-close" ? "shelllocal:surface-close" : (what == "toggle" and not data.diffOpen and not rightPanel and not shell.panel.open ? "shelllocal:surface-show" : "shelllocal:surface-hide"), id, "", 0)
       if what == "toggle" and not data.diffOpen and not rightPanel and not shell.panel.open
         focus("surface-chooser")
     if what == "terminal" // terminal-drawer: the layout controls' toggle (toggleTerminalVisibility); closing returns to the composer
       send terminalChanged = command("terminallocal:toggle", "", "", 0)
-    if what == "maximize"
-      rightMaximized = not rightMaximized
     if (what == "choose" or (what == "key" and (id == "d" or id == "D" or id == "f" or id == "F" or id == "m" or id == "M" or id == "l" or id == "L" or id == "p" or id == "P" or id == "t" or id == "T"))) and (data.threadId != "" or id == "files" or id == "f" or id == "F" or (shell.terminalAvailable and (id == "terminal" or id == "t" or id == "T"))) and not commandPending
       commandPending = true
       send changed = command((id == "diff" or id == "d" or id == "D") ? "diff" : "shelllocal:surface-open", "", id, 0)
-  action detailsAct(op: string, target: string, value: string)
-    detailsEditors = op == "editors" and not detailsEditors
-    titleMenuOpen = false
+  action detailsAct(op: string, target: string, value: string) // the window's half: the editors list, the title menu
     detailsOpen = op == "toggle" ? (not detailsOpen and conversationWidth < 984) : (detailsOpen and op != "ui:project-settings" and op != "ui:scheduled-tasks" and op != "select-thread" and op != "ui:changes") // inline (>= 984): toggle remembers the thread's docked card
     if op == "ui:project-settings"
       openSettings() // a project link replaces the whole scope (retainSettingsScope)
@@ -1398,41 +1186,15 @@ component T3Code
       if op == "select-thread" or op == "shell:merge-back"
         draftOwner = "__unset__"
         jumpRequest = jumpRequest + 1
-  action titleUi(what: string, value: string)
-    if what == "open" or what == "context"
-      titleMenuX = frame("thread-title").x
-      titleMenuY = frame("thread-title").y + frame("thread-title").height + 4
-      titleMenuOpen = (what == "context" or not titleMenuOpen) and not renaming
-      titleMenuSerial = titleMenuSerial + 1
-      titleMenuFromTitle = what == "open"
-    if what == "close" // Escape or a press outside: the fallback menu's cleanup gives the focus back to what held it, the title when the title opened it (a right-click leaves it where it was)
-      titleMenuOpen = false
-      if titleMenuFromTitle
-        focus("thread-title")
-    if what == "rename" and shell.serverThread
-      titleMenuOpen = false
-      renaming = true
-      renameText = data.threadTitle
-      focus("header-rename")
-    if what == "edit"
-      renameText = value
-    if what == "key" and value == "Escape"
-      renaming = false
-    if (what == "commit" and renaming) or (what == "new-thread" and data.projectId != "")
-      renaming = false
-      if not commandPending
-        commandPending = true
-        send changed = command(what == "commit" ? "shell:rename" : "new-thread", what == "commit" ? data.threadId : data.projectId, renameText, 0)
-        if what == "new-thread"
-          draftOwner = "__unset__"
-          jumpRequest = jumpRequest + 1
-          focus("composer")
-  action titleMenuPick(op: string, target: string, value: string, askTitle: string, askBody: string, destructive: bool)
-    titleMenuOpen = op == "ui:submenu" and titleMenuOpen
-    if op == "ui:rename"
-      renaming = true
-      renameText = data.threadTitle
-      focus("header-rename")
+  action titleSend(what: string, text: string) // the title's rename commit or New thread (T3Window titleUi)
+    if not commandPending
+      commandPending = true
+      send changed = command(what == "commit" ? "shell:rename" : "new-thread", what == "commit" ? data.threadId : data.projectId, text, 0)
+      if what == "new-thread"
+        draftOwner = "__unset__"
+        jumpRequest = jumpRequest + 1
+        focus("composer")
+  action titleMenuPick(op: string, target: string, value: string, askTitle: string, askBody: string, destructive: bool) // the window's half: the menu, Rename
     if op == "ui:project-settings"
       openSettings() // a project link replaces the whole scope (retainSettingsScope)
       settingsProjectId = target
@@ -1465,4 +1227,4 @@ component T3Code
     else if not accept and confirmOp == "shelllocal:surface-close-confirmed" and shell.panel.terminal.open
       send terminalChanged = command("terminalpanellocal:focus", `${shell.panel.terminal.threadKey}|${shell.panel.terminal.terminalId}`, "", 0)
   view
-    T3Window(data=data, viewport=viewport, hoverWait=hoverWait, hoverHold=hoverHold, settingsCore=settingsCore, sshPrompt=sshPrompt, modal=modal, shell=shell, wallTime=wallTime, liveNow=liveNow, elapsed=elapsed, sidebarWidth=sidebarWidth, commandPending=commandPending, settings=settings, utilityPage=utilityPage, home=home, toggleSidebar=toggleSidebar, paletteShow=paletteShow, openThread=openThread, sidebarLocal=sidebarLocal, sidebarRun=sidebarRun, openSettings=openSettings, openPage=openPage, openProviderSettings=openProviderSettings, sidebarHover=sidebarHover, sidebarHoverId=sidebarHoverId, search=search, openProjects=openProjects, sidebarNewThread=sidebarNewThread, selectThread=selectThread, openConnection=openConnection, command=command, resizeSidebar=resizeSidebar, finishResize=finishResize, resetSidebarWidth=resetSidebarWidth, sidebarScrolled=sidebarScrolled, sidebarDrag=sidebarDrag, sidebarDragEnd=sidebarDragEnd, dragId=dragId, dragTarget=dragTarget, dragVerb=dragVerb, dragOffset=dragOffset, sidebarScrollY=sidebarScrollY, noticeExit=noticeExit, noticeDismiss=noticeDismiss, pageCover=pageCover, canvas=canvas, canvasGesture=canvasGesture, rightPanel=rightPanel, narrowDiff=narrowDiff, detailsOpen=detailsOpen, details=details, detailsEditors=detailsEditors, titleMenuOpen=titleMenuOpen, renaming=renaming, renameText=renameText, panelUi=panelUi, detailsAct=detailsAct, titleUi=titleUi, foldHold=foldHold, releaseFold=releaseFold, jumpRequest=jumpRequest, composerOwner=composerOwner, canRest=canRest, chatLocal=chatLocal, markdown=markdown, earlier=earlier, attachmentUrls=attachmentUrls, dismissedProviderBanner=dismissedProviderBanner, conversationWidth=conversationWidth, resting=resting, scrollToEnd=scrollToEnd, editor=editor, composerKey=composerKey, composerDrop=composerDrop, editorOp=editorOp, openModels=openModels, composerText=composerText, modelsOpen=modelsOpen, optionsOpen=optionsOpen, write=write, send=send, composerFocus=composerFocus, composerBlur=composerBlur, openOptions=openOptions, removeSnapshot=removeSnapshot, titleMenuPick=titleMenuPick, menuPick=menuPick, branches=branches, dismissProviderBanner=dismissProviderBanner, dragCX=dragCX, dragCY=dragCY, terminalDrawer=terminalDrawer, confirmOp=confirmOp, rightMaximized=rightMaximized, diffWidth=diffWidth, resizeDiff=resizeDiff, finishDiffResize=finishDiffResize, prDetail=prDetail, prMarkdown=prMarkdown, prTab=prTab, prSetTab=prSetTab, prReload=prReload, prAct=prAct, prCopy=prCopy, usage=usage, usageShortcuts=usageShortcuts, usageMetricSet=usageMetricSet, usageWindowSet=usageWindowSet, usageBreakdownSet=usageBreakdownSet, usageRefreshNow=usageRefreshNow, prList=prList, prTyped=prTyped, prQuery=prQuery, prListWidth=prListWidth, prSelected=prSelected, prPanelOpen=prPanelOpen, prTogglePanel=prTogglePanel, prType=prType, prControl=prControl, prSelect=prSelect, prPanelWidth=prPanelWidth, prClose=prSelect(""), openConnectionsPage=openConnectionsPage, welcomeImport=welcomeImport, popoverSession=popoverSession, composerLeft=composerLeft, closeOptions=closeOptions, menuCommand=menuCommand, branchQuery=branchQuery, searchBranches=searchBranches, projectsOpen=projectsOpen, closeModal=closeModal, manageProject=manageProject, selectProject=selectProject, settingsOpen=settingsOpen, connecting=connecting, settingsThemeDialog=settingsThemeDialog, settingsRestoreOpen=settingsRestoreOpen, settingsNavigation=settingsNavigation, settingsRoute=settingsRoute, settingsQuery=settingsQuery, settingsMenu=settingsMenu, settingsEscapeHeld=settingsEscapeHeld, editSettingsQuery=editSettingsQuery, coreSearchKey=coreSearchKey, corePick=corePick, coreClearSearch=coreClearSearch, coreRestoreOpen=coreRestoreOpen, settingsScrollTop=settingsScrollTop, coreMenuClose=coreMenuClose, settingsLegacyOpen=settingsLegacyOpen, coreLegacy=coreLegacy, coreMenu=coreMenu, coreChange=coreChange, coreSlide=coreSlide, coreNavigate=coreNavigate, coreScope=coreScope, coreThemeDialog=coreThemeDialog, sourceControl=sourceControl, modalError=modalError, rest=rest, restInput=restInput, restLocal=restLocal, integrations=integrations, snapshotSettings=snapshotSettings, snapshotSetupOpen=snapshotSetupOpen, toggleSnapshots=toggleSnapshots, showSnapshotSetup=showSnapshotSetup, settingsCommand=settingsCommand, previewSnapshotSound=previewSnapshotSound, bindings=bindings, keybindingQuery=keybindingQuery, keybindingSearch=keybindingSearch, keybindingOpen=keybindingOpen, keybindingPrevious=keybindingPrevious, keybindingCommand=keybindingCommand, keybindingKey=keybindingKey, keybindingWhen=keybindingWhen, keybindingRecording=keybindingRecording, editKeybindingQuery=editKeybindingQuery, searchKeybindings=searchKeybindings, keybindingSearchKey=keybindingSearchKey, newKeybinding=newKeybinding, cancelKeybinding=cancelKeybinding, chooseKeybindingCommand=chooseKeybindingCommand, editKeybinding=editKeybinding, editKeybindingKey=editKeybindingKey, editKeybindingWhen=editKeybindingWhen, recordKeybinding=recordKeybinding, captureKeybinding=captureKeybinding, scheduled=scheduled, restEditor=restEditor, restOpen=restOpen, storageSettings=storageSettings, archives=archives, restMenu=restMenu, restRaw=restRaw, restMenuOpen=restMenuOpen, restClose=restClose, licenses=licenses, licenseQuery=licenseQuery, licenseSearchOpen=licenseSearchOpen, editLicenseQuery=editLicenseQuery, openLicenseSearch=openLicenseSearch, closeLicenseSearch=closeLicenseSearch, licenseSearchKey=licenseSearchKey, toggleLicense=toggleLicense, retryLicenses=retryLicenses, diagnostics=diagnostics, selectDiagnosticPeriod=selectDiagnosticPeriod, refreshSettings=refreshSettings, copyDiagnostic=copyDiagnostic, connectionsPage=connectionsPage, pendingModal=pendingModal, connectionOp=connectionOp, connectionAskRemove=connectionAskRemove, connectionMenu=connectionMenu, connectionToggleMenu=connectionToggleMenu, openRoute=openRoute, providerPage=providerPage, providerDialog=providerDialog, providerUi=providerUi, providerOp=providerOp, providerAccent=providerAccent, projectsSettings=projectsSettings, settingsThemeSubject=settingsThemeSubject, coreThemeChange=coreThemeChange, coreRestoreClose=coreRestoreClose, coreRestoreConfirm=coreRestoreConfirm, coreThemeLive=coreThemeLive, welcome=welcome, welcomeStep=welcomeStep, welcomeLink=welcomeLink, welcomePairOpen=welcomePairOpen, welcomeHelpOpen=welcomeHelpOpen, welcomeGo=welcomeGo, welcomeEditLink=welcomeEditLink, welcomePair=welcomePair, welcomeTogglePair=welcomeTogglePair, welcomeToggleHelp=welcomeToggleHelp, welcomeSetup=welcomeSetup, welcomeFinish=welcomeFinish, shortcuts=shortcuts, newThread=newThread, deviceSetting=deviceSetting, selectProvider=selectProvider, selectModel=selectModel, paletteRun=paletteRun, restSubject=restSubject, restLabel=restLabel, sbPicker=sbPicker, sbQuery=sbQuery, sbLettersEdited=sbLettersEdited, sbLetters=sbLetters, sbEmoji=sbEmoji, sbSet=sbSet, sidebarHoverLast=sidebarHoverLast, sidebarHoverY=sidebarHoverY, sidebarHoverH=sidebarHoverH, snapshotSetupWasEnabled=snapshotSetupWasEnabled, origin=origin, credential=credential, pairFields=pairFields, sbSshHosts=sbSshHosts, sbSshHost=sbSshHost, editOrigin=editOrigin, editCredential=editCredential, closeConnection=closeConnection, providerWizard=providerWizard, acpAgents=acpAgents, wizardStep=wizardStep, wizardAttempted=wizardAttempted, wizardLabelSet=wizardLabelSet, wizardLabel=wizardLabel, wizardIdSet=wizardIdSet, wizardId=wizardId, acpQuery=acpQuery, wizardManual=wizardManual, providerAdd=providerAdd, providerTarget=providerTarget, connectionRemove=connectionRemove, routeTarget=routeTarget, routeLabel=routeLabel, catalog=catalog, modelQuery=modelQuery, modelTarget=modelTarget, closeModels=closeModels, searchModels=searchModels, paletteOpen=paletteOpen, palette=palette, paletteQuery=paletteQuery, paletteHighlight=paletteHighlight, paletteScroll=paletteScroll, paletteBusy=paletteBusy, paletteEdit=paletteEdit, paletteKey=paletteKey, paletteHover=paletteHover, paletteClose=paletteClose, paletteFlag=paletteFlag, titleMenuX=titleMenuX, titleMenuY=titleMenuY, titleMenuSerial=titleMenuSerial, answerRevert=answerRevert, confirmTitle=confirmTitle, confirmBody=confirmBody, confirmDestructive=confirmDestructive, confirmUi=confirmUi, toastHover=toastHover, toastHovering=toastHovering, toastAct=toastAct, sshResponding=sshResponding, sshAnswer=sshAnswer, providerAuthPending=pending(providerAuthChanged))
+    T3Window(data=data, viewport=viewport, hoverWait=hoverWait, hoverHold=hoverHold, settingsCore=settingsCore, sshPrompt=sshPrompt, modal=modal, shell=shell, wallTime=wallTime, liveNow=liveNow, elapsed=elapsed, sidebarWidth=sidebarWidth, commandPending=commandPending, settings=settings, utilityPage=utilityPage, home=home, paletteShow=paletteShow, openThread=openThread, sidebarLocal=sidebarLocal, sidebarRun=sidebarRun, openSettings=openSettings, openPage=openPage, openProviderSettings=openProviderSettings, sidebarHoverId=sidebarHoverId, openProjects=openProjects, sidebarNewThread=sidebarNewThread, selectThread=selectThread, command=command, resizeSidebar=resizeSidebar, resetSidebarWidth=resetSidebarWidth, noticeExit=noticeExit, noticeDismiss=noticeDismiss, pageCover=pageCover, canvas=canvas, canvasGesture=canvasGesture, rightPanel=rightPanel, narrowDiff=narrowDiff, detailsOpen=detailsOpen, details=details, jumpRequest=jumpRequest, composerOwner=composerOwner, markdown=markdown, earlier=earlier, attachmentUrls=attachmentUrls, conversationWidth=conversationWidth, editor=editor, composerKey=composerKey, composerDrop=composerDrop, editorOp=editorOp, openModels=openModels, composerText=composerText, modelsOpen=modelsOpen, optionsOpen=optionsOpen, write=write, send=send, composerFocus=composerFocus, composerBlur=composerBlur, openOptions=openOptions, removeSnapshot=removeSnapshot, menuPick=menuPick, branches=branches, terminalDrawer=terminalDrawer, confirmOp=confirmOp, diffWidth=diffWidth, resizeDiff=resizeDiff, finishDiffResize=finishDiffResize, prDetail=prDetail, prMarkdown=prMarkdown, prTab=prTab, prSetTab=prSetTab, prReload=prReload, prAct=prAct, prCopy=prCopy, usage=usage, usageShortcuts=usageShortcuts, usageMetricSet=usageMetricSet, usageWindowSet=usageWindowSet, usageBreakdownSet=usageBreakdownSet, usageRefreshNow=usageRefreshNow, prList=prList, prTyped=prTyped, prQuery=prQuery, prSelected=prSelected, prPanelOpen=prPanelOpen, prTogglePanel=prTogglePanel, prType=prType, prControl=prControl, prSelect=prSelect, prClose=prSelect(""), openConnectionsPage=openConnectionsPage, welcomeImport=welcomeImport, popoverSession=popoverSession, closeOptions=closeOptions, menuCommand=menuCommand, branchQuery=branchQuery, searchBranches=searchBranches, projectsOpen=projectsOpen, manageProject=manageProject, selectProject=selectProject, settingsOpen=settingsOpen, connecting=connecting, settingsThemeDialog=settingsThemeDialog, settingsNavigation=settingsNavigation, settingsRoute=settingsRoute, settingsQuery=settingsQuery, settingsMenu=settingsMenu, editSettingsQuery=editSettingsQuery, coreSearchKey=coreSearchKey, corePick=corePick, coreClearSearch=coreClearSearch, settingsScrollTop=settingsScrollTop, coreMenuClose=coreMenuClose, coreMenu=coreMenu, coreChange=coreChange, coreNavigate=coreNavigate, coreScope=coreScope, coreThemeDialog=coreThemeDialog, sourceControl=sourceControl, modalError=modalError, restLocal=restLocal, integrations=integrations, snapshotSettings=snapshotSettings, settingsCommand=settingsCommand, previewSnapshotSound=previewSnapshotSound, bindings=bindings, keybindingQuery=keybindingQuery, keybindingOpen=keybindingOpen, keybindingPrevious=keybindingPrevious, keybindingCommand=keybindingCommand, keybindingKey=keybindingKey, keybindingWhen=keybindingWhen, keybindingRecording=keybindingRecording, editKeybindingQuery=editKeybindingQuery, newKeybinding=newKeybinding, cancelKeybinding=cancelKeybinding, chooseKeybindingCommand=chooseKeybindingCommand, editKeybinding=editKeybinding, editKeybindingKey=editKeybindingKey, editKeybindingWhen=editKeybindingWhen, recordKeybinding=recordKeybinding, captureKeybinding=captureKeybinding, scheduled=scheduled, restEditor=restEditor, storageSettings=storageSettings, archives=archives, licenses=licenses, licenseQuery=licenseQuery, editLicenseQuery=editLicenseQuery, toggleLicense=toggleLicense, retryLicenses=retryLicenses, diagnostics=diagnostics, selectDiagnosticPeriod=selectDiagnosticPeriod, refreshSettings=refreshSettings, copyDiagnostic=copyDiagnostic, connectionsPage=connectionsPage, pendingModal=pendingModal, providerPage=providerPage, providerDialog=providerDialog, providerOp=providerOp, providerAccent=providerAccent, projectsSettings=projectsSettings, settingsThemeSubject=settingsThemeSubject, coreThemeChange=coreThemeChange, coreThemeLive=coreThemeLive, welcome=welcome, welcomeStep=welcomeStep, welcomeLink=welcomeLink, welcomePairOpen=welcomePairOpen, welcomeGo=welcomeGo, welcomeEditLink=welcomeEditLink, welcomePair=welcomePair, welcomeTogglePair=welcomeTogglePair, welcomeSetup=welcomeSetup, welcomeFinish=welcomeFinish, shortcuts=shortcuts, newThread=newThread, deviceSetting=deviceSetting, selectProvider=selectProvider, selectModel=selectModel, paletteRun=paletteRun, restSubject=restSubject, sbPicker=sbPicker, sbQuery=sbQuery, sbLettersEdited=sbLettersEdited, sbLetters=sbLetters, sbEmoji=sbEmoji, sbSet=sbSet, origin=origin, pairFields=pairFields, sbSshHosts=sbSshHosts, sbSshHost=sbSshHost, providerWizard=providerWizard, acpAgents=acpAgents, wizardStep=wizardStep, wizardLabelSet=wizardLabelSet, wizardLabel=wizardLabel, wizardIdSet=wizardIdSet, wizardId=wizardId, acpQuery=acpQuery, wizardManual=wizardManual, providerTarget=providerTarget, catalog=catalog, modelQuery=modelQuery, modelTarget=modelTarget, closeModels=closeModels, searchModels=searchModels, paletteOpen=paletteOpen, palette=palette, paletteQuery=paletteQuery, paletteHighlight=paletteHighlight, paletteScroll=paletteScroll, paletteBusy=paletteBusy, paletteEdit=paletteEdit, paletteKey=paletteKey, paletteHover=paletteHover, paletteClose=paletteClose, paletteFlag=paletteFlag, answerRevert=answerRevert, confirmTitle=confirmTitle, confirmBody=confirmBody, confirmDestructive=confirmDestructive, confirmUi=confirmUi, toastHover=toastHover, toastHovering=toastHovering, toastAct=toastAct, sshResponding=sshResponding, sshAnswer=sshAnswer, providerAuthPending=pending(providerAuthChanged), sidebarHoverRoot=sidebarHover, panelUiRoot=panelUi, detailsActRoot=detailsAct, titleMenuPickRoot=titleMenuPick, chatLocal=chatLocal, scrollToEnd=scrollToEnd, foldHold=foldHold, releaseFold=releaseFold, titleSend=titleSend, openConnectionRoot=openConnection, closeConnectionRoot=closeConnection, editOriginRoot=editOrigin, editCredentialRoot=editCredential, connectionOp=connectionOp, connectionRemove=connectionRemove, connectionMenu=connectionMenu, connectionAskRemove=connectionAskRemove, connectionToggleMenu=connectionToggleMenu, closeModalRoot=closeModal, clearModalError=clearModalError, restOpenRoot=restOpen, restCloseRoot=restClose, restRawRoot=restRaw, settingsEnvironmentId=settingsEnvironmentId, settingsProjectId=settingsProjectId, providerUiRoot=providerUi, providerAddRoot=providerAdd, composerFocused=composerFocused)

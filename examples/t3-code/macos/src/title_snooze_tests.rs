@@ -4,6 +4,10 @@
 //! window's wall time and "title" as its origin, as the row's Custom does with
 //! none. The data module is a stand-in that records each `command` request and
 //! leaves it pending, so the actions' own busy guard is what is exercised.
+//! Since 20261008-app-contract-root-rewrite the title menu's state is the window's
+//! (`titleMenuOpen#1`, T3Window in app-window.contract): the view's pick is the
+//! window's action, which closes the menu and then runs this root half
+//! (`titleMenuPick`), the one that sends.
 
 use super::PLAN;
 use exact_apple::measure::{CMetrics, CRequest, CallbackMeasurer};
@@ -72,7 +76,7 @@ fn title_custom_snooze_asks_the_sidebar_command_for_its_own_thread() {
     runner
         .act("titleMenuPick", pick("ui:custom-snooze", "thread-b"))
         .unwrap();
-    assert_eq!(runner.slot("titleMenuOpen"), Some(&Value::Bool(false)));
+    assert_eq!(runner.slot("titleMenuOpen#1"), Some(&Value::Bool(false)));
     assert_eq!(
         runner.data_ref().calls,
         vec![command("sidebar:snooze:custom", "thread-b", "title")]
