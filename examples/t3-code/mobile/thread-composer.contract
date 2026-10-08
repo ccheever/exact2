@@ -1,6 +1,6 @@
 // ThreadComposer compact/expanded geometry and ComposerActionButton, upstream365aa87982.
-// @ref llp/1107.002-design-system-parity.spec.md#typography-and-font-assets
-// @ref llp/1107.008-mobile-voice.decision.md#presentation
+// @ref llp/1109.002-design-system-parity.spec.md#typography-and-font-assets
+// @ref llp/1109.008-mobile-voice.decision.md#presentation
 use ThreadComposerState, ThreadColors from "./thread-shapes.contract"
 use ProviderIcon from "./provider-icon.contract"
 use MobileQueueTrigger from "./queue-trigger.contract"
@@ -134,7 +134,7 @@ component ThreadSendButton
           t3-symbol symbol-name=(data.showStop ? "stop.fill" : data.sendSymbol) point-size=14 symbol-weight="semibold"
             symbol-tint=(data.showStop ? colors.dangerForeground : colors.primaryForeground) width=14 height=14
 
-// @ref llp/1107.005-composer-and-transcript.decision.md#composer-focus-restoration
+// @ref llp/1109.005-composer-and-transcript.decision.md#composer-focus-restoration
 shape ComposerFocusReturn
   editorId: string
   owner: string

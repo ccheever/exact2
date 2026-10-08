@@ -1,5 +1,5 @@
 // Pinned NewTaskRouteScreen/NewTaskContextPickerScreens365aa87982; root owns route headers and search.
-// @ref llp/1107.005-composer-and-transcript.decision.md#new-task-ownership
+// @ref llp/1109.005-composer-and-transcript.decision.md#new-task-ownership
 use NewTaskSnapshot, ComposerColors from "./composer-shapes.contract"
 component NewTaskProjects
   props

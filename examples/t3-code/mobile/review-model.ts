@@ -1,5 +1,5 @@
 // T3 Code365aa87982 reviewModel.ts/nativeReviewDiffAdapter.ts, over the existing parser.
-// @ref llp/1107.006-review-and-files.decision.md#mobile-presentation
+// @ref llp/1109.006-review-and-files.decision.md#mobile-presentation
 import { parsePatch, type DiffFileModel } from './shared/diff';
 import { diffReviewLines, type ReviewLine } from './shared/diff-comments';
 import { mobileCodeTokens, type ThreadCodeToken } from './thread-highlight';

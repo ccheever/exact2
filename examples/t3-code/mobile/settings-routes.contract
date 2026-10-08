@@ -1,4 +1,4 @@
-// @ref llp/1107.009-mobile-settings.decision.md#root-and-native-lifetime
+// @ref llp/1109.009-mobile-settings.decision.md#root-and-native-lifetime
 // Checked route construction; the root owns navigation and Information search state.
 fn mobileInformationPath(target: string, key: string): string = target == "settingsAbout" ? path("settingsAbout") : target == "settingsClientStorage" ? path("settingsClientStorage") : target == "settingsDiagnostics" ? path("settingsDiagnostics") : target == "settingsOpenSourceLicenses" ? path("settingsOpenSourceLicenses") : target == "settingsOpenSourceLicense" ? path("settingsOpenSourceLicense", key) : target == "settingsLegal" ? path("settingsLegal") : ""
 

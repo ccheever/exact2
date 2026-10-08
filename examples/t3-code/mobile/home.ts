@@ -1,8 +1,8 @@
 import { blankHomeSwipe, type HomeSwipeData } from './home-swipe';
-// @ref llp/1107.004-home-projection.decision.md#decision
+// @ref llp/1109.004-home-projection.decision.md#decision
 // Mobile HomeScreen/threadListV2 at upstream 365aa87982; projection over the shared V2 shell.
-// @ref llp/1107.000-mobile-app-layout.decision.md#shared-typescript
-// @ref llp/1107.002-design-system-parity.spec.md#typography-and-font-assets
+// @ref llp/1109.000-mobile-app-layout.decision.md#shared-typescript
+// @ref llp/1109.002-design-system-parity.spec.md#typography-and-font-assets
 import { mobileClient } from './client';
 import { projectHomeDrafts, type HomeDraftInput, type HomeDraftEnvironment } from './home-drafts';
 import { homeApplyPending, mobileHomeOrder, type HomePendingOrder, type HomeOrderSnapshot } from './home-order';

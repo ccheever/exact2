@@ -1,5 +1,5 @@
 // Pinned365aa87982 queued-run-edit/use-composer-drafts: dedicated mobile content owner.
-// @ref llp/1107.005-composer-and-transcript.decision.md#scratch-tasks-and-queue-boundaries
+// @ref llp/1109.005-composer-and-transcript.decision.md#scratch-tasks-and-queue-boundaries
 import { mobileClient, mobileNative } from './client';
 import type { T3Client } from './shared/client';
 import { obj, str, type Obj } from './shared/domain';

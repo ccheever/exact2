@@ -1,5 +1,5 @@
 #if os(iOS)
-// @ref llp/1107.006-review-and-files.decision.md#navigator-selection-follow-up
+// @ref llp/1109.006-review-and-files.decision.md#navigator-selection-follow-up
 // ReviewSheet/T3ReviewDiffView at365aa87982: manual crossings select a file;
 // programmatic jumps keep the explicit destination selected.
 import UIKit

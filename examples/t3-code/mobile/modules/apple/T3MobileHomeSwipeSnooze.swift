@@ -1,5 +1,5 @@
 #if os(iOS)
-// @ref llp/1107.004-home-projection.decision.md#ordinary-row-actions
+// @ref llp/1109.004-home-projection.decision.md#ordinary-row-actions
 // GAP 007: app-owned native menu on the visible inactive sidebar tab.
 import UIKit
 

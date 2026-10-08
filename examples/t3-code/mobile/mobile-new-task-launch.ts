@@ -1,5 +1,5 @@
 // Captured-draft cleanup around the shared sender, not a second pending/outbox owner.
-// @ref llp/1107.005-composer-and-transcript.decision.md#scratch-tasks-and-queue-boundaries
+// @ref llp/1109.005-composer-and-transcript.decision.md#scratch-tasks-and-queue-boundaries
 import type { T3Client, Pending } from './shared/client';
 import { arr, obj, str, type Obj } from './shared/domain';
 import { ClientError, type Native, type Files } from './shared/protocol';

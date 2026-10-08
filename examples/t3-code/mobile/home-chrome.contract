@@ -1,4 +1,4 @@
-// @ref llp/1107.002-design-system-parity.spec.md#semantic-colors
+// @ref llp/1109.002-design-system-parity.spec.md#semantic-colors
 // Home chrome occupies only its toolbar band. A native view returning no hit
 // does not make its full authored wrapper transparent to pointer input.
 component HomeChrome

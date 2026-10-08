@@ -1,5 +1,5 @@
 #if os(iOS)
-// @ref llp/1107.009-mobile-settings.decision.md#information-sources
+// @ref llp/1109.009-mobile-settings.decision.md#information-sources
 import Foundation
 
 /// Bundle metadata and app-owned notices only. Never substitutes preferences for caches.

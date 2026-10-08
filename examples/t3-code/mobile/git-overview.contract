@@ -1,6 +1,6 @@
 // GitOverviewSheet/GitCommitSheet/GitConfirmSheet365aa87982 (MIT).
 // Native header/route ownership stays in the root; inspector uses the same body.
-// @ref llp/1107.011-responsive-workspace.decision.md#navigation-and-data-ownership
+// @ref llp/1109.011-responsive-workspace.decision.md#navigation-and-data-ownership
 shape GitColors
   foreground: string
   secondary: string

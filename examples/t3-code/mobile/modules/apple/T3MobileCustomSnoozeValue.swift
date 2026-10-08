@@ -1,4 +1,4 @@
-// @ref llp/1107.004-home-projection.decision.md#custom-snooze-input
+// @ref llp/1109.004-home-projection.decision.md#custom-snooze-input
 // Pinned threadSettled.ts resolveCustomSnooze; native input validation only.
 import Foundation
 

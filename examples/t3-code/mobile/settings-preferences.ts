@@ -1,4 +1,4 @@
-// @ref llp/1107.002-design-system-parity.spec.md#user-preference-and-accessibility-scaling
+// @ref llp/1109.002-design-system-parity.spec.md#user-preference-and-accessibility-scaling
 // T3 Code mobile 365aa87982 appearancePreferences.ts and mobileTheme.ts.
 // Device preferences are separate from the shared client's server settings.
 import { bridgeReply, type Native } from './shared/protocol';

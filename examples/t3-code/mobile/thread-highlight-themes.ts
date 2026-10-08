@@ -1,5 +1,5 @@
 // GitHub default themes from @shikijs/themes4.2.0, pinned upstream365aa87982 apps/mobile/package.json.
-// @ref llp/1107.002-design-system-parity.spec.md#semantic-colors
+// @ref llp/1109.002-design-system-parity.spec.md#semantic-colors
 /*
 MIT License
 

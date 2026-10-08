@@ -1,5 +1,5 @@
 // GAP 005: full license detail uses a selectable app-owned UIKit view.
-// @ref llp/1107.009-mobile-settings.decision.md#information-sources
+// @ref llp/1109.009-mobile-settings.decision.md#information-sources
 use SettingsColors, SettingsTextRoles, SettingsSectionLabel from "./settings.contract"
 shape InformationLicenseRow
   id: string

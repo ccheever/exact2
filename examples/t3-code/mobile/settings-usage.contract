@@ -1,4 +1,4 @@
-// @ref llp/1107.002-design-system-parity.spec.md#typography-and-font-assets
+// @ref llp/1109.002-design-system-parity.spec.md#typography-and-font-assets
 use SettingsColors, SettingsTextRoles, SettingsSectionLabel from "./settings.contract"
 shape UsageEnvironment
   id: string

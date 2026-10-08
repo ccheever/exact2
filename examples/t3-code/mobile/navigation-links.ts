@@ -1,5 +1,5 @@
 // upstream 365aa87982 apps/mobile/src/lib/appLinking.ts and Stack.tsx linking paths.
-// @ref llp/1107.003-pairing-and-transport.decision.md#app-links
+// @ref llp/1109.003-pairing-and-transport.decision.md#app-links
 const aliases: Record<string, string> = {
   '/settings/new-threads': '/settings/server/SettingsEnvironmentNewThreads',
   '/settings/source-control': '/settings/server/SettingsEnvironmentSourceControl',

@@ -1,4 +1,4 @@
-// @ref llp/1107.011-responsive-workspace.decision.md#composition-decision
+// @ref llp/1109.011-responsive-workspace.decision.md#composition-decision
 // Presentation only; the root keeps the router, resources and all actions.
 use MobileWorkspace from "./mobile-workspace.contract"
 use HomeView, HomeChromeView, Theme, MobileLayout from "./app-shapes.contract"

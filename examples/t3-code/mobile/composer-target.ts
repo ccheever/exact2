@@ -1,5 +1,5 @@
 // Pinned365aa87982 keeps queued-edit content separate from thread model/runtime settings.
-// @ref llp/1107.005-composer-and-transcript.decision.md#scratch-tasks-and-queue-boundaries
+// @ref llp/1109.005-composer-and-transcript.decision.md#scratch-tasks-and-queue-boundaries
 import { mobileNewTaskDraftIsKey, mobileNewTaskDraftLookup, mobileNewTaskDraftChanged } from './mobile-new-task-drafts';
 import { mobileQueuedEditOrigin } from './queued-edit-origin';
 import type { T3Client } from './shared/client';

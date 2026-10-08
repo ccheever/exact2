@@ -1,6 +1,6 @@
 // Pinned T3 Code365aa87982 apps/mobile/src/features/voice-input/voiceInputSession.ts; imports adapted only.
 // Original SHA256 c5f0689000690c60a68f032b66e8125ca705412ce7b2ad1b5358371e14ef9503. MIT: voice-LICENSE.
-// @ref llp/1107.008-mobile-voice.decision.md#controller-reuse
+// @ref llp/1109.008-mobile-voice.decision.md#controller-reuse
 import {
   VoiceInputController,
   voiceInputBlocksSubmission,

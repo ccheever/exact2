@@ -1,5 +1,5 @@
 // ThreadFeed and pending approvals at upstream365aa87982; actions delegate to the shared command seam.
-// @ref llp/1107.002-design-system-parity.spec.md#typography-and-font-assets
+// @ref llp/1109.002-design-system-parity.spec.md#typography-and-font-assets
 use ThreadSnapshot, ThreadRow, ThreadMedia, ThreadColors from "./thread-shapes.contract"
 use ThreadMarkdown from "./thread-markdown.contract"
 use ThreadToolRow from "./thread-work.contract"

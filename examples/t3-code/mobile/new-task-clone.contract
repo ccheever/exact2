@@ -1,5 +1,5 @@
 // T3 Code 365aa87982 ProjectCloneBanner and its NewTaskDraftScreen wrapper.
-// @ref llp/1107.005-composer-and-transcript.decision.md#new-task-ownership
+// @ref llp/1109.005-composer-and-transcript.decision.md#new-task-ownership
 // Pure presentation. Root owns the shared stream projection and native commands.
 shape NewTaskCloneSnapshot
   owner: string

@@ -1,5 +1,5 @@
-// @ref llp/1107.004-home-projection.decision.md#ordinary-row-actions
-// @ref llp/1107.011-responsive-workspace.decision.md#composition-decision
+// @ref llp/1109.004-home-projection.decision.md#ordinary-row-actions
+// @ref llp/1109.011-responsive-workspace.decision.md#composition-decision
 // GAP 007: the visible sidebar is an inactive tab for Exact's authored menus.
 // The public element hatch adds only an app-owned interaction; root keeps actions.
 import Foundation

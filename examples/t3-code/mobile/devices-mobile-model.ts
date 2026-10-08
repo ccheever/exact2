@@ -1,4 +1,4 @@
-// @ref llp/1107.010-mobile-browser-devices.decision.md#connection-and-command-ownership
+// @ref llp/1109.010-mobile-browser-devices.decision.md#connection-and-command-ownership
 // T3 Code365aa87982 (MIT): apps/mobile/src/features/devices/threadDevicePreviews.ts
 // Original SHA256 95cd55380fdd52ab431ae50d4bcaac3230488c0a04d336f715b4bd7da28e9344; type import adapted only.
 import type { Obj } from "./shared/domain";

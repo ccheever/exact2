@@ -1,4 +1,4 @@
-// @ref llp/1107.009-mobile-settings.decision.md#information-sources
+// @ref llp/1109.009-mobile-settings.decision.md#information-sources
 // Mobile365aa87982 About, Legal, licenses, Diagnostics and Client Storage routes.
 import { obj, str, type Obj } from './shared/domain';
 import { decodeNotices } from './shared/settings-data';

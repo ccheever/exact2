@@ -1,6 +1,6 @@
 // Pinned T3 Code365aa87982 thread-list-v2-items, useThreadListActions and HomeRouteScreen.
-// @ref llp/1107.004-home-projection.decision.md#decision
-// @ref llp/1107.011-responsive-workspace.decision.md#navigation-and-data-ownership
+// @ref llp/1109.004-home-projection.decision.md#decision
+// @ref llp/1109.011-responsive-workspace.decision.md#navigation-and-data-ownership
 import { mobileClient, mobileNative } from './client';
 import { mobileHomeDraftAction } from './home-draft-actions';
 import type { T3Client } from './shared/client';

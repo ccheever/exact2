@@ -1,6 +1,6 @@
 // Pinned T3 Code365aa87982 packages/client-runtime/src/voice-input/controller.ts; imports adapted; cancel returns its existing cleanup promise for answer lifetime.
 // Original SHA256 faa532b44fb4a24006e941ad0ad3248795c703d90eaf70357f66ae1152ddf447. MIT: voice-LICENSE.
-// @ref llp/1107.008-mobile-voice.decision.md#controller-reuse
+// @ref llp/1109.008-mobile-voice.decision.md#controller-reuse
 import { replaceTextRange } from "./voice-text";
 
 import type { PreparedVoiceTranscription, VoiceTranscriber } from "./voice-transcription";

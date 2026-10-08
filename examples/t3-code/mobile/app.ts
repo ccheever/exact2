@@ -45,7 +45,7 @@ import { MOBILE_SERVER_ROUTES, mobileServerSettings, mobileServerSettingsCommand
 import { settingsProviderNative, mobileProviderAccounts, mobileProviderAccountsSnapshot, mobileProviderCommand, mobileProviderField } from './settings-provider';
 import { mobileMediaPrepare, mobileMediaForget } from './media-preview';
 import { mobileComposerAttachmentAction, mobileComposerAttachments, mobileComposerAttachmentPreviews } from './composer-attachments';
-// @ref llp/1107.003-pairing-and-transport.decision.md#decision
+// @ref llp/1109.003-pairing-and-transport.decision.md#decision
 import { mobileClient, mobileNative, mobileSnapshot, mobileCommand, mobilePairingFields } from './client';
 import { mobileEnvironmentDetail, mobileEnvironmentDetailCommand } from './environment-detail';
 import { arr, obj, str } from './shared/domain';

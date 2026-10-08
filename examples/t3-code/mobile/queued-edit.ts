@@ -1,6 +1,6 @@
 // Pinned365aa87982 queued-run-edit/use-thread-composer-state. Real server protocol,
 // dedicated mobile content, native durable acknowledgment; no ordinary finishPending.
-// @ref llp/1107.005-composer-and-transcript.decision.md#scratch-tasks-and-queue-boundaries
+// @ref llp/1109.005-composer-and-transcript.decision.md#scratch-tasks-and-queue-boundaries
 import { mobileClient, mobileNative } from './client';
 import { mobileModelSelectionReady } from './model-availability';
 import type { T3Client } from './shared/client';

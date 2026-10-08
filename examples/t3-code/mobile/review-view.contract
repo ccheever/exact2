@@ -1,5 +1,5 @@
 // ReviewSheet/nativeReviewDiffAdapter at365aa87982. Native geometry acceptance pending.
-// @ref llp/1107.006-review-and-files.decision.md#mobile-presentation
+// @ref llp/1109.006-review-and-files.decision.md#mobile-presentation
 use ReviewColors, ReviewSnapshot, ReviewRow from "./review-shapes.contract"
 
 component ReviewView

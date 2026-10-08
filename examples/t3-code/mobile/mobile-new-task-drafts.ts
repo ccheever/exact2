@@ -1,5 +1,5 @@
 // App-owned foreground drafts; source365aa87982 use-composer-drafts/new-task-flow-provider.
-// @ref llp/1107.005-composer-and-transcript.decision.md#new-task-ownership
+// @ref llp/1109.005-composer-and-transcript.decision.md#new-task-ownership
 import type { T3Client } from './shared/client';
 import { obj, str, type Obj } from './shared/domain';
 import { ClientError } from './shared/protocol';

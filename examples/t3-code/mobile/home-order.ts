@@ -1,5 +1,5 @@
-// @ref llp/1107.004-home-projection.decision.md#decision
-// @ref llp/1107.011-responsive-workspace.decision.md#navigation-and-data-ownership
+// @ref llp/1109.004-home-projection.decision.md#decision
+// @ref llp/1109.011-responsive-workspace.decision.md#navigation-and-data-ownership
 // Pinned 365aa87982 threadOrder.ts, threadListV2.ts and state/thread-order.ts.
 import { obj, str, type Obj } from './shared/domain';
 import { homeObserveReturns, type HomeReturnState } from './home-returns';

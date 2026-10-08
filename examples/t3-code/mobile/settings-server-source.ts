@@ -1,4 +1,4 @@
-// @ref llp/1107.003-pairing-and-transport.decision.md#mobile-adaptations
+// @ref llp/1109.003-pairing-and-transport.decision.md#mobile-adaptations
 // Shared transport/snapshot ownership; pinned mobile auth.ts sessionGrantsScope.
 import { mobileClient, mobileNative } from './client';
 import { environmentSources } from './shared/connections';

@@ -1,4 +1,4 @@
-// @ref llp/1107.004-home-projection.decision.md#arrange-threads
+// @ref llp/1109.004-home-projection.decision.md#arrange-threads
 // Pinned Orchestrator.ts thread lifecycle projection; no transport or mutable owner.
 import type { Obj } from './shared/domain';
 

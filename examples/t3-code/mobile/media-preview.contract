@@ -1,5 +1,5 @@
 // iOS uses Quick Look and AVKit, pinned365aa87982 FilePreview.ios / VideoPreviewModal.ios.
-// @ref llp/1107.005-composer-and-transcript.decision.md#media-presentation
+// @ref llp/1109.005-composer-and-transcript.decision.md#media-presentation
 shape MediaPreviewSnapshot
   identifier: string
   name: string

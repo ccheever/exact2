@@ -1,5 +1,5 @@
 #if os(iOS)
-// @ref llp/1107.004-home-projection.decision.md#decision
+// @ref llp/1109.004-home-projection.decision.md#decision
 // Recognition only. Contract owns row geometry and semantic Home actions.
 import UIKit
 

@@ -1,7 +1,7 @@
 import { mobileQueuedEditPresentation } from './queued-edit';
 // Mobile ThreadFeed/ThreadComposer at upstream365aa87982; shared transport and V2 reducers stay authoritative.
-// @ref llp/1107.000-mobile-app-layout.decision.md#shared-typescript
-// @ref llp/1107.003-pairing-and-transport.decision.md#mobile-adaptations
+// @ref llp/1109.000-mobile-app-layout.decision.md#shared-typescript
+// @ref llp/1109.003-pairing-and-transport.decision.md#mobile-adaptations
 import { mobileComposerTarget, mobileComposerTargetText } from './composer-target';
 import { mobileAnswerFilesRequest, mobilePrepareAnswerFiles } from './thread-answer-files';
 import { mobileClient, mobileCommand, mobileNative } from './client';

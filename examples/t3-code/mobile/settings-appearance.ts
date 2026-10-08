@@ -1,4 +1,4 @@
-// @ref llp/1107.002-design-system-parity.spec.md#typography-and-font-assets
+// @ref llp/1109.002-design-system-parity.spec.md#typography-and-font-assets
 // Upstream 365aa87982 appearance section components and appearancePreferences.ts.
 import { themeCards } from './shared/settings-appearance';
 import { MOBILE_THEME_ARTWORK } from './settings-theme-data';

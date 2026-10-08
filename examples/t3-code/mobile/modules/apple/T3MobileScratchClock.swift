@@ -1,5 +1,5 @@
 // Awaited scratch-shell polling used by the unchanged shared client; no retained JS handle.
-// @ref llp/1107.005-composer-and-transcript.decision.md#new-task-ownership
+// @ref llp/1109.005-composer-and-transcript.decision.md#new-task-ownership
 import Foundation
 
 final class T3MobileScratchClock {

@@ -1,6 +1,6 @@
 // T3 Code (MIT, LICENSE-T3)365aa87982 packages/shared/src/filePreview.ts.
 // Source SHA256 e713b85410a6d6812a91b29573fceed7f796d083cc13b1151db03e70f775ad3b; only import paths adapted.
-// @ref llp/1107.005-composer-and-transcript.decision.md#media-presentation
+// @ref llp/1109.005-composer-and-transcript.decision.md#media-presentation
 import { videoMimeType } from "./shared/r4-composer-video";
 
 export type FilePreviewKind =

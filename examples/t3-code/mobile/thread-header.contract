@@ -1,4 +1,4 @@
-// @ref llp/1107.005-composer-and-transcript.decision.md
+// @ref llp/1109.005-composer-and-transcript.decision.md
 shape ThreadHeaderOptions
   routeKey: string
   routeIdentity: string

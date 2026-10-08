@@ -1,5 +1,5 @@
 // Pinned365aa87982 ThreadRouteScreen stages a one-use script launch before navigation.
-// @ref llp/1107.005-composer-and-transcript.decision.md
+// @ref llp/1109.005-composer-and-transcript.decision.md
 import type { T3Client } from './shared/client';
 import { mobileClient, mobileNative } from './client';
 import { ClientError, type Native } from './shared/protocol';

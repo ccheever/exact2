@@ -1,4 +1,4 @@
-// @ref llp/1107.003-pairing-and-transport.decision.md#mobile-adaptations
+// @ref llp/1109.003-pairing-and-transport.decision.md#mobile-adaptations
 // Structural boundary for pinned providerUsageLimits schemas; not a second protocol client.
 import { arr, obj, str, type Obj } from './shared/domain';
 export type EnvironmentId = string;

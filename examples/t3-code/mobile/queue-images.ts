@@ -1,5 +1,5 @@
 // Pinned365aa87982 state/assets: metadata-keyed signed URLs; no retained native answers.
-// @ref llp/1107.005-composer-and-transcript.decision.md#scratch-tasks-and-queue-boundaries
+// @ref llp/1109.005-composer-and-transcript.decision.md#scratch-tasks-and-queue-boundaries
 import type { T3Client } from './shared/client';
 export interface QueueImage { id: string; name: string; mimeType: string }
 export interface QueueImageEntry { url: string; expires: number; refreshAt: number; pending: boolean }

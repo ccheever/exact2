@@ -1,4 +1,4 @@
-// @ref llp/1107.002-design-system-parity.spec.md#icons-and-imagery
+// @ref llp/1109.002-design-system-parity.spec.md#icons-and-imagery
 // Geometry and colors: T3 Code 365aa87982 apps/mobile/src/components/ProviderIcon.tsx.
 // MIT, see ../LICENSE-T3. Unknown providers deliberately use the mobile Codex fallback.
 component ProviderIcon

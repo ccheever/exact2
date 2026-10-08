@@ -1,4 +1,4 @@
-// @ref llp/1107.004-home-projection.decision.md#decision
+// @ref llp/1109.004-home-projection.decision.md#decision
 // T3 Code 365aa87982 ArchivedThreadsScreen and thread-swipe-actions.
 // The root owns the native header, search/filter menus and destructive confirmation.
 shape ArchiveColors

@@ -1,5 +1,5 @@
-// @ref llp/1107.004-home-projection.decision.md#decision
-// @ref llp/1107.002-design-system-parity.spec.md#user-preference-and-accessibility-scaling
+// @ref llp/1109.004-home-projection.decision.md#decision
+// @ref llp/1109.002-design-system-parity.spec.md#user-preference-and-accessibility-scaling
 // Pinned upstream 365aa87982 mobile-preferences.ts and appearancePreferences.ts.
 // One app-local owner. Called on the Exact module's main thread; writes are atomic.
 import Foundation

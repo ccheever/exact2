@@ -1,5 +1,5 @@
 // Pinned365aa87982 ThreadQueueSheet. Root owns native title/route dismissal.
-// @ref llp/1107.005-composer-and-transcript.decision.md#scratch-tasks-and-queue-boundaries
+// @ref llp/1109.005-composer-and-transcript.decision.md#scratch-tasks-and-queue-boundaries
 use GitColors from "./git-overview.contract"
 shape MobileQueueAttachment
   id: string

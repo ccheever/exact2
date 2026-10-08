@@ -1,6 +1,6 @@
 #if os(iOS)
 // Shared AVAudioSession activation belongs to every live app playback/recording owner.
-// @ref llp/1107.005-composer-and-transcript.decision.md#media-presentation
+// @ref llp/1109.005-composer-and-transcript.decision.md#media-presentation
 import AVFoundation
 
 final class T3MobileAudioSession {
