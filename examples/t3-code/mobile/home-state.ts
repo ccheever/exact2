@@ -10,7 +10,7 @@ import { mobileClient } from './client';
 import type { T3Client } from './shared/client';
 import { liveEnvironments } from './shared/live-streams';
 import { fleet, type EnvironmentFleet } from './shared/settings-b-fleet';
-import { mobileHomeActionsObserve, mobileHomeMenu } from './home-actions';
+import { mobileHomeActionsObserve, mobileHomeMenu, mobileHomeSwipe } from './home-actions';
 
 export const emptyShelves = { loaded: false, workingEnabled: false, workingExpanded: false,
   snoozedExpanded: false, settledExpanded: false };
@@ -46,11 +46,16 @@ export function mobileHomeView(args: unknown[], client: T3Client = mobileClient,
     return [environment.environmentId, { origin: endpoint?.origin ?? '', generation: endpoint?.generation ?? 0, connected: environment.connected }] as const;
   }));
   for (const item of result.items) if (item.kind === 'thread') {
+    item.swipe = mobileHomeSwipe(item.environmentId, item.threadId, Number(now), client, background, order);
     item.menuItems = mobileHomeMenu(item.environmentId, item.threadId, Number(now), client, background, order);
-    item.nativeMenu = JSON.stringify({ identity: item.key, requestRoute: String(requestRoute ?? ''), enabled: sidebarVisible === true, items: item.menuItems,
+    item.nativeMenu = JSON.stringify({ identity: item.key, requestRoute: String(requestRoute ?? ''), enabled: sidebarVisible === true, items: item.menuItems, swipeItems: item.swipe.snoozeItems, swipeSnoozable: item.swipe.snoozable, swipeResetKey: item.swipe.resetKey,
       environmentId: item.environmentId, threadId: item.threadId, ...contexts.get(item.environmentId),
       homeVisible: homeVisible === true, sidebarVisible: sidebarVisible === true });
   }
-  return { arrangement: homeArrangeSnapshot(client, mobileHomeSources(client, background), Number(now), order), items: result.items, emptyTitle: result.emptyTitle, emptyDetail: result.emptyDetail,
+  const nextSwipeRefreshAt = result.items.reduce((earliest, item) => {
+    const at = item.swipe.gateExpiry > 0 ? item.swipe.gateExpiry + 50 : 0;
+    return at > Number(now) && (earliest === 0 || at < earliest) ? at : earliest;
+  }, 0);
+  return { nextSwipeRefreshAt, arrangement: homeArrangeSnapshot(client, mobileHomeSources(client, background), Number(now), order), items: result.items, emptyTitle: result.emptyTitle, emptyDetail: result.emptyDetail,
     loading: result.loading, addEnvironment: result.addEnvironment };
 }

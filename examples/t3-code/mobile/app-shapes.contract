@@ -51,6 +51,7 @@ shape ThreadSelection
   environmentId: string
   threadId: string
 shape HomeView
+  nextSwipeRefreshAt: number
   arrangement: HomeArrangementData
   items: list<HomeItem>
   emptyTitle: string

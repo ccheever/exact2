@@ -78,6 +78,8 @@ component MobileRouteContent
     toggleInspector: action
     routeName: string
     routeId: string
+    homeEpochAtZero: number
+    refreshHomeClock: action
     modelOption: string
     focused: bool
     notificationSettings: NotificationsData
@@ -335,7 +337,7 @@ component MobileRouteContent
     else when routeName == "homeArrange"
       HomeArrangement(requestRoute=routeId, data=home.arrangement, colors=HomeArrangementColors(screen=look.screen, foreground=homeLook.foreground, muted=homeLook.muted, primaryText=homeLook.primaryText, borderSubtle=homeLook.borderSubtle), safeTop=0, safeBottom=0, drop=homeArrangeDrop, close=back)
     else when routeName == "home"
-      Home(listId="home-list", items=home.items, emptyTitle=home.emptyTitle, emptyDetail=home.emptyDetail, loading=home.loading, addEnvironment=home.addEnvironment, bottomClearance=chrome.bottomClearance, emptyClearance=chrome.emptyClearance, selectThread=chooseThread, menuAction=homeMenuAction, toggleShelf=toggleHomeShelf, showMore=showMore, addConnection=addEnvironment, colors=homeLook)
+      Home(routeId=routeId, active=focused, refreshAt=home.nextSwipeRefreshAt, epochAtZero=homeEpochAtZero, refreshClock=refreshHomeClock, reducedMotion=viewport.prefersReducedMotion, listId="home-list", items=home.items, emptyTitle=home.emptyTitle, emptyDetail=home.emptyDetail, loading=home.loading, addEnvironment=home.addEnvironment, bottomClearance=chrome.bottomClearance, emptyClearance=chrome.emptyClearance, selectThread=chooseThread, menuAction=homeMenuAction, toggleShelf=toggleHomeShelf, showMore=showMore, addConnection=addEnvironment, colors=homeLook)
       HomeChrome(configuration=chrome.configuration, event=homeEvent, height=(layout.liquidGlass ? chrome.toolbarContentInset + layout.safeBottom : 0))
     else when routeName == "thread" or (routeName == "threadFiles" and workspace.fileInspectorSupported and filesData.error == "")
       // Childless bounds stay settled while unrelated images load; the route probe also hears equal-flow viewport changes.

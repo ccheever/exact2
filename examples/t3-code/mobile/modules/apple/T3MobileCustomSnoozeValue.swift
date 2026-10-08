@@ -40,11 +40,18 @@ enum T3CustomSnoozeValue {
 struct T3CustomSnoozeContext: Decodable, Equatable {
     let identity: String, requestRoute: String, environmentId: String, threadId: String, origin: String
     let generation: Int, connected: Bool, homeVisible: Bool, sidebarVisible: Bool
+    let swipeSnoozable: Bool
+    let swipeResetKey: String
     let items: [T3HomeMenuConfiguration.Item]
-    var eligible: Bool { connected && items.contains { $0.id == "snooze:custom" && !$0.disabled } }
-    func sameOwner(as other: Self) -> Bool {
+    func eligible(invocation: String) -> Bool {
+        guard connected else { return false }
+        if invocation == "swipe" { return swipeSnoozable }
+        return invocation == "menu" && items.contains { $0.id == "snooze:custom" && !$0.disabled }
+    }
+    func sameOwner(as other: Self, invocation: String) -> Bool {
         identity == other.identity && requestRoute == other.requestRoute && environmentId == other.environmentId
             && threadId == other.threadId && origin == other.origin && generation == other.generation
+            && (invocation != "swipe" || swipeResetKey == other.swipeResetKey)
     }
     func matches(_ request: [String: Any]) -> Bool {
         requestRoute == request["requestRoute"] as? String && environmentId == request["environmentId"] as? String

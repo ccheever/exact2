@@ -2,11 +2,16 @@
 // Upstream 365aa87982 HomeScreen, thread-list-v2-items, EmptyState (screen pane).
 // @ref llp/1107.002-design-system-parity.spec.md#typography-and-font-assets
 use HomeMenu, HomeMenuItem from "./home-menu.contract"
+use HomeSwipeControls, HomeSwipeMenu, homeSwipeField, homeSwipeNumber, homeSwipeFinite, homeSwipeInteger from "./home-swipe.contract"
 
 shape HomeColors
   foreground: string
   muted: string
   secondary: string
+  secondaryFill: string
+  secondaryForeground: string
+  screen: string
+  drawer: string
   tertiary: string
   border: string
   borderSubtle: string
@@ -21,6 +26,19 @@ shape HomeColors
   done: string
   menuBackground: string
   card: string
+
+shape HomeSwipeData
+  primary: string
+  primaryLabel: string
+  primarySymbol: string
+  primaryAccessibilityLabel: string
+  secondary: string
+  secondaryAccessibilityLabel: string
+  resetKey: string
+  token: string
+  snoozable: bool
+  gateExpiry: number
+  snoozeItems: list<HomeMenuItem>
 
 shape HomeItem
   key: string
@@ -57,10 +75,17 @@ shape HomeItem
   searchExcerpt: string
   menuItems: list<HomeMenuItem>
   nativeMenu: string
+  swipe: HomeSwipeData
 
 component Home
   props
     listId: string
+    routeId: string
+    active: bool
+    refreshAt: number
+    epochAtZero: number
+    refreshClock: action
+    reducedMotion: bool
     items: list<HomeItem>
     emptyTitle: string
     emptyDetail: string
@@ -74,7 +99,108 @@ component Home
     showMore: action
     addConnection: action
     colors: HomeColors
+  derive swipeOwner = `${routeId}:${listId}`
+  state stateOwner = ""
+  state openToken = ""
+  state dragToken = ""
+  state dragOffset = 0
+  state dragBase = 0
+  state gestureSerial = 0
+  state gestureSequence = -1
+  state surfaceOwner = ""
+  state surfaceSequence = -1
+  state scrollGated = false
+  state tickOwner = ""
+  state tickDeadline = 0
+  action chooseThread(id: string)
+    openToken = ""
+    dragToken = ""
+    dragOffset = 0
+    selectThread(id)
+  action chooseMenu(environmentId: string, threadId: string, kind: string, value: string)
+    openToken = ""
+    dragToken = ""
+    dragOffset = 0
+    menuAction(environmentId, threadId, kind, value)
+  action chooseSwipe(token: string, environmentId: string, threadId: string, kind: string, value: string)
+    if active and stateOwner == swipeOwner and openToken == token and length(filter(items, item => item.swipe.token == token and item.environmentId == environmentId and item.threadId == threadId and item.swipe.snoozable)) == 1
+      openToken = ""
+      dragToken = ""
+      dragOffset = 0
+      menuAction(environmentId, threadId, kind, value)
+  action swipeEvent(message: string)
+    let parts = split(message, "|")
+    if homeSwipeField(parts, 0) == "1" and homeSwipeField(parts, 1) == swipeOwner
+      if length(parts) == 4
+        let phase = homeSwipeField(parts, 3)
+        let serial = homeSwipeNumber(parts, 2)
+        if homeSwipeInteger(parts, 2) and serial >= 0
+          if phase == "tick"
+            if active and serial > 0 and serial == refreshAt and (tickOwner != swipeOwner or tickDeadline != serial)
+              tickOwner = swipeOwner
+              tickDeadline = serial
+              refreshClock()
+          else if includes(["scroll-begin", "scroll-gated", "scroll-clear"], phase) and (surfaceOwner != swipeOwner or serial > surfaceSequence) and (stateOwner != swipeOwner or serial > gestureSerial)
+            surfaceOwner = swipeOwner
+            surfaceSequence = serial
+            scrollGated = phase == "scroll-gated" ? true : phase == "scroll-clear" ? false : scrollGated
+            if phase == "scroll-begin" or phase == "scroll-gated"
+              openToken = ""
+            if phase == "scroll-gated"
+              dragToken = ""
+              dragOffset = 0
+      else if length(parts) == 5 and homeSwipeField(parts, 3) == "retired" and homeSwipeInteger(parts, 2)
+        let serial = homeSwipeNumber(parts, 2)
+        let token = homeSwipeField(parts, 4)
+        if serial > 0 and (surfaceOwner != swipeOwner or serial > surfaceSequence) and (stateOwner != swipeOwner or serial > gestureSerial)
+          surfaceOwner = swipeOwner
+          surfaceSequence = serial
+          if stateOwner == swipeOwner and (openToken == token or dragToken == token)
+            openToken = ""
+            dragToken = ""
+            dragOffset = 0
+      else if length(parts) == 12
+        let token = homeSwipeField(parts, 2)
+        let gesture = homeSwipeNumber(parts, 3)
+        let sequence = homeSwipeNumber(parts, 4)
+        let phase = homeSwipeField(parts, 5)
+        if homeSwipeInteger(parts, 3) and gesture > 0 and homeSwipeInteger(parts, 4) and sequence >= 0 and includes(["begin", "change", "end", "cancel"], phase) and homeSwipeFinite(parts, 6) and homeSwipeFinite(parts, 7) and homeSwipeFinite(parts, 8) and homeSwipeFinite(parts, 9) and homeSwipeFinite(parts, 10) and homeSwipeNumber(parts, 10) > 0 and homeSwipeFinite(parts, 11) and homeSwipeNumber(parts, 11) > 0
+          if phase == "cancel" and stateOwner == swipeOwner and gesture == gestureSerial and sequence > gestureSequence and (dragToken == token or openToken == token)
+            gestureSequence = sequence
+            openToken = ""
+            dragToken = ""
+            dragOffset = 0
+          else
+            match first(filter(items, item => item.kind == "thread" and item.swipe.token == token and item.swipe.primary != ""))
+              case some(item)
+                let strip = item.swipe.secondary == "" ? 58 : 116
+                let x = homeSwipeNumber(parts, 6)
+                if phase == "begin"
+                  if active and (surfaceOwner != swipeOwner or not scrollGated) and (stateOwner != swipeOwner or gesture > gestureSerial) and (surfaceOwner != swipeOwner or gesture > surfaceSequence)
+                    let base = stateOwner == swipeOwner and openToken == token ? 0 - strip : 0
+                    stateOwner = swipeOwner
+                    gestureSerial = gesture
+                    gestureSequence = sequence
+                    dragToken = token
+                    dragBase = base
+                    dragOffset = max(0 - strip, min(0, base + x))
+                    openToken = ""
+                else if stateOwner == swipeOwner and dragToken == token and gesture == gestureSerial and sequence > gestureSequence
+                  gestureSequence = sequence
+                  if phase == "cancel" or not active
+                    openToken = ""
+                    dragToken = ""
+                    dragOffset = 0
+                  else if phase == "end"
+                    openToken = dragBase + x < 0 - strip * 0.42 ? token : ""
+                    dragToken = ""
+                    dragOffset = 0
+                  else
+                    dragOffset = max(0 - strip, min(0, dragBase + x))
+              case none
+                dragToken = dragToken
   view
+    t3-home-swipe-events swipe-owner=swipeOwner swipe-active=active swipe-route-key=(listId == "sidebar-list" ? "t3-workspace-sidebar" : routeId) swipe-refresh-at=`${refreshAt}` swipe-epoch-at-zero=`${epochAtZero}` width=0 height=0 change=swipeEvent testId=`home-swipe-events-${listId}`
     when length(items) == 0
       column flex=1
         align-items="center"
@@ -110,25 +236,34 @@ component Home
               testId="home-add-environment"
               text "Add environment" color=colors.primaryForeground font-size=14 line-height="19px" font-weight=700
     else
-      list id=listId flex=1 min-height=0
+      list id=listId flex=1 min-height=0 hatch="mobile-home-swipe-list" data-mobile-swipe-owner=swipeOwner
         virtualized=true
         estimated-item-height=72
         testId="home-thread-list"
         each item in items key=item.key
-          HomeListItem(surface=listId, item=item, bottomClearance=bottomClearance, selectThread=selectThread, toggleShelf=toggleShelf, showMore=showMore, colors=colors)
+          HomeListItem(surface=listId, owner=swipeOwner, active=active, openToken=(active and stateOwner == swipeOwner ? openToken : ""), dragToken=(active and stateOwner == swipeOwner ? dragToken : ""), dragOffset=dragOffset, reducedMotion=reducedMotion, item=item, bottomClearance=bottomClearance, selectThread=chooseThread, toggleShelf=toggleShelf, showMore=showMore, colors=colors)
       each item in items key=item.key
         when length(item.menuItems) > 0
-          HomeMenu(menuId=`home-menu-${listId}-${item.key}`, items=item.menuItems, environmentId=item.environmentId, threadId=item.threadId, action=menuAction, foreground=colors.foreground, muted=colors.muted, danger=colors.dangerForeground, background=colors.menuBackground)
+          HomeMenu(menuId=`home-menu-${listId}-${item.key}`, items=item.menuItems, environmentId=item.environmentId, threadId=item.threadId, action=chooseMenu, foreground=colors.foreground, muted=colors.muted, danger=colors.dangerForeground, background=colors.menuBackground)
+        when length(item.swipe.snoozeItems) > 0
+          HomeSwipeMenu(token=item.swipe.token, menuId=`home-snooze-${listId}-${item.key}`, items=item.swipe.snoozeItems, environmentId=item.environmentId, threadId=item.threadId, action=chooseSwipe, foreground=colors.foreground, muted=colors.muted, danger=colors.dangerForeground, background=colors.menuBackground)
 
 component HomeListItem
   props
     surface: string
+    owner: string
+    active: bool
+    openToken: string
+    dragToken: string
+    dragOffset: number
+    reducedMotion: bool
     item: HomeItem
     bottomClearance: number
     selectThread: action
     toggleShelf: action
     showMore: action
     colors: HomeColors
+  derive swipeOffset = dragToken == item.swipe.token and item.swipe.token != "" ? dragOffset : openToken == item.swipe.token and item.swipe.token != "" ? (item.swipe.secondary == "" ? -58 : -116) : 0
   derive menuId = `home-menu-${surface}-${item.key}`
   derive statusColor = item.statusTone == "approval" or item.statusTone == "limited" ? colors.warning : item.statusTone == "input" ? colors.inputStatus : item.statusTone == "working" ? colors.workingStatus : item.statusTone == "failed" ? colors.dangerForeground : item.statusTone == "done" ? colors.done : colors.tertiary
   view
@@ -163,68 +298,76 @@ component HomeListItem
             rect x=0 y=0 width="100%" height="100%" rx=7 fill="none" stroke=colors.border stroke-width=1 stroke-dasharray="3 3"
           text item.title font-size=13 line-height="17px" font-weight=500 color=colors.muted
       else
-        button press=selectThread(item.id)
-          hatch="mobile-home-row"
-          data-mobile-home-menu=item.nativeMenu
-          data-mobile-home-surface=surface
-          data-mobile-home-foreground=colors.foreground
-          data-mobile-home-primary=colors.primary
-          data-mobile-home-danger=colors.dangerForeground
-          data-mobile-home-background=colors.card
-          data-mobile-home-menu-id=(surface == "sidebar-list" ? menuId : "")
-          contextPopover=(surface != "sidebar-list" and length(item.menuItems) > 0 ? menuId : "")
-          padding=0
-          text-align="left"
-          aria-label=(item.queued ? `${item.title}, messages queued to send` : item.title)
-          testId=`home-thread-${item.key}`
-          when item.card
-            column padding-left=17.5 padding-right=17.5 padding-top=8.75 padding-bottom=8.75
-              row align-items="center" gap=5.25
-                when item.projectPresent
-                  HomeProjectIcon(item=item, colors=colors)
-                text item.projectTitle flex=1 min-width=0 line-clamp=1 text-overflow="ellipsis"
-                  font-size=14 line-height="19px" font-weight=500 color=colors.muted
-                when item.queued
-                  t3-symbol symbol-name="tray.and.arrow.up" point-size=12 symbol-weight="regular" symbol-tint=colors.muted width=12 height=12
-                when item.pinned
-                  t3-symbol symbol-name="pin" point-size=11 symbol-weight="regular" symbol-tint=colors.muted width=11 height=11
-                text (length(item.status) > 0 ? item.status : item.time) font-size=13 line-height="17px" color=statusColor
-              text item.title margin-top=3.5 font-size=16 line-height="23px" font-weight=500 color=colors.foreground line-clamp=2 text-overflow="ellipsis"
-              when length(item.searchExcerpt) > 0
-                text item.searchExcerpt margin-top=3.5 font-size=13 line-height="17px" color=colors.muted line-clamp=1 text-overflow="ellipsis"
-              row margin-top=3.5 align-items="center" gap=7
-                when length(item.error) > 0
-                  text item.error flex=1 font-size=13 line-height="17px" color=statusColor line-clamp=1 text-overflow="ellipsis"
-                else
-                  row flex=1 min-width=0 align-items="center" gap=3.5
-                    text min-width=0 flex-shrink=1 font-size=13 line-height="17px" line-clamp=1 text-overflow="ellipsis"
-                      text item.branch font-family="Menlo" color=colors.muted
-                      when length(item.branch) > 0 and length(item.environmentLabel) > 0
-                        text "  ·  " color=colors.muted
-                      text item.environmentLabel color=colors.tertiary
-                    when length(item.environmentLabel) > 0
-                      t3-symbol symbol-name=item.machineSymbol point-size=11 symbol-weight="regular" symbol-tint=colors.tertiary width=11 height=11 flex-shrink=0
-            when item.trailingDivider
-              view height=1 margin-left=17.5 background-color=colors.borderSubtle
-          else
-            row min-height=44
-              box-sizing="border-box"
-              align-items="center"
-              gap=8.75
-              padding-left=17.5
-              padding-right=17.5
-              padding-top=7
-              padding-bottom=7
-              when item.projectPresent
-                column opacity=0.4
-                  HomeProjectIcon(item=item, colors=colors)
-              column flex=1 min-width=0
-                text item.title font-size=16 line-height="23px" color=colors.muted line-clamp=1 text-overflow="ellipsis"
-                when length(item.searchExcerpt) > 0
-                  text item.searchExcerpt font-size=13 line-height="17px" color=colors.muted line-clamp=1 text-overflow="ellipsis"
-              when item.queued
-                t3-symbol symbol-name="tray.and.arrow.up" point-size=12 symbol-weight="regular" symbol-tint=colors.muted width=12 height=12
-              text item.time font-family="Menlo" font-size=14 line-height="19px" color=(item.section == "snoozed" ? colors.muted : colors.tertiary)
+        box position="relative" overflow="hidden" background-color=(surface == "sidebar-list" ? colors.drawer : colors.screen)
+          when item.swipe.primary != ""
+            HomeSwipeControls(surface=surface, owner=owner, token=item.swipe.token, menuId=`home-snooze-${surface}-${item.key}`, context=item.nativeMenu, enabled=active and item.swipe.snoozable, open=openToken == item.swipe.token, card=item.card, offset=swipeOffset, secondary=item.swipe.secondary != "", primaryLabel=item.swipe.primaryLabel, primarySymbol=item.swipe.primarySymbol, primaryAccessibilityLabel=item.swipe.primaryAccessibilityLabel, secondaryAccessibilityLabel=item.swipe.secondaryAccessibilityLabel, foreground=colors.foreground, muted=colors.muted, primary=colors.primary, primaryForeground=colors.primaryForeground, secondaryFill=colors.secondaryFill, secondaryForeground=colors.secondaryForeground)
+          column translate=`${swipeOffset}px 0px` transition=(dragToken == item.swipe.token or reducedMotion ? "none" : "translate -exact-spring(330, 26, 0.7)") background-color=(surface == "sidebar-list" ? colors.drawer : colors.screen) testId=`home-swipe-content-${item.key}`
+            button press=selectThread(item.id)
+              hatch="mobile-home-row"
+              data-mobile-swipe-owner=owner
+              data-mobile-swipe-row=item.swipe.token
+              data-mobile-swipe-enabled=(active and item.swipe.primary != "")
+              data-mobile-swipe-open=(openToken == item.swipe.token and item.swipe.token != "")
+              data-mobile-home-menu=item.nativeMenu
+              data-mobile-home-surface=surface
+              data-mobile-home-foreground=colors.foreground
+              data-mobile-home-primary=colors.primary
+              data-mobile-home-danger=colors.dangerForeground
+              data-mobile-home-background=colors.card
+              data-mobile-home-menu-id=(surface == "sidebar-list" ? menuId : "")
+              contextPopover=(surface != "sidebar-list" and length(item.menuItems) > 0 ? menuId : "")
+              padding=0
+              text-align="left"
+              aria-label=(item.queued ? `${item.title}, messages queued to send` : item.title)
+              testId=`home-thread-${item.key}`
+              when item.card
+                column padding-left=17.5 padding-right=17.5 padding-top=8.75 padding-bottom=8.75
+                  row align-items="center" gap=5.25
+                    when item.projectPresent
+                      HomeProjectIcon(item=item, colors=colors)
+                    text item.projectTitle flex=1 min-width=0 line-clamp=1 text-overflow="ellipsis"
+                      font-size=14 line-height="19px" font-weight=500 color=colors.muted
+                    when item.queued
+                      t3-symbol symbol-name="tray.and.arrow.up" point-size=12 symbol-weight="regular" symbol-tint=colors.muted width=12 height=12
+                    when item.pinned
+                      t3-symbol symbol-name="pin" point-size=11 symbol-weight="regular" symbol-tint=colors.muted width=11 height=11
+                    text (length(item.status) > 0 ? item.status : item.time) font-size=13 line-height="17px" color=statusColor
+                  text item.title margin-top=3.5 font-size=16 line-height="23px" font-weight=500 color=colors.foreground line-clamp=2 text-overflow="ellipsis"
+                  when length(item.searchExcerpt) > 0
+                    text item.searchExcerpt margin-top=3.5 font-size=13 line-height="17px" color=colors.muted line-clamp=1 text-overflow="ellipsis"
+                  row margin-top=3.5 align-items="center" gap=7
+                    when length(item.error) > 0
+                      text item.error flex=1 font-size=13 line-height="17px" color=statusColor line-clamp=1 text-overflow="ellipsis"
+                    else
+                      row flex=1 min-width=0 align-items="center" gap=3.5
+                        text min-width=0 flex-shrink=1 font-size=13 line-height="17px" line-clamp=1 text-overflow="ellipsis"
+                          text item.branch font-family="Menlo" color=colors.muted
+                          when length(item.branch) > 0 and length(item.environmentLabel) > 0
+                            text "  ·  " color=colors.muted
+                          text item.environmentLabel color=colors.tertiary
+                        when length(item.environmentLabel) > 0
+                          t3-symbol symbol-name=item.machineSymbol point-size=11 symbol-weight="regular" symbol-tint=colors.tertiary width=11 height=11 flex-shrink=0
+                when item.trailingDivider
+                  view height=1 margin-left=17.5 background-color=colors.borderSubtle
+              else
+                row min-height=44
+                  box-sizing="border-box"
+                  align-items="center"
+                  gap=8.75
+                  padding-left=17.5
+                  padding-right=17.5
+                  padding-top=7
+                  padding-bottom=7
+                  when item.projectPresent
+                    column opacity=0.4
+                      HomeProjectIcon(item=item, colors=colors)
+                  column flex=1 min-width=0
+                    text item.title font-size=16 line-height="23px" color=colors.muted line-clamp=1 text-overflow="ellipsis"
+                    when length(item.searchExcerpt) > 0
+                      text item.searchExcerpt font-size=13 line-height="17px" color=colors.muted line-clamp=1 text-overflow="ellipsis"
+                  when item.queued
+                    t3-symbol symbol-name="tray.and.arrow.up" point-size=12 symbol-weight="regular" symbol-tint=colors.muted width=12 height=12
+                  text item.time font-family="Menlo" font-size=14 line-height="19px" color=(item.section == "snoozed" ? colors.muted : colors.tertiary)
 
 
 component HomeProjectIcon
