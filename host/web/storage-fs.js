@@ -390,8 +390,9 @@ const MAX_JOURNAL = 2_000_000;
 const journalPrefix = appId => `exact-storage-journal:${appId}:`;
 const lockName = (appId, session) => `exact-storage-session:${encodeURIComponent(appId)}:${session}`;
 const recoveryLock = appId => `exact-storage-recovery:${encodeURIComponent(appId)}`;
-// A replayed mutation that fails this way never will: it is reported and skipped. Any other
-// failure (busy, quota, an unloaded store) stops the recovery and keeps the rest for later.
+// A replayed mutation that fails this way never will: it is reported and skipped. A busy path
+// is retried; any other failure ends the recovery and drops what is left, reported: kept, it
+// could later land over a newer save this launch makes.
 const TERMINAL = new Set(['ENOENT', 'EISDIR', 'ENOTDIR', 'EEXIST', 'ENOTEMPTY']);
 const terminal = error => TERMINAL.has(error?.code) || /^denied/.test(error?.message ?? '');
 function windowRealm() {
@@ -465,6 +466,9 @@ function unloadJournal(appId) {
   const journal = {
     session,
     add(method, args) {
+      // Never more pending than half the applied set keeps, so a committed entry's seq is
+      // still in the set when its journal is read: past that, a write is not journaled.
+      if (pending.size >= APPLIED_KEPT / 2) return undefined;
       const n = ++seq;
       pending.set(n, { at: now(), method, args: args.map(encodeArg) });
       if (publish()) write();
@@ -538,8 +542,8 @@ async function recover(appId, store, journal, runOne) {
           }
         }
         if (error && !terminal(error)) {
-          const kept = entries.length - [...done.values()].reduce((n, set) => n + set.size, 0);
-          lines.push(`replay of ${entry.method} ${entry.args[0]} from a closed tab stopped (${kept} kept for the next launch): ${error.code ?? 'failed'} ${error.message}`);
+          const left = entries.length - [...done.values()].reduce((n, set) => n + set.size, 0);
+          lines.push(`replay of ${entry.method} ${entry.args[0]} from a closed tab failed, and ${left} write(s) it left are dropped: ${error.code ?? 'failed'} ${error.message}`);
           stopped = true;
           break;
         }
@@ -548,10 +552,11 @@ async function recover(appId, store, journal, runOne) {
       }
       for (const session of gone) {
         const k = journalPrefix(appId) + session;
-        const rest = readJournal(k).filter(e => !done.get(session).has(e.seq));
+        const rest = stopped ? [] : readJournal(k).filter(e => !done.get(session).has(e.seq));
         writeJournal(k, rest);
-        if (!rest.length && !stopped) await store.forget(session).catch(() => {});
+        if (!rest.length) await store.forget(session).catch(() => {});
       }
+      for (const line of lines) console.warn(`storage: ${line}`);
       return lines;
     } finally {
       for (const { release } of releases) release?.();
@@ -560,10 +565,12 @@ async function recover(appId, store, journal, runOne) {
 }
 
 /** Public capability. Every operation is admitted before opening IndexedDB. */
-export function createFileSystem(appId, grants) {
+export function createFileSystem(appId, grants, { journal: journaled = false } = {}) {
   const store = createFileStore(appId);
   const fs = { directories: roots, dispose() { store.close(); } };
-  const journal = unloadJournal(appId);
+  // Only the JS target's filesystem journals (ts-data.js: one per app, its module's grants);
+  // the wasm realm's and the Rust requests' scoped filesystems neither journal nor replay.
+  const journal = journaled ? unloadJournal(appId) : null;
   function chain(step) {
     const previous = mutationTails.get(appId) || Promise.resolve();
     const result = previous.then(step);

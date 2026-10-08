@@ -229,9 +229,9 @@ function storageOf(grants) {
   let loaded = null;
   const unadmitted = [];
   const files = () => fs ??= key().then(k => import(new URL('./storage-fs.js', import.meta.url).href).then(m => {
-    const f = m.createFileSystem(k, grants);
+    const f = m.createFileSystem(k, grants, { journal: true });
     loaded = f;
-    for (const write of unadmitted.splice(0)) write.seq = f.admit(write.m, write.captured);
+    for (const write of unadmitted.splice(0)) write.seq = admit(f, write.m, write.captured);
     // @ref LLP 1097 D8, D10 — a replay from a closed tab that failed is a storage failure.
     void f.recovery?.then(lines => { for (const line of lines) { counts.failed++; counts.last = `storage failed: ${line}`; journal.push(`t=${clock.now} storage failed: ${line}`); } });
     return f;
@@ -263,6 +263,8 @@ function storageOf(grants) {
   };
   const methods = ['readFile', 'writeFile', 'atomicWriteFile', 'appendFile', 'readdir', 'mkdir', 'rm', 'stat', 'rename', 'copyFile', 'realpath'];
   const WRITES = new Set(['writeFile', 'atomicWriteFile', 'appendFile', 'mkdir', 'rm', 'rename', 'copyFile']);
+  // A write the journal cannot take (bad bytes, a refused path) is simply not journaled.
+  const admit = (f, m, captured) => { try { return f.admit(m, captured); } catch { return undefined; } };
   // `compressImage` (LLP 1069.002 A1): its options are checked before it is
   // queued, as the native prelude checks them; app files only.
   const compressImage = (from, to, options) => {
@@ -282,7 +284,7 @@ function storageOf(grants) {
         const picked = isDocument(captured);
         // @ref LLP 1097 D10 — a write is journaled when this queue accepts it, so one waiting
         // behind others survives a closed tab too (once the filesystem has loaded).
-        const write = admitted && !picked && WRITES.has(m) ? { m, captured, seq: loaded?.admit(m, captured) } : null;
+        const write = admitted && !picked && WRITES.has(m) ? { m, captured, seq: loaded ? admit(loaded, m, captured) : undefined } : null;
         if (write && !loaded) unadmitted.push(write);
         let called = false;
         const run = () => (picked ? documents() : files()).then(f => {

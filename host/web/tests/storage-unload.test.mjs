@@ -26,7 +26,7 @@ const page = () => `<!doctype html><script type="module">
   import { createFileSystem } from '/storage-fs.js';
   import { createGrantSet } from '/grant-admission.js';
   const grants = createGrantSet(${grantSet('fs.read app:/data\nfs.write app:/data')});
-  globalThis.fs = createFileSystem('com.example.unload', grants);
+  globalThis.fs = createFileSystem('com.example.unload', grants, { journal: true });
   globalThis.text = buffer => new TextDecoder().decode(buffer);
   globalThis.ready = true;
 </script>`;

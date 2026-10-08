@@ -665,6 +665,10 @@ One rule per event:
   cell). A `storage.fs` mutation is one IndexedDB transaction, and Chrome drops a
   transaction still running when the page goes away: a setting committed with
   Enter and the tab closed 4 ms later was lost 4 of 4 times.
+  - **The JS target only.** The JS target's filesystem (`ts-data.js`, one per
+    app, its module's grants) opts in; the wasm realm's (`storage.js`) and the
+    Rust requests' per-scope filesystems (`storage-request.js`) neither journal
+    nor replay. Apps ship on the JS target (LLP 1071).
   - **A journal per realm (a session).** `storage-fs.js` keeps each mutation as
     an entry from the moment it is accepted until it commits. The JS target's
     storage queue (`ts-data.js`) accepts it when the app calls (`admit`; a write
@@ -690,13 +694,17 @@ One rule per event:
     reads and mutations wait for that.
   - **Failures (D8).** A replayed entry that fails for good (`ENOENT`,
     `EISDIR`, `ENOTDIR`, `EEXIST`, `ENOTEMPTY`, a refusal) is skipped; a busy
-    path is retried; any other failure stops the whole recovery and keeps every
-    entry left for the next launch. Each is a `storage failed:` line in the
-    runtime's journal on the JS target (`fs.recovery`). On the wasm host and for
-    Rust storage requests it is a console warning only.
+    path is retried; any other failure ends the recovery and drops every entry
+    left, reported, because kept it could later land over a newer save this
+    launch makes. Each is a `storage failed:` line in the runtime's journal
+    (`fs.recovery`) and a console warning.
+  - **Bounded.** At most 512 entries are pending in a journal (half the applied
+    set), so a committed entry's sequence number is always still in its
+    session's set; a write past that is not journaled.
   - **Measured after it:** the same close kept the setting 10 of 10 times on the
-    JS target and 6 of 6 on the wasm host.
+    JS target.
   - **Not covered**, and the pitfall says so:
+    - the wasm realm and Rust storage requests (above);
     - SQLite (its worker's transaction is its own);
     - a source placed in a worker (no `pagehide`, no synchronous storage);
     - writes still queued inside a wasm-realm source (`prelude.js`) behind the
