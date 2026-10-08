@@ -243,7 +243,8 @@ export function install(exact) {
         }
         // A hatch's regions and parts, under their node (LLP 1075.003.000.001 §3.4, §3.5; hatches.js).
         if (exact.hatchRegions) nodes = nodes.map(n => { const o = exact.hatchRegions.of(views.get(n.id)); return o ? { ...n, ...o } : n; });
-        return { nodes, roots, ...tags() };
+        if (req.plan) for (const n of nodes) { const site = views.get(n.id)?.dataset?.site; if (site != null) n.site = Number(site); }
+        return { nodes, roots, ...tags(), ...(req.plan && exact.plan ? { planDigest: exact.plan } : {}) };
       }
       case 'layout': {
         // Every view, a zero box too (an empty text, a closed popover), as
@@ -257,7 +258,7 @@ export function install(exact) {
           return { id: n.id, x: b.x, y: b.y, w: b.width, h: b.height, ...hit, ...(el.dataset.scroll === 'true' ? { sx: r2(el.scrollLeft), sy: r2(el.scrollTop) } : {}) };
         });
         const reply = { viewport: { w: innerWidth, h: innerHeight }, env: environment(), nodes, ...tags() };
-        if (req.id != null) { const node = nodeDetail(req.id); if (node.error) return node; reply.node = node; }
+        if (req.id != null) { const node = nodeDetail(req.id); if (node.error) return node; if (req.plan && exact.plan) node.planDigest = exact.plan; reply.node = node; }
         if (req.agree) return { viewport: reply.viewport, agreement: { unavailable: 'no independent model: the page is the tree' }, ...tags() }; else if (req.native && reply.node) { delete reply.nodes; reply.node.native = { ...reply.node.native, subviews: { unavailable: 'the DOM is the tree; layout <target> names the element' } }; } // @ref LLP 1080.001 D1, D2
         return reply;
       }
