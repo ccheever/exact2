@@ -1,5 +1,6 @@
 // Mobile365aa87982 NewTaskFlowProvider, NewTaskDraftRouteScreen and DraftScreen.
 // @ref llp/1109.005-composer-and-transcript.decision.md#new-task-ownership
+import { mobileNewTaskDraftNoteBranch } from './mobile-new-task-drafts';
 import { mobileNewTaskCloneObserve, mobileNewTaskCloneAction } from './new-task-clone';
 import { mobileClient, mobileNative } from './client';
 import { mobileHomeSources } from './home';
@@ -223,6 +224,7 @@ export async function mobileNewTaskFlowAction(owner: string, visit: string, kind
           }
           if (!expected()) throw new ClientError('The selected workspace changed.', 'superseded');
           patchDraftContext(client, { envMode: 'local', branch, worktreePath: route.worktreePath });
+          mobileNewTaskDraftNoteBranch(client, 'explicit');
           await client.persist(storage); assertCurrent();
         }
         flow.selected = selection(client);

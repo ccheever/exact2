@@ -193,7 +193,7 @@ describe('pinned shared sources', () => {
       const pin = name === 'let-go.ts' ? '669968e248e3a3ca29dbfeada999af2114141223'
         : ['client.ts', 'local-backend.ts', 'timestamp-format.ts'].includes(name)
           ? '38352ceaf4cd35a40b7b24ce992db87c2357a99b' : '887b2491b182f851b11253655f6aa84fe2a26708';
-      const adapted = ['client.ts', 'client-ops-composer.ts', 'project-clones-live.ts', 'r8-pointer-reconnect.ts'].includes(name);
+      const adapted = ['client.ts', 'client-ops-composer.ts', 'project-clones-live.ts', 'r8-pointer-reconnect.ts', 'r4-git-branch.ts'].includes(name);
       expect(local[1]).toBe(`// ${adapted ? 'Adapted' : 'Unchanged'} body from examples/t3-code/${name} at ${pin}.`);
       return { name, local, pin };
     });
@@ -239,6 +239,14 @@ describe('pinned shared sources', () => {
           "  if (str(status.state) !== 'disconnected' || str(status.environmentId)) {\n    asked.add(client);\n    return false;\n  }\n  const attempt = {};\n  reading.set(client, attempt);")
         .replace('  const target = relaunchTarget(saved, str(status.origin));',
           '  if (asked.has(client) || reading.get(client) !== attempt) return false;\n  reading.delete(client);\n  asked.add(client);\n  const target = relaunchTarget(saved, str(status.origin));');
+      if (name === 'r4-git-branch.ts') expected = "// Mobile adaptation: a guarded read leaves draft-context adoption to its captured owner.\n" + expected
+        .replace("async function loadRefs(client: T3Client, native: Native, cwd: string, query: string): Promise<Refs> {\n", "async function loadRefs(client: T3Client, native: Native, cwd: string, query: string, currentOwner?: () => boolean): Promise<Refs> {\n")
+        .replace("  if (current && current.cwd === cwd && current.query === query && current.generation === client.generation && !current.stale)\n    return Object.assign(current, await morePages(current, client.presentation, 'details-refs', list));\n", "  if (current && current.cwd === cwd && current.query === query && current.generation === client.generation && !current.stale) {\n    const page = await morePages(current, client.presentation, 'details-refs', list);\n    if (currentOwner && !currentOwner()) throw new ClientError('The selected workspace changed.', 'superseded');\n    return Object.assign(current, page);\n  }\n")
+        .replace("  const next: Refs = { cwd, query, ...firstPage(result, scrollEnds(client.presentation, 'details-refs')), loaded: true, generation: client.generation, stale: false };\n", "  if (currentOwner && !currentOwner()) throw new ClientError('The selected workspace changed.', 'superseded');\n  const next: Refs = { cwd, query, ...firstPage(result, scrollEnds(client.presentation, 'details-refs')), loaded: true, generation: client.generation, stale: false };\n")
+        .replace("export async function cardBranchView(client: T3Client, native: Native, cwd: string, root: string, isRepo: boolean) {\n", "export async function cardBranchView(client: T3Client, native: Native, cwd: string, root: string, isRepo: boolean, currentOwner?: () => boolean) {\n")
+        .replace("  let refs: Refs | null = null;\n", "  if (currentOwner && !currentOwner()) throw new ClientError('The selected workspace changed.', 'superseded');\n  let refs: Refs | null = null;\n")
+        .replace("  try { refs = await loadRefs(client, native, cwd, state.query.trim()); } catch { refs = state.refs && state.refs.cwd === cwd ? state.refs : null; }\n", "  try { refs = await loadRefs(client, native, cwd, state.query.trim(), currentOwner); } catch { refs = state.refs && state.refs.cwd === cwd ? state.refs : null; }\n  if (currentOwner && !currentOwner()) throw new ClientError('The selected workspace changed.', 'superseded');\n")
+        .replace("  if (!client.threadId && !selectingBase && strip.branch && context.branch !== strip.branch) {\n", "  if (!currentOwner && !client.threadId && !selectingBase && strip.branch && context.branch !== strip.branch) {\n");
       expect(local.slice(2).join('\n')).toBe(expected);
     }
   });
