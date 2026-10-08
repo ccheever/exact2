@@ -85,6 +85,15 @@ function template(e, v) {
 function refresh() {
   for (const el of document.querySelectorAll("#exact-root img[data-app-src]")) if (el.$app === undefined) appSource(el, el.getAttribute("data-app-src"));
   for (const el of document.querySelectorAll("#exact-root img[data-symbol-path]")) {
+    // D4/D14: absent symbol axes follow the title, including its own rows.
+    if (el.parentElement?.matches("button[data-button-style]")) {
+      const title = el.parentElement.querySelector(":scope > [data-exact-text]"), own = getComputedStyle(el);
+      if (title) {
+        const font = getComputedStyle(title); el.style.color = font.color;
+        if (own.getPropertyValue("--exact-symbol-size-authored").trim() !== "1") el.style.fontSize = font.fontSize;
+        if (own.getPropertyValue("--exact-symbol-weight-authored").trim() !== "1") el.style.fontWeight = font.fontWeight;
+      }
+    }
     const cs = getComputedStyle(el), size = parseFloat(cs.fontSize), weight = Number(cs.fontWeight);
     const path = el.getAttribute("data-symbol-path"), filled = el.hasAttribute("data-symbol-fill"), key = `${path}:${filled}:${size}:${weight}`;
     // As the web host says it (glue.js `refreshSymbols`), once every role is here.

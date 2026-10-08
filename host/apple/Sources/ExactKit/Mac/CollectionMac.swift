@@ -7,14 +7,14 @@ import AppKit
 /// it may carry only the rows the collection has built, so a concurrent
 /// scroll pauses at their edge until the main thread builds more, rather
 /// than carrying the background into view (LLP 1050.000 D5).
-final class FlippedView: NSView {
-    override var isFlipped: Bool { true }
-    override func hitTest(_ point: NSPoint) -> NSView? { raisedHit(super.hitTest(point), point) }
+package final class FlippedView: NSView {
+    package override var isFlipped: Bool { true }
+    package override func hitTest(_ point: NSPoint) -> NSView? { raisedHit(super.hitTest(point), point) }
     /// What the mounted rows cover, in this view's coordinates; nil: anything.
     var preparedLimit: (() -> NSRect?)?
     /// AppKit's last request, kept so rows built later can widen the answer.
     private(set) var requestedPrepared: NSRect?
-    override func prepareContent(in rect: NSRect) {
+    package override func prepareContent(in rect: NSRect) {
         requestedPrepared = rect
         super.prepareContent(in: clampPrepared(rect))
     }
@@ -249,7 +249,7 @@ extension CollectionHost {
     }
 
     /// A list's facts on its own axes (LLP 1070 H1).
-    func geometry(_ id: UInt32) -> CollectionFacts? {
+    package func geometry(_ id: UInt32) -> CollectionFacts? {
         guard let node = presenter?.views[id], let scroll = node.scroll,
               !node.isHiddenOrHasHiddenAncestor else { return nil }
         let bounds = scroll.contentView.bounds
@@ -264,16 +264,20 @@ extension CollectionHost {
             let available = max(0, bounds.height - content.minY - (node.bounds.height - content.maxY))
             let cross = measured ?? available
             guard cross.isFinite else { return nil }
-            return CollectionFacts(offset: Double(max(0, at.x - content.minX)),
+            // From the first item: negative in the padding before it, down
+            // to that padding (LLP 1010 §6.9).
+            return CollectionFacts(offset: Double(max(-node.number("padding_left"), at.x - content.minX)),
                 portMain: Double(max(0, bounds.width)), portCross: Double(max(0, bounds.height)),
-                cross: Double(cross), measurements: [], focus: nil, interaction: nil)
+                cross: Double(cross), measurements: [], focus: nil, interaction: nil,
+                padding: [Double(node.number("padding_left")), Double(node.number("padding_right"))])
         }
         let available = max(0, bounds.width - content.minX - (node.bounds.width - content.maxX))
         let width = measured ?? available
         guard width.isFinite else { return nil }
-        return CollectionFacts(offset: Double(max(0, at.y - content.minY)),
+        return CollectionFacts(offset: Double(max(-node.number("padding_top"), at.y - content.minY)),
             portMain: Double(max(0, bounds.height)), portCross: Double(max(0, bounds.width)),
-            cross: Double(width), measurements: [], focus: nil, interaction: nil)
+            cross: Double(width), measurements: [], focus: nil, interaction: nil,
+            padding: [Double(node.number("padding_top")), Double(node.number("padding_bottom"))])
     }
     /// A row wrapper's size across the list.
     func crossSize(_ id: UInt32, horizontal: Bool) -> Double? {
@@ -388,11 +392,7 @@ extension CollectionHost {
     }
     func focusedView() -> UInt32? {
         guard let presenter, let responder = presenter.viewport.window?.firstResponder else { return nil }
-        for node in presenter.views.values {
-            if responder === node || responder === node.textArea ||
-                (node.field.flatMap { $0.currentEditor() }.map { responder === $0 } ?? false) { return node.id }
-        }
-        return nil
+        return presenter.keyTarget(responder)?.id
     }
     private func nodeID(_ hit: NSView?) -> UInt32? {
         var view = hit

@@ -48,6 +48,7 @@ This guide is documentation, not an additional policy layer. Documents in
 | Network, authentication, storage, sorting, domain algorithms | App TypeScript/Rust data module |
 | Device facts | Reserved source with an admitted shape |
 | A system control (button, list, switch, picker, menu, tabs, bars) | Contract's native form ([below](#views-layout-and-interaction)); an app native module only where none exists |
+| What only the platform's own object can do (a gesture recognizer, a bar's look, drawing into a view) | An access hatch: `hatch="word"` on the node, native code handed its view ([reference](reference.md#access-hatches)); `bun exact.mjs hatch <word>` writes the stubs |
 | Canvas 2D drawing | Data module's canvas surface |
 | GPU scene or game | Optional GPU/game artifact |
 | App identity, grants/deploy selection, module placement | App manifest and data-module declarations |
@@ -327,7 +328,7 @@ component Cart
   assignment expressions, or JavaScript built-ins by implication.
 - `fn label(done: bool): string = done ? "Done" : "Open"` is a function: parameters
   and the return type are explicit, after `:` (not `->`). Its body is one expression over
-  its parameters and standard calls (including `now()`), without component-state
+  its parameters and standard calls (including `performanceNow()`), without component-state
   capture or recursion. Pass an app value in; do not invent an ambient reference.
   A `fn` named like a standard function (`fn indexOf`) shadows it in every
   expression of the app, so a standard function added later never breaks an
@@ -577,11 +578,47 @@ Choose the mechanism from its lifetime:
 | Repeat while a condition holds (a game tick, a pulse) | `task … when cond` with `every(ms, action)` |
 | Pending indicator | `pending(resourceOrMutationName)` |
 | Resource request failed without an answer | `failed(resourceName)` (a resource only: a mutation answers its failure as a domain result, such as `ok: false`) |
+| Why it failed, to branch on or show | `failure(resourceName)`: `none`, or `some({ code, message })`, `code` one of `offline`, `timeout`, `refused`, `shape`, `storage`, `error` |
 | Initial resource fallback | `else empty(field=constant)`, or `else source(values)` answered once at build |
 
 Resources read as their declared type. Mutations read as `option<T>` and start at
 `none`, so a mutation's `T` is not itself an option. Do not treat a resource as an optional wrapper unless its declared type
 itself is optional. A mutation reply is unwrapped with match.
+
+An answer is held to its shape exactly: a field the shape does not declare, at any
+depth, fails the resource as a thrown error does (TypeScript lets a spread such as
+`{ ...row }` through). The view keeps its placeholder or last value and
+`failed(x)` is true, so a banner on `failed` reads "unreachable" for what is a
+shape mismatch: `state` names the field under `failed`, a CLI drive says so on
+stderr, and a failing `expect` names it. Project a backend row onto the shape
+field by field (`({ id: row.id, title: row.title })`).
+
+`failure(x)` says why, for the view to branch on: `none` while `x` has not
+failed, else `some` of a `Failure`, whose `code` is one word from a closed
+list, the same on every host (`docs/contract-grammar.md`), and whose `message`
+is the text `state.failed` shows (for a developer; it differs by host):
+
+```contract
+shape Item
+  id: string
+
+component Items
+  resource items = loadItems() as shape list<Item> else empty()
+  derive banner = match failure(items) {
+    case some(f) => f.code == "offline" ? "You're offline" : f.code == "shape" ? "This app needs an update" : "Couldn't load items",
+    case none => ""
+  }
+  view
+    column
+      when banner != ""
+        text banner testId="banner"
+```
+
+`offline`, `timeout`, `refused` and `storage` reach the view only when the
+TypeScript module lets the `fetch` or storage rejection through (rethrows it, or
+does not catch it): an error it makes of its own, one for an HTTP 500 among
+them, is `error`. `bun scripts/agent.mjs web "fail fetch https://api…"` fails
+those fetches as a lost connection, so the banner says "You're offline".
 
 `with` takes one or more expressions, before `as shape`, and appends them to the
 source's arguments. All arguments still trigger re-asks and identify live
@@ -651,7 +688,10 @@ cleartext `http` reaches only a local host, and only with `app.json`'s
 `host.macos.appTransportSecurity` or `host.ios.appTransportSecurity` set to
 `{ "allowsArbitraryLoadsInWebContent": true }`, which relaxes web views only and
 not an `http:` sub-resource of the app's own `assets/` page),
-and how to drive it with storage.
+and how to drive it with storage. A path grant covers its path and what is below
+it, by whole names: `sqlite.open app:/data` covers `app:/data/inbox-amy.sqlite`,
+`sqlite.open app:/data/inbox` does not. A refused open names the file it wanted
+and the grant line that would admit it.
 A token, a password or a key the module keeps is a secret, not a file: grant
 `secret.keep <name>` (one line per name, `secret.keep signal.token`) and use
 `store.set(name, value)`, `store.get(name)` (a string, or `null`) and
@@ -684,7 +724,12 @@ HTML names Contract spells otherwise (the compiler names each): `div` is `column
 `text role="heading" aria-level=N`; `label` is `text` beside its field, which
 `aria-label` (or `aria-labelledby`) names; `img` is `image`; `a` is `link`; `ul`,
 `ol` and `li` are a `list` or a `column` of rows; `title` and `meta` are `head
-title=… description=…`. A component
+title=… description=…`; a `table` is `view display="grid"` with
+`grid-template-columns` (or a `column` of `row`s); there is no `form` (a field's
+Enter is its `submit`) and no `details` (keep `open` in state, show the body `when
+open`). In expressions a view chooses with `when`, not `if`; a count is
+`length(xs)`, never `count`, `len` or `.size`; a resource's placeholder is `else
+empty()` (`[]` for a list), never `else []`. A component
 call uses parentheses; a built-in element uses space-separated attributes.
 `button "Save" press=save` is text-child sugar; an explicit text child is useful
 when that label needs its own styling or driver id. A `button` is the web's
@@ -715,8 +760,20 @@ list with no bound at all, in its first 390×844 frame, so look at the list in e
 layout it takes. It takes `estimated-item-height`. A horizontal one needs a
 literal `display="flex"` and a literal positive `height`, takes
 `estimated-item-width`, and refuses wrapping, reversed or right-to-left flow, a
-nonzero `gap`, main-axis padding, `justify-content` other than `flex-start`, and
-`reorderdrop`. `reorderdrop` belongs only on a vertical `list virtualized=true`
+nonzero `gap`, `justify-content` other than `flex-start`, and `reorderdrop`.
+Main-axis padding (`padding-top`/`-bottom`, a row list's `-left`/`-right`) is
+CSS's room before the first row and after the last, inside the scroll content:
+room under a header laid over the list, or over a tab bar
+(`padding-bottom="calc(env(safe-area-inset-bottom) + 49px)"`). It takes a
+number, an `env()` length or its `calc()`, or a computed number, not a
+percentage; the end that `reachend`, `scrollFollowEnd` and `scroll-start="end"`
+reach is past it, and on iOS the pull-to-refresh spinner draws below
+`padding-top` (a padding-bottom taller than the port has limits: LLP 1010
+§6.9). `scroll-padding` (`-top`/`-bottom`, a row list's `-left`/`-right`, the
+same forms) is where its `scrollIntoView` aligns a row, as CSS's snapport:
+with `scroll-padding-top` equal to a header's height, the first row's
+`block="start"` is `scrollTop` 0. Only a virtualized list takes it
+(`lower-scroll-padding` elsewhere: native hosts read it nowhere else). `reorderdrop` belongs only on a vertical `list virtualized=true`
 (each row's handle names it with `reorderFor`); the compiler refuses it on any
 other element, where no host could drag. Lists that share a `reorderGroup`
 (each with a `reorderdrop`, an `id` and string keys) exchange rows: the drop
@@ -741,14 +798,63 @@ stays there, so rows inserted on top show, and one following its end
 (`translate`, `rotate`, `scale`, a relative `top`/`left`, `z-index`: a lifted
 row being dragged) and keeps its place in the list.
 
-A native button is an explicit `button appearance="auto"` after class merging;
-an ordinary button remains an authored `appearance="none"` pressable. The switch
-must be literal. Native title/symbol children are face data, not general layout.
-A symbol-only face needs a nonempty accessible label. `buttonStyle` is a declared
-styleable host-policy prop; its names and allowable branches are checked against
-`schema.json`'s `buttonStyles`. Follow the native-button allowlist and context
-checks in [`controls.rs`](../contract/lower/src/controls.rs), and test the actual
-platform look. Do not assume arbitrary custom paint or typography is admitted.
+A `button` is the platform's own control by default. A background, border or
+radius, rich children, or a row/attribute/context the native control cannot
+support makes it your bare box instead. Classes count after merging, and a
+row or incompatible child on any conditional arm keeps the whole button bare.
+Grouped-list row buttons and their detail accessories stay bare by default so
+UIKit can read the cell's face; explicit `appearance="auto"` carries a custom native control.
+`appearance="none"` explicitly asks for your box. `appearance="auto"` explicitly
+asks for the platform's button and refuses unsupported rows or children. The
+switch must resolve to a literal after class merging; use `when` with two
+buttons to switch. Its first `text` is the title, its second is the subtitle, and
+its one `image "symbol:…"` is the symbol. These are semantic face data, not
+layout children. A symbol-only face needs a nonempty `aria-label`. With
+`flex-direction="row"` (or absent), an image before/after the texts is
+leading/trailing; with `flex-direction="column"` it is top/bottom.
+
+Native buttons admit `font-size`, `font-weight`, `color`, `white-space`,
+`line-clamp` and `text-align` on the button or its texts; a text's own row wins.
+Apple uses only rows authored there, including classes; absent rows leave the
+platform's font and colour alone. The web inherits the page's font and colour.
+Tab/menu projections keep their existing ancestor `text-transform` on the
+projected title, which the face query reads as painted.
+`white-space="nowrap"` asks for one truncated line, `line-clamp=N` caps wrapping,
+and `text-align="start"` places the face at the start of its box. The symbol
+admits its own `-exact-tint-color`, `font-size` and `font-weight`; absent symbol rows
+follow the title. Its `width`, `height` and `object-fit` are refused.
+
+`gap` (or `column-gap` for a row, `row-gap` for a column) sets image-to-title
+spacing. Absent means the platform's spacing, not zero; title-to-subtitle
+spacing stays the platform's. `align-items` and `justify-content` accept only
+`center`. `-exact-control-size` takes `mini`, `small`, `medium`, `large`;
+`-exact-corner-style` takes `dynamic`, `small`, `medium`, `large`, `capsule`.
+Both are style rows admitted only on native buttons, including in a class.
+With explicit `appearance="auto"`, `border-radius` sets the authored radius
+and wins over the named corner style; under the default it makes the button bare.
+`padding` and its longhands set content insets. Absent leaves the native
+control's insets/corners alone.
+
+`pointer-events` takes `none` or `auto`. A disabled native button retains
+its authored colours; bind `opacity` for authored dimming. It can open a
+dialog or popover with `commandfor` and `command="show-modal"`,
+`"show-popover"`, `"toggle-popover"`, or with `popovertarget`; targets may be
+bound, and an empty target is no target. `href`, `action` and swipe attributes
+remain refused. `-exact-enabled` transitions are not available.
+
+`buttonStyle` needs a native button; on a default button that comes out bare,
+`lower-button-style` names the first reason and says to remove it or write
+`appearance="none"` without `buttonStyle`. It is a styleable host-policy prop;
+its names and allowable branches
+are checked against `schema.json`'s `buttonStyles`. Backgrounds, borders,
+shadows, filters, `font-family`, other typography or inner layout and
+`-exact-press-scale` are refused with `lower-button-style-attr`, naming a custom
+`button` as the alternative. A native button still takes size, place, opacity
+and transform rows. Hosts implementing the measure hook supply its fitting
+size before the first frame, including height-for-width; hosts without it
+keep the existing intrinsic-size report. Test the actual
+platform look; macOS can report stand-ins for gap, subtitle and wrapping.
+See [`controls.rs`](../contract/lower/src/controls.rs) for the checks.
 
 **Prefer native controls.** Write the Contract form and each host draws its own
 control; a hand-built lookalike (a painted switch, a row of buttons for tabs, a
@@ -756,12 +862,13 @@ drawn title bar) is a bug. On iOS:
 
 | Write | iOS draws |
 | --- | --- |
-| `button appearance="auto"` (`buttonStyle`) | `UIButton` |
+| `button` (`buttonStyle`, native by default) | `UIButton` |
 | `list appearance="auto" listStyle="inset-grouped"` of `section`s (`header`, rows, `footer`) | `UICollectionView` list, as Settings ([human guide](contract-for-humans.md#choosing-a-native-button)) |
 | `input type="checkbox" switch` | `UISwitch` |
 | `input type="range"` | `UISlider` |
 | `input type="date"`, `"time"`, `"datetime-local"` | `UIDatePicker` |
 | `select` of `option`s | a pop-up button with its menu |
+| `progress` (no `value`) | `UIActivityIndicatorView`, `.large` from a 37-point box (LLP 1069.001) |
 | `popover="auto" role="menu"` of `button`s, opened by `popovertarget` (a row whose `popovertarget` names another menu: its submenu) | `UIMenu`, nested (LLP 1021) |
 | `role="tablist"`: each tab a symbol over a label / one text or image | `UITabBar` / `UISegmentedControl`, the tablist at least its native height unless `min-height` says otherwise (LLP 1059) |
 | a route whose first child is a `header` holding one heading and its buttons | the navigation bar; a level-1 heading (`aria-level=1`) is a large title |
@@ -783,7 +890,10 @@ An `image` source is the same string on every host: a path under the app's
 `skip-forward-30`, `speaker`, `speaker-mute` and `moon`), an `app:/data|cache|tmp/…` file
 (a picked photo, or one the data module kept with `storage.fs`; it shows after a
 relaunch too), or a `data:` URL of at most 1 MiB, past which every host shows
-nothing (the web and Apple journal `image refused`). Keep a picked photo by copying it to
+nothing (the web and Apple journal `image refused`). Shrink a picked photo for an upload limit with
+`storage.fs.compressImage(path, to, {maxDimension, maxBytes})`, which writes an
+upright JPEG with no location metadata ([reference](reference.md#shrink-a-picked-image-for-upload-storagefscompressimage));
+Linux answers `unsupported`. Keep a picked photo by copying it to
 `app:/data` and answering that path; never tell hosts apart in the data module
 (`HermesInternal`) to choose a source
 ([LLP 1069.002](../llp/1069.002-media-picker.rfc.md) D7, [LLP 1011](../llp/1011-image-v1.spec.md) §2).
@@ -812,7 +922,7 @@ A sound effect is a declared WAV that an action plays ([LLP
 1096](../llp/1096-sounds-an-app-can-schedule.rfc.md)): `sound "assets/…wav"` at the
 top level (16-bit or float PCM, one or two channels, at most 10 s; the compiler
 reads it), then `playSound(src, at=, gain=, group=)` from any action. Every call is
-a new voice, so a retrigger is another call. `at=` is the runner's clock (`now()`'s
+a new voice, so a retrigger is another call. `at=` is the runner's clock (`performanceNow()`'s
 milliseconds; the past means now), `gain=` a linear 0–1, and a `group=` is
 monophonic by start time: a voice ends where the next one in its group starts, as a
 drum machine's choke does. `stopSounds()` (or `stopSounds(group=…)`) ends what
@@ -831,20 +941,20 @@ component Ding
 
 To keep time (a sequencer, a metronome), schedule ahead on the audio clock rather
 than starting each hit when a timer's commit lands: the press schedules the first
-window, `[now(), now() + 100)`, and each tick of a coarse timer schedules the next,
-`[scheduledTo, now() + 100)`, as a list a `fn` computes (`playSounds(hits)` takes a
+window, `[performanceNow(), performanceNow() + 100)`, and each tick of a coarse timer schedules the next,
+`[scheduledTo, performanceNow() + 100)`, as a list a `fn` computes (`playSounds(hits)` takes a
 list of a shape whose fields are, in order, `src`, `at`, `gain` and `group`). A
 timer's commit is at its due time, so a hit planned at `t` lands on the grid:
 
 ```text
 action start
   playing = true
-  playSounds(hitsBetween(song, now(), now() + 100))
-  scheduledTo = now() + 100
+  playSounds(hitsBetween(song, performanceNow(), performanceNow() + 100))
+  scheduledTo = performanceNow() + 100
 action tick
   if playing
-    playSounds(hitsBetween(song, scheduledTo, now() + 100))
-    scheduledTo = now() + 100
+    playSounds(hitsBetween(song, scheduledTo, performanceNow() + 100))
+    scheduledTo = performanceNow() + 100
 action stop
   playing = false
   stopSounds()
@@ -1057,6 +1167,17 @@ main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow displa
   over the routes and the native bars on every host, as later siblings do in CSS.
 - A modal route (`navigationPresentation="modal"`) paints its own background; the
   route under it is dimmed.
+- A sheet's heights are `navigationDetent`, space-separated words: `large`,
+  `medium`, a point height or `fit-content` (the route's content height; a menu or
+  a short dialog), which goes alone or as `"fit-content large"`. A literal with
+  another word is refused. `fit-content` measures the route laid out alone, its
+  height left to its children, so nothing sized from the sheet counts; on iOS every
+  viewport unit (`vw`, `vh`, `vmin`, `vmax`, and kin) is the window's in every sheet, never the
+  sheet's, so `min-height: 100vh` opens the sheet at its maximum; a route
+  that scrolls is measured by its scroll extent, so give its rows
+  `flex-shrink: 0`. The route does
+  not pad `env(safe-area-inset-bottom)`: UIKit adds that band below the detent.
+  iOS alone sizes a sheet (LLP 1075.003 §9.11).
 - Without tabs, the routes are the root's own children, laid out the same way.
 - Tests reach a tab by `tap`, or deliver a location as `type <root> "/saved"` (LLP
   1038 D11), which calls the root's `navigate`. On the web a CLI drive goes back as
@@ -1102,9 +1223,9 @@ restarts it, as a new `each` key makes a new row
 runs when the gate changes: turning true arms the timer from that commit's time,
 turning false drops it, and an idle task keeps no host awake and commits
 nothing at rest. `key=expr` alone means `when true key=expr`. An `after` fires
-at its deadline exactly, so its action sees `now()` equal to the deadline: clear
-without re-testing the time (a strict `now() > until` does nothing there). The
-gate is a bool and the key a string, number or bool; neither may read `now()`
+at its deadline exactly, so its action sees `performanceNow()` equal to the deadline: clear
+without re-testing the time (a strict `performanceNow() > until` does nothing there). The
+gate is a bool and the key a string, number or bool; neither may read `performanceNow()`
 (`analyze-task-gate-clock`): gate on state and let the timer measure time. A
 toast, a debounce (`when draft != saved key=draft` with `after(800, save)`), a
 round's tick (`when screen == "play"`) and a flight's frames
@@ -1134,14 +1255,16 @@ a loop from mutations: a `then` cannot send its own mutation
 (`analyze-then-self-send`). For a purely visual loop, use a CSS `animation`
 instead.
 
-`now()` is the runner's clock in milliseconds since boot (the driver's clock under
-the agent), not a date. For the date, read the reserved `exactTime` source and add
-`time.epochAtZero + now()`. Its fields, which a shape declares as it reads them:
-`epochAtZero` (Unix milliseconds when `now()` read zero), `utcOffset` (minutes east
+`performanceNow()` is the runner's clock in milliseconds since boot (the driver's clock under
+the agent, from 0), as the web's `performance.now()`, not a date: a deadline of
+`performanceNow() + ms` sent to a server is in 1970. For the date, read the reserved
+`exactTime` source and add `time.epochAtZero + performanceNow()`. There is no
+`now()`: it is refused (`type-now-renamed`) with those two repairs. Its fields, which a shape declares as it reads them:
+`epochAtZero` (Unix milliseconds when `performanceNow()` read zero), `utcOffset` (minutes east
 of UTC), `locale` (BCP 47), `timeZone` (IANA), `resolvedLocale` (the language of
 the string table the app shows, `""` with no tables) and `seed` (a whole number
 drawn once per launch). A read does not itself schedule a future render, and a
-derive that reads `now()` is not read again as time passes, and when it is read
+derive that reads `performanceNow()` is not read again as time passes, and when it is read
 again differs by host. For a displayed value that must follow the clock, keep the
 time in state that a timer's action (`task … every`) writes. Prefer `clock settle` to waiting for a transition in real time.
 `time.utcOffset` is the zone's offset *now*: every host answers it again when the
@@ -1296,6 +1419,13 @@ functions accept a narrow set of literal formats; app wording is an app `fn`.
 
 ## Inspection and testing
 
+On Apple development builds, an `iframe`'s web content is inspectable from
+Safari's Develop menu. Enable Safari's web developer features, launch the app,
+and select its web view under Develop. This inspects the embedded page; use the
+agent operations below for Exact's native tree. Production builds
+(`EXACT_UPDATE_TRUST=production`), `exact release`, and IPA archives leave
+web-view inspection disabled.
+
 Build diagnostics include stable ids and original file ranges. Locations are
 1-based line/byte-column coordinates, with exclusive end columns; a usage, I/O or
 manifest error has no range (line and columns 0). Honor related
@@ -1389,7 +1519,9 @@ transition or animation ends, firing the timers due on the way, so a test on a t
 `clock data` lands it without moving the clock: the data module's activation and
 every request in flight, each answer's `then` with it, no timer fired. A CLI drive's
 first operation runs at boot and may come before that has landed (an authored test
-lands it before its first step), so a drive that reads or taps data starts with `clock data`.
+lands it before its first step), so a drive that reads or taps data starts with `clock data`
+(a `tree`, `layout` or `screenshot` taken before the clock first moves, with a request
+in flight, says so on stderr).
 A playing `video` or `audio` is on real time too: the clock never seeks or holds it, so
 between operations it moves only as far as the drive took. `clock +N real` lets
 N ms of real time pass with the clock moving beside it, a step at a time: a
@@ -1429,8 +1561,16 @@ on that host (a TypeScript source's `fetch` rejects with `FetchError` kind
 `"Network"`; a Rust source's request settles `Failed { kind: Network }`), and it
 never goes out. Leading the test it is armed before the first data load, so
 "the API is down when the screen opens" is the launch; later it is a step.
+To test going offline after the data loaded (a Snapback4 partition, which
+cannot open before its first sync, is the usual case), put `clock data` first;
+a runner note names a `fail fetch` armed before the data loaded.
 `times N` fails only the next N; `pass fetch "<prefix>"` stops it; a counted
-fault that never fired fails the test. The app's own `catch`, error record and
+fault that never fired fails the test. A fault reaches only fetches that start
+after it: a request already in flight with the same arguments is reused by the
+runner (one request per resource and arguments), so re-opening the screen while
+it is pending gets that request's answer, not the fault. Arm the fault before
+the request starts (as the launch line, or before the step that first loads
+it), or let the pending one settle (`clock data`) first. The app's own `catch`, error record and
 retry run, so this checks the real error handling (LLP 1103). A drive takes
 `--fail-fetch <prefix>` at open and the ops `"fail fetch <prefix> [times N]"`
 and `"pass fetch <prefix>"`; `state.faults` shows each prefix's hits.
@@ -1455,7 +1595,10 @@ tested against a stand-in server that never answers (the reference's
 "exactTimeout").
 
 A test whose text depends on the date names its `epoch`; without one it runs at
-the driver's 2026-01-01 UTC. The steps are `tap "id" [hover|dblclick|contextmenu]`,
+the driver's 2026-01-01 UTC. A drive or test whose app talks to a live backend
+(`snapback4 dev` runs on real time) says `--epoch now` or `epoch now`: the
+machine's clock, read once at launch, from which `clock` moves the date as
+before, so the app's dates agree with the server's but differ run to run. The steps are `tap "id" [hover|dblclick|contextmenu]`,
 `tap "id" modifiers "Shift+Meta"` (a press with keys held),
 `tap "list" into "key"` (a virtualized list's row brought into view by its key,
 so the next step can tap a row outside the rendered window),
@@ -1492,9 +1635,9 @@ changes?"; macOS and the web),
 options, and a checkbox with a `checked` binding `true` or `false`; else its descendants' — a button's label — else a field's value), and
 `expect state name == <number|string|bool|none|[]>`, where `name` may go on into
 a record's fields (`board.active.present`) or a list index (`rows.0`), and the
-number may be negative (`== -3`). A failed expect with no input before
-it names the requests still in flight (the boot's own, or what a `clock +N` left
-on real time). An input step ends with what it settled: an answer the data
+number may be negative (`== -3`). A failed expect names any resource that
+failed, and why; with no input before it, the requests still in flight (the boot's
+own, or what a `clock +N` left on real time). An input step ends with what it settled: an answer the data
 module gave in the input's turn, and its mutation's `then`, are there for the
 next step. Otherwise the clock stands still between steps: a reply on real time
 (a store's, the network's) or a transition an input started lands at a `clock`
@@ -1609,6 +1752,19 @@ On native, all viewport variants follow the window; on web, CSS resolves
 small/large/dynamic viewports. Scalar lengths such as font size and gap do
 not yet accept viewport units.
 
+The same rows take `env(safe-area-inset-top|right|bottom|left)`, `calc(env(…) ±
+<n>px)`, and CSS's `min()`, `max()` and `clamp()` over px (and in/cm/mm/pt/pc),
+those insets and viewport lengths, with sums inside them (`max(15px,
+env(safe-area-inset-bottom) - 4px)`) and nested in each other and in `calc()`:
+`padding-bottom="clamp(15px, env(safe-area-inset-bottom), 60px)"`,
+`bottom="calc(clamp(15px, env(safe-area-inset-bottom), 60px) + 59px)"`.
+CSS's order is `clamp(MIN, VAL, MAX)`, not React Native's `clamp(value, min,
+max)`. Native hosts resolve them as the insets change; the web writes CSS's own
+functions. On a size, a padding or a radius a result below zero is 0, as CSS
+clamps it; a margin or an inset keeps it. Refused with the reason: a percentage, `rem`/`em`, a unitless
+number (write `0px`, not `0`), `env(viewport-segment-*)`, two inset or viewport terms in one
+sum, subtracting one, `*` and `/` (LLP 1001 §2, "Comparisons").
+
 `translate` takes one or two lengths, each in px or a percentage of the box's own
 border box, as CSS's does: `left="50%" top="50%" translate="-50% -50%"` on an
 absolute box centres it, a percentage follows the box's size, and transitions and
@@ -1666,18 +1822,21 @@ says so once per box. Refused, each saying what to write: `column-span`, page
 and region breaks, `balance-all`, dashed or dotted rules, and multi-column rows
 on `row` or `column` (CSS ignores them on flex and grid; write `view`).
 
-A bare text field (`input` of type `text`, `email`, `password`, `search`, `tel`,
-`url`, `number` or none, and `textarea`) is visible, as the browser's is: a 1px
-`light-dark(#c6c6c8, #48484a)` border, radius 6, padding 6/8, a
-`light-dark(#ffffff, #1c1c1e)` fill and its own `light-dark(#000000, #ffffff)`
-ink (it does not inherit `color`). These are rows under yours: any row or class
-you write replaces that one row and keeps the rest; `padding` and `width` stay
-content-box, so the field is 18px wider and 14px taller than its content.
-`appearance="none"` (a literal) leaves them all out for a field you draw
-yourself, such as a composer inside a pill (LLP 1104). A field in this look
-shows a focus ring while focused (the web's `:focus-visible`, an accent ring on
-macOS and Linux; iOS shows its caret) and dims to `opacity` 0.5 while
-`disabled`; a bare field draws its own focus and disabled states.
+A text field (`input` of type `text`, `email`, `password`, `search`, `tel`,
+`url`, `number` or no type, and `textarea` outside the Markdown editor) is the
+platform's own field by default (LLP 1104). On the web it inherits the page's
+font and colour, as a CSS reset does; other platforms use their control's own
+text style. Disabled and placeholder appearances are the platform's.
+
+A background, border or radius makes it your own box, as in a browser;
+`appearance="none"` says so explicitly. This is decided once after classes
+and shorthands: a row on any conditional arm counts, even if its value is
+`none` on another arm. `background-clip` and `background-attachment` do not
+make it bare. `appearance="auto"` explicitly asks for the native field and
+refuses background, border and radius rows, naming each longhand. Appearance
+is a literal, resolved from the class then the field's own attribute; to
+switch it, write `when` with two fields. Excluded input types and the Markdown
+editor keep the bare text-input box or their existing specialised control.
 
 `textarea rows=3` sets its preferred height in lines (default 2); explicit CSS
 height and `field-sizing="content"` override it. `maxlength=80` on text inputs

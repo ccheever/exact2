@@ -1,13 +1,16 @@
 //! What the host reads from and writes to the machine outside the tree: the
-//! agent's store files and physical memory.
+//! app's store files (a named agent drive's, or the app's own) and physical
+//! memory.
 use super::*;
 
-/// What a named agent drive has kept, for the runner's boot snapshot.
-/// A carried launch and a nameless drive contribute nothing. A fresh drive's
+/// What the app has kept — in a named agent drive's scratch tree, or outside
+/// the agent in its own data root ([`crate::picker::secret_root`], LLP
+/// 1027.007 D13) — for the runner's boot snapshot. A carried launch and a
+/// nameless drive contribute nothing. A fresh drive's
 /// tree is emptied first, once a process and before anything is written there
 /// (`picker::empty_fresh_tree`); one that cannot be emptied gives nothing,
 /// said at boot and again by the activation.
-pub(super) fn agent_store_snapshot(app_id: &str, carried: bool) -> Vec<(String, String)> {
+pub(super) fn store_snapshot(app_id: &str, carried: bool) -> Vec<(String, String)> {
     if carried {
         return Vec::new();
     }
@@ -17,7 +20,7 @@ pub(super) fn agent_store_snapshot(app_id: &str, carried: bool) -> Vec<(String, 
         eprintln!("exact: {e:?}");
         return Vec::new();
     }
-    let Some(root) = crate::picker::agent_secret_root(app_id) else {
+    let Some(root) = crate::picker::secret_root(app_id) else {
         return Vec::new();
     };
     let secrets = ibex2::secrets::FileStore::new(root.join("secrets"));
@@ -53,13 +56,18 @@ pub(super) fn agent_store_snapshot(app_id: &str, carried: bool) -> Vec<(String, 
     out
 }
 
-/// Write one commit's store log into the named drive's scratch tree.
-/// A nameless drive drops the log. A failed write is a journal line.
-pub(super) fn persist_agent_writes(
+/// Write one commit's store log where [`crate::picker::secret_root`] says: a
+/// named drive's scratch tree, or the app's own data root. A nameless drive
+/// drops the log. A failed write is a journal line.
+pub(super) fn persist_store_writes(
     app_id: &str,
     writes: &[exact_runner::StoreWrite],
 ) -> Vec<String> {
-    let Some(root) = crate::picker::agent_secret_root(app_id) else {
+    // Most commits write nothing: no directory is looked up for them.
+    if writes.is_empty() {
+        return Vec::new();
+    }
+    let Some(root) = crate::picker::secret_root(app_id) else {
         return Vec::new();
     };
     let secrets = ibex2::secrets::FileStore::new(root.join("secrets"));

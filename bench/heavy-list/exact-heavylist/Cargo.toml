@@ -1,0 +1,37 @@
+# The heavy list benchmark (../SPEC.md) on exact2, consumed by path from the
+# checkout this directory is in. `data/` answers the feed, reactions and live
+# mode; `apple/` is the static library the Apple host links; `web/` is the web
+# build's crate (bench/dioxus measures it on Chrome). Its own [workspace], so
+# the repository's root workspace does not adopt it.
+[workspace]
+members = ["data", "apple", "web"]
+resolver = "2"
+
+[workspace.package]
+edition = "2021"
+version = "0.1.0"
+license = "MIT"
+
+# exact2's vendored patches: the kernel must build against the same crates
+# (scripts/app.mjs refuses an outside workspace whose patches differ).
+[patch.crates-io]
+taffy = { path = "../../../vendor/taffy" }
+parley = { path = "../../../vendor/parley" }
+fontique = { path = "../../../vendor/fontique" }
+wgpu-hal = { path = "../../../vendor/wgpu-hal" }
+
+# exact2's release profile. No [profile.apple-dev] on purpose: build.mjs then
+# builds the app library with `release` (thin LTO, one codegen unit).
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = true
+panic = "abort"
+
+[profile.release.build-override]
+strip = false
+
+[profile.dev]
+opt-level = 0
+debug = true

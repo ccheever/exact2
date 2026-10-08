@@ -3,10 +3,12 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, relative, resolve } from 'node:path';
 import { signingOrder } from '../host/apple/assets.mjs';
+import { stripForDistribution } from '../host/apple/build.mjs';
+import { assertLinkedSdk } from '../host/apple/link.mjs';
 
 const plist = (executable) => `<?xml version="1.0" encoding="UTF-8"?>
 <plist version="1.0"><dict><key>CFBundleExecutable</key><string>${executable}</string></dict></plist>\n`;
@@ -160,3 +162,79 @@ test.skipIf(process.platform !== 'darwin')('native resources sign and execute a 
   command('codesign', ['--verify', '--deep', '--strict', app]);
   assert.equal(command(resolve(contents, 'Resources/server/helper'), []).stdout, 'helper ran\n');
 }));
+
+// An executable is named for its app (955b0463d), and an app may be named
+// "T3 Code (Exact)": otool reads a path ending in `name(member)` as an
+// archive's member, so the SDK check read nothing and refused the build (#234).
+test.skipIf(!tools)('an executable whose name ends in parentheses is read as a file, its SDK checked and its release stripped', () => inDir((dir) => {
+  writeFileSync(resolve(dir, 'main.c'), 'int main(void){return 0;}\n');
+  const executable = resolve(dir, 'Demo (Beta)');
+  // The macOS 15 SDK recorded, as a design-compatible build links it.
+  const r = spawnSync('clang', ['-g', '-mmacosx-version-min=14.0', '-Wl,-platform_version,macos,14.0,15.0', '-o', executable, resolve(dir, 'main.c')], { encoding: 'utf8' });
+  assert.equal(r.status, 0, r.stderr);
+  assertLinkedSdk(executable, '15.0');
+  assert.throws(() => assertLinkedSdk(executable, '27.0'), /Demo \(Beta\) records SDK 15\.0, not 27\.0/);
+  // A file the tool cannot read says so, not that it records no SDK.
+  assert.throws(() => assertLinkedSdk(resolve(dir, 'Gone (Beta)'), '15.0'), /vtool -show-build failed .*Gone \(Beta\)/);
+  // `exact release`'s dsymutil and strip take the same path as a file.
+  const { saved } = stripForDistribution(executable, resolve(dir, 'Demo (Beta).dSYM'));
+  assert.ok(existsSync(resolve(dir, 'Demo (Beta).dSYM/Contents/Resources/DWARF/Demo (Beta)')), 'dsymutil wrote the dSYM');
+  assert.ok(saved > 0, 'strip took symbols off');
+  assertLinkedSdk(executable, '15.0');
+}));
+
+// LLP 1075.003.000.001 §5: `exact hatch` writes a stub a target, wires it into a module it wrote, and declares the word.
+test('exact hatch writes each target\'s stub, wires it in, and declares the word with its platforms', async () => {
+  const { hatch } = await import('./exact.mjs');
+  const { readFileSync } = await import('node:fs');
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-hatch-'));
+  const was = process.env.EXACT_APP_DIR;
+  try {
+    for (const d of ['apple', 'web']) mkdirSync(resolve(dir, d));
+    writeFileSync(resolve(dir, 'app.contract'), 'component App\n  view\n    column hatch="avatar"\n');
+    writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ name: 'Scratch', app: { id: 'com.example.scratch', name: 'Scratch' }, host: { ios: {}, web: {} } }));
+    process.env.EXACT_APP_DIR = dir;
+    const said = [];
+    const first = hatch(['avatar'], line => said.push(line));
+    assert.deepEqual(first.platforms, ['ios', 'web']);
+    assert.deepEqual(JSON.parse(readFileSync(resolve(dir, 'app.json'), 'utf8')).hatches, { avatar: ['ios', 'web'] });
+    const swift = readFileSync(resolve(dir, 'modules/apple/Hatches.swift'), 'utf8');
+    assert.ok(swift.includes('if element.hatch == .avatar { avatarHatch(element) }') && swift.includes('if element.hatch == .avatar { avatarHatchEnded(element) }'));
+    assert.ok(readFileSync(resolve(dir, 'modules/apple/AvatarHatch.swift'), 'utf8').includes('func avatarHatch(_ element: ExactElement)'));
+    const page = readFileSync(resolve(dir, 'modules/web/index.js'), 'utf8');
+    assert.ok(page.includes("import * as avatarHatch from './hatch-avatar.js';") && page.includes('hatches["avatar"] = avatarHatch;'));
+    assert.ok(readFileSync(resolve(dir, 'modules/web/hatch-avatar.js'), 'utf8').includes('export function elementEnded(e)'));
+    // A second word joins the first; the same word again changes nothing; the scopes take no word.
+    hatch(['unread-dot'], () => {});
+    const again = hatch(['avatar'], () => {});
+    assert.deepEqual(again.wrote, []);
+    assert.deepEqual(JSON.parse(readFileSync(resolve(dir, 'app.json'), 'utf8')).hatches, { avatar: ['ios', 'web'], 'unread-dot': ['ios', 'web'] });
+    assert.ok(readFileSync(resolve(dir, 'modules/apple/Hatches.swift'), 'utf8').includes('if element.hatch == .unreadDot { unreadDotHatch(element) }'));
+    hatch(['--window'], () => {});
+    assert.ok(readFileSync(resolve(dir, 'modules/apple/Hatches.swift'), 'utf8').includes('        windowHatch(window)\n        // exact:window\n'));
+    assert.ok(readFileSync(resolve(dir, 'modules/web/index.js'), 'utf8').includes('export function window(x) { windowHatch.built(x); }'));
+    assert.throws(() => hatch(['Not A Word'], () => {}), /name a word/);
+    // A Linux crate gets one hatches file, each word an arm and its functions, and is told what its build.rs owes.
+    mkdirSync(resolve(dir, 'linux'));
+    const linux = hatch(['unread-dot'], () => {});
+    assert.ok(linux.platforms.includes('linux') && linux.todo.some(line => line.includes('rust_hatch_entry')));
+    const rust = readFileSync(resolve(dir, 'modules/linux/hatches.rs'), 'utf8');
+    assert.ok(rust.includes('"unread-dot" => unread_dot_hatch(element, context),') && rust.includes('fn unread_dot_hatch_ended<H: Hatches>'));
+    assert.deepEqual(JSON.parse(readFileSync(resolve(dir, 'app.json'), 'utf8')).hatches['unread-dot'], ['ios', 'web', 'linux']);
+    // A build.rs that already asks for the app's hatches owes nothing: the first file only makes it run again.
+    rmSync(resolve(dir, 'modules/linux'), { recursive: true });
+    writeFileSync(resolve(dir, 'linux/build.rs'), 'fn main() { let _ = contract::native::rust_hatch_entry; }\n');
+    assert.deepEqual(hatch(['unread-dot'], () => {}).todo.filter(line => line.includes('build.rs')), []);
+    // In a module of the app's own, with no marker, the lines to add are shown, not written.
+    rmSync(resolve(dir, 'modules/apple'), { recursive: true });
+    mkdirSync(resolve(dir, 'modules/apple'));
+    writeFileSync(resolve(dir, 'modules/apple/Mine.swift'), 'final class Mine: ExactModule {}\nlet exactModule: ExactModule.Type = Mine.self\n');
+    const mine = hatch(['seal'], () => {});
+    assert.equal(mine.todo.length, 2);
+    assert.ok(mine.todo.some(line => line.includes('if element.hatch == .seal { sealHatch(element) }')));
+    assert.equal(readFileSync(resolve(dir, 'modules/apple/Mine.swift'), 'utf8').includes('sealHatch'), false);
+  } finally {
+    if (was === undefined) delete process.env.EXACT_APP_DIR; else process.env.EXACT_APP_DIR = was;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

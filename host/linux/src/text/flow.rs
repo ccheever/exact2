@@ -495,6 +495,7 @@ impl TextEngine {
             source,
             record: std::cell::OnceCell::from(Arc::new(layouts)),
             remake: None,
+            measured: RefCell::new(None),
             flow: Some(FlowLayout {
                 fragments,
                 line_height: data.height,

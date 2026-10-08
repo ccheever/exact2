@@ -248,6 +248,13 @@ fn storage_is_lazy_persistent_isolated_and_grant_checked() {
     assert_eq!(call(&mut m, &mut s, "add", "remember"), "remember");
     assert_eq!(call(&mut m, &mut s, "rollback", "discard"), "remember");
     assert_eq!(call(&mut m, &mut s, "refused", ""), "denied");
+    // A refused open names the file it wanted and the grant lines that admit it.
+    let refused = call(&mut m, &mut s, "sqlite-refused", "");
+    assert!(
+        refused.starts_with("denied denied: sqlite.open app:/data/notes-bob.db: ")
+            && refused.contains("`sqlite.open app:/data/notes-bob.db`, or `sqlite.open app:/data`"),
+        "{refused}"
+    );
     assert_eq!(
         call(&mut m, &mut s, "types", ""),
         "9223372036854775807/-9223372036854775808/1.25/0,255"

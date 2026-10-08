@@ -106,6 +106,9 @@ pub type Materials = (fn(&mut String, &str), fn(&str) -> Option<String>);
 pub struct AnimationsLink {
     /// Link the grammars.
     pub grammars: fn(),
+    /// Resolve an `animation` list's names against the plan's `@keyframes`.
+    pub keyframes:
+        fn(&exact_runner::bridge::KeyframesTable, &mut exact_motion::Animations) -> Vec<String>,
     /// A node's `animation` (or `-exact-exit-animation`) list as CSS.
     pub list: fn(&exact_motion::animation::Animations, bool) -> String,
     /// The name of the rule an entry plays.
@@ -173,9 +176,13 @@ impl Linked {
 
     /// The capabilities registered here.
     pub fn uses(&self) -> Uses {
-        // A grouped list is its authored nodes on the web: nothing to link
-        // (LLP 1047.001 D2).
-        let mut uses = Uses::NONE.with(Capability::GroupedLists);
+        // A grouped list is its authored nodes on the web, and the browser
+        // does its own I/O and plays CSS's transitions: nothing to link for
+        // any of them (LLP 1047.001 D2).
+        let mut uses = Uses::NONE
+            .with(Capability::GroupedLists)
+            .with(Capability::Io)
+            .with(Capability::Transitions);
         if self.markup.is_some() {
             uses = uses.with(Capability::Markdown);
         }
@@ -319,6 +326,9 @@ pub(crate) fn runner_links() -> exact_runner::RunnerLinks {
         canvas: linked().canvas,
         format: linked().format,
         geometry: linked().geometry,
+        // The browser's grants are I/O it does itself (LLP 1047.001).
+        grants: exact_runner::RunnerLinks::ALL.grants,
+        keyframes: linked().animations.map(|a| a.keyframes),
     }
 }
 

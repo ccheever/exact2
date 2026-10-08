@@ -3,6 +3,12 @@
 //! `xs.map(f)`, `xs.length`, `reduce`, `Math.min(...xs)` or `toPrecision` first,
 //! and each refusal names the spelling that works or says what to do instead.
 
+/// Why `now()` is refused (`type-now-renamed`), with both repairs: Contract's
+/// clock is the web's `performance.now()`, so it wears that name, and the
+/// date is the boot instant plus it.
+// @ref LLP 1109 D1 — `now()` read as `Date.now()`; deleted, not deprecated.
+pub const NOW_REFUSED: &str = "`now()` is not in Contract: write `performanceNow()` for durations and timers (milliseconds on the runner's clock since boot, the web's `performance.now()`), or `time.epochAtZero + performanceNow()` for the date, with `resource time = exactTime() as shape Clock` declared and `shape Clock` holding `epochAtZero: number`";
+
 /// The fix for `recv.name(…)`, or for `recv.name` read as a field of a value
 /// that has none: Contract has no methods.
 pub fn method_fix(name: &str) -> String {
@@ -15,6 +21,8 @@ pub fn method_fix(name: &str) -> String {
         "includes" => "write `includes(s, t)` for text, `includes(xs, x)` for a list (LLP 1088 §9.1)".into(),
         "startsWith" | "endsWith" => format!("write `{name}(s, t)`"),
         "toString" => "write `toString(x)`".into(),
+        // `Date.now()`, `performance.now()`.
+        "now" => NOW_REFUSED.into(),
         "trim" => "write `trim(s)`".into(),
         "toLowerCase" => "write `toLowerCase(s)`".into(),
         "slice" => "write `slice(s, start, end)` for text or a list (`end` may be left out)".into(),
@@ -56,7 +64,7 @@ pub fn refusal(name: &str) -> Option<String> {
         "Number" | "parseInt" | "parseFloat" => format!(
             "write `parseNumber(s)` for `{name}`: `some(n)` for a decimal number in the text (`\" 12.5 \"`, `\"-3\"`, `\"1e3\"`), `none` for anything else (`\"\"`, `\"12px\"`, hex), so `match parseNumber(s)` handles a field's text (LLP 1102 §3.1)"
         ),
-        "len" => "write `length(x)`: Contract spells the web's `.length`, of text or of a list, as a roster function".into(),
+        "len" | "count" | "size" => "write `length(x)`: Contract spells the web's `.length`, of text or of a list, as a roster function".into(),
         "min" | "max" => format!(
             "write `{name}(a, b)` for two numbers; `Math.{name}(...xs)` over a list is refused (LLP 1017.003): compute it in the data source, as the crypto port keeps `lo` and `hi` beside its series"
         ),

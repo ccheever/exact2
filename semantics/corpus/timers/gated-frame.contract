@@ -10,7 +10,7 @@ component App
     on = false
   action tick
     frames = frames + 1
-    last = now()
+    last = performanceNow()
   task f when on
     every(frame, tick)
   view

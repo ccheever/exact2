@@ -1,10 +1,12 @@
 // Native ordered HTTP defaults to 64 MiB; independent requests may lower it.
+// A body over it is the host refusing the response (kind `Refused`, `failure(x)`'s
+// `refused`, LLP 1109 D3), on every host and executor, as a stream's event over its ceiling is.
 export async function boundedHttpBody(response, limit) {
   if (limit == null) limit = 64 * 1024 * 1024;
   if (!Number.isInteger(limit) || limit < 1 || limit > 64 * 1024 * 1024) throw Error("invalid HTTP response limit");
   if (!response.body) return new Uint8Array();
   const reader=response.body.getReader(), chunks=[]; let size=0;
-  try { for (;;) { const {done,value}=await reader.read(); if(done) break; size+=value.length; if(size>limit) throw Error("HTTP response exceeds limit"); if(value.length) chunks.push(value); } }
+  try { for (;;) { const {done,value}=await reader.read(); if(done) break; size+=value.length; if(size>limit) throw Object.assign(Error("HTTP response exceeds limit"), {kind:'Refused'}); if(value.length) chunks.push(value); } }
   catch(error) { await reader.cancel().catch(()=>{}); throw error; } finally { reader.releaseLock(); }
   const bytes=new Uint8Array(size); let at=0; for(const chunk of chunks) { bytes.set(chunk,at); at+=chunk.length; } return bytes;
 }
@@ -195,7 +197,7 @@ export async function request(op, { grantSet, loadPageNative, moduleLoader, loca
   } catch (error) {
     // Whichever ended it first: the combined signal keeps the first reason.
     if (deadline && signal.aborted && signal.reason === deadline.reason) return failed(10, `the request timed out after ${op.timeoutMs} ms`);
-    return failed(controller.signal.aborted ? 4 : 1, error);
+    return failed(controller.signal.aborted ? 4 : error?.kind === 'Refused' ? 2 : 1, error);
   }
   finally { controllers.delete(controller); }
 }

@@ -691,3 +691,77 @@ fn storage_forwards_source_console_lines_once() {
     assert_eq!(source.take_logs(), ["console error"]);
     assert!(source.take_logs().is_empty());
 }
+
+/// A Rust source's `fs.compressImage` (LLP 1069.002 A1.1): the operation a
+/// TypeScript source's `storage.fs.compressImage` runs, through ibex2's
+/// executor and the platform codec. On Apple the fixture comes back upright
+/// as a JPEG; elsewhere the call is refused as `unsupported`.
+#[test]
+fn compress_image_answers_a_rust_source_as_typescripts() {
+    let paths = Paths::new();
+    let mut host = Storage::new(Fixture::new());
+    paths.configure(&mut host);
+    host.activate().unwrap();
+    run(
+        &mut host,
+        storage::request("fs.mkdir", json!({"path":"app:/data/in"})),
+    )
+    .unwrap();
+    std::fs::write(
+        paths.0.join("data/in/photo.jpg"),
+        include_bytes!("../../../scripts/fixtures/picker/oriented-gps.jpg"),
+    )
+    .unwrap();
+    let compress = |to: &str, dimension: Json, bytes: Json| {
+        storage::request(
+            "fs.compressImage",
+            json!({"path":"app:/data/in/photo.jpg","destination":to,"maxDimension":dimension,"maxBytes":bytes}),
+        )
+    };
+    let result = run(
+        &mut host,
+        compress("app:/data/out.jpg", json!(32), json!(2_000_000)),
+    );
+    if cfg!(target_vendor = "apple") {
+        let size = std::fs::metadata(paths.0.join("data/out.jpg"))
+            .unwrap()
+            .len();
+        assert_eq!(
+            result.unwrap(),
+            json!({"path":"app:/data/out.jpg","type":"image/jpeg","size":size,"width":24,"height":32})
+        );
+        let err = run(
+            &mut host,
+            compress("app:/data/unfit.jpg", json!(64), json!(1)),
+        )
+        .unwrap_err();
+        assert!(err.starts_with("compressImage: unfit: "), "{err}");
+    } else {
+        assert_eq!(
+            result.unwrap_err(),
+            "compressImage: unsupported: no JPEG encoder on this host"
+        );
+    }
+    for (request, expected) in [
+        (
+            compress("app:/cache/out.jpg", json!(32), json!(100)),
+            "denied: fs.write",
+        ),
+        (
+            compress("doc:/1/out.jpg", json!(32), json!(100)),
+            "compressImage: needs app:/ paths",
+        ),
+        (
+            compress("app:/data/x.jpg", json!(0), json!(100)),
+            "compressImage: invalid: maxDimension",
+        ),
+        (
+            compress("app:/data/x.jpg", json!(32), json!("100")),
+            "storage: maxBytes must be a number",
+        ),
+    ] {
+        let err = run(&mut host, request).unwrap_err();
+        assert!(err.starts_with(expected), "{err}");
+    }
+    assert!(!paths.0.join("data/x.jpg").exists());
+}

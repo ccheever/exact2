@@ -3,6 +3,7 @@
 //! runner to commit inside its transaction. Values cross; nothing else does.
 
 use exact_plan::Value;
+use exact_runner::failure::FailureCode;
 use exact_runner::{Answer, DataError, HttpScheduling, Outcome, Request, Response, Store};
 use serde_json::{json, Value as Json};
 
@@ -121,6 +122,10 @@ fn error_json(error: &DataError) -> Json {
         DataError::BadArguments(m) => ("BadArguments", m),
         DataError::DeferredAtBake(m) => ("DeferredAtBake", m),
         DataError::Unavailable(m) | DataError::Interface(m) => ("Unavailable", m),
+        // Its class travels with it (LLP 1109 D3).
+        DataError::Failed(code, m) => {
+            return json!({"kind": "Failed", "code": code.name(), "message": m});
+        }
     };
     json!({"kind": kind, "message": message})
 }
@@ -131,6 +136,10 @@ fn error_from(error: &Json) -> DataError {
         Some("UnknownSource") => DataError::UnknownSource(message),
         Some("BadArguments") => DataError::BadArguments(message),
         Some("DeferredAtBake") => DataError::DeferredAtBake(message),
+        Some("Failed") => match error["code"].as_str().and_then(FailureCode::from_name) {
+            Some(code) => DataError::Failed(code, message),
+            None => DataError::Unavailable(message),
+        },
         _ => DataError::Unavailable(message),
     }
 }
@@ -205,8 +214,6 @@ fn request_from(json: &Json) -> Result<Request, DataError> {
     })
 }
 
-const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-
 /// Standard base64 with padding, as the runner's agent module spells it.
 pub fn base64(bytes: &[u8]) -> String {
     exact_runner::agent::base64(bytes)
@@ -214,21 +221,7 @@ pub fn base64(bytes: &[u8]) -> String {
 
 /// The inverse of [`base64`]; `None` for anything that is not base64.
 pub fn unbase64(text: &str) -> Option<Vec<u8>> {
-    let text = text.trim_end_matches('=');
-    let mut out = Vec::with_capacity(text.len() * 3 / 4);
-    let mut acc = 0u32;
-    let mut bits = 0;
-    for b in text.bytes() {
-        let v = TABLE.iter().position(|t| *t == b)? as u32;
-        acc = (acc << 6) | v;
-        bits += 6;
-        if bits >= 8 {
-            bits -= 8;
-            out.push((acc >> bits) as u8);
-            acc &= (1 << bits) - 1;
-        }
-    }
-    Some(out)
+    exact_runner::agent::unbase64(text)
 }
 
 #[cfg(test)]

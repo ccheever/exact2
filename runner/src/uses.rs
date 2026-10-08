@@ -93,11 +93,23 @@ pub enum Capability {
     /// with the platform's list; the web draws its authored nodes, so the web
     /// links nothing for it (LLP 1047.001 D2).
     GroupedLists,
+    /// The host's I/O: the requests a data source makes (fetch, sockets,
+    /// files, SQLite) and the kept secrets and answers it stores. A plan
+    /// uses it when a resource keeps its answer (a reader); an app's grants
+    /// link it too, which the bake reads (LLP 1047.001). The browser does
+    /// its own, so the web links nothing for it.
+    Io,
+    /// What a native engine plays that CSS plays on the web: a `transition`,
+    /// a `-exact-layout-transition` or a shared element's flight. A native
+    /// host's motion engine moves them; without them it only settles values
+    /// (LLP 1047.001). The browser plays them, so the web links nothing for
+    /// it.
+    Transitions,
 }
 
 impl Capability {
     /// Every capability, in bit order.
-    pub const ALL: [Capability; 24] = [
+    pub const ALL: [Capability; 26] = [
         Capability::Markdown,
         Capability::Motion,
         Capability::Collections,
@@ -122,6 +134,8 @@ impl Capability {
         Capability::Tabs,
         Capability::Notifications,
         Capability::GroupedLists,
+        Capability::Io,
+        Capability::Transitions,
     ];
 
     /// The name an entry, a refusal and a report use.
@@ -151,7 +165,15 @@ impl Capability {
             Capability::Tabs => "tabs",
             Capability::Notifications => "notifications",
             Capability::GroupedLists => "grouped_lists",
+            Capability::Io => "io",
+            Capability::Transitions => "transitions",
         }
+    }
+
+    /// The capability `name` names ([`Capability::name`]), as a manifest's
+    /// `link` list does (LLP 1047 D8).
+    pub fn from_name(name: &str) -> Option<Capability> {
+        Capability::ALL.into_iter().find(|c| c.name() == name)
     }
 
     const fn bit(self) -> u32 {
@@ -215,6 +237,10 @@ pub fn uses(plan: &Plan) -> Uses {
     if plan.router.is_some() {
         uses = uses.with(Capability::Router);
     }
+    // A reader's last answer is kept in the host's store (LLP 1027 D4).
+    if plan.resources.iter().any(|r| r.reader) {
+        uses = uses.with(Capability::Io);
+    }
     // A segment length is a value, not a row: any string of the plan's
     // naming one (a literal, a template's piece) can reach a dimension row,
     // so the set is never smaller than what a run can reach.
@@ -241,6 +267,8 @@ pub fn uses(plan: &Plan) -> Uses {
                 Some(PropId::HeightDragFor | PropId::TransformDragFor | PropId::ReorderFor) => {
                     uses = uses.with(Capability::Motion).with(Capability::Drag);
                 }
+                // A shared element flies between its two places (LLP 1013.000).
+                Some(PropId::SharedElement) => uses = uses.with(Capability::Transitions),
                 Some(PropId::Virtualized)
                     if constant_bool(plan.code(binding.expr)).is_none_or(|on| on) =>
                 {
@@ -308,6 +336,14 @@ pub fn uses(plan: &Plan) -> Uses {
                     && can_be(binding, &|v| v.contains("spring"))
                 {
                     uses = uses.with(Capability::Motion);
+                }
+                // A native engine plays every transition, a layout's too.
+                if matches!(
+                    StyleId::from_bit(u32::from(binding.id)),
+                    Some(StyleId::Transition | StyleId::LayoutTransition)
+                ) && can_be(binding, &|v| !matches!(v.trim(), "" | "none"))
+                {
+                    uses = uses.with(Capability::Transitions);
                 }
             }
         }

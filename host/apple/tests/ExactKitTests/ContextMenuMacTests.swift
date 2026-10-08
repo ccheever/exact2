@@ -62,6 +62,187 @@ final class ContextMenuMacTests: XCTestCase {
         DispatchQueue.main.async { turned.fulfill() }
         wait(for: [turned], timeout: 10)
     }
+
+    private func contextKey(_ window: NSWindow, type: NSEvent.EventType = .keyDown,
+                            code: UInt16 = 0x6E, flags: NSEvent.ModifierFlags = []) -> NSEvent {
+        NSEvent.keyEvent(with: type, location: NSPoint(x: 450, y: 350), modifierFlags: flags, timestamp: 0,
+                         windowNumber: window.windowNumber, context: nil, characters: "\u{F735}",
+                         charactersIgnoringModifiers: "\u{F735}", isARepeat: false, keyCode: code)!
+    }
+
+    /// #235: a real menu key runs the action first, then tracks the updated
+    /// native menu. Its point is the focus's centre, not the mouse position.
+    func testContextMenuKeyRunsTheActionThenTracksTheNativeMenu() throws {
+        try XCTSkipIf(ExactEnv.agentMode, "the agent presents painted popovers")
+        let p = presenter(), window = try XCTUnwrap(windows.last)
+        let source = try XCTUnwrap(p.views[1])
+        window.orderFrontRegardless()
+        XCTAssertTrue(window.makeFirstResponder(source))
+        source.handlers.insert("key")
+        var heard: [String] = [], sample: [String] = []
+        p.onKey = { _, key in heard.append("key \(key.chord)") }
+        p.onClipboard = { id, kind, line in
+            XCTAssertEqual(id, 1); XCTAssertEqual(kind, 10)
+            heard.append("context")
+            sample = line.components(separatedBy: ",")
+            p.apply(wireBatch([["op": "props", "id": 14, "set": ["text": "Pin after context"]]]))
+        }
+        p.onPress = { heard.append("pick \($0)") }
+        var tracked = false
+        let center = NotificationCenter.default
+        let observer = center.addObserver(forName: NSMenu.didBeginTrackingNotification, object: nil, queue: nil) { note in
+            guard let menu = note.object as? NSMenu, menu.items.first?.title == "Pin after context" else { return }
+            tracked = true
+            RunLoop.current.perform(inModes: [.eventTracking, .default]) {
+                menu.performActionForItem(at: 0)
+                menu.cancelTracking()
+            }
+        }
+        defer { center.removeObserver(observer) }
+        XCTAssertTrue(p.routeKey(contextKey(window), focused: true))
+        let deadline = Date(timeIntervalSinceNow: 5)
+        while !heard.contains("pick 4") && Date() < deadline { RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.02)) }
+        XCTAssertTrue(tracked)
+        XCTAssertEqual(heard, ["key ContextMenu", "context", "pick 4"])
+        XCTAssertEqual(sample.prefix(4).compactMap(Double.init), [60, 15, 0, 0])
+        XCTAssertEqual(sample.dropFirst(6).prefix(2).compactMap(Double.init), [80, 35])
+    }
+
+    func testContextMenuHonorsKeyCancellationAndOnlyTheUnmodifiedKeyDown() throws {
+        let p = presenter(), window = try XCTUnwrap(windows.last), source = try XCTUnwrap(p.views[1])
+        source.props.removeValue(forKey: "contextPopover")
+        source.handlers.insert("key")
+        XCTAssertTrue(window.makeFirstResponder(source))
+        var heard = 0, prevent = true
+        p.onKey = { _, _ in p.defaultPrevented = prevent }
+        p.onClipboard = { _, _, _ in heard += 1; p.defaultPrevented = true }
+        XCTAssertTrue(p.routeKey(contextKey(window), focused: true))
+        XCTAssertEqual(heard, 0, "a key handler cancelled the default")
+        prevent = false
+        XCTAssertFalse(p.routeKey(contextKey(window, type: .keyUp), focused: true))
+        XCTAssertFalse(p.routeKey(contextKey(window, code: 109, flags: .shift), focused: true), "Shift+F10")
+        XCTAssertFalse(p.routeKey(contextKey(window, flags: .control), focused: true))
+        XCTAssertFalse(p.routeKey(contextKey(window), focused: false), "another session has the focus")
+        XCTAssertEqual(heard, 0)
+        XCTAssertTrue(p.routeKey(contextKey(window), focused: true))
+        XCTAssertEqual(heard, 1)
+        XCTAssertFalse(p.defaultPrevented, "the context action's flag cannot leak into another event")
+    }
+
+    func testContextMenuUsesTheFocusAfterKeyHandlersAndKeepsThatContextTarget() throws {
+        let p = presenter(), window = try XCTUnwrap(windows.last), source = try XCTUnwrap(p.views[1])
+        source.props.removeValue(forKey: "contextPopover")
+        source.handlers.insert("key")
+        p.apply(wireBatch([
+            ["op": "create", "id": 7, "kind": "button", "handlers": ["contextmenu"]],
+            ["op": "frame", "id": 7, "x": 180, "y": 20, "w": 100, "h": 30],
+            ["op": "children", "id": 9, "ids": [1, 2, 7]],
+        ]))
+        let second = try XCTUnwrap(p.views[7])
+        XCTAssertTrue(window.makeFirstResponder(source))
+        p.onKey = { _, _ in window.makeFirstResponder(second) }
+        var heard: [UInt32] = []
+        p.onClipboard = { id, _, _ in heard.append(id); window.makeFirstResponder(source) }
+        XCTAssertTrue(p.routeKey(contextKey(window), focused: true))
+        XCTAssertEqual(heard, [7], "the key action moved focus; the context action does not retarget itself")
+    }
+
+    func testContextMenuCarriesDrawnCoordinatesToTheNearestHandler() throws {
+        let p = presenter(), window = try XCTUnwrap(windows.last), source = try XCTUnwrap(p.views[1])
+        source.props.removeValue(forKey: "contextPopover")
+        p.apply(wireBatch([
+            ["op": "create", "id": 7, "kind": "button"],
+            ["op": "frame", "id": 7, "x": 10, "y": 4, "w": 20, "h": 10],
+            ["op": "children", "id": 1, "ids": [7]],
+            ["op": "present", "id": 1, "property": "translate", "x": 100.0, "y": 0.0],
+        ]))
+        XCTAssertTrue(window.makeFirstResponder(try XCTUnwrap(p.views[7])))
+        var heard: [UInt32] = [], sample: [String] = []
+        p.onClipboard = { id, _, line in heard.append(id); sample = line.components(separatedBy: ",") }
+        XCTAssertTrue(p.routeKey(contextKey(window), focused: true))
+        XCTAssertEqual(heard, [1])
+        XCTAssertEqual(sample.prefix(2).compactMap(Double.init), [20, 9])
+        XCTAssertEqual(sample.dropFirst(6).prefix(2).compactMap(Double.init), [140, 29])
+    }
+
+    func testContextMenuKeepsFieldEditingAndCompositionWithTheirOwner() throws {
+        let p = presenter(), window = try XCTUnwrap(windows.last)
+        p.apply(wireBatch([
+            ["op": "create", "id": 7, "kind": "input", "props": ["value": ""]],
+            ["op": "frame", "id": 7, "x": 0, "y": 0, "w": 100, "h": 30],
+            ["op": "children", "id": 1, "ids": [7]],
+        ]))
+        XCTAssertTrue(window.makeFirstResponder(try XCTUnwrap(p.views[7]?.field)))
+        var heard = 0
+        p.onClipboard = { _, _, _ in heard += 1 }
+        XCTAssertFalse(p.routeKey(contextKey(window), focused: true))
+        let editor = try XCTUnwrap(window.firstResponder as? NSTextView)
+        editor.setMarkedText("ㅎ", selectedRange: NSRange(location: 1, length: 0), replacementRange: NSRange(location: NSNotFound, length: 0))
+        XCTAssertFalse(p.routeKey(contextKey(window), focused: true))
+        XCTAssertTrue(editor.hasMarkedText())
+        XCTAssertEqual(heard, 0, "an ancestor's context menu cannot take the editor's key")
+    }
+
+    func testContextMenuFindsAFrameTranslatedIntoView() throws {
+        let p = presenter(), window = try XCTUnwrap(windows.last), source = try XCTUnwrap(p.views[1])
+        source.props.removeValue(forKey: "contextPopover")
+        p.apply(wireBatch([
+            ["op": "frame", "id": 1, "x": -150, "y": 20, "w": 120, "h": 30],
+            ["op": "present", "id": 1, "property": "translate", "x": 200.0, "y": 0.0],
+        ]))
+        XCTAssertTrue(window.makeFirstResponder(source))
+        var sample: [String] = []
+        p.onClipboard = { _, _, line in sample = line.components(separatedBy: ",") }
+        XCTAssertTrue(p.routeKey(contextKey(window), focused: true))
+        XCTAssertEqual(sample.prefix(2).compactMap(Double.init), [60, 15])
+        XCTAssertEqual(sample.dropFirst(6).prefix(2).compactMap(Double.init), [110, 35])
+    }
+
+    func testContextMenuFallsBackInsideItsSessionWhenTheKeyHandlerRemovesFocus() throws {
+        let p = presenter(), window = try XCTUnwrap(windows.last), source = try XCTUnwrap(p.views[1])
+        source.handlers.insert("key")
+        p.views[9]?.handlers.insert("contextmenu")
+        XCTAssertTrue(window.makeFirstResponder(source))
+        p.onKey = { _, _ in
+            p.apply(wireBatch([["op": "children", "id": 9, "ids": [2]], ["op": "destroy", "id": 1]]))
+            window.makeFirstResponder(p.viewport)
+        }
+        var heard: [UInt32] = [], sample: [String] = []
+        p.onClipboard = { id, _, line in heard.append(id); sample = line.components(separatedBy: ",") }
+        XCTAssertTrue(p.routeKey(contextKey(window), focused: true))
+        XCTAssertEqual(heard, [9])
+        XCTAssertEqual(sample.prefix(2).compactMap(Double.init), [1, 1])
+    }
+
+    private final class NativeKeySink: NSView { override var acceptsFirstResponder: Bool { true } }
+    func testContextMenuDoesNotTakeAnEmbeddedViewsKeys() throws {
+        let p = presenter(), window = try XCTUnwrap(windows.last), source = try XCTUnwrap(p.views[1])
+        let embedded = NativeKeySink(frame: source.bounds)
+        source.addSubview(embedded)
+        XCTAssertTrue(window.makeFirstResponder(embedded))
+        var heard = 0
+        p.onClipboard = { _, _, _ in heard += 1 }
+        XCTAssertFalse(p.routeKey(contextKey(window), focused: true))
+        XCTAssertEqual(heard, 0)
+    }
+
+    func testContextMenuDoesNotOpenForDisabledInertHiddenOrRemovedSources() throws {
+        let changes: [(String, [String: Any])] = [
+            ("disabled", ["op": "props", "id": 1, "set": ["disabled": "true"]]),
+            ("inert", ["op": "props", "id": 1, "set": ["inert": "true"]]),
+            ("hidden", ["op": "style", "id": 1, "style": ["display": "none"]]),
+            ("removed", ["op": "destroy", "id": 1]),
+        ]
+        for (name, change) in changes {
+            let p = presenter(), window = try XCTUnwrap(windows.last), source = try XCTUnwrap(p.views[1])
+            XCTAssertTrue(window.makeFirstResponder(source))
+            var heard = 0
+            p.onClipboard = { _, _, _ in heard += 1 }
+            p.apply(wireBatch([change]))
+            XCTAssertFalse(p.routeKey(contextKey(window), focused: true), name)
+            XCTAssertEqual(heard, 0, name)
+        }
+    }
     private func choose(_ item: NSMenuItem) throws {
         NSApp.sendAction(try XCTUnwrap(item.action), to: item.target, from: item)
     }

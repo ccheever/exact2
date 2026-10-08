@@ -150,3 +150,88 @@ test('declared shortcuts support named keys and leave text input and composition
     expect(presses).toBe(remaining2);
   } finally {Object.assign(globalThis,previous);}
 });
+
+// LLP 1104 D3/D6: exercise the shipped stylesheet in Chrome, beside UA controls.
+test('bare fields restore keyboard focus and disabled native ink comes from the UA', async () => {
+  const {readFileSync} = await import('node:fs');
+  const {chromium: browserPath} = await import('../../../scripts/agent-launch.mjs');
+  const {chromium} = await import('playwright-core');
+  const browser = await chromium.launch({executablePath: browserPath().executable, headless: true});
+  try {
+    const page = await browser.newPage();
+    const css = readFileSync(new URL('../index.html', import.meta.url), 'utf8').match(/<style>([\s\S]*?)<\/style>/)[1];
+    for (const scheme of ['light', 'dark']) {
+      await page.setContent(`<style>${css}</style><div id="exact-root" style="color:red;color-scheme:${scheme}">
+        <input id="bare"><textarea id="area"></textarea><textarea id="markdown" markup="markdown"></textarea>
+        <input id="native" data-native disabled value="Disabled"><textarea id="native-area" data-native disabled>Disabled</textarea>
+        <input id="authored" data-native disabled style="color:rgb(0,128,0)">
+      </div><iframe srcdoc='<style>html {color-scheme:${scheme}}</style><input id="ua" disabled><textarea id="ua-area" disabled></textarea>'></iframe>`);
+      for (const id of ['bare', 'area']) {
+        await page.keyboard.press('Tab');
+        expect(await page.evaluate(() => document.activeElement.id)).toBe(id);
+        const outline = await page.$eval(`#${id}`, el => {const s=getComputedStyle(el);return [s.outlineStyle,s.outlineWidth,s.outlineOffset];});
+        expect(outline[0]).not.toBe('none');
+        expect(outline[1]).not.toBe('0px');
+        expect(outline[2]).toBe('2px');
+      }
+      const color = id => page.$eval(`#${id}`, el => getComputedStyle(el).color);
+      const ua = id => page.$eval('iframe', (frame, id) => frame.contentWindow.getComputedStyle(frame.contentDocument.getElementById(id)).color, id);
+      expect(await color('native')).toBe(await ua('ua'));
+      expect(await color('native-area')).toBe(await ua('ua-area'));
+      expect(await color('authored')).toBe('rgb(0, 128, 0)');
+      // Source mode retains the Markdown editor's existing focus treatment.
+      await page.keyboard.press('Tab');
+      expect(await page.$eval('#markdown', el => getComputedStyle(el).outlineStyle)).toBe('none');
+    }
+  } finally { await browser.close(); }
+}, 20000);
+
+for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: native buttons keep the UA focus ring and bare buttons restore it`, async () => {
+  const {readFileSync} = await import('node:fs');
+  const {chromium: browserPath} = await import('../../../scripts/agent-launch.mjs');
+  const playwright = await import('playwright-core');
+  const browser = await playwright[engine].launch({headless: true,
+    ...(engine === 'chromium' ? {executablePath: browserPath().executable} : {})});
+  try {
+    const page = await browser.newPage();
+    const reference = await browser.newPage();
+    const css = readFileSync(new URL('../index.html', import.meta.url), 'utf8').match(/<style>([\s\S]*?)<\/style>/)[1];
+    const tab = engine === 'webkit' ? 'Alt+Tab' : 'Tab';
+    const outline = (page, id) => page.$eval(`#${id}`, el => {
+      const s = getComputedStyle(el);
+      return [s.outlineStyle, s.outlineWidth, s.outlineOffset, s.outlineColor, s.boxShadow];
+    });
+    for (const scheme of ['light', 'dark']) {
+      await reference.setContent(`<style>html {color-scheme:${scheme}} button {color:inherit;font:inherit;letter-spacing:inherit}</style><button id="ua">UA</button>`);
+      await page.setContent(`<style>${css} html {color-scheme:${scheme}}</style><div id="exact-root" style="color-scheme:${scheme}">
+        <button id="native" data-native data-button-style="bordered">Native</button>
+        <button id="bare">Bare</button><button id="disabled" data-native disabled>Disabled</button>
+        <input id="last">
+      </div>`);
+      for (const p of [reference, page]) await p.evaluate(() => {
+        window.presses = 0;
+        document.addEventListener('click', e => { if (e.target.tagName === 'BUTTON') window.presses++; });
+      });
+      await reference.keyboard.press(tab);
+      await page.keyboard.press(tab);
+      expect(await page.evaluate(() => document.activeElement.id)).toBe('native');
+      expect(await page.$eval('#native', el => el.matches(':focus-visible'))).toBe(true);
+      expect(await outline(page, 'native')).toEqual(await outline(reference, 'ua'));
+      expect((await outline(page, 'native'))[0]).not.toBe('none');
+      for (const key of ['Enter', 'Space']) {
+        await page.keyboard.press(key);
+        await reference.keyboard.press(key);
+      }
+      expect(await page.evaluate(() => window.presses)).toBe(2);
+      expect(await reference.evaluate(() => window.presses)).toBe(2);
+      await page.keyboard.press(tab);
+      expect(await page.evaluate(() => document.activeElement.id)).toBe('bare');
+      const bare = await outline(page, 'bare');
+      expect(bare[0]).not.toBe('none');
+      expect(bare[1]).not.toBe('0px');
+      expect(bare[2]).toBe('2px');
+      await page.keyboard.press(tab);
+      expect(await page.evaluate(() => document.activeElement.id)).toBe('last');
+    }
+  } finally { await browser.close(); }
+}, 30000);

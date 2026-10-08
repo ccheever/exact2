@@ -35,9 +35,17 @@ export function normalizePath(path) {
 export function authorize(grants, operation, path) {
   const normalized = normalizePath(path);
   if (coversPath(grants, operation, normalized)) return normalized;
-  const error = new Error(`denied: ${operation}`);
+  const error = new Error(deniedPath(operation, normalized));
   error.kind = 'Unavailable';
   throw error;
+}
+
+/** A path refusal names the path and the grant lines that would admit it (app farm round 2: a bare
+ * `denied: sqlite.open` left builds guessing which per-persona file it wanted). As js/src/prelude.js says it natively. */
+export function deniedPath(operation, path) {
+  const dir = path.slice(0, path.lastIndexOf('/'));
+  const directory = /^[a-z]+:\/[^/]/.test(dir) ? `, or \`${operation} ${dir}\` for every file there` : '';
+  return `denied: ${operation} ${path}: no grant covers it; grant \`${operation} ${path}\`${directory} (a grant covers its path and what is below it, by whole names)`;
 }
 
 function parentOf(path) { return path.slice(0, path.lastIndexOf('/')); }
@@ -210,9 +218,11 @@ export function createFileStore(appId) {
     },
     // Trusted host only: a file as a Blob, for an `image` or `video` source
     // (LLP 1069.002 D7), and when it last changed. A picked entry is its File.
-    async blob(path, type) {
+    async blob(path, type, maxBytes = Infinity) {
       path = normalizePath(path);
       const { contents, modifiedMs } = await run(false, records => file(records, path), path);
+      const size = contents.byteLength ?? contents.size;
+      if (size > maxBytes) throw failure(`compressImage: too-large: ${size} bytes is over ${maxBytes}`, 'too-large');
       return { blob: contents instanceof Blob ? contents : new Blob([contents], { type }), modifiedMs };
     },
     // Trusted host only: a picked file's entry, backed by the browser's File
@@ -365,5 +375,24 @@ export function createFileSystem(appId, grants) {
       return mutate(method === 'rename' ? [from, to] : [to], () => store[method](from, to));
     };
   }
+  // `compressImage(from, to, {maxDimension, maxBytes})` (LLP 1069.002 A1):
+  // both grants are checked and the options too before anything is read;
+  // the codec runs outside the mutation lock, and only the write takes it.
+  fs.compressImage = async (from, to, options) => {
+    if (typeof from !== 'string' || typeof to !== 'string' || !from.startsWith('app:/') || !to.startsWith('app:/'))
+      throw failure('compressImage: needs app:/ paths', 'failed');
+    const image = await import('./storage-image.js');
+    const { maxDimension, maxBytes } = image.limits(options);
+    from = authorize(grants, 'fs.read', from);
+    to = authorize(grants, 'fs.write', to);
+    requireBelowRoot(to);
+    // An entry is one IndexedDB record, read whole by any operation (`stat`
+    // too); its size is checked before it becomes a Blob or is decoded.
+    const { blob } = await store.blob(from, undefined, image.MAX_BYTES);
+    const out = await image.compress(blob, maxDimension, maxBytes);
+    const size = out.bytes.byteLength;
+    await mutate([to], () => store.atomicWriteOwnedFile(to, out.bytes));
+    return { path: to, type: 'image/jpeg', size, width: out.width, height: out.height };
+  };
   return Object.freeze(fs);
 }

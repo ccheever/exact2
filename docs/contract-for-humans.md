@@ -345,7 +345,7 @@ component CountLabel
 ```
 
 Functions have no effects, cannot recursively call themselves or form cycles, and
-do not capture component state (they can read `now()`). Pass values as parameters. Standard-function names
+do not capture component state (they can read `performanceNow()`). Pass values as parameters. Standard-function names
 are reserved against redefinition. See the grammar reference for the complete
 [standard-function list](contract-grammar.md#standard-functions-and-intrinsics).
 
@@ -433,7 +433,13 @@ A virtualized list has exactly one direct `each`, whose body has one flow root.
 A vertical list needs a real height bound (`height`, `max-height`, or growing
 `flex` in a bounded parent). A horizontal one needs a literal `display="flex"` and
 a literal positive `height`, takes `estimated-item-width`, and refuses a nonzero
-`gap`, main-axis padding, and `justify-content` other than `flex-start`.
+`gap` and `justify-content` other than `flex-start`. Padding along the list's
+axis is room before the first row and after the last, as in CSS: a length or an
+`env()` inset, not a percentage. On iOS a list's pull-to-refresh spinner draws
+below its `padding-top`, so a header laid over that padding does not hide it. A
+virtualized list's `scroll-padding` insets where `scrollIntoView` aligns a row,
+as in CSS: `scroll-padding-top` the height of that header brings a row to just
+below it, and the first row to the very top. Other elements refuse it.
 Virtualized lists nest one level deep (an inner vertical list needs a literal
 `height` or `max-height`); deeper nesting, masonry, wrapping, reversed lists, and
 RTL horizontal collections are not supported.
@@ -574,6 +580,27 @@ answer. Both take the declared name, not an arbitrary value. `failed` does not
 accept a mutation: a mutation whose request fails without an answer stops being
 pending and keeps its previous value, and its `then` does not run. A domain error
 returned in a shaped answer is data to inspect, not a failed transport request.
+
+`failure(resource)` says why, so the view can tell a lost connection from a bug:
+`none` until the request fails, then `some` of a `Failure` record with a `code`
+from a short closed list (`offline`, `timeout`, `refused`, `shape`, `storage`,
+`error`; the grammar says when each applies) and a `message` for a developer.
+The code is the same on every host; the message is not, so branch on the code:
+
+```contract
+shape Item
+  id: string
+
+component Items
+  resource items = loadItems() as shape list<Item> else empty()
+  derive banner = match failure(items) { case some(f) => f.code == "offline" ? "You're offline" : "Couldn't load items", case none => "" }
+  view
+    text banner testId="banner"
+```
+
+A data module reports `offline`, `timeout`, `refused` or `storage` only by letting
+the `fetch` or storage rejection reach the runner; an error it throws of its own,
+for an HTTP error status say, is `error`.
 
 Requests use newest-request-wins behavior; stale answers do not overwrite newer
 requests. A failed resource keeps its retained value or placeholder and clears
@@ -783,7 +810,7 @@ call outside them fails. The capabilities are:
   `Date.now()`, `new Date()` without a value, `setTimeout`, `setInterval`,
   `performance.now()` and `Math.random()` are refused when first used, on every
   executor (`crypto.getRandomValues` and `crypto.randomUUID` work inside an answer); the type check cannot see it, and only `logs` shows the refusal. Time
-  and seeds are arguments: pass `now()` from the Contract (the
+  and seeds are arguments: pass `performanceNow()` from the Contract (the
   [data-module reference](reference.md#generate-typescript-data-source-types) has the full list).
 - *There is no storage or network at build time.* The build bakes each
   resource's first value into the plan, and a storage call then is refused
@@ -816,7 +843,12 @@ call outside them fails. The capabilities are:
 - *A domain failure is data.* `addBook` returns `ok: false` with a message
   rather than throwing, so the view can say what happened. A thrown error
   leaves a resource `failed(…)` and a mutation without an answer.
-- *`app.ts` imports only local files.* npm packages are not bundled yet.
+- *`app.ts` imports local files, and only types from packages.* An `import
+  type` (or a name used only as a type) may reach a package's declarations,
+  such as the rows `snapback4 types` writes to `snapback/generated/api.ts`,
+  and every build checks against them. Importing a package's code is refused
+  (`module outside captured app: …/node_modules/…`): npm packages are not
+  bundled yet.
 
 **Testing with storage.** Each authored test gets an empty store of its own,
 apart from the app's real data. An ad hoc `agent` drive has none unless it
@@ -863,7 +895,11 @@ parenthood, and do not assume border-box sizing. Set it when it matters.
 
 Numeric dimensions normally mean pixels. Unit-bearing values and keywords are
 strings: `width="50%"`, `height="auto"`, `padding-top="env(safe-area-inset-top)"`,
-`width="calc(100% - 24px)"`. Supported values are property-specific; this is not
+`width="calc(100% - 24px)"`, and CSS's `min()`, `max()` and `clamp()` over px,
+the safe-area insets and viewport lengths: `padding-bottom="clamp(15px,
+env(safe-area-inset-bottom), 60px)"`, `bottom="calc(max(15px,
+env(safe-area-inset-bottom)) + 44px)"` (no percentage inside one: the kernel
+resolves them before layout). Supported values are property-specific; this is not
 an unrestricted browser stylesheet. The compiler and kernel reject unsupported
 names or values. `line-height=1.5` is a ratio; `line-height="24px"` is fixed.
 
@@ -952,10 +988,16 @@ input value=query input=search placeholder="Search" aria-label="Search"
 textarea value=body input=editBody
 ```
 
-A bare text field is visible, as the browser's is: a thin border, rounded
-corners, padding and a fill that follow light and dark mode. Any row you write
-replaces only that row; `appearance="none"` gives the bare box for a field you
-draw yourself (LLP 1104).
+A text field is the platform's own by default (LLP 1104): `input` with no type
+or `text`, `email`, `password`, `search`, `tel`, `url`, `number`, and `textarea`
+outside the Markdown editor. On the web it inherits the page's font and
+colour, as a CSS reset does. Disabled and placeholder appearances are the
+platform's. A background, border or radius makes it your own box, as in a
+browser; `appearance="none"` says so explicitly. A row on any conditional
+class or value arm counts. `appearance="auto"` asks for the native field and
+refuses those rows; `background-clip` and `background-attachment` are allowed.
+Appearance is a literal, from the class then your own attribute; use `when`
+with two fields to switch it.
 
 `input` and `change` carry the control's new value as the final action argument:
 a string for a text field, textarea or `select`, a boolean for a checkbox or
@@ -978,7 +1020,8 @@ keeps it from its ancestors' `key` handlers with `stopPropagation()`
 
 The complete event inventory and payload groups are in the
 [event reference](contract-grammar.md#events). HTML controls include `select` and
-`option`; inspect [the control tests](../contract/cli/tests/it/controls.rs) for
+`option`, and `progress` with no `value`, the platform's activity indicator
+([activity](contract-grammar.md#activity-progress)); inspect [the control tests](../contract/cli/tests/it/controls.rs) for
 the checkbox/switch, radio, range, select and date/time conventions instead of
 assuming a browser Event object. `input type="radio"` is HTML's: the radios of
 one `name` are a group, exclusive, and the arrow keys move the check among them.
@@ -1010,8 +1053,12 @@ attribute and retain their normal focus order.
 
 ### Choosing a native button
 
-An ordinary `button` is an authored box with `appearance="none"`. Opt into the
-platform control with a literal `appearance="auto"`:
+A `button` is the platform's own control by default. Giving it a background,
+border or radius, rich children, or rows the native control cannot support
+makes it your bare box. A class counts too, even when a row or incompatible
+child appears on only one conditional arm. Write `appearance="none"` to ask
+for your box explicitly, or `appearance="auto"` to require a native button and
+get an error for unsupported rows or children. For example:
 
 ```contract
 component NativeButtonExample
@@ -1020,20 +1067,53 @@ component NativeButtonExample
     presses = presses + 1
   view
     column gap=12
-      button appearance="auto" buttonStyle="filled" press=send testId="send"
+      button buttonStyle="filled" press=send testId="send"
         text "Send"
       text `${presses}` testId="presses"
 ```
 
-Its text and optional `image "symbol:…"` children describe the button's face;
-they are not arbitrary layout children. A symbol-only face needs a nonempty
-`aria-label`. The platform measures the control and supplies its chrome. UIKit
-and AppKit use native controls, with stand-ins for styles a platform lacks; the
-web and Linux draw their documented looks, which are not a promise of identical
-glass rendering, and Linux draws no symbol image. A native button takes only
-`press`, `focus`, `blur`, `key` and `hover` handlers.
+Its first `text` is the title, its second is the subtitle, and one
+`image "symbol:…"` is the symbol. These are semantic fields; the platform lays
+them out. An image before/after the texts goes leading/trailing with
+`flex-direction="row"`, or top/bottom with `flex-direction="column"`. A
+symbol-only face needs a nonempty `aria-label`. macOS reports stand-ins where
+`NSButton` cannot express gap, subtitle or wrapping.
 
-`buttonStyle` defaults to `bordered`. The accepted styles are `plain`, `gray`,
+`font-size`, `font-weight`, `color`, `white-space`, `line-clamp` and `text-align`
+can be on the button or its texts; a text's own row wins. Apple uses the
+platform's typography unless a row is written there (a class counts); the web
+inherits the page's font and colour. Tab/menu projections keep the existing
+ancestor `text-transform` on their projected title. `white-space="nowrap"` is one truncated
+line; `line-clamp=2` caps wrapping; `text-align="start"` places the face at the
+start of the box. An image can set its own `-exact-tint-color`, `font-size` and
+`font-weight`; otherwise its symbol follows the title. Image `width`, `height`
+and `object-fit` are refused.
+
+`gap`, or the gap for the chosen axis (`column-gap` in a row, `row-gap` in a
+column), sets image-to-title spacing. Leave it absent for the platform's
+spacing. Title-to-subtitle spacing stays the platform's. `align-items` and
+`justify-content` accept only `center`. `-exact-control-size` takes `mini`,
+`small`, `medium`, `large`; `-exact-corner-style` takes `dynamic`, `small`,
+`medium`, `large`, `capsule`. These are styleable rows for native buttons only.
+With explicit `appearance="auto"`, `border-radius` sets a radius and wins over
+the named corner style. Under the default, a radius makes the button bare. `padding`
+and its longhands set content insets; leave them absent for the style's own.
+
+`pointer-events="none"` passes touches through; `auto` restores them. Disabled
+buttons keep authored colours; bind `opacity` when you want dimming. Native
+buttons can use `commandfor` with `command="show-modal"`, `"show-popover"` or
+`"toggle-popover"`, and `popovertarget`, including bound or empty targets (empty
+means no target). `href`, `action` and swipe attributes stay refused.
+`-exact-enabled` transitions are not available. Handlers are `press`, `focus`,
+`blur`, `key`, `keyup` and `hover`.
+
+The kernel's optional host measure hook supplies the fitting size before the
+first frame and handles wrapping at the offered width. Existing hosts keep
+their intrinsic-size report until they implement it.
+
+`buttonStyle` needs a native button and defaults to `bordered`. If the default
+makes your button bare, `lower-button-style` names the first reason: remove it,
+or write `appearance="none"` without `buttonStyle`. The accepted styles are `plain`, `gray`,
 `tinted`, `filled`, `borderless`, `bordered`, `bordered-tinted`,
 `bordered-prominent`, `glass`, `prominent-glass`, `clear-glass`, and
 `prominent-clear-glass`. This is a declared host-policy property, not a CSS
@@ -1041,9 +1121,10 @@ standard property. It can live in a style and can choose among checked literal
 names. `appearance`, however, must resolve to a literal after class application;
 use a view branch if switching between native and custom buttons.
 
-Native buttons deliberately restrict authored paint, typography, face content,
-and parent contexts so the platform can own the control. Do not transfer every
-custom-button style to one. `accent-color` tints the styles that support it
+Native buttons refuse backgrounds, borders, shadows, filters, `font-family`,
+other typography or inner layout and `-exact-press-scale`. A refusal names a
+custom `button` (without `appearance="auto"`) as the alternative. Size, place,
+opacity and transforms remain admitted. `accent-color` tints the styles that support it
 (`gray`, `bordered`, `glass` and `clear-glass` ignore it). Follow
 [the native-button fixture](../scripts/fixtures/native-buttons.contract) and
 [its compiler checks](../contract/lower/src/controls.rs) for the admitted forms.
@@ -1070,6 +1151,9 @@ list appearance="auto" listStyle="inset-grouped" flex=1
     footer
       text "Who can see you."
 ```
+
+Row buttons and their detail accessories stay bare by default, preserving the
+cell's title and action. Explicit `appearance="auto"` makes one a custom native control.
 
 `listStyle` is `inset-grouped` (the default), `grouped` or `plain`, a literal.
 iOS draws UIKit's own list (`UICollectionView` with a list configuration); the
@@ -1120,6 +1204,27 @@ removed, so one in the flow would still take its room. Tabs with a stack each ar
 laid out as [the tabs corpus](../contract/corpus/tabs.contract) shows.
 `navigate=` receives locations the host navigates to itself, such as link clicks
 and browser history.
+
+A row with `navigationPresentation="modal"` is a sheet on iOS; `navigationDetent`
+sets its resting heights, space-separated: `large` (the default), `medium`, a
+point height (`"300"`), or `fit-content`, the route's content height, which
+follows the content as rows arrive or text wraps. A point height and
+`fit-content` stop at the sheet's tallest and leave out the bottom safe area,
+which UIKit adds below; so under `viewport-fit="cover"` a route that pads
+`env(safe-area-inset-bottom)` gets it twice. With one height the sheet does not
+expand and shows no grabber; with several (`"300 large"`) it is dragged between
+them, the first to start. `fit-content` goes alone or as `"fit-content large"`.
+It measures the route laid out on its own with its height left to its
+content, as CSS's `fit-content` does, so nothing the sheet gives it counts:
+rows do not shrink into it, and a percentage `height` or `flex-grow` takes
+nothing from it. On iOS every viewport unit (`vw`, `vh`, `vmin`, `vmax` and their
+`s`/`l`/`d` kin) is the window's in every sheet (`vmin` and `vmax` its
+smaller and larger side), as CSS's `vh` is the viewport's and never a
+dialog's, so `height: 50vh` is half the screen at any sheet height
+and `min-height: 100vh` opens the sheet at its tallest. A route that scrolls itself is measured by what it scrolls,
+laid out in the sheet, so give its rows `flex-shrink: 0`. macOS, the web and
+Linux show a modal route as authored and ignore the detent
+([LLP 1075.003](../llp/1075.003-native-platform-control-merged.plan.md) §9.11).
 
 `path("item", value)` checks the route and encodes its parameters. Always build
 locations with it: a template literal as a location is refused and a string
@@ -1174,7 +1279,7 @@ component Undo
   state toastUntil = 0
   action deleted
     toast = "Deleted"
-    toastUntil = now() + 5000
+    toastUntil = performanceNow() + 5000
   action hideToast
     toast = ""
   task hide when toast != "" key=toastUntil
@@ -1187,13 +1292,14 @@ The timer exists while `toast != ""` holds, as a `when` arm's nodes do, and a ne
 `toastUntil` restarts it, as a new key makes a new `each` row: a replaced toast
 gets its whole five seconds. Nothing runs when the gate changes, and an idle task
 keeps no host awake. The action runs at the deadline exactly, so it clears the
-toast without testing the time again. Gates and keys read state, never `now()`
+toast without testing the time again. Gates and keys read state, never `performanceNow()`
 (LLP 1092).
 
-`now()` reads milliseconds since boot on the runner's clock (the driver's clock
+`performanceNow()` reads milliseconds since boot on the runner's clock (the driver's clock
 under the agent); it is not a date. For the date, read the reserved `exactTime`
-source and add `time.epochAtZero + now()`. Advancing the clock alone does not
-necessarily trigger rendering: a derive using `now()` reevaluates when a later
+source and add `time.epochAtZero + performanceNow()`. There is no `now()`; the
+compiler refuses it and names both. Advancing the clock alone does not
+necessarily trigger rendering: a derive using `performanceNow()` reevaluates when a later
 commit evaluates it. Use a task when the display must tick.
 
 Use CSS `transition` for changes to supported properties and `keyframes` with

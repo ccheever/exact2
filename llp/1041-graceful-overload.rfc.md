@@ -440,11 +440,16 @@ capacity. Completion Storm opts its held data requests in and keeps release
 controls ordered. No independence is inferred from GET or matching origins.
 
 Independent admission counts queued, running and undrained outcomes against
-128 requests / 32 MiB. The ordered lane has 16 requests / 512 MiB. It has one
-worker, so a waiting call is charged its request buffers, the running call its
+128 requests / 32 MiB. The ordered lane has one worker and a 512 MiB budget.
+As built 2026-10-08 (issue #286), a plain HTTP `GET`/`HEAD` without opaque work
+may be admitted up to 128 total ordered tickets; other work retains the
+16-ticket total-lane admission bound. All waiting ordered request buffers
+together are capped at 64 MiB, leaving room to start the head. Reads stay in
+the same FIFO as writes and continuations. A waiting call is charged its
+request buffers, the running call its
 64 MiB response ceiling (twice, for growth), and a completed one what it retains
-until consumed; the worker waits for those bytes rather than refusing, and the
-16-call count is the practical limit. (Measured 2026-09-24: reserving the
+until consumed; the worker waits for those bytes rather than refusing.
+(Measured 2026-09-24: reserving the
 ceiling for every queued call admitted three, and a worker-placed app with
 three `else` placeholders refused its fourth ask at every launch — Seth's Crew
 port, F2.) Request buffers are capped at 4 MiB; response limits apply during
@@ -452,9 +457,12 @@ HTTP reads. One completion or admission refusal settles per pump,
 with alternating opportunities for ready lanes/refusals and coalesced wakes.
 Ordered refusals wait for prior admitted work and prevent later ordered effects
 from bypassing their settlement. Refusals occupy existing current runner tickets,
-not a new unbounded failure queue. A resource ask refused ordered admission,
-whose source can't shape the refusal, is asked again once the last ordered
-refusal settles; a refused mutation ends unsent, never retried.
+not a new unbounded failure queue. A full queue refuses explicitly. A refusal
+the source cannot settle clears pending and records the resource's failure,
+keeping its last value. Capacity refusal never restarts the source: earlier
+turns, even before its first yielded request, may already have performed
+writes. Only the refused request is known not to have executed. An explicit
+refresh or a watched-topic change still asks again under LLP 1016.002 D4.
 
 A ticket the runner forgets or supersedes releases its work after the commit
 (D4): an undrained outcome is dropped, a queued `GET`/`HEAD` is never sent and

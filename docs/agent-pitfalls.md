@@ -25,6 +25,13 @@ guide's rules don't make obvious.
   `line-height=1.3` (28.6 px at 22 px). (Authoring bench,
   LLP 1087: three Codex builders, caught only by a screenshot, 2026-10-05.)
 
+- **A ported `clamp(inset, 15, 60)` never stops at 60.** Cause: React Native
+  code's `clamp(value, min, max)` (lodash's order) is not CSS's `clamp(MIN, VAL,
+  MAX)`, which is `max(MIN, min(VAL, MAX))`: `clamp(env(safe-area-inset-bottom),
+  15px, 60px)` is the inset whenever it passes 15. Fix: `clamp(15px,
+  env(safe-area-inset-bottom), 60px)`. (Bluesky clone's bottom bar, the kernel
+  test that caught it, 2026-10-07.)
+
 - **An image tile grows to its picture's size.** An album tile in a flex row became
   900×1200 pt. Cause: a flex item's automatic minimum is its content size (CSS), and
   an image's content size is its intrinsic size. Fix: give the image or its flex
@@ -122,9 +129,9 @@ guide's rules don't make obvious.
   frame. (Signal Clone, build 2.)
 - **A gate reads state at commits.** A gated task (`task hide when toast != ""
   key=toastUntil`) is armed or dropped by the commit that changes its gate or
-  key, never as the clock moves: so a gate cannot read `now()` (refused), and the
-  `after`'s action runs at its deadline exactly, `now()` equal to it. An action
-  that re-tests `now() > toastUntil` there does nothing and the toast stays up
+  key, never as the clock moves: so a gate cannot read `performanceNow()` (refused), and the
+  `after`'s action runs at its deadline exactly, `performanceNow()` equal to it. An action
+  that re-tests `performanceNow() > toastUntil` there does nothing and the toast stays up
   forever; clear it unconditionally. (LLP 1092 D8; ledger2 #1, chat F7.)
 
 - **A custom row in a grouped list overflows its card on the right.** Cause:
@@ -258,6 +265,13 @@ guide's rules don't make obvious.
 
 ## Actions
 
+- **An `every(N, …)` task does not fire at mount.** Its first tick comes `N` ms
+  after it starts, so state it fills is empty until then, after a test `reload`
+  too: a "today" label or a comparison against it reads the stale or empty
+  value. Fix: compute the value in a derive (from the `exactTime` source's
+  `time.epochAtZero + performanceNow()`), or set it in the mount action, and let
+  the task only refresh it. (Authoring bench, LLP 1087, t5-pomodoro, 2026-10-08.)
+
 - **A token kept in an app data file.** Exact has a secret store, and it holds
   strings, not only keys: grant `secret.keep <name>` and use
   `store.set`/`store.get`/`store.forget` in an answer (the Keychain on Apple,
@@ -279,7 +293,7 @@ guide's rules don't make obvious.
   (`Date.now()`, `new Date()`, `Math.random()`, timers), including literal
   bracket access such as `Date['now']()`. An alias or dynamic key still gets
   past the build and throws on first use on every host but Bun. Take the time
-  from the call's arguments (the Contract's `wallTime.epochAtZero + now()`), as
+  from the call's arguments (the Contract's `wallTime.epochAtZero + performanceNow()`), as
   every source already receives it. (Signal clone build 34, 2026-10-05.)
 
 - **A helper action does not see what its caller just assigned.** `sel = next`
@@ -320,8 +334,8 @@ guide's rules don't make obvious.
 - **A sequence's first hit is late when the first timer tick plays it.** A
   gated or new `every(25, tick)` first fires 25 ms after it starts, so a downbeat
   left to the tick is 25 ms late. Fix: schedule the first window from the press
-  itself (`playSounds(hitsBetween(song, now(), now() + 100))` in the start
-  action), then each tick the next (`[scheduledTo, now() + 100)`). (Drums; LLP
+  itself (`playSounds(hitsBetween(song, performanceNow(), performanceNow() + 100))` in the start
+  action), then each tick the next (`[scheduledTo, performanceNow() + 100)`). (Drums; LLP
   1096 D3.)
 
 ## Media session
@@ -471,6 +485,51 @@ guide's rules don't make obvious.
 
 ## Driving and testing
 
+- **On the web, a save still in flight when the tab closes is lost.** A
+  `storage.fs` write is one IndexedDB transaction, and the browser drops a
+  transaction still running when the page goes away (an immediate close after
+  Enter lost it 4 of 4 times; native hosts finish it, LLP 1097 D10). In a test,
+  let saves land (`clock data`, or wait for the saved state) before `reload`,
+  `relaunch` or closing. In the app, show a saving state until the write
+  resolves. (Authoring bench, LLP 1087, t5-pomodoro on the Android round,
+  2026-10-08.)
+
+- **A test fixture that patches `window.fetch` after boot changes nothing.** A
+  data source's `fetch` is captured when the data module loads, so a stub
+  installed later (a browser script's `page.evaluate`, a console patch) never
+  sees its requests. Fix: to test a failure, `fail fetch "<url prefix>"` (the
+  guide's testing section); a fixture that must stand in for the network
+  installs its stub before the document loads (`addInitScript`) or serves a
+  stand-in server. (Authoring bench, LLP 1087, t8-library, codex, 2026-10-08.)
+
+- **`xcrun simctl io booted screenshot` can capture the wrong simulator.** With
+  several simulators booted, `booted` names any one of them, not the one the
+  app runs on. Fix: use the UDID the build prints (`… on iPhone 17 <UDID>`), or
+  the agent's own `screenshot`, which targets the app's simulator. (Authoring
+  bench, LLP 1087, t9-profile, 2026-10-07.)
+
+- **`axe tap` misses on an exact2 app about one time in three.** Its default
+  style (FBSimulator `tapAt`) sometimes lands as nothing: a mute button toggled
+  1 of 3, a drawer button did not open, and the app looked frozen until
+  relaunched. Fix: `axe tap … --tap-style physical` (a real touch down and up),
+  which hit 6 of 6; or drive by `testId` with the agent. (Bluesky clone, b12,
+  2026-10-08.)
+
+- **Records an agent drive writes are dated 2026-01-01.** The driver's clock
+  starts at a fixed epoch, so `wallTime.epochAtZero + performanceNow()` is that date, and a
+  `createdAt` taken from it is too: Bluesky's AppView then sorted the clone's
+  test posts out of the author feed, and they turned up only through search.
+  Fix: `--epoch now` (the machine's clock, read once at launch; a test file's
+  `epoch now`) on any drive or test that talks to a real service, `snapback4 dev`
+  included: a backend on real time otherwise sees the app's dates months early
+  ("Due in 403783 min"). (Bluesky clone, b12, 2026-10-07; app farm round 2.)
+
+- **`screenshot` of a sheet is the sheet alone, at full width.** On iOS it
+  captures the presented route (a fit-content repost sheet came out 402 × 270
+  points), so its type looks twice its size when viewed as a screen. Fix:
+  `screenshot out.png window` for the screen as a person sees it. (Bluesky clone,
+  b12, 2026-10-07.)
+
 - **A screenshot right after a state change shows a transition's start.** A
   `transition` (a background colour, an opacity) is held by the driver's clock,
   so the frame and the computed style still read the old value: the toggle
@@ -567,6 +626,7 @@ guide's rules don't make obvious.
   Cause: the agent's clock starts at `2026-01-01T00:00:00Z`, in UTC. Fix: `--epoch <ISO time> --time-zone <zone>` on
   `scripts/agent.mjs` for dates that read as intended and stay reproducible; in a test
   file, `epoch "…"` and `time-zone "…"` lines, so a run without the flags still means it.
+  Against a live backend, `--epoch now` (`epoch now`) instead.
 - **A simulator measurement shows a 100–200 ms stall the app never makes.** A
   plain launch's frames hold 16.7 ms, but a run driven with `axe` shows one
   stall with no batch applied about 0.4 s after `axe` first reads the screen
@@ -658,6 +718,14 @@ guide's rules don't make obvious.
   background work that opened it`. Fix: close in a finally,
   `try { … } finally { await db.close(); }`. (LLP 1097 D7, Charlie,
   2026-10-07.)
+
+- **A native button refuses an image's frame or a third text.** Its face is
+  semantic: two texts (title and subtitle) and one symbol. The symbol's size
+  is `font-size` on the image, not `width`, `height` or `object-fit`. Its own
+  colour is `-exact-tint-color`; the title's is `color`. Use a custom `button`
+  without `appearance="auto"` for aligned image frames or arbitrary children.
+  `-exact-control-size` and `-exact-corner-style` are admitted only on an
+  explicit native button, including through classes. (LLP 1069.011.001 D12–D14.)
 
 ## Working on exact2 itself
 
@@ -755,3 +823,56 @@ guide's rules don't make obvious.
   the bundle, which changes their signature bytes; other files stay identical.
   `exact release` signs these files with the release identity before sealing
   the outer bundle. This field is macOS-only. (Issue #103, 2026-10-07.)
+
+- **A background, border or radius makes a text field your own box.** A text
+  field is the platform's own by default. Any such row, including a shorthand,
+  a class row or a row on just one conditional arm, makes it bare for its whole
+  lifetime. Write `appearance="none"` explicitly when drawing the field yourself.
+  With `appearance="auto"`, those rows are refused; remove them to keep the
+  platform's background, border and corners. `background-clip` and
+  `background-attachment` alone keep the field native. (LLP 1104 r8 D2.)
+
+## Access hatches
+
+- **A view a hatch adds on macOS hears no click while its window is not key.**
+  The click reaches the view by hit test and nothing happens: AppKit spends a
+  first click on activating the window unless the view says otherwise, and an
+  ancestor's click recognizer holds a plain `mouseDown` back. Give the view
+  its own `NSClickGestureRecognizer` (declared with `element.owns(recognizer:)`)
+  and override `acceptsFirstMouse(for:)` to return true, as Exact's own
+  controls do. Found building the fixture's badge seal (LLP 1075.003.000.001
+  §13.10): `tap <node>/<part>` answered `landed: "part"` and the press was
+  never counted.
+- **An absolutely positioned element a web hatch appends is not where its
+  node is.** `position: absolute` resolves against the nearest positioned
+  ancestor, which is rarely the hatched node, and a hatch must not restyle the
+  node to make it one. Put what you add in the node's own flow (a block with a
+  margin). Found the same way: `tree` showed the part's size right and its
+  place elsewhere, and the aimed click was refused as outside the node's box.
+- **A page module that exports `window` loses the global of that name.**
+  `export function window(w)` is the window hatch, and inside that file
+  `window.innerWidth` is then the function's property. Reach the global as
+  `globalThis` (the hatch's `w.window` is it too).
+- **On Linux, Windows and Android `changed` also means the node's size
+  changed.** A hatch that acts whenever `element` is called again (a click, an
+  input) loops when its act changes the node's own size, a label's width, say.
+  Keep the words the node was last told with and act only when they differ.
+  Found building the fixture's Linux hatches (§13.13): the pressing hatch
+  pressed itself forever once its label grew a digit.
+
+- **A background, border or radius makes a default button your own box.**
+  Rich children and rows the native button refuses do too, including on one
+  conditional arm or through a class. `buttonStyle` then refuses with
+  `lower-button-style` and says why. Remove the named reason to keep the
+  platform's button, or write `appearance="none"` without `buttonStyle` for
+  your own box. Explicit `appearance="auto"` admits a radius as a native
+  content field but refuses backgrounds, borders and unsupported children.
+  (LLP 1104 r10 D1, D2.)
+
+- **A projected segmented control can widen after its tabs become native
+  buttons.** The projection supplies the tablist's minimum height and fills
+  its content box; the authored children still decide that box's width.
+  Native button insets then contribute even though the segmented control
+  draws the face. If the row was designed around bare text tabs, write
+  `appearance="none"` on those tabs. Native Fixture's header needed this
+  after buttons became native by default. (LLP 1059 D2a, LLP 1104 D9.)

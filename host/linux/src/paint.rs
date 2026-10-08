@@ -32,6 +32,7 @@ use std::sync::Arc;
 use tiny_skia::{Pixmap, Point, Transform};
 mod backend;
 pub mod border;
+pub(crate) mod button;
 mod caret;
 pub(crate) mod control;
 pub(crate) mod damage;
@@ -193,7 +194,8 @@ impl BoxPaint {
             Dimension::Auto
             | Dimension::Env(..)
             | Dimension::Segment(..)
-            | Dimension::Viewport(..) => 0.0,
+            | Dimension::Viewport(..)
+            | Dimension::Compare(..) => 0.0,
         };
         // @ref LLP 1053.000 D4 — a material wins over `backdrop-filter`; a
         // name the table lacks draws ultra-thin ([`material_note`]).
@@ -500,6 +502,8 @@ pub struct Painter {
     pub(crate) placements: BTreeMap<ViewId, crate::placement::Placement>,
     /// Each 2D canvas's latest bitmap (LLP 1056).
     pub(crate) canvases: BTreeMap<ViewId, crate::canvas2d::CanvasPaint>,
+    /// Each hatched node's overlay as last published (LLP 1075.003.000.001 §2.2.1).
+    pub(crate) overlays: BTreeMap<ViewId, Arc<Pixmap>>,
     viewport: (f32, f32),
     cpu_ms: Option<f64>,
     /// What a reorder lifts: a row in its list, or a ghost over everything.
@@ -609,6 +613,7 @@ impl Painter {
             decoration_warning: false,
             placements: BTreeMap::new(),
             canvases: BTreeMap::new(),
+            overlays: BTreeMap::new(),
             viewport: (0., 0.),
             cpu_ms: None,
             flatten: None,
@@ -997,7 +1002,6 @@ impl Painter {
         }
         let outer = geometry.outer;
         let content = geometry.content;
-        let s = node.style;
         match node.node_type {
             NodeType::Text => self.text_node(walk, node, &geometry, rect, ts),
             // The rest is this element's own paint (its picture, field, or control).
@@ -1021,23 +1025,23 @@ impl Painter {
                 {
                     self.symbol(node, content, image_tint(node, &shown, self.dark), ts);
                 } else {
+                    self.row_slot(node.id, content, outer, ts);
                     self.backend.slot_begin(node.id);
-                    if let Some(img) = walk.scene.images.get(&node.id) {
-                        if let Some(dst) = object_fit(img.natural(), s.object_fit, content) {
-                            self.backend.image(
-                                img,
-                                dst,
-                                &[Shape::rect(content), outer],
-                                ts,
-                                image_tint(node, &shown, self.dark),
-                            );
-                        }
-                    }
+                    self.picture(walk, node, content, outer, ts);
                     self.backend.slot_end();
                 }
             }
             NodeType::TextInput => {
                 self.row_refuse();
+                let native = node.style.appearance == exact_kernel::Appearance::Auto;
+                let disabled = node.props.bool(PropId::Disabled) == Some(true);
+                let field_shape =
+                    native.then(|| self.text_field_chrome(surface.outer.rect, disabled, ts));
+                let content = if let Some(c) = node.field_content_rect() {
+                    (rect.0 + c.x, rect.1 + c.y, c.width, c.height)
+                } else {
+                    content
+                };
                 // Typed text its bound value has not replaced (LLP 1069.001 D4).
                 let value = control::choice(node, walk.scene.chosen.get(&node.id))
                     .unwrap_or_else(|| node.props.str(PropId::Value).unwrap_or(""));
@@ -1070,14 +1074,20 @@ impl Painter {
                     + if multiline {
                         0.0
                     } else {
-                        ((content.3 - paragraph.height) / 2.0).max(0.0)
+                        (content.3 - paragraph.height) / 2.0
                     };
-                let ink = if placeholder {
+                let mut ink = if placeholder {
                     [0x75, 0x75, 0x75, 0xff]
                 } else {
                     presented_color(walk, node)
                         .unwrap_or_else(|| rgba(node.text_color().resolve(self.dark)))
                 };
+                if native
+                    && disabled
+                    && (placeholder || !node.style.mask.has(exact_kernel::StyleId::TextColor))
+                {
+                    ink = control::disabled_field_ink(ink, self.dark);
+                }
                 // The focused field's selection (x2apps codeedit #2).
                 let field = caret::FieldText {
                     node: node.id,
@@ -1085,7 +1095,18 @@ impl Painter {
                     value,
                     masked: node.props.str(PropId::Type) == Some("password"),
                     origin: (content.0, oy),
+                    width: content.2,
+                    multiline,
                 };
+                // A single line is shaped unconstrained, so `text-align` places
+                // it here; a textarea's paragraph is laid out at the field's
+                // width and aligns its own lines.
+                let ox = content.0
+                    + if multiline {
+                        0.0
+                    } else {
+                        caret::line_left(&computed, content.2, paragraph.width)
+                    };
                 let focused = walk.scene.focus == Some(node.id);
                 let selection = walk.scene.selection.filter(|_| focused);
                 if let Some(s) = selection {
@@ -1100,7 +1121,7 @@ impl Painter {
                             color: ink,
                             source: node.id,
                         }],
-                        (content.0, oy),
+                        (ox, oy),
                         ts,
                     );
                 }
@@ -1113,10 +1134,8 @@ impl Painter {
                     );
                     let at_end = || exact_runner::FieldSelection::at_end(value);
                     self.field_caret(&field, caret, selection.unwrap_or_else(at_end), ts);
-                    if node.props.str(PropId::FieldStyle).is_some() {
-                        let accent = control::accent(node, self.dark).unwrap_or(control::ACCENT);
-                        self.field_ring(&surface.outer, accent, ts);
-                    }
+                    let accent = control::accent(node, self.dark).unwrap_or(control::ACCENT);
+                    self.field_ring(field_shape.as_ref().unwrap_or(&outer), accent, ts);
                 }
             }
             NodeType::Svg => self.svg(walk, node, rect, content, ts),
@@ -1142,9 +1161,24 @@ impl Painter {
             NodeType::Control if node.props.str(PropId::Type) == Some("range") => {
                 self.range_control(node, content, ts, walk.scene.chosen.get(&node.id))
             }
+            NodeType::Control if node.props.str(PropId::Type) == Some("progress") => {
+                control::progress(self.backend.as_mut(), node, content, ts, self.dark)
+            }
             NodeType::Control if node.props.str(PropId::Type) == Some("button") => {
-                let title = walk.scene.kernel.press_face(node.id).and_then(|f| f.title);
-                self.button_control(node, content, ts, title.as_deref().unwrap_or(""));
+                let face = walk.scene.kernel.press_face(node.id).unwrap_or_default();
+                let rows = walk
+                    .scene
+                    .kernel
+                    .button_face_style(node.id)
+                    .expect("button");
+                self.button_control(
+                    node,
+                    surface.outer.rect,
+                    ts,
+                    &face,
+                    &rows,
+                    walk.scene.focus == Some(node.id),
+                );
             }
             NodeType::Control => control::paint(
                 self.backend.as_mut(),
@@ -1184,6 +1218,25 @@ impl Painter {
         self.children(walk, node, ts, child_offset, child_rect);
         if clips {
             self.backend.pop_clip();
+        }
+        // LLP 1104 D6: native buttons ring their own chrome; a bare
+        // button rings its outer box even without a press handler.
+        if paints_self
+            && node.node_type == NodeType::Pressable
+            && node.props.str(PropId::Href).is_none()
+            && walk.scene.focus == Some(node.id)
+            && node.props.bool(PropId::Disabled) != Some(true)
+        {
+            let accent = control::accent(node, self.dark).unwrap_or(control::ACCENT);
+            self.field_ring(&outer, accent, ts);
+        }
+        // @ref LLP 1075.003.000.001 §2.2.1 — a hatch's overlay: over the
+        // node's own paint and its descendants, clipped to its border box.
+        if let Some(pixels) = self.overlays.get(&node.id).cloned() {
+            self.row_refuse();
+            self.damage.unsupported = true;
+            let clips = [Shape::rect(rect), surface.outer];
+            self.backend.canvas(&pixels, rect, &clips, ts);
         }
     }
 }
@@ -1301,9 +1354,11 @@ pub fn content_size(node: &NodeRef<'_>, kernel: &Kernel) -> (f32, f32) {
         Dimension::Points(p) => p,
         Dimension::Percent(p) => against * p / 100.0,
         Dimension::Calc(p, x) => against * p / 100.0 + x,
-        Dimension::Auto | Dimension::Env(..) | Dimension::Segment(..) | Dimension::Viewport(..) => {
-            0.0
-        }
+        Dimension::Auto
+        | Dimension::Env(..)
+        | Dimension::Segment(..)
+        | Dimension::Viewport(..)
+        | Dimension::Compare(..) => 0.0,
     };
     let pad_right = pad(node.style.padding_right, node.frame.width);
     let pad_bottom = pad(node.style.padding_bottom, node.frame.width);

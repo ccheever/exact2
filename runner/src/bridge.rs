@@ -162,6 +162,11 @@ pub struct KeyframesTable(
     )>,
 );
 
+/// How a runner resolves an `animation` list's names against the plan's
+/// `@keyframes`, when CSS animations are linked (LLP 1047.001): a plan that
+/// animates nothing never names a rule, and links none of the resolution.
+pub type KeyframesLink = Option<fn(&KeyframesTable, &mut exact_motion::Animations) -> Vec<String>>;
+
 /// The plan's `keyframes` table. The compiler validated every row; one that
 /// no longer parses (a plan from another evaluator) names nothing.
 pub fn keyframes(plan: &exact_plan::Plan) -> KeyframesTable {

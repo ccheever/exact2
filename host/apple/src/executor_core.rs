@@ -16,6 +16,8 @@ const WORKERS: usize = 3;
 const MAX_WORKERS: usize = 48; // Includes retired workers until they actually exit.
 static LIVE_WORKERS: AtomicUsize = AtomicUsize::new(0);
 const COUNTS: [usize; 2] = [16, 128];
+const ORDERED_READS: usize = 128;
+const ORDERED_WAITING_BYTES: usize = 64 << 20;
 /// Open streams, bounded apart from the independent lane's count: a stream
 /// holds a transport lease and a reader thread for as long as it is open,
 /// and must neither starve nor be starved by a lane of held replies
@@ -93,8 +95,8 @@ struct Shared {
 /// native work. Those trusted-source costs are count/worker bounded only.
 /// On both lanes a waiting job is charged its request buffers, a running one
 /// its response ceiling, and a completed one what it retains; a worker waits
-/// for bytes rather than refusing (LLP 1041 §8.4, LLP 1054.000 R3). Only the
-/// count bounds the queue of waiting jobs.
+/// for bytes rather than refusing (LLP 1041 §8.4, LLP 1054.000 R3). The ordered
+/// queue also bounds waiting request buffers, leaving room to start its head.
 pub(super) struct Core {
     shared: Arc<Shared>,
     disabled: bool,
@@ -227,10 +229,32 @@ impl Core {
                 (state.streams >= STREAMS, limit)
             } else {
                 let streams = if lane == 1 { state.streams } else { 0 };
-                (state.counts[lane] - streams >= COUNTS[lane], charge)
+                // Plain reads may wait in a larger, still ordered backlog.
+                // Writes and opaque work retain their total-lane count bound.
+                let count = if lane == 0
+                    && work.is_none()
+                    && safe(&r.request)
+                    && r.request.surface.is_none()
+                    && !r.request.is_native()
+                    && !r.request.is_auth()
+                {
+                    ORDERED_READS
+                } else {
+                    COUNTS[lane]
+                };
+                (state.counts[lane] - streams >= count, charge)
             };
             if full || charge > BYTES[lane].saturating_sub(state.bytes[lane]) {
                 return Err("native executor admission limit reached");
+            }
+            if lane == 0 {
+                // Count every waiting request, including writes. Otherwise
+                // 128 large reads could fill the lane before its first job
+                // can reserve the response bytes it needs to start.
+                let waiting = state.jobs[0].iter().map(|job| job.charge).sum();
+                if charge > ORDERED_WAITING_BYTES.saturating_sub(waiting) {
+                    return Err("native ordered queue byte limit reached");
+                }
             }
             Ok((lane, charge, limit))
         })();
@@ -894,6 +918,12 @@ fn execute(
             FailureKind::Timeout,
             format!("the request timed out after {} ms", timeout.unwrap_or(0)),
         ),
+        // @ref LLP 1109 D3 — a response over its size limit is the host
+        // refusing it (`refused`), as the event stream, the socket and the
+        // web say; ibex2 spells the overflow one way on every transport.
+        Err(e) if !abort.signal().aborted() && e == ibex2::stdlib::fetch::over_limit(limit) => {
+            failed(FailureKind::Refused, "HTTP response exceeds limit")
+        }
         Err(e) => fetch_failure(e, abort),
     }
 }

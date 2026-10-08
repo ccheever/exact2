@@ -129,6 +129,18 @@ extension TextEngine {
         let text = value as NSString
         return pieces(text, boundaries: lineBreaks(text, length: text.length))
     }
+    /// A native face's min-content run, using its own control to measure
+    /// each candidate so the title/subtitle fonts and chrome stay the OS's.
+    static func widestButtonRun(_ value: String?, whiteSpace: String?, measure: (String) -> CGFloat) -> String? {
+        guard let value else { return nil }
+        if whiteSpace == "nowrap" || whiteSpace == "pre" { return value }
+        var widest = "", width: CGFloat = -1
+        for run in unbreakablePieces(value) {
+            let next = measure(run)
+            if next > width { widest = run; width = next }
+        }
+        return widest
+    }
     /// Where a line may end, as UTF16 offsets, the last being `length`: the
     /// shared walker's opportunities (`exact_text_line_breaks`), Chrome's, with
     /// CFStringTokenizer's dictionary words inside Thai, Lao, Khmer and Myanmar

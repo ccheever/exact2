@@ -292,6 +292,8 @@ fn build_sources(
     if compat.inputs["store"]["L"] != "0" {
         return Err("module clients currently require deploy.store.<platform> = 0; signed module delivery is not implemented".into());
     }
+    // What an Apple archive links, as its compatibility inputs name it (LLP 1047.001 D2).
+    let linked = (platform != "web").then(|| exact_bake::apple_link(&compat, "exact_apple"));
     std::fs::write(out.join("compat.json"), compat.to_json()).map_err(|e| e.to_string())?;
     let rust_updates = compat.inputs["rustMode"] != "off"
         && compat.inputs["rustModule"]
@@ -334,13 +336,28 @@ fn build_sources(
         } else {
             mode
         };
-        let mut entry = contract::rust_entry("ExactEmbeddedData", "embedded_data()", mode)?;
+        // The Linux (and Android) and Windows hosts make their data source with
+        // `Default` (`exact_linux::run::<D: Default>`); with no Rust module the
+        // entry is otherwise the bare embedded source, which has none. A
+        // replacement-free `Swappable::off` gives it one and links no executor
+        // (LLP 1047.001 D7), as Apple's `host!` gets from `app_data()`.
+        let mut entry = if mode == "off" && matches!(platform, "linux" | "android" | "windows") {
+            "exact_logic::configured!(AppData, ExactEmbeddedData, || exact_logic::Swappable::off(embedded_data()));\n#[allow(dead_code)]\nfn app_data() -> AppData { Default::default() }\n".to_string()
+        } else {
+            contract::rust_entry("ExactEmbeddedData", "embedded_data()", mode)?
+        };
         // The web entry links what the plan uses (LLP 1047 D3).
         if platform == "web" {
             let plan = exact_plan::Plan::decode(&baked.plan).map_err(|e| format!("{e:?}"))?;
             entry.push_str(&contract::web_linked(&plan, &compat.inputs));
         }
         std::fs::write(out.join("logic.rs"), entry).map_err(|e| e.to_string())?;
+        // An Apple entry names what it links (LLP 1047.001 D3) beside it, for
+        // `host!(…; linked = EXACT_LINKED)`; an entry that does not include it
+        // links every capability, as before.
+        if let Some(linked) = linked {
+            std::fs::write(out.join("linked.rs"), linked).map_err(|e| e.to_string())?;
+        }
     }
     // Each captured source by name, not the app directory: Cargo scans a named
     // directory recursively, and an app outside this repo keeps its `target/`
@@ -355,9 +372,29 @@ fn build_sources(
             origin(&root, &mounted, name).display()
         );
     }
+    // And the package declarations the type check read: a changed `.d.ts`
+    // checks the app again (LLP 1027 D5, "Type-only package imports").
+    for file in package_declarations(&stage.0)? {
+        println!("cargo:rerun-if-changed={}", file.display());
+    }
     // And the Contract libraries the app uses, wherever they are installed.
     contract::rerun_if_changed(&root.join("app.contract"));
     Ok(())
+}
+
+/// Every package file the configuration captured for the type check, where
+/// it was read from (`__exact_declarations.json`, written by `stagePackages`).
+fn package_declarations(stage: &Path) -> Result<Vec<PathBuf>, String> {
+    let Ok(bytes) = std::fs::read(stage.join("__exact_declarations.json")) else {
+        return Ok(Vec::new());
+    };
+    let record: serde_json::Value = serde_json::from_slice(&bytes).map_err(|e| e.to_string())?;
+    Ok(record["files"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|file| file.as_str().map(PathBuf::from))
+        .collect())
 }
 
 /// The tools on the producer machine, not on a client.
@@ -506,6 +543,18 @@ fn mounts(root: &Path) -> Result<Vec<(String, PathBuf)>, String> {
         }
         out.push((name.clone(), dir));
     }
+    // A file reachable through two mounts would have two places in the
+    // capture, and the web build could resolve its imports from the other:
+    // mounts may not overlap.
+    for (i, (a, a_dir)) in out.iter().enumerate() {
+        for (b, b_dir) in &out[i + 1..] {
+            if a_dir.starts_with(b_dir) || b_dir.starts_with(a_dir) {
+                return Err(format!(
+                    "typescript.sources.{a} and typescript.sources.{b} overlap; mount directories that do not contain each other"
+                ));
+            }
+        }
+    }
     Ok(out)
 }
 
@@ -538,9 +587,12 @@ fn contract_inputs(app: &Path) -> Result<BTreeMap<PathBuf, Option<Vec<u8>>>, Str
 }
 
 /// Capture the app-local source graph, and the directories the manifest
-/// mounts beside it. External/npm imports intentionally fail in the private
-/// snapshot until dependency capture is implemented; they must not silently
-/// resolve to unrelated files on the producer machine.
+/// mounts beside it. A package's runtime code is never captured: a value
+/// import from `node_modules` fails in the private snapshot until dependency
+/// capture is implemented, and must not silently resolve to unrelated files
+/// on the producer machine. Its declarations are captured for the type check
+/// alone, by the configuration (`typescript.mjs` `stagePackages`; LLP 1027
+/// D5, "Type-only package imports").
 fn sources(root: &Path) -> Result<BTreeMap<PathBuf, Vec<u8>>, String> {
     let mounts = mounts(root)?;
     let manifest = root.join("app.json");
@@ -767,6 +819,7 @@ fn bake_in(
         "__exact_tsconfig.json",
         "__exact_config.mjs",
         "__exact_paths.json",
+        "__exact_declarations.json",
         "__exact_canvas.js",
         "__exact_canvas.d.ts",
     ]
@@ -774,7 +827,7 @@ fn bake_in(
     .any(|name| captured.contains_key(Path::new(name)))
     {
         return Err(
-            "__exact_entry.ts, __exact_tsconfig.json, __exact_config.mjs, __exact_paths.json and __exact_canvas.* are reserved for the producer"
+            "__exact_entry.ts, __exact_tsconfig.json, __exact_config.mjs, __exact_paths.json, __exact_declarations.json and __exact_canvas.* are reserved for the producer"
                 .into(),
         );
     }
@@ -985,39 +1038,54 @@ fn write_changed(path: &Path, bytes: &[u8]) -> Result<(), String> {
     Ok(())
 }
 
+/// The one-shot producer's configuration and check: `tsc` and the repository
+/// root are its arguments; a refused check exits 3.
+const ONE_SHOT_CHECK: &str = r#"
+import { configure, check } from './__exact_config.mjs';
+import { createRequire } from 'node:module';
+import { dirname, resolve } from 'node:path';
+const [tsc, root] = process.argv.slice(1);
+configure(process.cwd());
+const libraries = resolve(dirname(createRequire(resolve(root, 'package.json')).resolve(`@typescript/typescript-${process.platform}-${process.arch}/package.json`)), 'lib');
+try { await check(process.cwd(), tsc, libraries); }
+catch (error) { process.stderr.write(String(error?.message ?? error)); process.exit(3); }
+"#;
+
 fn compile_once(stage: &Path, tools: &Tools) -> Result<(), String> {
     write_changed(
         &stage.join("__exact_config.mjs"),
         resident::CONFIG.as_bytes(),
     )?;
-    let configured = exact_bake::bun()
-        .args([
-            "--input-type=module",
-            "-e",
-            "import { configure } from './__exact_config.mjs'; configure(process.cwd());",
-        ])
+    // Configure, then check as the resident and web producers check: the
+    // compiler's resolved graph, package declarations included, stays inside
+    // the capture and the configured libraries (`typescript.mjs` `check`).
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let checked = exact_bake::bun()
+        .args(["--input-type=module", "-e", ONE_SHOT_CHECK])
+        .arg(&tools.tsc)
+        .arg(&root)
         .current_dir(stage)
         .output()
         .map_err(|e| format!("tsconfig: {e}"))?;
-    if !configured.status.success() {
-        return Err(String::from_utf8_lossy(&configured.stderr).into_owned());
+    if !checked.status.success() {
+        let said = String::from_utf8_lossy(&checked.stderr).into_owned();
+        return Err(if checked.status.code() == Some(3) {
+            format!("{} refused:\n{said}", tools.tsc.display())
+        } else {
+            said
+        });
     }
-    run(
-        &tools.tsc,
-        &["--project", "__exact_tsconfig.json", "--pretty", "false"],
-        stage,
-    )?;
     // No absolute import or dependency may escape the captured graph, and a
     // path mapping names only files inside it. This generated config is
     // producer-owned, not app configuration.
     std::fs::write(
         stage.join("__exact_bundle.mjs"),
         r#"
-import { assertCapturedModule, ambientRefusals } from './__exact_config.mjs';
+import { assertCapturedModule, ambientRefusals, packageImports } from './__exact_config.mjs';
 export default {
   input: '__exact_entry.ts',
   tsconfig: '__exact_tsconfig.json',
-  plugins: [{ name: 'captured-sources', load(id) {
+  plugins: [{ name: 'captured-sources', resolveId: packageImports(process.cwd()), load(id) {
     assertCapturedModule(process.cwd(), id);
     return null;
   }, transform(code, id) {

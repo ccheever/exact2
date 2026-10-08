@@ -2,6 +2,7 @@
 import AppKit
 import XCTest
 @testable import ExactKit
+@testable import ExactSurfaces
 
 private var pointerEvents: [[String: Any]] = []
 
@@ -10,6 +11,7 @@ private var pointerEvents: [[String: Any]] = []
 /// events AppKit delivers. The lock is the process's own cursor association;
 /// no window server delivery is involved, so this runs at a login window too.
 final class CanvasPointerMacTests: XCTestCase {
+    override class func setUp() { super.setUp(); ExactSurfaces.install() } // LLP 1047.001 D4
     private func fixture() -> (ExactSession, NodeView, NSWindow) {
         _ = NSApplication.shared
         pointerEvents = []
@@ -25,12 +27,12 @@ final class CanvasPointerMacTests: XCTestCase {
                 if row["t"] as? String == "pointer" { pointerEvents.append(row) }
                 return 0
             }, messages: nil, published: nil, agent: { _, _, _ in 0 }, outPtr: { nil })
-        s.canvases.modules[""] = m; s.canvases.attempted = [""]
+        s.surfaceHost.modules[""] = m; s.surfaceHost.attempted = [""]
         let canvas = NodeView(id: 100, kind: "canvas", presenter: s.presenter)
         canvas.frame = CGRect(x: 0, y: 0, width: 200, height: 200)
         s.presenter.root.addSubview(canvas); s.presenter.views[100] = canvas
-        let e = Canvases.Entry(view: canvas, name: "world", values: []); e.id = 1; e.wantsInput = true; e.module = m
-        s.canvases.entries[100] = e; canvas.canvasInput = CanvasInput(view: canvas)
+        let e = CanvasesHost.Entry(view: canvas, name: "world", values: []); e.id = 1; e.wantsInput = true; e.module = m
+        s.surfaceHost.entries[100] = e; canvas.canvasInput = CanvasInputHost(view: canvas)
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 400), styleMask: [.borderless], backing: .buffered, defer: false)
         // The canvas is the window's content: the hit view for every point in it.
         window.contentView = canvas
@@ -49,7 +51,7 @@ final class CanvasPointerMacTests: XCTestCase {
 
     func testChordedButtonsAreMovesAndMotionIsThePositionsChange() {
         let (s, canvas, window) = fixture(); defer { s.destroy() }
-        let input = canvas.canvasInput!
+        let input = canvas.canvasInput as! CanvasInputHost
         XCTAssertTrue(input.pointer(mouse(.leftMouseDown, window, at: at(canvas, window, 50, 50)), phase: "down"))
         XCTAssertTrue(input.pointer(mouse(.rightMouseDown, window, at: at(canvas, window, 50, 50)), phase: "down"))
         XCTAssertTrue(input.pointer(mouse(.leftMouseDragged, window, at: at(canvas, window, 60, 50)), phase: "move"))
@@ -70,7 +72,7 @@ final class CanvasPointerMacTests: XCTestCase {
     func testALockableCanvasLocksTakesDeviceDeltasAndEscapeOrResigningKeyUnlocks() throws {
         let (s, canvas, window) = fixture(); defer { s.destroy() }
         canvas.props["dataset"] = #"{"pointer-lock":"true"}"#
-        let input = canvas.canvasInput!
+        let input = canvas.canvasInput as! CanvasInputHost
         XCTAssertTrue(input.pointer(mouse(.leftMouseDown, window, at: at(canvas, window, 50, 50)), phase: "down"))
         // CGAssociateMouseAndMouseCursorPosition is per process; it succeeds
         // without input focus (at a login window), but needs a window server.

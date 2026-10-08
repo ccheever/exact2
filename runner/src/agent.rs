@@ -23,6 +23,7 @@ use std::fmt::Write as _;
 mod row;
 mod schedule;
 mod sound;
+mod tree;
 
 /// Answer one request: `{"op":"tree"}`, `{"op":"state"}`,
 /// `{"op":"logs","since":N}`, `{"op":"node","id":V}` — the runner's half
@@ -31,7 +32,7 @@ mod sound;
 /// `{"error":…}`.
 pub fn handle<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
     match field_str(request, "op").as_deref() {
-        Some("tree") => tree_request(runner, request),
+        Some("tree") => tree::request(runner, request),
         Some("state") => state_with(runner, request),
         Some("tags") => tags(runner),
         Some("frames") => frames(runner, request, &|_| false),
@@ -314,42 +315,6 @@ pub fn error(message: &str) -> String {
     s
 }
 
-/// The tree: every live node in preorder — id, parent, depth, type, props by
-/// their schema names, the events it handles, `inactive` when it is under a
-/// route its navigation root has not selected, its children — plus the
-/// kernel's epoch and incarnation (the consistency token: nothing moves
-/// between two calls unless the agent moved it).
-fn tree_request<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
-    let shallow = match after_key(request, "shallow") {
-        None => false,
-        Some(value) => match value.split([',', '}']).next().unwrap().trim() {
-            "true" => true,
-            "false" => false,
-            _ => return error("tree shallow must be a boolean"),
-        },
-    };
-    let Some((root, depth)) = (match target(runner, request) {
-        Ok(found) => found,
-        Err(e) => return error(&e),
-    }) else {
-        if shallow {
-            return error("shallow tree needs a target");
-        }
-        return tree(runner);
-    };
-    let kernel = runner.kernel();
-    if shallow {
-        let mut row = kernel.row(root).expect("located live node");
-        row.depth = depth;
-        return tree_rows(runner, &[row], &[root]);
-    }
-    let mut subtree = kernel.rows(Some(root)).unwrap_or_default();
-    for row in &mut subtree {
-        row.depth = row.depth.saturating_add(depth);
-    }
-    tree_rows(runner, &subtree, &[root])
-}
-
 /// The view a request's `target` names — a view id, or a testId's first
 /// match in preorder on a selected route — and its depth; `None` when the
 /// request names none. Shared by `tree` and `perf` (LLP 1079 D2).
@@ -407,72 +372,13 @@ pub(crate) fn target<D: DataSource>(
 }
 
 /// Every live root and node, in structural preorder.
+/// The tree: every live node in preorder — id, parent, depth, type, props by
+/// their schema names, the events it handles, `inactive` when it is under a
+/// route its navigation root has not selected, its children — plus the
+/// kernel's epoch and incarnation (the consistency token: nothing moves
+/// between two calls unless the agent moved it).
 pub fn tree<D: DataSource>(runner: &Runner<D>) -> String {
-    let rows = runner.kernel().rows(None).unwrap_or_default();
-    tree_rows(runner, &rows, &runner.roots())
-}
-
-fn tree_rows<D: DataSource>(
-    runner: &Runner<D>,
-    rows: &[exact_kernel::export::NodeRow],
-    roots: &[u32],
-) -> String {
-    let kernel = runner.kernel();
-    let mut s = String::new();
-    let _ = write!(
-        s,
-        "{{\"epoch\":{},\"incarnation\":{},\"clock\":{},\"roots\":",
-        kernel.epoch(),
-        kernel.incarnation(),
-        num(runner.now_ms())
-    );
-    ids(roots, &mut s);
-    s.push_str(",\"nodes\":[");
-    let handlers = (rows.len() != 1).then(|| runner.handlers());
-    let mut first = true;
-    for row in rows {
-        let Some(node) = kernel.node(row.id) else {
-            continue;
-        };
-        if !first {
-            s.push(',');
-        }
-        first = false;
-        let _ = write!(s, "{{\"id\":{},\"parent\":", node.id);
-        match node.parent {
-            Some(p) => {
-                let _ = write!(s, "{p}");
-            }
-            None => s.push_str("null"),
-        }
-        let _ = write!(s, ",\"depth\":{},\"type\":", row.depth);
-        quote(node.node_type.name(), &mut s);
-        s.push_str(",\"props\":{");
-        props_json(&node, &mut s);
-        s.push_str("},\"handlers\":[");
-        let single;
-        let events = if let Some(all) = &handlers {
-            all.get(&node.id).map_or(&[][..], Vec::as_slice)
-        } else {
-            single = runner.handlers_of(node.id);
-            &single
-        };
-        for (i, e) in events.iter().enumerate() {
-            if i > 0 {
-                s.push(',');
-            }
-            quote(e.name(), &mut s);
-        }
-        s.push(']');
-        if runner.inactive(node.id) {
-            s.push_str(",\"inactive\":true");
-        }
-        s.push_str(",\"children\":");
-        ids(&node.children(), &mut s);
-        s.push('}');
-    }
-    s.push_str("]}");
-    s
+    tree::all(runner, false)
 }
 
 /// What agent output shows for a non-empty password field's value (#134):
@@ -831,7 +737,23 @@ fn state_with<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
             None => s.push_str("null"),
         }
     }
-    s.push_str("},\"pending\":[");
+    s.push('}');
+    // Why each failed resource failed (app farm round 1: a shape refusal
+    // showed only in the journal while the view kept its placeholder).
+    let failed = runner.failed_resources();
+    if !failed.is_empty() {
+        s.push_str(",\"failed\":{");
+        for (i, (name, why)) in failed.iter().enumerate() {
+            if i > 0 {
+                s.push(',');
+            }
+            quote(name, &mut s);
+            s.push(':');
+            quote(why, &mut s);
+        }
+        s.push('}');
+    }
+    s.push_str(",\"pending\":[");
     let in_flight = runner.in_flight();
     for (i, (name, ticket)) in in_flight.iter().enumerate() {
         if i > 0 {
@@ -1058,6 +980,32 @@ pub fn base64(bytes: &[u8]) -> String {
         });
     }
     out
+}
+
+/// The inverse of [`base64`]; `None` for anything that is not base64.
+pub fn unbase64(text: &str) -> Option<Vec<u8>> {
+    let text = text.trim_end_matches('=');
+    let mut out = Vec::with_capacity(text.len() * 3 / 4);
+    let mut acc = 0u32;
+    let mut bits = 0;
+    for b in text.bytes() {
+        let v = match b {
+            b'A'..=b'Z' => b - b'A',
+            b'a'..=b'z' => b - b'a' + 26,
+            b'0'..=b'9' => b - b'0' + 52,
+            b'+' => 62,
+            b'/' => 63,
+            _ => return None,
+        } as u32;
+        acc = (acc << 6) | v;
+        bits += 6;
+        if bits >= 8 {
+            bits -= 8;
+            out.push((acc >> bits) as u8);
+            acc &= (1 << bits) - 1;
+        }
+    }
+    Some(out)
 }
 
 /// The journal from `since`: `{"next":N,"from":M,"lines":[…]}`. `next` is
@@ -1370,6 +1318,19 @@ fn after_key<'a>(json: &'a str, key: &str) -> Option<&'a str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn base64_round_trips_every_byte_and_refuses_what_is_not_base64() {
+        let all: Vec<u8> = (0..=255).collect();
+        for n in 0..=4 {
+            let bytes = &all[..all.len() - n];
+            assert_eq!(unbase64(&base64(bytes)).as_deref(), Some(bytes));
+        }
+        assert_eq!(unbase64("").as_deref(), Some(&[][..]));
+        assert_eq!(unbase64("AP+ACg0A").unwrap(), [0, 255, 128, 10, 13, 0]);
+        assert_eq!(unbase64("AP-A"), None);
+        assert_eq!(unbase64("AP A"), None);
+    }
 
     #[test]
     fn flat_fields_parse() {

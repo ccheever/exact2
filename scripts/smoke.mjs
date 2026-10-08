@@ -108,6 +108,7 @@ let appViewport;
 check(transcript() === readFileSync(pinned, 'utf8'), 'the transcript form drifted from scripts/fixtures/transcript.txt (a deliberate change: bun scripts/smoke.mjs --record)');
 check(browserDiagnosticNoise('CVDisplayLinkCreateWithCGDisplay failed. CVReturn: -6670'), 'the known headless display-service diagnostic is no longer classified as browser noise');
 check(browserDiagnosticNoise("(process:3727907): GLib-GIO-CRITICAL **: 09:48:52.460: g_settings_schema_source_lookup: assertion 'source != NULL' failed"), 'GLib\'s missing-GSettings-schema diagnostic on Linux is browser noise');
+check(browserDiagnosticNoise('Trying to load the allocator multiple times. This is *not* supported.'), 'macOS Chrome\'s allocator-shim line at launch is browser noise');
 check(!browserDiagnosticNoise('console.error: exact: failed'), 'page/runtime errors must not be classified as browser noise');
 check(browserDiagnosticNoise('[1:2:0927/223530.638588:ERROR:components/page_load_metrics/browser/page_load_metrics_update_dispatcher.cc:179] Invalid first_paint 0.059 s for first_image_paint 0.057 s'), 'Chrome\'s paint-timing bookkeeping is no longer classified as browser noise');
 check(!browserDiagnosticNoise('[1:2:0927/223530.286557:ERROR:components/os_crypt/common/keychain_password_mac.mm:102] Keychain lookup failed'), 'a keychain lookup must fail the smoke: the carrier launches Chrome with a mock keychain');
@@ -773,11 +774,11 @@ if (apple && !device) await httpFrameSmoke({ host, open, check });
   writeFileSync(resolve(tmp, 'strings/en.json'), '{"greeting":"Hello"}');
   writeFileSync(resolve(tmp, 'strings/fr.json'), '{"greeting":"Bonjour"}');
   writeFileSync(resolve(tmp, 'strings/ar.json'), '{"greeting":"مرحبا"}');
-  writeFileSync(source, 'shape Time\n  locale: string\n  resolvedLocale: string\n  timeZone: string\n  seed: number\n  epochAtZero: number\n  utcOffset: number\ncomponent App\n  resource time = exactTime() as shape Time\n  state minute = 0\n  action tick\n    minute = time.epochAtZero + now()\n  task minutes mount\n    every(60000, tick)\n  view\n    column\n      text `${time.locale}|${time.resolvedLocale}|${time.timeZone}|${time.seed}` testId="place"\n      text `${time.epochAtZero}|${time.utcOffset}|${minute}` testId="date"\n      text t("greeting") testId="greeting"\n');
+  writeFileSync(source, 'shape Time\n  locale: string\n  resolvedLocale: string\n  timeZone: string\n  seed: number\n  epochAtZero: number\n  utcOffset: number\ncomponent App\n  resource time = exactTime() as shape Time\n  state minute = 0\n  action tick\n    minute = time.epochAtZero + performanceNow()\n  task minutes mount\n    every(60000, tick)\n  view\n    column\n      text `${time.locale}|${time.resolvedLocale}|${time.timeZone}|${time.seed}` testId="place"\n      text `${time.epochAtZero}|${time.utcOffset}|${minute}` testId="date"\n      text t("greeting") testId="greeting"\n');
   const compiled = spawnSync('cargo', ['run', '-q', '--profile', HOST_DEV, '-p', 'contract', '--', 'build', source, '-o', plan], {cwd:ROOT, encoding:'utf8'});
   check(compiled.status === 0, 'launch facts fixture compiles: ' + compiled.stderr);
-  if (compiled.status === 0) for (const options of [{}, {}, {seed:42, locale:'fr-CA', timeZone:'America/Toronto', epoch:'2026-09-21T14:13:20Z'}, {seed:42, locale:'ar-EG', timeZone:'UTC'}]) {
-    const f = await open({host, browser: 'chrome', plan, ...options});
+  if (compiled.status === 0) for (const options of [{}, {}, {seed:42, locale:'fr-CA', timeZone:'America/Toronto', epoch:'2026-09-21T14:13:20Z'}, {seed:42, locale:'ar-EG', timeZone:'UTC'}, {epoch:'now'}]) {
+    const launched = Date.now(), f = await open({host, browser: 'chrome', plan, ...options});
     try {
       const lang = options.locale === 'ar-EG' ? 'ar' : options.locale ? 'fr' : 'en';
       const dir = lang === 'ar' ? 'rtl' : 'ltr';
@@ -785,7 +786,9 @@ if (apple && !device) await httpFrameSmoke({ host, open, check });
       const tree = await f.tree();
       check(byTestId(tree, 'place')?.props.text === expected, `launch facts: expected ${expected}, got ${byTestId(tree, 'place')?.props.text}`);
       // LLP 1027.000.000 D3: the drive's epoch and its zone's offset; the agent clock moves the date.
-      const [epoch, offset] = options.epoch ? [1790000000000, -240] : [1767225600000, 0];
+      // `now` is the machine's clock, read once as the drive launched (a drive against a live backend).
+      const [epoch, offset] = options.epoch === 'now' ? [Number(byTestId(tree, 'date')?.props.text.split('|')[0]), 0] : options.epoch ? [1790000000000, -240] : [1767225600000, 0];
+      if (options.epoch === 'now') check(epoch >= launched && epoch <= Date.now(), `--epoch now: expected the launch instant, got ${epoch} (launched ${launched})`);
       check(byTestId(tree, 'date')?.props.text === `${epoch}|${offset}|0`, `launch date: expected ${epoch}|${offset}|0, got ${byTestId(tree, 'date')?.props.text}`);
       await f.clock('+60000');
       check(byTestId(await f.tree(), 'date')?.props.text === `${epoch}|${offset}|${epoch + 60000}`, 'the agent clock moves the date');
@@ -1396,6 +1399,8 @@ if (app.modules.tags.includes('exact-fixture') && ['web', 'macos', 'ios'].includ
   const { nativeSmoke } = await import('./smoke-native.mjs');
   await nativeSmoke({ host, open, check, webDist: selectedWebDist });
 }
+// A painting host loads no module; the fixture's hatches run there (LLP 1075.003.000.001 §8 stage 4).
+if (app.modules.tags.includes('exact-fixture') && host === 'linux') await (await import('./smoke-native.mjs')).paintingHatchSmoke({ host, open, check });
 
 // 15. The recorder (LLP 1067.000): one native object, a view and functions.
 if (app.modules.tags.includes('waveform-view') && ['web', 'macos', 'ios'].includes(host)) {

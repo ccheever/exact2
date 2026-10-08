@@ -12,6 +12,7 @@ let shared: Promise<{text:string}>;
 // Background work (LLP 1097): the last save started and not awaited, and
 // the last failure a background step reported to the app.
 let saving: Promise<unknown> = Promise.resolve(), lastError = "";
+let compressAndWrite = 0;
 const bytes = (value: string) => new Uint8Array(Array.from(value).map(c => c.charCodeAt(0)));
 
 // Writes an answer starts and does not await (kanban F22): the answer is
@@ -213,6 +214,60 @@ async function work(_source:string, args:unknown[], store:Store, storage:Storage
     }
     return {text: out.join("\n")};
   }
+  // `fs.compressImage` (LLP 1069.002 A1): the record, then each refusal's
+  // name and code, in one answer.
+  if (op === "compress") {
+    const data = storage.fs.directories.data, out: string[] = [];
+    try {
+      const r = await storage.fs.compressImage(data + "/in.jpg", data + "/out.jpg", { maxDimension: Number(value), maxBytes: 2_000_000 });
+      const back = await storage.fs.readFile(r.path);
+      out.push([r.path, r.type, r.size, r.width, r.height, back.byteLength].join(" "));
+    } catch (e:any) { out.push(e.name + " " + e.code + " " + e.message); }
+    const steps: (() => Promise<unknown>)[] = [
+      () => storage.fs.compressImage(data + "/in.jpg", "app:/tmp/out.jpg", { maxDimension: 10, maxBytes: 10 }),
+      () => storage.fs.compressImage(data + "/absent.jpg", data + "/x.jpg", { maxDimension: 10, maxBytes: 10000 }),
+      () => storage.fs.compressImage(data + "/note", data + "/x.jpg", { maxDimension: 10, maxBytes: 10000 }),
+      () => storage.fs.compressImage(data + "/in.jpg", data + "/x.jpg", { maxDimension: 64, maxBytes: 1 }),
+      () => storage.fs.compressImage(data + "/in.jpg", "doc:/1/x.jpg", { maxDimension: 10, maxBytes: 10 }),
+      () => storage.fs.compressImage(data + "/in.jpg", data + "/x.jpg", { maxDimension: 0, maxBytes: 10 }),
+      () => (storage.fs.compressImage as any)(data + "/in.jpg", data + "/x.jpg"),
+    ];
+    for (const step of steps) {
+      try { await step(); out.push("ok"); } catch (e:any) { out.push(e.name + " " + e.code + " " + e.message); }
+    }
+    return {text: out.join("\n")};
+  }
+  // A compression the wait gives up on, then a write to the same path: the
+  // write is what remains (LLP 1069.002 A1.5).
+  if (op === "compress-abandoned") {
+    const data = storage.fs.directories.data;
+    // Seven trials at full size, the first fitting: a second or more.
+    await storage.fs.compressImage(data + "/noise.bmp", data + "/slow.jpg", { maxDimension: 3000, maxBytes: 20_000_000 });
+    return {text: "written"};
+  }
+  // The same, started and not awaited: background work (LLP 1097), with a
+  // write queued behind it.
+  if (op === "compress-background") {
+    const data = storage.fs.directories.data;
+    storage.fs.compressImage(data + "/noise.bmp", data + "/slow.jpg", { maxDimension: 3000, maxBytes: 20_000_000 })
+      .then(() => { lastError = "written"; }, (e) => { lastError = String(e.code); });
+    storage.fs.writeFile(data + "/slow.jpg", bytes("after")).catch(() => {});
+    return {text: "started"};
+  }
+  // A compression and a write behind it, from one answer; asked again, it
+  // waits only on a listing behind them (so the second call lets the first
+  // go and does not compress).
+  if (op === "compress-and-write") {
+    if (compressAndWrite++) return storage.fs.readdir(storage.fs.directories.data).then(() => ({text: "again"}));
+    const data = storage.fs.directories.data;
+    const shrunk = storage.fs.compressImage(data + "/noise.bmp", data + "/slow.jpg", { maxDimension: 3000, maxBytes: 20_000_000 }).catch((e) => e.code);
+    const wrote = storage.fs.writeFile(data + "/second", bytes("second"));
+    return Promise.all([shrunk, wrote]).then(([code]) => ({text: String(code)}));
+  }
+  if (op === "write-slow") {
+    await storage.fs.writeFile(storage.fs.directories.data + "/slow.jpg", bytes(value));
+    return {text: "wrote " + value};
+  }
   // A long read (files F18: a folder's preview walking its tree), one
   // storage step after another in one answer.
   if (op === "walk") {
@@ -230,6 +285,11 @@ async function work(_source:string, args:unknown[], store:Store, storage:Storage
   if (op === "refused") {
     try { await storage.fs.writeFile("app:/cache/no", new Uint8Array([1])); }
     catch (e) { return {text:"denied"}; }
+    return {text:"leaked"};
+  }
+  if (op === "sqlite-refused") {
+    try { await storage.sqlite.open("app:/data/notes-bob.db"); }
+    catch (e:any) { return {text:e.code + " " + e.message}; }
     return {text:"leaked"};
   }
   if (op === "bake") {

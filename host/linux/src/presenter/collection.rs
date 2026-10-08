@@ -47,7 +47,9 @@ struct Cursor {
     sequence: u64,
     corrected: Option<u64>,
     dimensions: Option<(f64, f64, f64, f64)>,
-    sent: Option<CollectionFeedback>,
+    /// The last report, and the list's main-axis padding it went with: a
+    /// change of padding alone is news to the runner (LLP 1010 §6.9).
+    sent: Option<(CollectionFeedback, [f64; 2])>,
     queued: bool,
     requested_top: Option<f64>,
     model_scroll: Option<ModelScroll>,
@@ -197,7 +199,7 @@ impl State {
 /// A collection's port facts along its axis (LLP 1070 H1): `main` is the
 /// inner height of a vertical list and the inner width of a horizontal one;
 /// `origin` is the main-axis padding before the content; `max` the offset's
-/// range on the main axis.
+/// range on the main axis; `padding` the main-axis padding at each end.
 struct Geometry {
     axis: ListAxis,
     width: f64,
@@ -205,6 +207,7 @@ struct Geometry {
     cross: f64,
     origin: f64,
     max: f32,
+    padding: [f64; 2],
 }
 impl Geometry {
     fn main(&self) -> f64 {
@@ -312,6 +315,7 @@ fn geometry(kernel: &Kernel, snapshot: &CollectionSnapshot, viewport: f64) -> Op
         max: (content - frame)
             .max((snapshot.total_extent + origin + end - main) as f32)
             .max(0.),
+        padding: [origin, end],
     })
 }
 
@@ -900,7 +904,9 @@ impl<D: DataSource> Presenter<D> {
                 view,
                 revision: snapshot.revision,
                 scroll_sequence: cursor.sequence,
-                offset: (feedback_main as f64 - g.origin).max(0.),
+                // From the first row: negative in the padding before it, down
+                // to that padding (LLP 1010 §6.9).
+                offset: (feedback_main as f64 - g.origin).max(-g.origin),
                 port_main: g.main(),
                 port_cross: g.port_cross(),
                 cross: g.cross,
@@ -936,11 +942,13 @@ impl<D: DataSource> Presenter<D> {
                         == Some(view)
                 }),
             };
-            // Unchanged facts are news only to a list a slice left pending.
-            if cursor.sent.as_ref() == Some(&feedback) && !snapshot.pending {
+            // Unchanged facts and padding are news only to a list a slice left
+            // pending.
+            let sent = (feedback.clone(), g.padding);
+            if cursor.sent.as_ref() == Some(&sent) && !snapshot.pending {
                 continue;
             }
-            cursor.sent = Some(feedback.clone());
+            cursor.sent = Some(sent);
             let fill = CollectionFill {
                 velocity: self
                     .collection

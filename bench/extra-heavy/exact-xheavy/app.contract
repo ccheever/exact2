@@ -1,0 +1,756 @@
+// Extra Heavy feed (../SPEC.md, "Decisions" included) on exact2. One `list virtualized=true`
+// with one keyed `each` carries the 3,000 rows of `data/feed.json`; a row is the header plus one
+// body per kind, chosen by the row's one `some` kind field. The data source (`data/`) answers the
+// feed, the launch config and the app state keyed by row id (a thread's expansion and draft), and
+// draws the canvas row; `gpu/` is the shader row's surface. Everything a row looks like is here,
+// in `svgs.contract` (the SVG files as components), `rings.contract` (the live row's ring) and
+// `lottie.contract` (the Lottie files ported to SVG + keyframes).
+//
+// 17 of the 19 kinds are built. `filmstrip` and `inbox` hold a nested virtualized list, which
+// exact2 does not have yet (LLP 1070): their rows draw the header, the title and the box the
+// inner list will fill (`Filmstrip`, `Inbox` at the bottom are the hooks).
+
+use Icon from "./svgs.contract"
+use Chart from "./svgs.contract"
+use Art from "./svgs.contract"
+use Ring from "./rings.contract"
+use Lottie from "./lottie.contract"
+
+font "Bebas Neue" = "assets/fonts/BebasNeue-Regular.ttf"
+font "Pacifico" = "assets/fonts/Pacifico-Regular.ttf"
+font "DM Serif Display" = "assets/fonts/DMSerifDisplay-Regular.ttf"
+font "Abril Fatface" = "assets/fonts/AbrilFatface-Regular.ttf"
+font "Space Mono"
+  400 = "assets/fonts/SpaceMono-Regular.ttf"
+  700 = "assets/fonts/SpaceMono-Bold.ttf"
+font "Lobster" = "assets/fonts/Lobster-Regular.ttf"
+font "Special Elite" = "assets/fonts/SpecialElite-Regular.ttf"
+font "Permanent Marker" = "assets/fonts/PermanentMarker-Regular.ttf"
+// feed.json names this face's family "Crimson Text Italic" (the italic file alone).
+font "Crimson Text Italic" = "assets/fonts/CrimsonText-Italic.ttf"
+font "Inter" = "assets/fonts/Inter-Regular.ttf"
+
+// ---------------------------------------------------------------- shapes (data/src/lib.rs order)
+
+shape PhotoK
+  caption: string
+  src: string
+  w: number
+  h: number
+shape Pic
+  id: string
+  src: string
+shape PicRow
+  id: string
+  cells: list<Pic>
+shape ThumbsK
+  title: string
+  rows: list<PicRow>
+shape ShaderK
+  caption: string
+  photo: string
+  w: number
+  h: number
+  duoA: string
+  duoB: string
+shape Stroke
+  color: string
+  width: number
+  p: list<number>
+shape Dot
+  x: number
+  y: number
+  r: number
+  color: string
+shape CanvasK
+  title: string
+  image: string
+  bg: string
+  band0: string
+  band1: string
+  strokes: list<Stroke>
+  dots: list<Dot>
+shape IconRef
+  id: string
+  name: string
+shape SvgK
+  icons: list<IconRef>
+  chart: string
+  art: string
+shape VideoK
+  caption: string
+  src: string
+shape MapK
+  place: string
+  address: string
+  lat: number
+  lon: number
+shape MdRun
+  id: string
+  t: string
+  s: string
+shape MdItem
+  id: string
+  runs: list<MdRun>
+shape MdBlock
+  id: string
+  kind: string
+  runs: list<MdRun>
+  items: list<MdItem>
+shape MarkdownK
+  blocks: list<MdBlock>
+shape Tok
+  id: string
+  t: string
+  k: string
+shape Line
+  n: string
+  toks: list<Tok>
+shape CodeK
+  file: string
+  lang: string
+  lines: list<Line>
+shape Script
+  id: string
+  text: string
+  rtl: bool
+shape IntlK
+  blocks: list<Script>
+shape TypefaceK
+  quote: string
+  by: string
+  face: string
+  family: string
+  size: number
+  bg: string
+shape Card
+  id: string
+  image: string
+  title: string
+  meta: string
+shape CarouselK
+  title: string
+  cards: list<Card>
+shape MotionK
+  caption: string
+  gif: string
+  webp: string
+  gifStill: string
+  webpStill: string
+  c1: string
+  c2: string
+  c3: string
+shape GlassK
+  photo: string
+  title: string
+  subtitle: string
+  rating: string
+shape RingV
+  id: string
+  i: number
+  v: number
+  color: string
+shape Bar
+  id: string
+  j: number
+  h: number
+shape LiveK
+  title: string
+  endsInSec: number
+  updatedSec: number
+  rings: list<RingV>
+  wave: list<Bar>
+shape ThreadK
+  text: string
+  expanded: bool
+  at: number
+  draft: string
+shape WebK
+  caption: string
+  page: string
+shape FilmK
+  title: string
+  count: number
+  img0: number
+  imgStep: number
+  num0: number
+shape InboxK
+  title: string
+  count: number
+  m0: number
+  mStep: number
+  clock0: number
+shape Row
+  id: string
+  index: number
+  kind: string
+  author: string
+  handle: string
+  avatar: string
+  minutesAgo: number
+  photo: option<PhotoK>
+  thumbs: option<ThumbsK>
+  shader: option<ShaderK>
+  canvas: option<CanvasK>
+  svg: option<SvgK>
+  video: option<VideoK>
+  map: option<MapK>
+  markdown: option<MarkdownK>
+  code: option<CodeK>
+  intl: option<IntlK>
+  typeface: option<TypefaceK>
+  carousel: option<CarouselK>
+  motion: option<MotionK>
+  glass: option<GlassK>
+  live: option<LiveK>
+  thread: option<ThreadK>
+  webview: option<WebK>
+  filmstrip: option<FilmK>
+  inbox: option<InboxK>
+// An inner list's items: the index j (SPEC 18, 19); a row derives each item from its own params.
+shape Idx
+  id: string
+  j: number
+// The inbox's message pool (997).
+shape Msg
+  i: number
+  name: string
+  avatar: string
+  text: string
+shape Feed
+  rows: list<Row>
+  strip: list<Idx>
+  mail: list<Idx>
+  pool: list<Msg>
+shape Config
+  live: bool
+  freeze: bool
+  startKey: string
+  kinds17: bool
+
+// ---------------------------------------------------------------- functions
+
+// `rel` (SPEC "Row header"): now, 12m, 3h, 2d.
+fn rel(m: number): string = m < 1 ? "now" : m < 60 ? `${floor(m)}m` : m < 1440 ? `${floor(m / 60)}h` : `${floor(m / 1440)}d`
+
+fn mod(a: number, b: number): number = a - floor(a / b) * b
+
+fn two(v: number): string = v < 10 ? `0${floor(v)}` : `${floor(v)}`
+
+// HH:MM:SS.
+fn hms(v: number): string = `${two(floor(v / 3600))}:${two(mod(floor(v / 60), 60))}:${two(mod(v, 60))}`
+
+// A code token's colour by its kind (SPEC 9).
+fn tokColor(k: string): string = k == "keyword" ? "#FF7B72" : k == "string" ? "#A5D6FF" : k == "number" ? "#79C0FF" : k == "comment" ? "#8B949E" : k == "function" ? "#D2A8FF" : k == "type" ? "#FFA657" : "#E6EDF3"
+
+// ---------------------------------------------------------------- keyframes
+
+// The thumbs skeleton (SPEC 2): a band 40 % of the grid wide, its left edge from −40 % to 100 %
+// of the grid in 1 s, forever. Contract's `translate` takes lengths only (no percentages), so the
+// distances are for the benchmark's grid, C = 600: −240 px → 600 px.
+keyframes shimmer
+  from translate="-240px 0px"
+  to translate="600px 0px"
+
+// The skeleton leaves at 1.2 s; the images fade in over 200 ms from then.
+keyframes skeletonOut
+  from opacity=1
+  to opacity=0
+
+keyframes fadeIn
+  from opacity=0
+  to opacity=1
+
+// The waveform's playhead (SPEC 15): bar j is blue while j < 48 q, q = (t mod 12) / 12. The blue
+// copy of the bars sits in a window that opens one bar (5 px) at a time over 12 s — the window
+// moves right while its content moves left by as much.
+keyframes playWindow
+  from translate="-240px 0px"
+  to translate="0px 0px"
+
+keyframes playContent
+  from translate="240px 0px"
+  to translate="0px 0px"
+
+// ---------------------------------------------------------------- the screen
+
+component XHeavy
+  // The live clock s: whole seconds since launch, ticking once a second in live mode only.
+  state secs = 0
+  // Not baked (the source is not ready at build): asked at launch, BENCH_KINDS applied, before the
+  // first frame. Empty only if the source is not ready.
+  resource initial = feed() as shape Feed else empty()
+  mutation changed as shape Feed
+  derive feed = match changed { case some(f) => f, case none => initial }
+  // BENCH_LIVE, BENCH_SCENARIO, BENCH_FREEZE and BENCH_START_INDEX are launch-environment facts,
+  // asked at run time (a resource would be baked with the build machine's environment).
+  mutation config as shape Config
+  derive live = match config { case some(c) => c.live, case none => false }
+  derive freeze = match config { case some(c) => c.freeze, case none => false }
+  // Light mode (SPEC "Screen"), as the web's `color-scheme: light`: the system materials
+  // and the map follow the window's style, which would otherwise be the device's.
+  action boot
+    setScheme("light")
+    send config = config()
+  // BENCH_START_INDEX: the list shows row n at its top, by key (LLP 1070.000).
+  action jump
+    match config
+      case some(c)
+        if c.startKey != ""
+          scrollIntoView("feed", c.startKey)
+      case none
+  action second
+    if live
+      secs = floor(performanceNow() / 1000)
+  action setDraft(id: string, value: string)
+    send changed = draft(id, value)
+  action toggle(id: string, epoch: number, open: bool)
+    send changed = toggle(id, epoch, open)
+
+  task booting mount
+    after(1, boot)
+  task jumping mount
+    after(400, jump)
+  task clock mount
+    every(1000, second)
+
+  view
+    main testId="xheavy" viewport-fit="cover" width="100%" height="100%" box-sizing="border-box" display="flex" flex-direction="column" overflow="hidden" padding-top="env(safe-area-inset-top)" background-color="#ffffff" color="#000000" font-family="system-ui"
+      row flex-shrink=0 width="100%" box-sizing="border-box" align-items="center" padding-left=16 padding-right=16 padding-top=10 padding-bottom=10 border-bottom-style="solid" border-bottom-width=0.5 border-color="#E5E5EA"
+        text "Extra Heavy" testId="title" flex=1 font-size=17 font-weight=600
+        text (live ? "Live: on" : "Live: off") testId="live" font-size=13 color="#8E8E93"
+      list id="feed" virtualized=true estimated-item-height=470 testId="feed" flex=1 min-height=0 width="100%" overflow-x="hidden" background-color="#ffffff"
+        each r in feed.rows key=r.id
+          FeedRow(r=r, feed=feed, secs=secs, live=live, freeze=freeze, setDraft=setDraft, toggle=toggle)
+
+// One row: white, 16 padding top and bottom, a full-width hairline at its bottom; the content
+// column C = min(width − 32, 600), centred.
+component FeedRow
+  props
+    r: Row
+    feed: Feed
+    secs: number
+    live: bool
+    freeze: bool
+    setDraft: action
+    toggle: action
+  view
+    column testId=`row-${r.id}` aria-label=`${r.author}, ${r.kind}` width="100%" box-sizing="border-box" padding-top=16 padding-bottom=16 padding-left=16 padding-right=16 align-items="center" border-bottom-style="solid" border-bottom-width=0.5 border-color="#E5E5EA" background-color="#ffffff"
+      column width="100%" max-width=600 gap=10
+        Header(r=r, secs=secs)
+        match r.photo
+          case some(k)
+            PhotoBody(k=k)
+          case none
+        match r.thumbs
+          case some(k)
+            ThumbsBody(k=k, freeze=freeze)
+          case none
+        match r.shader
+          case some(k)
+            ShaderBody(k=k, freeze=freeze)
+          case none
+        match r.canvas
+          case some(k)
+            canvas surface=card(k) testId=`canvas-${r.id}` width="100%" height=220 border-radius=12 background-color=k.bg
+          case none
+        match r.svg
+          case some(k)
+            SvgBody(k=k)
+          case none
+        match r.video
+          case some(k)
+            VideoBody(k=k, freeze=freeze)
+          case none
+        match r.map
+          case some(k)
+            MapBody(k=k)
+          case none
+        match r.markdown
+          case some(k)
+            MarkdownBody(k=k)
+          case none
+        match r.code
+          case some(k)
+            CodeBody(k=k)
+          case none
+        match r.intl
+          case some(k)
+            column gap=8
+              each b in k.blocks key=b.id
+                text b.text font-size=17 color="#000000" direction=(b.rtl ? "rtl" : "ltr") text-align="start"
+          case none
+        match r.typeface
+          case some(k)
+            TypefaceBody(k=k)
+          case none
+        match r.carousel
+          case some(k)
+            CarouselBody(k=k)
+          case none
+        match r.motion
+          case some(k)
+            MotionBody(k=k, freeze=freeze)
+          case none
+        match r.glass
+          case some(k)
+            GlassBody(k=k)
+          case none
+        match r.live
+          case some(k)
+            LiveBody(k=k, secs=secs, freeze=freeze)
+          case none
+        match r.thread
+          case some(k)
+            ThreadBody(id=r.id, index=r.index, k=k, secs=secs, live=live, setDraft=setDraft, toggle=toggle)
+          case none
+        match r.webview
+          case some(k)
+            WebBody(k=k, freeze=freeze)
+          case none
+        match r.filmstrip
+          case some(k)
+            Filmstrip(id=r.id, k=k, items=feed.strip)
+          case none
+        match r.inbox
+          case some(k)
+            Inbox(id=r.id, k=k, items=feed.mail, pool=feed.pool)
+          case none
+
+// Avatar · author over `{handle} · {rel}` · the kind, uppercased.
+component Header
+  props
+    r: Row
+    secs: number
+  view
+    row width="100%" height=36 align-items="center" gap=10
+      image r.avatar width=36 height=36 flex-shrink=0 border-radius=18 object-fit="cover" background-color="#E5E5EA"
+      column flex=1 min-width=0 gap=2
+        text r.author white-space="nowrap" overflow="hidden" text-overflow="ellipsis" font-size=15 font-weight=600 color="#000000"
+        text `${r.handle} · ${rel(r.minutesAgo + floor(secs / 60))}` white-space="nowrap" overflow="hidden" text-overflow="ellipsis" font-size=13 color="#8E8E93"
+      text r.kind flex-shrink=0 text-transform="uppercase" font-size=11 font-weight=600 color="#8E8E93"
+
+// 1 — the caption, then the photo: its own aspect, at most 1.25 C tall (cover within the cap).
+component PhotoBody
+  props
+    k: PhotoK
+  view
+    column gap=10
+      text k.caption font-size=15 color="#000000"
+      image k.src width="100%" aspect-ratio=max(k.w / k.h, 0.8) border-radius=12 object-fit="cover" background-color="#E5E5EA"
+
+// 2 — a 4 × 3 grid under a 1.2 s shimmering skeleton; the images fade in after it.
+component ThumbsBody
+  props
+    k: ThumbsK
+    freeze: bool
+  view
+    column gap=10
+      text k.title font-size=15 font-weight=600 color="#000000"
+      column width="100%" gap=4 position="relative" overflow="hidden"
+        each row in k.rows key=row.id
+          row width="100%" gap=4
+            each c in row.cells key=c.id
+              box flex=1 min-width=0 aspect-ratio=1 border-radius=8 overflow="hidden" background-color="#E5E5EA"
+                image c.src width="100%" height="100%" object-fit="cover" animation=(freeze ? "none" : "fadeIn 200ms linear 1200ms both")
+        when not freeze
+          box position="absolute" top=0 left=0 width="100%" height="100%" animation="skeletonOut 1ms linear 1200ms both"
+            box position="absolute" top=0 left=0 width="40%" height="100%" background-image="linear-gradient(90deg, rgba(255,255,255,0), rgba(255,255,255,0.65), rgba(255,255,255,0))" animation="shimmer 1000ms linear infinite"
+
+// 3 — the photo through a live wave + duotone (the GPU canvas, LLP 1009).
+component ShaderBody
+  props
+    k: ShaderK
+    freeze: bool
+  view
+    column gap=10
+      text k.caption font-size=15 color="#000000"
+      canvas surface=wave(k.photo, k.duoA, k.duoB, freeze) testId="shader-canvas" width="100%" aspect-ratio=1.7777777777777777 border-radius=12 overflow="hidden" background-color="#E5E5EA"
+
+// 5 — six icons, a chart and an illustration, drawn from the SVG files (as components).
+component SvgBody
+  props
+    k: SvgK
+  view
+    column gap=12
+      row gap=16
+        each i in k.icons key=i.id
+          box width=28 height=28 flex-shrink=0
+            Icon(name=i.name)
+      box width="100%" aspect-ratio=3.75
+        Chart(name=k.chart)
+      box width="100%" aspect-ratio=2 border-radius=12 overflow="hidden"
+        Art(name=k.art)
+
+// 6 — muted, autoplaying, looping, no controls; a duration pill at the bottom-left.
+component VideoBody
+  props
+    k: VideoK
+    freeze: bool
+  view
+    column gap=10
+      text k.caption font-size=15 color="#000000"
+      box width="100%" aspect-ratio=1.7777777777777777 position="relative" border-radius=12 overflow="hidden" background-color="#000000"
+        video k.src autoplay=true muted=true loop=true playsinline=true controls=false paused=freeze object-fit="cover" width="100%" height="100%"
+        box position="absolute" left=8 bottom=8 padding-top=3 padding-bottom=3 padding-left=7 padding-right=7 border-radius=6 background-color="rgba(0,0,0,0.55)"
+          text "0:04" font-size=12 font-weight=600 color="#ffffff"
+
+// 7 — Apple Maps (the app's `native-map` module): a pin at the centre, no interaction.
+component MapBody
+  props
+    k: MapK
+  view
+    column gap=10
+      column gap=2
+        text k.place font-size=15 font-weight=600 color="#000000"
+        text k.address font-size=13 color="#8E8E93"
+      box width="100%" height=200 border-radius=12 overflow="hidden" background-color="#E5E5EA"
+        native-map width="100%" height="100%" latitude=k.lat longitude=k.lon span=0.02 pins=`p|${k.lat}|${k.lon}|${k.place}` interactive="false" aria-label=`Map of ${k.place}`
+
+// 8 — the Markdown's blocks, 8 apart, as styled runs.
+component MarkdownBody
+  props
+    k: MarkdownK
+  view
+    column gap=8
+      each b in k.blocks key=b.id
+        when b.kind == "h2"
+          Runs(runs=b.runs, size=20, weight=600, italic=false, color="#000000")
+        when b.kind == "p"
+          Runs(runs=b.runs, size=16, weight=400, italic=false, color="#000000")
+        when b.kind == "ul"
+          column gap=4
+            each item in b.items key=item.id
+              row gap=8 align-items="flex-start"
+                text "•" font-size=16 color="#000000"
+                box flex=1 min-width=0
+                  Runs(runs=item.runs, size=16, weight=400, italic=false, color="#000000")
+        when b.kind == "quote"
+          box border-left-style="solid" border-left-width=3 border-left-color="#C7C7CC" padding-left=10
+            Runs(runs=b.runs, size=16, weight=400, italic=true, color="#3C3C43")
+
+// One paragraph of inline runs: bold 700, italic, code in Space Mono 14 on #F2F2F7, links blue.
+component Runs
+  props
+    runs: list<MdRun>
+    size: number
+    weight: number
+    italic: bool
+    color: string
+  view
+    text font-size=size font-weight=weight font-style=(italic ? "italic" : "normal") color=color
+      each r in runs key=r.id
+        when r.s == "code"
+          text r.t font-family="Space Mono" font-size=14 font-weight=400 font-style="normal" color=color background-color="#F2F2F7"
+        else
+          text r.t font-weight=(r.s == "bold" ? 700 : weight) font-style=(r.s == "italic" or italic ? "italic" : "normal") color=(r.s == "link" ? "#007AFF" : color)
+
+// 9 — a dark card: the file and language, then numbered lines of coloured tokens, never wrapped
+// (`white-space: pre`, clipped at the card's padding).
+component CodeBody
+  props
+    k: CodeK
+  view
+    column width="100%" box-sizing="border-box" padding=12 border-radius=12 overflow="hidden" background-color="#0D1117"
+      row width="100%" align-items="center" margin-bottom=8
+        text k.file flex=1 min-width=0 font-family="Space Mono" font-size=12 color="#8B949E"
+        text k.lang font-size=11 font-weight=600 color="#8B949E"
+      column width="100%" overflow="hidden"
+        each line in k.lines key=line.n
+          row height=20 align-items="center" gap=12
+            text line.n width=24 flex-shrink=0 text-align="right" font-family="Space Mono" font-size=13 color="#6E7681"
+            text white-space="pre" flex-shrink=0 font-family="Space Mono" font-size=13 color="#E6EDF3"
+              each t in line.toks key=t.id
+                text t.t color=tokColor(t.k)
+
+// 11 — a quote in the row's bundled face.
+component TypefaceBody
+  props
+    k: TypefaceK
+  view
+    column width="100%" box-sizing="border-box" padding=20 gap=10 border-radius=12 background-color=k.bg
+      text k.quote font-size=k.size color="#1C1C1E" font-family=(k.face == "Bebas Neue" ? "Bebas Neue" : k.face == "Pacifico" ? "Pacifico" : k.face == "DM Serif Display" ? "DM Serif Display" : k.face == "Abril Fatface" ? "Abril Fatface" : k.face == "Space Mono" ? "Space Mono" : k.face == "Lobster" ? "Lobster" : k.face == "Special Elite" ? "Special Elite" : k.face == "Permanent Marker" ? "Permanent Marker" : k.face == "Crimson Text Italic" ? "Crimson Text Italic" : "Inter")
+      text `— ${k.by} · ${k.family}` font-size=13 color="#3C3C43"
+
+// 12 — ten cards in a nested horizontal virtualized list (as SwiftUI's LazyHStack and Expo's
+// LegendList): only the cards near the port are built. A recycled row starts at its first card
+// (SPEC 12), so the kept position is opted out.
+component CarouselBody
+  props
+    k: CarouselK
+  view
+    column gap=10
+      text k.title font-size=17 font-weight=600 color="#000000"
+      list virtualized=true display="flex" flex-direction="row" width="100%" height=170 overflow-x="scroll" overflow-y="hidden" scrollbar-width="none" estimated-item-width=150 scroll-restoration="manual"
+          each c in k.cards key=c.id
+            column width=140 flex-shrink=0 margin-right=10
+              image c.image width=140 height=100 border-radius=10 object-fit="cover" background-color="#E5E5EA"
+              box height=34 margin-top=6
+                text c.title font-size=13 font-weight=600 color="#000000" line-clamp=2 text-overflow="ellipsis"
+              text c.meta margin-top=4 white-space="nowrap" overflow="hidden" text-overflow="ellipsis" font-size=12 color="#8E8E93"
+
+// 13 — an animated GIF, an animated WebP, and the Lottie as SVG + keyframes. Frozen, each image
+// shows its first frame as a still (an animated image cannot be paused, as on the web).
+component MotionBody
+  props
+    k: MotionK
+    freeze: bool
+  view
+    column gap=10
+      text k.caption font-size=15 color="#000000"
+      row width="100%" gap=12
+        Tile(label="GIF")
+          image (freeze ? k.gifStill : k.gif) width="100%" height="100%" object-fit="contain"
+        Tile(label="WebP")
+          image (freeze ? k.webpStill : k.webp) width="100%" height="100%" object-fit="contain"
+        Tile(label="Lottie")
+          Lottie(c1=k.c1, c2=k.c2, c3=k.c3, frozen=freeze)
+
+component Tile
+  props
+    label: string
+  slot
+  view
+    column flex=1 min-width=0 gap=4 align-items="center"
+      box width="100%" aspect-ratio=1 border-radius=12 overflow="hidden" background-color="#F2F2F7"
+        children
+      text label font-size=11 font-weight=600 color="#8E8E93"
+
+// 14 — glass over a photo: a system ultra-thin material bar and a rating capsule.
+component GlassBody
+  props
+    k: GlassK
+  view
+    box width="100%" aspect-ratio=1.3333333333333333 position="relative" border-radius=16 overflow="hidden" background-color="#E5E5EA"
+      image k.photo width="100%" height="100%" object-fit="cover"
+      column position="absolute" left=12 right=12 bottom=12 height=64 box-sizing="border-box" padding-left=12 padding-right=12 gap=2 justify-content="center" border-radius=14 overflow="hidden" backgroundMaterial="ultra-thin"
+        text k.title white-space="nowrap" overflow="hidden" text-overflow="ellipsis" font-size=16 font-weight=600 color="#000000"
+        text k.subtitle white-space="nowrap" overflow="hidden" text-overflow="ellipsis" font-size=13 color="#3C3C43"
+      box position="absolute" top=12 right=12 padding-top=6 padding-bottom=6 padding-left=10 padding-right=10 border-radius=100 overflow="hidden" backgroundMaterial="ultra-thin"
+        text k.rating font-size=13 font-weight=600 color="#000000"
+
+// 15 — live counters (the 1 Hz clock), three rings and a waveform playhead (CSS keyframes).
+component LiveBody
+  props
+    k: LiveK
+    secs: number
+    freeze: bool
+  view
+    column width="100%" box-sizing="border-box" padding=14 border-style="solid" border-width=0.5 border-color="#D1D1D6" border-radius=12
+      row width="100%" align-items="center"
+        text k.title flex=1 min-width=0 font-size=15 font-weight=600 color="#000000"
+        text `Updated ${mod(k.updatedSec + secs, 60)}s ago` font-size=12 color="#8E8E93"
+      text margin-top=10 font-size=15 color="#3C3C43"
+        text "Ends in "
+        text hms(max(0, k.endsInSec - secs)) font-size=22 font-weight=600 font-variant-numeric="tabular-nums" color="#000000"
+      row margin-top=12 gap=16
+        each g in k.rings key=g.id
+          Ring(v=g.v, color=g.color, phase=g.i, frozen=freeze)
+      row margin-top=12 gap=10 align-items="center"
+        box width=32 height=32 flex-shrink=0 border-radius=16 background-color="#007AFF" display="flex" align-items="center" justify-content="center"
+          svg width=10 height=12 viewBox="0 0 10 12" display="block"
+            polygon points="0,0 10,6 0,12" fill="#ffffff"
+        box width=238 height=40 flex-shrink=0 position="relative"
+          Bars(k=k, color="#C7C7CC")
+          box position="absolute" top=0 left=0 width=240 height=40 overflow="hidden" animation=(freeze ? "playWindow 12000ms steps(48, jump-start) -4800ms paused" : "playWindow 12000ms steps(48, jump-start) infinite")
+            box width=240 height=40 animation=(freeze ? "playContent 12000ms steps(48, jump-start) -4800ms paused" : "playContent 12000ms steps(48, jump-start) infinite")
+              Bars(k=k, color="#007AFF")
+        text `0:${two(mod(secs, 12))} / 0:12` font-size=12 font-variant-numeric="tabular-nums" color="#8E8E93"
+
+component Bars
+  props
+    k: LiveK
+    color: string
+  view
+    row width=238 height=40 gap=2 align-items="center"
+      each b in k.wave key=b.id
+        box width=3 height=b.h flex-shrink=0 border-radius=1.5 background-color=color
+
+// 16 — show more / less with a 250 ms height change, then a comment box. Expansion and the
+// draft are app state keyed by row id (the data source's), so they survive the row leaving the
+// window. In live mode a visible row flips every 3 s; a tap holds until the next flip.
+component ThreadBody
+  props
+    id: string
+    index: number
+    k: ThreadK
+    secs: number
+    live: bool
+    setDraft: action
+    toggle: action
+  derive epoch = floor(secs / 3)
+  derive flip = mod(epoch + index, 2) == 1
+  derive open = live and k.at != epoch ? flip : k.expanded
+  view
+    column gap=0
+      // The web's way: the box's height moves between three lines and `auto` (a transition
+      // needs the computed height to change; `auto` to `auto` would not animate).
+      box width="100%" box-sizing="border-box" overflow="hidden" height=(open ? "auto" : "54px") interpolate-size="allow-keywords" transition="height 250ms ease-in-out"
+        text k.text font-size=15 line-height="18px" color="#000000" line-clamp=(open ? 0 : 3) text-overflow="ellipsis"
+      button press=toggle(id, epoch, open) testId=`more-${id}` margin-top=4 align-self="flex-start" padding=0 border-width=0 background-color="#00000000"
+        text (open ? "Show less" : "Show more") font-size=15 font-weight=600 color="#007AFF"
+      row margin-top=12 gap=8 align-items="center"
+        input value=k.draft input=setDraft(id) placeholder="Add a comment…" testId=`comment-${id}` flex=1 min-width=0 height=40 box-sizing="border-box" padding-left=14 padding-right=14 border-width=0 border-radius=20 background-color="#F2F2F7" font-size=15
+        text "Send" font-size=15 font-weight=600 color=(k.draft == "" ? "#C7C7CC" : "#007AFF")
+
+// 17 — the row's page in a web view (exact2 bundles it: no `srcdoc`); its own CSS hides overflow.
+component WebBody
+  props
+    k: WebK
+    freeze: bool
+  view
+    column gap=10
+      text k.caption font-size=15 color="#000000"
+      box width="100%" height=220 box-sizing="border-box" border-style="solid" border-width=0.5 border-color="#D1D1D6" border-radius=12 overflow="hidden"
+        iframe src=`${k.page}${freeze ? "-paused" : ""}.html` width="100%" height="100%"
+
+// 18 — 2,000 thumbnails in a nested horizontal virtualized list (LLP 1070): a flex row that
+// scrolls on x, as a web page writes a carousel. Its offset is kept across the row's retirement by
+// the runner (anchor key + offset, keyed by the outer row), exact2's default for an inner list.
+component Filmstrip
+  props
+    id: string
+    k: FilmK
+    items: list<Idx>
+  view
+    column gap=10
+      text k.title font-size=15 font-weight=600 color="#000000"
+      list virtualized=true display="flex" flex-direction="row" width="100%" height=136 overflow-x="scroll" overflow-y="hidden" scrollbar-width="none" estimated-item-width=120 testId=`strip-${id}`
+        each t in items key=t.id
+          column width=112 flex-shrink=0 margin-right=8
+            image `assets/small-${two(mod(k.img0 + t.j * k.imgStep, 48))}.jpg` width=112 height=112 border-radius=8 object-fit="cover" background-color="#E5E5EA"
+            text `IMG_${k.num0 + t.j}` margin-top=4 white-space="nowrap" font-size=12 color="#3C3C43"
+
+// 19 — 1,000 messages in a nested vertical virtualized list in a 400 pt box. Message j is the
+// pool's (m0 + j·mStep) mod 997, read with `at` (the web's Array.prototype.at), as SwiftUI indexes its array.
+component Inbox
+  props
+    id: string
+    k: InboxK
+    items: list<Idx>
+    pool: list<Msg>
+  view
+    column gap=10
+      text k.title font-size=15 font-weight=600 color="#000000"
+      box width="100%" height=400 box-sizing="border-box" border-style="solid" border-width=0.5 border-color="#D1D1D6" border-radius=12 overflow="hidden" background-color="#ffffff"
+        list virtualized=true width="100%" height=399 overflow-x="hidden" estimated-item-height=63 testId=`inbox-${id}`
+          each t in items key=t.id
+            column width="100%"
+              match at(pool, mod(k.m0 + t.j * k.mStep, 997))
+                case some(m)
+                  Message(m=m, time=mod(k.clock0 - 7 * t.j, 1440))
+                case none
+
+component Message
+  props
+    m: Msg
+    time: number
+  view
+    row width="100%" box-sizing="border-box" padding-top=10 padding-bottom=10 padding-left=12 padding-right=12 gap=10 align-items="flex-start" position="relative"
+      image m.avatar width=32 height=32 flex-shrink=0 border-radius=16 object-fit="cover" background-color="#E5E5EA"
+      column flex=1 min-width=0 gap=2
+        row width="100%" align-items="center" gap=8
+          text m.name flex=1 min-width=0 white-space="nowrap" overflow="hidden" text-overflow="ellipsis" font-size=14 font-weight=600 color="#000000"
+          text `${two(floor(time / 60))}:${two(mod(time, 60))}` flex-shrink=0 font-size=12 font-variant-numeric="tabular-nums" color="#8E8E93"
+        text m.text line-clamp=2 text-overflow="ellipsis" font-size=13 color="#3C3C43"
+      box position="absolute" left=54 right=0 bottom=0 height=0.5 background-color="#E5E5EA"

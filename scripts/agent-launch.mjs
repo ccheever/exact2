@@ -17,6 +17,21 @@ export function retainCleanupError(error, failure) {
   error.cleanupError = failure;
 }
 
+/** Browser-process diagnostics that do not describe the page or Exact. Page
+ * exceptions and console errors arrive over CDP separately and remain logs. */
+export function browserDiagnosticNoise(line) {
+  return /crashpad|updater|gcm|VERBOSE|DevTools listening/i.test(line)
+    // Linux without a session bus or GSettings schemas: Chrome's dbus client and GLib report it on every launch.
+    || /:ERROR:dbus\/(bus|object_proxy)\.cc:\d+\] (Failed to connect to the bus|Failed to call method: org\.freedesktop\.DBus)/.test(line) || /GLib-GIO-CRITICAL \*\*: [\d:.]+: g_settings_schema_source_lookup: assertion 'source != NULL' failed$/.test(line)
+    || /CVDisplayLinkCreateWithCGDisplay failed|CVReturn:\s*-6670/i.test(line)
+    // macOS Chrome's allocator shim, at every launch with no page loaded (Chrome 154; app farm round 1: eight builds
+    // read it as an Exact or wasm fault), and its on-device model service starting. Neither is the page's.
+    || /^Trying to load the allocator multiple times\. This is \*not\* supported\.$|^Created TensorFlow Lite XNNPACK delegate for CPU\.$/.test(line)
+    // The browser process checking the renderer's paint-timing report
+    // against itself (two paints in one frame, image before first): its
+    // bookkeeping, not the page's. The page's own errors come over CDP.
+    || /\bpage_load_metrics_update_dispatcher\.cc:\d+\] Invalid first_\w+ [\d.]+ s for \w+ [\d.]+ s$/.test(line);
+}
 /** Only the caller's throwaway browser profile. Bun 1.4.2 on Windows ignores
  * rmSync's maxRetries: a real sharing lock fails in <1 ms. Yield between bounded
  * attempts so browser shutdown can finish; a persistent lock still fails. */
@@ -154,7 +169,9 @@ export function parseFlags(argv) {
   return { flags, rest };
 }
 
-/** LLP 1027.000.000 D3: the date at the agent clock's zero, unless the drive names one. */
+/** LLP 1027.000.000 D3: the date at the agent clock's zero, unless the drive names one.
+ * `now` names the machine's clock, read once at launch: a drive against a live backend
+ * (Snapback 4's dev server runs on real time) dates what it shows and writes as the server does. */
 export const AGENT_EPOCH = '2026-01-01T00:00:00Z';
 
 /** A page script that holds what a comparison of two pages must hold equal, on every carrier:
@@ -220,10 +237,10 @@ export const faultSpecOf = faults => (faults ?? []).map(f => [f.prefix, f.times 
 
 export function launchFacts({seed, locale, timeZone, epoch, failFetch, env = {}}) {
   seed = Number(seed ?? env.EXACT_AGENT_SEED ?? 1);
-  // An ISO date or Unix milliseconds; hosts are told milliseconds.
+  // An ISO date, Unix milliseconds or `now` (the machine's clock, read here, once); hosts are told milliseconds.
   epoch = String(epoch ?? env.EXACT_AGENT_EPOCH ?? AGENT_EPOCH);
-  epoch = /^\d+$/.test(epoch) ? Number(epoch) : /^\d{4}-\d\d-\d\d(T|$)/.test(epoch) ? Date.parse(epoch) : NaN;
-  if (!Number.isSafeInteger(epoch) || epoch < 0) throw new Error('epoch: an ISO date or Unix milliseconds at or after 1970');
+  epoch = epoch === 'now' ? Date.now() : /^\d+$/.test(epoch) ? Number(epoch) : /^\d{4}-\d\d-\d\d(T|$)/.test(epoch) ? Date.parse(epoch) : NaN;
+  if (!Number.isSafeInteger(epoch) || epoch < 0) throw new Error('epoch: an ISO date, Unix milliseconds at or after 1970, or now');
   locale = locale ?? env.EXACT_AGENT_LOCALE ?? 'en-US';
   timeZone = timeZone ?? env.EXACT_AGENT_TIME_ZONE ?? 'UTC';
   if (!Number.isSafeInteger(seed) || seed < 0) throw new Error('seed: an integer from 0 through 2^53 - 1');

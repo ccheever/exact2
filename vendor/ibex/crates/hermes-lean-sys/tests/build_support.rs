@@ -6,8 +6,8 @@ use build_support::{
     acquire_bundle, apple_simulator_arch, digest_file, download_options_from_env,
     installer_command, parse_pin_sha256, pin_for_target,
     prepare_apple_simulator_link_archives_with_lipo, repository_install_root, rerun_paths,
-    verify_and_extract_archive, watched_inputs, BundlePin, DownloadOptions, EngineInstall,
-    LinkArchive, RELEASE_TAG,
+    target_override_variable, verify_and_extract_archive, watched_inputs, BundlePin,
+    DownloadOptions, EngineInstall, LinkArchive, RELEASE_TAG,
 };
 use flate2::write::GzEncoder;
 use flate2::Compression;
@@ -25,6 +25,23 @@ use std::thread;
 
 const ASSET: &str = "hermes-vanilla-test-target.tar.gz";
 const CACHE_ARCHIVE: &str = ".hermes-lean-sys-bundle.tar.gz";
+
+#[test]
+fn a_target_override_is_named_for_its_target_and_unpinned_targets_say_so() {
+    assert_eq!(
+        target_override_variable("aarch64-linux-android"),
+        "HERMES_LEAN_SYS_DIR_aarch64_linux_android"
+    );
+    assert_eq!(
+        target_override_variable("aarch64-apple-ios-sim"),
+        "HERMES_LEAN_SYS_DIR_aarch64_apple_ios_sim"
+    );
+    let error = pin_for_target("aarch64-linux-android").unwrap_err();
+    assert!(
+        error.contains("HERMES_LEAN_SYS_DIR_aarch64_linux_android"),
+        "{error}"
+    );
+}
 
 #[test]
 fn target_to_asset_mapping_includes_apple_simulator_aliases() {

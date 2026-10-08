@@ -1033,7 +1033,7 @@ fn a_frame_task_fires_once_per_display_frame_not_from_a_timeout() {
   state at = 0
   action step
     frames = frames + 1
-    at = now()
+    at = performanceNow()
   task ticker mount
     every(frame, step)
   view

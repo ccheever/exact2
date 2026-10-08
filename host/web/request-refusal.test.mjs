@@ -1,12 +1,12 @@
 import { expect, test } from 'bun:test';
-import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { spawn, spawnSync } from 'node:child_process';
 import { Worker } from 'node:worker_threads';
 import { Cdp } from '../../scripts/agent.mjs';
-import { request } from './http-body.js';
+import { boundedHttpBody, request } from './http-body.js';
 import { deferredFulfill, refusal } from './navigation.js';
 import { admitsNetwork, coversPath, createGrantSet, grantError, sameGrantDeclaration, scopedGrantSet } from './grant-admission.js';
 import { createRequestExecutor, createSecretFacade, fetchWith } from '../web-js/admission.js';
@@ -84,6 +84,43 @@ test('wasm and JS request executors refuse outside origins and redirects, and ad
     }
     expect(destinationHits).toBe(2);
   } finally { origin.stop(true); destination.stop(true); grantedDestination.stop(true); }
+});
+
+// LLP 1109 D3: a response over its size limit is the host refusing it (`failure(x)`'s `refused`) on every web
+// executor, as on Apple's: plain HTTP on the wasm host, a stream's one answer, a Rust source's request on the JS
+// target, and a TypeScript source's `fetch` there, which takes `exactIndependentHttp.maxResponseBytes` as native does.
+test('a response over its size limit is Refused on every web executor', async () => {
+  // `/open` sends its 4096 bytes and never ends: the refusal must not wait for its end.
+  const origin = Bun.serve({ port: 0, fetch(req) {
+    if (new URL(req.url).pathname !== '/open') return new Response('x'.repeat(4096));
+    return new Response(new ReadableStream({ start(c) { c.enqueue(new TextEncoder().encode('x'.repeat(4096))); } }));
+  } });
+  const set = normalized(`net.fetch ${origin.url.origin}`);
+  const url = `${origin.url}big`;
+  try {
+    for (const op of [
+      { method: 'GET', url, headers: [], nativeHttp: 'independent', maxResponseBytes: 64 },
+      { method: 'GET', url, headers: [], stream: true, maxResponseBytes: 64 },
+    ]) {
+      const over = await request(op, { grantSet: set, controllers: new Set() });
+      expect([over.kind, text(over)]).toEqual([2, 'HTTP response exceeds limit']);
+    }
+    const within = await request({ method: 'GET', url, headers: [], nativeHttp: 'independent', maxResponseBytes: 4096 }, { grantSet: set, controllers: new Set() });
+    expect([within.kind, within.body.length]).toEqual([0, 4096]);
+    const rust = createRequestExecutor('test.app', set, boundedHttpBody);
+    for (const at of [url, `${origin.url}open`]) {
+      expect(await rust({ method: 'GET', url: at, headers: [], maxResponseBytes: 64 })).toEqual({ failed: 2, message: 'HTTP response exceeds limit' });
+      const refused = await fetchWith(set, at, { exactIndependentHttp: { maxResponseBytes: 64 } }).catch(e => e);
+      expect([refused.name, refused.kind, refused.message]).toEqual(['FetchError', 'Refused', 'HTTP response exceeds limit']);
+    }
+    const exact = await fetchWith(set, url, { exactIndependentHttp: { maxResponseBytes: 4096 } });
+    expect((await exact.text()).length).toBe(4096);
+    expect((await (await fetchWith(set, url)).text()).length).toBe(4096);
+    for (const bad of [0, 1.5, 67108865, '64', null]) {
+      const e = await fetchWith(set, url, { exactIndependentHttp: bad === null ? null : { maxResponseBytes: bad } }).catch(e => e);
+      expect([e.name, e.message]).toEqual(['TypeError', 'exactIndependentHttp.maxResponseBytes must be an integer from 1 to 67108864']);
+    }
+  } finally { origin.stop(true); }
 });
 
 test('a redirect rejected before the browser exposes a Response is the declared Network deviation', async () => {
@@ -235,6 +272,14 @@ test('filesystem admission is component-based and refuses traversal', () => {
   expect(coversPath(set, 'fs.read', 'app:/database/note.txt')).toBe(false);
   expect(coversPath(set, 'fs.read', 'app:/data/../secret')).toBe(false);
   expect(coversPath(set, 'fs.write', 'app:/data/other')).toBe(false);
+});
+
+test('a refused sqlite.open names the file it wanted and the grant lines that admit it', async () => {
+  const { authorize } = await import('./storage-fs.js');
+  const set = normalized('sqlite.open app:/data/garden');
+  expect(() => authorize(set, 'sqlite.open', 'app:/data/garden-amy.sqlite')).toThrow(
+    'denied: sqlite.open app:/data/garden-amy.sqlite: no grant covers it; grant `sqlite.open app:/data/garden-amy.sqlite`, or `sqlite.open app:/data` for every file there');
+  expect(authorize(normalized('sqlite.open app:/data'), 'sqlite.open', 'app:/data/garden-amy.sqlite')).toBe('app:/data/garden-amy.sqlite');
 });
 
 // LLP 1069.010 D1, files F2: a folder the person chose is one reach on the
@@ -393,6 +438,33 @@ test('a clean JS dist imports every lazy storage and document entry with its com
     }
     for (const name of ['storage-worker.js', 'sqlite3.mjs', 'sqlite3.wasm']) expect(existsSync(resolve(dist, name)), name).toBe(true);
   } finally { rmSync(dist, { recursive: true, force: true }); }
+}, 60_000);
+
+test('a typescript.sources mount still builds after it moves', () => {
+  // Bun's runtime transpiler cache keys a module by its text and keeps the
+  // imports the mount resolver gave it: the same file at a new place must
+  // not resolve back into the old one.
+  const root = mkdtempSync(resolve(tmpdir(), 'exact ts mount # ')), dir = resolve(root, 'app'), dist = resolve(root, 'dist');
+  const nonce = `${process.pid}-${Date.now()}`;
+  mkdirSync(resolve(root, 'first'), { recursive: true }); mkdirSync(dir);
+  // Past the size Bun's cache starts at (it skips small files).
+  writeFileSync(resolve(root, 'first/word.ts'), `// ${nonce}\n${'// padding\n'.repeat(8000)}import { suffix } from './suffix.ts';\nexport const word = (text: string) => text + suffix;\n`);
+  writeFileSync(resolve(root, 'first/suffix.ts'), `export const suffix = '!';\n`);
+  const manifest = mount => JSON.stringify({ name: 'Mount probe', app: { id: 'test.mount-probe', name: 'Mount probe' }, host: { web: {} }, typescript: { sources: { lib: mount } } });
+  writeFileSync(resolve(dir, 'app.contract'), `shape Result\n  value: string\ncomponent Probe\n  resource result = probe() as shape Result\n  view\n    text result.value testId="result"\n`);
+  writeFileSync(resolve(dir, 'app.ts'), `import type { Answer, Sources } from './app.contract.d.ts';\nimport { word } from './lib/word.ts';\nexport const appId='test.mount-probe',grants='';\nconst sources: Sources = { probe: () => ({ value: word('hi') }) };\nexport const answer: Answer = (source, args, store, storage, native) => sources[source](args as never, store, storage, native) as never;\n`);
+  const env = { ...process.env, EXACT_APP_DIR: dir };
+  delete env.BUN_RUNTIME_TRANSPILER_CACHE_PATH;
+  const build = () => spawnSync(process.execPath, ['host/web-js/build.mjs', 'mount-probe', '--out', dist, '--render', 'none'], { cwd: ROOT, encoding: 'utf8', env });
+  try {
+    writeFileSync(resolve(dir, 'app.json'), manifest('../first'));
+    const first = build();
+    expect(first.status, first.stderr || first.stdout).toBe(0);
+    renameSync(resolve(root, 'first'), resolve(root, 'second'));
+    writeFileSync(resolve(dir, 'app.json'), manifest('../second'));
+    const second = build();
+    expect(second.status, second.stderr || second.stdout).toBe(0);
+  } finally { rmSync(root, { recursive: true, force: true }); }
 }, 60_000);
 
 test('a built TypeScript source refuses fetch and storage without grants', async () => {

@@ -17,7 +17,7 @@ for (const f of ['rt.js', 'roster.js', 'router.js', 'schedule.js', 'budget.js', 
 copyFileSync(resolve(new URL('../notify-glue.js', import.meta.url).pathname), resolve(dir, 'notify-glue.js'));
 for (const [file, names] of Object.entries({ 'navigation.js': ['renderMarkup', 'reportPlace', 'onSelection', 'textField', 'settleRadios', 'animationClocks', 'launchLocation'], 'pointer.js': ['pointer', 'record'], 'commands.js': ['commands'], 'focus.js': ['autofocus', 'press', 'hold', 'within'],
   'media.js': ['media', 'mediaProp', 'mediaOn', 'mediaPiece', 'requestFullscreen'], 'document.js': ['Docs', 'Head', 'head', 'markDocument', 'projectRoots'],
-  'svg-transform.js': ['svgTransform'], 'dataset.js': ['ds'], 'hatches.js': ['ht'], 'perf.js': ['pf'], 'format.js': ['x_formatTime', 'x_formatDate', 'x_formatNumber', 'x_toFixed', 'x_formatDecimal'] }))
+  'svg-transform.js': ['svgTransform'], 'backdrop.js': ['backdropValue'], 'dataset.js': ['ds'], 'hatches.js': ['ht'], 'perf.js': ['pf'], 'format.js': ['x_formatTime', 'x_formatDate', 'x_formatNumber', 'x_toFixed', 'x_formatDecimal'] }))
   writeFileSync(resolve(dir, file), names.map(n => `export const ${n} = () => {};`).join('\n') + (file === 'media.js' ? '\nexport const MEDIA_EVENTS = new Set();' : ''));
 // A view transition that holds every tree update (shared.js's commit returns before its callback).
 writeFileSync(resolve(dir, 'shared.js'), 'export const commit = (tail) => { globalThis.heldTail = tail; return true; };');
@@ -34,12 +34,21 @@ stub('storage-environment.js', "export const storageKey = () => 'k'; export cons
 stub('storage-fs.js', `const files = new Map(); export const createFileSystem = () => ({
   atomicWriteFile: (p, v) => new Promise((ok, no) => setTimeout(() => p.includes('absent/') ? no(Object.assign(new Error('filesystem: No such file'), { code: 'ENOENT' })) : ok(files.set(p, v)), 5)),
   writeFile: (p, v) => new Promise(ok => setTimeout(() => ok(files.set(p, v)), 1)),
-  readFile: async p => files.get(p) ?? '' });`);
+  readFile: async p => files.get(p) ?? '',
+  compressImage: async (from, to, o) => ({ path: to, type: 'image/jpeg', size: o.maxBytes, width: o.maxDimension, height: 1 }) });`);
 stub('app.mjs', `export const appId = 'test';
   export function answer(source, [op, value], store, storage) {
     if (op === 'save') { storage.fs.atomicWriteFile('app:/data/song', value).catch(() => {}); return 'saved ' + value; }
     if (op === 'read') return storage.fs.readFile('app:/data/song');
     if (op === 'bad') { storage.fs.atomicWriteFile('app:/data/absent/x', value).catch(() => {}); return 'saved'; }
+    if (op === 'compress') {
+      const options = { maxDimension: 4000, maxBytes: 2000000 };
+      const done = storage.fs.compressImage('app:/tmp/in.jpg', 'app:/tmp/out.jpg', options);
+      options.maxDimension = 1; // after the call: the call keeps what it was given
+      return done.then(r => JSON.stringify(r));
+    }
+    if (op === 'compress-bad') return storage.fs.compressImage('app:/tmp/in.jpg', 'app:/tmp/out.jpg', { maxDimension: 0, maxBytes: 1 })
+      .then(() => 'ok', e => e.constructor.name + ' ' + e.code + ' ' + e.message);
     const codes = [];
     for (let i = 0; i < 258; i++) codes.push(storage.fs.writeFile('app:/data/flood', String(i)).then(() => 'ok', e => e.code));
     return codes[257];
@@ -48,18 +57,23 @@ const tsData = readFileSync(webJs('ts-data.js'), 'utf8').replace("'__APP_TS__'",
 writeFileSync(resolve(dir, 'ts-data.js'), tsData);
 
 test('a baked answer shows until the source is ready, then is asked; a settled one is not', async () => {
-  const { res, data } = await import(resolve(dir, 'rt.js'));
-  const asked = [];
-  data.answer = (source) => { asked.push(source); return null; }; // not ready: no value, no request
-  const baked = res('stamp', 'stamp', () => [], 0, [], 'n', 0);
-  const kept = res('preview', 'preview', () => [], 5, [], 'n', 0, true);
-  expect([baked(), baked.p(), kept(), kept.p()]).toEqual([0, false, 5, false]);
-  expect(asked).toEqual(['stamp']); // the settled row is never asked
-  expect(data.q.length).toBe(1);
-  data.answer = (source) => { asked.push(source); return { v: source === 'stamp' ? 42 : 6 }; };
-  for (const f of data.q.splice(0)) f();
-  expect([baked(), kept()]).toEqual([42, 5]);
-  expect(asked).toEqual(['stamp', 'stamp']);
+  // A page with no checkpoint: another file's stand-in `document` (run in this process) may lack querySelector.
+  const page = globalThis.document;
+  globalThis.document = { querySelector: () => null, getElementById: () => ({}) };
+  try {
+    const { res, data } = await import(resolve(dir, 'rt.js'));
+    const asked = [];
+    data.answer = (source) => { asked.push(source); return null; }; // not ready: no value, no request
+    const baked = res('stamp', 'stamp', () => [], 0, [], 'n', 0);
+    const kept = res('preview', 'preview', () => [], 5, [], 'n', 0, true);
+    expect([baked(), baked.p(), kept(), kept.p()]).toEqual([0, false, 5, false]);
+    expect(asked).toEqual(['stamp']); // the settled row is never asked
+    expect(data.q.length).toBe(1);
+    data.answer = (source) => { asked.push(source); return { v: source === 'stamp' ? 42 : 6 }; };
+    for (const f of data.q.splice(0)) f();
+    expect([baked(), kept()]).toEqual([42, 5]);
+    expect(asked).toEqual(['stamp', 'stamp']);
+  } finally { if (page === undefined) delete globalThis.document; else globalThis.document = page; }
 });
 
 // An answer that keeps coming (LLP 1016.000): each message settles the
@@ -333,6 +347,20 @@ test('storage keeps the order issued, a bound, a count, and a journal', async ()
   expect(inflight.n).toBe(before);
   expect(data.background()).toMatchObject({ queued: 0, inFlight: 0, failed: 1, last: 'storage failed: atomicWriteFile app:/data/absent/x: ENOENT filesystem: No such file' });
   expect(journal.some(l => l.endsWith('storage failed: atomicWriteFile app:/data/absent/x: ENOENT filesystem: No such file'))).toBe(true);
+});
+
+// `fs.compressImage` on the JS target (LLP 1069.002 A1.1): its options are
+// checked and copied before it is queued; a bad one is a TypeError that
+// never enters the queue.
+test('compressImage copies its options and refuses bad ones before the queue', async () => {
+  const { data } = await import(resolve(dir, 'rt.js'));
+  const { install } = await import(resolve(dir, 'ts-data.js'));
+  install(data);
+  const ask = op => data.ts('work', [op, ''], new Map());
+  expect(JSON.parse(await ask('compress').promise)).toEqual({ path: 'app:/tmp/out.jpg', type: 'image/jpeg', size: 2000000, width: 4000, height: 1 });
+  const bad = ask('compress-bad');
+  expect(data.background().queued + data.background().inFlight).toBe(0);
+  expect(await bad.promise).toBe('TypeError undefined storage.fs.compressImage(): maxDimension must be an integer from 1 to 8192');
 });
 
 test('a string past MAX_STRING joins to itself alone and is counted in UTF-8 bytes', async () => {

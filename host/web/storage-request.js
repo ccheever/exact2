@@ -42,6 +42,8 @@ export function createStorageRequests(appId, admitted) {
         const request=JSON.parse(payload), {op,args}=request;
         scope ??= admitted;
         const invalid=grantError(scope);if(invalid)throw new Error(invalid);
+        // Two app files, never a document (LLP 1069.002 A1.1): refused before the document branch.
+        if (op==='fs.compressImage' && ![args?.path,args?.destination].every(p=>typeof p==='string'&&p.startsWith('app:/'))) throw new Error('compressImage: needs app:/ paths');
         // A document the person chose is not app storage (LLP 1069.010 D1).
         if (request.version===1 && typeof args?.path==='string' && args.path.startsWith('doc:/')) {
           const data=['fs.writeFile','fs.atomicWriteFile','fs.appendFile'].includes(op)?bytes(args):null;
@@ -84,6 +86,8 @@ export function createStorageRequests(appId, admitted) {
             case 'fs.rename':case 'fs.copyFile':
               if(typeof args.destination!=='string'||!args.destination.startsWith('app:/'))throw new Error('portable storage needs an app:/ destination');
               value=await fs[op.slice(3)](args.path,args.destination);break;
+            case 'fs.compressImage':
+              value=await fs.compressImage(args.path,args.destination,{maxDimension:args.maxDimension,maxBytes:args.maxBytes});break;
             case 'fs.mkdir':case 'fs.rm':case 'fs.readdir':case 'fs.realpath':case 'fs.stat':value=await fs[op.slice(3)](args.path);break;
             default:throw new Error('unsupported storage operation '+op);
           }

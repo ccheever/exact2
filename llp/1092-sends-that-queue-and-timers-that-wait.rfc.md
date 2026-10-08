@@ -157,8 +157,8 @@ hands out a request. The queue is in the commit's `Checkpoint`
 ### D3 — When a mutation is free; the `next` commit
 
 **In flight.** A send of `m` is in flight from its ask until its source
-answers `Now`, or its request ends with no answer (`release_failed`, or
-`release_refused`, `admission.rs:67–107`). A further `Later` round
+answers `Now`, or its request ends with no answer (`release_failed` in
+`admission.rs`, including admission refusals since issue #286). A further `Later` round
 (`commit.rs:1036–1042`, "one more round") is not a reply: the send stays in
 flight and runs no `then`. A storage step and its continuation therefore
 finish before the next send is asked.
@@ -166,11 +166,9 @@ finish before the next send is asked.
 **Free.** `m` is free when no request of `m` is in flight, its `then_due`
 is not armed, its `next_due` is not armed, and it is not stalled (below).
 The runner checks this from state, not from the kind of commit
-(`queue.rs`, `arm_next`):
-
-- after every commit concludes, whether it stood or was refused;
-- on `release_refused`'s early return, which makes no commit
-  (`admission.rs:67–68`).
+(`queue.rs`, `arm_next`), after every commit concludes, whether it stood or
+was refused. Admission failure now also commits the release of its ticket
+(issue #286, 2026-10-08); it has no separate early-return path.
 
 When `m` is free and a send waits, `next_due[m] = now`. A `then` is checked
 only after its commit concludes, so `then_due` being cleared before the

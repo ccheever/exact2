@@ -208,4 +208,50 @@ fn a_kernel_that_does_not_lay_out_has_no_answer() {
         .unwrap();
     assert_eq!(k.laid_out_frame(key(&k, 1)), None);
     assert_eq!(k.measure_auto_height(key(&k, 1)), None);
+    assert_eq!(k.fit_content_height(key(&k, 1)), None);
+}
+
+#[test]
+fn a_fit_content_height_is_the_content_laid_out_alone_and_publishes_nothing() {
+    let mut k = tree();
+    k.compute_layout(1, offer()).unwrap();
+    let before = k.export(None).unwrap();
+    let (epoch, receipts) = (k.epoch(), k.receipts().count());
+    let auto = k.measure_auto_height(key(&k, 2)).unwrap().0.height;
+    // Its own 180 points are not the content's: two lines and the padding,
+    // as at `height: auto` where it stands.
+    assert_eq!(k.fit_content_height(key(&k, 2)), Some(auto));
+    // The root's 600 points neither: its two children (the image is 0 high
+    // until it loads).
+    assert_eq!(k.fit_content_height(key(&k, 1)), Some(180.0 + 30.0));
+    assert_eq!(k.export(None).unwrap(), before);
+    assert_eq!((k.epoch(), k.receipts().count()), (epoch, receipts));
+    let receipt = k.compute_layout(1, offer()).unwrap();
+    assert!(receipt.changed.is_empty() && receipt.updated.is_empty());
+    // A height a transition presents is the presented one there too.
+    let presented = [PresentedHeight {
+        node: key(&k, 2),
+        epoch: k.epoch(),
+        px: 250.0,
+    }];
+    k.compute_layout_presented(1, offer(), &presented).unwrap();
+    assert_eq!(k.fit_content_height(key(&k, 1)), Some(250.0 + 30.0));
+    k.compute_layout_presented(1, offer(), &[]).unwrap();
+    // Squeezed in a 100-point flex column, the two still ask for theirs.
+    k.apply(
+        0,
+        2,
+        &[style(
+            1,
+            &[
+                (StyleId::Height, StyleValue::Number(100.0)),
+                (StyleId::Display, StyleValue::Text("flex".into())),
+                (StyleId::FlexDirection, StyleValue::Text("column".into())),
+            ],
+        )],
+    )
+    .unwrap();
+    k.compute_layout(1, offer()).unwrap();
+    assert!(k.node(2).unwrap().frame.height < 180.0, "shrunk in place");
+    assert_eq!(k.fit_content_height(key(&k, 1)), Some(180.0 + 30.0));
 }

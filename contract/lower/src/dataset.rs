@@ -19,7 +19,7 @@ use exact_plan::{BindingKind, BindingsRow};
 /// has no DOM name for, written as `data-<the prop's name, lowercased>`.
 /// `host/web`'s `every_data_name_the_host_writes_is_a_reserved_word` keeps
 /// the second half whole.
-const HOST_WORDS: [&str; 84] = [
+const HOST_WORDS: [&str; 85] = [
     "accept",
     "accessibilitybusy",
     "accessibilitydisabled",
@@ -48,8 +48,8 @@ const HOST_WORDS: [&str; 84] = [
     "estimateditemheight",
     "estimateditemwidth",
     "exiting",
-    "fieldstyle",
     "flow-fragment",
+    "flow-hold",
     "focusable",
     "frame-callback-ms",
     "gpu-input",
@@ -72,6 +72,7 @@ const HOST_WORDS: [&str; 84] = [
     "module",
     "module-ready",
     "multiple",
+    "native",
     "nativeid",
     "nativeviewmodulename",
     "nativeviewprops",
@@ -349,6 +350,7 @@ mod tests {
             "exact-id",
             "bitmap-width",
             "nativeviewprops",
+            "native",
             "dataset",
             "scroll",
         ] {

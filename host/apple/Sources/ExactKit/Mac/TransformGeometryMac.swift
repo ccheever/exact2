@@ -2,10 +2,10 @@
 import AppKit
 
 extension NodeView {
-    func transformDragModel() -> TransformDragPosition? {
+    package func transformDragModel() -> TransformDragPosition? {
         TransformDragPosition(x: Double(translate.x), y: Double(translate.y), scale: Double(scale))
     }
-    func transformDragPresentation() -> TransformDragPosition? {
+    package func transformDragPresentation() -> TransformDragPosition? {
         guard rotate == 0, let layer else { return nil }
         // The render tree's copy only while Core Animation runs a curve on it;
         // otherwise it may not have caught up with the last presented frame

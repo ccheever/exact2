@@ -1,0 +1,170 @@
+// Heavy list (../SPEC.md) on exact2. One `list virtualized=true` with one
+// keyed `each` carries all 10,000 messages from `data/messages.json`, oldest
+// first. The data source (`data/`) answers the feed, a reaction tap, and the
+// live-mode tick; everything a row looks like is this file.
+//
+// A paragraph is one `text` whose inline `text` children are its runs: the
+// kernel measures them as one paragraph and CoreText sets them as one flow
+// (the Markdown app's `Runs`). A run's family is a choice of two literal
+// families (`ui-monospace` for code, `system-ui` otherwise), resolved at
+// compile time.
+
+shape Run
+  id: string
+  t: string
+  s: string
+shape Para
+  id: string
+  runs: list<Run>
+// `n` photos, `a`..`d` their asset paths; `ratio` is the first one's w/h
+// (only a single photo keeps its own aspect).
+shape Photos
+  n: number
+  a: string
+  b: string
+  c: string
+  d: string
+  ratio: number
+shape Link
+  thumb: string
+  title: string
+  description: string
+  site: string
+shape Quote
+  author: string
+  excerpt: string
+shape Reaction
+  emoji: string
+  count: number
+shape Message
+  id: string
+  author: string
+  avatar: string
+  minutesAgo: number
+  paragraphs: list<Para>
+  photos: option<Photos>
+  link: option<Link>
+  quote: option<Quote>
+  reactions: list<Reaction>
+shape Feed
+  rows: list<Message>
+shape Config
+  live: bool
+
+// "3m ago" / "2h ago" / "4d ago".
+fn ago(minutes: number): string = minutes < 60 ? `${floor(minutes)}m ago` : minutes < 1440 ? `${floor(minutes / 60)}h ago` : `${floor(minutes / 1440)}d ago`
+
+component Heavy
+  // Seconds since launch, advanced once a second in live mode only.
+  state secs = 0
+  resource initial = messages() as shape Feed
+  mutation changed as shape Feed
+  derive feed = match changed { case some(f) => f, case none => initial }
+  // `BENCH_LIVE` is a launch-environment fact, so it is asked at run time
+  // (a resource would be baked with the build machine's environment).
+  mutation config as shape Config
+  derive live = match config { case some(c) => c.live, case none => false }
+  action react(id: string, emoji: string)
+    send changed = react(id, emoji)
+  // Every 250 ms: the first tick asks for the launch config; in live mode
+  // each later tick inserts one message at the top and bumps one reaction.
+  action tick
+    match config
+      case none
+        send config = config()
+      case some(c)
+        if c.live
+          send changed = tick()
+  action second
+    if live
+      secs = floor(performanceNow() / 1000)
+
+  task producer mount
+    every(250, tick)
+  task clock mount
+    every(1000, second)
+
+  view
+    main testId="heavy" viewport-fit="cover" width="100%" height="100%" box-sizing="border-box" display="flex" flex-direction="column" overflow="hidden" padding-top="env(safe-area-inset-top)" background-color="#ffffff" color="#000000" font-family="system-ui"
+      row flex-shrink=0 width="100%" box-sizing="border-box" align-items="center" padding-left=16 padding-right=16 padding-top=10 padding-bottom=10 border-bottom-style="solid" border-bottom-width=0.5 border-color="#E5E5EA"
+        text "Heavy list" testId="title" flex=1 font-size=17 font-weight=600
+        text (live ? "Live: on" : "Live: off") testId="live" font-size=13 color="#8E8E93"
+      list id="messages" virtualized=true estimated-item-height=160 testId="messages" flex=1 min-height=0 width="100%" overflow-x="hidden" background-color="#ffffff"
+        each m in feed.rows key=m.id
+          MessageRow(m=m, secs=secs, react=react)
+
+component MessageRow
+  props
+    m: Message
+    secs: number
+    react: action
+  view
+    column testId=`row-${m.id}` aria-label=`${m.author}, ${ago(m.minutesAgo + secs / 60)}` width="100%"
+      row width="100%" box-sizing="border-box" padding-top=12 padding-bottom=12 padding-left=16 padding-right=16 gap=12 align-items="flex-start"
+        image `assets/${m.avatar}` width=40 height=40 flex-shrink=0 border-radius=20 object-fit="cover" background-color="#E5E5EA"
+        column flex=1 min-width=0
+          // One line: the name ellipsizes; the time never shrinks.
+          row width="100%" align-items="baseline" gap=6
+            text m.author min-width=0 white-space="nowrap" overflow="hidden" text-overflow="ellipsis" font-size=15 font-weight=600 color="#000000"
+            text ago(m.minutesAgo + secs / 60) flex-shrink=0 white-space="nowrap" font-size=13 color="#8E8E93"
+          match m.quote
+            case some(q)
+              // The 3-point bar is the box's left border.
+              column margin-top=6 width="100%" box-sizing="border-box" padding=8 border-left-style="solid" border-left-width=3 border-left-color="#C7C7CC" border-radius=8 background-color="#F2F2F7"
+                text q.author font-size=13 font-weight=600 color="#3C3C43"
+                text q.excerpt font-size=13 color="#3C3C43" line-clamp=2 text-overflow="ellipsis"
+            case none
+          column margin-top=6 gap=8
+            each p in m.paragraphs key=p.id
+              text font-size=16 color="#000000"
+                each r in p.runs key=r.id
+                  text r.t font-family=(r.s == "code" ? "ui-monospace" : "system-ui") font-size=(r.s == "code" ? 15 : 16) background-color=(r.s == "code" ? "#F2F2F7" : "#00000000") font-weight=(r.s == "bold" or r.s == "mention" ? 600 : 400) font-style=(r.s == "italic" ? "italic" : "normal") color=(r.s == "link" or r.s == "mention" ? "#007AFF" : r.s == "tag" ? "#5856D6" : "#000000") text-decoration-line=(r.s == "link" ? "underline" : "none")
+          match m.photos
+            case some(ph)
+              Photos(ph=ph)
+            case none
+          match m.link
+            case some(l)
+              column margin-top=8 width="100%" box-sizing="border-box" border-style="solid" border-width=0.5 border-color="#D1D1D6" border-radius=12 overflow="hidden"
+                image `assets/${l.thumb}` width="100%" height=140 object-fit="cover" background-color="#E5E5EA"
+                column padding=10
+                  text l.site font-size=12 color="#8E8E93"
+                  text l.title font-size=15 font-weight=600 color="#000000" line-clamp=2 text-overflow="ellipsis"
+                  text l.description font-size=13 color="#3C3C43" line-clamp=2 text-overflow="ellipsis"
+            case none
+          when not isEmpty(m.reactions)
+            row margin-top=8 flex-wrap="wrap" gap=6
+              each r in m.reactions key=r.emoji
+                button press=react(m.id, r.emoji) testId=`react-${m.id}-${r.emoji}` aria-label=`${r.emoji} ${r.count}` display="flex" flex-direction="row" align-items="center" gap=4 height=28 box-sizing="border-box" padding-top=0 padding-bottom=0 padding-left=10 padding-right=10 border-width=0 border-radius=14 background-color="#F2F2F7"
+                  text r.emoji font-size=14
+                  text toString(r.count) font-size=13 font-weight=600 color="#3C3C43"
+      box height=0.5 margin-left=68 background-color="#E5E5EA"
+
+// 1: the image's own aspect, at most 320 tall (cover within the cap); 2: two
+// squares; 3: a 2/3-wide square left and two stacked right; 4: a 2×2 grid.
+// Sized by CSS: `aspect-ratio`, flex factors and `max-height`.
+component Photos
+  props
+    ph: Photos
+  view
+    column margin-top=8 width="100%" border-radius=12 overflow="hidden"
+      when ph.n == 1
+        image `assets/${ph.a}` width="100%" aspect-ratio=ph.ratio max-height=320 object-fit="cover" background-color="#E5E5EA"
+      else
+        when ph.n == 3
+          // The right column stretches to the square's height; its two
+          // images share it.
+          row width="100%" gap=4
+            image `assets/${ph.a}` flex-grow=2 flex-basis=0 min-width=0 aspect-ratio=1 object-fit="cover" background-color="#E5E5EA"
+            column flex-grow=1 flex-basis=0 min-width=0 gap=4
+              image `assets/${ph.b}` flex-grow=1 flex-basis=0 min-height=0 width="100%" object-fit="cover" background-color="#E5E5EA"
+              image `assets/${ph.c}` flex-grow=1 flex-basis=0 min-height=0 width="100%" object-fit="cover" background-color="#E5E5EA"
+        else
+          column width="100%" gap=4
+            row width="100%" gap=4 align-items="flex-start"
+              image `assets/${ph.a}` flex=1 min-width=0 aspect-ratio=1 object-fit="cover" background-color="#E5E5EA"
+              image `assets/${ph.b}` flex=1 min-width=0 aspect-ratio=1 object-fit="cover" background-color="#E5E5EA"
+            when ph.n == 4
+              row width="100%" gap=4 align-items="flex-start"
+                image `assets/${ph.c}` flex=1 min-width=0 aspect-ratio=1 object-fit="cover" background-color="#E5E5EA"
+                image `assets/${ph.d}` flex=1 min-width=0 aspect-ratio=1 object-fit="cover" background-color="#E5E5EA"

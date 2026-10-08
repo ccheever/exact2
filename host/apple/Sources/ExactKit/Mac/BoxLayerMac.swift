@@ -80,8 +80,9 @@ extension NodeView {
         } else {
             p.colors = Array(repeating: CGColor(gray: 0, alpha: 0), count: 4)
         }
-        // @ref LLP 1104 D4 — a focused field in the default look: its border
-        // two points wide in the focus colour, on whichever path paints it.
+        // @ref LLP 1104 D6 — a focused field whose ring Exact draws
+        // (`showFieldFocus`): its border two points wide in the focus colour,
+        // on whichever path paints it.
         if fieldFocused {
             var ring = CGColor(gray: 0, alpha: 1)
             effectiveAppearance.performAsCurrentDrawingAppearance {
@@ -370,7 +371,7 @@ extension NodeView {
 
     /// The highest of the box's sublayers, which replaced content (a Canvas
     /// 2D bitmap) goes over.
-    var boxSublayersTop: CALayer? {
+    package var boxSublayersTop: CALayer? {
         [boxBorder, imageLayer, insetCaster, boxGradient, boxFill, shadowCaster].compactMap { $0 }.first { $0.superlayer === layer }
     }
 

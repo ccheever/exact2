@@ -16,7 +16,7 @@ import { hatchWords, moduleDirectory } from '../../scripts/app.mjs';
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { dirname, isAbsolute, posix, relative, resolve, sep } from 'node:path';
+import { basename, dirname, isAbsolute, join, normalize, posix, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { transformSync } from 'rolldown/utils';
 import { buildEditor, buildFlow, buildMarkdown, buildModule, buildMotion, fresh, moduleGrants, webCompiler } from './module.mjs';
@@ -30,6 +30,19 @@ if (!app) { console.error('usage: bun host/web-js/build.mjs <app> [--plan <app.p
 // An app outside this repo is where `EXACT_APP_DIR` says (scripts/app.mjs).
 const appDir = process.env.EXACT_APP_DIR ? resolve(process.env.EXACT_APP_DIR) : resolve(root, 'apps', app);
 const out = resolve(opt('--out') ?? `/tmp/exact-web-js-dist/${app}`);
+// Bun's runtime transpiler cache keys a module by its text and keeps the
+// imports this build's mount resolver gives it (below), so the same file at
+// another place (a second checkout, a moved mount) would resolve back into
+// the first. A build through mounts runs without that cache: it starts again
+// that way before it touches anything.
+if (process.env.BUN_RUNTIME_TRANSPILER_CACHE_PATH !== '0') {
+  let mounts = {};
+  try { mounts = JSON.parse(readFileSync(resolve(appDir, 'app.json'), 'utf8')).typescript?.sources ?? {}; } catch {}
+  if (Object.keys(mounts).length) {
+    const again = spawnSync(process.execPath, process.argv.slice(1), { stdio: 'inherit', env: { ...process.env, BUN_RUNTIME_TRANSPILER_CACHE_PATH: '0' } });
+    process.exit(again.status ?? 1);
+  }
+}
 // `--production` (delivery, scripts/deploy.mjs): a release over a wasm bake's
 // baked plan (`--plan <dist>/app.plan`) — agent mode refused, and the bake's
 // origin files (the envelope, the web manifest, install and auth pages,
@@ -61,7 +74,7 @@ const input = opt('--plan') ?? opt('--contract') ?? resolve(appDir, 'app.contrac
 const manifest = JSON.parse(readFileSync(resolve(appDir, 'app.json'), 'utf8'));
 // documents-glue reads the app's web manifest lazily. The JS path exits from
 // host/web/build.mjs after this builder succeeds, so it owns the same artifact.
-const webManifestKeys = ['name', 'short_name', 'id', 'start_url', 'display', 'theme_color', 'background_color', 'icons', 'lang', 'file_handlers', 'launch_handler'];
+const webManifestKeys = ['name', 'short_name', 'description', 'id', 'start_url', 'display', 'theme_color', 'background_color', 'icons', 'lang', 'file_handlers', 'launch_handler'];
 const webManifest = Object.fromEntries(webManifestKeys.filter(key => manifest[key] !== undefined).map(key => [key, manifest[key]]));
 if (webManifest.file_handlers) webManifest.file_handlers = webManifest.file_handlers.filter(handler => !Object.keys(handler.accept ?? {}).includes('inode/directory'));
 if (!webManifest.file_handlers?.length) delete webManifest.file_handlers;
@@ -80,6 +93,45 @@ const rust = !!manifest.rust?.module || bakes;
 const ts = existsSync(resolve(appDir, 'app.ts')) && !(rust && opt('--data'));
 const mixed = rust && ts;
 const appTs = resolve(appDir, 'app.ts');
+// The manifest's `typescript.sources` mounts (js/bake/src/lib.rs `mounts`):
+// `./<name>/…` from the app's own modules resolves into that directory in
+// every load this build makes (the module read below, the server and page
+// bundles), as the type check's capture lays it out.
+const tsMounts = Object.entries(manifest.typescript?.sources ?? {}).map(([name, path]) => [name, realpathSync(resolve(appDir, path))]);
+// As the bake refuses them (js/bake/src/lib.rs `mounts`): a file reachable
+// through two mounts would have two places in the layout.
+for (const [i, [a, aDir]] of tsMounts.entries()) for (const [b, bDir] of tsMounts.slice(i + 1)) {
+  if (aDir === bDir || aDir.startsWith(bDir + sep) || bDir.startsWith(aDir + sep)) {
+    console.error(`error: typescript.sources.${a} and typescript.sources.${b} overlap; mount directories that do not contain each other`);
+    process.exit(1);
+  }
+}
+const appRoots = [...new Set([resolve(appDir), realpathSync(appDir)])];
+const within = (path, dir) => path === dir || path.startsWith(dir + sep);
+// Where a file sits in the captured layout (the app at the root, each mount
+// under its name), and back: an import resolves there, from any importer.
+const logical = path => {
+  const mount = tsMounts.find(([, dir]) => within(path, dir));
+  if (mount) return join(mount[0], relative(mount[1], path));
+  const root = appRoots.find(dir => within(path, dir));
+  return root === undefined ? null : relative(root, path);
+};
+const physical = path => {
+  const [first, ...rest] = path.split(sep);
+  const mount = tsMounts.find(([name]) => name === first);
+  return mount ? resolve(mount[1], ...rest) : resolve(appRoots[0], path);
+};
+function mounted(spec, importer) {
+  if (!tsMounts.length || !importer || !/^\.\.?\//.test(spec)) return null;
+  const from = logical(dirname(importer));
+  if (from === null) return null;
+  const target = normalize(join(from, spec));
+  if (target === '..' || target.startsWith('..' + sep) || isAbsolute(target)) return null;
+  const base = physical(target);
+  return [base, `${base}.ts`, `${base}.js`, resolve(base, 'index.ts')].find(path => statSync(path, { throwIfNoEntry: false })?.isFile()) ?? null;
+}
+const mountResolver = build => build.onResolve({ filter: /^\.\.?\// }, args => { const path = mounted(args.path, args.importer); return path ? { path } : undefined; });
+if (tsMounts.length) Bun.plugin({ name: 'exact-mounts', setup: mountResolver });
 const devLogic = [];
 // Native modules (LLP 1024): the app's module artifact, `modules/web/` beside
 // the page as `modules/`, with the web host's adapter (native.js).
@@ -148,7 +200,7 @@ if (ts && existsSync(webScript) && !/^\s*fn main\(\)\s*\{\s*exact_js_bake::build
 // answers is unknown, and its declarations stay its own.
 const typeChecked = ts && !opt('--data') ? typecheck().then(() => null, error => error) : null;
 async function typecheck() {
-  const { configure, check, ambientRefusals } = await import(resolve(root, 'js/bake/src/typescript.mjs'));
+  const { configure, check, ambientRefusals, assertCapturedModule, packageImports } = await import(resolve(root, 'js/bake/src/typescript.mjs'));
   const libraries = resolve(dirname(fileURLToPath(import.meta.resolve(`@typescript/typescript-${process.platform}-${process.arch}/package.json`))), 'lib');
   const source = readFileSync(appTs, 'utf8');
   let declarations = readFileSync(resolve(gen, 'app.contract.d.ts'), 'utf8');
@@ -192,6 +244,19 @@ async function typecheck() {
   writeFileSync(resolve(stage, '__exact_paths.json'), JSON.stringify({ app: realpathSync(appDir), mounts }));
   const real = realpathSync(stage);
   configure(real);
+  // The packages whose declarations the check reads (typescript.mjs
+  // `stagePackages`) are inputs the dev loop watches too, as it watches the
+  // Contract packages the compile read: a changed `.d.ts` checks app.ts again.
+  if (devReload) {
+    // Each package's own tree, and the entry it is installed as (a link
+    // retargeted, or a reinstall, is an edit there).
+    const read = JSON.parse(readFileSync(resolve(real, '__exact_declarations.json'), 'utf8')).packages;
+    const listed = resolve(gen, 'dev-sources.json');
+    const sources = existsSync(listed) ? JSON.parse(readFileSync(listed, 'utf8')) : {};
+    sources.packages = [...new Set([...(sources.packages ?? []), ...read.map(([, , dir]) => dir)])];
+    sources.shallow = [...(sources.shallow ?? []), ...read.map(([, installed]) => [dirname(installed), basename(installed)])];
+    writeFileSync(listed, JSON.stringify(sources));
+  }
   // The clock, randomness and timers, refused at build in the modules
   // app.ts reaches, as the native bake's bundler refuses them
   // (js/bake/src/typescript.mjs `ambientRefusals`). A graph that does not
@@ -202,7 +267,7 @@ async function typecheck() {
   const typed = check(real, resolve(libraries, 'tsc'), libraries).then(() => null, error => error);
   const bundled = (async () => {
     const bundle = await rolldown({ cwd: real, input: resolve(real, '__exact_entry.ts'), platform: 'neutral', tsconfig: resolve(real, '__exact_tsconfig.json'),
-      logLevel: 'silent', plugins: [{ name: 'ambient', transform(code, id) { why.push(...ambientRefusals(real, id, code, (c, o) => this.parse(c, o))); return null; } }] });
+      logLevel: 'silent', plugins: [{ name: 'captured-sources', resolveId: packageImports(real), load(id) { assertCapturedModule(real, id); return null; }, transform(code, id) { why.push(...ambientRefusals(real, id, code, (c, o) => this.parse(c, o))); return null; } }] });
     try { await bundle.generate({ format: 'esm' }); } finally { await bundle.close(); }
   })().then(() => null, error => error);
   const errors = [await bundled, ...why.map(line => new Error(line)), await typed].filter(Boolean);
@@ -217,6 +282,19 @@ const normalizeGrants = (label, spec, stem) => {
   if (set.error) throw new Error(`grant-parse: ${label}: ${set.error}`);
   return set;
 };
+// app.ts runs under Bun here, to read its appId and grants. A package
+// installed for it is refused before it loads, as every producer's bundle
+// check refuses it (js/bake/src/typescript.mjs `packageImports`), so none of
+// its code runs, at build or after. A type-only import Bun erases never loads.
+if (ts) {
+  const installed = [...appRoots, ...tsMounts.map(([, dir]) => dir)].map(dir => join(dir, 'node_modules'));
+  const escape = text => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  Bun.plugin({ name: 'exact-packages', setup(build) {
+    build.onLoad({ filter: new RegExp(`^(?:${installed.map(escape).join('|')})[\\\\/]`) }, args => {
+      throw new Error(`module outside captured app: ${args.path}`);
+    });
+  } });
+}
 const tsModule = ts ? await import(resolve(appDir, 'app.ts')) : null;
 const grants = ts ? String(tsModule.grants ?? '') : '';
 // What the native bake refuses of the module (js/bake/src/lib.rs `bake_in`,
@@ -225,7 +303,7 @@ const grants = ts ? String(tsModule.grants ?? '') : '';
 if (ts) {
   const expected = (await import('../../scripts/app.mjs')).readManifest(appDir, app).app.id;
   const problems = [
-    ...['__exact_entry.ts', '__exact_tsconfig.json', '__exact_config.mjs', '__exact_paths.json', '__exact_canvas.js', '__exact_canvas.d.ts']
+    ...['__exact_entry.ts', '__exact_tsconfig.json', '__exact_config.mjs', '__exact_paths.json', '__exact_declarations.json', '__exact_canvas.js', '__exact_canvas.d.ts']
       .filter(name => existsSync(resolve(appDir, name))).map(name => `${name} is reserved for the producer`),
     ...('draw' in tsModule) !== ('surfaces' in tsModule) ? ['app.ts exports `draw` and `surfaces` together, or neither (LLP 1056 D1)'] : [],
     ...!tsModule.appId ? ['app.ts exports no appId'] : tsModule.appId !== expected ? [`app.ts's appId is ${tsModule.appId}, but app.json names ${expected}`] : [],
@@ -388,7 +466,7 @@ const scopedModule = (code, id) => {
   return result.code;
 };
 const bundle = async (options) => {
-  const r = await Bun.build({ ...options, plugins: [{ name: 'source-grants', setup(build) {
+  const r = await Bun.build({ ...options, plugins: [{ name: 'exact-mounts', setup: mountResolver }, { name: 'source-grants', setup(build) {
     build.onLoad({ filter: /\.[cm]?[jt]sx?$/ }, ({ path }) => { const contents = scopedModule(readFileSync(path, 'utf8'), path); return contents == null ? undefined : { contents, loader: 'js' }; });
   } }] });
   for (const m of r.logs) console.error(String(m));
@@ -401,7 +479,7 @@ if (how !== 'none') await bundle({ entrypoints: [resolve(gen, 'main-server.js')]
 // bytes a page downloads before its runtime is up.
 {
   const { rolldown } = await import('rolldown');
-  const b = await rolldown({ input: resolve(gen, 'main.js'), plugins: [{ name: 'source-grants', transform: scopedModule }], logLevel: 'warn', onLog: (level, log) => console.error(log.message) });
+  const b = await rolldown({ input: resolve(gen, 'main.js'), plugins: [{ name: 'exact-mounts', resolveId: (source, importer) => mounted(source, importer) }, { name: 'source-grants', transform: scopedModule }], logLevel: 'warn', onLog: (level, log) => console.error(log.message) });
   // In a development reload build, put the TypeScript data module and every
   // helper it imports in one chunk the page really loads. Its emitted bytes,
   // rather than watcher filenames or source mtimes, are the logic revision.

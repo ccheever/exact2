@@ -717,6 +717,14 @@ extension NavigationHost {
         (tabOwner != nil && !ExactEnv.authoredChrome) || allNavigations.contains(where: barShows)
     }
 
+    /// `wantsWholeView` for the root's containers alone, whatever a sheet
+    /// shows: what the window's own viewport is, which the viewport units
+    /// resolve against (LLP 1075.003 §9.11; Astra's review).
+    var rootWantsWholeView: Bool {
+        (tabOwner != nil && !ExactEnv.authoredChrome)
+            || allNavigations.contains { nav in !presentedNavigations.contains { $0 === nav } && barShows(nav) }
+    }
+
     /// What Exact's containers cover of each route — its controller's safe
     /// area past the insets the kernel already has as `env()`: a shown bar's
     /// top, and every edge while the containers take the whole view for a
@@ -788,7 +796,7 @@ extension NavigationHost {
     /// Whether this build checks what Exact owns: every build but a
     /// production bake.
     static let checksOwnership: Bool = {
-        let trust = ((GpuModule.bakedCompatibility["inputs"] as? [String: Any])?["trust"] as? String) ?? "development"
+        let trust = ((BakedCompatibility.json["inputs"] as? [String: Any])?["trust"] as? String) ?? "development"
         return trust != "production"
     }()
 

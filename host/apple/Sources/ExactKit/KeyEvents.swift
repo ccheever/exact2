@@ -128,6 +128,7 @@ extension Presenter {
             keyUp(event, in: window)
             if event.type == .keyDown && shortcuts.perform(event) { return true }
             if keyDown(event, in: window) { return true }
+            if contextMenuKey(event, in: window) { return true }
         }
         return menus.key(event) || dialogs.key(event)
     }
@@ -192,7 +193,7 @@ extension Presenter {
         return event === chord || event.timestamp == chord.timestamp && event.keyCode == chord.keyCode && event.windowNumber == chord.windowNumber
     }
     /// The node a responder is the focus of: the node itself, or its field
-    /// (and the field editor editing it) or textarea. Any other view a node
+    /// (and the field editor editing it), textarea or native button. Any other view a node
     /// holds (a web view, a native module's) keeps its keys, as an iframe's
     /// never reach the page.
     func keyTarget(_ responder: NSResponder?) -> NodeView? {
@@ -200,7 +201,7 @@ extension Presenter {
         var next: NSView? = view
         while let v = next {
             if let node = v as? NodeView {
-                let owns = node === view || node.field.map { view.isDescendant(of: $0) } == true || node.textArea === view
+                let owns = node === view || node.field.map { view.isDescendant(of: $0) } == true || node.textArea === view || (node.isNativeButton && keyView(of: node) === view)
                 return owns && views[node.id] === node ? node : nil
             }
             next = v.superview
@@ -224,7 +225,7 @@ extension KeyCodes {
         let raw = event.modifierFlags.rawValue
         return raw & pair != 0 ? raw & side != 0 : event.modifierFlags.contains(flag)
     }
-    static let sides: [String: (UInt, UInt, NSEvent.ModifierFlags)] = [
+    package static let sides: [String: (UInt, UInt, NSEvent.ModifierFlags)] = [
         "ShiftLeft": (0x2, 0x6, .shift), "ShiftRight": (0x4, 0x6, .shift),
         "ControlLeft": (0x1, 0x2001, .control), "ControlRight": (0x2000, 0x2001, .control),
         "AltLeft": (0x20, 0x60, .option), "AltRight": (0x40, 0x60, .option),

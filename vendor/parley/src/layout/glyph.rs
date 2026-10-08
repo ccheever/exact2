@@ -13,6 +13,7 @@ pub struct Glyph {
 
 impl Glyph {
     /// Returns the index into the layout style collection.
+    #[inline]
     pub fn style_index(&self) -> usize {
         self.style_index as usize
     }

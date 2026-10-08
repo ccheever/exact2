@@ -66,7 +66,7 @@ extension NodeView {
         refreshPaintOrder()
     }
 
-    func setLifted(_ value: Bool) {
+    package func setLifted(_ value: Bool) {
         guard paintLifted != value else { return }
         paintLifted = value
         refreshPaintOrder()

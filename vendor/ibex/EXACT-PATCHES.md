@@ -122,6 +122,44 @@ caller AbortSignal across every redirect hop, bounding connect, TLS, headers,
 body, and the redirect chain as a whole. The executor redirect-chain test pins
 that distinction.
 
+### 8. an Android target for `hermes-lean-sys` (pending upstream)
+
+From Exact's LLP 1107 lane (2026-10-07): `hermes-lean-sys/build_support.rs`
+reads a per-target install override, `HERMES_LEAN_SYS_DIR_<target>` (the target
+with `-` and `.` as `_`, as the `cc` crate names its per-target variables),
+before `HERMES_LEAN_SYS_DIR`, so a cross build's host instance (exact-js's
+build-dependency) keeps the pinned bundle while the target uses a local one;
+`build.rs` reruns on it and links `aarch64-linux-android`'s bundle with the
+NDK's `c++_static`, `c++abi`, `log`, `dl` and `m`. The bundle itself is built by
+Ibex's release script with the same pending Android target (Unicode from a
+static ICU 74, linked here as `icui18n`/`icuuc`/`icudata`; no Intl;
+`ANDROID_STL=c++_static`); `scripts/hermes-android.mjs` runs it and
+installs the result. The upstream patch is Ibex branch `android-hermes-bundle`
+(local, not pushed). Drop this entry when an Ibex release pins the Android
+bundle.
+
+### 9. `fs.compressImage` over an embedder codec
+
+From exact2 LLP 1069.002 Amendment A1 (2026-10-08): opcode 121
+(`host_opcodes.rs`, `boundary_abi.rs`, `bindings/install.cc`'s `fs_methods`)
+is `fs.compressImage(from, to, maxDimension, maxBytes)`, answered
+`"width\theight\tsize"`. `src/stdlib/fs_image.rs` admits `fs.write` on `to`
+and `fs.read` on `from` before reading, checks the size by `stat`, reads
+through `AppDirectories::read_capped` (`app_fs_unix.rs`: a `take` on the
+opened descriptor), hands the bytes to the embedder's codec
+(`Context::set_image_codec`, `task.rs`), and writes its JPEG with the atomic
+write; both paths must be `app:/`. The write holds the call's `CommitGate`,
+its right to write, which `ibex2_async_begin` registers on the guest's
+thread; `Context::abandon_image_work` (`bindings.rs`, `task.rs`), called by
+an embedder that gives up waiting, takes every unwritten call's right away
+and waits for one mid-write, so nothing is written after the guest was told
+the call failed; a written call's right lasts until `take_task` hands its
+completion out, and `RuntimeState::shutdown` takes unwritten rights away.
+`Context::abandon_image_work_if` asks a retired waiter's `live` under the
+registry's lock, so it abandons no call registered after its retirement. The codec starts nothing after `TRIAL_BUDGET` (20 s) from
+the job's start. `bindings/storage.d.ts` declares it. Ibex holds no codec:
+without one the op answers `unsupported` before reading.
+
 ### Windows chosen-document EISDIR
 
 `src/stdlib/fs.rs` opens one handle with backup semantics, checks that same

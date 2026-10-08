@@ -177,14 +177,15 @@ theorem fsound_aux {ce : CEnv} {C : CComponent} {c : String} {id : InstId}
           next => simp at h2
         next => simp at h2
       | call name args =>
-        have hp' : name ≠ "pending" ∧ name ≠ "failed" ∧ PlainList args = true := by
-          simp only [Plain, Bool.and_eq_true, bne_iff_ne, ne_eq] at hp; exact ⟨hp.1.1, hp.1.2, hp.2⟩
+        have hp' : name ≠ "pending" ∧ name ≠ "failed" ∧ name ≠ "failure" ∧ PlainList args = true := by
+          simp only [Plain, Bool.and_eq_true, bne_iff_ne, ne_eq] at hp
+          exact ⟨hp.1.1.1, hp.1.1.2, hp.1.2, hp.2⟩
         simp only [ceval] at h
         split at h
         next fd hfd =>
           simp only [Except.bind_ok_iff] at h
           obtain ⟨vs, h1, h2⟩ := h
-          exact .fn hfd (ihL h1 hp'.2.2) (xferE hs (eval_sound h2) rfl)
+          exact .fn hfd (ihL h1 hp'.2.2.2) (xferE hs (eval_sound h2) rfl)
         next hfd =>
           split at h
           next l ps body =>
@@ -201,10 +202,11 @@ theorem fsound_aux {ce : CEnv} {C : CComponent} {c : String} {id : InstId}
             exact EvalR.filter hfd (ihE h1 hpl) (ihF h3 hpb)
           next x => exact absurd rfl hp'.1
           next x => exact absurd rfl hp'.2.1
+          next x => exact absurd rfl hp'.2.2.1
           next =>
             simp only [Except.bind_ok_iff] at h
             obtain ⟨vs, h1, h2⟩ := h
-            exact .stdlib hfd (ihL h1 hp'.2.2) (hs.stdlib_eq _ _ ▸ h2)
+            exact .stdlib hfd (ihL h1 hp'.2.2.2) (hs.stdlib_eq _ _ ▸ h2)
       | record shape base fields =>
         simp only [ceval] at h
         split at h
@@ -408,6 +410,7 @@ theorem ceval_stdlib_intro {n ce c id binds ls name args vs v}
   next => exact absurd h2 stdlib_filter
   next => exact absurd h2 stdlib_pending
   next => exact absurd h2 stdlib_failed
+  next => exact absurd h2 stdlib_failure
   next => simp only [Except.bind_ok_iff]; exact ⟨_, h1, h2⟩
 
 section complete
@@ -471,13 +474,15 @@ theorem fcE (hC : ce.comp c = .ok C) {inFn ls e v} (h : EvalR (frameEnv ce C c i
       simp only [ceval]
       rw [show ce.root.prog.fns = (frameEnv ce C c id binds).prog.fns from rfl, hfd]
       simp only [Except.bind_ok_iff]; exact ⟨_, clift h1, _, rfl, _, clift h2, rfl⟩⟩
-  | .pendingSettled .. | .pendingOther .. | .failedSettled .. | .failedOther .. => by
+  | .pendingSettled .. | .pendingOther .. | .failedSettled .. | .failedOther ..
+  | .failureSettled .. | .failureOther .. => by
     simp [Plain] at hp
   | .stdlib hfd ha hv => by
     rename_i name args vs
-    have hp' : name ≠ "pending" ∧ name ≠ "failed" ∧ PlainList args = true := by
-      simp only [Plain, Bool.and_eq_true, bne_iff_ne, ne_eq] at hp; exact ⟨hp.1.1, hp.1.2, hp.2⟩
-    obtain ⟨n, h1⟩ := fcL hC ha hf hp'.2.2 (hs.sub fun y hy => by simp only [fv, fvList, fvFields, fvOpt, List.mem_append] at hy ⊢; grind)
+    have hp' : name ≠ "pending" ∧ name ≠ "failed" ∧ name ≠ "failure" ∧ PlainList args = true := by
+      simp only [Plain, Bool.and_eq_true, bne_iff_ne, ne_eq] at hp
+      exact ⟨hp.1.1.1, hp.1.1.2, hp.1.2, hp.2⟩
+    obtain ⟨n, h1⟩ := fcL hC ha hf hp'.2.2.2 (hs.sub fun y hy => by simp only [fv, fvList, fvFields, fvOpt, List.mem_append] at hy ⊢; grind)
     have hv' : stdlib ce.root name vs = .ok v := (frameEnv_same ce C c id binds).stdlib_eq _ _ ▸ hv
     exact ⟨n + 1, ceval_stdlib_intro hfd h1 hv'⟩
   | .record hd h1 => by

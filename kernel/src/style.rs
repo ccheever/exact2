@@ -24,6 +24,8 @@ pub use grid::{
     GridFitContent, GridLine, GridPlacement, GridRepeat, GridRepeatCount, GridTrack,
     GridTrackComponent, GridTrackMax, GridTrackMin, GridTracks,
 };
+pub mod compare;
+pub use compare::Comparison;
 pub mod env;
 pub use env::link as link_segments;
 pub use env::{uses_env, Edge, Env, EnvRefusal, Rect, SegmentVar};
@@ -75,6 +77,10 @@ pub enum Dimension {
     Segment(SegmentVar, u8, u8, f32),
     /// A percentage of a viewport dimension, resolved at layout.
     Viewport(ViewportUnit, f32),
+    /// CSS's `min()`, `max()` or `clamp()` over points, insets and viewport
+    /// lengths (`clamp(15px, env(safe-area-inset-bottom), 60px)`), resolved
+    /// at layout as `env()` is; interned, so the row holds a handle.
+    Compare(Comparison),
 }
 
 /// The `calc()` pairs the engine holds by handle: Taffy keeps one opaque
@@ -108,7 +114,7 @@ impl Dimension {
     /// Whether the value is a finite number (or `Auto`).
     pub fn is_finite(self) -> bool {
         match self {
-            Dimension::Auto => true,
+            Dimension::Auto | Dimension::Compare(_) => true,
             Dimension::Points(v)
             | Dimension::Percent(v)
             | Dimension::Viewport(_, v)
@@ -169,6 +175,7 @@ impl Dimension {
             Dimension::Env(edge, plus) => Dimension::Points(env.inset(edge) + plus),
             Dimension::Viewport(unit, n) => Dimension::Points(unit.basis(env) * n / 100.0),
             Dimension::Segment(var, x, y, plus) => env::resolve(var, x, y, plus, env),
+            Dimension::Compare(c) => Dimension::Points(c.value(env)),
             other => other,
         }
     }
@@ -181,9 +188,7 @@ impl Dimension {
             Dimension::Points(v) => Dimension::Points(v + points),
             Dimension::Percent(p) => Dimension::Calc(p, points),
             Dimension::Calc(p, v) => Dimension::Calc(p, v + points),
-            Dimension::Env(..) | Dimension::Segment(..) | Dimension::Viewport(..) => {
-                unreachable!("resolved above")
-            }
+            _ => unreachable!("resolved above"),
         }
     }
 
@@ -198,9 +203,7 @@ impl Dimension {
             Dimension::Points(v) => length(v),
             Dimension::Percent(v) => percent(v / 100.0),
             Dimension::Calc(p, v) => taffy::style::Dimension::calc(calc_handle(p, v)),
-            Dimension::Env(..) | Dimension::Segment(..) | Dimension::Viewport(..) => {
-                unreachable!("resolved above")
-            }
+            _ => unreachable!("resolved above"),
         }
     }
 
@@ -210,9 +213,7 @@ impl Dimension {
             Dimension::Points(v) => length(v),
             Dimension::Percent(v) => percent(v / 100.0),
             Dimension::Calc(p, v) => taffy::style::LengthPercentageAuto::calc(calc_handle(p, v)),
-            Dimension::Env(..) | Dimension::Segment(..) | Dimension::Viewport(..) => {
-                unreachable!("resolved above")
-            }
+            _ => unreachable!("resolved above"),
         }
     }
 
@@ -224,9 +225,7 @@ impl Dimension {
             Dimension::Points(v) => length(v),
             Dimension::Percent(v) => percent(v / 100.0),
             Dimension::Calc(p, v) => taffy::style::LengthPercentage::calc(calc_handle(p, v)),
-            Dimension::Env(..) | Dimension::Segment(..) | Dimension::Viewport(..) => {
-                unreachable!("resolved above")
-            }
+            _ => unreachable!("resolved above"),
         }
     }
 
@@ -239,9 +238,7 @@ impl Dimension {
             Dimension::Percent(v) => (v / 100.0).to_bits() == 0,
             // A calc() is a handle the engine resolves, never its zero length.
             Dimension::Calc(..) => false,
-            Dimension::Env(..) | Dimension::Segment(..) | Dimension::Viewport(..) => {
-                unreachable!("resolved above")
-            }
+            _ => unreachable!("resolved above"),
         }
     }
 }
@@ -474,6 +471,7 @@ impl StyleValue {
         style: StyleId,
         admits_auto: bool,
     ) -> Result<Dimension, StyleValueError> {
+        let nonnegative = compare::no_negative_lengths(style);
         let value = match self {
             StyleValue::Number(n) if (*n as f32).is_finite() => Ok(Dimension::Points(*n as f32)),
             StyleValue::Percent(p) if (*p as f32).is_finite() => Ok(Dimension::Percent(*p as f32)),
@@ -487,9 +485,16 @@ impl StyleValue {
             {
                 Ok(Dimension::Auto)
             }
-            StyleValue::Text(t) => match env::parse(t) {
-                Err(refusal) => Err(StyleValueError::BadEnv { style, refusal }),
-                Ok(parsed) => Ok(parsed),
+            StyleValue::Text(t) => match (compare::parse(t), env::parse(t)) {
+                (Err(reason), _) => Err(StyleValueError::BadComparison { style, reason }),
+                // CSS clamps a math function to the row's range: 0 or more
+                // on a row without negative lengths (CSS Values 4 §10.12).
+                (Ok(Some(d)), _) if nonnegative => compare::at_least_zero(d)
+                    .map(Some)
+                    .map_err(|reason| StyleValueError::BadComparison { style, reason }),
+                (Ok(Some(d)), _) => Ok(Some(d)),
+                (Ok(None), Err(refusal)) => Err(StyleValueError::BadEnv { style, refusal }),
+                (Ok(None), Ok(parsed)) => Ok(parsed),
             }?
             .or_else(|| Dimension::parse_calc(t))
             .or_else(|| viewport::parse(t))
@@ -502,21 +507,23 @@ impl StyleValue {
                 .or_else(|| absolute_length(t.trim_matches(['\t', '\n', '\u{c}', '\r', ' '])))
                 .ok_or(StyleValueError::WrongKind {
                     style,
-                    expected: "number, px, rem or em length, viewport length (vw/vh/vmin/vmax/svw/svh/lvw/lvh/dvw/dvh), percent, auto, calc(<percent> ± <px>), env(safe-area-inset-*), or env(viewport-segment-* x y)",
+                    expected: "number, px, rem or em length, viewport length (vw/vh/vmin/vmax/svw/svh/lvw/lvh/dvw/dvh), percent, auto, calc(<percent> ± <px>), env(safe-area-inset-*), env(viewport-segment-* x y), or min()/max()/clamp() of px, env(safe-area-inset-*) and viewport lengths",
                 }),
             _ => Err(StyleValueError::WrongKind {
                 style,
-                expected: "number, percent, auto, calc(<percent> ± <px>), env(safe-area-inset-*), or env(viewport-segment-* x y)",
+                expected: "number, percent, auto, calc(<percent> ± <px>), env(safe-area-inset-*), env(viewport-segment-* x y), or min()/max()/clamp()",
             }),
         }?;
-        if matches!(
+        let radius = matches!(
             style,
             StyleId::BorderRadiusTopLeft
                 | StyleId::BorderRadiusTopRight
                 | StyleId::BorderRadiusBottomRight
                 | StyleId::BorderRadiusBottomLeft
-        ) && (!value.is_finite()
-            || matches!(value, Dimension::Points(n) | Dimension::Percent(n) if n < 0.0))
+        );
+        if radius
+            && (!value.is_finite()
+                || matches!(value, Dimension::Points(n) | Dimension::Percent(n) if n < 0.0))
         {
             return Err(StyleValueError::WrongKind {
                 style,
@@ -1191,10 +1198,7 @@ impl StyleProps {
                 Dimension::Auto => StyleValue::Auto,
                 Dimension::Percent(p) => StyleValue::Percent(f64::from(p)),
                 Dimension::Points(v) => StyleValue::Number(f64::from(v)),
-                Dimension::Calc(..)
-                | Dimension::Env(..)
-                | Dimension::Segment(..)
-                | Dimension::Viewport(..) => StyleValue::Number(0.0),
+                _ => StyleValue::Number(0.0),
             };
             // The default fits its own row; nothing to refuse.
             let _ = out.set_dynamic(id, &value);

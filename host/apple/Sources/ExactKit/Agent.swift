@@ -64,11 +64,13 @@ public final class Agent {
     /// The modifiers held through the contact: its `down`'s, until a
     /// `move` or `up` names others.
     var contactFlags: NSEvent.ModifierFlags = []
+    /// A native button's nested tracking loop consumes queued drag/up events.
+    var contactTracksNative = false
     #endif
     weak var canvasContact: NodeView?
     /// The last point the agent's pointer sent its canvas (iOS), for its motion.
     var canvasPoint: CGPoint?
-    var keyReleases: [String: () -> [String: Any]] = [:]
+    package var keyReleases: [String: () -> [String: Any]] = [:]
 
     /// Where replies go: the stream the requests came on.
     nonisolated(unsafe) static var out = FileHandle.standardOutput
@@ -184,12 +186,13 @@ public final class Agent {
         }
         switch op {
         case "tree" where req["ax"] as? Bool == true: Agent.reply(accessibilityElementsTree(req)) // LLP 1080.002
-        case "tree": Agent.reply(session.canvases.decorate(req, decorateTree(session.natives.decorate(session.webviews.tree(line)))))
+        case "tree": Agent.reply(session.canvases.decorate(req, decorateTree(presenter.elements.regions.decorate(session.natives.decorate(session.webviews.tree(line))))))
         case "layout": Agent.reply(tagged(inspectLayout(req) ?? layout(req))) // LLP 1080.001: `native`, `agree`
         // A call that moved something settles the canvases before it
         // replies (LLP 1012's fixed point; LLP 1014 D5 reads placements
         // after a frame, so the frame is rendered here, not left to the
         // display link to get to between two calls).
+        case "tap" where req["part"] != nil: Agent.reply(tagged(partTap(req))) // a hatch's part: the aim and the landing (AgentParts.swift)
         case "tap":
             var r: [String: Any]
             #if os(macOS)
@@ -298,7 +301,9 @@ public final class Agent {
             var forward = req
             forward.removeValue(forKey: "session")
             let json = (try? JSONSerialization.data(withJSONObject: forward)).map { String(decoding: $0, as: UTF8.self) } ?? line
-            Agent.raw(session.agent(json))
+            let reply = session.agent(json)
+            // A hatched site's row names its hatch's calls and time (LLP 1075.003.000.001 §3.1).
+            Agent.raw(op == "perf" ? session.hatchDiagnostics.joined(perf: reply) : reply)
         }
     }
 
@@ -458,7 +463,8 @@ public final class Agent {
             }
         }
         if grid {
-            do { next.rects = try Segments.even(viewport: presenter.viewportSize, cols: next.cols, rows: next.rows, gap: gap) } catch { return "prefer: \(error)" }
+            // The window's segments, as the host sends them (LLP 1075.003 §9.11).
+            do { next.rects = try Segments.even(viewport: session.screenSize ?? presenter.viewportSize, cols: next.cols, rows: next.rows, gap: gap) } catch { return "prefer: \(error)" }
         }
         return session.segments(next).map { "prefer: \($0)" }
     }
@@ -475,6 +481,7 @@ public final class Agent {
     }
 
     func clock(_ req: [String: Any]) -> [String: Any] {
+        session.natives.hatchClock.beginCommand()
         // @ref LLP 1080.000 §12 — platform timing, before any `clock`: the
         // host has run on the wall's time (motion and holds included) while
         // the runner's clock stood behind it. The clock is taken over at the
@@ -490,6 +497,9 @@ public final class Agent {
             session.clock = max(session.now(), runner ?? 0)
             // The display's cadence means nothing under the agent's clock.
             session.sampler?.stop()
+            // An activity indicator holds one frame under it (LLP 1069.001,
+            // amended 2026-10-07).
+            presenter.controls.syncProgress()
         }
         if req["take"] as? Bool == true { return ["clock": session.clock ?? 0] }
         let from = session.clock ?? 0
@@ -520,7 +530,7 @@ public final class Agent {
         guard var to = target, to.isFinite else { return ["error": "clock needs \"to\" (ms) or \"settle\": true"] }
         guard to >= from else { return ["error": "the clock cannot go backwards (\(from) → \(to))"] }
         var rounds = 0, hatchDrains = 0
-        var world = Canvases.WorldClock()
+        var world = WorldClock()
         func reply(_ landed: Double, _ settled: Bool? = nil, reason: String? = nil) -> [String: Any] {
             var out = world.reply
             out["clock"] = landed
@@ -622,6 +632,21 @@ public final class Agent {
     /// one is returned.
     /// `floor`: the host's clock is never set behind it while the runner catches up (LLP 1080.000 §12).
     func advanceStepped(to: Double, deadline: Date, floor: Double = -.infinity) -> Batch {
+        // A seek stops at each hatch instant on the way (LLP 1075.003.000.001
+        // §2.4): the runner is brought there, the ticks and `after`s due are
+        // called on that instant's state, and what they asked is drained.
+        let clock = session.natives.hatchClock
+        while let instant = clock.nextInstant, instant <= to {
+            let batch = advanceRunner(to: max(instant, session.clock ?? instant), deadline: deadline, floor: floor)
+            if batch.error != nil { return batch }
+            if let limit = clock.fire(at: session.clock ?? instant) {
+                return Batch(ops: [], timers: batch.timers, motion: batch.motion, clock: session.clock, error: limit)
+            }
+        }
+        return advanceRunner(to: to, deadline: deadline, floor: floor)
+    }
+
+    private func advanceRunner(to: Double, deadline: Date, floor: Double) -> Batch {
         var steps = 0
         // The agent's clock is a seek: frame tasks fire virtual frames (LLP 1073 D3).
         session.runtime.presentFrames(false)
@@ -747,7 +772,7 @@ public final class Agent {
 
 extension ExactSession {
     /// This session's agent (made on first use).
-    var agentInstance: Agent {
+    package var agentInstance: Agent {
         if let a = agentBox { return a }
         let a = Agent(session: self)
         agentBox = a

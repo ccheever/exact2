@@ -445,7 +445,8 @@ impl Outcome {
 pub enum FailureKind {
     /// No connection, TLS, a rejected fetch.
     Network,
-    /// Outside the app's grant (LLP 1016 D6).
+    /// Outside the app's grant (LLP 1016 D6) or its limits: admission, or a
+    /// response over its size limit, on every host (LLP 1109 D3).
     Refused,
     /// The host has no executor (Linux before its transport).
     Unsupported,

@@ -48,6 +48,7 @@ pub mod compare;
 mod conform;
 pub mod delivery;
 pub mod device;
+pub mod failure;
 pub mod file_pickers;
 mod format;
 pub mod geometry;
