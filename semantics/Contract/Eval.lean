@@ -338,6 +338,11 @@ def eval : Nat → Env → Bool → Locals → Expr → Result Value
         if env.prog.resources.any (·.name == x) then
           (lookup x env.resources).elim (.error .pending) (fun _ => .ok (.bool false))
         else .ok (.bool false)
+      | "failure", [.var x] =>
+        -- Nor says why (LLP 1109 D3).
+        if env.prog.resources.any (·.name == x) then
+          (lookup x env.resources).elim (.error .pending) (fun _ => .ok .none)
+        else .ok .none
       | _, _ => do
         let vs ← evalList fuel env inFn ls args
         stdlib env name vs

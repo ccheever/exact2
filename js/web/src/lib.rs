@@ -323,58 +323,62 @@ impl Module {
             return Err(match response["kind"].as_str() {
                 Some("UnknownSource") => DataError::UnknownSource(message),
                 Some("BadArguments") => DataError::BadArguments(message),
-                _ => unavailable(message),
+                // Its class, as js/src/lib.rs reads it (LLP 1109 D3).
+                _ => exact_runner::failure::FailureCode::seam_error(
+                    response["failure"].as_str(),
+                    message,
+                ),
             });
         }
-        let answer =
-            if response["tag"] == 1 {
-                let r = &response["request"];
-                let mut request = Request::get(
-                    r["url"]
-                        .as_str()
-                        .ok_or_else(|| unavailable("fetch has no URL"))?,
-                );
-                request.method = r["method"]
+        let answer = if response["tag"] == 1 {
+            let r = &response["request"];
+            let mut request = Request::get(
+                r["url"]
                     .as_str()
-                    .ok_or_else(|| unavailable("fetch has no method"))?
-                    .into();
-                request.headers = string_pairs(&r["headers"]).ok_or_else(|| {
-                    unavailable("fetch headers are not an array of [name, value] strings")
-                })?;
-                // A BufferSource body travels as base64 beside the text one.
-                request.body = match r["body_base64"].as_str() {
-                    Some(b64) => exact_runner::agent::unbase64(b64)
-                        .ok_or_else(|| unavailable("fetch body is not base64"))?,
-                    None => r["body"].as_str().unwrap_or("").as_bytes().to_vec(),
-                };
-                // `exactTimeout`, as the prelude checked it (1..=3600000 ms).
-                if let Some(ms) = r["timeout_ms"].as_u64() {
-                    request.timeout_ms =
-                        Some(u32::try_from(ms).map_err(|_| {
-                            unavailable("a request timeout must be 1 to 3600000 ms")
-                        })?);
-                }
-                if r["stream"] == true {
-                    // The page opens it; its events come back as messages.
-                    request = match Answer::stream(request) {
-                        Answer::Later(request) => request,
-                        Answer::Now(_) => unreachable!("a stream is a request"),
-                    };
-                    self.streams.insert(key, ());
-                } else {
-                    self.waiting.insert(key, false);
-                }
-                Answer::Later(request)
-            } else if response["tag"] == 0 {
-                let value = reply
-                    .value
-                    .unwrap_or_else(|| json::decode(&Json::Null, result));
-                Answer::Now(value.map_err(|e| {
-                    unavailable(format!("`{source}` answered outside its shape: {e}"))
-                })?)
-            } else {
-                return Err(unavailable("browser module returned no answer tag"));
+                    .ok_or_else(|| unavailable("fetch has no URL"))?,
+            );
+            request.method = r["method"]
+                .as_str()
+                .ok_or_else(|| unavailable("fetch has no method"))?
+                .into();
+            request.headers = string_pairs(&r["headers"]).ok_or_else(|| {
+                unavailable("fetch headers are not an array of [name, value] strings")
+            })?;
+            // A BufferSource body travels as base64 beside the text one.
+            request.body = match r["body_base64"].as_str() {
+                Some(b64) => exact_runner::agent::unbase64(b64)
+                    .ok_or_else(|| unavailable("fetch body is not base64"))?,
+                None => r["body"].as_str().unwrap_or("").as_bytes().to_vec(),
             };
+            // `exactTimeout`, as the prelude checked it (1..=3600000 ms).
+            if let Some(ms) = r["timeout_ms"].as_u64() {
+                request.timeout_ms = Some(
+                    u32::try_from(ms)
+                        .map_err(|_| unavailable("a request timeout must be 1 to 3600000 ms"))?,
+                );
+            }
+            if r["stream"] == true {
+                // The page opens it; its events come back as messages.
+                request = match Answer::stream(request) {
+                    Answer::Later(request) => request,
+                    Answer::Now(_) => unreachable!("a stream is a request"),
+                };
+                self.streams.insert(key, ());
+            } else {
+                self.waiting.insert(key, false);
+            }
+            Answer::Later(request)
+        } else if response["tag"] == 0 {
+            let value = reply
+                .value
+                .unwrap_or_else(|| json::decode(&Json::Null, result));
+            Answer::Now(value.map_err(|e| {
+                let why = format!("`{source}` answered outside its shape: {e}");
+                DataError::Failed(exact_runner::failure::FailureCode::Shape, why)
+            })?)
+        } else {
+            return Err(unavailable("browser module returned no answer tag"));
+        };
         Ok(answer)
     }
 }
@@ -446,7 +450,8 @@ impl DataSource for Module {
                 | DataError::BadArguments(e)
                 | DataError::UnknownSource(e)
                 | DataError::Interface(e)
-                | DataError::DeferredAtBake(e),
+                | DataError::DeferredAtBake(e)
+                | DataError::Failed(_, e),
             ) => exact_runner::DrawReply {
                 error: Some(e),
                 ..Default::default()
@@ -954,8 +959,9 @@ mod tests {
             (Shape::Unit, Ok(Answer::Now(Value::Unit))),
             (
                 Shape::Number,
-                Err(unavailable(
-                    "`source` answered outside its shape: expected a number, got null",
+                Err(DataError::Failed(
+                    exact_runner::failure::FailureCode::Shape,
+                    "`source` answered outside its shape: expected a number, got null".into(),
                 )),
             ),
         ] {

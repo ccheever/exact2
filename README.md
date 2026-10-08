@@ -446,7 +446,7 @@ This list lives in memory. To keep it across launches, give `app.ts` a grant lik
 | `state` | A value the component owns. Under an `each`, child state belongs to that keyed row. |
 | `derive` | A value computed from others, recomputed when they change. |
 | `resource` | Data from a source: `resource x = source(args) as shape T`. When the arguments change, the source is asked again. |
-| `mutation` / `send` | A change made through a source: `send x = source(args)`. `refreshes r` asks resource `r` again afterward, and `pending(x)` and `failed(x)` show progress. |
+| `mutation` / `send` | A change made through a source: `send x = source(args)`. `refreshes r` asks resource `r` again afterward, `pending(x)` and `failed(x)` show progress, and `failure(x)` says why a resource failed. |
 | `action` | The only place state changes. What it writes is inferred from its body, and `let` binds a local inside it. |
 | `task` | Work on a schedule: `every(1000, tick)`, `after(ms, a)`, `every(frame, a)`. |
 | `view` | Indented elements, `when … else`, `each … key=…` (a key is required), `match` over options, and calls to other components. |

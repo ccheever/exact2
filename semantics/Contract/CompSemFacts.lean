@@ -75,6 +75,7 @@ theorem cmono_aux : ∀ n,
             exact ⟨a, ihE hm h1, xs, h2, ys, ihF hm h3, h4⟩
           next => exact ihP hm h
           next => exact ihP hm h
+          next => exact ihP hm h
           next =>
             simp only [Except.bind_ok_iff] at h ⊢
             obtain ⟨vs, h1, h2⟩ := h

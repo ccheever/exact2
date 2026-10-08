@@ -1,5 +1,5 @@
 import { renderMarkup, reportPlace, onSelection, textField, settleRadios } from "./navigation.js"; export { animationClocks, launchLocation } from "./navigation.js"; // synced animations (LLP 1055.002, emit.rs `clocks`)
-import { Docs, Head, head, markDocument, projectRoots } from "./document.js"; export { Head }; import { conforms, eq, equal } from "./shape.js"; import { pointer, record } from "./pointer.js"; import { commands } from "./commands.js"; import { autofocus, press } from "./focus.js";
+import { Docs, Head, head, markDocument, projectRoots } from "./document.js"; export { Head }; import { conforms, eq, equal, failureCode } from "./shape.js"; import { pointer, record } from "./pointer.js"; import { commands } from "./commands.js"; import { autofocus, press } from "./focus.js";
 let Paint; export function usePaint(pass) { Paint = pass; } export { conforms, eq, equal }; // the compiler installs `Paint` only when a plan can layer boxes
 let Media = null; export function useMedia(m) { Media = m; } // and media.js only where a plan has a `video` or `audio`
 // The JS target's runtime: fine-grained DOM signals for a plan compiled ahead by `exact-web-js`. Everything here is imported
@@ -143,7 +143,7 @@ export const owner = () => Owner, rev = () => Rev, ticket = () => Ticket, nextTi
 /** A typed refusal: the commit rolls back (LLP 1005 §6 atomicity). */
 export class Refusal extends Error {}
 /** A data or shape refusal (the runner's `RunnerError::Data` or `Shape`): one in a reply's commit lets its ticket go (`reply`). */
-class Failed extends Refusal {}
+class Failed extends Refusal { constructor(message, code = "error") { super(message); this.code = code; } } // `code`: failure(x)'s (shape.js `failureCode`)
 let Writes = null, Commands = [], Out = [], Landed = [], Sends = [], Refresh = [], Poisoned = false, Refused = null, Sched = null;
 /** Queued sends and gated tasks (schedule.js, LLP 1092), installed by a plan that declares them; the last commit's refusal. */
 export const useSchedule = s => { Sched = s; }, refused = () => Refused;
@@ -413,7 +413,7 @@ function send(t, land) {
       t.ctl = new AbortController(); t.messages = t.coalesced = 0; Open.add(t);
       (t.stream ? t.stream(o => done(o, true), t.ctl) : data.fetch(t.req, m => done({ streamed: m }, true), t.ctl)).then(done, failed);
     } else if (t.req) data.fetch(t.req).then(done, failed);
-    else t.promise.then(v => done({ v }), e => done({ error: String(e?.message ?? e) }));
+    else t.promise.then(v => done({ v }), e => done({ error: String(e?.message ?? e), code: failureCode(e) }));
   });
 }
 /** Open streams: one whose ticket its resource or mutation let go (new arguments, `refresh`, a failure,
@@ -439,12 +439,12 @@ function reply(t, name, source, held, f, next, gone) {
     if (commit(() => {
       if (!held()) return say(`dropped reply for ${name}: ticket ${t.id} is no longer held`);
       let p;
-      try { if (o.error !== undefined) throw new Failed(o.error); p = o.v !== undefined ? { v: o.v } : data.parse(source, t.args, o, Store); }
-      catch (e) { throw e instanceof Failed ? e : new Failed(String(e?.message ?? e)); }
+      try { if (o.error !== undefined) throw new Failed(o.error, o.code); p = o.v !== undefined ? { v: o.v } : data.parse(source, t.args, o, Store); }
+      catch (e) { throw e instanceof Failed ? e : new Failed(String(e?.message ?? e), failureCode(e)); }
       f(p, o);
     }, `${o.more ? "message" : "reply"} ${name}; wall ${t.elapsed} ms`) !== false || !(Refused instanceof Failed) || !held()) return;
     say(`request ${t.id} (${name}) failed and is no longer pending: ${next}`);
-    gone(Refused.message); commit(() => { if (t.r) again(t); }, "a failed request");
+    gone(Refused.message, Refused.code); commit(() => { if (t.r) again(t); }, "a failed request");
   };
 }
 const revalidated = (name, same) => `${name} answered: ${same ? "equal to its build-time answer" : "replaces its build-time answer"}`; // runner lines.rs
@@ -454,7 +454,7 @@ export function res(name, source, args, initial, initialArgs, type, ph, carried 
   const kept = checkpoint().kept?.get(name);
   if (kept) [initialArgs, initial] = kept;
   const r = { name, source, type, value: initial, settled: initialArgs, baked: !kept && !carried && initialArgs !== undefined, ticket: null, forced: false, reread: false, rev: false, store: false };
-  const flag = (s, v, undo) => { if (!eq(s.n.v, v)) { undo?.push([s.n, s.n.v]); write(s.n, v); } };
+  const flag = (s, v, undo) => { if (!eq(s.n.v, v)) { undo?.push([s.n, s.n.v]); write(s.n, v); } }, failure = () => r.failed ? [r.failed, r.code ?? "error", r.error ?? "it failed"] : null; // `fail` holds the message too: a `failure(x)` reader is asked again when only it changes
   // Nothing kept: the placeholder shows, pending (LLP 1048.003 D6).
   const hold = () => {
     if (r.value !== undefined) return;
@@ -463,7 +463,7 @@ export function res(name, source, args, initial, initialArgs, type, ph, carried 
     r.value = v;
   };
   const take = (v, a) => {
-    if (type && !conforms(v, type, [0], r.checked)) throw new Failed(`${name}: the answer does not conform to its shape`);
+    if (type && !conforms(v, type, [0], r.checked)) throw new Failed(`${name}: the answer does not conform to its shape`, "shape");
     r.checked = v;
     r.value = v; r.settled = a;
   };
@@ -472,17 +472,17 @@ export function res(name, source, args, initial, initialArgs, type, ph, carried 
   // that re-asks (a cursor across a gap) is a new ticket, the old one closed with the commit (`Open`).
   const land = t => reply(t, name, source, () => r.ticket === t, (p, o) => {
     if (p.req) { if (o.more) { const n = { id: ++Ticket, args: t.args, req: p.req, r }; r.ticket = n; send(n, land(n)); } else { t.req = p.req; t.id = ++Ticket; send(t, land(t)); } return; }
-    if (t.baked) say(revalidated(name, eq(p.v, r.value))); t.baked = false; take(p.v, t.args); r.failed = null; r.error = undefined; if (!o.more) r.ticket = null; again(t);
+    if (t.baked) say(revalidated(name, eq(p.v, r.value))); t.baked = false; take(p.v, t.args); r.failed = null; r.error = r.code = undefined; if (!o.more) r.ticket = null; again(t);
     W(pend, false); W(fail, null); W(ver, ver.n.v + 1);
-  }, "it keeps its last value", error => { r.ticket = null; r.failed = t.args; r.error = error; write(pend.n, false); write(fail.n, t.args); });
+  }, "it keeps its last value", (error, code) => { r.ticket = null; r.failed = t.args; r.error = error; r.code = code; write(pend.n, false); write(fail.n, failure()); });
   const m = memo(() => {
     ver();
     const a = args();
     const forced = r.forced, reread = r.reread, rev = r.rev;
     r.forced = r.reread = r.rev = false;
     // A failure keeps the value for its arguments, asking nothing; `refresh` or new ones ask again (settlement.rs). `fail` follows.
-    if (r.failed && (forced || !equal(a, r.failed))) { r.failed = null; r.error = undefined; }
-    flag(fail, r.failed);
+    if (r.failed && (forced || !equal(a, r.failed))) { r.failed = null; r.error = r.code = undefined; }
+    flag(fail, failure());
     if (r.failed) return r.value;
     const baked = r.baked; r.baked = false;
     if (!forced && !reread && !rev) {
@@ -495,7 +495,7 @@ export function res(name, source, args, initial, initialArgs, type, ph, carried 
     catch (e) {
       if (e instanceof Refusal) throw e;
       if (e.refuse) throw new Failed(`resource ${name}: ${e.message}`);
-      r.failed = a; r.error = e.message; flag(fail, a); say(`resource ${name} failed: ${e.message}`); return r.value;
+      r.failed = a; r.error = String(e?.message ?? e); r.code = failureCode(e); flag(fail, failure()); say(`resource ${name} failed: ${e.message}`); return r.value;
     }
     if (ans && ans.store) r.store = true;
     if (ans && "v" in ans) {
@@ -526,8 +526,8 @@ export function res(name, source, args, initial, initialArgs, type, ph, carried 
     return r.value;
   }, type);
   Object.assign(r, {
-    save: () => [r.value, r.settled, r.ticket, r.ticket?.args, r.store, r.failed, r.baked, r.error, r.ticket?.again],
-    restore: x => { [r.value, r.settled, r.ticket] = x; if (r.ticket) { r.ticket.args = x[3]; r.ticket.again = x[8]; } r.store = x[4]; r.failed = x[5]; r.baked = x[6]; r.error = x[7]; },
+    save: () => [r.value, r.settled, r.ticket, r.ticket?.args, r.store, r.failed, r.baked, r.error, r.ticket?.again, r.code],
+    restore: x => { [r.value, r.settled, r.ticket] = x; if (r.ticket) { r.ticket.args = x[3]; r.ticket.again = x[8]; } r.store = x[4]; r.failed = x[5]; r.baked = x[6]; r.error = x[7]; r.code = x[9]; },
     force: undo => { r.forced = true; flag(ver, ver.n.v + 1, undo); },
     reread_: undo => { r.reread = true; flag(ver, ver.n.v + 1, undo); },
     revise: undo => { r.rev = true; flag(ver, ver.n.v + 1, undo); },
@@ -535,7 +535,7 @@ export function res(name, source, args, initial, initialArgs, type, ph, carried 
   onEnd(() => { r.gone = true; }); // its region ended: an open stream closes (`Open`)
   Resources.push(r);
   m.p = () => (m(), pend());
-  m.f = () => (m(), fail() != null);
+  m.f = () => (m(), fail() != null); m.e = () => (m(), fail()?.slice(1) ?? null); // `failure(x)`: `none`, or the `Failure` record `[code, message]`
   m.n.resource = r;
   m.r = r;
   return m;

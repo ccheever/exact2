@@ -71,6 +71,7 @@ pub use paired::Paired;
 use door::{c_string, host_door};
 use engine::{Engine, HostFn};
 use exact_plan::{Plan, Value};
+use exact_runner::failure::FailureCode;
 use exact_runner::{
     Answer, DataError, DataSource, Dispatch, InFlight, Interrupt, Outcome, Request, Store, Target,
     Work,
@@ -646,16 +647,18 @@ impl Module {
         } = decoded;
         if engine.has_reply_strings() {
             if let Err(error) = engine.restore_reply(&mut reply) {
-                return Step::Done(Err(DataError::Unavailable(format!(
-                    "`{source}` answered outside its shape: {error}"
-                ))));
+                return Step::Done(Err(DataError::Failed(
+                    FailureCode::Shape,
+                    format!("`{source}` answered outside its shape: {error}"),
+                )));
             }
             value = from_json(reply.get("value").unwrap_or(&Json::Null), &sig.result);
         }
         let num = |k: &str| reply.get(k).and_then(Json::as_u64);
         match num("tag") {
             Some(0) => Step::Done(value.map_err(|e| {
-                DataError::Unavailable(format!("`{source}` answered outside its shape: {e}"))
+                let why = format!("`{source}` answered outside its shape: {e}");
+                DataError::Failed(FailureCode::Shape, why)
             })),
             Some(1) => match (num("call"), num("ticket")) {
                 (Some(call), Some(0)) if reply.get("waiting") == Some(&Json::Bool(true)) => {
@@ -683,7 +686,11 @@ impl Module {
                     {
                         DataError::DeferredAtBake(message)
                     }
-                    _ => DataError::Unavailable(message),
+                    // What it let through, by class (LLP 1109 D3; prelude.js `failureCode`).
+                    _ => FailureCode::seam_error(
+                        reply.get("failure").and_then(Json::as_str),
+                        message,
+                    ),
                 }))
             }
             _ => Step::Done(Err(DataError::Unavailable(format!(

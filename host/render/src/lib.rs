@@ -159,7 +159,12 @@ pub fn projects_as_booted(plan: &Plan) -> bool {
             i.is_ok_and(|i| {
                 !matches!(
                     i.op,
-                    LoadResource | LoadDerive | PendingResource | FailedResource | PendingMutation
+                    LoadResource
+                        | LoadDerive
+                        | PendingResource
+                        | FailedResource
+                        | FailureResource
+                        | PendingMutation
                 )
             })
         })

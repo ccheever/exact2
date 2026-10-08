@@ -1,7 +1,8 @@
 //! Admission failures occupy the already-bounded current target ticket, never
 //! a separate failure queue. Supersession drops them with the old ticket.
 use super::{CommitReceipt, DataSource, Outcome, Runner, RunnerError, Target};
-use crate::{DataError, FailureKind};
+use crate::failure::Failure;
+use crate::FailureKind;
 
 impl<D: DataSource> Runner<D> {
     /// Record a host admission refusal on a still-current ticket. Repeating
@@ -85,7 +86,7 @@ impl<D: DataSource> Runner<D> {
         &mut self,
         ticket: u64,
         target: Target,
-        why: String,
+        why: Failure,
     ) -> Result<Option<CommitReceipt>, RunnerError> {
         let (failed_args, ask_again) = self
             .pending
@@ -136,22 +137,5 @@ impl<D: DataSource> Runner<D> {
                 p.refusal
                     .is_some_and(|(_, ordered)| !ordered || allow_ordered)
             })
-    }
-}
-
-/// What a failed reply's error says, as `state.failed` shows it.
-pub(super) fn failure_text(error: &RunnerError) -> String {
-    match error {
-        RunnerError::Data { error, .. } => match error {
-            DataError::UnknownSource(s)
-            | DataError::BadArguments(s)
-            | DataError::Unavailable(s)
-            | DataError::DeferredAtBake(s)
-            | DataError::Interface(s) => s.clone(),
-        },
-        RunnerError::Shape { resource, why } => {
-            format!("`{resource}` answered outside its shape: {why}")
-        }
-        other => format!("{other:?}"),
     }
 }

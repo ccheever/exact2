@@ -829,7 +829,7 @@ pub(crate) fn initializer_scope(
     // names, and of those only an action is callable; any other name a
     // call makes is the roster's (`state length = length("abc")`).
     let calls = |name: &str| {
-        !matches!(name, "failed" | "pending")
+        !matches!(name, "failed" | "failure" | "pending")
             && !crate::records::is_record_call(name, shapes)
             && !shapes.fns.contains_key(name)
             && c.actions.iter().any(|a| a.name == name)

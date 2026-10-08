@@ -11,6 +11,7 @@ import { tsGrantSet } from './admission-data.js';
 import { answering } from './ts-fetch.js';
 import { sourceTypes } from './names.js';
 import { checkpoint, clock, commit, inflight, journal, painted, R, Resources } from './rt.js';
+import { Shaped } from './shape.js';
 __AUTH_IMPORT__
 // Values cross by the plan's types (`named` into the module's objects,
 // `arrays` back into the runtime's arrays), with each type's converters made
@@ -106,7 +107,7 @@ function outside(v, t) {
 }
 const checked = (name, v, t) => {
   const e = outside(v, t);
-  if (e) throw Object.assign(new Error(`\`${name}\` answered outside its shape: ${e}`), { kind: 'Unavailable' });
+  if (e) throw Object.assign(new Error(`\`${name}\` answered outside its shape: ${e}`), { kind: 'Unavailable', [Shaped]: true });
   return v;
 };
 export const named = (v, t) => converters(t)[0](v);
