@@ -1,0 +1,21 @@
+app-developer-tools: checks (2026-10-08)
+
+Branch at caf50cab9 (code) with the records staged; feature branch origin/feat(example)/t3-code 84a52dde0 merged (a37578082), unchanged since.
+
+Clone checks
+- bun test examples/t3-code: 3142 pass / 1 skip / 0 fail (Ran 3143 tests across 242 files. [6.50s])
+- strict tsc (README command) on app.ts: clean (exit 0)
+- bun scripts/exact.mjs contract build examples/t3-code/app.contract: 3938 slots, 20 derives, 46 resources, 4237 actions, 75584 nodes, 30105 regions, 15585597 bytes
+- cargo test -p t3-code-macos --lib: test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 10.60s (run at a37578082; caf50cab9 changes only module Swift, tests and docs, which the crate does not compile)
+- AppKit (README recipe): r6-media 9/0 (WebInspectionTests 4), terminal 38/0 (1 skipped: T3_TERMINAL_SCALE), mermaid 10 ok against a lane T3 server (02, 02b)
+
+Repository checks (CLAUDE.md flags), target/devtools/five.sh
+- build exit 0
+- test exit 0
+- clippy exit 0
+- fmt exit 0
+- caps exit 0
+- boot exit 0
+- cargo test: 3521 passed, 0 failed, 34 ignored across 94 test binaries
+- caps: All budgets within cap. 6 categories inspected.
+- boot: boot — modules reachable before first pixel: 2 (host/web/glue.js, host/web/navigation.js); wasm references: 8
