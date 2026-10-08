@@ -5,10 +5,41 @@ use crate::{ButtonMeasure, ButtonMeasureRequest, PropId};
 pub(super) struct ButtonRecord {
     inputs: crate::arena::button::ButtonInputs,
     request: ButtonMeasureRequest,
-    answers: Vec<(ButtonMeasureRequest, ButtonMeasure)>,
+    // The face/style is held once. Offers retain only resolved geometry and size.
+    answers: Vec<(ButtonOffer, ButtonMeasure)>,
+    revision: u64,
     pub(super) parent_width: Option<f32>,
     provisional: bool,
     supported: bool,
+}
+
+#[derive(Clone, Copy, PartialEq)]
+struct ButtonOffer {
+    width: AxisOffer,
+    geometry: [f32; 8],
+}
+
+impl ButtonOffer {
+    fn of(request: &ButtonMeasureRequest) -> Self {
+        let s = &request.style.button;
+        Self {
+            width: request.width,
+            geometry: [
+                s.padding_top,
+                s.padding_right,
+                s.padding_bottom,
+                s.padding_left,
+                s.border_radius_top_left,
+                s.border_radius_top_right,
+                s.border_radius_bottom_right,
+                s.border_radius_bottom_left,
+            ]
+            .map(|d| match d {
+                crate::Dimension::Points(n) => n,
+                _ => unreachable!("button geometry is resolved before measurement"),
+            }),
+        }
+    }
 }
 
 impl ButtonRecord {
@@ -17,7 +48,8 @@ impl ButtonRecord {
         request: ButtonMeasureRequest,
         measurer: &mut dyn TextMeasurer,
     ) -> Option<ButtonMeasure> {
-        if let Some((_, answer)) = self.answers.iter().find(|(held, _)| *held == request) {
+        let offer = ButtonOffer::of(&request);
+        if let Some((_, answer)) = self.answers.iter().find(|(held, _)| *held == offer) {
             return Some(*answer);
         }
         let answer = measurer.button_measure(&request)?;
@@ -26,7 +58,7 @@ impl ButtonRecord {
             if self.answers.len() == LEAF_OFFERS {
                 self.answers.remove(0);
             }
-            self.answers.push((request, answer));
+            self.answers.push((offer, answer));
         }
         Some(answer)
     }
@@ -64,11 +96,12 @@ impl LayoutTree {
                 at = self.taffy.parent(n);
             }
         }
+        let revision = measurer.measure_revision();
         for (node, slot) in nodes {
             let changed = self
                 .button_records
                 .get(&node)
-                .is_none_or(|r| !r.inputs.matches(arena, slot));
+                .is_none_or(|r| r.revision != revision || !r.inputs.matches(arena, slot));
             if changed {
                 self.button_records.insert(
                     node,
@@ -84,7 +117,8 @@ impl LayoutTree {
                                 .to_owned(),
                             width: AxisOffer::MaxContent,
                         },
-                        answers: Vec::new(),
+                        answers: Vec::with_capacity(LEAF_OFFERS),
+                        revision,
                         parent_width: None,
                         provisional: false,
                         supported: false,
@@ -146,4 +180,87 @@ pub(super) fn measure(
         .style
         .resolve_geometry(arena.env(), record.parent_width, frame);
     record.answer(request, measurer)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    struct Host;
+    impl TextMeasurer for Host {
+        fn measure(&mut self, _: &crate::TextMeasureRequest<'_>) -> TextMetrics {
+            TextMetrics::default()
+        }
+        fn button_measure(&mut self, r: &ButtonMeasureRequest) -> Option<ButtonMeasure> {
+            Some(ButtonMeasure {
+                width: match r.width {
+                    AxisOffer::Definite(w) => w,
+                    _ => 100.0,
+                },
+                height: 30.0,
+                provisional: false,
+            })
+        }
+    }
+    #[test]
+    fn cached_offers_keep_constant_allocation_and_compact_storage() {
+        let mut kernel = crate::Kernel::with_monospace();
+        kernel
+            .apply(
+                0,
+                1,
+                &[
+                    crate::Op::CreateView {
+                        id: 1,
+                        node_type: NodeType::Control,
+                    },
+                    crate::Op::SetProp {
+                        id: 1,
+                        prop: PropId::Type,
+                        value: crate::PropValue::Str("button".into()),
+                    },
+                ],
+            )
+            .unwrap();
+        let arena = kernel.node(1).unwrap().arena;
+        let slot = arena.slot_of(1).unwrap();
+        let mut record = ButtonRecord {
+            inputs: arena.button_inputs(slot),
+            request: ButtonMeasureRequest {
+                face: arena.press_face(slot).unwrap(),
+                style: arena.button_face_style_unresolved(slot).unwrap(),
+                button_style: "bordered".into(),
+                width: AxisOffer::MaxContent,
+            },
+            answers: Vec::with_capacity(LEAF_OFFERS),
+            revision: 0,
+            parent_width: None,
+            provisional: false,
+            supported: true,
+        };
+        let mut host = Host;
+        let mut request = record.request.clone();
+        request
+            .style
+            .resolve_geometry(arena.env(), None, Frame::default());
+        record.answer(request, &mut host);
+        let capacity = record.answers.capacity();
+        for width in 1..=LEAF_OFFERS * 2 {
+            let mut request = record.request.clone();
+            request.width = AxisOffer::Definite(width as f32);
+            request
+                .style
+                .resolve_geometry(arena.env(), None, Frame::default());
+            record.answer(request, &mut host);
+        }
+        assert!(
+            std::mem::size_of_val(record.answers.as_slice()) <= LEAF_OFFERS * 64,
+            "offers must not retain a full face/style record: {} bytes",
+            std::mem::size_of_val(record.answers.as_slice())
+        );
+        assert_eq!(
+            record.answers.capacity(),
+            capacity,
+            "offers must not grow the allocation"
+        );
+    }
 }

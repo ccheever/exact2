@@ -83,7 +83,7 @@
   #exact-root button:is([data-button-style="prominent-glass"], [data-button-style="prominent-clear-glass"]) { background: color-mix(in srgb, var(--exact-accent, AccentColor) 85%, transparent); --exact-button-accent-fill: color-mix(in srgb, var(--exact-accent) 85%, transparent); color: #fff; }
   /* Disabled UA ink, while inline author colours and symbol tint still win. */
   #exact-root button[data-button-style]:disabled { color: GrayText; }
-  #exact-root button:is([data-button-style="filled"], [data-button-style="bordered-prominent"], [data-button-style$="glass"]):disabled { background-color: var(--exact-button-accent-fill, color-mix(in srgb, AccentColor 45%, transparent)); }
+  #exact-root button:is([data-button-style="filled"], [data-button-style="bordered-prominent"], [data-button-style$="glass"]):disabled { background-color: var(--exact-button-accent-fill, color-mix(in srgb, var(--exact-accent, AccentColor) 45%, transparent)); }
   #exact-root button:is([data-button-style="plain"], [data-button-style="borderless"], [data-button-style="tinted"], [data-button-style="bordered-tinted"]):disabled { color: var(--exact-accent, GrayText); }
   /* Keep the textarea's native long-word wrapping through the control reset. */
   textarea { overflow-wrap: revert; }

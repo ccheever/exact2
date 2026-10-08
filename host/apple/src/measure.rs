@@ -215,6 +215,7 @@ pub struct CallbackMeasurer {
     f: MeasureFn,
     field_chrome: Option<crate::control_text::FieldChromeFn>,
     button_measure: Option<crate::control_text::ButtonMeasureFn>,
+    measure_revision: Option<std::rc::Rc<std::cell::Cell<u64>>>,
     lines: Option<LinesFn>,
     ctx: *mut c_void,
     memo: identified::Memo,
@@ -231,6 +232,7 @@ impl CallbackMeasurer {
             f,
             field_chrome: None,
             button_measure: None,
+            measure_revision: None,
             lines,
             ctx,
             memo: identified::Memo::default(),
@@ -278,6 +280,15 @@ impl CallbackMeasurer {
         callback: Option<crate::control_text::ButtonMeasureFn>,
     ) -> Self {
         self.button_measure = callback;
+        self
+    }
+
+    /// The runtime bumps this when measuring traits change, even if fonts do not.
+    pub(crate) fn with_measure_revision(
+        mut self,
+        revision: std::rc::Rc<std::cell::Cell<u64>>,
+    ) -> Self {
+        self.measure_revision = Some(revision);
         self
     }
 
@@ -382,6 +393,12 @@ fn sanitize(m: CMetrics) -> TextMetrics {
 }
 
 impl TextMeasurer for CallbackMeasurer {
+    fn measure_revision(&self) -> u64 {
+        self.measure_revision
+            .as_ref()
+            .map_or(0, |revision| revision.get())
+    }
+
     fn field_chrome(
         &mut self,
         request: &exact_kernel::FieldChromeRequest,

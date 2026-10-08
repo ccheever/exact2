@@ -21,8 +21,12 @@ impl<D: DataSource> Bridge<D> {
     pub fn set_button_measure(&mut self, measure: Option<crate::control_text::ButtonMeasureFn>) {
         self.button_measure = measure;
     }
-    /// Dynamic Type/legibility changed; preserve the safe area and other environment facts.
+    /// Measuring traits (scale, content size, legibility, appearance) changed;
+    /// preserve the safe area and other environment facts.
     pub fn control_text_changed(&mut self, hooks: Hooks) -> u32 {
+        if let Some(revision) = &self.measure_revision {
+            revision.set(revision.get().wrapping_add(1));
+        }
         let styles = self
             .control_text
             .map(|f| crate::control_text::text_styles(f, hooks.ctx));

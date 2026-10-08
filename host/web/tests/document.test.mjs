@@ -477,14 +477,14 @@ browserCheck(`interaction documents stay readable, then replay edits and actions
 
 // LLP 1069.011.001 D5/D6/D16: the shipped shell isolates button layout,
 // truncates only the requested titles, and keeps authored disabled colours.
-for (const concern of ['defaults', 'nowrap', 'clamp', 'disabled accent', 'disabled plain accent']) browserCheck(`native button ${concern}`, async () => {
+for (const concern of ['defaults', 'nowrap', 'clamp', 'disabled accent', 'disabled plain accent', 'disabled glass accent', 'disabled clear-glass accent']) browserCheck(`native button ${concern}`, async () => {
   const shell = readFileSync(resolve(ROOT, 'host/web/index.html'), 'utf8');
-  const button = (id, style = '', extra = '') => `<button id="${id}" data-native data-button-style="${id === 'plain-accent' ? 'plain' : 'filled'}" style="display:grid;width:120px;${style}" ${extra}><span data-exact-text>A native title long enough to wrap onto several lines</span></button>`;
-  const html = shell.replace('<div id="exact-root"></div>', `<div id="exact-root"><div style="white-space:nowrap;text-align:end">${button('wrap')}${button('nowrap', 'white-space:nowrap;')}${button('clamp', '--exact-button-clamp:2;--exact-button-title-display:-webkit-box;')}${button('authored', '--exact-accent:#ff0000;', 'disabled')}${button('align', 'text-align:end;')}${button('plain-accent', '--exact-accent:#ff0000;', 'disabled')}${button('default-off', '', 'disabled')}</div></div>`).replace('<script type="module" src="./glue.js"></script>', '');
+  const button = (id, style = '', extra = '') => `<button id="${id}" data-native data-button-style="${id === 'plain-accent' ? 'plain' : id === 'glass-accent' ? 'glass' : id === 'clear-glass-accent' ? 'clear-glass' : 'filled'}" style="display:grid;width:120px;${style}" ${extra}><span data-exact-text>A native title long enough to wrap onto several lines</span></button>`;
+  const html = shell.replace('<div id="exact-root"></div>', `<div id="exact-root"><div style="white-space:nowrap;text-align:end">${button('wrap')}${button('nowrap', 'white-space:nowrap;')}${button('clamp', '--exact-button-clamp:2;--exact-button-title-display:-webkit-box;')}${button('authored', '--exact-accent:#ff0000;', 'disabled')}${button('align', 'text-align:end;')}${button('plain-accent', '--exact-accent:#ff0000;', 'disabled')}${button('default-off', '', 'disabled')}${button('glass-accent', '--exact-accent:#ff0000;', 'disabled')}${button('clear-glass-accent', '--exact-accent:#ff0000;', 'disabled')}</div></div>`).replace('<script type="module" src="./glue.js"></script>', '');
   await withDocument('/', async tab => {
     const page = await tab(true);
     await page.until("document.readyState === 'complete'", 'native fixture');
-    const facts = await page(`(() => { const read = id => { const b=document.getElementById(id),t=b.firstElementChild,s=getComputedStyle(b),c=getComputedStyle(t); return {whiteSpace:s.whiteSpace,align:s.textAlign,display:c.display,height:t.getBoundingClientRect().height,width:t.clientWidth,scroll:t.scrollWidth,ellipsis:c.textOverflow,background:s.backgroundColor,color:s.color}; }; return Object.fromEntries(['wrap','nowrap','clamp','authored','default-off','align','plain-accent'].map(id=>[id,read(id)])); })()`);
+    const facts = await page(`(() => { const read = id => { const b=document.getElementById(id),t=b.firstElementChild,s=getComputedStyle(b),c=getComputedStyle(t); return {whiteSpace:s.whiteSpace,align:s.textAlign,display:c.display,height:t.getBoundingClientRect().height,width:t.clientWidth,scroll:t.scrollWidth,ellipsis:c.textOverflow,background:s.backgroundColor,color:s.color}; }; return Object.fromEntries(['wrap','nowrap','clamp','authored','default-off','align','plain-accent','glass-accent','clear-glass-accent'].map(id=>[id,read(id)])); })()`);
     if (concern === 'defaults') {
       expect(facts.wrap.whiteSpace).toBe('normal');
       expect(facts.wrap.align).toBe('center');
@@ -502,10 +502,20 @@ for (const concern of ['defaults', 'nowrap', 'clamp', 'disabled accent', 'disabl
       expect(facts.nowrap.scroll).toBeGreaterThan(facts.nowrap.width);
       expect(facts.nowrap.ellipsis).toBe('ellipsis');
     }
+    if (concern === 'disabled glass accent') expect(facts['glass-accent'].background).toBe('color(srgb 1 0 0 / 0.45)');
+    if (concern === 'disabled clear-glass accent') expect(facts['clear-glass-accent'].background).toBe('color(srgb 1 0 0 / 0.45)');
     if (concern === 'disabled plain accent') expect(facts['plain-accent'].color).toBe('rgb(255, 0, 0)');
     if (concern === 'disabled accent') {
       expect(facts.authored.background).toBe('rgb(255, 0, 0)');
       expect(facts['default-off'].background).not.toBe(facts.authored.background);
     }
   }, {html});
+});
+
+
+test('native button WebKit allowance ends at exactly 6.00 px', () => {
+  const known = JSON.parse(readFileSync(resolve(ROOT, 'host/web-js/conformance/known-webkit.json'), 'utf8'));
+  const pattern = new RegExp(known.find(entry => entry.app === 'synthetic-native-buttons').pattern);
+  for (const delta of ['0.00', '4.99', '5.99', '6.00']) expect(pattern.test(`(delta ${delta} px, tolerance 4 px)`)).toBe(true);
+  for (const delta of ['6.01', '6.99', '7.00', '16.00']) expect(pattern.test(`(delta ${delta} px, tolerance 4 px)`)).toBe(false);
 });

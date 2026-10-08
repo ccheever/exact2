@@ -668,3 +668,45 @@ fn unresolved_host_still_publishes_resolved_button_padding() {
         Dimension::Points(30.0)
     );
 }
+
+#[test]
+fn a_scale_only_measurement_revision_remeasures_without_a_tree_edit() {
+    use std::cell::Cell;
+    struct Scaled {
+        scale: Rc<Cell<u64>>,
+        calls: Rc<Cell<usize>>,
+    }
+    impl TextMeasurer for Scaled {
+        fn measure_revision(&self) -> u64 {
+            self.scale.get()
+        }
+        fn measure(&mut self, r: &TextMeasureRequest<'_>) -> TextMetrics {
+            MonospaceMeasurer::default().measure(r)
+        }
+        fn button_measure(&mut self, _: &ButtonMeasureRequest) -> Option<ButtonMeasure> {
+            self.calls.set(self.calls.get() + 1);
+            let scale = self.scale.get() as f32;
+            Some(ButtonMeasure {
+                width: 100.0,
+                height: (30.2 * scale).ceil() / scale,
+                provisional: false,
+            })
+        }
+    }
+    let scale = Rc::new(Cell::new(1));
+    let calls = Rc::new(Cell::new(0));
+    let mut k = tree(Box::new(Scaled {
+        scale: scale.clone(),
+        calls: calls.clone(),
+    }));
+    assert_eq!(layout(&mut k).height, 31.0);
+    let env = k.env();
+    calls.set(0);
+    scale.set(2);
+    assert_eq!(layout(&mut k).height, 30.5);
+    assert!(calls.get() > 0);
+    assert_eq!(k.env(), env, "only the host scale changed");
+    calls.set(0);
+    layout(&mut k);
+    assert_eq!(calls.get(), 0, "the new revision's offers are reused");
+}

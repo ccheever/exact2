@@ -335,6 +335,13 @@ impl TextMetrics {
 
 /// A host's text engine, injected per kernel.
 pub trait TextMeasurer {
+    /// Revision of host measuring traits (scale, content size, legibility,
+    /// appearance). A change invalidates native button offers even if fonts
+    /// and the tree stay the same. Hosts without changing traits return zero.
+    fn measure_revision(&self) -> u64 {
+        0
+    }
+
     /// Native field chrome (LLP 1104 D5). Existing/painted measurers answer
     /// no chrome until they implement their own control look.
     fn field_chrome(&mut self, _request: &crate::FieldChromeRequest) -> crate::FieldChrome {

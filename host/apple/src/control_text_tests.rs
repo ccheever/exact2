@@ -402,3 +402,76 @@ fn control_size_fonts_feed_em_resolution_and_the_shared_face_payload() {
     assert_eq!(json["rows"]["title"]["font_size"], 57.);
     assert_eq!(json["rows"]["title"]["font_size_resolved"], 1);
 }
+
+#[test]
+fn trait_notification_remeasures_buttons_when_control_fonts_are_unchanged() {
+    use std::cell::Cell;
+    thread_local! {
+        static SCALE: Cell<f32> = const { Cell::new(1.0) };
+        static CALLS: Cell<usize> = const { Cell::new(0) };
+    }
+    extern "C" fn text(
+        _: *mut std::ffi::c_void,
+        _: *const crate::measure::CRequest,
+    ) -> crate::measure::CMetrics {
+        crate::measure::CMetrics {
+            width: 50.0,
+            height: 17.0,
+            baseline: 14.0,
+        }
+    }
+    extern "C" fn font(_: *mut std::ffi::c_void, _: u8) -> crate::control_text::CControlFont {
+        crate::control_text::CControlFont {
+            family: std::ptr::null(),
+            family_len: 0,
+            family_id: 0,
+            size: 17.0,
+            weight: 400,
+            italic: 0,
+        }
+    }
+    extern "C" fn button(
+        _: *mut std::ffi::c_void,
+        _: *const crate::control_text::CButtonMeasureRequest,
+    ) -> crate::control_text::CButtonMeasure {
+        CALLS.set(CALLS.get() + 1);
+        let scale = SCALE.get();
+        crate::control_text::CButtonMeasure {
+            width: 100.0,
+            height: (30.2 * scale).ceil() / scale,
+            provisional: 0,
+        }
+    }
+    let plan = contract::compile(
+        "component Buttons\n  view\n    button \"Measure\" appearance=\"auto\" testId=\"button\"\n",
+    )
+    .unwrap()
+    .encode();
+    let hooks = crate::abi::Hooks {
+        measure: Some(text),
+        ..crate::abi::Hooks::none()
+    };
+    let mut bridge = crate::abi::Bridge::new();
+    bridge.set_control_text(Some(font), None);
+    bridge.set_button_measure(Some(button));
+    SCALE.set(1.0);
+    let n = bridge.boot(&plan, NoData, hooks, 400.0, 800.0);
+    assert!(String::from_utf8_lossy(bridge.output_bytes(n as usize)).contains("\"error\":null"));
+    assert!(CALLS.get() > 0, "the fixture must boot a native button");
+    CALLS.set(0);
+    let n = bridge.control_text_changed(hooks);
+    assert!(
+        CALLS.get() > 0,
+        "a measuring-trait notification must reach the button cache even with identical fonts"
+    );
+    assert!(String::from_utf8_lossy(bridge.output_bytes(n as usize)).contains("\"error\":null"));
+    CALLS.set(0);
+    SCALE.set(2.0);
+    let n = bridge.control_text_changed(hooks);
+    let batch = String::from_utf8_lossy(bridge.output_bytes(n as usize));
+    assert!(CALLS.get() > 0, "scale-only changes must measure again");
+    assert!(batch.contains("\"h\":30.5"), "{batch}");
+    CALLS.set(0);
+    bridge.resize(400.0, 800.0);
+    assert_eq!(CALLS.get(), 0, "ordinary layouts reuse the new revision");
+}
