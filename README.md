@@ -643,7 +643,13 @@ else here was admitted because a real app needed it.
   optional game engine. [Windows Desk](apps/windows-desk/README.md) demonstrates
   native controls over Contract and the kernel with an app-local Win32 presenter;
   general Windows control parity and delivery remain unfinished.
-- **Android.** Deferred.
+- **Android.** Admitted (2026-10-07) and early. An app builds for Android and runs
+  on an emulator or a phone: `bun exact.mjs android` builds it, `bun exact.mjs test
+  android` runs its tests, and `bun exact.mjs agent android …` drives it
+  ([LLP 1107](llp/1107-driving-an-app-on-android.rfc.md)). It needs the Android SDK,
+  the Rust target `aarch64-linux-android`, and the Hermes Android bundle
+  (`bun scripts/hermes-android.mjs build`) until an Ibex release ships one. Delivery and
+  store packaging don't exist yet.
 - **No JSX or React tier.** Nothing runs JavaScript above the data seam. The door stays
   open, but no one is building it.
 - **TypeScript can't import npm packages yet.** `app.ts` imports only its own local
