@@ -1,0 +1,16 @@
+2026-10-08T04:09:24.456Z [after] app pid 48701; port 16311; binary (branch build)
+2026-10-08T04:09:30.660Z [after] timeout palette after 5000 ms
+2026-10-08T04:09:30.822Z [after] shot 00-welcome
+2026-10-08T04:09:31.238Z [after] wizard welcome-continue
+2026-10-08T04:09:32.618Z [after] wizard welcome-agents-continue
+2026-10-08T04:09:34.071Z [after] wizard welcome-skip-import
+2026-10-08T04:09:35.889Z [after] ready palette in 5 ms
+2026-10-08T04:09:35.892Z [after] palette open: true
+2026-10-08T04:09:35.921Z [after] ready codex ready in 29 ms
+2026-10-08T04:09:35.930Z [after] providers [["codex",true],["claudeAgent",false],["cursor",false],["grok",false],["opencode",false],["antigravity",false],["pi",false]]
+2026-10-08T04:09:38.644Z [after] ready project added in 11 ms
+2026-10-08T04:09:49.334Z [after] shot 01-composer-chips
+2026-10-08T04:09:49.339Z [after] composer box {"x":276,"y":347.5,"h":144,"w":680}
+2026-10-08T04:09:51.353Z [after] shot 02-skill-menu
+2026-10-08T04:09:51.365Z [after] menu rows ["Image Gen"]
+2026-10-08T04:09:51.453Z [after] session closed (nothing sent)
