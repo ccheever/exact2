@@ -50,6 +50,7 @@ class Rig {
     } as unknown as T3Client;
     this.native = { available: true, watch() {}, later: async (input: unknown) => {
       const request = obj(input), env = str(request.fleet) ? 'env-b' : 'env-a';
+      if (request.op === 'ids') return { ok: true, generation: 1, value: [`fleet-id-${++this.serial}`] };
       if (request.op === 'remoteEditorsOpen') { this.opened.push(str(request.url)); return { ok: true, generation: 1, value: {} }; }
       if (request.op === 'request' && str(request.deliver)) { this.sent.push({ env, method: str(request.method), payload: obj(request.payload), deliver: str(request.deliver) }); return { ok: true, generation: env === 'env-b' ? 7 : 1, value: { id: `rpc-${this.sent.length}` } }; }
       if (request.op === 'request') { this.direct.push({ env, method: str(request.method), payload: obj(request.payload), deliver: '' }); return { ok: true, generation: env === 'env-b' ? 7 : 1, value: {} }; }

@@ -26,17 +26,21 @@ export function onUsageFleetChange(listener: (() => void) | null): void { change
 export async function startFleetDetached(native: Native, target: FleetTarget, method: string, payload: Obj): Promise<{ reply: Promise<DetachedReply> }> {
   let resolveReply: (reply: DetachedReply) => void = () => {};
   const reply = new Promise<DetachedReply>(resolve => { resolveReply = resolve; });
-  // A fresh key per request and per module load: a reply filed for an older request never matches.
-  const key = `${KEY}${Date.now().toString(36)}-${++serial}`;
-  waiters.set(key, { fleet: target.key, generation: target.generation, resolve: resolveReply });
   const remote: Native = { available: native.available, watch: topic => native.watch(topic), later: request => native.later({ ...obj(request), fleet: target.key }) };
+  let key = '';
   try {
+    // A fresh id per request (the transport's `ids`): a reply filed for a request of a reloaded module never matches.
+    const ids = await bridgeReply(native, { op: 'ids', count: 1 });
+    const id = Array.isArray(ids.value) && typeof ids.value[0] === 'string' ? ids.value[0] : '';
+    key = `${KEY}${id || `${++serial}`}`;
+    waiters.set(key, { fleet: target.key, generation: target.generation, resolve: resolveReply });
     const response = await bridgeReply(remote, { op: 'request', method, payload, deliver: key, timeout: 300, generation: target.generation });
     if (!response.ok) settle(key, { ok: false, error: new ClientError(response.error!.message, response.error!.kind, response.error!.uncertain), interrupted: false });
     else if (response.generation !== target.generation) settle(key, { ok: false, error: new ClientError('The connection changed. Refresh before continuing.', 'stale'), interrupted: true });
   } catch (error) {
     const failure = error instanceof ClientError ? error : new ClientError(error instanceof Error ? error.message : String(error));
-    settle(key, { ok: false, error: failure, interrupted: failure.kind === 'superseded' || failure.kind === 'stale' });
+    if (key) settle(key, { ok: false, error: failure, interrupted: failure.kind === 'superseded' || failure.kind === 'stale' });
+    else resolveReply({ ok: false, error: failure, interrupted: failure.kind === 'superseded' || failure.kind === 'stale' });
   }
   return { reply };
 }
