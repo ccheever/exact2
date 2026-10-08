@@ -135,6 +135,8 @@ interface Partition {
   clients: number;
   /** The rounds, one after another: a `sync()` while one runs waits its turn. */
   rounds: Promise<unknown>;
+  /** The exchange of a round that stopped and could not be cancelled then. */
+  abandoned?: string;
   refreshing?: Promise<Refreshed>;
   /** The change poll in flight: a second `poll()` shares it (a second poll
    * would supersede the first, whose reply the client then refuses). */
@@ -368,19 +370,31 @@ export class Snapback {
   }
 
   private async round(): Promise<Round> {
+    const partition = this.partition;
+    // A round an earlier answer could neither finish nor cancel is cancelled
+    // first. Natively that is a superseded answer's round: its reply still
+    // comes, but the device refuses calls once its answer has ended, and
+    // left there the client would answer `busy` to every round after it.
+    const abandoned = partition.abandoned;
+    if (abandoned !== undefined) {
+      await this.call({ op: 'cancel', exchange: abandoned });
+      if (partition.abandoned === abandoned) partition.abandoned = undefined;
+    }
     let step = ok<{ fetch?: Request; done?: Round }>(await this.call({ op: 'sync' }));
     try {
       while (step.fetch) {
-        const exchange = step.fetch.exchange;
-        const reply = await this.exchange(step.fetch);
-        try { step = ok(await this.call({ op: 'deliver', exchange, reply })); }
-        catch (error) {
-          // Only this round's own exchange can be cancelled.
-          await this.call({ op: 'cancel', exchange }).catch(() => undefined);
+        const exchange = step.fetch.exchange as string;
+        try {
+          const reply = await this.exchange(step.fetch);
+          step = ok(await this.call({ op: 'deliver', exchange, reply }));
+        } catch (error) {
+          // Only this round's own exchange can be cancelled; one that cannot
+          // be now is cancelled by the next round.
+          await this.call({ op: 'cancel', exchange }).catch(() => { partition.abandoned = exchange; });
           throw error;
         }
       }
-    } finally { this.partition.routes.clear(); }
+    } finally { partition.routes.clear(); }
     const done = step.done ?? { ok: false };
     if (done.ok) this.partition.opened = true;
     return done;

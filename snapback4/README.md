@@ -20,8 +20,9 @@ is handed to whoever drives it. Pinned to Snapback4 **0.4.16**
 ### Mount it and build the wasm
 
 Mount the driver in the app's `app.json` (the path is relative to the app,
-or absolute; an app made by `exact new` outside this checkout names this
-checkout's `snapback4/ts`), and build the wasm and its glue, which every
+which the native bake requires: it refuses an absolute one; an app made by
+`exact new` outside this checkout names this checkout's `snapback4/ts`
+relative to itself), and build the wasm and its glue, which every
 host's bake type-checks, before a build:
 
 ```json
@@ -173,43 +174,52 @@ export const appId = 'com.example.guestbook';
 const origin = 'http://127.0.0.1:4400';
 export const grants = `net.fetch ${origin}\nsqlite.open app:/data`;
 
-// One partition per viewer, kept open across answers. Opening one this page
-// already has open shares it, so this cache only saves the reopen.
-const devices = new Map<string, Promise<Snapback>>();
-function device(persona: string, storage: Storage, native: NativeModule | null | undefined): Promise<Snapback> {
-  let opening = devices.get(persona);
-  if (!opening) {
-    opening = Snapback.open({ app: appId, name: `guestbook-${persona}`, origin, viewer: `dev:${persona}`,
-      headers: () => ({ 'x-snapback-persona': persona }), storage, native });
-    devices.set(persona, opening);
-    opening.catch(() => devices.delete(persona));
+// One partition open at a time (natively the module holds one): switching
+// persona waits for the other persona's work in flight, then closes its
+// partition (what it keeps stays for its next open).
+type Held = { persona: string; opening: Promise<Snapback>; busy: Set<Promise<unknown>> };
+let current: Held | null = null;
+function using<T>(persona: string, storage: Storage, native: NativeModule | null | undefined, work: (db: Snapback) => Promise<T>): Promise<T> {
+  if (current?.persona !== persona) {
+    const previous = current;
+    const opening = (async () => {
+      if (previous) {
+        await Promise.allSettled([...previous.busy]);
+        await (await previous.opening.catch(() => null))?.close();
+      }
+      return Snapback.open({ app: appId, name: `guestbook-${persona}`, origin, viewer: `dev:${persona}`,
+        headers: () => ({ 'x-snapback-persona': persona }), storage, native });
+    })();
+    const entry: Held = { persona, opening, busy: new Set() };
+    current = entry;
+    opening.catch(() => { if (current === entry) current = null; });
   }
-  return opening;
+  const held = current!;
+  const run = held.opening.then(work);
+  held.busy.add(run);
+  run.then(() => held.busy.delete(run), () => held.busy.delete(run));
+  return run;
 }
 
 type Row = { id: string; author: string; body: string; pending?: boolean };
 
 // Results are keyed by source name: `Result<'notes'>`, `Result<'post'>`.
 const sources: Sources = {
-  notes: async ([persona, now], _store, storage, native): Promise<Result<'notes'>> => {
-    try {
-      const db = await device(persona, storage, native);
-      const round = await db.sync();                    // offline is fine once synced
-      const read = await db.read<Row[]>('recent', {}, now);
-      if (read.denied) throw new Error(`${read.denied.code}: ${read.denied.message}`);
-      // Project each row onto the shape: an answer's extra fields are refused.
-      const notes = (read.data ?? []).map(row => ({ id: row.id, author: row.author, body: row.body, pending: row.pending === true }));
-      return { online: round.ok, message: round.ok ? '' : 'Offline: showing what this device keeps',
-        latest: notes.length ? `${notes[0].author}: ${notes[0].body}` : '',
-        sending: notes.filter(note => note.pending).length, notes };
-    } catch (error) {
-      // At build (bake) time there is no storage; the app asks again when it runs.
-      if ((error as { code?: string }).code === 'bake') return { online: false, message: 'Connecting…', latest: '', sending: 0, notes: [] };
-      throw error;                                      // the view shows it through failure(board)
-    }
-  },
-  post: async ([persona, body, now], _store, storage, native): Promise<Result<'post'>> => {
-    const db = await device(persona, storage, native);
+  notes: ([persona, now], _store, storage, native): Promise<Result<'notes'>> => using(persona, storage, native, async db => {
+    const round = await db.sync();                      // offline is fine once synced
+    const read = await db.read<Row[]>('recent', {}, now);
+    if (read.denied) throw new Error(`${read.denied.code}: ${read.denied.message}`);
+    // Project each row onto the shape: an answer's extra fields are refused.
+    const notes = (read.data ?? []).map(row => ({ id: row.id, author: row.author, body: row.body, pending: row.pending === true }));
+    return { online: round.ok, message: round.ok ? '' : 'Offline: showing what this device keeps',
+      latest: notes.length ? `${notes[0].author}: ${notes[0].body}` : '',
+      sending: notes.filter(note => note.pending).length, notes };
+  }).catch(error => {
+    // At build (bake) time there is no storage; the app asks again when it runs.
+    if ((error as { code?: string }).code === 'bake') return { online: false, message: 'Connecting…', latest: '', sending: 0, notes: [] };
+    throw error;                                        // the view shows it through failure(board)
+  }),
+  post: ([persona, body, now], _store, storage, native): Promise<Result<'post'>> => using(persona, storage, native, async db => {
     const written = await db.write('post', { body }, now);
     if (written.state === 'failed') return { ok: false, message: `Refused: ${written.why.code}`, id: '' };
     await db.sync();
@@ -219,7 +229,7 @@ const sources: Sources = {
     if (fate.state === 'failed') return { ok: false, message: `Refused: ${fate.why?.code}`, id: '' };
     if (fate.state === 'sent') return { ok: true, message: 'Posted.', id: fate.result?.id ?? '' };
     return { ok: true, message: 'Saved on this device; it sends when online.', id: '' };
-  },
+  }),
 };
 export const answer: Answer = (source, args, store, storage, native) =>
   sources[source](args, store, storage, native);
@@ -357,7 +367,9 @@ impl exact_js::NativeModule for Snapback {
 }
 ```
 
-The native module holds one partition at a time.
+The native module holds one partition at a time: an app that switches
+persona closes the one client, once its work in flight is done, before
+opening the other's (the guestbook's `using` does), or the open is refused.
 
 Every exchange names itself (`fetch.exchange`); deliver its reply with that
 name. A reply for a round that was cancelled, or a client since reopened, is
