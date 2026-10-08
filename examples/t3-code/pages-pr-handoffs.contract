@@ -7,6 +7,7 @@
 // ui/{button,menu,tooltip}.tsx.
 use PgIcon from "./pages-icons.contract"
 use Tip from "./shell-tip.contract"
+use PrActOnItem, PrdActOnItems from "./pages-pr-links.contract" // pr-links-previews-and-routing
 use KmItem from "./menu-keys.contract"
 use KeyMenu from "./menu-keys.contract"
 use kmOpenKey from "./menu-keys.contract"
@@ -29,6 +30,8 @@ component PrdCheckoutMenu
     scheme: string
     narrow: bool
     act: action
+    // pr-links-previews-and-routing: "Act on" (the page, several servers), and what its radio sends.
+    actOn: list<PrActOnItem>
   state over = false
   derive checking = startsWith(handoffs.pending, "checkout")
   derive disabled = handoffs.pending != "" or not handoffs.canCheckout
@@ -59,9 +62,10 @@ component PrdCheckoutMenu
       KeyMenuOpen(menuId="pr-checkout-menu", armed=keyArmed, opened=keyOpened)
       row id="pr-checkout-menu" popover="auto" position="absolute" position-area="bottom span-right" margin-left=(narrow ? -362 : -299) padding-top="0.25rem" align-items="flex-start" testId="pr-checkout-layer"
         column width=410 padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#27272a1a, #f5f5f51a)" background-color="light-dark(#ffffff, #121212)" box-shadow=(scheme == "dark" ? "0 18px 44px -18px #000000cc" : "0 16px 40px -18px #0000008c") role="menu" aria-label="Check out" flex-shrink=0
-          KeyMenu(menuId="pr-checkout-keys", items=(handoffs.pending != "" ? [] : [KmItem(id="pr-checkout-worktree", label="In a separate worktree"), KmItem(id="pr-checkout-local", label="In this repository")]), keyed=keyed, gap="0px", modal=true)
+          KeyMenu(menuId="pr-checkout-keys", items=(handoffs.pending != "" ? [] : concat([KmItem(id="pr-checkout-worktree", label="In a separate worktree"), KmItem(id="pr-checkout-local", label="In this repository")], map(actOn, (item) => KmItem(id=`pr-act-on-${item.key}`, label=item.label)))), keyed=keyed, gap="0px", modal=true)
             PrdHandoffItem(menuId="pr-checkout-menu", icon="git-branch", label="In a separate worktree", detail="Its own folder and thread. Nothing you have open moves.", disabled=(handoffs.pending != ""), press=act("handoff", `${surface}|checkout:worktree`), testId="pr-checkout-worktree")
             PrdHandoffItem(menuId="pr-checkout-menu", icon="folder-git-2", label="In this repository", detail="Switches the branch you are working in, like `gh pr checkout`.", disabled=(handoffs.pending != ""), press=act("handoff", `${surface}|checkout:local`), testId="pr-checkout-local")
+            PrdActOnItems(items=actOn, disabled=(handoffs.pending != ""), act=act)
 
 // The More menu's hand-offs, after Refresh: Ask a question, Explain this PR, Fix findings.
 component PrdHandoffItems

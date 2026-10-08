@@ -20,6 +20,7 @@ import { READ_OPS, WRITE_OPS, runOps, type OpOut, type ProvidersRoute } from './
 import { groupingModes, message, projectPath } from './client-shared';
 import { letGo } from './let-go';
 import { fleet } from './settings-b-fleet';
+import { routedPullRequestRequest } from './pages-pr-environments'; // pr-links-previews-and-routing
 import { adoptLocalPrefs, refreshLocal, unknownLocalBackend, type LocalBackendStatus, adoptHandoff, keepAliveEvent, keptThread } from './local-environment';
 import { groupLabel } from './r6-polish-groups';
 import { adoptModelPrefs } from './settings-b-models';
@@ -688,7 +689,10 @@ export class T3Client {
     return [...drivers.values()];
   }
   /** Provider settings writes (providers.ts) share this connection's generation and write-uncertainty rules. */
-  async rpc(native: Native, method: string, payload: Obj, write = false): Promise<Obj> { return this.request(native, method, payload, this.generation, write); }
+  async rpc(native: Native, method: string, payload: Obj, write = false): Promise<Obj> {
+    // pr-links-previews-and-routing: a pull request request reads or writes through the server the reader shares GitHub with (pages-pr-environments.ts).
+    return method.startsWith('pullRequests.') ? routedPullRequestRequest(this, native, method, payload, write) : this.request(native, method, payload, this.generation, write);
+  }
   projectGroups() {
     const byKey = new Map<string, Obj[]>();
     for (const project of this.shell.projects) {

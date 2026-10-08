@@ -6,7 +6,7 @@
 import { describe, expect, test } from 'bun:test';
 import type { T3Client } from './client';
 import type { Obj } from './domain';
-import type { Native } from './protocol';
+import { ClientError, type Native } from './protocol';
 import { pullRequestsPage, type PrInput } from './pages-prs';
 import { prCommand, pullRequestDetail } from './pages-pr-detail';
 import { PR_REFRESH_KEY, prRefreshEvent } from './pages-pr-refresh';
@@ -136,6 +136,25 @@ describe('the Pull Requests list reads again as the reference page does (useLive
     expect(run.reads()).toBe(2); // the first read and the interval's; the tick and the focus joined it
     expect(numbers(await run.page({ now: NOW + 6 * MINUTE }))).toEqual([158, 159]);
     expect(run.reads()).toBe(2);
+  });
+
+  test('another answer does not await a read the runner let go with its answer: it reads for itself, and its rows show (a search typed after the first)', async () => {
+    // pr-links-previews-and-routing retry, 2026-10-08: a data revision asked the list again while a search's read was
+    // out; the runner let the first answer go and rejected its read, and the new answer, which had joined that read,
+    // failed and kept the old rows for good. Each answer gets its own `native` (app.ts letGoAware).
+    const later = [...entries, { ...entries[0]!, number: 159, title: 'Explain the vowel rule' }];
+    let answers = 0, drop: () => void = () => {};
+    const run = fixture(NOW, { 'pullRequests.list': () => { answers++; if (answers === 2) return new Promise((_resolve, reject) => { drop = () => reject(new ClientError('This operation was superseded.', 'superseded')); }); return { entries: answers === 1 ? entries : later, viewers: {} }; } });
+    const numbers = (view: Awaited<ReturnType<typeof run.page>>) => view.groups.flatMap(group => group.rows.map(row => row.number)).sort();
+    expect(numbers(await run.page())).toEqual([158]);
+    const first = run.page({ now: NOW + 30_000, returns: 1 }); // a read goes out
+    await Bun.sleep(1);
+    const second = pullRequestsPage(run.client, { ...run.native } as Native, { open: true, refresh: 0, now: NOW + 30_000, selected: '', query: '', typed: false, returns: 1 }); // the resource asked again: a new answer
+    await Bun.sleep(1);
+    drop(); // the runner lets the first answer go, and its read with it
+    await expect(first).rejects.toThrow('superseded');
+    expect(numbers(await second)).toEqual([158, 159]);
+    expect(run.reads()).toBe(3);
   });
 
   test('a server announcement while a live read is out joins it', async () => {

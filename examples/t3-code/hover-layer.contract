@@ -36,11 +36,11 @@ shape HoverTip
 // Base UI's closeDelay after the pointer leaves a hover card or its trigger, on the root's 10 ms hover clock: the
 // scopes' 100, the freshness card's 120; the Usage segment's popover has none, but safePolygon lets the pointer
 // cross the 6 pt gap into it, so it gets 50. A TooltipPopup closes with its trigger.
-fn hoverDelay(kind: string): number = kind == "scopes" ? 100 : (kind == "freshness" ? 120 : (kind == "usage" ? 50 : 0))
+fn hoverDelay(kind: string): number = kind == "scopes" ? 100 : (kind == "freshness" or kind == "pr-preview" ? 120 : (kind == "usage" ? 50 : 0))
 
 // Base UI's open delay before a hover popover shows: AccessScopeSummary's delay={250}, the Usage segment's default 300;
 // the freshness card's delay={0}; a tooltip here at once (CnTooltip's, the picker's TooltipProvider delay={0}).
-fn hoverOpenDelay(kind: string): number = kind == "scopes" ? 250 : (kind == "usage" ? 300 : 0)
+fn hoverOpenDelay(kind: string): number = kind == "pr-preview" ? 350 : kind == "scopes" ? 250 : (kind == "usage" ? 300 : 0)
 
 fn noHoverTip(): HoverTip = HoverTip(key="", kind="", text="", lines=[], side="top", align="center", x=0, y=0, width=0, height=0, estimate=0, testId="")
 
@@ -130,3 +130,25 @@ component HoverScopes
       each line in tip.lines key=line
         text line font-family="ui-monospace" font-size="0.75rem" line-height="1rem" color="light-dark(#27272ad9, #f5f5f5d9)"
 
+
+// A `Tip` (shell-tip.contract) drawn by this layer, kind "tip", for a trigger inside a scroll area or a clipping card (the
+// pull request Code tab's diff list, its file header and off-diff list, and its thread cards; pr-links-previews-and-routing,
+// #308's row after #307): the wrapped content is the trigger, named by `tipId`; the estimate is the words' lines at 12/16
+// in the 20rem bubble, for the flip. The trigger's test id is `tipId` (agent mode hovers it: `tap <tipId> hover`); the
+// bubble's is `<tipId>-bubble`.
+component LayerTip
+  inject
+    rem: number
+    hoverTipAt: action
+  props
+    label: string
+    side: string
+    align: string
+    tipId: string
+  slot
+  action hover(inside: bool)
+    if label != ""
+      hoverTipAt(hoverTipAtFrame(tipId, "tip", label, [], side, align, frame(tipId), (floor(length(label) / 48) + 1) * rem + 0.625 * rem, `${tipId}-bubble`), "trigger", inside)
+  view
+    box id=tipId testId=tipId position="relative" hover=hover flex-shrink=0 display="flex" flex-direction="row" align-items="center" min-width=0
+      children

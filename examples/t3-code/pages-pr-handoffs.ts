@@ -86,7 +86,9 @@ async function writeToComposer(client: T3Client, native: Native, task: HandoffTa
  * `pageslocal:pr-act-handoff`: one of the panel's hand-offs. Resolves the reply's message:
  * `sidebar:new-thread` when it opened a thread the window should show.
  */
-export async function prHandoffCommand(client: T3Client, native: Native, ctx: HandoffContext, value: string): Promise<string> {
+export async function prHandoffCommand(client: T3Client, native: Native, ctx: HandoffContext, value: string,
+  // pr-links-previews-and-routing ("Act on"): a page hand-off for a server other than the focused one runs there (pages-pr-acton.ts).
+  elsewhere?: (kind: string, task: HandoffTask | null, mode: 'worktree' | 'local', detail: Obj) => Promise<string>): Promise<string> {
   const bar = value.indexOf('|');
   const surface = bar < 0 ? 'page' : value.slice(0, bar), kind = bar < 0 ? value : value.slice(bar + 1);
   // handoffSummary: the detail, or while it is out the list's row (a checkout and Resolve need only its identity).
@@ -106,6 +108,7 @@ export async function prHandoffCommand(client: T3Client, native: Native, ctx: Ha
         ? 'The question is in the composer — read it over, then send.' : 'The pull request is in the composer — type your question, then send.' });
       return '';
     }
+    if (elsewhere) return elsewhere(kind, task, 'worktree', detail);
     return opened(await askInThread(client, native, kind, task, str(detail.projectId)));
   }
   // startHandoff: a task the agent needs the branch for, or a checkout that carries nothing.
@@ -126,6 +129,7 @@ export async function prHandoffCommand(client: T3Client, native: Native, ctx: Ha
     pushToast(client, { kind: 'success', title: 'Added to the composer', description: 'The task is in the composer — read it over, then send.' });
     return '';
   }
+  if (elsewhere) return elsewhere(kind, task, mode, detail);
   if (!str(detail.workspaceRoot)) return ''; // checkoutRoot === null: nothing to check out from
   // The thread opens first and the window shows it (`pr-handoff-next`, app.contract commandCompleted), then
   // `pageslocal:pr-act-handoff-run` runs the checkout (r6-pr-actions.ts finishCheckoutHandoff).
