@@ -257,33 +257,48 @@ extension Presenter {
         }
         return content.bounds.contains(content.convert(p, from: nil)) ? p : nil
     }
-    /// The frame's hit-test: the nearest node with a `hover` handler under
-    /// the resting pointer enters and the one hovered leaves, the path a
-    /// tracking area's move takes (`mouseMoved`); nothing while the node
-    /// hovered is still on the hit's path (an outer node hovered over an
-    /// inner one keeps it: the inner's hover-revealed content must not
-    /// flicker frame to frame), or the pointer has gone.
-    func hoverUnderPointer() {
-        followLink?.isPaused = true
-        guard let p = restingPointer(frontmost: true), let content = viewport.window?.contentView else { return }
-        let hit = content.hitTest(content.superview?.convert(p, from: nil) ?? p)
-        var under: [NodeView] = []
+    /// A move and a resting-pointer layout update share the same hit test.
+    /// Ancestor tracking exits cannot evict a child under visible overflow.
+    func hoverAt(_ point: NSPoint) -> NodeView? {
+        guard let content = viewport.window?.contentView,
+              viewport.bounds.contains(viewport.convert(point, from: nil)) else {
+            setHoverPath([]); return nil
+        }
+        let hit = content.hitTest(content.superview?.convert(point, from: nil) ?? point)
+        var path: [NodeView] = []
         var leaf: NodeView?
         var view = hit?.isDescendant(of: viewport) == true ? hit : nil
-        while let v = view {
-            if let n = v as? NodeView, !n.inert {
-                if leaf == nil { leaf = n }
-                if n.handlers.contains("hover") { under.append(n) }
+        while let current = view {
+            if let node = current as? NodeView, !node.inert {
+                if leaf == nil { leaf = node }
+                path.append(node)
             }
-            view = v.superview
+            view = current.superview
         }
-        // A text's inline run with a `hover` handler is hovered as a move over it is.
-        let run = leaf.flatMap { n in n.inlineText.contains { $0.handlers.contains("hover") } ? n.inlineTarget(at: n.local(p), handler: "hover") : nil }
-        hoverInline(run?.id)
-        if run != nil { return }
-        if let h = hovered, under.contains(where: { $0 === h }) { return }
-        if let node = under.first { hover(node, true) } else if let h = hovered { hover(h, false) }
+        let run = leaf.flatMap { $0.inlineTarget(at: $0.local(point), handler: "hover") }
+        setHoverPath(path, inline: run?.id)
+        return leaf
     }
+    func trackPointer(_ event: NSEvent) {
+        guard pointerHeld == nil, pointerSource == nil, trackedPointerEvent !== event else { return }
+        trackedPointerEvent = event
+        let leaf = hoverAt(event.locationInWindow)
+        guard event.type != .mouseExited, let leaf else { return }
+        if leaf.canvasInput?.pointer(event, phase: "move") == true { return }
+        var view: NSView? = leaf
+        while let current = view {
+            if let node = current as? NodeView, !node.disabled, node.handlers.contains("pointermove") {
+                node.pointerHovered(event); return
+            }
+            view = current.superview
+        }
+    }
+    func hoverUnderPointer() {
+        followLink?.isPaused = true
+        guard let point = restingPointer(frontmost: true) else { return }
+        _ = hoverAt(point)
+    }
+
 }
 extension NodeView {
     /// AppKit sends the held button's drags and up only to the view it went

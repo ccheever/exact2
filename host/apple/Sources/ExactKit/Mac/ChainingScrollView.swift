@@ -7,6 +7,21 @@ import AppKit
 /// The web's rule (`overscroll-behavior: auto`); AppKit's default is to
 /// swallow it.
 package final class ChainingScrollView: NSScrollView {
+    /// The document and clip views have no Contract identity. Contacts on
+    /// their empty space belong to the owning scroll node, just as contacts
+    /// on its content do. Native scrollers retain their own tracking.
+    private var owner: NodeView? {
+        sequence(first: superview, next: { $0?.superview }).compactMap { $0 as? NodeView }.first
+    }
+    package override func mouseDown(with event: NSEvent) {
+        if let owner { owner.mouseDown(with: event) } else { super.mouseDown(with: event) }
+    }
+    package override func mouseDragged(with event: NSEvent) {
+        if let owner { owner.mouseDragged(with: event) } else { super.mouseDragged(with: event) }
+    }
+    package override func mouseUp(with event: NSEvent) {
+        if let owner { owner.mouseUp(with: event) } else { super.mouseUp(with: event) }
+    }
     /// AppKit withdraws responsive scrolling from a subclass that overrides
     /// `scrollWheel(with:)`, and then every frame of a gesture is driven from
     /// the main thread (`NSScrollingBehaviorSingleThreadedVBL`), behind

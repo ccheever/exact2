@@ -136,7 +136,9 @@ in agent mode unless the drive names a scratch store (--storage <name>)`), so an
 app that keeps its data there does nothing on a write; a chosen document (`doc:/`)
 still opens under its grant. That store, and an authored test's own store, includes
 a data module's `secret.keep`: files in the named scratch tree on Apple and Linux,
-and the page's `localStorage` on the web. A nameless drive keeps no secrets.
+and the page's `localStorage` on the web. Apple native modules use that store's
+data, cache and temporary roots too; a fresh drive clears them, and only picked
+temporary documents are cleared on each launch. A nameless drive keeps no secrets.
 To show what survives a restart on any host, use an authored test's `reload` step (below).
 
 Inside the exact2 checkout, for Caltrain:
@@ -814,6 +816,11 @@ dialog or popover with `commandfor` and `command="show-modal"`,
 bound, and an empty target is no target. `href`, `action` and swipe attributes
 remain refused. `-exact-enabled` transitions are not available.
 
+On macOS and the web, an action can call `showModal(id)` or `close(id)` for
+a `dialog`: initial focus, Tab containment, Escape and focus restoration follow
+the same modal path as an invoker. Bare `close()` still closes the window.
+Other Apple hosts report dialog action commands as unsupported.
+
 `buttonStyle` needs a native button; on a default button that comes out bare,
 `lower-button-style` names the first reason and says to remove it or write
 `appearance="none"` without `buttonStyle`. It is a styleable host-policy prop;
@@ -845,6 +852,12 @@ drawn title bar) is a bug. On iOS:
 | `role="tablist"`: each tab a symbol over a label / one text or image | `UITabBar` / `UISegmentedControl`, the tablist at least its native height unless `min-height` says otherwise (LLP 1059) |
 | a route whose first child is a `header` holding one heading and its buttons | the navigation bar; a level-1 heading (`aria-level=1`) is a large title |
 | a route with `navigationPresentation="modal"` | a sheet |
+
+On macOS, date, time, datetime-local and select controls are default Tab stops,
+independent of the system's Keyboard navigation setting. Their native control
+owns focus and editing keys; `focus`/`blur` and cancellable `key` handlers still
+address the Contract node. Disabled, inert and hidden controls stay out of the
+loop; `tabindex=-1` allows explicit focus while excluding sequential focus.
 
 `contract vocab <name>` lists each one's props. A route does not scroll by
 itself: its content goes in a `scroll`, `list` or `overflow-y="auto"` box, which

@@ -4,6 +4,31 @@ import XCTest
 @testable import ExactKit
 
 final class PopoverMacTests: XCTestCase {
+    func testPointerOnlyPopoverContentDoesNotPressThePageBehindIt() throws {
+        let p = fixture(), pop = try XCTUnwrap(p.views[3]), window = try XCTUnwrap(p.viewport.window)
+        let behind = try XCTUnwrap(p.views[6])
+        p.views[1]?.handlers = ["press"]; behind.handlers = ["press"]
+        p.press(2)
+        // A plain child, neither a control nor selectable text, forwards
+        // through the popover. The page's responder chain must not hear it.
+        p.apply(wireBatch([
+            ["op": "create", "id": 7, "kind": "view", "handlers": ["pointerdown", "pointerup"]],
+            ["op": "children", "id": 3, "ids": [4, 5, 7]],
+            ["op": "frame", "id": 7, "x": 120, "y": 80, "w": 100, "h": 40]]))
+        let child = try XCTUnwrap(p.views[7])
+        let at = child.convert(NSPoint(x: 20, y: 20), to: nil)
+        var presses: [UInt32] = [], pointers: [UInt32] = []
+        p.onPress = { presses.append($0) }; p.onPointer = { id, _, _ in pointers.append(id) }
+        window.makeFirstResponder(behind)
+        for type: NSEvent.EventType in [.leftMouseDown, .leftMouseUp] {
+            let event = try XCTUnwrap(NSEvent.mouseEvent(with: type, location: at, modifierFlags: [], timestamp: 0,
+                windowNumber: window.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: 1))
+            window.sendEvent(event)
+        }
+        XCTAssertEqual(pointers, [7, 7])
+        XCTAssertEqual(presses, [], "no page ancestor or focused page control is activated")
+        XCTAssertTrue(p.menus.isOpen(pop))
+    }
     private var windows: [NSWindow] = []
     override func tearDown() { windows.forEach { $0.close() }; windows.removeAll() }
 
@@ -394,6 +419,38 @@ final class PopoverMacTests: XCTestCase {
         XCTAssertEqual(pressed, [11], "Share, once")
         XCTAssertEqual(trackingAtPress, false, "pressed after the menu's tracking ended")
         XCTAssertNil(p.views[2], "the invoker is unmounted")
+    }
+    func testNativeContextAndButtonMenusKeepTheMainQueueRunningWhileTracking() throws {
+        try XCTSkipIf(ExactEnv.agentMode, "agent menus are painted")
+        for context in [false, true] {
+            let (p, _) = menuFixture()
+            try XCTUnwrap(windows.last).orderFrontRegardless()
+            var tracking = false, tracked = false, ranDuring = false
+            var fallback: Timer?
+            let center = NotificationCenter.default
+            let begin = center.addObserver(forName: NSMenu.didBeginTrackingNotification, object: nil, queue: nil) { note in
+                guard let menu = note.object as? NSMenu, menu.items.contains(where: { $0.title == "Share" }) else { return }
+                tracking = true; tracked = true
+                // Native module calls use this same queue. A menu opened
+                // inside a dispatch callout used to starve it until close.
+                DispatchQueue.main.async {
+                    if tracking { ranDuring = true }
+                    menu.cancelTracking()
+                }
+                let timer = Timer(timeInterval: 0.25, repeats: false) { _ in menu.cancelTracking() }
+                fallback = timer; RunLoop.main.add(timer, forMode: .common)
+            }
+            let end = center.addObserver(forName: NSMenu.didEndTrackingNotification, object: nil, queue: nil) { _ in tracking = false }
+            defer { center.removeObserver(begin); center.removeObserver(end); fallback?.invalidate(); p.menus.reset() }
+            if context {
+                p.views[2]?.props["contextPopover"] = "form"
+                p.menus.context(try XCTUnwrap(p.views[2]), at: .zero)
+            } else { p.press(2) }
+            let deadline = Date(timeIntervalSinceNow: 5)
+            while (!tracked || tracking) && Date() < deadline { RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.02)) }
+            XCTAssertTrue(tracked, "a real NSMenu tracked")
+            XCTAssertTrue(ranDuring, context ? "context menu" : "button menu")
+        }
     }
     func testNestedAutoPopoversKeepOnlyTheirAncestorBranch() {
         let p = fixture()

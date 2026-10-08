@@ -55,6 +55,23 @@ final class DialogHost {
             else if command == "close" { self.close(target) }
         }
     }
+    /// Action commands resolve the same live dialog as a commandfor invoker.
+    func command(_ name: String, args: [Any], say: (String) -> Void) {
+        guard args.count == 1, let id = args.first as? String else {
+            say("\(name): refused: requires one dialog id string"); return
+        }
+        guard let target = presenter?.carrying("tag:dialog").first(where: { $0.props["id"] == id }) else {
+            say("\(name): refused: no dialog with id \"\(id)\""); return
+        }
+        if name == "showModal" {
+            guard !owns(target) else { say("showModal: ignored: dialog \"\(id)\" is already open"); return }
+            show(target)
+            if !owns(target) { say("showModal: refused: dialog \"\(id)\" is not connected to this window") }
+        } else {
+            guard owns(target) else { say("close: ignored: dialog \"\(id)\" is already closed"); return }
+            close(target)
+        }
+    }
     func show(_ dialog: NodeView) {
         guard let presenter, !owns(dialog), live(dialog), let window = presenter.viewport.window,
               let parent = dialog.superview, parent.isDescendant(of: presenter.root) || parent === presenter.root

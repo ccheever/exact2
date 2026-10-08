@@ -142,9 +142,9 @@ extension NodeView {
         let spec = paragraphSpec()
         guard let line = paragraph.lineIndex(at: CGPoint(x: point.x - box.minX, y: point.y - box.minY), align: spec.align, width: box.width) else { return nil }
         let x = box.minX + paragraph.origin(line, align: spec.align, width: box.width)
-        let width = CGFloat(CTLineGetTypographicBounds(paragraph.lines[line], nil, nil, nil))
+        let width = CGFloat(CTLineGetTypographicBounds(paragraph.visibleLine(line, width: box.width), nil, nil, nil))
         guard point.x >= x, point.x <= x + width else { return nil }
-        let offset = paragraph.stringIndex(in: line, at: point.x - x)
+        let offset = paragraph.stringIndex(in: line, at: point.x - x, width: box.width)
         return offset == kCFNotFound ? nil : offset
     }
     func inlineTarget(at point: CGPoint, handler: String? = nil) -> InlineText? {

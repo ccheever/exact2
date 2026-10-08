@@ -81,6 +81,36 @@ final class DialogMacTests: XCTestCase {
         XCTAssertEqual(presses, [5], "the confirmation action is dispatched once before closing")
         XCTAssertNil(p.dialogs.active)
     }
+    func testActionCommandsShareModalFocusInertnessAndEscape() throws {
+        let p = fixture(), opener = p.views[2]!, dialog = p.views[3]!, last = p.views[5]!
+        let field = try XCTUnwrap(p.views[4]?.field)
+        var journal: [String] = []
+        let say: (String) -> Void = { journal.append($0) }
+        window.makeFirstResponder(opener)
+        p.dialogs.command("showModal", args: ["form"], say: say)
+        XCTAssertTrue(p.dialogs.active === dialog)
+        XCTAssertTrue(field.currentEditor() === window.firstResponder)
+        XCTAssertTrue(opener.inert)
+        XCTAssertTrue(p.dialogs.key(key(48, modifiers: .shift)))
+        XCTAssertTrue(window.firstResponder === last)
+        XCTAssertTrue(p.dialogs.key(key(48)))
+        XCTAssertTrue(field.currentEditor() === window.firstResponder)
+        p.dialogs.command("showModal", args: ["form"], say: say)
+        XCTAssertTrue(journal.last?.contains("already open") == true)
+        p.dialogs.command("close", args: ["form"], say: say)
+        XCTAssertNil(p.dialogs.active)
+        XCTAssertFalse(opener.inert)
+        XCTAssertTrue(window.firstResponder === opener)
+        p.dialogs.command("showModal", args: ["missing"], say: say)
+        XCTAssertTrue(journal.last?.contains("no dialog") == true)
+        p.dialogs.command("showModal", args: [1], say: say)
+        XCTAssertTrue(journal.last?.contains("id string") == true)
+        p.dialogs.command("showModal", args: ["form"], say: say)
+        XCTAssertTrue(p.dialogs.key(key(53)))
+        XCTAssertNil(p.dialogs.active)
+        XCTAssertTrue(window.firstResponder === opener)
+    }
+
     /// The web's order (docs/contract-grammar.md#keys): a field's `key`
     /// handlers hear Escape and Tab before the dialog's defaults, and one that
     /// calls `preventDefault()` keeps the dialog open and the focus put.
@@ -460,12 +490,17 @@ final class DialogMacTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: directory) }
         let source = """
         component App
+          action openDialog
+            showModal("form")
+          action closeDialog
+            close("form")
           view
             column width="100%" height="100%"
-              button "Open" testId="open" commandfor="form" command="show-modal"
+              button "Open" testId="open" press=openDialog
               dialog id="form" width=240 padding=16
                 input testId="edit" value="draft" autofocus=true
                 button "Close" commandfor="form" command="close"
+                button "Close action" testId="close-action" press=closeDialog
 
         """
         let input = directory.appendingPathComponent("app.contract")
@@ -491,6 +526,9 @@ final class DialogMacTests: XCTestCase {
             p.press(try XCTUnwrap(p.views.values.first { $0.props["testId"] == "open" }).id)
             XCTAssertNotNil(p.dialogs.active)
         }
+        try open()
+        p.press(try XCTUnwrap(p.views.values.first { $0.props["testId"] == "close-action" }).id)
+        XCTAssertNil(p.dialogs.active, "close(id) is dispatched by the session")
         try open()
         let stale = p.dialogs.command(try XCTUnwrap(p.views.values.first { $0.props["command"] == "close" }))
         view.removeFromSuperview()

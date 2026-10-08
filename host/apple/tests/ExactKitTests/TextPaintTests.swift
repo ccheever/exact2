@@ -236,6 +236,32 @@ final class TextPaintTests: XCTestCase {
         }
     }
 
+    func testOverflowingCenteredAndRightAlignedRastersMatchStartAlignedInk() throws {
+        for direction in [0, 1] { for ellipsis in [false, true] {
+            var spec = Spec(runs: [run("Describe the vowel counter (edited)")], align: 0, lineClamp: 0, color: [0, 0, 0, 255])
+            spec.whiteSpace = 2; spec.ellipsis = ellipsis; spec.direction = direction
+            let p = engine.paragraph(spec, width: 160)
+            let box = CGRect(x: 0, y: 0, width: 160, height: p.height)
+            func image(_ flush: CGFloat) throws -> TextRasterImage {
+                try XCTUnwrap(TextRasterJob(source: engine.attributed(spec), ranges: p.lines.map(CTLineGetStringRange),
+                    baselines: p.baselines, flush: flush, insets: p.insets, box: box, size: box.size, scale: 2, ellipsis: ellipsis).render())
+            }
+            let start = try image(direction == 1 ? 1 : 0)
+            for flush: CGFloat in [0, 0.5, 1] {
+                let aligned = try image(flush)
+                XCTAssertEqual(aligned.frame, start.frame)
+                XCTAssertEqual(rasterBytes(aligned), rasterBytes(start), "direction \(direction), ellipsis \(ellipsis), flush \(flush)")
+            }
+            if direction == 1, ellipsis {
+                let shot = paint(p, spec, size: CGSize(width: 160, height: 80))
+                let rightInk = (0..<shot.height).contains { y in
+                    (156..<shot.width).contains { x in shot.bytes[(y * shot.width + x) * 4 + 3] > 16 }
+                }
+                XCTAssertTrue(rightInk, "RTL truncated ink stays at the right start edge")
+            }
+        } }
+    }
+
     private func rasterBytes(_ r: TextRasterImage) -> Data {
         #if os(iOS)
         return (r.image.dataProvider?.data as Data?) ?? Data()

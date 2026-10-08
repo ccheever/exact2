@@ -87,9 +87,9 @@ package final class TextArea: NSTextView {
         // menu's responder lookup may miss its editor. Route the ordinary
         // undo chord straight to this text view's native manager.
         let modifiers = event.modifierFlags.intersection([.command, .shift, .control, .option])
-        if markup != nil, isEditable, !hasMarkedText(), event.charactersIgnoringModifiers?.lowercased() == "z" {
-            if modifiers == .command { if undoManager?.canUndo == true { undoManager?.undo() }; return true }
-            if modifiers == [.command, .shift] { if undoManager?.canRedo == true { undoManager?.redo() }; return true }
+        if isEditable, !hasMarkedText(), event.charactersIgnoringModifiers?.lowercased() == "z" {
+            if modifiers == .command { undo(nil); return true }
+            if modifiers == [.command, .shift] { redo(nil); return true }
         }
         if markup != nil, event.modifierFlags.intersection([.command, .shift, .control, .option]) == [.command, .shift],
            event.charactersIgnoringModifiers?.lowercased() == "c" {
@@ -105,6 +105,20 @@ package final class TextArea: NSTextView {
             }
         }
         return super.performKeyEquivalent(with: event)
+    }
+
+    // NSTextView does not implement these responder actions. The Edit menu's
+    // nil target must reach this editor's history, rather than NSWindow's.
+    @objc package func undo(_ sender: Any?) {
+        if isEditable, !hasMarkedText(), undoManager?.canUndo == true { undoManager?.undo() }
+    }
+    @objc package func redo(_ sender: Any?) {
+        if isEditable, !hasMarkedText(), undoManager?.canRedo == true { undoManager?.redo() }
+    }
+    package override func validateMenuItem(_ item: NSMenuItem) -> Bool {
+        if item.action == #selector(undo(_:)) { return isEditable && !hasMarkedText() && undoManager?.canUndo == true }
+        if item.action == #selector(redo(_:)) { return isEditable && !hasMarkedText() && undoManager?.canRedo == true }
+        return super.validateMenuItem(item)
     }
 
     @objc package func copyPlainText(_ sender: Any?) {

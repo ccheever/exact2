@@ -316,19 +316,9 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             tracking = nil
         }
     }
-    package override func mouseEntered(with event: NSEvent) { mouseMoved(with: event) }
-    package override func mouseMoved(with event: NSEvent) {
-        guard !inert else { return }
-        pointerHovered(event)
-        if canvasInput?.pointer(event, phase: "move") == true { return }
-        let run = inlineTarget(at: local(event.locationInWindow), handler: "hover")
-        presenter?.hoverInline(run?.id)
-        if run == nil, handlers.contains("hover") { presenter?.hover(self, true) }
-    }
-    package override func mouseExited(with event: NSEvent) {
-        presenter?.hoverInline(nil)
-        if handlers.contains("hover") { presenter?.hover(self, false) }
-    }
+    package override func mouseEntered(with event: NSEvent) { presenter?.trackPointer(event) }
+    package override func mouseMoved(with event: NSEvent) { presenter?.trackPointer(event) }
+    package override func mouseExited(with event: NSEvent) { presenter?.trackPointer(event) }
     /// A control is a leaf, as UIKit makes one: VoiceOver reads its name.
     package override func accessibilityAttributeNames() -> [NSAccessibility.Attribute] {
         super.accessibilityAttributeNames() + (["AXLanguage"] + Self.ariaAttributes.filter { ariaAttribute($0) != nil }).map { .init(rawValue: $0) }

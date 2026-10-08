@@ -20,6 +20,41 @@ import XCTest
 @testable import ExactKit
 
 final class ScrollRoutingTests: XCTestCase {
+    func testEmptyScrollSpaceDeliversTheOwnersPointerContactAndPress() throws {
+        _ = NSApplication.shared
+        for kind in ["view", "list"] { for scrollHears in [false, true] {
+            let p = Presenter()
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 240),
+                                  styleMask: [.titled], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false; window.contentView = p.viewport
+            defer { p.collections.reset(); window.close() }
+            p.apply(wireBatch([
+                ["op": "collections", "items": kind == "list" ? [["view": 2, "revision": 1, "scrollSequence": 0, "count": 0, "totalExtent": 0, "rows": []]] : []],
+                ["op": "create", "id": 1, "kind": "view", "handlers": scrollHears ? [] : ["pointerdown", "pointermove", "pointerup", "press"]],
+                ["op": "create", "id": 2, "kind": kind, "handlers": scrollHears ? ["pointerdown", "pointermove", "pointerup", "press"] : [], "style": ["overflow_y": "scroll"]],
+                ["op": "create", "id": 3, "kind": "view"],
+                ["op": "children", "id": 1, "ids": [2]], ["op": "children", "id": 2, "ids": kind == "list" ? [] : [3]], ["op": "roots", "ids": [1]],
+                ["op": "frame", "id": 1, "x": 0, "y": 0, "w": 300, "h": 240],
+                ["op": "frame", "id": 2, "x": 0, "y": 0, "w": 200, "h": 200],
+                ["op": "frame", "id": 3, "x": 0, "y": 0, "w": 200, "h": 60],
+                ["op": "content", "id": 2, "w": 200, "h": 60]]))
+            if kind == "list" { XCTAssertTrue(p.collections.owns(2)) }
+            let scroll = try XCTUnwrap(p.views[2]?.scroll)
+            let at = scroll.convert(NSPoint(x: 100, y: 150), to: nil)
+            var pointers: [(UInt32, PointerKind)] = [], presses: [UInt32] = []
+            p.onPointer = { id, kind, _ in pointers.append((id, kind)) }; p.onPress = { presses.append($0) }
+            for type: NSEvent.EventType in [.leftMouseDown, .leftMouseDragged, .leftMouseUp] {
+                let event = try XCTUnwrap(NSEvent.mouseEvent(with: type, location: at, modifierFlags: [], timestamp: 0,
+                    windowNumber: window.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: 1))
+                window.sendEvent(event)
+            }
+            let target: UInt32 = scrollHears ? 2 : 1
+            XCTAssertEqual(pointers.map { $0.0 }, [target, target, target])
+            XCTAssertEqual(pointers.map { $0.1 }, [.down, .move, .up])
+            XCTAssertEqual(presses, [target])
+            XCTAssertNil(p.pointerHeld)
+        }}
+    }
     /// A scroller with both axes able to move, and 400 points of room on each.
     private func scroller(containX: Bool = false, containY: Bool = false) -> ChainingScrollView {
         let sv = ChainingScrollView(frame: NSRect(x: 0, y: 0, width: 300, height: 300))

@@ -595,6 +595,7 @@ package final class Presenter {
     /// the leave when the pointer moves onto another (the agent's `hover`).
     weak var hovered: NodeView?
     var hoveredInline: UInt32?
+    var inlineHoverTransition: UInt64 = 0
 
     /// The modifiers held for the press being sent (its `MouseEvent`'s; gallery F20).
     private(set) var pressHeld = ""

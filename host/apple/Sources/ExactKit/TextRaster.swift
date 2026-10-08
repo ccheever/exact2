@@ -165,17 +165,23 @@ struct TextRasterJob {
             let range = NSRange(location: clamped.location, length: clamped.length)
             lines[lines.count - 1] = TextEngine.clampedLine(source, range: range, width: Double(box.width)) ?? lines[lines.count - 1]
         }
-        let positions = zip(lines, baselines).map { line, baseline in
+        var positions = zip(lines, baselines).map { line, baseline in
             let inset = insets.at(CTLineGetStringRange(line).location)
-            return CGPoint(x: box.minX + inset.left + CGFloat(CTLineGetPenOffsetForFlush(line, flush, Double(box.width - inset.width))),
+            return CGPoint(x: box.minX + inset.left + TextEngine.lineOffset(line, flush: flush, width: box.width - inset.width, rtl: insets.rtl),
                            y: box.minY + baseline.rounded())
         }
         if ellipsis {
-            lines = lines.map { line in
+            lines = lines.enumerated().map { index, line in
                 guard CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil)) - CTLineGetTrailingWhitespaceWidth(line) > box.width + 0.5 else { return line }
                 let range = CTLineGetStringRange(line)
-                return TextEngine.ellipsis(line, range: NSRange(location: range.location, length: range.length),
-                                           width: Double(box.width), source: source) ?? line
+                let truncated = TextEngine.ellipsis(line, range: NSRange(location: range.location, length: range.length),
+                                           width: Double(box.width), source: source, rtl: insets.rtl) ?? line
+                if insets.rtl {
+                    let inset = insets.at(range.location)
+                    positions[index].x = box.minX + inset.left + TextEngine.lineOffset(truncated, flush: 1,
+                        width: box.width - inset.width, rtl: true)
+                }
+                return truncated
             }
         }
         // CSS line boxes size layout, not ink. Tight line heights and italic

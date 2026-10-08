@@ -171,7 +171,7 @@ final class MenuHost: NSObject {
         entries.append(entry)
         if let menu = entry.menu {
             // Leave native tracking until the click and its app batch finish.
-            DispatchQueue.main.async { [weak self, weak source, weak entry] in
+            RunLoop.main.perform(inModes: [.common]) { [weak self, weak source, weak entry] in
                 guard let self, let entry, self.entries.contains(where: { $0 === entry }) else { return }
                 guard let source, self.live(source), self.live(entry.popover), source.window === window,
                       !source.inert, !source.disabled, entry.confirmation.map(self.valid) ?? true
@@ -205,7 +205,7 @@ final class MenuHost: NSObject {
     /// popover opens painted, anchored to the node (D4).
     func context(_ source: NodeView, at point: NSPoint) {
         guard let name = source.props["contextPopover"] else { return }
-        DispatchQueue.main.async { [weak self, weak source] in
+        RunLoop.main.perform(inModes: [.common]) { [weak self, weak source] in
             guard let self, let presenter = self.presenter, let source, self.live(source), source.props["contextPopover"] == name,
                   !source.disabled, !source.inert, !self.hidden(source), source.window === presenter.viewport.window else { return }
             guard let pop = presenter.carrying("popover").first(where: { $0.props["id"] == name && !self.isConfirmation($0) }) else {
@@ -543,5 +543,16 @@ private final class PopoverLayer: NSView {
         let hit = raisedHit(super.hitTest(point), point)
         return hit === self ? nil : hit
     }
+    // A hit inside a popover may forward through plain views, but never
+    // beyond the top layer to the page's responder chain.
+    override func mouseDown(with event: NSEvent) {}
+    override func mouseDragged(with event: NSEvent) {}
+    override func mouseUp(with event: NSEvent) {}
+    override func rightMouseDown(with event: NSEvent) {}
+    override func rightMouseDragged(with event: NSEvent) {}
+    override func rightMouseUp(with event: NSEvent) {}
+    override func otherMouseDown(with event: NSEvent) {}
+    override func otherMouseDragged(with event: NSEvent) {}
+    override func otherMouseUp(with event: NSEvent) {}
 }
 #endif

@@ -2,7 +2,7 @@
 // wasm web host runs it (host/web/glue.js, navigation.js), so a command the
 // compiler admits (contract/types/src/checks.rs `HOST_COMMANDS`) is one this
 // runtime carries (files diary F5: `selectText` was refused here).
-import { setFieldSelection, appRootFontSize } from "./navigation.js";
+import { setFieldSelection, appRootFontSize, dialogCommand } from "./navigation.js";
 export const commands = say => ({
   // The field's own method, by its id (x2apps codeedit #2); commands run
   // once the commit's tree is in place, so a value set beside it is there.
@@ -40,7 +40,8 @@ export const commands = say => ({
   reload: () => location.reload(),
   // `window.close()` (studio diary R17): a browser closes only a window a
   // script opened, and says so in its console otherwise.
-  close: () => window.close(),
+  close: (...args) => args.length ? dialogCommand("close", args, say) : window.close(),
+  showModal: (...args) => dialogCommand("showModal", args, say),
   // A JS build links no update store (facts.js `exactDelivery`): the page
   // loaded the newest root, and nothing is ever staged.
   deliveryCheck: () => say("delivery: no update store on the web; the page loaded the newest root"),

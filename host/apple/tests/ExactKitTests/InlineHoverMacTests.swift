@@ -4,6 +4,32 @@ import XCTest
 @testable import ExactKit
 
 final class InlineHoverMacTests: XCTestCase {
+    func testRTLEllipsisHitsTheVisibleActionRunAndNeverTheHiddenRun() throws {
+        _ = NSApplication.shared
+        let session = ExactApp.shared.makeSession(label: "rtl-action")
+        defer { session.destroy() }
+        let p = session.presenter
+        for (prefix, suffix, expected) in [("Describe the vowel counter (edited) ", "MMMMMMMM", 4),
+                                          ("אבגדה ", "ABCDEFGHIJKLMNOPQRSTUVWXYZ", 3)] {
+            p.apply(wireBatch([
+                ["op": "create", "id": 1, "kind": "view"],
+                ["op": "create", "id": 2, "kind": "text", "style": ["font_size": 20.0, "direction": "rtl", "white_space": "nowrap", "text_align": "center", "text_overflow": "ellipsis"]],
+                ["op": "paragraph", "id": 2, "runs": [
+                    ["id": 3, "parent": 2, "paint": true, "props": ["text": prefix], "style": ["font_size": 20.0], "handlers": ["press"]],
+                    ["id": 4, "parent": 2, "paint": true, "props": ["text": suffix], "style": ["font_size": 20.0], "handlers": ["press"]],
+                ]],
+                ["op": "children", "id": 1, "ids": [2]], ["op": "roots", "ids": [1]],
+                ["op": "frame", "id": 1, "x": 0, "y": 0, "w": 300, "h": 100],
+                ["op": "frame", "id": 2, "x": 0, "y": 0, "w": 100, "h": 30],
+            ]))
+            let node = try XCTUnwrap(p.views[2]), action = try XCTUnwrap(p.inlineText(UInt32(expected)))
+            let rect = try XCTUnwrap(node.inlineRects(action).first)
+            XCTAssertEqual(node.inlineTarget(at: CGPoint(x: rect.midX, y: rect.midY), handler: "press")?.id, UInt32(expected))
+            if expected == 4 { XCTAssertTrue(node.inlineRects(try XCTUnwrap(p.inlineText(3))).isEmpty) }
+            p.apply(wireBatch([["op": "destroy", "id": 2], ["op": "destroy", "id": 1]]))
+        }
+    }
+
     func testAgentAndMouseEnterLeaveAndReenterWrappedLink() throws {
         _ = NSApplication.shared
         let session = ExactApp.shared.makeSession(label: "inline-hover")
@@ -67,6 +93,41 @@ final class InlineHoverMacTests: XCTestCase {
         XCTAssertEqual(events, ["4:true", "4:false", "4:true"])
         p.hoverInline(nil)
         events.removeAll()
+        // Inline listeners do not evict their paragraph's ancestor hover.
+        node.handlers = ["hover"]
+        move(first)
+        move(last)
+        XCTAssertEqual(events, ["2:true", "4:true"])
+        XCTAssertNil(tap(["id": 6, "hover": true])["error"])
+        XCTAssertEqual(events, ["2:true", "4:true", "4:false", "2:false"])
+        events.removeAll()
+        move(first)
+        events.removeAll()
+        var leaves = 0
+        p.onHover = { id, over in
+            events.append("\(id):\(over)")
+            if id == 4, !over {
+                leaves += 1
+                if leaves < 3 { p.setHoverPath([node]) }
+            }
+        }
+        move(try XCTUnwrap(node.inlineRects(try XCTUnwrap(p.inlineText(3))).first))
+        XCTAssertEqual(events, ["4:false"], "inline leave is admitted before a reentrant boundary callback")
+        XCTAssertNil(p.hoveredInline)
+        XCTAssertEqual(p.hoveredNodes.map(\.id), [2])
+        p.setHoverPath([])
+        p.onHover = nil
+        p.hoverInline(4)
+        events.removeAll()
+        p.onHover = { id, over in
+            events.append("\(id):\(over)")
+            if id == 4, !over { p.setHoverPath([]) }
+        }
+        p.hoverInline(3)
+        XCTAssertEqual(events, ["4:false"], "a superseded inline enter cannot send an unmatched leave")
+        XCTAssertNil(p.hoveredInline)
+        events.removeAll()
+        p.onHover = { events.append("\($0):\($1)") }
         // An overlay over the run is the hit target, even when named by ID.
         let overlay = NodeView(id: 7, kind: "view", presenter: p)
         overlay.frame = node.frame
