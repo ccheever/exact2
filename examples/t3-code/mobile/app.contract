@@ -1,4 +1,4 @@
-use MobileOutboxDrive from "./mobile-outbox-drive.contract"
+use MobileOutboxDrive, MobileOutboxEdit from "./mobile-outbox-drive.contract"
 use homeChromeChange, homeAutomationPath, NewTaskCloneSnapshot, NewTaskCloneColors, AddProjectSnapshot, AddProjectColors, addProjectLocation, addProjectNextAlert, mobileInformationPath, mobileSettingPath, ThreadHeaderOptions, ThreadHeaderSnapshot, ThreadHeaderRead, ThreadHeaderResult, WorkingControlData, MobileSidebarPanel, MobileInspectorPanel, MobileWorkspaceMarkers, MobileQueueSnapshot, GitColors, MobileGitSnapshot, MobileGitResult, MobileGitBranchesSnapshot, MobileGitBranchResult, InspectorState, InspectorContext, InspectorChange, InspectorPresentation, WorkspaceEvent, MobileRouteContent, MobileWorkspace, WorkspaceEntry, WorkspaceParams, WorkspaceOptions, WorkspaceNavigation from "./root-imports.contract"
 use ThreadPreferencesData, SettingsProjectOverview, SettingsProjectData, AccountEntry, SettingsWrite, StreamingAssistant, StreamingHapticState, AppLink, MediaCompletion, Appearance, SettingsView, SettingsScopeEvent, MobileLayout, HomeChromeView, ChromeEvent, HomeActionResult, ThreadSelection, HomeView, HomePreferences, Time, Viewport, PairingFields, Theme, Camera, Notice, Snapshot, ScheduledHeader, AutomationChange, VoiceFocus, PreviewOwner, PreviewMenus, InformationRoute, InformationRead, InformationConfiguration, InformationChange, Change, NotificationsData, MobileBrowserSnapshot, MobilePreviewColors, MobileDevicesSnapshot, InformationData, AttachmentAudioStatus, AutomationPrepared, AutomationData, VoiceGlobalPill, VoiceSnapshot, VoiceStatus, VoiceResult, VoiceColors from "./root-imports.contract"
 use AttachmentDocumentSnapshot, AttachmentDocumentMenu, AttachmentDocumentAction, MobileTerminalSnapshot, MobileTerminalResult, MobileTerminalEvent, MobileTerminalCapture, ReviewSnapshot, ReviewResult, ReviewColors, FileTreeSnapshot, FileTreeResult, FileSnapshot, ServerSettingsData, SettingsProviderAccounts, ProviderSettingsData, MediaPreviewSnapshot, ComposerAttachmentsSnapshot, SettingsChoicesData, MobilePreferencesResource from "./root-imports.contract"
@@ -80,6 +80,17 @@ routes nav
 component App
   resource outbox = outboxView(data.revision, wallTime.epochAtZero + max(elapsed, now())) as shape MobileOutboxDrive
   mutation outboxChanged as shape Change refreshes data, threadData, outbox
+  mutation outboxEdited as shape MobileOutboxEdit then didEditOutbox
+  action didEditOutbox
+    match outboxEdited
+      case some(result)
+        if result.requestRoute == `${top(nav).id}`
+          if result.message != ""
+            send notice = alert("info", "Could not open draft", result.message)
+          else if result.nextLocation != ""
+            nav = replace(nav, result.nextLocation)
+      case none
+        newTaskOperation = ""
   task readOutbox mount
     after(1, readOutbox)
   action readOutbox
@@ -564,7 +575,10 @@ component App
     if owner != "" and ((value and owner == composerOwner and editorId == composerEditor) or (not value and composerFocusIdentity == `${editorId}:${owner}`))
       composerFocusIdentity = value ? `${editorId}:${owner}` : ""
   action threadAction(op: string, id: string, value: string)
-    if op == "outbox:retry"
+    if op == "outbox:edit"
+      if not pending(outboxEdited)
+        send outboxEdited = outboxEdit(id, `${top(nav).id}`)
+    else if op == "outbox:retry"
       if not pending(outboxChanged)
         send outboxChanged = outboxAction("retry", id, wallTime.epochAtZero + now())
     else if top(nav).params.threadEnvironment == data.environmentId and top(nav).params.threadId == data.threadId

@@ -35,7 +35,7 @@ use AgentActivity, AgentActivityData, AgentActivityColors from "./agent-activity
 use Connect, ConnectionColors from "./connect.contract"
 use EnvironmentDetail, EnvironmentDetailData from "./environment-detail.contract"
 use HomeChrome from "./home-chrome.contract"
-use ThreadFeed, ThreadApprovals from "./thread.contract"
+use ThreadFeed, ThreadApprovals, ThreadCreationFailedCard from "./thread.contract"
 use ComposerSettings, ComposerChoices from "./composer-settings.contract"
 use NewTaskFlowSnapshot, NewTaskFlowResult from "./new-task-flow.contract"
 use NewTaskProjects, NewTaskEnvironments, NewTaskBranches from "./new-task.contract"
@@ -282,7 +282,7 @@ component MobileRouteContent
   derive threadGeometryKey = `${routeId}:${threadData.environmentId}:${threadData.threadId}:${threadData.composer.contentOwner}`
   derive threadBottomInset = composerExpanded or composerFocused ? 0 : max(layout.safeBottom, 12)
   derive threadCoveredBottom = threadGeometryOwner == threadGeometryKey ? threadMeasuredBottom : 0
-  derive threadDockClearance = threadData.queued ? max(layout.safeBottom, 12) : (threadGeometryOwner == threadGeometryKey and threadMeasuredDock > 0 ? threadMeasuredDock : (composerExpanded ? 156 : 60) + threadBottomInset) + (workingControl.visible ? 48.5 : 0)
+  derive threadDockClearance = (threadData.queued and not threadData.queuedFailed) ? max(layout.safeBottom, 12) : (threadGeometryOwner == threadGeometryKey and threadMeasuredDock > 0 ? threadMeasuredDock : (threadData.queuedFailed ? 190 : composerExpanded ? 156 : 60) + threadBottomInset) + (workingControl.visible ? 48.5 : 0)
   action threadGeometryChanged(owner: string, width: number, height: number)
     if owner == threadGeometryKey
       let routeFrame = frame(`thread-route-bounds-${routeId}`)
@@ -350,7 +350,12 @@ component MobileRouteContent
         view id=`thread-flow-bounds-${routeId}` position="absolute" inset=0 pointer-events="none" aria-hidden=true resize=threadGeometryChanged(threadGeometryKey)
         column position="absolute" top=0 left=0 right=0 bottom=(-threadCoveredBottom) pointer-events="auto"
           ThreadFeed(data=threadData, horizontalPadding=workspace.chatHorizontalPadding, userBubbleMaxWidth=workspace.userBubbleMaxWidth, bottomClearance=threadDockClearance, action=threadAction, openMedia=openMedia, colors=threadLook)
-      when not threadData.queued
+      when threadData.queuedFailed
+        column id=`thread-dock-${routeId}` position="absolute" left=0 right=0 bottom=0 padding-left=14 padding-right=14 padding-bottom=threadBottomInset pointer-events="none"
+          view id=`thread-dock-bounds-${routeId}` position="absolute" inset=0 pointer-events="none" aria-hidden=true resize=threadGeometryChanged(threadGeometryKey)
+          column width="100%" max-width=workspace.chatContentMaxWidth align-self="center" pointer-events="auto"
+            ThreadCreationFailedCard(data=threadData, action=threadAction, colors=threadLook)
+      else when not threadData.queued
         column id=`thread-dock-${routeId}` position="absolute" left=0 right=0 bottom=0 pointer-events="none"
           view id=`thread-dock-bounds-${routeId}` position="absolute" inset=0 pointer-events="none" aria-hidden=true resize=threadGeometryChanged(threadGeometryKey)
           MobileWorkingControl(data=workingControl, colors=threadLook, maxWidth=min(workspace.contentSettledWidth, workspace.chatContentMaxWidth), openAgents=workingAgents, openBrowser=workingBrowser, openDevices=workingDevices, openQueue=workingQueue, reconnect=workingReconnect)

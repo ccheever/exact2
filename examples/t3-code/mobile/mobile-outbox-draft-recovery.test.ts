@@ -1,4 +1,6 @@
-import { mobileOutboxRootSnapshot as rootView, mobileOutboxRootAction as rootAction } from './mobile-outbox-root';
+import { mobileOutboxThread, mobileOutboxOwner, mobileOutboxPendingTasks } from './mobile-outbox-presentation';
+import { mobileNewTaskDraftStore } from './mobile-new-task-drafts';
+import { mobileOutboxRootSnapshot as rootView, mobileOutboxRootAction as rootAction, mobileOutboxRootEdit as editRecovered } from './mobile-outbox-root';
 import { mobilePendingTaskEditorsCreate } from './mobile-pending-task-state';
 import { mobileOutboxSnapshot } from './mobile-outbox';
 import { mobileNewTaskDraftBind, mobileNewTaskDraftDiscard, mobileNewTaskDraftRetarget } from './mobile-new-task-drafts';
@@ -208,4 +210,43 @@ test('backed-off recovery permits another owner and explicit retry resumes its e
   delete f.hooks.write;
   expect((await rootAction(client, f.native, f.storage, 'retry', JSON.stringify(owner), 1001)).message).toBe('');
   expect(client.local.drafts[key]).toBe('recover me'); expect(f.state.requests.size).toBe(1);
+});
+
+
+test('successful rejection recovery keeps its failed thread visible with an exact Edit task destination', async () => {
+  const f = backend(), client = await f.load(); f.terminal.error = { kind: 'EnvironmentAuthorizationError', message: 'This environment cannot start tasks.' };
+  const next = await rootDiscover(f, client);
+  expect(mobileOutboxThread('env', 'thread', 1000, false, client)?.queuedFailed).toBe(false);
+  await rootAction(client, f.native, f.storage, 'deliver', next.next, 1000);
+  const view = mobileOutboxThread('env', 'thread', 1000, false, client)!;
+  expect(view).toMatchObject({ queued: true, queuedFailed: true, queuedCanEdit: true, queuedCanRetry: false,
+    queuedStatus: 'Could not start task', queuedReason: 'This environment cannot start tasks.', rows: [{ body: 'recover me' }] });
+  expect(view.composer.canSend).toBe(false); expect(mobileOutboxPendingTasks(client, 1000)).toEqual([]);
+  const before = f.calls.length, selected = [client.environmentId, client.projectId, client.threadId];
+  expect(editRecovered(client, mobileOutboxOwner(record))).toMatchObject({ message: '',
+    nextLocation: '/new/draft?environmentId=env&projectId=project&draftId=new-task%3Arestored-message' });
+  expect(f.calls.length).toBe(before); expect([client.environmentId, client.projectId, client.threadId]).toEqual(selected);
+  expect(mobileOutboxThread('other', 'thread', 1000, false, client)).toBeNull();
+  client.shell.threads = [{ id: 'thread' }]; expect(mobileOutboxThread('env', 'thread', 1000, false, client)).toBeNull();
+});
+test('failed or incomplete recovery never claims that the prompt is in a project draft', async () => {
+  const f = backend(), client = await f.load(), next = await rootDiscover(f, client);
+  f.hooks.write = async () => { throw Error('disk unavailable'); };
+  await rootAction(client, f.native, f.storage, 'deliver', next.next, 1000);
+  expect(mobileOutboxThread('env', 'thread', 1000, false, client)?.queuedFailed).toBe(false);
+  expect(editRecovered(client, mobileOutboxOwner(record)).nextLocation).toBe('');
+});
+for (const mode of ['consumed', 'retargeted', 'forged-owner'] as const) test(`Edit task cannot recreate or replace a ${mode} recovered destination`, async () => {
+  const f = backend(), client = await f.load(), next = await rootDiscover(f, client);
+  await rootAction(client, f.native, f.storage, 'deliver', next.next, 1000);
+  const store = mobileNewTaskDraftStore(client), original = copy(store.records[key]);
+  if (mode === 'consumed') { delete store.records[key]; delete client.local.drafts[key]; }
+  if (mode === 'retargeted') store.records[key].origin = 'https://replacement.test';
+  const requested = mode === 'forged-owner' ? mobileOutboxOwner({ ...record, commandId: 'other' }) : mobileOutboxOwner(record);
+  const before = f.calls.length, draftBefore = client.local.drafts[key];
+  expect(editRecovered(client, requested).nextLocation).toBe('');
+  expect(f.calls.length).toBe(before); expect(client.local.drafts[key]).toBe(draftBefore);
+  if (mode === 'consumed') expect(store.records[key]).toBeUndefined();
+  if (mode === 'retargeted') expect(store.records[key]).toEqual({ ...original, origin: 'https://replacement.test' });
+  expect(mobileOutboxThread('env', 'thread', 1000, false, client)?.queuedCanEdit).toBe(mode === 'forged-owner');
 });

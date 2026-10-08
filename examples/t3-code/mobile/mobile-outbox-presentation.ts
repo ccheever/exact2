@@ -1,5 +1,6 @@
 // Source365aa87982 pending-new-tasks-model and pending-thread-feed.
 // @ref llp/1109.005-composer-and-transcript.decision.md#queued-command-construction
+import { mobileOutboxRootFailure } from './mobile-outbox-root';
 import { mobileClient } from './client';
 import type { T3Client } from './shared/client';
 import { mobileOutboxSnapshot } from './mobile-outbox';
@@ -36,12 +37,14 @@ export function mobileOutboxStatus(status: string): string {
 export function mobileOutboxThread(environmentId: string, threadId: string, now: number, dark = false,
   client: T3Client = mobileClient): ThreadSnapshot | null {
   if (client.environmentId === environmentId && client.shell.threads.some(thread => thread.id === threadId)) return null;
+  const failure = mobileOutboxRootFailure(client, environmentId, threadId);
   const item = mobileOutboxPendingTasks(client, now).filter(item => item.record.environmentId === environmentId
     && item.record.threadId === threadId).sort((a, b) => a.record.createdAt.localeCompare(b.record.createdAt))[0];
-  if (!item) return null;
-  const { record } = item, status = mobileOutboxStatus(item.status);
+  if (!item && !failure) return null;
+  const record = failure?.record ?? item!.record, status = failure ? 'Could not start task' : mobileOutboxStatus(item!.status);
   return { revision: client.revision, environmentId, threadId, title: homeDraftTitle(record.text, record.attachments.length),
-    queued: true, queuedOwner: item.owner, queuedStatus: status, queuedReason: item.reason, queuedCanRetry: item.canRetry,
+    queued: true, queuedOwner: mobileOutboxOwner(record), queuedStatus: status, queuedReason: failure?.reason ?? item!.reason,
+    queuedCanRetry: !failure && item!.canRetry, queuedFailed: !!failure, queuedCanEdit: failure?.editable ?? false,
     loaded: true, loading: false, emptyTitle: '', emptyDetail: '', error: '', uncertain: false, hasMore: false,
     historyLoading: false, historyError: '', readsNeeded: false, answerFilesOwner: '', answerFilesRequest: '', approvals: [],
     rows: [{ id: record.messageId, kind: 'pending', title: '', body: record.text, blocks: mobileThreadBlocks(record.text, dark),
