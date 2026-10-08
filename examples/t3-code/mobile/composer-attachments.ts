@@ -1,3 +1,4 @@
+import { mobileNewTaskDraftLookup, mobileNewTaskDraftChanged, mobileNewTaskDraftPersisted, mobileNewTaskDraftQueueFiles } from './mobile-new-task-drafts';
 import { mobileQueuedEditPresentation } from './queued-edit';
 import { composerAttachmentPreview, composerAttachmentPreviewRequest, prepareComposerAttachmentPreviews } from './composer-attachment-previews';
 import { mobileComposerTarget, mobileComposerTargetRequire, mobileComposerTargetCurrent } from './composer-target';
@@ -56,6 +57,20 @@ export async function mobileComposerAttachmentAction(source: string, id: string,
   const native = letGoAware(mobileNative(nativeInput)), storage = client === mobileClient ? nativeFiles(native) : suppliedStorage;
   const key = client.draftKey, environmentId = client.environmentId, generation = client.generation;
   const current = () => mobileComposerTargetCurrent(client, target) && key === client.draftKey && environmentId === client.environmentId && generation === client.generation;
+  const independent = !!mobileNewTaskDraftLookup(client, key);
+  const content = () => JSON.stringify([client.local.drafts[key], client.local.snapshotDrafts[key], draftFiles(client.local).filter(file => file.draftKey === key)]);
+  let observed = content();
+  const observe = () => {
+    const next = content();
+    if (independent && next !== observed) mobileNewTaskDraftChanged(client, key);
+    observed = next;
+  };
+  const durable: Files = independent ? { fs: { ...storage.fs, atomicWriteFile: async (path, bytes) => {
+    observe();
+    const document = obj(JSON.parse(new TextDecoder().decode(bytes)));
+    document.mobileNewTaskDrafts = mobileNewTaskDraftPersisted(client) as unknown as Obj;
+    await storage.fs.atomicWriteFile(path, new TextEncoder().encode(JSON.stringify(document)));
+  } } } : storage;
   let picked: Obj[] = [];
   const cleanup = async () => { for (const file of picked) if (str(file.id)) await bridgeReply(native,
     { op: file.kind === 'image' ? 'snapshotDraftRemove' : 'composerAttachRemove', id: file.id }).catch(() => undefined); };
@@ -64,12 +79,20 @@ export async function mobileComposerAttachmentAction(source: string, id: string,
     if (source === 'remove-image' || source === 'remove-file') {
       const operation = source === 'remove-image' ? 'remove-snapshot' : 'editorlocal:r4c-video-remove';
       const assertCurrent = () => { if (!current()) throw new ClientError('The composer changed before the attachment could be removed.', 'superseded'); };
+      const removedFile = draftFiles(client.local).find(file => file.draftKey === key && file.id === id);
+      let deferredRelease = false;
       const guarded: Native = { available: native.available, watch: topic => native.watch(topic), later: async request => {
-        assertCurrent(); const reply = await native.later(request); assertCurrent(); return reply;
+        observe();
+        if (independent && !deferredRelease && removedFile && obj(request).op === 'composerAttachRemove' && obj(request).id === removedFile.id) {
+          deferredRelease = true; mobileNewTaskDraftQueueFiles(client, [removedFile]);
+          return { ok: true, generation: client.generation, value: {} };
+        }
+        assertCurrent(); const reply = await native.later(request); observe(); assertCurrent(); return reply;
       } };
       assertCurrent();
-      const response = client === mobileClient ? await mobileCommand([operation, id, ''], guarded, suppliedStorage)
-        : await client.command(operation, id, '', 0, guarded, storage);
+      const guardedStorage: Files = { fs: { ...durable.fs, atomicWriteFile: async (path, bytes) => { assertCurrent(); await durable.fs.atomicWriteFile(path, bytes); assertCurrent(); } } };
+      const response = !independent && client === mobileClient ? await mobileCommand([operation, id, ''], guarded, suppliedStorage)
+        : await client.command(operation, id, '', 0, guarded, guardedStorage);
       if (response.message) errors.set(client, response.message);
       return result(response.message);
     }
@@ -88,7 +111,20 @@ export async function mobileComposerAttachmentAction(source: string, id: string,
     let pickError = '';
     const picker: Native = { available: true, watch: topic => native.watch(topic), later: async input => {
       const request = obj(input);
-      if (request.op !== 'composerAttachPick') return native.later(input);
+      observe();
+      if (request.op !== 'composerAttachPick') {
+        if (!independent || request.op !== 'editorInsert') return native.later(input);
+        // Shared image-only fallback reads the current key after this await.
+        // Finish that insertion into the captured draft even if another opens.
+        let reply: Obj | null = null;
+        if (current()) { try { reply = obj(await native.later(input)); } catch { /* Keep accepted bytes and their reference. */ } }
+        if (!reply?.ok || obj(reply.value).applied !== true) {
+          const prompt = client.local.drafts[key] ?? '', text = str(request.text);
+          if (mobileNewTaskDraftLookup(client, key)) client.local.drafts[key] = `${prompt}${prompt && !/\s$/.test(prompt) ? ' ' : ''}${text} `;
+        }
+        observe();
+        return { ok: true, generation, value: { applied: true } };
+      }
       const response = await bridgeReply(native, { ...request, source, remaining });
       picked = arr(obj(response.value).files); pickError = str(obj(response.value).error);
       // Preserve actual byte MIME/name after shared acceptance (desktop assumes PNG images).
@@ -104,6 +140,7 @@ export async function mobileComposerAttachmentAction(source: string, id: string,
       const actual = picked.find(file => file.kind === 'image' && file.id === image.id);
       if (actual) { image.mimeType = str(actual.mimeType); image.name = str(actual.name); }
     }
+    observe();
     // Capabilities can change while a system picker is open. Release only rejected staged
     // bytes; accepted files remain owned even when persistence fails and the user retries.
     const owned = new Set([...(client.local.snapshotDrafts[key] ?? []).map(image => str(image.id)),
@@ -111,7 +148,7 @@ export async function mobileComposerAttachmentAction(source: string, id: string,
     for (const file of picked) if (str(file.id) && !owned.has(str(file.id))) {
       await bridgeReply(native, { op: file.kind === 'image' ? 'snapshotDraftRemove' : 'composerAttachRemove', id: file.id });
     }
-    await client.persist(storage); // Bytes stay owned until durable shared draft state says otherwise.
+    await client.persist(durable); // Bytes stay owned until durable shared draft state says otherwise.
     const message = pickError || client.error;
     if (message) errors.set(client, message);
     return result(message);
@@ -119,7 +156,7 @@ export async function mobileComposerAttachmentAction(source: string, id: string,
     if (letGo(error)) throw error;
     const message = error instanceof Error ? error.message : 'Could not attach files.';
     errors.set(client, message); return result(message);
-  } finally { picking.delete(client); client.revision++; }
+  } finally { observe(); picking.delete(client); client.revision++; }
 }
 
 /** Root refreshes previews only for actual owned draft IDs; payload is a bounded native thumbnail. */

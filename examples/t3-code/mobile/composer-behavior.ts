@@ -1,4 +1,5 @@
-import { mobileComposerTarget } from './composer-target';
+import { mobileNewTaskDraftCurrent, mobileNewTaskDraftLookup } from './mobile-new-task-drafts';
+import { mobileComposerTarget, mobileComposerTargetCurrent } from './composer-target';
 // Pinned365aa87982 ComposerTextView key commands and followUpBehavior.ts.
 // @ref llp/1107.005-composer-and-transcript.decision.md#settings-ownership
 import type { T3Client } from './shared/client';
@@ -41,7 +42,10 @@ export function mobileSubmissionNative(native: Native, alternate: boolean, after
 export async function mobileSend(client: T3Client, alternate: boolean, native: Native, storage: Files) {
   const identity = () => JSON.stringify([client.generation, client.threadEpoch, client.origin, client.environmentId, client.projectId,
     client.threadId, mobileComposerTarget(client).owner, client.draftKey, client.providerId, client.modelId, client.modelOptions, client.runtimeMode, client.interactionMode]);
-  const owner = identity();
+  const owner = identity(), target = mobileComposerTarget(client), draft = mobileNewTaskDraftCurrent(client);
+  const storedChoices = JSON.stringify(draft?.choices), originalMode = client.interactionMode;
+  const model = JSON.stringify([client.providerId, client.modelId, client.modelOptions, client.runtimeMode]);
+  let projectedBuild = false;
   const assertOwner = () => { if (owner !== identity()) throw new ClientError('The draft or model changed before the message could be sent.', 'superseded'); };
   try {
     if (mobileComposerTarget(client).kind !== 'ordinary') throw new ClientError('Save the queued edit from its composer.');
@@ -54,7 +58,7 @@ export async function mobileSend(client: T3Client, alternate: boolean, native: N
     const provider = arr(client.config.providers).find(value => value.instanceId === client.providerId);
     if (!preferences.planModeEnabled || provider?.showInteractionModeToggle === false) {
       if (client.threadId) stage(client, { interactionMode: 'default' });
-      else client.interactionMode = 'default';
+      else { projectedBuild = client.interactionMode !== 'default'; client.interactionMode = 'default'; }
     }
     const admittedOwner = identity();
     const assertAdmittedOwner = () => { if (admittedOwner !== identity()) throw new ClientError('The draft or model changed before the message could be sent.', 'superseded'); };
@@ -69,5 +73,12 @@ export async function mobileSend(client: T3Client, alternate: boolean, native: N
   } catch (error) {
     if (letGo(error)) throw error;
     return { revision: client.revision, message: error instanceof Error ? error.message : 'Could not send the message.' };
+  } finally {
+    // Source derives Build for this submission without erasing stored Plan intent.
+    // A successful launch removes its record; a changed owner keeps its own modes.
+    if (projectedBuild && draft && !client.threadId && mobileComposerTargetCurrent(client, target)
+      && JSON.stringify(mobileNewTaskDraftLookup(client, draft.key)?.choices) === storedChoices
+      && JSON.stringify([client.providerId, client.modelId, client.modelOptions, client.runtimeMode]) === model
+      && client.interactionMode === 'default') client.interactionMode = originalMode;
   }
 }

@@ -1,13 +1,15 @@
 import { expect, test } from 'bun:test';
 import { T3Client } from './shared/client';
+import { MobileDraftClient } from './mobile-draft-recovery';
+import { noteNow } from './shared/composer-controls';
 import type { Native, Files } from './shared/protocol';
 import { obj, type Obj } from './shared/domain';
 import { EnvironmentFleet, environmentKey, type FleetEntry } from './shared/settings-b-fleet';
 import { mobileNewTaskFileRead, mobileNewTaskFileSnapshot } from './new-task-file';
 import { mobileNewTaskFlowView, mobileNewTaskFlowAction, mobileNewTaskFlowOwns, mobileNewTaskFileRouteCurrent } from './new-task-flow';
 
-function fixture(target = 'focused') {
-  const client = new T3Client(), background = new EnvironmentFleet(), calls: Obj[] = [];
+function fixture(target = 'focused', independent = false) {
+  const client = independent ? new MobileDraftClient() : new T3Client(), background = new EnvironmentFleet(), calls: Obj[] = [];
   Object.assign(client, { origin: 'https://focused.test', environmentId: 'focused', generation: 7, connection: 'connected' });
   const key = environmentKey('https://remote.test', 'remote');
   const entry: FleetEntry = { key, origin: 'https://remote.test', environmentId: 'remote', phase: 'connected', generation: 19,
@@ -19,7 +21,7 @@ function fixture(target = 'focused') {
   const flow = view();
   let permitted = true, contents = 'first\nsecond';
   const response = (request: Obj) => ({ ok: true, generation: request.fleet ? entry.generation : client.generation,
-    value: request.op === 'environments' ? { saved: background.saved } : request.op === 'http'
+    value: request.op === 'ids' ? Array.from({ length: Number(request.count) }, (_, index) => `file-draft-${index}`) : request.op === 'environments' ? { saved: background.saved } : request.op === 'http'
       ? { authenticated: true, permissions: permitted ? ['filesystem:read'] : [], scopes: ['filesystem:read'] }
       : { contents, truncated: true } });
   const native: Native = { available: true, watch() {}, async later(input) { const request = obj(input); calls.push(request); return response(request); } };
@@ -75,8 +77,9 @@ test('standalone route refuses every draft action including project and prepare 
   expect(f.calls).toHaveLength(0);
 });
 
-test('standalone fileBack preserves an adopted draft and its complete local state', async () => {
-  const f = fixture('remote');
+test('standalone fileBack preserves an independent draft and its complete local state', async () => {
+  const f = fixture('remote', true);
+  noteNow(f.client, 1791420000000);
   Object.assign(f.client, { shellLoaded: true, shellLive: true, configLive: true, threadLive: true, scopes: ['orchestration:operate'] });
   f.client.config = { environment: { capabilities: { serverResolvedCommandContext: true } } };
   f.client.shell.projects = [{ id: 'project', title: 'Project', workspaceRoot: '/project' }];
@@ -86,6 +89,9 @@ test('standalone fileBack preserves an adopted draft and its complete local stat
   const chooser = f.view('/new', 'choose');
   await mobileNewTaskFlowAction(chooser.owner, 'choose', 'project', '["focused","project"]', '', f.native, files, f.client, f.background);
   const draft = f.view('/new/draft', 'draft'); expect(draft.ready).toBe(true);
+  expect(f.client.draft).toBe('');
+  await mobileNewTaskFlowAction(draft.owner, 'draft', 'draft', '', 'unsent draft', f.native, files, f.client, f.background);
+  expect(f.client.local.drafts['focused:new:project']).toBe('unsent draft');
   const before = JSON.stringify([f.client.local, f.client.projectId, f.client.threadId, f.client.threadEpoch, f.client.providerId, f.client.modelId]);
   const file = f.view(); expect(file.fileReady).toBe(true); expect(file.ready).toBe(false);
   await f.read(f.native, f.location, 'file', file.owner);

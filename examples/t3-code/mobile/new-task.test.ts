@@ -1,3 +1,4 @@
+import { noteNow } from './shared/composer-controls';
 import { liveEvent } from './shared/live-streams';
 import { mobileNewTaskCloneObserve } from './new-task-clone';
 import { mobileLayoutFacts } from './root-presentation';
@@ -21,12 +22,14 @@ async function fixture() {
   await client.command('dismiss-error', '', '', 0, { available: true, watch() {}, async later() { return { ok: true, generation: 0, value: {} }; } }, files);
   Object.assign(client, { environmentId: 'env', origin: 'https://example.test', projectId: 'a', connection: 'connected',
     configLive: true, shellLive: true, shellLoaded: true, threadLive: true, scopes: ['orchestration:operate'] });
+  noteNow(client, 1791420000000);
   client.config = { environment: { capabilities: { serverResolvedCommandContext: true } }, providers: [] };
   client.shell.projects = [{ id: 'a', title: 'A', workspaceRoot: '/a' }, { id: 'b', title: 'B', workspaceRoot: '/b' }];
   client.local.drafts['env:new:a'] = 'A original'; client.local.drafts['env:new:b'] = 'B original';
+  let serial = 0;
   const native: Native = { available: true, watch() {}, async later(input) {
     const request = obj(input); calls.push(request);
-    const value = request.op === 'http' ? { authenticated: true, permissions: ['source-control:write'] }
+    const value = request.op === 'ids' ? Array.from({length: Number(request.count)}, () => `id-${++serial}`) : request.op === 'http' ? { authenticated: true, permissions: ['source-control:write'] }
       : request.method === 'vcs.switchRef' ? { refName: 'normalized-branch' } : {};
     return { ok: true, generation: client.generation, value };
   } };
@@ -49,7 +52,7 @@ test('explicit project selection keeps existing shared drafts and enables only t
   expect(await f.action(chooser.owner, 'project', '["env","b"]')).toMatchObject({ message: '', nextLocation: '/new/draft', submitted: false });
   const draft = f.snapshot('/new/draft', 'draft');
   expect(draft.ready).toBe(true); expect(owns(draft.owner, 'draft', f.client)).toBe(true);
-  expect(f.client.projectId).toBe('b'); expect(f.client.draft).toBe('B original'); expect(f.client.local.drafts['env:new:a']).toBe('A original');
+  expect(f.client.projectId).toBe('b'); expect(f.client.draft).toBe(''); expect(f.client.local.drafts['env:new:a']).toBe('A original');
   expect(f.snapshot('/new/draft', 'fresh', 'other-flow')).toMatchObject({ ready: false, nextLocation: '/new' });
 });
 
@@ -135,7 +138,7 @@ test('unknown direct identity waits for catalog, then returns chooser without se
   expect(f.snapshot('/new/draft/branch?projectId=b')).toMatchObject({ status: 'pick', nextLocation: '/new' });
 });
 
-test('unimplemented draft/outbox/share identity never falls through to an existing project', async () => {
+test('unknown draft and unavailable outbox/share identity never fall through to an existing project', async () => {
   const f = await fixture();
   for (const key of ['draftId', 'pendingTaskId', 'incomingShareId', 'cloning']) {
     expect(f.snapshot(`/new/draft?environmentId=env&projectId=b&${key}=real-id`)).toMatchObject({ status: 'pick', ready: false, needsPrepare: false, nextLocation: '/new' });
@@ -148,7 +151,7 @@ test('branch links dispatch real checkout before accepting normalized branch con
   expect(await f.action(flow.owner, 'prepare')).toMatchObject({ message: '' });
   expect(f.calls.find(call => call.method === 'vcs.switchRef')?.payload).toEqual({ cwd: '/b', refName: 'feature' });
   expect(draftContext(f.client)).toEqual({ envMode: 'local', branch: 'normalized-branch', worktreePath: '' });
-  expect(f.client.draft).toBe('B original'); expect(f.snapshot('/new/draft?environmentId=env&projectId=b&branch=feature').ready).toBe(true);
+  expect(f.client.draft).toBe(''); expect(f.snapshot('/new/draft?environmentId=env&projectId=b&branch=feature').ready).toBe(true);
 });
 
 test('checkout permission loss refuses the draft and preserves its previous context', async () => {
@@ -189,13 +192,13 @@ test('a dispatched checkout blocks another flow until it settles and cannot patc
 
 test('draft edits retain their captured project while persistence overlaps and ownership changes', async () => {
   const f = await fixture(), first = f.snapshot('/new'); await f.action(first.owner, 'project', '["env","a"]');
-  const draft = f.snapshot('/new/draft'); let release!: () => void, entered!: () => void, writes = 0;
+  const draft = f.snapshot('/new/draft'), key = f.client.draftKey; let release!: () => void, entered!: () => void, writes = 0;
   const started = new Promise<void>(resolve => { entered = resolve; }), gate = new Promise<void>(resolve => { release = resolve; });
   f.files.fs.atomicWriteFile = async () => { if (++writes === 1) { entered(); await gate; } };
   const edit = f.action(draft.owner, 'draft', '', 'A changed'); await started;
   const latest = f.action(draft.owner, 'draft', '', 'A latest'); await latest;
   f.client.projectId = 'b'; release(); await edit;
-  expect(f.client.local.drafts['env:new:a']).toBe('A latest'); expect(f.client.draft).toBe('B original');
+  expect(f.client.local.drafts[key]).toBe('A latest'); expect(f.client.local.drafts['env:new:a']).toBe('A original'); expect(f.client.draft).toBe('A latest');
   expect(owns(draft.owner, 'visit', f.client)).toBe(false);
 });
 
@@ -269,7 +272,7 @@ test('No project uses actual shared creation and shell admission; previous and s
   const chooser = f.snapshot('/new'), data = mobileNewTaskChooser('', 'repository', f.client, f.fleet);
   expect(data.canStartScratch).toBe(true); expect(data.projects.map(row => row.projectId)).toEqual(['a', 'b']);
   expect(await f.action(chooser.owner, 'scratch', data.scratchTarget)).toMatchObject({ nextLocation: '/new/draft', message: '', projectId: 'scratch' });
-  expect(f.snapshot('/new/draft', 'draft').ready).toBe(true); expect(f.client.draft).toBe('Existing scratch');
+  expect(f.snapshot('/new/draft', 'draft').ready).toBe(true); expect(f.client.draft).toBe('');
   expect(f.client.local.drafts['env:new:a']).toBe('A original');
   expect(draftContext(f.client)).toEqual({ envMode: 'local', branch: '', worktreePath: '' });
   expect(f.calls.filter(call => call.method === 'projects.ensureScratch')).toHaveLength(1);
@@ -325,7 +328,7 @@ test('scratch explicit links ignore obsolete worktree settings and preserve the 
   f.client.local.drafts['env:new:scratch'] = 'Keep me';
   const url = '/new/draft?environmentId=env&projectId=scratch&branch=old&worktreePath=%2Fold', flow = f.snapshot(url);
   expect((await f.action(flow.owner, 'prepare')).message).toBe('');
-  expect(f.snapshot(url).ready).toBe(true); expect(f.client.draft).toBe('Keep me');
+  expect(f.snapshot(url).ready).toBe(true); expect(f.client.draft).toBe('');
   expect(draftContext(f.client)).toEqual({ envMode: 'local', branch: '', worktreePath: '' });
   expect(f.calls.some(call => call.method === 'vcs.switchRef')).toBe(false);
 });
@@ -369,11 +372,11 @@ test('scratch branch routes redirect and scratch environment changes cannot stra
   f.snapshot('/new/draft/environment', 'environment');
   f.client.local.snapshotDrafts[f.client.draftKey] = [{ id: 'owned-file', name: 'keep.txt', type: 'file' }];
   const before = f.calls.length;
-  expect((await f.action(chooser.owner, 'environment', 'other', '', 'environment')).message).toContain('attachments');
+  expect((await f.action(chooser.owner, 'environment', 'other', '', 'environment')).message).toContain('no longer available');
   expect(f.calls).toHaveLength(before); expect(f.client.snapshotDrafts[0]?.id).toBe('owned-file');
 });
 
-test('scratch Run on refuses an occupied destination after real remote ensure without overwriting either draft', async () => {
+test('scratch Run on attempts the actual connection without treating legacy content as a collision', async () => {
   const f = await fixture(); scratchNative(f); const chooser = f.snapshot('/new');
   await f.action(chooser.owner, 'scratch', mobileScratchTarget(f.client, f.fleet));
   f.client.local.drafts[f.client.draftKey] = 'Source draft';
@@ -389,9 +392,9 @@ test('scratch Run on refuses an occupied destination after real remote ensure wi
     return original(input);
   };
   f.snapshot('/new/draft/environment', 'environment');
-  expect((await f.action(chooser.owner, 'environment', 'remote', '', 'environment')).message).toContain('already has a saved draft');
+  expect((await f.action(chooser.owner, 'environment', 'remote', '', 'environment')).message).not.toContain('already has a saved draft');
   expect(f.calls.some(call => call.method === 'projects.ensureScratch' && call.fleet === 'remote-key')).toBe(true);
-  expect(f.calls.some(call => call.op === 'connect' || call.op === 'fleetStop')).toBe(false);
+  expect(f.calls.some(call => call.op === 'connect')).toBe(true);
   expect(f.client.draft).toBe('Source draft'); expect(f.client.local.drafts['remote:new:remote-scratch']).toBe('Destination draft');
   expect(f.client.environmentId).toBe('env');
 });
@@ -509,13 +512,14 @@ test('actual New Task flow preserves configured noncatalog model and options thr
   f.client.local.composerControls.stickyByProvider.codex = { model: 'catalog', options: [] };
   const chooser = f.snapshot('/new');
   expect(await f.action(chooser.owner, 'project', '["env","a"]')).toMatchObject({ message: '', submitted: false });
+  f.client.local.drafts[f.client.draftKey] = 'Fresh content';
   expect(f.client.providerId).toBe('codex'); expect(f.client.modelId).toBe('configured');
   expect(f.client.modelOptions).toEqual([{ id: 'reasoning', value: 'high' }]);
   expect(mobileNewTask('', f.client, f.fleet).composer).toMatchObject({ modelLabel: 'configured', canSend: true });
   f.client.chooseDefaults();
   expect(f.client.modelId).toBe('configured'); expect(f.client.modelOptions).toEqual([{ id: 'reasoning', value: 'high' }]);
   expect(f.snapshot('/new/draft', 'draft').ready).toBe(true);
-  expect(f.client.draft).toBe('A original');
+  expect(f.client.draft).toBe('Fresh content');
   expect(f.calls.some(call => ['orchestration.launchThread', 'orchestration.dispatchCommand'].includes(String(call.method)))).toBe(false);
   f.client.scopes = [];
   expect(mobileNewTask('', f.client, f.fleet).composer.canSend).toBe(false);
@@ -585,7 +589,7 @@ test('draft file reads use explicit worktree cwd and shared source rendering', a
   expect(file).toMatchObject({ title: 'a.ts', subtitle: 'Worktree · src', contents: 'one\n\ttwo', truncated: true, initialRowId: 'source-line:1' });
   expect(file.rows[1]).toMatchObject({ text: '    two', selected: true });
   expect(calls.find(call => call.method === 'projects.readFile')?.payload).toEqual({ cwd: '/worktree', relativePath: 'src/a.ts' });
-  expect(f.client.projectId).toBe('a'); expect(f.client.threadId).toBe(''); expect(f.client.draft).toBe('A original');
+  expect(f.client.projectId).toBe('a'); expect(f.client.threadId).toBe(''); expect(f.client.draft).toBe('');
 });
 
 test('draft file permission downgrade clears content and cross-environment routes never read', async () => {
@@ -644,7 +648,7 @@ test('draft file query replacement invalidates the old read without clearing the
   await expect(mobileNewTaskFileRead('a.ts', oldLocation, 'file', flow.owner, false, ready, f.client)).rejects.toMatchObject({ kind: 'superseded' });
   expect(mobileNewTaskFileSnapshot('a.ts', oldLocation, 'file', flow.owner, false, f.client).contents).toBe('');
   expect(mobileNewTaskFileSnapshot('a.ts', location, 'file', flow.owner, false, f.client).contents).toBe('current workspace');
-  expect(f.client.draft).toBe('A original');
+  expect(f.client.draft).toBe('');
 });
 
 
@@ -721,7 +725,7 @@ test('Add Project routes retain the containing draft while refusing composer act
       expect((await f.action(added.owner, kind, '["env","a"]', 'changed', 'add')).message).toContain('Return to the new task');
     }
     expect(f.calls).toHaveLength(calls);
-    expect(f.client.projectId).toBe('b'); expect(f.client.draft).toBe('B original');
+    expect(f.client.projectId).toBe('b'); expect(f.client.draft).toBe('');
     expect(f.snapshot('/new/draft', 'draft')).toMatchObject({ owner: draft.owner, ready: true, draftOwner: draft.draftOwner });
   }
   expect(mobileNewTaskRoute('/new/add-project/unknown').context).toBe('');
@@ -750,7 +754,7 @@ test('initial clone draft admits route but guards actual Send until authoritativ
   expect(mobileNewTask('', f.client, f.fleet).composer).toMatchObject({ canSend: false, blockedReason: 'Cloning repository' });
   f.calls.length = 0;
   expect(await f.action(flow.owner, 'send')).toMatchObject({ message: 'Cloning repository', submitted: false });
-  expect(f.calls).toHaveLength(0); expect(f.client.draft).toBe('A original');
+  expect(f.calls).toHaveLength(0); expect(f.client.draft).toBe('');
   liveEvent(f.client, { key: 'project-clones', subscriptionId: 'clone-1', value: [{ projectId: 'a', phase: 'failed' }] });
   expect(await f.action(flow.owner, 'send')).toMatchObject({ message: 'Repository not cloned', submitted: false });
   expect(f.calls).toHaveLength(0);

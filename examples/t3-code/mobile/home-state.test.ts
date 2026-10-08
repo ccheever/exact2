@@ -76,3 +76,16 @@ test('collapsed and filtered-out rows do not create swipe refresh deadlines', ()
   const args = [0, now, 'no matching title', 10, true, false, true, true, true, '', '', '', 'repository', 'visit', true, true];
   expect(mobileHomeView(args, f.client, f.background).nextSwipeRefreshAt).toBe(0);
 });
+
+test('two Home projections read local drafts without mutation and sidebar menu needs no live endpoint', () => {
+  const f = fixture(); f.client.shell.threads = []; f.remote.shell.threads = [];
+  Object.assign(f.client.local, { mobileNewTaskDrafts: { version: 1, records: { 'new-task:A': { key: 'new-task:A', environmentId: 'offline', projectId: 'gone', origin: 'https://old.test', createdAt: '2026-10-08T00:00:00Z', revision: 4, choices: null } }, receipts: {}, claims: {}, fileReleases: [] } });
+  f.client.local.drafts['new-task:A'] = 'Offline note';
+  const args = [0, now, '', 10, true, false, false, false, false, '', '', '', 'repository', 'visit', true, true,
+    [{ environmentId: 'offline', label: 'Saved Mac', machineSymbol: 'laptopcomputer' }, { environmentId: 'one', label: 'Other', machineSymbol: 'server.rack' }]];
+  const before = JSON.stringify(f.client.local), first = mobileHomeView(args, f.client, f.background), second = mobileHomeView(args, f.client, f.background);
+  expect(first.items).toEqual(second.items); expect(JSON.stringify(f.client.local)).toBe(before);
+  const draft = first.items[0]!; expect(draft.environmentLabel).toBe('Saved Mac'); expect(first.nextSwipeRefreshAt).toBe(0);
+  expect(JSON.parse(draft.nativeMenu)).toEqual({ identity: 'draft-task:new-task:A', requestRoute: 'visit', enabled: true, items: draft.menuItems });
+  expect(draft.swipe.primary).toBe(''); expect(first.arrangement.pinned).toEqual([]); expect(first.arrangement.active).toEqual([]);
+});

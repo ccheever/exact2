@@ -430,7 +430,7 @@ component App
   state sidebarProject = ""
   state sidebarSettledCount = 10
   resource sidebarChrome = homeChrome(workspace.sidebarRouteKey, sidebarQuery, sidebarEnvironment, sidebarProject, appearance.scheme, layout.safeBottom, layout.liquidGlass, data.revision, data.environments, appearance.groupingMode, "sidebar") as shape HomeChromeView
-  resource sidebarHome = homeView(data.revision, wallTime.epochAtZero + max(elapsed, now()), sidebarQuery, sidebarSettledCount, shelves.loaded, shelves.workingEnabled, shelves.workingExpanded, shelves.snoozedExpanded, shelves.settledExpanded, sidebarChrome.environmentId, sidebarChrome.projectKey, `${workspace.environmentId}:${workspace.threadId}`, appearance.groupingMode, `${top(nav).id}`, top(nav).name == "home" or top(nav).name == "homeArrange", workspace.usesSplitView and workspace.sidebarVisible) as shape HomeView
+  resource sidebarHome = homeView(data.revision, wallTime.epochAtZero + max(elapsed, now()), sidebarQuery, sidebarSettledCount, shelves.loaded, shelves.workingEnabled, shelves.workingExpanded, shelves.snoozedExpanded, shelves.settledExpanded, sidebarChrome.environmentId, sidebarChrome.projectKey, `${workspace.environmentId}:${workspace.threadId}`, appearance.groupingMode, `${top(nav).id}`, top(nav).name == "home" or top(nav).name == "homeArrange", workspace.usesSplitView and workspace.sidebarVisible, data.environments) as shape HomeView
   mutation sidebarEvent as shape ChromeEvent then didSidebarEvent
   action sidebarChromeEvent(value: string)
     send sidebarEvent = homeChromeEvent(value)
@@ -1061,7 +1061,7 @@ component App
   resource modelData = composerSettings(modelQuery, modelFilter, modelLegacy, data.revision, taskGuardOwner, taskGuardRoute) as shape ComposerSettingsSnapshot
   derive newTaskActive = startsWith(top(nav).name, "newTask")
   derive newTaskSession = match first(filter(stack(nav), route => route.name == "newTask")) { case some(route) => `${route.id}`, case none => "" }
-  resource newTaskFlow = newTaskFlow(newTaskSession, `${top(nav).id}`, top(nav).url, newTaskActive or startsWith(top(nav).name, "addProject"), data.revision) as shape NewTaskFlowSnapshot
+  resource newTaskFlow = newTaskFlow(newTaskSession, `${top(nav).id}`, top(nav).url, newTaskActive or startsWith(top(nav).name, "addProject"), data.revision, wallTime.epochAtZero + max(elapsed, now())) as shape NewTaskFlowSnapshot
   resource addProjectData = addProjectObserve(newTaskSession, workspaceEntries, `${top(nav).id}`, data.revision) as shape AddProjectSnapshot
   resource addProjectLook = addProjectColors(appearance.scheme, appearance.themeId) as shape AddProjectColors
   derive addProjectAlert = addProjectNextAlert(addProjectData)
@@ -1254,7 +1254,7 @@ component App
   state settledCount = 10
   resource shelves = homePreferences() as shape HomePreferences
   resource homeLook = homeColors(appearance.scheme, appearance.themeId) as shape HomeColors
-  resource home = homeView(data.revision, wallTime.epochAtZero + max(elapsed, now()), homeQuery, settledCount, shelves.loaded, shelves.workingEnabled, shelves.workingExpanded, shelves.snoozedExpanded, shelves.settledExpanded, chrome.environmentId, chrome.projectKey, "", appearance.groupingMode, `${top(nav).id}`, top(nav).name == "home" or top(nav).name == "homeArrange", workspace.usesSplitView and workspace.sidebarVisible) as shape HomeView
+  resource home = homeView(data.revision, wallTime.epochAtZero + max(elapsed, now()), homeQuery, settledCount, shelves.loaded, shelves.workingEnabled, shelves.workingExpanded, shelves.snoozedExpanded, shelves.settledExpanded, chrome.environmentId, chrome.projectKey, "", appearance.groupingMode, `${top(nav).id}`, top(nav).name == "home" or top(nav).name == "homeArrange", workspace.usesSplitView and workspace.sidebarVisible, data.environments) as shape HomeView
   mutation shelfChanged as shape Change refreshes shelves
   task clock mount
     every(60000, tick)
