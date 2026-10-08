@@ -6,6 +6,7 @@ kind: framework-gap (unconfirmed)
 blocks: [20261005-pr-links-previews-and-routing]
 upstream_url: https://github.com/ccheever/exact2/issues/133
 reproduced_on: null
+rest_upstream_url: https://github.com/ccheever/exact2/issues/272
 ---
 
 # X34: Hover and frame of an inline link or span inside rendered Markdown text
@@ -119,3 +120,7 @@ verifies those rows.
 Filed as #133 and closed. Main #178 fixed the macOS agent's hover on inline runs (enter, leave, hit test at a point). task `20261007-adopt-main-fixes-input`: the clone has no inline-link hover card and no workaround to remove. Unblocked for `20261005-pr-links-previews-and-routing`: an inline link's hover can be built and driven by the agent on macOS. Still missing on main: `frame()` of an inline run and inline runs in agent `layout`, so the card has no rectangle to anchor to.
 
 Re-checked 2026-10-07 on main `cff90b364` (task [20261007-adopt-main-fixes-r3](../tasks/closed/20261007-adopt-main-fixes-r3.md)): `frame()` of an inline run and inline runs in agent `layout` are still missing; nothing to adopt.
+
+## Rest filed upstream (2026-10-08)
+
+Upstream (the rest): https://github.com/ccheever/exact2/issues/272 (#272, [Bug] macOS: frame() of an inline text run is unavailable, and agent layout omits inline runs (rest of #133)). Reproduced on main `0365ad1a4` (relevant files unchanged on main `e200397ec`) before filing: macOS `frame("link")` gives `0,0 0x0 unavailable=true` and `layout` lists no inline runs; the web gives `24,24 228.34375×36`. Agent hover (#178) still passes. Searched open and closed issues and PRs: no duplicate.

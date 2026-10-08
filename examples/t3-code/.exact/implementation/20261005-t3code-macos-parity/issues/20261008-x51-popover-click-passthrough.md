@@ -1,14 +1,14 @@
 ---
 name: 20261008-x51-popover-click-passthrough
 plan: 20261005-t3code-macos-parity
-status: draft
-kind: framework-gap (unconfirmed)
+status: published
+kind: framework-gap
 blocks: []
-upstream_url: null
-reproduced_on: d82fb6a47 (feature branch on main 1f19b2400's framework)
+upstream_url: https://github.com/ccheever/exact2/issues/281
+reproduced_on: 0365ad1a4 (main)
 ---
 
-# X51: a click inside an open popover also reaches the page under it (macOS, unconfirmed)
+# X51: a click inside an open popover also reaches the page under it (macOS)
 
 ## Summary
 
@@ -116,3 +116,9 @@ user's approval through `issue-open`).
 Workaround in the clone: the popover box takes `press` (an action that only marks the press as a
 pointer one) and `retainFocus=true`, so the click ends at the popover and no focus moves except the
 control's own `focus()`.
+
+## Upstream (filed 2026-10-08)
+
+Upstream: https://github.com/ccheever/exact2/issues/281 (#281, [Bug] macOS: a click inside an open popover also presses the page control under it). Reproduced on main `0365ad1a4` (relevant files unchanged on main `e200397ec`) with a minimal public-API app before filing. Reproduced in the one-file app above. The earlier tries clicked the popover's pad at its centre, which lies above the button under it. At 600x700 the pad spans y 110-310 and the `under` button's centre is (144, 272): `tap open`, `tap pad clicks 1 at 120 162` reads `under 1 · downs 1`, journal `pointerdown view 10 (down)` then `press view 4 (hitUnder)`, focus on `under`. A click away from the button reads `under 0 · downs 1`, and the web reads `under 0 · downs 1` for the same click. The clone's workaround (`press` + `retainFocus` on the popover) reads `under 0 · downs 1` in the repro. Searched: popover click, popover press, click through: no duplicate.
+
+Next: issue-close once #281 lands: remove `press=popPress retainFocus=true` from the colour popover.

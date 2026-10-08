@@ -6,6 +6,7 @@ kind: framework-gap (unconfirmed)
 blocks: [20261005-local-primary-environment, 20261005-this-machine-network-access]
 upstream_url: https://github.com/ccheever/exact2/issues/122
 reproduced_on: null
+rest_upstream_url: https://github.com/ccheever/exact2/issues/271
 ---
 
 # X45: An app cannot relaunch itself
@@ -72,3 +73,7 @@ moves `reload()`'s log to stderr, so exact2 still has no process relaunch.
 2026-10-07: `20261005-local-primary-environment` ships the stopgap behind `applyLocalSetting` (`this-machine.ts`):
 off hands the focus to a saved environment and stops the embedded server; on starts it and connects; the window
 stays. Its "Relaunch after a setting change" row stays blocked until a relaunch exists and is adopted.
+
+## Rest filed upstream (2026-10-08)
+
+Upstream (the rest): https://github.com/ccheever/exact2/issues/271 (#271, [Design] A host command that relaunches the app's process (rest of #122)). Reproduced on main `0365ad1a4` (relevant files unchanged on main `e200397ec`) before filing: `relaunch()` is `type-unknown-command`; `reload()` resets the session in the same pid; with `EXACT_DEV_MENU=0` `reload()` does nothing. One "Decision needed" comment. Searched open and closed issues and PRs: no duplicate.
