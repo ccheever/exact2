@@ -197,7 +197,7 @@ impl Kernel {
             width: AxisOffer::Definite(frame.width),
             height: AxisOffer::MaxContent,
         };
-        tree.compute_mapped(root, offer, &self.arena, self.measurer.as_mut(), |s| {
+        tree.compute_mapped(root, offer, &self.arena, self.measurer.as_mut(), &|s| {
             nodes.get(&s).copied()
         })
         .ok()?;
