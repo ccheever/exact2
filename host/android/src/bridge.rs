@@ -1,6 +1,8 @@
 //! One selected Android runtime owner, exposing the existing borrowed C ABI.
 
 use crate::{core, wire::Encoder};
+#[path = "row_reuse.rs"]
+mod row_reuse;
 use exact_apple::{
     abi::Hooks,
     measure::{CallbackMeasurer, FontsFn},
@@ -36,6 +38,10 @@ pub trait GeneralRuntime<D: DataSource>: backend_sealed::Backend<D> + Sized {
     }
     /// Existing owner operation `set_compat`.
     fn set_compat(&mut self, compat: &'static str) {
+        unreachable!("uninhabited core fallback")
+    }
+    /// Presenter-owned opt-in to renewing retained row carriers.
+    fn set_row_reuse(&mut self, on: bool) {
         unreachable!("uninhabited core fallback")
     }
     /// Existing owner operation `set_fonts`.
@@ -133,6 +139,9 @@ impl<D: DataSource> GeneralRuntime<D> for General<D> {
     fn set_fonts(&mut self, fonts: Option<FontsFn>, ctx: *mut c_void) {
         exact_apple::abi::Bridge::set_fonts(self, fonts, ctx)
     }
+    fn set_row_reuse(&mut self, on: bool) {
+        exact_apple::abi::Bridge::set_row_reuse(self, on)
+    }
     fn input(&mut self, len: usize) -> *mut u8 {
         exact_apple::abi::Bridge::input(self, len)
     }
@@ -219,6 +228,8 @@ pub struct Bridge<D: DataSource, G: GeneralRuntime<D> = General<D>> {
     input: Vec<u8>,
     output: Vec<u8>,
     binary: bool,
+    row_reuse: bool,
+    row_reuse_admitted: bool,
 }
 
 impl<D: DataSource, G: GeneralRuntime<D>> Bridge<D, G> {
@@ -231,6 +242,8 @@ impl<D: DataSource, G: GeneralRuntime<D>> Bridge<D, G> {
             input: Vec::new(),
             output: Vec::new(),
             binary: false,
+            row_reuse: false,
+            row_reuse_admitted: false,
         }
     }
     /// This publication is already EXA1, without an intermediate native JSON batch.
@@ -240,6 +253,15 @@ impl<D: DataSource, G: GeneralRuntime<D>> Bridge<D, G> {
     /// Record this carrier's native compatibility receipt before boot.
     pub fn set_compat(&mut self, compat: &'static str) {
         self.compat = Some(compat);
+    }
+    /// Opt into renewing compatible carriers. Rows containing a ScrollView or
+    /// native navigation retain fresh mounts because their state cannot be reset.
+    /// The presenter must implement `renew` before enabling this default-off policy.
+    pub fn set_row_reuse(&mut self, on: bool) {
+        self.row_reuse = on;
+        if let Owner::General(b) = &mut self.owner {
+            b.set_row_reuse(on && self.row_reuse_admitted);
+        }
     }
     /// Install the declared fonts callback before any paragraph measurement.
     pub fn set_fonts(&mut self, fonts: Option<FontsFn>, ctx: *mut c_void) {
@@ -335,6 +357,7 @@ impl<D: DataSource, G: GeneralRuntime<D>> Bridge<D, G> {
             Ok(plan) => plan,
             Err(e) => return self.refuse(&format!("plan: {e:?}")),
         };
+        self.row_reuse_admitted = row_reuse::admits(&plan);
         if !core::eligible(&plan, &data) {
             if initial_press.is_some() {
                 return self.refuse("initial press requires an effect-free Android core plan");
@@ -350,6 +373,7 @@ impl<D: DataSource, G: GeneralRuntime<D>> Bridge<D, G> {
             if let Some((fonts, ctx)) = self.fonts {
                 b.set_fonts(Some(fonts), ctx);
             }
+            b.set_row_reuse(self.row_reuse && self.row_reuse_admitted);
             let len = b.boot_decoded(plan, data, hooks, w, h);
             self.owner = Owner::General(Box::new(b));
             self.binary = false;

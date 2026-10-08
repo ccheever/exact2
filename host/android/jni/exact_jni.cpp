@@ -433,7 +433,7 @@ template <typename F> jobject transaction(JNIEnv *env, jlong handle, F operation
     });
 }
 
-jlong create(JNIEnv *env, jclass, jobject engine) {
+jlong create(JNIEnv *env, jclass, jobject engine, jboolean reuse_rows) {
     return boundary(env, jlong(0), [&]() -> jlong {
         if (!engine || !env->IsInstanceOf(engine, text_class)) {
             fail(env, argument_error, "Exact requires a TextEngine");
@@ -448,6 +448,7 @@ jlong create(JNIEnv *env, jclass, jobject engine) {
             fail(env, state_error, "Exact Android could not create a session");
             return 0;
         }
+        exact_android_set_row_reuse(value->runtime, reuse_rows ? 1u : 0u);
         const auto handle = jlong(value->runtime);
         auto *context = value.get();
         try {
@@ -462,6 +463,15 @@ jlong create(JNIEnv *env, jclass, jobject engine) {
         exact_android_set_fonts(context->runtime, fonts, context);
         exact_android_set_wake(context->runtime, wake, context);
         return handle;
+    });
+}
+
+void rowReuse(JNIEnv *env, jclass, jlong handle, jboolean enabled) {
+    boundary(env, false, [&]() {
+        auto *value = session(env, handle);
+        if (!value) return false;
+        exact_android_set_row_reuse(value->runtime, enabled ? 1u : 0u);
+        return true;
     });
 }
 
@@ -601,7 +611,8 @@ jclass keep_class(JNIEnv *env, const char *name) {
 // Registration catches signature drift when the carrier loads, before boot.
 #define NATIVE(name, signature) {const_cast<char *>(#name), const_cast<char *>(signature), reinterpret_cast<void *>(name)}
 JNINativeMethod methods[] = {
-    NATIVE(create, "(Lcom/exact/android/TextEngine;)J"),
+    NATIVE(create, "(Lcom/exact/android/TextEngine;Z)J"),
+    NATIVE(rowReuse, "(JZ)V"),
     NATIVE(close, "(J)V"),
     NATIVE(boot, "(JFF[B)Ljava/nio/ByteBuffer;"),
     NATIVE(dispatch, "(JII[BD)Ljava/nio/ByteBuffer;"),

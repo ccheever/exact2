@@ -68,6 +68,8 @@ mod paint;
 mod paragraph;
 #[path = "presence.rs"]
 mod presence;
+#[path = "row_reuse.rs"]
+mod row_reuse;
 #[cfg(test)]
 #[path = "transform_drag_tests.rs"]
 mod transform_drag_tests;
@@ -1182,6 +1184,7 @@ impl<D: DataSource> Host<D> {
     ) -> (Batch, Option<String>) {
         self.native_retire_removed_owner(&mut batch);
         self.native_note_receipts(receipts);
+        self.renew_rows(receipts, &mut batch);
         let bulk_handlers = (receipts
             .iter()
             .map(|t| t.receipt.created.len())

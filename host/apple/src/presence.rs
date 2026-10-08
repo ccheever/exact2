@@ -373,7 +373,7 @@ impl<D: DataSource> Host<D> {
                 Some(identity) => identity == p.value,
                 None => values == [0.0, 0.0, 1.0, 1.0],
             };
-            if (boot && identity) || (identity && batch.creates(view)) {
+            if (boot && identity) || (identity && batch.starts_presentation(view)) {
                 continue;
             }
             if self.inline_runs.contains_key(&view) || self.svg.presented(view) {

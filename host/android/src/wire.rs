@@ -593,6 +593,29 @@ mod tests {
     }
 
     #[test]
+    fn renewed_carrier_reset_stays_first_and_uses_retained_authored_paint_cache() {
+        let mut encoder = Encoder::default();
+        let mut out = Vec::new();
+        encoder
+            .encode(
+                br#"{"ops":[{"op":"create","id":9,"style":{"background_color":[0,0,0,255]}}]}"#,
+                &mut out,
+            )
+            .unwrap();
+        encoder.encode(br#"{"ops":[{"op":"renew","ids":[9]},{"op":"style","id":9,"style":{"background_color":[255,255,255,255]}}]}"#, &mut out).unwrap();
+        let ops = records(&out);
+        assert_eq!(ops[0], (JSON, br#"{"op":"renew","ids":[9]}"#.as_slice()));
+        assert_eq!(ops[1].0, PAINT);
+        assert_eq!(ops.len(), 2);
+        // Reset retains authored state, so an equal target still needs no delta.
+        encoder.encode(br#"{"ops":[{"op":"renew","ids":[9]},{"op":"style","id":9,"style":{"background_color":[255,255,255,255]}}]}"#, &mut out).unwrap();
+        assert_eq!(
+            records(&out),
+            vec![(JSON, br#"{"op":"renew","ids":[9]}"#.as_slice())]
+        );
+    }
+
+    #[test]
     fn hot_records_have_exact_fields_and_preserve_cold_ops() {
         let json = r#"{"ops":[{"op":"frame","id":9,"x":1.25,"y":-2,"w":300,"h":40},{"op":"content","id":9,"w":301,"h":800},{"op":"present","id":9,"property":"translate","x":3.5,"y":4},{"op":"style","id":9,"style":{"color":"é"}}],"timers":true,"timer_due_ms":16,"motion":true,"clock":12,"error":null}"#.as_bytes();
         let mut out = Vec::new();

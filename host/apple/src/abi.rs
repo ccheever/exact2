@@ -98,6 +98,8 @@ pub struct Bridge<D: DataSource> {
     /// boots: a runner booted later lays out its first frame with them, not
     /// with a mouse's defaults and then again.
     preferences: exact_runner::Preferences,
+    /// Retained presenter opt-in: every renewed row must have fresh view ownership.
+    row_reuse: bool,
     input: Vec<u8>,
     output: Vec<u8>,
 }
@@ -146,6 +148,7 @@ impl<D: DataSource> Bridge<D> {
             pan: crate::pan_velocity::PanVelocity::new(),
             canvas_deferred: false,
             preferences: exact_runner::Preferences::NONE,
+            row_reuse: false,
             input: Vec::new(),
             output: Vec::new(),
         }
@@ -521,6 +524,7 @@ impl<D: DataSource> Bridge<D> {
         let fonts_ctx = self.fonts_ctx;
         let control_text = self.control_text;
         let ctx = hooks.ctx;
+        let row_reuse = self.row_reuse;
         match Host::boot_stored_after_decode(
             plan,
             data,
@@ -537,6 +541,7 @@ impl<D: DataSource> Bridge<D> {
             self.region,
             self.links.clone(),
             move |runner| {
+                runner.set_row_reuse(row_reuse);
                 if let Some(callback) = fonts {
                     install_fonts(runner.plan(), callback, fonts_ctx);
                 }
@@ -811,6 +816,7 @@ impl<D: DataSource> Bridge<D> {
         let fonts_ctx = self.fonts_ctx;
         let control_text = self.control_text;
         let ctx = hooks.ctx;
+        let row_reuse = self.row_reuse;
         match Host::boot_stored_after_decode(
             PlanBytes::Copied(&plan),
             data,
@@ -827,6 +833,7 @@ impl<D: DataSource> Bridge<D> {
             self.region,
             self.links.clone(),
             move |runner| {
+                runner.set_row_reuse(row_reuse);
                 if let Some(callback) = fonts {
                     install_fonts(runner.plan(), callback, fonts_ctx);
                 }
@@ -1433,6 +1440,8 @@ mod exports;
 pub use exports::gesture_constant;
 mod group;
 mod preferences;
+#[path = "abi_row_reuse.rs"]
+mod row_reuse;
 pub(crate) mod segments;
 
 #[cfg(test)]

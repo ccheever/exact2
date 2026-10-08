@@ -11,12 +11,13 @@ import android.view.Choreographer
 import android.view.View
 import android.view.WindowInsets
 import android.view.ViewTreeObserver
+import android.view.accessibility.AccessibilityManager
 import android.widget.FrameLayout
 import java.nio.ByteBuffer
 import kotlin.math.ceil
 
 /** An embeddable imperative session. The main thread owns Rust and Android presentation. */
-class ExactView(context: Context, initialPress: String? = null, nativeFactory: NativeViewFactory? = null) : FrameLayout(context), AutoCloseable {
+class ExactView(context: Context, initialPress: String? = null, nativeFactory: NativeViewFactory? = null, reuseRows: Boolean = true) : FrameLayout(context), AutoCloseable {
     companion object {
         private fun ownerLooper(): Looper {
             val owner = Looper.getMainLooper()
@@ -56,7 +57,17 @@ class ExactView(context: Context, initialPress: String? = null, nativeFactory: N
     private val text = TextEngine(context) { requestPump() }
     private val presenter = Presenter(context, text, ::event,
         ::notifyTitle, ::queueIntrinsic, ::requestFit, ::collectionFeedback, nativeFactory, { id, x, y -> scrollPositions[id] = x to y })
-    private var handle = run { NativeEnvironment.configure(context); Native.create(text) }
+    // Like the iOS pool, keep each accessibility element's item identity stable
+    // while an accessibility service owns a cursor in the list.
+    private val accessibility = context.getSystemService(AccessibilityManager::class.java)
+    private var handle = run {
+        NativeEnvironment.configure(context)
+        Native.create(text, reuseRows && accessibility?.isEnabled != true)
+    }
+    private val accessibilityChanged = AccessibilityManager.AccessibilityStateChangeListener { enabled ->
+        val update = { if (!closed) Native.rowReuse(handle, reuseRows && !enabled) }
+        if (applying) pending.add(update) else update()
+    }
     var onTitle: ((String) -> Unit)? = null
     internal var onBoot: (() -> Unit)? = null
     internal var onFirstDraw: (() -> Unit)? = null
@@ -78,6 +89,7 @@ class ExactView(context: Context, initialPress: String? = null, nativeFactory: N
 
     init {
         addView(presenter.root, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
+        accessibility?.addAccessibilityStateChangeListener(accessibilityChanged, handler)
     }
     private fun now() = SystemClock.uptimeMillis() + clockOffset
     private val fit = Runnable { fitViewport() }
@@ -348,6 +360,7 @@ class ExactView(context: Context, initialPress: String? = null, nativeFactory: N
         if (closed) return
         if (applying) { pending.add { close() }; return }
         closed = true
+        accessibility?.removeAccessibilityStateChangeListener(accessibilityChanged)
         handler.removeCallbacks(timer); handler.removeCallbacks(pump); handler.removeCallbacks(fit)
         choreographer.removeFrameCallback(frame)
         pending.clear()

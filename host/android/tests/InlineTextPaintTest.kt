@@ -91,7 +91,9 @@ internal object InlineTextPaintTest {
             engine.fonts(catalog)
             val authored = metrics(engine, request(21, listOf("iiii"), family = 24))
             check(authored == stock) { "authored monospace differs from stock platform family" }
-            return "InlineTextPaintTest: PASS (platform glyph paint, background, replacement/reset, metric preservation, generic font catalog)"
+            val renewal = NativeRenewalTest.run(context)
+            NativeRenewalTest.runAsync(context) { android.util.Log.i("HeavyBench", it) }
+            return "InlineTextPaintTest: PASS (platform glyph paint, background, replacement/reset, metric preservation, generic font catalog); $renewal"
         } finally { engine.close(); bitmap.recycle() }
     }
 }

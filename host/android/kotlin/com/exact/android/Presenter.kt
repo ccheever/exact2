@@ -111,8 +111,9 @@ internal class Presenter(
         require(n != null) { "Android focus target '$requested' is absent" }
         val target = if (n.kind == "control") controls.action(n.key) else n.control ?: n.widget
         require(target != null && n.props.optString("disabled") != "true" && !n.isInert()) { "Android focus target '$requested' is disabled or inert" }
+        val owner = n.incarnation
         target.post {
-            if (closed || nodes[n.key] !== n || n.isInert() || !target.isShown || !target.isEnabled) return@post
+            if (closed || nodes[n.key] !== n || n.incarnation !== owner || n.isInert() || !target.isShown || !target.isEnabled) return@post
             target.requestFocus()
             if (target is EditText && target.hasFocus()) context.getSystemService(InputMethodManager::class.java).showSoftInput(target, InputMethodManager.SHOW_IMPLICIT)
         }
@@ -332,7 +333,34 @@ internal class Presenter(
         var logicalWidth = 0f
         var logicalHeight = 0f
         private var logicalTextInset = 0f
+        var incarnation: Any = this
+            private set
         var intrinsicIdentity: Any = this
+        private fun current(owner: Any) = !closed && nodes[key] === this && incarnation === owner
+        fun renew() {
+            incarnation = Any(); intrinsicIdentity = incarnation
+            // Pure same-source pixels survive; the observer and size report
+            // belong to the new incarnation. loadImage clears changed sources.
+            images.cancel(imageRequest); imageRequest = null
+            imageSize = 0L; imageFit = ""; intrinsicSource = null
+            tx = 0f; ty = 0f; sx = 1f; angle = 0f
+            lx = 0f; ly = 0f; lw = 1f; lh = 1f; alpha = 1f
+            matrix = null; transformed = false; hostHidden = false
+            // A new descriptor also retires a virtual accessibility focus or
+            // hover held by FlatTextGroup, even when id/text are unchanged.
+            leaf = null; eventsInstalled = false; configured = false; childrenReconciled = false
+            actualBox?.let { box ->
+                NativeRenewal.reset(box)
+                val owner = incarnation
+                box.touchDispatch = { event -> if (current(owner)) contact(this, event) }
+            }
+            text.renew(key)
+            // PAINT updates retain the latest authored pairs separately from
+            // immutable cold JSON. Re-reading its older colors would regress
+            // an unchanged target; Rust republishes changed motion paint.
+            decodedStyle = decodeStyle(style); styleDirty = true; styleUnchecked = true
+            updateFlat(); markParent(this)
+        }
         private var imageSource: String? = null
         private var imageRequest: NativeImages.Request? = null
         private var imageSize = 0L
@@ -474,7 +502,8 @@ internal class Presenter(
             actualBox = box
             box.paintRank = paintRank
             boxOwners[box] = this
-            box.touchDispatch = { event -> contact(this, event) }
+            val owner = incarnation
+            box.touchDispatch = { event -> if (current(owner)) contact(this, event) }
             if (control != null) box.addView(control)
             if (kind == "text") box.paintText = { canvas ->
                 val saved = canvas.save()
@@ -681,13 +710,16 @@ internal class Presenter(
                 if (src.isEmpty()) {
                     intrinsicSource = null
                     intrinsic(key, -1f, -1f)
-                } else imageRequest = images.request(src, width, height, fit) { image ->
-                    if (!closed && nodes[key] === this && imageSource == src && imageSize == size && imageFit == fit) {
-                        control.setImageBitmap(image.bitmap)
-                        if (intrinsicSource != src) {
-                            intrinsicSource = src
-                            intrinsic(key, image.width.toFloat(), image.height.toFloat())
-                            viewportChanged()
+                } else {
+                    val owner = incarnation
+                    imageRequest = images.request(src, width, height, fit) { image ->
+                        if (current(owner) && imageSource == src && imageSize == size && imageFit == fit) {
+                            control.setImageBitmap(image.bitmap)
+                            if (intrinsicSource != src) {
+                                intrinsicSource = src
+                                intrinsic(key, image.width.toFloat(), image.height.toFloat())
+                                viewportChanged()
+                            }
                         }
                     }
                 }
@@ -733,19 +765,20 @@ internal class Presenter(
         }
         private fun installEvents() {
             if (eventsInstalled) return
+            val owner = incarnation
             widget.setOnClickListener(if ("press" in handlers) View.OnClickListener {
-                if ("press" in handlers) dispatchInteractive(key, 0, null)
+                if (current(owner) && "press" in handlers) dispatchInteractive(key, 0, null)
             } else null)
             widget.isClickable = kind == "button" || "press" in handlers
             widget.setOnHoverListener { _, event ->
-                if ("hover" in handlers) when (event.actionMasked) {
+                if (current(owner) && "hover" in handlers) when (event.actionMasked) {
                     android.view.MotionEvent.ACTION_HOVER_ENTER -> dispatchInteractive(key, 2, null)
                     android.view.MotionEvent.ACTION_HOVER_EXIT -> dispatchInteractive(key, 3, null)
                 }
                 false
             }
             (control ?: widget).setOnKeyListener { _, keyCode, event ->
-                if (event.action == android.view.KeyEvent.ACTION_DOWN && "key" in handlers) {
+                if (current(owner) && event.action == android.view.KeyEvent.ACTION_DOWN && "key" in handlers) {
                     val name = when (keyCode) {
                         android.view.KeyEvent.KEYCODE_ENTER -> "Enter"
                         android.view.KeyEvent.KEYCODE_DEL -> "Backspace"
@@ -1191,10 +1224,30 @@ internal class Presenter(
         group.setLeaves(plan.leaves)
         owner?.childrenReconciled = true
     }
+    private fun renew(ids: JSONArray) {
+        val keys = (0 until ids.length()).map { ids.getInt(it) }
+        require(keys.toSet().size == keys.size) { "duplicate Android renewal" }
+        // A branch may be created later in this batch; it is already fresh.
+        val targets = keys.mapNotNull { nodes[it] }
+        fun interacting(target: Node): Boolean {
+            for (id in listOf(focusedNode, touchedNode)) {
+                var owner = id?.let { nodes[it] }
+                while (owner != null) { if (owner === target) return true; owner = owner.logicalParent }
+            }
+            return target.nativeBox()?.hasFocus() == true
+        }
+        // Validate the whole renewal before canceling any live owner.
+        for (n in targets) NativeRenewal.requireSupported(n.kind, interacting(n), n.key in navigationOwners)
+        val pending = pendingFocus
+        if (targets.any { n -> if (pending is Number) pending.toInt() == n.key else pending != null && n.props.optString("id") == pending.toString() }) pendingFocus = null
+        for (n in targets) { n.renew(); dirty.add(n) }
+        semanticsGeometryDirty = true
+    }
     fun cold(op: JSONObject, resolvedStyle: JSONObject? = null) {
         navigationDirty = navigationDirty || navigationOwners.isNotEmpty() || nativeMounts.isNotEmpty()
         val id = op.optInt("id")
         when (op.getString("op")) {
+            "renew" -> renew(op.getJSONArray("ids"))
             "create" -> {
                 require(nodes.indexOfKey(id) < 0)
                 val n = Node(id, op.getString("kind"), op.getJSONObject("props"),
@@ -1289,8 +1342,7 @@ internal class Presenter(
         // Like Apple, geometry needs an existing presentation target.
         val n = nodes[id] ?: return
         val textWidthChanged = n.kind == "text" && n.logicalWidth != w
-        n.logicalWidth = w
-        n.logicalHeight = h
+        n.logicalWidth = w; n.logicalHeight = h
         val left = (x * scale).roundToInt(); val top = (y * scale).roundToInt()
         val width = (w * scale).roundToInt(); val height = (h * scale).roundToInt()
         n.frame.set(left, top, left + width, top + height)

@@ -5,7 +5,8 @@ import java.nio.ByteBuffer
 /** One JNI call per committed turn. Returned buffers are borrowed until the next call. */
 internal object Native {
     init { System.loadLibrary("exact_app") }
-    @JvmStatic external fun create(text: TextEngine): Long
+    @JvmStatic external fun create(text: TextEngine, reuseRows: Boolean): Long
+    @JvmStatic external fun rowReuse(handle: Long, enabled: Boolean)
     @JvmStatic external fun boot(handle: Long, width: Float, height: Float, initialPress: ByteArray? = null): ByteBuffer
     @JvmStatic external fun dispatch(handle: Long, view: Int, kind: Int, payload: ByteArray?, now: Double): ByteBuffer
     @JvmStatic external fun resize(handle: Long, width: Float, height: Float): ByteBuffer

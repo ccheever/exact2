@@ -239,6 +239,15 @@ internal class TextEngine(private val context: Context, private val onWake: () -
         inlinePaint.remove(view); decorations.remove(view)
     }
 
+    /** Rust can measure the new row before its renewal reaches the presenter.
+     * Keep those content-addressed metrics and authored inline data; only
+     * owner-specific presentation/decoration must be made fresh here.
+     */
+    fun renew(view: Int) {
+        decorations.remove(view)
+        sources[view]?.let { it.richPaint = null; it.discardPaint() }
+    }
+
     /** Paint-only paragraph updates do not evict the kernel's metric answers. */
     fun setParagraphPaint(view: Int, runs: JSONArray) {
         val model = InlineTextPaint.read(view, runs).takeIf { it.pieces.isNotEmpty() }

@@ -38,6 +38,17 @@ macro_rules! host {
                 || (),
             );
         }
+        /// Enable retained row rebinding only for a presenter supporting `renew`.
+        /// Off by default; unsupported native state keeps fresh row mounts.
+        #[no_mangle]
+        pub extern "C" fn exact_android_set_row_reuse(rt: u32, on: u32) {
+            $crate::session::with_session(
+                &EXACT_ANDROID,
+                rt,
+                |s| s.bridge.set_row_reuse(on != 0),
+                || (),
+            );
+        }
         /// Register asynchronous, coalesced executor wake notification.
         #[no_mangle]
         pub extern "C" fn exact_android_set_wake(

@@ -15,6 +15,8 @@ extern "C" {
 uint32_t exact_android_create(void);
 void exact_android_destroy(uint32_t rt);
 void exact_android_set_measure(uint32_t rt, ExactMeasureFn measure, void *ctx);
+/* Default off: the caller must reset existing carriers on the renew operation. */
+void exact_android_set_row_reuse(uint32_t rt, uint32_t on);
 void exact_android_set_wake(uint32_t rt, ExactWakeFn wake, void *ctx);
 void exact_android_set_fonts(uint32_t rt, ExactFontsFn fonts, void *ctx);
 uint8_t *exact_android_in(uint32_t rt, size_t len);
