@@ -13,6 +13,7 @@ import type { T3Client } from './client';
 import { letGo } from './let-go';
 import { holdPullRequestRefreshes, liveRefreshAsked, liveRefreshDue, noteViewRefreshed, pullRequestRefreshEpoch, viewRefreshedAt } from './pages-pr-refresh';
 import { listRelist, overrideListEntries, settleListOverrides } from './pages-pr-actions'; // pr-header-actions-and-stacks: the panel's onActed
+import { emptyChecksPopover, emptyStackPopover, quickPopovers, quickRow, readSpeedMode } from './pages-pr-quick'; // pr-handoffs-and-quick-actions
 
 export const SORTS = [
   { value: 'ready', label: 'Merge readiness' }, { value: 'blocked', label: 'Blocked on me' }, { value: 'updated', label: 'Recently updated' },
@@ -230,6 +231,8 @@ export function presentRow(entry: Obj, now: number, selected: string) {
     moreLabels: Math.max(0, arr(entry.labels).length - 1), projectId: str(entry.projectId), host: str(entry.host),
     // context-menu-gaps: the number's right-click (pageslocal:pr-link-menu) names the host it was read from.
     linkMenu: `${str(entry.provider)} ${str(entry.url)}`,
+    // pr-handoffs-and-quick-actions: the Shift quick actions and the stack trigger (pages-pr-quick.ts quickRow).
+    ...quickRow({}, entry),
   };
 }
 export type PrRow = ReturnType<typeof presentRow>;
@@ -365,7 +368,14 @@ export async function pullRequestsPage(client: T3Client, native: Native | null |
   }
   // The reader's pending answers (a closed pull request leaves an open list on the click), before the filters.
   const answered = cached.result ? { ...cached.result, entries: overrideListEntries(client, arr(cached.result.entries), prefs.state) } : null;
-  return presentList(view, answered, cached.error, cached.stats, prefs, query, input.now, input.selected);
+  const presented = presentList(view, answered, cached.error, cached.stats, prefs, query, input.now, input.selected);
+  // pr-handoffs-and-quick-actions: the rows' quick actions with their pending state, speed mode, and the open popovers.
+  const byKey = new Map(arr(answered?.entries).map(entry => [entryKey(entry), entry]));
+  for (const group of presented.groups) group.rows = group.rows.map(row => { const entry = byKey.get(row.key); return entry ? { ...row, ...quickRow(client, entry) } : row; });
+  native.watch?.('t3.pr');
+  presented.speedMode = await readSpeedMode(client, native);
+  Object.assign(presented, await quickPopovers(client, native, arr(answered?.entries), input.now).then(({ checks, stack }) => ({ checksPopover: checks, stackPopover: stack })));
+  return presented;
 }
 
 /** The list's row for a selection, as the detail ghost seeds itself from it (PullRequestDetailGhost `seed`). */
@@ -395,6 +405,8 @@ export function emptyList(prefs: PrPrefs, query: string) {
     stateIcon: STATE_ICONS[prefs.state] ?? 'layers', involvementIcon: INVOLVEMENT_ICONS[prefs.involvement] ?? 'layers',
     draftIcon: DRAFT_ICONS[prefs.draft || 'all'] ?? 'layers', reviewIcon: REVIEW_ICONS[prefs.review || 'all'] ?? 'layers', checksIcon: CHECKS_ICONS[prefs.checks || 'all'] ?? 'layers',
     filterBadge: filterCount > 0 ? String(filterCount) : '', filtersWidth: 85.8 + (filterCount > 0 ? 18 + 7 * String(filterCount).length : 0), providerIconOnly: !!prefs.host,
+    // pr-handoffs-and-quick-actions: Shift alone held (the rows' quick actions show), and the open row popovers.
+    speedMode: false, checksPopover: emptyChecksPopover(), stackPopover: emptyStackPopover(),
   };
 }
 export type PrListView = ReturnType<typeof emptyList>;

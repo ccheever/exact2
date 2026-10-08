@@ -156,7 +156,7 @@ export function stackPlan(stack: PullRequestStack, number: number, pending: bool
   const rebaseDisabled = pending || hasUnknownHead || hasClosed || unmerged.length === 0;
   return { top, unmerged, position, mergeLayers, selectedLayer, mergeHasClosed, mergeDisabled, rebaseDisabled, heads };
 }
-function layerView(layer: StackLayer, reference: Obj, current: number): StackLayerView {
+export function layerView(layer: StackLayer, reference: Obj, current: number): StackLayerView {
   const state = layerState(layer), label = STATE_LABELS[state] ?? 'Open';
   const ref = JSON.stringify({ projectId: str(reference.projectId), host: str(reference.host), repository: str(reference.repository), number: layer.number });
   return { key: String(layer.number), number: layer.number, ref, title: layer.title || layer.headBranch, detail: `#${layer.number} · ${layer.headBranch} · ${label}`, compact: `#${layer.number} · ${label}`, state, current: layer.number === current };

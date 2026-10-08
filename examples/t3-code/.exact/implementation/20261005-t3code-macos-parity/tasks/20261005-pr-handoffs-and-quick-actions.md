@@ -1,13 +1,13 @@
 ---
 name: 20261005-pr-handoffs-and-quick-actions
 plan: 20261005-t3code-macos-parity
-implementation: planned
-verification: unverified
-delivery: none
+implementation: done
+verification: partial
+delivery: draft-pr
 repository: https://github.com/ccheever/exact2
-base_branch: daehyeon/t3-code
-branch: null
-pr_url: null
+base_branch: feat(example)/t3-code
+branch: feat(example)/t3-code-pr-handoffs-and-quick-actions
+pr_url: https://github.com/ccheever/exact2/pull/293
 verified_commit: null
 ---
 
@@ -104,16 +104,65 @@ Required environment: macOS 26.6.2, Xcode 27.0, Bun 1.4.2, git, the real-GitHub 
 
 ## Progress
 
-2026-10-06: on hold (user decision: tasks that need a sign-in waited). 2026-10-07: the user lifted the hold. Rows that need a real account are signed in by the user in person on the lane build; every other sign-in row uses lane fixtures.
+2026-10-06: on hold (user decision: tasks that need a sign-in waited). 2026-10-07: the user lifted the hold.
 
-Planned. No branch.
+2026-10-08: implemented on `feat(example)/t3-code-pr-handoffs-and-quick-actions` from `07dcef1ab`; unit, AppKit and
+gate checks green; one agent-mode live session and one retry on the real-GitHub lane (this worktree's server on port
+16701, primary account); draft PR #293. Real-input session 05:23–06:06Z under the shared lock (record:
+`real-input-record.txt` on the evidence branch; PR images 21–28). It found the quick Merge refusing every unstacked pull
+request (`client.rpc` answers `{}` for no stack) and the header fold outliving the pull request; both fixed in
+`115fb3a5c` (the Merge then merged #165 for real; `pages-pr-fold.test.ts` fails on `23f721f08` and passes now). Merged
+`feat(example)/t3-code` at `c0475fbaa`.
+
+**Built.**
+- Hand-offs (`pages-pr-handoffs.ts`, `pages-pr-handoffs.contract`; core in `r6-pr-actions.ts`): More › Ask a question /
+  Explain this PR / Fix findings, the Check out menu (worktree, this repository), a finding's own Fix on Summary remarks
+  and failing checks, Resolve conflicts (also in the ghost from the list's row). Beside a thread the task is written into
+  that composer ("Added to the composer"); on the page a thread opens on the project, and a checkout replies
+  `pr-handoff-next` so the window shows the thread before `pageslocal:pr-act-handoff-run` checks out (app.contract
+  `prHandoffChanged`). One hand-off at a time across the panel and the thread card.
+- Builders ported with their names (`pages-pr-handoffs-logic.ts`); chips are composer context links whose records
+  `composer-editor.ts` `rememberReviewCommentRecord` keeps for the send.
+- Header fold (`pages-pr-detail.contract` `PrdBody`/`PrdHeader`): two scrollers under a fixed header and tab bar, fold past
+  the block + 32 with the scroll refunded in the same commit, reopen at the top (< 4), 200 ms layout transition on
+  reopening only, none under reduced motion, per-tab state.
+- List (`pages-pr-quick.*`, `pages-prs.*`): Shift quick actions (speed mode from `T3Sidebar.swift`), checks and stack
+  popovers read when opened, the row's selection button under its lines.
+
+**Acceptance.**
+
+| Row | Result | Proof | Blocker |
+| --- | --- | --- | --- |
+| Hand-offs | pass (live + unit) | PR images 12–17, 28, `live-drive-record.txt`; unit "the panel hands the pull request over" (11); real input: Return on Ask a question (25), two-phase checkout on #144: thread first with "Preparing the pull request checkout...", then the clone on `feature/trim-input` (28; the first try's server-side `gh pr checkout` exited 1, one retry passed) | sending the drafted task: no change needed — the reference never sends from a hand-off; it leaves the task in the composer |
+| Hand-off failures | pass (live + unit) | image 18 ("already checked out in the main repo"), unit failures | — |
+| Per-finding Fix | pass (live + unit) | images 03, 04, 15, 16; unit "one hand-off at a time" | — |
+| Quick actions | pass (real ⇧ + AppKit + unit) | images 21–23: ⇧ alone shows the groups, stacked Merge dimmed, none with the search focused; Ready for review, Close, Reopen on #149 and Merge on #165 read back with the lane gh (isDraft false, CLOSED, OPEN, MERGED 05:39:32Z); `macos/tests/sidebar` (6/6), `pages-pr-quick.test.ts` (9) | — |
+| Row menu and popovers | pass (real right-click + live) | image 24: native Copy link / Open on GitHub, the pasteboard held the #132 URL; images 05, 10, 11 | — |
+| Header fold | pass (live + real wheel) | images 04, 19, 20; 27: per-tab memory by a real wheel; another pull request now opens unfolded (`115fb3a5c`, keyed per pull request as the reference keys its panel) | the per-PR reset live: deferred to the next real-input batch; guarded by `pages-pr-fold.test.ts` (fails on `23f721f08`, passes on `115fb3a5c`) |
+| Keyboard focus, Escape, reduced motion | partial | images 25–26: real Tab moves the ring through More, Return activates, Escape closes Check out; reduced-motion frames | arrow keys: moved to fix-keyboard-focus (batch bug 13): one shared menu pattern |
+| Visual and protocol parity | not run | before/after pairs 01–07 instead | user decision 2026-10-06 (no oracle or trace tools) |
+| Ported tests | pass | `pages-pr-handoffs.test.ts` (original names; two n/a recorded in its header) | — |
+| Gates | pass | PR body | — |
+
+## Real-input session (done 2026-10-08)
+
+Lock 05:23:46Z–06:06:02Z. Lane copy `T3 Code (Lane PHA2).app` (`com.exact.t3code.lanepha2`, re-signed, `CFFIXED_USER_HOME`
+and `T3_LOCAL_HOME` under `target/pr-handoffs/realinput`, port 16705, telemetry off) paired to this worktree's lane
+server (16701). ⇧ as a HID flagsChanged (`target/pr-handoffs/shift-key`), the wheel as a HID scroll
+(`target/pr-handoffs/wheel-key`). Results per row above; the full record is `real-input-record.txt` beside the PR images.
+Cleanup done: copy quit, lane server stopped, the copy's Keychain item (`com.exact.t3code.macos.access-token`, account
+`http://127.0.0.1:16701` + environment id) deleted, the copy and its homes removed, the pasteboard restored.
 
 ## Attempts and evidence
 
 | Attempt | Revision/fingerprint | Checks and outcomes | Evidence | Remaining blocker |
 | --- | --- | --- | --- | --- |
-| none | — | — | — | — |
+| 1 (agent live) | `a94f7f47b` (build before the two-phase change) | before screens on the base build; after session: every hand-off ran on real GitHub; fix-check and fix-remark were refused by a GitHub CLI timeout (18 s `gh pr view`, server `getChangeRequest`), shown as the server's sentence; the agent's own `screenshot over` film wrote transparent frames | `live-drive-record.txt` | — |
+| 2 (agent retry) | same build + menu widths, opaque new popovers | More and Check out menus no longer wrap; Escape closes both; fold frames 30 ms apart; both Fix presses checked out and wrote their prompts | PR images 02, 08–11, 15, 16, 19, 20 | — |
+| 3 (real input) | `23f721f08` build, then `115fb3a5c` (pid 87517) | ⇧ groups, Ready/Close/Reopen read back; Merge refused on the first build (fixed, rebuilt, merged); right-click menu and Copy link; Tab/Return/Escape; per-tab fold by wheel; two-phase checkout (server gh failed once, retry passed) | PR images 21–28, `real-input-record.txt` | arrow keys moved to fix-keyboard-focus (batch bug 13); the per-PR fold reset live deferred to the next real-input batch |
 
 ## Next action
 
-Starts after [20261007-real-github-lane](closed/20261007-real-github-lane.md) merges: `prepare` from `feat(example)/t3-code` on its shared lane login and sandbox (`examples/t3-code/tools/github-lane/README.md`), with a unit-test fallback for injected failures and delays and for the read, triage and read-only-author profiles.
+The coordinator's conflict check and ready flip of draft PR #293. Owned elsewhere: arrow keys in the hand-off and Check
+out menus (fix-keyboard-focus, batch bug 13: one shared menu pattern, applied after #293 merges). The per-PR fold reset
+live: the next real-input batch (open #115, scroll Summary until it folds, open #144: its header is open).

@@ -7,8 +7,11 @@
 // exact2 #223, and a context popover opens only from the pointer), the
 // legacy sidebar's menus, the modifier state a row press reads
 // (⌘-click toggles, ⇧-click extends the multi-selection; read from the click
-// event, r8-pointer D8), and thread-jump
-// hints while ⌘ alone is held for 200 ms (THREAD_JUMP_HINT_SHOW_DELAY_MS).
+// event, r8-pointer D8), thread-jump
+// hints while ⌘ alone is held for 200 ms (THREAD_JUMP_HINT_SHOW_DELAY_MS), and
+// the Pull Requests page's speed mode while ⇧ alone is held and no text is being
+// edited (pr-handoffs-and-quick-actions: the route's
+// useShortcutModifierState(true) — its window listeners are this monitor here).
 import AppKit
 
 final class T3Sidebar: NSObject {
@@ -23,6 +26,8 @@ final class T3Sidebar: NSObject {
     private(set) var click: (flags: NSEvent.ModifierFlags, at: TimeInterval)?
     private var pending: DispatchWorkItem?
     private(set) var jumpHints = false
+    /// ⇧ alone, not while a field or the composer edits text (shortcut-modifier-state.ts speedMode).
+    private(set) var speedMode = false
     private(set) var picked: String?
 
     init(agent: Bool, changed: @escaping (String) -> Void) {
@@ -31,7 +36,7 @@ final class T3Sidebar: NSObject {
         super.init()
     }
 
-    var status: [String: Any] { ["sidebarJumpHints": jumpHints] }
+    var status: [String: Any] { ["sidebarJumpHints": jumpHints, "prSpeedMode": speedMode] }
 
     /// Exactly ⌘ (caps lock, fn and the numeric pad never count): shown after
     /// the delay, hidden at once on release or when ⇧, ⌥ or ⌃ joins.
@@ -39,10 +44,21 @@ final class T3Sidebar: NSObject {
         flags.intersection([.command, .shift, .option, .control]) == [.command]
     }
 
+    /// Exactly ⇧ (caps lock, fn and the numeric pad never count), as the route's speedMode.
+    static func speedModifiers(_ flags: NSEvent.ModifierFlags) -> Bool {
+        flags.intersection([.command, .shift, .option, .control]) == [.shift]
+    }
+    /// isEditableFocused: the field editor of a text field, or an editable text view (the composer).
+    static func editing(_ responder: NSResponder?) -> Bool {
+        (responder as? NSTextView)?.isEditable == true
+    }
+
     func install() {
         guard monitor == nil else { return }
         monitor = NSEvent.addLocalMonitorForEvents(matching: [.flagsChanged, .keyDown]) { [weak self] event in
             self?.flags(event.type == .keyDown ? [] : event.modifierFlags)
+            // A key's own flags only clear: Shift typed with a letter keeps speed mode while it is held.
+            self?.speed(event.modifierFlags, editing: Self.editing(event.window?.firstResponder ?? NSApp.keyWindow?.firstResponder))
             return event
         }
         clickMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .leftMouseUp]) { [weak self] event in
@@ -65,7 +81,15 @@ final class T3Sidebar: NSObject {
         if let click, time - click.at >= 0, time - click.at <= 2 { return click.flags }
         return NSEvent.modifierFlags
     }
-    @objc private func resign() { flags([]) }
+    @objc private func resign() { flags([]); speed([], editing: false) }
+    /// The page's quick actions show and hide with this; its resource (`t3.pr`) reads it again.
+    func speed(_ flags: NSEvent.ModifierFlags, editing: Bool) {
+        let next = Self.speedModifiers(flags) && !editing
+        guard next != speedMode else { return }
+        speedMode = next
+        changed("t3.status")
+        changed("t3.pr")
+    }
     func flags(_ flags: NSEvent.ModifierFlags) {
         if Self.jumpModifiers(flags) {
             guard pending == nil, !jumpHints else { return }
@@ -91,6 +115,8 @@ final class T3Sidebar: NSObject {
         case "sidebarModifiers":
             let flags = pressModifiers()
             answer(["command": flags.contains(.command), "shift": flags.contains(.shift), "option": flags.contains(.option), "control": flags.contains(.control)])
+        case "sidebarSpeedMode":
+            answer(["speedMode": speedMode])
         case "sidebarNotify":
             let delay = (request["delay"] as? Double ?? 0) / 1000
             DispatchQueue.main.asyncAfter(deadline: .now() + max(0, delay)) { [weak self] in self?.changed("t3.status") }

@@ -124,6 +124,29 @@ provider lane's `CLAUDE_CONFIG_DIR`. Its Keychain item is derived from that path
 real HOME. Symlink `~/.local/bin/claude` into a lane `bin/`, and keep `~/.local/bin` off PATH (its
 `codex` is a wrapper). Never log that login out, and never read or print its credentials.
 
+## Pull request hand-offs, header fold and quick actions
+
+Task `20261005-pr-handoffs-and-quick-actions`, 2026-10-08.
+
+| What | Where |
+|---|---|
+| Hand-off builders (Ask, Explain, Fix findings, a finding's Fix, Add to agent), chips, `pullRequestPanelContext` | `pages-pr-handoffs-logic.ts` (ported names); `handoffPrompt` and the Resolve prompt stay in `r6-pr-logic.ts` |
+| One path from a task to a thread | `r6-pr-actions.ts` `writeTaskToDraft`, `askInThread` (startAsk), `checkoutHandoff` (startHandoff, worktree or local); the thread card's Resolve/Fix call it too, so one hand-off runs at a time (`prState(client).handoff`) |
+| The panel's hand-offs | `pages-pr-handoffs.ts` `prHandoffCommand` (`pageslocal:pr-act-handoff`, value `<surface>\|<kind>`): beside a thread the task goes into that thread's composer (one `editorEdit` of the prompt); on the page it opens the project's draft and replies `sidebar:new-thread` (a checkout: `pr-handoff-next`, which shows the thread and then sends `pageslocal:pr-act-handoff-run` on its own mutation, `prHandoffChanged`, for the checkout) |
+| Chips in a draft | links in the prompt (`[#N](t3-context://v1/review-comment/<id>)`) whose records `composer-editor.ts` `rememberReviewCommentRecord` keeps for the send; a hand-off's own chips (`pull-request-…` ids) are the ones the next hand-off takes back |
+| Menus and Fix buttons | `pages-pr-handoffs.contract` (Check out menu, the More menu's three items, `PrdFixButton`), used by `pages-pr-actions.contract`, `pages-pr-summary.contract` and the ghost |
+| Header fold | `pages-pr-detail.contract` `PrdBody`/`PrdHeader`: the header and tab bar sit above two scrollers (Summary `<scrollId>`, Timeline `<scrollId>-timeline`); a tab scrolled past the block + 32 folds (scroll refunded in the same commit through the `scrollTop` anchor), the hard top (< 4) reopens; `-exact-layout-transition` 200 ms on reopening only |
+| Quick actions, row popovers | `pages-pr-quick.ts`/`.contract`; speed mode is `T3Sidebar.swift` `speedMode` (⇧ alone, not while an `NSTextView` edits), read with `sidebarSpeedMode` and woken through `t3.pr`; a quick action is `pageslocal:pr-act-quick` |
+
+The agent cannot hold ⇧ for the native monitor (its key events go to the window, not the local monitor), so
+quick actions are shown in agent mode only by the AppKit test (`macos/tests/sidebar`) and in a normal launch
+with a real or HID-posted ⇧. A row's selection button lies under the row's lines (`pointer-events="none"`),
+so the number's menu and the checks/stack indicators are not presses of the row.
+`client.rpc` answers `{}` for a null result, so a read that may be empty (the stack) is decided by its decoder
+(`decodeStack(...) !== null`), never by truthiness. `PrdBody` is keyed by `detail.ref` at both call sites, as the
+reference keys its panel per pull request, so the fold and the scroll anchors start over on another one
+(`pages-pr-fold.test.ts` guards both call sites).
+
 ## Interface font size
 
 Tasks `20261005-interface-font-size` and `-conversion` (both closed), 2026-10-07, PR #206. Settings › Appearance ›
