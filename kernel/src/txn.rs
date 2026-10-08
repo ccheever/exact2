@@ -1118,6 +1118,12 @@ fn style_changed(
     mask: StyleMask,
     receipt: &mut CommitReceipt,
 ) {
+    if (mask.has(crate::StyleId::Appearance) && arena.node_type(slot) == NodeType::TextInput)
+        || (mask.has(crate::StyleId::ControlSize) && arena.is_native_button(slot))
+    {
+        control_env_changed(arena, layout, slot);
+        receipt.layout_invalidated = true;
+    }
     if mask.intersects(StyleMask::LAYOUT) {
         arena.flags_mut(slot).insert(NodeFlags::STYLE_DIRTY);
         if let Some(node) = arena.taffy(slot) {
@@ -1180,7 +1186,11 @@ fn propagate_inherited(
     let mut stack: Vec<(u32, StyleMask)> =
         arena.children(slot).iter().map(|c| (*c, changed)).collect();
     while let Some((s, rows)) = stack.pop() {
-        let pass = rows.minus(arena.style(s).mask);
+        let pass = rows.minus(arena.style(s).mask).minus(
+            arena
+                .control_text_start(s)
+                .map_or(StyleMask::EMPTY, |start| start.mask),
+        );
         if pass.is_empty() {
             continue;
         }
@@ -1220,7 +1230,27 @@ fn inherited_changed(
     }
 }
 
-mod relative;
+/// A control's computed starting style changed outside an authored commit.
+pub(crate) fn control_env_changed(arena: &mut NodeArena, layout: &mut dyn LayoutMirror, slot: u32) {
+    arena.flags_mut(slot).insert(NodeFlags::STYLE_DIRTY);
+    arena.flags_mut(slot).insert(NodeFlags::PAINT_DIRTY);
+    invalidate_text(arena, layout, slot);
+    if let Some(node) = arena.taffy(slot) {
+        layout.restyle(arena, slot, node);
+        layout.mark_dirty(node);
+    }
+    let mut receipt = CommitReceipt::default();
+    propagate_inherited(
+        arena,
+        layout,
+        slot,
+        crate::arena::control_text::stopped_rows(),
+        &mut Vec::new(),
+        &mut receipt,
+    );
+}
+
+pub(crate) mod relative;
 
 #[cfg(test)]
 mod tests;

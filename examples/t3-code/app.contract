@@ -382,6 +382,7 @@ component T3Code
   mutation providerUpdateRun as shape Change queue refreshes providerPage
   mutation changed as shape Change refreshes data then commandCompleted
   mutation localChanged as shape Change refreshes data
+  mutation prHandoffChanged as shape Change refreshes data // pr-handoffs-and-quick-actions: a checkout hand-off's second half, its own send
   mutation terminalFocusChanged as shape Change refreshes data
   mutation terminalChanged as shape Change refreshes data then terminalCompleted
   action terminalCompleted
@@ -651,11 +652,13 @@ component T3Code
           focus("composer")
         if startsWith(result.message, "focus:") // usage-reset-and-feedback: the reset credit confirm takes the focus and gives it back
           focus(slice(result.message, 6))
-        if result.message == "sidebar:new-thread"
+        if result.message == "sidebar:new-thread" or result.message == "pr-handoff-next"
           draftOwner = "__unset__"
           jumpRequest = jumpRequest + 1
           utilityPage = ""
           focus("composer")
+        if result.message == "pr-handoff-next" // the thread shows first, then its checkout runs (pages-pr-handoffs.ts)
+          send prHandoffChanged = command("pageslocal:pr-act-handoff-run", "", "", 0)
         if result.message == "sidebar:palette-new-thread"
           paletteOpen = true
           paletteMode = "command"
@@ -1284,6 +1287,8 @@ component T3Code
   resource canvas = chatCanvas(data.revision, conversationWidth, viewport.height, details.inline, data.look.chatMax, length(data.messages) > 0, canvasGestureValue, shell.panel.deviceMini.key, shell.panel.deviceMini.show) as shape ChatCanvasView
   resource terminalDrawer = terminalDrawer(data.revision, viewport.height, wallTime.epochAtZero + elapsed) as shape TerminalDrawerView // terminal-drawer (terminal-drawer-view.ts)
   state titleMenuOpen = false
+  state titleDialog = false
+  state titleMenuFromTitle = false
   state titleMenuSerial = 0
   state titleMenuX = 0
   state titleMenuY = 0
@@ -1305,6 +1310,12 @@ component T3Code
     after(1, focusSidebarDialog)
   action focusSidebarDialog
     focus(data.sidebar.dialog == "snooze" ? "snooze-mode-date" : `sidebar-${data.sidebar.dialog}-cancel`)
+    titleDialog = data.sidebar.dialogReturn == "thread-title"
+  task titleDialogClosed when titleDialog and data.sidebar.dialog == "" // title-custom-snooze: however it closes (Snooze too), the title menu's dialog gives the focus back to the title (Base UI's finalFocus)
+    after(1, returnTitleFocus)
+  action returnTitleFocus
+    titleDialog = false
+    focus("thread-title")
   task terminalCloseAsk when shell.panel.terminalClose.serial > terminalCloseHandled and confirmOp == "" key=shell.panel.terminalClose.serial // Gated tasks (exact2 #192), not a 500 ms poll: a terminal close asks, and a thread the module opened is selected, at once.
     after(1, terminalCloseConfirm)
   action terminalCloseConfirm
@@ -1403,8 +1414,11 @@ component T3Code
       titleMenuY = frame("thread-title").y + frame("thread-title").height + 4
       titleMenuOpen = (what == "context" or not titleMenuOpen) and not renaming
       titleMenuSerial = titleMenuSerial + 1
-    if what == "close"
+      titleMenuFromTitle = what == "open"
+    if what == "close" // Escape or a press outside: the fallback menu's cleanup gives the focus back to what held it, the title when the title opened it (a right-click leaves it where it was)
       titleMenuOpen = false
+      if titleMenuFromTitle
+        focus("thread-title")
     if what == "rename" and shell.serverThread
       titleMenuOpen = false
       renaming = true
@@ -1449,6 +1463,8 @@ component T3Code
     if (op == "ui:new-thread" or not startsWith(op, "ui:")) and not startsWith(op, "shelllocal:") and not commandPending
       commandPending = true
       send changed = command(op == "ui:new-thread" ? "new-thread" : op, target, value, 0)
+    else if op == "ui:custom-snooze" // title-custom-snooze: Snooze › Custom… opens the sidebar's Custom snooze for this thread (useThreadActionMenu's requestCustomSnooze)
+      sidebarRun("snooze:custom", target, "title")
   action confirmUi(accept: bool)
     confirmOp = ""
     if startsWith(confirmOp, "shell:") // dialog-shortcut-focus: the title menu's confirms give the focus back to its trigger (Base UI's finalFocus)

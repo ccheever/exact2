@@ -7,7 +7,7 @@ import { obj, str, type Obj } from './domain';
 import type { T3Client } from './client';
 import { ClientError, type Files, type Native } from './protocol';
 import { pushToast } from './toast';
-import { capabilities, latestRun, orderKeyBetween, planReorder, wokeAt } from './sidebar-model';
+import { canSnooze, capabilities, latestRun, orderKeyBetween, planReorder, wokeAt } from './sidebar-model';
 import { bulkMenuState, canArchive, nativeTemplate, threadMenuItems, threadMenuState, type MenuItem } from './sidebar-menu';
 import { wall, adoptCommandTime, closeDialog, openSnoozeDialog, resolveCustomSnooze, sidebarPrefs, sidebarSession, undoLive, SETTLED_TAIL_PAGE_COUNT, type UndoAction } from './sidebar-state';
 export { clock, undoLive } from './sidebar-state';
@@ -135,6 +135,9 @@ export async function settle(client: T3Client, native: Native, id: string): Prom
 export async function snooze(client: T3Client, native: Native, id: string, until: string): Promise<void> {
   if (!capabilities(client.config).snooze) throw new ClientError('This server does not support snoozing threads.');
   if (!Number.isFinite(Date.parse(until))) throw new ClientError('Choose when to bring this thread back.');
+  // useThreadActions snoozeThread: the server's invariant, checked before the round trip (ThreadSnoozeBlockedError).
+  const thread = threadOf(client, id);
+  if (thread && !canSnooze(thread, wall(client))) throw new ClientError('This thread is waiting on you. Respond to the pending request before snoozing it.');
   forget(client, id);
   await dispatch(client, native, { type: 'thread.snooze', threadId: id, snoozedUntil: new Date(until).toISOString() });
   remember(client, native, 'Snoozed', id, 'Failed to wake thread', later => dispatch(client, later, { type: 'thread.unsnooze', threadId: id, reason: 'user' }));
@@ -477,6 +480,8 @@ export async function sidebarCommand(client: T3Client, nativeHandle: Native, sto
     if (settings?.confirmThreadUnpin && value !== 'confirmed') session.dialog = { kind: 'unpin', threadIds: [id], title: str(thread.title) };
     else await attempt(client, 'Failed to unpin thread', () => unpin(client, nativeHandle, id));
   } else if (op === 'wake-dismiss') { const woke = wokeAt(thread, wall(client)); if (woke) await acknowledgeWoke(client, nativeHandle, id, woke); }
+  // title-custom-snooze: the chat header's Snooze › Custom… (useThreadActionMenu's requestCustomSnooze) for its own thread.
+  else if (op === 'snooze:custom' && value === 'title') openSnoozeDialog(session, [id], str(thread.title), wall(client), 'title');
   else if (op === 'discard-draft') discardDraft(client, nativeHandle, `${client.environmentId}:${id}`, false); // r11-upstream: behind the undo notice
   else return runChoice(client, nativeHandle, storage, thread, op, '');
   return '';
@@ -588,6 +593,8 @@ async function confirmDialog(client: T3Client, nativeHandle: Native, storage: Fi
     const resolved = resolveCustomSnooze({ mode: session.dialogMode, date: session.dialogDate, time: session.dialogTime, amount: session.dialogAmount, unit: session.dialogUnit }, wall(client));
     if (!resolved.until) { session.dialog = dialog; session.dialogError = resolved.error; return ''; }
     if (dialog.threadIds.length > 1) { session.selection = []; await snoozeMany(client, nativeHandle, dialog.threadIds, resolved.until); }
+    // useThreadActionMenu snoozes with snoozeThread alone: the undo notice, and the open thread stays open.
+    else if (id && dialog.from === 'title') { const until = resolved.until; await attempt(client, 'Failed to snooze thread', () => snooze(client, nativeHandle, id, until)); }
     else if (id) await park(client, nativeHandle, id, 'snooze', resolved.until, new Set());
   }
   return '';

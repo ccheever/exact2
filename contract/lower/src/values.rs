@@ -125,6 +125,7 @@ pub(crate) fn describe(e: &StyleValueError) -> String {
     match e {
         StyleValueError::WrongKind { expected, .. } => format!("expected {expected}"),
         StyleValueError::BadEnv { refusal, .. } => refusal.reason().into(),
+        StyleValueError::BadComparison { reason, .. } => (*reason).into(),
         StyleValueError::UnknownEnumValue { style } => format!(
             "expected one of {}",
             style.enum_names().iter().map(|name| format!("{name:?}")).collect::<Vec<_>>().join(", ")
@@ -167,7 +168,7 @@ pub(crate) fn describe(e: &StyleValueError) -> String {
 /// order — `border-radius`'s corners in top-left, top-right, bottom-right,
 /// bottom-left order, which CSS fills from fewer values the same way
 /// (ledger2 Rough 5).
-const FOUR_SIDED: [[StyleId; 4]; 7] = [
+const FOUR_SIDED: [[StyleId; 4]; 8] = [
     [
         StyleId::PaddingTop,
         StyleId::PaddingRight,
@@ -199,6 +200,12 @@ const FOUR_SIDED: [[StyleId; 4]; 7] = [
         StyleId::BorderColorLeft,
     ],
     [StyleId::Top, StyleId::Right, StyleId::Bottom, StyleId::Left],
+    [
+        StyleId::ScrollPaddingTop,
+        StyleId::ScrollPaddingRight,
+        StyleId::ScrollPaddingBottom,
+        StyleId::ScrollPaddingLeft,
+    ],
     [
         StyleId::BorderRadiusTopLeft,
         StyleId::BorderRadiusTopRight,
@@ -926,6 +933,34 @@ pub(crate) fn check_prop_value(
             "`status-bar-animation` takes \"none\" or \"fade\"",
             span,
         );
+    }
+    // @ref LLP 1075.003 §9.11 — a sheet's resting heights: UIKit's two named
+    // detents, CSS's `fit-content`, or a positive point height.
+    if prop == PropId::NavigationDetent {
+        if let Expr::Str(s, _) = value {
+            if let Some(word) = s.split(' ').filter(|w| !w.is_empty()).find(|w| {
+                !matches!(*w, "large" | "medium" | "fit-content")
+                    && !w.parse::<f64>().is_ok_and(|h| h.is_finite() && h > 0.0)
+            }) {
+                return err(
+                    "lower-attr-value",
+                    format!("`navigationDetent` takes space-separated \"large\", \"medium\", \"fit-content\" or a positive point height; given \"{word}\""),
+                    span,
+                );
+            }
+            // UIKit's detents go from shortest to tallest; the content's
+            // height changes, so only `large` is always above it.
+            let words: Vec<&str> = s.split(' ').filter(|w| !w.is_empty()).collect();
+            if words.contains(&"fit-content")
+                && !matches!(words[..], ["fit-content"] | ["fit-content", "large"])
+            {
+                return err(
+                    "lower-attr-value",
+                    format!("`navigationDetent` takes \"fit-content\" alone or as \"fit-content large\": a content height can pass any other detent, and UIKit's go from shortest to tallest; given \"{s}\""),
+                    span,
+                );
+            }
+        }
     }
     if prop == PropId::FocusGuide && matches!(value, Expr::Str(s, _) if s != "auto") {
         return err("lower-attr-value", "`focusGuide` takes \"auto\"", span);

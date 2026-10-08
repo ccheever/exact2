@@ -23,7 +23,7 @@ import { pushToast } from './toast';
 import { letGo } from './let-go';
 import { pagesPrefs } from './pages-prefs';
 import { composerNow } from './composer-controls';
-import { prState, startHandoff } from './r6-pr-actions';
+import { prState } from './r6-pr-actions';
 import {
   ACTION_FAILURE, ACTION_SUCCESS, PULL_REQUEST_ACTIONS, PULL_REQUEST_MERGE_METHOD_LABELS, actionHint, actionPayload, allowedMergeMethods, allowsSinglePullRequestMerge,
   pullRequestActionMenuHasGroup, pullRequestActionNeedsHostRefresh, readableFailure, resolveBaseFreshness, resolvePullRequestMergeMethod, resolvePullRequestPrimaryControl,
@@ -347,7 +347,7 @@ export async function runStackAction(client: T3Client, native: Native, ctx: Pane
   return '';
 }
 
-/** `pageslocal:pr-act-*` that act on the host: `action` ("merge:squash", "update-branch:rebase", "close"), `stack-run`, `handoff`. */
+/** `pageslocal:pr-act-*` that act on the host: `action` ("merge:squash", "update-branch:rebase", "close") and `stack-run`. */
 export async function prActionCommand(client: T3Client, native: Native, op: string, ctx: PanelContext, value: string): Promise<string> {
   if (op === 'action') {
     const [action = '', extra = ''] = value.split(':');
@@ -356,13 +356,10 @@ export async function prActionCommand(client: T3Client, native: Native, op: stri
     return performAction(client, native, ctx, action);
   }
   if (op === 'stack-run') return runStackAction(client, native, ctx);
-  if (op === 'handoff' && value === 'conflicts') {
-    if (!ctx.detail) throw new ClientError('The pull request is still loading.');
-    return startHandoff(client, native, 'conflicts', ctx.detail);
-  }
   throw new ClientError(`Unknown pull request action: ${op}`);
 }
-export const isActionOp = (op: string) => op === 'action' || op === 'stack-run' || op === 'handoff';
+/** The header's runner ops; the hand-offs (`handoff`, Resolve conflicts among them) are pages-pr-handoffs.ts's. */
+export const isActionOp = (op: string) => op === 'action' || op === 'stack-run';
 
 /** `chatlocal:pr-ui-*`: the menu's choices, answered without the command gate. */
 export function prActionUi(client: T3Client, op: string, ctx: { key: string; detail: Obj | null; reference: Obj }, value: string): string {

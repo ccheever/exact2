@@ -22,19 +22,19 @@ extension NodeView {
     // Any button holds the pointer, as in a browser (review b5-b 1): the
     // secondary's moves and the middle button's down, moves and up are the
     // held node's pointer events too, `buttons` 2 or 4 (`pointerSample`).
-    override func rightMouseDragged(with event: NSEvent) {
+    package override func rightMouseDragged(with event: NSEvent) {
         pointerDragged(event)
         if canvasInput?.pointer(event, phase: "move") != true { super.rightMouseDragged(with: event) }
     }
-    override func otherMouseDown(with event: NSEvent) {
+    package override func otherMouseDown(with event: NSEvent) {
         pointerPressed(event)
         if canvasInput?.pointer(event, phase: "down") != true { super.otherMouseDown(with: event) }
     }
-    override func otherMouseDragged(with event: NSEvent) {
+    package override func otherMouseDragged(with event: NSEvent) {
         pointerDragged(event)
         if canvasInput?.pointer(event, phase: "move") != true { super.otherMouseDragged(with: event) }
     }
-    override func otherMouseUp(with event: NSEvent) {
+    package override func otherMouseUp(with event: NSEvent) {
         pointerReleased(event)
         if canvasInput?.pointer(event, phase: "up") != true { super.otherMouseUp(with: event) }
     }
@@ -97,15 +97,15 @@ extension NodeView {
         return urls.filter(ExactDocuments.accepts)
     }
 
-    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+    package override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
         droppable(sender).isEmpty ? [] : .copy
     }
 
-    override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
+    package override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
         droppable(sender).isEmpty ? [] : .copy
     }
 
-    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+    package override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
         drop(droppable(sender), at: sender.draggingLocation)
     }
 

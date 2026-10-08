@@ -67,6 +67,9 @@ export class EnvironmentFleet {
   entries = new Map<string, FleetEntry>();
   saved: Obj[] = [];
   revision = 0;
+  /** U6: the last sync dropped a saved duplicate of the primary that was the focus (client.ts hands the focus to the primary). */
+  focusDropped = false;
+  takeFocusDropped(): boolean { const dropped = this.focusDropped; this.focusDropped = false; return dropped; }
   private epoch = 0;
 
   /** The fleet's native view of one background environment. */
@@ -95,10 +98,13 @@ export class EnvironmentFleet {
     try {
       const listed = await bridgeReply(native, { op: 'environments' });
       if (epoch !== this.epoch || !listed.ok) return;
-      // Decision U6 (provisional): a saved entry with the primary's id is removed and its credential forgotten.
+      // Decision U6 (as the reference): a saved entry with the primary's id is removed and its credential forgotten.
       const all = arr(obj(listed.value).saved);
       this.saved = withoutPrimaryDuplicates(all);
-      if (this.saved.length !== all.length) await dropPrimaryDuplicates(native, all).catch(() => []);
+      if (this.saved.length !== all.length) {
+        const dropped = await dropPrimaryDuplicates(native, all).catch(() => ({ origins: [], focusDropped: false }));
+        if (dropped.focusDropped) this.focusDropped = true;
+      }
     } catch { return; }
     const wanted = new Map(this.wanted(focused).map(entry => [environmentKey(str(entry.origin), str(entry.environmentId)), entry]));
     for (const key of [...this.entries.keys()]) {

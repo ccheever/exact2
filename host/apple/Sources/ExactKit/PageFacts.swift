@@ -157,17 +157,17 @@ enum PageFacts {
 /// the Extra Heavy feed at rest — so it is read once and read again after a
 /// lifecycle notification: at it, and a main-queue turn later, since UIKit's
 /// "will" notifications precede the state's update.
-enum AppBackground {
+package enum AppBackground {
     nonisolated(unsafe) private static var cached: Bool?
     nonisolated(unsafe) private static var observing = false
-    static var now: Bool {
+    package static var now: Bool {
         if !observing { observe() }
         if let cached { return cached }
         let value = UIApplication.shared.applicationState == .background
         cached = value
         return value
     }
-    static func invalidate() { cached = nil }
+    package static func invalidate() { cached = nil }
     private static func observe() {
         observing = true
         for name in [UIApplication.willResignActiveNotification, UIApplication.didEnterBackgroundNotification,

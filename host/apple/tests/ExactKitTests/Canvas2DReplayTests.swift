@@ -2,11 +2,13 @@ import XCTest
 import CoreGraphics
 import QuartzCore
 @testable import ExactKit
+@testable import ExactSurfaces
 
 /// Canvas 2D replay off the main thread (LLP 1056 §8.3): a canvas drawn
 /// every frame faster than it replays still presents, and its backlog is
 /// one replay waiting, not one per frame.
 final class Canvas2DReplayTests: XCTestCase {
+    override class func setUp() { super.setUp(); ExactSurfaces.install() } // LLP 1047.001 D4
     /// A list: `fillColor` then `count` full-bitmap `fillRect`s.
     private func list(_ rgb: (Double, Double, Double), rects count: Int = 1) -> Data {
         var d = Data()

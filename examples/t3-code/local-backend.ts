@@ -4,8 +4,32 @@
 // ("This machine") from it. The bearer stays native (memory only); TypeScript sees only whether it
 // is ready. Once the server answers, the status also carries its descriptor's environment id,
 // label and version, and `enabled` is the Local environment switch the backend started with.
-import { obj, str, num } from './domain';
-import { bridgeReply, type Native } from './protocol';
+// `desktopSettings` are the four keys of `<T3 home>/userdata/desktop-settings.json` this app changes
+// (decision U7: the original app's file, owned by the native side as by Electron's main process;
+// T3DesktopSettings.swift); `writeDesktopSettings` is the renderer's IPC setter.
+import { obj, str, num, type Obj } from './domain';
+import { bridgeReply, ClientError, type Native } from './protocol';
+
+export type DesktopServerExposureMode = 'local-only' | 'network-accessible';
+/** The desktop settings this app reads and writes (DesktopSettings' local and exposure keys). */
+export interface DesktopSettingsFacts {
+  localEnvironmentEnabled: boolean;
+  serverExposureMode: DesktopServerExposureMode;
+  tailscaleServeEnabled: boolean;
+  tailscaleServePort: number;
+}
+/** DEFAULT_DESKTOP_SETTINGS' four keys. */
+export const defaultDesktopSettings = (): DesktopSettingsFacts => ({ localEnvironmentEnabled: true, serverExposureMode: 'local-only', tailscaleServeEnabled: false, tailscaleServePort: 443 });
+/** The native side normalized them already; anything else is the default. */
+export function parseDesktopSettings(value: unknown): DesktopSettingsFacts {
+  const raw = obj(value), port = raw.tailscaleServePort;
+  return {
+    localEnvironmentEnabled: raw.localEnvironmentEnabled !== false,
+    serverExposureMode: raw.serverExposureMode === 'network-accessible' ? 'network-accessible' : 'local-only',
+    tailscaleServeEnabled: raw.tailscaleServeEnabled === true,
+    tailscaleServePort: typeof port === 'number' && Number.isInteger(port) && port >= 1 && port <= 65_535 ? port : 443,
+  };
+}
 
 export type LocalBackendState = 'refused' | 'runtime-missing' | 'installing' | 'starting' | 'ready' | 'restarting' | 'stopped' | 'failed';
 const STATES: readonly LocalBackendState[] = ['refused', 'runtime-missing', 'installing', 'starting', 'ready', 'restarting', 'stopped', 'failed'];
@@ -29,8 +53,10 @@ export interface LocalBackendStatus {
   failure: string;
   version: string;
   pid: number | null;
-  /** The Local environment switch (false: no server runs; t3-code.json `localEnvironmentEnabled`). */
+  /** The Local environment switch the backend runs with (false: no server runs). */
   enabled: boolean;
+  /** desktop-settings.json's Local environment switch, Network access and Tailscale Serve (decision U7). */
+  settings: DesktopSettingsFacts;
   /** The running server's descriptor (`/.well-known/t3/environment`), once it answered. */
   environmentId: string;
   label: string;
@@ -40,7 +66,7 @@ export interface LocalBackendStatus {
 export const unknownLocalBackend = (): LocalBackendStatus => ({
   state: 'stopped', port: null, httpBaseUrl: '', wsBaseUrl: '', bearerReady: false, restartAttempt: 0,
   nextRestartMs: null, lastExit: '', install: null, refused: '', failure: '', version: '', pid: null,
-  enabled: true, environmentId: '', label: '', serverVersion: '',
+  enabled: true, settings: defaultDesktopSettings(), environmentId: '', label: '', serverVersion: '',
 });
 
 const numberOrNull = (value: unknown): number | null => (typeof value === 'number' && Number.isFinite(value) ? value : null);
@@ -64,6 +90,7 @@ export function parseLocalBackendStatus(value: unknown): LocalBackendStatus {
     version: str(raw.version),
     pid: numberOrNull(raw.pid),
     enabled: raw.enabled !== false,
+    settings: parseDesktopSettings(raw.desktopSettings),
     environmentId: str(raw.environmentId),
     label: str(raw.label),
     serverVersion: str(raw.serverVersion),
@@ -75,4 +102,18 @@ export async function readLocalBackend(native: Native): Promise<LocalBackendStat
   native.watch('t3.local');
   const reply = await bridgeReply(native, { op: 'localBackendStatus' });
   return reply.ok ? parseLocalBackendStatus(reply.value) : unknownLocalBackend();
+}
+
+/**
+ * `desktopSettingsSet`: one DesktopAppSettings setter (setLocalEnvironmentEnabled, setServerExposureMode,
+ * setTailscaleServe), persisted to desktop-settings.json before it answers. The owner's status takes the
+ * new keys at once (the announce that follows re-reads them). A write failure throws the reference's
+ * "Desktop settings write failed during <operation> at <path>." and changes nothing.
+ */
+export async function writeDesktopSettings(native: Native, patch: Obj, owner?: { localBackend: LocalBackendStatus }): Promise<{ changed: boolean; settings: DesktopSettingsFacts }> {
+  const reply = await bridgeReply(native, { op: 'desktopSettingsSet', ...patch });
+  if (!reply.ok) throw new ClientError(reply.error?.message || 'Desktop settings write failed.', reply.error?.kind ?? 'DesktopSettings');
+  const value = obj(reply.value), settings = parseDesktopSettings(value.settings);
+  if (owner) owner.localBackend.settings = settings;
+  return { changed: value.changed === true, settings };
 }

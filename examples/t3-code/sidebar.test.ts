@@ -12,7 +12,8 @@ import { threadItems } from './palette';
 import { terminalMetadataEvent } from './terminal-drawer-view';
 import { recordTerminalFocus } from './terminal-focus';
 import { sidebarCommand, sidebarLocal, sidebarSelecting, undoLatest, visitOpenThread } from './sidebar-commands';
-import { resolveCustomSnooze, sidebarPrefs, sidebarSession, setRuntimeClock } from './sidebar-state';
+import { localDate, localTime, resolveCustomSnooze, sidebarPrefs, sidebarSession, setRuntimeClock } from './sidebar-state';
+import { titleMenu } from './shell';
 
 // The data runtime has no clock (sidebar-state.ts `clock`); these tests stand in for a host clock that reads Date.now.
 beforeEach(() => setRuntimeClock(() => Date.now()));
@@ -459,6 +460,87 @@ describe('sidebar navigation, drafts and the hover card', () => {
   });
 });
 
+
+// title-custom-snooze: Thread title › Snooze › Custom… (useThreadActionMenu: `await requestCustomSnooze()`, then
+// snoozeThread alone) opens the sidebar's Custom snooze for the title's thread. app.contract's titleMenuPick sends
+// the item's `ui:custom-snooze` as `sidebar:snooze:custom` with the value "title" and the window's wall time.
+describe('Custom snooze from the thread title menu (title-custom-snooze)', () => {
+  const titleCustom = (client: T3Client) => titleMenu(client, NOW).find(item => item.id === 'snooze:custom')!;
+  const fixed = () => setRuntimeClock(() => 5_000); // the wall is then the window's instant exactly (sidebar-state.ts `wall`)
+  const opened = (client: T3Client) => { const { dialog, dialogMode, dialogDate, dialogTime, dialogAmount, dialogUnit, dialogError } = sidebarSnapshot(client, NOW, helpers).sidebar; return { dialog, dialogMode, dialogDate, dialogTime, dialogAmount, dialogUnit, dialogError }; };
+
+  test('the title opens the same dialog as the row, for its own thread, and gives the focus back to the title', async () => {
+    fixed();
+    const title = fake([shell('a'), shell('b')], { threadId: 'a' }), row = fake([shell('a'), shell('b')], { threadId: 'a' });
+    sidebarSession(title.client).selection = ['a', 'b']; // a sidebar selection is not the title's target
+    const item = titleCustom(title.client);
+    expect(item).toMatchObject({ label: 'Custom…', op: 'ui:custom-snooze', target: 'a', submenu: 'snooze', separated: true });
+    await sidebarCommand(title.client, native, files, 'snooze:custom', item.target, 'title', NOW);
+    await sidebarCommand(row.client, native, files, 'snooze:custom', 'a', '', NOW);
+    expect(opened(title.client)).toEqual(opened(row.client));
+    expect(opened(title.client)).toMatchObject({ dialog: 'snooze', dialogMode: 'date', dialogAmount: '2', dialogUnit: 'hours', dialogError: '' });
+    expect(sidebarSession(title.client).dialog).toEqual({ kind: 'snooze', threadIds: ['a'], title: 'Thread a', from: 'title' });
+    expect(sidebarSnapshot(title.client, NOW, helpers).sidebar.dialogReturn).toBe('thread-title');
+    expect(sidebarSnapshot(row.client, NOW, helpers).sidebar.dialogReturn).toBe('thread-a');
+    expect([title.dispatched, title.calls]).toEqual([[], []]); // opening sends nothing, and shows no native menu
+    await sidebarLocal(title.client, native, 'dialog-close', '', ''); // Cancel, Close and Escape (SidebarSnoozeDialog's dismiss)
+    expect(sidebarSnapshot(title.client, NOW, helpers).sidebar).toMatchObject({ dialog: '', dialogReturn: '' });
+    expect(title.dispatched).toEqual([]);
+  });
+
+  test('a date and time, then a duration, snooze only the title\'s thread, with the undo notice and without moving on', async () => {
+    fixed();
+    const { client, dispatched, opened: navigated, drafts } = fake([shell('a'), shell('b')], { threadId: 'a' });
+    await sidebarCommand(client, native, files, 'snooze:custom', 'a', 'title', NOW);
+    await sidebarLocal(client, native, 'dialog-field', 'date', '2026-10-04');
+    await sidebarLocal(client, native, 'dialog-field', 'time', '00:00');
+    await sidebarCommand(client, native, files, 'dialog-confirm', '', '', NOW);
+    expect(opened(client)).toMatchObject({ dialog: 'snooze', dialogError: 'Choose a valid date and time in the future.' });
+    expect(sidebarSnapshot(client, NOW, helpers).sidebar.dialogReturn).toBe('thread-title'); // the error keeps where it came from
+    const wake = new Date(NOW + 2 * 86_400_000);
+    await sidebarLocal(client, native, 'dialog-field', 'date', localDate(wake));
+    await sidebarLocal(client, native, 'dialog-field', 'time', localTime(wake));
+    await sidebarCommand(client, native, files, 'dialog-confirm', '', '', NOW);
+    expect(strip(dispatched)).toEqual([{ type: 'thread.snooze', threadId: 'a', snoozedUntil: new Date(`${localDate(wake)}T${localTime(wake)}:00`).toISOString() }]);
+    expect(sidebarSnapshot(client, NOW, helpers).sidebar).toMatchObject({ dialog: '', dialogReturn: '', undoText: 'Snoozed 1 thread,' });
+    expect([navigated, drafts, client.threadId]).toEqual([[], [], 'a']);
+    await sidebarCommand(client, native, files, 'snooze:custom', 'b', 'title', NOW);
+    await sidebarLocal(client, native, 'dialog-field', 'mode', 'duration');
+    await sidebarLocal(client, native, 'dialog-field', 'amount', '3');
+    await sidebarCommand(client, native, files, 'dialog-confirm', '', '', NOW);
+    expect(strip(dispatched).slice(1)).toEqual([{ type: 'thread.snooze', threadId: 'b', snoozedUntil: new Date(NOW + 3 * 3_600_000).toISOString() }]);
+    expect([navigated, drafts, client.threadId]).toEqual([[], [], 'a']);
+  });
+
+  test('Custom… is offered where Snooze is: not for a thread waiting on the user, a snoozed one or a server without snooze', () => {
+    const custom = (extra: Obj, caps: Obj = {}) => { const { client } = fake([shell('a', extra)], { threadId: 'a', caps }); const menu = titleMenu(client, NOW); return [menu.find(item => item.id === 'snooze')?.disabled, menu.some(item => item.id === 'snooze:custom'), menu.some(item => item.id === 'unsnooze')]; };
+    expect(custom({})).toEqual([false, true, false]);
+    expect(custom({ pendingRuntimeRequest: { kind: 'command_approval' } })).toEqual([true, true, false]); // Snooze, Custom's parent, is disabled (canSnoozeNow)
+    expect(custom({ snoozedUntil: iso(3_600_000) })).toEqual([undefined, false, true]);
+    expect(custom({}, { threadSnooze: false })).toEqual([undefined, false, false]);
+  });
+
+  test('a thread that came to wait on the user before Snooze is refused before the round trip, as snoozeThread does', async () => {
+    fixed();
+    const { client, dispatched } = fake([shell('a')], { threadId: 'a' });
+    await sidebarCommand(client, native, files, 'snooze:custom', 'a', 'title', NOW);
+    (client.shell.threads[0] as Obj).pendingRuntimeRequest = { kind: 'command_approval' };
+    await sidebarLocal(client, native, 'dialog-field', 'mode', 'duration');
+    await sidebarCommand(client, native, files, 'dialog-confirm', '', '', NOW);
+    expect(dispatched).toEqual([]);
+    expect(toasts(client).at(-1)).toMatchObject({ kind: 'error', title: 'Failed to snooze thread', description: 'This thread is waiting on you. Respond to the pending request before snoozing it.' });
+  });
+
+  test('the sidebar row\'s Custom still snoozes through its row and moves on from the open thread', async () => {
+    fixed();
+    const { client, dispatched, opened: navigated } = fake([shell('a', { createdAt: iso(-1) }), shell('b', { createdAt: iso(-2) })], { threadId: 'a' });
+    await sidebarCommand(client, native, files, 'snooze:custom', 'a', '', NOW);
+    await sidebarLocal(client, native, 'dialog-field', 'mode', 'duration');
+    await sidebarCommand(client, native, files, 'dialog-confirm', '', '', NOW);
+    expect(strip(dispatched)).toEqual([{ type: 'thread.snooze', threadId: 'a', snoozedUntil: new Date(NOW + 2 * 3_600_000).toISOString() }]);
+    expect(navigated).toEqual(['b']);
+  });
+});
 
 describe('terminal activity in thread lists (B10)', () => {
   test('only subprocesses count, updates clear the indicator across sidebar, legacy and palette', () => {

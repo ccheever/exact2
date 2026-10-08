@@ -5,10 +5,11 @@ import type { Native } from './protocol';
 import { providerPillView, sidebarProviderPill, dismissProviderPill, scheduleProviderPill, SUCCESS_VISIBLE_MS } from './sidebar-provider-pill';
 import { CARD, LABEL, dropIndex, parseDrop, planDrop, sidebarDrop } from './sidebar-drop';
 import { sidebarSession, setRuntimeClock } from './sidebar-state';
+import { primaryAt, primaryOff, resetPrimary } from './local-primary-fixture';
 
 // The data runtime has no clock (sidebar-state.ts `clock`); these tests stand in for a host clock that reads Date.now.
 beforeEach(() => setRuntimeClock(() => Date.now()));
-afterEach(() => setRuntimeClock(() => Number.NaN));
+afterEach(() => { setRuntimeClock(() => Number.NaN); resetPrimary(); });
 
 const provider = (driver: string, update: Obj | null, extra: Obj = {}): Obj => ({ driver, instanceId: driver, enabled: true, checkedAt: '2026-10-04T10:00:00.000Z',
   version: '0.160.0', versionAdvisory: { latestVersion: '0.160.0' }, ...(update ? { updateState: update } : {}), ...extra });
@@ -37,7 +38,8 @@ describe('provider update pill (getProviderUpdateSidebarPillView)', () => {
   });
   test('the window remembers its first check, retires a success after three seconds and keeps dismissals', () => {
     const providers = [provider('codex', null)];
-    const client = { config: { providers } } as unknown as T3Client;
+    primaryAt('http://127.0.0.1:16437', 'env-local');
+    const client = { config: { providers }, ready: true, environmentId: 'env-local' } as unknown as T3Client;
     const delays: number[] = [];
     expect(sidebarProviderPill(client, 1_000)).toBeNull();
     (client.config as Obj).providers = [provider('codex', { status: 'succeeded', finishedAt: '2026-10-04T10:01:00.000Z' })];
@@ -51,6 +53,15 @@ describe('provider update pill (getProviderUpdateSidebarPillView)', () => {
     expect(failed?.tone).toBe('error');
     dismissProviderPill(client, failed!.key);
     expect(sidebarProviderPill(client, 9_000)).toBeNull();
+  });
+  test('the pill reads the primary\'s providers only (primaryServerProvidersAtom): a focused remote or no primary shows none', () => {
+    const running = [provider('codex', { status: 'running' })];
+    primaryAt('http://127.0.0.1:16437', 'env-local');
+    expect(sidebarProviderPill({ config: { providers: running }, ready: true, environmentId: 'env-local' } as unknown as T3Client, 1_000)?.title).toBe('Updating Codex');
+    // A remote environment in focus while the primary has no background connection: nothing to show.
+    expect(sidebarProviderPill({ config: { providers: running }, ready: true, environmentId: 'env-box' } as unknown as T3Client, 1_000)).toBeNull();
+    primaryOff();
+    expect(sidebarProviderPill({ config: { providers: running }, ready: true, environmentId: 'env-box' } as unknown as T3Client, 1_000)).toBeNull();
   });
 });
 

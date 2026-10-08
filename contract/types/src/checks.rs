@@ -1394,9 +1394,13 @@ fn spacing_tree(e: &Expr) -> bool {
 /// A style row is one CSS value space — a length or a keyword — so a style
 /// attribute's ternary or `match` may put a number in one arm and a string
 /// in the other; lowering checks each literal against the row and the
-/// runner converts each value. Arms that disagree otherwise are refused as
+/// runner converts each value; `none` clears a row, as a one-sided class does.
+/// Arms that disagree otherwise are refused as
 /// any expression's are.
 fn style_value(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeError> {
+    if matches!(e, Expr::None(_)) {
+        return Ok(Ty::Unknown);
+    }
     if !matches!(e, Expr::Ternary(..) | Expr::Match { .. }) {
         return infer(e, scope, shapes);
     }
