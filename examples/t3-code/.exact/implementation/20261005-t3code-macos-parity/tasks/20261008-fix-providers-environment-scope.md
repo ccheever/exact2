@@ -8,7 +8,7 @@ repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: 'feat(example)/t3-code-fix-providers-environment-scope'
 pr_url: https://github.com/ccheever/exact2/pull/329
-verified_commit: 92f678e26
+verified_commit: 52378bbef
 ---
 
 # Settings › Providers shows the providers of the environment the scope menu chose
@@ -99,7 +99,7 @@ Fix (`92f678e26`):
   `environmentId`, `shell` and the managed Codex command target; env-variable drafts are kept per environment.
 - Default: `selectSingleEnvironmentScope` (primary, else connected, else first). The Providers route's boundary reads the
   chosen environment's connection ("Reconnect <label> to change its settings.").
-- `app.contract` 1,488 → 1,467 lines: resources and sends take the environment; a scope change starts the page over on
+- `app.contract` 1,488 → 1,468 lines (after merging 96c4c38f2, #311): resources and sends take the environment; a scope change starts the page over on
   its first row (routes/settings.tsx keys the page on its search); Settings links from outside Settings start with no
   scope (`retainSettingsScope`) through `openSettings()` (the Settings button, a setup link, the toast's Settings, the
   Connections and project links); a setup link names its environment (the chat's: its thread's, `ChatView.openProviderSetup`;
@@ -121,8 +121,8 @@ Fix (`92f678e26`):
 | Live: switching back shows the primary's again | pass | [image 4](https://raw.githubusercontent.com/ccheever/exact2/696627f223eda937c0f6d6a3bd8c4ea74d34bd25/fix-providers-environment-scope/04-back-to-this-mac.png) |
 | Live: reopening Settings follows the reference's scope rule | pass | [image 5](https://raw.githubusercontent.com/ccheever/exact2/d987c0161bc7dd0d86060bae307ce5647c150109/fix-providers-environment-scope/05-settings-reopened.png) |
 | Empty state, disconnected environment | pass | [image 6](https://raw.githubusercontent.com/ccheever/exact2/3240238f8210b988d383cf2218059529f3ea1c7c/fix-providers-environment-scope/06-second-environment-stopped.png); removed and none: unit test |
-| Clone checks | pass | `bun test examples/t3-code` 3,298 pass / 1 skip / 0 fail; strict `tsc` clean; `contract build` 5,505 slots, 46 resources; `cargo test -p t3-code-macos --lib` 13 pass |
-| Repository | pass | caps within; build exit 0; test 3,521 passed / 0 failed / 34 ignored (94 binaries); clippy and fmt clean; boot allowed paths only |
+| Clone checks | pass | on the merged tree `52378bbef`: `bun test examples/t3-code` 3,468 pass / 1 skip / 0 fail; strict `tsc` clean; `contract build` 5,512 slots, 46 resources; `cargo test -p t3-code-macos --lib` 13 pass |
+| Repository | pass | on `52378bbef`: caps within; build exit 0; test 3,521 passed / 0 failed / 34 ignored (94 binaries); clippy and fmt clean; boot allowed paths only |
 
 Refresh on the second environment: covered by the regression test `providers-scope.test.ts` (Refresh goes to the
 chosen server: `server.refreshProviders` carries the second environment's fleet key). The drives pressed it too, but each
@@ -167,7 +167,12 @@ None: the bug is about which server the page reads and writes; every row ran in 
 2026-10-08: implemented, verified and delivered as draft [PR #329](https://github.com/ccheever/exact2/pull/329) against
 `feat(example)/t3-code` (merged `44e939f1e` first). Verify runner attempt 2 passed on the final source
 (`source_unchanged: true`); the committed tree `92f678e26` matches its report. Independent review: round 1 no blocking
-findings, two should-fix items taken; round 2 none. `app.contract` 1,467 lines.
+findings, two should-fix items taken; round 2 none.
+
+2026-10-08 (coordinator follow-up): the review notes closed (see "Review notes, closed"): `506c4f9fe` (runner attempt 4
+passed; review round 3: no code findings, its test should-fix taken) and the records. #311 merged: base `96c4c38f2` merged
+as `52378bbef` (STATUS.md conflict, both sides kept); runner attempt 5 on the merged tree passed (11 / 11,
+`source_unchanged: true`). `app.contract` 1,468 lines.
 
 ## Attempts and evidence
 
@@ -181,6 +186,8 @@ findings, two should-fix items taken; round 2 none. `app.contract` 1,467 lines.
 | verify runner attempt 1 + review round 1 | pre-review source | 11 / 11 checks passed; review: two should-fix (empty-scope writes fell back to the focused server; env drafts shared), notes 5 and 6 | local `target/fpes/verify/attempt-1` | taken |
 | live drive, branch, final | final source (`92f678e26`) | as attempt 1; boundary text with the second server stopped | images 1-6 (after), [record](https://raw.githubusercontent.com/ccheever/exact2/39a5c500c6d60fbf00b8f0b0bed9431df930c27a/fix-providers-environment-scope/live-drive.txt) | none |
 | verify runner attempt 2 + review round 2 | `92f678e26` (fingerprint `d887a061…`) | 11 / 11 passed, `source_unchanged: true`; committed tree matches; review: no blocking or should-fix findings | local `target/fpes/verify/attempt-2` | none |
+| follow-up: runner attempts 3-4 + review round 3 | `506c4f9fe` | 11 / 11 passed each; review: no code findings; two assertions on the text of `app.contract` removed | local `target/fpes/verify/attempt-3`, `-4` | none |
+| merged tree: runner attempt 5 | `52378bbef` (96c4c38f2 merged) | 11 / 11 passed, `source_unchanged: true`; `bun test examples/t3-code` 3,468 / 1 / 0; contract 5,512 slots | local `target/fpes/verify/attempt-5` | none |
 
 ## Next action
 
