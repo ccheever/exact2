@@ -255,12 +255,29 @@ and reduced motion from System Settings. Everything else ran in agent mode. One 
 2026-10-08: implemented on `feat(example)/t3-code-pr-header-actions-and-stacks`; unit tests; one live session and one
 retry on the real-GitHub lane (agent mode; the screen is locked, so the real-input rows wait for the batch); draft PR #262.
 
+2026-10-08 (real-input batch, records PR): freshness by keyboard, update-branch write and reduced motion pass; four clone bugs (keyboard menu focus, hover card, refresh storm/stale freshness after update, no ring in the Close dialog). Results and proof: "Real-input batch (2026-10-08)" below.
+
 ## Attempts and evidence
 
 | Attempt | Revision/fingerprint | Checks and outcomes | Evidence | Remaining blocker |
 | --- | --- | --- | --- | --- |
 | 1 (live, owner) | `bf7c19d41` with the dialog focus stopgap (committed in `39ee7aa29`) | every action passed on GitHub; Merge stack merged but the server reported a failure; Rebase stack refused by GitHub/server; three UI faults: the hover card's state survived another pull request, the tab bar painted over it, labels under 30rem | [record](https://raw.githubusercontent.com/ccheever/exact2/01f53038a5eef8c759b81e2ce842d556b194fe9d/pr-header-actions-and-stacks/live-drive-record.txt) | fixed in attempt 2 |
 | 2 (retry, write collaborator) | `39ee7aa29` before its sequential stack reads | hover card over the tab bar, icon-only header at 840×620, "Merging...", the second account's merge, a stack layer opened, Merge stack completed; Rebase stack refused again | [record](https://raw.githubusercontent.com/ccheever/exact2/01f53038a5eef8c759b81e2ce842d556b194fe9d/pr-header-actions-and-stacks/live-drive-record.txt) (retry) | Rebase success live: GitHub/server refusals (findings) |
+
+## Real-input batch (2026-10-08)
+
+Run by the coordinator's real-input batch on an unlocked Mac (2026-10-08, 02:58-05:15 UTC), under the shared real-input lock (owner "real-input batch"), on the merged feature branch (`b7761f556`, rebuilt once at `07dcef1ab` for #263): one lane copy "T3 Code (Lane RIB)" launched normally (not agent mode) with isolated homes and lane ports 16450-16499. Real input: cliclick / CGEvent real mouse and wheel events, real HID key chords (posted only after a check that the lane app is frontmost), orca computer clicks and pastes. Records PR: draft "T3 Code clone: real-input batch for the tasks merged on 2026-10-08".
+
+| Row | Result | Proof |
+| --- | --- | --- |
+| 5. More menu by keyboard | FAIL (clone bug): the menu opened from the keyboard keeps the focus on "…"; ↓/↑ move nothing; Escape closes, nothing sent | [pha-stab3-small](https://raw.githubusercontent.com/ccheever/exact2/ec2aeba0830cebdf6f0af0275e53a46bc330b90a/real-input-batch/pr-header-actions-and-stacks/01-pha-stab3-small.png), [pha-menu-small](https://raw.githubusercontent.com/ccheever/exact2/ec2aeba0830cebdf6f0af0275e53a46bc330b90a/real-input-batch/pr-header-actions-and-stacks/02-pha-menu-small.png), [pha-menu-zoom2](https://raw.githubusercontent.com/ccheever/exact2/ec2aeba0830cebdf6f0af0275e53a46bc330b90a/real-input-batch/pr-header-actions-and-stacks/03-pha-menu-zoom2.png) |
+| 6a. Freshness popover by keyboard | PASS | [pha-fresh-small](https://raw.githubusercontent.com/ccheever/exact2/ec2aeba0830cebdf6f0af0275e53a46bc330b90a/real-input-batch/pr-header-actions-and-stacks/04-pha-fresh-small.png) |
+| 6b. Freshness card by pointer | FAIL (clone bug): the hover card closes when the pointer moves into it | [pha-hover](https://raw.githubusercontent.com/ccheever/exact2/ec2aeba0830cebdf6f0af0275e53a46bc330b90a/real-input-batch/pr-header-actions-and-stacks/05-pha-hover.png) |
+| 6c. Update with rebase (pressed popover) | Write PASS (`pr update-branch 150 --rebase`, behind_by 8 → 0); FAIL (clone bug): no success toast, panel kept "out-of-date by 8", then ~200 invalidate/detail/list RPCs in 47 s | [pha-15-now](https://raw.githubusercontent.com/ccheever/exact2/ec2aeba0830cebdf6f0af0275e53a46bc330b90a/real-input-batch/pr-header-actions-and-stacks/06-pha-15-now.png), [pha-16-later-crop](https://raw.githubusercontent.com/ccheever/exact2/ec2aeba0830cebdf6f0af0275e53a46bc330b90a/real-input-batch/pr-header-actions-and-stacks/07-pha-16-later-crop.png) |
+| 7. Close dialog keys | Escape / nothing sent PASS; FAIL (clone bug): no visible focus ring on Cancel/Close | [pha-close-small](https://raw.githubusercontent.com/ccheever/exact2/ec2aeba0830cebdf6f0af0275e53a46bc330b90a/real-input-batch/pr-header-actions-and-stacks/08-pha-close-small.png), [pha-close-zoom](https://raw.githubusercontent.com/ccheever/exact2/ec2aeba0830cebdf6f0af0275e53a46bc330b90a/real-input-batch/pr-header-actions-and-stacks/09-pha-close-zoom.png) |
+| 8. Reduced motion (System Settings) | PASS: the refresh glyph does not turn | [pha-on-strip](https://raw.githubusercontent.com/ccheever/exact2/ec2aeba0830cebdf6f0af0275e53a46bc330b90a/real-input-batch/pr-header-actions-and-stacks/10-pha-on-strip.png) |
+
+Full record: [pr-header-actions-and-stacks.txt](https://raw.githubusercontent.com/ccheever/exact2/ec2aeba0830cebdf6f0af0275e53a46bc330b90a/real-input-batch/pr-header-actions-and-stacks/pr-header-actions-and-stacks.txt). Reduced-motion details: [reduced-motion.txt](https://raw.githubusercontent.com/ccheever/exact2/ec2aeba0830cebdf6f0af0275e53a46bc330b90a/real-input-batch/reduced-motion/reduced-motion.txt).
 
 ## Next action
 
