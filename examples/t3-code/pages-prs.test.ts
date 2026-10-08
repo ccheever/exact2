@@ -101,3 +101,46 @@ test('one Refresh press invalidates once, though the announcement it causes asks
   await Promise.all(reads);
   expect(calls.filter(c => c === 'pullRequests.invalidate').length).toBe(1);
 });
+
+// pr-list-title-clip: a `button` centres its text (the UA sheet's `text-align: center`, LLP 1001), and the
+// macOS host lays an overflowing centred line out centred, cutting its start (X57; CSS and Chrome start-align
+// it). The reference's pull request buttons say `text-left` (PULL_REQUEST_ROW_CLASS, the timeline's
+// CollapsibleTrigger, PullRequestCopyableCode), so on every pull request surface a single-line text that can
+// overflow (an ellipsis, `line-clamp=1`, or `nowrap` with `overflow="hidden"`) inside a button must resolve
+// `text-align` to left: the nearest `text-align` on the way up to the button decides. Read from the Contract
+// sources as dialog-focus.test.ts reads its stops; the live drive in tasks/20261008-pr-list-title-clip.md is
+// the proof.
+test('every single-line text that can overflow inside a pull request button is start-aligned, as PULL_REQUEST_ROW_CLASS says text-left', async () => {
+  const { readdirSync } = await import('node:fs');
+  const files = readdirSync(new URL('./', import.meta.url)).filter(name => /^pages-prs?(-.+)?\.contract$/.test(name)).sort();
+  const offenders: string[] = [];
+  let checked = 0;
+  const align = (line: string) => /\btext-align="([a-z-]+)"/.exec(line)?.[1] ?? '';
+  const overflows = (line: string) => /\btext-overflow="ellipsis"/.test(line) || /\bline-clamp=1\b/.test(line)
+    || (/\bwhite-space="nowrap"/.test(line) && /\boverflow="hidden"/.test(line));
+  for (const file of files) {
+    const lines = (await Bun.file(new URL(`./${file}`, import.meta.url)).text()).split('\n');
+    const indent = (line: string) => line.length - line.trimStart().length;
+    lines.forEach((line, index) => {
+      if (!/^\s*text\b/.test(line) || !overflows(line)) return;
+      // The ancestors, innermost first, up to the component's `view`: the first `text-align` met (the text's
+      // own, an ancestor's, or the button's own) wins; a button with none centres.
+      let depth = indent(line), decided = align(line), inButton = false;
+      for (let up = index - 1; up >= 0 && !inButton && depth > 0; up--) {
+        const above = lines[up]!;
+        if (!above.trim() || above.trimStart().startsWith('//') || indent(above) >= depth) continue;
+        depth = indent(above);
+        if (/^\s*(view|component)\b/.test(above)) break;
+        decided ||= align(above);
+        inButton = /^\s*button\b/.test(above);
+      }
+      if (!inButton) return;
+      checked++;
+      if (!['left', 'start'].includes(decided)) offenders.push(`${file}:${index + 1}`);
+    });
+  }
+  // The list row's title, author, repository and labels; the timeline group's authors; the base freshness mark;
+  // the copyable branch and checkout command; the menus' and pickers' rows.
+  expect(checked).toBeGreaterThanOrEqual(15);
+  expect(offenders).toEqual([]);
+});

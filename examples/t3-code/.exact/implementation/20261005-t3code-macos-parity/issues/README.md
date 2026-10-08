@@ -104,6 +104,12 @@ publication was performed during this local audit.
 | --- | --- | --- | --- | --- |
 | [X54](20261008-x54-focus-within-subtree.md) | An ancestor hearing the focus enter its subtree (`focusin`, `:focus-within`) | framework-gap | [pr-writing-and-metadata](../tasks/20261005-pr-writing-and-metadata.md) (nonblocking: "Show full comment" and the pencil are Tab stops of their own) | reproduced with `contract vocab` on the feature branch's framework; no upstream match by title; draft, not published |
 
+## Pull Requests row addition, 2026-10-08
+
+| Issue | Capability | Kind | Blocks | Status |
+| --- | --- | --- | --- | --- |
+| [X57](20261008-x57-overflowing-centred-line.md) | A line wider than its box start-aligned whatever `text-align` says (CSS Text 3 §7.1); macOS centres it and cuts its start | framework-gap | none ([pr-list-title-clip](../tasks/20261008-pr-list-title-clip.md): `text-left` on the pull request surfaces; other clone buttons listed in the file) | reproduced on a one-file app (macOS cuts, web does not); draft, not published |
+
 ## Pull Requests list live refresh addition, 2026-10-08
 
 | Issue | Capability | Kind | Blocks | Status |

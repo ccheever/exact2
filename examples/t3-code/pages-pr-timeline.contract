@@ -224,7 +224,7 @@ component PrdConversationGroup
   view
     column position="relative" margin-bottom="1.25rem" padding-left="3rem" box-sizing="border-box" testId=`pull-request-timeline-group-${row.key}`
       PrdMarker(row=row, pinned=true, muted=(not open), icon="message-square")
-      button press=toggle aria-expanded=open testId=`pull-request-timeline-group-toggle-${row.key}` width="100%" min-width=0 padding-top="0.5rem" padding-bottom="0.5rem" padding-left=0 padding-right=0 gap="0.75rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" opacity=(open ? 1 : 0.55)
+      button press=toggle aria-expanded=open testId=`pull-request-timeline-group-toggle-${row.key}` width="100%" min-width=0 padding-top="0.5rem" padding-bottom="0.5rem" padding-left=0 padding-right=0 gap="0.75rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" text-align="left" opacity=(open ? 1 : 0.55)
         column flex=1 min-width=0 align-items="flex-start"
           text row.count font-size="0.75rem" line-height="1rem" font-weight=600 color=(open ? prtInk() : prtMuted())
           text row.authorsLine font-size="0.625rem" line-height="0.875rem" color=prtMuted() white-space="nowrap" overflow="hidden" text-overflow="ellipsis"
