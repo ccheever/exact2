@@ -108,11 +108,12 @@ Required environment: macOS 26.6.2, Xcode 27.0, Bun 1.4.2, the real-GitHub lane 
 
 ## Results
 
-Built on `feat(example)/t3-code` (prepared at `bdca4216a`, merged up to `e91fcfc65`). Prerequisites: real-github-lane (#233),
+Built on `feat(example)/t3-code` (prepared at `bdca4216a`, merged up to `b7761f556`, after #262). Prerequisites: real-github-lane (#233),
 pr-conversation-and-refresh (#247) and hot-file-split are merged; desktop-oracle-and-trace is not built (user decision
-2026-10-06), so its rows are "not run". pr-header-actions-and-stacks runs in parallel: Close/Reopen with comment calls
-`pullRequests.runAction` from `pages-pr-writes.ts` with the reference's strings; reconcile with its upgraded action path
-when it merges. `app.contract` is untouched (the Preview argument was not needed: the preview is one more document of
+2026-10-06), so its rows are "not run". Since #262 (pr-header-actions-and-stacks) merged, Close/Reopen with comment hold
+its action runner from the press, post the comment, then finish through it (`finishAction`, split out of `performAction`
+in `pages-pr-actions.ts`): its toasts and failure hints, its re-read, and the list row's sent/failed/done override, as
+the reference's `performCommentAction`; the comment form locks while any header action runs (`actionPending`). `app.contract` is untouched (the Preview argument was not needed: the preview is one more document of
 the existing `prMarkdown` resource).
 
 **What was built.**
@@ -178,7 +179,7 @@ the existing `prMarkdown` resource).
 
 | Row | Result | Proof | Blocker |
 | --- | --- | --- | --- |
-| Comment and close-with-comment | pass (live + unit) | [10](https://raw.githubusercontent.com/ccheever/exact2/f05464e90aaa6c6f121aca841bb360bf4e9a7669/pr-writing-and-metadata/10-composer-comment.png), [16](https://raw.githubusercontent.com/ccheever/exact2/29020050bc9b32f616e608d83b9a29e130573c0a/pr-writing-and-metadata/16-close-reopen.png); [record](https://raw.githubusercontent.com/ccheever/exact2/a73ad8f647cd5f63a98a3e78d8a33823d1c26cbf/pr-writing-and-metadata/record-attempt2.txt): the typed bytes (a backtick, an em dash, quotes, a blank line) read back equal from GitHub; gh `pr comment 158 --repo … --body-file -`, then `pr close 158` / `pr reopen 158`; toasts "Pull request closed"/"reopened". Unit: "a failed comment keeps the words and the popover…", "close with comment … a refused close keeps the comment and explains" | — |
+| Comment and close-with-comment | pass (live + unit) | [10](https://raw.githubusercontent.com/ccheever/exact2/f05464e90aaa6c6f121aca841bb360bf4e9a7669/pr-writing-and-metadata/10-composer-comment.png), [16](https://raw.githubusercontent.com/ccheever/exact2/29020050bc9b32f616e608d83b9a29e130573c0a/pr-writing-and-metadata/16-close-reopen.png); [record](https://raw.githubusercontent.com/ccheever/exact2/a73ad8f647cd5f63a98a3e78d8a33823d1c26cbf/pr-writing-and-metadata/record-attempt2.txt): the typed bytes (a backtick, an em dash, quotes, a blank line) read back equal from GitHub; gh `pr comment 158 --repo … --body-file -`, then `pr close 158` / `pr reopen 158`; toasts "Pull request closed"/"reopened". Unit: "a failed comment keeps the words and the popover…", "close with comment … a refused close keeps the comment and explains"; the live pass predates the move onto #262's runner, unit since: "close with comment finishes through the header's action runner…" (pending lock, list row sent/failed/done, toasts) | live re-check through the runner owed (Next action) |
 | Review verdicts | pass (live + unit) | [15](https://raw.githubusercontent.com/ccheever/exact2/85fb7ce3eb5e1b945bb827cbd4394984e43f5f90/pr-writing-and-metadata/15-reviews.png), [17](https://raw.githubusercontent.com/ccheever/exact2/9707fd9d419e558926b97794073d0a8b3bc11c6d/pr-writing-and-metadata/17-author-review.png), [read-back](https://raw.githubusercontent.com/ccheever/exact2/0b2f16dcc4598df5a0ea91a3cccff2ead4241910/pr-writing-and-metadata/readback-after.txt): COMMENTED, APPROVED, CHANGES_REQUESTED by the primary on #158 with their summaries (`POST …/pulls/158/reviews`); the author on #159 is offered Comment only, Submit disabled while the summary is empty. Unit: the three toasts, "an empty Comment is not sent, an empty approval is", "a failed review keeps the summary and the line comments" | — |
 | Pending store | pass (unit; live in part) | "pull request review drafts" (4 ported cases), "the count, the line comments sent with the review (without their ids), discard, and the summary across pull requests"; live: a comment typed and left on #158 was still in the box after #159, #115, #159 and back ([22](https://raw.githubusercontent.com/ccheever/exact2/f86519cef203d98c455c2aae04071a8b08ce86a4/pr-writing-and-metadata/22-dark-and-narrow.png), "840 composer") | the badge and "Review (n)" with real pending line comments need the Code tab (20261005-pr-code-tab fills the store) |
 | Title/description/comment edit | pass (live + unit) | [03](https://raw.githubusercontent.com/ccheever/exact2/013575d6b903101c0223bf4e105e7127769c2bc5/pr-writing-and-metadata/03-title-pencil.png), [18](https://raw.githubusercontent.com/ccheever/exact2/30895da2485ff9d97751b299e0a2c2efd661d4ba/pr-writing-and-metadata/18-title-edit.png), [19](https://raw.githubusercontent.com/ccheever/exact2/6ea267c8c2c7dbd2e079cb2a9f68441b82635698/pr-writing-and-metadata/19-description-edit.png), [11](https://raw.githubusercontent.com/ccheever/exact2/7c181381503fd18337180471c8db67688423d4e1/pr-writing-and-metadata/11-comment-edit.png); record: an unchanged title sent no `pullRequests.update` (server trace 0); the edited title and description read back from GitHub, then restored; the comment edit read back; Escape closed the editor with 0 `updateComment`; no pencil on the second account's remark. Unit: "the title: trimmed, sent once; unchanged or empty sends nothing; a failure keeps the editor…", "the description: sent verbatim, empty allowed…", "a comment: the pencil on the reader's own remarks only…" | — |
@@ -249,6 +250,9 @@ composer, editors and pickers. One session:
 
 2026-10-08: implemented on `feat(example)/t3-code-pr-writing-and-metadata`; unit tests, one live drive and one retry on the
 real-GitHub lane; draft PR #261. The real-input rows wait for the batch (steps above): the screen was locked.
+2026-10-08: merged #262's feature branch (`b7761f556`); conflicts in STATUS.md, `pages-pr-detail.{ts,contract}`,
+`timeline-presentation.ts` and `tools/github-lane/seed.mjs` resolved keeping both; Close/Reopen with comment moved onto
+#262's runner (unit: "close with comment finishes through the header's action runner…"); not re-driven live.
 
 ## Attempts and evidence
 
@@ -259,5 +263,6 @@ real-GitHub lane; draft PR #261. The real-input rows wait for the batch (steps a
 
 ## Next action
 
-Review. Owed: the real-input batch (steps above); the oracle and trace rows wait on the user decision; reconcile Close/Reopen
-with comment with pr-header-actions-and-stacks' action path when it merges.
+Review. Owed: the real-input batch (steps above); the oracle and trace rows wait on the user decision; one live re-check of
+"Close with comment" / "Reopen with comment" on #158 now that they run through #262's runner (the list row leaving the open
+list on the press, the toast), which the unit test covers but no drive has seen.
