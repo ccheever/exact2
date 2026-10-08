@@ -511,7 +511,7 @@ uint32_t exact_list_text(ExactRuntime rt, uint32_t view, uint32_t first_len,
  * them and lays out again. */
 uint32_t exact_insets(ExactRuntime rt, float top, float right, float bottom, float left);
 /* @ref LLP 1075.003 §9.11: the window's own size (points), whatever is
- * presented in it — what vh, svh, lvh, dvh, vmin and vmax resolve against
+ * presented in it — what every viewport unit (vw, vh, vmin, vmax and kin) resolves against
  * everywhere, root and every sheet, never a sheet's viewport (exact_segments
  * sends the window's segments too). A nonpositive size clears it. */
 uint32_t exact_screen(ExactRuntime rt, float width, float height);

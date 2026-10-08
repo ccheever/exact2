@@ -539,7 +539,7 @@ macro_rules! host {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.insets(top, right, bottom, left), |n| n)
         }
 
-        /// The window's size, which the viewport height units resolve
+        /// The window's size, which every viewport unit resolves
         /// against everywhere, or none (a nonpositive size), LLP 1075.003
         /// §9.11; returns the batch's length.
         #[no_mangle]

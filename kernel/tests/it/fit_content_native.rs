@@ -206,8 +206,8 @@ fn height(k: &mut Kernel, value: &str) -> f32 {
     k.node(3).unwrap().frame.height
 }
 
-/// The height units and `vmin`/`vmax` read the window (`Env::screen`),
-/// `vw` the viewport; without a screen, all read the viewport.
+/// Every viewport unit reads the window (`Env::screen`); without a screen,
+/// all read the viewport.
 #[test]
 fn the_screen_is_what_the_height_units_read() {
     let mut k = route(NodeType::View, &[], &[]);
@@ -215,7 +215,7 @@ fn the_screen_is_what_the_height_units_read() {
         ("50vh", 422.0),
         ("10vmin", 39.0),
         ("10vmax", 84.4),
-        ("10vw", 30.0),
+        ("10vw", 39.0),
     ] {
         let got = height(&mut k, value);
         assert!((got - want).abs() < 0.01, "{value}: {got}");

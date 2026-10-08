@@ -23,7 +23,7 @@ impl<D: DataSource> Host<D> {
     }
 
     /// The window's own size, whatever is presented in it (LLP 1075.003
-    /// §9.11): what `vh`, `svh`, `lvh`, `dvh`, `vmin` and `vmax` resolve
+    /// §9.11): what every viewport unit (`vw`, `vh`, `vmin`, `vmax` and kin) resolves
     /// against everywhere, root and every sheet, never a sheet's viewport,
     /// so no length follows a sheet's height. `None`: the layout viewport.
     pub fn set_screen(&mut self, screen: Option<(f32, f32)>) -> String {

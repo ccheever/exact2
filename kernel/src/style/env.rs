@@ -184,10 +184,10 @@ pub struct Env {
     pub button_fonts: Option<crate::ButtonFonts>,
     /// The window's own size, whatever is presented in it, on a host that
     /// lays the page out in a smaller viewport while a sheet is up (iOS,
-    /// LLP 1075.003 §9.11): `vh`, `svh`, `lvh`, `dvh`, `vmin` and `vmax`
-    /// resolve against it everywhere, root and every sheet, as CSS's
-    /// resolve against the viewport and never a dialog, so no length follows
-    /// a sheet's height. `None`: the layout viewport.
+    /// LLP 1075.003 §9.11): every viewport unit resolves against it
+    /// everywhere, root and every sheet, as CSS's resolve against the
+    /// viewport and never a dialog, so no length follows a sheet's size.
+    /// `None`: the layout viewport.
     pub screen: Option<(f32, f32)>,
 }
 
@@ -285,8 +285,8 @@ impl Env {
         }
     }
 
-    /// This environment with the window's size the viewport height units
-    /// resolve against (`None`: the layout viewport).
+    /// This environment with the window's size the viewport units resolve
+    /// against (`None`: the layout viewport).
     pub fn with_screen(&self, screen: Option<(f32, f32)>) -> Env {
         Env {
             screen,

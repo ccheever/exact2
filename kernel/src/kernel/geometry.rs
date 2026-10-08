@@ -102,7 +102,7 @@ impl Kernel {
     /// flex line, insets) constrains its height, so no child shrinks, grows
     /// or takes a percentage of its height. In a flex row or a grid the
     /// box's in-flow siblings come too, since they set its width. Viewport
-    /// lengths resolve as in the ordinary layout, the height units against
+    /// lengths resolve as in the ordinary layout, every viewport unit against
     /// the window ([`crate::Env::screen`]), so the measure and the layout
     /// agree and neither reads the sheet. A height a transition presents (LLP 1063)
     /// is the presented one, as in the ordinary layout. Exclusions and

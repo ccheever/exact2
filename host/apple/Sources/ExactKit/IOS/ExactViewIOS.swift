@@ -285,7 +285,7 @@ public final class ExactView: UIView {
         var size = frame.size
         // LLP 1075.003 §9.11: the window — this view's own viewport, as it
         // is without a sheet or the keyboard — always told, whatever is
-        // presented: the viewport height units and the segments are its,
+        // presented: the viewport units and the segments are its,
         // root and every sheet, so no length follows a sheet's height.
         let screenFrame = whole ? bounds : bounds.inset(by: safeAreaInsets)
         var screen: CGSize? = screenFrame.size

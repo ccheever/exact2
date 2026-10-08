@@ -40,7 +40,7 @@ impl<D: DataSource> Bridge<D> {
         };
         self.emit(out)
     }
-    /// The window's size, which the viewport height units resolve against
+    /// The window's size, which every viewport unit resolves against
     /// everywhere; a nonpositive size clears it (LLP 1075.003 §9.11).
     pub fn screen(&mut self, width: f32, height: f32) -> u32 {
         let screen = (width > 0.0 && height > 0.0).then_some((width, height));
