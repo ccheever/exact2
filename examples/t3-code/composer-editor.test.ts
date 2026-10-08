@@ -1,10 +1,12 @@
 import { describe, expect, test } from 'bun:test';
 import {
   contextId, contextLink, contextReferences, emptyText, entryIcon, expandCitations, fileLink, historyEntries, pathRows, promptLengthMessage,
-  recallablePrompt, scoreQueryMatch, skillRows, slashRows, threadRows,
+  recallablePrompt, scoreQueryMatch, skillChipLabels, skillRows, slashRows, threadRows,
 } from './composer-editor-menu';
-import { messageContext, threadContextRecords, withMessageContext } from './composer-editor';
-import type { T3Client } from './client';
+import { composerEditorView, messageContext, threadContextRecords, withMessageContext } from './composer-editor';
+import { T3Client } from './client';
+import { Backend, storage } from './client-fixture';
+import { arr } from './domain';
 
 const codexCommands = [
   { name: 'compact', description: 'Summarize the conversation and reduce context usage' },
@@ -169,5 +171,37 @@ describe('# pull request menu', () => {
     expect(record.contextId).toMatch(/^review-comment_pr-reference-12-[0-9a-f]{16}$/);
     expect([record.label, record.filePath, record.rangeLabel]).toEqual(['#12', 'PR #12', 'Fix login']);
     expect(record.pullRequest).toEqual({ number: 12, title: 'Fix login', url: 'https://x/12', headBranch: 'fix', baseBranch: 'main', state: 'open', isDraft: false });
+  });
+});
+
+// ComposerPromptEditorTiptap's skillLabelFor: a `$name` chip reads as the selected provider's skill of that
+// name (formatProviderSkillDisplayName: its display name), for the workspace the composer is in.
+describe('skill chip labels', () => {
+  const skills = [
+    { name: 'imagegen', displayName: 'Image Gen', scope: 'system', enabled: true },
+    { name: 'openai-docs', displayName: '  OpenAI Docs ', scope: 'system', enabled: true },
+    { name: 'frontend-design', scope: 'user', enabled: false },
+    { name: 'imagegen', displayName: 'Second Image Gen', scope: 'user', enabled: true },
+  ];
+  test('each name reads as its first skill: the display name, trimmed, else the title-cased name', () => {
+    expect(skillChipLabels(skills)).toEqual({ imagegen: 'Image Gen', 'openai-docs': 'OpenAI Docs', 'frontend-design': 'Frontend Design' });
+    expect(skillChipLabels([])).toEqual({});
+    // Exact names, as the reference's `find`: a chip `$imagegen` does not take `ImageGen`'s label.
+    expect(skillChipLabels([{ name: 'ImageGen', displayName: 'Other' }])).toEqual({ ImageGen: 'Other' });
+  });
+  test("the editor is synced with the selected provider's labels, the workspace's own list first", async () => {
+    const client = new T3Client(), native = new Backend(), disk = storage();
+    const codex = arr(native.config.providers)[0]!;
+    codex.skills = skills;
+    codex.workspaceSnapshots = [{ cwd: '/elsewhere', skills: [{ name: 'imagegen', displayName: 'Elsewhere' }] }];
+    await client.refresh(native, disk.files);
+    await client.command('select-thread', 't1', '', 0, native, disk.files);
+    await client.refresh(native, disk.files);
+    const synced = async () => { await composerEditorView(client, native); return native.calls.findLast(call => call.op === 'editorSync')!.skills; };
+    expect(await synced()).toEqual({ imagegen: 'Image Gen', 'openai-docs': 'OpenAI Docs', 'frontend-design': 'Frontend Design' });
+    // The thread's workspace (the project root, /repo) has its own discovered list: it wins.
+    native.emit('config', { type: 'providerStatuses', payload: { providers: [{ ...codex, workspaceSnapshots: [{ cwd: '/repo', skills: [{ name: 'imagegen', displayName: 'Repo Image Gen' }] }] }] } });
+    await client.refresh(native, disk.files);
+    expect(await synced()).toEqual({ imagegen: 'Repo Image Gen' });
   });
 });

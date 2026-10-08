@@ -11,7 +11,7 @@ pr_url: null
 verified_commit: null
 ---
 
-# The clone adopts main's fixes, round 6 (main `e200397ec`; no issue of ours closed, X57 found)
+# The clone adopts main's fixes, round 6 (main `e200397ec`; no issue of ours closed, X59 found)
 
 ## Outcome
 
@@ -22,7 +22,7 @@ squashed**, or main's ancestry is lost again; if it is squashed, the next round 
 workaround could be removed. Main's own changes needed one clone fix: its native text fields (LLP 1104) dropped the
 field sheet, and seven tall bare fields would have drawn their text 3–7 pt above centre; each now pads its content box
 to its line. Main's focus ring now draws on `appearance="none"` textareas too, which the clone cannot opt out of: filed
-locally as X57. Two partial steps on main (a virtualized list's `scroll-padding`, an indeterminate `progress`) leave
+locally as X59 (X57 and X58 were taken by #289 and #265 while this ran). Two partial steps on main (a virtualized list's `scroll-padding`, an indeterminate `progress`) leave
 nothing to adopt. Main moved on to `3adf67106` (4 commits, none for our issues) while this ran; the next round takes it.
 
 ## Scope and exclusions
@@ -32,13 +32,13 @@ nothing to adopt. Main moved on to `3adf67106` (4 commits, none for our issues) 
 | Record main `1f19b2400` | — | `git merge -s ours` | none (framework files matched, see Dependencies) |
 | Merge main `e200397ec` | — | merge commit | `Cargo.toml` member line, `QUEUE.md`, `docs/agent-pitfalls.md` kept both sides |
 | Native text fields drop the field sheet | — (LLP 1104) | `508579727`, `5b2b77339` | 7 fields in `legacy-sidebar`, `pages-pr-edit`, `r4-git-publish` (2), `settings-b-actions` (2), `timeline-plan` |
-| Focus ring with no opt-out | X57 (new) | `5b2b77339` | `settings-prompt-preview.contract`, `composer.contract` (no edit) |
+| Focus ring with no opt-out | X59 (new) | `5b2b77339` | `settings-prompt-preview.contract`, `composer.contract` (no edit) |
 | `scroll-padding` on a virtualized list | X23 (#277) | `2faf6c190`, `d6ded2e7d` | none (checked) |
 | Indeterminate `progress` | X49 (#279) | `d82c12252` | none (checked) |
 | Every other issue of ours | X9, X11, X17, X19, X21, X22, X25, X26, X28, X31, … | none | none (re-checked) |
 
-Excluded: framework changes (the clone never patches the framework; X57 is reported, not filed), main's commits after
-`e200397ec` (`3adf67106`: first-frame confirmation, a QUEUE line, one layout compute pass), and a clone workaround for X57.
+Excluded: framework changes (the clone never patches the framework; X59 is reported, not filed), main's commits after
+`e200397ec` (`3adf67106`: first-frame confirmation, a QUEUE line, one layout compute pass), and a clone workaround for X59.
 
 ## Context and guidance
 
@@ -55,7 +55,7 @@ filing agent's new issues are cited as they appeared: #266–#277 (the rests of 
 | --- | --- | --- | --- | --- |
 | ancestry | main `1f19b2400` (round 5 was squash-merged) | `1f19b2400` | the branch's framework files equal `1f19b2400`'s apart from the clone's registration lines and the QUEUE/pitfalls entries; then `git merge -s ours` | `git diff 1f19b2400 07dcef1ab -- . ':(exclude)examples/t3-code'`: `.gitignore` (the clone's 9 lines), `Cargo.lock` (the `t3-code-macos` entry), `Cargo.toml` (the member), `QUEUE.md` (1 entry), `docs/agent-pitfalls.md` (3 entries), nothing else; `53358e0a9` |
 | merged main | origin/main into the task branch | `e200397ec` | merge commit | `74114cde1`: `Cargo.toml` takes main's members line plus `examples/t3-code/macos`; `QUEUE.md` and `docs/agent-pitfalls.md` keep both sides (the `clock +N real` entry stays: main's `scripts/agent.mjs` still computes `to` without `s.now`; it is #285 now). Afterwards the only framework difference from `e200397ec` is the same five files |
-| feature branch | `feat(example)/t3-code` | `07dcef1ab` | unchanged at the record edits | `git fetch` before the record edits: still `07dcef1ab` |
+| feature branch | `feat(example)/t3-code` | `d3df2c426` (#265, #288, #289 after `07dcef1ab`) | merged before the PR | merge commit: the issues README and `EXACT2-GAPS.md` keep both sides. #289 and #265 took X57 and X58, so this task's draft (the coordinator's "next free number" when it started) is **X59**; images 02, 03, 05 and record 06 were re-uploaded with the new number. No field the merged tasks added relies on the field sheet; the clone checks were run again on the merge (Attempts 3) |
 
 ## Decisions per issue
 
@@ -63,7 +63,7 @@ filing agent's new issues are cited as they appeared: #266–#277 (the rests of 
 | --- | --- | --- |
 | Native text fields (LLP 1104, main `508579727`): the field sheet is gone | **fixed in the clone** (`f920f9cab`) | Main's r4 sheet put 6 pt top and bottom padding (and a fill, border, radius, ink, disabled opacity 0.5 and the `fieldStyle` ring mark) under every field's own rows. Main now makes a field native unless a background, border or radius row devolves it, and the bare box gets no sheet. A script over every `input`/`textarea` node and its classes found no clone field that turns native (each has a background or border row, is outside D1's types, or is `appearance="none"`), none that relied on the sheet's fill, border, radius or ink, and nine that set no vertical padding. A bare macOS field draws its line at the top of its content box (`NSTextFieldCell` top-aligns a tall title rect; ExactKit centres only native fields), so text in a taller content box sits high: probe A measured 0.0 pt off centre at 20 pt, −3.0 at 26, −5.0 at 30, −7.0 at 34. Seven fields would have moved 3–7 pt up; each now pads its content box to its 1.25rem line, as the clone's other fields do: legacy project title, pull request title, git publish repository and remote, project action name and preview URL, the plan's workspace path. The two thread rename fields (22 pt) had an 8 pt content box under the sheet (probe A: the line is clipped there) and a 20 pt one now, centred with no change |
 | Disabled fields lost the sheet's opacity 0.5 | **no change** | Probe B: AppKit draws a disabled bare field's authored text lighter on its own (darkest 0.155 → 0.413, about 0.69 opacity on white). The base multiplied that by 0.5; now it is AppKit's alone, nearer the reference's 0.64 (`has-disabled:opacity-64`, which also dims the control's border; the clone dims the text only, before and after) |
-| X57 (new): Exact's focus ring cannot be removed | **reported** (local draft, not filed); no workaround | Main `5b2b77339` draws the ring on every focused bare field and textarea, `appearance="none"` included; Contract has no `outline` (`contract vocab outline`). The Appearance prompt preview used `appearance="none"` to have no ring and now has one (image 02). The composer had the same ring on the base already (r4's sheet ring; image 03), where the reference shows none. A one-file app reproduces it (image 05). A module-side workaround would hide an ExactKit layer by its private name, so it waits for X57 |
+| X59 (new): Exact's focus ring cannot be removed | **reported** (local draft, not filed); no workaround | Main `5b2b77339` draws the ring on every focused bare field and textarea, `appearance="none"` included; Contract has no `outline` (`contract vocab outline`). The Appearance prompt preview used `appearance="none"` to have no ring and now has one (image 02). The composer had the same ring on the base already (r4's sheet ring; image 03), where the reference shows none. A one-file app reproduces it (image 05). A module-side workaround would hide an ExactKit layer by its private name, so it waits for X59 |
 | Native buttons (LLP 1104 step 3) | **nothing to do** | A `button` is native only with a literal `appearance="auto"` (`controls.rs` `native_button`: no attribute is bare); the clone writes none |
 | `fetch` bodies (main `cfb4931da`, `4865dcd5c`) | **nothing to do** | A body on a GET or HEAD now rejects; the clone's only data-module `fetch` (`r5-composer-paging.ts`) is a GET with no body |
 | X23 (#138 closed, rest #277) | **nothing to adopt** | Main `2faf6c190`/`d6ded2e7d`: `scroll-padding-*` on a `list virtualized=true` only; on a `scroll` it is refused (`lower-scroll-padding`, checked with a scratch build). The reference's scroll-padding sites are not virtualized lists in the clone. `R9Input.swift` and `T3TimelineTurns.swift` stay (X23a, X23c, and X22 for the turns in view) |
@@ -87,7 +87,7 @@ filing agent's new issues are cited as they appeared: #266–#277 (the rests of 
 | Each issue checked | — | `gh issue view`, main's log and diff | adopt or keep with the open issue named | — | pass | Decisions per issue |
 | Clone fixes for what main broke | — | probe A; contract build; live session | tall fields keep centred text | macOS | pass | `f920f9cab`; image 01; record 06 |
 | Live macOS session | lane: staged T3 release on 127.0.0.1:16210, project demo; fresh agent storage per build | pair through the wizard, composer focus, details card, Publish repository, Settings › Project › Add action, Settings › Appearance | the merged base behaves as the base; pairs where the UI changes | macOS 1280×840 | pass | images 01–04, record 06 |
-| Records | — | — | task record, issues README and upstream table, X23, X49, X57, `EXACT2-GAPS.md`, `STATUS.md` | — | pass | this PR |
+| Records | — | — | task record, issues README and upstream table, X23, X49, X59, `EXACT2-GAPS.md`, `STATUS.md` | — | pass | this PR |
 | Checks | — | clone checks, AppKit binaries, the five checks | green | macOS | see Attempts | Attempts 2 |
 
 ## Progress
@@ -110,17 +110,17 @@ Checks (final source, `f920f9cab` + records): `bun test examples/t3-code` 3036 p
 | Scenario | Before (`07dcef1ab`) | After |
 | --- | --- | --- |
 | Add Action dialog, Name and Preview URL filled (image 01) | text centred (the sheet's 6 pt padding) | text centred (the branch's padding; without it 5 pt high, probe A) |
-| Settings › Appearance, prompt preview focused (image 02) | no ring (`appearance="none"`) | a 2 pt blue ring (main `5b2b77339`, X57) |
+| Settings › Appearance, prompt preview focused (image 02) | no ring (`appearance="none"`) | a 2 pt blue ring (main `5b2b77339`, X59) |
 | Composer focused (image 03) | 2 pt blue ring (r4's sheet ring) | the same ring (main's ring layer; 256 pixels differ along it); unchanged by the merge |
 | Main window after pairing, project demo (image 04) | as below | identical (no pixel differs by more than 16 of 255) |
-| X57 repro, after only (image 05) | — | a one-file app on main `e200397ec`: bare input, bare textarea and `appearance="none"` textarea each ringed when focused |
+| X59 repro, after only (image 05) | — | a one-file app on main `e200397ec`: bare input, bare textarea and `appearance="none"` textarea each ringed when focused |
 
 - `https://raw.githubusercontent.com/ccheever/exact2/2df397a51fab848a1131cf9777e774bee7cc48fd/adopt-main-fixes-r6/01-action-dialog-fields-before-after.png`
-- `https://raw.githubusercontent.com/ccheever/exact2/8180d852b6e2f4be65226cf58ed8059246b38993/adopt-main-fixes-r6/02-prompt-preview-focus-ring-before-after.png`
-- `https://raw.githubusercontent.com/ccheever/exact2/0b9d4113288fc2d7350fe861a8482b0b6c1128e9/adopt-main-fixes-r6/03-composer-focus-before-after.png`
+- `https://raw.githubusercontent.com/ccheever/exact2/c661f31e42bca9bb46a5f569b2943e6d2d73c23b/adopt-main-fixes-r6/02-prompt-preview-focus-ring-before-after.png`
+- `https://raw.githubusercontent.com/ccheever/exact2/b4e384c6bfb0bd886e2617e99832a0b65a3d6182/adopt-main-fixes-r6/03-composer-focus-before-after.png`
 - `https://raw.githubusercontent.com/ccheever/exact2/37965abc1cdb14cf26ea1ec42de1ff861caed168/adopt-main-fixes-r6/04-main-window-before-after.png`
-- `https://raw.githubusercontent.com/ccheever/exact2/5ba8c373ddf350382d7f95b3201e43d3a8bb4ece/adopt-main-fixes-r6/05-x57-ring-probe-after-only.png`
-- Session record (lane, pids, ops, probes A and B, the X57 repro): `https://raw.githubusercontent.com/ccheever/exact2/a8c19736fd872f16431c21e5485aee043b354cc3/adopt-main-fixes-r6/06-session-record.txt`
+- `https://raw.githubusercontent.com/ccheever/exact2/304321e454f0f19cb5a4af7d3cdd2f1925e0aba8/adopt-main-fixes-r6/05-x59-ring-probe-after-only.png`
+- Session record (lane, pids, ops, probes A and B, the X59 repro): `https://raw.githubusercontent.com/ccheever/exact2/0ff385083d00f329f2c209b6bc3f92fb3907756c/adopt-main-fixes-r6/06-session-record.txt`
 
 Findings for follow-ups (not this task):
 - The details card's Publish repository wizard cannot reach its Repository step in a lane with no Git provider account
@@ -140,7 +140,7 @@ None: every row of this task ran in agent mode.
 
 Review the PR (merge commit, not squash). Not done, each with its blocker:
 - **The prompt preview's and the composer's focus ring** (and the ring on the clone's other bare fields where the
-  reference draws its own focus look). Blocker: X57 (local draft; filing is the coordinator's).
+  reference draws its own focus look). Blocker: X59 (local draft; filing is the coordinator's).
 - **Every workaround the plan keeps** (X9, X11, X19, X21, X22, X23, X25, X26, X27, X28, X31, …): their issues are open
   on main `e200397ec` (Decisions per issue).
 - **Main `3adf67106`** (4 commits after `e200397ec`, none for our issues): the next round.

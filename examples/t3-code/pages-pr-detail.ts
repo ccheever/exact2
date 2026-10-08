@@ -25,10 +25,10 @@ import { letGo } from './let-go';
 import { peekDetail } from './r6-pr-actions';
 import { CHECKS_HEADLINE } from './r6-pr-logic';
 import {
-  LIVE_REFRESH_IDLE_AFTER_MS, LIVE_REFRESH_INTERVAL_MS, readPullRequestDetailSnapshot, resolveDisplayedPullRequestDetail, resolvePullRequestReferenceHost,
-  shouldRefreshOnArrival, shouldRefreshOnInterval, shouldRefreshPullRequestActivity, writePullRequestDetailSnapshot, type PullRequestDetailSnapshotRef,
+  readPullRequestDetailSnapshot, resolveDisplayedPullRequestDetail, resolvePullRequestReferenceHost,
+  shouldRefreshPullRequestActivity, writePullRequestDetailSnapshot, type PullRequestDetailSnapshotRef,
 } from './pages-pr-logic';
-import { holdPullRequestRefreshes, lastInteraction, noteViewRefreshed, pullRequestRefreshEpoch, snapshotStorage, viewRefreshedAt } from './pages-pr-refresh';
+import { holdPullRequestRefreshes, liveRefreshAsked, liveRefreshDue, noteViewRefreshed, pullRequestRefreshEpoch, snapshotStorage, viewRefreshedAt } from './pages-pr-refresh';
 import { conversationBodies, emptySummary, presentSummary, type RemarkWrites } from './pages-pr-summary';
 import { emptyTimeline, presentTimeline } from './pages-pr-timeline';
 import { canEditPullRequestChangeRequest } from './pages-pr-writes-logic';
@@ -105,7 +105,7 @@ type Panel = {
   key: string; reference: PullRequestDetailSnapshotRef; cached: Obj | null;
   detail: Obj | null; detailError: unknown; detailDue: boolean; invalidate: boolean;
   activity: Obj | null; activityError: string; activityDue: boolean;
-  refresh: number; epoch: number; facts: { visible: boolean; focused: boolean };
+  refresh: number; epoch: number; facts: { visible: boolean; returns: number };
 };
 const panels = new WeakMap<object, Map<string, Panel>>();
 /** What the last view this resource returned showed (`key|detail|activity`), so a new state is shown before the read after it. */
@@ -120,7 +120,8 @@ const phaseOf = (panel: Panel) => {
 const due = (panel: Panel) => panel.detailDue || (panel.activityDue && !!(panel.detail ?? panel.cached));
 const messageOf = (error: unknown) => (error instanceof Error && error.message.trim() ? error.message : 'The environment request failed.');
 
-export type DetailInput = { selected: string; refresh: number; now: number; visible?: boolean; focused?: boolean };
+/** `returns`: the window focused again (app.contract `windowReturned`, which reads the clock then; pr-list-live-refresh). */
+export type DetailInput = { selected: string; refresh: number; now: number; visible?: boolean; returns?: number };
 export async function pullRequestDetail(client: T3Client, native: Native | null | undefined, input: DetailInput, storage?: Files): Promise<PrDetailView> {
   const view = emptyDetail();
   view.md = markdownEnv(client); view.diffScheme = diffSchemeOf(client);
@@ -140,7 +141,7 @@ export async function pullRequestDetail(client: T3Client, native: Native | null 
   if (!live) return present(view, panel ?? null, selection, listEntry, input.now, client);
   native!.watch?.(PR_WAKE_TOPIC);
   await holdPullRequestRefreshes(client, native!, 'detail', true);
-  const viewKey = `pull-request:${key}`, facts = { visible: input.visible !== false, focused: input.focused !== false };
+  const viewKey = `pull-request:${key}`, facts = { visible: input.visible !== false, returns: input.returns ?? 0 };
   const arriving = !shown.get(client)?.startsWith(`${key}|`);
   if (!panel) {
     const kept = readPullRequestDetailSnapshot(snapshotStorage(client.local ? client : { local: {} }), client.environmentId, reference);
@@ -155,7 +156,7 @@ export async function pullRequestDetail(client: T3Client, native: Native | null 
     const epoch = pullRequestRefreshEpoch(client);
     if (epoch !== panel.epoch) { panel.epoch = epoch; panel.detailDue = panel.activityDue = true; }
     // useLiveRefresh's window listeners: `focus`, and `visibilitychange` to visible, are arrivals.
-    const shownAgain = (facts.visible && !panel.facts.visible) || (facts.focused && !panel.facts.focused);
+    const shownAgain = (facts.visible && !panel.facts.visible) || facts.returns !== panel.facts.returns;
     panel.facts = facts;
     await liveRefresh(client, native!, panel, viewKey, input, arriving || shownAgain);
   }
@@ -181,13 +182,8 @@ async function wake(client: T3Client, native: Native, view: PrDetailView, panel:
 /** useLiveRefresh: an arrival (a reopened view, the window shown or focused again) and the 5-minute interval read the detail. */
 async function liveRefresh(client: T3Client, native: Native, panel: Panel, viewKey: string, input: DetailInput, arrival: boolean): Promise<void> {
   if (panel.detailDue) return;
-  const visible = input.visible !== false, now = input.now, lastRefreshedAt = viewRefreshedAt(client, viewKey);
-  const interval = lastRefreshedAt !== undefined && now - lastRefreshedAt >= LIVE_REFRESH_INTERVAL_MS;
-  if (!arrival && !interval) return;
-  const interacted = (await lastInteraction(native, now)) ?? now;
-  const read = arrival ? now - interacted < LIVE_REFRESH_IDLE_AFTER_MS && shouldRefreshOnArrival({ visible, now, lastRefreshedAt })
-    : shouldRefreshOnInterval({ visible, now, lastRefreshedAt: lastRefreshedAt!, lastInteractedAt: interacted });
-  if (read) { noteViewRefreshed(client, viewKey, now); panel.detailDue = true; }
+  const ask = { visible: input.visible !== false, now: input.now, arrival };
+  if (liveRefreshAsked(client, viewKey, ask) && await liveRefreshDue(client, native, viewKey, ask)) panel.detailDue = true;
 }
 async function readDetail(client: T3Client, native: Native, panel: Panel, ref: Obj, storage: Files | undefined): Promise<void> {
   try {

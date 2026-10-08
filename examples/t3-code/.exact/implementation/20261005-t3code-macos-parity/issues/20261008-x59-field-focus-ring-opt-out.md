@@ -1,5 +1,5 @@
 ---
-name: 20261008-x57-field-focus-ring-opt-out
+name: 20261008-x59-field-focus-ring-opt-out
 plan: 20261005-t3code-macos-parity
 status: draft
 kind: framework-gap
@@ -8,7 +8,7 @@ upstream_url: null
 reproduced_on: e200397ec (main; a one-file app from `exact new`) and 74114cde1 (feat(example)/t3-code-adopt-main-fixes-r6, main e200397ec merged)
 ---
 
-# X57: an app cannot remove the focus ring Exact draws on a bare text field or textarea (no `outline`)
+# X59: an app cannot remove the focus ring Exact draws on a bare text field or textarea (no `outline`)
 
 ## Summary
 
