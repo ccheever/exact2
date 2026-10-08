@@ -499,6 +499,52 @@ test('an empty Cargo cache permits adapter generation and refuses offline resolu
 });
 
 
+test('lockDrift names what exact2 added and moved under a captured lock, never what the game chose', async () => {
+  const {lockDrift,lockChanges}=await import('./app/shells.mjs');
+  const lock=packages=>`version = 4\n\n${packages.map(([name,version,source,deps])=>`[[package]]\nname = "${name}"\nversion = "${version}"\n${source?`source = "registry+https://github.com/rust-lang/crates.io-index"\nchecksum = "${source}"\n`:''}${deps?`dependencies = [\n${deps.map(d=>` "${d}",\n`).join('')}]\n`:''}`).join('\n')}`;
+  // exact2's text crate moved to parley, which brings fontique and a newer harfrust;
+  // another shell's rand 0.8 is in the SDK lock, and this game chose rand 0.9.
+  const sdk=lock([['exact-game','0.1.0',null,['glam','parley']],['glam','0.33.7','aa',['libm']],['libm','0.2.16','bb'],['parley','0.6.0','cc',['fontique','harfrust']],['fontique','0.5.0','dd'],['harfrust','0.12.0','ee'],['rand','0.8.5','ff']]);
+  const captured=lock([['x-logic','0.1.0',null,['exact-game','rand']],['exact-game','0.1.0',null,['glam','harfrust']],['glam','0.33.7','aa',['libm']],['libm','0.2.16','bb'],['harfrust','0.5.2','gg'],['rand','0.9.1','hh']]);
+  assert.deepEqual(lockDrift(captured,sdk),{added:['fontique','parley'],updated:['harfrust 0.5.2 → 0.12.0']});
+  assert.deepEqual(lockDrift(sdk,sdk),{added:[],updated:[]});
+  const refreshed=lock([['x-logic','0.1.0',null,['exact-game','rand']],['exact-game','0.1.0',null,['glam','parley']],['glam','0.33.7','aa',['libm']],['libm','0.2.16','bb'],['parley','0.6.0','cc',['fontique','harfrust']],['fontique','0.5.0','dd'],['harfrust','0.12.0','ee'],['rand','0.9.1','hh']]);
+  assert.deepEqual(lockChanges(captured,refreshed),['harfrust 0.5.2 → 0.12.0','added parley 0.6.0','added fontique 0.5.0']);
+  assert.deepEqual(lockChanges(refreshed,captured),['harfrust 0.12.0 → 0.5.2','removed parley 0.6.0','removed fontique 0.5.0']);
+});
+
+test('a captured lock exact2 moved past is named at a build, at generation and at update, and left alone', async () => {
+  const {prepareGame,gameDefaults,capturedLockDrift}=await import('./app/shells.mjs');
+  const {createApp}=await import('./new.mjs');
+  const root=realpathSync(mkdtempSync(resolve(tmpdir(),'lock-drift-'))), dir=resolve(root,'drift-game');
+  try {
+    createGame(dir);
+    prepareGame(dir,gameDefaults(dir).game,undefined,{updateLock:true});
+    const captured=Bun.TOML.parse(readFileSync(resolve(dir,'Cargo.lock'),'utf8')).package;
+    // As if captured before exact2's move: exact-game's first registry dependency
+    // (and its edge) absent, and another registry package an older version.
+    const crate=captured.find(p=>p.name==='exact-game'), registry=n=>captured.filter(p=>p.name===n&&p.source).length===1;
+    const [gone,older]=crate.dependencies.map(d=>d.split(' ')[0]).filter(registry);
+    assert.ok(gone&&older,'exact-game has two registry dependencies to stand for the move');
+    const text=readFileSync(resolve(dir,'Cargo.lock'),'utf8').split(/\n(?=\[\[package\]\]\n)/).filter(b=>!b.startsWith(`[[package]]\nname = "${gone}"\n`))
+      .map(b=>b.startsWith('[[package]]\nname = "exact-game"\n')?b.replace(new RegExp(`\\n "${gone}( [^"]*)?",`),''):b)
+      .map(b=>b.startsWith(`[[package]]\nname = "${older}"\n`)?b.replace(/^version = "[^"]*"$/m,'version = "0.0.1"'):b).join('\n');
+    writeFileSync(resolve(dir,'Cargo.lock'),text);
+    rmSync(resolve(dir,'.shells'),{recursive:true,force:true});
+    const named=message=>message.startsWith("exact2 moved since this game's Cargo.lock was captured (added: ")
+      &&message.includes(gone)&&message.includes(`updated: ${older} 0.0.1 → `)&&message.includes(`\`bun exact.mjs lock\` in ${dir}`);
+    assert.throws(()=>prepareGame(dir,gameDefaults(dir).game),error=>named(error.message)&&/cargo fetch --manifest-path/.test(error.message));
+    assert.equal(readFileSync(resolve(dir,'Cargo.lock'),'utf8'),text,'a build never changes a captured lock');
+    assert.ok(named(capturedLockDrift(dir)));
+    const generated=spawnSync(process.execPath,[resolve(import.meta.dir,'app/shells.mjs'),dir],{encoding:'utf8'});
+    assert.equal(generated.status,0,generated.stderr);
+    assert.ok(named(generated.stderr.replace(/^warning: /,'')),generated.stderr);
+    assert.match(createApp(dir,{update:true}),/exact2 moved since this game's Cargo.lock was captured/);
+    assert.match(readFileSync(resolve(dir,'exact.mjs'),'utf8'),/lock: \['game\/app\/shells\.mjs', import\.meta\.dir, '--lock'\]/);
+    assert.equal(readFileSync(resolve(dir,'Cargo.lock'),'utf8'),text);
+  } finally {rmSync(root,{recursive:true,force:true});}
+}, 180000);
+
 test('a new game names its Rust type after the game, everywhere the template does', async () => {
   const {gameDefaults}=await import('./app/shells.mjs');
   const parent=realpathSync(mkdtempSync(resolve(tmpdir(),'game-new-type-'))), app=resolve(parent,'my-2d-game');

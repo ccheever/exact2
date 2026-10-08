@@ -335,6 +335,75 @@ export function outsideSdkLock(derived, sdk, members) {
   const known = lockIds(sdk);
   return [...lockIds(derived)].filter(([id, checksum]) => !members.has(id.split(' ')[0]) && (!known.has(id) || known.get(id) !== checksum)).map(([id]) => id);
 }
+// A lock's versions by package name.
+const lockVersions = text => (text ? Bun.TOML.parse(text).package ?? [] : [])
+  .reduce((map, pkg) => map.set(pkg.name, [...(map.get(pkg.name) ?? []), pkg.version].sort()), new Map());
+/** What exact2's move did to a game's captured lock (LLP 1046.011 D2), named
+ * from the SDK lock. exact2's own crates are the path packages (no source) the
+ * SDK lock holds. `added`: what they now depend on that the captured lock
+ * lacks, with everything that pulls in. `updated`: registry packages they
+ * reach in the captured graph whose every version the SDK lock has replaced.
+ * A package only the game's own crates reach is the game's choice, unnamed. */
+export function lockDrift(captured, sdk) {
+  const mine = Bun.TOML.parse(captured).package ?? [], theirs = Bun.TOML.parse(sdk).package ?? [];
+  const have = lockVersions(captured), want = lockVersions(sdk), named = dep => dep.split(' ')[0];
+  const exact2 = new Set(theirs.filter(pkg => !pkg.source).map(pkg => pkg.name));
+  const edges = new Map(theirs.map(pkg => [`${pkg.name} ${pkg.version}`, (pkg.dependencies ?? []).map(named)]));
+  const added = new Set(), queue = [];
+  for (const pkg of mine) if (!pkg.source && exact2.has(pkg.name)) {
+    const before = new Set((pkg.dependencies ?? []).map(named));
+    queue.push(...(edges.get(`${pkg.name} ${pkg.version}`) ?? []).filter(dep => !before.has(dep)));
+  }
+  while (queue.length) {
+    const name = queue.shift();
+    if (added.has(name) || have.has(name) || !want.has(name)) continue;
+    added.add(name);
+    for (const version of want.get(name)) queue.push(...(edges.get(`${name} ${version}`) ?? []));
+  }
+  // What exact2's crates reach in the captured graph, by name.
+  const out = new Map();
+  for (const pkg of mine) out.set(pkg.name, [...(out.get(pkg.name) ?? []), ...(pkg.dependencies ?? []).map(named)]);
+  const reached = new Set(), stack = mine.filter(pkg => !pkg.source && exact2.has(pkg.name)).map(pkg => pkg.name);
+  while (stack.length) {
+    const name = stack.pop();
+    if (!reached.has(name)) { reached.add(name); stack.push(...(out.get(name) ?? [])); }
+  }
+  const registry = new Set(mine.filter(pkg => pkg.source).map(pkg => pkg.name));
+  const updated = [...reached].filter(name => registry.has(name) && want.has(name) && !have.get(name).some(v => want.get(name).includes(v)))
+    .map(name => `${name} ${have.get(name).join(', ')} → ${want.get(name).join(', ')}`);
+  return {added:[...added].sort(), updated:updated.sort()};
+}
+/** What a lock refresh changed, by package name, for `lock` to print: the
+ * versions that moved, then what was added, then what was removed. */
+export function lockChanges(before, after) {
+  const was = lockVersions(before), now = lockVersions(after), moved = [], added = [];
+  for (const [name, versions] of now) {
+    const old = was.get(name);
+    if (!old) added.push(`added ${name} ${versions.join(', ')}`);
+    else if (old.join() !== versions.join()) moved.push(`${name} ${old.join(', ')} → ${versions.join(', ')}`);
+  }
+  return [...moved, ...added, ...[...was].filter(([name]) => !now.has(name)).map(([name, versions]) => `removed ${name} ${versions.join(', ')}`)];
+}
+const listed = (items, most = 6) => items.length > most ? `${items.slice(0, most).join(', ')}, … (${items.length} in all)` : items.join(', ');
+// The refresh as an author runs it: an outside game's runner, or this script from exact2.
+const lockCommand = dir => existsSync(resolve(dir, 'exact.mjs')) ? `\`bun exact.mjs lock\` in ${dir}` : `\`bun game/app/shells.mjs ${JSON.stringify(dir)} --lock\` from exact2`;
+/** The first line a stale captured lock's refusal says, or null when the SDK
+ * lock does not explain it (a crate missing from Cargo's cache, say). */
+function ownDrift(dir, source) {
+  const own = resolve(dir, 'Cargo.lock'), lockFile = sdkLockFile(source);
+  if (!lockFile || !existsSync(own)) return null;
+  const drift = lockDrift(readFileSync(own, 'utf8'), withRootPins(readFileSync(lockFile, 'utf8')));
+  if (!drift.added.length && !drift.updated.length) return null;
+  const moved = [drift.added.length && `added: ${listed(drift.added)}`, drift.updated.length && `updated: ${listed(drift.updated)}`].filter(Boolean).join('; ');
+  return `exact2 moved since this game's Cargo.lock was captured (${moved}). Refresh it with ${lockCommand(dir)}: it fetches what the new graph needs (the network), resolves again and says what changed. An ordinary build never changes a captured lock.`;
+}
+/** A copied captured lock checked as the bake copies it (LLP 1046.011 D2): the
+ * drift line when the locked graph refuses it and the SDK lock explains why,
+ * else null. Plain Cargo in .shells/ would re-resolve such a lock silently. */
+export function capturedLockDrift(dir, {source = gameRoot, env = process.env} = {}) {
+  if (!existsSync(resolve(dir, 'Cargo.lock')) || !existsSync(resolve(dir, '.shells/Cargo.toml'))) return null;
+  return lockedMetadata(resolve(dir, '.shells'), ['--offline', '--locked'], env).status === 0 ? null : ownDrift(dir, source);
+}
 // Every gpu-dev bake re-resolves the same graph. Reuse the last locked
 // metadata while every manifest, lock and config it read is unchanged, keyed by
 // stat as the proof's inputs are; production trust always asks Cargo.
@@ -358,14 +427,22 @@ const shellMembers = (game, name) => new Set([game.crate, game.data?.crate, game
 
 // Every ordinary bake is locked; dependency edits require an explicit update,
 // never a publisher's cache choice.
-export function prepareGame(dir, game, source = gameRoot, {updateLock = false, target, env = process.env} = {}) {
+export function prepareGame(dir, game, source = gameRoot, {updateLock = false, fetch = false, target, env = process.env} = {}) {
   // Match the declaration gameShells resolves now, even if a dev caller retained
   // an app object from before app.json gained game.render.
   game = gameDefaults(dir)?.game ?? game;
   const root = resolve(dir, '.shells'), own = resolve(dir, 'Cargo.lock'), shell = resolve(root, 'Cargo.lock');
   const name = gameShells(dir, game, source), members = shellMembers(game, name);
   const metadata = locked => (locked ? lockedMetadata : cargoMetadata)(root, ['--offline', ...(locked ? ['--locked'] : []), ...(target ? ['--filter-platform', target] : [])], env);
-  const refused = result => new Error(`game Cargo graph: ${result.stderr || result.error?.message || ''}${result.status === null ? ` (cargo metadata ended by ${result.signal})` : ''}\nOffline resolution requires a populated Cargo cache: cargo fetch --manifest-path ${JSON.stringify(resolve(root, 'Cargo.toml'))}\nTo capture this game's own dependencies: bun game/app/shells.mjs ${JSON.stringify(dir)} --update-lock`);
+  const refused = result => new Error(`game Cargo graph: ${result.stderr || result.error?.message || ''}${result.status === null ? ` (cargo metadata ended by ${result.signal})` : ''}\nCrates missing from Cargo's cache, the lock unchanged: cargo fetch --manifest-path ${JSON.stringify(resolve(root, 'Cargo.toml'))}\nA dependency change (or both): ${lockCommand(dir)} fetches, resolves again and captures this game's lock`);
+  if (fetch) {
+    // `lock` (LLP 1046.011 D2): the SDK lock's versions seed what exact2's crates
+    // now need, as a new game's are, and the network brings what is missing.
+    const lockFile = sdkLockFile(source);
+    if (updateLock && lockFile && existsSync(shell)) writeFileSync(shell, withRootPins(readFileSync(shell, 'utf8'), withRootPins(readFileSync(lockFile, 'utf8'))));
+    const fetched = spawnSync('cargo', ['fetch'], {cwd:root, env, stdio:['ignore', 'inherit', 'inherit']});
+    if (fetched.error || fetched.status !== 0) throw new Error(`cargo fetch in ${root} failed${fetched.error ? `: ${fetched.error.message}` : ''}; it needs the network`);
+  }
   const checked = result => {
     const graph = JSON.parse(result.stdout);
     if (game.render) {
@@ -379,7 +456,11 @@ export function prepareGame(dir, game, source = gameRoot, {updateLock = false, t
   };
   if (updateLock || existsSync(own)) {
     const result = metadata(!updateLock);
-    if (result.status !== 0) throw refused(result);
+    if (result.status !== 0) {
+      // Said first when exact2 moved under a captured lock (LLP 1046.011 D2).
+      const drift = updateLock ? null : ownDrift(dir, source);
+      throw drift ? new Error(`${drift}\n${refused(result).message}`) : refused(result);
+    }
     const graph = checked(result);
     if (updateLock) writeChanged(own, readFileSync(shell, 'utf8'), existsSync(own));
     return graph;
@@ -397,11 +478,31 @@ export function prepareGame(dir, game, source = gameRoot, {updateLock = false, t
     if (result.status !== 0 || outside.length) writeFileSync(shell, sdk);
     if (result.status !== 0) throw refused(result);
     if (outside.length) throw new Error(`${dir}: resolves packages outside the SDK lock ${lockFile}: ${outside.slice(0, 8).join(', ')}${outside.length > 8 ? ', …' : ''}.
-A game that adds dependencies captures its own lock: bun game/app/shells.mjs ${JSON.stringify(dir)} --update-lock
+A game that adds dependencies captures its own lock: ${lockCommand(dir)}
 A changed SDK refreshes the SDK lock: bun game/app/shells.mjs --update-lock
 A partial offline Cargo cache: cargo fetch --manifest-path ${JSON.stringify(resolve(root, 'Cargo.toml'))}`);
   }
   return checked(result);
+}
+
+/** `bun exact.mjs lock` (LLP 1046.011 D2): fetch what the game's graph needs,
+ * resolve it again with the SDK lock's versions first, and say what moved. A
+ * game that adds no packages keeps resolving against the SDK lock: it gains
+ * no lock of its own. Never run by a build. */
+export function refreshLock(dir, {source = gameRoot, env = process.env} = {}) {
+  const game = gameDefaults(dir)?.game;
+  if (!game) throw new Error(`${dir}: no game here (logic/src/lib.rs implementing Game)`);
+  const own = resolve(dir, 'Cargo.lock'), before = existsSync(own) ? readFileSync(own, 'utf8') : null;
+  if (before === null) {
+    try {
+      prepareGame(dir, game, source, {fetch:true, env});
+      return `${dir} resolves against exact2's lock (game/app/shells.lock); it has no Cargo.lock of its own to refresh`;
+    } catch (error) { if (!/outside the SDK lock/.test(error.message)) throw error; }
+  }
+  prepareGame(dir, game, source, {updateLock:true, fetch:true, env});
+  const changes = lockChanges(before, readFileSync(own, 'utf8'));
+  return before === null ? `${own}: captured (${lockVersions(readFileSync(own, 'utf8')).size} packages)`
+    : `${own}: ${changes.length ? listed(changes, 24) : 'unchanged'}`;
 }
 
 /** The determinism lints (app/determinism/clippy.toml) on the game's logic
@@ -490,14 +591,23 @@ if (import.meta.main) {
           cwd:resolve(dir,'.shells'),env,stdio:'inherit',
         });
         failed ||= result.status !== 0;
-      } catch(error) {console.error(error);failed=true;}
+      // The message alone: the author's first read is the cause and its remedy, not this file's source.
+      } catch(error) {console.error(error?.message ?? error);failed=true;}
     }
     process.exitCode=failed?1:0;
   } else if (!requested && args.includes('--update-lock')) sdkLock(gameRoot, {update:true});
-  else {
+  else if (args.includes('--lock')) {
+    try { console.log(refreshLock(resolve(requested ?? '.'))); }
+    catch (error) { console.error(error.message); process.exitCode = 1; }
+  } else {
     const dir = resolve(requested);
     const game = gameDefaults(dir).game;
     if (args.includes('--update-lock')) prepareGame(dir, game, gameRoot, {updateLock:true});
-    else gameShells(dir, game, gameRoot);
+    else {
+      gameShells(dir, game, gameRoot);
+      // Plain Cargo in .shells/ would re-resolve a stale captured lock without a word.
+      const drift = capturedLockDrift(dir);
+      if (drift) console.warn(`warning: ${drift}`);
+    }
   }
 }
