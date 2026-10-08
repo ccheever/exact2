@@ -23,7 +23,7 @@ test('Home context JSON carries the exact focused/background identity and the ex
   expect(rows).toHaveLength(2);
   for (const item of rows) {
     const context = JSON.parse(item.nativeMenu), focused = item.environmentId === 'one';
-    expect(context).toEqual({ identity: `${item.environmentId}:same`, requestRoute: 'visit', enabled: false, items: item.menuItems,
+    expect(context).toEqual({ identity: `${item.environmentId}:same`, requestRoute: 'visit', enabled: false, items: item.menuItems, swipeItems: item.swipe.snoozeItems, swipeSnoozable: item.swipe.snoozable, swipeResetKey: item.swipe.resetKey,
       environmentId: item.environmentId, threadId: 'same', origin: focused ? 'https://one.test' : 'https://two.test', generation: focused ? 3 : 8,
       connected: true, homeVisible: true, sidebarVisible: false });
     expect(context.items.find((entry: { id: string }) => entry.id === 'snooze:custom').disabled).toBe(false);
@@ -39,4 +39,40 @@ test('Home context follows root route/visibility and endpoint replacement withou
   f.remote.scopes = [];
   expect(JSON.parse(f.view().items.find(item => item.key === 'two:same')!.nativeMenu).items).toEqual([]);
   f.remote.phase = 'reconnecting'; expect(f.view().items.some(item => item.key === 'two:same')).toBe(false);
+});
+
+test('swipe Custom context uses explicit admission while settled and legacy menus remain unchanged', () => {
+  const f = fixture(); f.client.shell.threads[0]!.settledOverride = 'settled';
+  f.remote.config = { environment: { capabilities: { threadSettlement: false, threadSnooze: true } } };
+  const args = [0, now, '', 10, true, false, true, true, true, '', '', '', 'repository', 'visit', true, true];
+  const rows = mobileHomeView(args, f.client, f.background).items.filter(item => item.kind === 'thread');
+  expect(rows).toHaveLength(2);
+  for (const row of rows) {
+    expect(row.menuItems.some(item => item.id === 'snooze:custom')).toBe(false);
+    expect(row.swipe.snoozable).toBe(true); expect(row.swipe.snoozeItems.at(-1)?.operation).toBe('swipe:snooze:custom');
+    expect(JSON.parse(row.nativeMenu)).toMatchObject({ swipeSnoozable: true, swipeResetKey: row.swipe.resetKey });
+  }
+  expect(rows.find(item => item.environmentId === 'one')?.swipe.primary).toBe('unsettle');
+  expect(rows.find(item => item.environmentId === 'two')?.swipe.primary).toBe('archive');
+});
+
+test('swipe refresh projects one earliest future guard deadline and excludes past preparing expiries', () => {
+  const f = fixture(); f.client.shell.threads[0]!.latestUserMessageAt = new Date(now).toISOString();
+  f.remote.shell.threads[0]!.latestUserMessageAt = new Date(now + 1000).toISOString();
+  expect(f.view().nextSwipeRefreshAt).toBe(now + 120050);
+  f.client.shell.threads[0]!.pendingRuntimeRequest = { kind: 'approval' };
+  expect(f.view().nextSwipeRefreshAt).toBe(now + 121050);
+  Object.assign(f.remote.shell.threads[0]!, { status: 'preparing', latestRunId: 'r', latestUserMessageAt: new Date(now - 120001).toISOString() });
+  expect(f.view().nextSwipeRefreshAt).toBe(now + 49);
+  f.remote.shell.threads[0]!.latestUserMessageAt = new Date(now - 120050).toISOString();
+  expect(f.view().nextSwipeRefreshAt).toBe(0);
+  f.remote.shell.threads[0]!.latestUserMessageAt = null; expect(f.view().nextSwipeRefreshAt).toBe(0);
+});
+
+test('collapsed and filtered-out rows do not create swipe refresh deadlines', () => {
+  const f = fixture(); f.client.shell.threads[0]!.latestUserMessageAt = new Date(now).toISOString();
+  f.client.shell.threads[0]!.settledOverride = 'settled';
+  expect(f.view().nextSwipeRefreshAt).toBe(0);
+  const args = [0, now, 'no matching title', 10, true, false, true, true, true, '', '', '', 'repository', 'visit', true, true];
+  expect(mobileHomeView(args, f.client, f.background).nextSwipeRefreshAt).toBe(0);
 });

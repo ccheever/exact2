@@ -1,0 +1,80 @@
+// @ref llp/1107.004-home-projection.decision.md#decision
+// Explicit native phases own recognition; Contract owns reveal geometry and menu callbacks.
+use HomeMenu, HomeMenuItem from "./home-menu.contract"
+
+fn homeSwipeField(parts: list<string>, index: number): string = match at(parts, index) { case some(value) => value, case none => "" }
+fn homeSwipeNumber(parts: list<string>, index: number): number = match parseNumber(homeSwipeField(parts, index)) { case some(value) => value, case none => 0 }
+fn homeSwipeFinite(parts: list<string>, index: number): bool = match parseNumber(homeSwipeField(parts, index)) { case some(value) => value >= -1000000000000000 and value <= 1000000000000000, case none => false }
+fn homeSwipeInteger(parts: list<string>, index: number): bool = homeSwipeFinite(parts, index) and homeSwipeNumber(parts, index) == floor(homeSwipeNumber(parts, index))
+
+component HomeSwipeControls
+  props
+    surface: string
+    owner: string
+    token: string
+    menuId: string
+    context: string
+    enabled: bool
+    open: bool
+    card: bool
+    offset: number
+    secondary: bool
+    primaryLabel: string
+    primarySymbol: string
+    primaryAccessibilityLabel: string
+    secondaryAccessibilityLabel: string
+    foreground: string
+    muted: string
+    primary: string
+    primaryForeground: string
+    secondaryFill: string
+    secondaryForeground: string
+  derive distance = 0 - offset
+  derive primaryStart = secondary ? 31.9 : 8
+  derive primaryEnd = secondary ? 98.6 : 41.76
+  derive primaryProgress = max(0, min(1, (distance - primaryStart) / (primaryEnd - primaryStart)))
+  derive secondaryProgress = max(0, min(1, (distance - 8) / 33.76))
+  view
+    row position="absolute" top=0 right=0 bottom=0 width=(secondary ? 116 : 58) align-items="center"
+      // Lifecycle taps and full swipes await a separate coordinated-dismissal proof.
+      button disabled=true width=58 padding=0 aria-label=primaryAccessibilityLabel
+        display="flex" flex-direction="column" align-items="center" justify-content="center"
+        opacity=primaryProgress translate=`${22 * (1 - primaryProgress)}px 0px` scale=(0.78 + primaryProgress * 0.22)
+        testId=`home-swipe-primary-${token}`
+        column width=(card ? 36 : 28) height=(card ? 36 : 28) border-radius=9999 background-color=primary align-items="center" justify-content="center"
+          t3-symbol symbol-name=primarySymbol point-size=17 symbol-weight="regular" symbol-tint=primaryForeground width=(card ? 15 : 13) height=(card ? 15 : 13)
+        text primaryLabel font-size=11 line-height="14px" font-weight=500 color=muted padding-top=(card ? 2 : 0)
+      when secondary
+        button popovertarget=(surface == "sidebar-list" ? "" : menuId) width=58 padding=0 disabled=(not enabled or not open)
+          display="flex" flex-direction="column" align-items="center" justify-content="center"
+          aria-label=secondaryAccessibilityLabel
+          opacity=secondaryProgress translate=`${22 * (1 - secondaryProgress)}px 0px` scale=(0.78 + secondaryProgress * 0.22)
+          hatch="mobile-home-snooze"
+          data-mobile-home-menu=context
+          data-mobile-home-menu-id=menuId
+          data-mobile-home-surface=surface
+          data-mobile-swipe-owner=owner
+          data-mobile-swipe-row=token
+          data-mobile-swipe-enabled=enabled
+          data-mobile-swipe-open=open
+          testId=`home-swipe-snooze-${token}`
+          column width=(card ? 36 : 28) height=(card ? 36 : 28) border-radius=9999 background-color=secondaryFill align-items="center" justify-content="center"
+            t3-symbol symbol-name="clock" point-size=17 symbol-weight="regular" symbol-tint=secondaryForeground width=(card ? 15 : 13) height=(card ? 15 : 13)
+          text "Snooze" font-size=11 line-height="14px" font-weight=500 color=muted padding-top=(card ? 2 : 0)
+
+component HomeSwipeMenu
+  props
+    token: string
+    menuId: string
+    items: list<HomeMenuItem>
+    environmentId: string
+    threadId: string
+    action: action
+    foreground: string
+    muted: string
+    danger: string
+    background: string
+  action choose(environment: string, thread: string, kind: string, value: string)
+    action(token, environment, thread, kind, value)
+  view
+    HomeMenu(menuId=menuId, items=items, environmentId=environmentId, threadId=threadId, action=choose, foreground=foreground, muted=muted, danger=danger, background=background)

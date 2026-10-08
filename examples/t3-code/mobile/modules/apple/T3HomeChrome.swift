@@ -7,6 +7,8 @@ import UIKit
 /// Per-session coordinator. Exact owns the route, list and navigation stack.
 /// This app owns UINavigationItem content and the app-specific search toolbar.
 final class T3HomeChrome {
+    private let swipes: T3MobileHomeSwipes
+    init(swipes: T3MobileHomeSwipes) { self.swipes = swipes }
     let rowMenus = T3MobileHomeMenus()
     let customSnooze = T3MobileCustomSnooze()
     static func color(_ value: String) -> UIColor { T3ChromeTitle.color(value) }
@@ -37,11 +39,11 @@ final class T3HomeChrome {
     /// The public workspace holder hides only the app-owned sidebar search.
     /// Keep its query and route attachment; never end editing in the workspace.
     func hideSidebar(key: String) {
-        if key == "t3-workspace-sidebar" { rowMenus.setVisible(false); customSnooze.setSidebarVisible(false) }
+        if key == "t3-workspace-sidebar" { rowMenus.setVisible(false); customSnooze.setSidebarVisible(false); swipes.setSidebarVisible(false) }
         hiddenSidebars.insert(key); views[key]?.value?.setWorkspaceHidden(true)
     }
     func showSidebar(key: String) {
-        if key == "t3-workspace-sidebar" { rowMenus.setVisible(true); customSnooze.setSidebarVisible(true) }
+        if key == "t3-workspace-sidebar" { rowMenus.setVisible(true); customSnooze.setSidebarVisible(true); swipes.setSidebarVisible(true) }
         hiddenSidebars.remove(key); views[key]?.value?.setWorkspaceHidden(false)
     }
     fileprivate func bind(_ view: T3HomeChromeView, key: String) {

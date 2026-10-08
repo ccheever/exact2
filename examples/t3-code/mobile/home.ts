@@ -1,3 +1,4 @@
+import { blankHomeSwipe, type HomeSwipeData } from './home-swipe';
 // @ref llp/1107.004-home-projection.decision.md#decision
 // Mobile HomeScreen/threadListV2 at upstream 365aa87982; projection over the shared V2 shell.
 // @ref llp/1107.000-mobile-app-layout.decision.md#shared-typescript
@@ -38,12 +39,12 @@ export interface HomeItem {
   status: string; statusTone: string; time: string; error: string; card: boolean; pinned: boolean; queued: boolean;
   expanded: boolean; disabled: boolean; count: number; last: boolean; trailingDivider: boolean; selected: boolean;
   favicon: string; iconKind: string; iconText: string; iconColor: string; iconSurface: string; iconSize: number;
-  searchExcerpt: string; menuItems: HomeMenuItem[]; nativeMenu: string;
+  searchExcerpt: string; swipe: HomeSwipeData; menuItems: HomeMenuItem[]; nativeMenu: string;
 }
 const blankItem = (key: string): HomeItem => ({ key, kind: 'thread', id: '', environmentId: '', threadId: '', section: '', title: '',
   projectTitle: '', projectPresent: false, branch: '', environmentLabel: '', machineSymbol: '', status: '', statusTone: '',
   time: '', error: '', card: false, pinned: false, queued: false, expanded: false, disabled: false, count: 0,
-  last: false, trailingDivider: false, selected: false, favicon: '', iconKind: '', iconText: '', iconColor: '', iconSurface: '', iconSize: 0, searchExcerpt: '', menuItems: [], nativeMenu: '' });
+  last: false, trailingDivider: false, selected: false, favicon: '', iconKind: '', iconText: '', iconColor: '', iconSurface: '', iconSize: 0, searchExcerpt: '', swipe: blankHomeSwipe(), menuItems: [], nativeMenu: '' });
 const scoped = (environmentId: string, id: unknown) => `${environmentId}:${str(id)}`;
 const timestamp = (value: unknown) => { const stamp = Date.parse(str(value)); return Number.isFinite(stamp) ? stamp : -Infinity; };
 const machineSymbols: Record<string, string> = { server: 'server.rack', cloud: 'cloud', linux: 'terminal', desktop: 'desktopcomputer', laptop: 'laptopcomputer', 'mac-mini': 'macmini', 'mac-studio': 'macstudio' };

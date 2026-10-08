@@ -22,6 +22,7 @@ final class T3MobileCustomSnooze: NSObject, UIPopoverPresentationControllerDeleg
     private var rows: [ObjectIdentifier: Row] = [:]
     private var owner: Row?
     private var captured: T3CustomSnoozeContext?
+    private var invocation = "menu"
     private var opening: UUID?
     private var presentation: T3CustomSnoozePopover?
     private var completion: (([String: Any]) -> Void)?
@@ -51,20 +52,21 @@ final class T3MobileCustomSnooze: NSObject, UIPopoverPresentationControllerDeleg
     }
     private func current() -> Bool {
         guard alive, let owner, let captured, let element = owner.element,
-              rows[ObjectIdentifier(element)] === owner, owner.shown, owner.context.eligible,
-              owner.context.sameOwner(as: captured), owner.surface != "sidebar-list" || sidebarVisible else { return false }
+              rows[ObjectIdentifier(element)] === owner, owner.shown, owner.context.eligible(invocation: invocation),
+              owner.context.sameOwner(as: captured, invocation: invocation), owner.surface != "sidebar-list" || sidebarVisible else { return false }
         return true
     }
     func present(_ request: [String: Any], reply: @escaping ([String: Any]) -> Void) throws {
         guard alive, opening == nil else { throw ExactNativeRefusal("A custom snooze picker is already open.") }
-        guard let row = rows.values.first(where: { $0.shown && $0.context.eligible && $0.context.matches(request) && ($0.surface != "sidebar-list" || sidebarVisible) }),
+        guard let invocation = request["invocation"] as? String, ["menu", "swipe"].contains(invocation),
+              let row = rows.values.first(where: { $0.shown && $0.context.eligible(invocation: invocation) && $0.context.matches(request) && ($0.surface != "sidebar-list" || sidebarVisible) }),
               let element = row.element, let view = element.view else { reply(["choice": "cancel"]); return }
         var responder: UIResponder? = view
         while responder != nil && !(responder is UIViewController) { responder = responder?.next }
         guard let presenter = responder as? UIViewController, presenter.presentedViewController == nil,
               !presenter.isBeingDismissed else { throw ExactNativeRefusal("Close the current presentation before choosing a custom snooze.") }
         let token = UUID(), colors = T3CustomSnoozeColors(element)
-        owner = row; captured = row.context; opening = token; completion = reply
+        owner = row; captured = row.context; self.invocation = invocation; opening = token; completion = reply
         let clock = now
         let model = T3CustomSnoozeDraft(initial: T3CustomSnoozeValue.milliseconds(clock()))
         let content = T3CustomSnoozeContent(model: model, colors: colors)
@@ -121,7 +123,7 @@ final class T3MobileCustomSnooze: NSObject, UIPopoverPresentationControllerDeleg
     private func finish(_ iso: String?, confirmedAt: Int64? = nil, token: UUID? = nil) {
         guard let opening, token == nil || token == opening else { return }
         let reply = completion, old = presentation
-        self.opening = nil; completion = nil; presentation = nil; owner = nil; captured = nil
+        self.opening = nil; completion = nil; presentation = nil; owner = nil; captured = nil; invocation = "menu"
         old?.presentationController?.delegate = nil; old?.popoverPresentationController?.delegate = nil; old?.dismiss(animated: true)
         if let iso, let confirmedAt { reply?(["choice": "snooze", "snoozedUntil": iso, "confirmedAt": confirmedAt]) }
         else { reply?(["choice": "cancel"]) }

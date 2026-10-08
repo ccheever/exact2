@@ -69,7 +69,8 @@
     "t3-workspace-layout",
     "t3-inspector-chrome",
     "t3-review-viewport",
-    "t3-thread-header"
+    "t3-thread-header",
+    "t3-home-swipe-events"
   ],
   "data": [
     "mobile-form-sheet",
@@ -88,12 +89,18 @@
     "mobile-home-foreground",
     "mobile-home-primary",
     "mobile-home-danger",
-    "mobile-home-background"
+    "mobile-home-background",
+    "mobile-swipe-owner",
+    "mobile-swipe-row",
+    "mobile-swipe-enabled",
+    "mobile-swipe-open"
   ],
   "hatches": [
     "mobile-voice-editor",
     "mobile-review-list",
     "mobile-review-row",
-    "mobile-home-row"
+    "mobile-home-row",
+    "mobile-home-swipe-list",
+    "mobile-home-snooze"
   ]
 }

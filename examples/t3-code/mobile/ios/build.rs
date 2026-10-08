@@ -41,13 +41,22 @@ fn main() {
         .canonicalize()
         .expect("mobile app directory");
     let repository = app.ancestors().nth(3).expect("repository");
-    let status =
+    // Bun's stdout initialization can set O_NONBLOCK on an inherited pipe.
+    // Keep its descriptors separate from Cargo's later watch-line output.
+    let output =
         std::process::Command::new(std::env::var_os("EXACT_BUN").unwrap_or_else(|| "bun".into()))
             .args(["--eval", VIEWERS])
             .arg(&app)
             .current_dir(repository)
-            .status()
+            .output()
             .expect("run pinned Bun for mobile viewers");
-    assert!(status.success(), "bundle mobile viewers before the bake");
+    std::io::Write::write_all(&mut std::io::stdout(), &output.stdout)
+        .expect("write mobile viewer output");
+    std::io::Write::write_all(&mut std::io::stderr(), &output.stderr)
+        .expect("write mobile viewer diagnostics");
+    assert!(
+        output.status.success(),
+        "bundle mobile viewers before the bake"
+    );
     exact_js_bake::build(&app, "ios").expect("bake T3 Code for iOS");
 }

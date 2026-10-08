@@ -197,7 +197,7 @@ const customAnswer = (patch: Obj = {}, generation = 3) => ({ ok: true, generatio
 test('Custom Snooze preserves the native confirmation ISO and uses a fresh grant', async () => {
   const f = fixture(request => request.op === 'mobileCustomSnooze' ? customAnswer() : undefined);
   expect(await f.run('snooze:custom', 'ignored displayed preset')).toMatchObject({ message: '', nextLocation: '', uncertain: false });
-  expect(f.calls.find(row => row.op === 'mobileCustomSnooze')).toEqual({ op: 'mobileCustomSnooze', requestRoute: 'route', environmentId: 'one', threadId: 't', origin: 'https://one.test', generation: 3 });
+  expect(f.calls.find(row => row.op === 'mobileCustomSnooze')).toEqual({ op: 'mobileCustomSnooze', requestRoute: 'route', environmentId: 'one', threadId: 't', origin: 'https://one.test', generation: 3, invocation: 'menu' });
   expect(f.calls.filter(row => row.path === '/api/auth/session')).toHaveLength(2);
   expect(f.writes()[0]?.payload).toEqual({ type: 'thread.snooze', threadId: 't', snoozedUntil: '2026-10-07T13:37:42.123Z', commandId: 'command-1' });
   expect(f.client.threadId).toBe('t'); expect(f.client.draft).toBe('Retain draft');

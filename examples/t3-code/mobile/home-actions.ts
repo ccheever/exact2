@@ -13,6 +13,7 @@ import { snoozePresets } from './shared/sidebar-presentation';
 import { resolveRenameCommit } from './shared/shell-commands';
 import { mobileSessionGrants } from './mobile-grants';
 import { mobileHomeSources } from './home';
+import { blankHomeSwipe, homeSwipePolicy, homeSwipeOperation, type HomeSwipeData } from './home-swipe';
 import { homeWriteReflected as reflected } from './home-write-reflected';
 import { homeArrangeSnapshot, homeArrangeVersion, homeDropLifecycle, parseHomeArrangeAction } from './home-arrange';
 import { homeCreatePending, homeReconcilePending, homeMovePlan, homeOrderKey, homeOrderState, mobileHomeOrder, type HomeOrderSnapshot, type HomeMoveDestination } from './home-order';
@@ -64,7 +65,22 @@ export function mobileHomeSnoozeSelection(operation: string, displayed: string, 
   return ['hour', 'three-hours', 'evening', 'tomorrow', 'next-week'].includes(id) && Date.parse(displayed) > now ? displayed : '';
 }
 
-/** Ordinary rows only. Arrange and swipes are later slices. */
+/** Swipe policy is separate from context-menu membership, sharing the same raw guards. */
+export function mobileHomeSwipe(environmentId: string, threadId: string, now: number,
+  client: T3Client = mobileClient, background: EnvironmentFleet = fleet, orderInput?: HomeOrderSnapshot): HomeSwipeData {
+  const current = row(environmentId, threadId, client, background);
+  if (!current.thread || !current.environment) return blankHomeSwipe();
+  const queued = (orderInput?.queuedThreadKeys ?? new Set(homeOrderState(client).queuedThreadKeys)).has(`${environmentId}:${threadId}`);
+  const policy = homeSwipePolicy(current.thread, capabilities(current.environment.config), now, queued, current.allowed, environmentId);
+  if (policy.snoozable) {
+    policy.snoozeItems = mobileHomeSnoozePresets(now).map(preset => item(`snooze:${preset.id}`, preset.label, '',
+      { operation: `swipe:snooze:${preset.id}`, value: preset.value, subtitle: preset.subtitle }));
+    policy.snoozeItems.push(item('snooze:custom', 'Custom…', '', { operation: 'swipe:snooze:custom' }));
+  }
+  return policy;
+}
+
+/** Context menus retain their source membership independently of swipe controls. */
 export function mobileHomeMenu(environmentId: string, threadId: string, now: number,
   client: T3Client = mobileClient, background: EnvironmentFleet = fleet, orderInput?: HomeOrderSnapshot): HomeMenuItem[] {
   const { environment, thread, allowed } = row(environmentId, threadId, client, background);
@@ -116,6 +132,13 @@ export function mobileHomeCanArchive(thread: Obj): boolean {
 /** A single root mutation owns prompt, permission check and actual command. */
 export async function mobileHomeAction(requestRoute: string, environmentId: string, threadId: string, kind: string, value: string, now: number,
   nativeInput?: Native | null, client: T3Client = mobileClient, background: EnvironmentFleet = fleet): Promise<HomeActionResult> {
+  const invocation = kind.startsWith('swipe:') ? 'swipe' : 'menu';
+  if (invocation === 'swipe') {
+    const operation = homeSwipeOperation(kind);
+    if (!operation) return { revision: client.revision, requestRoute, message: 'This swipe action is no longer available.',
+      alertTitle: 'Could not update thread', nextLocation: '', archiveChanged: false, uncertain: false };
+    kind = operation;
+  }
   if (kind === 'arrange') {
     const request = parseHomeArrangeAction(value);
     if (!request) return { revision: client.revision, requestRoute, message: 'This thread move is no longer available.', alertTitle: 'Could not move thread', nextLocation: '', archiveChanged: false, uncertain: false };
@@ -187,9 +210,16 @@ export async function mobileHomeAction(requestRoute: string, environmentId: stri
       if (kind.startsWith('auto-settle:') && !caps.autoSettleOptOut) throw new ClientError("This environment's server does not support turning auto-settle off per thread yet. Update the server to use it.");
       if (kind === 'regenerate-title' && thread.titleRegeneration != null) throw new ClientError('');
       if (kind === 'regenerate-title' && !caps.titleRegeneration) throw new ClientError("This environment's server does not support title regeneration yet. Update the server to regenerate thread titles.");
-      const menu = mobileHomeMenu(environmentId, threadId, eligibilityTime, client, background);
-      if (!menu.some(item => item.operation === kind && !item.disabled) && !(kind.startsWith('snooze:') && kind !== 'snooze:custom' && menu.some(item => item.id === 'snooze')))
-        throw new ClientError('This thread action is no longer available.');
+      if (invocation === 'swipe') {
+        const queued = homeOrderState(client).queuedThreadKeys.includes(`${environmentId}:${threadId}`);
+        const swipe = homeSwipePolicy(thread, caps, eligibilityTime, queued, true, environmentId);
+        if (kind.startsWith('snooze:') ? !swipe.snoozable : swipe.primary !== kind)
+          throw new ClientError('This swipe action is no longer available.');
+      } else {
+        const menu = mobileHomeMenu(environmentId, threadId, eligibilityTime, client, background);
+        if (!menu.some(item => item.operation === kind && !item.disabled) && !(kind.startsWith('snooze:') && kind !== 'snooze:custom' && menu.some(item => item.id === 'snooze')))
+          throw new ClientError('This thread action is no longer available.');
+      }
     };
     await grant(); available();
     const original = freshThread();
@@ -206,7 +236,7 @@ export async function mobileHomeAction(requestRoute: string, environmentId: stri
     }
     let renamed = '', customSnoozedUntil = '';
     if (kind === 'snooze:custom') {
-      const answer = await local({ op: 'mobileCustomSnooze', requestRoute, environmentId, threadId, origin, generation });
+      const answer = await local({ op: 'mobileCustomSnooze', requestRoute, environmentId, threadId, origin, generation, invocation });
       if (answer.choice !== 'snooze') return result();
       const until = str(answer.snoozedUntil), stamp = Date.parse(until), confirmedAt = answer.confirmedAt;
       if (!Number.isFinite(stamp) || new Date(stamp).toISOString() !== until
