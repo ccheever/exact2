@@ -361,3 +361,18 @@ describe('the Timeline opens a commit in the Code tab (PullRequestTimelineTab Co
     expect([view.codeTab.mounted, view.codeTab.scopeLabel, f.of('prDiff').map(call => call.payload.commit)]).toEqual([true, 'Commit 6', [row.id]]);
   });
 });
+
+describe('Refresh (the panel\'s, which the Code tab follows)', () => {
+  test('one press is one invalidate, even when the read after it is let go and asked again', async () => {
+    let letGoOnce = true;
+    const f = fixture({ 'pullRequests.invalidate': () => ({}), 'pullRequests.detail': () => { if (letGoOnce) { letGoOnce = false; throw new ClientError('superseded', 'superseded'); } return detail(); } });
+    letGoOnce = false;
+    await f.settle();
+    letGoOnce = true;
+    // The announcement asks again while the detail is out: that read is let go (the ask throws), then asked again.
+    for (let i = 0; i < 4 && letGoOnce; i++) await f.ask({ refresh: 1 }).catch(() => null);
+    expect(letGoOnce).toBe(false);
+    await f.settle({ refresh: 1 });
+    expect(f.of('pullRequests.invalidate')).toHaveLength(1);
+  });
+});

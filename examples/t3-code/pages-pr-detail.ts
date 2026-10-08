@@ -200,7 +200,10 @@ async function liveRefresh(client: T3Client, native: Native, panel: Panel, viewK
 }
 async function readDetail(client: T3Client, native: Native, panel: Panel, ref: Obj, storage: Files | undefined): Promise<void> {
   try {
-    if (panel.invalidate) await client.rpc(native, 'pullRequests.invalidate', { reference: ref }).catch((error: unknown) => { if (letGo(error)) throw error; return {}; });
+    // One invalidate per Refresh press, cleared as it is sent: it announces a change, which asks this
+    // resource again and lets this read go; a read that kept the flag would invalidate (and announce)
+    // again on every re-ask (pr-code-tab live drive: ~380 invalidates in three minutes after one press).
+    if (panel.invalidate) { panel.invalidate = false; await client.rpc(native, 'pullRequests.invalidate', { reference: ref }).catch((error: unknown) => { if (letGo(error)) throw error; return {}; }); }
     const detail = obj(await client.rpc(native, 'pullRequests.detail', ref));
     if (panel.detail && shouldRefreshPullRequestActivity({ key: panel.key, updatedAt: str(panel.detail.updatedAt) }, { key: panel.key, updatedAt: str(detail.updatedAt) })) panel.activityDue = true;
     panel.detail = detail; panel.detailError = null;
