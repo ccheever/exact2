@@ -3,8 +3,8 @@
 // its look the `buttonStyles` row's macOS column (`borderless`, `push`,
 // `push-accent`, `glass`, `glass-accent`). Its title and symbol are the
 // node's face, read from the kernel (`exact_button_face`). The button takes
-// the click and runs the node's activation (D4); it is never a key view, so
-// the node keeps keys and focus; it is the one accessibility element. A
+// the click and runs the node's activation (D4); it is the focus owner and
+// relays focus and keys to its node (LLP 1104 D6). It is the one accessibility element. A
 // glass look's button is the glass body the glass-group pass isolates (D9).
 #if os(macOS)
 import AppKit
@@ -29,7 +29,39 @@ final class NativeButtonMac: NSButton {
     var isGlass = false
     /// The look drawn, its name in the table's macOS column.
     var drawn = "push"
-    override var acceptsFirstResponder: Bool { false }
+    // @ref LLP 1104 D6 — independent of AppKit's Keyboard navigation setting.
+    override var acceptsFirstResponder: Bool {
+        guard let owner else { return false }
+        return !refusesFirstResponder && isEnabled && !owner.formDisabled && !owner.inert
+            && !isHiddenOrHasHiddenAncestor && !owner.cssVisibilityHidden
+    }
+    override var canBecomeKeyView: Bool { acceptsFirstResponder && owner?.tabbable == true }
+    override func becomeFirstResponder() -> Bool {
+        guard acceptsFirstResponder else { return false }
+        let ok = super.becomeFirstResponder()
+        if ok { owner?.focusEntered() }
+        return ok
+    }
+    override func resignFirstResponder() -> Bool {
+        let ok = super.resignFirstResponder()
+        if ok { owner?.focusLeft() }
+        return ok
+    }
+    override func keyDown(with event: NSEvent) {
+        guard acceptsFirstResponder, let owner else { return }
+        let name = NodeView.keyName(event)
+        if name == "Tab", event.modifierFlags.intersection([.command, .control, .option]).isEmpty, let window {
+            owner.presenter?.flushKeyViewLoop()
+            if event.modifierFlags.contains(.shift) { window.selectPreviousKeyView(self) }
+            else { window.selectNextKeyView(self) }
+            return
+        }
+        if name == " " || name == "Enter" {
+            performClick(nil)
+            return
+        }
+        super.keyDown(with: event)
+    }
     override func hitTest(_ point: NSPoint) -> NSView? {
         guard written?.interactive != false else { return nil }
         return super.hitTest(point)
@@ -39,6 +71,9 @@ final class NativeButtonMac: NSButton {
     // goes before the action the loop sends, DOM's order.
     override func mouseDown(with event: NSEvent) {
         owner?.pointerPressed(event)
+        // AppKit's tracking must not steal a retainFocus ancestor's editor.
+        refusesFirstResponder = owner?.retainsFocus == true
+        defer { refusesFirstResponder = false }
         super.mouseDown(with: event)
         owner?.pointerReleased(nil)
     }
@@ -74,10 +109,9 @@ extension NodeView {
     /// D4: the button's action is what a custom button's click does, once.
     /// The target is this node or, without a handler, the nearest ancestor
     /// with one whose box holds the click (refused at a disabled or inert
-    /// one), as iOS resolves it. Each node from this one up to the target
-    /// takes the focus when it can, unless a `retainFocus` ancestor keeps it,
-    /// as a click's `mouseDown` walks them; a target that cannot take it
-    /// clears it. Then `press` and the canvas's pointer return.
+    /// one), as iOS resolves it. The clicked button keeps its single focus
+    /// owner while the action bubbles, unless a `retainFocus` ancestor
+    /// preserves the previous owner. Then `press` and the canvas's pointer return.
     func activateNative() {
         guard let presenter, !disabled, !inert else { return }
         let click = convert(NSPoint(x: bounds.midX, y: bounds.midY), to: nil)
@@ -94,24 +128,12 @@ extension NodeView {
             }
             at = view.superview
         }
-        let retains = { (node: NodeView) -> Bool in
-            var up: NSView? = node
-            while let view = up {
-                if (view as? NodeView)?.props["retainFocus"] == "true" { return true }
-                up = view.superview
-            }
-            return false
-        }
-        at = self
-        while let view = at, view !== presenter.viewport {
-            if let node = view as? NodeView {
-                if node.acceptsFirstResponder, !retains(node) { window?.makeFirstResponder(node) }
-                if node === target {
-                    if !node.acceptsFirstResponder, !retains(node) { window?.makeFirstResponder(nil) }
-                    break
-                }
-            }
-            at = view.superview
+        // Keep the innermost eligible owner's focus while the press bubbles.
+        // A handler on an ancestor must not become a second stop for this button.
+        if !retainsFocus {
+            let responder = presenter.keyView(of: self)
+            if responder.acceptsFirstResponder { window?.makeFirstResponder(responder) }
+            else if target != nil { window?.makeFirstResponder(nil) }
         }
         guard let target, presenter.views[target.id] === target else { return }
         presenter.press(target.id)
@@ -123,7 +145,8 @@ extension ControlHost {
     func makeNativeButton(_ node: NodeView) -> NSControl {
         let button = NativeButtonMac(title: "", target: nil, action: nil)
         button.owner = node
-        button.refusesFirstResponder = true
+        button.refusesFirstResponder = false
+        button.focusRingType = .default
         return button
     }
 

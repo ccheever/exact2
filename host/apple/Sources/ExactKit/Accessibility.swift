@@ -299,7 +299,7 @@ extension Presenter {
             guard current == nil || current === window || current === window.contentView || current === viewport || current === session?.view || (current as? NodeView)?.canvasInput != nil else { continue }
             // Blocked autofocus stays pending until the pointer hands focus back.
             autofocusProcessed.insert(ObjectIdentifier(node))
-            let target: NSView = node.textArea ?? node.field ?? node
+            let target = keyView(of: node)
             if target.acceptsFirstResponder { _ = window.makeFirstResponder(target) }
             #else
             // The session's own view holding the focus for its shortcuts (ShortcutsIOS) is no focus a node took.
@@ -432,7 +432,7 @@ extension Presenter {
         views.values.filter { node in
             #if os(macOS)
             guard let responder = node.window?.firstResponder else { return false }
-            return responder === node || responder === node.textArea || node.field?.currentEditor().map { responder === $0 } == true
+            return keyTarget(responder) === node
             #else
             return node.isFirstResponder || node.field?.isFirstResponder == true || node.textArea?.isFirstResponder == true
             #endif
@@ -461,7 +461,7 @@ extension Presenter {
         guard let kept, let id = FocusTree(json)?.view(at: kept), let node = views[id], node.accessibilityVisible,
               !node.disabled, node.bounds.width > 0, node.bounds.height > 0 else { return }
         #if os(macOS)
-        let target: NSView = node.textArea ?? node.field ?? node
+        let target = keyView(of: node)
         if target.acceptsFirstResponder { _ = node.window?.makeFirstResponder(target) }
         #else
         let target: UIResponder = node.textArea ?? node.field ?? node
