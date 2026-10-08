@@ -99,6 +99,8 @@ impl Model {
         if text.trim().is_empty() {
             return;
         }
+        // Sent: the conversation's kept draft goes.
+        self.draft_written("");
         let (route, thread, leaf) = match self.live_session(&key) {
             // Claude's gateway takes words only: a message with files goes to
             // the terminal, where they are pasted and become images.

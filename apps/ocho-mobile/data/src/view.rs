@@ -20,6 +20,7 @@ pub fn render(m: &Model) -> Value {
         "home": home(m),
         "session": session(m),
         "pair": { "draft": m.pair_draft, "error": m.pair_error },
+        "compose": compose(m),
     });
     shapes::read(&shapes::VIEW, &json)
 }
@@ -376,6 +377,76 @@ pub(crate) fn session(m: &Model) -> Json {
         "canTalk": voice.is_some(),
         "voiceUrl": voice.as_ref().map(|v| v.0.clone()).unwrap_or_default(),
         "voiceAuth": voice.map(|v| v.1).unwrap_or_default(),
+        "draft": m.open.as_ref().map(|k| m.draft_for(k)).unwrap_or_default(),
+    })
+}
+
+/// A native menu's items: `{id, title, selected}`.
+fn menu(items: impl IntoIterator<Item = (String, String, bool)>) -> String {
+    let items: Vec<Json> = items
+        .into_iter()
+        .map(|(id, title, selected)| json!({ "id": id, "title": title, "selected": selected }))
+        .collect();
+    Json::Array(items).to_string()
+}
+
+/// The new-session screen: where, as whom, which model, how hard.
+fn compose(m: &Model) -> Json {
+    use crate::model::launch::{effort_name, provider_name};
+    let l = &m.launcher;
+    let machines = m.launch_machines();
+    let machine = machines
+        .iter()
+        .find(|(id, _)| *id == l.machine)
+        .map(|(_, name)| name.clone())
+        .unwrap_or_else(|| "Choose a machine".into());
+    let accounts = m.launch_accounts();
+    // Fleet names a signed-in account `<provider>-<hash>`: say the provider,
+    // numbered when there are several of it.
+    let account_title = |name: &str, provider: &str| {
+        let generated = name
+            .strip_prefix(provider)
+            .and_then(|rest| rest.strip_prefix('-'))
+            .is_some_and(|rest| rest.len() >= 8 && rest.chars().all(|c| c.is_ascii_hexdigit()));
+        if name.is_empty() || generated {
+            let same: Vec<&str> = accounts
+                .iter()
+                .filter(|a| a.provider == provider)
+                .map(|a| a.name.as_str())
+                .collect();
+            match same.iter().position(|n| *n == name) {
+                Some(i) if same.len() > 1 => format!("{} {}", provider_name(provider), i + 1),
+                _ => provider_name(provider),
+            }
+        } else {
+            format!("{name} ({})", provider_name(provider))
+        }
+    };
+    let mut models: Vec<(String, String, bool)> =
+        vec![(String::new(), "Default model".into(), l.model.is_empty())];
+    models.extend(
+        l.models
+            .iter()
+            .map(|c| (c.id.clone(), c.name.clone(), c.id == l.model)),
+    );
+    json!({
+        "machine": machine,
+        "machineMenu": menu(machines.iter().map(|(id, name)| (id.clone(), name.clone(), *id == l.machine))),
+        "account": account_title(&l.account, &l.provider),
+        "accountMenu": menu(accounts.iter().map(|a| (
+            format!("{}/{}", a.provider, a.name),
+            account_title(&a.name, &a.provider),
+            a.name == l.account && a.provider == l.provider,
+        ))),
+        "model": m.launch_model_name(),
+        "modelMenu": menu(models),
+        "effort": effort_name(&l.effort),
+        "effortMenu": menu(m.launch_efforts().iter().map(|e| (e.to_string(), effort_name(e).to_string(), *e == l.effort))),
+        "prompt": format!("Ask {}", provider_name(&l.provider)),
+        "launching": l.launching,
+        "error": l.error,
+        "canSend": !l.launching && !l.machine.is_empty() && m.conn.is_some(),
+        "composerHeight": m.composer_height.max(44.0),
     })
 }
 

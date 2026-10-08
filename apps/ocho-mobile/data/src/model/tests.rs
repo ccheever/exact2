@@ -1103,3 +1103,91 @@ fn a_peer_is_asked_for_every_open_session() {
     let (url, _) = m.poll_request().unwrap();
     assert!(url.contains("&sessions=open"), "{url}");
 }
+
+#[test]
+fn a_new_session_launches_with_its_choices_and_opens() {
+    let mut m = paired();
+    m.poll_request();
+    m.poll_done(Ok(codex_answer("idle")));
+    m.compose_open();
+    assert_eq!(m.launcher.machine, "mac", "home, while it answers");
+    assert_eq!(m.launcher.provider, "codex");
+    let (url, _) = m.models_request().expect("the models are asked for");
+    assert!(
+        url.ends_with("/machines/mac/models?provider=codex"),
+        "{url}"
+    );
+    m.models_done(Ok(json!([
+        {"id": "sol", "name": "6.1 Sol", "default": true},
+        {"id": "astra", "name": "6 Astra"}
+    ])));
+    assert_eq!(m.launch_model_name(), "6.1 Sol");
+    m.compose_choose("model", "astra");
+    m.compose_choose("effort", "high");
+    m.compose_send("build the thing");
+    let (url, _, body) = m.launch_request().unwrap();
+    assert!(url.ends_with("/machines/mac/launch"));
+    let body: serde_json::Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(body["provider"], "codex");
+    assert_eq!(body["model"], "astra");
+    assert_eq!(body["effort"], "high");
+    assert_eq!(body["prompt"], "build the thing");
+    assert!(
+        body.get("account").is_none(),
+        "the provider's default account"
+    );
+    m.launch_done(Ok(json!({"request_id": "r", "session": {"id": "new1"}})));
+    assert_eq!(m.launcher.goto, Some(("mac".into(), "new1".into())));
+    m.goto_done();
+    assert!(m.launcher.goto.is_none());
+}
+
+#[test]
+fn a_failed_launch_says_why_and_can_go_again() {
+    let mut m = paired();
+    m.poll_request();
+    m.poll_done(Ok(codex_answer("idle")));
+    m.compose_open();
+    m.compose_send("go");
+    m.launch_request().unwrap();
+    m.launch_done(Err("launch request x: no account".into()));
+    assert!(m.launcher.error.contains("no account"));
+    assert!(!m.launcher.launching);
+    m.compose_send("go");
+    assert!(m.launch_request().is_some());
+}
+
+#[test]
+fn a_draft_stays_with_its_conversation() {
+    let mut m = paired();
+    m.poll_request();
+    m.poll_done(Ok(answer(1, true)));
+    m.open("mac", "s1");
+    m.draft_written("half a thought");
+    m.close();
+    m.open("mac", "s2");
+    assert_eq!(crate::view::session(&m)["draft"], "");
+    m.close();
+    m.open("mac", "s1");
+    assert_eq!(crate::view::session(&m)["draft"], "half a thought");
+    assert!(m.writes.iter().any(
+        |(k, v)| *k == KEY_DRAFTS && v.as_deref().is_some_and(|v| v.contains("half a thought"))
+    ));
+    // Kept across a relaunch, and gone once sent.
+    let saved = m
+        .writes
+        .iter()
+        .rev()
+        .find(|(k, _)| *k == KEY_DRAFTS)
+        .unwrap()
+        .1
+        .clone();
+    let mut again = paired();
+    again.load_drafts(saved.as_deref());
+    assert_eq!(
+        again.draft_for(&("mac".into(), "s1".into())),
+        "half a thought"
+    );
+    m.send_text("half a thought");
+    assert_eq!(m.draft_for(&("mac".into(), "s1".into())), "");
+}

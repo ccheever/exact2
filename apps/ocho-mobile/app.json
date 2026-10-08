@@ -25,7 +25,8 @@
     "title-reveal",
     "glass-button",
     "glass-composer",
-    "voice-call"
+    "voice-call",
+    "menu-picker"
   ],
   "host": {
     "ios": {

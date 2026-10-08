@@ -268,6 +268,17 @@ pub struct Fleet {
     pub machine: String,
     /// Its name.
     pub name: String,
+    /// The accounts a session can be launched under (Fleet #477 on).
+    pub accounts: Vec<Account>,
+}
+
+/// An account a session runs under.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Account {
+    /// Fleet's name for it.
+    pub name: String,
+    /// `codex`, `claude`, …
+    pub provider: String,
 }
 
 impl Fleet {
@@ -339,6 +350,18 @@ impl Fleet {
             peers,
             machine: text(json, "machine"),
             name: text(json, "name"),
+            accounts: json
+                .pointer("/fleet/accounts")
+                .and_then(Json::as_array)
+                .into_iter()
+                .flatten()
+                .filter(|a| !matches!(text(a, "status").as_str(), "disabled" | "removed"))
+                .map(|a| Account {
+                    name: text(a, "name"),
+                    provider: text(a, "provider"),
+                })
+                .filter(|a| !a.name.is_empty() && !a.provider.is_empty())
+                .collect(),
         })
     }
 

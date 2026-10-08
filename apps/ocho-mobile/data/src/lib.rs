@@ -34,7 +34,8 @@ secret.keep ocho.install\n\
 device.camera purpose.camera\n\
 device.microphone purpose.microphone\n\
 secret.keep ocho.connection\n\
-secret.keep ocho.desktop";
+secret.keep ocho.desktop\n\
+secret.keep ocho.drafts";
 
 fn text(args: &[Value], i: usize) -> String {
     match args.get(i) {
@@ -65,6 +66,10 @@ fn counters(m: &Model) -> Value {
             "reads": m.reads.turn,
             "buzz": m.buzz.turn,
             "reports": m.report.turn,
+            "models": m.models.turn,
+            "launches": m.launch.turn,
+            "gotoMachine": m.launcher.goto.as_ref().map(|g| g.0.clone()).unwrap_or_default(),
+            "gotoSession": m.launcher.goto.as_ref().map(|g| g.1.clone()).unwrap_or_default(),
         }),
     )
 }
@@ -109,6 +114,7 @@ impl OchoMobile {
                 store.get(model::KEY_DESKTOP),
                 store.get(model::KEY_INSTALL),
             );
+            self.model.load_drafts(store.get(model::KEY_DRAFTS));
         }
     }
 
@@ -137,7 +143,22 @@ impl OchoMobile {
             "pair-link" => m.pair_link(&a),
             "unpair" => m.unpair(),
             "window" => m.pick_window(a.parse().unwrap_or(0)),
-            "open" => m.open(&a, &b),
+            "open" => {
+                m.open(&a, &b);
+                if m.launcher.goto.as_ref() == Some(&(a.clone(), b.clone())) {
+                    m.goto_done();
+                }
+            }
+            "compose-open" => m.compose_open(),
+            "compose-choose" => m.compose_choose(&a, &b),
+            "compose-said" => {
+                if let Some(text) = a.strip_prefix("s:") {
+                    m.compose_send(text);
+                } else if let Some(points) = a.strip_prefix("h:") {
+                    m.composer_sized(points.parse().unwrap_or(0.0));
+                }
+            }
+            "draft" => m.draft_written(&a),
             "close" => m.close(),
             "nav" => m.navigated(&a),
             "send" => m.send_text(&a),
@@ -167,6 +188,14 @@ impl OchoMobile {
             "transcript" if !m.transcript.inflight => m
                 .transcript_request()
                 .map(|(url, bearer)| get(&url, &bearer, api::MAX_BYTES)),
+            "models" if !m.models.inflight => m
+                .models_request()
+                .map(|(url, bearer)| get(&url, &bearer, 256 << 10)),
+            "launch" if !m.launch.inflight => m.launch_request().map(|(url, bearer, body)| {
+                Request::post_json(&url, &body)
+                    .header("authorization", &bearer)
+                    .independent_http(256 << 10)
+            }),
             "send" if !m.send.inflight => m.send_request().map(|(url, bearer, body)| {
                 Request::post_json(&url, &body)
                     .header("authorization", &bearer)
@@ -219,6 +248,8 @@ impl OchoMobile {
                     .unwrap_or_default()),
             }),
             "send" => m.send_done(body_json(outcome).map_err(|(_, why)| why)),
+            "models" => m.models_done(body_json(outcome).map_err(|(_, why)| why)),
+            "launch" => m.launch_done(body_json(outcome).map_err(|(_, why)| why)),
             "probe" => m.probe_done(
                 body_json(outcome)
                     .is_ok_and(|j| j.get("ok").and_then(|ok| ok.as_bool()).unwrap_or(false)),
@@ -251,7 +282,7 @@ impl DataSource for OchoMobile {
         match source {
             "dispatch" => Ok(counters(&self.model)),
             "poll" | "transcript" | "send" | "probe" | "resync" | "markRead" | "haptic"
-            | "report" | "network" => Ok(version(&self.model)),
+            | "report" | "network" | "models" | "launch" => Ok(version(&self.model)),
             "picture" => Ok(view::render(&self.model)),
             _ => Err(DataError::UnknownSource(source.into())),
         }
@@ -276,7 +307,7 @@ impl DataSource for OchoMobile {
                 Answer::Now(version(&self.model))
             }
             "poll" | "transcript" | "send" | "probe" | "resync" | "markRead" | "haptic"
-            | "report" => {
+            | "report" | "models" | "launch" => {
                 if source == "poll" {
                     // Asked with a new visibility, not a new turn.
                     self.model.page(text(args, 1) != "hidden");

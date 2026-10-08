@@ -2,7 +2,7 @@
 // `message` event's `unavailable`) and the pairing screen offers the paste
 // field instead. Events as on iOS: change (a code's text), message (state).
 export const abi = 1;
-export const roster = { 'qr-scanner': { snapshot: false }, 'progressive-blur': { snapshot: false }, 'title-reveal': { snapshot: false }, 'glass-button': { snapshot: false }, 'glass-composer': { snapshot: false }, 'voice-call': { snapshot: false } };
+export const roster = { 'qr-scanner': { snapshot: false }, 'progressive-blur': { snapshot: false }, 'title-reveal': { snapshot: false }, 'glass-button': { snapshot: false }, 'glass-composer': { snapshot: false }, 'voice-call': { snapshot: false }, 'menu-picker': { snapshot: false } };
 
 // `<progressive-blur>` on the web: a backdrop blur masked by the same fade.
 function blur(element, props) {
@@ -58,6 +58,30 @@ function glassButton(handle, props) {
     Object.assign(select.style, { position: 'absolute', inset: '0', opacity: '0', cursor: 'pointer' });
     select.append(new Option('', '', true, true), ...items.map((i) => new Option(i.title, i.id)));
     select.onchange = () => { if (select.value) event(8, select.value); select.value = ''; };
+    element.append(select);
+  }
+}
+
+// `<menu-picker>` on the web: the choice as text over a transparent select,
+// so the menu is the browser's own; a link reports a press instead.
+function menuPicker(handle, props) {
+  const { element, event } = handle;
+  const kind = props.kind ?? 'inline';
+  element.replaceChildren();
+  Object.assign(element.style, { display: 'flex', alignItems: 'center', gap: '8px', position: element.style.position || 'relative', cursor: 'pointer', font: kind === 'link' ? '600 17px system-ui' : '17px system-ui', color: 'CanvasText', justifyContent: kind === 'link' ? 'center' : kind === 'row' ? 'space-between' : 'flex-start' });
+  const main = document.createElement('span');
+  main.textContent = props.primary ?? '';
+  const rest = document.createElement('span');
+  rest.style.opacity = '0.6';
+  rest.textContent = `${props.secondary ? props.secondary + ' ' : ''}${kind === 'link' ? '›' : '⇕'}`;
+  element.append(main, rest);
+  handle.kind = kind;
+  const items = kind !== 'link' && props.menu ? JSON.parse(props.menu) : [];
+  if (items.length) {
+    const select = document.createElement('select');
+    Object.assign(select.style, { position: 'absolute', inset: '0', opacity: '0', cursor: 'pointer' });
+    select.append(...items.map((i) => new Option(i.title, i.id, false, Boolean(i.selected))));
+    select.onchange = () => event(8, select.value);
     element.append(select);
   }
 }
@@ -125,6 +149,13 @@ export function create(tag, element, json, event) {
     event(7);
     return handle;
   }
+  if (tag === 'menu-picker') {
+    const handle = { element, event, tag };
+    menuPicker(handle, JSON.parse(json));
+    element.addEventListener('click', () => { if (handle.kind === 'link') event(1, 'press'); });
+    event(7);
+    return handle;
+  }
   if (tag === 'progressive-blur') {
     blur(element, JSON.parse(json));
     event(7);
@@ -152,5 +183,6 @@ export function setProps(handle, json) {
   if (handle?.tag === 'title-reveal') title(handle.element, JSON.parse(json));
   if (handle?.tag === 'glass-button') glassButton(handle, JSON.parse(json));
   if (handle?.tag === 'glass-composer') composer(handle, JSON.parse(json));
+  if (handle?.tag === 'menu-picker') menuPicker(handle, JSON.parse(json));
 }
 export function destroy() {}

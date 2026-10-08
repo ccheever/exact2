@@ -24,6 +24,7 @@ final class OchoMobileModule: ExactModule {
             "progressive-blur": ExactNativeFactory { props, events in ProgressiveBlur(props: props, events: events) },
             "title-reveal": ExactNativeFactory { props, events in TitleReveal(props: props, events: events) },
             "glass-button": ExactNativeFactory { props, events in GlassButton(props: props, events: events) },
+            "menu-picker": ExactNativeFactory { props, events in MenuPicker(props: props, events: events) },
             "glass-composer": ExactNativeFactory { props, events in GlassComposer(props: props, events: events) },
             "voice-call": ExactNativeFactory { props, events in VoiceCall(props: props, events: events) },
         ]

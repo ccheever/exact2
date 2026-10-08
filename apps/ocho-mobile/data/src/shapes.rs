@@ -31,6 +31,10 @@ pub const UI: Shape = Record(&[
     ("reads", Num),
     ("buzz", Num),
     ("reports", Num),
+    ("models", Num),
+    ("launches", Num),
+    ("gotoMachine", Str),
+    ("gotoSession", Str),
 ]);
 
 /// `Version`.
@@ -144,6 +148,24 @@ const SESSION: Shape = Record(&[
     ("canTalk", Bool),
     ("voiceUrl", Str),
     ("voiceAuth", Str),
+    ("draft", Str),
+]);
+
+/// `Compose`: the new-session screen.
+const COMPOSE: Shape = Record(&[
+    ("machine", Str),
+    ("machineMenu", Str),
+    ("account", Str),
+    ("accountMenu", Str),
+    ("model", Str),
+    ("modelMenu", Str),
+    ("effort", Str),
+    ("effortMenu", Str),
+    ("prompt", Str),
+    ("launching", Bool),
+    ("error", Str),
+    ("canSend", Bool),
+    ("composerHeight", Num),
 ]);
 
 const PAIR: Shape = Record(&[("draft", Str), ("error", Str)]);
@@ -154,6 +176,7 @@ pub const VIEW: Shape = Record(&[
     ("home", HOME),
     ("session", SESSION),
     ("pair", PAIR),
+    ("compose", COMPOSE),
 ]);
 
 /// The value of `json` in `shape`, missing fields as their zero.

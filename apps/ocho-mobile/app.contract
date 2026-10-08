@@ -23,6 +23,10 @@ routes nav
   sessions "/"
     session "/s/:machine/:id"
     scan "/scan"
+    // A new session: where, as whom, which model, and its first message.
+    new "/new"
+    // The new session's model and effort, as a sheet.
+    model "/model"
     // A voice call with Codex about the open session, over Fleet's bridge.
     voice "/voice"
     // `ocho://pair/<pairing>`: the relay's pairing page opens the app here.
@@ -44,6 +48,10 @@ shape Ui
   reads: number
   buzz: number
   reports: number
+  models: number
+  launches: number
+  gotoMachine: string
+  gotoSession: string
 shape Version
   version: number
 shape MarkdownRun
@@ -144,6 +152,21 @@ shape Session
   canTalk: bool
   voiceUrl: string
   voiceAuth: string
+  draft: string
+shape Compose
+  machine: string
+  machineMenu: string
+  account: string
+  accountMenu: string
+  model: string
+  modelMenu: string
+  effort: string
+  effortMenu: string
+  prompt: string
+  launching: bool
+  error: string
+  canSend: bool
+  composerHeight: number
 shape Page
   visibilityState: string
   onLine: bool
@@ -155,6 +178,7 @@ shape View
   home: Home
   session: Session
   pair: Pair
+  compose: Compose
 
 component OchoMobile
   mutation ui as shape Ui
@@ -175,6 +199,11 @@ component OchoMobile
   derive readTurn = match ui { case some(r) => r.reads, case none => 0 }
   derive buzzTurn = match ui { case some(r) => r.buzz, case none => 0 }
   derive reportTurn = match ui { case some(r) => r.reports, case none => 0 }
+  derive modelsTurn = match ui { case some(r) => r.models, case none => 0 }
+  derive launchTurn = match ui { case some(r) => r.launches, case none => 0 }
+  // A launched session, to open: the data names it once the launch answers.
+  derive gotoMachine = match ui { case some(r) => r.gotoMachine, case none => "" }
+  derive gotoSession = match ui { case some(r) => r.gotoSession, case none => "" }
   // Coming back to the foreground re-asks the poll at once: iOS drops a
   // request in flight while the app is suspended. iOS's word on the network
   // is its own resource: as a poll argument, every flicker of the path
@@ -191,11 +220,16 @@ component OchoMobile
   resource felt = haptic(buzzTurn) as shape Version
   // Anonymous health and funnel events, batched to Fleet's cloud (Axiom).
   resource reported = report(reportTurn) as shape Version
-  resource vm = picture(uiVersion, poll.version, net.version, transcript.version, outgoing.version, probe.version, refreshed.version, marked.version, felt.version, reported.version) as shape View
+  resource modelList = models(modelsTurn) as shape Version
+  resource started = launch(launchTurn) as shape Version
+  resource vm = picture(uiVersion, poll.version, net.version, transcript.version, outgoing.version, probe.version, refreshed.version, marked.version, felt.version, reported.version, modelList.version, started.version) as shape View
 
   // One tick a second starts whatever I/O is due (the model's lanes).
-  action tick writes ui
-    send ui = dispatch("tick", "", "", now())
+  // Each second: start what is due, and open a session just launched (in
+  // place of the new-session screen when that is still showing).
+  action tick writes ui, nav
+    nav = (gotoSession == "" ? nav : (top(nav).name == "new" ? open(back(nav), path("session", gotoMachine, gotoSession)) : open(nav, path("session", gotoMachine, gotoSession))))
+    send ui = dispatch((gotoSession == "" ? "tick" : "open"), gotoMachine, gotoSession, now())
   task ticker mount
     every(1000, tick)
 
@@ -223,6 +257,27 @@ component OchoMobile
     after(1, launched)
   action write(value: string) writes draft
     draft = value
+  // The open conversation's draft, kept per session (the composer says it
+  // when it loses focus).
+  action keepDraft(value: string) writes ui
+    send ui = dispatch("draft", value, "", now())
+  // The new-session screen.
+  action compose(value: string) writes nav, ui
+    nav = push(nav, "/new")
+    send ui = dispatch("compose-open", "", "", now())
+  action chooseMachine(value: string) writes ui
+    send ui = dispatch("compose-choose", "machine", value, now())
+  action chooseAccount(value: string) writes ui
+    send ui = dispatch("compose-choose", "account", value, now())
+  action chooseModel(value: string) writes ui
+    send ui = dispatch("compose-choose", "model", value, now())
+  action chooseEffort(value: string) writes ui
+    send ui = dispatch("compose-choose", "effort", value, now())
+  action openModelSheet(value: string) writes nav
+    nav = push(nav, "/model")
+  // The new session's composer: `s:<text>` launches it, `h:` sizes it.
+  action composeSaid(value: string) writes ui
+    send ui = dispatch("compose-said", value, "", now())
   // The native composer's height, which its wrapped text decides.
   // "Send now" on a queued message: interrupt the running turn for it.
   action sendNow(value: string) writes ui
@@ -299,19 +354,75 @@ component OchoMobile
         when e.name == "sessions"
           column navigationKey=`${e.id}` testId="sessions-screen" position="absolute" top=0 right=0 bottom=0 left=0 box-sizing="border-box" class=Grouped padding-left="env(safe-area-inset-left)" padding-right="env(safe-area-inset-right)"
             when vm.paired
-              Sessions(home=vm.home, titleOpacity=titleOpacity, titleShown=titleShown, open=open, pickWindow=pickWindow, pull=pull, scrolled=listScrolled, unpair=unpair, menuChose=menuChose)
+              Sessions(home=vm.home, titleOpacity=titleOpacity, titleShown=titleShown, open=open, pickWindow=pickWindow, pull=pull, scrolled=listScrolled, unpair=unpair, menuChose=menuChose, compose=compose)
             else
               column flex=1 min-height=0 padding-top="env(safe-area-inset-top)"
                 Pairing(model=vm.pair, pasting=pasting, typed=pairTyped, pair=pair, scan=startScan, togglePaste=togglePaste)
         when e.name == "scan"
           column navigationKey=`${e.id}` navigationPresentation="modal" testId="scan-screen" position="absolute" top=0 right=0 bottom=0 left=0 background-color="#000000"
             Scanner(state=scanState, scanned=scanned, said=scannerSaid, close=backPressed)
+        when e.name == "new"
+          column navigationKey=`${e.id}` testId="new-screen" position="absolute" top=0 right=0 bottom=0 left=0 box-sizing="border-box" class=Page padding-left="env(safe-area-inset-left)" padding-right="env(safe-area-inset-right)"
+            NewSession(model=vm.compose, composerHeight=vm.compose.composerHeight, back=backPressed, backTapped=back, machine=chooseMachine, account=chooseAccount, sheet=openModelSheet, said=composeSaid)
+        when e.name == "model"
+          column navigationKey=`${e.id}` navigationPresentation="modal" testId="model-screen" position="absolute" top=0 right=0 bottom=0 left=0 class=Grouped
+            ModelSheet(model=vm.compose, close=backPressed, chooseModel=chooseModel, chooseEffort=chooseEffort)
         when e.name == "voice"
           column navigationKey=`${e.id}` navigationPresentation="modal" testId="voice-screen" position="absolute" top=0 right=0 bottom=0 left=0 class=Page
             VoiceCall(model=vm.session, close=endTalk, said=voiceSaid)
         when e.name == "session"
           column navigationKey=`${e.id}` testId="session-screen" position="absolute" top=0 right=0 bottom=0 left=0 box-sizing="border-box" class=Page padding-left="env(safe-area-inset-left)" padding-right="env(safe-area-inset-right)"
-            Conversation(model=vm.session, talk=talk, draft=draft, backTapped=back, back=backPressed, write=write, sendDraft=sendDraft, sized=composerSaid, earlier=showEarlier, sendNow=sendNow, retry=retry, dismiss=dismiss)
+            Conversation(model=vm.session, talk=talk, draft=vm.session.draft, backTapped=back, back=backPressed, write=keepDraft, sendDraft=sendDraft, sized=composerSaid, earlier=showEarlier, sendNow=sendNow, retry=retry, dismiss=dismiss)
+
+// A new session: the machine and account above the composer (UIKit's own
+// pull-down menus), the model and effort over it, opening their sheet.
+component NewSession
+  props
+    model: Compose
+    composerHeight: number
+    back: action
+    backTapped: action
+    machine: action
+    account: action
+    sheet: action
+    said: action
+  view
+    column flex=1 min-height=0 position="relative"
+      row testId="new-header" position="absolute" top="env(safe-area-inset-top)" left=0 right=0 z-index=2 height=52 align-items="center" padding-left=16 padding-right=16 box-sizing="border-box"
+        box id="back" press=backTapped width=44 height=44 flex-shrink=0
+          glass-button testId="new-back" symbol="chevron.backward" said="Back to sessions" change=back width=44 height=44
+      box flex=1 min-height=0
+      column padding-left=24 padding-right=24 padding-bottom=6
+        menu-picker testId="pick-machine" kind="inline" symbol="desktopcomputer" primary=model.machine menu=model.machineMenu message=machine height=44 align-self="stretch"
+        menu-picker testId="pick-account" kind="inline" symbol="person.crop.circle" primary=model.account menu=model.accountMenu message=account height=44 align-self="stretch"
+      menu-picker testId="pick-model" kind="link" primary=model.model secondary=model.effort change=sheet height=36 align-self="stretch"
+      when model.launching
+        row justify-content="center" align-items="center" gap=8 padding-top=6
+          Spinner(size=14)
+          text "Starting the session…" font-size=13 class=Secondary
+      when model.error != ""
+        text model.error testId="new-error" text-align="center" font-size=13 line-height="18px" padding-left=24 padding-right=24 padding-top=6 class=Danger
+      column testId="new-composer-bar" padding-left=16 padding-right=16 padding-top=6 padding-bottom=12 flex-shrink=1 min-height=52
+        row align-items="flex-end" gap=10
+          glass-composer id="new-composer" testId="new-composer" flex=1 min-width=0 height=composerHeight draft="" prompt=model.prompt sendable=(model.canSend ? "true" : "false") message=said
+        box height="calc(env(safe-area-inset-bottom) - 12px)" min-height=0 flex-shrink=0
+
+// The new session's model and how hard it thinks, as a sheet of rows.
+component ModelSheet
+  props
+    model: Compose
+    close: action
+    chooseModel: action
+    chooseEffort: action
+  view
+    column flex=1 min-height=0 padding-left=20 padding-right=20 padding-top=20 gap=16
+      row align-items="center" justify-content="space-between" height=44
+        text "Model" font-size=20 font-weight=700 class=Label
+        glass-button testId="model-done" symbol="xmark" said="Done" change=close width=44 height=44
+      column testId="model-rows" class=Cell border-radius=26 padding-left=16 padding-right=16
+        menu-picker testId="sheet-model" kind="row" primary="Model" secondary=model.model menu=model.modelMenu message=chooseModel height=52 align-self="stretch"
+        box height=1 background-color="light-dark(#3c3c4329, #54545899)"
+        menu-picker testId="sheet-effort" kind="row" primary="Intelligence" secondary=model.effort menu=model.effortMenu message=chooseEffort height=52 align-self="stretch"
 
 // The activity indicator: a ring with one dark quarter, turning.
 component Spinner
@@ -351,6 +462,7 @@ component Sessions
     scrolled: action
     unpair: action
     menuChose: action
+    compose: action
   view
     column flex=1 min-height=0 position="relative"
       // The header's backdrop, as the system's bars blend into content
@@ -364,7 +476,9 @@ component Sessions
       row testId="title-bar" position="absolute" top="env(safe-area-inset-top)" left=0 right=0 z-index=1 height=44 align-items="center" justify-content="center" pointer-events="none"
         title-reveal testId="title-compact" flex=1 align-self="stretch" margin-left=72 margin-right=72 text=home.title shown=(titleShown ? "true" : "false")
       // UIKit's own glass button, its menu the native one.
-      glass-button testId="home-menu-button" symbol="ellipsis" said="More" message=menuChose position="absolute" top="env(safe-area-inset-top)" right=16 z-index=2 width=44 height=44 menu=`[{"id":"refresh","title":"Refresh"},{"id":"unpair","title":"Unpair This Phone","destructive":true}]`
+      // A new session at the trailing corner; the menu moves to the leading.
+      glass-button testId="compose-button" symbol="square.and.pencil" said="New session" change=compose position="absolute" top="env(safe-area-inset-top)" right=16 z-index=2 width=44 height=44
+      glass-button testId="home-menu-button" symbol="ellipsis" said="More" message=menuChose position="absolute" top="env(safe-area-inset-top)" left=16 z-index=2 width=44 height=44 menu=`[{"id":"refresh","title":"Refresh"},{"id":"unpair","title":"Unpair This Phone","destructive":true}]`
       scroll testId="session-list" scroll=scrolled refresh=pull refreshing=home.refreshing flex=1 min-height=0 overflow-x="hidden"
         column padding-bottom="calc(env(safe-area-inset-bottom) + 24px)"
           box height="env(safe-area-inset-top)" flex-shrink=0
