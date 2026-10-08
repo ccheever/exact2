@@ -386,8 +386,8 @@ export function webHostFiles(...groups) {
  * GPU crate's wasm with wasm-bindgen's glue (its exports are the module's ABI
  * on the web), then wasm-opt; `<stem>.js` + `<stem>_bg.wasm`, the primary as
  * `gpu`, a declared module as `gpu/<name>`. `cargo` builds the crates first,
- * as the wasm target's bake does (the JS target has no bake); the wasm target
- * passes false, having built them. Missing packaging tools refuse the build. */
+ * on stable (@ref LLP 1047: a GPU crate keeps its toolchain's std), as the wasm target's bake does
+ * (the JS target has no bake); the wasm target passes false, having built them. Missing packaging tools refuse the build. */
 export function webGpuArtifacts(app, stage, { cargo = false, env = process.env } = {}) {
   const artifacts = [...(app.hasGpu ? [{ crate: app.crate('gpu'), stem: 'gpu' }] : []),
     ...gpuModules(app.manifest).map(({ name }) => ({ crate: app.crate(`gpu-${name}`), stem: `gpu/${name}` }))];
@@ -395,7 +395,7 @@ export function webGpuArtifacts(app, stage, { cargo = false, env = process.env }
   let note = '';
   for (const { crate, stem } of artifacts) {
     if (cargo) buildCommand('cargo', ['build', ...cargoReproducibilityFlags(app), ...injectedProfiles(app), ...wasmRemapFlags(app), '-p', crate,
-      '--target', 'wasm32-unknown-unknown', '--profile', 'web', '--lib', '--config', 'profile.web.strip=false'], app, webToolchainEnv({ ...env, CARGO_TARGET_DIR: app.target }), 'inherit');
+      '--target', 'wasm32-unknown-unknown', '--profile', 'web', '--lib', '--config', 'profile.web.strip=false'], app, cargoEnvironment({ ...env, CARGO_TARGET_DIR: app.target }), 'inherit');
     const wasm = resolve(app.target, 'wasm32-unknown-unknown/web', crate.replace(/-/g, '_') + '.wasm');
     const [dir, name] = stem.includes('/') ? [resolve(stage, 'gpu'), stem.slice(4)] : [stage, stem];
     const wb = spawnSync('wasm-bindgen', ['--target', 'web', '--no-typescript', '--out-dir', dir, '--out-name', name, wasm], { stdio: 'inherit' });
