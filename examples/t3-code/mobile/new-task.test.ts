@@ -4,6 +4,7 @@ import { T3Client } from './shared/client';
 import { MobileDraftClient } from './mobile-draft-recovery';
 import { mobileNewTask } from './new-task';
 import { mobileNewTaskFileSnapshot, mobileNewTaskFileRead } from './new-task-file';
+import { mobileAppLink } from './navigation-links';
 import { obj, type Obj } from './shared/domain';
 import type { Native, Files } from './shared/protocol';
 import { EnvironmentFleet } from './shared/settings-b-fleet';
@@ -642,4 +643,64 @@ test('draft file query replacement invalidates the old read without clearing the
   expect(mobileNewTaskFileSnapshot('a.ts', oldLocation, 'file', flow.owner, false, f.client).contents).toBe('');
   expect(mobileNewTaskFileSnapshot('a.ts', location, 'file', flow.owner, false, f.client).contents).toBe('current workspace');
   expect(f.client.draft).toBe('A original');
+});
+
+
+function fileNative(f: Awaited<ReturnType<typeof fixture>>, calls: Obj[], content = 'answer') {
+  return { available: true, watch() {}, async later(input: unknown) {
+    const request = obj(input); calls.push(request);
+    return { ok: true, generation: f.client.generation, value: request.op === 'http'
+      ? { authenticated: true, permissions: ['filesystem:read'] } : { contents: content } };
+  } };
+}
+test('draft file legal raw question mark must not erase a later environmentId', async () => {
+  const f = await fixture(), chooser = f.snapshot('/new'); await f.action(chooser.owner, 'project', '["env","a"]');
+  const location = mobileAppLink('/new/draft/files/a.ts?cwd=/work?tree&environmentId=other', 'file').location;
+  const flow = f.snapshot(location, 'file'), calls: Obj[] = [];
+  expect(new URLSearchParams(location.slice(location.indexOf('?') + 1)).get('environmentId')).toBe('other');
+  await mobileNewTaskFileRead('a.ts', location, 'file', flow.owner, false, fileNative(f, calls), f.client);
+  expect(calls.filter(call => call.method === 'projects.readFile')).toHaveLength(0);
+});
+test('draft file valid trailing space in Unix cwd must survive route decoding', async () => {
+  const f = await fixture(), chooser = f.snapshot('/new'); await f.action(chooser.owner, 'project', '["env","a"]');
+  const location = '/new/draft/files/a.ts?cwd=%2Fwork%20&environmentId=env', flow = f.snapshot(location, 'file'), calls: Obj[] = [];
+  await mobileNewTaskFileRead('a.ts', location, 'file', flow.owner, false, fileNative(f, calls), f.client);
+  expect(calls.find(call => call.method === 'projects.readFile')?.payload).toEqual({ cwd: '/work ', relativePath: 'a.ts' });
+});
+test('draft file read RPC completion after route exit is refused', async () => {
+  const f = await fixture(), chooser = f.snapshot('/new'); await f.action(chooser.owner, 'project', '["env","a"]');
+  const location = '/new/draft/files/a.ts', flow = f.snapshot(location, 'file');
+  let release!: (reply: unknown) => void, reached!: () => void;
+  const requested = new Promise<void>(resolve => { reached = resolve; });
+  const native: Native = { available: true, watch() {}, async later(input) {
+    if (obj(input).op === 'http') return {ok: true, generation: f.client.generation, value: {authenticated: true, permissions: ['filesystem:read']}};
+    reached(); return new Promise(resolve => { release = resolve; });
+  }};
+  const reading = mobileNewTaskFileRead('a.ts', location, 'file', flow.owner, false, native, f.client);
+  await requested; f.snapshot('/new/draft', 'draft');
+  release({ok: true, generation: f.client.generation, value: {contents: 'old'}});
+  await expect(reading).rejects.toMatchObject({kind: 'superseded'});
+  expect(mobileNewTaskFileSnapshot('a.ts', location, 'file', flow.owner, false, f.client).contents).toBe('');
+});
+test('draft file read RPC completion after reconnect is refused', async () => {
+  const f = await fixture(), chooser = f.snapshot('/new'); await f.action(chooser.owner, 'project', '["env","a"]');
+  const location = '/new/draft/files/a.ts', flow = f.snapshot(location, 'file');
+  let release!: (reply: unknown) => void, reached!: () => void;
+  const requested = new Promise<void>(resolve => { reached = resolve; });
+  const native: Native = { available: true, watch() {}, async later(input) {
+    if (obj(input).op === 'http') return {ok: true, generation: f.client.generation, value: {authenticated: true, permissions: ['filesystem:read']}};
+    reached(); return new Promise(resolve => { release = resolve; });
+  }};
+  const reading = mobileNewTaskFileRead('a.ts', location, 'file', flow.owner, false, native, f.client);
+  await requested; f.client.generation++;
+  release({ok: true, generation: f.client.generation - 1, value: {contents: 'old'}});
+  await expect(reading).rejects.toMatchObject({kind: 'superseded'});
+  expect(mobileNewTaskFileSnapshot('a.ts', location, 'file', flow.owner, false, f.client).contents).toBe('');
+});
+test('draft file runtime abandonment produces no content or sticky spinner', async () => {
+  const f = await fixture(), chooser = f.snapshot('/new'); await f.action(chooser.owner, 'project', '["env","a"]');
+  const location = '/new/draft/files/a.ts', flow = f.snapshot(location, 'file');
+  const native: Native = {available: true, watch() {}, async later() {throw {name:'FetchError',kind:'Aborted'};}};
+  await expect(mobileNewTaskFileRead('a.ts', location, 'file', flow.owner, false, native, f.client)).rejects.toMatchObject({kind:'superseded'});
+  expect(mobileNewTaskFileSnapshot('a.ts', location, 'file', flow.owner, false, f.client)).toMatchObject({contents:'', loading:false, error:''});
 });

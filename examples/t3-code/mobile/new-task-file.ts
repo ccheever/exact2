@@ -13,10 +13,13 @@ import { mobileFilePresentation } from './file-data';
 interface Read { owner: string; serial: number; checking: boolean; error: string; contents?: string; truncated: boolean }
 const reads = new WeakMap<T3Client, Read>();
 function context(path: string, location: string, visit: string, client: T3Client) {
-  const query = new URLSearchParams(location.split('?')[1] ?? ''), project = client.shell.projects.find(value => value.id === client.projectId);
-  const environment = query.get('environmentId')?.trim() || client.environmentId;
-  const cwd = query.get('cwd')?.trim() || draftContext(client).worktreePath || str(project?.workspaceRoot);
-  const projectName = query.get('projectName')?.trim() || str(project?.title, 'Files');
+  const queryAt = location.indexOf('?'), query = new URLSearchParams(queryAt < 0 ? '' : location.slice(queryAt + 1));
+  const project = client.shell.projects.find(value => value.id === client.projectId);
+  // Upstream firstRouteParam treats blank as missing but preserves valid path bytes.
+  const param = (key: string) => { const value = query.get(key); return value?.trim() ? value : ''; };
+  const environment = param('environmentId') || client.environmentId;
+  const cwd = param('cwd') || draftContext(client).worktreePath || str(project?.workspaceRoot);
+  const projectName = param('projectName') || str(project?.title, 'Files');
   const line = Number(query.get('line')); const initialLine = Number.isInteger(line) && line > 0 ? line : 0;
   const owner = JSON.stringify([path, location, visit, client.origin, client.generation, client.environmentId, client.projectId, client.threadId, client.threadEpoch, cwd]);
   return { environment, cwd, projectName, initialLine, owner };
