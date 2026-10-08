@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { pushToast, toasts } from './toast';
 import { applyDismissals, advanceToasts, toastViews, commandShortcut, surfaces, titleMenu, withOffsets, TOAST_LIMIT } from './shell';
-import { threadTransitions, transitionToast, updateCandidates, updateKey, updateToastView, threadNotifications, nativeNotifyStatus, reportWindowFacts } from './shell-notify';
+import { threadTransitions, transitionToast, threadNotifications, nativeNotifyStatus, reportWindowFacts } from './shell-notify';
 import { shellCommand, shellLocal, shellFailure, shellSuccess, resolveRenameCommit, settingsFailure } from './shell-commands';
 import type { T3Client } from './client';
 import type { Obj } from './domain';
@@ -201,17 +201,6 @@ describe('thread notifications', () => {
   });
 });
 
-describe('provider update notification', () => {
-  const provider = (driver: string, extra: Obj = {}) => ({ driver, instanceId: driver, enabled: true, checkedAt: '2026-10-04T10:00:00Z', versionAdvisory: { status: 'behind_latest', latestVersion: '0.160.0', canUpdate: false, updateCommand: null }, compatibilityAdvisory: {}, ...extra });
-  test('candidates, key and copy follow ProviderUpdateLaunchNotification.logic', () => {
-    const candidates = updateCandidates([provider('codex'), provider('claudeAgent', { enabled: false }), provider('cursor', { compatibilityAdvisory: { latestVersionStatus: 'broken' } })]);
-    expect(candidates.map(candidate => candidate.driver)).toEqual(['codex']);
-    expect(updateKey(candidates)).toBe('codex:0.160.0');
-    expect(updateToastView(candidates)).toMatchObject({ title: 'Update Available: Codex v0.160.0', description: 'Codex can be updated from provider settings.' });
-    const many = updateCandidates([provider('codex'), provider('claudeAgent', { versionAdvisory: { status: 'behind_latest', latestVersion: '2.0', canUpdate: true, updateCommand: 'npm i' } })]);
-    expect(updateToastView(many)).toMatchObject({ title: 'Updates Available: 2 providers', description: 'Install the update now or review provider settings.' });
-  });
-});
 
 describe('shell commands and routed failures', () => {
   function client(extra: Obj = {}) {
@@ -240,12 +229,11 @@ describe('shell commands and routed failures', () => {
     await expect(shellCommand(value, {} as Native, storage, 'pin', 'gone', '')).rejects.toThrow('That thread is no longer available.');
   });
 
-  test('archive refuses a running thread; editor and provider update use their RPCs', async () => {
+  test('archive refuses a running thread; the editor uses its RPC', async () => {
     const running = client({ shell: { threads: [{ id: 't1', title: 'Busy', status: 'running', activeRunId: 'r' }], projects: [] }, config: { providers: [{ driver: 'codex', instanceId: 'codex' }] } });
     await expect(shellCommand(running.value, {} as Native, storage, 'archive', 't1', '')).rejects.toThrow('Stop the running turn');
-    await shellCommand(running.value, {} as Native, storage, 'provider-update', 'codex', '');
     await shellCommand(running.value, {} as Native, storage, 'open-editor', '/work/p1', 'cursor');
-    expect(running.requested).toEqual([{ method: 'server.updateProvider', provider: 'codex', instanceId: 'codex' }, { method: 'shell.openInEditor', cwd: '/work/p1', editor: 'cursor' }]);
+    expect(running.requested).toEqual([{ method: 'shell.openInEditor', cwd: '/work/p1', editor: 'cursor' }]);
   });
 
   test('copies toast with the copied value', async () => {

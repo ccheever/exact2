@@ -374,7 +374,7 @@ component WelcomeAgentCard
       when agent.driver == "codex"
         ProviderMark(driver="codex", size=20, color="light-dark(#27272a, #f5f5f5)")
       else
-        DriverMark(driver=agent.driver, size=20, initials="")
+        DriverMark(driver=agent.driver, size=20, initials="", icon="")
       column flex=1 min-width=0 gap="0.125rem"
         text agent.name font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)" role=(agent.kind == "codex-setup" ? "heading" : "none") aria-level=3
         text agent.summary font-size="0.75rem" line-height="1.21875rem" color="light-dark(#71717b, #818181)"
