@@ -25,14 +25,23 @@ const keyedLabel = (label: string) => ({ id: `label:${label}`, label, mark: '', 
 const DEVICE_ONLY = new Set(['appearance', 'snap-shot', 'connections']);
 const EDITOR_KINDS = new Set(['create', 'edit', 'duplicate']);
 
-export async function settingsCore(client: T3Client, native: Native | null | undefined, machine: string, projectKeyInput: string, checkoutInput: string, legacyProjectId: string, route: string, target: string, active: boolean, dialogKind = '', dialogSubject = '', deliveryStream = 'embedded', deliveryStaged = false) {
-  rememberDelivery(client, deliveryStream, deliveryStaged); // settings-a-about.ts
-  // Other routes' own scope buttons pick one physical checkout; read that as the checkout axis.
+/**
+ * The settings shell's resolved scope (SettingsScopeContext useResolvedSettingsScope). Other routes' own scope
+ * buttons pick one physical checkout, read as the checkout axis. Providers is single-environment (settings-b):
+ * with no machine chosen it takes selectSingleEnvironmentScope's, so its sentence and its page name one environment.
+ */
+export function settingsScopeOf(client: T3Client, route: string, machine: string, projectKeyInput: string, checkoutInput: string, legacyProjectId: string) {
   const legacyGroup = !projectKeyInput && legacyProjectId ? client.projectGroups().find(group => group.members.some(member => member.id === legacyProjectId)) : undefined;
   const projectKey = legacyGroup ? legacyGroup.key : projectKeyInput, checkout = legacyGroup ? legacyProjectId : checkoutInput;
+  const chosen = resolveScope(client, machine, projectKey, checkout);
+  const machineAxis = scopeMachine(client, route, machine, chosen.kind === 'unavailable' ? [] : chosen.selected);
+  return { projectKey, checkout, scope: machineAxis === machine ? chosen : resolveScope(client, machineAxis, projectKey, checkout) };
+}
+
+export async function settingsCore(client: T3Client, native: Native | null | undefined, machine: string, projectKeyInput: string, checkoutInput: string, legacyProjectId: string, route: string, target: string, active: boolean, dialogKind = '', dialogSubject = '', deliveryStream = 'embedded', deliveryStaged = false) {
+  rememberDelivery(client, deliveryStream, deliveryStaged); // settings-a-about.ts
+  const { projectKey, checkout, scope } = settingsScopeOf(client, route, machine, projectKeyInput, checkoutInput, legacyProjectId);
   const prefs: ClientPrefs = (client.local as unknown as { clientSettings?: ClientPrefs }).clientSettings || decodeClientPrefs({});
-  const machineAxis = scopeMachine(client, route, machine); // settings-b: Providers is single-environment
-  const scope = resolveScope(client, machineAxis, projectKey, checkout);
   const project = scope.kind === 'project' || scope.kind === 'checkout';
   const files = active && project && (route === 'general' || route === 'projects') ? await memberFiles(client, native, scope.members, scope) : new Map<string, Obj | null>();
   const context = serverContext(client, scope, files);
@@ -56,7 +65,8 @@ export async function settingsCore(client: T3Client, native: Native | null | und
   const wanted = target ? searchTargetScope(target) : null;
   const notice = wanted && scope.kind !== 'unavailable' && !scopeAvailable(wanted.scope, scope.kind) ? `${wanted.title} is not available for the selected target. Choose its owning scope to continue.` : '';
   const unavailableMessage = scope.kind === 'unavailable' ? scope.message
-    : scope.kind === 'environment' && !client.ready ? `Reconnect ${scope.environmentLabel} to change its settings.` : '';
+    // Providers shows the chosen environment's own connection (providers-scope.ts); the other routes read the focused one.
+    : scope.kind === 'environment' && !(singleEnvironmentRoute(route) ? scope.connected : client.ready) ? `Reconnect ${scope.environmentLabel} to change its settings.` : '';
   return {
     ready: active, route, breadcrumb: breadcrumbLabel(route), showScope: !DEVICE_ONLY.has(route), kind: scope.kind, message: unavailableMessage, notice,
     environmentLabel: scope.environmentLabel, projectLabel: scope.projectLabel, projectMark: scope.projectMark, projectInk: scope.projectInk, projectSurface: scope.projectSurface,

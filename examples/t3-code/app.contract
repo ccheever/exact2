@@ -185,11 +185,8 @@ component T3Code
       commandPending = true
       send changed = command(op == "import" ? "pageslocal:welcome-import" : "pageslocal:usage-prices-save", "", `${wallTime.epochAtZero + now()}`, 0)
   action openConnectionsPage
-    settingsEnvironmentId = settings.environmentId
-    settingsOpen = true
+    openSettings() // retainSettingsScope: a link from outside Settings starts with no scope
     settingsRoute = "connections"
-    settingsMenu = ""
-    modalError = ""
   action tick
     elapsed = now()
   task clock mount
@@ -427,14 +424,14 @@ component T3Code
     providerDialog = providerDialog == "chatgpt" and providerWizard.chatgptConnected ? "" : providerDialog // AddCodexAccountDialog closes once the plan is shared
   task providerClock mount
     every(1000, providerTick)
-  resource providerPage = providerPage(providerSelected, settingsOpen and settingsRoute == "providers", data.revision, wallTime.epochAtZero + max(elapsed, providerNow)) as shape ProviderPage
-  resource providerWizard = providerWizard(providerDialog != "", providerSerial, wizardManual ? "acpRegistry" : wizardDriver, wizardLabelSet, wizardLabel, wizardIdSet, wizardId, data.revision, providerDialog, providerTarget) as shape ProviderWizard
+  resource providerPage = providerPage(providerSelected, settingsOpen and settingsRoute == "providers", data.revision, wallTime.epochAtZero + max(elapsed, providerNow), settingsMachine, settingsProjectKey, settingsCheckout, settingsProjectId) as shape ProviderPage // the scope's environment (providers-scope.ts): its page and its actions name `providerPage.environment`
+  resource providerWizard = providerWizard(providerDialog != "", providerSerial, wizardManual ? "acpRegistry" : wizardDriver, wizardLabelSet, wizardLabel, wizardIdSet, wizardId, data.revision, providerDialog, providerTarget, providerPage.environment) as shape ProviderWizard
   state connectionRemove = ""
   state routeTarget = "" // lane environment-routes: Add environment as "Add a route to <routeLabel>"
   state routeLabel = ""
   state connectionMenu = ""
   resource connectionsPage = connectionsPage(settingsOpen and settingsRoute == "connections", data.revision, data.status, data.connected, data.connecting, wallTime.epochAtZero + max(elapsed, providerNow)) as shape ConnectionsPage
-  resource acpAgents = acpRegistry(acpQuery, providerDialog == "add" and wizardStep == 0, data.revision) as shape AcpRegistry
+  resource acpAgents = acpRegistry(acpQuery, providerDialog == "add" and wizardStep == 0, data.revision, providerPage.environment) as shape AcpRegistry
   state settingsOpen = false
   state settingsRoute = "general"
   state settingsRefresh = 0
@@ -680,13 +677,9 @@ component T3Code
           optionsOpen = ""
           focus("palette-input")
         if result.message == "sidebar:navigate" and data.sidebar.navigateKind == "project-settings"
-          settingsEnvironmentId = settings.environmentId
+          openSettings() // a project link replaces the whole scope (retainSettingsScope)
           settingsProjectId = data.sidebar.navigateProject
-          settingsProjectKey = ""
-          settingsCheckout = ""
           settingsRoute = "projects"
-          settingsOpen = true
-          modalError = ""
       case none
     pendingModal = ""
     commandPending = false
@@ -779,12 +772,11 @@ component T3Code
     snapshotSetupWasEnabled = snapshotSettings.enabled
     modalError = ""
   action openProviderSettings(id: string)
-    settingsEnvironmentId = settings.environmentId
-    settingsOpen = true
+    let machine = settingsOpen and settingsMachine != "" ? settingsMachine : settings.environmentId // a setup link names its environment: Settings' own the scope's (SettingsPanels), the chat's its thread's (ChatView)
+    openSettings() // retainSettingsScope: a link from outside Settings starts with no scope
     settingsRoute = "providers"
-    settingsMenu = ""
+    settingsMachine = id == "" ? "" : machine
     providerSelected = id == "" ? "" : `target:${id}`
-    modalError = ""
   action openSettings
     sidebarHoverId = "" // r8-pointer D11: the Settings button's tooltip closes on its press
     settingsEnvironmentId = settings.environmentId
@@ -844,12 +836,11 @@ component T3Code
   action coreScope(project: bool, id: string, member: string)
     settingsMenu = ""
     modalError = ""
-    if project
-      settingsProjectKey = id
-      settingsCheckout = ""
-      settingsProjectId = member
-    else
-      settingsMachine = id
+    providerSelected = "" // routes/settings.tsx keys the page on its scope: Providers starts over on the new environment's first row
+    settingsProjectKey = project ? id : settingsProjectKey
+    settingsCheckout = project ? "" : settingsCheckout
+    settingsProjectId = project ? member : settingsProjectId
+    settingsMachine = project ? settingsMachine : id
   action coreLegacy
     settingsLegacyOpen = not settingsLegacyOpen
   action coreNavigate(route: string)
@@ -1023,20 +1014,20 @@ component T3Code
         wizardStep = target
   action providerOp(op: string, id: string, field: string, value: string, apply: bool)
     if startsWith(op, "upkeep:update") and apply
-      send providerUpdateRun = providerChange(op, id, field, value)
+      send providerUpdateRun = providerChange(op, id, field, value, providerPage.environment)
     else if (startsWith(op, "setup:") or startsWith(op, "upkeep:")) and apply
-      send providerAuthChanged = providerChange(op, id, field, value)
+      send providerAuthChanged = providerChange(op, id, field, value, providerPage.environment)
     else if apply and not commandPending
       commandPending = true
       pendingModal = op == "acp-prepare" ? "provider-acp" : (op == "provider-hub-add" or op == "provider-hub-remove" or (op == "provider-chatgpt" and welcome.show) ? "provider-close" : "provider")
       modalError = ""
-      send changed = providerChange(op, id, field, value)
+      send changed = providerChange(op, id, field, value, providerPage.environment)
   action providerAccent(id: string, hex: string, vx: number, vy: number)
     if not commandPending
       commandPending = true
       pendingModal = "provider"
       modalError = ""
-      send changed = providerChange("provider-accent", id, "", hex)
+      send changed = providerChange("provider-accent", id, "", hex, providerPage.environment)
   action providerAdd(driver: string, label: string, id: string, accent: string, f0: string, f1: string, f2: string, f3: string, f4: string)
     wizardAttempted = true
     if not commandPending
@@ -1044,7 +1035,7 @@ component T3Code
       pendingModal = "provider-add"
       providerCreated = id == "" ? providerWizard.instanceId : id
       modalError = ""
-      send changed = providerAdd(driver, label, id, accent, f0, f1, f2, f3, f4)
+      send changed = providerAdd(driver, label, id, accent, f0, f1, f2, f3, f4, providerPage.environment)
   action connectionOp(op: string, id: string, value: string)
     if not commandPending
       sshReturnToConnect = op == "environment-ssh-add" or op == "environment-ssh-pick"
@@ -1120,13 +1111,9 @@ component T3Code
       projectsOpen = false
   action manageProject(id: string, name: string, path: string)
     projectsOpen = false
-    settingsEnvironmentId = settings.environmentId
+    openSettings() // a project link replaces the whole scope (retainSettingsScope)
     settingsProjectId = id
-    settingsProjectKey = ""
-    settingsCheckout = ""
     settingsRoute = "projects"
-    settingsOpen = true
-    modalError = ""
   action selectThread(id: string)
     if not commandPending
       draftOwner = "__unset__"
@@ -1353,16 +1340,16 @@ component T3Code
     toastDismissed = op == "copy" ? toastDismissed : `${toastDismissed} ${op == "dismiss" ? "x" : "a"}${id}`
     if op == "copy"
       send localChanged = command("shelllocal:copy-error", `${id}`, value, 0)
+    if op == "ui:settings" and not settingsOpen
+      openSettings() // retainSettingsScope: from outside Settings the scope starts over; inside, the category link keeps it
     if op == "ui:settings"
-      settingsEnvironmentId = settings.environmentId
-      settingsOpen = true
       settingsRoute = target
       settingsMenu = ""
       settingsQuery = ""
       settingsFocusTarget = value
       modalError = ""
     if startsWith(op, "upkeep:")
-      send providerUpdateRun = providerChange(op, target, "", value)
+      send providerUpdateRun = providerChange(op, target, "", value, "") // a toast's update: the launch prompt's own environments, never the page's
     if op != "copy" and op != "dismiss" and op != "ui:settings" and not startsWith(op, "upkeep:") and not commandPending
       commandPending = true
       send changed = command(op, target, value, 0)
@@ -1390,13 +1377,9 @@ component T3Code
     titleMenuOpen = false
     detailsOpen = op == "toggle" ? (not detailsOpen and conversationWidth < 984) : (detailsOpen and op != "ui:project-settings" and op != "ui:scheduled-tasks" and op != "select-thread" and op != "ui:changes") // inline (>= 984): toggle remembers the thread's docked card
     if op == "ui:project-settings"
-      settingsEnvironmentId = settings.environmentId
+      openSettings() // a project link replaces the whole scope (retainSettingsScope)
       settingsProjectId = target == "" ? data.projectId : target
-      settingsProjectKey = ""
-      settingsCheckout = ""
       settingsRoute = "projects"
-      settingsOpen = true
-      modalError = ""
     if op == "ui:scheduled-tasks" // ThreadAutomationsPanel: Manage scheduled tasks, or Edit as the page's taskId deep link (scheduled-view.ts)
       settingsEnvironmentId = settings.environmentId
       settingsMachine = ""
@@ -1450,13 +1433,9 @@ component T3Code
       renameText = data.threadTitle
       focus("header-rename")
     if op == "ui:project-settings"
-      settingsEnvironmentId = settings.environmentId
+      openSettings() // a project link replaces the whole scope (retainSettingsScope)
       settingsProjectId = target
-      settingsProjectKey = ""
-      settingsCheckout = ""
       settingsRoute = "projects"
-      settingsOpen = true
-      modalError = ""
     if op == "ui:confirm"
       confirmTitle = askTitle
       confirmBody = askBody

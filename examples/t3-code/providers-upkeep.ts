@@ -25,6 +25,7 @@ import { acpOp, acpSectionView, urlAuthView, type AcpHost } from './acp-sessions
 import { customModelEditorOp, customModelEditorView, readCustomModelEntries, storedCustomModels } from './custom-model-editor';
 import { wakeShell } from './r10-connect-timing';
 import { upsertInstance, type ProviderHost, type providerPage } from './providers';
+import { FleetSetupHost, hostClient } from './codex-fleet-host'; // Settings › Providers on a background environment (providers-scope.ts)
 
 export interface UpkeepHost extends AcpHost, ProviderHost {
   ready: boolean; generation?: number; environmentId?: string;
@@ -119,7 +120,7 @@ export async function runUpdateAll(host: UpkeepHost, targets: readonly UpdateTar
       return { machineLabel: label, driver: str(candidate.driver), instanceId: str(candidate.instanceId), result };
     })));
     const view = getProviderUpdateRunToastView(runs);
-    if (view) pushToast(host as unknown as T3Client, { kind: view.type === 'success' ? 'success' : view.type === 'error' ? 'error' : view.type === 'loading' ? 'loading' : 'warning', title: view.title, description: view.description, stacked: true });
+    if (view) pushToast(hostClient(host), { kind: view.type === 'success' ? 'success' : view.type === 'error' ? 'error' : view.type === 'loading' ? 'loading' : 'warning', title: view.title, description: view.description, stacked: true });
   } finally { updateAllPending.set(host, false); }
 }
 
@@ -134,7 +135,7 @@ export async function runProviderUpdate(host: UpkeepHost, target: UpdateTarget, 
   pending.add(instanceId);
   try { await target.request('server.updateProvider', { provider: str(provider.driver), instanceId, ...(targetVersion ? { targetVersion } : {}) }); }
   catch (error) {
-    if (!letGo(error)) pushToast(host as unknown as T3Client, { kind: 'error', title: `Could not update ${providerDisplayName(str(provider.driver))}`,
+    if (!letGo(error)) pushToast(hostClient(host), { kind: 'error', title: `Could not update ${providerDisplayName(str(provider.driver))}`,
       description: error instanceof Error && error.message ? error.message : 'The provider update command could not be started.', stacked: true });
   } finally { pending.delete(instanceId); }
 }
@@ -147,13 +148,16 @@ export function editorUpkeep(host: UpkeepHost, instanceId: string, driver: strin
     modelEditor: customModelEditorView(host, instanceId, driver, arr(provider?.models)) };
 }
 
-/** The Providers page with its upkeep fields: each row's and the editor's advisory popover, Update all, the editor's upkeep parts. */
-export function withUpkeep(host: UpkeepHost, page: ReturnType<typeof providerPage>) {
+/**
+ * The Providers page with its upkeep fields: each row's and the editor's advisory popover, Update all, the editor's upkeep parts.
+ * `all` is the window's client: Update all covers every connected environment whichever one the page shows.
+ */
+export function withUpkeep(host: UpkeepHost, page: ReturnType<typeof providerPage>, all: UpkeepHost = host) {
   const live = arr(host.config.providers), providerOf = (id: string) => live.find(candidate => candidate.instanceId === id);
   const editors = page.editors.map(editor => editorUpkeep(host, editor.id, editor.driver, providerOf(editor.id)));
   return {
     // An open custom model editor owns Escape (its Cancel), so Settings' Back gives it up (app-settings.contract).
-    ...page, updateAll: updateAllView(host), escapeOwned: editors.some(upkeep => upkeep.modelEditor.length > 0),
+    ...page, updateAll: updateAllView(all), escapeOwned: editors.some(upkeep => upkeep.modelEditor.length > 0),
     rows: page.rows.map(row => ({ ...row, update: advisoryView(host, row.id, providerOf(row.id), row.enabled, 'list') })),
     editors: page.editors.map((editor, index) => {
       const upkeep = editors[index]!, editing = upkeep.modelEditor[0]?.slug ?? '';
@@ -175,10 +179,10 @@ async function copyCommand(host: UpkeepHost, native: Native, instanceId: string)
     if (!command) throw new ClientError('This provider has no update command.');
     const copied = obj(await native.later({ op: 'copyText', text: command }));
     if (copied.ok !== true) throw new ClientError('Could not copy the command.');
-    pushToast(host as unknown as T3Client, { kind: 'success', title: `${name} update command copied`, description: 'Run it in a terminal when you are ready to update.' });
+    pushToast(hostClient(host), { kind: 'success', title: `${name} update command copied`, description: 'Run it in a terminal when you are ready to update.' });
   } catch (error) {
     if (letGo(error)) throw error;
-    pushToast(host as unknown as T3Client, { kind: 'error', title: `Could not copy ${name} update command`, description: error instanceof Error ? error.message : '', stacked: true });
+    pushToast(hostClient(host), { kind: 'error', title: `Could not copy ${name} update command`, description: error instanceof Error ? error.message : '', stacked: true });
   }
 }
 
@@ -194,7 +198,7 @@ async function saveCustomModel(host: UpkeepHost, native: Native, instanceId: str
     });
   } catch (error) {
     if (letGo(error)) throw error;
-    pushToast(host as unknown as T3Client, { kind: 'error', title: 'Could not update provider instance', description: error instanceof Error && error.message ? error.message : 'The settings update failed.' });
+    pushToast(hostClient(host), { kind: 'error', title: 'Could not update provider instance', description: error instanceof Error && error.message ? error.message : 'The settings update failed.' });
   }
 }
 
@@ -204,9 +208,9 @@ async function saveCustomModel(host: UpkeepHost, native: Native, instanceId: str
  */
 export async function providerUpkeepOp(host: UpkeepHost, native: Native, op: string, id: string, field: string, value: string): Promise<void> {
   const what = op.slice('upkeep:'.length);
-  const toast = (entry: { kind: 'success' | 'error' | 'warning'; title: string; description?: string }) => pushToast(host as unknown as T3Client, entry);
+  const toast = (entry: { kind: 'success' | 'error' | 'warning'; title: string; description?: string }) => pushToast(hostClient(host), entry);
   try {
-    if (what === 'update') await runProviderUpdate(host, focusedTarget(host as unknown as T3Client, native), id, value);
+    if (what === 'update') await runProviderUpdate(host, host instanceof FleetSetupHost ? fleetTarget(host.entry, native) : focusedTarget(host as unknown as T3Client, native), id, value);
     else if (what === 'update-all') await runUpdateAll(host, updateTargets(host, native));
     else if (what === 'update-launch') await runLaunchUpdates(host as unknown as T3Client, id, primaryTarget(host as unknown as T3Client, native));
     else if (what === 'copy-command') await copyCommand(host, native, id);
