@@ -181,6 +181,10 @@ extension NodeView {
             if let touch = touches.first, inlineLink(at: local(touch.location(in: nil))) == href { presenter?.session?.follow(href) }
             return
         }
+        // Resolve before focus changes, as `activate` does: the field losing
+        // it lowers the keyboard, and under `resizes-content` that moves this
+        // control (a composer's toolbar) out from under the finger at once.
+        let inside = pressed && (touches.first.map(pressInside) ?? false)
         // A press under `retainFocus` leaves the editor its focus, as macOS's
         // mouseDown does: every pressable can take the focus now.
         if canBecomeFirstResponder, !isFirstResponder, presenter?.contextRetainsFocus(self) != true { _ = becomeFirstResponder() }
@@ -188,7 +192,6 @@ extension NodeView {
         pressed = false
         // A pressed node that did not take the focus: the field being edited
         // loses it, as a click on a button blurs a page's input.
-        let inside = touches.first.map(pressInside) ?? false
         if !isFirstResponder && presenter?.contextRetainsFocus(self) != true { presenter?.viewport.endEditing(true) }
         if inside, presenter?.views[id] === self { presenter?.press(id, held: KeyCodes.held(event?.modifierFlags ?? [])); finishPointerPress() }
     }

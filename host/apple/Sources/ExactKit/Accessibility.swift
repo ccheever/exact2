@@ -317,8 +317,10 @@ extension Presenter {
             let target = keyView(of: node)
             if target.acceptsFirstResponder { _ = window.makeFirstResponder(target) }
             #else
-            // The session's own view holding the focus for its shortcuts (ShortcutsIOS) is no focus a node took.
-            func hasFocus(_ view: UIView) -> Bool { (view.isFirstResponder && (view as? NodeView)?.canvasInput == nil && !(view is ExactView)) || view.subviews.contains(where: hasFocus) }
+            // The session's own view holding the focus for its shortcuts (ShortcutsIOS) is no focus a node took,
+            // nor is a button's: it takes the focus on a touch (PointerIOS), where WebKit's never does, so the
+            // button that opened a sheet would otherwise keep the sheet's field from its autofocus.
+            func hasFocus(_ view: UIView) -> Bool { (view.isFirstResponder && (view as? NodeView)?.canvasInput == nil && (view as? NodeView)?.isButton != true && !(view is ExactView)) || view.subviews.contains(where: hasFocus) }
             if !views.values.contains(where: { $0.isFirstResponder && $0.returnsPointerFocusToCanvas }) { autofocusProcessed.insert(ObjectIdentifier(node)) }
             guard let window = node.window, !hasFocus(window) else { continue }
             autofocusProcessed.insert(ObjectIdentifier(node))
