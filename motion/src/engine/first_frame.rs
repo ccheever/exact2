@@ -32,8 +32,11 @@ impl Engine {
         let started = if on || !self.start_on_frame {
             Vec::new()
         } else {
+            // Sampled where the agent's clock takes over, as Core Animation
+            // is: not at a frame this forgets (D7).
             let started = self.start_pending(at, true)?;
             self.shown = f64::NEG_INFINITY;
+            self.advance(self.now.max(at))?;
             started
         };
         self.start_on_frame = on;
@@ -83,13 +86,27 @@ impl Engine {
         let mut started = Vec::new();
         let nodes: Vec<u64> = self.animating.iter().copied().collect();
         for node in nodes {
+            let starts = self.animations.get(&node).is_some_and(|plays| {
+                plays
+                    .iter()
+                    .any(|p| p.pending.is_some_and(|b| at(b).is_some()))
+            });
+            if !starts {
+                continue;
+            }
+            let clock_origin = self.clock_origin(node);
             let Some(plays) = self.animations.get_mut(&node) else {
                 continue;
             };
             let mut any = false;
             for play in plays.iter_mut() {
                 if let Some((begin, t)) = play.pending.and_then(|b| Some((b, at(b)?))) {
-                    play.start += t - begin;
+                    // A clock's member takes its phase at the frame, from
+                    // the origin that frame started (D8).
+                    play.start = match clock_origin {
+                        Some(origin) => super::clock::boundary(&play.animation, t, origin),
+                        None => play.start + (t - begin),
+                    };
                     play.pending = None;
                     any = true;
                 }

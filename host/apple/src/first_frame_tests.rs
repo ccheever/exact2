@@ -225,3 +225,29 @@ component A
         "300 ms from the frame is"
     );
 }
+
+#[test]
+fn a_timer_advance_after_a_display_frame_keeps_the_wall() {
+    let mut host = boot();
+    host.frame_at(133.0, 120.0);
+    host.advance(125.0);
+    assert_eq!(host.now_ms, 125.0, "the wall, not the runner's target");
+    let fade = host.runner.kernel().find_by_test_id("fade")[0];
+    let node = exact_kernel::motion::motion_node(fade);
+    let held = host.engine.begin_hold(node, Property::Opacity, 0.126, None);
+    assert!(matches!(held, Ok(Some(_))), "{held:?}");
+}
+
+#[test]
+fn the_takeover_presents_its_own_instant() {
+    let mut host = boot();
+    let go = id(&host, "go");
+    host.dispatch_at(go, Event::Press, 100.0);
+    host.tick_at(110.0, 116.0);
+    host.tick_at(140.0, 216.0); // a frame ahead of the wall
+    host.start_on_frame(false, 200.0);
+    assert!(
+        (opacity(&host) - 0.916).abs() < 1e-9,
+        "84 ms in at the takeover, not 100"
+    );
+}

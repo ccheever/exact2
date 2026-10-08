@@ -232,7 +232,7 @@ fn a_takeover_before_a_curves_begin_starts_it_at_its_begin_and_forgets_frames() 
     observe(&mut e, 1.0); // begins at the sampling time, 0.050
     e.set_start_on_frame(false, 0.030).unwrap();
     assert!(!e.starts_on_frame());
-    assert_eq!(e.sample_time(), 0.020, "the agent's clock alone from here");
+    assert_eq!(e.sample_time(), 0.030, "the agent's clock alone from here");
     e.advance(0.550).unwrap();
     assert!(
         (opacity(&e) - 0.5).abs() < 1e-9,
@@ -289,5 +289,40 @@ fn a_join_to_an_origin_waiting_for_the_frame_waits_with_it() {
         e.animation_plays(5)[0].start,
         10.33,
         "the joiner starts with the origin"
+    );
+}
+
+#[test]
+fn a_member_born_after_a_late_frame_waits_for_the_next_and_keeps_the_phase() {
+    let mut e = Engine::new();
+    e.set_start_on_frame(true, 0.0).unwrap();
+    for node in [3, 4] {
+        e.set_animation_clock(node, Some("Pending"));
+    }
+    e.set_animations(3, &pulse("pulse 1s infinite")).unwrap();
+    e.advance(0.020).unwrap();
+    e.set_animations(4, &pulse("pulse 1s infinite")).unwrap();
+    // A tick for the 16 ms frame reaches the engine after the second join.
+    e.present_frame(0.016).unwrap();
+    assert_eq!(e.animation_plays(3)[0].start, 0.016);
+    assert!(
+        e.animation_plays(4)[0].pending.is_some(),
+        "born after that frame"
+    );
+    e.present_frame(0.033).unwrap();
+    assert_eq!(e.animation_plays(4)[0].start, 0.016, "the origin's phase");
+}
+
+#[test]
+fn the_takeover_samples_at_its_own_instant() {
+    let mut e = engine(1.0, linear());
+    observe(&mut e, 1.0);
+    e.present_frame(0.016).unwrap(); // running from 0.016
+    e.present_frame(0.216).unwrap(); // a frame ahead of the wall
+    e.advance(0.150).unwrap();
+    e.set_start_on_frame(false, 0.200).unwrap();
+    assert!(
+        (opacity(&e) - 0.184).abs() < 1e-9,
+        "at the takeover, not the forgotten frame"
     );
 }

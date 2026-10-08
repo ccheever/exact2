@@ -371,8 +371,8 @@ impl Engine {
             .collect();
         for key in running {
             self.running.remove(&key);
-            self.pending.remove(&key);
         }
+        self.pending.retain(|key| key.0 != node);
         for property in Property::ALL {
             self.slots.remove(&(node, property));
         }
@@ -475,6 +475,7 @@ impl Engine {
                 let Some(declaration) = declaration.filter(|_| current.value != after) else {
                     slot.set_presented(after);
                     self.running.remove(&key);
+                    self.pending.remove(&key);
                     self.dirty.insert(key);
                     return Ok(());
                 };

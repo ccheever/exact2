@@ -887,6 +887,7 @@ impl<D: DataSource> Host<D> {
     /// the batch, the refusal in `error`, and `clock` says where the runner
     /// stands.
     pub fn advance(&mut self, now_ms: f64) -> String {
+        self.now_ms = now_ms.max(self.now_ms);
         let a = self.runner.advance_timed(now_ms);
         self.advanced(a)
     }
@@ -921,7 +922,11 @@ impl<D: DataSource> Host<D> {
     }
 
     fn advanced(&mut self, a: exact_runner::Advanced) -> String {
-        self.now_ms = a.now_ms.max(self.now_ms);
+        // A frame task puts the runner at the display's target; with the
+        // first-frame rule the host's clock stays the wall's (LLP 1003.001 D5).
+        if !self.engine.starts_on_frame() {
+            self.now_ms = a.now_ms.max(self.now_ms);
+        }
         self.runner.canvas_frame();
         let error = a.error.map(|e| format!("{e:?}"));
         self.commit(&a.receipts, error)

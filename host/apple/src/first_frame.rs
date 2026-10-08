@@ -50,17 +50,12 @@ impl<D: DataSource> Host<D> {
     /// [`Host::frame`] at the display's target `frame_ms`, the wall at
     /// `wall_ms`: the runner and its frame tasks take the target (LLP 1073);
     /// the host's clock, which inputs and the engine's input clock follow,
-    /// stays at the wall (D5).
+    /// takes the wall (D5).
     pub fn frame_at(&mut self, frame_ms: f64, wall_ms: f64) -> String {
-        if !self.engine.starts_on_frame() {
-            return self.frame(frame_ms);
+        if self.engine.starts_on_frame() {
+            self.now_ms = wall_ms.max(self.now_ms);
         }
-        let wall = wall_ms.max(self.now_ms);
-        self.presence.input_cap = Some(wall / 1000.0);
-        let out = self.frame(frame_ms);
-        self.presence.input_cap = None;
-        self.now_ms = wall;
-        out
+        self.frame(frame_ms)
     }
 
     /// Turn the first-frame rule on or off (D7). Off, at the agent's
@@ -89,12 +84,11 @@ impl<D: DataSource> Host<D> {
     /// and, with the rule on, never past the host's clock, which a runner a
     /// frame task put at its target may lead (D5).
     pub(super) fn engine_time(&self, ms: f64) -> f64 {
-        let cap = self.presence.input_cap.or_else(|| {
-            self.engine
-                .starts_on_frame()
-                .then_some(self.now_ms / 1000.0)
-        });
-        let t = cap.map_or(ms / 1000.0, |cap| (ms / 1000.0).min(cap));
+        let t = if self.engine.starts_on_frame() {
+            ms.min(self.now_ms) / 1000.0
+        } else {
+            ms / 1000.0
+        };
         t.max(self.engine.now())
     }
 

@@ -57,9 +57,6 @@ pub(crate) struct Presence {
     /// The presented frame a motion tick is for (LLP 1003.001 D5): every
     /// present while it is set starts what waits for it.
     pub(super) frame: Option<f64>,
-    /// The wall time a display frame's commits stop the engine's input clock
-    /// at (LLP 1003.001 D5): its frame tasks run at the target.
-    pub(super) input_cap: Option<f64>,
     /// Each virtualized list's data generation, and whether it runs along
     /// x, at the last layout.
     generations: Vec<(ViewId, u64, bool)>,
