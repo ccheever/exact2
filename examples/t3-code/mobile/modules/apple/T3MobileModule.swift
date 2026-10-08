@@ -156,6 +156,17 @@ final class T3MobileModule: ExactModule {
 
     override func later(_ request: [String: Any], reply: ExactReply) {
         guard alive else { reply.fail("The mobile session was closed."); return }
+        if request["op"] as? String == "mobileOutbox" {
+            let store = queuedEdits
+            DispatchQueue.global(qos: .userInitiated).async {
+                do { reply.send(["ok": true, "generation": request["generation"] ?? 0, "value": try store.outbox(request)]) }
+                catch {
+                    let problem = error as? T3Failure ?? T3Failure(kind: "Persistence", message: "The outbox could not be saved.")
+                    reply.send(["ok": false, "generation": request["generation"] ?? 0, "error": problem.json])
+                }
+            }
+            return
+        }
         if (request["op"] as? String == "mobileQueuedEdit" && ["read", "cas", "cleanup", "release", "retire"].contains(request["action"] as? String ?? ""))
             || ["composerAttachRemove", "snapshotDraftRemove"].contains(request["op"] as? String ?? "") {
             let store = queuedEdits
