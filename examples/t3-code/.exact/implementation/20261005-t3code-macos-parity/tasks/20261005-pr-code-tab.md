@@ -1,13 +1,13 @@
 ---
 name: 20261005-pr-code-tab
 plan: 20261005-t3code-macos-parity
-implementation: planned
-verification: unverified
-delivery: none
+implementation: done
+verification: partial
+delivery: draft-pr
 repository: https://github.com/ccheever/exact2
-base_branch: daehyeon/t3-code
-branch: null
-pr_url: null
+base_branch: feat(example)/t3-code
+branch: feat(example)/t3-code-pr-code-tab
+pr_url: https://github.com/ccheever/exact2/pull/308
 verified_commit: null
 ---
 
@@ -111,14 +111,62 @@ Required environment: macOS 26.6.2, Xcode 27.0, Bun 1.4.2, the real-GitHub lane 
 
 2026-10-06: on hold (user decision: tasks that need a sign-in waited). 2026-10-07: the user lifted the hold. Rows that need a real account are signed in by the user in person on the lane build; every other sign-in row uses lane fixtures.
 
-Planned. No branch.
+2026-10-08 (draft PR #308, base `ec32c8c37`, merged `fa46ad5d0`): built end to end.
+
+- **Files.** `pages-pr-code.ts` (state, reads, view, presses), `pages-pr-code-logic.ts` (the ported logic), `pages-pr-code-rows.ts` (the list), `pages-pr-viewed.ts` (the ticks' store), `pages-pr-threads.ts` (the cards' model and writes), `pages-pr-code.contract`, `pages-pr-threads.contract`, `diff-rows.contract` (the thread diff panel's `DiffRow`/`DiffTool`, moved: the panel is reachable from `shapes.contract`, which reaches the PR panel), `modules/apple/T3Transport+PullRequests.swift` (`prDiff`), `macos/tests/transport/pull-requests.swift`; edits in `pages-pr-detail.*`, `pages-pr-timeline.*`, `pages-pr-handoffs.ts` (`prSelectionHandoff`), `pages-sources.ts`, `timeline-presentation.ts` (`chatlocal:pr-code-*`), `pages-prefs.ts` (`prFileTree`), `diff.ts` (exports), `r7-handoff.contract` (its own `prdTone`), `T3Transport.swift` (`http` internal, a 60 s session, the area entry), `app.contract` (only `prTab` on the `prDetail` line: **0 net root lines**, 1478).
+- **Root budget (coordinator).** No root task: the ticks' 400 ms wait is the panel resource's native sleep and the write is detached (`composer-replies.ts` `startDetached`), so X19's stand-in is the "wait inside" one, with no root line.
+- **Seed.** `tools/github-lane/seed.mjs` `codeScenarios()` (`--only code-tab`, #168), a `history` field for multi-commit scenarios, `codeReviewConversation`; `lane.mjs` ports 16300-16799.
+- **Fixed from the drives:** the Timeline commit row's empty id; the scope menu's glass and headline; the scope trigger at 840; the Refresh storm (the detail's invalidate flag, same fix as #306).
+- **Decisions.** Provisional, user decision pending: none. Kept deviations: headers not sticky (X32 draft); the scope menu's glass on an opaque colour (X11); split-view annotations stack under the row; tooltips through the existing `Tip` until the shared hover layer (fix-hover-cards) lands (a TODO hook on the commit headline).
+
+## Live session steps (one more session requested)
+
+The session budget (one drive + one retry) is used; drive 2 lost its second half to a real GitHub failure on #168's
+fourth slice. One more agent session closes the rest. Build: `export PATH="$HOME/.bun-1.4.2/bin:$PATH"
+EXACT_APP_DIR="$PWD/examples/t3-code"; bun host/apple/build.mjs t3-code-macos`. Lane: `cd examples/t3-code/tools/github-lane;
+export T3_GITHUB_LANE_SHARED=/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ui-parity/github-lane;
+bun lane.mjs start primary --port 16310; bun lane.mjs project primary`. Drive: `target/drive/drive.mjs` (uploaded as
+`drive-attempt2.mjs.txt`), with these changes: press Retry when the footer says the rest could not be loaded; keep the
+tree reveal; tap a card's reaction pill by node id within `pull-request-code-panel`. Rows, each read back with the lane gh:
+1. #168 Code tab: docs/usage.md (tree): Resolve then Unresolve the open thread (GraphQL `isResolved` true/false); react 👍 on a
+   comment and take it back (`pulls/comments/<id>/reactions`).
+2. Split view: "Add to review" on added 5, deleted 5, context left 4 of docs/usage.md and added 3 of src/strings.js; the composer's
+   Review mode, Submit review; read back `pulls/168/reviews/<id>/comments` (line/side, `src/strings.js`); delete those comments after.
+3. Escape on a draft and on a reply: nothing sent (gh log).
+4. Timeline: tap a commit row: the Code tab opens scoped to it.
+5. #115 (search may take ~45 s): Code tab, src/validate.js open, "Load more comments" on the long thread; the orphans list opened under
+   `prefer prefers-reduced-motion reduce` (the chevron swaps, does not turn).
+6. A draft on #115 src/validate.js added 4 → "Add to agent": "Asked in a thread" and the composer's chips; then a thread card's
+   "Fix in a thread" (the shared hand-off).
+7. 840×620: the toolbar keeps the scope trigger.
+Cleanup: unmark ticks; delete comments made; `bun lane.mjs stop primary`.
+
+## Real-input batch steps
+
+Deferred rows (screen locked while the user is away, 2026-10-08): real Tab through the Code toolbar, the scope menu, a file
+header and its tick, the draft and a thread's buttons with the focus ring; Escape closing the scope menu (focus back on the
+trigger); a real drag across line numbers (multi-line selection) ending in "Add to review"; reduced motion from System Settings.
+One session: build as above; copy the bundle to `target/github-lane/realinput/T3 Code (Lane PCT).app` (PlistBuddy:
+`CFBundleIdentifier` `com.exact.t3code.lanepct`, names "T3 Code (Lane PCT)"; `codesign --force --deep --sign <the development
+identity>`); take the real-input lock (owner "pr-code-tab: real-input batch"); launch with
+`CFFIXED_USER_HOME=$PWD/target/github-lane/realinput/home`; pair from `servers/primary/pairing-url`; open #168 › Code.
+1. `press-key Tab` from the scope trigger through whitespace, fold all, Stacked, Split, wrap, tree (a screenshot after each); Return
+   opens the scope menu, Escape closes it with the ring back on the trigger; `gh-calls.tsv` has no write.
+2. Drag from docs/usage.md new line 3 to 5 in the gutter: the selection paints; the gutter "+" on 5 opens the draft with "Comment on
+   lines …"; type with `paste-text`, ⌘↵ adds it; Escape on a second draft sends nothing.
+3. A thread's Reply: ⌘↵ sends (read back), Escape cancels.
+4. System Settings › Accessibility › Display › Reduce motion on (with the user's permission): the orphans' chevron swaps without
+   turning; off again.
+Cleanup: delete what was posted; quit the copy; remove its Keychain item; `bun lane.mjs stop primary`; release the lock.
 
 ## Attempts and evidence
 
 | Attempt | Revision/fingerprint | Checks and outcomes | Evidence | Remaining blocker |
 | --- | --- | --- | --- | --- |
-| none | — | — | — | — |
+| 1 (drive 1, 07:46Z) | `e2236599b` build | slices 4/4 (310 files), tree, threads, reply + edit read back, split drafts, scope menu, commit scope, dark: pass; Timeline row, scope menu look, 840 trigger: **fail → fixed** | [record](https://raw.githubusercontent.com/ccheever/exact2/0ed67de567c17c37e007b3dd179bae8550323bdc/pr-code-tab/record-attempt1.txt) | drive script: hidden duplicate testIds, `tap … into` |
+| 2 (drive 2, 08:13Z) | `295b7cac9` build | 3 ticks → one write, VIEWED; push → "Changed"; untick → one write; real slice-4 failure → message + Retry; Refresh storm **found → fixed** | [record](https://raw.githubusercontent.com/ccheever/exact2/b5eafd9801a9897690f81514f8a0606685d18372/pr-code-tab/record-attempt2.txt), [summary](https://raw.githubusercontent.com/ccheever/exact2/a8bec068a6c0aba30b04c7bcb2421fa86888175f/pr-code-tab/live-summary.txt) | rows after slice 4 not run (session budget) |
+| gates | `39bed7633` | bun 3219/1 skip/0 fail; tsc clean; contract build 4471 slots; Swift transport 62/0; `t3-code-macos --lib` 13; five checks green (cargo test 3521/0/34) | PR #308 body | — |
 
 ## Next action
 
-Starts after [20261007-real-github-lane](closed/20261007-real-github-lane.md) merges: `prepare` from `feat(example)/t3-code` on its shared lane login and sandbox (`examples/t3-code/tools/github-lane/README.md`), with a unit-test fallback for injected failures and delays and for the read, triage and read-only-author profiles.
+Coordinator: one more agent session for the rows in "Live session steps", and the real-input batch rows. Then flip PR #308 to ready.
