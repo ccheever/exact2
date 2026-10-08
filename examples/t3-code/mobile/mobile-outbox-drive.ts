@@ -1,12 +1,14 @@
 // Source365aa87982 use-thread-outbox-drain; Contract owns the clock and each invocation.
 // @ref llp/1109.005-composer-and-transcript.decision.md#queued-command-construction
 import type { T3Client } from './shared/client';
-import type { Native } from './shared/protocol';
+import { ClientError, type Native } from './shared/protocol';
+import { obj } from './shared/domain';
 import { letGo } from './shared/let-go';
 import { mobileOutboxRead, mobileOutboxSnapshot, type MobileOutboxRow } from './mobile-outbox';
 import { mobileOutboxDeliverOne, type MobileOutboxForegroundResult } from './mobile-outbox-foreground';
 import { mobileOutboxRetryDelay, type MobileOutboxRecord } from './mobile-outbox-model';
 import type { MobileOutboxWireOwner } from './mobile-outbox-wire';
+import { mobilePendingTaskEditorsSnapshot, mobilePendingTaskEditorKey } from './mobile-pending-task-state';
 
 interface Attempt {
   signature: string; sequence: number; tries: number; retryAt: number; waitingFor: string;
@@ -25,6 +27,26 @@ const ownerOf = (record: MobileOutboxRecord): MobileOutboxWireOwner => ({ origin
 const identity = (record: MobileOutboxRecord) => JSON.stringify(ownerOf(record));
 const connection = (client: T3Client) => JSON.stringify([client.generation, client.origin, client.environmentId,
   client.connection, client.configLive, client.config, client.scopes, client.shellLive, client.shell.sequence]);
+const orderedRows = (client: T3Client) => [...mobileOutboxSnapshot(client).rows].sort((a, b) => a.record.createdAt.localeCompare(b.record.createdAt));
+const sameThread = (a: MobileOutboxRecord, b: MobileOutboxRecord) => a.origin === b.origin && a.environmentId === b.environmentId && a.threadId === b.threadId;
+function predecessor(client: T3Client, record: MobileOutboxRecord): boolean {
+  for (const row of orderedRows(client)) {
+    if (identity(row.record) === identity(record)) return false;
+    if (sameThread(row.record, record)) return true;
+  }
+  return false;
+}
+function finalAcknowledged(current: Attempt, record: MobileOutboxRecord): boolean {
+  const receipt = current.result?.delivery?.operation;
+  return receipt?.state === 'acknowledged' && receipt.stage === 'start-turn' && receipt.operationId === record.commandId
+    && identity(receipt.record) === identity(record);
+}
+function localRecovery(request: unknown): boolean {
+  const value = obj(request), action = String(value.action ?? '');
+  return value.op === 'mobileOutbox' && ['read', 'acknowledge'].includes(action)
+    || value.op === 'mobileOutboxDelivery' && ['status', 'recover', 'complete'].includes(action)
+    || value.op === 'mobileOutboxInline' && ['lookup', 'status', 'recover'].includes(action);
+}
 const signature = (row: MobileOutboxRow) => JSON.stringify([row.token, row.nativeRevision, row.status, row.held]);
 const automatic = (result?: MobileOutboxForegroundResult) => !result || ['retry', 'waiting'].includes(result.status);
 function attempt(drive: Drive, row: MobileOutboxRow): Attempt {
@@ -45,8 +67,9 @@ export interface MobileOutboxDriveSnapshot {
 /** Plain render state only. Native journals own retries; this map owns transient backoff. */
 export function mobileOutboxDriveSnapshot(client: T3Client, now: number): MobileOutboxDriveSnapshot {
   const queue = mobileOutboxSnapshot(client), drive = state(client), stamp = connection(client);
+  const editors = mobilePendingTaskEditorsSnapshot(client);
   let next = '', delay = 0;
-  const rows = [...queue.rows].sort((left, right) => left.record.createdAt.localeCompare(right.record.createdAt));
+  const rows = orderedRows(client);
   const threads = new Set<string>();
   const items = rows.map(row => {
     const record = row.record, owner = identity(record), current = attempt(drive, row);
@@ -55,16 +78,17 @@ export function mobileOutboxDriveSnapshot(client: T3Client, now: number): Mobile
     const first = !threads.has(threadKey); threads.add(threadKey);
     const wait = Math.max(1, current.retryAt - (Number.isFinite(now) ? now : 0));
     const waits = current.result?.status === 'waiting' && current.waitingFor === stamp;
-    if (first && (!next || wait < delay) && !drive.busy && queue.complete && sameEnvironment && !row.held && row.status === 'confirmed'
+    const editing = editors.markers.some(marker => mobilePendingTaskEditorKey(marker.owner) === owner);
+    if (first && (!next || wait < delay) && !drive.busy && queue.complete && editors.ready && !editing && sameEnvironment && !row.held && row.status === 'confirmed'
       && automatic(current.result) && !waits) {
       next = JSON.stringify({ owner: ownerOf(record), signature: current.signature, sequence: current.sequence });
       delay = wait;
     }
     return { owner, environmentId: record.environmentId, threadId: record.threadId, messageId: record.messageId,
       title: record.text.trim().split('\n')[0]?.slice(0, 100) || 'Pending task', text: record.text,
-      status: drive.busy === owner ? 'sending' : current.result?.status ?? (row.held ? 'editing' : 'queued'),
-      reason: current.result?.reason ?? '', held: row.held,
-      canRetry: !drive.busy && !row.held && !!current.result && current.result.status !== 'delivered' };
+      status: drive.busy === owner ? 'sending' : editing ? 'editing' : current.result?.status ?? (row.held ? 'editing' : 'queued'),
+      reason: !editors.ready ? 'Read saved pending edits before sending.' : editing ? 'Saved edits must be resolved before this task sends.' : current.result?.reason ?? '', held: row.held || editing,
+      canRetry: (first || finalAcknowledged(current, record)) && editors.ready && !editing && !drive.busy && !row.held && !!current.result && current.result.status !== 'delivered' };
   });
   return { initialized: queue.initialized, complete: queue.complete, busy: !!drive.busy, count: rows.length, next, delay, items };
 }
@@ -84,19 +108,34 @@ export async function mobileOutboxDriveRun(client: T3Client, native: Native, key
   const owner = manual ? parsed as MobileOutboxWireOwner : parsed.owner;
   const row = mobileOutboxSnapshot(client).rows.find(item => identity(item.record) === JSON.stringify(owner));
   if (!row || row.record.environmentId !== client.environmentId || row.held || row.status !== 'confirmed') return { revision: client.revision, message: 'The pending task is no longer ready.' };
+  const editors = mobilePendingTaskEditorsSnapshot(client);
+  if (!editors.ready || editors.markers.some(marker => mobilePendingTaskEditorKey(marker.owner) === identity(row.record)))
+    return { revision: client.revision, message: 'Resolve saved pending edits before sending this task.' };
   const current = attempt(drive, row), id = identity(row.record);
+  const cleanupOnly = predecessor(client, row.record);
+  if (cleanupOnly && !finalAcknowledged(current, row.record))
+    return { revision: client.revision, message: 'Resolve the earlier pending message in this thread before sending this task.' };
   if (!manual && (parsed.signature !== current.signature || parsed.sequence !== current.sequence
     || !automatic(current.result) || current.retryAt > now)) return { revision: client.revision, message: '' };
   drive.busy = id; client.revision++;
+  let orderRefused = false;
+  // Inventory and editor ownership may change across the foreground pass's
+  // awaits. Local ACK cleanup is harmless to ordering; new wire work is not.
+  const orderedNative: Native = { available: native.available, watch: topic => native.watch(topic), later(request) {
+    if ((cleanupOnly || predecessor(client, row.record)) && !localRecovery(request)) {
+      orderRefused = true; throw new ClientError('Resolve the earlier pending message in this thread before sending this task.', 'stale');
+    }
+    return native.later(request);
+  } };
   try {
     const receipt = current.result?.delivery?.operation;
     const cleanupRetry = manual && receipt?.state === 'acknowledged' && receipt.cleanup
       && ['failed', 'not-started'].includes(receipt.cleanup.phase) ? receipt.revision : undefined;
-    const result = await mobileOutboxDeliverOne(client, native, owner!, { recover: true,
+    const result = await mobileOutboxDeliverOne(client, orderedNative, owner!, { recover: true,
       ...(cleanupRetry === undefined ? {} : { retryCleanupRevision: cleanupRetry }) });
     current.result = result; current.sequence++; current.tries++;
     current.retryAt = now + mobileOutboxRetryDelay(current.tries);
-    current.waitingFor = connection(client);
+    current.waitingFor = orderRefused ? '' : connection(client);
     // The pass may have adopted uploaded descriptors. Keep its outcome attached
     // to that new row, so an unresolved final command cannot become an auto retry.
     const after = mobileOutboxSnapshot(client).rows.find(item => identity(item.record) === id);
