@@ -1,0 +1,155 @@
+// pr-list-live-refresh, attempt 2 (if approved): the live check (one agent-mode session, no retry) on the list-refresh branch with
+// #261 merged: close #158 with a comment, wait for the open list to be read again without it, reopen it with a
+// comment, wait out the server's 30 s list cache, blur and refocus the window, and see the row come back; then a
+// 5-minute clock tick reads the list once more. The list's state is read back from the app and from GitHub.
+// bun drive3.mjs <repo> <label>. Primary lane server 127.0.0.1:16760 (real GitHub through the lane gh);
+// pairs with a fresh single-use token (never printed). Reads every effect back with the lane gh: the
+// state change and each comment body byte for byte; watches the list row (pr-row-158 in the open list)
+// leave on the press and come back on the reopen, and the toasts. Restores #158 (open, its two test
+// comments deleted) at the end.
+import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+const [repo, label] = process.argv.slice(2);
+const MINE = '/Users/daehyeonmun/orca/workspaces/exact2/t3-code-pr-list-live-refresh';
+const L = resolve(import.meta.dir), out = resolve(L, `out-${label}`); mkdirSync(out, { recursive: true });
+process.env.EXACT_APP_DIR = resolve(repo, 'examples/t3-code');
+const { open } = await import(resolve(repo, 'scripts/agent.mjs'));
+const lane = await import(resolve(MINE, 'examples/t3-code/tools/github-lane/lane.mjs'));
+const lib = await import(resolve(MINE, 'examples/t3-code/tools/github-lane/lib.mjs'));
+const paths = lib.lanePaths();
+const origin = 'http://127.0.0.1:16760';
+const REPO = 'daehyeonmun2021/playground', PR = 158;
+const rec = (line) => { const text = `${new Date().toISOString()} [${label}] ${line}`; appendFileSync(resolve(out, 'record.txt'), text + '\n'); console.log(text); };
+const gh = (args) => lib.api(paths, 'primary', args);
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const stateOf = () => gh([`repos/${REPO}/pulls/${PR}`]).body?.state;
+const comments = () => gh([`repos/${REPO}/issues/${PR}/comments?per_page=100`]).body ?? [];
+const openOnGitHub = () => (gh([`repos/${REPO}/pulls?state=open&per_page=100`]).body ?? []).some((p) => p.number === PR);
+// The lane server's spans: [name, start ms, end ms] for the pull request RPCs (written when each ends).
+const TRACE = resolve(MINE, 'target/github-lane/servers/primary/t3home/userdata/logs/server.trace.ndjson');
+const spans = (name) => { const out = []; try { for (const line of readFileSync(TRACE, 'utf8').split('\n')) { if (!line.includes(`"ws.rpc.pullRequests.${name}"`)) continue; try { const d = JSON.parse(line); out.push([Number(BigInt(d.startTimeUnixNano) / 1000000n), Number(BigInt(d.endTimeUnixNano) / 1000000n)]); } catch {} } } catch {} return out; };
+
+const atStart = { state: stateOf(), comments: comments().map((c) => c.id) };
+rec(`#${PR} before the session: ${JSON.stringify(atStart)}`);
+if (atStart.state !== 'open') throw new Error(`#${PR} is not open; not starting`);
+
+const s = await open({ host: 'macos', size: [1280, 840], env: { HOME: resolve(L, `apphome-${label}`) }, storage: `prll-${label}`, epoch: Date.now(),
+  onProcess: (p) => { writeFileSync(resolve(L, `${label}-app.pid`), String(p.pid)); rec(`app pid ${p.pid}`); } });
+const nodes = async () => (await s.tree()).nodes;
+const ids = async () => (await nodes()).map((n) => n.props?.testId).filter(Boolean);
+const has = async (id) => (await ids()).includes(id);
+// The driver's `+N real` can ask for a step a hair behind the host's clock ("the clock cannot go backwards
+// (34850.0 → 34849.999999999985)", attempt 1): that step is skipped and the clock settled instead.
+const settle = async (ms = 600) => {
+  try { await s.clock(`+${ms} real`); }
+  catch (error) { if (!/cannot go backwards/.test(error.message)) throw error; rec(`  (agent clock: ${error.message.slice(0, 100)}; settled instead)`); await sleep(ms); }
+  await s.clock('settle');
+};
+const type = async (id, value) => { await s.type(id, value); await settle(400); };
+const shot = async (name) => { await s.screenshot(resolve(out, `${label}-${name}.png`), true); rec(`shot ${name}`); };
+const texts = async (target) => {
+  try { const t = await s.tree(target); return t.nodes.flatMap((n) => [n.props?.text, n.props?.value, n.props?.['aria-label']].filter((v) => typeof v === 'string' && v.trim())).map((v) => v.trim()); }
+  catch { return []; }
+};
+const prop = async (id, key) => (await nodes()).find((n) => n.props?.testId === id)?.props?.[key];
+const clearToasts = async () => { for (const id of (await ids()).filter((id) => id.startsWith('toast-dismiss-'))) { try { await s.tap(id); await settle(300); } catch {} } };
+const toastsNow = async () => (await texts('toast-region')).join(' | ');
+const rowShown = async () => has(`pr-row-${PR}`);
+const made = [];
+
+// One press: poll the app (row, button label, toast) and GitHub (state) until the state lands and the
+// row has settled; log each change with its time from the press.
+async function press(button, want, rowWanted, name) {
+  const t0 = Date.now();
+  await s.tap(button);
+  let last = '', firstShot = false, landedAt = 0;
+  for (let i = 0; i < 60; i++) {
+    await settle(250);
+    const [row, labelNow, toast] = [await rowShown(), await texts(button), await toastsNow()];
+    const state = i % 3 === 0 || landedAt ? stateOf() : '…';
+    const line = `row ${row ? 'shown' : 'gone'} · button ${JSON.stringify(labelNow.join(' '))} · toast ${JSON.stringify(toast)} · GitHub ${state}`;
+    if (line.replace(/GitHub \S+/, '') !== last.replace(/GitHub \S+/, '')) { rec(`  +${Date.now() - t0} ms: ${line}`); last = line; }
+    if (!firstShot && row === rowWanted) { await shot(`${name}-row`); firstShot = true; }
+    if (state === want && !landedAt) landedAt = Date.now();
+    if (landedAt && toast && row === rowWanted) { await shot(`${name}-done`); break; }
+  }
+  return { landed: landedAt ? landedAt - t0 : null };
+}
+
+try {
+  await settle(2000);
+  if (await has('welcome-pairing-link')) { await type('welcome-pairing-link', `${origin}/pair#token=${lane.pairingToken('primary')}`); await s.tap('welcome-pair'); await settle(5000); }
+  for (const id of ['welcome-continue', 'welcome-agents-continue', 'welcome-skip-import']) if (await has(id)) { await s.tap(id); await settle(); }
+  await settle(3000); await clearToasts();
+  rec(`connected: ${(await has('open-pull-requests')) ? 'sidebar shows Pull Requests' : 'no Pull Requests entry'}`);
+  await s.tap('open-pull-requests'); await settle(6000); await clearToasts();
+  // The open list without a search (a search goes through GitHub's index, which lags a state change).
+  let searched = false;
+  if (!(await rowShown())) { await settle(4000); }
+  if (!(await rowShown())) { searched = true; await type('pull-requests-search', `#${PR}`); await settle(4000); }
+  rec(`list: ${searched ? 'searched "#158"' : 'no search'}; row #${PR} shown: ${await rowShown()}`);
+  await s.tap(`pr-row-${PR}`); await settle(6000); await clearToasts();
+  await shot('panel');
+
+  // Close with comment.
+  const closeWords = 'Closing: superseded by the `count_vowels` rewrite — "y" stays out.\n\nWill reopen after the check.';
+  await s.tap('pull-request-composer-trigger'); await settle(800);
+  if (await has('pull-request-composer-mode-comment')) { await s.tap('pull-request-composer-mode-comment'); await settle(300); }
+  await type('pull-request-comment-text', closeWords);
+  rec(`typed; Close with comment enabled: ${!(await prop('pull-request-comment-close', 'disabled'))}`);
+  await shot('close-typed');
+  const closed = await press('pull-request-comment-close', 'closed', false, 'close');
+  const closeComment = comments().at(-1); made.push(closeComment);
+  rec(`read back: state ${stateOf()} (landed +${closed.landed} ms); last comment by ${closeComment?.user?.login}, body equals the typed bytes: ${closeComment?.body === closeWords}`);
+  // Wait for the open list to be read again after the close landed (a list span that starts after the runAction ended).
+  const closedAt = Math.max(0, ...spans('runAction').map(([, end]) => end));
+  let reread = null;
+  for (let i = 0; i < 45 && !reread; i++) { await settle(1000); reread = spans('list').find(([start]) => start >= closedAt) ?? null; }
+  await settle(1500);
+  rec(`after: list read again after the close: ${reread ? `yes (started +${reread[0] - closedAt} ms, ${reread[1] - reread[0]} ms)` : 'no (45 s)'}; row #${PR} ${await rowShown() ? 'shown' : 'gone'}; GitHub open list holds #${PR}: ${openOnGitHub()}; toasts ${JSON.stringify(await toastsNow())}`);
+  await shot('closed-reread');
+  await clearToasts();
+
+  // Reopen with comment.
+  const reopenWords = 'Reopening — the `y` question is settled.';
+  await s.tap('pull-request-composer-trigger'); await settle(800);
+  if (await has('pull-request-composer-mode-comment')) { await s.tap('pull-request-composer-mode-comment'); await settle(300); }
+  await type('pull-request-comment-text', reopenWords);
+  rec(`typed; Reopen with comment shown: ${await has('pull-request-comment-reopen')}, Close with comment shown: ${await has('pull-request-comment-close')}`);
+  await shot('reopen-typed');
+  const reopenedAt = Date.now();
+  const reopened = await press('pull-request-comment-reopen', 'open', true, 'reopen');
+  const reopenComment = comments().at(-1); made.push(reopenComment);
+  rec(`read back: state ${stateOf()} (landed +${reopened.landed} ms); last comment by ${reopenComment?.user?.login}, body equals the typed bytes: ${reopenComment?.body === reopenWords}`);
+  const listsSince = (t) => spans('list').filter(([start]) => start >= t);
+  rec(`after the reopen: row #${PR} ${await rowShown() ? 'shown' : 'gone'}; list reads since the press: ${JSON.stringify(listsSince(reopenedAt).map(([a, b]) => [a - reopenedAt, b - a]))}; GitHub open list holds #${PR}: ${openOnGitHub()}`);
+  await shot('reopened');
+  // The server keeps a list answer 30 s: wait it out (the app's clock runs in real time meanwhile), noting the row.
+  const waitUntil = Math.max(...listsSince(reopenedAt).map(([, end]) => end), reopenedAt) + 35_000;
+  while (Date.now() < waitUntil) await settle(2000);
+  rec(`35 s after the last list read: row #${PR} ${await rowShown() ? 'shown' : 'gone'}; list reads since the reopen: ${listsSince(reopenedAt).length}`);
+  // Blur, then focus the window again: the page's useLiveRefresh arrival.
+  await s.prefer({ 'has-focus': 'false' }); await settle(1500);
+  const focusedAt = Date.now();
+  await s.prefer({ 'has-focus': 'true' });
+  let back = false;
+  for (let i = 0; i < 30 && !back; i++) { await settle(500); back = await rowShown(); }
+  rec(`after the refocus: row #${PR} ${back ? 'shown' : 'gone'} (+${Date.now() - focusedAt} ms); list reads since the focus: ${JSON.stringify(listsSince(focusedAt).map(([a, b]) => [a - focusedAt, b - a]))}`);
+  const row = (await nodes()).find((n) => n.props?.testId === `pr-row-${PR}`);
+  rec(`list state: row #${PR} ${row ? `shown ${JSON.stringify((await texts(`pr-row-${PR}`)).slice(0, 6))}` : 'gone'}; GitHub open list holds #${PR}: ${openOnGitHub()}`);
+  await shot('refocused');
+  // The interval: five minutes on the app's clock (the minute ticks), one more read through the server's cache.
+  const tickAt = Date.now(), before = spans('list').length;
+  await s.clock('+300000'); await settle(4000);
+  rec(`after +5 min on the clock: list reads since ${JSON.stringify(listsSince(tickAt).map(([a, b]) => [a - tickAt, b - a]))} (${spans('list').length - before} new); row #${PR} ${await rowShown() ? 'shown' : 'gone'}`);
+  await settle(1000); await clearToasts(); await shot('after-interval');
+} catch (error) {
+  rec(`FAILED: ${error.message.slice(0, 400)}`);
+  try { await shot('failure'); } catch {}
+} finally {
+  try { await s.close?.(); } catch {}
+  // Restore #158: open, and the test comments deleted.
+  if (stateOf() !== 'open') { gh(['-X', 'PATCH', `repos/${REPO}/pulls/${PR}`, '-f', 'state=open']); rec('reopened #158 with the lane gh'); }
+  for (const c of comments()) if (!atStart.comments.includes(c.id) && c.user?.login === 'daehyeonmun2021') { gh(['-X', 'DELETE', `repos/${REPO}/issues/comments/${c.id}`]); rec(`deleted test comment ${c.id}`); }
+  rec(`#${PR} after cleanup: ${JSON.stringify({ state: stateOf(), comments: comments().map((c) => c.id) })}; matches the start: ${stateOf() === atStart.state && JSON.stringify(comments().map((c) => c.id)) === JSON.stringify(atStart.comments)}`);
+}
