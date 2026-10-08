@@ -104,6 +104,12 @@ T3_LOCAL_HOME=/tmp/lane/t3-home T3_LOCAL_PORT=16437 bun host/apple/build.mjs t3-
 Without both variables its status is `refused` and nothing starts. Only the packaged build
 (`distribution.json` in its Resources) uses `~/.t3` and the port scan from 3773, as T3 Code does.
 
+The same marker decides Safari's Web Inspector (exact2 #101): in a development build the app's
+own web views (the terminal, the rendered-HTML preview, the offscreen Mermaid renderer) are
+`isInspectable`, so Safari's Develop menu lists them; the packaged build's are not
+(`T3WebInspection.swift`; each web view writes a `t3.inspection:` line to stderr). There is no
+View › Toggle Developer Tools: an inspector for the app's own UI stays out of exact2 (#101).
+
 Start your existing T3 installation with `t3`, or use its normal source-checkout
 startup command. Configure and authenticate at least one provider in T3 Code.
 This client implements orchestration protocol 2 and requires the server's
