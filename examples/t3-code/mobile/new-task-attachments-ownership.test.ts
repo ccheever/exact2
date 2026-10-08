@@ -1,10 +1,12 @@
 import { expect, test } from 'bun:test';
-import { MobileDraftClient } from './mobile-draft-recovery';
+import { MobileDraftClient, mobileDraftRecoveryHandles } from './mobile-draft-recovery';
 import { mobileNewTaskDraftCreate as create, mobileNewTaskDraftBind as bind, mobileNewTaskDraftLookup as lookup, mobileNewTaskDraftStore as store } from './mobile-new-task-drafts';
 import { mobileComposerAttachmentAction as action } from './composer-attachments';
 import { draftFiles } from './shared/composer-editor-files';
 import { obj, type Obj } from './shared/domain';
 import type { Native, Files } from './shared/protocol';
+import { mobilePendingTaskEditorsCreate, mobilePendingTaskEditorsReplace, mobilePendingTaskEditorsRemove,
+  mobilePendingTaskEditorsSnapshot, type MobilePendingTaskMarker } from './mobile-pending-task-state';
 const imageId = '11111111-1111-4111-a111-111111111111';
 const fileId = '22222222-2222-4222-a222-222222222222';
 async function fixture(kind = 'image') {
@@ -17,7 +19,9 @@ async function fixture(kind = 'image') {
       { kind, id: kind === 'image' ? imageId : fileId, name: kind === 'image' ? 'photo.jpg' : 'notes.txt',
         mimeType: kind === 'image' ? 'image/jpeg' : 'text/plain', sizeBytes: 50 }] } : call.op === 'composerAttachRemove' || call.op === 'snapshotDraftRemove' ? { removed: true } : { applied: false } };
   } };
-  await client.command('dismiss-error', '', '', 0, native, storage);
+  const handles = mobileDraftRecoveryHandles(client, native, storage);
+  await client.command('dismiss-error', '', '', 0, handles.native, handles.storage);
+  await handles.native!.later({ op: 'devicePresentation' });
   Object.assign(client, { environmentId: 'env', projectId: 'project', origin: 'https://draft.test' });
   for (const id of ['A', 'B']) {
     create(client, { id, environmentId: 'env', projectId: 'project', origin: client.origin, createdAt: '2026-10-08T00:00:00.000Z' });
@@ -71,4 +75,60 @@ test('removal flush retains bytes while another draft still references the same 
   expect(f.calls.some(call => call.op === 'composerAttachRemove')).toBe(false);
   expect(store(f.client).fileReleases).toContain(fileId);
   expect(draftFiles(f.client.local).some(file => file.draftKey === 'new-task:B')).toBe(true);
+});
+test('pending capture guard preserves the attachment action release intent through a failed first save', async () => {
+  const f = await fixture('file'); await f.run();
+  const attached = draftFiles(f.client.local).find(file => file.id === fileId)!;
+  expect(attached.source).toBe('attached');
+  const owner = { origin: f.client.origin, environmentId: f.client.environmentId,
+    threadId: 'pending-thread', messageId: 'pending-message', commandId: 'pending-command' };
+  const baseline: MobilePendingTaskMarker = { version: 1, owner, session: 'pending-editor-session', revision: 1,
+    draftKey: 'new-task:pending-pending-message', contentRevision: 0, pending: null,
+    baseline: { token: 'old-epoch:1', revision: 1, record: { schemaVersion: 1, ...owner, text: 'Original', attachments: [],
+      createdAt: '2026-10-08T00:00:00.000Z', creation: { projectId: 'project', workspaceMode: 'local', branch: null, worktreePath: null } } } };
+  expect(mobilePendingTaskEditorsCreate(f.client, baseline)).not.toBeNull();
+  const captured: MobilePendingTaskMarker = { ...baseline, revision: 2, contentRevision: 1,
+    pending: { mutationId: 'old-epoch:2', contentRevision: 1, request: { ownerEpoch: 'old-epoch', mutationId: 'old-epoch:2',
+      messageId: owner.messageId, operation: 'update', expectedToken: baseline.baseline.token,
+      expectedRevision: baseline.baseline.revision, requireUnheld: false,
+      record: { ...baseline.baseline.record, text: f.client.draft, attachments: [{ id: attached.id, kind: 'file',
+        contextId: attached.contextId, source: attached.source, name: attached.name, mimeType: attached.mimeType,
+        sizeBytes: attached.sizeBytes, uploadId: '', status: 'staged' }] } } } };
+  expect(mobilePendingTaskEditorsReplace(f.client, baseline, captured)).not.toBeNull();
+  expect(mobilePendingTaskEditorsSnapshot(f.client)).toMatchObject({ ready: true, markers: [captured] });
+  f.calls.length = 0; f.writes.length = 0;
+  const save = f.storage.fs.atomicWriteFile;
+  f.storage.fs.atomicWriteFile = async () => { throw new Error('disk full'); };
+  await expect(f.client.persist(f.storage)).rejects.toThrow('disk full');
+  // Drive the real action: shared code drops the row before asking its guarded
+  // Native to release bytes, and catches that removal's retained failure.
+  await f.run('remove-file', fileId);
+  expect(draftFiles(f.client.local).some(file => file.id === fileId)).toBe(false);
+  expect(store(f.client).fileReleases).toEqual([fileId]);
+  expect(f.calls.some(call => call.op === 'composerAttachRemove')).toBe(false);
+  expect(f.writes).toEqual([]);
+  expect(mobilePendingTaskEditorsSnapshot(f.client).markers).toEqual([captured]);
+  f.storage.fs.atomicWriteFile = save;
+  await f.client.flushSnapshotReleases(f.native, f.storage);
+  expect(store(f.client).fileReleases).toEqual([fileId]);
+  expect(f.calls.some(call => call.op === 'composerAttachRemove')).toBe(false);
+  expect(obj(f.writes.at(-1)?.mobileNewTaskDrafts).fileReleases).toEqual([fileId]);
+  // Resolve this never-admitted request through the exact marker CAS. The old
+  // queue baseline owns no file, so no remaining capture may keep this retry.
+  const resolved = { ...captured, revision: 3, pending: null };
+  expect(mobilePendingTaskEditorsReplace(f.client, captured, resolved)).not.toBeNull();
+  expect(mobilePendingTaskEditorsRemove(f.client, resolved)).toBe(true);
+  const original = f.native.later;
+  f.native.later = async input => {
+    if (obj(input).op === 'composerAttachRemove') {
+      expect(obj(f.writes.at(-1)?.mobileNewTaskDrafts).fileReleases).toEqual([fileId]);
+      expect(obj(f.writes.at(-1)?.mobilePendingTaskEditors).markers).toEqual({});
+    }
+    return original(input);
+  };
+  await f.client.flushSnapshotReleases(f.native, f.storage);
+  await f.client.flushSnapshotReleases(f.native, f.storage);
+  expect(f.calls.filter(call => call.op === 'composerAttachRemove')).toHaveLength(1);
+  expect(store(f.client).fileReleases).toEqual([]);
+  expect(obj(f.writes.at(-1)?.mobileNewTaskDrafts).fileReleases).toEqual([]);
 });

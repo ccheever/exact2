@@ -1086,6 +1086,68 @@ final class T3MobileQueuedEdit: @unchecked Sendable {
         }
         return found
     }
+    // A saved update owns its captured bytes before native mutation admission,
+    // even when newer draft edits have removed them. Unknown metadata is not empty.
+    private func pendingEditorsHold(_ identifier: String, preferences: [String: Any]) throws -> Bool {
+        guard let raw = preferences["mobilePendingTaskEditors"] else { return false }
+        let unknown = refusal("Pending editor attachment ownership is invalid.", kind: "Persistence")
+        func number(_ value: Any?, minimum: Int = 0) -> Int? {
+            guard let n = value as? NSNumber, CFGetTypeID(n) != CFBooleanGetTypeID(),
+                  n.doubleValue.isFinite, n.doubleValue.rounded() == n.doubleValue,
+                  n.doubleValue >= Double(minimum), n.doubleValue <= 9_007_199_254_740_991 else { return nil }
+            return n.intValue
+        }
+        func text(_ value: Any?) -> String? {
+            guard let value = value as? String, !value.isEmpty,
+                  value.trimmingCharacters(in: T3MobileOutbox.trimCharacters) == value else { return nil }
+            return value
+        }
+        let ownerFields = ["origin", "environmentId", "threadId", "messageId", "commandId"]
+        func ownerKey(_ owner: [String: String]) throws -> String {
+            let fields = try ownerFields.map { field in
+                let data = try JSONSerialization.data(withJSONObject: [owner[field]!], options: [.withoutEscapingSlashes])
+                let quoted = String(decoding: data, as: UTF8.self).dropFirst().dropLast()
+                return "\"\(field)\":\(quoted)"
+            }
+            return "{" + fields.joined(separator: ",") + "}"
+        }
+        guard let registry = raw as? [String: Any], Set(registry.keys) == Set(["version", "markers"]),
+              number(registry["version"]) == 1, let markers = registry["markers"] as? [String: [String: Any]] else { throw unknown }
+        var found = false, messages = Set<String>()
+        for (key, marker) in markers {
+            guard Set(marker.keys) == Set(["version", "owner", "session", "revision", "draftKey", "contentRevision", "baseline", "pending"]),
+                  number(marker["version"]) == 1, let owner = marker["owner"] as? [String: String],
+                  Set(owner.keys) == Set(ownerFields), ownerFields.allSatisfy({ text(owner[$0]) != nil }),
+                  key == (try ownerKey(owner)), text(marker["session"]) != nil, number(marker["revision"], minimum: 1) != nil,
+                  let revision = number(marker["contentRevision"]), let draft = marker["draftKey"] as? String,
+                  draft == "new-task:pending-\(owner["messageId"]!)", draft.range(of: "^new-task:[A-Za-z0-9_-]{1,128}$", options: .regularExpression) != nil,
+                  messages.insert(owner["messageId"]!).inserted,
+                  let baseline = marker["baseline"] as? [String: Any], Set(baseline.keys) == Set(["record", "token", "revision"]),
+                  let token = text(baseline["token"]), let baselineRevision = number(baseline["revision"]),
+                  let record = baseline["record"] as? [String: Any], T3MobileOutbox.validateRecord(record), record["creation"] is [String: Any],
+                  ownerFields.allSatisfy({ record[$0] as? String == owner[$0] }) else { throw unknown }
+            var records = [record]
+            if !(marker["pending"] is NSNull) {
+                guard let pending = marker["pending"] as? [String: Any], Set(pending.keys) == Set(["mutationId", "contentRevision", "request"]),
+                      let contentRevision = number(pending["contentRevision"]), contentRevision <= revision,
+                      let mutation = text(pending["mutationId"]), let request = pending["request"] as? [String: Any],
+                      Set(request.keys) == Set(["ownerEpoch", "mutationId", "messageId", "operation", "record", "expectedToken", "expectedRevision", "requireUnheld"]),
+                      let epoch = text(request["ownerEpoch"]), mutation.hasPrefix(epoch + ":"),
+                      request["mutationId"] as? String == mutation, request["messageId"] as? String == owner["messageId"],
+                      request["operation"] as? String == "update", let unheld = request["requireUnheld"] as? NSNumber,
+                      CFGetTypeID(unheld) == CFBooleanGetTypeID(), !unheld.boolValue,
+                      request["expectedToken"] as? String == token, number(request["expectedRevision"]) == baselineRevision,
+                      let proposed = request["record"] as? [String: Any], T3MobileOutbox.validateRecord(proposed), proposed["creation"] is [String: Any],
+                      ownerFields.allSatisfy({ proposed[$0] as? String == owner[$0] }), proposed["createdAt"] as? String == record["createdAt"] as? String else { throw unknown }
+                let suffix = String(mutation.dropFirst(epoch.count + 1))
+                guard let sequence = Int(suffix), sequence > 0, sequence <= 9_007_199_254_740_991,
+                      String(sequence) == suffix else { throw unknown }
+                records.append(proposed)
+            }
+            if records.contains(where: { ($0["attachments"] as! [[String: Any]]).contains { ($0["id"] as! String).lowercased() == identifier } }) { found = true }
+        }
+        return found
+    }
     private func held(_ identifier: String, value: [String: Any]) throws -> Bool {
         let preparing = inlinePreparations.values.contains { entry in
             let prepared = entry["prepared"] as! [String: Any]
@@ -1106,6 +1168,7 @@ final class T3MobileQueuedEdit: @unchecked Sendable {
         if try outboxStore.inventoryHolds(identifier) { return true }
         let preferencesValue = try readJSON(preferences)
         if try launchReceiptsHold(identifier, preferences: preferencesValue) { return true }
+        if try pendingEditorsHold(identifier, preferences: preferencesValue) { return true }
         let ordinary = preferencesValue["snapshotDrafts"] as? [String: [[String: Any]]] ?? [:]
         return ordinary.values.joined().contains { ($0["id"] as? String)?.lowercased() == identifier }
             || (preferencesValue["composerFiles"] as? [[String: Any]] ?? []).contains { ($0["id"] as? String)?.lowercased() == identifier }

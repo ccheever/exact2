@@ -1,4 +1,5 @@
 import { watchLive } from './shared/live-streams';
+import { mobileThreadSelection } from './thread-selection';
 import { mobileThreadHeaderEvents } from './thread-header';
 import { mobileGrantRequest } from './mobile-grants';
 import { mobileComposerTargetRequire } from './composer-target';
@@ -166,6 +167,7 @@ async function runMobileCommand(args: unknown[], nativeInput: Native | null | un
   const { native, storage } = answerHandles(nativeInput, suppliedStorage);
   if (!native?.available) return { revision: mobileClient.revision, message: 'Open T3 Code on your iPhone or iPad to connect.' };
   let op = str(args[0]), id = str(args[1]), value = str(args[2]);
+  if (op === 'select-thread') return mobileThreadSelection(mobileClient, id, native, storage);
   if (op === 'thread-answer-file') return mobileOpenAnswerFile(mobileClient, id, native, Number(args[3]));
   if (op === 'send' || op === 'send-alternate' || op === 'queued-edit-cancel') {
     try {

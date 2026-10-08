@@ -2,6 +2,7 @@ import { mobileDraftAttachmentIds, mobileDraftAttachmentForget } from './draft-a
 // App-owned foreground drafts; source365aa87982 use-composer-drafts/new-task-flow-provider.
 // @ref llp/1109.005-composer-and-transcript.decision.md#new-task-ownership
 import type { T3Client } from './shared/client';
+import { branchState } from './shared/r4-git-branch';
 import { obj, str, type Obj } from './shared/domain';
 import { ClientError } from './shared/protocol';
 import { draftFiles, setDraftFiles, type DraftFile } from './shared/composer-editor-files';
@@ -11,7 +12,7 @@ import { draftContext, type DraftContext } from './shared/composer-controls-bran
 export interface MobileNewTaskChoices {
   providerId?: string; modelId?: string; modelOptions?: Obj[]; runtimeMode?: string; interactionMode?: string;
 }
-export interface MobileNewTaskBranchChoice extends DraftContext { kind: 'automatic' | 'explicit' }
+export interface MobileNewTaskBranchChoice extends DraftContext { kind: 'automatic' | 'explicit'; startFromOrigin?: boolean }
 export interface MobileNewTaskDraft {
   key: string; environmentId: string; projectId: string; origin: string; createdAt: string;
   revision: number; choices: MobileNewTaskChoices | null; branchChoice?: MobileNewTaskBranchChoice;
@@ -80,8 +81,9 @@ function decodeBranchChoice(value: unknown): MobileNewTaskBranchChoice | null {
   const choice = obj(value);
   return (choice.kind === 'automatic' || choice.kind === 'explicit') &&
     (choice.envMode === 'local' || choice.envMode === 'worktree') && typeof choice.branch === 'string' &&
-    typeof choice.worktreePath === 'string'
-    ? { kind: choice.kind, envMode: choice.envMode, branch: choice.branch, worktreePath: choice.worktreePath } : null;
+    typeof choice.worktreePath === 'string' && (choice.startFromOrigin === undefined || typeof choice.startFromOrigin === 'boolean')
+    ? { kind: choice.kind, envMode: choice.envMode, branch: choice.branch, worktreePath: choice.worktreePath,
+      ...(typeof choice.startFromOrigin === 'boolean' ? { startFromOrigin: choice.startFromOrigin } : {}) } : null;
 }
 /** The same displayed branch may be an automatic checkout or an explicit pick.
  * Pinned projectThreadCreationValidation preserves only the latter when queued. */
@@ -89,7 +91,8 @@ export function mobileNewTaskDraftNoteBranch(client: T3Client, kind: MobileNewTa
   const current = mobileNewTaskDraftCurrent(client);
   if (!current) return;
   const record = mobileNewTaskDraftStore(client).records[current.key];
-  const next: MobileNewTaskBranchChoice = { ...draftContext(client), kind };
+  const origin = branchState(client).origin.get(current.key);
+  const next: MobileNewTaskBranchChoice = { ...draftContext(client), kind, ...(origin === undefined ? {} : { startFromOrigin: origin }) };
   if (JSON.stringify(record.branchChoice) !== JSON.stringify(next)) {
     record.branchChoice = next; record.revision++; client.revision++;
   }

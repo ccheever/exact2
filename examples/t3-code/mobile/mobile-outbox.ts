@@ -16,6 +16,10 @@ export interface MobileOutboxRow {
   status: 'optimistic' | 'confirmed' | 'uncertain'; held: boolean;
 }
 export interface MobileOutboxExpected { expectedToken?: string; expectedRevision?: number }
+export interface MobileOutboxSavedUpdate {
+  ownerEpoch: string; mutationId: string; messageId: string; operation: 'update';
+  record: MobileOutboxRecord; expectedToken: string; expectedRevision: number; requireUnheld: false;
+}
 export interface MobileOutboxCurrent { record: MobileOutboxRecord | null; revision: number; token: string; pending: boolean }
 export interface MobileOutboxOutcome {
   mutationId: string; messageId: string; status: 'committed' | 'stale' | 'failed' | 'uncertain' | 'unknown';
@@ -227,6 +231,42 @@ export const mobileOutboxEnqueue = (client: Client, native: Native | null | unde
   mutate(client, native, 'enqueue', record.messageId, record, {}, false);
 export const mobileOutboxUpdate = (client: Client, native: Native | null | undefined, record: MobileOutboxRecord, expected: MobileOutboxExpected = {}, requireUnheld = false) =>
   mutate(client, native, 'update', record.messageId, record, expected, requireUnheld);
+/** Reserve an immutable update before root durably saves its editor marker. No native admission. */
+export function mobileOutboxPrepareUpdate(client: Client, input: MobileOutboxRecord, expected: MobileOutboxExpected): MobileOutboxSavedUpdate {
+  const value = state(client), record = mobileOutboxEncode(input);
+  if (!value.initialized || !value.ownerEpoch || !value.complete) throw new ClientError('Read a complete pending-task inventory before saving edits.');
+  assertExpected(expected);
+  if (!nonempty(expected.expectedToken) || !integer(expected.expectedRevision)) throw new ClientError('Capture the exact pending task before saving edits.');
+  if (!Number.isSafeInteger(value.sequence + 1)) throw new ClientError('The pending task sequence is exhausted.');
+  const request: MobileOutboxSavedUpdate = { ownerEpoch: value.ownerEpoch, mutationId: `${value.ownerEpoch}:${++value.sequence}`,
+    messageId: record.messageId, operation: 'update', record: clone(record), expectedToken: expected.expectedToken,
+    expectedRevision: expected.expectedRevision, requireUnheld: false };
+  const freeze = (item: unknown): void => { if (item && typeof item === 'object') { Object.values(item).forEach(freeze); Object.freeze(item); } };
+  freeze(request); return request;
+}
+/** Root must persist this exact request before first invocation, and retain its editor hold. */
+export async function mobileOutboxResumeUpdate(client: Client, native: Native | null | undefined,
+  saved: MobileOutboxSavedUpdate, holdOwner: string): Promise<MobileOutboxOutcome> {
+  const { value, native: handle, epoch } = readyState(client, native);
+  if (!value.complete || !nonempty(holdOwner) || !object(saved) || !nonempty(saved.ownerEpoch)
+    || !nonempty(saved.mutationId) || tokenSequence(saved.mutationId, saved.ownerEpoch) === null
+    || saved.operation !== 'update' || saved.requireUnheld !== false || !nonempty(saved.expectedToken)
+    || !integer(saved.expectedRevision) || !nonempty(saved.messageId)) throw new ClientError('The saved pending update is invalid.');
+  const request = clone(saved); request.record = decodeRecord(request.record, request.messageId);
+  value.sequence = Math.max(value.sequence, tokenSequence(request.mutationId, epoch) ?? 0);
+  const ordinal = ++value.ordinal;
+  value.intents[request.mutationId] = { mutationId: request.mutationId, messageId: request.messageId,
+    ownerEpoch: request.ownerEpoch, operation: 'update', ordinal, record: clone(request.record),
+    expected: { expectedToken: request.expectedToken, expectedRevision: request.expectedRevision }, status: 'submitted' };
+  change(client, value);
+  try {
+    const result = outcome(await invoke(handle, { action: 'resumeUpdate', ownerEpoch: epoch, holdOwner, request }), request.messageId, request.mutationId);
+    adoptOutcome(value, result, ordinal); change(client, value); return clone(result);
+  } catch (error) {
+    const result: MobileOutboxOutcome = { mutationId: request.mutationId, messageId: request.messageId, status: 'unknown', message: String(error) };
+    adoptOutcome(value, result, ordinal); change(client, value); return result;
+  }
+}
 export const mobileOutboxRemove = (client: Client, native: Native | null | undefined, messageId: string, expected: MobileOutboxExpected = {}, requireUnheld = true) =>
   mutate(client, native, 'remove', messageId, undefined, expected, requireUnheld);
 export async function mobileOutboxStatus(client: Client, native: Native | null | undefined, messageId: string, mutationId: string): Promise<MobileOutboxOutcome> {

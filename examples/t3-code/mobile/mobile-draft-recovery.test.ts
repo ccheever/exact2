@@ -169,7 +169,10 @@ function pendingEditorMarker(): MobilePendingTaskMarker {
   return { version: 1, owner, session: 'editor-session', revision: 3, draftKey: 'new-task:pending-pending-message', contentRevision: 4,
     baseline: { token: 'epoch:2', revision: 2, record: { schemaVersion: 1, ...owner, text: 'Captured text', attachments: [],
       createdAt: '2026-10-08T12:00:00.000Z', creation: { projectId: 'p', workspaceMode: 'local', branch: 'main', worktreePath: null } } },
-    pending: { mutationId: 'epoch:3', contentRevision: 3 } };
+    pending: { mutationId: 'epoch:3', contentRevision: 3, request: { ownerEpoch: 'epoch', mutationId: 'epoch:3',
+      messageId: owner.messageId, operation: 'update', expectedToken: 'epoch:2', expectedRevision: 2, requireUnheld: false,
+      record: { schemaVersion: 1, ...owner, text: 'Persisted edit', attachments: [], createdAt: '2026-10-08T12:00:00.000Z',
+        creation: { projectId: 'p', workspaceMode: 'local', branch: 'main', worktreePath: null } } } } };
 }
 test('actual cold load presents pending editor marker before first native answer and persists it across restart', async () => {
   const marker = pendingEditorMarker(), extension = { version: 1, markers: { [mobilePendingTaskEditorKey(marker.owner)]: marker } };
@@ -189,7 +192,11 @@ test('actual cold load presents pending editor marker before first native answer
   expect(cold.client.local.drafts[marker.draftKey]).toBe('Newer text');
 });
 test('malformed and future pending-editor extensions survive actual load and persistence while gated', async () => {
-  for (const extension of [null, 'bad', { version: 2, markers: {} }, { version: 1, markers: { broken: { version: 9 } } }]) {
+  const valid = pendingEditorMarker(), legacy = JSON.parse(JSON.stringify(valid)), foreign = structuredClone(valid);
+  delete legacy.pending.request;
+  foreign.pending!.mutationId = 'other:3'; foreign.pending!.request.mutationId = 'other:3';
+  const envelope = (marker: MobilePendingTaskMarker) => ({ version: 1, markers: { [mobilePendingTaskEditorKey(marker.owner)]: marker } });
+  for (const extension of [null, 'bad', { version: 2, markers: {} }, { version: 1, markers: { broken: { version: 9 } } }, envelope(legacy), envelope(foreign)]) {
     const f = setup({ version: 1, mobilePendingTaskEditors: extension }); await f.load();
     expect(mobilePendingTaskEditorsSnapshot(f.client)).toMatchObject({ hydrated: true, ready: false, blocked: true });
     await f.client.persist(f.storage); expect(f.disk().mobilePendingTaskEditors).toEqual(extension);
