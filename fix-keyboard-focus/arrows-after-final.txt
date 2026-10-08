@@ -19,3 +19,8 @@ Diff scope (data-module mount), build 12 (after merging #290; the end is cleared
   ArrowUp -> diff-scope-unstaged (last). Escape in the open menu closes the menu and the diff panel with it
   (the panel's own Escape shortcut wins: the menu is not modal); not checked on the base.
 Details "Open in" (data-module mount): the menu opens on ArrowDown, Enter and a press, but in this lane it lists no editors ("No SSH route to …"), so its popup has no rows and no size and takes no focus; not checked with rows.
+
+After merging #312 and #308 (build 15, base 0e2901aec):
+PR #132 › Code tab › scope menu (#308's, new): ArrowDown -> pull-request-code-scope-all (first); ArrowDown -> pull-request-code-scope-6c21a1c;
+  Escape -> pull-request-code-scope; ArrowUp -> pull-request-code-scope-6c21a1c (last); Escape -> pull-request-code-scope;
+  a press on the trigger -> pull-request-code-scope-keys (the popup).
