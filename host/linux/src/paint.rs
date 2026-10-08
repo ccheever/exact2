@@ -1001,7 +1001,6 @@ impl Painter {
         }
         let outer = geometry.outer;
         let content = geometry.content;
-        let s = node.style;
         match node.node_type {
             NodeType::Text => self.text_node(walk, node, &geometry, rect, ts),
             // The rest is this element's own paint (its picture, field, or control).
@@ -1025,18 +1024,9 @@ impl Painter {
                 {
                     self.symbol(node, content, image_tint(node, &shown, self.dark), ts);
                 } else {
+                    self.row_slot(node.id, content, outer, ts);
                     self.backend.slot_begin(node.id);
-                    if let Some(img) = walk.scene.images.get(&node.id) {
-                        if let Some(dst) = object_fit(img.natural(), s.object_fit, content) {
-                            self.backend.image(
-                                img,
-                                dst,
-                                &[Shape::rect(content), outer],
-                                ts,
-                                image_tint(node, &shown, self.dark),
-                            );
-                        }
-                    }
+                    self.picture(walk, node, content, outer, ts);
                     self.backend.slot_end();
                 }
             }
