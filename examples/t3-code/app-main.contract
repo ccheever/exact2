@@ -253,6 +253,8 @@ component RightPanels
 component PagesCover
   props
     pageCover: bool
+    // The window's count of presses outside the page (T3Window), for the Usage page's light dismiss.
+    outside: number
     data: Snapshot
     sidebarWidth: number
     modal: bool
@@ -298,9 +300,9 @@ component PagesCover
       box position="absolute" left=(data.sidebarOpen ? sidebarWidth : 0) top=0 right=0 bottom=0 inert=modal testId="pages-cover"
         when utilityPage == "usage"
           when viewport.prefersColorScheme == "dark"
-            UsagePage(controlsLeft=data.controlsLeft, page=usage, keys=usageShortcuts, scheme="dark", wide=(viewport.width >= 1280), lg=(viewport.width >= 1024), md=(viewport.width >= 768), sm=(viewport.width >= 640), sidebarOpen=data.sidebarOpen, keySidebar=settings.keySidebar, toggleSidebar=toggleSidebar, op=pagesOp, setMetric=usageMetricSet, setWindow=usageWindowSet, setBreakdown=usageBreakdownSet, reload=usageRefreshNow, back=openPage(""), command=command, reduced=viewport.prefersReducedMotion)
+            UsagePage(controlsLeft=data.controlsLeft, page=usage, keys=usageShortcuts, scheme="dark", wide=(viewport.width >= 1280), lg=(viewport.width >= 1024), md=(viewport.width >= 768), sm=(viewport.width >= 640), sidebarOpen=data.sidebarOpen, keySidebar=settings.keySidebar, toggleSidebar=toggleSidebar, op=pagesOp, setMetric=usageMetricSet, setWindow=usageWindowSet, setBreakdown=usageBreakdownSet, reload=usageRefreshNow, back=openPage(""), command=command, reduced=viewport.prefersReducedMotion, outside=outside)
           else
-            UsagePage(controlsLeft=data.controlsLeft, page=usage, keys=usageShortcuts, scheme="light", wide=(viewport.width >= 1280), lg=(viewport.width >= 1024), md=(viewport.width >= 768), sm=(viewport.width >= 640), sidebarOpen=data.sidebarOpen, keySidebar=settings.keySidebar, toggleSidebar=toggleSidebar, op=pagesOp, setMetric=usageMetricSet, setWindow=usageWindowSet, setBreakdown=usageBreakdownSet, reload=usageRefreshNow, back=openPage(""), command=command, reduced=viewport.prefersReducedMotion)
+            UsagePage(controlsLeft=data.controlsLeft, page=usage, keys=usageShortcuts, scheme="light", wide=(viewport.width >= 1280), lg=(viewport.width >= 1024), md=(viewport.width >= 768), sm=(viewport.width >= 640), sidebarOpen=data.sidebarOpen, keySidebar=settings.keySidebar, toggleSidebar=toggleSidebar, op=pagesOp, setMetric=usageMetricSet, setWindow=usageWindowSet, setBreakdown=usageBreakdownSet, reload=usageRefreshNow, back=openPage(""), command=command, reduced=viewport.prefersReducedMotion, outside=outside)
         when utilityPage == "pull-requests"
           row position="absolute" left=0 top=0 right=0 bottom=0
             when viewport.prefersColorScheme == "dark"

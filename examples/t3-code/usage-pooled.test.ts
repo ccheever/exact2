@@ -421,3 +421,98 @@ describe('UsagePage refresh (UsagePage.refresh.test.tsx)', () => {
   });
 });
 
+
+// popover-escape-parity: light dismiss, read from the Contract sources as dialog-focus.test.ts reads
+// its handlers (the page's popover state is Contract state). The behavior is proven by the macOS drives
+// in tasks/20261008-popover-escape-parity.md. Reference: UsageLimitsPooled.tsx PoolSegment is a Base UI
+// Popover (non-modal); its useDismiss closes it on a press outside the popup and the popover's own
+// triggers (the segment and its LegendRow), on the click for a mouse ("intentional"), and a press on
+// another segment is outside it.
+describe('light dismiss of a pinned segment popover (popover-escape-parity)', () => {
+  const source = (file: string) => Bun.file(new URL(`./${file}`, import.meta.url)).text();
+  /** The lines of `component name` in `file`, up to the next top-level declaration. */
+  const component = async (file: string, name: string) => {
+    const lines = (await source(file)).split('\n');
+    const start = lines.findIndex(line => line === `component ${name}`);
+    if (start < 0) throw new Error(`${file}: no component ${name}`);
+    const end = lines.findIndex((line, index) => index > start && /^\S/.test(line) && !line.startsWith('//'));
+    return lines.slice(start, end < 0 ? undefined : end).join('\n');
+  };
+  /** A Contract boolean expression as JavaScript (`and`, `or`, `not`). */
+  const js = (expr: string) => expr.replace(/\band\b/g, '&&').replace(/\bor\b/g, '||').replace(/\bnot\b/g, '!');
+
+  test('usageHit holds a point inside a box and none in a missing box (frame() of an absent id is 0 by 0)', async () => {
+    const fn = /^fn usageHit\(g: Geometry, x: number, y: number\): bool = (.+)$/m.exec(await source('pages-usage.contract'))?.[1];
+    expect(fn).toBeDefined();
+    const hit = new Function('g', 'x', 'y', `return ${js(fn!)};`) as (g: { x: number; y: number; width: number; height: number }, x: number, y: number) => boolean;
+    const card = { x: 100, y: 40, width: 288, height: 200 };
+    expect([hit(card, 100, 40), hit(card, 387.5, 239.5), hit(card, 200, 100)]).toEqual([true, true, true]);
+    // The right and bottom edges are the next box's, as a hit test's are.
+    expect([hit(card, 388, 100), hit(card, 200, 240), hit(card, 99.5, 100), hit(card, 200, 39.5)]).toEqual([false, false, false, false]);
+    expect(hit({ x: 0, y: 0, width: 0, height: 0 }, 0, 0)).toBe(false);
+  });
+
+  test('a primary press that starts outside the pinned popover and both its triggers closes it as it ends', async () => {
+    const page = await component('pages-usage.contract', 'UsagePage');
+    // The page's root takes every press on the page but a segment's (below); the scroll's content fills
+    // its port, since on macOS a press on a scroll view's empty area reaches no node.
+    expect(page).toMatch(/\n {4}column [^\n]*pointerdown=pressDown pointerup=pressUp testId="usage-page"/);
+    expect(page).toContain('scroll flex=1 min-height=0 width="100%" testId="usage-scroll"\n');
+    expect(page).toMatch(/\n {8}column width="100%" min-height="100%" testId="usage-ground"\n {10}column width="100%" max-width="64rem"/);
+    // Down: outside the card and both handles of the popover on show, by the primary button only (a
+    // right-click is no click, so Base UI's intentional dismissal ignores it).
+    expect(page).toContain('action pressDown(e: PointerEvent)\n'
+      + '    let seg = frame(`usage-seg-${held}`)\n'
+      + '    let pop = frame(`usage-seg-pop-${held}`)\n'
+      + '    let leg = frame(`usage-legend-${held}`)\n'
+      + '    downOutside = held != "" and e.buttons == 1 and not (usageHit(seg, e.clientX, e.clientY) or usageHit(pop, e.clientX, e.clientY) or usageHit(leg, e.clientX, e.clientY))');
+    // Up (DOM's order: down, up, then the press): it closes before the press runs, so a press on another
+    // segment then pins that one and a press on the pinned segment (inside) toggles it closed.
+    expect(page).toContain('action pressUp\n    if downOutside\n      pinned = ""\n    downOutside = false');
+    // A press on the pinned popover's own segment closes it even with the pointer still there (the hover
+    // states too); the segment's next pointer move opens it by hover again, as Base UI's restMs hover does.
+    expect(page).toContain('action pin(id: string)\n    if held == id\n      pinned = ""\n      overSeg = ""\n      overPop = ""\n      overMail = ""\n    else\n      pinned = id\n    pinnedAt = outside');
+    // The three boxes are the ones usage-pooled.contract draws, by these ids.
+    const pooled = await source('usage-pooled.contract');
+    expect(pooled).toContain('button id=`usage-seg-${seg.id}` press=pin(seg.id) hover=enterSeg(seg.id) pointermove=enterSeg(seg.id, true)');
+    expect(pooled).toMatch(/column width="18rem"[^\n]*role="dialog" aria-label=seg\.title id=`usage-seg-pop-\$\{seg\.id\}`/);
+    expect(pooled).toMatch(/button [^\n]*press=pin\(seg\.id\)[^\n]*id=`usage-legend-\$\{seg\.id\}`/);
+  });
+
+  test('a press anywhere else in the window (the sidebar, the theme editor, a toast) closes it too', async () => {
+    const page = await component('pages-usage.contract', 'UsagePage');
+    // A pin holds while the window's count of outside presses is the one it was made at.
+    expect(page).toContain('derive held = pinnedAt == outside ? pinned : ""');
+    expect(page).toContain('derive shown = overPop != "" ? overPop : overMail != "" ? overMail : overSeg != "" ? overSeg : held');
+    expect(page).toContain('shown=shown, pinned=held,');
+    const window = await component('app-window.contract', 'T3Window');
+    expect(window).toContain('main testId="t3-code" pointerdown=outsidePressDown pointerup=outsidePressUp');
+    expect(window).toContain('action outsidePressDown(e: PointerEvent)\n    outsideDown = e.buttons == 1');
+    expect(window).toContain('action outsidePressUp\n    outsidePresses = outsideDown ? outsidePresses + 1 : outsidePresses\n    outsideDown = false');
+    expect(window).toContain('PagesCover(pageCover=pageCover, outside=outsidePresses,');
+    const cover = await component('app-main.contract', 'PagesCover');
+    expect(cover.split('\n').filter(line => line.includes('UsagePage(')).map(line => line.endsWith('outside=outside)'))).toEqual([true, true]);
+    // The nodes that take the pointer themselves hand their presses on (the theme editor's colour controls).
+    expect(window).toContain('outsideDown=outsidePressDown, outsideUp=outsidePressUp)');
+    const picker = await source('theme-color-picker.contract');
+    for (const name of ['triggerDown', 'planeDown', 'hueDown']) expect(picker).toMatch(new RegExp(`action ${name}\\(e: PointerEvent\\)\\n(    .*\\n)*?    outsideDown\\(e\\)`));
+    for (const name of ['triggerUp', 'planeUp', 'hueUp']) expect(picker).toMatch(new RegExp(`action ${name}(\\(e: PointerEvent\\))?\\n    outsideUp\\(\\)`));
+    expect(picker).toContain('pointerdown=triggerDown pointerup=triggerUp');
+    // No other node in the app takes the pointer, so every other press reaches the window's count (a
+    // segment holds its own presses: a press on it is never outside its popover, and one on another
+    // segment pins that one in place of the first).
+    const { readdirSync } = await import('node:fs');
+    const takers: string[] = [];
+    for (const file of readdirSync(new URL('./', import.meta.url)).filter(name => name.endsWith('.contract')).sort()) {
+      (await source(file)).split('\n').forEach(line => { if (/^\s*[a-z][\w-]*\b[^\n]*\spointer(down|up|move)=/.test(line)) takers.push(`${file} ${/testId=(?:"([^"]+)"|`([^`]+)`)/.exec(line)?.slice(1).find(Boolean) ?? ''}`); });
+    }
+    expect(takers).toEqual([
+      'app-window.contract t3-code',
+      'pages-usage.contract usage-page',
+      'theme-color-picker.contract theme-editor-swatch-${row.id}',
+      'theme-color-picker.contract theme-color-${row.id}-plane',
+      'theme-color-picker.contract theme-color-${row.id}-hue',
+      'usage-pooled.contract usage-seg-${seg.id}',
+    ]);
+  });
+});

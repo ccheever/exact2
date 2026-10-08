@@ -203,16 +203,17 @@ Acceptance rows:
 | 1a (failed approach, same day) | uncommitted | data-source bake refused `Date.now()` in `usage-replies.ts` (request keys) | build log | keys now come from the transport's `ids` |
 | 2 (2026-10-08) | `ba541958d` (feature branch `b7761f556` merged) | live session 2 (the one retry): Escape fixed; found X56 (a click on an unfocused segment lost its press) and a clipped second-card popover | images 02–05, 07, 16; `drive-record.md` | both fixed in attempt 3, not re-driven |
 | 3 (2026-10-08) | `aceedd9e2` | `bun test examples/t3-code` 2,970 pass / 1 skip / 0 fail; strict `tsc` clean; contract build 3,472 slots; `cargo test -p t3-code-macos --lib` 11 pass; macOS bundle builds; caps within; five checks: build ok, test 3,383 pass / 0 fail / 33 ignored (95 binaries), clippy ok, fmt ok, boot ok | PR checks table | real-input batch rows; user decisions (real redeem); Cursor free plan |
-| 4 (2026-10-08) | `9472711ee` (independent-review fixes), merges `99466bb98` (feature branch `e784c8fb1`, #261) and `0697700e7` (`19714be51`, #264) | review fixes: `bun test examples/t3-code` 2,974 pass / 1 skip / 0 fail; after both merges: 3,036 pass / 1 skip / 0 fail; strict `tsc` clean; contract build 3,844 slots; `app.contract` 1,456 lines (base 1,459); `cargo test -p t3-code-macos --lib` 11 pass; macOS bundle builds; caps within; five checks: build ok, test 3,383 pass / 0 fail / 33 ignored (95 binaries), clippy ok, fmt ok, boot ok | PR "Independent review" and Checks sections; 4 new `usage-pooled.test.ts` cases | review fixes unit-tested, not re-driven (session budget); light dismiss needs a decision or an issue; rows above |
+| 4 (2026-10-08) | `9472711ee` (independent-review fixes), merges `99466bb98` (feature branch `e784c8fb1`, #261) and `0697700e7` (`19714be51`, #264) | review fixes: `bun test examples/t3-code` 2,974 pass / 1 skip / 0 fail; after both merges: 3,036 pass / 1 skip / 0 fail; strict `tsc` clean; contract build 3,844 slots; `app.contract` 1,456 lines (base 1,459); `cargo test -p t3-code-macos --lib` 11 pass; macOS bundle builds; caps within; five checks: build ok, test 3,383 pass / 0 fail / 33 ignored (95 binaries), clippy ok, fmt ok, boot ok | PR "Independent review" and Checks sections; 4 new `usage-pooled.test.ts` cases | review fixes unit-tested, not re-driven (session budget); rows above (light dismiss: done in `20261008-popover-escape-parity`) |
 
 ## Next action
 
 Review and merge PR #263 into `feat(example)/t3-code`. The coordinator's real-input batch runs the steps
 below (real hover, a real click on an unfocused segment for X56, the popover side, the Cursor Enable
 buttons with Return). A real redeem waits for the user's decision on spending a banked credit; the real
-Cursor Keychain prompt waits for a Cursor account on a paid plan. Light dismiss (an outside press closing a
-pinned popover) is declared in `EXACT2-GAPS.md` against the local draft X53 only, with no GitHub issue:
-it needs the user's decision or an issue. The review fixes (`9472711ee`) are unit-tested, not re-driven.
+Cursor Keychain prompt waits for a Cursor account on a paid plan. The review fixes (`9472711ee`) are
+unit-tested, not re-driven. Light dismiss (an outside press closing a pinned popover) is no longer declared:
+the user decided on 2026-10-08 that it behaves as the reference, and
+[`20261008-popover-escape-parity`](20261008-popover-escape-parity.md) built it.
 
 ## Real-input batch steps
 
