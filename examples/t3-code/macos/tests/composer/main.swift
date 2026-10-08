@@ -295,7 +295,7 @@ final class ComposerTests: XCTestCase {
 }
 
 var executed = 0, failures = 0, succeeded = true
-for suite in [ComposerTests.defaultTestSuite, ComposerEditorTests.defaultTestSuite, ComposerImageChipTests.defaultTestSuite, ComposerChipTipTests.defaultTestSuite, ImageAccentTests.defaultTestSuite] {
+for suite in [ComposerTests.defaultTestSuite, ComposerEditorTests.defaultTestSuite, ComposerImageChipTests.defaultTestSuite, ComposerChipTipTests.defaultTestSuite, ImageAccentTests.defaultTestSuite, PromptPreviewEditorTests.defaultTestSuite] {
     suite.run()
     guard let run = suite.testRun, run.executionCount == suite.testCaseCount else { exit(1) }
     executed += run.executionCount; failures += run.totalFailureCount; succeeded = succeeded && run.hasSucceeded

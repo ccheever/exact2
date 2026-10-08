@@ -30,6 +30,7 @@
   },
   "hatches": [
     "t3-composer",
+    "t3-prompt-preview",
     "t3-send",
     "t3-anchor",
     "t3-transcript",
