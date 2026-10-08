@@ -1,0 +1,17 @@
+2026-10-08T04:03:49.657Z [after] app pid 6680, base binary: (branch build)
+2026-10-08T04:04:04.223Z [after] GitHub title at start: "Describe the vowel counter"
+2026-10-08T04:04:12.939Z [after] row #159 shown: true; label "{\"children\":[1981,1984],\"props\":{\"accessibilityLabel\":\"Open #159 Describe the vowel counter\",\"accessibilityRole\":\"button\",\"testId\":\"pr-row-159\"},\"id\":1980,\"type\":\"Pressable\",\"depth\":9,\"parent\":1917,\"handlers\":[\"press\",\"hover\"],\"focused\":false}"
+2026-10-08T04:04:18.093Z [after] shot 01-original-window
+2026-10-08T04:04:18.100Z [after] 01-original row box {"x":286,"y":189,"h":56,"w":324}
+2026-10-08T04:04:18.110Z [after] 01-original-title: layout failed: "Describe the vowel counter" names 2 views: 1988 Text, 4551 Text; target one by its view id
+2026-10-08T04:04:19.771Z [after] PATCH title -> "Describe the vowel counter (edited)": HTTP 200; read back "Describe the vowel counter (edited)"
+2026-10-08T04:04:53.162Z [after] row shows the new title: true; label "{\"focused\":false,\"id\":1980,\"parent\":1917,\"type\":\"Pressable\",\"children\":[1981,1984],\"handlers\":[\"press\",\"hover\"],\"props\":{\"accessibilityLabel\":\"Open #159 Describe the vowel counter (edited)\",\"accessibilityRole\":\"button\",\"testId\":\"pr-row-159\"},\"depth\":9}"
+2026-10-08T04:04:54.771Z [after] shot 02-edited-window
+2026-10-08T04:04:54.778Z [after] 02-edited row box {"y":189,"w":324,"x":286,"h":56}
+2026-10-08T04:04:54.789Z [after] 02-edited-title: layout failed: "Describe the vowel counter (edited)" names 2 views: 1988 Text, 4260 (pull-request-title) Text; target one by its view id
+2026-10-08T04:04:57.870Z [after] row #149 shown: true; label "{\"depth\":9,\"parent\":1917,\"children\":[4568,4571],\"handlers\":[\"press\",\"hover\"],\"type\":\"Pressable\",\"id\":4567,\"focused\":false,\"props\":{\"accessibilityLabel\":\"Open #149 Link the FAQ from the usage notes\",\"accessibilityRole\":\"button\",\"testId\":\"pr-row-149\"}}"
+2026-10-08T04:04:57.982Z [after] shot 03-long-narrow-window
+2026-10-08T04:04:57.991Z [after] 03-long-narrow row box {"x":286,"y":189,"w":324,"h":56}
+2026-10-08T04:04:58.019Z [after] 03-long-narrow-title: {"frame":{"y":0,"w":177.109375,"x":35.671875,"h":20},"absolute":{"y":199,"w":177.109375,"x":357.671875,"h":20},"viewport":{"y":199,"w":177.11,"x":357.67,"h":20},"clip":{"hidden":false,"inert":false,"clipped":false,"inViewport":true},"rows":{"text_align":null,"text_overflow":null,"overflow_x":null,"white_space":null,"min_width":null,"flex_shrink":null,"direction":null},"native":{"view":"NodeView","subviews":{"entries":[{"depth":0,"node":4575,"layer":{"masksToBounds":true,"zPosition":0},"frame":{"x":357.67,"w":177.11,"h":20,"y":199},"hidden":false,"kind":"view","class":"NodeView","alpha":1}],"complete":true,"count":1,"depth":1,"limit":4,"root":"view"},"sheet":false}}
+2026-10-08T04:04:59.739Z [after] restore title: HTTP 200; read back "Describe the vowel counter"
+2026-10-08T04:04:59.770Z [after] session closed
