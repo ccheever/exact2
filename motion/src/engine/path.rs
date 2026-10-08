@@ -49,6 +49,10 @@ impl Engine {
     /// the path and stops its transition. Otherwise CSS Transitions §3, as
     /// [`Engine::observe`] for a value.
     pub fn observe_path(&mut self, node: u64, path: Option<PathValue>) {
+        (self.links.observe_path)(self, node, path)
+    }
+
+    pub(super) fn observe_path_full(&mut self, node: u64, path: Option<PathValue>) {
         let key = (node, Property::D);
         let Some(path) = path.filter(PathValue::is_finite) else {
             if self.paths.remove(&node).is_some() {

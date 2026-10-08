@@ -26,7 +26,12 @@ fn markdown_is_a_markup_prop_that_can_be_markdown() {
 fn motion_is_a_spring_or_a_gesture_that_holds_a_value() {
     let css =
         used("component A\n  view\n    text \"a\" opacity=0.5 transition=\"opacity 200ms ease\"\n");
-    assert_eq!(css, Uses::NONE, "CSS plays an easing transition");
+    // The browser plays an easing transition; a native engine plays it as
+    // `transitions` (LLP 1047.001), never as motion.
+    assert_eq!(css.to_string(), "transitions");
+    assert!(!css.has(Capability::Motion));
+    let none = used("component A\n  view\n    text \"a\" opacity=0.5 transition=\"none\"\n");
+    assert_eq!(none, Uses::NONE, "a transition of none plays nothing");
     let spring = used(
         "component A\n  view\n    text \"a\" scale=1.5 transition=\"scale -exact-spring(180, 12, 1)\"\n",
     );
@@ -56,7 +61,7 @@ fn motion_is_a_spring_or_a_gesture_that_holds_a_value() {
     assert!(drag.has(Capability::Motion) && drag.has(Capability::Drag));
     assert_eq!(
         spring.with(Capability::Markdown).to_string(),
-        "markdown, motion"
+        "markdown, motion, transitions"
     );
 }
 

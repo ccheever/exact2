@@ -83,6 +83,14 @@ impl Engine {
         node: u64,
         animations: &Animations,
     ) -> Result<(), EngineError> {
+        (self.links.set_animations)(self, node, animations)
+    }
+
+    pub(super) fn set_animations_full(
+        &mut self,
+        node: u64,
+        animations: &Animations,
+    ) -> Result<(), EngineError> {
         animations
             .validate()
             .map_err(|_| EngineError::InvalidAnimation)?;
@@ -292,6 +300,15 @@ impl Engine {
     /// that applies wins (CSS's composite order, replace); one outside its
     /// interval with no fill contributes nothing. `None` when none applies.
     pub fn animated(&self, node: u64, property: Property, underlying: Value) -> Option<Value> {
+        (self.links.animated)(self, node, property, underlying)
+    }
+
+    pub(super) fn animated_full(
+        &self,
+        node: u64,
+        property: Property,
+        underlying: Value,
+    ) -> Option<Value> {
         let now = self.sample_time();
         self.animations.get(&node)?.iter().rev().find_map(|play| {
             play.animation
@@ -306,6 +323,14 @@ impl Engine {
     /// the node already plays starts again, as a second entry of that name
     /// does. Returns the clock time the last exit animation ends.
     pub fn play_exit(&mut self, node: u64, exit: &Animations) -> Result<f64, EngineError> {
+        (self.links.play_exit)(self, node, exit)
+    }
+
+    pub(super) fn play_exit_full(
+        &mut self,
+        node: u64,
+        exit: &Animations,
+    ) -> Result<f64, EngineError> {
         exit.validate_ending()
             .map_err(|_| EngineError::InvalidAnimation)?;
         let (now, dark) = (self.sample_time(), self.dark_of(node));

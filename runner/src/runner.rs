@@ -762,7 +762,7 @@ impl<D: DataSource> Runner<D> {
             None => None,
         };
         let mut runner = Runner {
-            sites: crate::instance::SiteIndex::new(&plan),
+            sites: crate::instance::SiteIndex::linked(&plan, links.keyframes),
             strings: vm::intern(&plan),
             plan,
             inspection_digest: std::cell::OnceCell::new(),

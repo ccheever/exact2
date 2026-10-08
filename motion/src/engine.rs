@@ -24,6 +24,8 @@ mod animate;
 mod clock;
 mod first_frame;
 mod hold;
+mod links;
+pub use links::EngineLinks;
 mod path;
 mod played;
 pub use played::{PlayedCurve, PlayedTransition};
@@ -238,7 +240,7 @@ impl Hasher for SlotHasher {
 }
 
 /// The motion state of every node the host has told it about.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct Engine {
     // The input clock: inputs, holds, releases and timer receipts move it.
     now: f64,
@@ -287,6 +289,9 @@ pub struct Engine {
     // Each path's `d`, and the two ends of its transition (LLP 1055.000
     // D15); the progress is the node's `Property::D` slot.
     paths: BTreeMap<u64, path::PathTrack>,
+    // What plays: every animation, or nothing but settled values (LLP
+    // 1047.001 D3), chosen once when the engine is made.
+    links: &'static links::EngineLinks,
 }
 
 impl Engine {
@@ -320,6 +325,14 @@ impl Engine {
         node: u64,
         transitions: Transitions,
     ) -> Result<(), EngineError> {
+        (self.links.set_transitions)(self, node, transitions)
+    }
+
+    pub(super) fn set_transitions_full(
+        &mut self,
+        node: u64,
+        transitions: Transitions,
+    ) -> Result<(), EngineError> {
         transitions.validate().map_err(EngineError::Transition)?;
         if transitions.0.is_empty() {
             self.transitions.remove(&node);
@@ -334,6 +347,14 @@ impl Engine {
     /// observed from now on. One that names a property governs nothing, as
     /// `transition: opacity 1s` does not move a box.
     pub fn set_layout_transition(
+        &mut self,
+        node: u64,
+        transitions: &Transitions,
+    ) -> Result<(), EngineError> {
+        (self.links.set_layout_transition)(self, node, transitions)
+    }
+
+    pub(super) fn set_layout_transition_full(
         &mut self,
         node: u64,
         transitions: &Transitions,
@@ -417,6 +438,10 @@ impl Engine {
     /// `transition` declaration starts one from the current value, or
     /// interrupts and possibly reverses the one running.
     pub fn observe(&mut self, change: Change) -> Result<(), EngineError> {
+        (self.links.observe)(self, change)
+    }
+
+    pub(super) fn observe_full(&mut self, change: Change) -> Result<(), EngineError> {
         validate_value(change.property, change.value)?;
         if let Some(velocity) = change.velocity {
             validate_value(change.property, velocity)?;
@@ -558,6 +583,10 @@ impl Engine {
     /// Seeking is the only operation: the result depends on `now`, never on
     /// how many calls it took to get there.
     pub fn advance(&mut self, now: f64) -> Result<(), EngineError> {
+        (self.links.advance)(self, now)
+    }
+
+    pub(super) fn advance_full(&mut self, now: f64) -> Result<(), EngineError> {
         self.validate_time(now)?;
         self.now = now;
         let now = self.sample_time();
@@ -630,6 +659,14 @@ impl Engine {
     /// `None` for held, settled, unknown properties and easings. A host may lower
     /// frames only when this descriptor differs from its last playback.
     pub fn spring_descriptor(&self, node: u64, property: Property) -> Option<SpringDescriptor> {
+        (self.links.spring_descriptor)(self, node, property)
+    }
+
+    pub(super) fn spring_descriptor_full(
+        &self,
+        node: u64,
+        property: Property,
+    ) -> Option<SpringDescriptor> {
         let running = self.slots.get(&(node, property))?.running()?;
         let Curve::Spring { config, velocity } = &running.curve else {
             return None;
@@ -646,6 +683,10 @@ impl Engine {
     /// The spring running on one property, lowered to frames; `None` when
     /// nothing runs there or what runs is an easing.
     pub fn spring_frames(&self, node: u64, property: Property) -> Option<SpringFrames> {
+        (self.links.spring_frames)(self, node, property)
+    }
+
+    pub(super) fn spring_frames_full(&self, node: u64, property: Property) -> Option<SpringFrames> {
         let running = self.slots.get(&(node, property))?.running()?;
         let (duration, values) = running.spring_frames()?;
         Some(SpringFrames {

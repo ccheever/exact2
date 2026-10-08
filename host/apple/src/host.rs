@@ -474,7 +474,8 @@ impl<D: DataSource> Host<D> {
             roots: Vec::new(),
             collections_json: "[]".into(),
             engine: {
-                let mut engine = Engine::new();
+                // Settled values only when the plan animates nothing (LLP 1047.001).
+                let mut engine = Engine::linked(links.engine);
                 let _ = engine.set_start_on_frame(start_on_frame, 0.0);
                 engine.set_lowered_properties(&svg::lowered(cfg!(any(
                     target_os = "ios",
