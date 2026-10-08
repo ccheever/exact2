@@ -245,7 +245,14 @@ impl Memo {
     pub(crate) fn insert(&mut self, events: Vec<Event>) {
         self.misses = self.misses.saturating_add(1);
         self.records += 1;
-        if self.steps.len() + events.len() > MAX_STEPS {
+        if self.misses >= GIVE_UP {
+            // Given up: the traces held matched nothing for a while, and
+            // their storage goes with them (crypto's feed, whose rows never
+            // replay, held all 24,000 steps: 4.2 MB). This trace alone is
+            // kept, for the next root attempted to be tried against.
+            self.steps = Vec::new();
+            self.first = NONE;
+        } else if self.steps.len() + events.len() > MAX_STEPS {
             self.clear();
         }
         // The step whose `next` leads to this place (none: `first`).
@@ -391,5 +398,34 @@ impl Recorder {
         // trace out rather than its indices wrong.
         self.poisoned |= self.index.insert(node, (self.count, false)).is_some();
         self.count += 1;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A trace of `len` steps no other trace shares a start with.
+    fn trace(seed: u32, len: usize) -> Vec<Event> {
+        (0..len).map(|k| Event::Layout { node: seed.wrapping_mul(1000) + k as u32, layout: Layout::new() }).collect()
+    }
+
+    #[test]
+    fn a_memo_that_gave_up_holds_one_trace() {
+        let mut memo = Memo::default();
+        for seed in 0..GIVE_UP - 1 {
+            memo.insert(trace(seed, 100));
+        }
+        assert_eq!(memo.steps.len(), 100 * (GIVE_UP as usize - 1), "every trace until it gives up");
+        memo.insert(trace(GIVE_UP, 100));
+        assert_eq!(memo.steps.len(), 100, "then the last alone");
+        assert!(memo.steps.capacity() < 400, "and the others' storage is freed");
+        memo.insert(trace(GIVE_UP + 1, 100));
+        assert_eq!(memo.steps.len(), 100);
+        // A hit starts it keeping traces again.
+        memo.hit();
+        memo.insert(trace(GIVE_UP + 2, 100));
+        memo.insert(trace(GIVE_UP + 3, 100));
+        assert_eq!(memo.steps.len(), 300);
     }
 }

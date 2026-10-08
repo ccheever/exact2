@@ -947,7 +947,9 @@ finished, so the layout that follows is recorded as if none had run.
 
 After 24 misses in a row the memo attempts one root in 16 (rows whose every
 text is new: heavy's feed); it holds at most 24,000 steps and then starts
-over. `enable_memo(false)` turns it off.
+over. While it has given up it holds the last attempted root's trace alone,
+and frees the rest (they matched nothing; crypto's feed held 4.2 MB of
+them). `enable_memo(false)` turns it off.
 
 The kernel marks the children of a `List` (`LayoutMirror::sync_children`).
 **Held by** `kernel::layout::memo_tests`: rows of two kinds rebound to seen
