@@ -101,7 +101,8 @@ impl Kernel {
     /// that may have followed the sheet; nothing it is placed in (a sheet, a
     /// flex line, insets) constrains its height, so no child shrinks, grows
     /// or takes a percentage of its height. In a flex row or a grid the
-    /// box's in-flow siblings come too, since they set its width. Viewport
+    /// box's in-flow siblings come too, since they set its width; the box
+    /// is aligned to the line's start, so none stretches its height. Viewport
     /// lengths resolve as in the ordinary layout, every viewport unit against
     /// the window ([`crate::Env::screen`]), so the measure and the layout
     /// agree and neither reads the sheet. A height a transition presents (LLP 1063)
@@ -122,9 +123,10 @@ impl Kernel {
         // width (a fixed sibling beside a `flex: 1` box). In a block or a
         // column they set nothing of it and stay out.
         let mut roots = vec![slot];
+        let mut shares = false;
         if let Some(p) = parent {
             let s = self.arena.style(p);
-            let shares = match s.display {
+            shares = match s.display {
                 crate::Display::Flex => matches!(
                     s.flex_direction,
                     crate::FlexDirection::Row | crate::FlexDirection::RowReverse
@@ -168,6 +170,12 @@ impl Kernel {
         style.size.height = Dimension::auto();
         style.inset.top = LengthPercentageAuto::auto();
         style.inset.bottom = LengthPercentageAuto::auto();
+        // The siblings set its width alone: aligned to the start of the
+        // line, it takes its own height, not a taller sibling's stretch
+        // (Astra's and Grok's review of 1a9b86776).
+        if shares {
+            style.align_self = Some(taffy::style::AlignSelf::START);
+        }
         tree.set_style(root, style);
         // The parent, as the containing block: its published width, its
         // resolved edges, no height; positioned, so it holds what the box
