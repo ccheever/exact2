@@ -1,0 +1,81 @@
+// skill-chip-provider-name live drive (agent mode, one session per build, not committed):
+//   bun drive.mjs <before|after> <outDir>
+// Lane: the app's own "This machine" server on isolated HOME/CODEX_HOME/CLAUDE_CONFIG_DIR/XDG/T3 home,
+// port 16310 (before) / 16311 (after); Codex 0.151.0 signed in with a placeholder API key (no account,
+// nothing is sent), so the server lists Codex's own system skills (imagegen "Image Gen", openai-docs
+// "OpenAI Docs", review-agent "Review Agent"). Adds the lane project, types four `$name` tokens into the
+// composer and screenshots the chips; nothing is sent.
+import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+const [which, outArg] = process.argv.slice(2);
+if (!['before', 'after'].includes(which) || !outArg) throw new Error('usage: drive.mjs <before|after> <outDir>');
+const W = '/Users/daehyeonmun/orca/workspaces/exact2/t3-code-skill-chip-provider-name';
+const T = `${W}/target/skill-chip-provider-name`, L = `${T}/lane`;
+const out = resolve(outArg); mkdirSync(out, { recursive: true });
+process.env.EXACT_APP_DIR = `${W}/examples/t3-code`;
+if (which === 'before') process.env.EXACT_MAC_BIN = `${T}/base/T3 Code (Exact).app/Contents/MacOS/T3 Code (Exact)`;
+const { open } = await import(`${W}/scripts/agent.mjs`);
+const home = `${L}/t3-${which}`, port = which === 'before' ? '16310' : '16311';
+const rec = (line) => { const text = `${new Date().toISOString()} [${which}] ${line}`; appendFileSync(`${out}/record.txt`, text + '\n'); console.log(text); };
+const env = {
+  T3_LOCAL_HOME: home, T3_LOCAL_PORT: port, T3_LOCAL_RUNTIME_DIR: `${L}/runtime/t3-0.0.46-nightly.20261005.2667-darwin-arm64`, T3CODE_HOME: home,
+  HOME: `${L}/home`, SHELL: '/bin/zsh', USER: 'daehyeonmun', CODEX_HOME: `${L}/codex`, CLAUDE_CONFIG_DIR: `${L}/claude`,
+  XDG_CONFIG_HOME: `${L}/xdg/config`, XDG_DATA_HOME: `${L}/xdg/data`, XDG_CACHE_HOME: `${L}/xdg/cache`, XDG_STATE_HOME: `${L}/xdg/state`,
+  T3CODE_TELEMETRY_ENABLED: 'false', TMPDIR: `${L}/tmp/`, PATH: `${L}/bin:/usr/bin:/bin:/usr/sbin:/sbin`, GIT_CONFIG_NOSYSTEM: '1', GIT_TERMINAL_PROMPT: '0',
+};
+let pid = null;
+const s = await open({ host: 'macos', size: [1280, 840], env, storage: `scp-${which}`, onProcess: (p) => { pid = p?.pid ?? null; writeFileSync(`${out}/app.pid`, String(pid)); } });
+rec(`app pid ${pid}; port ${port}; binary ${process.env.EXACT_MAC_BIN ?? '(branch build)'}`);
+const nodes = async () => (await s.tree()).nodes;
+const ids = async () => new Set((await nodes()).map((n) => n.props?.testId).filter(Boolean));
+const has = async (id) => (await ids()).has(id);
+const real = async (ms = 500) => s.clock(`+${ms} real`);
+const settle = async () => { try { await s.clock('settle'); } catch {} await real(300); };
+const pick = (st, name) => { for (const g of ['resources', 'slots', 'derives']) if (st?.[g] && name in st[g]) return st[g][name]; return st?.[name]; };
+const res = async (name) => pick(await s.state(), name);
+async function waitFor(what, pred, ms = 60_000) {
+  const t0 = Date.now();
+  for (;;) { let ok = false; try { ok = await pred(); } catch {} if (ok) { rec(`ready ${what} in ${Date.now() - t0} ms`); return true; }
+    if (Date.now() - t0 > ms) { rec(`timeout ${what} after ${ms} ms`); return false; } await real(500); }
+}
+const shot = async (name) => { await s.screenshot(`${out}/${name}.png`, true); rec(`shot ${name}`); };
+
+try {
+  // First run: the wizard may show only after the first-run decision and the window stays inert until
+  // then, so press whichever wizard button shows until "Add project" opens the palette.
+  const t0 = Date.now(); let palette = false, wizardShot = false;
+  while (Date.now() - t0 < 180_000) {
+    if (await has('welcome-wizard')) {
+      if (!wizardShot) { await shot('00-welcome'); wizardShot = true; }
+      for (const id of ['welcome-skip-import', 'welcome-agents-continue', 'welcome-continue']) if (await has(id)) { try { await s.tap(id); await settle(); rec(`wizard ${id}`); } catch {} break; }
+      await real(1000); continue;
+    }
+    try { await s.tap('add-project'); await settle(); } catch { await real(1000); continue; }
+    if (await waitFor('palette', () => has('palette-input'), 5_000)) { palette = true; break; }
+  }
+  rec(`palette open: ${palette}`);
+  await waitFor('codex ready', async () => ((await res('data'))?.providers ?? []).some((p) => p.id === 'codex' && p.available), 120_000);
+  rec(`providers ${JSON.stringify(((await res('data'))?.providers ?? []).map((p) => [p.id, p.available]))}`);
+  await s.type('palette-input', `${L}/repos/skill-demo`); await real(1500); await settle();
+  await s.type('palette-input', { key: 'Enter' }); await settle();
+  await waitFor('project added', async () => ((await res('data'))?.projects ?? []).some((p) => String(p.path ?? p.workspaceRoot ?? '').endsWith('skill-demo')), 30_000);
+  if (await has('palette-input')) { await s.type('palette-input', { key: 'Escape' }); await settle(); }
+  await real(8000); await settle(); // the provider's workspace skills for the project
+  await s.tap('composer'); await settle();
+  await s.type('composer', 'Use $imagegen with $openai-docs then $review-agent and $frontend-design ');
+  await real(1500); await settle();
+  await shot('01-composer-chips');
+  const box = (await s.layout('composer-surface')).node?.space?.viewport ?? null;
+  writeFileSync(`${out}/composer-box.json`, JSON.stringify(box)); rec(`composer box ${JSON.stringify(box)}`);
+  // The $ menu: what the provider calls its skills (the menu rows already used the display name before).
+  await s.type('composer', { key: 'End' }); await s.type('composer', '$ima'); await real(1500); await settle();
+  await shot('02-skill-menu');
+  const menu = await res('editor');
+  rec(`menu rows ${JSON.stringify((menu?.menu?.rows ?? []).map((r) => r.label))}`);
+} catch (e) { rec(`ERROR ${String(e.stack ?? e.message).slice(0, 1500)}`); try { await shot('error'); } catch {} }
+finally {
+  try { const logs = await s.logs(); writeFileSync(`${out}/logs.json`, JSON.stringify(logs, null, 1)); } catch {}
+  await s.close?.();
+  rec('session closed (nothing sent)');
+}
+process.exit(0);
