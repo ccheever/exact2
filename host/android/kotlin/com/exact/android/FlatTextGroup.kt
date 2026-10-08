@@ -32,6 +32,8 @@ internal class FlatTextGroup(
     private val host: View,
     private val drawText: TextDrawer,
     private val drawCachedText: TextDrawer,
+    // True only when this host already clips the complete group to its bounds.
+    private val clipsToHostBounds: () -> Boolean = { false },
     // Presenter supplies its Box.clipContents path, in Box content coordinates.
     // A null path means no custom CSS canvas clipping for this ancestor.
     private val contentClip: (View) -> Path? = { null }
@@ -127,11 +129,12 @@ internal class FlatTextGroup(
     fun draw(canvas: Canvas) {
         check(!closed)
         if (!canvas.isHardwareAccelerated) { drawLeaves(canvas); return }
-        val node = displayList ?: RenderNode("Exact passive text group").apply {
-            // Inherited CSS clipping remains on the existing Box. Overflowing
-            // glyph ink must not gain an implicit group-rectangle clip.
-            setClipToBounds(false)
-        }.also { displayList = it }
+        val node = displayList ?: RenderNode("Exact passive text group").also { displayList = it }
+        // The existing Box still owns rounded CSS clipping. Repeating its
+        // bounding rectangle here lets HWUI reject an offscreen group without
+        // replaying its paragraphs. Visible overflow keeps the unclipped path.
+        // Clipping is a node property: changing it needs no paragraph recording.
+        node.setClipToBounds(clipsToHostBounds())
         val width = host.width.coerceAtLeast(1)
         val height = host.height.coerceAtLeast(1)
         if (dirtyPaint || width != recordedWidth || height != recordedHeight || !node.hasDisplayList()) {

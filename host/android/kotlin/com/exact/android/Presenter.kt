@@ -1146,6 +1146,7 @@ internal class Presenter(
         if (plan == null) { materialize(owner, complete); return }
         val group = parent.flatText ?: FlatTextGroup(parent, FlatTextGroup.TextDrawer(text::drawDirect),
             FlatTextGroup.TextDrawer(text::draw),
+            clipsToHostBounds = { parent.clipContents },
             contentClip = { view -> (view as? Box)?.accessibilityContentClip() }).also {
             parent.removeAllViews(); parent.flatText = it; flatParents.add(parent)
         }
