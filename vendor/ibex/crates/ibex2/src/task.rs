@@ -369,6 +369,12 @@ pub struct RuntimeState {
     app_directories: std::sync::OnceLock<crate::stdlib::app_fs::AppDirectories>,
     /// The embedder's table of documents the person chose (Exact patch 5).
     documents: std::sync::OnceLock<Arc<crate::stdlib::fs::Documents>>,
+    /// The embedder's image codec for `fs.compressImage` (Exact patch 9).
+    image_codec: std::sync::OnceLock<Arc<crate::stdlib::fs::ImageCodec>>,
+    /// Each `fs.compressImage` in flight, by its task, with its right to
+    /// write: kept until its completion is taken, so a waiter that gives up
+    /// after the write sees it written.
+    image_work: Mutex<HashMap<u64, Arc<crate::stdlib::fs::CommitGate>>>,
     responses: Mutex<std::collections::HashMap<u64, Arc<StoredResponse>>>,
     controls: Mutex<std::collections::HashMap<u64, crate::stdlib::abort::AbortController>>,
     subscriptions: Mutex<HashMap<u64, Arc<EventSubscriptionState>>>,
@@ -531,6 +537,8 @@ impl RuntimeState {
             sqlite: crate::sqlite_abi::Registry::default(),
             app_directories,
             documents: std::sync::OnceLock::new(),
+            image_codec: std::sync::OnceLock::new(),
+            image_work: Mutex::new(HashMap::new()),
             responses: Mutex::new(std::collections::HashMap::new()),
             controls: Mutex::new(std::collections::HashMap::new()),
             subscriptions: Mutex::new(HashMap::new()),
@@ -580,6 +588,56 @@ impl RuntimeState {
     }
     pub fn documents(&self) -> Option<&crate::stdlib::fs::Documents> {
         self.documents.get().map(|d| &**d)
+    }
+    /// Install the codec `fs.compressImage` runs (Exact patch 9).
+    pub fn set_image_codec(
+        &self,
+        codec: Arc<crate::stdlib::fs::ImageCodec>,
+    ) -> Result<(), HostError> {
+        self.image_codec
+            .set(codec)
+            .map_err(|_| HostError::InvalidArgument("An image codec is already configured".into()))
+    }
+    pub fn image_codec(&self) -> Option<&crate::stdlib::fs::ImageCodec> {
+        self.image_codec.get().map(|c| &**c)
+    }
+    pub(crate) fn begin_image_work(&self, task_id: u64) -> Arc<crate::stdlib::fs::CommitGate> {
+        let gate = Arc::new(crate::stdlib::fs::CommitGate::default());
+        self.image_work
+            .lock()
+            .expect("image work poisoned")
+            .insert(task_id, gate.clone());
+        gate
+    }
+    /// Its completion was taken, or will never be queued.
+    pub(crate) fn end_image_work(&self, task_id: u64) {
+        self.image_work
+            .lock()
+            .expect("image work poisoned")
+            .remove(&task_id);
+    }
+    /// The embedder gave up waiting: every `fs.compressImage` in flight that
+    /// has not begun its write loses the right to write; one writing is
+    /// waited for. What the embedder should do next (Exact patch 9).
+    pub fn abandon_image_work(&self) -> crate::stdlib::fs::Abandoned {
+        self.abandon_image_work_if(&|| true)
+    }
+    /// The same, for a waiter that may have been retired: `live` is asked
+    /// under the registry's lock, so a call registered after the waiter was
+    /// retired (its flag set first) is never among the calls it abandons.
+    pub fn abandon_image_work_if(&self, live: &dyn Fn() -> bool) -> crate::stdlib::fs::Abandoned {
+        let gates: Vec<_> = {
+            let work = self.image_work.lock().expect("image work poisoned");
+            if !live() {
+                return crate::stdlib::fs::Abandoned::Nothing;
+            }
+            work.values().cloned().collect()
+        };
+        gates
+            .iter()
+            .map(|gate| gate.abandon())
+            .max()
+            .unwrap_or(crate::stdlib::fs::Abandoned::Nothing)
     }
     pub fn set_sqlite_provider(
         &self,
@@ -816,6 +874,9 @@ impl RuntimeState {
     }
 
     pub fn shutdown(&self) {
+        // Exact patch 9: an `fs.compressImage` still running writes nothing
+        // once its runtime is gone; one mid-write is let finish.
+        let _ = self.abandon_image_work();
         let mut subscriptions = self
             .subscriptions
             .lock()
@@ -1178,6 +1239,11 @@ impl RuntimeState {
             }
             let task = self.queue.take()?;
             let HostTask::Event { subscription, .. } = &task else {
+                if let HostTask::Settlement(completion) = &task {
+                    // Exact patch 9: an `fs.compressImage`'s right ends once
+                    // its completion is in the guest's hands.
+                    self.end_image_work(completion.task_id);
+                }
                 return Some(task);
             };
             // @ref LLP 0058.000.000#8-tasks-microtasks-timers-and-callbacks — reservation revalidates Running and subscription liveness at one serialized commit point
@@ -1825,6 +1891,44 @@ mod tests {
         assert_eq!(state.crypto_key_count(), 1);
         state.shutdown();
         assert_eq!(state.crypto_key_count(), 0);
+    }
+
+    /// Exact patch 9: a written `fs.compressImage` keeps its right until its
+    /// completion is taken, so a waiter that gives up in between sees it
+    /// written; one not yet written loses it; shutdown takes it away.
+    #[test]
+    fn an_image_right_lasts_until_its_completion_is_taken() {
+        use crate::stdlib::fs::Abandoned;
+        let state = RuntimeState::new(crate::transport::default_transport());
+        assert_eq!(state.abandon_image_work(), Abandoned::Nothing);
+        let gate = state.begin_image_work(7);
+        *gate.0.lock().unwrap() = Abandoned::Written; // its write finished
+        state.queue.complete(7, Ok(HostValue::Undefined));
+        assert_eq!(state.abandon_image_work(), Abandoned::Written);
+        assert!(matches!(state.take_task(), Some(HostTask::Settlement(_))));
+        assert_eq!(state.abandon_image_work(), Abandoned::Nothing);
+        let unwritten = state.begin_image_work(8);
+        state.shutdown();
+        assert_eq!(*unwritten.0.lock().unwrap(), Abandoned::Abandoned);
+    }
+
+    /// Exact patch 9: a retired waiter abandons nothing, and `live` is read
+    /// under the registry's lock, so a call registered after retirement is
+    /// never one it abandons.
+    #[test]
+    fn a_retired_waiter_abandons_no_image_right() {
+        use crate::stdlib::fs::Abandoned;
+        use std::sync::atomic::{AtomicBool, Ordering};
+        let state = RuntimeState::new(crate::transport::default_transport());
+        let earlier = state.begin_image_work(1);
+        let retired = AtomicBool::new(false);
+        retired.store(true, Ordering::Release);
+        let later = state.begin_image_work(2);
+        let live = || !retired.load(Ordering::Acquire);
+        assert_eq!(state.abandon_image_work_if(&live), Abandoned::Nothing);
+        assert_eq!(*earlier.0.lock().unwrap(), Abandoned::Nothing);
+        assert_eq!(*later.0.lock().unwrap(), Abandoned::Nothing);
+        assert_eq!(state.abandon_image_work_if(&|| true), Abandoned::Abandoned);
     }
 
     #[test]

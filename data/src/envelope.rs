@@ -3,6 +3,7 @@
 //! runner to commit inside its transaction. Values cross; nothing else does.
 
 use exact_plan::Value;
+use exact_runner::failure::FailureCode;
 use exact_runner::{Answer, DataError, HttpScheduling, Outcome, Request, Response, Store};
 use serde_json::{json, Value as Json};
 
@@ -121,6 +122,10 @@ fn error_json(error: &DataError) -> Json {
         DataError::BadArguments(m) => ("BadArguments", m),
         DataError::DeferredAtBake(m) => ("DeferredAtBake", m),
         DataError::Unavailable(m) | DataError::Interface(m) => ("Unavailable", m),
+        // Its class travels with it (LLP 1109 D3).
+        DataError::Failed(code, m) => {
+            return json!({"kind": "Failed", "code": code.name(), "message": m});
+        }
     };
     json!({"kind": kind, "message": message})
 }
@@ -131,6 +136,10 @@ fn error_from(error: &Json) -> DataError {
         Some("UnknownSource") => DataError::UnknownSource(message),
         Some("BadArguments") => DataError::BadArguments(message),
         Some("DeferredAtBake") => DataError::DeferredAtBake(message),
+        Some("Failed") => match error["code"].as_str().and_then(FailureCode::from_name) {
+            Some(code) => DataError::Failed(code, message),
+            None => DataError::Unavailable(message),
+        },
         _ => DataError::Unavailable(message),
     }
 }

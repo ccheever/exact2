@@ -551,6 +551,34 @@ fn an_answer_may_await_two_fetches_in_a_row() {
     assert_eq!(m.in_flight(), 0);
 }
 
+/// LLP 1109 D3: a fetch's rejection the module lets through keeps its
+/// class, as host/web-js does (shape.js `failureCode`); an aborted one is
+/// the module's error.
+#[test]
+fn a_rejection_let_through_keeps_its_class() {
+    use exact_runner::failure::FailureCode;
+    for (kind, code) in [
+        (FailureKind::Network, Some(FailureCode::Offline)),
+        (FailureKind::Timeout, Some(FailureCode::Timeout)),
+        (FailureKind::Refused, Some(FailureCode::Refused)),
+        (FailureKind::Aborted, None),
+    ] {
+        let mut m = module();
+        let mut s = store();
+        later(m.answer(&mut s, "refusedLater", &[]).unwrap());
+        let message = "the network is gone".to_string();
+        let failed = Outcome::Failed {
+            kind,
+            message: message.clone(),
+        };
+        let err = m.parse(&mut s, "refusedLater", &[], failed).unwrap_err();
+        match code {
+            Some(code) => assert_eq!(err, DataError::Failed(code, message), "{kind:?}"),
+            None => assert_eq!(err, DataError::Unavailable(message), "{kind:?}"),
+        }
+    }
+}
+
 #[test]
 fn refusals_thrown_before_and_after_a_fetch_and_an_answer_pending_on_nothing() {
     let mut m = module();

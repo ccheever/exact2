@@ -376,7 +376,7 @@ pub struct Runner<D: DataSource> {
     failed_args: Vec<Option<Vec<Value>>>,
     /// Why each resource last failed, shown in `state.failed` while
     /// `failed_args` holds (app farm round 1: a refusal only in the journal).
-    failed_why: Vec<Option<String>>,
+    failed_why: Vec<Option<crate::failure::Failure>>,
     /// `pending` as flags, by resource and by mutation, for expressions.
     pending_res: Vec<bool>,
     pending_mut: Vec<bool>,
@@ -1199,7 +1199,10 @@ impl<D: DataSource> Runner<D> {
             .filter(|(_, (args, _))| args.is_some())
             .map(|(i, (_, why))| {
                 let name = self.plan.str(self.plan.resources[i].name);
-                (name, why.as_deref().unwrap_or("it failed"))
+                (
+                    name,
+                    why.as_ref().map_or("it failed", |w| w.message.as_str()),
+                )
             })
             .collect()
     }
@@ -1441,6 +1444,7 @@ impl<D: DataSource> Runner<D> {
             now_ms: self.now_ms,
             pending_resources: &self.pending_res,
             failed_resources: &self.failed_args,
+            failed_why: &self.failed_why,
             pending_mutations: &self.pending_mut,
             store_dependent_derives: &[],
             store_dependent_resources: &[],

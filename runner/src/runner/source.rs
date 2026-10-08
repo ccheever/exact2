@@ -599,6 +599,11 @@ pub enum DataError {
     /// answer now. A resource asked this fails; it does not refuse the
     /// commit (LLP 1071 §7, Charlie's ruling of 2026-09-29).
     Interface(String),
+    /// A failure whose class `failure(x)` names (LLP 1109 D3): a request's
+    /// or a storage call's that a TypeScript module let through, or an
+    /// answer its seam found outside its shape. Otherwise `Unavailable`; a
+    /// Rust source's own error crosses its seam as that.
+    Failed(crate::failure::FailureCode, String),
 }
 
 #[cfg(test)]

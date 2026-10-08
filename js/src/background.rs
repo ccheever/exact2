@@ -83,7 +83,36 @@ impl Module {
         outcome: Outcome,
     ) -> Result<Option<Request>, DataError> {
         self.background.out = false;
-        if let Outcome::Failed { message, .. } = outcome {
+        if let Outcome::Failed { message, kind } = outcome {
+            // The wait gave up on the background's compression and took its
+            // right to write away: fail it as an answer's is failed, so its
+            // rejection runs and the queue moves on (LLP 1069.002 A1.5). Any
+            // other operation may still write: stall, as before.
+            let text = crate::wire::outcome_to_json(&Outcome::Failed {
+                kind,
+                message: message.clone(),
+            })
+            .to_string();
+            let abandoned = message.starts_with(crate::storage::IMAGE_ABANDONED);
+            if let Some(engine) = self.engine.as_mut().filter(|_| abandoned) {
+                self.host.between_answers = true;
+                let failed = engine
+                    .call("__exact_enter_background", ["", "", ""])
+                    .and_then(|_| engine.call("__exact_background_failed", [&text, "", ""]))
+                    .is_ok_and(|landed| landed == "1")
+                    && engine.drain().is_ok();
+                if failed {
+                    // As a round that delivered: a let-go chain queued behind
+                    // the failed operation is finished before returning.
+                    self.finish_let_go();
+                }
+                self.host.between_answers = false;
+                if failed {
+                    self.progress += 1;
+                    self.read_background();
+                    return Ok(self.background_request());
+                }
+            }
             self.background.stalled = true;
             return Err(DataError::Unavailable(message));
         }

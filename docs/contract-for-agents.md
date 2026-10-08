@@ -580,6 +580,7 @@ Choose the mechanism from its lifetime:
 | Repeat while a condition holds (a game tick, a pulse) | `task … when cond` with `every(ms, action)` |
 | Pending indicator | `pending(resourceOrMutationName)` |
 | Resource request failed without an answer | `failed(resourceName)` (a resource only: a mutation answers its failure as a domain result, such as `ok: false`) |
+| Why it failed, to branch on or show | `failure(resourceName)`: `none`, or `some({ code, message })`, `code` one of `offline`, `timeout`, `refused`, `shape`, `storage`, `error` |
 | Initial resource fallback | `else empty(field=constant)`, or `else source(values)` answered once at build |
 
 Resources read as their declared type. Mutations read as `option<T>` and start at
@@ -593,6 +594,33 @@ depth, fails the resource as a thrown error does (TypeScript lets a spread such 
 shape mismatch: `state` names the field under `failed`, a CLI drive says so on
 stderr, and a failing `expect` names it. Project a backend row onto the shape
 field by field (`({ id: row.id, title: row.title })`).
+
+`failure(x)` says why, for the view to branch on: `none` while `x` has not
+failed, else `some` of a `Failure`, whose `code` is one word from a closed
+list, the same on every host (`docs/contract-grammar.md`), and whose `message`
+is the text `state.failed` shows (for a developer; it differs by host):
+
+```contract
+shape Item
+  id: string
+
+component Items
+  resource items = loadItems() as shape list<Item> else empty()
+  derive banner = match failure(items) {
+    case some(f) => f.code == "offline" ? "You're offline" : f.code == "shape" ? "This app needs an update" : "Couldn't load items",
+    case none => ""
+  }
+  view
+    column
+      when banner != ""
+        text banner testId="banner"
+```
+
+`offline`, `timeout`, `refused` and `storage` reach the view only when the
+TypeScript module lets the `fetch` or storage rejection through (rethrows it, or
+does not catch it): an error it makes of its own, one for an HTTP 500 among
+them, is `error`. `bun scripts/agent.mjs web "fail fetch https://api…"` fails
+those fetches as a lost connection, so the banner says "You're offline".
 
 `with` takes one or more expressions, before `as shape`, and appends them to the
 source's arguments. All arguments still trigger re-asks and identify live
@@ -875,7 +903,10 @@ An `image` source is the same string on every host: a path under the app's
 `skip-forward-30`, `speaker`, `speaker-mute` and `moon`), an `app:/data|cache|tmp/…` file
 (a picked photo, or one the data module kept with `storage.fs`; it shows after a
 relaunch too), or a `data:` URL of at most 1 MiB, past which every host shows
-nothing (the web and Apple journal `image refused`). Keep a picked photo by copying it to
+nothing (the web and Apple journal `image refused`). Shrink a picked photo for an upload limit with
+`storage.fs.compressImage(path, to, {maxDimension, maxBytes})`, which writes an
+upright JPEG with no location metadata ([reference](reference.md#shrink-a-picked-image-for-upload-storagefscompressimage));
+Linux answers `unsupported`. Keep a picked photo by copying it to
 `app:/data` and answering that path; never tell hosts apart in the data module
 (`HermesInternal`) to choose a source
 ([LLP 1069.002](../llp/1069.002-media-picker.rfc.md) D7, [LLP 1011](../llp/1011-image-v1.spec.md) §2).

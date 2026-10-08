@@ -1,11 +1,11 @@
 # LLP 1109: What the app farm asks of Exact2 — the decisions left after round 1
 
 **Type:** RFC (a decision brief: each item proposes, Charlie decides)
-**Status:** Accepted, 2026-10-08: every question ruled by Charlie (§R). D1 is implemented (`9731c8056`); D3 is being implemented; D2 is "no change".
+**Status:** Accepted, 2026-10-08: every question ruled by Charlie (§R). D1 is implemented (`9731c8056`); D3 is implemented (`513450bda`); D2 is "no change".
 **Systems:** Contract's `now()` (the roster, the runner's clock and every host's clock origin, the JS target's runtime, the Lean semantics and `contract-difftest`); the data seam's answer check (`host/web-js/ts-data.js`, `js/src/lib.rs`, `js/web/src/lib.rs`, the runner's `conform`); `failed(x)`; the agent driver and authored tests (`scripts/agent.mjs`, `scripts/agent-test.mjs`)
 **Author:** Claude (Opus 5.5) for Charlie Cheever
 **Date:** 2026-10-08
-**Implementer:** each accepted item has its own lane. D1: Claude (Opus 5.5), `9731c8056`, 2026-10-08.
+**Implementer:** each accepted item has its own lane. D1: Claude (Opus 5.5), `9731c8056`, 2026-10-08. D3: Claude (Opus 5.5), `513450bda`, 2026-10-08.
 **Related:** LLP 1027.000 D2 (no wall-clock provider); LLP 1027.000.000 D2–D3 (the date as a host fact, `exactTime`; "start the agent clock at a real epoch" rejected there); LLP 1012 §2 and `rules/DEFERRED.md` §Agent API (the seekable clock; `clock` replaces `wait`); LLP 0382 (fail closed loudly in debug); LLP 1102 (the authoring bench's brief, whose shape this copies); the app farm's round-1 synthesis, `~/appfarm/synthesis/round-01.md` §2.2, and the build diaries under `~/appfarm/apps/<run>/DIARY.md`
 
 ## R. Rulings (Charlie, 2026-10-08)
@@ -42,6 +42,14 @@
   that chooses to show it). The vocabulary is fixed by the implementing
   lane from the runner's actual failure classes and documented in the
   grammar. `failed(x)` stays.
+  *Implemented in `513450bda`*: six codes, `offline` (a request's
+  `Network` failure let through), `timeout`, `refused` (outside the
+  grants), `shape` (an answer outside its shape), `storage` (a coded
+  storage refusal let through) and `error` (everything else, a source's
+  own error among them); `runner/src/failure.rs` and
+  `docs/contract-grammar.md` hold the table. A response over its size
+  limit still has a different transport kind on Apple's event stream
+  (QUEUE).
 
 ## 0. Summary
 
