@@ -529,6 +529,10 @@ told its request ended stops at its next 1 MiB chunk (Ibex patch 10 adds
 `AppDirectories::open_file`); the JS target refuses a pre-aborted fetch before
 making a rejection nobody handles.
 
+**Slices 2 and 3's design** (`exactSaveTo`; `Blob`, `Response.blob()`,
+object URLs, `blob:` sources) is LLP 1108.001: r3, 2026-10-08, NOT READY after
+two review rounds, with round 2 folded and not yet reviewed again.
+
 ### D7 — Sessions
 
 Every asset exchange carries the bearer that the driver's `headers()` gives
