@@ -1,0 +1,476 @@
+// The pull request panel's Code tab (20261005-pr-code-tab), measured against T3 Code 1e2ecbd975
+// (MIT, see LICENSE-T3) components/pullRequest/PullRequestCodeTab.tsx: the toolbar (the scope menu,
+// the counts and their caveats, whitespace, fold all, layout, wrapping, the file tree), the
+// conversations off the diff, and one virtualized list of file headers (with the Viewed tick),
+// rows, hidden ranges and what is pinned under a line. The rows are the thread diff panel's
+// (diff.contract DiffRow); pages-pr-code.ts makes every field and answers every press.
+use DiffItem from "./shapes.contract"
+use DiffTreeRow from "./shapes.contract"
+use DiffRow from "./diff-rows.contract"
+use DiffTool from "./diff-rows.contract"
+use DiffGlyph from "./diff-glyphs.contract"
+use diffInk from "./settings-appearance-look.contract"
+use PgIcon from "./pages-icons.contract"
+use Tip from "./shell-tip.contract"
+use PrMenuBox from "./pages-prs.contract"
+use PrMenuItem from "./pages-prs.contract"
+use ChatDocument from "./markdown.contract"
+use CodeHighlight from "./markdown.contract"
+use MarkdownEnv from "./markdown.contract"
+use PrReactionChoice from "./pages-pr-meta.contract"
+use PrHandoffsView from "./pages-pr-handoffs.contract"
+use PrThreadCard from "./pages-pr-threads.contract"
+use PrdThreadCard from "./pages-pr-threads.contract"
+use PrdPendingCard from "./pages-pr-threads.contract"
+use PrdCodeDraft from "./pages-pr-threads.contract"
+
+shape PrCodeRaw
+  id: string
+  reason: string
+  text: string
+shape PrCodeCommit
+  oid: string
+  short: string
+  headline: string
+  selected: bool
+shape PrOrphanRef
+  id: string
+  line: string
+shape PrOrphanGroup
+  path: string
+  threads: list<PrOrphanRef>
+shape PrCodeView
+  available: bool
+  mounted: bool
+  key: string
+  phase: string
+  message: string
+  raw: list<PrCodeRaw>
+  scopeLabel: string
+  allSelected: bool
+  hasCommits: bool
+  commits: list<PrCodeCommit>
+  moreCommits: number
+  filesLabel: string
+  viewedShown: bool
+  viewedCount: string
+  viewedWord: string
+  viewedHere: bool
+  viewedError: string
+  viewedTruncated: bool
+  withheld: bool
+  commentsOff: bool
+  ignoreWhitespace: bool
+  allCollapsed: bool
+  hasFiles: bool
+  layout: string
+  wrap: bool
+  tree: bool
+  items: list<DiffItem>
+  truncated: bool
+  threads: list<PrThreadCard>
+  footer: string
+  footerFailed: bool
+  orphansLabel: string
+  orphanCount: number
+  orphanSummary: string
+  orphansOpen: bool
+  orphans: list<PrOrphanGroup>
+  treeRows: list<DiffTreeRow>
+  treeLabel: string
+  treeCount: number
+  treeFolders: bool
+  treeAllOpen: bool
+  treeFooter: string
+  treeBusy: bool
+  draftOpen: bool
+  canComment: bool
+  viewedQueued: number
+  threadPending: bool
+
+fn pcMuted(): string = "light-dark(#71717b, #818181)"
+fn pcInk(): string = "light-dark(#27272a, #f5f5f5)"
+fn pcBorder(): string = "light-dark(#e4e4e799, #ffffff09)"
+fn pcWarn(): string = "light-dark(#e17100, #ffb900e6)"
+// lucide message-square-off: the line comments that wait for the whole change.
+fn pcCommentsOff(): string = "M19 19H6.828a2 2 0 0 0-1.414.586l-2.202 2.202A.7.7 0 0 1 2 21.286V5a2 2 0 0 1 1.184-1.826M2 2l20 20M8.656 3H20a2 2 0 0 1 2 2v11.344"
+
+// The tab: the toolbar over every state (a commit whose diff is empty still needs the menu that
+// got the reader there), then the loading state, the error, the raw text, nothing changed, or the
+// conversations off the diff over the list and the tree. The draft's words live here, so a row
+// scrolled away keeps them.
+component PrdCode
+  props
+    code: PrCodeView
+    ref: string
+    listId: string
+    surface: string
+    scheme: string
+    size: number
+    choices: list<PrReactionChoice>
+    documents: list<ChatDocument>
+    highlights: list<CodeHighlight>
+    env: MarkdownEnv
+    handoffs: PrHandoffsView
+    still: bool
+    local: action
+    act: action
+    scrolled: action
+  state draftText = ""
+  action press(op: string, value: string)
+    local(`pr-code-${op}`, ref, value)
+  // DiffRow's commands (diff.contract): a line number's press (Shift extends) and a hidden range's.
+  action rowCommand(op: string, id: string, value: string, n: number)
+    local("pr-code-row", ref, `${op}|${id}|${n}|${value}`)
+  action begin(path: string, side: string, line: number)
+    draftText = ""
+    local("pr-code-begin", ref, `${side}|${line}|${path}`)
+  action cancel
+    draftText = ""
+    local("pr-code-cancel", ref, "")
+  action editDraft(text: string)
+    draftText = text
+  action add
+    if trim(draftText) != ""
+      local("pr-code-add", ref, draftText)
+      draftText = ""
+  action agent
+    if trim(draftText) != ""
+      act("code-agent", `${surface}|${draftText}`)
+      draftText = ""
+  view
+    column width="100%" height="100%" min-height=0 testId="pull-request-code"
+      PrdCodeToolbar(code=code, menuId=`${listId}-scope`, scheme=scheme, press=press)
+      when code.phase == "loading"
+        // DiffPanelLoadingState: the header skeleton under the toolbar.
+        column flex=1 padding-top="0.25rem" gap="0.5rem" role="status" aria-label="Loading pull request diff..." testId="pull-request-code-loading"
+          row height="2rem" padding-left="0.5rem" padding-right="0.75rem" gap="0.5rem" align-items="center"
+            box width="0.625rem" height="0.625rem" border-radius="0.1875rem" background-color="light-dark(#e4e4e7, #1c1c1c)"
+            box width="1.25rem" height="1.25rem" border-radius="0.375rem" background-color="light-dark(#e4e4e7, #1c1c1c)"
+            box width="45%" height="0.75rem" border-radius="0.375rem" background-color="light-dark(#e4e4e7, #1c1c1c)"
+          column padding-left="0.75rem" padding-right="0.75rem" gap="0.5rem"
+            box width="66%" height="0.625rem" border-radius="0.3125rem" background-color="light-dark(#f0f0f1, #161616)"
+            box width="80%" height="0.625rem" border-radius="0.3125rem" background-color="light-dark(#f0f0f1, #161616)"
+            box width="60%" height="0.625rem" border-radius="0.3125rem" background-color="light-dark(#f0f0f1, #161616)"
+      when code.phase == "error" or code.phase == "empty"
+        text code.message padding-left="1rem" padding-right="1rem" padding-top="1.25rem" padding-bottom="1.25rem" font-size="0.875rem" line-height="1.25rem" color=pcMuted() testId="pull-request-code-message"
+      when code.phase == "raw"
+        PrdCodeRaw(raw=code.raw, bordered=false)
+      when code.phase == "files"
+        when code.orphanCount > 0
+          PrdCodeOrphans(code=code, surface=surface, handoffs=handoffs, choices=choices, documents=documents, highlights=highlights, env=env, still=still, local=local, act=act, press=press)
+        row flex=1 min-height=0 width="100%"
+          list virtualized=true id=listId reachend=press("next", "") scroll=scrolled flex=1 min-width=0 min-height=0 testId="pull-request-code-list"
+            each item in code.items key=item.id
+              PrdCodeRow(item=item, code=code, scheme=scheme, size=size, surface=surface, draftText=draftText, handoffs=handoffs, choices=choices, documents=documents, highlights=highlights, env=env, still=still, local=local, act=act, press=press, rowCommand=rowCommand, begin=begin, cancel=cancel, editDraft=editDraft, add=add, agent=agent)
+          when code.tree and code.hasFiles
+            PrdCodeTree(code=code, listId=listId, scheme=scheme, press=press)
+        when length(code.raw) > 0
+          PrdCodeRaw(raw=code.raw, bordered=true)
+
+// The toolbar (h-10, px-4, border-b): the scope menu and the meta line on the left, the view toggles on the right.
+component PrdCodeToolbar
+  props
+    code: PrCodeView
+    menuId: string
+    scheme: string
+    press: action
+  view
+    row height="2.5rem" min-height="2.5rem" flex-shrink=0 width="100%" padding-left="1rem" padding-right="1rem" box-sizing="border-box" align-items="center" justify-content="space-between" gap="0.5rem" border-bottom-width=1 border-bottom-style="solid" border-color=pcBorder() background-color="light-dark(#fcfcfc, #0a0a0a)" role="toolbar" aria-label="Diff options" testId="pull-request-code-toolbar"
+      row flex=1 min-width=0 align-items="center" gap="0.75rem"
+        // A host that reports no commits has nothing to scope by.
+        when code.hasCommits
+          column position="relative" min-width="2.25rem" flex-shrink=1
+            button id="pull-request-code-scope" popovertarget=menuId aria-label=`Diff scope: ${code.scopeLabel}` testId="pull-request-code-scope" height="1.5rem" max-width="16rem" min-width="2.25rem" padding-left="0.4375rem" padding-right="0.4375rem" gap="0.25rem" box-sizing="border-box" border-radius="0.375rem" border-width=0 background-color="light-dark(#f4f4f5, #ffffff0f)" display="flex" flex-direction="row" align-items="center"
+              text code.scopeLabel font-size="0.75rem" line-height="1rem" font-weight=500 color=pcInk() white-space="nowrap" overflow="hidden" text-overflow="ellipsis" min-width=0 text-align="left"
+              box opacity=0.7 flex-shrink=0 display="flex"
+                PgIcon(name="chevron-down", size=14, color=pcInk())
+            column id=menuId popover="auto" position="absolute" padding-top="0.25rem" testId="pull-request-code-scope-layer"
+              // MenuPopup's glass blurs what is under it (backdrop-blur); the macOS presenter draws no backdrop blur, so the
+              // glass sits on the popover colour itself, or the list's rows would read through the menu (live drive 1).
+              column border-radius="0.625rem" backdrop-filter="blur(12px)" background-color="light-dark(#ffffff, #111111)"
+                // Every row has a stable id (= its testId) for fix-keyboard-focus's KeyMenu: "All commits" through PrMenuItem
+                // (`id=testId` there once that lands), the commits by their short oid, "Show more" its own.
+                PrMenuBox(scheme=scheme, width=288, label=`Diff scope: ${code.scopeLabel}`)
+                  PrMenuItem(menuId=menuId, icon="", label="All commits", detail="", selected=code.allSelected, tick=true, disabled=false, press=press("scope", ""), testId="pull-request-code-scope-all")
+                  each commit in code.commits key=commit.oid
+                    PrdScopeCommit(commit=commit, menuId=menuId, press=press("scope", commit.oid))
+                  // Kept apart from the choices: it changes how much of the list shows, not the scope (closeOnClick false).
+                  when code.moreCommits > 0
+                    PrdScopeMore(label=`Show more (${code.moreCommits} left)`, press=press("more-commits", ""))
+        row flex-shrink=0 min-width=0 align-items="center" gap="0.375rem"
+          text code.filesLabel font-size="0.75rem" line-height="1rem" font-variant-numeric="tabular-nums" white-space="nowrap" color=pcMuted() flex-shrink=0 testId="pull-request-code-files"
+          when code.viewedShown
+            text "·" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b80, #81818180)" aria-hidden=true
+            row min-width=0 align-items="center" gap="0.25rem" testId="pull-request-code-viewed"
+              text code.viewedCount font-size="0.75rem" line-height="1rem" font-variant-numeric="tabular-nums" white-space="nowrap" color=pcMuted() flex-shrink=0
+              text code.viewedWord font-size="0.75rem" line-height="1rem" color=pcMuted() white-space="nowrap" overflow="hidden" text-overflow="ellipsis" min-width=0
+              when code.viewedHere
+                Tip(label="This host keeps no shared record of which files you have read, so these ticks are kept by this environment. They follow you between the apps connected to it, but the host's own web UI will not show them.", side="bottom", align="center", offset=20)
+                  box aria-label="These ticks are kept here, not on the host" role="img"
+                    PgIcon(name="info", size=14, color=pcMuted())
+              when code.viewedError != ""
+                Tip(label=`The boxes below are whatever was last read, and empty if nothing has been read yet. ${code.viewedError}`, side="bottom", align="center", offset=20)
+                  box aria-label="Your ticks could not be read" role="img" testId="pull-request-code-viewed-error"
+                    PgIcon(name="triangle-alert", size=14, color=pcWarn())
+              when code.viewedTruncated
+                Tip(label="This change has more files than the host will report ticks for in one read, so the count is short and some boxes below start empty.", side="bottom", align="center", offset=20)
+                  box aria-label="This count covers only part of the change" role="img"
+                    PgIcon(name="triangle-alert", size=14, color=pcWarn())
+          when code.withheld
+            text "·" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b80, #81818180)" aria-hidden=true
+            Tip(label="The host withheld part of this diff — a binary file, or a change too large to inline.", side="bottom", align="center", offset=20)
+              box aria-label="Some of this diff was not shown" role="img" testId="pull-request-code-withheld"
+                PgIcon(name="triangle-alert", size=14, color=pcWarn())
+          when code.commentsOff
+            text "·" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b80, #81818180)" aria-hidden=true
+            Tip(label="A comment is anchored to the whole change, so switch to All commits to write one.", side="bottom", align="center", offset=20)
+              box aria-label="Line comments are written from the whole change" role="img" testId="pull-request-code-comments-off"
+                svg width="0.875rem" height="0.875rem" viewBox="0 0 24 24" color=pcMuted() fill="none" stroke="currentColor" stroke-width=2 stroke-linecap="round" stroke-linejoin="round" aria-hidden=true
+                  path d=pcCommentsOff()
+      row flex-shrink=0 align-items="center" gap="0.25rem"
+        DiffTool(icon="pilcrow", label=(code.ignoreWhitespace ? "Show whitespace changes" : "Hide whitespace changes"), pressed=code.ignoreWhitespace, toggle=true, radius=8, testId="pull-request-code-whitespace", choose=press("whitespace", ""))
+        when code.hasFiles
+          DiffTool(icon=(code.allCollapsed ? "unfold" : "fold"), label=(code.allCollapsed ? "Expand all files" : "Collapse all files"), pressed=false, toggle=false, radius=8, testId="pull-request-code-fold-all", choose=press("fold-all", ""))
+        row padding="0.125rem" gap="0.125rem" border-radius="0.625rem" background-color="light-dark(#e6e6e8, #121212)" role="group" aria-label="Diff layout" flex-shrink=0
+          PrdLayoutButton(icon="stacked", label="Stacked diff view", pressed=(code.layout == "stacked"), press=press("layout", "stacked"), testId="pull-request-code-stacked")
+          PrdLayoutButton(icon="split", label="Split diff view", pressed=(code.layout == "split"), press=press("layout", "split"), testId="pull-request-code-split")
+        DiffTool(icon="wrap", label=(code.wrap ? "Disable diff line wrapping" : "Enable diff line wrapping"), pressed=code.wrap, toggle=true, radius=8, testId="pull-request-code-wrap", choose=press("wrap", ""))
+        when code.hasFiles
+          DiffTool(icon="tree", label=(code.tree ? "Hide file tree" : "Show file tree"), pressed=code.tree, toggle=true, radius=8, testId="pull-request-code-tree-toggle", choose=press("tree", ""))
+
+component PrdLayoutButton
+  props
+    icon: string
+    label: string
+    pressed: bool
+    press: action
+    testId: string
+  view
+    button press=press aria-label=label aria-pressed=pressed testId=testId width="2rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 background-color=(pressed ? "light-dark(#fcfcfc, #202020)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center"
+      DiffGlyph(name=icon, size=14, color=(pressed ? pcInk() : "light-dark(#71717a, #818181)"))
+
+// A commit in the scope menu: its headline (whole on hover) and the abbreviated oid a reader matches on the host.
+component PrdScopeCommit
+  props
+    commit: PrCodeCommit
+    menuId: string
+    press: action
+  state over = false
+  action hover(value: bool)
+    over = value
+  view
+    button id=`pull-request-code-scope-${commit.short}` press=press popovertarget=menuId popovertargetaction="hide" hover=hover role="menuitemradio" aria-checked=commit.selected aria-label=`${commit.headline} ${commit.short}` testId=`pull-request-code-scope-${commit.short}` width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" gap="0.5rem" border-radius="0.375rem" border-width=0 background-color=(over ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center"
+      // TODO(hover-cards): the headline's tooltip (TooltipPopup side top) through the shared hover layer once it lands; the full headline is the item's label meanwhile.
+      text commit.headline flex=1 font-size="0.875rem" line-height="1.25rem" color=pcInk() white-space="nowrap" overflow="hidden" text-overflow="ellipsis" min-width=0 text-align="left"
+      text commit.short font-family="ui-monospace" font-size="0.75rem" line-height="1rem" color=pcMuted() flex-shrink=0
+      box width="1rem" height="1rem" display="flex" align-items="center" justify-content="center" flex-shrink=0
+        when commit.selected
+          PgIcon(name="check", size=16, color=pcInk())
+
+component PrdScopeMore
+  props
+    label: string
+    press: action
+  state over = false
+  action hover(value: bool)
+    over = value
+  view
+    button id="pull-request-code-scope-more" press=press hover=hover role="menuitem" testId="pull-request-code-scope-more" width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-radius="0.375rem" border-width=0 background-color=(over ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center"
+      text label font-size="0.875rem" line-height="1.25rem" color=pcMuted() text-align="left"
+
+// One item of the list: a file header, a row of the diff (DiffRow), or what a line carries.
+component PrdCodeRow
+  props
+    item: DiffItem
+    code: PrCodeView
+    scheme: string
+    size: number
+    surface: string
+    draftText: string
+    handoffs: PrHandoffsView
+    choices: list<PrReactionChoice>
+    documents: list<ChatDocument>
+    highlights: list<CodeHighlight>
+    env: MarkdownEnv
+    still: bool
+    local: action
+    act: action
+    press: action
+    rowCommand: action
+    begin: action
+    cancel: action
+    editDraft: action
+    add: action
+    agent: action
+  view
+    column width="100%"
+      when item.kind == "pr-file"
+        PrdCodeFileHeader(item=item, scheme=scheme, press=press)
+      when item.kind == "pr-thread"
+        each card in filter(code.threads, (entry) => entry.id == item.entry) key=card.key
+          column width="100%" padding-top="0.25rem" padding-bottom="0.25rem"
+            PrdThreadCard(card=card, surface=surface, handoffs=handoffs, choices=choices, documents=documents, code=highlights, env=env, still=still, local=local, act=act)
+      when item.kind == "pr-pending"
+        PrdPendingCard(id=item.entry, body=item.text, discard=press("discard", item.entry))
+      when item.kind == "pr-draft"
+        PrdCodeDraft(rangeLabel=item.label, text=draftText, edit=editDraft, cancel=cancel, add=add, agent=agent)
+      when item.kind == "pr-footer"
+        // The sentinel at the end of the files: "Loading more files...", or the failure and Retry.
+        row width="100%" min-height="2rem" padding-top="0.5rem" padding-bottom="0.5rem" box-sizing="border-box" align-items="center" justify-content="center" gap="0.5rem" testId="pull-request-code-footer"
+          when item.label != ""
+            text item.label font-size="0.75rem" line-height="1rem" color=pcMuted()
+          when item.error
+            button press=press("retry", "") testId="pull-request-code-retry" height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)" box-shadow="0 1px 2px #0000000d"
+              text "Retry" font-size="0.75rem" line-height="1rem" font-weight=500 color=pcInk()
+      when item.kind == "line" or item.kind == "split" or item.kind == "gap" or item.kind == "pad"
+        DiffRow(item=item, wrap=code.wrap, command=rowCommand, scheme=scheme, size=size, commentOpen=(code.draftOpen or not code.canComment), draftText=draftText, editDraft=editDraft, beginComment=begin, cancelComment=cancel, saveComment=add)
+
+// A file's header (@pierre/diffs with renderHeaderPrefix and renderHeaderMetadata): the chevron, the
+// status glyph and the path fold the file; the counts; the Viewed tick, which keeps its press to itself.
+component PrdCodeFileHeader
+  props
+    item: DiffItem
+    scheme: string
+    press: action
+  state hovering = false
+  action setHover(over: bool)
+    hovering = over
+  view
+    row width="100%" min-height="2rem" padding-top="0.375rem" padding-bottom="0.375rem" padding-left="0.5rem" padding-right="0.75rem" box-sizing="border-box" align-items="center" gap="0.5rem" hover=setHover position="relative" background-color="light-dark(#fcfcfc, #0a0a0a)" border-top-width=1 border-top-style="solid" border-color=pcBorder() testId=`pull-request-code-file-${item.path}`
+      when hovering
+        box position="absolute" left=0 top=0 bottom=0 width="0.1875rem" background-color="light-dark(#0a0a0a3d, #fafafa3d)"
+      button press=press("fold", item.path) aria-label=(item.expanded ? "Collapse diff" : "Expand diff") aria-expanded=item.expanded testId=`pull-request-code-fold-${item.path}` width="1.25rem" height="1.25rem" margin-left="-0.125rem" padding=0 border-radius="0.25rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0
+        PgIcon(name=(item.expanded ? "chevron-down" : "chevron-right"), size=16, color=pcMuted())
+      button press=press("fold", item.path) aria-label=item.path flex=1 min-width=0 padding=0 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" gap="0.5rem"
+        DiffGlyph(name=item.status, size=16, color=(item.status == "deleted" ? diffInk(scheme, "del") : item.status == "added" ? diffInk(scheme, "add") : "#009fff"))
+        when item.entry != ""
+          text `${item.entry} →` font-size="0.75rem" line-height="1rem" color=pcMuted() white-space="nowrap" overflow="hidden" text-overflow="ellipsis" min-width=0 flex-shrink=1 text-align="left"
+        text item.name font-size="0.75rem" line-height="1rem" color=pcInk() white-space="nowrap" overflow="hidden" text-overflow="ellipsis" min-width=0 flex-shrink=1 text-align="left"
+      row gap="0.75rem" align-items="center" flex-shrink=0
+        row gap="0.25rem" align-items="baseline" aria-label=`${item.additions} additions, ${item.deletions} deletions`
+          text `+${item.additions}` font-family="ui-monospace" font-size="0.6875rem" line-height="1rem" font-variant-numeric="tabular-nums" color=diffInk(scheme, "add-count")
+          text `-${item.deletions}` font-family="ui-monospace" font-size="0.6875rem" line-height="1rem" font-variant-numeric="tabular-nums" color=diffInk(scheme, "del-count")
+        when item.label != ""
+          PrdViewedTick(path=item.path, mark=item.label, press=press)
+
+// The Viewed checkbox; "Changed" (with its reason on hover) once the file was pushed to since.
+component PrdViewedTick
+  props
+    path: string
+    mark: string
+    press: action
+  derive viewed = mark == "viewed"
+  view
+    row align-items="center" gap="0.375rem" flex-shrink=0
+      button press=press("viewed", `${path}|${viewed ? "false" : "true"}`) role="checkbox" aria-checked=viewed aria-label=(mark == "changed" ? "Changed" : "Viewed") testId=`pull-request-code-viewed-${path}` width="1rem" height="1rem" padding=0 box-sizing="border-box" border-radius="0.25rem" border-width=1 border-style="solid" border-color=(viewed ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#d4d4d8, #ffffff26)") background-color=(viewed ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#ffffff, #ffffff08)") display="flex" align-items="center" justify-content="center" flex-shrink=0
+        when viewed
+          PgIcon(name="check", size=12, color="#ffffff")
+      when mark == "changed"
+        Tip(label="This file has been pushed to since you marked it viewed.", side="bottom", align="end", offset=20)
+          text "Changed" font-size="0.6875rem" line-height="1rem" color=pcWarn() white-space="nowrap"
+      else
+        text "Viewed" font-size="0.6875rem" line-height="1rem" color=pcMuted() white-space="nowrap"
+
+// "Conversations not on the current diff": closed, counted, above the code; capped at 16rem.
+component PrdCodeOrphans
+  props
+    code: PrCodeView
+    surface: string
+    handoffs: PrHandoffsView
+    choices: list<PrReactionChoice>
+    documents: list<ChatDocument>
+    highlights: list<CodeHighlight>
+    env: MarkdownEnv
+    still: bool
+    local: action
+    act: action
+    press: action
+  view
+    column width="100%" flex-shrink=0 border-bottom-width=1 border-bottom-style="solid" border-color=pcBorder() testId="pull-request-code-orphans"
+      row role="heading" aria-level=2 width="100%"
+        button press=press("orphans", "") aria-expanded=code.orphansOpen aria-label=`${code.orphansLabel}, ${code.orphanSummary}` testId="pull-request-code-orphans-toggle" width="100%" padding-left="1rem" padding-right="1rem" padding-top="0.5rem" padding-bottom="0.5rem" box-sizing="border-box" gap="0.375rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center"
+          text code.orphansLabel font-size="0.75rem" line-height="1rem" color=pcMuted() text-align="left"
+          // Reduced motion swaps the chevron instead of turning it.
+          box width="0.875rem" height="0.875rem" flex-shrink=0 rotate=(not still and code.orphansOpen ? 90 : 0) transition=(still ? "none" : "rotate 150ms ease-out") aria-hidden=true
+            PgIcon(name=(still and code.orphansOpen ? "chevron-down" : "chevron-right"), size=14, color=pcMuted())
+          text `${code.orphanCount}` font-size="0.75rem" line-height="1rem" font-variant-numeric="tabular-nums" color=pcMuted() aria-hidden=true
+      when code.orphansOpen
+        scroll max-height="16rem" width="100%" testId="pull-request-code-orphans-list"
+          column width="100%" padding-left="1rem" padding-right="1rem" padding-bottom="0.75rem" box-sizing="border-box" gap="0.75rem"
+            each group in code.orphans key=group.path
+              column width="100%" min-width=0
+                Tip(label=group.path, side="top", align="start", offset=18)
+                  text group.path padding-left="0.75rem" padding-right="0.75rem" font-size="0.75rem" line-height="1rem" color=pcMuted() white-space="nowrap" overflow="hidden" text-overflow="ellipsis" min-width=0
+                column margin-top="0.25rem" gap="0.5rem" width="100%"
+                  each entry in group.threads key=entry.id
+                    column width="100%"
+                      when entry.line != ""
+                        text entry.line padding-left="0.75rem" padding-right="0.75rem" font-size="0.75rem" line-height="1rem" color=pcMuted()
+                      each card in filter(code.threads, (thread) => thread.id == entry.id) key=card.key
+                        PrdThreadCard(card=card, surface=surface, handoffs=handoffs, choices=choices, documents=documents, code=highlights, env=env, still=still, local=local, act=act)
+
+// What the viewer could not structure, shown as text rather than dropped.
+component PrdCodeRaw
+  props
+    raw: list<PrCodeRaw>
+    bordered: bool
+  view
+    column width="100%" padding-left="1rem" padding-right="1rem" padding-top="1.25rem" padding-bottom="1.25rem" box-sizing="border-box" gap="1rem" border-top-width=(bordered ? 1 : 0) border-top-style="solid" border-color=pcBorder() testId="pull-request-code-raw"
+      each entry in raw key=entry.id
+        column gap="0.5rem" min-width=0
+          text entry.reason font-size="0.75rem" line-height="1rem" color=pcMuted()
+          text entry.text white-space="pre-wrap" overflow-wrap="anywhere" font-family="ui-monospace" font-size="0.75rem" line-height="1rem" color=pcInk()
+
+// DiffFileTree beside the list (w-[min(20rem,40%)] min-w-48): the files that arrived, a footer that pulls in the rest.
+component PrdCodeTree
+  props
+    code: PrCodeView
+    listId: string
+    scheme: string
+    press: action
+  view
+    column width="40%" max-width="20rem" min-width="12rem" flex-shrink=0 height="100%" box-sizing="border-box" border-left-width=1 border-left-style="solid" border-color=pcBorder() role="complementary" aria-label="Files" testId="pull-request-code-tree"
+      row height="1.5rem" align-items="center" margin-top="0.5rem" margin-bottom="0.5rem" padding-left="0.75rem" padding-right="0.5rem" gap="0.25rem"
+        text "Files" font-size="0.75rem" font-weight=500 line-height="1rem" color=pcInk() flex=1
+        text `${code.treeCount}` font-size="0.75rem" line-height="1rem" font-variant-numeric="tabular-nums" color=pcMuted()
+        when code.treeFolders
+          DiffTool(icon=(code.treeAllOpen ? "fold" : "unfold"), label=(code.treeAllOpen ? "Collapse all folders" : "Expand all folders"), pressed=false, toggle=false, radius=6, testId="pull-request-code-tree-folders", choose=press("folders", (code.treeAllOpen ? "collapse" : "expand")))
+      column flex=1 min-height=0 overflow-y="auto" padding-left="0.5rem" padding-right="0.5rem" role="tree" aria-label=code.treeLabel testId="pull-request-code-tree-rows"
+        each entry in code.treeRows key=entry.id
+          PrdCodeTreeItem(entry=entry, listId=listId, scheme=scheme, press=press)
+      when code.treeFooter != ""
+        column flex-shrink=0 padding="0.5rem" border-top-width=1 border-top-style="solid" border-color=pcBorder()
+          button press=press((code.treeFooter == "Retry" ? "retry" : "next"), "") disabled=code.treeBusy testId="pull-request-code-tree-more" width="100%" height="1.5rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)" box-shadow="0 1px 2px #0000000d" opacity=(code.treeBusy ? 0.64 : 1)
+            text code.treeFooter font-size="0.75rem" line-height="1rem" font-weight=500 color=pcInk()
+
+component PrdCodeTreeItem
+  props
+    entry: DiffTreeRow
+    listId: string
+    scheme: string
+    press: action
+  state hovering = false
+  action hover(over: bool)
+    hovering = over
+  action pick
+    if entry.kind == "folder"
+      press("folder", entry.path)
+    else
+      // revealFile: a folded file opens, and the list scrolls to its header.
+      press("reveal", entry.path)
+      // The page's panel and a thread's pull request surface each have their own list.
+      if listId == "pr-surface-scroll-code"
+        scrollIntoView("pr-surface-scroll-code", `file:${entry.path}`, block="start")
+      else
+        scrollIntoView("pr-page-scroll-code", `file:${entry.path}`, block="start")
+  view
+    button press=pick hover=hover role="treeitem" aria-level=(entry.depth + 1) aria-expanded=(entry.kind == "folder" ? entry.expanded : false) aria-selected=entry.selected aria-label=entry.path testId=`pull-request-code-tree-${entry.path}` width="100%" height=24 flex-shrink=0 padding-left=(4 + entry.depth * 12) padding-right=8 gap=4 box-sizing="border-box" border-radius=6 border-width=0 background-color=(entry.selected ? "light-dark(#27272a14, #f5f5f514)" : hovering ? "light-dark(#f4f4f5, #141414)" : "#00000000") display="flex" flex-direction="row" align-items="center"
+      when entry.kind == "folder"
+        PgIcon(name=(entry.expanded ? "chevron-down" : "chevron-right"), size=16, color="light-dark(#71717a, #818181)")
+        text entry.name font-size=12 line-height="16px" flex=1 min-width=0 line-clamp=1 text-align="left" color=pcInk()
+      else
+        box width=16 height=16 flex-shrink=0
+          DiffGlyph(name=(entry.markdown ? "markdown" : "file"), size=16, color=(entry.markdown ? "light-dark(#16a34a, #4ade80)" : "light-dark(#71717a, #818181)"))
+        text entry.name font-size=12 line-height="16px" flex=1 min-width=0 line-clamp=1 text-align="left" color=(entry.status == "deleted" ? diffInk(scheme, "del-text") : entry.status == "added" ? diffInk(scheme, "add-text") : pcInk())
+        text entry.letter font-size=12 font-weight=600 line-height="16px" color=(entry.status == "deleted" ? diffInk(scheme, "del-text") : entry.status == "added" ? diffInk(scheme, "add-text") : "light-dark(#d08700, #fdc700)")
