@@ -336,7 +336,16 @@ fn build_sources(
         } else {
             mode
         };
-        let mut entry = contract::rust_entry("ExactEmbeddedData", "embedded_data()", mode)?;
+        // The Linux (and Android) and Windows hosts make their data source with
+        // `Default` (`exact_linux::run::<D: Default>`); with no Rust module the
+        // entry is otherwise the bare embedded source, which has none. A
+        // replacement-free `Swappable::off` gives it one and links no executor
+        // (LLP 1047.001 D7), as Apple's `host!` gets from `app_data()`.
+        let mut entry = if mode == "off" && matches!(platform, "linux" | "android" | "windows") {
+            "exact_logic::configured!(AppData, ExactEmbeddedData, || exact_logic::Swappable::off(embedded_data()));\n#[allow(dead_code)]\nfn app_data() -> AppData { Default::default() }\n".to_string()
+        } else {
+            contract::rust_entry("ExactEmbeddedData", "embedded_data()", mode)?
+        };
         // The web entry links what the plan uses (LLP 1047 D3).
         if platform == "web" {
             let plan = exact_plan::Plan::decode(&baked.plan).map_err(|e| format!("{e:?}"))?;

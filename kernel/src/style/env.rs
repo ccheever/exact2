@@ -435,7 +435,7 @@ pub const ENV_NAMES: [(&str, &str); 2] = [
     ("viewport-segment-", "css CSS Environment Variables 1"),
 ];
 
-fn term(inner: &str) -> Result<Dimension, EnvRefusal> {
+pub(super) fn term(inner: &str) -> Result<Dimension, EnvRefusal> {
     let inner = inner.trim();
     let body = inner
         .strip_prefix("env(")
@@ -549,7 +549,10 @@ pub fn uses_env(style: &crate::StyleProps) -> bool {
         matches!(
             style.get(id),
             crate::RowValue::Dimension(
-                Dimension::Env(..) | Dimension::Segment(..) | Dimension::Viewport(..)
+                Dimension::Env(..)
+                    | Dimension::Segment(..)
+                    | Dimension::Viewport(..)
+                    | Dimension::Compare(..)
             )
         )
     })

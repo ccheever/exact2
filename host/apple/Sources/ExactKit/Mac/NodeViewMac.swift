@@ -76,7 +76,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     /// projection or a placement saves and restores, since `isHidden` also
     /// reads `display: none` (review B1: restoring that wrote CSS's bit into
     /// the host's and kept the view hidden once it was displayed).
-    var hiddenByHost: Bool { hostHidden }
+    package var hiddenByHost: Bool { hostHidden }
     package override var isHidden: Bool {
         get { super.isHidden }
         set {
@@ -95,18 +95,18 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     var surface: SurfaceLayer? { didSet { layerPaintCache = nil } } // its surface at a layout transition's size (`Surface.swift`)
     /// How far its frame stands from layout's: a lifted Arrange row's
     /// translation plus `stickyOffset` (`applyTransform`).
-    var arrangeShift = CGPoint.zero
+    package var arrangeShift = CGPoint.zero
     /// How far its scroller's scroll moves a sticky box (LLP 1083, `Sticky.swift`).
     var stickyOffset = CGPoint.zero
-    var scale: CGFloat = 1
-    var rotate: CGFloat = 0
+    package var scale: CGFloat = 1
+    package var rotate: CGFloat = 0
     weak package var presenter: Presenter?
     package var textArea: NSTextView?
     var textAreaScroll: NSScrollView?
-    var field: NSTextField?
+    package var field: NSTextField?
     /// A `value` that arrived mid-composition, applied when it ends.
     var pendingValue: String?
-    var scroll: ChainingScrollView?
+    package var scroll: ChainingScrollView?
     /// `box-shadow` (`BoxShadow.swift`): outer, and inset (LLP 1077 D4).
     var shadowCaster: ShadowCaster?
     var insetCaster: InsetShadowCaster?
@@ -141,24 +141,24 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     var video: VideoView?
     var web: NSView?
     /// A canvas node's Metal layer (LLP 1009).
-    var metal: MetalView?
-    var canvasInput: CanvasInput?
+    package var metal: MetalView?
+    package var canvasInput: CanvasInput?
     /// A canvas's children live here (LLP 1014): laid out by the kernel in
     /// the canvas's box, over the Metal layer; when the surface samples them
     /// they are painted into its children texture and this view composites
     /// at alpha 0. `needsCapture`: painted again at the next capture;
     /// `paintedThisTurn`: a draw on this turn is the capture's own.
-    var overlay: FlippedView?
-    var needsCapture = false
-    var paintedThisTurn = false
+    package var overlay: FlippedView?
+    package var needsCapture = false
+    package var paintedThisTurn = false
     /// Where a canvas's surface put this direct child (LLP 1014 D5): a 3×3
     /// homography, row major, from this node's own points to the canvas's,
     /// then its depth (larger nearer); `nil` is the kernel's frame.
     /// Hit-testing inverts it, nearest child first; accessibility reports the
     /// mapped box.
-    var placement: [Double]?
+    package var placement: [Double]?
     private var hiddenBeforePlacement = false
-    var placementHidden = false {
+    package var placementHidden = false {
         didSet {
             if placementHidden && !oldValue { hiddenBeforePlacement = hostHidden }
             if placementHidden { isHidden = true }
@@ -178,7 +178,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     var raster: NativeRasterLease? { didSet { layerPaintCache = nil } }
     var imageSource: String?
     var loadGeneration = 0
-    var pressed = false { didSet { if pressed != oldValue { pressChanged() } } }
+    package var pressed = false { didSet { if pressed != oldValue { pressChanged() } } }
     var press = PressFeedback() // LLP 1061: the feedback `pressed` drives
     // @ref LLP 1038 D6 — projection does not overwrite authored inert.
     var routeInert = false
@@ -202,7 +202,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     /// Images loaded since launch (smoke reporting).
     /// The session's text engine (LLP 1031 D12: the catalog is the session's).
     package var text: TextEngine? { presenter?.session?.text }
-    var canvases: Canvases? { presenter?.session?.canvases }
+    package var canvases: Canvases? { presenter?.session?.canvases }
 
     /// A native button's command is its own too (a confirmation's close row, LLP 1069.011.000 D9).
     var pressable: Bool { handlers.contains("press") || defaultLink != nil || (isButton && (props["commandfor"] != nil || props["popovertarget"] != nil)) }
@@ -436,8 +436,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         // instead of stretching stale pixels.
         layerContentsRedrawPolicy = .duringViewResize
         focusRingType = .exterior // a pressable's ring, outside its box (`FocusMac.swift`)
-        if kind == "canvas" {
-            let m = MetalView(frame: .zero)
+        if kind == "canvas", let m = SurfacesLink.installed?.makeMetalView() {
             addSubview(m)
             metal = m
             let o = FlippedView(frame: .zero)
@@ -540,7 +539,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
 
     /// The canvas this node is painted through, if any: the nearest canvas
     /// above whose overlay holds it.
-    var canvasAbove: NodeView? {
+    package var canvasAbove: NodeView? {
         var v: NSView = self
         while let s = v.superview {
             if let c = s as? NodeView, c.overlay === v { return c }
@@ -626,7 +625,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     /// through each transformed box on the way (LLP 1077 D8), and through the
     /// surface's placement when this node is under a placed child (LLP 1014
     /// D5) — the canvas reached first the same way, then the child's points.
-    func local(_ windowPoint: NSPoint) -> NSPoint {
+    package func local(_ windowPoint: NSPoint) -> NSPoint {
         guard let placed = placedAncestor, let h = placed.placement, let inv = NodeView.invert(h),
               let overlay = placed.superview, let canvas = overlay.superview as? NodeView else {
             return descend(windowPoint)
@@ -636,7 +635,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     }
 
     /// The placement changed: accessibility sees the new box.
-    func placementChanged() {
+    package func placementChanged() {
         NSAccessibility.post(element: self, notification: .layoutChanged)
     }
 
@@ -1454,10 +1453,10 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         // A canvas that wants input scrolls itself; the nodes' `wheel` is
         // still heard (review b5-b 2).
         if canvasInput?.wheel(event) == true { _ = wheel(event); return }
-        if presenter?.mouseTransformDrag.scroll(self, event: event) != true, !wheel(event) { super.scrollWheel(with: event) }
+        if presenter?.mouseDrags.transform.scroll(self, event: event) != true, !wheel(event) { super.scrollWheel(with: event) }
     }
     package override func magnify(with event: NSEvent) {
-        if presenter?.mouseTransformDrag.magnify(self, event: event) != true, !wheel(event) { super.magnify(with: event) }
+        if presenter?.mouseDrags.transform.magnify(self, event: event) != true, !wheel(event) { super.magnify(with: event) }
     }
 }
 #endif

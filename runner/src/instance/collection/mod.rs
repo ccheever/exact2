@@ -2,6 +2,8 @@
 //! @ref LLP 1010 §6 / LLP 1041 §8. No historical instance or row-state cache.
 mod api;
 mod index;
+mod inset;
+pub(crate) use inset::Insets;
 mod into_view;
 mod nest;
 mod rekey;
@@ -193,6 +195,11 @@ pub(crate) struct Collection {
     /// What a retiring row may be rebound to another item under (LLP 1078):
     /// `None` when no row of this list can be.
     reuse: Option<Rc<reuse::Reuse>>,
+    /// The padding before the first row and after the last that the next
+    /// report brings ([`Collection::set_insets`]).
+    padding_next: Option<[f64; 2]>,
+    /// The scroll padding at each end, along the axis (@ref LLP 1010 §6.9).
+    scroll_padding: [f64; 2],
 }
 fn index_error(e: index::IndexError) -> InstanceError {
     InstanceError::Collection(e.to_string())
@@ -459,6 +466,8 @@ impl Collection {
             end_travel: 0,
             end_sent: f64::NAN,
             reuse,
+            padding_next: None,
+            scroll_padding: [0.0; 2],
         });
         this.update_data(u, frames, true)?;
         Ok(Some(this))
@@ -1221,9 +1230,15 @@ impl Collection {
         {
             return Err(InstanceError::InvalidCollectionFeedback);
         }
-        if let Some(edge) = self.travel_within(u, &feedback, by_view, fill)? {
-            self.reveal_shown(u);
-            return Ok((false, edge));
+        // @ref LLP 1010 §6.9 — a new padding (a rotation's safe area) is no
+        // travel: the anchor is taken on the old range and restored on the
+        // new, so a followed end follows it.
+        let padding = self.padding_next.take().unwrap_or(self.padding());
+        if padding == self.padding() {
+            if let Some(edge) = self.travel_within(u, &feedback, by_view, fill)? {
+                self.reveal_shown(u);
+                return Ok((false, edge));
+            }
         }
         let changed_width = self
             .geometry
@@ -1290,15 +1305,9 @@ impl Collection {
         let extent = self.index.total_height();
         let anchor = Some(match self.restoring(&feedback) {
             Some(anchor) => anchor,
-            None => self
-                .index
-                .capture_anchor(
-                    self.anchor_offset(feedback.offset),
-                    anchor_height,
-                    self.follows(),
-                )
-                .map_err(index_error)?,
+            None => self.report_anchor(feedback.offset, anchor_height, padding)?,
         });
+        self.set_padding(padding);
         self.set_geometry(CollectionFeedback {
             measurements: Vec::new(),
             ..feedback.clone()

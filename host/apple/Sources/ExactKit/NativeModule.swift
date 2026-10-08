@@ -403,7 +403,7 @@ final class NativeViews {
         #else
         let standard = embeddedModule(framework: "ExactModules", dylib: "libexact_modules.dylib")
         #endif
-        let trust = ((GpuModule.bakedCompatibility["inputs"] as? [String: Any])?["trust"] as? String) ?? "development"
+        let trust = ((BakedCompatibility.json["inputs"] as? [String: Any])?["trust"] as? String) ?? "development"
         guard trust != "production", let override = ExactEnv.environment["EXACT_MODULES"], !override.isEmpty else { return standard }
         return override
     }

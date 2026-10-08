@@ -503,11 +503,12 @@ package final class TextEngine {
     /// Declared family names to their plan stacks, for Canvas 2D's `font`
     /// (LLP 1056 D8).
     private var familyStacks: [String: Int] = [:]
-    /// Canvas 2D's fonts and lines over this engine (LLP 1056 D8).
-    private(set) lazy var canvasText = CanvasText(engine: self)
+    /// Canvas 2D's fonts and lines over this engine (LLP 1056 D8), which the
+    /// Surfaces module makes at first use (LLP 1047.001 D4).
+    package var canvasTextCache: AnyObject?
 
     /// A declared family's stack, by name.
-    func stack(named name: String) -> Int? { familyStacks[name] }
+    package func stack(named name: String) -> Int? { familyStacks[name] }
     /// Where a declared face's relative source resolves: the app's resolver
     /// (LLP 1031 D1 — the committed complete generation, else the root).
     let resolve: (String) -> URL?
@@ -591,7 +592,7 @@ package final class TextEngine {
             engine.residency.refreshAfterRestore()
             engine.catalog = catalog
             engine.familyStacks = familyStacks
-            engine.canvasText = CanvasText(engine: engine)
+            engine.canvasTextCache = nil
             engine.dropMeasuredBreaks()
             if let measurer, let m = engine.measurer { Owner.shared.sync { measurer.restore(into: m) } }
         }
@@ -614,7 +615,7 @@ package final class TextEngine {
         platformControlID = nil
         catalog.removeAll(keepingCapacity: true)
         familyStacks.removeAll()
-        canvasText = CanvasText(engine: self)
+        canvasTextCache = nil
         guard let value = pointer?.pointee else { return }
         let rows = UnsafeBufferPointer(start: value.faces, count: value.count)
         var staged: [Int: [RegisteredFace]] = [:]

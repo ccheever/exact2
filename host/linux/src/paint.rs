@@ -194,7 +194,8 @@ impl BoxPaint {
             Dimension::Auto
             | Dimension::Env(..)
             | Dimension::Segment(..)
-            | Dimension::Viewport(..) => 0.0,
+            | Dimension::Viewport(..)
+            | Dimension::Compare(..) => 0.0,
         };
         // @ref LLP 1053.000 D4 — a material wins over `backdrop-filter`; a
         // name the table lacks draws ultra-thin ([`material_note`]).
@@ -1159,6 +1160,9 @@ impl Painter {
             NodeType::Control if node.props.str(PropId::Type) == Some("range") => {
                 self.range_control(node, content, ts, walk.scene.chosen.get(&node.id))
             }
+            NodeType::Control if node.props.str(PropId::Type) == Some("progress") => {
+                control::progress(self.backend.as_mut(), node, content, ts, self.dark)
+            }
             NodeType::Control if node.props.str(PropId::Type) == Some("button") => {
                 let face = walk.scene.kernel.press_face(node.id).unwrap_or_default();
                 let rows = walk
@@ -1338,9 +1342,11 @@ pub fn content_size(node: &NodeRef<'_>, kernel: &Kernel) -> (f32, f32) {
         Dimension::Points(p) => p,
         Dimension::Percent(p) => against * p / 100.0,
         Dimension::Calc(p, x) => against * p / 100.0 + x,
-        Dimension::Auto | Dimension::Env(..) | Dimension::Segment(..) | Dimension::Viewport(..) => {
-            0.0
-        }
+        Dimension::Auto
+        | Dimension::Env(..)
+        | Dimension::Segment(..)
+        | Dimension::Viewport(..)
+        | Dimension::Compare(..) => 0.0,
     };
     let pad_right = pad(node.style.padding_right, node.frame.width);
     let pad_bottom = pad(node.style.padding_bottom, node.frame.width);

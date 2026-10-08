@@ -181,7 +181,7 @@ public final class ExactView: UIView {
         session.tellPage() // `hasFocus` is this window's scene's (#114)
         session.natives.scopesChanged()
         session.rasters.setPaused(window == nil)
-        session.canvases.lifecycle.refresh()
+        session.canvases.refreshLifecycle()
         if window == nil {
             session.presenter.menus.unmounted()
             session.presenter.modals.unmounted()

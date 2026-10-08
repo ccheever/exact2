@@ -718,6 +718,7 @@ impl<'a> Lowerer<'a> {
                     self.check_native_button(expanded, children, *span)?;
                 }
                 controls::check_nesting(tag, parent_tag, *span)?;
+                controls::check_progress(tag, expanded, children)?;
                 self.check_menu_shapes(tag, expanded, children, *span)?;
                 let numeric = controls::range_attrs(tag, control, expanded);
                 let expanded = numeric.as_deref().unwrap_or(expanded);
@@ -819,6 +820,16 @@ impl<'a> Lowerer<'a> {
                         kind: BindingKind::Prop,
                         id: *prop as u16,
                         expr: self.fixed(false, value),
+                    });
+                }
+                // @ref LLP 1069.001 (amended 2026-10-07) — an indeterminate
+                // `progress` is busy, as ARIA's `aria-busy`: a bool, which a
+                // fixed prop (text) cannot be.
+                if tag == "progress" {
+                    bindings.push(BindingsRow {
+                        kind: BindingKind::Prop,
+                        id: exact_kernel::PropId::AccessibilityBusy as u16,
+                        expr: self.b.constant(&Value::Bool(true)),
                     });
                 }
                 // @ref LLP 1048.003 D4 — the page scrolls where this does.

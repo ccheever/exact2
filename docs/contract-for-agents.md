@@ -716,8 +716,20 @@ list with no bound at all, in its first 390×844 frame, so look at the list in e
 layout it takes. It takes `estimated-item-height`. A horizontal one needs a
 literal `display="flex"` and a literal positive `height`, takes
 `estimated-item-width`, and refuses wrapping, reversed or right-to-left flow, a
-nonzero `gap`, main-axis padding, `justify-content` other than `flex-start`, and
-`reorderdrop`. `reorderdrop` belongs only on a vertical `list virtualized=true`
+nonzero `gap`, `justify-content` other than `flex-start`, and `reorderdrop`.
+Main-axis padding (`padding-top`/`-bottom`, a row list's `-left`/`-right`) is
+CSS's room before the first row and after the last, inside the scroll content:
+room under a header laid over the list, or over a tab bar
+(`padding-bottom="calc(env(safe-area-inset-bottom) + 49px)"`). It takes a
+number, an `env()` length or its `calc()`, or a computed number, not a
+percentage; the end that `reachend`, `scrollFollowEnd` and `scroll-start="end"`
+reach is past it, and on iOS the pull-to-refresh spinner draws below
+`padding-top` (a padding-bottom taller than the port has limits: LLP 1010
+§6.9). `scroll-padding` (`-top`/`-bottom`, a row list's `-left`/`-right`, the
+same forms) is where its `scrollIntoView` aligns a row, as CSS's snapport:
+with `scroll-padding-top` equal to a header's height, the first row's
+`block="start"` is `scrollTop` 0. Only a virtualized list takes it
+(`lower-scroll-padding` elsewhere: native hosts read it nowhere else). `reorderdrop` belongs only on a vertical `list virtualized=true`
 (each row's handle names it with `reorderFor`); the compiler refuses it on any
 other element, where no host could drag. Lists that share a `reorderGroup`
 (each with a `reorderdrop`, an `id` and string keys) exchange rows: the drop
@@ -802,6 +814,7 @@ drawn title bar) is a bug. On iOS:
 | `input type="range"` | `UISlider` |
 | `input type="date"`, `"time"`, `"datetime-local"` | `UIDatePicker` |
 | `select` of `option`s | a pop-up button with its menu |
+| `progress` (no `value`) | `UIActivityIndicatorView`, `.large` from a 37-point box (LLP 1069.001) |
 | `popover="auto" role="menu"` of `button`s, opened by `popovertarget` (a row whose `popovertarget` names another menu: its submenu) | `UIMenu`, nested (LLP 1021) |
 | `role="tablist"`: each tab a symbol over a label / one text or image | `UITabBar` / `UISegmentedControl`, the tablist at least its native height unless `min-height` says otherwise (LLP 1059) |
 | a route whose first child is a `header` holding one heading and its buttons | the navigation bar; a level-1 heading (`aria-level=1`) is a large title |
@@ -1092,6 +1105,16 @@ main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow displa
   over the routes and the native bars on every host, as later siblings do in CSS.
 - A modal route (`navigationPresentation="modal"`) paints its own background; the
   route under it is dimmed.
+- A sheet's heights are `navigationDetent`, space-separated words: `large`,
+  `medium`, a point height or `fit-content` (the route's content height; a menu or
+  a short dialog), which goes alone or as `"fit-content large"`. A literal with
+  another word is refused. `fit-content` measures the route laid out alone, its
+  height left to its children, so nothing sized from the sheet counts (a `vh`
+  height or min/max height is `auto` there); a route
+  that scrolls is measured by its scroll extent, so give its rows
+  `flex-shrink: 0`. The route does
+  not pad `env(safe-area-inset-bottom)`: UIKit adds that band below the detent.
+  iOS alone sizes a sheet (LLP 1075.003 §9.11).
 - Without tabs, the routes are the root's own children, laid out the same way.
 - Tests reach a tab by `tap`, or deliver a location as `type <root> "/saved"` (LLP
   1038 D11), which calls the root's `navigate`. On the web a CLI drive goes back as
@@ -1643,6 +1666,19 @@ border radii) accept `vw`, `vh`, `vmin`, `vmax`, and `svw/svh/lvw/lvh/dvw/dvh`.
 On native, all viewport variants follow the window; on web, CSS resolves
 small/large/dynamic viewports. Scalar lengths such as font size and gap do
 not yet accept viewport units.
+
+The same rows take `env(safe-area-inset-top|right|bottom|left)`, `calc(env(…) ±
+<n>px)`, and CSS's `min()`, `max()` and `clamp()` over px (and in/cm/mm/pt/pc),
+those insets and viewport lengths, with sums inside them (`max(15px,
+env(safe-area-inset-bottom) - 4px)`) and nested in each other and in `calc()`:
+`padding-bottom="clamp(15px, env(safe-area-inset-bottom), 60px)"`,
+`bottom="calc(clamp(15px, env(safe-area-inset-bottom), 60px) + 59px)"`.
+CSS's order is `clamp(MIN, VAL, MAX)`, not React Native's `clamp(value, min,
+max)`. Native hosts resolve them as the insets change; the web writes CSS's own
+functions. On a size, a padding or a radius a result below zero is 0, as CSS
+clamps it; a margin or an inset keeps it. Refused with the reason: a percentage, `rem`/`em`, a unitless
+number (write `0px`, not `0`), `env(viewport-segment-*)`, two inset or viewport terms in one
+sum, subtracting one, `*` and `/` (LLP 1001 §2, "Comparisons").
 
 `translate` takes one or two lengths, each in px or a percentage of the box's own
 border box, as CSS's does: `left="50%" top="50%" translate="-50% -50%"` on an

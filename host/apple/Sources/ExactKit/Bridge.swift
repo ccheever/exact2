@@ -62,7 +62,7 @@ public struct Batch {
 /// name, never a trap.
 package final class Runtime {
     package let rt: ExactRuntime
-    private(set) var destroyed = false
+    private(set) package var destroyed = false
     #if DEBUG
     // Per-runtime observation for differential tests of actual session traffic.
     // Release builds have neither the callback nor a copy of the wire bytes.
@@ -207,7 +207,7 @@ package final class Runtime {
 
     /// Every queued reply into the runner: the batch of their commits.
     func pump(now: Double) -> Batch { on { read(exact_pump(rt, now)) } }
-    func requestActive(_ ticket: UInt64) -> Bool { on(busy: false) { exact_request_active(rt, ticket) != 0 } }
+    package func requestActive(_ ticket: UInt64) -> Bool { on(busy: false) { exact_request_active(rt, ticket) != 0 } }
     func fulfillSurface(_ ticket: UInt64, kind: UInt32, body: Data = Data(), now: Double) -> Batch {
         return on {
             let n = write(body)
@@ -230,45 +230,45 @@ package final class Runtime {
             return (start, batch)
         }
     }
-    func heightDragBegin(_ handleKey: UInt64, targetKey: UInt64, now: Double) -> (NativeHold?, Batch) {
+    package func heightDragBegin(_ handleKey: UInt64, targetKey: UInt64, now: Double) -> (NativeHold?, Batch) {
         return on(busy: (nil, Runtime.busy)) {
             let batch = read(exact_height_drag_begin(rt, handleKey, targetKey, now))
             return (batch.ops.first { $0.op == .hold }.flatMap { NativeHold($0.payload) }, batch)
         }
     }
-    func heightDragUpdate(_ token: UInt64, height: Double, now: Double) -> Batch {
+    package func heightDragUpdate(_ token: UInt64, height: Double, now: Double) -> Batch {
         return on {
             read(exact_height_drag_update(rt, token, height, now))
         }
     }
-    func heightDragRelease(_ token: UInt64, height: Double, now: Double) -> Batch {
+    package func heightDragRelease(_ token: UInt64, height: Double, now: Double) -> Batch {
         return on {
             read(exact_height_drag_release(rt, token, height, now))
         }
     }
-    func reorderBegin(_ handle: UInt32, scrollTop: Double, now: Double) -> Batch {
+    package func reorderBegin(_ handle: UInt32, scrollTop: Double, now: Double) -> Batch {
         return on {
             read(exact_reorder_begin(rt, handle, scrollTop, now))
         }
     }
-    func reorderMove(_ token: UInt64, dy: Double, scrollTop: Double, inside: Bool, now: Double) -> Batch {
+    package func reorderMove(_ token: UInt64, dy: Double, scrollTop: Double, inside: Bool, now: Double) -> Batch {
         return on {
             read(exact_reorder_move(rt, token, dy, scrollTop, inside ? 1 : 0, now))
         }
     }
-    func reorderEnd(_ token: UInt64, drop: Bool, dy: Double, scrollTop: Double, inside: Bool, velocity: Double, now: Double) -> Batch {
+    package func reorderEnd(_ token: UInt64, drop: Bool, dy: Double, scrollTop: Double, inside: Bool, velocity: Double, now: Double) -> Batch {
         return on {
             read(exact_reorder_end(rt, token, drop ? 1 : 0, dy, scrollTop, inside ? 1 : 0, velocity, now))
         }
     }
-    func hasHold(_ token: UInt64) -> Bool { on(busy: false) { !destroyed && exact_has_hold(rt, token) != 0 } }
+    package func hasHold(_ token: UInt64) -> Bool { on(busy: false) { !destroyed && exact_has_hold(rt, token) != 0 } }
     func holdUpdate(_ token: UInt64, x: Double, y: Double, now: Double) -> Batch {
         return on {
             read(exact_hold_update(rt, token, x, y, now))
         }
     }
     /// `measured`: release at the engine's own velocity estimate (LLP 1057.001 §3).
-    func holdEnd(_ token: UInt64, cancel: Bool, measured: Bool = false, vx: Double = 0, vy: Double = 0, now: Double) -> Batch {
+    package func holdEnd(_ token: UInt64, cancel: Bool, measured: Bool = false, vx: Double = 0, vy: Double = 0, now: Double) -> Batch {
         return on {
             read(exact_hold_end(rt, token, cancel ? 1 : measured ? 2 : 0, vx, vy, now))
         }

@@ -1,13 +1,13 @@
 #!/bin/bash
 # crashcheck.sh <since YYYY-MM-DD-HHMMSS> <outdir> — list the crash logs of the device BENCH_DEVICE, print every bench
-# app entry (the exact2, SwiftUI, UIKit and Expo bench executables, JetsamEvent) stamped at or after <since>, and copy
+# app entry (heavy-list's, extra-heavy's and crypto-list's executables, JetsamEvent) stamped at or after <since>, and copy
 # new ones into <outdir>. A run that printed "ok" may still have crashed and relaunched; read these before trusting a
 # series. The caller holds the device lock, if any. Prints "crash logs: none …" when clean.
 U=${BENCH_DEVICE:?set BENCH_DEVICE to the device UDID}
 SINCE=$1; OUT=$2
 # Crash log names start with the process name, which for the exact2 app has a space ("Heavy list-2026-…").
 names=$(timeout 60 xcrun devicectl device info files --device $U --domain-type systemCrashLogs 2>/dev/null \
-  | grep -oE '(ExactIOS|Heavy list|HeavyBench|HeavyUIKit|HeavyBenchExpo|XHeavy[A-Za-z ]*|JetsamEvent)-[0-9]{4}-[0-9]{2}-[0-9]{2}-[0-9]{6}[^ ]*' )
+  | grep -oE '(ExactIOS|Heavy list|HeavyBench|HeavyUIKit|HeavyBenchExpo|XHeavy[A-Za-z ]*|Crypto[A-Za-z ]*|JetsamEvent)-[0-9]{4}-[0-9]{2}-[0-9]{2}-[0-9]{6}[^ ]*' )
 n=0
 IFS=$'\n'
 for f in $names; do

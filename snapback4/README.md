@@ -10,10 +10,10 @@ is handed to whoever drives it. Pinned to Snapback4 **0.4.13**
 
 | | |
 |---|---|
-| `client/` (`exact-snapback4-client`) | the protocol: `Client` (`read`, `write`, `sync` → `Step::Fetch`/`deliver` → `Step::Done`, `changes`/`changed`, `outcome`, `status`), the JSON `dispatch`, partition binding |
+| `client/` (`exact-snapback4-client`) | the protocol: `Client` (`read`, `write`, `sync` → `Step::Fetch`/`deliver` → `Step::Done`, `changes`/`changed`, `refresh`/`refreshed`, `outcome`, `status`), the JSON `dispatch`, partition binding |
 | `src/` (`exact-snapback4`) | the native device under the app's grants and directories: `Module` (an Exact `NativeModule` or `DataSource`), and `host_request`/`host_reply` for a Rust source's `Answer::Later` |
 | `web/` (`exact-snapback4-web`) | the same client as wasm over the device's memory store; `web/build.mjs` builds it with its wasm-bindgen glue |
-| `ts/` | the TypeScript driver an app's `app.ts` imports: `Snapback.open`, `read`/`readAll`, `write`, `sync`, `poll`, `outcome`, `status` |
+| `ts/` | the TypeScript driver an app's `app.ts` imports: `Snapback.open`, `read`/`readAll`, `write`, `sync`, `poll`, `refreshSession`, `outcome`, `status` |
 
 ## From TypeScript
 
@@ -38,6 +38,7 @@ await db.sync();                                       // open on first sync, pa
 const inbox = await db.read('inbox', {}, now);         // the device answers; pending rows say so
 const sent = await db.write('send', { body }, now);    // kept and predicted now, sent by the next sync
 if (await db.poll(20)) await db.sync();                // the server's head moved
+const renewed = await db.refreshSession(now);          // near expiresAt: keep renewed.session at once
 ```
 
 A data module has no clock: pass `now` from a source argument
@@ -62,6 +63,12 @@ database busy.
 Every exchange names itself (`fetch.exchange`); deliver its reply with that
 name. A reply for a round that was cancelled, or a client since reopened, is
 refused (`done.stale`), as is a superseded or repeated change-poll reply.
+
+`refreshSession` (`POST /auth/refresh`) trades the bearer `headers()` sends
+for a fresh session. The server retires the old token before it answers, so
+keep the returned session before the next exchange and have `headers()` read
+it; `denied.code == "E_AUTH"` means sign in again. When to refresh is the
+app's: Snapback's own client asks shortly before `expiresAt`.
 
 ## From Rust
 

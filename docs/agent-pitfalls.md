@@ -25,6 +25,13 @@ guide's rules don't make obvious.
   `line-height=1.3` (28.6 px at 22 px). (Authoring bench,
   LLP 1087: three Codex builders, caught only by a screenshot, 2026-10-05.)
 
+- **A ported `clamp(inset, 15, 60)` never stops at 60.** Cause: React Native
+  code's `clamp(value, min, max)` (lodash's order) is not CSS's `clamp(MIN, VAL,
+  MAX)`, which is `max(MIN, min(VAL, MAX))`: `clamp(env(safe-area-inset-bottom),
+  15px, 60px)` is the inset whenever it passes 15. Fix: `clamp(15px,
+  env(safe-area-inset-bottom), 60px)`. (Bluesky clone's bottom bar, the kernel
+  test that caught it, 2026-10-07.)
+
 - **An image tile grows to its picture's size.** An album tile in a flex row became
   900×1200 pt. Cause: a flex item's automatic minimum is its content size (CSS), and
   an image's content size is its intrinsic size. Fix: give the image or its flex

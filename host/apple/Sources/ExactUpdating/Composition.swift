@@ -6,6 +6,12 @@ import ExactGroupedLists
 #if EXACT_LINK_MARKDOWN
 import ExactMarkdown
 #endif
+#if EXACT_LINK_SURFACES
+import ExactSurfaces
+#endif
+#if EXACT_LINK_DRAG
+import ExactDrag
+#endif
 import ExactUpdates
 public enum ExactComposition {
     public static let app: ExactApp = {
@@ -16,6 +22,12 @@ public enum ExactComposition {
         #endif
         #if EXACT_LINK_MARKDOWN
         ExactMarkdown.install()
+        #endif
+        #if EXACT_LINK_SURFACES
+        ExactSurfaces.install()
+        #endif
+        #if EXACT_LINK_DRAG
+        ExactDrag.install()
         #endif
         let app = ExactApp.shared
         ExactUpdates.install(on: app)

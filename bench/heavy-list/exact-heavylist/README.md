@@ -12,6 +12,8 @@ ran an earlier copy whose Contract still had `writes` clauses).
   `include_bytes!`'d.
 - `assets/` holds the 104 JPEGs from `../data/images/`, copied the same way.
 - `apple/` is the static library, whose `build.rs` compiles and bakes the plan.
+- `web/` is the web build's crate (`host/web/build.mjs exact-heavylist-web`), which `../../dioxus` measures
+  against Dioxus Web on Chrome.
 - `Cargo.toml` is its own workspace (so the repository's root workspace does not adopt it),
   with exact2's `[patch.crates-io]` lines. Its `Cargo.lock` is not committed: `../prepare.sh`
   copies the root's, which build.mjs then resolves for this workspace (offline).

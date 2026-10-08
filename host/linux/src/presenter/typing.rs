@@ -33,6 +33,11 @@ impl<D: DataSource> Presenter<D> {
                     "view {id} is a button: it takes a press, not a value"
                 ));
             }
+            // An indeterminate progress has no value (LLP 1069.001, amended
+            // 2026-10-07).
+            if node.props.str(PropId::Type) == Some("progress") {
+                return Err(format!("view {id} is not an input"));
+            }
             return self.set_control_value(id, text);
         }
         if node.node_type != NodeType::TextInput {

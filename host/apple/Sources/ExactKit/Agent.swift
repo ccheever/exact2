@@ -68,7 +68,7 @@ public final class Agent {
     weak var canvasContact: NodeView?
     /// The last point the agent's pointer sent its canvas (iOS), for its motion.
     var canvasPoint: CGPoint?
-    var keyReleases: [String: () -> [String: Any]] = [:]
+    package var keyReleases: [String: () -> [String: Any]] = [:]
 
     /// Where replies go: the stream the requests came on.
     nonisolated(unsafe) static var out = FileHandle.standardOutput
@@ -494,6 +494,9 @@ public final class Agent {
             session.clock = max(session.now(), runner ?? 0)
             // The display's cadence means nothing under the agent's clock.
             session.sampler?.stop()
+            // An activity indicator holds one frame under it (LLP 1069.001,
+            // amended 2026-10-07).
+            presenter.controls.syncProgress()
         }
         if req["take"] as? Bool == true { return ["clock": session.clock ?? 0] }
         let from = session.clock ?? 0
@@ -524,7 +527,7 @@ public final class Agent {
         guard var to = target, to.isFinite else { return ["error": "clock needs \"to\" (ms) or \"settle\": true"] }
         guard to >= from else { return ["error": "the clock cannot go backwards (\(from) → \(to))"] }
         var rounds = 0, hatchDrains = 0
-        var world = Canvases.WorldClock()
+        var world = WorldClock()
         func reply(_ landed: Double, _ settled: Bool? = nil, reason: String? = nil) -> [String: Any] {
             var out = world.reply
             out["clock"] = landed
@@ -766,7 +769,7 @@ public final class Agent {
 
 extension ExactSession {
     /// This session's agent (made on first use).
-    var agentInstance: Agent {
+    package var agentInstance: Agent {
         if let a = agentBox { return a }
         let a = Agent(session: self)
         agentBox = a

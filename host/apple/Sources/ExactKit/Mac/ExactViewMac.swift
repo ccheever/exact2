@@ -186,7 +186,7 @@ public final class ExactView: NSView {
         if window == nil { session.presenter.menus.reset(); session.presenter.dialogs.reset() }
         session.tellPage() // `hasFocus` is this window's (#114)
         session.rasters.setPaused(window == nil)
-        session.canvases.lifecycle.refresh()
+        session.canvases.refreshLifecycle()
         if session.presenter.toolbar.window !== window { session.presenter.toolbar.detach() }
         else { session.presenter.toolbar.sync() }
         if let shortcutMonitor { NSEvent.removeMonitor(shortcutMonitor); self.shortcutMonitor = nil }

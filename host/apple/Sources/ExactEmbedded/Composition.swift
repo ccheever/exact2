@@ -6,6 +6,12 @@ import ExactGroupedLists
 #if EXACT_LINK_MARKDOWN
 import ExactMarkdown
 #endif
+#if EXACT_LINK_SURFACES
+import ExactSurfaces
+#endif
+#if EXACT_LINK_DRAG
+import ExactDrag
+#endif
 public enum ExactComposition {
     public static let app: ExactApp = {
         // The linked capabilities' Swift halves (LLP 1047.001 D4), before
@@ -15,6 +21,12 @@ public enum ExactComposition {
         #endif
         #if EXACT_LINK_MARKDOWN
         ExactMarkdown.install()
+        #endif
+        #if EXACT_LINK_SURFACES
+        ExactSurfaces.install()
+        #endif
+        #if EXACT_LINK_DRAG
+        ExactDrag.install()
         #endif
         let app = ExactApp.shared
         return app

@@ -36,6 +36,9 @@ pub enum ControlKind {
     /// `button appearance="auto"`: the platform's button (LLP 1069.011),
     /// its title and image its children.
     Button,
+    /// `progress` with no `value`: HTML's indeterminate progress, shown as
+    /// the platform's activity indicator (LLP 1069.001, amended 2026-10-07).
+    Progress,
 }
 
 impl ControlKind {
@@ -46,6 +49,7 @@ impl ControlKind {
         }
         Some(match props.str(PropId::Type) {
             Some("button") => ControlKind::Button,
+            Some("progress") => ControlKind::Progress,
             Some("file") => ControlKind::File,
             Some("select") => ControlKind::Select,
             Some("range") => ControlKind::Range,
@@ -75,6 +79,10 @@ impl ControlKind {
             // UIKit's medium button, rounded (LLP 1069.011 §2: 63.33 × 34.33
             // for a short title): frame one until the host reports.
             ControlKind::Button => (64.0, 34.0),
+            // UIKit's medium activity indicator, 20 × 20, on every host: it
+            // is the size, not a host's report (LLP 1069.001, amended
+            // 2026-10-07).
+            ControlKind::Progress => (20.0, 20.0),
         }
     }
 

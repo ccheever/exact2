@@ -433,7 +433,13 @@ A virtualized list has exactly one direct `each`, whose body has one flow root.
 A vertical list needs a real height bound (`height`, `max-height`, or growing
 `flex` in a bounded parent). A horizontal one needs a literal `display="flex"` and
 a literal positive `height`, takes `estimated-item-width`, and refuses a nonzero
-`gap`, main-axis padding, and `justify-content` other than `flex-start`.
+`gap` and `justify-content` other than `flex-start`. Padding along the list's
+axis is room before the first row and after the last, as in CSS: a length or an
+`env()` inset, not a percentage. On iOS a list's pull-to-refresh spinner draws
+below its `padding-top`, so a header laid over that padding does not hide it. A
+virtualized list's `scroll-padding` insets where `scrollIntoView` aligns a row,
+as in CSS: `scroll-padding-top` the height of that header brings a row to just
+below it, and the first row to the very top. Other elements refuse it.
 Virtualized lists nest one level deep (an inner vertical list needs a literal
 `height` or `max-height`); deeper nesting, masonry, wrapping, reversed lists, and
 RTL horizontal collections are not supported.
@@ -863,7 +869,11 @@ parenthood, and do not assume border-box sizing. Set it when it matters.
 
 Numeric dimensions normally mean pixels. Unit-bearing values and keywords are
 strings: `width="50%"`, `height="auto"`, `padding-top="env(safe-area-inset-top)"`,
-`width="calc(100% - 24px)"`. Supported values are property-specific; this is not
+`width="calc(100% - 24px)"`, and CSS's `min()`, `max()` and `clamp()` over px,
+the safe-area insets and viewport lengths: `padding-bottom="clamp(15px,
+env(safe-area-inset-bottom), 60px)"`, `bottom="calc(max(15px,
+env(safe-area-inset-bottom)) + 44px)"` (no percentage inside one: the kernel
+resolves them before layout). Supported values are property-specific; this is not
 an unrestricted browser stylesheet. The compiler and kernel reject unsupported
 names or values. `line-height=1.5` is a ratio; `line-height="24px"` is fixed.
 
@@ -984,7 +994,8 @@ keeps it from its ancestors' `key` handlers with `stopPropagation()`
 
 The complete event inventory and payload groups are in the
 [event reference](contract-grammar.md#events). HTML controls include `select` and
-`option`; inspect [the control tests](../contract/cli/tests/it/controls.rs) for
+`option`, and `progress` with no `value`, the platform's activity indicator
+([activity](contract-grammar.md#activity-progress)); inspect [the control tests](../contract/cli/tests/it/controls.rs) for
 the checkbox/switch, radio, range, select and date/time conventions instead of
 assuming a browser Event object. `input type="radio"` is HTML's: the radios of
 one `name` are a group, exclusive, and the arrow keys move the check among them.
@@ -1158,6 +1169,24 @@ removed, so one in the flow would still take its room. Tabs with a stack each ar
 laid out as [the tabs corpus](../contract/corpus/tabs.contract) shows.
 `navigate=` receives locations the host navigates to itself, such as link clicks
 and browser history.
+
+A row with `navigationPresentation="modal"` is a sheet on iOS; `navigationDetent`
+sets its resting heights, space-separated: `large` (the default), `medium`, a
+point height (`"300"`), or `fit-content`, the route's content height, which
+follows the content as rows arrive or text wraps. A point height and
+`fit-content` stop at the sheet's tallest and leave out the bottom safe area,
+which UIKit adds below; so under `viewport-fit="cover"` a route that pads
+`env(safe-area-inset-bottom)` gets it twice. With one height the sheet does not
+expand and shows no grabber; with several (`"300 large"`) it is dragged between
+them, the first to start. `fit-content` goes alone or as `"fit-content large"`.
+It measures the route laid out on its own with its height left to its
+content, as CSS's `fit-content` does, so nothing the sheet gives it counts:
+rows do not shrink into it, and a percentage `height` or `flex-grow` takes
+nothing from it; a height in `vh` (the sheet's height on iOS) counts as
+`auto`. A route that scrolls itself is measured by what it scrolls,
+laid out in the sheet, so give its rows `flex-shrink: 0`. macOS, the web and
+Linux show a modal route as authored and ignore the detent
+([LLP 1075.003](../llp/1075.003-native-platform-control-merged.plan.md) §9.11).
 
 `path("item", value)` checks the route and encodes its parameters. Always build
 locations with it: a template literal as a location is refused and a string

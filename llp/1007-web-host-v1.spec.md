@@ -139,7 +139,9 @@ visibility, or scrolling. Apply the clamp to a text block inside the container.
 for symbol images; raster-image tint remains unsupported. An `env()` length (LLP 1001
 §2) lowers to its CSS text — `env(safe-area-inset-top)`,
 `calc(env(safe-area-inset-bottom) + 12px)` — and the browser resolves it
-(2026-08-30). A generic `font_family` Chrome does not know carries its CSS
+(2026-08-30); a `min()`, `max()` or `clamp()` length lowers to CSS's own
+function, `clamp(15px, env(safe-area-inset-bottom), 60px)` (2026-10-07,
+LLP 1001 §2, "Comparisons"). A generic `font_family` Chrome does not know carries its CSS
 generic (`ui-monospace,monospace`, `ui-serif,serif`,
 `ui-sans-serif,system-ui,sans-serif`, `ui-rounded,system-ui,sans-serif`):
 bare, each rendered as Times — the Markdown reader's code, now Menlo

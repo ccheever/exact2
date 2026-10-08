@@ -370,7 +370,7 @@ extension NodeView {
 
     /// The highest of the box's sublayers, which replaced content (a Canvas
     /// 2D bitmap) goes over.
-    var boxSublayersTop: CALayer? {
+    package var boxSublayersTop: CALayer? {
         [boxBorder, imageLayer, insetCaster, boxGradient, boxFill, shadowCaster].compactMap { $0 }.first { $0.superlayer === layer }
     }
 

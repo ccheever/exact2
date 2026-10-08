@@ -224,7 +224,7 @@ extension KeyCodes {
         let raw = event.modifierFlags.rawValue
         return raw & pair != 0 ? raw & side != 0 : event.modifierFlags.contains(flag)
     }
-    static let sides: [String: (UInt, UInt, NSEvent.ModifierFlags)] = [
+    package static let sides: [String: (UInt, UInt, NSEvent.ModifierFlags)] = [
         "ShiftLeft": (0x2, 0x6, .shift), "ShiftRight": (0x4, 0x6, .shift),
         "ControlLeft": (0x1, 0x2001, .control), "ControlRight": (0x2000, 0x2001, .control),
         "AltLeft": (0x20, 0x60, .option), "AltRight": (0x40, 0x60, .option),

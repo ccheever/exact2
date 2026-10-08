@@ -867,6 +867,7 @@ function apply(batch) {
   }
   pendingScrolls.clear();
   if (collectionOp) collections.commit(collectionOp.items);
+  else collections.restyled();
   for (const [view, offset, name] of jumps) collections.jump(view, offset, name);
   listSelection?.after();
   syncLists();

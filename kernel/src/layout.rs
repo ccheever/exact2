@@ -21,6 +21,7 @@ mod publication;
 
 use crate::id::{IdMap, IdSet};
 use crate::shared_style::Interner;
+use std::collections::HashMap;
 use std::rc::Rc;
 use taffy::prelude::{AvailableSpace, NodeId, Size, TaffyTree};
 use taffy::tree::{Baselines, LayoutInput};
@@ -258,7 +259,7 @@ impl LayoutMirror for LayoutTree {
             LayoutTree::set_children(self, node, &[]);
             return 0;
         }
-        let ids = order::laid_out(arena, parent, &self.taffy, node);
+        let ids = order::laid_out(arena, parent, &self.taffy, node, |c| arena.taffy(c));
         LayoutTree::set_children(self, node, &ids);
         ids.len()
     }
@@ -1336,11 +1337,39 @@ impl LayoutTree {
                 continue;
             }
             if let Some(node) = arena.taffy(*slot) {
-                let children = order::laid_out(arena, *slot, &tree.taffy, node);
+                let children = order::laid_out(arena, *slot, &tree.taffy, node, |c| arena.taffy(c));
                 tree.set_children(node, &children);
             }
         }
         tree
+    }
+
+    /// A separate engine tree of `slot`'s subtree, for a trial that must
+    /// leave the ordinary tree, its caches and its frames alone; its handles
+    /// by slot. The arena's own handles are never written.
+    pub(crate) fn of_subtree(arena: &NodeArena, slot: u32) -> (LayoutTree, HashMap<u32, NodeId>) {
+        let mut tree = LayoutTree::new();
+        let slots = arena.subtree(slot);
+        let nodes: HashMap<u32, NodeId> = slots
+            .iter()
+            .map(|&s| {
+                let node = tree.new_leaf(
+                    taffy_style(arena, s),
+                    s,
+                    arena.node_type(s).is_measured_leaf(),
+                );
+                (s, node)
+            })
+            .collect();
+        for s in slots {
+            if matches!(arena.node_type(s), NodeType::Text | NodeType::Control) {
+                continue;
+            }
+            let node = nodes[&s];
+            let children = order::laid_out(arena, s, &tree.taffy, node, |c| nodes.get(&c).copied());
+            tree.set_children(node, &children);
+        }
+        (tree, nodes)
     }
 }
 

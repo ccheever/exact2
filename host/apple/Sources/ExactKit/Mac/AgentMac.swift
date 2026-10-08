@@ -151,7 +151,7 @@ extension Agent {
     /// origin — every enclosing scroll node's offset folded in — with the
     /// presentation transform (translate/scale/rotate on the layer) applied,
     /// as the web's `getBoundingClientRect` includes CSS transforms.
-    func box(_ v: NSView, region: CGRect? = nil) -> NSRect {
+    package func box(_ v: NSView, region: CGRect? = nil) -> NSRect {
         let bounds = region ?? v.bounds
         if (v as? NodeView)?.placedAncestor?.placementHidden == true { return .zero }
         let clip = presenter.viewport.contentView

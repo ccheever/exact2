@@ -8,6 +8,10 @@ enum ControlKinds {
     /// The chrome index's keys for the controls the presenter projects.
     static let indexed = ["type:checkbox", "type:radio", "type:select", "type:range", "type:date", "type:time", "type:datetime-local", "type:button"]
     static let dates: Set<String> = ["date", "time", "datetime-local"]
+    /// The chrome index's key for a `progress`, the platform's activity
+    /// indicator (LLP 1069.001, amended 2026-10-07): a view, not a control,
+    /// so its own pass, outside `indexed`.
+    static let progress = "type:progress"
     /// `switch`, `checkbox`, or the `type` prop's value (`radio`, a select, …).
     static func kind(_ props: [String: String]) -> String {
         switch props["type"] {

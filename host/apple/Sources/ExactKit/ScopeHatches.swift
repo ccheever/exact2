@@ -128,11 +128,22 @@ extension NativeViews {
         let scene: AnyObject? = scopes.windowExclusive ? window.windowScene : nil
         #endif
         let raw = { (o: AnyObject?) in o.map { Unmanaged.passUnretained($0).toOpaque() } }
+        // A development build notices a recognizer the call added to a window
+        // it was handed and did not declare (§3.4): those the walk finds
+        // after the call that it did not find before.
+        #if os(macOS)
+        let walked: PlatformView? = window.contentView
+        #else
+        let walked: PlatformView? = window
+        #endif
+        let regions = session?.presenter.elements.regions
+        let had = HatchDiagnostics.measuring && scopes.windowExclusive && event != 2 ? walked.flatMap { regions?.recognizers(under: $0) } : nil
         timedHatch("window", moment) {
             json.withUnsafeBytes { j in
                 call(instance, event, raw(scopes.windowExclusive ? window : nil), raw(scene), j.bindMemory(to: UInt8.self).baseAddress, UInt32(json.count))
             }
         }
+        if let had, let walked { regions?.undeclared(under: walked, by: "window") { had.contains(ObjectIdentifier($0)) } }
         if event == 2 { session?.presenter.elements.regions.ended(scope: "window") }
     }
 

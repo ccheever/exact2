@@ -1,9 +1,10 @@
 # The heavy list benchmark (../SPEC.md) on exact2, consumed by path from the
 # checkout this directory is in. `data/` answers the feed, reactions and live
-# mode; `apple/` is the static library the Apple host links. Its own
-# [workspace], so the repository's root workspace does not adopt it.
+# mode; `apple/` is the static library the Apple host links; `web/` is the web
+# build's crate (bench/dioxus measures it on Chrome). Its own [workspace], so
+# the repository's root workspace does not adopt it.
 [workspace]
-members = ["data", "apple"]
+members = ["data", "apple", "web"]
 resolver = "2"
 
 [workspace.package]

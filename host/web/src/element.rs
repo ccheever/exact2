@@ -21,8 +21,9 @@ pub type Resolve<'r> = &'r dyn Fn(exact_kernel::ViewId, &str) -> Option<exact_ke
 /// above the canvas's background and below its children. A container a
 /// button holds is a `<span>` ([`tag_for`]) whose box is still a block unless
 /// a row says otherwise, as a `<div>`'s is.
-pub(super) fn host_css(node: &NodeRef<'_>, css: String, tag: &str) -> String {
-    host_css_of(&node.facts(), css, tag)
+pub(super) fn host_css(kernel: &Kernel, node: &NodeRef<'_>, css: String, tag: &str) -> String {
+    let parent = node.parent.and_then(|p| kernel.node(p));
+    host_css_of(&node.facts(), parent.map(|p| p.facts()).as_ref(), css, tag)
 }
 
 /// Whether a text is its box's text content on the web, not an element box of
@@ -208,7 +209,12 @@ pub(super) fn touch_scoped(kernel: &Kernel, node: &NodeRef<'_>) -> bool {
 }
 
 /// [`host_css`], from a node's facts.
-pub fn host_css_of(node: &NodeFacts<'_>, mut css: String, tag: &str) -> String {
+pub fn host_css_of(
+    node: &NodeFacts<'_>,
+    parent: Option<&NodeFacts<'_>>,
+    mut css: String,
+    tag: &str,
+) -> String {
     if tag == "span" && !node.is_inline_run() && !css.split(';').any(|d| d.starts_with("display:"))
     {
         css.push_str("display:block;");
@@ -272,6 +278,9 @@ pub fn host_css_of(node: &NodeFacts<'_>, mut css: String, tag: &str) -> String {
             css.push_str("isolation:isolate;");
         }
         canvas_css(node, &mut css);
+    }
+    if is_progress(node) {
+        progress_css(node, parent, &mut css);
     }
     // A root is a block formatting context in the kernel, as CSS's root
     // element is: its first child's top margin stays inside it. On the web a
@@ -369,6 +378,38 @@ fn canvas_css(node: &NodeFacts<'_>, css: &mut String) {
         if !height {
             css.push_str("height:fit-content;");
         }
+    }
+}
+
+/// Whether the node is an indeterminate `progress` (LLP 1069.001, amended
+/// 2026-10-07), which the page draws as a ring in a box.
+fn is_progress(node: &NodeFacts<'_>) -> bool {
+    node.node_type == NodeType::Control && node.props.str(PropId::Type) == Some("progress")
+}
+
+/// A progress's box sized as the kernel's measured leaf: 20 × 20 content,
+/// each axis CSS's where it is given. Size containment (`container-type:
+/// size`) with a `contain-intrinsic-size` is that content, a flex item's
+/// automatic minimum included; a grid, so the base sheet's ring (its
+/// `::before`) fills the content box whether or not a height is given
+/// (container units resolve to 0 in an automatic height). Like the kernel's form controls (`item_is_table`), it
+/// keeps that width in block flow, where a `div` would stretch
+/// (`justify-self: start`, as a canvas's), and stretches where the kernel
+/// does: in a flex or grid container, and between an absolute box's insets.
+fn progress_css(node: &NodeFacts<'_>, parent: Option<&NodeFacts<'_>>, css: &mut String) {
+    use exact_kernel::{Display, PositionType};
+    let position = node.style.position_type;
+    css.push_str("container-type:size;contain-intrinsic-size:20px 20px;");
+    if node.style.display != Display::None {
+        css.push_str("display:grid;");
+    }
+    // Sticky is laid out as relative, in flow (kernel `style.rs`).
+    let in_flow = matches!(
+        position,
+        PositionType::Static | PositionType::Relative | PositionType::Sticky
+    );
+    if in_flow && parent.is_none_or(|p| p.style.display == Display::Block) {
+        css.push_str("justify-self:start;");
     }
 }
 
@@ -530,6 +571,9 @@ fn element(node: &NodeFacts<'_>) -> &'static str {
         NodeType::Control if node.props.str(PropId::Type) == Some("select") => "select",
         // @ref LLP 1069.011 D8 — a native button is the browser's own.
         NodeType::Control if node.props.str(PropId::Type) == Some("button") => "button",
+        // An indeterminate progress is a box the page draws a ring in
+        // (LLP 1069.001, amended 2026-10-07): HTML's own draws a bar.
+        NodeType::Control if is_progress(node) => "div",
         NodeType::Control => "input",
         NodeType::Canvas => "canvas",
         NodeType::WebView => "iframe",
@@ -833,6 +877,7 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
             // alternative, shown when it does not load.
             PropId::AccessibilityLabel if node.node_type == NodeType::Image => "alt",
             PropId::AccessibilityLive => "aria-live",
+            PropId::AccessibilityBusy => "aria-busy",
             PropId::Autofocus => "autofocus",
             PropId::AccessibilityLabel => "aria-label",
             PropId::AccessibilityKeyShortcuts => "aria-keyshortcuts",
@@ -1040,6 +1085,10 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
     if element(node) == "select" {
         // A `<select>` is its own kind; its `type` is not an attribute.
         out.remove("type");
+    } else if is_progress(node) {
+        // The base sheet draws the ring from this mark.
+        out.remove("type");
+        out.insert("data-exact-progress".into(), String::new());
     } else if node.node_type == NodeType::Control {
         out.get_or_insert_with("type".into(), || "checkbox".into());
         // @ref LLP 1069.001 D1 — WebKit's `switch`; a browser without it
@@ -1177,7 +1226,7 @@ mod name_tests {
                 is_root: false,
                 inline_run: false,
             };
-            let css = host_css_of(&facts, String::new(), tag);
+            let css = host_css_of(&facts, None, String::new(), tag);
             assert!(!css.contains("width:"), "{tag}: {css}");
             assert!(!css.contains("box-sizing:"), "{tag}: {css}");
         }
@@ -1191,7 +1240,12 @@ impl<D: exact_runner::DataSource> super::Host<D> {
         let kernel = self.runner.kernel();
         let m = self.mirror.get(&node.id);
         let (css, _) = crate::css::css_text(&css_style(kernel, node), &self.font_names);
-        let css = host_css(node, css, tag_for(node, m.is_some_and(|m| m.in_button)));
+        let css = host_css(
+            kernel,
+            node,
+            css,
+            tag_for(node, m.is_some_and(|m| m.in_button)),
+        );
         let css = folded_css(kernel, node, css, m.is_some_and(|m| m.handled));
         let handled = |c| self.mirror.get(&c).is_some_and(|m| m.handled);
         let css = blocks(css, holds_folded(kernel, node, &handled));
@@ -1309,6 +1363,72 @@ mod dataset_tests {
                     | "targetY"
                     | "values"
             )
+    }
+
+    /// LLP 1069.001, amended 2026-10-07: an indeterminate progress is a box
+    /// the base sheet draws a ring in (HTML's own draws a bar), ARIA's role
+    /// and busy state its attributes, sized as the kernel's 20 × 20 leaf.
+    #[test]
+    fn a_progress_is_a_busy_progressbar_box_the_page_draws_a_ring_in() {
+        let style = StyleProps::default();
+        let mut props = PropList::default();
+        props.set(PropId::Type, PropValue::Str("progress".into()));
+        props.set(
+            PropId::AccessibilityRole,
+            PropValue::Str("progressbar".into()),
+        );
+        props.set(PropId::AccessibilityBusy, PropValue::Bool(true));
+        let facts = NodeFacts {
+            id: 1,
+            node_type: NodeType::Control,
+            style: &style,
+            props: &props,
+            is_root: false,
+            inline_run: false,
+        };
+        assert_eq!(super::tag_of(&facts, false), "div");
+        assert_eq!(super::tag_of(&facts, true), "span", "in a button");
+        let out = super::props_of(&facts);
+        let get = |k: &str| out.get(k).map(String::as_str);
+        assert_eq!(get("role"), Some("progressbar"));
+        assert_eq!(get("aria-busy"), Some("true"));
+        assert_eq!(get("data-exact-progress"), Some(""));
+        assert_eq!(get("type"), None, "{out:?}");
+        let css = super::host_css_of(&facts, None, String::new(), "div");
+        assert!(
+            css.contains("container-type:size;contain-intrinsic-size:20px 20px;display:grid;"),
+            "{css}"
+        );
+        assert!(css.contains("justify-self:start;"), "a block's: {css}");
+        // A hidden one stays hidden: its grid is not written over `none`.
+        let hidden_style = StyleProps {
+            display: exact_kernel::Display::None,
+            ..StyleProps::default()
+        };
+        let hidden = NodeFacts {
+            style: &hidden_style,
+            ..facts
+        };
+        let css = super::host_css_of(&hidden, None, String::new(), "div");
+        assert!(!css.contains("display:grid"), "{css}");
+        // In a grid or a flex container it stretches as the kernel's does.
+        for display in [exact_kernel::Display::Grid, exact_kernel::Display::Flex] {
+            let grid = StyleProps {
+                display,
+                ..StyleProps::default()
+            };
+            let parent = NodeFacts {
+                id: 2,
+                node_type: NodeType::View,
+                style: &grid,
+                props: &PropList::default(),
+                is_root: false,
+                inline_run: false,
+            };
+            let css = super::host_css_of(&facts, Some(&parent), String::new(), "div");
+            assert!(!css.contains("justify-self"), "{display:?}: {css}");
+        }
+        assert!(include_str!("../index.html").contains("[data-exact-progress]::before"));
     }
 
     /// A link to an absolute URL opens outside the app, as natively, unless
