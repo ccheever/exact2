@@ -1365,7 +1365,9 @@ internal class Presenter(
         // rounded View bounds unchanged. Its display list still needs a redraw.
         if (textWidthChanged) n.invalidatePaint()
         n.nativeBox()?.let { widget -> (widget.parent as? Box)?.place(widget, left, top, width, height) }
-        markParent(n)
+        // A retained carrier's frame changes native layout, not containment.
+        // Unmaterialized leaves still re-evaluate their grouping geometry.
+        if (!n.materialized) markParent(n)
         n.placeControl()
         transformDirty.add(n)
         layoutDirty = true
