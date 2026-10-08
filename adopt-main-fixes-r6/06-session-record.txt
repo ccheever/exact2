@@ -1,0 +1,53 @@
+adopt-main-fixes-r6: live session record (macOS, agent mode, 2026-10-08)
+
+Builds
+  before  /Users/daehyeonmun/orca/workspaces/exact2/t3-code-evidence-base at 07dcef1ab (the feature branch; main 1f19b2400's
+          framework), `bun host/apple/build.mjs t3-code-macos --bundle` under evidence-base/.build-lock (04:23-04:36 UTC), driven
+          with that checkout's own scripts/agent.mjs under the same lock (04:40-04:42 UTC)
+  after   this branch: 74114cde1 (main e200397ec merged) + f920f9cab (field padding), same build command, no shim
+Lane (target/r6/lane, not committed)
+  the staged T3 release t3 v0.0.46-nightly.20261005.2667, `t3 serve` on 127.0.0.1:16210 (pid 87060), isolated HOME,
+  CODEX_HOME, CLAUDE_CONFIG_DIR, XDG_*, TMPDIR, T3CODE_HOME, T3CODE_TELEMETRY_ENABLED=false; project "demo" (a one-commit git
+  repository) added with `t3 project add`. One pairing link per session from `t3 pair --ttl 30m`, typed from a file (the
+  drive redacts the token from every transcript). Agent mode keeps credentials in memory (T3Credentials persistent=false):
+  no Keychain item was written. Nothing on 3773, no ~/.t3, no t3code:// URL.
+  Note: stage-runtime.mjs's own staging smoke picks the first free port in 16900-16999 (it used 16900 for a few seconds in
+  both checkouts); every port this task chose is in 16200-16249.
+Sessions (one per build, the same ops, 1280x840, light, epoch 1791434400000; app pids 55720 before, 64745 after, both exited
+at `quit`)
+  welcome wizard: dismiss toast, type the pairing link, Pair, Continue, Continue (agents), Skip import
+  05 composer: tap composer, type composer key ArrowRight (focus responder: TextArea), screenshot
+  06 details card: Publish repository (provider step; every provider shows Setup Required, so the repository step with the
+     two git-publish fields cannot be reached without a provider account; not pursued)
+  08-09 Add project script -> Settings > Project -> Add action; type "Run tests" in action-name and the URL in
+     action-preview-url, screenshot, layout action-name
+  11 Settings > Appearance: tap and type ArrowRight in prompt-font-preview, screenshot
+  op errors: before 1 (a toast id that had already gone; harmless), after 0
+  app logs: before 2,344 lines, after 2,131 lines; no line names an error, refusal, failure, panic or warning in either
+
+Results
+  - The merged base pairs, syncs and draws the main window, the details card, the publish dialog, Settings > Project, the
+    Add Action dialog and Settings > Appearance as the base does (images 01-04).
+  - Add Action's Name and Preview URL: text centred in both builds. Without f920f9cab main's sheet removal would have drawn
+    it 5 pt above centre (probe below).
+  - Prompt preview focused: no ring before, a 2 pt blue ring after (main 5b2b77339; appearance="none" no longer opts out).
+  - Composer focused: the same 2 pt ring in both builds (r4's sheet ring on the base, main's ring layer now).
+
+AppKit probe A (standalone, scratchpad fieldprobe/vpos.swift): a bare non-bezeled NSTextField, 14 pt system font, frame = the
+node's content box, as ExactKit's makeField and FieldCell (titleRect falls to NSTextFieldCell for a bare field)
+  content 8 pt:  ink rows 7..15 px  (clipped)              off centre +1.8 pt
+  content 14 pt: ink rows 7..27 px  (descenders clipped)   +1.8 pt
+  content 18 pt: ink rows 7..32 px                          +1.0 pt   (base: 32 pt field, 6+6 sheet padding)
+  content 20 pt: ink rows 7..32 px                           0.0 pt   (branch: padding to the 1.25rem line)
+  content 26 pt:                                            -3.0 pt   (PR title without the fix)
+  content 30 pt:                                            -5.0 pt   (Add Action / legacy title / git remote without the fix)
+  content 34 pt:                                            -7.0 pt   (git repository / plan path without the fix)
+AppKit probe B (fieldprobe/main.swift): the same bare field with an authored #27272a text colour, isEnabled false
+  enabled darkest 0.155, disabled darkest 0.413 (AppKit draws a disabled bare field's text lighter, about 0.69 opacity on
+  white). The base multiplied that by the sheet's opacity 0.5; main dropped that row, so a disabled field is AppKit's alone,
+  nearer the reference's 0.64 (its Input dims the whole control, border included). No clone change.
+
+X57 repro (scratchpad ring-probe, `bun scripts/exact.mjs new`, main e200397ec): image 05; `bun exact.mjs agent macos --size
+420x420 "tap bare-input" "screenshot …"`, then `"tap bare-textarea" "type bare-textarea key ArrowRight" "screenshot …"`, then
+the same for `none-textarea` (appearance="none"): each focused field shows the 2 pt keyboardFocusIndicatorColor ring;
+`contract vocab outline` answers "`outline` is not a tag or an attribute".
