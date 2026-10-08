@@ -8,7 +8,7 @@ import { mobileOutboxMessagePlan } from './mobile-outbox-wire';
 import { mobileOutboxCompactInline } from './mobile-outbox-inline';
 import type { MobileOutboxRecord } from './mobile-outbox-model';
 import { mobileOutboxInlineDecode, mobileOutboxInlineReserve, mobileOutboxInlineStatus, mobileOutboxInlineRecover,
-  mobileOutboxInlineRetire, mobileOutboxInlineSend, type MobileOutboxInlineReceipt } from './mobile-outbox-inline-delivery';
+  mobileOutboxInlineRetire, mobileOutboxInlineSend, mobileOutboxInlineLookup, type MobileOutboxInlineReceipt } from './mobile-outbox-inline-delivery';
 
 const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value));
 const id = 'aaaaaaaa-1111-4000-a000-000000000001';
@@ -237,5 +237,72 @@ test('send cancellation and endpoint replacement preserve the saved native owner
     else expect(failure).toMatchObject({ kind: mode === 'generation' ? 'stale' : 'outbox-stale' });
     expect(f.calls).toHaveLength(['offline', 'environment'].includes(mode) ? 0 : 1);
     expect(mobileOutboxSnapshot(f.client)).toEqual(before);
+  }
+});
+
+test('restart lookup preserves every exact-owner status including retired history and cold durability', async () => {
+  const f = await fixture(), owner = clone(f.template.owner), before = mobileOutboxSnapshot(f.client);
+  f.client.connection = 'disconnected';
+  const retired: MobileOutboxInlineReceipt = { ...f.receipt, operationId: 'cccccccc-1111-4000-a000-000000000001', state: 'retired', revision: 2 };
+  const reply = { operations: [{ operation: f.receipt, durable: false }, { operation: retired, durable: true }] };
+  f.answer(reply); expect(await mobileOutboxInlineLookup(f.native, owner)).toEqual(reply);
+  expect(f.calls).toEqual([{ op: 'mobileOutboxInline', action: 'lookup', owner }]);
+  expect(mobileOutboxSnapshot(f.client)).toEqual(before); expect(f.client.local.pending).toEqual({});
+});
+test('lookup captures caller owner before await and returns detached receipts', async () => {
+  const f = await fixture(), owner = clone(f.template.owner), expectedOwner = clone(owner);
+  f.answer({ operations: [{ operation: f.receipt, durable: false }] });
+  const pending = mobileOutboxInlineLookup(f.native, owner); owner.environmentId = 'caller-moved';
+  const result = await pending; expect(f.calls[0]!.owner).toEqual(expectedOwner);
+  expect(result.operations[0]!.operation!.environmentId).toBe('env');
+  result.operations[0]!.operation!.record.text = 'caller changed result'; expect(f.receipt.record.text).toBe('photo');
+});
+test('lookup rejects incomplete or foreign owner input before native access', async () => {
+  for (const mode of ['origin', 'blank', 'trim', 'missing', 'extra'] as const) {
+    const f = await fixture(), owner = clone(f.template.owner) as unknown as Obj;
+    if (mode === 'origin') owner.origin = 'https://home.test/path';
+    if (mode === 'blank') owner.messageId = '';
+    if (mode === 'trim') owner.commandId = ' command';
+    if (mode === 'missing') delete owner.threadId;
+    if (mode === 'extra') owner.operationId = id;
+    await expect(mobileOutboxInlineLookup(f.native, owner as unknown as typeof f.template.owner)).rejects.toMatchObject({ kind: 'protocol' });
+    expect(f.calls).toHaveLength(0);
+  }
+});
+test('lookup rejects malformed collections, foreign valid receipts and competing nonretired owners', async () => {
+  for (const mode of ['outer-extra', 'missing', 'null', 'status-extra', 'duplicate', 'competing', 'foreign'] as const) {
+    const f = await fixture(); const first = { operation: clone(f.receipt), durable: false };
+    const reply: Obj = { operations: [first] };
+    if (mode === 'outer-extra') reply.complete = true;
+    if (mode === 'missing') delete reply.operations;
+    if (mode === 'null') reply.operations = [{ operation: null, durable: false }];
+    if (mode === 'status-extra') reply.operations = [{ ...first, generation: 7 }];
+    if (mode === 'duplicate') reply.operations = [first, clone(first)];
+    if (mode === 'competing') reply.operations = [first, { operation: { ...f.receipt, operationId: 'cccccccc-1111-4000-a000-000000000001' }, durable: true }];
+    if (mode === 'foreign') {
+      first.operation.origin = 'https://foreign.test'; first.operation.record.origin = 'https://foreign.test';
+      first.operation.template.owner.origin = 'https://foreign.test'; first.operation.template.commandTemplate.owner.origin = 'https://foreign.test';
+      expect(mobileOutboxInlineDecode(first.operation, id).origin).toBe('https://foreign.test');
+    }
+    f.answer(reply); await expect(mobileOutboxInlineLookup(f.native, f.template.owner)).rejects.toMatchObject({ kind: 'protocol', uncertain: true });
+    expect(f.calls).toHaveLength(1);
+  }
+});
+test('empty lookup is only a local snapshot and does not reserve, sync or allocate', async () => {
+  const f = await fixture(), before = mobileOutboxSnapshot(f.client); f.answer({ operations: [] });
+  expect(await mobileOutboxInlineLookup(f.native, f.template.owner)).toEqual({ operations: [] });
+  expect(f.calls).toEqual([{ op: 'mobileOutboxInline', action: 'lookup', owner: f.template.owner }]);
+  expect(mobileOutboxSnapshot(f.client)).toEqual(before);
+});
+test('Busy, failed native reads and LetGo remain errors rather than empty lookup success', async () => {
+  for (const mode of ['busy', 'failure', 'letgo'] as const) {
+    const calls: Obj[] = [];
+    const native: Native = { available: true, watch() { throw Error('No watch'); }, async later(raw) {
+      calls.push(obj(raw)); if (mode === 'letgo') throw { name: 'FetchError', kind: 'Aborted' };
+      return { ok: false, generation: 0, error: { kind: mode === 'busy' ? 'Busy' : 'Persistence', message: 'Lookup refused.', uncertain: false } };
+    } };
+    let caught: unknown; try { await mobileOutboxInlineLookup(native, data().template.owner); } catch (error) { caught = error; }
+    if (mode === 'letgo') expect(letGo(caught)).toBe(true); else expect(caught).toMatchObject({ kind: mode === 'busy' ? 'Busy' : 'Persistence' });
+    expect(calls).toHaveLength(1);
   }
 });
