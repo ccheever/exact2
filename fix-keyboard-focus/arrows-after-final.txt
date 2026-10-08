@@ -14,5 +14,8 @@ Settings › Source Control › Default merge method (SettingsSelect, wrapped tr
 Menus their owner mounts from state:
 Thread title: ArrowDown -> title-menu-pin (first); Escape -> thread-title; ArrowUp -> title-menu-delete (last); Escape -> thread-title
   (build 9 focused the popup: the action read the end from the state it had just set; Contract actions read the state as it began. Fixed in build 10: the end comes from the key.)
-Diff scope (data-module mount): ArrowDown -> diff-scope-branch (first)
+Diff scope (data-module mount), build 12 (after merging #290; the end is cleared when the trigger takes the focus, not on pointerdown):
+  ArrowDown -> diff-scope-branch (first); a press on the trigger -> diff-scope-keys (the popup, as a pointer open);
+  ArrowUp -> diff-scope-unstaged (last). Escape in the open menu closes the menu and the diff panel with it
+  (the panel's own Escape shortcut wins: the menu is not modal); not checked on the base.
 Details "Open in" (data-module mount): the menu opens on ArrowDown, Enter and a press, but in this lane it lists no editors ("No SSH route to …"), so its popup has no rows and no size and takes no focus; not checked with rows.
