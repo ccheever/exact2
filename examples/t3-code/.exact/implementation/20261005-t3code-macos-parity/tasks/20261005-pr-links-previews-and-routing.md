@@ -7,7 +7,7 @@ delivery: draft-pr
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-pr-links-previews-and-routing
-pr_url: null
+pr_url: https://github.com/ccheever/exact2/pull/311
 verified_commit: null
 ---
 
@@ -146,7 +146,7 @@ Evidence: `https://raw.githubusercontent.com/ccheever/exact2/0d0e299947b680711e7
 | Visual and trace | not run (oracle) | before/after pairs 01–05; dark and 840×620 shots taken (count, More, picker, Check out with Act on) | user decision 2026-10-06 (no oracle or trace tools) |
 | Ported tests | pass | routing 93 and links 43 (fork-ported, original names; Effect-runtime-only cases classified in the test headers) | — |
 | Keyboard focus, Escape, reduced motion | pass (live, agent keys) | Return on the count opened the palette; Escape closed it and the picker (nothing linked: count stayed 2); focus returns to the trigger (`paletteClose` focuses `pull-request-linked-threads` / `pull-request-more`); the card has no fade under reduced motion (`still`) | the card's reduced-motion and the menus' arrow keys: #307 and fix-keyboard-focus |
-| Gates | pass | `bun test examples/t3-code` 3303/0; strict tsc clean; contract build OK (3959 slots); `cargo test -p t3-code-macos --lib` 13/0; five checks green (cargo test 3521 passed, 0 failed, 34 ignored); caps and boot OK | — |
+| Gates | pass (on `b62e71700`, after #306 and #303) | `bun test examples/t3-code` 3303/0; strict tsc clean; contract build OK (3959 slots); `cargo test -p t3-code-macos --lib` 13/0; five checks green (cargo test 3521 passed, 0 failed, 34 ignored); caps and boot OK | — |
 
 ## Attempts and evidence
 
