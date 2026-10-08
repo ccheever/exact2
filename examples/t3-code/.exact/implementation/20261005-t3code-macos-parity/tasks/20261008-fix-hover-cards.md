@@ -7,7 +7,7 @@ delivery: draft
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: 'feat(example)/t3-code-fix-hover-cards'
-pr_url: null
+pr_url: https://github.com/ccheever/exact2/pull/307
 verified_commit: 6ef66bc93
 ---
 
