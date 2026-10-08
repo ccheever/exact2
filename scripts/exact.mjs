@@ -530,7 +530,12 @@ function newApp(path, {update = false, game = false, assets = false} = {}) {
   // A game is a path here, as an app is: `game/new.mjs` alone takes a bare name for game/games.
   console.log(game ? createGame(resolve(path), undefined, {assets}) : createApp(path));
   if (report.some(row => !row.ok)) {
-    console.log('\nThis machine still needs (exact setup --check shows the whole table):');
+    // Builders read a bare "still needs" list as the reason a later command failed (bench diaries,
+    // 2026-10-07/08): say when nothing on it blocks the app.
+    const blocking = report.some(row => !row.ok && row.required);
+    console.log(blocking
+      ? '\nThis machine still needs (exact setup --check shows the whole table):'
+      : '\nThe app was created; nothing below blocks it. Each is needed only for what it names (exact setup --check shows the whole table):');
     printReport(report, {onlyMissing: true});
   }
 }
