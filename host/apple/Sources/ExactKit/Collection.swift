@@ -11,8 +11,8 @@ struct CollectionMeasurement: Equatable {
 
 /// A list's port on its own axes (LLP 1070 H1): `offset` along the main
 /// axis, the port's main and cross sizes, and the rows' cross size.
-struct CollectionFacts: Equatable {
-    var offset: Double
+package struct CollectionFacts: Equatable {
+    package var offset: Double
     var portMain: Double
     var portCross: Double
     var cross: Double
@@ -193,7 +193,7 @@ struct CollectionSnapshot {
 
 /// At most one pending callback and two feedback calls per main-queue turn.
 /// All caches are proportional to active collections and their mounted wrappers.
-final class CollectionHost {
+package final class CollectionHost {
     final class Entry {
         var snapshot: CollectionSnapshot
         var cursor = CollectionCursor()
@@ -443,7 +443,7 @@ final class CollectionHost {
     /// runner discards a report whose pin is outside its rows, and the window
     /// would stop following the scroll. Native container views may sit
     /// between nodes.
-    func owningCollection(_ descendant: UInt32?) -> UInt32? {
+    package func owningCollection(_ descendant: UInt32?) -> UInt32? {
         guard let descendant, let node = presenter?.views[descendant] else { return nil }
         func owner(_ node: NodeView) -> UInt32? {
             guard presenter?.views[node.id] === node else { return nil }
@@ -579,12 +579,12 @@ final class CollectionHost {
         interaction = view
         pinsChanged()
     }
-    func holdPointer(_ view: UInt32) -> UInt64 {
+    package func holdPointer(_ view: UInt32) -> UInt64 {
         pointer(view)
         gestureContact = contactSequence
         return contactSequence
     }
-    func releaseInteractionLater(ifCurrent expected: UInt64? = nil) {
+    package func releaseInteractionLater(ifCurrent expected: UInt64? = nil) {
         if let expected {
             guard contactSequence == expected else { return }
             gestureContact = nil

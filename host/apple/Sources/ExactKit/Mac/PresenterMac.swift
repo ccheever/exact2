@@ -58,27 +58,26 @@ package final class Presenter {
     var pendingScrolls: Set<UInt32> = []
     /// The batch's suppression triggers for scroll anchoring (`ScrollAnchoring.swift`).
     var anchorChanges = ScrollAnchoring.Changes()
-    var heightBindings: [UInt32: HeightDragBinding] = [:]
-    var transformBindings: [UInt32: TransformDragBinding] = [:]
+    package var heightBindings: [UInt32: HeightDragBinding] = [:]
+    package var transformBindings: [UInt32: TransformDragBinding] = [:]
     lazy package var transformGeometry = TransformGeometryHost(self)
     var videoVisibility: VideoVisibilityHost?
-    lazy var collections = CollectionHost(self)
+    lazy package var collections = CollectionHost(self)
     lazy var stickies = StickyHost(self)
     /// Heavy leaves held while their rows are far or flying (LLP 1068 §5.1).
     lazy var leaves = HeavyLeaves(self)
-    lazy var selection = TextSelection(self)
+    lazy package var selection = TextSelection(self)
     let textRasters = TextRasterizer()
     lazy var mouseSwipe = MouseSwipe(self)
     lazy var mouseLayoutPan = MouseLayoutPan(self)
-    lazy var mouseHeightDrag = MouseHeightDrag(self)
-    lazy var mouseTransformDrag = MouseTransformDrag(self)
-    lazy var mouseReorder = MouseReorder(self)
+    /// The mouse drags (LLP 1047.001 D4: the Drag module's, when linked).
+    lazy var mouseDrags = DragLink.installed?.mouseDrags(self) ?? .none
     lazy var mouseChain = MouseChain(self)
     /// The one Arrange contact, until its source settles; a test's calls.
-    var reorder: ReorderHold?
-    var reorderCalls: ReorderCalls?
+    package var reorder: ReorderLift?
+    package var reorderCalls: ReorderCalls?
     /// A grouped session (LLP 1094), until its ghost lands; a test's calls.
-    var reorderGroup: ReorderGroupHold?
+    package var reorderGroup: ReorderGroupHold?
     var reorderGroupCalls: ReorderGroupCalls?
     private var scrollObserver: NSObjectProtocol?
     private var visibleText: [UInt32: NSRect] = [:]
@@ -573,9 +572,9 @@ package final class Presenter {
         session?.rasters.reset()
         mouseSwipe.cancel()
         mouseLayoutPan.abandon()
-        mouseHeightDrag.cancel()
-        mouseTransformDrag.cancel()
-        mouseReorder.cancel()
+        mouseDrags.height.cancel()
+        mouseDrags.transform.cancel()
+        mouseDrags.reorder.cancel()
         reorder?.abandon()
         reorderGroup?.abandon()
         collections.reset()
@@ -750,9 +749,9 @@ package final class Presenter {
         if pointerHeld == id { pointerHeld = nil }
         mouseSwipe.retire(id)
         mouseLayoutPan.retire(id)
-        mouseHeightDrag.retire(id)
-        mouseTransformDrag.retire(id)
-        mouseReorder.retire(id)
+        mouseDrags.height.retire(id)
+        mouseDrags.transform.retire(id)
+        mouseDrags.reorder.retire(id)
         session?.canvases.destroy(view: id)
         svg.forget(id)
         canvas2d.forget(id)

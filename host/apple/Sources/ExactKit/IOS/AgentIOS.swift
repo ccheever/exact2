@@ -590,7 +590,7 @@ extension Agent {
             }
             let offset = (req["at"] as? [Double]).map { CGPoint(x: $0[0], y: $0[1]) } ?? CGPoint(x: handle.bounds.midX, y: handle.bounds.midY)
             let point = handle.convert(offset, to: clip)
-            if let error = TransformDragHold.recognizedPinch(handle, scale: scale, focal: CGPoint(x: point.x - clip.bounds.midX, y: point.y - clip.bounds.midY)) { return ["error": error] }
+            if let error = DragLink.installed?.recognizedPinch(handle, scale: scale, focal: CGPoint(x: point.x - clip.bounds.midX, y: point.y - clip.bounds.midY)) { return ["error": error] }
             return ["tapped": Int(handle.id), "pinch": scale, "at": at, "delivery": "recognized"]
         }
         if req["hover"] as? Bool == true {

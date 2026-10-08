@@ -437,11 +437,11 @@ public final class ExactSession {
     #else
     nonisolated(unsafe) static var asyncFills = false
     #endif
-    var isApplyingPresentation: Bool { applying }
+    package var isApplyingPresentation: Bool { applying }
     // Weak live gesture ownership only; no historical tokens or row registry.
     private let inputHolds = NSHashTable<SwipeHold>.weakObjects()
-    weak var heightInputHold: HeightDragHold?
-    weak var transformInputHold: TransformDragHold?
+    weak package var heightInputHold: DragInput?
+    weak package var transformInputHold: DragInput?
     func trackInputHold(_ hold: SwipeHold) { inputHolds.add(hold) }
     func retireInputHold(_ hold: SwipeHold) { inputHolds.remove(hold) }
     private var pendingSurfaceRecords: [(String, String?)] = []
@@ -965,7 +965,7 @@ public final class ExactSession {
     /// Batches that reached `apply` (`IdleTickTests` read it).
     private(set) var appliedBatches = 0
 
-    func apply(_ batch: Batch) {
+    package func apply(_ batch: Batch) {
         guard state != .destroyed else { return }
         appliedBatches += 1
         // A slice the owner committed before this batch applies first (T4).

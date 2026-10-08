@@ -95,18 +95,18 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     var surface: SurfaceLayer? { didSet { layerPaintCache = nil } } // its surface at a layout transition's size (`Surface.swift`)
     /// How far its frame stands from layout's: a lifted Arrange row's
     /// translation plus `stickyOffset` (`applyTransform`).
-    var arrangeShift = CGPoint.zero
+    package var arrangeShift = CGPoint.zero
     /// How far its scroller's scroll moves a sticky box (LLP 1083, `Sticky.swift`).
     var stickyOffset = CGPoint.zero
-    var scale: CGFloat = 1
-    var rotate: CGFloat = 0
+    package var scale: CGFloat = 1
+    package var rotate: CGFloat = 0
     weak package var presenter: Presenter?
     package var textArea: NSTextView?
     var textAreaScroll: NSScrollView?
-    var field: NSTextField?
+    package var field: NSTextField?
     /// A `value` that arrived mid-composition, applied when it ends.
     var pendingValue: String?
-    var scroll: ChainingScrollView?
+    package var scroll: ChainingScrollView?
     /// `box-shadow` (`BoxShadow.swift`): outer, and inset (LLP 1077 D4).
     var shadowCaster: ShadowCaster?
     var insetCaster: InsetShadowCaster?
@@ -178,7 +178,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     var raster: NativeRasterLease? { didSet { layerPaintCache = nil } }
     var imageSource: String?
     var loadGeneration = 0
-    var pressed = false { didSet { if pressed != oldValue { pressChanged() } } }
+    package var pressed = false { didSet { if pressed != oldValue { pressChanged() } } }
     var press = PressFeedback() // LLP 1061: the feedback `pressed` drives
     // @ref LLP 1038 D6 — projection does not overwrite authored inert.
     var routeInert = false
@@ -1453,10 +1453,10 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         // A canvas that wants input scrolls itself; the nodes' `wheel` is
         // still heard (review b5-b 2).
         if canvasInput?.wheel(event) == true { _ = wheel(event); return }
-        if presenter?.mouseTransformDrag.scroll(self, event: event) != true, !wheel(event) { super.scrollWheel(with: event) }
+        if presenter?.mouseDrags.transform.scroll(self, event: event) != true, !wheel(event) { super.scrollWheel(with: event) }
     }
     package override func magnify(with event: NSEvent) {
-        if presenter?.mouseTransformDrag.magnify(self, event: event) != true, !wheel(event) { super.magnify(with: event) }
+        if presenter?.mouseDrags.transform.magnify(self, event: event) != true, !wheel(event) { super.magnify(with: event) }
     }
 }
 #endif

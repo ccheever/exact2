@@ -26,8 +26,8 @@ package class ScrollView: UIScrollView {
         return NodeView.hitChildren(in: self, at: point, with: event) ?? hit
     }
 
-    var scrollsX = true
-    var scrollsY = true
+    package var scrollsX = true
+    package var scrollsY = true
     #if os(tvOS)
     /// The offset the remote's last step scrolls to, and when it began
     /// (`RemoteTVOS.swift`): a step pressed during that animation goes on
@@ -89,7 +89,7 @@ package class ScrollView: UIScrollView {
     /// `handsOff`'s answer without its side effect: whether a drag in
     /// `velocity` begun now chains to an enclosing scroller (a descendant's
     /// recognizer asks it, LLP 1057.001 rule 2).
-    func chains(_ velocity: CGPoint) -> Bool {
+    package func chains(_ velocity: CGPoint) -> Bool {
         guard velocity != .zero, let owner = superview as? NodeView else { return false }
         let horizontal = abs(velocity.x) > abs(velocity.y)
         guard (owner.style[horizontal ? "overscroll_behavior_x" : "overscroll_behavior_y"]?.string ?? "auto") == "auto" else { return false }

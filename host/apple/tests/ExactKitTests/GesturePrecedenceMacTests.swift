@@ -2,10 +2,12 @@
 import AppKit
 import XCTest
 @testable import ExactKit
+@testable import ExactDrag
 
 /// LLP 1057.001 §1 on AppKit's own mouse methods: candidates innermost first,
 /// then reorder > transform > height > pan > swipe; the web's `dblclick` order.
 final class GesturePrecedenceMacTests: XCTestCase {
+    override class func setUp() { super.setUp(); ExactDrag.install() } // LLP 1047.001 D4
     private var window: NSWindow?
     override func tearDown() { window?.close(); window = nil }
 

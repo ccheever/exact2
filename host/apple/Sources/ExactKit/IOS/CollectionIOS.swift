@@ -39,7 +39,7 @@ extension CollectionHost {
     }
     /// A list's facts on its own axes (LLP 1070 H1): a row list's offset,
     /// port and measured sizes run along x, its cross along y.
-    func geometry(_ id: UInt32) -> CollectionFacts? {
+    package func geometry(_ id: UInt32) -> CollectionFacts? {
         guard let node = presenter?.views[id], let scroll = node.scroll, !hidden(node) else { return nil }
         let bounds = scroll.bounds, insets = scroll.adjustedContentInset
         let content = node.contentBox()

@@ -1,3 +1,5 @@
+import ExactKit
+import CExact
 #if os(macOS)
 import AppKit
 

@@ -93,7 +93,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
             video?.update() // the media events the player reports
         }
     }
-    func allowsTouchPan(_ velocity: CGPoint) -> Bool {
+    package func allowsTouchPan(_ velocity: CGPoint) -> Bool {
         let action = style["touch_action"]?.string ?? "auto"
         if action == "auto" || action == "manipulation" { return true }
         let values = action.split(separator: " ")
@@ -129,8 +129,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
             let direction = velocity == .zero ? pan.translation(in: self) : velocity
             return direction == .zero || !allowsTouchPan(direction)
         }
-        if let reorder = reorderShouldBegin(gesture) { return reorder }
-        if let transform = transformShouldBegin(gesture) { return transform }
+        if let drag = DragLink.installed?.shouldBegin(self, gesture) { return drag }
         if gesture === heightRecognizer, let pan = gesture as? UIPanGestureRecognizer {
             let velocity = pan.velocity(in: window), translation = pan.translation(in: window)
             return SwipeInput.allows(self) && HeightDragDirection.accepts(
@@ -227,9 +226,9 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         DispatchQueue.main.async { [weak self, token = incarnation] in if let self, self.incarnation == token, !self.disabled, self.presenter?.views[self.id] === self { self.presenter?.dblclick(self.id) } }
     }
     var translatePx = CGPoint.zero, translatePercent = CGPoint.zero // `translate`: its lengths, and its percentages of the box (chess diary #4)
-    var scale: CGFloat = 1
-    var rotate: CGFloat = 0
-    var contextTransform = CGAffineTransform.identity {
+    package var scale: CGFloat = 1
+    package var rotate: CGFloat = 0
+    package var contextTransform = CGAffineTransform.identity {
         didSet {
             if contextTransform.isIdentity { presenter?.contextNodes.remove(id) }
             else { presenter?.contextNodes.insert(id) }
@@ -239,7 +238,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     /// The scroll view a capability module sees (LLP 1047.001 D4).
     package var scrollView: UIScrollView? { scroll }
     package var scrollsVertically: Bool { scroll?.scrollsY ?? true }
-    var scroll: ScrollView? {
+    package var scroll: ScrollView? {
         didSet {
             if scroll == nil { presenter?.scrollers.remove(id) }
             else { presenter?.scrollers.insert(id) }
@@ -274,7 +273,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     var flightLook: FlightLook?
     var imageSource: String?
     var loadGeneration = 0
-    var pressed = false { didSet { if pressed != oldValue { pressChanged() } } }
+    package var pressed = false { didSet { if pressed != oldValue { pressChanged() } } }
     var press = PressFeedback() // LLP 1061 D2: the feedback `pressed` drives
     package var disabled: Bool { props["disabled"] == "true" }
     /// HTML inertness covers the subtree, including direct agent activation.

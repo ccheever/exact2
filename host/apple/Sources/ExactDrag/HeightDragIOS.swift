@@ -1,3 +1,5 @@
+import ExactKit
+import CExact
 #if os(iOS) || os(tvOS)
 import UIKit
 import QuartzCore
@@ -28,16 +30,16 @@ extension NodeView {
             heightHold = HeightDragHold(self, time: time)
             // UIKit may deliver a coalesced drag entirely in its first sample.
             // Catch the current presentation, then apply that sample too.
-            if let hold = heightHold, !hold.move(downward: translation, time: time) {
+            if let hold = heightHold as? HeightDragHold, !hold.move(downward: translation, time: time) {
                 hold.cancel(); heightHold = nil
             }
         case .changed:
-            guard let hold = heightHold else { return }
+            guard let hold = heightHold as? HeightDragHold else { return }
             if !hold.move(downward: translation, time: time) {
                 hold.cancel(); heightHold = nil
             }
         case .ended, .cancelled, .failed:
-            let previous = heightHold; heightHold = nil
+            let previous = heightHold as? HeightDragHold; heightHold = nil
             previous?.finish(downward: translation, time: time, cancel: pan.state != .ended)
         default: break
         }

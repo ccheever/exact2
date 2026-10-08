@@ -3,47 +3,10 @@
 // mouse drag on macOS); Rust holds the lifted row and asks the collection for
 // the gap; this maps the pointer, keeps the handle's interaction pin until the
 // source has settled, raises the row and scrolls the List at its edges.
+import ExactKit
+import CExact
 import Foundation
 import QuartzCore
-
-/// The runtime's three Arrange calls (`exact.h`); a test substitutes its own.
-protocol ReorderCalls: AnyObject {
-    func reorderBegin(_ handle: UInt32, scrollTop: Double, now: Double) -> Batch
-    func reorderMove(_ token: UInt64, dy: Double, scrollTop: Double, inside: Bool, now: Double) -> Batch
-    func reorderEnd(_ token: UInt64, drop: Bool, dy: Double, scrollTop: Double, inside: Bool, velocity: Double, now: Double) -> Batch
-}
-extension Runtime: ReorderCalls {}
-
-/// One `{"op":"reorder"}`: the contact's serial, its List and lifted wrapper.
-struct ReorderState: Equatable {
-    let token: UInt64
-    let list: UInt32
-    let wrapper: UInt32
-    let phase: String
-    let dispatched: Bool
-    init?(_ op: [String: Any]) {
-        guard let raw = op["token"] as? String, let token = UInt64(raw),
-              let list = op["list"] as? Int, let wrapper = op["wrapper"] as? Int,
-              let phase = op["phase"] as? String else { return nil }
-        self.token = token; self.list = UInt32(clamping: list); self.wrapper = UInt32(clamping: wrapper)
-        self.phase = phase; self.dispatched = op["dispatched"] as? Bool ?? false
-    }
-    static func last(in batch: Batch) -> ReorderState? {
-        batch.ops.last { $0.op == .reorder }.flatMap { ReorderState($0.payload) }
-    }
-}
-
-/// The web host's edge scroll: 32-point bands inside the port's top and
-/// bottom (and past them), 720 points a second, at most 32 ms of catch-up.
-enum ReorderEdge {
-    static func direction(offset: Double, height: Double) -> Double {
-        guard offset.isFinite, height.isFinite else { return 0 }
-        return offset < 32 ? -1 : offset > height - 32 ? 1 : 0
-    }
-    static func step(direction: Double, dt: Double) -> Double {
-        direction * 720 * min(0.032, max(0, dt))
-    }
-}
 
 /// The source's release speed from its last two samples (points/second), as
 /// the web's; a stationary end sample reads as rest.
