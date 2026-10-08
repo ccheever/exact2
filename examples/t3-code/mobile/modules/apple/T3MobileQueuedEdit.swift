@@ -700,6 +700,8 @@ final class T3MobileQueuedEdit: @unchecked Sendable {
                               ["edited", "failed", "not-started"].contains(phase) else {
                             throw refusal("Resolve the exact cleanup before choosing a fresh attempt.", kind: "stale")
                         }
+                        try outboxOwner.deliveryCleanupRetiredLocked(operation["messageId"] as! String,
+                            mutation: existing["mutationId"] as! String)
                         _ = try outboxOwner.deliveryRecordLocked(["ownerEpoch": request["ownerEpoch"] ?? NSNull(),
                             "messageId": operation["messageId"]!, "record": operation["record"]!,
                             "expectedToken": operation["rowToken"]!, "expectedRevision": operation["rowRevision"]!])
