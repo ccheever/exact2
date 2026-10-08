@@ -98,23 +98,40 @@ final class MenuHost: NSObject {
     }
     /// Capture identity before app code runs; a replacement with the same id
     /// must never receive an old invoker's deferred presentation.
+    private func invocation(_ source: NodeView) -> (name: String, action: String)? {
+        if let name = source.props["popovertarget"], !name.isEmpty { return (name, source.props["popovertargetaction"] ?? "toggle") }
+        guard let name = source.props["commandfor"], !name.isEmpty else { return nil }
+        switch source.props["command"] {
+        case "show-popover": return (name, "show")
+        case "toggle-popover": return (name, "toggle")
+        default: return nil
+        }
+    }
+    /// A native invoker anchors to its actual button frame, including AppKit's
+    /// alignment insets, rather than the node's layout box (D13).
+    func anchor(_ source: NodeView, in view: NSView) -> NSRect {
+        if let button = presenter?.controls.controls[source.id] as? NativeButtonMac {
+            return button.convert(button.bounds, to: view)
+        }
+        return source.convert(source.bounds, to: view)
+    }
     func command(_ source: NodeView, fromNativeMenu: Bool = false) -> (() -> Void)? {
         guard let presenter, source.isButton, !source.disabled, !source.inert,
               fromNativeMenu || !source.isHiddenOrHasHiddenAncestor || presenter.toolbar.contains(source),
-              let name = source.props["popovertarget"],
-              let pop = presenter.carrying("popover").first(where: { $0.props["id"] == name }) else { return nil }
-        let action = source.props["popovertargetaction"] ?? "toggle"
+              let invocation = invocation(source),
+              let pop = presenter.carrying("popover").first(where: { $0.props["id"] == invocation.name }) else { return nil }
+        let (name, action) = invocation
         return { [weak self, weak source, weak pop] in
             guard let self, let source, let pop, self.live(source), self.live(pop),
-                  source.props["popovertarget"] == name, pop.props["id"] == name,
-                  (source.props["popovertargetaction"] ?? "toggle") == action,
+                  self.invocation(source)?.name == name, pop.props["id"] == name,
+                  self.invocation(source)?.action == action,
                   !source.inert, !source.disabled else { return }
             if action == "hide" || (action != "show" && self.isOpen(pop)) { self.close(pop) }
             else { self.show(pop, from: source) }
         }
     }
     func opens(_ source: NodeView, _ pop: NodeView) -> Bool {
-        source.props["popovertarget"] == pop.props["id"] && source.props["popovertargetaction"] != "hide"
+        invocation(source)?.name == pop.props["id"] && invocation(source)?.action != "hide"
     }
     /// `source` can still open `pop` in this presenter's window: live,
     /// enabled, not inert, shown (or a toolbar's), and pointing at it.
@@ -210,7 +227,7 @@ final class MenuHost: NSObject {
     /// sit, the menu's own size the box, clamped to the viewport (§5).
     func popUpPoint(_ menu: NSMenu, _ pop: NodeView, in source: NodeView) -> NSPoint {
         let bounds = presenter.map { source.convert($0.viewport.bounds, from: $0.viewport) } ?? .infinite
-        return PositionArea.origin(PositionArea.of(pop), anchor: source.bounds, size: menu.size,
+        return PositionArea.origin(PositionArea.of(pop), anchor: anchor(source, in: source), size: menu.size,
                                    margins: PositionArea.margins(of: pop), in: bounds)
     }
     func close(_ pop: NodeView, restoreFocus: Bool = true, cancelling: Bool = true) {
@@ -296,7 +313,7 @@ final class MenuHost: NSObject {
         for entry in entries where entry.menu == nil {
             guard let source = entry.source else { continue }
             entry.layer.frame = presenter.viewport.bounds
-            let anchor = source.convert(source.bounds, to: entry.layer)
+            let anchor = anchor(source, in: entry.layer)
             var box = entry.frame
             box.origin = PositionArea.origin(PositionArea.of(entry.popover), anchor: anchor, size: box.size,
                                              margins: PositionArea.margins(of: entry.popover), in: entry.layer.bounds)

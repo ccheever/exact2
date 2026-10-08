@@ -362,9 +362,7 @@ public final class ExactSession {
     #endif
     var text: TextEngine
     let fieldChrome = FieldChromeCache()
-    #if os(iOS) || os(tvOS)
     let buttonMeasurements = ButtonMeasureCache()
-    #endif
     let presenter: Presenter
     var launchLocation: String? // a pre-boot `openURL`'s location, until the first frame (LaunchURL.swift)
     private var textPressure: DispatchSourceMemoryPressure?
