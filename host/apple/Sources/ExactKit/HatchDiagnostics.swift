@@ -48,7 +48,7 @@ final class HatchDiagnostics {
 
     // MARK: What Exact times (§3.1)
 
-    private struct Timed { let hatch: String, moment: String; var calls = 0, ms = 0.0, worst = 0.0 }
+    private struct Timed { let hatch: String, site: Int?, moment: String; var calls = 0, ms = 0.0, worst = 0.0 }
     private var timing: [String: Timed] = [:]
     private var timingOrder: [String] = []
     /// The time spent in calls nested in each open one: a call's time is its own.
@@ -62,7 +62,7 @@ final class HatchDiagnostics {
 
     /// One hatch call, timed. `scope` is `element <word>` or a container's
     /// name; a node's calls are counted by ElementHatches, a container's here.
-    func timed<T>(_ scope: String, _ moment: String, counts: Bool = true, _ body: () -> T) -> T {
+    func timed<T>(_ scope: String, _ moment: String, site: Int? = nil, counts: Bool = true, _ body: () -> T) -> T {
         guard Self.measuring else { return body() }
         if counts { scopeCalls[scope, default: [:]][moment, default: 0] += 1 }
         inner.append(0)
@@ -70,8 +70,8 @@ final class HatchDiagnostics {
         let out = body()
         let end = CACurrentMediaTime(), whole = (end - start) * 1000, own = max(0, whole - inner.removeLast())
         if !inner.isEmpty { inner[inner.count - 1] += whole }
-        let key = "\(scope)\n\(moment)"
-        if timing[key] == nil { timing[key] = Timed(hatch: scope, moment: moment); timingOrder.append(key) }
+        let key = "\(scope)\n\(site.map(String.init) ?? "")\n\(moment)"
+        if timing[key] == nil { timing[key] = Timed(hatch: scope, site: site, moment: moment); timingOrder.append(key) }
         timing[key]!.calls += 1
         timing[key]!.ms += own
         timing[key]!.worst = max(timing[key]!.worst, own)
@@ -349,6 +349,29 @@ final class HatchDiagnostics {
         return Self.fit(reply, ["words", "scopes"])
     }
 
+    /// `perf <target>`'s row for a hatched site: its hatch's calls and time.
+    func site(_ site: Int) -> (calls: Int, ms: Double)? {
+        let rows = timing.values.filter { $0.site == site }
+        return rows.isEmpty ? nil : (rows.reduce(0) { $0 + $1.calls }, rows.reduce(0) { $0 + $1.ms })
+    }
+
+    /// The runner's `perf <target>` reply with each hatched site's row naming
+    /// its hatch's calls and time, as the other hosts' rows do.
+    func joined(perf reply: String) -> String {
+        guard timing.values.contains(where: { $0.site != nil }),
+              var perf = try? JSONSerialization.jsonObject(with: Data(reply.utf8)) as? [String: Any],
+              var sites = perf["sites"] as? [[String: Any]] else { return reply }
+        var found = false
+        for index in sites.indices {
+            guard let at = (sites[index]["site"] as? NSNumber)?.intValue, let row = site(at) else { continue }
+            sites[index]["hatch"] = ["calls": row.calls, "ms": row.ms]
+            found = true
+        }
+        guard found else { return reply }
+        perf["sites"] = sites
+        return (try? JSONSerialization.data(withJSONObject: perf)).map { String(decoding: $0, as: UTF8.self) } ?? reply
+    }
+
     /// `perf hatches`: every call Exact timed, by hatch and by moment, and the
     /// hatches' counters and timings. Cumulative; a difference is two reads.
     func perf(tags: [String: Any]) -> [String: Any] {
@@ -361,7 +384,9 @@ final class HatchDiagnostics {
             sum["ms"] = (sum["ms"] as? Double ?? 0) + t.ms
             sum["worst"] = max(sum["worst"] as? Double ?? 0, t.worst)
             by[t.hatch] = sum
-            return ["hatch": t.hatch, "moment": t.moment, "calls": t.calls, "ms": t.ms, "worst": t.worst]
+            var row: [String: Any] = ["hatch": t.hatch, "moment": t.moment, "calls": t.calls, "ms": t.ms, "worst": t.worst]
+            if let site = t.site { row["site"] = site }
+            return row
         }
         let timed = grouped(timingNames) { (key: String) -> [String: Any] in
             guard let t = timings[key] else { return [:] }
@@ -374,7 +399,7 @@ final class HatchDiagnostics {
         var reply: [String: Any] = tags
         reply["hatches"] = by
         reply["calls"] = calls
-        reply["tickets"] = 0
+        reply["tickets"] = session?.natives.hatchClock.liveTickets ?? 0
         reply["counters"] = grouped(counterOrder) { counters[$0] ?? 0 }
         reply["timings"] = timed
         reply.merge(refusals) { a, _ in a }

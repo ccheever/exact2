@@ -75,7 +75,7 @@ final class SvgFilterLive {
 
     init(layer: CALayer) {
         self.layer = layer
-        scene.offscreen = true
+        scene.offscreen = CACurrentMediaTime()
         root.isGeometryFlipped = true
         root.anchorPoint = .zero
         root.addSublayer(top)
@@ -285,6 +285,9 @@ final class SvgFilterLive {
             cleared = false
         }
         let (tw, th) = (targets[0].texture.width, targets[0].texture.height)
+        // One instant for the held animations' placement and the render.
+        let at = CACurrentMediaTime()
+        scene.offscreen = at
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         scene.scale = p.k
@@ -314,7 +317,7 @@ final class SvgFilterLive {
         }
         cleared = false
         renderer.bounds = CGRect(x: 0, y: 0, width: tw, height: th)
-        renderer.beginFrame(atTime: CACurrentMediaTime(), timeStamp: nil)
+        renderer.beginFrame(atTime: at, timeStamp: nil)
         renderer.addUpdate(renderer.bounds)
         renderer.render()
         renderer.endFrame()

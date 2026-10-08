@@ -3,7 +3,7 @@ import Foundation
 
 extension NodeView {
     /// Resolve the computed tagged row after inheritance, using this node's font.
-    var usedLineHeight: CGFloat? {
+    package var usedLineHeight: CGFloat? {
         // JSON carries shortest f32 decimals; the measurement ABI carries f32
         // values. Resolve in the kernel's precision before widening for CoreText.
         if let ratio = style["line_height"]?.number { return CGFloat(Float(ratio) * Float(number("font_size", 16))) }
@@ -96,7 +96,7 @@ extension NodeView {
         if props["markup"] == "markdown", let source = props["text"] {
             // Markdown source: the archive expands it into runs, the same
             // expansion the measurer used (LLP 1045 D3).
-            runs = MarkupRuns.expand(source, base: textRun(""), color: textChannels("text_color", dark: night))
+            runs = MarkdownLink.installed?.expand(source, base: textRun(""), color: textChannels("text_color", dark: night)) ?? [textRun(source)]
             if style["visibility"]?.string == "hidden" { for i in runs.indices { runs[i].hidden = true } }
             // `currentcolor` in a shadow or stroke is each piece's own colour.
             let rows = RunPaintRows(style), own = channels("text_color", dark: night) ?? SystemColor.canvasTextChannels(dark: night, contrast: contrast)

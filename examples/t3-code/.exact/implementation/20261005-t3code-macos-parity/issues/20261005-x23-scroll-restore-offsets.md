@@ -160,3 +160,12 @@ too), against the reference rather than assumed.
 ## Rest filed upstream (2026-10-08)
 
 Upstream (the rest): https://github.com/ccheever/exact2/issues/277 (#277, [Design] Scroll: restore a top-level virtualized list, scroll-padding and scroll-margin on any scroller, native smooth element jumps and scrollend (rest of #138)). Reproduced on main `0365ad1a4` (relevant files unchanged on main `e200397ec`) before filing: a top-level list scrolled to 1500 reopens at 0 even with `scroll-restoration="auto"` (LLP 1070:261); `scroll-padding` now works on `list virtualized=true` only and is refused on a plain `scroll` (`lower-scroll-padding`); `scroll-margin-top` and `scrollend` are `lower-unknown-attr`; native element-form smooth lands at once (`IntoView.swift:6`). One "Decision needed" comment. Searched open and closed issues and PRs: no duplicate.
+
+## Re-checked on main `e200397ec` (2026-10-08, adopt-main-fixes-r6)
+
+The rest of #138 is [#277](https://github.com/ccheever/exact2/issues/277). Main `20f5aff2d`, `2faf6c190` and
+`d6ded2e7d` (LLP 1010 §6.9) give a virtualized `list` main-axis padding and take `scroll-padding-*` on it in
+`scrollIntoView`; on a plain `scroll` it is still refused (`lower-scroll-padding`), and `scroll-margin-*` is unknown. The
+reference's scroll-padding sites (the palette results, the work-group list, the composer menu, the combobox, command and
+autocomplete lists) are plain scrollers in the clone, so nothing is adopted (X23b). X23a and X23c are unchanged:
+`R9Input.swift` and `T3TimelineTurns.swift` stay (the latter also measures which turns are in view, X22).

@@ -31,8 +31,10 @@ impl<D: DataSource> Presenter<D> {
         if node.node_type != NodeType::Control {
             return false;
         }
-        // A native button presses as any button does (LLP 1069.011 D3).
-        if node.props.str(PropId::Type) == Some("button") {
+        // A native button presses as any button does (LLP 1069.011 D3); a
+        // progress takes no press, as a box does (LLP 1069.001, amended
+        // 2026-10-07).
+        if matches!(node.props.str(PropId::Type), Some("button" | "progress")) {
             return false;
         }
         // A visible file input's press opens its picker (LLP 1069.002 D1).
@@ -339,31 +341,8 @@ impl<D: DataSource> Presenter<D> {
                     sizes.push((id, size));
                     continue;
                 }
-                // A native button: its title in its look's font, padded
-                // (LLP 1069.011 D6); Linux draws no symbol, which keeps the
-                // room the other hosts give it.
-                if node.props.str(PropId::Type) == Some("button") {
-                    let face = kernel.press_face(id).unwrap_or_default();
-                    let (px, py) = crate::paint::control::button_padding(
-                        crate::paint::control::button_look(&node),
-                    );
-                    let p = text.paragraph(
-                        &crate::paint::text_spec(
-                            &crate::paint::control::button_text_style(),
-                            face.title.as_deref().unwrap_or(" "),
-                        ),
-                        None,
-                    );
-                    let symbol = if face.symbol.is_some() {
-                        p.height + if face.title.is_some() { 4.0 } else { 0.0 }
-                    } else {
-                        0.0
-                    };
-                    let w = if face.title.is_some() { p.width } else { 0.0 };
-                    sizes.push((
-                        id,
-                        ((w + symbol + 2.0 * px).ceil(), (p.height + 2.0 * py).ceil()),
-                    ));
+                // Native buttons measure synchronously through TextMeasurer before layout.
+                if kind == exact_kernel::ControlKind::Button {
                     continue;
                 }
                 // A select fits its widest option; a date control its widest
@@ -426,5 +405,65 @@ mod tests {
         assert_eq!(fixed_painted_size(ControlKind::Date), None);
         assert_eq!(fixed_painted_size(ControlKind::Time), None);
         assert_eq!(fixed_painted_size(ControlKind::DateTimeLocal), None);
+        assert_eq!(
+            fixed_painted_size(ControlKind::Progress),
+            None,
+            "the kernel's 20 × 20"
+        );
+    }
+
+    struct Empty;
+    impl exact_runner::DataSource for Empty {
+        fn query(
+            &mut self,
+            name: &str,
+            _: &[exact_runner::Value],
+        ) -> Result<exact_runner::Value, exact_runner::DataError> {
+            Err(exact_runner::DataError::UnknownSource(name.into()))
+        }
+    }
+
+    /// LLP 1069.001, amended 2026-10-07: a progress is painted as one still
+    /// frame of UIKit's spokes in its `color`, centred in its box, and a
+    /// press on it is its ancestor's, as on a box.
+    #[test]
+    fn a_progress_paints_still_spokes_in_its_color_and_takes_no_press() {
+        let app = "component App\n  view\n    column width=100 height=100 background-color=\"#ffffff\" align-items=\"flex-start\"\n      progress testId=\"spin\" width=40 height=40 color=\"#ff0000\"\n";
+        let (mut p, error) = super::Presenter::boot_with(
+            &contract::compile(app).unwrap().encode(),
+            Empty,
+            (100., 100.),
+            1.,
+            std::path::PathBuf::new(),
+            super::PainterChoice::Cpu,
+        )
+        .unwrap();
+        assert!(error.is_none(), "{error:?}");
+        let spin = {
+            let k = p.host().kernel();
+            k.node_by_key(k.find_by_test_id("spin")[0]).unwrap().id
+        };
+        let (x, y, w, h) = p.rect_of(spin).unwrap();
+        assert_eq!((w, h), (40.0, 40.0));
+        let mut at = |dx: f32, dy: f32| {
+            let c = p
+                .frame()
+                .pixel((x + dx) as u32, (y + dy) as u32)
+                .unwrap()
+                .demultiply();
+            [c.red(), c.green(), c.blue()]
+        };
+        assert_eq!(at(20.0, 4.0), [0xff, 0, 0], "the top spoke, at full ink");
+        assert_eq!(at(20.0, 20.0), [0xff, 0xff, 0xff], "the centre is clear");
+        assert_eq!(at(2.0, 2.0), [0xff, 0xff, 0xff], "the corners are clear");
+        let now = p.host().now();
+        assert!(
+            !p.toggle_control(spin, now),
+            "a press passes to its ancestor"
+        );
+        assert_eq!(
+            p.type_text(spin, "50"),
+            Err(format!("view {spin} is not an input"))
+        );
     }
 }

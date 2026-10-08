@@ -4,7 +4,7 @@
 
 use super::{engine, Kernel};
 use crate::generated::NodeType;
-use crate::id::{Frame, NodeFlags, NodeKey};
+use crate::id::{AxisOffer, Frame, NodeFlags, NodeKey, Offer};
 use crate::layout::{LayoutMirror, LayoutTree};
 use crate::style::taffy_style;
 
@@ -89,6 +89,122 @@ impl Kernel {
         ))
     }
 
+    /// A node's border-box height when its own height is left to its
+    /// content at its laid-out width: CSS's `fit-content` block size, in an
+    /// indefinite height. Its subtree is laid out alone, in a separate
+    /// engine tree, with its published width, its padding and border as the
+    /// last layout resolved them (a percentage of its containing block, a
+    /// host cover in it), its min and max heights, and no height, insets or
+    /// margins: nothing it is placed in (a sheet, a flex line, insets)
+    /// constrains it, so no child shrinks, grows or takes a percentage of
+    /// its height. A height, min-height or max-height that reads the
+    /// viewport's height (`vh`, `svh`, `lvh`, `dvh`, and `vmin`/`vmax` or a
+    /// comparison while they do) is `auto` there, on the box and under it:
+    /// the viewport is the box's own sheet, and the kernel knows no
+    /// unclipped screen. A height a transition presents (LLP 1063) is the
+    /// presented one, as in the ordinary layout. Exclusions and
+    /// multi-column fragments are not settled in that tree. The ordinary engine tree, its caches, frames and the epoch
+    /// are untouched (LLP 1075.003 §9.11). `None` as for
+    /// [`Kernel::laid_out_frame`], or when the trial's layout fails.
+    pub fn fit_content_height(&mut self, key: NodeKey) -> Option<f32> {
+        use taffy::style::{Dimension, LengthPercentage, LengthPercentageAuto};
+        let (frame, _) = self.laid_out_frame(key)?;
+        let slot = key.index;
+        let laid = self
+            .layout
+            .as_deref()
+            .and_then(LayoutMirror::tree_ref)?
+            .layout(self.arena.taffy(slot)?);
+        let (pad, border) = (laid.padding, laid.border);
+        let (mut tree, nodes) = LayoutTree::of_subtree(&self.arena, slot);
+        let root = nodes[&slot];
+        // What differs under a taller viewport reads the viewport's height.
+        let env = self.arena.env().clone();
+        let mut taller = env.clone();
+        taller.viewport_height = env.viewport_height * 2.0 + 1.0;
+        let sheet = |d: crate::style::Dimension| d.resolve(&env) != d.resolve(&taller);
+        let presented = engine(&mut self.layout).height_samples(self.epoch);
+        let derive = |s: u32, mut t: taffy::style::Style| {
+            let row = self.arena.style(s);
+            if sheet(row.height) {
+                t.size.height = Dimension::auto();
+            }
+            if sheet(row.min_height) {
+                t.min_size.height = LengthPercentageAuto::auto();
+            }
+            if sheet(row.max_height) {
+                t.max_size.height = LengthPercentageAuto::auto();
+            }
+            let shown = presented
+                .iter()
+                .find(|p| p.node.index == s && self.arena.resolve(p.node) == Some(s));
+            if let Some(p) = shown {
+                t.size.height = Dimension::length(p.px);
+            }
+            t
+        };
+        for (&s, &node) in nodes.iter().filter(|(&s, _)| s != slot) {
+            let row = self.arena.style(s);
+            if sheet(row.height)
+                || sheet(row.min_height)
+                || sheet(row.max_height)
+                || presented.iter().any(|p| p.node.index == s)
+            {
+                tree.set_style(node, derive(s, taffy_style(&self.arena, s)));
+            }
+        }
+        let mut style = derive(slot, taffy_style(&self.arena, slot));
+        let inline = pad.left + pad.right + border.left + border.right;
+        let width = match style.box_sizing {
+            taffy::style::BoxSizing::ContentBox => (frame.width - inline).max(0.0),
+            taffy::style::BoxSizing::BorderBox => frame.width,
+        };
+        style.size = taffy::geometry::Size {
+            width: Dimension::length(width),
+            height: Dimension::auto(),
+        };
+        style.min_size.width = LengthPercentageAuto::auto();
+        style.max_size.width = LengthPercentageAuto::auto();
+        let lp = LengthPercentage::length;
+        style.padding = taffy::geometry::Rect {
+            left: lp(pad.left),
+            right: lp(pad.right),
+            top: lp(pad.top),
+            bottom: lp(pad.bottom),
+        };
+        style.border = taffy::geometry::Rect {
+            left: lp(border.left),
+            right: lp(border.right),
+            top: lp(border.top),
+            bottom: lp(border.bottom),
+        };
+        style.margin = taffy::geometry::Rect {
+            left: LengthPercentageAuto::length(0.0),
+            right: LengthPercentageAuto::length(0.0),
+            top: LengthPercentageAuto::length(0.0),
+            bottom: LengthPercentageAuto::length(0.0),
+        };
+        style.inset = taffy::geometry::Rect {
+            left: LengthPercentageAuto::auto(),
+            right: LengthPercentageAuto::auto(),
+            top: LengthPercentageAuto::auto(),
+            bottom: LengthPercentageAuto::auto(),
+        };
+        // The containing block of what it positions, as a root is.
+        style.position = taffy::style::Position::Relative;
+        tree.set_style(root, style);
+        let offer = Offer {
+            width: AxisOffer::Definite(frame.width),
+            height: AxisOffer::MaxContent,
+        };
+        tree.compute_mapped(root, offer, &self.arena, self.measurer.as_mut(), |s| {
+            nodes.get(&s).copied()
+        })
+        .ok()?;
+        let height = tree.layout(root).size.height;
+        (height.is_finite() && height >= 0.0).then_some(height)
+    }
+
     /// The padding the last layout resolved, in points: left, top, right,
     /// bottom. A percentage is of the containing block's width, which in a
     /// multi-column container is the column's (CSS Multi-column §3.4).
@@ -98,6 +214,15 @@ impl Kernel {
         let node = self.arena.taffy(slot)?;
         let pad = self.layout.as_deref()?.tree_ref()?.layout(node).padding;
         Some((pad.left, pad.top, pad.right, pad.bottom))
+    }
+
+    /// The border the last layout resolved, in points: left, top, right,
+    /// bottom. `None` when the node has no engine layout.
+    pub fn resolved_border(&self, key: NodeKey) -> Option<(f32, f32, f32, f32)> {
+        let slot = self.arena.resolve(key)?;
+        let node = self.arena.taffy(slot)?;
+        let b = self.layout.as_deref()?.tree_ref()?.layout(node).border;
+        Some((b.left, b.top, b.right, b.bottom))
     }
 
     /// The root `slot` is laid out under, when nothing between them was

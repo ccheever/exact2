@@ -12,8 +12,12 @@ are the predecessor's — research, never authority.
 ## The web is the standard
 
 Where a default, a property name, a value vocabulary, or a behavior could follow CSS or
-something else (React Native/Yoga, UIKit, AppKit), it follows CSS — even where a CSS
-reset would usually override it. A bare node is `display: block`, `box-sizing:
+something else (React Native/Yoga, UIKit, AppKit), it follows CSS. The point is to be
+familiar to agents trained on a vast number of web pages, and most of those pages load
+a reset (normalize.css, Tailwind's preflight). So where that common reset convention
+differs from the browser's raw default, the reset's behaviour is also a familiar path
+and may be chosen, declared with the reason (a form control inherits the page's font,
+LLP 1104 D4). Otherwise the raw default stands: a bare node is `display: block`, `box-sizing:
 content-box`, `flex-direction: row`, `flex-shrink: 1`. Rows are named `object-fit`,
 `text-overflow`, `line-clamp`, not `resizeMode`, `ellipsizeMode`, `numberOfLines`.
 The web is the dev loop and the parity oracle for every other surface; a kernel that

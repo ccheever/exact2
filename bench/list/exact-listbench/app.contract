@@ -1,0 +1,194 @@
+// List Bench: Expo PR 49975's DataListForEachScreen on exact2, for a
+// side-by-side benchmark. One virtualized list carries all 10,000 messages;
+// the header card, section titles and footers ride inside the rows at the
+// section boundaries (the DataSource flags them), since a shared collection
+// has one keyed `each` and no scroll-container padding.
+//
+// Per row, as the Expo row: a `Label` (the SF Symbol through exact2's
+// `symbol:person` / `symbol:messages` roles), a 44-point bookmark button with
+// an accessible name, the body, "Saved for later" when saved, the attachment
+// chip every fifth message, and a native trailing swipe "Delete" (UIKit's
+// swipe cell through `swipeContent`). Edit mode adds a leading selection
+// circle and a trailing reorder handle. Every SF Symbol the Expo screen
+// names is a `symbol:` role (bookmark, bookmark-fill, document, select,
+// select-fill, reorder, sort, filter) except the Done button's `checkmark`,
+// which is still drawn as a `clip-path` shape. The handle is the List's
+// `reorderFor`: the row lifts and follows the drag, its neighbors make room,
+// the List scrolls at its edges, and the drop moves the message within its
+// section
+// (DataSource `place(id, before)`, Expo's `onMove`).
+shape Message
+  id: string
+  index: number
+  title: string
+  body: string
+  person: bool
+  attachment: bool
+  first: bool
+  last: bool
+  head: bool
+  inboxEnd: bool
+  archiveStart: bool
+  tail: bool
+shape Feed
+  rows: list<Message>
+  total: string
+  inboxTitle: string
+  archiveTitle: string
+  inboxEmpty: bool
+  archiveEmpty: bool
+shape Saved
+  ids: string
+  count: number
+
+component ListBench
+  state reversed = false
+  state editing = false
+  state largeBuffer = false
+  resource initial = messages() as shape Feed
+  mutation changed as shape Feed
+  derive feed = match changed { case some(f) => f, case none => initial }
+  mutation bookmarks as shape Saved
+  derive savedIds = match bookmarks { case some(s) => s.ids, case none => "|" }
+  derive savedCount = match bookmarks { case some(s) => s.count, case none => 0 }
+  mutation selection as shape Saved
+  derive selectedIds = match selection { case some(s) => s.ids, case none => "|" }
+  derive selectedCount = match selection { case some(s) => s.count, case none => 0 }
+
+  action toggleSaved(id: string)
+    send bookmarks = bookmark(id)
+  action select(id: string)
+    if editing
+      send selection = select("toggle", id)
+  action remove(id: string)
+    send changed = feed("delete", id, 0)
+  action place(id: string, before: option<string>)
+    send changed = place(id, before)
+  action reverse
+    reversed = not reversed
+    send changed = feed("reverse", "", 0)
+  action edit
+    if editing
+      send selection = select("clear", "")
+    editing = not editing
+  action buffer
+    largeBuffer = not largeBuffer
+
+  view
+    main testId="listbench" viewport-fit="cover" width="100%" height="100%" box-sizing="border-box" display="flex" flex-direction="column" overflow="hidden" padding-top="env(safe-area-inset-top)" background-color="#f2f2f7" color="#000000" font-family="system-ui"
+      column flex-shrink=0 width="100%" box-sizing="border-box" padding-left=20 padding-right=20 padding-top=12 padding-bottom=12 gap=12
+        row align-items="center" gap=12
+          button press=reverse testId="reverse" display="flex" flex-direction="row" align-items="center" gap=8 height=34 box-sizing="border-box" padding-left=14 padding-right=14 padding-top=0 padding-bottom=0 border-width=0 border-radius=17 background-color="#dedee4"
+            image "symbol:sort" font-size=17 -exact-tint-color="#0088ff" flex-shrink=0
+            text (reversed ? "Restore order" : "Reverse order") font-size=17 color="#0088ff"
+          box flex=1
+          button press=edit testId="edit" display="flex" flex-direction="row" align-items="center" gap=8 height=34 box-sizing="border-box" padding-left=14 padding-right=14 padding-top=0 padding-bottom=0 border-width=0 border-radius=17 background-color=(editing ? "#0088ff" : "#dedee4")
+            when editing
+              box width=15 height=12 flex-shrink=0 background-color="#ffffff" clip-path="path('M 0.96 6.91 L 5.41 11.37 L 14.05 2.49 L 12.47 0.96 L 5.39 8.23 L 2.51 5.36 Z')"
+            else
+              image "symbol:filter" font-size=17 -exact-tint-color="#0088ff" flex-shrink=0
+            text (editing ? "Done" : "Edit") font-size=17 font-weight=(editing ? 600 : 400) color=(editing ? "#ffffff" : "#0088ff")
+        row align-items="center" gap=12
+          column flex=1 min-width=0
+            text "Larger scroll buffer" font-size=17 line-height="22px"
+            text (largeBuffer ? "20 extra rows on each side" : "10 extra rows on each side") font-size=15 line-height="20px" color="#85858b"
+          button press=buffer testId="buffer" aria-label="Larger scroll buffer" display="flex" flex-direction="row" align-items="center" justify-content=(largeBuffer ? "flex-end" : "flex-start") width=64 height=28 box-sizing="border-box" padding=2 border-width=0 border-radius=14 background-color=(largeBuffer ? "#34c759" : "#bcbcc1")
+            box width=38 height=24 border-radius=12 background-color="#ffffff"
+      list id="messages" virtualized=true reorderdrop=place estimated-item-height=130 testId="messages" flex=1 min-height=0 width="100%" overflow-x="hidden" background-color="#f2f2f7"
+        each m in feed.rows key=m.id
+          column width="100%" box-sizing="border-box" padding-left=16 padding-right=16
+            when m.head
+              column width="100%"
+                box height=34
+                column testId="summary" background-color="#ffffff" border-radius=24 padding-left=16 padding-right=16 padding-top=21 padding-bottom=21 gap=12
+                  text feed.total testId="total" font-size=22 font-weight=700 line-height="28px" font-family="ui-rounded"
+                  row align-items="center" gap=16
+                    row align-items="center" gap=12
+                      box width=28 height=20 display="flex" align-items="center" justify-content="center"
+                        image "symbol:bookmark" font-size=19 -exact-tint-color="#85858b" flex-shrink=0
+                      text `${savedCount} saved` testId="saved-count" font-size=15 line-height="20px" color="#85858b"
+                    row align-items="center" gap=12
+                      box width=28 height=20 display="flex" align-items="center" justify-content="center"
+                        image "symbol:select" font-size=19 -exact-tint-color="#85858b" flex-shrink=0
+                      text `${selectedCount} selected` testId="selected-count" font-size=15 line-height="20px" color="#85858b"
+                text "Save a message, scroll away, and come back. Your bookmarks stay." font-size=13 line-height="16px" color="#85858b" padding-left=16 padding-right=16 padding-top=8
+                text feed.inboxTitle testId="inbox-title" font-size=17 font-weight=600 line-height="22px" color="#85858b" padding-left=16 padding-top=15 padding-bottom=9
+            when m.archiveStart
+              text feed.archiveTitle testId="archive-title" font-size=17 font-weight=600 line-height="22px" color="#85858b" padding-left=16 padding-top=20 padding-bottom=9
+            SwipeRow(m=m, saved=includes(savedIds, `|${m.id}|`), selected=includes(selectedIds, `|${m.id}|`), editing=editing, toggle=toggleSaved, select=select, remove=remove)
+            when m.inboxEnd
+              column width="100%"
+                text "Swipe to delete. Use Edit to select messages or drag to reorder." font-size=13 line-height="16px" color="#85858b" padding-left=16 padding-right=16 padding-top=8
+                box height=20
+                column background-color="#ffffff" border-radius=24 padding-left=16 padding-right=16 padding-top=13 padding-bottom=13
+                  text "Inbox and Archive each keep their own scroll buffer." font-size=13 line-height="16px" color="#85858b"
+            when m.tail
+              column width="100%"
+                box height=20
+                row background-color="#ffffff" border-radius=24 align-items="center" gap=12 padding-left=16 padding-right=16 padding-top=13 padding-bottom=13
+                  box width=28 height=22 display="flex" align-items="center" justify-content="center"
+                    image "symbol:select" font-size=21 -exact-tint-color="#85858b" flex-shrink=0
+                  text "You’re all caught up" font-size=17 color="#85858b"
+                text "Fast scrolling may briefly show placeholders while the next rows load." font-size=13 line-height="16px" color="#85858b" padding-left=16 padding-right=16 padding-top=8
+                box height=40
+
+// The native trailing swipe (UIKit's swipe cell, LLP 1008 §9): the scroll is
+// the web's fallback and the owner; `body-…` is the cell's content and
+// `delete-…` becomes its destructive "Delete" action. Disabled in edit mode,
+// where a disabled control is no action, as SwiftUI shows no swipe there.
+component SwipeRow
+  props
+    m: Message
+    saved: bool
+    selected: bool
+    editing: bool
+    toggle: action
+    select: action
+    remove: action
+  view
+    scroll swipeContent=`body-${m.id}` swipeTrailing=`delete-${m.id}` testId=`swipe-${m.id}` width="100%" overflow-x="scroll" overflow-y="hidden" scrollbar-width="none" scroll-snap-type="x mandatory"
+      row width="100%"
+        MessageRow(message=m, saved=saved, selected=selected, editing=editing, toggle=toggle, select=select)
+        button id=`delete-${m.id}` testId=`delete-${m.id}` destructive=true disabled=editing press=remove(m.id) aria-label="Delete" width=90 flex-shrink=0 scroll-snap-align="start" border-width=0 background-color="#ff383c"
+
+component MessageRow
+  props
+    message: Message
+    saved: bool
+    selected: bool
+    editing: bool
+    toggle: action
+    select: action
+  view
+    column id=`body-${message.id}` testId=`row-${message.id}` press=select(message.id) aria-selected=(editing and selected) width="100%" flex-shrink=0 scroll-snap-align="start"
+      column width="100%" box-sizing="border-box" background-color="#ffffff" border-top-left-radius=(message.first ? 24 : 0) border-top-right-radius=(message.first ? 24 : 0) border-bottom-left-radius=(message.last ? 24 : 0) border-bottom-right-radius=(message.last ? 24 : 0)
+        row width="100%" align-items="center"
+          when editing
+            when selected
+              image "symbol:select-fill" testId=`check-${message.id}` width=22 height=22 flex-shrink=0 margin-left=16 font-size=23 object-fit="none" -exact-tint-color="#0088ff"
+            else
+              box testId=`check-${message.id}` width=22 height=22 flex-shrink=0 margin-left=16 box-sizing="border-box" border-radius=11 border-style="solid" border-width=1.5 border-color="#c4c4c7"
+          column flex=1 min-width=0 box-sizing="border-box" padding-left=16 padding-right=16 padding-top=21 padding-bottom=18 gap=10
+            row align-items="center" gap=8
+              row align-items="center" gap=12 flex=1 min-width=0
+                box width=28 height=24 display="flex" align-items="center" justify-content="center"
+                  image (message.person ? "symbol:person" : "symbol:messages") font-size=21 font-weight=600 -exact-tint-color="#0088ff" flex-shrink=0
+                text message.title font-size=17 font-weight=600 line-height="22px"
+              button press=toggle(message.id) testId=`save-${message.id}` aria-label=(saved ? `Unsave message ${message.index + 1}` : `Save message ${message.index + 1}`) display="flex" align-items="center" justify-content="center" min-width=44 min-height=44 box-sizing="border-box" padding=0 border-width=0 background-color="#00000000"
+                image (saved ? "symbol:bookmark-fill" : "symbol:bookmark") font-size=17 -exact-tint-color=(saved ? "#ff8d28" : "#8a8a8e")
+            text message.body font-size=17 line-height="22px" white-space="pre-wrap"
+            when saved
+              row align-items="center" gap=12
+                box width=28 height=14 display="flex" align-items="center" justify-content="center"
+                  image "symbol:bookmark-fill" font-size=15 -exact-tint-color="#ff8d28" flex-shrink=0
+                text "Saved for later" font-size=12 line-height="16px" color="#ff8d28"
+            when message.attachment
+              row align-self="flex-start" align-items="center" gap=13 padding-left=10 padding-right=10 padding-top=8 padding-bottom=8 border-radius=8 background-color="#7676801f"
+                box width=28 height=15 display="flex" align-items="center" justify-content="center"
+                  image "symbol:document" font-size=15 -exact-tint-color="#8a8a8e" flex-shrink=0
+                text "Weekend itinerary.pdf · 248 KB" font-size=12 line-height="14px" color="#777778"
+          when editing
+            box reorderFor="messages" touch-action="none" testId=`grip-${message.id}` aria-label=`Reorder message ${message.index + 1}` width=44 min-height=44 align-self="stretch" flex-shrink=0 display="flex" align-items="center" justify-content="center"
+              image "symbol:reorder" font-size=17 -exact-tint-color="#a1a1a6"
+        when not message.last
+          box height=1 margin-left=(editing ? 94 : 56) margin-right=16 background-color="#e8e8e8"

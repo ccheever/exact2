@@ -1,0 +1,27 @@
+{
+  "expo": {
+    "name": "Crypto Expo",
+    "slug": "cryptobench-expo",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "ios": {
+      "supportsTablet": true,
+      "requireFullScreen": true,
+      "bundleIdentifier": "dev.exact.cryptobench.expo",
+      "infoPlist": {
+        "CFBundleDisplayName": "Crypto Expo"
+      }
+    },
+    "plugins": [
+      [
+        "expo-build-properties",
+        {
+          "ios": {
+            "deploymentTarget": "17.0"
+          }
+        }
+      ]
+    ]
+  }
+}
