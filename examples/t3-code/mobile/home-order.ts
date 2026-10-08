@@ -2,8 +2,9 @@
 // @ref llp/1107.011-responsive-workspace.decision.md#navigation-and-data-ownership
 // Pinned 365aa87982 threadOrder.ts, threadListV2.ts and state/thread-order.ts.
 import { obj, str, type Obj } from './shared/domain';
+import { homeObserveReturns, type HomeReturnState } from './home-returns';
 import { homeWriteReflected } from './home-write-reflected';
-import { capabilities, effectiveSnoozed, orderKeyBetween, planReorder, sortActive, sortPinned, spreadKeys as orderSpreadKeys } from './shared/sidebar-model';
+import { capabilities, effectiveSnoozed, sidebarVisible, orderKeyBetween, planReorder, sortActive, sortPinned, spreadKeys as orderSpreadKeys } from './shared/sidebar-model';
 
 export type HomeOrderSection = 'pinned' | 'active';
 export type HomeMoveDirection = 'up' | 'down';
@@ -24,16 +25,17 @@ export type HomeUnknownOrder = { environmentId: string; threadId: string; origin
 );
 export interface HomeOrderState {
   serial: number; busy: boolean; pending: HomePendingOrder | null; unknown: HomeUnknownOrder | null;
-  workingEnabled: boolean; queuedThreadKeys: string[];
+  workingEnabled: boolean; queuedThreadKeys: string[]; inboxReturns: HomeReturnState;
 }
 export interface HomeOrderSnapshot {
+  returnedAt: Readonly<Record<string, number>>;
   threads: Obj[]; sections: Record<HomeOrderSection, Obj[]>; reorderable: Record<HomeOrderSection, Set<string>>;
   availability: Map<string, HomeMoveAvailability>; pending: HomePendingOrder | null; workingEnabled: boolean; blocked: boolean; queuedThreadKeys: ReadonlySet<string>;
 }
 const owners = new WeakMap<object, HomeOrderState>();
 export function homeOrderState(client: object): HomeOrderState {
   let state = owners.get(client);
-  if (!state) { state = { serial: 0, busy: false, pending: null, unknown: null, workingEnabled: false, queuedThreadKeys: [] }; owners.set(client, state); }
+  if (!state) { state = { serial: 0, busy: false, pending: null, unknown: null, workingEnabled: false, queuedThreadKeys: [], inboxReturns: { lastWorkingKeys: null, returnedAt: {} } }; owners.set(client, state); }
   return state;
 }
 export const homeOrderKey = (row: Obj) => `${str(row.environmentId)}:${str(row.id)}`;
@@ -232,7 +234,7 @@ export function homeApplyPending<T extends Obj>(rows: T[], section: HomeOrderSec
 }
 /** Reuses root's existing shell/config/queue/clock observations; no subscription or timer owner. */
 export function mobileHomeOrder(client: object, sources: HomeOrderSource[], now: number,
-  options: { workingEnabled?: boolean; queuedThreadKeys?: ReadonlySet<string> } = {}): HomeOrderSnapshot {
+  options: { workingEnabled?: boolean; queuedThreadKeys?: ReadonlySet<string>; observeReturns?: boolean } = {}): HomeOrderSnapshot {
   const state = homeOrderState(client);
   if (options.workingEnabled !== undefined) state.workingEnabled = options.workingEnabled;
   if (options.queuedThreadKeys !== undefined) state.queuedThreadKeys = [...options.queuedThreadKeys];
@@ -244,6 +246,8 @@ export function mobileHomeOrder(client: object, sources: HomeOrderSource[], now:
     if (source && (!thread || (unknown.kind === 'order' ? homeRowOrder(thread, unknown.section).key === unknown.orderKey : homeWriteReflected(unknown, thread)))) state.unknown = null;
   }
   const threads = sources.flatMap(source => source.shell.threads.map(row => ({ ...row, environmentId: source.environmentId })));
+  // Only fresh projection clocks may consume returns; action guards retain their older start clock.
+  if (options.observeReturns) homeObserveReturns(state.inboxReturns, state.workingEnabled ? threads.filter(sidebarVisible) : null, now);
   const reorderable = { pinned: new Set<string>(), active: new Set<string>() };
   for (const source of sources) { const caps = capabilities(source.config); if (caps.pinReorder) reorderable.pinned.add(source.environmentId); if (caps.activeReorder) reorderable.active.add(source.environmentId); }
   const availability = new Map<string, HomeMoveAvailability>(), blocked = state.busy || !!state.pending || !!state.unknown;
@@ -251,5 +255,5 @@ export function mobileHomeOrder(client: object, sources: HomeOrderSource[], now:
     if (section === 'active' && state.workingEnabled) continue;
     for (const entry of homeMoveAvailability({ ordered: sections[section], allThreads: threads, section, reorderableEnvironmentIds: reorderable[section] })) availability.set(...entry);
   }
-  return { threads, sections, reorderable, availability, pending: state.pending, workingEnabled: state.workingEnabled, blocked, queuedThreadKeys: queued };
+  return { returnedAt: { ...state.inboxReturns.returnedAt }, threads, sections, reorderable, availability, pending: state.pending, workingEnabled: state.workingEnabled, blocked, queuedThreadKeys: queued };
 }

@@ -18,6 +18,7 @@ import { capabilities, effectiveSnoozed, isWorkingThread, lastVisited, unseenCom
   sortSettled, sortSnoozed, sortWorkingThreadsBySend, settledTimestamp, type SidebarSection } from './shared/sidebar-model';
 
 export interface HomeOptions {
+  returnedAt?: Readonly<Record<string, number>>;
   pendingOrder?: HomePendingOrder | null;
   orderSnapshot?: HomeOrderSnapshot;
   query?: string; environmentId?: string; projectKey?: string; groupingMode?: string;
@@ -138,7 +139,7 @@ export function projectMobileHome(sources: HomeSource[], now: number, options: H
   }
   // Shared sort helpers tie on raw thread id; stable input supplies mobile's environment-id tie.
   Object.values(parts).forEach(rows => rows.sort((left, right) => str(left.environmentId).localeCompare(str(right.environmentId))));
-  parts.pinned = sortPinned(parts.pinned); parts.active = options.workingEnabled ? sortByReturn(parts.active) : sortActive(parts.active);
+  parts.pinned = sortPinned(parts.pinned); parts.active = options.workingEnabled ? sortByReturn(parts.active, thread => options.returnedAt?.[scoped(str(thread.environmentId), thread.id)]) : sortActive(parts.active);
   parts.pinned = homeApplyPending(parts.pinned, 'pinned', options.pendingOrder ?? null);
   if (!options.workingEnabled) parts.active = homeApplyPending(parts.active, 'active', options.pendingOrder ?? null);
   parts.working = sortWorkingThreadsBySend(parts.working); parts.snoozed = sortSnoozed(parts.snoozed); parts.settled = sortSettled(parts.settled);
@@ -198,8 +199,8 @@ export function projectMobileHome(sources: HomeSource[], now: number, options: H
 export function mobileHome(now: number, options: HomeOptions = {}, client: T3Client = mobileClient, background: EnvironmentFleet = fleet) {
   const sources = mobileHomeSources(client, background);
   const matches = options.messageMatches ?? new Map((options.query?.trim() === client.query.trim() ? [...serverMatches(client)] : []).map(([id, match]) => [scoped(client.environmentId, id), match]));
-  const order = options.orderSnapshot ?? mobileHomeOrder(client, sources, now, options);
-  const projection = projectMobileHome(sources, now, { ...options, messageMatches: matches, pendingOrder: order.pending, queuedThreadKeys: order.queuedThreadKeys });
+  const order = options.orderSnapshot ?? mobileHomeOrder(client, sources, now, { ...options, observeReturns: true });
+  const projection = projectMobileHome(sources, now, { ...options, returnedAt: order.returnedAt, messageMatches: matches, pendingOrder: order.pending, queuedThreadKeys: order.queuedThreadKeys });
   projection.items.forEach(item => {
     if (item.kind !== 'thread' || item.environmentId !== client.environmentId) return;
     const raw = client.shell.threads.find(thread => thread.id === item.threadId);
