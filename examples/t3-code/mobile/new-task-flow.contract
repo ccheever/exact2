@@ -7,6 +7,7 @@ shape NewTaskFlowSnapshot
   message: string
   draftOwner: string
   ready: bool
+  fileReady: bool
   chooser: bool
   needsPrepare: bool
   busy: bool

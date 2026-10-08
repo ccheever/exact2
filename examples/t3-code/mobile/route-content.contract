@@ -394,7 +394,7 @@ component MobileRouteContent
     else when routeName == "threadFiles"
       input value=filesQuery input=editFilesQuery placeholder="Search files" margin=14 aria-label="Search files"
       MobileFileTree(listId="workspace-files", data=filesData, colors=reviewLook, toggle=toggleDirectory, select=openFile, refresh=refreshFiles)
-    else when routeName == "threadFile" or (routeName == "newTaskFile" and newTaskFlow.ready)
+    else when routeName == "threadFile" or (routeName == "newTaskFile" and newTaskFlow.fileReady)
       row gap=14 padding=14
         text fileData.subtitle flex=1 min-width=0 line-clamp=1 color=reviewLook.muted font-size=12
         when fileData.markdown
