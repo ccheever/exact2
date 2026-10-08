@@ -175,6 +175,7 @@ impl Model {
             .map(|p| crate::fleet::Account {
                 name: String::new(),
                 provider: p.to_string(),
+                email: String::new(),
             })
             .collect()
     }
@@ -320,6 +321,23 @@ impl Model {
         self.launch.bump();
         self.feel("light");
         self.version += 1;
+    }
+
+    /// Where the first message's files upload before there is a session:
+    /// the chosen machine's paste folder (`…/machines/{m}/upload`).
+    pub fn launch_upload(&self) -> Option<(String, String)> {
+        let conn = self.conn.as_ref()?;
+        if self.launcher.machine.is_empty() {
+            return None;
+        }
+        let url = conn.url(
+            &self.route_of(&self.via),
+            &format!(
+                "/machines/{}/upload",
+                crate::api::encode(&self.launcher.machine)
+            ),
+        );
+        Some((url, conn.bearer()))
     }
 
     /// The launch request: URL, bearer, JSON body.

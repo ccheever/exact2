@@ -166,6 +166,10 @@ const COMPOSE: Shape = Record(&[
     ("error", Str),
     ("canSend", Bool),
     ("composerHeight", Num),
+    ("uploadUrl", Str),
+    ("auth", Str),
+    ("machineWidth", Num),
+    ("accountWidth", Num),
 ]);
 
 const PAIR: Shape = Record(&[("draft", Str), ("error", Str)]);

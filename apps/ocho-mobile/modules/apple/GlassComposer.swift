@@ -16,7 +16,9 @@
 // (the placeholder), `editable` (`false` takes no typing), `sendable`
 // (`false`: the session can't take a message; send is also dimmed while there
 // is nothing to send or an upload is still going), `upload` (the session's
-// upload route; no "+" without it) and `auth` (its bearer). Events: `message` with `h:<points>` when the height it wants
+// upload route; no "+" without it), `auth` (its bearer), and `extra` (an SF
+// Symbol: a button beside send, `extraSaid` its name, reporting `m:` when
+// pressed). Events: `message` with `h:<points>` when the height it wants
 // changes and `s:<text>` when send is pressed (the field clears itself);
 // `change` with the text when editing ends, to keep the draft.
 import Foundation
@@ -39,6 +41,7 @@ final class GlassComposer: ExactNativeInstance {
     private let placeholder = UILabel()
     private let button = UIButton(type: .system)
     private let attach = UIButton(type: .system)
+    private let extra = UIButton(type: .system)
     private let tray = AttachmentTray()
     private let picker = AttachmentPicker()
     private var attachments: [Attachment] = []
@@ -102,6 +105,13 @@ final class GlassComposer: ExactNativeInstance {
         picker.failed = { [weak self] why in self?.addFailed(why) }
         tray.removed = { [weak self] id in self?.remove(id) }
         field.contentView.addSubview(tray)
+        var accessory = UIButton.Configuration.plain()
+        accessory.contentInsets = .zero
+        accessory.baseForegroundColor = .secondaryLabel
+        extra.configuration = accessory
+        extra.isHidden = true
+        extra.addAction(UIAction { [weak self] _ in self?.events.message("m:") }, for: .primaryActionTriggered)
+        field.contentView.addSubview(extra)
 
         container.contentView.addSubview(attach)
         container.contentView.addSubview(field)
@@ -132,6 +142,13 @@ final class GlassComposer: ExactNativeInstance {
         uploadURL = (props["upload"]).flatMap { $0.isEmpty ? nil : URL(string: $0) }
         auth = props["auth"] ?? ""
         attach.isHidden = uploadURL == nil
+        let symbol = props["extra"] ?? ""
+        extra.isHidden = symbol.isEmpty
+        if !symbol.isEmpty, var config = extra.configuration {
+            config.image = UIImage(systemName: symbol, withConfiguration: UIImage.SymbolConfiguration(textStyle: .body).applying(UIImage.SymbolConfiguration(weight: .medium)))
+            extra.configuration = config
+            extra.accessibilityLabel = props["extraSaid"] ?? "Options"
+        }
         attach.isEnabled = sendable
         refresh()
         layout()
@@ -221,7 +238,7 @@ final class GlassComposer: ExactNativeInstance {
             field.clipsToBounds = true
         }
         let left: CGFloat = 16
-        let right = Self.inset * 2 + Self.send
+        let right = Self.inset * 2 + Self.send + (extra.isHidden ? 0 : Self.send + 2)
         let width = max(1, field.bounds.width - left - right)
         let trayHeight = attachments.isEmpty ? 0 : AttachmentTray.height
         tray.isHidden = attachments.isEmpty
@@ -235,6 +252,8 @@ final class GlassComposer: ExactNativeInstance {
         text.frame = CGRect(x: left, y: top, width: width, height: max(line, bounds.height - top - vertical))
         placeholder.frame = CGRect(x: left, y: top, width: width, height: line)
         button.frame = CGRect(x: bounds.width - Self.inset - Self.send, y: bounds.height - Self.inset - Self.send, width: Self.send, height: Self.send)
+        // Beside send, in the field's coordinates.
+        extra.frame = CGRect(x: field.bounds.width - Self.inset - Self.send * 2 - 2, y: field.bounds.height - Self.inset - Self.send, width: Self.send, height: Self.send)
         let height = max(Self.minHeight, capped + vertical * 2) + trayHeight
         if abs(height - reported) >= 0.5 {
             reported = height

@@ -381,6 +381,12 @@ pub(crate) fn session(m: &Model) -> Json {
     })
 }
 
+/// An inline picker's width for its text: the symbol, the text at body size
+/// (about 8.6 pt a character), ⇕; native views can't report their size.
+fn picker_width(text: &str) -> f64 {
+    (36.0 + text.chars().count() as f64 * 8.6 + 30.0).clamp(120.0, 330.0)
+}
+
 /// A native menu's items: `{id, title, selected}`.
 fn menu(items: impl IntoIterator<Item = (String, String, bool)>) -> String {
     let items: Vec<Json> = items
@@ -404,6 +410,12 @@ fn compose(m: &Model) -> Json {
     // Fleet names a signed-in account `<provider>-<hash>`: say the provider,
     // numbered when there are several of it.
     let account_title = |name: &str, provider: &str| {
+        if let Some(a) = accounts
+            .iter()
+            .find(|a| a.name == name && a.provider == provider && !a.email.is_empty())
+        {
+            return a.email.clone();
+        }
         let generated = name
             .strip_prefix(provider)
             .and_then(|rest| rest.strip_prefix('-'))
@@ -429,10 +441,12 @@ fn compose(m: &Model) -> Json {
             .iter()
             .map(|c| (c.id.clone(), c.name.clone(), c.id == l.model)),
     );
+    let account = account_title(&l.account, &l.provider);
+    let upload = m.launch_upload();
     json!({
         "machine": machine,
         "machineMenu": menu(machines.iter().map(|(id, name)| (id.clone(), name.clone(), *id == l.machine))),
-        "account": account_title(&l.account, &l.provider),
+        "account": account,
         "accountMenu": menu(accounts.iter().map(|a| (
             format!("{}/{}", a.provider, a.name),
             account_title(&a.name, &a.provider),
@@ -447,6 +461,10 @@ fn compose(m: &Model) -> Json {
         "error": l.error,
         "canSend": !l.launching && !l.machine.is_empty() && m.conn.is_some(),
         "composerHeight": m.composer_height.max(44.0),
+        "uploadUrl": upload.as_ref().map(|u| u.0.clone()).unwrap_or_default(),
+        "auth": upload.map(|u| u.1).unwrap_or_default(),
+        "machineWidth": picker_width(&machine),
+        "accountWidth": picker_width(&account),
     })
 }
 

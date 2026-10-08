@@ -167,6 +167,10 @@ shape Compose
   error: string
   canSend: bool
   composerHeight: number
+  uploadUrl: string
+  auth: string
+  machineWidth: number
+  accountWidth: number
 shape Page
   visibilityState: string
   onLine: bool
@@ -276,7 +280,8 @@ component OchoMobile
   action openModelSheet(value: string) writes nav
     nav = push(nav, "/model")
   // The new session's composer: `s:<text>` launches it, `h:` sizes it.
-  action composeSaid(value: string) writes ui
+  action composeSaid(value: string) writes ui, nav
+    nav = (value == "m:" ? push(nav, "/model") : nav)
     send ui = dispatch("compose-said", value, "", now())
   // The native composer's height, which its wrapped text decides.
   // "Send now" on a queued message: interrupt the running turn for it.
@@ -393,9 +398,8 @@ component NewSession
           glass-button testId="new-back" symbol="chevron.backward" said="Back to sessions" change=back width=44 height=44
       box flex=1 min-height=0
       column padding-left=24 padding-right=24 padding-bottom=6
-        menu-picker testId="pick-machine" kind="inline" symbol="desktopcomputer" primary=model.machine menu=model.machineMenu message=machine height=44 align-self="stretch"
-        menu-picker testId="pick-account" kind="inline" symbol="person.crop.circle" primary=model.account menu=model.accountMenu message=account height=44 align-self="stretch"
-      menu-picker testId="pick-model" kind="link" primary=model.model secondary=model.effort change=sheet height=36 align-self="stretch"
+        menu-picker testId="pick-machine" kind="inline" symbol="desktopcomputer" primary=model.machine menu=model.machineMenu message=machine height=44 width=model.machineWidth align-self="flex-start"
+        menu-picker testId="pick-account" kind="inline" symbol="person.crop.circle" primary=model.account menu=model.accountMenu message=account height=44 width=model.accountWidth align-self="flex-start"
       when model.launching
         row justify-content="center" align-items="center" gap=8 padding-top=6
           Spinner(size=14)
@@ -404,7 +408,7 @@ component NewSession
         text model.error testId="new-error" text-align="center" font-size=13 line-height="18px" padding-left=24 padding-right=24 padding-top=6 class=Danger
       column testId="new-composer-bar" padding-left=16 padding-right=16 padding-top=6 padding-bottom=12 flex-shrink=1 min-height=52
         row align-items="flex-end" gap=10
-          glass-composer id="new-composer" testId="new-composer" flex=1 min-width=0 height=composerHeight draft="" prompt=model.prompt sendable=(model.canSend ? "true" : "false") message=said
+          glass-composer id="new-composer" testId="new-composer" flex=1 min-width=0 height=composerHeight draft="" prompt=model.prompt sendable=(model.canSend ? "true" : "false") upload=model.uploadUrl auth=model.auth extra="gauge.with.dots.needle.33percent" extraSaid=`${model.model}, ${model.effort}` message=said
         box height="calc(env(safe-area-inset-bottom) - 12px)" min-height=0 flex-shrink=0
 
 // The new session's model and how hard it thinks, as a sheet of rows.

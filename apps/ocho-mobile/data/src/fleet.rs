@@ -279,6 +279,8 @@ pub struct Account {
     pub name: String,
     /// `codex`, `claude`, …
     pub provider: String,
+    /// The address it signs in as (Fleet #499 on), what the phone shows.
+    pub email: String,
 }
 
 impl Fleet {
@@ -359,6 +361,7 @@ impl Fleet {
                 .map(|a| Account {
                     name: text(a, "name"),
                     provider: text(a, "provider"),
+                    email: text(a, "email"),
                 })
                 .filter(|a| !a.name.is_empty() && !a.provider.is_empty())
                 .collect(),

@@ -157,6 +157,7 @@ impl OchoMobile {
                 } else if let Some(points) = a.strip_prefix("h:") {
                     m.composer_sized(points.parse().unwrap_or(0.0));
                 }
+                // `m:` (the model button) only opens the sheet.
             }
             "draft" => m.draft_written(&a),
             "close" => m.close(),
