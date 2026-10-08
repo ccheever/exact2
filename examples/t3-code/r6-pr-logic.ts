@@ -7,7 +7,11 @@
 // - pullRequestPresentation.tsx: CHECK_STATUS_PRESENTATION labels,
 //   CHECKS_STATE_PRESENTATION headlines, summarizePullRequestChecks,
 //   pullRequestCheckStatusLabel, PullRequestDiffStat;
-// - usePullRequestActions.ts: the action toasts' titles and hints;
+// - usePullRequestActions.ts / PullRequestDetailPanel.tsx: the action toasts' titles and hints for all
+//   ten actions; and (pr-header-actions-and-stacks) PULL_REQUEST_MERGE_METHOD_LABELS,
+//   resolvePullRequestMergeMethod, allowsSinglePullRequestMerge, resolvePullRequestPrimaryControl,
+//   pullRequestActionMenuHasGroup, isStackedPullRequestBase, resolveBaseFreshness,
+//   pullRequestActionNeedsHostRefresh;
 // - chat/ThreadDetailsPrRow.tsx: the row's tooltip card and trailing action.
 import { arr, num, obj, str, type Obj } from './domain';
 
@@ -143,13 +147,90 @@ export function handoffPrompt(existing: { prompt: string; lastHandoffPrompt: str
   return incoming.length === 0 ? kept : `${kept}\n\n${incoming}`;
 }
 
-// ── Host actions (usePullRequestActionRunner) ──
-export const ACTION_SUCCESS: Record<string, string> = { merge: 'Pull request merged', ready: 'Marked ready for review' };
-export const ACTION_FAILURE: Record<string, string> = { merge: 'Could not merge this pull request', ready: 'Could not mark this ready for review' };
+// ── Host actions (PullRequestDetailPanel ACTION_SUCCESS_LABELS / ACTION_FAILURE_LABELS / ACTION_FAILURE_HINTS) ──
+/** PullRequestAction, in the contract's order. */
+export const PULL_REQUEST_ACTIONS = ['merge', 'ready', 'draft', 'close', 'reopen', 'update-branch', 'enable-auto-merge', 'disable-auto-merge', 'revert', 'approve-workflows'] as const;
+export type PullRequestAction = (typeof PULL_REQUEST_ACTIONS)[number];
+export type UpdateMethod = 'merge' | 'rebase';
+export const ACTION_SUCCESS: Record<string, string> = {
+  merge: 'Pull request merged', ready: 'Marked ready for review', draft: 'Converted to draft', close: 'Pull request closed', reopen: 'Pull request reopened',
+  'update-branch': 'Branch updated with the base branch',
+  // True whichever it did: a pull request that was already mergeable merges the moment this is armed.
+  'enable-auto-merge': 'Auto-merge turned on — merges as soon as this is ready, sooner if it already is',
+  'disable-auto-merge': 'Auto-merge turned off', revert: 'Revert pull request opened', 'approve-workflows': 'Workflows approved',
+};
+/** Said as the thing that did not happen, rather than as the operation that returned an error. */
+export const ACTION_FAILURE: Record<string, string> = {
+  merge: 'Could not merge this pull request', ready: 'Could not mark this ready for review', draft: 'Could not convert this to a draft', close: 'Could not close this pull request',
+  reopen: 'Could not reopen this pull request', 'update-branch': 'Could not update this branch', 'enable-auto-merge': 'Could not turn on auto-merge',
+  'disable-auto-merge': 'Could not turn off auto-merge', revert: 'Could not open a revert pull request', 'approve-workflows': 'Could not approve workflows',
+};
+/** What to try, for the times the host says only that it refused. */
 export const ACTION_HINT: Record<string, string> = {
   merge: 'The host refused the merge. Check that you have write access, that the checks it requires have passed, and that the branch is not conflicting.',
   ready: 'The host refused it. Check that you have write access to this repository.',
+  draft: 'The host refused it. Check that you have write access to this repository.',
+  close: 'The host refused it. Check that you have write access, or that you opened it.',
+  reopen: 'The host refused it. Check that you have write access, and that the branch still exists.',
+  'update-branch': 'The host refused it. Check that you have write access to the branch — one from a fork also needs its author to allow edits from maintainers — and that it does not conflict with the base.',
+  'enable-auto-merge': 'The host refused it. Check that this repository allows auto-merge, that you have write access, and that there is something left for it to wait on.',
+  'disable-auto-merge': 'The host refused it. Check that you have write access, and that the merge has not already happened.',
+  revert: 'The host refused it. Check that you have write access and that this pull request was merged on the host.',
+  'approve-workflows': 'The host refused it. Check that you have Actions write access and that these workflow runs are still awaiting approval.',
 };
+/** Said instead of the update hint when the reader asked for a rebase. */
+export const UPDATE_BRANCH_REBASE_FAILURE_HINT = 'The host refused it. A rebase stops at the first commit that does not apply cleanly; updating with a merge commit may still work.';
+/** The hint that stands for what was actually asked for (PullRequestDetailPanel finishAction). */
+export const actionHint = (action: string, updateMethod?: UpdateMethod) => (updateMethod === 'rebase' ? UPDATE_BRANCH_REBASE_FAILURE_HINT : ACTION_HINT[action] ?? 'The host refused it.');
+export const PULL_REQUEST_MERGE_METHOD_LABELS: Record<MergeMethod, string> = { merge: 'Merge', squash: 'Squash and merge', rebase: 'Rebase and merge' };
+
+/** resolvePullRequestMergeMethod: the current choice, then the project default, then the last choice, where allowed. */
+export function resolvePullRequestMergeMethod(allowed: readonly MergeMethod[], current: MergeMethod | null, projectDefault: MergeMethod | undefined, lastSelected: MergeMethod): MergeMethod {
+  for (const method of [current, projectDefault, lastSelected]) if (method && allowed.includes(method)) return method;
+  return allowed[0] ?? 'merge';
+}
+/** allowsSinglePullRequestMerge: old environments keep their actions; new ones finish stack discovery first. */
+export function allowsSinglePullRequestMerge(input: { supportsStackActions: boolean; hasStack: boolean; stackPending: boolean; stackError: string | null }): boolean {
+  return !input.supportsStackActions || (!input.hasStack && !input.stackPending && input.stackError === null);
+}
+export type PrimaryControl = 'resolve' | 'ready' | 'merge' | 'enable-auto-merge' | 'auto-merge-armed' | 'merged' | 'closed' | null;
+/** resolvePullRequestPrimaryControl: the one merge-area state shown in the header. */
+export function resolvePullRequestPrimaryControl(input: { state: string; isDraft: boolean; mergeability: string; checksState: string | null; autoMergeEnabled: boolean | undefined;
+  hasMergeMethod: boolean; canMerge: boolean; canMarkReady: boolean; canEnableAutoMerge: boolean }): PrimaryControl {
+  if (input.state === 'merged') return 'merged';
+  if (input.state === 'closed') return 'closed';
+  if (input.mergeability === 'conflicting') return 'resolve';
+  if (input.isDraft) return input.canMarkReady ? 'ready' : null;
+  if (input.autoMergeEnabled) return 'auto-merge-armed';
+  if (!input.hasMergeMethod) return null;
+  if (input.autoMergeEnabled === false && input.checksState !== null && input.checksState !== 'passing' && input.canEnableAutoMerge) return 'enable-auto-merge';
+  return input.canMerge ? 'merge' : null;
+}
+/** pullRequestActionMenuHasGroup: whether the open pull request's action group holds at least one action. */
+export const pullRequestActionMenuHasGroup = (showsDraftToggle: boolean, showsAutoMerge: boolean, showsMergeMethods: boolean) => showsDraftToggle || showsAutoMerge || showsMergeMethods;
+/** isStackedPullRequestBase: a base other than the repository's default branch, once the default is known. */
+export function isStackedPullRequestBase(baseBranch: string, refs: readonly { name: string; isDefault?: boolean; isRemote?: boolean; remoteName?: string }[]): boolean {
+  const defaultRef = refs.find(ref => ref.isDefault);
+  if (!defaultRef) return false;
+  if (defaultRef.isRemote !== true) return defaultRef.name !== baseBranch;
+  const remotePrefix = `${defaultRef.remoteName ?? defaultRef.name.split('/')[0]}/`;
+  const defaultBranch = defaultRef.name.startsWith(remotePrefix) ? defaultRef.name.slice(remotePrefix.length) : defaultRef.name;
+  return defaultBranch !== baseBranch;
+}
+/**
+ * resolveBaseFreshness: out of date with the base and still cleanly mergeable — the one pairing an
+ * update exists for. Null for a current branch, a host that could not compare, a conflict or no verdict.
+ */
+export function resolveBaseFreshness(detail: Obj): { behindBy: number | null; methods: UpdateMethod[] } | null {
+  if (detail.state !== 'open' || detail.baseComparison !== 'behind') return null;
+  if (detail.mergeability !== 'mergeable') return null;
+  const offered = names(obj(detail.capabilities).updateMethods), allowed = names(obj(detail.viewerPermissions).updateMethods);
+  return { behindBy: typeof detail.behindBy === 'number' ? detail.behindBy : null, methods: offered.filter(method => allowed.includes(method)) as UpdateMethod[] };
+}
+/** pullRequestActionNeedsHostRefresh: an update moves the head; approved workflows are data the normal detail omits. */
+const ACTION_NEEDS_HOST_REFRESH: Record<PullRequestAction, boolean> = { 'update-branch': true, merge: false, ready: false, draft: false, close: false, reopen: false,
+  'enable-auto-merge': false, 'disable-auto-merge': false, revert: false, 'approve-workflows': true };
+export const pullRequestActionNeedsHostRefresh = (action: string) => ACTION_NEEDS_HOST_REFRESH[action as PullRequestAction] === true;
 const OPERATION_PREFIX = /^Pull request operation \w+ failed:\s*/iu;
 const TOOL_NOISE = [/^(github|gitlab|bitbucket|azure devops)?\s*(cli|api)?\s*(command\s*)?failed\.?$/iu, /^exited? with (code|status) \d+\.?$/iu, /^unknown error\.?$/iu];
 /** How much of a host's own message a toast can carry before it stops being read. */
@@ -165,10 +246,15 @@ export function readableFailure(failure: unknown, hint: string): string {
   if (detail.length === 0 || TOOL_NOISE.some(pattern => pattern.test(detail))) return hint;
   return detail.length <= FAILURE_DETAIL_MAX_LENGTH ? detail : `${detail.slice(0, FAILURE_DETAIL_MAX_LENGTH - 1)}…`;
 }
-/** PullRequestActionInput: the reference (an absent host is the project's own) plus the action and, for a merge, its method. */
-export function actionPayload(reference: Obj, action: 'merge' | 'ready', mergeMethod?: MergeMethod): Obj {
+/**
+ * PullRequestActionInput: the reference (an absent host is the project's own) plus the action, the
+ * merge method a merge or an armed auto-merge uses, the update method, and a native stack's scope.
+ */
+export function actionPayload(reference: Obj, action: string, mergeMethod?: MergeMethod, extra: { updateMethod?: UpdateMethod; stackNumber?: number; expectedStackHeads?: { number: number; headSha: string }[] } = {}): Obj {
   const host = str(reference.host);
-  return { projectId: str(reference.projectId), ...(host ? { host } : {}), repository: str(reference.repository), number: num(reference.number), action, ...(mergeMethod ? { mergeMethod } : {}) };
+  return { ...(extra.stackNumber ? { stackNumber: extra.stackNumber, expectedStackHeads: extra.expectedStackHeads ?? [] } : {}),
+    projectId: str(reference.projectId), ...(host ? { host } : {}), repository: str(reference.repository), number: num(reference.number), action,
+    ...(mergeMethod ? { mergeMethod } : {}), ...(extra.updateMethod ? { updateMethod: extra.updateMethod } : {}) };
 }
 /** GitPreparePullRequestThreadInput as usePullRequestHandoffs sends it: the detail's checkout root, its URL, a worktree. */
 export function preparePayload(detail: Obj, mode: 'worktree' | 'local' = 'worktree'): Obj {

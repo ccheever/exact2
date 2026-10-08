@@ -11,7 +11,8 @@
 //   bun seed.mjs --repo owner/name [--create --visibility private|public] [--skip-bulk] [--only key,key]
 //
 // `--only` seeds just the named scenarios (and merges their numbers into `sandbox.json`), so a task
-// adding one does not put back pull requests another task's drive may be using.
+// adding one does not put back pull requests another task's drive may be using. The action scenarios
+// (`actionScenarios`, whose state a drive changes) are seeded only when named this way.
 //
 // `--create` is the only way the repository gets created (the user approves it first). An
 // existing repository the lane did not create is never touched. Writes `sandbox.json` in the
@@ -90,6 +91,28 @@ export function scenarios({ second }) {
   );
   return list;
 }
+/**
+ * pr-header-actions-and-stacks: pull requests a drive merges, readies, closes, updates and reverts, and a
+ * three-layer GitHub stack; seeded only by name (`--only act-merge,…`), each run opening the next
+ * generation of any the last drive used up.
+ */
+export function actionScenarios() {
+  const ok = [[REQUIRED, "success", "Build passed"]];
+  return [
+    { key: "act-merge", branch: "feature/word-count", title: "Add a word counter", body: "Counts the words in a line.", from: "c7", files: { "src/count.js": "export const words = (text) => text.split(/\\s+/).filter(Boolean).length;\n" }, want: "open", statuses: ok },
+    { key: "act-squash", branch: "feature/title-case", title: "Add a title-case helper", body: "Capitalizes each word.", from: "c7", files: { "src/title.js": "export const title = (text) => text.replace(/\\b\\w/g, (c) => c.toUpperCase());\n" }, want: "open", statuses: ok },
+    { key: "act-rebase", branch: "feature/line-trim", title: "Trim the ends of each line", body: "Removes trailing spaces.", from: "c7", files: { "src/lines.js": "export const trimLines = (text) => text.split(\"\\n\").map((line) => line.trimEnd()).join(\"\\n\");\n" }, want: "open", statuses: ok },
+    { key: "act-auto", branch: "feature/slug", title: "Add a slug helper", body: "Turns a title into a slug.", from: "c7", files: { "src/slug.js": "export const slug = (text) => text.toLowerCase().replace(/[^a-z0-9]+/g, \"-\");\n" }, want: "open", statuses: [[REQUIRED, "pending", "Build running"]] },
+    { key: "act-lifecycle", branch: "docs/faq-link", title: "Link the FAQ from the usage notes", body: "Adds a link to the FAQ.", from: "c7", files: { "docs/links.md": "# Links\n\n- FAQ: docs/faq.md\n" }, want: "open", statuses: ok },
+    { key: "act-update-merge", branch: "docs/install-steps", title: "Spell out the install steps", body: "Numbers the install steps.", from: "c4", files: { "docs/install.md": "# Install\n\n1. Download.\n2. Copy the files.\n" }, want: "behind", statuses: ok },
+    { key: "act-update-rebase", branch: "docs/usage-steps", title: "Spell out the usage steps", body: "Numbers the usage steps.", from: "c4", files: { "docs/steps.md": "# Steps\n\n1. Import.\n2. Call greet.\n" }, want: "behind", statuses: ok },
+    { key: "act-revert", branch: "feature/greeting-wave", title: "Add a wave to the greeting", body: "Waves before the name.", from: "c7", files: { "src/wave.js": "export const wave = (name) => `Hi ${name}!`;\n" }, want: "merged", statuses: ok },
+    { key: "act-stack-1", branch: "feature/report", title: "Add a report helper", body: "Collects the counts into a report.", from: "c7", files: { "src/report.js": "export const report = (counts) => Object.entries(counts);\n" }, want: "open", statuses: ok },
+    { key: "act-stack-2", branch: "feature/report-table", title: "Print the report as a table", body: "Lines the report up in columns.", after: "act-stack-1", files: { "src/report-table.js": "export const table = (rows) => rows.map((row) => row.join(\"\\t\")).join(\"\\n\");\n" }, want: "open", statuses: ok },
+    { key: "act-stack-3", branch: "docs/report", title: "Document the report", body: "Explains the report.", after: "act-stack-2", files: { "docs/report.md": "# Report\n\nCall `report`, then `table`.\n" }, want: "open", statuses: ok },
+  ];
+}
+export const ACTION_STACK = ["act-stack-1", "act-stack-2", "act-stack-3"];
 export const LABELS = [["area:ui", "1d76db", "Interface"], ["needs-review", "fbca04", "Waiting for a reviewer"], ["priority:high", "b60205", "Do this first"], ["chore", "c5def5", "Housekeeping"],
   // A name with a space and a slash (pr-writing-and-metadata: `DELETE …/labels/<encoded>`).
   ["area/docs and help", "0e8a16", "Pages people read"]];
@@ -482,10 +505,12 @@ export class Seed {
     if (bulk && !only) await this.ensureBulk();
     const numbers = {};
     this.heads = {};
-    for (const spec of scenarios({ second: this.secondLogin })) if (!only || only.includes(spec.key)) numbers[spec.key] = await this.ensureScenario(spec);
+    for (const spec of [...scenarios({ second: this.secondLogin }), ...(only ? actionScenarios() : [])]) if (!only || only.includes(spec.key)) numbers[spec.key] = await this.ensureScenario(spec);
     if (only) {
       const held = readSandbox(this.paths) ?? {};
-      const sandbox = { ...held, prs: { ...(held.prs ?? {}), ...numbers }, seededAt: new Date().toISOString() };
+      // The action stack, once its three layers are named together.
+      const stacks = ACTION_STACK.every((key) => only.includes(key)) ? { ...(held.stacks ?? {}), actions: this.ensureStack(ACTION_STACK.map((key) => numbers[key])) } : held.stacks;
+      const sandbox = { ...held, prs: { ...(held.prs ?? {}), ...numbers }, ...(stacks ? { stacks } : {}), seededAt: new Date().toISOString() };
       writeSandbox(this.paths, sandbox);
       return { sandbox, report: this.report };
     }

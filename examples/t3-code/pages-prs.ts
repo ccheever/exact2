@@ -12,6 +12,7 @@ import { projectIdentity } from './presentation';
 import type { T3Client } from './client';
 import { letGo } from './let-go';
 import { holdPullRequestRefreshes, pullRequestRefreshEpoch } from './pages-pr-refresh';
+import { listRelist, overrideListEntries, settleListOverrides } from './pages-pr-actions'; // pr-header-actions-and-stacks: the panel's onActed
 
 export const SORTS = [
   { value: 'ready', label: 'Merge readiness' }, { value: 'blocked', label: 'Blocked on me' }, { value: 'updated', label: 'Recently updated' },
@@ -235,7 +236,7 @@ export type PrRow = ReturnType<typeof presentRow>;
 
 // ── The list resource ───────────────────────────────────────────────────────
 
-type ListCache = { key: string; refresh: number; epoch: number; result: Obj | null; error: string; stats: Map<string, Obj> };
+type ListCache = { key: string; refresh: number; epoch: number; relist: number; result: Obj | null; error: string; stats: Map<string, Obj> };
 const lists = new WeakMap<object, ListCache>();
 /** The Refresh press whose invalidate was sent, per client. */
 const invalidated = new WeakMap<object, number>();
@@ -277,9 +278,9 @@ export async function pullRequestsPage(client: T3Client, native: Native | null |
   await holdPullRequestRefreshes(client, native, 'list', true);
   const key = JSON.stringify([client.environmentId, payload, input.refresh]);
   let cached = lists.get(client);
-  if (!cached || cached.key !== key || cached.epoch !== pullRequestRefreshEpoch(client)) {
+  if (!cached || cached.key !== key || cached.epoch !== pullRequestRefreshEpoch(client) || cached.relist !== listRelist(client)) {
     const previous = cached, previousStats = cached?.stats ?? new Map<string, Obj>();
-    cached = { key, refresh: input.refresh, epoch: pullRequestRefreshEpoch(client), result: null, error: '', stats: previousStats };
+    cached = { key, refresh: input.refresh, epoch: pullRequestRefreshEpoch(client), relist: listRelist(client), result: null, error: '', stats: previousStats };
     try {
       // One invalidate per Refresh press: each one announces a change, which asks this read again while
       // the first is still out, and that read would invalidate (and announce) again (pr-writing-and-metadata
@@ -289,6 +290,8 @@ export async function pullRequestsPage(client: T3Client, native: Native | null |
         await client.rpc(native, 'pullRequests.invalidate', {}).catch(() => ({}));
       }
       cached.result = await client.rpc(native, 'pullRequests.list', payload);
+      // The host's word outranks the reader's once it has said it: an override goes when an answer agrees with it.
+      settleListOverrides(client, arr(cached.result.entries), input.now);
       const unmeasured = arr(cached.result.entries).filter(entry => !measured(entry) && !cached!.stats.has(entryKey(entry)));
       if (unmeasured.length) {
         try {
@@ -300,7 +303,9 @@ export async function pullRequestsPage(client: T3Client, native: Native | null |
     cached.epoch = pullRequestRefreshEpoch(client); // an announcement that landed while the read was out is answered by it
     lists.set(client, cached);
   }
-  return presentList(view, cached.result, cached.error, cached.stats, prefs, query, input.now, input.selected);
+  // The reader's pending answers (a closed pull request leaves an open list on the click), before the filters.
+  const answered = cached.result ? { ...cached.result, entries: overrideListEntries(client, arr(cached.result.entries), prefs.state) } : null;
+  return presentList(view, answered, cached.error, cached.stats, prefs, query, input.now, input.selected);
 }
 
 /** The list's row for a selection, as the detail ghost seeds itself from it (PullRequestDetailGhost `seed`). */

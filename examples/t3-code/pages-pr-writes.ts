@@ -22,6 +22,7 @@ import { letGo } from './let-go';
 import { readableFailure } from './r6-pr-logic';
 import type { T3Client } from './client';
 import type { PrReactionPill } from './pages-pr-summary';
+import { actionState, finishAction, type PanelContext } from './pages-pr-actions';
 import {
   PULL_REQUEST_REACTION_ORDER, applyPendingPullRequestReactions, canEditPullRequestChangeRequest, canEditPullRequestComment, isReactionContent, pullRequestReactionEmoji,
   pullRequestReactionName, pullRequestReactionTooltip, pullRequestReviewKey, pullRequestReviewStore, reactionsSignature, readReactions, type PullRequestReactionContent,
@@ -53,12 +54,6 @@ export const CANDIDATES_FRESH_MS = 60_000;
 /** The words a review ends with (PullRequestReviewForm VERDICTS). */
 export const VERDICT_SENT: Record<string, string> = { comment: 'Review submitted', approve: 'Pull request approved', 'request-changes': 'Changes requested' };
 const VERDICT_ORDER = ['comment', 'approve', 'request-changes'];
-const ACTION_DONE: Record<string, string> = { close: 'Pull request closed', reopen: 'Pull request reopened' };
-const ACTION_FAILED: Record<string, string> = { close: 'Could not close this pull request', reopen: 'Could not reopen this pull request' };
-const ACTION_HINT: Record<string, string> = {
-  close: 'The host refused it. Check that you have write access, or that you opened it.',
-  reopen: 'The host refused it. Check that you have write access, and that the branch still exists.',
-};
 const REVIEWER_HINT = 'The host refused it. Check that you have write access on this repository, and that they still have access to it.';
 const LABEL_HINT = 'The host refused it. Check that you have triage access on this repository.';
 
@@ -82,7 +77,7 @@ const emptyPicker = (): PrPicker => ({ shown: false, allowed: false, loading: fa
 export function emptyWrites() {
   return {
     key: '', composer: false, canComment: false, verdicts: [] as string[], followUp: '', commentDraft: '', summary: '', summaryRequired: false, pendingCount: 0,
-    submitting: '', reviewPending: false, closeSerial: 0, commentSerial: 0, reviewSerial: 0,
+    submitting: '', actionPending: false, reviewPending: false, closeSerial: 0, commentSerial: 0, reviewSerial: 0,
     canEditChange: false, rawBody: '', titleSaving: false, titleSerial: 0, bodySaving: false, bodySerial: 0,
     reactionChoices: PULL_REQUEST_REACTION_ORDER.map(content => ({ content, emoji: pullRequestReactionEmoji(content), name: pullRequestReactionName(content) })),
     reviewers: emptyPicker(), labels: emptyPicker(),
@@ -111,6 +106,7 @@ export function presentWrites(client: object, reference: WriteReference, detail:
   view.summaryRequired = detail.provider === 'forgejo';
   view.pendingCount = store.pending(key).length;
   view.submitting = state.submitting.get(key) ?? '';
+  view.actionPending = actionState(client).pending !== null;
   view.reviewPending = state.reviewing.has(key);
   view.closeSerial = serial(state, `${key}|close`); view.commentSerial = serial(state, `${key}|comment`); view.reviewSerial = serial(state, `${key}|review`);
   view.canEditChange = canEditPullRequestChangeRequest(detail);
@@ -168,7 +164,8 @@ async function wakePanel(native: Native): Promise<void> {
   try { await native.later({ op: 'r10Wake', topic: 't3.pr' }); } catch (error) { if (letGo(error)) throw error; }
 }
 const failureOf = (error: unknown) => { if (letGo(error)) throw error; return error; };
-export type WriteContext = { client: T3Client; native: Native; reference: WriteReference; panel: PanelCache | null; refresh: () => void; now: number };
+/** `actionContext`: the header's action context (pages-pr-actions.ts), which Close/Reopen with comment run their action through. */
+export type WriteContext = { client: T3Client; native: Native; reference: WriteReference; panel: PanelCache | null; refresh: () => void; now: number; actionContext?: () => PanelContext | null };
 /**
  * A pages:pr-act-* write of this module, or null for an op it does not own. Returns the form's
  * message ("" when it landed, the host's reason when it did not); every outcome also toasts as the
@@ -199,33 +196,37 @@ export async function prWrite(context: WriteContext, op: string, value: string):
   }
 }
 
-/** PullRequestCommentForm.submit and PullRequestDetailPanel.performCommentAction. */
+/**
+ * PullRequestCommentForm.submit and PullRequestDetailPanel.performCommentAction. The comment form waits while
+ * any header action is out (actionPending), and Close/Reopen with comment hold the header's action runner
+ * from the start (pendingAction), post the comment, then finish the action through it (finishAction:
+ * its toasts and failure hints, its re-read, the list row's state written on as sent and taken back if
+ * refused). The comment is durable even if the action is refused: it is read back while the toast explains.
+ */
 async function postComment(context: WriteContext, text: string, action: 'comment' | 'close' | 'reopen'): Promise<string> {
   const { client, native, reference } = context, state = stateOf(client), key = pullRequestReviewKey(reference), body = text.trim();
-  // Locked while posting, and nothing to post without words (the buttons say so too).
-  if (body.length === 0 || state.submitting.has(key)) return '';
+  const actions = actionState(client);
+  // Locked while posting or while an action runs, and nothing to post without words (the buttons say so too).
+  if (body.length === 0 || state.submitting.has(key) || actions.pending) return '';
+  const ctx = action === 'comment' ? null : context.actionContext?.() ?? null;
+  if (action !== 'comment' && !ctx) return '';
   state.comments.set(key, text); state.submitting.set(key, action);
+  if (ctx) actions.pending = { key: ctx.key, action };
   await wakePanel(native);
   try {
     try { await client.rpc(native, 'pullRequests.comment', { ...reference, body }, true); }
     catch (error) {
+      if (ctx && actions.pending?.key === ctx.key) actions.pending = null;
       failureOf(error);
       pushToast(client, { kind: 'error', title: 'Could not post the comment' });
       return error instanceof Error ? error.message : 'Could not post the comment';
     }
-    // The comment is posted: clear the box and close the composer, whatever the follow-up does.
+    // The comment is posted: clear the box and close the composer, whatever the action does.
     state.comments.delete(key); state.sent.set(`${key}|comment`, text); bump(state, `${key}|comment`); bump(state, `${key}|close`);
-    context.refresh();
-    if (action === 'comment') return '';
-    try {
-      await client.rpc(native, 'pullRequests.runAction', { ...reference, action }, true);
-      pushToast(client, { kind: 'success', title: ACTION_DONE[action]! });
-      return '';
-    } catch (error) {
-      // The comment is durable even if the state change was refused; the refresh shows it while this explains.
-      pushToast(client, { kind: 'error', title: ACTION_FAILED[action]!, description: readableFailure(failureOf(error), ACTION_HINT[action]!) });
-      return error instanceof Error ? error.message : ACTION_FAILED[action]!;
-    }
+    if (!ctx) { context.refresh(); return ''; }
+    const failure = await finishAction(client, native, ctx, action);
+    if (failure) context.refresh();
+    return failure;
   } finally { state.submitting.delete(key); }
 }
 

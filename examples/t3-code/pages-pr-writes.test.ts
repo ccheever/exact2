@@ -12,6 +12,8 @@ import type { Native } from './protocol';
 import type { Obj } from './domain';
 import { toasts } from './toast';
 import { prCommand, prLocalWrite, pullRequestDetail } from './pages-pr-detail';
+import { pullRequestsPage } from './pages-prs';
+import { noteNow } from './composer-controls';
 import { heldCandidates, presentWrites } from './pages-pr-writes';
 import { pullRequestReviewKey, pullRequestReviewStore } from './pages-pr-writes-logic';
 
@@ -48,8 +50,9 @@ function lane(replies: Record<string, Reply>) {
   } as unknown as T3Client;
   const native = { available: true, watch: () => {}, later: async () => { wakes++; return { ok: true }; } } as unknown as Native;
   const view = async () => {
-    let shown = await pullRequestDetail(client, native, { selected, refresh: 0, now: 1 });
-    for (let asked = 0; asked < 8 && (shown.phase !== 'content' || shown.activityPending); asked++) shown = await pullRequestDetail(client, native, { selected, refresh: 0, now: 1 });
+    // Ask again while the panel asked to be woken (a refresh of a shown detail is drawn first, then read).
+    let seen = wakes, shown = await pullRequestDetail(client, native, { selected, refresh: 0, now: 1 });
+    for (let asked = 0; asked < 8 && (wakes > seen || shown.phase !== 'content' || shown.activityPending); asked++) { seen = wakes; shown = await pullRequestDetail(client, native, { selected, refresh: 0, now: 1 }); }
     return shown;
   };
   const act = (op: string, value: string) => prCommand(client, native, op, selected, value);
@@ -86,6 +89,39 @@ describe('the composer: comment, close or reopen with comment (PullRequestCommen
     expect(toasts(run.client).at(-1)).toMatchObject({ kind: 'error', title: 'Could not close this pull request', description: 'Resource not accessible by integration' });
     const writes = (await run.view()).writes;
     expect([writes.commentDraft, writes.closeSerial]).toEqual(['', 1]); // the comment landed: the box is clear, the popover closed
+  });
+  test("close with comment finishes through the header's action runner: everything waits, the list row leaves on the press and comes back when refused", async () => {
+    const LIST_NOW = Date.parse('2026-10-08T12:00:00Z');
+    const entries = [{ projectId: 'p1', host: 'github.com', repository: 'lane/sandbox', number: 7, title: 'Add input validation', state: 'open', isDraft: false, author: { login: 'second' }, updatedAt: '2026-10-08T10:00:00Z', additions: 3, deletions: 0 }];
+    let answer: (refused: boolean) => void = () => {};
+    const run = lane({ 'pullRequests.detail': () => detail(), 'pullRequests.activity': () => activity(), 'pullRequests.list': () => ({ entries, viewers: {} }), 'pullRequests.listStats': () => ({ stats: [] }),
+      'pullRequests.comment': () => ({}),
+      'pullRequests.runAction': () => new Promise((resolve, reject) => { answer = refused => refused ? reject(new Error('Resource not accessible by integration')) : resolve({}); }) });
+    noteNow(run.client, LIST_NOW);
+    const rows = async () => (await pullRequestsPage(run.client, run.native, { open: true, refresh: 0, now: LIST_NOW, selected, query: '', typed: false })).groups.flatMap(group => group.rows.map(row => `${row.number}:${row.state}`));
+    expect(await rows()).toEqual(['7:open']);
+    await run.view();
+    let closing = run.act('comment-close', 'Superseded by #8.');
+    await Bun.sleep(5);
+    const during = await run.view();
+    expect([during.writes.submitting, during.writes.actionPending, during.actions.pending, during.actions.moreLabel]).toEqual(['close', true, true, 'More pull request actions']);
+    expect(await rows()).toEqual([]); // "sent": the row left the open list on the press
+    expect(await run.act('post-comment', 'And one more thing.')).toBe(''); // the form is locked while the action runs
+    expect(await run.act('action', 'draft')).toBe(''); // and so is the header
+    answer(true);
+    expect(await closing).toBe('Resource not accessible by integration');
+    expect(await rows()).toEqual(['7:open']); // "failed": the note is taken back
+    expect(toasts(run.client).at(-1)).toMatchObject({ kind: 'error', title: 'Could not close this pull request', description: 'Resource not accessible by integration' });
+    const after = await run.view();
+    expect([after.writes.submitting, after.writes.actionPending, after.actions.pending, after.writes.commentDraft]).toEqual(['', false, false, '']);
+    closing = run.act('comment-close', 'Superseded by #8, for real.');
+    await Bun.sleep(5);
+    answer(false);
+    expect(await closing).toBe('');
+    expect(await rows()).toEqual([]); // "done": the note stands until a list answer agrees
+    expect(toasts(run.client).at(-1)).toMatchObject({ kind: 'success', title: 'Pull request closed' });
+    expect(run.sent('pullRequests.comment').map(payload => payload.body)).toEqual(['Superseded by #8.', 'Superseded by #8, for real.']);
+    expect(run.sent('pullRequests.runAction').map(payload => payload.action)).toEqual(['close', 'close']);
   });
   test('reopen with comment on a closed pull request, and its toast', async () => {
     const run = lane({ 'pullRequests.detail': () => detail({ state: 'closed' }), 'pullRequests.activity': () => activity(), 'pullRequests.comment': () => ({}), 'pullRequests.runAction': () => ({}) });

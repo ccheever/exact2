@@ -26,6 +26,7 @@ shape PrWrites
   summaryRequired: bool
   pendingCount: number
   submitting: string
+  actionPending: bool
   reviewPending: bool
   closeSerial: number
   commentSerial: number
@@ -69,7 +70,8 @@ component PrdComposer
   derive both = writes.canComment and length(writes.verdicts) > 0
   derive shownMode = writes.canComment ? (length(writes.verdicts) == 0 ? "comment" : mode) : "review"
   derive chosen = includes(writes.verdicts, verdict) ? verdict : join(slice(writes.verdicts, 0, 1), "")
-  derive locked = writes.submitting != ""
+  // A header action out (merge, close...) holds the comment form too, as the reference's isActionPending does.
+  derive locked = writes.submitting != "" or writes.actionPending
   derive popId = `${scope}-composer`
   // Opening picks the mode with work waiting in it.
   action opening
