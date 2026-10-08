@@ -1,7 +1,7 @@
 use Icon from "./icons.contract"
 use Settings from "./shapes.contract"
 use Snapshot from "./shapes.contract"
-use PickerCatalog from "./composer-shapes.contract"
+use PickerCatalog, PickerTarget from "./composer-shapes.contract"
 use ModelPicker from "./model-picker.contract"
 use Viewport from "./shapes.contract"
 use Ink from "./shapes.contract"
@@ -112,6 +112,7 @@ component WindowOverlays
     catalog: PickerCatalog
     viewport: Viewport
     modelQuery: string
+    modelTarget: PickerTarget
     composerLeft: number
     resting: bool
     commandPending: bool
@@ -161,7 +162,7 @@ component WindowOverlays
     toastAct: action
   view
     when modelsOpen
-      ModelPicker(data=data, session=popoverSession, catalog=catalog, viewport=viewport, query=modelQuery, left=composerLeft, bottom=(data.composer.toolbarTop > 0 ? viewport.height - data.composer.toolbarTop - (resting ? 4 : 2) + 4 : (resting ? 75 : 71) * rem / 16), busy=commandPending, closePicker=closeModels, select=selectModel, search=searchModels, chooseRail=selectProvider, command=command, openSetup=openProviderSettings)
+      ModelPicker(data=data, session=popoverSession, catalog=catalog, viewport=viewport, query=modelQuery, left=composerLeft, bottom=(data.composer.toolbarTop > 0 ? viewport.height - data.composer.toolbarTop - (resting ? 4 : 2) + 4 : (resting ? 75 : 71) * rem / 16), busy=commandPending, closePicker=closeModels, select=selectModel, search=searchModels, chooseRail=selectProvider, command=command, openSetup=openProviderSettings, anchor=modelTarget)
     when paletteOpen
       CommandPalette(view=palette, query=paletteQuery, highlight=paletteHighlight, scroll=paletteScroll, busy=paletteBusy, viewport=viewport, scheme=viewport.prefersColorScheme, edit=paletteEdit, onKey=paletteKey, run=paletteRun, hover=paletteHover, close=paletteClose, back=paletteKey("Back"), flag=paletteFlag)
     when detailsOpen and conversationWidth < 984 and viewport.prefersColorScheme == "dark"

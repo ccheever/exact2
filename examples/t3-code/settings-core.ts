@@ -221,7 +221,9 @@ export function effectiveSetting(settings: Obj, projectId: string, key: string, 
 
 /** One control's context: the representative target's settings (display) and every connected target (mixed, writes). */
 type ServerContext = { settings: Obj; scope: CoreScope; files: Map<string, Obj | null>; capabilities: Obj; providers: Obj[]; environmentLabel: string;
-  targets: readonly ScopedSettingsTarget[]; restartEverywhere: boolean };
+  targets: readonly ScopedSettingsTarget[]; restartEverywhere: boolean;
+  /** Each known environment's advertised providers: a model choice must exist on every target (useScopedModelDisabledReason). */
+  catalogs: Map<string, Obj[]> };
 /** A target's value for a key: its effective value, a file-backed key's built-in when nothing set it (effectiveSetting). */
 function targetValue(target: ScopedSettingsTarget, key: string): Json {
   const value = (key in target.settings ? target.settings[key] : SERVER_DEFAULTS[key]) as Json;
@@ -291,7 +293,7 @@ const RUNTIME = [['approval-required', 'Supervised', 'Ask before commands and fi
 const BACKGROUND = { balanced: ['Balanced', 'Pauses probes for idle clients, locked hosts, or low power mode.'], performance: ['Performance', 'Allows scoped background probes while any subscribed client remains connected.'],
   'battery-saver': ['Battery saver', 'Also pauses background probes when the host or client is on battery.'] } as Record<string, [string, string]>;
 
-/** ProviderModelPicker + TraitsPicker rows: an advertised model and its reasoning effort. */
+/** ProviderModelPicker + TraitsPicker rows: an advertised model and its reasoning effort (the picker's catalog is settings-model-picker.ts). */
 function modelControl(context: ServerContext, selection: Obj | null, textGeneration: boolean): Partial<CoreRow> {
   const providers = context.providers.filter(provider => providerAvailable(provider) && (!textGeneration || provider.supportsTextGeneration !== false));
   const chosen = selection && providers.find(provider => provider.instanceId === selection.instanceId && arr(provider.models).some(model => model.slug === selection.model));
@@ -318,8 +320,6 @@ function modelControl(context: ServerContext, selection: Obj | null, textGenerat
   return {
     value: `${str(provider.instanceId)}|${str(model?.slug)}`, label: str(model?.name, str(model?.slug)), driver: str(provider.driver),
     badge: providerBadge(provider, context.providers).providerBadge, badgeColor: providerBadge(provider, context.providers).providerBadgeColor,
-    options: providers.flatMap(entry => arr(entry.models).map(candidate => option(`${str(entry.instanceId)}|${str(candidate.slug)}`, str(candidate.name, str(candidate.slug)),
-      entry.instanceId === provider.instanceId && candidate.slug === model?.slug, { detail: str(entry.displayName, str(entry.driver)), icon: str(entry.driver) }))),
     value2: effortValue, label2: str(efforts.find(entry => entry.id === effortValue)?.label, effortValue) || tierLabel, icon: speed,
     options2: traits,
   };
@@ -341,6 +341,8 @@ export function generalSections(client: T3Client, context: ServerContext): CoreS
     options: choices.map(([value, label]) => option(value, label, value === current)) });
   const value = (key: string) => serverState(context, key);
   const modelState = value('defaultModelSelection');
+  // ProjectDefaultsSettings: a Mixed model shows a neutral trigger and no Traits picker.
+  const modelRow = modelControl(context, modelState.value === null ? null : obj(modelState.value), false);
   const runtime = value('defaultRuntimeMode'), workspace = value('defaultThreadEnvMode'), submodules = value('worktreeSubmodules');
   const runtimeEntry = RUNTIME.find(entry => entry[0] === runtime.value) ?? RUNTIME[3];
   const autoSettle = capabilities.threadAutoSettlement === true && scope.connected;
@@ -353,11 +355,12 @@ export function generalSections(client: T3Client, context: ServerContext): CoreS
   const envScope = scope.kind !== 'unavailable' && scope.selected.length === 1;
   const restart = context.restartEverywhere;
   const mod = '⌘';
-  const textSelection = obj(value('textGenerationModelSelection').value);
+  const textState = value('textGenerationModelSelection'), textSelection = obj(textState.value);
+  const textControl = modelControl(context, textSelection, true); // a Mixed text generation model keeps its Traits picker
   const newThreads: CoreRow[] = [
     serverRow(context, 'defaultModelSelection', 'default-model', 'Model', project ? 'Model for new threads in this project.' : 'Default model for new threads. Projects can override it.', 'model',
       { status: !scope.connected || modelState.mixed || modelState.source === 'project' ? '' : modelState.value === null ? 'Automatic' : '', resetLabel: 'default model',
-        ...modelControl(context, modelState.value === null ? null : obj(modelState.value), false), ...(modelState.mixed ? { label: 'Mixed' } : {}) }, modelState.value !== null),
+        ...modelRow, ...(modelState.mixed && modelRow.kind !== 'text-only' ? { label: 'Mixed', mixed: true, label2: '' } : {}) }, modelState.value !== null),
     serverRow(context, 'defaultRuntimeMode', 'default-permissions', 'Permissions', project ? 'Permissions for new threads in this project.' : 'Default permissions for new threads. Projects can override them.', 'select',
       { value: str(runtime.value), label: runtime.mixed ? 'Mixed' : runtimeEntry[1], icon: runtime.mixed ? '' : runtimeEntry[3], resetLabel: 'default permissions', menuWidth: 372,
         options: RUNTIME.map(([id, label, detail, icon]) => option(id, label, id === runtime.value, { detail, icon })) }),
@@ -425,7 +428,7 @@ export function generalSections(client: T3Client, context: ServerContext): CoreS
   ];
   const textGeneration: CoreRow[] = [serverRow(context, 'textGenerationModelSelection', 'text-generation-model', 'Text generation model',
     'Used for thread titles and other generated text on connected devices with this provider. Source control can override it.', 'model',
-    scope.connected ? modelControl(context, textSelection, true) : { kind: 'text-only', label: 'Connect an environment to choose its text generation model.' })];
+    scope.connected ? { ...textControl, ...(textState.mixed && textControl.kind !== 'text-only' ? { label: 'Mixed', mixed: true } : {}) } : { kind: 'text-only', label: 'Connect an environment to choose its text generation model.' })];
   // AboutVersionTitle: this app's own release (APP_VERSION), not the connected server's.
   const about = aboutRows(client, CLIENT_VERSION); // settings-a-about.ts: the update button and Update track
   const diagnostics = [
@@ -467,7 +470,42 @@ export function serverContext(client: T3Client, scope: CoreScope, files: Map<str
   const connected = scope.environments.filter(entry => scope.selected.includes(entry) && entry.connection.phase === 'connected');
   const restartEverywhere = connected.length > 0 && connected.every(entry => obj(obj((entry.fleetKey ? obj(fleetConfig(entry.fleetKey)) : client.config).environment).capabilities).threadRestartContinuation === true);
   return { settings: raw, scope, files, capabilities: obj(environment.capabilities), providers: arr(config.providers), environmentLabel: representative?.label || str(environment.label, 'environment'),
-    targets: resolveScopedSettingsTargets(scope.resolved, connectedOf(client, scope, settings), files), restartEverywhere };
+    targets: resolveScopedSettingsTargets(scope.resolved, connectedOf(client, scope, settings), files), restartEverywhere,
+    catalogs: new Map(scope.environments.map(entry => [entry.environmentId, arr((entry.fleetKey ? obj(fleetConfig(entry.fleetKey)) : client.config).providers)])) };
+}
+/**
+ * useScopedModelDisabledReason / ProjectDefaultsSettings modelDisabledReason: a model choice fans
+ * out to every selected target, so each target's own instance must be enabled, available, of the
+ * representative's driver and advertise the model; '' when every target can honor it.
+ */
+export function scopedModelReason(context: ServerContext, instanceId: string, model: string): string {
+  const source = context.providers.find(provider => provider.instanceId === instanceId);
+  for (const target of context.targets) {
+    const providers = context.catalogs.get(target.environmentId);
+    if (!providers) continue;
+    const entry = providers.find(provider => provider.instanceId === instanceId);
+    if (!entry || entry.enabled !== true || entry.availability === 'unavailable' || entry.driver !== source?.driver || !arr(entry.models).some(option => option.slug === model)) {
+      return `This model is unavailable on ${target.label || 'a selected environment'}. Select that environment to choose its model separately.`;
+    }
+  }
+  return '';
+}
+/** A General model row's picker (settings-model-picker.ts): its scope, the providers it offers and its current pick, or null when the row has none. */
+export function settingsModelTarget(client: T3Client, id: string) {
+  const target = parseCoreTarget(id);
+  const key = SERVER_ROW_KEYS[target.row];
+  if (target.part || (key !== 'defaultModelSelection' && key !== 'textGenerationModelSelection')) return null;
+  const scope = resolveScope(client, target.machine, target.projectKey, target.checkout);
+  if (scope.kind === 'unavailable') return null;
+  const context = serverContext(client, scope, new Map());
+  const state = serverState(context, key);
+  const textGeneration = key === 'textGenerationModelSelection';
+  const control = modelControl(context, state.value === null ? null : obj(state.value), textGeneration);
+  if (control.kind === 'text-only') return null;
+  const [instanceId = '', model = ''] = str(control.value).split('|');
+  // Text generation offers only the providers that support it (textGenerationProviders).
+  const providers = context.providers.filter(provider => !textGeneration || provider.supportsTextGeneration !== false);
+  return { context, providers, instanceId, model };
 }
 const fleetConfig = (key: string) => fleet.entries.get(key)?.config ?? {};
 
@@ -522,6 +560,9 @@ function modelValue(raw: string, part: string, key: string, context: ServerConte
   }
   const separator = raw.indexOf('|');
   const instanceId = raw.slice(0, separator), model = raw.slice(separator + 1);
+  // setModel: a choice some selected target cannot honor is not saved ("Default model not saved").
+  const reason = separator < 0 ? '' : scopedModelReason(context, instanceId, model);
+  if (reason) throw new ClientError(reason);
   const provider = providers.find(entry => entry.instanceId === instanceId);
   if (separator < 0 || !provider || !arr(provider.models).some(entry => entry.slug === model)) throw new ClientError(`This model is unavailable on ${context.scope.environmentLabel === 'All environments' ? 'a selected environment' : context.scope.environmentLabel}.`);
   return { instanceId, model };
