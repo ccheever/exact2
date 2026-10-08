@@ -1414,6 +1414,13 @@
   // A background round delivers with the background current: what its
   // completion's reaction issues is the background's too.
   global.__exact_enter_background = function () { currentCall = background; };
+  // The background's operation in flight, failed because the wait for it
+  // gave up: its rejection runs and the queue moves on. "1" if one was.
+  global.__exact_background_failed = function (outcomeJson) {
+    if (!head || owner(head.call) !== background) return "";
+    landed(head, false, storageError(JSON.parse(outcomeJson).failed.message));
+    return "1";
+  };
   global.__exact_storage_failed = function (id, outcomeJson) {
     var call = calls.get(Number(id));
     if (!call) return;

@@ -70,5 +70,11 @@ test('the header gives the stored size before anything is decoded', async () => 
   expect(await headerSize(bytes(ascii('RIFF'), le32(0), ascii('WEBP'), vp8x(8000, 4096).flat(), vp8l(8000, 4096).flat()))).toEqual([8000, 4096]);
   expect(await headerSize(bytes(ascii('RIFF'), le32(0), ascii('WEBP'), vp8x(16, 16).flat(), vp8l(9000, 9000).flat()))).toEqual([9000, 9000]);
   expect(await headerSize(bytes(ascii('RIFF'), le32(0), ascii('WEBP'), vp8l(300, 200).flat(), [0, 0, 0]))).toEqual([300, 200]);
+  // An animation: its first frame's own size, not its duration or flags.
+  const le24 = n => [n & 255, (n >> 8) & 255, (n >> 16) & 255];
+  const anmf = (w, h, duration) => [ascii('ANMF'), le32(16), le24(0), le24(0), le24(w - 1), le24(h - 1), le24(duration), [0]].flat();
+  const anim = [ascii('ANIM'), le32(6), [0, 0, 0, 0, 0, 0]].flat();
+  expect(await headerSize(bytes(ascii('RIFF'), le32(0), ascii('WEBP'), vp8x(100, 100).flat(), anim, anmf(32, 32, 0xfffff)))).toEqual([100, 100]);
+  expect(await headerSize(bytes(ascii('RIFF'), le32(0), ascii('WEBP'), vp8x(16, 16).flat(), anim, anmf(9000, 9000, 100)))).toEqual([9000, 9000]);
   expect(await headerSize(bytes(ascii('not an image at all, not one bit')))).toBe(null);
 });

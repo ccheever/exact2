@@ -32,7 +32,7 @@ pub const TRIAL_BUDGET: Duration = Duration::from_secs(20);
 /// happens holding it, so giving up waits for a write in progress and a
 /// call that lost the right never writes.
 #[derive(Debug, Default)]
-pub struct CommitGate(Mutex<Abandoned>);
+pub struct CommitGate(pub(crate) Mutex<Abandoned>);
 
 /// What giving up found, in increasing order of what the waiter must do.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default)]

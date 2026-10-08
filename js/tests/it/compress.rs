@@ -80,26 +80,7 @@ fn a_compression_the_wait_gave_up_on_never_writes() {
     m.activate().unwrap();
     let mut s = Store::new(GRANTS, Vec::<(String, String)>::new());
     assert_eq!(call(&mut m, &mut s, "file", "x"), "x");
-    // 2000 × 1500 of noise as a 24-bit BMP: seconds of trials, then a write.
-    let (w, h) = (2000u32, 1500u32);
-    let row = (w * 3).div_ceil(4) * 4;
-    let mut bmp = Vec::with_capacity(54 + (row * h) as usize);
-    bmp.extend_from_slice(b"BM");
-    bmp.extend_from_slice(&(54 + row * h).to_le_bytes());
-    bmp.extend_from_slice(&[0, 0, 0, 0]);
-    bmp.extend_from_slice(&54u32.to_le_bytes());
-    bmp.extend_from_slice(&40u32.to_le_bytes());
-    bmp.extend_from_slice(&w.to_le_bytes());
-    bmp.extend_from_slice(&h.to_le_bytes());
-    bmp.extend_from_slice(&1u16.to_le_bytes());
-    bmp.extend_from_slice(&24u16.to_le_bytes());
-    bmp.extend_from_slice(&[0; 24]);
-    let mut seed: u32 = 0x1234_5678;
-    for _ in 0..row * h {
-        seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
-        bmp.push((seed >> 24) as u8);
-    }
-    std::fs::write(root.0.join("data/noise.bmp"), &bmp).unwrap();
+    std::fs::write(root.0.join("data/noise.bmp"), noise_bmp()).unwrap();
     // The wait gives up: the answer fails, and its failure names `timeout`.
     let a = args("compress-abandoned", "");
     let Answer::Later(request) = m.answer(&mut s, "work", &a).unwrap() else {
@@ -126,4 +107,54 @@ fn a_compression_the_wait_gave_up_on_never_writes() {
         b"next"
     );
     drop(m2);
+}
+
+/// 2000 × 1500 of noise as a 24-bit BMP: seconds of trials at full size,
+/// the first fitting a large budget, then a write.
+fn noise_bmp() -> Vec<u8> {
+    let (w, h) = (2000u32, 1500u32);
+    let row = (w * 3).div_ceil(4) * 4;
+    let mut bmp = Vec::with_capacity(54 + (row * h) as usize);
+    bmp.extend_from_slice(b"BM");
+    bmp.extend_from_slice(&(54 + row * h).to_le_bytes());
+    bmp.extend_from_slice(&[0, 0, 0, 0]);
+    bmp.extend_from_slice(&54u32.to_le_bytes());
+    bmp.extend_from_slice(&40u32.to_le_bytes());
+    bmp.extend_from_slice(&w.to_le_bytes());
+    bmp.extend_from_slice(&h.to_le_bytes());
+    bmp.extend_from_slice(&1u16.to_le_bytes());
+    bmp.extend_from_slice(&24u16.to_le_bytes());
+    bmp.extend_from_slice(&[0; 24]);
+    let mut seed: u32 = 0x1234_5678;
+    for _ in 0..row * h {
+        seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+        bmp.push((seed >> 24) as u8);
+    }
+    bmp
+}
+
+/// The same for background work: the wait gives up on a compression an
+/// answer started and did not await; its rejection runs (`timeout`), the
+/// write queued behind it lands, and the compression never writes.
+#[cfg(target_vendor = "apple")]
+#[test]
+fn a_background_compression_the_wait_gave_up_on_rejects_and_the_queue_moves() {
+    let root = Root::new();
+    let mut m = root.module();
+    m.set_storage_wait(std::time::Duration::from_millis(1));
+    m.activate().unwrap();
+    let mut s = Store::new(GRANTS, Vec::<(String, String)>::new());
+    assert_eq!(call(&mut m, &mut s, "file", "x"), "x");
+    std::fs::write(root.0.join("data/noise.bmp"), noise_bmp()).unwrap();
+    assert_eq!(call(&mut m, &mut s, "compress-background", ""), "started");
+    assert_eq!(call(&mut m, &mut s, "last-error", ""), "timeout");
+    assert_eq!(
+        std::fs::read(root.0.join("data/slow.jpg")).unwrap(),
+        b"after"
+    );
+    std::thread::sleep(std::time::Duration::from_secs(4));
+    assert_eq!(
+        std::fs::read(root.0.join("data/slow.jpg")).unwrap(),
+        b"after"
+    );
 }

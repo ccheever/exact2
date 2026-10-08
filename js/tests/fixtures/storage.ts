@@ -244,6 +244,15 @@ async function work(_source:string, args:unknown[], store:Store, storage:Storage
     await storage.fs.compressImage(data + "/noise.bmp", data + "/slow.jpg", { maxDimension: 2000, maxBytes: 10_000_000 });
     return {text: "written"};
   }
+  // The same, started and not awaited: background work (LLP 1097), with a
+  // write queued behind it.
+  if (op === "compress-background") {
+    const data = storage.fs.directories.data;
+    storage.fs.compressImage(data + "/noise.bmp", data + "/slow.jpg", { maxDimension: 2000, maxBytes: 10_000_000 })
+      .then(() => { lastError = "written"; }, (e) => { lastError = String(e.code); });
+    storage.fs.writeFile(data + "/slow.jpg", bytes("after")).catch(() => {});
+    return {text: "started"};
+  }
   if (op === "write-slow") {
     await storage.fs.writeFile(storage.fs.directories.data + "/slow.jpg", bytes(value));
     return {text: "wrote " + value};

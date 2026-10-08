@@ -153,7 +153,8 @@ its right to write, which `ibex2_async_begin` registers on the guest's
 thread; `Context::abandon_image_work` (`bindings.rs`, `task.rs`), called by
 an embedder that gives up waiting, takes every unwritten call's right away
 and waits for one mid-write, so nothing is written after the guest was told
-the call failed. The codec starts nothing after `TRIAL_BUDGET` (20 s) from
+the call failed; a written call's right lasts until `take_task` hands its
+completion out, and `RuntimeState::shutdown` takes unwritten rights away. The codec starts nothing after `TRIAL_BUDGET` (20 s) from
 the job's start. `bindings/storage.d.ts` declares it. Ibex holds no codec:
 without one the op answers `unsupported` before reading.
 

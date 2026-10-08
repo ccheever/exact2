@@ -118,15 +118,19 @@ impl Session {
                     // loses the right to, so nothing lands after this failure
                     // and the queue moves on safely; one that has written is
                     // waited for (LLP 1069.002 A1.5).
-                    let message = match context.abandon_image_work() {
-                        Abandoned::Written => {
-                            deadline = Instant::now() + Duration::from_secs(5);
-                            continue;
-                        }
+                    let abandoned = context.abandon_image_work();
+                    // A completion that arrived after the last look is a
+                    // result, not a failure: one written is kept until the
+                    // owner takes its completion, so it is seen either way.
+                    if abandoned == Abandoned::Written || context.wait(Duration::ZERO) {
+                        deadline = Instant::now() + Duration::from_secs(5);
+                        continue;
+                    }
+                    let message = match abandoned {
                         Abandoned::Abandoned => {
                             "compressImage: timeout: the storage wait ran out; nothing was written"
                         }
-                        Abandoned::Nothing => "storage continuation timed out",
+                        _ => "storage continuation timed out",
                     };
                     return Outcome::Failed {
                         kind: FailureKind::Aborted,

@@ -371,8 +371,10 @@ pub struct RuntimeState {
     documents: std::sync::OnceLock<Arc<crate::stdlib::fs::Documents>>,
     /// The embedder's image codec for `fs.compressImage` (Exact patch 9).
     image_codec: std::sync::OnceLock<Arc<crate::stdlib::fs::ImageCodec>>,
-    /// Each `fs.compressImage` in flight, by its right to write.
-    image_work: Mutex<Vec<Arc<crate::stdlib::fs::CommitGate>>>,
+    /// Each `fs.compressImage` in flight, by its task, with its right to
+    /// write: kept until its completion is taken, so a waiter that gives up
+    /// after the write sees it written.
+    image_work: Mutex<HashMap<u64, Arc<crate::stdlib::fs::CommitGate>>>,
     responses: Mutex<std::collections::HashMap<u64, Arc<StoredResponse>>>,
     controls: Mutex<std::collections::HashMap<u64, crate::stdlib::abort::AbortController>>,
     subscriptions: Mutex<HashMap<u64, Arc<EventSubscriptionState>>>,
@@ -536,7 +538,7 @@ impl RuntimeState {
             app_directories,
             documents: std::sync::OnceLock::new(),
             image_codec: std::sync::OnceLock::new(),
-            image_work: Mutex::new(Vec::new()),
+            image_work: Mutex::new(HashMap::new()),
             responses: Mutex::new(std::collections::HashMap::new()),
             controls: Mutex::new(std::collections::HashMap::new()),
             subscriptions: Mutex::new(HashMap::new()),
@@ -599,25 +601,32 @@ impl RuntimeState {
     pub fn image_codec(&self) -> Option<&crate::stdlib::fs::ImageCodec> {
         self.image_codec.get().map(|c| &**c)
     }
-    pub(crate) fn begin_image_work(&self) -> Arc<crate::stdlib::fs::CommitGate> {
+    pub(crate) fn begin_image_work(&self, task_id: u64) -> Arc<crate::stdlib::fs::CommitGate> {
         let gate = Arc::new(crate::stdlib::fs::CommitGate::default());
         self.image_work
             .lock()
             .expect("image work poisoned")
-            .push(gate.clone());
+            .insert(task_id, gate.clone());
         gate
     }
-    pub(crate) fn end_image_work(&self, gate: &Arc<crate::stdlib::fs::CommitGate>) {
+    /// Its completion was taken, or will never be queued.
+    pub(crate) fn end_image_work(&self, task_id: u64) {
         self.image_work
             .lock()
             .expect("image work poisoned")
-            .retain(|g| !Arc::ptr_eq(g, gate));
+            .remove(&task_id);
     }
     /// The embedder gave up waiting: every `fs.compressImage` in flight that
     /// has not begun its write loses the right to write; one writing is
     /// waited for. What the embedder should do next (Exact patch 9).
     pub fn abandon_image_work(&self) -> crate::stdlib::fs::Abandoned {
-        let gates = self.image_work.lock().expect("image work poisoned").clone();
+        let gates: Vec<_> = self
+            .image_work
+            .lock()
+            .expect("image work poisoned")
+            .values()
+            .cloned()
+            .collect();
         gates
             .iter()
             .map(|gate| gate.abandon())
@@ -859,6 +868,9 @@ impl RuntimeState {
     }
 
     pub fn shutdown(&self) {
+        // Exact patch 9: an `fs.compressImage` still running writes nothing
+        // once its runtime is gone; one mid-write is let finish.
+        let _ = self.abandon_image_work();
         let mut subscriptions = self
             .subscriptions
             .lock()
@@ -1221,6 +1233,11 @@ impl RuntimeState {
             }
             let task = self.queue.take()?;
             let HostTask::Event { subscription, .. } = &task else {
+                if let HostTask::Settlement(completion) = &task {
+                    // Exact patch 9: an `fs.compressImage`'s right ends once
+                    // its completion is in the guest's hands.
+                    self.end_image_work(completion.task_id);
+                }
                 return Some(task);
             };
             // @ref LLP 0058.000.000#8-tasks-microtasks-timers-and-callbacks — reservation revalidates Running and subscription liveness at one serialized commit point
@@ -1868,6 +1885,25 @@ mod tests {
         assert_eq!(state.crypto_key_count(), 1);
         state.shutdown();
         assert_eq!(state.crypto_key_count(), 0);
+    }
+
+    /// Exact patch 9: a written `fs.compressImage` keeps its right until its
+    /// completion is taken, so a waiter that gives up in between sees it
+    /// written; one not yet written loses it; shutdown takes it away.
+    #[test]
+    fn an_image_right_lasts_until_its_completion_is_taken() {
+        use crate::stdlib::fs::Abandoned;
+        let state = RuntimeState::new(crate::transport::default_transport());
+        assert_eq!(state.abandon_image_work(), Abandoned::Nothing);
+        let gate = state.begin_image_work(7);
+        *gate.0.lock().unwrap() = Abandoned::Written; // its write finished
+        state.queue.complete(7, Ok(HostValue::Undefined));
+        assert_eq!(state.abandon_image_work(), Abandoned::Written);
+        assert!(matches!(state.take_task(), Some(HostTask::Settlement(_))));
+        assert_eq!(state.abandon_image_work(), Abandoned::Nothing);
+        let unwritten = state.begin_image_work(8);
+        state.shutdown();
+        assert_eq!(*unwritten.0.lock().unwrap(), Abandoned::Abandoned);
     }
 
     #[test]

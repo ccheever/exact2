@@ -111,7 +111,8 @@ export async function headerSize(blob) {
     for (let pos = 30; pos + 8 <= n;) {
       const kind = ascii(pos, 4), size = v.getUint32(pos + 4, true);
       if (kind === 'VP8 ' || kind === 'VP8L') return positive(larger(canvas, frame(pos)));
-      if (kind === 'ANMF' && pos + 24 <= n) return positive(larger(canvas, [le24(pos + 20) + 1, le24(pos + 23) + 1]));
+      // ANMF: X, Y, width - 1, height - 1, duration (24 bits each), flags.
+      if (kind === 'ANMF' && pos + 24 <= n) return positive(larger(canvas, [le24(pos + 14) + 1, le24(pos + 17) + 1]));
       pos += 8 + size + (size & 1);
     }
     return null;

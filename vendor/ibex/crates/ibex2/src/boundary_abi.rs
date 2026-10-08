@@ -894,7 +894,7 @@ pub unsafe extern "C" fn ibex2_async_begin(
     };
     // `fs.compressImage`'s right to write, registered now, on the guest's
     // thread, before the embedder can start waiting on it (Exact patch 9).
-    let gate = (op == AsyncOp::FsCompressImage).then(|| state.begin_image_work());
+    let gate = (op == AsyncOp::FsCompressImage).then(|| state.begin_image_work(task_id));
     // A JS wrapper may become unreachable as soon as this host call returns.
     // Snapshot handle-backed inputs while its native owner must still be live;
     // no worker may resolve a Headers registry id later.
@@ -918,9 +918,9 @@ pub unsafe extern "C" fn ibex2_async_begin(
         };
         if !state.is_shutdown() {
             state.queue.complete(task_id, result);
-        }
-        if let Some(gate) = &gate {
-            state.end_image_work(gate);
+        } else if gate.is_some() {
+            // No completion will be taken: its right ends here.
+            state.end_image_work(task_id);
         }
         state.task_finished();
     };
