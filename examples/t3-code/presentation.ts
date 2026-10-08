@@ -18,6 +18,7 @@ import { diffNotGit, diffSnapshot, NOT_GIT_REPO } from './diff';
 import { composerSnapshot } from './composer-presentation';
 import { triggerModelName } from './r3-composer-controls-model';
 import { pickerCatalog } from './model-catalog';
+import { settingsPickerCatalog } from './settings-model-picker'; // settings-model-picker: General's model rows
 import { look } from './settings-appearance-look';
 import { composerOverlaySnapshot } from './r4-composer-overlay';
 import { composerVideoSnapshot } from './r4-composer-attachments';
@@ -28,6 +29,7 @@ import { adoptHostLocale } from './timestamp-format'; // desktop-shell-details: 
 import { serverUpdateView } from './server-update-notices'; // server-update-banner
 import { composerOwner } from './auto-balance-owner'; // auto-balance
 import { providerBanner } from './provider-status-message'; // provider-sign-in-and-install: the banner and its setup button
+import { feedbackUploading, withFeedbackRows } from './composer-feedback'; // usage-reset-and-feedback: Codex /feedback
 
 const modes: Record<string, string> = {
   'approval-required': 'Ask for approval', 'auto-accept-edits': 'Auto-accept edits',
@@ -85,7 +87,7 @@ export function providerBadge(provider: Obj | undefined, providers: Obj[]) {
 export { providerBanner };
 
 /** T3's timeline rows (timeline-presentation.ts transcriptRows). */
-export function transcriptPresentation(client: T3Client): Message[] { return [...subagentLead(client), ...transcriptRows(client)]; }
+export function transcriptPresentation(client: T3Client): Message[] { return withFeedbackRows(client, [...subagentLead(client), ...transcriptRows(client)]); }
 export function snapshot(client: T3Client, now = 0) {
   adoptHostLocale(client.presentation.systemLocale);
   const fullScreen = client.presentation.fullScreen === true; // T3FullScreen.swift
@@ -123,7 +125,7 @@ export function snapshot(client: T3Client, now = 0) {
     // The header title keyed by its text: a reused one-line text keeps drawing the previous title clipped to the new width.
     threadHeading: [str(obj(client.projection.thread).title, 'New thread')].map(title => ({ id: title, label: title })), draft: client.draft, snapshotDrafts: snapshotDraftTiles(client), snapshotOwner: client.snapshotOwner,
     settled: section(obj(client.projection.thread)) === 'settled', ...projectIdentity(str(project?.title)),
-    running: !!run, canSend: client.writable && !pending && !client.busy && modelReady && !!client.projectId && !projectCloneBlock(client), // a cloning project waits (project-clones-live.ts)
+    running: !!run, canSend: client.writable && !pending && !client.busy && modelReady && !!client.projectId && !projectCloneBlock(client) && !feedbackUploading(client), // a cloning project waits (project-clones-live.ts)
     canStop: client.writable && !pending && !client.busy && !!run,
     providerId: client.providerId, modelId: client.modelId, modelLabel: currentModel ? triggerModelName(currentModel) : client.modelId || 'Choose model',
     composerCollapseOnScroll: client.local.deviceSettings.composerCollapseOnScroll,
@@ -157,7 +159,10 @@ export function snapshot(client: T3Client, now = 0) {
   };
 }
 
-/** T3's picker catalog (model-catalog.ts); browsing and searching never change the selected model. */
-export function modelCatalog(client: T3Client, providerId: string, query: string) {
-  return pickerCatalog(client, providerId, query, providerBadge);
+/**
+ * T3's picker catalog (model-catalog.ts); browsing and searching never change the selected model.
+ * A target names the Settings → General row the picker chooses for (settings-model-picker.ts).
+ */
+export function modelCatalog(client: T3Client, providerId: string, query: string, target = '') {
+  return target ? settingsPickerCatalog(client, target, providerId, query, providerBadge) : pickerCatalog(client, providerId, query, providerBadge);
 }

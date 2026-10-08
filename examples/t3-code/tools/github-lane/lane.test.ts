@@ -6,7 +6,7 @@ import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ghCallsSince, ghWrapper, lanePaths, run, serverEnv, setup, signedIn, toolEnv } from "./lib.mjs";
-import { BULK, DESCRIPTION, HISTORY, LABELS, Seed, bulkBranch, branchOf, generationOf, inState, scenarios } from "./seed.mjs";
+import { ACTION_STACK, BULK, DESCRIPTION, HISTORY, LABELS, Seed, actionScenarios, bulkBranch, branchOf, generationOf, inState, scenarios } from "./seed.mjs";
 import { table, verb } from "./probe.mjs";
 
 const root = mkdtempSync(join(tmpdir(), "github-lane-test-"));
@@ -98,6 +98,13 @@ describe("the seed", () => {
     expect(two.find((s) => s.key === "cross-repo")?.fork).toBe(true);
     expect(Object.keys(two.find((s) => s.key === "many-files")!.files).length).toBe(310);
   });
+  test("the action scenarios are their own list, seeded only by name, the stack's layers each on the one below", () => {
+    const actions = actionScenarios();
+    expect(actions.map((s) => s.key)).toEqual(["act-merge", "act-squash", "act-rebase", "act-auto", "act-lifecycle", "act-update-merge", "act-update-rebase", "act-revert", ...ACTION_STACK]);
+    expect(scenarios({ second: "lane-second" }).some((s) => s.key.startsWith("act-"))).toBe(false);
+    expect(actions.filter((s) => s.after).map((s) => [s.key, s.after])).toEqual([["act-stack-2", "act-stack-1"], ["act-stack-3", "act-stack-2"]]);
+    expect(new Set(actions.map((s) => s.branch)).size).toBe(actions.length);
+  });
 });
 
 describe("the playground stays neutral (user decision 2026-10-07)", () => {
@@ -105,7 +112,7 @@ describe("the playground stays neutral (user decision 2026-10-07)", () => {
     const words = /t3|sandbox|exact|clone|lane|probe|fixture/i;
     const texts: string[] = [DESCRIPTION, ...LABELS.flat(), bulkBranch(BULK)];
     for (const [, message, files] of HISTORY) texts.push(message as string, ...Object.entries(files as Record<string, string>).flat());
-    for (const spec of scenarios({ second: "someone" })) texts.push(spec.branch, spec.title, spec.body, ...Object.entries(spec.files).flat(), ...(spec.labels ?? []), ...(spec.statuses ?? []).flat());
+    for (const spec of [...scenarios({ second: "someone" }), ...actionScenarios()]) texts.push(spec.branch, spec.title, spec.body, ...Object.entries(spec.files).flat(), ...(spec.labels ?? []), ...(spec.statuses ?? []).flat());
     expect(texts.filter((text) => words.test(text))).toEqual([]);
     // Bodies carry only neutral `<!-- ref:… -->` markers, from the seed and the probe alike.
     for (const file of ["seed.mjs", "probe.mjs"]) expect(readFileSync(join(import.meta.dir, file), "utf8").match(/<!-- (?!ref:)\S+/g)).toBe(null);

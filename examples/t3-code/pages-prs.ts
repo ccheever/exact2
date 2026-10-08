@@ -283,7 +283,7 @@ export async function pullRequestsPage(client: T3Client, native: Native | null |
       if (input.refresh > 0 && previous?.refresh === input.refresh - 1) await client.rpc(native, 'pullRequests.invalidate', {}).catch(() => ({}));
       cached.result = await client.rpc(native, 'pullRequests.list', payload);
       // The host's word outranks the reader's once it has said it: an override goes when an answer agrees with it.
-      settleListOverrides(client, arr(cached.result.entries), input.now || Date.now());
+      settleListOverrides(client, arr(cached.result.entries), input.now);
       const unmeasured = arr(cached.result.entries).filter(entry => !measured(entry) && !cached!.stats.has(entryKey(entry)));
       if (unmeasured.length) {
         try {

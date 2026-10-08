@@ -19,6 +19,7 @@ import {
 } from './r6-pr-logic';
 import { applyPullRequestOverrides, pullRequestOverrideAfterAction, settlePullRequestOverrides, type ListOverride } from './pages-pr-actions';
 import { pullRequestStackView, savedPullRequestStack } from './pages-pr-stack';
+import { noteNow } from './composer-controls';
 
 // ── Ported (original names) ─────────────────────────────────────────────────
 
@@ -406,13 +407,16 @@ describe('the actions, their confirmations and their toasts', () => {
 });
 
 describe('the list overrides the panel reports ("sent", "done", "failed")', () => {
+  // The reader's clock is the newest the snapshot saw (noteNow); the list's answers are read at it.
+  const LIST_NOW = Date.parse('2026-10-08T12:00:00Z');
   const entries = [{ projectId: 'p1', host: 'github.com', repository: 'lane/sandbox', number: 7, title: 'Add a changelog', state: 'open', isDraft: false, author: { login: 'lane-primary' }, updatedAt: '2026-10-08T10:00:00Z', additions: 3, deletions: 0 }];
   const rows = (page: Awaited<ReturnType<typeof pullRequestsPage>>) => page.groups.flatMap(group => group.rows.map(row => `${row.number}:${row.state}`));
   test('a close leaves the open list as it is sent, and comes back when the host refuses', async () => {
     let refuse = true;
     const { client } = fakeClient(defaults(base(), { 'pullRequests.list': () => ({ entries, viewers: {} }), 'pullRequests.listStats': () => ({ stats: [] }),
       'pullRequests.runAction': () => { if (refuse) throw new Error('Resource not accessible by integration'); return {}; } }));
-    const page = () => pullRequestsPage(client, native, { open: true, refresh: 0, now: Date.now(), selected, query: '', typed: false });
+    noteNow(client, LIST_NOW);
+    const page = () => pullRequestsPage(client, native, { open: true, refresh: 0, now: LIST_NOW, selected, query: '', typed: false });
     expect(rows(await page())).toEqual(['7:open']);
     await panel(client);
     let seen: string[] = [];
@@ -429,7 +433,8 @@ describe('the list overrides the panel reports ("sent", "done", "failed")', () =
     let release: () => void = () => {};
     const { client } = fakeClient(defaults(base(), { 'pullRequests.list': () => ({ entries, viewers: {} }), 'pullRequests.listStats': () => ({ stats: [] }),
       'pullRequests.runAction': () => new Promise(resolve => { release = () => resolve({}); }) }));
-    const page = () => pullRequestsPage(client, native, { open: true, refresh: 0, now: Date.now(), selected, query: '', typed: false });
+    noteNow(client, LIST_NOW);
+    const page = () => pullRequestsPage(client, native, { open: true, refresh: 0, now: LIST_NOW, selected, query: '', typed: false });
     await page(); await panel(client);
     const running = prCommand(client, native, 'action', selected, 'merge:merge');
     await Bun.sleep(5);

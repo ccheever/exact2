@@ -15,6 +15,7 @@ import { dispatchSelection, promptForSend, ultrathinkChoice } from './composer-u
 import { queuedEdit, saveQueuedEdit } from './composer-controls-queue';
 import { fanoutBase, workspaceStrategy } from './composer-controls-branch';
 import { isUsageLimitsCommand, usageLimitsOffered, openUsageLimits } from './composer-controls-usage';
+import { feedbackCommandFor, feedbackInFlight, sendFeedback } from './composer-feedback'; // usage-reset-and-feedback
 import { withMessageContext } from './composer-editor';
 import { sendIntent } from './composer-editor-intent';
 import { launchTitle } from './composer-editor-title';
@@ -23,6 +24,7 @@ import { composerFileAttachments } from './composer-editor-files';
 import { activeInput, pendingRequests, setCustomAnswer, chooseOption, advanceQuestion, previousQuestion, dismissPayload, approvalPayload } from './requests';
 import { threadPhase } from './composer-presentation';
 import { autoBalanceSend } from './auto-balance'; // auto-balance
+import { fleet } from './settings-b-fleet'; // settings-model-picker: favorites from another environment's catalog
 import { obj, str, arr, type Obj } from './domain';
 import { ClientError, activeRun, providerAvailable, modelSelection, sendPayload,
   launchPayload, type Native, type Files } from './protocol';
@@ -36,7 +38,9 @@ export async function composerOps(this: T3Client, op: string, id: string, value:
       if (!setCustomAnswer(this, value)) this.local.drafts[this.draftKey] = value;
      } else if (op === 'favorite-model') {
       const key = JSON.stringify([id, value]);
-      if (!arr(this.config.providers).some(provider => provider.instanceId === id && arr(provider.models).some(model => model.slug === value))) {
+      // A Settings scope's representative may be another environment (settings-model-picker.ts): any known catalog counts.
+      const catalogs = [this.config, ...[...fleet.entries.values()].map(entry => entry.config)];
+      if (!catalogs.some(config => arr(obj(config).providers).some(provider => provider.instanceId === id && arr(provider.models).some(model => model.slug === value)))) {
         throw new ClientError('That model is no longer advertised by T3.');
       }
       this.local.favoriteModels = this.local.favoriteModels.includes(key)
@@ -65,7 +69,7 @@ export async function composerWrites(this: T3Client, op: string, id: string, val
   try {
     if (op === 'send' && pendingRequests(this.projection).approvals.length) throw new ClientError('Resolve this approval request to continue.');
     else if (op === 'send' && activeInput(this)) await submitAnswers.call(this, native, storage, '', value);
-    else if (op === 'send') await autoBalanceSend(this, native, () => send.call(this, native, storage, value)); // auto-balance: onSend's guard (a move in flight finishes first)
+    else if (op === 'send') await autoBalanceSend(this, native, async () => { resultMessage = (await send.call(this, native, storage, value)) || ''; }); // auto-balance: onSend's guard (a move in flight finishes first)
     else if (op === 'provider' || op === 'model') await changeModel.call(this, native, storage, op, id, value);
     else if (op === 'model-option') await changeModelOption.call(this, native, storage, id, value);
     else if (op === 'runtime' || op === 'interaction') await changeMode.call(this, native, storage, op, value);
@@ -82,14 +86,17 @@ export async function composerWrites(this: T3Client, op: string, id: string, val
     return true;
   } finally { Object.assign(out, { message: resultMessage, id, value }); }
 }
-async function send(this: T3Client, native: Native, storage: Files, value: string): Promise<void> {
+async function send(this: T3Client, native: Native, storage: Files, value: string): Promise<string | void> {
   const selection = { generation: this.generation, environmentId: this.environmentId, origin: this.origin, projectId: this.projectId, threadId: this.threadId, providerId: this.providerId, modelId: this.modelId, options: JSON.stringify(this.modelOptions), runtimeMode: this.runtimeMode, interactionMode: this.interactionMode };
   const assertOwner = () => {
     if (selection.generation !== this.generation || selection.environmentId !== this.environmentId || selection.origin !== this.origin || selection.projectId !== this.projectId || selection.threadId !== this.threadId || selection.providerId !== this.providerId || selection.modelId !== this.modelId || selection.options !== JSON.stringify(this.modelOptions) || selection.runtimeMode !== this.runtimeMode || selection.interactionMode !== this.interactionMode) throw new ClientError('The draft or model changed before sending. Your original draft is preserved.');
   };
-  if (queuedEdit(this)) return saveQueuedEdit(this, native, storage, value, () => this.uploadSnapshots(native, storage)); // composer-fidelity G12a: new SnapShot images upload
   // "/usage-limits" is answered locally from the provider snapshots; the agent never sees it.
   if (isUsageLimitsCommand(value || this.draft) && !this.snapshotDrafts.length && usageLimitsOffered(this)) { if (openUsageLimits(this, composerNow(this))) this.local.drafts[this.draftKey] = ''; return; }
+  if (feedbackInFlight(this)) return; // feedbackUploadsInFlightRef: this thread's /feedback upload runs (composer-feedback.ts); onSend checks /usage-limits first
+  if (queuedEdit(this)) return saveQueuedEdit(this, native, storage, value, () => this.uploadSnapshots(native, storage)); // composer-fidelity G12a: new SnapShot images upload
+  const feedback = feedbackCommandFor(this, value || this.draft); // Codex /feedback uploads the thread instead of sending a turn
+  if (feedback) return sendFeedback(this, native, value || this.draft, feedback);
   const plan = planFollowUp(this);
   const submission = plan ? resolvePlanSubmission(value || this.draft, plan.markdown) : null;
   const rawText = promptForSend(this, selection.providerId, selection.modelId, JSON.parse(selection.options), submission ? submission.text : value || this.draft);

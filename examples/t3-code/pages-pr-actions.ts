@@ -22,6 +22,7 @@ import { ClientError, type Native } from './protocol';
 import { pushToast } from './toast';
 import { letGo } from './let-go';
 import { pagesPrefs } from './pages-prefs';
+import { composerNow } from './composer-controls';
 import { prState, startHandoff } from './r6-pr-actions';
 import {
   ACTION_FAILURE, ACTION_SUCCESS, PULL_REQUEST_ACTIONS, PULL_REQUEST_MERGE_METHOD_LABELS, actionHint, actionPayload, allowedMergeMethods, allowsSinglePullRequestMerge,
@@ -230,10 +231,12 @@ const entryKeyOf = (entry: Obj) => `${str(entry.host)}:${str(entry.repository)}#
  */
 export function noteActed(client: object, listEntry: Obj | null, action: string | undefined, phase: 'sent' | 'done' | 'failed'): void {
   const state = actionState(client);
-  const stateOnly = action !== undefined && listEntry !== null && pullRequestOverrideAfterAction(listEntry, action, new Date(), 0) !== null;
+  // The reader's clock: the newest wall time a snapshot saw (a data source reads no clock of its own).
+  const now = new Date(composerNow(client));
+  const stateOnly = action !== undefined && listEntry !== null && pullRequestOverrideAfterAction(listEntry, action, now, 0) !== null;
   if (stateOnly) {
     const key = entryKeyOf(listEntry!);
-    const write = () => { const token = ++state.token; const override = pullRequestOverrideAfterAction(listEntry!, action!, new Date(), token); if (!override) return null; state.overrides.set(key, override); return token; };
+    const write = () => { const token = ++state.token; const override = pullRequestOverrideAfterAction(listEntry!, action!, now, token); if (!override) return null; state.overrides.set(key, override); return token; };
     if (phase === 'sent' && action !== 'merge') state.detailTokens.set(key, write());
     if (phase === 'failed' && action !== 'merge') { const token = state.detailTokens.get(key) ?? null; if (token !== null && state.overrides.get(key)?.token === token) state.overrides.delete(key); }
     if (phase !== 'sent') state.detailTokens.delete(key);

@@ -34,6 +34,10 @@ final class T3ComposerTextDelegate: NSObject, NSTextViewDelegate {
 /// reports the active trigger and presses the menu's hidden key buttons.
 final class T3ComposerEditor {
     private let changed: (String) -> Void
+    /// The textarea this editor takes: the composer's, or Settings › Appearance's prompt
+    /// sample (`t3-prompt-preview`, SettingsFontPreviews PromptFontPreview), which edits on
+    /// its own: chips, atomic chip keys and undo steps, but none of the composer's keys.
+    private let hatch: ExactHatchKey
     private(set) weak var textView: NSTextView?
     private weak var element: ExactElement?
     private let proxy = T3ComposerTextDelegate()
@@ -67,8 +71,9 @@ final class T3ComposerEditor {
     private(set) var notices: [[String: String]] = []
     func takeNotices() -> [[String: String]] { defer { notices.removeAll() }; return notices }
 
-    init(changed: @escaping (String) -> Void) {
+    init(changed: @escaping (String) -> Void, hatch: ExactHatchKey = .t3Composer) {
         self.changed = changed
+        self.hatch = hatch
         proxy.editor = self
         styler.editor = self
     }
@@ -76,12 +81,12 @@ final class T3ComposerEditor {
     // MARK: Elements
 
     func install(_ element: ExactElement) {
-        if element.hatch == .t3ComposerKey {
+        if element.hatch == .t3ComposerKey, hatch == .t3Composer {
             let name = element.data[.anchor] ?? ""
             if !name.isEmpty { keys[name] = Key(element) }
             return
         }
-        guard element.hatch == .t3Composer else { return }
+        guard element.hatch == hatch else { return }
         self.element = element
         owner = element.data[.snapshotOwner] ?? ""
         guard let view = element.textView else { return }
@@ -199,6 +204,18 @@ final class T3ComposerEditor {
 
     func command(_ selector: Selector, in view: NSTextView) -> Bool {
         guard view === textView, view.isEditable, !view.hasMarkedText() else { return false }
+        // The prompt sample is ComposerPromptEditor with no command-key handler: Tab and ⇧Tab
+        // keep walking the Settings page, and only the chips' own keys apply.
+        if hatch != .t3Composer {
+            switch selector {
+            case #selector(NSResponder.insertTab(_:)): view.window?.selectNextKeyView(view); return true
+            case #selector(NSResponder.insertBacktab(_:)): view.window?.selectPreviousKeyView(view); return true
+            case #selector(NSResponder.moveLeft(_:)), #selector(NSResponder.moveRight(_:)),
+                 #selector(NSResponder.deleteBackward(_:)), #selector(NSResponder.deleteForward(_:)):
+                return styler.chipCommand(selector, in: view)
+            default: return false
+            }
+        }
         switch selector {
         case #selector(NSResponder.insertBacktab(_:)):
             // ⇧Tab toggles Build/Plan when the plan toggle is shown.
@@ -380,9 +397,11 @@ final class T3ComposerEditor {
 
     func shouldChange(_ view: NSTextView, range: NSRange, text: String?) -> Bool {
         guard view === textView, let text else { return true }
-        if let folders = droppedFolders(text) { dropFolders(folders, in: view); return false }
+        // Folder drops and pasted-text attachments are the composer's (the prompt sample's onPaste is a no-op).
+        let composing = hatch == .t3Composer
+        if composing, let folders = droppedFolders(text) { dropFolders(folders, in: view); return false }
         let length = (text as NSString).length
-        if !pastingAsText, length > 0, let allowed = foldPaste(view, range: range, text: text) { return allowed }
+        if composing, !pastingAsText, length > 0, let allowed = foldPaste(view, range: range, text: text) { return allowed }
         if !view.hasMarkedText() {
             let kind = length == 0 ? "delete" : range.length == 0 ? "insert" : "replace"
             let at = now()

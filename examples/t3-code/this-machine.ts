@@ -5,7 +5,8 @@
 //    machine" with the environment icon menu, the Local environment row, and while this machine can
 //    be managed the Version row (`serverVersion · displayUrl`, "Loading…", "Up to date", the update's
 //    progress; a desktop-managed server that cannot update from here gets the sentence instead).
-//    Network access, endpoints and clients come with 20261005-this-machine-network-access.
+//    Network access, its endpoints, Tailscale HTTPS and Authorized clients are connections-network.ts
+//    (20261005-this-machine-network-access), which restarts the server through the same seam.
 //  - The switch (`applyLocalSetting`, one seam for every local setting): the reference persists the
 //    setting and relaunches the app (decision U4). exact2 has no process relaunch (issue X45, exact2
 //    #122 closed without one), so this is the stopgap: persist, then stop or start the embedded server
@@ -96,7 +97,8 @@ async function call(native: Native, request: Obj) {
  * the focused connection's new status for T3Client to adopt; a failure puts the setting back and is the
  * view's `error` (the dialog's inline text), not the command's.
  */
-export async function applyLocalSetting(client: T3Client, native: Native, change: { localEnvironmentEnabled: boolean }): Promise<Result> {
+export async function applyLocalSetting(client: T3Client, native: Native, change: { localEnvironmentEnabled: boolean } | { serverExposure: ServerExposureEnvelope }): Promise<Result> {
+  if ('serverExposure' in change) return restartWithExposure(client, native, change.serverExposure);
   const enabled = change.localEnvironmentEnabled, before = localEnvironmentEnabled(client);
   if (enabled === before && primary.status.enabled === enabled) return { status: null, generation: -1 };
   applyingAny = before; held = last; failure = '';
@@ -137,4 +139,25 @@ export async function applyLocalSetting(client: T3Client, native: Native, change
     failure = error instanceof Error && error.message ? error.message : "Couldn't change this setting.";
     return { status: null, generation: -1 };
   } finally { applyingAny = null; held = null; }
+}
+
+/** The envelope fields a network change restarts the server with (DesktopBackendBootstrap `host`, `tailscaleServe*`). */
+export type ServerExposureEnvelope = { host: string; tailscaleServeEnabled: boolean; tailscaleServePort: number };
+/**
+ * applyLocalSetting for Network access and Tailscale HTTPS (20261005-this-machine-network-access): the
+ * reference persists and relaunches (U4); the stopgap restarts the embedded server in place with the
+ * new envelope (`localBackendRestart`: stop, start, wait until it answers) and reconnects the primary
+ * wherever it was connected (the focus, or its fleet transport). A failure is the caller's to report.
+ */
+async function restartWithExposure(client: T3Client, native: Native, envelope: ServerExposureEnvelope): Promise<Result> {
+  const reply = await call(native, { op: 'localBackendRestart', ...envelope });
+  client.localBackend = parseLocalBackendStatus(reply.value);
+  primary.update(client.localBackend, localEnvironmentEnabled(client));
+  const local = primaryEntry();
+  if (local) { const key = environmentKey(str(local.origin), str(local.environmentId)); fleet.forget(key); await native.later({ op: 'fleetStop', fleet: key }).catch(() => undefined); }
+  if (primary.connectable && primary.target && focusedOnPrimary(client)) {
+    const opened = await call(native, { op: 'connect', origin: primary.target.httpBaseUrl, primary: true });
+    return { status: obj(opened.value), generation: opened.generation };
+  }
+  return { status: null, generation: -1 };
 }

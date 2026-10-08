@@ -14,6 +14,7 @@ import { arr, obj, str, num, applyThread, threadSnapshot, type Obj, type Shell, 
 import type { Native } from './protocol';
 import type { FleetEntry } from './settings-b-fleet';
 import { lifecycleEvent, lifecycleFleetEvent, lifecycleFleetPass, watchLifecycle } from './local-lifecycle';
+import { accessEvent, accessFleetEvent, accessFleetPass, watchAccess } from './auth-access'; // this-machine-network-access: Authorized clients
 import { letGo } from './let-go';
 
 export const KEEP_PREFIX = 'keep:';
@@ -132,7 +133,7 @@ type Focused = { environmentId: string; origin: string; generation: number; read
 
 /** client.ts drain: `keep:` and lifecycle entries of the focused connection. */
 export function keepAliveEvent(client: Focused, entry: Obj): boolean {
-  if (lifecycleEvent(client, entry)) return true;
+  if (lifecycleEvent(client, entry) || accessEvent(client, entry)) return true;
   return event(owners.get(client), entry);
 }
 
@@ -140,7 +141,7 @@ export function keepAliveEvent(client: Focused, entry: Obj): boolean {
 export async function keepAlivePrepare(client: Focused, native: Native | null | undefined): Promise<void> {
   if (!native?.available || !client.ready || !client.environmentId) return;
   const call = (request: Obj) => client.restAccess(native).call(request);
-  await watchLifecycle(client, call);
+  await watchLifecycle(client, call); await watchAccess(client, call);
   await pass(ownerOf(client, client.generation), client.environmentId, client.shell, client.threadId, call);
 }
 
@@ -152,11 +153,11 @@ export function keptThread(client: { generation: number }, threadId: string): Th
 
 // ── Background environments (settings-b-fleet.ts) ──────────────────────────
 export function keepAliveFleetEvent(entry: FleetEntry, value: Obj): boolean {
-  if (lifecycleFleetEvent(entry, value)) return true;
+  if (lifecycleFleetEvent(entry, value) || accessFleetEvent(entry, value)) return true;
   return event(owners.get(entry), value);
 }
 export async function keepAliveFleetPass(call: (request: Obj) => Promise<Obj>, entry: FleetEntry): Promise<void> {
-  await lifecycleFleetPass(call, entry);
+  await lifecycleFleetPass(call, entry); await accessFleetPass(call, entry);
   await pass(ownerOf(entry, entry.generation), entry.environmentId, entry.shell, '', call);
 }
 

@@ -364,7 +364,7 @@ export function timelineMessages(client: T3Client, transcript: Message[], now: n
       additions: files.reduce((sum, file) => sum + file.additions, 0), deletions: files.reduce((sum, file) => sum + file.deletions, 0),
       files: message.kind === 'checkpoint' ? treeRows(files, tree.all, tree.overrides) : [],
       runId: message.runId ?? '', sourceThreadId: message.sourceThreadId ?? '',
-      canFork: (message.kind === 'assistant' || message.kind === 'meta') && message.completed === true && message.streaming !== true,
+      canFork: (message.kind === 'assistant' || message.kind === 'meta') && message.completed === true && message.streaming !== true && message.local !== true,
       completed: message.completed === true, createdAt: message.createdAt ?? '', timestamp: messageTime(message.createdAt, now, format),
       timeTip: timestampTooltip(message.createdAt, format), actionsTimeTip: '', ...codeCopy,
       activities: retryableActivities(client, (message.activities ?? []).map(activity => ({ ...blankActivity({ ...activity, timestamp: messageTime(activity.timestamp, now, format) }), timeTip: timestampTooltip(activity.timestamp, format) }))),
