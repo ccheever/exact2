@@ -155,3 +155,12 @@ removed. `R9Input.swift` (X23a) and `T3TimelineTurns.swift`'s hold loop (X23c) s
 `20261005-pr-handoffs-and-quick-actions` no longer holds its fold row for X23d; when it is built, measure
 whether the reference's own `compensationRef` write is still needed on top of anchoring (Chrome anchors
 too), against the reference rather than assumed.
+
+## Re-checked on main `e200397ec` (2026-10-08, adopt-main-fixes-r6)
+
+The rest of #138 is [#277](https://github.com/ccheever/exact2/issues/277). Main `20f5aff2d`, `2faf6c190` and
+`d6ded2e7d` (LLP 1010 §6.9) give a virtualized `list` main-axis padding and take `scroll-padding-*` on it in
+`scrollIntoView`; on a plain `scroll` it is still refused (`lower-scroll-padding`), and `scroll-margin-*` is unknown. The
+reference's scroll-padding sites (the palette results, the work-group list, the composer menu, the combobox, command and
+autocomplete lists) are plain scrollers in the clone, so nothing is adopted (X23b). X23a and X23c are unchanged:
+`R9Input.swift` and `T3TimelineTurns.swift` stay (the latter also measures which turns are in view, X22).

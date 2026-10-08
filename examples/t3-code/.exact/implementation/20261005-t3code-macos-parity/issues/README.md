@@ -82,7 +82,7 @@ publication was performed during this local audit.
 
 | Issue | Capability | Kind | Blocks | Status |
 | --- | --- | --- | --- | --- |
-| [X49](20261007-x49-progress-value-accessibility.md) | A progress value for assistive technology (`progress`, `aria-valuenow`) | framework-gap | [provider-sign-in-and-install](../tasks/closed/20261005-provider-sign-in-and-install.md) (nonblocking: the status text carries the numbers) | reproduced with `contract vocab` on the feature branch's framework (main `7fa3fa5b7`); no upstream match by title; draft, not published |
+| [X49](20261007-x49-progress-value-accessibility.md) | A progress value for assistive technology (`progress`, `aria-valuenow`) | framework-gap | [provider-sign-in-and-install](../tasks/closed/20261005-provider-sign-in-and-install.md) (nonblocking: the status text carries the numbers) | upstream [#279](https://github.com/ccheever/exact2/issues/279) (filed 2026-10-08). Main `d82c12252` (in adopt-main-fixes-r6's merge of `e200397ec`) adds `progress` as the indeterminate activity indicator only and refuses `value`/`max`, so nothing to adopt: the drawn bar stays |
 | [X51](20261008-x51-popover-click-passthrough.md) | A click inside an open popover also reaching the page under it (macOS) | framework-gap (unconfirmed) | [theme-color-picker](../tasks/20261007-theme-color-picker.md) (nonblocking: `press` + `retainFocus` on the popover) | seen in the clone with the agent (`454daaff3`); not reproduced in a one-file app; not searched upstream, not published |
 
 ## Dialog focus addition, 2026-10-08
@@ -92,19 +92,29 @@ publication was performed during this local audit.
 | [X52](20261008-x52-macos-form-controls-tab-order.md) | `input type="date"`/`"time"` and `select` as Tab stops on macOS | framework-gap | [dialog-shortcut-focus](../tasks/20261008-dialog-shortcut-focus.md) (nonblocking: Custom snooze's other stops are in order) | reproduced on a scratch app on the feature branch's framework (main `1f19b2400`; `tabbable` unchanged on main `462308f9c`); draft, not published |
 | [X53](20261008-x53-state-driven-modal-focus.md) | A modal opened from state (`showModal(id)` on macOS and the web): focus in, Tab trapped, focus back | framework-gap | [dialog-shortcut-focus](../tasks/20261008-dialog-shortcut-focus.md) (per-dialog traps meanwhile) | reproduced on a scratch app (macOS "unknown command showModal", web refused); draft, not published |
 
-<<<<<<< HEAD
 ## Usage pooled view addition, 2026-10-08
 
 | Issue | Capability | Kind | Blocks | Status |
 | --- | --- | --- | --- | --- |
 | [X56](20261008-x56-press-lost-on-focus-restyle.md) | A mouse click whose mouse-down focuses a button that restyles itself on `focus` loses its press (macOS) | framework-gap (unconfirmed) | none ([usage-pooled-view](../tasks/20261005-usage-pooled-view.md) draws no ring of its own; the host ring stands in) | reproduced in the app with the agent (journal: focus, no press); a one-file app not tried; draft, not published |
-=======
+
 ## Pull request writes addition, 2026-10-08
 
 | Issue | Capability | Kind | Blocks | Status |
 | --- | --- | --- | --- | --- |
 | [X54](20261008-x54-focus-within-subtree.md) | An ancestor hearing the focus enter its subtree (`focusin`, `:focus-within`) | framework-gap | [pr-writing-and-metadata](../tasks/20261005-pr-writing-and-metadata.md) (nonblocking: "Show full comment" and the pencil are Tab stops of their own) | reproduced with `contract vocab` on the feature branch's framework; no upstream match by title; draft, not published |
->>>>>>> origin/feat(example)/t3-code
+
+## Main adoption round 6 addition, 2026-10-08
+
+| Issue | Capability | Kind | Blocks | Status |
+| --- | --- | --- | --- | --- |
+| [X57](20261008-x57-field-focus-ring-opt-out.md) | An app cannot remove the focus ring Exact draws on a bare text field or textarea (no `outline`; `appearance="none"` no longer opts out since main `5b2b77339`) | framework-gap | none ([adopt-main-fixes-r6](../tasks/20261008-adopt-main-fixes-r6.md): the prompt preview gained a ring with the merge; the composer has had one since r4's field sheet) | reproduced on main `e200397ec` with a one-file app and in the clone; draft, not published |
+
+Re-checked on main `e200397ec` ([adopt-main-fixes-r6](../tasks/20261008-adopt-main-fixes-r6.md)): since `1f19b2400` main
+closed none of this plan's issues (#234 was adopted in round 5). #108, #112, #116, #117, #124, #126, #127, #130, #131,
+#140, #141, #224, #235 and #266–#277 are open, and nothing main merged covers them; our drafts #227 and #228 are still
+open, and main took no other route. Main's partial steps: `scroll-padding` on a virtualized list (X23, #277) and an
+indeterminate `progress` (X49, #279), neither with anything for the clone to adopt.
 
 ## Upstream issues (filed 2026-10-06)
 
@@ -133,7 +143,7 @@ Each was reproduced on exact2 `4c893fef6` before filing. Not filed: X13 (unverif
 | X20 | [#125](https://github.com/ccheever/exact2/issues/125) | textarea editing: caret moves, setRangeText, beforeinput, undo, atomic ranges — closed by main #209 (field paste/copy/cut only); the native composer stays (adopt-main-fixes-r4) |
 | X21 | [#126](https://github.com/ccheever/exact2/issues/126) | Data modules cannot send on a WebSocket on native hosts (receive-only) |
 | X22 | [#127](https://github.com/ccheever/exact2/issues/127) | Layout facts beyond size: visibility, live position, container/anchor CSS |
-| X23 | [#138](https://github.com/ccheever/exact2/issues/138) | Scroll: restore a top-level list by key, scroll-padding/margin, smooth jumps, plain-scroll anchoring — closed by main #210 (plain-scroll anchoring only); no clone workaround for it; the PR fold row is unblocked |
+| X23 | [#138](https://github.com/ccheever/exact2/issues/138) | Scroll: restore a top-level list by key, scroll-padding/margin, smooth jumps, plain-scroll anchoring — closed by main #210 (plain-scroll anchoring only); no clone workaround for it; the PR fold row is unblocked. The rest is [#277](https://github.com/ccheever/exact2/issues/277). Main `2faf6c190` (in adopt-main-fixes-r6's merge of `e200397ec`) takes `scroll-padding` on a virtualized `list` only; the reference's scroll-padding sites are plain scrollers in the clone, so nothing to adopt |
 | X24 | [#139](https://github.com/ccheever/exact2/issues/139) | macOS: hover does not follow layout changes under a stationary pointer — **adopted** (main #174; PR #181) |
 | X25 | [#140](https://github.com/ccheever/exact2/issues/140) | Keyboard: add keyup, KeyboardEvent.code and .repeat, held modifiers, capture phase — keyup, `code` and `repeat` landed in main #220; open for a capture-phase handler and held-modifier state; nothing to remove yet (adopt-main-fixes-r5) |
 | X26 | [#141](https://github.com/ccheever/exact2/issues/141) | macOS: let an app declare its menu bar items, and support context-menu submenus — submenus landed in main #223 and Edit ▸ Speech in #226, both **adopted** (adopt-main-fixes-r5: the sidebar's menus are context popovers); open for the menu bar |
