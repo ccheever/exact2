@@ -201,8 +201,9 @@ function holds(client: T3Client): StackHold {
   return hold;
 }
 /** Root readiness resource; independent from the editor/menu resource. */
-export function composerWorkspaceView(client: T3Client) {
-  return cache(client).discovery.state(client.ready ? client.environmentId : '', client.generation, provider(client), workspaceCwd(client), { prompt: client.draft, config: client.config });
+/** `shown`: whether the chat view (and so ChatComposer) is on screen; omitted, the last answer's. */
+export function composerWorkspaceView(client: T3Client, shown?: boolean) {
+  return cache(client).discovery.state(client.ready ? client.environmentId : '', client.generation, provider(client), workspaceCwd(client), { prompt: client.draft, config: client.config }, shown);
 }
 /** Root mutation: await the RPC, then Contract starts its retry clock on completion. */
 export async function refreshComposerWorkspace(client: T3Client, native: Native | null | undefined, key: string) {
