@@ -42,6 +42,7 @@ use ConnectionsPage from "./connections.contract"
 use AddEnvironmentDialog from "./connections.contract"
 use EnvironmentRemoveDialog from "./connections.contract"
 use LocalEnvironmentDialog from "./this-machine.contract" // local-primary-environment
+use NetworkDialogs from "./connections-network-dialogs.contract" // this-machine-network-access
 use RouteRemoveDialog from "./connections-routes.contract"
 use ProjectsPanel from "./settings-projects.contract"
 use ProjectsPage from "./settings-projects.contract"
@@ -321,6 +322,8 @@ component SettingsModals
     // "Turn off/on local environment?" (this-machine.contract): open until the switch reads the new value.
     when (connectionRemove == "local-environment:off" and connectionsPage.thisMachine.enabled) or (connectionRemove == "local-environment:on" and not connectionsPage.thisMachine.enabled)
       LocalEnvironmentDialog(title=connectionsPage.thisMachine.dialogTitle, body=connectionsPage.thisMachine.dialogBody, confirmLabel=connectionsPage.thisMachine.dialogConfirm, destructive=connectionsPage.thisMachine.enabled, busy=commandPending, error=connectionsPage.thisMachine.error, still=viewport.prefersReducedMotion, cancel=connectionAskRemove(""), confirm=localCommand("local-environment", "", connectionsPage.thisMachine.enabled ? "off" : "on"))
+    // Network access, Tailscale HTTPS, Create pairing link and the reveal dialog (connections-network-dialogs.contract).
+    NetworkDialogs(net=connectionsPage.network, remove=connectionRemove, ask=connectionAskRemove, command=localCommand, busy=commandPending, still=viewport.prefersReducedMotion)
     when connectionRemove != ""
       each environment in connectionsPage.environments key=environment.key
         when environment.key == connectionRemove
