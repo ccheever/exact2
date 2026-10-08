@@ -9,6 +9,7 @@ use MorphMaximize from "./shell-morph.contract"
 use CiteButton, CitePart from "./diff-cite.contract"
 use MarkdownMedia from "./media-markdown.contract"
 use hoverTipAtFrame from "./hover-layer.contract" // pr-links-previews-and-routing: a pull request link's card
+use kmArrow from "./menu-keys.contract"
 shape ChatRun
   id: string
   text: string
@@ -859,7 +860,7 @@ component MarkdownTable
         Tip(label=(expanded ? "Collapse table cells" : "Expand table cells"), side="top", align="start", offset=28)
           TableIconButton(label=(expanded ? "Collapse table cells" : "Expand table cells"), icon=(expanded ? "minimize" : "maximize"), pressed=expanded, press=toggleExpanded, testId=`table-expand-${block.id}`)
         Tip(label="Copy table", side="top", align="end", offset=28)
-          TableCopyButton(press=local("table-menu", block.id, `${block.markdown}\t${block.csv}`), copied=copied, open=false, testId=`table-copy-${block.id}`) // lane r8-keys: its popup is the window's (r8-keys-table-menu.contract)
+          TableCopyButton(press=local("table-menu", block.id, `${block.markdown}\t${block.csv}`), pressFirst=local("table-menu", block.id, `keys:first\t${block.markdown}\t${block.csv}`), pressLast=local("table-menu", block.id, `keys:last\t${block.markdown}\t${block.csv}`), copied=copied, open=false, testId=`table-copy-${block.id}`) // lane r8-keys: its popup is the window's (r8-keys-table-menu.contract)
 
 // A th or td: 7.2/12 padding (8.8 in the header), the column's sizing cell
 // drawn invisibly beneath so every row's cell takes the column's width. The
@@ -939,14 +940,31 @@ component TableIconButton
 component TableCopyButton
   props
     press: action
+    // ↓ and ↑: the same request, asking the window's menu to focus its first or last item as it mounts.
+    pressFirst: action
+    pressLast: action
     copied: number
     open: bool
     testId: string
   state hovered = false
   action hover(over: bool)
     hovered = over
+  // fix-keyboard-focus: the Copy menu opens from the data module; the button lets go of the focus and the
+  // menu's popup takes it as it mounts (`autofocus`, menu-keys.contract). ↓ and ↑ open it too: the menu
+  // mounts at the window, past this tree, so the request itself carries the end (`menu.keyed`).
+  action openMenu
+    blur()
+    press()
+  action menuKey(k: string, e: KeyboardEvent)
+    if kmArrow(k) and not e.metaKey and not e.ctrlKey and not e.altKey and not open
+      preventDefault()
+      blur()
+      if k == "ArrowUp"
+        pressLast()
+      else
+        pressFirst()
   view
-    button press=press hover=hover aria-label="Copy table" aria-expanded=open id=testId hatch="t3-measure" data-frame=testId testId=testId width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 background-color=(hovered or open ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center"
+    button press=openMenu key=menuKey hover=hover aria-label="Copy table" aria-expanded=open id=testId hatch="t3-measure" data-frame=testId testId=testId width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 background-color=(hovered or open ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center"
       when copied > 0
         box position="relative" width="0.75rem" height="0.75rem"
           box position="absolute" left=0 top=0 width="0.75rem" height="0.75rem" animation=(copied % 2 == 0 ? "mdCopyA 1.2s linear forwards" : "mdCopyB 1.2s linear forwards")
@@ -962,8 +980,11 @@ component TableMenuItem
     press: action
     testId: string
   state hovered = false
+  state lit = false
   action hover(over: bool)
     hovered = over
+  action focused(on: bool)
+    lit = on
   view
-    button press=press hover=hover role="menuitem" aria-label=label testId=testId width="100%" height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-radius="0.375rem" border-width=0 background-color=(hovered ? "light-dark(#f4f4f5, #1c1c1c)" : "#00000000") display="flex" flex-direction="row" align-items="center"
+    button id=testId press=press hover=hover focus=focused(true) blur=focused(false) role="menuitem" aria-label=label testId=testId width="100%" height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-radius="0.375rem" border-width=0 background-color=(hovered or lit ? "light-dark(#f4f4f5, #1c1c1c)" : "#00000000") display="flex" flex-direction="row" align-items="center"
       text label font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" flex=1 min-width=0 text-align="left" line-clamp=1

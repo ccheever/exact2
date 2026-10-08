@@ -24,6 +24,11 @@ use SidebarTip from "./sidebar-row.contract"
 use TerminalProcessIndicator from "./sidebar-row.contract"
 use ProviderPill from "./r4-polish-tip.contract"
 use SettingsConfirm from "./settings-rest-dialogs.contract"
+use KmItem from "./menu-keys.contract"
+use KeyMenu from "./menu-keys.contract"
+use kmOpenKey from "./menu-keys.contract"
+use KeyMenuOpen from "./menu-keys.contract"
+use kmBump from "./menu-keys.contract"
 
 // animate-status-pulse: full, then half opacity.
 keyframes lsStatusPulse
@@ -148,22 +153,34 @@ component LegacyOptions
     local: action
     viewportWidth: number
   state tail = 0
+  // fix-keyboard-focus: the menu's keyboard (menu-keys.contract), over its radio rows.
+  state keyed = 0
+  state keyArmed = false
+  action keyArm(on: bool)
+    keyArmed = on
+  action keyOpened(last: bool)
+    keyed = kmBump(keyed, last)
   action place
     tail = max(0, viewportWidth - frame("legacy-options").x - frame("legacy-options").width)
+  action triggerKey(k: string)
+    if kmOpenKey(k)
+      keyed = kmBump(keyed, false)
   view
     column position="relative" flex-shrink=0
       Tip(label="Sidebar options", side="right", align="center", offset=30)
-        button cursor="pointer" id="legacy-options" popovertarget="legacy-sidebar-options" press=place aria-label="Sidebar options" aria-haspopup="menu" testId="legacy-sidebar-options" width="1.5rem" height="1.5rem" padding=0 border-radius="0.375rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center"
+        button cursor="pointer" id="legacy-options" popovertarget="legacy-sidebar-options" press=place key=triggerKey focus=keyArm(true) blur=keyArm(false) aria-label="Sidebar options" aria-haspopup="menu" testId="legacy-sidebar-options" width="1.5rem" height="1.5rem" padding=0 border-radius="0.375rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center"
           LegacyIcon(name="arrow-up-down", size=14, color="light-dark(#71717b, #818181)")
+      KeyMenuOpen(menuId="legacy-sidebar-options", armed=keyArmed, opened=keyOpened)
       row id="legacy-sidebar-options" popover="auto" position="absolute" padding-top="0.25rem" align-items="flex-start" testId="legacy-sidebar-options-layer"
         column width="12rem" padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#27272a1a, #f5f5f51a)" background-color="light-dark(#fffffff5, #111111f5)" box-shadow="0 16px 40px -18px #0000008c" role="menu" aria-label="Sidebar options" flex-shrink=0
-          text "Sort projects" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" font-size="0.75rem" line-height="1rem" font-weight=500 color="light-dark(#71717b, #818181)"
-          LegacyRadio(label="Last user message", checked=(legacy.projectSort == "updated_at"), press=local("legacy-sort-projects", "", "updated_at"), testId="legacy-sort-projects-updated_at")
-          LegacyRadio(label="Created at", checked=(legacy.projectSort == "created_at"), press=local("legacy-sort-projects", "", "created_at"), testId="legacy-sort-projects-created_at")
-          LegacyRadio(label="Manual", checked=(legacy.projectSort == "manual"), press=local("legacy-sort-projects", "", "manual"), testId="legacy-sort-projects-manual")
-          text "Sort threads" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.5rem" padding-bottom="0.25rem" font-size="0.75rem" line-height="1rem" font-weight=500 color="light-dark(#71717b, #818181)"
-          LegacyRadio(label="Last user message", checked=(legacy.threadSort == "updated_at"), press=local("legacy-sort-threads", "", "updated_at"), testId="legacy-sort-threads-updated_at")
-          LegacyRadio(label="Created at", checked=(legacy.threadSort == "created_at"), press=local("legacy-sort-threads", "", "created_at"), testId="legacy-sort-threads-created_at")
+          KeyMenu(menuId="legacy-sidebar-options-keys", items=[KmItem(id="legacy-sort-projects-updated_at", label="Last user message"), KmItem(id="legacy-sort-projects-created_at", label="Created at"), KmItem(id="legacy-sort-projects-manual", label="Manual"), KmItem(id="legacy-sort-threads-updated_at", label="Last user message"), KmItem(id="legacy-sort-threads-created_at", label="Created at")], keyed=keyed, gap="0px", modal=true)
+            text "Sort projects" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" font-size="0.75rem" line-height="1rem" font-weight=500 color="light-dark(#71717b, #818181)"
+            LegacyRadio(label="Last user message", checked=(legacy.projectSort == "updated_at"), press=local("legacy-sort-projects", "", "updated_at"), testId="legacy-sort-projects-updated_at")
+            LegacyRadio(label="Created at", checked=(legacy.projectSort == "created_at"), press=local("legacy-sort-projects", "", "created_at"), testId="legacy-sort-projects-created_at")
+            LegacyRadio(label="Manual", checked=(legacy.projectSort == "manual"), press=local("legacy-sort-projects", "", "manual"), testId="legacy-sort-projects-manual")
+            text "Sort threads" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.5rem" padding-bottom="0.25rem" font-size="0.75rem" line-height="1rem" font-weight=500 color="light-dark(#71717b, #818181)"
+            LegacyRadio(label="Last user message", checked=(legacy.threadSort == "updated_at"), press=local("legacy-sort-threads", "", "updated_at"), testId="legacy-sort-threads-updated_at")
+            LegacyRadio(label="Created at", checked=(legacy.threadSort == "created_at"), press=local("legacy-sort-threads", "", "created_at"), testId="legacy-sort-threads-created_at")
           text "Visible threads" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.5rem" padding-bottom="0.25rem" font-size="0.75rem" line-height="1rem" font-weight=500 color="light-dark(#71717b, #818181)"
           // The field keeps what is typed until the clamped value lands, then starts over from it.
           each n in [legacy.previewCount] key=n
@@ -177,10 +194,13 @@ component LegacyRadio
     press: action
     testId: string
   state over = false
+  state lit = false
   action hover(value: bool)
     over = value
+  action focused(on: bool)
+    lit = on
   view
-    button cursor="pointer" press=press hover=hover role="menuitemradio" aria-checked=checked testId=testId width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" gap="0.5rem" border-radius="0.375rem" border-width=0 background-color=(over ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center"
+    button id=testId cursor="pointer" press=press hover=hover focus=focused(true) blur=focused(false) role="menuitemradio" aria-checked=checked testId=testId width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" gap="0.5rem" border-radius="0.375rem" border-width=0 background-color=(over or lit ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center"
       box width="1rem" height="1rem" display="flex" align-items="center" justify-content="center" flex-shrink=0
         when checked
           box width="0.375rem" height="0.375rem" border-radius="0.1875rem" background-color="light-dark(#27272a, #f5f5f5)"

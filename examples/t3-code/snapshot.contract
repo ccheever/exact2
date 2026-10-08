@@ -12,6 +12,11 @@ use Primary from "./shapes.contract"
 use ImageDraftTile from "./composer-editor.contract"
 use ComposerVideo from "./r4-composer.contract"
 use VideoDraftTile from "./r4-composer.contract"
+use KmItem from "./menu-keys.contract"
+use KeyMenu from "./menu-keys.contract"
+use kmOpenKey from "./menu-keys.contract"
+use KeyMenuOpen from "./menu-keys.contract"
+use kmBump from "./menu-keys.contract"
 
 style SnapSectionTitle
   font-size="0.875rem" font-weight=400 line-height="1.25rem" color="light-dark(#262629b3, #f5f5f5b3)"
@@ -136,6 +141,16 @@ component SnapshotPanel
     preview: action
     record: action
     saveShortcut: action
+  // fix-keyboard-focus: Enter or Space opens the menu from the keyboard (menu-keys.contract).
+  state keyed = 0
+  state keyArmed = false
+  action keyArm(on: bool)
+    keyArmed = on
+  action keyOpened(last: bool)
+    keyed = kmBump(keyed, last)
+  action triggerKey(k: string)
+    if kmOpenKey(k)
+      keyed = kmBump(keyed, false)
   view
     column id="snap-shot" gap="0.625rem" width="100%" testId="snapshot-settings"
       row min-height="1.75rem" padding-left="1rem" padding-right="1rem" align-items="center" box-sizing="border-box"
@@ -164,26 +179,28 @@ component SnapshotPanel
                 text "Cancel" class=SnapLabelXs
           SnapRow(title="Capture sound", description="Choose the sound played when capture starts.", status="", first=false, rowId="snap-shot-sound")
             box position="relative" flex-shrink=0
-              button popovertarget="snapshot-sound-menu" aria-label=`Snapshot sound: ${data.soundLabel}${data.soundSelection == "soft-pop" ? " (Default)" : ""}` disabled=(not data.captureAvailable) testId="snapshot-sound" display="flex" flex-direction="row" align-items="center" gap="0.375rem" height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" box-sizing="border-box" border-radius="0.625rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#fcfcfc, #ffffff07)" flex-shrink=0
+              button popovertarget="snapshot-sound-menu" key=triggerKey focus=keyArm(true) blur=keyArm(false) aria-label=`Snapshot sound: ${data.soundLabel}${data.soundSelection == "soft-pop" ? " (Default)" : ""}` disabled=(not data.captureAvailable) testId="snapshot-sound" display="flex" flex-direction="row" align-items="center" gap="0.375rem" height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" box-sizing="border-box" border-radius="0.625rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#fcfcfc, #ffffff07)" flex-shrink=0
                 row gap="0.25rem" align-items="center"
                   text data.soundLabel font-size="0.875rem" line-height="1.25rem" class=SnapInk white-space="nowrap"
                   when data.soundSelection == "soft-pop"
                     text "(Default)" font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #818181)" white-space="nowrap"
                 SnapIcon(name="chevron-down", size=12, color="light-dark(#27272a80, #f5f5f580)")
+              KeyMenuOpen(menuId="snapshot-sound-menu", armed=keyArmed, opened=keyOpened)
               column id="snapshot-sound-menu" popover="auto" role="menu" aria-label="Snapshot sound" class=SnapMenu position="absolute" top="100%" right=0 testId="snapshot-sound-menu"
-                button press=change("snapShotPlaySound", "false") popovertarget="snapshot-sound-menu" popovertargetaction="hide" role="menuitemradio" aria-checked=(data.soundSelection == "off") class=SnapMenuItem width="100%" background-color=(data.soundSelection == "off" ? "light-dark(#27272a14, #f5f5f514)" : "#00000000") testId="snapshot-sound-off"
-                  text "Off" class=SnapInk
-                row width="100%" align-items="center"
-                  button press=change("snapShotSound", "soft-pop") popovertarget="snapshot-sound-menu" popovertargetaction="hide" role="menuitemradio" aria-checked=(data.soundSelection == "soft-pop") class=SnapMenuItem flex=1 min-width=0 gap="0.25rem" background-color=(data.soundSelection == "soft-pop" ? "light-dark(#27272a14, #f5f5f514)" : "#00000000") testId="snapshot-sound-whoosh"
-                    text "Whoosh" class=SnapInk white-space="nowrap"
-                    text "(Default)" color="light-dark(#71717b, #818181)" white-space="nowrap"
-                  button press=preview("soft-pop") role="menuitem" aria-label="Play Whoosh" class=SnapMenuItem width="1.75rem" padding-left=0 padding-right=0 justify-content="center" background-color="#00000000" testId="snapshot-play-whoosh"
-                    SnapIcon(name="play", size=16, color="light-dark(#27272a, #f5f5f5)")
-                row width="100%" align-items="center"
-                  button press=change("snapShotSound", "camera-shutter") popovertarget="snapshot-sound-menu" popovertargetaction="hide" role="menuitemradio" aria-checked=(data.soundSelection == "camera-shutter") class=SnapMenuItem flex=1 min-width=0 background-color=(data.soundSelection == "camera-shutter" ? "light-dark(#27272a14, #f5f5f514)" : "#00000000") testId="snapshot-sound-click"
-                    text "Click" class=SnapInk
-                  button press=preview("camera-shutter") role="menuitem" aria-label="Play Click" class=SnapMenuItem width="1.75rem" padding-left=0 padding-right=0 justify-content="center" background-color="#00000000" testId="snapshot-play-click"
-                    SnapIcon(name="play", size=16, color="light-dark(#27272a, #f5f5f5)")
+                KeyMenu(menuId="snapshot-sound-keys", items=[KmItem(id="snapshot-sound-off", label="Off"), KmItem(id="snapshot-sound-whoosh", label="Whoosh"), KmItem(id="snapshot-play-whoosh", label="Play Whoosh"), KmItem(id="snapshot-sound-click", label="Click"), KmItem(id="snapshot-play-click", label="Play Click")], keyed=keyed, gap="0px", modal=true)
+                  button id="snapshot-sound-off" press=change("snapShotPlaySound", "false") popovertarget="snapshot-sound-menu" popovertargetaction="hide" role="menuitemradio" aria-checked=(data.soundSelection == "off") class=SnapMenuItem width="100%" background-color=(data.soundSelection == "off" ? "light-dark(#27272a14, #f5f5f514)" : "#00000000") testId="snapshot-sound-off"
+                    text "Off" class=SnapInk
+                  row width="100%" align-items="center"
+                    button id="snapshot-sound-whoosh" press=change("snapShotSound", "soft-pop") popovertarget="snapshot-sound-menu" popovertargetaction="hide" role="menuitemradio" aria-checked=(data.soundSelection == "soft-pop") class=SnapMenuItem flex=1 min-width=0 gap="0.25rem" background-color=(data.soundSelection == "soft-pop" ? "light-dark(#27272a14, #f5f5f514)" : "#00000000") testId="snapshot-sound-whoosh"
+                      text "Whoosh" class=SnapInk white-space="nowrap"
+                      text "(Default)" color="light-dark(#71717b, #818181)" white-space="nowrap"
+                    button id="snapshot-play-whoosh" press=preview("soft-pop") role="menuitem" aria-label="Play Whoosh" class=SnapMenuItem width="1.75rem" padding-left=0 padding-right=0 justify-content="center" background-color="#00000000" testId="snapshot-play-whoosh"
+                      SnapIcon(name="play", size=16, color="light-dark(#27272a, #f5f5f5)")
+                  row width="100%" align-items="center"
+                    button id="snapshot-sound-click" press=change("snapShotSound", "camera-shutter") popovertarget="snapshot-sound-menu" popovertargetaction="hide" role="menuitemradio" aria-checked=(data.soundSelection == "camera-shutter") class=SnapMenuItem flex=1 min-width=0 background-color=(data.soundSelection == "camera-shutter" ? "light-dark(#27272a14, #f5f5f514)" : "#00000000") testId="snapshot-sound-click"
+                      text "Click" class=SnapInk
+                    button id="snapshot-play-click" press=preview("camera-shutter") role="menuitem" aria-label="Play Click" class=SnapMenuItem width="1.75rem" padding-left=0 padding-right=0 justify-content="center" background-color="#00000000" testId="snapshot-play-click"
+                      SnapIcon(name="play", size=16, color="light-dark(#27272a, #f5f5f5)")
           SnapRow(title="Capture flash", description="Show a gentle cue on the captured window.", status="", first=false, rowId="snap-shot-flash")
             SnapSwitch(checked=data.flash, label="Flash captured window", disabled=(busy or not data.captureAvailable), switchId="snapshot-flash", toggle=change("snapShotFlash", data.flash ? "false" : "true"))
           SnapRow(title="Capture animations", description="Animate captured windows into your draft.", status="", first=false, rowId="snap-shot-animations")

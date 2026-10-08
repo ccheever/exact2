@@ -17,6 +17,10 @@ use LucideTriangleAlert from "./settings-icons.contract"
 use LucideX from "./settings-icons.contract"
 use LucideEllipsis from "./settings-icons.contract"
 use LucideCircleX from "./settings-icons.contract"
+use KmItem from "./menu-keys.contract"
+use kmOpenKey from "./menu-keys.contract"
+use KeyMenuOpen from "./menu-keys.contract"
+use kmBump from "./menu-keys.contract"
 
 shape KeyPill
   id: string
@@ -176,6 +180,16 @@ component KeybindingRow
   action hover(over: bool)
     hovered = over
   derive dirty = editing and (draftKey != row.key or draftWhen != row.condition)
+  // fix-keyboard-focus: Enter or Space opens the menu from the keyboard (menu-keys.contract).
+  state keyed = 0
+  state keyArmed = false
+  action keyArm(on: bool)
+    keyArmed = on
+  action keyOpened(last: bool)
+    keyed = kmBump(keyed, last)
+  action triggerKey(k: string)
+    if kmOpenKey(k)
+      keyed = kmBump(keyed, false)
   view
     row hover=hover width="100%" box-sizing="border-box" padding-top="0.75rem" padding-bottom="0.75rem" padding-left="1rem" padding-right="1rem" gap="2rem" align-items="center" testId=`keybinding-row-${row.id}`
       column flex=1 min-width=0 gap="0.25rem"
@@ -190,13 +204,15 @@ component KeybindingRow
         when conflict != ""
           Warning(label=conflict)
         when row.canReset or row.canRemove
-          button popovertarget=`keybinding-menu-${row.id}` disabled=busy class=KbIcon width="1.75rem" height="1.75rem" aria-label=`Actions for ${row.label}` testId=`keybinding-actions-${row.id}` opacity=(hovered or editing ? 1 : 0)
-            LucideEllipsis(size=14, color="light-dark(#71717b, #818181)")
-          SkPopup(menuId=`keybinding-menu-${row.id}`, label=`Actions for ${row.label}`, width=160, list=false, endAlign=28)
-            when row.canReset
-              SkMenuItem(label="Reset to default", menuId=`keybinding-menu-${row.id}`, itemId=`reset-keybinding-${row.id}`, selected=false, check=false, destructive=false, disabled=busy, choose=rest("keybinding", `action=save&previous=${encodeURIComponent(row.id)}&command=${encodeURIComponent(row.command)}&key=${encodeURIComponent(row.defaultKey)}&when=${encodeURIComponent(row.defaultWhen)}`))
-            when row.canRemove
-              SkMenuItem(label="Remove", menuId=`keybinding-menu-${row.id}`, itemId=`remove-keybinding-${row.id}`, selected=false, check=false, destructive=true, disabled=busy, choose=rest("keybinding", `action=remove&previous=${encodeURIComponent(row.id)}`))
+          box position="relative" flex-shrink=0
+            button popovertarget=`keybinding-menu-${row.id}` key=triggerKey focus=keyArm(true) blur=keyArm(false) disabled=busy class=KbIcon width="1.75rem" height="1.75rem" aria-label=`Actions for ${row.label}` testId=`keybinding-actions-${row.id}` opacity=(hovered or editing ? 1 : 0)
+              LucideEllipsis(size=14, color="light-dark(#71717b, #818181)")
+            KeyMenuOpen(menuId=`keybinding-menu-${row.id}`, armed=keyArmed, opened=keyOpened)
+            SkPopup(menuId=`keybinding-menu-${row.id}`, label=`Actions for ${row.label}`, width=160, list=false, endAlign=28, items=filter([KmItem(id=(row.canReset and not busy ? `reset-keybinding-${row.id}` : ""), label="Reset to default"), KmItem(id=(row.canRemove and not busy ? `remove-keybinding-${row.id}` : ""), label="Remove")], (item) => item.id != ""), keyed=keyed)
+              when row.canReset
+                SkMenuItem(label="Reset to default", menuId=`keybinding-menu-${row.id}`, itemId=`reset-keybinding-${row.id}`, selected=false, check=false, destructive=false, disabled=busy, choose=rest("keybinding", `action=save&previous=${encodeURIComponent(row.id)}&command=${encodeURIComponent(row.command)}&key=${encodeURIComponent(row.defaultKey)}&when=${encodeURIComponent(row.defaultWhen)}`))
+              when row.canRemove
+                SkMenuItem(label="Remove", menuId=`keybinding-menu-${row.id}`, itemId=`remove-keybinding-${row.id}`, selected=false, check=false, destructive=true, disabled=busy, choose=rest("keybinding", `action=remove&previous=${encodeURIComponent(row.id)}`))
         when dirty
           button press=rest("keybinding", `action=save&previous=${encodeURIComponent(row.id)}&command=${encodeURIComponent(row.command)}&key=${encodeURIComponent(draftKey)}&when=${encodeURIComponent(draftWhen)}`) disabled=(busy or draftKey == "" or not valid) class=KbPrimary testId=`save-keybinding-${row.id}` opacity=(busy or draftKey == "" or not valid ? 0.64 : 1)
             text (busy ? "Saving" : "Save") font-size="0.875rem" font-weight=500 line-height="1.25rem" color="#ffffff"
