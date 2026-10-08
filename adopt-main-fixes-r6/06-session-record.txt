@@ -47,7 +47,7 @@ AppKit probe B (fieldprobe/main.swift): the same bare field with an authored #27
   white). The base multiplied that by the sheet's opacity 0.5; main dropped that row, so a disabled field is AppKit's alone,
   nearer the reference's 0.64 (its Input dims the whole control, border included). No clone change.
 
-X57 repro (scratchpad ring-probe, `bun scripts/exact.mjs new`, main e200397ec): image 05; `bun exact.mjs agent macos --size
+X59 repro (scratchpad ring-probe, `bun scripts/exact.mjs new`, main e200397ec): image 05; `bun exact.mjs agent macos --size
 420x420 "tap bare-input" "screenshot …"`, then `"tap bare-textarea" "type bare-textarea key ArrowRight" "screenshot …"`, then
 the same for `none-textarea` (appearance="none"): each focused field shows the 2 pt keyboardFocusIndicatorColor ring;
 `contract vocab outline` answers "`outline` is not a tag or an attribute".
