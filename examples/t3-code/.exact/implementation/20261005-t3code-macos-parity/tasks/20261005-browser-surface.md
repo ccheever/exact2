@@ -143,10 +143,10 @@ public page.
 | Criterion | Action | Expected | Result |
 | --- | --- | --- | --- |
 | Ported tests | `bun test examples/t3-code` | The ported tests pass | pass: see "Tests" |
-| Open and tabs (part 1's half) | "+" menu › Browser (B); open two tabs; switch; close one; hide and show the panel; switch threads | Tab titles and favicons follow the pages; tabs keep their pages across hide and thread switch; closing ends the session | Live (drive 2): Browser row available, a tab opens as `tab_1` with "Browser" and the globe, `t3.browser: open [env, thread, epoch, tab_1]`. Titles, favicons, hide/show, thread switch and close: AppKit (`testATabOutlivesItsViewAndClosesWithItsSession`, `testAnIdleTabLoadsAPageAndReportsItsStates`) and Bun (`desktopTabLifetime (through the panel)`, `RightPanelTabs: a browser tab`); live: not reached (see Attempts) |
-| Chrome row | Back, Forward, Refresh, Stop during a slow load, URL entry (bare host, `localhost:5173`, full URL, invalid), Open in system browser | States, tooltips and normalization as the reference; invalid input does nothing (`handleSubmitUrl` catches); the system browser gets the URL | Logic: Bun (`normalizePreviewUrl` 9 + `handleSubmitUrl`, `Back, Forward, …`); engine: AppKit (`testBackForwardRefreshAndHardReload`, `testRefreshWhileLoadingAsksForThePendingPageAgain`); live: the chrome row draws (image 03), the field takes text; navigation from the field was not reached: the drive found the bug fixed after it (Attempts) |
-| Empty, loading, failed | No tabs; then a slow load, a closed port | "No preview yet"; the loading bar; LoadFailed with code and description | Empty: live (image 02); loading and failed: AppKit (`testALoadFailureIsReportedUntilTheNextLoad`: `ERR_CONNECTION_REFUSED`, -1004; `testAMissingPageIsAPageNotAFailure`) and Bun (`the chrome row and the native host`) |
-| More menu (part 1's half) | Open the menu | Hard reload works; the rest is listed, disabled, with its part | Tree read back in drive 2: Hard reload enabled once the page exists, the six other rows disabled; Hard reload: AppKit |
+| Open and tabs (part 1's half) | "+" menu › Browser (B); open two tabs; switch; close one; hide and show the panel; switch threads | Tab titles and favicons follow the pages; tabs keep their pages across hide and thread switch; closing ends the session | Live (drive 2): Browser row available, a tab opens as `tab_1` with "Browser" and the globe, `t3.browser: open [env, thread, epoch, tab_1]`. Live ([drive 3](https://raw.githubusercontent.com/ccheever/exact2/b3f0a2582919aa7cbf99fd6bcfd6230acbef9fab/browser-surface/drive3-record.txt)): the tab's title follows the page ("Page A", "Page B", "Example Domain") and the lane page's favicon is captured (`browser-tab-favicon`). Hide/show, thread switch and close: AppKit (`testATabOutlivesItsViewAndClosesWithItsSession`) and Bun (`desktopTabLifetime (through the panel)`); live hide/show and close: not reached (drive 3 stopped on #285, Attempts) |
+| Chrome row | Back, Forward, Refresh, Stop during a slow load, URL entry (bare host, `localhost:5173`, full URL, invalid), Open in system browser | States, tooltips and normalization as the reference; invalid input does nothing (`handleSubmitUrl` catches); the system browser gets the URL | pass live ([drive 3](https://raw.githubusercontent.com/ccheever/exact2/b3f0a2582919aa7cbf99fd6bcfd6230acbef9fab/browser-surface/drive3-record.txt)): `127.0.0.1:16651` → `http://127.0.0.1:16651/` (`t3.browser: navigate`, fixture `GET /`), `/a`, `/b`; Back → Page A with Back and Forward enabled, Forward → Page B (Forward disabled); during `/slow` the button reads "Stop" and pressing it asks for the page again (a second `GET /slow`); `example.com` → `https://example.com/`, "Example Domain"; Open in system browser recorded `https://example.com/`. Also Bun and AppKit (`testBackForwardRefreshAndHardReload`, `testRefreshWhileLoadingAsksForThePendingPageAgain`) |
+| Empty, loading, failed | No tabs; then a slow load, a closed port | "No preview yet"; the loading bar; LoadFailed with code and description | pass live: empty (drive 2, image 02); loading (Stop and the loading bar, [drive 3](https://raw.githubusercontent.com/ccheever/exact2/b3f0a2582919aa7cbf99fd6bcfd6230acbef9fab/browser-surface/drive3-record.txt)); failed ([drive 3](https://raw.githubusercontent.com/ccheever/exact2/b3f0a2582919aa7cbf99fd6bcfd6230acbef9fab/browser-surface/drive3-record.txt)): "This site can’t be reached", "127.0.0.1:16699: Connection refused.", `ERR_CONNECTION_REFUSED`, Reload pressed. Also AppKit and Bun |
+| More menu (part 1's half) | Open the menu | Hard reload works; the rest is listed, disabled, with its part | Tree read back in drive 2: Hard reload enabled once the page exists, the six other rows disabled; drive 3 opened the menu; Hard reload pressed live: not reached (#285); Hard reload: AppKit `testBackForwardRefreshAndHardReload` |
 | Page inspection | A development build, then a release build | Development: inspectable; release: not | `isInspectable=true (development build)` read back from the app (`t3.inspection: browser web view …`, drive 2) and AppKit; release: the gate is #326's, tested there; Safari's Develop menu attaching: real-input batch |
 | Permissions and popups | A page asking for the camera; a scripted pop-up; a `target=_blank` link | Camera denied; the pop-up opens a window that keeps its opener and refuses its own; the link loads in the tab | pass: AppKit (`testTheCameraAndMicrophoneAreDenied`, `testScriptedPopupsOpenAWindowAndBlankLinksStayInTheTab`, the three `previewWindowOpenAction` tests) |
 | Crash and recovery | Kill the tab's WebKit content process | Recovery as `webviewCrashRecovery` | pass: AppKit (`testACrashedPageRecoversAtItsURL`: SIGKILL on the content process, reload at the URL; the two ported plan tests) |
@@ -169,8 +169,10 @@ list.
 2026-10-08: #100 closed upstream as not planned; the user chose path B (a `WKWebView` in the clone's module).
 2026-10-09: `prepare` split the ticket into five parts (four planned records written) and part 1 was built on
 `f633671b7` (the root rewrite), merged with `3c7b35984` (#333). Two live sessions (the limit); the second found that a
-navigation from the URL field never reached the page, fixed after the drive (Attempts); a third session to drive the
-navigation rows is asked of the coordinator.
+navigation from the URL field never reached the page, fixed after the drive (Attempts). Review round 1 fixed nine issues.
+The coordinator allowed a third agent-mode session on the fixed build (screen locked): it passed the navigation rows and
+stopped before Hard reload, hide/show and close, on the agent driver's `clock +N real` bug (#285, fixed on main by #304,
+not yet in this branch).
 
 ## Attempts and evidence
 
@@ -204,6 +206,8 @@ can run without the app:
 9. The URL field's focus could outlive the field (a tab switch without a blur), keeping Escape from the panel toggle;
    and one tab's draft carried over to another. The focus is now kept by tab, and the chrome row is mounted per tab.
 
+| Drive 3 (agent mode, coordinator go-ahead, screen locked) | `cf53202c4` (bundle rebuilt) | Ops 1–54 of 71: the lane page, `/a`, `/b`, Back and Forward, Stop during `/slow` (a second `GET /slow`), `example.com`, Open in system browser (recorded), the failed page for 16699 and its Reload, `/a` again, the More menu opened. Op 55 (`clock +1000 real`) refused by the agent driver: "the clock cannot go backwards (73800.0 → 73799.99999999999)" | [drive 3](https://raw.githubusercontent.com/ccheever/exact2/b3f0a2582919aa7cbf99fd6bcfd6230acbef9fab/browser-surface/drive3-record.txt) (trees, host logs, fixture log; agent captures are blank while the screen is locked) | Hard reload, hide/show and close not reached: exact2 [#285](https://github.com/ccheever/exact2/issues/285), fixed on main by #304, adopted with round 7 (blocked by #320); AppKit and Bun cover them |
+
 ## Real-input batch steps
 
 Deferred to the real-input batch — screen locked (user away) at the time of writing, and the live session limit. Build:
@@ -211,25 +215,22 @@ Deferred to the real-input batch — screen locked (user away) at the time of wr
 `terminal-host/build.mjs` and `stage-runtime.mjs`); copy the bundle as "T3 Code (Lane Browser)" with its own bundle id;
 launch with the lane environment above (`--env PATH=<lane bin>:/usr/bin:/bin:/usr/sbin:/sbin`), the fixture server on
 16651, a seeded home.
-1. **Navigation rows (also needed in agent mode: one more session).** Right panel › Browser; type `127.0.0.1:16651`,
-   Return: "Lane fixture", title in the tab, the red favicon. `127.0.0.1:16651/a`, `/b`; Back → Page A (Forward
-   enabled); Forward → Page B. `127.0.0.1:16651/slow?ms=9000`: the loading bar, the button reads Stop and "Loading…"; press
-   it: the load restarts (fixture log: a second `GET /slow`). `example.com`: "Example Domain", the public favicon. Hover
-   the address: Open in system browser; press it: the default browser opens `https://example.com/` (agent mode: the URL
-   lands in `T3_REMOTE_OPEN_LOG`). `127.0.0.1:16699`: "This site can't be reached", "127.0.0.1:16699: Connection
-   refused.", `ERR_CONNECTION_REFUSED`; Reload: the same. More: Hard reload (fixture: `GET /a` after `/a`). "+" › Browser
-   (a second tab); hide and show the panel; select the first tab: Page A without a new request; close it: `t3.browser:
-   close …`, the server's `preview.list` no longer names it. "+" › chevron › Default: a third tab. The drive script is
-   `target/browser-surface/drive.sh` (copy: evidence branch `browser-surface/drive.sh.txt`).
+1. **The rows drive 3 did not reach (agent mode is enough; after round 7 brings #304, or a person).** Open a Browser
+   tab and load `127.0.0.1:16651/a`. More › Hard reload: the fixture logs another `GET /a`. "+" › Browser (a second
+   tab). Hide the panel (its toggle) and show it (the chat header's toggle); select the first tab: Page A shows with no
+   new request. Close it: `t3.browser: close …` in the host log, the server's `preview.list` no longer names it. "+" ›
+   chevron › Default: a third tab. The script is `target/browser-surface/drive.sh` (copy: evidence branch
+   `browser-surface/drive3.sh.txt`); after round 7 its `clock +N real` steps are safe again.
 2. **Keyboard in the field.** Click the field (all of it selected), type with the Korean 2-Set source switched to ABC,
    Return; then type, Escape: the URL comes back and the panel stays open; Tab through the chrome buttons (focus ring
    on each).
-3. **Safari Web Inspector.** Safari › Develop › the lane app › the tab's page: the inspector attaches (development
-   build); a release bundle does not list it.
+3. **Safari Web Inspector.** Needs Safari › Settings › Advanced › "Show features for web developers", which the user
+   approved toggling on (and back off afterwards) for #326, the same here. Safari › Develop › the lane app › the tab's
+   page: the inspector attaches (development build); a release bundle does not list it.
 4. **A real pop-up.** A page's "Sign in" `window.open(url, name, "width=500,height=600")` from a click: a window opens
    and posts back to its opener; a `target=_blank` link loads in the tab.
 
 ## Next action
 
-The coordinator: one more live session for the navigation rows (step 1 above, agent mode is enough), then the real-input
-batch steps 2–4. Parts 2–5 start after this PR merges.
+The coordinator: step 1 above (Hard reload, hide/show, close) in a session after round 7 (or by a person), and the
+real-input batch steps 2–4. Parts 2–5 start after this PR merges.
