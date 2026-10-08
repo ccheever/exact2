@@ -318,6 +318,7 @@ export class T3Client {
       if (this.dropLegacyKeys) { this.dropLegacyKeys = false; await this.save(storage); } // U7: the native side carried the old keys over at attach; save once without them
       await reconnectOnLaunch(this, native, obj(status.value)); // r8-pointer D14 and the primary: a launch reconnects (r8-pointer-reconnect.ts)
       await fleet.sync(native, launchFocus(this)); // settings-b: background environments, the primary among them (settings-b-fleet.ts)
+      if (fleet.takeFocusDropped()) primaryTakesFocus(this); // U6: a focused duplicate of the primary went; the primary takes the window (r8-pointer-reconnect.ts)
       await this.flushSnapshotReleases(native, storage);
       if (this.connection !== 'connected') { if (this.local.deviceSettings.snapShotEnabled) await this.adoptSnapshots(native, storage); return; }
       if (this.synchronizedGeneration !== this.generation) await this.synchronize(native);

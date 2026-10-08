@@ -8,10 +8,10 @@ import { DesktopEnvironmentBootstrapIncompleteError, folderDropTarget, primary, 
   dropPrimaryDuplicates, isPrimaryEnvironment, sessionScopes, LocalPrimary } from './local-primary';
 import { parseLocalBackendStatus } from './local-backend';
 import { primaryAt, primaryOff, noPrimary, resetPrimary } from './local-primary-fixture';
-import { reconnectOnLaunch, launchFocus, launchChoice } from './r8-pointer-reconnect';
+import { reconnectOnLaunch, launchFocus, launchChoice, primaryTakesFocus } from './r8-pointer-reconnect';
 import { EnvironmentFleet } from './settings-b-fleet';
 import { applyLocalSetting, thisMachine, LOCAL_OFF_DESCRIPTION, LOCAL_ON_DESCRIPTION, TURN_OFF, TURN_ON } from './this-machine';
-import { connectionsProjection } from './connections';
+import { connectionsProjection, runConnectionOp } from './connections';
 import { searchSettings, searchContext } from './settings-search';
 import { pagesHome, noEnvironmentDescription } from './pages-home';
 import { welcomeView } from './pages-welcome';
@@ -157,7 +157,55 @@ describe('the fleet keeps the primary in the background', () => {
     expect(native.calls.filter(call => call.op === 'connect')).toEqual([{ op: 'connect', fleet: 'http://127.0.0.1:16437\nenv-local', origin: 'http://127.0.0.1:16437', primary: true }]);
     expect([...source.entries.values()].map(entry => [entry.environmentId, entry.primary])).toEqual([['env-local', true]]);
     // No primary id, no duplicates to drop.
-    expect(await dropPrimaryDuplicates(native, [duplicate], new LocalPrimary())).toEqual([]);
+    expect(await dropPrimaryDuplicates(native, [duplicate], new LocalPrimary())).toEqual({ origins: [], focusDropped: false });
+  });
+
+  test('a duplicate\'s GitHub sharing trust goes first, as installPlatformRegistration; a failed write keeps the entry (U6)', async () => {
+    primaryAt('http://127.0.0.1:16437', 'env-local');
+    const duplicate = { origin: 'http://192.168.1.20:3773', environmentId: 'env-local', label: 'Paired before', enabled: true };
+    const trust = { githubRouting: { [JSON.stringify(['env-local', 'http://192.168.1.20:3773/'])]: 'read', [JSON.stringify(['env-box', 'https://box.example.com/'])]: 'read-write',
+      [JSON.stringify([JSON.stringify(['BearerConnectionTarget', 'env-local', 'http://a']), JSON.stringify(['SshConnectionTarget', 'env-local', 'h', 'h', 'u', 22])])]: 'read' }, loadBalancingEnabled: true };
+    let stored = JSON.stringify(trust), writable = false;
+    const native = new Fake([duplicate], {
+      connectionPreferences: () => ({ text: stored }),
+      setConnectionPreferences: request => writable ? (stored = String(request.text), {}) : new Error('Could not save.'),
+      forgetEnvironment: () => ({ state: 'connected', forgotFocus: false }),
+    });
+    expect(await dropPrimaryDuplicates(native, [duplicate])).toEqual({ origins: [], focusDropped: false });
+    expect(native.calls.some(call => call.op === 'forgetEnvironment')).toBe(false);
+    writable = true;
+    expect(await dropPrimaryDuplicates(native, [duplicate])).toEqual({ origins: ['http://192.168.1.20:3773'], focusDropped: false });
+    expect(JSON.parse(stored)).toEqual({ githubRouting: { [JSON.stringify(['env-box', 'https://box.example.com/'])]: 'read-write' }, loadBalancingEnabled: true });
+    expect(native.calls.filter(call => call.op === 'forgetEnvironment')).toEqual([{ op: 'forgetEnvironment', origin: 'http://192.168.1.20:3773', environmentId: 'env-local' }]);
+  });
+
+  test('a window focused on a duplicate moves to the primary when it is dropped (the reference replaces the entry in place, U6)', async () => {
+    primaryAt('http://127.0.0.1:16437', 'env-local');
+    const duplicate = { origin: 'http://192.168.1.20:3773', environmentId: 'env-local', label: 'Paired before', enabled: true };
+    const native = new Fake([duplicate], { forgetEnvironment: () => ({ state: 'disconnected', origin: '', environmentId: '', forgotFocus: true }) });
+    const source = new EnvironmentFleet();
+    // A launch that opened the duplicate by its remembered origin before the primary named itself.
+    const client = { origin: duplicate.origin, environmentId: 'env-local', connection: 'connected' };
+    await reconnectOnLaunch(client, native, { state: 'connected', origin: duplicate.origin, environmentId: 'env-local' });
+    await source.sync(native, client);
+    expect(source.takeFocusDropped()).toBe(true);
+    expect(source.takeFocusDropped()).toBe(false);
+    primaryTakesFocus(client);
+    // The next refresh sees the focus disconnected (Swift's forget) and connects the primary.
+    Object.assign(client, { origin: '', environmentId: '', connection: 'disconnected' });
+    expect(await reconnectOnLaunch(client, native, { state: 'disconnected' })).toBe(true);
+    expect(native.calls.filter(call => call.op === 'connect' && !call.fleet)).toEqual([{ op: 'connect', origin: 'http://127.0.0.1:16437', primary: true }]);
+  });
+
+  test('pairing this machine\'s own server saves nothing: the primary id goes with the pairing and no route is placed (U6)', async () => {
+    primaryAt('http://127.0.0.1:16437', 'env-local');
+    const client = switchClient(true);
+    const native = new Fake([], { pairEnvironment: request => ({ origin: String(request.origin), environmentId: 'env-local', label: 'Lane Mac', primary: request.primaryEnvironmentId === 'env-local' }) });
+    await runConnectionOp(native, 'environment-add', 'http://192.168.1.20:16437', 'PAIRCODE', true, client);
+    expect(native.calls.find(call => call.op === 'pairEnvironment')).toMatchObject({ origin: 'http://192.168.1.20:16437', primaryEnvironmentId: 'env-local' });
+    // No placeRoute (it would list the saved environments before the fleet's own listing).
+    expect(native.calls.filter(call => call.op === 'environments')).toHaveLength(1);
+    expect(toasts(client).at(-1)).toMatchObject({ kind: 'success', title: 'Backend added', description: 'The environment is saved and will reconnect on app startup.' });
   });
 });
 

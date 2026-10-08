@@ -316,7 +316,8 @@ export async function runConnectionOp(native: Native, op: string, id: string, va
       if (!target.credential && connected) throw new ClientError('Enter a pairing code.');
       if (connected) {
         // 22e9d35613 preparePairingRegistration: an outdated host that can update itself is still saved (switched off).
-        const paired = await call(native, { op: 'pairEnvironment', ...withStandardScope(target) }).catch(async error => {
+        // U6: pairing this machine's own server saves nothing (the reference's register is a no-op for the primary's id).
+        const paired = await call(native, { op: 'pairEnvironment', ...withStandardScope(target), primaryEnvironmentId: primary.target?.environmentId ?? '' }).catch(async error => {
           if (!(error instanceof ClientError) || error.kind !== 'Protocol') throw error;
           try { await pairOutdated(native, target.origin, target.credential); }
           catch (outdated) {
@@ -327,7 +328,7 @@ export async function runConnectionOp(native: Native, op: string, id: string, va
         });
         // Lane environment-routes: pairing a saved machine at another address adds a route, placed by kind.
         const added = obj(paired?.value);
-        if (str(added.environmentId)) await placeRoute(native, str(added.environmentId), str(added.origin)).catch(() => {});
+        if (str(added.environmentId) && added.primary !== true) await placeRoute(native, str(added.environmentId), str(added.origin)).catch(() => {});
         if (client && !welcome) pushToast(client, { kind: 'success', title: 'Backend added', description: 'The environment is saved and will reconnect on app startup.' });
         await fleet.sync(native, focusOf(client));
         return { status: null, generation: -1 };

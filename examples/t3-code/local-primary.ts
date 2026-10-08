@@ -11,10 +11,14 @@
 // under Environments, and leads Load balancing and GitHub sharing. Its port can change every
 // launch, so its origin is never remembered: the transport keeps the focus token `primary` beside
 // `t3.server.origin`. A saved entry with the primary's environment id (the same T3 home, paired
-// before) is a duplicate: it is removed and its credential forgotten (decision U6, provisional).
-import { str, type Obj } from './domain';
+// before) is a duplicate: as the reference's `installPlatformRegistration` (registry.ts), its GitHub
+// sharing trust is forgotten, then the entry and its credential are removed without a word, and a
+// window focused on it moves to the primary (the reference replaces the entry in place). Pairing this
+// machine's own server saves nothing (`register` is a no-op for a platform id), decision U6.
+import { obj, str, type Obj } from './domain';
 import { bridgeReply, type Native } from './protocol';
 import { readLocalBackend, unknownLocalBackend, type LocalBackendStatus } from './local-backend';
+import { routingKeyEnvironment } from './connection-routes';
 
 /** PRIMARY_LOCAL_ENVIRONMENT_ID: the bootstrap's id and the fleet's name for the primary. */
 export const PRIMARY_LOCAL_ENVIRONMENT_ID = 'primary';
@@ -156,19 +160,39 @@ export function primaryEntry(source: LocalPrimary = primary): Obj | null {
 }
 
 /**
- * Decision U6 (provisional, user decision pending): a saved environment with the primary's id is
- * the same machine paired before; it is removed without a word and its credential forgotten
- * (`forgetEnvironment` forgets every route's Keychain item and leaves the primary connected).
+ * githubRoutingPermissions.forget(environmentId): every stored sharing permission of that environment.
+ * False when the preferences could not be written (the reference then leaves the saved entry alone).
  */
-export async function dropPrimaryDuplicates(native: Native, saved: Obj[], source: LocalPrimary = primary): Promise<string[]> {
+export async function forgetGitHubRouting(native: Native, environmentId: string): Promise<boolean> {
+  const read = await bridgeReply(native, { op: 'connectionPreferences' }).catch(() => null);
+  if (!read?.ok) return false;
+  let raw: Obj;
+  try { raw = obj(JSON.parse(str(obj(read.value).text, '{}') || '{}')); } catch { raw = {}; }
+  const routing = obj(raw.githubRouting), kept = Object.fromEntries(Object.entries(routing).filter(([key]) => routingKeyEnvironment(key) !== environmentId));
+  if (Object.keys(kept).length === Object.keys(routing).length) return true;
+  const written = await bridgeReply(native, { op: 'setConnectionPreferences', text: JSON.stringify({ ...raw, githubRouting: kept }) }).catch(() => null);
+  return written?.ok === true;
+}
+
+/**
+ * Decision U6 (2026-10-08: as the reference, `installPlatformRegistration`): a saved environment with
+ * the primary's id is the same machine paired before. Its GitHub sharing trust goes first (a failure
+ * keeps the entry), then the entry and every route's Keychain item (`forgetEnvironment`, which leaves
+ * the primary connected), without a word. `focusDropped`: the window was focused on it, so the
+ * primary takes the focus (client.ts, r8-pointer-reconnect.ts `primaryTakesFocus`).
+ */
+export async function dropPrimaryDuplicates(native: Native, saved: Obj[], source: LocalPrimary = primary): Promise<{ origins: string[]; focusDropped: boolean }> {
   const id = source.target?.environmentId;
-  if (!id) return [];
+  if (!id) return { origins: [], focusDropped: false };
   const duplicates = saved.filter(entry => str(entry.environmentId) === id && entry.primary !== true);
+  if (!duplicates.length || !(await forgetGitHubRouting(native, id))) return { origins: [], focusDropped: false };
+  let focusDropped = false;
   for (const entry of duplicates) {
     await native.later({ op: 'fleetStop', fleet: `${trim(str(entry.origin))}\n${id}` }).catch(() => undefined);
-    await bridgeReply(native, { op: 'forgetEnvironment', origin: str(entry.origin), environmentId: id }).catch(() => undefined);
+    const reply = await bridgeReply(native, { op: 'forgetEnvironment', origin: str(entry.origin), environmentId: id }).catch(() => null);
+    if (reply?.ok && obj(reply.value).forgotFocus === true) focusDropped = true;
   }
-  return duplicates.map(entry => str(entry.origin));
+  return { origins: duplicates.map(entry => str(entry.origin)), focusDropped };
 }
 
 /** The saved list without the primary's duplicates (what every list reads). */

@@ -71,6 +71,14 @@ export async function reconnectOnLaunch(client: Focus, native: Native, status: O
   return primaryLaunch(client, native, source);
 }
 
+/**
+ * Decision U6: the fleet just dropped a saved duplicate of the primary that was the focus (Swift
+ * disconnected it). The reference replaces that entry in place with the primary, so the window moves
+ * to the primary: the launch's wait runs again, and the next refresh (the focus is disconnected by
+ * then) connects the primary once it is ready.
+ */
+export function primaryTakesFocus(client: object): void { awaitingPrimary.set(client, []); }
+
 /** The launch's wait for the primary: connect it once ready; fall back once it cannot come. */
 function primaryLaunch(client: Focus, native: Native, source: LocalPrimary): boolean {
   const saved = awaitingPrimary.get(client);
