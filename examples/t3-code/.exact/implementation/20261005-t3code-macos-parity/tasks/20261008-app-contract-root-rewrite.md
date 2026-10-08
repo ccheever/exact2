@@ -1,12 +1,12 @@
 ---
 name: 20261008-app-contract-root-rewrite
 plan: 20261005-t3code-macos-parity
-implementation: planned
+implementation: in-progress
 verification: unverified
 delivery: none
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
-branch: null
+branch: feat(example)/t3-code-app-contract-root-rewrite
 pr_url: null
 verified_commit: null
 ---
@@ -133,13 +133,67 @@ Excluded:
 
 ## Progress
 
-Planned (2026-10-08, records sync). Not started. No branch or PR yet.
+- 2026-10-08: started in worktree `t3-code-app-contract-root-rewrite` at `96c4c38f2` (#311 merged; #329 still open).
+  Analysis and baseline done; no source edited yet. Paused on the coordinator's wrap-up (usage limit). No PR yet.
 
 ## Attempts and evidence
 
 | Attempt | Revision/fingerprint | Checks and outcomes | Evidence | Remaining blocker |
 | --- | --- | --- | --- | --- |
-| none | — | — | — | #311 (the others merged by 2026-10-08) |
+| baseline | `96c4c38f2` | `bun test examples/t3-code --timeout 60000`: 6924 pass, 2 skip, 0 fail (6926 tests, 506 files); `contract build`: 5512 slots, 20 derives, 46 resources, 6715 actions, 88221 nodes, 36004 regions, 20136518 bytes (debug and host-dev give the same plan); root slots 186 (170 states + 16 mutations), root actions 176; T3Window 6 slots, 4 actions | — | — |
+| X67 probe, base | `96c4c38f2` | deepest plan site (nodes and regions, the plan's own `validate_site_depth` walk): 79; deepest component chain 20 (`TimelineIcon` … `RightPanels`, `T3Window`, `T3Code`); debug compiler, `ulimit -s 2048`: `thread 'main' has overflowed its stack` (as #320's record §5); 4096 and 3072 not run (stopped at the wrap-up) | — | — |
+
+## Resume from here (2026-10-08, paused before any edit)
+
+**First:** `git fetch origin`; if #329 (fix-providers-environment-scope) has merged, `git merge 'origin/feat(example)/t3-code'`
+before editing (a scratch merge of #329's app.contract applies cleanly: 1,488 → 1,467 lines), and run `providers-scope.test.ts`.
+#329 makes `commandCompleted` call `openSettings()`, so `settingsMenu` and `sidebarHoverId` become then-written root
+state: they stay in the root (the plan below already assumes this).
+
+**Measured classification** (script over the root; with #329): of 170 states, 96 are read by a resource, task or
+mutation header, and 25 more are written by a task or `then` action (`confirm*`, `draftOwner`, `jumpRequest`,
+`keybindingOpen`, `keybindingRecording`, `modalError`, `noticeExit`, `originEdited`, `paletteBusy`, `paletteScroll`,
+`pendingModal`, `settingsMenu`, `settingsScrollTop`, `sidebarHoverId`, `sshResponding`, `sshReturnToConnect`,
+`welcomeLink`, `welcomePairOpen`, `workspaceRetry*`). These stay. Also staying: `noticeExitTarget` and `providerCreated`
+(read by a task or `then` action), `draft` (read by the root `send` through `composerText`), `popoverSession`
+(written through `coreChange` → `openModels()`), `settingsThemeRequest` (computes a root state). About 44 view-only
+states move.
+
+**Owners.** No new component layer (keeps X67's depth). A state moves to an area component only when that component is
+single, always mounted (no `when` above it in `T3Window`) and every writer is called only inside it; otherwise to
+`T3Window` (Sidebar and SidebarOverlays have two or three instances under `when`, so their state goes to `T3Window`).
+Naming: a wrapper keeps the public action name (so view lines and area components do not change) and the root half is
+passed as `<name>Root` (for example `titleMenuPickRoot=titleMenuPick`); root actions keep their names (tests read them).
+
+| Area | Moves | To | Root half |
+| --- | --- | --- | --- |
+| Sidebar | `sidebarHoverLast/Y/H`, `sidebarScrollY`, 13 `drag*` states, derives `dragCX/CY/Target/Verb/Offset`; `sidebarScrolled`, `sidebarDrag` (its `sidebarHoverId = ""` becomes `sidebarHoverRoot(sidebarHoverId, false)`), `sidebarDragEnd` (both sends are exactly `sidebarRun("drop", id, …)`) | `T3Window` | `sidebarHover`: `sidebarHoverId` and the search-hover send only |
+| Title menu | `titleMenuOpen/FromTitle/Serial/X/Y`, `renaming`, `renameText`; `titleUi` view part; `titleMenuPick`'s first line and `ui:rename` | `T3Window` | new `titleSend(what, text)`: the commit/new-thread send block; `titleMenuPick` keeps settings, confirm and sends |
+| Panels | `rightMaximized`, `detailsEditors`; `titleMenuOpen = false` in `panelUi`, `detailsAct` | `T3Window` | `panelUi`, `detailsAct` minus those lines |
+| Fold | `foldHold`, `releaseFold`, `chatLocal`'s fold line, `scrollToEnd`'s `foldHold = false` | `T3Window` | `chatLocal` keeps its send (context-menu-hookup test) |
+| Connections | `credential`, `routeTarget`, `routeLabel`, `connectionRemove`, `connectionMenu`; `connectionToggleMenu`, `connectionAskRemove`; `openRoute` = view writes + `openConnectionRoot()` | `T3Window` | `openConnection`, `closeConnection`, `closeModal`, `connectionOp` (its `connectionRemove = ""` sits under `if not commandPending`), `editOrigin`, `editCredential` minus view writes |
+| Snapshot | `snapshotSetupOpen`, `snapshotSetupWasEnabled`; `toggleSnapshots` (first arm = `settingsCommand("setting-snapshot", "snapShotEnabled", "false")`), `showSnapshotSetup` | `T3Window` | new `clearModalError` |
+| Rest | `restMenu`, `restLabel`; `restMenuOpen`; `rest` = `restRaw(`rest:${op}`, `${settingsEnvironmentId}:${settingsProjectId}`, value)`; `restInput` = `restRawRoot(…)` (it never cleared `restMenu`) | `T3Window` (new props `settingsEnvironmentId`, `settingsProjectId`) | `restOpen`, `restClose`, `restRaw` minus `restMenu`/`restLabel` |
+| Settings | `settingsEscapeHeld`, `settingsLegacyOpen`, `settingsRestoreOpen`, `keybindingSearch`, `licenseSearchOpen`; `coreLegacy`, `coreRestoreOpen/Close`, `coreRestoreConfirm` (= `settingsCommand("settings-core", `restore-device-defaults:|${settingsCore.scopeKey}`, "")`), `coreSlide` (= `settingsCommand`), `searchKeybindings`, `keybindingSearchKey` (→ `editKeybindingQuery("")`), `openLicenseSearch`, `closeLicenseSearch`, `licenseSearchKey` (→ `editLicenseQuery("")`); view lines of `editSettingsQuery`, `coreSearchKey`, `coreNavigate`, `corePick` | `SettingsWindow` (new prop `settingsCommand`) | the rest; `coreChange`'s last arm can call `settingsCommand` |
+| Providers | `wizardAttempted` (`providerUi` open/driver/manual/step lines, `providerAdd`'s first line) | `T3Window` | `providerUi`, `providerAdd` |
+| Welcome | `welcomeHelpOpen`, `welcomeToggleHelp` | `WelcomeLayer` | — |
+| Banner | `dismissedProviderBanner`, `dismissProviderBanner` | `ChatColumn` | — |
+| Pull requests | derives `prPanelWidth`, `prListWidth` | `PagesCover` | — |
+| Composer | derives `canRest`, `resting`, `composerLeft` | `T3Window` (new prop `composerFocused`) | — |
+| Sidebar sends | `search`, `toggleSidebar`, `finishResize` (the root `command` dispatcher already routes `search` and `sidebar` to `localChanged`) | `T3Window` | — |
+
+Estimate: about −245 lines (1,488 → about 1,240; with #329 about 1,220). Optional root-internal de-duplication if more
+room is wanted: `liveTick`'s timeline block = `dispatchTimelineReads()` (−3). Inside the root only `providerAdd`,
+`sidebarRun` and `command` are called by other root actions (checked), so the wrappers above catch every caller.
+
+**Checks to keep in view:** the source-reading tests (`dialog-focus`, `hover-layer` (the `T3Window(data=data,
+viewport=viewport, hoverWait=hoverWait, hoverHold=hoverHold,` prefix), `menu-keys`, `context-menu-hookup`,
+`codex-setup`, `auto-balance`, `usage-pooled`) follow moved names only. Plan comparison: per-component slot counts
+from `contract build -o p.plan --map` (`map.json` `slots[*].component`); expect T3Code −N and the owners +N, the plan's
+root derives 20 → about 10 (child derives are inlined). X67: rerun the site-depth walk and the `ulimit -s` probe on the
+branch (expect no change: no view moves). The scratch tools (`analyze.py`, `classify.py`, `uses.py`, `slots.py`,
+`depthprobe/`, `x67/probe.sh`) are under this worktree's `target/arr/`, not committed. Then the per-area commits,
+the clone checks after each, the live drive, and the draft PR as in the task prompt.
 
 ## Next action
 
