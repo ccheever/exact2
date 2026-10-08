@@ -40,7 +40,7 @@ export async function settingsWrites(this: T3Client, op: string, id: string, val
     else if (op === 'unarchive-thread' || op === 'delete-archived-thread') await this.manageArchivedThread(native, storage, op, id);
     else if (op === 'setting-model') await setModelDefault.call(this, native, id, value);
     else if (op === 'setting-permissions') await setPermissionDefault.call(this, native, id, value);
-    else if (PROVIDER_OPS.includes(op)) { resultMessage = await runProviderOp(this, native, op, id, value); if (!this.threadId) this.chooseDefaults(); this.error = ''; }
+    else if (PROVIDER_OPS.includes(op)) { resultMessage = await runProviderOp(out.providers?.host ?? this, out.providers ? out.providers.native(native) : native, op, id, value); if (!this.threadId) this.chooseDefaults(); this.error = ''; } // out.providers: the page's other environment (providers-scope.ts)
     else return false;
     return true;
   } finally { Object.assign(out, { message: resultMessage, id, value }); }

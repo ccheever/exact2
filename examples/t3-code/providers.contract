@@ -139,6 +139,7 @@ shape ProviderPage
   hubs: list<ProviderHub>
   updateAll: ProviderUpdateAll
   escapeOwned: bool
+  environment: string // the environment the page's reads and actions go to (providers-scope.ts): '' while Settings is closed, "-" when the scope names none
 
 // Settings → Providers (ProviderSettingsPanel.tsx). `width` is the page's
 // content width; T3 switches to the two-pane card at a 48rem container.
@@ -169,7 +170,8 @@ component ProvidersPanel
   view
     column width="100%" gap="2rem" testId="providers-settings"
       when not page.available
-        text page.message font-size="0.875rem" line-height="1.25rem" padding="2rem" color="light-dark(#71717b, #818181)" testId="providers-unavailable"
+        when page.message != "" // SettingsScopeBoundary's own message stands alone (settings-core-body.contract)
+          text page.message font-size="0.875rem" line-height="1.25rem" padding="2rem" color="light-dark(#71717b, #818181)" testId="providers-unavailable"
       else
         column width="100%" gap="0.625rem"
           PvSectionTitle(title="Providers")

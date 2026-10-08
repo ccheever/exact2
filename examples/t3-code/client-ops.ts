@@ -7,6 +7,7 @@
 // and one line below.
 import type { T3Client } from './client';
 import type { Files, Native } from './protocol';
+import type { ProviderHost } from './providers';
 import { connectionOps } from './client-ops-connection';
 import { snapshotOps } from './client-ops-snapshot';
 import { settingsOps, settingsWrites } from './client-ops-settings';
@@ -21,7 +22,9 @@ import { terminalOps } from './terminal-drawer-view'; // terminal-drawer
 import { autoBalanceOps } from './client-ops-auto-balance';
 import { activationOps } from './desktop-activation'; // app-activation: `t3 app <dir>`
 
-export type OpOut = { message: string; id: string; value: string };
+/** A provider write on the environment Settings › Providers shows, when that is not the focused one (providers-scope.ts). */
+export type ProvidersRoute = { host: ProviderHost; native(native: Native): Native; requireWrite(): void };
+export type OpOut = { message: string; id: string; value: string; providers?: ProvidersRoute | undefined };
 export type OpGroup = (this: T3Client, op: string, id: string, value: string, n: number, native: Native, storage: Files, out: OpOut) => Promise<boolean>;
 
 export const READ_OPS: OpGroup[] = [connectionOps, snapshotOps, settingsOps, composerOps, threadOps, sidebarOps, diffOps, laneOps, serverUpdateOps, terminalOps, terminalPanelOps, autoBalanceOps, activationOps];

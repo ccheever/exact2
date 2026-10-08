@@ -6,12 +6,22 @@
 import type { T3Client } from './client';
 import type { ScopeChoice } from './settings-core';
 import { machineKind } from './connections';
+import { isPrimaryEnvironment } from './local-primary';
 
 export const singleEnvironmentRoute = (route: string) => route === 'providers';
 
-/** The machine a single-environment route resolves when none is chosen. */
-export function scopeMachine(client: Pick<T3Client, 'environmentId'>, route: string, machine: string): string {
-  return singleEnvironmentRoute(route) && !machine ? client.environmentId : machine;
+/**
+ * The machine a single-environment route resolves when none is chosen. Given the scope's
+ * environments (an unavailable scope has none), it is selectSingleEnvironmentScope's choice:
+ * the primary, else a connected one, else the first; without them, the focused environment.
+ */
+export function scopeMachine(client: Pick<T3Client, 'environmentId'>, route: string, machine: string,
+  candidates?: readonly { environmentId: string; connection: { phase: string } }[]): string {
+  if (!singleEnvironmentRoute(route) || machine) return machine;
+  if (!candidates) return client.environmentId;
+  const chosen = candidates.find(candidate => isPrimaryEnvironment(candidate.environmentId))
+    ?? candidates.find(candidate => candidate.connection.phase === 'connected') ?? candidates[0];
+  return chosen?.environmentId ?? '';
 }
 
 /**
