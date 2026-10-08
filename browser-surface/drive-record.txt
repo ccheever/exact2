@@ -1,0 +1,74 @@
+browser-surface part 1 — live drive record (agent mode, macOS, 1280x840, light). Not a real-input session.
+Lane: T3_LOCAL_HOME=<lane>/t3-home (seeded: projects 'work' and 'site' via the runtime's `t3 project add`), T3_LOCAL_PORT=16650,
+T3_LOCAL_RUNTIME_DIR=<lane>/runtime/t3-0.0.46-nightly.20261005.2667-darwin-arm64, CODEX_HOME/CLAUDE_CONFIG_DIR/XDG_* under <lane>,
+T3CODE_TELEMETRY_ENABLED=false, PATH=<lane bin>:<bun>:/usr/bin:/bin:/usr/sbin:/sbin; fixture server 127.0.0.1:16651; no account used.
+Script: drive.sh (uploaded beside this file as drive.sh.txt).
+
+Drive 1 (2026-10-09 ~01:55 local): stopped at op 5 (`tap toggle-right-panel`: hidden) — first-run wizard; the lane home was empty
+  (no T3_LOCAL_RUNTIME_DIR, the runtime still unpacking; no project). `t3 app` answered DesktopAppUnreachableError. Lane fixed.
+
+Drive 2 (the retry): pids fixture 73267, agent 73268, embedded server 73466; `t3 app <lane>/projects/work` exit 0 ("Opened … in T3 Code.").
+op 1: {"clock": 15000}
+op 2: {"clock": 21000}
+op 3: logs; host lines: (none of t3.browser / t3.inspection)
+op 4: tree (572 nodes)
+op 5: {"screenshot": "00-start.png", "clock": 21000}
+op 6: {"target": "toggle-right-panel", "tapped": 729, "clock": 21000, "delivery": "platform"}
+op 7: {"clock": 22500}
+op 8: {"screenshot": "01-launcher.png", "clock": 22500}
+op 9: {"target": "surface-browser", "tapped": 1052, "clock": 22500, "delivery": "platform"}
+op 10: {"clock": 25500}
+op 11: {"screenshot": "02-empty.png", "clock": 25500}
+op 12: tree (703 nodes)
+op 13: logs; host lines: app: t3.inspection: browser web view isInspectable=true (development build) | app: t3.browser: open ["508c0f8f-46dd-4a19-9dec-1a1363bf7955","85c24de2-d312-4717-8213-cff1e59be06c","c5adf892-ad07-4eae-acbf-8c8e7d6fe409","tab_1"]
+op 14: {"target": "browser-url", "typed": 1267, "value": "127.0.0.1:16651", "clock": 25500, "delivery": "platform"}
+op 15: {"target": "browser-url", "typed": 1267, "key": "Enter", "value": "", "clock": 25500, "delivery": "platform"}
+op 16: {"clock": 29500}
+op 17: {"screenshot": "03-lane-page.png", "clock": 29500}
+op 18: {"target": "browser-url", "typed": 1267, "value": "127.0.0.1:16651/a", "clock": 29500, "delivery": "platform"}
+op 19: {"target": "browser-url", "typed": 1267, "key": "Enter", "value": "", "clock": 29500, "delivery": "platform"}
+op 20: {"clock": 32500}
+op 21: {"target": "browser-url", "typed": 1267, "value": "127.0.0.1:16651/b", "clock": 32500, "delivery": "platform"}
+op 22: {"target": "browser-url", "typed": 1267, "key": "Enter", "value": "", "clock": 32500, "delivery": "platform"}
+op 23: {"clock": 35500}
+op 24: {"screenshot": "04-page-b.png", "clock": 35500}
+op 25: {"target": "browser-back", "tapped": 1243, "clock": 35500, "delivery": "platform"}
+op 26: {"clock": 38500}
+op 27: {"screenshot": "05-back.png", "clock": 38500}
+op 28: {"target": "browser-forward", "tapped": 1251, "clock": 38500, "delivery": "platform"}
+op 29: {"clock": 41500}
+op 30: {"screenshot": "06-forward.png", "clock": 41500}
+op 31: {"target": "browser-url", "typed": 1267, "value": "127.0.0.1:16651/slow?ms=9000", "clock": 41500, "delivery": "platform"}
+op 32: {"target": "browser-url", "typed": 1267, "key": "Enter", "value": "", "clock": 41500, "delivery": "platform"}
+op 33: {"clock": 43500}
+op 34: {"screenshot": "07-loading.png", "clock": 43500}
+op 35: tree (703 nodes)
+op 36: {"target": "browser-refresh", "tapped": 1259, "clock": 43500, "delivery": "platform"}
+op 37: {"clock": 45000}
+op 38: {"screenshot": "08-stop-pressed.png", "clock": 45000}
+op 39: {"clock": 56000}
+op 40: {"screenshot": "09-slow-loaded.png", "clock": 56000}
+op 41: {"target": "browser-url", "typed": 1267, "value": "example.com", "clock": 56000, "delivery": "platform"}
+op 42: {"target": "browser-url", "typed": 1267, "key": "Enter", "value": "", "clock": 56000, "delivery": "platform"}
+op 43: {"clock": 63000}
+op 44: {"screenshot": "10-public.png", "clock": 63000}
+op 45: {"target": "browser-address", "tapped": 1266, "clock": 63000, "delivery": "platform"}
+op 46: {"clock": 63300}
+op 47: {"target": "browser-open-external", "tapped": 1404, "clock": 63300, "delivery": "platform"}
+op 48: {"clock": 63800}
+op 49: {"target": "browser-url", "typed": 1267, "value": "127.0.0.1:16699", "clock": 63800, "delivery": "platform"}
+op 50: {"target": "browser-url", "typed": 1267, "key": "Enter", "value": "", "clock": 63800, "delivery": "platform"}
+op 51: {"clock": 67800}
+op 52: {"screenshot": "11-failed.png", "clock": 67800}
+op 53: tree (703 nodes)
+op 54: refused — `tap browser-failed-reload`: no view matches (no failed page: no navigation had reached the page).
+
+Read back from the trees (ops 12, 35, 53): tab `tab-browser:tab_1` labelled 'Browser' with `browser-tab-globe`; browser-back/forward/refresh
+disabled (the tab idle); browser-url placeholder 'Search or enter URL', value ''; browser-annotate/capture/float disabled;
+More menu: browser-more-hard-reload enabled (the page exists in the module), window/device-toolbar/appearance/clear-cookies/clear-cache
+disabled, 'Profile: Default'; browser-empty-title 'No preview yet'. The fixture log has no request: no navigation reached the page.
+
+Cause (found from the drive, fixed after it, not re-driven: session limit): the URL field's focus and blur each sent
+`surface-browser-url-focus` through the window's chatLocal mutation; Enter's `surface-browser-navigate` was followed by blur(),
+whose send let go of the navigation's answer (a newer send forgets the reply; letGoAware rejects that answer's native calls).
+The focus is now SurfacePanel view state (no send); text arriving before the focus is kept as the draft.
