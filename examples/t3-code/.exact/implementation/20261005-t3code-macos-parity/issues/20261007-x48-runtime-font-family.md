@@ -1,11 +1,11 @@
 ---
 name: 20261007-x48-runtime-font-family
 plan: 20261005-t3code-macos-parity
-status: draft
+status: published
 kind: framework-gap
 blocks: [20261007-installed-font-picker]
-upstream_url: null
-reproduced_on: fbce02624d2e33449ee2cde34497083d6fd47457
+upstream_url: https://github.com/ccheever/exact2/issues/318
+reproduced_on: b896050d7 (main, agent mode, before filing)
 ---
 
 # X48: Contract cannot apply a font family selected at runtime
@@ -111,3 +111,9 @@ size and is adopted. Neither covers runtime family names. Keep X48 separate from
 This is a reproduced local draft with no upstream URL. Framework implementation and any
 upstream publication require their own authorized work. Once resolved, the installed-font
 task removes the hardcoded generic-only catalog and verifies the actual faces in the app.
+
+## Filed upstream (2026-10-08)
+
+Filed as [#318](https://github.com/ccheever/exact2/issues/318) ([Design] `font-family` from a string at run time, so a font picker can apply any installed family), reproduced on main `b896050d7` in agent mode before filing (evidence under
+`file-x48-x68/` on `t3-code-evidence`). Under the framework vs T3 split (user, 2026-10-08) the fix is framework work;
+the clone's side waits for main fix of #318, then an adoption round.

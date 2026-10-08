@@ -46,7 +46,7 @@ Scheduling preference (not a prerequisite): after `20261005-main-fix-adoption` (
 | merged task PR | [20261005-clone-on-exact2-main](../20261005-clone-on-exact2-main.md) | pending | Merged | pending |
 | merged task PR | [20261005-desktop-oracle-and-trace](20261005-desktop-oracle-and-trace.md) | pending | Merged | pending |
 | merged task PR | [20261005-hot-file-split](20261005-hot-file-split.md) | pending | Merged (area files and root-view room exist) | pending |
-| recorded decision | Plan decision U18: theme editor "Inspect app colors" | X68 (@@X68@@) | Decided 2026-10-08 (user): file a framework issue for the element and paint lookup (X68), then wait; #116 keeps pixel readback deferred | waits for main fix of X68 |
+| recorded decision | Plan decision U18: theme editor "Inspect app colors" | X68 ([#321](https://github.com/ccheever/exact2/issues/321)) | Decided 2026-10-08 (user): file a framework issue for the element and paint lookup (X68), then wait; #116 keeps pixel readback deferred | waits for main fix of X68 |
 
 ## Issue assessment at preparation
 
@@ -86,7 +86,7 @@ Checked sources and time: plan `issues/` drafts read 2026-10-05; no upstream sea
 | Save notices | Create, edit, merge a missing half, remove the theme while editing | Save | Notices as above; a removed theme turns the save into a create | macOS | transcript |
 | Clamp and minimize | — | Agent window resize to 840×620 and back with the panel open and minimized | Panel within margin 8, header reachable; size shrinks before the position is clamped | macOS | transcript, `layout` |
 | Real drag and resize — agent row (exact2 #186; adopt-main-fixes-r3): `tap theme-editor-header drag dx dy mouse`, `tap theme-editor-grip drag dx dy mouse`, a drag toward the window edge (clamp to margin 8), a drag starting on `theme-editor-minimize`; `layout theme-editor` before/after; result pending the r3 drive; the grab cursor's look stays unverifiable by an agent (it reads no system cursor). Was `(attended session)` | Real pointer; lane build with `T3_LOCAL_HOME=<lane>/t3-home`, `T3_LOCAL_PORT=<lane port 16xxx>` | Drag the header (grab cursor), drag the corner grip, drag past edges, press header buttons | Panel follows; clamps as specified; header buttons are not dragged; Escape closes | macOS, real input | session notes |
-| Inspect `(blocked by X30 / decision U18)` | — | Press Inspect, pick an element | Expected: the picked colour's role is selected and "N uses" shows | macOS | waits for main fix of X68 (@@X68@@), U18 decided 2026-10-08 |
+| Inspect `(blocked by X30 / decision U18)` | — | Press Inspect, pick an element | Expected: the picked colour's role is selected and "N uses" shows | macOS | waits for main fix of X68 ([#321](https://github.com/ccheever/exact2/issues/321)), U18 decided 2026-10-08 |
 | Trace and pixels | Oracle and clone on the same lane backends | Per-environment write payloads; pairs at 1280×840 and 840×620, light and dark, for mixed switch, scope menu, panel default and minimized | Same `server.updateSettings` writes; every moved cell is fixed, or declared in `EXACT2-GAPS.md` with an issue link | macOS | diff, images |
 | Ported tests | — | `bun test` | `settingsScope.test.ts` ("settings scope search" 3, "settings scope resolution" 8), `settingsScopeAxis.test.ts` (6), `scopedSettings.test.ts` (selection `:104`–`:124`, targets `:131`, writes `:193`–`:278`, `:346`–`:405`, "scoped settings mixed values" `:431`–`:439`, overrides `:470`–`:561`), `themeEditorStore.test.ts` "toggleThemeEditorForTheme" (2), `ThemeEditorHost.test.tsx` ("reopens the same %s with its saved colors", "refreshes an open %s when the library changes", "does not keep editing a theme removed from the library" as logic tests on session and library); original names | macOS host machine | test log |
 | Keyboard focus, Escape, reduced motion | Two lane backends; editor session open | Tab to the scope menu; Return; arrow keys; Return; Escape; Tab to a switch; Space; open the theme editor and Tab through its header buttons; Escape; `prefer prefers-reduced-motion reduce` then press a switch and minimize the panel | The menu opens and closes by keyboard and returns focus to its trigger; Space turns a mixed switch on; Escape closes the editor; header buttons show a focus ring; the thumb move and the minimize turn are instant under reduced motion | macOS | transcript |
@@ -134,7 +134,7 @@ attended rows not run).
   after the window shrinks and grows the panel keeps its clamped place (a window-sized tracker's `resize=` runs the
   reference's clamp); the Integrations Device hub and Agent device access switches resolve the settings scope's
   targets, draw mixed and write every selected environment (`settings-integrations-scope.ts`).
-- Not done: Inspect (U18, decided 2026-10-08: waits for main fix of X68, @@X68@@).
+- Not done: Inspect (U18, decided 2026-10-08: waits for main fix of X68, [#321](https://github.com/ccheever/exact2/issues/321)).
 
 ## Attempts and evidence
 

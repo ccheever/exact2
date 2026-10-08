@@ -178,6 +178,7 @@ Preparation started 2026-10-06; import and branch reset not executed.
 
 2026-10-08 (records sync): #99 also waits for main adoption round 7, which waits for main fix of X67 (main's examples test
 overflows the compiler's 2 MiB test-thread stack on the clone; without the fix the merged branch cannot pass `cargo test`).
-Round 7 brings in the `now()` → `performanceNow()` rename (main `9731c8056`) and drops `panels.contract` and
-`settings-panels.contract`, which main's examples test refuses (unless the root rewrite did these first). In the cleanup,
+Round 7 brings in the `now()` → `performanceNow()` rename (main `9731c8056`; the split with the root rewrite is in that
+task's Scope 6) and drops `panels.contract` and `settings-panels.contract`, which main's examples test refuses (unless the
+root rewrite removed them first). In the cleanup,
 cite #100, #117 and #276 as declined upstream: the app's own code is the design there.

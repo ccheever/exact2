@@ -230,7 +230,7 @@ buttons with Return). A real redeem waits for the user's decision on spending a 
 Cursor Keychain prompt waits for a Cursor account on a paid plan. The review fixes (`9472711ee`) are
 unit-tested, not re-driven. Light dismiss (an outside press closing a pinned popover) is no longer declared:
 the user decided on 2026-10-08 that it behaves as the reference, and
-[`20261008-popover-escape-parity`](../20261008-popover-escape-parity.md) built it.
+[`20261008-popover-escape-parity`](20261008-popover-escape-parity.md) built it.
 
 ## Real-input batch steps
 

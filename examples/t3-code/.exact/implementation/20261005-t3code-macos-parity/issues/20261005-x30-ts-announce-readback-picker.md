@@ -91,4 +91,4 @@ ruling, use the shipped picker. Keep re-encoding/average-color logic in a native
   `T3ComposerAttach.swift`.
 - Not in #116: the topic announce and resource invalidation part (#116's "Not in this issue"), so `r10Wake` stays;
   and the theme editor's Inspect lookup (the element under a point and its paint provenance), which is X68
-  (@@X68@@). U18 waits for main fix of that issue.
+  ([#321](https://github.com/ccheever/exact2/issues/321)). U18 waits for main fix of that issue.

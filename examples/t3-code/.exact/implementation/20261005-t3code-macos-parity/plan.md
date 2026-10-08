@@ -122,21 +122,23 @@ these user decisions have changed the tickets:
   so `e200397ec` is not an ancestor of the feature branch (its framework content is): the next adoption round first
   records it with `git merge -s ours e200397ec`, then merges main (`febb2c5fb` or later).
 - X59, X60 and X61 were filed upstream on 2026-10-08 as #300, #301 and #302 (reproduced on main `febb2c5fb`).
-- In flight (2026-10-08): `popover-escape-parity` (#290), `fix-hover-cards` (#307), `fix-keyboard-focus` (#310),
+- In flight (2026-10-08): `fix-hover-cards` (#307), `fix-keyboard-focus` (#310),
   `fix-provider-auth-state` (#312), `pr-code-tab` (#308), `pr-links-previews-and-routing` (#311) and
-  `app-developer-tools` (narrowed, no PR yet). `fix-misc-batch` merged as #306.
+  `app-developer-tools` (narrowed, no PR yet). `fix-misc-batch` merged as #306 and `popover-escape-parity` as #290
+  (its record moved to `tasks/closed/`).
 - Planned (user decisions, 2026-10-08):
-  [app-contract-root-rewrite](tasks/20261008-app-contract-root-rewrite.md), after #290, #307, #310, #312, #308 and #311
-  merge, so the root stays well under the 1,500-line cap (1,478 at `ec32c8c37`, about 1,488 with #307); Charlie's ruling
+  [app-contract-root-rewrite](tasks/20261008-app-contract-root-rewrite.md), after #290 (merged), #307, #310, #312, #308 and
+  #311 merge, so the root stays well under the 1,500-line cap (1,478 at `ec32c8c37`, about 1,488 with #307); Charlie's ruling
   on #108 names it the remedy. [fix-providers-environment-scope](tasks/20261008-fix-providers-environment-scope.md)
   (found by #312), after #312 merges. [browser-surface](tasks/20261005-browser-surface.md), after the root rewrite.
 - Waiting: `provider-sign-in-verification-followup` (its X49 row waits for main fix of #279); `installed-font-picker`
-  (waits for main fix of X48, @@X48@@). The deferred rows of the next real-input batch are listed in
+  (waits for main fix of X48, [#318](https://github.com/ccheever/exact2/issues/318)). The deferred rows of the next real-input batch are listed in
   `examples/t3-code/STATUS.md`.
 - Main adoption round 7 is blocked: it waits for main fix of X67 (main's examples test overflows the compiler's 2 MiB
-  test-thread stack on the clone, @@X67@@), and it unblocks no T3 task today. It must adopt main #305 (closes #300,
+  test-thread stack on the clone, [#320](https://github.com/ccheever/exact2/issues/320)), and it unblocks no T3 task today. It must adopt main #305 (closes #300,
   X59), main #304 (closes #285: drop the branch's `QUEUE.md` `clock +N real` entry), the `now()` → `performanceNow()`
-  rename (main `9731c8056`, 26 call sites, unless the root rewrite did it first) and the removal of the comment-only
+  rename (main `9731c8056`, 26 call sites; the root rewrite's first commit does it only if round 7 merged main before the rewrite
+  started, otherwise round 7 does) and the removal of the comment-only
   `panels.contract` and `settings-panels.contract`, which main's examples test refuses.
 
 ## Parallel implementation, 2026-10-06
@@ -402,7 +404,7 @@ User decisions (product scope, approvals, environments). Plan-wide ones are also
 | U15 | Languages beyond Shiki's 16 grammars and the long-text limit | shiki-residuals | you choose the list and the limit |
 | U16 | Third-party marks: CC BY 4.0 notice for the Azure DevOps mark; terms for 20 editor brand icons | upstream-ui-sync, composer-fidelity | a licenses/notices row in Settings › Licenses / omit marks without clear terms |
 | U17 | Ultrathink and Cursor Fast mode states the fixture cannot produce | composer-fidelity | unit tests + attended real account / catalog-injecting proxy |
-| U18 | Theme editor "Inspect app colors" | settings-scoped-controls-and-theme-editor | **Decided 2026-10-08 (user):** file a framework issue for the element and paint lookup (X68, @@X68@@), then wait; #116 keeps pixel readback deferred. The row waits for main fix of X68 |
+| U18 | Theme editor "Inspect app colors" | settings-scoped-controls-and-theme-editor | **Decided 2026-10-08 (user):** file a framework issue for the element and paint lookup (X68, [#321](https://github.com/ccheever/exact2/issues/321)), then wait; #116 keeps pixel readback deferred. The row waits for main fix of X68 |
 | U19 | Paste over 65,536 characters into a terminal | terminal-drawer | match the reference (it fails) / chunk |
 | U20 | Script `autoOpenPreview` (reference opens the in-app Browser) | terminal-integrations | system browser / skip. 2026-10-08: the Browser surface will be built (path B), so the in-app open follows `browser-surface` |
 | U21 | Fakes for other source-control CLIs (`glab`, `az`, `fj`/`tea`) | real-github-lane (was fake-github-fixture) | capability-driven unit tests only / build fakes |
