@@ -1,0 +1,246 @@
+// settings-model-picker live drive (one agent session): bun smp-drive.mjs <after|before> <outDir> <worktree>
+// Lane: isolated HOME/CODEX_HOME/CLAUDE_CONFIG_DIR/XDG/T3 home, ports 16810 (after) / 16812 (before),
+// fixture provider keys (no real accounts). Writes steps.ndjson + PNGs into outDir.
+import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { execSync } from 'node:child_process';
+
+const [which, out, worktree] = process.argv.slice(2);
+if (!['after', 'before'].includes(which) || !out || !worktree) throw new Error('usage: smp-drive.mjs <after|before> <outDir> <worktree>');
+process.env.EXACT_APP_DIR = `${worktree}/examples/t3-code`;
+const { open } = await import(`${worktree}/scripts/agent.mjs`);
+const L = '/Users/daehyeonmun/orca/workspaces/exact2/t3-code-settings-model-picker/target/smp/lane';
+const home = `${L}/t3-${which === 'after' ? 'a' : 'b'}`, port = which === 'after' ? '16810' : '16812';
+mkdirSync(out, { recursive: true });
+const logFile = `${out}/steps.ndjson`;
+writeFileSync(logFile, '');
+const log = (step, data = {}) => { const line = JSON.stringify({ t: new Date().toISOString(), step, ...data }); appendFileSync(logFile, line + '\n'); console.log(line.slice(0, 400)); };
+
+const env = {
+  T3_LOCAL_HOME: home, T3_LOCAL_PORT: port, T3_LOCAL_RUNTIME_DIR: `${L}/runtime`, T3CODE_HOME: home, HOME: `${L}/home`, SHELL: '/bin/zsh', USER: 'daehyeonmun',
+  CODEX_HOME: `${L}/codex`, CLAUDE_CONFIG_DIR: `${L}/claude`, XDG_CONFIG_HOME: `${L}/xdg/config`, XDG_DATA_HOME: `${L}/xdg/data`,
+  XDG_CACHE_HOME: `${L}/xdg/cache`, XDG_STATE_HOME: `${L}/xdg/state`, T3CODE_TELEMETRY_ENABLED: 'false', TMPDIR: `${L}/tmp/`,
+  PATH: `${L}/bin:/usr/bin:/bin:/usr/sbin:/sbin`, GIT_CONFIG_NOSYSTEM: '1', GIT_TERMINAL_PROMPT: '0',
+};
+let appPid = null;
+const s = await open({ host: 'macos', size: [1280, 840], env, onProcess: (p) => { appPid = p?.pid ?? null; } });
+log('launched', { appPid, boot: s.boot, which, port });
+
+const nodes = async () => (await s.tree()).nodes;
+const ids = async () => new Set((await nodes()).map(n => n.props.testId).filter(Boolean));
+const node = async (id) => (await nodes()).find(n => n.props.testId === id) ?? null;
+const has = async (id) => (await ids()).has(id);
+const real = async (ms = 500) => s.clock(`+${ms} real`);
+async function waitFor(what, pred, ms = 30000) {
+  const t0 = Date.now();
+  for (;;) {
+    let ok = false; try { ok = await pred(); } catch { ok = false; }
+    if (ok) { log('ready', { what, ms: Date.now() - t0 }); return true; }
+    if (Date.now() - t0 > ms) { log('timeout', { what, ms, ids: [...await ids()].slice(0, 200) }); return false; }
+    await real(500);
+  }
+}
+let stateCache = null;
+async function state() { stateCache = await s.state(); return stateCache; }
+function pick(st, name) {
+  for (const group of ['resources', 'slots', 'derives']) if (st?.[group] && name in st[group]) return st[group][name];
+  return st?.[name];
+}
+async function res(name) { return pick(await state(), name); }
+const { decodePng } = await import(`${worktree}/scripts/png.mjs`);
+const shot = async (name) => { const r = await s.screenshot(`${out}/${name}.png`);
+  let uniform = null; try { const img = decodePng(readFileSync(`${out}/${name}.png`)); const d = img.data; uniform = true; for (let i = 4; i < d.length; i += 4 * 97) if (d[i] !== d[0] || d[i + 1] !== d[1] || d[i + 2] !== d[2]) { uniform = false; break; } } catch {}
+  log('shot', { name, uniform }); return r; };
+const settle = async () => { try { await s.clock('settle'); } catch (e) { log('settle-error', { message: String(e.message).slice(0, 200) }); } await real(300); };
+async function tap(id, opts) {
+  for (let tries = 0; ; tries++) {
+    try { const r = await s.tap(id, opts); await settle(); log('tap', { id }); return r; }
+    catch (e) { if (tries >= 20 || !/hidden or inert/.test(String(e.message))) throw e; await real(1000); }
+  }
+}
+async function key(id, name) { const r = await s.type(id, { key: name }); await settle(); log('key', { id, name }); return r; }
+async function type(id, text) { const r = await s.type(id, text); await settle(); log('type', { id, text }); return r; }
+const catalogView = (c) => c && ({ provider: c.provider, railIndex: c.railIndex, searching: c.searching, favoritesSelected: c.favoritesSelected, legacyDefault: c.legacyDefault, count: c.count,
+  rail: (c.providers ?? []).map(p => [p.id, p.selected, p.ready]), rows: (c.models ?? []).map(r => [r.kind, r.id, r.name, r.selected, r.favorite, r.reason ? 'disabled' : ''])});
+async function catalog(tag) { const c = await res('catalog'); log('catalog', { tag, ...catalogView(c), target: (await res('modelTarget'))?.id }); return c; }
+function settingsRow(core, id) { return (core?.sections ?? []).flatMap(sec => sec.rows).find(r => r.id === id); }
+async function rowView(tag, id) {
+  const core = await res('settingsCore');
+  const r = settingsRow(core, id);
+  log('row', { tag, id, label: r?.label, value: r?.value, label2: r?.label2, inheritance: r?.inheritance, mixed: r?.mixed, inert: r?.inert, scope: core?.scopeKey, kind: core?.kind });
+  return r;
+}
+const serverSettings = () => { try { const j = JSON.parse(readFileSync(`${home}/userdata/settings.json`, 'utf8')); return { defaultModelSelection: j.defaultModelSelection ?? null, textGenerationModelSelection: j.textGenerationModelSelection ?? null, projectSettingsOverrides: j.projectSettingsOverrides ?? null }; } catch (e) { return { error: String(e.message) }; } };
+async function composerModel(tag) {
+  const data = await res('data');
+  const selected = (data?.models ?? []).find(m => m.selected);
+  log('composer-model', { tag, selected: selected ? `${selected.providerId}|${selected.id}` : null, providers: (data?.providers ?? []).map(p => [p.id, p.available]) });
+  return selected ? `${selected.providerId}|${selected.id}` : null;
+}
+async function focusedIds(tag) { const f = (await nodes()).filter(n => n.focused).map(n => n.props.testId ?? `#${n.id}`); log('focus', { tag, focused: f }); return f; }
+async function step(name, fn) { try { log('step', { name }); await fn(); } catch (e) { log('step-error', { name, message: String(e.stack ?? e.message).slice(0, 600) }); try { await shot(`err-${name}`); } catch {} } }
+
+try {
+  // ── First run. The wizard may appear only after the first-run decision, and the main window stays
+  // inert until then (the before session of 2026-10-08 took an early "not shown" for the decision):
+  // loop until Settings actually opens, pressing whichever wizard button is showing on the way.
+  const t0 = Date.now(); let booted = false, wizardShot = false;
+  while (Date.now() - t0 < 180000) {
+    if (await has('welcome-wizard')) {
+      if (!wizardShot) { await shot('00-welcome'); wizardShot = true; }
+      for (const id of ['welcome-skip-import', 'welcome-agents-continue', 'welcome-continue']) {
+        if (await has(id)) { try { await s.tap(id); await settle(); log('wizard-tap', { id }); } catch (e) { log('wizard-wait', { id, m: String(e.message).slice(0, 100) }); } break; }
+      }
+      await real(1000); continue;
+    }
+    try { await s.tap('connection-settings'); await settle(); } catch { await real(1000); continue; }
+    if (await has('close-settings')) { booted = true; break; }
+    await real(1000);
+  }
+  log(booted ? 'ready' : 'timeout', { what: 'boot-to-settings', ms: Date.now() - t0 });
+  if (!booted) { const st = await state(); log('boot-diagnosis', { ids: [...await ids()].slice(0, 120), welcome: pick(st, 'welcome')?.show, step: pick(st, 'welcomeStep'), connecting: pick(st, 'connecting'), settingsOpen: pick(st, 'settingsOpen'), paletteOpen: pick(st, 'paletteOpen'), providerDialog: pick(st, 'providerDialog'), restEditor: pick(st, 'restEditor'), projectsOpen: pick(st, 'projectsOpen') }); await shot('00-boot-timeout'); }
+  try { log('server-pid', { pids: execSync(`/usr/sbin/lsof -nP -t -iTCP:${port} -sTCP:LISTEN`).toString().trim() }); } catch { log('server-pid', { pids: null }); }
+  if (booted) { await tap('close-settings'); await real(500); }
+  // Both fixture providers probed ready (Codex, Claude).
+  await waitFor('providers-ready', async () => { const data = await res('data'); const p = new Map((data?.providers ?? []).map(x => [x.id, x.available])); return p.get('codex') === true && p.get('claudeAgent') === true; }, 90000);
+  const composerBefore = await composerModel('initial');
+
+  if (which === 'after') {
+    await step('add-project', async () => {
+      await tap('add-project');
+      await waitFor('palette', () => has('palette-input'), 10000);
+      await type('palette-input', `${L}/repos/model-demo`);
+      await real(1500); await settle();
+      await key('palette-input', 'Enter');
+      await waitFor('project-added', async () => { const data = await res('data'); return (data?.projects ?? []).some(p => String(p.path).endsWith('model-demo')); }, 20000);
+      if (await has('palette-input')) await key('palette-input', 'Escape');
+    });
+  }
+
+  // ── Settings › General, the two model rows (pairs: base flat menu vs branch picker; same fixture, untouched settings).
+  await step('open-settings', async () => {
+    await tap('connection-settings');
+    await waitFor('general', () => has('setting-default-model-model'), 20000);
+    await rowView('initial', 'default-model'); await rowView('initial', 'text-generation-model');
+    await shot('01-general');
+  });
+  await step('pair-default', async () => {
+    await tap('setting-default-model-model');
+    await real(800); await settle();
+    if (which === 'after') { await waitFor('picker', () => has('model-dialog'), 10000); await catalog('default-open'); await focusedIds('default-open'); }
+    await shot('02-default-model-open');
+    if (which === 'after') await key('model-search', 'Escape'); else await key('setting-default-model-model', 'Escape');
+    await focusedIds('after-escape');
+    log('closed', { dialog: await has('model-dialog'), menu: await has('setting-default-model-model-menu') });
+  });
+  await step('pair-textgen', async () => {
+    await tap('setting-text-generation-model-model');
+    await real(800); await settle();
+    if (which === 'after') { await waitFor('picker', () => has('model-dialog'), 10000); await catalog('textgen-open'); }
+    await shot('03-text-generation-open');
+    if (which === 'after') await key('model-search', 'Escape'); else await key('setting-text-generation-model-model', 'Escape');
+  });
+  if (which === 'before') throw Object.assign(new Error('before done'), { done: true });
+
+  const openDefault = async () => { await tap('setting-default-model-model'); await waitFor('picker', () => has('model-dialog'), 10000); };
+  await step('provider-browsing', async () => {
+    await openDefault();
+    await tap('provider-claudeAgent'); await catalog('claude-rail'); await shot('04-claude-rail');
+    await tap('provider-codex'); await catalog('codex-rail'); await shot('05-codex-rail');
+  });
+  await step('search', async () => {
+    await tap('provider-claudeAgent');
+    await type('model-search', 'opus'); await catalog('search-opus'); await shot('06-search-opus');
+    await type('model-search', 'codex'); await catalog('search-codex');
+    await type('model-search', 'zzzz'); await catalog('search-none'); log('empty-state', { modelEmpty: await has('model-empty') }); await shot('07-search-empty');
+    await type('model-search', ''); await catalog('search-cleared'); log('rail-back', { rail: await has('model-picker-rail') }); await shot('08-search-cleared');
+  });
+  await step('favorites', async () => {
+    const before = await rowView('before-favorite', 'default-model'); const settingsBefore = serverSettings();
+    await tap('favorite-claude-opus-5-5'); await catalog('favorited');
+    await rowView('after-favorite', 'default-model'); log('server-settings', { tag: 'after-favorite', unchanged: JSON.stringify(serverSettings()) === JSON.stringify(settingsBefore), ...serverSettings() });
+    await shot('09-favorited');
+    await tap('provider-favorites'); await catalog('favorites-rail'); await shot('10-favorites-rail');
+    await key('model-search', 'Escape');
+    void before;
+  });
+  await step('favorites-shared-with-composer', async () => {
+    await tap('close-settings'); await waitFor('main', () => has('model-picker'), 10000);
+    await tap('model-picker'); await waitFor('composer-picker', () => has('model-dialog'), 10000);
+    await catalog('composer-open'); await shot('11-composer-favorites');
+    await key('model-search', 'Escape');
+    await composerModel('after-composer-escape');
+    await tap('connection-settings'); await waitFor('general', () => has('setting-default-model-model'), 20000);
+    await openDefault(); await catalog('settings-reopen');
+    await tap('favorite-claude-opus-5-5'); await catalog('unfavorited'); log('empty-state', { modelEmpty: await has('model-empty') }); await shot('12-unfavorited');
+    await key('model-search', 'Escape');
+  });
+  await step('legacy', async () => {
+    await openDefault(); await tap('provider-codex'); await catalog('legacy-initial'); await shot('13-legacy-initial');
+    await tap('model-legacy'); await catalog('legacy-toggled-1'); await shot('14-legacy-toggled-1');
+    await tap('model-legacy'); await catalog('legacy-toggled-2'); await shot('15-legacy-toggled-2');
+    if (!(await has('model-gpt-5.5'))) await tap('model-legacy');
+    await tap('model-gpt-5.5'); await real(1500); await settle();
+    log('closed', { dialog: await has('model-dialog') }); await focusedIds('after-legacy-pick');
+    await rowView('after-legacy-pick', 'default-model'); log('server-settings', { tag: 'after-legacy-pick', ...serverSettings() });
+    await shot('16-legacy-selected');
+  });
+  await step('claude-pick', async () => {
+    await openDefault(); await tap('provider-claudeAgent'); await tap('model-claude-sonnet-5-5'); await real(1500); await settle();
+    await rowView('after-claude-pick', 'default-model'); log('server-settings', { tag: 'after-claude-pick', ...serverSettings() });
+    await shot('17-claude-selected');
+    await composerModel('after-settings-picks');
+  });
+  await step('scoped', async () => {
+    const core = await res('settingsCore');
+    log('scope-choices', { projects: (core?.projectChoices ?? []).map(c => [c.id, c.label]), environments: (core?.environmentChoices ?? []).map(c => [c.id, c.label]) });
+    const project = (core?.projectChoices ?? []).find(c => c.id !== '' && /model-demo/.test(c.label));
+    if (project) {
+      await tap('settings-scope-project'); await tap(`settings-scope-choice-project-${project.id}`); await real(1500); await settle();
+      await rowView('project-scope', 'default-model'); await rowView('project-scope', 'text-generation-model');
+      await openDefault(); await catalog('project-open'); await tap('provider-claudeAgent'); await tap('model-claude-opus-5-5'); await real(1500); await settle();
+      await rowView('project-after-pick', 'default-model'); log('server-settings', { tag: 'project-after-pick', ...serverSettings() });
+      await shot('18-project-override');
+      await tap('settings-scope-project'); await tap('settings-scope-choice-project-all'); await real(1000); await settle();
+    } else log('scope-skip', { reason: 'no model-demo project choice' });
+    const environment = (core?.environmentChoices ?? []).find(c => c.id !== '');
+    if (environment) {
+      await tap('settings-scope-environment'); await tap(`settings-scope-choice-environment-${environment.id}`); await real(1500); await settle();
+      await rowView('environment-scope', 'default-model');
+      await openDefault(); await tap('provider-codex'); if (!(await has('model-gpt-5.2'))) await tap('model-legacy'); await tap('model-gpt-5.2'); await real(1500); await settle();
+      await rowView('environment-after-pick', 'default-model'); log('server-settings', { tag: 'environment-after-pick', ...serverSettings() });
+      await shot('19-environment-pick');
+      await tap('settings-scope-environment'); await tap('settings-scope-choice-environment-all'); await real(1500); await settle();
+      await rowView('all-scope', 'default-model');
+      await openDefault(); await tap('provider-claudeAgent'); await tap('model-claude-sonnet-5-5'); await real(1500); await settle();
+      await rowView('all-after-pick', 'default-model'); log('server-settings', { tag: 'all-after-pick', ...serverSettings() });
+    }
+  });
+  await step('text-generation', async () => {
+    await tap('setting-text-generation-model-model'); await waitFor('picker', () => has('model-dialog'), 10000);
+    await catalog('textgen'); await tap('provider-claudeAgent'); await tap('model-claude-opus-5-5'); await real(1500); await settle();
+    await rowView('textgen-after-pick', 'text-generation-model'); log('server-settings', { tag: 'textgen-after-pick', ...serverSettings() });
+    await shot('20-textgen-selected');
+  });
+  await step('keyboard', async () => {
+    await openDefault(); await focusedIds('kb-open');
+    await key('model-search', 'ArrowDown'); await key('model-search', 'ArrowDown'); await shot('21-kb-highlight');
+    await key('model-search', 'ArrowLeft'); await focusedIds('kb-rail');
+    const rail = (await focusedIds('kb-rail-2'))[0];
+    if (rail && rail.startsWith('provider-')) { await key(rail, 'ArrowDown'); await focusedIds('kb-rail-down'); const now = (await focusedIds('kb-rail-3'))[0]; if (now) await key(now, 'ArrowRight'); await focusedIds('kb-back-to-search'); }
+    await type('model-search', 'opus 5.5'); await key('model-search', 'ArrowDown'); await catalog('kb-search'); await shot('22-kb-search');
+    await key('model-search', 'Enter'); await real(1500); await settle();
+    log('closed', { dialog: await has('model-dialog') }); await focusedIds('kb-after-enter');
+    await rowView('kb-after-enter', 'default-model'); log('server-settings', { tag: 'kb-after-enter', ...serverSettings() });
+    await openDefault(); await key('model-search', 'Escape'); log('closed', { dialog: await has('model-dialog') }); await focusedIds('kb-after-escape');
+    log('settings-still-open', { general: await has('setting-default-model-model') });
+    await composerModel('final');
+  });
+  log('done', { composerBefore });
+} catch (e) {
+  if (!e.done) log('fatal', { message: String(e.stack ?? e.message).slice(0, 800) });
+  else log('done', {});
+} finally {
+  try { const l = await s.logs(); writeFileSync(`${out}/app-logs.json`, JSON.stringify({ lines: l.lines.slice(-400), host: l.host.slice(-200) }, null, 1)); } catch {}
+  await s.close?.();
+  log('closed-session', { appPid });
+}
