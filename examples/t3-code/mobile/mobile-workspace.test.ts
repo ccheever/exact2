@@ -125,3 +125,22 @@ test('inspector chrome and divider events belong to the current visible registra
   expect(send({ kind: 'inspector-closed', owner: 'pane:4', exitToken: 'exit:8' }).kind).toBe('');
   expect(send({ kind: 'inspector-closed', owner: 'pane:4', exitToken: 'exit:8' }, false).kind).toBe('end-exit');
 });
+
+
+test('global Arrange preserves the workspace and retained New Task visit beneath its fullscreen route', () => {
+  const arrange = { id: 23, name: 'homeArrange', url: '/arrange', params: {} };
+  const newTask = { id: 20, name: 'newTask', url: '/new', params: {} };
+  const draft = { id: 21, name: 'newTaskDraft', url: '/new/draft?environmentId=env&projectId=p', params: {} };
+  for (const prefix of [[home], [home, thread], [home, thread, newTask, draft]]) {
+    const before = mobileWorkspace(prefix, options);
+    const during = mobileWorkspace([...prefix, arrange], options);
+    expect(during).toMatchObject({ workspaceRouteId: before.workspaceRouteId, environmentId: before.environmentId,
+      threadId: before.threadId, topRouteId: '23',
+      sidebarContentWidth: before.sidebarContentWidth, contentSettledWidth: before.contentSettledWidth,
+      overlayCount: before.overlayCount + 1 });
+    const retained = mobileWorkspaceLocation([...prefix, arrange]).entries;
+    expect(retained.slice(0, -1)).toEqual(mobileWorkspaceEntries(prefix));
+    expect(mobileWorkspace(retained.slice(0, -1), options)).toEqual(before);
+  }
+  expect(mobileWorkspaceOverlay('homeArrange')).toBe(true);
+});

@@ -49,7 +49,7 @@ test('ordinary source menus preserve lifecycle order, title actions, submenus an
   expect(top()).toEqual(['new-thread-on-branch', 'copy-thread-id', 'unsnooze', 'rename', 'regenerate-title', 'auto-settle', 'delete']);
   f.client.shell.threads[0] = thread({ pinnedAt: '2026-01-01' }); expect(top()).toContain('unpin'); expect(top()).not.toContain('pin');
   f.client.config = { environment: { capabilities: { ...capabilities, threadSettlement: false } } };
-  expect(top()).toEqual(['new-thread-on-branch', 'copy-thread-id', 'archive', 'move-up', 'move-down', 'unpin', 'rename', 'regenerate-title', 'delete']);
+  expect(top()).toEqual(['new-thread-on-branch', 'copy-thread-id', 'archive', 'arrange-open', 'move-up', 'move-down', 'unpin', 'rename', 'regenerate-title', 'delete']);
   expect(f.calls).toHaveLength(0);
 });
 

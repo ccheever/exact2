@@ -1,3 +1,4 @@
+import { homeArrangeActionValue } from './home-arrange';
 import { mobileHomeAction } from './home-actions';
 import { mobileAddProjectObserve, mobileAddProjectPrepare, mobileAddProjectEdit, mobileAddProjectBrowse, mobileAddProjectAction, type AddProjectRoute } from './add-project';
 import { mobileNewTaskCloneObserve } from './new-task-clone';
@@ -563,6 +564,11 @@ const sources: Sources = {
   toggleShelf: (args, _store, storage, nativeInput) => {
     const native = sourceNative('toggleShelf', args, nativeInput);
     return mobileToggleShelf(String(args[0] ?? ''), native);
+  },
+  homeArrangeAction: (args, _store, storage, nativeInput) => {
+    const native = sourceNative('homeArrangeAction', args, nativeInput);
+    const value = homeArrangeActionValue(str(args[1]), str(args[4]), str(args[5]), str(args[6]));
+    return mobileHomeAction(str(args[0]), str(args[2]), str(args[3]), 'arrange', value, Number(args[7]), native);
   },
   homeAction: (args, _store, storage, nativeInput) => {
     const native = sourceNative('homeAction', args, nativeInput);

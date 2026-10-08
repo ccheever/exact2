@@ -1,6 +1,7 @@
 // Root data records. Resources and mutations remain in app.contract.
 use SettingsRootData from "./settings.contract"
 use HomeItem from "./home.contract"
+use HomeArrangementData from "./home-arrangement.contract"
 use ConnectionColors from "./connect.contract"
 use EnvironmentRow, GitHubRoutingRow from "./environments.contract"
 
@@ -50,6 +51,7 @@ shape ThreadSelection
   environmentId: string
   threadId: string
 shape HomeView
+  arrangement: HomeArrangementData
   items: list<HomeItem>
   emptyTitle: string
   emptyDetail: string
