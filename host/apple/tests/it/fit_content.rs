@@ -109,3 +109,89 @@ fn an_empty_route_measures_its_padding_and_a_scrolling_one_its_scroll_extent() {
     let covered = host.set_covers(&[(clips, Some(HostCover::Edges([0.0, 0.0, 34.0, 0.0])))]);
     assert!(heights(&covered, clips).is_empty(), "{covered}");
 }
+
+/// Astra's regression: rows that may shrink (CSS's default `flex-shrink:
+/// 1`) in a sheet already at the content's height. The fourth row is
+/// measured as asked for, not squeezed into the sheet's box; so are a
+/// child that grows and one at a percentage of the route's height.
+#[test]
+fn rows_that_may_shrink_still_grow_the_extent() {
+    let src = r##"component Menu
+  state rows = [0, 1]
+  action more
+    rows = concat(rows, [length(rows)])
+  view
+    column position="relative" width="100%" height="100%"
+      column testId="sheet" navigationDetent="fit-content" position="absolute" top=0 right=0 bottom=0 left=0 display="flex" flex-direction="column" padding=16
+        button press=more testId="more" height=44
+          text "More"
+        each i in rows key=i
+          row height=44
+            text `Row ${i}`
+      column testId="grows" navigationDetent="fit-content" position="absolute" top=0 right=0 bottom=0 left=0 display="flex" flex-direction="column"
+        row height=44
+          text "Row"
+        box flex-grow=1
+        box height="50%"
+"##;
+    let plan = contract::compile(src).unwrap();
+    let (mut host, first) = Host::boot(
+        &plan.encode(),
+        NoData,
+        Box::new(MonospaceMeasurer::default()),
+        390.0,
+        844.0,
+    )
+    .unwrap();
+    let sheet = view(&host, "sheet");
+    assert_eq!(heights(&first, sheet), [16.0 + 3.0 * 44.0 + 16.0]);
+    // Neither the spare height nor half of it is the content's.
+    let grows = view(&host, "grows");
+    assert_eq!(heights(&first, grows), [44.0]);
+    // The sheet at the content's height, as UIKit sets it.
+    let fitted = host.resize(390.0, 164.0);
+    assert!(heights(&fitted, sheet).is_empty(), "{fitted}");
+    assert!(heights(&fitted, grows).is_empty(), "{fitted}");
+    let more = view(&host, "more");
+    let grown = host.dispatch_at(more, Event::Press, 0.0);
+    assert_eq!(
+        heights(&grown, sheet),
+        [16.0 + 4.0 * 44.0 + 16.0],
+        "{grown}"
+    );
+}
+
+/// A percentage padding is of the containing block's width (CSS Box Model
+/// §3), not the route's: a 200-point route in a 400-point block pads 10% as
+/// 40 points, whether it clips, scrolls or neither.
+#[test]
+fn percentage_padding_is_of_the_containing_block() {
+    let src = r##"component Menu
+  view
+    column position="relative" width=400 height="100%"
+      column testId="visible" navigationDetent="fit-content" position="absolute" top=0 left=0 bottom=0 width=200 display="flex" flex-direction="column" padding-bottom="10%"
+        row height=44 flex-shrink=0
+          text "Row"
+      column testId="hidden" navigationDetent="fit-content" overflow="hidden" position="absolute" top=0 left=0 bottom=0 width=200 display="flex" flex-direction="column" padding-bottom="10%"
+        row height=44 flex-shrink=0
+          text "Row"
+      column testId="flex-scrolls" navigationDetent="fit-content large" overflow-y="auto" position="absolute" top=0 left=0 bottom=0 width=200 display="flex" flex-direction="column" padding-bottom="10%"
+        row height=44 flex-shrink=0
+          text "Row"
+      column testId="block-scrolls" navigationDetent="fit-content large" overflow-y="auto" position="absolute" top=0 left=0 bottom=0 width=200 display="block" padding-bottom="10%"
+        row height=44
+          text "Row"
+"##;
+    let plan = contract::compile(src).unwrap();
+    let (host, first) = Host::boot(
+        &plan.encode(),
+        NoData,
+        Box::new(MonospaceMeasurer::default()),
+        390.0,
+        844.0,
+    )
+    .unwrap();
+    for id in ["visible", "hidden", "flex-scrolls", "block-scrolls"] {
+        assert_eq!(heights(&first, view(&host, id)), [44.0 + 40.0], "{id}");
+    }
+}

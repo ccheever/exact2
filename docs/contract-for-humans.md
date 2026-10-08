@@ -1147,11 +1147,12 @@ which UIKit adds below; so under `viewport-fit="cover"` a route that pads
 `env(safe-area-inset-bottom)` gets it twice. With one height the sheet does not
 expand and shows no grabber; with several (`"300 large"`) it is dragged between
 them, the first to start. `fit-content` goes alone or as `"fit-content large"`.
-It measures the route's children, laid out in the sheet, so write the route as
-a `column` whose children take their own heights: one sized from the route (a
-percentage `height`, `flex-grow`, a `row`'s stretch) or pushed to its end
-measures the sheet back, holding it at its height or shrinking it each time. macOS, the web and Linux show a modal route as authored and
-ignore the detent
+It measures the route laid out on its own with its height left to its
+content, as CSS's `fit-content` does, so nothing the sheet gives it counts:
+rows do not shrink into it, and a percentage `height` or `flex-grow` takes
+nothing from it. A route that scrolls itself is measured by what it scrolls,
+laid out in the sheet, so give its rows `flex-shrink: 0`. macOS, the web and
+Linux show a modal route as authored and ignore the detent
 ([LLP 1075.003](../llp/1075.003-native-platform-control-merged.plan.md) §9.11).
 
 `path("item", value)` checks the route and encodes its parameters. Always build

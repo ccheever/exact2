@@ -178,6 +178,9 @@ impl<D: DataSource> Host<D> {
             .into_iter()
             .collect();
         pending.sort_unstable();
+        // Fit-content routes whose subtree changed this pass (§9.11): a row
+        // added under one need not move the route's own box or extent.
+        let mut refit: Vec<ViewId> = Vec::new();
         for key in pending {
             let Some(node) = self.runner.kernel().node_by_key(key) else {
                 continue;
@@ -208,8 +211,8 @@ impl<D: DataSource> Host<D> {
             let rel = relative(node.frame, parent);
             // A sheet sized to its route's content reads that extent too
             // (LLP 1075.003 §9.11). A route that scrolls itself keeps its
-            // scroll extent; one that only clips (`hidden`) is measured as
-            // one that does not, its extent counting no bottom cover.
+            // scroll extent; any other (one that only clips too) is measured
+            // laid out alone (`emit_fitted`) whenever its subtree changes.
             let overflow = style::effective_overflow(&node);
             let fits = node
                 .props
@@ -218,12 +221,23 @@ impl<D: DataSource> Host<D> {
             let scrolls = [overflow.0, overflow.1]
                 .iter()
                 .any(|o| matches!(o, Overflow::Scroll | Overflow::Auto));
-            let content = if fits && !scrolls {
-                Some(fitted_size(&node, kernel))
+            if fits && !scrolls {
+                if !self.fit_routes.contains(&id) {
+                    self.fit_routes.push(id);
+                }
             } else {
-                (overflow != (Overflow::Visible, Overflow::Visible))
-                    .then(|| content_size(&node, kernel))
-            };
+                self.fit_routes.retain(|r| *r != id);
+            }
+            let mut at = (!self.fit_routes.is_empty()).then_some(id);
+            while let Some(a) = at {
+                if self.fit_routes.contains(&a) && !refit.contains(&a) {
+                    refit.push(a);
+                }
+                at = kernel.node(a).and_then(|n| n.parent);
+            }
+            let content = (!(fits && !scrolls)
+                && overflow != (Overflow::Visible, Overflow::Visible))
+                .then(|| content_size(&node, kernel));
             // An ancestor hint may change without touching the editor. Pass
             // its effective value through native containment, or clear it to
             // restore the platform default when the last declaration disappears.
@@ -261,6 +275,7 @@ impl<D: DataSource> Host<D> {
                 self.observe_layout(key, batch);
             }
         }
+        self.emit_fitted(refit, batch);
         self.snap_layout(batch);
         self.emit_sticky(batch);
         self.emit_fragments(batch);
@@ -281,34 +296,48 @@ impl<D: DataSource> Host<D> {
     }
 }
 
+impl<D: DataSource> Host<D> {
+    /// A `fit-content` route's extent (LLP 1075.003 §9.11): the height it
+    /// asks for laid out alone at its width, its own height left to its
+    /// content (`Kernel::fit_content_height`), so the sheet it sizes never
+    /// feeds back into it. A bottom cover is the sheet's safe area, which
+    /// UIKit adds below the detent itself: not counted.
+    fn emit_fitted(&mut self, refit: Vec<ViewId>, batch: &mut Batch) {
+        let kernel = self.runner.kernel();
+        self.fit_routes.retain(|id| kernel.node(*id).is_some());
+        for id in refit {
+            let kernel = self.runner.kernel_mut();
+            let Some(node) = kernel.node(id) else {
+                continue;
+            };
+            let (key, width) = (node.key, node.frame.width);
+            let cover = match kernel.arena().cover(key.index) {
+                Some(exact_kernel::HostCover::Edges([_, _, bottom, _])) => bottom,
+                _ => 0.0,
+            };
+            let Some(height) = kernel.fit_content_height(key) else {
+                continue;
+            };
+            let c = (width, (height - cover).max(0.0));
+            let m = self.mirror.entry(id).or_default();
+            if m.content != Some(c) {
+                m.content = Some(c);
+                batch.content(id, c.0, c.1);
+            }
+        }
+    }
+}
+
 /// Natural scrollable overflow, including padding and descendants. The
 /// presenter applies the CSS client-size minimum against its actual viewport;
 /// flooring here loses the extent a native container needs under its own insets.
 pub(super) fn content_size(node: &NodeRef<'_>, kernel: &Kernel) -> (f32, f32) {
-    extent(node, kernel, node.content)
-}
-
-/// A `fit-content` sheet's measure (LLP 1075.003 §9.11): the children's
-/// extent and the authored end padding, at least the authored vertical
-/// padding, without Taffy's height, which may count end padding, a native
-/// container's bottom cover among it (the sheet's safe area, which UIKit adds
-/// below the detent itself).
-fn fitted_size(node: &NodeRef<'_>, kernel: &Kernel) -> (f32, f32) {
-    let env = kernel.env();
-    let pads = padding(node.style.padding_top, node.frame.width, &env)
-        + padding(node.style.padding_bottom, node.frame.width, &env);
-    extent(node, kernel, (node.content.0, pads))
-}
-
-/// `from` floored by the direct children's extent plus the end padding.
-fn extent(node: &NodeRef<'_>, kernel: &Kernel, from: (f32, f32)) -> (f32, f32) {
     // Taffy's block containers do not always count end-edge padding in
     // `content_size` (its flex containers do); CSS's `scrollHeight` does.
-    // Floor with the direct children's extent plus the end padding.
-    let env = kernel.env();
-    let pad_right = padding(node.style.padding_right, node.frame.width, &env);
-    let pad_bottom = padding(node.style.padding_bottom, node.frame.width, &env);
-    let (mut w, mut h) = from;
+    // Floor with the direct children's extent plus the end padding, as the
+    // last layout resolved it (a percentage is of the containing block).
+    let (_, _, pad_right, pad_bottom) = kernel.resolved_padding(node.key).unwrap_or_default();
+    let (mut w, mut h) = node.content;
     for child in node.children() {
         if let Some(c) = kernel.node(child) {
             w = w.max(c.frame.x - node.frame.x + c.frame.width + pad_right);
@@ -316,19 +345,6 @@ fn extent(node: &NodeRef<'_>, kernel: &Kernel, from: (f32, f32)) -> (f32, f32) {
         }
     }
     (w, h)
-}
-
-/// A padding row in points; a percentage is of the containing width.
-fn padding(d: exact_kernel::Dimension, against: f32, env: &exact_kernel::Env) -> f32 {
-    match d.resolve(env) {
-        exact_kernel::Dimension::Points(p) => p,
-        exact_kernel::Dimension::Percent(p) => against * p / 100.0,
-        exact_kernel::Dimension::Calc(p, x) => against * p / 100.0 + x,
-        exact_kernel::Dimension::Auto
-        | exact_kernel::Dimension::Env(..)
-        | exact_kernel::Dimension::Segment(..)
-        | exact_kernel::Dimension::Viewport(..) => 0.0,
-    }
 }
 
 #[cfg(test)]

@@ -1069,9 +1069,10 @@ main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow displa
 - A sheet's heights are `navigationDetent`, space-separated words: `large`,
   `medium`, a point height or `fit-content` (the route's content height; a menu or
   a short dialog), which goes alone or as `"fit-content large"`. A literal with
-  another word is refused. Under `fit-content` the route is a `column` whose children
-  take their own heights (no percentage `height`, `flex-grow` or `row` stretch),
-  or the sheet measures itself, and the route does
+  another word is refused. `fit-content` measures the route laid out alone, its
+  height left to its children, so nothing sized from the sheet counts; a route
+  that scrolls is measured by its scroll extent, so give its rows
+  `flex-shrink: 0`. The route does
   not pad `env(safe-area-inset-bottom)`: UIKit adds that band below the detent.
   iOS alone sizes a sheet (LLP 1075.003 §9.11).
 - Without tabs, the routes are the root's own children, laid out the same way.

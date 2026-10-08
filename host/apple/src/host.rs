@@ -160,6 +160,8 @@ pub struct Host<D: DataSource> {
     dirty_paragraphs: BTreeSet<ViewId>,
     pending_layout: IdSet<NodeKey>,
     layout_withheld: bool,
+    /// Routes whose `navigationDetent` names `fit-content` (LLP 1075.003 §9.11).
+    fit_routes: Vec<ViewId>,
     /// Each sticky node's constraint as the presenter last heard it (LLP 1083).
     stickies: IdMap<ViewId, exact_kernel::StickyConstraint>,
     /// Each multi-column record as the presenter last heard it (LLP 1093 D7).
@@ -454,6 +456,7 @@ impl<D: DataSource> Host<D> {
             dirty_paragraphs: BTreeSet::new(),
             pending_layout: IdSet::default(),
             layout_withheld: false,
+            fit_routes: Vec::new(),
             stickies: IdMap::default(),
             fragments: IdMap::default(),
             ranks: IdMap::default(),
