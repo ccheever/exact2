@@ -95,6 +95,8 @@ test('generated commands run from an external author directory with quoted paths
     assert.deepEqual(verbs,['test-rust','web','test','agent','mac','windows','prove'],created.stdout);
     const runner=readFileSync(resolve(app,'exact.mjs'),'utf8');
     for (const verb of verbs) assert.ok(new RegExp(`^  '?${verb}'?: \\[`,'m').test(runner),verb);
+    // A refusal names `lock`, and an example in render/ needs `.shells/` (LLP 1046.012 F3, F4).
+    for (const verb of ['lock','shells']) assert.ok(new RegExp(`^  ${verb}: \\[`,'m').test(runner),verb);
     assert.match(readFileSync(resolve(app,'AGENTS.md'),'utf8'),/<!-- exact:begin[^]*an Exact game[^]*game[\\/]README\.md[^]*## The authoring diary[^]*<!-- exact:end -->/);
     const inspect=resolve(directory,'inspect command.mjs');
     writeFileSync(inspect,`import {readFileSync} from 'node:fs'; import {resolve} from 'node:path';

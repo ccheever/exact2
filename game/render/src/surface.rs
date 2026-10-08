@@ -205,6 +205,63 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, 
     pub fn error(&self) -> Option<&SurfaceError> {
         self.error.as_ref()
     }
+    /// What keeps the surface from showing its settled picture: the agent's
+    /// `readyReasons`, empty when it is ready.
+    pub fn ready_reasons(&self) -> Vec<String> {
+        let Some(sim) = &self.sim else {
+            return vec!["not bound".into()];
+        };
+        let mut reasons: Vec<String> = if ASSETS || G::LEVEL.is_some() {
+            sim.asset_failures().map(str::to_owned).collect()
+        } else {
+            Vec::new()
+        };
+        if let Some(error) = &self.error {
+            reasons.push(format!("render error: {}", error.0));
+        }
+        if !self.device {
+            reasons.push("no device".into());
+        }
+        if sim.is_loading() {
+            reasons.push("declared content pending".into());
+        }
+        if ASSETS && !sim.device_assets_ready() {
+            reasons.push("device assets pending".into());
+        }
+        if self.ready_work.is_none() {
+            reasons.push("first draw pending".into());
+        }
+        if H::ENABLED && self.hooks.needs().contains(crate::Needs::PENDING) {
+            reasons.push(self.hooks.pending_reason().to_string());
+        }
+        if let Some(error) = self.hooks.error() {
+            reasons.push(format!("render hook: {error}"));
+        }
+        reasons
+    }
+    /// An offscreen fixture's settled picture: `frame` rendered until
+    /// [`ready_reasons`](Self::ready_reasons) is empty, at most `frames`
+    /// times, rather than a fixed count of warm-up frames. A render hook
+    /// whose pipelines fail validation never becomes ready, so a surface
+    /// still not ready says why.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn settle(
+        &mut self,
+        gpu: &exact_gpu::Gpu,
+        frame: &Frame,
+        frames: u32,
+    ) -> Result<exact_gpu::fixture::Pixels, String> {
+        for _ in 0..frames {
+            let (pixels, _) = exact_gpu::fixture::render(gpu, self, frame)?;
+            if self.ready_reasons().is_empty() {
+                return Ok(pixels);
+            }
+        }
+        Err(format!(
+            "not ready after {frames} frames: {}",
+            self.ready_reasons().join("; ")
+        ))
+    }
     /// Read the simulation after a successful bind.
     pub fn sim(&self) -> Option<&Sim<G>> {
         self.sim.as_ref()
@@ -800,32 +857,7 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> Surface
                 .render
                 .as_ref()
                 .map_or_else(Default::default, |(r, _)| r.residency_work());
-            let mut reasons: Vec<String> = if ASSETS || G::LEVEL.is_some() {
-                sim.asset_failures().map(str::to_owned).collect()
-            } else {
-                Vec::new()
-            };
-            if let Some(error) = &self.error {
-                reasons.push(format!("render error: {}", error.0));
-            }
-            if !self.device {
-                reasons.push("no device".into());
-            }
-            if sim.is_loading() {
-                reasons.push("declared content pending".into());
-            }
-            if ASSETS && !sim.device_assets_ready() {
-                reasons.push("device assets pending".into());
-            }
-            if self.ready_work.is_none() {
-                reasons.push("first draw pending".into());
-            }
-            if H::ENABLED && self.hooks.needs().contains(crate::Needs::PENDING) {
-                reasons.push(self.hooks.pending_reason().to_string());
-            }
-            if let Some(error) = self.hooks.error() {
-                reasons.push(format!("render hook: {error}"));
-            }
+            let reasons = self.ready_reasons();
             let ready = reasons.is_empty();
             // Which payload family this device fetches, and what is resident.
             let textures = if ASSETS {

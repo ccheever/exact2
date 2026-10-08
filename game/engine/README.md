@@ -22,6 +22,10 @@ and randomness; `Sim` owns input. The renderer interpolates completed ticks.
   `Lit`) are registered by every world.
 - `near` and `near_xz` read global poses in entity order, including parented
   entities. `nearest_xz_mut` supplies one entity and its mutable component together.
+- A child's `Transform` composes with its parent's, scale included, axis by axis.
+  Under a root scaled `(diameter, height, diameter)` so its parts can be authored in
+  a unit box, every `Mesh::sphere` draws as an ellipsoid. Give a part that must stay
+  round the inverse of the root's aspect in its own scale.
 - `Visible(false)` hides the entity and all `Parent` descendants from drawing,
   shadows, lights and picking. `is_visible(e)` reads current ancestor rows even
   while paused; absent `Visible` rows are true, but children cannot override a
