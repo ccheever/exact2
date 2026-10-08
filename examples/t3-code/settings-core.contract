@@ -3,6 +3,7 @@
 // (SettingsSidebarNav, WorkspacePageHeader, SettingsScopeSentence, settingsLayout,
 // ui/select, ui/switch); colours arrive as light-dark() tokens from the theme palette.
 use NightlyBackdrop from "./nightly.contract"
+use FontDiffPreview from "./shapes.contract"
 use EditorView from "./settings-appearance-editor-shapes.contract"
 use ImportView from "./settings-appearance-editor-shapes.contract"
 use KillConfirm from "./settings-a-telemetry.contract"
@@ -263,6 +264,8 @@ shape SettingsCore
   codeFont: string
   interfaceSize: number
   codeSize: number
+  // Appearance › Typography's code sample (settings-font-previews.ts).
+  codePreview: FontDiffPreview
   wordWrap: bool
   panelDuration: number
   background: BackgroundDialog

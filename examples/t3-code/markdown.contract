@@ -325,7 +325,7 @@ component BlockBody
         box role="heading" aria-level=block.depth width="100%"
           FlowRuns(runs=block.runs, color=prose, fit=fit, chips=chips, urls=urls, local=local, size=(block.depth == 1 ? 20 : block.depth == 2 ? 18 : block.depth == 3 ? 16 : 14), weight=600)
       else
-        text role="heading" aria-level=block.depth id=`cite-${source}-${block.id}` selectionchange=cite(block.id) width="100%" font-size=(block.depth == 1 ? "1.25rem" : block.depth == 2 ? "1.125rem" : block.depth == 3 ? "1rem" : "0.875rem") line-height="0.08125rem" color=(block.depth == 6 ? "light-dark(#71717b, #818181)" : "light-dark(#27272a, #f5f5f5)")
+        text role="heading" aria-level=block.depth id=`cite-${source}-${block.id}` selectionchange=cite(block.id) width="100%" font-size=(block.depth == 1 ? "1.25rem" : block.depth == 2 ? "1.125rem" : block.depth == 3 ? "1rem" : "0.875rem") line-height=1.3 color=(block.depth == 6 ? "light-dark(#71717b, #818181)" : "light-dark(#27272a, #f5f5f5)")
           ChatRuns(runs=block.runs, size=(block.depth == 1 ? 20 : block.depth == 2 ? 18 : block.depth == 3 ? 16 : 14), weight=600)
     else
       when block.kind == "item"
@@ -347,7 +347,7 @@ component BlockBody
           when block.kind == "table-row"
             row width="100%" border-bottom-width=1 border-bottom-style="solid" border-color="light-dark(#e4e4e799, #ffffff09)"
               each cell in block.cells key=cell.id
-                text flex=1 min-width=0 padding-left="0.75rem" padding-right="0.75rem" padding-top=(block.header ? "0.55rem" : "0.45rem") padding-bottom=(block.header ? "0.55rem" : "0.45rem") font-size="0.75rem" line-height="0.1015625rem" color=prose
+                text flex=1 min-width=0 padding-left="0.75rem" padding-right="0.75rem" padding-top=(block.header ? "0.55rem" : "0.45rem") padding-bottom=(block.header ? "0.55rem" : "0.45rem") font-size="0.75rem" line-height=1.625 color=prose
                   ChatRuns(runs=cell.runs, size=12, weight=(block.header ? 600 : 400))
           else
             when block.kind == "table"
@@ -840,10 +840,10 @@ component TableCell
       else
         when header or not expanded
           // One line, cut with an ellipsis (text-overflow: ellipsis at 24rem).
-          text max-width=(expanded ? "6250rem" : "22.5rem") font-size="0.75rem" line-height="0.1015625rem" line-clamp=1 color=prose text-align=column.align
+          text max-width=(expanded ? "6250rem" : "22.5rem") font-size="0.75rem" line-height=1.625 line-clamp=1 color=prose text-align=column.align
             ChatRuns(runs=cell.runs, size=12, weight=(header ? 600 : 400))
         else
-          text max-width="22.5rem" font-size="0.75rem" line-height="0.1015625rem" overflow-wrap="anywhere" color=prose text-align=column.align
+          text max-width="22.5rem" font-size="0.75rem" line-height=1.625 overflow-wrap="anywhere" color=prose text-align=column.align
             ChatRuns(runs=cell.runs, size=12, weight=400)
       box height=0 overflow="hidden" aria-hidden=true
         when column.capped
@@ -852,7 +852,7 @@ component TableCell
           when length(filter(column.sizer, (part) => part.mono or part.kind == "file" or chipAccent(part.kind) != "")) > 0
             CellRuns(runs=column.sizer, weight=(column.header ? 600 : 400), color=prose, nowrap=true, shown=false, justify="flex-start")
           else
-            text max-width=(expanded and column.header ? "6250rem" : "22.5rem") font-size="0.75rem" line-height="0.1015625rem" white-space="nowrap" opacity=0
+            text max-width=(expanded and column.header ? "6250rem" : "22.5rem") font-size="0.75rem" line-height=1.625 white-space="nowrap" opacity=0
               ChatRuns(runs=column.sizer, size=12, weight=(column.header ? 600 : 400))
 
 // A cell holding code spans: its runs side by side, each code span 12pt SF
@@ -877,7 +877,7 @@ component CellRuns
             when chipAccent(run.kind) != ""
               ContextChipBox(run=run)
             else
-              text run.text min-width=0 font-size="0.75rem" line-height="0.1015625rem" white-space=(nowrap ? "pre" : "pre-wrap") font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant color=color
+              text run.text min-width=0 font-size="0.75rem" line-height=1.625 white-space=(nowrap ? "pre" : "pre-wrap") font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant color=color
 
 // The footer's icon-xs buttons: ghost-muted, or "secondary" while pressed.
 component TableIconButton

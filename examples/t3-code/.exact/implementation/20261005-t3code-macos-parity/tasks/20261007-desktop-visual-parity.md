@@ -1,14 +1,14 @@
 ---
 name: 20261007-desktop-visual-parity
 plan: 20261005-t3code-macos-parity
-implementation: planned
-verification: unverified
-delivery: none
+implementation: verified
+verification: passed
+delivery: draft
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
-branch: null
-pr_url: null
-verified_commit: null
+branch: feat(example)/t3-code-desktop-visual-parity
+pr_url: https://github.com/ccheever/exact2/pull/250
+verified_commit: 54c43198e
 ---
 
 # Match desktop typography previews, selectors and Markdown tables
@@ -150,4 +150,53 @@ and color-picker differences belong in their own tracking.
 
 - 2026-10-07: Independently inspected the paired live screenshots and the source
   paths above. V01–V03 have high confidence. No product source was changed.
-- Next action: implement V01–V03, then run the acceptance steps.
+- 2026-10-08: Implemented V01–V03 (`54c43198e`, draft PR #250).
+  - V01: `settings-font-previews.contract` and `settings-font-previews.ts` draw the
+    composer's chips and the diff panel's presentation of the reference patch. That is
+    Pierre's default header and unified rows with word-alt emphasis: jsdiff
+    `diffWordsWithSpace` and Pierre `pushOrJoinSpan`, ported; their licences are in the file.
+  - V02: `text-align="left"` on the shared `SettingsSelect` and `SkMenuItem` text and on
+    the Runs on and Base branch triggers.
+  - V03: the cause was confirmed. The rem conversion (bf35a2d49, 6d87fd91a) had turned 8
+    unitless line heights into pixel-sized rem. They are restored, and a test guards the class.
+  - One live session ran (after: the one retry; before: the base build), plus a
+    reference pass in the release's own web client. Independent review found no blocking
+    findings.
+
+## Attempts and evidence
+
+| Attempt | Revision | Checks and outcomes | Evidence | Remaining |
+| --- | --- | --- | --- | --- |
+| 1 | `54c43198e` on `d82fb6a47` | `bun test examples/t3-code` 2518 pass / 1 skip / 0 fail (base 2511 + 7 new); strict tsc clean; `contract build` 2629 slots; `cargo test -p t3-code-macos --lib` 11 pass; caps pass; five checks pass (cargo test 3383 passed, 0 failed, 33 ignored; clippy, fmt, boot exit 0). Runner recipe `passed`, `source_unchanged: true`, digest `0c82c168eae0…`, committed tree matches. Port parity against the reference's `diff@9.0.0` and `@pierre/diffs`: 5,000 + 5,000 random pairs identical (reviewer: 20,000). | `t3-code-evidence/desktop-visual-parity/` at `09039d524be3`: pairs 01–15, `ref-*.png`, `live-session.md`, `ops-after.txt`, `ops-before.txt` | see below |
+| live, after | bundle of `54c43198e`'s tree (before review edits) | Attempt 1: the standalone dev binary has no bundled runtime (`runtime-missing`), so no flow ran. Attempt 2 (the one retry): the bundle binary with `T3_LOCAL_HOME`, port 16511. Typography light/dark/Advanced/18+16 px, keybinding Command trigger, menu, long value and When condition, New task and its Workspace menu, the fixture tables expanded/collapsed/dark/18 px. Two refused ops were retried by view id. | `ops-after.txt` | — |
+| live, before | base `da4f4512f` (evidence worktree, rebuilt under its lock) | The same flow on the same lane home | `ops-before.txt` | — |
+
+The fixture thread came from a lane-only Grok ACP stand-in, modelled on the reference's
+`grok-text-mock-agent.mjs`; it is uncommitted, under `target/lane/`, and made no real provider call.
+Post-drive edits are non-visual at the captured size: licence comments, chip test ids and labels,
+and stripe height `1.25rem` → `20px`.
+
+Not verified, with blockers:
+- The other shared selector callers (Storage, Source Control, Projects, host and keybinding row
+  menus) were not captured live. This needs one more session (one-session rule, 2026-10-06);
+  reviewed in code: all 9 `SettingsSelect` and 8 `SkMenuItem` sites align left, as the reference does.
+- There are no reference captures in dark, with Advanced on, or of collapsed tables: same session budget.
+- Oracle and trace rows were not run: user decision 2026-10-06.
+
+Found while capturing. This is existing behaviour, outside this task's acceptance, and needs a
+follow-up task:
+- The reference draws inline code that names a workspace path (`apps/web/src/index.css`) as a file
+  chip; Exact keeps a code span.
+- Expanded tables: the reference's long value wraps across the full column (Chrome ignores
+  `max-width` on `td`), while Exact wraps at 22.5rem. In one collapsed capture Exact cut at a word
+  with no ellipsis.
+- Intraline emphasis is square-cornered. Pierre has a 3 px radius, but Contract inline spans paint
+  background only.
+- In t3-code agent drives, plain `screenshot <png>` returns a uniform white image;
+  `screenshot <png> window` works.
+
+## Next action
+
+Review of draft PR #250. #257 (editable prompt preview) replaces the static prompt sample and is
+expected to conflict in `settings-rows.contract`. One more live session would close the
+shared-caller and reference-dark rows.
