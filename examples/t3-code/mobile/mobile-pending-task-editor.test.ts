@@ -565,10 +565,13 @@ for (const mode of ['removal-reply', 'completion-reply', 'cleanup-write', 'typin
   expect(mobilePendingTaskEditorsSnapshot(f.client).markers).toHaveLength(1); delete f.hooks.write;
   f.host.state.held.clear(); f.host.state.epoch = 'cold'; const restart = await fixture(f.disk(), f.host);
   const replay = await mobilePendingTaskRecover(restart.client, f.host.native, restart.storage, { expected: live(restart), current: restart.input.current });
-  expect(replay.status).toBe(mode === 'typing' ? 'retained' : 'recovered');
+  expect({ status: replay.status, reason: replay.reason }).toEqual({ status: 'recovered', reason: '' });
   expect(restart.client.local.drafts[destination]).toBe('captured handoff');
-  if (mode === 'typing') expect(restart.client.local.drafts[key]).toBe('newer source editor');
-  else expect(restart.client.local.drafts[key]).toBeUndefined();
+  if (mode === 'typing') {
+    expect(replay.draftKey).toStartWith('new-task:restored-editor-');
+    expect(restart.client.local.drafts[replay.draftKey]).toBe('newer source editor');
+  }
+  expect(restart.client.local.drafts[key]).toBeUndefined();
   expect(f.host.writes()).toHaveLength(1);
   expect(new Set(f.host.calls.filter(call => call.action === 'resumeRemoval').map(call => obj(call.request).mutationId)).size).toBe(1);
 });
@@ -629,4 +632,101 @@ for (const mode of ['offline', 'unpaired', 'late'] as const) test(`cold restored
   }
   expect(client.local.drafts[recovered.draftKey]).toBe('saved recovery text');
   expect(calls.some(call => call.op === 'http' || call.op === 'request')).toBe(false);
+});
+
+async function newerEditor(outcome: 'acknowledged' | 'rejected' = 'rejected') {
+  const f = await opened(); edit(f, 'first recovery'); f.host.state.terminal = terminalRecord(outcome);
+  let injected = false;
+  f.hooks.write = document => {
+    if (!injected && f.host.state.proof && !savedMarker(document).session) { injected = true; edit(f, 'newer editor'); }
+  };
+  const first = await mobilePendingTaskRecover(f.client, f.host.native, f.storage, { expected: live(f), current: f.input.current });
+  expect(first.status).toBe('retained'); expect(injected).toBe(true); delete f.hooks.write;
+  return { ...f, first, expected: copy(live(f)), proof: copy(f.host.state.proof), terminal: copy(f.host.state.terminal) };
+}
+for (const outcome of ['acknowledged', 'rejected'] as const) test(`newer ${outcome} editor becomes its own ordinary draft with all local owners`, async () => {
+  const f = await newerEditor(outcome), metadata = drafts(f.client).records[key];
+  metadata.context = { version: 1, records: [{ kind: 'mention', value: 'keep me' }] };
+  metadata.choices = { providerId: 'new-provider', modelId: 'new-model', modelOptions: [], runtimeMode: 'full-access' };
+  f.client.local.snapshotDrafts[key] = [{ id: 'new-image', name: 'new.png', width: 12, height: 14 }];
+  Object.assign(f.client.local, { composerFiles: [{ id: 'file-new', contextId: 'context-new', draftKey: key, environmentId: 'env', name: 'new.txt', mimeType: 'text/plain', sizeBytes: 3, source: 'attached', attachmentId: '', status: 'staged' }], mobileAttachmentOrder: { [key]: ['file-new', 'new-image'] } });
+  f.client.local.composerControls.contexts[key] = { envMode: 'worktree', branch: 'new-branch', worktreePath: '/new' };
+  const before = copy(metadata), releaseBefore = copy(drafts(f.client).fileReleases);
+  const result = await mobilePendingTaskRecover(f.client, f.host.native, f.storage, { expected: f.expected, current: f.input.current });
+  expect({ status: result.status, reason: result.reason }).toEqual({ status: 'recovered', reason: '' });
+  const target = result.draftKey; expect(target).toBe(`new-task:restored-editor-${f.expected.session}`);
+  expect(drafts(f.client).records[target]).toEqual({ ...before, key: target });
+  expect(f.client.local.drafts[target]).toBe('newer editor'); expect(f.client.local.drafts[f.first.draftKey]).toBe('first recovery');
+  expect(f.client.local.snapshotDrafts[target]?.[0]?.id).toBe('new-image');
+  expect(obj(f.disk().mobileAttachmentOrder)[target]).toEqual(['file-new', 'new-image']);
+  expect((f.disk().composerFiles as Obj[])[0].draftKey).toBe(target);
+  expect(f.client.local.composerControls.contexts[target]).toEqual({ envMode: 'worktree', branch: 'new-branch', worktreePath: '/new' });
+  expect(drafts(f.client).fileReleases).toEqual(releaseBefore); expect(f.host.state.proof).toEqual(f.proof); expect(f.host.state.terminal).toEqual(f.terminal);
+  expect(savedMarker(f.disk())).toEqual({}); expect(f.client.local.drafts[key]).toBeUndefined();
+  const cold = await fixture(f.disk(), f.host);
+  const url = `/new/draft?draftId=${encodeURIComponent(target)}`;
+  const view = mobileNewTaskFlowView(`newer-${outcome}`, 'visit', url, true, false, cold.client);
+  const prepared = await mobileNewTaskFlowAction(view.owner, 'visit', 'prepare', '', '', cold.host.native, cold.storage, cold.client);
+  expect(prepared.message).toBe(''); cold.client.ensureSelection(); expect(cold.client.draft).toBe('newer editor');
+  expect(mobileNewTask('', cold.client).projectTitle).toBe('Captured project');
+});
+for (const cold of [false, true]) for (const written of [false, true]) test(`separate editor draft survives ${written ? 'lost reply' : 'failed write'} and ${cold ? 'cold' : 'live'} retry`, async () => {
+  const f = await newerEditor(), target = `new-task:restored-editor-${f.expected.session}`;
+  let fired = false;
+  const storage: Files = { fs: { ...f.storage.fs, async atomicWriteFile(path, bytes) {
+    const document = obj(JSON.parse(new TextDecoder().decode(bytes)));
+    if (!fired && obj(document.drafts)[target] === 'newer editor') {
+      fired = true; if (written) await f.storage.fs.atomicWriteFile(path, bytes); throw Error('interrupted move write');
+    }
+    return f.storage.fs.atomicWriteFile(path, bytes);
+  } } };
+  expect((await mobilePendingTaskRecover(f.client, f.host.native, storage, { expected: f.expected, current: f.input.current })).status).toBe('retained');
+  expect(fired).toBe(true); expect(f.client.local.drafts[target]).toBe('newer editor');
+  const retry = cold ? await fixture(f.disk(), f.host) : f;
+  const recovered = await mobilePendingTaskRecover(retry.client, retry.host.native, retry.storage, { expected: f.expected, current: retry.input.current });
+  expect({ status: recovered.status, reason: recovered.reason }).toEqual({ status: 'recovered', reason: '' }); expect(recovered.draftKey).toBe(target);
+  expect(retry.client.local.drafts[key]).toBeUndefined(); expect(retry.client.local.drafts[target]).toBe('newer editor');
+  expect(retry.client.local.drafts[f.first.draftKey]).toBe('first recovery'); expect(f.host.state.proof).toEqual(f.proof);
+  delete retry.client.local.drafts[target]; delete drafts(retry.client).records[target]; await retry.client.persist(retry.storage);
+  const replay = await fixture(retry.disk(), f.host);
+  await mobilePendingTaskRecover(replay.client, replay.host.native, replay.storage, { expected: f.expected, current: replay.input.current });
+  expect(replay.client.local.drafts[target]).toBeUndefined(); expect(drafts(replay.client).records[target]).toBeUndefined();
+});
+for (const mode of ['typing', 'route', 'collision'] as const) test(`newer editor move refuses ${mode} without losing either draft`, async () => {
+  const f = await newerEditor(), target = `new-task:restored-editor-${f.expected.session}`;
+  let seen = 0;
+  f.host.hooks.set('mobileOutboxDelivery:draftHandoffStatus', () => {
+    if (++seen === 2) {
+      if (mode === 'typing') edit(f, 'typed during second recovery');
+      if (mode === 'route') f.route(false);
+    }
+  });
+  if (mode === 'collision') f.client.local.drafts[target] = 'unrelated destination';
+  const recovering = mobilePendingTaskRecover(f.client, f.host.native, f.storage, { expected: f.expected, current: f.input.current });
+  if (mode === 'route') await expect(recovering).rejects.toThrow('route changed');
+  else expect((await recovering).status).toBe('retained'); expect(f.client.local.drafts[key]).toBe(mode === 'typing' ? 'typed during second recovery' : 'newer editor');
+  expect(f.client.local.drafts[f.first.draftKey]).toBe('first recovery'); expect(live(f).session).toBe(f.expected.session);
+  expect(f.client.local.drafts[target]).toBe(mode === 'collision' ? 'unrelated destination' : undefined); expect(f.host.state.proof).toEqual(f.proof);
+});
+
+for (const text of ['newest root editor', '']) test(`root Recover opens a separate saved editor even when ${text ? 'edited' : 'empty'}`, async () => {
+  const f = await newerEditor(); edit(f, text); await f.client.persist(f.storage);
+  const location = '/new/draft?environmentId=env&projectId=project&pendingTaskId=message';
+  const visit = text ? 'newer-root-text' : 'newer-root-empty';
+  const initial = mobileNewTaskFlowView(visit, 'pending', location, true, true, f.client);
+  await mobileNewTaskFlowAction(initial.owner, 'pending', 'prepare', '', '', f.host.native, f.storage, f.client);
+  expect(mobileNewTaskFlowView(visit, 'pending', location, true, true, f.client).status).toBe('retained');
+  const result = await mobileNewTaskFlowAction(initial.owner, 'pending', 'pending-recover', '', '', f.host.native, f.storage, f.client);
+  expect(result.message).toBe(''); expect(result.nextLocation).toContain('draftId=new-task%3Arestored-editor-');
+  const refreshed = mobileNewTaskFlowView(visit, 'pending', location, true, false, f.client);
+  expect(refreshed.needsPrepare).toBe(false);
+  const calls = f.host.calls.length;
+  await mobileNewTaskFlowAction(initial.owner, 'pending', 'prepare', '', '', f.host.native, f.storage, f.client);
+  expect(f.host.calls.length).toBe(calls);
+  const next = mobileNewTaskFlowView(visit, 'ordinary', result.nextLocation, true, false, f.client);
+  const prepared = await mobileNewTaskFlowAction(next.owner, 'ordinary', 'prepare', '', '', f.host.native, f.storage, f.client);
+  expect(prepared.message).toBe(''); f.client.ensureSelection(); expect(f.client.draft).toBe(text);
+  expect(mobileNewTaskFlowView(visit, 'ordinary', result.nextLocation, true, true, f.client).ready).toBe(true);
+  expect(mobileNewTask('', f.client)).toMatchObject({ draft: true, pendingEditor: false, projectTitle: 'Captured project' });
+  expect(f.client.local.drafts[f.first.draftKey]).toBe('first recovery'); expect(f.host.state.proof).toEqual(f.proof);
 });

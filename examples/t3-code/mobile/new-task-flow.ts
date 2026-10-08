@@ -44,6 +44,7 @@ interface Flow {
   session: string; owner: string; visit: string; location: string; active: boolean; serial: number;
   draftKey: string; busy: boolean; selected: Selection | null; applied: Set<string>; requests: Map<string, string>; error: string; readyVisit: string;
   recovery?: MobileNewTaskTransferRecoveryView;
+  recoveredRoute?: string;
   pendingRoute?: MobileNewTaskPendingRoute; pendingEditor?: MobilePendingTaskEditorResult;
 }
 const flows = new WeakMap<T3Client, Flow>();
@@ -96,6 +97,7 @@ export function mobileNewTaskFlowView(session: string, visit: string, location: 
   if (flow.requests.has(visit) && flow.requests.get(visit) !== location) flow.applied.delete(visit);
   flow.requests.set(visit, location);
   if (flow.visit !== visit || flow.location !== location || flow.active !== active) {
+    flow.recoveredRoute = undefined;
     flow.serial++; flow.error = ''; flow.visit = visit; flow.location = location; flow.active = active;
   }
   const route = mobileNewTaskRoute(location), explicit = !!route.environmentId && !!route.projectId;
@@ -113,6 +115,9 @@ export function mobileNewTaskFlowView(session: string, visit: string, location: 
   if (!client.preferencesLoaded) return { ...base, status: 'loading' };
   if (!route.context) return { ...base, status: 'pick', nextLocation: '/new' };
   if (route.unsupported) return { ...base, status: 'pick', nextLocation: '/new', message: 'This saved task or shared-content link is unavailable in this build.' };
+  // Mutation refreshes precede navigation. Do not reopen the source route after
+  // recovery has retired its editor but before the result opens its destination.
+  if (flow.recoveredRoute === location) return { ...base, status: 'preparing' };
   if (base.busy) return { ...base, status: 'preparing', title: route.branch ? 'Switching branch...' : 'New task' };
   if (base.pendingEditor) {
     if (route.chooser || route.context === 'environment' || route.context === 'branch' || route.draftId
@@ -171,6 +176,7 @@ export async function mobileNewTaskFlowAction(owner: string, visit: string, kind
   if (!flow || !flow.active || flow.owner !== owner || flow.visit !== visit) return result('The new task route changed.');
   if (mobileNewTaskRoute(flow.location).standaloneFile) return result('Return to the new task before changing its draft.');
   if (mobileNewTaskRoute(flow.location).context === 'add-project') return result('Return to the new task before changing its draft.');
+  if (flow.recoveredRoute === flow.location) return result();
   if (flow.busy || checkouts.has(client)) return result('Wait for the current task change to finish.');
   if (!nativeInput?.available) return result('Open T3 Code on your iPhone or iPad to create a task.');
   if (!client.preferencesLoaded) return result('Wait for saved drafts to load.');
@@ -251,6 +257,7 @@ export async function mobileNewTaskFlowAction(owner: string, visit: string, kind
         flow.selected = null;
         return result(recovered.reason);
       }
+      flow.recoveredRoute = flow.location;
       flow.selected = null; flow.draftKey = ''; flow.pendingEditor = undefined; flow.pendingRoute = undefined;
       const restored = mobileNewTaskDraftLookup(client, recovered.draftKey);
       return restored ? result('', homeDraftLocation(restored)) : { ...result('', '', true), environmentId: marker.owner.environmentId, threadId: marker.owner.threadId };
@@ -293,6 +300,7 @@ export async function mobileNewTaskFlowAction(owner: string, visit: string, kind
         flow.selected = selection(client);
         return result(closed.reason || 'The edits are retained. Reopen their saved status before continuing.');
       }
+      flow.recoveredRoute = flow.location;
       flow.selected = null; flow.draftKey = ''; flow.pendingEditor = undefined; flow.pendingRoute = undefined;
       return result('', '@close');
     }
