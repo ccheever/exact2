@@ -1,9 +1,9 @@
 ---
 name: 20261005-app-developer-tools
 plan: 20261005-t3code-macos-parity
-implementation: implemented
+implementation: done
 verification: verified
-delivery: draft
+delivery: merged
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-app-developer-tools
@@ -78,7 +78,7 @@ debugging ports; any inspector for the embedded server.
 
 ## Context and guidance
 
-Parent specification: [spec](../spec.md). Source behavior (T3 Code `1e2ecbd975`): `apps/desktop/src/window/DesktopApplicationMenu.ts:229-251`
+Parent specification: [spec](../../spec.md). Source behavior (T3 Code `1e2ecbd975`): `apps/desktop/src/window/DesktopApplicationMenu.ts:229-251`
 (View: Reload, Force Reload, Toggle Developer Tools, separator, Actual Size ⌘0, Zoom In ⌘=, hidden Zoom In ⌘Plus, Zoom Out ⌘-, separator,
 Toggle Full Screen); `DesktopWindow.ts:833-835`; `app/DesktopEarlyElectronStartup.ts:49-50` (`isDevelopment` is `VITE_DEV_SERVER_URL` set).
 The reference has no test for the DevTools role; its View test (`DesktopApplicationMenu.test.ts:218`) covers zoom, which this task does not change.
@@ -90,10 +90,10 @@ since macOS 13.3 and the app's minimum is 14.0, so no availability check is need
 
 | Kind | Readable task/issue/decision | Remote reference | Required condition | Resolution evidence |
 | --- | --- | --- | --- | --- |
-| framework policy decision | [X2 developer tools for the app UI](../issues/20261005-x02-app-developer-tools.md) | [#101](https://github.com/ccheever/exact2/issues/101) | Charlie's decision | decided 2026-10-08 (Charlie, [comment](https://github.com/ccheever/exact2/issues/101#issuecomment-6055584890)): Safari inspection of development WKWebViews; Exact's own inspector stays deferred; #101 stays open with that bounded scope |
+| framework policy decision | [X2 developer tools for the app UI](../../issues/20261005-x02-app-developer-tools.md) | [#101](https://github.com/ccheever/exact2/issues/101) | Charlie's decision | decided 2026-10-08 (Charlie, [comment](https://github.com/ccheever/exact2/issues/101#issuecomment-6055584890)): Safari inspection of development WKWebViews; Exact's own inspector stays deferred; #101 stays open with that bounded scope |
 | user decision | Scope of this task | none | The user's narrowing | 2026-10-08: development-only `isInspectable` on the clone's own WKWebViews, gated on the existing development/release line, no cargo feature; the menu item stays absent as a declared difference |
-| task in progress | [20261005-clone-on-exact2-main](20261005-clone-on-exact2-main.md) | #99 (to main at the end) | The clone builds on exact2 main | the feature branch builds on main |
-| merged task PR | [20261005-hot-file-split](closed/20261005-hot-file-split.md) | merged | Merged into the feature branch | merged |
+| task in progress | [20261005-clone-on-exact2-main](../20261005-clone-on-exact2-main.md) | #99 (to main at the end) | The clone builds on exact2 main | the feature branch builds on main |
+| merged task PR | [20261005-hot-file-split](20261005-hot-file-split.md) | merged | Merged into the feature branch | merged |
 
 `20261005-desktop-oracle-and-trace` is no longer a dependency (dropped 2026-10-08, so no link to it stays here: records-sync PR #323 moves it to `tasks/closed/`): no menu is compared, and the oracle is not built (user decision 2026-10-06).
 
@@ -106,8 +106,8 @@ Checked 2026-10-08 against the feature branch at `732f0e3f3` (merged to `84a52dd
 
 | Issue / reference | Capability and target | Evidence / affected revision | Impact | Next action |
 | --- | --- | --- | --- | --- |
-| [X2](../issues/20261005-x02-app-developer-tools.md), #101 | Inspector for the app UI; DEFERRED rule | decided 2026-10-08 | resolved for this task: only the app-side web view flag is allowed, and that needs no framework change | none; #101 stays open upstream for its bounded scope |
-| [X26](../issues/20261005-x26-app-menu-control.md) | App menu control | `EXACT2-GAPS.md` X26 | none: no menu item is added | none |
+| [X2](../../issues/20261005-x02-app-developer-tools.md), #101 | Inspector for the app UI; DEFERRED rule | decided 2026-10-08 | resolved for this task: only the app-side web view flag is allowed, and that needs no framework change | none; #101 stays open upstream for its bounded scope |
+| [X26](../../issues/20261005-x26-app-menu-control.md) | App menu control | `EXACT2-GAPS.md` X26 | none: no menu item is added | none |
 
 ## Implementation notes
 
@@ -166,8 +166,10 @@ and accelerator, menu states.
 
 ## Next action
 
-Draft PR [#326](https://github.com/ccheever/exact2/pull/326) against `feat(example)/t3-code`; every acceptance row passes. Review, then the
-coordinator flips it to ready. The steps below stay as the record of how the Safari rows were run (session 2, 2026-10-08).
+2026-10-08 (records sync, `t3-code-records-reclassify`): merged into `feat(example)/t3-code` as #326 (`17489a45b`); the record moved to `tasks/closed/`. Its deferred real-input rows stay in `STATUS.md` "Next real-input batch".
+
+PR [#326](https://github.com/ccheever/exact2/pull/326) against `feat(example)/t3-code`; every acceptance row passes. Nothing is left
+for this task: main #309 is adopted in round 7 and removes nothing here. The steps below stay as the record of how the Safari rows were run (session 2, 2026-10-08).
 
 ## Real-input batch steps
 

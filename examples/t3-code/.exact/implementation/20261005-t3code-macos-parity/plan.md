@@ -91,13 +91,14 @@ these user decisions have changed the tickets:
   Its live drive found and fixed a pull request row read that never settled on real GitHub.
 - `round12-wrapup` is superseded and `clone-on-exact2-main`'s import is done. The clone
   reaches `main` through #99, which stays a draft until the cleanup the user scheduled for the end.
-- Charlie decided 40 of the plan's issues on 2026-10-08 (08:07Z); `issues/README.md` "Charlie's decisions" sums them
-  up and each X file records its own. Then the user decided (2026-10-08):
+- Charlie decided 40 of the plan's issues on 2026-10-08 (08:07Z); `issues/README.md` "Charlie's decisions and upstream
+  state, by bucket" sums them up and each X file records its own. The records were reclassified against upstream later
+  that day (`t3-code-records-reclassify`): seven buckets, from "done on main" to "attempt withdrawn", and an adoption list. Then the user decided (2026-10-08):
   - `browser-surface`: **build** it on a `WKWebView` inside the clone's own module (X1's path B: no CDP, Safari Web
     Inspector, injected-script automation, X1's deviation table declared). #100 was closed as not planned, so this is
     clone-side work, not a framework wait; X1 is closed. It starts after `app-contract-root-rewrite` (root line cap).
   - `app-developer-tools`: narrowed to a development-only `isInspectable` on the clone's web views; View › Toggle
-    Developer Tools is a permanent declared difference. In progress on `feat(example)/t3-code-app-developer-tools`.
+    Developer Tools is a permanent declared difference. Merged as #326 (`17489a45b`).
   - Pinned diff file headers (diff-review-engine, pr-code-tab): a declared difference until #131 lands on main.
   - U18 (theme editor Inspect): file a framework issue for the element and paint lookup (X68), then wait.
   - U5 (first window): #117 is closed, so the connecting state is a permanent declared difference; X31 is closed.
@@ -122,29 +123,29 @@ these user decisions have changed the tickets:
   so `e200397ec` is not an ancestor of the feature branch (its framework content is): the next adoption round first
   records it with `git merge -s ours e200397ec`, then merges main (`febb2c5fb` or later).
 - X59, X60 and X61 were filed upstream on 2026-10-08 as #300, #301 and #302 (reproduced on main `febb2c5fb`).
-- In flight (2026-10-08): `fix-hover-cards` (#307), `fix-keyboard-focus` (#310), `pr-links-previews-and-routing` (#311)
-  and `app-developer-tools` (narrowed, no PR yet). Merged: `fix-misc-batch` (#306), `popover-escape-parity` (#290),
-  `fix-provider-auth-state` (#312) and `pr-code-tab` (#308); the last three records moved to `tasks/closed/`.
+- In flight (2026-10-08): `pr-links-previews-and-routing` (#311). Merged: `fix-misc-batch` (#306), `popover-escape-parity`
+  (#290), `fix-provider-auth-state` (#312), `pr-code-tab` (#308), `fix-hover-cards` (#307), `fix-keyboard-focus` (#310)
+  and `app-developer-tools` (#326); every record but `fix-misc-batch`'s (a test cites its path) is in `tasks/closed/`.
 - Planned (user decisions, 2026-10-08):
   [fix-providers-environment-scope](tasks/20261008-fix-providers-environment-scope.md) (found by #312), ready now that
-  #312 merged. [app-contract-root-rewrite](tasks/20261008-app-contract-root-rewrite.md), after #307, #310 and #311 merge
-  (#290, #312 and #308 have merged), so the root stays well under the 1,500-line cap (1,478 at `ec32c8c37`, about 1,488
+  #312 merged. [app-contract-root-rewrite](tasks/20261008-app-contract-root-rewrite.md), after #311 merges
+  (#290, #312, #308, #307 and #310 have merged), so the root stays well under the 1,500-line cap (1,478 at `ec32c8c37`, about 1,488
   with #307); Charlie's ruling on #108 and main PR #327's audit name it the remedy. [browser-surface](tasks/20261005-browser-surface.md),
   after the root rewrite.
-- Waiting: `provider-sign-in-verification-followup` (its X49 row waits for main fix of #279); `installed-font-picker`
-  (waits for main fix of X48, [#318](https://github.com/ccheever/exact2/issues/318)). The deferred rows of the next real-input batch are listed in
+- Waiting: `provider-sign-in-verification-followup` (its X49 row waits for main fix of #279: approved, no fix in
+  progress); `installed-font-picker` (X48, [#318](https://github.com/ccheever/exact2/issues/318): design pending, no owner selection). The deferred rows of the next real-input batch are listed in
   `examples/t3-code/STATUS.md`.
 - Main PR [#327](https://github.com/ccheever/exact2/pull/327) (open, 2026-10-08) fixes #315 (X63), #316 (X64), #322 (X62),
   #280 (X52), #284 (X50) and #281 (X51); it is partial for #292 and #282 and withdrew #291, #317 (X65) and #320 (X67);
   its audit's disposition for each of our issues is in `issues/README.md` and the X files. Main merged #309 (#101),
-  #313 (#269, partial) and #314 (#235, partial) the same day.
+  #313 (#269, partial), #314 (#235, partial) and #325 (closes #286) the same day; #324 (refs #282) was closed unmerged.
 - Main adoption round 7 is blocked: it waits for main fix of X67 (main's examples test overflows the compiler's 2 MiB
   test-thread stack on the clone, [#320](https://github.com/ccheever/exact2/issues/320), still open after #327), and it
   unblocks no T3 task today. It must adopt main #305 (closes #300, X59), main #304 (closes #285: drop the branch's
   `QUEUE.md` `clock +N real` entry), the `now()` → `performanceNow()` rename (main `9731c8056`, 26 call sites; the root
   rewrite's first commit does it only if round 7 merged main before the rewrite started, otherwise round 7 does), the
   removal of the comment-only `panels.contract` and `settings-panels.contract`, which main's examples test refuses, main
-  #309, #313 and #314, and, once #327 has merged, the workarounds its fixes retire (STATUS "Next up" lists them, with
+  #309, #313, #314 and #325, and, once #327 has merged, the workarounds its fixes retire (STATUS "Next up" lists them, with
   #307's hover layer staying for its clipping fix).
 
 ## Parallel implementation, 2026-10-06
@@ -251,7 +252,7 @@ Common prerequisites, not repeated per row: every feature ticket (group 2 and la
 | 6 | [20261005-pr-links-previews-and-routing](tasks/20261005-pr-links-previews-and-routing.md) | Thread links, `#N` hover cards, cross-environment routing | exact2 | environment-routes, real-github-lane, pr-conversation-and-refresh, pr-handoffs-and-quick-actions, pr-header-actions-and-stacks | Routing trust depends on routes; row menus from pr-handoffs-and-quick-actions | real-GitHub lane, trace |
 | 7 (last) | [20261005-interface-font-size](tasks/closed/20261005-interface-font-size.md) | Root font size foundation: `rem` check, size map, shared style classes (per-area conversion tickets follow) | exact2 | resolved framework issue X3 (if reproduced); preference: after all UI tickets | Converts every UI size; last to avoid churn | matrix at 16 px unchanged; 12/20 px pairs |
 | 8 (last) | [20261005-interface-font-size-conversion](tasks/closed/20261005-interface-font-size-conversion.md) | Every surface scales with the interface font size (split per area at prepare) | exact2 | interface-font-size; resolved framework issue X3 (if reproduced); preference: after the area's last UI ticket | Needs the root size and the size map | matrix at 16 unchanged; 12/20 pairs |
-| narrowed (X2, #101) | [20261005-app-developer-tools](tasks/20261005-app-developer-tools.md) | Development-only `isInspectable` on the clone's web views; View › Toggle Developer Tools is a permanent declared difference | exact2 | #101 decided 2026-10-08; user decision 2026-10-08 | Swift only, no root lines; in progress | its task record |
+| narrowed (X2, #101) | [20261005-app-developer-tools](tasks/closed/20261005-app-developer-tools.md) | Development-only `isInspectable` on the clone's web views; View › Toggle Developer Tools is a permanent declared difference | exact2 | #101 decided 2026-10-08; user decision 2026-10-08 | Swift only, no root lines; in progress | its task record |
 | closed (X40 closed by the user, 2026-10-08) | [20261005-app-update-feed](tasks/closed/20261005-app-update-feed.md) | The T3 desktop update feed and its UI | exact2 | issue X40 resolved or decided | Excluded scope; implemented or closed after the X40 decision | blocked |
 | after the root rewrite | [20261005-browser-surface](tasks/20261005-browser-surface.md) | The reference Browser surface (tabs, navigation, Annotate, capture, PiP, device toolbar, profiles, automation) on a `WKWebView` in the clone's module | exact2 | app-contract-root-rewrite; #100 closed not planned, path B (user decision, 2026-10-08) | Clone-side work; it adds root resources and state, so it follows the rewrite | its acceptance table |
 | closed (X38 closed by the user, 2026-10-08) | [20261005-t3-connect-sign-in](tasks/closed/20261005-t3-connect-sign-in.md) | T3 Connect / Clerk sign-in, relay connections, `t3code://` handoff | exact2 | issue X38 resolved or decided; X5 | Excluded scope; implemented or closed after the X38 decision | blocked |
@@ -354,7 +355,7 @@ resolved upstream and adopted in the app (verified by `issue-close`), or closed 
 user's decision. Criteria blocked today: X3 (if reproduced), X7 (one `media-actions`
 criterion), X4 (only if the archive workaround fails), X32 (pinned diff headers, declared until #131 lands on main),
 X33–X34 (their rows wait for main fix of #274 and #272), X68 (the Inspect row, U18), and any criterion whose ticket
-marks it blocked. A permanent declared difference (the issues README, "Charlie's decisions") closes its row as declared.
+marks it blocked. A permanent declared difference (the issues README, "Charlie's decisions and upstream state, by bucket", bucket 6) closes its row as declared.
 
 ## Apparatus requiring approval
 

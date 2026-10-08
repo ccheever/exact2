@@ -10,6 +10,8 @@ reproduced_on: null
 
 # X44: Remote `image` loading policy (credentials, referrer, redirects, size cap, cache, load state) and remote SVG
 
+**Status (reclassified 2026-10-08):** Bucket 2: the rest (a remote SVG `image` on Apple) is in open PR #239 (kmagiera); #121 is closed. T3 waits; the ACP SVG icons stay declared.
+
 ## Summary
 
 T3 Code shows the icon of each ACP registry agent from an official CDN, fetched under strict rules: only the allow-listed https host, no credentials, no referrer, no redirects, an image content type, at most 512 KB, a persistent cache, a fallback glyph while loading or after a failure, and a recolor of the monochrome glyph to the theme. Exact2's `image` can show an https URL (the clone's wizard already does), but the bundled library says nothing about what it sends, follows, caps or caches, whether it renders remote SVG, or whether the Contract can see the load state. The requested support is a documented and tested policy for remote `image` loads, plus load-state facts.

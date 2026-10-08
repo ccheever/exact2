@@ -1,7 +1,7 @@
 ---
 name: 20261005-x26-app-menu-control
 plan: 20261005-t3code-macos-parity
-status: closed-upstream
+status: published
 kind: framework-gap
 blocks: [20261005-app-developer-tools, 20261005-app-update-feed, 20261005-browser-surface, 20261005-desktop-shell-details, 20261005-legacy-sidebar, 20261005-media-actions, 20261005-pr-handoffs-and-quick-actions, 20261005-right-panel-tab-menu, 20261005-ssh-password-and-remote-open, 20261005-terminal-integrations, 20261005-terminal-layout]
 upstream_url: https://github.com/ccheever/exact2/issues/141
@@ -9,6 +9,8 @@ reproduced_on: null
 ---
 
 # X26: App menu control (declared application menu, hide host Go/Develop, zoom, submenus, menu at a point)
+
+**Status (reclassified 2026-10-08):** Bucket 4 for #141 (menu extensions in Contract; no PR); bucket 5 for #235 (Shift+F10, an open owner choice; its ContextMenu key merged as main #314, round 7); bucket 2 for #292 (#327, partial).
 
 ## Summary
 

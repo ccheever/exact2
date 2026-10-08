@@ -10,6 +10,8 @@ reproduced_on: b896050d7 (main, agent mode, before filing)
 
 # X48: Contract cannot apply a font family selected at runtime
 
+**Status (reclassified 2026-10-08):** Bucket 5, design pending: #318 (a runtime `font-family`, LLP 1019) has no owner selection yet. installed-font-picker stays blocked.
+
 ## Summary
 
 The T3 Code desktop Appearance picker discovers installed font families and applies the

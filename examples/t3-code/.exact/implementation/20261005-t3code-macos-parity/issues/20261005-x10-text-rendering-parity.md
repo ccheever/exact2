@@ -11,6 +11,8 @@ rest_upstream_url: https://github.com/ccheever/exact2/issues/266
 
 # X10: Text renders differently from Chrome in five separate ways (ellipsis, code wrap, balance, placeholder, weight)
 
+**Status (reclassified 2026-10-08):** Bucket 4, approved, no fix in progress: #266 (`text-wrap: balance`, `::placeholder` colour); no PR. Font smoothing is a permanent declared difference.
+
 ## Summary
 
 T3 Code is drawn by Chrome, so every text surface follows Chrome's rules. Exact2's macOS host draws

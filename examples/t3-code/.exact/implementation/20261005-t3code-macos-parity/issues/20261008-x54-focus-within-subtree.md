@@ -10,6 +10,8 @@ reproduced_on: 0365ad1a4 (main)
 
 # X54: an ancestor hearing the focus enter its subtree (`focusin`, `:focus-within`)
 
+**Status (reclassified 2026-10-08):** Bucket 4, approved, no fix in progress: #283 (bubbling `focusin`/`focusout`); no PR.
+
 ## Summary
 
 T3 Code expands a long pull request comment when the keyboard focus moves into it

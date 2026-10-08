@@ -10,6 +10,8 @@ reproduced_on: null
 
 # X28: Notification click → app action, Dock badge, window-focus fact (DEFERRED refuses actions and badges)
 
+**Status (reclassified 2026-10-08):** Bucket 5, policy pending: #224's notification click needs a click-only DEFERRED ruling. The Dock badge is a permanent declared difference.
+
 ## Summary
 
 T3 Code tells a person when a thread finishes or needs attention: an OS notification that, when clicked, focuses the app and opens that thread, a Dock badge that counts pending notifications, and a decision based on whether the window has focus. exact2's framework refuses notification actions and badges by a DEFERRED rule and gives the page no window-focus fact. The clone does all three in its own Swift module and the result matches the reference, so this issue is mainly a policy question for Charlie: keep the module path as the answer (close by decision) or add framework support.

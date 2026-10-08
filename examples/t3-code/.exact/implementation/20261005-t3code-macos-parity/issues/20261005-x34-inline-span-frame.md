@@ -11,6 +11,8 @@ rest_upstream_url: https://github.com/ccheever/exact2/issues/272
 
 # X34: Hover and frame of an inline link or span inside rendered Markdown text
 
+**Status (reclassified 2026-10-08):** Bucket 4, approved correctness fix, no PR: #272 (an inline run's `frame()`). #311's hover card anchors at the hover point meanwhile; T3 builds no inline-run frame.
+
 ## Summary
 In T3 Code every web link in rendered Markdown is a hover target. A link to a pull request of a
 known project (an authored link, a `#N` reference or a commit hash) opens a preview card after

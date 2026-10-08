@@ -10,6 +10,8 @@ reproduced_on: null
 
 # X4: Helper executables and large resource trees in the `.app`
 
+**Status (reclassified 2026-10-08):** Bucket 1, done on main: #103 closed by main #215, adopted (embedded-server-runtime).
+
 ## Summary
 
 The T3 Code desktop app ships its own T3 server and runs it as a child process. The server is a program with native add-ons, not data.
