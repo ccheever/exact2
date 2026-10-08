@@ -1,0 +1,189 @@
+// pr-code-tab live drive 4 — drive 3's retry (not committed): bun target/drive/drive4.mjs <repo> <label>
+// Drive 3 could not open #115 (the list's search kept #168's rows); #168 carries its rows instead: the second account
+// adds 11 replies to the open thread first (Load more), the commit scope lists every conversation off the diff.
+// The rows drives 1-2 never reached (drive 2 lost its second half to GitHub failing #168's 4th slice), and
+// re-checks of the three fixes. One macOS agent session against the primary lane server (127.0.0.1:16310,
+// real GitHub through the lane gh). Every write is read back with the lane gh and undone after.
+// Drives 1-2's lessons: the tree's props are schema names (accessibilityLabel/Expanded/Checked/Selected); the
+// Summary's reaction bar shares a thread card's testIds, so a card's controls are tapped by node id inside the
+// Code panel; a file is reached through the tab's own file tree; a failed slice is retried with its Retry.
+import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+const [repo, label] = process.argv.slice(2);
+const MINE = '/Users/daehyeonmun/orca/workspaces/exact2/t3-code-pr-code-tab';
+const L = resolve(MINE, 'target/drive'), out = resolve(L, `out-${label}`); mkdirSync(out, { recursive: true });
+process.env.EXACT_APP_DIR = resolve(repo, 'examples/t3-code');
+const { open } = await import(resolve(repo, 'scripts/agent.mjs'));
+const lane = await import(resolve(MINE, 'examples/t3-code/tools/github-lane/lane.mjs'));
+const lib = await import(resolve(MINE, 'examples/t3-code/tools/github-lane/lib.mjs'));
+const paths = lib.lanePaths();
+const origin = 'http://127.0.0.1:16310', REPO = 'daehyeonmun2021/playground', CODE = 168, REVIEWED = 115, ME = 'daehyeonmun2021';
+const rec = (line) => { const text = `${new Date().toISOString()} [${label}] ${line}`; appendFileSync(resolve(out, 'record.txt'), text + '\n'); console.log(text); };
+const gh = (args) => lib.api(paths, 'primary', args);
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const TRACE = resolve(MINE, 'target/github-lane/servers/primary/t3home/userdata/logs/server.trace.ndjson');
+const spans = (name) => { try { return readFileSync(TRACE, 'utf8').split('\n').filter((l) => l.includes(`"name":"${name}"`)).length; } catch { return 0; } };
+
+const s = await open({ host: 'macos', size: [1280, 840], env: { HOME: resolve(L, `apphome-${label}`) }, storage: `pr-code-tab-${label}`, epoch: Date.now(),
+  onProcess: (p) => { writeFileSync(resolve(L, `${label}-app.pid`), String(p.pid)); rec(`app pid ${p.pid}`); } });
+const settle = async (ms = 600) => { await s.clock(`+${ms} real`); await s.clock('settle'); };
+const has = async (id) => !!(await s.find(id, false).catch(() => null));
+const sub = async (scope) => { try { return (await s.tree(scope)).nodes; } catch { return []; } };
+const node = async (id, scope) => (await sub(scope ?? id)).find((n) => n.props?.testId === id);
+const NAMES = { 'aria-label': 'accessibilityLabel', 'aria-expanded': 'accessibilityExpanded', 'aria-checked': 'accessibilityChecked', 'aria-selected': 'accessibilitySelected' };
+const prop = async (id, key, scope) => (await node(id, scope))?.props?.[NAMES[key] ?? key];
+const textOf = async (id) => (await sub(id)).flatMap((n) => [n.props?.text, n.props?.accessibilityLabel].filter((v) => typeof v === 'string' && v.trim())).join(' | ');
+const idsIn = async (scope) => (await sub(scope)).map((n) => n.props?.testId).filter(Boolean);
+const tapIn = async (scope, id, opts) => { const n = (await sub(scope)).find((x) => x.props?.testId === id); if (!n) throw new Error(`no ${id} in ${scope}`); return s.tap(n.id, opts); };
+const type = async (id, value) => { await s.type(id, value); await settle(400); };
+const shot = async (name) => { await s.screenshot(resolve(out, `${label}-${name}.png`), true); rec(`shot ${name}`); };
+const clearToasts = async () => { for (const id of (await idsIn('toast-region')).filter((id) => id.startsWith('toast-dismiss-'))) { try { await s.tap(id); await settle(300); } catch {} } };
+const toastsNow = async () => await textOf('toast-region');
+const waitFor = async (check, ms = 60_000) => { const end = Date.now() + ms; while (Date.now() < end) { if (await check()) return true; await settle(1000); } return false; };
+const step = async (name, body) => { const t0 = Date.now(); try { await body(); rec(`  ${name}: done (${Date.now() - t0} ms)`); } catch (e) { rec(`STEP ${name} FAILED: ${e.message.slice(0, 400)}`); try { await shot(`fail-${name}`); } catch {} } };
+const openPr = async (n) => {
+  await type('pull-requests-search', `#${n}`); await settle(2000);
+  await waitFor(async () => has(`pr-row-${n}`), 90_000);
+  await s.tap(`pr-row-${n}`); await settle(3000); await clearToasts();
+  await waitFor(async () => has('pull-request-tab-code'), 60_000);
+};
+/** Every slice, pressing Retry when GitHub failed one. */
+const allSlices = async (want) => {
+  await waitFor(async () => /files/.test(await textOf('pull-request-code-files')), 90_000);
+  for (let i = 0; i < 10; i++) {
+    const files = await textOf('pull-request-code-files');
+    if (!files.includes('+')) break;
+    if (await has('pull-request-code-retry')) { rec(`retry after "${await textOf('pull-request-code-footer')}"`); await s.tap('pull-request-code-retry'); await settle(3000); continue; }
+    try { await s.tap('pull-request-code-list', { wheel: [0, 6000] }); } catch {}
+    await settle(1500);
+  }
+  rec(`files: "${await textOf('pull-request-code-files')}" (want ${want})`);
+};
+const reveal = async (path) => {
+  if (!(await has('pull-request-code-tree'))) { await s.tap('pull-request-code-tree-toggle'); await settle(600); }
+  await s.tap(`pull-request-code-tree-${path}`); await settle(1200);
+  await s.tap('pull-request-code-tree-toggle'); await settle(600);
+};
+const cardsIn = async () => (await idsIn('pull-request-code-panel')).filter((id) => /^pull-request-thread-PRRT_[A-Za-z0-9_-]+$/.test(id)).map((id) => id.slice('pull-request-thread-'.length));
+const threadState = () => gh(['graphql', '-f', `query=query{repository(owner:"daehyeonmun2021",name:"playground"){pullRequest(number:${CODE}){reviewThreads(first:20){nodes{id isResolved diffSide comments(first:5){nodes{databaseId author{login}}}}}}}}`]).body?.data?.repository?.pullRequest?.reviewThreads?.nodes ?? [];
+const made = { comments: [] };
+
+
+const ghAs = (account, args) => lib.api(paths, account, args);
+const seeded = [];
+try {
+  // Before the session: the open thread on #168 grows to 12 comments (the activity reads 10 per thread).
+  const first = (gh([`repos/${REPO}/pulls/${CODE}/comments?per_page=100`]).body ?? []).find((c) => !c.in_reply_to_id && c.side === 'RIGHT' && c.path === 'docs/usage.md');
+  for (let i = 1; i <= 11; i++) { const r = ghAs('second', ['-X', 'POST', `repos/${REPO}/pulls/${CODE}/comments/${first.id}/replies`, '-f', `body=Reply ${i} on where the catalog step goes.`]); if (r.body?.id) seeded.push(r.body.id); await sleep(700); }
+  rec(`seeded ${seeded.length} replies by the second account on comment ${first.id}`);
+  await settle(2000);
+  if (await has('welcome-pairing-link')) { await type('welcome-pairing-link', `${origin}/pair#token=${lane.pairingToken('primary')}`); await s.tap('welcome-pair'); await settle(5000); }
+  for (const id of ['welcome-continue', 'welcome-agents-continue', 'welcome-skip-import']) if (await has(id)) { await s.tap(id); await settle(); }
+  await settle(2000); await clearToasts();
+  await s.tap('open-pull-requests'); await settle(4000); await clearToasts();
+  await openPr(CODE);
+  await s.tap('pull-request-tab-code'); await settle(1000);
+  await allSlices(310);
+
+  await step('load-more', async () => {
+    await reveal('docs/usage.md');
+    const more = (await idsIn('pull-request-code-panel')).find((id) => id.startsWith('pull-request-thread-more-'));
+    const count = async () => (await idsIn('pull-request-code-panel')).filter((id) => id.startsWith('pull-request-thread-comment-')).length;
+    rec(`Load more button ${more}; header "${await textOf(more?.replace('-more-', '-toggle-'))}"; comments shown ${await count()}`);
+    await shot('01-load-more-before');
+    const before = await count(), calls = spans('ws.rpc.pullRequests.threadComments');
+    await tapIn('pull-request-code-panel', more); await settle(1000);
+    await waitFor(async () => (await count()) > before, 30_000);
+    rec(`after Load more: comments shown ${await count()}; threadComments spans +${spans('ws.rpc.pullRequests.threadComments') - calls}; button ${(await idsIn('pull-request-code-panel')).includes(more) ? 'still there' : 'gone'}`);
+    await shot('02-load-more-after');
+  });
+
+  await step('draft-escape', async () => {
+    await tapIn('pull-request-code-panel', 'diff-comment-docs/usage.md-additions-11'); await settle(500);
+    await type('pull-request-comment-text', 'Not kept.');
+    await shot('03-draft-open');
+    const before = spans('ws.rpc.pullRequests.submitReview');
+    await s.type('pull-request-comment-text', { key: 'Escape' }); await settle(1200);
+    const draft = await node('pull-request-comment-draft', 'pull-request-code-panel');
+    rec(`after Escape: draft node ${draft ? 'present' : 'gone'}; pending cards ${(await idsIn('pull-request-code-panel')).filter((id) => /^pull-request-pending-[^d]/.test(id) && !id.includes('discard')).length}; submitReview spans +${spans('ws.rpc.pullRequests.submitReview') - before}`);
+    await shot('04-draft-after-escape');
+  });
+
+  await step('submit-review-readback', async () => {
+    await s.tap('pull-request-code-split'); await settle(800);
+    await reveal('docs/usage.md');
+    const draft = async (path, side, line, body) => {
+      await tapIn('pull-request-code-panel', `diff-comment-${path}-${side}-${line}`); await settle(500);
+      await type('pull-request-comment-text', body);
+      await s.tap('pull-request-comment-add'); await settle(600);
+    };
+    await draft('docs/usage.md', 'deletions', 4, 'This blank line could go.');
+    await reveal('src/strings.js');
+    await draft('src/strings.js', 'additions', 3, 'A test for mumble would help.');
+    await shot('05-two-pending');
+    await s.tap('pull-request-composer-trigger'); await settle(800);
+    if (await has('pull-request-composer-mode-review')) { await s.tap('pull-request-composer-mode-review'); await settle(500); }
+    await type('pull-request-review-summary', 'Two more notes.');
+    await s.tap('pull-request-review-submit'); await settle(1000);
+    let review = null;
+    for (let i = 0; i < 25 && !review; i++) { await sleep(1000); review = (gh([`repos/${REPO}/pulls/${CODE}/reviews?per_page=100`]).body ?? []).filter((r) => r.body === 'Two more notes.').at(-1); }
+    const posted = review ? gh([`repos/${REPO}/pulls/${CODE}/reviews/${review.id}/comments`]).body ?? [] : [];
+    rec(`GitHub review ${review?.id} by ${review?.user?.login} state ${review?.state}, ${posted.length} comments`);
+    for (const c of posted) {
+      const full = gh([`repos/${REPO}/pulls/comments/${c.id}`]).body ?? {};
+      rec(`  comment ${c.id}: path ${full.path} line ${full.line} side ${full.side} original_line ${full.original_line} start_line ${full.start_line} "${full.body}"`);
+      made.comments.push(c.id);
+    }
+    await settle(4000); await shot('06-review-sent');
+    await s.tap('pull-request-code-stacked'); await settle(500);
+  });
+
+  await step('orphans-list', async () => {
+    const commits = gh([`repos/${REPO}/pulls/${CODE}/commits?per_page=100`]).body ?? [];
+    const rename = commits.find((c) => c.commit.message.startsWith('Rename the text helpers'));
+    await s.tap('pull-request-code-scope'); await settle(500);
+    await s.tap(`pull-request-code-scope-${rename.sha.slice(0, 7)}`); await settle(2500);
+    await s.prefer({ 'prefers-reduced-motion': 'reduce' }); await settle(500);
+    rec(`orphans toggle: "${await prop('pull-request-code-orphans-toggle', 'aria-label')}" expanded ${await prop('pull-request-code-orphans-toggle', 'aria-expanded')}`);
+    await s.tap('pull-request-code-orphans-toggle'); await settle(1200);
+    rec(`opened: expanded ${await prop('pull-request-code-orphans-toggle', 'aria-expanded')}; list: ${(await textOf('pull-request-code-orphans-list')).slice(0, 400)}`);
+    await shot('07-orphans-open-reduced-motion');
+    await s.prefer({ 'prefers-reduced-motion': 'no-preference' }); await settle(300);
+    await s.tap('pull-request-code-orphans-toggle'); await settle(500);
+    await s.tap('pull-request-code-scope'); await settle(500); await s.tap('pull-request-code-scope-all'); await settle(3000);
+  });
+
+  await step('add-to-agent', async () => {
+    await allSlices(310);
+    await reveal('docs/usage.md');
+    await tapIn('pull-request-code-panel', 'diff-comment-docs/usage.md-additions-11'); await settle(500);
+    await type('pull-request-comment-text', 'Explain why the catalog note goes last.');
+    await shot('08-agent-draft');
+    await s.tap('pull-request-comment-agent'); await settle(6000);
+    rec(`toasts: ${await toastsNow()}`);
+    await shot('09-agent-thread');
+    rec(`composer: ${(await textOf('composer')).slice(0, 400)}`);
+  });
+
+  await step('fix-in-a-thread', async () => {
+    await clearToasts();
+    await s.tap('open-pull-requests'); await settle(3000);
+    await openPr(CODE);
+    await s.tap('pull-request-tab-code'); await settle(2000);
+    await allSlices(310);
+    await reveal('docs/usage.md');
+    const fix = (await idsIn('pull-request-code-panel')).find((id) => id.startsWith('pull-request-thread-fix-'));
+    rec(`Fix button ${fix}`);
+    await tapIn('pull-request-code-panel', fix); await settle(1500);
+    await shot('10-fix-preparing');
+    await settle(10000);
+    rec(`toasts: ${await toastsNow()}`);
+    await shot('11-fix-thread');
+    rec(`composer: ${(await textOf('composer')).slice(0, 400)}`);
+  });
+} finally {
+  for (const id of made.comments) { const d = gh(['-X', 'DELETE', `repos/${REPO}/pulls/comments/${id}`]); rec(`cleanup: deleted review comment ${id} (HTTP ${d.status})`); }
+  for (const id of seeded) { const d = ghAs('second', ['-X', 'DELETE', `repos/${REPO}/pulls/comments/${id}`]); rec(`cleanup: deleted seeded reply ${id} (HTTP ${d.status})`); }
+  rec('closing');
+  try { await s.close(); } catch {}
+}
