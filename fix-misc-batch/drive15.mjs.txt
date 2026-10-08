@@ -1,0 +1,90 @@
+// fix-misc-batch bug 15 drive (not committed): bun drive15.mjs <repo> <label> <pr>
+// One macOS agent session against the primary lane server (127.0.0.1:16110, real GitHub through the lane gh).
+// Pairs (single-use token, never printed), opens the pull request, presses "Update with rebase" in the
+// freshness popover, then for 50 s records once a second: the toast, the freshness mark, and the lane's
+// GitHub reads and the server's pullRequests RPCs since the press.
+import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+const [repo, label, prArg] = process.argv.slice(2);
+const N = Number(prArg);
+const MINE = '/Users/daehyeonmun/orca/workspaces/exact2/t3-code-fix-misc-batch';
+const L = resolve(MINE, 'target/misc'), out = resolve(L, `out15-${label}`); mkdirSync(out, { recursive: true });
+process.env.EXACT_APP_DIR = resolve(repo, 'examples/t3-code');
+const { open } = await import(resolve(repo, 'scripts/agent.mjs'));
+const lane = await import(resolve(MINE, 'examples/t3-code/tools/github-lane/lane.mjs'));
+const lib = await import(resolve(MINE, 'examples/t3-code/tools/github-lane/lib.mjs'));
+const paths = lib.lanePaths();
+const origin = 'http://127.0.0.1:16110';
+const trace = resolve(MINE, 'target/github-lane/servers/primary/t3home/userdata/logs/server.trace.ndjson');
+const rec = (line) => { const text = `${new Date().toISOString()} [${label}] ${line}`; appendFileSync(resolve(out, 'record.txt'), text + '\n'); console.log(text); };
+const home = resolve(L, `apphome15-${label}`); mkdirSync(home, { recursive: true });
+const s = await open({ host: 'macos', size: [1280, 840], env: { HOME: home, T3_LOCAL_HOME: resolve(L, `t3local15-${label}`), T3_LOCAL_PORT: '16112', T3CODE_TELEMETRY_ENABLED: 'false' }, storage: `misc15-${label}`, epoch: Date.now(),
+  onProcess: (p) => { writeFileSync(resolve(L, `${label}-app15.pid`), String(p.pid)); rec(`app pid ${p.pid}`); } });
+const nodes = async (target) => (await s.tree(target)).nodes;
+const ids = async () => (await nodes()).map((n) => n.testId ?? n.props?.testId).filter(Boolean);
+const has = async (id) => (await ids()).includes(id);
+const settle = async (ms = 600) => { await s.clock(`+${ms} real`); await s.clock('settle'); };
+const tapIf = async (id) => { if (await has(id)) { await s.tap(id); await settle(); return true; } return false; };
+const shot = async (name) => { await s.screenshot(resolve(out, `${label}-${name}.png`), true); rec(`shot ${name}`); };
+const texts = async (target) => {
+  try { const t = await s.tree(target); return t.nodes.flatMap((n) => [n.text, n.props?.text, n.props?.['aria-label'], n.label].filter((v) => typeof v === 'string' && v.trim())).map((v) => v.trim()); }
+  catch (e) { return []; }
+};
+const clearToasts = async () => { for (const id of (await ids()).filter((id) => id.startsWith('toast-dismiss-'))) { try { await s.tap(id); await settle(250); } catch {} } };
+const toastText = async () => [...new Set(await texts('toast-region'))].filter((t) => !/^(Dismiss|Copy|Close)/.test(t)).join(' · ');
+const traceSize = () => existsSync(trace) ? statSync(trace).size : 0;
+const rpcsSince = (since) => {
+  // By time, over the trace and the file it rotated into (the server starts a new one at 10 MB).
+  const counts = {}, from = BigInt(since) * 1000000n;
+  for (const file of [`${trace}.1`, trace]) {
+    if (!existsSync(file)) continue;
+    for (const line of readFileSync(file, 'utf8').split('\n')) {
+      const m = /"name":"ws\.rpc\.(pullRequests\.[A-Za-z]+)".*?"startTimeUnixNano":"(\d+)"/.exec(line);
+      if (m && BigInt(m[2]) >= from) counts[m[1]] = (counts[m[1]] ?? 0) + 1;
+    }
+  }
+  return counts;
+};
+const graphqlSince = (offset) => lib.ghCallsSince(paths, offset).filter((c) => /graphql/.test(c.argv)).length;
+const writesSince = (offset) => lib.ghCallsSince(paths, offset).map((c) => c.argv).filter((a) => /update-branch/.test(a)).map((a) => a.replace(/--repo \S+/, '--repo O/R'));
+const behind = () => { const p = lib.api(paths, 'primary', [`repos/daehyeonmun2021/playground/pulls/${N}`]).body ?? {}; return lib.api(paths, 'primary', [`repos/daehyeonmun2021/playground/compare/${p.base?.ref}...${p.head?.ref}`]).body?.behind_by; };
+
+try {
+  await settle(2000);
+  if (await has('welcome-pairing-link')) {
+    await s.type('welcome-pairing-link', `${origin}/pair#token=${lane.pairingToken('primary')}`);
+    await s.tap('welcome-pair'); await settle(5000);
+  }
+  for (const id of ['welcome-continue', 'welcome-agents-continue', 'welcome-skip-import']) await tapIf(id);
+  await settle(3000); await clearToasts();
+  await s.tap('open-pull-requests'); await settle(5000); await clearToasts();
+  await s.tap('pull-requests-filters'); await settle(400); await s.tap('pr-filter-state'); await settle(400); await s.tap('pr-state-all'); await settle(3000);
+  await s.type('pull-requests-search', `#${N}`); await settle(3500);
+  if (!(await has(`pr-row-${N}`))) await settle(4000);
+  await s.tap(`pr-row-${N}`); await settle(1000);
+  for (let i = 0; i < 20 && !(await has('pull-request-base-freshness')); i++) await settle(700);
+  await settle(2500); await clearToasts();
+  rec(`before: behind_by ${behind()}; mark: ${(await texts('pull-request-base-freshness')).join(' | ')}`);
+  await shot('before');
+  await s.tap('pull-request-base-freshness'); await settle(600);
+  rec(`popover: ${(await texts('pr-freshness-popover')).join(' | ')}`);
+  await shot('popover');
+  const ghOffset = lib.ghLogSize(paths), t0 = Date.now(), traceOffset = t0;
+  await s.tap('pr-freshness-rebase');
+  let toastAt = null;
+  for (let i = 1; i <= 50; i++) {
+    await s.clock('+1000 real');
+    const toast = await toastText();
+    if (toast && toastAt === null) toastAt = (Date.now() - t0) / 1000;
+    const mark = (await has('pull-request-base-freshness')) ? 'behind mark shown' : 'no behind mark';
+    rec(`+${i}s toast="${toast.slice(0, 120)}" ${mark} graphql=${graphqlSince(ghOffset)} rpcs=${JSON.stringify(rpcsSince(traceOffset))}`);
+    if (i === 2 || i === 10) await shot(`after-${i}s`);
+  }
+  rec(`summary: toast first seen at ${toastAt ?? 'never'} s; writes ${JSON.stringify(writesSince(ghOffset))}; behind_by now ${behind()}; graphql reads ${graphqlSince(ghOffset)}; server rpcs ${JSON.stringify(rpcsSince(traceOffset))}`);
+  await shot('after-50s');
+} catch (e) {
+  rec(`ERROR ${e.message?.slice(0, 600)}`);
+  try { await shot('error'); } catch {}
+} finally {
+  try { await s.close(); } catch {}
+}
