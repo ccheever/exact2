@@ -20,7 +20,7 @@ import { obj, str, type Obj } from './domain';
 import { bridgeReply, type Native } from './protocol';
 import { subscriptionSerial } from './shell-vcs';
 import { isEpoch } from './r8-pointer-clock';
-import type { SnapshotStorage } from './pages-pr-logic';
+import { LIVE_REFRESH_IDLE_AFTER_MS, LIVE_REFRESH_INTERVAL_MS, shouldRefreshOnArrival, shouldRefreshOnInterval, type SnapshotStorage } from './pages-pr-logic';
 import { letGo } from './let-go';
 
 export const PR_REFRESH_KEY = 'pull-request-refreshes';
@@ -103,6 +103,28 @@ export async function lastInteraction(native: Native, now: number): Promise<numb
   const reply = await bridgeReply(native, { op: 'activityLastInteraction' }).catch((error: unknown) => { if (letGo(error)) throw error; return null; });
   const at = Number(obj(reply?.value).at);
   return reply?.ok && Number.isFinite(at) && at > 0 ? at : null;
+}
+
+/**
+ * useLiveRefresh's onArrival and onInterval for one view (the detail panel's, the Pull Requests list's): whether
+ * it reads again now, noted as read when it does. `arrival`: the view shown again (opened, the window shown or
+ * focused); otherwise the clock's minute tick asks whether the five-minute interval is due. Both wait out the
+ * 10 s minimum and a hidden window; both stop once the reader has been idle for six minutes.
+ */
+export async function liveRefreshDue(client: object, native: Native, view: string, input: { visible: boolean; now: number; arrival: boolean }): Promise<boolean> {
+  const { visible, now, arrival } = input, lastRefreshedAt = viewRefreshedAt(client, view);
+  if (!liveRefreshAsked(client, view, input)) return false;
+  const interacted = (await lastInteraction(native, now)) ?? now;
+  const read = arrival ? now - interacted < LIVE_REFRESH_IDLE_AFTER_MS && shouldRefreshOnArrival({ visible, now, lastRefreshedAt })
+    : shouldRefreshOnInterval({ visible, now, lastRefreshedAt: lastRefreshedAt!, lastInteractedAt: interacted });
+  if (read) noteViewRefreshed(client, view, now);
+  return read;
+}
+
+/** Whether a view has anything to ask liveRefreshDue (an arrival, or the five-minute interval come round), without waiting. */
+export function liveRefreshAsked(client: object, view: string, input: { now: number; arrival: boolean }): boolean {
+  const lastRefreshedAt = viewRefreshedAt(client, view);
+  return input.arrival || (lastRefreshedAt !== undefined && input.now - lastRefreshedAt >= LIVE_REFRESH_INTERVAL_MS);
 }
 
 // ── Snapshot storage (t3-code.json) ─────────────────────────────────────────

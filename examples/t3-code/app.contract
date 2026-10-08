@@ -104,8 +104,8 @@ component T3Code
   state prPanelOpen = true
   state prRefresh = 0
   state prTab = "summary"
-  resource prList = prList(utilityPage == "pull-requests", prRefresh, wallTime.epochAtZero + elapsed, prSelected, prApplied, prTyped, data.revision) as shape PrListView
-  resource prDetail = prDetail(utilityPage == "pull-requests" ? prSelected : shell.panel.pr.selected, prRefresh, wallTime.epochAtZero + elapsed, data.revision, page.visibilityState == "visible", page.hasFocus) as shape PrDetailView
+  resource prList = prList(utilityPage == "pull-requests", prRefresh, wallTime.epochAtZero + elapsed, prSelected, prApplied, prTyped, data.revision, page.visibilityState == "visible", windowReturns) as shape PrListView
+  resource prDetail = prDetail(utilityPage == "pull-requests" ? prSelected : shell.panel.pr.selected, prRefresh, wallTime.epochAtZero + elapsed, data.revision, page.visibilityState == "visible", windowReturns) as shape PrDetailView
   resource prMarkdown = renderPullRequestMarkdown(prDetail.bodies) as shape TranscriptMarkdown
   derive prPanelWidth = min(floor(viewport.width / 2), viewport.width - (data.sidebarOpen ? sidebarWidth : 0) - 224)
   derive prListWidth = viewport.width - (data.sidebarOpen ? sidebarWidth : 0) - (prSelected != "" and prPanelOpen ? prPanelWidth : 0)
@@ -184,6 +184,12 @@ component T3Code
     elapsed = now()
   task clock mount
     every(60000, tick)
+  state windowReturns = 0 // pr-list-live-refresh: the window focused again, the clock read then (useLiveRefresh's `focus` at Date.now(), not at the last minute tick), for the list and the detail
+  task windowBack when page.hasFocus and page.visibilityState == "visible"
+    after(1, windowReturned)
+  action windowReturned
+    elapsed = now()
+    windowReturns = windowReturns + 1
   mutation timelineDisclosureChanged as shape Change refreshes data then dispatchTimelineReads
   mutation timelineReadsRefreshed as shape TimelineReadsResult refreshes data
   mutation timelineReadsRefreshedNext as shape TimelineReadsResult refreshes data
