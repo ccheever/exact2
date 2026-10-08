@@ -6,7 +6,8 @@
 // them; the Linux host's kernel resolves them against its insets (zero, as
 // Chrome's are here) and its viewport. A tap swaps one row's bound text
 // between two comparisons, which the JS target writes as written and the
-// kernel parses.
+// kernel parses. A size and a padding whose comparison comes out negative
+// are held at zero, as CSS clamps a math function to the row's range.
 // linux: layout
 component Comparisons
   state wide = false
@@ -17,4 +18,5 @@ component Comparisons
       button press=flip testId="flip" width="min(50vw, 300px)" height="max(5vh, 20px)" padding-top=(wide ? "max(24px, env(safe-area-inset-top))" : "min(4px, calc(env(safe-area-inset-top) + 8px))") background-color="#7c4dff"
         text "flip" color="#ffffff"
       column testId="fab" position="absolute" right=16 width=56 height=56 border-radius="clamp(4px, 10vw, 28px)" bottom="calc(clamp(15px, env(safe-area-inset-bottom), 60px) + 15px + 44px)" background-color="#ffd60a"
+      box testId="floor" position="absolute" left=0 top=60 width="max(-8px, -2px)" height=10 padding-left="min(-4px, env(safe-area-inset-top))" padding-right=6 background-color="#e63946"
       row testId="bar" position="absolute" left=0 right=0 bottom=0 height=49 padding="0 0 clamp(15px, env(safe-area-inset-bottom), 60px)" background-color="#2a9d8f"

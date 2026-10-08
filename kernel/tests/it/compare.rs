@@ -175,7 +175,7 @@ fn a_comparison_keeps_its_css_and_folds_what_reads_nothing() {
             "calc(clamp(15px, env(safe-area-inset-bottom), 60px) + 59px)",
         ),
         (
-            "max(env(safe-area-inset-top) - 20px, 0)",
+            "max(env(safe-area-inset-top) - 20px, 0px)",
             "max(calc(env(safe-area-inset-top) - 20px), 0px)",
         ),
         ("min(50vw, 300px)", "min(50vw, 300px)"),
@@ -286,6 +286,66 @@ fn a_radius_comparison_never_resolves_below_zero() {
     );
 }
 
+/// Every row without negative lengths is held at zero as a radius is: a
+/// size, a padding, a flex basis, an SVG radius (CSS Values 4 §10.12). One
+/// that cannot go below zero is written as it is.
+#[test]
+fn a_size_or_padding_comparison_never_resolves_below_zero() {
+    for row in [
+        StyleId::Width,
+        StyleId::MinHeight,
+        StyleId::MaxWidth,
+        StyleId::PaddingTop,
+        StyleId::FlexBasis,
+        StyleId::Rx,
+        StyleId::ColumnWidth,
+    ] {
+        assert_eq!(
+            text(row, "min(-8px, -2px)"),
+            Ok(Dimension::Points(0.0)),
+            "{row:?}"
+        );
+        let d = text(row, "min(-4px, env(safe-area-inset-top))").unwrap();
+        assert_eq!(
+            css(d),
+            "max(0px, min(-4px, env(safe-area-inset-top)))",
+            "{row:?}"
+        );
+        assert_eq!(
+            d.resolve(&Env::new(62.0, 0.0, 0.0, 0.0)),
+            Dimension::Points(0.0),
+            "{row:?}"
+        );
+    }
+    // Bluesky's bar: never below 15, so not wrapped.
+    let bar = text(
+        StyleId::PaddingBottom,
+        "clamp(15px, env(safe-area-inset-bottom), 60px)",
+    )
+    .unwrap();
+    assert_eq!(css(bar), "clamp(15px, env(safe-area-inset-bottom), 60px)");
+    let floored = text(
+        StyleId::PaddingTop,
+        "max(env(safe-area-inset-top) - 20px, 0px)",
+    )
+    .unwrap();
+    assert_eq!(
+        css(floored),
+        "max(calc(env(safe-area-inset-top) - 20px), 0px)"
+    );
+    // A negative viewport length has no floor: wrapped.
+    let vw = text(StyleId::Width, "min(-10vw, 4px)").unwrap();
+    assert_eq!(css(vw), "max(0px, min(-10vw, 4px))");
+    // Margins and insets keep CSS's negative lengths.
+    for row in [StyleId::MarginLeft, StyleId::Top, StyleId::Cx] {
+        assert_eq!(
+            text(row, "min(-8px, -2px)"),
+            Ok(Dimension::Points(-8.0)),
+            "{row:?}"
+        );
+    }
+}
+
 #[test]
 fn forms_outside_the_grammar_are_refused_by_name() {
     let deep = format!(
@@ -309,6 +369,9 @@ fn forms_outside_the_grammar_are_refused_by_name() {
             "percentage",
         ),
         ("max(15, env(safe-area-inset-bottom))", "takes a unit"),
+        // Zero too: inside a math function it is a number, not a length.
+        ("max(0, 10px)", "zero too"),
+        ("max(env(safe-area-inset-top) - 20px, 0)", "zero too"),
         ("max(1rem, env(safe-area-inset-bottom))", "rem and em"),
         ("max(env(safe-area-inset-top, 0px), 1px)", "no fallback"),
         ("max(env(safe-area-inset-middle), 1px)", "env() names"),

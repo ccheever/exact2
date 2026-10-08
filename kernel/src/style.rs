@@ -471,12 +471,29 @@ impl StyleValue {
         style: StyleId,
         admits_auto: bool,
     ) -> Result<Dimension, StyleValueError> {
-        let radius = matches!(
+        // The rows CSS gives no negative length: sizes, padding, radii, an
+        // SVG radius and a column's width (margins and insets take one).
+        let nonnegative = matches!(
             style,
-            StyleId::BorderRadiusTopLeft
+            StyleId::Width
+                | StyleId::Height
+                | StyleId::MinWidth
+                | StyleId::MinHeight
+                | StyleId::MaxWidth
+                | StyleId::MaxHeight
+                | StyleId::PaddingTop
+                | StyleId::PaddingRight
+                | StyleId::PaddingBottom
+                | StyleId::PaddingLeft
+                | StyleId::FlexBasis
+                | StyleId::BorderRadiusTopLeft
                 | StyleId::BorderRadiusTopRight
                 | StyleId::BorderRadiusBottomRight
                 | StyleId::BorderRadiusBottomLeft
+                | StyleId::R
+                | StyleId::Rx
+                | StyleId::Ry
+                | StyleId::ColumnWidth
         );
         let value = match self {
             StyleValue::Number(n) if (*n as f32).is_finite() => Ok(Dimension::Points(*n as f32)),
@@ -493,8 +510,9 @@ impl StyleValue {
             }
             StyleValue::Text(t) => match (compare::parse(t), env::parse(t)) {
                 (Err(reason), _) => Err(StyleValueError::BadComparison { style, reason }),
-                // CSS clamps a math function to the row's range: a radius at 0.
-                (Ok(Some(d)), _) if radius => compare::at_least_zero(d)
+                // CSS clamps a math function to the row's range: 0 or more
+                // on a row without negative lengths (CSS Values 4 §10.12).
+                (Ok(Some(d)), _) if nonnegative => compare::at_least_zero(d)
                     .map(Some)
                     .map_err(|reason| StyleValueError::BadComparison { style, reason }),
                 (Ok(Some(d)), _) => Ok(Some(d)),
@@ -519,6 +537,13 @@ impl StyleValue {
                 expected: "number, percent, auto, calc(<percent> ± <px>), env(safe-area-inset-*), env(viewport-segment-* x y), or min()/max()/clamp()",
             }),
         }?;
+        let radius = matches!(
+            style,
+            StyleId::BorderRadiusTopLeft
+                | StyleId::BorderRadiusTopRight
+                | StyleId::BorderRadiusBottomRight
+                | StyleId::BorderRadiusBottomLeft
+        );
         if radius
             && (!value.is_finite()
                 || matches!(value, Dimension::Points(n) | Dimension::Percent(n) if n < 0.0))

@@ -1626,8 +1626,9 @@ env(safe-area-inset-bottom) - 4px)`) and nested in each other and in `calc()`:
 `bottom="calc(clamp(15px, env(safe-area-inset-bottom), 60px) + 59px)"`.
 CSS's order is `clamp(MIN, VAL, MAX)`, not React Native's `clamp(value, min,
 max)`. Native hosts resolve them as the insets change; the web writes CSS's own
-functions. Refused with the reason: a percentage, `rem`/`em`, a unitless
-nonzero number, `env(viewport-segment-*)`, two inset or viewport terms in one
+functions. On a size, a padding or a radius a result below zero is 0, as CSS
+clamps it; a margin or an inset keeps it. Refused with the reason: a percentage, `rem`/`em`, a unitless
+number (write `0px`, not `0`), `env(viewport-segment-*)`, two inset or viewport terms in one
 sum, subtracting one, `*` and `/` (LLP 1001 §2, "Comparisons").
 
 `translate` takes one or two lengths, each in px or a percentage of the box's own

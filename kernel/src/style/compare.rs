@@ -151,6 +151,27 @@ impl Expr {
         walk(self, 0, &mut 0)
     }
 
+    /// The least this resolves to under any environment, `None` where it
+    /// has no floor (a negative viewport length in it). An inset is 0 or
+    /// more; `clamp(lo, v, hi)` is `lo` or more.
+    fn floor(&self) -> Option<f32> {
+        match self {
+            Expr::Term(Base::Viewport(_, n), _) if *n < 0.0 => None,
+            Expr::Term(_, plus) => Some(*plus),
+            Expr::Pick(Op::Min, args, plus) => args
+                .iter()
+                .map(Expr::floor)
+                .try_fold(f32::INFINITY, |m, f| Some(m.min(f?)))
+                .map(|m| m + plus),
+            Expr::Pick(Op::Max, args, plus) => args
+                .iter()
+                .filter_map(Expr::floor)
+                .reduce(f32::max)
+                .map(|m| m + plus),
+            Expr::Pick(Op::Clamp, args, plus) => args.first()?.floor().map(|m| m + plus),
+        }
+    }
+
     /// This plus `points`.
     fn plus(self, points: f32) -> Expr {
         match self {
@@ -186,8 +207,11 @@ impl Expr {
         w.f32(*plus);
     }
 
-    fn decode(r: &mut Reader<'_>, depth: u8) -> Result<Expr, DecodeError> {
-        if depth > MAX_DEPTH {
+    /// `terms` counts every node read so far, the whole tree's, so a tree
+    /// past [`MAX_TERMS`] is refused before more of it is built.
+    fn decode(r: &mut Reader<'_>, depth: u8, terms: &mut u16) -> Result<Expr, DecodeError> {
+        *terms += 1;
+        if depth > MAX_DEPTH || *terms > MAX_TERMS {
             return Err(DecodeError::InvalidComparison);
         }
         let expr = match r.u8()? {
@@ -210,7 +234,7 @@ impl Expr {
                     return Err(DecodeError::InvalidComparison);
                 }
                 let args = (0..count)
-                    .map(|_| Expr::decode(r, depth + 1))
+                    .map(|_| Expr::decode(r, depth + 1, terms))
                     .collect::<Result<Vec<_>, _>>()?;
                 Expr::Pick(op, args, 0.0)
             }
@@ -294,7 +318,7 @@ impl Comparison {
 
     /// Read the wire form, refusing what the parser would.
     pub(crate) fn decode(r: &mut Reader<'_>) -> Result<Comparison, DecodeError> {
-        let expr = Expr::decode(r, 0)?;
+        let expr = Expr::decode(r, 0, &mut 0)?;
         if !expr.well_formed() {
             return Err(DecodeError::InvalidComparison);
         }
@@ -316,7 +340,7 @@ pub(crate) mod refusal {
     pub(crate) const RELATIVE: &str =
         "rem and em are not supported inside min(), max() or clamp(); write px";
     pub(crate) const UNITLESS: &str =
-        "a nonzero number inside min(), max() or clamp() takes a unit, as CSS requires: 15px";
+        "a number inside min(), max() or clamp() takes a unit, as CSS requires, zero too: 0px, 15px";
     pub(crate) const NOT_A_LENGTH: &str = "min(), max() and clamp() take px (or in, cm, mm, pt, pc) lengths, env(safe-area-inset-*), viewport lengths (vw, vh, vmin, vmax, svh, lvh, dvh, …) and calc() sums of them";
     pub(crate) const SEGMENT: &str =
         "env(viewport-segment-*) is not supported inside min(), max() or clamp()";
@@ -336,7 +360,7 @@ pub(crate) mod refusal {
     pub(crate) const DEPTH: &str =
         "min(), max(), clamp() and calc() nest at most 8 deep in one length";
     pub(crate) const SIZE: &str = "one length holds at most 64 terms and functions";
-    pub(crate) const RADIUS: &str = "a radius's comparison is held as max(0px, …), never below zero, and that takes one level and two terms more than it: at most 7 deep and 62 terms";
+    pub(crate) const NONNEGATIVE: &str = "a comparison on a row without negative lengths (a size, a padding, a radius) is held as max(0px, …), never below zero, and that takes one level and two terms more than it: at most 7 deep and 62 terms";
     pub(crate) const NONFINITE: &str =
         "a length inside min(), max() or clamp() is not a finite number";
 }
@@ -527,11 +551,15 @@ fn reads_env(e: &Expr) -> bool {
     }
 }
 
-/// One length token: px or unitless zero, another absolute unit, or a
-/// viewport length.
+/// One length token: px, another absolute unit, or a viewport length. A
+/// unitless zero is a number inside a math function, not a length (CSS
+/// Values 4 §10.9), so it is refused as any number is.
 fn token_length(token: &str) -> Result<Val, &'static str> {
     if token.ends_with('%') {
         return Err(refusal::PERCENT);
+    }
+    if exact_num::parse_f64(token).is_ok() {
+        return Err(refusal::UNITLESS);
     }
     if let Some(p) = parse_pixel_length(token) {
         return Ok(Val::Points(p));
@@ -554,8 +582,8 @@ fn token_length(token: &str) -> Result<Val, &'static str> {
     Err(refusal::NOT_A_LENGTH)
 }
 
-/// A comparison's length on a row that refuses a negative one (a border
-/// radius), never below zero, as CSS clamps a math function to the
+/// A comparison's length on a row that refuses a negative one (a size, a
+/// padding, a radius), never below zero, as CSS clamps a math function to the
 /// property's range (CSS Values 4 §10.12): folded points at 0 or more, a
 /// tree — or an inset or viewport length it folded to that can go negative
 /// — held as `max(0px, …)` (itself when it is already that), refused
@@ -572,14 +600,12 @@ pub(super) fn at_least_zero(d: Dimension) -> Result<Dimension, &'static str> {
         Dimension::Compare(c) => c.expr(),
         other => return Ok(other),
     };
-    if let Expr::Pick(Op::Max, args, plus) = &expr {
-        if *plus == 0.0 && args.first() == Some(&zero) {
-            return Ok(d);
-        }
+    if expr.floor().is_some_and(|f| f >= 0.0) {
+        return Ok(d);
     }
     let wrapped = Expr::Pick(Op::Max, vec![zero, expr], 0.0);
     if !wrapped.well_formed() {
-        return Err(refusal::RADIUS);
+        return Err(refusal::NONNEGATIVE);
     }
     Ok(Dimension::Compare(Comparison::intern(wrapped)))
 }

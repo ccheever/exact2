@@ -806,11 +806,15 @@ the frame once more per backdrop node. The measured bounds are LLP 1053.000 §3.
   `uses_env` counts it, so `set_env` and a viewport change re-derive and
   dirty its node; every host that reads a resolved length (Apple's style
   JSON, the Linux painter, both hosts' content sizes) sees points (their
-  matches name the variant only as resolved away). On a border radius, which
-  refuses a negative length, the tree is held as `max(0px, …)` and folded
-  points at 0 or more, as CSS clamps a math function to the property's
-  range (a tree with no room left for the wrap under the limits below is
-  refused). A replaced header padded
+  matches name the variant only as resolved away). On a row CSS gives no
+  negative length (a size, its minimum and maximum, a padding, a flex
+  basis, a border radius, an SVG `r`/`rx`/`ry`, a column width), the tree is
+  held as `max(0px, …)` unless it has a floor at 0 or more (an inset is 0 or
+  more, `clamp(lo, …)` is `lo` or more), and folded points at 0 or more, as
+  CSS clamps a math function to the property's range (a tree with no room
+  left for the wrap under the limits below is refused); margins and insets
+  keep negative lengths (Astra's review, 2026-10-07: a folded `-8px` width
+  was written as a `width:-8px` the browser drops). A replaced header padded
   by a comparison that reads the top inset hands that inset to the bar, as
   one padded by `env(safe-area-inset-top)` does (`kernel/cover.rs`). The
   readers that never resolved `env()` or viewport lengths (SVG geometry, the
@@ -822,11 +826,13 @@ the frame once more per backdrop node. The measured bounds are LLP 1053.000 §3.
   inset and its edge, 2 a viewport length and its unit and number, 3–5
   `min`/`max`/`clamp` with a count and the arguments; then each node's
   points), a nonzero leading `f32` refused, decoded to what the parser accepts or refused as
-  `DecodeError::InvalidComparison`. Refused by name at the bake
+  `DecodeError::InvalidComparison` (the 64-term limit counted across the
+  whole tree as it is read, so a wide tree is refused before it is built). Refused by name at the bake
   (`StyleValueError::BadComparison`, `lower-attr-value`): a percentage (it
   has no basis where the insets resolve; resolving one would put the tree in
   Taffy's `calc()` resolver, left until an app asks), `rem`/`em`, a unitless
-  nonzero number, `env(viewport-segment-*)`, a sum with two terms that read
+  number, zero too (inside a math function a `0` is a number, not a length,
+  CSS Values 4 §10.9), `env(viewport-segment-*)`, a sum with two terms that read
   the environment or one subtracted (it negates the variable, which no
   length holds, as `<n>px - env(…)` already is), `*` and `/`, a sum outside
   `calc()`, a `clamp()` of other than three, an empty `min()`/`max()`, and

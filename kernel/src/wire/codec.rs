@@ -711,7 +711,7 @@ mod tests {
         // schema. The literal makes an accidental removal of that coupling a
         // test failure whenever the byte snapshot above is intentionally moved.
         // Recomputed when the schema changes; the digest test prints the value.
-        assert_eq!(SCHEMA_DIGEST, 0x812d_805f_2fc6_b0c8);
+        assert_eq!(SCHEMA_DIGEST, 0x1475_11c5_ed63_ffcb);
     }
 
     #[test]
@@ -837,6 +837,23 @@ mod tests {
             deep.extend_from_slice(&[0, 0, 0, 0]);
         }
         assert_eq!(refused(&deep), Err(DecodeError::InvalidComparison));
+        // A wide tree: 64 min()s of 64 points each. Refused at the 65th node
+        // read, long before the 4,161 the tree holds.
+        let mut wide = vec![24, 0, 0, 0, 0, 3, 64];
+        for _ in 0..64 {
+            wide.extend_from_slice(&[3, 64]);
+            for _ in 0..64 {
+                wide.extend_from_slice(&[0, 0, 0, 0, 0]);
+            }
+            wide.extend_from_slice(&[0, 0, 0, 0]);
+        }
+        wide.extend_from_slice(&[0, 0, 0, 0]);
+        let mut r = Reader::new(&wide);
+        assert_eq!(
+            r.dimension(StyleId::Width, true),
+            Err(DecodeError::InvalidComparison)
+        );
+        assert!(r.position() < 7 + 2 + 64 * 5, "read {} bytes", r.position());
     }
 
     #[test]
