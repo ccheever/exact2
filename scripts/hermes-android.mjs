@@ -16,7 +16,7 @@
 //   bun scripts/hermes-android.mjs path               the installed bundle, or nothing
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, renameSync, rmSync, symlinkSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, renameSync, rmSync, symlinkSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { resolve } from 'node:path';
 
@@ -76,7 +76,13 @@ function install(archive, work) {
 function installArchive(archive) {
   mkdirSync(HERMES_ANDROID_CACHE, { recursive: true });
   const work = mkdtempSync(resolve(HERMES_ANDROID_CACHE, '.install-'));
-  try { console.log(install(resolve(archive), work)); } finally { rmSync(work, { recursive: true, force: true }); }
+  try {
+    // Hash and unpack one private copy, never the caller's path twice: a file
+    // replaced between the two reads would publish its bytes under the other's digest.
+    const snapshot = resolve(work, 'archive.tar.gz');
+    copyFileSync(resolve(archive), snapshot);
+    console.log(install(snapshot, work));
+  } finally { rmSync(work, { recursive: true, force: true }); }
 }
 
 if (import.meta.main) {
