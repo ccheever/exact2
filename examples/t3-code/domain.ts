@@ -19,6 +19,8 @@ export interface Message { id: string; kind: string; title: string; body: string
   icon?: string; tone?: string; failed?: boolean; live?: boolean; startedMs?: number; detail?: string; status?: string; groupId?: string; continues?: boolean;
   revert?: number; intent?: string; intentTip?: string; attribution?: string; targetId?: string; actionLabel?: string; copied?: number; copyFailed?: boolean;
   meta?: boolean; streaming?: boolean; actionsId?: string; collapsible?: boolean;
+  /** A row only this client shows (a `/feedback` exchange, composer-feedback.ts): never forked. */
+  local?: boolean;
   code?: { id: string; code: string; icon: string; tokens: { id: string; text: string; cls: string }[] }[];
   diagrams?: import('./timeline-mermaid').MermaidDiagramView[];
   setup?: import('./timeline-worktree').SetupView[];
