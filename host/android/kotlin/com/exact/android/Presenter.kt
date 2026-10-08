@@ -16,6 +16,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.view.MotionEvent
 import android.view.inputmethod.InputMethodManager
+import android.view.accessibility.AccessibilityManager
 import android.view.accessibility.AccessibilityNodeInfo
 import android.view.accessibility.AccessibilityNodeProvider
 import android.widget.EditText
@@ -41,6 +42,7 @@ internal class Presenter(
 ) {
     private val scale = context.resources.displayMetrics.density
     private val images = NativeImages(context)
+    private val accessibility = context.getSystemService(AccessibilityManager::class.java)
     val root = Box(context)
         .apply { isFocusableInTouchMode = true }
     private val nodes = SparseArray<Node>()
@@ -1064,6 +1066,10 @@ internal class Presenter(
             info.className = accessibilityClass
             if (accessibilityText.isNotEmpty()) info.text = accessibilityText
         }
+        override fun bringChildToFront(child: View) {
+            super.bringChildToFront(child)
+            paintOrderChanged()
+        }
         override fun onViewAdded(child: View) { super.onViewAdded(child); paintOrderChanged() }
         override fun onViewRemoved(child: View) { super.onViewRemoved(child); frames.remove(child); paintOrderChanged() }
     }
@@ -1150,6 +1156,16 @@ internal class Presenter(
         if (parent.childCount > 0) {
             val retained = HashSet(ordered)
             for (i in parent.childCount - 1 downTo 0) if (parent.getChildAt(i) !in retained) parent.removeViewAt(i)
+        }
+        // Keep SDK accessibility publication unchanged while a service owns it.
+        if (parent.childCount > 1 && accessibility?.isEnabled != true) {
+            // Order retained carriers before descending or inserting new children.
+            val retainedOrder = ordered.filter { it.parent === parent }
+            var prefix = 0
+            for (index in 0 until parent.childCount) {
+                if (prefix < retainedOrder.size && parent.getChildAt(index) === retainedOrder[prefix]) prefix++
+            }
+            for (index in prefix until retainedOrder.size) parent.bringChildToFront(retainedOrder[index])
         }
         for ((index, child) in ordered.withIndex()) {
             if (parent.getChildAt(index) !== child) {
