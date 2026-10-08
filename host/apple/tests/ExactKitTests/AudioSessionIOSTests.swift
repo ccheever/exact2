@@ -8,7 +8,8 @@ import XCTest
 /// ambient on re-mute so other apps' audio resumes.
 final class AudioSessionIOSTests: XCTestCase {
     private var saved = AudioSession.category
-    override func tearDown() { AudioSession.category = saved }
+    override func setUp() { AudioSession.reset() }
+    override func tearDown() { AudioSession.reset(); AudioSession.category = saved }
 
     func testAPlaybackAppHoldsPlaybackWhileSomethingHasSoundAndThenGoesAmbient() throws {
         AudioSession.category = .playback
@@ -42,6 +43,23 @@ final class AudioSessionIOSTests: XCTestCase {
         XCTAssertEqual(AVAudioSession.sharedInstance().category, .ambient)
         AudioSession.playerWent(ObjectIdentifier(player))
         AudioSession.playerWent(ObjectIdentifier(player)) // a second leave is nothing
+        XCTAssertEqual(AVAudioSession.sharedInstance().category, .ambient)
+    }
+
+    /// A hold whose activation fails (during a call) still wants the
+    /// session: the next activation takes playback, and its release yields.
+    func testAFailedActivationStillHoldsAndIsActivatedAgain() throws {
+        AudioSession.category = .playback
+        final class Holder {}
+        let a = Holder(), b = Holder()
+        struct Busy: Error {}
+        AudioSession.nextHoldFailure = Busy()
+        XCTAssertThrowsError(try AudioSession.hold(ObjectIdentifier(a)))
+        try AudioSession.hold(ObjectIdentifier(b))
+        XCTAssertEqual(AVAudioSession.sharedInstance().category, .playback, "activated on the next try")
+        AudioSession.release(ObjectIdentifier(b))
+        XCTAssertEqual(AVAudioSession.sharedInstance().category, .playback, "the failed one still wants it")
+        AudioSession.release(ObjectIdentifier(a))
         XCTAssertEqual(AVAudioSession.sharedInstance().category, .ambient)
     }
 

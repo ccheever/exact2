@@ -1156,6 +1156,10 @@ the player) or gone. With no holder left the category returns to `.ambient`,
 which mixes with other apps' audio, as Bluesky's player does on re-mute.
 Deactivating would stop a running player, muted or not, so the session is
 given up with `notifyOthersOnDeactivation` (a paused podcast resumes) only
-once no player is left. A failed hold leaves nothing held, so it is retried.
+once no player is left; a departing player is stopped (and its media-session
+claim gone) before the category moves. A want whose activation fails (during
+a call) stays, and is activated when the interruption ends. Known: a mute
+from AVKit's own full-screen chrome changes the player, not the `muted` prop,
+so the hold follows the prop.
 Reviewed by Astra and Grok (`llp/reviews/code-2026-10-08-audio-release*`).
 Test: `AudioSessionIOSTests`.

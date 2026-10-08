@@ -12,15 +12,20 @@ package enum AudioSession {
     /// (the ring/silent switch then no longer mutes it). Settable for tests.
     nonisolated(unsafe) static var category: AVAudioSession.Category =
         Bundle.main.object(forInfoDictionaryKey: "ExactAudioSession") as? String == "playback" ? .playback : .ambient
-    /// What holds the app's category now: the sound arm and a canvas's audio
-    /// for as long as they run, and each video while it has sound.
+    /// What wants the app's category now: the sound arm and a canvas's audio
+    /// for as long as they run, and each video while it has sound. A want
+    /// whose activation failed (during a call) stays, and is activated again
+    /// when the interruption ends.
     nonisolated(unsafe) private static var holders: Set<ObjectIdentifier> = []
     /// Every live media player, muted or not: deactivating the session would
     /// stop a running one, so the session is only given up when none is left.
     nonisolated(unsafe) private static var players: Set<ObjectIdentifier> = []
+    nonisolated(unsafe) private static var observing = false
     /// The sound arm's and a canvas's hold, which they never give back.
     private final class Forever {}
     private static let forever = Forever()
+    /// For tests: the next activation fails with this, as it can during a call.
+    nonisolated(unsafe) static var nextHoldFailure: Error?
 
     /// Set the app's category and activate the session, for good (the sound
     /// arm, a canvas's audio).
@@ -29,21 +34,15 @@ package enum AudioSession {
     }
 
     /// `holder` plays sound: the session takes the app's category and is
-    /// active while anything holds it.
-    /// A failure leaves `holder` not holding, so a later attempt can retry.
+    /// active while anything wants it. A failure to activate throws, and the
+    /// want stays for the interruption's end to activate.
     package static func hold(_ holder: ObjectIdentifier) throws {
-        let session = AVAudioSession.sharedInstance()
-        do {
-            if session.category != category { try session.setCategory(category) }
-            try session.setActive(true)
-        } catch {
-            if holders.isEmpty, category != .ambient { try? session.setCategory(.ambient) }
-            throw error
-        }
         holders.insert(holder)
+        observeInterruptions()
+        try reconcile()
     }
 
-    /// `holder` no longer plays sound. With nothing left holding it, a
+    /// `holder` no longer plays sound. With nothing left wanting it, a
     /// `playback` app goes back to `.ambient`, which mixes with other apps'
     /// audio, as Bluesky's player does on re-mute. A muted player keeps
     /// running, so the session itself is given up (telling other apps they
@@ -63,9 +62,35 @@ package enum AudioSession {
         giveUpIfIdle()
     }
 
+    /// For tests: nothing held, no player, the category back to ambient.
+    static func reset() {
+        holders.removeAll()
+        players.removeAll()
+        nextHoldFailure = nil
+        try? AVAudioSession.sharedInstance().setCategory(.ambient)
+    }
+
+    private static func reconcile() throws {
+        guard !holders.isEmpty else { return }
+        if let failure = nextHoldFailure { nextHoldFailure = nil; throw failure }
+        let session = AVAudioSession.sharedInstance()
+        if session.category != category { try session.setCategory(category) }
+        try session.setActive(true)
+    }
+
     private static func giveUpIfIdle() {
         guard holders.isEmpty, players.isEmpty, category != .ambient else { return }
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+    }
+
+    private static func observeInterruptions() {
+        guard !observing else { return }
+        observing = true
+        NotificationCenter.default.addObserver(forName: AVAudioSession.interruptionNotification, object: nil, queue: .main) { note in
+            guard let raw = note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
+                  AVAudioSession.InterruptionType(rawValue: raw) == .ended else { return }
+            try? reconcile()
+        }
     }
 }
 #endif

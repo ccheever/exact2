@@ -138,7 +138,10 @@ final class VideoView {
     private func holdSession(_ audible: Bool) {
         guard audible != holdsSession else { return }
         if audible {
-            do { try AudioSession.hold(ObjectIdentifier(self)); holdsSession = true } catch { fputs("exact audio session: \(error)\n", stderr) }
+            // Held even when activation fails: the session activates it when
+            // the interruption ends, and a mute still releases it.
+            holdsSession = true
+            do { try AudioSession.hold(ObjectIdentifier(self)) } catch { fputs("exact audio session: \(error)\n", stderr) }
         } else {
             holdsSession = false
             AudioSession.release(ObjectIdentifier(self))
@@ -166,16 +169,20 @@ final class VideoView {
     }
     deinit { invalidate() }
     func invalidate() {
-        #if os(iOS) || os(tvOS)
-        holdSession(false)
-        #endif
         owner?.presenter?.videoVisibility?.remove(self)
-        guard let handle else { return }
+        guard let handle else {
+            #if os(iOS) || os(tvOS)
+            holdSession(false)
+            #endif
+            return
+        }
         self.handle = nil
         VideoModule.shared?.destroy(handle)
         platformView?.removeFromSuperview()
         platformView = nil
+        // The player is stopped and its claim gone before the category moves.
         #if os(iOS) || os(tvOS)
+        holdSession(false)
         AudioSession.playerWent(ObjectIdentifier(self))
         #endif
     }
@@ -257,13 +264,15 @@ final class VideoView {
         var listeners = owner.handlers.intersection(Self.events)
         if autoplayRule { listeners.formUnion(["pause", "play"]) }
         if !listeners.isEmpty { props["exactListeners"] = listeners.sorted().joined(separator: " ") }
-        guard props != last else { return }
-        last = props
         // A video with sound, or a media-session claimant (Now Playing needs
         // a non-mixable category), holds the app's session; muted (applied to
         // the player first) or gone, it gives it back (LLP 1096 D8).
         #if os(iOS) || os(tvOS)
         let audible = !ExactEnv.agentMode && (props["mediaTitle"] != nil || (props["muted"] != "true" && props["src"]?.isEmpty == false))
+        #endif
+        guard props != last else { return }
+        last = props
+        #if os(iOS) || os(tvOS)
         if audible { holdSession(true) }
         #endif
         guard let data = try? JSONSerialization.data(withJSONObject: props) else { return }
