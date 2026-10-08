@@ -81,7 +81,12 @@ export interface Status {
 export interface Device { call(request: Request): Promise<Request>; close?(): Promise<boolean | void>; healthy?(): boolean }
 
 /** Exact's native module, when the app links `exact_snapback4::Module`. */
-export interface NativeModule { call(request: Request): unknown }
+export interface NativeModule {
+  call(request: Request): unknown;
+  /** False at bake (and on a host that configured no module): the device's
+   * fact, not the build's. */
+  readonly available?: boolean;
+}
 
 export interface Options {
   /** The app's id: the web partition's identity (natively, the baked one). */
@@ -170,6 +175,12 @@ function refusal(code: string, message: string, extra: Partial<Refusal> = {}): E
 }
 
 async function openPartition(options: Options, path: string, page: Page): Promise<Partition> {
+  // At bake there is no module (and no storage): refused as storage is then,
+  // `kind: 'Unavailable'`, `code: 'bake'`, so the bake leaves the answer to
+  // the device and an app needs one check for it on every executor.
+  if (options.native && options.native.available === false) {
+    throw Object.assign(new Error('Snapback4: the native module is not available: at bake the device answers when the app runs; at run time, link exact_snapback4::Module (README)'), { kind: 'Unavailable', code: 'bake' });
+  }
   await page.closing.get(path)?.catch(() => undefined);
   const device = options.native
     ? nativeDevice(options.native)

@@ -215,7 +215,9 @@ const sources: Sources = {
       latest: notes.length ? `${notes[0].author}: ${notes[0].body}` : '',
       sending: notes.filter(note => note.pending).length, notes };
   }).catch(error => {
-    // At build (bake) time there is no storage; the app asks again when it runs.
+    // At build (bake) time there is no storage and no native module: the
+    // client refuses with code 'bake' on every executor; the app asks again
+    // when it runs.
     if ((error as { code?: string }).code === 'bake') return { online: false, message: 'Connecting…', latest: '', sending: 0, notes: [] };
     throw error;                                        // the view shows it through failure(board)
   }),

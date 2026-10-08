@@ -710,3 +710,14 @@ test('the README\'s persona switch waits for the other persona\'s write in fligh
   } finally { globalThis.fetch = realFetch; }
   await using('bob', page, native, db => db.close());
 }, 60_000);
+
+test('at bake (a native module that is not available) open refuses with code bake and calls nothing', async () => {
+  const calls: unknown[] = [];
+  const native = { available: false, call: (request: unknown) => { calls.push(request); throw new Error('native storage is unavailable during bake or in an unconfigured host'); } };
+  const refused = await Snapback.open({ app: 'test.exact.snapback4', name: 'baked', origin, viewer: 'dev:bake',
+    storage: storage(join(scratch, 'bake')), native, wasm: `file://${wasm}` }).catch(error => error);
+  expect(refused).toBeInstanceOf(Error);
+  expect((refused as { code?: string; kind?: string }).code).toBe('bake');
+  expect((refused as { code?: string; kind?: string }).kind).toBe('Unavailable');
+  expect(calls).toEqual([]);
+}, 60_000);
