@@ -11,7 +11,8 @@ import android.graphics.Path
 internal class NativeBorders {
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val ring = Path()
-    private val sides = Array(4) { Path() }
+    private var sides: Array<Path>? = null
+    private var partitionsDirty = true
     private val inner = FloatArray(8)
     private var dirty = true
     private var occupied = false
@@ -28,16 +29,19 @@ internal class NativeBorders {
         if ((0..3).all { widths[it] <= 0f || colors[it] == colors[first] }) {
             paint.color = colors[first]
             canvas.drawPath(ring, paint)
-        } else for (side in 0..3) {
-            if (widths[side] <= 0f) continue
-            paint.color = colors[side]
-            canvas.drawPath(sides[side], paint)
+        } else {
+            val partitions = partitions(width, height, widths)
+            for (side in 0..3) {
+                if (widths[side] <= 0f) continue
+                paint.color = colors[side]
+                canvas.drawPath(partitions[side], paint)
+            }
         }
     }
 
     private fun rebuild(width: Float, height: Float, widths: FloatArray, radii: FloatArray) {
         ring.reset()
-        for (path in sides) path.reset()
+        partitionsDirty = true
         occupied = width > 0f && height > 0f && widths.any { it > 0f }
         if (!occupied) return
         val top = widths[0].coerceIn(0f, height)
@@ -61,11 +65,23 @@ internal class NativeBorders {
             inner[7] = (radii[7] - bottom).coerceAtLeast(0f)
             ring.addRoundRect(x1, y1, x2, y2, inner, Path.Direction.CW)
         }
-        polygon(sides[0], floatArrayOf(0f, 0f, width, 0f, x2, y1, x1, y1))
-        polygon(sides[1], floatArrayOf(width, 0f, width, height, x2, y2, x2, y1))
-        polygon(sides[2], floatArrayOf(width, height, 0f, height, x1, y2, x2, y2))
-        polygon(sides[3], floatArrayOf(0f, height, 0f, 0f, x1, y1, x1, y2))
-        for (path in sides) path.op(ring, Path.Op.INTERSECT)
+    }
+
+    private fun partitions(width: Float, height: Float, widths: FloatArray): Array<Path> {
+        val paths = sides ?: Array(4) { Path() }.also { sides = it }
+        if (!partitionsDirty) return paths
+        for (path in paths) path.reset()
+        val x1 = widths[3].coerceIn(0f, width)
+        val y1 = widths[0].coerceIn(0f, height)
+        val x2 = (width - widths[1].coerceIn(0f, width)).coerceAtLeast(x1)
+        val y2 = (height - widths[2].coerceIn(0f, height)).coerceAtLeast(y1)
+        polygon(paths[0], floatArrayOf(0f, 0f, width, 0f, x2, y1, x1, y1))
+        polygon(paths[1], floatArrayOf(width, 0f, width, height, x2, y2, x2, y1))
+        polygon(paths[2], floatArrayOf(width, height, 0f, height, x1, y2, x2, y2))
+        polygon(paths[3], floatArrayOf(0f, height, 0f, 0f, x1, y1, x1, y2))
+        for (path in paths) path.op(ring, Path.Op.INTERSECT)
+        partitionsDirty = false
+        return paths
     }
 
     private fun polygon(path: Path, points: FloatArray) {
