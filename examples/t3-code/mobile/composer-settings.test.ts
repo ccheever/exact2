@@ -148,3 +148,47 @@ describe('new task shared selections and submissions', () => {
     expect((await task(f, 'send')).message).toContain('current submission');
   });
 });
+
+
+describe('configured models absent from the catalog', () => {
+  test('authenticated current fallback can cancel a pending pick and close without a write', async () => {
+    const f = fixture(); f.client.modelId = 'configured'; f.client.modelOptions = [{ id: 'effort', value: 'high' }];
+    const fallback = () => mobileComposerSettings('', '', false, f.client).models.find(row => row.key === 'provider:configured');
+    expect(fallback()).toMatchObject({ selected: true, disabled: false, label: 'configured', reason: '' });
+    await settings(f, 'open'); await settings(f, 'pick', 'provider', 'b');
+    expect(mobileComposerSettings('', '', false, f.client).pending).toBe(true);
+    expect((await settings(f, 'pick', 'provider', 'configured')).message).toBe('');
+    expect(mobileComposerSettings('', '', false, f.client).pending).toBe(false);
+    expect(await settings(f, 'save')).toMatchObject({ closed: true, message: '' });
+    expect(f.client.modelId).toBe('configured'); expect(f.client.modelOptions).toEqual([{ id: 'effort', value: 'high' }]);
+    await settings(f, 'open'); await settings(f, 'pick', 'provider', 'b');
+    expect(await settings(f, 'cancel')).toMatchObject({ closed: true, message: '' });
+    expect(f.client.modelId).toBe('configured');
+    expect(f.calls.some(call => call.method === 'orchestration.dispatchCommand')).toBe(false);
+  });
+  test('fallback display never bypasses provider readiness or write permissions', async () => {
+    for (const condition of ['missing', 'signed-out', 'disabled', 'uninstalled', 'not-ready', 'read-only', 'pending']) {
+      const f = fixture(); f.client.modelId = 'configured';
+      const provider = obj((f.client.config.providers as Obj[])[0]);
+      if (condition === 'missing') f.client.config.providers = [];
+      if (condition === 'signed-out') provider.auth = { status: 'unauthenticated' };
+      if (condition === 'disabled') provider.enabled = false;
+      if (condition === 'uninstalled') provider.installed = false;
+      if (condition === 'not-ready') provider.status = 'error';
+      if (condition === 'read-only') f.client.scopes = [];
+      if (condition === 'pending') f.client.busy = true;
+      await settings(f, 'open');
+      expect(mobileComposerSettings('', '', false, f.client).models.find(row => row.key === 'provider:configured')?.disabled).toBe(true);
+      expect((await settings(f, 'pick', 'provider', 'configured')).message).not.toBe('');
+      expect(f.client.modelId).toBe('configured'); expect(f.calls).toHaveLength(0);
+    }
+  });
+  test('Antigravity unavailable fallback remains visible but cannot be picked', async () => {
+    const f = fixture(); f.client.modelId = 'configured';
+    obj((f.client.config.providers as Obj[])[0]).driver = 'antigravity';
+    await settings(f, 'open');
+    expect(mobileComposerSettings('', '', false, f.client).models.find(row => row.key === 'provider:configured')).toMatchObject({ selected: true, disabled: true });
+    expect((await settings(f, 'pick', 'provider', 'configured')).message).toContain('another model');
+    expect(await settings(f, 'cancel')).toMatchObject({ closed: true }); expect(f.client.modelId).toBe('configured');
+  });
+});
