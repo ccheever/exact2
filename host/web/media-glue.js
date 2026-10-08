@@ -7,6 +7,7 @@ const numbers = { volume: [0, 1, 1], playbackRate: [0.25, 4, 1], currentTime: [0
 // MediaError's four (HTML), `not-allowed` for a play the browser refused and
 // `invalid-value` for a number out of range. Apple's VideoArm.swift says the same.
 const errorCodes = [null, 'aborted', 'network', 'decode', 'src-not-supported'];
+const facts = new Set(['loadedmetadata', 'durationchange', 'canplay', 'ended', 'error']); // what an element reports once
 const mediaEvents = new Set(['loadedmetadata','durationchange','timeupdate','play','playing','pause','ended','waiting','seeking','seeked','ratechange','volumechange','error','canplay','fullscreenchange']);
 function syncPlayback(el) {
   const state = states.get(el), props = el.exactMedia.props;
@@ -86,6 +87,7 @@ function run(el, name, seconds) {
     return;
   }
   el.load();
+  state.load++;
   state.seek = props.currentTime == null ? null : Number(props.currentTime);
   state.paused = undefined;
   syncPlayback(el);
@@ -98,31 +100,41 @@ globalThis.exact.installMedia = (el, send, later = () => null) => {
   // A retired element delivers nothing: a late report from a player the tree
   // removed would reach whatever now holds its place (jukebox F6, F20). A
   // report the host cannot take yet is dropped, as a stale one could undo
-  // what came after it; what never comes again, the metadata and duration,
-  // is reported once it can, as the element has them then (Video Player's
-  // duration was 0 for the session under load). A source the host has set
-  // and the glue not yet applied reports its own.
-  const dropped = new Set();
+  // what came after it; of the ones that never come again (Video Player's
+  // duration was 0 for the session under load), those dropped are reported
+  // once it can, read from the element then. Not if a new load began
+  // meanwhile, or the host has asked for one (a source or a `load` it wrote,
+  // which the glue applies later): that load reports its own.
+  let dropped = null;
+  const current = at => !state.retired && el.isConnected && state.load === at.load && el.exactMedia.props.src === at.src
+    && !(el.exactMedia.commands ?? []).some(([c]) => c === 'load');
   const emit = (name, payload = '') => {
     if (state.retired || !el.isConnected || !el.exactMedia.handlers.includes(name)) return;
     const waiting = later();
     if (!waiting) { send(`${name}\n${payload}`); return; }
-    if (name !== 'loadedmetadata' && name !== 'durationchange') return;
-    if (!dropped.size) waiting.then(() => {
-      const facts = new Set(dropped); dropped.clear();
-      if (state.retired || el.exactMedia.props.src !== state.applied.src) return;
-      if (facts.has('loadedmetadata') && el.readyState) emit('loadedmetadata');
-      if (facts.has('durationchange') && Number.isFinite(el.duration)) emit('durationchange', String(el.duration));
+    if (!facts.has(name)) return;
+    if (dropped) { dropped.names.add(name); return; }
+    const at = dropped = { load: state.load, src: el.exactMedia.props.src, names: new Set([name]) };
+    waiting.then(() => {
+      if (dropped !== at) return;
+      dropped = null;
+      if (later()) return; // the host never became ready (a failed activation)
+      // Each checked again: a report's handler may write a new source or a load.
+      const report = (name, payload = '') => { if (at.names.has(name) && current(at)) send(`${name}\n${payload}`); };
+      if (el.readyState) report('loadedmetadata');
+      if (Number.isFinite(el.duration)) report('durationchange', String(el.duration));
+      if (el.readyState >= 3) report('canplay');
+      if (el.ended) report('ended');
+      if (el.error) report('error', errorCodes[el.error.code] ?? 'src-not-supported');
     });
-    dropped.add(name);
   };
-  const state = { applied: {}, seek: null, threshold: null, visibilityBlocked: false, retired: false, latched: false, offsets: { seekbackwardOffset: 10, seekforwardOffset: 10 }, emit, error(code, message) { if (!state.retired) console.warn(`exact: ${el.localName} ${code}: ${message}`); emit('error', code); } };
+  const state = { load: 0, applied: {}, seek: null, threshold: null, visibilityBlocked: false, retired: false, latched: false, offsets: { seekbackwardOffset: 10, seekforwardOffset: 10 }, emit, error(code, message) { if (!state.retired) console.warn(`exact: ${el.localName} ${code}: ${message}`); emit('error', code); } };
   states.set(el, state);
   // What the glue reported for itself on attaching (below): HTML sets
   // `readyState` before its queued event fires, so the event may still come;
   // it is not reported twice. A new load (`emptied`) forgets them.
   const early = new Set();
-  el.addEventListener('emptied', () => early.clear());
+  el.addEventListener('emptied', () => { early.clear(); state.load++; });
   for (const name of mediaEvents) el.addEventListener(name, () => {
     if (name === 'loadedmetadata' && state.seek !== null) { el.currentTime = state.seek; state.seek = null; }
     if (early.delete(name)) return;

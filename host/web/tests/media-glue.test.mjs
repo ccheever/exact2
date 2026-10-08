@@ -109,39 +109,62 @@ function waiting(props, handlers = ['durationchange', 'timeupdate', 'loadedmetad
   let open, ready = false;
   const when = new Promise(r => { open = r; });
   const el = audio(props, { readyState: 0, handlers, later: () => ready ? null : when });
-  el.open = async () => { ready = true; open(); await when; };
+  el.open = async (activated = true) => { ready = activated; open(); await when; await null; };
   return el;
 }
 
 test('what never comes again is reported once the host can take it, as the element has it then', async () => {
-  const el = waiting({ src: 'a.mp4' }, ['durationchange', 'timeupdate', 'loadedmetadata', 'play']);
+  const el = waiting({ src: 'a.mp4' }, ['durationchange', 'timeupdate', 'loadedmetadata', 'play', 'canplay', 'error']);
   el.readyState = 1; el.fire('loadedmetadata');
   el.duration = 10; el.fire('durationchange'); el.fire('timeupdate'); el.fire('play');
   el.duration = 12; el.fire('durationchange');
+  el.readyState = 4; el.fire('canplay');
   expect(el.sent).toEqual([]);
   await el.open();
-  // Once each, the duration as it is now; a time and a play are not resent
-  // (they come again, and a stale one could undo a later press or seek).
-  expect(el.sent).toEqual(['loadedmetadata\n', 'durationchange\n12']);
+  // Once each, as it is now; a time and a play are not resent (they come
+  // again, and a stale one could undo a later press or seek).
+  expect(el.sent).toEqual(['loadedmetadata\n', 'durationchange\n12', 'canplay\n']);
   el.fire('timeupdate');
   expect(el.sent.at(-1)).toEqual('timeupdate\n0');
+
+  const failed = waiting({ src: 'a.mp4' }, ['error']);
+  failed.error = { code: 4 }; failed.fire('error');
+  await failed.open();
+  expect(failed.sent).toEqual(['error\nsrc-not-supported']);
 });
 
-test('nothing is reported for an element retired, or a source the host replaced, before it could be', async () => {
+test('nothing is reported for an element retired, or replaced by a load, before the host could take it', async () => {
   const removed = waiting({ src: 'a.mp4' });
   removed.duration = 10; removed.fire('durationchange'); globalThis.exact.removeMedia(removed);
   await removed.open();
   expect(removed.sent).toEqual([]);
 
-  // The host's write lands in `props` before the glue applies it: the new
-  // source reports its own duration when it has one.
+  // The host's write lands in `props` before the glue applies it (an `app:/`
+  // source resolves later still): the new source reports its own.
   const replaced = waiting({ src: 'a.mp4' });
-  replaced.duration = 10; replaced.fire('durationchange'); replaced.exactMedia.props.src = 'b.mp4';
+  replaced.duration = 10; replaced.fire('durationchange');
+  replaced.exactMedia.props.src = 'app:/data/b.mp4'; globalThis.exact.installMedia(replaced);
   await replaced.open();
   expect(replaced.sent).toEqual([]);
 
-  const unknown = waiting({ src: 'a.mp4' });
-  unknown.fire('durationchange');
-  await unknown.open();
-  expect(unknown.sent).toEqual([]);
+  // A's facts, then A empties and B has its metadata before its events come.
+  const emptied = waiting({ src: 'a.mp4' });
+  emptied.duration = 10; emptied.fire('durationchange'); emptied.fire('emptied'); emptied.duration = 20;
+  await emptied.open();
+  expect(emptied.sent).toEqual([]);
+
+  // A report's own handler asks for a load: what follows it is not sent.
+  const loading = waiting({ src: 'a.mp4' });
+  loading.readyState = 1; loading.fire('loadedmetadata'); loading.duration = 10; loading.fire('durationchange');
+  loading.reply = text => { if (text.startsWith('loadedmetadata')) (loading.exactMedia.commands ??= []).push(['load']); };
+  await loading.open();
+  expect(loading.sent).toEqual(['loadedmetadata\n']);
+});
+
+test('a host that never becomes ready is not waited on again', async () => {
+  const el = waiting({ src: 'a.mp4' });
+  el.duration = 10; el.fire('durationchange');
+  await el.open(false); // the promise settles, the data executor never came
+  for (let i = 0; i < 5; i++) await null;
+  expect(el.sent).toEqual([]);
 });
