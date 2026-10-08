@@ -205,3 +205,37 @@ final class AppControlLifecycleTests: XCTestCase {
         try? FileManager.default.removeItem(atPath: root)
     }
 }
+
+/// DesktopWindow.activate's window (fix-misc-batch, #298 bug 7): with the window minimized, `t3 app` timed out and
+/// the window stayed in the Dock, because the choice filtered on `canBecomeMain`, which AppKit answers false for a
+/// window that is not visible.
+final class AppControlActivationTargetTests: XCTestCase {
+    private final class Stand: T3ActivationWindow {
+        let name: String, isVisible: Bool, isMiniaturized: Bool, isActivationDocument: Bool
+        init(_ name: String, visible: Bool = false, minimized: Bool = false, document: Bool = true) {
+            self.name = name; isVisible = visible; isMiniaturized = minimized; isActivationDocument = document
+        }
+    }
+
+    func test_aMinimizedWindowIsTheOneRestored() {
+        let panel = Stand("snapshot flash", visible: true, document: false), docked = Stand("T3 Code", minimized: true)
+        XCTAssertTrue(T3AppControl.activationTarget(main: nil, windows: [panel, docked]) === docked, "the Dock's window, not a visible panel")
+        let shown = Stand("second", visible: true)
+        XCTAssertTrue(T3AppControl.activationTarget(main: nil, windows: [docked, shown]) === shown, "a window on screen comes first")
+        XCTAssertTrue(T3AppControl.activationTarget(main: docked, windows: [shown]) === docked, "the main window when there is one")
+        XCTAssertNil(T3AppControl.activationTarget(main: nil, windows: [panel, Stand("closed")]))
+    }
+
+    func test_whatAppKitSaysOfAWindowItHidesOrPanels() {
+        _ = NSApplication.shared
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 100), styleMask: [.titled, .closable, .miniaturizable], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        // Not on screen: AppKit will not let it become main, which is why the old filter never found a minimized window.
+        XCTAssertFalse(window.isVisible)
+        XCTAssertFalse(window.canBecomeMain)
+        XCTAssertTrue(window.isActivationDocument)
+        let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 20, height: 20), styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+        XCTAssertFalse(panel.isActivationDocument)
+        XCTAssertTrue(T3AppControl.activationTarget(main: nil, windows: [panel, window]) == nil, "neither is on screen or in the Dock")
+    }
+}

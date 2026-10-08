@@ -167,3 +167,20 @@ describe('keyboard', () => {
     expect(keyboardDispatch(c, [], 'codex', '', { ...context, modelPickerOpen: false, modelTarget: 'default-model:|||' }).some(item => item.command.startsWith('modelPicker'))).toBe(false);
   });
 });
+
+// fix-misc-batch (#298 bug 8), read from the Contract source as dialog-focus.test.ts reads its dialogs: what
+// the real-input batch found missing on screen. The macOS drive in tasks/20261008-fix-misc-batch.md shows it;
+// this guards the wiring.
+describe('the picker\'s empty state (model-picker.contract)', () => {
+  const lines = async () => (await Bun.file(new URL('model-picker.contract', import.meta.url)).text()).split('\n');
+  const indent = (line: string) => line.length - line.trimStart().length;
+  test('"No models found" is the list\'s sibling, not inside the scroll that has no height when nothing matches', async () => {
+    const source = await lines();
+    const list = source.findIndex(line => line.includes('testId="model-list"'));
+    const empty = source.findIndex(line => line.includes('"No models found"') && line.includes('testId="model-empty"'));
+    expect(source[list]).toContain('scroll flex=(count > 0 ? 1 : 0)');
+    // The `when` that holds it sits at the scroll's own depth (ComboboxEmpty after ComboboxListVirtualized).
+    expect(source[empty - 1]!.trim()).toBe('when count == 0 and setupCount == 0');
+    expect(indent(source[empty - 1]!)).toBe(indent(source[list]!));
+  });
+});
