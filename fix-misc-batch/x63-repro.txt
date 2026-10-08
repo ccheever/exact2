@@ -1,0 +1,34 @@
+# X63 repro: Exact's plain textarea and Edit > Undo (host TextAreaMac.swift, identical on main fa965d3e2)
+Built with every host/apple/Sources/ExactKit file and the app's Rust core, as the README's timeline-keyboard recipe:
+xcrun swiftc -swift-version 5 -module-name ExactKit -package-name ExactKit -I host/apple/Sources/CExact $(rg --files host/apple/Sources/ExactKit -g '*.swift') main.swift -L target/aarch64-apple-darwin/host-dev -lt3_code_macos -lc++ -o x62
+
+## main.swift
+// X62 repro (not committed): Exact's plain textarea (TextArea, host TextAreaMac.swift) and Edit › Undo.
+import AppKit
+_ = NSApplication.shared
+let presenter = Presenter()
+let node = NodeView(id: 3, kind: "textarea", presenter: presenter)
+node.frame = NSRect(x: 0, y: 0, width: 400, height: 200)
+node.makeTextArea()
+node.props["value"] = ""
+node.handlers = ["input"]
+node.applyTextArea()
+node.layoutTextArea()
+let window = NSWindow(contentRect: node.frame, styleMask: [.titled], backing: .buffered, defer: false)
+window.isReleasedWhenClosed = false
+window.contentView = node
+let f = node.textArea as! TextArea
+window.makeFirstResponder(f)
+f.insertText("typed", replacementRange: NSRange(location: NSNotFound, length: 0))
+print("typed: [\(f.string)] own history canUndo=\(f.undoManager?.canUndo == true) window history canUndo=\(window.undoManager?.canUndo == true)")
+// Edit › Undo (DevMenuMac.swift: action undo:, target nil) reaches the first responder's chain.
+let handled = f.tryToPerform(Selector(("undo:")), with: nil)
+print("undo: through the responder chain handled=\(handled) text=[\(f.string)]")
+// ⌘Z as a key equivalent: TextArea routes it only for a markup editor.
+let z = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: .command, timestamp: 0, windowNumber: window.windowNumber, context: nil, characters: "z", charactersIgnoringModifiers: "z", isARepeat: false, keyCode: 6)!
+print("TextArea.performKeyEquivalent(⌘Z)=\(f.performKeyEquivalent(with: z)) text=[\(f.string)]")
+
+## output
+typed: [typed] own history canUndo=true window history canUndo=false
+undo: through the responder chain handled=true text=[typed]
+TextArea.performKeyEquivalent(⌘Z)=false text=[typed]
