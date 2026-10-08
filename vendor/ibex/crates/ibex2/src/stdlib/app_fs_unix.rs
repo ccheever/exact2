@@ -252,15 +252,25 @@ impl AppDirectories {
         path: &str,
         cap: u64,
     ) -> Result<Vec<u8>, HostError> {
+        let mut bytes = Vec::new();
+        self.open_file(grants, path)?
+            .take(cap)
+            .read_to_end(&mut bytes)
+            .map_err(error)?;
+        Ok(bytes)
+    }
+    /// Exact patch 10: a regular file opened for reading through the
+    /// directory handles, under `fs.read`, as [`Self::read_capped`] opens it,
+    /// for an embedder that reads it in its own steps (exact2's
+    /// `exactBodyFrom` stops between chunks when its request has ended).
+    pub fn open_file(&self, grants: &GrantSet, path: &str) -> Result<File, HostError> {
         self.parse(path)?;
         crate::boundary::admit(grants, &Operation::FsRead { path: path.into() })?;
         let file = self.open(path)?;
         if !file.metadata().map_err(error)?.is_file() {
             return Err(error("read needs a regular file"));
         }
-        let mut bytes = Vec::new();
-        file.take(cap).read_to_end(&mut bytes).map_err(error)?;
-        Ok(bytes)
+        Ok(file)
     }
     pub(crate) fn run(
         &self,

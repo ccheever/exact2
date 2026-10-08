@@ -522,6 +522,12 @@ stalled read no longer holds the request (its late bytes are dropped); one
 deadline instant per request on both web carriers, checked by the clock just
 before sending; a JS-target stream honours the caller's signal; the
 prelude counts a lone surrogate as `TextEncoder` does.
+After landing (`code-2026-10-08-body-from-r4.astra.md`): at most four native
+file readers run per process, each counted until its thread ends, so readers
+stuck on a stalled disk refuse new file bodies instead of piling up; a reader
+told its request ended stops at its next 1 MiB chunk (Ibex patch 10 adds
+`AppDirectories::open_file`); the JS target refuses a pre-aborted fetch before
+making a rejection nobody handles.
 
 ### D7 — Sessions
 

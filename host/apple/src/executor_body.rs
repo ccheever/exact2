@@ -8,14 +8,15 @@
 //! source, so a 2 MB upload costs its step nothing.
 //!
 //! Memory: the file is read whole into the request, as a byte body would
-//! have been, at most 64 MiB per running request. Like other allocations
-//! during native work it is bounded by the worker and stream counts, not by
-//! the lane's byte reservations (the core's `Core` comment).
+//! have been, at most 64 MiB, on a reader thread of its own. At most
+//! [`MAX_READERS`] readers run at once in a process, each counted until its
+//! thread ends, so readers stuck on a stalled disk after their requests were
+//! settled refuse new file bodies rather than pile up.
 //!
-//! Time: the request's deadline is armed before the read, and the read runs
-//! on a thread of its own while the worker watches the deadline and the
-//! abort: either settles the request at once, nothing is sent, and a stalled
-//! read's late bytes are dropped when it returns.
+//! Time: the request's deadline is armed before the read. The worker
+//! watches it and the abort while the reader runs: either settles the
+//! request at once and nothing is sent; the reader is told, stops at its
+//! next 1 MiB chunk, and its bytes are dropped.
 use exact_runner::{FailureKind, Outcome, Request, MAX_BODY_FROM_BYTES};
 use ibex2::stdlib::app_fs::AppDirectories;
 use std::path::PathBuf;
@@ -56,7 +57,8 @@ pub(super) fn resolve(
     }
     let (roots, grants, scope) = (roots.cloned(), grants.to_string(), request.grants.clone());
     let bytes = acquire(
-        move || read(roots.as_ref(), &grants, scope.as_deref(), &path),
+        &READERS,
+        move |cancel| read(roots.as_ref(), &grants, scope.as_deref(), &path, cancel),
         stop,
     )?;
     request.body = bytes;
@@ -64,29 +66,80 @@ pub(super) fn resolve(
     Ok(())
 }
 
+/// Reads still running in this process, each holding a thread, a descriptor
+/// and up to [`MAX_BODY_FROM_BYTES`], counted until its thread ends, whether
+/// or not its request is still waiting; past [`MAX_READERS`] (a stalled
+/// disk) a new file body is refused rather than piled up.
+pub(super) struct Readers(std::sync::atomic::AtomicUsize);
+impl Readers {
+    pub(super) const fn new() -> Readers {
+        Readers(std::sync::atomic::AtomicUsize::new(0))
+    }
+    #[cfg(test)]
+    pub(super) fn running(&self) -> usize {
+        self.0.load(std::sync::atomic::Ordering::Acquire)
+    }
+}
+static READERS: Readers = Readers::new();
+/// The most file reads at once, across this process's executors: memory
+/// at most this many times 64 MiB.
+pub(super) const MAX_READERS: usize = 4;
+/// What one step of a read takes before it looks whether its request ended.
+const CHUNK: usize = 1 << 20;
+
+/// Releases a reader's place when its thread ends.
+struct Reader(&'static Readers);
+impl Drop for Reader {
+    fn drop(&mut self) {
+        self.0 .0.fetch_sub(1, std::sync::atomic::Ordering::AcqRel);
+    }
+}
+
 /// Run `read` off this thread and wait for it, or for `stop` to end the
-/// request first; a read that loses is left to finish alone and its result
-/// dropped.
+/// request first. A read that loses is told (`cancel`, which it checks
+/// between chunks), and its result dropped; it keeps its place in `readers`
+/// until its thread ends.
 pub(super) fn acquire(
-    read: impl FnOnce() -> Result<Vec<u8>, Outcome> + Send + 'static,
+    readers: &'static Readers,
+    read: impl FnOnce(&std::sync::atomic::AtomicBool) -> Result<Vec<u8>, Outcome> + Send + 'static,
     stop: &dyn Fn() -> Option<Outcome>,
 ) -> Result<Vec<u8>, Outcome> {
+    use std::sync::atomic::{AtomicBool, Ordering};
     if let Some(ended) = stop() {
         return Err(ended);
     }
+    if readers
+        .0
+        .fetch_update(Ordering::AcqRel, Ordering::Acquire, |n| {
+            (n < MAX_READERS).then_some(n + 1)
+        })
+        .is_err()
+    {
+        return Err(refused(format!(
+            "exactBodyFrom: {MAX_READERS} file reads are still running (a stalled disk?); nothing was sent"
+        )));
+    }
+    let place = Reader(readers);
+    let cancel = std::sync::Arc::new(AtomicBool::new(false));
+    let told = cancel.clone();
     let (done, result) = std::sync::mpsc::channel();
     std::thread::Builder::new()
         .name("exact-body-from".into())
         .spawn(move || {
-            let _ = done.send(read());
+            let _place = place;
+            let _ = done.send(read(&told));
         })
         .map_err(|e| refused(format!("exactBodyFrom: the read could not start: {e}")))?;
+    let ended = |outcome| {
+        cancel.store(true, Ordering::Release);
+        Err(outcome)
+    };
     loop {
         match result.recv_timeout(std::time::Duration::from_millis(5)) {
-            Ok(read) => return stop().map_or(read, Err),
+            Ok(read) => return stop().map_or(read, ended),
             Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                if let Some(ended) = stop() {
-                    return Err(ended);
+                if let Some(outcome) = stop() {
+                    return ended(outcome);
                 }
             }
             Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
@@ -109,6 +162,7 @@ pub(super) fn read(
     grants: &str,
     scope: Option<&str>,
     path: &str,
+    cancel: &std::sync::atomic::AtomicBool,
 ) -> Result<Vec<u8>, Outcome> {
     use ibex2::{
         boundary::HostError,
@@ -152,16 +206,43 @@ pub(super) fn read(
         }
         _ => {}
     }
+    // In chunks through the opened descriptor, at most the bound and one
+    // byte, stopping between chunks once the request has ended.
     #[cfg(unix)]
-    let bytes = directories
-        .read_capped(&grants, path, MAX_BODY_FROM_BYTES + 1)
-        .map_err(named)?;
+    let bytes = {
+        use std::io::Read;
+        let mut file = directories
+            .open_file(&grants, path)
+            .map_err(named)?
+            .take(MAX_BODY_FROM_BYTES + 1);
+        let mut bytes = Vec::new();
+        loop {
+            if cancel.load(std::sync::atomic::Ordering::Acquire) {
+                return Err(refused(format!("exactBodyFrom {path}: the request ended")));
+            }
+            let at = bytes.len();
+            bytes.resize(at + CHUNK, 0);
+            let n = loop {
+                match file.read(&mut bytes[at..]) {
+                    Ok(n) => break n,
+                    Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
+                    Err(e) => {
+                        return Err(refused(format!("exactBodyFrom {path}: filesystem: {e}")))
+                    }
+                }
+            };
+            bytes.truncate(at + n);
+            if n == 0 {
+                break bytes;
+            }
+        }
+    };
     // Elsewhere (Windows) there is no read capped on the opened handle yet,
     // and an uncapped read could pass the bound for a file that grew since
     // `stat`: refused, naming why, rather than read whole.
     #[cfg(not(unix))]
     let bytes: Vec<u8> = {
-        let _ = &directories;
+        let _ = (&directories, cancel);
         return Err(Outcome::Failed {
             kind: FailureKind::Unsupported,
             message: format!(

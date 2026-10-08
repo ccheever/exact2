@@ -191,11 +191,12 @@ fn a_root_replaced_after_the_host_named_it_is_not_followed() {
 }
 
 /// A read that outlasts the request's deadline does not hold it: the worker
-/// settles `Timeout` when the deadline passes, and the read's late bytes are
-/// dropped (Astra, round 3).
+/// settles `Timeout` when the deadline passes, tells the read, which stops
+/// at its next chunk, and drops its late bytes (Astra, round 3).
 #[test]
-fn a_stalled_read_is_settled_by_the_deadline_without_waiting_for_it() {
-    let passed = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+fn a_stalled_read_is_settled_by_the_deadline_and_told_to_stop() {
+    static READERS: super::body::Readers = super::body::Readers::new();
+    let passed = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let flag = passed.clone();
     std::thread::spawn(move || {
         std::thread::sleep(Duration::from_millis(30));
@@ -203,8 +204,15 @@ fn a_stalled_read_is_settled_by_the_deadline_without_waiting_for_it() {
     });
     let started = Instant::now();
     let result = super::body::acquire(
-        || {
-            std::thread::sleep(Duration::from_secs(3));
+        &READERS,
+        |cancel| {
+            // A read of many chunks, each slow, that looks between them.
+            for _ in 0..300 {
+                if cancel.load(Ordering::Acquire) {
+                    return Err(failed(FailureKind::Refused, "the request ended"));
+                }
+                std::thread::sleep(Duration::from_millis(10));
+            }
             Ok(b"late".to_vec())
         },
         &|| {
@@ -228,8 +236,14 @@ fn a_stalled_read_is_settled_by_the_deadline_without_waiting_for_it() {
         "{:?}",
         started.elapsed()
     );
+    // Told, the reader stops at its next chunk and gives its place back.
+    let until = Instant::now() + Duration::from_secs(2);
+    while READERS.running() > 0 && Instant::now() < until {
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert_eq!(READERS.running(), 0);
     // A read that finishes after its request ended is not taken either.
-    let result = super::body::acquire(|| Ok(b"bytes".to_vec()), &|| {
+    let result = super::body::acquire(&READERS, |_| Ok(b"bytes".to_vec()), &|| {
         Some(failed(FailureKind::Aborted, "native request aborted"))
     });
     assert!(matches!(
@@ -239,4 +253,58 @@ fn a_stalled_read_is_settled_by_the_deadline_without_waiting_for_it() {
             ..
         })
     ));
+}
+
+/// Readers stuck on a stalled disk keep their places after their requests
+/// were settled; past the bound a new file body is refused, unsent, until
+/// one returns (Astra, post-landing).
+#[test]
+fn stuck_readers_are_bounded_and_keep_their_place_until_they_return() {
+    static READERS: super::body::Readers = super::body::Readers::new();
+    let release = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let stuck = |release: Arc<std::sync::atomic::AtomicBool>| {
+        // A read blocked in one call, as on a stalled disk: it cannot look.
+        move |_: &std::sync::atomic::AtomicBool| {
+            while !release.load(Ordering::Acquire) {
+                std::thread::sleep(Duration::from_millis(2));
+            }
+            Ok(Vec::new())
+        }
+    };
+    let deadline_after_start = |first: &std::cell::Cell<bool>| {
+        let fired = !first.get();
+        first.set(false);
+        fired.then(|| failed(FailureKind::Timeout, "the request timed out after 1 ms"))
+    };
+    for _ in 0..super::body::MAX_READERS {
+        let first = std::cell::Cell::new(true);
+        let result = super::body::acquire(&READERS, stuck(release.clone()), &|| {
+            deadline_after_start(&first)
+        });
+        assert!(matches!(
+            result,
+            Err(Outcome::Failed {
+                kind: FailureKind::Timeout,
+                ..
+            })
+        ));
+    }
+    assert_eq!(READERS.running(), super::body::MAX_READERS);
+    let first = std::cell::Cell::new(true);
+    let refused = super::body::acquire(&READERS, |_| Ok(b"never".to_vec()), &|| {
+        deadline_after_start(&first)
+    });
+    assert!(
+        matches!(&refused, Err(Outcome::Failed { kind: FailureKind::Refused, message })
+            if message.contains("file reads are still running")),
+        "{refused:?}"
+    );
+    release.store(true, Ordering::Release);
+    let until = Instant::now() + Duration::from_secs(2);
+    while READERS.running() > 0 && Instant::now() < until {
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert_eq!(READERS.running(), 0);
+    let ok = super::body::acquire(&READERS, |_| Ok(b"bytes".to_vec()), &|| None);
+    assert_eq!(ok.unwrap(), b"bytes");
 }

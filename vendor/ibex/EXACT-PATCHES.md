@@ -169,7 +169,10 @@ which admits `fs.read`, opens the file through the directory handles, refuses
 anything but a regular file and reads at most `cap` bytes from the opened
 descriptor, is now `pub` so that executor uses the same checks and cap as
 `compressImage`. No behaviour changes. Unix only, as before; the embedder
-reads through `stdlib::fs::run` elsewhere.
+reads through `stdlib::fs::run` elsewhere. `AppDirectories::open_file` (the
+same admission, parse, open and regular-file check, returning the opened
+`File`) is public too, so the embedder reads in chunks and stops between
+them once its request has ended; `read_capped` reads through it.
 
 ### Windows chosen-document EISDIR
 

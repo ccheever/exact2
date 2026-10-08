@@ -543,6 +543,26 @@ test('a body read from a file is bounded by the deadline, and a socket refuses o
   } finally { globalThis.fetch = fetchBefore; }
 });
 
+// @ref LLP 1108 D6 R2 — an `exactBodyFrom` fetch on the JS target whose signal
+// is already aborted rejects with its reason, reads nothing, and leaves no
+// rejection unhandled (Astra, post-landing).
+test('a pre-aborted exactBodyFrom fetch rejects once, reads nothing, and leaves nothing unhandled', async () => {
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-ts-fetch-abort-'));
+  writeFileSync(resolve(dir, 'ts-fetch.js'), readFileSync(resolve(ROOT, 'host/web-js/ts-fetch.js'), 'utf8'));
+  writeFileSync(resolve(dir, 'admission.js'), 'export class FetchError extends Error { constructor(kind, message) { super(message); this.kind = kind; } } export const coversPath = () => { globalThis.bodyReads = (globalThis.bodyReads ?? 0) + 1; return true; }; export const fetchWith = async () => { globalThis.sentBodies = (globalThis.sentBodies ?? 0) + 1; return new Response(); };\n');
+  writeFileSync(resolve(dir, 'admission-data.js'), 'export const tsGrantSet = {};\n');
+  const unhandled = [];
+  const listen = reason => unhandled.push(reason);
+  process.on('unhandledRejection', listen);
+  try {
+    const { fetch: appFetch } = await import(pathToFileURL(resolve(dir, 'ts-fetch.js')).href);
+    const aborted = new AbortController(); aborted.abort(new Error('gone'));
+    const error = await appFetch('https://x.test/up', { method: 'POST', exactBodyFrom: 'app:/data/p.jpg', signal: aborted.signal, exactTimeout: 1000 }).catch(e => e);
+    await new Promise(r => setTimeout(r, 20));
+    expect([error.message, globalThis.bodyReads ?? 0, globalThis.sentBodies ?? 0, unhandled.length]).toEqual(['gone', 0, 0, 0]);
+  } finally { process.off('unhandledRejection', listen); rmSync(dir, { recursive: true, force: true }); }
+});
+
 // @ref LLP 1108 D6 R2 — `exactBodyFrom` on the JS target: the app file is the
 // request's body, read from the page's store as a Blob (a picked entry is its
 // own File), with no Content-Type but the author's; a missing file and a path

@@ -39,6 +39,8 @@ async function fromFile(input, init) {
   // module's own `setTimeout` and `performance` are the app's refusals.)
   const signal = rest.signal !== undefined ? rest.signal : typeof Request === 'function' && input instanceof Request ? input.signal : null;
   const clock = globalThis.performance, started = clock.now(), deadline = ms === undefined ? null : AbortSignal.timeout(ms);
+  // Already aborted: refused before anything is read or a rejection made that nobody would handle.
+  if (signal?.aborted) throw signal.reason ?? new FetchError('Aborted', 'the fetch was aborted');
   let stop = () => {};
   const ended = new Promise((_, reject) => {
     const timedOut = () => reject(new FetchError('Timeout', `the request timed out after ${ms} ms`));
@@ -48,7 +50,6 @@ async function fromFile(input, init) {
     stop = () => { signal?.removeEventListener?.('abort', aborted); deadline?.removeEventListener('abort', timedOut); };
   });
   let body;
-  if (signal?.aborted) { stop(); throw signal.reason ?? new FetchError('Aborted', 'the fetch was aborted'); }
   const reading = readBodyFile(path, tsGrantSet);
   reading.catch(() => {}); // a read that loses the race is nobody's
   try { body = await Promise.race([reading, ended]); } finally { stop(); }
