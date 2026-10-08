@@ -42,8 +42,12 @@ final class GlassButton: ExactNativeInstance {
         applied = props
         token = props["token"] ?? "press"
         var config: UIButton.Configuration
-        if #available(iOS 26.0, *) {
-            config = props["prominent"] == "true" ? .prominentGlass() : .glass()
+        if #available(iOS 26.0, *), props["prominent"] != "true" {
+            config = .glass()
+        } else if props["prominent"] == "true" {
+            // A filled blue circle, as the composer's send.
+            config = .borderedProminent()
+            config.cornerStyle = .capsule
         } else {
             config = props["prominent"] == "true" ? .borderedProminent() : .bordered()
             config.cornerStyle = .capsule

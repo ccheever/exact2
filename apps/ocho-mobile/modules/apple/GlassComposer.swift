@@ -1,7 +1,7 @@
 // `<glass-composer>` on iOS: the message field as the system draws one, in
 // real Liquid Glass. A glass container holds an interactive glass capsule with
-// a native text view in it, and UIKit's prominent glass send button beside
-// the text, so the two blend as the system's own glass shapes do. It grows
+// a native text view in it, and a filled blue send button beside
+// the text. It grows
 // with its text up to six lines and says how tall it wants to be.
 //
 // Typing stays here: each keystroke reaching the app made it re-render the
@@ -84,8 +84,10 @@ final class GlassComposer: ExactNativeInstance {
         field.contentView.addSubview(text)
         field.contentView.addSubview(placeholder)
 
-        var config: UIButton.Configuration
-        if #available(iOS 26.0, *) { config = .prominentGlass() } else { config = .borderedProminent(); config.cornerStyle = .capsule }
+        // A plain filled blue circle: the prominent glass style read as a
+        // blur rather than a button.
+        var config = UIButton.Configuration.borderedProminent()
+        config.cornerStyle = .capsule
         config.image = UIImage(systemName: "arrow.up", withConfiguration: UIImage.SymbolConfiguration(textStyle: .subheadline).applying(UIImage.SymbolConfiguration(weight: .bold)))
         config.contentInsets = .zero
         button.configuration = config
