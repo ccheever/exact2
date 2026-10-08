@@ -298,6 +298,11 @@ impl<D: DataSource> Host<D> {
         host.runner
             .set_canvas_limits(exact_runner::Limits::native(physical_memory(), false));
         host.runner.set_row_reuse(crate::app::row_reuse());
+        // `EXACT_ROW_MEMO=0`: each list row laid out by its own algorithm
+        // (Taffy patch 29 off), to compare.
+        if std::env::var("EXACT_ROW_MEMO").is_ok_and(|v| v == "0") {
+            host.runner.kernel_mut().set_row_layout_memo(false);
+        }
         // The engine hears the whole tree once: values, no transitions; an
         // `animation` starts now, as a browser starts one on a new element.
         host.lowering_from_env();
