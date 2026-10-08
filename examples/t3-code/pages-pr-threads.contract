@@ -8,7 +8,7 @@ use PrAvatar from "./pages-prs.contract"
 use ChatDocument from "./markdown.contract"
 use CodeHighlight from "./markdown.contract"
 use MarkdownEnv from "./markdown.contract"
-use Tip from "./shell-tip.contract"
+use LayerTip from "./hover-layer.contract" // the Tips on the window's hover layer (#307), so the list and the cards around them do not clip them
 use PrReactionPill from "./pages-pr-meta.contract"
 use PrReactionChoice from "./pages-pr-meta.contract"
 use PrdReactionBar from "./pages-pr-meta.contract"
@@ -175,11 +175,11 @@ component PrdThreadComment
   view
     column min-width=0 hover=hover role="article" testId=`pull-request-thread-comment-${comment.id}`
       row min-width=0 flex-wrap="wrap" align-items="center" gap="0.5rem"
-        Tip(label=comment.authorTip, side="top", align="start", offset=18)
+        LayerTip(label=comment.authorTip, side="top", align="start", tipId=`pull-request-thread-author-tip-${comment.id}`)
           row align-items="center" gap="0.375rem" min-width=0
             PrAvatar(avatar=comment.avatar, initial=comment.initial, size=16)
             text comment.author font-size="0.75rem" line-height="1rem" font-weight=500 color=ptInk() white-space="nowrap"
-        Tip(label=comment.ageTip, side="top", align="start", offset=18)
+        LayerTip(label=comment.ageTip, side="top", align="start", tipId=`pull-request-thread-age-tip-${comment.id}`)
           text comment.age font-size="0.75rem" line-height="1rem" color=ptMuted() white-space="nowrap"
         PrdReactionBar(pills=comment.reactions, reacted=comment.reacted, canReact=canReact, choices=choices, subject=comment.id, pickerId=`pr-code-react-${comment.id}`, act=act)
       column margin-top="0.25rem" min-width=0

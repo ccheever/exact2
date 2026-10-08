@@ -270,7 +270,8 @@ on one resumes after that fix merges to `main` and an adoption round brings it i
 
 No T3 work duplicates a framework fix today. These in-flight or planned tasks touch a framework issue:
 - `pr-links-previews-and-routing` (#311): its PR-link hover card needs an inline run's frame (#272, bucket 4). It
-  anchors at the hover point; it must not add an inline-run frame or a measuring hook. It places the card with #307's
+  anchors at the link chip's own box (`frame()` of its button, through `hoverTipAtFrame`); it must not add an inline-run
+  frame or a measuring hook, and adds none. It places the card with #307's
   `hoverFlip`, which #112's first slice does not cover (bucket 3); it adds no per-site flip arithmetic. The card joins
   #307's hover layer, a #322 workaround that stays for clipping after #327.
 - `browser-surface`: its preview RPCs and the `previewAutomation.*` stream go into `T3Transport.swift`, which #126's

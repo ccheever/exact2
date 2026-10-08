@@ -265,7 +265,8 @@ export function settingsItems(client: T3Client, query: string): Item[] {
       icon: 'settings', title: item.title, description: `Settings · ${breadcrumbLabel(item.route)}` }) }));
 }
 
-export type CommandContext = { page: string; query: string; now: number; scheme: string; matches: Map<string, Obj>; matchQuery: string; searching: boolean };
+/** `linkedThreads`: a pull request's linked threads, which take the thread results' place while the query is its URL (pr-links-previews-and-routing). */
+export type CommandContext = { page: string; query: string; now: number; scheme: string; matches: Map<string, Obj>; matchQuery: string; searching: boolean; linkedThreads?: Item[] | null };
 /** The command palette's root and its submenus (not the add-project flow). */
 export function commandView(client: T3Client, context: CommandContext): PaletteView {
   const page = context.page;
@@ -275,7 +276,7 @@ export function commandView(client: T3Client, context: CommandContext): PaletteV
       : page === 'appearance' ? [{ value: 'appearance', label: 'Change appearance', items: appearanceItems(client) }]
         : [{ value: 'actions', label: 'Actions', items: rootActions(client) },
           { value: 'recent-threads', label: 'Recent Threads', items: threadItems(client, context.now, new Map(), '').slice(0, RECENT_THREAD_LIMIT) }].filter(group => group.items.length);
-  const threads = submenu ? [] : threadItems(client, context.now, context.matches, context.matchQuery);
+  const threads = submenu ? [] : context.linkedThreads ?? threadItems(client, context.now, context.matches, context.matchQuery);
   const filtered = filterGroups(groups, context.query, submenu, { projects: submenu ? [] : projectItems({ shell: { ...client.shell, projects: pickerProjects(client) } }, 'project', 'open-project'), settings: submenu ? [] : settingsItems(client, context.query), threads });
   const rows = flatten(filtered);
   const actionsOnly = context.query.startsWith('>');

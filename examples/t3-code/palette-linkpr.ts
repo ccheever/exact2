@@ -206,12 +206,13 @@ export function linkPullRequestView(client: T3Client, query: string): PaletteVie
 
 type Access = ReturnType<T3Client['restAccess']>;
 /** submit(): link through the command this environment advertises; the dialog stays open on failure. */
-export async function linkPullRequest(client: T3Client, access: Access, storage: Files, reference: string): Promise<boolean> {
+export async function linkPullRequest(client: T3Client, access: Access, storage: Files, reference: string, threadId = client.threadId): Promise<boolean> {
   const state = dialogOf(client);
   state.dirty = true;
   state.error = '';
   client.revision++;
-  const thread = client.shell.threads.find(candidate => candidate.id === client.threadId);
+  // pr-links-previews-and-routing: the thread chosen (the panel's picker), else the window's.
+  const thread = client.shell.threads.find(candidate => candidate.id === threadId);
   if (!thread) { state.error = 'That thread is no longer available.'; return false; }
   const mode = linkMode(client.config), projects = client.shell.projects;
   const resolved = resolveLinkInput(reference, projects, str(thread.projectId), mode);

@@ -1,3 +1,4 @@
+import { notePreviewHover } from './pages-pr-links'; // pr-links-previews-and-routing
 import { runnableShellCommands } from './terminal-integrations';
 import { runTerminalCommand } from './terminal-drawer-view';
 import { toolActivityIconSources } from './timeline-tool-icons';
@@ -79,6 +80,7 @@ export async function chatLocal(client: T3Client, native: Native, op: string, id
   if (op === 'run-terminal' && storage) { await runTerminalCommand(client, native, storage, value.trim()); return ''; }
   if (op.startsWith('surface-')) return surfaceLocal(client, native, op.slice(8), id, value); // r4-surfaces: the right panel's surfaces (window chatLocal)
   if (op === 'pr-link-menu') { await pullRequestLinkMenu(client, native, value); return ''; } // context-menu-gaps: the detail header's number
+  if (op === 'pr-preview') { notePreviewHover(client, id, value === '1'); return ''; } // pr-links-previews-and-routing: a pull request link's hover card
   if (op.startsWith('prw-')) return prLocalWrite(client, native, op.slice(4), id, value); // pr-writing-and-metadata: the composer's drafts (pages-pr-detail.ts)
   if (op === 'pr-ui-select') return surfaceLocal(client, native, 'r5-pr-open', stackLayerTarget(value), ''); // pr-header-actions-and-stacks: a stack layer beside a thread
   if (op.startsWith('pr-ui-')) return prUiLocal(client, op.slice(6), id, value); // pr-header-actions-and-stacks: the panel header's menu choices

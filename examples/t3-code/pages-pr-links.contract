@@ -1,0 +1,191 @@
+// Pull requests and threads in the detail panel (pr-links-previews-and-routing), drawn from pages-pr-links.ts:
+// the page's linked-thread count (it opens the palette on the pull request's URL with its linked threads),
+// the More menu's Link / Unlink item (its thread picker is the palette's "Choose a thread" page), the back
+// arrow beside a thread with several pull requests, and a pull request link's hover card. Sources: T3 Code
+// (MIT, see LICENSE-T3) components/pullRequest/{PullRequestThreadLinks,PullRequestLinkPreview,
+// PullRequestDetailPanel,pullRequestPresentation}.tsx, ui/{button,menu,preview-card,tooltip}.tsx.
+use PgIcon from "./pages-icons.contract"
+use Tip from "./shell-tip.contract"
+use CnMachineIcon from "./settings-b-kit.contract"
+
+shape PrLinksView
+  shown: bool
+  url: string
+  countShown: bool
+  countText: string
+  countLabel: string
+  countTip: string
+  menuShown: bool
+  menuLabel: string
+  menuIcon: string
+  menuPicker: bool
+  pending: bool
+  polling: bool
+  backShown: bool
+// "Act on": a server that holds the pull request's repository, and whether hand-offs act there.
+shape PrActOnItem
+  key: string
+  label: string
+  machine: string
+  selected: bool
+shape PrActOnView
+  items: list<PrActOnItem>
+shape PrPreviewView
+  key: string
+  phase: string
+  url: string
+  repository: string
+  number: string
+  stateKey: string
+  stateLabel: string
+  title: string
+  author: string
+  avatar: string
+  initial: string
+  opened: string
+
+fn plInk(): string = "light-dark(#27272a, #f5f5f5)"
+fn plMuted(): string = "light-dark(#71717b, #818181)"
+fn plAccent(): string = "light-dark(#f4f4f5, #ffffff0a)"
+fn plTone(lifecycle: string): string = lifecycle == "draft" ? "light-dark(#71717b, #9f9fa9cc)" : lifecycle == "closed" ? "light-dark(#e7000b, #ffa2a2e6)" : lifecycle == "merged" ? "light-dark(#7f22fe, #c4b4ffe6)" : "light-dark(#009966, #5ee9b5e6)"
+fn plIcon(lifecycle: string): string = lifecycle == "draft" ? "git-pull-request-draft" : lifecycle == "closed" ? "git-pull-request-closed" : lifecycle == "merged" ? "git-merge" : "git-pull-request-arrow"
+
+// PullRequestThreadLinks display="count" (page only): Button size="xs" variant="ghost" with the speech glyph and
+// the count ("?" when the read failed); its tooltip says where the threads are searched.
+component PrdLinkedCount
+  props
+    links: PrLinksView
+    act: action
+  state over = false
+  action hover(value: bool)
+    over = value
+  view
+    Tip(label=links.countTip, side="top", align="center", offset=20)
+      button id="pull-request-linked-threads" press=act("links", "linked") hover=hover aria-label=links.countLabel testId="pull-request-linked-threads" height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" box-sizing="border-box" gap="0.25rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color="#00000000" background-color=(over ? plAccent() : "#00000000") display="flex" flex-direction="row" align-items="center" flex-shrink=0
+        box margin-left="-0.125rem" margin-right="-0.125rem" display="flex" flex-shrink=0
+          PgIcon(name="message-square", size=14, color=plMuted())
+        text links.countText font-size="0.75rem" line-height="1rem" font-weight=500 white-space="nowrap" color=plInk() aria-hidden=true testId="pull-request-linked-threads-count"
+
+// The detail header's back arrow beside a thread (onBack: the thread's pull requests list), Button size="icon-micro"
+// variant="ghost-muted" pulled 6 pt left, its tooltip "Back to pull requests".
+component PrdBackArrow
+  props
+    local: action
+  state over = false
+  action hover(value: bool)
+    over = value
+  view
+    Tip(label="Back to pull requests", side="top", align="center", offset=20)
+      button press=local("surface-open", "pull-requests", "") hover=hover aria-label="Back to this thread's pull requests" testId="pull-request-back" width="1.25rem" height="1.25rem" margin-left="-0.375rem" padding=0 border-radius="0.25rem" border-width=0 background-color=(over ? plAccent() : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0
+        PgIcon(name="arrow-left", size=14, color=(over ? plInk() : plMuted()))
+
+// PullRequestLinkPreview's card (PreviewCardPopup w-80, p-3), drawn by the window's hover layer (kind "pr-preview": its
+// 350 ms open and 120 ms close delays, hover-layer.contract): repository, number · state; the title; the author and
+// "opened <relative>"; it fades in over 150 ms (none under reduced motion). A failed read with no fallback is the
+// link's own URL as a tooltip instead.
+keyframes plCardIn
+  from opacity=0 scale=0.98
+  to opacity=1 scale=1
+component PrLinkPreviewCard
+  inject
+    still: bool
+  props
+    preview: PrPreviewView
+    href: string
+  view
+    when preview.phase == "content"
+      column width="20rem" padding="0.75rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#27272a1a, #f5f5f51a)" background-color="light-dark(#ffffff, #171717)" box-shadow="0 10px 15px -3px #0000001a, 0 4px 6px -4px #0000001a" animation=(still ? "none" : "plCardIn 150ms ease-out both") role="dialog" aria-label=`${preview.repository} ${preview.number}` testId="pull-request-link-preview"
+        row min-width=0 align-items="center" gap="0.375rem"
+          text preview.repository min-width=0 line-clamp=1 font-size="0.625rem" line-height="0.875rem" color=plMuted()
+          text preview.number flex-shrink=0 font-size="0.625rem" line-height="0.875rem" color=plMuted()
+          text "·" flex-shrink=0 font-size="0.625rem" line-height="0.875rem" color=plMuted() aria-hidden=true
+          row flex-shrink=0 align-items="center" gap="0.25rem"
+            PgIcon(name=plIcon(preview.stateKey), size=12, color=plTone(preview.stateKey))
+            text preview.stateLabel font-size="0.625rem" line-height="0.875rem" color=plMuted()
+        text preview.title margin-top="0.25rem" font-size="0.875rem" line-height="1.25rem" font-weight=500 color=plInk() testId="pull-request-link-preview-title"
+        row margin-top="0.5rem" min-width=0 align-items="center" gap="0.375rem"
+          when preview.avatar != ""
+            image preview.avatar width="1rem" height="1rem" border-radius="999px" flex-shrink=0 object-fit="cover" aria-hidden=true
+          else
+            box width="1rem" height="1rem" border-radius="999px" background-color="light-dark(#f4f4f5, #262626)" display="flex" align-items="center" justify-content="center" flex-shrink=0 aria-hidden=true
+              text preview.initial font-size="0.5625rem" font-weight=500 color=plMuted()
+          text preview.author min-width=0 line-clamp=1 font-size="0.75rem" line-height="1rem" color=plMuted()
+          text "·" flex-shrink=0 font-size="0.75rem" line-height="1rem" color=plMuted() aria-hidden=true
+          text preview.opened flex-shrink=0 white-space="nowrap" font-size="0.75rem" line-height="1rem" color=plMuted()
+    when preview.phase == "error"
+      column max-width="20rem" padding-top="0.25rem" padding-bottom="0.25rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#2727291a, #ffffff1a)" background-color="light-dark(#ffffff, #171717)" box-shadow="0 4px 6px -1px #0000000d, 0 2px 4px -2px #0000000d" pointer-events="none" role="tooltip" testId="pull-request-link-preview-url"
+        text href font-size="0.75rem" line-height="1rem" color=plInk()
+
+// The list's footer (_chat.pull-requests.tsx): a read that failed over rows still shown ("… Showing the last pull
+// requests loaded." and Retry, the warning surface), then, while the hosts hold more rows, "Load more pull requests"
+// (Button size="sm" variant="outline"), its spinner ("Loading more", or "Updating pull requests" for a whole read),
+// or, at the 500-row cap with no cursor left, "Narrow your search to find more pull requests.".
+keyframes plSpin
+  from rotate=0
+  to rotate=360
+component PrListFooter
+  inject
+    still: bool
+  props
+    footer: string
+    footerText: string
+    loadDisabled: bool
+    listError: string
+    control: action
+    reload: action
+  state over = false
+  state retryOver = false
+  action hover(value: bool)
+    over = value
+  action hoverRetry(value: bool)
+    retryOver = value
+  view
+    when listError != ""
+      row width="100%" padding-left="0.75rem" padding-right="0.75rem" padding-top="0.5rem" padding-bottom="0.5rem" box-sizing="border-box" gap="0.75rem" align-items="center" justify-content="space-between" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#f59e0b4d, #f59e0b4d)" background-color="light-dark(#fffbeb, #f59e0b14)" role="alert" testId="pull-requests-list-error"
+        text listError flex=1 min-width=0 font-size="0.75rem" line-height="1rem" color=plInk()
+        button press=reload hover=hoverRetry testId="pull-requests-list-retry" height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color=(retryOver ? "light-dark(#f4f4f580, #ffffff0d)" : "light-dark(#ffffff, #ffffff07)") box-shadow="0 1px 2px #0000000d" display="flex" flex-direction="row" align-items="center" flex-shrink=0
+          text "Retry" font-size="0.75rem" line-height="1rem" font-weight=500 white-space="nowrap" color=plInk()
+    when footer != ""
+      row width="100%" justify-content="center" padding-top="0.75rem" padding-bottom="0.75rem" testId="pull-requests-list-footer"
+        when footer == "loading"
+          row align-items="center" gap="0.5rem" role="status" testId="pull-requests-loading-more"
+            box width="0.875rem" height="0.875rem" display="flex" animation=(still ? "none" : "plSpin 1s linear infinite") aria-hidden=true
+              PgIcon(name="loader-circle", size=14, color=plMuted())
+            text footerText font-size="0.75rem" line-height="1rem" color=plMuted()
+        when footer == "more"
+          button press=control("load-more", "") hover=hover disabled=loadDisabled testId="pull-requests-load-more" height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color=(over and not loadDisabled ? "light-dark(#f4f4f580, #ffffff0d)" : "light-dark(#ffffff, #ffffff07)") box-shadow="0 1px 2px #0000000d" opacity=(loadDisabled ? 0.64 : 1) display="flex" flex-direction="row" align-items="center"
+            text footerText font-size="0.875rem" line-height="1.25rem" font-weight=500 white-space="nowrap" color=plInk()
+        when footer == "narrow"
+          text footerText font-size="0.75rem" line-height="1rem" color=plMuted()
+
+fn noActOn(): list<PrActOnItem> = []
+
+// ActOnEnvironmentPicker (the More and Check out menus, on the page, when more than one server holds the repository):
+// a separator, then one radio item per server (its machine glyph and label), the acting one tinted. Choosing one keeps
+// the menu open (Base UI's radio items do not close it).
+component PrdActOnItems
+  props
+    items: list<PrActOnItem>
+    disabled: bool
+    act: action
+  view
+    when length(items) > 0
+      box width="calc(100% - 16px)" height=1 margin-left="0.5rem" margin-top="0.25rem" margin-bottom="0.25rem" background-color="light-dark(#e4e4e7, #ffffff0f)" role="separator"
+      column width="100%" role="group" aria-label="Act on"
+        each item in items key=item.key
+          PrdActOnItem(item=item, disabled=disabled, press=act("act-on", item.key))
+component PrdActOnItem
+  props
+    item: PrActOnItem
+    disabled: bool
+    press: action
+  state over = false
+  state lit = false
+  action hover(value: bool)
+    over = value
+  action focused(on: bool)
+    lit = on
+  view
+    button id=`pr-act-on-${item.key}` press=press hover=hover focus=focused(true) blur=focused(false) disabled=disabled role="menuitemradio" aria-checked=item.selected testId=`pr-act-on-${item.key}` width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" gap="0.5rem" border-radius="0.375rem" border-width=0 background-color=((over or lit) and not disabled ? plAccent() : item.selected ? "light-dark(#27272a14, #f5f5f514)" : "#00000000") opacity=(disabled ? 0.64 : 1) display="flex" flex-direction="row" align-items="center"
+      CnMachineIcon(kind=item.machine, size=14, color=plInk())
+      text item.label font-size="0.875rem" line-height="1.25rem" color=plInk() flex=1 min-width=0 text-align="left" white-space="nowrap" overflow="hidden" text-overflow="ellipsis"
