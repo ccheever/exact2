@@ -16,7 +16,7 @@ impl Collection {
         if !self.at_end || self.geometry.is_some() || self.index.len() == 0 {
             return;
         }
-        let offset = self.index.total_height();
+        let offset = self.index.scroll_extent();
         self.start_offset = offset;
         self.correction = Some(AnchorCorrection {
             scroll_sequence: 0,
@@ -57,7 +57,7 @@ impl Collection {
     /// The offset an opening list's anchor is taken at: its end.
     pub(super) fn anchor_offset(&self, offset: f64) -> f64 {
         if self.at_end {
-            self.index.total_height()
+            self.index.scroll_extent()
         } else {
             offset
         }
@@ -84,7 +84,7 @@ impl Collection {
                     .key(m.position)
                     .is_some_and(|k| self.index.is_measured(k))
             })
-            && (total - g.port_main).max(0.0) - g.offset < super::index::END_SLACK
+            && self.index.max_offset(g.port_main) - g.offset < super::index::END_SLACK
         {
             self.at_end = false;
         }
@@ -96,13 +96,20 @@ impl Collection {
 /// (`sent`) is reached within `END_SLACK`,
 /// else the same unreachable end went out with every commit and an opening
 /// never settled (LLP 1010 §6.8). An end that moved is sent once; a row
-/// anchor keeps 0.01, since its moves add up report on report.
+/// anchor keeps 0.01, since its moves add up report on report. A port in
+/// the padding before the first row is at the rows' start, unless the
+/// target is in that padding too (a short list's end, LLP 1010 §6.9).
 pub(super) fn at_target(
     anchor: &super::index::Anchor,
     corrected: f64,
     offset: f64,
     sent: f64,
 ) -> bool {
+    let offset = if corrected < 0.0 {
+        offset
+    } else {
+        offset.max(0.0)
+    };
     let gap = (corrected - offset).abs();
     gap <= 0.01
         || (super::index::SizeIndex::follows_end(anchor)

@@ -5,8 +5,8 @@
 // which main serves from its wait loop, so neither ever waits on the other
 // while the other waits on it.
 import Foundation
-final class Owner: @unchecked Sendable {
-    static let shared = Owner()
+package final class Owner: @unchecked Sendable {
+    package static let shared = Owner()
 
     // A job's and a call's body is released before its waiter is woken: the
     // waiter's non-escaping closure must have no other owner when it returns.
@@ -156,7 +156,7 @@ final class Owner: @unchecked Sendable {
     /// door (T5): main serves it from its wait loop, or from a main-queue
     /// hop when it is not waiting. From main, inline; from any other thread,
     /// as `DispatchQueue.main.sync` always did.
-    func callMain<T>(_ body: () -> T) -> T {
+    package func callMain<T>(_ body: () -> T) -> T {
         if Thread.isMainThread { return body() }
         guard isOwner else { return DispatchQueue.main.sync(execute: body) }
         return withoutActuallyEscaping(body) { body in

@@ -4,16 +4,16 @@ import Foundation
 
 /// The thresholds exact2 defines itself, read from `exact_motion::gesture`
 /// (LLP 1057.001 §3): the swipe knee, its resistance, the edge a swipe yields.
-enum Gesture {
+package enum Gesture {
     static let knee = exact_gesture_constant(0)
     static let resistance = exact_gesture_constant(1)
     static let edge = exact_gesture_constant(2)
-    static let slop = exact_gesture_constant(3)
+    package static let slop = exact_gesture_constant(3)
 }
 
-struct NativeHold {
-    let token: UInt64
-    let x: Double
+package struct NativeHold {
+    package let token: UInt64
+    package let x: Double
     let y: Double
     init?(_ op: [String: Any]) {
         guard let raw = op["token"] as? String, let token = UInt64(raw),
@@ -58,8 +58,8 @@ struct SwipeIndicator {
 
 /// Input eligibility is distinct from token ownership: an inert/hidden row
 /// still owns its token until cancellation releases the presentation and pin.
-enum SwipeInput {
-    static func allows(_ view: NodeView) -> Bool {
+package enum SwipeInput {
+    package static func allows(_ view: NodeView) -> Bool {
         guard view.window != nil, !view.disabled, !view.inert, !view.isHidden else { return false }
         #if os(iOS) || os(tvOS)
         guard view.isUserInteractionEnabled else { return false }

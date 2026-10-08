@@ -1,0 +1,22 @@
+[package]
+name = "exact-listbench-apple"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "List Bench on the Apple host: the app's library"
+publish = false
+build = "build.rs"
+
+[lib]
+name = "exact_listbench_apple"
+crate-type = ["rlib"]
+
+[dependencies]
+exact-listbench-data = { path = "../data" }
+exact-logic = { path = "../../../../logic" }
+exact-apple = { path = "../../../../host/apple" }
+
+[build-dependencies]
+exact-listbench-data = { path = "../data" }
+contract = { path = "../../../../contract/cli" }
+exact-bake = { path = "../../../../bake" }

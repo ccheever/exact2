@@ -147,6 +147,7 @@ fn a_mounted_directory_is_captured_beside_app_ts_and_nothing_else_of_it() {
         r#"{"typescript":{"sources":{"assets":"../shared/core"}}}"#,
         r#"{"typescript":{"sources":{"core":"/etc"}}}"#,
         r#"{"typescript":{"sources":{"core":"../missing"}}}"#,
+        r#"{"typescript":{"sources":{"core":"../shared/core","shared":"../shared"}}}"#,
     ] {
         std::fs::write(app.join("app.json"), bad).unwrap();
         assert!(

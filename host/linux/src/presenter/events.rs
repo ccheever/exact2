@@ -197,12 +197,14 @@ impl<D: DataSource> Presenter<D> {
             "NumpadEnter" => "Enter",
             name => name,
         };
+        let mark = self.hatch_key_mark();
         if let Some(e) = self
             .key_event(EventKind::Keyup, name, code, false, now_ms)
             .0
         {
             eprintln!("exact: {e}");
         }
+        self.hatch_key(mark, name, code, false, false);
     }
 
     /// Enter in a single-line input: the web's implicit submission, at the

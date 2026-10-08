@@ -35,6 +35,12 @@ final class TextInputFormatter: Formatter {
     init(_ owner: NodeView) { self.owner = owner; super.init() }
     required init?(coder: NSCoder) { super.init(coder: coder) }
     override func string(for obj: Any?) -> String? { obj as? String }
+    // The formatter otherwise turns attributedStringValue back into plain
+    // text, dropping the native field's authored kern (LLP 1104 D3).
+    override func attributedString(for obj: Any, withDefaultAttributes attrs: [NSAttributedString.Key: Any]? = nil) -> NSAttributedString? {
+        guard let owner, owner.isNativeTextControl, let value = string(for: obj) else { return nil }
+        return NSAttributedString(string: value, attributes: (attrs ?? [:]).merging(owner.fieldTextAttributes) { _, authored in authored })
+    }
     override func getObjectValue(_ obj: AutoreleasingUnsafeMutablePointer<AnyObject?>?, for string: String, errorDescription error: AutoreleasingUnsafeMutablePointer<NSString?>?) -> Bool {
         obj?.pointee = string as NSString; return true
     }

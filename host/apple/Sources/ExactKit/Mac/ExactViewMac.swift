@@ -171,6 +171,7 @@ public final class ExactView: NSView {
 
     public override func viewDidChangeBackingProperties() {
         super.viewDidChangeBackingProperties()
+        session.controlTextChanged()
         fit()
     }
 
@@ -185,7 +186,7 @@ public final class ExactView: NSView {
         if window == nil { session.presenter.menus.reset(); session.presenter.dialogs.reset() }
         session.tellPage() // `hasFocus` is this window's (#114)
         session.rasters.setPaused(window == nil)
-        session.canvases.lifecycle.refresh()
+        session.canvases.refreshLifecycle()
         if session.presenter.toolbar.window !== window { session.presenter.toolbar.detach() }
         else { session.presenter.toolbar.sync() }
         if let shortcutMonitor { NSEvent.removeMonitor(shortcutMonitor); self.shortcutMonitor = nil }
@@ -248,6 +249,7 @@ public final class ExactView: NSView {
     /// Paint motion resolves `light-dark()` by this view's appearance (LLP 1062).
     public override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
+        session.controlTextChanged()
         session.scheme(dark: effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua)
     }
 }

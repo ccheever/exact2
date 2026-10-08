@@ -112,16 +112,22 @@ pub(crate) fn app_dirs(app_id: &str) -> Result<Option<([PathBuf; 3], Option<Path
     )))
 }
 
-/// The scratch directory a named agent drive keeps `secret.keep` in
-/// (`<scratch>/secrets` and `<scratch>/kv`), beside `app:/data`. `None` when
-/// this drive names no scratch store, or the app has no id: secrets stay in
-/// memory and the write log is dropped. Not the app's real data directory.
-pub(crate) fn agent_secret_root(app_id: &str) -> Option<PathBuf> {
-    if std::env::var_os("EXACT_AGENT").is_none() || app_id.is_empty() {
+/// Where `secret.keep` names and kept answers live (`<root>/secrets`,
+/// `<root>/kv`). A named agent drive keeps them in its scratch tree, beside
+/// its `app:/data`; outside the agent the app keeps them in its own data root,
+/// `$XDG_DATA_HOME/exact/<app id>` (`~/.local/share` when unset), as Ibex's
+/// file backends: a file per secret, `0600` in a `0700` directory, written
+/// whole and renamed into place, not encrypted (LLP 1027.007 D13, ibex LLP
+/// 0069 §3). `None` keeps them in memory: a drive that names no scratch
+/// store, an app with no id, and Windows outside the agent (until its
+/// credential vault).
+pub(crate) fn secret_root(app_id: &str) -> Option<PathBuf> {
+    if app_id.is_empty() || (cfg!(windows) && std::env::var_os("EXACT_AGENT").is_none()) {
         return None;
     }
-    // `roots[0]` is `<scratch>/data`. Secrets live in the scratch tree, so
-    // a fresh drive's emptying of that tree ([`empty_fresh_tree`]) takes them too.
+    // `roots[0]` is `<root>/data`. In a drive, secrets live in the scratch
+    // tree, so a fresh drive's emptying of that tree ([`empty_fresh_tree`])
+    // takes them too.
     let (roots, _) = app_dirs(app_id).ok().flatten()?;
     roots[0].parent().map(|path| path.to_path_buf())
 }

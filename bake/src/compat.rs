@@ -147,6 +147,11 @@ pub fn compatibility_id_sources(
     }
     crate::reach::derive(app_dir, platform, &mut compat)?;
     if let Some(out) = std::env::var_os("OUT_DIR") {
+        // What an Apple archive links is part of its cohort (LLP 1047.001
+        // D2), named before anything binds the id.
+        if matches!(platform, "ios" | "macos") {
+            crate::link::name_into(&mut compat, manifest, Path::new(&out))?;
+        }
         crate::receipt::emit(
             &mut compat,
             &trust,

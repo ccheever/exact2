@@ -51,7 +51,12 @@ fn wheel_delta(delta: MouseScrollDelta, scale: f64) -> (f32, f32) {
     }
 }
 
-pub(super) fn run<D: DataSource + Default + 'static>(name: &str, plan: &[u8], compat: &str) -> i32 {
+pub(super) fn run<D: DataSource + Default + 'static>(
+    name: &str,
+    plan: &[u8],
+    compat: &str,
+    hatches: Option<exact_linux::hatches::Install>,
+) -> i32 {
     if app::print_baked_receipt(compat) {
         return 0;
     }
@@ -79,6 +84,8 @@ pub(super) fn run<D: DataSource + Default + 'static>(name: &str, plan: &[u8], co
     }
     let started = Instant::now();
     let mut config = Config::from_env(plan, compat);
+    // The presenter makes the hatches' value after its first frame is shown.
+    config.hatches = hatches;
     // Config has already stripped EXACT_AGENT_* for a production bake.
     let frame_limit = match std::env::var("EXACT_AGENT_WINDOW_FRAMES") {
         Ok(value) => match value.parse::<u64>() {
@@ -210,8 +217,14 @@ impl<D: DataSource + Default + 'static> App<D> {
             return Ok(());
         };
         p.pump(now);
+        // A presented frame: its tasks, then the hatches' ticks and due
+        // `after`s (LLP 1075.003.000.001 §2.4).
         p.animation_frame(now);
         p.run_commands(D::default);
+        // The hatches' turn: what they asked of elements runs, then the
+        // moments this turn's commits and the window's new size caused; an
+        // overlay published here is in the frame painted below.
+        p.hatch_turn();
         p.poll_images();
         // The OS draws the desktop cursor; this presenter's arrow is for DRM.
         p.set_pointer(None);
@@ -352,6 +365,10 @@ impl<D: DataSource + Default + 'static> ApplicationHandler for App<D> {
     }
     fn window_event(&mut self, events: &ActiveEventLoop, _: WindowId, event: WindowEvent) {
         if matches!(event, WindowEvent::CloseRequested) {
+            // The window is going: its hatch, then the app's, ends.
+            if let Some(p) = &mut self.presenter {
+                p.end_hatches();
+            }
             events.exit();
             return;
         }
@@ -471,7 +488,7 @@ impl<D: DataSource + Default + 'static> ApplicationHandler for App<D> {
                 }
             }
             events.set_control_flow(ControlFlow::WaitUntil(self.next_frame));
-        } else if let Some(due) = p.host().timer_due_ms() {
+        } else if let Some(due) = p.timer_due_ms() {
             let deadline = self.started + Duration::from_secs_f64((due / 1000.).max(0.));
             if Instant::now() >= deadline {
                 if let Some(window) = &self.window {

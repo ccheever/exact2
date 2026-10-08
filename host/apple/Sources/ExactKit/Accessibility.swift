@@ -136,6 +136,12 @@ final class FieldCell: NSTextFieldCell {
     override func fieldEditor(for controlView: NSView) -> NSTextView? {
         (controlView.superview as? NodeView)?.hearsFieldClipboard() == true ? clipboardEditor : super.fieldEditor(for: controlView)
     }
+    override func drawingRect(forBounds rect: NSRect) -> NSRect {
+        (controlView?.superview as? NodeView)?.nativeEditorRect(in: rect) ?? super.drawingRect(forBounds: rect)
+    }
+    override func titleRect(forBounds rect: NSRect) -> NSRect {
+        (controlView?.superview as? NodeView)?.nativeEditorRect(in: rect) ?? super.titleRect(forBounds: rect)
+    }
     override func accessibilityAttributeNames() -> [NSAccessibility.Attribute] {
         super.accessibilityAttributeNames() + NodeView.ariaAttributes.filter { (controlView?.superview as? NodeView)?.ariaAttribute($0) != nil }.map { .init(rawValue: $0) }
     }
@@ -145,6 +151,12 @@ final class FieldCell: NSTextFieldCell {
 }
 /// A password field's, as `FieldCell`.
 final class SecureFieldCell: NSSecureTextFieldCell {
+    override func drawingRect(forBounds rect: NSRect) -> NSRect {
+        (controlView?.superview as? NodeView)?.nativeEditorRect(in: rect) ?? super.drawingRect(forBounds: rect)
+    }
+    override func titleRect(forBounds rect: NSRect) -> NSRect {
+        (controlView?.superview as? NodeView)?.nativeEditorRect(in: rect) ?? super.titleRect(forBounds: rect)
+    }
     override func accessibilityAttributeNames() -> [NSAccessibility.Attribute] {
         super.accessibilityAttributeNames() + NodeView.ariaAttributes.filter { (controlView?.superview as? NodeView)?.ariaAttribute($0) != nil }.map { .init(rawValue: $0) }
     }

@@ -1198,6 +1198,7 @@ fn region_receipt_carries_resolved_exclusions_with_selected_frames() {
     assert!(!r.shell.changed.contains(&key(&k, 4)));
 }
 mod flex;
+mod native_fields;
 mod projection;
 
 // Split-profile acceptance tests; baseline uses a separate existing-API fragment.

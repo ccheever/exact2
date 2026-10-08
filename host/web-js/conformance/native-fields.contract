@@ -1,0 +1,23 @@
+// data: sparkline
+// LLP 1104 D3/D4/D8: UA chrome, page typography and authored content-box
+// padding on both browser executors; excluded and devolved editors stay bare.
+component NativeFields
+  state typed = ""
+  action edit(value: string)
+    typed = value
+  view
+    column padding=12 gap=8 background-color="#ffffff" color="#152030"
+      input testId="plain" placeholder="Plain field" value=typed input=edit
+      input type="password" testId="password" placeholder="Password"
+      input type="search" testId="search" placeholder="Search"
+      input type="email" testId="email" placeholder="Email"
+      input type="number" testId="number" placeholder="Number"
+      textarea testId="multiline" placeholder="Textarea" rows=2
+      input testId="padded" placeholder="Authored padding" padding="1em" width=180
+      input testId="disabled" placeholder="Disabled field" disabled=true
+      column font-size=20 font-weight=600 font-style="italic" line-height=2 letter-spacing=1 color="#245080"
+        input testId="inherited" placeholder="Inherited 20px font"
+        textarea testId="inherited-area" placeholder="Inherited textarea" rows=2
+      input testId="bare" placeholder="Explicit bare field" appearance="none"
+      input testId="devolved" placeholder="Authored border" border="1px solid #888888"
+      textarea testId="markdown" markup="markdown" value="Editor stays bare"

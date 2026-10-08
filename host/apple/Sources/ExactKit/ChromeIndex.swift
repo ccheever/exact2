@@ -16,7 +16,7 @@ struct ChromeIndex {
                          ("type:checkbox", "type", "checkbox"), ("type:radio", "type", "radio"), ("type:select", "type", "select"),
                          ("type:range", "type", "range"), ("type:date", "type", "date"),
                          ("type:time", "type", "time"), ("type:datetime-local", "type", "datetime-local"),
-                         ("type:button", "type", "button")]
+                         ("type:button", "type", "button"), ("type:progress", "type", "progress")]
     private var byKey: [String: Set<UInt32>] = [:]
     /// The views carrying each `id` value, and the values whose carriers
     /// changed since `takeChangedNames` — what resolves a name without

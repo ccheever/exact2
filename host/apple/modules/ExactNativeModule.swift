@@ -89,6 +89,13 @@ public final class ExactModuleContext: @unchecked Sendable {
     /// scoped `module`. It records once the hatches have connected, in a
     /// development build; before that, and in production, each call returns.
     public let diagnostics: ExactDiagnostics
+    // The frame clock (§2.4): the host's entries, there once the hatches
+    // connect, and what each token calls.
+    typealias FramesFn = @convention(c) (UnsafeMutableRawPointer?, UInt64, Int32) -> Void
+    typealias AfterFn = @convention(c) (UnsafeMutableRawPointer?, UInt64, Double) -> Void
+    var framesFn: FramesFn?, afterFn: AfterFn?
+    var ticks: [UInt64: (ExactFrame) -> Void] = [:], afters: [UInt64: () -> Void] = [:]
+    private var nextToken: UInt64 = 1
 
     init(json: [String: Any], host: UnsafeMutableRawPointer?, changed: @escaping ExactModuleChangedFn, now: @escaping ExactModuleNowFn) {
         diagnostics = ExactDiagnostics(host: host, scope: "module", node: 0)
@@ -102,12 +109,62 @@ public final class ExactModuleContext: @unchecked Sendable {
     /// so what a view draws from it repeats. Main thread.
     public func now() -> Double { nowFn(host) }
 
+    /// A frame ticket (LLP 1075.003.000.001 §2.4): `body` at each frame, after
+    /// that frame's tasks and timers, with the session clock's time. Logical
+    /// time, for behaviour that keeps step with the app (an indicator that
+    /// follows an animation): each presented frame on the wall, and under the
+    /// agent the virtual 60 Hz display, where a seek stops at each tick, so
+    /// the callback sees that instant's state and a drive repeats. Not for
+    /// measuring the display: `perf frames` and `diagnostics.measure` are.
+    /// Main thread. `stop()` ends it; a reload drops it.
+    @discardableResult
+    public func frames(_ body: @escaping (ExactFrame) -> Void) -> ExactTicket {
+        let token = nextToken
+        nextToken += 1
+        guard let framesFn else { return ExactTicket {} }
+        ticks[token] = body
+        framesFn(host, token, 1)
+        return ExactTicket { [weak self] in
+            guard let self, self.ticks.removeValue(forKey: token) != nil else { return }
+            framesFn(self.host, token, 0)
+        }
+    }
+
+    /// `body` once, `ms` later on the session clock: the agent's under the
+    /// agent, where a seek fires it at its own instant. `stop()` before then
+    /// and it never runs. Main thread.
+    @discardableResult
+    public func after(_ ms: Double, _ body: @escaping () -> Void) -> ExactTicket {
+        let token = nextToken
+        nextToken += 1
+        guard let afterFn else { return ExactTicket {} }
+        afters[token] = body
+        afterFn(host, token, max(0, ms))
+        return ExactTicket { [weak self] in
+            guard let self, self.afters.removeValue(forKey: token) != nil else { return }
+            afterFn(self.host, token, -1)
+        }
+    }
+
     /// Say a device topic changed: every TypeScript answer that called
     /// `native.watch(topic)` is asked again (LLP 1016.002). Any thread.
     public func changed(_ topic: String) {
         let bytes = Array(topic.utf8)
         bytes.withUnsafeBufferPointer { changedFn(host, $0.baseAddress, UInt32($0.count)) }
     }
+}
+
+/// One frame of a `frames` ticket: the session clock's time in milliseconds,
+/// and the commit the frame's state ends at.
+public struct ExactFrame: Sendable {
+    public let now: Double, seq: UInt64
+}
+
+/// What `frames` and `after` return: `stop()` ends the ticket or cancels the wait.
+public final class ExactTicket {
+    private var end: (() -> Void)?
+    init(_ end: @escaping () -> Void) { self.end = end }
+    public func stop() { end?(); end = nil }
 }
 
 /// The answer to one `native.later` call. Only the first `send` or `fail`
@@ -234,6 +291,27 @@ public struct ExactData: Sendable {
     public subscript(_ key: ExactDataKey) -> String? { words[key.name] }
 }
 
+#if os(macOS)
+public typealias ExactPlatformView = NSView
+public typealias ExactPlatformRecognizer = NSGestureRecognizer
+#else
+public typealias ExactPlatformView = UIView
+public typealias ExactPlatformRecognizer = UIGestureRecognizer
+#endif
+
+/// A control a hatch drew, named for the agent (LLP 1075.003.000.001 §3.5):
+/// `tree` lists it under its node with the frame the host observes, and
+/// `tap <node>/<id>` reaches it as a real touch or pointer event at its
+/// place, never by calling it. What it does when touched is the hatch's own
+/// code, which acts on an authored node. `id` is unique within the node.
+public struct ExactPart {
+    public let id: String, role: String, label: String
+    public weak var view: ExactPlatformView?
+    public init(id: String, view: ExactPlatformView, role: String, label: String) {
+        self.id = id; self.view = view; self.role = role; self.label = label
+    }
+}
+
 /// The app, as its hatch hears of it (LLP 1075.003.000.001 §2.1): the facts
 /// Contract sees, by the web's names, and the platform application object for
 /// the one session the embedder gave the process to.
@@ -256,12 +334,23 @@ public final class ExactApp {
     public internal(set) var prefersContrast = "no-preference"
     public internal(set) var prefersReducedMotion = false
     public internal(set) var prefersReducedTransparency = false
+    /// The root node's `data-*` words: what Contract projects for the app
+    /// hatch to know. A change is a `changed` moment.
+    public internal(set) var data = ExactData([:])
     /// True in the first `app` call of this handle; false when a fact changed.
     public internal(set) var isNew = true
     public internal(set) var isLive = true
+    weak var hatches: ExactHatches?
+
+    /// Say what this hatch set app-wide (§3.4): `owns(appearance: "tab bar
+    /// tint: label")`. `state.hatches` lists it; saying it again replaces it.
+    public func owns(appearance what: String, surface: Bool = false) {
+        hatches?.owns(scope: "app", node: 0, kind: 2, object: nil, what, surface: surface)
+    }
 
     func read(_ json: [String: Any]) {
         processOwner = json["processOwner"] as? Bool ?? false
+        data = ExactData(json["data"] as? [String: String] ?? [:])
         let facts = json["facts"] as? [String: Any] ?? [:]
         visibilityState = facts["visibilityState"] as? String ?? visibilityState
         onLine = facts["onLine"] as? Bool ?? onLine
@@ -294,6 +383,18 @@ public final class ExactWindow {
     /// True in the first `window` call of this handle; false on a size or safe-area change.
     public internal(set) var isNew = true
     public internal(set) var isLive = true
+    weak var hatches: ExactHatches?
+
+    /// Say what this hatch added to the window (§3.4), bound to the object:
+    /// `owns(recognizer: threeFinger, "three fingers held 0.8 s: dev menu",
+    /// surface: true)`. `surface` marks a hatch-only surface, one that
+    /// changes no Contract state and has no authored stand-in.
+    public func owns(view: ExactPlatformView, _ what: String, surface: Bool = false) {
+        hatches?.owns(scope: "window", node: 0, kind: 0, object: view, what, surface: surface)
+    }
+    public func owns(recognizer: ExactPlatformRecognizer, _ what: String, surface: Bool = false) {
+        hatches?.owns(scope: "window", node: 0, kind: 1, object: recognizer, what, surface: surface)
+    }
 
     func read(_ json: [String: Any]) {
         exclusive = json["exclusive"] as? Bool ?? false
@@ -380,6 +481,12 @@ final class ExactHatches {
     /// One of 64 or more: `input(text)` on an authored field.
     typealias InputFn = @convention(c) (UnsafeMutableRawPointer?, UInt32, UnsafePointer<UInt8>?, UInt32) -> Int32
     let inputFn: InputFn?
+    /// One of 80 or more: the frame clock's two entries.
+    let framesFn: ExactModuleContext.FramesFn?, afterFn: ExactModuleContext.AfterFn?
+    /// One of 96 or more: regions and parts (§3.4, §3.5).
+    typealias OwnsFn = @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, UInt32, UInt32, UInt32, UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, UInt32, UInt32) -> Int32
+    typealias PartsFn = @convention(c) (UnsafeMutableRawPointer?, UInt32, UnsafePointer<UInt8>?, UInt32, UnsafePointer<UnsafeMutableRawPointer?>?, UInt32) -> Int32
+    let ownsFn: OwnsFn?, partsFn: PartsFn?
     #if os(iOS) || os(tvOS)
     var navigations: [ObjectIdentifier: ExactNavigation] = [:]
     var routes: [String: ExactRoute] = [:]
@@ -407,11 +514,29 @@ final class ExactHatches {
             .map { unsafeBitCast($0, to: ExactDiagnostics.RecordFn.self) }
         inputFn = table.load(as: UInt32.self) >= 64
             ? table.load(fromByteOffset: 56, as: UnsafeRawPointer?.self).map { unsafeBitCast($0, to: InputFn.self) } : nil
+        let clock = table.load(as: UInt32.self) >= 80
+        framesFn = clock ? table.load(fromByteOffset: 64, as: UnsafeRawPointer?.self).map { unsafeBitCast($0, to: ExactModuleContext.FramesFn.self) } : nil
+        afterFn = clock ? table.load(fromByteOffset: 72, as: UnsafeRawPointer?.self).map { unsafeBitCast($0, to: ExactModuleContext.AfterFn.self) } : nil
+        let regions = table.load(as: UInt32.self) >= 96
+        ownsFn = regions ? table.load(fromByteOffset: 80, as: UnsafeRawPointer?.self).map { unsafeBitCast($0, to: OwnsFn.self) } : nil
+        partsFn = regions ? table.load(fromByteOffset: 88, as: UnsafeRawPointer?.self).map { unsafeBitCast($0, to: PartsFn.self) } : nil
     }
 
     func log(_ line: String) {
         let bytes = Array(line.utf8)
         bytes.withUnsafeBufferPointer { logFn(host, $0.baseAddress, UInt32($0.count)) }
+    }
+
+    /// A region (§3.4): `what`, bound weakly to `object` (kind 0 a view, 1 a
+    /// recognizer) or to nothing (2, an appearance), for the scope named.
+    func owns(scope: String, node: UInt32, kind: UInt32, object: AnyObject?, _ what: String, surface: Bool) {
+        guard let ownsFn else { return }
+        let s = Array(scope.utf8), w = Array(what.utf8)
+        _ = s.withUnsafeBufferPointer { s in
+            w.withUnsafeBufferPointer { w in
+                ownsFn(host, s.baseAddress, UInt32(s.count), node, kind, object.map { Unmanaged.passUnretained($0).toOpaque() }, w.baseAddress, UInt32(w.count), surface ? 1 : 0)
+            }
+        }
     }
 
     func resolve(route: String, id: String) -> UInt32 {
@@ -471,6 +596,15 @@ public final class ExactRoute {
     weak var hatches: ExactHatches?
     init(key: String, controller: UIViewController, data: ExactData, hatches: ExactHatches) {
         self.key = key; self.controller = controller; self.data = data; isNew = true; self.hatches = hatches
+    }
+
+    /// Tell the agent what this hatch added to the route (§3.4): a title
+    /// view, a recognizer. It ends when the object goes or the route does.
+    public func owns(view: UIView, _ what: String, surface: Bool = false) {
+        if isLive { hatches?.owns(scope: "route \(key)", node: 0, kind: 0, object: view, what, surface: surface) }
+    }
+    public func owns(recognizer: UIGestureRecognizer, _ what: String, surface: Bool = false) {
+        if isLive { hatches?.owns(scope: "route \(key)", node: 0, kind: 1, object: recognizer, what, surface: surface) }
     }
 
     /// The live node the route holds under this HTML id, resolved now, as
@@ -604,6 +738,39 @@ public final class ExactElement {
         let what = hatch == nil ? "route \(key)" : "element \(key)"
         guard isLive, hatches.act(node, action) else { return hatches.log("\(what): \(name)() on #\(id.isEmpty ? String(node) : id) refused") }
     }
+
+    private var scopeName: String { hatch == nil ? "route \(key)" : "element \(key)" }
+
+    /// Tell the agent what this hatch added (LLP 1075.003.000.001 §3.4): a
+    /// sentence, bound weakly to the view or recognizer. `tree` shows it
+    /// under the node with what the host observes of the object (whether it
+    /// is live, its frame, its class), and its interior is counted as this
+    /// region's. It ends when the object goes or the node does.
+    public func owns(view: ExactPlatformView, _ what: String, surface: Bool = false) {
+        if isLive { hatches?.owns(scope: scopeName, node: node, kind: 0, object: view, what, surface: surface) }
+    }
+    public func owns(recognizer: ExactPlatformRecognizer, _ what: String, surface: Bool = false) {
+        if isLive { hatches?.owns(scope: scopeName, node: node, kind: 1, object: recognizer, what, surface: surface) }
+    }
+
+    /// The controls this hatch drew in the node (§3.5), at most 32. Setting
+    /// the list replaces it; one that breaks a bound is refused whole, by
+    /// name, in the journal, and the list stays as it was.
+    public var parts: [ExactPart] = [] {
+        didSet {
+            guard !settingParts, isLive, let hatches, let partsFn = hatches.partsFn else { return }
+            let rows = parts.map { ["id": $0.id, "role": $0.role, "label": $0.label] }
+            let json = (try? JSONSerialization.data(withJSONObject: rows)) ?? Data("[]".utf8)
+            var views: [UnsafeMutableRawPointer?] = parts.map { part in part.view.map { Unmanaged.passUnretained($0).toOpaque() } }
+            let refused = json.withUnsafeBytes { j in
+                views.withUnsafeMutableBufferPointer { v in
+                    partsFn(hatches.host, node, j.bindMemory(to: UInt8.self).baseAddress, UInt32(json.count), UnsafePointer(v.baseAddress), UInt32(v.count))
+                }
+            } != 0
+            if refused { settingParts = true; parts = oldValue; settingParts = false }
+        }
+    }
+    private var settingParts = false
 
     /// Replace an authored text field's whole value, as a person's typing
     /// would leave it (LLP 1075.003.000.001 §2.5): cut to the field's own
@@ -938,6 +1105,17 @@ private let moduleConnect: @convention(c) (UnsafeMutableRawPointer?, UnsafeRawPo
     guard let m = module(raw), let table else { return }
     m.hatches = ExactHatches(host: m.context.host, table: table)
     m.context.diagnostics.recordFn = m.hatches?.recordFn
+    m.context.framesFn = m.hatches?.framesFn
+    m.context.afterFn = m.hatches?.afterFn
+}
+
+/// `tick(module, kind, token, now, seq)`: a frame ticket's tick (0) or an
+/// `after` that came due (1). A token the module no longer holds is one it
+/// stopped inside an earlier callback of this instant: nothing runs.
+private let moduleTick: @convention(c) (UnsafeMutableRawPointer?, UInt32, UInt64, Double, UInt64) -> Void = { raw, kind, token, now, seq in
+    guard let m = module(raw) else { return }
+    if kind == 0 { m.context.ticks[token]?(ExactFrame(now: now, seq: seq)) }
+    else { m.context.afters.removeValue(forKey: token)?() }
 }
 
 /// `navigation(module, event, controller, flags) → flags`: event 0 built (the
@@ -1092,6 +1270,7 @@ private let moduleApp: @convention(c) (UnsafeMutableRawPointer?, UInt32, UnsafeM
           let fields = try? JSONSerialization.jsonObject(with: Data(bytes: json, count: Int(length))) as? [String: Any] else { return }
     let app = hatches.app ?? ExactApp()
     let isNew = hatches.app == nil
+    app.hatches = hatches
     app.read(fields)
     #if os(macOS)
     app.application = application.map { Unmanaged<NSApplication>.fromOpaque($0).takeUnretainedValue() }
@@ -1118,6 +1297,7 @@ private let moduleWindow: @convention(c) (UnsafeMutableRawPointer?, UInt32, Unsa
           let fields = try? JSONSerialization.jsonObject(with: Data(bytes: json, count: Int(length))) as? [String: Any] else { return }
     // A new surface is a new handle: one from before never reaches the next window.
     let handle = event == 0 ? ExactWindow() : (hatches.window ?? ExactWindow())
+    handle.hatches = hatches
     let isNew = event == 0 || hatches.window == nil
     handle.read(fields)
     #if os(macOS)
@@ -1160,7 +1340,7 @@ private let table: UnsafeMutableRawPointer = {
     let text = "{" + (roster.keys.sorted().map { tag in
         "\"\(tag)\":{\"snapshot\":\(roster[tag]!.snapshot),\"reuse\":\(roster[tag]!.reuse)}"
     } + [words]).joined(separator: ",") + "}"
-    let size = 200
+    let size = 208
     let t = UnsafeMutableRawPointer.allocate(byteCount: size, alignment: 8)
     t.initializeMemory(as: UInt8.self, repeating: 0, count: size)
     t.storeBytes(of: major, as: UInt32.self)
@@ -1188,6 +1368,7 @@ private let table: UnsafeMutableRawPointer = {
     t.storeBytes(of: unsafeBitCast(moduleToolbar, to: UnsafeRawPointer.self), toByteOffset: 176, as: UnsafeRawPointer.self)
     t.storeBytes(of: unsafeBitCast(moduleApp, to: UnsafeRawPointer.self), toByteOffset: 184, as: UnsafeRawPointer.self)
     t.storeBytes(of: unsafeBitCast(moduleWindow, to: UnsafeRawPointer.self), toByteOffset: 192, as: UnsafeRawPointer.self)
+    t.storeBytes(of: unsafeBitCast(moduleTick, to: UnsafeRawPointer.self), toByteOffset: 200, as: UnsafeRawPointer.self)
     return t
 }()
 

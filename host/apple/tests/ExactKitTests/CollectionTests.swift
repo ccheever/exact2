@@ -41,6 +41,11 @@ final class CollectionTests: XCTestCase {
         XCTAssertNotEqual(a, b)
         b = a; b.interaction = nil
         XCTAssertNotEqual(a, b)
+        // A padding change alone, which keeps a border-box list's size, is
+        // reported too (LLP 1010 §6.9); it is not on the wire.
+        b = a; b.padding = [92, 109]
+        XCTAssertNotEqual(a, b)
+        XCTAssertEqual(a.encode(view: 1, revision: 1, sequence: 1), b.encode(view: 1, revision: 1, sequence: 1))
     }
 
     func testMalformedSnapshotsDoNotBecomeGeometry() {
@@ -52,6 +57,16 @@ final class CollectionTests: XCTestCase {
         XCTAssertNil(CollectionSnapshot(broken))
         broken = value; broken["rows"] = [row, row]
         XCTAssertNil(CollectionSnapshot(broken))
+        // A `scrollIntoView` into the padding before the first row is a
+        // negative correction (LLP 1010 §6.9); a non-finite one is not.
+        var padded = value; padded["correction"] = ["scrollSequence": 1, "offset": -92]
+        XCTAssertEqual(CollectionSnapshot(padded)?.correction?.offset, -92)
+        // An anchor's correction taken from a port in that padding keeps its
+        // `from`, so it stays relative (Grok's scroll-padding review r2).
+        padded["correction"] = ["scrollSequence": 1, "offset": 500, "from": -92]
+        XCTAssertEqual(CollectionSnapshot(padded)?.correction?.from, -92)
+        padded["correction"] = ["scrollSequence": 1, "offset": -Double.infinity]
+        XCTAssertNil(CollectionSnapshot(padded))
     }
 
 

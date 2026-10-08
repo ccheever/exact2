@@ -788,7 +788,7 @@ extension NavigationHost {
     /// Whether this build checks what Exact owns: every build but a
     /// production bake.
     static let checksOwnership: Bool = {
-        let trust = ((GpuModule.bakedCompatibility["inputs"] as? [String: Any])?["trust"] as? String) ?? "development"
+        let trust = ((BakedCompatibility.json["inputs"] as? [String: Any])?["trust"] as? String) ?? "development"
         return trust != "production"
     }()
 

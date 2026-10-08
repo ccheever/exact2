@@ -14,6 +14,8 @@ use exact_kernel::StyleId;
 /// `(name, provenance, what it lowers to)`.
 #[rustfmt::skip]
 pub const STYLE_NAMES: &[(&str, &str, AttrTarget)] = &[
+    ("-exact-control-size", "exact LLP 1069.011.001 D8", AttrTarget::Styles(&[StyleId::ControlSize])),
+    ("-exact-corner-style", "exact LLP 1069.011.001 D9", AttrTarget::Styles(&[StyleId::ControlCornerStyle])),
     ("filter", "css CSS Filter Effects 1", AttrTarget::Styles(&[StyleId::Filter])),
     ("mix-blend-mode", "css CSS Compositing 1", AttrTarget::Styles(&[StyleId::MixBlendMode])),
     ("isolation", "css CSS Compositing 1", AttrTarget::Styles(&[StyleId::Isolation])),
@@ -217,6 +219,12 @@ pub const STYLE_NAMES: &[(&str, &str, AttrTarget)] = &[
     ("overscroll-behavior-x", "css CSS Overscroll Behavior 1", AttrTarget::Styles(&[StyleId::OverscrollBehaviorX])),
     ("overscroll-behavior-y", "css CSS Overscroll Behavior 1", AttrTarget::Styles(&[StyleId::OverscrollBehaviorY])),
     ("scroll-behavior", "css CSS Overflow 3", AttrTarget::Styles(&[StyleId::ScrollBehavior])),
+    // @ref LLP 1010 §6.9 — a virtualized list's `scrollIntoView` aligns within it.
+    ("scroll-padding", "css CSS Scroll Snap 1", AttrTarget::Styles(&[ StyleId::ScrollPaddingTop, StyleId::ScrollPaddingRight, StyleId::ScrollPaddingBottom, StyleId::ScrollPaddingLeft, ])),
+    ("scroll-padding-top", "css CSS Scroll Snap 1", AttrTarget::Styles(&[StyleId::ScrollPaddingTop])),
+    ("scroll-padding-right", "css CSS Scroll Snap 1", AttrTarget::Styles(&[StyleId::ScrollPaddingRight])),
+    ("scroll-padding-bottom", "css CSS Scroll Snap 1", AttrTarget::Styles(&[StyleId::ScrollPaddingBottom])),
+    ("scroll-padding-left", "css CSS Scroll Snap 1", AttrTarget::Styles(&[StyleId::ScrollPaddingLeft])),
     ("z-index", "css CSS 2", AttrTarget::Styles(&[StyleId::ZIndex])),
     ("order", "css CSS Display 3", AttrTarget::Styles(&[StyleId::Order])),
     ("transition", "css CSS Transitions 1", AttrTarget::Styles(&[StyleId::Transition])),

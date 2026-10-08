@@ -780,6 +780,69 @@ the frame once more per backdrop node. The measured bounds are LLP 1053.000 §3.
   when something can move. Zero until the host says otherwise, as a browser
   reports the insets for a page without `viewport-fit=cover` (LLP 1008 §9).
   `tests/env.rs`.
+- **Comparisons** (2026-10-07; approved by Charlie 2026-10-06, via the lead:
+  "standard CSS"). A dimension row takes CSS's `min()`, `max()` and `clamp()`
+  (CSS Values 4 §10.2) over the lengths the kernel resolves before layout: px
+  and the other absolute units, `env(safe-area-inset-<edge>)`, the viewport
+  lengths, and sums of them, written in an argument directly or in `calc()`,
+  nested in each other and in `calc()` as CSS allows. The Bluesky clone asked
+  for its bottom bar's padding and its compose button's offset: Bluesky's
+  `clamp(insets.bottom, 15, 60)` is a value bounded to 15–60, which CSS
+  spells `clamp(15px, env(safe-area-inset-bottom), 60px)` (CSS's order is
+  `clamp(MIN, VAL, MAX)`, `max(MIN, min(VAL, MAX))`, so MIN wins over MAX),
+  and the button sits at `calc(clamp(15px, env(safe-area-inset-bottom),
+  60px) + 15px + 44px)`. Parsed once, in `style/compare.rs`, before the other
+  length grammars (a text naming no comparison falls through to them
+  unchanged). The row holds `Dimension::Compare(Comparison)`, a handle to an
+  interned tree — a term (points, an inset or a viewport length, plus points)
+  or a comparison of trees plus points — with equal trees sharing a handle,
+  so an unchanged style still compares equal by value, as `calc()` pairs are
+  interned for Taffy. A handle keeps `Dimension` `Copy`, which every reader
+  in the kernel and the four hosts takes by value: a boxed tree would change
+  all of them, and lists of the existing linear forms cannot hold a
+  comparison nested in a `calc()` with points added, or a viewport length
+  plus px. `Dimension::resolve` turns a comparison into points against the
+  `Env` exactly where an `env()` length becomes points (`taffy_style`), and
+  `uses_env` counts it, so `set_env` and a viewport change re-derive and
+  dirty its node; every host that reads a resolved length (Apple's style
+  JSON, the Linux painter, both hosts' content sizes) sees points (their
+  matches name the variant only as resolved away). On a row CSS gives no
+  negative length (a size, its minimum and maximum, a padding, a flex
+  basis, a border radius, an SVG `r`/`rx`/`ry`, a column width), the tree is
+  held as `max(0px, …)` unless it has a floor at 0 or more (an inset is 0 or
+  more, `clamp(lo, …)` is `lo` or more), and folded points at 0 or more, as
+  CSS clamps a math function to the property's range (a tree with no room
+  left for the wrap under the limits below is refused); margins and insets
+  keep negative lengths (Astra's review, 2026-10-07: a folded `-8px` width
+  was written as a `width:-8px` the browser drops). A replaced header padded
+  by a comparison that reads the top inset hands that inset to the bar, as
+  one padded by `env(safe-area-inset-top)` does (`kernel/cover.rs`). The
+  readers that never resolved `env()` or viewport lengths (SVG geometry, the
+  Apple canvas clip, `svg::scene::content_box`) take an unresolved comparison
+  as 0, as they take those (QUEUE.md). The web writes CSS's own functions for the browser to resolve
+  (`host/web/src/css.rs`, the wasm page and the JS target's static rows; a
+  JS target binding writes its text as authored), and the agent prints the
+  same text. Wire kind 24: a zero `f32`, then the tree (a tag: 0 points, 1 an
+  inset and its edge, 2 a viewport length and its unit and number, 3–5
+  `min`/`max`/`clamp` with a count and the arguments; then each node's
+  points), a nonzero leading `f32` refused, decoded to what the parser accepts or refused as
+  `DecodeError::InvalidComparison` (the 64-term limit counted across the
+  whole tree as it is read, so a wide tree is refused before it is built). Refused by name at the bake
+  (`StyleValueError::BadComparison`, `lower-attr-value`): a percentage (it
+  has no basis where the insets resolve; resolving one would put the tree in
+  Taffy's `calc()` resolver, left until an app asks), `rem`/`em`, a unitless
+  number, zero too (inside a math function a `0` is a number, not a length,
+  CSS Values 4 §10.9), `env(viewport-segment-*)`, a sum with two terms that read
+  the environment or one subtracted (it negates the variable, which no
+  length holds, as `<n>px - env(…)` already is), `*` and `/`, a sum outside
+  `calc()`, a `clamp()` of other than three, an empty `min()`/`max()`, and
+  more than 8 levels or 64 terms. A text that reads nothing folds to points
+  at the parse. The interned table grows with each distinct tree, as the
+  `calc()` pairs do: a bound text that changes every frame grows it.
+  `tests/compare.rs`, `wire/codec.rs`
+  (`comparisons_round_trip_and_a_malformed_tree_is_refused`),
+  `contract/cli/tests/it/insets.rs`, `host/web/tests/it/host/css_tests.rs`,
+  and the conformance plan `host/web-js/conformance/comparisons.contract`.
 
 ## 3. One write path (WS-D, WS-F, 0507 §4)
 

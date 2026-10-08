@@ -134,6 +134,23 @@ impl<D: DataSource> Host<D> {
         exact_kernel::timeline::link();
         let mut kernel = Kernel::new(Box::new(crate::measure::CellMeasurer));
         kernel.set_cell_borders(true);
+        // LLP 1104 D4/D7: the user's cell face, at one 16px layout row.
+        let font = exact_kernel::ControlFont {
+            family: "ui-monospace".into(),
+            family_id: 5,
+            size: ROW,
+            weight: 400,
+            style: exact_kernel::FontStyle::Normal,
+        };
+        let env = exact_kernel::Env {
+            control_text_styles: Some(exact_kernel::ControlTextStyles {
+                field: font.clone(),
+                textarea: font.clone(),
+                button: font,
+            }),
+            ..kernel.env().clone()
+        };
+        kernel.set_env(env).map_err(|e| format!("{e:?}"))?;
         let viewport = Viewport::sized(cols as f64 * COLUMN as f64, rows as f64 * ROW as f64);
         let runner =
             Runner::boot(plan, data, kernel, viewport, "/").map_err(|e| match e {

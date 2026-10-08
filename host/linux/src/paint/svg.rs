@@ -106,17 +106,12 @@ impl Painter {
         else {
             return;
         };
-        let Some((_, d, filled)) = exact_kernel::generated::symbol(role) else {
-            return;
-        };
         let style = node.style;
         let size = style.font_size.max(1.0);
         let natural = (size.round().max(1.0) as u32, size.round().max(1.0) as u32);
-        let Some((x, y, w, h)) = super::object_fit(natural, style.object_fit, content) else {
+        let Some(rect) = super::object_fit(natural, style.object_fit, content) else {
             return;
         };
-        let path = parsed_symbol(d);
-        // An untinted symbol is the row's initial, `AccentColor` (LLP 1095 D8).
         let colour = tint.unwrap_or_else(|| {
             rgba(
                 style
@@ -125,6 +120,23 @@ impl Painter {
                     .resolve(self.dark),
             )
         });
+        self.symbol_face(role, style, rect, colour, ts);
+    }
+
+    /// A semantic button's symbol shares the portable image painter.
+    pub(super) fn symbol_face(
+        &mut self,
+        role: &str,
+        style: &exact_kernel::StyleProps,
+        rect: Rect4,
+        colour: [u8; 4],
+        ts: Transform,
+    ) {
+        let Some((_, d, filled)) = exact_kernel::generated::symbol(role) else {
+            return;
+        };
+        let (x, y, w, h) = rect;
+        let path = parsed_symbol(d);
         let weight = f32::from(style.font_weight).clamp(100.0, 900.0);
         let paint = SvgPaint {
             path: &path,

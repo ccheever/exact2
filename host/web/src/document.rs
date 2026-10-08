@@ -566,7 +566,11 @@ impl<S: Source> Walk<'_, '_, S> {
                 folds(&c, &node, above.as_ref(), true, handled)
             });
         let css = blocks(
-            contents(host_css_of(&node, text, tag), folded, self.touch > 0),
+            contents(
+                host_css_of(&node, above.as_ref(), text, tag),
+                folded,
+                self.touch > 0,
+            ),
             holds,
         );
         let mut style = layers::with_isolation(css, isolated);

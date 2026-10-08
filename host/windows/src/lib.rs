@@ -14,12 +14,44 @@ pub fn run<D: exact_runner::DataSource + Default + 'static>(
 ) -> i32 {
     #[cfg(windows)]
     {
-        window::run::<D>(name, plan, compat)
+        window::run::<D>(name, plan, compat, None)
     }
     #[cfg(not(windows))]
     {
         let _ = (name, plan, compat);
-        eprintln!("exact-windows requires a Windows target");
-        1
+        refuse()
     }
+}
+
+/// [`run`] with the app's hatches (LLP 1075.003.000.001 §5): `H` is the one
+/// type the app's `modules/linux` names (the trait is the shared
+/// presenter's), `words` the hatch words `app.json` gives this platform.
+/// The window's loop tells the window moments and its frame loop the ticks;
+/// overlays and observed input go through the presenter. Nothing of `H` is
+/// made before the first frame is presented.
+pub fn run_with_hatches<
+    D: exact_runner::DataSource + Default + 'static,
+    H: exact_linux::Hatches,
+>(
+    name: &str,
+    plan: &[u8],
+    compat: &str,
+    words: &'static [&'static str],
+) -> i32 {
+    #[cfg(windows)]
+    {
+        let hatches = exact_linux::hatches::install::<H>(words);
+        window::run::<D>(name, plan, compat, Some(hatches))
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = (name, plan, compat, words);
+        refuse()
+    }
+}
+
+#[cfg(not(windows))]
+fn refuse() -> i32 {
+    eprintln!("exact-windows requires a Windows target");
+    1
 }

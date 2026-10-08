@@ -589,7 +589,6 @@ To learn from, read these four first:
 | [Update Lab](apps/update-lab) | Live replacement of Contract, TypeScript, and Rust in a running app | Hand-testing lab |
 | [Messages Stress](apps/messages-stress), [Completion Storm](apps/completion-storm), [Markdown Stress](apps/markdown-stress) | 100k-message histories, 128 parallel requests, and 4 MiB documents, under load | Opt-in workloads ([LLP 1041](llp/1041-graceful-overload.rfc.md)) |
 | [Native Fixture](apps/native-fixture), [Auth Fixture](apps/auth-fixture) | The native-module interface; OAuth with PAR, DPoP, and PKCE against a local server | Test fixtures |
-| [Messages Legacy](apps/messages-legacy) | The earlier chat app, built on Snapback4 | Needs private Snapback access |
 | [Beacons, Tennis, …](game/games) | Games on the optional [engine add-on](game/README.md): Rust gameplay, Contract menus | `bun game/dev.mjs beacons` |
 
 ## What works today, and what doesn't yet

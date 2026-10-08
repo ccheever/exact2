@@ -608,6 +608,14 @@
       ]
     },
     {
+      "name": "hatches",
+      "_comment": "@ref LLP 1075.003.000.001 §4.3: each hatch word app.json declares, with the platforms whose module handles it as a mask (bit 0 ios, 1 tvos, 2 macos, 3 web, 4 linux, 5 windows, 6 android; a plain list is every bit). A host calls a word only where its bit is set, so a platform taken off a word stops being called with the next bundle.",
+      "fields": [
+        { "name": "word", "codec": "str" },
+        { "name": "platforms", "codec": "u16" }
+      ]
+    },
+    {
       "name": "texts",
       "_comment": "@ref LLP 1060 D3: one localized text, `{name}` placeholders unfilled. Within a locale, sorted by key.",
       "fields": [

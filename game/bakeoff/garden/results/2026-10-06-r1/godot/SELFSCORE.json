@@ -1,0 +1,64 @@
+{
+  "engine": "Godot 4.7.2 (stable, official), GDScript",
+  "overall": 7,
+  "overall_why": "I would use Godot again for a similar game. A text project, a headless SceneTree script, and one windowed capture were enough to build the sim, the HUD, and a proof that checks determinism, a fresh-process save, and an offline hour, with no addons. The score stays at 7 because the long part of the work was engine defaults that report success while wrong: the glTF importer does not apply COLOR_0 as albedo, a one-sided ground plane draws nothing from above, and a script that fails to parse can still quit 0.",
+  "subscores": {
+    "setup": 8,
+    "docs": 6,
+    "loop": 7,
+    "verification": 9,
+    "debugging": 6,
+    "assets": 5,
+    "ui": 8,
+    "api": 7,
+    "reliability": 6,
+    "visuals": 7
+  },
+  "citations": {
+    "docs": [
+      "Godot 4.7 names the filmic mapper `Environment.TONE_MAPPER_FILMIC`. `TONE_MAP_FILMIC` does not exist. One parse error.",
+      "Daylight shots were white. glTF base factors are white and the PNGs are grey masks; the paint is COLOR_0, and the importer leaves `vertex_color_use_as_albedo` off."
+    ],
+    "loop": [
+      "GDScript will not infer a type from an untyped RefCounted return, so the proof needed explicit types on every sim local. ... Cost: a handful of headless reruns.",
+      "Iterations to a passing proof: the rule proof was already green before the picture was. This visual pass took three framing captures and four full `sh proof/run_proof.sh` runs.",
+      "Pixel looks: arrival against `reference/arrival.png` five times, then shop, backpack, market, grown, rain, night, and thunder."
+    ],
+    "debugging": [
+      "A script that failed to parse still quit 0 while `fails` stayed empty, and an early \"LOGIC PASS\" was false until the dump files existed.",
+      "`plant_at` was inferred as null, and every subscript of it failed to parse. Declaring the return as Variant fixed it. One rebuild.",
+      "The meadow is a one-sided 600 m plane. From above it drew nothing, so the \"ground\" was the sky colour (exact background RGB)."
+    ],
+    "assets": [
+      "Vertex colours were in the glTF and the importer left `vertex_color_use_as_albedo` off, so day shots were pale grey. The meadow plane was also culled from above until cull was disabled.",
+      "`harvest.wav` imported as \"no loader\" until a second `godot --import`. A few minutes.",
+      "Vertex green is about (32, 73, 8), so the meadow albedo is lifted in place. The texture and the vertices are still the kit. Two recaptures."
+    ],
+    "api": [
+      "GDScript will not infer a type from an untyped RefCounted return, so the proof needed explicit types on every sim local.",
+      "`plant_at` was inferred as null, and every subscript of it failed to parse. Declaring the return as Variant fixed it.",
+      "Game code: 2736 lines in `game/*.gd` and `game/*.gdshader` (sim 1233, world 710, ui 608, main 143, shaders 42)."
+    ],
+    "reliability": [
+      "A script that failed to parse still quit 0 while `fails` stayed empty, and an early \"LOGIC PASS\" was false until the dump files existed.",
+      "`harvest.wav` imported as \"no loader\" until a second `godot --import`. A few minutes.",
+      "Rain parented to the camera, and `emitting = false` left streaks alive for their lifetime, so a clear night still showed rain."
+    ],
+    "visuals": [
+      "The meadow is a one-sided 600 m plane. From above it drew nothing, so the \"ground\" was the sky colour (exact background RGB). Disabling cull fixed it.",
+      "Rain parented to the camera, and `emitting = false` left streaks alive for their lifetime, so a clear night still showed rain. Hide the particle node, and restart it when a spell begins.",
+      "This visual pass took three framing captures and four full `sh proof/run_proof.sh` runs.",
+      "Pixel looks: arrival against `reference/arrival.png` five times, then shop, backpack, market, grown, rain, night, and thunder."
+    ]
+  },
+  "top_frictions": [
+    "The glTF importer leaves COLOR_0 unused unless vertex_color_use_as_albedo is set, so painted models render as pale grey with no error.",
+    "A SceneTree proof can print LOGIC PASS and exit 0 when a preloaded script failed to parse and never ran.",
+    "Imported one-sided planes are invisible from above, and GPUParticles keep drawing after emitting is set false for their whole lifetime."
+  ],
+  "keep": [
+    "Headless `-s` scripts, an overridable clock, a fresh process, and JSON save made determinism, catch-up, and state asserts possible without looking at pixels.",
+    "Text scenes and GDScript were enough for the whole 3D game and a real Control HUD, with no editor session and no addons.",
+    "When a script does load, parse errors name the file and the bad type on the next run."
+  ]
+}

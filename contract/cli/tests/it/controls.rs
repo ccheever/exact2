@@ -729,3 +729,56 @@ fn input_change_and_select_hand_on_the_targets_input_event() {
         ]
     );
 }
+
+/// LLP 1069.001, amended 2026-10-07: `progress` with no `value` is HTML's
+/// indeterminate progress, the kernel's `Control` of type `progress` with
+/// ARIA's role and busy state; a measured leaf of 20 × 20 (UIKit's medium
+/// activity indicator) until CSS sizes it.
+#[test]
+fn an_indeterminate_progress_is_a_busy_control_of_twenty_points() {
+    let mut r = boot(
+        "component App\n  view\n    column testId=\"root\" align-items=\"flex-start\"\n      progress testId=\"spin\" aria-label=\"Loading\"\n      progress testId=\"big\" width=37 height=37 color=\"#f00\"\n      row\n        progress testId=\"row\"\n",
+    );
+    let spin = r.kernel().node(view_of(&r, "spin")).unwrap();
+    assert_eq!(spin.node_type, NodeType::Control);
+    assert_eq!(spin.props.str(PropId::Type), Some("progress"));
+    assert_eq!(
+        spin.props.str(PropId::AccessibilityRole),
+        Some("progressbar")
+    );
+    assert_eq!(spin.props.bool(PropId::AccessibilityBusy), Some(true));
+    assert_eq!(
+        exact_kernel::ControlKind::of(spin.node_type, spin.props),
+        Some(exact_kernel::ControlKind::Progress)
+    );
+    let root = view_of(&r, "root");
+    r.kernel_mut()
+        .compute_layout(root, exact_kernel::Offer::definite(320.0, 480.0))
+        .unwrap();
+    let size = |r: &Runner<NoData>, t: &str| {
+        let f = r.kernel().node(view_of(r, t)).unwrap().frame;
+        (f.width, f.height)
+    };
+    assert_eq!(size(&r, "spin"), (20.0, 20.0));
+    assert_eq!(size(&r, "big"), (37.0, 37.0));
+    assert_eq!(size(&r, "row"), (20.0, 20.0), "a flex item keeps its size");
+}
+
+#[test]
+fn the_compiler_refuses_a_progress_bar_and_progress_children() {
+    let refused = |line: &str| {
+        let src = format!("component App\n  state done = 3\n  view\n    column\n      {line}\n");
+        contract::compile(&src).unwrap_err().to_string()
+    };
+    for attr in ["value=done", "value=0.5", "max=10", "type=\"bar\""] {
+        let e = refused(&format!("progress {attr}"));
+        assert!(
+            e.contains("lower-attr-tag") && e.contains("`progress` takes no"),
+            "{attr}: {e}"
+        );
+    }
+    let e = refused("progress value=done max=10");
+    assert!(e.contains("determinate progress bar"), "{e}");
+    let e = refused("progress\n        text \"Loading\"");
+    assert!(e.contains("lower-void") && e.contains("children"), "{e}");
+}

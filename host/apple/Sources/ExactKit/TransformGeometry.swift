@@ -3,12 +3,12 @@ import Foundation
 /// One bounded observation per authored handle. No timer or frame loop: native
 /// layout/scroll and presentation batches schedule a coalesced UI turn. Facts
 /// exclude the target's own Translate/Scale so panning cannot feed back itself.
-final class TransformGeometryHost {
-    struct Observation {
-        let binding: TransformDragBinding
-        let facts: TransformGeometryFacts?
-        let sequence: UInt64
-        var accepted: Bool
+package final class TransformGeometryHost {
+    package struct Observation {
+        package let binding: TransformDragBinding
+        package let facts: TransformGeometryFacts?
+        package let sequence: UInt64
+        package var accepted: Bool
     }
     weak var presenter: Presenter?
     private var observations: [UInt32: Observation] = [:]
@@ -22,8 +22,8 @@ final class TransformGeometryHost {
     /// Moves on every native layout, scroll, window move and presentation
     /// batch — what may have moved a view — so a reader can keep a geometric
     /// answer until it does (a canvas's on-screen test, `Canvases.shown`).
-    private(set) var epoch = 0
-    func changed() {
+    private(set) package var epoch = 0
+    package func changed() {
         epoch &+= 1
         guard !delivering, presenter?.transformBindings.isEmpty == false else { return }
         remainingPasses = 2
@@ -39,7 +39,7 @@ final class TransformGeometryHost {
             refresh()
         }
     }
-    func current(_ binding: TransformDragBinding) -> Observation? {
+    package func current(_ binding: TransformDragBinding) -> Observation? {
         guard let observation = observations[binding.id], observation.accepted,
               observation.binding == binding, observation.facts?.ready == true,
               let facts = presenter?.transformFacts(binding), facts == observation.facts else { return nil }

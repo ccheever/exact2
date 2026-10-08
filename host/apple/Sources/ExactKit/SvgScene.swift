@@ -88,7 +88,7 @@ private func circle(_ r: Double) -> CGPath {
 enum CssAnimations {
     /// Replace `layer`'s CSS animations with `specs`, keeping any whose spec
     /// is unchanged (a data tick must not restart a running pulse).
-    static func apply(_ specs: [[String: Any]], to layer: CALayer, clock: Double?, installed: inout [String: String], offscreen: Bool = false) {
+    static func apply(_ specs: [[String: Any]], to layer: CALayer, clock: Double?, installed: inout [String: String], offscreen: CFTimeInterval? = nil) {
         var keep: Set<String> = []
         for spec in specs {
             guard let id = spec["id"] as? String else { continue }
@@ -155,10 +155,10 @@ enum CssAnimations {
         return (values, nums(spec["t"]).map { NSNumber(value: $0) }, timing)
     }
 
-    /// `offscreen`: for a tree `CARenderer` draws (a live filter picture),
-    /// which plays running animations but not one held at `speed` 0: a
-    /// held one runs from where it is held, and the picture is drawn at once.
-    static func make(_ spec: [String: Any], layer: CALayer, clock: Double?, offscreen: Bool = false) -> CAAnimation? {
+    /// `offscreen`: for a tree `CARenderer` draws (a live filter picture) at
+    /// that instant, which plays running animations but not one held at
+    /// `speed` 0: a held one runs from where it is held at that instant.
+    static func make(_ spec: [String: Any], layer: CALayer, clock: Double?, offscreen: CFTimeInterval? = nil) -> CAAnimation? {
         let key = spec["k"] as? String ?? ""
         let (values, keyTimes, timing) = (spec["#"] as? PreparedAnimation).map { ($0.values, $0.keyTimes, $0.timing) } ?? lowered(spec)
         let duration = num(spec["d"]), repeatCount = num(spec["n"])
@@ -186,8 +186,8 @@ enum CssAnimations {
             // shows its own value; a held last frame hid every later change).
             if active >= total && !forwards { return nil }
             let at = min(max(0, active), total - 1e-6)
-            if offscreen {
-                a.beginTime = layer.convertTime(CACurrentMediaTime(), from: nil) - at
+            if let drawn = offscreen {
+                a.beginTime = layer.convertTime(drawn, from: nil) - at
             } else {
                 a.speed = 0
                 a.timeOffset = at
@@ -243,8 +243,10 @@ final class SvgScene {
     /// renders only what can show there (`SvgIsland.extent`).
     private var clipped: CGRect?
 
-    /// Drawn by a `CARenderer` (a live filter picture's sub-scene).
-    var offscreen = false
+    /// Drawn by a `CARenderer` (a live filter picture's sub-scene): the
+    /// instant its next render draws at, which its held animations are placed
+    /// from, so each draws exactly where it is held (LLP 1003.001 D4).
+    var offscreen: CFTimeInterval?
 
     init() { root.masksToBounds = false; root.anchorPoint = .zero }
 

@@ -132,9 +132,9 @@ extension BatchValue: ExpressibleByIntegerLiteral, ExpressibleByFloatLiteral, Ex
 package typealias NodeStyle = [String: BatchValue]
 
 public struct BatchOp {
-    enum Kind: String {
+    package enum Kind: String {
         case create, props, style, children, paragraph, frame, content, present, roots, destroy
-        case flow, surface, surfaceWork, command, hold, collections, region, router, title, language, unknown
+        case fieldContent, flow, surface, surfaceWork, command, hold, collections, region, router, title, language, unknown
         case auth // LLP 1069.006 D3: open or cancel an authentication session
         case svg, animations // LLP 1055 D4/D7: an `svg`'s scene; a view's CSS animations
         case canvas2d // LLP 1056 D7: a 2D canvas's stamped lists
@@ -145,7 +145,7 @@ public struct BatchOp {
         case fragments // LLP 1093 D7: a box's column fragments or a container's columns
         case sound // LLP 1096 D8: the voice table's ops, and a boot's files
     }
-    let op: Kind
+    package let op: Kind
     var nodeID: UInt32?
     var id: UInt32 { nodeID ?? 0 }
     var kind = "view"
@@ -158,7 +158,7 @@ public struct BatchOp {
     var x = 0.0, y = 0.0, w = 0.0, h = 0.0
     var property = ""
     // Rare adapters retain their existing input shape. Common ops never build it.
-    var payload: [String: Any] = [:]
+    package var payload: [String: Any] = [:]
     /// A create or style op's flat-leaf paint, read on the owner (`prepare`).
     var flat: FlatPaint?
 

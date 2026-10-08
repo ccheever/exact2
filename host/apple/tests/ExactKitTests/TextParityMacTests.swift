@@ -3,11 +3,17 @@ import XCTest
 import AppKit
 import CExact
 @testable import ExactKit
+@testable import ExactMarkdown
 
 /// Chrome on the same Mac (TextParityCases.swift). Not pinned: Chrome
 /// resolves `ui-monospace` to its default font (Times), and gives SF Arabic a
 /// 1.09 px line gap CoreText's fallback does not, a line 1 px taller.
 final class TextParityMacTests: XCTestCase {
+    override func setUp() {
+        super.setUp()
+        ExactMarkdown.install() // LLP 1047.001 D4: the capability this tests
+    }
+
     func testNormalLineHeightIsChromes() {
         assertChromeNormal([
             (400, 11, 13, 11), (400, 12, 15, 12), (400, 13, 16, 13), (400, 14, 17, 14), (400, 15, 18, 15),

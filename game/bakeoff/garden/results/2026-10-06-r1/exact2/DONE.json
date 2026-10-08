@@ -1,0 +1,7 @@
+{
+  "proof_command": "cd garden && bun proof.mjs && bun proof.mjs web",
+  "proof_passed": true,
+  "not_done": [],
+  "game_dirs": ["garden"],
+  "notes": "Linux and web proofs both PASS. P1–P9 on the Linux host (6.6s) and again on the web host (116.8s), which also wrote the nine P10 screenshots into artifacts/ and garden/artifacts/. Pins: tick 1 and save mid. Run the command from this lane directory."
+}

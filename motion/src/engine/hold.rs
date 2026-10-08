@@ -124,8 +124,9 @@ impl Engine {
         let values = presented.unwrap_or_else(|| {
             keys.map(|key| {
                 let slot = &self.slots[&key];
-                slot.running()
-                    .map_or(slot.presented(), |running| running.sample(now_s).value)
+                slot.running().map_or(slot.presented(), |running| {
+                    running.sample(now_s.max(self.shown)).value
+                })
             })
         });
         for (key, value) in keys.into_iter().zip(values) {
@@ -360,11 +361,21 @@ impl Engine {
             });
         // Do not use observe: its unchanged-target fast path deliberately
         // suppresses redundant commits, whereas this is a presentation release.
+        // A fling keeps its release instant; a cancel or a release at rest
+        // waits for the first presented frame, as an authored curve does
+        // (LLP 1003.001 D6).
+        let fling = velocity != Value::ZERO;
+        let at = now_s.max(self.shown);
+        let pend = (self.start_on_frame && !fling).then_some(at);
         let mut running = declaration.map(|declaration| {
-            Running::start(declaration, from, slot.target, velocity, now_s, from, 1.0)
+            let start = if pend.is_some() { at } else { now_s };
+            let mut curve =
+                Running::start(declaration, from, slot.target, velocity, start, from, 1.0);
+            curve.pending = pend;
+            curve
         });
         let presented = if let Some(curve) = &running {
-            let sample = curve.sample(now_s);
+            let sample = curve.sample(at);
             if sample.done {
                 running = None;
             }
@@ -378,6 +389,9 @@ impl Engine {
         slot.set_owner(owner);
         if slot.running().is_some() {
             self.running.insert(key);
+            if pend.is_some() {
+                self.pending.insert(key);
+            }
         }
         self.dirty.insert(key);
         Ok(true)

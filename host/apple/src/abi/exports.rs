@@ -23,12 +23,12 @@ macro_rules! host {
     };
     ($data:ty, $plan:expr, $compat:expr, $delivery:expr, $api:expr, $new:expr, $region:expr) => {
         $crate::grouped_list_exports!();
+        $crate::markup_exports!();
         $crate::host!(@core $data, $plan, $compat, $delivery, $api, $new, $region, $crate::link::ALL);
     };
     (@core $data:ty, $plan:expr, $compat:expr, $delivery:expr, $api:expr, $new:expr, $region:expr, $linked:expr) => {
         $crate::raster_exports!();
         $crate::textflow_exports!();
-        $crate::markup_exports!();
         $crate::collapse_exports!();
         $crate::app_module_exports!();
         $crate::material_exports!();
@@ -36,6 +36,9 @@ macro_rules! host {
         thread_local! {
             static EXACT_RUNTIMES: ::std::cell::RefCell<$crate::abi::Registry<$data>> = ::std::cell::RefCell::new($crate::abi::Registry::default());
         }
+        /// What every boot links, made from the entry's set in a `const` so
+        /// the linker sees nothing else (LLP 1047.001 D3).
+        const EXACT_LINKS: $crate::link::Links<$data> = $crate::link::Links::of($linked);
         $crate::pan_velocity_exports!();
 
         /// Create a runtime; returns its handle (never 0). Its callbacks are
@@ -44,7 +47,7 @@ macro_rules! host {
         #[no_mangle]
         pub extern "C" fn exact_create() -> u32 {
             $crate::link::set($linked);
-            let id = EXACT_RUNTIMES.with(|r| r.borrow_mut().create());
+            let id = EXACT_RUNTIMES.with(|r| r.borrow_mut().create_linked(EXACT_LINKS));
             $crate::abi::with_entry(&EXACT_RUNTIMES, id, |e| e.bridge.set_content_region($region));
             id
         }
@@ -58,6 +61,22 @@ macro_rules! host {
             ctx: *mut ::std::ffi::c_void,
         ) {
             $crate::abi::with_entry(&EXACT_RUNTIMES, rt, |e| { e.hooks.measure = measure; e.hooks.ctx = ctx; });
+        }
+
+        /// UIKit control hooks, using the registered text engine context.
+        #[no_mangle]
+        pub extern "C" fn exact_set_control_text(rt: u32, text: Option<$crate::control_text::ControlTextFn>, chrome: Option<$crate::control_text::FieldChromeFn>) {
+            $crate::abi::with_entry(&EXACT_RUNTIMES, rt, |e| e.bridge.set_control_text(text, chrome));
+        }
+        /// Native button height-for-width, with the registered text context.
+        #[no_mangle]
+        pub extern "C" fn exact_set_button_measure(rt: u32, measure: Option<$crate::control_text::ButtonMeasureFn>) {
+            $crate::abi::with_entry(&EXACT_RUNTIMES, rt, |e| e.bridge.set_button_measure(measure));
+        }
+        /// Remeasure the controls after a trait change, through set_env.
+        #[no_mangle]
+        pub extern "C" fn exact_control_text_changed(rt: u32) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, hooks| b.control_text_changed(hooks), |n| n)
         }
 
         /// A paragraph's line boxes (LLP 1093 D6), called with the context
@@ -421,6 +440,22 @@ macro_rules! host {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.frame(now_ms), |n| n)
         }
 
+        /// `exact_frame` at the target `now_ms`, the wall at `wall_ms`
+        /// stopping the motion engine's input clock (LLP 1003.001 D5).
+        #[no_mangle]
+        pub extern "C" fn exact_frame_at(rt: u32, now_ms: f64, wall_ms: f64) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.frame_at(now_ms, wall_ms), |n| n)
+        }
+
+        /// Nonzero: motion an author's commit begins waits for the first
+        /// presented frame (LLP 1003.001 D7), in every host booted after;
+        /// zero at the agent's takeover, where what waits starts at `at_ms`.
+        /// Returns the batch's length.
+        #[no_mangle]
+        pub extern "C" fn exact_start_on_frame(rt: u32, on: u32, at_ms: f64) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.start_on_frame(on != 0, at_ms), |n| n)
+        }
+
         /// Nonzero: the display drives frame tasks (`exact_frame` turns it
         /// on); zero when the agent's clock takes over (LLP 1073 D4).
         #[no_mangle]
@@ -588,6 +623,13 @@ macro_rules! host {
         #[no_mangle]
         pub extern "C" fn exact_tick(rt: u32, now_ms: f64) -> u32 {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.tick(now_ms), |n| n)
+        }
+
+        /// A motion frame for the display frame presented at `frame_ms`
+        /// (LLP 1003.001 D5); returns the batch's length.
+        #[no_mangle]
+        pub extern "C" fn exact_tick_at(rt: u32, now_ms: f64, frame_ms: f64) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.tick_at(now_ms, frame_ms), |n| n)
         }
 
         /// An agent request from the input buffer; returns the reply's length.

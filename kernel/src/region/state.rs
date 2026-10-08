@@ -28,6 +28,7 @@ pub(crate) struct RegionState {
     facts: Arc<FactSet>,
     provisional: Option<Provisional>,
     accepted: Option<Rc<RegionPublication>>,
+    pub provisional_chrome: bool,
 }
 impl RegionState {
     pub fn new(
@@ -53,6 +54,7 @@ impl RegionState {
             facts: Arc::new(FactSet::default()),
             provisional: None,
             accepted: None,
+            provisional_chrome: false,
         })
     }
     pub fn retention(&self) -> RegionRetention {
@@ -226,6 +228,18 @@ impl RegionState {
         inputs: RegionInputs,
         epoch: u64,
     ) -> Result<RegionLayoutReceipt, LayoutError> {
+        self.provisional_chrome = false;
+        // Re-probe a retained guess on the host's silent settlement pass.
+        if self
+            .provisional
+            .as_ref()
+            .is_some_and(|p| p.geometry.provisional_chrome)
+            || self.accepted.as_ref().is_some_and(|p| {
+                p.geometry.provisional_chrome && self.ticket.as_ref() == Some(&p.ticket)
+            })
+        {
+            self.invalidate();
+        }
         let (root, outer) = root_offer;
         validate(arena, self.binding)?;
         if root != self.binding.owner.index && !arena.is_ancestor(root, self.binding.owner.index) {
@@ -265,7 +279,9 @@ impl RegionState {
             self.shell_catalog = Some(inputs.catalog);
         }
         // One common ordinary-shell path, including reservation saturation.
-        let shell_frames = super::tree::shell(arena, tree, measurer, root, b.owner.index, outer)?;
+        let shell_geometry = super::tree::shell(arena, tree, measurer, root, b.owner.index, outer)?;
+        self.provisional_chrome = tree.provisional_chrome();
+        let shell_frames = &shell_geometry.frames;
         let origin = shell_frames
             .iter()
             .find(|f| f.node == b.owner)
@@ -308,7 +324,7 @@ impl RegionState {
             // Height-free facts are SplitFacts': the default profile keeps
             // one retained artifact per exact offer.
             let height_free = self.profile == RegionProfile::SplitFacts && measurer.height_free();
-            self.advance(arena, origin, offer, inputs, height_free)?
+            self.advance(arena, origin, offer, inputs, height_free, measurer)?
         } else {
             None
         };
@@ -329,6 +345,7 @@ impl RegionState {
             )?;
             pending.constrain_owner(arena, b.owner.index, origin);
             pending.compute(arena, measurer, offer)?;
+            self.provisional_chrome |= pending.provisional_chrome();
             pending.frames(
                 arena,
                 b.owner.index,
@@ -339,10 +356,11 @@ impl RegionState {
             RegionGeometry::default()
         };
         // Both policies share exactly one projection/validation/publication barrier.
-        let frames = selected
+        let geometry = selected
             .map(|p| p.geometry.as_ref())
-            .unwrap_or(&pending_geometry)
-            .project(origin)?;
+            .unwrap_or(&pending_geometry);
+        self.provisional_chrome |= geometry.provisional_chrome;
+        let frames = geometry.project(origin)?;
         let selection = match selected {
             Some(p) => RegionSelection::Accepted(p.clone()),
             None => RegionSelection::Pending(b.pending),
@@ -354,17 +372,27 @@ impl RegionState {
             .map(|f| f.node)
             .collect();
         arena.begin_layout_publication(root);
-        publish(arena, root, &shell_frames, true, &mut changed);
+        publish(
+            arena,
+            root,
+            shell_frames,
+            &shell_geometry.field_content,
+            &shell_geometry.button_bases,
+            true,
+            &mut changed,
+        );
         publish(
             arena,
             root,
             &frames,
+            &geometry.field_content,
+            &geometry.button_bases,
             current || selected.is_none(),
             &mut changed,
         );
         // @ref LLP 1043.000 §3 D4 — resolve only after the selected projection.
         let (flow_changed, flow_skipped) =
-            crate::flow::resolve_region(arena, root, &shell_frames, &frames);
+            crate::flow::resolve_region(arena, root, shell_frames, &frames);
         if let Some(accepted) = next_accepted {
             self.accepted = Some(accepted);
             self.clear_candidate();
@@ -393,6 +421,7 @@ impl RegionState {
         offer: Offer,
         inputs: RegionInputs,
         height_free: bool,
+        measurer: &mut dyn TextMeasurer,
     ) -> Result<Option<Rc<RegionPublication>>, LayoutError> {
         let b = self.binding;
         let ticket = self.ticket.as_ref().expect("admitted ticket").clone();
@@ -416,10 +445,12 @@ impl RegionState {
                 accepted: self.accepted.as_deref(),
                 catalog: inputs.catalog,
                 height_free,
+                measurer,
                 missing: None,
                 refused: None,
             };
             candidate.compute(arena, &mut latch, offer)?;
+            self.provisional_chrome |= candidate.provisional_chrome();
             let mut paints = Vec::new();
             if latch.missing.is_none() && latch.refused.is_none() {
                 if self.profile == RegionProfile::SplitFacts {
@@ -525,6 +556,7 @@ impl RegionState {
     }
 }
 struct Candidate<'a> {
+    measurer: &'a mut dyn TextMeasurer,
     ticket: RegionTicket,
     profile: RegionProfile,
     lease: Option<Arc<()>>,
@@ -547,6 +579,9 @@ impl Candidate<'_> {
     }
 }
 impl TextMeasurer for Candidate<'_> {
+    fn field_chrome(&mut self, request: &crate::FieldChromeRequest) -> crate::FieldChrome {
+        self.measurer.field_chrome(request)
+    }
     fn height_free(&self) -> bool {
         self.height_free
     }
@@ -856,6 +891,8 @@ fn publish(
     arena: &mut NodeArena,
     root: u32,
     frames: &[RegionFrame],
+    field_content: &crate::id::IdMap<NodeKey, Frame>,
+    button_bases: &crate::id::IdMap<NodeKey, Option<f32>>,
     current: bool,
     changed: &mut Vec<NodeKey>,
 ) {
@@ -872,6 +909,16 @@ fn publish(
         let hidden = arena.style(s).display == crate::Display::None;
         arena.set_frame(s, frame);
         arena.set_content(s, f.content);
+        if let Some(&content) = field_content.get(&f.node) {
+            arena.field_content.insert(s, content);
+        } else {
+            arena.field_content.remove(&s);
+        }
+        if let Some(&basis) = button_bases.get(&f.node) {
+            arena.button_bases.insert(s, basis);
+        } else {
+            arena.button_bases.remove(&s);
+        }
         let flags = arena.flags_mut(s);
         if current {
             for clear in [

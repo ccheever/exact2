@@ -100,7 +100,7 @@ extension NodeView {
     @objc func cut(_ sender: Any?) { clipboard(#selector(cut(_:))) }
     @objc func paste(_ sender: Any?) { clipboard(#selector(paste(_:))) }
     /// A cut or paste is this node's only while a node hears it.
-    override func responds(to aSelector: Selector!) -> Bool {
+    package override func responds(to aSelector: Selector!) -> Bool {
         if [#selector(cut(_:)), #selector(paste(_:))].contains(aSelector) { return clipboardTarget(aSelector) != nil }
         return super.responds(to: aSelector)
     }

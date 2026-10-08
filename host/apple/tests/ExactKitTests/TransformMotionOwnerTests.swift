@@ -1,5 +1,6 @@
 import XCTest
 @testable import ExactKit
+@testable import ExactDrag
 
 /// LLP 1072 T1/T2: every runtime lives in the owner thread's registry, so a
 /// call made from main must be an owner job. The paired transform packet
@@ -8,6 +9,7 @@ import XCTest
 /// report. Whatever the runtime answers a packet now, it is that runtime's
 /// answer, not the registry's refusal.
 final class TransformMotionOwnerTests: XCTestCase {
+    override class func setUp() { super.setUp(); ExactDrag.install() } // LLP 1047.001 D4
     func testAPacketReachesItsRuntimeFromMain() throws {
         let runtime = Runtime()
         defer { runtime.destroy() }

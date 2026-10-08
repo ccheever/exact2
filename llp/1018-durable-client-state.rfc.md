@@ -263,6 +263,11 @@ first frame that cannot know the user.
 - **Linux** (`host/linux`). A memory store until the Linux host links ibex2
   (ibex OQ2 gates that lane); then ibex2's file store. Declared, not a gap
   anyone trips on: Weird Castle has no Linux build.
+  *As built 2026-10-07 (LLP 1027.007 D13):* outside the agent, Linux keeps
+  `secret.keep` names and kept answers in ibex2's file stores under
+  `$XDG_DATA_HOME/exact/<app id>/{secrets,kv}` (a file per secret, `0600` in
+  a `0700` directory, not encrypted); a named agent drive keeps its scratch
+  tree; Windows outside the agent stays in memory until its credential vault.
 
 ### D7 — The platform facts that become requirements
 

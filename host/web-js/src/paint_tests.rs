@@ -4,6 +4,28 @@ use exact_plan::{builder::PlanBuilder, BindingKind, BindingsRow, Plan, Value};
 use std::collections::BTreeMap;
 
 #[test]
+fn native_field_templates_keep_the_marker_for_runtime_and_rendering() {
+    let plan = contract::compile(include_str!("../conformance/native-fields.contract")).unwrap();
+    let sites = crate::emit::Sites::new(&plan).unwrap();
+    let parts = crate::style::project(&plan, &sites, &mut Vec::new()).unwrap();
+    let mut fields = 0;
+    for part in parts.into_iter().flatten() {
+        let Some(name) = part.props.get("data-testid") else {
+            continue;
+        };
+        fields += 1;
+        assert_eq!(
+            part.props.contains_key("data-native"),
+            !matches!(name.as_str(), "bare" | "devolved" | "markdown"),
+            "{name}"
+        );
+    }
+    assert_eq!(fields, 13);
+    let emitted = crate::emit::emit(&plan, false, false).unwrap();
+    assert!(emitted.js.contains("data-native"));
+}
+
+#[test]
 fn dynamic_backdrop_grammar_agrees_with_the_kernel() {
     use exact_kernel::style::BackdropFilter;
     exact_kernel::style::link_backdrop_filter();

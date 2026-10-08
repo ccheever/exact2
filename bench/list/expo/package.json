@@ -1,0 +1,11 @@
+{
+  "name": "expo-listbench",
+  "version": "1.0.0",
+  "private": true,
+  "main": "index.ts",
+  "dependencies": {
+    "@expo/ui": "58.0.6",
+    "expo": "58.0.0-preview.6",
+    "react-native": "0.88.0-rc.1"
+  }
+}

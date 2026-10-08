@@ -584,3 +584,74 @@ fn op_21_moves_the_gap_into_another_grouped_list_and_drops_there() {
     accepted(&h.reorder_motion(&wire(&h, 20, 0, b.list, false, 0.)));
     assert!(h.reorder_drags.active.is_none());
 }
+
+/// A row's first measurement at its estimate, after the list's first report,
+/// still publishes its grip's binding: a grip binds only once its row is
+/// measured, and a report that only travelled (no commit) published nothing,
+/// so no grip on the page could lift (synthetic-reorder, 2026-10-07).
+#[test]
+fn a_first_measurement_at_the_estimate_publishes_the_grip_binding() {
+    crate::link::link_for_tests();
+    let source = SOURCE.replace(
+        "virtualized=true height=100",
+        "virtualized=true height=100 estimated-item-height=20",
+    );
+    let (mut h, _) = Host::boot(
+        &contract::compile(&source).unwrap().encode(),
+        Rows,
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let report = |h: &Host<Rows>, measured: bool| {
+        let c = h.runner.collections().remove(0);
+        CollectionFeedback {
+            view: c.view,
+            revision: c.revision,
+            scroll_sequence: c.scroll_sequence + 1,
+            offset: 0.,
+            port_cross: 320.,
+            port_main: 100.,
+            cross: 320.,
+            focus_view: None,
+            interaction_view: None,
+            measurements: if measured {
+                c.rows
+                    .iter()
+                    .map(|r| RowMeasurement {
+                        view: r.view,
+                        epoch: r.epoch,
+                        size: 20.,
+                    })
+                    .collect()
+            } else {
+                Vec::new()
+            },
+        }
+        .encode()
+        .unwrap()
+    };
+    let unmeasured = report(&h, false);
+    h.collection_feedback(&unmeasured);
+    let grip = h.runner.kernel().find_by_test_id("grip-0")[0];
+    let id = h.runner.kernel().node_by_key(grip).unwrap().id;
+    assert!(
+        h.runner.reorder_binding(grip).is_none(),
+        "unmeasured: no binding yet"
+    );
+    let measured = report(&h, true);
+    let batch = h.collection_feedback(&measured);
+    assert!(h.runner.reorder_binding(grip).is_some(), "measured: bound");
+    let op = format!("\"op\":\"reorder-drag\",\"id\":{id},");
+    let at = batch
+        .find(&op)
+        .unwrap_or_else(|| panic!("no reorder-drag op for the grip: {batch}"));
+    assert!(
+        !batch[at..]
+            .split('}')
+            .next()
+            .unwrap()
+            .contains("\"list\":null"),
+        "the binding names its list: {batch}"
+    );
+}

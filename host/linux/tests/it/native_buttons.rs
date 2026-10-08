@@ -60,11 +60,16 @@ fn a_native_button_presses_is_sized_and_takes_no_value() {
     };
     let filled = id(&p, "filled");
     let frame = p.host().kernel().node(filled).unwrap().frame;
-    assert!(
-        frame.width > 40. && frame.width < 80.,
-        "{frame:?}: Send in 13.33 px plus 2 × 12"
+    let mut engine = exact_linux::text::TextEngine::new();
+    let text = engine.paragraph(
+        &exact_linux::paint::text_spec(&exact_kernel::StyleProps::default(), "Send"),
+        None,
     );
-    assert!(frame.height > 25. && frame.height < 35., "{frame:?}");
+    assert_eq!(
+        (frame.width, frame.height),
+        (text.width + 2.0 * 9.0, text.height + 2.0 * 7.0),
+        "medium control: 16px host font, 9px horizontal and 7px vertical padding"
+    );
     // Measured, not the kernel's 64 × 34 before a host reports a size.
     let wider = p.host().kernel().node(id(&p, "wider")).unwrap().frame;
     assert!(
@@ -144,4 +149,78 @@ fn a_native_tab_presses_on_enter_as_a_button_does() {
         .collect();
     assert_eq!(text, "pressed 1");
     let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn empty_invoker_targets_still_run_the_press_handler() {
+    for attrs in [
+        "popovertarget=\"\"",
+        "commandfor=\"\" command=\"show-modal\"",
+    ] {
+        let source = format!(
+            r#"component App
+  state n = 0
+  action go
+    n = n + 1
+  view
+    column
+      button "Press" appearance="auto" {attrs} press=go testId="button"
+      text `pressed ${{n}}` testId="count"
+"#
+        );
+        let plan = contract::compile(&source).unwrap();
+        let (mut p, err) = Presenter::boot_with(
+            &plan.encode(),
+            NoData,
+            (400., 300.),
+            1.,
+            std::path::PathBuf::new(),
+            PainterChoice::Cpu,
+        )
+        .unwrap();
+        assert!(err.is_none(), "{err:?}");
+        let k = p.host().kernel();
+        let button = k.node_by_key(k.find_by_test_id("button")[0]).unwrap().id;
+        p.tap(button).unwrap();
+        let k = p.host().kernel();
+        let count = k.node_by_key(k.find_by_test_id("count")[0]).unwrap();
+        assert_eq!(
+            count
+                .text_runs()
+                .iter()
+                .map(|r| r.text.to_string())
+                .collect::<String>(),
+            "pressed 1",
+            "{attrs}"
+        );
+    }
+}
+
+#[test]
+fn disabled_buttons_keep_authored_accent_fill() {
+    let plan = contract::compile(r##"component App
+  view
+    column width=400 height=300 background-color="white" align-items="flex-start"
+      button "Authored" appearance="auto" buttonStyle="filled" accent-color="#ff0000" disabled=true width=120 height=40 testId="authored"
+      button "Default" appearance="auto" buttonStyle="filled" disabled=true width=120 height=40 testId="default"
+"##).unwrap();
+    let (mut p, err) = Presenter::boot_with(
+        &plan.encode(),
+        NoData,
+        (400., 300.),
+        1.,
+        std::path::PathBuf::new(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(err.is_none(), "{err:?}");
+    let sample = |p: &mut Presenter<NoData>, name: &str| {
+        let k = p.host().kernel();
+        let f = k.node_by_key(k.find_by_test_id(name)[0]).unwrap().frame;
+        let shot = p.frame();
+        let c = shot.pixel(f.x as u32 + 60, f.y as u32 + 4).unwrap();
+        [c.red(), c.green(), c.blue(), c.alpha()]
+    };
+    assert_eq!(sample(&mut p, "authored"), [255, 0, 0, 255]);
+    assert_ne!(sample(&mut p, "default"), [0, 117, 255, 255]);
 }

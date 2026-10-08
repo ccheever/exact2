@@ -16,15 +16,11 @@ game/.shells/
 # Declarations the dev producer writes beside each app.ts for an editor.
 apps/*/app.contract.d.ts
 
-# Messages schema bytecode is compiled at bake, never committed.
-apps/messages-legacy/snapback/backend.ts
-apps/messages-legacy/snapback/generated/
-apps/messages-legacy/assets/snapback4-device.wasm
-apps/messages-legacy/assets/snapback4-LICENSE.txt
-apps/messages-legacy/.snapback/
-# What the Messages app's bake wrote before its rewrite moved that app to
-# messages-legacy (87997f0d): a checkout that built it then still has these,
-# which nothing makes now and nothing may commit.
+# What the Messages app's bake wrote before its rewrite (87997f0d), and the
+# removed Snapback-backed Messages Legacy app's generated files: a checkout
+# that built either still has these, which nothing makes now and nothing may
+# commit.
+apps/messages-legacy/
 apps/messages/snapback/
 apps/messages/assets/snapback4-device.wasm
 apps/messages/assets/snapback4-LICENSE.txt

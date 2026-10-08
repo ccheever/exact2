@@ -194,14 +194,17 @@ extension Agent {
         // The list pool and the leaves it holds mid-fling (LLP 1068 §6, §5.1).
         var pool = presenter.pool.observation.merging(presenter.leaves.observation) { a, _ in a }.merging(presenter.flats.observation) { a, _ in a }
         pool["native"] = session.natives.observation
-        return ["focus": focus, "keyboard": keyboard, "navigation": navigation, "window": window, "pool": pool, "hatches": presenter.elements.observation(presenter.session?.hatchDiagnostics)]
+        let kernelState = (try? JSONSerialization.jsonObject(with: Data(session.agent("{\"op\":\"state\"}").utf8))) as? [String: Any]
+        let kernelLayout = kernelState?["kernelLayout"] as? [String: Any] ?? [:]
+        let layout = kernelLayout.merging(["provisional": session.fieldChrome.presentedProvisional]) { _, host in host }
+        return ["layout": layout, "focus": focus, "keyboard": keyboard, "navigation": navigation, "window": window, "pool": pool, "hatches": presenter.elements.observation(presenter.session?.hatchDiagnostics)]
     }
 
     /// A view's box in the viewport: the viewport's content space less its
     /// offset — every enclosing scroll node's offset folded in — with the
     /// presentation transform applied (UIKit's conversion carries `transform`),
     /// as the web's `getBoundingClientRect` includes CSS transforms.
-    func box(_ v: UIView, region: CGRect? = nil) -> CGRect {
+    package func box(_ v: UIView, region: CGRect? = nil) -> CGRect {
         let bounds = region ?? v.bounds
         if (v as? NodeView)?.placedAncestor?.placementHidden == true { return .zero }
         let vp = presenter.viewport
@@ -587,7 +590,7 @@ extension Agent {
             }
             let offset = (req["at"] as? [Double]).map { CGPoint(x: $0[0], y: $0[1]) } ?? CGPoint(x: handle.bounds.midX, y: handle.bounds.midY)
             let point = handle.convert(offset, to: clip)
-            if let error = TransformDragHold.recognizedPinch(handle, scale: scale, focal: CGPoint(x: point.x - clip.bounds.midX, y: point.y - clip.bounds.midY)) { return ["error": error] }
+            if let error = DragLink.installed?.recognizedPinch(handle, scale: scale, focal: CGPoint(x: point.x - clip.bounds.midX, y: point.y - clip.bounds.midY)) { return ["error": error] }
             return ["tapped": Int(handle.id), "pinch": scale, "at": at, "delivery": "recognized"]
         }
         if req["hover"] as? Bool == true {

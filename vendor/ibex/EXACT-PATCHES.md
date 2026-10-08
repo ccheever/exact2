@@ -122,6 +122,22 @@ caller AbortSignal across every redirect hop, bounding connect, TLS, headers,
 body, and the redirect chain as a whole. The executor redirect-chain test pins
 that distinction.
 
+### 8. an Android target for `hermes-lean-sys` (pending upstream)
+
+From Exact's LLP 1107 lane (2026-10-07): `hermes-lean-sys/build_support.rs`
+reads a per-target install override, `HERMES_LEAN_SYS_DIR_<target>` (the target
+with `-` and `.` as `_`, as the `cc` crate names its per-target variables),
+before `HERMES_LEAN_SYS_DIR`, so a cross build's host instance (exact-js's
+build-dependency) keeps the pinned bundle while the target uses a local one;
+`build.rs` reruns on it and links `aarch64-linux-android`'s bundle with the
+NDK's `c++_static`, `c++abi`, `log`, `dl` and `m`. The bundle itself is built by
+Ibex's release script with the same pending Android target (Unicode from a
+static ICU 74, linked here as `icui18n`/`icuuc`/`icudata`; no Intl;
+`ANDROID_STL=c++_static`); `scripts/hermes-android.mjs` runs it and
+installs the result. The upstream patch is Ibex branch `android-hermes-bundle`
+(local, not pushed). Drop this entry when an Ibex release pins the Android
+bundle.
+
 ### Windows chosen-document EISDIR
 
 `src/stdlib/fs.rs` opens one handle with backup semantics, checks that same

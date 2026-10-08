@@ -11,7 +11,7 @@
 //
 // The host's table, handed to the module once (`module_connect`):
 //
-//    0  u32 size                64
+//    0  u32 size                96
 //    8  resolve(host, routeKey, keyLen, id, idLen) → node (0: none)
 //   16  act(host, node, action) → 0 done   action 0 click, 1 focus, 2 blur
 //   24  log(host, text, len)
@@ -22,6 +22,9 @@
 //   56  input(host, node, text, len) → 0 queued: an authored text field's
 //        whole value, as a person's typing would leave it (LLP
 //        1075.003.000.001 §2.5); queued like `act`
+//   80  owns(…), 88 parts(…): regions and parts (§3.4, §3.5, HatchRegions.swift)
+//   64  frames(host, token, on), 72 after(host, token, ms): the frame
+//        clock (LLP 1075.003.000.001 §2.4, HatchClock.swift)
 //   48  diagnostics → { u32 size 16; 8 record(…) }, or nil in a production
 //        bake: what hatch code says of itself (LLP 1075.003.000.001 §3.2,
 //        HatchDiagnostics.swift). `record` may be called on any thread.
@@ -85,6 +88,29 @@ private let hatchInputText: HatchInputFn = { host, node, bytes, length in
     hatchSession(host)?.presenter.elements.input(node, hatchText(bytes, length)) == true ? 0 : 1
 }
 
+private typealias HatchFramesFn = @convention(c) (UnsafeMutableRawPointer?, UInt64, Int32) -> Void
+private typealias HatchAfterFn = @convention(c) (UnsafeMutableRawPointer?, UInt64, Double) -> Void
+private let hatchFrames: HatchFramesFn = { host, token, on in hatchSession(host)?.natives.hatchClock.frames(token, on: on != 0) }
+private let hatchAfter: HatchAfterFn = { host, token, ms in hatchSession(host)?.natives.hatchClock.after(token, ms: ms) }
+
+private typealias HatchOwnsFn = @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, UInt32, UInt32, UInt32, UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, UInt32, UInt32) -> Int32
+private typealias HatchPartsFn = @convention(c) (UnsafeMutableRawPointer?, UInt32, UnsafePointer<UInt8>?, UInt32, UnsafePointer<UnsafeMutableRawPointer?>?, UInt32) -> Int32
+private let hatchOwns: HatchOwnsFn = { host, scope, scopeLength, node, kind, object, what, whatLength, flags in
+    guard let regions = hatchSession(host)?.presenter.elements.regions else { return 1 }
+    let bound = object.map { Unmanaged<AnyObject>.fromOpaque($0).takeUnretainedValue() }
+    return regions.owns(scope: hatchText(scope, scopeLength), node: node, kind: kind, object: bound, what: hatchText(what, whatLength), surface: flags & 1 != 0) ? 0 : 1
+}
+private let hatchParts: HatchPartsFn = { host, node, json, length, views, count in
+    guard let elements = hatchSession(host)?.presenter.elements, let json,
+          let rows = try? JSONSerialization.jsonObject(with: Data(bytes: json, count: Int(length))) as? [[String: String]], rows.count == Int(count) else { return 1 }
+    let word = elements.presenter.views[node]?.props["hatch"] ?? ""
+    let list = rows.enumerated().map { index, row in
+        HatchRegions.Part(id: row["id"] ?? "", role: row["role"] ?? "", label: row["label"] ?? "",
+                          view: views?[index].map { Unmanaged<AnyObject>.fromOpaque($0).takeUnretainedValue() } as? PlatformView)
+    }
+    return elements.regions.setParts(node: node, scope: "element \(word)", list) ? 0 : 1
+}
+
 private let hatchLog: HatchLogFn = { host, bytes, length in
     hatchSession(host)?.log("hatch \(hatchText(bytes, length))")
 }
@@ -129,7 +155,7 @@ private let hatchDiagnosticsTable: UnsafeRawPointer = {
 /// The host's callbacks, one table for the process: each finds its session
 /// by the handle it is called with.
 private let hatchHostTable: UnsafeRawPointer = {
-    let size = 64
+    let size = 96
     let t = UnsafeMutableRawPointer.allocate(byteCount: size, alignment: 8)
     t.initializeMemory(as: UInt8.self, repeating: 0, count: size)
     t.storeBytes(of: UInt32(size), as: UInt32.self)
@@ -140,6 +166,10 @@ private let hatchHostTable: UnsafeRawPointer = {
     t.storeBytes(of: unsafeBitCast(hatchToolbarItem, to: UnsafeRawPointer.self), toByteOffset: 40, as: UnsafeRawPointer.self)
     if HatchDiagnostics.measuring { t.storeBytes(of: hatchDiagnosticsTable, toByteOffset: 48, as: UnsafeRawPointer.self) }
     t.storeBytes(of: unsafeBitCast(hatchInputText, to: UnsafeRawPointer.self), toByteOffset: 56, as: UnsafeRawPointer.self)
+    t.storeBytes(of: unsafeBitCast(hatchFrames, to: UnsafeRawPointer.self), toByteOffset: 64, as: UnsafeRawPointer.self)
+    t.storeBytes(of: unsafeBitCast(hatchAfter, to: UnsafeRawPointer.self), toByteOffset: 72, as: UnsafeRawPointer.self)
+    t.storeBytes(of: unsafeBitCast(hatchOwns, to: UnsafeRawPointer.self), toByteOffset: 80, as: UnsafeRawPointer.self)
+    t.storeBytes(of: unsafeBitCast(hatchParts, to: UnsafeRawPointer.self), toByteOffset: 88, as: UnsafeRawPointer.self)
     return UnsafeRawPointer(t)
 }()
 
@@ -161,17 +191,18 @@ extension NativeViews {
 
     /// One hatch call: under the crash breadcrumb, production included (§4.4),
     /// and timed by the session's store in a development build (§3.1).
-    func timedHatch<T>(_ scope: String, _ moment: String, counts: Bool = true, _ body: () -> T) -> T {
+    func timedHatch<T>(_ scope: String, _ moment: String, site: Int? = nil, counts: Bool = true, _ body: () -> T) -> T {
         if let crumbSlot { HatchBreadcrumb.shared?.push(crumbSlot, name: scope, moment: moment, incarnation: hatchIncarnation) }
         defer { if let crumbSlot { HatchBreadcrumb.shared?.pop(crumbSlot) } }
         guard let store = session?.hatchDiagnostics else { return body() }
-        return store.timed(scope, moment, counts: counts, body)
+        return store.timed(scope, moment, site: site, counts: counts, body)
     }
 
     /// This session's slot in the process's breadcrumb, taken as its hatches
     /// first connect; what earlier runs left is said by the first to connect.
     private func takeBreadcrumb() {
         hatchIncarnation &+= 1
+        hatchSites = [:]
         guard crumbSlot == nil, let crumbs = HatchBreadcrumb.shared else { return }
         crumbSlot = crumbs.take(label: session?.label ?? "")
         if crumbSlot == nil { session?.log("hatch: 8 sessions hold the crash breadcrumb's slots; this one runs without one") }
@@ -203,6 +234,20 @@ extension NativeViews {
     /// `{"hatch", "node", "id", "kind", "data"}`. `quiet` leaves the call out
     /// of the journal (a list row's after the first; `state` counts them).
     /// True when the hatch set `reusable` (LLP 1075.003.000.000 §8).
+    /// A node's plan site, by which its hatch's calls are timed (§3.1): asked
+    /// of the runner once a node, and only where calls are timed at all. A
+    /// node's last call finds what its first kept, the runner's node being
+    /// gone by then.
+    private func planSite(_ id: UInt32, ended: Bool) -> Int? {
+        guard HatchDiagnostics.measuring, let session else { return nil }
+        if ended { return hatchSites.removeValue(forKey: id) ?? nil }
+        if let known = hatchSites[id] { return known }
+        let reply = try? JSONSerialization.jsonObject(with: Data(session.agent("{\"op\":\"node\",\"id\":\(id)}").utf8)) as? [String: Any]
+        let site = (reply?["site"] as? NSNumber)?.intValue
+        hatchSites[id] = .some(site)
+        return site
+    }
+
     @discardableResult
     func elementHatch(_ node: NodeView, event: UInt32, platform: AnyObject?, quiet: Bool = false) -> Bool {
         guard hatchesConnected, let instance, let call = elementCall else { return false }
@@ -213,7 +258,7 @@ extension NativeViews {
         let word = node.props["hatch"] ?? ""
         if !quiet { session?.log("hatch element \(word) #\(node.id): \(["built", "changed", "ended"][Int(min(event, 2))])") }
         // ElementHatches counts a node's calls; the store times them.
-        let flags = timedHatch("element \(word)", ["built", "changed", "ended"][Int(min(event, 2))], counts: false) {
+        let flags = timedHatch("element \(word)", ["built", "changed", "ended"][Int(min(event, 2))], site: planSite(node.id, ended: event == 2), counts: false) {
             json.withUnsafeBytes { j in
                 call(instance, event, Unmanaged.passUnretained(node).toOpaque(), platform.map { Unmanaged.passUnretained($0).toOpaque() },
                      j.bindMemory(to: UInt8.self).baseAddress, UInt32(json.count))
@@ -285,5 +330,6 @@ extension NativeViews {
                       j.bindMemory(to: UInt8.self).baseAddress, UInt32(json.count))
             }
         }
+        if event == .ended { session?.presenter.elements.regions.ended(scope: "route \(key)") }
     }
 }

@@ -5,18 +5,19 @@ import { basename } from 'node:path';
 
 /** The capabilities with a Swift half, by name, and the product of
  * `Package.swift` (its `capabilities` table) each is. */
-const SWIFT_CAPABILITIES = [['grouped_lists', 'ExactGroupedLists']];
+const SWIFT_CAPABILITIES = [['grouped_lists', 'ExactGroupedLists'], ['markdown', 'ExactMarkdown'], ['surfaces', 'ExactSurfaces'], ['drag', 'ExactDrag']];
 
-/** What the archive links (LLP 1047.001 D2, D4, D6): a fixed plan's use-set,
- * as the bake's graph names it; every capability for every other build,
- * development's included. `link` is `EXACT_APPLE_LINK` for SwiftPM (the
- * names, `none`, or `all`); `products` the Swift capability products the
- * composition links and installs, and an embedder links beside ExactKit.
- * Cargo is told `plan` or `all` before the bake, and the entry derives the
- * same set from the same plan (`contract::apple_linked`). */
-export function appleComposition(graph, fixedPlan) {
+/** What the archive links (LLP 1047.001 D2, D4, D6; LLP 1047 D8): for a
+ * production build, the plan's use-set, as the bake's graph names it, and the
+ * manifest's `link` (capabilities linked ahead of use); every capability for
+ * every other build. `link` is `EXACT_APPLE_LINK` for SwiftPM (the names,
+ * `none`, or `all`); `products` the Swift capability products the composition
+ * links and installs, and an embedder links beside ExactKit. Cargo is told
+ * `plan` or `all` before the bake, and the entry derives the same set from the
+ * same plan and manifest (`exact_bake::apple_link`). */
+export function appleComposition(graph, production, ahead = []) {
   const uses = graph?.uses;
-  const link = fixedPlan && Array.isArray(uses) ? uses.join(',') || 'none' : 'all';
+  const link = production && Array.isArray(uses) ? [...new Set([...uses, ...ahead])].join(',') || 'none' : 'all';
   const products = SWIFT_CAPABILITIES.filter(([name]) => link === 'all' || link.split(',').includes(name)).map(([, product]) => product);
   return { link, products };
 }

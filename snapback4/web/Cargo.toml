@@ -1,0 +1,20 @@
+[package]
+name = "exact-snapback4-web"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "Snapback4's device and client as wasm for Exact's web host: memory persisted by the page through Exact SQLite. Built by web/build.mjs."
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+exact-snapback4-client = { path = "../client" }
+serde_json = "1"
+snapback4-device.workspace = true
+# The core's web choices: the page's NFC and Web Crypto in place of tables
+# and OS entropy, and no server-only engine paths. Pinned as Snapback pins them.
+snapback4-core = { workspace = true, features = ["web"] }
+wasm-bindgen = "=0.2.127"
+js-sys = "=0.3.104"

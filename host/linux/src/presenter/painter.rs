@@ -254,6 +254,7 @@ mod tests {
             selected_assets: None,
             module: Ok(None),
             updates: None,
+            hatches: None,
         };
         let (mut presenter, error) = crate::app::boot_presenter_with_painter::<()>(
             &mut config,

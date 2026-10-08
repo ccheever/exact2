@@ -153,6 +153,9 @@ extension Presenter {
         #endif
         if !w.limits.isEmpty { coverage["excluded"] = w.limits }
         var elements = w.elements
+        // Each part, and whether the platform exposes an element for it: no finding either way (§3.5).
+        let parts = self.elements.regions.coverage(joined: Set(elements.compactMap { $0["part"] as? String }))
+        if !parts.isEmpty { coverage["parts"] = parts }
         var ancestors: [[String: Any]] = []
         if let scope {
             let kept = w.elements.indices.filter { k in (w.elements[k]["id"] as? UInt32).map(scope.contains) ?? false }
@@ -362,6 +365,8 @@ extension Presenter {
         let (id, via) = axOwner(obj)
         e["id"] = id ?? NSNull()
         e["via"] = via
+        // A hatch's part, joined by its bound view (LLP 1075.003.000.001 §3.5).
+        if let part = elements.regions.part(owning: obj) { e["part"] = part }
         var states: [String: Any] = [:]
         var native: [String: Any] = ["class": String(describing: type(of: obj))]
         if Self.underSegments(obj) { w.segments = true }
@@ -389,6 +394,9 @@ extension Presenter {
         // UIKit has no radio trait: the drawn radio (x2apps survey #2) says
         // what it is by its class, its state by `selected`.
         if let radio = obj as? ExactRadio, forced == nil { e["role"] = "radio"; states["checked"] = radio.isOn }
+        // Nor a progress trait: a `progress`'s indicator (LLP 1069.001,
+        // amended 2026-10-07) is ARIA's busy `progressbar` by its class.
+        if obj is UIActivityIndicatorView, forced == nil { e["role"] = "progressbar"; states["busy"] = true }
         e["interactive"] = forced == nil && (o.accessibilityRespondsToUserInteraction || editable || names.contains("button") || names.contains("link") || names.contains("adjustable"))
         if let actions = o.accessibilityCustomActions, !actions.isEmpty { e["actions"] = actions.prefix(16).compactMap { cut($0.name) } }
         native["role"] = names
@@ -423,9 +431,12 @@ extension Presenter {
         let r = f.role ?? "AXUnknown"
         let mapped = ["AXButton": "button", "AXLink": "link", "AXHeading": "heading", "AXTextField": "textbox", "AXTextArea": "textbox",
                       "AXCheckBox": f.subrole == "AXSwitch" ? "switch" : "checkbox", "AXRadioButton": "radio", "AXRadioGroup": "radiogroup",
-                      "AXSlider": "slider", "AXPopUpButton": "combobox", "AXStaticText": "text", "AXGroup": "group", "AXImage": "image", "AXList": "list"][r]
+                      "AXSlider": "slider", "AXPopUpButton": "combobox", "AXStaticText": "text", "AXGroup": "group", "AXImage": "image", "AXList": "list",
+                      "AXBusyIndicator": "progressbar", "AXProgressIndicator": "progressbar"][r]
         e["role"] = forced ?? mapped ?? r
         if r == "AXHeading", let level = f.value as? Int { states["level"] = level }
+        // A spinning indicator is AppKit's busy one (LLP 1069.001, amended 2026-10-07).
+        if r == "AXBusyIndicator" { states["busy"] = true }
         if r == "AXCheckBox" || r == "AXRadioButton", let on = f.value as? Int { states["checked"] = on == 1 }
         e["interactive"] = ["AXButton", "AXLink", "AXTextField", "AXTextArea", "AXCheckBox", "AXRadioButton", "AXSlider", "AXPopUpButton", "AXMenuItem", "AXComboBox"].contains(r)
         native["role"] = r

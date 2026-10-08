@@ -15,10 +15,10 @@ import QuartzCore
 #if os(iOS) || os(tvOS)
 import UIKit
 
-final class Shadow {
+package final class Shadow {
     /// The one shadow renderer, or nil where Metal is absent.
     nonisolated(unsafe) static var active: Shadow?
-    nonisolated(unsafe) static let shared: Shadow? = {
+    nonisolated(unsafe) package static let shared: Shadow? = {
         let shadow = Shadow()
         active = shadow
         return shadow
@@ -82,7 +82,7 @@ final class Shadow {
     /// one every time at a size. The renderer's work is complete when this
     /// returns (a wait on the presenter's queue), since the module samples
     /// on its own queue.
-    func renderTexture(_ view: UIView, scale: CGFloat) -> MTLTexture? {
+    package func renderTexture(_ view: UIView, scale: CGFloat) -> MTLTexture? {
         let w = Int((view.bounds.width * scale).rounded()), h = Int((view.bounds.height * scale).rounded())
         guard w > 0, h > 0 else { return nil }
         if handed == nil || handed!.width != w || handed!.height != h {

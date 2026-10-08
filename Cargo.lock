@@ -2161,6 +2161,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "hello-apple"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-apple",
+ "exact-bake",
+ "exact-logic",
+ "hello-data",
+]
+
+[[package]]
+name = "hello-data"
+version = "0.1.0"
+dependencies = [
+ "exact-plan",
+ "exact-runner",
+]
+
+[[package]]
 name = "hermes-lean-sys"
 version = "0.1.0"
 dependencies = [

@@ -203,8 +203,8 @@ impl Collection {
             let start = self.index.prefix(self.index.position(&key)?)?;
             return Some((key, within, start));
         };
-        let max = (self.index.total_height() - g.port_main).max(0.0);
-        let offset = g.offset.clamp(0.0, max);
+        let max = self.index.max_offset(g.port_main);
+        let offset = g.offset.min(max).max(0.0);
         if offset <= 0.0 {
             return None;
         }

@@ -11,6 +11,7 @@ mod holds;
 mod image;
 mod media_session;
 mod native_buttons;
+mod native_fields;
 mod presence;
 mod svg;
 mod timeline;

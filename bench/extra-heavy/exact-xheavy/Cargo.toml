@@ -1,0 +1,45 @@
+# The Extra Heavy feed (../SPEC.md) on exact2, consumed by path from this checkout (the shape of
+# bench/heavy-list's exact app). Its own [workspace], so the root workspace never adopts it.
+# `data/` answers the feed, the launch config and the per-row app state, and draws the canvas row
+# (Canvas 2D); `gpu/` is the shader row's surface (LLP 1009, loaded after first pixel); `apple/`
+# is the static library the Apple host links; `web/` is the web host's crate.
+# Cargo.lock is not committed: ../prepare.sh copies the checkout's lock here, and the first build
+# resolves the app's own crates on top of it (as an app `exact new` made).
+[workspace]
+members = ["data", "apple", "gpu", "web"]
+resolver = "2"
+
+[workspace.package]
+edition = "2021"
+version = "0.1.0"
+license = "MIT"
+
+# exact2's vendored patches, the root Cargo.toml's [patch.crates-io] (scripts/app.mjs refuses a
+# workspace whose patches differ from the checkout's).
+[patch.crates-io]
+taffy = { path = "../../../vendor/taffy" }
+parley = { path = "../../../vendor/parley" }
+fontique = { path = "../../../vendor/fontique" }
+wgpu-hal = { path = "../../../vendor/wgpu-hal" }
+
+# exact2's release profile. No [profile.apple-dev] on purpose: build.mjs then
+# builds the app library with `release` (thin LTO, one codegen unit).
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = true
+panic = "abort"
+
+[profile.release.build-override]
+strip = false
+
+[profile.dev]
+opt-level = 0
+debug = true
+
+# exact2's web profile (host/web/build.mjs builds the wasm with --profile web).
+[profile.web]
+inherits = "release"
+opt-level = "z"
+lto = "fat"

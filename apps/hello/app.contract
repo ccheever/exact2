@@ -1,0 +1,6 @@
+// The smallest app (LLP 1047.001 D8): one text node over an empty data
+// source, so an Apple build of it is the core and nothing a plan adds.
+// `scripts/metrics.mjs --long` measures its iOS binary.
+component Hello
+  view
+    text "Hello world"

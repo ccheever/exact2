@@ -2,8 +2,14 @@
 // (LLP 1045 D3): what measure expands is what paint expands.
 import XCTest
 @testable import ExactKit
+@testable import ExactMarkdown
 
 final class MarkupRunsTests: XCTestCase {
+    override func setUp() {
+        super.setUp()
+        ExactMarkdown.install() // LLP 1047.001 D4: the capability this tests
+    }
+
     func testNavigationTargetsUseSupportedParsedAbsoluteSchemes() {
         let unsafe = ["javascript:probe", "JaVaScRiPt:probe", "\u{0}\u{1f} javascript:probe",
                       "java\tscript:probe", "java\nscript:probe", "java\rscript:probe",

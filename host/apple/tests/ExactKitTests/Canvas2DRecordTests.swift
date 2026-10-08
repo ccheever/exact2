@@ -2,11 +2,13 @@ import XCTest
 import CoreGraphics
 import QuartzCore
 @testable import ExactKit
+@testable import ExactSurfaces
 
 /// Canvas 2D recording (LLP 1056 §8.4): the tracker's covers and refusals,
 /// replay from the kept lists' start matching a bitmap drawn throughout, and
 /// the host's policy.
 final class Canvas2DRecordTests: XCTestCase {
+    override class func setUp() { super.setUp(); ExactSurfaces.install() } // LLP 1047.001 D4
     /// A list writer: records as (opcode, operands).
     private func list(_ records: [(Canvas2DOp, [Double])]) -> Data {
         var d = Data()

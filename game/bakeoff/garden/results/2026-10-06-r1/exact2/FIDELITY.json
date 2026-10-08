@@ -1,0 +1,197 @@
+{
+ "engine": "exact2 (this checkout's game engine: Rust world + Contract UI; Linux headless host + web/Chrome host)",
+ "proof_rerun": {
+  "command": "cd garden && bun proof.mjs && bun proof.mjs web",
+  "passed": true,
+  "seconds": 24,
+  "output_tail": "PASS P9 stress plants 100 / P9 frame run(100) with 101 plants: 4.6 ms / PASS P9 skip adds one hour / PASS P9 about 1000 plants / P9 frame run(100) with 1001 plants: 17.0 ms / PASS night is 8:00 in the day cycle / PASS rain or thunder for the rain shot / PASS pin 1 observed / PASS pin mid observed / PASS all recorded children exited / PROOF PASS garden web: 0 failures; 19.028 s (Linux leg before it: PROOF PASS garden linux: 0 failures; 5.379 s)"
+ },
+ "items": {
+  "G1": [
+   2,
+   "6x6 grid of 2 m tiles, tile (x,z) at (2x,0,-2z) (rules.rs tile_center/tile_of, scene.rs raise_field); soil cuboid with thin line boxes on tile boundaries, visible in every shot (renders tan rather than dark brown)."
+  ],
+  "G2": [
+   1,
+   "Fence posts/rails ringing the garden, 8 lanterns, 3 scaled-2.5x apple/mango/coconut trees beyond the north fence, stall+keeper, path stones, 5 grass patches; fence rebuilt at 11x11 and 32x32 (grown.png, overview). But the meadow renders pale grey-white, not green, in every capture, and the 10 flower tufts along the south edge are not visible."
+  ],
+  "G3": [
+   2,
+   "barrel.model at (-2, 0.5, 0) just west of tile (0,0) (scene.rs build); seen in every shot. Colour not scored."
+  ],
+  "G4": [
+   1,
+   "Body+2 arms+2 legs at the ART.md joints, starts at (0,0.9,0); Character speed 4 / accel 12 (measured 3.37 m after 1 s, 27.37 m after 7 s); limbs swing; Space jumps; clamp to [-20, 2n+20]. Facing is wrong on one axis: yaw = atan2(vx, -vz) mirrors the rotation, so walking south (toward the camera) shows the gardener's back (judge/face-south.png; the model's bib and buttons face +Z)."
+  ],
+  "G5": [
+   2,
+   "Follow offset (0,11,14) with lag from the south; I walked 27 m east and then 31 m north, and the gardener stayed centred on screen (judge/walk-east.png, walk-north.png). The Overview toggle pulls back to show the whole 32x32 garden (judge/overview.png)."
+  ],
+  "G6": [
+   2,
+   "plant-<crop>-<stage> swapped per stage with -far LOD, unripe fruit hang once mature, ripe fruit models after roll, material 0 overridden per mutation (gold metal, rainbow hue shimmer, frozen pale cyan, wet/chilled fixed blue-grey, shocked emissive), plants offset +(0.55,-0.35) from centre. Visible in grown.png/backpack-thousands.png."
+  ],
+  "G7": [
+   2,
+   "Outline follows the tile under the player. I saw cyan when empty (arrival), amber while growing (planted), blue after watering (judge/fx-water.png) and green when ripe (grown); purple for fed-and-unrolled is in outline_color (code only)."
+  ],
+  "G8": [
+   2,
+   "600 s cycle in look.rs drives sun elevation/colour, sky zenith/horizon, ambient and fog; night.png at Day 8:00 is dark purple with lantern glass glowing (material 0 emissive by night_glow)."
+  ],
+  "G9": [
+   0,
+   "Rain/snow are emitter particles of 2-3.5 cm (snow 5-9 cm). I stepped into Rain: the world held 469 live particles, but nothing is visible in judge/snow-stepped.png or the proof's rain.png. A Snow capture (judge/weather2.png) shows no flakes either. The emitter is also centred on the garden, so in a 32x32 garden it misses the camera's view. Thunder flashes exist only as a lux spike in code (not seen)."
+  ],
+  "G10": [
+   1,
+   "Planting fires a brown burst (barely visible). Watering shows the can in hand, tipped, with blue droplets (judge/fx-water.png). Harvest plays a chime and a small gold burst at the gardener, but no fruit travels to the gardener as the brief asks."
+  ],
+  "R1": [
+   2,
+   "place(): stage_at = now + grow/4, /2, 3/4, grow; fire_plants sets the cohort at stage 4 with `slots` fruit. P3 confirmed stage 2 at 10 s and maturity at 20 s."
+  ],
+  "R2": [
+   2,
+   "ripe_at = mature + fruit_s; harvest of a regrowing crop sets ripe_at = now + fruit_s; fruit_s 0 rolls at maturity and harvest frees the tile (P4 confirmed tile (0,0) empty afterwards)."
+  ],
+  "R3": [
+   2,
+   "roll_fruit order: rainbow 0.001, else gold 0.01; Rain wet 0.5; Snow chilled 0.4, else frozen 0.1; Thunder wet 0.5 and independent shocked 0.03; weight base*U(0.8,1.4), x3 at 0.02, x1.25 if fed."
+  ],
+  "R4": [
+   2,
+   "fruit_value = round(base*(w/bw)^2*variant*(1+sum(env-1))), min 1, f64. Variant 50/20/1; env extras 1/1/9/99. Name order Fed, variant, Wet, Chilled, Frozen, Shocked, crop. Unit test has the five worked values; P4 matched an independent JS formula."
+  ],
+  "R5": [
+   2,
+   "new_game: first change at U{180..420} s (seed 7: 223 s observed). roll_sky gives 0.6 Rain, then 0.4*0.625=0.25 Snow, else 0.15 Thunder; lasts 60-120 s, then Clear 180-420 s. Integer-second uniform."
+  ],
+  "R6": [
+   2,
+   "Garden::default purse 20, hand[0]=1; P1 and the HUD show 20 cents and 'Holding Carrot x1'."
+  ],
+  "R7": [
+   2,
+   "act_at: ripe harvests every fruit, empty+seed plants one, otherwise the note says why ('No seeds in hand', 'Carrot is still growing 0:12', 'Step onto a garden plot'). Driven by KeyE in the proof and in my runs."
+  ],
+  "R8": [
+   2,
+   "scale_future(now, at) = now + (at-now)*3/4 on every future stage (or ripe_at), which keeps proportions. One dose per growth / per fruit / per regrowth; ripe, empty, already-watered and empty-can cases spend nothing; R refills within 2.5 m of (-2,0). P6: 16 s maturity, can 2/3 then 3/3. My run: watered at 3.2 s, 0:12 left."
+  ],
+  "R9": [
+   2,
+   "In my run, compost moved the pouch 0->3; a fourth compost said 'Plant food pouch is full' and left the fruit (backpack 338->335). F fed the plant, a second F said 'already fed' and spent nothing. plant.fed carries into roll_cohort (x1.25) and clears after the roll."
+  ],
+  "R10": [
+   2,
+   "restock at start and every 300000 ms: chance(appear), stock U{1..max}; the current order's crop is forced to at least 1 at restock (not re-forced between restocks). buy() takes price and stock, adds to hand, selects it. The disabled state is visible in shop.png."
+  ],
+  "R11": [
+   2,
+   "Rows show name with mutations, 'kg', value. In my run Sell gave 'Sold for 4K cents' and Sell all gave 'Sold all for 1.4M cents', with the purse updated."
+  ],
+  "R12": [
+   2,
+   "ORDERS = carrot1+30, straw4+400, blue5+600, tomato4+1300, corn3+2400; deliver pays the sum of values + bonus (P5: +47 = 17+30); after the fifth, 'Market regular · all 5 orders filled!'."
+  ],
+  "R13": [
+   2,
+   "expand_cost n^3*25 up to 256; the labels read 'Expand to 12x12 · 33.2K cents' (11^3*25=33275) and '33x33 · 819.2K cents' (32^3*25)."
+  ],
+  "R14": [
+   1,
+   "advance_by replays every event in order with the same RNG draws, and P8 shows an away hour equals a played hour. But the game never saves on its own (no data source, no autosave; saves exist only through the test harness), and away time is measured with Contract now(), which counts ms since boot, not wall time. A real reopen in a new session sees a negative gap and grows nothing."
+  ],
+  "R15": [
+   2,
+   "One world RNG (w.rng(), reseeded with seed 7) feeds restock, weather, rolls and stress picks; the tick-1 hash and the 'mid' save digest re-matched pins.json on Linux and web."
+  ],
+  "U1": [
+   2,
+   "Title screen with 'Grow a Garden', a controls line and an autofocused Play button with an accessible name (title.png)."
+  ],
+  "U2": [
+   2,
+   "Purse with compact money (20 cents, 33.2K, 16.2M, 1.4M seen), Restock m:ss, '1001 plants · 1981/2386 ripe · 220 mutated', weather (shown even when Clear, as in the reference), 'Day m:ss'. Shop, 'Backpack N', Garden and Pause buttons."
+  ],
+  "U3": [
+   1,
+   "Every seed shows rarity in its colour, price, stock, xN held, first-fruit and regrow times, and a Buy that is disabled when unaffordable or 'Sold out'. But the panel does not scroll: rows past Watermelon overflow the viewport, and reaching them scrolls the whole page off the game (judge/shop-scrolled.png shows a white page)."
+  ],
+  "U4": [
+   1,
+   "Rows have name with mutations, kg, value, Sell and Compost, and 'Sell all · total'. It stayed responsive with 3314 fruit by paging 12 per page (277 pages). But 12 rows overflow the panel, and Previous/Next sit below a 720 px viewport (the driver had to scroll the page to reach them)."
+  ],
+  "U5": [
+   2,
+   "Harvest all, 'Expand to NxN · cost', Overview toggle, +100 plants (expands as needed: 6->11->32), and Skip 1 hour (advance_by 3600000) all work when tapped. There is an extra 'Sample' debug button."
+  ],
+  "U6": [
+   2,
+   "'Market order N · k Crop', 'h/k in backpack · full value + bonus', a next-step line, and 'Deliver order' (disabled until ready); the 'all 5 orders filled' state exists."
+  ],
+  "U7": [
+   1,
+   "'Watering can · N/3' with Q Water/R Refill and a contextual water line, plus 'Plant food · N/3' with F Feed. But the food line is the static 'Compost a backpack fruit to make plant food' and never says what F would do on this tile."
+  ],
+  "U8": [
+   1,
+   "Plot pill ('Plot 1, 1 · Carrot · W north…'), act line, a hint to the nearest empty plot or back to the garden with WASD key and metres, and a note after each action. But with an empty hand on an empty tile it still says 'E: plant Carrot (0 left)' while E does nothing (market.png, backpack.png)."
+  ],
+  "U9": [
+   1,
+   "The button reads Resume and the HUD freezes. But on resume the contract posts 'away <gap>', so game time catches up: I paused for 60 s and the day went 0:01 -> 1:01 and restock 4:59 -> 3:58 on resume. Game time is deferred, not stopped."
+  ],
+  "P1": [
+   2,
+   "Rerun PASS on Linux and web: real Play tap, then purse 20, hand[0]=1, n=6 with 36 tiles, carrot stock>0, Clear."
+  ],
+  "P2": [
+   2,
+   "hold KeyD 500 ms through the input path in two fresh sessions; moved >0.5 m and identical positions (PASS)."
+  ],
+  "P3": [
+   2,
+   "KeyE plants on (0,0); stage 0 and hand 0; +10 s gives stage 2; +10 s gives a ripe fruit (PASS)."
+  ],
+  "P4": [
+   2,
+   "KeyE harvests; backpack has 1 carrot whose value equals an independent JS R4 formula on its rolled weight/mutations; tile freed (PASS)."
+  ],
+  "P5": [
+   2,
+   "Deliver tapped in the UI; purse = before + value + 30 and order advanced (PASS)."
+  ],
+  "P6": [
+   2,
+   "buy-0 tapped, KeyE plants, KeyQ at +4 s gives maturity at sow+16000, can 2/3, not ripe at 15 s, ripe after 16 s, KeyR refills to 3/3 (PASS)."
+  ],
+  "P7": [
+   2,
+   "World saved mid-game and restored with open({fresh:true}) (a new Linux process); tick and hash equal at load and after 1 s on both sides; save digest pinned (PASS)."
+  ],
+  "P8": [
+   2,
+   "Saved at tick 1; one session played 3600000 ms, a fresh one restored with the clock +1 h; game_ms/acc, the rules signature and the next RNG draw are equal (PASS). This uses the harness clock (see R14)."
+  ],
+  "P9": [
+   1,
+   "The +100 tool is tapped, then Skip 1 hour, then about 1000 plants. But the reported 'frame' is the wall time of a run(100) RPC (6 sim ticks plus round trip: 3.0/3.5 ms Linux, 4.6/17.0 ms web), not a measured render frame time."
+  ],
+  "P10": [
+   2,
+   "All nine PNGs were rewritten by my rerun (23:46:42-23:46:59 local) into artifacts/, from the running web game in Chrome; rain.png shows no visible rain (scored under G9)."
+  ]
+ },
+ "look": [
+  5,
+  "The HUD layout is a close match to arrival/grown/market: top bar, market card top-right, care card bottom-right, prompt stack bottom-centre, Move and E buttons. The 3D scene is not: the meadow renders pale grey-white instead of green, the soil is light tan, the whole frame is washed out and low-saturation, the flower tufts are invisible, and the fence/stall/path crowd the lower left. Camera framing and the gardener's screen position are close to arrival.png."
+ ],
+ "world": 75,
+ "rules": 96.67,
+ "ui": 72.22,
+ "proof": 95,
+ "fidelity": 81.44,
+ "summary": "Faithful: the rules are close to the brief (growth, watering, the R3/R4 rolls and values, weather, shop, orders, expand, one seeded RNG with an exact played-equals-skipped hour). The HUD reproduces the reference layout, and the proof drives the real game through keys and taps and passes again in 24 s with pins matched. Missing: there is no real save or wall-clock away (R14 works only through the harness), rain and snow are invisible on screen, and harvest fruit does not fly to the gardener. Wrong: Pause defers game time instead of stopping it, the gardener faces backwards walking north/south, the shop and backpack panels overflow the viewport, and the meadow renders grey instead of green."
+}

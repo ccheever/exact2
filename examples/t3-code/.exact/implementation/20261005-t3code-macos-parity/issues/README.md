@@ -84,7 +84,7 @@ publication was performed during this local audit.
 
 | Issue | Capability | Kind | Blocks | Status |
 | --- | --- | --- | --- | --- |
-| [X49](20261007-x49-progress-value-accessibility.md) | A progress value for assistive technology (`progress`, `aria-valuenow`) | framework-gap | [provider-sign-in-and-install](../tasks/closed/20261005-provider-sign-in-and-install.md) (nonblocking: the status text carries the numbers) | upstream [#279](https://github.com/ccheever/exact2/issues/279) ([Feature], 2026-10-08); reproduced on main `0365ad1a4` |
+| [X49](20261007-x49-progress-value-accessibility.md) | A progress value for assistive technology (`progress`, `aria-valuenow`) | framework-gap | [provider-sign-in-and-install](../tasks/closed/20261005-provider-sign-in-and-install.md) (nonblocking: the status text carries the numbers) | upstream [#279](https://github.com/ccheever/exact2/issues/279) ([Feature], 2026-10-08); reproduced on main `0365ad1a4`; main `d82c12252` (adopt-main-fixes-r6's merge of `e200397ec`) adds an indeterminate `progress` only and refuses `value`/`max`, so nothing to adopt |
 | [X51](20261008-x51-popover-click-passthrough.md) | A click inside an open popover also reaching the page under it (macOS) | framework-gap | [theme-color-picker](../tasks/20261007-theme-color-picker.md) (nonblocking: `press` + `retainFocus` on the popover) | upstream [#281](https://github.com/ccheever/exact2/issues/281) ([Bug], 2026-10-08); reproduced in a one-file app on main `0365ad1a4` (a click on the popover over the button under it) |
 
 ## Dialog focus addition, 2026-10-08
@@ -140,6 +140,18 @@ Those drafts are not on this branch; here X50 and X54 are the records above.
 | --- | --- | --- | --- | --- |
 | [X59](20261008-x59-line-clamp-first-layout-ellipsis.md) | A `line-clamp=1` text that replaces a wrapped one shows its first wrapped line without the ellipsis until restyled (macOS) | framework-gap (unconfirmed) | none ([visual-parity-followup](../tasks/20261008-visual-parity-followup.md): the collapsed table cell's first layout; a restyle draws the ellipsis) | seen in the clone with the agent on this branch and on base `07dcef1ab`; a one-file app not tried; not searched upstream beyond the title; draft, not published |
 
+## Main adoption round 6 addition, 2026-10-08
+
+| Issue | Capability | Kind | Blocks | Status |
+| --- | --- | --- | --- | --- |
+| [X61](20261008-x61-field-focus-ring-opt-out.md) | An app cannot remove the focus ring Exact draws on a bare text field or textarea (no `outline`; `appearance="none"` no longer opts out since main `5b2b77339`) | framework-gap | none ([adopt-main-fixes-r6](../tasks/20261008-adopt-main-fixes-r6.md): the prompt preview gained a ring with the merge; the composer has had one since r4's field sheet) | reproduced on main `e200397ec` with a one-file app and in the clone; draft, not published |
+
+Re-checked on main `e200397ec` ([adopt-main-fixes-r6](../tasks/20261008-adopt-main-fixes-r6.md)): since `1f19b2400` main
+closed none of this plan's issues (#234 was adopted in round 5). #108, #112, #116, #117, #124, #126, #127, #130, #131,
+#140, #141, #224, #235 and #266–#277 are open, and nothing main merged covers them; our drafts #227 and #228 are still
+open, and main took no other route. Main's partial steps: `scroll-padding` on a virtualized list (X23, #277) and an
+indeterminate `progress` (X49, #279), neither with anything for the clone to adopt.
+
 ## Upstream issues (filed 2026-10-06)
 
 Each was reproduced on exact2 `4c893fef6` before filing. Not filed: X13 (unverified on macOS; the web behavior is designed), X42 (already supported on main), X38–X41 (product scope, not framework gaps).
@@ -167,7 +179,7 @@ Each was reproduced on exact2 `4c893fef6` before filing. Not filed: X13 (unverif
 | X20 | [#125](https://github.com/ccheever/exact2/issues/125) | textarea editing: caret moves, setRangeText, beforeinput, undo, atomic ranges — closed by main #209 (field paste/copy/cut only); the native composer stays (adopt-main-fixes-r4) (rest: #275, #276, 2026-10-08) |
 | X21 | [#126](https://github.com/ccheever/exact2/issues/126) | Data modules cannot send on a WebSocket on native hosts (receive-only) |
 | X22 | [#127](https://github.com/ccheever/exact2/issues/127) | Layout facts beyond size: visibility, live position, container/anchor CSS |
-| X23 | [#138](https://github.com/ccheever/exact2/issues/138) | Scroll: restore a top-level list by key, scroll-padding/margin, smooth jumps, plain-scroll anchoring — closed by main #210 (plain-scroll anchoring only); no clone workaround for it; the PR fold row is unblocked (rest: #277, 2026-10-08) |
+| X23 | [#138](https://github.com/ccheever/exact2/issues/138) | Scroll: restore a top-level list by key, scroll-padding/margin, smooth jumps, plain-scroll anchoring — closed by main #210 (plain-scroll anchoring only); no clone workaround for it; the PR fold row is unblocked (rest: #277, 2026-10-08). Main `2faf6c190` (adopt-main-fixes-r6's merge of `e200397ec`) takes `scroll-padding` on a virtualized `list` only; the reference's scroll-padding sites are plain scrollers in the clone, so nothing to adopt |
 | X24 | [#139](https://github.com/ccheever/exact2/issues/139) | macOS: hover does not follow layout changes under a stationary pointer — **adopted** (main #174; PR #181) |
 | X25 | [#140](https://github.com/ccheever/exact2/issues/140) | Keyboard: add keyup, KeyboardEvent.code and .repeat, held modifiers, capture phase — keyup, `code` and `repeat` landed in main #220; open for a capture-phase handler and held-modifier state; nothing to remove yet (adopt-main-fixes-r5) |
 | X26 | [#141](https://github.com/ccheever/exact2/issues/141) | macOS: let an app declare its menu bar items, and support context-menu submenus — submenus landed in main #223 and Edit ▸ Speech in #226, both **adopted** (adopt-main-fixes-r5: the sidebar's menus are context popovers); open for the menu bar |

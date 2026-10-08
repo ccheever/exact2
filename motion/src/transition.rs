@@ -228,6 +228,10 @@ pub(crate) struct Running {
     pub reversing_adjusted_start: Value,
     /// CSS §3.2: how much of the authored duration this transition uses.
     pub reversing_shortening: f64,
+    /// While it waits for the first presented frame (LLP 1003.001 D1), the
+    /// engine time it began: every reading is at that time, so it does not
+    /// move until the frame starts it.
+    pub pending: Option<f64>,
 }
 
 /// The shape of a running transition's progress.
@@ -307,12 +311,14 @@ impl Running {
             curve,
             reversing_adjusted_start,
             reversing_shortening,
+            pending: None,
         }
     }
 
     /// The easing's output progress at `now` (CSS §3.2 "timing function
     /// output"). A spring has no such number; it reports `1`.
     pub fn easing_progress(&self, now: f64) -> f64 {
+        let now = self.pending.unwrap_or(now);
         match &self.curve {
             Curve::Easing { easing, duration } => {
                 if now <= self.start {
@@ -327,8 +333,10 @@ impl Running {
         }
     }
 
-    /// Sample at `now`. Before `start` (in the delay) the value is `from`.
+    /// Sample at `now`. Before `start` (in the delay) the value is `from`;
+    /// while pending, at the time it began.
     pub fn sample(&self, now: f64) -> RunningSample {
+        let now = self.pending.unwrap_or(now);
         match &self.curve {
             Curve::Easing { easing, duration } => {
                 if now < self.start {
@@ -412,6 +420,21 @@ impl Running {
         }
         values.push(self.to);
         Some((duration, values))
+    }
+
+    /// When the transition ends if the frame at `now` starts it: its own end,
+    /// or a pending one's moved by the wait (LLP 1003.001 D1).
+    pub fn end_at(&self, now: f64) -> f64 {
+        self.end_time() + self.wait(now)
+    }
+
+    /// When it starts moving if the frame at `now` starts it.
+    pub fn start_at(&self, now: f64) -> f64 {
+        self.start + self.wait(now)
+    }
+
+    fn wait(&self, now: f64) -> f64 {
+        self.pending.map_or(0.0, |begin| (now - begin).max(0.0))
     }
 
     /// When the transition ends, on the clock. A spring's end is its settle

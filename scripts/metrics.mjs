@@ -23,7 +23,9 @@
  *                                       rebuild, and the app's boot phases (minutes, not seconds);
  *                                       and the web bytes of RealWorld, the video player and
  *                                       Caltrain: the app.js each ships (gated) and the wasm
- *                                       core's code by capability (LLP 1047 D9; reported)
+ *                                       core's code by capability (LLP 1047 D9; reported);
+ *                                       and the hello app's iOS binary, for speed and for size
+ *                                       (LLP 1047.001 D8; reported)
  *
  * Budgets are read from rules/RULES.md so they cannot drift from the prose.
  */
@@ -771,6 +773,33 @@ if (long) {
       out[`${key}_gzip_bytes`] = existsSync(f) ? gz(f) : NaN;
     }
   });
+  // The iOS binary (LLP 1047.001 D8): the hello app — one text node, the core
+  // and nothing a plan adds — built for production on the simulator for speed
+  // and for size (D9), its executable stripped, against an empty UIKit app's
+  // (`host/apple/ios/floor.swift`). Reported, never gated: on 2026-10-06 the
+  // one-text probe had grown from 7.2 MB to 9.8 MB in a week and nothing said so.
+  await step('ios-size', () => {
+    const hello = resolveApp('hello');
+    const env = { ...process.env, EXACT_UPDATE_TRUST: 'production', EXACT_UPDATE_GENESIS: '1' };
+    const strippedSize = (file) => {
+      const copy = resolve(ROOT, 'target/exact-ios-size.tmp');
+      const s = spawnSync('xcrun', ['strip', '-o', copy, file], { encoding: 'utf8' });
+      const bytes = s.status === 0 ? statSync(copy).size : NaN;
+      rmSync(copy, { force: true });
+      return bytes;
+    };
+    const triple = `${arch() === 'arm64' ? 'arm64' : 'x86_64'}-apple-ios${hello.manifest.host?.ios?.minimumOS ?? '17.0'}-simulator`;
+    const floor = resolve(ROOT, 'target/exact-ios-floor');
+    const sdk = spawnSync('xcrun', ['--sdk', 'iphonesimulator', '--show-sdk-path'], { encoding: 'utf8' }).stdout.trim();
+    const f = spawnSync('xcrun', ['--sdk', 'iphonesimulator', 'swiftc', '-Osize', '-target', triple, '-sdk', sdk, '-o', floor, resolve(ROOT, 'host/apple/ios/floor.swift')], { encoding: 'utf8' });
+    out.ios_floor_bytes = f.status === 0 ? strippedSize(floor) : NaN;
+    for (const optimize of ['speed', 'size']) {
+      const r = spawnSync(process.execPath, [resolve(ROOT, 'host/apple/build.mjs'), hello.crate('apple'), '--ios', '--optimize', optimize], { cwd: ROOT, env, encoding: 'utf8' });
+      const binary = appleArtifacts(hello, { destination: 'ios-simulator', trust: 'production', optimize }).binary;
+      if (r.status !== 0 || !existsSync(binary)) { out[`ios_${optimize}_failed`] = `exit ${r.status}: ${failure(r)}`; continue; }
+      out[`ios_${optimize}_bytes`] = strippedSize(binary) - out.ios_floor_bytes;
+    }
+  });
 }
 
 // The web core's ceilings, KiB of brotli-11 app.wasm as shipped (staged
@@ -1003,6 +1032,8 @@ if (long) {
     ['  optional: GPU module (dlopen)', mib(out.gpu_module_bytes), Number.isFinite(out.gpu_module_bytes) ? `${mib(out.gpu_module_gzip_bytes)} gzip; paid at the first canvas` : 'no GPU crate'],
     ['  optional: web arm (dlopen)', mib(out.web_module_bytes), Number.isFinite(out.web_module_bytes) ? `${mib(out.web_module_gzip_bytes)} gzip; paid at the first iframe` : 'n/a'],
   );
+  // LLP 1047.001 D8: the hello app's iOS binary over an empty UIKit app's, for speed and for size (reported).
+  for (const optimize of ['speed', 'size']) rows.push([`iOS: hello app, optimized for ${optimize}`, out[`ios_${optimize}_failed`] ? 'FAILED' : mib(out[`ios_${optimize}_bytes`]), out[`ios_${optimize}_failed`] ?? `production, simulator, stripped, over an empty UIKit app (${mib(out.ios_floor_bytes)}); one text node: the core and nothing a plan adds; ${optimize === 'size' ? 'what an embed builds' : 'what an app builds'} unless its manifest says otherwise`]);
   rows.push(['macOS: touch one line, rebuild', out.macos_touch_failed ? 'FAILED' : s(out.macos_touch_s), out.macos_touch_failed ?? `host/apple/src/host.rs; budget ${budget('Touch one line')}`]);
   // LLP 1047 D9: each app's wasm, and its code by capability (KiB of code).
   for (const [name, m] of Object.entries(out.web_bytes ?? {})) {

@@ -335,6 +335,29 @@ impl TextMetrics {
 
 /// A host's text engine, injected per kernel.
 pub trait TextMeasurer {
+    /// Revision of host measuring traits (scale, content size, legibility,
+    /// appearance). A change invalidates native button offers even if fonts
+    /// and the tree stay the same. Hosts without changing traits return zero.
+    fn measure_revision(&self) -> u64 {
+        0
+    }
+
+    /// Native field chrome (LLP 1104 D5). Existing/painted measurers answer
+    /// no chrome until they implement their own control look.
+    fn field_chrome(&mut self, _request: &crate::FieldChromeRequest) -> crate::FieldChrome {
+        crate::FieldChrome::default()
+    }
+
+    /// Native button border-box size, including its platform chrome and
+    /// authored content insets (LLP 1069.011.001 D11). None preserves the
+    /// default size / set_intrinsic_size path for existing hosts.
+    fn button_measure(
+        &mut self,
+        _request: &crate::ButtonMeasureRequest,
+    ) -> Option<crate::ButtonMeasure> {
+        None
+    }
+
     /// The resolved document language; an empty language is unknown.
     fn set_language(&mut self, _language: &str) {}
 

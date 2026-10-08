@@ -68,8 +68,8 @@ final class DialogHost {
         entry.backdrop.addSubview(dialog)
         dialog.isHidden = false
         layout()
-        presenter.mouseSwipe.cancel(); presenter.mouseHeightDrag.cancel()
-        presenter.mouseTransformDrag.cancel(); presenter.mouseReorder.cancel()
+        presenter.mouseSwipe.cancel(); presenter.mouseDrags.height.cancel()
+        presenter.mouseDrags.transform.cancel(); presenter.mouseDrags.reorder.cancel()
         presenter.mouseLayoutPan.abandon(); presenter.selection.clear()
         presenter.session?.canvases.cancelMovedControls()
         refreshInputGates()

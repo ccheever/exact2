@@ -157,10 +157,12 @@ impl<'a> Reader<'a> {
     /// Read a dimension: kind byte (0 auto, 1 points, 2 percent, 3–6 an
     /// `env()` length at the top/right/bottom/left safe-area inset, 7 a
     /// `calc()` of a percent and points, 8–13 a viewport segment's
-    /// width/height/top/left/bottom/right) then `f32` (the points added to
-    /// an inset or a segment length); a `calc()` carries its percent first
-    /// and a second `f32`; a segment length carries its two index bytes,
-    /// `x` then `y`, after the `f32` (LLP 1078 D3).
+    /// width/height/top/left/bottom/right, 14–23 a viewport length, 24 a
+    /// `min()`/`max()`/`clamp()`) then `f32` (the points added to an inset
+    /// or a segment length); a `calc()` carries its percent first and a
+    /// second `f32`; a segment length carries its two index bytes, `x` then
+    /// `y`, after the `f32` (LLP 1078 D3); a comparison carries its tree
+    /// after a zero `f32` (`style::compare`, LLP 1001 §2).
     pub fn dimension(
         &mut self,
         style: StyleId,
@@ -188,6 +190,11 @@ impl<'a> Reader<'a> {
             14..=23 => {
                 Dimension::Viewport(crate::style::ViewportUnit::ALL[(kind - 14) as usize], value)
             }
+            // The leading `f32` is zero; the tree follows.
+            24 if value.to_bits() == 0 => {
+                Dimension::Compare(crate::style::Comparison::decode(self)?)
+            }
+            24 => return Err(DecodeError::InvalidComparison),
             other => return Err(DecodeError::UnknownDimensionKind(other)),
         };
         if kind != 0 && !dim.is_finite() {
@@ -529,6 +536,11 @@ impl Writer {
                 self.f32(p);
                 self.f32(v);
             }
+            Dimension::Compare(c) => {
+                self.u8(24);
+                self.f32(0.0);
+                c.encode(self);
+            }
         }
     }
 
@@ -699,7 +711,7 @@ mod tests {
         // schema. The literal makes an accidental removal of that coupling a
         // test failure whenever the byte snapshot above is intentionally moved.
         // Recomputed when the schema changes; the digest test prints the value.
-        assert_eq!(SCHEMA_DIGEST, 0xd939_97bb_e9f4_d304);
+        assert_eq!(SCHEMA_DIGEST, 0x9d0093c49b48fc8);
     }
 
     #[test]
@@ -755,11 +767,94 @@ mod tests {
                 Ok(Dimension::Env(*edge, i as f32 * 1.5))
             );
         }
-        let mut r = Reader::new(&[24u8, 0, 0, 0, 0]);
+        let mut r = Reader::new(&[25u8, 0, 0, 0, 0]);
         assert_eq!(
             r.dimension(StyleId::Width, true),
-            Err(DecodeError::UnknownDimensionKind(24))
+            Err(DecodeError::UnknownDimensionKind(25))
         );
+    }
+
+    #[test]
+    fn comparisons_round_trip_and_a_malformed_tree_is_refused() {
+        let text = "calc(clamp(15px, env(safe-area-inset-bottom), max(60px, 10vh)) + 59px)";
+        let Ok(Some(d)) = crate::style::compare::parse(text) else {
+            panic!("{text}");
+        };
+        let mut w = Writer::new();
+        w.dimension(d);
+        let bytes = w.into_vec();
+        assert_eq!(bytes[0], 24, "a comparison is kind 24");
+        let mut r = Reader::new(&bytes);
+        assert_eq!(r.dimension(StyleId::PaddingBottom, false), Ok(d));
+        assert!(r.is_empty());
+        // Truncated anywhere in the tree: refused, never a partial length.
+        for end in 5..bytes.len() {
+            assert!(
+                Reader::new(&bytes[..end])
+                    .dimension(StyleId::PaddingBottom, false)
+                    .is_err(),
+                "{end}"
+            );
+        }
+        let refused = |tree: &[u8]| {
+            let mut bytes = vec![24, 0, 0, 0, 0];
+            bytes.extend_from_slice(tree);
+            Reader::new(&bytes).dimension(StyleId::Width, true)
+        };
+        // The leading `f32` is zero.
+        let mut prefixed = bytes.clone();
+        prefixed[1..5].copy_from_slice(&1.0f32.to_le_bytes());
+        assert_eq!(
+            Reader::new(&prefixed).dimension(StyleId::Width, true),
+            Err(DecodeError::InvalidComparison)
+        );
+        let nan = f32::NAN.to_le_bytes();
+        for tree in [
+            // A clamp() of two.
+            vec![5, 2, 0, 0, 0, 0, 0, 1, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+            // An empty min().
+            vec![3, 0, 0, 0, 0, 0],
+            // An unknown tag, edge and unit.
+            vec![6, 0, 0, 0, 0],
+            vec![1, 4, 0, 0, 0, 0],
+            vec![2, 10, 0, 0, 0, 0, 0, 0, 0, 0],
+            // A non-finite term.
+            [vec![3, 1, 0], nan.to_vec(), vec![0, 0, 0, 0]].concat(),
+        ] {
+            assert_eq!(
+                refused(&tree),
+                Err(DecodeError::InvalidComparison),
+                "{tree:?}"
+            );
+        }
+        // Nine deep: past what the parser takes.
+        let mut deep = Vec::new();
+        for _ in 0..9 {
+            deep.extend_from_slice(&[3, 1]);
+        }
+        deep.extend_from_slice(&[1, 0, 0, 0, 0, 0]);
+        for _ in 0..9 {
+            deep.extend_from_slice(&[0, 0, 0, 0]);
+        }
+        assert_eq!(refused(&deep), Err(DecodeError::InvalidComparison));
+        // A wide tree: 64 min()s of 64 points each. Refused at the 65th node
+        // read, long before the 4,161 the tree holds.
+        let mut wide = vec![24, 0, 0, 0, 0, 3, 64];
+        for _ in 0..64 {
+            wide.extend_from_slice(&[3, 64]);
+            for _ in 0..64 {
+                wide.extend_from_slice(&[0, 0, 0, 0, 0]);
+            }
+            wide.extend_from_slice(&[0, 0, 0, 0]);
+        }
+        wide.extend_from_slice(&[0, 0, 0, 0]);
+        let mut r = Reader::new(&wide);
+        assert_eq!(
+            r.dimension(StyleId::Width, true),
+            Err(DecodeError::InvalidComparison)
+        );
+        // The 65th node is refused before its tag: inside the first inner min().
+        assert_eq!(r.position(), 7 + 2 + 62 * 5);
     }
 
     #[test]

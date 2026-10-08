@@ -168,7 +168,10 @@ extension Presenter {
             for sub in v.subviews.reversed() {
                 report.views += 1
                 if report.views > AgreementReport.walkCap { report.incomplete("walk-cap"); break walk }
-                if judged { report.judged += 1 } else { report.opaque += 1 }
+                if judged { report.judged += 1 } else {
+                    report.opaque += 1
+                    if let what = elements.regions.owner(of: sub) { report.opaqueBy[what, default: 0] += 1 }
+                }
                 if let n = sub as? NodeView {
                     // In the presenter's map is not alive: the kernel must
                     // still have the node (a complete `frames`), or the view

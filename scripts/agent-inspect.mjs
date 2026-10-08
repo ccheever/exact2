@@ -259,6 +259,28 @@ const COUNTERS = ['instances', 'created', 'retired', 'evaluated', 'unchanged', '
  * again, and subtracts: the delta belongs to the driver, a read changes nothing.
  * `live <ms>` lends the page's clock to the wall for that long and measures the
  * frames it presents (the platformer's diary, R11: a game's 60 fps). */
+/** `tap <node>/<part>` (LLP 1075.003.000.001 §3.5): a control a hatch drew, by the id `tree` lists under its node. Reached
+ *  only as real platform input at its place: the host aims (the part live, in its window, not covered), the driver delivers a
+ *  pointer event there (a touch on iOS under `--touch platform`), and the host says where it landed, against the aim's token.
+ *  `unsupported` where no real carrier exists; never a fallback, never an activation by name. Null when `target` names no part. */
+export async function partTap({ s, host, touch }, target, opts = {}) {
+  const cut = typeof target === 'string' ? target.lastIndexOf('/') : -1;
+  if (cut <= 0 || cut === target.length - 1) return null;
+  const of = target.slice(0, cut), name = target.slice(cut + 1);
+  let node;
+  try { node = await s.target(of); } catch { return null; }
+  if (!['web', 'macos', 'ios'].includes(host) || (host === 'ios' && touch === 'agent')) {
+    return { tapped: node.id, part: name, delivery: 'unsupported', reason: host === 'ios' ? 'a part takes a real touch: open the simulator with --touch platform' : `the ${host} host has no real pointer carrier for a part` };
+  }
+  const aim = await s.op({ op: 'tap', id: node.id, part: name, aim: true });
+  if (aim.error) throw new Error(aim.error);
+  // One real click at the aimed point (`clicks 1 at x y`, the mouse form that takes a point on any node); a touch on iOS.
+  await s.tap(of, { ...opts, ...(host === 'ios' ? {} : { clicks: 1 }), at: aim.aimed.at });
+  const landed = await s.op({ op: 'tap', id: node.id, part: name, landed: aim.aimed.token });
+  if (landed.error) throw new Error(landed.error);
+  return { ...landed, target, at: aim.aimed.at };
+}
+
 export async function perfOp(s, args, line, step) {
   if (args[0] === 'frames') {
     const at = word => { const i = args.indexOf(word); return i < 0 ? undefined : Number(args[i + 1]); };
@@ -268,8 +290,6 @@ export async function perfOp(s, args, line, step) {
   }
   // `perf hatches` (LLP 1075.003.000.001 §3.3): the hatches' calls and what their code counted.
   if (args[0] === 'hatches') {
-    // The Linux host calls no hatch until its stage (§8 stage 4).
-    if (s.host === 'linux') throw Error('perf hatches: the linux host calls no hatches yet (LLP 1075.003.000.001 §8 stage 4)');
     const read = () => s.op({ op: 'perf', hatches: true });
     const at = line.search(/\sduring\s/);
     if (at < 0) return read();

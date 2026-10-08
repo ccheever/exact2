@@ -1,0 +1,893 @@
+{
+  "run": {
+    "id": "2026-10-06-r1",
+    "exact2": "77163022423c48a5511b8cea3fb0e8cd3be0c5e7",
+    "model": "grok-4.7",
+    "effort": "high",
+    "created": "2026-10-06T05:00:59.389Z"
+  },
+  "lanes": {
+    "exact2": {
+      "engine": "exact2's game engine (this checkout)",
+      "done": true,
+      "capped": false,
+      "segments": 3,
+      "wall_min": 105,
+      "tokens": {
+        "input": 39685884,
+        "uncached_input": 1092860,
+        "output": 346969,
+        "cached": 38593024,
+        "reasoning": 266653,
+        "total": 40032853,
+        "calls": 328,
+        "cost_usd": 8.43957452
+      },
+      "code": {
+        "files": 13,
+        "lines": 3095,
+        "byExt": {
+          ".mjs": 379,
+          ".json": 6,
+          ".contract": 234,
+          ".rs": 2476
+        }
+      },
+      "selfscore_tokens": 649176,
+      "done_json": {
+        "proof_command": "cd garden && bun proof.mjs && bun proof.mjs web",
+        "proof_passed": true,
+        "not_done": [],
+        "game_dirs": [
+          "garden"
+        ],
+        "notes": "Linux and web proofs both PASS. P1–P9 on the Linux host (6.6s) and again on the web host (116.8s), which also wrote the nine P10 screenshots into artifacts/ and garden/artifacts/. Pins: tick 1 and save mid. Run the command from this lane directory."
+      },
+      "selfscore": {
+        "engine": "exact2",
+        "overall": 8,
+        "overall_why": "I would use this again for a similar game because the headless proof is the whole job: a scripted clock, save/restore in a fresh process, and hash pins let an agent prove growth, watering, money, an offline hour, and a thousand plants without a person, then the same pins held on the web host while it took the screenshots. The tax was real but one-time — types that appear after setup must be registered or restore refuses, the world hash includes the host clock, and a 50 ms timer cannot survive an hour seek — and after those, a full Linux pass was 6.6 seconds. That verification loop matters more than the derive ceremony or the gap between the supplied models and the reference frames.",
+        "subscores": {
+          "setup": 7,
+          "docs": 6,
+          "loop": 8,
+          "verification": 8,
+          "debugging": 7,
+          "assets": 8,
+          "ui": 8,
+          "api": 6,
+          "reliability": 6,
+          "visuals": 7
+        },
+        "citations": {
+          "setup": [
+            "2026-10-06T05:21:19Z — Scaffolded `garden/` with `exact.mjs new --game --assets`. The game SDK crates were not all fetched and Xcode.app is not selected (CLT only); native mac launch is not the proof host."
+          ],
+          "docs": [
+            "2026-10-06T06:25:30Z — First Rust build. `Resource` already implements `Data`, so deriving both failed. `Sky` and the row structs needed `Default` because `Data` requires it. Signed `div_ceil` is still unstable, so page count is integer division. Hostless `Sim::new` leaves setup pending until assets load; tests use `Sim::baked`.",
+            "2026-10-06T06:32:49Z — Linux proof passed P1–P6, then died on P7 at `tap('play')` of the restored process: `unregistered component FruitLook`. A fresh process runs setup before it loads the save, and fruit meshes (and the fence lanterns) are inserted only on a later sync, so they were missing from the schema.",
+            "2026-10-06T06:41:38Z — `run(1 hour)` died with `TimerFireLimit { limit: 4096 }`. The HUD stamp was `every(50)`, so one clock span fired more timers than the runner allows, and it also wrote a different `seen_host_ms` into each process, which the world hash includes. The next Linux run passed P1–P9 with 0 failures in 6.9 s and came back `UNVERIFIED` because `pins.json` was empty."
+          ],
+          "debugging": [
+            "2026-10-06T06:32:49Z — died on P7 at `tap('play')` of the restored process: `unregistered component FruitLook`. … `Game::register` now registers `FruitLook`, `Limbs`, `Lantern`, and the garden resources.",
+            "2026-10-06T06:41:38Z — Second Linux proof got through P7 (ticks matched, hashes did not) and then `run(1 hour)` died with `TimerFireLimit { limit: 4096 }`."
+          ],
+          "api": [
+            "2026-10-06T05:36:33Z — Character `bounds_xz` is one inclusive range for both axes; the garden is clamped by hand. Away is the host gap on the first tick after a restore (`seen_host_ms` saved, `booted` not saved).",
+            "2026-10-06T06:25:30Z — `Resource` already implements `Data`, so deriving both failed. `Sky` and the row structs needed `Default` because `Data` requires it. Hostless `Sim::new` leaves setup pending until assets load; tests use `Sim::baked`.",
+            "2026-10-06T06:32:49Z — `Game::register` now registers `FruitLook`, `Limbs`, `Lantern`, and the garden resources.",
+            "2026-10-06T06:41:38Z — it also wrote a different `seen_host_ms` into each process, which the world hash includes."
+          ],
+          "reliability": [
+            "2026-10-06T06:32:49Z — Linux proof (`bun proof.mjs`) passed P1–P6, then died on P7 at `tap('play')` of the restored process: `unregistered component FruitLook`.",
+            "2026-10-06T06:41:38Z — `run(1 hour)` died with `TimerFireLimit { limit: 4096 }`. … came back `UNVERIFIED` because `pins.json` was empty.",
+            "2026-10-06T06:45:17Z — Linux proof with those pins: `PROOF PASS` in 6.6 s. Web proof: `PROOF PASS` in 116.8 s, pins matched."
+          ],
+          "visuals": [
+            "2026-10-06T06:45:17Z — Looked at all nine and at `reference/arrival.png`. The given art is a different model set from that reference; the HUD, plot, farmer and panels sit in the same places. Arrival shows Restock 4:59 because the shot is after the boot tick (~16 ms), so the 5:00 countdown has already stepped. The rain shot is the Rain sky, not a thunder frame."
+          ]
+        },
+        "top_frictions": [
+          "A fresh process runs setup, then loads the save, and refuses any component that setup never inserted. FruitLook and the lanterns exist only after a later sync, so P7 died until Game::register listed them. The in-process restore test does not catch that.",
+          "The world hash includes seen_host_ms, so two simulations with the same rules disagree when their host clocks differ. A contract every(50) stamp also exceeds TimerFireLimit (4096) on a one-hour seek, so the played hour had to be split into 60 s steps.",
+          "The first Rust build failed on engine rules that are easy to miss: Resource already implements Data, Data requires Default, signed div_ceil is unstable, and Sim::new leaves setup pending until assets load."
+        ],
+        "keep": [
+          "A headless Linux proof with a scripted clock, fresh-process save/restore, and hash pins. Once the pins existed, Linux passed in 6.6 s and the web host reproduced the same pins.",
+          "Asserting the garden as resources and the HUD by testId, so value, watering, market, and the offline hour were checked without looking at pixels. An hour of ticks at about a thousand plants was a few milliseconds.",
+          "The restore error named the missing component and the fix (`world.register::<FruitLook>()` in Game::register), and an empty pins file came back UNVERIFIED instead of a false pass."
+        ]
+      },
+      "fidelity": {
+        "engine": "exact2 (this checkout's game engine: Rust world + Contract UI; Linux headless host + web/Chrome host)",
+        "proof_rerun": {
+          "command": "cd garden && bun proof.mjs && bun proof.mjs web",
+          "passed": true,
+          "seconds": 24,
+          "output_tail": "PASS P9 stress plants 100 / P9 frame run(100) with 101 plants: 4.6 ms / PASS P9 skip adds one hour / PASS P9 about 1000 plants / P9 frame run(100) with 1001 plants: 17.0 ms / PASS night is 8:00 in the day cycle / PASS rain or thunder for the rain shot / PASS pin 1 observed / PASS pin mid observed / PASS all recorded children exited / PROOF PASS garden web: 0 failures; 19.028 s (Linux leg before it: PROOF PASS garden linux: 0 failures; 5.379 s)"
+        },
+        "items": {
+          "G1": [
+            2,
+            "6x6 grid of 2 m tiles, tile (x,z) at (2x,0,-2z) (rules.rs tile_center/tile_of, scene.rs raise_field); soil cuboid with thin line boxes on tile boundaries, visible in every shot (renders tan rather than dark brown)."
+          ],
+          "G2": [
+            1,
+            "Fence posts/rails ringing the garden, 8 lanterns, 3 scaled-2.5x apple/mango/coconut trees beyond the north fence, stall+keeper, path stones, 5 grass patches; fence rebuilt at 11x11 and 32x32 (grown.png, overview). But the meadow renders pale grey-white, not green, in every capture, and the 10 flower tufts along the south edge are not visible."
+          ],
+          "G3": [
+            2,
+            "barrel.model at (-2, 0.5, 0) just west of tile (0,0) (scene.rs build); seen in every shot. Colour not scored."
+          ],
+          "G4": [
+            1,
+            "Body+2 arms+2 legs at the ART.md joints, starts at (0,0.9,0); Character speed 4 / accel 12 (measured 3.37 m after 1 s, 27.37 m after 7 s); limbs swing; Space jumps; clamp to [-20, 2n+20]. Facing is wrong on one axis: yaw = atan2(vx, -vz) mirrors the rotation, so walking south (toward the camera) shows the gardener's back (judge/face-south.png; the model's bib and buttons face +Z)."
+          ],
+          "G5": [
+            2,
+            "Follow offset (0,11,14) with lag from the south; I walked 27 m east and then 31 m north, and the gardener stayed centred on screen (judge/walk-east.png, walk-north.png). The Overview toggle pulls back to show the whole 32x32 garden (judge/overview.png)."
+          ],
+          "G6": [
+            2,
+            "plant-<crop>-<stage> swapped per stage with -far LOD, unripe fruit hang once mature, ripe fruit models after roll, material 0 overridden per mutation (gold metal, rainbow hue shimmer, frozen pale cyan, wet/chilled fixed blue-grey, shocked emissive), plants offset +(0.55,-0.35) from centre. Visible in grown.png/backpack-thousands.png."
+          ],
+          "G7": [
+            2,
+            "Outline follows the tile under the player. I saw cyan when empty (arrival), amber while growing (planted), blue after watering (judge/fx-water.png) and green when ripe (grown); purple for fed-and-unrolled is in outline_color (code only)."
+          ],
+          "G8": [
+            2,
+            "600 s cycle in look.rs drives sun elevation/colour, sky zenith/horizon, ambient and fog; night.png at Day 8:00 is dark purple with lantern glass glowing (material 0 emissive by night_glow)."
+          ],
+          "G9": [
+            0,
+            "Rain/snow are emitter particles of 2-3.5 cm (snow 5-9 cm). I stepped into Rain: the world held 469 live particles, but nothing is visible in judge/snow-stepped.png or the proof's rain.png. A Snow capture (judge/weather2.png) shows no flakes either. The emitter is also centred on the garden, so in a 32x32 garden it misses the camera's view. Thunder flashes exist only as a lux spike in code (not seen)."
+          ],
+          "G10": [
+            1,
+            "Planting fires a brown burst (barely visible). Watering shows the can in hand, tipped, with blue droplets (judge/fx-water.png). Harvest plays a chime and a small gold burst at the gardener, but no fruit travels to the gardener as the brief asks."
+          ],
+          "R1": [
+            2,
+            "place(): stage_at = now + grow/4, /2, 3/4, grow; fire_plants sets the cohort at stage 4 with `slots` fruit. P3 confirmed stage 2 at 10 s and maturity at 20 s."
+          ],
+          "R2": [
+            2,
+            "ripe_at = mature + fruit_s; harvest of a regrowing crop sets ripe_at = now + fruit_s; fruit_s 0 rolls at maturity and harvest frees the tile (P4 confirmed tile (0,0) empty afterwards)."
+          ],
+          "R3": [
+            2,
+            "roll_fruit order: rainbow 0.001, else gold 0.01; Rain wet 0.5; Snow chilled 0.4, else frozen 0.1; Thunder wet 0.5 and independent shocked 0.03; weight base*U(0.8,1.4), x3 at 0.02, x1.25 if fed."
+          ],
+          "R4": [
+            2,
+            "fruit_value = round(base*(w/bw)^2*variant*(1+sum(env-1))), min 1, f64. Variant 50/20/1; env extras 1/1/9/99. Name order Fed, variant, Wet, Chilled, Frozen, Shocked, crop. Unit test has the five worked values; P4 matched an independent JS formula."
+          ],
+          "R5": [
+            2,
+            "new_game: first change at U{180..420} s (seed 7: 223 s observed). roll_sky gives 0.6 Rain, then 0.4*0.625=0.25 Snow, else 0.15 Thunder; lasts 60-120 s, then Clear 180-420 s. Integer-second uniform."
+          ],
+          "R6": [
+            2,
+            "Garden::default purse 20, hand[0]=1; P1 and the HUD show 20 cents and 'Holding Carrot x1'."
+          ],
+          "R7": [
+            2,
+            "act_at: ripe harvests every fruit, empty+seed plants one, otherwise the note says why ('No seeds in hand', 'Carrot is still growing 0:12', 'Step onto a garden plot'). Driven by KeyE in the proof and in my runs."
+          ],
+          "R8": [
+            2,
+            "scale_future(now, at) = now + (at-now)*3/4 on every future stage (or ripe_at), which keeps proportions. One dose per growth / per fruit / per regrowth; ripe, empty, already-watered and empty-can cases spend nothing; R refills within 2.5 m of (-2,0). P6: 16 s maturity, can 2/3 then 3/3. My run: watered at 3.2 s, 0:12 left."
+          ],
+          "R9": [
+            2,
+            "In my run, compost moved the pouch 0->3; a fourth compost said 'Plant food pouch is full' and left the fruit (backpack 338->335). F fed the plant, a second F said 'already fed' and spent nothing. plant.fed carries into roll_cohort (x1.25) and clears after the roll."
+          ],
+          "R10": [
+            2,
+            "restock at start and every 300000 ms: chance(appear), stock U{1..max}; the current order's crop is forced to at least 1 at restock (not re-forced between restocks). buy() takes price and stock, adds to hand, selects it. The disabled state is visible in shop.png."
+          ],
+          "R11": [
+            2,
+            "Rows show name with mutations, 'kg', value. In my run Sell gave 'Sold for 4K cents' and Sell all gave 'Sold all for 1.4M cents', with the purse updated."
+          ],
+          "R12": [
+            2,
+            "ORDERS = carrot1+30, straw4+400, blue5+600, tomato4+1300, corn3+2400; deliver pays the sum of values + bonus (P5: +47 = 17+30); after the fifth, 'Market regular · all 5 orders filled!'."
+          ],
+          "R13": [
+            2,
+            "expand_cost n^3*25 up to 256; the labels read 'Expand to 12x12 · 33.2K cents' (11^3*25=33275) and '33x33 · 819.2K cents' (32^3*25)."
+          ],
+          "R14": [
+            1,
+            "advance_by replays every event in order with the same RNG draws, and P8 shows an away hour equals a played hour. But the game never saves on its own (no data source, no autosave; saves exist only through the test harness), and away time is measured with Contract now(), which counts ms since boot, not wall time. A real reopen in a new session sees a negative gap and grows nothing."
+          ],
+          "R15": [
+            2,
+            "One world RNG (w.rng(), reseeded with seed 7) feeds restock, weather, rolls and stress picks; the tick-1 hash and the 'mid' save digest re-matched pins.json on Linux and web."
+          ],
+          "U1": [
+            2,
+            "Title screen with 'Grow a Garden', a controls line and an autofocused Play button with an accessible name (title.png)."
+          ],
+          "U2": [
+            2,
+            "Purse with compact money (20 cents, 33.2K, 16.2M, 1.4M seen), Restock m:ss, '1001 plants · 1981/2386 ripe · 220 mutated', weather (shown even when Clear, as in the reference), 'Day m:ss'. Shop, 'Backpack N', Garden and Pause buttons."
+          ],
+          "U3": [
+            1,
+            "Every seed shows rarity in its colour, price, stock, xN held, first-fruit and regrow times, and a Buy that is disabled when unaffordable or 'Sold out'. But the panel does not scroll: rows past Watermelon overflow the viewport, and reaching them scrolls the whole page off the game (judge/shop-scrolled.png shows a white page)."
+          ],
+          "U4": [
+            1,
+            "Rows have name with mutations, kg, value, Sell and Compost, and 'Sell all · total'. It stayed responsive with 3314 fruit by paging 12 per page (277 pages). But 12 rows overflow the panel, and Previous/Next sit below a 720 px viewport (the driver had to scroll the page to reach them)."
+          ],
+          "U5": [
+            2,
+            "Harvest all, 'Expand to NxN · cost', Overview toggle, +100 plants (expands as needed: 6->11->32), and Skip 1 hour (advance_by 3600000) all work when tapped. There is an extra 'Sample' debug button."
+          ],
+          "U6": [
+            2,
+            "'Market order N · k Crop', 'h/k in backpack · full value + bonus', a next-step line, and 'Deliver order' (disabled until ready); the 'all 5 orders filled' state exists."
+          ],
+          "U7": [
+            1,
+            "'Watering can · N/3' with Q Water/R Refill and a contextual water line, plus 'Plant food · N/3' with F Feed. But the food line is the static 'Compost a backpack fruit to make plant food' and never says what F would do on this tile."
+          ],
+          "U8": [
+            1,
+            "Plot pill ('Plot 1, 1 · Carrot · W north…'), act line, a hint to the nearest empty plot or back to the garden with WASD key and metres, and a note after each action. But with an empty hand on an empty tile it still says 'E: plant Carrot (0 left)' while E does nothing (market.png, backpack.png)."
+          ],
+          "U9": [
+            1,
+            "The button reads Resume and the HUD freezes. But on resume the contract posts 'away <gap>', so game time catches up: I paused for 60 s and the day went 0:01 -> 1:01 and restock 4:59 -> 3:58 on resume. Game time is deferred, not stopped."
+          ],
+          "P1": [
+            2,
+            "Rerun PASS on Linux and web: real Play tap, then purse 20, hand[0]=1, n=6 with 36 tiles, carrot stock>0, Clear."
+          ],
+          "P2": [
+            2,
+            "hold KeyD 500 ms through the input path in two fresh sessions; moved >0.5 m and identical positions (PASS)."
+          ],
+          "P3": [
+            2,
+            "KeyE plants on (0,0); stage 0 and hand 0; +10 s gives stage 2; +10 s gives a ripe fruit (PASS)."
+          ],
+          "P4": [
+            2,
+            "KeyE harvests; backpack has 1 carrot whose value equals an independent JS R4 formula on its rolled weight/mutations; tile freed (PASS)."
+          ],
+          "P5": [
+            2,
+            "Deliver tapped in the UI; purse = before + value + 30 and order advanced (PASS)."
+          ],
+          "P6": [
+            2,
+            "buy-0 tapped, KeyE plants, KeyQ at +4 s gives maturity at sow+16000, can 2/3, not ripe at 15 s, ripe after 16 s, KeyR refills to 3/3 (PASS)."
+          ],
+          "P7": [
+            2,
+            "World saved mid-game and restored with open({fresh:true}) (a new Linux process); tick and hash equal at load and after 1 s on both sides; save digest pinned (PASS)."
+          ],
+          "P8": [
+            2,
+            "Saved at tick 1; one session played 3600000 ms, a fresh one restored with the clock +1 h; game_ms/acc, the rules signature and the next RNG draw are equal (PASS). This uses the harness clock (see R14)."
+          ],
+          "P9": [
+            1,
+            "The +100 tool is tapped, then Skip 1 hour, then about 1000 plants. But the reported 'frame' is the wall time of a run(100) RPC (6 sim ticks plus round trip: 3.0/3.5 ms Linux, 4.6/17.0 ms web), not a measured render frame time."
+          ],
+          "P10": [
+            2,
+            "All nine PNGs were rewritten by my rerun (23:46:42-23:46:59 local) into artifacts/, from the running web game in Chrome; rain.png shows no visible rain (scored under G9)."
+          ]
+        },
+        "look": [
+          5,
+          "The HUD layout is a close match to arrival/grown/market: top bar, market card top-right, care card bottom-right, prompt stack bottom-centre, Move and E buttons. The 3D scene is not: the meadow renders pale grey-white instead of green, the soil is light tan, the whole frame is washed out and low-saturation, the flower tufts are invisible, and the fence/stall/path crowd the lower left. Camera framing and the gardener's screen position are close to arrival.png."
+        ],
+        "world": 75,
+        "rules": 96.67,
+        "ui": 72.22,
+        "proof": 95,
+        "fidelity": 81.44,
+        "summary": "Faithful: the rules are close to the brief (growth, watering, the R3/R4 rolls and values, weather, shop, orders, expand, one seeded RNG with an exact played-equals-skipped hour). The HUD reproduces the reference layout, and the proof drives the real game through keys and taps and passes again in 24 s with pins matched. Missing: there is no real save or wall-clock away (R14 works only through the harness), rain and snow are invisible on screen, and harvest fruit does not fly to the gardener. Wrong: Pause defers game time instead of stopping it, the gardener faces backwards walking north/south, the shop and backpack panels overflow the viewport, and the meadow renders grey instead of green."
+      }
+    },
+    "three": {
+      "engine": "three.js (latest from npm), in the browser",
+      "done": true,
+      "capped": false,
+      "segments": 1,
+      "wall_min": 89.3,
+      "tokens": {
+        "input": 13705018,
+        "uncached_input": 952634,
+        "output": 307776,
+        "cached": 12752384,
+        "reasoning": 231427,
+        "total": 14012794,
+        "calls": 115,
+        "cost_usd": 3.59836416
+      },
+      "code": {
+        "files": 13,
+        "lines": 3451,
+        "byExt": {
+          ".mjs": 617,
+          ".html": 105,
+          ".js": 2471,
+          ".json": 16,
+          ".css": 242
+        }
+      },
+      "selfscore_tokens": 499071,
+      "done_json": {
+        "proof_command": "bun run proof",
+        "proof_passed": true,
+        "not_done": [],
+        "game_dirs": [
+          "."
+        ],
+        "notes": "Headless Chromium proof covers P1–P10. Frame time was about 2.6 ms at 101 plants and 5.5 ms at 1082. The barrel glb is wood, tinted blue with a water disc. Character mount yaw is π because the face sits on asset +Z. Thunder flashes and snow are implemented; the proof screenshots rain and night. Trees are scaled stage-4 crop models, as the brief asks."
+      },
+      "selfscore": {
+        "engine": "three.js",
+        "overall": 7,
+        "overall_why": "I would use three.js again for a similar game. The work an agent can actually finish — seeded rules, a script-controlled clock, save dumps, and real HTML controls — stayed ordinary JavaScript, and the WebGL view stayed out of the way: headless Chromium ran the full proof twice with the same frame times, and about a thousand plants were still a few milliseconds. A 3D sim is mostly a picture, though, and that part was a silent loop. Physical lights made the first meadow nearly black, the glTF face and the barrel's vertex colors did not match the art notes, and the only signal was another screenshot. Survivable, and it was the whole tax.",
+        "subscores": {
+          "setup": 9,
+          "docs": 6,
+          "loop": 7,
+          "verification": 9,
+          "debugging": 6,
+          "assets": 6,
+          "ui": 7,
+          "api": 8,
+          "reliability": 9,
+          "visuals": 6
+        },
+        "citations": {
+          "docs": [
+            "2026-10-06 06:24:33 UTC — Logging the visual pass that happened after 05:57 and was not written down then. First meadow render was nearly black (physical lights times dark vertex colors, meadow rgb about 13, 35, 2). Raised hemisphere, ambient, and sun, and later added lantern point lights so night at Day 8:50 stays readable. Cost several screenshot rounds."
+          ],
+          "loop": [
+            "2026-10-06 06:24:33 UTC — Logging the visual pass that happened after 05:57 and was not written down then. First meadow render was nearly black (physical lights times dark vertex colors, meadow rgb about 13, 35, 2). Raised hemisphere, ambient, and sun, and later added lantern point lights so night at Day 8:50 stays readable. Cost several screenshot rounds.",
+            "2026-10-06 06:26 UTC — `bun proof/proof.mjs` passed. P1–P8, pause, the narrow layout (market, care, and the prompts do not overlap at 390×800), and P10 screenshots. Frame time about 2.6 ms with 101 plants and about 5.5 ms with 1,082. Looked at all nine shots.",
+            "2026-10-06 06:29:37 UTC — Second full pass: `PROOF PASSED` again. Shop, title, and backpack shots rechecked. The planted carrot sprout sits east of the gardener and is visible beside the hat; the prompt pills cover its lower edge.",
+            "- Looked at rendered pixels about 20 times (night, stall, and the narrow layout before they were logged; then the nine proof shots, a crop of the sprout, and title/shop/backpack again)."
+          ],
+          "debugging": [
+            "2026-10-06 06:24:33 UTC — Logging the visual pass that happened after 05:57 and was not written down then. First meadow render was nearly black (physical lights times dark vertex colors, meadow rgb about 13, 35, 2). Raised hemisphere, ambient, and sun, and later added lantern point lights so night at Day 8:50 stays readable. Cost several screenshot rounds.",
+            "2026-10-06 06:24:33 UTC — Friction: ART.md says the kit faces −Z. A mount yaw of 0 put the face on the far side of the head (blue −Z marker on the back of the neck; more head verts on +Z). Mount yaw is π so the face, bib, and hat brim aim with the parent's forward. Close-up confirmed it. Do not flip it again."
+          ],
+          "assets": [
+            "2026-10-06 05:57:27 UTC — Resumed after context compaction. Page shell (`index.html`, `src/style.css`, `src/ui.js`, `server.js`) was already on disk and had never been opened in a browser. Scene, glue, and proof still unwritten. Asset front is unresolved: ART.md says models face −Z, a bounds check said the hat and the legs extend toward +Z. Will render with markers before locking a mount yaw.",
+            "2026-10-06 06:24:33 UTC — Friction: ART.md says the kit faces −Z. A mount yaw of 0 put the face on the far side of the head (blue −Z marker on the back of the neck; more head verts on +Z). Mount yaw is π so the face, bib, and hat brim aim with the parent's forward. Close-up confirmed it. Do not flip it again.",
+            "2026-10-06 06:24:33 UTC — Friction: the barrel glb is a wood tub with vertex colors, not a blue barrel. Tinted the wood `#2f9fe6` and added a pale water disc. The stall and keeper are in the scene; the stall camera sees the back of the keeper's head because the keeper faces the garden."
+          ],
+          "ui": [
+            "2026-10-06 06:26 UTC — Friction, from those shots: the seed shop ran down over the Move button, and Sell all printed `1643180¢`. Shortened the left panel so it stops above Move, and used the compact money format for the backpack total (`1.6M¢`). The title help was wrapping the word \"feed\" alone, so it is two deliberate lines. Re-ran the proof.",
+            "2026-10-06 06:29:37 UTC — Second full pass: `PROOF PASSED` again. Shop, title, and backpack shots rechecked. The planted carrot sprout sits east of the gardener and is visible beside the hat; the prompt pills cover its lower edge."
+          ],
+          "visuals": [
+            "2026-10-06 06:24:33 UTC — Logging the visual pass that happened after 05:57 and was not written down then. First meadow render was nearly black (physical lights times dark vertex colors, meadow rgb about 13, 35, 2). Raised hemisphere, ambient, and sun, and later added lantern point lights so night at Day 8:50 stays readable. Cost several screenshot rounds.",
+            "2026-10-06 06:29:37 UTC — Second full pass: `PROOF PASSED` again. Shop, title, and backpack shots rechecked. The planted carrot sprout sits east of the gardener and is visible beside the hat; the prompt pills cover its lower edge.",
+            "- Approximated, not skipped: the barrel glb is a wood tub, tinted blue with a flat water disc. Night lanterns throw a wide warm pool across the soil rather than tight circles. Trees are the brief's stage-4 apple, mango, and coconut models scaled up. Thunder flashes and snow are in the renderer; the proof shoots rain and night, not a separate thunder or snow frame. The weather chip stays visible on Clear."
+          ]
+        },
+        "top_frictions": [
+          "Default physical lights rendered the meadow almost black (rgb about 13, 35, 2) and never said why. Several screenshot rounds later, night still needed point lights and still reads as one wide warm pool.",
+          "glTF gives no forward axis and vertex colors silently win. The face was on asset +Z while the art note said −Z, and the barrel stayed a wood tub until its vertex colors were stripped and a disc was added.",
+          "Nothing in the renderer reports that a picture is wrong. Facing, darkness, the shop covering Move, and the prompts covering the sprout were all found by looking — about 20 pixel inspections, each one a browser load."
+        ],
+        "keep": [
+          "Headless Chromium ran the WebGL game without a flake or a context-loss fight, so one command could assert purse, growth, save dumps, pause, and frame time.",
+          "The scene graph stays out of the rules. Time, RNG, and saves are plain JavaScript, and about 1,082 plants still rendered in about 5.5 ms.",
+          "The HUD is real HTML beside the canvas, so buttons, accessible names, and panel text were clickable and readable from the proof."
+        ]
+      },
+      "fidelity": {
+        "engine": "three.js 0.186.1 (npm) + Bun, headless Chromium via Playwright",
+        "proof_rerun": {
+          "command": "bun run proof",
+          "passed": true,
+          "seconds": 47.3,
+          "output_tail": "logic ok / P1 ok / P2 ok / P3 ok {carrot 0.2874 kg, value 24, none, []} / P4 P5 ok 20 74 / P6 ok / pause ok / P7 ok / P8 ok / narrow ok / frame ~100 plants avg 2.70 ms, 101 plants · 374/374 ripe · 16 mutated / frame ~1000 plants avg 5.53 ms, 1082 plants · 3822/3822 ripe · 955 mutated / PROOF PASSED (exit 0; all nine artifacts rewritten 23:30:44-23:31:11)"
+        },
+        "items": {
+          "G1": [
+            2,
+            "Soil plane with drawn tile lines; tileCenter(tx,tz) = (2tx, -2tz) in sim.js; 6x6 at start, seen in arrival.png."
+          ],
+          "G2": [
+            2,
+            "meadow, grass-0/1, tuft-*, path-0..2, fence-post/rail, lanterns, 2.6-3.1x apple/mango/coconut-4 trees, stall and keeper, all seen (judge/j-stall.png, j-snow.png); the fence is rebuilt on every size change (placeFenceAndDress)."
+          ],
+          "G3": [
+            2,
+            "barrel at (-2, 0.5, 0); R refill within 2.5 m. Refill tested with the real R key. The cask is tinted blue, which is not scored, as instructed."
+          ],
+          "G4": [
+            2,
+            "farmer-body + 2 arms (+/-0.38, 0.18) + 2 legs (+/-0.18, -0.28) at y 0.9. Real D/ArrowUp/A+S keys moved it. vx reaches 4 m/s with 12 m/s^2 acceleration. It faces the way it walks and its limbs swing. Space hops. Clamped at 20 m beyond the garden (x=31, z=-31 seen)."
+          ],
+          "G5": [
+            2,
+            "Held D 9.5 s, then Up 9 s, then A+S 14 s with real keys. The camera stayed at gardener +0.3 x, +12.2 z, 13.4 up every time (j-walk-east-far.png, j-walk-north-far.png), lerped smoothly. The Overview button pulls back to the whole garden (j-overview.png). Framing is a little tighter and lower than the reference."
+          ],
+          "G6": [
+            2,
+            "plant-<crop>-<stage> from stageOf; unripe and ripe fruit models hang on mature plants (grown.png); the body material is recoloured per mutation (code, mutatedMaterial/paintBody); the plant sits at +0.68,-0.22 off the tile centre."
+          ],
+          "G7": [
+            2,
+            "Saw cyan on empty, amber while growing (shop.png), blue after watering (j-watering.png) and green when ripe (j-ripe-real.png). Purple when fed is in plotColor (code only)."
+          ],
+          "G8": [
+            2,
+            "600 s day in sunElevation, with sky, hemisphere and sun lerped to night (night.png). The proof asserts lantern glass emissive (glassMat.emissiveIntensity) plus point lights above 0.5 at night."
+          ],
+          "G9": [
+            2,
+            "Rain streaks (rain.png), snow (j-snow.png, sparse), thunderstorm rain (j-thunder-0.png). Pixel-sampled 500 frames: thunderstorm frames spike from 72 to 85 mean luma, 18 bright frames; rain never above 73."
+          ],
+          "G10": [
+            2,
+            "Planting bursts dirt (fxPlant). Q showed the can in the hand with drops (j-watering.png). Harvest flies the fruit model to the gardener and beeps. All of it is in world.js only, and no sim state is touched."
+          ],
+          "R1": [
+            2,
+            "stageOf = floor(fraction*4), and maturity at grow_s sets the fruit. Checked: stage 2 at 10 s, ripe at 20 s (rerun and real-time play: stage 2 at t=11.0, ripe at 21.5)."
+          ],
+          "R2": [
+            2,
+            "Regrowing: ripeAt = setAt + fruit_s; harvest sets a new fruit ripening fruit_s later (strawberry: ripe 65 after watering, next 95). fruit_s 0 ripens at maturity and is deleted on harvest."
+          ],
+          "R3": [
+            2,
+            "rollFruit: Rainbow 0.001 else Gold 0.01, then Rain Wet .5, Snow Chilled .4 else Frozen .1, Thunderstorm Wet .5 plus Shocked .03, then weight x U(0.8,1.4), x3 at .02, x1.25 if fed. Order matches."
+          ],
+          "R4": [
+            2,
+            "fruitValue = round(v*(w/bw)^2*variant*(1+sum(env-1))), at least 1. All five worked values are asserted in logic.mjs. The rerun carrot 0.2874 kg = 24, the real-play carrot 0.3085 kg = 27, both correct. Names read like 'Fed Gold Wet Carrot'."
+          ],
+          "R5": [
+            2,
+            "Starts Clear, first change U(180,420). Over 2,565 simulated changes the split was Rain .591 / Snow .249 / Thunder .161. Weather lasts 60-120 s, then Clear 180-420 s."
+          ],
+          "R6": [
+            2,
+            "createGame: purse 20, hand {carrot:1}; seen after clicking Play: '20¢', 'Holding Carrot ×1'."
+          ],
+          "R7": [
+            2,
+            "With real keys: E planted on the empty tile, E harvested 1 Carrot. On a growing plot E only gives a prompt ('Carrot growing · 0:15', 'Step onto a garden plot')."
+          ],
+          "R8": [
+            2,
+            "Remaining wait x0.75 with proportional stages: planted at 0, watered at 4, mature at 16. Mature unripe fruit takes one dose (watered at 50, ripens 65 instead of 70). A second water spends nothing. 3-dose can. Real R refilled to 3/3 at the barrel."
+          ],
+          "R9": [
+            2,
+            "Compost removes the fruit and adds food (refused when the pouch is full). Feed sets p.fed, which multiplies the weight by 1.25 at ripening and carries from a seedling. Feeding twice spends nothing (food stayed 0 and the fruit was named 'Fed Strawberry')."
+          ],
+          "R10": [
+            2,
+            "rollShop at start and every 300 s (unchanged at 299.9, rolled at 300.1). Each seed appears with its probability, stock 1..max, and the current order's seed is forced to at least 1. Buy takes the price and one stock, then holds the seed with xN."
+          ],
+          "R11": [
+            2,
+            "Backpack rows show the name, kg and ¢ with Sell and Compost; Sell all shows its total (backpack.png, 'Sell all · 1.6M¢')."
+          ],
+          "R12": [
+            2,
+            "ORDERS match (1 carrot +30 … 3 corn +2400). Deliver pays the summed value plus the bonus: a real click went 20 to 77 = 27 + 30. After the fifth: 'Market regular · all 5 orders filled!'."
+          ],
+          "R13": [
+            2,
+            "expandCost = n^3*25 (6 to 7 is 5,400¢, as the Expand label shows); capped at 256."
+          ],
+          "R14": [
+            2,
+            "The game saves to localStorage every 2 s. I set savedAt back an hour, reloaded and clicked Play: time went 24.3 to 3627.4, with 'Your garden kept growing while you were away'. Offline catch-up equals 1/60 s stepping in every roll, the RNG state, the shop and the weather; only event timestamps differ, by about 1e-11 s."
+          ],
+          "R15": [
+            2,
+            "One mulberry32 stream drives the shop, weather, fruit rolls and the +100 tool. The same seed and inputs gave the same dump. Strict live-vs-fresh-process continuation was equal."
+          ],
+          "U1": [
+            2,
+            "Title card 'Grow a Garden' with a real Play button (title.png); New garden appears when a save exists."
+          ],
+          "U2": [
+            2,
+            "Chips for the purse (formatMoney: 20¢, 1K¢, 1.2K¢, 3.4M¢), Restock m:ss, 'N plants · r/s ripe · m mutated', the weather and 'Day m:ss'. Shop, Backpack N, Garden and Pause are real buttons. The weather chip also shows Clear, as in the reference."
+          ],
+          "U3": [
+            2,
+            "All 14 seeds in shop.png with coloured rarity, price, stock, xN badge, '70s to first fruit · regrows every 30s', and Buy disabled when unaffordable or 'Sold out'."
+          ],
+          "U4": [
+            2,
+            "Virtualised list: under 40 DOM rows for 374 fruit. Each row has a name with mutations, weight, value, Sell and Compost; 'Sell all · 1.6M¢'."
+          ],
+          "U5": [
+            2,
+            "Garden panel with Harvest all, 'Expand to 7×7 · 5.4K¢', an Overview toggle (aria-pressed), +100 plants and Skip 1 hour, all clicked in the proof or by me."
+          ],
+          "U6": [
+            2,
+            "Market panel shows 'Market order 1 · 1 Carrot', '0/1 in backpack · full value + 30¢ bonus', a step line and Deliver order (disabled until filled)."
+          ],
+          "U7": [
+            2,
+            "Care panel: 'Watering can · N/3' with Q Water / R Refill, 'Plant food · N/3' with F Feed, and status lines for each plus the barrel direction and distance."
+          ],
+          "U8": [
+            2,
+            "Prompts read 'Plot 1, 1 · Carrot', 'E: plant Carrot (1 left)' / 'E: harvest 1 Carrot' / 'Carrot growing · 0:15', a hint such as 'Empty plot 1, 2: north (W) · about 2 m' or 'Back to the garden: west (A) · about 20 m', and notes such as 'Planted Carrot'. They overlap the gardener's feet."
+          ],
+          "U9": [
+            2,
+            "A real click on Pause shows 'Resume', and game time held at 40.996 for 1 s of real time."
+          ],
+          "P1": [
+            2,
+            "Asserts 20¢, 'Holding Carrot ×1', size 6 and carrot stock >= 1. It starts the game with __GROW.newGame(seed), not the Play button."
+          ],
+          "P2": [
+            1,
+            "Movement goes through __GROW.keyDown('KeyD') plus __GROW.advance(), which writes the key map directly; no keyboard event is ever dispatched. It asserts movement and that two runs match. I confirmed the real keys work myself."
+          ],
+          "P3": [
+            1,
+            "Planting is __GROW.tap('KeyE'), which calls Sim.actE directly instead of pressing E. The stage 0 / empty hand / stage 2 at 10 s / ripe at 20 s assertions are correct."
+          ],
+          "P4": [
+            1,
+            "Harvest is tap('KeyE'), not a key press. The R4 value check runs on the plant's fruit before harvest; afterwards it checks only that the backpack count is 1, not the item."
+          ],
+          "P5": [
+            2,
+            "Deliver uses a real click on #btn-deliver and asserts the purse rose by fruit value + 30 (20 to 74)."
+          ],
+          "P6": [
+            2,
+            "Buy uses a real click on 'Buy Carrot'. It plants, waters at 4 s, then checks not ripe at 15 s, ripe at exactly 16, can 2, and refill 3 (the gardener is 2 m from the barrel, so no walk is needed). Plant, water and refill go through the tap API."
+          ],
+          "P7": [
+            2,
+            "Saves mid-game, restores in a second chromium.launch() process, advances 30 s, and compares canonical dumps. The original side is also a restore of the blob, not the live state, but my own live-vs-fresh check was equal too."
+          ],
+          "P8": [
+            1,
+            "The proof compares load(+1h) with load plus one advance(3600). Both are the same catchUp call, so the check is close to a tautology rather than 'playing the hour through'. My 1/60 s stepped play matched every outcome, with timestamp float differences of about 1e-11."
+          ],
+          "P9": [
+            2,
+            "+100 and Skip 1 hour are clicked through the UI. It reports 2.7 ms at 101 plants and 5.5 ms at 1,082. The number is CPU time of the synchronous redraw, not presented frames."
+          ],
+          "P10": [
+            2,
+            "All nine PNGs were rewritten by the rerun. The night and rain shots use a presentation preview override (setPreview), not real game time or weather. planted.png hides the sprout under the prompt pills."
+          ]
+        },
+        "look": [
+          6,
+          "The HUD layout is a close match to the reference: top-left chips, top-right buttons, market panel top-right, care panel bottom-right, centred prompt stack, Move and E buttons. The world uses the art kit with the stall, path, fence and lanterns. The renders are darker and more saturated than the reference's bright pastel flat lighting. The camera is closer and lower, so tree canopies are cut off at the top and the right of the garden is clipped. The prompt pills sit on the gardener's feet, and the cask is recoloured blue."
+        ],
+        "world": 100,
+        "rules": 100,
+        "ui": 100,
+        "proof": 80,
+        "fidelity": 93,
+        "summary": "The simulation is faithful to the brief: every rule number and formula checks out in code and in my own runs, and the real game plays end to end with keyboard and mouse, including the camera following the gardener out to the 20 m bound and offline catch-up from the real localStorage save. What is missing is in the proof rather than the game: it never dispatches a keyboard event (movement, E, Q and R go through a window.__GROW test API that calls the simulation), and its P8 offline check compares two identical catch-up calls instead of stepped play. What is wrong is mostly the look: darker and more saturated lighting than the reference, a tighter camera that crops the trees and the garden, and prompt pills that cover the gardener."
+      }
+    },
+    "godot": {
+      "engine": "Godot 4.7.2 (stable, official), GDScript",
+      "done": true,
+      "capped": false,
+      "segments": 1,
+      "wall_min": 69.4,
+      "tokens": {
+        "input": 12151485,
+        "uncached_input": 361277,
+        "output": 214550,
+        "cached": 11790208,
+        "reasoning": 138320,
+        "total": 12366035,
+        "calls": 99,
+        "cost_usd": 2.73265956
+      },
+      "code": {
+        "files": 9,
+        "lines": 2950,
+        "byExt": {
+          ".gd": 2920,
+          ".sh": 8,
+          ".tscn": 4,
+          ".godot": 18
+        }
+      },
+      "selfscore_tokens": 515363,
+      "done_json": {
+        "proof_command": "sh proof/run_proof.sh",
+        "proof_passed": true,
+        "not_done": [],
+        "game_dirs": [
+          "game",
+          "proof"
+        ],
+        "notes": "Last run of sh proof/run_proof.sh exited 0 (LOGIC PASS, SHOTS PASS). Frame time about 1.82 ms at 100 plants and 8.23 ms at 1000. The barrel mesh in the kit is a brown wooden cask; the prompt still calls it the blue barrel. Thunder is a timed exposure flash during the rain, captured in artifacts/thunder.png. Snow is simulated and has particles; the required stills are rain and night."
+      },
+      "selfscore": {
+        "engine": "Godot 4.7.2 (stable, official), GDScript",
+        "overall": 7,
+        "overall_why": "I would use Godot again for a similar game. A text project, a headless SceneTree script, and one windowed capture were enough to build the sim, the HUD, and a proof that checks determinism, a fresh-process save, and an offline hour, with no addons. The score stays at 7 because the long part of the work was engine defaults that report success while wrong: the glTF importer does not apply COLOR_0 as albedo, a one-sided ground plane draws nothing from above, and a script that fails to parse can still quit 0.",
+        "subscores": {
+          "setup": 8,
+          "docs": 6,
+          "loop": 7,
+          "verification": 9,
+          "debugging": 6,
+          "assets": 5,
+          "ui": 8,
+          "api": 7,
+          "reliability": 6,
+          "visuals": 7
+        },
+        "citations": {
+          "docs": [
+            "Godot 4.7 names the filmic mapper `Environment.TONE_MAPPER_FILMIC`. `TONE_MAP_FILMIC` does not exist. One parse error.",
+            "Daylight shots were white. glTF base factors are white and the PNGs are grey masks; the paint is COLOR_0, and the importer leaves `vertex_color_use_as_albedo` off."
+          ],
+          "loop": [
+            "GDScript will not infer a type from an untyped RefCounted return, so the proof needed explicit types on every sim local. ... Cost: a handful of headless reruns.",
+            "Iterations to a passing proof: the rule proof was already green before the picture was. This visual pass took three framing captures and four full `sh proof/run_proof.sh` runs.",
+            "Pixel looks: arrival against `reference/arrival.png` five times, then shop, backpack, market, grown, rain, night, and thunder."
+          ],
+          "debugging": [
+            "A script that failed to parse still quit 0 while `fails` stayed empty, and an early \"LOGIC PASS\" was false until the dump files existed.",
+            "`plant_at` was inferred as null, and every subscript of it failed to parse. Declaring the return as Variant fixed it. One rebuild.",
+            "The meadow is a one-sided 600 m plane. From above it drew nothing, so the \"ground\" was the sky colour (exact background RGB)."
+          ],
+          "assets": [
+            "Vertex colours were in the glTF and the importer left `vertex_color_use_as_albedo` off, so day shots were pale grey. The meadow plane was also culled from above until cull was disabled.",
+            "`harvest.wav` imported as \"no loader\" until a second `godot --import`. A few minutes.",
+            "Vertex green is about (32, 73, 8), so the meadow albedo is lifted in place. The texture and the vertices are still the kit. Two recaptures."
+          ],
+          "api": [
+            "GDScript will not infer a type from an untyped RefCounted return, so the proof needed explicit types on every sim local.",
+            "`plant_at` was inferred as null, and every subscript of it failed to parse. Declaring the return as Variant fixed it.",
+            "Game code: 2736 lines in `game/*.gd` and `game/*.gdshader` (sim 1233, world 710, ui 608, main 143, shaders 42)."
+          ],
+          "reliability": [
+            "A script that failed to parse still quit 0 while `fails` stayed empty, and an early \"LOGIC PASS\" was false until the dump files existed.",
+            "`harvest.wav` imported as \"no loader\" until a second `godot --import`. A few minutes.",
+            "Rain parented to the camera, and `emitting = false` left streaks alive for their lifetime, so a clear night still showed rain."
+          ],
+          "visuals": [
+            "The meadow is a one-sided 600 m plane. From above it drew nothing, so the \"ground\" was the sky colour (exact background RGB). Disabling cull fixed it.",
+            "Rain parented to the camera, and `emitting = false` left streaks alive for their lifetime, so a clear night still showed rain. Hide the particle node, and restart it when a spell begins.",
+            "This visual pass took three framing captures and four full `sh proof/run_proof.sh` runs.",
+            "Pixel looks: arrival against `reference/arrival.png` five times, then shop, backpack, market, grown, rain, night, and thunder."
+          ]
+        },
+        "top_frictions": [
+          "The glTF importer leaves COLOR_0 unused unless vertex_color_use_as_albedo is set, so painted models render as pale grey with no error.",
+          "A SceneTree proof can print LOGIC PASS and exit 0 when a preloaded script failed to parse and never ran.",
+          "Imported one-sided planes are invisible from above, and GPUParticles keep drawing after emitting is set false for their whole lifetime."
+        ],
+        "keep": [
+          "Headless `-s` scripts, an overridable clock, a fresh process, and JSON save made determinism, catch-up, and state asserts possible without looking at pixels.",
+          "Text scenes and GDScript were enough for the whole 3D game and a real Control HUD, with no editor session and no addons.",
+          "When a script does load, parse errors name the file and the bad type on the next run."
+        ]
+      },
+      "fidelity": {
+        "engine": "Godot 4.7.2 (stable, official), GDScript",
+        "proof_rerun": {
+          "command": "sh proof/run_proof.sh",
+          "passed": true,
+          "seconds": 4.06,
+          "output_tail": "LOGIC PASS | SHOT title/arrival/planted/shop/backpack/market/grown/rain/night/thunder.png 1280x720 err=0 | plants_100 avg_ms=1.95 | plants_1000 avg_ms=8.40 | weather_for_rain=rain | thunder_flash=true | SHOTS PASS (exit 0)"
+        },
+        "items": {
+          "G1": [
+            2,
+            "Soil plane 2n m square centred at (n-1,0,-(n-1)) so tile (x,z) is at (2x,0,-2z); shader draws lines every 2 m; 6x6 brown grid seen in rerun arrival.png."
+          ],
+          "G2": [
+            2,
+            "Meadow, grass patches, flower tufts, stepping-stone path, picket fence with lanterns on every third post, row of apple/mango/coconut-4 trees scaled 2.15-2.55x, stall with assembled keeper; fence rebuilt around 10x10 in grown.png."
+          ],
+          "G3": [
+            2,
+            "barrel.glb placed at (-2,0.5,0) just west of tile (0,0); R refills within 2.5 m (P6 and my run). Brown cask is the kit's mesh, not scored."
+          ],
+          "G4": [
+            2,
+            "Body+2 arms+2 legs at the ART.md joints; my run: physical D key -> move_x=1, vx reached 4000 mm/s with 16 m/s^2 accel, faces travel, arm swing 0.53 rad, clamped at 20 m beyond the soil (gz=-31000). No hop (optional)."
+          ],
+          "G5": [
+            1,
+            "Camera never follows the gardener: _sync_camera frames the garden centre only; walking 31 m north left the camera at (-1.5,16,18.3) and the gardener off-screen (judge/walk_far_north.png). From the south and above, and the Overview toggle pulls back (judge/overview.png)."
+          ],
+          "G6": [
+            2,
+            "plant-<crop>-<stage> per stage, fruit-<crop>-unripe while fruiting and fruit-<crop> when ripe hung around the plant, body material 0 recoloured per mutation, plants offset 0.55 m east; seen in grown.png."
+          ],
+          "G7": [
+            2,
+            "outline_color(): cyan empty, amber growing, blue watered, purple fed, green ripe; cyan, amber, blue and green seen in rerun and judge shots."
+          ],
+          "G8": [
+            2,
+            "600 s sky/ambient/sun cycle through dusk to night; lantern glass (material 0) emissive at night (night.png, judge/dusk.png). The soil shader is unshaded, so the plot stays bright tan at night."
+          ],
+          "G9": [
+            2,
+            "Rain streak particles (rain.png), snow particles (judge/snow.png, sparse), and a thunder flash shown as an exposure blow-out (thunder.png)."
+          ],
+          "G10": [
+            1,
+            "Dirt burst on plant is visible (judge/plant_fx.png). The can tip, the blue drops and the fruit flying to the gardener with a chime are in code but too small or brief to confirm in stills. None of them touches the sim."
+          ],
+          "R1": [
+            2,
+            "growth_stage: stages at el/span >= 1/4, 1/2, 3/4; maturity event at grow_end; P3 asserts stage 2 at 10 s."
+          ],
+          "R2": [
+            2,
+            "_on_mature sets fruit_end = now + fruit_s; harvest of a regrower resets to fruiting fruit_s later; fruit_s 0 rolls at maturity, and harvest erases the plant."
+          ],
+          "R3": [
+            2,
+            "_roll_one order: Rainbow 0.001 else Gold 0.01; Rain Wet 0.5; Snow Chilled 0.4 else Frozen 0.1; Thunder Wet 0.5 + independent Shocked 0.03; weight base*U(0.8,1.4), x3 at 0.02, x1.25 if fed."
+          ],
+          "R4": [
+            2,
+            "fruit_value = round(base*(w/bw)^2*variant*(1+sum(m-1))), min 1; variant 50/20/1, env 2/2/10/100; proof checks 18/72/360/720/2700 and the name 'Fed Gold Wet Carrot'."
+          ],
+          "R5": [
+            2,
+            "Starts clear, first change U[180,420) s; Rain 0.6 / Snow 0.25 / Thunder 0.15, lasting U[60,120) s, then clear U[180,420) s."
+          ],
+          "R6": [
+            2,
+            "new_game: purse 20, held {carrot:1}; P1 asserts."
+          ],
+          "R7": [
+            2,
+            "act_e plants the held seed on an empty tile or harvests all ripe fruit; otherwise the note/prompt gives the reason (growing timer, no seed, off the garden). The E key path was confirmed in my run."
+          ],
+          "R8": [
+            2,
+            "_scale_phase: end = now + rem*3/4 and start = now - elapsed*3/4 keeps stage proportions; 3 doses, one per growth/fruit cycle, ripe/empty/repeat cost nothing; R within 2.5 m of (-2,0). P6: mature at 16 s, can 2/3, refill 3/3."
+          ],
+          "R9": [
+            2,
+            "Compost removes the fruit and adds a dose up to 3 (full pouch keeps the fruit); fed flag consumed at the next roll, so a seedling carries to its first fruit; repeat feed spends nothing. Compost confirmed (food=1) in my run."
+          ],
+          "R10": [
+            2,
+            "_restock at start and every 300 s: appear with ppm probability, stock 1..max uniform; the current order's seed is forced >= 1 at restock; buy takes price and stock and adds to hand."
+          ],
+          "R11": [
+            2,
+            "Backpack rows show name/weight/value; act_sell and act_sell_all confirmed in my run (sell delta = value, 33.7M¢ after sell all)."
+          ],
+          "R12": [
+            2,
+            "ORDERS match 1 Carrot+30, 4 Straw+400, 5 Blue+600, 4 Tomato+1300, 3 Corn+2400; deliver pays sum of values plus bonus (P5); after five: 'Market regular · all 5 orders filled!'."
+          ],
+          "R13": [
+            2,
+            "expand_cost = n^3*25 (5.4K¢ at n=6 shown on button), capped at 256."
+          ],
+          "R14": [
+            2,
+            "main autosaves every 5 s and on close with unix ms; load_from advances the sim by now-saved via the same event-ordered advance_ms; P8 fresh-process offline equals playing through and equals 360 x 10 s chunks."
+          ],
+          "R15": [
+            2,
+            "A single LCG (1664525/1013904223) drives restock, weather, rolls and the stress tool; decor uses a separate hash; two seeded runs give identical canonical dumps."
+          ],
+          "U1": [
+            2,
+            "Title card 'Grow a Garden' with Play (title.png); Continue/New garden when a save exists."
+          ],
+          "U2": [
+            2,
+            "Pills: purse compact (33.7M¢, 5.4K¢), Restock m:ss, 'N plants · r/t ripe · m mutated', weather (always shown), Day m:ss; Shop/Backpack N/Garden/Pause buttons."
+          ],
+          "U3": [
+            2,
+            "Rows: name, rarity-coloured 'Rarity · price · stock N', 'Xs to first fruit · regrows every Ys', ×N held label, Buy disabled when unaffordable/'Sold out' (shop.png)."
+          ],
+          "U4": [
+            2,
+            "Rows with name+mutations, kg, value, Sell, Compost; 'Sell all' with total; rows virtualised (14 pooled), 3,260 fruit at ~9 ms/frame in my run (judge/pack_thousands.png)."
+          ],
+          "U5": [
+            2,
+            "Harvest all, 'Expand · 5.4K¢', Overview toggle, +100 plants, Skip 1 hour (advance_ms like R14) (judge/garden_panel.png)."
+          ],
+          "U6": [
+            2,
+            "Market panel: order title, 'k/n in backpack · full value + bonus', next-step line, Deliver order (enabled only when deliverable)."
+          ],
+          "U7": [
+            2,
+            "Watering can N/3 with Q Water and R Refill, barrel direction/distance line, Plant food N/3 with F Feed, and a line for each saying what it would do here."
+          ],
+          "U8": [
+            2,
+            "Plot line 'Plot 1, 1 · Carrot · W north…', E prompt, hint 'Empty plot 2, 1: east (D) · about 2 m' or 'Garden: south (S) · about 20 m', action note."
+          ],
+          "U9": [
+            2,
+            "toggle_pause stops advance_ms in _process; the button read 'Resume' in my run."
+          ],
+          "P1": [
+            1,
+            "Proven only on the simulation (logic_proof.gd builds Sim directly; no game scene, no key or click input), so at most 1. Asserts 20¢, one Carrot in hand, garden 6, Carrot stock >= 1 on Sim.new_game(20261006); the assertions are correct and pass."
+          ],
+          "P2": [
+            1,
+            "Proven only on the simulation (logic_proof.gd builds Sim directly; no game scene, no key or click input), so at most 1. Calls sim.set_move, not key events, and compares two sims stepped identically in one process. Asserts moved and identical position/velocity. Frame-sized sub-steps in the real game are not exercised."
+          ],
+          "P3": [
+            1,
+            "Proven only on the simulation (logic_proof.gd builds Sim directly; no game scene, no key or click input), so at most 1. Calls act_e, not the E key: stage 0 and empty hand, then stage 2 at +10 s, then ripe with one fruit at +20 s."
+          ],
+          "P4": [
+            1,
+            "Proven only on the simulation (logic_proof.gd builds Sim directly; no game scene, no key or click input), so at most 1. act_e harvest: backpack size 1, value equals R4 recomputed from the rolled weight, variant and env, and the name matches."
+          ],
+          "P5": [
+            1,
+            "Proven only on the simulation (logic_proof.gd builds Sim directly; no game scene, no key or click input), so at most 1. act_deliver, not the Deliver order button: purse = before + value + 30 asserted."
+          ],
+          "P6": [
+            1,
+            "Proven only on the simulation (logic_proof.gd builds Sim directly; no game scene, no key or click input), so at most 1. Calls act_buy, act_e, act_q, set_move and act_r: watered at 4 s, grow_end = t0+16000, ripe at 16 s not 15.999 s, can 2/3, refill 3/3."
+          ],
+          "P7": [
+            1,
+            "Proven only on the simulation (logic_proof.gd builds Sim directly; no game scene, no key or click input), so at most 1. Sim.save_to at 5 s; a child process running logic_proof.gd (not the game) loads it and advances the same span; canonical dump equals the in-process run. main.gd's own save/load path is not driven."
+          ],
+          "P8": [
+            1,
+            "Proven only on the simulation (logic_proof.gd builds Sim directly; no game scene, no key or click input), so at most 1. A child Sim loads with the clock +1 h; its dump equals a child that played the hour and equals 360 x 10 s in-process chunks. Not driven through the game."
+          ],
+          "P9": [
+            2,
+            "Measured in the real windowed game scene (main.tscn rendering): 1.95 ms at ~100 plants and 8.40 ms at 1000. The stress tool and hour skip are invoked with main.sim.act_stress_plants/act_skip_hour rather than by clicking, but the frame time is of the real game, not the simulation."
+          ],
+          "P10": [
+            2,
+            "The real windowed game wrote all nine PNGs, timestamped by this rerun, plus thunder.png. State is reached through main.sim calls rather than input, but the screenshots are of the running game. arrival.png is framed from the south like the reference, though wider."
+          ]
+        },
+        "look": [
+          6,
+          "The HUD is a close copy of the reference: pill top bar, green market card top right, care panel bottom right, centred prompt stack, Move and E corner buttons. It uses the kit models with correct vertex colour. The world reads differently. The meadow is saturated neon green where the reference is soft and pale. The camera sits high over the whole plot instead of close behind the gardener, so the prompt pills cover the gardener once the garden grows. A south fence crosses in front of the plot, where the reference has flowers. The soil is unshaded, flat in daylight and glowing tan at night."
+        ],
+        "world": 90,
+        "rules": 100,
+        "ui": 100,
+        "proof": 60,
+        "fidelity": 87.5,
+        "summary": "Faithful: every rule from R1 to R15 follows the brief's numbers and formulas in one deterministic integer simulation, the HUD closely copies the reference layout, and the proof reruns green in 4 s with fresh-process save and offline checks. Missing: the camera never follows the gardener (it frames the garden centre, so walking away leaves the screen), and the watering, harvest-flight and chime effects could not be confirmed in stills. Wrong or off: the meadow is far more saturated than the reference, the unshaded soil glows at night, a south fence and the high camera change the reference framing, and P1-P8 are proven only on the simulation object (no key or click input into the real game)."
+      }
+    },
+    "unity": {
+      "blocked": "not run: no Unity license on this Mac"
+    }
+  }
+}

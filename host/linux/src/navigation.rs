@@ -19,7 +19,10 @@ pub(crate) fn popover_invoker(kernel: &Kernel, id: ViewId) -> bool {
             || exact_kernel::ControlKind::of(node.node_type, node.props)
                 == Some(exact_kernel::ControlKind::Button)
         {
-            return node.props.str(PropId::Popovertarget).is_some();
+            return node
+                .props
+                .str(PropId::Popovertarget)
+                .is_some_and(|target| !target.is_empty());
         }
         at = node.parent;
     }

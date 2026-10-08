@@ -1,0 +1,10 @@
+# tpx.py buckets for the exact.owner thread (first match wins; specific before containers)
+text: measure on the owner (CoreText)	measureText|TextEngine.measure|CTTypesetter|CTLine|TextAnswers|TextEngine.paragraph
+batch decode + prepared values (Swift)	BatchReader|Batch.decode|Batch.prepare|SvgPrepare|CssAnimations|Prepared
+kernel layout (taffy)	exact_kernel6layout|compute_layout|taffy
+runner: realize window / instances	realize_window|instance|apply_document|Instance
+runner: feedback walk, index, snapshot	feedback_walk|update_collection|collection_feedback_bytes|Collection8feedback|snapshot
+host commit: tree, present, styles, svg, motion	commit_tree|commit_into|present|SvgState|exact_motion|style
+tick / advance / frame	exact_tick|exact_advance|exact_frame
+other owner jobs (events, intrinsics, canvas)	exact_intrinsics|exact_dispatch|exact_canvas|exact_pump
+owner loop: wait / wake	semaphore|__psynch|mach_msg|Owner.

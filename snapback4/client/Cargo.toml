@@ -1,0 +1,12 @@
+[package]
+name = "exact-snapback4-client"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "Snapback4's client protocol without I/O, over any device: shared by the native adapter and the web's wasm."
+
+[dependencies]
+serde_json = "1"
+sha2 = "0.10"
+snapback4-device.workspace = true

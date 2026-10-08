@@ -136,27 +136,50 @@ fn disabled_lists_and_ordinary_scrolls_remain_valid_inside_virtual_rows() {
     }
 }
 
+/// Main-axis padding is CSS's room before the first row and after the last
+/// (LLP 1010 §6.9): a number, an `env()` inset or its `calc()`, computed as
+/// a number too; a percentage, or a computed string that could be one, is
+/// refused.
 #[test]
-fn virtual_container_vertical_padding_requires_literal_zero() {
+fn virtual_container_vertical_padding_takes_lengths_not_percentages() {
     for name in ["padding", "padding-top", "padding-bottom"] {
-        for value in ["16", "64", "grow"] {
+        for value in [
+            "16",
+            "grow",
+            "\"env(safe-area-inset-top)\"",
+            "\"calc(env(safe-area-inset-bottom) + 49px)\"",
+            "(grow > 0 ? 92 : \"env(safe-area-inset-top)\")",
+        ] {
+            let s = source(&format!("virtualized=true height=200 {name}={value}"));
+            contract::compile(&s).unwrap_or_else(|e| panic!("{name}={value}: {e}"));
+        }
+        for value in [
+            "\"10%\"",
+            "\"calc(10% + 8px)\"",
+            "bound",
+            "(grow > 0 ? 8 : \"5%\")",
+        ] {
             let s = source(&format!("virtualized=true height=200 {name}={value}"));
             let error = contract::compile(&s).unwrap_err();
             assert_eq!(error.id, "lower-collection-flow", "{name}={value}: {error}");
-            assert!(error.message.contains("inside measured rows"), "{error}");
-            assert!(error.message.contains("inset"), "{error}");
+            assert!(error.message.contains("percentage"), "{error}");
         }
         let styled = format!(
             "style Insets\n  {name}=64\n{}",
             source("virtualized=true height=200 class=Insets")
         );
-        assert_eq!(
-            contract::compile(&styled).unwrap_err().id,
-            "lower-collection-flow"
-        );
-        contract::compile(&styled.replace("class=Insets", &format!("class=Insets {name}=0")))
-            .unwrap();
+        contract::compile(&styled).unwrap();
+        let e = contract::compile(&styled.replace("=64", "=\"10%\"")).unwrap_err();
+        assert_eq!(e.id, "lower-collection-flow", "{name} in a class: {e}");
     }
+    // The shorthand's main-axis sides are what count: `0 0 10%`'s bottom.
+    contract::compile(&source(
+        "virtualized=true height=200 padding=\"92 4% 49 4%\"",
+    ))
+    .unwrap();
+    let e =
+        contract::compile(&source("virtualized=true height=200 padding=\"0 0 10%\"")).unwrap_err();
+    assert_eq!(e.id, "lower-collection-flow", "{e}");
 }
 #[test]
 fn horizontal_container_padding_and_measured_row_spacing_still_compile() {
@@ -216,4 +239,42 @@ fn the_flex_shorthand_text_bounds_as_its_longhands_do() {
     let e =
         contract::compile(&scroll("column height=200", "flex=\"none\" min-height=0")).unwrap_err();
     assert_eq!(e.id, "lower-scroll-unbounded", "{e}");
+}
+
+/// `scroll-padding` (LLP 1010 §6.9) takes padding's forms on a virtualized
+/// list, where `scrollIntoView` aligns by it, and is refused elsewhere: a
+/// native host reads it nowhere else.
+#[test]
+fn scroll_padding_is_a_virtualized_lists_and_takes_lengths() {
+    for attrs in [
+        "scroll-padding-top=92",
+        "scroll-padding-bottom=\"calc(env(safe-area-inset-bottom) + 49px)\"",
+        "scroll-padding=\"92 0 49\"",
+        "scroll-padding-top=grow",
+        "scroll-padding-left=\"5%\"",
+    ] {
+        contract::compile(&source(&format!("virtualized=true height=200 {attrs}")))
+            .unwrap_or_else(|e| panic!("{attrs}: {e}"));
+    }
+    for attrs in [
+        "scroll-padding-top=\"10%\"",
+        "scroll-padding=\"0 0 10%\"",
+        "scroll-padding-bottom=bound",
+    ] {
+        let e = contract::compile(&source(&format!("virtualized=true height=200 {attrs}")))
+            .unwrap_err();
+        assert_eq!(e.id, "lower-collection-flow", "{attrs}: {e}");
+    }
+    for attrs in [
+        "virtualized=false height=200 scroll-padding-top=92",
+        "height=200 scroll-padding=8",
+    ] {
+        let e = contract::compile(&source(attrs)).unwrap_err();
+        assert_eq!(e.id, "lower-scroll-padding", "{attrs}: {e}");
+    }
+    let e = contract::compile(
+        "component App\n  view\n    scroll height=200 scroll-padding-top=92\n      box height=1000\n",
+    )
+    .unwrap_err();
+    assert_eq!(e.id, "lower-scroll-padding", "{e}");
 }

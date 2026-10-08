@@ -2,6 +2,7 @@
 import UIKit
 import XCTest
 @testable import ExactKit
+@testable import ExactMarkdown
 
 extension UIColor {
     /// Named like a colour, returning none: what the lookup must not `perform`.
@@ -149,6 +150,7 @@ final class SystemColorIOSTests: XCTestCase {
     }
 
     func testMarkdownAndPlainTextResolveTheSameViewTintAndTraits() throws {
+        ExactMarkdown.install() // LLP 1047.001 D4: the capability this tests
         let p = Presenter()
         let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 300, height: 300))
         window.overrideUserInterfaceStyle = .dark

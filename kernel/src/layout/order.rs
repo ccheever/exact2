@@ -9,17 +9,18 @@ use taffy::prelude::{NodeId, TaffyTree};
 
 /// `parent`'s children's engine handles in the order its layout takes them;
 /// `node` is `parent`'s own handle, whose style says whether it is a flex or
-/// grid container.
+/// grid container; `handle` is a child slot's handle in that engine tree.
 pub(super) fn laid_out<T>(
     arena: &NodeArena,
     parent: u32,
     taffy: &TaffyTree<T>,
     node: NodeId,
+    handle: impl Fn(u32) -> Option<NodeId>,
 ) -> Vec<NodeId> {
     let mut items: Vec<(i32, NodeId)> = arena
         .children(parent)
         .iter()
-        .filter_map(|&c| Some((arena.style(c).order, arena.taffy(c)?)))
+        .filter_map(|&c| Some((arena.style(c).order, handle(c)?)))
         .collect();
     let orders = taffy
         .style(node)

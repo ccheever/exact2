@@ -51,16 +51,35 @@ pub struct Store {
 // A module mirror must remain importless. Its host already enforced the whole
 // grant set; scopes there read only secret names. Ordinary stores retain the
 // strict reader, including for nested child scopes.
-#[derive(Debug, Clone, Copy)]
-struct ScopeReader(fn(&str) -> Vec<String>);
-impl Default for ScopeReader {
-    fn default() -> Self {
-        Self(module_secret_names)
+// The strict reader reads through the archive's grant grammar (LLP
+// 1047.001), so a store names none when the archive links no I/O.
+#[derive(Debug, Clone, Copy, Default)]
+enum ScopeReader {
+    #[default]
+    Module,
+    Strict(crate::grants::GrantsLink),
+}
+impl ScopeReader {
+    fn read(self, grants: &str) -> Vec<String> {
+        match self {
+            ScopeReader::Module => module_secret_names(grants),
+            ScopeReader::Strict(link) => crate::grants::parse_with(grants, link)
+                .map(|set| set.secrets().map(str::to_string).collect())
+                .unwrap_or_default(),
+        }
     }
 }
 impl PartialEq for ScopeReader {
     fn eq(&self, other: &Self) -> bool {
-        std::ptr::fn_addr_eq(self.0, other.0)
+        match (self, other) {
+            (ScopeReader::Module, ScopeReader::Module) => true,
+            (ScopeReader::Strict(a), ScopeReader::Strict(b)) => match (a, b) {
+                (Some(a), Some(b)) => std::ptr::fn_addr_eq(*a, *b),
+                (None, None) => true,
+                _ => false,
+            },
+            _ => false,
+        }
     }
 }
 fn module_secret_names(grants: &str) -> Vec<String> {
@@ -75,11 +94,6 @@ fn module_secret_names(grants: &str) -> Vec<String> {
             (exact_grants::valid_name(name) && words.next().is_none()).then(|| name.to_string())
         })
         .collect()
-}
-fn strict_secret_names(grants: &str) -> Vec<String> {
-    crate::grants::parse(grants)
-        .map(|set| set.secrets().map(str::to_string).collect())
-        .unwrap_or_default()
 }
 
 /// One write for the host to persist, in order: `value` `None` forgets.
@@ -122,20 +136,33 @@ impl Store {
     /// is dropped.
     pub fn new(grants: &str, snapshot: impl IntoIterator<Item = (String, String)>) -> Store {
         // One body for every caller's snapshot type (LLP 1047 §6).
-        Store::from_snapshot(grants, snapshot.into_iter().collect())
+        Store::from_snapshot(
+            grants,
+            snapshot.into_iter().collect(),
+            Some(crate::grants::validate),
+        )
     }
 
-    fn from_snapshot(grants: &str, snapshot: Vec<(String, String)>) -> Store {
-        let (granted, unparsed): (Vec<String>, _) = match crate::grants::parse(grants) {
+    /// [`Store::new`] reading I/O grants through what the archive links
+    /// (LLP 1047.001).
+    pub fn new_linked(
+        grants: &str,
+        snapshot: impl IntoIterator<Item = (String, String)>,
+        link: crate::grants::GrantsLink,
+    ) -> Store {
+        Store::from_snapshot(grants, snapshot.into_iter().collect(), link)
+    }
+
+    fn from_snapshot(
+        grants: &str,
+        snapshot: Vec<(String, String)>,
+        link: crate::grants::GrantsLink,
+    ) -> Store {
+        let (granted, unparsed): (Vec<String>, _) = match crate::grants::parse_with(grants, link) {
             Ok(set) => (set.secrets().map(str::to_string).collect(), None),
             Err(errors) => (Vec::new(), Some(crate::grants::refusal(&errors))),
         };
-        Self::from_names(
-            granted,
-            unparsed,
-            ScopeReader(strict_secret_names),
-            snapshot,
-        )
+        Self::from_names(granted, unparsed, ScopeReader::Strict(link), snapshot)
     }
 
     /// Local mirror inside an importless logic module (LLP 1029): the host
@@ -210,7 +237,7 @@ impl Store {
                 self.store.restricted = self.restricted;
             }
         }
-        let admitted = (self.scope_reader.0)(grants);
+        let admitted = self.scope_reader.read(grants);
         let narrowed = self
             .granted
             .iter()

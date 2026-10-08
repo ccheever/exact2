@@ -486,7 +486,7 @@ fn calc_lengths_parse_one_percent_and_one_pixel_term_and_resolve_by_basis() {
         s.set_dynamic(StyleId::Width, &StyleValue::Text("calc(1px + 2px)".into())),
         Err(StyleValueError::WrongKind {
             style: StyleId::Width,
-            expected: "number, px, rem or em length, viewport length (vw/vh/vmin/vmax/svw/svh/lvw/lvh/dvw/dvh), percent, auto, calc(<percent> ± <px>), env(safe-area-inset-*), or env(viewport-segment-* x y)",
+            expected: "number, px, rem or em length, viewport length (vw/vh/vmin/vmax/svw/svh/lvw/lvh/dvw/dvh), percent, auto, calc(<percent> ± <px>), env(safe-area-inset-*), env(viewport-segment-* x y), or min()/max()/clamp() of px, env(safe-area-inset-*) and viewport lengths",
         })
     );
 }

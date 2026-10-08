@@ -250,6 +250,30 @@ typedef void (*ExactWakeFn)(void *ctx);
 /* Lifecycle. */
 ExactRuntime exact_create(void);
 void exact_destroy(ExactRuntime rt);
+/* LLP 1104: UIKit's body font, installed in the host registry before layout. */
+typedef struct {
+    const uint8_t *family; size_t family_len;
+    uint16_t family_id; float size; uint16_t weight; uint8_t italic;
+} ExactControlFont;
+/* kind: 0 field/textarea, 1 mini, 2 small, 3 medium/default, 4 large button. */
+typedef ExactControlFont (*ExactControlTextFn)(void *ctx, uint8_t kind);
+typedef struct {
+    uint8_t kind; uint16_t family_id; float size; uint16_t weight; uint8_t italic;
+} ExactFieldChromeRequest;
+typedef struct {
+    float top, right, bottom, left, minimum_height; uint8_t provisional;
+} ExactFieldChrome;
+typedef ExactFieldChrome (*ExactFieldChromeFn)(void *ctx, const ExactFieldChromeRequest *request);
+void exact_set_control_text(ExactRuntime rt, ExactControlTextFn text, ExactFieldChromeFn chrome);
+/* LLP 1069.011.001 D11: identical face/row JSON for sizing and drawing. */
+typedef struct {
+    const uint8_t *face; size_t face_len; uint8_t width_kind; float width;
+} ExactButtonMeasureRequest;
+typedef struct { float width, height; uint8_t provisional; } ExactButtonMeasure;
+typedef ExactButtonMeasure (*ExactButtonMeasureFn)(void *ctx, const ExactButtonMeasureRequest *request);
+void exact_set_button_measure(ExactRuntime rt, ExactButtonMeasureFn measure);
+uint32_t exact_control_text_changed(ExactRuntime rt);
+
 void exact_set_measure(ExactRuntime rt, ExactMeasureFn measure, void *ctx);   /* NULL: a monospace reference measurer */
 /* LLP 1056 D8: one Canvas 2D run measured with Core Text where the draw
  * runs, with the context exact_set_measure was given. The strings live for
@@ -432,6 +456,13 @@ uint32_t exact_advance(ExactRuntime rt, double now_ms, uint32_t mode);
 /* @ref LLP 1073 D5: a presented display frame — timers due by now_ms, then
  * every frame task once at it. The batch says "frames" while one wants it. */
 uint32_t exact_frame(ExactRuntime rt, double now_ms);
+/* @ref LLP 1003.001 D5: exact_frame at the target now_ms, the wall at wall_ms
+ * stopping the motion engine's input clock. */
+uint32_t exact_frame_at(ExactRuntime rt, double now_ms, double wall_ms);
+/* @ref LLP 1003.001 D7: nonzero, motion a commit begins waits for the first
+ * presented frame, in every host booted after; zero at the agent's takeover,
+ * where what waits starts at at_ms. Returns the batch's length. */
+uint32_t exact_start_on_frame(ExactRuntime rt, uint32_t on, double at_ms);
 /* Whether the display drives frame tasks: exact_frame turns it on; 0 when the
  * agent's clock takes over, whose advances then fire virtual frames. */
 uint32_t exact_present_frames(ExactRuntime rt, uint32_t on);
@@ -501,6 +532,7 @@ uint32_t exact_color_references(ExactRuntime rt);
  *  batch's length. */
 uint32_t exact_colors(ExactRuntime rt, size_t len);
 uint32_t exact_tick(ExactRuntime rt, double now_ms);      /* a motion frame, only while "motion" is true */
+uint32_t exact_tick_at(ExactRuntime rt, double now_ms, double frame_ms); /* LLP 1003.001 D5: for the frame presented at frame_ms */
 /* An image node loaded: its bitmap's pixel counts, taken one-for-one as
  * points (never divided by the backing scale — a 2× asset is not half its
  * pixels wide, as on the web); a width or height ≤ 0 clears it (the load

@@ -86,13 +86,21 @@ impl Engine {
                 self.timelines.bound.remove(i);
                 // Back on the clock from where the timeline left it; from
                 // an inactive one, from its start.
-                let now = self.now;
+                // With the first-frame rule on, that resume waits for the
+                // frame (LLP 1003.001 D3); a clock's join below decides for
+                // its own.
+                let now = self.sample_time();
+                let pending = self.start_on_frame.then_some(now);
                 for play in self.animations.get_mut(&node).into_iter().flatten() {
                     if !play.animation.paused {
                         if let Some(held) = play.hold.take() {
                             play.start = now - if held.is_nan() { 0.0 } else { held };
+                            play.pending = pending;
                         }
                     }
+                }
+                if pending.is_some() {
+                    self.schedule_animations(node);
                 }
                 // Onto a clock timeline: in its phase (LLP 1055.002).
                 self.join_clock_node(node);
@@ -169,6 +177,8 @@ impl Engine {
                 Some(_) => play.animation.delay.max(0.0),
                 None => play.hold.unwrap_or(0.0),
             };
+            // The source owns its time: nothing waits for a frame.
+            play.pending = None;
             moved |= play.hold.replace(local).map(f64::to_bits) != Some(local.to_bits());
         }
         self.animating.remove(&node);

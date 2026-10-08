@@ -25,4 +25,5 @@ fn lab_data() -> HostData {
         |_| Ok(placed_rust()),
     )
 }
-exact_apple::host!(HostData, PLAN, COMPAT, None, std::ptr::null(), lab_data);
+include!(concat!(env!("OUT_DIR"), "/linked.rs"));
+exact_apple::host!(HostData, PLAN, COMPAT, None, std::ptr::null(), lab_data; linked = EXACT_LINKED);

@@ -6,7 +6,7 @@ import AppKit
 /// to the next responder, so an inner `scroll` node never traps the page.
 /// The web's rule (`overscroll-behavior: auto`); AppKit's default is to
 /// swallow it.
-final class ChainingScrollView: NSScrollView {
+package final class ChainingScrollView: NSScrollView {
     /// AppKit withdraws responsive scrolling from a subclass that overrides
     /// `scrollWheel(with:)`, and then every frame of a gesture is driven from
     /// the main thread (`NSScrollingBehaviorSingleThreadedVBL`), behind
@@ -15,7 +15,7 @@ final class ChainingScrollView: NSScrollView {
     /// whole, which is the contract AppKit asks for. Compatible, so a
     /// contained scroller moves on AppKit's scrolling thread and the main
     /// thread follows it (LLP 1002 D4; LLP 1044 F3).
-    override class var isCompatibleWithResponsiveScrolling: Bool { true }
+    package override class var isCompatibleWithResponsiveScrolling: Bool { true }
 
     /// Always overlay: a `scroll` node's scrollbars take no layout space
     /// (LLP 1010: the kernel's `scrollbar_width` is 0). AppKit sets every
@@ -23,7 +23,7 @@ final class ChainingScrollView: NSScrollView {
     /// `NSPreferredScrollerStyleDidChangeNotification` — on a Mac with a
     /// mouse, legacy, whose 15-point scrollers would take a node's clip
     /// narrower and shorter than the box the kernel laid out.
-    override var scrollerStyle: NSScroller.Style {
+    package override var scrollerStyle: NSScroller.Style {
         get { super.scrollerStyle }
         set { super.scrollerStyle = .overlay }
     }
@@ -172,7 +172,7 @@ final class ChainingScrollView: NSScrollView {
         return routing
     }
 
-    override func scrollWheel(with event: NSEvent) {
+    package override func scrollWheel(with event: NSEvent) {
         // Precise deltas (a trackpad) are in points; a wheel's are in lines.
         let precise = event.hasPreciseScrollingDeltas
         var dx = precise ? event.scrollingDeltaX : event.deltaX * ChainingScrollView.lineHeight

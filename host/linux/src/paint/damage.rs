@@ -80,6 +80,7 @@ impl Painter {
         };
         if changes.full
             || self.damage.unsupported
+            || !self.overlays.is_empty()
             || !changes.flow
             || self.damage.dark != self.dark
             || page != (0., 0.)

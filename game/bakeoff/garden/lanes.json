@@ -1,0 +1,19 @@
+{
+  "exact2": {
+    "engine": "exact2's game engine (this checkout)",
+    "note": "The engine is the exact2 repository at {EXACT2}. Make the game with `bun {EXACT2}/scripts/exact.mjs new {LANE}/garden --game --assets`; its AGENTS.md has the commands. Read {EXACT2}/game/README.md and {EXACT2}/docs/contract-for-agents.md and {EXACT2}/docs/agent-pitfalls.md first; `bun {EXACT2}/scripts/exact.mjs contract vocab` lists every Contract tag. The engine's own sources, docs and other games are yours to read, EXCEPT {EXACT2}/game/games/garden/ and {EXACT2}/game/diaries/004-garden.md, which are the reference implementation: do not open them. Do not edit anything under {EXACT2}; if the engine blocks you, write it in the diary and work around it in your game. Prefer its headless Linux proof host and the agent driver (`bun {EXACT2}/scripts/agent.mjs`) for the proof; Chrome for screenshots."
+  },
+  "three": {
+    "engine": "three.js (latest from npm), in the browser",
+    "note": "Use three.js from npm (with GLTFLoader) and Bun (`bun` is installed) for tooling. Use any npm packages you need. Drive the proof with a headless browser (e.g. Playwright or Puppeteer; install it in your lane). The art is glTF, which three.js loads directly."
+  },
+  "godot": {
+    "engine": "Godot 4.7.2 (stable, official), GDScript",
+    "note": "Godot is installed at `/opt/homebrew/bin/godot` (`godot --version`: 4.7.2.stable.official). There is no editor session: author scenes and scripts as text, and import with `godot --headless --path <project> --import`. Use `--headless` and `--fixed-fps` for the proof; a windowed run for screenshots. The art is glTF, which Godot imports. Do not install addons from the network unless the brief cannot be met without them, and say so in the diary."
+  },
+  "unity": {
+    "engine": "Unity 6.3 LTS (6000.3.25f1), C#",
+    "note": "The editor is at `/Applications/Unity/Hub/Editor/6000.3.25f1/Unity.app/Contents/MacOS/Unity`. Work headless: `-batchmode -nographics -projectPath <project> -executeMethod …` and `-runTests`. glTF import needs the `com.unity.cloud.gltfast` package (add it to Packages/manifest.json). Drive the proof with Unity Test Framework play-mode tests or an -executeMethod entry point; a windowed player build for screenshots.",
+    "requires": "an activated Unity license on this Mac (Unity Hub → Preferences → Licenses); without one the lane is reported as not run"
+  }
+}

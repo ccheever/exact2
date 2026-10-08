@@ -1,0 +1,94 @@
+// Crypto list (../SPEC.md, "Decisions" included) on exact2, GPU-canvas variant.
+// One `list virtualized=true` with one keyed `each` carries the 5,000 coins
+// from `data/coins.json`. The data source (`data/`) answers the market, the
+// launch config and the live ticks; everything a row looks like is this file.
+//
+// The chart is the `Chart` component at the bottom and nothing else refers to
+// how it is drawn: the SVG variant (../exact-crypto-svg) swaps that component
+// and holds the series as numbers in the row.
+
+shape Flash
+  seq: string
+  up: bool
+  on: bool
+shape Coin
+  id: string
+  name: string
+  ticker: string
+  letter: string
+  color: string
+  price: string
+  change: string
+  up: bool
+  series: list<number>
+  // Zero or one: the latest price flash, keyed by its sequence number.
+  flash: list<Flash>
+shape Market
+  coins: list<Coin>
+shape Config
+  live: bool
+  freeze: bool
+
+component Crypto
+  resource initial = market() as shape Market
+  mutation changed as shape Market
+  derive market = match changed { case some(m) => m, case none => initial }
+  // `BENCH_LIVE`, `BENCH_SCENARIO` and `BENCH_FREEZE` are launch-environment
+  // facts, so they are asked at run time (a resource would be baked with the
+  // build machine's environment).
+  mutation config as shape Config
+  derive live = match config { case some(c) => c.live, case none => false }
+  derive freeze = match config { case some(c) => c.freeze, case none => false }
+  // Every 100 ms: the first tick asks for the launch config; when live, each
+  // later tick advances the market.
+  action tick
+    match config
+      case none
+        send config = config()
+      case some(c)
+        if c.live
+          send changed = tick()
+
+  task producer mount
+    every(100, tick)
+
+  view
+    main testId="crypto" viewport-fit="cover" width="100%" height="100%" box-sizing="border-box" display="flex" flex-direction="column" overflow="hidden" padding-top="env(safe-area-inset-top)" background-color="#ffffff" color="#000000" font-family="system-ui"
+      row flex-shrink=0 width="100%" box-sizing="border-box" align-items="center" padding-left=16 padding-right=16 padding-top=10 padding-bottom=10 border-bottom-style="solid" border-bottom-width=0.5 border-color="#E5E5EA"
+        text "Markets" testId="title" flex=1 font-size=17 font-weight=600
+        text (live ? "Live: on" : "Live: off") testId="live" font-size=13 color="#8E8E93"
+      list id="coins" virtualized=true estimated-item-height=64 testId="coins" flex=1 min-height=0 width="100%" overflow-x="hidden" background-color="#ffffff"
+        each c in market.coins key=c.id
+          CoinRow(c=c, freeze=freeze)
+
+component CoinRow
+  props
+    c: Coin
+    freeze: bool
+  view
+    row testId=`row-${c.id}` aria-label=`${c.name}, ${c.price}` width="100%" height=64 flex-shrink=0 box-sizing="border-box" padding-left=16 padding-right=16 gap=12 align-items="center" border-bottom-style="solid" border-bottom-width=0.5 border-color="#E5E5EA"
+      row width=32 height=32 flex-shrink=0 border-radius=16 background-color=c.color align-items="center" justify-content="center"
+        text c.letter font-size=15 font-weight=600 color="#ffffff"
+      column flex=1 min-width=0 gap=2
+        text c.name white-space="nowrap" overflow="hidden" text-overflow="ellipsis" font-size=16 font-weight=600 color="#000000"
+        text c.ticker white-space="nowrap" overflow="hidden" text-overflow="ellipsis" font-size=13 color="#8E8E93"
+      Chart(c=c, freeze=freeze)
+      column width=104 flex-shrink=0 align-items="flex-end" gap=4
+        // The flash: Contract's `transition` animates opacity but not color
+        // (motion v1), so the flash colour is a second copy of the price over
+        // the black one, created opaque (a new key per update) and faded out
+        // by the next tick. See ../GAPS.md §3.
+        column position="relative"
+          text c.price white-space="nowrap" font-size=16 font-weight=600 font-variant-numeric="tabular-nums" color="#000000"
+          each f in c.flash key=f.seq
+            text c.price position="absolute" top=0 left=0 white-space="nowrap" font-size=16 font-weight=600 font-variant-numeric="tabular-nums" color=(f.up ? "#16a34a" : "#dc2626") background-color="#ffffff" opacity=(f.on ? 1 : 0) transition="opacity 400ms ease"
+        text c.change white-space="nowrap" padding-top=2 padding-bottom=2 padding-left=6 padding-right=6 border-radius=4 font-size=12 font-weight=600 color="#ffffff" background-color=(c.up ? "#16a34a" : "#dc2626")
+
+// The chart: 96 × 32 in the row's layout. The canvas is that box outset by
+// 9 pt on every side (the pulse's reach), so its margins are −9.
+component Chart
+  props
+    c: Coin
+    freeze: bool
+  view
+    canvas surface=spark(c.series, c.up, freeze) width=114 height=50 flex-shrink=0 margin-left=-9 margin-right=-9 margin-top=-9 margin-bottom=-9

@@ -401,7 +401,7 @@ final class VideoVisibilityHost {
 /// when the bundle is built for distribution (the App Store refuses loose
 /// dylibs, ITMS-90171), otherwise the loose `lib….dylib` a development build
 /// places there.
-func embeddedModule(framework: String, dylib: String) -> String {
+package func embeddedModule(framework: String, dylib: String) -> String {
     let directory = Bundle.main.privateFrameworksPath ?? Bundle.main.bundlePath
     let wrapped = directory + "/" + framework + ".framework/" + framework
     return FileManager.default.fileExists(atPath: wrapped) ? wrapped : directory + "/" + dylib

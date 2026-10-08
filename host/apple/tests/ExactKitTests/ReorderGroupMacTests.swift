@@ -2,6 +2,7 @@
 import AppKit
 import XCTest
 @testable import ExactKit
+@testable import ExactDrag
 
 /// The grouped session's calls, recorded (LLP 1094 D5): the drop answers
 /// `holding` until the test says otherwise.
@@ -42,6 +43,7 @@ final class ReorderGroupRecorder: ReorderGroupCalls {
 /// in any direction into another grouped list, a drop that holds with the
 /// ghost kept, the hold's end landing it, and the keys.
 final class ReorderGroupMacTests: XCTestCase {
+    override class func setUp() { super.setUp(); ExactDrag.install() } // LLP 1047.001 D4
     private var window: NSWindow?
     override func tearDown() { window?.close(); window = nil }
 
@@ -130,7 +132,7 @@ final class ReorderGroupMacTests: XCTestCase {
         XCTAssertTrue(p.reorderGroup === hold, "a hold keeps the ghost and the pin")
         XCTAssertNotNil(hold.ghost?.view.superview)
         // Escape does nothing while holding: its send is out.
-        p.mouseReorder.cancel()
+        p.mouseDrags.reorder.cancel()
         XCTAssertFalse(calls.log.contains("cancel"))
         // The answer showed the move: the ghost lands on the row, then the session finishes.
         let landed = expectation(description: "the ghost lands, then the session finishes")

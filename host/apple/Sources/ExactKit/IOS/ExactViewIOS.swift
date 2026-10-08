@@ -84,6 +84,7 @@ public final class ExactView: UIView {
         }
         #endif
         session.presenter.observeKeyboard()
+        registerForTraitChanges([UITraitPreferredContentSizeCategory.self, UITraitLegibilityWeight.self, UITraitDisplayScale.self]) { (view: ExactView, _: UITraitCollection) in view.session.controlTextChanged() }
         registerForTraitChanges([UITraitUserInterfaceStyle.self, UITraitDisplayScale.self, UITraitAccessibilityContrast.self]) { (view: ExactView, _: UITraitCollection) in view.reportScheme(); view.setNeedsLayout() }
         // The tvOS SDK has no Swift UITraitDefinition for this trait. OS
         // suppression still applies to its layers without a re-decode (D9).
@@ -180,7 +181,7 @@ public final class ExactView: UIView {
         session.tellPage() // `hasFocus` is this window's scene's (#114)
         session.natives.scopesChanged()
         session.rasters.setPaused(window == nil)
-        session.canvases.lifecycle.refresh()
+        session.canvases.refreshLifecycle()
         if window == nil {
             session.presenter.menus.unmounted()
             session.presenter.modals.unmounted()

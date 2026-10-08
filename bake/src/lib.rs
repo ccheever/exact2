@@ -10,10 +10,12 @@
 
 pub mod colors;
 pub mod compat;
+mod link;
 mod reach;
 mod receipt;
 
 pub use compat::{compatibility_id, compatibility_id_sources, Compat};
+pub use link::{ahead, apple_link};
 pub use receipt::write_development_artifacts;
 
 /// The Bun a bake spawns: `BUN` names one, else the first on PATH. The scripts

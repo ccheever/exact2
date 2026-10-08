@@ -6,9 +6,9 @@ import UIKit
 /// composite at alpha 0 and must still take a tap, which UIKit's default
 /// hit-test refuses below 0.01 — and transparent to a hit on nothing, so
 /// the touch reaches what holds it (the canvas, the viewport).
-final class PlainView: UIView {
-    override func didAddSubview(_ subview: UIView) { super.didAddSubview(subview); FocusSearch.joined(subview) }
-    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+package final class PlainView: UIView {
+    package override func didAddSubview(_ subview: UIView) { super.didAddSubview(subview); FocusSearch.joined(subview) }
+    package override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
         guard !isHidden, isUserInteractionEnabled, bounds.contains(point) else { return nil }
         return NodeView.hitChildren(in: self, at: point, with: event)
     }
@@ -20,14 +20,14 @@ final class PlainView: UIView {
 /// its edge). Which axes it scrolls comes from the node's rows; a tap's
 /// wheel (the agent's) applies the web's chaining rule itself
 /// (`AgentIOS.swift`).
-class ScrollView: UIScrollView {
-    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+package class ScrollView: UIScrollView {
+    package override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
         guard let hit = super.hitTest(point, with: event) else { return nil }
         return NodeView.hitChildren(in: self, at: point, with: event) ?? hit
     }
 
-    var scrollsX = true
-    var scrollsY = true
+    package var scrollsX = true
+    package var scrollsY = true
     #if os(tvOS)
     /// The offset the remote's last step scrolls to, and when it began
     /// (`RemoteTVOS.swift`): a step pressed during that animation goes on
@@ -37,10 +37,10 @@ class ScrollView: UIScrollView {
     /// A pan cancels a touch in progress, as it does a custom button's; UIKit
     /// would leave a `UIControl` its touch, so a native button (LLP 1069.011
     /// D4) is named. A canvas that owns its input keeps it.
-    override func touchesShouldCancel(in view: UIView) -> Bool {
-        !CanvasInput.owns(view) && (view is NativeButtonIOS || super.touchesShouldCancel(in: view))
+    package override func touchesShouldCancel(in view: UIView) -> Bool {
+        !CanvasInputs.owns(view) && (view is NativeButtonIOS || super.touchesShouldCancel(in: view))
     }
-    override func gestureRecognizerShouldBegin(_ gesture: UIGestureRecognizer) -> Bool {
+    package override func gestureRecognizerShouldBegin(_ gesture: UIGestureRecognizer) -> Bool {
         if gesture === panGestureRecognizer {
             let velocity = panGestureRecognizer.velocity(in: self)
             let location = panGestureRecognizer.location(in: self)
@@ -57,7 +57,7 @@ class ScrollView: UIScrollView {
     func admitsPan(velocity: CGPoint, translation: CGPoint, start: CGPoint) -> Bool {
         let direction = velocity == .zero ? translation : velocity
         var view = hitTest(start, with: nil)
-        if CanvasInput.owns(view) { return false }
+        if CanvasInputs.owns(view) { return false }
         // CSS intersects touch-action from the hit element through the
         // scroll container. It governs initial direction, not reversal.
         while let current = view {
@@ -89,7 +89,7 @@ class ScrollView: UIScrollView {
     /// `handsOff`'s answer without its side effect: whether a drag in
     /// `velocity` begun now chains to an enclosing scroller (a descendant's
     /// recognizer asks it, LLP 1057.001 rule 2).
-    func chains(_ velocity: CGPoint) -> Bool {
+    package func chains(_ velocity: CGPoint) -> Bool {
         guard velocity != .zero, let owner = superview as? NodeView else { return false }
         let horizontal = abs(velocity.x) > abs(velocity.y)
         guard (owner.style[horizontal ? "overscroll_behavior_x" : "overscroll_behavior_y"]?.string ?? "auto") == "auto" else { return false }
@@ -120,7 +120,7 @@ class ScrollView: UIScrollView {
     /// A touch that no node took — nothing focusable, nothing pressable —
     /// ends the editing, as a tap on a page's blank ground blurs the field
     /// and sends the keyboard away (LLP 1008 §9).
-    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
+    package override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
         // An inert button can still retain focus, for example between the
         // two taps of a double-tap recognizer. Its unhandled touch is not
         // blank ground. Check before forwarding to enclosing scroll views.
@@ -148,6 +148,29 @@ class ScrollView: UIScrollView {
     }
 }
 
+#if !os(tvOS)
+/// UIKit's pull-to-refresh control, below the scroller's `padding-top`
+/// (@ref LLP 1010 §6.9, the one rule a padded list takes that CSS has no
+/// word for: React Native's `progressViewOffset`, placed as its
+/// `RCTRefreshControl` places it). The padding is in the content, so a header
+/// laid over it would hide the spinner; here the control's top sits that far
+/// down the scroller's port, behind the content, and the pull uncovers it
+/// between the header and the first row, where it stays while the app
+/// refreshes. UIKit lays the control out as the pull goes; after each
+/// layout its frame moves to that place, which is a no-op once it is there.
+/// With no padding, UIKit's own place.
+final class PaddedRefreshControl: UIRefreshControl {
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        guard let owner = superview?.superview as? NodeView else { return }
+        let top = owner.number("padding_top")
+        guard top != 0 else { return }
+        let gap = convert(CGPoint(x: 0, y: top), from: owner).y
+        if gap != 0 { frame = frame.offsetBy(dx: 0, dy: gap) }
+    }
+}
+#endif
+
 extension NodeView {
     /// A `refresh` handler on a scroll container is UIKit's pull-to-refresh:
     /// the control fires the event; the app's `refreshing` going false ends it.
@@ -157,7 +180,7 @@ extension NodeView {
         guard let sv = scroll else { return }
         if handlers.contains("refresh") {
             if sv.refreshControl == nil {
-                let control = UIRefreshControl()
+                let control = PaddedRefreshControl()
                 control.addTarget(self, action: #selector(pulledToRefresh), for: .valueChanged)
                 sv.refreshControl = control
             }

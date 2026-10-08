@@ -237,15 +237,18 @@ impl ReorderGeometry {
         Ok(out)
     }
     fn validate(&self) -> Result<(), super::FeedbackError> {
-        if [
-            self.scroll_top,
-            self.port_width,
-            self.port_height,
-            self.row_width,
-            self.total_extent,
-        ]
-        .into_iter()
-        .all(|v| v.is_finite() && (0.0..=f32::MAX as f64).contains(&v))
+        // `scroll_top` is a collection's offset: negative in the padding
+        // before the first row (LLP 1010 §6.9).
+        if self.scroll_top.is_finite()
+            && self.scroll_top.abs() <= f32::MAX as f64
+            && [
+                self.port_width,
+                self.port_height,
+                self.row_width,
+                self.total_extent,
+            ]
+            .into_iter()
+            .all(|v| v.is_finite() && (0.0..=f32::MAX as f64).contains(&v))
         {
             Ok(())
         } else {

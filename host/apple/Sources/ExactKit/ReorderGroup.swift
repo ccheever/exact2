@@ -108,7 +108,7 @@ extension CollectionHost {
 
 extension NodeView {
     /// The grouped list this grip's row is in, and its group (D1).
-    var reorderGroupList: (list: UInt32, group: String)? {
+    package var reorderGroupList: (list: UInt32, group: String)? {
         guard !(props["reorderFor"] ?? "").isEmpty, let presenter,
               let list = presenter.collections.owningCollection(id),
               let group = presenter.views[list]?.props["reorderGroup"], !group.isEmpty else { return nil }
@@ -121,7 +121,7 @@ extension NodeView {
     }
 }
 
-final class ReorderGroupHold {
+package final class ReorderGroupHold {
     weak var presenter: Presenter?
     weak var handle: NodeView?
     let calls: ReorderGroupCalls
@@ -138,7 +138,7 @@ final class ReorderGroupHold {
     private var landing = false
 
     /// Pin the grip, snapshot its row (before the runner hides it), and lift.
-    init?(_ handle: NodeView, point: CGPoint, ghost drawn: Bool) {
+    package init?(_ handle: NodeView, point: CGPoint, ghost drawn: Bool) {
         handle.presenter?.reorderGroup?.landNow()
         // Said, as the web says it (LLP 1102 §3.17): a drive's reply reads like a success otherwise.
         if handle.presenter?.reorderGroup != nil {
@@ -186,11 +186,11 @@ final class ReorderGroupHold {
         guard let generation else { return true }
         return presenter.session?.generation == generation && presenter.session?.runtime.destroyed == false
     }
-    var active: Bool { state.phase == "active" }
+    package var active: Bool { state.phase == "active" }
 
     /// The contact moved to `point` (window coordinates): the ghost follows
     /// by the grip's offset, and its centre picks the target and the gap.
-    @discardableResult func move(_ point: CGPoint) -> Bool {
+    @discardableResult package func move(_ point: CGPoint) -> Bool {
         guard active, live, let presenter else { return false }
         if presenter.session?.isApplyingPresentation == true {
             DispatchQueue.main.async { [weak self] in _ = self?.move(point) }
@@ -236,7 +236,7 @@ final class ReorderGroupHold {
 
     /// The contact ended (D8): a drop into the current target, or a cancel.
     /// A drop that holds keeps the ghost where it is until the move shows.
-    func finish(cancel: Bool) {
+    package func finish(cancel: Bool) {
         guard active, let presenter else { return }
         stopEdge()
         if !cancel { sample() }
@@ -246,7 +246,7 @@ final class ReorderGroupHold {
         if active { end() }
     }
     /// Escape, a lost contact, the window resigning: before a drop only.
-    func cancel() { if active { finish(cancel: true) } }
+    package func cancel() { if active { finish(cancel: true) } }
 
     /// This session's op (D8): a hold keeps the ghost; the end of one, or a
     /// cancel, lands it; `finished` retires everything.
@@ -275,7 +275,7 @@ final class ReorderGroupHold {
     }
 
     /// Whether the ghost is springing home: the move has shown, so a new drag may end it.
-    var isLanding: Bool { landing }
+    package var isLanding: Bool { landing }
 
     /// A new drag ends a landing at once (LLP 1102 §3.18); a session that holds is untouched (D8).
     func landNow() { if landing { finishSession() } }

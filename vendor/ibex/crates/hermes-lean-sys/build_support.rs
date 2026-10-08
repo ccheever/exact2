@@ -252,13 +252,20 @@ struct ReceiptClaims {
     icu: Option<receipt_schema::CanonicalIcuReceipt>,
 }
 
+/// The per-target install override's name: `HERMES_LEAN_SYS_DIR_` and the
+/// Rust target with `-` and `.` as `_`.
+pub(crate) fn target_override_variable(target: &str) -> String {
+    format!("HERMES_LEAN_SYS_DIR_{}", target.replace(['-', '.'], "_"))
+}
+
 pub(crate) fn pin_for_target(target: &str) -> Result<&'static BundlePin, String> {
     PINNED_BUNDLES
         .iter()
         .find(|pin| pin.target == target)
         .ok_or_else(|| {
             format!(
-                "unsupported Hermes target {target}; set HERMES_LEAN_SYS_DIR to a complete local install"
+                "unsupported Hermes target {target}; set {} (or HERMES_LEAN_SYS_DIR) to a complete local install",
+                target_override_variable(target)
             )
         })
 }
@@ -340,7 +347,13 @@ pub(crate) fn resolve_engine_directory(
 ) -> Result<EngineInstall, String> {
     let manifest_dir = repo_root.join("crates").join("hermes-lean-sys");
     let mut validated_bundle_compiler = None;
-    let target_layout = if let Some(overridden) = env::var_os("HERMES_LEAN_SYS_DIR") {
+    // A target-qualified override (`HERMES_LEAN_SYS_DIR_aarch64_linux_android`,
+    // as the `cc` crate names its per-target variables) selects an install for
+    // one target only, so a cross build's host instance (a build-dependency)
+    // keeps its pinned bundle while the target uses a local one.
+    let overridden = env::var_os(target_override_variable(target))
+        .or_else(|| env::var_os("HERMES_LEAN_SYS_DIR"));
+    let target_layout = if let Some(overridden) = overridden {
         install_layout(PathBuf::from(overridden), target, InstallOrigin::Override)
     } else {
         let pin = pin_for_target(target)?;

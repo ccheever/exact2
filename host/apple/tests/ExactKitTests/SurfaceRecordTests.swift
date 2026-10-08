@@ -3,8 +3,10 @@ import AppKit
 import XCTest
 import CryptoKit
 @testable import ExactKit
+@testable import ExactSurfaces
 
 final class SurfaceRecordTests: XCTestCase {
+    override class func setUp() { super.setUp(); ExactSurfaces.install() } // LLP 1047.001 D4
     private func fixture(plan: ((Data) -> Void)? = nil) throws -> ExactSession {
         _ = NSApplication.shared
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
@@ -20,7 +22,7 @@ final class SurfaceRecordTests: XCTestCase {
         let bytes = try Data(contentsOf: dir.appendingPathComponent("app.plan"))
         plan?(bytes)
         let session = ExactApp.shared.makeSession(label: "surface-record")
-        session.canvases.attempted = [""] // No GPU is needed to exercise publication ownership.
+        session.surfaceHost.attempted = [""] // No GPU is needed to exercise publication ownership.
         let batch = session.boot(plan: bytes, size: CGSize(width: 300, height: 100))
         XCTAssertNil(batch.error)
         return session
@@ -31,7 +33,7 @@ final class SurfaceRecordTests: XCTestCase {
         defer { session.destroy() }
         let text = try XCTUnwrap(session.presenter.views.values.first { $0.kind == "text" })
         session.presenter.onCommand = { [unowned session] _, _, _ in
-            session.canvases.surfaceRecord("world", "{\"beacons\":7}")
+            session.surfaceHost.surfaceRecord("world", "{\"beacons\":7}")
             XCTAssertEqual(text.props["text"], "Count 0")
         }
         session.apply(wireBatch([
@@ -59,7 +61,7 @@ final class SurfaceRecordTests: XCTestCase {
     func testOnlyTheFirstLivePublisherCanClearTheRecord() throws {
         let session = try fixture()
         defer { session.destroy() }
-        let canvases = session.canvases
+        let canvases = session.surfaceHost
         let owner = NodeView(id: 100, kind: "canvas", presenter: session.presenter)
         let duplicate = NodeView(id: 101, kind: "canvas", presenter: session.presenter)
         canvases.surface(view: owner, name: "world", values: [])
@@ -101,7 +103,7 @@ final class SurfaceRecordTests: XCTestCase {
     func testTerminalRestoreRefusalIsOneReplyAndCanvasStateRemainsAvailable() throws {
         let session = try fixture()
         defer { session.destroy() }
-        let c = session.canvases
+        let c = session.surfaceHost
         let view = NodeView(id: 100, kind: "canvas", presenter: session.presenter)
         c.surface(view: view, name: "world", values: [])
         let entry = try XCTUnwrap(c.entries[100])
@@ -138,7 +140,7 @@ final class SurfaceRecordTests: XCTestCase {
         let session = try fixture()
         defer { session.destroy() }
         let view = NodeView(id:100, kind:"canvas", presenter:session.presenter)
-        let entry = Canvases.Entry(view:view, name:"world", values:[])
+        let entry = CanvasesHost.Entry(view:view, name:"world", values:[])
         entry.id = 1
         entry.rendered(1)
         XCTAssertTrue(entry.needsFrame(dirty:false))

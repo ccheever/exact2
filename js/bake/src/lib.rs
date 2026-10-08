@@ -292,6 +292,8 @@ fn build_sources(
     if compat.inputs["store"]["L"] != "0" {
         return Err("module clients currently require deploy.store.<platform> = 0; signed module delivery is not implemented".into());
     }
+    // What an Apple archive links, as its compatibility inputs name it (LLP 1047.001 D2).
+    let linked = (platform != "web").then(|| exact_bake::apple_link(&compat, "exact_apple"));
     std::fs::write(out.join("compat.json"), compat.to_json()).map_err(|e| e.to_string())?;
     let rust_updates = compat.inputs["rustMode"] != "off"
         && compat.inputs["rustModule"]
@@ -334,13 +336,28 @@ fn build_sources(
         } else {
             mode
         };
-        let mut entry = contract::rust_entry("ExactEmbeddedData", "embedded_data()", mode)?;
+        // The Linux (and Android) and Windows hosts make their data source with
+        // `Default` (`exact_linux::run::<D: Default>`); with no Rust module the
+        // entry is otherwise the bare embedded source, which has none. A
+        // replacement-free `Swappable::off` gives it one and links no executor
+        // (LLP 1047.001 D7), as Apple's `host!` gets from `app_data()`.
+        let mut entry = if mode == "off" && matches!(platform, "linux" | "android" | "windows") {
+            "exact_logic::configured!(AppData, ExactEmbeddedData, || exact_logic::Swappable::off(embedded_data()));\n#[allow(dead_code)]\nfn app_data() -> AppData { Default::default() }\n".to_string()
+        } else {
+            contract::rust_entry("ExactEmbeddedData", "embedded_data()", mode)?
+        };
         // The web entry links what the plan uses (LLP 1047 D3).
         if platform == "web" {
             let plan = exact_plan::Plan::decode(&baked.plan).map_err(|e| format!("{e:?}"))?;
             entry.push_str(&contract::web_linked(&plan, &compat.inputs));
         }
         std::fs::write(out.join("logic.rs"), entry).map_err(|e| e.to_string())?;
+        // An Apple entry names what it links (LLP 1047.001 D3) beside it, for
+        // `host!(…; linked = EXACT_LINKED)`; an entry that does not include it
+        // links every capability, as before.
+        if let Some(linked) = linked {
+            std::fs::write(out.join("linked.rs"), linked).map_err(|e| e.to_string())?;
+        }
     }
     // Each captured source by name, not the app directory: Cargo scans a named
     // directory recursively, and an app outside this repo keeps its `target/`
@@ -505,6 +522,18 @@ fn mounts(root: &Path) -> Result<Vec<(String, PathBuf)>, String> {
             ));
         }
         out.push((name.clone(), dir));
+    }
+    // A file reachable through two mounts would have two places in the
+    // capture, and the web build could resolve its imports from the other:
+    // mounts may not overlap.
+    for (i, (a, a_dir)) in out.iter().enumerate() {
+        for (b, b_dir) in &out[i + 1..] {
+            if a_dir.starts_with(b_dir) || b_dir.starts_with(a_dir) {
+                return Err(format!(
+                    "typescript.sources.{a} and typescript.sources.{b} overlap; mount directories that do not contain each other"
+                ));
+            }
+        }
     }
     Ok(out)
 }

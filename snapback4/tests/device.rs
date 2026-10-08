@@ -143,7 +143,7 @@ fn native_partition_predicts_keeps_outbox_reopens_and_applies_server_confirmatio
     call(
         &mut module,
         json!({"op":"enqueue", "entry":{"id":"write1","seq":seq,
-        "op":"send","args":{"body":"offline"},"new_ids":["second"],"predicted":prediction["predicted"]}}),
+        "op":"send","args":{"body":"offline"},"new_ids":["second"],"predicted":prediction["predicted"],"viewer":VIEWER}}),
     );
     assert_eq!(inbox(&mut module)[0]["pending"], true);
     drop(module);
@@ -209,7 +209,13 @@ fn native_partition_predicts_keeps_outbox_reopens_and_applies_server_confirmatio
     call(&mut module, json!({"op":"close"}));
     let mut newer = backend;
     newer.generation += 1;
+    // Opening never replaces the kept backend; adoption is a sync round's.
     call(&mut module, open(Some(&newer)));
+    assert_eq!(
+        call(&mut module, json!({"op":"state"}))["generation"],
+        newer.generation - 1
+    );
+    call(&mut module, json!({"op":"adopt","backend":newer}));
     assert_eq!(
         call(&mut module, json!({"op":"sync_state"}))["acquired"],
         false
@@ -328,7 +334,8 @@ fn paths_stay_under_granted_app_data_and_symlinks_cannot_escape() {
         assert!(module.call(&request).is_err(), "{path}");
         assert!(!fixture.0.exists());
     }
-    assert!(module.call(&open(None)).is_err());
+    // Never synced: the client opens it on the server's backend in its first round.
+    assert_eq!(call(&mut module, open(None)), json!({"opened": false}));
     assert!(!fixture.0.join("data/alice.sqlite").exists());
     #[cfg(unix)]
     {

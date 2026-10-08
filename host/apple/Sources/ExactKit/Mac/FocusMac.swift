@@ -12,7 +12,7 @@ extension NodeView {
     /// A paragraph takes the focus too, for selection, but plain text is
     /// never a Tab stop on the web. An explicit `tabindex` makes any box
     /// focusable, and a Tab stop only when ≥ 0 (LLP 1088 D7.3).
-    override var acceptsFirstResponder: Bool {
+    package override var acceptsFirstResponder: Bool {
         if formDisabled || inert || isHiddenOrHasHiddenAncestor || cssVisibilityHidden { return false }
         if field != nil || textArea != nil { return false }
         return props["semanticTag"] == "dialog" || isParagraph || explicitTabIndex != nil || tabbable || isRadio
@@ -25,8 +25,8 @@ extension NodeView {
     /// Sequential focus follows the web: a button is in the loop even when
     /// macOS "Keyboard navigation" is off (that setting would otherwise
     /// skip every non-field).
-    override var canBecomeKeyView: Bool { acceptsFirstResponder && tabbable }
-    override func becomeFirstResponder() -> Bool {
+    package override var canBecomeKeyView: Bool { acceptsFirstResponder && tabbable }
+    package override func becomeFirstResponder() -> Bool {
         guard !formDisabled else { return false }
         let ok = super.becomeFirstResponder()
         if ok { focusVisible = presenter?.focusByPointer != true }
@@ -34,7 +34,7 @@ extension NodeView {
         if ok, handlers.contains("focus") { presenter?.focus(id) }
         return ok
     }
-    override func resignFirstResponder() -> Bool {
+    package override func resignFirstResponder() -> Bool {
         let ok = super.resignFirstResponder()
         if ok { focusVisible = false; presenter?.selection.focusLeft() }
         if ok { presenter?.collections.pinsChanged() }
@@ -47,9 +47,14 @@ extension NodeView {
     /// draws no mask whose bounds are empty, which keeps it off a box that
     /// is not pressable, a field (its own ring) and a focus that is not
     /// visible.
-    override var focusRingMaskBounds: NSRect { field == nil && pressable && focusVisible ? bounds : .zero }
-    override func drawFocusRingMask() {
-        guard field == nil, pressable else { return }
+    var bareFieldFocused: Bool {
+        !isNativeTextControl && (field?.currentEditor() != nil || (textArea != nil && window?.firstResponder === textArea))
+    }
+    package override var focusRingMaskBounds: NSRect {
+        bareFieldFocused || (field == nil && pressable && focusVisible) ? bounds : .zero
+    }
+    package override func drawFocusRingMask() {
+        guard bareFieldFocused || (field == nil && pressable) else { return }
         roundedPath(in: bounds).fill()
     }
 }

@@ -13,8 +13,95 @@ component NativeButtons
   action fade
     fading = not fading
   view
-    column testId="native-buttons" padding=16 gap=10 background-color="light-dark(#ffffff, #000000)"
+    column testId="native-buttons" height="100%" overflow-y="auto" box-sizing="border-box" padding=16 gap=10 background-color="light-dark(#ffffff, #000000)"
       text `presses ${presses}` testId="count"
+      text "Platform button fidelity" color="light-dark(#111111, #eeeeee)"
+      row gap=12 flex-wrap="wrap"
+        button appearance="auto" buttonStyle="tinted" testId="defrost-front" press=go
+          image "symbol:sf/windshield.front.and.wiper"
+          text "Front Defrost"
+        button appearance="auto" buttonStyle="gray" testId="defrost-rear" press=go
+          image "symbol:sf/windshield.rear.and.wiper"
+          text "Rear Defrost"
+      row gap=12 flex-wrap="wrap"
+        button appearance="auto" buttonStyle="filled" flex-direction="column" border-radius=18 testId="control-tile" press=go
+          image "symbol:sf/lock.fill" -exact-tint-color="green" font-size=28 font-weight=600
+          text "Lock"
+        button appearance="auto" buttonStyle="tinted" testId="subtitle" press=go
+          image "symbol:sf/location.fill"
+          text "Last Parked"
+          text "Updated just now"
+      button appearance="auto" buttonStyle="gray" width="100%" text-align="start" testId="check-update" press=go
+        image "symbol:sf/arrow.clockwise"
+        text "Check for update"
+      button appearance="auto" buttonStyle="filled" -exact-control-size="large" -exact-corner-style="capsule" font-weight=600 testId="sign-in" press=go
+        text "Sign In"
+      button appearance="auto" buttonStyle="gray" color="AccentColor" testId="resend-code" press=go
+        text "Resend Code"
+      row gap=12 flex-wrap="wrap"
+        button appearance="auto" buttonStyle="tinted" testId="method-email" press=go
+          image "symbol:sf/envelope.fill"
+          text "Email"
+        button appearance="auto" buttonStyle="tinted" testId="method-passkey" press=go
+          image "symbol:sf/key.fill"
+          text "Passkey"
+      row gap=12 flex-wrap="wrap"
+        button appearance="auto" buttonStyle="plain" font-size=13 font-weight=600 width=145 testId="get-app" press=go
+          text "Get the Lexus app for your vehicle"
+        button appearance="auto" buttonStyle="plain" font-size=13 font-weight=600 testId="try-demo" press=go
+          text "Try Demo"
+        button appearance="auto" buttonStyle="plain" font-size=13 font-weight=600 width=145 testId="subscriptions" press=go
+          text "Manage Subscriptions"
+        button appearance="auto" buttonStyle="plain" font-size=13 font-weight=600 testId="sign-out" press=go
+          text "Sign Out"
+        button appearance="auto" buttonStyle="plain" font-size=13 font-weight=600 testId="clear" aria-label="Clear" press=go
+          image "symbol:sf/xmark.circle.fill"
+      button appearance="auto" buttonStyle="glass" testId="glass-sign-in" press=go -exact-control-size="large" -exact-corner-style="capsule" font-weight=600
+        text "Sign In"
+      button appearance="auto" buttonStyle="glass" testId="glass-resend-code" press=go color="AccentColor"
+        text "Resend Code"
+      button appearance="auto" buttonStyle="glass" testId="glass-method-email" press=go
+        image "symbol:sf/envelope.fill"
+        text "Email"
+      button appearance="auto" buttonStyle="glass" testId="glass-method-passkey" press=go
+        image "symbol:sf/key.fill"
+        text "Passkey"
+      button appearance="auto" buttonStyle="glass" testId="glass-get-app" press=go font-size=13 font-weight=600 width=145
+        text "Get the Lexus app for your vehicle"
+      button appearance="auto" buttonStyle="glass" testId="glass-try-demo" press=go font-size=13 font-weight=600
+        text "Try Demo"
+      button appearance="auto" buttonStyle="glass" testId="glass-subscriptions" press=go font-size=13 font-weight=600 width=145
+        text "Manage Subscriptions"
+      button appearance="auto" buttonStyle="glass" testId="glass-sign-out" press=go font-size=13 font-weight=600
+        text "Sign Out"
+      button appearance="auto" buttonStyle="glass" testId="glass-clear" press=go font-size=13 font-weight=600 aria-label="Clear"
+        image "symbol:sf/xmark.circle.fill"
+      button appearance="auto" buttonStyle="filled" border-radius=18 -exact-corner-style="capsule" padding="10px 22px" testId="radius-padding" press=go
+        text "Radius 18"
+      button appearance="auto" buttonStyle="gray" color="AccentColor" disabled=true testId="disabled-authored" press=go
+        image "symbol:sf/lock.fill" -exact-tint-color="green"
+        text "Disabled colours"
+      button appearance="auto" buttonStyle="gray" white-space="nowrap" width=130 testId="nowrap" press=go
+        text "A long title truncated at the end"
+      button appearance="auto" buttonStyle="tinted" line-clamp=2 width=150 testId="clamped" press=go
+        text "A long title that stops after at most two lines"
+      box pointer-events="none"
+        button appearance="auto" buttonStyle="glass" pointer-events="auto" testId="pointer-override" press=go
+          text "Takes touch"
+      button appearance="auto" buttonStyle="filled" pointer-events="none" testId="pointer-none" press=go
+        text "Passes touch through"
+      button appearance="auto" buttonStyle="filled" testId="open-dialog" commandfor="button-confirmation" command="show-modal" press=go
+        text "Open confirmation"
+      dialog id="button-confirmation" closedby="any"
+        text "Native button confirmation"
+        button commandfor="button-confirmation" command="close" press=go testId="confirm-action"
+          text "Confirm"
+        button commandfor="button-confirmation" command="close" testId="confirm-cancel"
+          text "Cancel"
+      button appearance="auto" buttonStyle="tinted" testId="open-popover" popovertarget="button-popover" press=go
+        text "Open popover"
+      column id="button-popover" popover="auto" width=220 padding=12 background-color="light-dark(#eeeeee, #333333)"
+        text "Anchored to the UIButton" color="light-dark(#111111, #eeeeee)"
       row gap=12 align-items="center"
         button appearance="auto" buttonStyle="plain" press=go testId="plain"
           text "plain"

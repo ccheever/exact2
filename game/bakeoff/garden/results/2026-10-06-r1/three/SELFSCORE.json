@@ -1,0 +1,56 @@
+{
+  "engine": "three.js",
+  "overall": 7,
+  "overall_why": "I would use three.js again for a similar game. The work an agent can actually finish — seeded rules, a script-controlled clock, save dumps, and real HTML controls — stayed ordinary JavaScript, and the WebGL view stayed out of the way: headless Chromium ran the full proof twice with the same frame times, and about a thousand plants were still a few milliseconds. A 3D sim is mostly a picture, though, and that part was a silent loop. Physical lights made the first meadow nearly black, the glTF face and the barrel's vertex colors did not match the art notes, and the only signal was another screenshot. Survivable, and it was the whole tax.",
+  "subscores": {
+    "setup": 9,
+    "docs": 6,
+    "loop": 7,
+    "verification": 9,
+    "debugging": 6,
+    "assets": 6,
+    "ui": 7,
+    "api": 8,
+    "reliability": 9,
+    "visuals": 6
+  },
+  "citations": {
+    "docs": [
+      "2026-10-06 06:24:33 UTC — Logging the visual pass that happened after 05:57 and was not written down then. First meadow render was nearly black (physical lights times dark vertex colors, meadow rgb about 13, 35, 2). Raised hemisphere, ambient, and sun, and later added lantern point lights so night at Day 8:50 stays readable. Cost several screenshot rounds."
+    ],
+    "loop": [
+      "2026-10-06 06:24:33 UTC — Logging the visual pass that happened after 05:57 and was not written down then. First meadow render was nearly black (physical lights times dark vertex colors, meadow rgb about 13, 35, 2). Raised hemisphere, ambient, and sun, and later added lantern point lights so night at Day 8:50 stays readable. Cost several screenshot rounds.",
+      "2026-10-06 06:26 UTC — `bun proof/proof.mjs` passed. P1–P8, pause, the narrow layout (market, care, and the prompts do not overlap at 390×800), and P10 screenshots. Frame time about 2.6 ms with 101 plants and about 5.5 ms with 1,082. Looked at all nine shots.",
+      "2026-10-06 06:29:37 UTC — Second full pass: `PROOF PASSED` again. Shop, title, and backpack shots rechecked. The planted carrot sprout sits east of the gardener and is visible beside the hat; the prompt pills cover its lower edge.",
+      "- Looked at rendered pixels about 20 times (night, stall, and the narrow layout before they were logged; then the nine proof shots, a crop of the sprout, and title/shop/backpack again)."
+    ],
+    "debugging": [
+      "2026-10-06 06:24:33 UTC — Logging the visual pass that happened after 05:57 and was not written down then. First meadow render was nearly black (physical lights times dark vertex colors, meadow rgb about 13, 35, 2). Raised hemisphere, ambient, and sun, and later added lantern point lights so night at Day 8:50 stays readable. Cost several screenshot rounds.",
+      "2026-10-06 06:24:33 UTC — Friction: ART.md says the kit faces −Z. A mount yaw of 0 put the face on the far side of the head (blue −Z marker on the back of the neck; more head verts on +Z). Mount yaw is π so the face, bib, and hat brim aim with the parent's forward. Close-up confirmed it. Do not flip it again."
+    ],
+    "assets": [
+      "2026-10-06 05:57:27 UTC — Resumed after context compaction. Page shell (`index.html`, `src/style.css`, `src/ui.js`, `server.js`) was already on disk and had never been opened in a browser. Scene, glue, and proof still unwritten. Asset front is unresolved: ART.md says models face −Z, a bounds check said the hat and the legs extend toward +Z. Will render with markers before locking a mount yaw.",
+      "2026-10-06 06:24:33 UTC — Friction: ART.md says the kit faces −Z. A mount yaw of 0 put the face on the far side of the head (blue −Z marker on the back of the neck; more head verts on +Z). Mount yaw is π so the face, bib, and hat brim aim with the parent's forward. Close-up confirmed it. Do not flip it again.",
+      "2026-10-06 06:24:33 UTC — Friction: the barrel glb is a wood tub with vertex colors, not a blue barrel. Tinted the wood `#2f9fe6` and added a pale water disc. The stall and keeper are in the scene; the stall camera sees the back of the keeper's head because the keeper faces the garden."
+    ],
+    "ui": [
+      "2026-10-06 06:26 UTC — Friction, from those shots: the seed shop ran down over the Move button, and Sell all printed `1643180¢`. Shortened the left panel so it stops above Move, and used the compact money format for the backpack total (`1.6M¢`). The title help was wrapping the word \"feed\" alone, so it is two deliberate lines. Re-ran the proof.",
+      "2026-10-06 06:29:37 UTC — Second full pass: `PROOF PASSED` again. Shop, title, and backpack shots rechecked. The planted carrot sprout sits east of the gardener and is visible beside the hat; the prompt pills cover its lower edge."
+    ],
+    "visuals": [
+      "2026-10-06 06:24:33 UTC — Logging the visual pass that happened after 05:57 and was not written down then. First meadow render was nearly black (physical lights times dark vertex colors, meadow rgb about 13, 35, 2). Raised hemisphere, ambient, and sun, and later added lantern point lights so night at Day 8:50 stays readable. Cost several screenshot rounds.",
+      "2026-10-06 06:29:37 UTC — Second full pass: `PROOF PASSED` again. Shop, title, and backpack shots rechecked. The planted carrot sprout sits east of the gardener and is visible beside the hat; the prompt pills cover its lower edge.",
+      "- Approximated, not skipped: the barrel glb is a wood tub, tinted blue with a flat water disc. Night lanterns throw a wide warm pool across the soil rather than tight circles. Trees are the brief's stage-4 apple, mango, and coconut models scaled up. Thunder flashes and snow are in the renderer; the proof shoots rain and night, not a separate thunder or snow frame. The weather chip stays visible on Clear."
+    ]
+  },
+  "top_frictions": [
+    "Default physical lights rendered the meadow almost black (rgb about 13, 35, 2) and never said why. Several screenshot rounds later, night still needed point lights and still reads as one wide warm pool.",
+    "glTF gives no forward axis and vertex colors silently win. The face was on asset +Z while the art note said −Z, and the barrel stayed a wood tub until its vertex colors were stripped and a disc was added.",
+    "Nothing in the renderer reports that a picture is wrong. Facing, darkness, the shop covering Move, and the prompts covering the sprout were all found by looking — about 20 pixel inspections, each one a browser load."
+  ],
+  "keep": [
+    "Headless Chromium ran the WebGL game without a flake or a context-loss fight, so one command could assert purse, growth, save dumps, pause, and frame time.",
+    "The scene graph stays out of the rules. Time, RNG, and saves are plain JavaScript, and about 1,082 plants still rendered in about 5.5 ms.",
+    "The HUD is real HTML beside the canvas, so buttons, accessible names, and panel text were clickable and readable from the proof."
+  ]
+}

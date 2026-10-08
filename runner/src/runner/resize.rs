@@ -212,6 +212,7 @@ fn content_rect(
     };
     let (left, top) = (pad(used_l, s.padding_left), pad(used_t, s.padding_top));
     let (frame_width, frame_height) = stitched.unwrap_or((node.frame.width, node.frame.height));
+    let field = node.field_content_rect();
     let width = frame_width
         - left
         - pad(used_r, s.padding_right)
@@ -225,8 +226,8 @@ fn content_rect(
     ResizeRect {
         x: left.into(),
         y: top.into(),
-        width: width.max(0.0).into(),
-        height: height.max(0.0).into(),
+        width: field.map_or(width.max(0.0), |rect| rect.width).into(),
+        height: field.map_or(height.max(0.0), |rect| rect.height).into(),
     }
 }
 

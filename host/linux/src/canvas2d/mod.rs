@@ -482,6 +482,29 @@ impl Replayer {
     }
 }
 
+/// A whole recording replayed into a fresh bitmap of `size` points at
+/// `scale` (a hatch's overlay, LLP 1075.003.000.001 §2.2.1): nothing is
+/// carried from an earlier one. `None` for a box with no area.
+pub(crate) fn replay(
+    lists: &[Vec<u8>],
+    size: (f32, f32),
+    scale: f32,
+    env: &Env<'_>,
+) -> Result<Option<Arc<Pixmap>>, String> {
+    let (w, h) = ((size.0 * scale).ceil(), (size.1 * scale).ceil());
+    let side = crate::raster::MAX_FRAME_SIDE as f32;
+    if !(w >= 1.0 && h >= 1.0) || w > side || h > side {
+        return Ok(None);
+    }
+    let Some(mut replayer) = Replayer::new(w as u32, h as u32, f64::from(scale), 0, 0) else {
+        return Ok(None);
+    };
+    for list in lists {
+        replayer.apply(list, env)?;
+    }
+    Ok(Some(Arc::new(replayer.pixmap)))
+}
+
 /// Every 2D canvas's replayer and snapshot, the decoded images, and the
 /// text engine.
 #[derive(Default)]

@@ -7,7 +7,6 @@
 //! threads.
 
 use std::collections::VecDeque;
-use std::sync::LazyLock;
 
 use crate::arena::NodeArena;
 use crate::error::{KernelError, LayoutError};
@@ -20,13 +19,11 @@ use crate::selector::SelectorIndex;
 use crate::style::{uses_env, ColorValue, Dimension, Env, Rect, RowValue};
 use crate::text::{MonospaceMeasurer, TextMeasurer, TextRun, TextStyle};
 
-/// The initial value of every row: what a computed read returns when neither
-/// the node nor an ancestor sets an inherited row.
-static INITIAL: LazyLock<StyleProps> = LazyLock::new(StyleProps::default);
 use crate::txn::{self, CommitReceipt, Target};
 use crate::wire::{self, Op};
 mod cover;
 mod document;
+mod environment;
 mod geometry;
 mod intrinsic;
 mod sticky;
@@ -82,6 +79,11 @@ pub struct NodeRef<'a> {
 }
 
 impl<'a> NodeRef<'a> {
+    /// The editor content box in this native field's local frame (LLP 1104 D5).
+    pub fn field_content_rect(&self) -> Option<Frame> {
+        self.arena.field_content_rect(self.slot)
+    }
+
     /// Resolved exclusions in leaf border-box coordinates, in document order.
     /// @ref LLP 1043.000 §3 D4 — derived geometry, never paragraph inputs.
     pub fn flow_shapes(&self) -> &'a [exact_textflow::FlowShape] {
@@ -114,11 +116,7 @@ impl<'a> NodeRef<'a> {
     /// CSS's computed value of a row: the own row; else, for an inherited
     /// row, the nearest logical ancestor's; else the initial value.
     pub fn computed(&self, id: StyleId) -> RowValue<'a> {
-        match self.arena.inherited_source(self.slot, id) {
-            Some(s) => self.arena.style(s).get(id),
-            None if self.arena.document_style.mask.has(id) => self.arena.document_style.get(id),
-            None => INITIAL.get(id),
-        }
+        self.arena.computed_source(self.slot, id).get(id)
     }
 
     /// The node's rows with the inherited rows in `rows` resolved through the
@@ -213,6 +211,7 @@ pub struct Kernel {
     pub(crate) selectors: SelectorIndex,
     epoch: u64,
     incarnation: u64,
+    provisional_layouts: u64,
     receipts: VecDeque<CommitReceipt>,
     region: Option<crate::region::RegionState>,
     region_leases: crate::region::RegionLeases,
@@ -281,6 +280,7 @@ impl Kernel {
             selectors: SelectorIndex::new(),
             epoch: 0,
             incarnation: 1,
+            provisional_layouts: 0,
             receipts: VecDeque::new(),
             region: None,
             region_leases: Default::default(),
@@ -433,6 +433,9 @@ impl Kernel {
             // the shell too. No failed derived cache is reused on recovery.
             self.layout = Some(Box::new(LayoutTree::rebuild(&mut self.arena)));
         }
+        if result.is_ok() && region.provisional_chrome {
+            self.provisional_layouts += 1;
+        }
         Ok(result?)
     }
 
@@ -539,6 +542,9 @@ impl Kernel {
             }
         };
         receipt.epoch = self.epoch;
+        if engine(&mut self.layout).provisional_chrome() {
+            self.provisional_layouts += 1;
+        }
         Ok(receipt)
     }
 
@@ -698,83 +704,6 @@ impl Kernel {
             layout.mark_dirty(node);
         }
         true
-    }
-
-    /// The page's environment: what `env(safe-area-inset-*)` and
-    /// `env(viewport-segment-*)` lengths resolve to (LLP 1001 §2; LLP 1078 D3).
-    pub fn env(&self) -> Env {
-        self.arena.env().clone()
-    }
-
-    /// Set the insets of the environment — the safe-area insets the host
-    /// reports with the viewport (a rotation changes them); the segment grid
-    /// `env` carries is ignored, [`Kernel::set_segments`] being its twin.
-    /// Every node whose style holds an `env()` length gets its engine style
-    /// re-derived and is marked dirty; returns whether any did (a layout is
-    /// owed then). A non-finite inset is refused. A `reset` keeps the
-    /// environment: it is the host's.
-    pub fn set_env(&mut self, env: Env) -> Result<bool, KernelError> {
-        if !env.is_finite() {
-            return Err(LayoutError::InvalidEnv.into());
-        }
-        let next = self
-            .arena
-            .env()
-            .with_insets(env.top, env.right, env.bottom, env.left);
-        self.replace_env(next)
-    }
-
-    /// Set the viewport segments (LLP 1078 D3): `cols × rows` rects,
-    /// row-major, in the layout viewport's points — none for one segment,
-    /// where CSS defines no segment variable. Refuses a zero count, a count
-    /// that is not `cols × rows` (any rect on a 1 × 1 grid), and a
-    /// non-finite rect. Re-derives and dirties exactly the nodes whose style
-    /// reads the environment, as `set_env` does, and says whether any did.
-    pub fn set_segments(
-        &mut self,
-        cols: u8,
-        rows: u8,
-        segments: Vec<Rect>,
-    ) -> Result<bool, KernelError> {
-        let next = self.arena.env().with_segments(cols, rows, segments);
-        if !next.segments_consistent() || !next.is_finite() {
-            return Err(LayoutError::InvalidSegments.into());
-        }
-        self.replace_env(next)
-    }
-
-    /// Lay borders out as a terminal does: a drawn side is one cell (LLP
-    /// 1101.001 P13). The terminal host sets it on its own kernel before
-    /// the tree is built; it is this kernel's alone.
-    pub fn set_cell_borders(&mut self, on: bool) {
-        let next = self.arena.env().with_cell_borders(on);
-        let _ = self.replace_env(next);
-    }
-
-    fn replace_env(&mut self, env: Env) -> Result<bool, KernelError> {
-        if *self.arena.env() == env {
-            return Ok(false);
-        }
-        self.arena.set_env(env);
-        if let Some(r) = &mut self.region {
-            r.invalidate();
-        }
-        let users: Vec<u32> = self
-            .arena
-            .iter_live()
-            // A covered box too: its top cover can hold an inset (cover.rs).
-            .filter(|s| uses_env(self.arena.style(*s)) || self.arena.cover(*s).is_some())
-            .collect();
-        for slot in &users {
-            if let (Some(node), Some(layout)) =
-                (self.arena.taffy(*slot), self.layout.as_deref_mut())
-            {
-                layout.restyle(&self.arena, *slot, node);
-                layout.mark_dirty(node);
-            }
-            self.arena.flags_mut(*slot).insert(NodeFlags::STYLE_DIRTY);
-        }
-        Ok(!users.is_empty())
     }
 
     /// Set the root font size (CSS's `medium`, 16 by default): what `rem`
@@ -984,6 +913,7 @@ impl Kernel {
             selectors,
             epoch: self.epoch,
             incarnation: self.incarnation,
+            provisional_layouts: self.provisional_layouts,
             receipts: VecDeque::new(),
             region: None,
             region_leases: Default::default(),
@@ -1295,7 +1225,9 @@ mod locality_tests {
         )
         .unwrap();
         let r = k.compute_layout(1, offer).unwrap();
-        assert_eq!(k.tree().boundary_replays, 0);
+        // The contained edit is replayed at its box though the coupled one
+        // sends a root pass after it; the result is a fresh layout's.
+        assert_eq!(k.tree().boundary_replays, 1);
         assert!(r.changed.contains(&k.node(5).unwrap().key));
         equal_fresh(&k, offer);
         // Style and topology edits after deferred text invalidation must flush it.

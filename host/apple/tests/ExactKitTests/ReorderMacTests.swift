@@ -2,11 +2,13 @@
 import AppKit
 import XCTest
 @testable import ExactKit
+@testable import ExactDrag
 
 /// A mouse drag on a `reorderFor` handle, through AppKit's own mouse methods,
 /// makes the web host's sequence: recognize past the slop, catch at zero
 /// travel, follow, drop once, keep the pin until the source finishes.
 final class ReorderMacTests: XCTestCase {
+    override class func setUp() { super.setUp(); ExactDrag.install() } // LLP 1047.001 D4
     private var window: NSWindow?
     override func tearDown() { window?.close(); window = nil }
 
@@ -59,7 +61,7 @@ final class ReorderMacTests: XCTestCase {
         XCTAssertEqual(p.views[2]?.layer?.zPosition, 0.001, "the lifted row paints above later rows")
         text.mouseUp(with: event(.leftMouseUp, text, down: 70))
         XCTAssertEqual(calls.log, ["begin 3 top=0.0", "move 7 dy=0.0", "move 7 dy=60.0", "drop 7 dy=60.0"])
-        let hold = try XCTUnwrap(p.reorder)
+        let hold = try XCTUnwrap(p.reorder as? ReorderHold)
         XCTAssertEqual(hold.phase, .settling, "the pin stays while the source returns")
         XCTAssertEqual(p.collections.interaction, 3)
         hold.observe(ReorderRecorder.finished())
@@ -93,9 +95,9 @@ final class ReorderMacTests: XCTestCase {
         let (p, text) = fixture(calls)
         text.mouseDown(with: event(.leftMouseDown, text, down: 0))
         text.mouseDragged(with: event(.leftMouseDragged, text, down: 10))
-        p.mouseReorder.cancel()
+        p.mouseDrags.reorder.cancel()
         XCTAssertEqual(calls.log, ["begin 3 top=0.0", "move 7 dy=0.0", "cancel 7"])
-        let hold = try XCTUnwrap(p.reorder)
+        let hold = try XCTUnwrap(p.reorder as? ReorderHold)
         hold.observe(ReorderState(["token": "8", "list": 1, "wrapper": 2, "phase": "finished"]))
         XCTAssertTrue(p.reorder === hold, "another contact's finish is not this one's")
     }

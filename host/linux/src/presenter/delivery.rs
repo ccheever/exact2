@@ -110,6 +110,8 @@ impl<D: DataSource> Presenter<D> {
             return;
         }
         self.activate_first_pixel();
+        // No hatch runs before first pixel (LLP 1075.003.000.001 §2.1).
+        self.connect_hatches();
     }
 
     /// The deferred data module has yet to activate, and has not failed to:

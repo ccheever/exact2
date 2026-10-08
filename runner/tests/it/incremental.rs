@@ -648,8 +648,10 @@ fn every_app_plan_updates_incrementally_exactly_as_it_does_in_full() {
                                         deferred,
                                     );
                                     eprintln!("{app} seed {seed}: {commits} commits");
+                                    // A plan with nothing to press (the hello
+                                    // app's one text) commits nothing, rightly.
                                     assert!(
-                                        commits >= steps / 4,
+                                        plan.handlers.is_empty() || commits >= steps / 4,
                                         "{app} seed {seed}: only {commits} commits"
                                     );
                                     commits

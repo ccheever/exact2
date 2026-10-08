@@ -31,6 +31,8 @@ pub struct Batch {
     /// select's options), which put no op on any view: the presenter
     /// configures its controls (LLP 1069.011 §9).
     pub controls: bool,
+    /// Whether the batch used provisional field chrome; presenters count these batches.
+    pub layout_provisional: bool,
     /// Image handles a 2D canvas asked for (LLP 1056 D9): the presenter
     /// decodes each and answers `exact_canvas_image`.
     images: Vec<String>,
@@ -82,6 +84,17 @@ impl Batch {
         quote(dir, &mut s);
         s.push('}');
         self.ops.push(s);
+    }
+
+    /// The editor box inside a field, or an explicit clear after appearance changes.
+    pub(crate) fn field_content(&mut self, id: u32, rect: Option<exact_kernel::Frame>) {
+        let value = rect.map_or_else(
+            || "null".into(),
+            |r| format!("[{},{},{},{}]", r.x, r.y, r.width, r.height),
+        );
+        self.push_op(format!(
+            "{{\"op\":\"fieldContent\",\"id\":{id},\"rect\":{value}}}"
+        ));
     }
 
     /// One paragraph's complete inline identity/style table, replacing its old runs.
@@ -672,7 +685,13 @@ impl Batch {
             ops + 256 + self.images.iter().map(|i| i.len() + 3).sum::<usize>(),
         );
         s.push_str("{\"ops\":[");
-        for (i, op) in self.ops.iter().enumerate() {
+        // A failed three-pass layout can retain native-region geometry staged
+        // before the miss. Publish its other updates, never guessed boxes.
+        let published = self
+            .ops
+            .iter()
+            .filter(|op| !self.layout_provisional || !layout_geometry(op));
+        for (i, op) in published.enumerate() {
             if i != 0 {
                 s.push(',');
             }
@@ -690,6 +709,9 @@ impl Batch {
         }
         if self.canvas_owed {
             s.push_str(",\"canvasOwed\":true");
+        }
+        if self.layout_provisional {
+            s.push_str(",\"layoutProvisional\":true");
         }
         if self.controls {
             s.push_str(",\"controls\":true");
@@ -718,6 +740,23 @@ impl Batch {
         }
         s.push('}');
         s
+    }
+}
+
+/// Operation discriminators are written first by every Batch writer.
+fn layout_geometry(op: &str) -> bool {
+    let kind = op
+        .strip_prefix("{\"op\":\"")
+        .and_then(|s| s.split('"').next());
+    match kind {
+        Some(
+            "frame" | "content" | "fieldContent" | "flow" | "sticky" | "fragments" | "region"
+            | "native-region",
+        ) => true,
+        Some("present") => ["translate", "scale", "rotate", "layout", "height"]
+            .iter()
+            .any(|p| op.contains(&format!("\"property\":\"{p}\""))),
+        _ => false,
     }
 }
 

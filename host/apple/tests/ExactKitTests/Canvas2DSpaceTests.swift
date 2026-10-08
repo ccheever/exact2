@@ -1,10 +1,12 @@
 import XCTest
 import CoreGraphics
 @testable import ExactKit
+@testable import ExactSurfaces
 
 /// LLP 1100 D12a: a `display-p3` canvas's list bytes are Display P3, and its
 /// bitmap keeps what sRGB can't hold; a `float16` one is half floats.
 final class Canvas2DSpaceTests: XCTestCase {
+    override class func setUp() { super.setUp(); ExactSurfaces.install() } // LLP 1047.001 D4
     private func list(_ records: [(Canvas2DOp, [Double])]) -> Data {
         var d = Data()
         func u32(_ v: UInt32) { withUnsafeBytes(of: v.littleEndian) { d.append(contentsOf: $0) } }

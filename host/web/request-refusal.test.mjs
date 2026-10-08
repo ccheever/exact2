@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -393,6 +393,33 @@ test('a clean JS dist imports every lazy storage and document entry with its com
     }
     for (const name of ['storage-worker.js', 'sqlite3.mjs', 'sqlite3.wasm']) expect(existsSync(resolve(dist, name)), name).toBe(true);
   } finally { rmSync(dist, { recursive: true, force: true }); }
+}, 60_000);
+
+test('a typescript.sources mount still builds after it moves', () => {
+  // Bun's runtime transpiler cache keys a module by its text and keeps the
+  // imports the mount resolver gave it: the same file at a new place must
+  // not resolve back into the old one.
+  const root = mkdtempSync(resolve(tmpdir(), 'exact ts mount # ')), dir = resolve(root, 'app'), dist = resolve(root, 'dist');
+  const nonce = `${process.pid}-${Date.now()}`;
+  mkdirSync(resolve(root, 'first'), { recursive: true }); mkdirSync(dir);
+  // Past the size Bun's cache starts at (it skips small files).
+  writeFileSync(resolve(root, 'first/word.ts'), `// ${nonce}\n${'// padding\n'.repeat(8000)}import { suffix } from './suffix.ts';\nexport const word = (text: string) => text + suffix;\n`);
+  writeFileSync(resolve(root, 'first/suffix.ts'), `export const suffix = '!';\n`);
+  const manifest = mount => JSON.stringify({ name: 'Mount probe', app: { id: 'test.mount-probe', name: 'Mount probe' }, host: { web: {} }, typescript: { sources: { lib: mount } } });
+  writeFileSync(resolve(dir, 'app.contract'), `shape Result\n  value: string\ncomponent Probe\n  resource result = probe() as shape Result\n  view\n    text result.value testId="result"\n`);
+  writeFileSync(resolve(dir, 'app.ts'), `import type { Answer, Sources } from './app.contract.d.ts';\nimport { word } from './lib/word.ts';\nexport const appId='test.mount-probe',grants='';\nconst sources: Sources = { probe: () => ({ value: word('hi') }) };\nexport const answer: Answer = (source, args, store, storage, native) => sources[source](args as never, store, storage, native) as never;\n`);
+  const env = { ...process.env, EXACT_APP_DIR: dir };
+  delete env.BUN_RUNTIME_TRANSPILER_CACHE_PATH;
+  const build = () => spawnSync(process.execPath, ['host/web-js/build.mjs', 'mount-probe', '--out', dist, '--render', 'none'], { cwd: ROOT, encoding: 'utf8', env });
+  try {
+    writeFileSync(resolve(dir, 'app.json'), manifest('../first'));
+    const first = build();
+    expect(first.status, first.stderr || first.stdout).toBe(0);
+    renameSync(resolve(root, 'first'), resolve(root, 'second'));
+    writeFileSync(resolve(dir, 'app.json'), manifest('../second'));
+    const second = build();
+    expect(second.status, second.stderr || second.stdout).toBe(0);
+  } finally { rmSync(root, { recursive: true, force: true }); }
 }, 60_000);
 
 test('a built TypeScript source refuses fetch and storage without grants', async () => {

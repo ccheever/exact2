@@ -45,6 +45,14 @@ impl Lowerer<'_> {
             }
         }
         self.check_group(virtualized, attrs, children, scope)?;
+        // @ref LLP 1010 §6.9 — `scroll-padding` is read by a virtualized
+        // list's `scrollIntoView` alone; a native host aligns nothing else by
+        // it, where the browser would.
+        if let Some(a) = attrs.iter().find(|a| a.name.starts_with("scroll-padding")) {
+            if !virtualized {
+                return err("lower-scroll-padding", format!("`{}` insets where a virtualized list's `scrollIntoView` aligns a row; native hosts read it nowhere else, so on {} the web alone would follow it: put it on a `list virtualized=true`, or leave it out", a.name, if tag == "list" { "a list that is not virtualized".to_string() } else { format!("`{tag}`") }), a.span);
+            }
+        }
         let Some(opt) = attrs.iter().find(|a| a.name == "virtualized") else {
             return Ok(());
         };
@@ -71,6 +79,12 @@ impl Lowerer<'_> {
         {
             return err("lower-collection-unbounded", "a virtualized list needs height, max-height, or flex constraining its vertical scrollport", span);
         }
+        // A class's rows are its literals: a percentage there is refused too.
+        let mut own = attrs.to_vec();
+        if let Some((_, rows)) = self.class_rows(attrs).ok().flatten() {
+            own.extend(rows);
+        }
+        self.collection_inset(&own, row, scope)?;
         self.collection_flow(attrs, Some(row))?;
         let [Node::Each { body, .. }] = children else {
             return err(
@@ -260,26 +274,61 @@ impl Lowerer<'_> {
         Ok(())
     }
 
+    /// Main-axis padding on a virtualized list (@ref LLP 1010 §6.9): CSS's
+    /// room before the first row and after the last, inside the scroll
+    /// content. It takes what padding takes elsewhere (a number,
+    /// `env(safe-area-inset-*)`, `calc(env(…) ± px)`), computed too: the
+    /// runner reads the list's resolved padding from layout at every report.
+    /// A percentage is refused: Apple's hosts place rows from the authored
+    /// padding, which has no containing block to resolve one against.
+    /// `scroll-padding` along the axis takes the same forms: the inset a
+    /// `scrollIntoView` aligns within, which the runner reads from the
+    /// list's style when the request is made.
+    fn collection_inset(&self, attrs: &[Attr], row: bool, scope: &Scope) -> Result<(), LowerError> {
+        let (ends, sides) = if row {
+            (["left", "right"], [3, 1])
+        } else {
+            (["top", "bottom"], [0, 2])
+        };
+        let main_axis = |name: &str| {
+            ["padding", "scroll-padding"].into_iter().any(|family| {
+                name == family || ends.iter().any(|end| name == format!("{family}-{end}"))
+            })
+        };
+        for a in attrs.iter().filter(|a| main_axis(&a.name)) {
+            let main = match super::values::sides(&a.name, &a.value)? {
+                Some(four) if !a.name.ends_with(ends[0]) && !a.name.ends_with(ends[1]) => {
+                    sides.map(|i| four[i].clone()).to_vec()
+                }
+                _ => vec![a.value.clone()],
+            };
+            for value in &main {
+                self.inset_value(a, value, scope)?;
+            }
+        }
+        Ok(())
+    }
+    fn inset_value(&self, a: &Attr, value: &Expr, scope: &Scope) -> Result<(), LowerError> {
+        match value {
+            Expr::Str(s, _) if s.contains('%') => err("lower-collection-flow", format!("`{}` on a virtualized list is a length: a percentage resolves against the containing block's width, which the list's windowing does not follow; write points or `env(safe-area-inset-*)`", a.name), a.span),
+            Expr::Str(..) | Expr::Number(..) => Ok(()),
+            Expr::Ternary(_, yes, no, _) => {
+                self.inset_value(a, yes, scope)?;
+                self.inset_value(a, no, scope)
+            }
+            _ => match contract_types::infer(value, scope, &self.types.shapes) {
+                Ok(Ty::Number) => Ok(()),
+                // The value's own binding names a type error.
+                Err(_) => Ok(()),
+                Ok(_) => err("lower-collection-flow", format!("a computed `{}` on a virtualized list is a number (points): a computed string could be a percentage, which the list's windowing does not follow; choose between literal lengths instead", a.name), a.span),
+            },
+        }
+    }
+
     fn collection_flow(&self, attrs: &[Attr], row: Option<bool>) -> Result<(), LowerError> {
         let container = row.is_some();
         let horizontal = row == Some(true);
-        let main_padding: &[&str] = if horizontal {
-            &["padding", "padding-left", "padding-right"]
-        } else {
-            &["padding", "padding-top", "padding-bottom"]
-        };
         for a in attrs {
-            if container
-                && main_padding.contains(&a.name.as_str())
-                && numeric_literal(&a.value) != Some(0.0)
-            {
-                let (axis, cross) = if horizontal {
-                    ("left/right", "padding-top and padding-bottom")
-                } else {
-                    ("top/end", "padding-left and padding-right")
-                };
-                return err("lower-collection-flow", format!("`{}` on a virtualized list container requires literal zero; put {axis} spacing inside measured rows until a collection inset policy is supported ({cross} remain allowed)", a.name), a.span);
-            }
             let allowed = match a.name.as_str() {
                 "position" => {
                     matches!(&a.value, Expr::Str(s, _) if s == "relative" || s == "static")

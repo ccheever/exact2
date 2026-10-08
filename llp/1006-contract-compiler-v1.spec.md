@@ -178,7 +178,12 @@ it does not introduce an `inputmode` value or a new event.
 length — `padding-top="env(safe-area-inset-top)"`,
 `margin-bottom="calc(env(safe-area-inset-bottom) + 12px)"` — passed as text by
 the runner's bridge and parsed by the kernel (LLP 1001 §2; any other text on a
-dimension row is refused at boot, so at bake). `viewport-fit="cover"` and
+dimension row is refused at boot, so at bake). Since 2026-10-07 (approved by
+Charlie 2026-10-06, via the lead) that text may be CSS's `min()`, `max()` or
+`clamp()` over px, the insets and viewport lengths —
+`padding-bottom="clamp(15px, env(safe-area-inset-bottom), 60px)"` — and a
+form outside the kernel's grammar is refused as `lower-attr-value` with the
+kernel's reason (LLP 1001 §2, "Comparisons"). `viewport-fit="cover"` and
 `interactive-widget="resizes-content"` are attributes (the viewport meta's
 keys, spelled as the web spells them; `viewportFit`, `safeArea`,
 `keyboardAvoidingView` in the did-you-mean) lowering to the `viewportFit` and

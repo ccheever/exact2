@@ -1060,6 +1060,32 @@ pub fn base64(bytes: &[u8]) -> String {
     out
 }
 
+/// The inverse of [`base64`]; `None` for anything that is not base64.
+pub fn unbase64(text: &str) -> Option<Vec<u8>> {
+    let text = text.trim_end_matches('=');
+    let mut out = Vec::with_capacity(text.len() * 3 / 4);
+    let mut acc = 0u32;
+    let mut bits = 0;
+    for b in text.bytes() {
+        let v = match b {
+            b'A'..=b'Z' => b - b'A',
+            b'a'..=b'z' => b - b'a' + 26,
+            b'0'..=b'9' => b - b'0' + 52,
+            b'+' => 62,
+            b'/' => 63,
+            _ => return None,
+        } as u32;
+        acc = (acc << 6) | v;
+        bits += 6;
+        if bits >= 8 {
+            bits -= 8;
+            out.push((acc >> bits) as u8);
+            acc &= (1 << bits) - 1;
+        }
+    }
+    Some(out)
+}
+
 /// The journal from `since`: `{"next":N,"from":M,"lines":[…]}`. `next` is
 /// what to pass to read only what is new; `from` is the index of the first
 /// line returned — above `since` when the ring has dropped older lines (the
@@ -1370,6 +1396,19 @@ fn after_key<'a>(json: &'a str, key: &str) -> Option<&'a str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn base64_round_trips_every_byte_and_refuses_what_is_not_base64() {
+        let all: Vec<u8> = (0..=255).collect();
+        for n in 0..=4 {
+            let bytes = &all[..all.len() - n];
+            assert_eq!(unbase64(&base64(bytes)).as_deref(), Some(bytes));
+        }
+        assert_eq!(unbase64("").as_deref(), Some(&[][..]));
+        assert_eq!(unbase64("AP+ACg0A").unwrap(), [0, 255, 128, 10, 13, 0]);
+        assert_eq!(unbase64("AP-A"), None);
+        assert_eq!(unbase64("AP A"), None);
+    }
 
     #[test]
     fn flat_fields_parse() {

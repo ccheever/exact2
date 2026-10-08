@@ -211,7 +211,7 @@ list virtualized=true display="flex" flex-direction="row" height=132 overflow-y=
   - `row-reverse`, `column-reverse` (an inverted list is its own consumer);
   - `flex-wrap` other than `nowrap` (a grid, which `rules/DEFERRED.md` keeps out with virtualList v2).
 - **RTL is refused, authored or inherited.** `direction` inherits (`schema.json:1940`), so the compiler refuses an authored `direction="rtl"` on a row list, and the runner refuses a row list whose resolved direction is `rtl` at creation. Chrome's RTL `scrollLeft` is negative from the right edge; it comes with a consumer.
-- **Main-axis padding must be zero** (`padding-left`/`-right` on a row list, as `padding-top`/`-bottom` today, `collection.rs:100–108`). Cross-axis padding is allowed.
+- **Main-axis padding must be zero** (`padding-left`/`-right` on a row list, as `padding-top`/`-bottom` today, `collection.rs:100–108`). Cross-axis padding is allowed. *Amended 2026-10-07 (LLP 1010 §6.9): main-axis padding is CSS's room before the first item and after the last, on both axes; only a percentage is refused.*
 - **`overflow-x` must scroll on a row list.** `overflow-y` may be `hidden`, as vertical lists set `overflow-x="hidden"`.
 - **The cross size is a literal `height`.** An auto height would be the tallest *mounted* card; the eager oracle's is the tallest of all 2,000, so it would change as cards mount. The main axis needs nothing: an auto width in block flow is the container's, and a shrink-to-fit parent is caught by the bake's measured-layout lint, as for vertical lists (`collection.rs:26–27`).
 
@@ -449,7 +449,7 @@ list virtualized=true flex=1 estimated-item-height=420 testId="feed"
 | A row list needs a literal `height` | `lower-collection-cross` | — |
 | `flex-direction` requires `display="flex"`; only `row`; `display` is `block` or `flex` | `lower-collection-flow` | `:118`, `:127–131` |
 | On a row list: reverse directions, `flex-wrap` other than `nowrap`, `grid-template-*`, `justify-content` other than `flex-start`/`normal`, and `direction="rtl"` are refused, each with its reason | `lower-collection-flow` | `:127–131` |
-| Main-axis padding must be zero; cross-axis padding is allowed; `gap` is refused on both axes | `lower-collection-flow` | `:100–108`, `:124–126` |
+| Main-axis padding is a length, not a percentage (LLP 1010 §6.9; it was zero until 2026-10-07); cross-axis padding is allowed; `gap` is refused on both axes | `lower-collection-flow` | `:100–108`, `:124–126` |
 | `overflow-x` must scroll on a row list (`overflow-y` may be `hidden`), and the reverse on a vertical one | `lower-collection-flow` | `:120–123` |
 | `estimated-item-width` on a row list only, `estimated-item-height` on a vertical one | `lower-collection-estimate` | — |
 | `reorderdrop` on a row list or a nested list is refused | `lower-collection-reorder` | — |

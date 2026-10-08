@@ -16,6 +16,7 @@ fn a_flex_row_compiles_and_the_other_shapes_are_refused_by_name() {
         STRIP,
         "list virtualized=true display=\"flex\" flex-direction=\"row\" height=132 overflow-x=\"scroll\"",
         "list virtualized=true display=\"flex\" height=132 padding-top=8 padding-bottom=8 justify-content=\"flex-start\" flex-wrap=\"nowrap\"",
+        "list virtualized=true display=\"flex\" height=132 padding-left=16 padding-right=\"env(safe-area-inset-right)\"",
         "list virtualized=true display=\"block\" height=132 estimated-item-height=40",
     ] {
         contract::compile(&source(list)).unwrap_or_else(|e| panic!("{list}: {e}"));
@@ -62,7 +63,7 @@ fn a_flex_row_compiles_and_the_other_shapes_are_refused_by_name() {
             "lower-collection-flow",
         ),
         (
-            "list virtualized=true display=\"flex\" height=132 padding-left=8",
+            "list virtualized=true display=\"flex\" height=132 padding-left=\"5%\"",
             "lower-collection-flow",
         ),
         (

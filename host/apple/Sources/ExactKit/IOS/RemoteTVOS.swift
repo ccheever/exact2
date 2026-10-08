@@ -17,10 +17,17 @@ import UIKit
 extension NodeView {
     /// An explicit negative `tabindex` is no remote stop, as it is no Tab
     /// stop (LLP 1088 D7.3); the remote's order stays UIKit's geometry.
-    override var canBecomeFocused: Bool {
+    package override var canBecomeFocused: Bool {
+        if isNativeButton { return false } // UIKit owns the single focus stop (LLP 1104 D6).
         if let index = explicitTabIndex, index < 0 { return false }
         if cssVisibilityHidden { return false } // no remote stop, nor Select (e28279b3b)
         return canBecomeFirstResponder || (!disabled && !inert && handlers.contains("press")) || focusableScroller
+    }
+
+    /// The same native focus owner is used by traversal, memory and restoration.
+    var remoteFocusOwner: UIView {
+        if isNativeButton, let control = presenter?.controls.controls[id] { return control }
+        return self
     }
 
     /// A scroll container that can scroll and holds no focusable node.
@@ -50,7 +57,7 @@ extension NodeView {
     /// The arrow presses a scroller stepped on, whose ends it takes too.
     static var steppedPresses = Set<ObjectIdentifier>()
 
-    override func didUpdateFocus(in context: UIFocusUpdateContext, with coordinator: UIFocusAnimationCoordinator) {
+    package override func didUpdateFocus(in context: UIFocusUpdateContext, with coordinator: UIFocusAnimationCoordinator) {
         super.didUpdateFocus(in: context, with: coordinator)
         if context.nextFocusedItem === self {
             presenter?.focusKey = props["testId"]
@@ -96,7 +103,7 @@ extension ScrollView {
     var holdsFocusableNode: Bool {
         var pending: [UIView] = subviews
         while let view = pending.popLast() {
-            if let node = view as? NodeView, node.canBecomeFocused { return true }
+            if let node = view as? NodeView, node.remoteFocusOwner.canBecomeFocused { return true }
             pending.append(contentsOf: view.subviews)
         }
         return false
@@ -127,9 +134,9 @@ extension ScrollView {
 
 extension Presenter {
     /// The shown, focusable node with the `testId` that last held the focus.
-    var focusReturn: NodeView? {
+    var focusReturn: UIView? {
         guard let key = focusKey else { return nil }
-        return views.values.first { $0.props["testId"] == key && $0.window != nil && $0.canBecomeFocused }
+        return views.values.first { $0.props["testId"] == key && $0.window != nil && $0.remoteFocusOwner.canBecomeFocused }?.remoteFocusOwner
     }
 }
 
@@ -152,7 +159,11 @@ final class FocusGuides {
     unowned let presenter: Presenter
     private var guides: [UInt32: (node: NodeView, guide: UIFocusGuide)] = [:]
     private var last: [UInt32: WeakNode] = [:]
-    private final class WeakNode { weak var node: NodeView?; init(_ node: NodeView) { self.node = node } }
+    private final class WeakNode {
+        weak var node: NodeView?
+        let key: String?
+        init(_ node: NodeView) { self.node = node; key = node.props["testId"] }
+    }
 
     init(presenter: Presenter) { self.presenter = presenter }
 
@@ -186,8 +197,11 @@ final class FocusGuides {
     private func update(_ focused: UIView?) {
         for (id, entry) in guides {
             entry.guide.isEnabled = !(focused?.isDescendant(of: entry.node) ?? false)
-            let remembered = last[id]?.node.flatMap { $0.window != nil && $0.isDescendant(of: entry.node) && $0.canBecomeFocused ? $0 : nil }
-            entry.guide.preferredFocusEnvironments = [remembered ?? entry.node]
+            let memory = last[id]
+            let candidate = memory?.node.flatMap { $0.window != nil ? $0 : nil }
+                ?? memory?.key.flatMap { key in presenter.views.values.first { $0.props["testId"] == key && $0.isDescendant(of: entry.node) } }
+            let remembered = candidate.flatMap { $0.window != nil && $0.isDescendant(of: entry.node) && $0.remoteFocusOwner.canBecomeFocused ? $0.remoteFocusOwner : nil }
+            entry.guide.preferredFocusEnvironments = [remembered ?? entry.node.remoteFocusOwner]
         }
     }
 }

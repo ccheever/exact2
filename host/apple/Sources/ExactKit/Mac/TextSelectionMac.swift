@@ -4,7 +4,7 @@
 import AppKit
 import CoreText
 
-final class TextSelection {
+package final class TextSelection {
     weak var presenter: Presenter?
     private weak var anchor: NodeView?
     private weak var focus: NodeView?
@@ -107,7 +107,7 @@ final class TextSelection {
         reported = reported.filter { seen.contains($0.key) }
     }
 
-    func clear() {
+    package func clear() {
         leaving = nil; gesture += 1; pendingBegin = false; deferredDrag = nil; deferredEnd = nil
         anchor = nil; focus = nil
         anchorIndex = 0; focusIndex = 0

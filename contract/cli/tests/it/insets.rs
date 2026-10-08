@@ -124,3 +124,56 @@ fn dismiss_reaches_the_host_as_a_blur_command() {
         .collect();
     assert_eq!(commands, [("blur".to_string(), 0)]);
 }
+
+/// LLP 1001 §2 (2026-10-07): `min()`, `max()` and `clamp()` in a length
+/// attribute, a box shorthand's side among them, reach the kernel as one
+/// length each and follow the insets the host sets.
+#[test]
+fn comparison_lengths_compile_and_follow_the_insets() {
+    let src = "component A\n  view\n    column testId=\"root\" height=\"100%\"\n      column testId=\"bar\" height=49 padding=\"0 0 clamp(15px, env(safe-area-inset-bottom), 60px)\"\n      column testId=\"fab\" position=\"absolute\" height=56 bottom=\"calc(clamp(15px, env(safe-area-inset-bottom), 60px) + 15px + 44px)\"\n";
+    let plan = contract::bake(contract::compile(src).unwrap(), NoData).unwrap();
+    let mut r = Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let id_of = |k: &Kernel, t: &str| k.node_by_key(k.find_by_test_id(t)[0]).unwrap().id;
+    let (root, bar, fab) = {
+        let k = r.kernel();
+        (id_of(k, "root"), id_of(k, "bar"), id_of(k, "fab"))
+    };
+    let k = r.kernel_mut();
+    for (inset, padding) in [(0.0, 15.0), (34.0, 34.0), (80.0, 60.0)] {
+        k.set_env(Env::new(0.0, 0.0, inset, 0.0)).unwrap();
+        k.compute_layout(root, Offer::definite(402.0, 874.0))
+            .unwrap();
+        let (b, f) = (k.node(bar).unwrap().frame, k.node(fab).unwrap().frame);
+        assert_eq!(b.height, 49.0 + padding, "{inset}");
+        assert_eq!(f.y, 874.0 - (padding + 59.0) - 56.0, "{inset}");
+    }
+}
+
+#[test]
+fn a_comparison_outside_the_kernel_grammar_is_refused_at_compile_time() {
+    for (value, says) in [
+        (
+            "clamp(15px, env(safe-area-inset-bottom))",
+            "exactly three arguments",
+        ),
+        ("max(15px, 10%)", "percentage"),
+        ("max(15, env(safe-area-inset-bottom))", "takes a unit"),
+        (
+            "max(15px, env(safe-area-inset-bottom)) + 44px",
+            "inside calc()",
+        ),
+        ("max(15px, env(safe-area-inset-bottom, 0px))", "no fallback"),
+    ] {
+        let src = format!("component A\n  view\n    column padding-bottom=\"{value}\"\n");
+        let e = contract::compile(&src).unwrap_err();
+        assert_eq!(e.id, "lower-attr-value", "{value}: {e}");
+        assert!(e.message.contains(says), "{value}: {e}");
+    }
+}
