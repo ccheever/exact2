@@ -7,6 +7,7 @@
 import { arr, num, obj, str, type Json, type Obj } from './domain';
 import { ClientError, providerAvailable, type Native } from './protocol';
 import { projectIdentity, providerBadge } from './presentation';
+import { traitsDisplay } from './r3-composer-controls-model';
 import type { T3Client } from './client';
 import { duplicateTheme, parseThemeFile, type CustomTheme } from './settings-themes';
 import { themeRoles } from './settings-appearance';
@@ -307,20 +308,17 @@ function modelControl(context: ServerContext, selection: Obj | null, textGenerat
   const current = (descriptor: Obj) => str(selections.find(entry => entry.id === descriptor.id)?.value,
     str(arr(descriptor.options).find(entry => entry.isDefault === true)?.id, str(arr(descriptor.options)[0]?.id)));
   const effort = descriptors.find(descriptor => ['reasoningEffort', 'effort'].includes(str(descriptor.id)));
-  const efforts = arr(effort?.options);
   const effortValue = effort ? current(effort) : '';
-  // buildTraitsTriggerDisplay: a Fast or Ultrafast service tier draws a bolt beside the effort.
-  const tier = descriptors.find(descriptor => descriptor.id === 'serviceTier');
-  const tierLabel = tier ? str(arr(tier.options).find(entry => entry.id === current(tier))?.label) : '';
-  // Codex only, and only beside another label: a tier alone reads as its own label ("Fast"), with no bolt.
-  const speed = str(provider.driver) !== 'codex' || !effort ? '' : tierLabel === 'Ultrafast' ? 'ultrafast' : tierLabel === 'Fast' ? 'fast' : '';
+  // buildTraitsTriggerDisplay over every trait (TraitsPicker with the setting's options): "Medium · 1M";
+  // a Fast or Ultrafast Codex tier draws its bolt instead of a label.
+  const display = traitsDisplay(str(provider.driver), arr(obj(model?.capabilities).optionDescriptors), selections);
   const traits = descriptors.flatMap((descriptor, index) => [option(`section:${str(descriptor.id)}`, str(descriptor.label, str(descriptor.id)), false, { icon: index ? 'section-rule' : 'section', disabled: true }),
     ...arr(descriptor.options).map(entry => option(`${str(descriptor.id)}=${str(entry.id)}`, str(entry.label, str(entry.id)), current(descriptor) === entry.id,
       { detail: str(entry.description), icon: entry.isDefault === true ? 'default' : '' }))]);
   return {
     value: `${str(provider.instanceId)}|${str(model?.slug)}`, label: str(model?.name, str(model?.slug)), driver: str(provider.driver),
     badge: providerBadge(provider, context.providers).providerBadge, badgeColor: providerBadge(provider, context.providers).providerBadgeColor,
-    value2: effortValue, label2: str(efforts.find(entry => entry.id === effortValue)?.label, effortValue) || tierLabel, icon: speed,
+    value2: effortValue, label2: display.label, icon: display.speed,
     options2: traits,
   };
 }
