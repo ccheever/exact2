@@ -1,0 +1,63 @@
+# X59 repro on ccheever/exact2 main febb2c5fb, macOS 26.6.2 (25G83), Apple Silicon
+# app.contract:
+component X59
+  state collapsed = false
+  action toggle
+    collapsed = not collapsed
+  view
+    column testId="root" width="100%" height="100%" box-sizing="border-box" padding=24 gap=12 background-color="light-dark(#ffffff, #111111)" color="light-dark(#111111, #eeeeee)" font-size=14 line-height="20px"
+      button press=toggle testId="t" width=120 padding=6 border-width=1 border-style="solid" border-color="#cccccc"
+        text "toggle"
+      column width=300 min-height=20 border-width=1 border-style="solid" border-color="#cccccc"
+        text "A long value that keeps going past the width so the line has to be cut with an ellipsis" line-clamp=1 testId="at-launch"
+      column width=300 min-height=20 border-width=1 border-style="solid" border-color="#cccccc"
+        when collapsed
+          text "A long value that keeps going past the width so the line has to be cut with an ellipsis" line-clamp=1 testId="swapped"
+        else
+          text "A long value that keeps going past the width so the line has to be cut with an ellipsis" testId="swapped"
+      column width=300 min-height=20 border-width=1 border-style="solid" border-color="#cccccc"
+        when collapsed
+          text "A long value that keeps going past the width so the line has to be cut with an ellipsis" line-clamp=1 testId="mounted"
+      column width=300 min-height=20 border-width=1 border-style="solid" border-color="#cccccc"
+        when collapsed
+          text "A long value that keeps going past the width so the line has to be cut with an ellipsis, and then some more" line-clamp=2 testId="mounted-2"
+      column width=300 min-height=20 border-width=1 border-style="solid" border-color="#cccccc"
+        when collapsed
+          text "A long value that keeps going past the width so the line has to be cut with an ellipsis" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" testId="mounted-nowrap"
+
+$ bun exact.mjs mac
+$ bun exact.mjs agent macos --size 420x360 "screenshot before.png window" "tap t" tree "layout mounted" "screenshot after.png window" "screenshot after-capture.png" "prefer prefers-color-scheme dark" "screenshot after-dark.png window"
+{"incarnation":1,"clock":0,"screenshot":"x59-macos-before.png","scale":2,"h":360,"epoch":1,"window":true,"w":420}
+{"tapped":2,"delivery":"platform","at":[91,41],"target":"t","carrier":"macos","mode":"agent","epoch":2,"incarnation":1,"clock":0}
+epoch 2 · incarnation 1 · clock 0 ms · 13 nodes
+View#1 [root]
+  Pressable#2 [t] [focused] (press)
+    Text#3 "toggle"
+  View#4
+    Text#5 [at-launch] "A long value that keeps going past the width so the line has to be cut with an ellipsis"
+  View#6
+    Text#11 [swapped] "A long value that keeps going past the width so the line has to be cut with an ellipsis"
+  View#8
+    Text#12 [mounted] "A long value that keeps going past the width so the line has to be cut with an ellipsis"
+  View#9
+    Text#13 [mounted-2] "A long value that keeps going past the width so the line has to be cut with an ellipsis, and then some more"
+  View#10
+    Text#14 [mounted-nowrap] "A long value that keeps going past the width so the line has to be cut with an ellipsis"
+viewport 420×360 · clock 0 ms
+node #12 [mounted] Text · site 9 · instance arm 0 · epoch 2 · incarnation 1
+  @ app.contract:18:11 (X59) · compatible source map
+  space viewport 25,139 300×20 · frame 1,1 300×20 (kernel, in the parent) · window 25,139 300×20 · screen 419,279 300×20 · scale 2
+  scroll viewport 0,0
+  visible clipped=false hidden=false inViewport=true inert=false
+  native sheet=false view=NodeView
+{"incarnation":1,"clock":0,"screenshot":"x59-macos-after.png","scale":2,"h":360,"epoch":2,"window":true,"w":420}
+{"h":360,"w":420,"clock":0,"screenshot":"x59-macos-after-capture.png","incarnation":1,"epoch":2}
+{"page":{"can-share":true,"root-font-size":16,"can-open-files":true,"visibility-state":"visible","has-focus":true,"online":true},"incarnation":1,"clock":0,"epoch":2,"media":{"prefers-contrast":"no-preference","color-gamut":"srgb","prefers-reduced-transparency":"no-preference","prefers-reduced-motion":"no-preference","prefers-color-scheme":"dark","dynamic-range":"standard"},"fold":{"viewport-segments":[],"vertical-viewport-segments":1,"horizontal-viewport-segments":1,"device-posture":"continuous"}}
+{"incarnation":1,"clock":0,"screenshot":"x59-macos-after-dark.png","scale":2,"h":360,"epoch":2,"window":true,"w":420}
+
+# after.png (window pixels): rows swapped, mounted, mounted-2 end without an ellipsis; at-launch and mounted-nowrap have it
+# after-capture.png (the agent's default screenshot, drawn by Capture): every row has its ellipsis
+# after-dark.png (window pixels after the restyle): every row has its ellipsis
+
+$ bun exact.mjs agent web --size 420x360 "screenshot web-before.png" "tap t" "screenshot web-after.png"
+# web-after.png: every row has its ellipsis
