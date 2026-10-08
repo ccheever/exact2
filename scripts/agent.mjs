@@ -173,6 +173,9 @@ async function openWeb({ browser = 'chrome', plan, world, size = VIEWPORT, url: 
     try {
       if (process.platform === 'win32') await closeWindowsBrowser(child, cdp, exited, profile);
       else {
+        // A named store's Chrome quits as a person's does: it writes `localStorage`, the web's secret store, only at
+        // shutdown or a few seconds after a write, and a kill loses it while SQLite survives (app farm, set-variants-0771).
+        if (kept) await cdp.send('Browser.close', {}, undefined, 2000).then(() => waitAtMost(exited, 3000), () => {});
         try { process.kill(-child.pid, 'SIGKILL'); } catch {}
         await waitAtMost(exited, 2000);
       }
