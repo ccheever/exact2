@@ -832,11 +832,11 @@ impl<D: DataSource> Host<D> {
         }
         self.now_ms = now_ms.max(self.now_ms);
         if matches!(event, Event::Press | Event::PressWith(_))
-            && self
-                .runner
-                .kernel()
-                .node(view)
-                .is_some_and(|node| node.props.str(exact_kernel::PropId::Commandfor).is_some())
+            && self.runner.kernel().node(view).is_some_and(|node| {
+                node.props
+                    .str(exact_kernel::PropId::Commandfor)
+                    .is_some_and(|target| !target.is_empty())
+            })
         {
             let refusal = "unsupported: Linux dialog presentation is not implemented";
             self.log(refusal);
@@ -865,11 +865,14 @@ impl<D: DataSource> Host<D> {
                 || visibility.1
                 || node.style.display == exact_kernel::Display::None
                 || node.props.bool(exact_kernel::PropId::Disabled) == Some(true)
-                || node.props.str(exact_kernel::PropId::Commandfor).is_some()
+                || node
+                    .props
+                    .str(exact_kernel::PropId::Commandfor)
+                    .is_some_and(|target| !target.is_empty())
                 || node
                     .props
                     .str(exact_kernel::PropId::Popovertarget)
-                    .is_some()
+                    .is_some_and(|target| !target.is_empty())
             {
                 return false;
             }

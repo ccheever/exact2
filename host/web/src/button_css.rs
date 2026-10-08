@@ -37,7 +37,7 @@ pub(super) fn rows(
             FlexDirection::Column | FlexDirection::ColumnReverse
         );
         out.push_str(if column {
-            "--exact-button-leading-subtitle-areas:\"image\" \"space\" \"title\" \"subtitle\";--exact-button-trailing-subtitle-areas:\"title\" \"subtitle\" \"space\" \"image\";--exact-button-space-width:0px;--exact-button-space-height:var(--exact-button-row-gap,0px);--exact-button-columns:minmax(0,auto);--exact-button-space:var(--exact-button-row-space);"
+            "--exact-button-leading-subtitle-areas:\"image\" \"space\" \"title\" \"subtitle\";--exact-button-trailing-subtitle-areas:\"title\" \"subtitle\" \"space\" \"image\";--exact-button-space-width:0px;--exact-button-space-height:var(--exact-button-row-gap,1em);--exact-button-columns:minmax(0,auto);--exact-button-space:var(--exact-button-row-space);"
         } else {
             "--exact-button-leading-subtitle-areas:\"image space title\" \"image space subtitle\";--exact-button-trailing-subtitle-areas:\"title space image\" \"subtitle space image\";--exact-button-space-width:var(--exact-button-column-gap,auto);--exact-button-space-height:0px;--exact-button-columns:auto auto minmax(0,auto);--exact-button-space:var(--exact-button-column-space);"
         });
@@ -58,5 +58,29 @@ pub(super) fn rows(
         out.push_str("--exact-button-align:");
         out.push_str(align);
         out.push(';');
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn a_column_without_authored_gap_uses_a_font_line_box() {
+        use exact_kernel::{StyleId, StyleProps, StyleValue};
+        let mut style = StyleProps::default();
+        style
+            .set_dynamic(StyleId::FlexDirection, &StyleValue::Text("column".into()))
+            .unwrap();
+        let mut css = String::new();
+        super::rows(&style, &mut css, &|_, _| false);
+        assert!(
+            css.contains("--exact-button-space-height:var(--exact-button-row-gap,1em);"),
+            "{css}"
+        );
+        style
+            .set_dynamic(StyleId::RowGap, &StyleValue::Number(0.0))
+            .unwrap();
+        css.clear();
+        super::rows(&style, &mut css, &|_, _| false);
+        assert!(css.contains("--exact-button-row-gap:0px;"), "{css}");
     }
 }

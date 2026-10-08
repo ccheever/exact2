@@ -198,7 +198,9 @@ impl Painter {
             }
             c
         };
-        let accent = control::accent(node, dark).unwrap_or(control::ACCENT);
+        let authored_accent = control::accent(node, dark);
+        let accent = authored_accent.unwrap_or(control::ACCENT);
+        let accent_paint = |c| if authored_accent.is_some() { c } else { dim(c) };
         let soft = |a| [accent[0], accent[1], accent[2], a];
         let label = if dark { [255; 4] } else { [0, 0, 0, 255] };
         let name = node.props.str(PropId::ButtonStyle).unwrap_or("bordered");
@@ -244,11 +246,11 @@ impl Painter {
         let ink = match look {
             "text" => accent,
             "soft" => {
-                self.backend.fill(&shape, dim(soft(38)), ts);
+                self.backend.fill(&shape, accent_paint(soft(38)), ts);
                 accent
             }
             "fill" | "glass-fill" => {
-                self.backend.fill(&shape, dim(accent), ts);
+                self.backend.fill(&shape, accent_paint(accent), ts);
                 [255; 4]
             }
             "glass" => {
@@ -355,7 +357,7 @@ impl Painter {
         let color = |style: &StyleProps, fallback| {
             if style.mask.has(StyleId::TextColor) {
                 rgba(style.text_color.resolve(dark))
-            } else if node.style.mask.has(StyleId::AccentColor) {
+            } else if authored_accent.is_some() {
                 fallback
             } else {
                 dim(fallback)

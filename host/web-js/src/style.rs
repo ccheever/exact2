@@ -502,7 +502,7 @@ pub fn style_writes(id: u16, timeline: bool) -> Result<Vec<Write>, String> {
             with("--exact-button-leading-subtitle-areas", r#"v=>v==null?v:v.startsWith('column')?'"image" "space" "title" "subtitle"':'"image space title" "image space subtitle"'"#),
             with("--exact-button-trailing-subtitle-areas", r#"v=>v==null?v:v.startsWith('column')?'"title" "subtitle" "space" "image"':'"title space image" "subtitle space image"'"#),
             with("--exact-button-space-width", "v=>v==null?v:v.startsWith('column')?'0px':'var(--exact-button-column-gap,auto)'"),
-            with("--exact-button-space-height", "v=>v==null?v:v.startsWith('column')?'var(--exact-button-row-gap,0px)':'0px'"),
+            with("--exact-button-space-height", "v=>v==null?v:v.startsWith('column')?'var(--exact-button-row-gap,1em)':'0px'"),
             with("--exact-button-columns", "v=>v==null?v:v.startsWith('column')?'minmax(0,auto)':'auto auto minmax(0,auto)'"),
             with("--exact-button-space", "v=>v==null?v:v.startsWith('column')?'var(--exact-button-row-space)':'var(--exact-button-column-space)'"),
         ],

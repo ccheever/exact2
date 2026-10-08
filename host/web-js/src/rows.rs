@@ -180,7 +180,12 @@ impl Em<'_> {
                 one("font-family", Some(format!("v=>{table}[v]??null")))
             }
             // css.rs's legacy clamp, on a non-scrolling block only.
-            StyleId::LineClamp if parts.props.contains_key("data-button-style") => one("--exact-button-clamp", Some("v=>v>0?v:null".into())),
+            StyleId::Display if parts.props.contains_key("data-button-style") =>
+                one("display", Some("v=>v===\"none\"?\"none\":\"grid\"".into())),
+            StyleId::LineClamp if parts.props.contains_key("data-button-style") => vec![
+                ("--exact-button-clamp".into(), String::new(), Some("v=>v>0?v:null".into())),
+                ("--exact-button-title-display".into(), String::new(), Some("v=>v>0?\"-webkit-box\":null".into())),
+            ],
             StyleId::LineClamp => {
                 let display = parts.css.split(';').find_map(|d| d.strip_prefix("display:"));
                 if display.is_some_and(|d| d != "block")
@@ -200,6 +205,8 @@ impl Em<'_> {
                     ("display".into(), String::new(), when("\"-webkit-box\"")),
                     ("-webkit-box-orient".into(), String::new(), when("\"vertical\"")),
                     ("overflow".into(), String::new(), when("\"hidden\"")),
+                    ("--exact-button-clamp".into(), String::new(), Some("v=>v==null?null:v>0?v:0".into())),
+                    ("--exact-button-title-display".into(), String::new(), Some("v=>v==null?null:v>0?\"-webkit-box\":\"block\"".into())),
                 ]
             }
             // @ref LLP 1077 D14 — host-owned, as `-exact-press-scale`: the custom
@@ -642,6 +649,22 @@ pub(crate) fn pressed_transition_map() -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_native_buttons_bound_display_preserves_the_semantic_grid() {
+        let plan = contract::compile(
+            r#"component App
+  state visible = true
+  view
+    button appearance="auto" display=(visible ? "flex" : "none")
+      text "Lock"
+      image "symbol:lock"
+"#,
+        )
+        .unwrap();
+        let js = crate::emit::emit(&plan, false, false).unwrap().js;
+        assert!(js.contains("v=>v===\"none\"?\"none\":\"grid\""), "{js}");
+    }
+
     #[test]
     fn a_pressed_nodes_computed_transition_is_checked_as_an_authors() {
         // LLP 1081 D5, as `style`'s map, then `scale` moved to the press's
