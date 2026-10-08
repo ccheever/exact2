@@ -7,7 +7,9 @@ import { letGo, letGoAware } from './shared/let-go';
 import { mobileQueuedEditOrigin } from './queued-edit-origin';
 import type { MobileOutboxWireOwner } from './mobile-outbox-wire';
 import { mobileOutboxTransferCanonical as canonical } from './mobile-outbox-transfer-model';
-import { mobilePendingTaskEditorsSnapshot } from './mobile-pending-task-state';
+import { mobilePendingTaskEditorsSnapshot, mobilePendingTaskEditorHoldOwner, type MobilePendingTaskExpected } from './mobile-pending-task-state';
+import { mobilePendingTaskDraftBuildRecord, mobilePendingTaskDraftFingerprint } from './mobile-pending-task-draft';
+import { mobileNewTaskDraftBoundKey } from './mobile-new-task-drafts';
 import { mobileOutboxRead, mobileOutboxSnapshot, mobileOutboxCapture, mobileOutboxHold, mobileOutboxReleaseHold,
   mobileOutboxPrepareRemoval, mobileOutboxResumeRemoval, mobileOutboxAcknowledge } from './mobile-outbox';
 import { mobileOutboxDeliveryStatus, mobileOutboxDeliveryRecover, type MobileOutboxDeliveryReceipt } from './mobile-outbox-delivery';
@@ -31,12 +33,14 @@ function set(client: MobileDraftClient, id: string, proof: MobileOutboxDraftHand
   const next = { ...saved(client) }; if (proof) next[id] = copy(proof) as unknown as Obj; else delete next[id];
   Object.assign(client.local, { [field]: next }); client.revision++;
 }
-export interface MobileOutboxDraftRecoveryResult { status: 'recovered' | 'retained' | 'stale'; draftKey: string; reason: string }
+export interface MobileOutboxDraftRecoveryResult { status: 'recovered' | 'retained' | 'stale'; draftKey: string; reason: string; handoff?: MobileOutboxDraftHandoff }
+export interface MobileOutboxDraftRecoveryEditor { expected: MobilePendingTaskExpected; fingerprint: string }
 export { mobileOutboxDraftRecoveryBlocked } from './mobile-outbox-draft-handoff';
 /** One invocation owns handles; saved proofs own retries. No provider requests. */
 export async function mobileOutboxDraftRecover(client: MobileDraftClient, handle: Native | null | undefined, storage: Files,
-  input: { owner: MobileOutboxWireOwner; current(): boolean }): Promise<MobileOutboxDraftRecoveryResult> {
-  const owner = copy(input.owner), heldBy = `draft-recovery:${identity(owner)}`;
+  input: { owner: MobileOutboxWireOwner; current(): boolean; editor?: MobileOutboxDraftRecoveryEditor }): Promise<MobileOutboxDraftRecoveryResult> {
+  const owner = copy(input.owner), editor = input.editor && copy(input.editor);
+  const heldBy = editor ? mobilePendingTaskEditorHoldOwner(editor.expected) : `draft-recovery:${identity(owner)}`;
   let key = '';
   let releaseUnpublished: (() => Promise<unknown>) | null = null;
   const reply = (status: MobileOutboxDraftRecoveryResult['status'], reason = '') => ({ status, draftKey: key, reason });
@@ -49,7 +53,12 @@ export async function mobileOutboxDraftRecover(client: MobileDraftClient, handle
       throw new ClientError('The recovery destination changed. Reopen its saved status.', 'superseded');
     const editors = mobilePendingTaskEditorsSnapshot(client);
     if (!client.preferencesLoaded || !editors.ready) throw new ClientError('Read complete saved draft ownership first.');
-    if (editors.markers.some(marker => identity(marker.owner) === identity(owner))) throw new ClientError('Finish the saved pending editor before automatic draft recovery.');
+    const marker = editors.markers.find(marker => identity(marker.owner) === identity(owner));
+    if (editor) {
+      if (!marker || identity(editor.expected.owner) !== identity(owner) || marker.session !== editor.expected.session
+        || marker.revision !== editor.expected.revision || marker.pending || mobileNewTaskDraftBoundKey(client) === marker.draftKey)
+        throw new ClientError('The saved pending editor changed. Keep its local content and reopen recovery.', 'superseded');
+    } else if (marker) throw new ClientError('Finish the saved pending editor before automatic draft recovery.');
   };
   try {
     check(); if (!handle?.available) throw new ClientError('Open T3 Code on iPhone or iPad to recover this draft.');
@@ -69,6 +78,8 @@ export async function mobileOutboxDraftRecover(client: MobileDraftClient, handle
     let proof = completed.handoff;
     if (proof) {
       key = proof.draftKey;
+      if (editor && obj(obj(obj(proof.draft.recovered)[contextOwner(owner)]).pendingEditor).session !== editor.expected.session)
+        return reply('retained', 'The completed handoff belongs to another editor session.');
       if (!completed.durable) await mobileOutboxDraftHandoffComplete(native, receipt, proof);
     } else {
       const raw = saved(client)[owner.commandId];
@@ -79,26 +90,42 @@ export async function mobileOutboxDraftRecover(client: MobileDraftClient, handle
           return reply('retained', 'Resolve the original send and its exact cleanup before restoring a draft.');
         if (client.local.pending[owner.environmentId]) return reply('retained', 'Resolve the active send before restoring another draft.');
         const row = mobileOutboxSnapshot(client).rows.find(row => row.record.messageId === owner.messageId);
-        if (!row || row.status !== 'confirmed' || row.nativeRevision === null || row.held || identity(row.record) !== identity(owner))
+        if (!row || row.status !== 'confirmed' || row.nativeRevision === null || row.held && !editor || identity(row.record) !== identity(owner))
           return reply('retained', 'The queued task changed or has an open editor.');
+        const source = editor && mobilePendingTaskEditorsSnapshot(client).markers.find(marker => identity(marker.owner) === identity(owner))!;
+        if (source) {
+          const content = mobilePendingTaskDraftBuildRecord(client, source);
+          if (mobilePendingTaskDraftFingerprint(client, source.draftKey) !== editor!.fingerprint || content.status !== 'ready'
+            || canonical(content.record) !== canonical(row.record) || canonical(source.baseline) !== canonical({ record: row.record, token: row.token, revision: row.nativeRevision }))
+            return reply('retained', 'Save the latest pending editor before recovering its destination.');
+        }
         const capture = mobileOutboxCapture(client, owner.messageId);
         if (!capture || !await mobileOutboxHold(client, native, capture, heldBy)) return reply('retained', 'The queued task could not be held for recovery.');
-        releaseUnpublished = () => mobileOutboxReleaseHold(client, base, owner.messageId, heldBy);
+        if (!editor) releaseUnpublished = () => mobileOutboxReleaseHold(client, base, owner.messageId, heldBy);
         await read();
         const current = mobileOutboxSnapshot(client).rows.find(row => row.record.messageId === owner.messageId);
         if (!current || current.token !== row.token || current.nativeRevision !== row.nativeRevision || canonical(current.record) !== canonical(row.record))
           throw new ClientError('The queued task changed before recovery.', 'stale');
+        if (source && mobilePendingTaskDraftFingerprint(client, source.draftKey) !== editor!.fingerprint)
+          return reply('retained', 'Newer editor content was retained. Save it before recovering.');
         const change = mobileOutboxRecoveryDraftPrepare(client, row.record, receipt.state === 'rejected' ? 'rejected' : 'accepted-edits'); key = change.key;
         if (mobileOutboxDraftRecoveryBlocked(client, key)) return reply('retained', 'The destination has an unfinished recovery.');
         const request = mobileOutboxPrepareRemoval(client, owner.messageId, { expectedToken: row.token, expectedRevision: row.nativeRevision });
         // Rollback evidence lives with this existing context owner, not in another store.
         obj(obj(change.after.recovered)[contextOwner(owner)]).recoveryBefore = { draft: change.before, terminals: change.terminalBefore };
+        if (source) obj(obj(change.after.recovered)[contextOwner(owner)]).pendingEditor = { session: source.session, draftKey: source.draftKey, fingerprint: editor!.fingerprint };
         proof = mobileOutboxDraftHandoffDecode({ version: 1, operationId: owner.commandId, receiptRevision: receipt.revision,
           record: row.record, request, draftKey: key, draft: change.after }, receipt);
         if (!mobileOutboxRecoveryDraftAdopt(client, change)) throw new ClientError('The destination changed before its recovered content was adopted.');
         set(client, owner.commandId, proof); releaseUnpublished = null;
       }
       key = proof.draftKey;
+      if (editor) {
+        const source = obj(obj(obj(proof.draft.recovered)[contextOwner(owner)]).pendingEditor);
+        if (source.session !== editor.expected.session || typeof source.fingerprint !== 'string'
+          || source.draftKey !== `new-task:pending-${owner.messageId}`)
+          return reply('retained', 'The saved handoff belongs to a different editor session.');
+      }
       // Persist even on replay: a previous attempt may have failed before admission.
       await persist();
       const capture = mobileOutboxCapture(client, owner.messageId);
@@ -133,7 +160,7 @@ export async function mobileOutboxDraftRecover(client: MobileDraftClient, handle
     await read();
     set(client, owner.commandId, null);
     try { await persist(); } catch (error) { set(client, owner.commandId, proof); throw error; }
-    return reply('recovered');
+    return { ...reply('recovered'), handoff: proof };
   } catch (error) {
     if (letGo(error)) { releaseUnpublished = null; throw error; }
     return reply('retained', error instanceof Error ? error.message : String(error));

@@ -1,4 +1,8 @@
-import { mobileNewTaskPendingOpen, mobileNewTaskPendingClose, type MobileNewTaskPendingRoute } from './new-task-pending';
+import { mobilePendingTaskRecover } from './mobile-pending-task-recovery';
+import { mobilePendingTaskEditorsSnapshot, mobilePendingTaskEditorKey } from './mobile-pending-task-state';
+import { mobileNewTaskRestoredContext, mobileNewTaskRestoredProject } from './new-task-restored-context';
+import { homeDraftLocation } from './home-drafts';
+import { mobileNewTaskPendingOpen, mobileNewTaskPendingClose, mobileNewTaskFocusSavedEnvironment, type MobileNewTaskPendingRoute } from './new-task-pending';
 import { mobileNewTaskPendingContext } from './new-task-pending-context';
 import type { MobilePendingTaskEditorResult } from './mobile-pending-task-editor';
 import type { MobileDraftClient } from './mobile-draft-recovery';
@@ -96,7 +100,7 @@ export function mobileNewTaskFlowView(session: string, visit: string, location: 
   }
   const route = mobileNewTaskRoute(location), explicit = !!route.environmentId && !!route.projectId;
   flow.readyVisit = '';
-  const selected = !!flow.draftKey && mobileNewTaskDraftCurrent(client)?.key === flow.draftKey && sameSelection(flow.selected, client) && (!!mobileNewTaskPendingContext(client) || projectExists(client.environmentId, client.projectId, client, background));
+  const selected = !!flow.draftKey && mobileNewTaskDraftCurrent(client)?.key === flow.draftKey && sameSelection(flow.selected, client) && (!!mobileNewTaskPendingContext(client) || !!mobileNewTaskRestoredContext(client) || projectExists(client.environmentId, client.projectId, client, background));
   const base: NewTaskFlowSnapshot = { owner: flow.owner, requestRoute: visit, pendingEditor: !!route.pendingTaskId || !!flow.pendingRoute, status: 'inactive', title: 'New task', message: flow.error,
     recovery: { ...mobileNewTaskTransferRecoveryPresentation(flow.recovery?.draftKey === flow.draftKey ? flow.recovery : null),
       blocked: !!flow.recovery && flow.recovery.draftKey === flow.draftKey && flow.recovery.blocksSend },
@@ -122,9 +126,9 @@ export function mobileNewTaskFlowView(session: string, visit: string, location: 
   }
   if (flow.error) return { ...base, status: 'error' };
   if (!flow.applied.has(visit) && route.draftId) {
-    if (!catalogReady) return { ...base, status: 'loading' };
+    if (!catalogReady && !mobileNewTaskRestoredProject(client, route.draftId)) return { ...base, status: 'loading' };
     const saved = mobileNewTaskDraftLookup(client, route.draftId);
-    if (!saved || !projectExists(saved.environmentId, saved.projectId, client, background)) return { ...base, status: 'pick', nextLocation: '/new' };
+    if (!saved || !mobileNewTaskRestoredProject(client, route.draftId) && !projectExists(saved.environmentId, saved.projectId, client, background)) return { ...base, status: 'pick', nextLocation: '/new' };
     return { ...base, status: 'prepare', needsPrepare: true };
   }
   if (!base.pendingEditor && !flow.applied.has(visit) && explicit) {
@@ -170,9 +174,9 @@ export async function mobileNewTaskFlowAction(owner: string, visit: string, kind
   if (flow.busy || checkouts.has(client)) return result('Wait for the current task change to finish.');
   if (!nativeInput?.available) return result('Open T3 Code on your iPhone or iPad to create a task.');
   if (!client.preferencesLoaded) return result('Wait for saved drafts to load.');
-  if (kind !== 'project' && kind !== 'scratch' && kind !== 'prepare' && kind !== 'pending-refresh' && kind !== 'pending-close' && !mobileNewTaskFlowOwns(owner, visit, client)) return result('Wait for the current draft to be ready.');
+  if (kind !== 'project' && kind !== 'scratch' && kind !== 'prepare' && kind !== 'pending-refresh' && kind !== 'pending-close' && kind !== 'pending-recover' && !mobileNewTaskFlowOwns(owner, visit, client)) return result('Wait for the current draft to be ready.');
   const pendingRoute = mobileNewTaskRoute(flow.location);
-  if ((flow.pendingRoute || pendingRoute.pendingTaskId) && !['prepare', 'pending-refresh', 'pending-close', 'draft', 'send', 'send-alternate'].includes(kind))
+  if ((flow.pendingRoute || pendingRoute.pendingTaskId) && !['prepare', 'pending-refresh', 'pending-close', 'pending-recover', 'draft', 'send', 'send-alternate'].includes(kind))
     return result('Save or close this pending task before changing its destination.');
   if (kind.startsWith('clone-')) {
     mobileNewTaskCloneObserve(owner, visit, flow.location, true, client);
@@ -234,6 +238,23 @@ export async function mobileNewTaskFlowAction(owner: string, visit: string, kind
     // Root's existing snapshot owns preference hydration. Refuse before that
     // completes rather than creating a competing read of the shared draft store.
     assertCurrent();
+    if ((route.pendingTaskId || flow.pendingRoute) && kind === 'pending-recover') {
+      const marker = flow.pendingEditor?.marker;
+      if (!marker) return result('Reopen the saved task before recovering its draft.');
+      mobileNewTaskDraftUnbind(client, flow.owner);
+      const recovered = await mobilePendingTaskRecover(client, base, client === mobileClient ? nativeFiles(base) : storage,
+        { expected: marker, current });
+      assertCurrent();
+      if (recovered.status !== 'recovered') {
+        const live = mobilePendingTaskEditorsSnapshot(client).markers.find(item => mobilePendingTaskEditorKey(item.owner) === mobilePendingTaskEditorKey(marker.owner));
+        flow.pendingEditor = { status: 'retained', reason: recovered.reason, marker: live ?? marker, fingerprint: null };
+        flow.selected = null;
+        return result(recovered.reason);
+      }
+      flow.selected = null; flow.draftKey = ''; flow.pendingEditor = undefined; flow.pendingRoute = undefined;
+      const restored = mobileNewTaskDraftLookup(client, recovered.draftKey);
+      return restored ? result('', homeDraftLocation(restored)) : { ...result('', '', true), environmentId: marker.owner.environmentId, threadId: marker.owner.threadId };
+    }
     if ((route.pendingTaskId || flow.pendingRoute) && kind === 'pending-close'
       && (flow.pendingEditor?.status !== 'ready' || hadError || !sameSelection(flow.selected, client))) {
       // A retained editor can leave after saving its local ownership and content.
@@ -313,7 +334,7 @@ export async function mobileNewTaskFlowAction(owner: string, visit: string, kind
       const requestedEnvironment = saved?.environmentId || route.environmentId, requestedProject = saved?.projectId || route.projectId;
       if (route.draftId && !saved) return result('', '/new');
       if (!flow.applied.has(visit) && requestedEnvironment && requestedProject) {
-        if (!projectExists(requestedEnvironment, requestedProject, client, background)) return result('', '/new');
+        if (!projectExists(requestedEnvironment, requestedProject, client, background) && !mobileNewTaskRestoredProject(client, route.draftId)) return result('', '/new');
         if (saved && saved.key !== flow.draftKey) {
           if (route.branch) await guardTransfer(saved.key);
           mobileNewTaskDraftUnbind(client, flow.owner);
@@ -326,8 +347,13 @@ export async function mobileNewTaskFlowAction(owner: string, visit: string, kind
           // request still changes the workspace and needs transfer ownership.
           if (!saved || route.branch) await guardTransfer();
         }
-        const chosen = await mobileNewTaskAction('project', JSON.stringify([requestedEnvironment, requestedProject]), '', native, storage, client, background, current);
-        assertCurrent(); if (chosen.message) throw new ClientError(chosen.message);
+        if (saved && mobileNewTaskRestoredProject(client, saved.key)) {
+          await mobileNewTaskFocusSavedEnvironment(client as MobileDraftClient, base, saved, current); assertCurrent();
+          await client.openDraft(native, saved.projectId); assertCurrent(); client.projectId = saved.projectId;
+        } else {
+          const chosen = await mobileNewTaskAction('project', JSON.stringify([requestedEnvironment, requestedProject]), '', native, storage, client, background, current);
+          assertCurrent(); if (chosen.message) throw new ClientError(chosen.message);
+        }
         flow.draftKey = await mobileBindNewTaskDraft(client, flow.owner, flow.draftKey, route.draftId, native, storage, current, transferLease);
         assertCurrent();
         if (route.branch && !mobileNewTask('', client, background).scratch) {

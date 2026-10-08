@@ -34,6 +34,8 @@ export function mobilePendingTaskEditorKey(owner: MobileOutboxWireOwner): string
   return JSON.stringify({ origin: owner.origin, environmentId: owner.environmentId, threadId: owner.threadId,
     messageId: owner.messageId, commandId: owner.commandId });
 }
+export const mobilePendingTaskEditorHoldOwner = (marker: Pick<MobilePendingTaskMarker, 'owner' | 'session'>) =>
+  `pending-editor:${mobilePendingTaskEditorKey(marker.owner)}:${marker.session}`;
 function valid(value: unknown): value is MobilePendingTaskMarker {
   if (!object(value) || !fields(value, ['version', 'owner', 'session', 'revision', 'draftKey', 'contentRevision', 'baseline', 'pending'])
     || value.version !== 1 || !object(value.owner) || !fields(value.owner, ownerFields)

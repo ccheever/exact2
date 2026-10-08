@@ -28,14 +28,16 @@ function stamp(value: unknown, ancestors = new Set<object>()): string {
   ancestors.delete(value); return result;
 }
 /** Caller captures this before an await and supplies it to conditional cleanup.
- * This is a content guard, not native ownership, a session CAS, or durability proof. */
+ * Empty order and the uncached persisted branch-origin pick compare the same after
+ * hydration. Other raw values remain lossless. This is a content guard, not native
+ * ownership, a session CAS, or durability proof. */
 export function mobilePendingTaskDraftFingerprint(client: T3Client, key: string): string | null {
   const metadata = mobileNewTaskDraftStore(client).records[key];
   if (!metadata) return null;
   try { return stamp({ metadata, text: client.local.drafts[key], images: client.local.snapshotDrafts[key],
     files: draftFiles(client.local).filter(file => file.draftKey === key),
-    order: obj(obj(client.local).mobileAttachmentOrder)[key], workspace: client.local.composerControls.contexts[key],
-    origin: branchState(client).origin.get(key), staged: client.local.composerControls.staged[key],
+    order: obj(obj(client.local).mobileAttachmentOrder)[key] === undefined ? [] : obj(obj(client.local).mobileAttachmentOrder)[key], workspace: client.local.composerControls.contexts[key],
+    origin: branchState(client).origin.get(key) ?? metadata.branchChoice?.startFromOrigin, staged: client.local.composerControls.staged[key],
     balance: client.local.composerControls.balance?.[key], thread: client.local.composerControls.draftThreads?.[key] }); }
   catch { return null; }
 }

@@ -1,3 +1,4 @@
+import { mobileNewTaskRestoredContext, mobileNewTaskRestoredProject } from './new-task-restored-context';
 import { mobileOutboxRecoveryDraftApplyChoices } from './mobile-outbox-recovery-draft';
 import { mobileNewTaskContextCommand } from './mobile-new-task-context-command';
 import { mobileOutboxDraftRecoveryBlocked, mobileOutboxDraftHandoffsHydrate, mobileOutboxDraftHandoffsPersisted } from './mobile-outbox-draft-handoff';
@@ -189,7 +190,7 @@ function pruneRetiredMarkers(client: T3Client) {
   const saved = markers(client), next = { ...saved }; let changed = false;
   for (const [owner, raw] of Object.entries(saved)) {
     const marker = obj(raw);
-    if (marker.nativeRetired === true && Object.keys(obj(marker.choices)).length === 0 && referenced(client.local.drafts[str(marker.key)] ?? '', obj(marker.context)).length === 0) {
+    if (marker.nativeRetired === true && !mobileNewTaskRestoredProject(client, str(marker.key)) && Object.keys(obj(marker.choices)).length === 0 && referenced(client.local.drafts[str(marker.key)] ?? '', obj(marker.context)).length === 0) {
       delete next[owner]; changed = true;
     }
   }
@@ -211,7 +212,7 @@ export class MobileDraftClient extends T3Client {
   override get draftKey(): string { return mobileNewTaskDraftBoundKey(this) || super.draftKey; }
   override ensureSelection(): void {
     // A pending editor owns its captured project even while absent from the shell.
-    if (!mobileNewTaskDraftIsPendingKey(mobileNewTaskDraftCurrent(this)?.key ?? '')) super.ensureSelection();
+    if (!mobileNewTaskDraftIsPendingKey(mobileNewTaskDraftCurrent(this)?.key ?? '') && !mobileNewTaskRestoredContext(this)) super.ensureSelection();
   }
   override async command(...args: Parameters<T3Client['command']>): ReturnType<T3Client['command']> {
     const [op, id, value, n, native, storage] = args,
