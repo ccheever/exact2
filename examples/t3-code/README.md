@@ -387,7 +387,9 @@ for an integrated check.
 The module AppKit/XCTest binaries under `macos/tests/<name>/` build with Exact's
 module facade, the app's generated data keys, every file in `modules/apple/` (the
 `composer`, `menus` and `r5-panels` tests define their own `exactModule`, so they leave
-out `T3Module.swift` and its `T3Module+<area>.swift` op files) and the test directory's sources. Run from the repository root:
+out `T3Module.swift` and its `T3Module+<area>.swift` op files; an `extension T3Module` goes in one
+of those op files, never beside other code, or these three binaries do not compile) and the test
+directory's sources. Run from the repository root:
 
 ```sh
 X=$(xcode-select -p); F="$X/Platforms/MacOSX.platform/Developer/Library/Frameworks"; L="$X/Platforms/MacOSX.platform/Developer/usr/lib"
