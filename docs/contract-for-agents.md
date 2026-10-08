@@ -1368,6 +1368,17 @@ and `inert`; any other known name (`color`, `value`, `command`, `href`) is refus
 so give the module prop another name. Do not
 turn a missing widget or canvas operation into invented Contract syntax.
 
+Apple native modules can include asset catalogs beside their Swift sources:
+`modules/apple/*.xcassets`, or `ios/modules/*.xcassets` / `macos/modules/*.xcassets`
+when the app has a platform-local module directory. The local directory replaces
+`modules/apple` for that platform; tvOS uses the iOS directory. The Apple build
+compiles these catalogs together with its generated assets into the main bundle.
+On macOS, a catalog makes the dev build and agent launch the assembled `.app`.
+Load custom symbols with `UIImage(named: "donut", in: .main, with: configuration)`
+or `NSImage(named: "donut")`; SwiftUI uses `Image("donut", bundle: .main)`.
+`symbol:sf/...` still looks up system symbols only. Catalog changes require a
+new native build; they are not web assets or live update payloads.
+
 Haptics are already there (LLP 1077 D14). `-exact-press-haptic` (`selection`,
 `impact-light|medium|heavy|soft|rigid`) plays at touch-down without a round
 trip, as `-exact-press-scale` does. `haptic("selection" | "impact-…" | "success" |
