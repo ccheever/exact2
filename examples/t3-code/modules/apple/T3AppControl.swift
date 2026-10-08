@@ -513,10 +513,19 @@ final class T3AppControl {
     /// DesktopWindow.activate: the app to the front, its window restored and focused. No toast.
     static func activateMainWindow() {
         NSApp.activate(ignoringOtherApps: true)
-        let candidates = NSApp.windows.filter { $0.canBecomeMain }
-        guard let window = NSApp.mainWindow ?? candidates.first(where: { $0.isVisible }) ?? candidates.first(where: { $0.isMiniaturized }) else { return }
+        guard let window = activationTarget(main: NSApp.mainWindow, windows: NSApp.windows) else { return }
         if window.isMiniaturized { window.deminiaturize(nil) }
         window.makeKeyAndOrderFront(nil)
+    }
+
+    /// The window `activate` brings back (ElectronWindow's focusedMainOrFirst, restored when minimized): the main
+    /// window, else the first document window on screen, else the first one in the Dock. Chosen by kind, not by
+    /// `canBecomeMain`, which AppKit answers false for a window that is not visible: a minimized window was never a
+    /// candidate, stayed in the Dock, and its page never handled the request (fix-misc-batch, #298 bug 7).
+    static func activationTarget<Window: T3ActivationWindow>(main: Window?, windows: [Window]) -> Window? {
+        if let main { return main }
+        let documents = windows.filter(\.isActivationDocument)
+        return documents.first(where: \.isVisible) ?? documents.first(where: \.isMiniaturized)
     }
 
     /// A session's module arrived. The first one starts following the embedded server, as a listener
@@ -685,4 +694,15 @@ final class T3AppControl {
         ["listening": server != nil, "address": server?.address ?? "", "pending": broker?.pendingCount ?? 0,
          "handed": broker?.dispatchedId ?? "", "windowReady": renderer.flatMap { windows[$0]?.ready } ?? false, "error": lastError]
     }
+}
+
+/// What `T3AppControl.activationTarget` reads of a window (NSWindow, and the tests' stand-ins).
+protocol T3ActivationWindow: AnyObject {
+    var isVisible: Bool { get }
+    var isMiniaturized: Bool { get }
+    /// A titled document window: not a panel (a popup, a menu, the snapshot flash), which never holds the session.
+    var isActivationDocument: Bool { get }
+}
+extension NSWindow: T3ActivationWindow {
+    var isActivationDocument: Bool { !(self is NSPanel) && styleMask.contains(.titled) }
 }
