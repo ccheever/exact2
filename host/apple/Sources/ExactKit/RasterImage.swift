@@ -67,6 +67,10 @@ struct RasterMetadata: Equatable, Sendable {
     let headerBytes: Int
     /// A self-contained SVG document decoded by the optional module.
     var svg = false
+    /// Fractional SVG natural geometry is independent of allocation pixels.
+    var svgNaturalSize: CGSize?
+    /// Temporary font file/database storage reserved only for text documents.
+    var svgFontBytes = 0
     /// More than 8 bits a channel, or float samples (LLP 1100 D4).
     var deep = false
     /// A PQ or HLG transfer, or a gain map, as the header says (LLP 1100 D4).
@@ -75,7 +79,8 @@ struct RasterMetadata: Equatable, Sendable {
     /// the header's depth is a guess at ImageIO's, which it can't say.
     var variant: UInt32 { svg ? RasterVariant.srgb8 : deep ? RasterVariant.deep : RasterVariant.own8 }
     var naturalSize: CGSize {
-        (5...8).contains(orientation)
+        if let svgNaturalSize { return svgNaturalSize }
+        return (5...8).contains(orientation)
             ? CGSize(width: sourceHeight, height: sourceWidth)
             : CGSize(width: sourceWidth, height: sourceHeight)
     }
@@ -97,11 +102,14 @@ struct RasterMetadata: Equatable, Sendable {
         if looksLikeXML(prefix) {
             guard prefix.count == encodedBytes else { throw RasterFailure.svgDocumentLimit }
             guard let module = SvgRasterModule.imageDecoder else { throw RasterFailure.svgModule }
-            var width: UInt32 = 0, height: UInt32 = 0
+            var width: Float = 0, height: Float = 0
             let result = prefix.withUnsafeBytes { module.documentSize($0.bindMemory(to: UInt8.self).baseAddress, prefix.count, &width, &height) }
             try svgResult(result)
-            var metadata = try validated(width: Int(width), height: Int(height), orientation: 1, encodedBytes: encodedBytes, headerBytes: prefix.count)
+            guard width.isFinite, height.isFinite, width > 0, height > 0 else { throw RasterFailure.dimensions }
+            var metadata = try validated(width: Int(ceil(width)), height: Int(ceil(height)), orientation: 1, encodedBytes: encodedBytes, headerBytes: prefix.count)
             metadata.svg = true
+            metadata.svgNaturalSize = CGSize(width: CGFloat(width), height: CGFloat(height))
+            metadata.svgFontBytes = prefix.withUnsafeBytes { module.documentFontBudget($0.bindMemory(to: UInt8.self).baseAddress, prefix.count) }
             return metadata
         }
         // ImageIO reads WebP only whole; its size is in the first chunk, so a
@@ -268,6 +276,8 @@ struct RasterDecodePlan: Sendable {
     let width: Int
     let height: Int
     let maxPixel: Int
+    /// Logical object viewport, carried in the SVG cache identity.
+    let svgViewport: CGSize?
     /// The storage (`RasterVariant`); it sets the bytes a pixel costs.
     let variant: UInt32
     let bytesPerPixel: Int
@@ -280,27 +290,39 @@ struct RasterDecodePlan: Sendable {
     let scratchBytes: Int
     var peakBytes: Int { outputBytes + scratchBytes }
 
-    init(metadata: RasterMetadata, maxPixel: Int, variant: UInt32? = nil) throws {
+    init(metadata: RasterMetadata, maxPixel: Int, variant: UInt32? = nil, svgViewport: CGSize? = nil) throws {
         guard maxPixel > 0 else { throw RasterFailure.dimensions }
         self.variant = variant ?? metadata.variant
         guard let bytes = RasterVariant.bytesPerPixel(self.variant) else { throw RasterFailure.reservation }
         guard !metadata.svg || self.variant == RasterVariant.srgb8 else { throw RasterFailure.reservation }
         bytesPerPixel = bytes
         let natural = metadata.naturalSize
-        let longest = Int(max(natural.width, natural.height))
-        self.maxPixel = metadata.svg ? maxPixel : min(maxPixel, longest)
-        // Keep the longest axis exact: floating ceil can add one pixel and
-        // make a worker reconstruct a different reservation from this size.
-        width = try Self.scaled(Int(natural.width), pixel: self.maxPixel, longest: longest)
-        height = try Self.scaled(Int(natural.height), pixel: self.maxPixel, longest: longest)
+        self.svgViewport = metadata.svg ? (svgViewport ?? natural) : nil
+        if let viewport = self.svgViewport {
+            guard viewport.width.isFinite, viewport.height.isFinite, viewport.width > 0, viewport.height > 0 else { throw RasterFailure.dimensions }
+            self.maxPixel = maxPixel
+            let longest = max(viewport.width, viewport.height)
+            width = viewport.width == longest ? maxPixel : max(1, Int(ceil(viewport.width / longest * CGFloat(maxPixel))))
+            height = viewport.height == longest ? maxPixel : max(1, Int(ceil(viewport.height / longest * CGFloat(maxPixel))))
+        } else {
+            let longest = Int(max(natural.width, natural.height))
+            self.maxPixel = min(maxPixel, longest)
+            // Keep the longest axis exact so workers reconstruct the reservation.
+            width = try Self.scaled(Int(natural.width), pixel: self.maxPixel, longest: longest)
+            height = try Self.scaled(Int(natural.height), pixel: self.maxPixel, longest: longest)
+        }
         stride = try Self.aligned(try Self.product(width, bytes), to: 64)
         outputBytes = try Self.product(stride, height)
         if metadata.svg {
-            // SVG paints directly into Core Graphics-owned storage. Reserve one
-            // output-sized allowance for makeImage's possible copy; no ImageIO
-            // thumbnail or separate RGBA conversion bitmap exists on this path.
-            let (scratch, overflow) = outputBytes.addingReportingOverflow(64 * 1024)
-            guard !overflow else { throw RasterFailure.overflow }
+            // SVG paints directly into Core Graphics-owned storage. Four
+            // output buffers cover bounded resvg group/clip/mask intermediates
+            // and the later makeImage copy, which do not coexist. The Rust
+            // allocation guard enforces the same allowance before painting.
+            // Text alone also reserves the decoder's bounded font staging.
+            let layers = try Self.product(outputBytes, 4)
+            let (pixels, overflow) = layers.addingReportingOverflow(64 * 1024)
+            let (scratch, fontOverflow) = pixels.addingReportingOverflow(metadata.svgFontBytes)
+            guard !overflow, !fontOverflow else { throw RasterFailure.overflow }
             scratchBytes = scratch
         } else {
             // ImageIO does not expose a contractual internal allocator ceiling.
@@ -358,8 +380,18 @@ final class RasterImage: @unchecked Sendable {
     let animation: RasterAnimation?
     /// An HDR bitmap's headroom over SDR white, else 0.
     let headroom: Float
-    private init(image: CGImage, natural: CGSize, bytes: Int, animation: RasterAnimation?, headroom: Float = 0) {
+    private let svgViewport: CGSize?
+    private init(image: CGImage, natural: CGSize, bytes: Int, animation: RasterAnimation?, headroom: Float = 0, svgViewport: CGSize? = nil) {
         self.image = image; naturalSize = natural; residentBytes = bytes; self.animation = animation; self.headroom = headroom
+        self.svgViewport = svgViewport
+    }
+    /// Ceil padding is outside the logical SVG viewport. Paint at the exact
+    /// uniform raster scale, letting the content clip crop that extra fraction.
+    func displayRect(_ rect: CGRect) -> CGRect {
+        guard let viewport = svgViewport else { return rect }
+        let scale = min(CGFloat(image.width) / viewport.width, CGFloat(image.height) / viewport.height)
+        return CGRect(origin: rect.origin, size: CGSize(width: rect.width * CGFloat(image.width) / (viewport.width * scale),
+                                                       height: rect.height * CGFloat(image.height) / (viewport.height * scale)))
     }
     var isHDR: Bool { headroom > 1 }
 
@@ -379,16 +411,19 @@ final class RasterImage: @unchecked Sendable {
         return try autoreleasepool {
             if metadata.svg {
                 guard let module = SvgRasterModule.imageDecoder else { throw RasterFailure.svgModule }
+                let fontBytes = bytes.withUnsafeBytes { module.documentFontBudget($0.bindMemory(to: UInt8.self).baseAddress, bytes.count) }
+                guard fontBytes == metadata.svgFontBytes else { throw RasterFailure.reservation }
                 let info = CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue
                 guard let context = CGContext(data: nil, width: plan.width, height: plan.height, bitsPerComponent: 8,
                     bytesPerRow: plan.stride, space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: info),
                     context.bytesPerRow == plan.stride, let pixels = context.data else { throw RasterFailure.decode }
                 let result = bytes.withUnsafeBytes { module.documentRender($0.bindMemory(to: UInt8.self).baseAddress, bytes.count,
                     pixels.assumingMemoryBound(to: UInt8.self), UInt32(plan.width), UInt32(plan.height), plan.stride,
-                    UInt32(metadata.sourceWidth), UInt32(metadata.sourceHeight)) }
+                    Float(metadata.naturalSize.width), Float(metadata.naturalSize.height),
+                    Float(plan.svgViewport!.width), Float(plan.svgViewport!.height)) }
                 try svgResult(result)
                 guard let image = context.makeImage() else { throw RasterFailure.decode }
-                return RasterImage(image: owner.own(image), natural: metadata.naturalSize, bytes: plan.outputBytes, animation: nil)
+                return RasterImage(image: owner.own(image), natural: metadata.naturalSize, bytes: plan.outputBytes, animation: nil, svgViewport: plan.svgViewport)
             }
             guard let source = CGImageSourceCreateWithData(bytes as CFData,
                 [kCGImageSourceShouldCache: false] as CFDictionary),

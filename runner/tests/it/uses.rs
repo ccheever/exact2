@@ -340,7 +340,7 @@ fn a_grouped_list_is_a_list_whose_appearance_is_auto() {
 }
 
 #[test]
-fn svg_image_module_is_needed_for_documents_and_computed_sources_but_not_symbols() {
+fn svg_image_module_is_needed_only_for_svg_literals_and_computed_sources() {
     let images =
         |s: &str| exact_runner::svg_images(&contract::compile(s).unwrap_or_else(|e| panic!("{e}")));
     assert!(!images(
@@ -348,7 +348,31 @@ fn svg_image_module_is_needed_for_documents_and_computed_sources_but_not_symbols
     ));
     assert!(!images("component A\n  view\n    text \"hello\"\n"));
     assert!(images("component A\n  view\n    image \"icon.svg\"\n"));
-    assert!(images(
-        "component A\n  state source = \"icon.svg\"\n  view\n    image source\n"
-    ));
+    for source in [
+        "photo.png",
+        "https://example.com/photo.JPEG?format=svg#icon.svg",
+        "https://example.com/icon.svg/photo.webp",
+        "symbol:sf/icon.svg",
+        "",
+    ] {
+        assert!(
+            !images(&format!("component A\n  view\n    image {source:?}\n")),
+            "literal {source:?} cannot select an SVG"
+        );
+    }
+    for source in [
+        "icon.SVG",
+        "https://example.com/icon.SvG?v=1#art",
+        "icon.svg#shape?ignored",
+    ] {
+        assert!(
+            images(&format!("component A\n  view\n    image {source:?}\n")),
+            "literal {source:?} selects an SVG"
+        );
+    }
+    for source in ["icon.svg", "photo.png", "symbol:sf/star"] {
+        assert!(images(&format!(
+            "component A\n  state source = {source:?}\n  view\n    image source\n"
+        )));
+    }
 }

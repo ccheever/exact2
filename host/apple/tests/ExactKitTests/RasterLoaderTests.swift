@@ -7,6 +7,119 @@ import CExact
 @testable import ExactKit
 
 final class RasterLoaderTests: XCTestCase {
+    func testSVGViewportIsPartOfDecodeIdentityAndResizeReplacesIt() throws {
+        let (root, resolver, presenter, first, loader, window) = try fixture()
+        let second = NodeView(id: 2, kind: "image", presenter: presenter)
+        defer { loader.shutdown(); first.raster = nil; second.raster = nil; window.close(); try? FileManager.default.removeItem(at: root); withExtendedLifetime(presenter) {} }
+        let svg = "<svg xmlns='http://www.w3.org/2000/svg' width='100' height='100' viewBox='0 0 100 100'><circle cx='50' cy='50' r='30' fill='red'/></svg>"
+        try Data(svg.utf8).write(to: root.appendingPathComponent("viewport.svg"))
+        first.frame = CGRect(x: 0, y: 0, width: 200, height: 100); first.loadGeneration = 1
+        second.frame = CGRect(x: 0, y: 100, width: 100, height: 200); second.loadGeneration = 1
+        presenter.views[second.id] = second; presenter.viewport.addSubview(second)
+        XCTAssertTrue(loader.load(first, source: "viewport.svg", resolver: resolver))
+        XCTAssertTrue(loader.load(second, source: "viewport.svg", resolver: resolver))
+        settle { first.raster != nil && second.raster != nil }
+        let firstImage = try XCTUnwrap(first.raster?.image.image), secondImage = try XCTUnwrap(second.raster?.image.image)
+        XCTAssertEqual(firstImage.width, firstImage.height * 2)
+        XCTAssertEqual(secondImage.height, secondImage.width * 2)
+        XCTAssertFalse(first.raster?.image === second.raster?.image)
+        let previous = first.raster?.image
+        first.frame = CGRect(x: 0, y: 0, width: 200, height: 200)
+        loader.resized(first)
+        settle { first.raster?.image !== previous }
+        XCTAssertEqual(first.raster?.image.image.height, first.raster?.image.image.width)
+    }
+
+    func testSVGRenderTimeRefusalKeepsItsNamedError() throws {
+        let (root, resolver, presenter, node, loader, window) = try fixture()
+        defer { loader.shutdown(); node.raster = nil; window.close(); try? FileManager.default.removeItem(at: root); withExtendedLifetime(presenter) {} }
+        let svg = "<svg xmlns='http://www.w3.org/2000/svg' width='64' height='64'><defs><pattern id='p' patternUnits='userSpaceOnUse' width='16384' height='16384'><rect width='1' height='1'/></pattern></defs><rect width='64' height='64' fill='url(#p)'/></svg>"
+        try Data(svg.utf8).write(to: root.appendingPathComponent("refused.svg"))
+        node.loadGeneration = 1
+        XCTAssertTrue(loader.load(node, source: "refused.svg", resolver: resolver))
+        func failure() -> String? { (loader.diagnostics["images"] as? [[String: Any]])?.first?["failure"] as? String }
+        settle { failure()?.isEmpty == false }
+        XCTAssertEqual(failure(), "unsupported SVG image feature")
+        XCTAssertNil(node.raster)
+    }
+
+    func testSVGViewportRefusalDoesNotPoisonAnotherViewport() throws {
+        let (root, resolver, presenter, large, loader, window) = try fixture()
+        let small = NodeView(id: 2, kind: "image", presenter: presenter)
+        defer { loader.shutdown(); large.raster = nil; small.raster = nil; window.close(); try? FileManager.default.removeItem(at: root); withExtendedLifetime(presenter) {} }
+        let svg = "<svg xmlns='http://www.w3.org/2000/svg' width='64' height='64' viewBox='0 0 64 64'><defs><pattern id='p' patternUnits='userSpaceOnUse' width='160' height='160'><rect width='1' height='1' fill='red'/></pattern></defs><rect width='64' height='64' fill='url(#p)'/></svg>"
+        try Data(svg.utf8).write(to: root.appendingPathComponent("pattern.svg"))
+        large.frame = CGRect(x: 0, y: 0, width: 512, height: 512); large.loadGeneration = 1
+        XCTAssertTrue(loader.load(large, source: "pattern.svg", resolver: resolver))
+        func failure() -> String? { (loader.diagnostics["images"] as? [[String: Any]])?.first { $0["view"] as? UInt32 == large.id }?["failure"] as? String }
+        settle { failure()?.isEmpty == false }
+        XCTAssertEqual(failure(), "unsupported SVG image feature")
+        small.frame = CGRect(x: 0, y: 0, width: 32, height: 32); small.loadGeneration = 1
+        presenter.views[small.id] = small; presenter.viewport.addSubview(small)
+        XCTAssertTrue(loader.load(small, source: "pattern.svg", resolver: resolver))
+        settle { small.raster != nil }
+        XCTAssertNotNil(small.raster)
+    }
+
+    func testCancelledSuccessfulDecodeCannotEraseNewerNamedFailure() throws {
+        let (root, resolver, presenter, node, loader, window) = try fixture()
+        let entered = DispatchSemaphore(value: 0), resume = DispatchSemaphore(value: 0)
+        let barrierTimedOut = DispatchSemaphore(value: 0)
+        defer {
+            loader.testBeforeComplete = nil; loader.testRequest = nil; resume.signal()
+            loader.shutdown(); node.raster = nil; window.close()
+            try? FileManager.default.removeItem(at: root); withExtendedLifetime(presenter) {}
+        }
+        let original = "<svg xmlns='http://www.w3.org/2000/svg' width='64' height='64'><defs><pattern id='p' patternUnits='userSpaceOnUse' width='00000001' height='00000001'><rect width='1' height='1' fill='red'/></pattern></defs><rect width='64' height='64' fill='url(#p)'/></svg>"
+        let replacement = original.replacingOccurrences(of: "00000001", with: "00016384")
+        XCTAssertEqual(original.utf8.count, replacement.utf8.count)
+        let url = root.appendingPathComponent("replaced.svg")
+        try Data(original.utf8).write(to: url)
+        var demands: [ExactRasterDemand] = [], requests: [UInt64] = []
+        loader.testRequest = { [unowned loader] demand in
+            let request = exact_raster_request(loader.id, demand)
+            demands.append(demand); requests.append(request)
+            return (request, nil)
+        }
+        loader.testBeforeComplete = {
+            entered.signal()
+            if resume.wait(timeout: .now() + 20) != .success { barrierTimedOut.signal() }
+        }
+        node.loadGeneration = 1
+        XCTAssertTrue(loader.load(node, source: "replaced.svg", resolver: resolver))
+        let admitted = Date(timeIntervalSinceNow: 5)
+        while requests.isEmpty && Date() < admitted { RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.01)) }
+        guard requests.count == 1 else { return XCTFail("the original SVG must be admitted") }
+        guard entered.wait(timeout: .now() + 5) == .success else { return XCTFail("the original worker must reach its completion barrier") }
+        XCTAssertNil(node.raster)
+
+        try Data(replacement.utf8).write(to: url)
+        loader.cancel(node.id); node.loadGeneration = 2
+        XCTAssertTrue(loader.load(node, source: "replaced.svg", resolver: resolver))
+        loader.reconcile()
+        guard requests.count == 2 else { return XCTFail("the replacement SVG must be admitted while the canceled worker is held") }
+        XCTAssertEqual(demands[0].source, demands[1].source)
+        XCTAssertEqual(demands[0].generation, demands[1].generation)
+        XCTAssertEqual(demands[0].width, demands[1].width)
+        XCTAssertEqual(demands[0].height, demands[1].height)
+        XCTAssertEqual(demands[0].variant, demands[1].variant)
+        // Do not pump main: the replacement fails before its UI reconciliation,
+        // then the cancelled successful worker finishes and performs cleanup.
+        let failed = Date(timeIntervalSinceNow: 5)
+        while exact_raster_status(loader.id, requests[1]) != 115 && Date() < failed { Thread.sleep(forTimeInterval: 0.005) }
+        guard exact_raster_status(loader.id, requests[1]) == 115 else { return XCTFail("the replacement must fail on the second worker") }
+        XCTAssertEqual(images(loader).first?["failure"] as? String, "")
+        resume.signal()
+        let finished = Date(timeIntervalSinceNow: 5)
+        while (exact_raster_stats(loader.id).running != 0 || loader.diagnostics["decoded"] as? Int != 1) && Date() < finished { Thread.sleep(forTimeInterval: 0.005) }
+        guard exact_raster_stats(loader.id).running == 0 else { return XCTFail("the canceled successful worker must finish") }
+        XCTAssertEqual(loader.diagnostics["decoded"] as? Int, 1)
+        XCTAssertEqual(barrierTimedOut.wait(timeout: .now()), .timedOut)
+        loader.reconcile()
+        XCTAssertEqual(images(loader).first?["failure"] as? String, "unsupported SVG image feature")
+        XCTAssertNil(node.raster)
+    }
+
     func testQueueFullRequestAdmissionRemainsRetryable() {
         XCTAssertTrue(RasterLoader.transientRequestRefusal(8))
         for permanent in [1, 2, 6, 7, 9, 12, 15] {
@@ -45,6 +158,7 @@ final class RasterLoaderTests: XCTestCase {
         XCTAssertEqual(loader.loadingOnScreen, 0)
         XCTAssertEqual(loader.diagnostics["deferred"] as? Int, 0)
     }
+    private func images(_ loader: RasterLoader) -> [[String: Any]] { loader.diagnostics["images"] as? [[String: Any]] ?? [] }
     /// One decoder while any owner's list travels fast; both once none does.
     func testDecodesOneAtATimeWhileAnyListTravelsFast() {
         let workers = RasterWorkers.shared, a = NSObject(), b = NSObject()

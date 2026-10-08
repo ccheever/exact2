@@ -20,5 +20,8 @@ crate-type = ["rlib", "cdylib"]
 # kernel makes: that crate and not the kernel, which a loaded module would
 # otherwise compile whole (LLP 1036.000 §12).
 exact-svg-filter = { path = "../../svg-filter" }
-resvg = { version = "=0.48.1", default-features = false, features = ["text", "system-fonts"] }
+resvg = { version = "=0.48.1", default-features = false, features = ["text"] }
 roxmltree = "=0.21.1"
+simplecss = "=0.2.2"
+svgtypes = "=0.16.1"
+skrifa = "=0.44.0"

@@ -5,7 +5,7 @@
 **Systems:** Kernel (measured leaves, intrinsic size, aspect ratio; Taffy patch 5), Contract (`image` tag), Web host, Apple host (C ABI: `exact_intrinsic`), Build (assets)
 **Author:** Claude (Fable 5) for Charlie Cheever
 **Date:** 2026-08-29
-**Revised:** 2026-10-06 (`load`/`error` on the web, macOS and iOS; the remote fetch policy, as built — #121); 2026-09-26 (raster-image `tint-color` on Apple and web); 2026-09-11 (scaled-image scrollable extent and replaced grid sizing; LLP 1035.004 symbol sources, native leaves, tint, units and verification; earlier r2 image decisions retained)
+**Revised:** 2026-10-08 (bounded SVG image documents on Apple, #239); 2026-10-06 (`load`/`error` on the web, macOS and iOS; the remote fetch policy, as built — #121); 2026-09-26 (raster-image `tint-color` on Apple and web); 2026-09-11 (scaled-image scrollable extent and replaced grid sizing; LLP 1035.004 symbol sources, native leaves, tint, units and verification; earlier r2 image decisions retained)
 **Implementer:** Claude (Fable 5), image landing 2026-08-29; Codex, symbol integration 2026-09-10 and replaced-content extent 2026-09-11
 **Related:** LLP 1001 §1 (the `Image` replaced-element rule and its declared block-flow deviation), §6 (measured leaves), LLP 1007 (the web host: `<img>`), LLP 1008 §5 (the Apple presenter: loading, `object-fit`), LLP 1010 (the sibling spec whose shape this follows), `vendor/taffy/EXACT-PATCHES.md` patch 5, `rules/RULES.md` §The web is the standard
 
@@ -283,10 +283,36 @@ bitmap stays shared and unchanged; no tinted asset enters the image cache.
   body spools to a temporary file read once for its header (256 KiB) and
   once to decode. Responses are cached on disk only (`URLCache`, 64 MiB,
   `Caches/exact-raster-http`, the HTTP cache headers' policy); decoded
-  pixels are the session's raster budget. ImageIO decodes rasters only: an
-  SVG, remote or under `assets/`, does not draw, and is the `error` `not an
-  image format this host decodes`, as is any whole body ImageIO cannot size.
-  Linux loads no remote source.
+  pixels are the session's raster budget. ImageIO decodes raster formats;
+  SVG documents, remote or under `assets/`, use the loaded SVG decoder below.
+  A body neither decoder can size is the `error` `not an image format this
+  host decodes`. Linux loads no remote source.
+- **SVG image documents** (2026-10-08, #239) use `libexact_svg.dylib`
+  (`resvg`), off the main thread and through the raster pipeline's source,
+  cancellation, reservation and cache rules. A fixed build carries that
+  module for a literal URL whose path ends in `.svg` (case-insensitive,
+  ignoring its query and fragment), a computed image source, or an SVG
+  island; a plan with only literal PNG/JPEG images needs no SVG module.
+  The document is capped at 256 KiB and 10,000 XML nodes; DTDs are refused.
+  Natural SVG dimensions retain fractional values; the source-pixel cap
+  uses their rounded-up pixel bounds. The worker renders for the concrete
+  `object-fit` viewport, with the document's `viewBox` and
+  `preserveAspectRatio`, directly into reserved, premultiplied BGRA8 pixels
+  with the host's row stride. Root percentage/missing dimensions use the
+  `viewBox` ratio and default 300×150 sizing fallback, as an HTML image does.
+  Embedded or external `image` elements, `foreignObject`, and filters
+  (including CSS filter functions) are refused as `unsupported SVG image
+  feature`; the decoder performs no secondary image or document fetch.
+  Patterns, masks, clips and isolated groups are admitted only when their
+  concurrently live intermediate pixels fit the scratch reservation
+  (four output buffers' bytes plus 64 KiB), checked before painting. Text
+  resolves local font files and fallback faces through Core Text on the worker,
+  including iOS and tvOS font locations. A document containing `text` reserves
+  8 MiB of font staging before decode; at most eight font files and 128 faces
+  fit that byte cap, and a larger file or collection is refused. Parser and
+  font-engine internals are outside the Exact-owned pixel ledger.
+  Failed admission sends the source's `error` through the same path as a
+  raster failure; a successful first decode sends `load`.
 - **Events:** the loader sends a node that hears it the source's `load`
   when its first decode lands, or its `error` with the reason (the HTTP
   status, `URLError`'s description, the raster refusal), each once per
@@ -390,21 +416,19 @@ unit test; its window was not driven.
 
 ## 6. Not in v1 (each declared here)
 
-**2026-09-14 scope change:** bounded raster loading/cache memory is now
-assigned to Codex under LLP 1010 §6.3, after the windowed-list lifetime
-slice, with Messages as the consumer. The initial target is 32 MiB per
-session including Exact-owned pinned bitmaps and in-flight reservations;
-the browser retains its own decoder/cache policy. This is planned, not
-implemented: the current Apple loader below still has no size cap or
-cancellation. Remote-image API expansion, `srcset` and loading-state
-authoring remain outside that slice.
+**2026-09-14 scope change, implemented under LLP 1010 §6.3:** bounded
+raster loading/cache memory includes Exact-owned pinned bitmaps and
+in-flight reservations, with a 32 MiB minimum session budget and source
+cancellation. SVG image documents share that pipeline (§4); the browser
+retains its own decoder/cache policy. Remote-image API expansion, `srcset`
+and loading-state authoring remain outside that slice.
 
 `srcset`/density selection and `image-rendering`; `tint_color` on Linux
 symbols (rasters are tinted since 2026-09-27); Linux symbols; a placeholder
 of the host's own while an image loads or after it fails (the kernel measures
 an unknown axis as 0; macOS paints nothing; the browser paints its own
 broken-image icon and the `alt` text — the app draws its own fallback from
-`load` and `error`, §2); SVG sources on Apple (§4); a fetch policy the app
+`load` and `error`, §2); the SVG document features refused in §4; a fetch policy the app
 sets — HTML's `referrerpolicy`, a refusal of redirects (`redirect="error"`),
 a byte cap below the host's (`max-bytes`) — each a vocabulary proposal
 (#121), not built; Linux remote sources; a block-flow image at its intrinsic

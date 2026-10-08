@@ -1,7 +1,8 @@
 //! The module's C ABI (LLP 1055.000 §8 ruling 4, after LLP 1009 D2): what
-//! the Apple host `dlsym`s from `libexact_svg.dylib`. Pixels cross as a
-//! pointer and a length, premultiplied RGBA8, tightly packed; nothing else
-//! crosses. The host checks `exact_svg_raster_abi` before any other call.
+//! the Apple host `dlsym`s from `libexact_svg.dylib`. Island filter and mask
+//! calls use tightly packed, premultiplied RGBA8; `exact_svg_document_render`
+//! writes premultiplied BGRA8 with the caller's row stride. Each function
+//! declares its buffer bounds. The host checks `exact_svg_raster_abi` first.
 //!
 //! This is the module's one `unsafe` boundary: the core hosts never
 //! dereference a pointer for it.
@@ -9,7 +10,89 @@
 
 /// The ABI this module speaks. A host that expects another refuses the
 /// module by name, as a missing symbol is refused.
-pub const ABI: u32 = 2;
+pub const ABI: u32 = 3;
+
+/// CoreText's selected file path and PostScript name, written as two UTF-8
+/// NUL-terminated fields. A zero return means the host cannot select a font.
+pub type FontCallback =
+    unsafe extern "C" fn(*const u8, usize, u16, u8, u16, u32, *mut u8, usize) -> usize;
+
+static FONT_CALLBACK: std::sync::OnceLock<FontCallback> = std::sync::OnceLock::new();
+
+/// Install the host's immutable font lookup before publishing this module.
+/// The callback must remain valid for the loaded module's lifetime.
+#[no_mangle]
+pub extern "C" fn exact_svg_document_fonts(callback: FontCallback) -> i32 {
+    match FONT_CALLBACK.set(callback) {
+        Ok(()) => 0,
+        Err(_)
+            if FONT_CALLBACK
+                .get()
+                .is_some_and(|old| *old as usize == callback as usize) =>
+        {
+            0
+        }
+        Err(_) => 3,
+    }
+}
+
+pub(crate) fn font_source(
+    request: &crate::document::fonts::Request,
+) -> Result<Option<crate::document::fonts::Source>, crate::document::Error> {
+    use crate::document::{fonts::Source, Error};
+    let callback = FONT_CALLBACK.get().ok_or(Error::Unsupported)?;
+    let mut buffer = [0u8; 4096];
+    // SAFETY: the installed host callback owns no pointers after returning;
+    // both buffers remain alive and the writable buffer has the given length.
+    let len = unsafe {
+        callback(
+            request.family.as_ptr(),
+            request.family.len(),
+            request.weight,
+            request.style,
+            request.stretch,
+            request.character,
+            buffer.as_mut_ptr(),
+            buffer.len(),
+        )
+    };
+    if len == 0 {
+        return Ok(None);
+    }
+    let reply = buffer
+        .get(..len)
+        .filter(|v| v.last() == Some(&0))
+        .ok_or(Error::Unsupported)?;
+    let mut fields = reply[..reply.len() - 1].split(|byte| *byte == 0);
+    let path = std::str::from_utf8(fields.next().ok_or(Error::Unsupported)?)
+        .map_err(|_| Error::Unsupported)?;
+    let postscript = std::str::from_utf8(fields.next().ok_or(Error::Unsupported)?)
+        .map_err(|_| Error::Unsupported)?;
+    if path.is_empty()
+        || postscript.is_empty()
+        || fields.next().is_some()
+        || !std::path::Path::new(path).is_absolute()
+    {
+        return Err(Error::Unsupported);
+    }
+    Ok(Some(Source {
+        path: path.into(),
+        postscript: postscript.to_owned(),
+    }))
+}
+
+/// Reserved font staging for a bounded document, with no font discovery.
+///
+/// # Safety
+/// `bytes` must be valid for `len` reads.
+#[no_mangle]
+pub unsafe extern "C" fn exact_svg_document_font_budget(bytes: *const u8, len: usize) -> usize {
+    if bytes.is_null() || len > crate::document::SOURCE_LIMIT {
+        return 0;
+    }
+    // SAFETY: the caller owns the bounded input for this call.
+    crate::document::font_budget(unsafe { std::slice::from_raw_parts(bytes, len) }).unwrap_or(0)
+}
 
 /// Read the natural viewport of a bounded SVG image document.
 ///
@@ -19,8 +102,8 @@ pub const ABI: u32 = 2;
 pub unsafe extern "C" fn exact_svg_document_size(
     bytes: *const u8,
     len: usize,
-    width: *mut u32,
-    height: *mut u32,
+    width: *mut f32,
+    height: *mut f32,
 ) -> i32 {
     if bytes.is_null() || width.is_null() || height.is_null() || len > crate::document::SOURCE_LIMIT
     {
@@ -52,8 +135,10 @@ pub unsafe extern "C" fn exact_svg_document_render(
     width: u32,
     height: u32,
     stride: usize,
-    natural_width: u32,
-    natural_height: u32,
+    natural_width: f32,
+    natural_height: f32,
+    viewport_width: f32,
+    viewport_height: f32,
 ) -> i32 {
     let Some(output) = stride.checked_mul(height as usize) else {
         return 2;
@@ -79,6 +164,7 @@ pub unsafe extern "C" fn exact_svg_document_render(
         height,
         stride,
         (natural_width, natural_height),
+        (viewport_width, viewport_height),
     )
     .map_or_else(|error| error as i32, |()| 0)
 }

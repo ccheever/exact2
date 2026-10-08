@@ -33,13 +33,97 @@ final class RasterImageTests: XCTestCase {
         let bytes = Data("<svg xmlns='http://www.w3.org/2000/svg' width='5' height='7'/>".utf8)
         let metadata = try RasterMetadata.read(prefix: bytes, encodedBytes: bytes.count)
         let plan = try RasterDecodePlan(metadata: metadata, maxPixel: 70)
-        XCTAssertEqual(plan.peakBytes, 2 * plan.outputBytes + 64 * 1024)
+        XCTAssertEqual(plan.peakBytes, 5 * plan.outputBytes + 64 * 1024)
         let changed = Data("<svg xmlns='http://www.w3.org/2000/svg' width='6' height='7'/>".utf8)
         XCTAssertThrowsError(try RasterImage.decode(changed, metadata: metadata, plan: plan, charge: TestRasterCharge())) { error in
             XCTAssertEqual(String(describing: error), "actual exceeds reservation")
         }
         let bom = Data([0xef, 0xbb, 0xbf, 32, 10]) + bytes
         XCTAssertTrue(try RasterMetadata.read(prefix: bom, encodedBytes: bom.count).svg)
+    }
+
+    func testSVGFractionalNaturalSizeKeepsUniformPixelsAndCeilPadding() throws {
+        let bytes = Data("<svg xmlns='http://www.w3.org/2000/svg' width='5.2' height='7'><rect width='2.6' height='7' fill='red'/><rect x='2.6' width='2.6' height='7' fill='blue'/></svg>".utf8)
+        let metadata = try RasterMetadata.read(prefix: bytes, encodedBytes: bytes.count)
+        XCTAssertEqual(metadata.naturalSize.width, 5.2, accuracy: 0.000001)
+        XCTAssertEqual(metadata.naturalSize.height, 7)
+        let plan = try RasterDecodePlan(metadata: metadata, maxPixel: 70)
+        XCTAssertEqual(plan.width, 52); XCTAssertEqual(plan.height, 70)
+        let image = try RasterImage.decode(bytes, metadata: metadata, plan: plan, charge: TestRasterCharge())
+        XCTAssertEqual(try pixel(image.image, x: 24, y: 35), [0, 0, 255, 255])
+        XCTAssertEqual(try pixel(image.image, x: 27, y: 35), [255, 0, 0, 255])
+        let reduced = try RasterImage.decode(bytes, metadata: metadata,
+            plan: RasterDecodePlan(metadata: metadata, maxPixel: 7), charge: TestRasterCharge())
+        let rect = reduced.displayRect(CGRect(origin: .zero, size: metadata.naturalSize))
+        XCTAssertEqual(rect.width, 6, accuracy: 0.000001)
+        XCTAssertEqual(rect.height, 7, accuracy: 0.000001)
+        XCTAssertLessThan(try pixel(reduced.image, x: 5, y: 3)[3], 80)
+    }
+
+    func testSVGConcreteFillViewportKeepsAspectAndTopBottomColors() throws {
+        let bytes = Data("<svg xmlns='http://www.w3.org/2000/svg' width='100' height='100' viewBox='0 0 100 100'><rect width='100' height='50' fill='red'/><rect y='50' width='100' height='50' fill='blue'/></svg>".utf8)
+        let metadata = try RasterMetadata.read(prefix: bytes, encodedBytes: bytes.count)
+        let image = try RasterImage.decode(bytes, metadata: metadata,
+            plan: RasterDecodePlan(metadata: metadata, maxPixel: 200, svgViewport: CGSize(width: 200, height: 100)), charge: TestRasterCharge())
+        XCTAssertEqual(image.image.width, 200); XCTAssertEqual(image.image.height, 100)
+        XCTAssertEqual(image.naturalSize, CGSize(width: 100, height: 100))
+        XCTAssertEqual(try pixel(image.image, x: 10, y: 25), [0, 0, 0, 0])
+        XCTAssertEqual(try pixel(image.image, x: 100, y: 25), [0, 0, 255, 255])
+        XCTAssertEqual(try pixel(image.image, x: 100, y: 75), [255, 0, 0, 255])
+        let percentage = Data("<svg xmlns='http://www.w3.org/2000/svg' width='100%' height='50%' viewBox='0 0 200 200'/>".utf8)
+        XCTAssertEqual(try RasterMetadata.read(prefix: percentage, encodedBytes: percentage.count).naturalSize, CGSize(width: 150, height: 150))
+    }
+
+    func testSVGClippedGroupsPaintAtLargeDecodeScalesWithinReservation() throws {
+        let bytes = Data("<svg xmlns='http://www.w3.org/2000/svg' width='64' height='64' viewBox='0 0 64 64'><defs><clipPath id='c'><circle cx='32' cy='32' r='24'/></clipPath></defs><g clip-path='url(#c)'><rect width='64' height='32' fill='red'/><rect y='32' width='64' height='32' fill='blue'/></g></svg>".utf8)
+        let metadata = try RasterMetadata.read(prefix: bytes, encodedBytes: bytes.count)
+        for size in [160, 640] {
+            let plan = try RasterDecodePlan(metadata: metadata, maxPixel: size)
+            XCTAssertEqual(plan.scratchBytes, 4 * plan.outputBytes + 64 * 1024)
+            XCTAssertLessThanOrEqual(plan.peakBytes, 32 * 1024 * 1024)
+            let image = try RasterImage.decode(bytes, metadata: metadata, plan: plan, charge: TestRasterCharge())
+            XCTAssertEqual(try pixel(image.image, x: size / 2, y: size / 4), [0, 0, 255, 255])
+            XCTAssertEqual(try pixel(image.image, x: size / 2, y: size * 3 / 4), [255, 0, 0, 255])
+            XCTAssertEqual(try pixel(image.image, x: size / 40, y: size / 40), [0, 0, 0, 0])
+        }
+        XCTAssertThrowsError(try RasterDecodePlan(metadata: metadata, maxPixel: 1600)) { error in
+            XCTAssertEqual(error as? RasterFailure, .tooLarge)
+        }
+    }
+
+    func testSVGTextReservesBoundedFontStorageAndPaintsGlyphs() throws {
+        let bytes = Data("<svg xmlns='http://www.w3.org/2000/svg' width='80' height='24'><text x='2' y='18' font-family='Arial' font-size='16' fill='red'>Hi</text></svg>".utf8)
+        let metadata = try RasterMetadata.read(prefix: bytes, encodedBytes: bytes.count)
+        XCTAssertEqual(metadata.svgFontBytes, 8 * 1024 * 1024)
+        let plan = try RasterDecodePlan(metadata: metadata, maxPixel: 80)
+        XCTAssertEqual(plan.peakBytes, 5 * plan.outputBytes + 64 * 1024 + metadata.svgFontBytes)
+        let image = try RasterImage.decode(bytes, metadata: metadata, plan: plan, charge: TestRasterCharge())
+        let pixels = try XCTUnwrap(image.image.dataProvider?.data) as Data
+        XCTAssertTrue(pixels.enumerated().contains { $0.offset % 4 == 3 && $0.element > 0 }, "CoreText-resolved glyphs must paint")
+        let plain = Data("<svg xmlns='http://www.w3.org/2000/svg' width='80' height='24'><rect width='80' height='24'/></svg>".utf8)
+        let shapeMetadata = try RasterMetadata.read(prefix: plain, encodedBytes: plain.count)
+        XCTAssertEqual(shapeMetadata.svgFontBytes, 0)
+        let shapePlan = try RasterDecodePlan(metadata: shapeMetadata, maxPixel: 80)
+        XCTAssertEqual(shapePlan.peakBytes, 5 * shapePlan.outputBytes + 64 * 1024)
+    }
+
+    func testSVGReplacementCannotAddUnreservedFontStaging() throws {
+        var original = Data("<svg xmlns='http://www.w3.org/2000/svg' width='80' height='24'><rect width='80' height='24'/></svg>".utf8)
+        var replacement = Data("<svg xmlns='http://www.w3.org/2000/svg' width='80' height='24'><text x='2' y='18'>Hi</text></svg>".utf8)
+        let count = max(original.count, replacement.count)
+        original.append(Data(repeating: 32, count: count - original.count))
+        replacement.append(Data(repeating: 32, count: count - replacement.count))
+        let metadata = try RasterMetadata.read(prefix: original, encodedBytes: count)
+        let plan = try RasterDecodePlan(metadata: metadata, maxPixel: 80)
+        XCTAssertThrowsError(try RasterImage.decode(replacement, metadata: metadata, plan: plan, charge: TestRasterCharge())) { error in
+            XCTAssertEqual(error as? RasterFailure, .reservation)
+        }
+    }
+
+    private func pixel(_ image: CGImage, x: Int, y: Int) throws -> [UInt8] {
+        let data = try XCTUnwrap(image.dataProvider?.data) as Data
+        let offset = y * image.bytesPerRow + x * 4
+        return Array(data[offset..<offset + 4])
     }
 
     private func fixture(_ width: Int, _ height: Int, type: String = "public.png", orientation: Int = 1) throws -> Data {

@@ -80,8 +80,9 @@ extension NodeView {
             top: number("border_width_top", uniform) + number("padding_top"),
             right: number("border_width_right", uniform) + number("padding_right"),
             bottom: number("border_width_bottom", uniform) + number("padding_bottom"))
-        let rect = RasterGeometry.rect(natural: bitmap.naturalSize, content: content, fit: style["object_fit"]?.string ?? "fill")
-        let shown = rect.intersection(content)
+        let object = RasterGeometry.rect(natural: bitmap.naturalSize, content: content, fit: style["object_fit"]?.string ?? "fill")
+        let rect = bitmap.displayRect(object)
+        let shown = object.intersection(content)
         let radii = cornerRadii(in: bounds)
         let radius = radii.max() ?? 0
         let oneRadius = cornerSizes(in: bounds).allSatisfy { abs($0.width - $0.height) < 0.01 } && radii.allSatisfy { $0 == 0 || abs($0 - radius) < 0.01 }

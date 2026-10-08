@@ -28,6 +28,15 @@ private struct RasterSourceKey: Hashable {
     let name: String
     let resolver: ObjectIdentifier
 }
+/// Errors belong to one admitted decode, including its SVG viewport.
+private struct RasterDecodeIdentity: Hashable {
+    let generation: UInt64
+    let width: UInt32
+    let height: UInt32
+    let variant: UInt32
+    init(_ work: ExactRasterWork) { generation = work.generation; width = work.width; height = work.height; variant = work.variant }
+    init(_ demand: ExactRasterDemand) { generation = demand.generation; width = demand.width; height = demand.height; variant = demand.variant }
+}
 private final class RasterSource: RasterSourceOwner, @unchecked Sendable {
     let id: UInt64
     let key: RasterSourceKey
@@ -40,6 +49,7 @@ private final class RasterSource: RasterSourceOwner, @unchecked Sendable {
     var input: RasterInput?
     var cancellation = RasterCancellation()
     var failure: String?
+    var decodeFailures: [RasterDecodeIdentity: String] = [:]
     init(id: UInt64, name: String, resolver: AssetResolver) {
         self.id = id; key = RasterSourceKey(name: name, resolver: ObjectIdentifier(resolver)); self.resolver = resolver
     }
@@ -75,6 +85,10 @@ private final class RasterBackend: @unchecked Sendable {
     var metadataReads = 0
     var decoded = 0
     var refusals = 0
+    #if DEBUG
+    /// Pause a successful worker before failure cleanup and publication.
+    var testBeforeComplete: (() -> Void)?
+    #endif
     private var budgetNotice: [UInt64] = []
     init(id: UInt64, sourceLimit: Int = defaultSourceLimit, metadataLimit: Int = 64) {
         self.id = id; self.sourceLimit = sourceLimit; self.metadataLimit = metadataLimit
@@ -148,6 +162,10 @@ private final class RasterBackend: @unchecked Sendable {
     func metadata(_ source: RasterSource) -> (RasterMetadata?, String?) {
         lock.lock(); defer { lock.unlock() }; return (source.metadata, source.failure)
     }
+    func decodeFailure(_ source: RasterSource, _ identity: RasterDecodeIdentity?) -> String? {
+        lock.lock(); defer { lock.unlock() }
+        return identity.flatMap { source.decodeFailures[$0] }
+    }
     func inspectOne() -> Bool {
         lock.lock()
         let source = stopped || paused ? nil : sources.values.compactMap(\.value).filter { $0.users > 0 && !$0.inspecting && $0.metadata == nil && $0.failure == nil }.min { $0.id < $1.id }
@@ -191,11 +209,25 @@ private final class RasterBackend: @unchecked Sendable {
             // Decode scope drops encoded data, source and staging before complete.
             let image: RasterImage = try autoreleasepool {
                 let bytes = try withExtendedLifetime(resolver) { try input.bytes() }
-                let plan = try RasterDecodePlan(metadata: metadata, maxPixel: Int(max(work.width, work.height)), variant: work.variant)
+                let viewport = metadata.svg ? CGSize(width: CGFloat(Float(bitPattern: UInt32(truncatingIfNeeded: work.generation >> 32))),
+                    height: CGFloat(Float(bitPattern: UInt32(truncatingIfNeeded: work.generation)))) : nil
+                let plan = try RasterDecodePlan(metadata: metadata, maxPixel: Int(max(work.width, work.height)), variant: work.variant, svgViewport: viewport)
                 guard plan.width == work.width, plan.height == work.height else { throw RasterFailure.reservation }
                 guard exact_raster_is_cancelled(work.permit) == 0 else { throw RasterFailure.decode }
                 return try RasterImage.decode(bytes, metadata: metadata, plan: plan, charge: charge, sourceOwner: source, url: input.url)
             }
+            #if DEBUG
+            lock.lock(); let beforeComplete = testBeforeComplete; lock.unlock()
+            beforeComplete?()
+            #endif
+            // Cleanup precedes publication and shares the failure writer's
+            // lock. A cancelled older permit cannot erase a newer attempt's
+            // named error for the same decode identity.
+            lock.lock()
+            if exact_raster_is_cancelled(work.permit) == 0 {
+                source.decodeFailures.removeValue(forKey: RasterDecodeIdentity(work))
+            }
+            lock.unlock()
             let owner = UInt64(UInt(bitPattern: Unmanaged.passRetained(image).toOpaque()))
             _ = exact_raster_complete(work.permit, owner, { value in
                 if let pointer = UnsafeRawPointer(bitPattern: UInt(value)) {
@@ -204,8 +236,17 @@ private final class RasterBackend: @unchecked Sendable {
             }, UInt64(image.residentBytes))
             lock.lock(); decoded += 1; lock.unlock()
         } catch {
+            // Set before the core's failure is visible; canceled workers do
+            // not change another observer's decode or shared source metadata.
+            lock.lock()
+            if exact_raster_is_cancelled(work.permit) == 0 {
+                let identity = RasterDecodeIdentity(work)
+                if source.decodeFailures.count >= 64, source.decodeFailures[identity] == nil,
+                   let oldest = source.decodeFailures.keys.first { source.decodeFailures.removeValue(forKey: oldest) }
+                source.decodeFailures[identity] = String(describing: error)
+            }
+            refusals += 1; lock.unlock()
             exact_raster_fail(work.permit)
-            lock.lock(); refusals += 1; lock.unlock()
         }
         wake()
     }
@@ -344,6 +385,8 @@ final class RasterLoader {
         var variant = RasterVariant.own8
         var requestedPixel = 0
         var offeredPixel = 0
+        var offeredViewport: CGSize?
+        var decodeIdentity: RasterDecodeIdentity?
         var failure: String?
         var delivered = false
         /// Its `load` or `error` went out: once per source, as `<img>`'s.
@@ -377,6 +420,10 @@ final class RasterLoader {
     private(set) var testReconciliations = 0
     /// Stands in for the core's request: a request id, or 0 and its refusal.
     var testRequest: ((ExactRasterDemand) -> (request: UInt64, refusal: UInt64?))?
+    var testBeforeComplete: (() -> Void)? {
+        get { backend.lock.lock(); defer { backend.lock.unlock() }; return backend.testBeforeComplete }
+        set { backend.lock.lock(); backend.testBeforeComplete = newValue; backend.lock.unlock() }
+    }
     #endif
     init(budget: UInt64 = RasterLoader.minimumBudget,
          sourceLimit: Int = 1152, metadataLimit: Int = 64) {
@@ -484,9 +531,29 @@ final class RasterLoader {
     func trimCold() { backend.trim() }
     func resized(_ view: NodeView) {
         guard let interest = interests[view.id], interest.offeredPixel > 0 else { return }
-        let pixel = requestedPixel(view, backend.metadata(interest.source).0)
+        let metadata = backend.metadata(interest.source).0
+        if let metadata, metadata.svg, Self.svgViewport(view, metadata) != interest.offeredViewport {
+            retry(view.id); return
+        }
+        let pixel = requestedPixel(view, metadata)
         // Avoid re-decoding for every one-pixel live resize or small rounding.
         if pixel > interest.offeredPixel * 5 / 4 || pixel * 5 / 4 < interest.offeredPixel { retry(view.id) }
+    }
+    private static func svgViewport(_ view: NodeView, _ metadata: RasterMetadata) -> CGSize {
+        let uniform = view.number("border_width")
+        let content = view.bounds.insetBy(
+            left: view.number("border_width_left", uniform) + view.number("padding_left"),
+            top: view.number("border_width_top", uniform) + view.number("padding_top"),
+            right: view.number("border_width_right", uniform) + view.number("padding_right"),
+            bottom: view.number("border_width_bottom", uniform) + view.number("padding_bottom"))
+        let size = content.width > 0 && content.height > 0
+            ? RasterGeometry.rect(natural: metadata.naturalSize, content: content, fit: view.style["object_fit"]?.string ?? "fill").size
+            : metadata.naturalSize
+        // Canonical Float values survive the worker/cache identity exactly.
+        return CGSize(width: CGFloat(Float(size.width)), height: CGFloat(Float(size.height)))
+    }
+    private static func svgGeneration(_ viewport: CGSize) -> UInt64 {
+        UInt64(Float(viewport.width).bitPattern) << 32 | UInt64(Float(viewport.height).bitPattern)
     }
     /// The decoded image's longest side: enough device pixels for the box
     /// at its object-fit (`cover` and `fill` scale the image until both axes
@@ -500,7 +567,10 @@ final class RasterLoader {
         #endif
         let box = view.bounds.size
         var longest = max(box.width, box.height)
-        if let natural = metadata?.naturalSize, natural.width > 0, natural.height > 0, box.width > 0, box.height > 0 {
+        if let metadata, metadata.svg {
+            let viewport = Self.svgViewport(view, metadata)
+            longest = max(viewport.width, viewport.height)
+        } else if let natural = metadata?.naturalSize, natural.width > 0, natural.height > 0, box.width > 0, box.height > 0 {
             let x = box.width / natural.width, y = box.height / natural.height
             let factor: CGFloat
             switch view.style["object_fit"]?.string ?? "fill" {
@@ -546,7 +616,8 @@ final class RasterLoader {
                     if let size = view.acceptRaster(lease, generation: item.generation) { landed.append((view, item.generation, size)); settle(&item, view) }
                     interests[viewID] = item
                 } else if state >= 100 {
-                    item.failure = Self.refusal(UInt64(state - 100)); settle(&item, view); interests[viewID] = item
+                    item.failure = backend.decodeFailure(item.source, item.decodeIdentity) ?? Self.refusal(UInt64(state - 100)); settle(&item, view)
+                    interests[viewID] = item
                     view.presenter?.session?.log("image deferred: \(item.failure!)")
                 }
                 if state != 2 || item.requestedPixel <= 1 { continue }
@@ -556,7 +627,7 @@ final class RasterLoader {
                 // unless it fits once the decodes holding reservations land:
                 // then it waits for them, at the size it asked for.
                 if let metadata = backend.metadata(item.source).0,
-                   let plan = try? RasterDecodePlan(metadata: metadata, maxPixel: item.requestedPixel, variant: item.variant),
+                   let plan = try? RasterDecodePlan(metadata: metadata, maxPixel: item.requestedPixel, variant: item.variant, svgViewport: item.offeredViewport),
                    plan.peakBytes <= available() { continue }
                 exact_raster_cancel(id, item.request); item.request = 0
                 item.requestedPixel = max(1, item.requestedPixel / 2)
@@ -572,31 +643,33 @@ final class RasterLoader {
             var pixel = item.requestedPixel > 0 ? min(offered, item.requestedPixel) : offered
             let available = available()
             let hdr = Self.wantsHDR(view, metadata)
-            var plan = Self.fit(metadata, pixel: pixel, available: available, hdr: hdr)
+            let viewport = metadata.svg ? Self.svgViewport(view, metadata) : nil
+            var plan = Self.fit(metadata, pixel: pixel, available: available, hdr: hdr, svgViewport: viewport)
             while pixel > 1 && (plan == nil || plan!.peakBytes > available) {
-                pixel = max(1, pixel / 2); plan = Self.fit(metadata, pixel: pixel, available: available, hdr: hdr)
+                pixel = max(1, pixel / 2); plan = Self.fit(metadata, pixel: pixel, available: available, hdr: hdr, svgViewport: viewport)
             }
             guard let plan else { item.failure = "decode plan too large"; settle(&item, view); interests[viewID] = item; continue }
             var demand = ExactRasterDemand()
             demand.view = UInt64(viewID); demand.view_generation = UInt64(item.generation)
-            demand.source = item.source.id; demand.generation = item.source.id
+            demand.source = item.source.id; demand.generation = viewport.map(Self.svgGeneration) ?? item.source.id
             demand.width = UInt32(plan.width); demand.height = UInt32(plan.height)
             #if os(macOS)
             demand.priority = view.visibleRect.isEmpty ? 1 : 0
             #else
             demand.priority = view.window.map { view.convert(view.bounds, to: $0).intersects($0.bounds) } == true ? 0 : 1
             #endif
-            demand.natural_width = UInt32(metadata.naturalSize.width); demand.natural_height = UInt32(metadata.naturalSize.height)
+            demand.natural_width = UInt32(ceil(metadata.naturalSize.width)); demand.natural_height = UInt32(ceil(metadata.naturalSize.height))
             demand.encoded_bytes = UInt64(metadata.encodedBytes); demand.header_bytes = UInt64(metadata.headerBytes)
             demand.stride = UInt64(plan.stride); demand.scratch_bytes = UInt64(plan.scratchBytes)
             demand.variant = plan.variant
+            item.decodeIdentity = RasterDecodeIdentity(demand)
             #if DEBUG
             let submitted = testRequest?(demand)
             item.request = submitted?.request ?? exact_raster_request(id, demand)
             #else
             item.request = exact_raster_request(id, demand)
             #endif
-            item.requestedPixel = pixel; item.offeredPixel = offered
+            item.requestedPixel = pixel; item.offeredPixel = offered; item.offeredViewport = viewport
             item.variant = plan.variant
             if item.request == 0 {
                 #if DEBUG
@@ -623,12 +696,12 @@ final class RasterLoader {
     /// The plan for a picture at `pixel` (LLP 1100 D7): HDR if wanted and it
     /// fits, else its own variant, else for a deep picture 8 bits before any
     /// resolution is given up.
-    private static func fit(_ metadata: RasterMetadata, pixel: Int, available: Int, hdr: Bool) -> RasterDecodePlan? {
-        if hdr, let shown = try? RasterDecodePlan(metadata: metadata, maxPixel: pixel, variant: RasterVariant.hdr),
+    private static func fit(_ metadata: RasterMetadata, pixel: Int, available: Int, hdr: Bool, svgViewport: CGSize?) -> RasterDecodePlan? {
+        if hdr, let shown = try? RasterDecodePlan(metadata: metadata, maxPixel: pixel, variant: RasterVariant.hdr, svgViewport: svgViewport),
            shown.peakBytes <= available { return shown }
-        let full = try? RasterDecodePlan(metadata: metadata, maxPixel: pixel)
+        let full = try? RasterDecodePlan(metadata: metadata, maxPixel: pixel, svgViewport: svgViewport)
         if let full, full.peakBytes <= available || !full.deep { return full }
-        return (try? RasterDecodePlan(metadata: metadata, maxPixel: pixel, variant: RasterVariant.reduced8)) ?? full
+        return (try? RasterDecodePlan(metadata: metadata, maxPixel: pixel, variant: RasterVariant.reduced8, svgViewport: svgViewport)) ?? full
     }
     private static func wantsHDR(_ view: NodeView, _ metadata: RasterMetadata) -> Bool {
         metadata.hdr && DisplayRange.showsHDR(view, limit: view.style["dynamic_range_limit"]?.string)
