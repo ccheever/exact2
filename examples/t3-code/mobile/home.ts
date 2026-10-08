@@ -3,6 +3,7 @@
 // @ref llp/1107.000-mobile-app-layout.decision.md#shared-typescript
 // @ref llp/1107.002-design-system-parity.spec.md#typography-and-font-assets
 import { mobileClient } from './client';
+import { homeApplyPending, mobileHomeOrder, type HomePendingOrder, type HomeOrderSnapshot } from './home-order';
 import type { HomeMenuItem } from './home-actions';
 import type { T3Client } from './shared/client';
 import { arr, obj, str, type Obj, type Shell } from './shared/domain';
@@ -17,6 +18,8 @@ import { capabilities, effectiveSnoozed, isWorkingThread, lastVisited, unseenCom
   sortSettled, sortSnoozed, sortWorkingThreadsBySend, settledTimestamp, type SidebarSection } from './shared/sidebar-model';
 
 export interface HomeOptions {
+  pendingOrder?: HomePendingOrder | null;
+  orderSnapshot?: HomeOrderSnapshot;
   query?: string; environmentId?: string; projectKey?: string; groupingMode?: string;
   projectSortOrder?: 'created_at' | 'updated_at'; selectedThreadKey?: string;
   workingEnabled?: boolean; workingExpanded?: boolean; snoozedExpanded?: boolean; settledExpanded?: boolean;
@@ -26,7 +29,7 @@ export interface HomeOptions {
   /** Message-search results must be scoped by environment, never just a server-local thread id. */
   messageMatches?: ReadonlyMap<string, Obj>;
 }
-export interface HomeSource { environmentId: string; label: string; machine: string; config: Obj; shell: Shell; focused: boolean }
+export interface HomeSource { environmentId: string; label: string; machine: string; config: Obj; shell: Shell; focused: boolean; origin?: string; connected?: boolean }
 export interface HomeProject { key: string; title: string; projectKeys: string[]; environmentId: string; projectId: string }
 export interface HomeItem {
   key: string; kind: string; id: string; environmentId: string; threadId: string; section: string; title: string;
@@ -34,12 +37,12 @@ export interface HomeItem {
   status: string; statusTone: string; time: string; error: string; card: boolean; pinned: boolean; queued: boolean;
   expanded: boolean; disabled: boolean; count: number; last: boolean; trailingDivider: boolean; selected: boolean;
   favicon: string; iconKind: string; iconText: string; iconColor: string; iconSurface: string; iconSize: number;
-  searchExcerpt: string; menuItems: HomeMenuItem[];
+  searchExcerpt: string; menuItems: HomeMenuItem[]; nativeMenu: string;
 }
 const blankItem = (key: string): HomeItem => ({ key, kind: 'thread', id: '', environmentId: '', threadId: '', section: '', title: '',
   projectTitle: '', projectPresent: false, branch: '', environmentLabel: '', machineSymbol: '', status: '', statusTone: '',
   time: '', error: '', card: false, pinned: false, queued: false, expanded: false, disabled: false, count: 0,
-  last: false, trailingDivider: false, selected: false, favicon: '', iconKind: '', iconText: '', iconColor: '', iconSurface: '', iconSize: 0, searchExcerpt: '', menuItems: [] });
+  last: false, trailingDivider: false, selected: false, favicon: '', iconKind: '', iconText: '', iconColor: '', iconSurface: '', iconSize: 0, searchExcerpt: '', menuItems: [], nativeMenu: '' });
 const scoped = (environmentId: string, id: unknown) => `${environmentId}:${str(id)}`;
 const timestamp = (value: unknown) => { const stamp = Date.parse(str(value)); return Number.isFinite(stamp) ? stamp : -Infinity; };
 const machineSymbols: Record<string, string> = { server: 'server.rack', cloud: 'cloud', linux: 'terminal', desktop: 'desktopcomputer', laptop: 'laptopcomputer', 'mac-mini': 'macmini', 'mac-studio': 'macstudio' };
@@ -56,11 +59,11 @@ export function mobileRelativeTime(value: unknown, now: number): string {
 export function mobileHomeSources(client: T3Client = mobileClient, background: EnvironmentFleet = fleet): HomeSource[] {
   const sources: HomeSource[] = [];
   if (client.environmentId && client.shellLoaded) sources.push({ environmentId: client.environmentId,
-    label: str(obj(client.config.environment).label), machine: machineKind(client.config), config: client.config, shell: client.shell, focused: true });
+    label: str(obj(client.config.environment).label), machine: machineKind(client.config), config: client.config, shell: client.shell, focused: true, origin: client.origin, connected: client.ready });
   for (const entry of background.entries.values()) {
     if (entry.environmentId === client.environmentId || entry.phase !== 'connected' || entry.synchronized !== entry.generation) continue;
     sources.push({ environmentId: entry.environmentId, label: str(obj(entry.config.environment).label), machine: machineKind(entry.config),
-      config: entry.config, shell: entry.shell, focused: false });
+      config: entry.config, shell: entry.shell, focused: false, origin: entry.origin, connected: true });
   }
   return sources;
 }
@@ -136,6 +139,8 @@ export function projectMobileHome(sources: HomeSource[], now: number, options: H
   // Shared sort helpers tie on raw thread id; stable input supplies mobile's environment-id tie.
   Object.values(parts).forEach(rows => rows.sort((left, right) => str(left.environmentId).localeCompare(str(right.environmentId))));
   parts.pinned = sortPinned(parts.pinned); parts.active = options.workingEnabled ? sortByReturn(parts.active) : sortActive(parts.active);
+  parts.pinned = homeApplyPending(parts.pinned, 'pinned', options.pendingOrder ?? null);
+  if (!options.workingEnabled) parts.active = homeApplyPending(parts.active, 'active', options.pendingOrder ?? null);
   parts.working = sortWorkingThreadsBySend(parts.working); parts.snoozed = sortSnoozed(parts.snoozed); parts.settled = sortSettled(parts.settled);
   const items: HomeItem[] = [], isSelected = (thread: Obj) => scoped(str(thread.environmentId), thread.id) === options.selectedThreadKey;
   const append = (thread: Obj, section: SidebarSection) => {
@@ -193,7 +198,8 @@ export function projectMobileHome(sources: HomeSource[], now: number, options: H
 export function mobileHome(now: number, options: HomeOptions = {}, client: T3Client = mobileClient, background: EnvironmentFleet = fleet) {
   const sources = mobileHomeSources(client, background);
   const matches = options.messageMatches ?? new Map((options.query?.trim() === client.query.trim() ? [...serverMatches(client)] : []).map(([id, match]) => [scoped(client.environmentId, id), match]));
-  const projection = projectMobileHome(sources, now, { ...options, messageMatches: matches });
+  const order = options.orderSnapshot ?? mobileHomeOrder(client, sources, now, options);
+  const projection = projectMobileHome(sources, now, { ...options, messageMatches: matches, pendingOrder: order.pending, queuedThreadKeys: order.queuedThreadKeys });
   projection.items.forEach(item => {
     if (item.kind !== 'thread' || item.environmentId !== client.environmentId) return;
     const raw = client.shell.threads.find(thread => thread.id === item.threadId);

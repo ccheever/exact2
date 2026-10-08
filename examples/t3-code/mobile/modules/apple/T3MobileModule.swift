@@ -133,6 +133,7 @@ final class T3MobileModule: ExactModule {
         informationLegal.configure(route)
     }
     override func element(_ element: ExactElement) {
+        if element.hatch == .mobileHomeRow { homeChrome.rowMenus.configure(element) }
         if element.hatch == .mobileReviewList || element.hatch == .mobileReviewRow { reviewViewport.configure(element) }
         if element.hatch == .mobileVoiceEditor {
             voice.editor.configure(element, owner: element.data[.mobileVoiceOwner] ?? "",
@@ -140,6 +141,7 @@ final class T3MobileModule: ExactModule {
         }
     }
     override func elementEnded(_ element: ExactElement) {
+        if element.hatch == .mobileHomeRow { homeChrome.rowMenus.end(element) }
         if element.hatch == .mobileReviewList || element.hatch == .mobileReviewRow { reviewViewport.end(element) }
         if element.hatch == .mobileVoiceEditor { voice.editor.end(element) }
     }
@@ -291,6 +293,7 @@ final class T3MobileModule: ExactModule {
 
     override func destroy() {
         alive = false
+        homeChrome.rowMenus.destroy()
         sheets.destroy()
         scratchClock.destroy()
         threadHeader.destroy()

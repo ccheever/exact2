@@ -12,6 +12,8 @@ import { capabilities, canSnooze, orderKeyBetween, sectionOf, sidebarVisible, sh
 import { snoozePresets } from './shared/sidebar-presentation';
 import { resolveRenameCommit } from './shared/shell-commands';
 import { mobileSessionGrants } from './mobile-grants';
+import { mobileHomeSources } from './home';
+import { homeCreatePending, homeReconcilePending, homeMovePlan, homeOrderKey, homeOrderState, mobileHomeOrder, type HomeOrderSnapshot, type HomeMoveDirection } from './home-order';
 
 export interface HomeMenuItem {
   id: string; parentId: string; label: string; operation: string; value: string; symbol: string; subtitle: string;
@@ -60,12 +62,14 @@ export function mobileHomeSnoozeSelection(operation: string, displayed: string, 
   return ['hour', 'three-hours', 'evening', 'tomorrow', 'next-week'].includes(id) && Date.parse(displayed) > now ? displayed : '';
 }
 
-/** Ordinary rows only. Reorder/swipes and the custom snooze picker are a later slice. */
+/** Ordinary rows only. Arrange, swipes and the custom snooze picker are later slices. */
 export function mobileHomeMenu(environmentId: string, threadId: string, now: number,
-  client: T3Client = mobileClient, background: EnvironmentFleet = fleet): HomeMenuItem[] {
+  client: T3Client = mobileClient, background: EnvironmentFleet = fleet, orderInput?: HomeOrderSnapshot): HomeMenuItem[] {
   const { environment, thread, allowed } = row(environmentId, threadId, client, background);
   if (!allowed || !environment || !thread) return [];
-  const caps = capabilities(environment.config), section = sectionOf(thread, caps, now, false), snoozed = section === 'snoozed';
+  const order = orderInput ?? mobileHomeOrder(client, mobileHomeSources(client, background), now);
+  const caps = capabilities(environment.config), queued = order.queuedThreadKeys.has(`${environmentId}:${threadId}`);
+  const section = sectionOf(queued ? { ...thread, settledOverride: null } : thread, caps, now, false), snoozed = section === 'snoozed';
   const items: HomeMenuItem[] = [];
   if (str(thread.branch)) items.push(item('new-thread-on-branch', 'New thread on branch', 'square.and.pencil'));
   items.push(item('copy-thread-id', 'Copy thread ID', 'doc.on.doc'));
@@ -76,6 +80,13 @@ export function mobileHomeMenu(environmentId: string, threadId: string, now: num
     items.push(item('snooze', 'Snooze', 'clock', { operation: '' }));
     for (const preset of mobileHomeSnoozePresets(now)) items.push(item(`snooze:${preset.id}`, preset.label, '', { parentId: 'snooze', value: preset.value, subtitle: preset.subtitle }));
     items.push(item('snooze:custom', 'Custom…', '', { parentId: 'snooze', disabled: true }));
+  }
+  const moveSection = thread.pinnedAt != null ? 'pinned' : 'active';
+  const movesSupported = moveSection === 'pinned' ? caps.pinReorder : !order.workingEnabled && caps.activeReorder;
+  if (!snoozed && section !== 'settled' && movesSupported) {
+    const available = order.availability.get(`${environmentId}:${threadId}`);
+    items.push(item('move-up', 'Move up', 'arrow.up', { disabled: available?.canMoveUp !== true }));
+    items.push(item('move-down', 'Move down', 'arrow.down', { disabled: available?.canMoveDown !== true }));
   }
   if (!snoozed && caps.pinning) items.push(thread.pinnedAt != null ? item('unpin', 'Unpin', 'pin.slash') : item('pin', 'Pin', 'pin'));
   items.push(item('rename', 'Rename', 'square.and.pencil'));
@@ -117,6 +128,7 @@ function reflected(pending: Uncertain, thread: Obj | undefined): boolean {
 /** A single root mutation owns prompt, permission check and actual command. */
 export async function mobileHomeAction(requestRoute: string, environmentId: string, threadId: string, kind: string, value: string, now: number,
   nativeInput?: Native | null, client: T3Client = mobileClient, background: EnvironmentFleet = fleet): Promise<HomeActionResult> {
+  if (kind === 'move-up' || kind === 'move-down') return mobileHomeMove(requestRoute, environmentId, threadId, kind === 'move-up' ? 'up' : 'down', now, nativeInput, client, background);
   const surface = surfaces.get(client), key = JSON.stringify([environmentId, threadId]), held = lockSet(client);
   const result = (message = '', nextLocation = '', archiveChanged = false, uncertain = false): HomeActionResult => ({
     revision: client.revision, requestRoute, message, alertTitle: message ? titleFor(kind) : '', nextLocation, archiveChanged, uncertain });
@@ -240,4 +252,118 @@ export async function mobileHomeAction(requestRoute: string, environmentId: stri
     return currentSurface() ? result((error instanceof Error ? error.message : 'The action could not be completed.')
       + (uncertain ? ' The request may have reached the server. Refresh the thread before retrying.' : ''), '', false, uncertain) : result();
   } finally { held.delete(key); client.revision++; }
+}
+
+/** Source moveThread: one shared order hold and sequential assignments across captured endpoints. */
+async function mobileHomeMove(requestRoute: string, environmentId: string, threadId: string, direction: HomeMoveDirection, now: number,
+  nativeInput: Native | null | undefined, client: T3Client, background: EnvironmentFleet): Promise<HomeActionResult> {
+  const surface = surfaces.get(client), state = homeOrderState(client), held = lockSet(client);
+  const currentSurface = () => !!surface && surfaces.get(client) === surface && surface.requestRoute === requestRoute && (surface.homeVisible || surface.sidebarVisible);
+  const result = (message = '', uncertain = false): HomeActionResult => ({ revision: client.revision, requestRoute, message,
+    alertTitle: message ? 'Could not move thread' : '', nextLocation: '', archiveChanged: false, uncertain });
+  if (!currentSurface()) return result();
+  const initial = row(environmentId, threadId, client, background);
+  if (!initial.allowed || !initial.thread || !nativeInput?.available) return result('This connection cannot change threads.');
+  const first = mobileHomeOrder(client, mobileHomeSources(client, background), now);
+  if (state.unknown) return result('The previous move may have reached the server. Wait for the thread order to refresh before trying again.', true);
+  if (first.blocked) return result();
+  const section = initial.thread.pinnedAt != null ? 'pinned' : 'active', movedId = `${environmentId}:${threadId}`;
+  if (section === 'active' && first.workingEnabled) return result();
+  if (!first.reorderable[section].has(environmentId)) return result("This environment's server does not support reordering these threads. Update the server to arrange them.");
+  const assignments = homeMovePlan({ ordered: first.sections[section], allThreads: first.threads, section,
+    reorderableEnvironmentIds: first.reorderable[section] }, movedId, direction);
+  if (!assignments) return result();
+  const byId = new Map(first.threads.map(thread => [homeOrderKey(thread), thread]));
+  const targets = assignments.map(assignment => ({ ...assignment, thread: byId.get(assignment.id)! }));
+  const lockKeys = [...new Set([JSON.stringify([environmentId, threadId]), ...targets.map(target => JSON.stringify([target.thread.environmentId, target.thread.id]))])];
+  if (lockKeys.some(key => held.has(key))) return result();
+  for (const key of lockKeys) {
+    const [targetEnvironmentId, targetThreadId] = JSON.parse(key) as [string, string];
+    const current = row(targetEnvironmentId, targetThreadId, client, background);
+    const sourceOrigin = current.environment?.focused ? client.origin : background.entries.get(current.environment?.key ?? '')?.origin ?? '';
+    const pendingKey = JSON.stringify([sourceOrigin, targetEnvironmentId, targetThreadId]), pending = uncertainSet(client).get(pendingKey);
+    if (!pending) continue;
+    if (current.environment?.connected && reflected(pending, current.thread)) uncertainSet(client).delete(pendingKey);
+    else return result('The previous request may have reached the server. Wait for the thread to refresh before trying again.', true);
+  }
+  for (const key of lockKeys) held.add(key);
+  state.busy = true; client.revision++;
+  const serial = ++state.serial, baseline = homeCreatePending(section, first.sections[section], movedId, direction, assignments, serial);
+  let published = false;
+  let inFlight: { target: typeof targets[number]; origin: string; sent: boolean; acknowledged: boolean; refused: boolean } | null = null;
+  try {
+    const base = letGoAware(mobileNative(nativeInput));
+    const environmentIds = [...new Set([environmentId, ...targets.map(target => str(target.thread.environmentId))])];
+    const endpoints = environmentIds.map(id => {
+      const source = row(id, str(first.threads.find(thread => thread.environmentId === id)?.id), client, background).environment;
+      if (!source?.connected) throw new ClientError('Reconnect before moving threads.');
+      const entry = source.focused ? undefined : background.entries.get(source.key);
+      return { id, focused: source.focused, key: source.key, entry, generation: source.focused ? client.generation : entry!.generation,
+        origin: source.focused ? client.origin : entry!.origin,
+        native: source.focused ? base : EnvironmentFleet.native(base, source.key) };
+    });
+    const check = () => {
+      if (!currentSurface()) throw new ClientError('The thread action changed.', 'superseded');
+      for (const endpoint of endpoints) {
+        const valid = endpoint.focused ? client.environmentId === endpoint.id && client.origin === endpoint.origin && client.generation === endpoint.generation && client.ready
+          : background.entries.get(endpoint.key) === endpoint.entry && endpoint.entry!.origin === endpoint.origin && endpoint.entry!.environmentId === endpoint.id
+            && endpoint.entry!.generation === endpoint.generation && endpoint.entry!.phase === 'connected' && endpoint.entry!.synchronized === endpoint.generation;
+        if (!valid) throw new ClientError('The connection changed. Refresh the thread order.', 'stale');
+      }
+      const snapshot = mobileHomeOrder(client, mobileHomeSources(client, background), now);
+      if (section === 'active' && snapshot.workingEnabled) throw new ClientError('');
+      if (published ? state.pending?.serial !== serial : homeReconcilePending(baseline, snapshot.sections[section]) === null)
+        throw new ClientError('The thread order changed. Try the move again.');
+      if (!row(environmentId, threadId, client, background).allowed) throw new ClientError('This connection cannot change threads.');
+      for (const target of targets) {
+        const current = row(str(target.thread.environmentId), str(target.thread.id), client, background);
+        if (!current.allowed || !current.thread) throw new ClientError('This connection cannot change threads.');
+        if (!snapshot.reorderable[section].has(str(target.thread.environmentId)))
+          throw new ClientError("This environment's server does not support reordering these threads. Update the server to arrange them.");
+      }
+    };
+    const call = async (endpoint: typeof endpoints[number], request: Obj) => {
+      check();
+      const writing = request.method === 'orchestration.dispatchCommand';
+      if (writing && inFlight) inFlight.sent = true;
+      const response = await bridgeReply(endpoint.native, { ...request, generation: endpoint.generation });
+      if (writing && inFlight) { inFlight.acknowledged = response.ok && response.generation === endpoint.generation; inFlight.refused = !response.ok && response.generation === endpoint.generation && response.error?.uncertain !== true; }
+      if (response.generation !== endpoint.generation) throw new ClientError('The connection changed. Refresh the thread order.', 'stale', writing && !response.ok);
+      if (!response.ok) throw new ClientError(response.error!.message, response.error!.kind, response.error!.uncertain);
+      check(); return response.value;
+    };
+    // Every assignment must have a current grant before a rewrite sends its first command.
+    for (const endpoint of endpoints) {
+      const session = await call(endpoint, { op: 'http', path: '/api/auth/session' });
+      if (!mobileSessionGrants(obj(session), 'orchestration:operate')) throw new ClientError('This connection cannot change threads.');
+    }
+    check();
+    try { await bridgeReply(base, { op: 'mobileHomeHaptic', kind: 'light' }); } catch (error) { if (letGo(error)) throw error; }
+    check(); state.pending = baseline; published = true; client.revision++;
+    for (const target of targets) {
+      const endpoint = endpoints.find(value => value.id === target.thread.environmentId)!;
+      const ids = await call(endpoint, { op: 'ids', count: 1 });
+      if (!Array.isArray(ids) || ids.length !== 1 || typeof ids[0] !== 'string' || !ids[0]) throw new ClientError('Could not allocate request identifiers.');
+      check();
+      inFlight = { target, origin: endpoint.origin, sent: false, acknowledged: false, refused: false };
+      await call(endpoint, { op: 'request', method: 'orchestration.dispatchCommand', payload: {
+        type: section === 'pinned' ? 'thread.pin.reorder' : 'thread.active.reorder', threadId: str(target.thread.id), orderKey: target.orderKey, commandId: ids[0] } });
+      inFlight = null;
+    }
+    if (state.pending?.serial === serial) state.pending = { ...state.pending, commandsComplete: true };
+    mobileHomeOrder(client, mobileHomeSources(client, background), now);
+    return result();
+  } catch (error) {
+    const uncertain = !!inFlight?.sent && !inFlight.acknowledged && !inFlight.refused;
+    if (uncertain && inFlight) state.unknown = { environmentId: str(inFlight.target.thread.environmentId), threadId: str(inFlight.target.thread.id),
+      origin: inFlight.origin, section, orderKey: inFlight.target.orderKey };
+    if (state.pending?.serial === serial) state.pending = null;
+    if (letGo(error)) throw error;
+    return currentSurface() ? result((error instanceof Error ? error.message : 'The thread could not be moved.')
+      + (uncertain ? ' The request may have reached the server. Wait for the thread order to refresh before trying again.' : ''), uncertain) : result();
+  } finally {
+    state.busy = false;
+    for (const key of lockKeys) held.delete(key);
+    client.revision++;
+  }
 }
