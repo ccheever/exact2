@@ -330,6 +330,18 @@ application root on a separate medium, not a platform override (LLP 1101
 D9, §Authoring models). No take was named; the ruling stands as its own
 waiver until Charlie names one.
 
+**Expanded (Charlie, 2026-10-08: "rec good", to admitting it under the
+terminal surface with a waiver; LLP 1101.003):** a terminal entry runs once
+from a shell. With `--print`, or when stdout is a pipe, it settles (LLP 1101.003
+D2, the command-line column of LLP 1113 D5), writes its rows, and exits. The
+argument list is its URL, the active `head`'s `status` is its exit status,
+`--json` writes its settled `state`, and one termination record decides how it
+ends. Unblocks scripting the coding harness (`harness --print --prompt "…"`),
+with `apps/todo` as the fixture. Implementer: a Claude (Opus 5.5) lane. The take
+is waived. Still out: stdin and file operands, `exact install` for terminal
+commands, writes on the location (`todo add milk`), and printing a GUI app
+(LLP 1101.003 D9; a GUI app's static form is LLP 1112).
+
 - **Windows.** A working Direct2D host exists in the old repo. It is real work, and it
   doubles the native matrix. **Admitted (Charlie, 2026-10-04):** "make an exact2
   implementation for the Windows platform, including the game engine" for standalone

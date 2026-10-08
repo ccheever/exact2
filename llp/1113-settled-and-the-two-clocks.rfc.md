@@ -267,12 +267,16 @@ Also out: superseded-outcome names (LLP 1111); publishable, fonts, strict
 refusal (LLP 1112); print mode's loop and exits (LLP 1101.003); frame pacing
 (LLP 1073); the Apple and web settle functions, built with their first consumer.
 
-## Questions for Charlie
+## Questions for Charlie, ruled
 
-1. A work budget of 16 passes for pictures and final captures (D3)?
-2. One new tool-call lock per `ExactApp`, all windows, consent included, held
-   past a timeout until owned work drains (D4)?
-3. Should a mid-test screenshot with `motion` in flight fail the test (D1)? r4 only reports it.
+**Ruled (Charlie, 2026-10-08: "recs seem like an ok place to start"),** as starting points that the prototype of LLP 1112 slice 2 (below) and real use may revise:
+
+1. **The work budget is 16 passes** for pictures and final captures (D3), the number `clock data` and `clock settle` already use. It is one named constant.
+2. **One tool-call lock per `ExactApp`,** across all windows, consent included, held past a timeout until the owned work drains (D4), **with a hard cap of 60 s.** After the cap the lock is released and the next call's certainty is `uncertain` (LLP 1111's outcome names). The cap is new in this ruling; r5 writes it into D4.
+3. **A mid-test screenshot with motion in flight reports it and does not fail** (D1). An author asserts on `motion` when it matters; a strict mode can come later. LLP 1012 is unchanged.
+4. **A background storage ticket (LLP 1097) does not hold a picture or a final capture.** The app's busy indicator (`aria-busy`) still does. r5 takes the background ticket out of D3's `quiet` for those two columns, and D4's tool-call refusal is unchanged.
+
+**Next (Charlie, 2026-10-08: "yeah do it"):** a time-boxed, throwaway prototype of LLP 1112 slice 2 (`exact render caltrain / --out card.png` on the Linux host) to test D3 against the round-4 findings: the hatch drain, the epilogue bypass, the symbol and image waits, the busy poll, and the landing ghost. r5 is written from what it finds.
 
 ## 7. Review dispositions
 
