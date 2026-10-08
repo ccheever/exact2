@@ -584,7 +584,7 @@ Compiler intrinsics and special forms additionally include:
 | --- | --- |
 | `offline` | A request the source made reached no server (no connection, DNS, TLS, a reset, the driver's `fail fetch`) and the source let the rejection through |
 | `timeout` | A request's deadline (`exactTimeout`) passed, let through |
-| `refused` | The host refused a request outside the app's grants, let through |
+| `refused` | The host refused a request outside the app's grants or admission limits, let through |
 | `shape` | The answer is outside the resource's declared shape |
 | `storage` | A storage call failed (a coded storage refusal: `denied`, `full`, `EBUSY`, a filesystem error, storage unavailable here), let through |
 | `error` | Anything else: the source's own error (a TypeScript `throw` or rejection, a Rust source's `Err`), an aborted request, a host that cannot make it, a module over its time budget |

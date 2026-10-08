@@ -1245,13 +1245,15 @@ impl<D: DataSource> Runner<D> {
         self.arm_then(result.is_ok());
         self.arm_next(result.is_ok());
         self.log_outcome(&what, &result, was_poisoned);
-        if refused && result.is_err() && self.holds(ticket) {
-            return self.release_refused(ticket, target);
-        }
-        if let Err(e @ (RunnerError::Data { .. } | RunnerError::Shape { .. })) = &result {
-            if self.holds(ticket) {
+        if let Err(e) = &result {
+            if (refused || matches!(e, RunnerError::Data { .. } | RunnerError::Shape { .. }))
+                && self.holds(ticket)
+            {
                 // The failure is in the journal (above); what the host needs now
                 // is the commit that takes the target out of `pending`.
+                // A refused request has no later reply, even when its shaped
+                // failure traps during settlement. Admission refusal alone
+                // cannot restart a source whose earlier turns may have written.
                 return self.release_failed(ticket, target, crate::failure::Failure::of(e));
             }
         }
