@@ -1195,6 +1195,16 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   platform's background, border and corners. `background-clip` and
   `background-attachment` alone keep the field native. (LLP 1104 r8 D2.)
 
+## Games
+
+- **Older saves refuse to restore after adding a generated model.** `restore` names it:
+  ``asset `…` identity is missing``. Cause: a model registered with `w.generated_model`
+  at setup is part of every later save's identity (`game/engine/README.md`, "Saves and
+  assets"), even one that only changes how a unit looks. Fix: a model that is only
+  appearance belongs in the bake, under `art/` (`Game::STREAMED` if setup need not wait
+  for it): a delivered model carries no save identity. (Skirmish's art trials, LLP
+  1046.012 F5, 2026-10-07.)
+
 ## Access hatches
 
 - **A view a hatch adds on macOS hears no click while its window is not key.**

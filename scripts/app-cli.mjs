@@ -30,6 +30,7 @@ export function appVerbs(name, dir, { host = 'web', game = false } = {}) {
     // A game's own: its hostless Rust tests and its proof's baseline (exact2's game/README.md).
     ...game ? {
       'test-rust': ['game/app/shells.mjs', dir, '--test'],
+      shells: ['game/app/shells.mjs', dir],
       lock: ['game/app/shells.mjs', dir, '--lock'],
       windows: ['host/windows/build.mjs', name],
       prove: ['game/prove.mjs', dir],

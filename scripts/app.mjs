@@ -174,15 +174,15 @@ export function patchLines(from) {
     `${name} = { path = ${JSON.stringify(pathFrom(from, resolve(ROOT, spec.path)))} }`);
 }
 
-/** How an outside workspace at `from` names a path in this checkout: relative
- * when the two share a directory below the filesystem root (a checkout beside
- * the app moves with it), absolute when they share nothing, where a relative
- * path would only climb to / and break the moment either moved. `from` must
- * exist; both are resolved through symlinks (macOS's /tmp is one). */
+/** How an outside workspace at `from` names a path in this checkout: relative, with `/`
+ * (Windows reads it; a Mac can't read Skirmish's `..\\exact2`), when the two share a directory
+ * below the root (a checkout beside the app moves with it), absolute when they share nothing,
+ * where a relative path would climb to / and break once either moved. `from` must exist;
+ * both are resolved through symlinks (macOS's /tmp is one). */
 export function pathFrom(from, to) {
   const [a, b] = [realpathSync(from), existsSync(to) ? realpathSync(to) : resolve(to)];
   const shared = a.split('/')[1] === b.split('/')[1] && a.split('/')[1] !== '';
-  return shared ? relative(a, b) || '.' : b;
+  return shared ? (relative(a, b) || '.').split(sep).join('/') : b;
 }
 
 /** An outside workspace's patches and toolchain, against this checkout's.

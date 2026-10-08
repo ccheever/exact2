@@ -345,6 +345,13 @@ Ports    none; send makes one HTTPS request. Runs to completion.`,
     body: 'Ports    none. Runs to completion: exit 1 when a test or lint fails.',
     example: 'bun exact.mjs test-rust',
   },
+  shells: {
+    line: 'write .shells/ without a build',
+    usage: 'bun exact.mjs shells',
+    flags: [],
+    body: 'For Cargo commands in render/ or another crate that names ../.shells.\nPorts    none. Runs to completion.',
+    example: 'bun exact.mjs shells',
+  },
   lock: {
     line: 'fetch (the network), resolve Cargo.lock again and print what changed',
     usage: 'bun exact.mjs lock',
