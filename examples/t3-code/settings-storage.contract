@@ -52,7 +52,7 @@ component StoragePanel
         SettingsSection(title="Worktrees", sectionId="storage-worktrees")
           when data.project
             SettingsRow(title="Automatic worktree cleanup", description=data.modeDescription, first=true, rowId="storage-row-mode")
-              SettingsSelect(selectId="storage-mode", label="Automatic worktree cleanup", valueLabel=data.modeLabel, width=104, disabled=busy, options=data.modes, choose=restInput("storage", "key=mode&value="))
+              SettingsSelect(selectId="storage-mode", label="Automatic worktree cleanup", valueLabel=data.modeLabel, value="", width=160, disabled=busy, options=data.modes, choose=restInput("storage", "key=mode&value="))
           each rule in data.worktrees key=`${data.scope}:${rule.key}:${rule.days}:${rule.enabled}`
             SettingsRow(title=rule.label, description=rule.description, first=rule.first, rowId=`storage-row-${rule.key}`)
               StorageControl(rule=rule, busy=busy, rest=rest, restInput=restInput)
