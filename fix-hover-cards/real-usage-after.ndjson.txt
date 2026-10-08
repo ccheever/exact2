@@ -1,0 +1,92 @@
+{"t":"2026-10-08T11:19:24.270Z","which":"after","step":"launched","appPid":22941,"part":"usage"}
+{"t":"2026-10-08T11:19:25.484Z","which":"after","step":"activate","out":"T3 Code (Exact) true | active: true front: T3 Code (Exact)"}
+{"t":"2026-10-08T11:19:25.515Z","which":"after","step":"front-window","top":"210131 layer=0 pid=22941 T3 Code (Exact) x=60 y=74 w=1280 h=840"}
+{"t":"2026-10-08T11:19:25.534Z","which":"after","step":"ready","what":"welcome","ms":18}
+{"t":"2026-10-08T11:19:25.762Z","which":"after","step":"tap","id":"welcome-pair"}
+{"t":"2026-10-08T11:19:30.818Z","which":"after","step":"tap","id":"welcome-add-computer"}
+{"t":"2026-10-08T11:19:30.974Z","which":"after","step":"tap","id":"welcome-pair"}
+{"t":"2026-10-08T11:19:36.093Z","which":"after","step":"tap","id":"welcome-continue"}
+{"t":"2026-10-08T11:19:37.685Z","which":"after","step":"tap","id":"welcome-agents-continue"}
+{"t":"2026-10-08T11:19:39.242Z","which":"after","step":"tap","id":"welcome-skip-import"}
+{"t":"2026-10-08T11:19:40.784Z","which":"after","step":"ready","what":"usage entry","ms":2}
+{"t":"2026-10-08T11:19:41.259Z","which":"after","step":"step","name":"usage"}
+{"t":"2026-10-08T11:19:41.467Z","which":"after","step":"tap","id":"open-usage"}
+{"t":"2026-10-08T11:19:44.551Z","which":"after","step":"tap","id":"usage-metric-limits"}
+{"t":"2026-10-08T11:19:47.240Z","which":"after","step":"activate","out":"T3 Code (Exact) true | active: true front: T3 Code (Exact)"}
+{"t":"2026-10-08T11:19:47.272Z","which":"after","step":"front-window","top":"210131 layer=0 pid=22941 T3 Code (Exact) x=60 y=74 w=1280 h=840"}
+{"t":"2026-10-08T11:19:53.108Z","which":"after","step":"glide","from":[482,135],"to":[642,165],"steps":55}
+{"t":"2026-10-08T11:19:53.828Z","which":"after","step":"hover-events","lines":["t=14500 pointerup view 1 (outsidePressUp#1) → epoch 25 (+0 −0 ~0)","t=14900 pointerdown view 1 (outsidePressDown#1) → epoch 26 (+0 −0 ~0)","t=14900 pointerup view 1 (outsidePressUp#1) → epoch 26 (+0 −0 ~0)","t=17900 pointerdown view 614 (pressDown#7226) → epoch 29 (+0 −0 ~0)","t=17900 pointerup view 614 (pressUp#7226) → epoch 29 (+0 −0 ~0)","t=19400 pointerdown view 1 (outsidePressDown#1) → epoch 29 (+0 −0 ~0)","t=19400 pointerup view 1 (outsidePressUp#1) → epoch 29 (+0 −0 ~0)","t=19400 hover in view 714 (enterSeg#7226) → epoch 30 (+36 −0 ~1)"]}
+{"t":"2026-10-08T11:19:53.833Z","which":"after","step":"visible","id":"usage-seg-pop-0-0-0","inert":false}
+{"t":"2026-10-08T11:19:53.836Z","which":"after","step":"card-box","x":497,"y":187,"w":288,"h":251.5}
+{"t":"2026-10-08T11:19:53.934Z","which":"after","step":"shot","name":"21-usage-popover"}
+{"t":"2026-10-08T11:19:56.250Z","which":"after","step":"glide","from":[642,165],"to":[642,227],"steps":21}
+{"t":"2026-10-08T11:19:57.189Z","which":"after","step":"visible","id":"usage-seg-pop-0-0-0","inert":false}
+{"t":"2026-10-08T11:19:57.284Z","which":"after","step":"shot","name":"22-pointer-in-usage-popover"}
+{"t":"2026-10-08T11:20:00.021Z","which":"after","step":"glide","from":[642,227],"to":[568,234],"steps":25}
+{"t":"2026-10-08T11:20:00.773Z","which":"after","step":"mail-events","mail":{"x":514,"y":226,"w":108.8,"h":16.5},"lines":["t=21000 hover out view 902 (hover#7329) → epoch 63 (+0 −3 ~2)","t=21000 hover in view 891 (enterPop#7226) → epoch 63 (+0 −0 ~0)","t=21000 hover out view 891 (enterPop#7226) → epoch 63 (+0 −0 ~0)","t=21000 hover in view 902 (hover#7329) → epoch 64 (+3 −0 ~2)","t=21000 hover out view 902 (hover#7329) → epoch 65 (+0 −3 ~2)","t=21000 hover in view 891 (enterPop#7226) → epoch 65 (+0 −0 ~0)","t=21000 hover out view 891 (enterPop#7226) → epoch 65 (+0 −0 ~0)","t=21000 hover in view 902 (hover#7329) → epoch 66 (+3 −0 ~2)","t=21000 hover out view 902 (hover#7329) → epoch 67 (+0 −3 ~2)","t=21000 hover in view 891 (enterPop#7226) → epoch 67 (+0 −0 ~0)"]}
+{"t":"2026-10-08T11:20:00.782Z","which":"after","step":"present","id":"usage-seg-email-0-0-0-tip","v":false}
+{"t":"2026-10-08T11:20:00.883Z","which":"after","step":"shot","name":"23-pointer-on-email"}
+{"t":"2026-10-08T11:20:01.466Z","which":"after","step":"email-text","keys":"text,testId"}
+{"t":"2026-10-08T11:20:01.473Z","which":"after","step":"visible","id":"usage-seg-pop-0-0-0","inert":false}
+{"t":"2026-10-08T11:20:01.561Z","which":"after","step":"shot","name":"24-email-revealed"}
+{"t":"2026-10-08T11:20:14.316Z","which":"after","step":"glide","from":[568,234],"to":[935,234],"steps":123}
+{"t":"2026-10-08T11:20:14.729Z","which":"after","step":"visible","id":"usage-seg-pop-0-0-0","inert":true}
+{"t":"2026-10-08T11:20:14.808Z","which":"after","step":"shot","name":"25-usage-popover-left"}
+{"t":"2026-10-08T11:20:25.337Z","which":"after","step":"glide","from":[935,234],"to":[642,165],"steps":101}
+{"t":"2026-10-08T11:20:26.051Z","which":"after","step":"visible","id":"usage-seg-pop-0-0-0","inert":false}
+{"t":"2026-10-08T11:20:28.381Z","which":"after","step":"glide","from":[642,165],"to":[642,227],"steps":21}
+{"t":"2026-10-08T11:20:28.918Z","which":"after","step":"press-spot","x":499,"y":276,"padding":true}
+{"t":"2026-10-08T11:20:34.314Z","which":"after","step":"glide","from":[642,227],"to":[499,276],"steps":51}
+{"t":"2026-10-08T11:20:34.654Z","which":"after","step":"visible","id":"usage-seg-pop-0-0-0","v":"absent"}
+{"t":"2026-10-08T11:20:34.804Z","which":"after","step":"click","at":[499,276]}
+{"t":"2026-10-08T11:20:35.428Z","which":"after","step":"visible","id":"usage-seg-pop-0-0-0","v":"absent"}
+{"t":"2026-10-08T11:20:35.433Z","which":"after","step":"expanded","segs":[["usage-seg-0-0-0",false],["usage-seg-0-0-1",false],["usage-seg-0-1-0",true],["usage-seg-0-1-1",false],["usage-seg-1-0-0",false],["usage-seg-1-1-0",false]]}
+{"t":"2026-10-08T11:20:35.517Z","which":"after","step":"shot","name":"22b-press-on-popover-padding"}
+{"t":"2026-10-08T11:20:49.428Z","which":"after","step":"glide","from":[499,276],"to":[127,130],"steps":134}
+{"t":"2026-10-08T11:20:49.581Z","which":"after","step":"click","at":[127,130]}
+{"t":"2026-10-08T11:20:50.104Z","which":"after","step":"visible","id":"usage-seg-pop-0-0-0","v":"absent"}
+{"t":"2026-10-08T11:20:50.104Z","which":"after","step":"step","name":"handed-over"}
+{"t":"2026-10-08T11:20:51.273Z","which":"after","step":"activate","out":"T3 Code (Exact) true | active: true front: T3 Code (Exact)"}
+{"t":"2026-10-08T11:20:51.305Z","which":"after","step":"front-window","top":"210131 layer=0 pid=22941 T3 Code (Exact) x=60 y=74 w=1280 h=840"}
+{"t":"2026-10-08T11:20:57.120Z","which":"after","step":"glide","from":[482,135],"to":[642,165],"steps":55}
+{"t":"2026-10-08T11:20:57.282Z","which":"after","step":"click","at":[642,165]}
+{"t":"2026-10-08T11:20:57.803Z","which":"after","step":"visible","id":"usage-seg-pop-0-0-0","inert":false}
+{"t":"2026-10-08T11:20:57.883Z","which":"after","step":"shot","name":"26-pinned"}
+{"t":"2026-10-08T11:20:57.892Z","which":"after","step":"sidebar-press","at":[127.495,130]}
+{"t":"2026-10-08T11:21:15.706Z","which":"after","step":"glide","from":[642,165],"to":[127,130],"steps":172}
+{"t":"2026-10-08T11:21:15.868Z","which":"after","step":"click","at":[127,130]}
+{"t":"2026-10-08T11:21:16.392Z","which":"after","step":"after-sidebar-press","expanded":false}
+{"t":"2026-10-08T11:21:16.397Z","which":"after","step":"visible","id":"usage-seg-pop-0-0-0","inert":true}
+{"t":"2026-10-08T11:21:16.477Z","which":"after","step":"shot","name":"27-after-sidebar-press"}
+{"t":"2026-10-08T11:21:34.281Z","which":"after","step":"glide","from":[127,130],"to":[642,165],"steps":172}
+{"t":"2026-10-08T11:21:34.455Z","which":"after","step":"click","at":[642,165]}
+{"t":"2026-10-08T11:21:34.978Z","which":"after","step":"visible","id":"usage-seg-pop-0-0-0","inert":false}
+{"t":"2026-10-08T11:21:35.134Z","which":"after","step":"click","at":[642,165]}
+{"t":"2026-10-08T11:21:35.970Z","which":"after","step":"visible","id":"usage-seg-pop-0-0-0","inert":true}
+{"t":"2026-10-08T11:21:36.052Z","which":"after","step":"shot","name":"28-second-press-resting"}
+{"t":"2026-10-08T11:21:36.390Z","which":"after","step":"glide","from":[642,165],"to":[642,167],"steps":2}
+{"t":"2026-10-08T11:21:36.917Z","which":"after","step":"visible","id":"usage-seg-pop-0-0-0","inert":true}
+{"t":"2026-10-08T11:21:39.670Z","which":"after","step":"activate","out":"T3 Code (Exact) true | active: true front: T3 Code (Exact)"}
+{"t":"2026-10-08T11:21:39.703Z","which":"after","step":"front-window","top":"210131 layer=0 pid=22941 T3 Code (Exact) x=60 y=74 w=840 h=620"}
+{"t":"2026-10-08T11:21:44.473Z","which":"after","step":"glide","from":[504,243],"to":[624,183],"steps":45}
+{"t":"2026-10-08T11:21:44.638Z","which":"after","step":"click","at":[624,183]}
+{"t":"2026-10-08T11:21:45.263Z","which":"after","step":"visible","id":"usage-seg-pop-0-0-0","inert":false}
+{"t":"2026-10-08T11:21:45.267Z","which":"after","step":"legend-anchor","legend":{"x":449,"y":169,"w":350,"h":28},"card":{"x":480,"y":203,"w":288,"h":251.5},"covers":false}
+{"t":"2026-10-08T11:21:45.323Z","which":"after","step":"shot","name":"29-legend-pinned"}
+{"t":"2026-10-08T11:21:45.475Z","which":"after","step":"click","at":[624,183]}
+{"t":"2026-10-08T11:21:46.098Z","which":"after","step":"visible","id":"usage-seg-pop-0-0-0","inert":true}
+{"t":"2026-10-08T11:21:46.154Z","which":"after","step":"shot","name":"30-legend-second-press"}
+{"t":"2026-10-08T11:21:47.217Z","which":"after","step":"step","name":"model-row"}
+{"t":"2026-10-08T11:21:47.250Z","which":"after","step":"tap","id":"sidebar-back"}
+{"t":"2026-10-08T11:21:48.439Z","which":"after","step":"tap","id":"connection-settings"}
+{"t":"2026-10-08T11:21:50.023Z","which":"after","step":"tap","id":"setting-default-model-model"}
+{"t":"2026-10-08T11:21:52.736Z","which":"after","step":"activate","out":"T3 Code (Exact) true | active: true front: T3 Code (Exact)"}
+{"t":"2026-10-08T11:21:52.776Z","which":"after","step":"front-window","top":"210131 layer=0 pid=22941 T3 Code (Exact) x=60 y=74 w=1280 h=840"}
+{"t":"2026-10-08T11:21:52.798Z","which":"after","step":"row-button","id":"model-gpt-6-luna"}
+{"t":"2026-10-08T11:21:55.753Z","which":"after","step":"glide","from":[1159,307],"to":[1099,357],"steps":27}
+{"t":"2026-10-08T11:21:56.174Z","which":"after","step":"row-tips","tips":["model-row-tip-codex:gpt-6-luna"]}
+{"t":"2026-10-08T11:21:56.182Z","which":"after","step":"tip-box","x":647,"y":335.5,"w":320,"h":42}
+{"t":"2026-10-08T11:21:56.268Z","which":"after","step":"shot","name":"31-unavailable-row"}
+{"t":"2026-10-08T11:21:59.215Z","which":"after","step":"glide","from":[1099,357],"to":[1159,307],"steps":27}
+{"t":"2026-10-08T11:21:59.539Z","which":"after","step":"row-tips-after-leave","tips":[]}
+{"t":"2026-10-08T11:21:59.539Z","which":"after","step":"done","appPid":22941}
