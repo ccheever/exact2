@@ -10,9 +10,10 @@
 //!   table it reads is synced), `"server"` when it reads an `online only`
 //!   table or view and the server answers it (`POST /q/<name>`).
 //! - `write {name, args, now, key?}`: admit a write and its prediction;
-//!   `{id, state:"pending", newIds}` or `{id, state:"failed", why}`. With an
-//!   idempotency `key` the id derives from it, and asking again answers what
-//!   became of the first; `write_id {key}` names that id without writing.
+//!   `{id, state:"pending", newIds}` or `{id, state:"failed", why}`, final:
+//!   never sent, and `outcome` and `refusals` answer it. With an idempotency
+//!   `key` the id derives from it, and asking again answers what became of
+//!   the first; `write_id {key}` names that id without writing.
 //! - `persist`: save outcomes handed over with `hold`, without the network.
 //! - `sync`, then `deliver {exchange, reply:{status, body}|{error}}` while the
 //!   answer is `{fetch:{method, path, body?, exchange}}`; `{done:{ok, offline?,
@@ -25,7 +26,8 @@
 //! `now` is milliseconds since the epoch, fractions allowed (floored); a
 //! write requires it.
 //! - `outcome {id}`, `status`, `close`.
-//! - `refusals`: the writes the server refused, with their input, kept until
+//! - `refusals`: the refused writes (the server's verdicts and the device's
+//!   at `write`), with their input, kept until
 //!   `dismiss {ids?}` (no ids: all).
 //! - `held` and `hold {held}`: the server's outcomes not yet saved, carried to
 //!   a rebuilt device (the web's, after a failed save).

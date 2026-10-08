@@ -24,36 +24,14 @@ pub(crate) const HISTORY: &str = "write-history";
 /// Record a refused write in the journal (once per id), before its entry —
 /// and with it the input — is retired. The journal's layout is `journal.rs`'s.
 async fn journal(io: &Io, entry: &Json, outcome: &Json) -> Result<()> {
-    use crate::journal::{fits, index, index_text, segment, segment_key, stored, INDEX};
-    let id = entry["id"].as_str().unwrap_or_default();
+    use crate::journal::{append, index, segment, segment_key, INDEX};
     let read = |key: String| io.device(json!({"op": "meta", "key": key}));
-    let mut segments = index(&read(INDEX.into()).await.map_err(denied)?);
-    let mut last = Vec::new();
-    for n in &segments {
-        last = segment(&read(segment_key(*n)).await.map_err(denied)?);
-        if last.iter().any(|known| known["id"] == id) {
-            return Ok(());
-        }
+    let mut kept = Vec::new();
+    for n in index(&read(INDEX.into()).await.map_err(denied)?) {
+        kept.push((n, segment(&read(segment_key(n)).await.map_err(denied)?)));
     }
-    let op = entry["op"].as_str().unwrap_or_default();
-    let refused = stored(json!({"id": id, "op": op, "args": entry["args"],
-        "input": crate::client::input_key(op, &entry["args"]), "why": outcome["why"], "at": entry["now"]}));
-    let n = match segments.last() {
-        Some(n) if fits(&last, &refused) => *n,
-        _ => {
-            last = Vec::new();
-            segments.iter().max().map_or(0, |n| n + 1)
-        }
-    };
-    last.push(refused);
-    io.device(
-        json!({"op": "set_meta", "key": segment_key(n), "value": Json::Array(last).to_string()}),
-    )
-    .await
-    .map_err(denied)?;
-    if !segments.contains(&n) {
-        segments.push(n);
-        io.device(json!({"op": "set_meta", "key": INDEX, "value": index_text(&segments)}))
+    for (key, value) in append(&kept, crate::journal::entry(entry, &outcome["why"])) {
+        io.device(json!({"op": "set_meta", "key": key, "value": value}))
             .await
             .map_err(denied)?;
     }

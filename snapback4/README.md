@@ -278,6 +278,19 @@ const renewed = await db.refreshSession(now);          // near expiresAt: keep r
   `why` (the refusal's code, such as one the mutation `require`s), or
   `pending` while unsent. `refusals()` lists every refused write with its
   input until `dismiss()`.
+- **A write the device refuses fails at once, and that is final.** When the
+  device's own rows refuse a write as the server would (a row rule's
+  `E_RULE`, a `require` code such as `NOT_LEAD` over synced rows), `write()`
+  answers `{state: 'failed', why}` and, as Snapback's own client does, never
+  sends it. `outcome(id)` answers `failed` with that `why`, and `refusals()`
+  lists it until dismissed, exactly like a refusal the server gave, so an
+  app that reports the outcome never reports a refused write as done. If
+  the device's rows may be stale (the viewer was just made a lead
+  elsewhere), `sync()` and write again: that is a new write. A keyed write
+  (`write(name, args, now, key)`) is not refused by a prediction: it queues
+  and the server decides. The same key with other input answers
+  `E_WRITE_ID_REUSE` to that call only; `outcome(id)` stays the first
+  write's.
 - **Offline.** `sync()` resolves `{ok: false, offline: true}`; writes are kept
   and predicted (`pending: true` rows) and sent by the next round that
   reaches the server, once each.
