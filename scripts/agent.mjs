@@ -1370,6 +1370,7 @@ async function main(argv) {
     for (const t of r.results) {
       console.log(`test "${t.name}": ${t.failures.length ? 'FAIL' : 'ok'}`);
       for (const f of t.failures) console.error('  ' + f);
+      for (const n of t.notes ?? []) console.error(`  note: ${n}`);
     }
     console.log(`${r.passed} passed, ${r.failed} failed`);
     return r.failed ? 1 : 0;

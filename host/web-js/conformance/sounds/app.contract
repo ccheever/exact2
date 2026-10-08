@@ -40,20 +40,20 @@ component Sounds
   state ticks = 0
   action start
     playing = true
-    playSounds(window(nearby, now(), now() + 100))
-    scheduledTo = now() + 100
+    playSounds(window(nearby, performanceNow(), performanceNow() + 100))
+    scheduledTo = performanceNow() + 100
   action tick
     if playing
-      playSounds(window(nearby, scheduledTo, now() + 100))
-      scheduledTo = now() + 100
+      playSounds(window(nearby, scheduledTo, performanceNow() + 100))
+      scheduledTo = performanceNow() + 100
       ticks = ticks + 1
   action halt
     playing = false
     stopSounds()
   action choke
-    playSound("assets/hat.wav", at=now() + 60, group="hat")
-    playSound("assets/hat.wav", at=now() + 20, gain=0.5, group="hat")
-    playSound("assets/kick.wav", at=now() + 20, gain=0.25, group="hat")
+    playSound("assets/hat.wav", at=performanceNow() + 60, group="hat")
+    playSound("assets/hat.wav", at=performanceNow() + 20, gain=0.5, group="hat")
+    playSound("assets/kick.wav", at=performanceNow() + 20, gain=0.25, group="hat")
     stopSounds(group="none")
   action flood
     playSound("assets/kick.wav")

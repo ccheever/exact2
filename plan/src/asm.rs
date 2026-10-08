@@ -192,6 +192,12 @@ impl Asm {
         self.op(Opcode::FailedResource, &[Arg::Idx(r.0)])
     }
 
+    /// Push `none`, or `some` of why a resource's latest request for its
+    /// current arguments failed (LLP 1109 D3).
+    pub fn failure_resource(&mut self, r: ResourcesId) -> &mut Self {
+        self.op(Opcode::FailureResource, &[Arg::Idx(r.0)])
+    }
+
     /// Pop into the locals stack.
     pub fn bind_local(&mut self) -> &mut Self {
         self.simple(Opcode::BindLocal)

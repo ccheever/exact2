@@ -331,7 +331,7 @@ const WEB_HOST_GROUPS = {
     'motion-glue.js', 'group-glue.js', 'collection-glue.js', 'canvas2d-glue.js', 'presence-glue.js', 'picker-glue.js',
     'documents-glue.js', 'auth-glue.js', 'image-glue.js', 'geometry-glue.js', 'resize-glue.js', 'notify-glue.js', 'sound-glue.js'],
   module: ['module-glue.js', 'module-worker.js', 'module-prelude.js'],
-  storage: ['storage-request.js', 'storage.js', 'storage-environment.js', 'storage-fs.js', 'storage-sqlite.js',
+  storage: ['storage-request.js', 'storage.js', 'storage-environment.js', 'storage-fs.js', 'storage-image.js', 'storage-sqlite.js',
     'storage-worker.js', 'sqlite3.mjs', 'sqlite3.wasm'],
   rust: ['rust-glue.js'],
   gpu: ['gpu-glue.js', 'pace.js', 'gpu-assets.js'],
@@ -1358,7 +1358,7 @@ export function classifyArtifacts(candidate, cohort, signingKey = null) {
     } else if(key==='gpuSurfaces') {
       for(const surface of need) if(!have.gpuSurfaces?.some(s=>canonicalBuild(s)===canonicalBuild(surface))) fail(`.${surface.name} (interface ${surface.interface})`);
     } else if(key==='executors'||key==='hatches') { for(const item of need) if(!have[key]?.includes(item)) fail(key==='hatches'?`.${item} (handled by this platform's module, not by the installed one)`:`.${item}`); // hatches: LLP 1075.003.000.001 §4.3, a cohort from before the capability handles none
-    } else if(key==='grantCeiling') {
+    } else if(key==='typescriptRuntime') { if(!((have[key]??0)>=need)) fail(` (requires a prelude of runtime ${need} or later; this cohort's is ${have[key]??0})`); /* LLP 1108 D6 R2: an older prelude ignores exactBodyFrom */ } else if(key==='grantCeiling') {
       const grants=new Set((have.grantCeiling??'').split('\n').filter(Boolean));
       if(need===null||have.grantCeiling===null) fail(' (unknown baked grants)');
       else for(const grant of need.split('\n').filter(Boolean)) if(!grants.has(grant)) fail(` (${grant})`);

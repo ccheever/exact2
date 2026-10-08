@@ -298,6 +298,11 @@ impl<D: DataSource> Host<D> {
         host.runner
             .set_canvas_limits(exact_runner::Limits::native(physical_memory(), false));
         host.runner.set_row_reuse(crate::app::row_reuse());
+        // `EXACT_ROW_MEMO=0`: each list row laid out by its own algorithm
+        // (Taffy patch 29 off), to compare.
+        if std::env::var("EXACT_ROW_MEMO").is_ok_and(|v| v == "0") {
+            host.runner.kernel_mut().set_row_layout_memo(false);
+        }
         // The engine hears the whole tree once: values, no transitions; an
         // `animation` starts now, as a browser starts one on a new element.
         host.lowering_from_env();
@@ -717,6 +722,9 @@ impl<D: DataSource> Host<D> {
     /// also wake (LLP 1016.002).
     pub fn executor(&mut self) -> crate::executor::Executor {
         let executor = crate::executor::Executor::start(&self.grants());
+        if let Some(roots) = self.app_roots() {
+            executor.set_app_roots(roots);
+        }
         self.preload_wake.set(executor.waker());
         self.runner.listen(executor.waker());
         executor
@@ -735,6 +743,16 @@ impl<D: DataSource> Host<D> {
     /// The hosts the app may reach (LLP 1016 D6), as the data crate declares them.
     pub fn grants(&mut self) -> String {
         self.runner.data().grants().to_string()
+    }
+
+    /// The app's `app:/data`, `app:/cache` and `app:/tmp`, as storage
+    /// configures them, for a request whose body is one of its files (LLP
+    /// 1108 D6 R2); `None` with no app id, or a drive with no scratch store.
+    pub fn app_roots(&mut self) -> Option<[std::path::PathBuf; 3]> {
+        crate::picker::app_dirs(self.runner.data().app_id())
+            .ok()
+            .flatten()
+            .map(|(roots, _)| roots)
     }
 
     /// The requests the runner handed out since the last take (LLP 1016 D2).
@@ -842,7 +860,7 @@ impl<D: DataSource> Host<D> {
             self.log(refusal);
             return Some(refusal.into());
         }
-        // At the event's time: an action's `now()` is the host's (LLP 1096 D3).
+        // At the event's time: an action's `performanceNow()` is the host's (LLP 1096 D3).
         let a = crate::traced(c"exact dispatch", || {
             self.runner.dispatch_at(view, event, self.now_ms)
         });
@@ -1362,7 +1380,7 @@ impl<D: DataSource> Host<D> {
             let Some(view) = self.keys.get(&key).copied() else {
                 continue;
             };
-            if p.property == Property::Height {
+            if p.property == Property::Height || self.presents_nothing(view, &p) {
                 continue;
             }
             changed = true;
@@ -1401,6 +1419,31 @@ impl<D: DataSource> Host<D> {
             }
         }
         changed
+    }
+
+    /// Whether a value the engine restates is the committed style's own, for
+    /// a node nothing is presented for: a new or renewed node's transform and
+    /// opacity rows (four a node, every node of a rebound list row), which
+    /// show what the style shows.
+    fn presents_nothing(&self, view: ViewId, p: &exact_motion::Presentation) -> bool {
+        if self.presented.contains_key(&view) {
+            return false;
+        }
+        let Some(node) = self.runner.kernel().node(view) else {
+            return false;
+        };
+        let s = node.style;
+        let v = p.value;
+        match p.property {
+            Property::Translate => {
+                (s.translate.x, s.translate.y) == (v.x as f32, v.y as f32)
+                    && (s.translate_percent.x, s.translate_percent.y) == (v.z as f32, v.w as f32)
+            }
+            Property::Scale => s.scale == v.x as f32,
+            Property::Rotate => s.rotate == v.x as f32,
+            Property::Opacity => s.opacity == v.x as f32,
+            _ => false,
+        }
     }
 
     /// Every live node in preorder.

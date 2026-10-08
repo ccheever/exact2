@@ -33,7 +33,7 @@ pub(crate) fn request_refusal(request: &exact_runner::Request) -> Option<&'stati
             return Some("independent HTTP response limit must be 1..=64 MiB");
         }
     }
-    request.timeout_refusal()
+    request.timeout_refusal().or(request.body_from_refusal())
 }
 
 pub(crate) fn quote(s: &str, out: &mut String) {
@@ -610,7 +610,14 @@ impl Batch {
             quote(v, &mut s);
             s.push(']');
         }
-        s.push_str("],\"body\":\"");
+        s.push(']');
+        // `exactBodyFrom` (LLP 1108 D6 R2): the page reads the app file
+        // into the body (http-body.js), under the request's grants.
+        if let Some(path) = &r.request.body_from {
+            s.push_str(",\"bodyFrom\":");
+            quote(path, &mut s);
+        }
+        s.push_str(",\"body\":\"");
         s.push_str(&exact_runner::agent::base64(&r.request.body));
         s.push_str("\",\"cache\":\"");
         s.push_str(if r.forced { "reload" } else { "default" });

@@ -169,7 +169,9 @@ export function parseFlags(argv) {
   return { flags, rest };
 }
 
-/** LLP 1027.000.000 D3: the date at the agent clock's zero, unless the drive names one. */
+/** LLP 1027.000.000 D3: the date at the agent clock's zero, unless the drive names one.
+ * `now` names the machine's clock, read once at launch: a drive against a live backend
+ * (Snapback 4's dev server runs on real time) dates what it shows and writes as the server does. */
 export const AGENT_EPOCH = '2026-01-01T00:00:00Z';
 
 /** A page script that holds what a comparison of two pages must hold equal, on every carrier:
@@ -235,10 +237,10 @@ export const faultSpecOf = faults => (faults ?? []).map(f => [f.prefix, f.times 
 
 export function launchFacts({seed, locale, timeZone, epoch, failFetch, env = {}}) {
   seed = Number(seed ?? env.EXACT_AGENT_SEED ?? 1);
-  // An ISO date or Unix milliseconds; hosts are told milliseconds.
+  // An ISO date, Unix milliseconds or `now` (the machine's clock, read here, once); hosts are told milliseconds.
   epoch = String(epoch ?? env.EXACT_AGENT_EPOCH ?? AGENT_EPOCH);
-  epoch = /^\d+$/.test(epoch) ? Number(epoch) : /^\d{4}-\d\d-\d\d(T|$)/.test(epoch) ? Date.parse(epoch) : NaN;
-  if (!Number.isSafeInteger(epoch) || epoch < 0) throw new Error('epoch: an ISO date or Unix milliseconds at or after 1970');
+  epoch = epoch === 'now' ? Date.now() : /^\d+$/.test(epoch) ? Number(epoch) : /^\d{4}-\d\d-\d\d(T|$)/.test(epoch) ? Date.parse(epoch) : NaN;
+  if (!Number.isSafeInteger(epoch) || epoch < 0) throw new Error('epoch: an ISO date, Unix milliseconds at or after 1970, or now');
   locale = locale ?? env.EXACT_AGENT_LOCALE ?? 'en-US';
   timeZone = timeZone ?? env.EXACT_AGENT_TIME_ZONE ?? 'UTC';
   if (!Number.isSafeInteger(seed) || seed < 0) throw new Error('seed: an integer from 0 through 2^53 - 1');

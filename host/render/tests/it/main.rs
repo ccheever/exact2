@@ -709,12 +709,12 @@ shape ClockAnswer
   at: number
 
 component Clock
-  state first = now()
-  resource observed = clock(now()) as shape ClockAnswer
+  state first = performanceNow()
+  resource observed = clock(performanceNow()) as shape ClockAnswer
   view
     column
       text `First ${first}`
-      text `Clock ${now()}`
+      text `Clock ${performanceNow()}`
       text `Resource ${observed.at}`
 "#,
     )

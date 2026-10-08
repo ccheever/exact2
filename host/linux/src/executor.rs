@@ -54,6 +54,11 @@ impl Executor {
         );
         Self { core, wake, note }
     }
+    /// Where the app's files are, for a request whose body is one of them
+    /// (LLP 1108 D6 R2): set before the first request.
+    pub fn set_app_roots(&self, roots: [std::path::PathBuf; 3]) {
+        self.core.set_app_roots(roots);
+    }
     /// A note for the journal: the transport's trust roots, and grants
     /// that do not parse.
     pub fn note(&self) -> Option<&str> {

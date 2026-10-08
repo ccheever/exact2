@@ -173,7 +173,7 @@ fn call_value(
                 Value::str(trimmed)
             }
         }
-        Stdlib::Now => Value::Number(now_ms),
+        Stdlib::PerformanceNow => Value::Number(now_ms),
         Stdlib::FormatTime => match args.get(2)?.as_str()? {
             "short" => format_time(num(0)?, num(1)?),
             _ => return None,

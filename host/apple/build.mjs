@@ -49,7 +49,7 @@ import { writeDataKeys } from './data-keys.mjs';
 import { appIcon, iosAssets, copyMacResources, signingOrder } from './assets.mjs';
 import { keptModules } from './modules.mjs';
 import { keptCrates } from './crates.mjs';
-import { appleComposition, assertLinkedSdk } from './link.mjs';
+import { appleComposition, assertLinkedSdk, linksByPlan } from './link.mjs';
 export { appIcon, iosAssets };
 import { allows, deviceLaunchArgs, developmentLaunchEnvironment, identity, macIdentity, phone, profile, showSimulator, simulator, simulators, useXcode } from './devices.mjs';
 const root = resolve(new URL('../..', import.meta.url).pathname);
@@ -656,7 +656,7 @@ async function main(args) {
     console.error('--archive needs --device and EXACT_IDENTITY and EXACT_PROFILE (or --unsigned, which needs --archive), and takes neither --run nor --host');
     process.exitCode = 1; return;
   }
-  const app = resolveApp(args.find((a, i) => !a.startsWith('--') && !['--sim', '--phone', '--url', '--archive', '--optimize'].includes(args[i - 1])));
+  const app = resolveApp(args.find((a, i) => !a.startsWith('--') && !['--sim', '--phone', '--url', '--archive', '--optimize', '--link'].includes(args[i - 1])));
   const release = appleBuildLock(app);
   const cleanup = [], beside = []; // what to remove, and the steps started beside the build, when it ends
   try {
@@ -869,7 +869,7 @@ async function main(args) {
   // reach neither module, and then compiles neither: its build waits for the
   // bake to say (below). Every other build starts both now.
   const fixedPlan = production && expected.composition === 'embedded';
-  cargoEnv.EXACT_APPLE_LINK = production ? 'plan' : 'all'; // what the archive links (link.mjs)
+  cargoEnv.EXACT_APPLE_LINK = linksByPlan(production, args) ? 'plan' : 'all'; // what the archive links (link.mjs)
   const hostModules = embedOnly || fixedPlan ? null : buildModules(['exact-svg-raster', ...(metal ? ['exact-canvas-vello'] : [])], 'host-modules.log');
   const buildReceipt = contractLast(() => buildBake(app, ios ? 'ios' : 'macos', target, { env: cargoEnv, profile: cargoProfile, prepareGpu(product) {
     // Cargo puts its own unsigned file back on every build, and a signature
@@ -936,7 +936,7 @@ async function main(args) {
   // the resolver's app-owned `embed` directory, with `ExactKit` at
   // `host/apple`. No Swift is built for it; the sample hosts are the proof
   // that the same pieces link.
-  const { link: appleLink, products: swiftCapabilities } = appleComposition(buildReceipt.graph, production, app.manifest.link);
+  const { link: appleLink, products: swiftCapabilities } = appleComposition(buildReceipt.graph, linksByPlan(production, args), app.manifest.link);
   if (args.includes('--embed')) {
     const platform = ios ? (device ? 'ios' : 'ios-simulator') : 'macos';
     const embed = mkdtempSync(resolve(paths.namespace, '.embed-'));
@@ -1035,7 +1035,7 @@ async function main(args) {
   const arms = [];
   // tvOS has no WebKit, so no iframe arm there.
   const hasWeb = !tv && carries('web'), hasVideo = carries('video'), hasSvg = carries('svg');
-  if (hasWeb) arms.push(arm(webArgs, resolve(root, 'host/apple/webarm/WebArm.swift'), webBuilt));
+  if (hasWeb) arms.push(arm([...webArgs, ...(!production && !distribution ? ['-D', 'EXACT_DEVELOPMENT'] : [])], resolve(root, 'host/apple/webarm/WebArm.swift'), webBuilt));
   const videoBuilt = resolve(webBuildDir, videoLoadName);
   // The video arm and its media session (LLP 1098 D7): both sources are its key and its inputs, with MediaPlayer.
   const video = ['VideoArm.swift', 'NowPlaying.swift'].map(f => resolve(root, 'host/apple/videoarm', f));

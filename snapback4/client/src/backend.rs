@@ -19,6 +19,21 @@ pub fn predictable(backend: &Json, op: &str) -> bool {
         .all(|table| schema["tables"][table]["sync"].is_object())
 }
 
+/// Whether `op` touches an ephemeral table (`ephemeral 4s`: rows held in
+/// one server process). This client does not send ephemeral writes yet.
+pub fn touches_ephemeral(backend: &Json, op: &str) -> bool {
+    let schema = &backend["schema"];
+    let Some(program) = backend["programs"]
+        .as_array()
+        .and_then(|programs| programs.iter().find(|p| p["name"] == op))
+    else {
+        return false;
+    };
+    operation_tables(program, schema)
+        .iter()
+        .any(|table| schema["tables"][table]["ephemeral"].is_object())
+}
+
 /// The tables an operation reads or writes, its rules' included, and a
 /// timeline's sources for its posts table.
 pub fn operation_tables(program: &Json, schema: &Json) -> BTreeSet<String> {

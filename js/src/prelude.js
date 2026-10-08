@@ -650,6 +650,20 @@
     return out.join("");
   }
 
+  // A string's UTF-8 bytes as TextEncoder makes them: a pair is 4, a lone
+  // surrogate its replacement character's 3.
+  function utf8Length(s) {
+    var n = 0;
+    for (var i = 0; i < s.length; i++) {
+      var c = s.charCodeAt(i);
+      if (c < 0x80) n += 1;
+      else if (c < 0x800) n += 2;
+      else if (c >= 0xd800 && c < 0xdc00 && i + 1 < s.length && (s.charCodeAt(i + 1) & 0xfc00) === 0xdc00) { n += 4; i++; }
+      else n += 3;
+    }
+    return n;
+  }
+
   // --- fetch: a request the host runs; a Promise for its reply -------------
   var nextTicket = 1;
   // ticket -> { resolve, reject, call, claimed, stream, signal, release }:
@@ -787,6 +801,25 @@
       bytes = raw.byteLength === 0 ? new Uint8Array(0) : new Uint8Array(copyBytes(raw, "fetch"));
     }
     var body = bytes || raw == null ? "" : String(raw);
+    // A body from an app file (LLP 1108 D6 R2): only the path goes to the
+    // host, which reads the file when it runs the request, under `fs.read`,
+    // at most 64 MiB. The bytes never enter JavaScript. A missing file, a
+    // denied path or one over the bound rejects the fetch before it is sent.
+    var bodyFrom = init ? init.exactBodyFrom : undefined;
+    if (bodyFrom !== undefined) {
+      if (typeof bodyFrom !== "string" || bodyFrom.slice(0, 5) !== "app:/")
+        return Promise.reject(new TypeError("exactBodyFrom must be an app:/ path"));
+      if (utf8Length(bodyFrom) > 4096)
+        return Promise.reject(new TypeError("exactBodyFrom: a path is at most 4096 bytes"));
+      if (/(^|\/)\.\.?(\/|$)|\0/.test(bodyFrom.slice(5)))
+        return Promise.reject(new TypeError("exactBodyFrom: an app:/ path has no . or .. segment"));
+      if (method === "GET" || method === "HEAD")
+        return Promise.reject(new TypeError("fetch: a " + method + " request cannot have a body"));
+      if (raw != null)
+        return Promise.reject(new TypeError("fetch: a request has one body: body or exactBodyFrom"));
+      if (init.exactStream !== undefined && /^wss?:/i.test(String(url)))
+        return Promise.reject(new TypeError("exactBodyFrom: a WebSocket sends no body"));
+    }
     // LLP 1041 §8.4: an explicit promise about both operation and settlement.
     // Browsers ignore this native scheduling hint; their admission is unchanged.
     var independent = init ? init.exactIndependentHttp : undefined;
@@ -822,7 +855,7 @@
     }
     if (signal && signal.aborted) return Promise.reject(signal.reason);
     var ticket = nextTicket++;
-    var error = host(1, String(ticket), JSON.stringify({ method: method, url: String(url), headers: headers, body: body, body_base64: bytes ? toBase64(bytes) : undefined, max_response_bytes: ceiling, stream: stream ? true : undefined, timeout_ms: timeout }));
+    var error = host(1, String(ticket), JSON.stringify({ method: method, url: String(url), headers: headers, body: body, body_base64: bytes ? toBase64(bytes) : undefined, max_response_bytes: ceiling, stream: stream ? true : undefined, timeout_ms: timeout, body_from: bodyFrom }));
     if (error !== undefined) return Promise.reject(new Error(error));
     call.tickets.push(ticket);
     if (stream) call.stream = stream;
@@ -906,14 +939,26 @@
   var ERRNO = windowsStorage
     ? { 2: "ENOENT", 3: "ENOENT", 32: "EBUSY", 33: "EBUSY", 80: "EEXIST", 145: "ENOTEMPTY", 170: "EBUSY", 183: "EEXIST", 267: "ENOTDIR" }
     : { 2: "ENOENT", 16: "EBUSY", 17: "EEXIST", 20: "ENOTDIR", 21: "EISDIR", 39: "ENOTEMPTY", 66: "ENOTEMPTY" };
+  // `fs.compressImage`'s own failures (LLP 1069.002 A1.4), named in the
+  // message natively; the web sets the code itself.
+  var IMAGE_CODE = /^(?:filesystem: )?compressImage: (unsupported|undecodable|too-large|unfit|timeout): /;
   function storageCode(message) {
     if (/^denied: /.test(message)) return "denied";
+    var image = IMAGE_CODE.exec(message);
+    if (image) return image[1];
     // The Windows document adapter emits this only after same-handle type
     // inspection; incidental text and numeric access denial are insufficient.
     if (windowsStorage && /\(filesystem code EISDIR\)$/.test(message)) return "EISDIR";
     var errno = /\(os error (\d+)\)$/.exec(message);
     if (errno && ERRNO[errno[1]]) return ERRNO[errno[1]];
     return /\bbusy\b|database is locked/.test(message) ? "EBUSY" : "failed";
+  }
+  // As host/web/storage-fs.js `deniedPath` words it on the web (app farm round 2: a bare
+  // `denied: sqlite.open` left builds guessing which per-persona file it wanted).
+  function deniedPath(operation, path) {
+    var dir = path.slice(0, path.lastIndexOf("/"));
+    var directory = /^[a-z]+:\/[^/]/.test(dir) ? ", or `" + operation + " " + dir + "` for every file there" : "";
+    return "denied: " + operation + " " + path + ": no grant covers it; grant `" + operation + " " + path + "`" + directory + " (a grant covers its path and what is below it, by whole names)";
   }
   function storageError(message, code) {
     var error = new Error(message);
@@ -958,7 +1003,7 @@
     if (typeof global.__exact_reserve_storage === "function") held = global.__exact_reserve_storage();
     var argv = Array.prototype.slice.call(args);
     return new Promise(function (resolve, reject) {
-      var op = { call: call, run: function () {
+      var op = { call: call, method: method, run: function () {
         try { return receiver[method].apply(receiver, argv); }
         catch (e) {
           if (held != null && typeof global.__exact_abandon_storage === "function") global.__exact_abandon_storage(held);
@@ -975,7 +1020,9 @@
           return;
         }
         var error = value;
-        if (!error || !error.kind) error = storageError(error && error.message || String(error), error && error.code);
+        // The host's grant refusal names no path: name it, and the lines that would admit it.
+        if (method === "open" && typeof argv[0] === "string" && /^denied: sqlite\.open$/.test(error && error.message || String(error))) error = storageError(deniedPath("sqlite.open", argv[0]), "denied");
+        else if (!error || !error.kind) error = storageError(error && error.message || String(error), error && error.code);
         else if (!error.code) try { error.code = storageCode(String(error.message)); } catch (_) { /* a frozen error keeps its own */ }
         // Every failed operation is journaled, an answer's or the
         // background's, so one nobody catches is still seen (D8).
@@ -1031,6 +1078,27 @@
   ["readFile", "writeFile", "atomicWriteFile", "appendFile", "readdir", "mkdir", "rm", "stat", "rename", "copyFile", "realpath"].forEach(function (method) {
     files[method] = function () { return storageCall(nativeStorage && nativeStorage.fs, method, arguments); };
   });
+  // `fs.compressImage(from, to, {maxDimension, maxBytes})` (LLP 1069.002
+  // A1): its options are checked here, before anything is queued, and travel
+  // to the host as two numbers; natively the reply is `width\theight\tsize`,
+  // on the web the record.
+  var MAX_IMAGE_DIMENSION = 8192, MAX_IMAGE_BYTES = 67108864;
+  files.compressImage = function (from, to, options) {
+    var api = "storage.fs.compressImage()";
+    try {
+      if (typeof from !== "string" || typeof to !== "string") throw new TypeError(api + ": from and to must be app:/ paths");
+      if (!options || typeof options !== "object") throw new TypeError(api + ": options must be {maxDimension, maxBytes}");
+      var dimension = options.maxDimension, bytes = options.maxBytes;
+      if (!Number.isInteger(dimension) || dimension < 1 || dimension > MAX_IMAGE_DIMENSION) throw new TypeError(api + ": maxDimension must be an integer from 1 to " + MAX_IMAGE_DIMENSION);
+      if (!Number.isInteger(bytes) || bytes < 1 || bytes > MAX_IMAGE_BYTES) throw new TypeError(api + ": maxBytes must be an integer from 1 to " + MAX_IMAGE_BYTES);
+    } catch (e) {
+      return Promise.reject(e);
+    }
+    return storageCall(nativeStorage && nativeStorage.fs, "compressImage", [from, to, dimension, bytes], function (value) {
+      var parts = typeof value === "string" ? value.split("\t") : [value.width, value.height, value.size];
+      return { path: to, type: "image/jpeg", size: +parts[2], width: +parts[0], height: +parts[1] };
+    });
+  };
   var storage = Object.freeze({ fs:Object.freeze(files), sqlite:Object.freeze({
     open:function (path) {
       // Its owner as storageCall reckons it: storage after an answer replied is the background's.
@@ -1082,11 +1150,20 @@
       return item;
     });
   }
+  // `failure(x)`'s code for what a module let through (LLP 1109 D3), as
+  // host/web-js/rt.js `failureCode` reads it: a fetch's rejection by its
+  // kind, a coded storage refusal, else the module's own error.
+  var FETCH_FAILURE = { Network: "offline", Timeout: "timeout", Refused: "refused" };
+  function failureCode(e) {
+    if (!e || typeof e !== "object") return "error";
+    if (e.name === "FetchError") return FETCH_FAILURE[e.kind] || "error";
+    return e.kind === "Unavailable" && typeof e.code === "string" ? "storage" : "error";
+  }
   function fail(e) {
     var kind = e && typeof e === "object" ? e.kind : undefined;
     if (kind !== "UnknownSource" && kind !== "BadArguments" && kind !== "Unavailable") kind = "Unavailable";
     var message = e && typeof e === "object" && e.message !== undefined ? e.message : e;
-    return JSON.stringify({ tag: 2, kind: kind, code: e && e.code, message: String(message) });
+    return JSON.stringify({ tag: 2, kind: kind, code: e && e.code, failure: failureCode(e), message: String(message) });
   }
   // Natively, liveness is the module's, as a browser's event loop has it
   // (LLP 1027.003.000 §13; hn-reader F7): an answer awaiting a promise
@@ -1324,6 +1401,10 @@
     return rejected.trim();
   };
   global.__exact_let_go = function (failed, message) {
+    // A let-go call's compression so failed is settled, and what is queued
+    // behind it issued; the call keeps its other storage (LLP 1069.002
+    // A1.5). Said so, and the caller delivers on.
+    if (failed && head && headOwner() && headOwner().letGo && failAbandonedImage(String(message))) return "settled";
     var owed = false;
     calls.forEach(function (c) {
       if (!c.letGo) return;
@@ -1370,6 +1451,21 @@
   // A background round delivers with the background current: what its
   // completion's reaction issues is the background's too.
   global.__exact_enter_background = function () { currentCall = background; };
+  // A compression whose wait gave up, and whose right to write the waiter
+  // took away (LLP 1069.002 A1.5): it can write nothing now, so it is
+  // failed and the queue moves on. Any other operation whose wait ran out
+  // may still write, so its queue waits for it, as before. Whether it was.
+  var IMAGE_ABANDONED = /^compressImage: timeout: the storage wait ran out/;
+  function failAbandonedImage(message) {
+    if (!head || head.method !== "compressImage" || !IMAGE_ABANDONED.test(message)) return false;
+    landed(head, false, storageError(message));
+    return true;
+  }
+  // The background's operation in flight, so failed: its rejection runs.
+  global.__exact_background_failed = function (outcomeJson) {
+    if (!head || owner(head.call) !== background) return "";
+    return failAbandonedImage(JSON.parse(outcomeJson).failed.message) ? "1" : "";
+  };
   global.__exact_storage_failed = function (id, outcomeJson) {
     var call = calls.get(Number(id));
     if (!call) return;
@@ -1379,10 +1475,11 @@
     // operation is ignored.
     var message = JSON.parse(outcomeJson).failed.message;
     call.lost = true;
-    if (head && head.call === call) landed(head, false, storageError(message, "failed"));
+    // The code its message names (`compressImage: timeout: `), else `failed`.
+    if (head && head.call === call) landed(head, false, storageError(message));
     call.status = "failed";
     storing.delete(call);
-    call.error = storageError(message, "failed");
+    call.error = storageError(message);
   };
   global.__exact_fulfill = function (ticket, outcomeJson) {
     var p = settled(Number(ticket));

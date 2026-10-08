@@ -28,6 +28,8 @@ pub use traits::LayoutGridContainer;
 pub use traits::LayoutBlockContainer;
 
 #[cfg(feature = "taffy_tree")]
+mod memo;
+#[cfg(feature = "taffy_tree")]
 mod taffy_tree;
 #[cfg(feature = "taffy_tree")]
 pub use taffy_tree::{TaffyError, TaffyResult, TaffyTree};

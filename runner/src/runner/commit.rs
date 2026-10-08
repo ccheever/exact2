@@ -23,6 +23,7 @@ pub(super) struct Checkpoint {
     store_readers: Vec<bool>,
     watching: Vec<Vec<String>>,
     failed_args: Vec<Option<Vec<Value>>>,
+    failed_why: Vec<Option<crate::failure::Failure>>,
     refresh_next: Vec<usize>,
     reread_next: Vec<usize>,
     pending: Vec<PendingReq>,
@@ -60,6 +61,7 @@ impl<D: DataSource> Runner<D> {
             store_readers: self.store_readers.clone(),
             watching: self.watching.clone(),
             failed_args: self.failed_args.clone(),
+            failed_why: self.failed_why.clone(),
             refresh_next: self.refresh_next.clone(),
             reread_next: self.reread_next.clone(),
             pending: self.pending.clone(),
@@ -110,6 +112,7 @@ impl<D: DataSource> Runner<D> {
                 self.store_readers = c.store_readers;
                 self.watching = c.watching;
                 self.failed_args = c.failed_args;
+                self.failed_why = c.failed_why;
                 self.refresh_next = c.refresh_next;
                 self.reread_next = c.reread_next;
                 self.pending = c.pending;
@@ -185,7 +188,7 @@ impl<D: DataSource> Runner<D> {
     }
 
     /// An input at the host's time `now_ms`: the clock moves there first,
-    /// firing every timer due by then, so the action's `now()` — and a sound
+    /// firing every timer due by then, so the action's `performanceNow()` — and a sound
     /// it schedules (LLP 1096 D3) — is the event's time, as on the JS
     /// target, not the last timer's. The commits in order, the event's last,
     /// at `now_ms`; a timer's refusal rides along and the event still runs.
@@ -1242,14 +1245,16 @@ impl<D: DataSource> Runner<D> {
         self.arm_then(result.is_ok());
         self.arm_next(result.is_ok());
         self.log_outcome(&what, &result, was_poisoned);
-        if refused && result.is_err() && self.holds(ticket) {
-            return self.release_refused(ticket, target);
-        }
-        if let Err(e @ (RunnerError::Data { .. } | RunnerError::Shape { .. })) = &result {
-            if self.holds(ticket) {
+        if let Err(e) = &result {
+            if (refused || matches!(e, RunnerError::Data { .. } | RunnerError::Shape { .. }))
+                && self.holds(ticket)
+            {
                 // The failure is in the journal (above); what the host needs now
                 // is the commit that takes the target out of `pending`.
-                return self.release_failed(ticket, target, super::admission::failure_text(e));
+                // A refused request has no later reply, even when its shaped
+                // failure traps during settlement. Admission refusal alone
+                // cannot restart a source whose earlier turns may have written.
+                return self.release_failed(ticket, target, crate::failure::Failure::of(e));
             }
         }
         result.map(Some)
@@ -1282,7 +1287,7 @@ impl<D: DataSource> Runner<D> {
         self.arm_next(result.is_ok());
         self.log_outcome(&what, &result, was_poisoned);
         if let (Err(e), true) = (&result, self.holds(ticket)) {
-            return self.release_failed(ticket, target, super::admission::failure_text(e));
+            return self.release_failed(ticket, target, crate::failure::Failure::of(e));
         }
         result.map(Some)
     }

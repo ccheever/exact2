@@ -261,7 +261,7 @@ impl Gen<'_> {
         match t {
             Ty::Num => {
                 if env.now && self.rng.chance(1, 30) {
-                    "now()".into()
+                    "performanceNow()".into()
                 } else if self.rng.chance(1, 16) {
                     (*self
                         .rng

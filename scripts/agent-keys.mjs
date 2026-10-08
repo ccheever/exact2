@@ -21,6 +21,9 @@ export function withHeldModifiers(method, event, heldKeys) {
     modifiers |= modifierBits[modifierOf(code)] ?? 0;
   }
   const result = { ...event, modifiers };
+  // Chrome runs ContextMenu's default only for a raw keydown (as Playwright
+  // delivers it); keyDown without text names the key but opens no menu.
+  if (keyboard && result.code === 'ContextMenu' && result.type === 'keyDown') result.type = 'rawKeyDown';
   if (keyboard && modifiers & 8 && /^[a-z]$/.test(result.key)) {
     result.key = result.key.toUpperCase();
     if (result.text) result.text = result.text.toUpperCase();
@@ -60,7 +63,7 @@ export function cdpKey(chord) {
   // and Apple's KeyCodes.codeName name it (b6 review C2): `!` is Digit1.
   else if (code.length === 1 && code !== ' ') { key = code; vk = 0; code = PUNCTUATION[code] ?? ''; }
   else {
-    const special = { ArrowUp: ['ArrowUp', 38], ArrowDown: ['ArrowDown', 40], ArrowLeft: ['ArrowLeft', 37], ArrowRight: ['ArrowRight', 39], Space: [' ', 32], ' ': [' ', 32], Enter: ['Enter', 13], Escape: ['Escape', 27], Tab: ['Tab', 9], Backspace: ['Backspace', 8], Delete: ['Delete', 46], Home: ['Home', 36], End: ['End', 35], PageUp: ['PageUp', 33], PageDown: ['PageDown', 34] }[code];
+    const special = { ArrowUp: ['ArrowUp', 38], ArrowDown: ['ArrowDown', 40], ArrowLeft: ['ArrowLeft', 37], ArrowRight: ['ArrowRight', 39], Space: [' ', 32], ' ': [' ', 32], Enter: ['Enter', 13], Escape: ['Escape', 27], ContextMenu: ['ContextMenu', 93], Tab: ['Tab', 9], Backspace: ['Backspace', 8], Delete: ['Delete', 46], Home: ['Home', 36], End: ['End', 35], PageUp: ['PageUp', 33], PageDown: ['PageDown', 34] }[code];
     if (!special) throw new Error(`key: unsupported key ${code}`);
     [key, vk] = special;
     if (code === ' ') code = 'Space';

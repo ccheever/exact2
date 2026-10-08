@@ -40,7 +40,7 @@ impl<D: DataSource> Presenter<D> {
         Ok(())
     }
 
-    /// The date, as the clock `now()` reads: Unix ms at clock zero (the
+    /// The date, as the clock `performanceNow()` reads: Unix ms at clock zero (the
     /// runner's clock starts at boot) and the local zone's offset, in
     /// minutes east of UTC, as Apple and the web read theirs (LLP 1054 R12).
     pub fn set_time(&mut self, epoch_at_zero: f64, utc_offset: f64) -> Option<String> {

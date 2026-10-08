@@ -16,7 +16,7 @@ import { hatchWords, moduleDirectory } from '../../scripts/app.mjs';
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { dirname, isAbsolute, join, normalize, posix, relative, resolve, sep } from 'node:path';
+import { basename, dirname, isAbsolute, join, normalize, posix, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { transformSync } from 'rolldown/utils';
 import { buildEditor, buildFlow, buildMarkdown, buildModule, buildMotion, fresh, moduleGrants, webCompiler } from './module.mjs';
@@ -74,7 +74,7 @@ const input = opt('--plan') ?? opt('--contract') ?? resolve(appDir, 'app.contrac
 const manifest = JSON.parse(readFileSync(resolve(appDir, 'app.json'), 'utf8'));
 // documents-glue reads the app's web manifest lazily. The JS path exits from
 // host/web/build.mjs after this builder succeeds, so it owns the same artifact.
-const webManifestKeys = ['name', 'short_name', 'id', 'start_url', 'display', 'theme_color', 'background_color', 'icons', 'lang', 'file_handlers', 'launch_handler'];
+const webManifestKeys = ['name', 'short_name', 'description', 'id', 'start_url', 'display', 'theme_color', 'background_color', 'icons', 'lang', 'file_handlers', 'launch_handler'];
 const webManifest = Object.fromEntries(webManifestKeys.filter(key => manifest[key] !== undefined).map(key => [key, manifest[key]]));
 if (webManifest.file_handlers) webManifest.file_handlers = webManifest.file_handlers.filter(handler => !Object.keys(handler.accept ?? {}).includes('inode/directory'));
 if (!webManifest.file_handlers?.length) delete webManifest.file_handlers;
@@ -200,7 +200,7 @@ if (ts && existsSync(webScript) && !/^\s*fn main\(\)\s*\{\s*exact_js_bake::build
 // answers is unknown, and its declarations stay its own.
 const typeChecked = ts && !opt('--data') ? typecheck().then(() => null, error => error) : null;
 async function typecheck() {
-  const { configure, check, ambientRefusals } = await import(resolve(root, 'js/bake/src/typescript.mjs'));
+  const { configure, check, ambientRefusals, assertCapturedModule, packageImports } = await import(resolve(root, 'js/bake/src/typescript.mjs'));
   const libraries = resolve(dirname(fileURLToPath(import.meta.resolve(`@typescript/typescript-${process.platform}-${process.arch}/package.json`))), 'lib');
   const source = readFileSync(appTs, 'utf8');
   let declarations = readFileSync(resolve(gen, 'app.contract.d.ts'), 'utf8');
@@ -244,6 +244,19 @@ async function typecheck() {
   writeFileSync(resolve(stage, '__exact_paths.json'), JSON.stringify({ app: realpathSync(appDir), mounts }));
   const real = realpathSync(stage);
   configure(real);
+  // The packages whose declarations the check reads (typescript.mjs
+  // `stagePackages`) are inputs the dev loop watches too, as it watches the
+  // Contract packages the compile read: a changed `.d.ts` checks app.ts again.
+  if (devReload) {
+    // Each package's own tree, and the entry it is installed as (a link
+    // retargeted, or a reinstall, is an edit there).
+    const read = JSON.parse(readFileSync(resolve(real, '__exact_declarations.json'), 'utf8')).packages;
+    const listed = resolve(gen, 'dev-sources.json');
+    const sources = existsSync(listed) ? JSON.parse(readFileSync(listed, 'utf8')) : {};
+    sources.packages = [...new Set([...(sources.packages ?? []), ...read.map(([, , dir]) => dir)])];
+    sources.shallow = [...(sources.shallow ?? []), ...read.map(([, installed]) => [dirname(installed), basename(installed)])];
+    writeFileSync(listed, JSON.stringify(sources));
+  }
   // The clock, randomness and timers, refused at build in the modules
   // app.ts reaches, as the native bake's bundler refuses them
   // (js/bake/src/typescript.mjs `ambientRefusals`). A graph that does not
@@ -254,7 +267,7 @@ async function typecheck() {
   const typed = check(real, resolve(libraries, 'tsc'), libraries).then(() => null, error => error);
   const bundled = (async () => {
     const bundle = await rolldown({ cwd: real, input: resolve(real, '__exact_entry.ts'), platform: 'neutral', tsconfig: resolve(real, '__exact_tsconfig.json'),
-      logLevel: 'silent', plugins: [{ name: 'ambient', transform(code, id) { why.push(...ambientRefusals(real, id, code, (c, o) => this.parse(c, o))); return null; } }] });
+      logLevel: 'silent', plugins: [{ name: 'captured-sources', resolveId: packageImports(real), load(id) { assertCapturedModule(real, id); return null; }, transform(code, id) { why.push(...ambientRefusals(real, id, code, (c, o) => this.parse(c, o))); return null; } }] });
     try { await bundle.generate({ format: 'esm' }); } finally { await bundle.close(); }
   })().then(() => null, error => error);
   const errors = [await bundled, ...why.map(line => new Error(line)), await typed].filter(Boolean);
@@ -269,6 +282,19 @@ const normalizeGrants = (label, spec, stem) => {
   if (set.error) throw new Error(`grant-parse: ${label}: ${set.error}`);
   return set;
 };
+// app.ts runs under Bun here, to read its appId and grants. A package
+// installed for it is refused before it loads, as every producer's bundle
+// check refuses it (js/bake/src/typescript.mjs `packageImports`), so none of
+// its code runs, at build or after. A type-only import Bun erases never loads.
+if (ts) {
+  const installed = [...appRoots, ...tsMounts.map(([, dir]) => dir)].map(dir => join(dir, 'node_modules'));
+  const escape = text => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  Bun.plugin({ name: 'exact-packages', setup(build) {
+    build.onLoad({ filter: new RegExp(`^(?:${installed.map(escape).join('|')})[\\\\/]`) }, args => {
+      throw new Error(`module outside captured app: ${args.path}`);
+    });
+  } });
+}
 const tsModule = ts ? await import(resolve(appDir, 'app.ts')) : null;
 const grants = ts ? String(tsModule.grants ?? '') : '';
 // What the native bake refuses of the module (js/bake/src/lib.rs `bake_in`,
@@ -277,7 +303,7 @@ const grants = ts ? String(tsModule.grants ?? '') : '';
 if (ts) {
   const expected = (await import('../../scripts/app.mjs')).readManifest(appDir, app).app.id;
   const problems = [
-    ...['__exact_entry.ts', '__exact_tsconfig.json', '__exact_config.mjs', '__exact_paths.json', '__exact_canvas.js', '__exact_canvas.d.ts']
+    ...['__exact_entry.ts', '__exact_tsconfig.json', '__exact_config.mjs', '__exact_paths.json', '__exact_declarations.json', '__exact_canvas.js', '__exact_canvas.d.ts']
       .filter(name => existsSync(resolve(appDir, name))).map(name => `${name} is reserved for the producer`),
     ...('draw' in tsModule) !== ('surfaces' in tsModule) ? ['app.ts exports `draw` and `surfaces` together, or neither (LLP 1056 D1)'] : [],
     ...!tsModule.appId ? ['app.ts exports no appId'] : tsModule.appId !== expected ? [`app.ts's appId is ${tsModule.appId}, but app.json names ${expected}`] : [],

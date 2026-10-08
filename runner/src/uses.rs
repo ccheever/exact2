@@ -99,11 +99,17 @@ pub enum Capability {
     /// link it too, which the bake reads (LLP 1047.001). The browser does
     /// its own, so the web links nothing for it.
     Io,
+    /// What a native engine plays that CSS plays on the web: a `transition`,
+    /// a `-exact-layout-transition` or a shared element's flight. A native
+    /// host's motion engine moves them; without them it only settles values
+    /// (LLP 1047.001). The browser plays them, so the web links nothing for
+    /// it.
+    Transitions,
 }
 
 impl Capability {
     /// Every capability, in bit order.
-    pub const ALL: [Capability; 25] = [
+    pub const ALL: [Capability; 26] = [
         Capability::Markdown,
         Capability::Motion,
         Capability::Collections,
@@ -129,6 +135,7 @@ impl Capability {
         Capability::Notifications,
         Capability::GroupedLists,
         Capability::Io,
+        Capability::Transitions,
     ];
 
     /// The name an entry, a refusal and a report use.
@@ -159,6 +166,7 @@ impl Capability {
             Capability::Notifications => "notifications",
             Capability::GroupedLists => "grouped_lists",
             Capability::Io => "io",
+            Capability::Transitions => "transitions",
         }
     }
 
@@ -259,6 +267,8 @@ pub fn uses(plan: &Plan) -> Uses {
                 Some(PropId::HeightDragFor | PropId::TransformDragFor | PropId::ReorderFor) => {
                     uses = uses.with(Capability::Motion).with(Capability::Drag);
                 }
+                // A shared element flies between its two places (LLP 1013.000).
+                Some(PropId::SharedElement) => uses = uses.with(Capability::Transitions),
                 Some(PropId::Virtualized)
                     if constant_bool(plan.code(binding.expr)).is_none_or(|on| on) =>
                 {
@@ -326,6 +336,14 @@ pub fn uses(plan: &Plan) -> Uses {
                     && can_be(binding, &|v| v.contains("spring"))
                 {
                     uses = uses.with(Capability::Motion);
+                }
+                // A native engine plays every transition, a layout's too.
+                if matches!(
+                    StyleId::from_bit(u32::from(binding.id)),
+                    Some(StyleId::Transition | StyleId::LayoutTransition)
+                ) && can_be(binding, &|v| !matches!(v.trim(), "" | "none"))
+                {
+                    uses = uses.with(Capability::Transitions);
                 }
             }
         }

@@ -2,8 +2,10 @@
 //! `tests/fixtures/` stays put: build.rs compiles those to bytecode.
 
 mod background;
+mod body_from;
 mod caltrain;
 mod castle;
+mod compress;
 mod ecdsa;
 mod entropy;
 mod forget;

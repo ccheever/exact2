@@ -7,6 +7,7 @@ use super::storage::{args, call, plan, text, Root, GRANTS};
 use exact_js::Module;
 use exact_kernel::{Kernel, PropId};
 use exact_plan::Value;
+use exact_runner::failure::FailureCode;
 use exact_runner::{
     Answer, DataError, DataSource, Dispatch, FailureKind, Outcome, Placement, Request, Runner,
     Store, Work, BACKGROUND,
@@ -655,7 +656,8 @@ fn a_failed_storage_continuation_releases_the_queue() {
             },
         )
         .unwrap_err();
-    let DataError::Unavailable(message) = err else {
+    // A storage call's failure the module let through (LLP 1109 D3).
+    let DataError::Failed(FailureCode::Storage, message) = err else {
         panic!("{err:?}");
     };
     assert!(message.contains("timed out"), "{message}");

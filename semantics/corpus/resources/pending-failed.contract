@@ -1,5 +1,5 @@
-// `pending(r)` and `failed(r)`: with answers that arrive synchronously a
-// settled resource is neither.
+// `pending(r)`, `failed(r)` and `failure(r)`: with answers that arrive
+// synchronously a settled resource is neither, and says no why.
 shape Item
   id: string
 
@@ -8,6 +8,7 @@ component App
   resource items = items(q) as shape list<Item>
   derive loading = pending(items)
   derive broken = failed(items)
+  derive why = match failure(items) { case some(f) => `${f.code}: ${f.message}`, case none => "none" }
   action next
     q = q + 1
   view
@@ -16,11 +17,14 @@ component App
         text "loading" testId="loading"
       else
         text `${length(items)}` testId="count"
+      text why testId="why"
       button "next" press=next testId="next"
 
 test "never pending"
   expect state loading == false
   expect state broken == false
+  expect state why == "none"
+  expect text "why" == "none"
   expect tree missing "loading"
   tap "next"
   expect state loading == false

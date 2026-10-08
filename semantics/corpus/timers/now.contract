@@ -1,10 +1,10 @@
-// `now()` is the clock: 0 at boot, advanced by `clock +ms`; a derive that
+// `performanceNow()` is the clock: 0 at boot, advanced by `clock +ms`; a derive that
 // reads it updates on the next commit.
 component App
   state stamp = -1
   derive later = stamp + 1
   action mark
-    stamp = now()
+    stamp = performanceNow()
   view
     column
       text `${stamp}` testId="stamp"
