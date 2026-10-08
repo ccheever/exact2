@@ -154,6 +154,7 @@ final class T3Transport: NSObject, URLSessionWebSocketDelegate, @unchecked Senda
                 case "uploadAttachment": try uploadAttachment(request, completion: completion)
                 case "request": try rpc(request, completion: completion)
                 case "mobileQueuedEdit": try queuedEdit(request, completion: completion)
+                case "mobileOutboxDelivery": try outboxDelivery(request, completion: completion)
                 case "subscribe": try subscribe(request, completion: completion)
                 case "unsubscribe":
                     guard let key = request["key"] as? String else { throw arguments("unsubscribe requires a key.") }
@@ -579,7 +580,7 @@ final class T3Transport: NSObject, URLSessionWebSocketDelegate, @unchecked Senda
         let text = try T3Wire.encode(wire)
         // auto-balance: a request may ask for a shorter deadline (server.getHostResources waits 5 s).
         let wait = min(30, max(1, (request["timeout"] as? NSNumber)?.doubleValue ?? 30))
-        let lease = try queuedEdits?.admit(method: method, origin: routes.home.isEmpty ? origin?.absoluteString ?? "" : routes.home, environment: descriptor["environmentId"] as? String ?? "", journal: journal)
+        let lease = try queuedEdits?.admit(method: method, origin: routes.home.isEmpty ? origin?.absoluteString ?? "" : routes.home, environment: descriptor["environmentId"] as? String ?? "", journal: journal, payload: request["payload"] ?? [:])
         let finishCall: Completion = { [queuedEdits] result in
             queuedEdits?.release(lease); completion(result)
         }
@@ -703,10 +704,11 @@ final class T3Transport: NSObject, URLSessionWebSocketDelegate, @unchecked Senda
             if call.journal {
                 if success { call.completion(["ok": true, "generation": generation, "value": exit["value"] ?? NSNull()]) }
                 else {
-                    // Only a typed Fail proves server rejection; Die/Interrupt remain uncertain.
+                    // Preserve the legacy typed-RPC flag. Outbox delivery needs the separate
+                    // pre-handler proof because a typed orchestration failure can follow a commit.
                     let cause = exit["cause"] as? [[String: Any]] ?? []
                     let definitive = !cause.isEmpty && cause.allSatisfy { $0["_tag"] as? String == "Fail" }
-                    call.completion(["ok": false, "generation": generation, "error": failure(T3Wire.failure(exit)).json, "_definitiveFailure": definitive])
+                    call.completion(["ok": false, "generation": generation, "error": failure(T3Wire.failure(exit)).json, "_definitiveFailure": definitive, "_outboxNotAccepted": Self.outboxNotAccepted(exit)])
                 }
             } else if success { finish(call.completion, value: exit["value"] ?? NSNull()) }
             else { finish(call.completion, failure: T3Wire.failure(exit)) }

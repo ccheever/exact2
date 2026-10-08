@@ -1,6 +1,6 @@
 #if os(iOS)
 // @ref llp/1109.005-composer-and-transcript.decision.md#queued-command-construction
-// Reservation DTO only. No RPC sender, retry policy or inline-asset persistence stage.
+// Immutable command receipt and attempt state. Inline-asset persistence remains a separate stage.
 import Foundation
 import CoreFoundation
 
@@ -117,21 +117,40 @@ enum T3OutboxDeliveryReceipt {
         return fields(dispatch, ["type", "targetRunId"]) && member(dispatch["type"], ["steer_active", "restart_active"]) && text(dispatch["targetRunId"])
     }
     static func valid(_ receipt: Object, id: String) -> Bool {
-        guard fields(receipt, ["kind", "operationId", "revision", "origin", "environmentId", "messageId", "threadId", "rowToken", "rowRevision", "record", "stage", "method", "payload", "attachmentIDs", "state"], ["retiredRevision"]),
+        guard fields(receipt, ["kind", "operationId", "revision", "origin", "environmentId", "messageId", "threadId", "rowToken", "rowRevision", "record", "stage", "method", "payload", "attachmentIDs", "state"], ["retiredRevision", "attemptRevision", "attemptPreviousState", "result", "error"]),
               receipt["kind"] as? String == "outbox", receipt["operationId"] as? String == id, text(id),
               integer(receipt["revision"], positive: true), integer(receipt["rowRevision"], positive: true), text(receipt["rowToken"]),
-              member(receipt["state"], ["reserved", "retired"]), let record = receipt["record"] as? Object,
+              member(receipt["state"], ["reserved", "retired", "issued", "uncertain", "acknowledged", "rejected"]), let record = receipt["record"] as? Object,
               ["origin", "environmentId", "messageId", "threadId"].allSatisfy({ T3MobileOutbox.jsonEqual(receipt[$0], record[$0]) }),
               let files = record["attachments"] as? [Object], let ids = receipt["attachmentIDs"] as? [String],
               ids == files.compactMap({ $0["id"] as? String }), JSONSerialization.isValidJSONObject(receipt) else { return false }
         let prior = receipt["retiredRevision"] as? Int ?? 0
         guard receipt["retiredRevision"] == nil || integer(receipt["retiredRevision"], positive: true),
-              prior <= 9_007_199_254_740_989,
-              receipt["revision"] as? Int == prior + (receipt["state"] as? String == "reserved" ? 1 : 2) else { return false }
+              prior <= 9_007_199_254_740_989 else { return false }
+        let state = receipt["state"] as! String, revision = receipt["revision"] as! Int
+        if let rawAttempt = receipt["attemptRevision"] {
+            guard integer(rawAttempt, positive: true), let attempt = rawAttempt as? Int, attempt > prior + 1,
+                  let previous = receipt["attemptPreviousState"] as? String, ["reserved", "uncertain", "rejected"].contains(previous),
+                  revision == attempt + (state == "issued" ? 0 : state == "retired" ? 2 : 1) else { return false }
+            if ["reserved", "retired"].contains(state) && previous != "reserved" { return false }
+            if state == "rejected" && previous == "uncertain" { return false }
+            if previous == "rejected" && receipt["stage"] as? String != "settings-sync" { return false }
+            if state == "issued" {
+                guard receipt["result"] == nil, receipt["error"] == nil else { return false }
+            } else if state == "acknowledged" {
+                guard receipt["result"] != nil, receipt["error"] == nil else { return false }
+            } else {
+                guard receipt["result"] == nil, receipt["error"] is Object else { return false }
+            }
+        } else {
+            guard ["reserved", "retired"].contains(state), receipt["attemptPreviousState"] == nil,
+                  receipt["result"] == nil, receipt["error"] == nil,
+                  revision == prior + (state == "reserved" ? 1 : 2) else { return false }
+        }
         return command(receipt)
     }
     static func sameIdentity(_ a: Object, _ b: Object) -> Bool {
-        T3MobileOutbox.jsonEqual(a.filter { !["revision", "state"].contains($0.key) }, b.filter { !["revision", "state"].contains($0.key) })
+        T3MobileOutbox.jsonEqual(a.filter { !["revision", "state", "attemptRevision", "attemptPreviousState", "result", "error"].contains($0.key) }, b.filter { !["revision", "state", "attemptRevision", "attemptPreviousState", "result", "error"].contains($0.key) })
     }
     static func make(_ request: Object, origin: String, environment: String) throws -> Object {
         guard let record = request["record"] as? Object, let payload = request["payload"] as? Object,

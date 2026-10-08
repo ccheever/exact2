@@ -167,6 +167,31 @@ final class T3MobileModule: ExactModule {
             }
             return
         }
+        if request["op"] as? String == "mobileOutboxDelivery",
+           ["status", "recover", "retire"].contains(request["action"] as? String ?? "") {
+            let store = queuedEdits
+            DispatchQueue.global(qos: .userInitiated).async {
+                do {
+                    guard let id = request["operationId"] as? String, !id.isEmpty else {
+                        throw T3Failure(kind: "Arguments", message: "Choose a saved queued command.")
+                    }
+                    let value: [String: Any]
+                    if request["action"] as? String == "status" { value = try store.outboxDeliveryStatus(id) }
+                    else {
+                        guard T3OutboxDeliveryReceipt.integer(request["revision"], positive: true), let revision = request["revision"] as? Int else {
+                            throw T3Failure(kind: "Arguments", message: "Choose the saved command revision.")
+                        }
+                        if request["action"] as? String == "recover" { value = try store.recoverOutboxDelivery(id, revision: revision) }
+                        else { value = try store.retireOutboxDelivery(id, revision: revision) }
+                    }
+                    reply.send(["ok": true, "generation": request["generation"] ?? 0, "value": value])
+                } catch {
+                    let problem = error as? T3Failure ?? T3Failure(kind: "Persistence", message: "The queued command receipt needs recovery.", uncertain: true)
+                    reply.send(["ok": false, "generation": request["generation"] ?? 0, "error": problem.json])
+                }
+            }
+            return
+        }
         if (request["op"] as? String == "mobileQueuedEdit" && ["read", "cas", "cleanup", "release", "retire"].contains(request["action"] as? String ?? ""))
             || ["composerAttachRemove", "snapshotDraftRemove"].contains(request["op"] as? String ?? "") {
             let store = queuedEdits

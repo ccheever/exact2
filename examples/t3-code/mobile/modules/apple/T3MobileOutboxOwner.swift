@@ -59,6 +59,10 @@ final class T3MobileOutboxOwner: @unchecked Sendable {
         }
         return record
     }
+    /// Exact replay owns its old payload; a currently open editor still defers network work.
+    func deliveryRetryUnheldLocked(_ message: String) -> Bool {
+        (holds[message] ?? []).isEmpty
+    }
     // Called with the coordinator lock already held by byte removal.
     func protects(_ identifier: String) -> Bool {
         let records = accepted.values.compactMap { $0["record"] as? Object } + rows.values.compactMap(\.record) + cache.values.flatMap(disk.payloads)

@@ -28,6 +28,8 @@ final class T3MobileQueuedEdit: @unchecked Sendable {
     private var sending = Set<String>()
     // A cold/ambiguous visible journal is not proof of fsync. Only an exact successful save confirms it.
     private var durableOutbox: [String: Int] = [:]
+    private var outboxAttempts: [String: Int] = [:]
+    private var outboxAdmitted = Set<String>()
     // Failure injection belongs to isolated source tests; shipping initializer uses durableReplace.
     private let replace: (Data, URL) throws -> Void
     init(root: URL, replace: @escaping (Data, URL) throws -> Void = T3MobileQueuedEdit.durableReplace) {
@@ -216,7 +218,7 @@ final class T3MobileQueuedEdit: @unchecked Sendable {
             commands[id] = operation; value["operations"] = commands; try save(value); return operation
         }
     }
-    /// Stage one only: this receipt cannot enter the queued-edit sender.
+    /// Outbox receipts share the journal but cannot enter the queued-edit sender.
     func reserveOutboxDelivery(_ request: [String: Any], origin: String, environment: String) throws -> [String: Any] {
         try locked {
             let candidate = try T3OutboxDeliveryReceipt.make(request, origin: origin, environment: environment)
@@ -258,12 +260,12 @@ final class T3MobileQueuedEdit: @unchecked Sendable {
             return ["operation": operation, "durable": durableOutbox[id] == operation["revision"] as? Int]
         }
     }
-    /// Only never-issued reservations retire. Replacing one requires its exact retired revision and fresh row admission.
+    /// Only known-unsent reservations retire. Replacing one requires its exact retired revision and fresh row admission.
     func retireOutboxDelivery(_ id: String, revision: Int) throws -> [String: Any] {
         try locked {
             var value = try store(), commands = operations(value)
             guard var operation = commands[id], operation["kind"] as? String == "outbox",
-                  operation["revision"] as? Int == revision,
+                  operation["revision"] as? Int == revision, revision < 9_007_199_254_740_991,
                   ["reserved", "retired"].contains(operation["state"] as? String ?? ""), !sending.contains(id) else {
                 throw refusal("The outbox reservation changed or needs delivery resolution.", kind: "stale")
             }
@@ -275,6 +277,102 @@ final class T3MobileQueuedEdit: @unchecked Sendable {
             }
             try save(value); durableOutbox[id] = operation["revision"] as? Int
             return ["operation": operation, "durable": true, "releases": drainReleases(&value)]
+        }
+    }
+    private func saveOutboxJournal(_ value: [String: Any]) throws {
+        do { try save(value) }
+        catch { throw T3Failure(kind: "Persistence", message: "The delivery receipt could not be durably confirmed. Read and recover its exact revision.", uncertain: true) }
+    }
+    /// One saved command, one active attempt. Caller is the selected transport's serial queue.
+    func beginOutboxDelivery(_ request: [String: Any], origin: String, environment: String) throws -> [String: Any] {
+        try locked {
+            var value = try store(), commands = operations(value)
+            guard let id = request["operationId"] as? String, var operation = commands[id],
+                  operation["kind"] as? String == "outbox", T3OutboxDeliveryReceipt.integer(request["revision"], positive: true),
+                  request["revision"] as? Int == operation["revision"] as? Int,
+                  operation["origin"] as? String == origin, operation["environmentId"] as? String == environment,
+                  !sending.contains(id), outboxAttempts[id] == nil else {
+                throw refusal("The delivery receipt changed or is already sending.", kind: "stale")
+            }
+            let state = operation["state"] as! String, revision = operation["revision"] as! Int
+            guard revision < 9_007_199_254_740_990 else { throw refusal("The delivery revision is exhausted.", kind: "Persistence") }
+            if state == "acknowledged" {
+                durableOutbox.removeValue(forKey: id)
+                try saveOutboxJournal(value); durableOutbox[id] = revision
+                return operation
+            }
+            guard ["reserved", "issued", "uncertain"].contains(state)
+                || (state == "rejected" && operation["stage"] as? String == "settings-sync"
+                    && (request["retryRejected"] as? NSNumber).map({ CFGetTypeID($0) == CFBooleanGetTypeID() && $0.boolValue }) == true) else {
+                throw refusal("This delivery receipt needs an explicit supported resolution.", kind: "stale")
+            }
+            if state == "reserved" {
+                _ = try outboxOwner.deliveryRecordLocked(["ownerEpoch": request["ownerEpoch"] ?? NSNull(),
+                    "messageId": operation["messageId"]!, "expectedToken": operation["rowToken"]!,
+                    "expectedRevision": operation["rowRevision"]!, "record": operation["record"]!])
+            } else if !outboxOwner.deliveryRetryUnheldLocked(operation["messageId"] as! String) {
+                throw refusal("Finish editing this queued message before retrying its delivery.", kind: "Busy")
+            }
+            guard !commands.values.contains(where: { $0["operationId"] as? String != id && $0["origin"] as? String == origin && $0["environmentId"] as? String == environment && unresolved($0) }),
+                  !active.values.contains(origin + "\n" + environment), try !hasPending(environment) else {
+                throw refusal("Resolve the previous environment operation first.", kind: "Busy")
+            }
+            // First re-sync exact visible state; then durably mark this attempt before any RPC admission.
+            durableOutbox.removeValue(forKey: id)
+            try saveOutboxJournal(value); durableOutbox[id] = revision
+            operation["attemptPreviousState"] = state == "issued" ? "uncertain" : state
+            operation["attemptRevision"] = revision + 1
+            operation["revision"] = revision + 1; operation["state"] = "issued"
+            operation.removeValue(forKey: "result"); operation.removeValue(forKey: "error")
+            commands[id] = operation; value["operations"] = commands
+            durableOutbox.removeValue(forKey: id)
+            try saveOutboxJournal(value); durableOutbox[id] = revision + 1
+            sending.insert(id); outboxAttempts[id] = revision + 1; outboxAdmitted.remove(id)
+            return operation
+        }
+    }
+    /// Native completion owns settlement even when the original Exact answer has gone away.
+    func settleOutboxDelivery(_ id: String, issuedRevision: Int, result: [String: Any], knownUnsent: Bool = false) throws -> [String: Any] {
+        try locked {
+            var value = try store(), commands = operations(value)
+            guard var operation = commands[id], operation["kind"] as? String == "outbox",
+                  operation["state"] as? String == "issued", operation["revision"] as? Int == issuedRevision,
+                  outboxAttempts[id] == issuedRevision, sending.contains(id),
+                  let okay = result["ok"] as? NSNumber, CFGetTypeID(okay) == CFBooleanGetTypeID(),
+                  JSONSerialization.isValidJSONObject(result) else {
+                throw refusal("The delivery callback no longer owns this attempt.", kind: "stale")
+            }
+            defer { sending.remove(id); outboxAttempts.removeValue(forKey: id); outboxAdmitted.remove(id) }
+            let prior = operation["attemptPreviousState"] as! String
+            if okay.boolValue {
+                operation["state"] = "acknowledged"; operation["result"] = result["value"] ?? NSNull()
+                operation.removeValue(forKey: "error")
+            } else {
+                // A typed RPC Fail alone can follow server commit. The transport must prove non-acceptance.
+                let notAccepted = (result["_outboxNotAccepted"] as? NSNumber).map { CFGetTypeID($0) == CFBooleanGetTypeID() && $0.boolValue } == true
+                let safelyUnsent = knownUnsent && !outboxAdmitted.contains(id)
+                operation["state"] = safelyUnsent ? prior : prior == "uncertain" ? "uncertain" : notAccepted ? "rejected" : "uncertain"
+                operation["error"] = result["error"] as? [String: Any] ?? [:]
+                operation.removeValue(forKey: "result")
+            }
+            operation["revision"] = issuedRevision + 1
+            commands[id] = operation; value["operations"] = commands
+            durableOutbox.removeValue(forKey: id)
+            try saveOutboxJournal(value); durableOutbox[id] = issuedRevision + 1
+            return operation
+        }
+    }
+    /// Explicit recovery establishes durability only; issued/uncertain still require exact server resolution.
+    func recoverOutboxDelivery(_ id: String, revision: Int) throws -> [String: Any] {
+        try locked {
+            let value = try store()
+            guard let operation = operations(value)[id], operation["kind"] as? String == "outbox",
+                  operation["revision"] as? Int == revision, !sending.contains(id), outboxAttempts[id] == nil else {
+                throw refusal("The delivery receipt changed or is still sending.", kind: "stale")
+            }
+            durableOutbox.removeValue(forKey: id)
+            try saveOutboxJournal(value); durableOutbox[id] = revision
+            return ["operation": operation, "durable": true]
         }
     }
     func beginSend(_ id: String, revision: Int, origin: String, environment: String) throws -> [String: Any] {
@@ -291,9 +389,9 @@ final class T3MobileQueuedEdit: @unchecked Sendable {
     }
     func settle(_ id: String, result: [String: Any], knownUnsent: Bool = false) throws -> [String: Any] {
         try locked {
-            defer { sending.remove(id) }
             var value = try store(), commands = operations(value)
             guard var operation = commands[id], operation["kind"] == nil else { throw refusal("The queued operation is missing.", kind: "Persistence") }
+            defer { sending.remove(id) }
             let success = result["ok"] as? Bool == true
             operation["state"] = success ? "acknowledged" : knownUnsent ? "reserved" : result["_definitiveFailure"] as? Bool == true ? "rejected" : "uncertain"
             operation["revision"] = (operation["revision"] as? Int ?? 0) + 1
@@ -302,13 +400,30 @@ final class T3MobileQueuedEdit: @unchecked Sendable {
             commands[id] = operation; value["operations"] = commands; try save(value); return operation
         }
     }
-    func admit(method: String, origin: String, environment: String, journal: String? = nil) throws -> UUID? {
-        guard Self.methods.contains(method) else { return nil }
+    func admit(method: String, origin: String, environment: String, journal: String? = nil, payload: Any? = nil) throws -> UUID? {
+        if !Self.methods.contains(method) {
+            if let journal {
+                try locked {
+                    if operations(try store())[journal]?["kind"] as? String == "outbox" {
+                        throw refusal("The delivery RPC method does not match its receipt.", kind: "stale")
+                    }
+                }
+            }
+            return nil
+        }
         return try locked {
             let commands = operations(try store())
             if let journal {
-                guard sending.contains(journal), let operation = commands[journal], operation["kind"] == nil, operation["origin"] as? String == origin, operation["environmentId"] as? String == environment,
+                guard sending.contains(journal), let operation = commands[journal], operation["origin"] as? String == origin, operation["environmentId"] as? String == environment,
                       operation["state"] as? String == "issued" else { throw refusal("The queued send is no longer admitted.", kind: "stale") }
+                if operation["kind"] as? String == "outbox" {
+                    guard outboxAttempts[journal] == operation["revision"] as? Int, !outboxAdmitted.contains(journal),
+                          operation["method"] as? String == method,
+                          T3MobileOutbox.jsonEqual(operation["payload"], payload) else {
+                        throw refusal("The delivery RPC does not match its immutable receipt.", kind: "stale")
+                    }
+                    outboxAdmitted.insert(journal)
+                }
             } else if commands.values.contains(where: { $0["origin"] as? String == origin && $0["environmentId"] as? String == environment && unresolved($0) }) {
                 throw refusal("Resolve the queued update before making another change in this environment.", kind: "Busy")
             }
