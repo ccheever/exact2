@@ -138,7 +138,7 @@ test('actual Submit cannot begin while a Home discard confirmation owns the draf
     f.client, f.native, f.storage);
   await started;
   const result = await mobileNewTaskTransferSubmit(f.client, f.native, f.storage, {
-    draftKey: A, current: () => true, facts: () => { throw Error('busy caller must not capture'); },
+    draftKey: A, now: 1791420000000, current: () => true, facts: () => { throw Error('busy caller must not capture'); },
   });
   expect(result.status).toBe('busy');
   expect(f.calls.some(call => call.op === 'ids')).toBe(false);

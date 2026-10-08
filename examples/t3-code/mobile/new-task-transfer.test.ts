@@ -120,7 +120,7 @@ async function fixture() {
     client.local.drafts['new-task:' + id] = ' original ';
   }
   noteNow(client, Date.parse('2026-10-08T01:00:00.000Z')); ready = true;
-  const input = { draftKey: key, current: () => active, facts: () => facts };
+  const input = { draftKey: key, now: Date.parse('2026-10-08T01:00:00.000Z'), current: () => active, facts: () => facts };
   const seed = (state: MobileOutboxTransferClaim['state']) => {
     const draft = mobileNewTaskDraftPresentation(client, key)!;
     const prepared = mobileCaptureNewTaskOutbox(draft, facts, {
@@ -283,4 +283,78 @@ test('LetGo while reading prevents lookup and all later native calls', async () 
   const f = await fixture(); f.hooks.set('read', async () => { throw { name: 'FetchError', kind: 'Aborted' }; });
   await expect(submit(f.client, f.native, f.storage, f.input)).rejects.toMatchObject({ kind: 'superseded' });
   expect(actions(f)).toEqual(['read']); expect(f.writes).toHaveLength(0); expect(busy(f.client, key)).toBe(false);
+});
+
+
+test('new-admission facts prepare after exact recovery lookup and before persistence or IDs', async () => {
+  const f = await fixture(); let prepared = false;
+  noteNow(f.client, Date.parse('2026-10-07T01:00:00.000Z')); // The prior root sample is intentionally stale.
+  const result = await submit(f.client, f.native, f.storage, { ...f.input,
+    async prepareFacts(native) {
+      expect(actions(f)).toEqual(['read', 'transferLookup', 'transferLookup']);
+      expect(f.writes).toHaveLength(0);
+      await native.later({ op: 'prepare-facts' }); prepared = true;
+    }, facts() { expect(prepared).toBe(true); return f.facts; },
+  });
+  expect(result.status).toBe('completed');
+  expect(actions(f).indexOf('prepare-facts')).toBeLessThan(actions(f).indexOf('ids'));
+  const record = f.calls.find(call => call.action === 'enqueueTransfer').record;
+  expect(record.createdAt).toBe('2026-10-08T01:00:00.000Z');
+});
+test('existing claims recover without resolving present-day facts or reading action time', async () => {
+  for (const state of ['prepared', 'queued', 'completed', 'failed'] as const) {
+    const f = await fixture(); f.seed(state);
+    const result = await submit(f.client, f.native, f.storage, { ...f.input, now: NaN,
+      async prepareFacts() { throw Error('must not prepare'); }, facts() { throw Error('must not read facts'); } });
+    expect(result.claim?.messageId).toBe('old-message'); expect(actions(f)).not.toContain('ids');
+    expect(result.message).not.toContain('must not');
+  }
+});
+test('fact preparation checks ownership before native calls and after every native reply', async () => {
+  for (const when of ['before', 'during']) {
+    const f = await fixture();
+    if (when === 'during') f.hooks.set('prepare-facts', async () => { f.setActive(false); });
+    let returned = false;
+    await expect(submit(f.client, f.native, f.storage, { ...f.input, async prepareFacts(native) {
+      if (when === 'before') f.setActive(false);
+      await native.later({ op: 'prepare-facts' }); returned = true;
+    } })).rejects.toMatchObject({ kind: 'superseded' });
+    expect(returned).toBe(false); expect(f.writes).toHaveLength(0); expect(actions(f)).not.toContain('ids');
+    expect(actions(f).includes('prepare-facts')).toBe(when === 'during'); expect(busy(f.client, key)).toBe(false);
+  }
+});
+test('swallowed cancellation in fact preparation cannot allocate or persist', async () => {
+  const f = await fixture(); f.hooks.set('prepare-facts', async () => { throw { name: 'FetchError', kind: 'Aborted' }; });
+  await expect(submit(f.client, f.native, f.storage, { ...f.input, async prepareFacts(native) {
+    try { await native.later({ op: 'prepare-facts' }); } catch { /* Tolerated preference failure must not hide cancellation. */ }
+  } })).rejects.toMatchObject({ kind: 'superseded' });
+  expect(f.writes).toHaveLength(0); expect(actions(f)).not.toContain('ids'); expect(busy(f.client, key)).toBe(false);
+});
+test('preparation failure keeps the draft and invalid action time never uses cached clock', async () => {
+  for (const failedPrepare of [true, false]) {
+    const f = await fixture(); const before = mobileNewTaskDraftPresentation(f.client, key);
+    const result = await submit(f.client, f.native, f.storage, { ...f.input, now: failedPrepare ? f.input.now : NaN,
+      async prepareFacts() { if (failedPrepare) throw Error('file read unavailable'); } });
+    expect(result.status).toBe('blocked'); expect(result.message).toContain(failedPrepare ? 'file read unavailable' : 'app clock');
+    expect(f.writes).toHaveLength(0); expect(actions(f)).not.toContain('ids');
+    expect(mobileNewTaskDraftPresentation(f.client, key)).toEqual(before); expect(busy(f.client, key)).toBe(false);
+  }
+});
+
+
+test('known source admission refusals precede preference writes and ID allocation', async () => {
+  for (const reason of ['busy', 'permission', 'text', 'model', 'worktree', 'context']) {
+    const f = await fixture();
+    if (reason === 'busy') f.facts.blockReason = 'Wait for attachment import.';
+    if (reason === 'permission') { f.facts.connected = true; f.facts.canOperate = false; }
+    if (reason === 'text') f.client.local.drafts[key] = '  ';
+    if (reason === 'model') f.facts.selectedModel = null;
+    if (reason === 'worktree') { f.facts.workspace.mode = 'worktree'; f.facts.workspace.explicitBranch = null; }
+    if (reason === 'context') f.facts.context = { version: 1, records: [{ kind: 'unsupported' }] };
+    f.hooks.set('persist:1', async () => { throw Error('must not mask admission with disk failure'); });
+    const before = mobileNewTaskDraftPresentation(f.client, key), result = await submit(f.client, f.native, f.storage, f.input);
+    expect(result.status).toBe('blocked'); expect(result.message).not.toContain('mask');
+    expect(f.writes).toHaveLength(0); expect(actions(f)).not.toContain('ids');
+    expect(mobileNewTaskDraftPresentation(f.client, key)).toEqual(before); expect(busy(f.client, key)).toBe(false);
+  }
 });

@@ -1,13 +1,13 @@
 // Local enqueue completion is separate from server launch and its shared Pending owner.
 // @ref llp/1109.005-composer-and-transcript.decision.md#durable-draft-capture-transfer
 import type { MobileDraftClient } from './mobile-draft-recovery';
-import { mobileCaptureNewTaskOutbox, type MobileOutboxCaptureFacts } from './mobile-outbox-capture';
+import { mobilePrepareNewTaskOutbox, type MobileOutboxCaptureFacts } from './mobile-outbox-capture';
+import { mobileOutboxEncode } from './mobile-outbox-model';
 import { mobileNewTaskDraftPresentation } from './mobile-new-task-drafts';
 import { mobileOutboxRead, mobileOutboxSnapshot, mobileOutboxEnqueueTransfer, mobileOutboxTransferLookup,
   mobileOutboxTransferStatus, mobileOutboxCompleteTransfer, mobileOutboxReleaseFailedTransfer, mobileOutboxRecover } from './mobile-outbox';
 import { mobileOutboxTransferCanonical, type MobileOutboxTransferClaim } from './mobile-outbox-transfer-model';
 import { mobileOutboxTransferApplyCleanup } from './mobile-outbox-transfer-cleanup';
-import { composerNow } from './shared/composer-controls';
 import { ClientError, type Native, type Files } from './shared/protocol';
 import { letGo, letGoAware } from './shared/let-go';
 import { mobileNewTaskTransferGuardAcquire, mobileNewTaskTransferGuardRelease,
@@ -15,6 +15,10 @@ import { mobileNewTaskTransferGuardAcquire, mobileNewTaskTransferGuardRelease,
 
 export interface MobileNewTaskTransferInput {
   draftKey: string;
+  /** Fresh action clock, supplied by Contract as epochAtZero + now(). */
+  now: number;
+  /** Resolve only new-admission facts, after existing transfer recovery. */
+  prepareFacts?(native: Native): Promise<void>;
   /** Route/selection ownership only. Reads and draft persistence change client.revision. */
   current(): boolean;
   /** Synchronous resolved facts for this full draft. Never prepare a different selected draft here. */
@@ -72,7 +76,7 @@ async function freshStatus(client: MobileDraftClient, native: Native, transferId
   return reply.claim;
 }
 /** One foreground invocation, with a plain per-draft latch. It never sends to a server,
- * navigates, loads preferences, or retains a Promise/native handle for another answer. */
+ * navigates, or retains a Promise/native handle for another answer. Preparation is caller-owned. */
 export async function mobileNewTaskTransferSubmit(client: MobileDraftClient, nativeInput: Native | null | undefined,
   storage: Files, input: MobileNewTaskTransferInput): Promise<MobileNewTaskTransferResult> {
   if (!client.preferencesLoaded) return result('blocked', 'Wait for saved drafts to load.');
@@ -109,17 +113,24 @@ export async function mobileNewTaskTransferSubmit(client: MobileDraftClient, nat
       (claim.state !== 'completed' || claim.fingerprint === compared.fingerprint));
     if (existing) return await finish(client, native, storage, await freshStatus(client, native, existing.transferId));
     assertCurrent();
+    if (input.prepareFacts) {
+      const preparing: Native = { available: native.available, watch(topic) { assertCurrent(); native.watch(topic); }, async later(request) {
+        assertCurrent(); const reply = await native.later(request); assertLive(); assertCurrent(); return reply;
+      } };
+      await input.prepareFacts(preparing); assertLive(); assertCurrent();
+    }
     const facts = input.facts(), factsKey = mobileOutboxTransferCanonical(facts);
     const assertCapture = () => { assertCurrent(); if (mobileOutboxTransferCanonical(input.facts()) !== factsKey)
       throw new ClientError('The task settings changed before it could be queued.', 'superseded'); };
-    const now = composerNow(client);
+    const prepared = mobilePrepareNewTaskOutbox(initial, facts);
+    if (prepared.status !== 'ready') return result('blocked', prepared.reason);
+    const now = input.now;
     if (!Number.isFinite(now) || now <= 0) return result('blocked', 'Wait for the app clock before queuing this draft.');
     await client.persist(storage); assertLive(); assertCapture();
     const [threadId, messageId, commandId] = await client.ids(native, 3); assertLive(); assertCapture();
     if (new Set([threadId, messageId, commandId]).size !== 3) return result('blocked', 'Task identifiers were not unique.');
-    const prepared = mobileCaptureNewTaskOutbox(initial, facts, { threadId, messageId, commandId, createdAt: new Date(now).toISOString() });
-    if (prepared.status !== 'ready') return result('blocked', prepared.reason);
-    const admission = await mobileOutboxEnqueueTransfer(client, native, prepared.record, { version: 1, draft: prepared.draftCapture });
+    const record = mobileOutboxEncode({ ...prepared.record, threadId, messageId, commandId, createdAt: new Date(now).toISOString() });
+    const admission = await mobileOutboxEnqueueTransfer(client, native, record, { version: 1, draft: prepared.draftCapture });
     assertLive();
     if (!admission.claim || admission.disposition === 'unknown')
       return result('recovery-required', 'The local enqueue response was interrupted. Recover this draft before retrying.');
