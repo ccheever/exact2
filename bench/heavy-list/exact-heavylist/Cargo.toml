@@ -4,7 +4,7 @@
 # build's crate (bench/dioxus measures it on Chrome). Its own [workspace], so
 # the repository's root workspace does not adopt it.
 [workspace]
-members = ["data", "apple", "web"]
+members = ["data", "apple", "web", "android", "android-main"]
 resolver = "2"
 
 [workspace.package]
