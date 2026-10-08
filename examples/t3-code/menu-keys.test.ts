@@ -152,24 +152,25 @@ describe('↓ and ↑ on a closed trigger open its menu at the first or the last
     expect(await source('requests.contract')).toContain('      menuOpen = true\n      focus(kmOpenTarget(`approval-menu-${approval.id}-keys`, kmKeyEnd(k)))');
     const details = await source('shell-details.contract');
     expect(details).toContain('      scriptsOpen = true\n      focus(kmOpenTarget("details-scripts-keys", kmKeyEnd(k)))');
-    expect(details).toContain('press=toggleEditors key=editorsKey pointerdown=editorsPointer ');
+    expect(details).toContain('press=toggleEditors key=editorsKey focus=clearEditorsEnd ');
     expect(details.split('\n').find(l => l.includes('KeyMenu(menuId="details-editors-keys"'))).toContain('keyed=kmEndKeyed(menuEnd)');
     // A press that toggles reads the state as it began: the focus moves in only when the menu opens.
     expect(await source('requests.contract')).toContain('    menuOpen = not menuOpen\n    // An action reads the state as it began: `not menuOpen` is the menu opening.\n    if not menuOpen\n');
     expect(details).toContain('    scriptsOpen = not scriptsOpen\n    // An action reads the state as it began: `not scriptsOpen` is the menu opening.\n    if not scriptsOpen\n');
-    // Menus the data module mounts: the trigger asks for the end, a pointer press for none, and the menu reads it as it mounts.
+    // Menus the data module mounts: the trigger's keys ask for the end, its taking the focus clears it (no `pointerdown`: that would
+    // keep the press from the window's light-dismiss count), and the menu reads it as it mounts.
     const rail = await component('r6-device.contract', 'R6RailButton');
-    expect(rail).toContain('button id=testId press=press key=keyed pointerdown=menuEnd("")');
+    expect(rail).toContain('button id=testId press=press key=keyed focus=menuEnd("")');
     expect(rail).toContain('    if menu and kmArrow(k) and not e.metaKey and not e.ctrlKey and not e.altKey\n      preventDefault()\n      press()');
     expect((await source('r6-device.contract')).split('keyed=kmEndKeyed(railEnd)').length - 1).toBe(3);
     const files = await source('r4-surfaces-files.contract');
     for (const id of ['crumb-menu-keys', 'file-editors-keys']) expect(files.split('\n').find(l => l.includes(`KeyMenu(menuId="${id}"`))).toContain('keyed=kmEndKeyed(menuEnd)');
-    expect(files).toContain('key=crumbKey pointerdown=menuEnd("")');
-    expect(files).toContain('key=editorsKey pointerdown=menuEnd("")');
+    expect(files).toContain('key=crumbKey focus=menuEnd("")');
+    expect(files).toContain('key=editorsKey focus=menuEnd("")');
     expect(await source('r4-surfaces.contract')).toContain('R4LinkedMenu(row=row, local=local, command=command, keyed=kmEndKeyed(menuEnd))');
     const diff = await source('diff.contract');
     expect(diff).toContain('DiffScopeMenu(data=data, command=command, keyed=kmEndKeyed(scopeEnd))');
-    expect(diff).toContain('button id="diff-scope" press=openScope key=scopeKey pointerdown=scopeEnd("") ');
+    expect(diff).toContain('button id="diff-scope" press=openScope key=scopeKey focus=scopeEnd("") ');
     expect(await component('markdown.contract', 'TableCopyButton')).toContain('button press=openMenu key=menuKey ');
   });
 });

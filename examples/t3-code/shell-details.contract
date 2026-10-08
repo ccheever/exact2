@@ -99,15 +99,15 @@ component DetailsBody
       focus(kmOpenTarget("details-scripts-keys", kmKeyEnd(k)))
       menuEnd = ""
   // The "Open in" menu mounts from the data module: the trigger lets go of the focus so the popup's
-  // `autofocus` takes it, and the menu reads the end the last key on the trigger asked for (a pointer
-  // press asks for none).
+  // `autofocus` takes it, and the menu reads the end the last key on the trigger asked for (the trigger
+  // taking the focus, as a pointer press gives it, clears it).
   action editorsKey(k: string, e: KeyboardEvent)
     menuEnd = kmKeyEnd(k)
     if kmArrow(k) and not e.metaKey and not e.ctrlKey and not e.altKey and not editorsOpen
       preventDefault()
       blur()
       act("editors", "", "")
-  action editorsPointer
+  action clearEditorsEnd
     menuEnd = ""
   action toggleScripts
     scriptsOpen = not scriptsOpen
@@ -171,7 +171,7 @@ component DetailsBody
                   box width="1rem" height="1rem" flex-shrink=0
                 text details.editorLabel flex=1 min-width=0 white-space="nowrap" overflow="hidden" text-overflow="ellipsis" text-align="left" font-size="0.8125rem" font-weight=500 line-height="1.21875rem" color="light-dark(#27272acc, #f5f5f5cc)"
               box width=1 height="1rem" flex-shrink=0 background-color="light-dark(#e4e4e7a6, #ffffff10)"
-              button press=toggleEditors key=editorsKey pointerdown=editorsPointer hover=hover("editor-menu") aria-label="Choose editor" aria-expanded=editorsOpen testId="details-choose-editor" width="2rem" height="2rem" padding=0 border-width=0 border-radius="0.625rem" background-color=(editorsOpen or hovered == "editor-menu" ? "light-dark(#0000000e, #ffffff13)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0
+              button press=toggleEditors key=editorsKey focus=clearEditorsEnd hover=hover("editor-menu") aria-label="Choose editor" aria-expanded=editorsOpen testId="details-choose-editor" width="2rem" height="2rem" padding=0 border-width=0 border-radius="0.625rem" background-color=(editorsOpen or hovered == "editor-menu" ? "light-dark(#0000000e, #ffffff13)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0
                 ShellIcon(name="chevron-down", size=16, color="light-dark(#71717b, #818181)")
           // r6-polish: a project with scripts shows its primary script as a split row (r6-polish.contract).
           when details.scriptName != ""

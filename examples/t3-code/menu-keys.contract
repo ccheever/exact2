@@ -36,7 +36,10 @@ fn kmBump(keyed: number, last: bool): number = last ? (keyed < 0 ? keyed - 1 : 0
 fn kmEnd(items: list<KmItem>, keyed: number): option<KmItem> = keyed < 0 ? at(items, -1) : first(items)
 // A menu its owner mounts from state: the end a key on its trigger asks for ("first" from Enter, Space
 // or ↓, "last" from ↑, "" for any other key), and the node the owner focuses as it opens the menu (the
-// popup itself after a pointer press, else its `-first` or `-last` box, which hand the focus on).
+// popup itself after a pointer press, else its `-first` or `-last` box, which hand the focus on). A menu
+// the data module mounts reads the end as it mounts (`kmEndKeyed`); its trigger clears the end as it takes
+// the focus, which a pointer press gives it, rather than on `pointerdown`, which would keep the press from
+// the window's own count (popover-escape-parity's light dismiss).
 fn kmKeyEnd(k: string): string = k == "ArrowUp" ? "last" : (k == "ArrowDown" or kmOpenKey(k) ? "first" : "")
 fn kmOpenTarget(menuId: string, end: string): string = end == "" ? menuId : `${menuId}-${end}`
 // The `keyed` a freshly mounted menu sees for that end: 1 the first item, -1 the last, 0 the popup.
