@@ -73,8 +73,10 @@ describe('the shared menu keyboard (Base UI Menu)', () => {
     // The diff scope menu: the right panel's toggle declares Escape too (and wins among non-modal shortcuts), so the
     // menus' box scopes the shortcuts while it shows and closes the menus on Escape itself (the base closed the panel).
     const scope = await component('diff.contract', 'DiffScopeMenu');
-    expect(scope).toContain('column aria-modal=true key=menuKey position="absolute"');
-    expect(scope).toContain('    if k == "Escape"\n      preventDefault()\n      stopPropagation()\n      command("diff-view", "menu", "", 0)\n      focus("diff-scope")');
+    expect(scope).toContain('column aria-modal=true position="absolute"');
+    // Its own Escape is a shortcut inside that scope, so it closes the menus even when nothing inside holds the focus.
+    expect(scope).toContain('button press=closeMenus aria-keyshortcuts="Escape" aria-label="Close diff scope menu" tabindex=-1 aria-hidden=true');
+    expect(scope).toContain('  action closeMenus\n    command("diff-view", "menu", "", 0)\n    focus("diff-scope")');
   });
 
   test('a row the keys move to has an id: every menuitem in a file with a keyboard menu', async () => {
