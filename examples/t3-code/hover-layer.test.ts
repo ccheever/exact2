@@ -103,13 +103,14 @@ describe('#263 bug 10: the Usage segment popover is drawn in the page scroll con
   test('the page opens it through the window hover state: the segment is the trigger, the popover and its email the card', async () => {
     const page = await component('pages-usage.contract', 'UsagePage');
     expect(page).toContain('derive hovered = hoverShown and hoverTip.kind == "usage" ? hoverTip.key : ""');
-    expect(page).toContain('derive shown = hovered != "" ? hovered : pinned');
+    expect(page).toContain('derive shown = hovered != "" ? hovered : held');
     expect(page).toMatch(/action enterSeg\(id: string, inside: bool\)\n    if inside\n      place\(id, "seg"\)\n    hoverTipAt\(HoverTip\(key=id, kind="usage"[^\n]*\), "trigger", inside\)/);
     expect(page).toMatch(/action enterPop\(id: string, inside: bool\)\n    hoverTipAt\(HoverTip\(key=id, kind="usage"[^\n]*\), "card", inside\)/);
     expect(page).toContain('action enterMail(id: string, inside: bool)\n    enterPop(id, inside)');
-    // Escape, "Use reset" and a press on its pinned trigger close it at once; the hover waits for a new enter.
-    expect(page.match(/hoverTipAt\(noHoverTip\(\), "", true\)/g)).toHaveLength(3);
-    expect(page).toContain('  action toggle(id: string)\n    if pinned == id\n      hoverTipAt(noHoverTip(), "", true)');
+    // Escape, "Use reset", a press on its pinned trigger and a press outside it (#290's light dismiss) close it at
+    // once; the hover waits for a new enter (Base UI's blockMouseMove).
+    expect(page.match(/hoverTipAt\(noHoverTip\(\), "", true\)/g)).toHaveLength(4);
+    expect(page).toContain('  action toggle(id: string)\n    if held == id\n      hoverTipAt(noHoverTip(), "", true)');
     expect(await source('hover-layer.contract')).toContain('fn hoverDelay(kind: string): number = kind == "scopes" ? 100 : (kind == "freshness" ? 120 : (kind == "usage" ? 50 : 0))');
   });
 });

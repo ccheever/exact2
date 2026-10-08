@@ -1,11 +1,11 @@
 ---
 name: 20261008-x60-number-field-semantics
 plan: 20261005-t3code-macos-parity
-status: draft
+status: published
 kind: framework-gap
 blocks: []
-upstream_url: null
-reproduced_on: 592657b3a (feat(example)/t3-code-provisional-decisions-parity; the feature branch's framework, main 1f19b2400)
+upstream_url: https://github.com/ccheever/exact2/issues/301
+reproduced_on: febb2c5fb (main; a one-file app, macOS and the web) and 592657b3a (feat(example)/t3-code-provisional-decisions-parity; the feature branch's framework, main 1f19b2400)
 ---
 
 # X60: `input type="number"` on macOS is a plain text field (no ArrowUp/ArrowDown stepping, no character filter)
@@ -63,3 +63,16 @@ Remove `tsStep` and the ArrowUp/ArrowDown branch of `TailscaleSetupDialog.submit
 ## Status and next action
 Draft, not published (the user files issues). No upstream issue found by title search
 (`gh issue list --search "number input step ArrowUp"`, 2026-10-08).
+
+## Upstream (filed 2026-10-08)
+
+Upstream: https://github.com/ccheever/exact2/issues/301 (#301, [Bug] macOS: `input type="number"` is a plain text
+field (ArrowUp/ArrowDown do not step, letters are accepted)). Reproduced on main `febb2c5fb` with a one-file app
+(`type="number" min=1 max=65535 step=1`, value "443"), on macOS and on the web. macOS: ArrowUp leaves "443", `key a`
+gives "a443", `type port 4a4` gives "4a4", an emptied field stays empty on ArrowUp, and `tree --ax` shows the field as a
+`textbox`. The web: "444", "444", "44", "1", the bounds hold, and the role is `spinbutton`. So the issue covers three
+things: stepping, the character filter and the accessibility role. Evidence: [x60-arrowup.png](https://raw.githubusercontent.com/ccheever/exact2/649f5649dc51c4f75562485f5cabc5ef74baabd1/file-x59-x61/x60-arrowup.png),
+[x60-letters.png](https://raw.githubusercontent.com/ccheever/exact2/649f5649dc51c4f75562485f5cabc5ef74baabd1/file-x59-x61/x60-letters.png), transcript [x60-ops.txt](https://raw.githubusercontent.com/ccheever/exact2/649f5649dc51c4f75562485f5cabc5ef74baabd1/file-x59-x61/x60-ops.txt).
+
+Next: `issue-close` once #301 lands: remove `tsStep` and the ArrowUp/ArrowDown branch of
+`TailscaleSetupDialog.submitKey`; a typed letter should then never show in the port field.

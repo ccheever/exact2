@@ -6,7 +6,8 @@ Code behavior, what exact2 does today with evidence, where the clone hits it) an
 be resolved (parity impact). The goal is a complete clone, so a declared deviation is not an
 end state: every issue ends resolved upstream and adopted in the app (verified by
 `issue-close`), or closed by the user's decision. Policy issues (DEFERRED rules) need
-Charlie's waiver; scope issues (X38–X41) need the user's decision to build or close.
+Charlie's waiver; scope issues (X38–X41) need the user's decision to build or close (decided 2026-10-08: all
+four closed, not built).
 
 A file whose row has no upstream link is a **local draft**: not reproduced on the pinned
 `main`, not searched upstream, not published. `issue-open` reproduces each one, checks for
@@ -25,7 +26,7 @@ acceptance rows wait for the issue or carry its difference until it is resolved.
 | [X1](20261005-x01-chromium-cdp-browser-surface.md) | An embedded browser engine that an app can drive (Browser surface) | framework-policy + framework-gap | browser-surface, right-panel-tab-menu, t3-connect-sign-in | draft |
 | [X2](20261005-x02-app-developer-tools.md) | A developer-tools inspector for the app's own UI (View › Toggle Developer Tools) | framework-policy | app-developer-tools, desktop-shell-details, terminal-surface | draft |
 | [X3](closed/20261005-x03-root-font-size.md) | An app-settable root font size, the base of `rem` | framework-gap | interface-font-size, interface-font-size-conversion | upstream #102 closed (main #185); adopted |
-| [X4](20261005-x04-bundle-helper-executables.md) | Helper executables and large resource trees in the `.app` | framework-gap | embedded-server-runtime, portable-app-download, this-machine-network-access | upstream #103 fixed (main #215); adopted by [embedded-server-runtime](../tasks/closed/20261005-embedded-server-runtime.md) (the release archive as a native resource tree, no parts; the unpack stays: #215 re-signs Mach-O without its entitlements, see file); portable-app-download and this-machine-network-access adopt it next |
+| [X4](20261005-x04-bundle-helper-executables.md) | Helper executables and large resource trees in the `.app` | framework-gap | embedded-server-runtime, portable-app-download (dropped 2026-10-08), this-machine-network-access | upstream #103 fixed (main #215); adopted by [embedded-server-runtime](../tasks/closed/20261005-embedded-server-runtime.md) (the release archive as a native resource tree, no parts; the unpack stays: #215 re-signs Mach-O without its entitlements, see file); portable-app-download and this-machine-network-access adopt it next |
 | [X5](20261005-x05-url-scheme-delivery.md) | A custom-scheme URL delivered to a data source or module when no route takes it | framework-gap | app-activation, managed-codex-chatgpt, provider-sign-in-and-install, t3-connect-sign-in | upstream #104 closed (main #201 journals an unheard launch URL only); delivery to a data source or module still missing; nothing to adopt ([adopt-main-fixes-r4](../tasks/closed/20261007-adopt-main-fixes-r4.md)); rest filed as [#268](https://github.com/ccheever/exact2/issues/268) ([Design], 2026-10-08, reproduced on main `0365ad1a4`) |
 | [X6](20261005-x06-module-quit-shutdown.md) | A module hook at quit that can delay termination for a bounded time | framework-gap | app-activation, app-update-feed, embedded-server-runtime, managed-codex-chatgpt, telemetry | upstream #105 closed (main #200: `destroy()` at quit and last-window close); adopted for SSH ([adopt-main-fixes-r4](../tasks/closed/20261007-adopt-main-fixes-r4.md)) and by [embedded-server-runtime](../tasks/closed/20261005-embedded-server-runtime.md) (server stopped in `destroy()`: gone 0.79 s after a quit); a bounded quit hold is still missing; the other four tickets adopt it next; rest (a bounded quit hold, SIGTERM) filed as [#269](https://github.com/ccheever/exact2/issues/269) ([Design], 2026-10-08) |
 | [X7](closed/20261005-x07-ats-keys.md) | App Transport Security keys cannot be set from `app.json`, so a rendered HTML preview cannot load `http://` assets from a named host | framework-gap | media-actions | fixed upstream (main #173), adopted by adopt-main-fixes-shell (PR #181) |
@@ -52,17 +53,17 @@ acceptance rows wait for the issue or carry its difference until it is resolved.
 | [X28](20261005-x28-notification-actions-badges.md) | Notification click → app action, Dock badge, window-focus fact (DEFERRED refuses actions and badges) | framework-policy | client-activity-reporting | upstream #114 closed (main #219: `exactPage().hasFocus`); **focus fact adopted** for thread notifications, activity reports, the git refresh and SnapShot settings on focus; notification actions and the Dock badge continue in #224 (policy), so `T3Notifications.swift` keeps them ([adopt-main-fixes-r5](../tasks/closed/20261007-adopt-main-fixes-r5.md)) |
 | [X29](20261005-x29-video-pdf-app-files.md) | `video` and `audio` from app-written local files, and a PDF viewer element | framework-gap | media-actions | upstream #115 closed (main #205: bundled PDF iframe); a PDF element and `app:/` iframe still missing; PDFView kept ([adopt-main-fixes-r4](../tasks/closed/20261007-adopt-main-fixes-r4.md)); rest (an `app:/` iframe, a PDF element) filed as [#273](https://github.com/ccheever/exact2/issues/273) ([Design], 2026-10-08) |
 | [X30](20261005-x30-ts-announce-readback-picker.md) | Data-module topic announce and resource invalidation; pixel readback; any-type file pick with bytes and image transcode | framework-gap | composer-fidelity, media-actions, pr-conversation-and-refresh, settings-scoped-controls-and-theme-editor | draft |
-| [X31](20261005-x31-deferred-window-readiness.md) | Defer the first window until the app says it is ready | framework-gap (unconfirmed) | local-primary-environment, portable-app-download | open upstream (#117); interim connecting state shipped by local-primary-environment (U5 decided 2026-10-08: kept until #117; re-checked on main `f464bad43`) |
+| [X31](20261005-x31-deferred-window-readiness.md) | Defer the first window until the app says it is ready | framework-gap (unconfirmed) | local-primary-environment, portable-app-download (dropped 2026-10-08) | open upstream (#117); interim connecting state shipped by local-primary-environment (U5 decided 2026-10-08: kept until #117; re-checked on main `f464bad43`) |
 | [X32](20261005-x32-sticky-positioning-in-lists.md) | `position: sticky` inside a scroll container and a virtualized list | framework-gap (unconfirmed) | diff-review-engine, pr-code-tab, pr-conversation-and-refresh | draft |
 | [X33](20261005-x33-transcript-selection-range.md) | Selected text, its source message and UTF-16 offsets, and its end rectangle from the rendered transcript | framework-gap (unconfirmed) | diff-review-engine | upstream #132 closed (main #171, part 1); parts 2–3 still missing on main `cff90b364`; parts 2–3 filed as [#274](https://github.com/ccheever/exact2/issues/274) ([Feature], 2026-10-08) |
 | [X34](20261005-x34-inline-span-frame.md) | Hover and frame of an inline link or span inside rendered Markdown text | framework-gap (unconfirmed) | pr-links-previews-and-routing | upstream #133 closed (main #178, agent hover); inline frame still missing on main `cff90b364`; inline `frame()` filed as [#272](https://github.com/ccheever/exact2/issues/272) ([Bug], 2026-10-08) |
 | [X35](closed/20261005-x35-secure-text-entry.md) | Secure (password) text entry in Contract | framework-gap (unconfirmed) | managed-codex-chatgpt, provider-settings-upkeep, provider-sign-in-and-install, ssh-password-and-remote-open | upstream #134 closed (main #167); SSH workaround kept |
 | [X36](closed/20261005-x36-data-runtime-intl-locale.md) | Locale-aware `Intl` and the system locale in the data runtime | framework-gap (unconfirmed) | desktop-shell-details, reference-logic-tests-done-areas | upstream #118 closed (main #204: `Intl.Locale`, `getWeekInfo()`); adopted ([adopt-main-fixes-r4](../tasks/closed/20261007-adopt-main-fixes-r4.md)) |
-| [X37](20261005-x37-distribution-signing.md) | Developer ID signing, notarization and a pre-seal hook in the host build | framework-gap (unconfirmed) | portable-app-download | upstream #119 closed (main #199: nested Mach-O signing); entitlements and pre-seal hook still missing; available, not adopted here ([adopt-main-fixes-r4](../tasks/closed/20261007-adopt-main-fixes-r4.md)); rest (entitlements, pre-seal) filed as [#270](https://github.com/ccheever/exact2/issues/270) ([Design], 2026-10-08) |
-| [X38](20261005-x38-t3-connect-clerk-sign-in.md) | T3 Connect, Clerk sign-in, relay connections, hosted pairing and the `t3code://` handoff | scope-decision | t3-connect-sign-in | draft |
-| [X39](20261005-x39-telemetry.md) | Telemetry: product analytics, OTLP export and the host-telemetry pipes | scope-decision | app-update-feed, t3-connect-sign-in, telemetry | draft |
-| [X40](20261005-x40-app-update-feed.md) | The T3 desktop update feed and its UI: check, download, install, channels | scope-decision | app-update-feed, server-update-banner, telemetry | draft |
-| [X41](20261005-x41-wsl-environments.md) | WSL backends (Windows only) | scope-decision | wsl-environments | draft |
+| [X37](20261005-x37-distribution-signing.md) | Developer ID signing, notarization and a pre-seal hook in the host build | framework-gap (unconfirmed) | portable-app-download (dropped 2026-10-08) | upstream #119 closed (main #199: nested Mach-O signing); entitlements and pre-seal hook still missing; available, not adopted here ([adopt-main-fixes-r4](../tasks/closed/20261007-adopt-main-fixes-r4.md)); rest (entitlements, pre-seal) filed as [#270](https://github.com/ccheever/exact2/issues/270) ([Design], 2026-10-08) |
+| [X38](closed/20261005-x38-t3-connect-clerk-sign-in.md) | T3 Connect, Clerk sign-in, relay connections, hosted pairing and the `t3code://` handoff | scope-decision | t3-connect-sign-in | closed by the user's decision (2026-10-08, "close all"): out of scope, not built; [t3-connect-sign-in](../tasks/closed/20261005-t3-connect-sign-in.md) closed with it; not filed |
+| [X39](closed/20261005-x39-telemetry.md) | Telemetry: product analytics, OTLP export and the host-telemetry pipes | scope-decision | app-update-feed, t3-connect-sign-in, telemetry | closed by the user's decision (2026-10-08, "close all"): out of scope, not built; [telemetry](../tasks/closed/20261005-telemetry.md) (part 1 stays off in embedded-server-runtime) closed with it; not filed |
+| [X40](closed/20261005-x40-app-update-feed.md) | The T3 desktop update feed and its UI: check, download, install, channels | scope-decision | app-update-feed, server-update-banner, telemetry | closed by the user's decision (2026-10-08, "close all"): out of scope, not built; [app-update-feed](../tasks/closed/20261005-app-update-feed.md) closed with it; not filed |
+| [X41](closed/20261005-x41-wsl-environments.md) | WSL backends (Windows only) | scope-decision | wsl-environments | closed by the user's decision (2026-10-08, "close all"): out of scope, not built; [wsl-environments](../tasks/closed/20261005-wsl-environments.md) closed with it; not filed |
 | [X42](closed/20261005-x42-text-blur-filter.md) | `filter: blur()` on text and boxes (blurred redacted account text) | framework-gap (unconfirmed) | provider-sign-in-and-install | supported on main `0365ad1a4`: `filter="blur(4px)"` blurs text and a box on macOS and the web; closed (2026-10-08), not filed |
 | [X43](closed/20261005-x43-tristate-switch-mixed.md) | A tri-state (`mixed`) accessibility value on a switch | framework-gap (unconfirmed) | settings-scoped-controls-and-theme-editor | upstream #120 closed, not planned; workaround kept |
 | [X44](20261005-x44-remote-image-policy.md) | Remote `image` loading policy (credentials, referrer, redirects, size cap, cache, load state) and remote SVG | framework-gap (unconfirmed) | provider-settings-upkeep | fixed upstream (main #177: load/error, fetch policy documented), adopted by adopt-main-fixes-shell (PR #181); SVG on Apple still an error; remote SVG on Apple reproduced on main `0365ad1a4`; not filed: open PR [#239](https://github.com/ccheever/exact2/pull/239) covers it (2026-10-08) |
@@ -85,33 +86,33 @@ publication was performed during this local audit.
 | Issue | Capability | Kind | Blocks | Status |
 | --- | --- | --- | --- | --- |
 | [X49](20261007-x49-progress-value-accessibility.md) | A progress value for assistive technology (`progress`, `aria-valuenow`) | framework-gap | [provider-sign-in-and-install](../tasks/closed/20261005-provider-sign-in-and-install.md) (nonblocking: the status text carries the numbers) | upstream [#279](https://github.com/ccheever/exact2/issues/279) ([Feature], 2026-10-08); reproduced on main `0365ad1a4`; main `d82c12252` (adopt-main-fixes-r6's merge of `e200397ec`) adds an indeterminate `progress` only and refuses `value`/`max`, so nothing to adopt |
-| [X51](20261008-x51-popover-click-passthrough.md) | A click inside an open popover also reaching the page under it (macOS) | framework-gap | [theme-color-picker](../tasks/20261007-theme-color-picker.md) (nonblocking: `press` + `retainFocus` on the popover) | upstream [#281](https://github.com/ccheever/exact2/issues/281) ([Bug], 2026-10-08); reproduced in a one-file app on main `0365ad1a4` (a click on the popover over the button under it) |
+| [X51](20261008-x51-popover-click-passthrough.md) | A click inside an open popover also reaching the page under it (macOS) | framework-gap | [theme-color-picker](../tasks/closed/20261007-theme-color-picker.md) (nonblocking: `press` + `retainFocus` on the popover) | upstream [#281](https://github.com/ccheever/exact2/issues/281) ([Bug], 2026-10-08); reproduced in a one-file app on main `0365ad1a4` (a click on the popover over the button under it) |
 
 ## Dialog focus addition, 2026-10-08
 
 | Issue | Capability | Kind | Blocks | Status |
 | --- | --- | --- | --- | --- |
-| [X52](20261008-x52-macos-form-controls-tab-order.md) | `input type="date"`/`"time"` and `select` as Tab stops on macOS | framework-gap | [dialog-shortcut-focus](../tasks/20261008-dialog-shortcut-focus.md) (nonblocking: Custom snooze's other stops are in order) | upstream [#280](https://github.com/ccheever/exact2/issues/280) ([Bug], 2026-10-08); reproduced on main `0365ad1a4` |
-| [X53](20261008-x53-state-driven-modal-focus.md) | A modal opened from state (`showModal(id)` on macOS and the web): focus in, Tab trapped, focus back | framework-gap | [dialog-shortcut-focus](../tasks/20261008-dialog-shortcut-focus.md) (per-dialog traps meanwhile) | upstream [#282](https://github.com/ccheever/exact2/issues/282) ([Feature], 2026-10-08); reproduced on main `0365ad1a4` |
+| [X52](20261008-x52-macos-form-controls-tab-order.md) | `input type="date"`/`"time"` and `select` as Tab stops on macOS | framework-gap | [dialog-shortcut-focus](../tasks/closed/20261008-dialog-shortcut-focus.md) (nonblocking: Custom snooze's other stops are in order) | upstream [#280](https://github.com/ccheever/exact2/issues/280) ([Bug], 2026-10-08); reproduced on main `0365ad1a4` |
+| [X53](20261008-x53-state-driven-modal-focus.md) | A modal opened from state (`showModal(id)` on macOS and the web): focus in, Tab trapped, focus back | framework-gap | [dialog-shortcut-focus](../tasks/closed/20261008-dialog-shortcut-focus.md) (per-dialog traps meanwhile) | upstream [#282](https://github.com/ccheever/exact2/issues/282) ([Feature], 2026-10-08); reproduced on main `0365ad1a4` |
 
 ## Usage pooled view addition, 2026-10-08
 
 | Issue | Capability | Kind | Blocks | Status |
 | --- | --- | --- | --- | --- |
-| [X56](closed/20261008-x56-press-lost-on-focus-restyle.md) | A mouse click whose mouse-down focuses a button that restyles itself on `focus` loses its press (macOS) | framework-gap (unconfirmed) | none ([usage-pooled-view](../tasks/20261005-usage-pooled-view.md) draws no ring of its own; the host ring stands in) | not reproduced on main `0365ad1a4` (a one-file app, six variants, agent clicks); closed (2026-10-08), not filed |
+| [X56](closed/20261008-x56-press-lost-on-focus-restyle.md) | A mouse click whose mouse-down focuses a button that restyles itself on `focus` loses its press (macOS) | framework-gap (unconfirmed) | none ([usage-pooled-view](../tasks/closed/20261005-usage-pooled-view.md) draws no ring of its own; the host ring stands in) | not reproduced on main `0365ad1a4` (a one-file app, six variants, agent clicks); closed (2026-10-08), not filed |
 
 ## Pull request writes addition, 2026-10-08
 
 | Issue | Capability | Kind | Blocks | Status |
 | --- | --- | --- | --- | --- |
-| [X54](20261008-x54-focus-within-subtree.md) | An ancestor hearing the focus enter its subtree (`focusin`, `:focus-within`) | framework-gap | [pr-writing-and-metadata](../tasks/20261005-pr-writing-and-metadata.md) (nonblocking: "Show full comment" and the pencil are Tab stops of their own) | upstream [#283](https://github.com/ccheever/exact2/issues/283) ([Feature], 2026-10-08); reproduced on main `0365ad1a4` |
+| [X54](20261008-x54-focus-within-subtree.md) | An ancestor hearing the focus enter its subtree (`focusin`, `:focus-within`) | framework-gap | [pr-writing-and-metadata](../tasks/closed/20261005-pr-writing-and-metadata.md) (nonblocking: "Show full comment" and the pencil are Tab stops of their own) | upstream [#283](https://github.com/ccheever/exact2/issues/283) ([Feature], 2026-10-08); reproduced on main `0365ad1a4` |
 
 ## Additions filed or closed in the 2026-10-08 round (X50, X55)
 
 | Issue | Capability | Kind | Blocks | Status |
 | --- | --- | --- | --- | --- |
-| [X50](20261008-x50-agent-module-data-storage.md) | A native module's data folder under the agent's `--storage` (per process today, so module files do not survive an agent relaunch) | framework-gap | [pr-conversation-and-refresh](../tasks/20261005-pr-conversation-and-refresh.md) (nonblocking: agent relaunch checks only) | upstream [#284](https://github.com/ccheever/exact2/issues/284) ([Bug], 2026-10-08); reproduced on main `0365ad1a4` |
-| [X55](20261008-x55-macos-status-alert-progress-roles.md) | Live regions, alerts, modal dialogs and progress bars exposed to accessibility on macOS | framework-gap | [portable-app-download](../tasks/20261005-portable-app-download.md) (the view's accessibility row) | upstream [#278](https://github.com/ccheever/exact2/issues/278) ([Bug], 2026-10-08); reproduced on main `0365ad1a4`; record copied from the closed #260 branch |
+| [X50](20261008-x50-agent-module-data-storage.md) | A native module's data folder under the agent's `--storage` (per process today, so module files do not survive an agent relaunch) | framework-gap | [pr-conversation-and-refresh](../tasks/closed/20261005-pr-conversation-and-refresh.md) (nonblocking: agent relaunch checks only) | upstream [#284](https://github.com/ccheever/exact2/issues/284) ([Bug], 2026-10-08); reproduced on main `0365ad1a4` |
+| [X55](20261008-x55-macos-status-alert-progress-roles.md) | Live regions, alerts, modal dialogs and progress bars exposed to accessibility on macOS | framework-gap | [portable-app-download](../tasks/closed/20261005-portable-app-download.md) (the view's accessibility row; dropped 2026-10-08, so nothing waits on it) | upstream [#278](https://github.com/ccheever/exact2/issues/278) ([Bug], 2026-10-08); reproduced on main `0365ad1a4`; record copied from the closed #260 branch |
 
 The closed #260 branch numbered two of its own drafts X50 and X54 (distribution build paths).
 Those drafts are not on this branch; here X50 and X54 are the records above.
@@ -120,31 +121,31 @@ Those drafts are not on this branch; here X50 and X54 are the records above.
 
 | Issue | Capability | Kind | Blocks | Status |
 | --- | --- | --- | --- | --- |
-| [X57](20261008-x57-overflowing-centred-line.md) | A line wider than its box start-aligned whatever `text-align` says (CSS Text 3 §7.1); macOS centres it and cuts its start | framework-gap | none ([pr-list-title-clip](../tasks/20261008-pr-list-title-clip.md): `text-left` on the pull request surfaces; other clone buttons listed in the file) | upstream [#291](https://github.com/ccheever/exact2/issues/291) ([Bug], 2026-10-08); reproduced on main `0365ad1a4` |
+| [X57](20261008-x57-overflowing-centred-line.md) | A line wider than its box start-aligned whatever `text-align` says (CSS Text 3 §7.1); macOS centres it and cuts its start | framework-gap | none ([pr-list-title-clip](../tasks/closed/20261008-pr-list-title-clip.md): `text-left` on the pull request surfaces; other clone buttons listed in the file) | upstream [#291](https://github.com/ccheever/exact2/issues/291) ([Bug], 2026-10-08); reproduced on main `0365ad1a4` |
 
 ## Provisional decisions parity addition, 2026-10-08
 
 | Issue | Capability | Kind | Blocks | Status |
 | --- | --- | --- | --- | --- |
-| [X60](20261008-x60-number-field-semantics.md) | `input type="number"` on macOS: ArrowUp/ArrowDown stepping within `min`/`max`, refusing characters a number cannot hold | framework-gap | none ([provisional-decisions-parity](../tasks/20261008-provisional-decisions-parity.md) steps the Tailscale port field itself; a typed letter still shows, with the error) | reproduced in the clone with the agent (`0443` + ArrowUp stays `0443`); no host code for it; no upstream match by title; draft, not published |
+| [X60](20261008-x60-number-field-semantics.md) | `input type="number"` on macOS: ArrowUp/ArrowDown stepping within `min`/`max`, refusing characters a number cannot hold | framework-gap | none ([provisional-decisions-parity](../tasks/closed/20261008-provisional-decisions-parity.md) steps the Tailscale port field itself; a typed letter still shows, with the error) | upstream [#301](https://github.com/ccheever/exact2/issues/301) ([Bug], 2026-10-08); reproduced on main `febb2c5fb` in a one-file app (no stepping, letters accepted, ax role `textbox`; the web steps, filters and says `spinbutton`) |
 
 ## Pull Requests list live refresh addition, 2026-10-08
 
 | Issue | Capability | Kind | Blocks | Status |
 | --- | --- | --- | --- | --- |
-| [X58](closed/20261008-x58-scroll-lost-after-window-refocus.md) | A wheel-scrolled `scroll` keeping its offset after the window is focused again (macOS) | framework-gap (unconfirmed) | [pr-list-live-refresh](../tasks/20261008-pr-list-live-refresh.md) (its scroll row) | not reproduced on main `0365ad1a4` in a one-file app (four variants kept the offset); closed (2026-10-08), not filed |
+| [X58](closed/20261008-x58-scroll-lost-after-window-refocus.md) | A wheel-scrolled `scroll` keeping its offset after the window is focused again (macOS) | framework-gap (unconfirmed) | [pr-list-live-refresh](../tasks/closed/20261008-pr-list-live-refresh.md) (its scroll row) | not reproduced on main `0365ad1a4` in a one-file app (four variants kept the offset); closed (2026-10-08), not filed |
 
 ## Visual parity follow-up addition, 2026-10-08
 
 | Issue | Capability | Kind | Blocks | Status |
 | --- | --- | --- | --- | --- |
-| [X59](20261008-x59-line-clamp-first-layout-ellipsis.md) | A `line-clamp=1` text that replaces a wrapped one shows its first wrapped line without the ellipsis until restyled (macOS) | framework-gap (unconfirmed) | none ([visual-parity-followup](../tasks/20261008-visual-parity-followup.md): the collapsed table cell's first layout; a restyle draws the ellipsis) | seen in the clone with the agent on this branch and on base `07dcef1ab`; a one-file app not tried; not searched upstream beyond the title; draft, not published |
+| [X59](20261008-x59-line-clamp-first-layout-ellipsis.md) | A `line-clamp` text mounted after launch painting its last line with the ellipsis (macOS paints it cut at a word until a restyle) | framework-gap | none ([visual-parity-followup](../tasks/closed/20261008-visual-parity-followup.md): the collapsed table cell's first layout; a restyle draws the ellipsis) | upstream [#300](https://github.com/ccheever/exact2/issues/300) ([Bug], 2026-10-08); reproduced on main `febb2c5fb` in a one-file app: wider than the draft (any clamped text mounted after launch, first-raster path); the agent's default `screenshot` hides it, `screenshot … window` shows it |
 
 ## Main adoption round 6 addition, 2026-10-08
 
 | Issue | Capability | Kind | Blocks | Status |
 | --- | --- | --- | --- | --- |
-| [X61](20261008-x61-field-focus-ring-opt-out.md) | An app cannot remove the focus ring Exact draws on a bare text field or textarea (no `outline`; `appearance="none"` no longer opts out since main `5b2b77339`) | framework-gap | none ([adopt-main-fixes-r6](../tasks/20261008-adopt-main-fixes-r6.md): the prompt preview gained a ring with the merge; the composer has had one since r4's field sheet) | reproduced on main `e200397ec` with a one-file app and in the clone; draft, not published |
+| [X61](20261008-x61-field-focus-ring-opt-out.md) | An app cannot remove the focus ring Exact draws on a bare text field or textarea (no `outline`; `appearance="none"` no longer opts out since main `5b2b77339`) | framework-gap | none ([adopt-main-fixes-r6](../tasks/closed/20261008-adopt-main-fixes-r6.md): the prompt preview gained a ring with the merge; the composer has had one since r4's field sheet) | upstream [#302](https://github.com/ccheever/exact2/issues/302) ([Feature] `outline: none` on `input`/`textarea`, 2026-10-08); reproduced on main `febb2c5fb` and `e200397ec` in one-file apps and in the clone |
 
 ## Real-input batch fixes addition, 2026-10-08
 
@@ -152,7 +153,13 @@ Those drafts are not on this branch; here X50 and X54 are the records above.
 | --- | --- | --- | --- | --- |
 | [X63](20261008-x63-textarea-undo-menu.md) | Edit › Undo, Edit › Redo, ⌘Z and ⇧⌘Z reaching a plain `textarea`'s own undo history on macOS (`TextArea` overrides `undoManager`; `undo:` lands on `NSWindow`) | framework-gap | none ([fix-misc-batch](../tasks/20261008-fix-misc-batch.md) routes the clone's own Edit › Undo and Redo to the focused text view's manager) | reproduced against the host's `TextArea` on main `fa965d3e2` and with real keys on the clone's base `c0475fbaa`; not #275/#276/#125 (they assume undo reaches the field); draft, not published |
 
-Re-checked on main `e200397ec` ([adopt-main-fixes-r6](../tasks/20261008-adopt-main-fixes-r6.md)): since `1f19b2400` main
+## Popover-escape-parity addition, 2026-10-08
+
+| Issue | Capability | Kind | Blocks | Status |
+| --- | --- | --- | --- | --- |
+| [X65](20261008-x65-scroll-empty-area-press.md) | A press on a `scroll` node's empty area (its port's ground, beyond the content) reaching that node and its ancestors' `pointerdown` on macOS | framework-gap | none ([popover-escape-parity](../tasks/20261008-popover-escape-parity.md) puts a full-height ground under the Usage page's scroll content) | local draft: seen in the clone's agent drive (real `NSEvent` path); main `2531fb826` unchanged on that path (read); not in #266–#302 or an upstream search; a one-file repro written, not run |
+
+Re-checked on main `e200397ec` ([adopt-main-fixes-r6](../tasks/closed/20261008-adopt-main-fixes-r6.md)): since `1f19b2400` main
 closed none of this plan's issues (#234 was adopted in round 5). #108, #112, #116, #117, #124, #126, #127, #130, #131,
 #140, #141, #224, #235 and #266–#277 are open, and nothing main merged covers them; our drafts #227 and #228 are still
 open, and main took no other route. Main's partial steps: `scroll-padding` on a virtualized list (X23, #277) and an
@@ -220,12 +227,13 @@ Each was reproduced on exact2 `4c893fef6` before filing. Not filed: X13 (unverif
 
 ## Upstream issues (filed 2026-10-08)
 
-Each was reproduced on main `0365ad1a4` with a minimal public-API app before filing; the files involved are unchanged on main `e200397ec`. `[Policy]` and `[Design]` issues carry one "Decision needed" comment. Not filed:
+Each was reproduced on main `0365ad1a4` (X59–X61: `febb2c5fb`, evidence in `file-x59-x61/` at `649f5649d` on `t3-code-evidence`) with a minimal public-API app before filing; the files involved are unchanged on main `e200397ec`. `[Policy]` and `[Design]` issues carry one "Decision needed" comment. Not filed:
 - X13: not reproduced as described.
 - X56: not reproduced in a one-file app.
 - X58: not reproduced in a one-file app.
 - X42: supported on main.
 - X44's rest: open PR #239 covers it.
+- X38–X41: scope decisions, closed by the user ("close all", 2026-10-08).
 - The timeline-keyboard test recipe: a clone recipe problem. ExactKit's `package` access needs `-package-name`; it is not a framework API.
 
 | Gap | Upstream | Title |
@@ -254,5 +262,8 @@ Each was reproduced on main `0365ad1a4` with a minimal public-API app before fil
 | side (borders) | [#287](https://github.com/ccheever/exact2/issues/287) | [Feature] `border-style`: `dotted` and `dashed` |
 | X57 | [#291](https://github.com/ccheever/exact2/issues/291) | [Bug] macOS: a centred line wider than its box is centred and clipped at its start (CSS start-aligns it) |
 | side (from X26) | [#292](https://github.com/ccheever/exact2/issues/292) | [Bug] macOS: while a context or button menu is open, main-queue work stalls, so native module calls stop until it closes |
+| X59 | [#300](https://github.com/ccheever/exact2/issues/300) | [Bug] macOS: a `line-clamp` text mounted after launch paints its last line without the ellipsis until a restyle |
+| X60 | [#301](https://github.com/ccheever/exact2/issues/301) | [Bug] macOS: `input type="number"` is a plain text field (ArrowUp/ArrowDown do not step, letters are accepted) |
+| X61 | [#302](https://github.com/ccheever/exact2/issues/302) | [Feature] `outline: none` on `input` and `textarea`, to remove the focus ring Exact draws on a bare field |
 
 Local draft: [macOS native module termination](closed/20261006-native-module-termination.md) — reproduced by SSH acceptance; folded into #105 and fixed by main #200; the app workaround (T3Ssh's `willTerminateNotification` observer) is removed and the live check passed: both SSH tunnels end at ⌘W, an Apple Event quit and ⌘Q in both builds (adopt-main-fixes-r4). **Adopted.**
