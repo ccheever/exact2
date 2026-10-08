@@ -1,3 +1,4 @@
+import { mobileOutboxDraftRecoveryBlocked } from './mobile-outbox-draft-handoff';
 // Source365aa87982 new-task-flow-provider and NewTaskDraftScreen capture inputs.
 // @ref llp/1109.005-composer-and-transcript.decision.md#local-outbox-storage
 import type { MobileDraftClient } from './mobile-draft-recovery';
@@ -99,6 +100,7 @@ export function mobileNewTaskCaptureFacts(client: MobileDraftClient, draftKey: s
     if (!originVerified || mobileQueuedEditOrigin(client) !== draft.origin) blockReason ||= 'The draft environment identity is not verified.';
     if (client.busy || client.pending || mobileComposerAttachmentPicking(client) || mobileVoiceBlocksSubmission(client)) blockReason ||= 'Wait for the current composer operation to finish.';
     if (mobileNewTaskCloneBlocks(client)) blockReason ||= 'Wait for this repository to finish cloning.';
+    if (mobileOutboxDraftRecoveryBlocked(client, draftKey)) blockReason ||= 'Finish restoring this draft before sending it.';
     blockReason ||= context;
     const selectedModel = config && selectedProject ? mobileNewTaskDefaultModel(client) : null;
     return { key: draftKey, origin: draft.origin, environmentId: draft.environmentId, projectId: draft.projectId,

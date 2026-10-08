@@ -34,6 +34,14 @@ export function mobileOutboxDraftHandoffsHydrate(client: T3Client, document: Obj
 }
 export function mobileOutboxDraftHandoffsPersisted(client: T3Client): unknown { return copy(obj(client.local)[field]); }
 
+/** Unknown saved ownership blocks admission; a completed coordinator removes its intent. */
+export function mobileOutboxDraftRecoveryBlocked(client: T3Client, key: string): boolean {
+  const raw = obj(client.local)[field];
+  if (raw === undefined) return false;
+  if (!object(raw)) return true;
+  return Object.values(raw).some(value => !object(value) || typeof value.draftKey !== 'string' || value.draftKey === key);
+}
+
 /** Exact stored projection, shared with native evidence. Does not normalize or prune content. */
 export function mobileOutboxDraftHandoffProjection(document: Obj, key: string): Obj {
   const controls = obj(document.composerControls), metadata = obj(obj(document.mobileNewTaskDrafts).records);

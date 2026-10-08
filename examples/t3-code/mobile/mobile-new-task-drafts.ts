@@ -1,3 +1,4 @@
+import { mobileOutboxDraftRecoveryBlocked } from './mobile-outbox-draft-handoff';
 import { mobileDraftAttachmentIds, mobileDraftAttachmentForget } from './draft-attachment-order';
 // App-owned foreground drafts; source365aa87982 use-composer-drafts/new-task-flow-provider.
 // @ref llp/1109.005-composer-and-transcript.decision.md#new-task-ownership
@@ -158,7 +159,7 @@ export function mobileNewTaskDraftCreate(client: T3Client, input: { id: string; 
 }
 export function mobileNewTaskDraftBind(client: T3Client, key: string, owner: string): boolean {
   const record = mobileNewTaskDraftStore(client).records[key];
-  if (!owner || !record || client.threadId || !matches(client, record)) return false;
+  if (mobileOutboxDraftRecoveryBlocked(client, key) || !owner || !record || client.threadId || !matches(client, record)) return false;
   bindings.set(client, { key, owner }); client.revision++; return true;
 }
 export function mobileNewTaskDraftOwned(client: T3Client, key: string, owner: string): boolean {
@@ -185,6 +186,7 @@ export function mobileNewTaskDraftChanged(client: T3Client, key: string, capture
   client.revision++; return true;
 }
 function unlocked(client: T3Client, key: string) {
+  if (mobileOutboxDraftRecoveryBlocked(client, key)) throw new ClientError('Finish restoring this draft before changing its destination or discarding it.');
   const store = mobileNewTaskDraftStore(client);
   if (Object.values(store.claims).includes(key) || Object.values(store.receipts).some(raw => obj(raw).key === key)) throw new ClientError('Resolve the captured launch before changing this draft.');
 }
