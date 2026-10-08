@@ -91,18 +91,3 @@ describe('slow request notice', () => {
   });
 });
 
-describe('provider update progress', () => {
-  test('running, then updated or failed, in one replaced toast', async () => {
-    const { shellCommand } = await import('./shell-commands');
-    const seen: string[] = [];
-    let fail = false;
-    const client = fakeClient({ config: { providers: [{ driver: 'codex', instanceId: 'codex' }] },
-      restAccess: () => ({ request: async () => { seen.push(toasts(client).map(toast => toast.title).join('|')); if (fail) throw new Error('npm failed'); return {}; } }) });
-    await shellCommand(client, {} as never, {} as never, 'provider-update', 'codex', '');
-    expect(seen).toEqual(['Updating provider']);
-    expect(toasts(client).map(toast => [toast.kind, toast.title, toast.description, toast.timeoutMs])).toEqual([['success', 'Provider updated', 'New sessions will use the updated provider.', 3000]]);
-    fail = true;
-    await shellCommand(client, {} as never, {} as never, 'provider-update', 'codex', '');
-    expect(toasts(client).map(toast => [toast.kind, toast.title, toast.description])).toEqual([['error', 'Provider update failed', 'npm failed']]);
-  });
-});

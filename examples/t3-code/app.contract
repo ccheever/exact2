@@ -1,6 +1,6 @@
 use WorkspaceDiscovery, WorkspaceRefresh, TimelineReadsResult, Time, Page from "./app-shapes.contract" // first: the plan orders shapes by first use
 use HighlightStep from "./highlight.contract"
-use Snapshot from "./shapes.contract"
+use Snapshot, Viewport, Change, LicenseSettings, SnapshotSettings, Settings, Canvas from "./shapes.contract"
 use R10PairFields from "./r10-connect-shapes.contract" // lane r10-connect
 use SshPromptView, SshPromptAnswer, SshPasswordPrompt from "./ssh-prompt.contract" // the SSH password dialog (ssh-auth.ts)
 use TranscriptMarkdown from "./markdown.contract"
@@ -10,9 +10,7 @@ use UsageView, UsageKey from "./pages-usage.contract"
 use PrListView from "./pages-prs.contract"
 use PrDetailView from "./pages-pr-detail.contract"
 use WelcomeView from "./pages-welcome.contract"
-use Viewport from "./shapes.contract"
 use PaletteView, PaletteResult from "./palette.contract"
-use Change from "./shapes.contract"
 use ProviderPage from "./providers.contract"
 use ProviderWizard, AcpRegistry from "./providers-wizard.contract"
 use ConnectionsPage, SbSshHosts from "./connections.contract"
@@ -22,18 +20,14 @@ use KeyDispatch, ShortcutDispatch from "./settings-shortcuts.contract"
 use SourceControlPage, IntegrationsPage from "./settings-source-control.contract"
 use StoragePage from "./settings-storage.contract"
 use ArchivePage from "./settings-archive.contract"
-use LicenseSettings from "./shapes.contract"
 use DiagnosticsPage from "./settings-diagnostics.contract"
-use SnapshotSettings from "./shapes.contract"
 use CoreNav, SettingsCore from "./settings-core.contract"
 use AboutDelivery from "./settings-a-about.contract"
-use Settings from "./shapes.contract"
 use ProjectsPage from "./settings-projects.contract"
 use SbPicker from "./settings-b-icons.contract"
 use PickerCatalog, PickerTarget, ComposerBranches from "./composer-shapes.contract"
 use ComposerEditorView from "./composer-editor.contract"
 use ShellView, ShellDetails from "./shell-shapes.contract"
-use Canvas from "./shapes.contract"
 use Sidebar from "./sidebar.contract"
 use LegacySidebar from "./legacy-sidebar.contract" // legacy-sidebar
 use ChatColumn, RightPanels, PagesCover, RightSheets from "./app-main.contract"
@@ -389,6 +383,7 @@ component T3Code
           focus("composer")
       case none
   mutation providerAuthChanged as shape Change queue refreshes data, providerPage, providerWizard
+  mutation providerUpdateRun as shape Change queue refreshes providerPage
   mutation changed as shape Change refreshes data then commandCompleted
   mutation localChanged as shape Change refreshes data
   mutation terminalFocusChanged as shape Change refreshes data
@@ -993,7 +988,7 @@ component T3Code
       acpQuery = ""
     if what == "close"
       providerDialog = ""
-    if what == "hub-remove" or what == "setup-logout" or what == "setup-remove" or what == "codex-picker"
+    if what == "hub-remove" or what == "setup-logout" or what == "setup-remove" or what == "codex-picker" or what == "acp-delete" or what == "acp-disable"
       providerDialog = what
       providerTarget = value
     if what == "driver" or what == "manual"
@@ -1018,7 +1013,9 @@ component T3Code
       else
         wizardStep = target
   action providerOp(op: string, id: string, field: string, value: string, apply: bool)
-    if startsWith(op, "setup:") and apply
+    if startsWith(op, "upkeep:update") and apply
+      send providerUpdateRun = providerChange(op, id, field, value)
+    else if (startsWith(op, "setup:") or startsWith(op, "upkeep:")) and apply
       send providerAuthChanged = providerChange(op, id, field, value)
     else if apply and not commandPending
       commandPending = true
@@ -1347,7 +1344,9 @@ component T3Code
       settingsQuery = ""
       settingsFocusTarget = value
       modalError = ""
-    if op != "copy" and op != "dismiss" and op != "ui:settings" and not commandPending
+    if startsWith(op, "upkeep:")
+      send providerUpdateRun = providerChange(op, target, "", value)
+    if op != "copy" and op != "dismiss" and op != "ui:settings" and not startsWith(op, "upkeep:") and not commandPending
       commandPending = true
       send changed = command(op, target, value, 0)
       if op == "select-thread" or op == "new-thread"

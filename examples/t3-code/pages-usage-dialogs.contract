@@ -82,7 +82,7 @@ component UsageModelDialog
           when detail.driver == "codex"
             ProviderMark(driver="codex", size=20, color="light-dark(#27272a, #f5f5f5)")
           else
-            DriverMark(driver=detail.driver, size=20, initials="")
+            DriverMark(driver=detail.driver, size=20, initials="", icon="")
         text detail.model font-size="1.25rem" line-height="1.25rem" font-weight=600 color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=2 min-width=0 testId="usage-model-title"
       text detail.description font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #818181)"
     scroll max-height=(viewportHeight - (118 + (detail.unpricedNote != "" ? 64 : 0)) * rem / 16) min-height=0 width="100%" testId="usage-model-scroll"

@@ -65,6 +65,7 @@ shape UsageLimitWindow
 shape UsageLimitPool
   key: string
   driver: string
+  icon: string
   label: string
   windows: list<UsageLimitWindow>
 shape UsageView
@@ -430,7 +431,7 @@ component UsageHeadline
             when provider.driver == "codex"
               ProviderMark(driver="codex", size=16, color="light-dark(#27272a, #f5f5f5)")
             else
-              DriverMark(driver=provider.driver, size=16, initials="")
+              DriverMark(driver=provider.driver, size=16, initials="", icon="")
             row min-width=0 align-items="baseline" gap="0.375rem"
               text provider.label font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" line-clamp=1 min-width=0
               text provider.sessions font-size="0.6875rem" line-height="1rem" color="light-dark(#71717b, #818181)" white-space="nowrap" flex-shrink=0 font-variant-numeric="tabular-nums"
@@ -509,7 +510,7 @@ component ModelTable
             when model.driver == "codex"
               ProviderMark(driver="codex", size=14, color="light-dark(#27272a, #f5f5f5)")
             else
-              DriverMark(driver=model.driver, size=14, initials="")
+              DriverMark(driver=model.driver, size=14, initials="", icon="")
             text model.model font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" min-width=0
           box margin-top="0.375rem" height=2 width="100%" max-width="12rem" aria-hidden=true
             when model.bar > 0
@@ -565,7 +566,7 @@ component LimitSection
           when pool.driver == "codex"
             ProviderMark(driver="codex", size=16, color="light-dark(#27272acc, #f5f5f5cc)")
           else
-            DriverMark(driver=pool.driver, size=16, initials="")
+            DriverMark(driver=pool.driver, size=16, initials="", icon=pool.icon)
         text pool.label font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=2
       each window in pool.windows key=window.key
         row width="100%" padding="1rem" box-sizing="border-box" gap="1.5rem" flex-wrap=(md ? "nowrap" : "wrap") align-items="center" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e799, #ffffff09)"

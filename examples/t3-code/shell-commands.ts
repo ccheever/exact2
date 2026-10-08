@@ -1,6 +1,6 @@
 // Window-shell commands (MIT reference: hooks/useThreadActionMenu.ts,
-// hooks/useThreadActions.ts, chat/ChatHeader.tsx rename, ProviderUpdate*
-// "Update", OpenInPicker) and the toasts the reference raises around the
+// hooks/useThreadActions.ts, chat/ChatHeader.tsx rename, OpenInPicker; the
+// provider update prompt's "Update" is provider-update-notify.ts) and the toasts the reference raises around the
 // main window's actions. `shell:` ops write to the server through the
 // client's generation-guarded access; `shelllocal:` ops never do.
 import { cloneCommand } from './project-clones-live';
@@ -37,27 +37,6 @@ export async function shellCommand(client: T3Client, native: Native, storage: Fi
   if (op.startsWith('clone-')) return cloneCommand(client, native, storage, op, id, value); // project-clones-live.ts
   if (op.startsWith('automation-')) return automationCommand(client, native, op.slice(11), id, value); // scheduled-tasks-commands.ts
   const access = client.restAccess(native);
-  if (op === 'provider-update') {
-    // server.updateProvider per one-click candidate, in order (runUpdates),
-    // under the running/failed/updated toasts (ProviderUpdateLaunchNotification.logic.ts).
-    const providers = (Array.isArray(client.config.providers) ? client.config.providers : []).map(obj);
-    const ids = id.split(',').filter(Boolean), one = ids.length === 1;
-    pushToast(client, { kind: 'loading', title: one ? 'Updating provider' : 'Updating providers', description: 'Running provider update command.', timeoutMs: 0, hideCopy: true, key: 'provider-update' });
-    try {
-      for (const instanceId of ids) {
-        const provider = providers.find(entry => str(entry.instanceId) === instanceId);
-        if (!provider) throw new ClientError('That provider is no longer available.');
-        await access.request('server.updateProvider', { provider: str(provider.driver), instanceId }, true);
-      }
-    } catch (error) {
-      if (letGo(error)) throw error;
-      pushToast(client, { kind: 'error', title: one ? 'Provider update failed' : 'Provider updates failed', description: messageOf(error), timeoutMs: 0, stacked: true, key: 'provider-update' });
-      return '';
-    }
-    pushToast(client, { kind: 'success', title: one ? 'Provider updated' : 'Provider updates finished',
-      description: one ? 'New sessions will use the updated provider.' : 'New sessions will use the updated providers.', timeoutMs: 3000, hideCopy: true, key: 'provider-update' });
-    return '';
-  }
   if (op === 'open-editor') {
     if (!id) throw new ClientError('This thread does not have a workspace path to open.');
     // OpenInPicker: remotely a deep link to this Mac's editor, never an editor run on the other machine (remote-open.ts).
@@ -147,7 +126,7 @@ const FAILURE_TITLES: Record<string, string> = {
   'shell:pin': 'Failed to pin thread', 'shell:unpin': 'Failed to unpin thread', 'shell:rename': 'Failed to rename thread',
   'shell:archive': 'Failed to archive thread', 'shell:delete': 'Failed to delete thread',
   'shell:regenerate-title': 'Failed to regenerate thread title', 'shell:auto-settle': 'Failed to update auto-settle',
-  'shell:mark-unread': 'Failed to mark thread unread', 'shell:provider-update': 'Provider update failed',
+  'shell:mark-unread': 'Failed to mark thread unread',
   'shell:open-editor': 'Unable to open editor', 'shell:git-action': 'Git action failed', 'copy-diagnostic': 'Could not copy trace ID',
 };
 
