@@ -42,7 +42,8 @@ impl<D: DataSource + Default> CanvasHost<D> {
         // A pass that can wait for more travel does: the rows the travel
         // brings into the window then mount in one commit. Owed once the
         // steps stop (`CanvasHost::owed`).
-        self.waiting = limit.is_none() && self.batches(lead.is_some());
+        let stepped = self.travel.asked();
+        self.waiting = limit.is_none() && self.batches(lead.is_some(), stepped);
         if self.waiting {
             // Its pictures do not wait: one that came into view since the
             // last pass is asked for now (heavy's placeholders showed for
@@ -125,12 +126,18 @@ impl<D: DataSource + Default> CanvasHost<D> {
     /// Whether this pass can wait: the windows lead, the last pass left no
     /// rows to build (a slice's rest is not kept waiting), and a scroll
     /// step came within the last frame and a half with less travel since
-    /// the last pass than one is worth ([`crate::travel::Travel::waits`];
-    /// under a lead, `led`, [`crate::travel::Travel::waits_led`]). Under a
-    /// lead a pass also waits once the steps stop: what it would mount is
-    /// past where the view came to rest, and the pass that ends the lead
-    /// retires it. `EXACT_PASS_BATCH=0`: never.
-    fn batches(&self, led: bool) -> bool {
+    /// the last pass than one is worth ([`crate::travel::Travel::waits`]).
+    ///
+    /// Under a lead (`led`) that the last pass filled, it waits as that
+    /// reach allows ([`crate::travel::Travel::waits_led`]) however long ago
+    /// the step came (a paint between the step and this ask can take a
+    /// frame and a half); the pass that starts a lead found a window of
+    /// one viewport, and waits as slow travel does. An ask with no step
+    /// since the last (`stepped`: the reader's timer, once the steps pause)
+    /// waits too: what it would mount is past where the view came to rest,
+    /// and the pass that ends the lead retires it. `EXACT_PASS_BATCH=0`:
+    /// never.
+    fn batches(&self, led: bool, stepped: bool) -> bool {
         static ON: std::sync::LazyLock<bool> =
             std::sync::LazyLock::new(|| !std::env::var("EXACT_PASS_BATCH").is_ok_and(|v| v == "0"));
         if !*ON || !self.lead || self.leftover {
@@ -140,11 +147,10 @@ impl<D: DataSource + Default> CanvasHost<D> {
             .feed
             .and_then(|id| self.p.host().kernel().node(id))
             .map_or(self.viewport.1, |n| n.frame.height);
-        let stepping = self.now() - self.scrolled_at < STEP_MS;
-        if led {
-            !stepping || self.travel.waits_led(viewport)
+        if led && self.led {
+            !stepped || self.travel.waits_led(viewport)
         } else {
-            stepping && self.travel.waits(viewport)
+            self.now() - self.scrolled_at < STEP_MS && self.travel.waits(viewport)
         }
     }
 

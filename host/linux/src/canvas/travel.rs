@@ -50,9 +50,11 @@ const LED_FRAMES: f32 = 5.0;
 const LED_BATCH: f32 = 1.75;
 /// Scroll steps between a reader's asks for a pass.
 const ASK_STEPS: f32 = 3.0;
-/// Scroll steps the feed's speed is taken over, and the fewest that tell it.
+/// Scroll steps the feed's speed is taken over: all of them, so a step's
+/// worth of travel more or less (steps are whole frames' travel, taken when
+/// this thread is free) is a seventh of it. Over four, 6,000 dp/s read as
+/// 9,000 after a turn and led for the two seconds it then travelled.
 const SPEED_STEPS: usize = 8;
-const SPEED_MIN_STEPS: usize = 4;
 /// ms without a scroll step after which travel has stopped: a leading
 /// window goes back to a viewport each side.
 pub(crate) const SETTLE_MS: f64 = 100.0;
@@ -68,6 +70,8 @@ pub(crate) struct Travel {
     steps: usize,
     /// The side the window leads toward (1: the end, -1: the start), or 0.
     leading: f32,
+    /// A step came since the reader last asked for a pass.
+    stepped: bool,
     /// Since the last collection pass.
     since_pass: f32,
     /// A pass's ms per row it built, smoothed (0: none measured).
@@ -84,6 +88,7 @@ impl Travel {
             0.5 * (self.step + d)
         };
         self.since_pass += d;
+        self.stepped = true;
         let toward = dy.signum();
         let last = self.steps.checked_sub(1).map(|i| self.recent[i]);
         if last.is_some_and(|(t, was)| at - t > SETTLE_MS || was.signum() != toward) {
@@ -108,7 +113,7 @@ impl Travel {
     /// by the time they took, so steps a busy thread took late, or several
     /// at once, count as the travel they were (0: too few to tell).
     fn speed(&self) -> f32 {
-        if self.steps < SPEED_MIN_STEPS {
+        if self.steps < SPEED_STEPS {
             return 0.0;
         }
         let steps = &self.recent[..self.steps];
@@ -127,6 +132,13 @@ impl Travel {
     /// pauses), else `None`.
     pub(crate) fn lead(&self) -> Option<f64> {
         (self.leading != 0.0).then(|| f64::from(self.leading) * LEAD_VELOCITY)
+    }
+
+    /// The reader asks for a pass: whether a step came since it last did
+    /// (not its timer's ask once the steps pause, nor its ask for what a
+    /// slice left).
+    pub(crate) fn asked(&mut self) -> bool {
+        std::mem::take(&mut self.stepped)
     }
 
     /// The feed stopped (a touch took it): nothing leads.
@@ -274,7 +286,7 @@ mod tests {
         assert_eq!(moving(100.0, 8).lead(), Some(1e6));
         assert_eq!(moving(-200.0, 8).lead(), Some(-1e6));
         assert_eq!(moving(50.0, 30).lead(), None);
-        assert_eq!(moving(100.0, 3).lead(), None, "too few steps to tell");
+        assert_eq!(moving(100.0, 7).lead(), None, "too few steps to tell");
     }
 
     #[test]
@@ -292,11 +304,11 @@ mod tests {
         let mut t = moving(100.0, 8);
         t.scrolled(-100.0, 8.0 * FRAME);
         assert_eq!(t.lead(), None, "a turn");
-        for i in 9..12 {
+        for i in 9..16 {
             t.scrolled(-100.0, f64::from(i) * FRAME);
         }
         assert_eq!(t.lead(), Some(-1e6));
-        t.scrolled(-100.0, 12.0 * FRAME + 150.0);
+        t.scrolled(-100.0, 16.0 * FRAME + 150.0);
         assert_eq!(t.lead(), None, "a pause");
         let mut t = moving(100.0, 8);
         t.stopped();
@@ -315,6 +327,31 @@ mod tests {
             t.scrolled(50.0, f64::from(i) * FRAME);
         }
         assert_eq!(t.lead(), None);
+    }
+
+    #[test]
+    fn a_turn_at_slow_travel_does_not_lead() {
+        // 6,000 dp/s turned back: its first steps, one of them two frames'
+        // travel taken late and the next a millisecond after.
+        let mut t = moving(50.0, 8);
+        t.scrolled(-50.0, 8.0 * FRAME);
+        t.scrolled(-100.0, 10.0 * FRAME + 7.0);
+        t.scrolled(-50.0, 11.0 * FRAME);
+        t.scrolled(-50.0, 12.0 * FRAME);
+        assert_eq!(t.lead(), None);
+        for i in 13..30 {
+            t.scrolled(-50.0, f64::from(i) * FRAME);
+            assert_eq!(t.lead(), None, "step {i}");
+        }
+    }
+
+    #[test]
+    fn an_ask_knows_whether_the_feed_stepped() {
+        let mut t = moving(100.0, 3);
+        assert!(t.asked());
+        assert!(!t.asked(), "no step since");
+        t.scrolled(100.0, 4.0 * FRAME);
+        assert!(t.asked());
     }
 
     #[test]
