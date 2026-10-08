@@ -1,0 +1,121 @@
+# X68 record: an inspect layer cannot see what it covers
+exact2 main b896050d78508aa5cea10cfa875e02037fde4c6e (2026-10-08); macOS 26.6.2 (25G83), Apple Silicon; web: Chrome 154.0.8037.98 (the agent's); agent mode only (no real input); every tap is a platform click, every hover a pointer move
+
+## app.contract (bun scripts/exact.mjs new <dir>; app.ts has no sources)
+component X68app
+  state inspecting = false
+  state layer = false
+  state cancel = false
+  state hit = "-"
+  state presses = 0
+  action arm(withLayer: bool)
+    inspecting = true
+    layer = withLayer
+  action stop
+    inspecting = false
+    layer = false
+  action toggleCancel
+    cancel = not cancel
+  action look(e: PointerEvent)
+    if inspecting
+      hit = match elementFromPoint(e.clientX, e.clientY) { case some(id) => id, case none => "none" }
+  action pick(e: PointerEvent)
+    if inspecting
+      hit = match elementFromPoint(e.clientX, e.clientY) { case some(id) => id, case none => "none" }
+      if cancel
+        preventDefault()
+  action pressPrimary
+    presses = presses + 1
+  view
+    main testId="root" width="100%" height="100%" box-sizing="border-box" padding=24 gap=12 background-color="#ffffff" color="#111111" pointermove=look pointerdown=pick
+      row gap=8
+        button press=arm(false) testId="inspect"
+          text "Inspect"
+        button press=arm(true) testId="inspect-layer"
+          text "Inspect (layer)"
+        button press=stop testId="stop"
+          text "Stop"
+        button press=toggleCancel testId="cancel"
+          text "preventDefault"
+      text `hit: ${hit} · presses: ${presses}` white-space="nowrap" testId="out"
+      text `inspecting: ${inspecting} · layer: ${layer} · preventDefault: ${cancel}` white-space="nowrap" testId="mode"
+      column id="paint-surface-card" testId="card" width=280 padding=8 background-color="#eef2ff" border-width=1 border-style="solid" border-color="#c7d2fe" position="relative"
+        button id="paint-primary-save" press=pressPrimary testId="primary" background-color="#2563eb" color="#ffffff" padding=8
+          text "Save"
+        when layer
+          box testId="layer" position="absolute" left=0 top=0 width="100%" height="100%" pointermove=look pointerdown=pick
+
+## ops (both hosts)
+"tap inspect" "tap primary hover" "clock settle" "tree out" "tap primary" "clock settle" "tree out" "tap cancel" "clock settle" "tap primary" "clock settle" "tree out" "tap cancel" "tap stop" "tap inspect-layer" "clock settle" "tap layer hover" "clock settle" "tree out" "tap layer clicks 1" "clock settle" "tree out" "tree mode"
+(the layer exactly covers the card, so its centre is over the Save button)
+
+## macOS: bun exact.mjs mac; bun exact.mjs agent macos --size 700x300 <ops>
+{"tapped":3,"delivery":"platform","at":[58.5,36],"target":"inspect","carrier":"macos","mode":"agent","epoch":2,"incarnation":1,"clock":0}
+{"tapped":14,"hover":true,"at":[173,110],"target":"primary","delivery":"platform","carrier":"macos","mode":"agent","epoch":3,"incarnation":1,"clock":0}
+{"settled":true,"clock":0,"incarnation":1,"epoch":3}
+epoch 3 · incarnation 1 · clock 0 ms · 1 nodes
+Text#11 [out] "hit: paint-primary-save · presses: 0"
+{"tapped":14,"at":[173,110],"delivery":"platform","target":"primary","carrier":"macos","mode":"agent","epoch":4,"incarnation":1,"clock":0}
+{"settled":true,"incarnation":1,"clock":0,"epoch":4}
+epoch 4 · incarnation 1 · clock 0 ms · 1 nodes
+Text#11 [out] "hit: paint-primary-save · presses: 1"
+{"tapped":9,"at":[339,36],"delivery":"platform","target":"cancel","carrier":"macos","mode":"agent","epoch":6,"incarnation":1,"clock":0}
+{"epoch":6,"incarnation":1,"clock":0,"settled":true}
+{"tapped":14,"delivery":"platform","at":[173,110],"target":"primary","carrier":"macos","mode":"agent","epoch":8,"incarnation":1,"clock":0}
+{"settled":true,"incarnation":1,"epoch":8,"clock":0}
+epoch 8 · incarnation 1 · clock 0 ms · 1 nodes
+Text#11 [out] "hit: paint-primary-save · presses: 2"
+{"tapped":9,"at":[339,36],"delivery":"platform","target":"cancel","carrier":"macos","mode":"agent","epoch":10,"incarnation":1,"clock":0}
+{"tapped":7,"at":[247.5,36],"delivery":"platform","target":"stop","carrier":"macos","mode":"agent","epoch":11,"incarnation":1,"clock":0}
+{"at":[157,36],"tapped":5,"delivery":"platform","target":"inspect-layer","carrier":"macos","mode":"agent","epoch":12,"incarnation":1,"clock":0}
+{"incarnation":1,"epoch":12,"clock":0,"settled":true}
+{"at":[173,110],"tapped":16,"hover":true,"target":"layer","delivery":"platform","carrier":"macos","mode":"agent","epoch":13,"incarnation":1,"clock":0}
+{"incarnation":1,"epoch":13,"clock":0,"settled":true}
+epoch 13 · incarnation 1 · clock 0 ms · 1 nodes
+Text#11 [out] "hit: paint-surface-card · presses: 2"
+{"tapped":16,"delivery":"platform","at":[173,110],"target":"layer","carrier":"macos","mode":"agent","epoch":14,"incarnation":1,"clock":0}
+{"clock":0,"settled":true,"incarnation":1,"epoch":14}
+epoch 14 · incarnation 1 · clock 0 ms · 1 nodes
+Text#11 [out] "hit: paint-surface-card · presses: 3"
+epoch 14 · incarnation 1 · clock 0 ms · 1 nodes
+Text#12 [mode] "inspecting: true · layer: true · preventDefault: false"
+{"incarnation":1,"epoch":14,"screenshot":"/private/tmp/claude-501/-Users-daehyeonmun-orca-workspaces-exact2-t3-code/9d293baa-3a94-4e6f-a91c-a64f957a461f/scratchpad/file-x48-x68/x68app/.exact/x68-macos.png","h":300,"w":700,"clock":0}
+
+## web: bun exact.mjs agent web --size 700x300 <ops>
+{"at":[58.8203125,36],"tapped":3,"target":"inspect","delivery":"platform","carrier":"web","mode":"agent","clock":0,"epoch":4,"incarnation":1}
+{"at":[173,110],"tapped":14,"target":"primary","delivery":"platform","carrier":"web","mode":"agent","clock":0,"epoch":5,"incarnation":1}
+{"clock":0,"settled":true}
+epoch 5 · incarnation 1 · clock 0 ms · 1 nodes
+Text#11 [out] "hit: paint-primary-save · presses: 0"
+{"at":[173,110],"tapped":14,"target":"primary","delivery":"platform","carrier":"web","mode":"agent","clock":0,"epoch":8,"incarnation":1}
+{"clock":0,"settled":true}
+epoch 8 · incarnation 1 · clock 0 ms · 1 nodes
+Text#11 [out] "hit: paint-primary-save · presses: 1"
+{"at":[349.1484375,36],"tapped":9,"target":"cancel","delivery":"platform","carrier":"web","mode":"agent","clock":0,"epoch":11,"incarnation":1}
+{"clock":0,"settled":true}
+{"at":[173,110],"tapped":14,"target":"primary","delivery":"platform","carrier":"web","mode":"agent","clock":0,"epoch":14,"incarnation":1}
+{"clock":0,"settled":true}
+epoch 14 · incarnation 1 · clock 0 ms · 1 nodes
+Text#11 [out] "hit: paint-primary-save · presses: 2"
+{"at":[349.1484375,36],"tapped":9,"target":"cancel","delivery":"platform","carrier":"web","mode":"agent","clock":0,"epoch":17,"incarnation":1}
+{"at":[254.6015625,36],"tapped":7,"target":"stop","delivery":"platform","carrier":"web","mode":"agent","clock":0,"epoch":20,"incarnation":1}
+{"at":[161.65625,36],"tapped":5,"target":"inspect-layer","delivery":"platform","carrier":"web","mode":"agent","clock":0,"epoch":23,"incarnation":1}
+{"clock":0,"settled":true}
+{"at":[173,110],"tapped":16,"target":"layer","delivery":"platform","carrier":"web","mode":"agent","clock":0,"epoch":24,"incarnation":1}
+{"clock":0,"settled":true}
+epoch 24 · incarnation 1 · clock 0 ms · 1 nodes
+Text#11 [out] "hit: paint-surface-card · presses: 2"
+{"at":[173,110],"tapped":16,"target":"layer","delivery":"platform","carrier":"web","mode":"agent","clock":0,"epoch":26,"incarnation":1}
+{"clock":0,"settled":true}
+epoch 26 · incarnation 1 · clock 0 ms · 1 nodes
+Text#11 [out] "hit: paint-surface-card · presses: 2"
+epoch 26 · incarnation 1 · clock 0 ms · 1 nodes
+Text#12 [mode] "inspecting: true · layer: true · preventDefault: false"
+{"clock":0,"epoch":26,"incarnation":1,"screenshot":"/private/tmp/claude-501/-Users-daehyeonmun-orca-workspaces-exact2-t3-code/9d293baa-3a94-4e6f-a91c-a64f957a461f/scratchpad/file-x48-x68/x68app/.exact/x68-web.png","w":700,"h":300}
+
+## Reading
+1. No layer, hover over Save: hit = paint-primary-save on both hosts (elementFromPoint names the node; the id carries the role).
+2. No layer, click Save: hit = paint-primary-save, but the app's own press also runs: presses 0 -> 1 on both hosts.
+3. Same with preventDefault() in the root's pointerdown: presses 1 -> 2 on both hosts (a pointerdown cannot cancel the press, as in DOM).
+4. Layer over the card, hover over Save: hit = paint-surface-card on both hosts (the layer is front-most; its nearest id is the card's), never paint-primary-save.
+5. Layer, click over Save: web presses stay 2 (the layer takes the click); macOS presses 2 -> 3 (the click also pressed Save under the layer: the pass-through of #281, here with a plain positioned box).
