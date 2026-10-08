@@ -7,8 +7,8 @@ delivery: draft
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-visual-parity-followup
-pr_url: null
-verified_commit: null
+pr_url: https://github.com/ccheever/exact2/pull/294
+verified_commit: 654903eaac0764233c336369b446e5f9f2018cf0
 ---
 
 # Desktop visual parity follow-up: shared selectors, hosts row menu, dark/Advanced/collapsed comparisons
@@ -108,4 +108,8 @@ an expanded header wider than 24rem is cut where the reference's `th` shows it w
 
 ## Next action
 
-Review of the draft PR.
+Review of draft PR [#294](https://github.com/ccheever/exact2/pull/294). The implementation commit
+`654903eaa` was verified (runner digest `78ecf0d7338b…`; the committed tree and the merged head match
+it). After merging the feature branch (#265, #288, #289): `bun test examples/t3-code` 3049 pass /
+1 skip / 0 fail, contract build 3860 slots, five checks and `cargo test -p t3-code-macos --lib` pass.
+The ticket stays in `tasks/` (coordinator rule: records sync moves it).
