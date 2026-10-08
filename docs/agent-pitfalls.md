@@ -133,6 +133,19 @@ guide's rules don't make obvious.
   `after`'s action runs at its deadline exactly, `performanceNow()` equal to it. An action
   that re-tests `performanceNow() > toastUntil` there does nothing and the toast stays up
   forever; clear it unconditionally. (LLP 1092 D8; ledger2 #1, chat F7.)
+- **An "on return" task also runs at every launch.** Cause: a gated task arms
+  when its gate becomes true and at boot when it is already true (LLP 1092 D8),
+  and the page is `visible` at launch: `task returned when page.visibilityState
+  == "visible"` with `after(1, onVisible)` runs `onVisible` once at launch and
+  once after each return from the background. A gate follows a state; it is not
+  an event. Fix: have the action skip its own first run (`if launched` … then
+  `launched = true`); it then hears every return. To keep the run out of the
+  launch as well, latch the hide (`task hid when page.visibilityState ==
+  "hidden"` with `after(1, markHidden)` setting `wasHidden`) and gate the return
+  on `wasHidden and page.visibilityState == "visible"`, clearing `wasHidden` in
+  its action: that misses a return which lands before the hide's timer has fired
+  (`prefer visibility-state hidden` then `visible` with no clock step between).
+  (Web and iOS simulator, 2026-10-06.)
 
 - **A custom row in a grouped list overflows its card on the right.** Cause:
   the sheet already gives each row its margin (16 pt, or 56 pt after an icon)
