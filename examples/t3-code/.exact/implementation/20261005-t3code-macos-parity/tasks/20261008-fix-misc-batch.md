@@ -130,7 +130,7 @@ Tests:
 | X63 repro | host on main `fa965d3e2` | the host's `TextArea`: `undo:` handled by `NSWindow`, text unchanged; ⌘Z key equivalent not taken (no markup) | x63-repro | — |
 | review | `829a0d39f` | no blocking findings; the changes listed under Progress | — | — |
 | real input (the one session) | branch `08b8ded8a` and base `c0475fbaa`, lane copies, normal launch | 7: pass, base reproduced. 3: composer and preview pass, base reproduced. One click may have landed on fix-provider-auth-state's agent window, which overlapped mid-session | 04–06, real-input-record | — |
-| checks | `9ae8c825b` + `08b8ded8a` | `bun test examples/t3-code` 3135 pass / 1 skip / 0 fail (two new tests). Strict tsc clean. Contract build 3931 slots, 46 resources. AppKit: app-control 27/0, r8-keys 5/0, menus 45/0, composer 52/0. `cargo test -p t3-code-macos --lib` exit 0. Caps within. Five checks: build 0; test 3,521 passed / 0 failed / 34 ignored (94 binaries); clippy 0; fmt 0; boot 0 | final numbers in the PR | — |
+| checks | `9ae8c825b` + `08b8ded8a` | `bun test examples/t3-code` 3135 pass / 1 skip / 0 fail (two new tests). Strict tsc clean. Contract build 3931 slots, 46 resources. AppKit: app-control 27/0, r8-keys 5/0, menus 45/0, composer 52/0. `cargo test -p t3-code-macos --lib` 13 passed. Caps within. Five checks on `0bc4115a2`: build 0; test 3,521 passed / 0 failed / 34 ignored (94 binaries); clippy 0; fmt 0; boot 0 | PR body | — |
 
 ## Next action
 
