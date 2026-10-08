@@ -16,6 +16,9 @@ use UsageShareBar from "./pages-usage-shapes.contract"
 use ChatGptUsageButton from "./codex-setup.contract"
 use UsagePooled, PooledView from "./usage-pooled.contract" // usage-pooled-view
 use CnTooltip from "./settings-b-kit.contract"
+use KmItem from "./menu-keys.contract"
+use KeyMenu from "./menu-keys.contract"
+use kmOpenKey from "./menu-keys.contract"
 
 keyframes usageSpin
   from rotate=0
@@ -239,13 +242,18 @@ component UsageBreadcrumb
   state over = false
   action hover(value: bool)
     over = value
+  // fix-keyboard-focus: Enter or Space opens the menu from the keyboard (menu-keys.contract).
+  state keyed = 0
+  action triggerKey(k: string)
+    if kmOpenKey(k)
+      keyed = keyed + 1
   view
     row align-items="center" gap="0.75rem" min-width=0 role="navigation" aria-label="Usage breadcrumb"
       text "Usage" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#71717b, #818181)" role="heading" aria-level=1 flex-shrink=0
       text "/" font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #818181)" flex-shrink=0
       column position="relative" min-width="2.5rem"
         R5TextProbes(probes=page.menuProbes)
-        button popovertarget="usage-environment-menu" hover=hover testId="usage-environment" padding=0 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" gap="0.125rem" min-width=0
+        button popovertarget="usage-environment-menu" key=triggerKey hover=hover testId="usage-environment" padding=0 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" gap="0.125rem" min-width=0
           text page.environmentLabel font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)" text-decoration-line=(over ? "underline" : "none") line-clamp=1
           // A dashed circle while selected environments scan, an alert when one failed, else the chevron on hover.
           box width="0.875rem" height="0.875rem" opacity=(over or page.environmentIcon != "" ? 1 : 0) display="flex" role=(page.environmentIcon != "" ? "img" : "none") aria-label=(page.environmentIcon == "pending" ? `${page.environmentPending}${page.partial != "" ? "; totals are partial" : ""}` : page.environmentIcon == "issue" ? "Some environments could not report usage" : "") testId="usage-environment-glyph"
@@ -260,20 +268,21 @@ component UsageBreadcrumb
               PgIcon(name="chevron-down", size=14, color="light-dark(#71717b, #818181)")
         column id="usage-environment-menu" popover="auto" position="absolute" left=0 top=0 padding-top="0.25rem" testId="usage-environment-layer"
           column width=`${page.menuWidth / 16}rem` padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#27272a1a, #f5f5f51a)" background-color="light-dark(#ffffffd5, #111111d5)" box-shadow=(scheme == "dark" ? "0 18px 44px -18px #000000cc" : "0 16px 40px -18px #0000008c") role="menu" testId="usage-environment-menu"
-            CheckRow(label="All environments", status="", checked=page.allSelected, disabled=false, press=op("usage-pool-env", "", ""), testId="usage-environment-all")
-            box width="calc(100% - 16px)" height=1 margin-left="0.5rem" margin-top="0.25rem" margin-bottom="0.25rem" background-color="light-dark(#e4e4e7, #ffffff0f)" role="separator"
-            each env in page.environments key=env.key
-              CheckRow(label=env.label, status=env.status, checked=env.checked, disabled=env.disabled, press=op("usage-pool-env", env.key, ""), testId=`usage-environment-${env.key}`)
-            when length(page.environments) == 0
-              text "No environments connected." padding="0.5rem" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
-            when page.partial != "" and page.metric != "limits"
-              text page.partial padding="0.5rem" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
-            when length(page.coverage) > 0 and page.metric != "limits"
-              column width="100%" padding="0.5rem" gap="0.25rem" border-top-width=1 border-top-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" box-sizing="border-box"
-                each line in page.coverage key=line.key
-                  text line.text font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
-            box width="calc(100% - 16px)" height=1 margin-left="0.5rem" margin-top="0.25rem" margin-bottom="0.25rem" background-color="light-dark(#e4e4e7, #ffffff0f)" role="separator"
-            UsageMenuItem(label="Model prices", icon="sliders-horizontal", press=op("usage-prices-open", "", ""), menuId="usage-environment-menu", testId="usage-model-prices")
+            KeyMenu(menuId="usage-environment-keys", items=concat(concat([KmItem(id="usage-environment-all", label="All environments")], map(filter(page.environments, (env) => not env.disabled), (env) => KmItem(id=`usage-environment-${env.key}`, label=env.label))), [KmItem(id="usage-model-prices", label="Model prices")]), keyed=keyed, gap="0px")
+              CheckRow(label="All environments", status="", checked=page.allSelected, disabled=false, press=op("usage-pool-env", "", ""), testId="usage-environment-all")
+              box width="calc(100% - 16px)" height=1 margin-left="0.5rem" margin-top="0.25rem" margin-bottom="0.25rem" background-color="light-dark(#e4e4e7, #ffffff0f)" role="separator"
+              each env in page.environments key=env.key
+                CheckRow(label=env.label, status=env.status, checked=env.checked, disabled=env.disabled, press=op("usage-pool-env", env.key, ""), testId=`usage-environment-${env.key}`)
+              when length(page.environments) == 0
+                text "No environments connected." padding="0.5rem" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
+              when page.partial != "" and page.metric != "limits"
+                text page.partial padding="0.5rem" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
+              when length(page.coverage) > 0 and page.metric != "limits"
+                column width="100%" padding="0.5rem" gap="0.25rem" border-top-width=1 border-top-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" box-sizing="border-box"
+                  each line in page.coverage key=line.key
+                    text line.text font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
+              box width="calc(100% - 16px)" height=1 margin-left="0.5rem" margin-top="0.25rem" margin-bottom="0.25rem" background-color="light-dark(#e4e4e7, #ffffff0f)" role="separator"
+              UsageMenuItem(label="Model prices", icon="sliders-horizontal", press=op("usage-prices-open", "", ""), menuId="usage-environment-menu", testId="usage-model-prices")
 
 // MenuCheckboxItem: a 16pt check column, then the label (and scan status).
 component CheckRow
@@ -286,10 +295,13 @@ component CheckRow
     press: action
     testId: string
   state over = false
+  state lit = false
   action hover(value: bool)
     over = value
+  action focused(on: bool)
+    lit = on
   view
-    button press=press hover=hover disabled=disabled opacity=(disabled ? 0.64 : 1) role="menuitemcheckbox" aria-checked=checked testId=testId width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="1rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" gap="0.5rem" border-radius="0.375rem" border-width=0 background-color=(over ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center"
+    button id=testId press=press hover=hover focus=focused(true) blur=focused(false) disabled=disabled opacity=(disabled ? 0.64 : 1) role="menuitemcheckbox" aria-checked=checked testId=testId width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="1rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" gap="0.5rem" border-radius="0.375rem" border-width=0 background-color=(over or lit ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center"
       box width="1rem" height="1rem" display="flex" align-items="center" justify-content="center" flex-shrink=0
         when checked
           PgIcon(name="check", size=14, color="light-dark(#27272a, #f5f5f5)")
@@ -306,10 +318,13 @@ component UsageMenuItem
     menuId: string
     testId: string
   state over = false
+  state lit = false
   action hover(value: bool)
     over = value
+  action focused(on: bool)
+    lit = on
   view
-    button press=press popovertarget=menuId popovertargetaction="hide" hover=hover role="menuitem" testId=testId width="100%" min-height="1.75rem" padding-left="0.375rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" gap="0.375rem" border-radius="0.375rem" border-width=0 background-color=(over ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center"
+    button id=testId press=press popovertarget=menuId popovertargetaction="hide" hover=hover focus=focused(true) blur=focused(false) role="menuitem" testId=testId width="100%" min-height="1.75rem" padding-left="0.375rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" gap="0.375rem" border-radius="0.375rem" border-width=0 background-color=(over or lit ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center"
       box opacity=0.8 display="flex"
         PgIcon(name=icon, size=16, color="light-dark(#71717b, #818181)")
       text label font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" white-space="nowrap"

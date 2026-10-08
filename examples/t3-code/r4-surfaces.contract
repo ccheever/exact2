@@ -35,6 +35,9 @@ use R6DeviceWorkspaceView from "./r6-device.contract"
 use R7DevPlatformGlyph from "./r7-device.contract" // lane r7-device: the device tab's platform mark
 use R4FilesBody from "./r4-surfaces-files.contract"
 use prdTone from "./pages-pr-detail.contract"
+use KmItem from "./menu-keys.contract"
+use KeyMenu from "./menu-keys.contract"
+use kmOpenKey from "./menu-keys.contract"
 
 // The panel's top bar (52pt): the surface tabs and "Add panel surface", then the
 // layout controls (details toggle in a sheet, else maximize; the terminal drawer;
@@ -218,25 +221,34 @@ component R4AddSurface
   state over = false
   action hover(value: bool)
     over = value
+  // fix-keyboard-focus: Enter or Space opens the menu from the keyboard (menu-keys.contract).
+  state keyed = 0
+  action triggerKey(k: string)
+    if kmOpenKey(k)
+      keyed = keyed + 1
   view
     column position="relative" flex-shrink=0
-      button popovertarget="r4-add-surface" hover=hover aria-label="Add panel surface" testId="panel-add-surface" width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 background-color=(over ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center"
+      button popovertarget="r4-add-surface" key=triggerKey hover=hover aria-label="Add panel surface" testId="panel-add-surface" width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 background-color=(over ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center"
         ShellIcon(name="plus", size=14, color=(over ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)"))
       column id="r4-add-surface" popover="auto" position="absolute" margin-top="0.375rem" width="12rem"
         column width="100%" padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#2727291a, #ffffff1a)" background-color="light-dark(#fffffff7, #171717f7)" box-shadow="0 16px 40px -18px #0000008c" role="menu" aria-label="Add panel surface"
-          each surface in surfaces key=surface.id
-            R4AddItem(surface=surface, choose=ui("choose", surface.id))
+          KeyMenu(menuId="r4-add-surface-keys", items=map(filter(surfaces, (surface) => surface.available), (surface) => KmItem(id=`add-surface-${surface.id}`, label=surface.label)), keyed=keyed, gap="0px")
+            each surface in surfaces key=surface.id
+              R4AddItem(surface=surface, choose=ui("choose", surface.id))
 
 component R4AddItem
   props
     surface: ShellSurface
     choose: action
   state hovered = false
+  state lit = false
   action hover(over: bool)
     hovered = over
+  action focused(on: bool)
+    lit = on
   view
     box position="relative" width="100%" hover=hover
-      button press=choose popovertarget="r4-add-surface" popovertargetaction="hide" disabled=(not surface.available) role="menuitem" aria-label=`${surface.label} ${surface.shortcut}` aria-keyshortcuts=surface.shortcut testId=`add-surface-${surface.id}` display="flex" flex-direction="row" align-items="center" gap="0.5rem" width="100%" height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-width=0 border-radius="0.375rem" opacity=(surface.available ? 1 : 0.64) background-color=(hovered and surface.available ? "light-dark(#27272914, #f5f5f514)" : "#00000000")
+      button id=`add-surface-${surface.id}` press=choose popovertarget="r4-add-surface" popovertargetaction="hide" focus=focused(true) blur=focused(false) disabled=(not surface.available) role="menuitem" aria-label=`${surface.label} ${surface.shortcut}` aria-keyshortcuts=surface.shortcut testId=`add-surface-${surface.id}` display="flex" flex-direction="row" align-items="center" gap="0.5rem" width="100%" height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-width=0 border-radius="0.375rem" opacity=(surface.available ? 1 : 0.64) background-color=((hovered or lit) and surface.available ? "light-dark(#27272914, #f5f5f514)" : "#00000000")
         box width="1rem" height="1rem" flex-shrink=0 opacity=0.8
           ShellIcon(name=surface.icon, size=16, color="light-dark(#71717b, #818181)")
         text surface.label flex=1 min-width=0 white-space="nowrap" text-align="left" font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"
@@ -329,6 +341,11 @@ component R4LinkedRowView
   state over = false
   action hover(value: bool)
     over = value
+  // fix-keyboard-focus: the actions menu opens from the data module; "…" lets go of the focus and the menu's
+  // popup takes it as it mounts (`autofocus`, menu-keys.contract).
+  action openMenu
+    blur()
+    local("surface-pr-menu", row.key, "")
   view
     row width="100%" position="relative" align-items="center" gap="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" padding-right="0.25rem" padding-left=((0.5 + row.depth * 1.25) * rem) box-sizing="border-box" border-radius="0.375rem" hover=hover background-color=(over or menuOpen ? "light-dark(#f4f4f599, #ffffff06)" : "#00000000") testId=`linked-pr-${row.number}`
       when row.depth > 0
@@ -377,7 +394,7 @@ component R4LinkedRowView
             text row.age flex-shrink=0 font-size="0.6875rem" line-height="1rem" white-space="nowrap" font-variant-numeric="tabular-nums" color="light-dark(#71717b, #818181)"
       when over or menuOpen
         row position="absolute" right=0 bottom="0.125rem" padding-left="1.25rem" padding-right="0.25rem" align-items="center" border-radius="0.375rem" background-color="light-dark(#f7f7f8, #101010)"
-          button press=local("surface-pr-menu", row.key, "") aria-label=`Actions for #${row.number}` aria-expanded=menuOpen testId=`linked-pr-actions-${row.number}` width="1.25rem" height="1.25rem" padding=0 border-radius="0.375rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center"
+          button press=openMenu aria-label=`Actions for #${row.number}` aria-expanded=menuOpen testId=`linked-pr-actions-${row.number}` width="1.25rem" height="1.25rem" padding=0 border-radius="0.375rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center"
             R4Icon(name="ellipsis", size=14, color="light-dark(#27272a, #f5f5f5)")
 
 // The row's actions (Copy link, Open, Watch for changes / Stop watching, Unlink),
@@ -391,13 +408,14 @@ component R4LinkedMenu
     command: action
   view
     column position="absolute" right="0.625rem" top=((row.index * 44 + 52) * rem / 16) padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#2727291a, #ffffff1a)" background-color="light-dark(#fefefe, #171717)" box-shadow="0 16px 40px -18px #0000008c" z-index=30 role="menu" aria-label=`Actions for #${row.number}` testId=`linked-pr-menu-${row.number}`
-      R4MenuItem(icon="link", label="Copy link", test="copy", press=local("surface-pr-copy", row.key, ""))
-      link cursor="pointer" href=row.url role="menuitem" testId="linked-pr-menu-open" width="100%" height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" gap="0.5rem" border-radius="0.375rem" display="flex" flex-direction="row" align-items="center"
-        R4Icon(name="arrow-up-right", size=14, color="light-dark(#71717b, #818181)")
-        text "Open" font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"
-      when row.canWatch
-        R4MenuItem(icon=(row.watching ? "eye-off" : "eye"), label=(row.watching ? "Stop watching" : "Watch for changes"), test="watch", press=command("shell:surface-pr-watch", row.key, (row.watching ? "false" : "true"), 0))
-      R4MenuItem(icon="unlink-2", label=row.unlinkLabel, test="unlink", press=command("shell:surface-pr-unlink", row.key, "", 0))
+      KeyMenu(menuId="linked-pr-menu-keys", items=concat([KmItem(id="linked-pr-menu-copy", label="Copy link"), KmItem(id="linked-pr-menu-open", label="Open")], concat((row.canWatch ? [KmItem(id="linked-pr-menu-watch", label=(row.watching ? "Stop watching" : "Watch for changes"))] : []), [KmItem(id="linked-pr-menu-unlink", label=row.unlinkLabel)])), keyed=0, gap="0px")
+        R4MenuItem(icon="link", label="Copy link", test="copy", press=local("surface-pr-copy", row.key, ""))
+        link id="linked-pr-menu-open" cursor="pointer" href=row.url role="menuitem" testId="linked-pr-menu-open" width="100%" height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" gap="0.5rem" border-radius="0.375rem" display="flex" flex-direction="row" align-items="center"
+          R4Icon(name="arrow-up-right", size=14, color="light-dark(#71717b, #818181)")
+          text "Open" font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"
+        when row.canWatch
+          R4MenuItem(icon=(row.watching ? "eye-off" : "eye"), label=(row.watching ? "Stop watching" : "Watch for changes"), test="watch", press=command("shell:surface-pr-watch", row.key, (row.watching ? "false" : "true"), 0))
+        R4MenuItem(icon="unlink-2", label=row.unlinkLabel, test="unlink", press=command("shell:surface-pr-unlink", row.key, "", 0))
 
 component R4MenuItem
   props
@@ -406,10 +424,13 @@ component R4MenuItem
     test: string
     press: action
   state hovered = false
+  state lit = false
   action hover(over: bool)
     hovered = over
+  action focused(on: bool)
+    lit = on
   view
-    button press=press hover=hover role="menuitem" testId=`linked-pr-menu-${test}` width="100%" height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" gap="0.5rem" border-radius="0.375rem" border-width=0 display="flex" flex-direction="row" align-items="center" background-color=(hovered ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000")
+    button id=`linked-pr-menu-${test}` press=press hover=hover focus=focused(true) blur=focused(false) role="menuitem" testId=`linked-pr-menu-${test}` width="100%" height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" gap="0.5rem" border-radius="0.375rem" border-width=0 display="flex" flex-direction="row" align-items="center" background-color=(hovered or lit ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000")
       R4Icon(name=icon, size=14, color="light-dark(#71717b, #818181)")
       text label flex=1 min-width=0 text-align="left" white-space="nowrap" font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"
 

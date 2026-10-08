@@ -7,6 +7,9 @@ use QuestionOption from "./shapes.contract"
 use AttachButton from "./composer-controls.contract"
 use TipBubble from "./shell-tip.contract" // composer-fidelity G15
 use ApprovalOption from "./shapes.contract"
+use KmItem from "./menu-keys.contract"
+use KeyMenu from "./menu-keys.contract"
+use kmOpenKey from "./menu-keys.contract"
 
 // Lucide outline glyphs on a 24px grid (stroke 2), as the reference renders them.
 component ReqIcon
@@ -89,10 +92,19 @@ component ApprovalBanner
     compact: bool
     stacked: bool
   state menuOpen = false
+  // fix-keyboard-focus: the menu takes the focus as it opens (its popup, or its first item from Enter or
+  // Space), and Escape gives it back to "…" (menu-keys.contract).
+  state menuByKey = false
   action toggleMenu
     menuOpen = not menuOpen
+    if menuOpen
+      focus(menuByKey ? `approval-menu-${approval.id}-keys-first` : `approval-menu-${approval.id}-keys`)
+    menuByKey = false
+  action menuKey(k: string)
+    menuByKey = kmOpenKey(k)
   action closeMenu
     menuOpen = false
+    focus(`approval-more-${approval.id}`)
   view
     column position="relative" margin-left="1.375rem" margin-right="1.375rem" margin-bottom="-1.0625rem" padding-left="0.6875rem" padding-right="0.6875rem" padding-top=(stacked ? "0.75rem" : "0.6875rem") padding-bottom="1.8125rem" gap="0.75rem" box-sizing="border-box" border-top-left-radius=(stacked ? "0px" : "1.125rem") border-top-right-radius=(stacked ? "0px" : "1.125rem") border-style="solid" border-top-width=(stacked ? 0 : 1) border-left-width=1 border-right-width=1 border-bottom-width=0 border-color="light-dark(#ffdda9, #603e0a)" background-color="light-dark(#fef6ea, #231b0f)" box-shadow="0 12px 28px -18px light-dark(#00000066, #000000bf)" role="group" aria-label=approval.label testId="pending-approval"
       row width="100%" gap="0.5rem" align-items="flex-start"
@@ -109,10 +121,10 @@ component ApprovalBanner
           scroll max-height="5rem" width="100%" min-width=0 testId=`approval-detail-${approval.id}`
             text approval.detail font-size="0.75rem" line-height="1rem" letter-spacing=(approval.mono ? "-0.2px" : "0px") font-family=(approval.mono ? "ui-monospace" : "system-ui") white-space=(approval.mono ? "pre" : "pre-wrap") overflow-wrap="break-word" color="light-dark(#27272a, #f5f5f5)" aria-label="Command"
         when not compact
-          ApprovalActions(approval=approval, command=command, busy=busy, menuOpen=menuOpen, toggleMenu=toggleMenu, closeMenu=closeMenu)
+          ApprovalActions(approval=approval, command=command, busy=busy, menuOpen=menuOpen, toggleMenu=toggleMenu, menuKey=menuKey, closeMenu=closeMenu)
       when compact
         row width="100%" padding-left="2rem" box-sizing="border-box" justify-content="flex-end"
-          ApprovalActions(approval=approval, command=command, busy=busy, menuOpen=menuOpen, toggleMenu=toggleMenu, closeMenu=closeMenu)
+          ApprovalActions(approval=approval, command=command, busy=busy, menuOpen=menuOpen, toggleMenu=toggleMenu, menuKey=menuKey, closeMenu=closeMenu)
 
 // Accept and decline stay visible; every other advertised decision is in the menu.
 component ApprovalActions
@@ -122,19 +134,21 @@ component ApprovalActions
     busy: bool
     menuOpen: bool
     toggleMenu: action
+    menuKey: action
     closeMenu: action
   view
     row gap="0.375rem" align-items="center" align-self="center" flex-shrink=0 flex-wrap="wrap" justify-content="flex-end" position="relative"
       each option in approval.options key=option.id
         ApprovalButton(option=option, approvalId=approval.id, disabled=(busy or approval.responding or not approval.live), choose=command("approval", approval.id, option.id, 0))
       when length(approval.more) > 0
-        button press=toggleMenu disabled=(busy or approval.responding) testId=`approval-more-${approval.id}` aria-label="More approval options" aria-expanded=menuOpen width="1.5rem" height="1.5rem" padding=0 box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #3a3328)" background-color=(menuOpen ? "light-dark(#f4f4f5, #3a3328)" : "light-dark(#ffffff, #292116)") display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0
+        button id=`approval-more-${approval.id}` press=toggleMenu key=menuKey disabled=(busy or approval.responding) testId=`approval-more-${approval.id}` aria-label="More approval options" aria-expanded=menuOpen width="1.5rem" height="1.5rem" padding=0 box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #3a3328)" background-color=(menuOpen ? "light-dark(#f4f4f5, #3a3328)" : "light-dark(#ffffff, #292116)") display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0
           ReqIcon(name="ellipsis", size=14, color="light-dark(#71717a, #818181)")
       when menuOpen
         box position="absolute" left="-187.5rem" right="-187.5rem" top="-187.5rem" bottom="-187.5rem" z-index=29 press=closeMenu aria-label="Close approval options" aria-keyshortcuts="Escape" testId="approval-menu-dismiss"
         column position="absolute" right=0 bottom="1.75rem" width="14.1875rem" padding="0.25rem" gap="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-style="solid" border-width=1 border-color="light-dark(#e9e9ea, #292929)" background-color="light-dark(#ffffff, #111111)" box-shadow="0 16px 40px -18px #0000008c" z-index=30 role="menu" aria-label="More approval options" testId=`approval-menu-${approval.id}`
-          each option in approval.more key=option.id
-            MenuChoice(label=option.label, warning=option.warning, testId=`approval-${approval.id}-${option.id}`, disabled=(busy or approval.responding), choose=command("approval", approval.id, option.id, 0))
+          KeyMenu(menuId=`approval-menu-${approval.id}-keys`, items=(busy or approval.responding ? [] : map(approval.more, (option) => KmItem(id=`approval-${approval.id}-${option.id}`, label=option.label))), keyed=0, gap="0.25rem")
+            each option in approval.more key=option.id
+              MenuChoice(label=option.label, warning=option.warning, testId=`approval-${approval.id}-${option.id}`, disabled=(busy or approval.responding), choose=command("approval", approval.id, option.id, 0))
 
 component MenuChoice
   props
@@ -154,7 +168,7 @@ component MenuChoice
       // composer-fidelity G15: an option with a warning carries it as aria-description and a tooltip above it.
       when warning != ""
         TipBubble(label=warning, side="top", align="center", offset=32, inset=0, shown=(hovering or focused))
-      button press=choose hover=setHover focus=setFocus(true) blur=setFocus(false) disabled=disabled role="menuitem" testId=testId aria-label=label aria-description=warning width="100%" min-height="1.75rem" padding-left="0.4375rem" padding-right="0.4375rem" padding-top="0.25rem" padding-bottom="0.25rem" gap="0.375rem" box-sizing="border-box" border-radius="0.5rem" border-width=0 background-color=(hovering ? "light-dark(#f4f4f5, #1c1c1c)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center"
+      button id=testId press=choose hover=setHover focus=setFocus(true) blur=setFocus(false) disabled=disabled role="menuitem" testId=testId aria-label=label aria-description=warning width="100%" min-height="1.75rem" padding-left="0.4375rem" padding-right="0.4375rem" padding-top="0.25rem" padding-bottom="0.25rem" gap="0.375rem" box-sizing="border-box" border-radius="0.5rem" border-width=0 background-color=(hovering or focused ? "light-dark(#f4f4f5, #1c1c1c)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center"
         when warning != ""
           ReqIcon(name="triangle-alert", size=12, color="#fe9a00")
         text label font-size="0.75rem" font-weight=500 line-height="1rem" text-align="center" color=(hovering ? "light-dark(#18181b, #f5f5f5)" : "light-dark(#27272a, #f5f5f5)")

@@ -8,7 +8,8 @@
 //
 // Wrap a menu's rows in `KeyMenu` and give each enabled row an `id` that its `items` entry names, in
 // order. A `popover="auto"` menu's popup takes the focus by `autofocus`; a menu its owner mounts from
-// state calls `focus(menuId)` as it opens it, and passes `keyed` 1 when Enter or Space opened it. The trigger counts Enter and Space (`kmOpenKey`) into
+// state calls `focus(menuId)` as it opens it, or `focus(`${menuId}-first`)` when Enter or Space opened
+// it (the popup's inner box, which hands the focus on to the first item). The trigger counts Enter and Space (`kmOpenKey`) into
 // `keyed`, so the next opening the popup sees is known to come from the keyboard. `retainFocus`: a
 // click on a row leaves the focus where it was, as Base UI's pointer press does, so a press that
 // closes the menu gives it back to the trigger. `inside` hears the popup itself taking and losing the
@@ -53,10 +54,17 @@ component KeyMenu
           current = item.id
           focus(item.id)
         case none
+  action enteredFirst
+    match first(items)
+      case some(item)
+        current = item.id
+        focus(item.id)
+      case none
   slot
   view
-    column id=menuId width="100%" gap=gap tabindex=-1 autofocus=true retainFocus=true key=keys focus=entered testId=menuId
-      children
+    column id=menuId width="100%" tabindex=-1 autofocus=true retainFocus=true key=keys focus=entered testId=menuId
+      column id=`${menuId}-first` width="100%" gap=gap tabindex=-1 focus=enteredFirst
+        children
 
 component KeyMenuWatched
   props
@@ -88,7 +96,14 @@ component KeyMenuWatched
         case none
   action left
     inside(false)
+  action enteredFirst
+    match first(items)
+      case some(item)
+        current = item.id
+        focus(item.id)
+      case none
   slot
   view
-    column id=menuId width="100%" gap=gap tabindex=-1 autofocus=true retainFocus=true key=keys focus=entered blur=left testId=menuId
-      children
+    column id=menuId width="100%" tabindex=-1 autofocus=true retainFocus=true key=keys focus=entered blur=left testId=menuId
+      column id=`${menuId}-first` width="100%" gap=gap tabindex=-1 focus=enteredFirst blur=left
+        children

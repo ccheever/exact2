@@ -1,5 +1,7 @@
 use Icon from "./icons.contract"
 use TableMenuItem from "./markdown.contract"
+use KmItem from "./menu-keys.contract"
+use KeyMenu from "./menu-keys.contract"
 
 // Lane r8-keys: a Markdown table's Copy menu (ChatMarkdown.tsx MenuPopup align="end",
 // MIT, see LICENSE-T3) drawn at the window's top layer, as Base UI portals it: over the
@@ -20,8 +22,12 @@ component R8TableMenu
     menu: TableMenuView
     dark: bool
     local: action
+  // Escape gives the focus back to the table's Copy button (fix-keyboard-focus).
+  action closeMenu
+    local("table-menu-close", menu.id, "")
+    focus(`table-copy-${menu.id}`)
   view
-    button press=local("table-menu-close", menu.id, "") aria-label="Close menu" aria-keyshortcuts="Escape" position="absolute" left=0 top=0 right=0 bottom=0 padding=0 border-width=0 border-radius=0 background-color="#00000000" z-index=130 testId="table-copy-menu-backdrop"
+    button press=closeMenu aria-label="Close menu" aria-keyshortcuts="Escape" position="absolute" left=0 top=0 right=0 bottom=0 padding=0 border-width=0 border-radius=0 background-color="#00000000" z-index=130 testId="table-copy-menu-backdrop"
     box position="absolute" left=menu.triggerX top=menu.triggerY width="1.5rem" height="1.5rem" border-radius="0.5rem" background-color="light-dark(#f4f4f5, #ffffff0a)" display="flex" flex-direction="row" align-items="center" justify-content="center" z-index=131 pointer-events="none" aria-hidden=true
       // light-dark() inside an SVG keeps the scheme it was drawn in: one icon per scheme.
       when dark
@@ -29,5 +35,6 @@ component R8TableMenu
       else
         Icon(name="copy", size=12, color="#27272a")
     column position="absolute" left=menu.x top=menu.y width="10rem" padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-style="solid" border-width=1 border-color="light-dark(#e9e9ea, #292929)" background-color="light-dark(#ffffff, #111111)" box-shadow="0 16px 40px -18px #0000008c" z-index=132 role="menu" aria-label="Copy table" testId="table-copy-menu"
-      TableMenuItem(label="Copy as Markdown", press=local("copy-table", menu.id, menu.markdown), testId=`table-copy-markdown-${menu.id}`)
-      TableMenuItem(label="Copy as CSV", press=local("copy-table", menu.id, menu.csv), testId=`table-copy-csv-${menu.id}`)
+      KeyMenu(menuId="table-copy-keys", items=[KmItem(id=`table-copy-markdown-${menu.id}`, label="Copy as Markdown"), KmItem(id=`table-copy-csv-${menu.id}`, label="Copy as CSV")], keyed=0, gap="0px")
+        TableMenuItem(label="Copy as Markdown", press=local("copy-table", menu.id, menu.markdown), testId=`table-copy-markdown-${menu.id}`)
+        TableMenuItem(label="Copy as CSV", press=local("copy-table", menu.id, menu.csv), testId=`table-copy-csv-${menu.id}`)
