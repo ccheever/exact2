@@ -110,6 +110,12 @@ publication was performed during this local audit.
 | --- | --- | --- | --- | --- |
 | [X57](20261008-x57-overflowing-centred-line.md) | A line wider than its box start-aligned whatever `text-align` says (CSS Text 3 §7.1); macOS centres it and cuts its start | framework-gap | none ([pr-list-title-clip](../tasks/20261008-pr-list-title-clip.md): `text-left` on the pull request surfaces; other clone buttons listed in the file) | reproduced on a one-file app (macOS cuts, web does not); draft, not published |
 
+## Pull Requests list live refresh addition, 2026-10-08
+
+| Issue | Capability | Kind | Blocks | Status |
+| --- | --- | --- | --- | --- |
+| [X58](20261008-x58-scroll-lost-after-window-refocus.md) | A wheel-scrolled `scroll` keeping its offset after the window is focused again (macOS) | framework-gap (unconfirmed) | [pr-list-live-refresh](../tasks/20261008-pr-list-live-refresh.md) (its scroll row) | local draft; a one-file app not tried |
+
 ## Upstream issues (filed 2026-10-06)
 
 Each was reproduced on exact2 `4c893fef6` before filing. Not filed: X13 (unverified on macOS; the web behavior is designed), X42 (already supported on main), X38–X41 (product scope, not framework gaps).
