@@ -887,7 +887,9 @@ impl<D: DataSource> Host<D> {
     /// the batch, the refusal in `error`, and `clock` says where the runner
     /// stands.
     pub fn advance(&mut self, now_ms: f64) -> String {
-        self.now_ms = now_ms.max(self.now_ms);
+        if self.engine.starts_on_frame() {
+            self.now_ms = now_ms.max(self.now_ms);
+        }
         let a = self.runner.advance_timed(now_ms);
         self.advanced(a)
     }

@@ -62,16 +62,22 @@ impl<D: DataSource> Host<D> {
     /// takeover, what waits starts at `at_ms`, sampled there, in the batch
     /// returned; no timer fires.
     pub fn start_on_frame(&mut self, on: bool, at_ms: f64) -> String {
-        let error = self.set_start_on_frame(on, at_ms).err();
-        let mut batch = Batch::new();
-        self.present(&mut batch, false);
-        self.finish(batch, error)
+        if let Err(error) = self.set_start_on_frame(on, at_ms) {
+            return self.finish(Batch::new(), Some(error));
+        }
+        // A tick at the takeover's instant: what the start ends (a height,
+        // a reorder) settles as a frame's would; no timer fires.
+        self.tick(at_ms.max(self.now_ms))
     }
 
     /// [`Host::start_on_frame`] with nothing presented: a prepared host's
     /// started plays reach the presenter in its first batch after commit.
     pub(crate) fn set_start_on_frame(&mut self, on: bool, at_ms: f64) -> Result<(), String> {
         let at = (at_ms / 1000.0).max(self.engine.now());
+        if !on {
+            // The agent's clock is the host's from here.
+            self.now_ms = self.now_ms.max(at * 1000.0);
+        }
         let started = self
             .engine
             .set_start_on_frame(on, at)

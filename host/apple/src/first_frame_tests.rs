@@ -251,3 +251,14 @@ fn the_takeover_presents_its_own_instant() {
         "84 ms in at the takeover, not 100"
     );
 }
+
+#[test]
+fn after_the_takeover_the_hosts_clock_is_the_agents() {
+    let mut host = boot();
+    let go = id(&host, "go");
+    host.dispatch_at(go, Event::Press, 100.0);
+    host.start_on_frame(false, 200.0);
+    assert_eq!(host.now_ms, 200.0);
+    let flipped = host.set_scheme(true);
+    assert!(flipped.contains("\"error\":null"), "{flipped}");
+}

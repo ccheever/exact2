@@ -221,6 +221,11 @@ impl Engine {
         origin.filter(|_| !self.timeline_bound(node))
     }
 
+    /// `node` still has plays waiting with a clock's origin.
+    pub(super) fn clocks_wait(&mut self, node: u64) {
+        self.clocks.waiting.insert(node);
+    }
+
     /// Whether a clock's origin waits for the first presented frame.
     pub(super) fn clock_pending(&self) -> bool {
         !self.clocks.pending.is_empty()

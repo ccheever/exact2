@@ -372,7 +372,15 @@ impl Engine {
         for key in running {
             self.running.remove(&key);
         }
-        self.pending.retain(|key| key.0 != node);
+        let pending: Vec<(u64, Property)> = self
+            .pending
+            .range((node, Property::Translate)..)
+            .take_while(|key| key.0 == node)
+            .copied()
+            .collect();
+        for key in pending {
+            self.pending.remove(&key);
+        }
         for property in Property::ALL {
             self.slots.remove(&(node, property));
         }

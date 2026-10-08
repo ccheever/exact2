@@ -34,9 +34,12 @@ impl Engine {
         } else {
             // Sampled where the agent's clock takes over, as Core Animation
             // is: not at a frame this forgets (D7).
+            // `shown` is forgotten first, so nothing that ends between the
+            // takeover and that frame is retired by the start's own sample.
+            self.shown = f64::NEG_INFINITY;
+            self.now = self.now.max(at);
             let started = self.start_pending(at, true)?;
             self.shown = f64::NEG_INFINITY;
-            self.advance(self.now.max(at))?;
             started
         };
         self.start_on_frame = on;
@@ -110,6 +113,12 @@ impl Engine {
                     play.pending = None;
                     any = true;
                 }
+            }
+            // Another play of the node still waits with the clock: keep its
+            // place for the origin's phase at its own frame.
+            if clock_origin.is_some() && self.animations[&node].iter().any(|p| p.pending.is_some())
+            {
+                self.clocks_wait(node);
             }
             if any {
                 for play in self.animations[&node].iter() {

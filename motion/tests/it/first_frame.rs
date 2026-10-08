@@ -326,3 +326,37 @@ fn the_takeover_samples_at_its_own_instant() {
         "at the takeover, not the forgotten frame"
     );
 }
+
+#[test]
+fn a_curve_ending_between_the_takeover_and_the_last_frame_is_still_running() {
+    let mut e = engine(0.2, linear());
+    observe(&mut e, 1.0);
+    e.present_frame(0.016).unwrap(); // ends at 0.216
+    e.present_frame(0.210).unwrap(); // a frame ahead of the wall
+    e.advance(0.150).unwrap();
+    e.set_start_on_frame(false, 0.200).unwrap();
+    assert!(!e.quiescent(), "still running at the takeover");
+    assert!((opacity(&e) - 0.92).abs() < 1e-9);
+}
+
+#[test]
+fn two_plays_of_one_node_born_around_a_late_frame_share_the_origins_phase() {
+    let mut e = Engine::new();
+    e.set_start_on_frame(true, 0.0).unwrap();
+    e.set_animation_clock(3, Some("Pending"));
+    e.set_animations(3, &pulse("pulse 1s infinite")).unwrap();
+    e.advance(0.020).unwrap();
+    let both = crate::keyframed(
+        "pulse 1s infinite, glow 1s infinite @keyframes pulse{from{opacity:0.4}to{opacity:1}} @keyframes glow{from{scale:0.9}to{scale:1}}",
+    )
+    .unwrap();
+    e.set_animations(3, &both).unwrap();
+    e.present_frame(0.016).unwrap();
+    assert_eq!(e.animation_plays(3)[0].start, 0.016);
+    e.present_frame(0.033).unwrap();
+    assert_eq!(
+        e.animation_plays(3)[1].start,
+        0.016,
+        "the origin's phase, not its own frame"
+    );
+}
