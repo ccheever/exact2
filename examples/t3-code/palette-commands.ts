@@ -14,6 +14,7 @@ import { favoriteEditor } from './keyboard-dispatch';
 import { openFavoriteHere } from './remote-open'; // remote Open: an SSH environment's workspace opens over SSH
 import { lastEditor } from './shell-details';
 import { linkPullRequest } from './palette-linkpr';
+import { linkFromPicker } from './pages-pr-links'; // pr-links-previews-and-routing
 import { openScratchProject } from './r11-upstream-scratch';
 import { startTrackedClone } from './project-clones-live';
 import { cloneTracking } from './live-streams';
@@ -69,6 +70,7 @@ export async function paletteCommand(client: T3Client, native: Native | null | u
     if (op === 'open-favorite') return await openInEditor(client, native, op, id, value);
     if (op === 'scratch') return await startScratch(client, native);
     if (op === 'link-pr') return (await linkPullRequest(client, access, storage, id)) ? done(client) : stay(client, false);
+    if (op === 'pr-link-thread') return (await linkFromPicker(client, native, storage, id)) ? done(client) : stay(client, false); // pr-links-previews-and-routing: the thread picker
     if (!client.ready) {
       pushToast(client, { kind: 'error', title: 'Environment unavailable', description: `${str(obj(client.config.environment).label, 'The selected environment')} is not connected.` });
       return stay(client, false, 'Environment unavailable');

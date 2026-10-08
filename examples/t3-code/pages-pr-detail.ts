@@ -39,17 +39,24 @@ import { markStackDue, readPanelStack } from './pages-pr-stack';
 import { emptyHandoffs, presentHandoffs, prHandoffCommand } from './pages-pr-handoffs'; // pr-handoffs-and-quick-actions
 import { runQuickAction } from './pages-pr-quick';
 import { finishCheckoutHandoff } from './r6-pr-actions';
+import { emptyLinks, emptyPreview, linkChips, linksCommand, linkPanelOnPage, openLink, presentLinks, readLinkedThreads, readPreview, type LinkContext } from './pages-pr-links'; // pr-links-previews-and-routing
+import { surfaceLocal } from './r4-surfaces-panel';
+import { actOnHandoff, chooseActOn, emptyActOn, handoffServer, presentActOn } from './pages-pr-acton';
+import { autolinkPullRequestMarkdown, changeRequestRepositoryUrl } from './pages-pr-links-logic';
 
-export type PrSelection = { projectId: string; host: string; repository: string; number: number };
+/** `environmentId`: the server a background environment's row was listed on (pr-links-previews-and-routing); absent for the focused one. */
+export type PrSelection = { projectId: string; host: string; repository: string; number: number; environmentId?: string };
 /** The row key the list wears, parsed back into the reference a read needs. */
 export function parseSelection(value: string): PrSelection | null {
   try {
     const parsed = obj(JSON.parse(value));
     const number = num(parsed.number), repository = str(parsed.repository), projectId = str(parsed.projectId);
-    return number > 0 && repository && projectId ? { projectId, host: str(parsed.host), repository, number } : null;
+    return number > 0 && repository && projectId ? { projectId, host: str(parsed.host), repository, number, ...(str(parsed.environmentId) ? { environmentId: str(parsed.environmentId) } : {}) } : null;
   } catch { return null; }
 }
-export const selectionRef = (selection: PrSelection): Obj => ({ projectId: selection.projectId, ...(selection.host ? { host: selection.host } : {}), repository: selection.repository, number: selection.number });
+// `environmentId` rides along to T3Client.rpc, which reads on that server and strips it before sending (pages-pr-environments.ts).
+export const selectionRef = (selection: PrSelection): Obj => ({ projectId: selection.projectId, ...(selection.host ? { host: selection.host } : {}), repository: selection.repository, number: selection.number,
+  ...(selection.environmentId ? { environmentId: selection.environmentId } : {}) });
 
 const STATE_LABELS: Record<string, string> = { open: 'Open', draft: 'Draft', closed: 'Closed', merged: 'Merged' };
 const count = (value: number) => String(Math.round(value)).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
@@ -98,6 +105,10 @@ export function emptyDetail() {
     actions: emptyActions(),
     // pr-handoffs-and-quick-actions: which hand-off is preparing, whether the pull request can be checked out, whose it is beside a thread.
     handoffs: emptyHandoffs(),
+    // pr-links-previews-and-routing: the linked threads, the Link/Unlink item, the back arrow; the hovered link's card.
+    links: emptyLinks(), preview: emptyPreview(),
+    // pr-links-previews-and-routing: "Act on" — the servers a hand-off can act on, on the page.
+    actOn: emptyActOn(),
   };
 }
 export type PrDetailView = ReturnType<typeof emptyDetail>;
@@ -126,7 +137,7 @@ const due = (panel: Panel) => panel.detailDue || (panel.activityDue && !!(panel.
 const messageOf = (error: unknown) => (error instanceof Error && error.message.trim() ? error.message : 'The environment request failed.');
 
 /** `returns`: the window focused again (app.contract `windowReturned`, which reads the clock then; pr-list-live-refresh). */
-export type DetailInput = { selected: string; refresh: number; now: number; visible?: boolean; returns?: number };
+export type DetailInput = { selected: string; refresh: number; now: number; visible?: boolean; returns?: number; page?: boolean; linkTick?: number; preview?: string };
 export async function pullRequestDetail(client: T3Client, native: Native | null | undefined, input: DetailInput, storage?: Files): Promise<PrDetailView> {
   const view = emptyDetail();
   view.md = markdownEnv(client); view.diffScheme = diffSchemeOf(client);
@@ -176,8 +187,11 @@ export async function pullRequestDetail(client: T3Client, native: Native | null 
   // Then, once the detail says the host keeps stacks, the stack (one native request at a time: an answer burst can
   // fill the native executor's ordered lane, host/apple/src/executor_core.rs COUNTS).
   if (display) await readPanelStack(client, native!, panel.key, display, panel.reference);
+  // pr-links-previews-and-routing: the page's linked threads (every 10 s), and the hovered link's card.
+  if (display) await readLinkedThreads(client, native!, linkContext(selection, display, input), input.linkTick ?? 0);
+  if (input.preview) view.preview = await readPreview(client, native!, input.preview);
   shown.set(client, phaseOf(panel));
-  return present(view, panel, selection, listEntry, input.now, client);
+  return present(view, panel, selection, listEntry, input.now, client, input);
 }
 async function wake(client: T3Client, native: Native, view: PrDetailView, panel: Panel): Promise<PrDetailView> {
   shown.set(client, phaseOf(panel));
@@ -219,7 +233,10 @@ async function readActivity(client: T3Client, native: Native, panel: Panel, ref:
   panel.activityDue = false;
 }
 /** The panel as it stands: the ghost, the unavailable state, or the detail with its conversation. */
-function present(view: PrDetailView, panel: Panel | null, selection: PrSelection, listEntry: Obj | null, now: number, client: T3Client): PrDetailView {
+const linkContext = (selection: PrSelection, detail: Obj, input: DetailInput): LinkContext =>
+  ({ environmentId: selection.environmentId ?? '', reference: { projectId: selection.projectId, ...(selection.host ? { host: selection.host } : {}), repository: selection.repository, number: selection.number },
+    url: str(detail.url), page: input.page === true });
+function present(view: PrDetailView, panel: Panel | null, selection: PrSelection, listEntry: Obj | null, now: number, client: T3Client, input?: DetailInput): PrDetailView {
   Object.assign(view, { number: selection.number, numberLabel: `#${selection.number}`, repository: selection.repository });
   const display = panel?.detail ?? panel?.cached ?? null;
   view.handoffs = presentHandoffs(client, display, selection); // pr-handoffs-and-quick-actions: the ghost's Check out too
@@ -244,7 +261,23 @@ function present(view: PrDetailView, panel: Panel | null, selection: PrSelection
   view.copiedCheckout = copyNonce(client, view.checkoutCommand); view.copiedBranch = copyNonce(client, view.headBranch);
   view.actions = presentActions(client, { ...panelContext(client, panel!, view.ref, listEntry), checksState: view.summary.checksState || null, checksStale: view.summary.checksStale,
     refreshing: !!panel!.detail && panel!.detailDue, threadLinks: client.shell.threads.flatMap(thread => arr(thread.pullRequests)) });
+  // pr-links-previews-and-routing: `#N` and commit autolinks in the text (remarkPullRequestAutolinks), each pull request link a chip with its card.
+  const context = linkContext(selection, display, input ?? { selected: '', refresh: 0, now });
+  view.links = presentLinks(client, context);
+  view.actOn = presentActOn(client, panel!.key, context.environmentId, selection.projectId, context.page);
+  const repositoryUrl = changeRequestRepositoryUrl(str(display.url)), links: { href: string; kind: string }[] = [];
+  view.bodies = view.bodies.map(body => {
+    const linked = repositoryUrl ? autolinkPullRequestMarkdown(body.body, repositoryUrl) : { text: body.body, links: [] };
+    links.push(...linked.links, ...pullRequestUrls(linked.text).map(href => ({ href, kind: '' })));
+    return { ...body, body: linked.text };
+  });
+  view.md = { ...view.md, chips: [...view.md.chips, ...linkChips(client, context.environmentId, links)] };
   return view;
+}
+/** Web links in Markdown source (inline `](url)`, `<url>`, bare URLs) that name a change request: the ones a card can preview. */
+function pullRequestUrls(markdown: string): string[] {
+  const found = [...markdown.matchAll(/\]\((https?:\/\/[^\s)]+)\)|<(https?:\/\/[^\s>]+)>|(https?:\/\/[^\s<>()[\]]+)/g)].map(match => match[1] ?? match[2] ?? match[3] ?? '');
+  return found.map(url => url.replace(/[.,;:!?]+$/, '')).filter(url => /\/(?:pulls?|-\/merge_requests|pull-requests|pullrequest)\/\d+/.test(url));
 }
 /** PullRequestDetailGhost: the list row's identity and summary stay; the rest are bars. */
 export function ghostOf(entry: Obj | null, now: number): ReturnType<typeof emptyGhost> {
@@ -364,8 +397,12 @@ const HOST_NAMES: Record<string, string> = { github: 'GitHub', gitlab: 'GitLab',
 const hostOf = (url: string) => { try { return new URL(url).host; } catch { return ''; } };
 
 /** pages:pr-* writes, each against the selected pull request on its host. */
-export async function prCommand(client: T3Client, native: Native, op: string, selected: string, value: string): Promise<string> {
+export async function prCommand(client: T3Client, native: Native, op: string, selected: string, value: string, storage?: Files): Promise<string> {
   if (op === 'activity-retry') { retryActivity(client, selected, value); return ''; }
+  if (op === 'act-on') { const ctx = contextOf(client, selected); if (ctx) chooseActOn(client, ctx.key, value); return ''; } // pr-links-previews-and-routing: "Act on"'s radio
+  // pr-links-previews-and-routing: the linked threads' count and the Link item (`palette:…` opens the palette), and a pull request link's click.
+  if (op === 'links') { if (!storage) throw new ClientError('Open on macOS to link pull requests.'); return linksCommand(client, native, storage, value); }
+  if (op === 'link-open') return openLink(client, native, linkPanelOnPage(client), value, async (url, target) => { await surfaceLocal(client, native, 'r5-pr-open', target, url); });
   // pr-handoffs-and-quick-actions: a checkout hand-off's second half, once the window shows its thread.
   if (op === 'handoff-run') return finishCheckoutHandoff(client, native);
   // pr-handoffs-and-quick-actions: a list row's Shift quick action (it names its own row, whatever is selected).
@@ -375,7 +412,10 @@ export async function prCommand(client: T3Client, native: Native, op: string, se
   if (op === 'handoff') {
     // pr-handoffs-and-quick-actions: Ask, Explain, Fix findings, a finding's Fix, Check out and Resolve conflicts.
     const ctx = contextOf(client, selected)!, panel = panelsOf(client).get(ctx.key);
-    return prHandoffCommand(client, native, { detail: ctx.detail, activity: panel?.activity ?? null, listEntry: ctx.listEntry }, value);
+    // pr-links-previews-and-routing ("Act on"): on the page, the chosen server (or a background server's own row) acts.
+    const acting = value.startsWith('page|') ? handoffServer(client, ctx.key, selection.environmentId ?? '', selection.projectId) : null;
+    const elsewhere = acting ? (kind: string, task: Parameters<typeof actOnHandoff>[5], mode: 'worktree' | 'local', detail: Obj) => actOnHandoff(client, native, acting, detail, kind, task, mode) : undefined;
+    return prHandoffCommand(client, native, { detail: ctx.detail, activity: panel?.activity ?? null, listEntry: ctx.listEntry }, value, elsewhere);
   }
   if (isActionOp(op)) {
     // pr-header-actions-and-stacks: the host actions run through one runner (pages-pr-actions.ts).

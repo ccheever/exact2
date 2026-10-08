@@ -14,6 +14,8 @@ import { letGo } from './let-go';
 import { holdPullRequestRefreshes, liveRefreshAsked, liveRefreshDue, noteViewRefreshed, pullRequestRefreshEpoch, viewRefreshedAt } from './pages-pr-refresh';
 import { listRelist, overrideListEntries, settleListOverrides } from './pages-pr-actions'; // pr-header-actions-and-stacks: the panel's onActed
 import { emptyChecksPopover, emptyStackPopover, quickPopovers, quickRow, readSpeedMode } from './pages-pr-quick'; // pr-handoffs-and-quick-actions
+import { pullRequestEntryKey, pullRequestEntryViewer } from './pages-pr-routing'; // pr-links-previews-and-routing: several servers' rows
+import { environmentQueries, filterKeyOf, foldAnswers, listTargets, loadMore, noteAnswer, noteShowing, orderAnswer, pagingFooter, refreshPaging, statsBatches, type ListTarget } from './pages-pr-paging';
 
 export const SORTS = [
   { value: 'ready', label: 'Merge readiness' }, { value: 'blocked', label: 'Blocked on me' }, { value: 'updated', label: 'Recently updated' },
@@ -94,7 +96,8 @@ export function parsePrQuery(raw: string): { text: string; filters: PrFilters } 
 // ── Grouping and ranking (pullRequestList.logic.ts) ─────────────────────────
 
 const lower = (value: unknown) => str(value).trim().toLowerCase();
-const viewerFor = (entry: Obj, viewers: Obj) => lower(viewers[` ${str(entry.host)}`] ?? viewers[str(entry.host)]);
+// pullRequestEntryViewer: the account of the server a row was listed on ("<environmentId> <host>"), else the plain host's.
+const viewerFor = (entry: Obj, viewers: Obj) => pullRequestEntryViewer(entry, viewers as Record<string, string>) ?? '';
 const authoredByViewer = (entry: Obj, viewers: Obj) => { const viewer = viewerFor(entry, viewers); return !!viewer && lower(obj(entry.author).login) === viewer; };
 export function groupEntries(entries: Obj[], viewers: Obj): { key: string; label: string; entries: Obj[] }[] {
   const buckets: Record<string, Obj[]> = { authored: [], reviewRequested: [], others: [] };
@@ -199,12 +202,14 @@ export const conflictLabel = (entry: Obj) => entry.state === 'open' && entry.isD
 const CHECKS_LABELS: Record<string, string> = { passing: 'All checks have passed', failing: 'Some checks were not successful', pending: "Some checks haven't completed yet" };
 const REVIEW_LABELS: Record<string, string> = { approved: 'Approved', 'changes-requested': 'Changes requested', 'review-required': 'Awaiting review' };
 const count = (value: number) => String(Math.round(value)).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
-export const entryKey = (entry: Obj) => `${str(entry.host)}:${str(entry.repository)}#${num(entry.number)}`;
+/** pullRequestEntryKey: a background server's row carries that server (pr-links-previews-and-routing). */
+export const entryKey = (entry: Obj) => pullRequestEntryKey(entry);
 const labelColor = (color: unknown) => { const hex = str(color).trim().replace(/^#/, ''); return /^[0-9a-fA-F]{6}$/.test(hex) ? `#${hex}` : ''; };
 const actor = (value: unknown) => { const person = obj(value), login = str(person.login, 'ghost'); return { login, avatar: str(person.avatarUrl), initial: login.slice(0, 1).toUpperCase(), name: str(person.name) }; };
 
 /** The detail's address for a row, as the list and the panel pass it around. */
-export const rowRef = (entry: Obj) => JSON.stringify({ projectId: str(entry.projectId), host: str(entry.host), repository: str(entry.repository), number: num(entry.number) });
+export const rowRef = (entry: Obj) => JSON.stringify({ projectId: str(entry.projectId), host: str(entry.host), repository: str(entry.repository), number: num(entry.number),
+  ...(str(entry.environmentId) ? { environmentId: str(entry.environmentId) } : {}) });
 const hex2 = (value: number) => Math.round(Math.max(0, Math.min(255, value))).toString(16).padStart(2, '0');
 /** color-mix(in srgb, label p%, base): the badge's text tone. */
 function mix(label: string, base: string, share: number): string {
@@ -292,35 +297,56 @@ function listLiveAsk(client: object, input: LiveInput): { visible: boolean; now:
 const inflight = new WeakMap<object, { key: string; relist: number; read: Promise<ListCache> }>();
 let listReads = 0;
 const listStored = new WeakMap<object, number>();
+/** The round whose "Loading more" / "Updating pull requests" was drawn before its read (the footer's spinner). */
+const growingShown = new WeakMap<object, string>();
+const failure = (error: unknown) => (error instanceof Error ? error.message : 'Pull requests could not be read.');
 /**
- * One list read. A read that fails keeps the rows the last answer to the same question showed (the reference's
- * `answered ?? carried`): the list stays in place, its scroll with it, rather than blanking to an error.
+ * One list read over every server this round asks (pr-links-previews-and-routing: each server's `pullRequests.list`,
+ * folded by foldAnswers; a continuation's slice appended under the rows held). A read that fails keeps the rows the
+ * last answer to the same question showed (the reference's `answered ?? carried`): the list stays in place, its
+ * scroll with it, rather than blanking to an error; a server that fails beside others that answer leaves their rows
+ * and the error ("… Showing the last pull requests loaded.").
  */
-async function readList(client: T3Client, native: Native, input: PrInput, payload: Obj, key: string, previous: ListCache | undefined, live: ListLive): Promise<ListCache> {
-  const order = ++listReads, scope = JSON.stringify([client.environmentId, payload]);
+async function readList(client: T3Client, native: Native, input: PrInput, round: { key: string; targets: ListTarget[]; cursors: boolean }, key: string, previous: ListCache | undefined, live: ListLive): Promise<ListCache> {
+  const order = ++listReads, scope = round.key;
   const cached: ListCache = { key, scope, refresh: input.refresh, epoch: pullRequestRefreshEpoch(client), relist: listRelist(client), result: null, error: '', stats: previous?.stats ?? new Map<string, Obj>() };
   try {
-    // One invalidate per Refresh press: each one announces a change, which asks this read again while
-    // the first is still out, and that read would invalidate (and announce) again (pr-writing-and-metadata
+    // One invalidate per Refresh press, on every server the page reads: each one announces a change, which asks this read
+    // again while the first is still out, and that read would invalidate (and announce) again (pr-writing-and-metadata
     // live drive: 141 invalidates, ~50 detail and list reads in 3 s after one press).
     if (input.refresh > 0 && previous?.refresh === input.refresh - 1 && invalidated.get(client) !== input.refresh) {
       invalidated.set(client, input.refresh);
-      await client.rpc(native, 'pullRequests.invalidate', {}).catch(() => ({}));
+      for (const environmentId of new Set(round.targets.map(target => target.environmentId))) await client.rpc(native, 'pullRequests.invalidate', environmentId === client.environmentId ? {} : { environmentId }).catch(() => ({}));
     }
-    const result: Obj = await client.rpc(native, 'pullRequests.list', payload);
+    const answers: [string, Obj][] = [];
+    for (const target of round.targets) {
+      try { answers.push([target.environmentId, await client.rpc(native, 'pullRequests.list', target.environmentId === client.environmentId ? target.input : { ...target.input, environmentId: target.environmentId })]); }
+      catch (error) { if (letGo(error)) throw error; cached.error ||= failure(error); }
+    }
+    const merged = foldAnswers(client, answers);
+    if (!merged) throw new Error(cached.error || 'Pull requests could not be read.');
+    const held = previous?.result && previous.scope === scope ? arr(previous.result.entries) : null;
+    const entries = orderAnswer(held, merged.entries, round.cursors);
+    const result: Obj = round.cursors && previous?.result && previous.scope === scope
+      ? { ...merged, entries, viewers: { ...obj(previous.result.viewers), ...merged.viewers }, providers: arr(previous.result.providers).length ? previous.result.providers : merged.providers }
+      : { ...merged, entries };
     cached.result = result;
+    noteAnswer(client, scope, merged, entries.length);
     // The host's word outranks the reader's once it has said it: an override goes when an answer agrees with it.
-    settleListOverrides(client, arr(result.entries), input.now);
-    const unmeasured = arr(result.entries).filter(entry => !measured(entry) && !cached.stats.has(entryKey(entry)));
-    if (unmeasured.length) {
+    settleListOverrides(client, entries, input.now);
+    const unmeasured = entries.filter(entry => !measured(entry) && !cached.stats.has(entryKey(entry)));
+    for (const [environmentId, rows] of statsBatches(unmeasured.slice(0, 500))) {
       try {
-        const stats = await client.rpc(native, 'pullRequests.listStats', { refs: unmeasured.slice(0, 500).map(entry => ({ projectId: entry.projectId, host: entry.host, repository: entry.repository, number: entry.number })) });
-        for (const stat of arr(stats.stats)) cached.stats.set(`${arr(result.entries).find(entry => entry.repository === stat.repository && entry.number === stat.number)?.host ?? ''}:${str(stat.repository)}#${num(stat.number)}`, stat);
+        const stats = await client.rpc(native, 'pullRequests.listStats', { refs: rows.map(entry => ({ projectId: entry.projectId, host: entry.host, repository: entry.repository, number: entry.number })), ...(environmentId ? { environmentId } : {}) });
+        for (const stat of arr(stats.stats)) {
+          const row = rows.find(entry => entry.repository === stat.repository && entry.number === stat.number);
+          if (row) cached.stats.set(entryKey(row), stat);
+        }
       } catch { /* rows draw without counts */ }
     }
   } catch (error) {
     if (letGo(error)) throw error;
-    cached.error = error instanceof Error ? error.message : 'Pull requests could not be read.';
+    cached.error ||= failure(error);
     // The rows the last answer to the same question showed stay (the reference's `answered ?? carried`).
     if (previous?.result && previous.scope === scope) cached.result = previous.result;
   }
@@ -349,26 +375,46 @@ export async function pullRequestsPage(client: T3Client, native: Native | null |
   const payload = listPayload(prefs, query);
   // pr-conversation-and-refresh: the server's announcements read the list again (its refreshTrigger), the rows staying meanwhile.
   await holdPullRequestRefreshes(client, native, 'list', true);
-  const key = JSON.stringify([client.environmentId, payload, input.refresh]);
   // A due live read stays due until a read lands: a later run (a tick, a revision) overtakes this one's answer.
   const ask = listLiveAsk(client, input), live = listLives.get(client)!;
   if (ask !== null && await liveRefreshDue(client, native, LIST_VIEW, ask)) live.due = true;
   let cached = lists.get(client);
+  // pr-links-previews-and-routing: every server that reads pull requests, a page at a time (pages-pr-paging.ts). A refresh
+  // (Refresh, an announcement, a live read, a relist) reads the whole visible list again, never only the last slice.
+  const { limit: _limit, ...question } = payload;
+  const queries = environmentQueries(client, prefs.projectId), filterKey = filterKeyOf(queries, question);
+  const refreshing = !!cached && cached.scope === filterKey && (cached.refresh !== input.refresh || cached.epoch !== pullRequestRefreshEpoch(client) || cached.relist !== listRelist(client) || live.due);
+  if (refreshing) refreshPaging(client);
+  const round = listTargets(client, question, queries);
+  const key = JSON.stringify([round.targets, input.refresh]);
+  noteShowing(client, false);
   if (!cached || cached.key !== key || cached.epoch !== pullRequestRefreshEpoch(client) || cached.relist !== listRelist(client) || live.due) {
+    // A longer page or the next slice of rows already shown: the footer's spinner first, then the read (the wake asks again).
+    if (cached?.result?.truncated === true && cached.scope === round.key && cached.key !== key && growingShown.get(client) !== key) {
+      growingShown.set(client, key);
+      const shown = presentList(view, cached.result, '', cached.stats, prefs, query, input.now, input.selected);
+      Object.assign(shown, pagingFooter(client, round.key, cached.result.truncated === true, arr(cached.result.entries).length, true, false));
+      try { await native.later({ op: 'r10Wake', topic: 't3.pr' }); } catch (error) { if (letGo(error)) throw error; }
+      native.watch?.('t3.pr');
+      return shown;
+    }
     // One read out at a time per question: a run that asks while it is out (a second focus, an announcement, a
     // revision) joins it, as the reference's query layer coalesces a refresh with the fetch in flight. A relist
     // asked for after it went out (an action that changed more than a state) is a new question.
     const out = inflight.get(client);
     if (out && out.key === key && out.relist === listRelist(client)) cached = await out.read;
     else {
-      const read = readList(client, native, input, payload, key, cached, live);
+      const read = readList(client, native, input, round, key, cached, live);
       inflight.set(client, { key, relist: listRelist(client), read });
       try { cached = await read; } finally { if (inflight.get(client)?.read === read) inflight.delete(client); }
     }
   }
   // The reader's pending answers (a closed pull request leaves an open list on the click), before the filters.
   const answered = cached.result ? { ...cached.result, entries: overrideListEntries(client, arr(cached.result.entries), prefs.state) } : null;
-  const presented = presentList(view, answered, cached.error, cached.stats, prefs, query, input.now, input.selected);
+  const presented = presentList(view, answered, answered ? '' : cached.error, cached.stats, prefs, query, input.now, input.selected);
+  // pr-links-previews-and-routing: the list footer (Load more, Loading more, Narrow your search) and a failed read over shown rows.
+  Object.assign(presented, pagingFooter(client, round.key, cached.result?.truncated === true, arr(answered?.entries).length, false, false));
+  presented.listError = answered && cached.error ? `${cached.error} Showing the last pull requests loaded.` : '';
   // pr-handoffs-and-quick-actions: the rows' quick actions with their pending state, speed mode, and the open popovers.
   const byKey = new Map(arr(answered?.entries).map(entry => [entryKey(entry), entry]));
   for (const group of presented.groups) group.rows = group.rows.map(row => { const entry = byKey.get(row.key); return entry ? { ...row, ...quickRow(client, entry) } : row; });
@@ -407,6 +453,8 @@ export function emptyList(prefs: PrPrefs, query: string) {
     filterBadge: filterCount > 0 ? String(filterCount) : '', filtersWidth: 85.8 + (filterCount > 0 ? 18 + 7 * String(filterCount).length : 0), providerIconOnly: !!prefs.host,
     // pr-handoffs-and-quick-actions: Shift alone held (the rows' quick actions show), and the open row popovers.
     speedMode: false, checksPopover: emptyChecksPopover(), stackPopover: emptyStackPopover(),
+    // pr-links-previews-and-routing: the list footer ("more", "loading", "narrow") and a failed read over the rows shown.
+    footer: '', footerText: '', loadDisabled: false, listError: '',
   };
 }
 export type PrListView = ReturnType<typeof emptyList>;
@@ -479,6 +527,7 @@ export function prLocal(client: { local: object }, op: string, value: string): s
   else if (op === 'project') prefs.projectId = bounded(value);
   else if (op === 'label') prefs.labels = prefs.labels.some(label => label.toLowerCase() === value.toLowerCase()) ? prefs.labels.filter(label => label.toLowerCase() !== value.toLowerCase()) : [...prefs.labels, bounded(value)].slice(0, 10);
   else if (op === 'query') prefs.q = bounded(value);
+  else if (op === 'load-more') { loadMore(client); return ''; } // pr-links-previews-and-routing: the next page
   else throw new ClientError(`Unknown pull request control: ${op}`);
   savePrPrefs(client, prefs);
   return '';

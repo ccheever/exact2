@@ -28,6 +28,7 @@ use PrWrites from "./pages-pr-compose.contract"
 use PrdComposer from "./pages-pr-compose.contract"
 use PrdTitle from "./pages-pr-edit.contract"
 use PrHandoffsView from "./pages-pr-handoffs.contract"
+use PrLinksView, PrPreviewView, PrActOnView, PrdBackArrow from "./pages-pr-links.contract" // pr-links-previews-and-routing
 
 // PullRequestCopyableCode: the value and "Copied" cross-fade (150ms) for the
 // hook's 1.6s; two names let a second copy restart it.
@@ -130,6 +131,10 @@ shape PrDetailView
   actions: PrActionsView
   // pr-handoffs-and-quick-actions: which hand-off is preparing, whether it can check out, whose pull request it is beside a thread.
   handoffs: PrHandoffsView
+  // pr-links-previews-and-routing: the linked threads, the Link item and the back arrow; the hovered link's card.
+  links: PrLinksView
+  preview: PrPreviewView
+  actOn: PrActOnView
 
 fn prdTone(lifecycle: string): string = lifecycle == "draft" ? "light-dark(#71717b, #9f9fa9cc)" : lifecycle == "closed" ? "light-dark(#e7000b, #ffa2a2e6)" : lifecycle == "merged" ? "light-dark(#7f22fe, #c4b4ffe6)" : "light-dark(#009966, #5ee9b5e6)"
 fn prdIcon(lifecycle: string): string = lifecycle == "draft" ? "git-pull-request-draft" : lifecycle == "closed" ? "git-pull-request-closed" : lifecycle == "merged" ? "git-merge" : "git-pull-request-arrow"
@@ -203,6 +208,12 @@ component PrdBody
   state foldSummary = false
   state foldTimeline = false
   derive surface = scrollId == "pr-surface-scroll" ? "thread" : "page"
+  // pr-links-previews-and-routing: a pull request link's click in the text goes through the panel's action (its answer can select on the page).
+  action textLocal(op: string, id: string, value: string)
+    if op == "pr-link-open"
+      act("link-open", value)
+    else
+      local(op, id, value)
   derive condensed = tab == "timeline" ? foldTimeline : foldSummary
   action flipTimeline
     timelineOrder = timelineOrder == "newest" ? "oldest" : "newest"
@@ -257,10 +268,10 @@ component PrdBody
           // A repeated anchor to the same offset still moves the box (the serial's sub-pixel nudge).
           scroll id=scrollId scroll=bodyScrolled scrollTop=(anchored + (anchorSerial % 2) * 0.01) position="absolute" left=0 top=0 width="100%" height="100%" visibility=(tab != "timeline" ? "visible" : "hidden") role="tabpanel" aria-label="Summary" testId="pull-request-scroll"
             column width="100%" padding-bottom="4rem" box-sizing="border-box"
-              PrdSummary(summary=detail.summary, labels=detail.labels, hasBody=detail.hasBody, bodyId=detail.bodyId, writes=detail.writes, documents=documents, code=detail.code, env=detail.md, still=still, local=local, act=act, refresh=reload, retry=act("activity-retry", "summary"), scrollId=scrollId, scrollTop=bodyTop, anchor=anchorTo, handoffs=detail.handoffs, surface=surface)
+              PrdSummary(summary=detail.summary, labels=detail.labels, hasBody=detail.hasBody, bodyId=detail.bodyId, writes=detail.writes, documents=documents, code=detail.code, env=detail.md, still=still, local=textLocal, act=act, refresh=reload, retry=act("activity-retry", "summary"), scrollId=scrollId, scrollTop=bodyTop, anchor=anchorTo, handoffs=detail.handoffs, surface=surface)
           scroll id=`${scrollId}-timeline` scroll=timelineScrolled scrollTop=(timelineAnchored + (timelineSerial % 2) * 0.01) position="absolute" left=0 top=0 width="100%" height="100%" visibility=(tab == "timeline" ? "visible" : "hidden") role="tabpanel" aria-label="Timeline" testId="pull-request-timeline-scroll"
             column width="100%" padding-bottom="4rem" box-sizing="border-box"
-              PrdTimeline(timeline=detail.timeline, order=timelineOrder, pending=detail.activityPending, error=detail.activityError, choices=detail.writes.reactionChoices, scope=scrollId, documents=documents, code=detail.code, env=detail.md, still=still, local=local, act=act, retry=act("activity-retry", "timeline"))
+              PrdTimeline(timeline=detail.timeline, order=timelineOrder, pending=detail.activityPending, error=detail.activityError, choices=detail.writes.reactionChoices, scope=scrollId, documents=documents, code=detail.code, env=detail.md, still=still, local=textLocal, act=act, retry=act("activity-retry", "timeline"))
       // PullRequestComposer floats over the content at the bottom right (no footer is reserved), keyed by
       // the pull request: a zero-height row under the scroll box is its anchor.
       when detail.writes.composer
@@ -377,12 +388,14 @@ component PrdHeader
     column width="100%" box-sizing="border-box" position="relative" z-index=2 flex-shrink=0
       row height="1.75rem" width="100%" padding-left="1rem" padding-right="1rem" box-sizing="border-box" align-items="center" gap="0.25rem"
         row min-width=0 flex=1 align-items="center" gap="0.25rem"
+          when detail.links.backShown
+            PrdBackArrow(local=local)
           text detail.repository font-size="0.75rem" line-height="1rem" font-weight=500 color="light-dark(#71717b, #818181)" line-clamp=1 min-width=0
           // PullRequestDetailPanel openNumberContextMenu: Copy link, Open on <host>.
           link cursor="pointer" href=detail.url contextmenu=local("pr-link-menu", "", detail.linkMenu) aria-label=`Open pull request ${detail.numberLabel} on host` testId="pull-request-open-host" display="flex" flex-direction="row" align-items="center" gap="0.125rem" flex-shrink=0
             text detail.numberLabel font-size="0.75rem" line-height="1rem" font-weight=500 color=prdTone(detail.state)
             PgIcon(name="external-link", size=10, color=prdTone(detail.state))
-        PrdHeaderActions(actions=detail.actions, handoffs=detail.handoffs, surface=surface, narrow=narrow, ref=detail.ref, url=detail.url, hostName=detail.hostName, numberLabel=detail.numberLabel, scheme=scheme, still=still, compact=compact, reload=reload, act=act, copy=copy, local=local, select=select)
+        PrdHeaderActions(actions=detail.actions, handoffs=detail.handoffs, links=detail.links, actOn=detail.actOn.items, surface=surface, narrow=narrow, ref=detail.ref, url=detail.url, hostName=detail.hostName, numberLabel=detail.numberLabel, scheme=scheme, still=still, compact=compact, reload=reload, act=act, copy=copy, local=local, select=select)
       // The condensed row: shown at once when the block folds, easing out when it opens again.
       column width="100%" height=(condensed ? "auto" : "0px") overflow="hidden" flex-shrink=0 -exact-layout-transition=(condensed or still ? "none" : "200ms ease-out") testId="pull-request-condensed"
         row id=`${measureId}-condensed` width="100%" min-width=0 padding-left="1rem" padding-right="1rem" padding-top="0.25rem" padding-bottom="0.5rem" box-sizing="border-box" align-items="center" gap="0.5rem" inert=(not condensed) opacity=(condensed ? 1 : 0) translate=(condensed or still ? "0 0" : "0 4px") transition=(still ? "none" : condensed ? "opacity 150ms ease-out 50ms, translate 150ms ease-out 50ms" : "opacity 100ms ease-out, translate 100ms ease-out")

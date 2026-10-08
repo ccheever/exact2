@@ -5,6 +5,7 @@
 // (MIT, see LICENSE-T3) routes/_chat.pull-requests.tsx,
 // components/pullRequest/{PullRequestRow,PullRequestListRow,
 // PullRequestListFilters,pullRequestPresentation,pullRequestIcons}.tsx.
+use PrListFooter from "./pages-pr-links.contract" // pr-links-previews-and-routing
 use Icon from "./icons.contract"
 use PgIcon from "./pages-icons.contract"
 use PgGlyph from "./pages-icons.contract"
@@ -143,6 +144,11 @@ shape PrListView
   speedMode: bool
   checksPopover: PrChecksPopover
   stackPopover: PrStackPopover
+  // pr-links-previews-and-routing: the list footer and a failed read over the rows shown.
+  footer: string
+  footerText: string
+  loadDisabled: bool
+  listError: string
 
 // The lifecycle tones (PULL_REQUEST_STATE_PRESENTATION) and the rollup tones.
 fn prStateIcon(lifecycle: string): string = lifecycle == "draft" ? "git-pull-request-draft" : lifecycle == "closed" ? "git-pull-request-closed" : lifecycle == "merged" ? "git-merge" : "git-pull-request-arrow"
@@ -225,9 +231,8 @@ component PrList
                 column width="100%" gap="0.25rem" padding-left="0.75rem" padding-right="0.75rem"
                   each note in page.errors key=note.key
                     text note.text font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
-              when page.truncated
-                row width="100%" justify-content="center" padding-top="0.75rem" padding-bottom="0.75rem"
-                  text "Narrow your search to find more pull requests." font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
+              // pr-links-previews-and-routing: Load more pull requests (the cursors), its spinner, the cap; a failed read over the rows.
+              PrListFooter(footer=page.footer, footerText=page.footerText, loadDisabled=page.loadDisabled, listError=page.listError, control=control, reload=reload)
           else
             when page.empty != ""
               PrEmptyState(available=page.available, error=page.error, title=page.empty, detail=page.emptyDetail, action=page.emptyAction, loading=page.loading, scheme=scheme, reload=reload, control=control, addProject=addProject)

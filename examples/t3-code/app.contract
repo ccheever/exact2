@@ -105,7 +105,7 @@ component T3Code
   state prRefresh = 0
   state prTab = "summary"
   resource prList = prList(utilityPage == "pull-requests", prRefresh, wallTime.epochAtZero + elapsed, prSelected, prApplied, prTyped, data.revision, page.visibilityState == "visible", windowReturns) as shape PrListView
-  resource prDetail = prDetail(utilityPage == "pull-requests" ? prSelected : shell.panel.pr.selected, prRefresh, wallTime.epochAtZero + elapsed, data.revision, page.visibilityState == "visible", windowReturns) as shape PrDetailView
+  resource prDetail = prDetail(utilityPage == "pull-requests" ? prSelected : shell.panel.pr.selected, prRefresh, wallTime.epochAtZero + elapsed, data.revision, page.visibilityState == "visible", windowReturns, utilityPage == "pull-requests", floor(liveNow / 10000), "") as shape PrDetailView // pr-links-previews-and-routing: the page, the linked threads' 10 s tick, the hovered link
   resource prMarkdown = renderPullRequestMarkdown(prDetail.bodies) as shape TranscriptMarkdown
   derive prPanelWidth = min(floor(viewport.width / 2), viewport.width - (data.sidebarOpen ? sidebarWidth : 0) - 224)
   derive prListWidth = viewport.width - (data.sidebarOpen ? sidebarWidth : 0) - (prSelected != "" and prPanelOpen ? prPanelWidth : 0)
@@ -223,7 +223,7 @@ component T3Code
         send workspaceRefreshed = refreshComposerWorkspace(workspaceDiscovery.key)
       if workspaceRetryKey == workspaceDiscovery.key and now() < workspaceRetryAt
         workspaceRetryWake = workspaceDiscovery.wake
-    if data.running or data.sidebar.ticking or data.sidebar.undoUntil > wallTime.epochAtZero + liveNow
+    if data.running or data.sidebar.ticking or data.sidebar.undoUntil > wallTime.epochAtZero + liveNow or prDetail.links.polling
       liveNow = now()
   task liveClock mount
     every(1000, liveTick)
@@ -280,7 +280,7 @@ component T3Code
       focus("palette-input")
     else
       paletteOpen = false
-      focus("composer")
+      focus(palettePage == "pr-link-thread" ? "pull-request-more" : (startsWith(palettePage, "pr-linked|") ? "pull-request-linked-threads" : "composer")) // pr-links-previews-and-routing: back to the trigger
   action paletteEdit(value: string)
     paletteQuery = value
     paletteCursor = paletteMode == "content" ? -1 : -2
@@ -659,16 +659,18 @@ component T3Code
           focus("composer")
         if result.message == "pr-handoff-next" // the thread shows first, then its checkout runs (pages-pr-handoffs.ts)
           send prHandoffChanged = command("pageslocal:pr-act-handoff-run", "", "", 0)
-        if result.message == "sidebar:palette-new-thread"
+        if result.message == "sidebar:palette-new-thread" or startsWith(result.message, "palette:") // pr-links-previews-and-routing: `palette:<page>` (the linked threads, on the pull request's URL; the thread picker)
           paletteOpen = true
           paletteMode = "command"
-          palettePage = "new-thread-in"
-          paletteQuery = ""
+          palettePage = result.message == "sidebar:palette-new-thread" ? "new-thread-in" : slice(result.message, 8)
+          paletteQuery = startsWith(result.message, "palette:pr-linked|") ? slice(result.message, 18) : ""
           paletteCursor = -1
           paletteScroll = 0
           modelsOpen = false
           optionsOpen = ""
           focus("palette-input")
+        if startsWith(result.message, "pr-select:") // pr-links-previews-and-routing: a pull request link opens on the page
+          prSelect(slice(result.message, 10))
         if result.message == "sidebar:navigate" and data.sidebar.navigateKind == "project-settings"
           settingsEnvironmentId = settings.environmentId
           settingsProjectId = data.sidebar.navigateProject

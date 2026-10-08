@@ -93,6 +93,17 @@ export const routingKey = singleRouteKey;
 /** The GitHub sharing key of a saved environment: its routes' endpoints (lane environment-routes). */
 const sharingKey = (source: { origin: string; environmentId: string; routes?: ConnectionRoute[] }) =>
   source.routes?.length ? gitHubRoutingConnectionKey({ environmentId: source.environmentId, label: '', routes: source.routes }) ?? routingKey(source.origin, source.environmentId) : routingKey(source.origin, source.environmentId);
+/**
+ * pr-links-previews-and-routing (githubRoutingPermissions.ts get): each environment's GitHub sharing as the
+ * pull request routing reads it, over the key of its current saved endpoints (a changed address or SSH
+ * profile no longer matches the stored key, so it reads "off"), with whether it is local (the primary, or a
+ * loopback origin: pullRequestRouting.ts isLocal) and switched on.
+ */
+export function githubSharing(host: ConnectionHost, saved: Obj[], entries: Map<string, FleetEntry>, prefs: ConnectionPrefs): Map<string, { permission: string; local: boolean; enabled: boolean }> {
+  const loopback = (origin: string) => { try { return ['localhost', '127.0.0.1', '[::1]'].includes(new URL(origin).hostname); } catch { return false; } };
+  return new Map(environmentSources(host, saved, entries).map(source => [source.environmentId,
+    { permission: prefs.githubRouting[sharingKey(source)] ?? 'off', local: source.primary || loopback(source.origin), enabled: source.enabled }]));
+}
 export function summarizeLoad(machines: { environmentId: string; label: string }[], weights: Record<string, number>): string {
   return machines.flatMap(machine => { const value = loadPreference(weights[machine.environmentId]); return value === 50 ? [] : [`${machine.label} ${preferenceLabel(value).toLowerCase()}`]; }).join(' · ');
 }
