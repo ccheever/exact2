@@ -11,6 +11,7 @@ import { resolvedCurrent, optionLabel, reportedSelection, type Selection } from 
 import { runtimeModes } from './shared/composer-presentation';
 import { letGo } from './shared/let-go';
 import { mobileProviderIconURL } from './environment-detail';
+import { mobileModelSelectionUnavailable } from './model-availability';
 
 export interface ComposerCatalogRow { key: string; kind: string; id: string; providerId: string; label: string; subtitle: string;
   driver: string; iconUrl: string; selected: boolean; disabled: boolean; reason: string; favorite: boolean; legacy: boolean;
@@ -50,7 +51,7 @@ function catalog(client: T3Client) {
     const provider = arr(client.config.providers).find(provider => provider.instanceId === client.providerId)
       ?? { instanceId: client.providerId, ...obj(obj(obj(client.config.settings).providerInstances)[client.providerId]) };
     const model = arr(provider.models).find(model => model.slug === client.modelId) ?? { slug: client.modelId, name: client.modelId };
-    entries.push({ key, provider, model, unavailable: true });
+    entries.push({ key, provider, model, unavailable: mobileModelSelectionUnavailable(client.config, { instanceId: client.providerId, model: client.modelId }) });
   }
   return entries;
 }
