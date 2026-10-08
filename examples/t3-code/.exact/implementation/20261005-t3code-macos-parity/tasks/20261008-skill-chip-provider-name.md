@@ -7,8 +7,8 @@ delivery: draft
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: 'feat(example)/t3-code-skill-chip-provider-name'
-pr_url: null
-verified_commit: null
+pr_url: https://github.com/ccheever/exact2/pull/288
+verified_commit: f00a02704
 ---
 
 # Composer skill chips show the provider's display name
@@ -91,6 +91,11 @@ path) and is named `Skill <label>` to assistive technology; the clone's composer
 | after (agent, branch; the one live session) | this branch before commit | every live row passes | [record-after](https://raw.githubusercontent.com/ccheever/exact2/cf74a17f57e04986f0a5b8e601fba0129c7cc826/skill-chip-provider-name/record-after.txt), 01, 02 | — |
 | checks | this branch | `bun test examples/t3-code` 3038 pass / 1 skip / 0 fail (base 3036 + 2); strict tsc clean; contract build 3844 slots, 46 resources; `cargo test -p t3-code-macos --lib` 11 pass; composer AppKit binary 52 / 0 (base 51 + 1); caps within; five checks: build exit 0, test 3,383 passed / 0 failed / 33 ignored (94 binaries), clippy and fmt clean, boot allowed paths only; verify runner attempt 2 (after the review's tests) passed, `source_unchanged: true` | `target/skill-chip-provider-name/verify/attempt-2` (not committed) | — |
 | independent review | the staged diff | no blocking findings. Taken: exact-name, restyle (kern) and preview-isolation tests; the live relabel recorded as a difference. Not taken: building the map from `markdownSkills` (`r4-timeline-chips.ts`) instead of the menu's `skillDisplayName` port, which would pull that module's dependencies into the menu module | — | — |
+
+## Progress
+
+2026-10-08: implemented, verified (`f00a02704`; runner attempt 2 passed and the committed tree matches it;
+independent review without blocking findings) and opened as draft PR #288.
 
 ## Next action
 
