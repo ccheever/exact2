@@ -4,9 +4,9 @@ import { T3Client } from './shared/client';
 import type { Native } from './shared/protocol';
 import { mobileOutboxRead } from './mobile-outbox';
 import type { MobileOutboxRecord } from './mobile-outbox-model';
-import { mobileOutboxThread, mobileOutboxPendingTasks, mobileOutboxOwner, projectHomePending, mobileOutboxStatus } from './mobile-outbox-presentation';
+import { mobileOutboxCreationDetailReady, mobileOutboxThread, mobileOutboxPendingTasks, mobileOutboxOwner, projectHomePending, mobileOutboxStatus } from './mobile-outbox-presentation';
 import { projectMobileHome, type HomeSource } from './home';
-import { initialShell } from './shared/domain';
+import { initialShell, type Obj } from './shared/domain';
 
 const now = Date.parse('2026-10-08T12:00:00Z');
 const record = (messageId = 'm', minutes = 0): MobileOutboxRecord => ({ schemaVersion: 1, origin: 'https://home.test',
@@ -22,24 +22,24 @@ async function loaded(records: MobileOutboxRecord[]) {
       outcomes: [], mutations: [], transfers: [] } }; } };
   expect(await mobileOutboxRead(client, native)).toBe(true); return client;
 }
-test('queued route retains original owner, text and attachments without selecting shared thread', async () => {
+test('queued route retains original owner and prompt without requesting local attachment IDs', async () => {
   const original = record(); original.attachments.push({ kind: 'image', id: '11111111-1111-4111-a111-111111111111', name: 'Screenshot.png',
     mimeType: 'image/png', sizeBytes: 4, uploadId: '', status: 'staged' });
   const client = await loaded([original]), before = [client.threadId, client.projectId, client.pending];
   const view = mobileOutboxThread('env', original.threadId, now, false, client)!;
   expect(view).toMatchObject({ queued: true, queuedOwner: mobileOutboxOwner(original), title: 'Inspect the app', loaded: true, loading: false,
-    rows: [{ id: 'm', kind: 'pending', body: original.text, media: [{ name: 'Screenshot.png', url: '' }] }],
+    rows: [{ id: 'm', kind: 'pending', body: original.text, media: [] }],
     composer: { contentOwner: '', canOperate: false, canSend: false, canStop: false, draft: '' } });
   expect([client.threadId, client.projectId, client.pending]).toEqual(before);
   expect(mobileOutboxThread('different', original.threadId, now, false, client)).toBeNull();
   expect(mobileOutboxThread('env', 'missing', now, false, client)).toBeNull();
 });
-test('actual matching shell replaces local creation but a different environment does not', async () => {
+test('matching shell permits detail selection while the local creation stays visible', async () => {
   const original = record(), client = await loaded([original]);
   client.environmentId = 'different'; client.shell.threads = [{ id: original.threadId }];
   expect(mobileOutboxThread('env', original.threadId, now, false, client)?.queued).toBe(true);
   client.environmentId = 'env';
-  expect(mobileOutboxThread('env', original.threadId, now, false, client)).toBeNull();
+  expect(mobileOutboxThread('env', original.threadId, now, false, client)).toMatchObject({ queued: true, queuedCanSelect: true });
 });
 test('ordinary queued follow-ups never manufacture a pending creation route', async () => {
   const original = record(); delete original.creation;
@@ -78,4 +78,35 @@ test('durable ACK and ambiguous outcomes use distinct status labels', () => {
   expect(mobileOutboxStatus('recovery-required')).toBe('Needs attention');
   expect(mobileOutboxStatus('cleanup-pending')).toBe('Finishing send…');
   expect(mobileOutboxStatus('queued')).toBe('Sends on reconnect');
+});
+
+
+test('a preparing route uses the real echoed prompt while waiting for its turn', async () => {
+  const original = record(), client = await loaded([original]); client.threadId = original.threadId;
+  const item: Obj = { id: 'user-item', type: 'user_message', threadId: original.threadId, runId: null, ordinal: 1,
+    text: 'Canonical server prompt', messageId: original.messageId, status: 'completed', createdBy: 'user', attachments: [] };
+  client.shell.threads = [{ id: original.threadId, latestRun: null }];
+  client.thread = { sequence: 1, historyCursor: null, hasMore: false, latestLocalTurnOrdinal: null,
+    projection: { thread: { id: original.threadId }, messages: [{ id: original.messageId }], runs: [], attempts: [], nodes: [], checkpoints: [],
+      visibleTurnItems: [{ position: 0, visibility: 'local', sourceThreadId: original.threadId, sourceItemId: item.id, item }] } };
+  const preparing = mobileOutboxThread('env', original.threadId, now, false, client)!;
+  expect(preparing.queuedCanSelect).toBe(true); expect(preparing.rows.map(row => row.body)).toEqual(['Canonical server prompt']);
+  expect(preparing.composer.canSend).toBe(false);
+  client.thread.projection.messages = [];
+  const awaitingPrompt = mobileOutboxThread('env', original.threadId, now, false, client)!;
+  expect(awaitingPrompt.rows.map(row => [row.first, row.last])).toEqual([[true, false], [false, true]]);
+  client.thread.projection.messages = [{ id: original.messageId }];
+  client.thread.projection.runs = [{ id: 'first', status: 'running' }];
+  expect(mobileOutboxThread('env', original.threadId, now, false, client)).toBeNull();
+});
+test('only matching prompt plus turn or a terminal detail releases creation presentation', () => {
+  const original = record();
+  for (const detail of [null, {}, { messages: [{ id: original.messageId }] }, { messages: [], runs: [{ status: 'running' }] },
+    { messages: [{ id: 'other' }], latestTurn: { turnId: 'run' } }]) expect(mobileOutboxCreationDetailReady(original, detail)).toBe(false);
+  for (const timing of [{ runs: [{ status: 'running' }] }, { latestTurn: { turnId: 'run' } }])
+    expect(mobileOutboxCreationDetailReady(original, { messages: [{ id: original.messageId }], ...timing })).toBe(true);
+  for (const status of ['failed', 'error', 'cancelled', 'stopped', 'interrupted']) {
+    expect(mobileOutboxCreationDetailReady(original, { runs: [{ status }], messages: [] })).toBe(true);
+    expect(mobileOutboxCreationDetailReady(original, { session: { status }, messages: [] })).toBe(true);
+  }
 });

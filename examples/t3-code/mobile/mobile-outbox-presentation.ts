@@ -1,13 +1,14 @@
 // Source365aa87982 pending-new-tasks-model and pending-thread-feed.
 // @ref llp/1109.005-composer-and-transcript.decision.md#queued-command-construction
+import { arr, obj } from './shared/domain';
 import { mobileOutboxRootFailure } from './mobile-outbox-root';
 import { mobileClient } from './client';
 import type { T3Client } from './shared/client';
 import { mobileOutboxSnapshot } from './mobile-outbox';
-import { mobileOutboxDriveCompleted, mobileOutboxDriveSnapshot } from './mobile-outbox-drive';
+import { mobileOutboxCreationShell, mobileOutboxDriveCompleted, mobileOutboxDriveSnapshot } from './mobile-outbox-drive';
 import type { MobileOutboxRecord } from './mobile-outbox-model';
 import { homeDraftTitle, type HomeDraftOptions } from './home-drafts';
-import { mobileMessageTime, mobileThreadBlocks, type ThreadSnapshot } from './thread';
+import { mobileMessageTime, mobileThreadBlocks, mobileThreadRows, type ThreadSnapshot } from './thread';
 
 export interface MobilePendingTask {
   owner: string; record: MobileOutboxRecord; status: string; reason: string; canRetry: boolean;
@@ -33,24 +34,44 @@ export function mobileOutboxStatus(status: string): string {
     'recovery-required': 'Needs attention', 'edited-after-ack': 'Saved changes need attention',
     'cleanup-pending': 'Finishing send…', editing: 'Being edited' } as Record<string, string>)[status] ?? 'Sends on reconnect';
 }
-/** The route remains local until the matching shell thread exists. Never selects a shared thread. */
+const previous = new WeakMap<T3Client, { key: string; item: MobilePendingTask }>();
+/** Same prompt-and-turn handoff as source resolvePendingThreadCreation. */
+export function mobileOutboxCreationDetailReady(record: MobileOutboxRecord, detail: unknown): boolean {
+  if (!detail || typeof detail !== 'object') return false;
+  const projection = obj(detail), run = arr(projection.runs).at(-1), status = run?.status ?? obj(projection.session).status;
+  if (['failed', 'error', 'cancelled', 'stopped', 'interrupted'].includes(String(status))) return true;
+  return (run !== undefined || projection.latestTurn != null) && arr(projection.messages).some(message => message.id === record.messageId);
+}
+/** A mounted route keeps its last creation through shell/outcome collection.
+ * It may load the real detail while its preparing presentation stays visible. */
 export function mobileOutboxThread(environmentId: string, threadId: string, now: number, dark = false,
   client: T3Client = mobileClient): ThreadSnapshot | null {
-  if (client.environmentId === environmentId && client.shell.threads.some(thread => thread.id === threadId)) return null;
+  const key = JSON.stringify([environmentId, threadId]);
+  if (previous.get(client)?.key !== key || !environmentId || !threadId) previous.delete(client);
+  if (!environmentId || !threadId) return null;
   const failure = mobileOutboxRootFailure(client, environmentId, threadId);
-  const item = mobileOutboxPendingTasks(client, now).filter(item => item.record.environmentId === environmentId
+  const pending = mobileOutboxPendingTasks(client, now).filter(item => item.record.environmentId === environmentId
     && item.record.threadId === threadId).sort((a, b) => a.record.createdAt.localeCompare(b.record.createdAt))[0];
+  const item = pending ?? previous.get(client)?.item;
   if (!item && !failure) return null;
-  const record = failure?.record ?? item!.record, status = failure ? 'Could not start task' : mobileOutboxStatus(item!.status);
+  const record = failure?.record ?? item!.record, shell = mobileOutboxCreationShell(client, record);
+  const detail = client.environmentId === environmentId && client.threadId === threadId
+    && obj(client.thread?.projection.thread).id === threadId ? client.thread?.projection : null;
+  if (failure && shell || !failure && mobileOutboxCreationDetailReady(record, detail)) {
+    previous.delete(client); return null;
+  }
+  if (!failure) previous.set(client, { key, item: { ...item!, record: JSON.parse(JSON.stringify(record)) } });
+  const status = failure ? 'Could not start task' : mobileOutboxStatus(item!.status);
+  const rows = detail ? mobileThreadRows(client, now, dark) : [];
   return { revision: client.revision, environmentId, threadId, title: homeDraftTitle(record.text, record.attachments.length),
-    queued: true, queuedOwner: mobileOutboxOwner(record), queuedStatus: status, queuedReason: failure?.reason ?? item!.reason,
+    queuedCanSelect: !!shell && !failure, queued: true, queuedOwner: mobileOutboxOwner(record), queuedStatus: status, queuedReason: failure?.reason ?? item!.reason,
     queuedCanRetry: !failure && item!.canRetry, queuedFailed: !!failure, queuedCanEdit: failure?.editable ?? false,
     loaded: true, loading: false, emptyTitle: '', emptyDetail: '', error: '', uncertain: false, hasMore: false,
     historyLoading: false, historyError: '', readsNeeded: false, answerFilesOwner: '', answerFilesRequest: '', approvals: [],
-    rows: [{ id: record.messageId, kind: 'pending', title: '', body: record.text, blocks: mobileThreadBlocks(record.text, dark),
+    rows: [...rows, ...(detail && arr(detail.messages).some(message => message.id === record.messageId) ? [] : [{ id: record.messageId, kind: 'pending', title: '', body: record.text, blocks: mobileThreadBlocks(record.text, dark),
       user: true, timestamp: mobileMessageTime(record.createdAt), showMeta: true, streaming: false, attribution: '', intent: status,
       copied: false, expanded: false, toggleOp: '', toggleId: '', failed: false, live: false, activities: [],
-      media: record.attachments.map(file => ({ id: file.id, name: file.name, kind: file.kind, url: '' })), first: true, last: true }],
+      media: [], first: rows.length === 0, last: true }])].map((row, index, all) => ({ ...row, first: index === 0, last: index === all.length - 1 })),
     composer: { editing: false, saving: false, canCancel: false, editNotice: '', editPendingId: '', canRetryEdit: false,
       contentOwner: '', draft: '', placeholder: 'Waiting for this task to start…', canSend: false, canStop: false, showStop: false,
       canOperate: false, showReadOnlyNotice: false, sendLabel: 'Send', sendSymbol: 'arrow.up', blockedReason: status,

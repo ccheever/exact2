@@ -110,6 +110,7 @@ shape ThreadComposerState
   running: bool
   queueCount: number
 shape ThreadSnapshot
+  queuedCanSelect: bool
   queued: bool
   queuedOwner: string
   queuedStatus: string
