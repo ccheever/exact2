@@ -186,8 +186,9 @@ component PrdCodeToolbar
               box opacity=0.7 flex-shrink=0 display="flex"
                 PgIcon(name="chevron-down", size=14, color=pcInk())
             column id=menuId popover="auto" position="absolute" padding-top="0.25rem" testId="pull-request-code-scope-layer"
-              // MenuPopup's glass blurs what is under it (backdrop-blur); the list's rows would read through it otherwise.
-              column border-radius="0.625rem" backdrop-filter="blur(12px)"
+              // MenuPopup's glass blurs what is under it (backdrop-blur); the macOS presenter draws no backdrop blur, so the
+              // glass sits on the popover colour itself, or the list's rows would read through the menu (live drive 1).
+              column border-radius="0.625rem" backdrop-filter="blur(12px)" background-color="light-dark(#ffffff, #111111)"
                 PrMenuBox(scheme=scheme, width=288, label=`Diff scope: ${code.scopeLabel}`)
                   PrMenuItem(menuId=menuId, icon="", label="All commits", detail="", selected=code.allSelected, tick=true, disabled=false, press=press("scope", ""), testId="pull-request-code-scope-all")
                   each commit in code.commits key=commit.oid
