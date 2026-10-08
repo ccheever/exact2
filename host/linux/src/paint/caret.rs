@@ -5,7 +5,7 @@
 //! (between newlines), which a soft wrap would put elsewhere.
 
 use super::{text_spec, Shape};
-use exact_kernel::StyleProps;
+use exact_kernel::{StyleProps, TextAlign};
 use exact_runner::FieldSelection;
 use tiny_skia::Transform;
 
@@ -40,8 +40,21 @@ pub(super) struct FieldText<'a> {
     pub value: &'a str,
     /// A password's, painted one bullet a character.
     pub masked: bool,
-    /// The painted text's top left.
+    /// The painted text's top left at `text-align: left`.
     pub origin: (f32, f32),
+    /// The content box's width, which `text-align` places each line within.
+    pub width: f32,
+}
+
+/// How far into its free space `text-align` places a field's line, as the
+/// web does: `start`/`end` by direction, `justify` as start (a field's line
+/// is its last); a line wider than the field starts at its start edge.
+pub(super) fn align_share(style: &StyleProps) -> f32 {
+    match style.text_align.physical(style.direction) {
+        TextAlign::Center => 0.5,
+        TextAlign::Right => 1.0,
+        _ => 0.0,
+    }
 }
 
 impl super::Painter {
@@ -63,8 +76,21 @@ impl super::Painter {
         let x = text
             .paragraph_replacing((field.node, end), &text_spec(style, last), None)
             .width;
+        // The whole hard line, for `text-align`'s offset within the field.
+        let share = align_share(style);
+        let offset = if share > 0.0 {
+            let shown = painted_prefix(field.value, u32::MAX, field.masked);
+            let start = prefix.len() - last.len();
+            let full = shown[start..].split('\n').next().unwrap_or("");
+            let w = text
+                .paragraph_replacing((field.node, end + 2), &text_spec(style, full), None)
+                .width;
+            share * (field.width - w).max(0.0)
+        } else {
+            0.0
+        };
         let y = prefix.matches('\n').count() as f32 * line;
-        (field.origin.0 + x, field.origin.1 + y, line)
+        (field.origin.0 + offset + x, field.origin.1 + y, line)
     }
 
     /// The highlight behind a selected range, where both ends are on one
