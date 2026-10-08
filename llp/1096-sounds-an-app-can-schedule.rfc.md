@@ -1145,3 +1145,14 @@ No question is open in r3.
   - **D12:** the admission as recorded.
   - **D13:** the fallback until LLP 1092 stage 2.
 - **r1** (2026-10-04): first draft.
+
+2026-10-08 (D8, approved by Charlie via the lead): a `playback` app holds its
+category only while something has sound. `AudioSession.hold`/`release` count
+the holders: the sound arm and a canvas's audio hold for good once started
+(`activate`), and each `video` or `audio` holds while it has a source and is
+not muted, releasing when muted or gone. With no holder left, the session
+returns to `.ambient` and deactivates with `notifyOthersOnDeactivation`, so a
+podcast paused by an unmuted feed video resumes on re-mute, as Bluesky's
+player does (its expo-video module drops to ambient). Deactivation fails
+while muted output still runs; the ambient category alone mixes with other
+apps then. Test: `AudioSessionIOSTests`.

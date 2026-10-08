@@ -132,7 +132,18 @@ final class VideoView {
     }
 
     #if os(iOS) || os(tvOS)
-    nonisolated(unsafe) private static var sessionAsked = false
+    /// Whether it holds the app's audio session: while it has sound (a
+    /// source, not muted), LLP 1096 D8.
+    private var holdsSession = false
+    private func holdSession(_ audible: Bool) {
+        guard audible != holdsSession else { return }
+        holdsSession = audible
+        if audible {
+            do { try AudioSession.hold(ObjectIdentifier(self)) } catch { fputs("exact audio session: \(error)\n", stderr) }
+        } else {
+            AudioSession.release(ObjectIdentifier(self))
+        }
+    }
     #endif
     init(owner: NodeView) {
         self.owner = owner
@@ -152,6 +163,9 @@ final class VideoView {
     }
     deinit { invalidate() }
     func invalidate() {
+        #if os(iOS) || os(tvOS)
+        holdSession(false)
+        #endif
         owner?.presenter?.videoVisibility?.remove(self)
         guard let handle else { return }
         self.handle = nil
@@ -240,11 +254,9 @@ final class VideoView {
         guard props != last else { return }
         last = props
         #if os(iOS) || os(tvOS)
-        // The first video with sound plays in the app's session (LLP 1096 D8).
-        if !Self.sessionAsked, !ExactEnv.agentMode, props["muted"] != "true", props["src"]?.isEmpty == false {
-            Self.sessionAsked = true
-            do { try AudioSession.activate() } catch { fputs("exact audio session: \(error)\n", stderr) }
-        }
+        // A video with sound plays in the app's session, and gives it back
+        // when muted or gone (LLP 1096 D8).
+        if !ExactEnv.agentMode { holdSession(props["muted"] != "true" && props["src"]?.isEmpty == false) }
         #endif
         guard let data = try? JSONSerialization.data(withJSONObject: props) else { return }
         data.withUnsafeBytes { module.update(handle, $0.bindMemory(to: UInt8.self).baseAddress, data.count) }
