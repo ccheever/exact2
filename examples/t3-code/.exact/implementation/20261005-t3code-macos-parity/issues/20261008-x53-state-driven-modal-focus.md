@@ -1,11 +1,11 @@
 ---
 name: 20261008-x53-state-driven-modal-focus
 plan: 20261005-t3code-macos-parity
-status: draft
+status: published
 kind: framework-gap
 blocks: [20261008-dialog-shortcut-focus]
-upstream_url: null
-reproduced_on: d82fb6a47 (feature branch on main 1f19b2400's framework; main 462308f9c unchanged)
+upstream_url: https://github.com/ccheever/exact2/issues/282
+reproduced_on: 0365ad1a4 (main)
 ---
 
 # X53: a dialog an app opens from state has no host focus containment on macOS or the web
@@ -83,3 +83,9 @@ Replace the clone's per-dialog traps (`fromCancel`/`fromConfirm`, `toggleKey`/`c
 Local draft (2026-10-08, dialog-shortcut-focus). Reproduced on the feature branch's framework (main
 `1f19b2400`; no change on main `462308f9c`). Not published: publication needs the user's approval
 (`issue-open`).
+
+## Upstream (filed 2026-10-08)
+
+Upstream: https://github.com/ccheever/exact2/issues/282 (#282, [Feature] `showModal(id)` and `close(id)` from an action on macOS and the web). Reproduced on main `0365ad1a4` (relevant files unchanged on main `e200397ec`) with a minimal public-API app before filing. macOS logs `exact: unknown command showModal`, the web `refused: showModal is not a command this runtime carries`. The invoker form (`command="show-modal"`) traps Tab and returns the focus on Escape on both hosts. A `role="dialog" aria-modal=true` overlay lets Tab leave on both hosts (22 → 3). The API is LLP 1101.001 P5's, built on the terminal host only. Searched: showModal, modal focus, focus trap: no duplicate (PR #69 is session-owned host dialogs).
+
+Next: issue-close once #282 lands: replace the per-dialog traps with `dialog` + `showModal`.

@@ -6,6 +6,7 @@ kind: framework-gap (unconfirmed)
 blocks: [20261005-portable-app-download]
 upstream_url: https://github.com/ccheever/exact2/issues/119
 reproduced_on: null
+rest_upstream_url: https://github.com/ccheever/exact2/issues/270
 ---
 
 # X37: Developer ID signing, notarization and a pre-seal hook in the host build
@@ -100,3 +101,7 @@ with the hardened runtime and a timestamp; #215 reuses that order for local bund
 runtime cannot get it), a pre-seal hook, and a decision on code under `Contents/Resources`; main's QUEUE also
 notes that a Mach-O asset is signed after the bake hashed it. Developer ID signing, notarization and
 stapling were not run upstream (no identity). Not adopted here: `20261005-portable-app-download` uses it.
+
+## Rest filed upstream (2026-10-08)
+
+Upstream (the rest): https://github.com/ccheever/exact2/issues/270 (#270, [Design] macOS release: entitlements for the app and its nested code, and a pre-seal step (rest of #119)). Reproduced on main `0365ad1a4` (relevant files unchanged on main `e200397ec`) before filing: `host.macos.entitlements` and `host.macos.preseal` are refused as unknown keys; `exact release` signs nested code with no entitlements (`scripts/exact.mjs:254-266`); `exact release` itself was not run (no Developer ID on the machine). LLP 1069.008 derives entitlements from grants; one "Decision needed" comment. Searched open and closed issues and PRs: no duplicate.

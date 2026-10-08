@@ -75,7 +75,7 @@ on the app's minute clock tick (`task clock … every(60000, tick)`), as the det
 | The detail's focus read counts from the focus | pass (unit + live) | "a focus read counts from the focus, not from the last minute tick (app.contract windowReturned)" (pages-pr-conversation.test.ts; fails without the fix); live attempt 3: blur and refocus 12 s after the last read, one `pullRequests.detail` read | — |
 | One read at a time (focus, announcement, tick join the read out) | pass (unit + live) | "a run that asks while a read is out joins it: one read, and its answer is what shows (the five ticks of the live check)", "a server announcement while a live read is out joins it" (each fails without the join); live attempt 4 ([record](https://raw.githubusercontent.com/ccheever/exact2/06a65d62ffe22b6cf795f6e36d54cfa93ed9fea7/pr-list-live-refresh/record-attempt4.txt)): two refocuses in quick succession, one list read | — |
 | A failed re-read keeps the rows | pass (unit) | "a re-read that fails keeps the rows on screen (the reference's `answered ?? carried`), so the list keeps its place" (fails without it) | — |
-| A re-read keeps the list's scroll | blocked (X58) | the app's re-reads keep it: investigation ([image](https://raw.githubusercontent.com/ccheever/exact2/c25fc13f1a41e4035577cee8bd27c860458ded22/pr-list-live-refresh/03-scroll-investigation.png), [record](https://raw.githubusercontent.com/ccheever/exact2/28aa135ac8f6fbfd4b41eb5598e24fb65f2dc421/pr-list-live-refresh/record-investigation.txt), [script](https://raw.githubusercontent.com/ccheever/exact2/97c10167543b66c18e9d4a496de42084db886a89/pr-list-live-refresh/drive-investigation.mjs.txt)) B, a list read with no focus change (another client's `pullRequests.invalidate`): kept; C, the minute tick: kept. Only the window focused again moves it: A (refocus and its read) and attempt 4: back at the top | [X58](../issues/20261008-x58-scroll-lost-after-window-refocus.md): the macOS host after the window's return (local draft) |
+| A re-read keeps the list's scroll | blocked (X58) | the app's re-reads keep it: investigation ([image](https://raw.githubusercontent.com/ccheever/exact2/c25fc13f1a41e4035577cee8bd27c860458ded22/pr-list-live-refresh/03-scroll-investigation.png), [record](https://raw.githubusercontent.com/ccheever/exact2/28aa135ac8f6fbfd4b41eb5598e24fb65f2dc421/pr-list-live-refresh/record-investigation.txt), [script](https://raw.githubusercontent.com/ccheever/exact2/97c10167543b66c18e9d4a496de42084db886a89/pr-list-live-refresh/drive-investigation.mjs.txt)) B, a list read with no focus change (another client's `pullRequests.invalidate`): kept; C, the minute tick: kept. Only the window focused again moves it: A (refocus and its read) and attempt 4: back at the top | [X58](../issues/closed/20261008-x58-scroll-lost-after-window-refocus.md): the macOS host after the window's return (local draft) |
 | Visible again reads the list | pass (unit) | same test (`visibilitychange`) | — |
 | Coming back to the page reads it | pass (unit) | "coming back to the page reads the list again" | — |
 | A 5-minute tick reads it once | pass (unit) | "a 5-minute tick reads the list once" | — |
@@ -86,7 +86,7 @@ on the app's minute clock tick (`task clock … every(60000, tick)`), as the det
 All new tests fail on the base (the list never reads again) and pass here; the row test also fails
 without #261's `notedListEntry`, and the overtaken-read test without `ListLive.due`.
 
-The list's scroll after a re-read: blocked on [X58](../issues/20261008-x58-scroll-lost-after-window-refocus.md).
+The list's scroll after a re-read: blocked on [X58](../issues/closed/20261008-x58-scroll-lost-after-window-refocus.md).
 The investigation session ([image](https://raw.githubusercontent.com/ccheever/exact2/c25fc13f1a41e4035577cee8bd27c860458ded22/pr-list-live-refresh/03-scroll-investigation.png), [record](https://raw.githubusercontent.com/ccheever/exact2/28aa135ac8f6fbfd4b41eb5598e24fb65f2dc421/pr-list-live-refresh/record-investigation.txt)) wheel-scrolled the list (row #78 from y 2469 to
 1269) before each drive: A, a refocus (its list read was not held off: the drive's steps had moved the app's
 clock past the 10 s rule), landed at the top; B, a list read with no focus change (another client's
@@ -136,6 +136,6 @@ read once. #158 restored (open, both comments deleted, read back with the lane g
 
 ## Next action
 
-Review. One row is blocked on [X58](../issues/20261008-x58-scroll-lost-after-window-refocus.md) (the macOS
+Review. One row is blocked on [X58](../issues/closed/20261008-x58-scroll-lost-after-window-refocus.md) (the macOS
 host loses a wheel-scrolled offset after the window's return); `issue-open` reproduces it on a one-file app
 before it is filed.
