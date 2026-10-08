@@ -1,12 +1,21 @@
 # LLP 1109: What the app farm asks of Exact2 — the decisions left after round 1
 
 **Type:** RFC (a decision brief: each item proposes, Charlie decides)
-**Status:** Draft, 2026-10-08. Not reviewed.
+**Status:** Draft, 2026-10-08; Charlie's first rulings recorded in §R (D2 ruled; D1 and D3 leaning). Not reviewed.
 **Systems:** Contract's `now()` (the roster, the runner's clock and every host's clock origin, the JS target's runtime, the Lean semantics and `contract-difftest`); the data seam's answer check (`host/web-js/ts-data.js`, `js/src/lib.rs`, `js/web/src/lib.rs`, the runner's `conform`); `failed(x)`; the agent driver and authored tests (`scripts/agent.mjs`, `scripts/agent-test.mjs`)
 **Author:** Claude (Opus 5.5) for Charlie Cheever
 **Date:** 2026-10-08
 **Implementer:** none yet. Each item Charlie accepts gets its own lane.
 **Related:** LLP 1027.000 D2 (no wall-clock provider); LLP 1027.000.000 D2–D3 (the date as a host fact, `exactTime`; "start the agent clock at a real epoch" rejected there); LLP 1012 §2 and `rules/DEFERRED.md` §Agent API (the seekable clock; `clock` replaces `wait`); LLP 0382 (fail closed loudly in debug); LLP 1102 (the authoring bench's brief, whose shape this copies); the app farm's round-1 synthesis, `~/appfarm/synthesis/round-01.md` §2.2, and the build diaries under `~/appfarm/apps/<run>/DIARY.md`
+
+## R. Rulings (Charlie, 2026-10-08)
+
+- **D1:** leans **(c)**, rename `now()` to `elapsed()` with a refusal that
+  names the repair, over (b). Not yet ruled: confirm before a lane starts.
+- **D2:** **(a)**, keep refusing, loudly, for now; revisit with round 2's
+  numbers.
+- **D3:** inclined to add `failure(x)` if it has no real downside; the
+  downsides and a proposed shape go back to Charlie before a lane starts.
 
 ## 0. Summary
 

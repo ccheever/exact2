@@ -1,7 +1,7 @@
 # LLP 1110: Live Snapback reads in an Exact app
 
 **Type:** RFC
-**Status:** Draft, 2026-10-08. Not reviewed.
+**Status:** Draft, 2026-10-08; direction approved by Charlie the same day (SSE, the Snapback endpoint by its lead session). Not reviewed.
 **Systems:** the Snapback4 client (`snapback4/ts`: a stream source beside the device; `snapback4/client`: the change cursor it resumes from); Snapback 4's HTTP host (`/changes` as an event stream; Snapback repository, its lead session); Contract (no new form: a stream resource and resource arguments, LLP 1016.000)
 **Author:** Claude (Opus 5.5) for Charlie Cheever
 **Date:** 2026-10-08
@@ -55,7 +55,16 @@ between. Its admission, credentials and interest are `/changes?wait`'s; it
 coalesces (only the newest head matters to a reader), as LLP 1016.000 D4
 does on the Exact side.
 
-This is the Snapback side and its lead session's to design. What the Exact
+This is the Snapback side and its lead session's to design. Why its
+capacity is the question: Snapback 4's HTTP host is `tiny_http` 0.12,
+blocking and thread-per-request, behind fixed pools (32 request workers,
+32 long-wait workers, 128 connections; `crates/snapback4/src/request_workers.rs`).
+A held `/changes?wait` parks an OS thread for its whole wait. Serving tens
+of thousands of mostly idle streams, which an evented Rust server does
+routinely, needs idle streams that cost no thread: an event loop for
+parked readers (readiness I/O on their sockets, woken by a commit), or an
+async server for this route alone. That is a change in the host's
+concurrency model, sized by the lead session before D1 is built. What the Exact
 side needs from it: the cursor in `id`, nothing per event that a reader must
 not miss, and a stated bound on open streams per principal and per host,
 with a refusal the client can show. The HTTP host today reserves 32
