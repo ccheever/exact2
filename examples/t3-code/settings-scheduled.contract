@@ -305,7 +305,7 @@ component ScheduledEditor
               text "Runs on" class=TkLabel
               button popovertarget="task-environment-menu" role="combobox" aria-label="Runs on" disabled=(draft.id != "" or busy) id="task-environment" testId="task-environment" display="flex" flex-direction="row" align-items="center" gap="0.5rem" width="100%" height="2rem" box-sizing="border-box" padding-left="0.6875rem" padding-right="0.5625rem" border-radius="0.625rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#fcfcfc, #ffffff07)" opacity=(draft.id != "" ? 0.64 : 1)
                 LucideLaptop(size=16, color="light-dark(#71717b, #818181)")
-                text data.environment font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" flex=1 min-width=0 line-clamp=1
+                text data.environment font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" flex=1 min-width=0 line-clamp=1 text-align="left"
                 LucideChevronDown(size=12, color="light-dark(#71717b, #818181)")
               SkPopup(menuId="task-environment-menu", label="Runs on", width=526, list=true, endAlign=0)
                 each option in data.environments key=option.value
@@ -325,7 +325,7 @@ component ScheduledEditor
                 text "Base branch" class=TkLabel
                 button popovertarget="task-branch-menu" disabled=busy aria-label="Base branch" role="combobox" testId="task-base-branch" class=TkOutline width="100%" justify-content="flex-start"
                   LucideGitBranch(size=14, color="light-dark(#71717b, #818181)")
-                  text (baseRef == "" ? "Select ref" : (startFromOrigin ? `From origin/${baseRef}` : `From ${baseRef}`)) font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" flex=1 min-width=0 line-clamp=1
+                  text (baseRef == "" ? "Select ref" : (startFromOrigin ? `From origin/${baseRef}` : `From ${baseRef}`)) font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" flex=1 min-width=0 line-clamp=1 text-align="left"
                   LucideChevronDown(size=14, color="light-dark(#71717b, #818181)")
                 // BranchPicker: ComboboxPopup at the trigger's width, Search refs..., the refs with
                 // their current/worktree/remote/default tag, and the Start from origin row.
