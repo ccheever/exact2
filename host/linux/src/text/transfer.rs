@@ -432,6 +432,7 @@ pub(crate) fn adopt(
             )),
             record: std::cell::OnceCell::from(l.lines.clone()),
             remake: None,
+            measured: RefCell::new(None),
             baselines: l.baselines.clone(),
             bottoms: l.bottoms.clone(),
             flow: None,

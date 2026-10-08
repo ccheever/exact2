@@ -273,9 +273,9 @@ function command(name, args) {
 }
 // ---------------------------------------------------------------- the clock and timers
 export const clock = { now: 0, timers: [], agent: false, epoch: 0 };
-// `now()` is elapsed time: the driver's clock under the agent and in a
+// `performanceNow()` is elapsed time: the driver's clock under the agent and in a
 // render, else the page's since it started; a timer commits at its due time.
-// A reader of `now()` is re-evaluated at each commit made at a later time,
+// A reader of `performanceNow()` is re-evaluated at each commit made at a later time,
 // as the runner marks the clock read dirty (instance/deps.rs), and never by
 // the clock moving alone. Not a write: no commit counts it as a change.
 const Now = node(null, 0);
@@ -1452,7 +1452,7 @@ const value_ = v => v === null || typeof v !== "object" ? v : Array.isArray(v) ?
 // Read untracked (an action's body, a handler's curried argument evaluated as the event arrives) it is the clock now:
 // the commit's time, or outside one the time the runner would evaluate the arguments at. A derive, resource or the
 // tree reads it tracked, as of the last commit: an advance that fired nothing committed no new time.
-export const x_now = () => { NowRead = true; if (Listener) return read(Now); if (!Writes) time(); return clock.now; };
+export const x_performanceNow = () => { NowRead = true; if (Listener) return read(Now); if (!Writes) time(); return clock.now; };
 export * from "./roster.js"; // the roster's pure entries
 // ---------------------------------------------------------------- localized strings (LLP 1060)
 // The plan's tables, base first: [name, rtl, {key: text}]. The locale slot

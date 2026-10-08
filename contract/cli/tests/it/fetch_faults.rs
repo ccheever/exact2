@@ -190,3 +190,51 @@ fn a_replacement_runner_carries_the_table_as_it_is() {
     );
     assert!(boot().carry().faults.is_none(), "no table, nothing carried");
 }
+
+/// Answers a record wider than its shape, as a backend row with one more field.
+struct Wide;
+impl DataSource for Wide {
+    fn query(&mut self, _: &str, _: &[Value]) -> Result<Value, DataError> {
+        Err(DataError::Unavailable("answers with a request".into()))
+    }
+    fn answer(&mut self, _: &mut Store, _: &str, args: &[Value]) -> Result<Answer, DataError> {
+        Ok(Answer::Later(Request::get(
+            args[0].as_str().unwrap_or_default(),
+        )))
+    }
+    fn parse(
+        &mut self,
+        _: &mut Store,
+        _: &str,
+        _: &[Value],
+        _: Outcome,
+    ) -> Result<Answer, DataError> {
+        Ok(Answer::Now(Value::record(vec![
+            Value::str("x"),
+            Value::str("extra"),
+        ])))
+    }
+}
+
+#[test]
+fn state_says_why_a_resource_failed_until_it_answers() {
+    // App farm round 1: a shape refusal was only in the journal.
+    let mut r = Runner::boot(
+        contract::compile(APP).unwrap(),
+        Wide,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    assert!(!agent::handle(&r, r#"{"op":"state"}"#).contains("\"failed\""));
+    for out in r.take_requests() {
+        r.fulfill(out.ticket, Outcome::Storage(vec![])).unwrap();
+    }
+    let state = agent::handle(&r, r#"{"op":"state"}"#);
+    let failed = state.split("\"failed\":{").nth(1).unwrap_or_default();
+    assert!(
+        failed.starts_with("\"a\":\"") && failed.contains("outside its shape"),
+        "{state}"
+    );
+}

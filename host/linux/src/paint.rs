@@ -1218,6 +1218,17 @@ impl Painter {
         if clips {
             self.backend.pop_clip();
         }
+        // LLP 1104 D6: native buttons ring their own chrome; a bare
+        // button rings its outer box even without a press handler.
+        if paints_self
+            && node.node_type == NodeType::Pressable
+            && node.props.str(PropId::Href).is_none()
+            && walk.scene.focus == Some(node.id)
+            && node.props.bool(PropId::Disabled) != Some(true)
+        {
+            let accent = control::accent(node, self.dark).unwrap_or(control::ACCENT);
+            self.field_ring(&outer, accent, ts);
+        }
         // @ref LLP 1075.003.000.001 §2.2.1 — a hatch's overlay: over the
         // node's own paint and its descendants, clipped to its border box.
         if let Some(pixels) = self.overlays.get(&node.id).cloned() {

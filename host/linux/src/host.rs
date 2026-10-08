@@ -842,7 +842,7 @@ impl<D: DataSource> Host<D> {
             self.log(refusal);
             return Some(refusal.into());
         }
-        // At the event's time: an action's `now()` is the host's (LLP 1096 D3).
+        // At the event's time: an action's `performanceNow()` is the host's (LLP 1096 D3).
         let a = crate::traced(c"exact dispatch", || {
             self.runner.dispatch_at(view, event, self.now_ms)
         });

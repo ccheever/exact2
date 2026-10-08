@@ -10,6 +10,7 @@ mod auth;
 mod baked_release;
 mod borders;
 mod branch;
+mod button_migration;
 mod calls;
 mod checkpoint;
 mod child_state_lifetime;

@@ -253,17 +253,17 @@ component Harness
               each l, i in session.approval.lines key=i
                 Runs(runs=l.runs, pre=false)
             text "Do you want to proceed? Press 1, 2 or 3."
-            button press=answer("yes") aria-keyshortcuts="1" testId="approve-yes" text-align="start"
+            button appearance="none" press=answer("yes") aria-keyshortcuts="1" testId="approve-yes" text-align="start"
               text "1. Yes"
-            button press=answer("always") aria-keyshortcuts="2" testId="approve-always" text-align="start"
+            button appearance="none" press=answer("always") aria-keyshortcuts="2" testId="approve-always" text-align="start"
               text `2. Yes, and don't ask again for ${session.approval.tool}`
-            button press=answer("no") aria-keyshortcuts="3 Escape" testId="approve-no" text-align="start"
+            button appearance="none" press=answer("no") aria-keyshortcuts="3 Escape" testId="approve-no" text-align="start"
               text "3. No, and tell the model what to do differently (esc)"
         when animating
           column margin-top="1lh" border="thin solid #5f5fd7" border-radius="1ch" testId="animation"
             row padding="0 1ch"
               text frame.title font-weight=700 color="#8787ff"
-              button press=stopAnimation margin-left="auto" testId="stop-animation"
+              button appearance="none" press=stopAnimation margin-left="auto" testId="stop-animation"
                 text "esc to stop" color="#6c6c6c"
             each l, i in frame.lines key=i
               Runs(runs=l.runs, pre=true)
@@ -283,7 +283,7 @@ component Harness
           text "› " white-space="pre" color="#87afff" font-weight=700 flex-shrink=0
           textarea value=draft appearance="none" input=write key=onKey disabled=(session.approval.id != "") autofocus=true placeholder=(session.busy ? "Type ahead — it runs when this turn ends" : "Ask anything, or / for commands") flex-grow=1 rows=min(8, length(split(draft, "\n"))) testId="prompt"
         row padding="0 1ch" color="#6c6c6c" gap="2ch"
-          button commandfor="models" command="show-modal" aria-keyshortcuts="Control+o" testId="model-button" white-space="nowrap" flex-shrink=0
+          button appearance="none" commandfor="models" command="show-modal" aria-keyshortcuts="Control+o" testId="model-button" white-space="nowrap" flex-shrink=0
             text `${session.model} (${session.provider})` color="#87afff"
           text `${session.cwd}${session.branch == "" ? "" : ` (${session.branch})`}` white-space="nowrap" text-overflow="ellipsis" flex-shrink=1 min-width=0
           text `↑ ${kilo(session.tokensIn)} ↓ ${kilo(session.tokensOut)} · ${floor(session.contextPct)}% context` margin-left="auto" white-space="nowrap"
@@ -307,11 +307,11 @@ component Harness
         text "Add an API key" font-weight=700 color="#5fd75f"
         text "Saved to ~/.config/exact-harness/keys, readable only by you. It never enters the transcript." color="#6c6c6c"
         row gap="2ch" margin-top="1lh"
-          button press=pickKeyFor("openrouter") testId="key-openrouter" white-space="pre"
+          button appearance="none" press=pickKeyFor("openrouter") testId="key-openrouter" white-space="pre"
             text (keyFor == "openrouter" ? "● OpenRouter" : "○ OpenRouter")
-          button press=pickKeyFor("anthropic") testId="key-anthropic" white-space="pre"
+          button appearance="none" press=pickKeyFor("anthropic") testId="key-anthropic" white-space="pre"
             text (keyFor == "anthropic" ? "● Anthropic" : "○ Anthropic")
-          button press=pickKeyFor("openai") testId="key-openai" white-space="pre"
+          button appearance="none" press=pickKeyFor("openai") testId="key-openai" white-space="pre"
             text (keyFor == "openai" ? "● OpenAI" : "○ OpenAI")
         row margin-top="1lh"
           text "key › " white-space="pre" color="#5fd75f" flex-shrink=0

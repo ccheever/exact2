@@ -33,6 +33,20 @@ pub struct NodeSite {
     /// Every style row the node binds, with where the binding came from —
     /// the winner when two bindings named one row.
     pub rows: Vec<(StyleId, Origin)>,
+    /// The button's compile-time appearance decision, absent on other tags.
+    pub button: Option<ButtonSite>,
+}
+
+/// Development-only button admission and migration facts (LLP 1104 D2, D9).
+#[derive(Debug, Clone)]
+pub struct ButtonSite {
+    /// Whether lowering chose the platform's control.
+    pub native: bool,
+    /// The first reason a default button became bare; explicit `none` has none.
+    pub bare_reason: Option<String>,
+    /// A default native button with authored rows beyond layout needs `none`
+    /// to preserve its previous appearance during D9's source migration.
+    pub migrate: bool,
 }
 
 /// A named declaration's site.
@@ -107,6 +121,7 @@ impl Sites {
 pub(crate) fn node_site(
     span: Span,
     instance: u32,
+    button: Option<ButtonSite>,
     bindings: &[BindingsRow],
     origins: &[Origin],
 ) -> NodeSite {
@@ -120,5 +135,6 @@ pub(crate) fn node_site(
         span,
         instance,
         rows,
+        button,
     }
 }

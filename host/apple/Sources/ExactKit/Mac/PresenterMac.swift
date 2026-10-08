@@ -661,7 +661,7 @@ package final class Presenter {
             if selectText { fieldSelections.selectAll(target) }
             return
         }
-        let responder: NSView = target.textArea ?? target.field ?? target
+        let responder = keyView(of: target)
         if responder.acceptsFirstResponder { window.makeFirstResponder(responder) }
         if selectText, window.firstResponder === target.textArea || target.field?.currentEditor() != nil { fieldSelections.selectAll(target) }
     }
@@ -677,7 +677,7 @@ package final class Presenter {
                 window.makeFirstResponder(nil)
                 return
             }
-            let responder: NSView = target.textArea ?? target.field ?? target
+            let responder = keyView(of: target)
             guard window.firstResponder === responder || window.firstResponder === target.field?.currentEditor() else { return }
         }
         window.makeFirstResponder(nil)
@@ -1202,6 +1202,7 @@ package final class Presenter {
     /// The same editing descendant takes explicit, sequential and modal focus.
     func keyView(of v: NodeView) -> NSView {
         if v.kind == "native", let target = session?.natives.focusTarget(v) { return target }
+        if v.isNativeButton, let button = controls.controls[v.id] as? NativeButtonMac { return button }
         return v.textArea ?? v.field ?? v
     }
 

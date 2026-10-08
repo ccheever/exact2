@@ -7,7 +7,7 @@
 //! stack discipline for compiled plans; the VM still checks everything and
 //! traps with a typed reason, because a plan is data from outside and never
 //! trusted. There is no closure, no heap of the VM's own, no ambient read that
-//! is not an operand: `now()` reads the clock the runner passes in.
+//! is not an operand: `performanceNow()` reads the clock the runner passes in.
 
 use crate::machine::{self, Host, Kind, Machine, Num, Val};
 pub use crate::machine::{Instruction, Trap};

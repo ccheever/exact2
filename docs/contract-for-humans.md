@@ -345,7 +345,7 @@ component CountLabel
 ```
 
 Functions have no effects, cannot recursively call themselves or form cycles, and
-do not capture component state (they can read `now()`). Pass values as parameters. Standard-function names
+do not capture component state (they can read `performanceNow()`). Pass values as parameters. Standard-function names
 are reserved against redefinition. See the grammar reference for the complete
 [standard-function list](contract-grammar.md#standard-functions-and-intrinsics).
 
@@ -789,7 +789,7 @@ call outside them fails. The capabilities are:
   `Date.now()`, `new Date()` without a value, `setTimeout`, `setInterval`,
   `performance.now()` and `Math.random()` are refused when first used, on every
   executor (`crypto.getRandomValues` and `crypto.randomUUID` work inside an answer); the type check cannot see it, and only `logs` shows the refusal. Time
-  and seeds are arguments: pass `now()` from the Contract (the
+  and seeds are arguments: pass `performanceNow()` from the Contract (the
   [data-module reference](reference.md#generate-typescript-data-source-types) has the full list).
 - *There is no storage or network at build time.* The build bakes each
   resource's first value into the plan, and a storage call then is refused
@@ -1027,8 +1027,12 @@ attribute and retain their normal focus order.
 
 ### Choosing a native button
 
-An ordinary `button` is an authored box with `appearance="none"`. Opt into the
-platform control with a literal `appearance="auto"`:
+A `button` is the platform's own control by default. Giving it a background,
+border or radius, rich children, or rows the native control cannot support
+makes it your bare box. A class counts too, even when a row or incompatible
+child appears on only one conditional arm. Write `appearance="none"` to ask
+for your box explicitly, or `appearance="auto"` to require a native button and
+get an error for unsupported rows or children. For example:
 
 ```contract
 component NativeButtonExample
@@ -1037,7 +1041,7 @@ component NativeButtonExample
     presses = presses + 1
   view
     column gap=12
-      button appearance="auto" buttonStyle="filled" press=send testId="send"
+      button buttonStyle="filled" press=send testId="send"
         text "Send"
       text `${presses}` testId="presses"
 ```
@@ -1065,7 +1069,8 @@ spacing. Title-to-subtitle spacing stays the platform's. `align-items` and
 `justify-content` accept only `center`. `-exact-control-size` takes `mini`,
 `small`, `medium`, `large`; `-exact-corner-style` takes `dynamic`, `small`,
 `medium`, `large`, `capsule`. These are styleable rows for native buttons only.
-`border-radius` sets a radius and wins over the named corner style. `padding`
+With explicit `appearance="auto"`, `border-radius` sets a radius and wins over
+the named corner style. Under the default, a radius makes the button bare. `padding`
 and its longhands set content insets; leave them absent for the style's own.
 
 `pointer-events="none"` passes touches through; `auto` restores them. Disabled
@@ -1078,10 +1083,11 @@ means no target). `href`, `action` and swipe attributes stay refused.
 
 The kernel's optional host measure hook supplies the fitting size before the
 first frame and handles wrapping at the offered width. Existing hosts keep
-their intrinsic-size report until they implement it. These rows are admitted
-by Contract; their host mappings are being built in separate lanes.
+their intrinsic-size report until they implement it.
 
-`buttonStyle` defaults to `bordered`. The accepted styles are `plain`, `gray`,
+`buttonStyle` needs a native button and defaults to `bordered`. If the default
+makes your button bare, `lower-button-style` names the first reason: remove it,
+or write `appearance="none"` without `buttonStyle`. The accepted styles are `plain`, `gray`,
 `tinted`, `filled`, `borderless`, `bordered`, `bordered-tinted`,
 `bordered-prominent`, `glass`, `prominent-glass`, `clear-glass`, and
 `prominent-clear-glass`. This is a declared host-policy property, not a CSS
@@ -1119,6 +1125,9 @@ list appearance="auto" listStyle="inset-grouped" flex=1
     footer
       text "Who can see you."
 ```
+
+Row buttons and their detail accessories stay bare by default, preserving the
+cell's title and action. Explicit `appearance="auto"` makes one a custom native control.
 
 `listStyle` is `inset-grouped` (the default), `grouped` or `plain`, a literal.
 iOS draws UIKit's own list (`UICollectionView` with a list configuration); the
@@ -1241,7 +1250,7 @@ component Undo
   state toastUntil = 0
   action deleted
     toast = "Deleted"
-    toastUntil = now() + 5000
+    toastUntil = performanceNow() + 5000
   action hideToast
     toast = ""
   task hide when toast != "" key=toastUntil
@@ -1254,13 +1263,14 @@ The timer exists while `toast != ""` holds, as a `when` arm's nodes do, and a ne
 `toastUntil` restarts it, as a new key makes a new `each` row: a replaced toast
 gets its whole five seconds. Nothing runs when the gate changes, and an idle task
 keeps no host awake. The action runs at the deadline exactly, so it clears the
-toast without testing the time again. Gates and keys read state, never `now()`
+toast without testing the time again. Gates and keys read state, never `performanceNow()`
 (LLP 1092).
 
-`now()` reads milliseconds since boot on the runner's clock (the driver's clock
+`performanceNow()` reads milliseconds since boot on the runner's clock (the driver's clock
 under the agent); it is not a date. For the date, read the reserved `exactTime`
-source and add `time.epochAtZero + now()`. Advancing the clock alone does not
-necessarily trigger rendering: a derive using `now()` reevaluates when a later
+source and add `time.epochAtZero + performanceNow()`. There is no `now()`; the
+compiler refuses it and names both. Advancing the clock alone does not
+necessarily trigger rendering: a derive using `performanceNow()` reevaluates when a later
 commit evaluates it. Use a task when the display must tick.
 
 Use CSS `transition` for changes to supported properties and `keyframes` with

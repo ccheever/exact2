@@ -328,7 +328,7 @@ component Cart
   assignment expressions, or JavaScript built-ins by implication.
 - `fn label(done: bool): string = done ? "Done" : "Open"` is a function: parameters
   and the return type are explicit, after `:` (not `->`). Its body is one expression over
-  its parameters and standard calls (including `now()`), without component-state
+  its parameters and standard calls (including `performanceNow()`), without component-state
   capture or recursion. Pass an app value in; do not invent an ambient reference.
   A `fn` named like a standard function (`fn indexOf`) shadows it in every
   expression of the app, so a standard function added later never breaks an
@@ -584,6 +584,14 @@ Resources read as their declared type. Mutations read as `option<T>` and start a
 `none`, so a mutation's `T` is not itself an option. Do not treat a resource as an optional wrapper unless its declared type
 itself is optional. A mutation reply is unwrapped with match.
 
+An answer is held to its shape exactly: a field the shape does not declare, at any
+depth, fails the resource as a thrown error does (TypeScript lets a spread such as
+`{ ...row }` through). The view keeps its placeholder or last value and
+`failed(x)` is true, so a banner on `failed` reads "unreachable" for what is a
+shape mismatch: `state` names the field under `failed`, a CLI drive says so on
+stderr, and a failing `expect` names it. Project a backend row onto the shape
+field by field (`({ id: row.id, title: row.title })`).
+
 `with` takes one or more expressions, before `as shape`, and appends them to the
 source's arguments. All arguments still trigger re-asks and identify live
 requests. Only an eligible persisted answer admitted while the source is unready
@@ -685,7 +693,12 @@ HTML names Contract spells otherwise (the compiler names each): `div` is `column
 `text role="heading" aria-level=N`; `label` is `text` beside its field, which
 `aria-label` (or `aria-labelledby`) names; `img` is `image`; `a` is `link`; `ul`,
 `ol` and `li` are a `list` or a `column` of rows; `title` and `meta` are `head
-title=… description=…`. A component
+title=… description=…`; a `table` is `view display="grid"` with
+`grid-template-columns` (or a `column` of `row`s); there is no `form` (a field's
+Enter is its `submit`) and no `details` (keep `open` in state, show the body `when
+open`). In expressions a view chooses with `when`, not `if`; a count is
+`length(xs)`, never `count`, `len` or `.size`; a resource's placeholder is `else
+empty()` (`[]` for a list), never `else []`. A component
 call uses parentheses; a built-in element uses space-separated attributes.
 `button "Save" press=save` is text-child sugar; an explicit text child is useful
 when that label needs its own styling or driver id. A `button` is the web's
@@ -754,9 +767,16 @@ stays there, so rows inserted on top show, and one following its end
 (`translate`, `rotate`, `scale`, a relative `top`/`left`, `z-index`: a lifted
 row being dragged) and keeps its place in the list.
 
-A native button is an explicit `button appearance="auto"` after class merging;
-an ordinary button remains an authored `appearance="none"` pressable. The switch
-must be literal. Its first `text` is the title, its second is the subtitle, and
+A `button` is the platform's own control by default. A background, border or
+radius, rich children, or a row/attribute/context the native control cannot
+support makes it your bare box instead. Classes count after merging, and a
+row or incompatible child on any conditional arm keeps the whole button bare.
+Grouped-list row buttons and their detail accessories stay bare by default so
+UIKit can read the cell's face; explicit `appearance="auto"` carries a custom native control.
+`appearance="none"` explicitly asks for your box. `appearance="auto"` explicitly
+asks for the platform's button and refuses unsupported rows or children. The
+switch must resolve to a literal after class merging; use `when` with two
+buttons to switch. Its first `text` is the title, its second is the subtitle, and
 its one `image "symbol:…"` is the symbol. These are semantic face data, not
 layout children. A symbol-only face needs a nonempty `aria-label`. With
 `flex-direction="row"` (or absent), an image before/after the texts is
@@ -779,7 +799,8 @@ spacing stays the platform's. `align-items` and `justify-content` accept only
 `center`. `-exact-control-size` takes `mini`, `small`, `medium`, `large`;
 `-exact-corner-style` takes `dynamic`, `small`, `medium`, `large`, `capsule`.
 Both are style rows admitted only on native buttons, including in a class.
-`border-radius` sets the authored radius and wins over the named corner style;
+With explicit `appearance="auto"`, `border-radius` sets the authored radius
+and wins over the named corner style; under the default it makes the button bare.
 `padding` and its longhands set content insets. Absent leaves the native
 control's insets/corners alone.
 
@@ -790,15 +811,17 @@ dialog or popover with `commandfor` and `command="show-modal"`,
 bound, and an empty target is no target. `href`, `action` and swipe attributes
 remain refused. `-exact-enabled` transitions are not available.
 
-`buttonStyle` is a styleable host-policy prop; its names and allowable branches
+`buttonStyle` needs a native button; on a default button that comes out bare,
+`lower-button-style` names the first reason and says to remove it or write
+`appearance="none"` without `buttonStyle`. It is a styleable host-policy prop;
+its names and allowable branches
 are checked against `schema.json`'s `buttonStyles`. Backgrounds, borders,
 shadows, filters, `font-family`, other typography or inner layout and
 `-exact-press-scale` are refused with `lower-button-style-attr`, naming a custom
 `button` as the alternative. A native button still takes size, place, opacity
 and transform rows. Hosts implementing the measure hook supply its fitting
 size before the first frame, including height-for-width; hosts without it
-keep the existing intrinsic-size report. This lane admits the rows; platform
-mapping and measurement implementations follow separately. Test the actual
+keep the existing intrinsic-size report. Test the actual
 platform look; macOS can report stand-ins for gap, subtitle and wrapping.
 See [`controls.rs`](../contract/lower/src/controls.rs) for the checks.
 
@@ -808,7 +831,7 @@ drawn title bar) is a bug. On iOS:
 
 | Write | iOS draws |
 | --- | --- |
-| `button appearance="auto"` (`buttonStyle`) | `UIButton` |
+| `button` (`buttonStyle`, native by default) | `UIButton` |
 | `list appearance="auto" listStyle="inset-grouped"` of `section`s (`header`, rows, `footer`) | `UICollectionView` list, as Settings ([human guide](contract-for-humans.md#choosing-a-native-button)) |
 | `input type="checkbox" switch` | `UISwitch` |
 | `input type="range"` | `UISlider` |
@@ -860,7 +883,7 @@ A sound effect is a declared WAV that an action plays ([LLP
 1096](../llp/1096-sounds-an-app-can-schedule.rfc.md)): `sound "assets/…wav"` at the
 top level (16-bit or float PCM, one or two channels, at most 10 s; the compiler
 reads it), then `playSound(src, at=, gain=, group=)` from any action. Every call is
-a new voice, so a retrigger is another call. `at=` is the runner's clock (`now()`'s
+a new voice, so a retrigger is another call. `at=` is the runner's clock (`performanceNow()`'s
 milliseconds; the past means now), `gain=` a linear 0–1, and a `group=` is
 monophonic by start time: a voice ends where the next one in its group starts, as a
 drum machine's choke does. `stopSounds()` (or `stopSounds(group=…)`) ends what
@@ -879,20 +902,20 @@ component Ding
 
 To keep time (a sequencer, a metronome), schedule ahead on the audio clock rather
 than starting each hit when a timer's commit lands: the press schedules the first
-window, `[now(), now() + 100)`, and each tick of a coarse timer schedules the next,
-`[scheduledTo, now() + 100)`, as a list a `fn` computes (`playSounds(hits)` takes a
+window, `[performanceNow(), performanceNow() + 100)`, and each tick of a coarse timer schedules the next,
+`[scheduledTo, performanceNow() + 100)`, as a list a `fn` computes (`playSounds(hits)` takes a
 list of a shape whose fields are, in order, `src`, `at`, `gain` and `group`). A
 timer's commit is at its due time, so a hit planned at `t` lands on the grid:
 
 ```text
 action start
   playing = true
-  playSounds(hitsBetween(song, now(), now() + 100))
-  scheduledTo = now() + 100
+  playSounds(hitsBetween(song, performanceNow(), performanceNow() + 100))
+  scheduledTo = performanceNow() + 100
 action tick
   if playing
-    playSounds(hitsBetween(song, scheduledTo, now() + 100))
-    scheduledTo = now() + 100
+    playSounds(hitsBetween(song, scheduledTo, performanceNow() + 100))
+    scheduledTo = performanceNow() + 100
 action stop
   playing = false
   stopSounds()
@@ -1160,9 +1183,9 @@ restarts it, as a new `each` key makes a new row
 runs when the gate changes: turning true arms the timer from that commit's time,
 turning false drops it, and an idle task keeps no host awake and commits
 nothing at rest. `key=expr` alone means `when true key=expr`. An `after` fires
-at its deadline exactly, so its action sees `now()` equal to the deadline: clear
-without re-testing the time (a strict `now() > until` does nothing there). The
-gate is a bool and the key a string, number or bool; neither may read `now()`
+at its deadline exactly, so its action sees `performanceNow()` equal to the deadline: clear
+without re-testing the time (a strict `performanceNow() > until` does nothing there). The
+gate is a bool and the key a string, number or bool; neither may read `performanceNow()`
 (`analyze-task-gate-clock`): gate on state and let the timer measure time. A
 toast, a debounce (`when draft != saved key=draft` with `after(800, save)`), a
 round's tick (`when screen == "play"`) and a flight's frames
@@ -1192,14 +1215,16 @@ a loop from mutations: a `then` cannot send its own mutation
 (`analyze-then-self-send`). For a purely visual loop, use a CSS `animation`
 instead.
 
-`now()` is the runner's clock in milliseconds since boot (the driver's clock under
-the agent), not a date. For the date, read the reserved `exactTime` source and add
-`time.epochAtZero + now()`. Its fields, which a shape declares as it reads them:
-`epochAtZero` (Unix milliseconds when `now()` read zero), `utcOffset` (minutes east
+`performanceNow()` is the runner's clock in milliseconds since boot (the driver's clock under
+the agent, from 0), as the web's `performance.now()`, not a date: a deadline of
+`performanceNow() + ms` sent to a server is in 1970. For the date, read the reserved
+`exactTime` source and add `time.epochAtZero + performanceNow()`. There is no
+`now()`: it is refused (`type-now-renamed`) with those two repairs. Its fields, which a shape declares as it reads them:
+`epochAtZero` (Unix milliseconds when `performanceNow()` read zero), `utcOffset` (minutes east
 of UTC), `locale` (BCP 47), `timeZone` (IANA), `resolvedLocale` (the language of
 the string table the app shows, `""` with no tables) and `seed` (a whole number
 drawn once per launch). A read does not itself schedule a future render, and a
-derive that reads `now()` is not read again as time passes, and when it is read
+derive that reads `performanceNow()` is not read again as time passes, and when it is read
 again differs by host. For a displayed value that must follow the clock, keep the
 time in state that a timer's action (`task … every`) writes. Prefer `clock settle` to waiting for a transition in real time.
 `time.utcOffset` is the zone's offset *now*: every host answers it again when the
@@ -1447,7 +1472,9 @@ transition or animation ends, firing the timers due on the way, so a test on a t
 `clock data` lands it without moving the clock: the data module's activation and
 every request in flight, each answer's `then` with it, no timer fired. A CLI drive's
 first operation runs at boot and may come before that has landed (an authored test
-lands it before its first step), so a drive that reads or taps data starts with `clock data`.
+lands it before its first step), so a drive that reads or taps data starts with `clock data`
+(a `tree`, `layout` or `screenshot` taken before the clock first moves, with a request
+in flight, says so on stderr).
 A playing `video` or `audio` is on real time too: the clock never seeks or holds it, so
 between operations it moves only as far as the drive took. `clock +N real` lets
 N ms of real time pass with the clock moving beside it, a step at a time: a
@@ -1550,9 +1577,9 @@ changes?"; macOS and the web),
 options, and a checkbox with a `checked` binding `true` or `false`; else its descendants' — a button's label — else a field's value), and
 `expect state name == <number|string|bool|none|[]>`, where `name` may go on into
 a record's fields (`board.active.present`) or a list index (`rows.0`), and the
-number may be negative (`== -3`). A failed expect with no input before
-it names the requests still in flight (the boot's own, or what a `clock +N` left
-on real time). An input step ends with what it settled: an answer the data
+number may be negative (`== -3`). A failed expect names any resource that
+failed, and why; with no input before it, the requests still in flight (the boot's
+own, or what a `clock +N` left on real time). An input step ends with what it settled: an answer the data
 module gave in the input's turn, and its mutation's `then`, are there for the
 next step. Otherwise the clock stands still between steps: a reply on real time
 (a store's, the network's) or a transition an input started lands at a `clock`

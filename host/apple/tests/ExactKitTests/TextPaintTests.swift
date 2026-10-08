@@ -209,10 +209,10 @@ final class TextPaintTests: XCTestCase {
     /// range it broke at, ending in "…". The same pixels as layout's lines.
     func testAClampedParagraphRastersFromItsGeometryAsLayoutPaintsIt() throws {
         let text = "Maybe family sounds draft later scroll deadline picnic thanks soon a meeting at the station"
-        for align in [0, 1, 2] {
-            let spec = Spec(runs: [run(text)], align: align, lineClamp: 2, color: [30, 60, 90, 255])
+        for (clamp, align) in [1, 2].flatMap({ clamp in [0, 1, 2].map { (clamp, $0) } }) {
+            let spec = Spec(runs: [run(text)], align: align, lineClamp: clamp, color: [30, 60, 90, 255])
             let p = engine.paragraph(spec, width: 180)
-            XCTAssertEqual(p.lines.count, 2)
+            XCTAssertEqual(p.lines.count, clamp)
             let clamped = try XCTUnwrap(p.clampedRange, "the last line was clamped")
             let geometry = try XCTUnwrap(engine.measuredBreaks(spec, width: 180))
             XCTAssertEqual(geometry.clamped?.location, clamped.location)
@@ -223,9 +223,15 @@ final class TextPaintTests: XCTestCase {
                               flush: align == 1 ? 0.5 : align == 2 ? 1 : 0, box: box, size: box.size, scale: 2, clamped: clamp)
             }
             let shaped = try XCTUnwrap(job(geometry.clamped).render())
-            let laidOut = try XCTUnwrap(job(geometry.clamped).render(lines: p.lines))
+            let laidOut = try XCTUnwrap(job(nil).render(lines: p.lines))
             XCTAssertEqual(shaped.frame, laidOut.frame)
             XCTAssertEqual(rasterBytes(shaped), rasterBytes(laidOut), "align \(align)")
+            // Mounted paragraphs reuse the engine's plain range lines, not
+            // paragraph.lines (which already ends with the clamp's ellipsis).
+            let reused = engine.rasterLines(spec, ranges: geometry.ranges, width: box.width).1
+            let firstPixels = try XCTUnwrap(job(geometry.clamped).render(lines: reused))
+            XCTAssertEqual(firstPixels.frame, laidOut.frame)
+            XCTAssertEqual(rasterBytes(firstPixels), rasterBytes(laidOut), "first pixels: clamp \(clamp), align \(align)")
             XCTAssertNotEqual(rasterBytes(try XCTUnwrap(job(nil).render())), rasterBytes(laidOut), "the clamp paints its ellipsis")
         }
     }

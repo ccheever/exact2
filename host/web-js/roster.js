@@ -1,5 +1,5 @@
 // The roster's pure entries (runner/src/stdlib.rs) on the JS target, re-exported by rt.js, which keeps the ones that
-// read its state (`x_now`, the router's, `t`); budget.js holds the ones that build a string past MAX_STRING's reach.
+// read its state (`x_performanceNow`, the router's, `t`); budget.js holds the ones that build a string past MAX_STRING's reach.
 export const x_length = v => v.length;
 export const x_isEmpty = v => v.length === 0;
 export const x_floor = Math.floor;

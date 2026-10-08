@@ -58,6 +58,7 @@ fn canonical_type_expr(value: &Expr) -> Option<Expr> {
 pub(crate) fn control(
     tag: &str,
     attrs: &[contract_syntax::Attr],
+    native_button: bool,
 ) -> Result<Option<&'static str>, LowerError> {
     if tag != "textarea" {
         if let Some(a) = attrs.iter().find(|a| a.name == "rows") {
@@ -74,7 +75,7 @@ pub(crate) fn control(
         }
     }
     // @ref LLP 1069.011 D1, D2 — a native button, and its style nowhere else.
-    if tag == "button" && native_button(attrs)? {
+    if tag == "button" && native_button {
         if let Some(a) = attrs.iter().find(|a| a.name == "checked") {
             return err(
                 "lower-attr-tag",
@@ -496,23 +497,6 @@ pub(crate) fn derived_rows(bindings: &mut Vec<BindingsRow>) -> bool {
         expr,
     });
     true
-}
-
-/// @ref LLP 1069.011 D1 — whether a `button` is a native one: its effective
-/// `appearance` (its class's rows, then its own, over the fixed `none`) is the
-/// literal `auto`. A bound one is refused: being native decides the node.
-fn native_button(attrs: &[contract_syntax::Attr]) -> Result<bool, LowerError> {
-    match attrs.iter().rev().find(|a| a.name == "appearance") {
-        None => Ok(false),
-        Some(a) => match &a.value {
-            Expr::Str(v, _) => Ok(v == "auto"),
-            _ => err(
-                "lower-appearance",
-                "a `button`'s `appearance` is a literal: `\"auto\"` makes it the platform's own button, `\"none\"` (the default) the author's box. To switch between them, write `when` with two buttons",
-                a.span,
-            ),
-        },
-    }
 }
 
 /// The native button lowering's tag (LLP 1069.011 D3): a `Control` of type

@@ -13,11 +13,11 @@
 // place in ~20 ms, state carried).
 import { spawn } from 'node:child_process';
 import { createServer, request } from 'node:http';
-import { existsSync, lstatSync, readFileSync, renameSync, rmSync, statSync, watch, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, readFileSync, rmSync, statSync, watch, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { webRequestURL } from '../../scripts/origin.mjs';
 import { INPUT_TREE, OUTPUT } from '../../scripts/agent-launch.mjs';
-import { appManifestDigest, buildFileCards, buildTreeFile, saveTrace, sendStaticBody, watchLauncher, webContentType } from '../web/serve.mjs';
+import { appManifestDigest, buildFileCards, buildTreeFile, replaceBuild, saveTrace, sendStaticBody, watchLauncher, webContentType } from '../web/serve.mjs';
 import { localInstaller } from '../web/local-install.mjs';
 
 const CHECKPOINT_BYTES = 16 * 1024 * 1024, CHECKPOINTS = 8;
@@ -57,10 +57,7 @@ function build(app, dist) {
       const logic = readFileSync(resolve(stage, '.exact-dev-logic.json'), 'utf8').trim();
       writeFileSync(resolve(stage, '.exact-build.json'), JSON.stringify({ exactBuild: 1, target: 'js', app: { id: app.id, name: app.displayName },
         manifestSha256: appManifestDigest(app), files: buildFileCards(stage) }) + '\n');
-      rmSync(`${dist}.previous`, { recursive: true, force: true });
-      if (existsSync(dist)) renameSync(dist, `${dist}.previous`);
-      renameSync(stage, dist);
-      rmSync(`${dist}.previous`, { recursive: true, force: true });
+      replaceBuild(stage, dist);
       done({ error: null, logic, packages });
     });
   });

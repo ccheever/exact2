@@ -234,7 +234,7 @@ impl Gen<'_> {
                     let ms = self.rng.pick(&[1, 100, 500]);
                     format!("after({ms}, {a})")
                 };
-                // A gate and a key over the states alone: never `now()`,
+                // A gate and a key over the states alone: never `performanceNow()`,
                 // directly or through a derive or a `fn` (D9, D12).
                 let start = if self.size.schedule && self.rng.chance(1, 2) {
                     let mut genv = root.states_env.clone();

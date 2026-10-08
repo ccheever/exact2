@@ -150,7 +150,7 @@ theorem text_err {tables args e} (h : text tables args = .error e) :
 not here: their callback is evaluated by `eval`. -/
 def stdlib (env : Env) (f : String) (args : List Value) : Result Value :=
   match f, args with
-  | "now", [] => .ok (.num env.now)
+  | "performanceNow", [] => .ok (.num env.now)
   | "length", [.list xs] => .ok (.num (F64.ofNat xs.length))
   | "length", [.str s] => .ok (.num (F64.ofNat (Str.utf16Length s)))
   | "isEmpty", [.list xs] => .ok (.bool xs.isEmpty)

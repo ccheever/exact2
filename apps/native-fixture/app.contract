@@ -304,9 +304,11 @@ component NativeFixture
                       input type="search" value=query input=setQuery placeholder="Search the fixture" testId="header-search" width=80
                       // A text tablist in the header: the item's segmented title view.
                       row role="tablist" testId="header-segments"
-                        button role="tab" aria-selected=(segment == "all") press=chooseSegment("all") testId="segment-all"
+                        // The projected segmented control owns the chrome; its
+                        // authored tabs keep their bare text widths.
+                        button appearance="none" role="tab" aria-selected=(segment == "all") press=chooseSegment("all") testId="segment-all"
                           text "All"
-                        button role="tab" aria-selected=(segment == "missed") press=chooseSegment("missed") testId="segment-missed"
+                        button appearance="none" role="tab" aria-selected=(segment == "missed") press=chooseSegment("missed") testId="segment-missed"
                           text "Missed"
                     // A pressable group around the heading, with an avatar and
                     // a subtitle: the item's title, drawn, tapped (§9.10).
@@ -330,7 +332,7 @@ component NativeFixture
                       image "symbol:compose" width=20 height=20
                 when e.name == "home"
                   column id="bar-menu" popover="auto" position="absolute" role="menu" width=200 padding=8 background-color="#ffffff"
-                    button press=bump popovertarget="bar-menu" popovertargetaction="hide" role="menuitem" testId="bar-menu-bump" height=44 text-align="start"
+                    button appearance="none" press=bump popovertarget="bar-menu" popovertargetaction="hide" role="menuitem" testId="bar-menu-bump" height=44 text-align="start"
                       text "Bump from the bar"
                 when e.name == "home"
                   column testId="fixture" gap=8 padding=12
@@ -416,9 +418,9 @@ component NativeFixture
                       button press=unbump destructive=true popovertarget="peek" popovertargetaction="hide" testId="peek-clear" height=44
                         text "Clear"
                     row gap=6
-                      button press=grow testId="grow" padding=6
+                      button appearance="none" press=grow testId="grow" padding=6
                         text "Grow content"
-                      button press=sizing testId="sizing" padding=6
+                      button appearance="none" press=sizing testId="sizing" padding=6
                         text "Toggle intrinsic size"
                     text ("count " + toString(count) + " · loads " + toString(loads)) testId="counts"
                     when shown

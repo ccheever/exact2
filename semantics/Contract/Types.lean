@@ -126,7 +126,7 @@ semantics refuses as unsupported (formats, routes, geometry) are typed as
 the roster spells them: their calls never produce a value here. `map`,
 `filter`, `pending`, `failed` and `path` are typed by rules of their own. -/
 def rosterTy (name : String) (ts : List Ty) : Option Ty :=
-  if name = "now" then match ts with | [] => .some .number | _ => .none
+  if name = "performanceNow" then match ts with | [] => .some .number | _ => .none
   else if name = "length" then match ts with | [.string] | [.list _] => .some .number | _ => .none
   else if name = "isEmpty" then match ts with | [.string] | [.list _] => .some .bool | _ => .none
   else if name = "toString" then

@@ -594,6 +594,7 @@ impl<D: DataSource> Runner<D> {
                                         &why,
                                     ));
                                     self.failed_args[i] = Some(args.clone());
+                                    self.failed_why[i] = Some(why);
                                     force.retain(|forced| *forced != i);
                                     let state = states[i].as_ref().expect("checked");
                                     resources[i] = Some(state.value.clone());
@@ -1340,6 +1341,11 @@ mod tests {
             .unwrap()
             .is_some());
         assert!(!r.has_pending());
+        let failed = r.failed_resources(); // `state.failed` says why
+        assert!(
+            matches!(failed[..], [("rows", why)] if why.contains("outside its shape")),
+            "{failed:?}"
+        );
         assert_eq!(
             r.resource("rows"),
             Some(&records(1)),
@@ -1362,6 +1368,7 @@ mod tests {
             .unwrap()
             .is_some());
         assert_eq!(r.resource("rows"), Some(&records(2)));
+        assert!(r.failed_resources().is_empty());
         assert!(r
             .carry()
             .store

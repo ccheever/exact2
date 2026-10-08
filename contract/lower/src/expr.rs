@@ -113,7 +113,7 @@ pub(crate) fn compile(
         Expr::NamedArg(_, _, span) => {
             return err(
                 "lower-named-argument",
-                "named arguments belong to a canvas surface binding",
+                "named arguments go to a component use, a shape's call (`Row(title=…)`), `empty(…)`, `t(…)`, a canvas `surface=` binding and `share`, `scrollIntoView`; another call's arguments are positional",
                 *span,
             )
         }

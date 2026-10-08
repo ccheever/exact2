@@ -391,7 +391,7 @@ fn scan(plan: &Plan, layout: Layout, code: Code) -> Reads {
                 reads.bits.set(layout.resource(index));
                 reads.bits.set(layout.failed_resource(index));
             }
-            Opcode::Call if Stdlib::from_wire(index as u8) == Some(Stdlib::Now) => {
+            Opcode::Call if Stdlib::from_wire(index as u8) == Some(Stdlib::PerformanceNow) => {
                 reads.bits.set(layout.clock())
             }
             Opcode::LoadItem | Opcode::LoadBound | Opcode::LoadIndex => {

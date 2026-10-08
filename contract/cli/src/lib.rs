@@ -1251,7 +1251,10 @@ fn lint<D: DataSource>(runner: &mut Runner<D>, answered: bool) -> Result<(), Bak
                     });
                 }
             }
-            NodeType::Pressable => {
+            NodeType::Pressable | NodeType::Control
+                if node.node_type == NodeType::Pressable
+                    || node.props.str(exact_kernel::PropId::Type) == Some("button") =>
+            {
                 if node.frame.width > 0.0 && node.frame.height > 0.0 {
                     continue;
                 }

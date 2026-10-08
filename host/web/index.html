@@ -49,7 +49,7 @@
      tree; its box is a bare div's, so the UA's heading margins, size and
      weight go. The node's own style rows, inline, still win. */
   h1, h2, h3, h4, h5, h6 { margin: 0; font-size: inherit; font-weight: inherit; }
-  #exact-root button:focus-visible,
+  #exact-root button:not([data-native]):focus-visible,
   #exact-root input:not([data-native]):focus-visible,
   #exact-root textarea:not([data-native]):not([markup="markdown"]):focus-visible { outline: revert; outline-offset: 2px; }
   /* The UA's own reset, which \`all: unset\` undid: a field shows what was
