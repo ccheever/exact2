@@ -289,7 +289,7 @@ writeFileSync(resolve(stage, 'exact.json'), JSON.stringify({ ...webEnvelope(app,
 // name as the title, and its first icon as the favicon. An installed PWA's
 // icon and name are the browser's cached copies of these — the origin's
 // carrier, at its real strength.
-const webKeys = ['name', 'short_name', 'id', 'start_url', 'display', 'theme_color', 'background_color', 'icons', 'lang', 'file_handlers', 'launch_handler'];
+const webKeys = ['name', 'short_name', 'description', 'id', 'start_url', 'display', 'theme_color', 'background_color', 'icons', 'lang', 'file_handlers', 'launch_handler'];
 const webManifest = Object.fromEntries(webKeys.filter((k) => app.manifest[k] !== undefined).map((k) => [k, app.manifest[k]]));
 // `inode/directory` is the Apple bake's word for a folder; a browser's
 // file handler opens files only (LLP 1069.010 slice 4).

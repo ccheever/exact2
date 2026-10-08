@@ -126,6 +126,10 @@
       "description": "The name where space is short: a home screen, a dock tile.",
       "type": "string"
     },
+    "description": {
+      "description": "What the app does, in a sentence: the web manifest's `description`, which an install prompt or a store listing can show.",
+      "type": "string"
+    },
     "id": {
       "description": "The web app's identity (the web manifest's `id`); usually the same as `app.id`.",
       "type": "string"

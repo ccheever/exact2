@@ -74,7 +74,7 @@ const input = opt('--plan') ?? opt('--contract') ?? resolve(appDir, 'app.contrac
 const manifest = JSON.parse(readFileSync(resolve(appDir, 'app.json'), 'utf8'));
 // documents-glue reads the app's web manifest lazily. The JS path exits from
 // host/web/build.mjs after this builder succeeds, so it owns the same artifact.
-const webManifestKeys = ['name', 'short_name', 'id', 'start_url', 'display', 'theme_color', 'background_color', 'icons', 'lang', 'file_handlers', 'launch_handler'];
+const webManifestKeys = ['name', 'short_name', 'description', 'id', 'start_url', 'display', 'theme_color', 'background_color', 'icons', 'lang', 'file_handlers', 'launch_handler'];
 const webManifest = Object.fromEntries(webManifestKeys.filter(key => manifest[key] !== undefined).map(key => [key, manifest[key]]));
 if (webManifest.file_handlers) webManifest.file_handlers = webManifest.file_handlers.filter(handler => !Object.keys(handler.accept ?? {}).includes('inode/directory'));
 if (!webManifest.file_handlers?.length) delete webManifest.file_handlers;
