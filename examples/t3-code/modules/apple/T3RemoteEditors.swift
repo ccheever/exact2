@@ -27,6 +27,18 @@ enum T3RemoteEditors {
     private static var agentHintSeen = false
     private static var cachedLoginPath: String?
 
+    /// ElectronShell.openExternal for module code off the main thread (T3CodexAuth.swift): an agent
+    /// run records the URL as `remoteEditorsOpen` does; otherwise NSWorkspace opens it.
+    static func openOrRecord(_ value: String, agent: Bool) -> Bool {
+        guard let url = safeExternalUrl(value) else { return false }
+        if agent {
+            lock.lock(); recorded.append(url); lock.unlock()
+            if let log = ProcessInfo.processInfo.environment["T3_REMOTE_OPEN_LOG"], !log.isEmpty { append(url + "\n", to: log) }
+            return true
+        }
+        return DispatchQueue.main.sync { URL(string: url).map { NSWorkspace.shared.open($0) } ?? false }
+    }
+
     static func perform(_ request: [String: Any], agent: Bool, completion: @escaping ([String: Any]) -> Void) {
         let op = request["op"] as? String ?? ""
         let environment = ProcessInfo.processInfo.environment

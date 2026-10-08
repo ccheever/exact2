@@ -5,22 +5,30 @@ import { setupOf } from './provider-setup'; // provider-sign-in-and-install: the
 import { providerAccount, providerWizardAuth } from './provider-auth';
 import { providerRuntime, configuredBinaryPath } from './provider-install';
 import { redactedValue } from './redacted-text';
+import { codexSetupView, codexRuntimeFields, codexPicker, codexFlow, readCodexSetupMode } from './codex-setup'; // managed-codex-chatgpt: CodexSetupSection
+import { usesChatGptSharing } from './chatgpt-plan';
 import { obj, str, arr, num, type Obj } from './domain';
 import { ClientError, type Native } from './protocol';
 import { pushToast } from './toast';
 import { accentHsv } from './settings-b-accent';
 import type { T3Client } from './client';
 import { favoriteSlugs, groupModels, instancePrefs, runModelPrefOp, MODEL_PREF_OPS } from './settings-b-models';
-import { DRIVERS, driverMeta, instanceEnabled, sameValue, versionLabel, providerSummary, versionAdvisory, checkedLabel,
+import { DRIVERS, driverMeta, instanceEnabled, sameValue, versionLabel, providerSummary, checkedLabel,
   slugifyLabel, validateInstanceId, deriveAvailableInstanceId, type Driver, type DriverField } from './providers-meta';
 import { letGo } from './let-go';
+// provider-settings-upkeep: the update popover, Update all, ACP management and the custom model
+// editor are providers-upkeep.ts (app.ts adds them to this page with `withUpkeep`).
+import { deriveProviderModelsForDisplay, readCustomModelEntries, storedCustomModels } from './custom-model-editor';
+import { instanceIconUrl, resolveOfficialAcpRegistryIconUrl, resolveProviderInstanceAcpRegistryIconUrl } from './acp-icons';
 
 export interface ProviderHost {
   config: Obj; ready: boolean; writable: boolean; local: { favoriteModels: string[] };
   rpc(native: Native, method: string, payload: Obj, write?: boolean): Promise<Obj>;
+  /** The native id source the client's command ids come from (client.ts `ids`): new ChatGPT accounts are `codex_<uuid>`. */
+  ids?(native: Native, count: number): Promise<string[]>;
 }
 type Row = { id: string; instance: Obj; driver: string; isDefault: boolean; isDirty: boolean };
-export type AcpAgent = { id: string; name: string; description: string; link: string; icon: string; version: string; distribution: string; added: boolean };
+export type AcpAgent = { id: string; name: string; description: string; link: string; icon: string; iconUrl: string; version: string; distribution: string; added: boolean };
 const ENV_NAME = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
 const settingsOf = (host: ProviderHost) => obj(host.config.settings);
 const liveProviders = (host: ProviderHost) => arr(host.config.providers);
@@ -97,11 +105,12 @@ const environmentLabelOf = (host: ProviderHost) => str(obj(host.config.environme
  * Antigravity gets ProviderSetupSection (Environment, then Runtime and Account); a provider
  * that can sign in in-app (or an installed ACP agent) gets the Account row; Cursor with an
  * API key keeps its note. A read-only session gets the Antigravity rows' "Setup unavailable"
- * and nothing else. Managed Codex is CodexSetupSection (20261005-managed-codex-chatgpt);
- * until it lands the generic Account row stands in for it.
+ * and nothing else. A managed Codex instance gets CodexSetupSection (codex-setup.ts; read-only
+ * sessions see it disabled, as the reference mounts it before the readOnly check).
  */
-function setupKind(host: ProviderHost, row: Row, provider: Obj | undefined): '' | 'antigravity' | 'account' | 'cursor' {
+function setupKind(host: ProviderHost, row: Row, provider: Obj | undefined): '' | 'antigravity' | 'codex' | 'account' | 'cursor' {
   if (row.driver === 'antigravity') return 'antigravity';
+  if (row.driver === 'codex' && readCodexSetupMode(row.instance.config) === 'managed') return 'codex';
   const setup = obj(provider?.setup);
   if (host.writable && provider && (setup.canAuthenticate === true || (provider.driver === 'acpRegistry' && provider.installed === true))) return 'account';
   if (host.writable && row.driver === 'cursor' && provider && setup.canAuthenticate === false) return 'cursor';
@@ -115,28 +124,32 @@ function setupView(host: ProviderHost, row: Row, provider: Obj | undefined) {
     kind, environmentLabel, mode, showEnable: kind === 'antigravity' && !instanceEnabled(row.instance) && host.writable,
     runtime: mode === 'actions' ? [providerRuntime(live, entry, environmentLabel, configuredBinaryPath(row.instance.config), instanceEnabled(row.instance))] : [],
     account: kind === 'account' || mode === 'actions' ? [providerAccount(row.id, live, entry, environmentLabel)] : [],
+    codex: kind === 'codex' ? [codexSetupView(host, row.id, provider, { presentation: 'settings', mode: 'managed', enabled: instanceEnabled(row.instance), readOnly: !host.writable, allowExistingCli: true })] : [],
     cursorNote: kind === 'cursor' ? "Using CURSOR_API_KEY. Remove it from this provider's environment to use browser sign-in." : '',
   };
 }
 /** The wizard's Sign in step's stream: the ACP instance this opening created. */
-export const wizardSetupStreams = (_host: ProviderHost, open: boolean, serial: number) => ({ auth: open && acpCreated?.serial === serial ? [acpCreated.instanceId] : [], install: [] as string[] });
+export function wizardSetupStreams(_host: ProviderHost, open: boolean, serial: number, dialog = '', target = '') {
+  // The Add ChatGPT account dialog's setup and the Reconnect ChatGPT picker read their instance's streams too.
+  const codex = [...(dialog === 'chatgpt' ? chatgptDialogStreams(open, serial) : []), ...(open && dialog === 'codex-picker' && target ? [target] : [])];
+  return { auth: [...(open && acpCreated?.serial === serial ? [acpCreated.instanceId] : []), ...codex], install: codex };
+}
 /** The streams the selected editor's setup rows show (ProviderSetupActions: auth and install; the Account row: auth). */
 export function providerSetupStreams(host: ProviderHost, selectedId: string): { auth: string[]; install: string[] } {
   const editor = providerPage(host, selectedId, 0).editors[0];
   if (!editor) return { auth: [], install: [] };
-  return { auth: editor.setup.account.length ? [editor.id] : [], install: editor.setup.runtime.length ? [editor.id] : [] };
+  const codex = editor.setup.codex.length > 0;
+  return { auth: editor.setup.account.length || codex ? [editor.id] : [], install: editor.setup.runtime.length || codex ? [editor.id] : [] };
 }
 
 function editorFor(host: ProviderHost, row: Row, live: Obj[]) {
   const meta = driverMeta(row.driver), provider = live.find(candidate => candidate.instanceId === row.id);
   const status = rowStatus(row, provider), config = obj(row.instance.config);
-  const advisory = versionAdvisory(provider, status.enabled);
   const displayName = str(row.instance.displayName).trim() || meta?.label || row.driver;
   const dedicated = new Set((meta?.env || []).map(field => field.key));
   const variables = envRows(row.id, row.instance, dedicated);
-  const custom = row.driver === 'antigravity' ? [] : arr(config.customModels).map(entry => typeof entry === 'string' ? { slug: entry, name: entry } : obj(entry));
-  const liveModels = arr(provider?.models).filter(model => model.isCustom !== true);
-  const models = [...liveModels, ...custom.map(entry => ({ slug: str(entry.slug), name: str(entry.name) || str(entry.slug), isCustom: true, capabilities: entry.capabilities ?? arr(provider?.models).find(model => model.slug === entry.slug)?.capabilities ?? null }))];
+  // deriveProviderModelsForDisplay: built-ins from the server, custom rows from the current config.
+  const models = deriveProviderModelsForDisplay({ liveModels: arr(provider?.models), customModels: row.driver === 'antigravity' ? [] : readCustomModelEntries(config.customModels) });
   // ProviderModelsSection: favorites, visible, then hidden; order and visibility are device preferences (settings-b-models.ts).
   const favorites = favoriteSlugs(host.local, row.id), prefs = instancePrefs(host.local, row.id), hiddenSet = new Set(prefs.hiddenModels);
   const display = groupModels<Obj & { slug: string; isCustom: boolean }>(models.map(model => ({ ...(model as Obj), slug: str(model.slug), isCustom: model.isCustom === true })), favorites, hiddenSet, prefs.modelOrder);
@@ -148,8 +161,7 @@ function editorFor(host: ProviderHost, row: Row, live: Obj[]) {
     nameRows: [{ key: `${row.id}:${str(row.instance.displayName)}` }], // the accent picker keeps its popover open across commits
     modelBlocks: [{ key: `${row.id}:${hash(JSON.stringify(config.customModels ?? null))}` }],
     displayName: str(row.instance.displayName), placeholder: meta?.label || 'Instance label', accent: str(row.instance.accentColor), ...accentHsv(str(row.instance.accentColor)),
-    version: versionLabel(provider?.version), advisory: advisory ? (advisory.warning ? 'warning' : 'update') : '', advisoryTitle: advisory?.title || '',
-    advisoryDetail: advisory?.detail || '', advisoryCommand: advisory?.command || '', ...providerUpdateAction(provider, advisory),
+    version: versionLabel(provider?.version), enabled: status.enabled, icon: instanceIconUrl(row.instance, row.driver),
     // ProviderInstanceCard editorStatusNode: "Authenticated as" <redacted email> "· label", else the headline.
     statusLead: status.authenticated && status.authEmail ? 'Authenticated as' : status.summary.headline,
     statusEmail: status.authenticated ? redactedValue(status.authEmail).value : '', statusEmailPlaceholder: status.authenticated ? redactedValue(status.authEmail).placeholder : '',
@@ -162,7 +174,9 @@ function editorFor(host: ProviderHost, row: Row, live: Obj[]) {
       const redacted = variable?.valueRedacted === true;
       return fieldRow(row.id, field, redacted ? '' : str(variable?.value), { placeholder: redacted ? 'Stored secret - enter a new value to replace' : field.placeholder, redacted, clearable: variable !== undefined });
     }),
-    fields: (meta?.fields || []).map((field, index) => fieldRow(row.id, field, str(config[field.key]), {}, index === 0)),
+    // A managed Codex instance folds its read-only runtime paths instead (CodexManagedRuntimeFields).
+    fields: row.driver === 'codex' && readCodexSetupMode(config) === 'managed' ? [] : (meta?.fields || []).map((field, index) => fieldRow(row.id, field, str(config[field.key]), {}, index === 0)),
+    codexRuntime: row.driver === 'codex' && readCodexSetupMode(config) === 'managed' ? [codexRuntimeFields(host, row.id, provider)] : [],
     variables: variables.map((variable, index) => ({ rowKey: `${row.id}:env:${index}:${str(variable.name)}:${variable.valueRedacted === true ? '' : str(variable.value)}:${variable.sensitive === true}:${variable.valueRedacted === true}`,
       index, name: str(variable.name), value: variable.valueRedacted === true ? '' : str(variable.value), sensitive: variable.sensitive === true,
       redacted: variable.valueRedacted === true, label: str(variable.name) || String(index + 1) })),
@@ -180,19 +194,6 @@ function editorFor(host: ProviderHost, row: Row, live: Obj[]) {
     bulkLabel: builtIn.length ? (builtIn.every(entry => hiddenSet.has(entry.model.slug)) ? 'Enable all' : 'Disable all') : '',
     modelPlaceholder: meta?.modelPlaceholder || 'model-slug', canAddModel: row.driver !== 'antigravity',
   };
-}
-
-/**
- * ProviderInstanceCard's version action: "Install <recommended>" when the
- * compatibility advisory names a version the server can install, else
- * "Update now" when the server reports an update candidate.
- */
-export function providerUpdateAction(provider: Obj | undefined, advisory: { title: string } | null): { advisoryAction: string; advisoryTarget: string } {
-  const none = { advisoryAction: '', advisoryTarget: '' };
-  if (!provider || !advisory) return none;
-  const compatibility = obj(provider.compatibilityAdvisory), version = obj(provider.versionAdvisory), target = str(compatibility.recommendedVersion);
-  if (target) return str(compatibility.message) && version.canInstallVersion === true ? { advisoryAction: `Install ${versionLabel(target) || target}`, advisoryTarget: target } : none;
-  return version.canUpdate === true && str(version.status) === 'behind_latest' ? { advisoryAction: 'Update now', advisoryTarget: '' } : none;
 }
 
 const PRESET_HEALTH: Record<string, number> = { performance: 60, balanced: 300, 'battery-saver': 900 };
@@ -223,11 +224,9 @@ export function providerPage(host: ProviderHost, selection: string, nowMs: numbe
     rows: rows.map((row, index) => {
       const provider = live.find(candidate => candidate.instanceId === row.id), status = rowStatus(row, provider);
       const name = str(row.instance.displayName).trim() || driverMeta(row.driver)?.label || row.driver;
-      const advisory = versionAdvisory(provider, status.enabled);
       return { id: row.id, first: index === 0, name, driver: row.driver, enabled: status.enabled, selected: row.id === selected?.id, version: versionLabel(provider?.version),
-        advisory: advisory ? (advisory.warning ? 'warning' : 'update') : '', advisoryTitle: advisory?.title || '',
         status: `${status.summary.headline}${status.needsAttention && status.inlineDetail ? ` · ${status.inlineDetail}` : ''}`,
-        dot: status.needsAttention ? status.statusKey : '', accent: str(row.instance.accentColor), badge: str(row.instance.accentColor) ? initials(name) : '' };
+        dot: status.needsAttention ? status.statusKey : '', accent: str(row.instance.accentColor), badge: str(row.instance.accentColor) ? initials(name) : '', icon: instanceIconUrl(row.instance, row.driver) };
     }),
     editors: selected ? [editorFor(host, selected, live)] : [], emptyEditor: selected ? '' : targetMissing ? 'This provider instance is no longer available on this device.' : 'No providers configured.',
     healthSeconds: String(health.seconds), healthDown: String(Math.max(0, health.seconds - 30)), healthUp: String(health.seconds + 30), healthCustom: health.seconds !== health.preset, cursorUsage: settings.cursorKeychainUsageEnabled === true,
@@ -248,6 +247,8 @@ function existingIds(settings: Obj): Set<string> {
 let acpPrepared: { serial: number; agent: AcpAgent } | null = null;
 // The ACP instance this wizard opening created: its Sign in step (ProviderWizardAuthenticationStep).
 let acpCreated: { serial: number; instanceId: string } | null = null;
+// The ChatGPT account this Add ChatGPT account dialog created: its managed setup (AddCodexAccountDialog).
+let chatgptCreated: { serial: number; instanceId: string; displayName: string } | null = null;
 let acpLastAgents: AcpAgent[] = [];
 let wizardSerial = -1;
 function wizardIdentity(settings: Obj, driverId: string, labelSet: boolean, label: string, idSet: boolean, id: string) {
@@ -260,8 +261,8 @@ function wizardIdentity(settings: Obj, driverId: string, labelSet: boolean, labe
 }
 
 /** The Add provider wizard's derived identity and the selected driver's config fields. */
-export function providerWizard(host: ProviderHost, open: boolean, serial: number, driverId: string, labelSet: boolean, label: string, idSet: boolean, id: string) {
-  if (serial !== wizardSerial) { wizardSerial = serial; acpPrepared = null; acpCreated = null; }
+export function providerWizard(host: ProviderHost, open: boolean, serial: number, driverId: string, labelSet: boolean, label: string, idSet: boolean, id: string, dialog = '', target = '') {
+  if (serial !== wizardSerial) { wizardSerial = serial; acpPrepared = null; acpCreated = null; chatgptCreated = null; }
   const identity = wizardIdentity(settingsOf(host), driverId, labelSet, label, idSet, id);
   const prepared = identity.meta.id === 'acpRegistry' && acpPrepared?.serial === serial ? acpPrepared.agent : null;
   const created = open && acpCreated?.serial === serial ? acpCreated.instanceId : '';
@@ -273,8 +274,23 @@ export function providerWizard(host: ProviderHost, open: boolean, serial: number
     preview: identity.shownLabel.trim() || `${identity.meta.label} Workspace`, idPlaceholder: `${identity.meta.id}_work`,
     fields: identity.meta.fields.map((field, index) => ({ ...fieldRow('wizard', field, ''), index })),
     environment: str(obj(host.config.environment).label) || 'this environment',
+    chatgpt: chatgptDialog(host, open && dialog === 'chatgpt', serial), chatgptConnected: open && dialog === 'chatgpt' && chatgptConnected(host, serial),
+    codexPicker: open && dialog === 'codex-picker' && target ? [codexTargetResolver?.(host, target) ?? codexPicker(host, target)].filter(picker => picker !== null) : [],
   };
 }
+
+/** AddCodexAccountDialog after Continue: the created account's managed setup, or "Preparing managed setup.". */
+function chatgptDialog(host: ProviderHost, open: boolean, serial: number) {
+  if (!open || chatgptCreated?.serial !== serial) return [];
+  const { instanceId, displayName } = chatgptCreated, provider = liveProviders(host).find(candidate => candidate.instanceId === instanceId);
+  const setup = provider?.setup ? [codexSetupView(host, instanceId, provider, { presentation: 'settings', mode: 'managed', enabled: true, readOnly: !host.writable, allowExistingCli: false })] : [];
+  return [{ key: instanceId, instanceId, title: displayName, setup }];
+}
+/** The dialog closes once the destination's snapshot shares a ChatGPT plan (usesChatGptSharing). */
+const chatgptConnected = (host: ProviderHost, serial: number) => chatgptCreated?.serial === serial
+  && usesChatGptSharing(liveProviders(host).find(candidate => candidate.instanceId === chatgptCreated!.instanceId));
+/** The streams the open Add ChatGPT account dialog shows. */
+export const chatgptDialogStreams = (open: boolean, serial: number) => open && chatgptCreated?.serial === serial ? [chatgptCreated.instanceId] : [];
 
 /** ACP Registry search (read scope); an empty query is the compact compatible catalog. */
 export async function acpRegistry(host: ProviderHost, native: Native | null | undefined, query: string, open: boolean, configured: string[]) {
@@ -284,6 +300,7 @@ export async function acpRegistry(host: ProviderHost, native: Native | null | un
     const result = await host.rpc(native, 'server.searchAcpRegistry', { query: query.trim().slice(0, 120) });
     const agents: AcpAgent[] = arr(result.agents).map(agent => ({ id: str(agent.id), name: str(agent.name), description: str(agent.description),
       link: str(agent.website) || str(agent.repository), icon: str(agent.icon), version: str(agent.version), distribution: str(agent.distribution),
+      iconUrl: resolveProviderInstanceAcpRegistryIconUrl({ driverKind: 'acpRegistry', agentId: str(agent.id), iconUrl: str(agent.icon) || undefined }) ?? '',
       added: configured.includes(str(agent.id)) }));
     acpLastAgents = agents;
     return { ready: true, error: '', agents, status: `${agents.length} compatible ${agents.length === 1 ? 'agent' : 'agents'} found.` };
@@ -304,7 +321,7 @@ const withKey = (base: Obj, key: string, value: unknown) => { const next: Obj = 
 const FAILURE_TITLES: Record<string, string> = { 'provider-remove': 'Could not delete provider instance', 'provider-reset': 'Could not reset provider instance',
   'provider-add': 'Could not add provider instance', 'provider-create': 'Could not add provider instance' };
 const TOASTED = ['provider-name', 'provider-display', 'provider-enabled', 'provider-accent', 'provider-field', 'provider-env-field', 'provider-env-remove', 'provider-env-name',
-  'provider-env-value', 'provider-env-sensitive', 'provider-model-add', 'provider-model-remove', 'provider-model-rename', ...Object.keys(FAILURE_TITLES)];
+  'provider-env-value', 'provider-env-sensitive', 'provider-model-add', 'provider-model-remove', ...Object.keys(FAILURE_TITLES)];
 const toastOf = (host: ProviderHost) => host as unknown as T3Client;
 
 /** One provider-settings write. `value` is the JSON the Contract action built through app.ts. */
@@ -334,49 +351,33 @@ async function providerOp(host: ProviderHost, native: Native, op: string, id: st
     await refreshConfig(host, native); return '';
   }
   if (op === 'provider-add' || op === 'provider-create') return createInstance(host, native, op, id, input);
-  if (op === 'provider-update' || op === 'provider-copy-command') {
-    const provider = liveProviders(host).find(candidate => candidate.instanceId === id);
-    if (!provider) throw new ClientError('That provider instance is no longer available.');
-    const row = providerRows(settingsOf(host), liveProviders(host), id).find(candidate => candidate.id === id);
-    const name = str(row?.instance.displayName).trim() || driverMeta(str(provider.driver))?.label || str(provider.driver);
-    if (op === 'provider-copy-command') {
-      const command = versionAdvisory(provider, true)?.command || '';
-      try {
-        if (!command) throw new ClientError('This provider has no update command.');
-        const copied = await native.later({ op: 'copyText', text: command }) as Obj;
-        if (copied?.ok !== true) throw new ClientError('Could not copy the command.');
-        pushToast(toastOf(host), { kind: 'success', title: `${name} update command copied`, description: 'Run it in a terminal when you are ready to update.' });
-      } catch (error) { if (letGo(error)) throw error; pushToast(toastOf(host), { kind: 'error', title: `Could not copy ${name} update command`, description: error instanceof Error ? error.message : '', stacked: true }); }
-      return '';
-    }
-    const label = driverMeta(str(provider.driver))?.label || str(provider.driver);
-    try {
-      await host.rpc(native, 'server.updateProvider', { provider: str(provider.driver), instanceId: id, ...(input.value ? { targetVersion: str(input.value) } : {}) }, true);
-      await host.rpc(native, 'server.refreshProviders', {});
-      await refreshConfig(host, native);
-    } catch (error) { if (letGo(error)) throw error; pushToast(toastOf(host), { kind: 'error', title: `Could not update ${label}`, description: error instanceof Error ? error.message : 'The provider update command could not be started.', stacked: true }); }
-    return '';
-  }
   if (MODEL_PREF_OPS.includes(op)) {
     // Device-only: the Models section's switches, arrows and bulk toggle.
     const provider = liveProviders(host).find(candidate => candidate.instanceId === id);
     const row = providerRows(settingsOf(host), liveProviders(host), id).find(candidate => candidate.id === id);
-    const custom = row ? arr(obj(row.instance.config).customModels).map(entry => typeof entry === 'string' ? entry : str(obj(entry).slug)) : [];
+    const custom = row ? readCustomModelEntries(obj(row.instance.config).customModels).map(entry => entry.slug) : [];
     const models = [...arr(provider?.models).filter(model => model.isCustom !== true).map(model => ({ slug: str(model.slug), isCustom: false })),
       ...custom.map(slug => ({ slug, isCustom: true }))];
     runModelPrefOp(host.local, op, id, str(input.key), str(input.value), models);
     return '';
   }
   if (op === 'provider-chatgpt') {
-    // AddCodexAccountDialog: one managed Codex instance per ChatGPT account.
-    // Its runtime install and browser sign-in are the server's managed setup.
+    // AddCodexAccountDialog.createAccount: one managed Codex instance per ChatGPT account. "The ID is
+    // routing identity; the name is editable and need not be unique": codex_<uuid>. The reference sends
+    // the whole providerInstances map; this sends the atomic create (the settings writes' rule).
     const name = str(input.key).trim();
     if (!name) throw new ClientError('Enter an account name.');
-    const settings = await freshSettings(host, native);
-    const instanceId = deriveAvailableInstanceId(() => `codex_chatgpt_${slugifyLabel(name) || 'account'}`, name, existingIds(settings));
+    const [uuid] = host.ids ? await host.ids(native, 1) : [];
+    if (!uuid) throw new ClientError('Could not allocate request identifiers.');
+    const instanceId = `codex_${uuid}`, displayName = `ChatGPT - ${name}`;
     await host.rpc(native, 'server.updateSettings', { patch: {}, providerInstanceMutation: { operation: 'create', instanceId,
-      instance: { driver: 'codex', displayName: `ChatGPT - ${name}`, enabled: true, config: { enabled: true, setupMode: 'managed' } } } }, true);
-    await refreshConfig(host, native); return '';
+      instance: { driver: 'codex', displayName, enabled: true, config: { enabled: true, setupMode: 'managed' } } } }, true);
+    await refreshConfig(host, native);
+    // renderSetup's ManagedCodexSetup autoStart, in this dialog or (onAccountCreated) on the welcome's new row.
+    chatgptCreated = { serial: wizardSerial, instanceId, displayName };
+    Object.assign(codexFlow(host, instanceId), { autoStart: true, autoStartHandled: false, displayName });
+    onChatGptCreated?.(host, instanceId, displayName);
+    return '';
   }
   if (op === 'provider-hub-add' || op === 'provider-hub-remove') {
     if (op === 'provider-hub-add') {
@@ -393,7 +394,7 @@ async function providerOp(host: ProviderHost, native: Native, op: string, id: st
     const agentId = str(input.key || input.agentId).trim();
     if (!agentId) throw new ClientError('Select an ACP or configure one manually.');
     const result = await host.rpc(native, 'server.prepareAcpRegistryAgent', { agentId }, true);
-    const agent: AcpAgent = acpLastAgents.find(candidate => candidate.id === agentId) ?? { id: agentId, name: str(input.value) || agentId, description: '', link: '', icon: '', version: '', distribution: '', added: false };
+    const agent: AcpAgent = acpLastAgents.find(candidate => candidate.id === agentId) ?? { id: agentId, name: str(input.value) || agentId, description: '', link: '', icon: '', iconUrl: '', version: '', distribution: '', added: false };
     acpPrepared = { serial: wizardSerial, agent: { ...agent, id: str(result.agentId) || agentId, version: str(result.version) || str(agent.version), distribution: str(result.distribution) || str(agent.distribution) } };
     return '';
   }
@@ -469,30 +470,39 @@ async function providerOp(host: ProviderHost, native: Native, op: string, id: st
       next = withKey(instance, 'environment', environment.length ? environment : undefined);
       await upsert(host, native, row, next, settings);
       envDrafts.delete(id); await refreshConfig(host, native); return '';
-    } else if (op === 'provider-model-add' || op === 'provider-model-remove' || op === 'provider-model-rename') {
+    } else if (op === 'provider-model-add' || op === 'provider-model-remove') {
+      // ProviderModelsSection handleAdd / handleRemove; the editor's Save is providers-upkeep.ts.
       if (row.driver === 'antigravity') throw new ClientError('Antigravity models come from the provider.');
-      const slug = str(input.key || input.slug).trim(), custom = arr(config.customModels).map(entry => typeof entry === 'string' ? { slug: entry, name: entry } : obj(entry));
+      const slug = str(input.key || input.slug).trim(), custom = readCustomModelEntries(config.customModels);
       if (op === 'provider-model-add') {
         if (!slug) throw new ClientError('Enter a model slug.');
         if (arr(liveProviders(host).find(provider => provider.instanceId === id)?.models).some(model => model.isCustom !== true && model.slug === slug)) throw new ClientError('That model is already built in.');
         if (slug.length > 256) throw new ClientError('Model slugs must be 256 characters or less.');
         if (custom.some(entry => entry.slug === slug)) throw new ClientError('That custom model is already saved.');
         custom.push({ slug, name: slug, capabilities: null });
-      } else if (op === 'provider-model-remove') {
+      } else {
         if (!custom.some(entry => entry.slug === slug)) throw new ClientError('That custom model is no longer saved.');
         custom.splice(custom.findIndex(entry => entry.slug === slug), 1);
-      } else {
-        const entry = custom.find(candidate => candidate.slug === slug);
-        if (!entry) throw new ClientError('That custom model is no longer saved.');
-        entry.name = str(input.value ?? input.name).trim() || slug;
       }
-      const stored = row.driver === 'acpRegistry' ? custom.map(entry => str(entry.slug)) : custom.map(entry => ({ slug: str(entry.slug), name: str(entry.name), ...(entry.capabilities ? { capabilities: entry.capabilities } : {}) }));
-      next = { ...instance, config: { ...config, customModels: stored } };
+      // updateCustomModels: toCustomModelSetting per entry; ACP Registry keeps plain slugs.
+      next = { ...instance, config: { ...config, customModels: storedCustomModels(row.driver, custom) } };
     } else throw new ClientError(`Unknown action: ${op}`);
     await upsert(host, native, row, next, settings, extra);
   }
   await refreshConfig(host, native);
   return '';
+}
+
+/**
+ * One instance's write with fresh settings, as the ops above do it (the custom model editor's
+ * Save, providers-upkeep.ts): `change` maps the saved instance to the next one.
+ */
+export async function upsertInstance(host: ProviderHost, native: Native, id: string, change: (instance: Obj, driver: string) => Obj): Promise<void> {
+  const settings = await freshSettings(host, native);
+  const row = providerRows(settings, liveProviders(host), id).find(candidate => candidate.id === id);
+  if (!row) throw new ClientError('That provider instance is no longer available.');
+  await upsert(host, native, row, change(row.instance, row.driver), settings);
+  await refreshConfig(host, native);
 }
 
 async function createInstance(host: ProviderHost, native: Native, op: string, id: string, input: Obj): Promise<string> {
@@ -510,7 +520,12 @@ async function createInstance(host: ProviderHost, native: Native, op: string, id
   const config: Obj = {};
   for (const field of meta.fields) { const text = str(values[field.key]).trim(); if (text) config[field.key] = text; }
   const prepared = driver === 'acpRegistry' && acpPrepared?.serial === wizardSerial ? acpPrepared.agent : null;
-  if (prepared && !str(config.agentId)) { config.agentId = str(prepared.id); if (/^https:\/\/cdn\.agentclientprotocol\.com\//.test(str(prepared.icon))) config.registryIconUrl = str(prepared.icon); }
+  if (prepared && !str(config.agentId)) {
+    // handleAcpPrepared: only an icon on the official Registry CDN is saved (resolveOfficialAcpRegistryIconUrl).
+    config.agentId = str(prepared.id);
+    const registryIconUrl = resolveOfficialAcpRegistryIconUrl(prepared.icon);
+    if (registryIconUrl) config.registryIconUrl = registryIconUrl;
+  }
   if (driver === 'acpRegistry' && !str(config.agentId)) throw new ClientError('Select an ACP or configure one manually.');
   if (driver === 'acpRegistry') config.distribution = 'auto';
   if (driver === 'codex') config.setupMode = 'existing';
@@ -525,9 +540,16 @@ async function createInstance(host: ProviderHost, native: Native, op: string, id
   return '';
 }
 
+/** The picker's instance on a background computer (codex-setup-host.ts registers it). */
+let codexTargetResolver: ((host: ProviderHost, target: string) => ReturnType<typeof codexPicker> | null) | null = null;
+export function setCodexTargetResolver(resolver: typeof codexTargetResolver): void { codexTargetResolver = resolver; }
+/** The welcome's onAccountCreated (pages-welcome.ts registers it): the new row comes first and starts. */
+let onChatGptCreated: ((host: ProviderHost, instanceId: string, displayName: string) => void) | null = null;
+export function setChatGptCreatedHandler(handler: typeof onChatGptCreated): void { onChatGptCreated = handler; }
+
 export const PROVIDER_OPS = ['provider-create', 'provider-add', 'provider-name', 'provider-display', 'provider-enabled', 'provider-remove', 'provider-reset',
   'provider-accent', 'provider-field', 'provider-env-field', 'provider-env-add', 'provider-env-name', 'provider-env-value', 'provider-env-sensitive', 'provider-env-remove', 'provider-model-add',
-  'provider-model-remove', 'provider-model-rename', 'provider-hub-add', 'provider-hub-remove', 'provider-chatgpt', 'provider-refresh', 'provider-health', 'provider-cursor-usage', 'acp-prepare', 'provider-update', 'provider-copy-command', ...MODEL_PREF_OPS];
+  'provider-model-remove', 'provider-hub-add', 'provider-hub-remove', 'provider-chatgpt', 'provider-refresh', 'provider-health', 'provider-cursor-usage', 'acp-prepare', ...MODEL_PREF_OPS];
 export type { Driver };
 
 /** The wizard's positional config drafts (f0…f4) as the driver's named fields. */

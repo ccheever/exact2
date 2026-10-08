@@ -12,6 +12,7 @@ import { checkMenu, uniqueProbes, type Probe } from './r5-composer-menus';
 import { emptyDetail, modelDetail, modelKey, modelRows, openModel, pageShares, setOpenModel, type ModelRowView, type ShareBarView } from './pages-usage-detail';
 import { contractVersionOf, environmentStatuses, forgetSummaries, isSelected, phaseText, prepareUsage, usagePoolLocal, usageState, type EnvironmentUsageStatus } from './usage-environments';
 import { cursorRows, emptyPooled, poolBarWidth, pooledView } from './usage-pooled-view';
+import { usesChatGptSharing } from './chatgpt-plan'; // managed-codex-chatgpt
 
 export const USAGE_CONTRACT_VERSION = 6;
 const MERGE_COMPATIBLE_SINCE = 4;
@@ -364,6 +365,8 @@ async function usageView(client: T3Client, native: Native | null | undefined, _s
   page.partial = answered.length > 0 && stillReporting > 0 ? 'Totals are partial while selected environments scan.' : '';
   if (answered.length === 0 && stillReporting > 0) return page; // the skeleton
   const environments = answered.map(status => ({ id: status.environmentId, label: status.label, summary: status.summary! }));
+  // managed-codex-chatgpt: a selected environment shares a ChatGPT plan (UsagePage.tsx:543-548).
+  page.chatgptShared = selected.some(status => arr(state.envs.find(env => env.id === status.environmentId)?.config?.providers).some(usesChatGptSharing));
   const merged = mergeUsage(environments);
   presentUsage(page, merged, state.window, { sources: environments.flatMap(environment => arr(environment.summary.sources)) });
   page.coverage = [...selected.filter(status => status.error !== null).map(status => ({ key: `f:${status.environmentId}`, text: `${status.label} could not report usage.` })), ...page.coverage];
@@ -387,7 +390,7 @@ export function windowPeriods(window: UsageWindow): string[] {
 type ProviderRowView = { key: string; driver: string; label: string; light: string; dark: string; sessions: string; value: string; detail: string; enable: string; enableLabel: string; busy: boolean };
 export function emptyUsage(metric: string, windowDays: number, breakdown: string, width: number) {
   return {
-    metric, windowDays, breakdown, plotWidth: width, menuWidth: 224, menuProbes: [] as Probe[], empty: '', error: '', environmentLabel: 'All environments', allSelected: true,
+    chatgptShared: false, metric, windowDays, breakdown, plotWidth: width, menuWidth: 224, menuProbes: [] as Probe[], empty: '', error: '', environmentLabel: 'All environments', allSelected: true,
     environments: [] as { key: string; label: string; checked: boolean; disabled: boolean; status: string }[], environmentIcon: '', environmentPending: '', partial: '', refreshing: false,
     windowLabel: '', total: '', sessions: '', unpriced: '', notices: [] as { key: string; text: string }[],
     providers: [] as ProviderRowView[],

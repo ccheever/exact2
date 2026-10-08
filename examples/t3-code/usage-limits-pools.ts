@@ -1,5 +1,5 @@
 // The pooled subscription limits across environments, T3 Code 1e2ecbd975 (MIT, see LICENSE-T3):
-// packages/shared/src/usageLimits.ts (CHATGPT_USAGE_URL, CURSOR_USAGE_WINDOWS,
+// packages/shared/src/usageLimits.ts (CURSOR_USAGE_WINDOWS,
 // cursorUsageWindowDetails, collectExternalUsageLinks, LimitAccount, collectLimitAccounts,
 // collectLimitNotices, LimitPoolMember, LimitPoolWindow, LimitPool, displayLimitWindows,
 // collectLimitPools) and apps/web/src/components/usage/UsageLimitsPooled.tsx (accountInitials,
@@ -7,11 +7,12 @@
 // `str`/`num`/`arr`; `presentations` keeps the reference's shape (an ordered map of environment id
 // to `{ entry: { target: { label } }, serverConfig }`) so its tests port unchanged; accountKey,
 // resetMillis and paceOfShares repeat usage-limits.ts's private helpers (that file is the
-// composer ticket's and is read here only). The rules are otherwise the reference's.
+// composer ticket's and is read here only); CHATGPT_USAGE_URL is chatgpt-plan.ts's. The rules are
+// otherwise the reference's.
 import { arr, num, obj, str, type Obj } from './domain';
 import { elapsedShare, limitsNotice, providersWithLimits, type LimitPace, type ResetCreditInput } from './usage-limits';
 
-export const CHATGPT_USAGE_URL = 'https://chatgpt.com/#settings/Usage';
+export { CHATGPT_USAGE_URL } from './chatgpt-plan';
 
 export const CURSOR_USAGE_WINDOWS = [
   { id: 'totalPercentUsed', label: 'Overall', description: 'Combined usage across both allowances, not a third quota.' },
