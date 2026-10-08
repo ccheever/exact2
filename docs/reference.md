@@ -967,8 +967,10 @@ impl DataSource for Scores {
 ```
 
 `Store` (`store.get`, `store.set`, under `secret.keep <name>`) is for
-**secrets**: a session token, a key. Apple keeps them in the Keychain and the
-web in `localStorage`; the host reads them into a snapshot before boot, so a
+**secrets**: a session token, a key. Apple keeps them in the Keychain, Linux
+in a file per secret only the user can read (`0600`, under
+`$XDG_DATA_HOME/exact/<app id>/secrets`; not encrypted), and the web in
+`localStorage`; Windows keeps them in memory for now. The host reads them into a snapshot before boot, so a
 read is synchronous, and a scripted drive never keeps them. A best time is not
 a secret: keep it in app storage.
 

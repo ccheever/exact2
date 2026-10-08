@@ -48,7 +48,7 @@ mod transform_binding;
 #[path = "value_watch.rs"]
 mod value_watch;
 
-use system::{agent_store_snapshot, persist_agent_writes, physical_memory};
+use system::{persist_store_writes, physical_memory, store_snapshot};
 
 /// Why the host refused to boot.
 #[allow(missing_docs)]
@@ -244,7 +244,7 @@ impl<D: DataSource> Host<D> {
         crate::picker::know_roots(data.app_id());
         // A named drive's secrets, read before the runner takes the source.
         // A carried reload keeps its memory store and does not touch the files.
-        let store_snapshot = agent_store_snapshot(data.app_id(), carried.is_some());
+        let store_snapshot = store_snapshot(data.app_id(), carried.is_some());
         let mut runner = Runner::boot_with_delivery(
             plan,
             data,
@@ -1265,7 +1265,7 @@ impl<D: DataSource> Host<D> {
         // reload reads them back (platformer R10). The log is taken either way.
         let writes = self.runner.take_store_writes();
         let app_id = self.runner.data().app_id().to_string();
-        for line in persist_agent_writes(&app_id, &writes) {
+        for line in persist_store_writes(&app_id, &writes) {
             self.runner.log(line);
         }
         paint |= self.project_navigation();
