@@ -15,7 +15,7 @@ async function fixture(kind = 'image') {
     const call = obj(input); calls.push(call);
     return { ok: true, generation: client.generation, value: call.op === 'composerAttachPick' ? { files: [
       { kind, id: kind === 'image' ? imageId : fileId, name: kind === 'image' ? 'photo.jpg' : 'notes.txt',
-        mimeType: kind === 'image' ? 'image/jpeg' : 'text/plain', sizeBytes: 50 }] } : { applied: false } };
+        mimeType: kind === 'image' ? 'image/jpeg' : 'text/plain', sizeBytes: 50 }] } : call.op === 'composerAttachRemove' || call.op === 'snapshotDraftRemove' ? { removed: true } : { applied: false } };
   } };
   await client.command('dismiss-error', '', '', 0, native, storage);
   Object.assign(client, { environmentId: 'env', projectId: 'project', origin: 'https://draft.test' });

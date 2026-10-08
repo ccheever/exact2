@@ -18,7 +18,7 @@ final class T3MobileOutbox {
         T3Failure(kind: "Persistence", message: message, uncertain: uncertain)
     }
     // ECMAScript String.trim, matching the TypeScript record decoder (not Foundation whitespace).
-    private static let trimCharacters = CharacterSet(charactersIn: "\u{0009}\u{000A}\u{000B}\u{000C}\u{000D} \u{00A0}\u{1680}\u{2000}\u{2001}\u{2002}\u{2003}\u{2004}\u{2005}\u{2006}\u{2007}\u{2008}\u{2009}\u{200A}\u{2028}\u{2029}\u{202F}\u{205F}\u{3000}\u{FEFF}")
+    static let trimCharacters = CharacterSet(charactersIn: "\u{0009}\u{000A}\u{000B}\u{000C}\u{000D} \u{00A0}\u{1680}\u{2000}\u{2001}\u{2002}\u{2003}\u{2004}\u{2005}\u{2006}\u{2007}\u{2008}\u{2009}\u{200A}\u{2028}\u{2029}\u{202F}\u{205F}\u{3000}\u{FEFF}")
     private static func nonempty(_ value: Any?) -> Bool {
         guard let value = value as? String else { return false }
         return !value.isEmpty && value.trimmingCharacters(in: trimCharacters) == value
@@ -148,6 +148,12 @@ final class T3MobileOutbox {
         if request["operation"] as? String != "remove" {
             guard let record = request["record"] as? Object, record["messageId"] as? String == id, validateRecord(record) else { return false }
         }
+        if let transfer = request["transfer"] {
+            guard request["operation"] as? String == "enqueue", let claim = transfer as? Object,
+                  validateTransfer(claim, id: id), claim["state"] as? String == "prepared",
+                  claim["mutationId"] as? String == request["mutationId"] as? String,
+                  jsonEqual(claim["record"], request["record"]) else { return false }
+        }
         if let revision = request["expectedRevision"], !integer(revision) { return false }
         if let token = request["expectedToken"], !nonempty(token) { return false }
         if let held = request["requireUnheld"], !boolean(held) { return false }
@@ -192,6 +198,11 @@ final class T3MobileOutbox {
                   let owners = outcome["owners"] as? [Object], owners.allSatisfy({ Self.validateRecord($0) && $0["messageId"] as? String == id }) else {
                 throw failure("The outbox outcome inventory is invalid.")
             }
+            if let captured = request["transfer"] as? Object {
+                guard let claim = value["transfer"] as? Object, Self.sameTransfer(captured, claim) else {
+                    throw failure("The outbox outcome lost its captured draft owner.")
+                }
+            }
             for field in ["record", "removed"] {
                 guard let raw = result[field], raw is NSNull || (raw as? Object).map({ Self.validateRecord($0) && $0["messageId"] as? String == id }) == true else {
                     throw failure("The outbox outcome payload is invalid.")
@@ -202,6 +213,11 @@ final class T3MobileOutbox {
         if value["state"] as? String == "active", !Self.nonempty(value["token"]) { throw failure("The active outbox owner is invalid.") }
         if value["state"] as? String == "pending" {
             guard let mutation = value["mutation"] as? Object, Self.validateMutation(mutation, id: id) else { throw failure("The outbox pending mutation is invalid.") }
+            if let captured = mutation["transfer"] as? Object {
+                guard let claim = value["transfer"] as? Object, Self.jsonEqual(captured, claim) else {
+                    throw failure("The prepared draft capture differs from its recorded mutation.")
+                }
+            }
             if value["previous"] is Object, !Self.nonempty(value["token"]) { throw failure("The previous outbox owner is invalid.") }
             if mutation["operation"] as? String == "remove" {
                 guard value["proposed"] is NSNull else { throw failure("An outbox removal cannot propose a record.") }
@@ -211,6 +227,11 @@ final class T3MobileOutbox {
                         == JSONSerialization.data(withJSONObject: requested, options: [.sortedKeys]) else {
                     throw failure("The outbox proposal differs from its recorded mutation.")
                 }
+            }
+        }
+        if let transfer = value["transfer"] {
+            guard let claim = transfer as? Object, Self.validateTransfer(claim, id: id) else {
+                throw failure("The captured draft transfer inventory is invalid.")
             }
         }
         return value
@@ -242,7 +263,108 @@ final class T3MobileOutbox {
         ["record", "previous", "proposed"].compactMap { value[$0] as? Object }
             + (value["outcomes"] as? [String: Object] ?? [:]).values.flatMap { $0["owners"] as? [Object] ?? [] }
             + Array((value["removals"] as? [String: Object] ?? [:]).values)
+            + [(value["transfer"] as? Object)?["record"] as? Object].compactMap { $0 }
     }
+
+    static func jsonEqual(_ a: Any?, _ b: Any?) -> Bool {
+        guard let a, let b else { return a == nil && b == nil }
+        return (try? JSONSerialization.data(withJSONObject: [a], options: [.sortedKeys]))
+            == (try? JSONSerialization.data(withJSONObject: [b], options: [.sortedKeys]))
+    }
+    static func captureFingerprint(_ capture: Object) throws -> String {
+        SHA256.hash(data: try JSONSerialization.data(withJSONObject: capture, options: [.sortedKeys]))
+            .map { String(format: "%02x", $0) }.joined()
+    }
+    private static func fields(_ value: Object, required: [String], optional: [String] = []) -> Bool {
+        Set(required).isSubset(of: Set(value.keys)) && Set(value.keys).isSubset(of: Set(required + optional))
+    }
+    static func validateCapture(_ capture: Object, record: Object? = nil) -> Bool {
+        guard fields(capture, required: ["version", "draft"]), integer(capture["version"], positive: true), capture["version"] as? Int == 1,
+              let draft = capture["draft"] as? Object,
+              fields(draft, required: ["key", "revision", "createdAt", "environmentId", "origin", "projectId", "text", "images", "files", "attachmentIds", "choices", "workspace"], optional: ["branchChoice"]),
+              let key = draft["key"] as? String, nonempty(key), matches(key, "^new-task:[a-zA-Z0-9_-]{1,128}$"),
+              integer(draft["revision"]), canonicalOrigin(draft["origin"]), nonempty(draft["environmentId"]), nonempty(draft["projectId"]),
+              draft["text"] is String, let images = draft["images"] as? [Object], let files = draft["files"] as? [Object],
+              let order = draft["attachmentIds"] as? [String], JSONSerialization.isValidJSONObject(capture) else { return false }
+        if !(draft["choices"] is NSNull) {
+            guard let choices = draft["choices"] as? Object,
+                  fields(choices, required: [], optional: ["providerId", "modelId", "modelOptions", "runtimeMode", "interactionMode"]) else { return false }
+            for name in ["runtimeMode", "interactionMode"] where choices[name] != nil { if !(choices[name] is String) { return false } }
+            if ["providerId", "modelId", "modelOptions"].contains(where: { choices[$0] != nil }) {
+                guard choices["providerId"] is String, choices["modelId"] is String, choices["modelOptions"] is [Object] else { return false }
+            }
+        }
+        for name in ["workspace", "branchChoice"] {
+            if name == "workspace" && draft[name] is NSNull || name == "branchChoice" && draft[name] == nil { continue }
+            guard let workspace = draft[name] as? Object,
+                  fields(workspace, required: name == "branchChoice" ? ["envMode", "branch", "worktreePath", "kind"] : ["envMode", "branch", "worktreePath"]),
+                  member(workspace["envMode"], ["local", "worktree"]), ["branch", "worktreePath"].allSatisfy({ workspace[$0] is String }),
+                  name != "branchChoice" || member(workspace["kind"], ["automatic", "explicit"]) else { return false }
+        }
+        var normalized: [String: Object] = [:]
+        for (kind, attachments) in [("image", images), ("file", files)] {
+            for attachment in attachments {
+                guard let id = attachment["id"] as? String, normalized[id.lowercased()] == nil else { return false }
+                let required = kind == "image" ? ["id", "name", "mimeType", "sizeBytes"]
+                    : ["id", "contextId", "draftKey", "environmentId", "name", "mimeType", "sizeBytes", "source", "attachmentId", "status"]
+                guard Set(required).isSubset(of: Set(attachment.keys)) else { return false }
+                var item: Object = ["id": id, "kind": kind, "name": attachment["name"]!, "mimeType": attachment["mimeType"]!, "sizeBytes": attachment["sizeBytes"]!]
+                let uploadField = kind == "image" ? "uploadId" : "attachmentId"
+                guard attachment[uploadField] == nil || attachment[uploadField] is String else { return false }
+                let upload = attachment[uploadField] as? String ?? ""
+                item["uploadId"] = upload; item["status"] = upload.isEmpty ? "staged" : "ready"
+                if !upload.isEmpty { item["uploadEnvironmentId"] = draft["environmentId"] }
+                if kind == "file" {
+                    guard attachment["draftKey"] as? String == key, attachment["environmentId"] as? String == draft["environmentId"] as? String,
+                          attachment["source"] as? String == "attached", member(attachment["status"], ["staged", "ready"]) else { return false }
+                    item["contextId"] = attachment["contextId"]
+                }
+                for field in ["source", "videoWidth", "videoHeight"] where attachment[field] != nil { item[field] = attachment[field] }
+                normalized[id.lowercased()] = item
+            }
+        }
+        guard order.count == normalized.count, Set(order.map { $0.lowercased() }).count == order.count,
+              order.allSatisfy({ normalized[$0.lowercased()]?["id"] as? String == $0 }) else { return false }
+        let attachments = order.compactMap { normalized[$0.lowercased()] }
+        let probe: Object = ["schemaVersion": 1, "origin": draft["origin"]!, "environmentId": draft["environmentId"]!,
+            "threadId": "capture", "messageId": "capture", "commandId": "capture", "text": draft["text"]!, "createdAt": draft["createdAt"]!, "attachments": attachments]
+        guard validateRecord(probe) else { return false }
+        if let record {
+            guard validateRecord(record), record["origin"] as? String == draft["origin"] as? String,
+                  record["environmentId"] as? String == draft["environmentId"] as? String,
+                  (record["creation"] as? Object)?["projectId"] as? String == draft["projectId"] as? String,
+                  record["text"] as? String == (draft["text"] as! String).trimmingCharacters(in: trimCharacters),
+                  jsonEqual(record["attachments"], attachments) else { return false }
+        }
+        return true
+    }
+    private static func sameTransfer(_ original: Object, _ current: Object) -> Bool {
+        guard ["transferId", "draftKey", "fingerprint", "messageId", "threadId", "commandId", "mutationId"].allSatisfy({ jsonEqual(original[$0], current[$0]) }) else { return false }
+        return ["completed", "released"].contains(current["state"] as? String ?? "")
+            || jsonEqual(original["record"], current["record"]) && jsonEqual(original["capture"], current["capture"])
+    }
+    static func validateTransfer(_ claim: Object, id: String) -> Bool {
+        guard fields(claim, required: ["transferId", "draftKey", "fingerprint", "messageId", "threadId", "commandId", "mutationId", "state", "record", "capture", "outcome"]),
+              claim["transferId"] as? String == id, claim["messageId"] as? String == id,
+              ["threadId", "commandId", "mutationId", "draftKey"].allSatisfy({ nonempty(claim[$0]) }),
+              matches(claim["draftKey"] as! String, "^new-task:[a-zA-Z0-9_-]{1,128}$"),
+              let digest = claim["fingerprint"] as? String, digest.count == 64, matches(digest, "^[a-f0-9]{64}$"),
+              let state = claim["state"] as? String, ["prepared", "queued", "failed", "completed", "released"].contains(state) else { return false }
+        if ["completed", "released"].contains(state) {
+            guard claim["record"] is NSNull, claim["capture"] is NSNull else { return false }
+        } else {
+            guard let record = claim["record"] as? Object, let capture = claim["capture"] as? Object,
+                  validateCapture(capture, record: record), (capture["draft"] as? Object)?["key"] as? String == claim["draftKey"] as? String,
+                  (try? captureFingerprint(capture)) == digest,
+                  ["messageId", "threadId", "commandId"].allSatisfy({ record[$0] as? String == claim[$0] as? String }) else { return false }
+        }
+        if state == "prepared" { return claim["outcome"] is NSNull }
+        guard let outcome = claim["outcome"] as? Object, outcome["mutationId"] as? String == claim["mutationId"] as? String,
+              outcome["messageId"] as? String == id, integer(outcome["revision"]), outcome["message"] is String,
+              outcome["removed"] is NSNull, outcome["status"] as? String == (["failed", "released"].contains(state) ? "failed" : "committed") else { return false }
+        return state == "queued" ? jsonEqual(outcome["record"], claim["record"]) : outcome["record"] is NSNull
+    }
+
     func inventoryHolds(_ attachmentID: String) throws -> Bool {
         let inventory = envelopes()
         guard inventory.errors.isEmpty else { throw failure("Outbox attachment ownership is incomplete. Keep local files until its records can be read.") }
