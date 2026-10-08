@@ -3,9 +3,9 @@
 import UIKit
 
 final class T3MobileTerminal {
+    let menus = T3MobileTerminalMenus()
     let sessions: T3MobileTerminalSessions
     private struct WeakView { weak var value: T3MobileTerminalView? }
-    private let menu = T3MobileTerminalMenu()
     private var views: [String: WeakView] = [:]
     init(transport: T3Transport) { sessions = T3MobileTerminalSessions.of(transport) }
     func makeView(props: [String: String], events: ExactNativeEvents) throws -> ExactNativeInstance {
@@ -29,25 +29,23 @@ final class T3MobileTerminal {
               let view = views[key]?.value else {
             reply(["ok": false, "generation": generation, "error": ["kind": "Terminal", "message": "This terminal is no longer open."]]); return
         }
-        if request["action"] as? String == "menu" {
-            do { try menu.present(source: request["value"] as? String ?? "", anchor: view.view) { choice in answer(["choice": choice]) } }
-            catch { reply(["ok": false, "generation": generation, "error": ["kind": "Terminal", "message": error.localizedDescription]]) }
-            return
-        }
         do { try view.control(request["action"] as? String ?? "", value: request["value"] as? String ?? ""); answer([:]) }
         catch { reply(["ok": false, "generation": generation, "error": ["kind": "Terminal", "message": error.localizedDescription]]) }
     }
-    func destroy() { menu.destroy(); for entry in Array(views.values) { entry.value?.destroy() }; views.removeAll(); sessions.destroy() }
+    func destroy() { menus.destroy(); for entry in Array(views.values) { entry.value?.destroy() }; views.removeAll(); sessions.destroy() }
 }
 
 final class T3MobileTerminalView: ExactNativeInstance {
     private weak var owner: T3MobileTerminal?
     private let surface = T3MobileTerminalSurface()
+    private lazy var chrome = T3MobileTerminalChrome(surface: surface) { [weak self] action in
+        do { try self?.control(action, value: "") } catch { self?.systemMessage(error.localizedDescription) }
+    }
     private var accessory: T3MobileTerminalAccessory?
     private var session: T3MobileTerminalSession?
     private var key = "", status = "", modifier = "", host = "unknown"
     private var writes: [String] = [], writing = false, alive = true
-    override var view: UIView { surface }
+    override var view: UIView { chrome }
     static func json(_ value: Any) -> String { String(data: (try? JSONSerialization.data(withJSONObject: value, options: [.sortedKeys])) ?? Data(), encoding: .utf8) ?? "" }
     init(owner: T3MobileTerminal, events: ExactNativeEvents) {
         self.owner = owner; super.init(events: events)
@@ -81,6 +79,7 @@ final class T3MobileTerminalView: ExactNativeInstance {
         let nextReadOnly = source["readOnly"] as? Bool ?? true
         if nextReadOnly { writes.removeAll(); modifier = "" }
         surface.readOnly = nextReadOnly
+        chrome.readOnly = nextReadOnly
         if let session { owner.sessions.setReadOnly(nextReadOnly, session: session) }
         surface.autoFocus = source["autoFocus"] as? Bool ?? false
         host = source["hostPlatform"] as? String ?? "unknown"
@@ -90,6 +89,7 @@ final class T3MobileTerminalView: ExactNativeInstance {
         surface.appearanceScheme = source["appearance"] as? String ?? "dark"
         surface.backgroundColorHex = source["background"] as? String ?? "#0a0a0a"
         surface.foregroundColorHex = source["foreground"] as? String ?? "#adadb1"
+        chrome.colors(background: surface.backgroundColorHex, foreground: surface.foregroundColorHex)
         surface.mutedForegroundColorHex = source["mutedForeground"] as? String ?? "#8E8E95"
         if accessory?.host != host {
             let next = T3MobileTerminalAccessory(host: host) { [weak self] action, value in
@@ -111,7 +111,7 @@ final class T3MobileTerminalView: ExactNativeInstance {
     }
     func permissions(environment: String, read: Bool, operate: Bool) {
         guard let parts = (try? JSONSerialization.jsonObject(with: Data(key.utf8))) as? [String], parts.first == environment else { return }
-        if !operate { writes.removeAll(); modifier = ""; accessory?.selectModifier(""); surface.readOnly = true; surface.setKeyboardAccessory(nil) }
+        if !operate { writes.removeAll(); modifier = ""; accessory?.selectModifier(""); surface.readOnly = true; chrome.readOnly = true; surface.setKeyboardAccessory(nil) }
         if !read {
             surface.initialBuffer = ""
             if let session { owner?.sessions.unbind(self, from: session) }
@@ -185,7 +185,7 @@ final class T3MobileTerminalView: ExactNativeInstance {
         }
     }
     override func destroy() {
-        guard alive else { return }; alive = false; writes.removeAll(); surface.dispose()
+        guard alive else { return }; alive = false; writes.removeAll(); chrome.destroy(); surface.dispose()
         if let session { owner?.sessions.unbind(self, from: session) }; owner?.unregister(self, key: key); session = nil
     }
 }

@@ -3,11 +3,12 @@ import { MobileDraftClient, mobileDraftRecoveryHandles } from './mobile-draft-re
 import { mobileNewTaskFlowView as view, mobileNewTaskFlowAction as action } from './new-task-flow';
 import { mobileNewTaskDraftLookup as lookup, mobileNewTaskDraftList as list, mobileNewTaskDraftCreate as create } from './mobile-new-task-drafts';
 import { composerNow, noteNow } from './shared/composer-controls';
-import { mobileNewTask } from './new-task';
 import { mobileNewTaskEnvironmentMatch, mobileNewTaskEnvironmentSources } from './new-task-selection';
 import { EnvironmentFleet } from './shared/settings-b-fleet';
 import { obj, type Obj } from './shared/domain';
 import type { Files, Native } from './shared/protocol';
+import type { MobileOutboxTransferClaim } from './mobile-outbox-transfer-model';
+import { mobileNewTaskSubmitRecover } from './new-task-submit';
 const time = 1791420000000, origin = 'https://test.invalid';
 function config(environmentId = 'env'): Obj {
   return { environment: { environmentId, orchestrationProtocolVersion: 2, capabilities: { serverResolvedCommandContext: true } },
@@ -17,14 +18,43 @@ function config(environmentId = 'env'): Obj {
 async function fixture(saved: Obj = { version: 1 }, withClock = true) {
   const client = new MobileDraftClient(), fleet = new EnvironmentFleet(), calls: Obj[] = [];
   let disk = JSON.stringify(saved), serial = 0;
+  const claims = new Map<string, MobileOutboxTransferClaim>();
+  const outboxRows = new Map<string, Obj>();
+  const outcome = (claim: MobileOutboxTransferClaim) => ({ mutationId: claim.mutationId, messageId: claim.messageId,
+    status: 'committed', revision: 1, record: claim.record, removed: null, message: '', ownerEpoch: 'epoch', sequenceFloor: 1,
+    current: outboxRows.get(claim.messageId) });
   const storage: Files = { fs: { async mkdir() {}, async readFile() { return new TextEncoder().encode(disk).buffer; },
     async atomicWriteFile(_path, bytes) { disk = new TextDecoder().decode(bytes); } } };
   const native: Native = { available: true, watch() {}, async later(input) {
     const request = obj(input); calls.push(request);
-    if (request.op === 'mobileOutbox') return { ok: true, generation: client.generation, value: request.action === 'read'
-      ? { ownerEpoch: 'epoch', sequenceFloor: 0, complete: true, errors: [], records: [], outcomes: [], mutations: [], revisions: {}, tokens: {}, transfers: [] }
-      : { complete: true, fingerprint: null, claims: [] } };
+    if (request.op === 'mobileOutbox') {
+      let value: unknown;
+      if (request.action === 'read') value = { ownerEpoch: 'epoch', sequenceFloor: claims.size, complete: true, errors: [],
+        records: [...outboxRows.values()], outcomes: [], mutations: [], transfers: [...claims.values()],
+        revisions: Object.fromEntries([...outboxRows].map(([id, row]) => [id, row.revision])),
+        tokens: Object.fromEntries([...outboxRows].map(([id, row]) => [id, row.token])) };
+      else if (request.action === 'transferLookup') value = { complete: true, fingerprint: request.capture ? 'a'.repeat(64) : null,
+        claims: [...claims.values()].filter(claim => claim.draftKey === request.draftKey) };
+      else if (request.action === 'transferStatus') {
+        const claim = claims.get(String(request.transferId)); value = { claim, outcome: claim?.record ? outcome(claim) : null };
+      } else if (request.action === 'enqueueTransfer') {
+        const record = request.record as NonNullable<MobileOutboxTransferClaim['record']>;
+        const capture = request.capture as NonNullable<MobileOutboxTransferClaim['capture']>;
+        const claim: MobileOutboxTransferClaim = { transferId: record.messageId, draftKey: capture.draft.key, fingerprint: 'a'.repeat(64),
+          messageId: record.messageId, threadId: record.threadId, commandId: record.commandId, mutationId: String(request.mutationId),
+          state: 'queued', record, capture };
+        claims.set(claim.transferId, claim);
+        outboxRows.set(record.messageId, { record, revision: 1, token: request.mutationId, pending: false, held: false });
+        value = { disposition: 'created', claim, outcome: outcome(claim) };
+      } else if (request.action === 'completeTransfer') {
+        const claim = claims.get(String(request.transferId))!;
+        const completed = { ...claim, state: 'completed' as const, capture: null, record: null };
+        claims.set(claim.transferId, completed); value = { completed: true, claim: completed };
+      } else throw Error('Unexpected outbox action ' + request.action);
+      return { ok: true, generation: client.generation, value };
+    }
     return { ok: true, generation: client.generation, value: request.op === 'ids' ? Array.from({ length: Number(request.count) }, () => `allocated-${++serial}`)
+      : request.op === 'status' ? { origin: client.origin, homeOrigin: origin, environmentId: client.environmentId }
       : request.op === 'http' ? { authenticated: true, permissions: ['orchestration:operate'], scopes: ['orchestration:operate'] }
         : request.method === 'server.getConfig' ? config(client.environmentId) : {} };
   } };
@@ -36,10 +66,10 @@ async function fixture(saved: Obj = { version: 1 }, withClock = true) {
   client.local.drafts['env:new:a'] = 'old A'; client.local.drafts['env:new:b'] = 'old B';
   if (withClock) noteNow(client, time); calls.length = 0;
   const snapshot = (session: string, visit = 'visit', location = '/new/draft', ready = true) => view(session, visit, location, true, ready, client, fleet);
-  const act = (owner: string, kind: string, id = '', value = '', visit = 'visit') => action(owner, visit, kind, id, value, native, storage, client, fleet);
+  const act = (owner: string, kind: string, id = '', value = '', visit = 'visit') => action(owner, visit, kind, id, value, native, storage, client, fleet, time);
   const choose = async (session: string, project = 'a') => { const flow = snapshot(session, 'visit', '/new'); const result = await act(flow.owner, 'project', JSON.stringify(['env', project]));
     expect(result.message).toBe(''); return snapshot(session); };
-  return { client, fleet, calls, native, storage, snapshot, act, choose, disk: () => obj(JSON.parse(disk)) };
+  return { client, fleet, calls, native, storage, snapshot, act, choose, claims, disk: () => obj(JSON.parse(disk)) };
 }
 test('two containing flows create independent IDs for one project and never adopt legacy content', async () => {
   const f = await fixture(); const a = await f.choose('one'), keyA = f.client.draftKey;
@@ -96,23 +126,27 @@ test('late ID allocation after flow replacement creates no competing draft', asy
   await started; f.snapshot('two', 'other', '/new'); reply({ ok: true, generation: 1, value: ['late-id'] });
   await expect(choosing).rejects.toMatchObject({ kind: 'superseded' }); expect(lookup(f.client, 'new-task:late-id')).toBeNull();
 });
-test('delayed ACK after new flow preserves A pending, never selects A over B, and later reconciles only A', async () => {
+test('delayed local enqueue reply preserves A claim, never selects A over B, and recovers only A', async () => {
   const f = await fixture(), a = await f.choose('one'), keyA = f.client.draftKey;
   await f.act(a.owner, 'draft', a.draftOwner, 'same');
   let finish!: (value: unknown) => void, entered!: () => void;
   const started = new Promise<void>(resolve => { entered = resolve; }), previous = f.native.later;
   f.native.later = async input => {
-    if (obj(input).method === 'orchestration.launchThread') { entered(); return new Promise(resolve => { finish = resolve; }); }
+    if (obj(input).op === 'mobileOutbox' && obj(input).action === 'enqueueTransfer') {
+      const saved = await previous(input); entered(); return new Promise(resolve => { finish = () => resolve(saved); });
+    }
     return previous(input);
   };
   const sending = f.act(a.owner, 'send'); await started;
-  const pendingA = f.client.pending!, b = await f.choose('two', 'b'), keyB = f.client.draftKey;
+  const claimA = [...f.claims.values()][0]!, b = await f.choose('two', 'b'), keyB = f.client.draftKey;
   await f.act(b.owner, 'draft', b.draftOwner, 'same');
-  expect(keyB).not.toBe(keyA); expect(mobileNewTask('', f.client, f.fleet).composer.canSend).toBe(false);
-  finish({ ok: true, generation: 1, value: { threadId: pendingA.payload.threadId } });
-  await expect(sending).rejects.toMatchObject({ kind: 'superseded' });
-  expect(f.client.threadId).toBe(''); expect(f.client.projectId).toBe('b'); expect(f.client.draftKey).toBe(keyB); expect(f.client.pending).toBe(pendingA);
-  f.client.shell.threads.push({ id: pendingA.payload.threadId, projectId: 'a' }); expect(f.client.reconcilePending()).toBe(true);
+  expect(keyB).not.toBe(keyA); expect(f.client.pending).toBeUndefined();
+  expect(f.client.local.drafts[keyA]).toBe('same');
+  finish(undefined);
+  expect(await sending).toMatchObject({ message: '', nextLocation: '', submitted: false });
+  expect(f.client.threadId).toBe(''); expect(f.client.projectId).toBe('b'); expect(f.client.draftKey).toBe(keyB); expect(f.client.pending).toBeUndefined();
+  const recovered = await mobileNewTaskSubmitRecover(f.client, f.native, f.storage, claimA.transferId, () => false);
+  expect(recovered).toMatchObject({ status: 'completed', disposition: 'stay', messageId: claimA.messageId });
   expect(lookup(f.client, keyA)).toBeNull(); expect(f.client.local.drafts[keyB]).toBe('same'); expect(f.client.threadId).toBe('');
   expect(f.client.local.drafts['env:new:a']).toBe('old A'); expect(f.client.projectId).toBe('b');
 });
@@ -171,16 +205,22 @@ test('real connect and shared synchronization retarget the same draft across rep
   }
 });
 
-test('an unresolved launch refuses retargeting its own captured flow before changing selection or requesting scratch', async () => {
+test('lost local enqueue reply refuses captured draft retargeting without shared Pending or server dispatch', async () => {
   const f = await fixture(), flow = await f.choose('one'), key = f.client.draftKey;
   await f.act(flow.owner, 'draft', flow.draftOwner, 'captured'); const previous = f.native.later;
-  f.native.later = async input => obj(input).method === 'orchestration.launchThread'
-    ? { ok: false, generation: 1, error: { kind: 'transport', uncertain: true, message: 'reply lost' } } : previous(input);
-  expect((await f.act(flow.owner, 'send')).message).toContain('reply lost');
+  f.native.later = async input => {
+    const response = await previous(input);
+    return obj(input).op === 'mobileOutbox' && obj(input).action === 'enqueueTransfer'
+      ? { ok: false, generation: 1, error: { kind: 'storage', uncertain: true, message: 'reply lost' } } : response;
+  };
+  expect((await f.act(flow.owner, 'send')).message).toContain('Recover');
   f.snapshot('one'); const before = f.calls.length;
-  expect((await f.act(flow.owner, 'project', '["env","b"]')).message).toContain('captured launch');
+  expect((await f.act(flow.owner, 'project', '["env","b"]')).message).toContain('captured task transfer');
   expect(f.client.projectId).toBe('a'); expect(f.client.draftKey).toBe(key); expect(lookup(f.client, key)?.projectId).toBe('a');
-  expect(f.calls).toHaveLength(before);
+  expect(f.calls.slice(before).some(call => call.op === 'ids' || call.method)).toBe(false);
+  expect(f.client.pending).toBeUndefined(); expect(f.client.local.drafts[key]).toBe('captured');
+  expect([...f.claims.values()][0]?.state).toBe('queued');
+  expect(f.calls.some(call => call.method === 'orchestration.launchThread')).toBe(false);
 });
 test('a saved foreign-origin draft refuses resume without adopting another key or allocating IDs', async () => {
   const f = await fixture(); const record = create(f.client, { id: 'foreign', origin: 'https://foreign.invalid', environmentId: 'env', projectId: 'a', createdAt: new Date(time).toISOString() });

@@ -45,6 +45,7 @@ shape HomeItem
   key: string
   kind: string
   draftKey: string
+  queuedOwner: string
   showPendingDivider: bool
   id: string
   environmentId: string
@@ -303,12 +304,12 @@ component HomeListItem
           svg position="absolute" top=0 left=0 width="100%" height="100%" pointer-events="none"
             rect x=0 y=0 width="100%" height="100%" rx=7 fill="none" stroke=colors.border stroke-width=1 stroke-dasharray="3 3"
           text item.title font-size=13 line-height="17px" font-weight=500 color=colors.muted
-      else when item.kind == "draft"
+      else when item.kind == "draft" or item.kind == "pending"
         when item.showPendingDivider
           row margin-top=14 margin-bottom=5.25 padding-left=(surface == "sidebar-list" ? 10.5 : 17.5) padding-right=(surface == "sidebar-list" ? 10.5 : 17.5) align-items="center" gap=8.75
             text "Unsent" font-size=13 line-height="17px" font-weight=500 color=(surface == "sidebar-list" ? colors.muted : colors.tertiary)
             view flex=1 height=1 background-color=colors.border
-        button press=menuAction(item.environmentId, "", "draft-open", item.draftKey)
+        button press=menuAction(item.environmentId, item.threadId, (item.kind == "draft" ? "draft-open" : "pending-open"), (item.kind == "draft" ? item.draftKey : item.queuedOwner))
           hatch="mobile-home-row"
           data-mobile-home-menu=item.nativeMenu
           data-mobile-home-surface=surface
@@ -323,16 +324,17 @@ component HomeListItem
           background-color=(surface == "sidebar-list" ? colors.drawer : colors.screen)
           text-align="left"
           aria-label=item.title
-          aria-description="Opens the draft in the new task composer"
-          testId=`home-draft-${item.draftKey}`
+          aria-description=(item.kind == "draft" ? "Opens the draft in the new task composer" : "Opens the pending task")
+          testId=(item.kind == "draft" ? `home-draft-${item.draftKey}` : `home-pending-${item.threadId}`)
           column padding-left=(surface == "sidebar-list" ? 12 : 17.5) padding-right=(surface == "sidebar-list" ? 12 : 17.5) padding-top=(surface == "sidebar-list" ? 10 : 8.75) padding-bottom=(surface == "sidebar-list" ? 10 : 8.75)
             row align-items="center" gap=5.25
               when item.projectPresent
                 HomeProjectIcon(item=item, colors=colors)
               text item.projectTitle flex=1 min-width=0 line-clamp=1 text-overflow="ellipsis" font-size=14 line-height="19px" font-weight=500 color=colors.muted
               row align-items="center" gap=3.5
-                t3-symbol symbol-name="square.and.pencil" point-size=10 symbol-weight="regular" symbol-tint=colors.draft width=10 height=10
-                text "Draft" font-size=13 line-height="17px" color=colors.draft
+                when item.kind == "draft"
+                  t3-symbol symbol-name="square.and.pencil" point-size=10 symbol-weight="regular" symbol-tint=colors.draft width=10 height=10
+                text item.status font-size=13 line-height="17px" color=(item.kind == "draft" ? colors.draft : colors.muted)
             text item.title margin-top=3.5 font-size=16 line-height="23px" font-weight=500 color=colors.foreground line-clamp=1 text-overflow="ellipsis"
             when length(item.branch) > 0 or length(item.environmentLabel) > 0
               row margin-top=3.5 align-items="center" gap=3.5

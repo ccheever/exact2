@@ -1,3 +1,4 @@
+use MobileOutboxDrive from "./mobile-outbox-drive.contract"
 use homeChromeChange, homeAutomationPath, NewTaskCloneSnapshot, NewTaskCloneColors, AddProjectSnapshot, AddProjectColors, addProjectLocation, addProjectNextAlert, mobileInformationPath, mobileSettingPath, ThreadHeaderOptions, ThreadHeaderSnapshot, ThreadHeaderRead, ThreadHeaderResult, WorkingControlData, MobileSidebarPanel, MobileInspectorPanel, MobileWorkspaceMarkers, MobileQueueSnapshot, GitColors, MobileGitSnapshot, MobileGitResult, MobileGitBranchesSnapshot, MobileGitBranchResult, InspectorState, InspectorContext, InspectorChange, InspectorPresentation, WorkspaceEvent, MobileRouteContent, MobileWorkspace, WorkspaceEntry, WorkspaceParams, WorkspaceOptions, WorkspaceNavigation from "./root-imports.contract"
 use ThreadPreferencesData, SettingsProjectOverview, SettingsProjectData, AccountEntry, SettingsWrite, StreamingAssistant, StreamingHapticState, AppLink, MediaCompletion, Appearance, SettingsView, SettingsScopeEvent, MobileLayout, HomeChromeView, ChromeEvent, HomeActionResult, ThreadSelection, HomeView, HomePreferences, Time, Viewport, PairingFields, Theme, Camera, Notice, Snapshot, ScheduledHeader, AutomationChange, VoiceFocus, PreviewOwner, PreviewMenus, InformationRoute, InformationRead, InformationConfiguration, InformationChange, Change, NotificationsData, MobileBrowserSnapshot, MobilePreviewColors, MobileDevicesSnapshot, InformationData, AttachmentAudioStatus, AutomationPrepared, AutomationData, VoiceGlobalPill, VoiceSnapshot, VoiceStatus, VoiceResult, VoiceColors from "./root-imports.contract"
 use AttachmentDocumentSnapshot, AttachmentDocumentMenu, AttachmentDocumentAction, MobileTerminalSnapshot, MobileTerminalResult, MobileTerminalEvent, MobileTerminalCapture, ReviewSnapshot, ReviewResult, ReviewColors, FileTreeSnapshot, FileTreeResult, FileSnapshot, ServerSettingsData, SettingsProviderAccounts, ProviderSettingsData, MediaPreviewSnapshot, ComposerAttachmentsSnapshot, SettingsChoicesData, MobilePreferencesResource from "./root-imports.contract"
@@ -77,6 +78,17 @@ routes nav
     environmentDetail "/settings/environments/:environmentKey"
     notfound
 component App
+  resource outbox = outboxView(data.revision, wallTime.epochAtZero + max(elapsed, now())) as shape MobileOutboxDrive
+  mutation outboxChanged as shape Change refreshes data, threadData, outbox
+  task readOutbox mount
+    after(1, readOutbox)
+  action readOutbox
+    send outboxChanged = outboxAction("read", "", wallTime.epochAtZero + now())
+  task deliverOutbox when outbox.next != "" and not pending(outboxChanged) key=outbox.next
+    every(1000, deliverOutbox)
+  action deliverOutbox
+    if not pending(outboxChanged)
+      send outboxChanged = outboxAction("deliver", outbox.next, wallTime.epochAtZero + now())
   resource accountEntry = accountEntry(top(nav).name, depth(nav) > 1, `${top(nav).id}`) as shape AccountEntry
   resource notificationSettings = notificationSettings() as shape NotificationsData
   task enterAccount when accountEntry.kind != "" key=top(nav).id
@@ -531,7 +543,7 @@ component App
         composerFocusIdentity = composerFocusIdentity
   mutation selected as shape ThreadSelection refreshes data then didSelectThread
   mutation draftChanged as shape Change refreshes data
-  task selectRouteThread when not pending(selected) and not pending(workspaceNavigation) and (startsWith(top(nav).name, "thread") or startsWith(top(nav).name, "git")) and data.ready and (top(nav).params.threadEnvironment != data.environmentId or top(nav).params.threadId != data.threadId) key=top(nav).url
+  task selectRouteThread when not pending(selected) and not pending(workspaceNavigation) and (startsWith(top(nav).name, "thread") or startsWith(top(nav).name, "git")) and data.ready and not threadData.queued and (top(nav).params.threadEnvironment != data.environmentId or top(nav).params.threadId != data.threadId) key=top(nav).url
     after(1, loadRouteThread)
   action loadRouteThread
     if not pending(selected) and not pending(workspaceNavigation)
@@ -552,7 +564,10 @@ component App
     if owner != "" and ((value and owner == composerOwner and editorId == composerEditor) or (not value and composerFocusIdentity == `${editorId}:${owner}`))
       composerFocusIdentity = value ? `${editorId}:${owner}` : ""
   action threadAction(op: string, id: string, value: string)
-    if top(nav).params.threadEnvironment == data.environmentId and top(nav).params.threadId == data.threadId
+    if op == "outbox:retry"
+      if not pending(outboxChanged)
+        send outboxChanged = outboxAction("retry", id, wallTime.epochAtZero + now())
+    else if top(nav).params.threadEnvironment == data.environmentId and top(nav).params.threadId == data.threadId
       if op == "queue-open"
         blur()
         composerFocusIdentity = ""
@@ -664,25 +679,12 @@ component App
   action terminalAction(op: string, value: string)
     if workspaceRouteReady
       send terminalChanged = terminalAction(op, terminalData.terminalId, value)
-  task createTerminal when top(nav).name == "threadTerminal" and workspaceRouteReady and (match terminalChanged { case some(result) => result.choice == "new" and result.environmentId == data.environmentId and result.threadId == data.threadId, case none => false })
-    after(1, createTerminal)
-  action createTerminal
-    terminalAction("new", "")
-  action terminalMenu
-    if workspaceRouteReady and terminalData.ready
-      send terminalChanged = terminalMenu(terminalData.terminalId, terminalData.tabs, terminalData.readOnly, appearance.terminalFontSize)
   action didTerminalChange
     match terminalChanged
       case some(result)
         if result.environmentId == data.environmentId and result.threadId == data.threadId and top(nav).name == "threadTerminal"
           if result.message != ""
             send notice = alert("info", "Terminal", result.message)
-          else if result.choice == "font-decrease"
-            changePreference("terminalFontSize", `${max(6, appearance.terminalFontSize - 0.5)}`)
-          else if result.choice == "font-increase"
-            changePreference("terminalFontSize", `${min(14, appearance.terminalFontSize + 0.5)}`)
-          else if result.choice == "select"
-            terminalId = result.terminalId
           else if result.closed
             nav = back(nav)
           else
@@ -704,6 +706,13 @@ component App
             nav = push(nav, path("threadTerminalCapture", data.environmentId, data.threadId))
           else if result.message != ""
             send notice = alert("info", "Terminal", result.message)
+          else if result.type == "menu"
+            if result.action == "font-decrease" or result.action == "font-increase"
+              changePreference("terminalFontSize", `${min(14, max(6, appearance.terminalFontSize + (result.action == "font-decrease" ? -0.5 : 0.5)))}`)
+            else if result.action == "select"
+              terminalId = result.text
+            else if result.action == "new"
+              terminalAction("new", "")
           else if result.type == "action"
             terminalAction(result.action, "")
       case none
@@ -1112,7 +1121,7 @@ component App
     after(1, redirectNewTask)
   action prepareNewTask
     if newTaskFlow.requestRoute == `${top(nav).id}` and newTaskFlow.needsPrepare
-      send taskPrepared = newTaskAction(newTaskFlow.owner, `${top(nav).id}`, "prepare", "", "")
+      send taskPrepared = newTaskAction(newTaskFlow.owner, `${top(nav).id}`, "prepare", "", "", wallTime.epochAtZero + now())
   action redirectNewTask
     if newTaskFlow.requestRoute == `${top(nav).id}` and newTaskFlow.nextLocation != "" and not pending(taskChanged) and not pending(taskPrepared)
       nav = open(nav, newTaskFlow.nextLocation)
@@ -1166,7 +1175,7 @@ component App
   action taskAction(kind: string, id: string, value: string)
     if not pending(taskChanged) and not pending(taskPrepared)
       newTaskOperation = kind
-      send taskChanged = newTaskAction(newTaskFlow.owner, `${top(nav).id}`, kind, id, value)
+      send taskChanged = newTaskAction(newTaskFlow.owner, `${top(nav).id}`, kind, id, value, wallTime.epochAtZero + now())
   action didTaskChange
     match taskChanged
       case some(result)
@@ -1177,7 +1186,7 @@ component App
             send notice = alert("info", (result.alertTitle != "" ? result.alertTitle : newTaskOperation == "scratch" ? "Could not start without a project" : "Could not update task"), result.message)
           else if result.submitted
             nav = open(nav, path("thread", result.environmentId, result.threadId))
-          else if newTaskOperation == "clone-remove" and result.nextLocation == "/"
+          else if result.nextLocation == "/"
             nav = replace(go(nav, path("newTask")), path("home"))
           else if result.nextLocation != ""
             nav = push(nav, result.nextLocation)
@@ -1186,7 +1195,7 @@ component App
       case none
         newTaskOperation = ""
   action editNewDraft(value: string, owner: string)
-    send taskDraftChanged = newTaskAction(newTaskFlow.owner, `${top(nav).id}`, "draft", owner, value)
+    send taskDraftChanged = newTaskAction(newTaskFlow.owner, `${top(nav).id}`, "draft", owner, value, wallTime.epochAtZero + now())
   mutation taskDraftChanged as shape NewTaskFlowResult refreshes data, newTaskData
   action editNewQuery(value: string)
     newTaskQuery = value
@@ -1471,7 +1480,7 @@ component App
               archiveEnvironment=archiveEnvironment, archiveSort=archiveSort, host=host, code=code, formError=formError, expanded=expanded, scannerOpen=scannerOpen, cameraStatus=cameraStatus, composerExpanded=(composerExpanded and (composerEditor == `thread-composer-${entry.id}` or composerReturn.editorId == `thread-composer-${entry.id}`)), archiveDataPending=(pending(archiveData)), archivedPending=(pending(archived)), automationChangedPending=(pending(automationChanged)),
               changedPending=(pending(changed)), detailChangedPending=(pending(detailChanged)), modelChangedPending=(pending(modelChanged)), projectRenamedPending=(pending(projectRenamed)), taskChangedPending=(pending(taskChanged)), threadPreferencesChangedPending=(pending(threadPreferencesChanged)), toggleSidebar=toggleSidebar, openNewTask=openNewTask, voiceAction=voiceAction, informationCommand=informationCommand, informationSearch=informationSearch, openInformation=openInformation,
               threadPreferenceChange=threadPreferenceChange, renameProject=renameProject, automationAction=automationAction, serverSettingChange=serverSettingChange, providerAction=providerAction, providerField=providerField, providerSignOut=providerSignOut, settingsEnvironment=settingsEnvironment, changePreference=changePreference, settingsHeaderEvent=settingsHeaderEvent, openSetting=openSetting, homeEvent=homeEvent,
-              editDraft=editDraft, composerFocus=composerFocus, threadAction=threadAction, browserAction=browserAction, devicesAction=devicesAction, browserMenu=browserMenu, devicesMenu=devicesMenu, openBrowser=openBrowser, openDevices=openDevices, terminalAction=terminalAction, terminalMenu=terminalMenu,
+              editDraft=editDraft, composerFocus=composerFocus, threadAction=threadAction, browserAction=browserAction, devicesAction=devicesAction, browserMenu=browserMenu, devicesMenu=devicesMenu, openBrowser=openBrowser, openDevices=openDevices, terminalAction=terminalAction, terminalMenuConfiguration=terminalData.sourceJSON, terminalMenuEvent=terminalEvent,
               terminalEvent=terminalEvent, selectTerminalLine=selectTerminalLine, attachTerminalOutput=attachTerminalOutput, openReview=openReview, reviewAction=reviewAction, reviewSection=reviewSection, reviewFile=reviewFile, refreshReview=refreshReview, loadReviewFiles=loadReviewFiles, editReviewComment=editReviewComment, submitReviewComment=submitReviewComment, toggleReviewWrap=toggleReviewWrap,
               openFiles=openFiles, editFilesQuery=editFilesQuery, toggleDirectory=toggleDirectory, refreshFiles=refreshFiles, openFile=openFile, refreshFile=refreshFile, toggleFileWrap=toggleFileWrap, toggleFilePreview=toggleFilePreview, audioStatusChanged=audioStatusChanged, audioControl=audioControl, documentAction=documentAction, documentNativeEvent=documentNativeEvent,
               retryDocument=retryDocument, mediaComplete=mediaComplete, openDraftMedia=openDraftMedia, openMedia=openMedia, removeAttachment=removeAttachment, pickAttachments=pickAttachments, openModelSettings=openModelSettings, modelAction=modelAction, editModelQuery=editModelQuery, toggleLegacy=toggleLegacy, openModelFilter=openModelFilter, chooseModelFilter=chooseModelFilter,

@@ -1,5 +1,7 @@
+import type { MobileDraftClient } from './mobile-draft-recovery';
 // Mobile365aa87982 NewTaskFlowProvider, NewTaskDraftRouteScreen and DraftScreen.
 // @ref llp/1109.005-composer-and-transcript.decision.md#new-task-ownership
+import { mobileNewTaskSubmit } from './new-task-submit';
 import { mobileNewTaskDraftNoteBranch } from './mobile-new-task-drafts';
 import { mobileNewTaskCloneObserve, mobileNewTaskCloneAction } from './new-task-clone';
 import { mobileClient, mobileNative } from './client';
@@ -137,7 +139,7 @@ export function mobileNewTaskFlowOwns(owner: string, visit: string, client: T3Cl
 }
 
 export async function mobileNewTaskFlowAction(owner: string, visit: string, kind: string, id: string, value: string,
-  nativeInput: Native | null | undefined, suppliedStorage: Files, client: T3Client = mobileClient, background: EnvironmentFleet = fleet): Promise<NewTaskFlowResult> {
+  nativeInput: Native | null | undefined, suppliedStorage: Files, client: MobileDraftClient = mobileClient, background: EnvironmentFleet = fleet, now = 0): Promise<NewTaskFlowResult> {
   const flow = flows.get(client), result = (message = '', nextLocation = '', submitted = false): NewTaskFlowResult => ({
     revision: client.revision, requestRoute: visit, nextLocation, message, alertTitle: '', submitted,
     environmentId: client.environmentId, projectId: client.projectId, threadId: client.threadId });
@@ -200,6 +202,19 @@ export async function mobileNewTaskFlowAction(owner: string, visit: string, kind
     // Root's existing snapshot owns preference hydration. Refuse before that
     // completes rather than creating a competing read of the shared draft store.
     assertCurrent();
+    if (kind === 'send' || kind === 'send-alternate') {
+      const selected = flow.selected;
+      const submitted = await mobileNewTaskSubmit(client, base, client === mobileClient ? nativeFiles(base) : suppliedStorage,
+        { draftKey: flow.draftKey, now, current: () => current() && sameSelection(selected, client) });
+      if (!current()) return result();
+      if (submitted.disposition === 'stay') return result(submitted.message || (submitted.draftRetained && submitted.status === 'completed'
+        ? 'The original task is queued. Your newer draft has been kept.' : 'Resolve this saved task before submitting again.'));
+      const captured = submitted.owner!;
+      flow.selected = null; mobileNewTaskDraftUnbind(client, flow.owner); flow.draftKey = '';
+      return { ...result('', submitted.disposition === 'pending' ? '/' : '', submitted.disposition === 'thread'),
+        environmentId: captured.environmentId, projectId: submitted.claim?.record?.creation?.projectId ?? client.projectId,
+        threadId: captured.threadId };
+    }
     if (kind === 'prepare') {
       if (!route.context || route.unsupported) return result('', '/new');
       const saved = route.draftId ? mobileNewTaskDraftLookup(client, route.draftId) : null;

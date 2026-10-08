@@ -1,3 +1,5 @@
+import { mobileOutboxSnapshot } from './mobile-outbox';
+import { mobileOutboxDriveCompleted } from './mobile-outbox-drive';
 // Pinned T3 Code365aa87982 thread-list-v2-items, useThreadListActions and HomeRouteScreen.
 // @ref llp/1109.004-home-projection.decision.md#decision
 // @ref llp/1109.011-responsive-workspace.decision.md#navigation-and-data-ownership
@@ -153,6 +155,14 @@ export async function mobileHomeAction(requestRoute: string, environmentId: stri
   if (kind === 'draft-open' || kind === 'draft-discard')
     return mobileHomeDraftAction(requestRoute, environmentId, threadId, kind, value, currentSurface, client, nativeInput, storage);
   if (!currentSurface() || held.has(key)) return result();
+  if (kind === 'pending-open') {
+    const inventory = mobileOutboxSnapshot(client);
+    const saved = [...inventory.rows.map(item => item.record), ...mobileOutboxDriveCompleted(client)].find(record =>
+      record.creation && record.environmentId === environmentId && record.threadId === threadId && JSON.stringify({ origin: record.origin,
+        environmentId: record.environmentId, threadId: record.threadId, messageId: record.messageId, commandId: record.commandId }) === value);
+    return saved ? result('', `/threads/${encodeURIComponent(environmentId)}/${encodeURIComponent(threadId)}`)
+      : result('This pending task changed. Refresh the list before opening it.');
+  }
   const initial = row(environmentId, threadId, client, background), focused = initial.environment?.focused;
   const entry = focused ? undefined : background.entries.get(initial.environment?.key ?? '');
   const generation = focused ? client.generation : entry?.generation ?? -1, origin = focused ? client.origin : entry?.origin ?? '';

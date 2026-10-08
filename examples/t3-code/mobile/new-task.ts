@@ -1,6 +1,8 @@
+import { mobileModelSelectionReady } from './model-availability';
 // Pinned mobile NewTask{Route,Draft,ContextPicker} screens at365aa87982; shared draft and launch ownership.
 // @ref llp/1109.005-composer-and-transcript.decision.md#new-task-ownership
 import { mobileNewTaskDraftNoteBranch, mobileNewTaskDraftLookup, mobileNewTaskDraftPresentation, mobileNewTaskDraftSelectedBranch } from './mobile-new-task-drafts';
+import { mobileNewTaskTransferBusy } from './new-task-transfer';
 import { mobileNewTaskLaunchPendingOwned } from './mobile-new-task-launch';
 import { mobileNewTaskCloneSnapshot } from './new-task-clone';
 import { mobileClient, mobileCommand, mobileNative } from './client';
@@ -80,7 +82,14 @@ export function mobileNewTask(query = '', client: T3Client = mobileClient, backg
     composer.sendLabel = composer.blockedReason;
   }
   if (!client.providerId || !client.modelId) composer.modelLabel = 'Choose model';
-  composer.canSend &&= !client.threadId && !client.pending && !client.busy && canSelect && (scratch || context.envMode !== 'worktree' || !!context.branch);
+  // Local durable admission remains available offline; actual online grants,
+  // workspace defaults and capture ownership are rechecked by the submit adapter.
+  if (client.connection !== 'connected') composer.blockedReason = '';
+  composer.canSend = !!client.draft.trim() && !!client.providerId && !!client.modelId && !composer.modelUnavailable
+    && client.preferencesLoaded && !client.threadId && !client.pending && !client.busy && canSelect && !clone.blocked
+    && !mobileNewTaskTransferBusy(client, client.draftKey) && (client.connection !== 'connected' || composer.canOperate
+      && mobileModelSelectionReady(client.config, { instanceId: client.providerId, model: client.modelId }))
+    && (scratch || context.envMode !== 'worktree' || !!context.branch);
   return { revision: client.revision, environmentId: client.environmentId, projectId: client.projectId, threadId: client.threadId,
     projectTitle: str(project?.title), environmentLabel: environments.find(environment => environment.selected)?.label ?? str(obj(client.config.environment).label),
     projects, environments, branches: state.branches, query, branchQuery: state.branchQuery, emptyTitle, emptyDetail,

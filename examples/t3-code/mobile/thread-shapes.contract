@@ -110,6 +110,11 @@ shape ThreadComposerState
   running: bool
   queueCount: number
 shape ThreadSnapshot
+  queued: bool
+  queuedOwner: string
+  queuedStatus: string
+  queuedReason: string
+  queuedCanRetry: bool
   revision: number
   environmentId: string
   threadId: string

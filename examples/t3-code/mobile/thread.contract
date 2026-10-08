@@ -36,6 +36,14 @@ component ThreadFeed
                         text (data.historyLoading ? "Loading earlier activity…" : "Load earlier activity") font-size=14 line-height="19px" font-weight=500 color=colors.foreground
                   when length(data.historyError) > 0
                     text data.historyError text-align="center" font-size=13 line-height="17px" color=colors.iconSubtle
+              when data.queued and row.first
+                column gap=7 padding=12 margin-bottom=12 border-radius=14 background-color=colors.subtle testId="outbox-status"
+                  text data.queuedStatus font-size=14 line-height="19px" font-weight=500 color=colors.foreground
+                  when length(data.queuedReason) > 0
+                    text data.queuedReason font-size=13 line-height="18px" color=colors.secondary
+                  when data.queuedCanRetry
+                    button press=action("outbox:retry", data.queuedOwner, "") padding=7 aria-label="Retry pending task" testId="outbox-retry"
+                      text "Retry" font-size=14 line-height="19px" font-weight=500 color=colors.primary
               ThreadMessage(row=row, userBubbleMaxWidth=userBubbleMaxWidth, action=action, openMedia=openMedia, colors=colors)
 
 component ThreadMessage
@@ -53,14 +61,17 @@ component ThreadMessage
             text row.attribution margin-bottom=3.5 padding-right=3.5 font-size=12 line-height="16px" font-weight=500 color=colors.muted opacity=0.6
           column box-sizing="border-box" min-width=0 max-width=userBubbleMaxWidth width=(length(row.media) > 0 ? userBubbleMaxWidth : "auto") gap=7 border-radius=20 padding-left=12.25 padding-right=12.25 padding-top=8.75 padding-bottom=8.75 background-color=colors.userBubble
             each media in row.media key=media.id
-              ThreadAttachment(media=media, user=row.user, openMedia=openMedia, colors=colors)
+              when row.kind == "pending"
+                text media.name font-size=14 line-height="19px" color=colors.userForeground
+              else
+                ThreadAttachment(media=media, user=row.user, openMedia=openMedia, colors=colors)
             when length(trim(row.body)) > 0
               ThreadMarkdown(blocks=row.blocks, user=true, action=action, colors=colors)
           row margin-top=3.5 align-items="center" justify-content="flex-end" gap=3.5 padding-right=1.75
             when length(row.intent) > 0
               text row.intent font-size=12 line-height="16px" font-weight=500 color=colors.secondary
             text row.timestamp font-size=13 line-height="17px" font-weight=500 color=colors.secondary
-            when length(trim(row.body)) > 0
+            when length(trim(row.body)) > 0 and row.kind != "pending"
               ThreadCopy(row=row, action=action, colors=colors)
       else when row.kind == "assistant" or row.kind == "plan" or row.kind == "meta"
         column padding-left=3.5 padding-right=3.5

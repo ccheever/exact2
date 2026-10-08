@@ -4,7 +4,7 @@ import { obj, type Obj } from './shared/domain';
 import type { Native, Files } from './shared/protocol';
 import { terminalMetadataEvent } from './shared/terminal-drawer-view';
 import { terminalDraftRecords } from './shared/terminal-integrations';
-import { mobileTerminalPrepare, mobileTerminalAction, mobileTerminalCapture, mobileTerminalAttachOutput, mobileTerminalEvent } from './terminal-mobile';
+import { mobileTerminalPrepare, mobileTerminalAction, mobileTerminalCapture, mobileTerminalAttachOutput, mobileTerminalEvent, mobileTerminalColors } from './terminal-mobile';
 function fixture() {
   const client = new T3Client(); client.environmentId = 'env'; client.threadId = 'thread'; client.projectId = 'p';
   client.connection = 'connected'; client.configLive = true; client.shellLive = true; client.threadLive = true;
@@ -101,4 +101,27 @@ test('terminal capture rejects an edit ending during native ID allocation instea
   const result = await mobileTerminalAttachOutput(JSON.stringify(['env', 'thread', 'term-1']), 'output', 0, 0, 1000, f.native, f.files, f.client);
   expect(result.message).toContain('changed'); expect(f.client.draft).toBe('ordinary untouched');
   expect(terminalDraftRecords(f.client, f.client.draft)).toEqual([]);
+});
+
+// Native menus consume the captured transport identity and real session metadata.
+test('terminal menu configuration keeps source session cwd, status and selection', async () => {
+  const f = fixture(); await prepare(f); metadata(f);
+  const view = await prepare(f, 'term-2'), source = JSON.parse(view.sourceJSON);
+  expect(source).toMatchObject({ key: view.sessionKey, generation: f.client.generation, workspaceRoot: '/actual',
+    tabs: [{ id: 'term-2', label: 'Tests', cwd: '/actual', status: 'running', running: true, selected: true }] });
+  expect(mobileTerminalEvent(JSON.stringify({ type: 'menu', key: view.sessionKey, action: 'select', text: 'term-2' }), view.sessionKey))
+    .toMatchObject({ type: 'menu', action: 'select', text: 'term-2' });
+  expect(mobileTerminalEvent(JSON.stringify({ type: 'menu', key: 'previous', action: 'new' }), view.sessionKey).type).toBe('');
+});
+
+test('terminal capture uses sheet roles for every bundled appearance', async () => {
+  const { mobileTheme } = await import('./design');
+  for (const palette of ['t3-code', 't3-chat', 'grove', 'ocean', 'ember', 'iris']) {
+    for (const scheme of ['light', 'dark']) {
+      const theme = mobileTheme(scheme, palette), colors = mobileTerminalColors(scheme, palette);
+      expect(colors.sheetBackground).toBe(theme.sheet!);
+      expect(colors.sheetForeground).toBe(theme.foreground!);
+      expect(colors.sheetSubtle).toBe(theme.colors.subtle!);
+    }
+  }
 });
