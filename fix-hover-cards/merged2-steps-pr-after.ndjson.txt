@@ -1,0 +1,29 @@
+{"t":"2026-10-08T09:22:01.328Z","which":"after","step":"launched","appPid":38261,"part":"pr"}
+{"t":"2026-10-08T09:22:01.348Z","which":"after","step":"ready","what":"welcome","ms":19}
+{"t":"2026-10-08T09:22:01.805Z","which":"after","step":"tap","id":"welcome-pair"}
+{"t":"2026-10-08T09:22:07.922Z","which":"after","step":"tap","id":"welcome-continue"}
+{"t":"2026-10-08T09:22:09.498Z","which":"after","step":"tap","id":"welcome-agents-continue"}
+{"t":"2026-10-08T09:22:11.185Z","which":"after","step":"tap","id":"welcome-skip-import"}
+{"t":"2026-10-08T09:22:12.708Z","which":"after","step":"ready","what":"pull requests entry","ms":8}
+{"t":"2026-10-08T09:22:12.768Z","which":"after","step":"step","name":"freshness"}
+{"t":"2026-10-08T09:22:27.809Z","which":"after","step":"tap","id":"open-pull-requests"}
+{"t":"2026-10-08T09:22:37.062Z","which":"after","step":"ready","what":"row 132","ms":20}
+{"t":"2026-10-08T09:22:38.789Z","which":"after","step":"tap","id":"pr-row-132"}
+{"t":"2026-10-08T09:22:40.336Z","which":"after","step":"ready","what":"freshness mark","ms":11}
+{"t":"2026-10-08T09:22:43.087Z","which":"after","step":"shot","name":"11-pr-header"}
+{"t":"2026-10-08T09:22:43.126Z","which":"after","step":"tap","id":"pull-request-base-freshness","hover":true}
+{"t":"2026-10-08T09:22:43.147Z","which":"after","step":"present","id":"pr-freshness-hover","v":true}
+{"t":"2026-10-08T09:22:43.157Z","which":"after","step":"card-layout","lay":"{\"env\":{\"safe-area-inset-right\":0,\"viewport-segments\":[],\"safe-area-inset-top\":52,\"device-posture\":\"continuous\",\"safe-area-inset-left\":0,\"safe-area-inset-bottom\":0,\"horizontal-viewport-segments\":1,\"vertical-viewport-segments\":1,\"keyboard-inset-height\":0},\"incarnation\":1,\"clock\":23500,\"epoch\":36,\"nod"}
+{"t":"2026-10-08T09:22:43.242Z","which":"after","step":"shot","name":"12-freshness-card"}
+{"t":"2026-10-08T09:22:43.279Z","which":"after","step":"tap","id":"pull-request-header-actions","hover":true}
+{"t":"2026-10-08T09:22:43.298Z","which":"after","step":"present","id":"pr-freshness-hover","v":true}
+{"t":"2026-10-08T09:22:43.332Z","which":"after","step":"tap","id":"pr-freshness-hover","hover":true}
+{"t":"2026-10-08T09:22:43.370Z","which":"after","step":"present","id":"pr-freshness-hover","v":true}
+{"t":"2026-10-08T09:22:43.458Z","which":"after","step":"shot","name":"13-pointer-on-freshness-card"}
+{"t":"2026-10-08T09:22:43.494Z","which":"after","step":"tap","id":"pr-freshness-hover-rebase","hover":true}
+{"t":"2026-10-08T09:22:43.536Z","which":"after","step":"present","id":"pr-freshness-hover","v":true}
+{"t":"2026-10-08T09:22:43.623Z","which":"after","step":"shot","name":"14-pointer-on-card-button"}
+{"t":"2026-10-08T09:22:43.662Z","which":"after","step":"tap","id":"pull-request-header-actions","hover":true}
+{"t":"2026-10-08T09:22:43.719Z","which":"after","step":"present","id":"pr-freshness-hover","v":false}
+{"t":"2026-10-08T09:22:43.804Z","which":"after","step":"shot","name":"15-freshness-card-closed"}
+{"t":"2026-10-08T09:22:43.804Z","which":"after","step":"done","appPid":38261}
