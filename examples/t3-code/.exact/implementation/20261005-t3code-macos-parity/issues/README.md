@@ -92,23 +92,35 @@ publication was performed during this local audit.
 | [X52](20261008-x52-macos-form-controls-tab-order.md) | `input type="date"`/`"time"` and `select` as Tab stops on macOS | framework-gap | [dialog-shortcut-focus](../tasks/20261008-dialog-shortcut-focus.md) (nonblocking: Custom snooze's other stops are in order) | reproduced on a scratch app on the feature branch's framework (main `1f19b2400`; `tabbable` unchanged on main `462308f9c`); draft, not published |
 | [X53](20261008-x53-state-driven-modal-focus.md) | A modal opened from state (`showModal(id)` on macOS and the web): focus in, Tab trapped, focus back | framework-gap | [dialog-shortcut-focus](../tasks/20261008-dialog-shortcut-focus.md) (per-dialog traps meanwhile) | reproduced on a scratch app (macOS "unknown command showModal", web refused); draft, not published |
 
-## Pull request writes addition, 2026-10-08
-
-| Issue | Capability | Kind | Blocks | Status |
-| --- | --- | --- | --- | --- |
-| [X54](20261008-x54-focus-within-subtree.md) | An ancestor hearing the focus enter its subtree (`focusin`, `:focus-within`) | framework-gap | [pr-writing-and-metadata](../tasks/20261005-pr-writing-and-metadata.md) (nonblocking: "Show full comment" and the pencil are Tab stops of their own) | reproduced with `contract vocab` on the feature branch's framework; no upstream match by title; draft, not published |
-
 ## Usage pooled view addition, 2026-10-08
 
 | Issue | Capability | Kind | Blocks | Status |
 | --- | --- | --- | --- | --- |
 | [X56](20261008-x56-press-lost-on-focus-restyle.md) | A mouse click whose mouse-down focuses a button that restyles itself on `focus` loses its press (macOS) | framework-gap (unconfirmed) | none ([usage-pooled-view](../tasks/20261005-usage-pooled-view.md) draws no ring of its own; the host ring stands in) | reproduced in the app with the agent (journal: focus, no press); a one-file app not tried; draft, not published |
 
+## Pull request writes addition, 2026-10-08
+
+| Issue | Capability | Kind | Blocks | Status |
+| --- | --- | --- | --- | --- |
+| [X54](20261008-x54-focus-within-subtree.md) | An ancestor hearing the focus enter its subtree (`focusin`, `:focus-within`) | framework-gap | [pr-writing-and-metadata](../tasks/20261005-pr-writing-and-metadata.md) (nonblocking: "Show full comment" and the pencil are Tab stops of their own) | reproduced with `contract vocab` on the feature branch's framework; no upstream match by title; draft, not published |
+
+## Pull Requests row addition, 2026-10-08
+
+| Issue | Capability | Kind | Blocks | Status |
+| --- | --- | --- | --- | --- |
+| [X57](20261008-x57-overflowing-centred-line.md) | A line wider than its box start-aligned whatever `text-align` says (CSS Text 3 §7.1); macOS centres it and cuts its start | framework-gap | none ([pr-list-title-clip](../tasks/20261008-pr-list-title-clip.md): `text-left` on the pull request surfaces; other clone buttons listed in the file) | reproduced on a one-file app (macOS cuts, web does not); draft, not published |
+
+## Pull Requests list live refresh addition, 2026-10-08
+
+| Issue | Capability | Kind | Blocks | Status |
+| --- | --- | --- | --- | --- |
+| [X58](20261008-x58-scroll-lost-after-window-refocus.md) | A wheel-scrolled `scroll` keeping its offset after the window is focused again (macOS) | framework-gap (unconfirmed) | [pr-list-live-refresh](../tasks/20261008-pr-list-live-refresh.md) (its scroll row) | local draft; a one-file app not tried |
+
 ## Visual parity follow-up addition, 2026-10-08
 
 | Issue | Capability | Kind | Blocks | Status |
 | --- | --- | --- | --- | --- |
-| [X57](20261008-x57-line-clamp-first-layout-ellipsis.md) | A `line-clamp=1` text that replaces a wrapped one shows its first wrapped line without the ellipsis until restyled (macOS) | framework-gap (unconfirmed) | none ([visual-parity-followup](../tasks/20261008-visual-parity-followup.md): the collapsed table cell's first layout; a restyle draws the ellipsis) | seen in the clone with the agent on this branch and on base `07dcef1ab`; a one-file app not tried; not searched upstream beyond the title; draft, not published |
+| [X59](20261008-x59-line-clamp-first-layout-ellipsis.md) | A `line-clamp=1` text that replaces a wrapped one shows its first wrapped line without the ellipsis until restyled (macOS) | framework-gap (unconfirmed) | none ([visual-parity-followup](../tasks/20261008-visual-parity-followup.md): the collapsed table cell's first layout; a restyle draws the ellipsis) | seen in the clone with the agent on this branch and on base `07dcef1ab`; a one-file app not tried; not searched upstream beyond the title; draft, not published |
 
 ## Upstream issues (filed 2026-10-06)
 

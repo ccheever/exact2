@@ -54,9 +54,7 @@ reference's geometry; they take the shared gap and wash.
 Side effects, not captured: the scheduled-task row menu (`endAlign=28`) is now end-aligned, as the
 reference's (`ScheduledTasksSettings.tsx` MenuPopup `align="end"`); Runs on, the New task Model
 `GhostSelect` and the r7 device select take the 4 pt gap and the wash. `projects-view.ts`'s Actions
-row no longer copies the Model row's inheritance fields (it spread `page.model`). The plan's
-`issues/README.md` had merge-conflict markers committed at `07dcef1ab` (lines 95–107); both sections
-are kept and the markers removed.
+row no longer copies the Model row's inheritance fields (it spread `page.model`).
 
 ## Progress
 
@@ -81,8 +79,7 @@ t3-code-macos --lib` 11 passed; caps within budget; the five checks exit 0 (carg
 `source_unchanged: true`, source digest `78ecf0d7338b…` over the 16 task-owned code files.
 
 Independent review (separate agent, the staged diff at `07dcef1ab`): no blocking findings. Should-fix,
-addressed in this record: the traits-label claim (row above), the uncaptured side effects and the
-README cleanup (above), evidence 16's cut caption (recomposed). Notes kept for follow-up: a selected
+addressed in this record: the traits-label claim (row above), the uncaptured side effects (above), evidence 16's cut caption (recomposed). Notes kept for follow-up: a selected
 select row keeps its wash on hover (the reference turns to `bg-accent`); the traits label and menu
 resolve an unset trait differently (stored, `currentValue`, default vs stored, default, first) and an
 empty label hides the traits trigger; settings selects stay start-aligned (`endAlign=0`), the same as
@@ -105,7 +102,7 @@ an expanded header wider than 24rem is cut where the reference's `th` shows it w
 - The General/Project traits menu is clamped against the window's right edge (General's existing menu).
 - From #250, still open: inline code naming a workspace path is a file chip in the reference; square
   intraline emphasis (inline spans paint background only).
-- [X57](../issues/20261008-x57-line-clamp-first-layout-ellipsis.md): a collapsed cell's first layout
+- [X59](../issues/20261008-x59-line-clamp-first-layout-ellipsis.md): a collapsed cell's first layout
   after the toggle shows its wrapped first line without the ellipsis (base too); after a restyle (the
   dark capture) the ellipsis is there.
 

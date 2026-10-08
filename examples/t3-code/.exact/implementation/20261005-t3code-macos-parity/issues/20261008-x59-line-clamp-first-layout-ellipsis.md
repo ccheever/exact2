@@ -1,5 +1,5 @@
 ---
-name: 20261008-x57-line-clamp-first-layout-ellipsis
+name: 20261008-x59-line-clamp-first-layout-ellipsis
 plan: 20261005-t3code-macos-parity
 status: draft
 kind: framework-gap (unconfirmed)
@@ -8,7 +8,7 @@ upstream_url: null
 reproduced_on: feat(example)/t3-code-visual-parity-followup (07dcef1ab's framework) and base 07dcef1ab
 ---
 
-# X57: a `line-clamp=1` text that replaces a wrapped one shows its first wrapped line without the ellipsis (macOS, unconfirmed)
+# X59: a `line-clamp=1` text that replaces a wrapped one shows its first wrapped line without the ellipsis (macOS, unconfirmed)
 
 ## Summary
 
