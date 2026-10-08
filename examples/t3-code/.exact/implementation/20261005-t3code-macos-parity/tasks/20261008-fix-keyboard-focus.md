@@ -8,7 +8,7 @@ repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: 'feat(example)/t3-code-fix-keyboard-focus'
 pr_url: https://github.com/ccheever/exact2/pull/310
-verified_commit: 10f2cca0d
+verified_commit: d4bdcf955
 ---
 
 # Menus and dialogs by real pointer and keyboard: Custom snooze, the More menu, focus rings, Escape order
@@ -134,7 +134,7 @@ Tests:
   - The bug 4, 6, 5, 13 and 16 pins.
 - `dialog-focus.test.ts`: two expectations follow bug 6, the covered Escape and the new gate.
 
-`app.contract`: 1,478 lines after merging `732f0e3f3`, the same as the base (0 net root lines; one root line changed).
+`app.contract`: 1,488 lines after merging `17489a45b`, the same as the base (0 net root lines; one root line changed).
 
 Plan, after merging `0e2901aec`: 5,491 slots and 18.24 MB, against the base's 4,478 slots and 17.36 MB. The difference is
 each menu's focus state and its invokers.
@@ -246,7 +246,10 @@ The trigger of a state-driven menu that the data module opens lets go of the foc
 | ↓/↑ 3 (agent) | build 12 | Diff scope after the merge: ↓ first, ↑ last, a press focuses the popup. Escape closes the panel with the menu (residual) | arrows-after-final | — |
 | diff Escape + table Copy | `3d6464773` | Base checked first: Escape in the open diff scope menu also closed the panel (existing). Fixed (the menus' box is `aria-modal` and closes on Escape); agent pass on build 13. Table Copy: the request carries the end and the menu reads `menu.keyed`; unit tests pass | diff-escape-record | real keys deferred |
 | merge #312, #308 | `056718886`..`10f2cca0d` | providers-setup: #312's `idPrefix` kept and the shared pattern applied (#312 merged without its own invoker); STATUS kept X64 and X66. diff.contract: #308's `use` split kept; the Code tab's new scope menu takes the pattern. Agent: Code tab scope ↓ first, ↑ last, press focuses the popup | arrows-after-final | — |
-| checks | `10f2cca0d` (after merging `0e2901aec`) | Clone checks: `bun test examples/t3-code --timeout 60000` 3281 pass, 1 skip, 0 fail. Strict tsc clean. Contract build 5,491 slots, 46 resources, 18.24 MB. `cargo test -p t3-code-macos --lib` 13 passed (at `689959002`; nothing under `macos/` changed since). Caps within. The five checks: build exit 0; tests 3,521 passed, 0 failed, 34 ignored in 94 binaries; clippy 0; fmt 0; caps 0; boot 0 | — | — |
+| Copy as CSV (found and fixed) | `666b97158` | The Copy button sends `${markdown}\t${csv}`, and Contract's `\t` is a real tab (contract/syntax lexer). The data module split on `\u0000`, which Contract no longer writes (changed in `6efd94901`), so Copy as CSV copied "" and Copy as Markdown copied both. A unit test confirmed it (`csv: ""`). Neither text holds a tab (r4_timeline_tables.rs collapses cell whitespace), so it now splits at the first tab; the reference's serializeTable/ToCsv texts are kept | `r8-keys.test.ts` "the menu keeps the table's Markdown and CSV apart …" | — |
+| real input 2 | build 16 | Real ↓/↑ pass on the title, snooze clock and More. Diff scope: the first Escape passes; a reopened menu took no focus, so Escape did nothing | [record](https://raw.githubusercontent.com/ccheever/exact2/f9f92afbe33946a8b78c8a8d9a5fc673f7900d6c/fix-keyboard-focus/real-input-record-2.txt) | fixed: Escape is a shortcut inside the menu's scope (build 17). The focus loss is a host finding |
+| merge #323, #307, #326 | `d4bdcf955` | pages-pr-actions: #307's `hoverTipAtFrame` use and this branch's menu-keys uses kept side by side. Records: #323's text kept, with this branch's X66 row, the count with X66's file, and the remaining batch rows | — | — |
+| checks | `d4bdcf955` (after merging `17489a45b`) | `bun test examples/t3-code --timeout 60000` 3293 pass, 1 skip, 0 fail. Strict tsc clean. Contract build 5,505 slots, 46 resources, 18.62 MB. Caps within. `app.contract` 1,488 lines, the same as the base. The five checks at `10f2cca0d`: build exit 0; tests 3,521 passed, 0 failed, 34 ignored (94 binaries); clippy 0; fmt 0; caps 0; boot 0. Since then, only `examples/t3-code` changed, outside the Cargo default members | — | — |
 
 Real-input apparatus:
 - Lane copies of the macOS client ("T3 Code (Lane FKF base/after)"), each launched with `env -i` and its own home
@@ -259,27 +262,26 @@ The build-7 copy is a new ad-hoc identity, so a keychain prompt asked for the la
 stale item was deleted from that lane keychain only, and the copy was re-paired through Add environment, with no
 capture while the code was on screen. The user's keychain search list is unchanged.
 
-## Real-input rows deferred
+## Real-input session 2
 
-The coordinator asked for one short real-input session for the rows added after the 2026-10-08 session. It did not
-run: #307 (fix-hover-cards) held the shared lock from 10:40:48Z, and the screen was locked (checked 11:1xZ,
-`CGSSessionScreenIsLocked` true). The rows are in STATUS's "Next real-input batch". Steps, with the lane copy
-"T3 Code (Lane FKF after)" built with `--bundle` and paired through Settings › Connections › Add environment (no
-capture while the code is on screen):
+11:34:59Z–11:40:26Z, under the shared lock, with the lane copy built at `666b97158`. It was launched with a fixed
+PATH and its own homes. [Record](https://raw.githubusercontent.com/ccheever/exact2/f9f92afbe33946a8b78c8a8d9a5fc673f7900d6c/fix-keyboard-focus/real-input-record-2.txt), [image](https://raw.githubusercontent.com/ccheever/exact2/45f4a6604e1764b81a3f35e5331eadaace7d87ef/fix-keyboard-focus/ri-07-arrows-real-keys.png).
 
-1. **↓/↑ on closed triggers.**
-   - On #132, click "…", then Escape; the ring is on "…". Real ↓ puts a ring on Refresh; Escape; real ↑ puts it on
-     Close pull request.
-   - Hover the Snooze-me row, click its clock, then Escape. ↓ goes to In 1 hour; Escape; ↑ goes to Custom….
-   - Click the thread title, then Escape. ↓ goes to Pin thread; Escape; ↑ goes to Delete.
-2. **Escape in the diff scope menu.** Click Changes in the details panel, then click the scope trigger. Real Escape
-   closes the menu, the trigger gets the ring, and the panel stays. A second Escape closes the panel.
-3. **Table Copy.** In a reply with a Markdown table, Tab to its Copy button. ↓ opens the menu on Copy as Markdown;
-   Escape; ↑ opens it on Copy as CSV. This needs a lane whose provider can answer.
+- **Real ↓/↑ on closed triggers: pass.** First and last item, each with a ring, on the thread title, the snooze clock
+  and More on #132.
+- **Escape in the diff scope menu.** On the first open (by a click), Escape closes only the menu: pass.
+- **Reopening the diff scope menu: fail.** After ↓, a click or Enter, the menu opened, but nothing took the focus,
+  so Escape and the arrows did nothing until a click. Agent mode showed the same afterwards. Fixed in the clone:
+  the menu's Escape is a shortcut inside its own `aria-modal` box (`closeMenus`), so Escape closes the menu wherever
+  the focus is (agent-verified).
+- **The reopened popup's missing focus is a macOS host finding.** It is not traced; it is reported to the
+  coordinator for a number. The presenter forgets an autofocus node only on a full accessibility pass, while iOS
+  forgets it as the view is released.
+- **The table Copy row** stays in STATUS's batch: no lane reply holds a table.
 
 ## Current state
 
-- Head: see the PR. Merged in: `84a52dde0` (#290), `421047c46` (#312) and `0e2901aec` (#308).
+- Head: see the PR. Merged in: `84a52dde0` (#290), `421047c46` (#312), `0e2901aec` (#308) and `17489a45b` (#323, #307, #326).
   - #312's sign-in method menu now has the shared pattern: its `KmItem` ids take `idPrefix`, and its trigger has
     `KeyMenuOpen`. #312 merged without its own invoker.
 - Draft PR #310's body is current with this record.
