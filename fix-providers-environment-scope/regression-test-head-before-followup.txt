@@ -1,0 +1,23 @@
+# fix-providers-environment-scope follow-up: providers-scope.test.ts on the branch head before the follow-up (b2c512068, git archive), 2026-10-08T13:43:11Z
+bun test v1.4.2 (744846f84)
+
+target/fpes/head/examples/t3-code/providers-scope.test.ts:
+141 |   const { second, native, files } = servers();
+142 |   await answer('snapshot', [], null, files, native);
+143 |   background(second, 'connected', [{ id: 'p2', title: 'Lan app', workspaceRoot: '/lan/app' }]);
+144 |   // settingsCore(machine, project, checkout, legacy project, route, target, active): a project only on the second environment.
+145 |   const core = (project: string) => answer('settingsCore', ['', project, '', '', 'general', '', true], null, files, native).then(obj);
+146 |   expect((await core('env2:/lan/app')).scopeEnvironment).toBe('env2');
+                                                               ^
+error: expect(received).toBe(expected)
+
+Expected: "env2"
+Received: undefined
+
+      at <anonymous> (/Users/daehyeonmun/orca/workspaces/exact2/t3-code-fix-providers-environment-scope/target/fpes/head/examples/t3-code/providers-scope.test.ts:146:58)
+(fail) a setup link inside Settings opens Providers on the scope's representative environment (ProjectDefaultsSettings.tsx:168-173) [5.70ms]
+
+ 5 pass
+ 1 fail
+ 29 expect() calls
+Ran 6 tests across 1 file. [168.00ms]
