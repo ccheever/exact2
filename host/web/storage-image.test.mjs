@@ -64,6 +64,7 @@ test('the header gives the stored size before anything is decoded', async () => 
   // BMP: signed 32-bit sides, top-down negative; and the 12-byte core header.
   expect(await headerSize(bytes(ascii('BM'), Array(12).fill(0), le32(40), le32(640), le32(-480 >>> 0), Array(8).fill(0)))).toEqual([640, 480]);
   expect(await headerSize(bytes(ascii('BM'), Array(12).fill(0), le32(12), le16(20000), le16(20000), Array(8).fill(0)))).toEqual([20000, 20000]);
+  expect(await headerSize(bytes(ascii('BM'), Array(12).fill(0), le32(40), le32(-8 >>> 0), le32(8), Array(8).fill(0)))).toBe(null);
   // WebP: a VP8X canvas and its first frame, the larger of the two.
   const vp8l = (w, h) => { const bits = (w - 1) | ((h - 1) << 14); return [ascii('VP8L'), le32(5), [0x2f], le32(bits)]; };
   const vp8x = (w, h) => [ascii('VP8X'), le32(10), [0, 0, 0, 0], [(w - 1) & 255, ((w - 1) >> 8) & 255, (w - 1) >> 16], [(h - 1) & 255, ((h - 1) >> 8) & 255, (h - 1) >> 16]];

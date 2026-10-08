@@ -3,6 +3,15 @@
 #![cfg(exact_js_engine)]
 use super::storage::{call, Root, GRANTS};
 use exact_runner::{DataSource, Store};
+/// The timing tests run one at a time: each compresses seconds of noise
+/// against a wait far shorter, and two at once would slow the small writes
+/// they also wait on past it.
+static SERIAL: std::sync::Mutex<()> = std::sync::Mutex::new(());
+/// A wait no compression of [`noise_bmp`] finishes inside, and every small
+/// write does.
+#[cfg(target_vendor = "apple")]
+const WAIT: std::time::Duration = std::time::Duration::from_millis(200);
+
 #[cfg(target_vendor = "apple")]
 use {
     super::storage::args,
@@ -79,9 +88,10 @@ fn compress_image_writes_an_upright_jpeg_or_refuses_by_name() {
 #[cfg(target_vendor = "apple")]
 #[test]
 fn a_compression_the_wait_gave_up_on_never_writes() {
+    let _serial = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
     let root = Root::new();
     let mut m = root.module();
-    m.set_storage_wait(std::time::Duration::from_millis(1));
+    m.set_storage_wait(WAIT);
     m.activate().unwrap();
     let mut s = Store::new(GRANTS, Vec::<(String, String)>::new());
     assert_eq!(call(&mut m, &mut s, "file", "x"), "x");
@@ -106,7 +116,7 @@ fn a_compression_the_wait_gave_up_on_never_writes() {
     let mut m2 = m;
     assert_eq!(call(&mut m2, &mut s, "write-slow", "next"), "wrote next");
     // The abandoned compression finishes in the background and writes nothing.
-    std::thread::sleep(std::time::Duration::from_secs(4));
+    std::thread::sleep(std::time::Duration::from_secs(6));
     assert_eq!(
         std::fs::read(root.0.join("data/slow.jpg")).unwrap(),
         b"next"
@@ -114,11 +124,11 @@ fn a_compression_the_wait_gave_up_on_never_writes() {
     drop(m2);
 }
 
-/// 2000 × 1500 of noise as a 24-bit BMP: seconds of trials at full size,
+/// 3000 × 2000 of noise as a 24-bit BMP: seconds of trials at full size,
 /// the first fitting a large budget, then a write.
 #[cfg(target_vendor = "apple")]
 fn noise_bmp() -> Vec<u8> {
-    let (w, h) = (2000u32, 1500u32);
+    let (w, h) = (3000u32, 2000u32);
     let row = (w * 3).div_ceil(4) * 4;
     let mut bmp = Vec::with_capacity(54 + (row * h) as usize);
     bmp.extend_from_slice(b"BM");
@@ -145,9 +155,10 @@ fn noise_bmp() -> Vec<u8> {
 #[cfg(target_vendor = "apple")]
 #[test]
 fn a_background_compression_the_wait_gave_up_on_rejects_and_the_queue_moves() {
+    let _serial = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
     let root = Root::new();
     let mut m = root.module();
-    m.set_storage_wait(std::time::Duration::from_millis(1));
+    m.set_storage_wait(WAIT);
     m.activate().unwrap();
     let mut s = Store::new(GRANTS, Vec::<(String, String)>::new());
     assert_eq!(call(&mut m, &mut s, "file", "x"), "x");
@@ -158,7 +169,7 @@ fn a_background_compression_the_wait_gave_up_on_rejects_and_the_queue_moves() {
         std::fs::read(root.0.join("data/slow.jpg")).unwrap(),
         b"after"
     );
-    std::thread::sleep(std::time::Duration::from_secs(4));
+    std::thread::sleep(std::time::Duration::from_secs(6));
     assert_eq!(
         std::fs::read(root.0.join("data/slow.jpg")).unwrap(),
         b"after"
@@ -171,9 +182,10 @@ fn a_background_compression_the_wait_gave_up_on_rejects_and_the_queue_moves() {
 #[cfg(target_vendor = "apple")]
 #[test]
 fn a_let_go_compression_the_wait_gave_up_on_does_not_strand_the_queue() {
+    let _serial = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
     let root = Root::new();
     let mut m = root.module();
-    m.set_storage_wait(std::time::Duration::from_millis(1));
+    m.set_storage_wait(WAIT);
     m.activate().unwrap();
     let mut s = Store::new(GRANTS, Vec::<(String, String)>::new());
     assert_eq!(call(&mut m, &mut s, "file", "x"), "x");
@@ -205,7 +217,62 @@ fn a_let_go_compression_the_wait_gave_up_on_does_not_strand_the_queue() {
         "{err:?}"
     );
     assert_eq!(call(&mut m, &mut s, "write-slow", "next"), "wrote next");
-    std::thread::sleep(std::time::Duration::from_secs(4));
+    std::thread::sleep(std::time::Duration::from_secs(6));
+    assert_eq!(
+        std::fs::read(root.0.join("data/slow.jpg")).unwrap(),
+        b"next"
+    );
+}
+
+/// A let-go call keeps the rest of its storage when its compression is so
+/// failed, and a waiter that gave up first, then was discarded, does not
+/// hide the loss from the waiter that delivers the chain.
+#[cfg(target_vendor = "apple")]
+#[test]
+fn a_let_go_chain_keeps_its_other_storage_after_a_discarded_waiter_gave_up() {
+    let _serial = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+    let root = Root::new();
+    let mut m = root.module();
+    m.set_storage_wait(WAIT);
+    m.activate().unwrap();
+    let mut s = Store::new(GRANTS, Vec::<(String, String)>::new());
+    assert_eq!(call(&mut m, &mut s, "file", "x"), "x");
+    std::fs::write(root.0.join("data/noise.bmp"), noise_bmp()).unwrap();
+    let a = args("compress-and-write", "");
+    let Answer::Later(request) = m.answer(&mut s, "work", &a).unwrap() else {
+        panic!("the compression waits on storage")
+    };
+    // The first answer's own waiter runs, gives up and takes the right away;
+    // the runner then forgets that answer and its waiter's outcome.
+    let Dispatch::Run(Work::Now(work)) = m.dispatch(request.continuation.unwrap(), &s) else {
+        panic!("native storage work runs")
+    };
+    let outcome = std::thread::spawn(work).join().unwrap();
+    assert!(format!("{outcome:?}").contains("compressImage: timeout: "));
+    // The same call again lets the first go: the let-go chain's compression
+    // is failed, its write delivered on, and the second's listing follows.
+    let mut next = m.answer(&mut s, "work", &a).unwrap();
+    for _ in 0..20 {
+        let Answer::Later(request) = next else {
+            break;
+        };
+        let Dispatch::Run(Work::Now(work)) = m.dispatch(request.continuation.unwrap(), &s) else {
+            panic!("native storage work runs")
+        };
+        let outcome = std::thread::spawn(work).join().unwrap();
+        next = m.parse(&mut s, "work", &a, outcome).unwrap();
+    }
+    let Answer::Now(again) = next else {
+        panic!("the second call did not end")
+    };
+    assert_eq!(super::storage::text(again), "again");
+    // Behind the chain's write in the queue: it has landed by now.
+    assert_eq!(call(&mut m, &mut s, "write-slow", "next"), "wrote next");
+    assert_eq!(
+        std::fs::read(root.0.join("data/second")).unwrap(),
+        b"second"
+    );
+    std::thread::sleep(std::time::Duration::from_secs(6));
     assert_eq!(
         std::fs::read(root.0.join("data/slow.jpg")).unwrap(),
         b"next"

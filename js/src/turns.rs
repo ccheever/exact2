@@ -149,12 +149,16 @@ impl Module {
             .is_ok_and(|r| r == "storage")
         {
             if let Outcome::Failed { message, .. } = session.continuation()() {
-                let _ = engine.call("__exact_let_go", ["failed", &message, ""]);
-                // A compression so failed was settled and what was queued
-                // behind it issued (LLP 1069.002 A1.5): a progress.
-                if message.starts_with(crate::storage::IMAGE_ABANDONED) {
-                    let _ = engine.drain();
+                // A compression so failed is settled and what was queued
+                // behind it issued (LLP 1069.002 A1.5): a progress, and the
+                // chain's other storage is delivered on.
+                if engine
+                    .call("__exact_let_go", ["failed", &message, ""])
+                    .is_ok_and(|r| r == "settled")
+                    && engine.drain().is_ok()
+                {
                     delivered = true;
+                    continue;
                 }
                 break;
             }

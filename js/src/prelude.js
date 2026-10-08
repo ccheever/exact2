@@ -1368,9 +1368,10 @@
     return rejected.trim();
   };
   global.__exact_let_go = function (failed, message) {
-    // A let-go call's compression so failed: settled, so what is queued
-    // behind it is issued (LLP 1069.002 A1.5).
-    if (failed && head && headOwner() && headOwner().letGo) failAbandonedImage(String(message));
+    // A let-go call's compression so failed is settled, and what is queued
+    // behind it issued; the call keeps its other storage (LLP 1069.002
+    // A1.5). Said so, and the caller delivers on.
+    if (failed && head && headOwner() && headOwner().letGo && failAbandonedImage(String(message))) return "settled";
     var owed = false;
     calls.forEach(function (c) {
       if (!c.letGo) return;

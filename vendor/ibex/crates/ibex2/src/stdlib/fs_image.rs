@@ -47,19 +47,16 @@ pub enum Abandoned {
 }
 
 impl CommitGate {
-    /// What giving up did to this call: `Abandoned` only if it took the
-    /// right away now; a call already abandoned is `Nothing` (a waiter for a
-    /// later operation must not take an old call's loss for its own).
+    /// What giving up left this call with: abandoned (now or by an earlier
+    /// waiter: two waiters may watch one call, and either may give up
+    /// first), or written. The guest checks the call is a compression
+    /// before taking it as failed.
     pub(crate) fn abandon(&self) -> Abandoned {
         let mut state = self.0.lock().unwrap_or_else(|e| e.into_inner());
-        match *state {
-            Abandoned::Nothing => {
-                *state = Abandoned::Abandoned;
-                Abandoned::Abandoned
-            }
-            Abandoned::Abandoned => Abandoned::Nothing,
-            Abandoned::Written => Abandoned::Written,
+        if *state == Abandoned::Nothing {
+            *state = Abandoned::Abandoned;
         }
+        *state
     }
 }
 

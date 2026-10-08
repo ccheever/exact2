@@ -673,7 +673,7 @@ const body = await storage.fs.readFile(out.path);
 Both paths are `app:/` files (`fs.read` on `from`, `fs.write` on `to`); `to` is
 replaced atomically, and left as it was on any failure. It always re-encodes, so
 compare the pick's `size`, `width` and `height` first to skip it. It is one
-storage operation in the module's queue, run off the JS thread. A bad option
+storage operation in the module's queue; natively it runs off the JS thread. A bad option
 rejects with a `TypeError`; otherwise a refusal's `code` is `denied`, a
 filesystem code, `failed` (a path that is not `app:/`), `too-large` (over 64 MiB,
 or a header over 64 Mi pixels, checked before decoding), `undecodable`, `unfit`

@@ -12,6 +12,7 @@ let shared: Promise<{text:string}>;
 // Background work (LLP 1097): the last save started and not awaited, and
 // the last failure a background step reported to the app.
 let saving: Promise<unknown> = Promise.resolve(), lastError = "";
+let compressAndWrite = 0;
 const bytes = (value: string) => new Uint8Array(Array.from(value).map(c => c.charCodeAt(0)));
 
 // Writes an answer starts and does not await (kanban F22): the answer is
@@ -241,17 +242,27 @@ async function work(_source:string, args:unknown[], store:Store, storage:Storage
   if (op === "compress-abandoned") {
     const data = storage.fs.directories.data;
     // Seven trials at full size, the first fitting: a second or more.
-    await storage.fs.compressImage(data + "/noise.bmp", data + "/slow.jpg", { maxDimension: 2000, maxBytes: 10_000_000 });
+    await storage.fs.compressImage(data + "/noise.bmp", data + "/slow.jpg", { maxDimension: 3000, maxBytes: 20_000_000 });
     return {text: "written"};
   }
   // The same, started and not awaited: background work (LLP 1097), with a
   // write queued behind it.
   if (op === "compress-background") {
     const data = storage.fs.directories.data;
-    storage.fs.compressImage(data + "/noise.bmp", data + "/slow.jpg", { maxDimension: 2000, maxBytes: 10_000_000 })
+    storage.fs.compressImage(data + "/noise.bmp", data + "/slow.jpg", { maxDimension: 3000, maxBytes: 20_000_000 })
       .then(() => { lastError = "written"; }, (e) => { lastError = String(e.code); });
     storage.fs.writeFile(data + "/slow.jpg", bytes("after")).catch(() => {});
     return {text: "started"};
+  }
+  // A compression and a write behind it, from one answer; asked again, it
+  // waits only on a listing behind them (so the second call lets the first
+  // go and does not compress).
+  if (op === "compress-and-write") {
+    if (compressAndWrite++) return storage.fs.readdir(storage.fs.directories.data).then(() => ({text: "again"}));
+    const data = storage.fs.directories.data;
+    const shrunk = storage.fs.compressImage(data + "/noise.bmp", data + "/slow.jpg", { maxDimension: 3000, maxBytes: 20_000_000 }).catch((e) => e.code);
+    const wrote = storage.fs.writeFile(data + "/second", bytes("second"));
+    return Promise.all([shrunk, wrote]).then(([code]) => ({text: String(code)}));
   }
   if (op === "write-slow") {
     await storage.fs.writeFile(storage.fs.directories.data + "/slow.jpg", bytes(value));

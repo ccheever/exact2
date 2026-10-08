@@ -93,9 +93,10 @@ export async function headerSize(blob) {
   }
   if (ascii(0, 2) === 'BM' && n >= 26) {
     // A 12-byte core header has 16-bit sides; the others signed 32-bit
-    // ones, a negative height meaning top-down.
+    // ones, a negative height meaning top-down (a negative width is no
+    // image).
     if (v.getUint32(14, true) === 12) return positive([v.getUint16(18, true), v.getUint16(20, true)]);
-    return positive([Math.abs(v.getInt32(18, true)), Math.abs(v.getInt32(22, true))]);
+    return positive([v.getInt32(18, true), Math.abs(v.getInt32(22, true))]);
   }
   if (ascii(0, 4) === 'RIFF' && ascii(8, 4) === 'WEBP') {
     const frame = pos => {
