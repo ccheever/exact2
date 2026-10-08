@@ -60,6 +60,18 @@ final class T3MobileOutboxOwner: @unchecked Sendable {
         }
         return record
     }
+    /// Caller holds the coordinator mutex until the replacement cleanup identity is saved.
+    func deliveryCleanupRetiredLocked(_ message: String, mutation: String) throws {
+        // save publishes cache only after disk success; a cold read re-syncs before publishing.
+        // Failed acknowledgments retain their old cached owner, even after a visible rename.
+        guard loaded, errors.isEmpty, let value = cache[message], value["state"] as? String == "active",
+              unresolved[message] == nil, !uncertainResults.contains(mutation),
+              !accepted.values.contains(where: { $0["messageId"] as? String == message }),
+              (value["outcomes"] as? [String: Object])?[mutation] == nil,
+              (value["removals"] as? [String: Object])?[mutation] == nil else {
+            throw fail("Durably acknowledge the previous cleanup outcome and removal before retrying.")
+        }
+    }
     /// Exact replay owns its old payload; a currently open editor still defers network work.
     func deliveryRetryUnheldLocked(_ message: String) -> Bool {
         (holds[message] ?? []).isEmpty
