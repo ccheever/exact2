@@ -1,0 +1,81 @@
+# X60 repro on ccheever/exact2 main febb2c5fb, macOS 26.6.2 (25G83), Apple Silicon; web = the agent's Chrome 154
+# app.contract:
+// X60: a number field with min, max and step.
+component X60
+  state text = "443"
+  action edit(value: string)
+    text = value
+  view
+    column testId="root" width="100%" height="100%" box-sizing="border-box" padding=24 gap=12 background-color="light-dark(#ffffff, #111111)" color="light-dark(#111111, #eeeeee)" font-size=14
+      input type="number" min=1 max=65535 step=1 value=text input=edit aria-label="Port" testId="port" width=200
+      text `value: ${text}` testId="echo"
+
+$ bun exact.mjs mac
+$ bun exact.mjs agent <web|macos> --size 420x200 "tap port" "type port key ArrowUp" tree "type port key a" tree "type port 4a4" tree "screenshot x60-<host>.png" "type port 65535" "type port key ArrowUp" tree "type port 1" "type port key ArrowDown" tree
+
+## web
+{"at":[128,35.5],"tapped":2,"target":"port","delivery":"platform","carrier":"web","mode":"agent","clock":0,"epoch":1,"incarnation":1}
+{"at":[128,35.5],"typed":2,"target":"port","delivery":"platform","carrier":"web","mode":"agent","clock":0,"epoch":2,"incarnation":1}
+epoch 2 · incarnation 1 · clock 0 ms · 3 nodes
+View#1 [root]
+  TextInput#2 [port] value="444" label="Port" [focused] (input)
+  Text#3 [echo] "value: 444"
+{"at":[128,35.5],"typed":2,"target":"port","delivery":"platform","carrier":"web","mode":"agent","clock":0,"epoch":2,"incarnation":1}
+epoch 2 · incarnation 1 · clock 0 ms · 3 nodes
+View#1 [root]
+  TextInput#2 [port] value="444" label="Port" [focused] (input)
+  Text#3 [echo] "value: 444"
+{"at":[128,35.5],"typed":2,"target":"port","delivery":"platform","carrier":"web","mode":"agent","clock":0,"epoch":3,"incarnation":1}
+epoch 3 · incarnation 1 · clock 0 ms · 3 nodes
+View#1 [root]
+  TextInput#2 [port] value="44" label="Port" [focused] (input)
+  Text#3 [echo] "value: 44"
+{"clock":0,"epoch":3,"incarnation":1,"screenshot":".exact/ev/x60-web.png","w":420,"h":200}
+{"at":[128,35.5],"typed":2,"target":"port","delivery":"platform","carrier":"web","mode":"agent","clock":0,"epoch":4,"incarnation":1}
+{"at":[128,35.5],"typed":2,"target":"port","delivery":"platform","carrier":"web","mode":"agent","clock":0,"epoch":4,"incarnation":1}
+epoch 4 · incarnation 1 · clock 0 ms · 3 nodes
+View#1 [root]
+  TextInput#2 [port] value="65535" label="Port" [focused] (input)
+  Text#3 [echo] "value: 65535"
+{"at":[128,35.5],"typed":2,"target":"port","delivery":"platform","carrier":"web","mode":"agent","clock":0,"epoch":5,"incarnation":1}
+{"at":[128,35.5],"typed":2,"target":"port","delivery":"platform","carrier":"web","mode":"agent","clock":0,"epoch":5,"incarnation":1}
+epoch 5 · incarnation 1 · clock 0 ms · 3 nodes
+View#1 [root]
+  TextInput#2 [port] value="1" label="Port" [focused] (input)
+  Text#3 [echo] "value: 1"
+
+## macos
+{"at":[128,36],"delivery":"platform","tapped":2,"target":"port","carrier":"macos","mode":"agent","epoch":1,"incarnation":1,"clock":0}
+{"key":"ArrowUp","typed":2,"value":"443","target":"port","delivery":"platform","carrier":"macos","mode":"agent","epoch":1,"incarnation":1,"clock":0}
+epoch 1 · incarnation 1 · clock 0 ms · 3 nodes
+View#1 [root]
+  TextInput#2 [port] value="443" label="Port" [focused] (input)
+  Text#3 [echo] "value: 443"
+{"key":"a","typed":2,"value":"a443","target":"port","delivery":"platform","carrier":"macos","mode":"agent","epoch":2,"incarnation":1,"clock":0}
+epoch 2 · incarnation 1 · clock 0 ms · 3 nodes
+View#1 [root]
+  TextInput#2 [port] value="a443" label="Port" [focused] (input)
+  Text#3 [echo] "value: a443"
+{"typed":2,"value":"4a4","target":"port","delivery":"platform","carrier":"macos","mode":"agent","epoch":3,"incarnation":1,"clock":0}
+epoch 3 · incarnation 1 · clock 0 ms · 3 nodes
+View#1 [root]
+  TextInput#2 [port] value="4a4" label="Port" [focused] (input)
+  Text#3 [echo] "value: 4a4"
+{"epoch":3,"screenshot":".exact/ev/x60-macos.png","clock":0,"incarnation":1,"h":200,"w":420}
+{"typed":2,"value":"65535","target":"port","delivery":"platform","carrier":"macos","mode":"agent","epoch":4,"incarnation":1,"clock":0}
+{"key":"ArrowUp","typed":2,"value":"65535","target":"port","delivery":"platform","carrier":"macos","mode":"agent","epoch":4,"incarnation":1,"clock":0}
+epoch 4 · incarnation 1 · clock 0 ms · 3 nodes
+View#1 [root]
+  TextInput#2 [port] value="65535" label="Port" [focused] (input)
+  Text#3 [echo] "value: 65535"
+{"typed":2,"value":"1","target":"port","delivery":"platform","carrier":"macos","mode":"agent","epoch":5,"incarnation":1,"clock":0}
+{"key":"ArrowDown","typed":2,"value":"1","target":"port","delivery":"platform","carrier":"macos","mode":"agent","epoch":5,"incarnation":1,"clock":0}
+epoch 5 · incarnation 1 · clock 0 ms · 3 nodes
+View#1 [root]
+  TextInput#2 [port] value="1" label="Port" [focused] (input)
+  Text#3 [echo] "value: 1"
+
+$ bun exact.mjs agent macos --size 420x200 "tree --ax"
+AXScrollArea "" (PageScrollView) 0,0 420×200
+  textbox "Port" value="443" #2^ [port] 23,23 210×26
+# web tree --ax: spinbutton "Port" value="443" #2 [port]
