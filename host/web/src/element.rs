@@ -219,57 +219,7 @@ pub fn host_css_of(
     {
         css.push_str("display:block;");
     }
-    if node.node_type == NodeType::Control && node.props.str(PropId::Type) == Some("button") {
-        let authored_css = css.clone();
-        button_css::rows(node.style, &mut css, &|out, id| {
-            let property = match id {
-                StyleId::RowGap => "row-gap:",
-                StyleId::ColumnGap => "column-gap:",
-                _ => return false,
-            };
-            if let Some(value) = authored_css
-                .split(';')
-                .find_map(|row| row.strip_prefix(property))
-            {
-                out.push_str(value);
-                true
-            } else {
-                false
-            }
-        });
-        // Children are semantic face fields, arranged by the browser before paint.
-        if node.style.display != exact_kernel::Display::None {
-            css.push_str("display:grid;");
-        }
-        if node.style.mask.has(StyleId::LineClamp) {
-            css = css.replace("display:-webkit-box;", "");
-            if node.style.line_clamp > 0 {
-                css.push_str(&format!(
-                    "--exact-button-clamp:{};--exact-button-title-display:-webkit-box;",
-                    node.style.line_clamp
-                ));
-            }
-        }
-    }
-    // A face text's own clamp overrides the button's inherited clamp.
-    if node.node_type == NodeType::Text && node.style.mask.has(StyleId::LineClamp) {
-        css.push_str(&format!(
-            "--exact-button-clamp:{};--exact-button-title-display:{};",
-            node.style.line_clamp,
-            if node.style.line_clamp > 0 {
-                "-webkit-box"
-            } else {
-                "block"
-            }
-        ));
-    }
-    if node.node_type == NodeType::Image {
-        for (id, name) in [(StyleId::FontSize, "size"), (StyleId::FontWeight, "weight")] {
-            if node.style.mask.has(id) {
-                css.push_str(&format!("--exact-symbol-{name}-authored:1;"));
-            }
-        }
-    }
+    css = button_css::face(node, css);
     if node.node_type == NodeType::Canvas {
         if !(css.starts_with("position:") || css.contains(";position:")) {
             css.push_str("position:relative;");

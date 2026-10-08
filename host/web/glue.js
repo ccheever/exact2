@@ -1196,7 +1196,6 @@ async function agentSettled(request) {
   if (textflow) await textflow.settle();
   return agent(request);
 }
-
 // Every reply carries the runner's `epoch`, `incarnation` and `clock` (LLP
 // 1035.002 D3), read after the operation; a reply's own `clock` (where a
 // `clock` call landed) is kept, and an error is left alone. The driver
