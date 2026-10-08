@@ -73,7 +73,7 @@ async function inspect(client: T3Client, handle: Native | null | undefined, inpu
     if (all.some(saved => saved.operation && !saved.durable))
       return reply('prepare-required', 'Recover the exact saved receipt durability before editing.');
     const final = value.final.operation;
-    if (final?.state === 'acknowledged') return reply('original-accepted', 'The server accepted the original task. Preserve these edits and recover them into a new task.');
+    if (final?.state === 'acknowledged') return reply('original-accepted', 'The server accepted the original task. Preserve these edits and recover them into its thread composer.');
     if (final?.state === 'rejected') return reply('original-rejected', 'The original task was rejected. Preserve its draft and recover it before creating another command.');
     if (final && ['issued', 'uncertain'].includes(final.state))
       return reply('recovery-required', 'Resolve the original task send before changing its saved command. An editor hold cannot cancel it.');
