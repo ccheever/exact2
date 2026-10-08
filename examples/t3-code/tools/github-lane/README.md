@@ -21,7 +21,7 @@ and touches no repository but the approved sandbox and the second account's fork
 A lane server's environment is built from nothing (`serverEnv`): `HOME`, `CODEX_HOME`,
 `CLAUDE_CONFIG_DIR`, `XDG_*`, `T3CODE_HOME`, `TMPDIR` under its server dir,
 `T3CODE_TELEMETRY_ENABLED=false`, `GH_CONFIG_DIR` set to the account's lane config dir,
-`GIT_CONFIG_NOSYSTEM=1`, ports 16520 (primary) and 16521 (second), 16500-16599 only. The
+`GIT_CONFIG_NOSYSTEM=1`, ports 16520 (primary) and 16521 (second) by default, `--port` within 16500-16799 (a task lane's own hundred). The
 server rebuilds `PATH` from `zsh -ilc`, so the isolated home's `.zprofile` puts the lane's
 `bin/<account>` first; `bun lane.mjs which <account>` shows what that shell resolves. The
 wrapper logs every call (argv only) to `logs/gh-calls.tsv` and refuses to run unless the config
