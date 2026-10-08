@@ -135,13 +135,23 @@ Required environment: Xcode 27.0, pinned Bun and Hermes, oracle build, two isola
   CursorEnableLimits card after Codex and Claude and the CursorEnableRow in the cost view's provider
   list; Enable writes `cursorKeychainUsageEnabled` on that environment, then rescans usage and runs a
   fresh limits check after the one in flight.
-- `app.contract` 1,499 -> 1,496 lines (the environment-off state, its action and argument removed).
+- `app.contract` -3 lines (the environment-off state, its action and argument removed; 1,459 -> 1,456 after
+  #264 moved the root view into `app-window.contract`, where the toggle prop and argument went too).
 - Two live AppKit agent sessions (one retry) found three defects, all fixed: Escape went back from the
   page while a popover was open (now the page's Escape closes it first); a mouse click on an unfocused
   segment never pressed it because its own `focus` handler restyled it (X56 draft; the host's focus
   ring stands in, as for every custom pressable since #189); the second card's popover opened above and
   was clipped (now flips below). The last two fixes were not re-driven (session budget).
-- Independent review (2026-10-08): REVIEW_SUMMARY.
+- Independent review (2026-10-08): one blocking and three should-fix findings, all fixed in `9472711ee`
+  with tests: (1, blocking) the redeem state and the confirm's target were keyed by the segment's position,
+  so a reorder between "Use reset" and "Use credit" could redeem another account; both are now keyed by
+  account and window, and the target is captured when asked; (2) a failed cost summary stuck across a
+  reconnect; summaries re-read when the environment's connection generation changes, or on reopening
+  after 60 s, and a non-ok transport reply (Disconnected, Closed, stale, superseded) counts as
+  interrupted; (3) an EnvironmentFleet inbox reset left background waiters (and the busy segment)
+  hanging; `usageFleetReset` settles them as lost, and liveness reads the connected phase; (4) a queued
+  request could go to the newly focused environment after the focus moved; `flush` and the Cursor
+  enable check the target first. Nit: the background Cursor branch checks the reply's generation.
 
 Acceptance rows:
 - **Pooling rules:** pass — `usage-limits-pools.test.ts`: "pools" (11 cases), "pooled account columns"
@@ -193,13 +203,16 @@ Acceptance rows:
 | 1a (failed approach, same day) | uncommitted | data-source bake refused `Date.now()` in `usage-replies.ts` (request keys) | build log | keys now come from the transport's `ids` |
 | 2 (2026-10-08) | `ba541958d` (feature branch `b7761f556` merged) | live session 2 (the one retry): Escape fixed; found X56 (a click on an unfocused segment lost its press) and a clipped second-card popover | images 02–05, 07, 16; `drive-record.md` | both fixed in attempt 3, not re-driven |
 | 3 (2026-10-08) | `aceedd9e2` | `bun test examples/t3-code` 2,970 pass / 1 skip / 0 fail; strict `tsc` clean; contract build 3,472 slots; `cargo test -p t3-code-macos --lib` 11 pass; macOS bundle builds; caps within; five checks: build ok, test 3,383 pass / 0 fail / 33 ignored (95 binaries), clippy ok, fmt ok, boot ok | PR checks table | real-input batch rows; user decisions (real redeem); Cursor free plan |
+| 4 (2026-10-08) | `9472711ee` (independent-review fixes), merges `99466bb98` (feature branch `e784c8fb1`, #261) and `0697700e7` (`19714be51`, #264) | review fixes: `bun test examples/t3-code` 2,974 pass / 1 skip / 0 fail; after both merges: 3,036 pass / 1 skip / 0 fail; strict `tsc` clean; contract build 3,844 slots; `app.contract` 1,456 lines (base 1,459); `cargo test -p t3-code-macos --lib` 11 pass; macOS bundle builds; caps within; five checks: build ok, test 3,383 pass / 0 fail / 33 ignored (95 binaries), clippy ok, fmt ok, boot ok | PR "Independent review" and Checks sections; 4 new `usage-pooled.test.ts` cases | review fixes unit-tested, not re-driven (session budget); light dismiss needs a decision or an issue; rows above |
 
 ## Next action
 
 Review and merge PR #263 into `feat(example)/t3-code`. The coordinator's real-input batch runs the steps
 below (real hover, a real click on an unfocused segment for X56, the popover side, the Cursor Enable
 buttons with Return). A real redeem waits for the user's decision on spending a banked credit; the real
-Cursor Keychain prompt waits for a Cursor account on a paid plan.
+Cursor Keychain prompt waits for a Cursor account on a paid plan. Light dismiss (an outside press closing a
+pinned popover) is declared in `EXACT2-GAPS.md` against the local draft X53 only, with no GitHub issue:
+it needs the user's decision or an issue. The review fixes (`9472711ee`) are unit-tested, not re-driven.
 
 ## Real-input batch steps
 
