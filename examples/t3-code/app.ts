@@ -48,6 +48,7 @@ import { autoBalancePrepare } from './auto-balance'; // auto-balance: Settings â
 import { letGoAware } from './let-go';
 import { keepAlivePrepare } from './keep-alive'; // local-primary-environment: running threads' detail streams
 import { migrationToast } from './local-lifecycle'; // a let-go answer's native calls reject as 'superseded', never as an error
+import { activationPrepare } from './desktop-activation'; // app-activation
 
 export const appId = 'com.exact.t3code.macos';
 export const grants = '';
@@ -68,6 +69,7 @@ export async function answer(source: string, args: unknown[], _store: unknown, _
     await autoBalancePrepare(client, native); // auto-balance.ts
     await keepAlivePrepare(client, native); migrationToast(client); // keep-alive.ts, local-lifecycle.ts: running threads stay live; "Restoring your threadsâ€¦"
     await codexPrepare(client, native); // codex-setup-host.ts: the managed Codex setups' effects and loopback callbacks
+    await activationPrepare(client, native); // desktop-activation.ts: `t3 app` waits until the primary is connected and loaded
     return { ...snapshot(client, Number(args[0]) || 0), chatgptPlan: chatGptPlanSnapshot(client) }; // chatgpt-plan-view.ts: "Your ChatGPT plan is connected"
   }
   if (source === 'composerBranches') return composerBranches(client, native, args[0] === true, String(args[1] || ''));
@@ -88,7 +90,7 @@ export async function answer(source: string, args: unknown[], _store: unknown, _
   if (source === 'usagePage') return usagePage(client, native, storage, { open: args[0] === true, metric: String(args[1] || ''), windowDays: Number(args[2]) || 0, breakdown: String(args[3] || 'model'), refresh: Number(args[4]) || 0, width: plotWidth(Number(args[5]) || 1280, Number(args[6]) || 0), now: Number(args[7]) || 0, environmentOff: args[8] === true, viewport: Number(args[5]) || 1280 });
   if (source === 'usageKeys') return usageKeys(client.config, ariaChord);
   if (source === 'timelineAttachments') return attachmentUrls(client, native, Number(args[1]) || 0); // timeline-attachments.ts
-  if (source === 'prList' || source === 'prDetail' || source === 'welcome') return pagesSource(client, native, source, args);
+  if (source === 'prList' || source === 'prDetail' || source === 'welcome') return pagesSource(client, native, source, args, storage);
   if (source === 'connectionsPage') return connectionsPage(client, native, args[0] === true);
   if (source === 'pairingFields') return pairingFields(String(args[0] ?? '')); // lane r10-connect (r10-connect-pairing.ts)
   if (source === 'sshPrompt') return sshPromptSource(native, Number(args[0]) || 0); // ssh-auth.ts: the password dialog's queue

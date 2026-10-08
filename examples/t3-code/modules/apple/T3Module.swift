@@ -70,6 +70,7 @@ final class T3Module: ExactModule {
         chrome.changed = changed // desktop-shell-details: full screen publishes t3.status (T3FullScreen.swift)
         DispatchQueue.main.async { [sidebar] in sidebar.install() }
         attachLocalBackend(context) // the embedded server (T3Module+Local.swift)
+        attachAppControl(context) // `t3 app <dir>`: the control socket follows the embedded server (T3Module+Activation.swift)
     }
     override func later(_ request: [String: Any], reply: ExactReply) {
         if let key = request["fleet"] as? String { return fleet.perform(key, request) { reply.send($0) } }
@@ -78,7 +79,7 @@ final class T3Module: ExactModule {
     /// Each area's ops (T3Module+<Area>.swift), in turn: an area answers the ops it owns and
     /// calls `next` for the rest; what no area owns goes to the transport. No two areas share
     /// an op. A feature adds its area's method in its own file and one entry here.
-    private static let areas: [(T3Module) -> ([String: Any], ExactReply, () -> Void) -> Void] = [T3Module.connectionOps, T3Module.fileOps, T3Module.timelineOps, T3Module.deviceOps, T3Module.sidebarOps, T3Module.snapshotOps, T3Module.composerOps, T3Module.windowOps, T3Module.shellOps, T3Module.mediaOps, T3Module.terminalOps, T3Module.localOps, T3Module.codexAuthOps]
+    private static let areas: [(T3Module) -> ([String: Any], ExactReply, () -> Void) -> Void] = [T3Module.connectionOps, T3Module.fileOps, T3Module.timelineOps, T3Module.deviceOps, T3Module.sidebarOps, T3Module.snapshotOps, T3Module.composerOps, T3Module.windowOps, T3Module.shellOps, T3Module.mediaOps, T3Module.terminalOps, T3Module.localOps, T3Module.activationOps, T3Module.codexAuthOps]
     private func route(_ request: [String: Any], reply: ExactReply, from index: Int) {
         guard index < Self.areas.count else { return forward(request, reply: reply) }
         Self.areas[index](self)(request, reply) { self.route(request, reply: reply, from: index + 1) }
@@ -108,6 +109,7 @@ final class T3Module: ExactModule {
         composer.install(element); chrome.install(element); timeline.install(element); menus.install(element); turns.install(element); video.install(element); media.install(element); devices.install(element)
         launcher.install(element); measure.install(element); r9.install(element); r10.install(element)
         T3FileEditor.install(element) // the Files editor takes the focus its press began (T3PanelsNative.swift, lane r5-panels)
+        activationElement(element) // `t3 app`: the window whose closing fails its requests (T3Module+Activation.swift)
         if element.hatch == .t3Composer { snapShot.setComposer(key: ObjectIdentifier(element), owner: element.data[.snapshotOwner] ?? "", view: element.view, focus: { [weak element] in element?.focus() }) }
         if element.hatch == .t3SnapshotTile, let view = element.view { snapShot.installTile(id: element.data[.snapshotId] ?? "", view: view) }
     }
@@ -119,7 +121,7 @@ final class T3Module: ExactModule {
         if element.hatch == .t3SnapshotTile, let view = element.view { snapShot.removeTile(view: view) }
         if element.hatch == .t3Composer { snapShot.removeComposer(key: ObjectIdentifier(element)) }
     }
-    override func destroy() { activity.destroy(); panelTabs.destroy(); toolIcons.destroy(); timelineTips.destroy(); r10.destroy(); r9.destroy(); sidebar.destroy(); notifications.destroy(); snapShot.destroy(); composer.destroy(); video.destroy(); media.destroy(); devices.destroy(); intent.destroy(); frames.destroy(); scrollEnds.destroy(); chrome.destroy(); menus.destroy(); timeline.destroy(); turns.destroy(); transport.destroy(); fleet.destroy(); ssh.destroy(); T3LocalBackend.shared.detach(self) }
+    override func destroy() { detachAppControl(); activity.destroy(); panelTabs.destroy(); toolIcons.destroy(); timelineTips.destroy(); r10.destroy(); r9.destroy(); sidebar.destroy(); notifications.destroy(); snapShot.destroy(); composer.destroy(); video.destroy(); media.destroy(); devices.destroy(); intent.destroy(); frames.destroy(); scrollEnds.destroy(); chrome.destroy(); menus.destroy(); timeline.destroy(); turns.destroy(); transport.destroy(); fleet.destroy(); ssh.destroy(); T3LocalBackend.shared.detach(self) } // detachAppControl first: the window's request fails at once (renderer-unavailable), and the control lets go of the backend before the last module stops it
 }
 
 let exactModule: ExactModule.Type = T3Module.self
