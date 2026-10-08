@@ -1364,7 +1364,7 @@ impl<D: DataSource> Host<D> {
             let Some(view) = self.keys.get(&key).copied() else {
                 continue;
             };
-            if p.property == Property::Height {
+            if p.property == Property::Height || self.presents_nothing(view, &p) {
                 continue;
             }
             changed = true;
@@ -1403,6 +1403,31 @@ impl<D: DataSource> Host<D> {
             }
         }
         changed
+    }
+
+    /// Whether a value the engine restates is the committed style's own, for
+    /// a node nothing is presented for: a new or renewed node's transform and
+    /// opacity rows (four a node, every node of a rebound list row), which
+    /// show what the style shows.
+    fn presents_nothing(&self, view: ViewId, p: &exact_motion::Presentation) -> bool {
+        if self.presented.contains_key(&view) {
+            return false;
+        }
+        let Some(node) = self.runner.kernel().node(view) else {
+            return false;
+        };
+        let s = node.style;
+        let v = p.value;
+        match p.property {
+            Property::Translate => {
+                (s.translate.x, s.translate.y) == (v.x as f32, v.y as f32)
+                    && (s.translate_percent.x, s.translate_percent.y) == (v.z as f32, v.w as f32)
+            }
+            Property::Scale => s.scale == v.x as f32,
+            Property::Rotate => s.rotate == v.x as f32,
+            Property::Opacity => s.opacity == v.x as f32,
+            _ => false,
+        }
     }
 
     /// Every live node in preorder.
