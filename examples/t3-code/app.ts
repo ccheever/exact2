@@ -41,6 +41,7 @@ import { noteServerUpdateClock } from './server-update-notices'; // server-updat
 import { terminalDrawerView, terminalOpen } from './terminal-drawer-view';
 import { terminalFocused } from './terminal-focus';
 import { watchProviderSetup, providerSetupOp } from './provider-setup'; // provider-sign-in-and-install: the Account and Runtime rows' streams and commands
+import { providerUpkeepOp, withUpkeep } from './providers-upkeep'; // provider-settings-upkeep
 import { codexContext, codexPrepare, codexTarget } from './codex-setup-host'; // managed-codex-chatgpt: ManagedCodexSetup's commands and effects
 import { codexSetupOp } from './codex-setup-ops';
 import { chatGptPlanSnapshot } from './chatgpt-plan-view';
@@ -97,9 +98,11 @@ export async function answer(source: string, args: unknown[], _store: unknown, _
   if (source === 'sshPromptAnswer') return sshPromptAnswer(native, String(args[0] || ''), String(args[1] || ''));
   if (source === 'settingsBSshHosts') return sshHostsView(client, native, args[0] === true, String(args[1] ?? '')); // settings-b-ssh.ts
   if (source === 'settingsBPicker') return iconPicker(client, native, String(args[0] || ''), String(args[1] ?? ''), String(args[2] ?? ''), String(args[3] ?? ''), String(args[4] || ''), String(args[5] || ''), Number(args[6]) || 0); // settings-b-icons.ts
-  if (source === 'providerPage') { if (native?.available) await watchProviderSetup(client, native, 'page', args[1] === true ? providerSetupStreams(client, String(args[0] || '')) : { auth: [], install: [] }); return providerPage(client, String(args[0] || ''), Number(args[3]) || 0); }
+  if (source === 'providerPage') { if (native?.available) await watchProviderSetup(client, native, 'page', args[1] === true ? providerSetupStreams(client, String(args[0] || '')) : { auth: [], install: [] }); return withUpkeep(client, providerPage(client, String(args[0] || ''), Number(args[3]) || 0)); }
   if (source === 'providerWizard') { if (native?.available) await watchProviderSetup(client, native, 'wizard', wizardSetupStreams(client, args[0] === true, Number(args[1]) || 0, String(args[8] || ''), String(args[9] || ''))); return providerWizard(client, args[0] === true, Number(args[1]) || 0, String(args[2] || 'codex'), args[3] === true, String(args[4] || ''), args[5] === true, String(args[6] || ''), String(args[8] || ''), String(args[9] || '')); } // args[8..9]: the dialog and its target (the ChatGPT dialogs)
   if (source === 'acpRegistry') return acpRegistry(client, native, String(args[0] || ''), args[1] === true, Object.values(obj(obj(client.config.settings).providerInstances)).filter(entry => obj(entry).driver === 'acpRegistry').map(entry => str(obj(obj(entry).config).agentId)));
+  // provider-settings-upkeep: updates, Update all, ACP management, the custom model editor (providers-upkeep.ts).
+  if (source === 'providerChange' && String(args[0] || '').startsWith('upkeep:')) { if (native?.available) await providerUpkeepOp(client, native, String(args[0]), String(args[1] || ''), String(args[2] ?? ''), String(args[3] ?? '')); return { revision: ++client.revision, message: '' }; }
   if (source === 'providerChange' && /^setup:(codex|chatgpt)-/.test(String(args[0] || ''))) { const target = native?.available ? (String(args[0]).startsWith('setup:chatgpt-') ? codexContext(client, native, '') : codexTarget(client, native, String(args[1] || ''))) : null; if (target) await codexSetupOp(target, String(args[0]), String(args[2] ?? ''), String(args[3] ?? ''), () => client.savePreferences(storage)); return { revision: ++client.revision, message: '' }; }
   if (source === 'providerChange' && String(args[0] || '').startsWith('setup:')) { if (native?.available) await providerSetupOp(client, native, String(args[0]), String(args[1] || ''), String(args[2] ?? ''), String(args[3] ?? '')); return { revision: ++client.revision, message: '' }; }
   if (source === 'providerChange') return client.command(String(args[0] || ''), String(args[1] || ''), args[0] === 'favorite-model' ? String(args[2] || '') : JSON.stringify({ key: String(args[2] ?? ''), value: String(args[3] ?? '') }), 0, native, storage);
