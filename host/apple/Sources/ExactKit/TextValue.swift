@@ -13,7 +13,7 @@ import Foundation
 
 /// The shortest replacement that turns `old` into `new`, in UTF-16 units.
 /// Returns nil when they are equal.
-func minimalTextEdit(from old: String, to new: String) -> (range: NSRange, text: String)? {
+package func minimalTextEdit(from old: String, to new: String) -> (range: NSRange, text: String)? {
     if old.utf16.elementsEqual(new.utf16) { return nil }
     let a = Array(old.utf16), b = Array(new.utf16)
     var prefix = 0

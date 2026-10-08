@@ -5,7 +5,8 @@ import XCTest
 // embedded server's (memory, `primaryBearer`), it walks no routes, it is never saved and never
 // remembered by origin (its port can change every launch); a focus token `primary` beside
 // `t3.server.origin` names it for the next launch. A saved duplicate (same environment id) can be
-// forgotten without touching the primary's connection (decision U6).
+// forgotten without touching the primary's connection, and says when it was the focus; pairing the
+// primary's own server saves nothing (decision U6, as the reference's registry).
 final class PrimaryTransportTests: XCTestCase {
     private let originKey = "t3.server.origin", focusKey = "t3.server.focus"
     private final class Headers: @unchecked Sendable {
@@ -128,11 +129,52 @@ final class PrimaryTransportTests: XCTestCase {
         try credentials.save("old-token", origin: "http://127.0.0.1:16999", environment: "local-env")
         let forgotten = perform(transport, ["op": "forgetEnvironment", "origin": "http://127.0.0.1:16999", "environmentId": "local-env"])
         XCTAssertEqual(forgotten["ok"] as? Bool, true, "\(forgotten)")
+        XCTAssertEqual((forgotten["value"] as? [String: Any])?["forgotFocus"] as? Bool, false, "the window stays on the primary")
         XCTAssertTrue(saved.all.isEmpty)
         XCTAssertNil(try credentials.read(origin: "http://127.0.0.1:16999", environment: "local-env"), "its credential is forgotten")
         XCTAssertEqual(status(transport)["state"] as? String, "connected", "the primary stays connected")
         // A disconnect asking to forget never forgets the primary (there is nothing saved to forget).
         _ = perform(transport, ["op": "disconnect", "forget": true])
         XCTAssertTrue(saved.all.isEmpty)
+    }
+
+    func testForgettingAFocusedDuplicateSaysSoSoThePrimaryCanTakeTheWindow() throws {
+        // U6: a launch opened the duplicate by its remembered origin (the primary had not named itself yet).
+        let socket = try R3Socket(), headers = Headers(), saved = T3SavedEnvironments(persistent: false), credentials = T3Credentials(persistent: false)
+        serve(headers)
+        let duplicate = "http://127.0.0.1:\(socket.port)"
+        saved.remember(origin: duplicate, descriptor: ["environmentId": "local-env", "label": "Old pairing"])
+        try credentials.save("memory-bearer", origin: duplicate, environment: "local-env")
+        let transport = makeTransport(saved: saved, credentials: credentials, bearer: { nil }); defer { transport.destroy() }
+        _ = perform(transport, ["op": "connect", "origin": duplicate, "credential": ""])
+        XCTAssertTrue(until(5) { self.status(transport)["state"] as? String == "connected" }, "\(status(transport))")
+        let forgotten = perform(transport, ["op": "forgetEnvironment", "origin": duplicate, "environmentId": "local-env"])
+        XCTAssertEqual((forgotten["value"] as? [String: Any])?["forgotFocus"] as? Bool, true)
+        XCTAssertEqual((forgotten["value"] as? [String: Any])?["state"] as? String, "disconnected")
+        XCTAssertTrue(saved.all.isEmpty)
+    }
+
+    func testPairingThisMachinesOwnServerSpendsTheCodeAndSavesNothing() throws {
+        // U6: the reference's `register` does nothing for the primary's environment id (registry.ts).
+        let exchanged = Headers(), saved = T3SavedEnvironments(persistent: false), credentials = T3Credentials(persistent: false)
+        R3HTTP.reset { (request: URLRequest) -> (Int, Any) in
+            switch request.url!.path {
+            case "/.well-known/t3/environment": return (200, ["environmentId": "local-env", "label": "Lane Mac", "orchestrationProtocolVersion": 2] as [String: Any])
+            case "/oauth/token": exchanged.add("code"); return (200, ["token_type": "Bearer", "access_token": "paired-token"] as [String: Any])
+            default: return (404, [:] as [String: Any])
+            }
+        }
+        let transport = makeTransport(saved: saved, credentials: credentials); defer { transport.destroy() }
+        let own = perform(transport, ["op": "pairEnvironment", "origin": "http://127.0.0.1:16437", "credential": "PAIRCODE", "primaryEnvironmentId": "local-env"])
+        XCTAssertEqual(own["ok"] as? Bool, true, "\(own)")
+        XCTAssertEqual((own["value"] as? [String: Any])?["primary"] as? Bool, true)
+        XCTAssertEqual(exchanged.all, ["code"], "the one-time code is spent, as bootstrapRemoteBearerSession")
+        XCTAssertTrue(saved.all.isEmpty, "nothing saved")
+        XCTAssertNil(try credentials.read(origin: "http://127.0.0.1:16437", environment: "local-env"), "no credential kept")
+        // Another machine pairs as before.
+        let other = perform(transport, ["op": "pairEnvironment", "origin": "http://127.0.0.1:16437", "credential": "PAIRCODE", "primaryEnvironmentId": "another-env"])
+        XCTAssertNil((other["value"] as? [String: Any])?["primary"])
+        XCTAssertEqual(saved.all.count, 1)
+        XCTAssertEqual(try credentials.read(origin: "http://127.0.0.1:16437", environment: "local-env"), "paired-token")
     }
 }

@@ -1,0 +1,98 @@
+// The pull request panel's hand-offs (pr-handoffs-and-quick-actions), drawn from pages-pr-handoffs.ts:
+// the header's Check out menu ("In a separate worktree", "In this repository"; the page's, or a pull
+// request that is not the thread's own beside it), the More menu's "Ask a question", "Explain this PR"
+// and "Fix findings", and a finding's own Fix on the Summary tab. A press says which surface it came
+// from ("page|…" or "thread|…"): beside a thread the task goes into that thread's composer. Sources:
+// T3 Code (MIT, see LICENSE-T3) components/pullRequest/{PullRequestDetailPanel,PullRequestSummaryTab}.tsx,
+// ui/{button,menu,tooltip}.tsx.
+use PgIcon from "./pages-icons.contract"
+use Tip from "./shell-tip.contract"
+
+shape PrHandoffsView
+  pending: string
+  canCheckout: bool
+  threadOwn: bool
+
+fn phInk(): string = "light-dark(#27272a, #f5f5f5)"
+fn phMuted(): string = "light-dark(#71717b, #818181)"
+
+// The header's Check out control (Button size="xs" variant="outline" with its menu, align end).
+component PrdCheckoutMenu
+  props
+    handoffs: PrHandoffsView
+    surface: string
+    scheme: string
+    narrow: bool
+    act: action
+  state over = false
+  derive checking = startsWith(handoffs.pending, "checkout")
+  derive disabled = handoffs.pending != "" or not handoffs.canCheckout
+  action hover(value: bool)
+    over = value
+  view
+    column position="relative" flex-shrink=0
+      Tip(label="Check out this pull request", side="top", align="center", offset=20)
+        button popovertarget="pr-checkout-menu" hover=hover disabled=disabled aria-label=(checking ? "Checking out..." : "Check out") testId="pull-request-checkout" height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" box-sizing="border-box" gap="0.25rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color=(over and not disabled ? "light-dark(#f4f4f580, #ffffff0d)" : "light-dark(#ffffff, #ffffff07)") box-shadow="0 1px 2px #0000000d" opacity=(disabled ? 0.64 : 1) display="flex" flex-direction="row" align-items="center" flex-shrink=0
+          PgIcon(name="git-branch", size=14, color=phInk())
+          when not narrow
+            text (checking ? "Checking out..." : "Check out") font-size="0.75rem" line-height="1rem" font-weight=500 white-space="nowrap" color=phInk()
+          PgIcon(name="chevron-down", size=14, color=phMuted())
+      // MenuPopup align="end": its right edge under the button's. Placed by margins from the button's start (the host
+      // applies a popover's margins with a `position-area`; `span-left` is not implemented, X17 #112): the menu's 410
+      // (its widest line, 350 at 12px, with the glyph, gap and insets) less the button's 111 (52 for the glyphs, padding
+      // and border, and the label's 59), or 48 without the label. Opaque: a backdrop blur here sees only its parent.
+      row id="pr-checkout-menu" popover="auto" position="absolute" position-area="bottom span-right" margin-left=(narrow ? -362 : -299) padding-top="0.25rem" align-items="flex-start" testId="pr-checkout-layer"
+        column width=410 padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#27272a1a, #f5f5f51a)" background-color="light-dark(#ffffff, #121212)" box-shadow=(scheme == "dark" ? "0 18px 44px -18px #000000cc" : "0 16px 40px -18px #0000008c") role="menu" aria-label="Check out" flex-shrink=0
+          PrdHandoffItem(menuId="pr-checkout-menu", icon="git-branch", label="In a separate worktree", detail="Its own folder and thread. Nothing you have open moves.", disabled=(handoffs.pending != ""), press=act("handoff", `${surface}|checkout:worktree`), testId="pr-checkout-worktree")
+          PrdHandoffItem(menuId="pr-checkout-menu", icon="folder-git-2", label="In this repository", detail="Switches the branch you are working in, like `gh pr checkout`.", disabled=(handoffs.pending != ""), press=act("handoff", `${surface}|checkout:local`), testId="pr-checkout-local")
+
+// The More menu's hand-offs, after Refresh: Ask a question, Explain this PR, Fix findings.
+component PrdHandoffItems
+  props
+    handoffs: PrHandoffsView
+    surface: string
+    menuId: string
+    act: action
+  view
+    PrdHandoffItem(menuId=menuId, icon="message-circle-question-mark", label=(handoffs.pending == "ask" ? "Opening..." : "Ask a question"), detail=(surface == "thread" ? "Adds the pull request to this thread's composer." : "Opens a thread that knows which pull request you mean."), disabled=(handoffs.pending != ""), press=act("handoff", `${surface}|ask`), testId="pr-more-ask")
+    PrdHandoffItem(menuId=menuId, icon="book-open", label=(handoffs.pending == "explain" ? "Opening..." : "Explain this PR"), detail="A walk through the diff and what to read closely.", disabled=(handoffs.pending != ""), press=act("handoff", `${surface}|explain`), testId="pr-more-explain")
+    PrdHandoffItem(menuId=menuId, icon="hammer", label=(handoffs.pending == "findings" ? "Preparing..." : surface == "thread" ? "Fix findings in this thread" : "Fix findings in a thread"), detail="", disabled=(handoffs.pending != ""), press=act("handoff", `${surface}|findings`), testId="pr-more-fix-findings")
+
+// MenuItem with its glyph at the first line's height, the label and, under it, a muted line.
+component PrdHandoffItem
+  props
+    menuId: string
+    icon: string
+    label: string
+    detail: string
+    disabled: bool
+    press: action
+    testId: string
+  state over = false
+  action hover(value: bool)
+    over = value
+  view
+    button press=press popovertarget=menuId popovertargetaction="hide" hover=hover disabled=disabled role="menuitem" testId=testId width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" gap="0.5rem" border-radius="0.375rem" border-width=0 background-color=(over and not disabled ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") opacity=(disabled ? 0.64 : 1) display="flex" flex-direction="row" align-items=(detail != "" ? "flex-start" : "center")
+      box margin-top=(detail != "" ? "0.25rem" : "0px") flex-shrink=0 display="flex"
+        PgIcon(name=icon, size=14, color=phMuted())
+      column flex=1 min-width=0 align-items="flex-start"
+        text label font-size="0.875rem" line-height="1.25rem" color=phInk() text-align="left" white-space="nowrap"
+        when detail != ""
+          text detail font-size="0.75rem" line-height="1rem" color=phMuted() text-align="left"
+
+// A finding's own Fix (Button size="xs" variant="ghost" with the hammer): "Preparing..." on itself alone.
+component PrdFixButton
+  props
+    finding: string
+    label: string
+    pending: string
+    surface: string
+    act: action
+    testId: string
+  state over = false
+  action hover(value: bool)
+    over = value
+  view
+    button press=act("handoff", `${surface}|${finding}`) hover=hover disabled=(pending != "") testId=testId height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" box-sizing="border-box" gap="0.25rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color="#00000000" background-color=(over and pending == "" ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") opacity=(pending != "" ? 0.64 : 1) display="flex" flex-direction="row" align-items="center" flex-shrink=0
+      PgIcon(name="hammer", size=12, color=phInk())
+      text (pending == finding ? "Preparing..." : label) font-size="0.75rem" line-height="1rem" font-weight=500 white-space="nowrap" color=phInk()

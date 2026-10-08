@@ -156,7 +156,7 @@ extension NodeView {
         }
         // A Markdown run's link has no view of its own (MarkupRuns): its target is the press.
         if let touch = touches.first, let href = inlineLink(at: local(touch.location(in: nil))) { linkPressed = href; return }
-        if handlers.contains("press") || defaultLink != nil { pressed = true } else { super.touchesBegan(touches, with: event) }
+        if handlers.contains("press") || defaultLink != nil || presenter?.menus.closesPresentedContent(self) == true { pressed = true } else { super.touchesBegan(touches, with: event) }
     }
     package override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
         inlinePressed = nil; linkPressed = nil
@@ -218,7 +218,7 @@ extension NodeView {
         var v: UIView? = self
         while let cur = v {
             if let n = cur as? NodeView, n.disabled { return nil }
-            if let n = cur as? NodeView, (n.handlers.contains("press") || n.defaultLink != nil || n.isSurfaceControl) {
+            if let n = cur as? NodeView, (n.handlers.contains("press") || n.defaultLink != nil || n.presenter?.menus.closesPresentedContent(n) == true || n.isSurfaceControl || n.isNativeButton && (n.props["commandfor"]?.isEmpty == false || n.props["popovertarget"]?.isEmpty == false)) {
                 guard n.bounds.contains(n.local(windowPoint)) else { return nil }
                 return n
             }

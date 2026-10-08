@@ -1,0 +1,18 @@
+{
+  "$schema": "../../../scripts/app.schema.json",
+  "name": "Crypto svgi",
+  "short_name": "Crypto svgi",
+  "id": "dev.exact.cryptobench.svgi",
+  "start_url": "/",
+  "display": "standalone",
+  "theme_color": "#ffffff",
+  "background_color": "#ffffff",
+  "app": { "id": "dev.exact.cryptobench.svgi", "name": "Crypto svgi" },
+  "rust": { "mode": "off" },
+  "host": {
+    "ios": { "minimumOS": "17.0", "deviceFamily": ["iphone", "ipad"] },
+    "macos": { "minimumOS": "14.0" },
+    "web": {}
+  },
+  "deploy": { "store": { "web": "0", "macos": "0", "ios": "0", "linux": "0" } }
+}

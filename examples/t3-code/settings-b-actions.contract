@@ -103,7 +103,7 @@ component ProjectActionEditor
                     ScriptIconChoice(id="configure", label="Configure", selected=(icon == "configure"), choose=chooseIcon)
                     ScriptIconChoice(id="build", label="Build", selected=(icon == "build"), choose=chooseIcon)
                     ScriptIconChoice(id="debug", label="Debug", selected=(icon == "debug"), choose=chooseIcon)
-              input value=name input=editName submit=raw((editing ? "sb:action-save" : "sb:action-add"), scope, payload) placeholder="Test" aria-label="Name" disabled=busy class=AeField flex=1 min-width=0 testId="action-name"
+              input value=name input=editName submit=raw((editing ? "sb:action-save" : "sb:action-add"), scope, payload) placeholder="Test" aria-label="Name" disabled=busy class=AeField padding-top="0.3125rem" padding-bottom="0.3125rem" flex=1 min-width=0 testId="action-name"
           column gap="0.5rem"
             text "Keybinding" class=AeLabel
             when recording
@@ -122,7 +122,7 @@ component ProjectActionEditor
             textarea value=command input=editCommand placeholder="bun test" aria-label="Command" disabled=busy box-sizing="border-box" width="100%" height="4.5rem" padding-left="0.6875rem" padding-right="0.6875rem" padding-top="0.3125rem" padding-bottom="0.3125rem" border-radius="0.625rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#fcfcfc, #ffffff08)" font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" autocorrect="off" spellcheck="false" testId="action-command"
           column gap="0.5rem"
             text "Preview URL (optional)" class=AeLabel
-            input value=previewUrl input=editPreview placeholder="http://localhost:5173" aria-label="Preview URL (optional)" disabled=busy class=AeField autocorrect="off" spellcheck="false" testId="action-preview-url"
+            input value=previewUrl input=editPreview placeholder="http://localhost:5173" aria-label="Preview URL (optional)" disabled=busy class=AeField padding-top="0.3125rem" padding-bottom="0.3125rem" autocorrect="off" spellcheck="false" testId="action-preview-url"
             text "Open this URL in the in-app preview when this action runs." class=AeHint
           ActionSwitchRow(label="Run automatically on worktree creation", checked=setup, enabled=true, busy=busy, rowId="action-setup", flip=flipSetup)
           ActionSwitchRow(label="Wait for it to finish before the agent starts", checked=wait, enabled=setup, busy=busy, rowId="action-wait", flip=flipWait)

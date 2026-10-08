@@ -5,7 +5,9 @@
 // take their HTML values, a checkbox `true`: each `input` then `change`, as a
 // person choosing would. A button inside a scroller and one below the page's
 // fold are scrolled into view before their taps. The options carry no `value`,
-// so each one's value is its label (HTML).
+// so each one's value is its label (HTML). The two `progress`es are the
+// page's drawn ring, at its 20 × 20 default and sized (LLP 1069.001,
+// amended 2026-10-07).
 component Controls
   state pick = "Alpha"
   state day = ""
@@ -39,6 +41,9 @@ component Controls
       input type="checkbox" checked=agreed change=agree testId="agree" width=16 height=16
       input type="checkbox" checked=true change=agree testId="lit-on" aria-label="On" width=16 height=16
       input type="checkbox" checked=false change=agree testId="lit-off" aria-label="Off" width=16 height=16
+      row gap=8
+        progress testId="busy" aria-label="Loading"
+        progress testId="busy-large" width=37 height=37 color="#007aff"
       text `${pick} ${day} ${hour} ${level} ${agreed} ${far} ${inner}` testId="values"
       scroll testId="inner-scroll" height=80
         box height=300

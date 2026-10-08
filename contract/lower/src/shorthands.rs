@@ -39,6 +39,8 @@ pub(crate) fn component(value: &Expr, name: &str, index: usize) -> Result<Expr, 
     // becomes its number, anything else is the row's own value.
     let longhand = matches!(name, "column-count" | "column-rule-width");
     match &mut out {
+        // An unset arm of a conditional class clears each expanded longhand.
+        Expr::None(_) => {},
         Expr::Str(text, span) if longhand => out = columns_longhand(name, text, *span)?,
         Expr::Number(n, span) if name == "column-count" && *n < 1.0 => {
             return err("lower-attr-value", "`column-count` is a positive integer or `auto`", *span);

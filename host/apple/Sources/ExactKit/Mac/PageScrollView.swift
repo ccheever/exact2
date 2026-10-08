@@ -4,7 +4,7 @@ import AppKit
 /// The viewport: a click that reached it — on no node that takes the focus
 /// or a press — ends the editing, as a click on a page's blank ground blurs
 /// the field (LLP 1008 §9).
-final class PageScrollView: NSScrollView {
+package final class PageScrollView: NSScrollView {
     private struct DocumentFit {
         let document: ObjectIdentifier
         let documentFrame: NSRect
@@ -32,7 +32,7 @@ final class PageScrollView: NSScrollView {
             autohides: autohidesScrollers)
     }
 
-    override func setFrameSize(_ newSize: NSSize) {
+    package override func setFrameSize(_ newSize: NSSize) {
         if newSize != frame.size, !prefittingDocument {
             prefittingDocument = true
             prefitDocument(for: newSize)
@@ -79,7 +79,7 @@ final class PageScrollView: NSScrollView {
     /// ancestor of what was clicked, a `tabindex` box's included (LLP 1088 D7.3).
     /// The same click on the ground ends the reader's text selection.
     var pressedGround: (() -> Void)?
-    override func mouseDown(with event: NSEvent) {
+    package override func mouseDown(with event: NSEvent) {
         let hit = window?.contentView?.hitTest(event.locationInWindow)
         if let focused = window?.firstResponder as? NodeView, let hit, hit.isDescendant(of: focused) {} else {
             window?.makeFirstResponder(nil)
@@ -90,11 +90,11 @@ final class PageScrollView: NSScrollView {
     /// AppKit turns automatic titlebar insets back on when this view
     /// becomes a window's content view, which leaves a black strip the
     /// height of the titlebar above the document (the night, the deck).
-    override func viewDidMoveToWindow() {
+    package override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         pinInsets()
     }
-    override func tile() {
+    package override func tile() {
         super.tile()
         pinInsets()
         syncElasticity()

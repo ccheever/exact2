@@ -155,9 +155,8 @@ fn inherited_text_color_reaches_untouched_descendants_as_an_unresolved_pair() {
             .unwrap_or_else(|| panic!("missing {id} in {batch}"))
             .to_owned()
     };
-    // A bare field's ink is its own sheet's (LLP 1104, e97afa5af), as a
-    // browser's field text is `fieldtext`, not its parent's color: black
-    // and white, like the inherited default here, and not re-sent below.
+    // No platform font environment here: the reference host inherits the
+    // page's ink, as the web does. The r4 field sheet is retired.
     for id in [inherited, field] {
         assert!(op(&first, id).contains("\"text_color\":[[0,0,0,255],[255,255,255,255]]"));
     }
@@ -165,12 +164,11 @@ fn inherited_text_color_reaches_untouched_descendants_as_an_unresolved_pair() {
     let toggle = view(&host, "toggle");
     let changed = host.dispatch_at(toggle, Event::Press, 0.0);
     assert!(op(&changed, inherited).contains("\"text_color\":[[18,52,86,255],[171,205,239,255]]"));
-    for id in [field, overridden] {
-        assert!(
-            !changed.contains(&format!("\"op\":\"style\",\"id\":{id},")),
-            "{changed}"
-        );
-    }
+    assert!(op(&changed, field).contains("\"text_color\":[[18,52,86,255],[171,205,239,255]]"));
+    assert!(
+        !changed.contains(&format!("\"op\":\"style\",\"id\":{overridden},")),
+        "{changed}"
+    );
     assert_eq!(count(&host.resize(402.0, 874.0), "style"), 0);
 }
 

@@ -259,7 +259,9 @@ fn spec(
         curves.join(","),
         a.fill as u8,
     );
-    match play.hold {
+    // A play waiting for the first presented frame is held where it waits
+    // (LLP 1003.001 D4): Core Animation never runs ahead of the engine.
+    match play.hold.or(play.pending.map(|begin| begin - play.start)) {
         Some(h) => {
             let _ = write!(s, "{h}");
         }

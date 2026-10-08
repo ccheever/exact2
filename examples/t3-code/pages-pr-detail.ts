@@ -36,6 +36,9 @@ import { commentEditing, emptyWrites, presentWrites, previewBodies, prWrite, rea
 import { composerNow } from './composer-controls';
 import { emptyActions, isActionOp, notedListEntry, prActionCommand, prActionUi, presentActions, type PanelContext } from './pages-pr-actions'; // pr-header-actions-and-stacks
 import { markStackDue, readPanelStack } from './pages-pr-stack';
+import { emptyHandoffs, presentHandoffs, prHandoffCommand } from './pages-pr-handoffs'; // pr-handoffs-and-quick-actions
+import { runQuickAction } from './pages-pr-quick';
+import { finishCheckoutHandoff } from './r6-pr-actions';
 
 export type PrSelection = { projectId: string; host: string; repository: string; number: number };
 /** The row key the list wears, parsed back into the reference a read needs. */
@@ -75,13 +78,13 @@ const labelColor = (color: unknown) => { const hex = str(color).trim().replace(/
 
 /** PullRequestDetailGhost's seed: what the list's row (or a kept detail) already says. */
 function emptyGhost() {
-  return { seeded: false, title: '', repository: '', url: '', state: 'open', author: '', avatar: '', initial: '', updated: '', baseBranch: '', headBranch: '',
+  return { seeded: false, conflicting: false, title: '', repository: '', url: '', state: 'open', author: '', avatar: '', initial: '', updated: '', baseBranch: '', headBranch: '',
     files: '', additions: '', deletions: '', checksLabel: '', checksTone: '', labelsKnown: false, labels: [] as { key: string; name: string; background: string; ink: string }[] };
 }
 export function emptyDetail() {
   return {
     open: false, loading: false, phase: 'ghost', error: '', errorTitle: '', githubUrl: '', copiedCheckout: 0, copiedBranch: 0, ref: '', number: 0, numberLabel: '', title: '', repository: '', url: '', state: 'open', stateLabel: 'Open', conflict: '',
-    author: '', authorAvatar: '', authorInitial: '', updated: '', checkoutCommand: '', baseBranch: '', headBranch: '', files: '', additions: '', deletions: '',
+    author: '', authorAvatar: '', authorInitial: '', updated: '', updatedAgo: '', filesCount: '', checkoutCommand: '', baseBranch: '', headBranch: '', files: '', additions: '', deletions: '',
     checksSummary: '', checksTone: '', reviewers: [] as { key: string; login: string; avatar: string; initial: string }[],
     labels: [] as { key: string; name: string; background: string; ink: string }[],
     bodies: [] as { id: string; kind: string; title: string; body: string }[], hasBody: false, bodyId: '',
@@ -93,6 +96,8 @@ export function emptyDetail() {
     md: { codeFont: 'ui-monospace', codeSize: 13, wrap: true, chips: [] as ChipView[], runCommands: [] as string[] }, diffScheme: 'red-green',
     // pr-header-actions-and-stacks: the header's primary control, the More menu, the dialogs, the base branch's mark, the stack.
     actions: emptyActions(),
+    // pr-handoffs-and-quick-actions: which hand-off is preparing, whether the pull request can be checked out, whose it is beside a thread.
+    handoffs: emptyHandoffs(),
   };
 }
 export type PrDetailView = ReturnType<typeof emptyDetail>;
@@ -220,6 +225,7 @@ async function readActivity(client: T3Client, native: Native, panel: Panel, ref:
 function present(view: PrDetailView, panel: Panel | null, selection: PrSelection, listEntry: Obj | null, now: number, client: T3Client): PrDetailView {
   Object.assign(view, { number: selection.number, numberLabel: `#${selection.number}`, repository: selection.repository });
   const display = panel?.detail ?? panel?.cached ?? null;
+  view.handoffs = presentHandoffs(client, display, selection); // pr-handoffs-and-quick-actions: the ghost's Check out too
   if (!display) {
     if (panel?.detailError) {
       Object.assign(view, { phase: 'error' }, unavailable(selection, { error: messageOf(panel.detailError), notFound: isPullRequestNotFound(panel.detailError) }, client.shell.projects.find(project => project.id === selection.projectId)));
@@ -249,7 +255,7 @@ export function ghostOf(entry: Obj | null, now: number): ReturnType<typeof empty
   if (!entry) return ghost;
   const author = person(entry.author), measured = num(entry.additions) + num(entry.deletions) > 0;
   const checks = str(entry.checksState);
-  return { ...ghost, seeded: true, title: str(entry.title), repository: str(entry.repository), url: str(entry.url), state: stateKey(entry), author: author.login, avatar: author.avatar, initial: author.initial,
+  return { ...ghost, seeded: true, conflicting: entry.state === 'open' && entry.mergeability === 'conflicting', title: str(entry.title), repository: str(entry.repository), url: str(entry.url), state: stateKey(entry), author: author.login, avatar: author.avatar, initial: author.initial,
     updated: `updated ${relativeLabel(entry.updatedAt, now)}`, baseBranch: str(entry.baseBranch), headBranch: str(entry.headBranch),
     additions: measured ? `+${count(num(entry.additions))}` : '', deletions: measured ? `-${count(num(entry.deletions))}` : '',
     // Passing list rollups can omit workflows awaiting approval; wait for the detail to claim success.
@@ -299,7 +305,7 @@ export function presentDetail(view: PrDetailView, detail: Obj, activity: Obj | n
   Object.assign(view, {
     phase: 'content', loading: false, number: num(detail.number), numberLabel: `#${num(detail.number)}`, title: str(detail.title), repository: str(detail.repository),
     url: str(detail.url), state, stateLabel: STATE_LABELS[state] ?? 'Open', conflict: conflictLabel(detail), author: author.login, authorAvatar: author.avatar, authorInitial: author.initial,
-    updated: `updated ${relativeLabel(detail.updatedAt, now)}`,
+    updated: `updated ${relativeLabel(detail.updatedAt, now)}`, updatedAgo: relativeLabel(detail.updatedAt, now), filesCount: count(num(detail.changedFiles)),
     checkoutCommand: str(detail.provider, 'github') === 'github' ? `gh pr checkout ${num(detail.number)}` : '', baseBranch: str(detail.baseBranch), headBranch: str(detail.headBranch),
     files: `${count(num(detail.changedFiles))} ${num(detail.changedFiles) === 1 ? 'file' : 'files'}`, additions: `+${count(num(detail.additions))}`, deletions: `-${count(num(detail.deletions))}`,
     checksSummary: summarizeChecks(checks), checksTone: checksTone(checks), projectId: str(detail.projectId), host: hostOf(str(detail.url)),
@@ -363,8 +369,17 @@ const hostOf = (url: string) => { try { return new URL(url).host; } catch { retu
 /** pages:pr-* writes, each against the selected pull request on its host. */
 export async function prCommand(client: T3Client, native: Native, op: string, selected: string, value: string): Promise<string> {
   if (op === 'activity-retry') { retryActivity(client, selected, value); return ''; }
+  // pr-handoffs-and-quick-actions: a checkout hand-off's second half, once the window shows its thread.
+  if (op === 'handoff-run') return finishCheckoutHandoff(client, native);
+  // pr-handoffs-and-quick-actions: a list row's Shift quick action (it names its own row, whatever is selected).
+  if (op === 'quick') return runQuickAction(client, native, value, ref => { const row = parseSelection(ref); return row ? listEntryFor(client, row) : null; }, () => stale(client));
   const selection = parseSelection(selected);
   if (!selection) throw new ClientError('Choose a pull request first.');
+  if (op === 'handoff') {
+    // pr-handoffs-and-quick-actions: Ask, Explain, Fix findings, a finding's Fix, Check out and Resolve conflicts.
+    const ctx = contextOf(client, selected)!, panel = panelsOf(client).get(ctx.key);
+    return prHandoffCommand(client, native, { detail: ctx.detail, activity: panel?.activity ?? null, listEntry: ctx.listEntry }, value);
+  }
   if (isActionOp(op)) {
     // pr-header-actions-and-stacks: the host actions run through one runner (pages-pr-actions.ts).
     return prActionCommand(client, native, op, contextOf(client, selected)!, value);

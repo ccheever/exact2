@@ -21,6 +21,8 @@ use PrdCandidatePicker from "./pages-pr-meta.contract"
 use PrWrites from "./pages-pr-compose.contract"
 use PrdDescription from "./pages-pr-edit.contract"
 use PrdRemarkBody from "./pages-pr-edit.contract"
+use PrHandoffsView from "./pages-pr-handoffs.contract"
+use PrdFixButton from "./pages-pr-handoffs.contract"
 
 shape PrFace
   key: string
@@ -55,6 +57,8 @@ shape PrCommentCard
   reactions: list<PrReactionPill>
   reacted: list<string>
   canReact: bool
+  // pr-handoffs-and-quick-actions: the finding its Fix hands over ('' for talk and verdicts).
+  fix: string
 shape PrCommentGroup
   label: string
   authorsText: string
@@ -78,6 +82,7 @@ shape PrSummaryCheck
   status: string
   statusLabel: string
   url: string
+  fix: string
 shape PrSummaryView
   key: string
   activityPending: bool
@@ -135,6 +140,9 @@ component PrdSummary
     scrollId: string
     scrollTop: number
     anchor: action
+    // pr-handoffs-and-quick-actions: a finding's own Fix, and where its task lands (the surface).
+    handoffs: PrHandoffsView
+    surface: string
   state descriptionOpen = true
   state checksOpen = false
   state commentsOpen = true
@@ -210,7 +218,7 @@ component PrdSummary
               text "No checks reported." font-size="0.75rem" line-height="1rem" color=prsMuted()
             when not summary.checksStale
               each check in summary.checks key=check.key
-                PrdCheckRow(check=check)
+                PrdCheckRow(check=check, handoffs=handoffs, surface=surface, act=act)
       column id=`${scrollId}-comments` width="100%" role="region" aria-label="Comments"
         PrdSectionHeader(id=`${scrollId}-comments-heading`, label=summary.commentsTitle, open=commentsOpen, still=still, press=toggle("comments"), testId="pull-request-comments-toggle")
           PrdGhostButton(label=(order == "newest" ? "Newest first" : "Oldest first"), icon="arrow-down-up", press=flipOrder, ariaLabel=(order == "newest" ? "Show oldest comments first" : "Show newest comments first"), testId="pull-request-comments-order")
@@ -231,7 +239,7 @@ component PrdSummary
                     when order == "oldest" and summary.activeCount > shown
                       PrdShowOlder(hidden=(summary.activeCount - shown), bots=false, press=more(false))
                     each card in filter(order == "newest" ? summary.newest : summary.oldest, (c) => c.fromEnd < shown) key=card.key
-                      PrdCommentCard(card=card, choices=writes.reactionChoices, scope=scrollId, documents=documents, code=code, env=env, still=still, local=local, act=act)
+                      PrdCommentCard(card=card, choices=writes.reactionChoices, scope=scrollId, documents=documents, code=code, env=env, still=still, local=local, act=act, handoffs=handoffs, surface=surface)
                     when order == "newest" and summary.activeCount > shown
                       PrdShowOlder(hidden=(summary.activeCount - shown), bots=false, press=more(false))
                     when shown > 10
@@ -239,7 +247,7 @@ component PrdSummary
                     when summary.botCount > 0
                       PrdCommentGroupBox(group=summary.bots, still=still, testId="pull-request-bot-comments")
                         each card in filter(order == "newest" ? summary.botsNewest : summary.botsOldest, (c) => c.fromEnd < shownBots) key=card.key
-                          PrdCommentCard(card=card, choices=writes.reactionChoices, scope=scrollId, documents=documents, code=code, env=env, still=still, local=local, act=act)
+                          PrdCommentCard(card=card, choices=writes.reactionChoices, scope=scrollId, documents=documents, code=code, env=env, still=still, local=local, act=act, handoffs=handoffs, surface=surface)
                         when summary.botCount > shownBots
                           PrdShowOlder(hidden=(summary.botCount - shownBots), bots=true, press=more(true))
                         when shownBots > 10
@@ -317,26 +325,33 @@ component PrdShowOlder
   view
     PrdWideButton(label=`Show ${min(hidden, 10)} older ${bots ? "bot " : ""}comment${hidden == 1 ? "" : "s"} (${hidden} hidden)`, outline=true, press=press, testId=(bots ? "pull-request-bot-comments-older" : "pull-request-comments-older"))
 
-// A check row opens its details in the system browser where the host gave a URL.
+// A check row opens its details in the system browser where the host gave a URL; a failing one
+// offers its own Fix beside it (pr-handoffs-and-quick-actions).
 component PrdCheckRow
   props
     check: PrSummaryCheck
+    handoffs: PrHandoffsView
+    surface: string
+    act: action
   state over = false
   action hover(value: bool)
     over = value
   view
-    when check.url != ""
-      link href=check.url cursor="pointer" hover=hover aria-label=`${check.name}: ${check.statusLabel}` testId=`pull-request-check-${check.key}` width="100%" min-height="2.25rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.5rem" padding-bottom="0.5rem" box-sizing="border-box" gap="0.5rem" border-radius="0.375rem" background-color=(over ? "light-dark(#f4f4f599, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="flex-start"
-        box margin-top="0.125rem" flex-shrink=0
-          PgIcon(name=prsCheckIcon(check.status), size=14, color=prsCheckTone(check.status))
-        text check.name flex=1 min-width=0 font-size="0.75rem" line-height="1.25rem" color=prsInk() overflow-wrap="anywhere"
-        text check.statusLabel flex-shrink=0 font-size="0.75rem" line-height="1.25rem" color=prsMuted()
-    else
-      row width="100%" min-height="2.25rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.5rem" padding-bottom="0.5rem" box-sizing="border-box" gap="0.5rem" align-items="flex-start" testId=`pull-request-check-${check.key}`
-        box margin-top="0.125rem" flex-shrink=0
-          PgIcon(name=prsCheckIcon(check.status), size=14, color=prsCheckTone(check.status))
-        text check.name flex=1 min-width=0 font-size="0.75rem" line-height="1.25rem" color=prsInk() overflow-wrap="anywhere"
-        text check.statusLabel flex-shrink=0 font-size="0.75rem" line-height="1.25rem" color=prsMuted()
+    row width="100%" align-items="center" gap="0.5rem" padding-right=(check.fix != "" ? "0.25rem" : "0px") box-sizing="border-box" border-radius="0.375rem" background-color=(over ? "light-dark(#f4f4f599, #ffffff0a)" : "#00000000") hover=hover
+      when check.url != ""
+        link href=check.url cursor="pointer" aria-label=`${check.name}: ${check.statusLabel}` testId=`pull-request-check-${check.key}` flex=1 min-width=0 min-height="2.25rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.5rem" padding-bottom="0.5rem" box-sizing="border-box" gap="0.5rem" border-radius="0.375rem" display="flex" flex-direction="row" align-items="flex-start"
+          box margin-top="0.125rem" flex-shrink=0
+            PgIcon(name=prsCheckIcon(check.status), size=14, color=prsCheckTone(check.status))
+          text check.name flex=1 min-width=0 font-size="0.75rem" line-height="1.25rem" color=prsInk() overflow-wrap="anywhere"
+          text check.statusLabel flex-shrink=0 font-size="0.75rem" line-height="1.25rem" color=prsMuted()
+      else
+        row flex=1 min-width=0 min-height="2.25rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.5rem" padding-bottom="0.5rem" box-sizing="border-box" gap="0.5rem" align-items="flex-start" testId=`pull-request-check-${check.key}`
+          box margin-top="0.125rem" flex-shrink=0
+            PgIcon(name=prsCheckIcon(check.status), size=14, color=prsCheckTone(check.status))
+          text check.name flex=1 min-width=0 font-size="0.75rem" line-height="1.25rem" color=prsInk() overflow-wrap="anywhere"
+          text check.statusLabel flex-shrink=0 font-size="0.75rem" line-height="1.25rem" color=prsMuted()
+      when check.fix != ""
+        PrdFixButton(finding=check.fix, label=(surface == "thread" ? "Fix in this thread" : "Fix"), pending=handoffs.pending, surface=surface, act=act, testId=`pull-request-fix-check-${check.key}`)
 
 // The remark's author and when, the time a link to the remark on the host.
 component PrdIdentity
@@ -389,6 +404,8 @@ component PrdCommentCard
     still: bool
     local: action
     act: action
+    handoffs: PrHandoffsView
+    surface: string
   state over = false
   action hover(value: bool)
     over = value
@@ -401,6 +418,10 @@ component PrdCommentCard
             PrdOutcomeBadge(outcome=card.outcome, label=card.outcomeLabel)
           when card.outcome == "" and card.stateLabel != ""
             text card.stateLabel font-size="0.75rem" line-height="1rem" color=prsMuted()
+        // Review remarks only: a plain comment is talk, not a finding (PullRequestSummaryTab).
+        when card.fix != ""
+          box margin-top="-0.25rem" flex-shrink=0
+            PrdFixButton(finding=card.fix, label=(surface == "thread" ? "Fix in this thread" : "Fix in a thread"), pending=handoffs.pending, surface=surface, act=act, testId=`pull-request-fix-${card.id}`)
         PrdReactionBar(pills=card.reactions, reacted=card.reacted, canReact=card.canReact, choices=choices, subject=card.id, pickerId=`${scope}-react-s-${card.id}`, act=act)
       when card.location != ""
         column padding-left="0.75rem" padding-right="0.75rem" box-sizing="border-box"
