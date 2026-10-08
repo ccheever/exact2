@@ -1,0 +1,10 @@
+Sidebar row snooze menu: Enter on snooze-928faefd-0904-4ff6-9c1f-bc52fd043ce2 -> (none); ArrowDown -> (none); End -> (none); Escape -> (none)
+Thread title menu: Enter on thread-title -> thread-title; ArrowDown -> thread-title; ArrowDown -> thread-title; ArrowRight -> thread-title; ArrowDown -> thread-title; ArrowLeft -> thread-title; Escape -> thread-title
+Empty thread project menu: Enter on empty-choose-project -> empty-choose-project; ArrowDown -> empty-choose-project; End -> empty-choose-project; Escape -> empty-choose-project
+Pull requests Sort: Enter on pull-requests-sort -> pull-requests-sort; ArrowDown -> pull-requests-sort; End -> pull-requests-sort; Escape -> pull-requests-sort
+Pull requests Filters: Enter on pull-requests-filters -> pull-requests-filters; ArrowRight -> pull-requests-filters; ArrowDown -> pull-requests-filters; ArrowLeft -> pull-requests-filters; End -> pull-requests-filters; Escape -> pull-requests-filters
+Pull requests provider: Enter on pull-requests-provider -> pull-requests-provider; ArrowDown -> pull-requests-provider; End -> pull-requests-provider; Escape -> pull-requests-provider
+PR More: Enter on pull-request-more -> pull-request-more; ArrowDown -> pull-request-more; End -> pull-request-more; Escape -> pull-request-more
+PR Check out: Enter on pull-request-checkout -> pull-request-checkout; ArrowDown -> pull-request-checkout; End -> pull-request-checkout; Escape -> pull-request-checkout
+PR stack menu: Enter on pull-request-stack -> pull-request-stack; ArrowDown -> pull-request-stack; End -> pull-request-stack; Escape -> pull-request-stack
+Usage environment menu: error HTTP Error 500: Internal Server Error
