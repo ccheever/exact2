@@ -1,11 +1,11 @@
 ---
 name: 20261008-x57-overflowing-centred-line
 plan: 20261005-t3code-macos-parity
-status: draft
+status: published
 kind: framework-gap
 blocks: [20261008-pr-list-title-clip]
-upstream_url: null
-reproduced_on: 07dcef1ab (feature branch; its framework is main 1f19b2400's)
+upstream_url: https://github.com/ccheever/exact2/issues/291
+reproduced_on: 0365ad1a4 (main)
 ---
 
 # X57: macOS centres a line wider than its box, cutting its start (CSS start-aligns it)
@@ -105,3 +105,9 @@ freshness mark's and the submenu value's may go; the other sites above are then 
 Local draft (2026-10-08, pr-list-title-clip). Reproduced on a one-file app on the feature branch's
 framework (main `1f19b2400`); main `c81074f19` keeps both offsets unchanged (read, not run). Not
 searched upstream, not published: publication needs the user's approval (`issue-open`).
+
+## Upstream (filed 2026-10-08)
+
+Upstream: https://github.com/ccheever/exact2/issues/291 (#291, [Bug] macOS: a centred line wider than its box is centred and clipped at its start (CSS start-aligns it)). Reproduced on main `0365ad1a4` (the text-placement files are unchanged on main `e200397ec`) with the one-file app above, the greeting resource left out. macOS reads "cribe the vowel count…" in the button and the centred row, "Describe the vowel count…" in the `text-align="left"` row and "ribe the vowel counter (ec" in the clipped line, with `layout` reporting `text_align = center (inherited from #2)`. The web starts all four at "Describe". Searched: text-align center, ellipsis, truncated, start-aligned (issues and PRs): no duplicate (#128 and #266 are other text differences).
+
+Next: issue-close once #291 lands; the freshness mark's and the submenu value's `text-align="left"` may then go.
