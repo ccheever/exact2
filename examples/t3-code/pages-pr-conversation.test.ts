@@ -195,13 +195,23 @@ describe('the panel reads (PullRequestDetailPanel queries)', () => {
     expect(details()).toBe(1);
     await settle({ now: NOW + 5 * 60_000 }); // the reporter's last interaction is NOW, within six minutes
     expect(details()).toBe(2);
-    await settle({ now: NOW + 5 * 60_000, focused: false });
-    await settle({ now: NOW + 5 * 60_000 + 30_000, focused: true }); // focus back after 30 s: an arrival
+    await settle({ now: NOW + 5 * 60_000 + 30_000, returns: 1 }); // focus back after 30 s: an arrival
     expect(details()).toBe(3);
     await settle({ now: NOW + 20 * 60_000 }); // nobody touched the window for 20 minutes
     expect(details()).toBe(3);
   });
 
+  test('a focus read counts from the focus, not from the last minute tick (app.contract windowReturned)', async () => {
+    // pr-list-live-refresh: the panel took `page.hasFocus` with the clock of the last minute tick, so a window
+    // focused again within that minute saw no time pass and read nothing. The window's return now reads the clock.
+    const { calls, settle } = fixture({ 'pullRequests.detail': () => detail(), 'pullRequests.activity': () => conversation() });
+    await settle();
+    const details = () => calls.filter(method => method === 'pullRequests.detail').length;
+    await settle({ now: NOW + 30_000, returns: 1 }); // focused again 30 s after the first read, the clock read then
+    expect(details()).toBe(2);
+    await settle({ now: NOW + 35_000, returns: 2 }); // and again 5 s later: not a read per tab stop
+    expect(details()).toBe(2);
+  });
   test('a relaunch shows the kept detail first (t3-code.json), then the live read replaces it', async () => {
     const first = fixture({ 'pullRequests.detail': () => detail({ title: 'Kept title' }), 'pullRequests.activity': () => conversation() });
     await first.settle();

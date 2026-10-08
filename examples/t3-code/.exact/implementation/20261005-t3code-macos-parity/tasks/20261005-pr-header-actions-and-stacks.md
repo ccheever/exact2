@@ -198,8 +198,9 @@ hides them). The retry showed the card over the tab bar ([21](https://raw.github
 - A burst of answers (a media preference change together with Refresh, at the end of the first session) was refused by
   the native executor ("native executor admission limit reached": 16 ordered requests, `host/apple/src/executor_core.rs`
   `COUNTS`); the Pull Requests list then said "Could not load pull requests" until its Retry. The panel's stack and
-  default-branch reads now follow the activity one at a time instead of beside it. Framework capacity, reported here with
-  its repro (not filed).
+  default-branch reads now follow the activity one at a time instead of beside it. Framework capacity: on main `0365ad1a4` a
+  resource refused at admission is asked again, but a request a source makes inside its answer gets the refusal as a
+  failed `fetch` (filed 2026-10-08 as [#286](https://github.com/ccheever/exact2/issues/286)).
 
 **Decisions.** The merge method a device remembers (`useUiStateStore pullRequestMergeMethod`) is kept in `t3-code.json`
 (`pages.mergeMethod`). The ghost's action slot (Check out, and Resolve conflicts before the detail lands) is left with the

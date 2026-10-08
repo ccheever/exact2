@@ -6,6 +6,7 @@ kind: framework-gap
 blocks: [20261005-media-actions]
 upstream_url: https://github.com/ccheever/exact2/issues/115
 reproduced_on: null
+rest_upstream_url: https://github.com/ccheever/exact2/issues/273
 ---
 
 # X29: `video` and `audio` from app-written local files, and a PDF viewer element
@@ -79,3 +80,7 @@ before #205 too (#205 changed only bundled files). `R6MediaPreview.swift`'s `PDF
 PDF view does not take Chromium's `#toolbar=0&view=FitH` and draws its own white surround (#205's capture),
 while T3 Code shows the page alone on Chromium's #282828 surface fitted to the panel width
 (`BrowserDocumentFrame.tsx`); doing that without a native view needs the PDF element #205 left open.
+
+## Rest filed upstream (2026-10-08)
+
+Upstream (the rest): https://github.com/ccheever/exact2/issues/273 (#273, [Design] Show a PDF: an `iframe` of an `app:/` file, and a PDF element fitted to its width (rest of #115)). Reproduced on main `0365ad1a4` (relevant files unchanged on main `e200397ec`) before filing: a PDF the data module wrote to `app:/data/media/doc.pdf`: the web's `iframe` becomes `about:blank`, macOS's stays blank, and both still fire `load`; a bundled `assets/doc.pdf` shows on both; `object`/`embed` are not tags. One "Decision needed" comment (`rules/DEFERRED.md:427-431`). Searched open and closed issues and PRs: no duplicate.

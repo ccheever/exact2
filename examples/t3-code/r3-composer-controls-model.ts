@@ -110,3 +110,33 @@ export function chordGlyphs(chord: string): string {
   const names: Record<string, string> = { Escape: 'Esc', ArrowUp: 'Up', ArrowDown: 'Down', ArrowLeft: 'Left', ArrowRight: 'Right' };
   return `${has('Control') ? '⌃' : ''}${has('Alt') ? '⌥' : ''}${has('Shift') ? '⇧' : ''}${has('Meta') ? '⌘' : ''}${names[key] ?? (key.length === 1 ? key.toUpperCase() : key)}`;
 }
+
+/** buildTraitsTriggerDisplay: speed traits become a bolt (two for Ultrafast); booleans read "<label> On|Off". */
+export function traitsDisplay(driver: string, descriptors: Obj[], selections: Obj[], selection: Selection | null = null, reported: Selection | null = null,
+  ultra: { primaryId: string; controlled: boolean } = { primaryId: '', controlled: false }) {
+  let speed = '', fallback = '';
+  const labels: string[] = [];
+  const current = (descriptor: Obj) => resolvedCurrent(descriptor, selections) ?? arr(descriptor.options).find(option => option.isDefault === true)?.id;
+  for (const descriptor of descriptors) {
+    if (descriptor.id === 'fastMode' && descriptor.type === 'boolean') {
+      speed = current(descriptor) === true ? 'fast' : ''; fallback = speed ? 'Fast' : 'Normal'; continue;
+    }
+    if (driver === 'codex' && descriptor.id === 'serviceTier' && descriptor.type === 'select') {
+      const value = current(descriptor), options = arr(descriptor.options);
+      const fast = options.find(option => option.label === 'Fast'), ultra = options.find(option => option.label === 'Ultrafast');
+      if (((fast || ultra) && value === 'default') || (fast && value === fast.id) || (ultra && value === ultra.id)) {
+        speed = ultra && value === ultra.id ? 'ultrafast' : fast && value === fast.id ? 'fast' : '';
+        fallback = str(options.find(option => option.id === value)?.label, 'Normal'); continue;
+      }
+    }
+    // composer-fidelity G9: the prompt-controlled primary effort reads "Ultrathink" (buildTraitsTriggerDisplay).
+    if (ultra.controlled && descriptor.id === ultra.primaryId) { labels.push('Ultrathink'); continue; }
+    if (descriptor.type === 'boolean') { labels.push(`${str(descriptor.label, str(descriptor.id))} ${current(descriptor) === true ? 'On' : 'Off'}`); continue; }
+    if (descriptor.type !== 'select') continue;
+    // getProviderOptionCurrentLabel: a provider-reported value labels an option the user left unset.
+    const label = optionLabel(descriptor, resolvedCurrent(descriptor, selections), selection, reported);
+    if (label) labels.push(label);
+  }
+  if (!labels.length && fallback) return { label: fallback, speed: '' };
+  return { label: labels.join(' · '), speed };
+}

@@ -46,6 +46,7 @@ use LocalEnvironmentDialog from "./this-machine.contract" // local-primary-envir
 use NetworkDialogs from "./connections-network-dialogs.contract" // this-machine-network-access
 use RouteRemoveDialog from "./connections-routes.contract"
 use ProjectsPanel from "./settings-projects.contract"
+use CoreRowView from "./settings-rows.contract"
 use ProjectsPage from "./settings-projects.contract"
 use ProjectActionDialog from "./settings-b-actions.contract"
 use ProjectIconDialog from "./settings-b-icons.contract"
@@ -205,6 +206,8 @@ component SettingsWindow
                 ProvidersPanel(page=providerPage, scheme=(data.look.mode == "dark" or (data.look.mode == "system" and viewport.prefersColorScheme == "dark") ? "dark" : "light"), width=min(1024, viewport.width - (data.sidebarOpen ? max(208, min(sidebarWidth, viewport.width / 5)) : 0) - 12) - 48, height=viewport.height, busy=commandPending, setupBusy=setupBusy, error=(providerDialog == "" ? modalError : ""), select=providerUi("select"), op=providerOp, accent=providerAccent, ui=providerUi)
               when settingsRoute == "projects"
                 ProjectsPanel(data=projectsSettings, busy=commandPending, error=(restEditor == "" ? modalError : ""), choose=coreScope, rest=rest, restInput=restInput, raw=restRaw, open=restOpen)
+                  each row in settingsCore.projectModel key=row.id
+                    CoreRowView(reduced=viewport.prefersReducedMotion, row=row, section="project-defaults", pal=settingsCore.palette, codePreview=settingsCore.codePreview, busy=commandPending, menu=settingsMenu, openMenu=coreMenu, closeMenu=coreMenuClose, change=coreChange, slide=coreSlide, navigate=coreNavigate)
               when modalError != "" and settingsRoute != "projects" and settingsRoute != "scheduled-tasks" and settingsRoute != "source-control" and settingsRoute != "integrations" and settingsRoute != "keybindings" and settingsRoute != "storage" and settingsRoute != "archived" and not snapshotSetupOpen
                 text modalError font-size="0.75rem" color="light-dark(#b91c1c, #fca5a5)" role="alert" testId="settings-error"
     when settingsOpen and (settingsThemeDialog != "" or settingsCore.archiveConfirm.id != "" or settingsCore.saOpen)
