@@ -1,0 +1,28 @@
+app-developer-tools: can the Develop-menu listing be read without Safari's UI? (2026-10-08 18:15-18:17, screen locked)
+
+Safari's Develop menu is fed by webinspectord (launchd gui/501/com.apple.webinspectord, endpoints
+"com.apple.webinspector" for inspectable apps and "com.apple.webinspector.debugger" for debuggers).
+It was not running (runs = 0): a WebKit app connects only when the daemon announces itself, which it does
+when a debugger connects.
+
+Probe 1 (scratchpad, not committed): a WKWebView app with isInspectable off / on; probe 2: an XPC client of
+"com.apple.webinspector.debugger" sending _rpc_reportIdentifier: and _rpc_getConnectedApplications:.
+
+webinspectord's own log (/usr/bin/log show --predicate 'process == "webinspectord"'), with isInspectable OFF:
+  XPC Application Connection Event: 19868 - <private>
+  Application Connected: 19868 - PID:19868 - <private>
+  Application Updated: 19868 - PID:19868 - <private>
+  XPC Debugger Connection Event - PID (20166)
+  Debugger Connection from PID (20166) did not have entitlement.
+and with isInspectable ON:
+  XPC Application Connection Event: 21816 - <private>
+  Application Connected: 21816 - PID:21816 - <private>
+  Application Updated: 21816 - PID:21816 - <private>
+  XPC Debugger Connection Event - PID (22143)
+  Debugger Connection from PID (22143) did not have entitlement.
+
+Conclusion: an app connects and pushes a listing whether or not its views are inspectable; the listing's
+contents are <private> in the log, and the debugger endpoint refuses any client without Apple's private
+entitlement (the probe's connection was cancelled: "Connection interrupted"). So the listing Safari would
+show cannot be read from outside Safari; the Develop-menu rows need Safari itself (real-input batch).
+safaridriver does not help: it drives Safari's pages over WebDriver, not its Develop menu.
