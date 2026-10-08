@@ -161,6 +161,8 @@ wasm32-unknown-unknown`.
 
 What the TypeScript client of Snapback itself does that this one does not
 yet: media and assets (LLP 1108), native jobs on the device, Following
-feeds, ephemeral reads, search state, a server read kept live (here a
-query the server answers is asked again, not invalidated by the change
-poll), and the 0.2.32 legacy fallback. `round.rs` names its source in Snapback's `local.ts`.
+feeds, ephemeral reads, search state, the online fallback for a device
+read missing a fact or unsure of a row's presence (here it answers from
+the partition: `complete: false` or `loading`), a server read kept live
+(here a query the server answers is asked again, not invalidated by the
+change poll; LLP 1110), and the 0.2.32 legacy fallback. `round.rs` names its source in Snapback's `local.ts`.
