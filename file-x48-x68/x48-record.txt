@@ -1,0 +1,57 @@
+# X48 record: a font-family chosen at runtime
+exact2 main b896050d78508aa5cea10cfa875e02037fde4c6e (2026-10-08); macOS 26.6.2 (25G83), Apple Silicon; contract CLI: cargo build --profile host-dev -p contract --bin contract
+
+## 1. Compiler, three one-file inputs
+--- state.contract
+component App
+  state family = "Arial"
+  view
+    text "Installed selected family" font-family=family
+--- literal.contract
+component App
+  view
+    text "Installed Arial" font-family="Arial, sans-serif"
+--- choice.contract
+component App
+  state useArial = true
+  view
+    text "Installed selected family" font-family=(useArial ? "Arial" : "Menlo")
+
+$ contract build state.contract -o state.plan
+state.contract:4:50 [lower-font-family-literal] `font-family` takes a family name, or a choice (`?:` or `match`) whose every arm is one; a family computed at runtime cannot be resolved, because fonts are declared and resolved at compile time
+exit 1
+$ contract build literal.contract -o literal.plan
+literal.contract: 0 slots, 0 derives, 0 resources, 0 actions, 1 nodes, 0 regions, 432 bytes
+exit 0
+$ contract build choice.contract -o choice.plan
+choice.contract: 1 slots, 0 derives, 0 resources, 0 actions, 1 nodes, 0 regions, 543 bytes
+exit 0
+
+## 2. The same as an app (bun scripts/exact.mjs new <dir>), state-bound family
+component X48app
+  state family = "Arial"
+  action pick(name: string)
+    family = name
+  view
+    main testId="root" width="100%" height="100%" box-sizing="border-box" padding=24 gap=12 background-color="#ffffff" color="#111111"
+      row gap=8
+        button press=pick("Arial") testId="arial"
+          text "Arial"
+        button press=pick("Menlo") testId="menlo"
+          text "Menlo"
+      text `selected: ${family}` testId="label"
+      text "The quick brown fox 0123456789" font-family=family font-size=20 testId="sample"
+
+$ bun exact.mjs mac   (exit 1)
+41:error: failed to run custom build command for `x48app-apple v0.1.0 (/private/tmp/claude-501/-Users-daehyeonmun-orca-workspaces-exact2-t3-code/9d293baa-3a94-4e6f-a91c-a64f957a461f/scratchpad/file-x48-x68/x48app/apple)`
+48:  bake X48app: "/private/tmp/claude-501/-Users-daehyeonmun-orca-workspaces-exact2-t3-code/9d293baa-3a94-4e6f-a91c-a64f957a461f/scratchpad/file-x48-x68/x48app/app.contract:13:57 [lower-font-family-literal] `font-family` takes a family name, or a choice (`?:` or `match`) whose every arm is one; a family computed at runtime cannot be resolved, because fonts are declared and resolved at compile time"
+52:  app.contract:13:57 [lower-font-family-literal] `font-family` takes a family name, or a choice (`?:` or `match`) whose every arm is one; a family computed at runtime cannot be resolved, because fonts are declared and resolved at compile time
+$ bun exact.mjs web-build   (exit 1)
+app.contract:13:57 [lower-font-family-literal] (same message); x48app: the web build (the JS target) failed
+
+## 3. Control: the same app with a literal choice, font-family=(family == "Menlo" ? "Menlo" : "Arial")
+$ bun exact.mjs mac   (exit 0)
+$ bun exact.mjs agent macos --size 520x240 "layout sample" "tap menlo" "clock settle" "layout sample" "screenshot x48-macos-menlo.png window"
+before: font_family = 9 (dynamic, own); space viewport 24,66 472x23
+after tap menlo: font_family = 8 (dynamic, own); space viewport 24,66 472x24
+(each literal arm is its own stack id; the host resolves the installed family's faces at boot. A name the app learns at run time, such as one from the installed-font list, has no id.)
