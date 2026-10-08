@@ -26,7 +26,7 @@ export function homeArrangeActionValue(version: string, section: string, targetK
 }
 /** Include hidden reservation and parked-state changes, without invalidating for titles or clock-only labels. */
 export function homeArrangeVersion(order: HomeOrderSnapshot): string {
-  return JSON.stringify([order.workingEnabled, order.sections.pinned.map(homeOrderKey), order.sections.active.map(homeOrderKey),
+  return JSON.stringify([order.workingEnabled, order.sections.pinned.map(homeOrderKey), (order.workingEnabled ? sortByReturn(order.sections.active, thread => order.returnedAt[homeOrderKey(thread)]) : order.sections.active).map(homeOrderKey),
     order.threads.map(thread => [homeOrderKey(thread), thread.pinOrderKey ?? null, thread.activeOrderKey ?? null,
       thread.pinnedAt ?? null, thread.settledOverride ?? null, thread.snoozedUntil ?? null, thread.archivedAt ?? null,
       thread.unsettledAt ?? thread.createdAt ?? null]).sort((a, b) => str(a[0]).localeCompare(str(b[0])))]);
@@ -41,7 +41,7 @@ export function homeArrangeSnapshot(client: object, sources: HomeOrderSource[], 
   const parked = order.threads.filter(thread => thread.archivedAt == null && thread.deletedAt == null
     && obj(thread.lineage).relationshipToParent !== 'subagent' && !seen.has(homeOrderKey(thread)));
   const sections = { pinned: homeApplyPending(order.sections.pinned, 'pinned', order.pending),
-    active: order.workingEnabled ? sortByReturn(order.sections.active) : homeApplyPending(order.sections.active, 'active', order.pending),
+    active: order.workingEnabled ? sortByReturn(order.sections.active, thread => order.returnedAt[homeOrderKey(thread)]) : homeApplyPending(order.sections.active, 'active', order.pending),
     snoozed: parked.filter(thread => effectiveSnoozed(thread, now)), settled: parked.filter(thread => !effectiveSnoozed(thread, now)) };
   const sourceCaps = new Map(sources.map(source => [source.environmentId, capabilities(source.config)]));
   const project = (section: keyof typeof sections) => sections[section].map(thread => {

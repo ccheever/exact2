@@ -430,7 +430,7 @@ component App
   state sidebarProject = ""
   state sidebarSettledCount = 10
   resource sidebarChrome = homeChrome(workspace.sidebarRouteKey, sidebarQuery, sidebarEnvironment, sidebarProject, appearance.scheme, layout.safeBottom, layout.liquidGlass, data.revision, data.environments, appearance.groupingMode, "sidebar") as shape HomeChromeView
-  resource sidebarHome = homeView(data.revision, wallTime.epochAtZero + elapsed, sidebarQuery, sidebarSettledCount, shelves.loaded, shelves.workingEnabled, shelves.workingExpanded, shelves.snoozedExpanded, shelves.settledExpanded, sidebarChrome.environmentId, sidebarChrome.projectKey, `${workspace.environmentId}:${workspace.threadId}`, appearance.groupingMode, `${top(nav).id}`, top(nav).name == "home" or top(nav).name == "homeArrange", workspace.usesSplitView and workspace.sidebarVisible) as shape HomeView
+  resource sidebarHome = homeView(data.revision, wallTime.epochAtZero + max(elapsed, now()), sidebarQuery, sidebarSettledCount, shelves.loaded, shelves.workingEnabled, shelves.workingExpanded, shelves.snoozedExpanded, shelves.settledExpanded, sidebarChrome.environmentId, sidebarChrome.projectKey, `${workspace.environmentId}:${workspace.threadId}`, appearance.groupingMode, `${top(nav).id}`, top(nav).name == "home" or top(nav).name == "homeArrange", workspace.usesSplitView and workspace.sidebarVisible) as shape HomeView
   mutation sidebarEvent as shape ChromeEvent then didSidebarEvent
   action sidebarChromeEvent(value: string)
     send sidebarEvent = homeChromeEvent(value)
@@ -1254,7 +1254,7 @@ component App
   state settledCount = 10
   resource shelves = homePreferences() as shape HomePreferences
   resource homeLook = homeColors(appearance.scheme, appearance.themeId) as shape HomeColors
-  resource home = homeView(data.revision, wallTime.epochAtZero + elapsed, homeQuery, settledCount, shelves.loaded, shelves.workingEnabled, shelves.workingExpanded, shelves.snoozedExpanded, shelves.settledExpanded, chrome.environmentId, chrome.projectKey, "", appearance.groupingMode, `${top(nav).id}`, top(nav).name == "home" or top(nav).name == "homeArrange", workspace.usesSplitView and workspace.sidebarVisible) as shape HomeView
+  resource home = homeView(data.revision, wallTime.epochAtZero + max(elapsed, now()), homeQuery, settledCount, shelves.loaded, shelves.workingEnabled, shelves.workingExpanded, shelves.snoozedExpanded, shelves.settledExpanded, chrome.environmentId, chrome.projectKey, "", appearance.groupingMode, `${top(nav).id}`, top(nav).name == "home" or top(nav).name == "homeArrange", workspace.usesSplitView and workspace.sidebarVisible) as shape HomeView
   mutation shelfChanged as shape Change refreshes shelves
   task clock mount
     every(60000, tick)

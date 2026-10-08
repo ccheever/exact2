@@ -36,7 +36,7 @@ export async function mobileToggleShelf(section: string, native?: Native | null)
 export function mobileHomeView(args: unknown[], client: T3Client = mobileClient, background: EnvironmentFleet = fleet) {
   const [_revision, now, query, settledCount, loaded, workingEnabled, workingExpanded, snoozedExpanded, settledExpanded, environmentId, projectKey, selectedThreadKey, groupingMode, requestRoute, homeVisible, sidebarVisible] = args;
   mobileHomeActionsObserve(String(requestRoute ?? ''), homeVisible === true, sidebarVisible === true, client);
-  const order = mobileHomeOrder(client, mobileHomeSources(client, background), Number(now), { workingEnabled: workingEnabled === true });
+  const order = mobileHomeOrder(client, mobileHomeSources(client, background), Number(now), { workingEnabled: workingEnabled === true, observeReturns: true });
   const result = mobileHome(Number(now), { orderSnapshot: order, query: String(query ?? ''), settledVisibleCount: Number(settledCount) || 10,
     environmentId: String(environmentId ?? ''), projectKey: String(projectKey ?? ''), selectedThreadKey: String(selectedThreadKey ?? ''),
     groupingMode: String(groupingMode ?? 'repository'), preferencesLoaded: loaded === true, workingEnabled: workingEnabled === true, workingExpanded: workingExpanded === true,
