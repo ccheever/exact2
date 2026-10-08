@@ -60,7 +60,6 @@ component T3Window
     settings: Settings
     utilityPage: string
     home: PagesHome
-    toggleSidebar: action
     paletteShow: action
     openThread: action
     sidebarLocal: action
@@ -70,14 +69,12 @@ component T3Window
     openProviderSettings: action
     sidebarHoverRoot: action
     sidebarHoverId: string
-    search: action
     openProjects: action
     sidebarNewThread: action
     selectThread: action
     openConnectionRoot: action
     command: action
     resizeSidebar: action
-    finishResize: action
     resetSidebarWidth: action
     noticeExit: string
     noticeDismiss: action
@@ -373,6 +370,14 @@ component T3Window
   derive dragTarget = dragId == "" ? "" : (dragCX > sidebarWidth ? "context" : (dragSettledY > 0 and dragCY >= dragSettledY ? "settled" : (dragSnoozedY > 0 and dragCY >= dragSnoozedY ? "snoozed" : (dragWorkingY > 0 and dragCY >= dragWorkingY ? "working" : (dragCY < dragDividerY + 36 ? "pinned" : "active")))))
   derive dragVerb = (dragTarget == "" or dragTarget == dragSection or dragTarget == "working" or dragTarget == "snoozed" or dragTarget == "context") ? "" : (dragTarget == "pinned" ? "pin" : (dragTarget == "settled" ? "settle" : (dragSection == "pinned" ? "unpin" : (dragSection == "settled" ? "unsettle" : "wake"))))
   derive dragOffset = dragDy - (dragSection == "pinned" ? 24 : (dragSection == "active" ? 48 : 0))
+  // The root rewrite: the sidebar's own local ops, through the root's command dispatch (`sidebar` and `search`
+  // send localChanged there), moved from app.contract.
+  action toggleSidebar
+    command("sidebar", "", data.sidebarOpen ? "closed" : "open", 0)
+  action finishResize(vx: number, vy: number)
+    command("sidebar", "", "open", sidebarWidth)
+  action search(value: string)
+    command("search", "", value, 0)
   // The root rewrite: the composer's resting state and left edge, which only the view reads (moved from app.contract).
   derive canRest = data.composerCollapseOnScroll and data.threadId != "" and not composerFocused and not includes(composerText, "\n") and length(data.approvals) == 0 and length(data.questions) == 0 and not data.settled
   derive resting = data.composerResting and canRest
