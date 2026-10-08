@@ -1,0 +1,21 @@
+2026-10-08T03:23:09.573Z [d1] #158 before the session: {"state":"open","comments":[]}
+2026-10-08T03:23:10.217Z [d1] app pid 86603
+2026-10-08T03:23:25.544Z [d1] connected: sidebar shows Pull Requests
+2026-10-08T03:23:32.055Z [d1] list: no search; row #158 shown: true
+2026-10-08T03:23:38.288Z [d1] shot panel
+2026-10-08T03:23:40.052Z [d1] typed; Close with comment enabled: true
+2026-10-08T03:23:40.141Z [d1] shot close-typed
+2026-10-08T03:23:50.552Z [d1]   +10411 ms: row gone · button "" · toast "Pull request closed" · GitHub closed
+2026-10-08T03:23:50.638Z [d1] shot close-row
+2026-10-08T03:23:50.726Z [d1] shot close-done
+2026-10-08T03:23:51.659Z [d1] read back: state closed (landed +10497 ms); last comment by daehyeonmun2021, body equals the typed bytes: true
+2026-10-08T03:23:55.266Z [d1] after: list read again after the close: yes (started +63 ms, 3035 ms); row #158 gone; GitHub open list holds #158: false; toasts "Pull request closed"
+2026-10-08T03:23:55.354Z [d1] shot closed-reread
+2026-10-08T03:23:57.513Z [d1] typed; Reopen with comment shown: true, Close with comment shown: false
+2026-10-08T03:23:57.600Z [d1] shot reopen-typed
+2026-10-08T03:24:06.252Z [d1]   +8652 ms: row gone · button "" · toast "Pull request reopened" · GitHub open
+2026-10-08T03:25:13.003Z [d1] FAILED: clock: the clock cannot go backwards (34850.0 → 34849.999999999985)
+2026-10-08T03:25:13.098Z [d1] shot failure
+2026-10-08T03:25:15.010Z [d1] deleted test comment 6051518295
+2026-10-08T03:25:15.767Z [d1] deleted test comment 6051521036
+2026-10-08T03:25:18.090Z [d1] #158 after cleanup: {"state":"open","comments":[]}; matches the start: true
