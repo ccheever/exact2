@@ -28,12 +28,20 @@ export class WorkspaceDiscovery {
   private selected: Attempt | undefined;
   private seen: WorkspaceWake | null = null;
   private wake = 0;
+  private shown = true;
 
-  state(environment: string, generation: number, provider: Obj, cwd: string, wake: WorkspaceWake = { prompt: '', config: provider }): WorkspaceReadiness {
+  /**
+   * `shown`: whether ChatComposer is mounted. The reference mounts it on a thread's chat view only, so
+   * Settings, the Usage and Pull Requests pages and the welcome stop its refreshes, and mounting it again
+   * starts its refs over (a fresh attempt, refreshed at once when the snapshot is incomplete).
+   */
+  state(environment: string, generation: number, provider: Obj, cwd: string, wake: WorkspaceWake = { prompt: '', config: provider }, shown = this.shown): WorkspaceReadiness {
     if (this.seen && (this.seen.prompt !== wake.prompt || this.seen.config !== wake.config)) this.wake++;
     this.seen = wake;
+    if (shown && !this.shown) this.attempts.clear();
+    this.shown = shown;
     const instanceId = str(provider.instanceId);
-    if (!environment || !instanceId || !cwd) { this.selected = undefined; return { key: '', needed: false, timer: false, wake: this.wake }; }
+    if (!shown || !environment || !instanceId || !cwd) { this.selected = undefined; return { key: '', needed: false, timer: false, wake: this.wake }; }
     const base = JSON.stringify([environment, generation, instanceId, cwd]);
     let attempt = this.attempts.get(base);
     const complete = hasCompleteProviderWorkspaceSnapshot(provider, cwd);

@@ -120,6 +120,11 @@ Real sign-in attempt (03:36–03:41 KST): agent-mode app, the recorded URL opene
 
 2026-10-08 (real-input batch, records PR): real ChatGPT sign-in, relaunch, Disconnect, Reconnect and Change account pass (the user clicked each consent); no banked credit, so no redeem; three clone bugs (unblurred email, auth.subscribe burst, stale list row). Results and proof: "Real-input batch (2026-10-08)" below.
 
+2026-10-08 ([fix-provider-auth-state](../20261008-fix-provider-auth-state.md)): of the batch's findings, the
+subscribe burst and the stale list row (X64) are fixed and the refresh loop behind Settings is gone; the
+unblurred email after Disconnect is the reference's behaviour (plain text, `CodexSetupSection.tsx:604`), so
+unchanged. The remote handoff (step 7) passed on a LAN address there; results in that record.
+
 ## Attempts and evidence
 
 | Attempt | Revision/fingerprint | Checks and outcomes | Evidence | Remaining blocker |

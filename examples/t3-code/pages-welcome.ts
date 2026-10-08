@@ -281,10 +281,11 @@ export async function welcomeView(client: T3Client, native: Native | null | unde
   view.machines = setup.map(source => {
     const agents = Object.keys(source.config).length ? agentRows(source.config) : [];
     // OnboardingCodexSetup: each machine's Codex rows run the managed setup (codex-setup.ts), the focused
-    // one on this connection, the others on their background ones (codex-fleet-host.ts).
-    const entry = source.focused ? null : fleet.entries.get(source.key);
-    if (source.focused && client.ready) mounted.push({ host: client, native, ids: codexRows(client, agents, state, id => id) });
-    else if (entry && fleetSetupHost(entry).ready) mounted.push({ host: fleetSetupHost(entry), native: EnvironmentFleet.native(native, entry.key), ids: codexRows(fleetSetupHost(entry), agents, null, id => `${entry.key}\t${id}`) });
+    // one on this connection, the others on their background ones (codex-fleet-host.ts). They are mounted
+    // on the agents step only (WelcomeWizard.tsx:269-281): the projects step holds none of their streams.
+    const entry = source.focused ? null : fleet.entries.get(source.key), agentsStep = view.step === 'agents';
+    if (agentsStep && source.focused && client.ready) mounted.push({ host: client, native, ids: codexRows(client, agents, state, id => id) });
+    else if (agentsStep && entry && fleetSetupHost(entry).ready) mounted.push({ host: fleetSetupHost(entry), native: EnvironmentFleet.native(native, entry.key), ids: codexRows(fleetSetupHost(entry), agents, null, id => `${entry.key}\t${id}`) });
     const terminal = setupTerminal(client, native, source.environmentId).view(), appearance = look(client);
     const active = terminal.environmentId === source.environmentId;
     for (const agent of agents) { agent.terminalOpen = active && terminal.open && agent.driver === terminal.driver; agent.terminalAvailable = !!str(source.config.cwd); }
