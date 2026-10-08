@@ -105,11 +105,12 @@ fn a_transition_shows_its_start_at_the_first_frame_then_one_interval() {
 }
 
 #[test]
-fn a_frame_task_leaves_the_input_clock_at_the_wall() {
+fn a_display_frame_leaves_the_input_clock_at_the_wall() {
     let mut host = boot();
     host.frame_at(133.0, 120.0);
     assert_eq!(host.engine.now(), 0.120);
-    // A touch at 125 ms, behind the frame's target, is not refused.
+    // A touch at 125 ms, behind the frame's target, is heard at its own time
+    // and a hold just after it is not refused.
     let go = id(&host, "go");
     host.dispatch_at(go, Event::Press, 125.0);
     assert_eq!(
@@ -117,12 +118,56 @@ fn a_frame_task_leaves_the_input_clock_at_the_wall() {
         0.125,
         "the touch's own time, not the runner's"
     );
-    let sweep = host.runner.kernel().find_by_test_id("sweep")[0];
-    let node = exact_kernel::motion::motion_node(sweep);
-    assert!(host
-        .engine
-        .begin_hold(node, Property::Translate, 0.126, None)
-        .is_ok());
+    let fade = host.runner.kernel().find_by_test_id("fade")[0];
+    let node = exact_kernel::motion::motion_node(fade);
+    let held = host.engine.begin_hold(node, Property::Opacity, 0.126, None);
+    assert!(matches!(held, Ok(Some(_))), "{held:?}");
+}
+
+#[test]
+fn the_bridge_latch_holds_boots_first_plays_and_the_takeover_starts_them() {
+    const PULSE: &str = r##"keyframes pulse
+  from opacity=0.2
+  to opacity=1
+component A
+  view
+    box testId="pulse" width=24 height=24 animation="pulse 1s infinite"
+"##;
+    let plan = contract::compile(PULSE).unwrap().encode();
+    let boot = |on: bool| {
+        let mut bridge = crate::abi::Bridge::new();
+        bridge.start_on_frame(on, 0.0);
+        let len = bridge.boot(&plan, NoData, crate::abi::Hooks::none(), 390., 844.);
+        let batch = String::from_utf8_lossy(bridge.output_bytes(len as usize)).into_owned();
+        (bridge, batch)
+    };
+    let view = |batch: &str| {
+        let v: serde_json::Value = serde_json::from_str(batch).unwrap();
+        let op = v["ops"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|op| op["op"] == "animations")
+            .cloned();
+        op.map(|op| op["specs"][0].clone())
+            .unwrap_or_else(|| panic!("no specs: {batch}"))
+    };
+    let (_, off) = boot(false);
+    assert!(
+        view(&off)["h"].is_null(),
+        "unchanged with the latch off: {off}"
+    );
+    let (mut bridge, on) = boot(true);
+    assert_eq!(
+        view(&on)["h"],
+        0.0,
+        "boot's play waits for the first frame: {on}"
+    );
+    assert!(motion(&on));
+    let len = bridge.start_on_frame(false, 50.0);
+    let taken = String::from_utf8_lossy(bridge.output_bytes(len as usize)).into_owned();
+    assert_eq!(view(&taken)["s"], 0.05, "{taken}");
+    assert!(view(&taken)["h"].is_null());
 }
 
 #[test]

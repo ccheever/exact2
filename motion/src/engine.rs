@@ -624,7 +624,7 @@ impl Engine {
             return None;
         };
         Some(SpringDescriptor {
-            start: running.start,
+            start: running.start_at(self.sample_time()),
             from: running.from,
             target: running.to,
             velocity: *velocity,
@@ -640,7 +640,7 @@ impl Engine {
         Some(SpringFrames {
             node,
             property,
-            start: running.start,
+            start: running.start_at(self.sample_time()),
             duration,
             values,
         })

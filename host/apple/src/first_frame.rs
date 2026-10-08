@@ -8,13 +8,15 @@ impl<D: DataSource> Host<D> {
     /// A motion frame: seek the engine to `now_ms` and report every
     /// presentation value that changed. Nothing else moves.
     pub fn tick(&mut self, now_ms: f64) -> String {
-        self.wall(now_ms);
         self.now_ms = now_ms.max(self.now_ms);
         let mut batch = Batch::new();
         let seek = self
             .engine
             .advance((now_ms / 1000.0).max(self.engine.now()));
         debug_assert!(seek.is_ok(), "the clock never runs backwards here");
+        // The frame is sampled before anything reads the engine (a reorder's
+        // end, height layout); what the tick begins later starts at present.
+        self.start_frame();
         if self.arrange_settled() {
             return self.arrange_settle();
         }
@@ -46,26 +48,19 @@ impl<D: DataSource> Host<D> {
     }
 
     /// [`Host::frame`] at the display's target `frame_ms`, the wall at
-    /// `wall_ms`: the runner and its frame tasks take the target (LLP 1073),
-    /// the engine's input clock stops at the wall (D5).
+    /// `wall_ms`: the runner and its frame tasks take the target (LLP 1073);
+    /// the host's clock, which inputs and the engine's input clock follow,
+    /// stays at the wall (D5).
     pub fn frame_at(&mut self, frame_ms: f64, wall_ms: f64) -> String {
         if !self.engine.starts_on_frame() {
             return self.frame(frame_ms);
         }
-        self.presence.input_cap = Some(wall_ms / 1000.0);
-        self.frame(frame_ms)
-    }
-
-    /// A wall time from an input, a timer or a tick: the engine's input clock
-    /// may move to it, and once the wall passes the runner's clock no cap is
-    /// left (D5).
-    pub(super) fn wall(&mut self, ms: f64) {
-        if let Some(cap) = self.presence.input_cap.as_mut() {
-            *cap = cap.max(ms / 1000.0);
-            if *cap * 1000.0 >= self.now_ms {
-                self.presence.input_cap = None;
-            }
-        }
+        let wall = wall_ms.max(self.now_ms);
+        self.presence.input_cap = Some(wall / 1000.0);
+        let out = self.frame(frame_ms);
+        self.presence.input_cap = None;
+        self.now_ms = wall;
+        out
     }
 
     /// Turn the first-frame rule on or off (D7). Off, at the agent's
@@ -81,7 +76,7 @@ impl<D: DataSource> Host<D> {
     /// [`Host::start_on_frame`] with nothing presented: a prepared host's
     /// started plays reach the presenter in its first batch after commit.
     pub(crate) fn set_start_on_frame(&mut self, on: bool, at_ms: f64) -> Result<(), String> {
-        let at = (at_ms / 1000.0).max(self.engine.sample_time());
+        let at = (at_ms / 1000.0).max(self.engine.now());
         let started = self
             .engine
             .set_start_on_frame(on, at)
@@ -91,13 +86,15 @@ impl<D: DataSource> Host<D> {
     }
 
     /// The engine time a commit at `ms` is heard at: never behind the engine,
-    /// and never past the wall when a display frame put the runner ahead of
-    /// it (D5).
+    /// and, with the rule on, never past the host's clock, which a runner a
+    /// frame task put at its target may lead (D5).
     pub(super) fn engine_time(&self, ms: f64) -> f64 {
-        let t = self
-            .presence
-            .input_cap
-            .map_or(ms / 1000.0, |cap| (ms / 1000.0).min(cap));
+        let cap = self.presence.input_cap.or_else(|| {
+            self.engine
+                .starts_on_frame()
+                .then_some(self.now_ms / 1000.0)
+        });
+        let t = cap.map_or(ms / 1000.0, |cap| (ms / 1000.0).min(cap));
         t.max(self.engine.now())
     }
 

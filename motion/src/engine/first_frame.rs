@@ -23,14 +23,18 @@ impl Engine {
         self.start_on_frame
     }
 
-    /// Turn the rule on or off. Off, everything pending starts at `at` (the
-    /// agent's takeover instant, D7), as a frame there would; the nodes whose
-    /// plays started are returned, for their lowered specs.
+    /// Turn the rule on or off. Off (the agent's takeover, D7), everything
+    /// pending starts at `at`, or at its own begin if that is later, and the
+    /// engine forgets the frames it presented: from here it samples on the
+    /// agent's clock alone. Returns the nodes whose plays started, for their
+    /// lowered specs.
     pub fn set_start_on_frame(&mut self, on: bool, at: f64) -> Result<Vec<u64>, EngineError> {
         let started = if on || !self.start_on_frame {
             Vec::new()
         } else {
-            self.present_frame(at)?
+            let started = self.start_pending(at, true)?;
+            self.shown = f64::NEG_INFINITY;
+            started
         };
         self.start_on_frame = on;
         Ok(started)
@@ -42,10 +46,17 @@ impl Engine {
     /// Idempotent: a second call at the same frame starts only what began
     /// since.
     pub fn present_frame(&mut self, frame: f64) -> Result<Vec<u64>, EngineError> {
+        self.start_pending(frame, false)
+    }
+
+    /// Start what began at or before `frame` there; with `all`, what began
+    /// later too, at its own begin.
+    fn start_pending(&mut self, frame: f64, all: bool) -> Result<Vec<u64>, EngineError> {
         if !frame.is_finite() {
             return Err(EngineError::NonFinite);
         }
         self.shown = self.shown.max(frame);
+        let at = |begin: f64| (begin <= frame || all).then_some(frame.max(begin));
         let keys = std::mem::take(&mut self.pending);
         for key in keys {
             let Some(curve) = self
@@ -56,18 +67,19 @@ impl Engine {
             else {
                 continue;
             };
-            match curve.pending {
-                Some(begin) if begin <= frame => {
-                    curve.start += frame - begin;
-                    curve.pending = None;
+            if let Some(begin) = curve.pending {
+                match at(begin) {
+                    Some(t) => {
+                        curve.start += t - begin;
+                        curve.pending = None;
+                    }
+                    None => {
+                        self.pending.insert(key);
+                    }
                 }
-                Some(_) => {
-                    self.pending.insert(key);
-                }
-                None => {}
             }
         }
-        self.start_clocks(frame);
+        self.start_clocks(frame, all);
         let mut started = Vec::new();
         let nodes: Vec<u64> = self.animating.iter().copied().collect();
         for node in nodes {
@@ -76,8 +88,8 @@ impl Engine {
             };
             let mut any = false;
             for play in plays.iter_mut() {
-                if let Some(begin) = play.pending.filter(|b| *b <= frame) {
-                    play.start += frame - begin;
+                if let Some((begin, t)) = play.pending.and_then(|b| Some((b, at(b)?))) {
+                    play.start += t - begin;
                     play.pending = None;
                     any = true;
                 }

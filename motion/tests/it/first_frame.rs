@@ -219,3 +219,19 @@ fn turning_the_rule_off_starts_what_waits_there() {
     e.advance(0.525).unwrap();
     assert!((opacity(&e) - 0.5).abs() < 1e-9);
 }
+
+#[test]
+fn a_takeover_before_a_curves_begin_starts_it_at_its_begin_and_forgets_frames() {
+    let mut e = engine(1.0, linear());
+    e.present_frame(0.050).unwrap();
+    e.advance(0.020).unwrap();
+    observe(&mut e, 1.0); // begins at the sampling time, 0.050
+    e.set_start_on_frame(false, 0.030).unwrap();
+    assert!(!e.starts_on_frame());
+    assert_eq!(e.sample_time(), 0.020, "the agent's clock alone from here");
+    e.advance(0.550).unwrap();
+    assert!(
+        (opacity(&e) - 0.5).abs() < 1e-9,
+        "started at its begin, not stranded"
+    );
+}

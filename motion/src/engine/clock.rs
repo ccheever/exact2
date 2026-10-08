@@ -207,16 +207,17 @@ impl Engine {
         !self.clocks.pending.is_empty()
     }
 
-    /// The frame at `frame` moves every waiting origin set at or before it by
-    /// the wait; its members move with their own pending starts.
-    pub(super) fn start_clocks(&mut self, frame: f64) {
+    /// The frame at `frame` moves every waiting origin set at or before it
+    /// (with `all`, every one) by the wait; its members move with their own
+    /// pending starts.
+    pub(super) fn start_clocks(&mut self, frame: f64, all: bool) {
         let origins = &mut self.clocks.origins;
         self.clocks.pending.retain(|name, begin| {
-            if *begin > frame {
+            if *begin > frame && !all {
                 return true;
             }
             if let Some(origin) = origins.get_mut(name) {
-                *origin += frame - *begin;
+                *origin += (frame - *begin).max(0.0);
             }
             false
         });

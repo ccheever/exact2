@@ -425,7 +425,16 @@ impl Running {
     /// When the transition ends if the frame at `now` starts it: its own end,
     /// or a pending one's moved by the wait (LLP 1003.001 D1).
     pub fn end_at(&self, now: f64) -> f64 {
-        self.end_time() + self.pending.map_or(0.0, |begin| (now - begin).max(0.0))
+        self.end_time() + self.wait(now)
+    }
+
+    /// When it starts moving if the frame at `now` starts it.
+    pub fn start_at(&self, now: f64) -> f64 {
+        self.start + self.wait(now)
+    }
+
+    fn wait(&self, now: f64) -> f64 {
+        self.pending.map_or(0.0, |begin| (now - begin).max(0.0))
     }
 
     /// When the transition ends, on the clock. A spring's end is its settle

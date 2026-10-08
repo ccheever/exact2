@@ -870,7 +870,6 @@ impl<D: DataSource> Host<D> {
     /// motion the change started. A refusal is reported in the batch's
     /// `error`, and the presenter is untouched (as the kernel was).
     pub fn dispatch_at(&mut self, view: ViewId, event: Event, now_ms: f64) -> String {
-        self.wall(now_ms);
         self.now_ms = now_ms.max(self.now_ms);
         // At the event's time: an action's `now()` is the host's (LLP 1096 D3).
         let a = self.runner.dispatch_at(view, event, self.now_ms);
@@ -888,7 +887,6 @@ impl<D: DataSource> Host<D> {
     /// the batch, the refusal in `error`, and `clock` says where the runner
     /// stands.
     pub fn advance(&mut self, now_ms: f64) -> String {
-        self.wall(now_ms);
         let a = self.runner.advance_timed(now_ms);
         self.advanced(a)
     }
