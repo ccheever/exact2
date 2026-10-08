@@ -26,15 +26,22 @@ struct CGRect {
     height: CGFloat,
 }
 
+/// `CFDictionaryKeyCallBacks`: version and five callbacks.
 #[repr(C)]
-struct DictionaryCallBacks {
+struct KeyCallBacks {
     _private: [usize; 6],
+}
+
+/// `CFDictionaryValueCallBacks`: version and four callbacks (no hash).
+#[repr(C)]
+struct ValueCallBacks {
+    _private: [usize; 5],
 }
 
 #[link(name = "CoreFoundation", kind = "framework")]
 extern "C" {
-    static kCFTypeDictionaryKeyCallBacks: DictionaryCallBacks;
-    static kCFTypeDictionaryValueCallBacks: DictionaryCallBacks;
+    static kCFTypeDictionaryKeyCallBacks: KeyCallBacks;
+    static kCFTypeDictionaryValueCallBacks: ValueCallBacks;
     static kCFBooleanTrue: CFTypeRef;
     static kCFBooleanFalse: CFTypeRef;
     fn CFRelease(value: CFTypeRef);
@@ -47,8 +54,8 @@ extern "C" {
         keys: *const CFTypeRef,
         values: *const CFTypeRef,
         count: CFIndex,
-        key_callbacks: *const DictionaryCallBacks,
-        value_callbacks: *const DictionaryCallBacks,
+        key_callbacks: *const KeyCallBacks,
+        value_callbacks: *const ValueCallBacks,
     ) -> CFTypeRef;
     fn CFDictionaryGetValue(dictionary: CFTypeRef, key: CFTypeRef) -> CFTypeRef;
     fn CFNumberCreate(allocator: CFTypeRef, kind: CFIndex, value: *const c_void) -> CFTypeRef;

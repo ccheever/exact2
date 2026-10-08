@@ -128,18 +128,25 @@ impl Session {
                         body: vec![],
                     });
                 }
-                if retired.as_ref().is_some_and(|r| r.load(Ordering::Acquire)) {
-                    return Outcome::Failed {
-                        kind: FailureKind::Aborted,
-                        message: "storage continuation retired: its call was let go".into(),
-                    };
+                let live = || retired.as_ref().is_none_or(|r| !r.load(Ordering::Acquire));
+                let retired_outcome = || Outcome::Failed {
+                    kind: FailureKind::Aborted,
+                    message: "storage continuation retired: its call was let go".into(),
+                };
+                if !live() {
+                    return retired_outcome();
                 }
                 if Instant::now() >= deadline {
                     // Giving up: an `fs.compressImage` that has not written
                     // loses the right to, so nothing lands after this failure
                     // and the queue moves on safely; one that has written is
                     // waited for (LLP 1069.002 A1.5).
-                    let abandoned = context.abandon_image_work();
+                    // Asked under the registry's lock: once retired, no call
+                    // issued after is this waiter's to abandon.
+                    let abandoned = context.abandon_image_work_if(&live);
+                    if !live() {
+                        return retired_outcome();
+                    }
                     // A completion that arrived after the last look is a
                     // result, not a failure: one written is kept until the
                     // owner takes its completion, so it is seen either way.

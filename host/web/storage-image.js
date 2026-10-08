@@ -63,8 +63,9 @@ export async function search(width, height, maxDimension, maxBytes, encode) {
 
 // The pixel size from the header, read before anything is decoded (A1.5),
 // or null: the browser never decodes a file whose size is unknown here or
-// over the limit. JPEG (its frame header), PNG, GIF (the larger of its
-// screen and first image), WebP (its canvas and first frame), BMP. Not
+// over the limit. JPEG (its frame header), PNG, GIF (of its screen and
+// first image, the one of more pixels), WebP (of its canvas and first
+// frame, the one of more pixels), BMP. Not
 // HEIF or AVIF: their container's size need not be the coded frame's, and
 // a browser may decode the frame before checking (Firefox), so their size
 // cannot be bounded before decoding.

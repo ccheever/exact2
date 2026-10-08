@@ -620,13 +620,19 @@ impl RuntimeState {
     /// has not begun its write loses the right to write; one writing is
     /// waited for. What the embedder should do next (Exact patch 9).
     pub fn abandon_image_work(&self) -> crate::stdlib::fs::Abandoned {
-        let gates: Vec<_> = self
-            .image_work
-            .lock()
-            .expect("image work poisoned")
-            .values()
-            .cloned()
-            .collect();
+        self.abandon_image_work_if(&|| true)
+    }
+    /// The same, for a waiter that may have been retired: `live` is asked
+    /// under the registry's lock, so a call registered after the waiter was
+    /// retired (its flag set first) is never among the calls it abandons.
+    pub fn abandon_image_work_if(&self, live: &dyn Fn() -> bool) -> crate::stdlib::fs::Abandoned {
+        let gates: Vec<_> = {
+            let work = self.image_work.lock().expect("image work poisoned");
+            if !live() {
+                return crate::stdlib::fs::Abandoned::Nothing;
+            }
+            work.values().cloned().collect()
+        };
         gates
             .iter()
             .map(|gate| gate.abandon())
@@ -1904,6 +1910,25 @@ mod tests {
         let unwritten = state.begin_image_work(8);
         state.shutdown();
         assert_eq!(*unwritten.0.lock().unwrap(), Abandoned::Abandoned);
+    }
+
+    /// Exact patch 9: a retired waiter abandons nothing, and `live` is read
+    /// under the registry's lock, so a call registered after retirement is
+    /// never one it abandons.
+    #[test]
+    fn a_retired_waiter_abandons_no_image_right() {
+        use crate::stdlib::fs::Abandoned;
+        use std::sync::atomic::{AtomicBool, Ordering};
+        let state = RuntimeState::new(crate::transport::default_transport());
+        let earlier = state.begin_image_work(1);
+        let retired = AtomicBool::new(false);
+        retired.store(true, Ordering::Release);
+        let later = state.begin_image_work(2);
+        let live = || !retired.load(Ordering::Acquire);
+        assert_eq!(state.abandon_image_work_if(&live), Abandoned::Nothing);
+        assert_eq!(*earlier.0.lock().unwrap(), Abandoned::Nothing);
+        assert_eq!(*later.0.lock().unwrap(), Abandoned::Nothing);
+        assert_eq!(state.abandon_image_work_if(&|| true), Abandoned::Abandoned);
     }
 
     #[test]

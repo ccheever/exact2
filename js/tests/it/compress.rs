@@ -209,14 +209,16 @@ fn a_let_go_compression_the_wait_gave_up_on_does_not_strand_the_queue() {
         next = m.parse(&mut s, "work", &a, outcome);
     }
     // The second waits on the let-go first, then on its own compression,
-    // whose wait gives up in turn.
-    let Err(err) = next else {
-        panic!("the second compression's wait gave up")
-    };
-    assert!(
-        format!("{err:?}").contains("compressImage: timeout: "),
-        "{err:?}"
-    );
+    // which either finishes (other completions kept its waiters satisfied)
+    // or has its wait give up in turn.
+    match next {
+        Ok(Answer::Now(v)) => assert_eq!(super::storage::text(v), "written"),
+        Err(err) => assert!(
+            format!("{err:?}").contains("compressImage: timeout: "),
+            "{err:?}"
+        ),
+        Ok(Answer::Later(_)) => panic!("the second call did not end"),
+    }
     assert_eq!(call(&mut m, &mut s, "write-slow", "next"), "wrote next");
     std::thread::sleep(std::time::Duration::from_secs(6));
     assert_eq!(

@@ -571,6 +571,13 @@ impl Context {
         self.endowment.state.abandon_image_work()
     }
 
+    /// [`Context::abandon_image_work`] for a waiter that may be retired:
+    /// `live` is asked under the registry's lock, so set the retirement
+    /// flag before issuing work and no call issued after is abandoned.
+    pub fn abandon_image_work_if(&self, live: &dyn Fn() -> bool) -> crate::stdlib::fs::Abandoned {
+        self.endowment.state.abandon_image_work_if(live)
+    }
+
     /// Worker-safe, edge-triggered notification that schedules the embedder's
     /// loop. Admissions coalesce and at most one callback runs at a time; a
     /// publisher that finds one running records another edge and returns.
