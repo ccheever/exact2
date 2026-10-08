@@ -103,6 +103,11 @@ Ibex. `doc:/` is the capability namespace for a person-chosen document.
 `src/{bindings.rs,boundary_abi.rs,task.rs}` and `src/stdlib/fs.rs` add the
 embedder's document table and dispatch `doc:/` operations through it. Real
 paths never enter guest errors; rename/copy/realpath remain refused.
+The table now returns an owned directory handle and relative name, rather than
+a physical path (2026-10-06). `app_fs_{unix,windows}.rs` execute document work
+relative to that handle, refusing symlinks/reparse points in every descendant
+component. `rm` remains nonrecursive. Atomic writes rename within the retained
+parent, and explicit file selections through a symlink still select its target.
 
 ### 6. denied redirect diagnostics
 
@@ -176,8 +181,9 @@ them once its request has ended; `read_capped` reads through it.
 
 ### Windows chosen-document EISDIR
 
-`src/stdlib/fs.rs` opens one handle with backup semantics, checks that same
-handle's metadata, and reads through it. `windows_document_tests.rs` covers
+`src/stdlib/windows_directory.rs` opens the document relative to its retained
+parent, refuses reparse points, checks that same handle's metadata, and reads
+through it. `windows_document_tests.rs` covers
 bytes, directory refusal, grant-before-resolution, and ACL denial. This avoids
 a racy precheck and does not reinterpret ordinary access-denied errors.
 

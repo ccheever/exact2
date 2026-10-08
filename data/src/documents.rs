@@ -12,8 +12,9 @@
 //! refuses them. Each minting host owns its entries and forgets them when
 //! its session ends ([`forget`]).
 
+use std::fs::{File, OpenOptions};
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 /// The namespace every minted path starts with.
 pub const PREFIX: &str = "doc:/";
@@ -22,6 +23,8 @@ struct Entry {
     real: PathBuf,
     name: String,
     owner: u64,
+    directory: Arc<File>,
+    leaf: Option<String>,
 }
 
 /// Every entry minted in this process, `<n>` its index + 1; a forgotten
@@ -44,17 +47,44 @@ pub fn mint(real: &Path, owner: u64) -> Option<String> {
     if name.is_empty() || name == "." || name == ".." {
         return None;
     }
+    // Open before deduplication: a pathname may now name a replacement folder.
+    let folder = std::fs::metadata(real).is_ok_and(|m| m.is_dir());
+    let root = if folder { real } else { real.parent()? };
+    let mut options = OpenOptions::new();
+    options.read(true);
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        options.custom_flags(0x0200_0000); // FILE_FLAG_BACKUP_SEMANTICS
+    }
+    let directory = options.open(root).ok()?;
+    if !directory.metadata().ok()?.is_dir() {
+        return None;
+    }
+    let selected = same_file::Handle::from_file(directory.try_clone().ok()?).ok()?;
     let mut t = table();
     let n = match t.iter().position(|e| {
-        e.as_ref()
-            .is_some_and(|e| e.owner == owner && e.real == real)
+        e.as_ref().is_some_and(|e| {
+            e.owner == owner
+                && e.real == real
+                && e.leaf == (!folder).then(|| name.clone())
+                && e.directory
+                    .try_clone()
+                    .ok()
+                    .and_then(|file| same_file::Handle::from_file(file).ok())
+                    .is_some_and(|previous| previous == selected)
+        })
     }) {
         Some(i) => i + 1,
         None => {
+            // Retain the selected folder (or a selected file's parent), so
+            // replacing its pathname cannot redirect later document work.
             t.push(Some(Entry {
                 real: real.to_path_buf(),
                 name: name.clone(),
                 owner,
+                directory: Arc::new(directory),
+                leaf: (!folder).then(|| name.clone()),
             }));
             t.len()
         }
@@ -72,8 +102,11 @@ pub fn open_route(path: &str, owner: u64) -> Option<String> {
     if !real.is_absolute() {
         return None;
     }
-    if std::fs::metadata(real).ok()?.is_dir() {
-        return mint(real, owner);
+    // Every explicit opening chooses the target, as the picker does. Resolve
+    // a selected file's link before presenting it beneath its parent handle.
+    let real = std::fs::canonicalize(real).ok()?;
+    if std::fs::metadata(&real).ok()?.is_dir() {
+        return mint(&real, owner);
     }
     let name = real.file_name()?.to_string_lossy().into_owned();
     mint(real.parent()?, owner).map(|folder| format!("{folder}/{name}"))
@@ -94,15 +127,16 @@ pub fn is_document(path: &str) -> bool {
 }
 
 /// Where a `doc:` path leads.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub enum Resolved {
     /// `doc:/<n>`: the handle's own directory, holding only its entry.
     Root(String),
-    /// The chosen file or folder, or a path beneath a chosen folder.
-    Real(PathBuf),
+    /// An owned directory and a relative name beneath it (empty for the
+    /// selected folder itself). A selected file exposes only its own leaf.
+    Real { directory: Arc<File>, path: String },
 }
 
-/// Resolve a `doc:` path to the real location behind it, refusing a handle
+/// Resolve a `doc:` path to its retained directory and relative name, refusing a handle
 /// never minted (or forgotten), a name that is not the handle's, and any
 /// `.`, `..` or empty segment.
 pub fn resolve(path: &str) -> Result<Resolved, String> {
@@ -119,10 +153,10 @@ pub fn resolve(path: &str) -> Result<Resolved, String> {
     let segments: Vec<&str> = parts.collect();
     if segments
         .iter()
-        .any(|s| s.is_empty() || *s == "." || *s == ".." || s.contains('\0'))
+        .any(|s| s.is_empty() || *s == "." || *s == ".." || s.contains(['\\', '\0']))
     {
         return Err(format!(
-            "{path}: a document path has no `.`, `..` or empty segment"
+            "{path}: a document path has no `.`, `..`, backslash, NUL or empty segment"
         ));
     }
     let t = table();
@@ -135,9 +169,15 @@ pub fn resolve(path: &str) -> Result<Resolved, String> {
     if *first != entry.name {
         return Err(format!("{path}: no such document"));
     }
-    Ok(Resolved::Real(
-        beneath.iter().fold(entry.real.clone(), |p, s| p.join(s)),
-    ))
+    if entry.leaf.is_some() && !beneath.is_empty() {
+        return Err(format!(
+            "{path}: a document file is not a directory (filesystem code ENOTDIR)"
+        ));
+    }
+    Ok(Resolved::Real {
+        directory: entry.directory.clone(),
+        path: entry.leaf.clone().unwrap_or_else(|| beneath.join("/")),
+    })
 }
 
 #[cfg(test)]
@@ -146,18 +186,20 @@ mod tests {
 
     #[test]
     fn a_minted_path_resolves_beneath_its_handle_and_nowhere_else() {
-        let folder = Path::new("/tmp/exact-docs-test/notes");
-        let doc = mint(folder, 7001).unwrap();
+        let folder =
+            std::env::temp_dir().join(format!("exact-docs-test-{}/notes", std::process::id()));
+        std::fs::create_dir_all(&folder).unwrap();
+        let doc = mint(&folder, 7001).unwrap();
         assert!(doc.starts_with("doc:/") && doc.ends_with("/notes"), "{doc}");
-        assert_eq!(mint(folder, 7001).unwrap(), doc, "minting again reuses it");
-        assert_eq!(
-            resolve(&format!("{doc}/a/b.md")).unwrap(),
-            Resolved::Real(folder.join("a").join("b.md"))
-        );
+        assert_eq!(mint(&folder, 7001).unwrap(), doc, "minting again reuses it");
+        let Resolved::Real { directory, path } = resolve(&format!("{doc}/a/b.md")).unwrap() else {
+            panic!()
+        };
+        assert!(directory.metadata().unwrap().is_dir());
+        assert_eq!(path, "a/b.md");
         let n = doc.trim_start_matches(PREFIX).split('/').next().unwrap();
-        assert_eq!(
-            resolve(&format!("doc:/{n}")).unwrap(),
-            Resolved::Root("notes".into())
+        assert!(
+            matches!(resolve(&format!("doc:/{n}")).unwrap(), Resolved::Root(name) if name == "notes")
         );
         assert!(resolve(&format!("{doc}/../x")).is_err());
         assert!(resolve(&format!("doc:/{n}/other/x")).is_err());
@@ -166,5 +208,62 @@ mod tests {
         forget(7001);
         assert!(resolve(&doc).is_err(), "a forgotten handle reads nothing");
         assert!(mint(Path::new("/"), 7001).is_none());
+        std::fs::remove_dir_all(folder.parent().unwrap()).unwrap();
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn an_open_route_selects_a_file_symlinks_target() {
+        use std::os::unix::fs::symlink;
+        let root = std::env::temp_dir().join(format!("exact-docs-route-{}", std::process::id()));
+        std::fs::create_dir_all(root.join("chosen")).unwrap();
+        std::fs::create_dir_all(root.join("outside")).unwrap();
+        let target = root.join("outside/note.md");
+        std::fs::write(&target, "selected").unwrap();
+        let link = root.join("chosen/link.md");
+        symlink(&target, &link).unwrap();
+        let doc = open_route(link.to_str().unwrap(), 7002).unwrap();
+        assert!(doc.ends_with("/outside/note.md"), "{doc}");
+        let Resolved::Real { directory, path } = resolve(&doc).unwrap() else {
+            panic!()
+        };
+        assert_eq!(path, "note.md");
+        assert!(directory.metadata().unwrap().is_dir());
+        assert!(open_route(root.join("missing.md").to_str().unwrap(), 7002).is_none());
+        forget(7002);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn selecting_a_replacement_folder_mints_its_own_handle() {
+        let root = std::env::temp_dir().join(format!("exact-docs-repick-{}", std::process::id()));
+        let chosen = root.join("chosen");
+        let moved = root.join("moved");
+        std::fs::create_dir_all(&chosen).unwrap();
+        let old = mint(&chosen, 7003).unwrap();
+        std::fs::rename(&chosen, &moved).unwrap();
+        std::fs::create_dir(&chosen).unwrap();
+        let new = mint(&chosen, 7003).unwrap();
+        assert_ne!(old, new);
+        assert_eq!(mint(&chosen, 7003).unwrap(), new);
+        let Resolved::Real {
+            directory: old_dir, ..
+        } = resolve(&old).unwrap()
+        else {
+            panic!()
+        };
+        let Resolved::Real {
+            directory: new_dir, ..
+        } = resolve(&new).unwrap()
+        else {
+            panic!()
+        };
+        assert_ne!(
+            same_file::Handle::from_file(old_dir.try_clone().unwrap()).unwrap(),
+            same_file::Handle::from_file(new_dir.try_clone().unwrap()).unwrap()
+        );
+        forget(7003);
+        drop((old_dir, new_dir));
+        std::fs::remove_dir_all(root).unwrap();
     }
 }

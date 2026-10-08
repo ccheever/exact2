@@ -736,7 +736,10 @@ for (const name of await storage.fs.readdir(folder)) {
 | `rename`, `copyFile`, `realpath` | — | Refused (`'failed'`): read the bytes and write them |
 
 A path never minted, `.`/`..`, and a closed window's or page's handle are
-refused. A document needs no app storage: a drive without `--storage` reaches
+refused. Native folder handles retain the selected directory even if its
+pathname moves. Descendant symlinks and Windows reparse points are refused,
+including in intermediate folders; explicitly choosing a file through a
+symlink still selects its target. A document needs no app storage: a drive without `--storage` reaches
 it. On the web the paths are the `FileSystemHandle`s the page's picker
 returned (Chromium; Safari and Firefox refuse the pickers), and a module placed
 on a worker on the wasm web host cannot reach them (`'unsupported'`); on macOS
