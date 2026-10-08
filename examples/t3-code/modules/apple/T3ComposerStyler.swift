@@ -237,7 +237,17 @@ final class T3ComposerStyler {
 
     // MARK: Chips (ContextChip metrics, in em of the prompt font)
 
-    func chipFont(_ font: NSFont) -> NSFont { NSFont.systemFont(ofSize: font.pointSize * 0.86, weight: .medium) }
+    /// ContextChip's `font-medium text-[0.86em]`: the prompt's own family (a chip inherits it) at
+    /// weight 500, matched as CSS does: the family's medium face, else its regular one, never bold.
+    func chipFont(_ font: NSFont) -> NSFont {
+        let size = font.pointSize * 0.86
+        let regular = NSFont(descriptor: font.fontDescriptor, size: size) ?? NSFont.systemFont(ofSize: size)
+        guard let family = font.familyName else { return NSFont.systemFont(ofSize: size, weight: .medium) }
+        let wanted = NSFontDescriptor(fontAttributes: [.family: family, .traits: [NSFontDescriptor.TraitKey.weight: NSFont.Weight.medium]])
+        guard let medium = NSFont(descriptor: wanted, size: size), medium.familyName == family else { return regular }
+        let weight = (medium.fontDescriptor.object(forKey: .traits) as? [NSFontDescriptor.TraitKey: Any])?[.weight] as? CGFloat ?? 0
+        return weight > NSFont.Weight.medium.rawValue + 0.05 ? regular : medium
+    }
     func chipWidth(_ chip: T3ComposerChip, font: NSFont) -> CGFloat {
         let size = font.pointSize * 0.86
         let label = (T3ComposerStyler.displayLabel(chip) as NSString).size(withAttributes: [.font: chipFont(font)]).width
@@ -262,6 +272,12 @@ final class T3ComposerStyler {
         if chip.kind == "citation" {
             let quote = chip.label.split(whereSeparator: \.isNewline).joined(separator: " ")
             return quote.count > 40 ? String(quote.prefix(39)) + "…" : quote
+        }
+        // A skill reads as formatProviderSkillDisplayName names one without a display name
+        // (ComposerPromptEditorTiptap skillLabelFor): `$frontend-design` is "Frontend Design".
+        if chip.kind == "skill" {
+            return chip.label.split(whereSeparator: { $0.isWhitespace || $0 == ":" || $0 == "_" || $0 == "-" })
+                .map { $0.prefix(1).uppercased() + $0.dropFirst() }.joined(separator: " ")
         }
         return chip.label
     }

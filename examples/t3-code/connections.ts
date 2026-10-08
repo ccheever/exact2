@@ -11,6 +11,7 @@ import { ClientError, bridgeReply, parsePairing, type Native } from './protocol'
 import { fleet, environmentKey, phaseOf, trimOrigin, EnvironmentFleet, type FleetPhase, type FleetEntry } from './settings-b-fleet';
 import { isPrimaryEnvironment, primary, primaryEntry, primaryPhase, sessionScopes, withoutPrimaryDuplicates } from './local-primary';
 import { applyLocalSetting, thisMachine } from './this-machine';
+import { emptyNetworkView, networkPage, runNetworkOp, NETWORK_OPS } from './connections-network'; // this-machine-network-access
 import { pushToast } from './toast';
 import { runSshOp, sshTargets, formatSshTarget, SSH_OPS, type SshTarget } from './settings-b-ssh';
 import type { T3Client } from './client';
@@ -208,6 +209,7 @@ export function connectionsProjection(host: ConnectionHost, saved: Obj[], entrie
     connected: host.connection === 'connected', state: host.connection, adminAccess: sessionScopes(host.environmentId, host.scopes).includes('access:write'),
     activeLabel: str(obj(host.config.environment).label) || hostOf(host.origin),
     thisMachine: thisMachine(local, local ? savedRow(local, 0, ssh, probes) : null), // this-machine.ts: the "This machine" section
+    network: emptyNetworkView(), // connections-network.ts: Network access, Tailscale HTTPS, Authorized clients (connectionsPage fills it)
     environments: rows, updateCount: rows.filter(row => row.update === 'Update').length,
     machines: machines.length >= 2 ? machines : [],
     loadBalancing: prefs.loadBalancingEnabled,
@@ -217,8 +219,12 @@ export function connectionsProjection(host: ConnectionHost, saved: Obj[], entrie
 }
 
 /** The resource behind the Connections page. */
-export async function connectionsPage(host: ConnectionHost, native: Native | null | undefined, open: boolean) {
-  if (!open || !native?.available) { forgetProbes(); return connectionsProjection(host, []); }
+export async function connectionsPage(host: ConnectionHost, native: Native | null | undefined, open: boolean, now = 0) {
+  if (!open || !native?.available) {
+    forgetProbes();
+    if (native?.available && 'local' in host) await networkPage(host as T3Client, native, false, now, false);
+    return connectionsProjection(host, []);
+  }
   native.watch('t3.fleet');
   const [listed, prefs, status, ssh] = await Promise.all([bridgeReply(native, { op: 'environments' }), bridgeReply(native, { op: 'connectionPreferences' }),
     bridgeReply(native, { op: 'status' }), sshTargets(native)]);
@@ -229,7 +235,9 @@ export async function connectionsPage(host: ConnectionHost, native: Native | nul
     && (saved.some(entry => entry.enabled === false && environmentKey(str(entry.origin), str(entry.environmentId)) === key) || fleet.entries.get(key)?.phase === 'unsupported'
       || (key === focusKey && str(focusStatus.failureKind) === 'Protocol')));
   const [probes] = await Promise.all([probeDescriptors(native, blocked), readJobs(native)]);
-  return connectionsProjection(host, saved, fleet.entries, prefs.ok ? str(obj(prefs.value).text, '{}') : '{}', focusStatus, ssh, probes);
+  const page = connectionsProjection(host, saved, fleet.entries, prefs.ok ? str(obj(prefs.value).text, '{}') : '{}', focusStatus, ssh, probes);
+  if ('local' in host) page.network = await networkPage(host as T3Client, native, true, now, page.thisMachine.canManage);
+  return page;
 }
 
 // ── Writes ────────────────────────────────────────────────────────────────
@@ -492,6 +500,8 @@ export async function runConnectionOp(native: Native, op: string, id: string, va
     if (value !== 'on' && value !== 'off') throw new ClientError("Couldn't change this setting.");
     return applyLocalSetting(client, native, { localEnvironmentEnabled: value === 'on' });
   }
+  // this-machine-network-access: Network access, Tailscale HTTPS, pairing links and clients (connections-network.ts).
+  if (NETWORK_OPS.includes(op)) { if (!client) throw new ClientError('Open this app on macOS to change this setting.'); return runNetworkOp(client, native, op, id, value); }
   if (op === 'load-balancing') {
     await writePrefs(native, prefs => { prefs.loadBalancingEnabled = value === 'true'; });
     return { status: null, generation: -1 };
@@ -520,4 +530,6 @@ export async function runConnectionOp(native: Native, op: string, id: string, va
 }
 export const CONNECTION_OPS = ['environment-add', 'welcome-pair', 'environment-switch', 'environment-enabled', 'environment-forget', 'environment-trace', 'environment-icon',
   'environment-update', 'environment-update-outdated', 'environment-update-all', 'environment-ssh-add', 'environment-ssh-pick', 'load-balancing', 'load-weight', 'github-routing', 'environment-run-on',
-  'environment-route-add', 'environment-route-move', 'environment-route-remove', 'local-environment'];
+  'environment-route-add', 'environment-route-move', 'environment-route-remove', 'local-environment',
+  // connections-network.ts NETWORK_OPS (spelled out: the two modules import each other)
+  'network-access', 'tailscale-serve', 'endpoint-default', 'pairing-create', 'pairing-revoke', 'client-revoke', 'clients-revoke-others', 'pairing-copy', 'pairing-reveal-close'];
