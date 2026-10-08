@@ -492,6 +492,15 @@ guide's rules don't make obvious.
   guide's testing section); a fixture that must stand in for the network
   installs its stub before the document loads (`addInitScript`) or serves a
   stand-in server. (Authoring bench, LLP 1087, t8-library, codex, 2026-10-08.)
+- **A write in flight when the browser is killed is lost; a closed tab keeps a
+  file write.** On the web, a `storage.fs` write still running when the tab
+  closes is journaled and replayed at the next launch (LLP 1097 D10), so a
+  setting saved and the tab closed at once survives. A SQLite statement, a
+  source placed in a worker, and anything in flight when the browser process is
+  killed (a test harness closing its browser context does this: no `pagehide`)
+  still commit or are lost. In a test, end the step that saves with `clock
+  settle` (or read the value back) before a relaunch. (Authoring bench, LLP
+  1087, t5-pomodoro, 2026-10-08.)
 
 - **`xcrun simctl io booted screenshot` can capture the wrong simulator.** With
   several simulators booted, `booted` names any one of them, not the one the
