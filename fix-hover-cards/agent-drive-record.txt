@@ -1,0 +1,42 @@
+# fix-hover-cards: agent-mode macOS drives, 2026-10-08 (UTC)
+Builds: before = t3-code-evidence-base detached at ec32c8c37 (the merged base; built under its .build-lock 07:01-07:09,
+lock released 07:23); after = feat(example)/t3-code-fix-hover-cards 53bece1c7 (dev build, `host/apple/build.mjs t3-code-macos`).
+Driver: scripts/agent.mjs `open({ host: 'macos', size: [1280, 840] })`, dark, frozen clock (moved by `clock +N`).
+Lanes (ports 16150-16179): settings = the embedded "This machine" server (T3_LOCAL_HOME/PORT 16152 after, 16153 before,
+T3_LOCAL_RUNTIME_DIR = the staged 0.0.46-nightly runtime), lane-local npm Codex 0.160.1 + node first on PATH (the update icon),
+the Tailscale stub; pr = the real-GitHub lane's primary server on 16151 (daehyeonmun2021/playground, PR #132 behind main by 28),
+paired from the 0600 file; usage = two T3 servers behind the usage fixture proxy (Studio 16160/16161, Build box 16170/16171;
+copied from the popover-escape-parity lane; its Codex models differ: GPT-6 Luna on Studio only).
+
+How a real pointer moves into a hover card on macOS (X62): the trigger hears a leave (its box ends) and then the card an enter.
+The agent's `tap X hover` sends the leave of what was hovered and the enter of the nearest hover node under X, so the drives
+emulate the crossing as: hover the trigger; hover a node with no hover handler beside it (a leave only); hover the card.
+
+## Before (ec32c8c37)
+settings  provider-advisory-list-codex-tip present: true (drawn inside the list scroll: cut off, image 01)
+settings  provider-advisory-editor-codex-tip present: true (image 02), then false after the pointer left
+settings  "5 scopes" hover + clock 300: pairing-link-scopes-<id>-popup present: true (cut off by the list, image 03)
+settings  leave toward the card: popup present: false; `tap <popup> hover`: "no view matches" (the card is gone, image 04)
+pr        pull-request-base-freshness hover: pr-freshness-hover present: true (image 05)
+pr        leave toward the card: present: false; `tap pr-freshness-hover hover`: "no view matches" (image 06)
+pr        `tap pr-freshness-rebase hover`: "view 4049 is hidden or inert" (the pressed popover's button; no hover card, image 07)
+usage     usage-seg-0-0-0 hover + clock 400: usage-seg-pop-0-0-0 inert: false (shown, image 08)
+usage     leave toward the popover: inert: true; `tap usage-seg-pop-0-0-0 hover`: "view 719 is hidden or inert" (image 09)
+usage     `tap usage-seg-email-0-0-0 hover`: "view 730 is hidden or inert" (the email cannot be reached)
+usage     model picker at All environments: 1 unavailable row (GPT-6 Luna); hover: model-row-tip-*: none (image 10)
+
+## After (53bece1c7)
+settings  provider-advisory-list-codex-tip present: true, drawn by the window layer above the list (image 01)
+settings  provider-advisory-editor-codex-tip present: true (image 02); false after the pointer left (a tooltip closes with its trigger)
+settings  "5 scopes" hover + clock 300: popup present: true, whole (image 03)
+settings  leave toward the card: present: true (closeDelay 100 running); `tap <popup> hover`; clock +600: present: true (image 04)
+settings  hover "Create link" (leave the card); clock +150: present: false
+pr        mark hover: pr-freshness-hover present: true (image 05)
+pr        leave toward the card: present: true; `tap pr-freshness-hover hover`; clock +600: present: true (image 06)
+pr        `tap pr-freshness-hover-rebase hover`; clock +600: present: true (image 07)
+pr        hover the header actions (leave); clock +200: present: false
+usage     segment hover + clock 400: popover inert: false (image 08)
+usage     leave toward the popover: inert: false; `tap usage-seg-pop-0-0-0 hover`; clock +600: inert: false (image 09)
+usage     `tap usage-seg-email-0-0-0 hover`; clock +600: usage-seg-email-0-0-0-tip present: true ("Click to reveal email")
+usage     leave; clock +100: inert: true (closed)
+usage     model picker: 1 unavailable row; hover: model-row-tip-codex:gpt-6-luna present, side left of the row (image 10)
