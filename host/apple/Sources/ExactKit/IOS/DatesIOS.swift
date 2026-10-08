@@ -25,12 +25,12 @@ extension ControlHost {
         assign(picker, \.minimumDate, owner.props["min"].flatMap { DateValue.parse(kind, $0) })
         assign(picker, \.maximumDate, owner.props["max"].flatMap { DateValue.parse(kind, $0) })
         let bound = owner.props["value"] ?? ""
+        (picker as? BoundDatePicker)?.kind = kind
         if let picker = picker as? BoundDatePicker {
             guard picker.applied != bound else { return }
             picker.applied = bound
         }
         let value = DateValue.parse(kind, bound)
-        (picker as? BoundDatePicker)?.kind = kind
         // No date is a state a picker cannot show: it is recorded, and read
         // back as "" until a value is applied or chosen (b6 review B7; the
         // Mac's `DateField.empty`).
@@ -94,6 +94,9 @@ final class BoundDatePicker: UIDatePicker {
         label.clipsToBounds = true
         label.isUserInteractionEnabled = false
         label.isAccessibilityElement = false
+        // Placed by frame in layoutSubviews; it joins none of the picker's own
+        // Auto Layout, so the picker's fitting size is its own.
+        label.translatesAutoresizingMaskIntoConstraints = false
         return label
     }()
     override func layoutSubviews() {

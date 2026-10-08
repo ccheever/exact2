@@ -275,14 +275,6 @@ guide's rules don't make obvious.
   number from the answer). (Authoring bench, LLP 1087, ios19, ios22 and ios32
   t7-wizard, 2026-10-05/06.)
 
-- **An empty date input can still show a date on iOS.** `input type="date" value=""`
-  draws a date in the `UIDatePicker`, which has no empty state: today in a new picker,
-  the last date in one whose value was cleared (`time` and `datetime-local` share the
-  picker), while the bound value, `state` and `tree` stay `""` until the person picks. Fix: when the value is empty,
-  show the field's emptiness yourself (a "Not set" label beside it), and validate
-  the bound value, not the screenshot. (Authoring bench, LLP 1087, ios20 t7-wizard,
-  2026-10-05.)
-
 ## Actions
 
 - **An `every(N, …)` task does not fire at mount.** Its first tick comes `N` ms
@@ -516,8 +508,8 @@ guide's rules don't make obvious.
 - **Asserting a boot loading state against a live backend is a race.** The
   real reply lands on real time, and under load it can arrive before the first
   `expect`, so `expect tree has "loading"` passes once and fails once. Assert
-  loading against a stand-in that answers late, or with `fail fetch` then
-  `pass fetch` and `retry` (LLP 1103), never by racing the real server.
+  loading against a stand-in server that answers late, never by racing the real
+  one; `fail fetch` (LLP 1103) tests the error state and its retry, not loading.
   (Authoring bench, LLP 1087, t3-recipes, Studio, 2026-10-08.)
 
 - **On the web, a save still in flight when the tab closes is lost.** A

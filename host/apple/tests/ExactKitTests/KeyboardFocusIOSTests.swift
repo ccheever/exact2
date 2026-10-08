@@ -183,16 +183,29 @@ final class KeyboardFocusIOSTests: XCTestCase {
         window.makeKeyAndVisible()
         defer { window.endEditing(true) }
         let nameField = try XCTUnwrap(name.field), emailField = try XCTUnwrap(email.field)
+        var blurred: [UInt32] = [], changed: [(UInt32, String)] = []
+        p.onBlur = { blurred.append($0) }
+        p.onChange = { changed.append(($0, $1)) }
         var reply = session.agentInstance.type(["id": 7001, "text": "Ada"])
         XCTAssertNil(reply["error"], "\(reply)")
         XCTAssertTrue(nameField.isFirstResponder)
+        // An unhosted window's field sends no `.editingChanged` for an inserted
+        // text; a hosted one does, and that is what records the edit `change`
+        // commits on end-editing. Send it, as the keyboard would.
+        name.fieldChanged()
         reply = session.agentInstance.type(["id": 7001, "key": "Tab"])
         XCTAssertNil(reply["error"], "\(reply)")
         XCTAssertFalse(nameField.isFirstResponder, "Tab ends the field's editing")
         XCTAssertTrue(emailField.isFirstResponder, "and the next field takes the focus")
         XCTAssertEqual(nameField.text, "Ada", "Tab types nothing")
-        _ = session.agentInstance.type(["id": 7002, "key": "Tab"])
-        XCTAssertTrue(save.isFirstResponder, "then the button")
+        XCTAssertTrue(blurred.contains(7001), "the field it left hears blur")
+        XCTAssertTrue(changed.contains { $0.0 == 7001 && $0.1 == "Ada" }, "and change, with what was typed")
+        // A held Tab, its down then its up: the release keeps the new focus.
+        reply = session.agentInstance.type(["id": 7002, "key": "Tab", "phase": "down", "releaseKey": "t1"])
+        XCTAssertNil(reply["error"], "\(reply)")
+        XCTAssertTrue(save.isFirstResponder, "the down moves the focus")
+        _ = session.agentInstance.type(["id": 7002, "key": "Tab", "phase": "up"])
+        XCTAssertTrue(save.isFirstResponder, "and the up does not take it back")
         _ = session.agentInstance.type(["id": 7003, "key": "Shift+Tab"])
         XCTAssertTrue(emailField.isFirstResponder, "Shift-Tab goes back")
         XCTAssertEqual(emailField.text, "", "nor does Shift-Tab type")
