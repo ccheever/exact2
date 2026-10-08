@@ -81,15 +81,20 @@ component ThreadRow
   // An armed row takes the selected surface and shows the action's badge in place of its status (dropVerbBadge; Wake for unsnooze).
   derive swept = sweepKeys != "" and includes(sweepKeys, `|${t.id}|`)
   derive sweptBadge = sweepVerb == "unsnooze" ? "wake" : sweepVerb
-  // fix-keyboard-focus: while the snooze menu holds the focus (its popup or a row), the hover actions stay
-  // shown and the status hidden, as SnoozeMenuButton's open state pins them (Sidebar.tsx): the pointer
-  // leaving the row for the menu ended the hover, and the collapsing slot moved the menu from under it.
+  // fix-keyboard-focus: while the snooze menu holds the focus (its popup or a row) or the pointer (a row),
+  // the hover actions stay shown and the status hidden, as SnoozeMenuButton's open state pins them
+  // (Sidebar.tsx): the pointer leaving the row for the menu ended the hover, and the collapsing slot moved
+  // the menu from under it. The pointer counts too: a real click's press takes the focus from the popup
+  // before its release, which must still land on the row it went down on.
   state snoozeFocus = false
+  state snoozeHover = false
   state snoozeKeyed = 0
-  derive shown = hovering or snoozeFocus
+  derive shown = hovering or snoozeFocus or snoozeHover
   derive snoozeItems = concat(map(presets, (preset) => KmItem(id=`snooze-${t.id}-${preset.id}`, label=preset.label)), [KmItem(id=`snooze-${t.id}-custom`, label="Custom…")])
   action snoozeInside(on: bool)
     snoozeFocus = on
+  action snoozePointer(on: bool)
+    snoozeHover = on
   action snoozeKey(k: string)
     if kmOpenKey(k)
       snoozeKeyed = snoozeKeyed + 1
@@ -160,9 +165,9 @@ component ThreadRow
               // The glass's blur does not reach the popover layer: a denser tint stands in for it.
               KeyMenuWatched(menuId=`snooze-${t.id}-keys`, items=snoozeItems, keyed=snoozeKeyed, gap="0px", inside=snoozeInside, modal=true)
                 each preset in presets key=preset.id
-                  SnoozeMenuItem(itemId=`snooze-${t.id}-${preset.id}`, label=preset.label, detail=preset.wakeLabel, popId=`snooze-${t.id}`, press=run(`snooze:${preset.id}`, t.id, ""), inside=snoozeInside)
+                  SnoozeMenuItem(itemId=`snooze-${t.id}-${preset.id}`, label=preset.label, detail=preset.wakeLabel, popId=`snooze-${t.id}`, press=run(`snooze:${preset.id}`, t.id, ""), inside=snoozeInside, pointer=snoozePointer)
                 box height=1 margin-left="0.5rem" margin-right="0.5rem" margin-top="0.25rem" margin-bottom="0.25rem" background-color="light-dark(#e4e4e7, #ffffff0f)" role="separator"
-                SnoozeMenuItem(itemId=`snooze-${t.id}-custom`, label="Custom…", detail="", popId=`snooze-${t.id}`, press=run("snooze:custom", t.id, ""), inside=snoozeInside)
+                SnoozeMenuItem(itemId=`snooze-${t.id}-custom`, label="Custom…", detail="", popId=`snooze-${t.id}`, press=run("snooze:custom", t.id, ""), inside=snoozeInside, pointer=snoozePointer)
         else
           when t.renaming
             row width="100%" height="2.25rem" box-sizing="border-box" padding-left="0.625rem" padding-right="0.625rem" gap="0.625rem" align-items="center" border-radius="0.5rem" background-color=surface
@@ -289,8 +294,8 @@ component SidebarCardActions
             text "Settle" font-size="0.75rem" line-height="1rem" color=(hoverId == `${t.hoverKey}#settle` ? lit : tool)
 
 // A snooze menu row (MenuItem: 28pt, 4/8 inset, radius 6), highlighted while the pointer is on it or it
-// has the keyboard's focus (data-highlighted:bg-accent). Its focus and blur tell the row the menu still
-// holds the focus (fix-keyboard-focus).
+// has the keyboard's focus (data-highlighted:bg-accent). Its focus, blur and hover tell the row the menu
+// still holds the focus or the pointer (fix-keyboard-focus).
 component SnoozeMenuItem
   props
     itemId: string
@@ -299,10 +304,12 @@ component SnoozeMenuItem
     popId: string
     press: action
     inside: action
+    pointer: action
   state over = false
   state lit = false
   action hover(value: bool)
     over = value
+    pointer(value)
   action focused(on: bool)
     lit = on
     inside(on)

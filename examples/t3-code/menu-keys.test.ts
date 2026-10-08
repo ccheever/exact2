@@ -101,7 +101,7 @@ describe('the shared menu keyboard (Base UI Menu)', () => {
 describe('#298 bug 4: Custom snooze from the sidebar row by the real pointer and ↓', () => {
   test('the row keeps its hover actions shown while the snooze menu holds the focus (SnoozeMenuButton pins them)', async () => {
     const row = await component('sidebar-row.contract', 'ThreadRow');
-    expect(row).toContain('derive shown = hovering or snoozeFocus');
+    expect(row).toContain('derive shown = hovering or snoozeFocus or snoozeHover');
     expect(row).toContain('when shown or swept\n                        SidebarCardActions(');
     expect(row).toContain('max-width=(shown ? "0px" : "15rem")');
     expect(row).toContain('max-width=(shown ? "15rem" : "0px") overflow=(shown ? "visible" : "hidden") opacity=(shown ? 1 : 0) pointer-events=(shown ? "auto" : "none") aria-hidden=(not shown)');
@@ -110,6 +110,9 @@ describe('#298 bug 4: Custom snooze from the sidebar row by the real pointer and
     const item = await component('sidebar-row.contract', 'SnoozeMenuItem');
     expect(item).toContain('button id=itemId cursor="pointer" press=press popovertarget=popId popovertargetaction="hide" hover=hover focus=focused(true) blur=focused(false) role="menuitem"');
     expect(item).toContain('background-color=(over or lit ?');
+    // A real click's press takes the focus from the popup before its release: the pointer on a row keeps the pin.
+    expect(item).toContain('action hover(value: bool)\n    over = value\n    pointer(value)');
+    expect(row).toContain('inside=snoozeInside, pointer=snoozePointer)');
     expect(await component('sidebar-row.contract', 'SidebarCardActions')).toContain('press=hoverCard("", false) key=snoozeKey popovertarget=`snooze-${t.id}`');
   });
 });
