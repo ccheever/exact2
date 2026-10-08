@@ -57,6 +57,11 @@ final class R8KeysMenus: NSObject, NSMenuDelegate, NSMenuItemValidation {
             undo.action = #selector(undo(_:))
             undo.target = self
         }
+        if let edit = bar.items.first(where: { $0.submenu?.title == "Edit" })?.submenu,
+           let redo = edit.items.first(where: { $0.action == NSSelectorFromString("redo:") }) {
+            redo.action = #selector(redo(_:))
+            redo.target = self
+        }
         if let edit = bar.items.first(where: { $0.submenu?.title == "Edit" })?.submenu {
             self.edit = edit
             if edit.delegate == nil || edit.delegate === self { edit.delegate = self }
@@ -120,16 +125,34 @@ final class R8KeysMenus: NSObject, NSMenuDelegate, NSMenuItemValidation {
     var keystroke: () -> Bool = { NSApp.currentEvent?.type == .keyDown }
     /// The window Close Window closes (the tests inject it).
     var closeTarget: () -> NSWindow? = { NSApp.keyWindow ?? NSApp.mainWindow }
-    /// An editable text view with something to undo holds the focus.
-    private static var textUndo: Bool {
-        guard let text = NSApp.keyWindow?.firstResponder as? NSTextView, text.isEditable else { return false }
-        return text.undoManager?.canUndo == true
+    /// The editable text view that holds the focus (the tests inject it).
+    var focusedText: () -> NSTextView? = {
+        guard let text = NSApp.keyWindow?.firstResponder as? NSTextView, text.isEditable else { return nil }
+        return text
     }
+    /// The focused text's own history, nil while it composes (marked text, as the host's ⌘Z and T3ComposerEditor
+    /// leave it alone). Exact's textarea keeps one per editor (host TextAreaMac.swift `textUndo`), which `undo:`
+    /// and `redo:` sent up the responder chain never reach: NSWindow answers them with the window's manager, so
+    /// ⌘Z, ⇧⌘Z and Edit › Undo did nothing in the composer and the prompt preview while the item read enabled
+    /// (fix-misc-batch, #298 bug 3; X63). The reference's roles act on the focused editor's history.
+    private func textHistory(_ text: NSTextView) -> UndoManager? { text.hasMarkedText() ? nil : text.undoManager }
 
     @objc func undo(_ sender: Any?) {
-        if Self.textUndo { NSApp.sendAction(Selector(("undo:")), to: nil, from: sender); return }
+        // Editable text with the focus answers ⌘Z itself, or not at all: the reference binds thread.undo
+        // `when: "!terminalFocus && !editableFocus"`.
+        if let text = focusedText() {
+            if let history = textHistory(text), history.canUndo { history.undo() }
+            return
+        }
         if keystroke(), let thread = command(Self.undoTitle), fire(thread) { return }
         NSApp.sendAction(Selector(("undo:")), to: nil, from: sender)
+    }
+    @objc func redo(_ sender: Any?) {
+        if let text = focusedText() {
+            if let history = textHistory(text), history.canRedo { history.redo() }
+            return
+        }
+        NSApp.sendAction(Selector(("redo:")), to: nil, from: sender)
     }
     @objc func closeWindow(_ sender: Any?) {
         if keystroke(), let close = command(Self.closePanelTitle), fire(close) { return }
@@ -143,9 +166,12 @@ final class R8KeysMenus: NSObject, NSMenuDelegate, NSMenuItemValidation {
     func validateMenuItem(_ item: NSMenuItem) -> Bool {
         switch item.action {
         case #selector(undo(_:)):
-            if Self.textUndo { return true }
+            if let text = focusedText() { return textHistory(text)?.canUndo == true }
             guard let thread = command(Self.undoTitle) else { return false }
             return (thread.target as? NSMenuItemValidation)?.validateMenuItem(thread) ?? true
+        case #selector(redo(_:)):
+            if let text = focusedText() { return textHistory(text)?.canRedo == true }
+            return NSApp.keyWindow?.undoManager?.canRedo == true
         case #selector(closeWindow(_:)): return closeTarget() != nil || command(Self.closePanelTitle) != nil
         case #selector(reloadWindow(_:)): return reloadAction != nil
         default: return true
