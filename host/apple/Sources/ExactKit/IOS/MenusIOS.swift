@@ -242,9 +242,16 @@ final class MenuHost {
         #endif
     }
 
-    /// D13: the plain UIButton's activation finished; now read its live target.
-    func invokeNative(_ source: NodeView) {
-        guard source.isNativeButton, eligible(source), let name = target(of: source), !name.isEmpty,
+    /// A custom hide-only control inside a lifted content popover has the
+    /// same default activation as a native invoker, with or without a handler.
+    func closesPresentedContent(_ source: NodeView) -> Bool {
+        guard source.isButton, let name = target(of: source),
+              let pop = agentOpen[name]?.popover else { return false }
+        return !isConfirmation(pop) && closes(source, pop) && eligible(source)
+    }
+    /// D13: activation finished; now read the surviving control's live target.
+    func invoke(_ source: NodeView) {
+        guard source.isNativeButton || closesPresentedContent(source), eligible(source), let name = target(of: source), !name.isEmpty,
               let pop = popover(named: name), opens(source, pop) || closes(source, pop) else { return }
         if isConfirmation(pop) {
             if closes(source, pop), let owner = confirmation, owner.popover === pop { finish(owner, chosen: nil) }
@@ -696,6 +703,7 @@ final class MenuHost {
                 let element: UIMenuElement = row.props["disabled"] == "true"
                     ? UIAction(title: title(of: row), image: image(of: row), attributes: .disabled) { _ in }
                     : UIMenu(title: title(of: row), image: image(of: row), children: children)
+                element.subtitle = row.isNativeButton ? row.face?.subtitle : nil
                 sections[sections.count - 1].append(element)
             } else if row.handlers.contains("press") {
                 let id = row.id
@@ -703,6 +711,7 @@ final class MenuHost {
                 let action = UIAction(title: title(of: row), image: image) { [weak self] _ in
                     self?.presenter?.press(id)
                 }
+                action.subtitle = row.isNativeButton ? row.face?.subtitle : nil
                 if row.props["accessibilityChecked"] == "true" { action.state = .on }
                 if row.props["disabled"] == "true" { action.attributes.insert(.disabled) }
                 if row.props["destructive"] == "true" { action.attributes.insert(.destructive) }

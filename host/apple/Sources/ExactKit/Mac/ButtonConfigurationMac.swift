@@ -4,6 +4,9 @@ import AppKit
 
 /// The same AppKit configuration is used for measurement and presentation.
 enum ButtonConfigurationMac {
+    // Weak keys retain each pristine control's value only while our authored
+    // override is active. An absent row on an untouched control writes nothing.
+    private static let pristineSizes = NSMapTable<NSButton, NSNumber>.weakToStrongObjects()
     static func weight(_ value: Int) -> NSFont.Weight {
         switch value {
         case ..<200: return .ultraLight
@@ -56,12 +59,19 @@ enum ButtonConfigurationMac {
         if !glass { button.bezelStyle = .push }
         button.appearance = appearance
         button.isBordered = look != "borderless"
+        if rows.button["control_size"] != nil, pristineSizes.object(forKey: button) == nil {
+            pristineSizes.setObject(NSNumber(value: button.controlSize.rawValue), forKey: button)
+        }
         switch rows.button["control_size"]?.string {
         case "mini": button.controlSize = .mini
         case "small": button.controlSize = .small
         case "large": button.controlSize = .large
         case "medium": button.controlSize = .regular
-        default: break
+        default:
+            if let pristine = pristineSizes.object(forKey: button) {
+                button.controlSize = NSControl.ControlSize(rawValue: pristine.uintValue)!
+                pristineSizes.removeObject(forKey: button)
+            }
         }
         let platformFont = NSFont.systemFont(ofSize: NSFont.systemFontSize(for: button.controlSize))
         let titleFont = font(platformFont, rows: rows.title)

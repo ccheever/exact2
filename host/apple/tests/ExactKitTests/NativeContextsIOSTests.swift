@@ -37,6 +37,32 @@ final class NativeContextsIOSTests: XCTestCase {
          ["op": "frame", "id": id, "x": x, "y": 0.0, "w": w, "h": h]]
     }
 
+    func testNativeMenuItemKeepsItsSubtitle() throws {
+        var f = face("Last Parked"); f.subtitle = "Updated just now"
+        let p = presenter(view(1, ["popover": "auto", "id": "menu"])
+            + native(2) + [["op": "children", "id": 1, "ids": [2]], ["op": "roots", "ids": [1]]], faces: [2: f])
+        defer { window.isHidden = true }
+        let item = try XCTUnwrap(p.menus.items(of: try XCTUnwrap(p.views[1])).first as? UIAction)
+        XCTAssertEqual(item.title, "Last Parked")
+        XCTAssertEqual(item.subtitle, "Updated just now")
+    }
+    func testCustomHideOnlyButtonClosesNativeContentPopoverInProduction() throws {
+        XCTAssertFalse(ExactEnv.agentMode, "this test exercises production handling")
+        let p = presenter(native(1, ["popovertarget": "content"])
+            + view(2, ["popover": "auto", "id": "content"], h: 120)
+            + [["op": "create", "id": 3, "kind": "button", "props": ["popovertarget": "content", "popovertargetaction": "hide"], "handlers": []],
+               ["op": "frame", "id": 3, "x": 0, "y": 0, "w": 100, "h": 40],
+               ["op": "children", "id": 2, "ids": [3]], ["op": "roots", "ids": [1, 2]]], faces: [1: face("Open")])
+        defer { p.menus.reset(); window.isHidden = true }
+        let opener = try XCTUnwrap(p.controls.controls[1] as? UIButton)
+        opener.sendActions(for: .touchUpInside)
+        let pop = try XCTUnwrap(p.views[2]), closer = try XCTUnwrap(p.views[3])
+        XCTAssertTrue(p.menus.lifted(pop))
+        p.menus.lightDismiss(closer)
+        XCTAssertTrue(p.menus.lifted(pop), "an inside touch does not light dismiss")
+        XCTAssertTrue(closer.accessibilityActivate(), "the production touch activation rule selects a hide-only button")
+        XCTAssertFalse(p.menus.lifted(pop)); XCTAssertTrue(pop.isHidden)
+    }
     func testANativeSwipeActionIsDrawnFromItsFace() throws {
         let p = presenter(
             view(1, ["swipeContent": "body", "swipeTrailing": "delete mute pin flag"], style: ["overflow_x": "scroll", "overflow_y": "hidden"])

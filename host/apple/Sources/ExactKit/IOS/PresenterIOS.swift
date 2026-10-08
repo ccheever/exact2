@@ -603,7 +603,7 @@ package final class Presenter {
         if let node = views[id], let url = node.defaultLink, node.activateLink(url) { return }
         let original = views[id]
         onPress?(id)
-        if let original, views[id] === original { menus.invokeNative(original) }
+        if let original, views[id] === original { menus.invoke(original) }
     }
     func change(_ id: UInt32, _ value: String) { onChange?(id, value) }
     /// A text field typed into since it took the focus: its `change` fires
@@ -975,11 +975,15 @@ package final class Presenter {
         if !rowsOnly || navigation.syncOwed { navigation.sync(batch) }
         #if os(tvOS)
         menuKey.sync()
-        focusGuides.sync()
         playPauseKey.sync()
         #endif
         segments.sync()
         controls.sync(contents: batch.controls, touched: touchedIDs)
+        #if os(tvOS)
+        // A remembered node's replacement owns focus only after its native
+        // control exists, so retarget guides in this same batch after sync.
+        focusGuides.sync()
+        #endif
         menus.sync()
         glassGroups.reconcile()
         let changed = touchedAndAbove(touchedIDs)

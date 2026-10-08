@@ -148,6 +148,80 @@ mod tests {
         assert_eq!(json["rows"]["button"]["padding_left"], 9);
         assert_eq!(json["rows"]["button"]["border_radius_top_left"], 18);
     }
+    #[test]
+    fn em_fonts_scale_only_platform_bases_and_absolute_bases_scale_once() {
+        let plan = contract::compile(
+            r#"component Buttons
+  view
+    column font-size=99
+      button appearance="auto" testId="platform" font-size="1.5em"
+        image "symbol:sf/lock" font-size="2em"
+        text "Platform" font-size="2em"
+        text "Subtitle" font-size="1em"
+      button appearance="auto" testId="absolute" font-size=13
+        image "symbol:sf/lock" font-size="2em"
+        text "Absolute" font-size="1em"
+        text "Subtitle" font-size="1em"
+      button appearance="auto" testId="root" font-size="1rem"
+        text "Root" font-size="1em"
+"#,
+        )
+        .unwrap();
+        let (mut host, _) = crate::Host::boot(
+            &plan.encode(),
+            NoData,
+            Box::new(exact_kernel::MonospaceMeasurer::default()),
+            400.,
+            800.,
+        )
+        .unwrap();
+        let mut env = host.runner().kernel().env();
+        extern "C" fn font(_: *mut std::ffi::c_void, _: u8) -> crate::control_text::CControlFont {
+            crate::control_text::CControlFont {
+                family: std::ptr::null(),
+                family_len: 0,
+                family_id: 42,
+                size: 34.,
+                weight: 400,
+                italic: 0,
+            }
+        }
+        // A platform font already scaled for accessibility.
+        let platform = crate::control_text::text_styles(font, std::ptr::null_mut());
+        env.control_text_styles = Some(platform);
+        host.runner_mut().kernel_mut().set_env(env).unwrap();
+        host.resize(400., 800.);
+        let kernel = host.runner().kernel();
+        for (name, title_size, scaled) in [
+            ("platform", 102., true),
+            ("absolute", 13., false),
+            ("root", 16., false),
+        ] {
+            let id = kernel
+                .node_by_key(kernel.find_by_test_id(name)[0])
+                .unwrap()
+                .id;
+            let rows = kernel.button_face_style(id).unwrap();
+            let json: serde_json::Value = serde_json::from_str(&face_json(
+                kernel.press_face(id).as_ref(),
+                Some(&rows),
+                "bordered",
+            ))
+            .unwrap();
+            assert_eq!(json["rows"]["title"]["font_size"], title_size);
+            for part in if name == "root" {
+                &["title"][..]
+            } else {
+                &["title", "subtitle", "symbol"][..]
+            } {
+                assert_eq!(
+                    json["rows"][part].get("font_size_resolved").is_some(),
+                    scaled,
+                    "{name} {part}"
+                );
+            }
+        }
+    }
     struct NoData;
     impl exact_runner::DataSource for NoData {
         fn query(
