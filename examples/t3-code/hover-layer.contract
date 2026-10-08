@@ -134,7 +134,8 @@ component HoverScopes
 // A `Tip` (shell-tip.contract) drawn by this layer, kind "tip", for a trigger inside a scroll area or a clipping card (the
 // pull request Code tab's diff list, its file header and off-diff list, and its thread cards; pr-links-previews-and-routing,
 // #308's row after #307): the wrapped content is the trigger, named by `tipId`; the estimate is the words' lines at 12/16
-// in the 20rem bubble, for the flip.
+// in the 20rem bubble, for the flip. The trigger's test id is `tipId` (agent mode hovers it: `tap <tipId> hover`); the
+// bubble's is `<tipId>-bubble`.
 component LayerTip
   inject
     rem: number
@@ -147,7 +148,7 @@ component LayerTip
   slot
   action hover(inside: bool)
     if label != ""
-      hoverTipAt(hoverTipAtFrame(tipId, "tip", label, [], side, align, frame(tipId), (floor(length(label) / 48) + 1) * rem + 0.625 * rem, tipId), "trigger", inside)
+      hoverTipAt(hoverTipAtFrame(tipId, "tip", label, [], side, align, frame(tipId), (floor(length(label) / 48) + 1) * rem + 0.625 * rem, `${tipId}-bubble`), "trigger", inside)
   view
-    box id=tipId position="relative" hover=hover flex-shrink=0 display="flex" flex-direction="row" align-items="center" min-width=0
+    box id=tipId testId=tipId position="relative" hover=hover flex-shrink=0 display="flex" flex-direction="row" align-items="center" min-width=0
       children

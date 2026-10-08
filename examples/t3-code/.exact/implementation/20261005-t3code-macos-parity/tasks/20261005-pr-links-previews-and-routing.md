@@ -163,7 +163,7 @@ Evidence: `https://raw.githubusercontent.com/ccheever/exact2/ee9a40ac4f1022bcfa8
 | Back arrow | pass (live) | 16: "Write the changelog" holds #132 and #115; #115 opened from the thread's details shows the back arrow; pressing it shows the thread's pull requests (#132, #115) | — |
 | Visual and trace | not run (oracle) | before/after pairs 01–05; dark and 840×620 shots taken (count, More, picker, Check out with Act on), 13 dark | user decision 2026-10-06 (no oracle or trace tools) |
 | Ported tests | pass | routing 93 and links 43 (fork-ported, original names; Effect-runtime-only cases classified in the test headers) | — |
-| Keyboard focus, Escape, reduced motion | pass (live, agent keys) | Return on the count opened the palette; Escape closed it and the picker (nothing linked: count stayed 2); focus returns to the trigger; the card has no fade under reduced motion (`still`); #310's menu keyboard covers the Link item and the Act on rows (`KmItem` entries; Return, ↓, ↓ on Check out ends on the first Act on row, record) | — |
+| Keyboard focus, Escape, reduced motion | pass (live, agent keys) | Return on the count opened the palette; Escape closed it and the picker (nothing linked: count stayed 2); focus returns to the trigger; the card has no fade under reduced motion (`still`); #310's menu keyboard covers the Link item and the Act on rows (`KmItem` entries; Return, ↓, ↓ on Check out ended on the first Act on row, which is also the selected one, so the focus was not told apart from the selection) | the Act on focus row: STATUS "Next real-input batch", steps in section C |
 | Gates | pass (final head) | below Attempts | — |
 
 ## Attempts and evidence
@@ -172,29 +172,59 @@ Evidence: `https://raw.githubusercontent.com/ccheever/exact2/ee9a40ac4f1022bcfa8
 | --- | --- | --- | --- | --- |
 | 1 (agent live, the one session) | `a3d15d561` + records merge `732f0e3f3` | every after step but two passed on real GitHub with two lane servers; `load-more` ran with the search still applied and found no button; `thread-surface` could not find `pr-row-115` (the search had not settled) | `live-drive-record.txt`, images 01–12 | the retry |
 | 2 (agent live, the retry) | `00af6adb3` (after #307, #308, #310) | hover card, its timing, the commit tip and the monospace face passed; Load more stayed "Loading more" (99 → 99) and searches after the first never landed; the back arrow step looked for the composer badge, which a thread without a provider does not show | `retry-drive-record.txt`, 13, 14 | the list's join (fixed in `d4ca27743`) |
-| 3 (the failed rows again, after the fix) | `abc0afaf5` | a probe on A alone: `#132`, `#168`, `#117` land in about 1.2 s each; Load more 99 → 128; the back arrow shown and pressed; the Code tab's tips not reached (none of their conditions on #168, and `LayerTip` has no test id) | `retry-drive-record.txt`, 15, 16 | — |
+| 3 (the failed rows again, after the fix) | `abc0afaf5` | a probe on A alone: `#132`, `#168`, `#117` land in about 1.2 s each; Load more 99 → 128; the back arrow shown and pressed; the Code tab's tips not hovered: `LayerTip` had no test id, so the drive's filter found none (#168's off-diff list, 2 conversations, holds the path and thread author/age tips); `LayerTip` now gives its trigger the tip id as its test id (records commit), and the tips are a batch row | `retry-drive-record.txt`, 15, 16 | — |
 
 Gates on the final head (Attempt 3): `bun test examples/t3-code --timeout 60000` 3462 pass, 0 fail (1 skip); strict tsc clean; contract build OK (5512 slots); `bun scripts/caps.mjs` within caps; `cargo test -p t3-code-macos --lib` 13 passed, 0 failed; the five checks green (`cargo build --all-targets --keep-going` 0; `cargo test --lib --bins --tests --no-fail-fast` 3521 passed, 0 failed, 34 ignored; clippy `-D warnings` 0; `cargo fmt --check` 0; caps 0; `bun scripts/boot.mjs` 0).
 
 ## Real-input batch steps
 
-Rows for STATUS "Next real-input batch" (agent mode already passed them through the host's hover and press paths). Hold the
-real-input lock `target/t3-ui-parity/lanes/.realinput-lock` (owner note `pr-links-previews-and-routing: real input`).
+Rows in STATUS "Next real-input batch". Agent mode can run B and C (the triggers and rows have test ids, and `tree` reads
+`focused`); a real pointer and real keys confirm them on hardware. Hold the real-input lock
+`target/t3-ui-parity/lanes/.realinput-lock` (owner note `pr-links-previews-and-routing: real input`).
 
-1. Lane: `bun target/pr-links/lanes.mjs start a` (127.0.0.1:16360; the base checkout's shared lane dir, primary account), and
-   `bun target/pr-links/comment.mjs` (the autolink fixture comment on #132; delete it after with `comment.mjs delete`).
-2. App: an agent-mode session of this branch's bundle (`target/pr-links/drive-retry.mjs` sets it up: pair A, Pull Requests,
-   #132, scroll to Comments), then real pointer moves with `cliclick` on the window's screen place from
-   `orca computer list-windows`, as fix-hover-cards' real-pointer session did; set the app frontmost through System Events
-   first and clear the agent's pointer with an agent contact.
-3. Hover card: onto `#115`: the card after ~0.35 s. Onto the card: it stays (waits on #327, as #307's rows). Away: gone within
-   ~0.2 s.
-4. Clicks: a plain click on `#115` selects #115. ⌘-click on `https://github.com/daehyeonmun2021/playground/pull/116`: the panel
-   does not move and the default browser opens the URL (read back, then that tab closed). A click on `c46352e` opens its
-   commit page.
-5. Cleanup: close the session, `lanes.mjs stop a`, `comment.mjs delete`, release the lock.
+Setup for all three: `bun target/pr-links/lanes.mjs start a` (127.0.0.1:16360; the base checkout's shared lane dir, primary
+account), and for C also `start b` (127.0.0.1:16361). An agent-mode session of this branch's bundle
+(`target/pr-links/drive-retry.mjs` pairs A, and B with `pair-b`, and sets GitHub sharing to Read and act). For a real pointer:
+`cliclick` moves on the window's screen place from `orca computer list-windows`, as fix-hover-cards' real-pointer session did;
+set the app frontmost through System Events first and clear the agent's pointer with an agent contact. Cleanup: close the
+session, `lanes.mjs stop a` (and `b`), release the lock.
+
+**A. The PR-link hover card and clicks** (needs `bun target/pr-links/comment.mjs`, the autolink fixture comment on #132;
+`comment.mjs delete` after).
+1. Pull Requests › #132 › Summary › Comments. Onto `#115`: the card after ~0.35 s. Onto the card: it stays (waits on #327, as
+   #307's rows). Away: gone within ~0.2 s.
+2. A plain click on `#115` selects #115. ⌘-click on `https://github.com/daehyeonmun2021/playground/pull/116`: the panel does not
+   move and the default browser opens the URL (read back, then that tab closed). A click on `c46352e` opens its commit page.
+
+**B. The Code tab's tips** (`LayerTip`: the trigger's test id is the tip id; the bubble's is `<tip id>-bubble`). For each
+one: hover the trigger (`tap <tip id> hover`, or the real pointer onto it), then read `hover-layer` and the bubble's text; the
+bubble is drawn above the scroll area's clip.
+1. #168 › Code. Open "Conversations not on the diff loaded so far" (2): `pull-request-code-orphan-tip-<path>` (a group's
+   path) and, in a thread card, `pull-request-thread-author-tip-<comment id>` and `pull-request-thread-age-tip-<comment id>`
+   (the same tips are on the inline threads in the diff).
+2. #168 › Code › the scope menu › one commit: `pull-request-code-scope-note-tip` ("A comment is anchored to the
+   whole change…").
+3. #115 › Code: tick a file's Viewed box; push a commit that changes it with the second account's lane gh; Refresh: the header
+   reads "Changed", and `pull-request-code-changed-tip-<path>` sits on it.
+4. #168 › Code, then stop lane A and press Refresh: the viewed read should fail, keep the boxes and show the warning with
+   `pull-request-code-viewed-error-tip` on it (start the lane again after). If the panel shows the connection error
+   instead, this tip needs a fixture that fails only the viewed read.
+5. `pull-request-code-viewed-short-tip` (the host reports ticks for fewer files than the change has) and
+   `pull-request-code-withheld-tip` (a slice the host truncated, or a patch it did not inline): check #168 after "Load more
+   files" ×3 (310 files and a binary `assets/logo.png`) first; if neither shows, they need a fixture the sandbox lacks.
+6. `pull-request-code-viewed-here-tip` needs a host that keeps no viewed record (`viewedFiles: "environment"`, not GitHub); no
+   lane has one.
+
+**C. Act on by keyboard, the focus and the selection told apart** (A and B paired; A, the focused server, is the selected
+Act on row by default).
+1. #132 › Return on Check out: the focus goes to "In a separate worktree". ↓ "In this repository", ↓ server A's row (the
+   selected one), ↓ server B's row: B has the focus (`tree pr-act-on-<B id>` reads `focused: true`; B shows the accent, A
+   keeps the selected tint).
+2. Space on B: B becomes the selected row (`aria-checked` moves to B). Escape: the menu closes and the focus is back on
+   Check out.
+3. The same from More: Return on More, ↓ past the Link item, Refresh and the three hand-offs to the Act on rows.
 
 ## Next action
 
-None for this task: the coordinator checks conflicts and moves the PR to ready. The real-pointer rows wait in STATUS
-"Next real-input batch".
+None for this task: the coordinator checks conflicts and moves the PR to ready. Three rows wait in STATUS "Next real-input
+batch" (sections A, B and C above): the hover card and clicks by real input, the Code tab's tips, and the Act on focus.
