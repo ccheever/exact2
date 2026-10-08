@@ -1,0 +1,21 @@
+    Blocking waiting for file lock on build directory
+   Compiling exact-num v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/num)
+   Compiling contract-syntax v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/contract/syntax)
+   Compiling taffy v0.14.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/vendor/taffy)
+   Compiling exact-svg-filter v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/svg-filter)
+   Compiling exact-route v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/route)
+   Compiling contract-lower v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/contract/lower)
+   Compiling exact-plan v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/plan)
+   Compiling exact-kernel v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/kernel)
+   Compiling exact-grants v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/grants)
+   Compiling exact-color v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/color)
+   Compiling exact-textflow v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/textflow)
+   Compiling exact-motion v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/motion)
+   Compiling exact-canvas v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/canvas)
+   Compiling contract-types v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/contract/types)
+   Compiling contract-analyze v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/contract/analyze)
+   Compiling exact-runner v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/runner)
+   Compiling contract v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/contract/cli)
+    Finished `host-dev` profile [optimized] target(s) in 3m 05s
+     Running `target/host-dev/contract build /tmp/exact285-evidence/clock.contract -o /tmp/exact285-evidence/clock.plan`
+/tmp/exact285-evidence/clock.contract: 2 slots, 0 derives, 0 resources, 2 actions, 2 nodes, 0 regions, 864 bytes

@@ -1,0 +1,27 @@
+    Blocking waiting for file lock on package cache
+warning: patch `wgpu-hal v30.0.1 (/Users/daehyeonmun/orca/workspaces/exact2/fix-300-mounted-clamp/vendor/wgpu-hal)` was not used in the crate graph
+help: Check that the patched package version and available features are compatible
+      with the dependency requirements. If the patch has a different version from
+      what is locked in the Cargo.lock file, run `cargo update` to use the new
+      version. This may also occur with an optional dependency that is not enabled.
+   Compiling exact-issue-300-repro-apple v0.1.0 (/private/tmp/exact-issue-300-repro/apple)
+    Finished `host-dev` profile [optimized] target(s) in 8.07s
+host/apple: baked L=0; Swift embedded composition
+Building for debugging...
+[Computing dependencies]
+[1 / 5]
+[1 / 6] ExactKit
+[2 / 6] ExactKit
+[3 / 7] ExactKit
+[7 / 9] ExactKit
+[8 / 9] ExactKit
+[9 / 10] ExactKit
+[10 / 10] ExactMac-product
+Build complete! (28.99 sec)
+Building for debugging...
+[Computing dependencies]
+[Starting]
+[1 / 1]
+[2 / 3] ExactMac-product
+Build complete! (1.69 sec)
+host/apple: /private/tmp/exact-issue-300-repro/target/clients/60a1643b7acadaf273780966/com.example.exact-issue-300-repro/macos/aarch64-apple-darwin/embedded/development/standalone/Exact Issue 300 Repro (cargo 9.9 s, swift 28.1 s, arms 0.0 s, modules 0.0 s, package 0.9 s; signed 0F0D033A); GPU: no GPU crate; web arm: libexact_web.dylib

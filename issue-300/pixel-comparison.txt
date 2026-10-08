@@ -1,0 +1,5 @@
+at-launch: 0 before/after pixels changed; after window vs capture exact match
+swapped: 60 before/after pixels changed; after window vs capture exact match
+mounted: 60 before/after pixels changed; after window vs capture exact match
+mounted-2: 60 before/after pixels changed; after window vs capture exact match
+mounted-nowrap: 0 before/after pixels changed; after window vs capture exact match

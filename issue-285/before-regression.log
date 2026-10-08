@@ -1,0 +1,25 @@
+bun test v1.4.2 (744846f84)
+
+scripts/caps.test.mjs:
+763 |     for (const ahead of [0, 0.75]) {
+764 |       const sent = [], sleeps = [], wall = [18.329417, 18.329417, 18.829417, 20.329417, 20.329417];
+765 |       let reported = 250;
+766 |       const s = { now: ['web', 'linux'].includes(host) ? reported : 0, async op(req) {
+767 |         if (req.take) return { clock: reported };
+768 |         expect(req.to).toBeGreaterThanOrEqual(reported);
+                             ^
+error: expect(received).toBeGreaterThanOrEqual(expected)
+
+Expected: >= 250
+Received: 249.99999999999997
+
+      at op (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/scripts/caps.test.mjs:768:24)
+      at clock (file:///Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/scripts/caps.test.mjs:15:82)
+      at async <anonymous> (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/scripts/caps.test.mjs:776:55)
+(fail) clock +N real never seeks behind the last reply and ends at from + N [3.43ms]
+
+ 0 pass
+ 55 filtered out
+ 1 fail
+ 1 expect() calls
+Ran 1 test across 1 file. [125.84s]

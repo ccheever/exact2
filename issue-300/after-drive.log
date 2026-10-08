@@ -1,0 +1,79 @@
+{"w":420,"scale":2,"clock":0,"incarnation":1,"window":true,"epoch":1,"h":360,"screenshot":"/tmp/exact-issue-300-evidence/after-initial-window.png"}
+{"delivery":"platform","at":[91,41],"tapped":2,"target":"t","carrier":"macos","mode":"agent","epoch":2,"incarnation":1,"clock":0}
+epoch 2 · incarnation 1 · clock 0 ms · 13 nodes
+View#1 [root]
+  Pressable#2 [t] [focused] (press)
+    Text#3 "toggle"
+  View#4
+    Text#5 [at-launch] "A long value that keeps going past the width so the line has to be cut with an ellipsis"
+  View#6
+    Text#11 [swapped] "A long value that keeps going past the width so the line has to be cut with an ellipsis"
+  View#8
+    Text#12 [mounted] "A long value that keeps going past the width so the line has to be cut with an ellipsis"
+  View#9
+    Text#13 [mounted-2] "A long value that keeps going past the width so the line has to be cut with an ellipsis, and then some more"
+  View#10
+    Text#14 [mounted-nowrap] "A long value that keeps going past the width so the line has to be cut with an ellipsis"
+viewport 420×360 · clock 0 ms
+node #12 [mounted] Text · site 9 · instance arm 0 · epoch 2 · incarnation 1
+  @ /private/tmp/exact-issue-300-repro/app.contract:18:11 (X59) · compatible source map
+  accent_color = auto (initial)
+  caret_color = auto (initial)
+  clip_rule = nonzero (initial)
+  color_interpolation_filters = linearRGB (initial)
+  color_scheme = normal (initial)
+  cursor = auto (initial)
+  direction = ltr (initial)
+  dominant_baseline = auto (initial)
+  dynamic_range_limit = no-limit (initial)
+  fill = #000000ff (initial)
+  fill_opacity = 1 (initial)
+  fill_rule = nonzero (initial)
+  font_family = 0 (initial)
+  font_size = 14 (inherited from #1)
+  font_style = normal (initial)
+  font_variant_numeric = 0 (initial)
+  font_weight = 400 (initial)
+  hyphens = manual (initial)
+  interpolate_size = numeric-only (initial)
+  letter_spacing = 0 (initial)
+  line_clamp = 1 (authored, own)
+  line_height = 20px (inherited from #1)
+  marker_end = none (initial)
+  marker_mid = none (initial)
+  marker_start = none (initial)
+  orphans = 2 (initial)
+  overflow_wrap = normal (initial)
+  paint_order = normal (initial)
+  pointer_events = auto (initial)
+  stroke = none (initial)
+  stroke_dasharray = none (initial)
+  stroke_dashoffset = 0 (initial)
+  stroke_linecap = butt (initial)
+  stroke_linejoin = miter (initial)
+  stroke_miterlimit = 4 (initial)
+  stroke_opacity = 1 (initial)
+  stroke_width = 1 (initial)
+  symbol_palette = none (initial)
+  symbol_rendering = monochrome (initial)
+  text_align = start (initial)
+  text_anchor = start (initial)
+  text_color = light-dark(#111111, #eeeeee) (inherited from #1)
+  text_indent = 0 (initial)
+  text_shadow = none (initial)
+  text_stroke_color = currentcolor (initial)
+  text_stroke_width = 0 (initial)
+  text_transform = none (initial)
+  visibility = visible (initial)
+  white_space = normal (initial)
+  widows = 2 (initial)
+  space viewport 25,139 300×20 · frame 1,1 300×20 (kernel, in the parent) · window 25,139 300×20 · screen 563,351 300×20 · scale 2
+  scroll viewport 0,0
+  visible clipped=false hidden=false inViewport=true inert=false
+  native sheet=false view=NodeView
+{"w":420,"scale":2,"clock":0,"incarnation":1,"window":true,"epoch":2,"h":360,"screenshot":"/tmp/exact-issue-300-evidence/after-window.png"}
+{"clock":0,"epoch":2,"w":420,"incarnation":1,"screenshot":"/tmp/exact-issue-300-evidence/after-capture.png","h":360}
+{"tapped":2,"delivery":"platform","at":[91,41],"target":"t","carrier":"macos","mode":"agent","epoch":3,"incarnation":1,"clock":0}
+{"scale":2,"window":true,"clock":0,"incarnation":1,"h":360,"screenshot":"/tmp/exact-issue-300-evidence/after-expanded-window.png","w":420,"epoch":3}
+{"delivery":"platform","at":[91,41],"tapped":2,"target":"t","carrier":"macos","mode":"agent","epoch":4,"incarnation":1,"clock":0}
+{"w":420,"scale":2,"clock":0,"incarnation":1,"window":true,"epoch":4,"h":360,"screenshot":"/tmp/exact-issue-300-evidence/after-remount-window.png"}

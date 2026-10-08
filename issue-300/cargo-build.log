@@ -1,0 +1,233 @@
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+   Compiling proc-macro2 v1.0.107
+   Compiling unicode-ident v1.0.24
+   Compiling quote v1.0.47
+   Compiling version_check v0.9.5
+   Compiling typenum v1.20.1
+   Compiling cfg-if v1.0.4
+   Compiling itoa v1.0.18
+   Compiling serde_core v1.0.229
+   Compiling zmij v1.0.23
+   Compiling serde_json v1.0.151
+   Compiling zeroize v1.9.0
+   Compiling exact-num v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-300-mounted-clamp/num)
+   Compiling libc v0.2.189
+   Compiling subtle v2.6.1
+   Compiling serde v1.0.229
+   Compiling memchr v2.8.3
+   Compiling const-oid v0.9.6
+   Compiling stable_deref_trait v1.2.1
+   Compiling libm v0.2.16
+   Compiling writeable v0.6.4
+   Compiling smallvec v1.15.2
+   Compiling triomphe v0.1.16
+   Compiling litemap v0.8.3
+   Compiling arcstr v1.2.0
+   Compiling generic-array v0.14.7
+   Compiling utf8_iter v1.0.4
+   Compiling arrayvec v0.7.8
+   Compiling icu_properties_data v2.3.0
+   Compiling unicode-linebreak v0.1.5
+   Compiling icu_normalizer_data v2.3.0
+   Compiling slotmap v1.1.1
+   Compiling exact-color v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-300-mounted-clamp/color)
+   Compiling dtoa v1.0.11
+   Compiling exact-textflow v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-300-mounted-clamp/textflow)
+   Compiling percent-encoding v2.3.2
+   Compiling dtoa-short v0.3.5
+   Compiling exact-svg-filter v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-300-mounted-clamp/svg-filter)
+   Compiling cssparser v0.37.0
+   Compiling form_urlencoded v1.2.2
+   Compiling contract-syntax v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-300-mounted-clamp/contract/syntax)
+   Compiling icu_locale_fallback_data v2.3.0
+   Compiling icu_locale_data v2.3.0
+   Compiling syn v3.0.4
+   Compiling syn v2.0.119
+   Compiling rand_core v0.6.4
+   Compiling bitflags v2.13.1
+   Compiling log v0.4.34
+   Compiling cpufeatures v0.2.17
+   Compiling base64 v0.22.1
+   Compiling unicode-width v0.2.2
+   Compiling once_cell v1.21.4
+   Compiling foldhash v0.2.0
+   Compiling ff v0.13.1
+   Compiling der v0.7.10
+   Compiling base16ct v0.2.0
+   Compiling group v0.13.0
+   Compiling find-msvc-tools v0.1.11
+   Compiling shlex v2.0.1
+   Compiling hashbrown v0.17.1
+   Compiling semver v1.0.28
+   Compiling cc v1.4.4
+   Compiling getrandom v0.3.4
+   Compiling exact-motion v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-300-mounted-clamp/motion)
+   Compiling rustc_version v0.4.1
+   Compiling autocfg v1.5.1
+   Compiling crypto-common v0.1.7
+   Compiling block-buffer v0.10.4
+   Compiling crypto-bigint v0.5.5
+   Compiling digest v0.10.7
+   Compiling zerocopy v0.8.56
+   Compiling sha2 v0.10.9
+   Compiling signature v2.2.0
+   Compiling hmac v0.12.1
+   Compiling curve25519-dalek v4.1.3
+   Compiling thiserror v2.0.20
+   Compiling num-traits v0.2.19
+   Compiling taffy v0.14.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-300-mounted-clamp/vendor/taffy)
+   Compiling rfc6979 v0.4.0
+   Compiling ed25519 v2.2.3
+   Compiling equivalent v1.0.2
+   Compiling cfg_aliases v0.2.2
+   Compiling indexmap v2.14.1
+   Compiling naga v30.0.1
+   Compiling sec1 v0.7.3
+   Compiling rustc-hash v1.1.0
+   Compiling bit-vec v0.9.1
+   Compiling codespan-reporting v0.13.1
+   Compiling rustls-pki-types v1.15.1
+   Compiling bit-set v0.10.0
+   Compiling simd-adler32 v0.3.10
+   Compiling getrandom v0.2.17
+   Compiling adler2 v2.0.1
+   Compiling crc32fast v1.5.1
+   Compiling untrusted v0.9.0
+   Compiling core-foundation-sys v0.8.7
+   Compiling exact-markdown v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-300-mounted-clamp/markdown)
+   Compiling ring v0.17.14
+   Compiling httparse v1.10.1
+   Compiling rustls v0.23.45
+   Compiling bytes v1.12.1
+   Compiling core-foundation v0.9.4
+   Compiling security-framework-sys v2.17.0
+   Compiling elliptic-curve v0.13.8
+   Compiling miniz_oxide v0.9.1
+   Compiling vte_generate_state_changes v0.1.2
+   Compiling rustix v1.1.4
+   Compiling ecdsa v0.16.9
+   Compiling exact-canvas v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-300-mounted-clamp/canvas)
+   Compiling primeorder v0.13.6
+   Compiling ed25519-dalek v2.2.0
+   Compiling http v1.5.0
+   Compiling base64 v0.23.1
+   Compiling utf8parse v0.2.2
+   Compiling p256 v0.13.2
+   Compiling serde_derive v1.0.229
+   Compiling zerovec-derive v0.11.6
+   Compiling displaydoc v0.2.7
+   Compiling thiserror-impl v2.0.20
+   Compiling flate2 v1.1.10
+   Compiling vte v0.11.1
+   Compiling exact-filesystem v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-300-mounted-clamp/filesystem)
+   Compiling exact-update v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-300-mounted-clamp/update)
+   Compiling ureq-proto v0.6.4
+   Compiling security-framework v2.11.1
+   Compiling webpki-roots v1.0.9
+   Compiling rustls-pemfile v2.2.0
+   Compiling ibex2 v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-300-mounted-clamp/vendor/ibex/crates/ibex2)
+   Compiling naga-types v30.0.1
+   Compiling miniz_oxide v0.8.9
+   Compiling fdeflate v0.3.7
+   Compiling errno v0.3.14
+   Compiling unicode-width v0.1.14
+   Compiling utf8-zero v0.8.1
+   Compiling synstructure v0.13.2
+   Compiling vt100 v0.15.2
+   Compiling socket2 v0.6.5
+   Compiling vte v0.15.0
+   Compiling pkg-config v0.3.34
+   Compiling png v0.18.1
+   Compiling vcpkg v0.2.15
+   Compiling rustls-native-certs v0.7.3
+   Compiling unicode-segmentation v1.13.3
+   Compiling hashlink v0.12.1
+   Compiling libsqlite3-sys v0.38.2
+   Compiling fallible-iterator v0.3.0
+   Compiling fallible-streaming-iterator v0.1.9
+   Compiling wasmi_ir v2.0.0
+   Compiling wasmparser v0.228.0
+   Compiling wasmi_core v2.0.0
+   Compiling wasmi v2.0.0
+   Compiling zerofrom-derive v0.1.7
+   Compiling yoke-derive v0.8.2
+   Compiling zerocopy-derive v0.8.56
+   Compiling rustls-webpki v0.103.15
+   Compiling exact-raster v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-300-mounted-clamp/host/raster)
+   Compiling leb128fmt v0.1.0
+   Compiling wasm-encoder v0.259.0
+   Compiling exact-logic v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-300-mounted-clamp/logic)
+   Compiling spin v0.9.9
+   Compiling bumpalo v3.20.3
+   Compiling zerofrom v0.1.8
+   Compiling wasmi_collections v2.0.0
+   Compiling exact-route v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-300-mounted-clamp/route)
+   Compiling yoke v0.8.3
+   Compiling libloading v0.8.9
+   Compiling zerovec v0.11.8
+   Compiling zerotrie v0.2.5
+   Compiling exact-markdown-editor v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-300-mounted-clamp/markdown/editor)
+   Compiling exact-web-js-motion v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-300-mounted-clamp/host/web-js/motion)
+   Compiling wast v259.0.0
+   Compiling exact-plan v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-300-mounted-clamp/plan)
+   Compiling tinystr v0.8.4
+   Compiling potential_utf v0.1.6
+   Compiling icu_locale_core v2.3.0
+   Compiling icu_collections v2.3.0
+   Compiling exact-kernel v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-300-mounted-clamp/kernel)
+   Compiling contract-lower v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-300-mounted-clamp/contract/lower)
+   Compiling icu_provider v2.3.1
+   Compiling icu_properties v2.3.0
+   Compiling icu_normalizer v2.3.0
+   Compiling icu_locale_fallback v2.3.0
+   Compiling icu_locale v2.3.0
+   Compiling contract-types v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-300-mounted-clamp/contract/types)
+   Compiling markdown-parse v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-300-mounted-clamp/apps/markdown/parse)
+   Compiling idna_adapter v1.2.2
+   Compiling half v2.7.1
+   Compiling idna v1.1.0
+   Compiling ureq v3.4.0
+   Compiling exact-js-value v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-300-mounted-clamp/js/value)
+   Compiling rusqlite v0.40.2
+   Compiling exact-svg-raster v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-300-mounted-clamp/host/svg-raster)
+   Compiling url v2.5.8
+   Compiling exact-grants v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-300-mounted-clamp/grants)
+   Compiling contract-analyze v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-300-mounted-clamp/contract/analyze)
+   Compiling wat v1.259.0
+   Compiling ibex2-sqlite v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-300-mounted-clamp/vendor/ibex/crates/ibex2-sqlite)
+   Compiling exact-gpu-reflect v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-300-mounted-clamp/gpu/reflect)
+   Compiling exact-runner v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-300-mounted-clamp/runner)
+   Compiling contract v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-300-mounted-clamp/contract/cli)
+   Compiling exact-data v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-300-mounted-clamp/data)
+   Compiling caltrain-data v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-300-mounted-clamp/apps/caltrain/data)
+   Compiling markdown-stress-data v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-300-mounted-clamp/apps/markdown-stress/data)
+   Compiling exact-web-geometry v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-300-mounted-clamp/host/web-geometry)
+   Compiling interaction-gallery-data v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-300-mounted-clamp/apps/interaction-gallery/data)
+   Compiling completion-storm-data v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-300-mounted-clamp/apps/completion-storm/data)
+   Compiling messages-stress-data v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-300-mounted-clamp/apps/messages-stress/data)
+   Compiling exact-logic-abi v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-300-mounted-clamp/logic/abi)
+   Compiling llp-data v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-300-mounted-clamp/apps/llp/data)
+   Compiling textflow-data v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-300-mounted-clamp/apps/textflow/data)
+   Compiling typetour-data v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-300-mounted-clamp/apps/typetour/data)
+   Compiling carousel-data v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-300-mounted-clamp/apps/carousel/data)
+   Compiling spark-data v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-300-mounted-clamp/apps/spark/data)
+   Compiling video-player-data v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-300-mounted-clamp/apps/video-player/data)
+   Compiling shared-elements-data v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-300-mounted-clamp/apps/shared-elements/data)
+   Compiling sparkline-data v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-300-mounted-clamp/apps/sparkline/data)
+   Compiling motion-gallery-data v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-300-mounted-clamp/apps/motion-gallery/data)
+   Compiling svg-gallery-data v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-300-mounted-clamp/apps/svg-gallery/data)
+   Compiling exact-live-data v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-300-mounted-clamp/apps/exact-live/data)
+   Compiling exact-data-host v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-300-mounted-clamp/data/host)
+   Compiling calendar-data v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-300-mounted-clamp/examples/calendar/data)
+   Compiling exact-apple v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-300-mounted-clamp/host/apple)
+   Compiling update-lab-data v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-300-mounted-clamp/apps/update-lab/data)
+   Compiling fieldnotes-data v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-300-mounted-clamp/apps/fieldnotes/data)
+   Compiling markdown-data v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-300-mounted-clamp/apps/markdown/data)
+   Compiling exact-bake v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-300-mounted-clamp/bake)
+   Compiling caltrain v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-300-mounted-clamp/apps/caltrain)
+   Compiling exact-terminal v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-300-mounted-clamp/host/terminal)
+   Compiling exact-web v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-300-mounted-clamp/host/web)
+   Compiling exact-web-capabilities v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-300-mounted-clamp/host/web-capabilities)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 5m 03s

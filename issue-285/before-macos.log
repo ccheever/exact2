@@ -1,0 +1,2 @@
+{"host":"macos","status":"FAIL","calls":3313,"seeks":6627,"backwards":1,"clock":3313,"error":"clock: the clock cannot go backwards (3313.0 → 3312.999999999998)","elapsedMs":10839}
+{"screenshot":{"clock":3313,"screenshot":"/private/tmp/exact285-evidence/before-macos.png","incarnation":1,"h":900,"w":420,"epoch":672}}

@@ -1,0 +1,97 @@
+Test Suite 'Selected tests' started at 2026-10-08 16:06:31.180.
+Test Suite 'ExactKitTests.xctest' started at 2026-10-08 16:06:31.181.
+Test Suite 'TextMetricsTests' started at 2026-10-08 16:06:31.181.
+Test Case '-[ExactKitTests.TextMetricsTests testBatchPaintsVisibleTextButDefersOffscreenPreparation]' started.
+Test Case '-[ExactKitTests.TextMetricsTests testBatchPaintsVisibleTextButDefersOffscreenPreparation]' passed (0.154 seconds).
+Test Case '-[ExactKitTests.TextMetricsTests testDenseInlineCountsDoNotCreateNativeViews]' started.
+Test Case '-[ExactKitTests.TextMetricsTests testDenseInlineCountsDoNotCreateNativeViews]' passed (0.432 seconds).
+Test Case '-[ExactKitTests.TextMetricsTests testDenseMeasureSourcePreservesUTF16SpansAndAttributes]' started.
+Test Case '-[ExactKitTests.TextMetricsTests testDenseMeasureSourcePreservesUTF16SpansAndAttributes]' passed (0.019 seconds).
+Test Case '-[ExactKitTests.TextMetricsTests testFailedRasterDrawsAndStopsRetryingUntilInvalidated]' started.
+Test Case '-[ExactKitTests.TextMetricsTests testFailedRasterDrawsAndStopsRetryingUntilInvalidated]' passed (0.009 seconds).
+Test Case '-[ExactKitTests.TextMetricsTests testFlowChangesRetireOrdinaryRasterAndRejectItsLateWorker]' started.
+Test Case '-[ExactKitTests.TextMetricsTests testFlowChangesRetireOrdinaryRasterAndRejectItsLateWorker]' passed (0.009 seconds).
+Test Case '-[ExactKitTests.TextMetricsTests testFractionalInlineMetricsReuseKernelMeasuredBreaks]' started.
+Test Case '-[ExactKitTests.TextMetricsTests testFractionalInlineMetricsReuseKernelMeasuredBreaks]' passed (0.003 seconds).
+Test Case '-[ExactKitTests.TextMetricsTests testInlineOwnerTransferDoesNotEraseTheNewOwner]' started.
+Test Case '-[ExactKitTests.TextMetricsTests testInlineOwnerTransferDoesNotEraseTheNewOwner]' passed (0.001 seconds).
+Test Case '-[ExactKitTests.TextMetricsTests testInlineRangesEventsAppearanceAndMetricReuse]' started.
+Test Case '-[ExactKitTests.TextMetricsTests testInlineRangesEventsAppearanceAndMetricReuse]' passed (0.004 seconds).
+Test Case '-[ExactKitTests.TextMetricsTests testLateRasterKeepsUrgentPixelsButChangedKeyStillPublishes]' started.
+Test Case '-[ExactKitTests.TextMetricsTests testLateRasterKeepsUrgentPixelsButChangedKeyStillPublishes]' passed (0.001 seconds).
+Test Case '-[ExactKitTests.TextMetricsTests testLineReuseDoesNotRetainAnAcceptedParagraph]' started.
+Test Case '-[ExactKitTests.TextMetricsTests testLineReuseDoesNotRetainAnAcceptedParagraph]' passed (0.000 seconds).
+Test Case '-[ExactKitTests.TextMetricsTests testManyInlineLineBoxesMatchTheirIndependentLines]' started.
+Test Case '-[ExactKitTests.TextMetricsTests testManyInlineLineBoxesMatchTheirIndependentLines]' passed (0.022 seconds).
+Test Case '-[ExactKitTests.TextMetricsTests testOffscreenResizeRetiresTheRasterItsLayerWouldStretch]' started.
+Test Case '-[ExactKitTests.TextMetricsTests testOffscreenResizeRetiresTheRasterItsLayerWouldStretch]' passed (0.009 seconds).
+Test Case '-[ExactKitTests.TextMetricsTests testParagraphTallerThanAScreenDrawsOnlyItsVisibleStrips]' started.
+Test Case '-[ExactKitTests.TextMetricsTests testParagraphTallerThanAScreenDrawsOnlyItsVisibleStrips]' passed (0.007 seconds).
+Test Case '-[ExactKitTests.TextMetricsTests testRasterPreservesDescendersOutsideTightLineBox]' started.
+Test Case '-[ExactKitTests.TextMetricsTests testRasterPreservesDescendersOutsideTightLineBox]' passed (0.011 seconds).
+Test Case '-[ExactKitTests.TextMetricsTests testRasterShapesReuseOnlyExactPaintAndRespectColdBudget]' started.
+Test Case '-[ExactKitTests.TextMetricsTests testRasterShapesReuseOnlyExactPaintAndRespectColdBudget]' passed (0.028 seconds).
+Test Case '-[ExactKitTests.TextMetricsTests testReaderBandsLeadTravelAndRefillBeforeExposureWithinPixelBudget]' started.
+Test Case '-[ExactKitTests.TextMetricsTests testReaderBandsLeadTravelAndRefillBeforeExposureWithinPixelBudget]' passed (0.000 seconds).
+Test Case '-[ExactKitTests.TextMetricsTests testReaderRetainsAcceptedPixelsAndPublishesWhileScrollDemandMoves]' started.
+exact: not booted
+Test Case '-[ExactKitTests.TextMetricsTests testReaderRetainsAcceptedPixelsAndPublishesWhileScrollDemandMoves]' passed (0.126 seconds).
+Test Case '-[ExactKitTests.TextMetricsTests testReaderTravelPreservesSpeedAcrossDrawsAndReversesImmediately]' started.
+Test Case '-[ExactKitTests.TextMetricsTests testReaderTravelPreservesSpeedAcrossDrawsAndReversesImmediately]' passed (0.000 seconds).
+Test Case '-[ExactKitTests.TextMetricsTests testRestDropsDeadLookupMetadataAndKeepsWhatAnswers]' started.
+Test Case '-[ExactKitTests.TextMetricsTests testRestDropsDeadLookupMetadataAndKeepsWhatAnswers]' passed (0.533 seconds).
+Test Case '-[ExactKitTests.TextMetricsTests testRtlDirectionIsTheParagraphBaseDirection]' started.
+Test Case '-[ExactKitTests.TextMetricsTests testRtlDirectionIsTheParagraphBaseDirection]' passed (0.001 seconds).
+Test Case '-[ExactKitTests.TextMetricsTests testShapedTextBeyondTwoScreensLeavesAnswersThatNeedNoTypesetting]' started.
+Test Case '-[ExactKitTests.TextMetricsTests testShapedTextBeyondTwoScreensLeavesAnswersThatNeedNoTypesetting]' passed (0.092 seconds).
+Test Case '-[ExactKitTests.TextMetricsTests testSharedLineBreakerReleasesParagraphInputAfterEachCall]' started.
+Test Case '-[ExactKitTests.TextMetricsTests testSharedLineBreakerReleasesParagraphInputAfterEachCall]' passed (0.009 seconds).
+Test Case '-[ExactKitTests.TextMetricsTests testTextTooSmallToRepayASurfaceDrawsInItsLayer]' started.
+Test Case '-[ExactKitTests.TextMetricsTests testTextTooSmallToRepayASurfaceDrawsInItsLayer]' passed (0.016 seconds).
+Test Case '-[ExactKitTests.TextMetricsTests testTypedBatchKeepsRunStylesAndInvalidatesOnlyWhenTextChanges]' started.
+Test Case '-[ExactKitTests.TextMetricsTests testTypedBatchKeepsRunStylesAndInvalidatesOnlyWhenTextChanges]' passed (0.002 seconds).
+Test Case '-[ExactKitTests.TextMetricsTests testUnbreakableLineRasterIsBoundedAndContainsVisibleInk]' started.
+Test Case '-[ExactKitTests.TextMetricsTests testUnbreakableLineRasterIsBoundedAndContainsVisibleInk]' passed (0.027 seconds).
+Test Case '-[ExactKitTests.TextMetricsTests testUrgentLinesMatchFreshWorkerPixels]' started.
+exact: not booted
+exact: not booted
+Test Case '-[ExactKitTests.TextMetricsTests testUrgentLinesMatchFreshWorkerPixels]' passed (0.477 seconds).
+Test Case '-[ExactKitTests.TextMetricsTests testVisibleResizePublishesWorkersTogetherOrDrawsCurrentStripsAndRejectsOldWidth]' started.
+exact: not booted
+Test Case '-[ExactKitTests.TextMetricsTests testVisibleResizePublishesWorkersTogetherOrDrawsCurrentStripsAndRejectsOldWidth]' passed (1.037 seconds).
+Test Case '-[ExactKitTests.TextMetricsTests testWidthChangesReuseUnchangedLinesWithoutReusingPaintOrEllipses]' started.
+Test Case '-[ExactKitTests.TextMetricsTests testWidthChangesReuseUnchangedLinesWithoutReusingPaintOrEllipses]' passed (0.001 seconds).
+Test Case '-[ExactKitTests.TextMetricsTests testWidthRetirementDoesNotWalkSavedScalarMeasurements]' started.
+Test Case '-[ExactKitTests.TextMetricsTests testWidthRetirementDoesNotWalkSavedScalarMeasurements]' passed (0.005 seconds).
+Test Case '-[ExactKitTests.TextMetricsTests testWorkerPublicationDefersOnlyOffscreenCurrentPixels]' started.
+Test Case '-[ExactKitTests.TextMetricsTests testWorkerPublicationDefersOnlyOffscreenCurrentPixels]' passed (0.011 seconds).
+Test Suite 'TextMetricsTests' passed at 2026-10-08 16:06:34.231.
+	 Executed 30 tests, with 0 failures (0 unexpected) in 3.047 (3.050) seconds
+Test Suite 'TextPaintTests' started at 2026-10-08 16:06:34.231.
+Test Case '-[ExactKitTests.TextPaintTests testABandAdmitsARunShadowCastSidewaysPastItsClip]' started.
+Test Case '-[ExactKitTests.TextPaintTests testABandAdmitsARunShadowCastSidewaysPastItsClip]' passed (0.002 seconds).
+Test Case '-[ExactKitTests.TextPaintTests testAClampedParagraphRastersFromItsGeometryAsLayoutPaintsIt]' started.
+Test Case '-[ExactKitTests.TextPaintTests testAClampedParagraphRastersFromItsGeometryAsLayoutPaintsIt]' passed (0.005 seconds).
+Test Case '-[ExactKitTests.TextPaintTests testAnInlineBackgroundCoversEachLineFragmentOfItsRun]' started.
+Test Case '-[ExactKitTests.TextPaintTests testAnInlineBackgroundCoversEachLineFragmentOfItsRun]' passed (0.002 seconds).
+Test Case '-[ExactKitTests.TextPaintTests testAnInlineRowCarriesItsLightAndDarkBackground]' started.
+Test Case '-[ExactKitTests.TextPaintTests testAnInlineRowCarriesItsLightAndDarkBackground]' passed (0.000 seconds).
+Test Case '-[ExactKitTests.TextPaintTests testARunShadowFarPastTheBoxStaysInTheRasterUpToItsCap]' started.
+Test Case '-[ExactKitTests.TextPaintTests testARunShadowFarPastTheBoxStaysInTheRasterUpToItsCap]' passed (0.006 seconds).
+Test Case '-[ExactKitTests.TextPaintTests testAWideColouredParagraphRastersInDisplayP3]' started.
+Test Case '-[ExactKitTests.TextPaintTests testAWideColouredParagraphRastersInDisplayP3]' passed (0.001 seconds).
+Test Case '-[ExactKitTests.TextPaintTests testBackgroundIsPaintNotMetrics]' started.
+Test Case '-[ExactKitTests.TextPaintTests testBackgroundIsPaintNotMetrics]' passed (0.000 seconds).
+Test Case '-[ExactKitTests.TextPaintTests testEachRunCarriesItsOwnShadowAndStroke]' started.
+Test Case '-[ExactKitTests.TextPaintTests testEachRunCarriesItsOwnShadowAndStroke]' passed (0.001 seconds).
+Test Case '-[ExactKitTests.TextPaintTests testFallbackGlyphOffsetsPaintInsideTheMeasuredLineBox]' started.
+Test Case '-[ExactKitTests.TextPaintTests testFallbackGlyphOffsetsPaintInsideTheMeasuredLineBox]' passed (0.006 seconds).
+Test Suite 'TextPaintTests' passed at 2026-10-08 16:06:34.255.
+	 Executed 9 tests, with 0 failures (0 unexpected) in 0.023 (0.024) seconds
+Test Suite 'ExactKitTests.xctest' passed at 2026-10-08 16:06:34.255.
+	 Executed 39 tests, with 0 failures (0 unexpected) in 3.070 (3.074) seconds
+Test Suite 'Selected tests' passed at 2026-10-08 16:06:34.255.
+	 Executed 39 tests, with 0 failures (0 unexpected) in 3.070 (3.075) seconds
+scalar-width-history=10 retirement-visits=0
+scalar-width-history=100 retirement-visits=0
+scalar-width-history=1000 retirement-visits=0

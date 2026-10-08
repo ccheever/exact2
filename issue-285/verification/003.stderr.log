@@ -1,0 +1,220 @@
+   Compiling unicode-ident v1.0.24
+    Checking zeroize v1.9.0
+    Checking exact-num v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/num)
+    Checking subtle v2.6.1
+    Checking typenum v1.20.1
+    Checking itoa v1.0.18
+    Checking cfg-if v1.0.4
+    Checking const-oid v0.9.6
+    Checking libc v0.2.189
+   Compiling serde_core v1.0.229
+   Compiling zmij v1.0.23
+   Compiling cpufeatures v0.2.17
+    Checking stable_deref_trait v1.2.1
+    Checking libm v0.2.16
+    Checking memchr v2.8.3
+    Checking writeable v0.6.4
+   Compiling proc-macro2 v1.0.107
+    Checking smallvec v1.15.2
+    Checking litemap v0.8.3
+    Checking arcstr v1.2.0
+    Checking triomphe v0.1.16
+    Checking utf8_iter v1.0.4
+    Checking unicode-linebreak v0.1.5
+    Checking arrayvec v0.7.8
+    Checking icu_normalizer_data v2.3.0
+    Checking icu_properties_data v2.3.0
+    Checking exact-color v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/color)
+    Checking percent-encoding v2.3.2
+    Checking dtoa v1.0.11
+    Checking exact-svg-filter v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/svg-filter)
+    Checking slotmap v1.1.1
+    Checking exact-textflow v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/textflow)
+    Checking contract-syntax v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/contract/syntax)
+    Checking icu_locale_fallback_data v2.3.0
+    Checking icu_locale_data v2.3.0
+    Checking generic-array v0.14.7
+    Checking rand_core v0.6.4
+    Checking bitflags v2.13.1
+   Compiling quote v1.0.47
+    Checking log v0.4.34
+    Checking form_urlencoded v1.2.2
+    Checking dtoa-short v0.3.5
+    Checking base64 v0.22.1
+    Checking exact-motion v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/motion)
+    Checking unicode-width v0.2.2
+    Checking once_cell v1.21.4
+    Checking foldhash v0.2.0
+    Checking ff v0.13.1
+    Checking der v0.7.10
+    Checking base16ct v0.2.0
+    Checking getrandom v0.3.4
+    Checking cssparser v0.37.0
+   Compiling syn v3.0.4
+   Compiling syn v2.0.119
+    Checking hashbrown v0.17.1
+    Checking group v0.13.0
+    Checking equivalent v1.0.2
+    Checking num-traits v0.2.19
+    Checking bit-vec v0.9.1
+    Checking rustc-hash v1.1.0
+    Checking codespan-reporting v0.13.1
+    Checking rustls-pki-types v1.15.1
+    Checking simd-adler32 v0.3.10
+    Checking getrandom v0.2.17
+    Checking core-foundation-sys v0.8.7
+    Checking block-buffer v0.10.4
+    Checking crypto-common v0.1.7
+    Checking crypto-bigint v0.5.5
+    Checking bit-set v0.10.0
+    Checking taffy v0.14.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/vendor/taffy)
+    Checking untrusted v0.9.0
+    Checking digest v0.10.7
+    Checking exact-markdown v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/markdown)
+    Checking adler2 v2.0.1
+    Checking sec1 v0.7.3
+    Checking bytes v1.12.1
+    Checking httparse v1.10.1
+    Checking ring v0.17.14
+    Checking indexmap v2.14.1
+    Checking miniz_oxide v0.9.1
+    Checking sha2 v0.10.9
+    Checking signature v2.2.0
+    Checking hmac v0.12.1
+    Checking ed25519 v2.2.3
+    Checking curve25519-dalek v4.1.3
+    Checking rfc6979 v0.4.0
+    Checking crc32fast v1.5.1
+    Checking security-framework-sys v2.17.0
+    Checking core-foundation v0.9.4
+   Compiling vte_generate_state_changes v0.1.2
+    Checking base64 v0.23.1
+    Checking utf8parse v0.2.2
+    Checking miniz_oxide v0.8.9
+    Checking security-framework v2.11.1
+    Checking http v1.5.0
+    Checking flate2 v1.1.10
+    Checking ed25519-dalek v2.2.0
+    Checking rustls-pemfile v2.2.0
+    Checking serde_json v1.0.151
+    Checking exact-canvas v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/canvas)
+    Checking webpki-roots v1.0.9
+    Checking fdeflate v0.3.7
+    Checking errno v0.3.14
+    Checking unicode-width v0.1.14
+    Checking vte v0.11.1
+    Checking utf8-zero v0.8.1
+    Checking rustix v1.1.4
+    Checking vte v0.15.0
+    Checking socket2 v0.6.5
+    Checking unicode-segmentation v1.13.3
+    Checking libsqlite3-sys v0.38.2
+    Checking hashlink v0.12.1
+    Checking fallible-iterator v0.3.0
+    Checking png v0.18.1
+    Checking fallible-streaming-iterator v0.1.9
+    Checking elliptic-curve v0.13.8
+    Checking wasmi_core v2.0.0
+    Checking leb128fmt v0.1.0
+    Checking exact-raster v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/host/raster)
+    Checking rusqlite v0.40.2
+    Checking wasm-encoder v0.259.0
+    Checking ureq-proto v0.6.4
+    Checking rustls-native-certs v0.7.3
+    Checking exact-filesystem v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/filesystem)
+    Checking ecdsa v0.16.9
+    Checking primeorder v0.13.6
+    Checking exact-update v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/update)
+    Checking rustls-webpki v0.103.15
+    Checking wasmparser v0.228.0
+    Checking bumpalo v3.20.3
+    Checking wasmi_collections v2.0.0
+    Checking wasmi_ir v2.0.0
+    Checking spin v0.9.9
+   Compiling exact-logic v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/logic)
+    Checking libloading v0.8.9
+    Checking exact-markdown-editor v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/markdown/editor)
+    Checking p256 v0.13.2
+    Checking vt100 v0.15.2
+    Checking rustls v0.23.45
+    Checking exact-web-js-motion v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/host/web-js/motion)
+    Checking wast v259.0.0
+    Checking exact-svg-raster v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/host/svg-raster)
+   Compiling serde_derive v1.0.229
+   Compiling zerovec-derive v0.11.6
+   Compiling displaydoc v0.2.7
+   Compiling thiserror-impl v2.0.20
+   Compiling contract-lower v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/contract/lower)
+    Checking thiserror v2.0.20
+   Compiling synstructure v0.13.2
+    Checking naga-types v30.0.1
+   Compiling zerofrom-derive v0.1.7
+   Compiling yoke-derive v0.8.2
+   Compiling zerocopy-derive v0.8.56
+    Checking wasmi v2.0.0
+   Compiling serde v1.0.229
+    Checking zerofrom v0.1.8
+    Checking ureq v3.4.0
+    Checking zerocopy v0.8.56
+    Checking exact-route v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/route)
+   Compiling exact-plan v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/plan)
+   Compiling exact-kernel v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/kernel)
+    Checking yoke v0.8.3
+    Checking wat v1.259.0
+    Checking zerovec v0.11.8
+    Checking zerotrie v0.2.5
+    Checking contract-types v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/contract/types)
+    Checking markdown-parse v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/apps/markdown/parse)
+    Checking exact-js-value v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/js/value)
+    Checking tinystr v0.8.4
+    Checking potential_utf v0.1.6
+    Checking half v2.7.1
+    Checking icu_collections v2.3.0
+    Checking icu_locale_core v2.3.0
+    Checking naga v30.0.1
+    Checking contract-analyze v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/contract/analyze)
+    Checking icu_provider v2.3.1
+    Checking icu_properties v2.3.0
+    Checking icu_normalizer v2.3.0
+    Checking icu_locale_fallback v2.3.0
+    Checking icu_locale v2.3.0
+    Checking idna_adapter v1.2.2
+    Checking idna v1.1.0
+    Checking url v2.5.8
+    Checking exact-grants v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/grants)
+    Checking ibex2 v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/vendor/ibex/crates/ibex2)
+    Checking exact-runner v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/runner)
+    Checking ibex2-sqlite v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/vendor/ibex/crates/ibex2-sqlite)
+    Checking exact-gpu-reflect v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/gpu/reflect)
+    Checking contract v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/contract/cli)
+    Checking exact-data v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/data)
+    Checking caltrain-data v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/apps/caltrain/data)
+    Checking markdown-stress-data v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/apps/markdown-stress/data)
+    Checking exact-web-geometry v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/host/web-geometry)
+    Checking completion-storm-data v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/apps/completion-storm/data)
+    Checking interaction-gallery-data v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/apps/interaction-gallery/data)
+    Checking messages-stress-data v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/apps/messages-stress/data)
+    Checking exact-logic-abi v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/logic/abi)
+    Checking llp-data v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/apps/llp/data)
+    Checking video-player-data v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/apps/video-player/data)
+    Checking motion-gallery-data v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/apps/motion-gallery/data)
+    Checking textflow-data v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/apps/textflow/data)
+    Checking sparkline-data v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/apps/sparkline/data)
+    Checking typetour-data v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/apps/typetour/data)
+    Checking carousel-data v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/apps/carousel/data)
+    Checking svg-gallery-data v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/apps/svg-gallery/data)
+    Checking shared-elements-data v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/apps/shared-elements/data)
+    Checking exact-live-data v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/apps/exact-live/data)
+    Checking spark-data v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/apps/spark/data)
+    Checking exact-data-host v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/data/host)
+    Checking exact-apple v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/host/apple)
+    Checking calendar-data v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/examples/calendar/data)
+    Checking fieldnotes-data v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/apps/fieldnotes/data)
+    Checking update-lab-data v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/apps/update-lab/data)
+    Checking markdown-data v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/apps/markdown/data)
+    Checking exact-bake v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/bake)
+    Checking caltrain v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/apps/caltrain)
+    Checking exact-terminal v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/host/terminal)
+    Checking exact-web v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/host/web)
+    Checking exact-web-capabilities v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/host/web-capabilities)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 31.40s

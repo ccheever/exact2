@@ -1,0 +1,72 @@
+
+scripts/agent-keys.test.mjs:
+(pass) a held key repeats on the virtual clock at macOS's default rate [1.18ms]
+(pass) a modifier alone does not repeat, as AppKit's flags change does not [0.44ms]
+
+scripts/agent-drag.test.mjs:
+(pass) a refused drag names the refusal and keeps the reply [10.07ms]
+(pass) a drag the host said nothing about has no note [8.28ms]
+(pass) a touch drag keeps its reply beside the note [6.09ms]
+
+scripts/caps.test.mjs:
+(pass) missing rules file fails [0.05ms]
+(pass) unparseable budget fails closed
+(pass) over the word cap fails
+(pass) too many blocking checks fails
+(pass) unfilled product-latency row fails
+(pass) oversize source file fails
+(pass) generated file is exempt
+(pass) a marker matching every file is caught
+(pass) an over-full working set fails
+(pass) an over-full foundation fails
+(pass) a large corpus with a small working set passes
+(pass) a baseline tolerates pre-existing oversize files
+(pass) a baseline still catches the file that exceeds it
+(pass) llp/reviews are not counted as design docs
+(pass) vendored source is not held to the line cap
+(pass) a clean repository passes
+(pass) boot sees a single-quoted src
+(pass) boot sees an unquoted src
+(pass) boot follows re-exports
+(pass) boot ignores comments
+(pass) boot rejects malformed JavaScript
+(pass) boot retains unused static imports
+(pass) boot rejects computed dynamic imports
+(pass) document entry rejects an imported runtime
+(pass) document entry rejects a dynamic app import
+(pass) boot rejects top-level return
+(pass) boot enforces module strict mode
+(pass) boot fails closed on malformed tags
+(pass) web serving rejects stale, dot, and symlink paths
+(pass) retained dev URLs survive later generations and quota refusal
+(pass) damaged dev cache payloads and envelopes fail closed after restart
+(pass) retained dev routes reject links, traversal, undeclared and partial files
+(pass) static candidates reject links and preserve last-good bytes
+(pass) static watcher follows absent root creation, deletion, and recreation
+(pass) dev payloads fetch concurrently within four slots and refuse bad integrity
+(pass) every dev revision gates program identity and cancels pending acceptance
+(pass) complete dev generations heal reconnects, restart epochs, removals and reversed fetches
+(pass) dev startup rejects an incomplete dist
+(pass) dev startup identifies only a complete coherent named app build
+(pass) deploy publishes only the shared public web inventory
+(pass) web root switches a complete immutable graph; every write failure, concurrent readers, removals and HTTP caches
+(pass) dev reports replaced compiler input types as pending without terminating
+(pass) the staleness walk skips what an agent leaves in an app, never what a build reads
+(pass) a game receipt ignores pins and driver scripts, and still sees the contract
+(pass) authored-test stores: a dead run's are swept, a live run's and other names stay
+(pass) authored-test stores live where the hosts keep them
+(pass) a web drive's named store keeps its profile and port
+(pass) a drive's env places its web store
+(pass) web agent refuses an unauthenticated matching envelope
+(pass) a dead agent rejects pending and future requests without writing again
+(pass) agent replies split over chunks or sharing one are each read whole
+(pass) explicit development URLs override only the launch locator and reject invalid arguments
+(pass) device launch carries only a reachable dev-plan URL
+(pass) Apple and web packaging enforce the baked plan and complete static roster
+(pass) Apple packages reject linked static files and roots
+(pass) clock +N real never seeks behind the last reply and ends at from + N [5.45ms]
+
+ 61 pass
+ 0 fail
+ 116 expect() calls
+Ran 61 tests across 3 files. [15.46s]

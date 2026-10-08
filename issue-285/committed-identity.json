@@ -1,0 +1,6 @@
+{
+  "commit": "30d3143aaa1e397a121f24203ea5b7bbdf7ef6b1",
+  "method": "git archive of exact committed source_paths; verify runner --compare-report",
+  "archive_root": "/var/folders/br/htsmr3l906b37_3s3k_63n500000gn/T/exact285-committed-vjchphts",
+  "comparison_exit_code": 0
+}

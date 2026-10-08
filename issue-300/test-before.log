@@ -1,0 +1,399 @@
+Building for debugging...
+[Computing dependencies]
+[Pre-planning 1 / 329]
+[Planning deferred tasks]
+[Starting]
+[12 / 157] ExactKitTests-product
+[74 / 157]
+[77 / 159] ExactSoundRender
+[85 / 179]
+[87 / 179]
+[90 / 179]
+[92 / 179] ExactNowPlaying
+[102 / 255]
+[103 / 255]
+[109 / 255]
+[113 / 255]
+[115 / 255]
+[119 / 255]
+[121 / 281]
+[124 / 281] ExactSoundRender
+[124 / 281]
+[129 / 281]
+[132 / 281]
+[137 / 281]
+[143 / 281]
+[145 / 281]
+[148 / 281]
+[149 / 281]
+[163 / 281]
+[165 / 281]
+[166 / 281]
+[169 / 281]
+[172 / 281]
+[175 / 281]
+[177 / 281]
+[178 / 281]
+[179 / 281]
+[182 / 281] ExactNowPlaying
+[206 / 281] ExactKit
+[207 / 281] ExactKit
+[216 / 284]
+/Users/daehyeonmun/orca/workspaces/exact2/fix-300-mounted-clamp/host/apple/Sources/ExactKit/ElementHatches.swift:149:102: warning: left side of nil coalescing operator '??' has non-optional type '[NSGestureRecognizer]', so the right side is never used
+147 |         let quiet = entry.inList && (calls[word]?[event.name] ?? 0) > 1
+148 |         // A development build notices a recognizer the call added and did not declare (§3.4).
+149 |         let had = HatchDiagnostics.measuring && event != .ended ? Set((entry.node.gestureRecognizers ?? []).map(ObjectIdentifier.init)) : nil
+    |                                                                                                      `- warning: left side of nil coalescing operator '??' has non-optional type '[NSGestureRecognizer]', so the right side is never used
+150 |         let reusable = presenter.session?.natives.elementHatch(entry.node, event: event.rawValue, platform: Self.platform(of: entry.node, presenter), quiet: quiet) ?? false
+151 |         if let had { regions.undeclared(under: entry.node, by: "element \(word)") { had.contains(ObjectIdentifier($0)) } }
+
+/Users/daehyeonmun/orca/workspaces/exact2/fix-300-mounted-clamp/host/apple/Sources/ExactKit/ElementHatches.swift:389:9: warning: will never be executed
+387 |         default: return false
+388 |         }
+389 |         return true
+    |         `- warning: will never be executed
+390 |         #endif
+391 |     }
+[219 / 285]
+[220 / 286]
+[223 / 295] ExactUpdates
+[224 / 310] ExactSurfaces
+[225 / 312] ExactDrag
+[241 / 323] ExactDrag
+[248 / 323] ExactMarkdown
+[255 / 323] ExactSurfaces
+[255 / 323] ExactUpdates
+[264 / 323] ExactSurfaces
+/Users/daehyeonmun/orca/workspaces/exact2/fix-300-mounted-clamp/host/apple/Sources/ExactSurfaces/CanvasInputMac.swift:72:24: warning: result of call to 'input' is unused [#NoUsage]
+ 70 |         buttons = 0; modifiers.removeAll(); keys.removeAll(); last = nil
+ 71 |         if let c=view.canvases as? CanvasesHost, let e=c.entries[view.id] {c.cancelControls(e)}
+ 72 |         view.canvases?.input(view, ["t": "blur"])
+    |                        `- warning: result of call to 'input' is unused [#NoUsage]
+ 73 |     }
+ 74 |     func key(_ event: NSEvent, down: Bool, source: NodeView) -> Bool {
+
+/Users/daehyeonmun/orca/workspaces/exact2/fix-300-mounted-clamp/host/apple/Sources/ExactSurfaces/CanvasInputMac.swift:90:24: warning: result of call to 'input(_:_:timestamp:)' is unused [#NoUsage]
+ 88 |         // moves; the surface still hears the name (`End`), as the web does.
+ 89 |         let key = KeyCodes.named(code) ? KeyCodes.key(code) : (event.characters.flatMap { $0.isEmpty ? nil : $0 } ?? KeyCodes.key(code))
+ 90 |         view.canvases?.input(view, ["t": "key", "code": code, "key": key, "down": down, "repeat": event.isARepeat], timestamp: event.timestamp)
+    |                        `- warning: result of call to 'input(_:_:timestamp:)' is unused [#NoUsage]
+ 91 |         return !event.modifierFlags.contains(.command)
+ 92 |     }
+
+/Users/daehyeonmun/orca/workspaces/exact2/fix-300-mounted-clamp/host/apple/Sources/ExactSurfaces/CanvasInputMac.swift:100:24: warning: result of call to 'input(_:_:timestamp:)' is unused [#NoUsage]
+ 98 |         let down = raw & pair != 0 ? raw & side != 0 : event.modifierFlags.contains(flag) && !modifiers.contains(code)
+ 99 |         if down { modifiers.insert(code) } else { modifiers.remove(code) }
+100 |         view.canvases?.input(view, ["t": "key", "code": code, "key": KeyCodes.key(code), "down": down, "repeat": false], timestamp: event.timestamp)
+    |                        `- warning: result of call to 'input(_:_:timestamp:)' is unused [#NoUsage]
+101 |         return !event.modifierFlags.contains(.command)
+102 |     }
+
+/Users/daehyeonmun/orca/workspaces/exact2/fix-300-mounted-clamp/host/apple/Sources/ExactSurfaces/CanvasInputMac.swift:146:24: warning: result of call to 'input(_:_:timestamp:)' is unused [#NoUsage]
+144 |         let (dx, dy) = !moved ? (0, 0) : locked ? (event.deltaX, event.deltaY) : last.map { (point.x - $0.x, point.y - $0.y) } ?? (0, 0)
+145 |         last = point
+146 |         view.canvases?.input(view, ["t": "pointer", "phase": phase, "id": 1, "x": point.x, "y": point.y, "dx": dx, "dy": dy, "kind": "mouse", "buttons": buttons], timestamp: event.timestamp)
+    |                        `- warning: result of call to 'input(_:_:timestamp:)' is unused [#NoUsage]
+147 |         return true
+148 |     }
+
+/Users/daehyeonmun/orca/workspaces/exact2/fix-300-mounted-clamp/host/apple/Sources/ExactSurfaces/CanvasInputMac.swift:152:24: warning: result of call to 'input(_:_:timestamp:)' is unused [#NoUsage]
+150 |         guard let view, fallsThrough(event, view), !view.disabled, !view.inert else { return false }
+151 |         let point = view.local(windowPoint(event, view))
+152 |         view.canvases?.input(view, ["t": "wheel", "dx": -event.scrollingDeltaX, "dy": -event.scrollingDeltaY, "x": point.x, "y": point.y], timestamp: event.timestamp)
+    |                        `- warning: result of call to 'input(_:_:timestamp:)' is unused [#NoUsage]
+153 |         return true
+154 |     }
+
+[#NoUsage]: <https://docs.swift.org/compiler/documentation/diagnostics/no-usage>
+/Users/daehyeonmun/orca/workspaces/exact2/fix-300-mounted-clamp/host/apple/Sources/ExactKit/HatchRegions.swift:234:55: warning: left side of nil coalescing operator '??' has non-optional type '[NSGestureRecognizer]', so the right side is never used
+232 |         while let (view, depth) = stack.popLast(), walked < 2000 {
+233 |             walked += 1
+234 |             for recognizer in view.gestureRecognizers ?? [] { out.insert(ObjectIdentifier(recognizer)) }
+    |                                                       `- warning: left side of nil coalescing operator '??' has non-optional type '[NSGestureRecognizer]', so the right side is never used
+235 |             if depth < 8 { for sub in view.subviews where !(sub is NodeView) { stack.append((sub, depth + 1)) } }
+236 |         }
+
+/Users/daehyeonmun/orca/workspaces/exact2/fix-300-mounted-clamp/host/apple/Sources/ExactKit/HatchRegions.swift:253:55: warning: left side of nil coalescing operator '??' has non-optional type '[NSGestureRecognizer]', so the right side is never used
+251 |             // A view a region or a part binds is declared, with what is inside it (the platform's own recognizers on a control, say).
+252 |             if view !== root, regions.contains(where: { $0.kind == "view" && $0.object === view }) || parts.values.contains(where: { $0.contains { $0.view === view } }) { continue }
+253 |             for recognizer in view.gestureRecognizers ?? [] where !known(recognizer) && !regions.contains(where: { $0.object === recognizer }) {
+    |                                                       `- warning: left side of nil coalescing operator '??' has non-optional type '[NSGestureRecognizer]', so the right side is never used
+254 |                 let name = String(describing: type(of: recognizer))
+255 |                 if reported.insert("\(scope)\n\(name)").inserted { presenter?.session?.log("hatch \(scope) added a \(name) it did not declare") }
+[267 / 323] ExactSurfaces
+[268 / 323] ExactSurfaces
+[269 / 323] ExactSurfaces
+[270 / 323] ExactSurfaces
+[271 / 323] ExactSurfaces
+[272 / 323] ExactSurfaces
+[272 / 323] ExactMarkdown
+/Users/daehyeonmun/orca/workspaces/exact2/fix-300-mounted-clamp/host/apple/Sources/ExactKit/TextInteraction.swift:113:15: warning: 'accessibilityAttributeNames()' was deprecated in macOS 10.10: Use the NSAccessibility protocol methods instead (see NSAccessibilityProtocols.h) [#DeprecatedDeclaration]
+111 |     }
+112 |     override func accessibilityAttributeNames() -> [NSAccessibility.Attribute] {
+113 |         super.accessibilityAttributeNames() + [NSAccessibility.Attribute(rawValue: "AXLanguage")]
+    |               `- warning: 'accessibilityAttributeNames()' was deprecated in macOS 10.10: Use the NSAccessibility protocol methods instead (see NSAccessibilityProtocols.h) [#DeprecatedDeclaration]
+114 |     }
+115 |     override func accessibilityAttributeValue(_ attribute: NSAccessibility.Attribute) -> Any? {
+
+/Users/daehyeonmun/orca/workspaces/exact2/fix-300-mounted-clamp/host/apple/Sources/ExactKit/TextInteraction.swift:117:22: warning: 'accessibilityAttributeValue' was deprecated in macOS 10.10: Use the NSAccessibility protocol methods instead (see NSAccessibilityProtocols.h) [#DeprecatedDeclaration]
+115 |     override func accessibilityAttributeValue(_ attribute: NSAccessibility.Attribute) -> Any? {
+116 |         if attribute.rawValue == "AXLanguage" { return owner?.presenter?.documentLanguage }
+117 |         return super.accessibilityAttributeValue(attribute)
+    |                      `- warning: 'accessibilityAttributeValue' was deprecated in macOS 10.10: Use the NSAccessibility protocol methods instead (see NSAccessibilityProtocols.h) [#DeprecatedDeclaration]
+118 |     }
+119 |     override func accessibilityFrame() -> NSRect {
+
+[#DeprecatedDeclaration]: <https://docs.swift.org/compiler/documentation/diagnostics/deprecated-declaration>
+[274 / 323] ExactMarkdown
+[276 / 323] ExactMarkdown
+[277 / 323] ExactMarkdown
+[278 / 323] ExactGroupedLists
+[281 / 323] ExactDrag
+[283 / 323] ExactKitTests-product
+[287 / 323] ExactDrag
+[289 / 323] ExactDrag
+/Users/daehyeonmun/orca/workspaces/exact2/fix-300-mounted-clamp/host/apple/Sources/ExactSurfaces/Canvas2DImage.swift:192:43: warning: cast from '(any CALayerDelegate)?' to unrelated type 'NodeView' always fails
+190 |             // Replaced content paints over its box: above the box's own
+191 |             // sublayers where AppKit's box is layers (`BoxLayerMac.swift`).
+192 |             if let node = parent.delegate as? NodeView, let top = node.boxSublayersTop { parent.insertSublayer(layer, above: top) }
+    |                                           `- warning: cast from '(any CALayerDelegate)?' to unrelated type 'NodeView' always fails
+193 |             else { parent.insertSublayer(layer, at: 0) }
+194 |             #else
+[293 / 324]
+[293 / 324] ExactSurfaces
+[293 / 324] ExactDrag
+[295 / 326] ExactDrag
+/Users/daehyeonmun/orca/workspaces/exact2/fix-300-mounted-clamp/host/apple/Sources/ExactKit/Accessibility.swift:146:15: warning: 'accessibilityAttributeNames()' was deprecated in macOS 10.10: Use the NSAccessibility protocol methods instead (see NSAccessibilityProtocols.h) [#DeprecatedDeclaration]
+144 |     }
+145 |     override func accessibilityAttributeNames() -> [NSAccessibility.Attribute] {
+146 |         super.accessibilityAttributeNames() + NodeView.ariaAttributes.filter { (controlView?.superview as? NodeView)?.ariaAttribute($0) != nil }.map { .init(rawValue: $0) }
+    |               `- warning: 'accessibilityAttributeNames()' was deprecated in macOS 10.10: Use the NSAccessibility protocol methods instead (see NSAccessibilityProtocols.h) [#DeprecatedDeclaration]
+147 |     }
+148 |     override func accessibilityAttributeValue(_ attribute: NSAccessibility.Attribute) -> Any? {
+
+/Users/daehyeonmun/orca/workspaces/exact2/fix-300-mounted-clamp/host/apple/Sources/ExactKit/Accessibility.swift:149:91: warning: 'accessibilityAttributeValue' was deprecated in macOS 10.10: Use the NSAccessibility protocol methods instead (see NSAccessibilityProtocols.h) [#DeprecatedDeclaration]
+147 |     }
+148 |     override func accessibilityAttributeValue(_ attribute: NSAccessibility.Attribute) -> Any? {
+149 |         (controlView?.superview as? NodeView)?.ariaAttribute(attribute.rawValue) ?? super.accessibilityAttributeValue(attribute)
+    |                                                                                           `- warning: 'accessibilityAttributeValue' was deprecated in macOS 10.10: Use the NSAccessibility protocol methods instead (see NSAccessibilityProtocols.h) [#DeprecatedDeclaration]
+150 |     }
+151 | }
+
+/Users/daehyeonmun/orca/workspaces/exact2/fix-300-mounted-clamp/host/apple/Sources/ExactKit/Accessibility.swift:161:15: warning: 'accessibilityAttributeNames()' was deprecated in macOS 10.10: Use the NSAccessibility protocol methods instead (see NSAccessibilityProtocols.h) [#DeprecatedDeclaration]
+159 |     }
+160 |     override func accessibilityAttributeNames() -> [NSAccessibility.Attribute] {
+161 |         super.accessibilityAttributeNames() + NodeView.ariaAttributes.filter { (controlView?.superview as? NodeView)?.ariaAttribute($0) != nil }.map { .init(rawValue: $0) }
+    |               `- warning: 'accessibilityAttributeNames()' was deprecated in macOS 10.10: Use the NSAccessibility protocol methods instead (see NSAccessibilityProtocols.h) [#DeprecatedDeclaration]
+162 |     }
+163 |     override func accessibilityAttributeValue(_ attribute: NSAccessibility.Attribute) -> Any? {
+
+/Users/daehyeonmun/orca/workspaces/exact2/fix-300-mounted-clamp/host/apple/Sources/ExactKit/Accessibility.swift:164:91: warning: 'accessibilityAttributeValue' was deprecated in macOS 10.10: Use the NSAccessibility protocol methods instead (see NSAccessibilityProtocols.h) [#DeprecatedDeclaration]
+162 |     }
+163 |     override func accessibilityAttributeValue(_ attribute: NSAccessibility.Attribute) -> Any? {
+164 |         (controlView?.superview as? NodeView)?.ariaAttribute(attribute.rawValue) ?? super.accessibilityAttributeValue(attribute)
+    |                                                                                           `- warning: 'accessibilityAttributeValue' was deprecated in macOS 10.10: Use the NSAccessibility protocol methods instead (see NSAccessibilityProtocols.h) [#DeprecatedDeclaration]
+165 |     }
+166 | }
+
+/Users/daehyeonmun/orca/workspaces/exact2/fix-300-mounted-clamp/host/apple/Sources/ExactKit/AgentAccessibility.swift:301:99: warning: 'accessibilityAttributeValue' was deprecated in macOS 10.10: Use the NSAccessibility protocol methods instead (see NSAccessibilityProtocols.h) [#DeprecatedDeclaration]
+299 |         if let v = obj as? NSView {
+300 |             var f = AxFacts(role: v.accessibilityRole()?.rawValue, subrole: v.accessibilitySubrole()?.rawValue, label: v.accessibilityLabel(), title: v.accessibilityTitle(),
+301 |                            help: v.accessibilityHelp(), value: v.accessibilityValue(), enabled: v.accessibilityAttributeValue(.enabled) as? Bool ?? true, focused: v.isAccessibilityFocused(),
+    |                                                                                                   `- warning: 'accessibilityAttributeValue' was deprecated in macOS 10.10: Use the NSAccessibility protocol methods instead (see NSAccessibilityProtocols.h) [#DeprecatedDeclaration]
+302 |                            selected: v.isAccessibilitySelected(), element: v.isAccessibilityElement(), expanded: v.isAccessibilityExpanded(), frame: v.accessibilityFrame(), identifier: v.accessibilityIdentifier(),
+303 |                            children: v.accessibilityChildrenInNavigationOrder() ?? v.accessibilityChildren() ?? [], required: v.isAccessibilityRequired())
+
+/Users/daehyeonmun/orca/workspaces/exact2/fix-300-mounted-clamp/host/apple/Sources/ExactKit/AgentAccessibility.swift:304:24: warning: 'accessibilityAttributeValue' was deprecated in macOS 10.10: Use the NSAccessibility protocol methods instead (see NSAccessibilityProtocols.h) [#DeprecatedDeclaration]
+302 |                            selected: v.isAccessibilitySelected(), element: v.isAccessibilityElement(), expanded: v.isAccessibilityExpanded(), frame: v.accessibilityFrame(), identifier: v.accessibilityIdentifier(),
+303 |                            children: v.accessibilityChildrenInNavigationOrder() ?? v.accessibilityChildren() ?? [], required: v.isAccessibilityRequired())
+304 |             f.aria { v.accessibilityAttributeValue(NSAccessibility.Attribute(rawValue: $0)) }
+    |                        `- warning: 'accessibilityAttributeValue' was deprecated in macOS 10.10: Use the NSAccessibility protocol methods instead (see NSAccessibilityProtocols.h) [#DeprecatedDeclaration]
+305 |             return f
+306 |         }
+
+/Users/daehyeonmun/orca/workspaces/exact2/fix-300-mounted-clamp/host/apple/Sources/ExactKit/AgentAccessibility.swift:309:99: warning: 'accessibilityAttributeValue' was deprecated in macOS 10.10: Use the NSAccessibility protocol methods instead (see NSAccessibilityProtocols.h) [#DeprecatedDeclaration]
+307 |         if let e = obj as? NSAccessibilityElement {
+308 |             return AxFacts(role: e.accessibilityRole()?.rawValue, subrole: e.accessibilitySubrole()?.rawValue, label: e.accessibilityLabel(), title: e.accessibilityTitle(),
+309 |                            help: e.accessibilityHelp(), value: e.accessibilityValue(), enabled: e.accessibilityAttributeValue(.enabled) as? Bool ?? true, focused: e.isAccessibilityFocused(),
+    |                                                                                                   `- warning: 'accessibilityAttributeValue' was deprecated in macOS 10.10: Use the NSAccessibility protocol methods instead (see NSAccessibilityProtocols.h) [#DeprecatedDeclaration]
+310 |                            selected: e.isAccessibilitySelected(), element: e.isAccessibilityElement(), expanded: e.isAccessibilityExpanded(), frame: e.accessibilityFrame(), identifier: e.accessibilityIdentifier(),
+311 |                            children: e.accessibilityChildrenInNavigationOrder() ?? e.accessibilityChildren() ?? [])
+
+/Users/daehyeonmun/orca/workspaces/exact2/fix-300-mounted-clamp/host/apple/Sources/ExactKit/AgentAccessibility.swift:314:44: warning: 'accessibilityAttributeValue' was deprecated in macOS 10.10: Use the NSAccessibility protocol methods instead (see NSAccessibilityProtocols.h) [#DeprecatedDeclaration]
+312 |         }
+313 |         guard let o = obj as? NSObject else { return nil }
+314 |         func a(_ name: String) -> Any? { o.accessibilityAttributeValue(NSAccessibility.Attribute(rawValue: name)) }
+    |                                            `- warning: 'accessibilityAttributeValue' was deprecated in macOS 10.10: Use the NSAccessibility protocol methods instead (see NSAccessibilityProtocols.h) [#DeprecatedDeclaration]
+315 |         // AXPosition is the top-left corner in global display points, y down from the primary screen's top.
+316 |         // A cell fills its control: the control's frame is the cell's.
+
+/Users/daehyeonmun/orca/workspaces/exact2/fix-300-mounted-clamp/host/apple/Sources/ExactKit/AgentAccessibility.swift:330:82: warning: 'accessibilityIsIgnored()' was deprecated in macOS 10.10: Use isAccessibilityElement instead [#DeprecatedDeclaration]
+328 |         var f = AxFacts(role: a("AXRole") as? String, subrole: a("AXSubrole") as? String, label: nonEmpty(control?.accessibilityLabel()) ?? a("AXDescription") as? String, title: a("AXTitle") as? String,
+329 |                         help: nonEmpty(control?.accessibilityHelp()) ?? a("AXHelp") as? String, value: a("AXValue"), enabled: a("AXEnabled") as? Bool ?? true, focused: a("AXFocused") as? Bool ?? false,
+330 |                         selected: a("AXSelected") as? Bool ?? false, element: !o.accessibilityIsIgnored(), expanded: a("AXExpanded") as? Bool ?? false, frame: frame, identifier: a("AXIdentifier") as? String,
+    |                                                                                  `- warning: 'accessibilityIsIgnored()' was deprecated in macOS 10.10: Use isAccessibilityElement instead [#DeprecatedDeclaration]
+331 |                         children: a("AXChildren") as? [Any] ?? [], required: control?.isAccessibilityRequired() == true || a("AXRequired") as? Bool == true)
+332 |         f.aria(a)
+
+/Users/daehyeonmun/orca/workspaces/exact2/fix-300-mounted-clamp/host/apple/Sources/ExactKit/AgentAccessibility.swift:417:47: warning: 'accessibilityAttributeValue' was deprecated in macOS 10.10: Use the NSAccessibility protocol methods instead (see NSAccessibilityProtocols.h) [#DeprecatedDeclaration]
+415 |         let secure = f.subrole == NSAccessibility.Subrole.secureTextField.rawValue || obj is NSSecureTextField || obj is NSSecureTextFieldCell
+416 |         // A text field with neither description nor title is spoken by its placeholder.
+417 |         let placeholder = (obj as? NSObject)?.accessibilityAttributeValue(.placeholderValue) as? String
+    |                                               `- warning: 'accessibilityAttributeValue' was deprecated in macOS 10.10: Use the NSAccessibility protocol methods instead (see NSAccessibilityProtocols.h) [#DeprecatedDeclaration]
+418 |         let name = [f.label, f.title, placeholder].compactMap { $0 }.first { !$0.isEmpty } ?? ""
+419 |         e["name"] = cut(name) ?? ""
+
+[#DeprecatedDeclaration]: <https://docs.swift.org/compiler/documentation/diagnostics/deprecated-declaration>
+[295 / 326] ExactKit
+/Users/daehyeonmun/orca/workspaces/exact2/fix-300-mounted-clamp/host/apple/Sources/ExactDrag/MouseTransformDragMac.swift:138:99: warning: 'defer' statement at end of scope always executes immediately; replace with 'do' statement to silence this warning
+136 |             // The fling after a zoomed pan belongs to the pan: it neither
+137 |             // scrolls the page nor moves the photo (no decay driver).
+138 |             if event.momentumPhase.contains(.ended) || event.momentumPhase.contains(.cancelled) { defer { momentum = false } }
+    |                                                                                                   `- warning: 'defer' statement at end of scope always executes immediately; replace with 'do' statement to silence this warning
+139 |             return momentum
+140 |         }
+[301 / 326] ExactComposition
+[302 / 326] ExactDrag
+[303 / 326] ExactKit
+[303 / 326] ExactSurfaces
+/Users/daehyeonmun/orca/workspaces/exact2/fix-300-mounted-clamp/host/apple/Sources/ExactKit/Picker.swift:159:30: warning: 'tracks(withMediaType:)' was deprecated in macOS 13.0: Use loadTracks(withMediaType:) instead [#DeprecatedDeclaration]
+157 |         let asset = AVURLAsset(url: url)
+158 |         var out = ["", "", ""]
+159 |         if let track = asset.tracks(withMediaType: .video).first {
+    |                              `- warning: 'tracks(withMediaType:)' was deprecated in macOS 13.0: Use loadTracks(withMediaType:) instead [#DeprecatedDeclaration]
+160 |             let s = track.naturalSize.applying(track.preferredTransform)
+161 |             out[0] = "\(Int(abs(s.width).rounded()))"; out[1] = "\(Int(abs(s.height).rounded()))"
+
+/Users/daehyeonmun/orca/workspaces/exact2/fix-300-mounted-clamp/host/apple/Sources/ExactKit/Picker.swift:160:27: warning: 'naturalSize' was deprecated in macOS 13.0: Use load(.naturalSize) instead [#DeprecatedDeclaration]
+158 |         var out = ["", "", ""]
+159 |         if let track = asset.tracks(withMediaType: .video).first {
+160 |             let s = track.naturalSize.applying(track.preferredTransform)
+    |                           `- warning: 'naturalSize' was deprecated in macOS 13.0: Use load(.naturalSize) instead [#DeprecatedDeclaration]
+161 |             out[0] = "\(Int(abs(s.width).rounded()))"; out[1] = "\(Int(abs(s.height).rounded()))"
+162 |         }
+
+/Users/daehyeonmun/orca/workspaces/exact2/fix-300-mounted-clamp/host/apple/Sources/ExactKit/Picker.swift:160:54: warning: 'preferredTransform' was deprecated in macOS 13.0: Use load(.preferredTransform) instead [#DeprecatedDeclaration]
+158 |         var out = ["", "", ""]
+159 |         if let track = asset.tracks(withMediaType: .video).first {
+160 |             let s = track.naturalSize.applying(track.preferredTransform)
+    |                                                      `- warning: 'preferredTransform' was deprecated in macOS 13.0: Use load(.preferredTransform) instead [#DeprecatedDeclaration]
+161 |             out[0] = "\(Int(abs(s.width).rounded()))"; out[1] = "\(Int(abs(s.height).rounded()))"
+162 |         }
+
+/Users/daehyeonmun/orca/workspaces/exact2/fix-300-mounted-clamp/host/apple/Sources/ExactKit/Picker.swift:163:46: warning: 'duration' was deprecated in macOS 13.0: Use load(.duration) instead [#DeprecatedDeclaration]
+161 |             out[0] = "\(Int(abs(s.width).rounded()))"; out[1] = "\(Int(abs(s.height).rounded()))"
+162 |         }
+163 |         let seconds = CMTimeGetSeconds(asset.duration)
+    |                                              `- warning: 'duration' was deprecated in macOS 13.0: Use load(.duration) instead [#DeprecatedDeclaration]
+164 |         if seconds.isFinite { out[2] = "\(seconds)" }
+165 |         return out
+
+[#DeprecatedDeclaration]: <https://docs.swift.org/compiler/documentation/diagnostics/deprecated-declaration>
+[304 / 326] ExactKit
+/Users/daehyeonmun/orca/workspaces/exact2/fix-300-mounted-clamp/host/apple/Sources/ExactKit/Mac/TextAreaMac.swift:48:15: warning: 'accessibilityAttributeNames()' was deprecated in macOS 10.10: Use the NSAccessibility protocol methods instead (see NSAccessibilityProtocols.h) [#DeprecatedDeclaration]
+ 46 |     // The ARIA states AppKit has no property for (`NodeView.ariaAttribute`).
+ 47 |     package override func accessibilityAttributeNames() -> [NSAccessibility.Attribute] {
+ 48 |         super.accessibilityAttributeNames() + NodeView.ariaAttributes.filter { owner?.ariaAttribute($0) != nil }.map { .init(rawValue: $0) }
+    |               `- warning: 'accessibilityAttributeNames()' was deprecated in macOS 10.10: Use the NSAccessibility protocol methods instead (see NSAccessibilityProtocols.h) [#DeprecatedDeclaration]
+ 49 |     }
+ 50 |     package override func accessibilityAttributeValue(_ attribute: NSAccessibility.Attribute) -> Any? {
+
+/Users/daehyeonmun/orca/workspaces/exact2/fix-300-mounted-clamp/host/apple/Sources/ExactKit/Mac/TextAreaMac.swift:51:59: warning: 'accessibilityAttributeValue' was deprecated in macOS 10.10: Use the NSAccessibility protocol methods instead (see NSAccessibilityProtocols.h) [#DeprecatedDeclaration]
+ 49 |     }
+ 50 |     package override func accessibilityAttributeValue(_ attribute: NSAccessibility.Attribute) -> Any? {
+ 51 |         owner?.ariaAttribute(attribute.rawValue) ?? super.accessibilityAttributeValue(attribute)
+    |                                                           `- warning: 'accessibilityAttributeValue' was deprecated in macOS 10.10: Use the NSAccessibility protocol methods instead (see NSAccessibilityProtocols.h) [#DeprecatedDeclaration]
+ 52 |     }
+ 53 | 
+
+[#DeprecatedDeclaration]: <https://docs.swift.org/compiler/documentation/diagnostics/deprecated-declaration>
+/Users/daehyeonmun/orca/workspaces/exact2/fix-300-mounted-clamp/host/apple/Sources/ExactKit/Mac/NodeViewMac.swift:334:15: warning: 'accessibilityAttributeNames()' was deprecated in macOS 10.10: Use the NSAccessibility protocol methods instead (see NSAccessibilityProtocols.h) [#DeprecatedDeclaration]
+ 332 |     /// A control is a leaf, as UIKit makes one: VoiceOver reads its name.
+ 333 |     package override func accessibilityAttributeNames() -> [NSAccessibility.Attribute] {
+ 334 |         super.accessibilityAttributeNames() + (["AXLanguage"] + Self.ariaAttributes.filter { ariaAttribute($0) != nil }).map { .init(rawValue: $0) }
+     |               `- warning: 'accessibilityAttributeNames()' was deprecated in macOS 10.10: Use the NSAccessibility protocol methods instead (see NSAccessibilityProtocols.h) [#DeprecatedDeclaration]
+ 335 |     }
+ 336 |     package override func accessibilityAttributeValue(_ attribute: NSAccessibility.Attribute) -> Any? {
+
+/Users/daehyeonmun/orca/workspaces/exact2/fix-300-mounted-clamp/host/apple/Sources/ExactKit/Mac/NodeViewMac.swift:341:59: warning: 'accessibilityAttributeValue' was deprecated in macOS 10.10: Use the NSAccessibility protocol methods instead (see NSAccessibilityProtocols.h) [#DeprecatedDeclaration]
+ 339 |             return language.isEmpty ? nil : language
+ 340 |         }
+ 341 |         return ariaAttribute(attribute.rawValue) ?? super.accessibilityAttributeValue(attribute)
+     |                                                           `- warning: 'accessibilityAttributeValue' was deprecated in macOS 10.10: Use the NSAccessibility protocol methods instead (see NSAccessibilityProtocols.h) [#DeprecatedDeclaration]
+ 342 |     }
+ 343 |     /// `aria-hidden` takes the node and its subtree off the tree, as the
+
+/Users/daehyeonmun/orca/workspaces/exact2/fix-300-mounted-clamp/host/apple/Sources/ExactKit/Mac/ShortcutsMac.swift:347:87: warning: string literal is not a valid Objective-C selector
+345 |                       claimed.contains(where: { Self.sameChord(host, key: $0.0, $0.1) }) else { continue }
+346 |                 unbound.append((host, host.keyEquivalent, host.keyEquivalentModifierMask))
+347 |                 if menu === editMenu, Self.editRoles.contains(host.action ?? Selector("")) {
+    |                                                                                       `- warning: string literal is not a valid Objective-C selector
+348 |                     host.isHidden = true
+349 |                     replaced.append(host)
+
+[#DeprecatedDeclaration]: <https://docs.swift.org/compiler/documentation/diagnostics/deprecated-declaration>
+[305 / 326] ExactKit
+[306 / 326] ExactKit
+[316 / 327] ExactKitTests-product
+[319 / 352]
+[321 / 352]
+[322 / 352]
+[340 / 352] ExactKitTests-product
+[342 / 352] ExactKitTests-product
+[346 / 352] ExactKitTests-product
+/Users/daehyeonmun/orca/workspaces/exact2/fix-300-mounted-clamp/host/apple/Tests/ExactKitTests/AgentMouseFormsMacTests.swift:62:33: warning: capture of 'agent' with non-Sendable type 'Agent' in a '@Sendable' closure [#SendableClosureCaptures]
+ 60 |             let timer = Timer(timeInterval: 0.05, repeats: false) { _ in
+ 61 |                 XCTAssertTrue(acknowledged, "down must return before native tracking begins")
+ 62 |                 XCTAssertNotNil(agent.contact, "down records ownership before tracking")
+    |                                 `- warning: capture of 'agent' with non-Sendable type 'Agent' in a '@Sendable' closure [#SendableClosureCaptures]
+ 63 |                 let move = agent.contact("move", ["dx": 4, "dy": 0])
+ 64 |                 XCTAssertNil(move["error"], "\(move)")
+
+ExactKit.Agent:1:20: note: class 'Agent' does not conform to the 'Sendable' protocol
+1 | final public class Agent {
+  |                    `- note: class 'Agent' does not conform to the 'Sendable' protocol
+2 |     public static func route(_ label: String, _ session: ExactKit.ExactSession?)
+3 |     nonisolated(unsafe) public static var hostState: (() -> [String : Any])?
+
+/Users/daehyeonmun/orca/workspaces/exact2/fix-300-mounted-clamp/host/apple/Tests/ExactKitTests/AgentMouseFormsMacTests.swift:4:11: warning: add '@preconcurrency' to suppress 'Sendable'-related warnings from module 'ExactKit' [#AddPreconcurrencyImport]
+  2 | import AppKit
+  3 | import XCTest
+  4 | @testable import ExactKit
+    |           `- warning: add '@preconcurrency' to suppress 'Sendable'-related warnings from module 'ExactKit' [#AddPreconcurrencyImport]
+  5 | 
+  6 | /// The agent's mouse forms reach a view and an app's local monitor as a
+
+[#AddPreconcurrencyImport]: <https://docs.swift.org/compiler/documentation/diagnostics/add-preconcurrency-import>
+[#SendableClosureCaptures]: <https://docs.swift.org/compiler/documentation/diagnostics/sendable-closure-captures>
+/Users/daehyeonmun/orca/workspaces/exact2/fix-300-mounted-clamp/host/apple/Tests/ExactKitTests/ChooserMacTests.swift:237:18: warning: weak variable 'invoker' was never mutated; consider changing to 'let' constant [#VariableNeverMutated::WeakMutability]
+235 |         var pressed: [UInt32] = []
+236 |         var tracking = false, trackingAtPress: Bool?
+237 |         weak var invoker = p.views[1]
+    |                  `- warning: weak variable 'invoker' was never mutated; consider changing to 'let' constant [#VariableNeverMutated::WeakMutability]
+238 |         p.onPress = { id in
+239 |             pressed.append(id)
+
+[#VariableNeverMutated]: <https://docs.swift.org/compiler/documentation/diagnostics/variable-never-mutated>
+[#WeakMutability]: <https://docs.swift.org/compiler/documentation/diagnostics/weak-mutability>
+[348 / 352] ExactKitTests-product
+[350 / 352] ExactKitTests-product
+Build complete! (61.50 sec)
+Test Suite 'Selected tests' started at 2026-10-08 16:01:42.792.
+Test Suite 'ExactKitTests.xctest' started at 2026-10-08 16:01:42.795.
+Test Suite 'TextPaintTests' started at 2026-10-08 16:01:42.795.
+Test Case '-[ExactKitTests.TextPaintTests testAClampedParagraphRastersFromItsGeometryAsLayoutPaintsIt]' started.
+/Users/daehyeonmun/orca/workspaces/exact2/fix-300-mounted-clamp/host/apple/Tests/ExactKitTests/TextPaintTests.swift:234: error: -[ExactKitTests.TextPaintTests testAClampedParagraphRastersFromItsGeometryAsLayoutPaintsIt] : XCTAssertEqual failed: ("65536 bytes") is not equal to ("65536 bytes") - first pixels: clamp 1, align 0
+/Users/daehyeonmun/orca/workspaces/exact2/fix-300-mounted-clamp/host/apple/Tests/ExactKitTests/TextPaintTests.swift:234: error: -[ExactKitTests.TextPaintTests testAClampedParagraphRastersFromItsGeometryAsLayoutPaintsIt] : XCTAssertEqual failed: ("65536 bytes") is not equal to ("65536 bytes") - first pixels: clamp 1, align 1
+/Users/daehyeonmun/orca/workspaces/exact2/fix-300-mounted-clamp/host/apple/Tests/ExactKitTests/TextPaintTests.swift:234: error: -[ExactKitTests.TextPaintTests testAClampedParagraphRastersFromItsGeometryAsLayoutPaintsIt] : XCTAssertEqual failed: ("65536 bytes") is not equal to ("65536 bytes") - first pixels: clamp 1, align 2
+/Users/daehyeonmun/orca/workspaces/exact2/fix-300-mounted-clamp/host/apple/Tests/ExactKitTests/TextPaintTests.swift:234: error: -[ExactKitTests.TextPaintTests testAClampedParagraphRastersFromItsGeometryAsLayoutPaintsIt] : XCTAssertEqual failed: ("114688 bytes") is not equal to ("114688 bytes") - first pixels: clamp 2, align 0
+/Users/daehyeonmun/orca/workspaces/exact2/fix-300-mounted-clamp/host/apple/Tests/ExactKitTests/TextPaintTests.swift:234: error: -[ExactKitTests.TextPaintTests testAClampedParagraphRastersFromItsGeometryAsLayoutPaintsIt] : XCTAssertEqual failed: ("114688 bytes") is not equal to ("114688 bytes") - first pixels: clamp 2, align 1
+/Users/daehyeonmun/orca/workspaces/exact2/fix-300-mounted-clamp/host/apple/Tests/ExactKitTests/TextPaintTests.swift:234: error: -[ExactKitTests.TextPaintTests testAClampedParagraphRastersFromItsGeometryAsLayoutPaintsIt] : XCTAssertEqual failed: ("114688 bytes") is not equal to ("114688 bytes") - first pixels: clamp 2, align 2
+Test Case '-[ExactKitTests.TextPaintTests testAClampedParagraphRastersFromItsGeometryAsLayoutPaintsIt]' failed (8.020 seconds).
+Test Suite 'TextPaintTests' failed at 2026-10-08 16:01:50.815.
+	 Executed 1 test, with 6 failures (0 unexpected) in 8.020 (8.020) seconds
+Test Suite 'ExactKitTests.xctest' failed at 2026-10-08 16:01:50.815.
+	 Executed 1 test, with 6 failures (0 unexpected) in 8.020 (8.020) seconds
+Test Suite 'Selected tests' failed at 2026-10-08 16:01:50.815.
+	 Executed 1 test, with 6 failures (0 unexpected) in 8.020 (8.023) seconds
+Note: Some test targets reported failures:
+  - ExactKitTests (XCTest)

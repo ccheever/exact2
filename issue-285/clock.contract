@@ -1,0 +1,14 @@
+component Clock
+  state frames = 0
+  state ticks = 0
+  task frame mount
+    every(frame, onFrame)
+  task tick mount
+    every(7, onTick)
+  action onFrame
+    frames = frames + 1
+  action onTick
+    ticks = ticks + 1
+  view
+    main testId="root" padding=24
+      text `frames ${frames} · ticks ${ticks}` testId="counts"

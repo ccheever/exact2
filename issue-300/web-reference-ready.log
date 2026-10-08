@@ -1,0 +1,4 @@
+/private/tmp/exact-issue-300-repro/target/web-dist/.gen: app.js 2028 B, app.css 1703 B, 0 warnings
+__exact_entry.ts(5,14): error TS2322: Type '() => null' is not assignable to type 'Answer'.
+error: exact-issue-300-repro: app.ts failed the type check every host's build runs
+exact-issue-300-repro: the web build (the JS target) failed; the wasm target is internal (--wasm)

@@ -1,0 +1,209 @@
+   Compiling itoa v1.0.18
+   Compiling serde_core v1.0.229
+   Compiling zmij v1.0.23
+   Compiling serde_json v1.0.151
+   Compiling zeroize v1.9.0
+   Compiling exact-num v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/num)
+   Compiling libc v0.2.189
+   Compiling subtle v2.6.1
+   Compiling memchr v2.8.3
+   Compiling serde v1.0.229
+   Compiling const-oid v0.9.6
+   Compiling generic-array v0.14.7
+   Compiling stable_deref_trait v1.2.1
+   Compiling writeable v0.6.4
+   Compiling smallvec v1.15.2
+   Compiling syn v3.0.4
+   Compiling syn v2.0.119
+   Compiling triomphe v0.1.16
+   Compiling litemap v0.8.3
+   Compiling arcstr v1.2.0
+   Compiling utf8_iter v1.0.4
+   Compiling unicode-linebreak v0.1.5
+   Compiling exact-color v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/color)
+   Compiling icu_normalizer_data v2.3.0
+   Compiling icu_properties_data v2.3.0
+   Compiling exact-textflow v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/textflow)
+   Compiling slotmap v1.1.1
+   Compiling percent-encoding v2.3.2
+   Compiling dtoa v1.0.11
+   Compiling dtoa-short v0.3.5
+   Compiling exact-svg-filter v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/svg-filter)
+   Compiling cssparser v0.37.0
+   Compiling exact-motion v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/motion)
+   Compiling form_urlencoded v1.2.2
+   Compiling contract-syntax v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/contract/syntax)
+   Compiling cpufeatures v0.2.17
+   Compiling icu_locale_fallback_data v2.3.0
+   Compiling icu_locale_data v2.3.0
+   Compiling rand_core v0.6.4
+   Compiling bitflags v2.13.1
+   Compiling block-buffer v0.10.4
+   Compiling crypto-common v0.1.7
+   Compiling digest v0.10.7
+   Compiling base64 v0.22.1
+   Compiling once_cell v1.21.4
+   Compiling ff v0.13.1
+   Compiling der v0.7.10
+   Compiling sha2 v0.10.9
+   Compiling base16ct v0.2.0
+   Compiling group v0.13.0
+   Compiling shlex v2.0.1
+   Compiling find-msvc-tools v0.1.11
+   Compiling semver v1.0.28
+   Compiling cc v1.4.4
+   Compiling getrandom v0.3.4
+   Compiling rustc_version v0.4.1
+   Compiling rustls-pki-types v1.15.1
+   Compiling crypto-bigint v0.5.5
+   Compiling curve25519-dalek v4.1.3
+   Compiling simd-adler32 v0.3.10
+   Compiling exact-markdown v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/markdown)
+   Compiling signature v2.2.0
+   Compiling hmac v0.12.1
+   Compiling rfc6979 v0.4.0
+   Compiling ed25519 v2.2.3
+   Compiling sec1 v0.7.3
+   Compiling adler2 v2.0.1
+   Compiling untrusted v0.9.0
+   Compiling getrandom v0.2.17
+   Compiling crc32fast v1.5.1
+   Compiling httparse v1.10.1
+   Compiling core-foundation-sys v0.8.7
+   Compiling rustls v0.23.45
+   Compiling bytes v1.12.1
+   Compiling miniz_oxide v0.9.1
+   Compiling vte_generate_state_changes v0.1.2
+   Compiling core-foundation v0.9.4
+   Compiling security-framework-sys v2.17.0
+   Compiling taffy v0.14.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/vendor/taffy)
+   Compiling base64 v0.23.1
+   Compiling utf8parse v0.2.2
+   Compiling rustix v1.1.4
+   Compiling vte v0.11.1
+   Compiling exact-canvas v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/canvas)
+   Compiling http v1.5.0
+   Compiling ed25519-dalek v2.2.0
+   Compiling elliptic-curve v0.13.8
+   Compiling ring v0.17.14
+   Compiling ibex2 v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/vendor/ibex/crates/ibex2)
+   Compiling flate2 v1.1.10
+   Compiling security-framework v2.11.1
+   Compiling ecdsa v0.16.9
+   Compiling serde_derive v1.0.229
+   Compiling zerovec-derive v0.11.6
+   Compiling displaydoc v0.2.7
+   Compiling primeorder v0.13.6
+   Compiling thiserror-impl v2.0.20
+   Compiling p256 v0.13.2
+   Compiling ureq-proto v0.6.4
+   Compiling errno v0.3.14
+   Compiling miniz_oxide v0.8.9
+   Compiling rustls-pemfile v2.2.0
+   Compiling webpki-roots v1.0.9
+   Compiling fdeflate v0.3.7
+   Compiling utf8-zero v0.8.1
+   Compiling unicode-width v0.1.14
+   Compiling vt100 v0.15.2
+   Compiling socket2 v0.6.5
+   Compiling thiserror v2.0.20
+   Compiling rustls-native-certs v0.7.3
+   Compiling png v0.18.1
+   Compiling naga-types v30.0.1
+   Compiling vte v0.15.0
+   Compiling unicode-segmentation v1.13.3
+   Compiling pkg-config v0.3.34
+   Compiling vcpkg v0.2.15
+   Compiling synstructure v0.13.2
+   Compiling hashlink v0.12.1
+   Compiling wasmi_ir v2.0.0
+   Compiling fallible-streaming-iterator v0.1.9
+   Compiling fallible-iterator v0.3.0
+   Compiling libsqlite3-sys v0.38.2
+   Compiling exact-filesystem v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/filesystem)
+   Compiling exact-update v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/update)
+   Compiling wasmparser v0.228.0
+   Compiling wasmi_core v2.0.0
+   Compiling wasmi v2.0.0
+   Compiling exact-raster v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/host/raster)
+   Compiling leb128fmt v0.1.0
+   Compiling wasm-encoder v0.259.0
+   Compiling zerofrom-derive v0.1.7
+   Compiling yoke-derive v0.8.2
+   Compiling zerocopy-derive v0.8.56
+   Compiling bumpalo v3.20.3
+   Compiling zerofrom v0.1.8
+   Compiling exact-logic v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/logic)
+   Compiling rustls-webpki v0.103.15
+   Compiling spin v0.9.9
+   Compiling yoke v0.8.3
+   Compiling wasmi_collections v2.0.0
+   Compiling wast v259.0.0
+   Compiling libloading v0.8.9
+   Compiling exact-markdown-editor v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/markdown/editor)
+   Compiling zerovec v0.11.8
+   Compiling zerotrie v0.2.5
+   Compiling exact-web-js-motion v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/host/web-js/motion)
+   Compiling zerocopy v0.8.56
+   Compiling exact-route v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/route)
+   Compiling tinystr v0.8.4
+   Compiling exact-plan v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/plan)
+   Compiling potential_utf v0.1.6
+   Compiling icu_collections v2.3.0
+   Compiling icu_locale_core v2.3.0
+   Compiling exact-kernel v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/kernel)
+   Compiling contract-lower v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/contract/lower)
+   Compiling exact-svg-raster v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/host/svg-raster)
+   Compiling icu_provider v2.3.1
+   Compiling icu_properties v2.3.0
+   Compiling icu_normalizer v2.3.0
+   Compiling icu_locale_fallback v2.3.0
+   Compiling rusqlite v0.40.2
+   Compiling icu_locale v2.3.0
+   Compiling contract-types v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/contract/types)
+   Compiling markdown-parse v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/apps/markdown/parse)
+   Compiling exact-js-value v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/js/value)
+   Compiling idna_adapter v1.2.2
+   Compiling half v2.7.1
+   Compiling idna v1.1.0
+   Compiling ureq v3.4.0
+   Compiling url v2.5.8
+   Compiling naga v30.0.1
+   Compiling exact-grants v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/grants)
+   Compiling contract-analyze v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/contract/analyze)
+   Compiling wat v1.259.0
+   Compiling ibex2-sqlite v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/vendor/ibex/crates/ibex2-sqlite)
+   Compiling exact-gpu-reflect v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/gpu/reflect)
+   Compiling exact-runner v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/runner)
+   Compiling contract v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/contract/cli)
+   Compiling exact-data v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/data)
+   Compiling caltrain-data v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/apps/caltrain/data)
+   Compiling markdown-stress-data v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/apps/markdown-stress/data)
+   Compiling exact-web-geometry v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/host/web-geometry)
+   Compiling completion-storm-data v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/apps/completion-storm/data)
+   Compiling interaction-gallery-data v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/apps/interaction-gallery/data)
+   Compiling messages-stress-data v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/apps/messages-stress/data)
+   Compiling exact-logic-abi v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/logic/abi)
+   Compiling llp-data v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/apps/llp/data)
+   Compiling textflow-data v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/apps/textflow/data)
+   Compiling typetour-data v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/apps/typetour/data)
+   Compiling spark-data v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/apps/spark/data)
+   Compiling video-player-data v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/apps/video-player/data)
+   Compiling carousel-data v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/apps/carousel/data)
+   Compiling svg-gallery-data v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/apps/svg-gallery/data)
+   Compiling sparkline-data v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/apps/sparkline/data)
+   Compiling shared-elements-data v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/apps/shared-elements/data)
+   Compiling motion-gallery-data v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/apps/motion-gallery/data)
+   Compiling exact-live-data v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/apps/exact-live/data)
+   Compiling exact-data-host v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/data/host)
+   Compiling exact-apple v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/host/apple)
+   Compiling calendar-data v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/examples/calendar/data)
+   Compiling update-lab-data v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/apps/update-lab/data)
+   Compiling fieldnotes-data v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/apps/fieldnotes/data)
+   Compiling markdown-data v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/apps/markdown/data)
+   Compiling exact-bake v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/bake)
+   Compiling caltrain v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/apps/caltrain)
+   Compiling exact-terminal v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/host/terminal)
+   Compiling exact-web v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/host/web)
+   Compiling exact-web-capabilities v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-285-agent-clock/host/web-capabilities)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 3m 23s

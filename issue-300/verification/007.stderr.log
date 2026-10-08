@@ -1,0 +1,13 @@
+Building for debugging...
+[Computing dependencies]
+[Pre-planning 1 / 329]
+[Planning deferred tasks]
+[1 / 3]
+[2 / 6] ExactKit
+[3 / 7] ExactKit
+[7 / 9] ExactKit
+[9 / 10] ExactKit
+[11 / 12] ExactKitTests-product
+[13 / 13] ExactKitTests-product
+[14 / 14] ExactKit-product
+Build complete! (12.42 sec)

@@ -1,0 +1,4 @@
+web-js: exact-web-js as this machine already compiled it from these sources (~/.cache/exact/web-modules/25821cb2a6998c8be088c985/b2d2851b8f89e80f)
+/private/tmp/exact-issue-300-repro/target/web-dist/.gen: app.js 2028 B, app.css 1703 B, 0 warnings
+error: app.ts exports no appId
+exact-issue-300-repro: the web build (the JS target) failed; the wasm target is internal (--wasm)

@@ -1,0 +1,77 @@
+{
+  "schema_version": 1,
+  "source_paths": [
+    "scripts",
+    "package.json",
+    "bun.lock",
+    "host/web",
+    "host/web-js",
+    "host/apple/Sources",
+    "host/apple/build.mjs",
+    "host/apple/devices.mjs"
+  ],
+  "checks": [
+    {
+      "name": "driver-regressions",
+      "argv": [
+        "bun",
+        "test",
+        "scripts/caps.test.mjs",
+        "scripts/agent-drag.test.mjs",
+        "scripts/agent-keys.test.mjs"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 600,
+      "required": true
+    },
+    {
+      "name": "test",
+      "argv": [
+        "cargo",
+        "test",
+        "--lib",
+        "--bins",
+        "--tests",
+        "--no-fail-fast"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 1800,
+      "required": true
+    },
+    {
+      "name": "clippy",
+      "argv": [
+        "cargo",
+        "clippy",
+        "--all-targets",
+        "--keep-going",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 1800,
+      "required": true
+    },
+    {
+      "name": "caps",
+      "argv": [
+        "bun",
+        "scripts/caps.mjs"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 120,
+      "required": true
+    },
+    {
+      "name": "boot",
+      "argv": [
+        "bun",
+        "scripts/boot.mjs"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 120,
+      "required": true
+    }
+  ]
+}

@@ -1,0 +1,4 @@
+/private/tmp/exact-issue-300-repro/target/web-dist/.gen: app.js 2028 B, app.css 1703 B, 0 warnings
+/private/tmp/exact-issue-300-repro/target/web-dist: built
+{"at":[91,41],"tapped":2,"target":"t","delivery":"platform","carrier":"web","mode":"agent","clock":0,"epoch":2,"incarnation":1}
+{"clock":0,"epoch":2,"incarnation":1,"screenshot":"/tmp/exact-issue-300-evidence/web-reference.png","w":420,"h":360}

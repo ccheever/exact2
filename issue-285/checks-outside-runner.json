@@ -1,0 +1,43 @@
+{
+  "build": {
+    "argv": [
+      "cargo",
+      "build",
+      "--all-targets",
+      "--keep-going"
+    ],
+    "exit_code": 0,
+    "log": "build.log"
+  },
+  "fmt": {
+    "argv": [
+      "cargo",
+      "fmt",
+      "--all",
+      "--",
+      "--check"
+    ],
+    "exit_code": 0,
+    "log": "fmt.log"
+  },
+  "macos_build": {
+    "exit_code": 0,
+    "log": "macos-build.log"
+  },
+  "ios_build": {
+    "exit_code": 0,
+    "log": "ios-build.log"
+  },
+  "before_macos": {
+    "exit_code": 1,
+    "log": "before-macos.log"
+  },
+  "after_macos": {
+    "exit_code": 0,
+    "log": "after-macos.log"
+  },
+  "after_ios": {
+    "exit_code": 0,
+    "log": "after-ios.log"
+  }
+}

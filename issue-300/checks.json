@@ -1,0 +1,103 @@
+{
+  "schema_version": 1,
+  "source_paths": [
+    "host/apple/Sources/ExactKit",
+    "host/apple/tests/ExactKitTests",
+    "host/apple/Package.swift"
+  ],
+  "checks": [
+    {
+      "name": "build",
+      "argv": [
+        "cargo",
+        "build",
+        "--all-targets",
+        "--keep-going"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 600,
+      "required": true
+    },
+    {
+      "name": "test",
+      "argv": [
+        "cargo",
+        "test",
+        "--lib",
+        "--bins",
+        "--tests",
+        "--no-fail-fast"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 600,
+      "required": true
+    },
+    {
+      "name": "clippy",
+      "argv": [
+        "cargo",
+        "clippy",
+        "--all-targets",
+        "--keep-going",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 600,
+      "required": true
+    },
+    {
+      "name": "fmt",
+      "argv": [
+        "cargo",
+        "fmt",
+        "--all",
+        "--",
+        "--check"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 600,
+      "required": true
+    },
+    {
+      "name": "caps",
+      "argv": [
+        "/Users/daehyeonmun/.bun-1.4.2/bin/bun",
+        "scripts/caps.mjs"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 600,
+      "required": true
+    },
+    {
+      "name": "boot",
+      "argv": [
+        "/Users/daehyeonmun/.bun-1.4.2/bin/bun",
+        "scripts/boot.mjs"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 600,
+      "required": true
+    },
+    {
+      "name": "Swift text paint and raster regression",
+      "argv": [
+        "env",
+        "EXACT_TESTS=1",
+        "EXACT_LIB_DIR=/tmp/exact-issue-300-repro/target/aarch64-apple-darwin/host-dev",
+        "EXACT_LIB=exact_issue_300_repro_apple",
+        "MACOSX_DEPLOYMENT_TARGET=14.0",
+        "swift",
+        "test",
+        "--scratch-path",
+        "/tmp/exact-issue-300-repro/target/clamp-tests",
+        "--filter",
+        "TextPaintTests|TextMetricsTests"
+      ],
+      "cwd": "host/apple",
+      "timeout_seconds": 600,
+      "required": true
+    }
+  ]
+}

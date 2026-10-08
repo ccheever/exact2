@@ -1,0 +1,26 @@
+{
+  "baseline_commit": "fa965d3e2b36417a22228900678f7abc68e72270",
+  "branch": "daehyeon/fix-285-agent-clock",
+  "platform": "macOS-26.6.2-arm64-arm-64bit",
+  "machine": "arm64",
+  "bun": "1.4.2",
+  "rust": "rustc 1.97.0 (2d8144b78 2026-07-07)",
+  "baseline_driver_sha256": "be06e153dcdc89f7aff20d836f22814692a178e9b365d5ef61d2aacd75d60542",
+  "files": {
+    "scripts/agent.mjs": "f863e659ddbe36fccb33d40cea5febe1c85661cdee737613c57dfd8d45a0fa9a",
+    "scripts/caps.test.mjs": "b7b25402a04b9ad7d9bf0faa43e2b240e704d448c560528f6888d13a98bd4bf6"
+  },
+  "ios_simulator": {
+    "runtime": "com.apple.CoreSimulator.SimRuntime.iOS-26-5",
+    "dataPath": "/Users/daehyeonmun/Library/Developer/CoreSimulator/Devices/FB4FCE92-4127-4ED8-8A51-9EA3BAAACC5C/data",
+    "dataPathSize": 7024955392,
+    "logPath": "/Users/daehyeonmun/Library/Logs/CoreSimulator/FB4FCE92-4127-4ED8-8A51-9EA3BAAACC5C",
+    "udid": "FB4FCE92-4127-4ED8-8A51-9EA3BAAACC5C",
+    "lastUsedAt": "2026-10-07T02:05:05Z",
+    "isAvailable": true,
+    "logPathSize": 978944,
+    "deviceTypeIdentifier": "com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro",
+    "state": "Booted",
+    "name": "iPhone 17 Pro"
+  }
+}
