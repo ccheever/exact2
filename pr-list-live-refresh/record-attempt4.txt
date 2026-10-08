@@ -1,0 +1,7 @@
+2026-10-08T04:37:12.331Z [d4] app pid 42874
+2026-10-08T04:37:34.393Z [d4] list: 99 rows; first pr-row-144,pr-row-116,pr-row-159
+2026-10-08T04:37:46.558Z [d4] before the wheel: pr-row-78 at {"x":286,"y":2469,"h":56}
+2026-10-08T04:37:47.461Z [d4] after the wheel: pr-row-78 at {"x":286,"y":1269,"h":56}
+2026-10-08T04:37:47.579Z [d4] shot scrolled
+2026-10-08T04:37:59.696Z [d4] after two refocuses: list reads 1 [[2747,0]]; pr-row-78 at {"x":286,"y":2469,"h":56}; scroll unchanged: false
+2026-10-08T04:37:59.805Z [d4] shot after-refocus
