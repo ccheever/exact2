@@ -192,6 +192,8 @@ in the base checkout, owner "app-activation: real input"):
 6. Clean quit with ⌘Q (`CmdOrCtrl+Q`, through the quit hold): the socket file is gone (`ls $TMPDIR/t3code-501/`).
    Then `defaults delete com.exact.t3code.macos.laneactivation` and remove its plist.
 
+2026-10-08 (real-input batch, records PR): front, ⌘W mid-request and ⌘Q pass; a minimized window is not restored and the request times out (clone bug). Results and proof: "Real-input batch (2026-10-08)" below.
+
 ## Attempts and evidence
 
 | Attempt | Revision/fingerprint | Checks and outcomes | Evidence | Remaining blocker |
@@ -207,6 +209,19 @@ Final checks on `c5fab5dbf`:
 - caps: within cap. The five repository checks exit 0; `cargo test --lib --bins --tests --no-fail-fast`: 94 binaries,
   3383 passed, 0 failed, 33 ignored.
 - Evidence: `t3-code-evidence` under `app-activation/`, linked from #254.
+
+## Real-input batch (2026-10-08)
+
+Run by the coordinator's real-input batch on an unlocked Mac (2026-10-08, 02:58-05:15 UTC), under the shared real-input lock (owner "real-input batch"), on the merged feature branch (`b7761f556`, rebuilt once at `07dcef1ab` for #263): one lane copy "T3 Code (Lane RIB)" launched normally (not agent mode) with isolated homes and lane ports 16450-16499. Real input: cliclick / CGEvent real mouse and wheel events, real HID key chords (posted only after a check that the lane app is frontmost), orca computer clicks and pastes. Records PR: draft "T3 Code clone: real-input batch for the tasks merged on 2026-10-08".
+
+| Row | Result | Proof |
+| --- | --- | --- |
+| 3. Window to the front | PASS: Finder front → `t3 app …/gamma` exit 0 in 2 s → lane app frontmost, gamma draft | [act-01-front](https://raw.githubusercontent.com/ccheever/exact2/ec2aeba0830cebdf6f0af0275e53a46bc330b90a/real-input-batch/app-activation/01-act-01-front.png) |
+| 4. Un-minimize | FAIL (clone bug): with the window minimized (⌘M) `t3 app …/delta` times out (request-timeout, twice); the window stays minimized and the app does not come forward | [act-04-restored-crop](https://raw.githubusercontent.com/ccheever/exact2/ec2aeba0830cebdf6f0af0275e53a46bc330b90a/real-input-batch/app-activation/02-act-04-restored-crop.png) |
+| 5. ⌘W mid-request (server SIGSTOPped) | PASS: CLI "(renderer-unavailable)" at once; log "the window is closing: its request fails" | — |
+| 6. ⌘Q | PASS: real ⌘Q hold → app exits, socket file removed | — |
+
+Full record: [app-activation.txt](https://raw.githubusercontent.com/ccheever/exact2/ec2aeba0830cebdf6f0af0275e53a46bc330b90a/real-input-batch/app-activation/app-activation.txt).
 
 ## Next action
 

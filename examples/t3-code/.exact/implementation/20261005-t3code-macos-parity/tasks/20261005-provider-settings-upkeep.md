@@ -162,6 +162,8 @@ is stored with `toCustomModelSetting` like every driver (`ProviderInstanceCard.t
 model is its slug; a name or options make an entry, which the server's ACP schema (a string list) refuses
 when it next loads the instance, as for the reference.
 
+2026-10-08 (real-input batch, records PR): popover, keys and the tapped real update pass; the update-icon tooltips are clipped (clone bug). Results and proof: "Real-input batch (2026-10-08)" below.
+
 ## Attempts and evidence
 
 | Attempt | Revision/fingerprint | Checks and outcomes | Evidence | Remaining blocker |
@@ -175,6 +177,18 @@ when it next loads the instance, as for the reference.
 | same session, real update | server c (`t3` 0.0.46-nightly, isolated HOME/CODEX_HOME/XDG/T3CODE_HOME on 16012), Codex 0.160.1 in `target/upkeep-lane/servers/c/npm` | The RPC the app's Update now sends (`server.updateProvider {instanceId, provider}`, per the RPC log) on the real server: it ran `npm install -g --prefix <lane prefix> --allow-scripts=@openai/codex @openai/codex@latest`, `updateState` succeeded "Provider updated." in 3 s, Codex 0.161.0, advisory cleared. `/opt/homebrew/bin/codex` stays 0.151.0 | [record](https://raw.githubusercontent.com/ccheever/exact2/401c1dd7ded2d23c471fca8f6c42c8743aad69e4/provider-settings-upkeep/final/real-update-rpc.txt) | — |
 | checks and review of the fix | `d5e052389` (a Contract-only change) | Recipe runner (source fingerprint of the task-owned files, matched on the commit): `bun test examples/t3-code` 2576 pass / 0 fail, `bun scripts/caps.mjs` within, the macOS bundle builds, `cargo test -p t3-code-macos --lib` 11 pass; overall `blocked` only by the deferred real-input row. Independent review: no blocking finding; non-blocking ones recorded in Progress (left-edge clipping, the hover highlight, the web not driven) and in the wording of STATUS and this record | local runner reports (not published) | real-input batch |
 
+
+## Real-input batch (2026-10-08)
+
+Run by the coordinator's real-input batch on an unlocked Mac (2026-10-08, 02:58-05:15 UTC), under the shared real-input lock (owner "real-input batch"), on the merged feature branch (`b7761f556`, rebuilt once at `07dcef1ab` for #263): one lane copy "T3 Code (Lane RIB)" launched normally (not agent mode) with isolated homes and lane ports 16450-16499. Real input: cliclick / CGEvent real mouse and wheel events, real HID key chords (posted only after a check that the lane app is frontmost), orca computer clicks and pastes. Records PR: draft "T3 Code clone: real-input batch for the tasks merged on 2026-10-08".
+
+| Row | Result | Proof |
+| --- | --- | --- |
+| 5. Real hover tooltips (list icon, editor icon, Update all) | Update all PASS; list and editor icons FAIL (clone bug): the tooltip opens above the icon and is clipped by the card | [psu-01-hover-list](https://raw.githubusercontent.com/ccheever/exact2/ec2aeba0830cebdf6f0af0275e53a46bc330b90a/real-input-batch/provider-settings-upkeep/01-psu-01-hover-list.png), [psu-01b-zoom](https://raw.githubusercontent.com/ccheever/exact2/ec2aeba0830cebdf6f0af0275e53a46bc330b90a/real-input-batch/provider-settings-upkeep/02-psu-01b-zoom.png), [psu-02-zoom](https://raw.githubusercontent.com/ccheever/exact2/ec2aeba0830cebdf6f0af0275e53a46bc330b90a/real-input-batch/provider-settings-upkeep/03-psu-02-zoom.png), [psu-03-hover-updateall-crop](https://raw.githubusercontent.com/ccheever/exact2/ec2aeba0830cebdf6f0af0275e53a46bc330b90a/real-input-batch/provider-settings-upkeep/04-psu-03-hover-updateall-crop.png) |
+| 6. Click → popover end-aligned; Escape; Return/Tab/Escape with the ring | PASS | [psu-04-popover-list](https://raw.githubusercontent.com/ccheever/exact2/ec2aeba0830cebdf6f0af0275e53a46bc330b90a/real-input-batch/provider-settings-upkeep/05-psu-04-popover-list.png), [psu-05-escape-crop](https://raw.githubusercontent.com/ccheever/exact2/ec2aeba0830cebdf6f0af0275e53a46bc330b90a/real-input-batch/provider-settings-upkeep/06-psu-05-escape-crop.png), [psu-keys-strip](https://raw.githubusercontent.com/ccheever/exact2/ec2aeba0830cebdf6f0af0275e53a46bc330b90a/real-input-batch/provider-settings-upkeep/07-psu-keys-strip.png) |
+| 7. Tapped real update (lane npm Codex 0.160.1) | PASS: "Updating" then v0.161.0, icon gone; one `server.updateProvider` (5.1 s) | [psu-09-editor-popover](https://raw.githubusercontent.com/ccheever/exact2/ec2aeba0830cebdf6f0af0275e53a46bc330b90a/real-input-batch/provider-settings-upkeep/08-psu-09-editor-popover.png), [psu-update-pair](https://raw.githubusercontent.com/ccheever/exact2/ec2aeba0830cebdf6f0af0275e53a46bc330b90a/real-input-batch/provider-settings-upkeep/09-psu-update-pair.png) |
+
+Full record: [provider-settings-upkeep.txt](https://raw.githubusercontent.com/ccheever/exact2/ec2aeba0830cebdf6f0af0275e53a46bc330b90a/real-input-batch/provider-settings-upkeep/provider-settings-upkeep.txt).
 
 ## Next action
 
