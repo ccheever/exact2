@@ -373,6 +373,13 @@ Task `20261005-this-machine-network-access` (`server-exposure.ts`, `tailscale.ts
 - **The "+N" toggle's dotted underline (local draft, not published).** Contract's `border-*-style` takes `none`, `hidden`, `solid` and `inset` only; `border-bottom-style="dotted"` fails the build (`lower-attr-value`). The clone draws a solid 1 px underline in the same muted colour.
 - **Tailscale is verified with a stub CLI (decision U9, provisional).** `tailscale status --json` and `serve` are a lane script; the MagicDNS HTTPS endpoint never answers the probe, so "Setup required" → available and Disable are covered by unit tests only, until a tailnet the user provides.
 
+## Pull request header actions and stacks: declared differences
+
+Task `20261005-pr-header-actions-and-stacks` (`pages-pr-actions.*`, `pages-pr-stack.*`, `r6-pr-logic.ts`).
+- **Menus and the freshness popover do not flip (X17, [#112](https://github.com/ccheever/exact2/issues/112)).** The More menu, the stack menu and the out-of-date base's popover sit under their trigger at its start edge and are clamped to the window (the reference aligns More `end` and the popover `start`, and flips near an edge); in the panel at the window's right edge the clamp lands the More menu where the reference's end alignment does.
+- **The freshness popover's hover delay.** Pointing at the base branch's mark shows the card at once (`openOnHover delay={0}`), as a hover card drawn with the trigger; the reference's 120 ms close delay is not timed (no timer in a component), so the card goes when the pointer leaves the mark and the card together. Pressing the mark (or Return on it) opens the same card as a popover, which Escape and a press outside close.
+- **Dialog focus (X53).** The confirmation AlertDialog and the stack's Dialog keep the stopgap the other dialogs use (`20261008-dialog-shortcut-focus`): focus starts on Cancel and Tab cycles their buttons with their own `key` handlers; Escape is Cancel's `aria-keyshortcuts`.
+
 ## Not exact2 asks (stay in the app module)
 
 Keychain credentials, SSH tunnels, VideoToolbox/SceneKit device views, the terminal (WKWebView running REF's Ghostty WASM; no exact2 change needed), notifications, SnapShot capture, the offscreen Mermaid web view, agent export plumbing.

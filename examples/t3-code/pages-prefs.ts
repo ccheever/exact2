@@ -2,13 +2,13 @@
 // client persists (app:/data/t3-code.json, the only path the native adapter
 // accepts) under `pages`: the Usage page's metric and period
 // (usagePagePreferences), the Pull Requests list controls
-// (pullRequestListPreferences) and the first-run flag (ClientSettings
-// onboardingCompletedAt). The client writes the file after every command.
+// (pullRequestListPreferences), the first-run flag (ClientSettings
+// onboardingCompletedAt) and the last chosen merge method (uiStateStore). The client writes the file after every command.
 import { obj, str, num, type Obj } from './domain';
 import { storedCompletion } from './r9-connect-onboarding';
 
 export type UsagePrefs = { metric: string; windowDays: number };
-export type PagesPrefs = { usage: UsagePrefs | null; pullRequests: Obj | null; onboardingCompletedAt: string };
+export type PagesPrefs = { usage: UsagePrefs | null; pullRequests: Obj | null; onboardingCompletedAt: string; mergeMethod?: string };
 type Holder = { local: object };
 
 const emptyPrefs = (): PagesPrefs => ({ usage: null, pullRequests: null, onboardingCompletedAt: '' });
@@ -27,5 +27,7 @@ export function adoptPagesPrefs(next: object, saved: Obj): void {
   if (typeof usage.metric === 'string' && typeof usage.windowDays === 'number') prefs.usage = { metric: str(usage.metric), windowDays: num(usage.windowDays) };
   if (value.pullRequests && typeof value.pullRequests === 'object' && !Array.isArray(value.pullRequests)) prefs.pullRequests = obj(value.pullRequests);
   prefs.onboardingCompletedAt = storedCompletion(value.onboardingCompletedAt); // r9-connect: a 1970 value is unset
+  // pr-header-actions-and-stacks: the merge method last chosen on this device (useUiStateStore pullRequestMergeMethod).
+  if (value.mergeMethod === 'merge' || value.mergeMethod === 'squash' || value.mergeMethod === 'rebase') prefs.mergeMethod = value.mergeMethod;
   (next as { pages?: PagesPrefs }).pages = prefs;
 }
