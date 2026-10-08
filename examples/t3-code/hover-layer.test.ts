@@ -122,17 +122,21 @@ describe('the layer and its timing', () => {
   test('T3Window holds the hover state, provides it, and draws the layer after every page, panel and overlay, inside the SSH-inert row', async () => {
     const window = await source('app-window.contract');
     expect(window).toMatch(/\n  provide\n    rem = data\.look\.fontSize\n    still = viewport\.prefersReducedMotion\n    hoverTipAt\n    hoverTip\n    hoverShown\n/);
-    expect(window).toContain(`  derive hoverShown = hoverTip.key != "" and (hoverOn != "" ? hoverWait == hoverMark : hoverWait < hoverUntil)
+    expect(window).toContain(`  derive hoverShown = hoverTip.key != "" and (hoverOn != "" ? hoverWait == hoverOpen : hoverWait < hoverUntil)
   action hoverTipAt(tip: HoverTip, part: string, inside: bool)
     if inside
+      let at = tip.key == hoverTip.key and hoverShown ? hoverWait : hoverWait + hoverOpenDelay(tip.kind)
       hoverTip = tip
       hoverOn = part
-      hoverMark = hoverWait
-      hoverHold(hoverWait)
+      hoverOpen = at
+      hoverHold(at)
     else if tip.key == hoverTip.key and hoverOn == part
+      let until = hoverShown ? hoverWait + hoverDelay(tip.kind) : hoverWait
       hoverOn = ""
-      hoverUntil = hoverWait + hoverDelay(tip.kind)
-      hoverHold(hoverWait + hoverDelay(tip.kind))`);
+      hoverUntil = until
+      hoverHold(until)`);
+    // Base UI's open delay (nothing drawn before it) and closeDelay, on the root's hover clock.
+    expect(await source('hover-layer.contract')).toContain('fn hoverOpenDelay(kind: string): number = kind == "scopes" ? 250 : (kind == "usage" ? 300 : 0)');
     const lines = window.split('\n');
     const overlays = lines.findIndex(line => line.startsWith('        WindowOverlays('));
     const layer = lines.findIndex(line => line.startsWith('          HoverLayer(tip=hoverTip, viewportWidth=viewport.width, viewportHeight=viewport.height, hoverAt=hoverTipAt)'));
