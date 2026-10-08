@@ -5,7 +5,8 @@ Specification: [spec](spec.md). Findings: [research](research.md). Framework iss
 
 Goal: re-implement the T3 Code desktop app (Electron) with exact2 as the example
 `examples/t3-code`, using T3 Code's own data/client logic and its own server, with
-every feature except the spec exclusions, and a downloadable build that runs on another Mac.
+every feature except the spec exclusions, that anyone who clones exact2 can build and run locally (the
+downloadable archive, `portable-app-download`, was dropped on 2026-10-08; see Status).
 
 ## SSH feature acceptance, 2026-10-06
 
@@ -20,7 +21,7 @@ generic oracle/trace infrastructure or full T0 matrix.
 
 PR #238's unverified rows and deferred decisions are preserved in
 [provider sign-in verification follow-up](tasks/20261008-provider-sign-in-verification-followup.md).
-The remaining app-wide focus finding is [dialog shortcut focus](tasks/20261008-dialog-shortcut-focus.md).
+The remaining app-wide focus finding is [dialog shortcut focus](tasks/closed/20261008-dialog-shortcut-focus.md).
 These stay separate from merging the provider implementation; existing ownership of URL auth
 (provider-settings-upkeep) and progress accessibility (X49) is unchanged.
 
@@ -57,8 +58,10 @@ The user's decision (2026-10-06, model A): one feature branch, no stacked PRs.
 
 ## Status, 2026-10-08
 
-The task records match GitHub as of 2026-10-08: every task PR from #142 to #238 has merged into
-`feat(example)/t3-code`, and each record's `delivery` says so. Since the table below was written,
+The task records match GitHub as of 2026-10-08 (records sync after #293–#299): every task PR into
+`feat(example)/t3-code` up to #299 has merged or was closed unmerged, except the open #290 (in flight) and #216 (the iOS
+client, outside this plan). A merged task's record is in `tasks/closed/` and its `delivery` says so (the records moved
+on 2026-10-08 say `implementation: done`). Since the table below was written,
 these user decisions have changed the tickets:
 
 - `desktop-oracle-and-trace` is not built (2026-10-06). Rows that need the oracle or the trace
@@ -82,17 +85,34 @@ these user decisions have changed the tickets:
   Its live drive found and fixed a pull request row read that never settled on real GitHub.
 - `round12-wrapup` is superseded and `clone-on-exact2-main`'s import is done. The clone
   reaches `main` through #99, which stays a draft until the cleanup the user scheduled for the end.
-- These are blocked on an issue decision: `browser-surface` (X1), `app-developer-tools` (X2),
-  `t3-connect-sign-in` (X38), `telemetry` (X39), `app-update-feed` (X40) and
-  `wsl-environments` (X41).
+- These are blocked on an issue decision: `browser-surface` (X1) and `app-developer-tools` (X2).
+  The user closed the four scope issues X38–X41 on 2026-10-08 ("close all"), so `t3-connect-sign-in` (X38),
+  `telemetry` (X39), `app-update-feed` (X40) and `wsl-environments` (X41) are closed by that decision, not built,
+  and moved to `tasks/closed/` (`implementation: dropped`); the issues are in `issues/closed/`.
+- `portable-app-download` is dropped (2026-10-08): the user cancelled its PR #260. The goal was always that someone
+  who clones exact2 builds T3 Code and runs it locally, not a shared zip. This supersedes the spec's "Delivery" row
+  (a downloadable archive) and decision U11, and the integrated "Fresh install from the download" row below.
 - Merged on 2026-10-08: `adopt-main-fixes-r5` (#236; main `1f19b2400`, including #240 for #234),
   `real-github-lane` (#233), `local-primary-environment` (#237) and `provider-sign-in-and-install` (#238).
-  Every PR so far was squash-merged, so the branch holds main `1f19b2400`'s framework content without its
-  ancestry: the next main adoption first records it with `git merge -s ours 1f19b2400`.
-- In progress (2026-10-08, one task PR each): `this-machine-network-access`, `app-activation`,
-  `managed-codex-chatgpt`, `usage-reset-and-feedback` and `pr-conversation-and-refresh`. Next, as these
-  merge: `provider-settings-upkeep`, `usage-pooled-view`, the other pull request tasks,
-  `portable-app-download`, and the tasks the desktop audit (#241) and #238 recorded.
+- Merged later on 2026-10-08: #246–#265 and #288–#299 (`app-activation`, `managed-codex-chatgpt`,
+  `pr-conversation-and-refresh`, `pr-handoffs-and-quick-actions`, `pr-header-actions-and-stacks`,
+  `pr-writing-and-metadata`, `provider-settings-upkeep`, `this-machine-network-access`, `usage-pooled-view`,
+  `usage-reset-and-feedback`, `desktop-visual-parity`, `editable-font-prompt-preview`, `settings-model-picker`,
+  `theme-color-picker`, `title-custom-snooze`, `adopt-main-fixes-r6`, `app-contract-room`, `dialog-shortcut-focus`,
+  `pr-list-live-refresh`, `pr-list-title-clip`, `provisional-decisions-parity`, `skill-chip-provider-name`,
+  `visual-parity-followup`), plus #295 (the framework limitations filed upstream that day, #266–#292) and #298 (the real-input batch: rows in each task
+  record, 21 clone bugs listed in its PR) with no task record of their own.
+- Main adoption: the last adopted main is `e200397ec` (round 6, `adopt-main-fixes-r6`, #297). #297 was squash-merged,
+  so `e200397ec` is not an ancestor of the feature branch (its framework content is): the next adoption round first
+  records it with `git merge -s ours e200397ec`, then merges main (`febb2c5fb` or later).
+- X59, X60 and X61 were filed upstream on 2026-10-08 as #300, #301 and #302 (reproduced on main `febb2c5fb`).
+- In flight (2026-10-08): `popover-escape-parity` (#290) and the four `20261008-fix-*` task PRs (clone bugs from the
+  real-input batch). Planned after them (user decision, 2026-10-08):
+  [app-contract-root-rewrite](tasks/20261008-app-contract-root-rewrite.md), so the root stays well under the
+  1,500-line cap (1,478 at `ec32c8c37`). Not started, with every task prerequisite merged: `pr-code-tab` and
+  `pr-links-previews-and-routing`. Waiting on accounts or the user: `provider-sign-in-verification-followup`. Blocked:
+  `browser-surface` (X1), `app-developer-tools` (X2), `installed-font-picker` (X48). The deferred rows of the next
+  real-input batch are listed in `examples/t3-code/STATUS.md`.
 
 ## Parallel implementation, 2026-10-06
 
@@ -174,36 +194,36 @@ Common prerequisites, not repeated per row: every feature ticket (group 2 and la
 | 2 | [20261005-upstream-timeline-and-markdown](tasks/closed/20261005-upstream-timeline-and-markdown.md) | Tool rows, file links and skill chips match `1e2ecbd975` | exact2 | common | Upstream sync for one surface (timeline + Markdown) | trace (`getTurnItem`), oracle pairs |
 | 2 | [20261005-upstream-ui-sync](tasks/closed/20261005-upstream-ui-sync.md) | Small upstream UI changes (Working order, unpin icon, Azure mark, device step 0, popover z-order) | exact2 | common | Small changes grouped as one upstream sync | oracle pairs, ported tests |
 | 3 | [20261005-local-primary-environment](tasks/closed/20261005-local-primary-environment.md) | Embedded server is the primary "This machine" environment | exact2 | embedded-server-runtime | Needs the running server | relaunch, trace, oracle pairs |
-| 3 | [20261005-managed-codex-chatgpt](tasks/20261005-managed-codex-chatgpt.md) | Managed Codex with ChatGPT sign-in and plan notices | exact2 | provider-sign-in-and-install | Reuses the auth flow | loopback XCTest, attended real account |
+| 3 | [20261005-managed-codex-chatgpt](tasks/closed/20261005-managed-codex-chatgpt.md) | Managed Codex with ChatGPT sign-in and plan notices | exact2 | provider-sign-in-and-install | Reuses the auth flow | loopback XCTest, attended real account |
 | 3 | [20261005-media-actions](tasks/closed/20261005-media-actions.md) | Media context menus, copy/save, failure fallbacks, HTML preview assets | exact2 | main-fix-adoption; issue X7 for external hosts | One surface (media) | attended right-click, effect checks |
-| 3 | [20261005-pr-conversation-and-refresh](tasks/20261005-pr-conversation-and-refresh.md) | PR activity, skeletons, live refresh | exact2 | real-github-lane | Base model for all PR tickets | lane gh log, GitHub read-back, trace, oracle pairs |
-| 3 | [20261005-provider-settings-upkeep](tasks/20261005-provider-settings-upkeep.md) | Provider settings remainder (ACP sessions, Update all, model editor, icons) | exact2 | provider-sign-in-and-install | Shares the provider card | trace, oracle pairs |
+| 3 | [20261005-pr-conversation-and-refresh](tasks/closed/20261005-pr-conversation-and-refresh.md) | PR activity, skeletons, live refresh | exact2 | real-github-lane | Base model for all PR tickets | lane gh log, GitHub read-back, trace, oracle pairs |
+| 3 | [20261005-provider-settings-upkeep](tasks/closed/20261005-provider-settings-upkeep.md) | Provider settings remainder (ACP sessions, Update all, model editor, icons) | exact2 | provider-sign-in-and-install | Shares the provider card | trace, oracle pairs |
 | 3 | [20261005-reference-logic-test-ports](tasks/20261005-reference-logic-test-ports.md) | Reference `port` tests pass against the done areas (split per area at prepare) | exact2 | reference-logic-tests-done-areas | Proves the same logic as T3 Code; needs the map | ported tests, map diff |
 | 3 | [20261005-server-update-banner](tasks/closed/20261005-server-update-banner.md) | Server update banner, offline banner grace and "Disconnect server", version-differ card | exact2 | remote-scopes-and-update-commands | Uses install-aware update commands | stub-server trace, oracle pairs |
 | 3 | [20261005-terminal-drawer](tasks/closed/20261005-terminal-drawer.md) | Terminal sessions and the single drawer | exact2 | remote-scopes-and-update-commands, terminal-surface | Needs the surface; terminal RPCs need the `terminal:operate` scope that remote-scopes-and-update-commands adds | ported tests, attended keys |
 | 3 | [20261005-thread-commands-and-keys](tasks/closed/20261005-thread-commands-and-keys.md) | Delete the worktree too, the missing key commands | exact2 | composer-fidelity | ⌥↑ needs queued edit | ported tests, trace, effect (git worktree) |
-| 3 | [20261005-usage-reset-and-feedback](tasks/20261005-usage-reset-and-feedback.md) | Reset credits (composer banner bars, redeem dialog) and `/feedback` | exact2 | provider-sign-in-and-install | Uses the provider-setup fixture and redaction from the sign-in ticket | trace, ported tests |
-| 4 | [20261005-app-activation](tasks/20261005-app-activation.md) | `t3 app <dir>` opens a project and thread | exact2 | local-primary-environment; E4 decision | Needs the primary environment | socket test, effect |
+| 3 | [20261005-usage-reset-and-feedback](tasks/closed/20261005-usage-reset-and-feedback.md) | Reset credits (composer banner bars, redeem dialog) and `/feedback` | exact2 | provider-sign-in-and-install | Uses the provider-setup fixture and redaction from the sign-in ticket | trace, ported tests |
+| 4 | [20261005-app-activation](tasks/closed/20261005-app-activation.md) | `t3 app <dir>` opens a project and thread | exact2 | local-primary-environment; E4 decision | Needs the primary environment | socket test, effect |
 | 4 | [20261005-auto-balance](tasks/closed/20261005-auto-balance.md) | Auto balance and the multi-machine update banner | exact2 | server-update-banner | Reuses the update store of the banner ticket | trace, oracle pairs |
-| 4 | [20261005-portable-app-download](tasks/20261005-portable-app-download.md) | Downloadable `.app` archive that runs on a clean Mac account | exact2 | embedded-server-runtime, local-primary-environment, terminal-surface; U11 decided (ad-hoc, zip, macOS 14 VM) | Proves the self-contained requirement once the server connects and the large assets exist | clean-account run |
-| 4 | [20261005-pr-header-actions-and-stacks](tasks/20261005-pr-header-actions-and-stacks.md) | PR primary control, More menu, dialogs, failure hints, freshness popover, stacks | exact2 | real-github-lane, pr-conversation-and-refresh | Needs the PR model | lane gh log, GitHub read-back, oracle pairs |
-| 4 | [20261005-pr-writing-and-metadata](tasks/20261005-pr-writing-and-metadata.md) | Comments, reviews, edits, reviewers, labels, reactions | exact2 | real-github-lane, pr-conversation-and-refresh | Needs the PR model | lane gh log, GitHub read-back, oracle pairs |
+| dropped (2026-10-08, PR #260 cancelled) | [20261005-portable-app-download](tasks/closed/20261005-portable-app-download.md) | Downloadable `.app` archive that runs on a clean Mac account | exact2 | embedded-server-runtime, local-primary-environment, terminal-surface; U11 decided (ad-hoc, zip, macOS 14 VM) | Proves the self-contained requirement once the server connects and the large assets exist | clean-account run |
+| 4 | [20261005-pr-header-actions-and-stacks](tasks/closed/20261005-pr-header-actions-and-stacks.md) | PR primary control, More menu, dialogs, failure hints, freshness popover, stacks | exact2 | real-github-lane, pr-conversation-and-refresh | Needs the PR model | lane gh log, GitHub read-back, oracle pairs |
+| 4 | [20261005-pr-writing-and-metadata](tasks/closed/20261005-pr-writing-and-metadata.md) | Comments, reviews, edits, reviewers, labels, reactions | exact2 | real-github-lane, pr-conversation-and-refresh | Needs the PR model | lane gh log, GitHub read-back, oracle pairs |
 | 4 | [20261005-sign-in-terminals](tasks/closed/20261005-sign-in-terminals.md) | Terminal sign-in for ACP agents and onboarding | exact2 | provider-sign-in-and-install, terminal-drawer | Joins both | attended |
 | 4 | [20261005-terminal-layout](tasks/closed/20261005-terminal-layout.md) | Terminal tabs, splits, panel surface, keys, sidebar indicator, terminal close behavior | exact2 | right-panel-tab-menu, terminal-drawer | Builds on the drawer; split from integrations for size | ported tests, attended |
-| 4 | [20261005-this-machine-network-access](tasks/20261005-this-machine-network-access.md) | Network access, Tailscale HTTPS, authorized clients, pairing links | exact2 | local-primary-environment; U4 decided (relaunch, X45); Tailscale decision U9 | Needs the primary environment | effect (LISTEN, pairing), attended firewall |
-| 4 | [20261005-usage-pooled-view](tasks/20261005-usage-pooled-view.md) | Pooled Usage page across connected environments, account popover with redeem, Cursor keychain enable prompt | exact2 | usage-reset-and-feedback | Reuses the redeem machinery and bars from usage-reset-and-feedback | trace, oracle pairs |
-| 5 | [20261005-pr-handoffs-and-quick-actions](tasks/20261005-pr-handoffs-and-quick-actions.md) | PR panel hand-offs (Ask, Explain, Fix findings, Check out), header fold, Shift quick actions, row menu and popovers | exact2 | real-github-lane, pr-conversation-and-refresh, pr-header-actions-and-stacks | Split from the header ticket for size; the Code tab and links reuse the hand-offs and row menus | lane gh log, GitHub read-back, oracle pairs, attended Shift |
+| 4 | [20261005-this-machine-network-access](tasks/closed/20261005-this-machine-network-access.md) | Network access, Tailscale HTTPS, authorized clients, pairing links | exact2 | local-primary-environment; U4 decided (relaunch, X45); Tailscale decision U9 | Needs the primary environment | effect (LISTEN, pairing), attended firewall |
+| 4 | [20261005-usage-pooled-view](tasks/closed/20261005-usage-pooled-view.md) | Pooled Usage page across connected environments, account popover with redeem, Cursor keychain enable prompt | exact2 | usage-reset-and-feedback | Reuses the redeem machinery and bars from usage-reset-and-feedback | trace, oracle pairs |
+| 5 | [20261005-pr-handoffs-and-quick-actions](tasks/closed/20261005-pr-handoffs-and-quick-actions.md) | PR panel hand-offs (Ask, Explain, Fix findings, Check out), header fold, Shift quick actions, row menu and popovers | exact2 | real-github-lane, pr-conversation-and-refresh, pr-header-actions-and-stacks | Split from the header ticket for size; the Code tab and links reuse the hand-offs and row menus | lane gh log, GitHub read-back, oracle pairs, attended Shift |
 | 5 | [20261005-terminal-integrations](tasks/closed/20261005-terminal-integrations.md) | Selection actions, Add to chat, terminal menus, links, scripts, Run in terminal, Open terminal | exact2 | terminal-drawer, terminal-layout | Needs tabs and the panel surface | ported tests, attended |
 | 6 | [20261005-pr-code-tab](tasks/20261005-pr-code-tab.md) | PR Code tab with review threads | exact2 | diff-review-engine, real-github-lane, pr-conversation-and-refresh, pr-handoffs-and-quick-actions, pr-writing-and-metadata | Reuses the diff engine, the writes, and the hand-off functions of pr-handoffs-and-quick-actions | real-GitHub lane, oracle pairs |
 | 6 | [20261005-pr-links-previews-and-routing](tasks/20261005-pr-links-previews-and-routing.md) | Thread links, `#N` hover cards, cross-environment routing | exact2 | environment-routes, real-github-lane, pr-conversation-and-refresh, pr-handoffs-and-quick-actions, pr-header-actions-and-stacks | Routing trust depends on routes; row menus from pr-handoffs-and-quick-actions | real-GitHub lane, trace |
 | 7 (last) | [20261005-interface-font-size](tasks/closed/20261005-interface-font-size.md) | Root font size foundation: `rem` check, size map, shared style classes (per-area conversion tickets follow) | exact2 | resolved framework issue X3 (if reproduced); preference: after all UI tickets | Converts every UI size; last to avoid churn | matrix at 16 px unchanged; 12/20 px pairs |
 | 8 (last) | [20261005-interface-font-size-conversion](tasks/closed/20261005-interface-font-size-conversion.md) | Every surface scales with the interface font size (split per area at prepare) | exact2 | interface-font-size; resolved framework issue X3 (if reproduced); preference: after the area's last UI ticket | Needs the root size and the size map | matrix at 16 unchanged; 12/20 pairs |
 | blocked (X2) | [20261005-app-developer-tools](tasks/20261005-app-developer-tools.md) | View › Toggle Developer Tools | exact2 | issue X2 resolved or decided | DEFERRED refuses a devtools UI; waits for X2 | blocked |
-| blocked (X40) | [20261005-app-update-feed](tasks/20261005-app-update-feed.md) | The T3 desktop update feed and its UI | exact2 | issue X40 resolved or decided | Excluded scope; implemented or closed after the X40 decision | blocked |
+| closed (X40 closed by the user, 2026-10-08) | [20261005-app-update-feed](tasks/closed/20261005-app-update-feed.md) | The T3 desktop update feed and its UI | exact2 | issue X40 resolved or decided | Excluded scope; implemented or closed after the X40 decision | blocked |
 | blocked (X1) | [20261005-browser-surface](tasks/20261005-browser-surface.md) | The reference Browser surface (tabs, navigation, Annotate, capture, PiP, device toolbar, profiles, automation) | exact2 | issue X1 resolved or decided | Needs framework support for Chromium and a DEFERRED waiver; written now so it can start when X1 is resolved | blocked |
-| blocked (X38) | [20261005-t3-connect-sign-in](tasks/20261005-t3-connect-sign-in.md) | T3 Connect / Clerk sign-in, relay connections, `t3code://` handoff | exact2 | issue X38 resolved or decided; X5 | Excluded scope; implemented or closed after the X38 decision | blocked |
-| blocked (X39) | [20261005-telemetry](tasks/20261005-telemetry.md) | Desktop and server telemetry | exact2 | issue X39 resolved or decided | Excluded scope; implemented or closed after the X39 decision | blocked |
-| blocked (X41) | [20261005-wsl-environments](tasks/20261005-wsl-environments.md) | WSL environments (Windows only) | exact2 | issue X41 resolved or decided | Excluded scope; likely closed as not applicable on macOS after the X41 decision | blocked |
+| closed (X38 closed by the user, 2026-10-08) | [20261005-t3-connect-sign-in](tasks/closed/20261005-t3-connect-sign-in.md) | T3 Connect / Clerk sign-in, relay connections, `t3code://` handoff | exact2 | issue X38 resolved or decided; X5 | Excluded scope; implemented or closed after the X38 decision | blocked |
+| closed (X39 closed by the user, 2026-10-08) | [20261005-telemetry](tasks/closed/20261005-telemetry.md) | Desktop and server telemetry | exact2 | issue X39 resolved or decided | Excluded scope; implemented or closed after the X39 decision | blocked |
+| closed (X41 closed by the user, 2026-10-08) | [20261005-wsl-environments](tasks/closed/20261005-wsl-environments.md) | WSL environments (Windows only) | exact2 | issue X41 resolved or decided | Excluded scope; likely closed as not applicable on macOS after the X41 decision | blocked |
 
 New discoveries from the desktop audit have independent scope; the original numbered groups
 do not impose new prerequisites on them:
@@ -212,11 +232,17 @@ do not impose new prerequisites on them:
 | --- | --- | --- | --- |
 | [20261007-invalid-pairing-url-validation](tasks/closed/20261007-invalid-pairing-url-validation.md) | Validate malformed Welcome links and keep pairing errors in their form | none identified | focused connection tests and paired Welcome drive |
 | [20261007-installed-font-picker](tasks/20261007-installed-font-picker.md) | Discover, validate and apply installed font families | X48 for runtime family application | native face readback, preference readback and paired pickers |
-| [20261007-settings-model-picker](tasks/20261007-settings-model-picker.md) | Search, browse providers, favorite and expand legacy models from General | reuse existing model catalog/picker | scoped writes and paired settings drive |
-| [20261007-theme-color-picker](tasks/20261007-theme-color-picker.md) | Select theme colors through hue, saturation/brightness, HEX and RGB | reuse existing app color controls | paired input drive and theme readback |
-| [20261007-desktop-visual-parity](tasks/20261007-desktop-visual-parity.md) | One batch for preview icons/highlighting, selector alignment and clipped Markdown tables | none identified | matching-state light/dark captures |
-| [20261007-editable-font-prompt-preview](tasks/20261007-editable-font-prompt-preview.md) | Type, select and undo in Appearance's isolated prompt sample | none identified | live preview editing and draft isolation |
-| [20261007-title-custom-snooze](tasks/20261007-title-custom-snooze.md) | Open Custom snooze from the thread title menu, matching the working sidebar route | none identified | same-thread title/sidebar comparison |
+| [20261007-settings-model-picker](tasks/closed/20261007-settings-model-picker.md) | Search, browse providers, favorite and expand legacy models from General | reuse existing model catalog/picker | scoped writes and paired settings drive |
+| [20261007-theme-color-picker](tasks/closed/20261007-theme-color-picker.md) | Select theme colors through hue, saturation/brightness, HEX and RGB | reuse existing app color controls | paired input drive and theme readback |
+| [20261007-desktop-visual-parity](tasks/closed/20261007-desktop-visual-parity.md) | One batch for preview icons/highlighting, selector alignment and clipped Markdown tables | none identified | matching-state light/dark captures |
+| [20261007-editable-font-prompt-preview](tasks/closed/20261007-editable-font-prompt-preview.md) | Type, select and undo in Appearance's isolated prompt sample | none identified | live preview editing and draft isolation |
+| [20261007-title-custom-snooze](tasks/closed/20261007-title-custom-snooze.md) | Open Custom snooze from the thread title menu, matching the working sidebar route | none identified | same-thread title/sidebar comparison |
+
+Planned on 2026-10-08 by the user's decision (it starts after #290 and the four `20261008-fix-*` PRs merge):
+
+| Task | Outcome | Dependency | Verification |
+| --- | --- | --- | --- |
+| [20261008-app-contract-root-rewrite](tasks/20261008-app-contract-root-rewrite.md) | `app.contract`'s root keeps only resources, mutations, tasks and the state they read; view-only state and action halves move to area child components; about 1,200 lines or less | #290 and the four `20261008-fix-*` PRs merged | clone checks, the three source-reading tests, one macOS drive per moved area, five checks |
 
 Task files own mutable status. Links must be updated when a task closes or reopens.
 
@@ -269,7 +295,7 @@ Task files own mutable status. Links must be updated when a task closes or reope
 
 | Workflow | Reset and fixture | Required platforms | Assertions | Evidence |
 | --- | --- | --- | --- | --- |
-| Fresh install from the download | The `.app` archive from `portable-app-download`; the clean environment chosen in U11 at the spec's minimum macOS, with no repo, Bun, Node or T3; one provider CLI installed through its standalone installer (no Node) | macOS 14 VM or second Mac (or the lowered minimum, U11), Apple Silicon | First launch unpacks and starts the embedded server; the server reports the pinned version and commit; onboarding; add a project; new thread; send; stream; approval; diff; terminal (the `terminal-drawer` "Embedded server" row); relaunch keeps state; `which node` still finds nothing | screenshots, server pid/port/version, `~/.t3` tree, logs |
+| Fresh install from the download (dropped 2026-10-08 with `portable-app-download`: anyone who clones exact2 builds and runs the app locally instead) | The `.app` archive from `portable-app-download`; the clean environment chosen in U11 at the spec's minimum macOS, with no repo, Bun, Node or T3; one provider CLI installed through its standalone installer (no Node) | macOS 14 VM or second Mac (or the lowered minimum, U11), Apple Silicon | First launch unpacks and starts the embedded server; the server reports the pinned version and commit; onboarding; add a project; new thread; send; stream; approval; diff; terminal (the `terminal-drawer` "Embedded server" row); relaunch keeps state; `which node` still finds nothing | screenshots, server pid/port/version, `~/.t3` tree, logs |
 | Desktop parity matrix | Lane fixture backend at the server pin; oracle at the same pin | macOS 1280×840 and 840×620, light and dark | Every surface pair is "match" or a declared exact2 deviation with an issue link | matrix in `AGENT-HANDOFF.md` |
 | Protocol parity | Scenario set from `desktop-oracle-and-trace` | macOS | Trace diff clean or allow-listed with reasons; RPC tally: every method the reference desktop calls in a scenario is called by the clone, except excluded features | trace reports, RPC tally |
 | Local server lifecycle | Embedded server running | macOS | Crash → restart with backoff; settings change → restart/reconnect per decision; ⌘Q → no orphan process | `ps`, `lsof`, logs |
@@ -287,7 +313,8 @@ Task files own mutable status. Links must be updated when a task closes or reope
 Completion also needs: every ticket verified and merged into `main`, except the
 six blocked tickets (browser-surface, app-developer-tools, t3-connect-sign-in, telemetry,
 app-update-feed, wsl-environments), which are either done the same way after their issue is
-resolved or decided, or closed by that decision; and every issue in `issues/` closed —
+resolved or decided, or closed by that decision (the last four were closed by the user's decision on
+X38–X41, 2026-10-08), and portable-app-download, dropped on 2026-10-08; and every issue in `issues/` closed —
 resolved upstream and adopted in the app (verified by `issue-close`), or closed by the
 user's decision. Criteria blocked today: X3 (if reproduced), X7 (one `media-actions`
 criterion), X4 (only if the archive workaround fails), X32–X34 (their rows, if the capability

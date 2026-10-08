@@ -55,10 +55,10 @@ Reference rules to keep: line comments only on the whole change (not under a com
 | --- | --- | --- | --- | --- |
 | merged task PR | [20261005-clone-on-exact2-main](20261005-clone-on-exact2-main.md) | pending | Merged | pending |
 | merged task PR | [20261005-desktop-oracle-and-trace](20261005-desktop-oracle-and-trace.md) | pending | Merged | pending |
-| merged task PR | [20261005-pr-conversation-and-refresh](20261005-pr-conversation-and-refresh.md) | pending | Merged (threads, activity, refresh) | pending |
-| merged task PR | [20261005-pr-writing-and-metadata](20261005-pr-writing-and-metadata.md) | pending | Merged (composer, review store, editor, reactions) | pending |
+| merged task PR | [20261005-pr-conversation-and-refresh](closed/20261005-pr-conversation-and-refresh.md) | pending | Merged (threads, activity, refresh) | pending |
+| merged task PR | [20261005-pr-writing-and-metadata](closed/20261005-pr-writing-and-metadata.md) | pending | Merged (composer, review store, editor, reactions) | pending |
 | merged task PR | [20261005-diff-review-engine](closed/20261005-diff-review-engine.md) | pending | Merged (annotation rows, tree, lazy rows, line-comment cards) | pending |
-| merged task PR | [20261005-pr-handoffs-and-quick-actions](20261005-pr-handoffs-and-quick-actions.md) | pending | Merged (`buildFixFindingHandoff`, `buildAddSelectionToAgentHandoff`, the hand-off runner) | pending |
+| merged task PR | [20261005-pr-handoffs-and-quick-actions](closed/20261005-pr-handoffs-and-quick-actions.md) | pending | Merged (`buildFixFindingHandoff`, `buildAddSelectionToAgentHandoff`, the hand-off runner) | pending |
 | merged task PR | [20261007-real-github-lane](closed/20261007-real-github-lane.md) | pending | Sandbox `many-files` and `second-review` threads; probe rows for diff slices, `diffFileContents`, `filesViewed`, `setFilesViewed` and the thread writes confirmed | pending |
 | merged task PR | [20261005-hot-file-split](closed/20261005-hot-file-split.md) | pending | Merged into `daehyeon/t3-code` (common prerequisite: room and per-area seams in the shared files) | pending |
 

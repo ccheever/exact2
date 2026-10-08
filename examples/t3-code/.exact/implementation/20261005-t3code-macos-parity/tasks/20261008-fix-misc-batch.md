@@ -3,7 +3,7 @@ name: 20261008-fix-misc-batch
 plan: 20261005-t3code-macos-parity
 implementation: implemented
 verification: verified
-delivery: draft
+delivery: merged
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: 'feat(example)/t3-code-fix-misc-batch'

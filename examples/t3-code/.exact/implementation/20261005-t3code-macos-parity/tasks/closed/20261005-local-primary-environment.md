@@ -95,7 +95,7 @@ settings; default is the clone's own `t3-code.json`, so a change made in the ori
 | merged task PR | [20261005-embedded-server-runtime](20261005-embedded-server-runtime.md) | [#222](https://github.com/ccheever/exact2/pull/222) | Merged; spike result is go | merged; spike go |
 | scheduling preference | `20261005-environment-routes` first | [#148](https://github.com/ccheever/exact2/pull/148) | Both touch `environmentKey` call sites | merged first |
 | merged task PR | [20261005-hot-file-split](20261005-hot-file-split.md) | [#147](https://github.com/ccheever/exact2/pull/147) | Merged into `daehyeon/t3-code` (common prerequisite: room and per-area seams in the shared files) | merged |
-| recorded decision | U4 decided (relaunch, as T3 Code); U5 to U7 and U13 (real-home smoke) | none | U5–U7 and U13 answered at `prepare` | U4: user 2026-10-05; U5, U6, U7 decided 2026-10-08 (user: match the original; [provisional-decisions-parity](../20261008-provisional-decisions-parity.md)): U5 keeps the connecting state until exact2 #117 lets an app hold its first window, U6 removes the duplicate as the reference's registry, U7 moves the settings to `<T3 home>/userdata/desktop-settings.json`; U13 taken provisionally for this PR (coordinator brief 2026-10-07), user decision pending |
+| recorded decision | U4 decided (relaunch, as T3 Code); U5 to U7 and U13 (real-home smoke) | none | U5–U7 and U13 answered at `prepare` | U4: user 2026-10-05; U5, U6, U7 decided 2026-10-08 (user: match the original; [provisional-decisions-parity](20261008-provisional-decisions-parity.md)): U5 keeps the connecting state until exact2 #117 lets an app hold its first window, U6 removes the duplicate as the reference's registry, U7 moves the settings to `<T3 home>/userdata/desktop-settings.json`; U13 taken provisionally for this PR (coordinator brief 2026-10-07), user decision pending |
 | scheduling preference | After `20261005-remote-scopes-and-update-commands` | [#142](https://github.com/ccheever/exact2/pull/142) | The Version row's desktop-managed sentence | merged first |
 
 ## Issue assessment at preparation
@@ -143,7 +143,7 @@ Required environment: the staged runtime, pinned Bun, Xcode 27.0, lane ports 160
 
 Implemented on `feat(example)/t3-code-local-primary-environment` (2026-10-07) from `feat(example)/t3-code` `38352ceaf`,
 with `fbce02624` (#231, records only) merged in. Reference `1e2ecbd975`. Decisions U5, U6 and U7 were decided on
-2026-10-08 (user: match the original; [provisional-decisions-parity](../20261008-provisional-decisions-parity.md)): U5, the first window shows the connecting state until the primary
+2026-10-08 (user: match the original; [provisional-decisions-parity](20261008-provisional-decisions-parity.md)): U5, the first window shows the connecting state until the primary
 connects, until exact2 #117 / X31 lets an app hold its first window (re-checked on main `f464bad43`: still no way);
 U6, a saved duplicate of the primary goes as in the reference's registry (GitHub sharing trust, entry and credential,
 silently; a focused one hands the window to the primary; pairing this machine saves nothing); U7, the switch and the

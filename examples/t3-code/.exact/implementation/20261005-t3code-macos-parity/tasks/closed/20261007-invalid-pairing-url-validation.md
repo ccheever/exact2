@@ -3,7 +3,7 @@ name: 20261007-invalid-pairing-url-validation
 plan: 20261005-t3code-macos-parity
 implementation: verified
 verification: passed
-delivery: open
+delivery: merged
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-invalid-pairing-url

@@ -55,8 +55,8 @@ Reference rules to keep: writes route only when both servers are "read-write", r
 | merged task PR | [20261005-clone-on-exact2-main](20261005-clone-on-exact2-main.md) | pending | Merged | pending |
 | merged task PR | [20261005-desktop-oracle-and-trace](20261005-desktop-oracle-and-trace.md) | pending | Merged | pending |
 | merged task PR | [20261005-environment-routes](closed/20261005-environment-routes.md) | pending | Merged (saved-environment key; `gitHubRoutingConnectionKey` over several routes) | pending |
-| merged task PR | [20261005-pr-conversation-and-refresh](20261005-pr-conversation-and-refresh.md) | pending | Merged | pending |
-| merged task PR | [20261005-pr-handoffs-and-quick-actions](20261005-pr-handoffs-and-quick-actions.md) | pending | Merged (row menus, Check out menu and the hand-offs that "Act on" redirects; it already follows `20261005-pr-header-actions-and-stacks`, whose More menu also carries the radio) | pending |
+| merged task PR | [20261005-pr-conversation-and-refresh](closed/20261005-pr-conversation-and-refresh.md) | pending | Merged | pending |
+| merged task PR | [20261005-pr-handoffs-and-quick-actions](closed/20261005-pr-handoffs-and-quick-actions.md) | pending | Merged (row menus, Check out menu and the hand-offs that "Act on" redirects; it already follows `20261005-pr-header-actions-and-stacks`, whose More menu also carries the radio) | pending |
 | merged task PR | [20261007-real-github-lane](closed/20261007-real-github-lane.md) | pending | Sandbox's bulk pull requests page the list (probe `R3`/`R4`); a second lane server per account | pending |
 | merged task PR | [20261005-hot-file-split](closed/20261005-hot-file-split.md) | pending | Merged into `daehyeon/t3-code` (common prerequisite: room and per-area seams in the shared files) | pending |
 
