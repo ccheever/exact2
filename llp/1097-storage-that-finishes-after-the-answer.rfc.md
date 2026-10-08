@@ -165,8 +165,7 @@ code that started it has returned, and an unhandled rejection reaches the
 console. Order is the store's own. IndexedDB runs transactions with
 overlapping scopes in creation order, and a SQLite worker runs its queue in
 order. But `storage-fs.js`'s reads do not wait for an earlier write
-(`readFile` does not wait on `mutate`). A page being unloaded may lose what is in flight; D10's web row
-(2026-10-08) journals the filesystem's share of it.
+(`:349–350`). A page being unloaded may lose what is in flight.
 
 This RFC makes Hermes and the wasm realm finish storage as a browser does. It
 adds what the web leaves to chance, on every host including the JS target:
@@ -658,64 +657,8 @@ One rule per event:
 | macOS quit | `applicationShouldTerminate` returns `NSApplication.TerminateReply.terminateLater` while a ticket is out. The app calls `NSApp.reply(toApplicationShouldTerminate: true)` at the ticket's end, or when its own 5 s timer fires. | 5 s |
 | iOS and tvOS suspension | `UIApplication.beginBackgroundTask` is held while a ticket is out and ended when it ends. The expiration handler calls `endBackgroundTask`. A suspension can still cut a write once the assertion expires. | the system's |
 | Linux orderly exit | The presenter finishes it before exit. | 5 s |
-| Web `pagehide` (amended 2026-10-08) | The filesystem journals its uncommitted mutations to `localStorage`, synchronously, and the next page replays them first, exactly once (below). SQLite, a worker realm and a killed browser still commit or lose; the docs say so. | the event's own (synchronous) |
+| Web `pagehide` | The browser commits or loses what is in flight; the docs say so. | — |
 
-- **The web filesystem across a closed tab** (amended 2026-10-08, Charlie: "look
-  at the exact2 side first"; the authoring bench, t5-pomodoro on Android's web
-  cell). A `storage.fs` mutation is one IndexedDB transaction, and Chrome drops a
-  transaction still running when the page goes away: a setting committed with
-  Enter and the tab closed 4 ms later was lost 4 of 4 times.
-  - **The JS target only.** The JS target's filesystem (`ts-data.js`, one per
-    app, its module's grants) opts in; the wasm realm's (`storage.js`) and the
-    Rust requests' per-scope filesystems (`storage-request.js`) neither journal
-    nor replay. Apps ship on the JS target (LLP 1071).
-  - **A journal per realm (a session).** `storage-fs.js` keeps each mutation as
-    an entry from the moment it is accepted until it commits. The JS target's
-    storage queue (`ts-data.js`) accepts it when the app calls (`admit`; a write
-    queued before the filesystem module loaded is admitted, in queue order, when
-    it does), so a write waiting behind others is an entry too. Only a mutation
-    the grants admit is an entry. The mutation's own transaction adds its
-    sequence number to the session's applied set (the last 1,024, under a key no
-    listing reaches), so whether an entry committed does not depend on the order
-    entries ran in. A mutation that fails once the page is going (its
-    transaction dropped) stays in the journal.
-  - **Written when the page may go.** While the page is hidden, and from
-    `pagehide`, the session's entries are in `localStorage` under its own key
-    (`exact-storage-journal:<app>:<session>`), rewritten synchronously as
-    entries come and go. A phone may discard a hidden tab with no `pagehide`.
-  - **Replayed only when its page is gone.** Each session holds a Web Lock for
-    its realm's life. A later realm's filesystem takes the app's recovery lock
-    (one recovery at a time; a page opening during one waits for it), takes the
-    lock of each session whose page is gone, and replays their entries
-    interleaved by the time each was accepted, skipping any its session applied
-    and checking each against this launch's grants. Each replayed entry adds
-    itself to its session's applied set, so a replay cut short resumes and an
-    append lands once. Then it drops what was replayed. This filesystem's own
-    reads and mutations wait for that.
-  - **Failures (D8).** A replayed entry that fails for good (`ENOENT`,
-    `EISDIR`, `ENOTDIR`, `EEXIST`, `ENOTEMPTY`, a refusal) is skipped; a busy
-    path is retried; any other failure ends the recovery and drops every entry
-    left, reported, because kept it could later land over a newer save this
-    launch makes. Each is a `storage failed:` line in the runtime's journal
-    (`fs.recovery`) and a console warning.
-  - **Bounded.** At most 512 entries are pending in a journal (half the applied
-    set), so a committed entry's sequence number is always still in its
-    session's set; a write past that is not journaled.
-  - **Measured after it:** the same close kept the setting 10 of 10 times on the
-    JS target.
-  - **Not covered**, and the pitfall says so:
-    - the wasm realm and Rust storage requests (above);
-    - SQLite (its worker's transaction is its own);
-    - a source placed in a worker (no `pagehide`, no synchronous storage);
-    - writes still queued inside a wasm-realm source (`prelude.js`) behind the
-      one running;
-    - `compressImage` before its encoded bytes reach the filesystem;
-    - two dead tabs' entries accepted in the same millisecond replay in session
-      order, which may not be the order they ran in;
-    - entries past the journal's 2 MB bound (the prefix that fits is kept);
-    - a browser that is killed rather than closed (no event fires);
-    - `createFileStore`'s direct users (the picker, SQLite's worker), which do
-      not wait for a replay.
 - **A dev edit and the 100 ms budget.** A dev edit never waits on the web. A
   native dev restart waits only for work actually in flight, which is usually
   none, so the p50 budget (`rules/RULES.md`) is untouched.

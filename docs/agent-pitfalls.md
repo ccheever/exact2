@@ -485,6 +485,15 @@ guide's rules don't make obvious.
 
 ## Driving and testing
 
+- **On the web, a save still in flight when the tab closes is lost.** A
+  `storage.fs` write is one IndexedDB transaction, and the browser drops a
+  transaction still running when the page goes away (an immediate close after
+  Enter lost it 4 of 4 times; native hosts finish it, LLP 1097 D10). In a test,
+  let saves land (`clock data`, or wait for the saved state) before `reload`,
+  `relaunch` or closing. In the app, show a saving state until the write
+  resolves. (Authoring bench, LLP 1087, t5-pomodoro on the Android round,
+  2026-10-08.)
+
 - **A test fixture that patches `window.fetch` after boot changes nothing.** A
   data source's `fetch` is captured when the data module loads, so a stub
   installed later (a browser script's `page.evaluate`, a console patch) never
@@ -492,15 +501,6 @@ guide's rules don't make obvious.
   guide's testing section); a fixture that must stand in for the network
   installs its stub before the document loads (`addInitScript`) or serves a
   stand-in server. (Authoring bench, LLP 1087, t8-library, codex, 2026-10-08.)
-- **A write in flight when the browser is killed is lost; a closed tab keeps a
-  file write.** On the web, a `storage.fs` write still running when the tab
-  closes is journaled and replayed at the next launch (LLP 1097 D10), so a
-  setting saved and the tab closed at once survives. A SQLite statement, a
-  source placed in a worker, and anything in flight when the browser process is
-  killed (a test harness closing its browser context does this: no `pagehide`)
-  still commit or are lost. In a test, end the step that saves with `clock
-  settle` (or read the value back) before a relaunch. (Authoring bench, LLP
-  1087, t5-pomodoro, 2026-10-08.)
 
 - **`xcrun simctl io booted screenshot` can capture the wrong simulator.** With
   several simulators booted, `booted` names any one of them, not the one the
