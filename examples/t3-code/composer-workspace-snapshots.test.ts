@@ -90,4 +90,27 @@ describe('workspace provider discovery', () => {
     discovery.state('env', 1, provider, '/repo', { prompt: 'typed while out', config });
     resolve({ providers: [provider] }); expect(await pending).toEqual({ key, retry: true, wake: wake + 1 });
   });
+  // fix-provider-auth-state, bug 20 (#298): with Settings › Providers open, a pending snapshot kept the root's
+  // retry clock sending server.refreshProviders every ~11 s. The reference's ChatComposer is unmounted on the
+  // settings, usage, pull request and welcome routes, and mounting it again starts its refs over.
+  test('an unmounted composer asks for nothing; mounting it again refreshes at once with a fresh attempt', async () => {
+    const discovery = new WorkspaceDiscovery(), config = { providers: [partial] }; let calls = 0;
+    const request = async () => { calls++; return { providers: [partial] }; };
+    const mounted = discovery.state('env', 1, partial, '/repo', { prompt: '', config }, true);
+    expect(await discovery.refresh(mounted.key, request)).toMatchObject({ key: mounted.key, retry: true });
+    const hidden = discovery.state('env', 1, partial, '/repo', { prompt: '', config }, false);
+    expect(hidden).toMatchObject({ key: '', needed: false, timer: false });
+    // A mutation the root sent just before the route changed sends nothing either.
+    expect(await discovery.refresh(mounted.key, request)).toMatchObject({ retry: false });
+    // The mutation's own recheck keeps the last answer's visibility.
+    expect(discovery.state('env', 1, partial, '/repo', { prompt: '', config })).toMatchObject({ key: '', needed: false });
+    expect(calls).toBe(1);
+    const again = discovery.state('env', 1, partial, '/repo', { prompt: '', config }, true);
+    expect(again).toMatchObject({ needed: true, timer: true });
+    expect(again.key).not.toBe(mounted.key);
+    await discovery.refresh(again.key, request); expect(calls).toBe(2);
+    // A complete snapshot stays complete across the remount: nothing to refresh.
+    discovery.state('env', 1, complete, '/repo', { prompt: '', config }, false);
+    expect(discovery.state('env', 1, complete, '/repo', { prompt: '', config }, true)).toMatchObject({ needed: false });
+  });
 });

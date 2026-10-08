@@ -199,7 +199,7 @@ component T3Code
     if not pending(timelineReadsRefreshedNext)
       send timelineReadsRefreshedNext = refreshTimelineReads(wallTime.epochAtZero + now())
   state liveNow = 0 // The timeline's "Working for 12s" ticks each second while a run is live.
-  resource workspaceDiscovery = composerWorkspace(data.revision) as shape WorkspaceDiscovery
+  resource workspaceDiscovery = composerWorkspace(data.revision, not settingsOpen and not pageCover and not welcome.show) as shape WorkspaceDiscovery // ChatComposer is mounted on the chat view only
   mutation workspaceRefreshed as shape WorkspaceRefresh refreshes workspaceDiscovery, data then workspaceRefreshFinished
   state workspaceRetryKey = ""
   state workspaceRetryAt = 0

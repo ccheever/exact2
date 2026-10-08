@@ -261,6 +261,44 @@ describe('managed Codex setup (CodexSetupSection)', () => {
     expect(providerWizard(fake, true, 4, 'codex', false, '', false, '', 'chatgpt').chatgpt).toEqual([]);
   });
 
+  // fix-provider-auth-state (#312 review): bug 21's cause was a dialog drawing the Account row the page behind it
+  // draws, under the same ids. The Add ChatGPT account dialog draws CodexSetupRow for the account it created; the
+  // Settings editor behind it keeps the instance it had selected (only "provider-add" selects the created one), and
+  // every element id CodexSetupRow draws is made from its instance id, so the two never share an id.
+  test('the Add ChatGPT account dialog and the Settings editor behind it name no element id alike', async () => {
+    const fake = new Fake([provider({ installed: true, setup: { canInstall: true, canAuthenticate: true } })]);
+    fake.ids = async (_native: Native, count: number) => ['7d1c', '0000'].slice(0, count);
+    fake.handlers['server.getSettings'] = () => obj(fake.config.settings);
+    fake.handlers['server.getConfig'] = () => fake.config;
+    providerWizard(fake, true, 5, 'codex', false, '', false, '', 'chatgpt');
+    await runProviderOp(fake, fake, 'provider-chatgpt', '', JSON.stringify({ key: 'Work', value: '' }));
+    fake.config.providers = [...(fake.config.providers as Obj[]), provider({ instanceId: 'codex_7d1c', displayName: 'ChatGPT - Work', setup: { canInstall: true, canAuthenticate: true } })];
+    const dialog = providerWizard(fake, true, 5, 'codex', false, '', false, '', 'chatgpt').chatgpt.flatMap(created => created.setup.map(setup => setup.instanceId));
+    expect(dialog).toEqual(['codex_7d1c']);
+    // Behind it: the row Settings had selected (or the first row), drawn with its own CodexSetupRow.
+    for (const selection of ['', instanceId]) {
+      const behind = providerPage(fake, selection, 0).editors.flatMap(editor => editor.setup.codex.map(setup => setup.instanceId));
+      expect(behind).toEqual([instanceId]);
+      expect(behind.filter(id => dialog.includes(id))).toEqual([]);
+    }
+    const contract = await Bun.file(new URL('./codex-setup.contract', import.meta.url)).text();
+    const lines = contract.split('\n');
+    const component = (name: string) => {
+      const start = lines.indexOf(`component ${name}`), end = lines.findIndex((line, index) => index > start && /^\S/.test(line) && !line.startsWith('//'));
+      return lines.slice(start, end).join('\n');
+    };
+    // Every id, focus target and aria-controls the row and its parts draw comes from the instance id ("" draws none).
+    const drawn = ['CodexSetupRow', 'CodexCallbackForm', 'CodexHelpToggle', 'ChatGptAccountSetup'].map(component).join('\n');
+    const ids = drawn.match(/\b(?:id|target|aria-controls)=(?:`[^`]*`|"[^"]*")/g) ?? [];
+    expect(ids.length).toBeGreaterThanOrEqual(5);
+    expect(ids.filter(value => !/\$\{(?:setup\.)?instanceId\}/.test(value) && !/=""$/.test(value))).toEqual([]);
+    // Only an added provider becomes the page's selection; the ChatGPT account create is "provider" (or "provider-close" on the welcome).
+    const app = await Bun.file(new URL('./app.contract', import.meta.url)).text();
+    expect(app.match(/providerSelected = providerCreated/g)).toHaveLength(1);
+    expect(app).toContain('if pendingModal == "provider-add"\n            providerDialog = wizardManual or wizardDriver == "acpRegistry" ? providerDialog : ""\n            providerSelected = providerCreated');
+    expect(app).toContain('(op == "provider-chatgpt" and welcome.show) ? "provider-close" : "provider")');
+  });
+
   test('a remote environment signs in on the loopback primary: profile, handoff, import; a dropped stream is never subscribed again', async () => {
     const fake = await rendered(auth(), installed());
     const primary: Obj[] = [];

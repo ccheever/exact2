@@ -128,3 +128,34 @@ test('agent setup buttons open a terminal without Enter and leaving the agents s
   await welcomeView(client, native, { step: 'connect', now: 0 });
   expect(calls[2]).toEqual({ method: 'terminal.close', payload: { threadId: 'onboarding-agent-setup', terminalId: 'onboarding-codex-fixture-id', deleteHistory: true } });
 });
+
+// fix-provider-auth-state, bug 18 (#298): after a ChatGPT sign-in on the welcome, the projects step re-subscribed
+// the Codex row's sign-in streams on every answer (~224 provider.auth.subscribe in 20 s). The reference mounts
+// OnboardingCodexSetup on the agents step only (WelcomeWizard.tsx:269-281).
+test('the agents step holds one sign-in subscription per stream, and the projects step holds none', async () => {
+  const ops: Obj[] = [];
+  const client = {
+    local: { deviceSettings: { appearanceMode: 'system' } }, origin: 'http://127.0.0.1:16250', environmentId: 'env-lane', connection: 'connected', statusMessage: '', scopes: [],
+    ready: true, writable: true, generation: 1,
+    config: { environment: { label: 'Lane Mac' }, settings: { providers: {}, providerInstances: { codex: { driver: 'codex', enabled: true, config: { setupMode: 'managed' } } } },
+      providers: [{ instanceId: 'codex', driver: 'codex', displayName: 'Codex', enabled: true, installed: true, status: 'ready', auth: { status: 'authenticated', type: 'chatgpt' }, setup: { canInstall: true, canAuthenticate: true } }] },
+    shell: { projects: [], threads: [], sequence: 0 }, threadId: '', projectId: '',
+    rpc: async () => ({ candidates: [], scannedAt: new Date().toISOString() }),
+  } as unknown as T3Client;
+  let serial = 0;
+  const native = { available: true, watch: () => {}, later: async (request: Obj) => {
+    ops.push(request);
+    if (request.op === 'environments') return { ok: true, value: { saved: [] }, generation: 1 };
+    if (request.op === 'subscribe') return { ok: true, value: { id: `sub-${++serial}` }, generation: 1 };
+    return { ok: true, value: {}, generation: 1 };
+  } } as unknown as Native;
+  const keys = (op: string) => ops.filter(request => request.op === op).map(request => String(request.key));
+  await welcomeView(client, native, { step: 'connect', now: Date.now() });
+  await welcomeLocal(client, native, 'setup', '', '');
+  for (let answer = 0; answer < 3; answer++) await welcomeView(client, native, { step: 'agents', now: 0 });
+  expect(keys('subscribe')).toEqual(['provider-auth:codex', 'provider-install:codex']);
+  // Continue to Projects: the rows unmount once; every later answer (each stream event asks again) subscribes nothing.
+  for (let answer = 0; answer < 3; answer++) await welcomeView(client, native, { step: 'import', now: Date.now() });
+  expect(keys('subscribe')).toEqual(['provider-auth:codex', 'provider-install:codex']);
+  expect(keys('unsubscribe')).toEqual(['provider-auth:codex', 'provider-install:codex']);
+});

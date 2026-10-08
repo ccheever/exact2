@@ -261,3 +261,22 @@ test('a ChatGPT account becomes one managed Codex instance with a uuid id (AddCo
   const creates = writes(server).map(call => obj(obj(call.payload).providerInstanceMutation)).filter(mutation => mutation.operation === 'create');
   expect(creates.map(mutation => mutation.instanceId)).toEqual(['codex_5f0c7d2e-1111-4a5b-9c3d-000000000001', 'codex_5f0c7d2e-2222-4a5b-9c3d-000000000002']);
 });
+
+// fix-provider-auth-state, bug 19 (#298): after Reconnect the list row kept painting "Not authenticated" while the
+// page said "Authenticated · ChatGPT" (X64: macOS keeps a wrapped paragraph's raster once it shrinks below the
+// raster size). The page answer was right; the row's status and the editor's status line are now new nodes per status.
+test('the list row and the editor read the same status, and each status is a node of its own (X64)', async () => {
+  const instances = { codex: { driver: 'codex', enabled: true, config: { setupMode: 'managed' } } };
+  const live = (auth: Obj) => [{ instanceId: 'codex', driver: 'codex', displayName: 'Codex', enabled: true, installed: true, status: auth.status === 'authenticated' ? 'ready' : 'warning',
+    message: auth.status === 'authenticated' ? '' : 'Sign in with ChatGPT to use Codex.', auth }];
+  const host = { config: { settings: { providerInstances: instances, providers: {} }, providers: live({ status: 'unauthenticated' }) }, ready: true, writable: true,
+    local: { favoriteModels: [] }, rpc: async () => ({}) } as unknown as ProviderHost;
+  const row = () => providerPage(host, 'codex', 0).rows.find(entry => entry.id === 'codex')!;
+  expect(row().status).toBe('Not authenticated · Sign in with ChatGPT to use Codex.');
+  host.config = { ...host.config, providers: live({ status: 'authenticated', type: 'chatgpt', label: 'ChatGPT' }) };
+  const page = providerPage(host, 'codex', 0);
+  expect([row().status, page.editors[0]!.statusLead, page.editors[0]!.statusLabel]).toEqual(['Authenticated · ChatGPT', 'Authenticated · ChatGPT', '']);
+  const source = await Bun.file(new URL('./providers.contract', import.meta.url)).text();
+  expect(source).toContain('each status in [row.status] key=status\n                              text status ');
+  expect(source).toContain('each status in [`${editor.dot}|${editor.statusLead}|${editor.statusEmail}|${editor.statusLabel}|${editor.statusDetail}`] key=status\n              row width="100%" min-width=0 padding-top="0.125rem"');
+});

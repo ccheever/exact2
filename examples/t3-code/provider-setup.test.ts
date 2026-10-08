@@ -415,4 +415,34 @@ describe('provider setup in the clone', () => {
     expect(providerWizard(fake, true, 8, 'acpRegistry', false, '', false, '').auth).toEqual([]);
     expect(arr(fake.calls.map(call => ({ method: call.method } as Obj)))).toContainEqual({ method: 'server.updateSettings' });
   });
+
+  // fix-provider-auth-state, bug 21 (#298): the Add provider dialog's Sign-in method select did not open. After
+  // "Continue to sign-in" the page behind the dialog selects the created instance (commandCompleted:
+  // providerSelected = providerCreated) and draws the same Account row, so the dialog's popovertarget named the
+  // menu of the row behind it. Each surface now names its own ids.
+  test('the Sign in step and the Settings editor behind it draw the same Account row under ids of their own', async () => {
+    const id = 'acpRegistry_gemini_cli';
+    const methods = [{ id: 'oauth-personal', name: 'Log in with Google' }, { id: 'gemini-api-key', name: 'Gemini API key' }];
+    const live = { ...provider(), instanceId: id, driver: 'acpRegistry', installed: true, setup: { canAuthenticate: true, canInstall: false } };
+    const fake = new Fake([live], {});
+    fake.handlers['server.getSettings'] = () => obj(fake.config.settings);
+    fake.handlers['server.updateSettings'] = payload => { const mutation = obj(payload.providerInstanceMutation); obj(fake.config.settings).providerInstances = { [str(mutation.instanceId)]: mutation.instance }; return {}; };
+    fake.handlers['server.getConfig'] = () => fake.config;
+    providerWizard(fake, true, 9, 'acpRegistry', true, 'Gemini CLI', true, id);
+    await runProviderOp(fake, fake, 'provider-add', id, JSON.stringify({ driver: 'acpRegistry', label: 'Gemini CLI', fields: { agentId: 'gemini' } }));
+    await watchProviderSetup(fake, fake, 'wizard', { auth: [id], install: [] });
+    fake.emit('auth', { instanceId: id, phase: 'idle', methods }, id);
+    const wizard = providerWizard(fake, true, 9, 'acpRegistry', true, 'Gemini CLI', true, id);
+    expect(wizard.auth[0]!.account.map(account => [account.instanceId, account.pickMethod])).toEqual([[id, true]]);
+    expect(providerPage(fake, id, 0).editors[0]!.setup.account.map(account => [account.instanceId, account.pickMethod])).toEqual([[id, true]]);
+    const contract = async (file: string) => (await Bun.file(new URL(`./${file}`, import.meta.url)).text()).split('\n');
+    const setupLines = await contract('providers-setup.contract');
+    const start = setupLines.indexOf('component ProviderAccountRow'), end = setupLines.findIndex((line, index) => index > start && /^\S/.test(line) && !line.startsWith('//'));
+    const ids = setupLines.slice(start, end).join('\n').match(/\b(?:popovertarget|menuId|itemId|id)=`[^`]*`/g) ?? [];
+    expect(ids.length).toBeGreaterThanOrEqual(6);
+    expect(ids.filter(value => !value.includes('=`${idPrefix}'))).toEqual([]);
+    const calls = [...setupLines, ...await contract('providers.contract')].filter(line => line.includes('ProviderAccountRow('));
+    expect(calls.map(line => /idPrefix="([^"]*)"/.exec(line)?.[1])).toEqual(['', 'wizard-', '']);
+    expect((await contract('providers-wizard.contract')).join('\n')).toContain('focus(`wizard-provider-sign-out-${wizard.created}`)');
+  });
 });

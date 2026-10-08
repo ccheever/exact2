@@ -127,7 +127,7 @@ component AddProviderDialog
     op("setup:auth-logout", wizard.created, "", "", true)
   action cancelSignOut
     signOutOpen = false
-    focus(`provider-sign-out-${wizard.created}`)
+    focus(`wizard-provider-sign-out-${wizard.created}`)
   action setField(index: number, value: string)
     if index == 0
       f0 = value

@@ -152,6 +152,7 @@ Those drafts are not on this branch; here X50 and X54 are the records above.
 | Issue | Capability | Kind | Blocks | Status |
 | --- | --- | --- | --- | --- |
 | [X63](20261008-x63-textarea-undo-menu.md) | Edit › Undo, Edit › Redo, ⌘Z and ⇧⌘Z reaching a plain `textarea`'s own undo history on macOS (`TextArea` overrides `undoManager`; `undo:` lands on `NSWindow`) | framework-gap | none ([fix-misc-batch](../tasks/20261008-fix-misc-batch.md) routes the clone's own Edit › Undo and Redo to the focused text view's manager) | reproduced against the host's `TextArea` on main `fa965d3e2` and with real keys on the clone's base `c0475fbaa`; not #275/#276/#125 (they assume undo reaches the field); draft, not published |
+| [X64](20261008-x64-shrunk-paragraph-keeps-old-raster.md) | A wrapped paragraph drawn from a text raster that shrinks below the raster size (16,384 device pixels) keeps painting its old raster on macOS; the tree, `layout` and the capture path have the new text | framework-gap | none ([fix-provider-auth-state](../tasks/20261008-fix-provider-auth-state.md) keys the provider list row's status and the editor's status line by status; other in-place shrinking texts can still show it) | reproduced in a one-file app on main `475043d20` (after #305) and on the clone's base `c0475fbaa`; shares `TextRasterMac.swift` with #291 and #300/#305; draft, not published |
 
 ## Popover-escape-parity addition, 2026-10-08
 

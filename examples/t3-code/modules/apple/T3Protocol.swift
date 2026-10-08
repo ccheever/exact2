@@ -202,12 +202,12 @@ enum T3Endpoint {
         guard var url = URLComponents(string: input.trimmingCharacters(in: .whitespacesAndNewlines)),
               let scheme = url.scheme?.lowercased(), ["https", "http"].contains(scheme),
               let host = url.host, !host.isEmpty, url.user == nil, url.password == nil else {
-            throw T3Failure(kind: "Address", message: "Enter an http://localhost or https:// server address.")
+            throw T3Failure(kind: "Address", message: "Enter an http:// or https:// server address.")
         }
-        // Pairing secrets must not travel over unencrypted remote HTTP.
-        guard scheme == "https" || ["localhost", "127.0.0.1", "::1", "[::1]"].contains(host.lowercased()) else {
-            throw T3Failure(kind: "Address", message: "A remote server requires HTTPS.")
-        }
+        // The reference accepts http and https remote backends (packages/shared/src/remote.ts:6,
+        // SUPPORTED_REMOTE_BACKEND_PROTOCOLS): a LAN pairing link, as This machine's network access
+        // advertises it, is http. Until 2026-10-08 the clone refused remote http ("A remote server
+        // requires HTTPS."); fix-provider-auth-state, provisional: user decision pending.
         url.scheme = scheme; url.host = host.lowercased(); url.path = ""; url.query = nil; url.fragment = nil
         guard let result = url.url else { throw T3Failure(kind: "Address", message: "The server address is invalid.") }
         return result
