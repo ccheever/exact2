@@ -222,6 +222,8 @@ pub struct Module {
     progress: u64,
     budget_ms: f64,
     max_heap: u32,
+    /// How long a storage step is waited for (tests shorten it).
+    storage_wait: std::time::Duration,
     logs: Vec<String>,
     overruns: u32,
     /// The Canvas 2D roster the bake read (LLP 1056 D1), known before the
@@ -286,6 +288,7 @@ impl Module {
             progress: 0,
             budget_ms: DEFAULT_BUDGET_MS,
             max_heap: DEFAULT_MAX_HEAP,
+            storage_wait: storage::WAIT,
             logs: Vec::new(),
             overruns: 0,
             canvas_surfaces: Vec::new(),
@@ -463,7 +466,7 @@ impl Module {
         // The bindings Context must precede the engine and outlive its
         // adapter. Module declares `engine` before `storage`, and unload takes
         // the engine first, preserving that order on every path.
-        self.storage = Some(storage::Session::open(&io)?);
+        self.storage = Some(storage::Session::open(&io, self.storage_wait)?);
         let ctx = &mut *self.host as *mut HostState as *mut c_void;
         let host: HostFn = host_door;
         let bytes: engine::BytesFn = crypto::bytes_door;
@@ -574,6 +577,14 @@ impl Module {
     /// and the resource keeps its last value.
     pub fn set_budget_ms(&mut self, ms: f64) {
         self.budget_ms = ms;
+    }
+
+    /// How long a storage step is waited for before the answer fails
+    /// (30 s), from the next [`Module::load`]. For tests of what giving up
+    /// does (LLP 1069.002 A1.5).
+    #[doc(hidden)]
+    pub fn set_storage_wait(&mut self, wait: std::time::Duration) {
+        self.storage_wait = wait;
     }
 
     /// The heap ceiling for the next [`Module::load`].

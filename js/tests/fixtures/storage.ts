@@ -236,6 +236,18 @@ async function work(_source:string, args:unknown[], store:Store, storage:Storage
     }
     return {text: out.join("\n")};
   }
+  // A compression the wait gives up on, then a write to the same path: the
+  // write is what remains (LLP 1069.002 A1.5).
+  if (op === "compress-abandoned") {
+    const data = storage.fs.directories.data;
+    // Seven trials at full size, the first fitting: a second or more.
+    await storage.fs.compressImage(data + "/noise.bmp", data + "/slow.jpg", { maxDimension: 2000, maxBytes: 10_000_000 });
+    return {text: "written"};
+  }
+  if (op === "write-slow") {
+    await storage.fs.writeFile(storage.fs.directories.data + "/slow.jpg", bytes(value));
+    return {text: "wrote " + value};
+  }
   // A long read (files F18: a folder's preview walking its tree), one
   // storage step after another in one answer.
   if (op === "walk") {

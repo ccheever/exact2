@@ -25,16 +25,20 @@ pub(crate) struct Directories {
     pub temporary: PathBuf,
 }
 
+/// How long a storage step is waited for before its answer fails.
+pub(crate) const WAIT: Duration = Duration::from_secs(30);
+
 pub(crate) struct Session {
     pub context: Arc<Context>,
     alive: Arc<AtomicBool>,
+    wait: Duration,
 }
 
 impl Session {
     /// A storage session under `grants`: the app's directories where the
     /// host configured them, and always the documents the person chose
     /// (`doc:`, LLP 1069.010 D1), which need none, as a Rust source's do.
-    pub fn open(grants: &str) -> Result<Self, String> {
+    pub fn open(grants: &str, wait: Duration) -> Result<Self, String> {
         let grants = GrantSet::parse(grants).map_err(|e| e.to_string())?;
         let context = Context::new(grants);
         context
@@ -53,6 +57,7 @@ impl Session {
         Ok(Self {
             context: Arc::new(context),
             alive: Arc::new(AtomicBool::new(true)),
+            wait,
         })
     }
 
@@ -89,8 +94,9 @@ impl Session {
     pub fn continuation(&self) -> Box<dyn FnOnce() -> Outcome + Send> {
         let context = self.context.clone();
         let alive = self.alive.clone();
+        let wait = self.wait;
         Box::new(move || {
-            let mut deadline = Instant::now() + Duration::from_secs(30);
+            let mut deadline = Instant::now() + wait;
             loop {
                 if !alive.load(Ordering::Acquire) {
                     return Outcome::Failed {
@@ -183,5 +189,8 @@ pub(crate) fn reaches_documents(grants: &str) -> bool {
 impl Drop for Session {
     fn drop(&mut self) {
         self.alive.store(false, Ordering::Release);
+        // An `fs.compressImage` still running when its module is unloaded
+        // writes nothing; one mid-write is let finish (LLP 1069.002 A1.5).
+        let _ = self.context.abandon_image_work();
     }
 }
