@@ -601,7 +601,9 @@ package final class Presenter {
     package func press(_ id: UInt32, held: String = "") {
         pressHeld = held; defer { pressHeld = "" }
         if let node = views[id], let url = node.defaultLink, node.activateLink(url) { return }
+        let original = views[id]
         onPress?(id)
+        if let original, views[id] === original { menus.invokeNative(original) }
     }
     func change(_ id: UInt32, _ value: String) { onChange?(id, value) }
     /// A text field typed into since it took the focus: its `change` fires

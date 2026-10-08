@@ -218,7 +218,7 @@ extension NodeView {
         var v: UIView? = self
         while let cur = v {
             if let n = cur as? NodeView, n.disabled { return nil }
-            if let n = cur as? NodeView, (n.handlers.contains("press") || n.defaultLink != nil || n.isSurfaceControl) {
+            if let n = cur as? NodeView, (n.handlers.contains("press") || n.defaultLink != nil || n.isSurfaceControl || n.isNativeButton && (n.props["commandfor"]?.isEmpty == false || n.props["popovertarget"]?.isEmpty == false)) {
                 guard n.bounds.contains(n.local(windowPoint)) else { return nil }
                 return n
             }

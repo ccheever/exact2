@@ -18,6 +18,7 @@ extension NodeView {
     /// An explicit negative `tabindex` is no remote stop, as it is no Tab
     /// stop (LLP 1088 D7.3); the remote's order stays UIKit's geometry.
     package override var canBecomeFocused: Bool {
+        if isNativeButton { return false } // UIKit owns the single focus stop (LLP 1104 D6).
         if let index = explicitTabIndex, index < 0 { return false }
         if cssVisibilityHidden { return false } // no remote stop, nor Select (e28279b3b)
         return canBecomeFirstResponder || (!disabled && !inert && handlers.contains("press")) || focusableScroller

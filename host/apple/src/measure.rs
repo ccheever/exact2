@@ -214,6 +214,7 @@ pub fn install_fonts(plan: &Plan, callback: FontsFn, ctx: *mut c_void) {
 pub struct CallbackMeasurer {
     f: MeasureFn,
     field_chrome: Option<crate::control_text::FieldChromeFn>,
+    button_measure: Option<crate::control_text::ButtonMeasureFn>,
     lines: Option<LinesFn>,
     ctx: *mut c_void,
     memo: identified::Memo,
@@ -229,6 +230,7 @@ impl CallbackMeasurer {
         CallbackMeasurer {
             f,
             field_chrome: None,
+            button_measure: None,
             lines,
             ctx,
             memo: identified::Memo::default(),
@@ -267,6 +269,15 @@ impl CallbackMeasurer {
         callback: Option<crate::control_text::FieldChromeFn>,
     ) -> Self {
         self.field_chrome = callback;
+        self
+    }
+
+    /// Install native button measurement beside field chrome.
+    pub fn with_button_measure(
+        mut self,
+        callback: Option<crate::control_text::ButtonMeasureFn>,
+    ) -> Self {
+        self.button_measure = callback;
         self
     }
 
@@ -379,6 +390,14 @@ impl TextMeasurer for CallbackMeasurer {
             .map_or_else(exact_kernel::FieldChrome::default, |f| {
                 crate::control_text::chrome(f, self.ctx, request)
             })
+    }
+
+    fn button_measure(
+        &mut self,
+        request: &exact_kernel::ButtonMeasureRequest,
+    ) -> Option<exact_kernel::ButtonMeasure> {
+        self.button_measure
+            .map(|f| crate::control_text::button_measure(f, self.ctx, request))
     }
 
     fn set_language(&mut self, language: &str) {

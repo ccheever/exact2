@@ -68,6 +68,7 @@ pub struct Bridge<D: DataSource> {
     fonts: Option<FontsFn>,
     control_text: Option<crate::control_text::ControlTextFn>,
     field_chrome: Option<crate::control_text::FieldChromeFn>,
+    button_measure: Option<crate::control_text::ButtonMeasureFn>,
     fonts_ctx: *mut c_void,
     /// The archive's `compat.json` (LLP 1030 D3a), from the `host!`
     /// invocation: what the runner's `delivery` resource says about this
@@ -128,6 +129,7 @@ impl<D: DataSource> Bridge<D> {
             fonts: None,
             control_text: None,
             field_chrome: None,
+            button_measure: None,
             fonts_ctx: std::ptr::null_mut(),
             compat: None,
             delivery: None,
@@ -463,7 +465,8 @@ impl<D: DataSource> Bridge<D> {
         let measurer: Box<dyn TextMeasurer> = match hooks.measure {
             Some(f) => Box::new(
                 CallbackMeasurer::new(f, hooks.ctx, hooks.lines)
-                    .with_field_chrome(self.field_chrome),
+                    .with_field_chrome(self.field_chrome)
+                    .with_button_measure(self.button_measure),
             ),
             None => Box::new(MonospaceMeasurer::default()),
         };
@@ -750,7 +753,8 @@ impl<D: DataSource> Bridge<D> {
         let measurer: Box<dyn TextMeasurer> = match hooks.measure {
             Some(f) => Box::new(
                 CallbackMeasurer::new(f, hooks.ctx, hooks.lines)
-                    .with_field_chrome(self.field_chrome),
+                    .with_field_chrome(self.field_chrome)
+                    .with_button_measure(self.button_measure),
             ),
             None => Box::new(MonospaceMeasurer::default()),
         };

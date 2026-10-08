@@ -118,11 +118,11 @@ final class MenuHost {
         if isDialog(target) {
             return source.props["commandfor"] == target.props["id"] && source.props["command"] == "close"
         }
-        return source.props["popovertarget"] == target.props["id"] && source.props["popovertargetaction"] == "hide"
+        return self.target(of: source) == target.props["id"] && (source.props["command"] == "hide-popover" || source.props["popovertargetaction"] == "hide")
     }
     private func opens(_ source: NodeView, _ target: NodeView) -> Bool {
         self.target(of: source) == target.props["id"] && (isDialog(target)
-            ? source.props["command"] == "show-modal" : source.props["popovertargetaction"] != "hide")
+            ? source.props["command"] == "show-modal" : (source.props["commandfor"] == nil ? source.props["popovertargetaction"] != "hide" : ["show-popover", "toggle-popover"].contains(source.props["command"] ?? "")))
     }
 
     /// After a batch: hide every popover, and lay a transparent button
@@ -142,7 +142,7 @@ final class MenuHost {
             // The agent's painted presentation: in the top layer while open,
             // hidden while closed, as on the web and macOS, so a closed
             // popover covers nothing (`agentTap`).
-            if ExactEnv.agentMode && !isConfirmation(v) {
+            if !isConfirmation(v), ExactEnv.agentMode || v.props["id"].map({ agentOpen[$0] != nil }) == true {
                 if v.props["popover"] != nil {
                     if let name = v.props["id"], let entry = agentOpen[name], entry.popover === v { lifting.append(entry) }
                     else if !v.isHidden { v.isHidden = true }
@@ -162,6 +162,7 @@ final class MenuHost {
                   // itself, the spec's way) is not an invoker.
                   opens(v, pop)
             else { continue }
+            if v.isNativeButton { continue } // Its own primary action invokes after activation (D13).
             live.insert(v.id)
             if isConfirmation(pop) {
                 let button = overlays[v.id] ?? UIButton(type: .custom)
@@ -232,6 +233,20 @@ final class MenuHost {
         #if os(iOS)
         context.sync()
         #endif
+    }
+
+    /// D13: the plain UIButton's activation finished; now read its live target.
+    func invokeNative(_ source: NodeView) {
+        guard source.isNativeButton, eligible(source), let name = target(of: source), !name.isEmpty,
+              let pop = popover(named: name), opens(source, pop) || closes(source, pop) else { return }
+        if isConfirmation(pop) {
+            _ = openConfirmation(from: source, popover: pop, dispatchPress: false)
+        } else {
+            let toggle = source.props["command"] == "toggle-popover" ||
+                (source.props["commandfor"] == nil && (source.props["popovertargetaction"] ?? "toggle") == "toggle")
+            if closes(source, pop) || toggle && agentOpen[name] != nil { drop(name) }
+            else if agentOpen[name] == nil { agentShow(pop, named: name, from: source.id) }
+        }
     }
 
     /// A live popover by its id.
@@ -364,7 +379,8 @@ final class MenuHost {
         if pop.superview !== entry.layer { entry.layer.addSubview(pop) }
         if pop.isHidden { pop.isHidden = false }
         guard let source = presenter.views[entry.source], source.window != nil else { return }
-        let anchor = source.convert(source.bounds, to: entry.layer), size = pop.bounds.size
+        let anchorView: UIView = source.isNativeButton ? presenter.controls.controls[source.id] ?? source : source
+        let anchor = anchorView.convert(anchorView.bounds, to: entry.layer), size = pop.bounds.size
         let at = PositionArea.origin(PositionArea.of(pop), anchor: anchor, size: size,
                                     margins: PositionArea.margins(of: pop), in: entry.layer.bounds)
         let center = CGPoint(x: at.x + size.width / 2, y: at.y + size.height / 2)
@@ -391,7 +407,7 @@ final class MenuHost {
     /// under the agent, its painted presentation shown.
     func isOpen(_ node: NodeView) -> Bool {
         if confirmation?.popover === node { return true }
-        return ExactEnv.agentMode && node.props["id"].map { agentOpen[$0] != nil } == true
+        return node.props["id"].map { agentOpen[$0] != nil } == true
     }
 
     /// Under the agent, what a tap on `node` does to the painted popovers
@@ -403,7 +419,7 @@ final class MenuHost {
     /// where the node is; an opened popover is in the top layer below its
     /// opener with its `autofocus` field focused.
     func agentTap(_ node: NodeView) {
-        guard ExactEnv.agentMode, let presenter else { return }
+        guard !node.isNativeButton, ExactEnv.agentMode, let presenter else { return }
         var byName: [String: NodeView] = [:]
         for pop in presenter.carrying("popover") where !isConfirmation(pop) {
             if let name = pop.props["id"] { byName[name] = pop }
@@ -515,6 +531,7 @@ final class MenuHost {
     /// Public UIKit has no UIAlertAction view/rectangle. Activation is named
     /// honestly, and only works while this original action is presented.
     func activate(_ node: NodeView) -> Bool? {
+        if node.isNativeButton && !ownsConfirmationNode(node) { return nil }
         if ownsConfirmationNode(node) {
             guard let owner = confirmation, !inTransition, valid(owner) else { return false }
             if owner.owns(node) {
@@ -542,7 +559,7 @@ final class MenuHost {
         }
         finish(owner, chosen: node)
     }
-    private func openConfirmation(from source: NodeView, popover pop: NodeView) -> Bool {
+    private func openConfirmation(from source: NodeView, popover pop: NodeView, dispatchPress: Bool = true) -> Bool {
         guard confirmation == nil, eligible(source), live(pop), source.window != nil else { return false }
         if isDialog(pop) && pop.props["closedby"] != "any" {
             presenter?.session?.log("dialog refused: native confirmation currently requires closedby=any")
@@ -551,7 +568,7 @@ final class MenuHost {
         // Session.press applies its batch synchronously. Both invoker actions
         // fire, as on the web; read the updated rows only if these identities
         // survived that action (no elapsed-time guess or successor id).
-        if source.handlers.contains("press") { presenter?.press(source.id) }
+        if dispatchPress, source.handlers.contains("press") { presenter?.press(source.id) }
         guard confirmation == nil, eligible(source), live(pop), source.window != nil else { return false }
         let children = pop.container.subviews.compactMap { $0 as? NodeView }
         let actions = children.filter { $0.isButton && $0.handlers.contains("press") }
@@ -605,14 +622,15 @@ final class MenuHost {
         }
         #if !os(tvOS)
         guard let presentation = owner.alert.popoverPresentationController else { return false }
-        presentation.sourceView = source
+        let anchor: UIView = source.isNativeButton ? presenter?.controls.controls[source.id] ?? source : source
+        presentation.sourceView = anchor
         // A labelled row anchors at its text; an icon control uses its box.
         let labels = source.container.subviews.compactMap { $0 as? NodeView }.filter { $0.kind == "text" }
         let labelBox = labels.reduce(CGRect.null) { $0.union($1.convert($1.bounds, to: source)) }
-        presentation.sourceRect = labelBox.isNull ? source.bounds : CGRect(x: labelBox.minX, y: 0, width: labelBox.width, height: source.bounds.height)
+        presentation.sourceRect = source.isNativeButton ? anchor.bounds : (labelBox.isNull ? source.bounds : CGRect(x: labelBox.minX, y: 0, width: labelBox.width, height: source.bounds.height))
         presentation.permittedArrowDirections = []
         presentation.canOverlapSourceViewRect = true
-        Self.place(presentation, PositionArea.of(pop), source: source)
+        Self.place(presentation, PositionArea.of(pop), source: anchor)
         presentation.delegate = owner
         #endif
         confirmation = owner

@@ -264,6 +264,13 @@ typedef struct {
 } ExactFieldChrome;
 typedef ExactFieldChrome (*ExactFieldChromeFn)(void *ctx, const ExactFieldChromeRequest *request);
 void exact_set_control_text(ExactRuntime rt, ExactControlTextFn text, ExactFieldChromeFn chrome);
+/* LLP 1069.011.001 D11: identical face/row JSON for sizing and drawing. */
+typedef struct {
+    const uint8_t *face; size_t face_len; uint8_t width_kind; float width;
+} ExactButtonMeasureRequest;
+typedef struct { float width, height; uint8_t provisional; } ExactButtonMeasure;
+typedef ExactButtonMeasure (*ExactButtonMeasureFn)(void *ctx, const ExactButtonMeasureRequest *request);
+void exact_set_button_measure(ExactRuntime rt, ExactButtonMeasureFn measure);
 uint32_t exact_control_text_changed(ExactRuntime rt);
 
 void exact_set_measure(ExactRuntime rt, ExactMeasureFn measure, void *ctx);   /* NULL: a monospace reference measurer */

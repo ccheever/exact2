@@ -100,3 +100,60 @@ pub(crate) fn chrome(f: FieldChromeFn, ctx: *mut c_void, r: &FieldChromeRequest)
         provisional: c.provisional != 0,
     }
 }
+
+/// Borrowed face/row JSON, identical to `exact_press_face`, and a border-box width offer.
+#[repr(C)]
+pub struct CButtonMeasureRequest {
+    /// UTF-8 face and authored rows, alive for this call.
+    pub face: *const u8,
+    /// Byte length of face.
+    pub face_len: usize,
+    /// 0 definite, 1 min-content, 2 max-content.
+    pub width_kind: u8,
+    /// Logical border-box width when definite.
+    pub width: f32,
+}
+/// UIKit's real fitting border box.
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+pub struct CButtonMeasure {
+    /// Fitting width.
+    pub width: f32,
+    /// Height at the offered width.
+    pub height: f32,
+    /// Nonzero on a cache miss, requiring silent relayout.
+    pub provisional: u8,
+}
+/// Optional native button measure callback, with the text engine context.
+pub type ButtonMeasureFn =
+    extern "C" fn(*mut c_void, *const CButtonMeasureRequest) -> CButtonMeasure;
+
+pub(crate) fn button_measure(
+    f: ButtonMeasureFn,
+    ctx: *mut c_void,
+    r: &exact_kernel::ButtonMeasureRequest,
+) -> exact_kernel::ButtonMeasure {
+    let face = crate::button::face_json(
+        Some(&r.face),
+        Some(&r.style),
+        &r.button_style,
+        &exact_kernel::Env::default(),
+    );
+    let (width_kind, width) = match r.width {
+        exact_kernel::AxisOffer::Definite(w) => (0, w),
+        exact_kernel::AxisOffer::MinContent => (1, 0.0),
+        exact_kernel::AxisOffer::MaxContent => (2, 0.0),
+    };
+    let request = CButtonMeasureRequest {
+        face: face.as_ptr(),
+        face_len: face.len(),
+        width_kind,
+        width,
+    };
+    let answer = f(ctx, &request);
+    exact_kernel::ButtonMeasure {
+        width: answer.width,
+        height: answer.height,
+        provisional: answer.provisional != 0,
+    }
+}
