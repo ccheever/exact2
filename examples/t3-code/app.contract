@@ -217,10 +217,7 @@ component T3Code
         workspaceRetryAt = now() + 10000
   action liveTick
     if data.timelineReadsNeeded
-      if not pending(timelineReadsRefreshed)
-        send timelineReadsRefreshed = refreshTimelineReads(wallTime.epochAtZero + now())
-      if not pending(timelineReadsRefreshedNext)
-        send timelineReadsRefreshedNext = refreshTimelineReads(wallTime.epochAtZero + now())
+      dispatchTimelineReads()
     if workspaceDiscovery.needed and not pending(workspaceRefreshed)
       if workspaceRetryKey != workspaceDiscovery.key or (now() >= workspaceRetryAt and (workspaceDiscovery.timer or workspaceDiscovery.wake != workspaceRetryWake))
         send workspaceRefreshed = refreshComposerWorkspace(workspaceDiscovery.key)
