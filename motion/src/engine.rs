@@ -371,6 +371,7 @@ impl Engine {
             .collect();
         for key in running {
             self.running.remove(&key);
+            self.pending.remove(&key);
         }
         for property in Property::ALL {
             self.slots.remove(&(node, property));
@@ -389,6 +390,7 @@ impl Engine {
         }
         self.dirty.remove(&(node, property));
         self.running.remove(&(node, property));
+        self.pending.remove(&(node, property));
         self.slots.remove(&(node, property)).is_some()
     }
 

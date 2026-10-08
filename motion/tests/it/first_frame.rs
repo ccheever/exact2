@@ -135,6 +135,10 @@ fn a_fling_keeps_its_release_instant_and_a_cancel_waits() {
             .unwrap()
             .unwrap();
         e.update_hold(held.token, 0.51, Value::scalar(0.2)).unwrap();
+        if on {
+            // The display is already past the release when it arrives.
+            e.present_frame(0.525).unwrap();
+        }
         e.end_hold(held.token, 0.52, end).unwrap();
         e.advance(0.53).unwrap();
         if on {
@@ -233,5 +237,57 @@ fn a_takeover_before_a_curves_begin_starts_it_at_its_begin_and_forgets_frames() 
     assert!(
         (opacity(&e) - 0.5).abs() < 1e-9,
         "started at its begin, not stranded"
+    );
+}
+
+fn pulse(text: &str) -> exact_motion::Animations {
+    crate::keyframed(&format!(
+        "{text} @keyframes pulse{{from{{opacity:0.4}}to{{opacity:1}}}}"
+    ))
+    .unwrap()
+}
+
+#[test]
+fn a_lone_member_resumed_keeps_its_clocks_phase_with_the_rule_on() {
+    let mut e = Engine::new();
+    e.set_start_on_frame(true, 0.0).unwrap();
+    e.set_animation_clock(3, Some("Pending"));
+    e.set_animations(3, &pulse("pulse 1s infinite")).unwrap();
+    e.present_frame(0.016).unwrap();
+    e.advance(0.4).unwrap();
+    e.set_animations(3, &pulse("pulse 1s infinite paused"))
+        .unwrap();
+    e.advance(7.9).unwrap();
+    e.set_animations(3, &pulse("pulse 1s infinite running"))
+        .unwrap();
+    assert_eq!(
+        e.animation_plays(3)[0].start,
+        7.016,
+        "paused, it kept the clock busy"
+    );
+    assert_eq!(
+        e.animation_plays(3)[0].pending,
+        None,
+        "a running clock's phase"
+    );
+}
+
+#[test]
+fn a_join_to_an_origin_waiting_for_the_frame_waits_with_it() {
+    let mut e = Engine::new();
+    e.set_start_on_frame(true, 0.0).unwrap();
+    e.set_animations(4, &pulse("pulse 1s infinite paused"))
+        .unwrap();
+    e.advance(10.3).unwrap();
+    e.set_animation_clock(4, Some("Pending"));
+    e.advance(10.31).unwrap();
+    e.set_animation_clock(5, Some("Pending"));
+    e.set_animations(5, &pulse("pulse 1s infinite")).unwrap();
+    assert!(!e.quiescent(), "the origin waits for a frame");
+    e.present_frame(10.33).unwrap();
+    assert_eq!(
+        e.animation_plays(5)[0].start,
+        10.33,
+        "the joiner starts with the origin"
     );
 }

@@ -129,7 +129,7 @@ impl Engine {
         Some(
             exit.iter()
                 .map(|p| p.start + p.animation.end_time())
-                .fold(self.sample_time(), f64::max),
+                .fold(f64::NEG_INFINITY, f64::max),
         )
     }
 }

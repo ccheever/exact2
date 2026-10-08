@@ -182,3 +182,46 @@ fn the_agents_takeover_starts_what_waits_and_its_seeks_start_nothing() {
     host.advance(700.0);
     assert!((opacity(&host) - 0.5).abs() < 1e-9);
 }
+
+#[test]
+fn an_exit_destroys_after_its_own_end_from_the_frame_that_started_it() {
+    const LEAVE: &str = r##"keyframes leave
+  to opacity=0
+component A
+  state shown = true
+  action hide
+    shown = false
+  view
+    column
+      button press=hide testId="hide"
+        text "Hide"
+      when shown
+        box testId="gone" width=24 height=24 -exact-exit-animation="leave 300ms linear both"
+"##;
+    let plan = contract::compile(LEAVE).unwrap().encode();
+    let (mut host, _) = Host::boot(
+        &plan,
+        NoData,
+        Box::new(MonospaceMeasurer::default()),
+        390.0,
+        844.0,
+    )
+    .unwrap();
+    host.start_on_frame(true, 0.0);
+    let gone = id(&host, "gone");
+    let destroyed = |batch: &str| batch.contains(&format!("{{\"op\":\"destroy\",\"id\":{gone}}}"));
+    let hide = id(&host, "hide");
+    assert!(!destroyed(&host.dispatch_at(hide, Event::Press, 100.0)));
+    assert!(
+        !destroyed(&host.tick_at(110.0, 116.0)),
+        "the exit starts at the frame"
+    );
+    assert!(
+        !destroyed(&host.tick_at(400.0, 405.0)),
+        "300 ms from the commit is not its end"
+    );
+    assert!(
+        destroyed(&host.tick_at(410.0, 416.0)),
+        "300 ms from the frame is"
+    );
+}

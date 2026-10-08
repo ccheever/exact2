@@ -99,7 +99,9 @@ impl Engine {
                         }
                     }
                 }
-                self.schedule_animations(node);
+                if pending.is_some() {
+                    self.schedule_animations(node);
+                }
                 // Onto a clock timeline: in its phase (LLP 1055.002).
                 self.join_clock_node(node);
             }
