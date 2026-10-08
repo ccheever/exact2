@@ -194,14 +194,15 @@ fn compress_image(
     let file = fs::compress_image(
         grants,
         directories,
-        Some(&image_codec),
+        // Only where there is a codec (LLP 1069.002 A1.3).
+        cfg!(target_vendor = "apple").then_some(&image_codec as &fs::ImageCodec),
         from,
         to,
         max_dimension,
         max_bytes,
-        // This worker runs the request to its end; no one gives up on it
-        // sooner (data/host/src/lib.rs), so the budgets count from here.
-        std::time::Instant::now(),
+        // This worker runs the request to its end and no one gives up on it
+        // (data/host/src/lib.rs): there is no right to write to take away.
+        None,
     )
     .map_err(error)?;
     Ok(json!({

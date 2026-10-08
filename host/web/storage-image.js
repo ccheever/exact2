@@ -61,66 +61,73 @@ export async function search(width, height, maxDimension, maxBytes, encode) {
   return best;
 }
 
-// The stored pixel size from the header, read before anything is decoded
-// (A1.5), or null when this is not a format whose header is read here:
-// JPEG, PNG, GIF, WebP, BMP, HEIF/AVIF. The browser never decodes a file
-// whose size is unknown or over the limit.
-const HEADER_BYTES = 512 * 1024;
+// The pixel size from the header, read before anything is decoded (A1.5),
+// or null: the browser never decodes a file whose size is unknown here or
+// over the limit. JPEG (its frame header), PNG, GIF (the larger of its
+// screen and first image), WebP (its canvas and first frame), BMP. Not
+// HEIF or AVIF: their container's size need not be the coded frame's, and
+// a browser may decode the frame before checking (Firefox), so their size
+// cannot be bounded before decoding.
+const HEADER_BYTES = 256 * 1024; // exact_raster::MAX_HEADER_BYTES
 export async function headerSize(blob) {
-  const at = async (start, length) => new DataView(await blob.slice(start, start + length).arrayBuffer());
-  const head = await at(0, 32);
-  if (head.byteLength < 12) return null;
-  const u8 = i => head.getUint8(i), ascii = (i, n) => String.fromCharCode(...Array.from({ length: n }, (_, k) => u8(i + k)));
-  if (u8(0) === 0x89 && ascii(1, 3) === 'PNG' && head.byteLength >= 24) return [head.getUint32(16), head.getUint32(20)];
-  if (ascii(0, 6) === 'GIF87a' || ascii(0, 6) === 'GIF89a') return [head.getUint16(6, true), head.getUint16(8, true)];
-  if (ascii(0, 2) === 'BM' && head.byteLength >= 26) return [Math.abs(head.getInt32(18, true)), Math.abs(head.getInt32(22, true))];
-  if (ascii(0, 4) === 'RIFF' && ascii(8, 4) === 'WEBP' && head.byteLength >= 30) {
-    const kind = ascii(12, 4), le24 = i => u8(i) | u8(i + 1) << 8 | u8(i + 2) << 16;
-    if (kind === 'VP8 ') return [head.getUint16(26, true) & 0x3fff, head.getUint16(28, true) & 0x3fff];
-    if (kind === 'VP8L') { const bits = head.getUint32(21, true); return [(bits & 0x3fff) + 1, ((bits >>> 14) & 0x3fff) + 1]; }
-    if (kind === 'VP8X') return [le24(24) + 1, le24(27) + 1];
-    return null;
-  }
-  if (u8(0) === 0xff && u8(1) === 0xd8) {
-    // Segment by segment to the frame header; each read is a few bytes.
-    const sof = new Set([0xc0, 0xc1, 0xc2, 0xc3, 0xc5, 0xc6, 0xc7, 0xc9, 0xca, 0xcb, 0xcd, 0xce, 0xcf]);
-    let pos = 2;
-    for (let segments = 0; segments < 256 && pos + 9 <= blob.size; segments++) {
-      const v = await at(pos, 9);
-      if (v.getUint8(0) !== 0xff) return null;
-      const marker = v.getUint8(1);
-      if (marker === 0xff) { pos += 1; continue; }
-      if (sof.has(marker)) return [v.getUint16(7), v.getUint16(5)];
-      if (marker === 0x01 || (marker >= 0xd0 && marker <= 0xd8)) { pos += 2; continue; }
-      if (marker === 0xd9 || marker === 0xda) return null; // image data before any frame header
-      pos += 2 + v.getUint16(2);
+  const v = new DataView(await blob.slice(0, HEADER_BYTES).arrayBuffer());
+  const n = v.byteLength, u8 = i => v.getUint8(i);
+  const ascii = (i, k) => i + k <= n ? String.fromCharCode(...Array.from({ length: k }, (_, j) => u8(i + j))) : '';
+  const le24 = i => u8(i) | u8(i + 1) << 8 | u8(i + 2) << 16;
+  const positive = size => size && size.every(side => Number.isInteger(side) && side > 0) ? size : null;
+  const larger = (a, b) => a && b ? [Math.max(a[0], b[0]), Math.max(a[1], b[1])] : null;
+  if (n < 12) return null;
+  if (u8(0) === 0x89 && ascii(1, 3) === 'PNG' && ascii(12, 4) === 'IHDR' && n >= 24) return positive([v.getUint32(16), v.getUint32(20)]);
+  if (ascii(0, 6) === 'GIF87a' || ascii(0, 6) === 'GIF89a') {
+    const screen = [v.getUint16(6, true), v.getUint16(8, true)];
+    let pos = 13 + (u8(10) & 0x80 ? 3 * (2 << (u8(10) & 7)) : 0);
+    while (pos < n) {
+      const block = u8(pos);
+      if (block === 0x2c && pos + 9 < n) return positive(larger(screen, [v.getUint16(pos + 5, true), v.getUint16(pos + 7, true)]));
+      if (block !== 0x21 || pos + 2 >= n) return null;
+      pos += 2; // an extension's introducer and label, then its sub-blocks
+      while (pos < n && u8(pos)) pos += 1 + u8(pos);
+      pos += 1;
     }
     return null;
   }
-  if (ascii(4, 4) === 'ftyp') {
-    // ISO BMFF (HEIF, AVIF): the largest `ispe` under meta/iprp/ipco.
-    const v = await at(0, Math.min(blob.size, HEADER_BYTES));
-    let best = null;
-    const walk = (start, end, path) => {
-      for (let pos = start; pos + 8 <= end;) {
-        let size = v.getUint32(pos), header = 8;
-        const type = String.fromCharCode(v.getUint8(pos + 4), v.getUint8(pos + 5), v.getUint8(pos + 6), v.getUint8(pos + 7));
-        if (size === 1 && pos + 16 <= end) { size = Number(v.getBigUint64(pos + 8)); header = 16; }
-        else if (size === 0) size = end - pos;
-        if (size < header) return;
-        const inner = pos + header, stop = Math.min(pos + size, end);
-        if (type === 'meta') walk(inner + 4, stop, path + '/meta'); // a full box
-        else if (type === 'iprp' && path === '/meta') walk(inner, stop, path + '/iprp');
-        else if (type === 'ipco' && path === '/meta/iprp') walk(inner, stop, path + '/ipco');
-        else if (type === 'ispe' && path === '/meta/iprp/ipco' && inner + 12 <= stop) {
-          const size2 = [v.getUint32(inner + 4), v.getUint32(inner + 8)];
-          if (!best || size2[0] * size2[1] > best[0] * best[1]) best = size2;
-        }
-        pos += size;
-      }
+  if (ascii(0, 2) === 'BM' && n >= 26) {
+    // A 12-byte core header has 16-bit sides; the others signed 32-bit
+    // ones, a negative height meaning top-down.
+    if (v.getUint32(14, true) === 12) return positive([v.getUint16(18, true), v.getUint16(20, true)]);
+    return positive([Math.abs(v.getInt32(18, true)), Math.abs(v.getInt32(22, true))]);
+  }
+  if (ascii(0, 4) === 'RIFF' && ascii(8, 4) === 'WEBP') {
+    const frame = pos => {
+      const kind = ascii(pos, 4);
+      if (kind === 'VP8 ' && pos + 18 <= n) return [v.getUint16(pos + 14, true) & 0x3fff, v.getUint16(pos + 16, true) & 0x3fff];
+      if (kind === 'VP8L' && pos + 13 <= n) { const bits = v.getUint32(pos + 9, true); return [(bits & 0x3fff) + 1, ((bits >>> 14) & 0x3fff) + 1]; }
+      return null;
     };
-    walk(0, v.byteLength, '');
-    return best;
+    if (ascii(12, 4) !== 'VP8X') return positive(frame(12));
+    if (n < 30) return null;
+    const canvas = [le24(24) + 1, le24(27) + 1];
+    // The first frame, still or animated, must be read too.
+    for (let pos = 30; pos + 8 <= n;) {
+      const kind = ascii(pos, 4), size = v.getUint32(pos + 4, true);
+      if (kind === 'VP8 ' || kind === 'VP8L') return positive(larger(canvas, frame(pos)));
+      if (kind === 'ANMF' && pos + 24 <= n) return positive(larger(canvas, [le24(pos + 20) + 1, le24(pos + 23) + 1]));
+      pos += 8 + size + (size & 1);
+    }
+    return null;
+  }
+  if (u8(0) === 0xff && u8(1) === 0xd8) {
+    const sof = new Set([0xc0, 0xc1, 0xc2, 0xc3, 0xc5, 0xc6, 0xc7, 0xc9, 0xca, 0xcb, 0xcd, 0xce, 0xcf]);
+    for (let pos = 2; pos + 9 <= n;) {
+      if (u8(pos) !== 0xff) return null;
+      const marker = u8(pos + 1);
+      if (marker === 0xff) { pos += 1; continue; }
+      if (sof.has(marker)) return positive([v.getUint16(pos + 7), v.getUint16(pos + 5)]);
+      if (marker === 0x01 || (marker >= 0xd0 && marker <= 0xd8)) { pos += 2; continue; }
+      if (marker === 0xd9 || marker === 0xda) return null; // image data before any frame header
+      pos += 2 + v.getUint16(pos + 2);
+    }
+    return null;
   }
   return null;
 }
@@ -156,7 +163,7 @@ export async function compress(blob, maxDimension, maxBytes) {
   const deadline = now() + DEADLINE_MS;
   if (blob.size > MAX_BYTES) throw failure('too-large', `${blob.size} bytes is over ${MAX_BYTES}`);
   const stored = await headerSize(blob);
-  if (!stored || !stored[0] || !stored[1]) throw failure('undecodable', 'not an image whose size this host reads (JPEG, PNG, GIF, WebP, BMP, HEIF, AVIF)');
+  if (!stored) throw failure('undecodable', 'not an image whose size the web reads before decoding (JPEG, PNG, GIF, WebP, BMP)');
   if (stored[0] * stored[1] > MAX_SOURCE_PIXELS) throw failure('too-large', `${stored[0]}×${stored[1]} pixels is over ${MAX_SOURCE_PIXELS}`);
   const bitmap = await decode(blob);
   try {

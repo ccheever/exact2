@@ -6,7 +6,7 @@ use ibex2::{
     grant::GrantSet,
     stdlib::{
         app_fs::AppDirectories,
-        fs::{CompressedImage, Document, EMBEDDER_WAIT},
+        fs::{Abandoned, CompressedImage, Document},
     },
 };
 use std::{
@@ -43,9 +43,13 @@ impl Session {
         context
             .set_documents(Arc::new(documents))
             .map_err(|e| e.to_string())?;
-        context
-            .set_image_codec(Arc::new(image_codec))
-            .map_err(|e| e.to_string())?;
+        // Only where there is a codec: elsewhere ibex2 refuses the call as
+        // unsupported before reading the source (LLP 1069.002 A1.3).
+        if cfg!(target_vendor = "apple") {
+            context
+                .set_image_codec(Arc::new(image_codec))
+                .map_err(|e| e.to_string())?;
+        }
         Ok(Self {
             context: Arc::new(context),
             alive: Arc::new(AtomicBool::new(true)),
@@ -86,9 +90,7 @@ impl Session {
         let context = self.context.clone();
         let alive = self.alive.clone();
         Box::new(move || {
-            // No sooner than ibex2 allows: `fs.compressImage` writes nothing
-            // after its commit budget, inside this wait (LLP 1069.002 A1.5).
-            let deadline = Instant::now() + EMBEDDER_WAIT;
+            let mut deadline = Instant::now() + Duration::from_secs(30);
             loop {
                 if !alive.load(Ordering::Acquire) {
                     return Outcome::Failed {
@@ -106,9 +108,23 @@ impl Session {
                     });
                 }
                 if Instant::now() >= deadline {
+                    // Giving up: an `fs.compressImage` that has not written
+                    // loses the right to, so nothing lands after this failure
+                    // and the queue moves on safely; one that has written is
+                    // waited for (LLP 1069.002 A1.5).
+                    let message = match context.abandon_image_work() {
+                        Abandoned::Written => {
+                            deadline = Instant::now() + Duration::from_secs(5);
+                            continue;
+                        }
+                        Abandoned::Abandoned => {
+                            "compressImage: timeout: the storage wait ran out; nothing was written"
+                        }
+                        Abandoned::Nothing => "storage continuation timed out",
+                    };
                     return Outcome::Failed {
                         kind: FailureKind::Aborted,
-                        message: "storage continuation timed out".into(),
+                        message: message.into(),
                     };
                 }
             }

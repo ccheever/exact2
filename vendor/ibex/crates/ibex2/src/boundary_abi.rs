@@ -892,9 +892,9 @@ pub unsafe extern "C" fn ibex2_async_begin(
     let Some(op) = AsyncOp::from_u32(op) else {
         return 1;
     };
-    // When the guest issued it, on its own thread: before the embedder can
-    // start waiting on it (`fs.compressImage`'s deadlines, Exact patch 9).
-    let issued = std::time::Instant::now();
+    // `fs.compressImage`'s right to write, registered now, on the guest's
+    // thread, before the embedder can start waiting on it (Exact patch 9).
+    let gate = (op == AsyncOp::FsCompressImage).then(|| state.begin_image_work());
     // A JS wrapper may become unreachable as soon as this host call returns.
     // Snapshot handle-backed inputs while its native owner must still be live;
     // no worker may resolve a Headers registry id later.
@@ -913,11 +913,14 @@ pub unsafe extern "C" fn ibex2_async_begin(
     state.task_started();
     let work = move || {
         let result = match fetch_headers {
-            Ok(headers) => run_async(op, &owned, headers, &state, &grants, issued),
+            Ok(headers) => run_async(op, &owned, headers, &state, &grants, gate.as_deref()),
             Err(error) => Err(error),
         };
         if !state.is_shutdown() {
             state.queue.complete(task_id, result);
+        }
+        if let Some(gate) = &gate {
+            state.end_image_work(gate);
         }
         state.task_finished();
     };
@@ -1044,7 +1047,7 @@ fn run_async(
     fetch_headers: Option<crate::stdlib::fetch::Headers>,
     state: &crate::task::RuntimeState,
     grants: &GrantSet,
-    issued: std::time::Instant,
+    gate: Option<&crate::stdlib::fs::CommitGate>,
 ) -> Result<HostValue, HostError> {
     if (host_opcodes::sqlite_async::OPEN..=host_opcodes::sqlite_async::STATEMENT_CLOSE)
         .contains(&(op as u32))
@@ -1055,7 +1058,7 @@ fn run_async(
         return run_fs(fs_op, args, grants, state);
     }
     if op == AsyncOp::FsCompressImage {
-        return run_compress_image(args, grants, state, issued);
+        return run_compress_image(args, grants, state, gate);
     }
     match op {
         AsyncOp::Fetch => {
@@ -1156,7 +1159,7 @@ fn run_compress_image(
     args: &[HostValue],
     grants: &GrantSet,
     state: &crate::task::RuntimeState,
-    issued: std::time::Instant,
+    gate: Option<&crate::stdlib::fs::CommitGate>,
 ) -> Result<HostValue, HostError> {
     let path = |index: usize| match args.get(index) {
         Some(HostValue::Str(text)) => Ok(text.as_str()),
@@ -1178,7 +1181,7 @@ fn run_compress_image(
         path(1)?,
         limit(2, f64::from(u32::MAX))? as u32,
         limit(3, 9_007_199_254_740_991.0)? as u64,
-        issued,
+        gate,
     )?;
     Ok(HostValue::Str(format!(
         "{}\t{}\t{}",

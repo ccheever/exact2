@@ -563,6 +563,14 @@ impl Context {
         self.endowment.state.set_image_codec(codec)
     }
 
+    /// Call when giving up on a storage wait (Exact patch 9): no
+    /// `fs.compressImage` still in flight will write after this returns
+    /// `Abandoned`; `Written` means one finished its write and its
+    /// completion is coming, so keep waiting for it.
+    pub fn abandon_image_work(&self) -> crate::stdlib::fs::Abandoned {
+        self.endowment.state.abandon_image_work()
+    }
+
     /// Worker-safe, edge-triggered notification that schedules the embedder's
     /// loop. Admissions coalesce and at most one callback runs at a time; a
     /// publisher that finds one running records another edge and returns.

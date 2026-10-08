@@ -371,6 +371,8 @@ pub struct RuntimeState {
     documents: std::sync::OnceLock<Arc<crate::stdlib::fs::Documents>>,
     /// The embedder's image codec for `fs.compressImage` (Exact patch 9).
     image_codec: std::sync::OnceLock<Arc<crate::stdlib::fs::ImageCodec>>,
+    /// Each `fs.compressImage` in flight, by its right to write.
+    image_work: Mutex<Vec<Arc<crate::stdlib::fs::CommitGate>>>,
     responses: Mutex<std::collections::HashMap<u64, Arc<StoredResponse>>>,
     controls: Mutex<std::collections::HashMap<u64, crate::stdlib::abort::AbortController>>,
     subscriptions: Mutex<HashMap<u64, Arc<EventSubscriptionState>>>,
@@ -534,6 +536,7 @@ impl RuntimeState {
             app_directories,
             documents: std::sync::OnceLock::new(),
             image_codec: std::sync::OnceLock::new(),
+            image_work: Mutex::new(Vec::new()),
             responses: Mutex::new(std::collections::HashMap::new()),
             controls: Mutex::new(std::collections::HashMap::new()),
             subscriptions: Mutex::new(HashMap::new()),
@@ -595,6 +598,31 @@ impl RuntimeState {
     }
     pub fn image_codec(&self) -> Option<&crate::stdlib::fs::ImageCodec> {
         self.image_codec.get().map(|c| &**c)
+    }
+    pub(crate) fn begin_image_work(&self) -> Arc<crate::stdlib::fs::CommitGate> {
+        let gate = Arc::new(crate::stdlib::fs::CommitGate::default());
+        self.image_work
+            .lock()
+            .expect("image work poisoned")
+            .push(gate.clone());
+        gate
+    }
+    pub(crate) fn end_image_work(&self, gate: &Arc<crate::stdlib::fs::CommitGate>) {
+        self.image_work
+            .lock()
+            .expect("image work poisoned")
+            .retain(|g| !Arc::ptr_eq(g, gate));
+    }
+    /// The embedder gave up waiting: every `fs.compressImage` in flight that
+    /// has not begun its write loses the right to write; one writing is
+    /// waited for. What the embedder should do next (Exact patch 9).
+    pub fn abandon_image_work(&self) -> crate::stdlib::fs::Abandoned {
+        let gates = self.image_work.lock().expect("image work poisoned").clone();
+        gates
+            .iter()
+            .map(|gate| gate.abandon())
+            .max()
+            .unwrap_or(crate::stdlib::fs::Abandoned::Nothing)
     }
     pub fn set_sqlite_provider(
         &self,

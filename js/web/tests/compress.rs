@@ -45,22 +45,40 @@ fn chrome_compresses_an_image_upright_within_budget_and_refuses_by_name() {
         "{stdout}\n{}",
         String::from_utf8_lossy(&result.stderr)
     );
-    let report: serde_json::Value =
+    let reports: serde_json::Value =
         serde_json::from_str(stdout.trim().lines().last().unwrap()).unwrap();
+    for engine in ["chrome", "firefox", "webkit"] {
+        let report = &reports[engine];
+        if let Some(why) = report["unavailable"]
+            .as_str()
+            .filter(|_| engine != "chrome")
+        {
+            eprintln!("compressImage on {engine} unavailable: {why}");
+            continue;
+        }
+        check(engine, report);
+    }
+}
+
+/// One engine's report: the page and the worker, then the Rust request.
+fn check(engine: &str, report: &serde_json::Value) {
     for realm in ["page", "worker"] {
         let r = &report[realm];
-        assert_eq!(r["record"]["path"], "app:/data/out.jpg", "{realm}: {r}");
-        assert_eq!(r["record"]["type"], "image/jpeg", "{realm}");
+        assert_eq!(
+            r["record"]["path"], "app:/data/out.jpg",
+            "{engine} {realm}: {r}"
+        );
+        assert_eq!(r["record"]["type"], "image/jpeg", "{engine} {realm}");
         assert_eq!(
             (&r["record"]["width"], &r["record"]["height"]),
             (&48.into(), &64.into()),
-            "{realm}"
+            "{engine} {realm}"
         );
-        assert_eq!(r["record"]["size"], r["readBack"], "{realm}");
+        assert_eq!(r["record"]["size"], r["readBack"], "{engine} {realm}");
         assert_eq!(
             (&r["decoded"][0], &r["decoded"][1]),
             (&48.into(), &64.into()),
-            "{realm}"
+            "{engine} {realm}"
         );
         // Stored red over blue, turned a quarter clockwise: blue on the left.
         let px: Vec<u64> = r["topLeft"]
@@ -71,23 +89,30 @@ fn chrome_compresses_an_image_upright_within_budget_and_refuses_by_name() {
             .collect();
         assert!(
             px[2] > 200 && px[0] < 60 && px[1] < 60,
-            "{realm}: top-left {px:?}"
+            "{engine} {realm}: top-left {px:?}"
         );
-        assert_eq!(r["exif"], false, "{realm}: the JPEG carries no EXIF");
-        assert_eq!(r["scaled"], serde_json::json!([24, 32]), "{realm}");
+        assert_eq!(
+            r["sourceExif"], true,
+            "{engine} {realm}: the tag reader is blind"
+        );
+        assert_eq!(
+            r["exif"], false,
+            "{engine} {realm}: the JPEG carries the source's GPS, date or orientation"
+        );
+        assert_eq!(r["scaled"], serde_json::json!([24, 32]), "{engine} {realm}");
         let noise = &r["noise"];
         assert!(
             noise["size"].as_u64().unwrap() <= 120_000,
-            "{realm}: {noise}"
+            "{engine} {realm}: {noise}"
         );
         assert!(
             noise["width"].as_u64().unwrap() < 1000,
-            "{realm}: noise did not shrink: {noise}"
+            "{engine} {realm}: noise did not shrink: {noise}"
         );
         assert_eq!(
             r["picked"],
             serde_json::json!([48, 64]),
-            "{realm}: a picked File entry"
+            "{engine} {realm}: a picked File entry"
         );
         assert_eq!(
             r["codes"],
@@ -100,16 +125,16 @@ fn chrome_compresses_an_image_upright_within_budget_and_refuses_by_name() {
                 "TypeError",
                 "ENOENT"
             ]),
-            "{realm}: {r}"
+            "{engine} {realm}: {r}"
         );
         assert_eq!(
             r["untouched"], 3,
-            "{realm}: a refusal changed the destination"
+            "{engine} {realm}: a refusal changed the destination"
         );
         assert_eq!(
             r["huge"],
             serde_json::json!(["too-large", 0]),
-            "{realm}: decoded before the header check"
+            "{engine} {realm}: decoded before the header check"
         );
         assert!(
             r["clear"]
@@ -117,19 +142,22 @@ fn chrome_compresses_an_image_upright_within_budget_and_refuses_by_name() {
                 .unwrap()
                 .iter()
                 .all(|v| v.as_u64().unwrap() > 245),
-            "{realm}: {}",
+            "{engine} {realm}: {}",
             r["clear"]
         );
     }
     assert_eq!(
         report["rust"],
         serde_json::json!({"path":"app:/data/rust.jpg","type":"image/jpeg","width":24,"height":32,"sized":true}),
-        "{report}"
+        "{engine}: {report}"
     );
-    assert_eq!(report["rustDenied"], "denied: fs.write", "{report}");
+    assert_eq!(
+        report["rustDenied"], "denied: fs.write",
+        "{engine}: {report}"
+    );
     assert_eq!(
         report["rustDoc"], "compressImage: needs app:/ paths",
-        "{report}"
+        "{engine}: {report}"
     );
 }
 
@@ -174,8 +202,29 @@ const checks = async (origin, sets, app) => {
   const canvas = new OffscreenCanvas(bitmap.width, bitmap.height), context = canvas.getContext('2d');
   context.drawImage(bitmap, 0, 0);
   report.topLeft = [...context.getImageData(0, 0, 1, 1).data].slice(0, 3);
-  const bytes = new Uint8Array(back), exif = [0x45, 0x78, 0x69, 0x66, 0, 0];
-  report.exif = bytes.some((_, i) => exif.every((b, j) => bytes[i + j] === b));
+  // The source's metadata is gone: no GPS, capture date or turned
+  // orientation. An encoder may write EXIF of its own (WebKit's does: its
+  // colour space and size), so the tags are read, not the block's presence.
+  const tags = jpeg => {
+    const v = new DataView(jpeg), found = {};
+    for (let pos = 2; pos + 4 < v.byteLength && v.getUint8(pos) === 0xff;) {
+      const marker = v.getUint8(pos + 1), length = v.getUint16(pos + 2);
+      if (marker === 0xe1 && v.getUint32(pos + 4) === 0x45786966) {
+        const base = pos + 10, le = v.getUint16(base) === 0x4949;
+        const u16 = i => v.getUint16(base + i, le), u32 = i => v.getUint32(base + i, le);
+        const ifd = at => { for (let k = 0, n = u16(at); k < n; k++) { const e = at + 2 + 12 * k, tag = u16(e); found[tag] = tag === 0x0112 ? u16(e + 8) : u32(e + 8); } };
+        ifd(u32(4));
+        if (found[0x8769]) ifd(found[0x8769]);
+      }
+      if (marker === 0xda) break;
+      pos += 2 + length;
+    }
+    return found;
+  };
+  const meta = tags(back);
+  report.exif = Boolean(meta[0x8825] || meta[0x9003] || (meta[0x0112] && meta[0x0112] !== 1));
+  const source = tags(fixture); // the reader finds them in the source
+  report.sourceExif = Boolean(source[0x8825] && source[0x9003] && source[0x0112] === 6);
   const scaled = await fs.compressImage('app:/tmp/in.jpg', 'app:/tmp/small.jpg', { maxDimension: 32, maxBytes: 2_000_000 });
   report.scaled = [scaled.width, scaled.height];
   // Noise, which JPEG cannot compress: deterministic, so every run shrinks alike.
@@ -221,15 +270,9 @@ const checks = async (origin, sets, app) => {
   fs.dispose();
   return report;
 };
-try {
-  const { targetInfos } = await cdp.send('Target.getTargets');
-  const page = targetInfos.find(t => t.type === 'page') ?? await cdp.send('Target.createTarget', { url: 'about:blank' });
-  const { sessionId } = await cdp.send('Target.attachToTarget', { targetId: page.targetId, flatten: true });
-  const call = (method, params) => cdp.send(method, params, sessionId);
-  await call('Page.enable');
-  await call('Page.navigate', { url: origin + '/' });
-  await new Promise(r => setTimeout(r, 300));
-  const expression = `(async () => {
+// What each engine is asked: the checks in the page, then in a module
+// worker, then a Rust source's request through storage-request.js.
+const expression = `(async () => {
     const sets = ${process.env.EXACT_GRANT_SETS}, checks = ${checks.toString()};
     const page = await checks(${JSON.stringify(origin)}, sets, 'test.compress.page');
     const source = 'const checks = ' + checks.toString() + ';onmessage = async e => { try { postMessage({ ok: await checks(...e.data) }); } catch (error) { postMessage({ error: String(error && error.stack || error) }); } };';
@@ -255,13 +298,43 @@ try {
     requests.dispose();
     return JSON.stringify({ page, worker: reply.ok, rust: rust.error ? rust : { path: rust.path, type: rust.type, width: rust.width, height: rust.height, sized: rust.size > 0 }, rustDenied: rustDenied.error, rustDoc: rustDoc.error });
   })()`;
+const reports = {};
+try {
+  const { targetInfos } = await cdp.send('Target.getTargets');
+  const page = targetInfos.find(t => t.type === 'page') ?? await cdp.send('Target.createTarget', { url: 'about:blank' });
+  const { sessionId } = await cdp.send('Target.attachToTarget', { targetId: page.targetId, flatten: true });
+  const call = (method, params) => cdp.send(method, params, sessionId);
+  await call('Page.enable');
+  await call('Page.navigate', { url: origin + '/' });
+  await new Promise(r => setTimeout(r, 300));
   const result = await call('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true });
   if (result.exceptionDetails) throw new Error(JSON.stringify(result.exceptionDetails));
-  console.log(result.result.value);
+  reports.chrome = JSON.parse(result.result.value);
 } finally {
   try { process.kill(-child.pid, 'SIGKILL'); } catch {}
   await exited;
-  server.closeAllConnections(); server.close();
   rmSync(profile, { recursive: true, force: true });
 }
+// Firefox and WebKit, through Playwright as conform.mjs and the agent's
+// carriers launch them, when they are installed (bunx playwright@1.63.0
+// install firefox webkit); else said, not failed.
+try {
+  const playwright = await import('playwright-core');
+  for (const name of ['firefox', 'webkit']) {
+    // A persistent profile: an ephemeral Firefox context cannot keep a Blob
+    // in IndexedDB, which a picked entry is (LLP 1069.002 D5).
+    const dir = mkdtempSync(resolve(tmpdir(), `exact-compress-${name}-`));
+    let context;
+    try { context = await playwright[name].launchPersistentContext(dir); }
+    catch (error) { reports[name] = { unavailable: String(error.message).split('\n')[0] }; rmSync(dir, { recursive: true, force: true }); continue; }
+    try {
+      const page = context.pages()[0] ?? await context.newPage();
+      await page.goto(origin + '/');
+      reports[name] = JSON.parse(await page.evaluate(expression));
+    } finally { await context.close(); rmSync(dir, { recursive: true, force: true }); }
+  }
+} finally {
+  server.closeAllConnections(); server.close();
+}
+console.log(JSON.stringify(reports));
 "#;

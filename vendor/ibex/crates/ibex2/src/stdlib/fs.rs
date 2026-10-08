@@ -27,8 +27,7 @@ use crate::grant::{GrantSet, Operation};
 
 // Exact patch 9: `fs.compressImage`, over the embedder's image codec.
 pub use super::fs_image::{
-    compress_image, CompressedImage, ImageCodec, ImageFile, COMMIT_BUDGET, EMBEDDER_WAIT,
-    TRIAL_BUDGET,
+    compress_image, Abandoned, CommitGate, CompressedImage, ImageCodec, ImageFile, TRIAL_BUDGET,
 };
 
 /// The operations, each one a distinct host op.

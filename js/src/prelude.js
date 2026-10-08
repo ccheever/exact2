@@ -1423,10 +1423,11 @@
     // operation is ignored.
     var message = JSON.parse(outcomeJson).failed.message;
     call.lost = true;
-    if (head && head.call === call) landed(head, false, storageError(message, "failed"));
+    // The code its message names (`compressImage: timeout: `), else `failed`.
+    if (head && head.call === call) landed(head, false, storageError(message));
     call.status = "failed";
     storing.delete(call);
-    call.error = storageError(message, "failed");
+    call.error = storageError(message);
   };
   global.__exact_fulfill = function (ticket, outcomeJson) {
     var p = settled(Number(ticket));

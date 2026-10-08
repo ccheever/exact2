@@ -45,7 +45,7 @@ test('the header gives the stored size before anything is decoded', async () => 
   const file = name => new Blob([readFileSync(new URL(`../../scripts/fixtures/picker/${name}`, import.meta.url))]);
   expect(await headerSize(file('oriented-gps.jpg'))).toEqual([64, 48]);
   expect(await headerSize(file('photo.png'))).toEqual([160, 106]);
-  expect(await headerSize(file('photo.heic'))).toEqual([320, 214]); // the coded size; its clean aperture shows 213
+  expect(await headerSize(file('photo.heic'))).toBe(null); // HEIF: not bounded before decoding on the web
   // The fixture's frame header rewritten to claim 9000 × 9000.
   const jpeg = new Uint8Array(readFileSync(new URL('../../scripts/fixtures/picker/oriented-gps.jpg', import.meta.url)));
   const sof = jpeg.findIndex((b, i) => b === 0xff && jpeg[i + 1] === 0xc0);
@@ -54,8 +54,21 @@ test('the header gives the stored size before anything is decoded', async () => 
   const bytes = (...parts) => new Blob([new Uint8Array(parts.flat())]);
   const le16 = n => [n & 255, n >> 8], le32 = n => [n & 255, (n >> 8) & 255, (n >> 16) & 255, n >>> 24];
   const ascii = s => [...s].map(c => c.charCodeAt(0));
-  expect(await headerSize(bytes(ascii('GIF89a'), le16(300), le16(200), Array(20).fill(0)))).toEqual([300, 200]);
-  expect(await headerSize(bytes(ascii('BM'), Array(16).fill(0), le32(640), le32(-480 >>> 0), Array(8).fill(0)))).toEqual([640, 480]);
-  expect(await headerSize(bytes(ascii('RIFF'), le32(0), ascii('WEBPVP8X'), le32(10), [0, 0, 0, 0], [0x3f, 0x1f, 0], [0xff, 0x0f, 0]))).toEqual([8000, 4096]);
+  // GIF: a 1×1 screen whose first image is 9000×9000 is 9000×9000; an
+  // extension block before it is skipped.
+  const gif = (screen, image) => bytes(ascii('GIF89a'), le16(screen[0]), le16(screen[1]), [0, 0, 0],
+    [0x21, 0xf9, 4, 0, 0, 0, 0, 0], [0x2c, 0, 0, 0, 0], le16(image[0]), le16(image[1]), [0, 2, 0]);
+  expect(await headerSize(gif([300, 200], [300, 200]))).toEqual([300, 200]);
+  expect(await headerSize(gif([1, 1], [9000, 9000]))).toEqual([9000, 9000]);
+  expect(await headerSize(gif([0, 0], [0, 0]))).toBe(null);
+  // BMP: signed 32-bit sides, top-down negative; and the 12-byte core header.
+  expect(await headerSize(bytes(ascii('BM'), Array(12).fill(0), le32(40), le32(640), le32(-480 >>> 0), Array(8).fill(0)))).toEqual([640, 480]);
+  expect(await headerSize(bytes(ascii('BM'), Array(12).fill(0), le32(12), le16(20000), le16(20000), Array(8).fill(0)))).toEqual([20000, 20000]);
+  // WebP: a VP8X canvas and its first frame, the larger of the two.
+  const vp8l = (w, h) => { const bits = (w - 1) | ((h - 1) << 14); return [ascii('VP8L'), le32(5), [0x2f], le32(bits)]; };
+  const vp8x = (w, h) => [ascii('VP8X'), le32(10), [0, 0, 0, 0], [(w - 1) & 255, ((w - 1) >> 8) & 255, (w - 1) >> 16], [(h - 1) & 255, ((h - 1) >> 8) & 255, (h - 1) >> 16]];
+  expect(await headerSize(bytes(ascii('RIFF'), le32(0), ascii('WEBP'), vp8x(8000, 4096).flat(), vp8l(8000, 4096).flat()))).toEqual([8000, 4096]);
+  expect(await headerSize(bytes(ascii('RIFF'), le32(0), ascii('WEBP'), vp8x(16, 16).flat(), vp8l(9000, 9000).flat()))).toEqual([9000, 9000]);
+  expect(await headerSize(bytes(ascii('RIFF'), le32(0), ascii('WEBP'), vp8l(300, 200).flat(), [0, 0, 0]))).toEqual([300, 200]);
   expect(await headerSize(bytes(ascii('not an image at all, not one bit')))).toBe(null);
 });

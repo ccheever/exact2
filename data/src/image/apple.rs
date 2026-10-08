@@ -70,6 +70,9 @@ extern "C" {
     static kCGImageSourceCreateThumbnailWithTransform: CFTypeRef;
     static kCGImageSourceThumbnailMaxPixelSize: CFTypeRef;
     static kCGImageSourceShouldCache: CFTypeRef;
+    // macOS 14, iOS 17, tvOS 17: exact2's minimums (host/apple/build.mjs).
+    static kCGImageSourceDecodeRequest: CFTypeRef;
+    static kCGImageSourceDecodeToSDR: CFTypeRef;
     static kCGImageDestinationLossyCompressionQuality: CFTypeRef;
     static kCGImagePropertyPixelWidth: CFTypeRef;
     static kCGImagePropertyPixelHeight: CFTypeRef;
@@ -294,6 +297,10 @@ fn draw(source: CFTypeRef, w: u32, h: u32) -> Option<Owned> {
             (kCGImageSourceCreateThumbnailFromImageAlways, kCFBooleanTrue),
             (kCGImageSourceCreateThumbnailWithTransform, kCFBooleanTrue),
             (kCGImageSourceShouldCache, kCFBooleanFalse),
+            // An HDR (PQ, HLG, gain-map) source is tone-mapped to SDR while
+            // decoding, as a layer would show it; drawing an HDR thumbnail
+            // into an 8-bit bitmap would clip it instead.
+            (kCGImageSourceDecodeRequest, kCGImageSourceDecodeToSDR),
             (kCGImageSourceThumbnailMaxPixelSize, side.get()),
         ]
     })?;

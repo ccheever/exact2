@@ -7,6 +7,7 @@ use super::app_fs::AppDirectories;
 use super::fs::{FsOp, FsResult};
 use crate::boundary::HostError;
 use crate::grant::{GrantSet, Operation};
+use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 /// What a codec made: JPEG bytes and their pixel size.
@@ -23,15 +24,37 @@ pub struct CompressedImage {
 pub type ImageCodec =
     dyn Fn(&[u8], u32, u64, Instant) -> Result<CompressedImage, String> + Send + Sync;
 
-/// How long after the guest issued the call the codec may start work.
+/// How long after the work starts the codec may start a decode or trial.
 pub const TRIAL_BUDGET: Duration = Duration::from_secs(20);
-/// How long after the guest issued the call the result may still be
-/// written. An embedder that waits on the call gives up no sooner than
-/// [`EMBEDDER_WAIT`] after issue, so nothing is written after the guest
-/// could have been told the call failed (exact2 `js/src/storage.rs`).
-pub const COMMIT_BUDGET: Duration = Duration::from_secs(24);
-/// The shortest wait an embedder may put on a storage call.
-pub const EMBEDDER_WAIT: Duration = Duration::from_secs(30);
+
+/// One call's right to write `to`, which an embedder that gives up waiting
+/// takes away ([`crate::bindings::Context::abandon_image_work`]). The write
+/// happens holding it, so giving up waits for a write in progress and a
+/// call that lost the right never writes.
+#[derive(Debug, Default)]
+pub struct CommitGate(Mutex<Abandoned>);
+
+/// What giving up found, in increasing order of what the waiter must do.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default)]
+pub enum Abandoned {
+    /// No call was in flight, or none had begun anything it could lose.
+    #[default]
+    Nothing,
+    /// A call lost its right to write: it will write nothing.
+    Abandoned,
+    /// A call had written: its completion is coming; wait for it.
+    Written,
+}
+
+impl CommitGate {
+    pub(crate) fn abandon(&self) -> Abandoned {
+        let mut state = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        if *state != Abandoned::Written {
+            *state = Abandoned::Abandoned;
+        }
+        *state
+    }
+}
 
 /// What was written at the destination.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -50,9 +73,9 @@ fn failed(code: &str, detail: impl std::fmt::Display) -> HostError {
 
 /// Admit `fs.read` on `from` and `fs.write` on `to` before anything is read,
 /// check the source's size, run `codec`, and replace `to` with its JPEG. On
-/// any failure `to` is as it was. `issued` is when the guest made the call:
-/// the codec starts nothing after [`TRIAL_BUDGET`] from it, and nothing is
-/// written after [`COMMIT_BUDGET`] (`timeout`).
+/// any failure `to` is as it was. The codec starts nothing after
+/// [`TRIAL_BUDGET`] from the start; the write happens only while `gate`
+/// (when there is a waiter) still holds the right to it (`timeout`).
 #[allow(clippy::too_many_arguments)]
 pub fn compress_image(
     grants: &GrantSet,
@@ -62,8 +85,9 @@ pub fn compress_image(
     to: &str,
     max_dimension: u32,
     max_bytes: u64,
-    issued: Instant,
+    gate: Option<&CommitGate>,
 ) -> Result<ImageFile, HostError> {
+    let started = Instant::now();
     if !from.starts_with("app:/") || !to.starts_with("app:/") {
         return Err(HostError::Failed("compressImage: needs app:/ paths".into()));
     }
@@ -83,18 +107,8 @@ pub fn compress_image(
         _ => {}
     }
     let codec = codec.ok_or_else(|| failed("unsupported", "no JPEG encoder on this host"))?;
-    let FsResult::Bytes(source) = directories.run(grants, FsOp::ReadFile, from, None, None)? else {
-        return Err(HostError::Failed(
-            "compressImage: the read returned no bytes".into(),
-        ));
-    };
-    if source.len() as u64 > MAX_SOURCE_BYTES {
-        return Err(failed(
-            "too-large",
-            format!("{} bytes is over {MAX_SOURCE_BYTES}", source.len()),
-        ));
-    }
-    let image = codec(&source, max_dimension, max_bytes, issued + TRIAL_BUDGET)
+    let source = read_capped(grants, directories, from)?;
+    let image = codec(&source, max_dimension, max_bytes, started + TRIAL_BUDGET)
         .map_err(HostError::Failed)?;
     drop(source);
     if image.bytes.len() as u64 > max_bytes {
@@ -106,20 +120,51 @@ pub fn compress_image(
             ),
         ));
     }
-    // The last moment a write may begin: after it, the guest may already
-    // have been told the call failed, and later storage may have run.
-    if issued.elapsed() >= COMMIT_BUDGET {
+    // The write holds the right to it: a waiter that gave up first took it
+    // away, and one that gives up now waits for the write to finish.
+    let mut right = gate.map(|g| g.0.lock().unwrap_or_else(|e| e.into_inner()));
+    if right.as_deref() == Some(&Abandoned::Abandoned) {
         return Err(failed(
             "timeout",
-            format!("the result was ready after {} s", COMMIT_BUDGET.as_secs()),
+            "the wait for it ran out before it was written",
         ));
     }
     directories.run(grants, FsOp::AtomicWriteFile, to, None, Some(&image.bytes))?;
+    if let Some(right) = right.as_deref_mut() {
+        *right = Abandoned::Written;
+    }
+    drop(right);
     Ok(ImageFile {
         width: image.width,
         height: image.height,
         size: image.bytes.len() as u64,
     })
+}
+
+/// `from`'s bytes, at most [`MAX_SOURCE_BYTES`] of them: the opened file is
+/// read with a cap, so one replaced or grown since `stat` is `too-large`
+/// without reading it all.
+fn read_capped(
+    grants: &GrantSet,
+    directories: &AppDirectories,
+    from: &str,
+) -> Result<Vec<u8>, HostError> {
+    #[cfg(unix)]
+    let bytes = directories.read_capped(grants, from, MAX_SOURCE_BYTES + 1)?;
+    #[cfg(not(unix))]
+    let FsResult::Bytes(bytes) = directories.run(grants, FsOp::ReadFile, from, None, None)?
+    else {
+        return Err(HostError::Failed(
+            "compressImage: the read returned no bytes".into(),
+        ));
+    };
+    if bytes.len() as u64 > MAX_SOURCE_BYTES {
+        return Err(failed(
+            "too-large",
+            format!("more than {MAX_SOURCE_BYTES} bytes"),
+        ));
+    }
+    Ok(bytes)
 }
 
 #[cfg(all(test, unix))]
@@ -186,7 +231,7 @@ mod tests {
             "app:/data/out.jpg",
             4000,
             10,
-            Instant::now(),
+            None,
         )
         .unwrap();
         assert_eq!(
@@ -208,7 +253,7 @@ mod tests {
             "app:/tmp/in.png",
             1,
             10,
-            Instant::now(),
+            None,
         )
         .unwrap();
         assert_eq!(std::fs::read(f.path.join("tmp/in.png")).unwrap(), b"cba");
@@ -232,7 +277,7 @@ mod tests {
                 "app:/tmp/out.jpg",
                 10,
                 10,
-                Instant::now(),
+                None,
             )
             .unwrap_err();
             assert!(err.to_string().starts_with(denied), "{err}");
@@ -258,7 +303,7 @@ mod tests {
             "app:/tmp/out.jpg",
             10,
             10,
-            Instant::now(),
+            None,
         )
         .unwrap_err();
         assert_eq!(err.to_string(), "compressImage: undecodable: not an image");
@@ -273,7 +318,7 @@ mod tests {
             "app:/tmp/out.jpg",
             10,
             2,
-            Instant::now(),
+            None,
         )
         .unwrap_err();
         assert!(
@@ -289,7 +334,7 @@ mod tests {
             "app:/tmp/out.jpg",
             10,
             10,
-            Instant::now(),
+            None,
         )
         .unwrap_err();
         assert_eq!(
@@ -299,19 +344,23 @@ mod tests {
         assert_eq!(std::fs::read(f.path.join("tmp/out.jpg")).unwrap(), b"old");
     }
 
-    /// A result ready after the commit budget is never written: by then the
-    /// embedder may have told the guest the call failed and run later storage.
+    /// A waiter that gave up takes the right to write away: a result ready
+    /// after that is a timeout and writes nothing.
     #[test]
-    fn a_late_result_is_a_timeout_and_writes_nothing() {
+    fn a_result_after_the_waiter_gave_up_writes_nothing() {
         let f = Fixture::new();
         let all = grants("fs.read app:/\nfs.write app:/");
         std::fs::write(f.path.join("tmp/in.png"), b"abc").unwrap();
         std::fs::write(f.path.join("tmp/out.jpg"), b"old").unwrap();
-        let issued = Instant::now() - COMMIT_BUDGET;
+        let gate = Arc::new(CommitGate::default());
+        let waiter = gate.clone();
         let saw = Arc::new(std::sync::Mutex::new(None));
         let seen = saw.clone();
+        let started = Instant::now();
+        // The waiter gives up while the codec runs.
         let codec = move |bytes: &[u8], _: u32, _: u64, deadline: Instant| {
             *seen.lock().unwrap() = Some(deadline);
+            assert_eq!(waiter.abandon(), Abandoned::Abandoned);
             Ok(CompressedImage {
                 bytes: bytes.to_vec(),
                 width: 1,
@@ -326,16 +375,84 @@ mod tests {
             "app:/tmp/out.jpg",
             10,
             10,
-            issued,
+            Some(&gate),
         )
         .unwrap_err();
         assert!(
             err.to_string().starts_with("compressImage: timeout: "),
             "{err}"
         );
-        assert_eq!(saw.lock().unwrap().unwrap(), issued + TRIAL_BUDGET);
+        let deadline = saw.lock().unwrap().unwrap();
+        assert!(deadline >= started + TRIAL_BUDGET && deadline <= Instant::now() + TRIAL_BUDGET);
         assert_eq!(std::fs::read(f.path.join("tmp/out.jpg")).unwrap(), b"old");
-        assert!(COMMIT_BUDGET < EMBEDDER_WAIT && TRIAL_BUDGET < COMMIT_BUDGET);
+    }
+
+    /// Once written, giving up finds the write done: the waiter waits for
+    /// its completion instead of failing the call.
+    #[test]
+    fn a_written_result_is_not_abandoned() {
+        let f = Fixture::new();
+        let all = grants("fs.read app:/\nfs.write app:/");
+        std::fs::write(f.path.join("tmp/in.png"), b"abc").unwrap();
+        let calls = Arc::new(AtomicUsize::new(0));
+        let codec = reverse(&calls);
+        let gate = CommitGate::default();
+        compress_image(
+            &all,
+            Some(&f.dirs),
+            Some(&codec),
+            "app:/tmp/in.png",
+            "app:/tmp/out.jpg",
+            10,
+            10,
+            Some(&gate),
+        )
+        .unwrap();
+        assert_eq!(gate.abandon(), Abandoned::Written);
+        assert_eq!(std::fs::read(f.path.join("tmp/out.jpg")).unwrap(), b"cba");
+    }
+
+    /// A write in progress holds the right: giving up waits for it, so the
+    /// waiter never reports a failure for a call whose write then lands.
+    #[test]
+    fn giving_up_waits_for_a_write_in_progress() {
+        let gate = Arc::new(CommitGate::default());
+        let held = gate.0.lock().unwrap(); // a write in progress
+        let waiter = gate.clone();
+        let gave_up = std::thread::spawn(move || waiter.abandon());
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        assert!(
+            !gave_up.is_finished(),
+            "giving up did not wait for the write"
+        );
+        let mut held = held;
+        *held = Abandoned::Written;
+        drop(held);
+        assert_eq!(gave_up.join().unwrap(), Abandoned::Written);
+    }
+
+    #[test]
+    fn a_source_grown_past_the_cap_is_too_large_without_reading_it_all() {
+        let f = Fixture::new();
+        let all = grants("fs.read app:/\nfs.write app:/");
+        let big = std::fs::File::create(f.path.join("tmp/big")).unwrap();
+        big.set_len(MAX_SOURCE_BYTES + 10).unwrap();
+        let bytes = f
+            .dirs
+            .read_capped(&all, "app:/tmp/big", MAX_SOURCE_BYTES + 1)
+            .unwrap();
+        assert_eq!(bytes.len() as u64, MAX_SOURCE_BYTES + 1);
+        let err = read_capped(&all, &f.dirs, "app:/tmp/big").unwrap_err();
+        assert!(
+            err.to_string().starts_with("compressImage: too-large: "),
+            "{err}"
+        );
+        assert!(
+            read_capped(&grants("fs.write app:/"), &f.dirs, "app:/tmp/big")
+                .unwrap_err()
+                .to_string()
+                .starts_with("denied: fs.read")
+        );
     }
 
     #[test]
@@ -354,7 +471,7 @@ mod tests {
             "app:/tmp/in.png",
             10,
             10,
-            Instant::now()
+            None
         )
         .is_err());
         assert_eq!(std::fs::read(f.path.join("tmp/in.png")).unwrap(), b"abc");
@@ -367,18 +484,9 @@ mod tests {
         let calls = Arc::new(AtomicUsize::new(0));
         let codec = reverse(&calls);
         let run = |from: &str, to: &str| {
-            compress_image(
-                &all,
-                Some(&f.dirs),
-                Some(&codec),
-                from,
-                to,
-                10,
-                10,
-                Instant::now(),
-            )
-            .unwrap_err()
-            .to_string()
+            compress_image(&all, Some(&f.dirs), Some(&codec), from, to, 10, 10, None)
+                .unwrap_err()
+                .to_string()
         };
         assert!(run("app:/tmp/absent", "app:/tmp/out.jpg").contains("os error 2"));
         assert_eq!(
@@ -404,7 +512,7 @@ mod tests {
             "app:/tmp/out",
             10,
             10,
-            Instant::now(),
+            None,
         )
         .unwrap_err();
         assert_eq!(err.to_string(), "app directories are not configured");
