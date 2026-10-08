@@ -1,0 +1,12 @@
+2026-10-08T04:08:59.664Z [before] app pid 46229; port 16310; binary /Users/daehyeonmun/orca/workspaces/exact2/t3-code-skill-chip-provider-name/target/skill-chip-provider-name/base/T3 Code (Exact).app/Contents/MacOS/T3 Code (Exact)
+2026-10-08T04:09:05.443Z [before] timeout palette after 5000 ms
+2026-10-08T04:09:06.237Z [before] ready palette in 6 ms
+2026-10-08T04:09:06.237Z [before] palette open: true
+2026-10-08T04:09:06.252Z [before] ready codex ready in 15 ms
+2026-10-08T04:09:06.256Z [before] providers [["codex",true],["claudeAgent",false],["cursor",false],["grok",false],["opencode",false],["antigravity",false],["pi",false]]
+2026-10-08T04:09:08.568Z [before] ready project added in 5 ms
+2026-10-08T04:09:19.260Z [before] shot 01-composer-chips
+2026-10-08T04:09:19.266Z [before] composer box {"y":347.5,"x":276,"w":680,"h":144}
+2026-10-08T04:09:21.243Z [before] shot 02-skill-menu
+2026-10-08T04:09:21.249Z [before] menu rows ["Image Gen"]
+2026-10-08T04:09:21.326Z [before] session closed (nothing sent)
