@@ -50,6 +50,7 @@ REF = `~/Documents/work/3.open-source/t3code`. X2 = exact2 main.
 | X51 | A click inside an open popover also reaches the page under it, on macOS (local draft, unconfirmed: not reproduced in a one-file app) | The theme editor's colour popover: a click on the plane pressed the Dark toggle or focused the name field under it | host | the popover box takes `press` and `retainFocus=true` (`theme-color-picker.contract`) |
 | X52 | On macOS, `input type="date"`, `type="time"` and `select` are no Tab stops (the web's are; local draft, not published) | Custom snooze: Date, Time and Unit are skipped by Tab | host | none; the dialog's other stops follow the reference order |
 | X53 | A modal an app opens from state: `showModal(id)` is carried by the terminal host only (macOS "unknown command", the web refuses it) and `aria-modal` keeps no Tab inside (local draft, not published) | Every T3 dialog (Base UI's focus trap, initial and final focus) | runner/host | per-dialog `key` traps, `autofocus` and `focus()` in AppConfirm, SettingsConfirm, Custom snooze and Add Environment (`20261008-dialog-shortcut-focus`); other dialogs rely on the inert page behind them |
+| X56 | A mouse click whose mouse-down focuses a `button` that restyles itself from its `focus` handler runs no `press`, on macOS (local draft, unconfirmed: a one-file app not tried) | The Usage page's pooled segments: a click on an unfocused segment did not open its popover (Enter did) | host | the segment draws no ring of its own; the host's focus ring (X47, main #189) stands in |
 
 
 ## Current state on the pin (2026-10-06, exact2 `c12832e82`)
@@ -379,6 +380,12 @@ Task `20261005-pr-header-actions-and-stacks` (`pages-pr-actions.*`, `pages-pr-st
 - **Menus and the freshness popover do not flip (X17, [#112](https://github.com/ccheever/exact2/issues/112)).** The More menu, the stack menu and the out-of-date base's popover sit under their trigger at its start edge and are clamped to the window (the reference aligns More `end` and the popover `start`, and flips near an edge); in the panel at the window's right edge the clamp lands the More menu where the reference's end alignment does.
 - **The freshness popover's hover delay.** Pointing at the base branch's mark shows the card at once (`openOnHover delay={0}`), as a hover card drawn with the trigger; the reference's 120 ms close delay is not timed (no timer in a component), so the card goes when the pointer leaves the mark and the card together. Pressing the mark (or Return on it) opens the same card as a popover, which Escape and a press outside close.
 - **Dialog focus (X53).** The confirmation AlertDialog and the stack's Dialog keep the stopgap the other dialogs use (`20261008-dialog-shortcut-focus`): focus starts on Cancel and Tab cycles their buttons with their own `key` handlers; Escape is Cancel's `aria-keyshortcuts`.
+
+## Usage pooled view: declared differences
+
+- **Light dismiss of a pressed popover (no upstream issue yet).** A segment's popover pinned by a press closes on Escape, a second press or another segment's press, not on a click elsewhere; Base UI's non-modal popover closes on an outside press. Exact opens a `popover="auto"` only from a `popovertarget` press (no imperative `showPopover`, compare X53), so a hover-opened popover is a state-driven layer with no host light dismiss. Needs a decision or a filed issue.
+- **The popover's side (X17, [#112](https://github.com/ccheever/exact2/issues/112)).** Worked out from the layout as Base UI's flip lands on an unscrolled page (`popoverSides`); after a scroll a popover near the scroll area's top can still be clipped (no `position-try`).
+- **Hatching of the spent share.** One SVG path of the same 1px stripes 5px apart at 135°: the kernel paints no `repeating-linear-gradient` (it says so at compile time). No visible difference.
 
 ## Not exact2 asks (stay in the app module)
 

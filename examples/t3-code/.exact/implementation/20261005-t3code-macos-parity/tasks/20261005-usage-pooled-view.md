@@ -1,12 +1,12 @@
 ---
 name: 20261005-usage-pooled-view
 plan: 20261005-t3code-macos-parity
-implementation: planned
-verification: unverified
-delivery: none
+implementation: implemented
+verification: verified-with-unverified-rows
+delivery: draft
 repository: https://github.com/ccheever/exact2
-base_branch: daehyeon/t3-code
-branch: null
+base_branch: feat(example)/t3-code
+branch: feat(example)/t3-code-usage-pooled-view
 pr_url: null
 verified_commit: null
 ---
@@ -97,14 +97,142 @@ Required environment: Xcode 27.0, pinned Bun and Hermes, oracle build, two isola
 
 2026-10-06: on hold (user decision: tasks that need a sign-in waited). 2026-10-07: the user lifted the hold. Rows that need a real account are signed in by the user in person on the lane build; every other sign-in row uses lane fixtures.
 
-Planned. No branch.
+2026-10-08: implemented in [PR #PRNUM](https://github.com/ccheever/exact2/pull/PRNUM) (draft), all five scope items.
+- **Data model** (`usage-limits-pools.ts`): port of `collectLimitAccounts`, `collectLimitPools`,
+  `displayLimitWindows`, `collectLimitNotices`, `collectExternalUsageLinks`, `CURSOR_USAGE_WINDOWS`,
+  `cursorUsageWindowDetails`, the `LimitAccount` / `LimitPool` / `LimitPoolWindow` / `LimitPoolMember`
+  types and UsageLimitsPooled's `accountInitials` / `accountHue`; each account carries
+  `redeem {environmentId, input}`. `CHATGPT_USAGE_URL` is `chatgpt-plan.ts`'s (#256).
+- **View** (`usage-pooled.contract`, `usage-pooled-view.ts`): PoolSection, PoolWindowCard (pooled % left,
+  PaceIcon, "↻ +N%"), PoolBar with one equal-width segment per account (35% fill, the spent share
+  hatched as 1px stripes 5px apart in one SVG path, since the kernel paints no repeating gradient;
+  wide: name, % and a plate with the countdown and ticket count; narrow: the position and a legend),
+  the segment popover (avatar or chip, title, the email blurred until pressed, Plan, Signed in / Via,
+  Left, Resets, Restores, "N banked · expires in …" with Use reset), the status line under the bar,
+  CursorEnableLimits, the external usage sections (ChatGPT copy), the LimitNotices warning alert and the
+  empty text. The popover opens on hover (300 ms, the fade's delay), pins on a press (Return/Enter
+  too), closes on Escape (the page's one Escape shortcut: a popover first, else back) or a second
+  press; one shows at a time; its side follows the reference's collision flip on an unscrolled page
+  (`popoverSides`).
+- **Environments and the two refreshes** (`usage-environments.ts`, `usage-replies.ts`, `usage-refresh.ts`):
+  the filter lists the focused environment and every EnvironmentFleet entry (one that is not connected
+  and synchronized is disabled with its phase); the limits and the cost view read each selected
+  environment (cost: `mergeUsage` over every environment that answered, partial totals, the skeleton,
+  per-environment status, failed environments in the coverage note, the model dialog over all of them).
+  Every per-environment request is detached: queued, sent by the next answer on that environment's own
+  transport (`composer-replies.ts` for the focused one; `usage-replies.ts` with the transport's
+  `deliver` key for a background one, settled in EnvironmentFleet's drain), so no answer waits on
+  another environment. `refreshUsage` (rates, invalidate, refetch; a disconnect aborts the refetch; no
+  session settles) and `refreshUsageLimits` (one check per environment, five-minute window, joins,
+  `afterPending`) are ports with `now` as an argument (X19); the limits clock renews only on opening
+  Limits and after a check. Fleet entries subscribe with `usageLimitSources: true`, and a background
+  change redraws the open page (`usageFleetSynced`).
+- **Redeem**: the confirm (ResetCreditDialog, now with a command `prefix`) sits over the window outside
+  the popover; "Use credit" sends `provider.consumeResetCredit` with `redeem.input` on
+  `redeem.environmentId`; the outcome reads "`<name>` `<text>`" under the bar; Cancel/Escape send nothing
+  and give the focus back to the segment.
+- **Cursor Keychain offer**: `needsCursorKeychainAccess` / `cursorKeychainAccessEnvironments`; the
+  CursorEnableLimits card after Codex and Claude and the CursorEnableRow in the cost view's provider
+  list; Enable writes `cursorKeychainUsageEnabled` on that environment, then rescans usage and runs a
+  fresh limits check after the one in flight.
+- `app.contract` 1,499 -> 1,496 lines (the environment-off state, its action and argument removed).
+- Two live AppKit agent sessions (one retry) found three defects, all fixed: Escape went back from the
+  page while a popover was open (now the page's Escape closes it first); a mouse click on an unfocused
+  segment never pressed it because its own `focus` handler restyled it (X56 draft; the host's focus
+  ring stands in, as for every custom pressable since #189); the second card's popover opened above and
+  was clipped (now flips below). The last two fixes were not re-driven (session budget).
+- Independent review (2026-10-08): REVIEW_SUMMARY.
+
+Acceptance rows:
+- **Pooling rules:** pass — `usage-limits-pools.test.ts`: "pools" (11 cases), "pooled account columns"
+  (4), "Cursor limit presentation" (2), "collectLimitNotices", "external usage settings" (2), original names.
+- **Two environments:** pass (fixture, live) — one account for the shared email signed in on "Build box,
+  Studio", the hub account "Via Studio · Team hub", the notice "Studio · Old hub: token expired";
+  1280×840 and 840×620, light and dark (PR images 01–04).
+- **Segment popover:** pass (live) with one fix not re-driven — rows as listed (07, 08); Tab goes
+  segment to segment (hidden popovers inert); one shows at a time; Escape closes it and the segment
+  keeps the focus (session 2). A mouse press on an unfocused segment lost its press (X56); fixed by the
+  host ring, not re-driven; the legend row's press (same press, no focus handler) worked live.
+- **Redeem:** pass (fixture, live) — Use reset → confirm; Cancel/Escape sent nothing; Use credit sent
+  `{"instanceId":"codex"}` once to Studio (the background environment whose snapshot showed the
+  credits); "Using…", then "Codex Reset applied. Your windows have cleared." under the bar (09–11); the
+  hub target `{sourceId, accountId, creditId}` on its environment and a typed failure in tests.
+- **Environment filter:** pass — live: Studio off/on recomputes the pools and the cost view (13); none
+  selected → "Select an environment to see limits." in tests.
+- **Usage refresh:** pass (live) — one `server.refreshUsageRates` per selected connected environment,
+  each followed by that environment's `server.getUsageSummary`, also after Build box's failed rates
+  call; Studio stopped mid-refresh (recorded pid) made no refetch and Build box finished (14).
+- **Limits refresh window:** pass (live) — one `server.refreshProviders` per environment on opening;
+  none on returns inside five minutes; the button sends one; after the agent clock passed five minutes a
+  return sent one again and the countdown renewed ("in 2h 12m" → "in 2h 6m").
+- **External links and Cursor:** pass — ChatGPT section with its copy (live, 01); Cursor card and row
+  (live, 06, 12); Cursor labels, descriptions and the hidden combined percentage in tests.
+- **Hub subscription:** pass (live) — the background environment subscribed
+  `{"usageLimitSources":true}` (the base sent `{}`), and its hub account and notice show (01).
+- **Trace and pixels:** not run — user decision 2026-10-06 (no oracle / trace tools); RPC facts from the
+  fixture's log (`rpc-log.txt`), UI checked against the reference source.
+- **Real hover and redeem (attended):** real hover deferred to the real-input batch — screen locked
+  (user away); a real redeem is blocked: it spends a banked credit on the user's account (user decision).
+- **Ported tests:** pass — `usage-refresh.test.ts`: "manual usage refresh" (5, as 6 with `it.each`),
+  "limits refresh cooldown" (2), "needsCursorKeychainAccess" (2); `usage-pooled.test.ts` "UsagePage
+  refresh" (5 as logic tests with a `now` argument); `usage-limits-pools.test.ts` (above).
+- **Keyboard focus, confirm Escape, reduced motion:** pass in part — segment Tab order and Escape in the
+  confirm (focus back to the segment, nothing sent) live; under reduced motion the popover is opaque at
+  once after the hover delay (15). Not verified: the Cursor Enable buttons with Return (needs one more
+  agent session; no blocker other than the session budget).
+- **Cursor Keychain enable prompt:** fixture only (the Keychain read is scripted away); the real macOS
+  Keychain prompt is OS UI — deferred to the real-input batch (screen locked) and Cursor is on the user's
+  free plan (403 plan_required).
+- **Gates:** see Attempts.
 
 ## Attempts and evidence
 
 | Attempt | Revision/fingerprint | Checks and outcomes | Evidence | Remaining blocker |
 | --- | --- | --- | --- | --- |
-| none | — | — | — | — |
+| 1 (2026-10-08) | `58eac6668` + `b5c7847be` | `bun test examples/t3-code` 2,910 pass / 1 skip / 0 fail; strict `tsc` clean; contract build 3,392 slots; live session 1 (agent, two lane environments behind fixture proxies) | PR images 01, 06, 08–15; `drive-record.md`, `rpc-log.txt` | Escape went back from the page while a popover showed |
+| 1a (failed approach, same day) | uncommitted | data-source bake refused `Date.now()` in `usage-replies.ts` (request keys) | build log | keys now come from the transport's `ids` |
+| 2 (2026-10-08) | `ba541958d` (feature branch `b7761f556` merged) | live session 2 (the one retry): Escape fixed; found X56 (a click on an unfocused segment lost its press) and a clipped second-card popover | images 02–05, 07, 16; `drive-record.md` | both fixed in attempt 3, not re-driven |
+| 3 (2026-10-08) | `aceedd9e2` | `bun test examples/t3-code` 2,970 pass / 1 skip / 0 fail; strict `tsc` clean; contract build 3,472 slots; `cargo test -p t3-code-macos --lib` 11 pass; macOS bundle builds; caps within; five checks: build ok, test 3,383 pass / 0 fail / 33 ignored (95 binaries), clippy ok, fmt ok, boot ok | PR checks table | real-input batch rows; user decisions (real redeem); Cursor free plan |
 
 ## Next action
 
-`prepare` from `feat(example)/t3-code` once the prerequisite task PRs above have merged into it; sign-in rows use lane fixtures, and real-account rows wait for the user to sign in.
+Review and merge PR #PRNUM into `feat(example)/t3-code`. The coordinator's real-input batch runs the steps
+below (real hover, a real click on an unfocused segment for X56, the popover side, the Cursor Enable
+buttons with Return). A real redeem waits for the user's decision on spending a banked credit; the real
+Cursor Keychain prompt waits for a Cursor account on a paid plan.
+
+## Real-input batch steps
+
+Deferred rows (screen locked, user away, 2026-10-08). Run them in one session with the real-input lock
+(`target/t3-ui-parity/lanes/.realinput-lock`, owner note "usage-pooled-view: real input").
+
+1. **Lanes.** In this worktree (or the merged feature branch's), `bun target/upv/lane/lane.mjs start`
+   recreates two isolated servers (16410 "Studio", 16420 "Build box") behind the fixture proxies
+   (16411, 16421). If this worktree is gone, copy the scripts from the evidence branch
+   (`t3-code-evidence:usage-pooled-view/tools/`: `lane.mjs`, `fixture.mjs`, `scenario.json` into
+   `<worktree>/target/upv/lane/`, `drive.mjs` and `send.sh` into `target/upv/`); set `epoch` in
+   `scenario.json` to the session's minute. `bun lane.mjs pair a`,
+   `pair b` write single-use links to `<a|b>/pairing-url` (0600; never print them).
+2. **App copy.** `EXACT_APP_DIR=$PWD/examples/t3-code bun host/apple/build.mjs t3-code-macos --bundle`;
+   copy the bundle to `target/upv/T3 Code (Lane Usage).app` with its own bundle id; launch it by path
+   with `CFFIXED_USER_HOME=<lane dir>/home` (no `T3_LOCAL_HOME`/`T3_LOCAL_PORT`: no local server).
+   Pair Build box in the wizard (paste with `set-value`, Korean input source), then Studio
+   (Add a computer again), Continue, Agents Continue, "Do not import projects".
+3. **Real hover.** Open Usage (sidebar gauge) → Limits at 1280×840. With `orca computer`, move the
+   pointer onto the first Codex segment and hold: the popover appears after about 300 ms with the rows of
+   image 07; move into it and onto the blurred email: it stays; click the email: it reveals; move off
+   everything: it closes. Read back with a window screenshot (`screencapture -l <id>`), pixels ÷ 2.
+4. **Real click on an unfocused segment (X56 fix).** Click the "Work" segment once: its popover opens and
+   stays (pinned); click it again: it closes; click it, press Escape: it closes and the segment keeps the
+   focus ring (host ring); press Escape again: the page goes back.
+5. **Real keys.** Tab from the refresh button into the bars: each segment shows the host focus ring in
+   order; Return opens; Tab reaches "Use reset"; Return opens the confirm; Escape closes it with the focus
+   back on the segment. On the Cursor card, Tab to "Enable" and press Return: the fixture logs one
+   `server.updateSettings {"patch":{"cursorKeychainUsageEnabled":true}}` on Build box (`b/rpc.log`).
+6. **Cursor Keychain prompt (real).** Needs a Cursor account on a paid plan in the lane's
+   CLAUDE/Cursor home and the real `cursorKeychainUsageEnabled` write against an unproxied lane server:
+   the macOS Keychain prompt for the lane copy may be allowed for that copy only. Blocked today: the
+   user's Cursor account is on the free plan (403 plan_required).
+7. **Clean-up.** Quit the copy, delete its Keychain items (`com.exact.t3code.macos.access-token`,
+   accounts `<origin>\n<environment id>` for 16411 and 16421) and preferences, `bun lane.mjs stop`,
+   release the lock.
