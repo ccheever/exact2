@@ -7,7 +7,7 @@ delivery: draft
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: 'feat(example)/t3-code-fix-provider-auth-state'
-pr_url: null
+pr_url: https://github.com/ccheever/exact2/pull/312
 verified_commit: null
 ---
 
@@ -133,7 +133,7 @@ Findings from the one-file probe (`target/fpas/x62app/.exact/app-x63probe.contra
 
 2026-10-08: implemented, verified (runner attempt 1 passed, `source_unchanged: true`, committed tree matches;
 independent review without blocking findings) and pushed as `fe6629054` with the merge of
-`732f0e3f3`; draft PR against `feat(example)/t3-code`.
+`732f0e3f3`; draft [PR #312](https://github.com/ccheever/exact2/pull/312) against `feat(example)/t3-code`.
 
 ## Next action
 
