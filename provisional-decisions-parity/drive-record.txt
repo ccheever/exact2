@@ -1,0 +1,96 @@
+# provisional-decisions-parity live drive record (2026-10-08, 04:3x-04:5x UTC), agent mode, 1280x840
+# Builds: before = evidence base 07dcef1ab (lane copy 'T3 Code (Lane PDP base).app'); after = branch 592657b3a (prompt, U7) and 6936a71ee (port, hosted link, own pairing) (lane copy 'T3 Code (Lane PDP).app').
+# Lane: HOME/CODEX_HOME/CLAUDE_CONFIG_DIR/XDG_* under target/pdp/lane; T3_LOCAL_HOME=lane/t3-home-<build>; T3_LOCAL_PORT=16601; T3_LOCAL_RUNTIME_DIR=the pinned 0.0.46-nightly.20261005.2667 runtime;
+#       PATH starts with examples/t3-code/tools/network-lane (Tailscale stub); T3CODE_TELEMETRY_ENABLED=false. Never ~/.t3, never 3773.
+# Remote lane server: the same t3 release, 't3 serve --base-dir lane/remote/t3-home --port 16602' (pid 70842, stopped after the drive), PATH with @openai/codex 0.160.1 in a lane npm prefix (latest is 0.161.0).
+# Pairing tokens are never printed: every URL is shown as #token=[redacted]. LAN addresses in images are blurred.
+
+## (a) The launch prompt with the Local environment off and the remote focused (scenario-prompt.sh)
+Steps: launch; type the remote's pairing link into welcome-pairing-link; Pair; Continue x3; Settings > Connections; local-environment-switch; local-environment-confirm; wait 8 s; tree.
+-- before:
+Text#1911 [environment-status-f46267b5-9bd0-4d99-b855-249e796e99af] "http://127.0.0.1:16602/ · Connected"
+Text#366 [toast-title-2] "Update Available: Codex v0.161.0"
+-- after:
+Text#1911 [environment-status-f46267b5-9bd0-4d99-b855-249e796e99af] "http://127.0.0.1:16602/ · Connected"
+Text#2022 [toast-title-1] "Nightly needs the beta mobile app"
+
+## U7 desktop-settings.json (scenario-u7.sh, after build; the file is <lane>/t3-home-after/userdata/desktop-settings.json)
+## A. launch with the Local environment off in desktop-settings.json
+desktop-settings.json at launch: {"localEnvironmentEnabled":false} (34 bytes, ends with a newline: yes)
+            Text#299 "Connect to a computer running T3 Code"
+            Text#301 [no-environment-description] "The local environment is turned off. Connect a remote environment, or turn the local environment back on in Connections."
+                        Text#1451 "Turned off. Agents only run in remote environments."
+
+## B. turn the Local environment on in Settings › Connections (Restart and turn on)
+desktop-settings.json before: {"localEnvironmentEnabled":false} (34 bytes, ends with a newline: yes)
+04:39:59 listener on 16601: t3 53658 127.0.0.1:16601;
+                        Text#1451 "Run agents on this computer. Turn off to use T3 Code only with remote environments."
+desktop-settings.json after: {} (3 bytes, ends with a newline: yes)
+
+## C. launch with a document as T3 Code writes it (network-accessible, Serve port 8443), then turn Network access off in the UI
+desktop-settings.json at launch: {"serverExposureMode":"network-accessible","tailscaleServePort":8443} (70 bytes, ends with a newline: yes)
+04:40:12 listener on 16601: t3 54608 *:16601;
+04:40:30 listener on 16601: t3 55994 127.0.0.1:16601;
+                          Text#1859 "Reachable at"
+                        Text#1895 [network-access-description] "Limited to this machine."
+desktop-settings.json after: {"tailscaleServePort":8443} (28 bytes, ends with a newline: yes)
+(A: no listener appeared on 16601 during the whole run; the watcher prints only changes.)
+-- before build with the same file {"localEnvironmentEnabled":false} in its T3 home: the welcome lists the primary as 'Connected http://127.0.0.1:16601/' (the base ignores the file).
+
+## U9 Tailscale HTTPS port field (scenario-port.sh): network access on, tailscale-https-switch, clear the field, type 0443, then ArrowUp
+-- before:
+{"typed":1922,"key":"Backspace","value":"","target":"tailscale-port","delivery":"platform","carrier":"macos","mode":"agent","epoch":29,"incarnation":1,"clock":31700}
+{"typed":1922,"value":"","key":"Backspace","target":"tailscale-port","delivery":"platform","carrier":"macos","mode":"agent","epoch":29,"incarnation":1,"clock":31700}
+{"value":"","key":"Backspace","typed":1922,"target":"tailscale-port","delivery":"platform","carrier":"macos","mode":"agent","epoch":29,"incarnation":1,"clock":31700}
+{"typed":1922,"value":"0443","target":"tailscale-port","delivery":"platform","carrier":"macos","mode":"agent","epoch":30,"incarnation":1,"clock":31700}
+TextInput#1922 [tailscale-port] value="0443" label="HTTPS port" [focused] (input, key)
+Text#1935 [tailscale-port-error] "Enter a port from 1 to 65535."
+Text#1926 [tailscale-endpoint-preview] "https://lane-mac.example-tailnet.ts.net/"
+{"value":"0443","key":"ArrowUp","typed":1922,"target":"tailscale-port","delivery":"platform","carrier":"macos","mode":"agent","epoch":30,"incarnation":1,"clock":32000}
+TextInput#1922 [tailscale-port] value="0443" label="HTTPS port" [focused] (input, key)
+Text#1935 [tailscale-port-error] "Enter a port from 1 to 65535."
+Text#1926 [tailscale-endpoint-preview] "https://lane-mac.example-tailnet.ts.net/"
+-- after:
+{"key":"Backspace","typed":2111,"value":"","target":"tailscale-port","delivery":"platform","carrier":"macos","mode":"agent","epoch":34,"incarnation":1,"clock":31700}
+{"key":"Backspace","typed":2111,"value":"","target":"tailscale-port","delivery":"platform","carrier":"macos","mode":"agent","epoch":34,"incarnation":1,"clock":31700}
+{"key":"Backspace","typed":2111,"value":"","target":"tailscale-port","delivery":"platform","carrier":"macos","mode":"agent","epoch":34,"incarnation":1,"clock":31700}
+{"typed":2111,"value":"0443","target":"tailscale-port","delivery":"platform","carrier":"macos","mode":"agent","epoch":35,"incarnation":1,"clock":31700}
+TextInput#2111 [tailscale-port] value="0443" label="HTTPS port" [focused] (input, key)
+Text#2115 [tailscale-endpoint-preview] "https://lane-mac.example-tailnet.ts.net/"
+{"key":"ArrowUp","typed":2111,"value":"444","target":"tailscale-port","delivery":"platform","carrier":"macos","mode":"agent","epoch":36,"incarnation":1,"clock":32000}
+TextInput#2111 [tailscale-port] value="444" label="HTTPS port" [focused] (input, key)
+Text#2115 [tailscale-endpoint-preview] "https://lane-mac.example-tailnet.ts.net:444"
+
+## U8 hosted pairing link (scenario-hosted.sh): T3CODE_DESKTOP_HTTPS_ENDPOINTS=https://lane-pdp.example.test, network access on, Create link, Share, the hosted option, Copy link
+-- before:
+Pressable#2048 [pairing-link-endpoint-312c1fc7-e8ee-414c-8a67-b2fcd3341469-Custom HTTPS] (press)
+Text#2050 "Opens the hosted app, no install needed"
+Text#2056 [pairing-link-url-312c1fc7-e8ee-414c-8a67-b2fcd3341469] "http://<lan>:16601/pair#token=[redacted]"
+{"tapped":2050,"at":[516.98,650],"delivery":"platform","target":"Opens the hosted app, no install needed","carrier":"macos","mode":"agent","epoch":36,"incarnation":1,"clock":33300}
+Pressable#2373 [pairing-link-endpoint-312c1fc7-e8ee-414c-8a67-b2fcd3341469-Custom HTTPS] (press)
+Text#2375 "Opens the hosted app, no install needed"
+Text#2381 [pairing-link-url-312c1fc7-e8ee-414c-8a67-b2fcd3341469] "https://app.t3.codes/pair?host=https%3A%2F%2Flane-pdp.example.test%2F#token=[redacted]"
+Text#2828 [toast-title-3] "Hosted app link copied"
+Text#2829 [toast-description-3] "Open it in the browser on the device you want to connect."
+pasteboard: https://app.t3.codes/pair?host=https%3A%2F%2Flane-pdp.example.test%2F#token=[redacted] (fragment keys: token)
+-- after:
+Pressable#2273 [pairing-link-endpoint-21e7bfc6-ca01-4d9e-bef7-0318aa46369f-Custom HTTPS] (press)
+Text#2275 "Opens the hosted app, no install needed"
+Text#2281 [pairing-link-url-21e7bfc6-ca01-4d9e-bef7-0318aa46369f] "http://<lan>:16601/pair#token=[redacted]"
+{"delivery":"platform","tapped":2275,"at":[516.98,650],"target":"Opens the hosted app, no install needed","carrier":"macos","mode":"agent","epoch":36,"incarnation":1,"clock":33300}
+Pressable#2599 [pairing-link-endpoint-21e7bfc6-ca01-4d9e-bef7-0318aa46369f-Custom HTTPS] (press)
+Text#2601 "Opens the hosted app, no install needed"
+Text#2607 [pairing-link-url-21e7bfc6-ca01-4d9e-bef7-0318aa46369f] "https://app.t3.codes/pair?host=https%3A%2F%2Flane-pdp.example.test%2F#token=[redacted]"
+Text#3047 [toast-title-3] "Hosted app link copied"
+Text#3048 [toast-description-3] "Open it in the browser on the device you want to connect."
+pasteboard: https://app.t3.codes/pair?host=https%3A%2F%2Flane-pdp.example.test%2F#token=[redacted] (fragment keys: token)
+
+## U6 pairing this machine's own server (scenario-ownpair.sh, after build): Create link, Share, 'Clients on this machine', Copy link, Add environment, paste (Meta+v), Connect
+{"key":"Meta+v","typed":2660,"delivery":"platform","target":"server-origin","carrier":"macos","mode":"agent","epoch":41,"incarnation":1,"clock":35400}
+Text#2054 "Version"
+Text#2055 [this-machine-version-text] "0.0.46-nightly.20261005.2667 · http://127.0.0.1:16601/"
+Text#2077 "No saved remote environments"
+Text#2714 [toast-title-2] "Update Available: Codex v0.161.0"
+Text#2715 [toast-description-2] "Install the update now or review provider settings."
+pasteboard: http://127.0.0.1:16601/pair#token=[redacted]
+(Screenshot u6-own-pairing.png: Authorized clients gained 'Exact T3 for Mac' (the code was spent); Environments still 'No saved remote environments'.)
