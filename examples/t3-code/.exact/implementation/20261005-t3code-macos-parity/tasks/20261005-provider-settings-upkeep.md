@@ -199,8 +199,9 @@ Framework problem (not filed): `scripts/agent.mjs` `clock "+N real"` (around lin
 `after-drive-part2-record.txt`, in a `settle` (`clock "+600 real"` then `clock settle`) after a
 refused tap; floating-point drift between `s.now + N` and the host's clock.
 
-Next: the real-input batch below, then review and merge the PR. Merge the feature branch when
-`20261005-managed-codex-chatgpt` merges (it also edits `providers.ts`).
+Next: the real-input batch below, then review and merge the PR. The feature branch is merged up
+to `220adb16f` (#247 through #256, managed Codex included; conflicts kept both sides, listed in
+the PR); `app.contract` has no same-file `use` lines left to merge for a later cut.
 
 ### Real-input batch steps
 
