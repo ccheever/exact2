@@ -394,6 +394,26 @@ impl<D: DataSource> Bridge<D> {
         self.boot_bytes(PlanBytes::Copied(plan), data, hooks, width, height)
     }
 
+    /// Boot a plan already decoded and validated by a native host adapter.
+    /// Its immutable pool keeps the decoded plan's owned or static lease;
+    /// registration and runner initialization use the usual boot pipeline.
+    pub fn boot_decoded(
+        &mut self,
+        plan: exact_plan::Plan,
+        data: D,
+        hooks: Hooks,
+        width: f32,
+        height: f32,
+    ) -> u32 {
+        self.boot_bytes(
+            PlanBytes::Decoded(Box::new(plan)),
+            data,
+            hooks,
+            width,
+            height,
+        )
+    }
+
     fn boot_bytes(
         &mut self,
         plan: PlanBytes<'_>,

@@ -221,12 +221,12 @@ pub struct Host<D: DataSource> {
     colors_seen: Option<u64>,
 }
 
-/// A plan's bytes at boot: copied from while decoding, or linked into the
-/// program, whose data pool the decoded plan then keeps in place.
-#[derive(Clone, Copy)]
+/// A plan at boot: bytes copied while decoding, linked static bytes whose
+/// data pool stays in place, or a plan already decoded and validated.
 pub(crate) enum PlanBytes<'a> {
     Copied(&'a [u8]),
     Static(&'static [u8]),
+    Decoded(Box<Plan>),
 }
 
 impl PlanBytes<'_> {
@@ -234,6 +234,7 @@ impl PlanBytes<'_> {
         match self {
             PlanBytes::Copied(bytes) => Plan::decode(bytes),
             PlanBytes::Static(bytes) => Plan::decode_static(bytes),
+            PlanBytes::Decoded(plan) => Ok(*plan),
         }
     }
 }

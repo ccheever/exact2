@@ -54,8 +54,8 @@ pub trait GeneralRuntime<D: DataSource>: backend_sealed::Backend<D> + Sized {
     fn output_bytes(&self, length: usize) -> &[u8] {
         unreachable!("uninhabited core fallback")
     }
-    /// Existing owner operation `boot`.
-    fn boot(&mut self, bytes: &[u8], data: D, hooks: Hooks, w: f32, h: f32) -> u32 {
+    /// Boot an already validated plan, preserving its static or owned pool.
+    fn boot_decoded(&mut self, plan: Plan, data: D, hooks: Hooks, w: f32, h: f32) -> u32 {
         unreachable!("uninhabited core fallback")
     }
     /// Existing owner operation `dispatch`.
@@ -142,8 +142,8 @@ impl<D: DataSource> GeneralRuntime<D> for General<D> {
     fn output_bytes(&self, length: usize) -> &[u8] {
         exact_apple::abi::Bridge::output_bytes(self, length)
     }
-    fn boot(&mut self, bytes: &[u8], data: D, hooks: Hooks, w: f32, h: f32) -> u32 {
-        exact_apple::abi::Bridge::boot(self, bytes, data, hooks, w, h)
+    fn boot_decoded(&mut self, plan: Plan, data: D, hooks: Hooks, w: f32, h: f32) -> u32 {
+        exact_apple::abi::Bridge::boot_decoded(self, plan, data, hooks, w, h)
     }
     fn dispatch(&mut self, view: u32, kind: u32, len: usize, now: f64) -> u32 {
         exact_apple::abi::Bridge::dispatch(self, view, kind, len, now)
@@ -277,7 +277,7 @@ impl<D: DataSource, G: GeneralRuntime<D>> Bridge<D, G> {
     }
     /// Boot an owned byte slice through the same validation and kernel rules.
     pub fn boot(&mut self, bytes: &[u8], data: D, hooks: Hooks, w: f32, h: f32) -> u32 {
-        self.boot_plan(bytes, Plan::decode(bytes), data, hooks, (w, h), None)
+        self.boot_plan(Plan::decode(bytes), data, hooks, (w, h), None)
     }
     /// Decode a linked static plan without copying its immutable resource pool.
     pub fn boot_selected(
@@ -288,14 +288,7 @@ impl<D: DataSource, G: GeneralRuntime<D>> Bridge<D, G> {
         w: f32,
         h: f32,
     ) -> u32 {
-        self.boot_plan(
-            bytes,
-            Plan::decode_static(bytes),
-            make(),
-            hooks,
-            (w, h),
-            None,
-        )
+        self.boot_plan(Plan::decode_static(bytes), make(), hooks, (w, h), None)
     }
     /// Apply one authored press before the initial layout and publication.
     /// The input names its unique test id as UTF-8; effects are refused before boot.
@@ -317,7 +310,6 @@ impl<D: DataSource, G: GeneralRuntime<D>> Bridge<D, G> {
             _ => return self.refuse("initial press must be a nonempty UTF-8 target"),
         };
         self.boot_plan(
-            bytes,
             Plan::decode_static(bytes),
             make(),
             hooks,
@@ -327,7 +319,6 @@ impl<D: DataSource, G: GeneralRuntime<D>> Bridge<D, G> {
     }
     fn boot_plan(
         &mut self,
-        bytes: &[u8],
         plan: Result<Plan, exact_plan::PlanError>,
         data: D,
         hooks: Hooks,
@@ -359,7 +350,7 @@ impl<D: DataSource, G: GeneralRuntime<D>> Bridge<D, G> {
             if let Some((fonts, ctx)) = self.fonts {
                 b.set_fonts(Some(fonts), ctx);
             }
-            let len = b.boot(bytes, data, hooks, w, h);
+            let len = b.boot_decoded(plan, data, hooks, w, h);
             self.owner = Owner::General(Box::new(b));
             self.binary = false;
             return len;
@@ -637,3 +628,7 @@ impl<D: DataSource, G: GeneralRuntime<D>> Default for Bridge<D, G> {
         Self::new()
     }
 }
+
+#[cfg(test)]
+#[path = "fallback_plan_tests.rs"]
+mod fallback_plan_tests;
