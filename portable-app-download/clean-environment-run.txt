@@ -1,0 +1,299 @@
+# portable-app-download: clean-environment substitute run, 2026-10-07/08 (UTC)
+No macOS VM tool or image on this Mac (no tart, UTM, Parallels, VMware, VirtualBox, lume, no .ipsw): the U11 macOS 14 VM row is blocked. The Mac's screen was locked (user away), so no GUI prompt could be answered; windows were photographed in agent mode.
+
+## 1. Package (pkg6, the zip under test)
+audit-bundle: /tmp/t3-code-package/package/T3 Code (Exact).app
+  signature: ad hoc (no team); codesign --verify --deep --strict: valid on disk, satisfies its Designated Requirement
+  bundle id com.exact.t3code.macos; stated minimum macOS 14.0
+  findings: 0
+
+exported 9e9675e36d697429244e83f1a9d2d857d0f0355b; built in 293 s under sandbox-exec (sandbox.sb)
+5b3619a5525b65535e715e3233f8d3d1f31b8f83f2e85a2f513f267cd7173c75  T3-Code-0.0.46-nightly.20261004.1-arm64.zip
+--- sandbox-stage.sb
+(version 1)
+(allow default)
+(deny file-read* file-write* (subpath "/Users/daehyeonmun/orca/workspaces/exact2/t3-code-portable-app-download") (subpath "/Users/daehyeonmun/.t3") (subpath "/Users/daehyeonmun/Documents/work/3.open-source/t3code") (subpath "/Users/daehyeonmun/Documents/work/0.projects/exact2-worktrees/mc-orch-e88043b25805"))
+--- sandbox.sb (build phase)
+(version 1)
+(allow default)
+(deny file-read* file-write* (subpath "/Users/daehyeonmun/orca/workspaces/exact2/t3-code-portable-app-download") (subpath "/Users/daehyeonmun/.t3") (subpath "/Users/daehyeonmun/Documents/work/3.open-source/t3code") (subpath "/Users/daehyeonmun/Documents/work/0.projects/exact2-worktrees/mc-orch-e88043b25805"))
+(deny network-outbound (remote ip "*:*"))
+
+## 2. Download, unzip, Gatekeeper
+## environment
+ProductName:		macOS
+ProductVersion:		26.6.2
+BuildVersion:		25G83
+arm64
+Mac17,9
+2026-10-07T18:50:30Z
+## download over http://127.0.0.1:16353 (python3 -m http.server)
+quarantine on the zip: 0083;6ac69476;Safari;10B177A1-79D0-4CC4-B7D5-66AAD55795C1
+## shasum -a 256 -c SHA256SUMS
+T3-Code-0.0.46-nightly.20261004.1-arm64.zip: OK
+## unzip with Archive Utility
+drwxr-xr-x@ 3 daehyeonmun  staff  96 Oct  8 03:50 /private/tmp/t3-clean/home/Downloads/T3 Code (Exact).app
+quarantine inherited by the app: 0083;6ac69476;Safari;10B177A1-79D0-4CC4-B7D5-66AAD55795C1
+quarantine on its executable: 0083;6ac69476;Safari;10B177A1-79D0-4CC4-B7D5-66AAD55795C1
+## the file list against the allowlist and the archive
+unzipped files = zip listing (      27 files)
+## codesign
+/private/tmp/t3-clean/home/Downloads/T3 Code (Exact).app: valid on disk
+/private/tmp/t3-clean/home/Downloads/T3 Code (Exact).app: satisfies its Designated Requirement
+Identifier=com.exact.t3code.macos
+Format=app bundle with Mach-O thin (arm64)
+Signature=adhoc
+TeamIdentifier=not set
+Sealed Resources version=2 rules=13 files=24
+## Gatekeeper (spctl --assess --type execute -vv)
+/private/tmp/t3-clean/home/Downloads/T3 Code (Exact).app: rejected
+spctl exit 3
+moved to /private/tmp/t3-clean/home/Applications
+prepared /private/tmp/t3-clean
+
+## 3. Static audit of the unzipped app, real data before, quarantined open
+## static audit of the unzipped app 18:50:43
+audit-bundle: /private/tmp/t3-clean/home/Applications/T3 Code (Exact).app
+  signature: ad hoc (no team); codesign --verify --deep --strict: valid on disk, satisfies its Designated Requirement
+  bundle id com.exact.t3code.macos; stated minimum macOS 14.0
+  scanned 27 files (117.4 MiB), 7 Mach-O files; no first-launch tree (--t3-home not given)
+  machine paths searched: /Users/daehyeonmun/Documents/work/0.projects/exact2-worktrees/mc-orch-e88043b25805, /Users/daehyeonmun/orca/workspaces/exact2/t3-code-portable-app-download, /private/var/folders/br/htsmr3l906b37_3s3k_63n500000gn/T, /Users/daehyeonmun/Documents/work/3.open-source/t3code, /var/folders/br/htsmr3l906b37_3s3k_63n500000gn/T, /Users/daehyeonmun/.bun, /Users/daehyeonmun/.t3, /Use
+  findings: 0
+  allowed (bundle-allowlist.json): 30 hits
+    [bundle] 28 hits in 1 files — package-app.mjs's fixed export folder, the same on every machine (no user, checkout or home path): exact2's ibex2 build.rs and js/build.rs give hermesc absolute source paths, and Hermes keeps them as the bytecode's file names (EXACT2-GAPS X50). Rust paths are remapped and Swift's are stripped; these two cannot be from the app.
+    [bundle] 2 hits in 1 files — Not a path: the template literal `/Users/${user}` of terminal-links.ts (a terminal link's home-folder form), which the Hermes string table stores beside the next literal, /api/auth/session.
+## real data before 18:50:44
+/Users/daehyeonmun/.t3 mtime 1791202431
+/Users/daehyeonmun/.t3/userdata mtime 1791315809
+-rw-------@ 1 daehyeonmun  staff  711 Oct  7 22:18 /Users/daehyeonmun/Library/Preferences/com.exact.t3code.macos.plist
+keychain item for the service: exit 0
+listeners on 3773:        0
+T3 Code (Nightly) not running
+## quarantined open 18:50:53
+open exit 0
+app processes: 
+quarantined open: no process started within 3 s (spctl: rejected; the Mac's screen is locked, so Gatekeeper's alert is not on screen to photograph)
+## the documented step 18:51:38
+$ xattr -dr com.apple.quarantine "<app>"
+quarantine left on the app: xattr: /private/tmp/t3-clean/home/Applications/T3 Code (Exact).app: No such xattr: com.apple.quarantine
+/private/tmp/t3-clean/home/Applications/T3 Code (Exact).app: rejected
+## first launch 18:51:38.761
+open to the server answering: 53.72 s
+
+## 4. A second Archive Utility unzip with the quarantine removed before any open (the README's Terminal route): first launch (copy c)
+## clean run c: 2026-10-07T18:56:15Z app pid 96035
+### process tree
+  PID  PPID COMMAND
+96035     1 /private/tmp/t3-clean-c/T3 Code (Exact).app/Contents/MacOS/T3 Code (Exact)
+99017 96035 /tmp/t3-clean-c/home/.t3/runtime/versions/0.0.46-nightly.20261005.2667/t3 --bootstrap-fd 0
+### listeners
+COMMAND   PID        USER   FD   TYPE             DEVICE SIZE/OFF NODE NAME
+t3      99017 daehyeonmun   14u  IPv4 0x352d99139f4ff60f      0t0  TCP 127.0.0.1:16356 (LISTEN)
+### /.well-known/t3/environment
+{"environmentId":"00dd3c98-067d-4b22-8b39-52bb85aecde4","label":"Daehyeon’s MacBook Pro","platform":{"os":"darwin","arch":"arm64","machine":"laptop"},"serverVersion":"0.0.46-nightly.20261005.2667","orchestrationProtocolVersion":2,"capabilities":{"repositoryIdentity":true,"connectionProbe":true,"attachmentUploads":true,"questionAttachments":true,"fileAttachments":{"maxUploadBytes":52428800},"pullRe
+### unpack
+installed runtime 0.0.46-nightly.20261005.2667 into /tmp/t3-clean-c/home/.t3/runtime/versions/0.0.46-nightly.20261005.2667 in 14.29 s
+"state":"installing" "state":"starting" "state":"ready" 
+### the server's PATH and HOME (ps eww, the token is not in the environment)
+SHELL=/private/tmp/t3-clean/bin/clean-login-shell
+HOME=/private/tmp/t3-clean-c/home
+T3CODE_TELEMETRY_ENABLED=false
+PATH=/usr/bin:/bin:/usr/sbin:/sbin
+### node, bun on the server's PATH
+node: none
+bun: none
+claude: none
+codex: none
+### audit-bundle with the first launch's tree
+audit-bundle: /private/tmp/t3-clean-c/T3 Code (Exact).app
+  signature: ad hoc (no team); codesign --verify --deep --strict: valid on disk, satisfies its Designated Requirement
+  bundle id com.exact.t3code.macos; stated minimum macOS 14.0
+  scanned 4318 files (365.2 MiB), 18 Mach-O files; runtime tree /private/tmp/t3-clean-c/home/.t3/runtime/versions/0.0.46-nightly.20261005.2667 (4290 files checked against the manifest)
+  machine paths searched: /Users/daehyeonmun/Documents/work/0.projects/exact2-worktrees/mc-orch-e88043b25805, /Users/daehyeonmun/orca/workspaces/exact2/t3-code-portable-app-download, /private/var/folders/br/htsmr3l906b37_3s3k_63n500000gn/T, /Users/daehyeonmun/Documents/work/3.open-source/t3code, /var/folders/br/htsmr3l906b37_3s3k_63n500000gn/T, /Users/daehyeonmun/.bun, /Users/daehyeonmun/.t3, /Use
+  findings: 988
+    dylib [runtime] node_modules/@ff-labs/fff-bin-darwin-arm64/libfff_c.dylib: install name /Users/runner/work/fff/fff/target/aarch64-apple-darwin/ci/deps/libfff_c.dylib
+    dylib [runtime] node_modules/@napi-rs/keyring-darwin-arm64/keyring.darwin-arm64.node: install name /Users/runner/work/keyring-node/keyring-node/target/aarch64-apple-darwin/release/deps/libnapi_keyring.dylib
+    dylib [runtime] node_modules/@yuuang/ffi-rs-darwin-arm64/ffi-rs.darwin-arm64.node: install name /Users/runner/work/node-ffi-rs/node-ffi-rs/target/aarch64-apple-darwin/release/deps/libffi_rs.dylib
+  allowed (bundle-allowlist.json): 30 hits
+    [bundle] 28 hits in 1 files — package-app.mjs's fixed export folder, the same on every machine (no user, checkout or home path): exact2's ibex2 build.rs and js/build.rs give hermesc absolute source paths, and Hermes keeps them as the bytecode's file names (EXACT2-GAPS X50). Rust paths are remapped and Swift's are stripped; these two cannot be from the app.
+    [bundle] 2 hits in 1 files — Not a path: the template literal `/Users/${user}` of terminal-links.ts (a terminal link's home-folder form), which the Hermes string table stores beside the next literal, /api/auth/session.
+audit exit 
+
+## 5. Full audit with the first launch's tree
+### audit-bundle with the first launch's tree (allowlist with the runtime's upstream entries) 18:57:10
+audit-bundle: /private/tmp/t3-clean-c/T3 Code (Exact).app
+  signature: ad hoc (no team); codesign --verify --deep --strict: valid on disk, satisfies its Designated Requirement
+  bundle id com.exact.t3code.macos; stated minimum macOS 14.0
+  scanned 4318 files (365.2 MiB), 18 Mach-O files; runtime tree /private/tmp/t3-clean-c/home/.t3/runtime/versions/0.0.46-nightly.20261005.2667 (4290 files checked against the manifest)
+  machine paths searched: /Users/daehyeonmun/Documents/work/0.projects/exact2-worktrees/mc-orch-e88043b25805, /Users/daehyeonmun/orca/workspaces/exact2/t3-code-portable-app-download, /private/var/folders/br/htsmr3l906b37_3s3k_63n500000gn/T, /Users/daehyeonmun/Documents/work/3.open-source/t3code, /var/folders/br/htsmr3l906b37_3s3k_63n500000gn/T, /Users/daehyeonmun/.bun, /Users/daehyeonmun/.t3, /Use
+  findings: 0
+  allowed (bundle-allowlist.json): 4277 hits
+    [bundle] 28 hits in 1 files — package-app.mjs's fixed export folder, the same on every machine (no user, checkout or home path): exact2's ibex2 build.rs and js/build.rs give hermesc absolute source paths, and Hermes keeps them as the bytecode's file names (EXACT2-GAPS X50). Rust paths are remapped and Swift's are stripped; these two cannot be from the app.
+    [bundle] 2 hits in 1 files — Not a path: the template literal `/Users/${user}` of terminal-links.ts (a terminal link's home-folder form), which the Hermes string table stores beside the next literal, /api/auth/session.
+    [runtime] 28 hits in 7 files — Not a path of any machine: string literals in the release's JavaScript and executable (the temporary-folder and home-folder prefixes its path checks and display use, Homebrew's and Bun's default folders where the server looks for provider CLIs).
+    [runtime] 639 hits in 9 files — GitHub Actions' macOS runner home: T3 Code's release CI (the executable's bin.mjs path) and the prebuilt binaries the release bundles (ripgrep, fff, keyring, ffi-rs, node-pty, Cursor's sandbox, the resource monitor). The release's own bytes, unpacked unchanged and equal to runtime-manifest.json and the pin's SHA-256.
+    [runtime] 56 hits in 2 files — The temporary folder Cursor's SDK built its tree-sitter prebuilds in, on its build machine (not this one: this machine's temporary folder is a machine path). The release's own bytes.
+    [runtime] 3524 hits in 1 files — Node.js's release build machine: source paths compiled into the Node single executable the T3 release is built on (V8, Temporal, the inspector protocol). The release's own bytes.
+audit exit 0
+
+## server identity 2026-10-07T18:57:31Z
+$ <versions>/t3 --version (empty environment)
+t3 v0.0.46-nightly.20261005.2667
+$ cat .install-complete: 0.0.46-nightly.20261005.2667
+$ curl /.well-known/t3/environment | serverVersion: 0.0.46-nightly.20261005.2667
+pin version: 0.0.46-nightly.20261005.2667
+$ shasum -a 256 t3: 22258d388a95e8413430c5b35fe25c12010e55f392c0dfa1b4cb20f7e84e2ade
+manifest t3 sha256: 22258d388a95e8413430c5b35fe25c12010e55f392c0dfa1b4cb20f7e84e2ade
+manifest archive sha256 = pin sha256: True 3f39833cbb28835a9b38e3806b1985ed2c6c8b8a43839586c22ee4492b6e552c
+bundled archive: 3f39833cbb28835a9b38e3806b1985ed2c6c8b8a43839586c22ee4492b6e552c
+$ git ls-remote https://github.com/pingdotgg/t3code refs/tags/v0.0.46-nightly.20261005.2667
+37de6cbde65c7cf9ba90a2557c232e63b7e16988	refs/tags/v0.0.46-nightly.20261005.2667
+pin commit: 37de6cbde65c7cf9ba90a2557c232e63b7e16988
+$ GitHub compare 1e2ecbd975...<pin commit> (public API)
+status ahead ahead_by 4 behind_by 0
+
+## quit 2026-10-07T18:57:50Z: app 96035, server 99017
+terminate 96035 /private/tmp/t3-clean-c/T3 Code (Exact).app: true
+server gone 2.76 s, app gone 2.81 s after the quit
+t3 processes under the clean home: 0
+listening on 16356: 0
+t3.local: 1791399470.702 status {"bearerReady":true,"enabled":true,"environmentId":"00dd3c98-067d-4b22-8b39-52bb85aecde4","failure":"","httpBaseUrl":"http:\/\/127.0.0.1:16356","install":{"fraction":1,
+t3.local: 1791399472.844 status {"bearerReady":true,"enabled":true,"environmentId":"00dd3c98-067d-4b22-8b39-52bb85aecde4","failure":"","httpBaseUrl":"http:\/\/127.0.0.1:16356","install":{"fraction":1,
+## relaunch 2026-10-07T18:58:00Z
+relaunch to ready with the bearer: 1.38 s
+states: "state":"starting" "state":"ready" 
+installing seen: 0
+servers: 2
+
+## kill during unpack 2026-10-07T19:03:44Z
+launch 1 pid 49384
+staging during unpack:  270M
+after kill -9: app alive? no; tar left? 0
+left behind: .install.lock 0.0.46-nightly.20261005.2667 
+launch 2 pid 51903
+after launch 2: .install.lock 0.0.46-nightly.20261005.2667 
+ready: 3 bearer: 2
+terminate 51903 /private/tmp/t3-clean-c/T3 Code (Exact).app: true
+servers left: 0
+## kill during unpack, retry 2026-10-07T19:04:25Z
+launch 1 pid 52884
+staging during unpack: .staging-lzAIB0, 1 files so far
+after kill -9: app alive? no
+left behind: .install.lock .staging-lzAIB0 
+launch 2 pid 53321
+installed runtime 0.0.46-nightly.20261005.2667 into /tmp/t3-clean-g/home/.t3/runtime/versions/0.0.46-nightly.20261005.2667 in 10.82 s
+after launch 2: .install.lock 0.0.46-nightly.20261005.2667 
+states: "state":"installing" "state":"starting" "state":"ready" 
+terminate 53321 /private/tmp/t3-clean-c/T3 Code (Exact).app: true
+servers left: 0
+
+## 6. Standalone Claude install into the clean home (copy d), then Settings > Providers
+## standalone Claude install into the clean home 2026-10-07T19:02:07Z
+$ curl -fsSL https://claude.ai/install.sh | bash   (HOME=<clean home>, PATH=/usr/bin:/bin:/usr/sbin:/sbin)
+  Version: 2.1.293
+
+  Location: ~/.local/bin/claude
+
+
+  Next: Run claude --help to get started
+
+⚠ Setup notes:
+  ● Native installation exists but ~/.local/bin is not in your PATH. Run:
+
+    echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bash_profile && source ~/.bash_profile
+
+
+✅ Installation complete!
+
+exit 0
+total 0
+drwxr-xr-x@ 3 daehyeonmun  wheel   96 Oct  8 04:02 .
+drwxr-xr-x@ 5 daehyeonmun  wheel  160 Oct  8 04:02 ..
+lrwxr-xr-x@ 1 daehyeonmun  wheel   65 Oct  8 04:02 claude -> /private/tmp/t3-clean-d/home/.local/share/claude/versions/2.1.293
+225M	/private/tmp/t3-clean-d/home/.local
+After a relaunch with ~/.local/bin on the clean login shell's PATH: Claude v2.1.293 'Authenticated'. The clean HOME shares this Mac's login Keychain, so the fresh CLI found the user's own Claude Code item; no message was sent, nothing was written, and the install was deleted after the screenshot (a clean macOS account or VM is what separates this).
+
+## 7. Failure paths (agent mode, packaged copy)
+p8-full.err:op 9/10 `tap first-launch-quit`: the app exited (exit code 0)
+p8-full.err:app: t3.local: 1791399784.774 runtime install failed: There is not enough disk space to set up T3 Code: it needs 278.2 MB in /tmp/t3-clean-e/home/.t3/runtime/versions, and 49.6 MB is free.
+p8-full.err:app: t3.local: 1791399784.775 status {"bearerReady":false,"enabled":true,"install":{"reason":"There is not enough disk space to set up T3 Code: it needs 278.2 MB in \/tmp\/t3-clean-e\/home\/.t3\/runtime\/versions, and 49.6 MB is free."},"
+p8-full.err:app: t3.local: 1791399787.957 runtime install failed: There is not enough disk space to set up T3 Code: it needs 278.2 MB in /tmp/t3-clean-e/home/.t3/runtime/versions, and 49.6 MB is free.
+p8-full.err:app: t3.local: 1791399787.957 status {"bearerReady":false,"enabled":true,"install":{"reason":"There is not enough disk space to set up T3 Code: it needs 278.2 MB in \/tmp\/t3-clean-e\/home\/.t3\/runtime\/versions, and 49.6 MB is free."},"
+p9-damaged.err:op 9/9 `clock +2000 real`: the app exited (exit code 0)
+p9-damaged.err:app: t3.local: 1791399805.020 runtime install failed: The bundled t3-0.0.46-nightly.20261005.2667-darwin-arm64.tar.gz does not match its pinned SHA-256.
+p9-damaged.err:app: t3.local: 1791399805.020 status {"bearerReady":false,"enabled":true,"install":{"reason":"The bundled t3-0.0.46-nightly.20261005.2667-darwin-arm64.tar.gz does not match its pinned SHA-256."},"restartAttempt":0,"state":"failed"}
+p9-damaged.err:app: t3.local: 1791399809.215 runtime install failed: The bundled t3-0.0.46-nightly.20261005.2667-darwin-arm64.tar.gz does not match its pinned SHA-256.
+p9-damaged.err:app: t3.local: 1791399809.215 status {"bearerReady":false,"enabled":true,"install":{"reason":"The bundled t3-0.0.46-nightly.20261005.2667-darwin-arm64.tar.gz does not match its pinned SHA-256."},"restartAttempt":0,"state":"failed"}
+
+## removal (README steps, HOME=<clean home c>) 2026-10-08T01:06:11Z
+before:
+  .
+  ./.t3
+  ./.t3/caches
+  ./.t3/caches/pull-requests
+  ./.t3/runtime
+  ./.t3/runtime/versions
+  ./.t3/runtime/versions/0.0.46-nightly.20261005.2667
+  ./.t3/userdata
+  ./.t3/userdata/attachments
+  ./.t3/userdata/logs
+  ./.t3/userdata/logs/provider
+  ./.t3/userdata/logs/terminals
+  ./.t3/userdata/secrets
+  ./.t3/userdata/themes
+  ./.t3/worktrees
+  ./Library
+  ./Library/Application Support
+  ./Library/Application Support/com.exact.t3code.macos
+  ./Library/Application Support/com.exact.t3code.macos/kv
+  ./Library/Application Support/exact
+  ./Library/Application Support/exact/com.exact.t3code.macos
+  ./Library/Caches
+  ./Library/Caches/exact
+  ./Library/Caches/exact/com.exact.t3code.macos
+defaults delete exit 0
+Keychain: not run here (this Mac's login Keychain is shared with other lanes' builds of the same service; these runs paired no remote environment, so they saved no item: the primary's bearer is memory-only)
+after:
+  .
+  ./.t3
+  ./.t3/caches
+  ./.t3/caches/antigravity.json
+  ./.t3/caches/claudeAgent.json
+  ./.t3/caches/codex.json
+  ./.t3/caches/cursor.json
+  ./.t3/caches/grok.json
+  ./.t3/caches/opencode.json
+  ./.t3/caches/pi.json
+  ./.t3/caches/pull-requests
+  ./.t3/runtime
+  ./.t3/runtime/versions
+  ./.t3/runtime/versions/.install.lock
+  ./.t3/userdata
+  ./.t3/userdata/anonymous-id
+  ./.t3/userdata/attachments
+  ./.t3/userdata/environment-id
+  ./.t3/userdata/keybindings-migrations
+  ./.t3/userdata/keybindings.json
+  ./.t3/userdata/logs
+  ./.t3/userdata/logs/provider
+  ./.t3/userdata/logs/server.trace.ndjson
+  ./.t3/userdata/logs/terminals
+  ./.t3/userdata/model-manifest.json
+  ./.t3/userdata/secrets
+  ./.t3/userdata/secrets/cloud-link-ed25519-key-pair.bin
+  ./.t3/userdata/secrets/server-signing-key.bin
+  ./.t3/userdata/statev2.sqlite
+  ./.t3/userdata/themes
+  ./.t3/worktrees
+  ./Library
+  ./Library/Application Support
+  ./Library/Application Support/exact
+  ./Library/Caches
+  ./Library/Caches/exact
+kept: 827392 ~/.t3/userdata/statev2.sqlite
+
+## Real data after
+/Users/daehyeonmun/.t3 mtime 1791202431
+/Users/daehyeonmun/.t3/userdata mtime 1791315809
+-rw-------@ 1 daehyeonmun  staff  42 Oct  8 10:06 /Users/daehyeonmun/Library/Preferences/com.exact.t3code.macos.plist
+listeners on 3773:        0
