@@ -1,0 +1,47 @@
+pr-handoffs-and-quick-actions: real-input session, 2026-10-08 (macOS 26.6.2, screen unlocked)
+
+Lock: target/t3-ui-parity/lanes/.realinput-lock taken 05:23:46Z (owner note "pr-handoffs-and-quick-actions: real input
+(quick actions, row menu, keys, fold, two-phase checkout)"), released 06:06:02Z.
+App: a re-signed copy of this branch's bundle, "T3 Code (Lane PHA2)" (com.exact.t3code.lanepha2), CFFIXED_USER_HOME and
+T3_LOCAL_HOME under target/pr-handoffs/realinput, T3_LOCAL_PORT=16705, T3CODE_TELEMETRY_ENABLED=false; paired to this
+worktree's real-GitHub lane server (127.0.0.1:16701, account daehyeonmun2021, repository daehyeonmun2021/playground).
+Input: orca computer clicks/keys on the copy's window; Shift as a real HID flagsChanged (CGEvent, cghidEventTap); the
+wheel as a real HID scroll event. Read-backs with the lane's own gh (GH_CONFIG_DIR of the lane).
+
+Shift quick actions (pages-pr-quick.ts, T3Sidebar.swift speed mode)
+- Shift held: Close + Merge on every open row; Merge dimmed on stacked rows (#155, #119). Released: none. (21)
+- Shift held with the search field focused: none (Shift inside text is typing). (21)
+- #149 (draft): Shift shows Close + Ready for review; Ready for review -> both spinners -> "Marked ready for review";
+  lane gh: isDraft false. Close -> "Pull request closed", the row leaves Open; lane gh: CLOSED. State: All, Shift on
+  closed #149 -> Reopen -> "Pull request reopened"; lane gh: OPEN. (22)
+- #165: Merge pressed on the first build -> nothing (refused). Cause: client.rpc answers {} for a pull request with no
+  stack, and resolveMergeMethod read that as a stack. Fixed (decodeStack(...) !== null, 115fb3a5c), rebuilt, relaunched
+  (pid 87517): Shift+click Merge -> spinners -> "Merge requested"; lane gh: state MERGED, mergedAt 2026-10-08T05:39:32Z. (23)
+
+Row menu
+- Right-click on the #132 number: native menu "Copy link", "Open on GitHub". Copy link -> pasteboard
+  "https://github.com/daehyeonmun2021/playground/pull/132"; the pasteboard was restored to its saved (empty) value. (24)
+
+Menus and keys (#111 page)
+- More: Tab moves the focus ring item to item (Refresh -> Ask a question); Return on Ask a question opened a thread
+  on the project with the #111 chip and the toast "Asked in a thread". Arrow keys did not move the focus ring (the
+  highlighted Merge row is the chosen merge method, not focus). (25)
+- Check out: opens on click, Escape closes it. (26)
+
+Header fold per tab (#115)
+- Real wheel on Summary -> condensed row; Timeline -> its own open header; Summary again -> still folded. (27)
+- Seen on the way: #144 then opened folded, because the fold state outlived the pull request. The reference keys its
+  panel per pull request; PrdBody is now keyed by detail.ref (115fb3a5c). Not driven live after the fix (rule 3: the live
+  sessions were used); the contract builds and the unit suites pass.
+
+Two-phase checkout (#144, Check out > In this repository)
+- The thread shows first with "Preparing the pull request checkout..." (phase one), then the server prepares.
+- First try: the reference server's own `gh pr checkout https://github.com/daehyeonmun2021/playground/pull/144 --force`
+  exited 1 (server trace: preparePullRequestThread Failure, GitHubCliCommandError) -> toast "Could not prepare the pull
+  request checkout / GitHub CLI command failed." (the server's message, shown as the reference shows it).
+- One retry: the server clone switched to feature/trim-input; the thread shows #144 and feature/trim-input. (28)
+  The draft kept the #111 chip from the earlier Ask (the project's one draft thread, as the reference reuses it).
+
+Cleanup: copy quit (pids 40313, 87517 recorded and gone), lane server stopped (pid 23800), the copy's Keychain item
+(service com.exact.t3code.macos.access-token, account http://127.0.0.1:16701 + environment id) deleted, the copy and
+its homes removed; no secret, token or code was printed or captured (two pairing screenshots were deleted at once).
