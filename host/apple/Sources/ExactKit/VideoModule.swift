@@ -137,10 +137,10 @@ final class VideoView {
     private var holdsSession = false
     private func holdSession(_ audible: Bool) {
         guard audible != holdsSession else { return }
-        holdsSession = audible
         if audible {
-            do { try AudioSession.hold(ObjectIdentifier(self)) } catch { fputs("exact audio session: \(error)\n", stderr) }
+            do { try AudioSession.hold(ObjectIdentifier(self)); holdsSession = true } catch { fputs("exact audio session: \(error)\n", stderr) }
         } else {
+            holdsSession = false
             AudioSession.release(ObjectIdentifier(self))
         }
     }
@@ -155,6 +155,9 @@ final class VideoView {
             guard let message = try? JSONSerialization.jsonObject(with: Data(bytes: bytes, count: length)) as? [String: Any] else { return }
             video.receive(message)
         })
+        #if os(iOS) || os(tvOS)
+        if handle != nil, !ExactEnv.agentMode { AudioSession.playerCame(ObjectIdentifier(self)) }
+        #endif
         if let handle, let raw = module.view(handle) {
             let view = Unmanaged<MediaPlatformView>.fromOpaque(raw).takeUnretainedValue()
             platformView = view
@@ -172,6 +175,9 @@ final class VideoView {
         VideoModule.shared?.destroy(handle)
         platformView?.removeFromSuperview()
         platformView = nil
+        #if os(iOS) || os(tvOS)
+        AudioSession.playerWent(ObjectIdentifier(self))
+        #endif
     }
     func layout() {
         guard let owner, let platformView else { return }
@@ -253,13 +259,18 @@ final class VideoView {
         if !listeners.isEmpty { props["exactListeners"] = listeners.sorted().joined(separator: " ") }
         guard props != last else { return }
         last = props
+        // A video with sound, or a media-session claimant (Now Playing needs
+        // a non-mixable category), holds the app's session; muted (applied to
+        // the player first) or gone, it gives it back (LLP 1096 D8).
         #if os(iOS) || os(tvOS)
-        // A video with sound plays in the app's session, and gives it back
-        // when muted or gone (LLP 1096 D8).
-        if !ExactEnv.agentMode { holdSession(props["muted"] != "true" && props["src"]?.isEmpty == false) }
+        let audible = !ExactEnv.agentMode && (props["mediaTitle"] != nil || (props["muted"] != "true" && props["src"]?.isEmpty == false))
+        if audible { holdSession(true) }
         #endif
         guard let data = try? JSONSerialization.data(withJSONObject: props) else { return }
         data.withUnsafeBytes { module.update(handle, $0.bindMemory(to: UInt8.self).baseAddress, data.count) }
+        #if os(iOS) || os(tvOS)
+        if !audible { holdSession(false) }
+        #endif
     }
     /// `fastSeek(id, seconds)`, `load(id)` or `requestFullscreen(id)`, by HTML's method names.
     func command(_ name: String, seconds: Double) {

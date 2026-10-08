@@ -630,9 +630,11 @@ root `audio_session` is the Apple audio session every sound, video and canvas
 shares: `"ambient"` (the default: the ring/silent switch mutes it, other apps'
 audio keeps playing) or `"playback"`. Under `"playback"` the session is held
 only while something has sound: the sound arm and a canvas's audio once they
-start, a `video` or `audio` while it has a source and is not muted. When the
-last of those is muted or gone, the session goes back to ambient and other
-apps' audio resumes, as Bluesky's player does on re-mute. WebKit's Audio Session API takes it too;
+start, a `video` or `audio` while it has a source and is not muted, and a
+media-session claimant (`metadata=`, which Now Playing needs). When the last
+of those is muted or gone, the session goes back to ambient, which mixes with
+other apps' audio, as Bluesky's player does on re-mute; it is given up, so a
+paused podcast resumes, once no player is left. WebKit's Audio Session API takes it too;
 the Mac has no session. A development run with `EXACT_SOUND_CHECK=1` taps the
 engine's main mixer and journals (and prints) how far each onset after a
 silence reached the speaker from its time.

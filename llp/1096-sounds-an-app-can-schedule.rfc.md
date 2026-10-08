@@ -1150,9 +1150,12 @@ No question is open in r3.
 category only while something has sound. `AudioSession.hold`/`release` count
 the holders: the sound arm and a canvas's audio hold for good once started
 (`activate`), and each `video` or `audio` holds while it has a source and is
-not muted, releasing when muted or gone. With no holder left, the session
-returns to `.ambient` and deactivates with `notifyOthersOnDeactivation`, so a
-podcast paused by an unmuted feed video resumes on re-mute, as Bluesky's
-player does (its expo-video module drops to ambient). Deactivation fails
-while muted output still runs; the ambient category alone mixes with other
-apps then. Test: `AudioSessionIOSTests`.
+not muted, or while it claims the media session (`mediaTitle`: Now Playing
+needs a non-mixable category), releasing when muted (after the mute reaches
+the player) or gone. With no holder left the category returns to `.ambient`,
+which mixes with other apps' audio, as Bluesky's player does on re-mute.
+Deactivating would stop a running player, muted or not, so the session is
+given up with `notifyOthersOnDeactivation` (a paused podcast resumes) only
+once no player is left. A failed hold leaves nothing held, so it is retried.
+Reviewed by Astra and Grok (`llp/reviews/code-2026-10-08-audio-release*`).
+Test: `AudioSessionIOSTests`.

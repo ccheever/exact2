@@ -29,6 +29,22 @@ final class AudioSessionIOSTests: XCTestCase {
         AudioSession.release(ObjectIdentifier(a))
     }
 
+    /// A muted player keeps running, so with one alive the category goes
+    /// ambient but the session is not given up under it.
+    func testWithAPlayerAliveReleaseGoesAmbientAndThePlayerLeavingGivesItUp() throws {
+        AudioSession.category = .playback
+        final class Holder {}
+        let player = Holder()
+        AudioSession.playerCame(ObjectIdentifier(player))
+        try AudioSession.hold(ObjectIdentifier(player))
+        XCTAssertEqual(AVAudioSession.sharedInstance().category, .playback)
+        AudioSession.release(ObjectIdentifier(player))
+        XCTAssertEqual(AVAudioSession.sharedInstance().category, .ambient)
+        AudioSession.playerWent(ObjectIdentifier(player))
+        AudioSession.playerWent(ObjectIdentifier(player)) // a second leave is nothing
+        XCTAssertEqual(AVAudioSession.sharedInstance().category, .ambient)
+    }
+
     func testAnAmbientAppStaysAmbient() throws {
         AudioSession.category = .ambient
         final class Holder {}
