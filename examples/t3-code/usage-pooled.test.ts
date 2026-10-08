@@ -468,18 +468,18 @@ describe('light dismiss of a pinned segment popover (popover-escape-parity)', ()
       + '    downOutside = held != "" and e.buttons == 1 and not (usageHit(seg, e.clientX, e.clientY) or usageHit(pop, e.clientX, e.clientY) or usageHit(leg, e.clientX, e.clientY))');
     // Up (DOM's order: down, up, then the press): a press that does not end in the card closes it before the
     // press runs, so a press on another segment then pins that one and a press on the pinned segment (inside)
-    // toggles it closed; one that ends in the card does not (Base UI's insideReactTree). Its own hover states
-    // go too (the 6-pt hover gap under the card), and only its own: another segment's hover-shown popover,
-    // where the press may land, stays (and the pressed segment B is not restyled between the up and its press).
+    // toggles it closed; one that ends in the card does not (Base UI's insideReactTree). The pin and the
+    // dismissal touch only the pin: the hover states are the hover helper's (fix-hover-cards).
     expect(page).toContain('action pressUp(e: PointerEvent)\n'
       + '    let id = held\n'
       + '    let pop = frame(`usage-seg-pop-${id}`)\n'
       + '    if downOutside and not usageHit(pop, e.clientX, e.clientY)\n'
-      + '      overSeg = overSeg == id ? "" : overSeg\n      overPop = overPop == id ? "" : overPop\n      overMail = overMail == id ? "" : overMail\n'
       + '      pinned = ""\n    downOutside = false');
-    // A press on the pinned popover's own segment closes it even with the pointer still there (the hover
-    // states too); hover opens it again only on a new enter (Base UI blocks mouse moves after any close).
-    expect(page).toContain('action pin(id: string)\n    if held == id\n      pinned = ""\n      overSeg = ""\n      overPop = ""\n      overMail = ""\n    else\n      pinned = id\n    pinnedAt = outside');
+    expect(page).toContain('action pin(id: string)\n    pinned = held == id ? "" : id\n    pinnedAt = outside');
+    for (const name of ['pin', 'pressDown', 'pressUp']) {
+      const body = page.slice(page.indexOf(`  action ${name}(`), page.indexOf('\n  action ', page.indexOf(`  action ${name}(`) + 3));
+      expect(body).not.toMatch(/\bover(Seg|Pop|Mail)\b/);
+    }
     // The three boxes are the ones usage-pooled.contract draws, by these ids.
     const pooled = await source('usage-pooled.contract');
     expect(pooled).toContain('button id=`usage-seg-${seg.id}` press=pin(seg.id) hover=enterSeg(seg.id) aria-label');
@@ -527,5 +527,38 @@ describe('light dismiss of a pinned segment popover (popover-escape-parity)', ()
       'theme-color-picker.contract theme-color-${row.id}-plane',
       'theme-color-picker.contract theme-color-${row.id}-hue',
     ]);
+  });
+});
+
+// popover-escape-parity, the real-input batch's #263 row 12 (PR #298): after Escape (or Cancel, or Use credit) in the
+// "Use a reset credit?" confirm the focus did not go back to the segment under real time. The command's answer asks
+// for it (`focus:usage-seg-…`, usage-environments.ts), but UsagePage was still inert then: the usage answer that drops
+// the confirm comes after the command's, so the host refused the focus (the agent clock settles both together).
+describe('the reset confirm gives the segment the focus back (#298 item 12)', () => {
+  const source = (file: string) => Bun.file(new URL(`./${file}`, import.meta.url)).text();
+  const component = async (file: string, name: string) => {
+    const lines = (await source(file)).split('\n');
+    const start = lines.findIndex(line => line === `component ${name}`);
+    if (start < 0) throw new Error(`${file}: no component ${name}`);
+    const end = lines.findIndex((line, index) => index > start && /^\S/.test(line) && !line.startsWith('//'));
+    return lines.slice(start, end < 0 ? undefined : end).join('\n');
+  };
+
+  test('the confirm closes for the page as it is answered, so the page is no longer inert when the focus comes', async () => {
+    const cover = await component('app-main.contract', 'PagesCover');
+    expect(cover).toContain('  state usageClosing = ""\n'
+      + '  derive usageConfirmOpen = usage.pooled.confirm != "" and usageClosing != usage.pooled.confirm\n'
+      + '  action usageCommand(op: string, id: string, value: string, n: number)\n    usageClosing = ""\n    command(op, id, value, n)\n'
+      + '  action usageConfirm(op: string, id: string, value: string, n: number)\n    usageClosing = id\n    command(op, id, value, n)');
+    // The confirm's buttons (Cancel, its Escape, Use credit) go through usageConfirm; the page's ask through usageCommand.
+    expect(cover).toContain('    when pageCover and utilityPage == "usage" and usageConfirmOpen\n'
+      + '      ResetCreditDialog(prefix="pageslocal:usage-pool", target=usage.pooled.confirm, busy=commandPending, command=usageConfirm)');
+    expect(cover.split('\n').filter(line => line.includes('UsagePage(')).map(line => line.includes('command=usageCommand, confirmOpen=usageConfirmOpen,'))).toEqual([true, true]);
+    const page = await component('pages-usage.contract', 'UsagePage');
+    expect(page).toContain('inert=(page.detail.open or page.prices.open or confirmOpen)');
+    expect(page).toContain('dialog=(page.detail.open or page.prices.open or confirmOpen)');
+    expect(page).not.toContain('page.pooled.confirm != ""');
+    // The confirm's commands still ask for the segment's focus (the agent clock settles it with the answer).
+    expect(await source('usage-bars.contract')).toContain('button id="reset-credit-cancel" press=command(`${prefix}-reset-cancel`, target, "", 0) key=fromCancel autofocus=true disabled=busy aria-keyshortcuts="Escape"');
   });
 });

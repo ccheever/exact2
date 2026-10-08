@@ -143,6 +143,8 @@ component UsagePage
     back: action
     // usage-pooled-view: the reset credit confirm's commands report the focus back (app.contract commandCompleted).
     command: action
+    // popover-escape-parity: the confirm shows (PagesCover closes it for the page as it is answered).
+    confirmOpen: bool
     reduced: bool
     // popover-escape-parity: the window's count of presses outside this page (app-window.contract T3Window).
     outside: number
@@ -162,24 +164,16 @@ component UsagePage
     overPop = inside ? id : (overPop == id ? "" : overPop)
   action enterMail(id: string, inside: bool)
     overMail = inside ? id : (overMail == id ? "" : overMail)
-  // A press on the popover's own trigger toggles it (Base UI's useClick, stickIfOpen: a press on a
-  // hover-opened popover keeps it open, the next press closes it). Any close holds while the pointer stays on
-  // the segment: hover opens it again only on a new enter (Base UI's blockMouseMove until mouseenter).
+  // A press on the popover's own trigger toggles the pin (Base UI's useClick). The pin and the light dismiss
+  // below touch only the pin, never the hover states, which the hover helper owns (fix-hover-cards).
   action pin(id: string)
-    if held == id
-      pinned = ""
-      overSeg = ""
-      overPop = ""
-      overMail = ""
-    else
-      pinned = id
+    pinned = held == id ? "" : id
     pinnedAt = outside
   // Light dismiss (Base UI Popover's useDismiss, outsidePressEvent "intentional" for a mouse): a primary
   // press that starts outside the pinned popover's card and both its triggers (the segment, the legend
   // row), and does not end in the card, closes it as the press ends, before that press's own action; a
-  // press on another segment then pins that one. Its own hover states go with it (the 6-pt gap under the
-  // card is the hover wrapper's, and Base UI closes at once); another segment's hover-shown popover stays.
-  // Presses on the page come here; the window counts the rest (`outside`).
+  // press on another segment then pins that one. Presses on the page come here; the window counts the rest
+  // (`outside`).
   action pressDown(e: PointerEvent)
     let seg = frame(`usage-seg-${held}`)
     let pop = frame(`usage-seg-pop-${held}`)
@@ -189,9 +183,6 @@ component UsagePage
     let id = held
     let pop = frame(`usage-seg-pop-${id}`)
     if downOutside and not usageHit(pop, e.clientX, e.clientY)
-      overSeg = overSeg == id ? "" : overSeg
-      overPop = overPop == id ? "" : overPop
-      overMail = overMail == id ? "" : overMail
       pinned = ""
     downOutside = false
   // Escape (UsageKeys' one shortcut): a showing popover closes and its segment takes the focus; else the page goes
@@ -213,8 +204,8 @@ component UsagePage
     overMail = ""
     command("pageslocal:usage-pool-reset-ask", id, "", 0)
   view
-    column position="absolute" left=0 top=0 right=0 bottom=0 background-color="light-dark(#fcfcfc, #0a0a0a)" inert=(page.detail.open or page.prices.open or page.pooled.confirm != "") pointerdown=pressDown pointerup=pressUp testId="usage-page"
-      UsageKeys(keys=keys, limits=(page.metric == "limits"), dialog=(page.detail.open or page.prices.open or page.pooled.confirm != ""), setMetric=setMetric, setWindow=setWindow, back=escape)
+    column position="absolute" left=0 top=0 right=0 bottom=0 background-color="light-dark(#fcfcfc, #0a0a0a)" inert=(page.detail.open or page.prices.open or confirmOpen) pointerdown=pressDown pointerup=pressUp testId="usage-page"
+      UsageKeys(keys=keys, limits=(page.metric == "limits"), dialog=(page.detail.open or page.prices.open or confirmOpen), setMetric=setMetric, setWindow=setWindow, back=escape)
       when wide
         row width="100%" height=52 flex-shrink=0 padding-left=(sidebarOpen ? 1.25 * rem : controlsLeft + 2.5 * rem) padding-right="1.25rem" box-sizing="border-box" align-items="center" gap="0.75rem" position="relative"
           UsageSidebarToggle(sidebarOpen=sidebarOpen, controlsLeft=controlsLeft, keySidebar=keySidebar, toggle=toggleSidebar)

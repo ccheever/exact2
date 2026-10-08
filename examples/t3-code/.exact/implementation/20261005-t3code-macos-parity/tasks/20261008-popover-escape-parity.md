@@ -23,6 +23,12 @@ The user decided on 2026-10-08 that both behave as the reference T3 Code (`1e2ec
    `20261005-settings-scoped-controls-and-theme-editor`, D16; kept "provisional, user decision pending" by
    `20261007-theme-color-picker`). Escape in the colour popover (#252) still closes only the popover and gives
    the focus back to its swatch.
+3. **The real-input batch's #263 rows** (PR #298, items 10-12; coordinator, 2026-10-08): (12) after Escape in the
+   "Use a reset credit?" confirm the focus did not go back to the segment: fixed here. (10) the hover popover
+   closes as the pointer moves into it and (11) on the second card a click pins the previously clicked
+   segment's popover are hover, and the coordinator moved them to the fix-hover-cards PR (its HoverLayer helper
+   owns hover grace for every clone popover); this task's diagnosis and base repro for them are under
+   "Handed over".
 
 ## Reference behavior
 
@@ -44,6 +50,8 @@ The user decided on 2026-10-08 that both behave as the reference T3 Code (`1e2ec
   router (`ThemeEditorHost`), stays; `useEscapeToGoBack` blurs the focused element first. The colour popover
   (Base UI `Popover`) closes on Escape, prevents it (so Settings' Escape-to-go-back skips it) and returns the
   focus to its trigger.
+- The reset confirm is a Base UI AlertDialog (`ResetCreditDialog`): closing it (Escape, Cancel, the confirm)
+  gives the focus back to the element that had it before (the segment, once "Use reset" left with its popover).
 
 ## Implementation
 
@@ -52,8 +60,9 @@ The user decided on 2026-10-08 that both behave as the reference T3 Code (`1e2ec
   pinned popover's card (`usage-seg-pop-<id>`), its segment (`usage-seg-<id>`) and its legend row
   (`usage-legend-<id>`), by `frame()` and the event's `clientX`/`clientY` (`fn usageHit`); `pressUp(e)` closes it
   unless the press ends in the card, before the press's own action (DOM's order), so a press on another
-  segment pins that one. Its own hover states go with it (the 6-pt gap under the card is the hover
-  wrapper's); another segment's hover-shown popover stays.
+  segment pins that one. The dismissal also drops the dismissed popover's own hover states (an outside press
+  closes it however it shows; a real pointer can leave one stale, see "Handed over"); the pin itself
+  (`pin`) and the press's start touch no hover state, so the hover helper can take the hover part over.
   `usage-pooled.contract` gives the card and the legend row their ids.
 - **Presses elsewhere in the window** (`app-window.contract` T3Window): the window's root counts primary presses
   that end (`outsidePressDown` / `outsidePressUp`, `outsidePresses`), passed through PagesCover to UsagePage as
@@ -66,16 +75,21 @@ The user decided on 2026-10-08 that both behave as the reference T3 Code (`1e2ec
 - **The page's ground** (`usage-ground`): a full-height column under the scroll's content. On macOS a press on a
   scroll view's empty area (below or beside its content) reaches no node, so no `pointerdown` hears it (found in
   session 1; `EXACT2-GAPS.md` "Host finding", not filed).
-- **The popover's own segment**: a press on the pinned segment closes it and clears the hover states, so a
-  pointer resting on the segment no longer holds it open (base: image 07); hover opens it again on the next
-  enter, as Base UI's `blockMouseMove` does.
+- **The reset confirm's focus (item 12)** (`app-main.contract` PagesCover, `pages-usage.contract`): the confirm's
+  buttons (Cancel, its Escape, Use credit) go through PagesCover's `usageConfirm`, which closes it for the page
+  at once (`usageClosing`, `derive usageConfirmOpen`); UsagePage is inert while `confirmOpen`, not while the
+  usage answer still names the confirm. So the page is no longer inert when the command's answer asks for the
+  segment's focus (`focus:usage-seg-…`, `commandCompleted`). Cause: the usage answer that drops the confirm
+  comes after the command's, so under real time the focus went to a still-inert page and was refused; the
+  agent clock settles both together, which is why #263's agent drive passed. A new ask (UsagePage's `redeem`
+  through `usageCommand`) opens it again. No root line (`app.contract` 1,478, the base's).
 - **Theme editor** (`settings-appearance-editor.contract`): the close button drops `aria-keyshortcuts="Escape"`;
   the editor has no other key handler and is not `aria-modal`, so Escape anywhere in it reaches the page under
   it (Settings' Back: Settings closes, the editor stays). Escape on a page with no Escape of its own (a thread)
   does nothing, as the reference's. Settings' Back (`settings-core.contract` SettingsNav `leave`) and the Usage
   page's Escape back blur the focus first, as `useEscapeToGoBack` does, so the editor's field keeps none.
 
-`app.contract` is unchanged (1,456 lines).
+`app.contract` is unchanged (1,478 lines on the merged base `ec32c8c37`).
 
 ## Acceptance
 
