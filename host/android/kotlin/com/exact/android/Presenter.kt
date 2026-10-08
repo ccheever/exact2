@@ -87,7 +87,7 @@ internal class Presenter(
             n.collectionPort(scroll)
         } }
     }, { id -> nodes[id]?.let { n ->
-        NativeCollections.RowBox(n.frame.height() / scale.toDouble(), n.frame.width() / scale.toDouble(),
+        NativeCollections.RowBox(n.logicalHeight.toDouble(), n.logicalWidth.toDouble(),
             n.frame.top / scale.toDouble(), n.nativeBox())
     } }, collectionReport)
     fun begin() = collections.beginBatch()
@@ -330,6 +330,7 @@ internal class Presenter(
         private var editorType = -1
         val frame = Rect()
         var logicalWidth = 0f
+        var logicalHeight = 0f
         private var logicalTextInset = 0f
         var intrinsicIdentity: Any = this
         private var imageSource: String? = null
@@ -1289,6 +1290,7 @@ internal class Presenter(
         val n = nodes[id] ?: return
         val textWidthChanged = n.kind == "text" && n.logicalWidth != w
         n.logicalWidth = w
+        n.logicalHeight = h
         val left = (x * scale).roundToInt(); val top = (y * scale).roundToInt()
         val width = (w * scale).roundToInt(); val height = (h * scale).roundToInt()
         n.frame.set(left, top, left + width, top + height)
