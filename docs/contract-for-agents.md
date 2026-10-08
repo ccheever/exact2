@@ -1514,6 +1514,9 @@ on that host (a TypeScript source's `fetch` rejects with `FetchError` kind
 `"Network"`; a Rust source's request settles `Failed { kind: Network }`), and it
 never goes out. Leading the test it is armed before the first data load, so
 "the API is down when the screen opens" is the launch; later it is a step.
+To test going offline after the data loaded (a Snapback4 partition, which
+cannot open before its first sync, is the usual case), put `clock data` first;
+a runner note names a `fail fetch` armed before the data loaded.
 `times N` fails only the next N; `pass fetch "<prefix>"` stops it; a counted
 fault that never fired fails the test. The app's own `catch`, error record and
 retry run, so this checks the real error handling (LLP 1103). A drive takes
