@@ -213,6 +213,13 @@ the manifest's `app.command` into the first of `~/.local/bin`, `/usr/local/bin`,
 `~/bin` that is already on `PATH` (`EXACT_BIN_DIR` overrides), and prints the
 line to add when none is.
 
+A standalone macOS app treats `kill -TERM <pid>` as an orderly quit: its
+`beforeunload` handlers can cancel, pending storage gets the same five-second
+hold, and each session's native module is destroyed before exit. Repeated SIGTERM
+requests share that hold's original deadline. A module's `destroy()` still runs
+synchronously on the main thread; the storage deadline does not bound it.
+SIGKILL cannot run this cleanup.
+
 An app says what it opens with `file_handlers` in `app.json` — the W3C Web App
 Manifest's own key — and the macOS bake derives `CFBundleDocumentTypes` from
 it. Each MIME type it accepts must be one the Apple hosts map to a system type
