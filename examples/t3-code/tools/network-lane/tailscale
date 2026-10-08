@@ -1,0 +1,29 @@
+#!/bin/sh
+# Lane stub of the Tailscale CLI for 20261005-this-machine-network-access (decision U9, provisional:
+# the stub provider only; plan tool "Tailscale stub endpoint provider", U23). Put this directory first
+# on the lane app's PATH and set T3_TAILSCALE_STUB_STATE to a lane folder. It answers
+# `status --json` with a fake MagicDNS name (T3_TAILSCALE_STUB_DNS, default lane-mac.example-tailnet.ts.net)
+# and keeps what `serve` asked for, so `tailscale serve status` shows the proxy the embedded server set
+# up and `serve … off` clears it. Every call is logged with its caller (the app or the server). It never
+# touches a real Tailscale. The HTTPS name does not resolve, so the probe never answers: "Setup required".
+STATE_DIR="${T3_TAILSCALE_STUB_STATE:?set T3_TAILSCALE_STUB_STATE to a lane folder}"
+DNS="${T3_TAILSCALE_STUB_DNS:-lane-mac.example-tailnet.ts.net}"
+STATE="$STATE_DIR/tailscale-serve.state"
+echo "$(date -u +%FT%TZ) [caller: $(basename "$(ps -o comm= -p $PPID)")] tailscale $*" >> "$STATE_DIR/tailscale-calls.log"
+case "$1" in
+  status)
+    if [ "$2" = "--json" ]; then echo "{\"Self\":{\"DNSName\":\"$DNS.\",\"TailscaleIPs\":[]}}"; exit 0; fi
+    echo "lane stub"; exit 0 ;;
+  serve)
+    shift
+    if [ "$1" = "status" ]; then
+      if [ -s "$STATE" ]; then cat "$STATE"; else echo "No serve config"; fi; exit 0
+    fi
+    if [ "$1" = "--bg" ]; then
+      port="${2#--https=}"; target="$3"
+      printf 'https://%s:%s (tailnet only)\n|-- / proxy %s\n' "$DNS" "$port" "$target" > "$STATE"; exit 0
+    fi
+    if [ "$2" = "off" ]; then : > "$STATE"; exit 0; fi
+    echo "stub: unsupported serve $*" >&2; exit 1 ;;
+esac
+echo "stub: unsupported $*" >&2; exit 1

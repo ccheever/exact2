@@ -1,14 +1,14 @@
 ---
 name: 20261007-editable-font-prompt-preview
 plan: 20261005-t3code-macos-parity
-implementation: planned
-verification: unverified
-delivery: none
+implementation: verified
+verification: passed
+delivery: draft
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
-branch: null
-pr_url: null
-verified_commit: null
+branch: feat(example)/t3-code-editable-font-prompt-preview
+pr_url: https://github.com/ccheever/exact2/pull/257
+verified_commit: 7635db11c
 ---
 
 # Type into the Appearance prompt font preview
@@ -95,7 +95,78 @@ submission, provider calls or a second conversation composer.
 | Draft isolation | Keep an unrelated draft in an active thread, edit the preview, then return | Thread draft is unchanged; no message, provider operation or preview preference write occurs | UI readback and command log |
 | Focus | Enter and leave the preview by keyboard; type editing keys while it is focused | Accessible editable surface; editing keys affect the preview, and focus returns to Settings controls normally | Keyboard drive and accessibility tree |
 
+## Progress
+
+- 2026-10-08: Implemented the isolated editable sample.
+  - `settings-prompt-preview.contract` holds the reference's serialized sample in component state:
+    a textarea with the new `t3-prompt-preview` hatch, `appearance="none"` like the editor's
+    `focus:outline-none`.
+  - `T3Module.promptPreview` is a second `T3ComposerEditor` bound to that hatch. It gives native chips,
+    atomic chip keys and undo grouping. It never touches the composer's keys, history, send monitor,
+    snapshot owner or draft. Tab and Shift+Tab walk focus, as the reference editor (no command-key
+    handler) does.
+  - Skill chips read "Frontend Design" (formatProviderSkillDisplayName). This applies to the composer too.
+  - Chips inherit the prompt's family.
+  - An unset Prompt font previews in the Interface family (`--font-composer` falls back to `--font-sans`).
+  - Changes from independent review (no blocking findings):
+    - Markdown markers stay text, because the reference leaves `richTextEnabled` off.
+    - Chip labels match weight 500 as CSS does: the family's medium face, else its regular face.
+    - Folder drops and pasted-text folding stay composer-only.
+  - Verified `7635db11c`, draft PR #257. It is expected to conflict with #250 in `settings-rows.contract`;
+    the PR body gives the resolution.
+  - Provisional, user decision pending: none.
+  - Follow-up, not in this task: the composer's skill chips use the provider's `displayName` when the
+    skill is known (the reference's `skillLabelFor`); the clone always title-cases the raw name.
+
+## Attempts and evidence
+
+| Attempt | Revision | Checks and outcomes | Evidence | Remaining |
+| --- | --- | --- | --- | --- |
+| 1 | `7635db11c` on `d82fb6a47` | `bun test examples/t3-code` 2515 pass / 1 skip / 0 fail (base 2511 + 4 new); strict tsc clean; `contract build` 2631 slots; `cargo test -p t3-code-macos --lib` 11 pass; composer AppKit binary 51 tests / 0 failures (base 46 + 5 `PromptPreviewEditorTests`); caps pass; five checks pass (cargo test 3383 passed, 0 failed, 33 ignored; build, clippy, fmt, boot exit 0); app bundle builds. Runner recipe `passed`, `source_unchanged: true`, digest `7f30900e4962…`, committed tree matches | PR #257 | — |
+| live 1 (agent) | build of attempt 1 before the Tab, chip-family and prompt-family fixes | Typing, caret, selection, atomic chips, remount and draft isolation pass. It found the Tab trap, the system-font chip labels and system-ui for an unset Prompt font; all three were fixed. | `ops-after-attempt1.txt` | — |
+| before (agent) | base `da4f4512f` | Static sample; key input changes nothing; "view 2423 is not an input" | `ops-before.txt` | — |
+| live 2 (agent, the retry) | the final build except `appearance="none"` (focus ring), chip weight 500 for non-system families and the review's composer-only paste/drop and plain-marker settings | Every row except Cmd+Z: see the table below | `ops-after.txt`, `live-session.md`, pairs 01–07 | Cmd+Z: deferred |
+
+Evidence: `t3-code-evidence/editable-font-prompt-preview/` at `d29d205663ea` (pairs 01–07, `live-session.md`, op transcripts).
+
+| Criterion | Result | Proof |
+| --- | --- | --- |
+| Type and undo | Typing: pass (key-by-key suffix at the caret). Cmd+Z: deferred to the real-input batch (screen locked, user away). In agent mode, Meta+z cannot reach a plain textarea's undo manager (live-session.md); the undo history is tested in AppKit | pair 02; `PromptPreviewEditorTests.testTypingAndUndoStayInThePreview` |
+| Cursor and selection | pass: Shift+Right selection replaced; arrows step over chips as one; Backspace removes a whole chip | pair 03; AppKit `testChipsAreAtomic…` |
+| Font changes | pass: New York keeps the draft, and text and chip labels follow; prompt 18 px keeps the edit | pairs 05, 06 |
+| Simple and advanced | pass: both are editable; Advanced on/off remounts a fresh sample | pair 06, transcript |
+| Draft isolation | pass: the thread draft is unchanged; no thread or message; lane `settings.json` untouched after server start | pair 07, live-session.md |
+| Focus | Tab and Shift+Tab in and out: pass (tree focus read-back). Accessible label "Prompt font preview". Real-key Tab: deferred to the real-input batch | pair 04; AppKit `testTabAndShiftTabLeaveThePreviewWithoutTyping` |
+
+## Real-input batch steps
+
+Deferred: screen locked (user away). Run them in one session.
+
+1. Build: in `~/orca/workspaces/exact2/t3-code-editable-font-prompt-preview`, run
+   `EXACT_APP_DIR=$PWD/examples/t3-code bun host/apple/build.mjs t3-code-macos --bundle`.
+   It needs `examples/t3-code/server-runtime` staged (`bun examples/t3-code/stage-runtime.mjs --offline`;
+   the cache is in `.runtime-cache/`).
+2. Lane copy: copy `target/clients/*/com.exact.t3code.macos/macos/T3 Code (Exact).app` to
+   `target/lane/apps/T3 Code (Lane EFP).app`. Set `CFBundleIdentifier` to
+   `com.exact.t3code.macos.laneefp`, and `CFBundleName`/`CFBundleDisplayName` to `T3 Code (Lane EFP)`.
+   Then run `codesign --force --deep --sign -`.
+3. Launch it normally, not in agent mode, with `target/lane/drive-env.sh` sourced: HOME, CODEX_HOME,
+   CLAUDE_CONFIG_DIR, XDG_* and `T3_LOCAL_HOME=target/lane/t3home` with `T3_LOCAL_PORT=16520`. Run its
+   `Contents/MacOS/T3 Code (Exact)` in the background, record the PID, and wait for the window
+   (about 20 s for the embedded server). Take the real-input lock.
+4. Click the sidebar's Settings gear (window point about 24,820), then Appearance (about 128,152).
+   Scroll the content down to Typography.
+5. Click the end of the Interface font sample's text, then press Cmd+Down.
+   `orca computer paste-text " AUDIT_FONT_PROBE"` (paste, not typing: the input source is Korean 2-Set).
+   Screenshot (`screencapture -x -o -l <window id>`) and read the suffix. Press Cmd+Z: the suffix is gone
+   and the chips remain. Press Cmd+Shift+Z: it is back. Screenshot each step.
+6. Double-click "flaky", paste "stable", then Cmd+Z: "flaky" is restored.
+7. Press Tab: focus goes to the Monospace font family control, no tab is typed, and no focus ring is
+   drawn on the sample. Press Shift+Tab: the caret is back in the sample. Screenshot both.
+8. Check that the thread's composer draft is unchanged: close Settings and read the composer.
+9. Quit the lane app (its PID only), then release the lock. Upload the before/after shots next to
+   this PR's evidence.
+
 ## Next action
 
-Implement the isolated editable preview, then run affected composer/app checks and rebuild
-the macOS app for a paired live comparison before changing verification status.
+Review of draft PR #257 (merge after #250, then merge the feature branch in here and resolve `settings-rows.contract`). Run the real-input batch steps above when the screen is unlocked; they also re-capture the after shots on the final build.
