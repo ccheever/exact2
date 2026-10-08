@@ -92,19 +92,23 @@ publication was performed during this local audit.
 | [X52](20261008-x52-macos-form-controls-tab-order.md) | `input type="date"`/`"time"` and `select` as Tab stops on macOS | framework-gap | [dialog-shortcut-focus](../tasks/20261008-dialog-shortcut-focus.md) (nonblocking: Custom snooze's other stops are in order) | reproduced on a scratch app on the feature branch's framework (main `1f19b2400`; `tabbable` unchanged on main `462308f9c`); draft, not published |
 | [X53](20261008-x53-state-driven-modal-focus.md) | A modal opened from state (`showModal(id)` on macOS and the web): focus in, Tab trapped, focus back | framework-gap | [dialog-shortcut-focus](../tasks/20261008-dialog-shortcut-focus.md) (per-dialog traps meanwhile) | reproduced on a scratch app (macOS "unknown command showModal", web refused); draft, not published |
 
-<<<<<<< HEAD
 ## Usage pooled view addition, 2026-10-08
 
 | Issue | Capability | Kind | Blocks | Status |
 | --- | --- | --- | --- | --- |
 | [X56](20261008-x56-press-lost-on-focus-restyle.md) | A mouse click whose mouse-down focuses a button that restyles itself on `focus` loses its press (macOS) | framework-gap (unconfirmed) | none ([usage-pooled-view](../tasks/20261005-usage-pooled-view.md) draws no ring of its own; the host ring stands in) | reproduced in the app with the agent (journal: focus, no press); a one-file app not tried; draft, not published |
-=======
+
 ## Pull request writes addition, 2026-10-08
 
 | Issue | Capability | Kind | Blocks | Status |
 | --- | --- | --- | --- | --- |
 | [X54](20261008-x54-focus-within-subtree.md) | An ancestor hearing the focus enter its subtree (`focusin`, `:focus-within`) | framework-gap | [pr-writing-and-metadata](../tasks/20261005-pr-writing-and-metadata.md) (nonblocking: "Show full comment" and the pencil are Tab stops of their own) | reproduced with `contract vocab` on the feature branch's framework; no upstream match by title; draft, not published |
->>>>>>> origin/feat(example)/t3-code
+
+## Provisional decisions parity addition, 2026-10-08
+
+| Issue | Capability | Kind | Blocks | Status |
+| --- | --- | --- | --- | --- |
+| [X57](20261008-x57-number-field-semantics.md) | `input type="number"` on macOS: ArrowUp/ArrowDown stepping within `min`/`max`, refusing characters a number cannot hold | framework-gap | none ([provisional-decisions-parity](../tasks/20261008-provisional-decisions-parity.md) steps the Tailscale port field itself; a typed letter still shows, with the error) | reproduced in the clone with the agent (`0443` + ArrowUp stays `0443`); no host code for it; no upstream match by title; draft, not published |
 
 ## Upstream issues (filed 2026-10-06)
 
