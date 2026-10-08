@@ -1,0 +1,95 @@
+// The window's hover layer (fix-hover-cards): a hover tooltip or hover card drawn at the window level,
+// as T3 Code 1e2ecbd975 (MIT, see LICENSE-T3) portals every TooltipPopup and PopoverPopup to the body
+// (apps/web/src/components/ui/tooltip.tsx, popover.tsx). A trigger inside a scroll area or a clipping
+// card hands its frame and words to the root's `hoverTipAt` (provided by T3Window); this layer draws
+// them above the window's content, so nothing around the trigger cuts them: the provider update icon's
+// tooltip in the list and the editor (#251), "N scopes" in the Authorized clients list (#248).
+//
+// A hover card (PopoverTrigger openOnHover: the scopes, the base branch's freshness card) takes the
+// pointer as Base UI's does (safePolygon, then the popup's own hover): it stays while the pointer is on
+// it, and for the reference's closeDelay after the pointer leaves it or its trigger, so the pointer can
+// cross into it (the root's hover grace). Drawn here, at the window level, it hears the pointer on macOS:
+// a hover card drawn beside its trigger lies outside the trigger's box, where the host gives it no
+// tracking and gives the trigger a leave as the pointer moves in (X62), which closed #262's card.
+//
+// Placement: Base UI's side, align and sideOffset 4 from the trigger's frame; a side that leaves no
+// room in the window flips (Base UI's collision flip; X17, #112: no position-try, so the layer works it
+// out from the content's estimated height).
+
+shape HoverTip
+  key: string
+  // "tip" (TooltipPopup: words, takes no pointer, closes with its trigger), "scopes" (AccessScopeSummary's
+  // card), "freshness" (PullRequestBaseFreshnessWarning's card, drawn by T3Window from the open PR).
+  kind: string
+  text: string
+  lines: list<string>
+  side: string
+  align: string
+  x: number
+  y: number
+  width: number
+  height: number
+  // The content's height, for the flip.
+  estimate: number
+  testId: string
+
+fn noHoverTip(): HoverTip = HoverTip(key="", kind="", text="", lines=[], side="top", align="center", x=0, y=0, width=0, height=0, estimate=0, testId="")
+
+// The tip for a trigger at `frame`: placement from Base UI's props, the content from the trigger.
+fn hoverTipAtFrame(key: string, kind: string, text: string, lines: list<string>, side: string, align: string, frame: Geometry, estimate: number, testId: string): HoverTip = HoverTip(key=key, kind=kind, text=text, lines=lines, side=side, align=align, x=frame.x, y=frame.y, width=frame.width, height=frame.height, estimate=estimate, testId=testId)
+
+// The positioned layer: a row as wide as the widest popup (20rem) plus room, at the trigger's side;
+// only the popup takes the pointer, and a hover card's 4 pt sideOffset is part of it (no gap to cross).
+component HoverLayer
+  inject
+    rem: number
+  props
+    tip: HoverTip
+    viewportHeight: number
+    hoverAt: action
+  slot
+  derive below = tip.side == "bottom" ? tip.y + tip.height + 4 + tip.estimate <= viewportHeight - 5 or tip.y - 4 - tip.estimate < 5 : tip.y - 4 - tip.estimate < 5
+  derive left = tip.align == "start" ? tip.x : (tip.align == "end" ? tip.x + tip.width - 22.5 * rem : tip.x + tip.width / 2 - 11.25 * rem)
+  derive justify = tip.align == "start" ? "flex-start" : (tip.align == "end" ? "flex-end" : "center")
+  derive card = tip.kind != "tip"
+  view
+    when below
+      row position="absolute" left=left top=(tip.y + tip.height) width=(22.5 * rem) justify-content=justify align-items="flex-start" pointer-events="none" z-index=140 testId="hover-layer"
+        when card
+          column hover=hoverAt(tip, "card") padding-top=4 max-width="20rem" pointer-events="auto"
+            children
+        else
+          column padding-top=4 max-width="20rem" pointer-events="none"
+            children
+    else
+      row position="absolute" left=left bottom=(viewportHeight - tip.y) width=(22.5 * rem) justify-content=justify align-items="flex-end" pointer-events="none" z-index=140 testId="hover-layer"
+        when card
+          column hover=hoverAt(tip, "card") padding-bottom=4 max-width="20rem" pointer-events="auto"
+            children
+        else
+          column padding-bottom=4 max-width="20rem" pointer-events="none"
+            children
+
+// TooltipPopup (CnTooltip's look): the words, max-w-80, taking no pointer.
+component HoverText
+  props
+    tip: HoverTip
+  view
+    column max-width="20rem" padding-top="0.25rem" padding-bottom="0.25rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#2727291a, #ffffff1a)" background-color="light-dark(#ffffff, #171717)" box-shadow="0 4px 6px -1px #0000000d, 0 2px 4px -2px #0000000d" pointer-events="none" role="tooltip" testId=tip.testId
+      text tip.text font-size="0.75rem" line-height="1rem" white-space="pre-wrap" color="light-dark(#27272a, #f5f5f5)"
+
+// AccessScopeSummary's PopoverPopup (side top, align start, tooltipStyle, w-max max-w-80): "Granted
+// scopes", then each scope in mono, after the trigger's 250 ms delay.
+component HoverScopes
+  props
+    tip: HoverTip
+  view
+    column max-width="20rem" padding-top="0.25rem" padding-bottom="0.25rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#2727291a, #ffffff1a)" background-color="light-dark(#ffffff, #171717)" box-shadow="0 4px 6px -1px #0000000d, 0 2px 4px -2px #0000000d" role="tooltip" animation="hoverLate 1ms linear 250ms both" testId=tip.testId
+      text tip.text font-size="0.75rem" line-height="1rem" font-weight=500 margin-bottom="0.25rem" color="light-dark(#27272a, #f5f5f5)"
+      each line in tip.lines key=line
+        text line font-family="ui-monospace" font-size="0.75rem" line-height="1rem" color="light-dark(#27272ad9, #f5f5f5d9)"
+
+// A hover popover opens after its delay (PopoverTrigger openOnHover delay={250}).
+keyframes hoverLate
+  from opacity=0
+  to opacity=1
