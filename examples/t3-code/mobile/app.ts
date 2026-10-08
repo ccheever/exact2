@@ -1,5 +1,5 @@
 import { mobileOutboxThread } from './mobile-outbox-presentation';
-import { mobileOutboxDriveSnapshot, mobileOutboxDriveRead, mobileOutboxDriveRun } from './mobile-outbox-drive';
+import { mobileOutboxRootSnapshot, mobileOutboxRootAction } from './mobile-outbox-root';
 import { noteNow } from './shared/composer-controls';
 import { homeArrangeActionValue } from './home-arrange';
 import { mobileHomeAction } from './home-actions';
@@ -71,14 +71,13 @@ export const grants = 'device.camera purpose.camera\ndevice.microphone purpose.m
 // Each generated source has its own checked result type; no union assertion crosses the ABI.
 const sources: Sources = {
   outboxView: args => {
-    const { initialized, complete, busy, count, next, delay } = mobileOutboxDriveSnapshot(mobileClient, Number(args[1]));
+    const { initialized, complete, busy, count, next, delay } = mobileOutboxRootSnapshot(mobileClient, Number(args[1]));
     return { initialized, complete, busy, count, next, delay };
   },
-  outboxAction: async (args, _store, _storage, nativeInput) => {
+  outboxAction: async (args, _store, storage, nativeInput) => {
     const native = nativeInput?.available ? mobileNative(nativeInput) : nativeInput;
-    if (args[0] === 'read') return mobileOutboxDriveRead(mobileClient, native);
-    if (!native?.available) return { revision: mobileClient.revision, message: 'Open T3 Code on your iPhone or iPad.' };
-    return mobileOutboxDriveRun(mobileClient, native, str(args[1]), Number(args[2]), args[0] === 'retry');
+    return mobileOutboxRootAction(mobileClient, native, native?.available ? nativeFiles(native) : storage!,
+      str(args[0]), str(args[1]), Number(args[2]));
   },
   threadHeader: args => mobileThreadHeaderSnapshot(args[0]),
   threadHeaderPrepare: (args, _store, _storage, native) => mobileThreadHeaderPrepare(args[0], native, args[1]),

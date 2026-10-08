@@ -1,3 +1,6 @@
+import { mobileOutboxRootSnapshot as rootView, mobileOutboxRootAction as rootAction } from './mobile-outbox-root';
+import { mobilePendingTaskEditorsCreate } from './mobile-pending-task-state';
+import { mobileOutboxSnapshot } from './mobile-outbox';
 import { mobileNewTaskDraftBind, mobileNewTaskDraftDiscard, mobileNewTaskDraftRetarget } from './mobile-new-task-drafts';
 import { mobileNewTaskSubmit } from './new-task-submit';
 import { expect, test } from 'bun:test';
@@ -29,7 +32,7 @@ function backend() {
     if (request.op === 'status') value = { phase: 'disconnected' };
     else if (request.op === 'devicePresentation') value = {};
     else if (request.op === 'mobileOutboxDelivery') {
-      if (request.action === 'status') value = { operation: terminal, durable: true };
+      if (request.action === 'status') value = { operation: request.operationId === 'command' ? terminal : null, durable: request.operationId === 'command' };
       else if (request.action === 'draftHandoffStatus') value = { handoff: state.proof, durable: !!state.proof };
       else if (request.action === 'draftHandoffComplete') {
         if (!state.proof) {
@@ -41,7 +44,8 @@ function backend() {
         } else expect(request.handoff).toEqual(state.proof);
         value = { handoff: state.proof, durable: true };
       } else throw Error('Unexpected delivery action');
-    } else if (request.op === 'mobileOutbox') {
+    } else if (request.op === 'mobileOutboxInline' && request.action === 'lookup') value = { operations: [] };
+    else if (request.op === 'mobileOutbox') {
       if (request.action === 'read') value = { complete: true, errors: [], ownerEpoch: state.epoch, sequenceFloor: state.floor,
         records: state.row ? [{ ...current(), held: !!state.hold }] : [], mutations: [], transfers: [], outcomes: [...state.outcomes.values()],
         revisions: { message: state.revision }, tokens: { message: state.token } };
@@ -67,7 +71,7 @@ function backend() {
   } };
   async function load() { const client = new MobileDraftClient(), h = mobileDraftRecoveryHandles(client, native, storage);
     await client.refresh(h.native, h.storage); Object.assign(client, { origin: owner.origin, environmentId: 'env', projectId: 'project', threadId: '' }); return client; }
-  return { state, native, storage, hooks, calls, load, input: { owner, current: () => true } };
+  return { state, terminal, native, storage, hooks, calls, load, input: { owner, current: () => true } };
 }
 test('real coordinator publishes before removal, releases owners, and never restores a consumed target on retry', async () => {
   const f = backend(); let client = await f.load();
@@ -129,4 +133,79 @@ test('unfinished recovery blocks actual draft Send, bind, discard and retarget a
     delete obj(obj(client.local).mobileOutboxDraftHandoffs).other;
   };
   expect(await recover(client, f.native, f.storage, f.input)).toMatchObject({status:'recovered'}); expect(observed).toBe(true);
+});
+
+async function rootDiscover(f: ReturnType<typeof backend>, client: MobileDraftClient, now = 1000) {
+  await rootAction(client, f.native, f.storage, 'read', '', now);
+  const first = rootView(client, now); expect(first.next).not.toBe('');
+  await rootAction(client, f.native, f.storage, 'deliver', first.next, now);
+  const next = rootView(client, now); expect(JSON.parse(next.next).recovery).toEqual(owner);
+  return next;
+}
+test('root timer discovers a rejected task offline and recovers it without provider traffic or navigation', async () => {
+  const f = backend(), client = await f.load(), selected = [client.origin, client.environmentId, client.projectId, client.threadId, client.draftKey];
+  const next = await rootDiscover(f, client);
+  await rootAction(client, f.native, f.storage, 'deliver', next.next, 1000);
+  expect(client.local.drafts[key]).toBe('recover me'); expect(f.state.row).toBeNull(); expect(f.state.proof).not.toBeNull();
+  expect(rootView(client, 1000).next).toBe(''); expect(f.state.requests.size).toBe(1);
+  expect([client.origin, client.environmentId, client.projectId, client.threadId, client.draftKey]).toEqual(selected);
+  expect(f.calls.some(call => ['request', 'http', 'mobileSelectSavedEnvironment'].includes(str(call.op)))).toBe(false);
+});
+for (const lost of ['resumeRemoval', 'draftHandoffComplete']) test(`root restart discovers handoff after row deletion and lost ${lost} reply`, async () => {
+  const f = backend(); let client = await f.load(); const first = await rootDiscover(f, client); let fired = false;
+  f.hooks.after = async request => { if (!fired && request.action === lost) { fired = true; throw Error('reply lost'); } };
+  await rootAction(client, f.native, f.storage, 'deliver', first.next, 1000);
+  expect(fired).toBe(true); expect(f.state.row).toBeNull(); expect(obj(client.local).mobileOutboxDraftHandoffs).toBeTruthy();
+  if (lost === 'draftHandoffComplete') { client.local.drafts[key] = 'consumed destination'; await client.persist(f.storage); }
+  f.hooks.after = undefined; f.state.hold = ''; f.state.epoch = 'cold'; client = await f.load();
+  await rootAction(client, f.native, f.storage, 'read', '', 2000); expect(rootView(client, 2000).count).toBe(0);
+  const next = rootView(client, 2000); expect(JSON.parse(next.next).recovery).toEqual(owner);
+  await rootAction(client, f.native, f.storage, 'deliver', next.next, 2000);
+  expect(rootView(client, 2000).next).toBe(''); expect(f.state.requests.size).toBe(1);
+  expect(client.local.drafts[key]).toBe(lost === 'draftHandoffComplete' ? 'consumed destination' : 'recover me');
+});
+test('root recovery uses deadline backoff and rejects stale timer keys', async () => {
+  const f = backend(), client = await f.load(), first = await rootDiscover(f, client);
+  f.hooks.write = async () => { throw Error('disk unavailable'); };
+  await rootAction(client, f.native, f.storage, 'deliver', first.next, 1000);
+  const second = rootView(client, 1000); expect(second.delay).toBe(1000); expect(second.next).not.toBe(first.next);
+  const before = f.calls.length;
+  await rootAction(client, f.native, f.storage, 'deliver', first.next, 2000);
+  await rootAction(client, f.native, f.storage, 'deliver', second.next, 1999); expect(f.calls.length).toBe(before);
+  delete f.hooks.write; await rootAction(client, f.native, f.storage, 'deliver', second.next, 2000);
+  expect(rootView(client, 2000).next).toBe(''); expect(client.local.drafts[key]).toBe('recover me');
+});
+test('root recovery rechecks editor ownership and refuses foreign or malformed saved ownership', async () => {
+  const f = backend(), client = await f.load(), first = await rootDiscover(f, client);
+  client.environmentId = 'other'; expect(rootView(client, 1000).next).toBe('');
+  await rootAction(client, f.native, f.storage, 'deliver', first.next, 1000); expect(f.state.row).not.toBeNull();
+  client.environmentId = 'env';
+  const row = mobileOutboxSnapshot(client).rows[0]!;
+  mobilePendingTaskEditorsCreate(client, { version: 1, owner, session: 'editor', revision: 1, contentRevision: 1, draftKey: 'new-task:pending-message',
+    baseline: { record, token: row.token, revision: row.nativeRevision! }, pending: null });
+  expect(rootView(client, 1000).next).toBe('');
+  await rootAction(client, f.native, f.storage, 'deliver', first.next, 1000); expect(f.state.requests.size).toBe(0);
+  Object.assign(client.local, { mobileOutboxDraftHandoffs: { corrupt: { record: { text: 'do not discard' } } } });
+  expect(rootView(client, 1000).next).toBe('');
+  expect((await rootAction(client, f.native, f.storage, 'retry', JSON.stringify(owner), 1000)).message).toContain('ownership');
+});
+
+test('backed-off recovery permits another owner and explicit retry resumes its exact handoff', async () => {
+  const f = backend(), client = await f.load(), first = await rootDiscover(f, client);
+  f.hooks.write = async () => { throw Error('disk unavailable'); };
+  await rootAction(client, f.native, f.storage, 'deliver', first.next, 1000);
+  const other = { ...record, threadId: 'other-thread', messageId: 'other-message', commandId: 'other-command' };
+  const native: Native = { ...f.native, async later(request) {
+    const answer = obj(await f.native.later(request));
+    if (obj(request).op === 'mobileOutbox' && obj(request).action === 'read') {
+      const value = obj(answer.value); value.records = [...value.records as Obj[], { record: other, token: 'epoch:9', revision: 1, pending: false, held: false }];
+      value.revisions = { ...obj(value.revisions), 'other-message': 1 }; value.tokens = { ...obj(value.tokens), 'other-message': 'epoch:9' }; value.sequenceFloor = 9;
+    }
+    return answer;
+  } };
+  await rootAction(client, native, f.storage, 'read', '', 1001);
+  expect(JSON.parse(rootView(client, 1001).next).owner.messageId).toBe('other-message');
+  delete f.hooks.write;
+  expect((await rootAction(client, f.native, f.storage, 'retry', JSON.stringify(owner), 1001)).message).toBe('');
+  expect(client.local.drafts[key]).toBe('recover me'); expect(f.state.requests.size).toBe(1);
 });
