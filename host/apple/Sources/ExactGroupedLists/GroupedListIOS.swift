@@ -500,6 +500,7 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         }
         if row.custom {
             cell.contentConfiguration = nil
+            cell.contentView.insetsLayoutMarginsFromSafeArea = false
             cell.accessories = []
             carry(id, into: cell)
             return
@@ -527,6 +528,7 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
             c.imageProperties.tintColor = .tertiaryLabel
         }
         cell.contentConfiguration = c
+        cell.contentView.insetsLayoutMarginsFromSafeArea = false
         cell.accessories = accessories(row)
     }
 
@@ -710,6 +712,17 @@ final class GroupedCollectionView: UICollectionView, GroupedScroller {}
 final class GroupedCell: UICollectionViewListCell {
     var row: UInt32?
     var height: CGFloat?
+    // A row's margins are the list layout's, never the safe area's: a cell
+    // under the home indicator (a fling past the end) otherwise grew by the
+    // inset, moved, and shrank a pixel a layout pass until UIKit's
+    // feedback-loop check stopped the app. The inset-grouped sections already
+    // keep clear of the sides' safe area.
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        insetsLayoutMarginsFromSafeArea = false
+        contentView.insetsLayoutMarginsFromSafeArea = false
+    }
+    required init?(coder: NSCoder) { nil }
     override func preferredLayoutAttributesFitting(_ attributes: UICollectionViewLayoutAttributes) -> UICollectionViewLayoutAttributes {
         guard let height else { return super.preferredLayoutAttributesFitting(attributes) }
         let fitted = attributes.copy() as! UICollectionViewLayoutAttributes

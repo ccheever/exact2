@@ -97,6 +97,23 @@ final class GroupedListIOSTests: XCTestCase {
         XCTAssertNotNil(l.collection.supplementaryView(forElementKind: UICollectionView.elementKindSectionHeader, at: IndexPath(item: 0, section: 0)))
     }
 
+    /// A row's margins are the list's, not the safe area's: the last row of
+    /// a settings list flung under the home indicator grew by the inset and
+    /// shrank back a pixel a layout pass until UIKit's feedback-loop check
+    /// stopped the app (the Bluesky clone, 2026-10-07).
+    func testARowsMarginsDoNotTakeTheSafeArea() throws {
+        var custom = false
+        let p = presenter { self.model(custom: custom) }
+        for id: UInt32 in [10, 21] {
+            let c = try cell(p, id)
+            XCTAssertFalse(c.insetsLayoutMarginsFromSafeArea, "row \(id)")
+            XCTAssertFalse(c.contentView.insetsLayoutMarginsFromSafeArea, "row \(id)'s content")
+        }
+        custom = true
+        p.apply(wireBatch([["op": "props", "id": 21, "set": ["testId": "row21"], "clear": [String]()]]))
+        XCTAssertFalse(try cell(p, 21).contentView.insetsLayoutMarginsFromSafeArea, "a custom row's content")
+    }
+
     func testATapHighlightsAndPressesTheRowOnce() throws {
         let p = presenter { self.model() }
         var pressed: [UInt32] = []
