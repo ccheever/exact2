@@ -1,7 +1,7 @@
 // Pinned365aa87982 attachmentUpload.ts and use-thread-outbox-drain.ts.
 // @ref llp/1109.005-composer-and-transcript.decision.md#local-outbox-storage
 import type { T3Client } from './shared/client';
-import { obj, str, type Obj } from './shared/domain';
+import { obj, str } from './shared/domain';
 import { ClientError, type Native } from './shared/protocol';
 import { letGo, letGoAware } from './shared/let-go';
 import { fileStagingLimit } from './shared/composer-editor-files';
@@ -9,13 +9,12 @@ import { mobileSessionGrants } from './mobile-grants';
 import { mobileOutboxCapture, mobileOutboxConfirmQueued, mobileOutboxSnapshot, mobileOutboxUpdate,
   type MobileOutboxCapture, type MobileOutboxOutcome } from './mobile-outbox';
 import type { MobileOutboxAttachment, MobileOutboxRecord } from './mobile-outbox-model';
+import type { MobileOutboxNativePreparedAttachment } from './mobile-outbox-wire';
 import { mobileComposerAttachmentWireKindAndMime, mobileUploadedAttachmentReference } from './mobile-attachment-policy';
 
-/** Inline bytes exist only during preparation. Source materializes them inside
- * startThreadTurn, after context serialization. They are not adopted upload IDs. */
-export type MobileOutboxUploadAttachment =
-  { localId: string; kind: 'reference'; attachment: Obj } |
-  { localId: string; kind: 'inline-image'; attachment: Obj };
+/** Legacy image descriptors defer byte validation to native capture. Modern
+ * references still use the existing upload and durable adoption path. */
+export type MobileOutboxUploadAttachment = MobileOutboxNativePreparedAttachment;
 export type MobileOutboxUploadResult =
   { status: 'ready'; capture: MobileOutboxCapture; record: MobileOutboxRecord;
     attachments: MobileOutboxUploadAttachment[]; pendingAttachmentIds: string[] } |
@@ -93,9 +92,8 @@ export async function mobileOutboxPrepareAttachments(client: T3Client, handle: N
     for (const file of record.attachments) {
       current();
       if (file.kind === 'image' && capabilities.attachmentUploads !== true) {
-        const base64 = await bytes(file);
-        prepared.push({ localId: file.id, kind: 'inline-image', attachment: { type: 'image', name: file.name,
-          mimeType: file.mimeType, sizeBytes: file.sizeBytes, dataUrl: `data:${file.mimeType};base64,${base64}` } });
+        prepared.push({ localId: file.id, kind: 'inline-image-metadata', attachment: { type: 'image', name: file.name,
+          mimeType: file.mimeType, sizeBytes: file.sizeBytes } });
         continue;
       }
       const wire = mobileComposerAttachmentWireKindAndMime(file);
@@ -126,8 +124,8 @@ export async function mobileOutboxPrepareAttachments(client: T3Client, handle: N
       pending.push(id);
     }
     await confirm();
-    const attachments = record.attachments.map((file, index) => prepared[index]!.kind === 'inline-image' ? file :
-      { ...file, uploadId: str(prepared[index]!.attachment.id), uploadEnvironmentId: environmentId, status: 'ready' as const });
+    const attachments = record.attachments.map((file, index) => prepared[index]!.kind === 'inline-image-metadata' ? file :
+      { ...file, uploadId: str(obj(prepared[index]!.attachment).id), uploadEnvironmentId: environmentId, status: 'ready' as const });
     if (JSON.stringify(attachments) !== JSON.stringify(record.attachments)) {
       mutation = await mobileOutboxUpdate(client, native, { ...record, attachments },
         { expectedToken: capture.token, expectedRevision: capture.nativeRevision! }, true);
