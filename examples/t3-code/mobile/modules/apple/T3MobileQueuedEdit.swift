@@ -2,6 +2,7 @@
 // @ref llp/1109.005-composer-and-transcript.decision.md#scratch-tasks-and-queue-boundaries
 // App-local queued editor and durable immutable commands; never shared ordinary pending.
 import Foundation
+import CoreFoundation
 import Darwin
 
 final class T3MobileQueuedEdit: @unchecked Sendable {
@@ -19,6 +20,7 @@ final class T3MobileQueuedEdit: @unchecked Sendable {
     }
     private let lock = NSLock()
     private let root: URL
+    private let outboxStore: T3MobileOutbox
     private var file: URL { root.appendingPathComponent("mobile-queued-edit.json") }
     private var preferences: URL { root.appendingPathComponent("t3-code.json") }
     private var active: [UUID: String] = [:]
@@ -27,6 +29,17 @@ final class T3MobileQueuedEdit: @unchecked Sendable {
     private let replace: (Data, URL) throws -> Void
     init(root: URL, replace: @escaping (Data, URL) throws -> Void = T3MobileQueuedEdit.durableReplace) {
         self.root = root; self.replace = replace
+        outboxStore = T3MobileOutbox(root: root, replace: replace)
+    }
+    /// Both stores and byte deletion share this lock; no outbox call owns another mutex.
+    func outbox(_ request: [String: Any]) throws -> [String: Any] {
+        try locked {
+            let releases = try outboxStore.releaseCandidates(request)
+            if !releases.isEmpty {
+                var value = try store(); enqueueReleases(releases, in: &value); try save(value)
+            }
+            return try outboxStore.perform(request)
+        }
     }
     private func locked<T>(_ action: () throws -> T) rethrows -> T { lock.lock(); defer { lock.unlock() }; return try action() }
     private func refusal(_ message: String, kind: String = "QueuedEdit") -> T3Failure { T3Failure(kind: kind, message: message) }
@@ -251,12 +264,34 @@ final class T3MobileQueuedEdit: @unchecked Sendable {
         }
         value["releases"] = releases
     }
+    // Captured independent launches retain bytes even after the current editor removes a chip.
+    // Quarantined extension data is unknown ownership, never an empty attachment inventory.
+    private func launchReceiptsHold(_ identifier: String, preferences: [String: Any]) throws -> Bool {
+        guard let raw = preferences["mobileNewTaskDrafts"] else { return false }
+        let unknown = refusal("Independent draft attachment ownership is invalid.", kind: "Persistence")
+        guard let registry = raw as? [String: Any], let version = registry["version"] as? NSNumber,
+              CFGetTypeID(version) != CFBooleanGetTypeID(), version.doubleValue == 1,
+              registry["records"] is [String: [String: Any]], let receipts = registry["receipts"] as? [String: [String: Any]],
+              let claims = registry["claims"] as? [String: String], registry["fileReleases"] is [String],
+              claims.keys.allSatisfy({ receipts[$0] != nil }) else { throw unknown }
+        var found = false
+        for receipt in receipts.values {
+            guard let images = receipt["images"] as? [[String: Any]], let files = receipt["files"] as? [[String: Any]] else { throw unknown }
+            for attachment in images + files {
+                guard let id = attachment["id"] as? String, id.utf16.count == 36, UUID(uuidString: id) != nil else { throw unknown }
+                if id.lowercased() == identifier { found = true }
+            }
+        }
+        return found
+    }
     private func held(_ identifier: String, value: [String: Any]) throws -> Bool {
         let owned = records(value).values.contains { record in
             (record["attachments"] as? [[String: Any]] ?? []).contains { ($0["id"] as? String)?.lowercased() == identifier }
         } || operations(value).values.contains { ($0["attachmentIDs"] as? [String] ?? []).map { $0.lowercased() }.contains(identifier) }
         if owned { return true }
+        if try outboxStore.inventoryHolds(identifier) { return true }
         let preferencesValue = try readJSON(preferences)
+        if try launchReceiptsHold(identifier, preferences: preferencesValue) { return true }
         let ordinary = preferencesValue["snapshotDrafts"] as? [String: [[String: Any]]] ?? [:]
         return ordinary.values.joined().contains { ($0["id"] as? String)?.lowercased() == identifier }
             || (preferencesValue["composerFiles"] as? [[String: Any]] ?? []).contains { ($0["id"] as? String)?.lowercased() == identifier }
