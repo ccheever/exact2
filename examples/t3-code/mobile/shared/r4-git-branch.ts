@@ -1,5 +1,6 @@
 // GAP 001: bake cannot capture parent imports. Remove this copy when ancestor mounts work.
-// Unchanged body from examples/t3-code/r4-git-branch.ts at 887b2491b182f851b11253655f6aa84fe2a26708.
+// Adapted body from examples/t3-code/r4-git-branch.ts at 887b2491b182f851b11253655f6aa84fe2a26708.
+// Mobile adaptation: a guarded read leaves draft-context adoption to its captured owner.
 // The workspace card's branch picker (lane r4-git), adapted from T3 Code (MIT; see
 // LICENSE-T3): components/BranchToolbarBranchSelector.tsx in its panel display mode
 // (the whole Version Control branch row is the combobox trigger; the popup hangs
@@ -58,14 +59,18 @@ export function originLabel(client: T3Client, branch: string): string {
   return known && known.isRemote !== true ? `origin/${branch}` : branch;
 }
 
-async function loadRefs(client: T3Client, native: Native, cwd: string, query: string): Promise<Refs> {
+async function loadRefs(client: T3Client, native: Native, cwd: string, query: string, currentOwner?: () => boolean): Promise<Refs> {
   const state = branchState(client), current = state.refs;
   const search = sanitizeNewRefName(query).slice(0, 256);
   const list = (cursor?: number) => client.restAccess(native).request('vcs.listRefs', { cwd, limit: REF_PAGE, ...(search ? { query: search } : {}), ...(cursor === undefined ? {} : { cursor }) });
   // r5-composer: a scroll toward the list's end loads the next page (r5-composer-paging.ts).
-  if (current && current.cwd === cwd && current.query === query && current.generation === client.generation && !current.stale)
-    return Object.assign(current, await morePages(current, client.presentation, 'details-refs', list));
+  if (current && current.cwd === cwd && current.query === query && current.generation === client.generation && !current.stale) {
+    const page = await morePages(current, client.presentation, 'details-refs', list);
+    if (currentOwner && !currentOwner()) throw new ClientError('The selected workspace changed.', 'superseded');
+    return Object.assign(current, page);
+  }
   const result = await list();
+  if (currentOwner && !currentOwner()) throw new ClientError('The selected workspace changed.', 'superseded');
   const next: Refs = { cwd, query, ...firstPage(result, scrollEnds(client.presentation, 'details-refs')), loaded: true, generation: client.generation, stale: false };
   state.refs = next;
   return next;
@@ -85,12 +90,14 @@ export type CardBranch = Awaited<ReturnType<typeof cardBranchView>>;
 const hiddenView = { show: false, open: false, label: '', value: '', disabled: true, query: '', refs: [] as { name: string; badge: string; selected: boolean; index: number }[],
   creatable: '', status: '', empty: '', enterOp: '', enterValue: '', originShown: false, originOn: false, count: 0, picked: false, checkout: [] as CheckoutItem[] };
 /** The branch row and its picker for the card's workspace (`cwd`). */
-export async function cardBranchView(client: T3Client, native: Native, cwd: string, root: string, isRepo: boolean) {
+export async function cardBranchView(client: T3Client, native: Native, cwd: string, root: string, isRepo: boolean, currentOwner?: () => boolean) {
   const state = branchState(client);
   if (!isRepo || !cwd) { state.open = ''; return hiddenView; }
   const strip = await composerBranches(client, native, false, '', true);
+  if (currentOwner && !currentOwner()) throw new ClientError('The selected workspace changed.', 'superseded');
   let refs: Refs | null = null;
-  try { refs = await loadRefs(client, native, cwd, state.query.trim()); } catch { refs = state.refs && state.refs.cwd === cwd ? state.refs : null; }
+  try { refs = await loadRefs(client, native, cwd, state.query.trim(), currentOwner); } catch { refs = state.refs && state.refs.cwd === cwd ? state.refs : null; }
+  if (currentOwner && !currentOwner()) throw new ClientError('The selected workspace changed.', 'superseded');
   const thread = client.threadId ? obj(client.projection.thread) : null;
   const context = draftContext(client);
   const worktreePath = thread ? str(thread.worktreePath) : context.worktreePath;
@@ -99,7 +106,7 @@ export async function cardBranchView(client: T3Client, native: Native, cwd: stri
   const selectingBase = !client.threadId && (forceWorktree || (context.envMode === 'worktree' && !worktreePath));
   // resolveLiveThreadBranchUpdate: a draft on a checkout follows the checkout's branch, so a later New
   // worktree starts from it (the default ref is the base only for a draft that never had one).
-  if (!client.threadId && !selectingBase && strip.branch && context.branch !== strip.branch) {
+  if (!currentOwner && !client.threadId && !selectingBase && strip.branch && context.branch !== strip.branch) {
     const contexts = ((client.local as { composerControls: { contexts?: Record<string, Obj> } }).composerControls.contexts ??= {});
     contexts[client.draftKey] = { ...context, branch: strip.branch };
   }

@@ -6,13 +6,15 @@ import { obj, str, type Obj } from './shared/domain';
 import { ClientError } from './shared/protocol';
 import { draftFiles, setDraftFiles, type DraftFile } from './shared/composer-editor-files';
 import { mobileQueuedEditOrigin } from './queued-edit-origin';
+import { draftContext, type DraftContext } from './shared/composer-controls-branch';
 
 export interface MobileNewTaskChoices {
   providerId?: string; modelId?: string; modelOptions?: Obj[]; runtimeMode?: string; interactionMode?: string;
 }
+export interface MobileNewTaskBranchChoice extends DraftContext { kind: 'automatic' | 'explicit' }
 export interface MobileNewTaskDraft {
   key: string; environmentId: string; projectId: string; origin: string; createdAt: string;
-  revision: number; choices: MobileNewTaskChoices | null;
+  revision: number; choices: MobileNewTaskChoices | null; branchChoice?: MobileNewTaskBranchChoice;
 }
 export interface MobileNewTaskDraftStore {
   version: 1; records: Record<string, MobileNewTaskDraft>; receipts: Record<string, unknown>;
@@ -45,9 +47,10 @@ export function mobileNewTaskDraftHydrate(client: T3Client, saved: Obj): void {
     const record = obj(entry);
     if (!mobileNewTaskDraftIsKey(key) || record.key !== key || !validStamp({ environmentId: str(record.environmentId), projectId: str(record.projectId), origin: str(record.origin) })
       || !Number.isSafeInteger(record.revision) || Number(record.revision) < 0 || !Number.isFinite(Date.parse(str(record.createdAt)))) continue;
-    const choices = obj(record.choices);
+    const choices = obj(record.choices), branchChoice = decodeBranchChoice(record.branchChoice);
     records[key] = { key, environmentId: str(record.environmentId), projectId: str(record.projectId), origin: str(record.origin),
-      createdAt: str(record.createdAt), revision: Number(record.revision), choices: decodeChoices(choices) };
+      createdAt: str(record.createdAt), revision: Number(record.revision), choices: decodeChoices(choices),
+      ...(branchChoice ? { branchChoice } : {}) };
   }
   // Keep invalid receipt values visible to admission. Silently dropping one could
   // route its pending launch through the ordinary project-slot cleanup.
@@ -69,6 +72,31 @@ function decodeChoices(value: Obj): MobileNewTaskChoices | null {
     next[key] = value[key];
   }
   return next;
+}
+function decodeBranchChoice(value: unknown): MobileNewTaskBranchChoice | null {
+  const choice = obj(value);
+  return (choice.kind === 'automatic' || choice.kind === 'explicit') &&
+    (choice.envMode === 'local' || choice.envMode === 'worktree') && typeof choice.branch === 'string' &&
+    typeof choice.worktreePath === 'string'
+    ? { kind: choice.kind, envMode: choice.envMode, branch: choice.branch, worktreePath: choice.worktreePath } : null;
+}
+/** The same displayed branch may be an automatic checkout or an explicit pick.
+ * Pinned projectThreadCreationValidation preserves only the latter when queued. */
+export function mobileNewTaskDraftNoteBranch(client: T3Client, kind: MobileNewTaskBranchChoice['kind']): void {
+  const current = mobileNewTaskDraftCurrent(client);
+  if (!current) return;
+  const record = mobileNewTaskDraftStore(client).records[current.key];
+  const next: MobileNewTaskBranchChoice = { ...draftContext(client), kind };
+  if (JSON.stringify(record.branchChoice) !== JSON.stringify(next)) {
+    record.branchChoice = next; record.revision++; client.revision++;
+  }
+}
+/** Undefined means the branch's origin is unknown. Never guess from its name. */
+export function mobileNewTaskDraftSelectedBranch(draft: { branchChoice?: MobileNewTaskBranchChoice; workspace: DraftContext | null }): string | null | undefined {
+  const context = draft.workspace, choice = draft.branchChoice;
+  if (!context?.branch) return null;
+  if (!choice || choice.branch !== context.branch || choice.envMode !== context.envMode || choice.worktreePath !== context.worktreePath) return undefined;
+  return choice.kind === 'explicit' || choice.envMode === 'worktree' ? choice.branch : null;
 }
 export function mobileNewTaskDraftChoicesUpdate(client: T3Client, key: string, patch: MobileNewTaskChoices): boolean {
   const record = mobileNewTaskDraftStore(client).records[key];
@@ -149,7 +177,7 @@ export function mobileNewTaskDraftRetarget(client: T3Client, key: string, target
   if (record.environmentId === target.environmentId && record.projectId === target.projectId && record.origin === target.origin) return true;
   if (crossing && draftFiles(client.local).some(file => file.draftKey === key && file.source !== 'attached'))
     throw new ClientError('Save these local file bytes before moving the draft to another environment.');
-  Object.assign(record, target); record.revision++;
+  Object.assign(record, target); delete record.branchChoice; record.revision++;
   delete client.local.composerControls.contexts[key]; delete client.local.composerControls.draftThreads?.[key];
   if (crossing) {
     client.local.snapshotDrafts[key] = (client.local.snapshotDrafts[key] ?? []).map(image => { const next = { ...image }; delete next.uploadId; return next; });

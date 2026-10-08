@@ -1,5 +1,6 @@
 // Pinned mobile NewTask{Route,Draft,ContextPicker} screens at365aa87982; shared draft and launch ownership.
 // @ref llp/1109.005-composer-and-transcript.decision.md#new-task-ownership
+import { mobileNewTaskDraftNoteBranch, mobileNewTaskDraftLookup, mobileNewTaskDraftPresentation, mobileNewTaskDraftSelectedBranch } from './mobile-new-task-drafts';
 import { mobileNewTaskLaunchPendingOwned } from './mobile-new-task-launch';
 import { mobileNewTaskCloneSnapshot } from './new-task-clone';
 import { mobileClient, mobileCommand, mobileNative } from './client';
@@ -29,13 +30,14 @@ export interface NewTaskSnapshot { revision: number; environmentId: string; proj
   canSelect: boolean; canAddProject: boolean; canStartScratch: boolean; scratchTarget: string; hasProjects: boolean; draft: boolean; scratch: boolean; workspaceMode: string; workspaceLabel: string; branchLabel: string; originOn: boolean;
   composer: ThreadComposerState; }
 export interface NewTaskResult { revision: number; message: string; submitted: boolean; environmentId: string; projectId: string; threadId: string }
-interface TaskState { owner: string; busy: boolean; error: string; branchLoaded: boolean; branchHasMore: boolean; canWriteGit: boolean; branches: NewTaskBranch[]; branchQuery: string; }
+interface TaskState { owner: string; prepare: number; busy: boolean; error: string; branchLoaded: boolean; branchHasMore: boolean; canWriteGit: boolean; branches: NewTaskBranch[]; branchQuery: string; }
 const states = new WeakMap<T3Client, TaskState>();
-const owner = (client: T3Client) => JSON.stringify([client.generation, client.draftKey]);
+const owner = (client: T3Client) => JSON.stringify([client.generation, client.origin, client.environmentId, client.projectId, client.threadId,
+  client.draftKey, client.shell.projects.find(project => project.id === client.projectId)?.workspaceRoot]);
 function stateFor(client: T3Client) {
   let state = states.get(client);
   if (!state || state.owner !== owner(client)) {
-    state = { owner: owner(client), busy: false, error: '', branchLoaded: false, branchHasMore: false, canWriteGit: false, branches: [], branchQuery: '' };
+    state = { owner: owner(client), prepare: 0, busy: false, error: '', branchLoaded: false, branchHasMore: false, canWriteGit: false, branches: [], branchQuery: '' };
     states.set(client, state);
   }
   return state;
@@ -114,30 +116,39 @@ export function mobileNewTaskChooser(query = '', groupingMode = 'repository', cl
 
 /** Awaited root resource, real repository reads; only projected rows/permission booleans survive the answer. */
 export async function mobileNewTaskPrepare(branchQuery: string, nativeInput: Native | null | undefined, client: T3Client = mobileClient) {
-  const state = stateFor(client), expected = owner(client);
+  const state = stateFor(client), expected = owner(client), request = ++state.prepare;
   if (!nativeInput?.available || !client.ready || client.threadId || !client.projectId || mobileNewTask('', client).scratch) return { revision: client.revision, loaded: false };
   const native = letGoAware(mobileNative(nativeInput)), context = draftContext(client);
+  const stamp = () => JSON.stringify([draftContext(client), mobileNewTaskDraftLookup(client, client.draftKey)?.branchChoice]);
+  const captured = stamp(), current = () => owner(client) === expected && state.prepare === request && stamp() === captured;
   const root = str(client.shell.projects.find(project => project.id === client.projectId)?.workspaceRoot), cwd = context.worktreePath || root;
   try {
     const session = await client.http(native, '/api/auth/session');
-    if (owner(client) !== expected) return { revision: client.revision, loaded: false };
+    if (!current()) return { revision: client.revision, loaded: false };
     state.canWriteGit = mobileSessionGrants(session, 'source-control:write');
     const strip = await composerBranches(client, native, false, '', true);
+    if (!current()) return { revision: client.revision, loaded: false };
     const branch = branchState(client); branch.open = 'branch'; branch.query = branchQuery;
-    let view = await cardBranchView(client, native, cwd, root, strip.show);
+    let view = await cardBranchView(client, native, cwd, root, strip.show, current);
     // The shared pager first marks loading; this awaited mobile resource owns the ensuing read.
-    if (branch.refs?.loadingMore) view = await cardBranchView(client, native, cwd, root, strip.show);
-    if (owner(client) !== expected) return { revision: client.revision, loaded: false };
+    if (branch.refs?.loadingMore) view = await cardBranchView(client, native, cwd, root, strip.show, current);
+    if (!current()) return { revision: client.revision, loaded: false };
     state.branchQuery = branchQuery; state.branchLoaded = !view.disabled; state.error = view.disabled && strip.show ? 'Could not load branches.' : '';
     state.branchHasMore = branch.refs?.nextCursor != null;
     const isBase = context.envMode === 'worktree' && !context.worktreePath;
     state.branches = view.refs.map((ref, index, all) => ({ id: ref.name, label: ref.name, badge: ref.badge, selected: ref.selected,
       disabled: state.busy || (!isBase && !state.canWriteGit && !['current', 'worktree'].includes(ref.badge)), last: index === all.length - 1 }));
-    // Shared draft context owns the launch's base; adopt the actual repository fallback only after a real read.
-    if (!context.branch && view.value && !client.threadId) client.local.composerControls.contexts[client.draftKey] = { ...draftContext(client), branch: view.value };
+    // A guarded shared read never writes into the live draft. Adopt its automatic
+    // fallback only after the request and captured workspace still match.
+    const draft = mobileNewTaskDraftPresentation(client, client.draftKey);
+    const automatic = !context.branch || draft?.branchChoice?.kind === 'automatic' && mobileNewTaskDraftSelectedBranch(draft) !== undefined;
+    if (automatic && view.value) {
+      patchDraftContext(client, { branch: view.value });
+      mobileNewTaskDraftNoteBranch(client, draft?.branchChoice?.kind === 'explicit' ? 'explicit' : 'automatic');
+    }
   } catch (error) {
     if (letGo(error)) throw error;
-    if (owner(client) === expected) { state.error = error instanceof Error ? error.message : 'Could not load branches.'; state.branchLoaded = true; }
+    if (current()) { state.error = error instanceof Error ? error.message : 'Could not load branches.'; state.branchLoaded = true; }
   }
   return { revision: client.revision, loaded: state.branchLoaded };
 }
@@ -208,7 +219,25 @@ export async function mobileNewTaskAction(kind: string, id: string, value: strin
     } else if (['workspace', 'branch', 'branch-more', 'origin'].includes(kind) && mobileNewTask('', client, background).scratch) {
       throw new ClientError('Tasks without a project run locally without a branch or worktree.');
     } else if (kind === 'workspace') {
-      await run('cclocal:env-mode', '', value);
+      const draft = mobileNewTaskDraftPresentation(client, client.draftKey), expected = owner(client);
+      if (draft && (value === 'local' || value === 'worktree')) {
+        // Pinned setWorkspaceMode resolves local from the current ref, while a
+        // new worktree retains the selected base. The desktop reducer differs.
+        if (value === 'local') {
+          const root = str(client.shell.projects.find(project => project.id === client.projectId)?.workspaceRoot);
+          const refs = branchState(client).refs;
+          const current = refs?.cwd === root && refs.generation === client.generation && !refs.stale
+            ? refs.refs.find(ref => ref.current === true) : null;
+          const path = str(current?.worktreePath);
+          patchDraftContext(client, { envMode: 'local', branch: str(current?.name), worktreePath: path === root ? '' : path });
+        } else patchDraftContext(client, { envMode: 'worktree', worktreePath: '' });
+        mobileNewTaskDraftNoteBranch(client, 'explicit');
+      } else {
+        await run('cclocal:env-mode', '', value);
+        if (owner(client) !== expected) throw new ClientError('The selected workspace changed.', 'superseded');
+        if (value === 'previous') mobileNewTaskDraftNoteBranch(client, 'explicit');
+      }
+      await client.persist(storage); assertCurrent();
       const next = stateFor(client); next.branchLoaded = false; next.branches = [];
     } else if (kind === 'origin') await run('chatlocal:git-origin');
     else if (kind === 'branch') {
@@ -223,6 +252,8 @@ export async function mobileNewTaskAction(kind: string, id: string, value: strin
         const expected = known?.isRemote === true && context.envMode === 'local' ? id.replace(/^[^/]+\//, '') : id;
         if (draftContext(client).branch !== expected) throw new ClientError('The branch could not be checked out.');
       }
+      mobileNewTaskDraftNoteBranch(client, 'explicit');
+      await client.persist(storage); assertCurrent();
       state.branchLoaded = false;
     } else if (kind === 'branch-more') {
       const ends = obj(client.presentation.scrollEnds);

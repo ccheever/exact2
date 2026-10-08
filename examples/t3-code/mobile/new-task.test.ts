@@ -791,3 +791,24 @@ test('acknowledged clone removal survives shell fallback without racing the draf
     expect(f.client.local.drafts['env:new:a']).toBe('A original');
   }
 });
+
+
+import { mobileNewTaskAction } from './new-task';
+import { mobileNewTaskDraftPresentation, mobileNewTaskDraftSelectedBranch } from './mobile-new-task-drafts';
+test('actual branch picker distinguishes untouched checkout from selecting that same branch', async () => {
+  const f = await fixture(), chooser = f.snapshot('/new'); await f.action(chooser.owner, 'project', '["env","a"]');
+  const original = f.native.later;
+  f.native.later = async input => {
+    const call = obj(input);
+    if (call.method === 'vcs.refreshStatus') return { ok: true, generation: f.client.generation, value: { isRepo: true, refName: 'main' } };
+    if (call.method === 'vcs.listRefs') return { ok: true, generation: f.client.generation, value: { refs: [{ name: 'main', current: true, isDefault: true }], total: 1, nextCursor: null } };
+    return original(input);
+  };
+  await mobileNewTaskPrepare('', f.native, f.client);
+  expect(draftContext(f.client).branch).toBe('main');
+  expect(mobileNewTaskDraftSelectedBranch(mobileNewTaskDraftPresentation(f.client, f.client.draftKey)!)).toBeNull();
+  expect((await mobileNewTaskAction('branch', 'main', '', f.native, f.files, f.client, f.fleet)).message).toBe('');
+  expect(mobileNewTaskDraftSelectedBranch(mobileNewTaskDraftPresentation(f.client, f.client.draftKey)!)).toBe('main');
+  await mobileNewTaskPrepare('', f.native, f.client);
+  expect(mobileNewTaskDraftSelectedBranch(mobileNewTaskDraftPresentation(f.client, f.client.draftKey)!)).toBe('main');
+});

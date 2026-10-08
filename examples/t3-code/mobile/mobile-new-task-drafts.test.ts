@@ -238,3 +238,43 @@ test('a late ACK cannot remove a newer pending operation', async () => {
   expect(f.client.pending?.payload.commandId).toBe('newer-command'); expect(f.client.local.drafts[A]).toBe('same');
   expect(store(f.client).claims[slot]).toBe(A); expect(f.client.reconcilePending()).toBe(false);
 });
+
+
+import { mobileNewTaskDraftNoteBranch as noteBranch, mobileNewTaskDraftSelectedBranch as selectedBranch } from './mobile-new-task-drafts';
+import { patchDraftContext } from './shared/composer-controls-branch';
+test('explicit same-name checkout choice survives persistence and differs from automatic branch', async () => {
+  const f = await populated();
+  patchDraftContext(f.client, { envMode: 'local', branch: 'main', worktreePath: '' });
+  noteBranch(f.client, 'automatic');
+  expect(selectedBranch(presentation(f.client, A)!)).toBeNull();
+  const before = lookup(f.client, A)!.revision;
+  noteBranch(f.client, 'explicit');
+  expect(selectedBranch(presentation(f.client, A)!)).toBe('main');
+  expect(lookup(f.client, A)!.revision).toBe(before + 1);
+  await f.client.persist(f.storage);
+  const restart = fixture(f.disk()); await restart.load(); bind(restart.client, A, 'resumed');
+  expect(selectedBranch(presentation(restart.client, A)!)).toBe('main');
+  expect(selectedBranch(presentation(restart.client, B)!)).toBeNull();
+});
+test('missing, malformed and mismatched branch provenance cannot be mistaken for explicit picks', async () => {
+  const f = await populated(); patchDraftContext(f.client, { envMode: 'local', branch: 'main', worktreePath: '' });
+  expect(selectedBranch(presentation(f.client, A)!)).toBeUndefined();
+  noteBranch(f.client, 'explicit'); patchDraftContext(f.client, { branch: 'other' });
+  expect(selectedBranch(presentation(f.client, A)!)).toBeUndefined();
+  patchDraftContext(f.client, { branch: 'main', envMode: 'worktree' });
+  expect(selectedBranch(presentation(f.client, A)!)).toBeUndefined();
+  patchDraftContext(f.client, { envMode: 'local', worktreePath: '/other' });
+  expect(selectedBranch(presentation(f.client, A)!)).toBeUndefined();
+  await f.client.persist(f.storage);
+  const disk = f.disk(); obj(obj(obj(disk.mobileNewTaskDrafts).records)[A]).branchChoice = { kind: 'explicit', branch: 'main', envMode: 'local', worktreePath: 1 };
+  const r = fixture(disk); await r.load();
+  expect(lookup(r.client, A)?.branchChoice).toBeUndefined();
+  expect(presentation(r.client, A)?.text).toBe('same');
+});
+test('retarget clears old branch provenance and stale binding cannot mark a new project', async () => {
+  const f = await populated(); patchDraftContext(f.client, { branch: 'main' }); noteBranch(f.client, 'explicit');
+  retarget(f.client, A, { environmentId: 'env', projectId: 'next', origin });
+  expect(lookup(f.client, A)?.branchChoice).toBeUndefined();
+  noteBranch(f.client, 'explicit'); expect(lookup(f.client, A)?.branchChoice).toBeUndefined();
+  expect(lookup(f.client, B)?.branchChoice).toBeUndefined();
+});
