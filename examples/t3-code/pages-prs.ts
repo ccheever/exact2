@@ -264,19 +264,28 @@ export function listPayload(prefs: PrPrefs, query: string): Obj {
  * (pages-pr-refresh.ts liveRefreshDue), for the view "pull-requests-list".
  */
 const LIST_VIEW = 'pull-requests-list';
-const listLives = new WeakMap<object, { open: boolean; visible: boolean; focused: boolean }>();
-/** The page's facts noted; what to ask liveRefreshDue, or null when nothing is asked (no wait then). */
-function listLiveAsk(client: object, input: { open: boolean; now: number; visible?: boolean; focused?: boolean }): { visible: boolean; now: number; arrival: boolean } | null {
-  const held = listLives.get(client), visible = input.visible !== false, focused = input.focused !== false;
-  listLives.set(client, { open: input.open, visible, focused });
+type ListLive = { open: boolean; visible: boolean; returns: number; due: boolean };
+const listLives = new WeakMap<object, ListLive>();
+type LiveInput = { open: boolean; now: number; visible?: boolean; returns?: number };
+/**
+ * The page's facts noted; what to ask liveRefreshDue, or null when nothing is asked (no wait then). `returns` counts
+ * the window focused again (app.contract `windowReturned`, which reads the clock at that moment, so the 10 s rule is
+ * measured from then, not from the last minute tick).
+ */
+function listLiveAsk(client: object, input: LiveInput): { visible: boolean; now: number; arrival: boolean } | null {
+  const visible = input.visible !== false, returns = input.returns ?? 0;
+  let live = listLives.get(client);
+  if (!live) { live = { open: false, visible: true, returns, due: false }; listLives.set(client, live); }
+  const was = { ...live };
+  live.open = input.open; live.visible = visible; live.returns = returns;
   if (!input.open) return null;
   // The hook's mount, its window `focus` and `visibilitychange` to visible.
-  const ask = { visible, now: input.now, arrival: !held?.open || (visible && !held.visible) || (focused && !held.focused) };
+  const ask = { visible, now: input.now, arrival: !was.open || (visible && !was.visible) || returns !== was.returns };
   const asked = lists.has(client) && liveRefreshAsked(client, LIST_VIEW, ask);
   if (viewRefreshedAt(client, LIST_VIEW) === undefined) noteViewRefreshed(client, LIST_VIEW, input.now); // the page's own first read fills it in
   return asked ? ask : null;
 }
-export async function pullRequestsPage(client: T3Client, native: Native | null | undefined, input: PrInput & { visible?: boolean; focused?: boolean }) {
+export async function pullRequestsPage(client: T3Client, native: Native | null | undefined, input: PrInput & { visible?: boolean; returns?: number }) {
   const prefs = prPrefs(client);
   const query = input.typed ? input.query : prefs.q;
   const view = emptyList(prefs, query);
@@ -296,9 +305,11 @@ export async function pullRequestsPage(client: T3Client, native: Native | null |
   // pr-conversation-and-refresh: the server's announcements read the list again (its refreshTrigger), the rows staying meanwhile.
   await holdPullRequestRefreshes(client, native, 'list', true);
   const key = JSON.stringify([client.environmentId, payload, input.refresh]);
-  const ask = listLiveAsk(client, input), live = ask !== null && await liveRefreshDue(client, native, LIST_VIEW, ask);
+  // A due live read stays due until a read lands: a later run (a tick, a revision) overtakes this one's answer.
+  const ask = listLiveAsk(client, input), live = listLives.get(client)!;
+  if (ask !== null && await liveRefreshDue(client, native, LIST_VIEW, ask)) live.due = true;
   let cached = lists.get(client);
-  if (!cached || cached.key !== key || cached.epoch !== pullRequestRefreshEpoch(client) || cached.relist !== listRelist(client) || live) {
+  if (!cached || cached.key !== key || cached.epoch !== pullRequestRefreshEpoch(client) || cached.relist !== listRelist(client) || live.due) {
     const previous = cached, previousStats = cached?.stats ?? new Map<string, Obj>();
     cached = { key, refresh: input.refresh, epoch: pullRequestRefreshEpoch(client), relist: listRelist(client), result: null, error: '', stats: previousStats };
     try {
@@ -322,6 +333,7 @@ export async function pullRequestsPage(client: T3Client, native: Native | null |
     } catch (error) { if (letGo(error)) throw error; cached.error = error instanceof Error ? error.message : 'Pull requests could not be read.'; }
     cached.epoch = pullRequestRefreshEpoch(client); // an announcement that landed while the read was out is answered by it
     lists.set(client, cached);
+    live.due = false;
   }
   // The reader's pending answers (a closed pull request leaves an open list on the click), before the filters.
   const answered = cached.result ? { ...cached.result, entries: overrideListEntries(client, arr(cached.result.entries), prefs.state) } : null;

@@ -34,7 +34,7 @@ function fixture(interactedAt = NOW, more: Record<string, (payload: Obj) => unkn
     restAccess: () => ({ call: async () => ({ id: '1-1' }) }),
   } as unknown as T3Client;
   const native = { available: true, watch: () => {}, later: async (request: Obj) => request.op === 'activityLastInteraction' ? { ok: true, generation: 1, value: { at: interactedAt } } : { ok: true, generation: 1, value: {} } } as unknown as Native;
-  const page = (input: Partial<PrInput> & { visible?: boolean; focused?: boolean } = {}) =>
+  const page = (input: Partial<PrInput> & { visible?: boolean; returns?: number } = {}) =>
     pullRequestsPage(client, native, { open: true, refresh: 0, now: NOW, selected: '', query: '', typed: false, ...input });
   const reads = () => calls.filter(method => method === 'pullRequests.list').length;
   return { client, native, calls, page, reads, list: (next: Obj[]) => { listed = next; } };
@@ -47,11 +47,9 @@ describe('the Pull Requests list reads again as the reference page does (useLive
     expect(reads()).toBe(1); // the page's own first read; arriving at it costs nothing more
     await page({ now: NOW + 5_000 });
     expect(reads()).toBe(1);
-    await page({ now: NOW + 30_000, focused: false });
-    await page({ now: NOW + 30_000, focused: true }); // the window's `focus`
+    await page({ now: NOW + 30_000, returns: 1 }); // the window's `focus` (app.contract windowReturned: the clock read then)
     expect(reads()).toBe(2);
-    await page({ now: NOW + 35_000, focused: false });
-    await page({ now: NOW + 35_000, focused: true }); // 5 s after the last read: alt-tabbing is not a read per stop
+    await page({ now: NOW + 35_000, returns: 2 }); // 5 s after the last read: alt-tabbing is not a read per stop
     expect(reads()).toBe(2);
     await page({ now: NOW + 2 * MINUTE, visible: false });
     await page({ now: NOW + 2 * MINUTE, visible: true }); // `visibilitychange` to visible
@@ -85,8 +83,7 @@ describe('the Pull Requests list reads again as the reference page does (useLive
     expect(reads()).toBe(2); // five minutes in, the reader was here within six
     await page({ now: NOW + 10 * MINUTE });
     expect(reads()).toBe(2); // ten minutes untouched: the interval stops
-    await page({ now: NOW + 11 * MINUTE, focused: false });
-    await page({ now: NOW + 11 * MINUTE, focused: true });
+    await page({ now: NOW + 11 * MINUTE, returns: 1 });
     expect(reads()).toBe(2); // an arrival while idle reads nothing either
     const hidden = fixture(NOW + 5 * MINUTE);
     await hidden.page();
@@ -105,7 +102,7 @@ describe('the Pull Requests list reads again as the reference page does (useLive
     const run = fixture(NOW, { 'pullRequests.detail': detail, 'pullRequests.activity': () => ({ comments: [], commits: [], reviewers: [], commentCount: 0 }), 'pullRequests.stack': () => null,
       'pullRequests.runAction': (payload) => { state = payload.action === 'close' ? 'closed' : 'open'; return {}; } });
     noteNow(run.client, NOW);
-    const rows = async (input: Partial<PrInput> & { visible?: boolean; focused?: boolean } = {}) => (await run.page({ selected, ...input })).groups.flatMap(group => group.rows.map(row => `${row.number}:${row.state}`));
+    const rows = async (input: Partial<PrInput> & { visible?: boolean; returns?: number } = {}) => (await run.page({ selected, ...input })).groups.flatMap(group => group.rows.map(row => `${row.number}:${row.state}`));
     let announced = 0;
     const announce = () => prRefreshEvent(run.client, { key: PR_REFRESH_KEY, subscriptionId: '1-1', value: ++announced }); // the server's word after each write
     expect(await rows()).toEqual(['158:open']);
@@ -118,7 +115,22 @@ describe('the Pull Requests list reads again as the reference page does (useLive
     expect(await rows({ now: NOW + 20_000 })).toEqual([]); // the search has not seen the reopen yet
     run.list(entries);
     expect(await rows({ now: NOW + 50_000 })).toEqual([]); // nothing asks the list again on its own
-    await rows({ now: NOW + 50_000, focused: false });
-    expect(await rows({ now: NOW + 50_000, focused: true })).toEqual(['158:open']); // the window's focus reads it, and it is back (inside the close note's minute)
+    expect(await rows({ now: NOW + 50_000, returns: 1 })).toEqual(['158:open']); // the window's focus reads it, and it is back (inside the close note's minute)
+  });
+
+  test('a live read that a later run overtakes still shows: the later run reads too (the five ticks of the live check)', async () => {
+    // Live check, 2026-10-08: `clock +300000` ran the page five times; the interval's read answered with #158 back,
+    // but a later tick's run had already answered from the old list, and nothing ran the page again.
+    const later = [...entries, { ...entries[0]!, number: 159, title: 'Explain the vowel rule' }];
+    let answers = 0, release: () => void = () => {};
+    const run = fixture(NOW + 4 * MINUTE, { 'pullRequests.list': () => { answers++; if (answers === 1) return { entries, viewers: {} }; if (answers === 2) return new Promise(resolve => { release = () => resolve({ entries: later, viewers: {} }); }); return { entries: later, viewers: {} }; } });
+    const numbers = (view: Awaited<ReturnType<typeof run.page>>) => view.groups.flatMap(group => group.rows.map(row => row.number)).sort();
+    expect(numbers(await run.page())).toEqual([158]);
+    const overtaken = run.page({ now: NOW + 5 * MINUTE }); // the interval's read goes out
+    await Bun.sleep(1);
+    expect(numbers(await run.page({ now: NOW + 6 * MINUTE }))).toEqual([158, 159]); // the next tick's run reads too, and shows it
+    release(); await overtaken;
+    expect(numbers(await run.page({ now: NOW + 6 * MINUTE }))).toEqual([158, 159]);
+    expect(run.reads()).toBe(3); // and the read is no longer due once one has landed
   });
 });

@@ -51,23 +51,29 @@ on the app's minute clock tick (`task clock … every(60000, tick)`), as the det
   `liveRefreshDue` for the view `pull-requests-list`, and a due read re-reads the list through the
   server's cache (no `pullRequests.invalidate`). The page's first read notes the view, so arriving
   the first time costs nothing more.
-- `app.contract`: the `prList` resource passes `page.visibilityState == "visible", page.hasFocus`
-  (the same line, net zero); `pages-sources.ts` hands them on.
+- `app.contract`: the `prList` resource passes `page.visibilityState == "visible"` and `windowReturns`
+  (on the same line); `task windowBack when page.hasFocus and page.visibilityState == "visible"` runs
+  `windowReturned`, which reads the clock (`elapsed = now()`) and counts the return, so a focus read is
+  measured from the moment of the focus, as the reference's `Date.now()` is, not from the last minute tick
+  (5 lines; `app.contract` 1,462). `pages-sources.ts` hands them on.
+- A due live read stays due until a read lands (`ListLive.due`): a later run of the page (a tick, a
+  revision) that overtakes the read's answer reads too, so the newer answer is what shows.
 
 ## Acceptance
 
 | Row | Result | Proof | Blocker |
 | --- | --- | --- | --- |
 | Focus reads the list once (not again within 10 s) | pass (unit) | "focusing the window again reads the list once; not again within 10 s; the first opening reads only its own read" | — |
+| An overtaken live read still shows | pass (unit) | "a live read that a later run overtakes still shows: the later run reads too (the five ticks of the live check)" | — |
 | Visible again reads the list | pass (unit) | same test (`visibilitychange`) | — |
 | Coming back to the page reads it | pass (unit) | "coming back to the page reads the list again" | — |
 | A 5-minute tick reads it once | pass (unit) | "a 5-minute tick reads the list once" | — |
 | No reads while idle past 6 min, or while hidden | pass (unit) | "no reads while the reader has been idle past six minutes, or while the window is hidden" | — |
 | Live reads go through the server's cache | pass (unit) | the focus test: no `pullRequests.invalidate` | — |
-| #158: close, list re-read, reopen, refocus → the row is back | unit pass; live not reached | unit: "close #158, the list read without it, reopen, an answer that has not seen the reopen yet, then the window focused again: the row is back" (needs #261's `notedListEntry`, merged). Live attempt 1 ([record](https://raw.githubusercontent.com/ccheever/exact2/379571ddbcbb2d21ce4bce0d3780c6c0f790187d/pr-list-live-refresh/record-attempt1.txt), [script](https://raw.githubusercontent.com/ccheever/exact2/7d71c81ef0dab42d46e817923023fbc42e7e1d95/pr-list-live-refresh/drive-attempt1.mjs.txt)): close (GitHub `closed`, bytes equal, toast, row gone), list re-read without it, reopen (GitHub `open`, toast); then the agent driver failed before the refocus | agent driver clock (below); one retry requested |
+| #158: close, list re-read, reopen, refocus → the row is back | unit pass; live not reached | unit: "close #158, the list read without it, reopen, an answer that has not seen the reopen yet, then the window focused again: the row is back" (needs #261's `notedListEntry`, merged). Live attempt 1 ([record](https://raw.githubusercontent.com/ccheever/exact2/379571ddbcbb2d21ce4bce0d3780c6c0f790187d/pr-list-live-refresh/record-attempt1.txt), [script](https://raw.githubusercontent.com/ccheever/exact2/7d71c81ef0dab42d46e817923023fbc42e7e1d95/pr-list-live-refresh/drive-attempt1.mjs.txt)): close (GitHub `closed`, bytes equal, toast, row gone), list re-read without it, reopen (GitHub `open`, toast); then the agent driver failed before the refocus. Attempt 2 ([record](https://raw.githubusercontent.com/ccheever/exact2/166a84ecdc41f791fec45a81fe70522fe8a4387b/pr-list-live-refresh/record-attempt2.txt), [script](https://raw.githubusercontent.com/ccheever/exact2/0231feadb37a6fcc26d07e0f71faecbb01d94398/pr-list-live-refresh/drive-attempt2.mjs.txt)): the same up to the reopen; the row did not come back: the refocus read nothing (the app's clock had not ticked since the page's first read, so the 10 s rule saw no time pass), and the 5-minute jump's read answered with #158 (the server's cached answer, asked right after, holds it at index 0) but a later tick's run had already answered from the old list. Both fixed after the drive (`windowReturned`, `ListLive.due`; unit tests above) | the live row after the fixes: one more session needed |
 
 All new tests fail on the base (the list never reads again) and pass here; the row test also fails
-without #261's `notedListEntry`.
+without #261's `notedListEntry`, and the overtaken-read test without `ListLive.due`.
 
 ## Framework problem met (not filed)
 
@@ -85,15 +91,21 @@ such a step and settles instead.
 up to `07dcef1ab` with #261, #264 and #263); draft PR #265. Unit tests, the clone checks and the five checks (Checks in
 the PR). One live session (approved, no retry) reached the reopen and ended on the agent driver's
 clock error before the refocus; #158 was restored (open, both comments deleted, read back).
+2026-10-08: attempt 2 (approved retry, `7d8907f89`): the row did not come back. The refocus asked at the
+app's last minute tick (no time had passed for the 10 s rule) and the interval's answer, which held #158,
+was overtaken by a later tick's run. Fixed (`windowReturned` reads the clock on the window's return; a due
+read stays due until one lands) with failing-then-passing tests; #158 restored.
 
 ## Attempts and evidence
 
 | Attempt | Revision | Checks and outcomes | Evidence | Remaining blocker |
 | --- | --- | --- | --- | --- |
 | 1 (live, approved) | `db795f298` | close with comment: GitHub `closed`, bytes equal, "Pull request closed", row gone; list re-read 0.06 s after the close landed, without the row; reopen with comment: GitHub `open`, "Pull request reopened"; the session ended on `clock: the clock cannot go backwards` before the 35 s wait and the refocus | [record](https://raw.githubusercontent.com/ccheever/exact2/379571ddbcbb2d21ce4bce0d3780c6c0f790187d/pr-list-live-refresh/record-attempt1.txt) | a retry (the script now tolerates the clock step) |
+| 2 (live, approved retry) | `7d8907f89` | close, re-read, reopen as attempt 1; 35 s wait; blur/refocus: no list read; `clock +300000`: one list read (its answer held #158) but the row stayed out — the read's answer was overtaken by a later tick's run | [record](https://raw.githubusercontent.com/ccheever/exact2/166a84ecdc41f791fec45a81fe70522fe8a4387b/pr-list-live-refresh/record-attempt2.txt) | fixed after; the live row needs one more session |
 
 ## Next action
 
-Review. Owed: one retry of the live row (close #158 → list re-read → reopen → wait out the server's
-30 s cache → blur and refocus → row back; then `clock +300000` for one interval read), with the
-script that tolerates the agent clock's backwards step.
+Review. Owed: one more live session of the row on the fixed head (close #158 → list re-read → reopen →
+blur and refocus → row back; then `clock +300000` for one interval read). The detail panel's own focus
+read has the same minute-tick timing (#247's port reads `page.hasFocus` with the last tick's clock); a
+follow-up can give it `windowReturns` too.
