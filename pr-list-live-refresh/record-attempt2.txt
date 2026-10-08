@@ -1,0 +1,29 @@
+2026-10-08T03:45:05.633Z [d2] #158 before the session: {"state":"open","comments":[]}
+2026-10-08T03:45:06.391Z [d2] app pid 82730
+2026-10-08T03:45:22.090Z [d2] connected: sidebar shows Pull Requests
+2026-10-08T03:45:28.598Z [d2] list: no search; row #158 shown: true
+2026-10-08T03:45:34.833Z [d2] shot panel
+2026-10-08T03:45:36.583Z [d2] typed; Close with comment enabled: true
+2026-10-08T03:45:36.673Z [d2] shot close-typed
+2026-10-08T03:45:44.732Z [d2]   +8059 ms: row gone · button "" · toast "Pull request closed" · GitHub closed
+2026-10-08T03:45:44.827Z [d2] shot close-row
+2026-10-08T03:45:44.915Z [d2] shot close-done
+2026-10-08T03:45:45.905Z [d2] read back: state closed (landed +8154 ms); last comment by daehyeonmun2021, body equals the typed bytes: true
+2026-10-08T03:45:49.435Z [d2] after: list read again after the close: yes (started +83 ms, 3531 ms); row #158 gone; GitHub open list holds #158: false; toasts "Pull request closed"
+2026-10-08T03:45:49.529Z [d2] shot closed-reread
+2026-10-08T03:45:51.719Z [d2] typed; Reopen with comment shown: true, Close with comment shown: false
+2026-10-08T03:45:51.810Z [d2] shot reopen-typed
+2026-10-08T03:46:00.117Z [d2]   +8307 ms: row gone · button "" · toast "Pull request reopened" · GitHub open
+2026-10-08T03:46:15.024Z [d2]   +23214 ms: row gone · button "" · toast "" · GitHub open
+2026-10-08T03:46:57.733Z [d2] read back: state open (landed +8307 ms); last comment by daehyeonmun2021, body equals the typed bytes: true
+2026-10-08T03:46:58.413Z [d2] after the reopen: row #158 gone; list reads since the press: [[1796,3611],[4124,2898]]; GitHub open list holds #158: true
+2026-10-08T03:46:58.498Z [d2] shot reopened
+2026-10-08T03:46:58.523Z [d2] 35 s after the last list read: row #158 gone; list reads since the reopen: 2
+2026-10-08T03:47:17.050Z [d2] after the refocus: row #158 gone (+16980 ms); list reads since the focus: []
+2026-10-08T03:47:18.374Z [d2] list state: row #158 gone; GitHub open list holds #158: true
+2026-10-08T03:47:18.488Z [d2] shot refocused
+2026-10-08T03:47:25.671Z [d2] after +5 min on the clock: list reads since [[2421,3753]] (1 new); row #158 gone
+2026-10-08T03:47:26.824Z [d2] shot after-interval
+2026-10-08T03:47:28.506Z [d2] deleted test comment 6051742696
+2026-10-08T03:47:29.280Z [d2] deleted test comment 6051745299
+2026-10-08T03:47:31.800Z [d2] #158 after cleanup: {"state":"open","comments":[]}; matches the start: true
