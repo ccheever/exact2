@@ -1,0 +1,258 @@
+// pr-handoffs-and-quick-actions live drive (not committed): bun drive.mjs <repo> <label> <before|after> [steps]
+// One macOS agent session against this worktree's primary lane server (127.0.0.1:16701, real GitHub through
+// the lane gh). Pairs with a fresh single-use token (never printed). `before` (the base build) takes the shared
+// screens; `after` (this branch) takes the same screens, then the new menus and popovers, and runs the hand-offs
+// on the lane's sandbox clone, reading each effect back (git worktrees and branches, the draft the window shows).
+import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { spawnSync } from 'node:child_process';
+const [repo, label, mode = 'after', only = ''] = process.argv.slice(2);
+const MINE = '<worktree>';
+const L = resolve(MINE, 'target/pr-handoffs'), out = resolve(L, `out-${label}`); mkdirSync(out, { recursive: true });
+process.env.EXACT_APP_DIR = resolve(repo, 'examples/t3-code');
+process.env.T3_GITHUB_LANE_SHARED = '/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ui-parity/github-lane';
+const { open } = await import(resolve(repo, 'scripts/agent.mjs'));
+const lane = await import(resolve(MINE, 'examples/t3-code/tools/github-lane/lane.mjs'));
+const origin = 'http://127.0.0.1:16701';
+const CLONE = resolve(MINE, 'target/github-lane/servers/primary/repos/playground');
+const steps = new Set(only ? only.split(',') : []);
+const want = (name) => !steps.size || steps.has(name);
+const rec = (line) => { const text = `${new Date().toISOString()} [${label}] ${line}`; appendFileSync(resolve(out, 'record.txt'), text + '\n'); console.log(text); };
+const s = await open({ host: 'macos', size: [1280, 840], env: { HOME: resolve(L, `apphome-${label}`) }, storage: `pha2-${label}`, epoch: Date.now(),
+  onProcess: (p) => { writeFileSync(resolve(L, `${label}-app.pid`), String(p.pid)); rec(`app pid ${p.pid}`); } });
+const nodes = async (target) => (await s.tree(target)).nodes;
+const ids = async () => (await nodes()).map((n) => n.testId ?? n.props?.testId).filter(Boolean);
+const has = async (id) => (await ids()).includes(id);
+const settle = async (ms = 600) => { await s.clock(`+${ms} real`); await s.clock('settle'); };
+const tapIf = async (id, opts) => { if (await has(id)) { await s.tap(id, opts); await settle(); return true; } return false; };
+const shot = async (name) => { await s.screenshot(resolve(out, `${label}-${name}.png`), true); rec(`shot ${name}`); };
+const texts = async (target) => {
+  try { const t = await s.tree(target); return t.nodes.flatMap((n) => [n.text, n.props?.text, n.props?.['aria-label'], n.props?.value, n.label].filter((v) => typeof v === 'string' && v.trim())).map((v) => v.trim()); }
+  catch (e) { return [`(no ${target}: ${e.message.slice(0, 80)})`]; }
+};
+const dump = async (name, target) => { const t = [...new Set(await texts(target))]; writeFileSync(resolve(out, `${label}-${name}.txt`), t.join('\n')); rec(`${name}: ${t.slice(0, 50).join(' | ').slice(0, 1200)}`); return t; };
+const ax = async (name, target) => { try { const t = await s.tree(target, { ax: true }); writeFileSync(resolve(out, `${label}-${name}-ax.json`), JSON.stringify(t, null, 1)); rec(`ax ${name} saved`); } catch (e) { rec(`ax ${name}: ${e.message.slice(0, 200)}`); } };
+const waitFor = async (pred, ms = 20000, step = 700) => { const end = Date.now() + ms; while (Date.now() < end) { if (await pred()) return true; await settle(step); } return false; };
+const clearToasts = async () => { for (const id of (await ids()).filter((id) => id.startsWith('toast-dismiss-'))) { try { await s.tap(id); await settle(250); } catch {} } };
+const toastText = async () => (await texts('toast-region')).filter((t) => !/^(Dismiss|Copy|Close)/.test(t)).join(' · ');
+const toast = async (name, pattern, ms = 30000) => {
+  let seen = '';
+  const ok = await waitFor(async () => { seen = await toastText(); return pattern.test(seen); }, ms);
+  rec(`${name} toast: ${ok ? '' : '(not seen) '}${seen.slice(0, 500)}`);
+  return seen;
+};
+const git = (...args) => { const r = spawnSync('git', ['-C', CLONE, ...args], { encoding: 'utf8' }); return (r.stdout + r.stderr).trim(); };
+const toPrs = async () => { if (!(await has('pull-requests-page'))) { await s.tap('open-pull-requests'); await settle(3000); } };
+const openPr = async (n) => {
+  await toPrs();
+  await s.type('pull-requests-search', `#${n}`); await settle(3500);
+  if (!(await has(`pr-row-${n}`))) await settle(4000);
+  await s.tap(`pr-row-${n}`); await settle(1000);
+  await waitFor(async () => (await has('pull-request-header-actions')) || (await has('pull-request-more')), 15000);
+  await settle(2500); await clearToasts();
+};
+const more = async (item) => { await s.tap('pull-request-more'); await settle(500); await shot(`menu-before-${item}`); await s.tap(item); await settle(700); };
+const step = async (name, fn) => { if (!want(name)) return; try { await fn(); } catch (e) { rec(`STEP ${name} ERROR ${e.message?.slice(0, 600)}`); try { await shot(`${name}-error`); } catch {} } };
+const composer = async () => (await texts('composer')).join(' ').slice(0, 900);
+
+try {
+  await settle(2000);
+  if (await has('welcome-pairing-link')) {
+    await s.type('welcome-pairing-link', `${origin}/pair#token=${lane.pairingToken('primary')}`);
+    await s.tap('welcome-pair'); await settle(5000);
+  }
+  for (const id of ['welcome-continue', 'welcome-agents-continue', 'welcome-skip-import']) await tapIf(id);
+  await settle(3000);
+  rec(`connected: ${(await has('open-pull-requests')) ? 'sidebar shows Pull Requests' : 'no Pull Requests entry'}`);
+  await clearToasts();
+  await s.tap('open-pull-requests'); await settle(5000); await clearToasts();
+  await step('filter-all', async () => { await s.tap('pull-requests-filters'); await settle(400); await s.tap('pr-filter-state'); await settle(400); await s.tap('pr-state-all'); await settle(3000); });
+
+  // Window screenshots one clock step apart (the agent's own film writes transparent layer frames here).
+  const film = async (name, frames = 10, every = 30) => { for (let i = 0; i < frames; i++) { if (i) await s.clock(`+${every}`); await s.screenshot(resolve(out, `${label}-${name}-${String(i).padStart(2, '0')}.png`), true); } rec(`film ${name}: ${frames} frames every ${every} ms`); };
+  if (mode === 'retry') {
+    await step('more', async () => { await openPr(111); await s.tap('pull-request-more'); await settle(600); await shot('more-failing'); await dump('more-failing', 'pr-more-layer'); await s.tap('pull-request-more'); await settle(400); });
+    await step('keys', async () => {
+      await openPr(111);
+      await s.tap('pull-request-more'); await settle(500); await shot('keys-more-open');
+      await s.type('pull-request-more', { key: 'Escape' }); await settle(400); await shot('keys-more-escaped');
+      await s.tap('pull-request-checkout'); await settle(500); await shot('keys-checkout-open'); await ax('checkout-open', 'pr-checkout-layer');
+      await s.type('pull-request-checkout', { key: 'Escape' }); await settle(400); await shot('keys-checkout-escaped');
+    });
+    await step('checkout-menu', async () => { await openPr(132); await s.tap('pull-request-checkout'); await settle(600); await shot('checkout-menu'); await s.type('pull-request-checkout', { key: 'Escape' }); await settle(400); });
+    await step('dark', async () => { await s.prefer({ 'prefers-color-scheme': 'dark' }); await settle(800); await openPr(111); await s.tap('pull-request-more'); await settle(600); await shot('dark-more'); await s.type('pull-request-more', { key: 'Escape' }); await settle(300); await s.tap('pull-request-checkout'); await settle(600); await shot('dark-checkout-menu'); await s.type('pull-request-checkout', { key: 'Escape' }); await settle(300); await s.prefer({ 'prefers-color-scheme': 'light' }); await settle(800); });
+    await step('row-stack', async () => {
+      await toPrs(); await s.type('pull-requests-search', 'greet'); await settle(3500);
+      const trigger = (await ids()).find((id) => /^pr-row-stack-.*-118-trigger$/.test(id));
+      await s.tap(trigger); await settle(3500); await shot('row-stack'); await s.type(trigger, { key: 'Escape' }); await settle(400);
+    });
+    await step('film-fold', async () => {
+      await openPr(115); await settle(1500);
+      await s.tap('pull-request-scroll', { wheel: [0, 500] }); await settle(1000); await shot('film-folded');
+      await s.tap('pull-request-scroll', { wheel: [0, -2000] }); await film('fold-reopen', 10, 30);
+      await settle(600); await shot('film-reopened');
+      await s.tap('pull-request-tab-timeline'); await settle(800); await shot('fold-timeline-tab');
+      await s.tap('pull-request-tab-summary'); await settle(500);
+    });
+    await step('film-reduced', async () => {
+      await s.prefer({ 'prefers-reduced-motion': 'reduce' }); await openPr(115); await settle(1000);
+      await s.tap('pull-request-scroll', { wheel: [0, 500] }); await settle(800);
+      await s.tap('pull-request-scroll', { wheel: [0, -2000] }); await film('fold-reduced', 4, 30);
+      await s.prefer({ 'prefers-reduced-motion': 'no-preference' });
+    });
+    await step('fix-check', async () => {
+      rec(`worktrees before: ${git('worktree', 'list')}`);
+      await openPr(111); await s.tap('pull-request-checks-toggle'); await settle(800); await clearToasts();
+      const fix = (await ids()).find((id) => id.startsWith('pull-request-fix-check-'));
+      rec(`check fix ${fix}`); await shot('fix-check-button');
+      await s.tap(fix); await settle(200); await shot('fix-check-preparing');
+      await toast('fix-check', /Checkout ready|Checked out|Could not/, 90000);
+      await settle(1500); rec(`composer after a check's Fix: ${await composer()}`); await shot('fix-check-composer');
+    });
+    await step('fix-remark', async () => {
+      await openPr(115); await settle(2000); await clearToasts();
+      const fix = (await ids()).find((id) => id.startsWith('pull-request-fix-') && !id.startsWith('pull-request-fix-check-'));
+      rec(`remark fix ${fix}`);
+      await s.tap(fix); await settle(200); await shot('fix-remark-preparing');
+      await toast('fix-remark', /Checkout ready|Checked out|Could not/, 90000);
+      await settle(1500); rec(`composer after a remark's Fix: ${await composer()}`); await shot('fix-remark-composer');
+      rec(`worktrees: ${git('worktree', 'list')}`);
+    });
+  } else {
+  // ── Shared screens (both builds) ──
+  await step('list', async () => {
+    await s.type('pull-requests-search', 'greet'); await settle(4000);
+    await shot('list-stack'); await dump('list-stack', 'pull-requests-page');
+    await s.type('pull-requests-search', ''); await settle(3000);
+    await shot('list'); await ax('list-row-111', 'pr-row-wrap-111');
+  });
+  await step('header', async () => { await openPr(111); await shot('header-failing'); await dump('header-failing', 'pull-request-header-actions'); });
+  await step('more', async () => { await openPr(111); await s.tap('pull-request-more'); await settle(600); await shot('more-failing'); await dump('more-failing', 'pr-more-layer'); await ax('more-failing', 'pr-more-layer'); await s.type('pull-request-more', { key: 'Escape' }); await settle(400); });
+  await step('checks-fix', async () => { await openPr(111); await s.tap('pull-request-checks-toggle'); await settle(800); await shot('summary-checks'); await dump('summary-checks', 'pull-request-checks'); });
+  await step('remarks-fix', async () => { await openPr(115); await settle(2000); await s.tap('pull-request-scroll', { wheel: [0, 500] }); await settle(1200); await shot('summary-remarks'); await dump('summary-remarks', 'pull-request-scroll'); });
+  await step('fold', async () => {
+    await openPr(115); await settle(1500); await shot('fold-top');
+    await s.tap('pull-request-scroll', { wheel: [0, 900] }); await settle(1200); await shot('fold-scrolled'); await dump('fold-scrolled', 'pull-request-panel');
+    if (mode === 'after') {
+      await s.tap('pull-request-scroll', { wheel: [0, -2000] }); await s.screenshot(resolve(out, `${label}-fold-reopen.apng`), { over: 300, every: 30 }); rec('film fold-reopen');
+      await s.tap('pull-request-tab-timeline'); await settle(800); await shot('fold-timeline-tab');
+      await s.tap('pull-request-tab-summary'); await settle(500);
+    }
+  });
+  await step('dark', async () => { await s.prefer({ 'prefers-color-scheme': 'dark' }); await settle(800); await openPr(111); await shot('dark-header'); await s.tap('pull-request-more'); await settle(600); await shot('dark-more'); await s.type('pull-request-more', { key: 'Escape' }); await settle(300); await s.prefer({ 'prefers-color-scheme': 'light' }); await settle(800); });
+  await step('narrow', async () => { await s.resize(840, 620); await settle(800); await openPr(111); await shot('narrow-header'); await s.resize(1280, 840); await settle(800); });
+
+  if (mode === 'after') {
+    // ── New menus and popovers ──
+    await step('checkout-menu', async () => { await openPr(132); await s.tap('pull-request-checkout'); await settle(600); await shot('checkout-menu'); await dump('checkout-menu', 'pr-checkout-layer'); await ax('checkout-menu', 'pr-checkout-layer'); await s.type('pull-request-checkout', { key: 'Escape' }); await settle(400); rec(`after Escape the checkout menu is ${(await has('pr-checkout-worktree')) ? 'open' : 'closed'}`); });
+    await step('row-checks', async () => {
+      await toPrs(); await s.type('pull-requests-search', '#111'); await settle(3500);
+      const trigger = (await ids()).find((id) => /^pr-row-checks-.*-111-trigger$/.test(id));
+      rec(`checks trigger ${trigger}`);
+      await s.tap(trigger); await settle(500); await shot('row-checks-loading'); await settle(3000); await shot('row-checks'); await dump('row-checks', trigger.replace(/-trigger$/, '-layer')); await ax('row-checks', trigger.replace(/-trigger$/, ''));
+      await s.type(trigger, { key: 'Escape' }); await settle(400);
+      rec(`selected after the checks press: ${(await has('pull-request-panel')) ? 'a panel is open' : 'no panel'}`);
+    });
+    await step('row-stack', async () => {
+      await toPrs(); await s.type('pull-requests-search', 'greet'); await settle(3500);
+      const trigger = (await ids()).find((id) => /^pr-row-stack-.*-118-trigger$/.test(id)) ?? (await ids()).find((id) => /^pr-row-stack-.*-trigger$/.test(id));
+      rec(`stack trigger ${trigger}`);
+      if (!trigger) { rec('no stack trigger on the rows (the list entry carries no stack)'); return; }
+      await s.tap(trigger); await settle(500); await shot('row-stack-loading'); await settle(3500); await shot('row-stack'); await dump('row-stack', trigger.replace(/-trigger$/, '-layer')); await ax('row-stack', trigger.replace(/-trigger$/, ''));
+      const layer = (await ids()).find((id) => /^pr-row-stack-.*-layer-119$/.test(id));
+      if (layer) { await s.tap(layer); await settle(3000); rec(`pressed ${layer}: the panel shows ${(await texts('pull-request-open-host')).join(' ')}`); await shot('row-stack-selected'); }
+    });
+    // ── Hand-offs ──
+    await step('ask', async () => {
+      await openPr(111); await clearToasts();
+      await more('pr-more-ask'); await toast('ask', /Asked in a thread|Could not open a thread/);
+      await settle(1500); await shot('ask-composer'); rec(`composer after Ask: ${await composer()}`); await ax('ask-composer', 'composer');
+      rec(`page after Ask: ${(await has('pull-requests-page')) ? 'still Pull Requests' : 'left for the thread'}`);
+    });
+    await step('explain', async () => {
+      await openPr(111); await clearToasts();
+      await more('pr-more-explain'); await toast('explain', /Asked in a thread|Could not open a thread/);
+      await settle(1500); await shot('explain-composer'); rec(`composer after Explain: ${await composer()}`);
+    });
+    await step('typed-survives', async () => {
+      // The reader's own words in the project's draft, then another hand-off: they stay above it.
+      await s.type('composer', 'Check the wording first. '); await settle(800);
+      rec(`composer typed: ${await composer()}`);
+      await openPr(111); await clearToasts();
+      await more('pr-more-explain'); await toast('explain-2', /Asked in a thread/);
+      await settle(1500); await shot('typed-survives'); rec(`composer after a second hand-off: ${await composer()}`);
+    });
+    await step('fix-findings', async () => {
+      rec(`worktrees before: ${git('worktree', 'list')}`);
+      await openPr(111); await clearToasts();
+      await more('pr-more-fix-findings'); await settle(300); await shot('fix-findings-preparing');
+      await toast('fix-findings', /Checkout ready|Checked out|Could not/, 90000);
+      await settle(1500); await shot('fix-findings-composer'); rec(`composer after Fix findings: ${await composer()}`);
+      rec(`worktrees after: ${git('worktree', 'list')}`);
+    });
+    await step('attach', async () => {
+      // Beside the draft: its branch's pull request opens as the right panel's surface; Ask there writes into this composer.
+      await waitFor(() => has('composer-pr-badge'), 15000);
+      if (!(await has('composer-pr-badge'))) { rec('no pull request badge on the composer strip'); return; }
+      await s.tap('composer-pr-badge'); await waitFor(() => has('pull-request-surface'), 15000); await settle(2500); await clearToasts();
+      await shot('attach-surface'); await dump('attach-surface-header', 'pull-request-header-actions');
+      const before = await composer();
+      await s.tap('pull-request-more'); await settle(500); await shot('attach-more'); await dump('attach-more', 'pr-more-layer');
+      await s.tap('pr-more-ask'); await toast('attach-ask', /Added to the composer|Asked in a thread/);
+      await settle(1000); await shot('attach-composer');
+      rec(`composer before: ${before.slice(0, 300)}`); rec(`composer after Ask beside it: ${await composer()}`);
+    });
+    await step('fix-check', async () => {
+      await openPr(111); await s.tap('pull-request-checks-toggle'); await settle(800); await clearToasts();
+      const fix = (await ids()).find((id) => id.startsWith('pull-request-fix-check-'));
+      rec(`check fix ${fix}`);
+      await s.tap(fix); await settle(200); await shot('fix-check-preparing');
+      await toast('fix-check', /Checkout ready|Checked out|Could not/, 90000);
+      await settle(1500); rec(`composer after a check's Fix: ${await composer()}`); await shot('fix-check-composer');
+    });
+    await step('fix-remark', async () => {
+      await openPr(115); await settle(2000); await clearToasts();
+      const fix = (await ids()).find((id) => id.startsWith('pull-request-fix-') && !id.startsWith('pull-request-fix-check-'));
+      rec(`remark fix ${fix}`);
+      if (!fix) return;
+      await s.tap(fix); await toast('fix-remark', /Checkout ready|Checked out|Could not/, 90000);
+      await settle(1500); rec(`composer after a remark's Fix: ${await composer()}`); await shot('fix-remark-composer');
+      rec(`worktrees: ${git('worktree', 'list')}`);
+    });
+    await step('checkout-local', async () => {
+      rec(`clone branch before: ${git('branch', '--show-current')}`);
+      await openPr(132); await clearToasts();
+      await s.tap('pull-request-checkout'); await settle(500); await s.tap('pr-checkout-local');
+      await toast('checkout-local', /Checked out here|Checked out|Could not/, 90000);
+      await settle(1000); await shot('checkout-local');
+      rec(`clone branch after: ${git('branch', '--show-current')}`);
+    });
+    await step('checkout-worktree-refused', async () => {
+      // The branch is checked out in the repository now: a worktree of it is refused, in the server's words.
+      await openPr(132); await clearToasts();
+      await s.tap('pull-request-checkout'); await settle(500); await s.tap('pr-checkout-worktree');
+      await toast('checkout-worktree', /Could not prepare|Checked out/, 90000);
+      await settle(500); await shot('checkout-refused');
+      rec(`checkout menu usable again: ${JSON.stringify(await dump('checkout-after-failure', 'pull-request-checkout'))}`);
+      rec(`worktrees: ${git('worktree', 'list')}`);
+    });
+    await step('reduced-motion', async () => {
+      await s.prefer({ 'prefers-reduced-motion': 'reduce' }); await openPr(115); await settle(1000);
+      await s.tap('pull-request-scroll', { wheel: [0, 900] }); await settle(800);
+      await s.tap('pull-request-scroll', { wheel: [0, -2000] }); await s.screenshot(resolve(out, `${label}-fold-reduced.apng`), { over: 300, every: 30 }); rec('film fold-reduced');
+      await s.prefer({ 'prefers-reduced-motion': 'no-preference' });
+    });
+    await step('keys', async () => {
+      await openPr(111);
+      await s.tap('pull-request-more'); await settle(500); await ax('more-open', 'pr-more-layer');
+      await s.type('pr-more-ask', { key: 'Escape' }); await settle(400);
+      rec(`after Escape the More menu is ${(await has('pr-more-ask')) ? 'open' : 'closed'}`);
+    });
+  }
+  }
+  const logs = await s.logs();
+  writeFileSync(resolve(out, `${label}-logs.json`), JSON.stringify(logs, null, 1));
+  rec(`log lines ${logs.lines.length}; errors: ${logs.lines.filter((l) => /error|refused|failed/i.test(JSON.stringify(l))).length}`);
+} catch (e) { rec(`ERROR ${e.stack?.slice(0, 1200)}`); try { await shot('error'); writeFileSync(resolve(out, `${label}-error-tree.json`), JSON.stringify(await s.tree(), null, 1)); } catch {} }
+finally { await s.close?.(); }
+process.exit(0);
