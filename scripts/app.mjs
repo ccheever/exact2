@@ -1358,8 +1358,7 @@ export function classifyArtifacts(candidate, cohort, signingKey = null) {
     } else if(key==='gpuSurfaces') {
       for(const surface of need) if(!have.gpuSurfaces?.some(s=>canonicalBuild(s)===canonicalBuild(surface))) fail(`.${surface.name} (interface ${surface.interface})`);
     } else if(key==='executors'||key==='hatches') { for(const item of need) if(!have[key]?.includes(item)) fail(key==='hatches'?`.${item} (handled by this platform's module, not by the installed one)`:`.${item}`); // hatches: LLP 1075.003.000.001 §4.3, a cohort from before the capability handles none
-    } else if(key==='typescriptRuntime') { if(!((have[key]??0)>=need)) fail(` (requires a prelude of runtime ${need} or later; this cohort's is ${have[key]??0})`); // LLP 1108 D6 R2: an older prelude ignores exactBodyFrom
-    } else if(key==='grantCeiling') {
+    } else if(key==='typescriptRuntime') { if(!((have[key]??0)>=need)) fail(` (requires a prelude of runtime ${need} or later; this cohort's is ${have[key]??0})`); /* LLP 1108 D6 R2: an older prelude ignores exactBodyFrom */ } else if(key==='grantCeiling') {
       const grants=new Set((have.grantCeiling??'').split('\n').filter(Boolean));
       if(need===null||have.grantCeiling===null) fail(' (unknown baked grants)');
       else for(const grant of need.split('\n').filter(Boolean)) if(!grants.has(grant)) fail(` (${grant})`);
