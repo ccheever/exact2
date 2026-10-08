@@ -49,6 +49,7 @@ shape Ui
   buzz: number
   reports: number
   models: number
+  streams: number
   launches: number
   gotoMachine: string
   gotoSession: string
@@ -208,6 +209,7 @@ component OchoMobile
   derive buzzTurn = match ui { case some(r) => r.buzz, case none => 0 }
   derive reportTurn = match ui { case some(r) => r.reports, case none => 0 }
   derive modelsTurn = match ui { case some(r) => r.models, case none => 0 }
+  derive streamTurn = match ui { case some(r) => r.streams, case none => 0 }
   derive launchTurn = match ui { case some(r) => r.launches, case none => 0 }
   // A launched session, to open: the data names it once the launch answers.
   derive gotoMachine = match ui { case some(r) => r.gotoMachine, case none => "" }
@@ -230,8 +232,10 @@ component OchoMobile
   // Anonymous health and funnel events, batched to Fleet's cloud (Axiom).
   resource reported = report(reportTurn) as shape Version
   resource modelList = models(modelsTurn) as shape Version
+  // The running turn's text as it is written (Codex, Claude's gateway).
+  resource streamed = stream(streamTurn) as shape Version
   resource started = launch(launchTurn) as shape Version
-  resource vm = picture(uiVersion, poll.version, net.version, transcript.version, outgoing.version, probe.version, refreshed.version, marked.version, felt.version, reported.version, modelList.version, started.version) as shape View
+  resource vm = picture(uiVersion, poll.version, net.version, transcript.version, outgoing.version, probe.version, refreshed.version, marked.version, felt.version, reported.version, modelList.version, started.version, streamed.version) as shape View
 
   // One tick a second starts whatever I/O is due (the model's lanes).
   // Each second: start what is due, and open a session just launched (in

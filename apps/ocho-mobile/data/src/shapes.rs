@@ -32,6 +32,7 @@ pub const UI: Shape = Record(&[
     ("buzz", Num),
     ("reports", Num),
     ("models", Num),
+    ("streams", Num),
     ("launches", Num),
     ("gotoMachine", Str),
     ("gotoSession", Str),

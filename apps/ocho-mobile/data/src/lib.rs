@@ -67,6 +67,7 @@ fn counters(m: &Model) -> Value {
             "buzz": m.buzz.turn,
             "reports": m.report.turn,
             "models": m.models.turn,
+            "streams": m.stream.turn,
             "launches": m.launch.turn,
             "gotoMachine": m.launcher.goto.as_ref().map(|g| g.0.clone()).unwrap_or_default(),
             "gotoSession": m.launcher.goto.as_ref().map(|g| g.1.clone()).unwrap_or_default(),
@@ -193,6 +194,11 @@ impl OchoMobile {
             "models" if !m.models.inflight => m
                 .models_request()
                 .map(|(url, bearer)| get(&url, &bearer, 256 << 10)),
+            "stream" if !m.stream.inflight => m.stream_request().map(|(url, bearer, body)| {
+                Request::post_json(&url, &body)
+                    .header("authorization", &bearer)
+                    .independent_http(api::SEND_BYTES)
+            }),
             "launch" if !m.launch.inflight => m.launch_request().map(|(url, bearer, body)| {
                 Request::post_json(&url, &body)
                     .header("authorization", &bearer)
@@ -251,6 +257,7 @@ impl OchoMobile {
             }),
             "send" => m.send_done(body_json(outcome).map_err(|(_, why)| why)),
             "models" => m.models_done(body_json(outcome).map_err(|(_, why)| why)),
+            "stream" => m.stream_done(body_json(outcome).map_err(|(_, why)| why)),
             "launch" => m.launch_done(body_json(outcome).map_err(|(_, why)| why)),
             "probe" => m.probe_done(
                 body_json(outcome)
@@ -284,7 +291,7 @@ impl DataSource for OchoMobile {
         match source {
             "dispatch" => Ok(counters(&self.model)),
             "poll" | "transcript" | "send" | "probe" | "resync" | "markRead" | "haptic"
-            | "report" | "network" | "models" | "launch" => Ok(version(&self.model)),
+            | "report" | "network" | "models" | "launch" | "stream" => Ok(version(&self.model)),
             "picture" => Ok(view::render(&self.model)),
             _ => Err(DataError::UnknownSource(source.into())),
         }
@@ -309,7 +316,7 @@ impl DataSource for OchoMobile {
                 Answer::Now(version(&self.model))
             }
             "poll" | "transcript" | "send" | "probe" | "resync" | "markRead" | "haptic"
-            | "report" | "models" | "launch" => {
+            | "report" | "models" | "launch" | "stream" => {
                 if source == "poll" {
                     // Asked with a new visibility, not a new turn.
                     self.model.page(text(args, 1) != "hidden");

@@ -34,6 +34,9 @@ impl Model {
         if self.reads.overdue(now, 30_000.0) {
             self.reads_done(Err(0));
         }
+        if self.stream.overdue(now, 10_000.0) {
+            self.stream_done(Err("No answer.".into()));
+        }
         if self.models.overdue(now, 30_000.0) {
             self.models_done(Err("No answer.".into()));
         }
@@ -64,6 +67,7 @@ impl Model {
             "report" => self.report.turn,
             "models" => self.models.turn,
             "launch" => self.launch.turn,
+            "stream" => self.stream.turn,
             _ => return None,
         })
     }

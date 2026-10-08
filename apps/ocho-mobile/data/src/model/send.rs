@@ -366,7 +366,7 @@ impl Model {
     }
 
     /// This phone, to a Codex thread's subscribers.
-    fn client_id(&self) -> String {
+    pub(super) fn client_id(&self) -> String {
         format!("ocho-phone-{}", self.telemetry.install)
     }
 }

@@ -328,6 +328,10 @@ pub struct Model {
     pub models: Lane,
     /// The new-session launch.
     pub launch: Lane,
+    /// The running turn's text, read as it is written (model/stream.rs).
+    pub stream: Lane,
+    /// What streams, and what has.
+    pub streaming: stream::Stream,
     /// The new-session screen.
     pub launcher: launch::Launcher,
     /// Unsent drafts by `machine/session`.
@@ -536,6 +540,9 @@ impl Model {
         }
         if !self.outbox.is_empty() && !self.send.inflight && now >= self.send.next_at {
             self.send.bump();
+        }
+        if self.stream_due(now) {
+            self.stream.bump();
         }
         if self.haptic.is_some() && !self.buzz.inflight {
             self.buzz.bump();
@@ -1446,6 +1453,7 @@ impl Model {
 mod lanes;
 pub mod launch;
 mod send;
+mod stream;
 
 #[cfg(test)]
 mod tests;

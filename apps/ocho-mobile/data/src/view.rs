@@ -339,6 +339,16 @@ pub(crate) fn session(m: &Model) -> Json {
             "blocks": markdown_doc::to_json(&markdown_doc::parse(&p.text), false),
         }));
     }
+    // The reply as it is written, until the transcript has it.
+    if let Some(text) = m.streaming_text() {
+        out.push(json!({
+            "id": "streaming",
+            "kind": "assistant",
+            "subdued": false,
+            "queued": false,
+            "blocks": markdown_doc::to_json(&markdown_doc::parse(text), false),
+        }));
+    }
     let loaded = transcript.is_some_and(|c| c.loaded);
     let error = transcript.map(|c| c.error.clone()).unwrap_or_default();
     let empty = if !out.is_empty() {

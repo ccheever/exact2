@@ -1211,3 +1211,39 @@ fn a_draft_stays_with_its_conversation() {
     m.send_text("half a thought");
     assert_eq!(m.draft_for(&("mac".into(), "s1".into())), "");
 }
+
+#[test]
+fn a_working_codex_reply_streams_into_the_conversation() {
+    let mut m = paired();
+    m.poll_request();
+    m.poll_done(Ok(codex_answer("running")));
+    m.open("mac", "c1");
+    let op = |body: &str| serde_json::from_str::<serde_json::Value>(body).unwrap();
+    m.tick(m.now + 1_000.0);
+    let (url, _, body) = m.stream_request().expect("attaches while it works");
+    assert!(url.ends_with("/sessions/c1/codex-client"));
+    assert_eq!(op(&body)["operation"], "attach");
+    m.stream_done(Ok(
+        json!({"turns": [{"id": "t1", "complete": false, "message": "Looking at"}]}),
+    ));
+    let entries = crate::view::session(&m)["entries"].clone();
+    let last = entries.as_array().unwrap().last().unwrap().clone();
+    assert_eq!(last["id"], "streaming");
+    m.tick(m.now + 800.0);
+    let (_, _, body) = m.stream_request().unwrap();
+    assert_eq!(op(&body)["operation"], "poll");
+    m.stream_done(Ok(
+        json!({"turns": [{"id": "t1", "complete": false, "message": "Looking at the tests now"}]}),
+    ));
+    assert_eq!(m.streaming.text, "Looking at the tests now");
+    // The turn ends: the session goes idle, the phone lets go.
+    m.poll_request();
+    m.poll_done(Ok(codex_answer("idle")));
+    m.tick(m.now + 800.0);
+    let (_, _, body) = m.stream_request().unwrap();
+    assert_eq!(op(&body)["operation"], "detach");
+    m.stream_done(Ok(json!({"turns": []})));
+    assert!(m.streaming_text().is_none());
+    m.tick(m.now + 800.0);
+    assert!(m.stream_request().is_none(), "nothing more to stream");
+}
