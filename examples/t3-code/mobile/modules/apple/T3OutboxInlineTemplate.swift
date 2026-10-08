@@ -28,7 +28,7 @@ enum T3OutboxInlineTemplate {
         return payload
     }
     /// Validate metadata before opening any file. Temporary references never escape this function.
-    private static func validate(_ record: Object, _ template: Object, captured: Bool) throws -> [Object] {
+    static func validateMetadata(_ record: Object, _ template: Object, captured: Bool) throws -> [Object] {
         guard T3MobileOutbox.validateRecord(record), fields(template, ["owner", "commandTemplate", "inline"]),
               let owner = template["owner"] as? Object,
               fields(owner, ["origin", "environmentId", "threadId", "messageId", "commandId"]),
@@ -120,7 +120,7 @@ enum T3OutboxInlineTemplate {
     static func capture(root: URL, record: Object, template: Object) throws -> Object {
         let original = try copy(record)
         var result = try copy(template)
-        let bindings = try validate(original, result, captured: false)
+        let bindings = try validateMetadata(original, result, captured: false)
         let locals = original["attachments"] as! [Object]
         result["inline"] = try bindings.map { binding -> Object in
             var value = binding; let index = value["index"] as! Int
@@ -134,7 +134,7 @@ enum T3OutboxInlineTemplate {
     /// this does not widen the existing wire/journal limits or return base64 through the JS bridge.
     static func expand(root: URL, record: Object, captured: Object) throws -> Object {
         let original = try copy(record), template = try copy(captured)
-        let bindings = try validate(original, template, captured: true)
+        let bindings = try validateMetadata(original, template, captured: true)
         let message = try content(template["commandTemplate"] as! Object)
         let attachments = message["attachments"] as! [Object]
         let images = try bindings.map { binding -> Object in
