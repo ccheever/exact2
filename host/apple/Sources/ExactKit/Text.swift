@@ -496,9 +496,7 @@ package final class TextEngine {
     func fitShaped(visibleParagraphs: Int) { residency.fitShaped(visibleParagraphs: visibleParagraphs) }
     var catalog: [Int: [RegisteredFace]] = [:]
     var fieldChrome: FieldChromeCache?
-    #if os(iOS) || os(tvOS)
     var buttonMeasurements: ButtonMeasureCache?
-    #endif
     var platformControlID: UInt16?
     var platformControlFont: PlatformFont?
     var platformControlName = NSData()
