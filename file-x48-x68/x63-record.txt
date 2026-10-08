@@ -1,0 +1,56 @@
+# X63 record: Cmd+Z / Edit > Undo on a plain textarea (macOS)
+exact2 main b896050d78508aa5cea10cfa875e02037fde4c6e (2026-10-08); macOS 26.6.2 (25G83), Apple Silicon; web: Chrome 154.0.8037.98 (the agent's); agent mode only (no real input)
+
+## app.contract (bun scripts/exact.mjs new <dir>; app.ts has no sources)
+component X63app
+  state draft = ""
+  state md = ""
+  action write(value: string)
+    draft = value
+  action writeMd(value: string)
+    md = value
+  view
+    main testId="root" width="100%" height="100%" box-sizing="border-box" padding=24 gap=12 background-color="light-dark(#ffffff, #111111)" color="light-dark(#111111, #eeeeee)"
+      textarea testId="ta" value=draft input=write aria-label="Plain" width=320 height=60
+      text `plain: [${draft}]` testId="echo"
+      textarea testId="md" markup="markdown" value=md input=writeMd aria-label="Markdown" width=320 height=60
+      text `markdown: [${md}]` testId="echo-md"
+
+## macOS: bun exact.mjs mac; then
+$ bun exact.mjs agent macos --size 420x300 "type ta hello" "clock settle" "tap ta" "type ta key Meta+z" "clock settle" "type md hello" "clock settle" "tap md" "type md key Meta+z" "clock settle" tree "screenshot x63-macos.png window"
+{"typed":2,"value":"hello","target":"ta","delivery":"platform","carrier":"macos","mode":"agent","epoch":2,"incarnation":1,"clock":0}
+{"incarnation":1,"epoch":2,"clock":0,"settled":true}
+{"delivery":"platform","tapped":2,"at":[190,55],"target":"ta","carrier":"macos","mode":"agent","epoch":2,"incarnation":1,"clock":0}
+{"typed":2,"key":"Meta+z","target":"ta","delivery":"platform","carrier":"macos","mode":"agent","epoch":2,"incarnation":1,"clock":0}
+{"incarnation":1,"epoch":2,"clock":0,"settled":true}
+{"typed":4,"value":"hello","target":"md","delivery":"platform","carrier":"macos","mode":"agent","epoch":3,"incarnation":1,"clock":0}
+{"incarnation":1,"epoch":3,"clock":0,"settled":true}
+{"delivery":"platform","tapped":4,"at":[184,134],"target":"md","carrier":"macos","mode":"agent","epoch":3,"incarnation":1,"clock":0}
+{"key":"Meta+z","typed":4,"target":"md","delivery":"platform","carrier":"macos","mode":"agent","epoch":4,"incarnation":1,"clock":0}
+{"incarnation":1,"clock":0,"epoch":4,"settled":true}
+epoch 4 · incarnation 1 · clock 0 ms · 5 nodes
+View#1 [root]
+  TextInput#2 [ta] value="hello" label="Plain" (input)
+  Text#3 [echo] "plain: [hello]"
+  TextInput#4 [md] value="" label="Markdown" [focused] (input)
+  Text#5 [echo-md] "markdown: []"
+{"screenshot":"/private/tmp/claude-501/-Users-daehyeonmun-orca-workspaces-exact2-t3-code/9d293baa-3a94-4e6f-a91c-a64f957a461f/scratchpad/file-x48-x68/x63app/.exact/x63-macos.png","scale":2,"window":true,"epoch":4,"clock":0,"incarnation":1,"w":420,"h":300}
+
+## web: the same ops with agent web
+(The web agent's Meta+z is a CDP key event without Chrome's editing command, so it does not run the browser's undo in a plain <textarea>: the plain field keeps hello there too. Only the Markdown editor, which handles the chord itself, undoes. The web row is a driver limit, not evidence either way.)
+{"at":[187,57],"typed":3,"target":"ta","delivery":"platform","carrier":"web","mode":"agent","clock":0,"epoch":2,"incarnation":1}
+{"clock":0,"settled":true}
+{"at":[187,57],"tapped":3,"target":"ta","delivery":"platform","carrier":"web","mode":"agent","clock":0,"epoch":2,"incarnation":1}
+{"at":[187,57],"typed":3,"target":"ta","delivery":"platform","carrier":"web","mode":"agent","clock":0,"epoch":2,"incarnation":1}
+{"clock":0,"settled":true}
+{"at":[184,138],"typed":1,"target":"md","delivery":"platform","carrier":"web","mode":"agent","clock":0,"epoch":3,"incarnation":1}
+{"clock":0,"settled":true}
+{"at":[184,138],"tapped":1,"target":"md","delivery":"platform","carrier":"web","mode":"agent","clock":0,"epoch":3,"incarnation":1}
+{"at":[184,138],"typed":1,"target":"md","delivery":"platform","carrier":"web","mode":"agent","clock":0,"epoch":4,"incarnation":1}
+{"clock":0,"settled":true}
+epoch 4 · incarnation 1 · clock 0 ms · 5 nodes
+View#2 [root]
+  TextInput#3 [ta] value="hello" label="Plain" (input)
+  Text#4 [echo] "plain: [hello]"
+  TextInput#1 [md] value="" label="Markdown" [focused] (input)
+  Text#5 [echo-md] "markdown: []"
