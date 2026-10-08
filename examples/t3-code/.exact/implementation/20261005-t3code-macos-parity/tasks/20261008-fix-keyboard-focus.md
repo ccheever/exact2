@@ -8,7 +8,7 @@ repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: 'feat(example)/t3-code-fix-keyboard-focus'
 pr_url: https://github.com/ccheever/exact2/pull/310
-verified_commit: PENDING
+verified_commit: 689959002
 ---
 
 # Menus and dialogs by real pointer and keyboard: Custom snooze, the More menu, focus rings, Escape order
@@ -245,7 +245,7 @@ The trigger of a state-driven menu that the data module opens lets go of the foc
 | ↓/↑ 2 (agent) | builds 10–11 | Title first/last pass; the Settings select (wrapped trigger) and the scope and diff scope menus pass. The details "Open in" menu never took the focus, on a press either: the trigger kept it, so the popup's `autofocus` waited. Fixed in build 11 (the trigger lets go first, the menu reads its end as it mounts). In this lane the menu then lists no editors, so it has no rows to check | arrows-after-final, 06 | not checked with rows |
 | merge #290 | `84a52dde0` | EXACT2-GAPS rows X65 (#290's) and X66 kept side by side. `usage-pooled.test.ts` failed: #290's light dismiss counts every press at the window, and the six `pointerdown` handlers that cleared a data-mounted menu's end took those presses | — | fixed: the end clears on the trigger's `focus` |
 | ↓/↑ 3 (agent) | build 12 | Diff scope after the merge: ↓ first, ↑ last, a press focuses the popup. Escape closes the panel with the menu (residual) | arrows-after-final | — |
-| checks | CHECKS-REV | CHECKS | — | — |
+| checks (partial) | `689959002` | Clone checks after the #290 merge: `bun test examples/t3-code` 3189 pass, 1 skip, 0 fail. Strict tsc clean. Contract build 4,927 slots, 46 resources, 16.43 MB. `cargo test -p t3-code-macos --lib` 13 passed. The five checks last ran at `513262c8b`, before the ↓/↑ change: build 0, tests 3,521 passed, 0 failed, 34 ignored, clippy 0, fmt 0, caps 0, boot 0. Not rerun since | — | rerun the five checks and caps |
 
 Real-input apparatus:
 - Lane copies of the macOS client ("T3 Code (Lane FKF base/after)"), each launched with `env -i` and its own home
@@ -257,6 +257,30 @@ Real-input apparatus:
 The build-7 copy is a new ad-hoc identity, so a keychain prompt asked for the lane keychain's item. It was denied. The
 stale item was deleted from that lane keychain only, and the copy was re-paired through Add environment, with no
 capture while the code was on screen. The user's keychain search list is unchanged.
+
+## Resume from here (2026-10-08, stopped at the coordinator's usage limit)
+
+- **State.** Every change is committed and pushed on `feat(example)/t3-code-fix-keyboard-focus`, head `689959002`
+  plus this note. `84a52dde0` (#290) is merged.
+- **Draft PR [#310](https://github.com/ccheever/exact2/pull/310).** Open, left as a draft. Its body predates the
+  ↓/↑ ruling: it still lists ↓/↑ as "not done" and has no "Framework decisions (Charlie, 2026-10-08)" paragraph.
+  This record has both.
+- **Released or stopped.**
+  - The real-input lock: released at 08:28:43Z.
+  - The lane apps: quit by their recorded PIDs.
+  - The lane server: PID 32697 on 16181, stopped with `lane-setup.mjs stop`.
+  - The agent drives: told to quit.
+  - The user's keychain search list: unchanged, login only.
+- **To do next.**
+  1. `git fetch` and merge the base again.
+  2. Rerun the five checks and `bun scripts/caps.mjs`.
+  3. Update #310's body from this record: the ↓/↑ row with [06](https://raw.githubusercontent.com/ccheever/exact2/72d540ec9d216bdbc7024f6548cb0d2426a8085e/fix-keyboard-focus/06-arrow-down-opens-more.png) and arrows-after-final, the framework decisions paragraph, the new residuals, and X66's revised wording.
+  4. Tell the coordinator that X66 is this task's number. It stays unpublished.
+- **Expected conflicts, per the coordinator.** Whoever lands second resolves them.
+  - `providers-setup.contract` `ProviderAccountRow` (fix-provider-auth-state): the `KmItem` ids take its
+    `idPrefix`, and its invoker bumps `keyed`.
+  - `diff.contract` `DiffScopeMenu` (#308): the new `keyed` prop.
+  - `pages-pr-actions.contract` More and Check out (pr-links' `PrdActOnItems`).
 
 ## Next action
 
