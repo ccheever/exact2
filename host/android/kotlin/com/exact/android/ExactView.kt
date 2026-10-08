@@ -51,11 +51,11 @@ class ExactView(context: Context, initialPress: String? = null, nativeFactory: N
     private var clockOffset = -SystemClock.uptimeMillis().toDouble()
     private var schedule: BatchReader.Schedule? = null
     private val pending = java.util.ArrayDeque<() -> Unit>()
-    private val imageSizes = LinkedHashMap<Int, Pair<Float, Float>>()
+    private val intrinsicSizes = PendingIntrinsics<Any>()
     private val scrollPositions = LinkedHashMap<Int, Pair<Double, Double>>()
     private val text = TextEngine(context) { requestPump() }
     private val presenter = Presenter(context, text, ::event,
-        ::notifyTitle, { id, w, h -> imageSizes[id] = w to h }, ::requestFit, ::collectionFeedback, nativeFactory, { id, x, y -> scrollPositions[id] = x to y })
+        ::notifyTitle, ::queueIntrinsic, ::requestFit, ::collectionFeedback, nativeFactory, { id, x, y -> scrollPositions[id] = x to y })
     private var handle = run { NativeEnvironment.configure(context); Native.create(text) }
     var onTitle: ((String) -> Unit)? = null
     internal var onBoot: (() -> Unit)? = null
@@ -110,6 +110,10 @@ class ExactView(context: Context, initialPress: String? = null, nativeFactory: N
         val deliver = { if (!closed) apply { Native.collectionFeedback(handle, bytes, now()) } }
         if (applying) pending.add(deliver) else deliver()
     }
+    private fun queueIntrinsic(id: Int, width: Float, height: Float) {
+        val owner = presenter.intrinsicOwner(id) ?: return
+        intrinsicSizes.put(id, owner, width, height)
+    }
     private fun notifyTitle(value: String) {
         val notify = { if (!closed) onTitle?.invoke(value); Unit }
         // Public callbacks may close the session or dispatch another turn. The
@@ -151,11 +155,11 @@ class ExactView(context: Context, initialPress: String? = null, nativeFactory: N
             throw error
         } finally { applying = false }
         arm()
-        if (imageSizes.isNotEmpty()) {
-            val sizes = ByteBuffer.allocate(imageSizes.size * 12).order(java.nio.ByteOrder.LITTLE_ENDIAN)
-            for ((id, size) in imageSizes) sizes.putInt(id).putFloat(size.first).putFloat(size.second)
-            imageSizes.clear()
-            apply { Native.intrinsics(handle, sizes.array()) }
+        // A preceding native turn may have unmounted an owner after its image,
+        // control or native component queued a size. Recheck the current owner
+        // after consuming that turn, including same-id replacement, before JNI.
+        intrinsicSizes.drain(presenter::intrinsicOwner)?.let { sizes ->
+            apply { Native.intrinsics(handle, sizes) }
         }
         while (pending.isNotEmpty() && !closed) pending.removeFirst().invoke()
     }
@@ -347,7 +351,7 @@ class ExactView(context: Context, initialPress: String? = null, nativeFactory: N
         handler.removeCallbacks(timer); handler.removeCallbacks(pump); handler.removeCallbacks(fit)
         choreographer.removeFrameCallback(frame)
         pending.clear()
-        imageSizes.clear()
+        intrinsicSizes.clear()
         Native.close(handle)
         handle = 0
         presenter.close()

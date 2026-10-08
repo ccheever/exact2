@@ -44,6 +44,9 @@ internal class Presenter(
     val root = Box(context)
         .apply { isFocusableInTouchMode = true }
     private val nodes = SparseArray<Node>()
+    private var constructingNative: Node? = null
+    fun intrinsicOwner(id: Int): Any? = if (closed) null else
+        (nodes[id] ?: constructingNative?.takeIf { it.key == id })?.intrinsicIdentity
     private fun dispatchInteractive(id: Int, kind: Int, value: String?) {
         if (closed) return
         val node = nodes[id] ?: return
@@ -328,6 +331,7 @@ internal class Presenter(
         val frame = Rect()
         var logicalWidth = 0f
         private var logicalTextInset = 0f
+        var intrinsicIdentity: Any = this
         private var imageSource: String? = null
         private var imageRequest: NativeImages.Request? = null
         private var imageSize = 0L
@@ -392,9 +396,17 @@ internal class Presenter(
         private val scrollChildren = if (kind == "scroll" || kind == "list") Box(context) else null
         val childrenBox: Box get() = scrollChildren ?: box
         val nativeComponent = if (kind == "native") {
-            checkNotNull(nativeFactory) { "NativeView requires the embedder's NativeViewFactory" }.create(
-                context, props.getString("nativeViewModuleName"), JSONObject(props.optString("nativeViewProps", "{}")),
-                { message -> dispatchInteractive(key, 9, message) }, { w, h -> intrinsic(key, w, h) })
+            // A factory may report its natural size synchronously in create().
+            // Keep that owner available until the node enters the batch map;
+            // ExactView still revalidates it after the whole batch is consumed.
+            constructingNative = this
+            try {
+                checkNotNull(nativeFactory) { "NativeView requires the embedder's NativeViewFactory" }.create(
+                    context, props.getString("nativeViewModuleName"), JSONObject(props.optString("nativeViewProps", "{}")),
+                    { message -> dispatchInteractive(key, 9, message) }, { w, h ->
+                        if (nodes[key] === this || constructingNative === this) intrinsic(key, w, h)
+                    })
+            } finally { constructingNative = null }
         } else null
         val control: View? = when (kind) {
             "input", "textarea" -> EditText(context).apply {
@@ -663,6 +675,7 @@ internal class Presenter(
                 images.cancel(imageRequest)
                 imageRequest = null
                 if (src != imageSource) control.setImageDrawable(null)
+                intrinsicIdentity = PendingIntrinsics.sourceOwner(intrinsicIdentity, imageSource, src)
                 imageSource = src; imageSize = size; imageFit = fit
                 if (src.isEmpty()) {
                     intrinsicSource = null
