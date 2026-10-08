@@ -188,7 +188,7 @@ export function createFileStore(appId) {
         };
         try {
           result = operation(records, changes, keys.flatMap(request => request.result ?? []));
-          if (mark) store.put({ path: APPLIED, kind: 'marker', ...mark });
+          if (mark) store.put({ path: APPLIED + mark.session, kind: 'marker', session: mark.session, seq: mark.seq });
         }
         catch (cause) { error = cause; transaction.abort(); }
       };
@@ -219,13 +219,23 @@ export function createFileStore(appId) {
     directories: roots,
     /** The next mutation's applied marker ({session, seq}), written in its transaction. */
     mark(value) { pendingMark = value; },
-    /** The last committed mutation's marker, or null. */
-    async applied() {
+    /** A session's last committed mutation ({session, seq}), or null; a failed read rejects. */
+    async applied(session) {
       const db = await open();
       return new Promise((resolve, reject) => {
-        const request = db.transaction('files', 'readonly').objectStore('files').get(APPLIED);
+        const request = db.transaction('files', 'readonly').objectStore('files').get(APPLIED + session);
         request.onsuccess = () => resolve(request.result ?? null);
         request.onerror = () => reject(failure(request.error?.message || 'IndexedDB read failed'));
+      });
+    },
+    /** Drops a replayed session's marker. */
+    async forget(session) {
+      const db = await open();
+      return new Promise((resolve, reject) => {
+        const transaction = db.transaction('files', 'readwrite');
+        transaction.objectStore('files').delete(APPLIED + session);
+        transaction.oncomplete = () => resolve();
+        transaction.onabort = () => reject(failure(transaction.error?.message || 'transaction aborted'));
       });
     },
     async readFile(path) {
@@ -359,25 +369,32 @@ export function createFileStore(appId) {
 
 // @ref LLP 1097 D10 — a write in flight when the tab closes. A mutation is one IndexedDB
 // transaction, and the browser drops a transaction still running when the page goes away.
-// So each mutation is journaled from its call until it settles, and its transaction
-// writes an applied marker ({session, seq}) beside its change. On `pagehide` (and on
-// `visibilitychange: hidden`, after which a phone may discard the tab with no pagehide),
-// what is still pending is written to localStorage, synchronously. The next realm's
-// filesystem replays the entries after the last applied marker, in order, before any
-// read or mutation: exactly once, an append included. A window realm only: a worker has
-// neither event nor synchronous storage, and a killed browser (no pagehide) loses its
-// journal too.
-const APPLIED = '\u0000exact-applied';
+// Each realm's filesystem keeps a journal of its own (a session): a mutation is an entry
+// from the moment it is accepted (by this module, or by the JS target's storage queue
+// above it, `admit`) until it settles, and its transaction writes the session's applied
+// marker (`seq`) beside its change. While the page is hidden or after `pagehide`, the
+// session's entries are written to localStorage under its own key, synchronously, and
+// rewritten as entries come and go. The session holds a Web Lock for its realm's life;
+// a later realm replays only the sessions whose lock it can take (their pages are gone),
+// under that lock: the entries after the session's marker, in order, each writing its own
+// marker, so a replay cut short resumes and an append lands once. A window realm only: a
+// worker has neither event nor synchronous storage, and a killed browser fires no event.
+const APPLIED = '\u0000exact-applied:';
 const journals = new Map();
 const MAX_JOURNAL = 2_000_000;
-const journalKey = appId => `exact-storage-journal:${appId}`;
+const journalPrefix = appId => `exact-storage-journal:${appId}:`;
+const lockName = (appId, session) => `exact-storage-session:${encodeURIComponent(appId)}:${session}`;
+// A replayed mutation that fails this way never will: it is reported and skipped. Any other
+// failure (busy, quota, an unloaded store) stops the replay and keeps the rest for later.
+const TERMINAL = new Set(['ENOENT', 'EISDIR', 'ENOTDIR', 'EEXIST', 'ENOTEMPTY', 'denied']);
 function windowRealm() {
-  try { return typeof document !== 'undefined' && typeof addEventListener === 'function' && !!globalThis.localStorage; }
+  try { return typeof document !== 'undefined' && typeof addEventListener === 'function' && !!globalThis.localStorage && !!globalThis.navigator?.locks; }
   catch { return false; }
 }
+const isBuffer = value => Object.prototype.toString.call(value) === '[object ArrayBuffer]';
 function encodeArg(value) {
-  if (value instanceof ArrayBuffer || ArrayBuffer.isView(value)) {
-    const view = value instanceof ArrayBuffer ? new Uint8Array(value) : new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
+  if (isBuffer(value) || ArrayBuffer.isView(value)) {
+    const view = isBuffer(value) ? new Uint8Array(value) : new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
     let binary = '';
     for (let i = 0; i < view.length; i += 0x8000) binary += String.fromCharCode(...view.subarray(i, i + 0x8000));
     return { bytes: btoa(binary) };
@@ -402,58 +419,95 @@ function unloadJournal(appId) {
   const random = new Uint32Array(2);
   globalThis.crypto?.getRandomValues?.(random);
   const session = `${random[0].toString(36)}${random[1].toString(36)}${now().toString(36)}`;
-  let seq = 0, written = false, warned = false;
+  const key = journalPrefix(appId) + session;
+  let seq = 0, written = false, warned = false, gone = false;
   const pending = new Map();
-  let left = [];
-  try { left = JSON.parse(localStorage.getItem(journalKey(appId)) ?? '{}').entries ?? []; } catch { left = []; }
+  // Held for this realm's life: while it is, no other realm replays this session.
+  navigator.locks.request(lockName(appId, session), () => new Promise(() => {})).catch(() => {});
   function write() {
-    const entries = [...left, ...[...pending].map(([n, e]) => ({ session, seq: n, method: e.method, args: e.args }))];
+    const entries = [...pending].map(([n, e]) => ({ seq: n, at: e.at, method: e.method, args: e.args }));
     try {
-      if (!entries.length) { localStorage.removeItem(journalKey(appId)); written = false; return; }
-      const text = JSON.stringify({ entries });
+      if (!entries.length) { localStorage.removeItem(key); written = false; return; }
+      // The longest prefix that fits: replay keeps order, and what does not fit is the lost suffix.
+      let text = JSON.stringify({ entries });
+      while (text.length > MAX_JOURNAL && entries.length > 1) text = JSON.stringify({ entries: entries.slice(0, Math.floor(entries.length / 2)) });
       if (text.length > MAX_JOURNAL) throw new Error(`${text.length} characters`);
-      localStorage.setItem(journalKey(appId), text);
+      localStorage.setItem(key, text);
       written = true;
     } catch (error) {
       if (!warned) { warned = true; console.warn(`storage: could not journal ${entries.length} pending write(s) for a closed tab: ${error.message}`); }
     }
   }
+  const publish = () => gone || written || document.visibilityState === 'hidden';
   const journal = {
     session,
-    get left() { return left.length > 0; },
     add(method, args) {
       const n = ++seq;
-      pending.set(n, { method, args: args.map(encodeArg) });
-      if (written) write();
+      pending.set(n, { at: now(), method, args: args.map(encodeArg) });
+      if (publish()) write();
       return n;
     },
     done(n) {
       if (n === undefined || !pending.delete(n)) return;
-      if (written) write();
+      if (publish()) write();
     },
-    flush() { if (pending.size || left.length) write(); },
-    async replay(store, runOne) {
-      const marker = await store.applied().catch(() => null);
-      const at = marker ? left.findIndex(e => e.session === marker.session && e.seq === marker.seq) : -1;
-      left = left.slice(at + 1);
-      while (left.length) {
-        const entry = left[0];
-        try { await runOne(entry.method, entry.args.map(decodeArg), { session: entry.session, seq: entry.seq }); }
-        catch (error) { console.warn(`storage: replaying ${entry.method} ${entry.args[0]} from a closed tab failed: ${error.message}`); }
-        left = left.slice(1);
-        if (written) write();
+    flush() { if (pending.size || written) write(); },
+    leave() { gone = true; journal.flush(); },
+    // Earlier sessions whose pages are gone, oldest first.
+    left() {
+      const keys = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k?.startsWith(journalPrefix(appId)) && k !== key) keys.push(k);
       }
-      write();
+      return keys.map(k => {
+        try { return { key: k, session: k.slice(journalPrefix(appId).length), entries: JSON.parse(localStorage.getItem(k)).entries ?? [] }; }
+        catch { return { key: k, session: k.slice(journalPrefix(appId).length), entries: [] }; }
+      }).sort((a, b) => (a.entries[0]?.at ?? 0) - (b.entries[0]?.at ?? 0));
     },
   };
   journals.set(appId, journal);
   if (!windowRealm.hooked) {
     windowRealm.hooked = true;
-    const flushAll = () => { for (const j of journals.values()) j.flush(); };
-    addEventListener('pagehide', flushAll);
-    addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flushAll(); });
+    addEventListener('pagehide', () => { for (const j of journals.values()) j.leave(); });
+    addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') for (const j of journals.values()) j.flush(); });
   }
   return journal;
+}
+// Replays each gone session under its lock; resolves to the failure lines (D8).
+async function recover(appId, store, journal, runOne) {
+  const lines = [];
+  for (const left of journal.left()) {
+    await navigator.locks.request(lockName(appId, left.session), { ifAvailable: true }, async lock => {
+      if (!lock) return; // its page is alive
+      let entries;
+      try { entries = JSON.parse(localStorage.getItem(left.key) ?? '{"entries":[]}').entries ?? []; } catch { entries = []; }
+      const marker = await store.applied(left.session);
+      let rest = entries.filter(e => e.seq > (marker?.seq ?? 0));
+      while (rest.length) {
+        const entry = rest[0];
+        let error = null;
+        for (let attempt = 0; attempt < 5; attempt++) {
+          try { await runOne(entry.method, entry.args.map(decodeArg), { session: left.session, seq: entry.seq }); error = null; break; }
+          catch (cause) {
+            error = cause;
+            if (TERMINAL.has(cause?.code) || /^denied/.test(cause?.message ?? '') || cause?.code !== 'EBUSY') break;
+            await new Promise(resolve => setTimeout(resolve, 50 * (attempt + 1)));
+          }
+        }
+        if (error && !(TERMINAL.has(error.code) || /^denied/.test(error.message ?? ''))) {
+          lines.push(`replay of ${entry.method} ${entry.args[0]} from a closed tab stopped (${rest.length} kept for the next launch): ${error.code ?? 'failed'} ${error.message}`);
+          localStorage.setItem(left.key, JSON.stringify({ entries: rest }));
+          return;
+        }
+        if (error) lines.push(`replay of ${entry.method} ${entry.args[0]} from a closed tab: ${error.code ?? 'failed'} ${error.message}`);
+        rest = rest.slice(1);
+      }
+      localStorage.removeItem(left.key);
+      await store.forget(left.session).catch(() => {});
+    });
+  }
+  return lines;
 }
 
 /** Public capability. Every operation is admitted before opening IndexedDB. */
@@ -476,20 +530,34 @@ export function createFileSystem(appId, grants) {
     try { return await operation(); }
     finally { await release(); }
   }
-  // Each mutation is journaled from its call until it settles; its transaction writes its marker.
+  // Each mutation is journaled from its acceptance (here, or `admit` above) until it
+  // settles; its transaction writes its session's marker.
+  let preset;
   function mutate(paths, method, args, operation) {
-    const seq = journal?.add(method, args);
+    const seq = preset !== undefined ? preset : journal?.add(method, args);
+    preset = undefined;
     return chain(() => locked(paths, () => {
       if (seq !== undefined) store.mark({ session: journal.session, seq });
       return operation();
     })).finally(() => journal?.done(seq));
   }
-  // @ref LLP 1097 D10 — what a closed tab left uncommitted runs first, in order, before
-  // any read or mutation of this realm.
-  const replayed = journal?.left ? chain(() => journal.replay(store, (method, args, mark) =>
+  // @ref LLP 1097 D10 — what closed tabs left uncommitted runs first, in order, before any
+  // read or mutation of this filesystem (`createFileStore`'s direct users do not wait).
+  const replayed = journal ? chain(() => recover(appId, store, journal, (method, args, mark) =>
     locked(mutationPaths(method, args), () => { store.mark(mark); return store[method](...args); })))
     : null;
   const ready = () => replayed?.catch(() => {});
+  // The failure lines of that replay, for the runtime's journal (D8).
+  fs.recovery = replayed ? replayed.catch(error => [`replay from a closed tab failed: ${error.message}`]) : Promise.resolve([]);
+  // A storage queue above this one (the JS target's, ts-data.js) journals a write when it
+  // accepts it, not when it reaches here, so one queued behind others is not lost.
+  fs.admit = (method, args) => journal?.add(method, args.map(a => typeof a === 'string' ? a : bytes(a)));
+  fs.release = seq => journal?.done(seq);
+  fs.withSeq = (seq, call) => {
+    preset = seq;
+    try { return call(); }
+    finally { if (preset !== undefined) { preset = undefined; journal?.done(seq); } }
+  };
   for (const method of ['readFile', 'readdir', 'stat', 'realpath']) {
     fs[method] = async path => { const at = authorize(grants, 'fs.read', path); await ready(); return store[method](at); };
   }

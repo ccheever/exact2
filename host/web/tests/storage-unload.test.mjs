@@ -56,6 +56,22 @@ async function withBrowser(run) {
   finally { await context.close(); server.stop(true); rmSync(profile, { recursive: true, force: true }); }
 }
 
+const APP = 'com.example.unload';
+const sessionOf = p => p.evaluate(async () => (await navigator.locks.query()).held.map(l => l.name).find(n => n.startsWith('exact-storage-session:'))?.split(':').pop());
+const plant = (p, session, entries, marker) => p.evaluate(async ([app, session, entries, marker]) => {
+  localStorage.setItem(`exact-storage-journal:${app}:${session}`, JSON.stringify({ entries }));
+  if (marker === null) return;
+  await new Promise(resolve => {
+    const request = indexedDB.open(`exact-storage:${app}`);
+    request.onsuccess = () => {
+      const t = request.result.transaction('files', 'readwrite');
+      t.objectStore('files').put({ path: `\u0000exact-applied:${session}`, kind: 'marker', session, seq: marker });
+      t.oncomplete = resolve;
+    };
+  });
+}, [APP, session, entries, marker]);
+const append = (seq, c) => ({ seq, at: seq, method: 'appendFile', args: ['app:/data/log.txt', { bytes: btoa(c) }] });
+
 test('a write started just before the tab closes is there in the next page', async () => {
   await withBrowser(async open => {
     const first = await open();
@@ -65,43 +81,69 @@ test('a write started just before the tab closes is there in the next page', asy
     await first.close();
     const second = await open();
     expect(await second.evaluate(async () => text(await fs.readFile('app:/data/s/settings.json')))).toBe('{"minutes":7}');
-    expect(await second.evaluate(() => localStorage.getItem('exact-storage-journal:com.example.unload'))).toBeNull();
+    expect(await second.evaluate(app => Object.keys(localStorage).filter(k => k.startsWith(`exact-storage-journal:${app}:`)).length, APP)).toBe(0);
   });
 }, 60_000);
 
-test('an append in flight at the close lands exactly once, after the writes before it', async () => {
+test('an append in flight at the close lands exactly once, and the next page queues behind the replay', async () => {
   await withBrowser(async open => {
     const first = await open();
     await first.evaluate(() => fs.writeFile('app:/data/log.txt', new TextEncoder().encode('a')));
     await first.evaluate(() => { for (const c of 'bcd') void fs.appendFile('app:/data/log.txt', new TextEncoder().encode(c)); });
     await first.close();
     const second = await open();
-    expect(await second.evaluate(async () => text(await fs.readFile('app:/data/log.txt')))).toBe('abcd');
-    // The next page's own mutations queue behind the replay, never ahead of it.
+    // Issued at once, before anything awaits the replay: it lands after it.
     await second.evaluate(() => fs.appendFile('app:/data/log.txt', new TextEncoder().encode('e')));
     expect(await second.evaluate(async () => text(await fs.readFile('app:/data/log.txt')))).toBe('abcde');
   });
 }, 60_000);
 
-test('a journal whose entries already committed replays nothing', async () => {
+test('writes a queue above accepted (admit) survive though only the first had started', async () => {
   await withBrowser(async open => {
     const first = await open();
-    await first.evaluate(async () => { await fs.appendFile('app:/data/once.txt', new TextEncoder().encode('x')); });
-    // The tab is hidden after the append committed and journals nothing; then a stale journal
-    // naming that committed append (as if it was written while the append ran) must not replay it.
-    const marker = await first.evaluate(() => new Promise(resolve => {
-      const request = indexedDB.open('exact-storage:com.example.unload');
-      request.onsuccess = () => {
-        const get = request.result.transaction('files').objectStore('files').get('\u0000exact-applied');
-        get.onsuccess = () => resolve(get.result);
-      };
-    }));
-    expect(marker?.seq).toBeGreaterThan(0);
-    await first.evaluate(m => localStorage.setItem('exact-storage-journal:com.example.unload', JSON.stringify({
-      entries: [{ session: m.session, seq: m.seq, method: 'appendFile', args: ['app:/data/once.txt', { bytes: btoa('x') }] }],
-    })), marker);
+    await first.evaluate(() => {
+      const seqs = [5, 6, 7].map(m => fs.admit('atomicWriteFile', ['app:/data/q.json', new TextEncoder().encode(String(m))]));
+      // The outer queue runs one at a time; the tab closes while the first runs.
+      void fs.withSeq(seqs[0], () => fs.atomicWriteFile('app:/data/q.json', new TextEncoder().encode('5')));
+    });
     await first.close();
     const second = await open();
-    expect(await second.evaluate(async () => text(await fs.readFile('app:/data/once.txt')))).toBe('x');
+    expect(await second.evaluate(async () => text(await fs.readFile('app:/data/q.json')))).toBe('7');
+  });
+}, 60_000);
+
+test("a live tab's journal is never replayed by another tab, and is replayed once it is gone", async () => {
+  await withBrowser(async open => {
+    const a = await open();
+    await a.evaluate(() => fs.writeFile('app:/data/log.txt', new TextEncoder().encode('a')));
+    const session = await sessionOf(a);
+    expect(session).toBeTruthy();
+    await plant(a, session, [append(99, 'b')], null); // after A's own committed writeFile (seq 1)
+    const b = await open();
+    expect(await b.evaluate(async () => text(await fs.readFile('app:/data/log.txt')))).toBe('a');
+    await a.close();
+    // The closed page's lock goes when its renderer does.
+    await b.waitForFunction(async name => !(await navigator.locks.query()).held.some(l => l.name.endsWith(`:${name}`)), session);
+    const c = await open();
+    expect(await c.evaluate(async () => text(await fs.readFile('app:/data/log.txt')))).toBe('ab');
+    await c.close();
+    const d = await open();
+    expect(await d.evaluate(async () => text(await fs.readFile('app:/data/log.txt')))).toBe('ab');
+  });
+}, 60_000);
+
+test("a gone session's marker decides by sequence: committed entries never replay, later ones do", async () => {
+  await withBrowser(async open => {
+    const a = await open();
+    await a.evaluate(() => fs.writeFile('app:/data/log.txt', new TextEncoder().encode('a')));
+    // A gone session whose seq 1 and 2 committed (marker 2) though its journal still names 1:
+    // a stale journal. And another whose marker is 1, with 2 and 3 uncommitted.
+    await plant(a, 'gone1', [append(1, 'x')], 2);
+    await plant(a, 'gone2', [append(1, 'y'), append(2, 'b'), append(3, 'c')], 1);
+    await a.close();
+    const b = await open();
+    expect(await b.evaluate(async () => text(await fs.readFile('app:/data/log.txt')))).toBe('abc');
+    // Markers of replayed sessions are dropped; the marker key is no file.
+    expect(await b.evaluate(async () => (await fs.readdir('app:/data')).sort())).toEqual(['log.txt']);
   });
 }, 60_000);

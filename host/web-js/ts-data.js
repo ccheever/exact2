@@ -224,7 +224,15 @@ function storageOf(grants) {
     }
     return k;
   });
-  const files = () => fs ??= key().then(k => import(new URL('./storage-fs.js', import.meta.url).href).then(m => m.createFileSystem(k, grants)));
+  // The loaded filesystem, read synchronously when a write is queued (`admit`).
+  let loaded = null;
+  const files = () => fs ??= key().then(k => import(new URL('./storage-fs.js', import.meta.url).href).then(m => {
+    const f = m.createFileSystem(k, grants);
+    loaded = f;
+    // @ref LLP 1097 D8, D10 — a replay from a closed tab that failed is a storage failure.
+    void f.recovery?.then(lines => { for (const line of lines) { counts.failed++; counts.last = `storage failed: ${line}`; journal.push(`t=${clock.now} storage failed: ${line}`); } });
+    return f;
+  }));
   // A document the person chose (`doc:/`, LLP 1069.010 D1) is the page's
   // handle, not app storage: no store key, so a drive without a scratch
   // store reaches it too, as a Rust source's storage request does.
@@ -251,6 +259,7 @@ function storageOf(grants) {
     } });
   };
   const methods = ['readFile', 'writeFile', 'atomicWriteFile', 'appendFile', 'readdir', 'mkdir', 'rm', 'stat', 'rename', 'copyFile', 'realpath'];
+  const WRITES = new Set(['writeFile', 'atomicWriteFile', 'appendFile', 'mkdir', 'rm', 'rename', 'copyFile']);
   // `compressImage` (LLP 1069.002 A1): its options are checked before it is
   // queued, as the native prelude checks them; app files only.
   const compressImage = (from, to, options) => {
@@ -267,8 +276,15 @@ function storageOf(grants) {
       compressImage,
       ...Object.fromEntries(methods.map(m => [m, (...args) => {
         const captured = structuredClone(args);
-        const run = () => (isDocument(captured) ? documents() : files()).then(f => f[m](...captured));
-        return (admitted ? queued(`${m}${typeof args[0] === 'string' ? ` ${args[0]}` : ''}`, run) : denied(`fs.${m}`, isDocument(captured))).catch(coded);
+        const picked = isDocument(captured);
+        // @ref LLP 1097 D10 — a write is journaled when this queue accepts it, so one waiting
+        // behind others survives a closed tab too (once the filesystem has loaded).
+        const seq = admitted && !picked && WRITES.has(m) ? loaded?.admit(m, captured) : undefined;
+        let ran = false;
+        const run = () => { ran = true; return (picked ? documents() : files()).then(f => seq === undefined ? f[m](...captured) : f.withSeq(seq, () => f[m](...captured))); };
+        const result = admitted ? queued(`${m}${typeof args[0] === 'string' ? ` ${args[0]}` : ''}`, run) : denied(`fs.${m}`, picked);
+        if (seq !== undefined) void result.catch(() => {}).finally(() => { if (!ran) loaded?.release(seq); });
+        return result.catch(coded);
       }])) }),
     sqlite: Object.freeze({ open: path => { const call = answering.call; return (admitted ? queued(`open ${path}`, () => databases().then(d => d.open(path))).then(d => database(d, path, call)) : denied(`sqlite.open ${path}: no grant covers it; grant \`sqlite.open ${path}\`, or \`sqlite.open ${String(path).slice(0, String(path).lastIndexOf('/'))}\` for every file there (a grant covers its path and what is below it, by whole names)`)).catch(coded); } }),
     work: promise => Promise.resolve(promise),
