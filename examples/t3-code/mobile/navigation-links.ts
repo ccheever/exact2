@@ -40,5 +40,7 @@ export function mobileAppLink(input: string, requestRoute: string, cold = false)
       return result(`/threads/${encoded[0]}/${encoded[1]}/files/${encoded[2]}${query}`);
     } catch { return result('/unmatched-link'); }
   }
+  const draftFile = /^\/new\/draft\/files\/(.+)$/.exec(path);
+  if (draftFile) return result(`/new/draft/files/${encodeURIComponent(decodeURIComponent(draftFile[1]!))}${query}`);
   return result(path + query);
 }

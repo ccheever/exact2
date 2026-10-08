@@ -30,8 +30,7 @@ use SettingsChoicesData, MobilePreferencesResource from "./settings.contract"
 use SettingsAppearance, SettingsAppearanceData from "./settings-appearance.contract"
 use ArchiveData, ArchiveColors from "./archive.contract"
 use AgentActivityData, AgentActivityColors from "./agent-activity.contract"
-// @ref llp/1107.003-pairing-and-transport.decision.md#decision
-use EnvironmentDetailData from "./environment-detail.contract"
+use EnvironmentDetailData from "./environment-detail.contract" // @ref llp/1107.003-pairing-and-transport.decision.md#decision
 use NewTaskFlowSnapshot, NewTaskFlowResult from "./new-task-flow.contract"
 use ComposerSettingsSnapshot, ComposerActionResult, ComposerColors, NewTaskSnapshot, NewTaskPreparation from "./composer-shapes.contract"
 use ThreadSnapshot, ThreadColors from "./thread-shapes.contract"
@@ -95,6 +94,7 @@ routes nav
         newTaskEnvironments "/new/draft/environment"
         newTaskBranches "/new/draft/branch"
         newTaskMedia "/new/draft/attachments/:attachmentId"
+        newTaskFile "/new/draft/files/:filePath"
         newTaskModel "/new/draft/settings"
           newTaskModelOption "/new/draft/settings/options/:modelOption"
           newTaskRuntime "/new/draft/settings/runtime"
@@ -968,18 +968,18 @@ component App
   state fileWrap = false
   state filePreview = true
   resource filesData = filesSnapshot(selectedFile, data.revision) as shape FileTreeSnapshot
-  resource fileData = fileSnapshot(top(nav).params.filePath, appearance.scheme, 0, data.revision) as shape FileSnapshot
+  resource fileData = fileSnapshot(top(nav).params.filePath, appearance.scheme, 0, data.revision, top(nav).url, taskGuardOwner, taskGuardRoute) as shape FileSnapshot
   mutation filesPrepared as shape FileTreeSnapshot refreshes filesData
   mutation filesChanged as shape FileTreeResult refreshes filesData then didFilesChange
   mutation filePrepared as shape FileSnapshot refreshes fileData
   task prepareFiles when workspaceRouteReady and (top(nav).name == "threadFiles" or (inspectorState.active and (inspectorState.mountedFiles or (inspectorState.mountedRoute and inspectorState.kind != "changed-files")))) key=`${top(nav).id}:${filesData.owner}:${filesQuery}:${selectedFile}:${inspectorState.mountedFiles}:${inspectorState.mountedRoute}`
     after(200, prepareFiles)
-  task prepareFile when top(nav).name == "threadFile" and workspaceRouteReady key=`${top(nav).id}:${fileData.owner}`
+  task prepareFile when (top(nav).name == "threadFile" and workspaceRouteReady) or (top(nav).name == "newTaskFile" and newTaskFlow.ready) key=`${top(nav).id}:${fileData.owner}`
     after(1, prepareFile)
   action prepareFiles
     send filesPrepared = filesPrepare(filesQuery, selectedFile)
   action prepareFile
-    send filePrepared = filePrepare(top(nav).params.filePath, appearance.scheme, 0, false)
+    send filePrepared = filePrepare(top(nav).params.filePath, appearance.scheme, 0, false, top(nav).url, taskGuardOwner, taskGuardRoute)
   action openFiles
     if workspaceRouteReady and inspectorContext.hasWorkspace
       if workspace.fileInspectorSupported and (top(nav).name == "thread" or top(nav).name == "threadFiles")
@@ -1004,7 +1004,7 @@ component App
     if workspaceRouteReady and not pending(workspaceNavigation)
       send workspaceNavigation = workspaceFileSelection(workspaceEntries, workspace.fileInspectorSupported, data.environmentId, data.threadId, path)
   action refreshFile
-    send filePrepared = filePrepare(top(nav).params.filePath, appearance.scheme, 0, true)
+    send filePrepared = filePrepare(top(nav).params.filePath, appearance.scheme, 0, true, top(nav).url, taskGuardOwner, taskGuardRoute)
   action toggleFileWrap
     fileWrap = not fileWrap
   action toggleFilePreview

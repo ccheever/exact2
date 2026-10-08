@@ -3,6 +3,7 @@ import { expect, test } from 'bun:test';
 import { T3Client } from './shared/client';
 import { MobileDraftClient } from './mobile-draft-recovery';
 import { mobileNewTask } from './new-task';
+import { mobileNewTaskFileSnapshot, mobileNewTaskFileRead } from './new-task-file';
 import { obj, type Obj } from './shared/domain';
 import type { Native, Files } from './shared/protocol';
 import { EnvironmentFleet } from './shared/settings-b-fleet';
@@ -565,4 +566,80 @@ test('automatic choice follows catalog order and defaults without treating model
   provider.models = [{ slug: 'first', name: 'First' }];
   f.client.chooseDefaults(); expect(f.client.modelId).toBe('first');
   provider.enabled = false; f.client.chooseDefaults(); expect(f.client.modelId).toBe('');
+});
+
+
+test('draft file reads use explicit worktree cwd and shared source rendering', async () => {
+  const f = await fixture(), chooser = f.snapshot('/new'); await f.action(chooser.owner, 'project', '["env","a"]');
+  const location = '/new/draft/files/src%2Fa.ts?environmentId=env&cwd=%2Fworktree&projectName=Worktree&line=2';
+  const flow = f.snapshot(location, 'file'), calls: Obj[] = [];
+  const native: Native = { available: true, watch() {}, async later(input) {
+    const request = obj(input); calls.push(request);
+    return { ok: true, generation: f.client.generation, value: request.op === 'http'
+      ? { authenticated: true, permissions: ['filesystem:read'] } : { contents: 'one\r\n\ttwo', truncated: true } };
+  } };
+  const file = await mobileNewTaskFileRead('src/a.ts', location, 'file', flow.owner, false, native, f.client);
+  expect(file).toMatchObject({ title: 'a.ts', subtitle: 'Worktree · src', contents: 'one\n\ttwo', truncated: true, initialRowId: 'source-line:1' });
+  expect(file.rows[1]).toMatchObject({ text: '    two', selected: true });
+  expect(calls.find(call => call.method === 'projects.readFile')?.payload).toEqual({ cwd: '/worktree', relativePath: 'src/a.ts' });
+  expect(f.client.projectId).toBe('a'); expect(f.client.threadId).toBe(''); expect(f.client.draft).toBe('A original');
+});
+
+test('draft file permission downgrade clears content and cross-environment routes never read', async () => {
+  const f = await fixture(), chooser = f.snapshot('/new'); await f.action(chooser.owner, 'project', '["env","a"]');
+  const location = '/new/draft/files/a.ts', flow = f.snapshot(location, 'file'); let allowed = true, reads = 0;
+  const native: Native = { available: true, watch() {}, async later(input) {
+    const request = obj(input); if (request.method) reads++;
+    return { ok: true, generation: f.client.generation, value: request.op === 'http'
+      ? { authenticated: true, permissions: allowed ? ['filesystem:read'] : [], scopes: ['filesystem:read'] } : { contents: 'private' } };
+  } };
+  expect((await mobileNewTaskFileRead('a.ts', location, 'file', flow.owner, false, native, f.client)).contents).toBe('private');
+  allowed = false;
+  const denied = await mobileNewTaskFileRead('a.ts', location, 'file', flow.owner, false, native, f.client);
+  expect(denied.contents).toBe(''); expect(denied.error).toContain('cannot read'); expect(reads).toBe(1);
+  const foreign = location + '?environmentId=other&cwd=/private'; f.snapshot(foreign, 'foreign');
+  await mobileNewTaskFileRead('a.ts', foreign, 'foreign', flow.owner, false, native, f.client);
+  expect(reads).toBe(1);
+});
+
+test('draft file replies cannot cross a route change or a newer request', async () => {
+  const f = await fixture(), chooser = f.snapshot('/new'); await f.action(chooser.owner, 'project', '["env","a"]');
+  const location = '/new/draft/files/a.ts', flow = f.snapshot(location, 'file'); let release!: (reply: unknown) => void;
+  const slow: Native = { available: true, watch() {}, async later() { return new Promise(resolve => { release = resolve; }); } };
+  const old = mobileNewTaskFileRead('a.ts', location, 'file', flow.owner, false, slow, f.client);
+  f.snapshot('/new/draft', 'draft');
+  release({ ok: true, generation: f.client.generation, value: { authenticated: true, permissions: ['filesystem:read'] } });
+  await expect(old).rejects.toMatchObject({ kind: 'superseded' });
+  expect(mobileNewTaskFileSnapshot('a.ts', location, 'file', flow.owner, false, f.client).contents).toBe('');
+  f.snapshot(location, 'file');
+  const older = mobileNewTaskFileRead('a.ts', location, 'file', flow.owner, false, slow, f.client);
+  const ready: Native = { available: true, watch() {}, async later(input) {
+    return { ok: true, generation: f.client.generation, value: obj(input).op === 'http'
+      ? { authenticated: true, permissions: ['filesystem:read'] } : { contents: 'newest' } };
+  } };
+  await mobileNewTaskFileRead('a.ts', location, 'file', flow.owner, false, ready, f.client);
+  release({ ok: true, generation: f.client.generation, value: { authenticated: true, permissions: ['filesystem:read'] } });
+  await expect(older).rejects.toMatchObject({ kind: 'superseded' });
+  expect(mobileNewTaskFileSnapshot('a.ts', location, 'file', flow.owner, false, f.client).contents).toBe('newest');
+});
+
+
+test('draft file query replacement invalidates the old read without clearing the current cache', async () => {
+  const f = await fixture(), chooser = f.snapshot('/new'); await f.action(chooser.owner, 'project', '["env","a"]');
+  const oldLocation = '/new/draft/files/a.ts?cwd=/old', location = '/new/draft/files/a.ts?cwd=/new';
+  const flow = f.snapshot(oldLocation, 'file'); let release!: (reply: unknown) => void;
+  const slow: Native = { available: true, watch() {}, async later() { return new Promise(resolve => { release = resolve; }); } };
+  const pending = mobileNewTaskFileRead('a.ts', oldLocation, 'file', flow.owner, false, slow, f.client);
+  f.snapshot(location, 'file');
+  const ready: Native = { available: true, watch() {}, async later(input) {
+    return { ok: true, generation: f.client.generation, value: obj(input).op === 'http'
+      ? { authenticated: true, permissions: ['filesystem:read'] } : { contents: 'current workspace' } };
+  } };
+  await mobileNewTaskFileRead('a.ts', location, 'file', flow.owner, false, ready, f.client);
+  release({ ok: true, generation: f.client.generation, value: { authenticated: true, permissions: ['filesystem:read'] } });
+  await expect(pending).rejects.toMatchObject({ kind: 'superseded' });
+  await expect(mobileNewTaskFileRead('a.ts', oldLocation, 'file', flow.owner, false, ready, f.client)).rejects.toMatchObject({ kind: 'superseded' });
+  expect(mobileNewTaskFileSnapshot('a.ts', oldLocation, 'file', flow.owner, false, f.client).contents).toBe('');
+  expect(mobileNewTaskFileSnapshot('a.ts', location, 'file', flow.owner, false, f.client).contents).toBe('current workspace');
+  expect(f.client.draft).toBe('A original');
 });
