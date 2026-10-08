@@ -1,0 +1,21 @@
+2026-10-08T02:48:42.568Z [c1] #158 before the session: {"state":"open","comments":[]}
+2026-10-08T02:48:43.162Z [c1] app pid 74751
+2026-10-08T02:48:58.520Z [c1] connected: sidebar shows Pull Requests
+2026-10-08T02:49:06.368Z [c1] list: no search; row #158 shown: true
+2026-10-08T02:49:12.588Z [c1] shot panel
+2026-10-08T02:49:14.339Z [c1] typed; Close with comment enabled: true
+2026-10-08T02:49:14.435Z [c1] shot close-typed
+2026-10-08T02:49:22.489Z [c1]   +8054 ms: row gone · button "" · toast "Pull request closed" · GitHub closed
+2026-10-08T02:49:22.581Z [c1] shot close-row
+2026-10-08T02:49:22.673Z [c1] shot close-done
+2026-10-08T02:49:23.828Z [c1] read back: state closed (landed +8146 ms); last comment by daehyeonmun2021, body equals the typed bytes: true
+2026-10-08T02:49:26.888Z [c1] after: row #158 gone; toasts "Pull request closed"; header ["Closed","More pull request actions","Refresh","Open on GitHub","Copy link","⇧⌘C","Copy PR number","⇧⌘K","Reopen pull request"]
+2026-10-08T02:49:29.042Z [c1] typed; Reopen with comment shown: true, Close with comment shown: false
+2026-10-08T02:49:29.138Z [c1] shot reopen-typed
+2026-10-08T02:49:45.992Z [c1]   +16854 ms: row gone · button "" · toast "Pull request reopened" · GitHub open
+2026-10-08T02:50:01.231Z [c1]   +32093 ms: row gone · button "" · toast "" · GitHub open
+2026-10-08T02:50:43.098Z [c1] read back: state open (landed +16854 ms); last comment by daehyeonmun2021, body equals the typed bytes: true
+2026-10-08T02:50:46.152Z [c1] after: row #158 gone; toasts ""
+2026-10-08T02:50:47.930Z [c1] deleted test comment 6051156403
+2026-10-08T02:50:48.767Z [c1] deleted test comment 6051158949
+2026-10-08T02:50:50.823Z [c1] #158 after cleanup: {"state":"open","comments":[]}; matches the start: true
