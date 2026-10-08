@@ -1,5 +1,6 @@
+import { mobileOutboxRecoveryDraftApplyChoices } from './mobile-outbox-recovery-draft';
 import { mobileNewTaskContextCommand } from './mobile-new-task-context-command';
-import { mobileOutboxDraftHandoffsHydrate, mobileOutboxDraftHandoffsPersisted } from './mobile-outbox-draft-handoff';
+import { mobileOutboxDraftRecoveryBlocked, mobileOutboxDraftHandoffsHydrate, mobileOutboxDraftHandoffsPersisted } from './mobile-outbox-draft-handoff';
 import { mobilePendingTaskEditorsHydrate, mobilePendingTaskEditorsPersisted, mobilePendingTaskEditorKey, mobilePendingTaskAttachmentHeld, type MobilePendingTaskMarker } from './mobile-pending-task-state';
 import { mobilePendingTaskDraftCleanupDocument } from './mobile-pending-task-draft';
 import { mobileOutboxTransferCanonical as canonical } from './mobile-outbox-transfer-model';
@@ -13,7 +14,7 @@ import { mobileNewTaskDefaultModel } from './new-task-model';
 import { arr, obj, str, type Obj } from './shared/domain';
 import { ClientError, type Native, type Files } from './shared/protocol';
 import { contextId, contextReferences } from './shared/composer-editor-menu';
-import { draftFiles, setDraftFiles } from './shared/composer-editor-files';
+import { adoptComposerFiles, draftFiles, setDraftFiles } from './shared/composer-editor-files';
 import { adoptTerminalContexts } from './shared/terminal-integrations';
 import type { MobileQueuedEditSession } from './queued-edit-state';
 import { mobileQueuedEditOrigin } from './queued-edit-origin';
@@ -88,8 +89,17 @@ function hydrate(client: T3Client, saved: Obj) {
   for (const [key, value] of Object.entries(obj(saved.snapshotDrafts))) {
     const raw = arr(value), shared = raw.filter(image => validImage(image) && image.mimeType === 'image/png').slice(0, 100);
     // Do not overwrite a composer changed between load and the first native call.
-    if (JSON.stringify(client.local.snapshotDrafts[key] ?? []) === JSON.stringify(shared)) client.local.snapshotDrafts[key] = raw.filter(validImage).slice(0, 100);
+    if (JSON.stringify(client.local.snapshotDrafts[key] ?? []) === JSON.stringify(shared)) client.local.snapshotDrafts[key] = raw.filter(validImage);
   }
+  // Shared loading caps the global list at 400. Recovery can legitimately hold
+  // more across drafts; preserve every item its actual decoder accepts.
+  const allFiles: ReturnType<typeof draftFiles> = [];
+  const rawFiles = arr(saved.composerFiles);
+  for (let offset = 0; offset < rawFiles.length; offset += 400) {
+    const batch = {}; adoptComposerFiles(batch, { composerFiles: rawFiles.slice(offset, offset + 400) });
+    allFiles.push(...draftFiles(batch));
+  }
+  if (canonical(draftFiles(client.local)) === canonical(allFiles.slice(0, 400))) setDraftFiles(client.local, allFiles);
   const recovered: Obj = {};
   for (const [owner, raw] of Object.entries(obj(saved.mobileRecoveredDrafts))) {
     const marker = obj(raw);
@@ -148,11 +158,14 @@ function pendingAttachmentHandle(client: T3Client, native: Native): Native {
  * attachments from the original queued message are never recovered as new files. */
 export function mobileRecoveredMessageContext(client: T3Client, key: string, text: string, attachments: Obj[], next?: Obj): Obj | undefined {
   const liveIds = new Set(attachments.map(file => str(file.id))), records = new Map<string, Obj>();
+  const frozen = new Map<string, Obj | null>();
   for (const raw of Object.values(markers(client))) {
     const marker = obj(raw);
     if (marker.key !== key || marker.origin !== mobileQueuedEditOrigin(client) || marker.environmentId !== client.environmentId) continue;
     const original = arr(marker.attachments), images = client.local.snapshotDrafts[key] ?? [], files = draftFiles(client.local).filter(file => file.draftKey === key);
     for (const record of referenced(text, obj(marker.context))) {
+      const authoritative = str(marker.owner).startsWith('outbox:');
+      if (authoritative) frozen.set(str(record.contextId), null);
       let value = record;
       if ('attachmentId' in record) {
         const initial = original.find(file => file.id === record.attachmentId || file.uploadId && file.uploadId === record.attachmentId);
@@ -162,9 +175,11 @@ export function mobileRecoveredMessageContext(client: T3Client, key: string, tex
         value = { ...record, attachmentId: id };
       }
       records.set(str(value.contextId), value);
+      if (authoritative) frozen.set(str(value.contextId), value);
     }
   }
   for (const record of arr(next?.records)) records.set(str(record.contextId), record);
+  for (const [id, record] of frozen) { if (record) records.set(id, record); else records.delete(id); }
   return records.size ? { version: 1, records: [...records.values()] } : undefined;
 }
 /** A confirmed native retirement ends replay ownership. Keep its explicit context
@@ -174,7 +189,7 @@ function pruneRetiredMarkers(client: T3Client) {
   const saved = markers(client), next = { ...saved }; let changed = false;
   for (const [owner, raw] of Object.entries(saved)) {
     const marker = obj(raw);
-    if (marker.nativeRetired === true && referenced(client.local.drafts[str(marker.key)] ?? '', obj(marker.context)).length === 0) {
+    if (marker.nativeRetired === true && Object.keys(obj(marker.choices)).length === 0 && referenced(client.local.drafts[str(marker.key)] ?? '', obj(marker.context)).length === 0) {
       delete next[owner]; changed = true;
     }
   }
@@ -187,6 +202,12 @@ export class MobileDraftClient extends T3Client {
    * must serialize the same removal until live cleanup finishes. No handles. */
   pendingTaskCleanup: { marker: MobilePendingTaskMarker; fingerprint: string } | null = null;
 
+  override async refresh(...args: Parameters<T3Client['refresh']>): Promise<void> {
+    await super.refresh(...args); mobileOutboxRecoveryDraftApplyChoices(this);
+  }
+  override async openThread(...args: Parameters<T3Client['openThread']>): Promise<void> {
+    await super.openThread(...args); mobileOutboxRecoveryDraftApplyChoices(this);
+  }
   override get draftKey(): string { return mobileNewTaskDraftBoundKey(this) || super.draftKey; }
   override ensureSelection(): void {
     // A pending editor owns its captured project even while absent from the shell.
@@ -259,6 +280,7 @@ export class MobileDraftClient extends T3Client {
     if (!retry && (launch || pending.method === 'orchestration.dispatchCommand' && pending.payload.type === 'message.dispatch')) {
       const body = launch ? obj(pending.payload.initialMessage) : pending.payload;
       const key = launch ? mobileNewTaskDraftCurrent(this)?.key || `${this.environmentId}:new:${str(pending.payload.projectId)}` : `${this.environmentId}:${str(pending.payload.threadId)}`;
+      if (mobileOutboxDraftRecoveryBlocked(this, key)) throw new ClientError('Finish restoring this draft before sending it.', 'retained');
       const attachments = mobileDraftAttachmentsForSend(this, key, arr(body.attachments), str(body.text));
       const context = mobileRecoveredMessageContext(this, key, str(body.text), attachments, body.context ? obj(body.context) : undefined);
       const ordered = { ...body, ...(Array.isArray(body.attachments) ? { attachments } : {}), ...(context ? { context } : {}) };

@@ -498,7 +498,7 @@ final class T3MobileOutboxOwner: @unchecked Sendable {
             }
             // A completed removal has no live row to hold. Only the exact terminal
             // request fingerprint above permits replay without reacquiring a hold.
-            guard holds[id]?.contains(owner) == true else { throw fail("Restore the exact pending editor hold before resuming its saved mutation.") }
+            guard holds[id]?.contains(owner) == true, !removing || holds[id]?.count == 1 else { throw fail("Restore the exclusive pending editor hold before resuming its saved removal.") }
             var pending = previous
             if previous["state"] as? String == "pending" {
                 guard let original = previous["mutation"] as? Object, try fingerprint(original) == digest,
@@ -619,7 +619,7 @@ final class T3MobileOutboxOwner: @unchecked Sendable {
         }
         guard synced({ unresolved[id] == nil }) else { return ["completed": false] }
         var removals = value["removals"] as? [String: Object] ?? [:]
-        guard let removed = removals[mutation] else { return ["completed": false] }
+        guard let removed = removals[mutation] else { return ["completed": false, "absent": true] }
         if let outcome = outcomes[mutation] { try requireDeliveryCleanupEvidence(outcome) }
         try release([removed]); removals.removeValue(forKey: mutation); value["removals"] = removals; try save(value)
         return ["completed": true]

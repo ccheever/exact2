@@ -1,3 +1,4 @@
+import { mobileOutboxDraftRecoveryBlocked } from './mobile-outbox-draft-handoff';
 // Pinned365aa87982 NewTaskDraftScreen.handleStart: local enqueue precedes navigation.
 // @ref llp/1109.005-composer-and-transcript.decision.md#durable-draft-capture-transfer
 import type { MobileDraftClient } from './mobile-draft-recovery';
@@ -47,6 +48,8 @@ export async function mobileNewTaskSubmit(client: MobileDraftClient, native: Nat
   storage: Files, input: MobileNewTaskSubmitInput): Promise<MobileNewTaskSubmitResult> {
   if (mobileNewTaskDraftIsPendingKey(input.draftKey)) return presentation(client, { status: 'blocked', claim: null,
     message: 'Save these changes through the pending task editor.' }, input.draftKey, false, false);
+  if (mobileOutboxDraftRecoveryBlocked(client, input.draftKey)) return presentation(client, { status: 'blocked', claim: null,
+    message: 'Finish restoring this draft before sending it.' }, input.draftKey, false, false);
   const stamp = destination(client), capture = mobileNewTaskCaptureFacts(client, input.draftKey, input.current, input.now);
   const initial = mobileNewTaskDraftPresentation(client, input.draftKey);
   let startsNow = false;
