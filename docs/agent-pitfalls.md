@@ -129,9 +129,9 @@ guide's rules don't make obvious.
   frame. (Signal Clone, build 2.)
 - **A gate reads state at commits.** A gated task (`task hide when toast != ""
   key=toastUntil`) is armed or dropped by the commit that changes its gate or
-  key, never as the clock moves: so a gate cannot read `now()` (refused), and the
-  `after`'s action runs at its deadline exactly, `now()` equal to it. An action
-  that re-tests `now() > toastUntil` there does nothing and the toast stays up
+  key, never as the clock moves: so a gate cannot read `performanceNow()` (refused), and the
+  `after`'s action runs at its deadline exactly, `performanceNow()` equal to it. An action
+  that re-tests `performanceNow() > toastUntil` there does nothing and the toast stays up
   forever; clear it unconditionally. (LLP 1092 D8; ledger2 #1, chat F7.)
 
 - **A custom row in a grouped list overflows its card on the right.** Cause:
@@ -286,7 +286,7 @@ guide's rules don't make obvious.
   (`Date.now()`, `new Date()`, `Math.random()`, timers), including literal
   bracket access such as `Date['now']()`. An alias or dynamic key still gets
   past the build and throws on first use on every host but Bun. Take the time
-  from the call's arguments (the Contract's `wallTime.epochAtZero + now()`), as
+  from the call's arguments (the Contract's `wallTime.epochAtZero + performanceNow()`), as
   every source already receives it. (Signal clone build 34, 2026-10-05.)
 
 - **A helper action does not see what its caller just assigned.** `sel = next`
@@ -327,8 +327,8 @@ guide's rules don't make obvious.
 - **A sequence's first hit is late when the first timer tick plays it.** A
   gated or new `every(25, tick)` first fires 25 ms after it starts, so a downbeat
   left to the tick is 25 ms late. Fix: schedule the first window from the press
-  itself (`playSounds(hitsBetween(song, now(), now() + 100))` in the start
-  action), then each tick the next (`[scheduledTo, now() + 100)`). (Drums; LLP
+  itself (`playSounds(hitsBetween(song, performanceNow(), performanceNow() + 100))` in the start
+  action), then each tick the next (`[scheduledTo, performanceNow() + 100)`). (Drums; LLP
   1096 D3.)
 
 ## Media session
@@ -484,20 +484,8 @@ guide's rules don't make obvious.
   the agent's own `screenshot`, which targets the app's simulator. (Authoring
   bench, LLP 1087, t9-profile, 2026-10-07.)
 
-- **A deadline the app computed lands in 1970, and the server sweeps it at once.**
-  `closesAt = now() + 7 * 86400000` was sent as `604800000`: a row the backend's
-  expiry job removed while the mutation said `sent`, a label reading "due in
-  20732d". Cause: `now()` is milliseconds since the runner's clock started, as the
-  web's `performance.now()`, not `Date.now()`; on every host, production included,
-  and from 0 under the agent and in tests. Fix: the date is `time.epochAtZero +
-  now()`, from `resource time = exactTime() as shape Clock` with `shape Clock` /
-  `epochAtZero: number` declared (`exactTime()` is a resource, never a call in an
-  expression); or let the server compute the deadline from a duration. LLP 1109 D1
-  asks whether `now()` should be the date. (App farm round 1, 12 builds,
-  2026-10-07.)
-
 - **Records an agent drive writes are dated 2026-01-01.** The driver's clock
-  starts at a fixed epoch, so `wallTime.epochAtZero + now()` is that date, and a
+  starts at a fixed epoch, so `wallTime.epochAtZero + performanceNow()` is that date, and a
   `createdAt` taken from it is too: Bluesky's AppView then sorted the clone's
   test posts out of the author feed, and they turned up only through search.
   Fix: `--epoch $(date -u +%Y-%m-%dT%H:%M:%SZ)` on any drive that writes to a

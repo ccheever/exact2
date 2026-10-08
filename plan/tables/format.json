@@ -1011,9 +1011,10 @@
   "_stdlib": "The enumerated roster (LLP 1004 D2/D4): every callable an expression may name, with its parameter types and return type (`any` = one of number, string, bool, list). The compiler checks calls against this table; the runner's VM implements each entry once; entries are added by fixture, never by speculation. LLP 1038 D3: Router and Entry name reserved record shapes; list<Router>, list<Entry>, and list<string> are typed lists.",
   "stdlib": [
     {
-      "name": "now",
+      "name": "performanceNow",
       "params": [],
-      "returns": "number"
+      "returns": "number",
+      "_comment": "@ref LLP 1109 D1: the web's `performance.now()`: milliseconds on the runner's monotonic clock since boot (the driver's clock under the agent, from 0), not the date. Renamed from `now()`, which is refused (`type-now-renamed`)."
     },
     {
       "name": "formatTime",

@@ -368,6 +368,13 @@ pub(super) fn unknown_function(
     shapes: &Shapes,
     span: Span,
 ) -> TypeError {
+    if name == "now" {
+        return TypeError {
+            id: "type-now-renamed",
+            message: contract_syntax::idioms::NOW_REFUSED.into(),
+            span,
+        };
+    }
     // The web's list operations and number formatters Contract refuses
     // (LLP 1017.003 §Diagnostics) say what to do instead.
     if let Some(why) = contract_syntax::idioms::refusal(name) {

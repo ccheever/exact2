@@ -423,7 +423,7 @@ value of the type it gives, or is unsupported; never a type error. -/
 theorem stdlib_good {env : Env} {p : Program} {name : String} {vs : List Value} {ts : List Ty} {t : Ty}
     (hp : env.prog = p) (hrs : routeShapesOK p = true) (hv : ValTyL p vs ts) (h : rosterTy name ts = .some t) : GoodR (ValTy p · t) (stdlib env name vs) := by
   delta rosterTy at h
-  by_cases hn : name = "now"
+  by_cases hn : name = "performanceNow"
   · subst hn; rw [ite_pos rfl] at h
     split at h <;> simp at h; subst h; rw [hv.nil_inv]; simp [stdlib, GoodR, ValTy]
   rw [ite_neg hn] at h

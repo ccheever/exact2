@@ -185,7 +185,7 @@ impl<D: DataSource> Runner<D> {
     }
 
     /// An input at the host's time `now_ms`: the clock moves there first,
-    /// firing every timer due by then, so the action's `now()` — and a sound
+    /// firing every timer due by then, so the action's `performanceNow()` — and a sound
     /// it schedules (LLP 1096 D3) — is the event's time, as on the JS
     /// target, not the last timer's. The commits in order, the event's last,
     /// at `now_ms`; a timer's refusal rides along and the event still runs.

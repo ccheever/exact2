@@ -591,7 +591,7 @@ impl<D: DataSource> Host<D> {
             }
         }
         self.now_ms = now_ms.max(self.now_ms);
-        // At the event's time: an action's `now()` is the page's (LLP 1096 D3).
+        // At the event's time: an action's `performanceNow()` is the page's (LLP 1096 D3).
         let a = self.runner.dispatch_at(view, event, self.now_ms);
         self.batch_for(&a.receipts, a.error.map(|e| format!("{e:?}")).as_deref())
     }

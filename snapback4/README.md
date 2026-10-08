@@ -47,12 +47,12 @@ shape Clock
   epochAtZero: number
 
   resource time = exactTime() as shape Clock
-  resource inbox = inbox(time.epochAtZero + now()) as list<Message>
+  resource inbox = inbox(time.epochAtZero + performanceNow()) as list<Message>
 ```
 
 `exactTime()` is a reserved source, not a function to call inside an
-expression. Under the agent and in tests, `now()` starts near zero and
-`epochAtZero` places it in real time; pass the sum, never `now()` alone.
+expression. Under the agent and in tests, `performanceNow()` starts near zero and
+`epochAtZero` places it in real time; pass the sum, never `performanceNow()` alone.
 
 ### Open, sync, read, write
 

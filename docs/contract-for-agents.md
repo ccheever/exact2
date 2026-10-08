@@ -328,7 +328,7 @@ component Cart
   assignment expressions, or JavaScript built-ins by implication.
 - `fn label(done: bool): string = done ? "Done" : "Open"` is a function: parameters
   and the return type are explicit, after `:` (not `->`). Its body is one expression over
-  its parameters and standard calls (including `now()`), without component-state
+  its parameters and standard calls (including `performanceNow()`), without component-state
   capture or recursion. Pass an app value in; do not invent an ambient reference.
   A `fn` named like a standard function (`fn indexOf`) shadows it in every
   expression of the app, so a standard function added later never breaks an
@@ -883,7 +883,7 @@ A sound effect is a declared WAV that an action plays ([LLP
 1096](../llp/1096-sounds-an-app-can-schedule.rfc.md)): `sound "assets/…wav"` at the
 top level (16-bit or float PCM, one or two channels, at most 10 s; the compiler
 reads it), then `playSound(src, at=, gain=, group=)` from any action. Every call is
-a new voice, so a retrigger is another call. `at=` is the runner's clock (`now()`'s
+a new voice, so a retrigger is another call. `at=` is the runner's clock (`performanceNow()`'s
 milliseconds; the past means now), `gain=` a linear 0–1, and a `group=` is
 monophonic by start time: a voice ends where the next one in its group starts, as a
 drum machine's choke does. `stopSounds()` (or `stopSounds(group=…)`) ends what
@@ -902,20 +902,20 @@ component Ding
 
 To keep time (a sequencer, a metronome), schedule ahead on the audio clock rather
 than starting each hit when a timer's commit lands: the press schedules the first
-window, `[now(), now() + 100)`, and each tick of a coarse timer schedules the next,
-`[scheduledTo, now() + 100)`, as a list a `fn` computes (`playSounds(hits)` takes a
+window, `[performanceNow(), performanceNow() + 100)`, and each tick of a coarse timer schedules the next,
+`[scheduledTo, performanceNow() + 100)`, as a list a `fn` computes (`playSounds(hits)` takes a
 list of a shape whose fields are, in order, `src`, `at`, `gain` and `group`). A
 timer's commit is at its due time, so a hit planned at `t` lands on the grid:
 
 ```text
 action start
   playing = true
-  playSounds(hitsBetween(song, now(), now() + 100))
-  scheduledTo = now() + 100
+  playSounds(hitsBetween(song, performanceNow(), performanceNow() + 100))
+  scheduledTo = performanceNow() + 100
 action tick
   if playing
-    playSounds(hitsBetween(song, scheduledTo, now() + 100))
-    scheduledTo = now() + 100
+    playSounds(hitsBetween(song, scheduledTo, performanceNow() + 100))
+    scheduledTo = performanceNow() + 100
 action stop
   playing = false
   stopSounds()
@@ -1183,9 +1183,9 @@ restarts it, as a new `each` key makes a new row
 runs when the gate changes: turning true arms the timer from that commit's time,
 turning false drops it, and an idle task keeps no host awake and commits
 nothing at rest. `key=expr` alone means `when true key=expr`. An `after` fires
-at its deadline exactly, so its action sees `now()` equal to the deadline: clear
-without re-testing the time (a strict `now() > until` does nothing there). The
-gate is a bool and the key a string, number or bool; neither may read `now()`
+at its deadline exactly, so its action sees `performanceNow()` equal to the deadline: clear
+without re-testing the time (a strict `performanceNow() > until` does nothing there). The
+gate is a bool and the key a string, number or bool; neither may read `performanceNow()`
 (`analyze-task-gate-clock`): gate on state and let the timer measure time. A
 toast, a debounce (`when draft != saved key=draft` with `after(800, save)`), a
 round's tick (`when screen == "play"`) and a flight's frames
@@ -1215,15 +1215,16 @@ a loop from mutations: a `then` cannot send its own mutation
 (`analyze-then-self-send`). For a purely visual loop, use a CSS `animation`
 instead.
 
-`now()` is the runner's clock in milliseconds since boot (the driver's clock under
+`performanceNow()` is the runner's clock in milliseconds since boot (the driver's clock under
 the agent, from 0), as the web's `performance.now()`, not a date: a deadline of
-`now() + ms` sent to a server is in 1970. For the date, read the reserved
-`exactTime` source and add `time.epochAtZero + now()`. Its fields, which a shape declares as it reads them:
-`epochAtZero` (Unix milliseconds when `now()` read zero), `utcOffset` (minutes east
+`performanceNow() + ms` sent to a server is in 1970. For the date, read the reserved
+`exactTime` source and add `time.epochAtZero + performanceNow()`. There is no
+`now()`: it is refused (`type-now-renamed`) with those two repairs. Its fields, which a shape declares as it reads them:
+`epochAtZero` (Unix milliseconds when `performanceNow()` read zero), `utcOffset` (minutes east
 of UTC), `locale` (BCP 47), `timeZone` (IANA), `resolvedLocale` (the language of
 the string table the app shows, `""` with no tables) and `seed` (a whole number
 drawn once per launch). A read does not itself schedule a future render, and a
-derive that reads `now()` is not read again as time passes, and when it is read
+derive that reads `performanceNow()` is not read again as time passes, and when it is read
 again differs by host. For a displayed value that must follow the clock, keep the
 time in state that a timer's action (`task … every`) writes. Prefer `clock settle` to waiting for a transition in real time.
 `time.utcOffset` is the zone's offset *now*: every host answers it again when the

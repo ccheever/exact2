@@ -83,7 +83,7 @@ component Messages
     pull = 0
     swiped = ""
     flightPhase = 0
-    send changed = command("read", id, "", wallTime.epochAtZero + now())
+    send changed = command("read", id, "", wallTime.epochAtZero + performanceNow())
   action back
     nav = back(nav)
     panel = false
@@ -100,7 +100,7 @@ component Messages
   action write(value: string)
     draft = value
     draftThread = thread
-    send changed = command("draft", thread, value, wallTime.epochAtZero + now())
+    send changed = command("draft", thread, value, wallTime.epochAtZero + performanceNow())
   action focusComposer
     editing = true
     endRequest = endRequest + 1
@@ -108,19 +108,19 @@ component Messages
     editing = false
   action send
     if data.busy
-      send changed = command("stop", thread, "", wallTime.epochAtZero + now())
+      send changed = command("stop", thread, "", wallTime.epochAtZero + performanceNow())
     else
       if textValue != ""
         flightBody = textValue
         flightThread = thread
         flightId = ""
-        flightAt = now()
+        flightAt = performanceNow()
         flightRevision = changeRevision
         fieldX = frame("composer-pill").x
         fieldY = frame("composer-pill").y
         fieldWidth = frame("composer-pill").width
         flightPhase = viewport.prefersReducedMotion ? 0 : 1
-        send changed = sendMessage(thread, textValue, replyBody, wallTime.epochAtZero + now())
+        send changed = sendMessage(thread, textValue, replyBody, wallTime.epochAtZero + performanceNow())
         draft = ""
         draftThread = thread
         panel = false
@@ -145,7 +145,7 @@ component Messages
     panel = false
     choosing = false
   action react(glyph: string)
-    send changed = command("reaction", thread, `${selected}|${glyph}`, wallTime.epochAtZero + now())
+    send changed = command("reaction", thread, `${selected}|${glyph}`, wallTime.epochAtZero + performanceNow())
     selected = ""
   action copy
     copyText(selectedBody)
@@ -157,7 +157,7 @@ component Messages
   action cancelReply
     replyBody = ""
   action remove
-    send changed = command("delete", thread, selected, wallTime.epochAtZero + now())
+    send changed = command("delete", thread, selected, wallTime.epochAtZero + performanceNow())
     selected = ""
   action read(body: string)
     fullText = body
@@ -166,7 +166,7 @@ component Messages
   action togglePanel
     panel = not panel
   action operation(op: string)
-    send changed = command(op, thread, "", wallTime.epochAtZero + now())
+    send changed = command(op, thread, "", wallTime.epochAtZero + performanceNow())
     panel = false
   action jump(end: bool)
     endRequest = end ? max(1, endRequest + 1) : min(-1, endRequest - 1)
@@ -180,7 +180,7 @@ component Messages
   action searchModels(value: string)
     modelQuery = value
   action model(id: string)
-    send changed = command(newConversation ? "new" : "model", thread, id, wallTime.epochAtZero + now())
+    send changed = command(newConversation ? "new" : "model", thread, id, wallTime.epochAtZero + performanceNow())
     choosing = false
   action swipe(id: string)
     swiped = swiped == id ? "" : id
@@ -192,19 +192,19 @@ component Messages
     inboxEditing = not inboxEditing
     swiped = ""
   action inboxOperation(op: string, id: string)
-    send changed = command(op, id, "", wallTime.epochAtZero + now())
+    send changed = command(op, id, "", wallTime.epochAtZero + performanceNow())
     swiped = ""
   action poll
-    time = now()
+    time = performanceNow()
     if not pending(heartbeat)
-      send heartbeat = pulse(wallTime.epochAtZero + now())
+      send heartbeat = pulse(wallTime.epochAtZero + performanceNow())
   task network mount
     every(250, poll)
   // Geometry is read once after the new balloon has laid out. Motion is
   // then evaluated by Exact's spring, with the reference's 55 ms throw delay.
   action animate
-    if flightBody != "" and now() - flightAt < 6000
-      time = now()
+    if flightBody != "" and performanceNow() - flightAt < 6000
+      time = performanceNow()
     if changeRevision != seenChange
       seenChange = changeRevision
       if newConversation and changeId != ""
@@ -212,7 +212,7 @@ component Messages
         draft = ""
         draftThread = changeId
         newConversation = false
-    if flightPhase == 1 and changeRevision != flightRevision and changeId != "" and now() - flightAt > 30
+    if flightPhase == 1 and changeRevision != flightRevision and changeId != "" and performanceNow() - flightAt > 30
       if not frame(`bubble-${changeId}`).unavailable
         flightId = changeId
         flightX = frame(`bubble-${changeId}`).x
@@ -221,19 +221,19 @@ component Messages
         flightDelta = fieldY - frame(`bubble-${changeId}`).y
         flightScale = min(2.5, fieldWidth / max(48, frame(`bubble-${changeId}`).width))
         flightPhase = 2
-        flightAt = now()
-    if flightPhase == 2 and now() - flightAt >= 16
+        flightAt = performanceNow()
+    if flightPhase == 2 and performanceNow() - flightAt >= 16
       flightScale = 0.77
       flightPhase = 3
-    if flightPhase == 3 and now() - flightAt >= 55
+    if flightPhase == 3 and performanceNow() - flightAt >= 55
       flightDelta = 0
       flightPhase = 4
-    if flightPhase == 4 and now() - flightAt >= 177
+    if flightPhase == 4 and performanceNow() - flightAt >= 177
       flightScale = 1
       flightPhase = 5
-    if flightPhase == 5 and now() - flightAt >= 800
+    if flightPhase == 5 and performanceNow() - flightAt >= 800
       flightPhase = 0
-    if flightPhase == 1 and now() - flightAt > 2000
+    if flightPhase == 1 and performanceNow() - flightAt > 2000
       flightPhase = 0
   task motion mount
     every(frame, animate)

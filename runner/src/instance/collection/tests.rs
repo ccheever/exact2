@@ -1047,7 +1047,8 @@ fn key_reuse_harness(clock_key: bool) -> Harness {
             .simple(Opcode::Pop);
         a.load_item(0).field(0).load_slot(dep).simple(Opcode::Add);
         if clock_key {
-            a.call(exact_plan::Stdlib::Now).simple(Opcode::Add);
+            a.call(exact_plan::Stdlib::PerformanceNow)
+                .simple(Opcode::Add);
         }
     });
     let (_, arms) = b.region(RegionKind::Each, Some(root), None, 0, subject, key, 1);

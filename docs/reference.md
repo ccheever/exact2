@@ -320,7 +320,7 @@ Seeds are integers from 0 through 2^53 − 1; an epoch is an ISO date or Unix mi
 (milliseconds); direct agent launches can set these too. Web agent pages accept
 `?agent=1&seed=42&locale=fr-CA&timeZone=America/Toronto&epoch=1790000000000`.
 The driver supplies its own defaults unless an option (or `open({env: ...})`)
-overrides them. `clock +N` moves the date (`epochAtZero + now()`); `state.time`
+overrides them. `clock +N` moves the date (`epochAtZero + performanceNow()`); `state.time`
 reports all five facts. Before the first host report, the runner
 also supplies usable `en-US`/`UTC` and seed 0. Ordinary launches draw their seed
 from secure platform entropy. A development reload retains that launch's seed.
@@ -551,7 +551,7 @@ are `bigint`: convert them to a Contract-compatible value before returning.
 notification; `closeNotification(tag)` takes one away, shown or still
 waiting. The names are the Notification API's (`showTrigger` is the
 Notification Triggers draft's member, given as the time in epoch
-milliseconds: the date now is `exactTime().epochAtZero + now()`). A newer notification
+milliseconds: the date now is `exactTime().epochAtZero + performanceNow()`). A newer notification
 with the same `tag` replaces the older. The app's grants must name
 `device.notifications purpose.notifications` (a strings key, LLP 1069.008;
 iOS shows its own fixed prompt text), or the command is refused. Permission

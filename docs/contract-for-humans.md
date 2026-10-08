@@ -345,7 +345,7 @@ component CountLabel
 ```
 
 Functions have no effects, cannot recursively call themselves or form cycles, and
-do not capture component state (they can read `now()`). Pass values as parameters. Standard-function names
+do not capture component state (they can read `performanceNow()`). Pass values as parameters. Standard-function names
 are reserved against redefinition. See the grammar reference for the complete
 [standard-function list](contract-grammar.md#standard-functions-and-intrinsics).
 
@@ -789,7 +789,7 @@ call outside them fails. The capabilities are:
   `Date.now()`, `new Date()` without a value, `setTimeout`, `setInterval`,
   `performance.now()` and `Math.random()` are refused when first used, on every
   executor (`crypto.getRandomValues` and `crypto.randomUUID` work inside an answer); the type check cannot see it, and only `logs` shows the refusal. Time
-  and seeds are arguments: pass `now()` from the Contract (the
+  and seeds are arguments: pass `performanceNow()` from the Contract (the
   [data-module reference](reference.md#generate-typescript-data-source-types) has the full list).
 - *There is no storage or network at build time.* The build bakes each
   resource's first value into the plan, and a storage call then is refused
@@ -1250,7 +1250,7 @@ component Undo
   state toastUntil = 0
   action deleted
     toast = "Deleted"
-    toastUntil = now() + 5000
+    toastUntil = performanceNow() + 5000
   action hideToast
     toast = ""
   task hide when toast != "" key=toastUntil
@@ -1263,13 +1263,14 @@ The timer exists while `toast != ""` holds, as a `when` arm's nodes do, and a ne
 `toastUntil` restarts it, as a new key makes a new `each` row: a replaced toast
 gets its whole five seconds. Nothing runs when the gate changes, and an idle task
 keeps no host awake. The action runs at the deadline exactly, so it clears the
-toast without testing the time again. Gates and keys read state, never `now()`
+toast without testing the time again. Gates and keys read state, never `performanceNow()`
 (LLP 1092).
 
-`now()` reads milliseconds since boot on the runner's clock (the driver's clock
+`performanceNow()` reads milliseconds since boot on the runner's clock (the driver's clock
 under the agent); it is not a date. For the date, read the reserved `exactTime`
-source and add `time.epochAtZero + now()`. Advancing the clock alone does not
-necessarily trigger rendering: a derive using `now()` reevaluates when a later
+source and add `time.epochAtZero + performanceNow()`. There is no `now()`; the
+compiler refuses it and names both. Advancing the clock alone does not
+necessarily trigger rendering: a derive using `performanceNow()` reevaluates when a later
 commit evaluates it. Use a task when the display must tick.
 
 Use CSS `transition` for changes to supported properties and `keyframes` with
