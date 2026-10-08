@@ -1,0 +1,65 @@
+fix-hover-cards (#307): the real-pointer session, 2026-10-08
+
+Setup
+- Lock: target/t3-ui-parity/lanes/.realinput-lock taken 10:40:48Z (owner "fix-hover-cards: real pointer rows
+  (real.mjs: settings, pr, usage)"), released 11:22:30Z.
+- Screen: `ioreg -n Root -d1` showed no CGSSessionScreenIsLocked before each run. The drive logs the frontmost
+  layer-0 window before each part (`front-window`); it was the app's window each time.
+- Build: the clone's macOS development build of each revision below (bun host/apple/build.mjs t3-code-macos).
+- Pointer: cliclick moves in 3 pt steps, 25 ms apart, at the window's screen place. The app runs in agent mode
+  (the driver sets the screen up and reads the tree back). Real time passes with `clock +N real` after each move.
+- Lanes: the embedded "This machine" server (settings, port 16152); the real-GitHub lane's server on 16151 (pr,
+  PID 11090); the usage fixture lane (a: 11386/11387, b: 11388/11389). All stopped by those PIDs at 11:23Z.
+
+Runs
+- settings, 10:41:08-10:42:16Z, app PID 12162, build of 5752b7be2 (the head before this session's fix):
+  real-settings-after.ndjson.txt, real-01..05.
+- pr, 10:44:10-10:45:09Z, app PID 22844, the same build: real-pr-after.ndjson.txt, real-11..14.
+- usage, 11:19:24-11:21:59Z, app PID 22941, build of 7fe081148 (the fix below): real-usage-after.ndjson.txt,
+  real-21..31.
+
+Results
+- Bug 1 (#251): pass. The tooltip of the list's update icon and of the editor's update icon is present after the
+  glide onto the icon, its box above the icon and whole in the window (tip-box y 153 and 159); absent after the
+  glide away.
+- Bug 2 (#248): pass. "5 scopes": the card is present on the count, present after the glide up into the card and
+  900 ms of real time, absent 500 ms after the glide out.
+- Bug 14 (#262): pass. The freshness card is present on the mark, present after the glide into the card and onto
+  "Update with rebase", absent 500 ms after the glide out.
+- #281, pull request card: pass. A real press on the card's text over the Timeline tab (no padding point lay over a
+  tab): the tabs are the same before and after, and the card stays.
+- Bug 10 (#263): pass for the popover. It opens on the segment after the real hover, stays after the glide into it
+  (900 ms), and is inert 400 ms after the glide out. A real click on the email reveals it (real-24).
+  The email's tooltip: fail. With the pointer on the email, the email's hover box and the card's hover hand the
+  hover back and forth on each move (logged: "hover in view 902 (hover#7329)", "hover out view 902",
+  "hover in view 891 (enterPop#7226)", ... ending on the card), so the tooltip unmounts. This is X62's third case,
+  #322, fixed by #327 (open).
+- #281, Usage popover: fail, as expected before #327. A real press on the popover's padding (499, 276) over the
+  weekly limit's Codex segment pinned that segment (usage-seg-0-1-0 aria-expanded true) and its popover replaced
+  the first one (real-22b).
+- #290's rows: pass. A real press pins the segment (real-26); a real press in the sidebar ("No projects yet")
+  closes it (real-27); a press, then a second press on the same segment with the pointer resting, closes it, and
+  it stays closed after a 2 pt move (real-28); at 840x620 the legend row's press shows the popover below the row,
+  not over it (card y 203, row y 169-197), and a second press closes it (real-29, real-30).
+- Bug 9 (#246): pass. On the unavailable GPT-6 Luna row the tooltip "This model is unavailable on Build box.
+  Select that environment to choose its model separately." shows left of the row (real-31); absent after the
+  glide away.
+
+Found and fixed in this session (7fe081148)
+- Before the fix, on the build of 5752b7be2 (10:53Z and 11:00-11:03Z), the sidebar press did not close a pinned
+  popover. The window counted the press ("pointerdown view 1 (outsidePressDown#1)", "pointerup view 1
+  (outsidePressUp#1)"), but while the pointer crossed the sidebar's resize handle (sidebar-resize, x 247-263) on
+  its way to the sidebar, each move gave the handle an enter and then a usage segment's hover an enter again
+  ("hover in view 1306 (sidebarHover)", "hover out view 1306", "hover in view 1130 (enterSeg#7408)", five times).
+  The last event before the press was the segment's enter, so the hover-opened state kept the popover. Base UI's
+  outside press closes a popover however it opened, so the Usage page now keeps the hover only while the
+  window's outside-press count is the one at its last enter. On 7fe081148 the same press closes it.
+
+Drive notes (the apparatus, not the app)
+- Window activation: NSRunningApplication.activate was refused while another app was frontmost ("active: false
+  front: Orca"), and the first real hover then did nothing. real.mjs now sets the app frontmost through System
+  Events first ("active: true").
+- Agent pointer: in agent mode the host's hit-test of a resting pointer after a layout uses the agent's pointer,
+  never the cursor (MouseChainMac.restingPointer). An agent hover left parked on the card closed the bug 9
+  tooltip at its next layout in one run (11:13Z, row-tips []). real.mjs now clears it with an agent contact
+  (down and up on the sidebar's "No projects yet") before the real moves, and parks it nowhere after.
