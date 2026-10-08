@@ -433,15 +433,32 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
             assign(collection, \.contentInsetAdjustmentBehavior, scroll.contentInsetAdjustmentBehavior)
             // An authored space under a last section with a footer is under
             // the footer: its section's bottom inset is the rows-to-footer gap.
+            // What the list adds to the hidden scroll's insets: an authored
+            // space under a last section with a footer (its section's bottom
+            // inset is the rows-to-footer gap), and the list's own padding,
+            // room before its first section and after its last as a scroll's
+            // is (a tab bar's, under a list that runs beneath it).
+            var added = UIEdgeInsets.zero
+            if model.sections.last?.footer != nil, let below = model.spaceBelow { added.bottom += below }
+            added.top += CGFloat(owner.style["padding_top"]?.number ?? 0)
+            added.bottom += CGFloat(owner.style["padding_bottom"]?.number ?? 0)
             var inset = scroll.contentInset
-            if model.sections.last?.footer != nil, let below = model.spaceBelow { inset.bottom += below }
-            // The list's own padding is room before its first section and
-            // after its last, as a scroll's is: a tab bar's, under a list
-            // that runs beneath it.
-            inset.top += CGFloat(owner.style["padding_top"]?.number ?? 0)
-            inset.bottom += CGFloat(owner.style["padding_bottom"]?.number ?? 0)
+            inset.top += added.top
+            inset.bottom += added.bottom
+            // A list at rest at its top stays there, its first section below
+            // the new room, as a scroll keeps its top under a new inset.
+            // Only when the inset moves, so a drag past the top is left alone.
+            let moved = collection.contentInset.top != inset.top
+            let atTop = abs(collection.contentOffset.y + collection.adjustedContentInset.top) < 0.5
             assign(collection, \.contentInset, inset)
-            assign(collection, \.verticalScrollIndicatorInsets, scroll.verticalScrollIndicatorInsets)
+            if moved, atTop, !collection.isDragging {
+                collection.contentOffset.y = -collection.adjustedContentInset.top
+            }
+            // The indicator keeps to the same room.
+            var indicator = scroll.verticalScrollIndicatorInsets
+            indicator.top += added.top
+            indicator.bottom += added.bottom
+            assign(collection, \.verticalScrollIndicatorInsets, indicator)
             // A short list bounces, as Settings does; UICollectionView's own
             // default would not.
             assign(collection, \.alwaysBounceVertical, owner.scrollsVertically)
