@@ -280,6 +280,31 @@ final class R3TransportTests: XCTestCase {
         XCTAssertFalse(values(fourth).contains { $0["_retryDue"] as? Bool == true })
     }
 
+    // usage-reset-and-feedback (composer-replies.ts): a request with `deliver` answers its id at once,
+    // and its reply (or typed failure) joins the inbox under that key, so no answer waits on it.
+    func testADeliveredRequestAnswersAtOnceAndFilesItsReplyInTheInbox() throws {
+        let socket = try R3Socket()
+        socket.answer = { request in request["tag"] as? String == "provider.uploadFeedback" ? [] : [["_tag": "Exit", "requestId": request["id"]!, "exit": ["_tag": "Success", "value": [:]]]] }
+        let transport = connected(socket); defer { transport.destroy() }
+        let generation = perform(transport, ["op": "status"])["generation"] as! Int
+        func start(_ key: String) -> String {
+            let reply = perform(transport, ["op": "request", "method": "provider.uploadFeedback", "payload": ["threadId": "t1", "reason": "broken diff"], "deliver": key, "generation": generation])
+            XCTAssertEqual(reply["ok"] as? Bool, true, "\(reply)")
+            return (reply["value"] as? [String: Any])?["id"] as? String ?? ""
+        }
+        func filed(_ key: String) -> [String: Any]? { events(transport, generation: generation).first { $0["key"] as? String == key }?["value"] as? [String: Any] }
+        let first = start("composer-reply:1")
+        XCTAssertTrue(until(2) { socket.requests("provider.uploadFeedback").contains { $0["id"] as? String == first } })
+        XCTAssertEqual((socket.requests("provider.uploadFeedback").first?["payload"] as? [String: Any])?["reason"] as? String, "broken diff")
+        XCTAssertNil(filed("composer-reply:1"), "Nothing is filed before the server replies.")
+        socket.send(["_tag": "Exit", "requestId": first, "exit": ["_tag": "Success", "value": ["feedbackId": "th_1"]]])
+        XCTAssertTrue(until(2) { (filed("composer-reply:1")?["_reply"] as? [String: Any])?["feedbackId"] as? String == "th_1" }, "\(events(transport, generation: generation))")
+        let second = start("composer-reply:2")
+        XCTAssertTrue(until(2) { socket.requests("provider.uploadFeedback").contains { $0["id"] as? String == second } })
+        socket.send(["_tag": "Exit", "requestId": second, "exit": ["_tag": "Failure", "cause": [["_tag": "Fail", "error": ["_tag": "ProviderUploadFeedbackError", "threadId": "t1", "cause": "rejected"]]]]])
+        XCTAssertTrue(until(2) { (filed("composer-reply:2")?["_replyError"] as? [String: Any])?["kind"] as? String == "ProviderUploadFeedbackError" }, "\(events(transport, generation: generation))")
+    }
+
     // MARK: Outdated servers (22e9d35)
 
     private func outdated(_ capabilities: [String: Any], version: Int = 1, label: String = "Old box") -> [String: Any] {

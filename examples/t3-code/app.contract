@@ -44,7 +44,6 @@ use ThemeEditorHost from "./settings-appearance-editor.contract"
 use SidebarOverlays from "./sidebar-overlays.contract"
 use ChatCanvasView from "./chat-canvas.contract" // floating-device-player
 use TerminalDrawerView, TerminalDrawer from "./terminal.contract" // terminal-drawer
-
 component T3Code
   state elapsed = 0
   resource wallTime = exactTime() as shape Time
@@ -188,10 +187,9 @@ component T3Code
   action welcomeImport(op: string, id: string, value: string) // also the Usage page's pages:usage-* ops
     if op != "import" and op != "usage-prices-save"
       send localChanged = command(startsWith(op, "usage-") ? `pageslocal:${op}` : `pageslocal:welcome-${op}`, id, value, 0)
-    else
-      if not commandPending
-        commandPending = true
-        send changed = command(op == "import" ? "pageslocal:welcome-import" : "pageslocal:usage-prices-save", "", `${wallTime.epochAtZero + now()}`, 0)
+    else if not commandPending
+      commandPending = true
+      send changed = command(op == "import" ? "pageslocal:welcome-import" : "pageslocal:usage-prices-save", "", `${wallTime.epochAtZero + now()}`, 0)
   action openConnectionsPage
     settingsEnvironmentId = settings.environmentId
     settingsOpen = true
@@ -660,6 +658,8 @@ component T3Code
             settingsThemeDialog = ""
         if result.message == "terminal:focus-composer"
           focus("composer")
+        if startsWith(result.message, "focus:") // usage-reset-and-feedback: the reset credit confirm takes the focus and gives it back
+          focus(slice(result.message, 6))
         if result.message == "sidebar:new-thread"
           draftOwner = "__unset__"
           jumpRequest = jumpRequest + 1

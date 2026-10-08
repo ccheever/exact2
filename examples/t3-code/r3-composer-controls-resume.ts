@@ -3,6 +3,7 @@
 // compactThreadUnavailable, compactBeforeSend — a976f8c74c),
 // chat/ContextWindowMeter.logic.ts (shouldOfferResumeCompaction,
 // hasDismissedResumeCompaction) and packages/shared/src/claudeCompaction.ts.
+import { feedbackUploading } from './composer-feedback';
 import { arr, obj, str, type Obj } from './domain';
 import { activeRun } from './protocol';
 import { pendingRequests } from './requests';
@@ -47,7 +48,8 @@ export function compactBlocked(client: T3Client): string {
   const requests = pendingRequests(projection);
   const sending = client.busy && !!client.pending && str(client.pending.payload.type) === 'message.dispatch';
   const blocked = !client.threadId || !client.thread || !conversation || !client.projectId || !compactable || !!activeRun(projection) || sending
-    || !client.ready || client.connection !== 'connected' || requests.approvals.length > 0 || requests.inputs.length > 0 || !!planFollowUp(client);
+    || !client.ready || client.connection !== 'connected' || requests.approvals.length > 0 || requests.inputs.length > 0 || !!planFollowUp(client)
+    || feedbackUploading(client); // ChatView compactThreadUnavailable: a /feedback upload in flight (composer-feedback.ts)
   if (!blocked) return '';
   return !client.projectId ? 'Choose a project before compacting' : !compactable ? 'Compaction is unavailable for this provider' : 'Compacting is unavailable right now';
 }

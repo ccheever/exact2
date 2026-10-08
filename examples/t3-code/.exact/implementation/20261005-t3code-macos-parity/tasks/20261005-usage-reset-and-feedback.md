@@ -1,13 +1,13 @@
 ---
 name: 20261005-usage-reset-and-feedback
 plan: 20261005-t3code-macos-parity
-implementation: planned
-verification: unverified
-delivery: none
+implementation: implemented
+verification: verified-with-unverified-rows
+delivery: draft
 repository: https://github.com/ccheever/exact2
-base_branch: daehyeon/t3-code
-branch: null
-pr_url: null
+base_branch: feat(example)/t3-code
+branch: feat(example)/t3-code-usage-reset-and-feedback
+pr_url: https://github.com/ccheever/exact2/pull/249
 verified_commit: null
 ---
 
@@ -89,14 +89,77 @@ Required environment: Xcode 27.0, pinned Bun and Hermes, oracle build, isolated 
 
 2026-10-06: on hold (user decision: tasks that need a sign-in waited). 2026-10-07: the user lifted the hold. Rows that need a real account are signed in by the user in person on the lane build; every other sign-in row uses lane fixtures.
 
-Planned. No branch.
+2026-10-08: implemented in [PR #249](https://github.com/ccheever/exact2/pull/249) (draft), all three scope items.
+- **Data model** (`usage-limits.ts`): port of `providersWithLimits`, `limitsNotice`, `remainingPercent`,
+  `elapsedShare`, `paceOf`, `formatDuration`, `formatResetsIn`, `hasProviderUsageLimits`,
+  `withUsageLimitsCommands` and `collectProviderUsageLimits` (hub path preferred for redemption, fresher
+  balance shown, native duplicates folded, source errors as notices; a source's `error` is the contract's
+  string, which the old copy read as an object: the base showed "Could not read limits." for "token
+  expired"). `reset-credits.ts`: `OUTCOME_TEXT`, `resetCreditsSummary` and `redeemStep`, a pure reducer
+  for `useResetCredit` (confirming, busy, status).
+- **Part A** (`composer-controls-usage.ts`, `usage-bars.contract`): per account the summary (when
+  several), `LimitWindows` compact rows (label and % left, `WindowBar` with the even-spending hairline
+  and its three-line tooltip, `PaceIcon`, countdown), the notice line, "Manage usage" (the clone's
+  `openExternal`), `ResetCredits` ("N reset credits banked · next expires in …", Use reset / Using…,
+  the outcome) and `ResetCreditDialog` over the window (`app-overlays.contract`). Labels with "@" are a
+  blurred placeholder until clicked (`UsageRedacted`, RedactedSensitiveText's composer variant: sans
+  12 px). Bars are focusable (ring, tooltip on focus), named by their figures; the confirm takes the
+  focus and gives it back (`focus:` command messages, `app.contract` commandCompleted, two lines).
+- **Part B** (`thread-feedback.ts`, `composer-feedback.ts`): threadFeedback.ts ported line for line;
+  the send hook (Codex driver, no image, chip or context, not a several-model draft, a started thread;
+  one upload per thread key; `/usage-limits` first), the banner (Sending / sent with Copy ID / failed;
+  none when interrupted), two local transcript rows inserted by time (never forked), "Sending feedback"
+  in the send-status chain, `canSend` and compaction blocked while it runs; without a started thread the
+  warning toast and the draft kept.
+- **Detached requests** (`composer-replies.ts`, `T3Transport.swift` `deliver`): the native data
+  executor answers one request at a time, so an upload awaited inside an answer held every other answer
+  (the timing probe: 8.4 s with nothing drawn). The two long writes now start and return; the transport
+  files the reply in the inbox and the drain settles it (a connection change or an inbox overflow settles
+  the waiter as interrupted / lost). A delivered request may wait 300 s (the reference has no deadline).
+- Independent review (2026-10-08) found one blocking defect (a staged file or folded paste did not stop
+  the upload) and several should-fixes (lost replies, draw-time settling, bar focus ring, Disconnected
+  as failure, `/usage-limits` before the guard); all fixed in `e96af64ec` with tests.
+
+Acceptance rows:
+- **Credit routing:** pass — `usage-limits.test.ts` "/usage-limits" (6 cases, original names).
+- **Banner:** pass (fixture) — 1280×840 and 840×620, light and dark, one and two accounts (PR #249 images 01–06).
+- **Redeem outcomes:** pass — live: Cancel and Escape send nothing, Use credit sends `{instanceId:"codex"}`
+  once each, "Using…" while busy, warning / typed error / reset words; tests: nothingToReset, noCredit,
+  alreadyRedeemed, transport failure, hub credit input, row hidden at 0 credits.
+- **Feedback:** pass (fixture) — draft cleared at once, Sending → sent with Copy ID / failed, two local rows,
+  second send blocked ("Sending feedback", disabled), typing stays live, no thread → warning toast;
+  interrupted and lost replies in tests.
+- **Gating:** pass (tests + base drive) — non-Codex provider, image, staged file / folded paste, thread and
+  terminal chips, several-model draft send a turn; the base drive shows the old behaviour (a turn).
+- **Redaction:** pass — no tree string holds the address before the click; one tap reveals.
+- **Trace and pixels:** not run — user decision 2026-10-06 (no oracle / trace tools). The RPC facts
+  (`provider.uploadFeedback {threadId, reason?}`, `provider.consumeResetCredit` input) come from the fixture
+  proxy's log; the UI is compared with the reference source.
+- **Real redeem and upload:** blocked — T3 marks the lane's Codex 0.151.0 unsupported (the managed runtime
+  is `20261005-managed-codex-chatgpt`); a real redeem needs a disposable account with a banked credit (it
+  spends the user's credit: user decision); during this session the Mac's screen was locked, so no Chrome
+  login was possible (`codex login` was started in the lane and stopped).
+- **Ported tests:** pass — `thread-feedback.test.ts` (4 describes, original names); `usage-limits.test.ts`
+  pace, limitsNotice, providersWithLimits, /usage-limits (6), remainingPercent, isUsageLimitsCommand;
+  new `reset-credits.test.ts`, `composer-usage-limits.test.ts`, `composer-feedback.test.ts`.
+- **Keyboard, Escape, reduced motion:** pass — Return on Use reset opens the confirm with focus on Cancel;
+  Escape closes it and refocuses Use reset; Shift+Tab: Use reset → Manage usage → each bar (labelled) →
+  "Dismiss usage limits". The clone's confirm dialogs have no open transition (as AppConfirm), so reduced
+  motion changes nothing here.
+- **Gates:** pass — see Attempts.
 
 ## Attempts and evidence
 
 | Attempt | Revision/fingerprint | Checks and outcomes | Evidence | Remaining blocker |
 | --- | --- | --- | --- | --- |
-| none | — | — | — | — |
+| 1 (2026-10-08) | `d7fe611f9` | `bun test examples/t3-code` 2559 pass / 1 skip / 0 fail (base 2512); strict `tsc` clean; contract build 2677 slots; `cargo test -p t3-code-macos --lib` 11 pass; AppKit transport 57 tests, 0 failures; caps within; five checks: build ok, test 3383 pass / 0 fail / 33 ignored (94 binaries), clippy ok, fmt ok, boot ok | drives A, BC, timing probe; PR #249 images 01–13, `drive-record.md` | review: staged chips not gated (blocking) |
+| 1a (failed approach, same day) | uncommitted | the upload ran inside a queued `composerJob` mutation: the drive's `clock +500 real` took 8,412 ms and drew nothing until the reply | timing probe in `drive-record.md` | replaced by detached requests |
+| 2 (2026-10-08) | `e96af64ec` | `bun test examples/t3-code` 2562 pass / 1 skip / 0 fail; strict `tsc` clean; contract build 2685 slots; `cargo test -p t3-code-macos --lib` 11 pass; AppKit transport 57 tests, 0 failures; caps within; five checks: build ok, test 3383 pass / 0 fail / 33 ignored (94 binaries), clippy ok, fmt ok, boot ok | drive R (bar focus ring and tooltip, focus after Use credit); image 14 | real-account rows (above) |
 
 ## Next action
 
-`prepare` from `feat(example)/t3-code` once the prerequisite task PRs above have merged into it; sign-in rows use lane fixtures, and real-account rows wait for the user to sign in.
+Review and merge PR #249 into `feat(example)/t3-code`. Real redeem and real `/feedback` wait for the
+managed Codex runtime (`20261005-managed-codex-chatgpt`), a signed-in Codex lane login (provider-lane
+`READY-codex`) and, for the redeem, the user's decision on spending a real banked credit.
+`20261005-usage-pooled-view` can now reuse `PaceIcon`, `barColor`, `reset-credits.ts` and the detached
+request.

@@ -20,6 +20,7 @@ import { environmentView } from './r4-git-env';
 import { ULTRATHINK_LOCKED_MESSAGE, ultrathinkTraits, withImplicitFastModeDefault } from './composer-provider-state'; // composer-fidelity G9
 import { ultrathinkFrame } from './composer-ultrathink';
 import { overflowMenu } from './composer-overflow'; // composer-fidelity G11
+import { usageConfirm } from './composer-controls-usage'; // usage-reset-and-feedback: the reset credit confirm
 import type { FooterSteps } from './composer-controls-view';
 
 /** runtimeModeConfig.ts: label, description and lucide icon per mode. */
@@ -229,5 +230,5 @@ export function composerSnapshot(client: T3Client, now = 0) {
     sendTipWidth: Math.ceil(measured(client.presentation, action.sendTooltip, 12, 400) + 18),
     // r5-composer: menu widths from measured texts (r5-composer-menus.ts); Run on's labels join the probes.
     ...composerMenus(client.presentation, view, environmentView(client).envOptions.map(option => option.label), [probe(action.sendTooltip, 12, 400)]),
-    syncStatus: bar.subagent ? '' : sync, activity: bar.subagent ? '' : activity, notices, implementX: anchors.implement.x, implementWidth: anchors.implement.width }, rootFontSize);
+    syncStatus: bar.subagent ? '' : sync, activity: bar.subagent ? '' : activity, notices, resetConfirm: bar.subagent ? '' : usageConfirm(client), implementX: anchors.implement.x, implementWidth: anchors.implement.width }, rootFontSize);
 }

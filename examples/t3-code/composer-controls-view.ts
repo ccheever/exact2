@@ -13,7 +13,8 @@ import { activeRun, providerAvailable } from './protocol';
 import type { T3Client } from './client';
 import { followUpBehavior, planFollowUp, resolveDispatchMode, resumeState } from './composer-controls';
 import { wokeAt, wokeWatermark } from './composer-controls-commands';
-import { usageNotices } from './composer-controls-usage';
+import { usageNotices, type UsageAccountView } from './composer-controls-usage';
+import { feedbackNotices, feedbackUploading } from './composer-feedback'; // usage-reset-and-feedback: Codex /feedback
 import { subagentTitle } from './timeline-events';
 import { compactBlocked, resumeCompaction } from './r3-composer-controls-resume';
 import { chordGlyphs, optionLabel, resolvedCurrent, type Selection } from './r3-composer-controls-model';
@@ -130,7 +131,7 @@ export function primaryAction(client: T3Client, phase: string) {
   const sending = client.busy && !!client.pending && str(client.pending.payload.type) === 'message.dispatch';
   // worktreeSetupBlocksSend (ChatView): a new worktree thread holds sends until its agent starts (lane r4-git).
   const preparing = !!client.threadId && threadWorktreeSetup(client).preparing;
-  const status = unavailable ? 'Environment disconnected' : machineChanging(client) ? 'Preparing machine' : preparing ? 'Preparing worktree' : projectCloneBlock(client) || (connecting ? 'Connecting' : sending ? 'Submitting message' : '');
+  const status = unavailable ? 'Environment disconnected' : machineChanging(client) ? 'Preparing machine' : feedbackUploading(client) ? 'Sending feedback' : preparing ? 'Preparing worktree' : projectCloneBlock(client) || (connecting ? 'Connecting' : sending ? 'Submitting message' : '');
   const plan = planFollowUp(client);
   const alternate = followUp === 'queue' ? 'steer' : 'queue';
   // alternateShortcutLabel: composer.sendAlternate's effective binding, as formatShortcutLabel prints it (⌘Enter).
@@ -155,10 +156,12 @@ export type ComposerNotice = { id: string; variant: string; icon: string; title:
   /** server-update-banner: the title's and the actions' tooltips, a red icon, a "·" before the description, the title's live role. */
   tip: string; actionTip: string; action2Tip: string; iconTone: string; sep: boolean; liveRole: string;
   /** auto-balance: the multi-machine banner's popover rows and its title's accessible name. */
-  machines: MachineRow[]; menuLabel: string };
+  machines: MachineRow[]; menuLabel: string;
+  /** usage-reset-and-feedback: a description that is an account address (RedactedSensitiveText, then `redactAfter`), and the /usage-limits body. */
+  redact: string; redactMask: string; redactAfter: string; usage: UsageAccountView[] };
 const notice = (value: Partial<ComposerNotice> & { id: string; title: string }): ComposerNotice => ({ variant: 'info', icon: '', description: '',
   action: '', actionLabel: '', action2: '', action2Label: '', dismiss: '', dismissLabel: '', priority: 2, lines: [], actionReason: '', dismissId: '', segments: [],
-  tip: '', actionTip: '', action2Tip: '', iconTone: '', sep: false, liveRole: '', machines: [], menuLabel: '', ...value });
+  tip: '', actionTip: '', action2Tip: '', iconTone: '', sep: false, liveRole: '', machines: [], menuLabel: '', redact: '', redactMask: '', redactAfter: '', usage: [], ...value });
 
 const BACKGROUND_KINDS: Record<string, { order: number; singular: string; plural: string }> = {
   subagent: { order: 0, singular: 'subagent', plural: 'subagents' }, command: { order: 1, singular: 'command', plural: 'commands' },
@@ -211,8 +214,8 @@ export function composerNotices(client: T3Client, now: number): ComposerNotice[]
   if (!client.threadId) return rankNotices([...usageNotices(client, now).map(item => notice(item)), ...cloneItem, ...system]);
   const shell = client.shell.threads.find(thread => thread.id === client.threadId) ?? {};
   const capabilities = obj(obj(client.config.environment).capabilities);
-  // ChatView composerBannerItems order: limit recovery, usage limits, background work, woke, parked.
-  const items: ComposerNotice[] = [...usageNotices(client, now).map(item => notice(item)), ...cloneItem, ...system];
+  // ChatView composerBannerItems order: feedback, limit recovery, usage limits, background work, woke, parked.
+  const items: ComposerNotice[] = [...feedbackNotices(client).map(item => notice(item)), ...usageNotices(client, now).map(item => notice(item)), ...cloneItem, ...system];
   const background = backgroundWork(client);
   if (background) items.push(background);
   // resumeCompactionBannerItem: an idle Claude session offers to compact before resuming.

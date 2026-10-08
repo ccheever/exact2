@@ -15,6 +15,7 @@ use RowTip from "./r8-pointer-tips.contract" // lane r8-pointer
 use StripPrBadge from "./r7-handoff.contract" // lane r7-handoff
 use AttachmentUrl from "./timeline-attachments.contract" // composer-fidelity G12a
 use NoticeMachines from "./auto-balance.contract" // auto-balance
+use UsageLimitsBody, UsageAccountLabel from "./usage-bars.contract" // usage-reset-and-feedback
 
 // The composer footer and its docked banners (lane composer-controls): the
 // toolbar controls (ComposerControl.tsx "sm"/"xs"), the primary actions
@@ -110,6 +111,8 @@ component CcIcon
         path d="m14 10 7-7M20 10h-6V4M3 21l7-7M4 14h6v6"
       when name == "gauge"
         path d="m12 14 4-4M3.34 19a10 10 0 1 1 17.32 0"
+      when name == "message-square"
+        path d="M22 17a2 2 0 0 1-2 2H6.828a2 2 0 0 0-1.414.586l-2.202 2.202A.71.71 0 0 1 2 21.286V5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2z"
       when name == "folder"
         path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"
       when name == "folder-git"
@@ -981,7 +984,11 @@ component NoticeRow
               when not seg.last
                 text ", " font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)" white-space="pre" flex-shrink=0
         else
-          when notice.description != ""
+          when notice.redact != ""
+            // usage-reset-and-feedback: an account address stays blurred until clicked (AccountSummary).
+            row flex=1 min-width="2rem" align-items="center"
+              UsageAccountLabel(label="", redact=notice.redact, redactMask=notice.redactMask, plan=notice.redactAfter, testId=`notice-label-${notice.id}`)
+          else when notice.description != ""
             text notice.description font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)" flex=1 min-width="2rem" line-clamp=1
           else
             box flex=1 min-width=0
@@ -996,7 +1003,9 @@ component NoticeRow
         when notice.dismiss != ""
           button press=dismiss(notice.id, notice.dismiss, notice.dismissId) disabled=(busy or exiting) testId=`notice-dismiss-${notice.id}` aria-label=notice.dismissLabel width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0
             CcIcon(name="x", size=14, color="light-dark(#71717b, #818181)", weight=2)
-      when length(notice.lines) > 0
+      when length(notice.usage) > 0
+        UsageLimitsBody(accounts=notice.usage, notices=notice.lines, busy=busy, command=command, testId=`notice-body-${notice.id}`)
+      else when length(notice.lines) > 0
         column width="100%" padding-left="1.75rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.375rem" gap="0.5rem" box-sizing="border-box" testId=`notice-body-${notice.id}`
           each line in notice.lines key=line
             text line font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
