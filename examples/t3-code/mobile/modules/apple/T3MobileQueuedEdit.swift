@@ -158,7 +158,7 @@ final class T3MobileQueuedEdit: @unchecked Sendable {
         for (id, operation) in operations(value) {
             if operation["kind"] != nil {
                 let valid = operation["kind"] as? String == "outbox-inline"
-                    ? T3OutboxInlineReceipt.valid(operation, id: id) : T3OutboxDeliveryReceipt.valid(operation, id: id)
+                    ? T3OutboxInlineReceipt.valid(operation, id: id) : T3OutboxDeliveryReceipt.valid(operation, id: id, inlineSource: operations(value)[(operation["inlineSource"] as? [String: Any])?["operationId"] as? String ?? ""])
                 guard valid else {
                     throw refusal("The saved outbox delivery receipt is corrupt.", kind: "Persistence")
                 }
@@ -171,6 +171,22 @@ final class T3MobileQueuedEdit: @unchecked Sendable {
                   (operation["revision"] as? Int ?? 0) > 0,
                   ["reserved", "issued", "uncertain", "acknowledged", "rejected"].contains(operation["state"] as? String ?? "") else {
                 throw refusal("The saved queued operation is corrupt.", kind: "Persistence")
+            }
+        }
+        // A non-retired inline owner reserves its original lifecycle identity. A final
+        // tombstone is never deleted, so a present command must retain the exact backlink.
+        let commands = operations(value)
+        var inlineCommands = Set<String>(), inlineMessages = Set<Data>()
+        for (id, source) in commands where source["kind"] as? String == "outbox-inline" && source["state"] as? String != "retired" {
+            let commandId = (source["record"] as! [String: Any])["commandId"] as! String
+            let identity = try JSONSerialization.data(withJSONObject: ["origin", "environmentId", "threadId", "messageId"].map { source[$0]! })
+            guard inlineCommands.insert(commandId).inserted, inlineMessages.insert(identity).inserted else {
+                throw refusal("Multiple inline receipts claim the same lifecycle identity.", kind: "Persistence")
+            }
+            if let final = commands[commandId] {
+                guard final["kind"] as? String == "outbox", (final["inlineSource"] as? [String: Any])?["operationId"] as? String == id else {
+                    throw refusal("The inline lifecycle identity has a conflicting receipt.", kind: "Persistence")
+                }
             }
         }
         return value
@@ -535,6 +551,60 @@ final class T3MobileQueuedEdit: @unchecked Sendable {
             return ["operation": candidate, "durable": true]
         }
     }
+    /// Bind the original command to a durable assets ACK. No caller payload or record is admitted.
+    func reserveOutboxInlineDelivery(_ request: [String: Any], origin: String, environment: String) throws -> [String: Any] {
+        try locked {
+            var value = try store(), commands = operations(value)
+            guard let sourceId = request["inlineOperationId"] as? String, let source = commands[sourceId],
+                  source["kind"] as? String == "outbox-inline", source["state"] as? String == "acknowledged",
+                  T3OutboxDeliveryReceipt.integer(request["inlineRevision"], positive: true),
+                  request["inlineRevision"] as? Int == source["revision"] as? Int,
+                  source["origin"] as? String == origin, source["environmentId"] as? String == environment,
+                  let command = T3OutboxInlineFinal.command(source), let payload = command["payload"] as? [String: Any],
+                  let id = payload["commandId"] as? String else {
+                throw refusal("Choose the exact acknowledged inline receipt.", kind: "stale")
+            }
+            if let retired = request["expectedRetiredRevision"], !T3OutboxDeliveryReceipt.integer(retired, positive: true) {
+                throw refusal("Choose an exact retired lifecycle revision.", kind: "stale")
+            }
+            durableOutbox.removeValue(forKey: sourceId)
+            try saveOutboxJournal(value); durableOutbox[sourceId] = source["revision"] as? Int
+            if let existing = commands[id] {
+                guard T3OutboxInlineFinal.matches(existing, source: source) else {
+                    throw refusal("The lifecycle identity belongs to another command.", kind: "stale")
+                }
+                durableOutbox.removeValue(forKey: id)
+                try saveOutboxJournal(value); durableOutbox[id] = existing["revision"] as? Int
+                if request["expectedRetiredRevision"] == nil { return ["operation": existing, "durable": true] }
+                guard existing["state"] as? String == "retired",
+                      T3OutboxDeliveryReceipt.integer(request["expectedRetiredRevision"], positive: true),
+                      request["expectedRetiredRevision"] as? Int == existing["revision"] as? Int else {
+                    // An exact lost-reply retry of rearming returns that original reservation.
+                    guard request["expectedRetiredRevision"] as? Int == existing["retiredRevision"] as? Int else {
+                        throw refusal("The retired lifecycle revision changed.", kind: "stale")
+                    }
+                    return ["operation": existing, "durable": true]
+                }
+            } else if request["expectedRetiredRevision"] != nil {
+                throw refusal("The expected retired lifecycle is missing.", kind: "stale")
+            }
+            var input: [String: Any] = ["ownerEpoch": request["ownerEpoch"] ?? NSNull(),
+                "record": source["record"]!, "messageId": source["messageId"]!,
+                "expectedToken": source["rowToken"]!, "expectedRevision": source["rowRevision"]!,
+                "stage": command["stage"]!, "method": command["method"]!, "payload": payload]
+            if let retired = request["expectedRetiredRevision"] { input["expectedRetiredRevision"] = retired }
+            _ = try outboxOwner.deliveryRecordLocked(input)
+            guard !commands.values.contains(where: { $0["operationId"] as? String != id && $0["origin"] as? String == origin && $0["environmentId"] as? String == environment && unresolved($0) }),
+                  !active.values.contains(origin + "\n" + environment), try !hasPending(environment) else {
+                throw refusal("Resolve the previous environment operation before binding this command.", kind: "Busy")
+            }
+            let final = try T3OutboxDeliveryReceipt.make(input, origin: origin, environment: environment, inlineSource: source)
+            commands[id] = final; value["operations"] = commands
+            durableOutbox.removeValue(forKey: id)
+            try saveOutboxJournal(value); durableOutbox[id] = final["revision"] as? Int
+            return ["operation": final, "durable": true]
+        }
+    }
     /// Read-only: a visible receipt after restart is deliberately not called durable.
     func outboxDeliveryStatus(_ id: String) throws -> [String: Any] {
         try locked {
@@ -779,7 +849,7 @@ final class T3MobileQueuedEdit: @unchecked Sendable {
                 else { phase = "uncertain" }
                 cleanup["phase"] = phase; cleanup["outcome"] = outcome.map { $0 as Any } ?? NSNull()
                 operation["cleanup"] = cleanup; operation["revision"] = (operation["revision"] as! Int) + 1
-                guard T3OutboxDeliveryReceipt.valid(operation, id: id) else { throw refusal("The cleanup outcome does not match its acknowledged receipt.", kind: "Persistence") }
+                guard T3OutboxDeliveryReceipt.valid(operation, id: id, inlineSource: operations(value)[(operation["inlineSource"] as? [String: Any])?["operationId"] as? String ?? ""]) else { throw refusal("The cleanup outcome does not match its acknowledged receipt.", kind: "Persistence") }
                 commands[id] = operation; value["operations"] = commands
                 if phase == "removed" { enqueueReleases((operation["record"] as! [String: Any])["attachments"] as! [[String: Any]], in: &value) }
                 durableOutbox.removeValue(forKey: id)
@@ -815,6 +885,27 @@ final class T3MobileQueuedEdit: @unchecked Sendable {
             commands[id] = operation; value["operations"] = commands; try save(value); return operation
         }
     }
+    /// The final durability stamp covers this whole validated journal, including its inline ACK.
+    private func inlineReleased(_ source: [String: Any], commands: [String: [String: Any]]) -> Bool {
+        guard let commandId = (source["record"] as? [String: Any])?["commandId"] as? String,
+              let final = commands[commandId], T3OutboxInlineFinal.matches(final, source: source),
+              final["state"] as? String == "acknowledged",
+              (final["cleanup"] as? [String: Any])?["phase"] as? String == "removed" else { return false }
+        return durableOutbox[commandId] == final["revision"] as? Int
+    }
+    private func inlinePayloadBlocked(_ method: String, payload: Any?, origin: String, environment: String, commands: [String: [String: Any]]) -> Bool {
+        guard let payload = payload as? [String: Any] else { return false }
+        let message = method == "orchestration.launchThread" ? payload["initialMessage"] as? [String: Any] : payload
+        return commands.values.contains { source in
+            guard source["kind"] as? String == "outbox-inline", source["state"] as? String != "retired",
+                  source["origin"] as? String == origin, source["environmentId"] as? String == environment,
+                  let record = source["record"] as? [String: Any] else { return false }
+            let sameMessage = payload["threadId"] as? String == record["threadId"] as? String
+                && message?["messageId"] as? String == record["messageId"] as? String
+            return (sameMessage && !inlineReleased(source, commands: commands))
+                || (method != "assets.persistChatAttachments" && payload["commandId"] as? String == record["commandId"] as? String)
+        }
+    }
     func admit(method: String, origin: String, environment: String, journal: String? = nil, payload: Any? = nil, inlineAttempt: UUID? = nil) throws -> UUID? {
         if let inlineAttempt {
             return try locked {
@@ -841,7 +932,8 @@ final class T3MobileQueuedEdit: @unchecked Sendable {
             if method == "assets.persistChatAttachments" {
                 return try locked {
                     let commands = operations(try store())
-                    if inlineSendEnvironmentLocked(origin, environment) || inlinePreparations.values.contains(where: { ($0["prepared"] as? [String: Any])?["origin"] as? String == origin && ($0["prepared"] as? [String: Any])?["environmentId"] as? String == environment })
+                    if inlinePayloadBlocked(method, payload: payload, origin: origin, environment: environment, commands: commands)
+                        || inlineSendEnvironmentLocked(origin, environment) || inlinePreparations.values.contains(where: { ($0["prepared"] as? [String: Any])?["origin"] as? String == origin && ($0["prepared"] as? [String: Any])?["environmentId"] as? String == environment })
                         || commands.values.contains(where: { $0["kind"] as? String == "outbox-inline" && $0["origin"] as? String == origin && $0["environmentId"] as? String == environment && unresolved($0) }) {
                         throw refusal("The inline asset stage already owns this environment.", kind: "Busy")
                     }
@@ -867,7 +959,8 @@ final class T3MobileQueuedEdit: @unchecked Sendable {
                     }
                     outboxAdmitted.insert(journal)
                 }
-            } else if commands.values.contains(where: { $0["origin"] as? String == origin && $0["environmentId"] as? String == environment && unresolved($0) }) {
+            } else if inlinePayloadBlocked(method, payload: payload, origin: origin, environment: environment, commands: commands)
+                || commands.values.contains(where: { $0["origin"] as? String == origin && $0["environmentId"] as? String == environment && unresolved($0) }) {
                 throw refusal("Resolve the queued update before making another change in this environment.", kind: "Busy")
             }
             let token = UUID(); active[token] = origin + "\n" + environment; return token
@@ -967,6 +1060,7 @@ final class T3MobileQueuedEdit: @unchecked Sendable {
         let owned = records(value).values.contains { record in
             (record["attachments"] as? [[String: Any]] ?? []).contains { ($0["id"] as? String)?.lowercased() == identifier }
         } || operations(value).values.contains { operation in
+            if operation["kind"] as? String == "outbox-inline", inlineReleased(operation, commands: operations(value)) { return false }
             if ["outbox", "outbox-inline"].contains(operation["kind"] as? String ?? ""),
                (operation["state"] as? String == "retired" || ["removed", "settings"].contains((operation["cleanup"] as? [String: Any])?["phase"] as? String ?? "")),
                let id = operation["operationId"] as? String, durableOutbox[id] == operation["revision"] as? Int { return false }

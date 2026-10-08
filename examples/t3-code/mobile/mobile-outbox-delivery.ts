@@ -9,6 +9,8 @@ import { mobileOutboxCapture, mobileOutboxSnapshot, mobileOutboxCompleteDelivery
 import { mobileOutboxDecode, type MobileOutboxRecord } from './mobile-outbox-model';
 import { mobileOutboxTransferCanonical as canonical } from './mobile-outbox-transfer-model';
 import type { MobileOutboxWireRequest } from './mobile-outbox-wire';
+import { mobileOutboxMaterializeInline } from './mobile-outbox-inline';
+import { mobileOutboxInlineDecode, type MobileOutboxInlineReceipt } from './mobile-outbox-inline-delivery';
 
 export interface MobileOutboxDeliveryReceipt {
   kind: 'outbox'; operationId: string; revision: number; origin: string; environmentId: string;
@@ -18,6 +20,7 @@ export interface MobileOutboxDeliveryReceipt {
   retiredRevision?: number; attemptRevision?: number; attemptPreviousState?: 'reserved' | 'uncertain' | 'rejected';
   result?: unknown; error?: Obj;
   cleanup?: MobileOutboxDeliveryCleanup;
+  inlineSource?: { operationId: string; ackRevision: number; payloadDigest: string };
 }
 export interface MobileOutboxDeliveryCleanup {
   ackRevision: number; intentRevision: number; phase: 'pending' | 'settings' | 'removed' | 'edited' | 'failed' | 'uncertain' | 'not-started';
@@ -33,7 +36,7 @@ const integer = (value: unknown, minimum = 0): value is number => typeof value =
 const text = (value: unknown): value is string => typeof value === 'string' && value.length > 0 && value.length <= 4096 && value.trim() === value;
 const invalid = (): never => { throw new ClientError('The native delivery receipt is invalid. Read its saved status.', 'protocol', true); };
 const keys = ['kind', 'operationId', 'revision', 'origin', 'environmentId', 'messageId', 'threadId', 'rowToken', 'rowRevision',
-  'record', 'stage', 'method', 'payload', 'attachmentIDs', 'state', 'retiredRevision', 'attemptRevision', 'attemptPreviousState', 'result', 'error', 'cleanup'];
+  'record', 'stage', 'method', 'payload', 'attachmentIDs', 'state', 'retiredRevision', 'attemptRevision', 'attemptPreviousState', 'result', 'error', 'cleanup', 'inlineSource'];
 function json(value: unknown, ancestors = new Set<object>()): boolean {
   if (value === null || typeof value === 'string' || typeof value === 'boolean') return true;
   if (typeof value === 'number') return Number.isFinite(value);
@@ -65,6 +68,14 @@ export function mobileOutboxDeliveryDecode(raw: unknown, operationId: string): M
       || !object(payload.initialMessage) || payload.initialMessage.messageId !== record.messageId
       : raw.method !== 'orchestration.dispatchCommand' || payload.type !== 'message.dispatch' || payload.messageId !== record.messageId)) return invalid();
   } else return invalid();
+  if ('inlineSource' in raw) {
+    const source = raw.inlineSource;
+    if (raw.stage !== 'start-turn' || !object(source) || Object.keys(source).length !== 3
+      || Object.keys(source).some(key => !['operationId', 'ackRevision', 'payloadDigest'].includes(key))
+      || typeof source.operationId !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(source.operationId)
+      || source.operationId === operationId || !integer(source.ackRevision, 3)
+      || typeof source.payloadDigest !== 'string' || !/^[0-9a-f]{64}$/.test(source.payloadDigest)) return invalid();
+  }
   const prior = raw.retiredRevision ?? 0;
   if (!integer(prior) || 'retiredRevision' in raw && !integer(raw.retiredRevision, 1) || prior > Number.MAX_SAFE_INTEGER - 2) return invalid();
   if ('cleanup' in raw) {
@@ -170,6 +181,33 @@ export async function mobileOutboxDeliveryReserve(client: T3Client, handle: Nati
     record: copy(record), stage: command.stage, method: command.method, payload: command.payload,
     ...(expectedRetiredRevision === undefined ? {} : { expectedRetiredRevision }) }, generation, true);
   return status(raw, expected.operationId, expected);
+}
+/** Bind the final command to the native journal's exact saved inline ACK. Native
+ * validates the whole saved pair; JavaScript sends no replacement payload or record. */
+export async function mobileOutboxDeliveryReserveInline(client: T3Client, handle: Native | null | undefined,
+  input: MobileOutboxInlineReceipt, expectedRetiredRevision?: number): Promise<MobileOutboxDeliveryStatus> {
+  const source = mobileOutboxInlineDecode(input, input.operationId);
+  if (source.state !== 'acknowledged') throw new ClientError('Confirm the saved image result before reserving its command.', 'outbox-stale');
+  if (expectedRetiredRevision !== undefined && !integer(expectedRetiredRevision, 1)) return invalid();
+  const materialized = mobileOutboxMaterializeInline(source.template, source.result);
+  if (materialized.status !== 'ready') return invalid();
+  const command = materialized.value, record = source.record;
+  const expected = mobileOutboxDeliveryDecode({ kind: 'outbox', operationId: record.commandId,
+    revision: (expectedRetiredRevision ?? 0) + 1, origin: source.origin, environmentId: source.environmentId,
+    messageId: source.messageId, threadId: source.threadId, rowToken: source.rowToken, rowRevision: source.rowRevision,
+    record, stage: command.stage, method: command.method, payload: command.payload,
+    attachmentIDs: source.attachmentIDs, state: 'reserved',
+    inlineSource: { operationId: source.operationId, ackRevision: source.revision, payloadDigest: source.payloadDigest },
+    ...(expectedRetiredRevision === undefined ? {} : { retiredRevision: expectedRetiredRevision }) }, record.commandId);
+  const generation = endpoint(client, source.environmentId);
+  const raw = await client.call(native(handle), { op: 'mobileOutboxDelivery', action: 'reserveInline',
+    inlineOperationId: source.operationId, inlineRevision: source.revision, ownerEpoch: mobileOutboxSnapshot(client).ownerEpoch,
+    expectedOrigin: source.origin, expectedEnvironmentId: source.environmentId,
+    ...(expectedRetiredRevision === undefined ? {} : { expectedRetiredRevision }) }, generation, true);
+  // Identity compares the original record/row, exact materialized payload and the immutable source pointer.
+  const result = status(raw, record.commandId, expected);
+  if (!result.durable) return invalid();
+  return result;
 }
 /** Retry by native receipt identity only. Never rebuild a payload from the current row. */
 export async function mobileOutboxDeliverySend(client: T3Client, handle: Native | null | undefined,

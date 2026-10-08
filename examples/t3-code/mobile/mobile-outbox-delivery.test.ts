@@ -5,8 +5,10 @@ import { ClientError, type Native } from './shared/protocol';
 import { letGo } from './shared/let-go';
 import { mobileOutboxRead, mobileOutboxCapture, mobileOutboxSnapshot } from './mobile-outbox';
 import { mobileOutboxDeliveryDecode, mobileOutboxDeliveryStatus, mobileOutboxDeliveryReserve, mobileOutboxDeliverySend,
-  mobileOutboxDeliveryRecover, mobileOutboxDeliveryRetire, mobileOutboxDeliveryComplete, type MobileOutboxDeliveryReceipt } from './mobile-outbox-delivery';
-import type { MobileOutboxWireRequest } from './mobile-outbox-wire';
+  mobileOutboxDeliveryReserveInline, mobileOutboxDeliveryRecover, mobileOutboxDeliveryRetire, mobileOutboxDeliveryComplete, type MobileOutboxDeliveryReceipt } from './mobile-outbox-delivery';
+import { mobileOutboxMessagePlan, mobileOutboxLaunchPlan, type MobileOutboxWireRequest, type MobileOutboxWireFacts } from './mobile-outbox-wire';
+import { mobileOutboxCompactInline, mobileOutboxMaterializeInline } from './mobile-outbox-inline';
+import type { MobileOutboxInlineReceipt } from './mobile-outbox-inline-delivery';
 import type { MobileOutboxRecord } from './mobile-outbox-model';
 
 const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value));
@@ -236,4 +238,101 @@ test('lost completion reply leaves state intact and requires explicit saved stat
   let caught: unknown;
   try { await mobileOutboxDeliveryComplete(f.client, f.native, ack()); } catch (error) { caught = error; }
   expect(letGo(caught)).toBe(true); expect(f.calls).toHaveLength(1); expect(mobileOutboxSnapshot(f.client)).toEqual(before);
+});
+
+function inlineFixture(launch = false, inlineContext = true) {
+  const localIds = ['11111111-0000-4000-a000-000000000001', '22222222-0000-4000-a000-000000000002', '33333333-0000-4000-a000-000000000003'];
+  const original: MobileOutboxRecord = { ...record(), text: '[Photo](t3-context://v1/image/photo)',
+    modelSelection: { instanceId: 'p', model: 'm' }, attachments: [
+      { id: localIds[0]!, kind: 'image', name: 'first.png', mimeType: 'image/png', sizeBytes: 1, status: 'staged', uploadId: '' },
+      { id: localIds[1]!, kind: 'file', name: 'file.txt', mimeType: 'text/plain', sizeBytes: 2, status: 'ready',
+        uploadId: 'existing-file', uploadEnvironmentId: 'env', contextId: 'file', source: 'file' },
+      { id: localIds[2]!, kind: 'image', name: 'last.png', mimeType: 'image/png', sizeBytes: 2, status: 'staged', uploadId: '' }],
+    context: { version: 1, records: [{ version: 1, kind: 'image', contextId: 'photo', label: 'Photo', attachmentId: localIds[0] }] } };
+  if (launch) original.creation = { projectId: 'project', projectCwd: '/repo', workspaceMode: 'worktree', branch: 'main', worktreePath: null };
+  const facts: MobileOutboxWireFacts = { origin: original.origin, environmentId: 'env', config: { providers: [], environment: {
+    environmentId: 'env', capabilities: { attachmentUploads: false, inlineMessageContext: inlineContext, serverResolvedCommandContext: true } } },
+    attachments: original.attachments.map((file, index) => ({ localId: file.id, kind: file.kind === 'image' ? 'inline-image' : 'reference',
+      attachment: { type: file.kind, name: file.name, mimeType: file.mimeType, sizeBytes: file.sizeBytes,
+        ...(file.kind === 'image' ? { dataUrl: `data:image/png;base64,${index === 0 ? 'YQ==' : 'YmM='}` } : { id: file.uploadId }) } })) };
+  const plan = launch ? mobileOutboxLaunchPlan(original, facts, 't3/captured') : mobileOutboxMessagePlan(original, facts,
+    { origin: original.origin, environmentId: 'env', threadId: 'thread', modelSelection: original.modelSelection!, runtimeMode: 'full-access', interactionMode: 'default' });
+  if (plan.status !== 'needs-inline-persistence') throw Error(JSON.stringify(plan));
+  const compact = mobileOutboxCompactInline(original, plan.value); if (compact.status !== 'ready') throw Error(JSON.stringify(compact));
+  const source: MobileOutboxInlineReceipt = { kind: 'outbox-inline', operationId: 'aaaaaaaa-0000-4000-a000-000000000001',
+    revision: 3, state: 'acknowledged', attemptRevision: 2, attemptPreviousState: 'reserved', payloadDigest: 'b'.repeat(64),
+    origin: original.origin, environmentId: 'env', messageId: original.messageId, threadId: original.threadId, rowToken: 'epoch:1', rowRevision: 1,
+    record: original, attachmentIDs: localIds, template: { ...compact.value, inline: compact.value.inline.map(binding => ({ ...binding, sha256: 'c'.repeat(64) })) },
+    result: { attachments: compact.value.inline.map(binding => { const file = original.attachments[binding.index]!;
+      return { type: 'image', id: 'duplicate-valid-server-id', name: file.name, mimeType: file.mimeType, sizeBytes: file.sizeBytes }; }) } };
+  const final = mobileOutboxMaterializeInline(source.template, source.result); if (final.status !== 'ready') throw Error(JSON.stringify(final));
+  const linked: MobileOutboxDeliveryReceipt = { ...receipt(), record: original, payload: final.value.payload,
+    method: final.value.method, attachmentIDs: localIds,
+    inlineSource: { operationId: source.operationId, ackRevision: source.revision, payloadDigest: source.payloadDigest! } };
+  return { source, linked, localIds };
+}
+test('saved inline ACK binds source launch/message commands without changing original queue or idless context', async () => {
+  for (const launch of [false, true]) for (const inlineContext of [false, true]) {
+    const f = await fixture(), input = inlineFixture(launch, inlineContext), before = mobileOutboxSnapshot(f.client);
+    f.answer({ operation: input.linked, durable: true });
+    expect((await mobileOutboxDeliveryReserveInline(f.client, f.native, input.source)).operation).toEqual(input.linked);
+    expect(f.calls).toEqual([{ op: 'mobileOutboxDelivery', action: 'reserveInline', inlineOperationId: input.source.operationId,
+      inlineRevision: 3, ownerEpoch: 'epoch', expectedOrigin: input.source.origin, expectedEnvironmentId: 'env', generation: 7 }]);
+    const content = launch ? obj(input.linked.payload.initialMessage) : input.linked.payload;
+    expect((content.attachments as Obj[]).map(value => value.id)).toEqual(['duplicate-valid-server-id', 'existing-file', 'duplicate-valid-server-id']);
+    if (inlineContext) expect((obj(content.context).records as Obj[])[0]!.attachmentId).toBe(input.localIds[0]);
+    else expect(content.context).toBeUndefined();
+    expect(input.linked.record.attachments[0]!.uploadId).toBe(''); expect(mobileOutboxSnapshot(f.client)).toEqual(before);
+  }
+});
+test('linked reservation freezes the ACK and rejects every different final identity', async () => {
+  for (const mode of ['record', 'payload', 'source', 'row', 'token', 'durability'] as const) {
+    const f = await fixture(), { source, linked } = inlineFixture(), bad = clone(linked);
+    if (mode === 'record') bad.record.text = 'different';
+    if (mode === 'payload') bad.payload.text = 'different';
+    if (mode === 'source') bad.inlineSource!.payloadDigest = 'd'.repeat(64);
+    if (mode === 'row') bad.rowRevision++;
+    if (mode === 'token') bad.rowToken += ':other';
+    f.answer({ operation: bad, durable: mode !== 'durability' });
+    await expect(mobileOutboxDeliveryReserveInline(f.client, f.native, source)).rejects.toMatchObject({ kind: 'protocol', uncertain: true });
+  }
+  const f = await fixture(), { source, linked } = inlineFixture(), expected = clone(linked); f.answer({ operation: expected, durable: true });
+  const pending = mobileOutboxDeliveryReserveInline(f.client, f.native, source); source.result!.attachments[0]!.id = 'caller-change'; source.record.text = 'caller-change';
+  expect((await pending).operation).toEqual(expected);
+});
+test('linked pointer is closed, start-turn-only and immutable through existing recovery/send', async () => {
+  for (const mode of ['extra', 'id', 'revision', 'digest', 'settings'] as const) {
+    const { linked } = inlineFixture(), value = linked as unknown as Obj;
+    if (mode === 'extra') obj(value.inlineSource).extra = true;
+    if (mode === 'id') obj(value.inlineSource).operationId = 'not-a-uuid';
+    if (mode === 'revision') obj(value.inlineSource).ackRevision = 2;
+    if (mode === 'digest') obj(value.inlineSource).payloadDigest = 'A'.repeat(64);
+    if (mode === 'settings') { value.stage = 'settings-sync'; value.operationId = 'command:runtime-mode'; value.payload = { type: 'thread.runtime-mode.set', commandId: value.operationId, threadId: 'thread', runtimeMode: 'full-access' }; }
+    expect(() => mobileOutboxDeliveryDecode(value, String(value.operationId))).toThrow(ClientError);
+  }
+  const f = await fixture(), { linked } = inlineFixture();
+  const final: MobileOutboxDeliveryReceipt = { ...linked, state: 'acknowledged', revision: 3, attemptRevision: 2, attemptPreviousState: 'reserved', result: { sequence: 3 } };
+  f.answer({ operation: final, durable: true }); expect((await mobileOutboxDeliverySend(f.client, f.native, linked)).operation).toEqual(final);
+  const changed = clone(final); changed.inlineSource!.operationId = 'bbbbbbbb-0000-4000-a000-000000000001'; f.answer({ operation: changed, durable: true });
+  await expect(mobileOutboxDeliveryRecover(f.native, final)).rejects.toMatchObject({ kind: 'protocol' });
+  await expect(mobileOutboxDeliverySend(f.client, f.native, final)).rejects.toMatchObject({ kind: 'protocol' });
+});
+test('explicit linked rearm retains the exact inline pair and final original record', async () => {
+  const f = await fixture(), { source, linked } = inlineFixture(), rearmed = { ...linked, retiredRevision: 2, revision: 3 };
+  f.answer({ operation: rearmed, durable: true });
+  expect((await mobileOutboxDeliveryReserveInline(f.client, f.native, source, 2)).operation).toEqual(rearmed);
+  expect(f.calls[0]!.expectedRetiredRevision).toBe(2); expect(f.calls[0]!.payload).toBeUndefined();
+  await expect(mobileOutboxDeliveryReserveInline(f.client, f.native, source, 0)).rejects.toMatchObject({ kind: 'protocol' });
+  expect(f.calls).toHaveLength(1);
+});
+test('unconfirmed inline outcomes, endpoint moves and lost replies never bind another command', async () => {
+  for (const mode of ['unconfirmed', 'endpoint', 'generation', 'letgo'] as const) {
+    const f = await fixture(), { source, linked } = inlineFixture(), before = mobileOutboxSnapshot(f.client); f.answer({ operation: linked, durable: true });
+    if (mode === 'unconfirmed') { source.state = 'uncertain'; delete source.result; source.error = { kind: 'Transport' }; }
+    if (mode === 'endpoint') f.client.environmentId = 'other';
+    f.intercept(() => { if (mode === 'letgo') throw { name: 'FetchError', kind: 'Aborted' }; if (mode === 'generation') f.client.generation++; });
+    let caught: unknown; try { await mobileOutboxDeliveryReserveInline(f.client, f.native, source); } catch (error) { caught = error; }
+    if (mode === 'letgo') expect(letGo(caught)).toBe(true); else expect(caught).toBeInstanceOf(ClientError);
+    expect(f.calls).toHaveLength(['unconfirmed', 'endpoint'].includes(mode) ? 0 : 1); expect(mobileOutboxSnapshot(f.client)).toEqual(before);
+  }
 });
