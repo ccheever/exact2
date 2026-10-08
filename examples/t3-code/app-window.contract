@@ -88,13 +88,8 @@ component T3Window
     narrowDiff: bool
     detailsOpen: bool
     details: ShellDetails
-    detailsEditors: bool
-    titleMenuOpen: bool
-    renaming: bool
-    renameText: string
-    panelUi: action
-    detailsAct: action
-    titleUi: action
+    panelUiRoot: action
+    detailsActRoot: action
     foldHold: bool
     releaseFold: action
     jumpRequest: number
@@ -121,12 +116,11 @@ component T3Window
     composerBlur: action
     openOptions: action
     removeSnapshot: action
-    titleMenuPick: action
+    titleMenuPickRoot: action
     menuPick: action
     branches: ComposerBranches
     terminalDrawer: TerminalDrawerView
     confirmOp: string
-    rightMaximized: bool
     diffWidth: number
     resizeDiff: action
     finishDiffResize: action
@@ -310,9 +304,6 @@ component T3Window
     paletteHover: action
     paletteClose: action
     paletteFlag: action
-    titleMenuX: number
-    titleMenuY: number
-    titleMenuSerial: number
     answerRevert: action
     confirmTitle: string
     confirmBody: string
@@ -327,6 +318,7 @@ component T3Window
     // fix-hover-cards: the root's hover clock (hover-layer.contract).
     hoverWait: number
     hoverHold: action
+    titleSend: action
   provide
     rem = data.look.fontSize
     still = viewport.prefersReducedMotion
@@ -394,6 +386,62 @@ component T3Window
   derive dragTarget = dragId == "" ? "" : (dragCX > sidebarWidth ? "context" : (dragSettledY > 0 and dragCY >= dragSettledY ? "settled" : (dragSnoozedY > 0 and dragCY >= dragSnoozedY ? "snoozed" : (dragWorkingY > 0 and dragCY >= dragWorkingY ? "working" : (dragCY < dragDividerY + 36 ? "pinned" : "active")))))
   derive dragVerb = (dragTarget == "" or dragTarget == dragSection or dragTarget == "working" or dragTarget == "snoozed" or dragTarget == "context") ? "" : (dragTarget == "pinned" ? "pin" : (dragTarget == "settled" ? "settle" : (dragSection == "pinned" ? "unpin" : (dragSection == "settled" ? "unsettle" : "wake"))))
   derive dragOffset = dragDy - (dragSection == "pinned" ? 24 : (dragSection == "active" ? 48 : 0))
+  // The root rewrite: the thread title's menu and rename field, the right panel's maximize and the details card's
+  // editors list, moved from app.contract. Each wrapper sets the window's half, then calls the root's (`…Root`),
+  // which keeps what resources read and the sends. The fold hold stays in the root: chatLocal is called inside the
+  // timeline's and the panels' repeated rows, where a window wrapper would be inlined at every call (+5.5 MB of plan).
+  state titleMenuOpen = false
+  state titleMenuFromTitle = false
+  state titleMenuSerial = 0
+  state titleMenuX = 0
+  state titleMenuY = 0
+  state renaming = false
+  state renameText = ""
+  state rightMaximized = false
+  state detailsEditors = false
+  action titleUi(what: string, value: string)
+    let typed = renameText // the commit sends the field's text as the action found it
+    if what == "open" or what == "context"
+      titleMenuX = frame("thread-title").x
+      titleMenuY = frame("thread-title").y + frame("thread-title").height + 4
+      titleMenuOpen = (what == "context" or not titleMenuOpen) and not renaming
+      titleMenuSerial = titleMenuSerial + 1
+      titleMenuFromTitle = what == "open"
+    if what == "close" // Escape or a press outside: the fallback menu's cleanup gives the focus back to what held it, the title when the title opened it (a right-click leaves it where it was)
+      titleMenuOpen = false
+      if titleMenuFromTitle
+        focus("thread-title")
+    if what == "rename" and shell.serverThread
+      titleMenuOpen = false
+      renaming = true
+      renameText = data.threadTitle
+      focus("header-rename")
+    if what == "edit"
+      renameText = value
+    if what == "key" and value == "Escape"
+      renaming = false
+    if (what == "commit" and renaming) or (what == "new-thread" and data.projectId != "")
+      renaming = false
+      titleSend(what, typed)
+  action titleMenuPick(op: string, target: string, value: string, askTitle: string, askBody: string, destructive: bool)
+    titleMenuOpen = op == "ui:submenu" and titleMenuOpen
+    if op == "ui:rename"
+      renaming = true
+      renameText = data.threadTitle
+      focus("header-rename")
+    titleMenuPickRoot(op, target, value, askTitle, askBody, destructive)
+  action panelUi(what: string, id: string)
+    let closingTerminal = what == "tab-close" and length(filter(shell.panel.tabs, (tab) => tab.id == id and tab.closeTitle != "")) > 0
+    titleMenuOpen = false
+    if what == "toggle" or what == "close" or what == "tab-close" or (what == "key" and id == "Escape")
+      rightMaximized = closingTerminal ? rightMaximized : what == "tab-close" and shell.panel.count > 1 and rightMaximized
+    if what == "maximize"
+      rightMaximized = not rightMaximized
+    panelUiRoot(what, id)
+  action detailsAct(op: string, target: string, value: string)
+    detailsEditors = op == "editors" and not detailsEditors
+    titleMenuOpen = false
+    detailsActRoot(op, target, value)
   action sidebarScrolled(x: number, y: number)
     sidebarScrollY = y
   action sidebarHover(id: string, over: bool)
