@@ -61,7 +61,8 @@ signed) launched by LaunchServices, under the shared real-input lock (07:27-07:4
 | 18 subscribe burst | pass | [e18-subscribe](https://raw.githubusercontent.com/ccheever/exact2/d2eb14197c050b23237e392d18458c32e075df3d/fix-provider-auth-state/e18-subscribe.txt): base 1,275 `provider.auth.subscribe` (+1,275 install) on the Projects step in 20.6 s; branch 1 + 1, none on Projects; after a real ChatGPT sign-in, none on Projects (07:32:44-07:33:14Z). Test `pages-welcome.test.ts` "the agents step holds one sign-in subscription per stream, and the projects step holds none" (base: 6 extra subscribes) | — |
 | 19 stale list row | pass (X64 workaround) | [01 pair](https://raw.githubusercontent.com/ccheever/exact2/57f1c450a7bb24f0b9ea7c1e26de79f8c37068d1/fix-provider-auth-state/01-list-row-disabled.png): Codex switched off, tree "Disabled" in both, base paints the old "Not auth…" raster; [08 live](https://raw.githubusercontent.com/ccheever/exact2/9a8bc33434736bf01c87b0d233a087bfc9a7336c/fix-provider-auth-state/08-reconnect-list-row-live.png): right after Reconnect (real consent) the row reads "Authenticated · ChatGPT"; X64 one-file app [06](https://raw.githubusercontent.com/ccheever/exact2/0574dbb319f94727f96392c60d55e220e77a646f/fix-provider-auth-state/06-x64-one-file-app.png), on main [06b](https://raw.githubusercontent.com/ccheever/exact2/d385ab70b347b1bed6e04a67227b7f2514c2d292/fix-provider-auth-state/06b-x64-on-main.png). Test `providers.test.ts` "the list row and the editor read the same status…" (a source guard: X64 is pixels; the drives are the proof) | X64 (framework) |
 | 20 refresh loop | pass | [e20-refresh](https://raw.githubusercontent.com/ccheever/exact2/e3d655923fbb2575d48ec122a9caba8a7d80b0d5/fix-provider-auth-state/e20-refresh.txt): Settings › Providers open 75 s with Codex signed in and the demo draft on Codex: 0 calls (6 min in session 1: 0); base every 11 s (#298). Test `composer-workspace-snapshots.test.ts` "an unmounted composer asks for nothing…" fails on the base | — |
-| 21 wizard method select | pass for click, Space, Return; ↓/↑ moved to fix-keyboard-focus | [02 pair](https://raw.githubusercontent.com/ccheever/exact2/270ae2d0072ece4285830dbf45b629acab445a2b/fix-provider-auth-state/02-wizard-method-click.png) (agent platform click: base no menu, branch menu); [05](https://raw.githubusercontent.com/ccheever/exact2/713e4061bc7b80bc8636e24171665a865bc9c2ec/fix-provider-auth-state/05-wizard-method-keys-after.png) (agent keys on the focused trigger, pick); [10](https://raw.githubusercontent.com/ccheever/exact2/3e597c482903b352da16abc4ff30c3694db87ec9/fix-provider-auth-state/10-wizard-method-real-input.png) real click opens it (session 2). Real Space/Return after the click and after Tabs: no menu, but no focus ring is drawn, so where the focus sits is not visible (fix-keyboard-focus's rings). Test `provider-setup.test.ts` "the Sign in step and the Settings editor behind it draw the same Account row under ids of their own" | ↓/↑: fix-keyboard-focus |
+| 21 wizard method select | pass for click, Space, Return (agent keys); real Space/Return deferred to the next real-input batch; ↓/↑ moved to fix-keyboard-focus | [02 pair](https://raw.githubusercontent.com/ccheever/exact2/270ae2d0072ece4285830dbf45b629acab445a2b/fix-provider-auth-state/02-wizard-method-click.png) (agent platform click: base no menu, branch menu); [05](https://raw.githubusercontent.com/ccheever/exact2/713e4061bc7b80bc8636e24171665a865bc9c2ec/fix-provider-auth-state/05-wizard-method-keys-after.png) (agent keys on the focused trigger, pick); [10](https://raw.githubusercontent.com/ccheever/exact2/3e597c482903b352da16abc4ff30c3694db87ec9/fix-provider-auth-state/10-wizard-method-real-input.png) real click opens it (session 2). Real Space/Return: deferred to the next real-input batch (STATUS.md list): after the click and after Tabs no menu opened, but no focus ring is drawn, so where the focus sat could not be read back (the ring is a known fix-keyboard-focus item). Test `provider-setup.test.ts` "the Sign in step and the Settings editor behind it draw the same Account row under ids of their own" | ↓/↑: fix-keyboard-focus; real keys: the next real-input batch |
+| Add ChatGPT account dialog ids (#312 review) | pass: no collision | test `codex-setup.test.ts` "the Add ChatGPT account dialog and the Settings editor behind it name no element id alike": the dialog draws `CodexSetupRow` for the account it created (`codex_<uuid>`), the editor behind keeps its own selection (only "provider-add" selects the created instance; the ChatGPT create is "provider", or "provider-close" on the welcome), and every `id` / `target` / `aria-controls` that `CodexSetupRow`, `CodexCallbackForm`, `CodexHelpToggle` and `ChatGptAccountSetup` draw is made from the instance id. No change needed; the test stays as the guard | — |
 | Hand a ChatGPT sign-in to another machine (#256 row 7; user decision 2026-10-08) | pass | [07 before](https://raw.githubusercontent.com/ccheever/exact2/6e2d0548f06806536e445ba37ac9aea6cfc33be5/fix-provider-auth-state/07-lan-http-refused-before.png): the base refuses the LAN link ("A remote server requires HTTPS."); [09 after](https://raw.githubusercontent.com/ccheever/exact2/c6da84ac4b12eceb6bf557f521bf673c9fee43d6/fix-provider-auth-state/09-lan-handoff-after.png): "Your ChatGPT plan is connected · Codex on Daehyeon's MacBook Pro" and the LAN environment's Codex row "Signed in as" + placeholder, Ready; [live-session-2](https://raw.githubusercontent.com/ccheever/exact2/e2cf48aef331485fb79ee338405ebf5e0467cf87/fix-provider-auth-state/live-session-2.txt): LAN server pid 31264 on 192.168.1.225:16261 only, paired over http (a lane keychain; the real search list unchanged), the remote's Codex installed, the primary's `CodexChatGptAuth.exchange` Success 08:43:57Z, the remote's `caches/codex.json` ready / authenticated chatgpt, no `code=` in either server's logs or the drive, 5 of 5 lane client sessions revoked (`t3 auth session list`: none), the server stopped, nothing listening on 16261 | — |
 | Real sign-in and Reconnect (consents) | pass | [04](https://raw.githubusercontent.com/ccheever/exact2/3448441e45580b1de8d79dcd89f6ed4b44d3de9a/fix-provider-auth-state/04-welcome-signed-in-live.png): first sign-in (07:31:52Z consent by the agent's click, `provider.auth.complete` Success 07:32:00Z, the app to the front); Reconnect consent 08:34:28Z → `auth.complete`; the handoff's OpenAI page returned to the loopback callback without a consent page (granted minutes before) | — |
 | Visual oracle and trace | not run | — | user decision 2026-10-06 |
@@ -79,16 +80,47 @@ Seen on the way:
 - A lane HOME without a keychain cannot store a remote's credential ("Keychain Not Found" from
   SecurityAgent; Cancel answered). A lane keychain made with `HOME=<lane> CFFIXED_USER_HOME=<lane>
   security create-keychain` keeps the user's search list unchanged; deleted afterwards.
-- Settings › Providers' environment menu (on <environment>) checked the LAN environment but the page kept
-  showing the primary's providers (normal launch, 08:41Z); the welcome's agents step was used for the
-  remote instead. Not investigated.
+- Settings › Providers' environment menu: see "Found, not in scope".
+- No script under `examples/t3-code/tools/` launches a lane app with `open` (github-lane starts `t3 serve`
+  lane servers and already pins their PATH to its lane bin and the system directories), so nothing there
+  needed the new `--env PATH=` rule; this task's own lane scripts (`target/`, not committed) follow it from now on.
 - Reconnect ChatGPT's picker lists the saved profile by its name, which is the email ("… · Connection 1"),
   in plain text, as the reference does (`ChatGptAccountPicker.tsx:59`).
 
+
+### Found, not in scope
+
+**Settings › Providers shows this Mac's providers after the environment menu chose another environment.**
+The reference shows one environment at a time, "the chosen one from the settings scope selector"
+(`apps/web/src/routes/settings.providers.tsx:7-30`, `ProviderSettingsPanel environmentId={environment.environmentId}`).
+Steps (seen 2026-10-08 08:39-08:41Z, this branch's build 9, normal launch of a lane copy; agent mode should
+show it too):
+1. Lane primary on 127.0.0.1:16260 (`T3_LOCAL_HOME`, `T3_LOCAL_PORT`) with its Codex signed in, so its
+   page reads "Codex · Authenticated · ChatGPT".
+2. A second T3 server with its own T3 home (`t3 serve --base-dir <home> --port 16261 --host <LAN IP>`, whose
+   Codex is not signed in); mint a link with `t3 pair --base-dir <home> --ttl 15m`.
+3. Settings › Connections › Add environment › Remote link: paste the link, Add environment. The row is
+   listed and connected.
+4. Settings › Providers: "Applying settings for All projects on <name> ▾" → choose the second
+   environment's row (`… · http://<LAN IP>:16261`). The menu shows its check on that row.
+5. Expected: the page shows the second environment's providers (Codex not authenticated). Seen: the page
+   keeps the primary's ("Checked 4m ago", Codex "Authenticated · ChatGPT"), also after closing and
+   reopening Settings; the second server received no provider queries (its trace: one `getConfig` and
+   `reportClientActivity` only).
+Not fixed here (coordinator, 2026-10-08): a follow-up fix task takes it.
+
 ## Real-input batch steps
 
-None left for this task. Real Space and Return on the dialog's method select need a visible focus
-ring (fix-keyboard-focus) to be read back; agent-mode keys on the focused trigger pass.
+Deferred to the next real-input batch (STATUS.md): real Space and Return on the Add provider dialog's
+Sign-in method select. They need fix-keyboard-focus's focus ring to see where the focus sits.
+1. Build this branch (`EXACT_APP_DIR=$PWD/examples/t3-code bun host/apple/build.mjs t3-code-macos --bundle`), copy the
+   bundle with its own bundle id and name, launch it with `open -n -a <copy> --env PATH=<lane bin>:/usr/bin:/bin:/usr/sbin:/sbin`
+   and the lane's homes (`T3_LOCAL_HOME`, `T3_LOCAL_PORT`, `HOME`, `CFFIXED_USER_HOME`, `CODEX_HOME`, `CLAUDE_CONFIG_DIR`, `XDG_*`).
+   Answer the lane copy's Documents prompt, if any, with Don't Allow.
+2. Settings › Providers › + (Add provider) › search "gemini" (paste-text) › Add › Continue to sign-in; wait until
+   the Sign in step shows "Provider default ▾" and Sign in.
+3. Tab until the ring is on the method select. Space: the menu opens; Space: it closes; Return: it opens. Read
+   each back with `screencapture -l <window>`. Escape and ↓/↑ in the open menu belong to fix-keyboard-focus.
 
 ### Hand-off: ↓/↑ opens a menu (to fix-keyboard-focus)
 
@@ -127,7 +159,7 @@ Findings from the one-file probe (`target/fpas/x62app/.exact/app-x63probe.contra
 | agent handoff | build 8 (http rule) | LAN pairing and the remote's install + handoff start in agent mode; the consent then ran in Chrome on the recorded URL | live-session-2 | — |
 | live session 2 (real input) | build 9 | Reconnect (real consent): list row follows; Settings open 75 s: 0 refreshes; LAN pairing in the .app (lane keychain); the handoff completed (agent mode + Chrome); real click on the wizard select | live-session-2, 08, 09, 10, e20 | — |
 | coordinator review | after build 9 | 17 reverted to the reference; ↓/↑ invoker removed (moved to fix-keyboard-focus); Excluded line; X64 re-run on main | — | — |
-| checks | merged tree | `bun test examples/t3-code` 3139 pass / 1 skip / 0 fail on the merged tree (runner attempt 1 before the merge: 3053 / 1 / 0); strict tsc clean; contract build 3860 slots, 46 resources; `cargo test -p t3-code-macos --lib` 11 pass; AppKit transport 57 / 0, fleet 9 / 0, codex-auth 6 / 0; caps within; five checks on the merged tree: build exit 0, test 3,521 passed / 0 failed / 34 ignored (94 binaries), clippy and fmt clean, boot allowed paths only; verify runner passed, `source_unchanged: true`, the committed tree matches | `target/fpas/verify/attempt-1`, `target/fpas/checks` (not committed) | — |
+| checks | merged tree | `bun test examples/t3-code` 3140 pass / 1 skip / 0 fail on the merged tree (3139 before the review follow-up's test) (runner attempt 1 before the merge: 3053 / 1 / 0); strict tsc clean; contract build 3860 slots, 46 resources; `cargo test -p t3-code-macos --lib` 11 pass; AppKit transport 57 / 0, fleet 9 / 0, codex-auth 6 / 0; caps within; five checks on the merged tree: build exit 0, test 3,521 passed / 0 failed / 34 ignored (94 binaries), clippy and fmt clean, boot allowed paths only; verify runner passed, `source_unchanged: true`, the committed tree matches | `target/fpas/verify/attempt-1`, `target/fpas/checks` (not committed) | — |
 
 ## Progress
 

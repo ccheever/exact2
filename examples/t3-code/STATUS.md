@@ -76,5 +76,6 @@ Rows deferred after the 2026-10-08 batch (#298). Each task record has the steps.
 | pr-writing-and-metadata (#261) | Korean 2-Set composition and Return in the comment box, real ⌘↵, hardware hover over the pencils and reaction pills, real Tab and the focus ring through the composer, editors and pickers | record "Real-input batch steps" (not run by #298) |
 | title-custom-snooze (#299) | The title menu's Custom… by real pointer and keys, focus back to the title on Escape, one `thread.snooze` per Snooze, Snooze dimmed while a turn waits on the user | record "Real-input batch steps" |
 | provisional-decisions-parity (#296) | Optional: the U6 launch race in a normal (not agent-mode) launch | record "Real-input batch steps" |
+| fix-provider-auth-state (#312) | Real Space and Return open the Add provider dialog's Sign-in method select (needs fix-keyboard-focus's focus ring to see where the focus is) | lane copy with `--env PATH=<lane bin>:/usr/bin:/bin:/usr/sbin:/sbin`; Settings › Providers › Add provider › ACP Registry "gemini" › Add › Continue to sign-in; Tab to the method select (ring on it), Space: the menu opens; Space closes it; Return: it opens (record "Real-input batch steps") |
 
 When the four `20261008-fix-*` PRs merge, their real-input rows rejoin this list. Those rows re-check the clone bugs the 2026-10-08 batch found.
