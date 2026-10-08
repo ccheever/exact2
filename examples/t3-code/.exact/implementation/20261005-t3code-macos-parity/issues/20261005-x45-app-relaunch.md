@@ -84,3 +84,4 @@ Upstream (the rest): https://github.com/ccheever/exact2/issues/271 (#271, [Desig
 durable-write teardown."
 - Waits for main fix of [#271](https://github.com/ccheever/exact2/issues/271), which follows #269 (X6). The U4 relaunch rows stay blocked, and the
   restart-in-place stopgap stays, until then.
+- [#327](https://github.com/ccheever/exact2/pull/327) audit (open on main, 2026-10-08): approved larger lifecycle feature, after #269.

@@ -127,3 +127,4 @@ Next: issue-close once #281 lands: remove `press=popPress retainFocus=true` from
 
 [Charlie on #281](https://github.com/ccheever/exact2/issues/281#issuecomment-6055579701): "Make the popover top layer consume its own pointer contacts."
 - Waits for main fix of [#281](https://github.com/ccheever/exact2/issues/281), then an adoption round. On adoption, `press=popPress retainFocus=true` leaves `theme-color-picker.contract`.
+- **Fixed by [#327](https://github.com/ccheever/exact2/pull/327)** (open on main, 2026-10-08); this resumes in the main-adoption round after it merges. Then `press=popPress retainFocus=true` leaves the colour popover in `theme-color-picker.contract`; re-run one row: a press on the popover's header (no handler) still counts as outside for #290's light dismiss.

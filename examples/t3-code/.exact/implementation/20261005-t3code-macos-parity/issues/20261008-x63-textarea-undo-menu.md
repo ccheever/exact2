@@ -103,3 +103,5 @@ now Edit › Redo) act on the focused text view's own manager, which matches the
 Filed as [#315](https://github.com/ccheever/exact2/issues/315) ([Bug] macOS: ⌘Z and Edit › Undo do nothing in a plain `textarea` (the undo reaches the window's manager, not the field's)), reproduced on main `b896050d7` in agent mode before filing (evidence under
 `file-x48-x68/` on `t3-code-evidence`). Under the framework vs T3 split (user, 2026-10-08) the fix is framework work;
 the clone's side waits for main fix of #315, then an adoption round.
+
+- **Fixed by [#327](https://github.com/ccheever/exact2/pull/327)** (open on main, 2026-10-08); this resumes in the main-adoption round after it merges. Then #306's own Edit › Undo and Redo routing in `R8KeysMenus.swift` (to the focused text view's undo manager) goes.

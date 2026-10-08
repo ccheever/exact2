@@ -116,3 +116,4 @@ Next: issue-close once #291 lands; the freshness mark's and the submenu value's 
 
 [Charlie on #291](https://github.com/ccheever/exact2/issues/291#issuecomment-6055582400): "Start-align overflowing lines consistently in all text paths."
 - Waits for main fix of [#291](https://github.com/ccheever/exact2/issues/291), then an adoption round. The clone's `text-align="left"` sites stay (they mirror the reference's `text-left`).
+- [#327](https://github.com/ccheever/exact2/pull/327) audit (open on main, 2026-10-08): attempt withdrawn (RTL ellipsis geometry still failed); #291 stays open.

@@ -111,3 +111,4 @@ navigation root and does not satisfy the no-router criterion."
 - Narrowed: delivery still needs a navigation root; no-router delivery is not chosen.
 - For the clone: no consumer is left. E4 (`t3code://`) went out of scope with T3 Connect (X38, closed by the user)
   and U10 is decided (no CLI install action). Nothing waits on it.
+- [#327](https://github.com/ccheever/exact2/pull/327) audit (open on main, 2026-10-08): approved template feature, original criterion narrowed (a router is still required).

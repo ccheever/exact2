@@ -139,3 +139,4 @@ merely to evade the cap."
   remedy. Resources, mutations and tasks stay in the root; view-only state and action halves move to area children.
 - The local A1 branch ("Fix built" above) is superseded by the decision and not pursued.
 - #108 stays open upstream for D5. Nothing to adopt.
+- [#327](https://github.com/ccheever/exact2/pull/327) audit (open on main, 2026-10-08): request ownership explicitly deferred; "Immediate child-state/action root rewrite belongs to #303/T3 example"; partial-root syntax declined.

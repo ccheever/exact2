@@ -117,3 +117,4 @@ Next: `issue-close` once #302 lands: add `outline="none"` where the reference is
 
 [Charlie on #302](https://github.com/ccheever/exact2/issues/302#issuecomment-6055582892): "Add the requested outline:none suppression."
 - Waits for main fix of [#302](https://github.com/ccheever/exact2/issues/302), then an adoption round. On adoption, `outline="none"` goes on the composer and the Appearance prompt preview.
+- [#327](https://github.com/ccheever/exact2/pull/327) audit (open on main, 2026-10-08): approved feature, medium (input and textarea only).

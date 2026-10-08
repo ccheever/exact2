@@ -117,3 +117,5 @@ task removes the hardcoded generic-only catalog and verifies the actual faces in
 Filed as [#318](https://github.com/ccheever/exact2/issues/318) ([Design] `font-family` from a string at run time, so a font picker can apply any installed family), reproduced on main `b896050d7` in agent mode before filing (evidence under
 `file-x48-x68/` on `t3-code-evidence`). Under the framework vs T3 split (user, 2026-10-08) the fix is framework work;
 the clone's side waits for main fix of #318, then an adoption round.
+
+- [#327](https://github.com/ccheever/exact2/pull/327) audit (open on main, 2026-10-08): design pending: runtime family names conflict with LLP 1019's compile-time interning; no owner selection yet.

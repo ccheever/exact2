@@ -3,7 +3,7 @@ name: 20261005-pr-code-tab
 plan: 20261005-t3code-macos-parity
 implementation: done
 verification: partial
-delivery: draft-pr
+delivery: merged
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-pr-code-tab
@@ -36,7 +36,7 @@ Reuse (done): `parsePatch`/`diffSnapshot` model and toolbar toggles (`diff.ts`, 
 
 ## Context and guidance
 
-Parent specification: [spec](../spec.md). Source behavior (T3 Code `1e2ecbd975`; `W/` = `apps/web/src/components/pullRequest/`):
+Parent specification: [spec](../../spec.md). Source behavior (T3 Code `1e2ecbd975`; `W/` = `apps/web/src/components/pullRequest/`):
 `W/PullRequestCodeTab.tsx:194-1557` (state 194-330, slices 330-380, positions 640-720, annotations 880-1040, toolbar 1060-1330), `W/PullRequestReviewAnnotation.tsx:57-358`,
 `W/pullRequestDiff.logic.ts`, `pullRequestFilesViewed.logic.ts`, `usePullRequestFilesViewed.ts`, `pullRequestFileOrder.logic.ts`, `pullRequestReviewStore.ts`,
 `W/PullRequestDetailPanel.tsx:2740-2758` (mount), `apps/web/src/lib/diffFileContents.ts:57-99`, `apps/web/src/reviewCommentContext.ts:220-400`;
@@ -53,14 +53,14 @@ Reference rules to keep: line comments only on the whole change (not under a com
 
 | Kind | Readable task/issue/decision | Remote reference | Required condition | Resolution evidence |
 | --- | --- | --- | --- | --- |
-| merged task PR | [20261005-clone-on-exact2-main](20261005-clone-on-exact2-main.md) | pending | Merged | pending |
-| merged task PR | [20261005-desktop-oracle-and-trace](closed/20261005-desktop-oracle-and-trace.md) | pending | Merged | pending |
-| merged task PR | [20261005-pr-conversation-and-refresh](closed/20261005-pr-conversation-and-refresh.md) | pending | Merged (threads, activity, refresh) | pending |
-| merged task PR | [20261005-pr-writing-and-metadata](closed/20261005-pr-writing-and-metadata.md) | pending | Merged (composer, review store, editor, reactions) | pending |
-| merged task PR | [20261005-diff-review-engine](closed/20261005-diff-review-engine.md) | pending | Merged (annotation rows, tree, lazy rows, line-comment cards) | pending |
-| merged task PR | [20261005-pr-handoffs-and-quick-actions](closed/20261005-pr-handoffs-and-quick-actions.md) | pending | Merged (`buildFixFindingHandoff`, `buildAddSelectionToAgentHandoff`, the hand-off runner) | pending |
-| merged task PR | [20261007-real-github-lane](closed/20261007-real-github-lane.md) | pending | Sandbox `many-files` and `second-review` threads; probe rows for diff slices, `diffFileContents`, `filesViewed`, `setFilesViewed` and the thread writes confirmed | pending |
-| merged task PR | [20261005-hot-file-split](closed/20261005-hot-file-split.md) | pending | Merged into `daehyeon/t3-code` (common prerequisite: room and per-area seams in the shared files) | pending |
+| merged task PR | [20261005-clone-on-exact2-main](../20261005-clone-on-exact2-main.md) | pending | Merged | pending |
+| merged task PR | [20261005-desktop-oracle-and-trace](20261005-desktop-oracle-and-trace.md) | pending | Merged | pending |
+| merged task PR | [20261005-pr-conversation-and-refresh](20261005-pr-conversation-and-refresh.md) | pending | Merged (threads, activity, refresh) | pending |
+| merged task PR | [20261005-pr-writing-and-metadata](20261005-pr-writing-and-metadata.md) | pending | Merged (composer, review store, editor, reactions) | pending |
+| merged task PR | [20261005-diff-review-engine](20261005-diff-review-engine.md) | pending | Merged (annotation rows, tree, lazy rows, line-comment cards) | pending |
+| merged task PR | [20261005-pr-handoffs-and-quick-actions](20261005-pr-handoffs-and-quick-actions.md) | pending | Merged (`buildFixFindingHandoff`, `buildAddSelectionToAgentHandoff`, the hand-off runner) | pending |
+| merged task PR | [20261007-real-github-lane](20261007-real-github-lane.md) | pending | Sandbox `many-files` and `second-review` threads; probe rows for diff slices, `diffFileContents`, `filesViewed`, `setFilesViewed` and the thread writes confirmed | pending |
+| merged task PR | [20261005-hot-file-split](20261005-hot-file-split.md) | pending | Merged into `daehyeon/t3-code` (common prerequisite: room and per-area seams in the shared files) | pending |
 
 ## Issue assessment at preparation
 
@@ -68,12 +68,12 @@ Checked sources and time: planning pass 2026-10-05 over `EXACT2-GAPS.md` and `..
 
 | Issue / reference | Capability and target | Evidence / affected revision | Impact | Next action |
 | --- | --- | --- | --- | --- |
-| [X21](../issues/20261005-x21-two-way-websocket.md) | Authenticated POST with a body from a data module | Swift transport is GET-only for TS | nonblocking (workaround: new allow-listed POST-JSON op in `T3Transport.swift`) | Implement; keep the bearer in Swift |
-| [X19](../issues/20261005-x19-data-source-timers.md) | 400 ms burst gathering of Viewed ticks | Reference `FLUSH_DELAY_MS = 400` (`usePullRequestFilesViewed.ts:27`) | nonblocking (workaround: flush on the next tick of the existing `wallTime` argument or a Contract task) | Test with `now` |
-| [X23](../issues/20261005-x23-scroll-restore-offsets.md) | Reveal from the tree/timeline commit, keep scroll per tab | `scrollIntoView` on main | nonblocking | Reuse |
-| [X13](../issues/closed/20261005-x13-hover-keys-during-pan.md) / [X24](../issues/closed/20261005-x24-still-pointer-rehover.md) | Gutter "+" and hover reveals | `t3-rehover` hook | nonblocking | Reuse Update 2026-10-07 (adopt-main-fixes-shell): X24 fixed on main #174; the `t3-rehover` hook no longer exists, the host does it. |
-| [X9](../issues/20261005-x09-root-component-across-files.md) | `app.contract` cap | 1,327/1,500 | nonblocking | No new root resource |
-| [X32](../issues/20261005-x32-sticky-positioning-in-lists.md) = [#131](https://github.com/ccheever/exact2/issues/131) | Sticky file headers in the Code tab's list | Charlie deferred #131 on 2026-10-08 "until a list-lifetime design is selected" (grouped containment is one option) | nonblocking (headers scroll as ordinary rows, as the thread diff panel draws them) | Wait for #131; if it lands as grouped containment, `diffItems` becomes per-file groups |
+| [X21](../../issues/20261005-x21-two-way-websocket.md) | Authenticated POST with a body from a data module | Swift transport is GET-only for TS | nonblocking (workaround: new allow-listed POST-JSON op in `T3Transport.swift`) | Implement; keep the bearer in Swift |
+| [X19](../../issues/20261005-x19-data-source-timers.md) | 400 ms burst gathering of Viewed ticks | Reference `FLUSH_DELAY_MS = 400` (`usePullRequestFilesViewed.ts:27`) | nonblocking (workaround: flush on the next tick of the existing `wallTime` argument or a Contract task) | Test with `now` |
+| [X23](../../issues/20261005-x23-scroll-restore-offsets.md) | Reveal from the tree/timeline commit, keep scroll per tab | `scrollIntoView` on main | nonblocking | Reuse |
+| [X13](../../issues/closed/20261005-x13-hover-keys-during-pan.md) / [X24](../../issues/closed/20261005-x24-still-pointer-rehover.md) | Gutter "+" and hover reveals | `t3-rehover` hook | nonblocking | Reuse Update 2026-10-07 (adopt-main-fixes-shell): X24 fixed on main #174; the `t3-rehover` hook no longer exists, the host does it. |
+| [X9](../../issues/20261005-x09-root-component-across-files.md) | `app.contract` cap | 1,327/1,500 | nonblocking | No new root resource |
+| [X32](../../issues/20261005-x32-sticky-positioning-in-lists.md) = [#131](https://github.com/ccheever/exact2/issues/131) | Sticky file headers in the Code tab's list | Charlie deferred #131 on 2026-10-08 "until a list-lifetime design is selected" (grouped containment is one option) | nonblocking (headers scroll as ordinary rows, as the thread diff panel draws them) | Wait for #131; if it lands as grouped containment, `diffItems` becomes per-file groups |
 
 ## Implementation notes
 
@@ -108,6 +108,8 @@ Task-owned source paths: `examples/t3-code/pages-pr-detail.*`, new `pages-pr-cod
 Required environment: macOS 26.6.2, Xcode 27.0, Bun 1.4.2, the real-GitHub lane (sandbox, shared lane config dirs, two accounts; `tools/github-lane`), reference oracle. Attended and normal-launch rows use a lane build with `T3_LOCAL_HOME=<lane>/t3-home` and `T3_LOCAL_PORT=<lane port 16xxx>` (see `20261005-embedded-server-runtime`).
 
 ## Progress
+
+2026-10-08 (records sync): merged into `feat(example)/t3-code` as #308 (`0e2901aec`); the record moved to `tasks/closed/`. Its real-input rows are in `STATUS.md` "Next real-input batch".
 
 2026-10-06: on hold (user decision: tasks that need a sign-in waited). 2026-10-07: the user lifted the hold. Rows that need a real account are signed in by the user in person on the lane build; every other sign-in row uses lane fixtures.
 

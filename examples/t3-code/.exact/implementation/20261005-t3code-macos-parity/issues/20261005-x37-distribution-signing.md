@@ -113,3 +113,4 @@ the existing build/staging flow rather than an arbitrary preseal callback."
 - **Narrowed:** no pre-seal hook. The clone no longer needs one (portable-app-download was dropped). Only
   embedded-server-runtime's first-launch unpack could gain, if derived helper entitlements can give `t3` its JIT
   entitlements. Nothing waits on it.
+- [#327](https://github.com/ccheever/exact2/pull/327) audit (open on main, 2026-10-08): approved correctness (signing before hashing) plus design pending (entitlements).

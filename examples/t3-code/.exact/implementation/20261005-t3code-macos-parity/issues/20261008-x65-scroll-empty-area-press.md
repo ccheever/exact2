@@ -90,3 +90,5 @@ port lands on a node. Remove it when the host routes the ground's presses.
 Filed as [#317](https://github.com/ccheever/exact2/issues/317) ([Bug] macOS: a press on a `scroll`'s empty area reaches no node, so neither it nor an ancestor hears `pointerdown`), reproduced on main `b896050d7` in agent mode before filing (evidence under
 `file-x48-x68/` on `t3-code-evidence`). Under the framework vs T3 split (user, 2026-10-08) the fix is framework work;
 the clone's side waits for main fix of #317, then an adoption round.
+
+- [#327](https://github.com/ccheever/exact2/pull/327) audit (open on main, 2026-10-08): attempt withdrawn; #317 stays open. `usage-ground` stays.

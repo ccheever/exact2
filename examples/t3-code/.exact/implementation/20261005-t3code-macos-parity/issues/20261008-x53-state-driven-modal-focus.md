@@ -94,3 +94,4 @@ Next: issue-close once #282 lands: replace the per-dialog traps with `dialog` + 
 
 [Charlie on #282](https://github.com/ccheever/exact2/issues/282#issuecomment-6055581523): "Carry showModal(id) and close(id) on GUI hosts."
 - Waits for main fix of [#282](https://github.com/ccheever/exact2/issues/282), then an adoption round. On adoption, `showModal`/`close` replace the per-dialog `key` traps, `sidebarDialogFocus`, `dialogReturn` and the `focus()` returns (AppConfirm, SettingsConfirm, Custom snooze, Add Environment, the Local environment dialog, the pull request confirmation and stack dialogs).
+- [#327](https://github.com/ccheever/exact2/pull/327) audit (open on main, 2026-10-08): partial: `showModal(id)` and `close(id)` dispatch through the existing modal paths on macOS and the JS/wasm web hosts; the Contract dialog-close event and other hosts stay open, so #282 stays open. After adoption the per-dialog traps can move to `showModal`/`close` on macOS.

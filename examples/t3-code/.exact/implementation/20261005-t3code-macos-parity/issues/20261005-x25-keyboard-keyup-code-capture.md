@@ -133,3 +133,4 @@ covers held modifiers."
   rebuilt as a root capture `key`/`keyup` handler plus `exactPage().hasFocus`. At adoption, check that a root
   capture handler hears keys while nothing is focused.
 - The ⌘W repeat drop and the ⌘Q hold stay native (the reference does both in its main process).
+- [#327](https://github.com/ccheever/exact2/pull/327) audit (open on main, 2026-10-08): approved; the capture event's syntax is still to design.

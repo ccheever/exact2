@@ -25,7 +25,7 @@ the page shows one environment at a time: the chosen one from the settings scope
 "Reconnect <label> to set up its providers." (environment scope) or "Connect an environment to set up its providers."
 
 Found by [fix-provider-auth-state](https://github.com/ccheever/exact2/pull/312) (#312) and left out of its scope; the
-coordinator made this follow-up task (2026-10-08). It starts after #312 merges.
+coordinator made this follow-up task (2026-10-08). #312 merged on 2026-10-08, so it can start.
 
 ## Reproduction (from #312, "Found, not in scope")
 
@@ -70,7 +70,7 @@ Excluded: other Settings pages' scope handling (not reported broken); framework 
 
 | Kind | Item | State | Effect |
 | --- | --- | --- | --- |
-| merged task PR | #312 `fix-provider-auth-state` | open (draft) on 2026-10-08 | start after it merges (the same provider state code) |
+| merged task PR | #312 `fix-provider-auth-state` | merged 2026-10-08 (`421047c46`) | met: the task can start |
 | framework issue | none | — | no framework wait |
 
 ## Acceptance and reproduction
@@ -90,9 +90,9 @@ Planned (2026-10-08, records sync). Not started. No branch or PR yet.
 
 | Attempt | Revision/fingerprint | Checks and outcomes | Evidence | Remaining blocker |
 | --- | --- | --- | --- | --- |
-| none | — | — | — | #312 |
+| none | — | — | — | none |
 
 ## Next action
 
-After #312 merges into `feat(example)/t3-code`: `prepare` (find where the Providers page takes its environment), then
+#312 has merged into `feat(example)/t3-code`: `prepare` (find where the Providers page takes its environment), then
 implement and verify against the reproduction above.

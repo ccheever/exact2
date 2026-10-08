@@ -116,3 +116,4 @@ geometry deferred. … Select an event payload/margin and consumer before buildi
 - **Narrowed:** anchoring moves to #112 (X17); row visibility is a separate candidate with no date.
 - The local fix ("Fix built" above) is superseded by main: the element `resize` event has been on main since
   `5949b2b64` (2026-10-04, in the branch). Not pursued.
+- [#327](https://github.com/ccheever/exact2/pull/327) audit (open on main, 2026-10-08): design candidate (visibility payload, margin, consumer) with deferred parts (reactive geometry, container queries).

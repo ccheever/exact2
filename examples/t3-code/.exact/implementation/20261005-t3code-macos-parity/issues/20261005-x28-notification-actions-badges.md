@@ -120,3 +120,4 @@ refusals on push, action buttons/replies, repeating schedules and permission fac
 - Waits for main fix of [#224](https://github.com/ccheever/exact2/issues/224) for the click that opens the finished thread.
 - **Declared difference (permanent):** the Dock badge and its clearing, and the permission reading, stay in
   `T3Notifications.swift`.
+- [#327](https://github.com/ccheever/exact2/pull/327) audit (open on main, 2026-10-08): policy pending for the click; the badge and richer actions stay deferred.

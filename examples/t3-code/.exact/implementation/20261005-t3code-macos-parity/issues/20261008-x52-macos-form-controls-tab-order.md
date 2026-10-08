@@ -89,3 +89,4 @@ Next: issue-close once #280 lands: re-run the Custom snooze Tab drive.
 
 [Charlie on #280](https://github.com/ccheever/exact2/issues/280#issuecomment-6055580836): "Put date, time and select controls in the default Tab order."
 - Waits for main fix of [#280](https://github.com/ccheever/exact2/issues/280), then an adoption round. On adoption, re-drive Custom snooze's Tab order.
+- **Fixed by [#327](https://github.com/ccheever/exact2/pull/327)** (open on main, 2026-10-08); this resumes in the main-adoption round after it merges. Then re-drive the Custom snooze dialog's Tab cycle (`toggleKey`/`closeKey` in `sidebar-overlays.contract`) with Date, Time and Unit as Tab stops, and drop the X52 note in `dialog-focus.test.ts`.

@@ -129,3 +129,4 @@ Upstream (the rest): https://github.com/ccheever/exact2/issues/272 (#272, [Bug] 
 
 [Charlie on #272](https://github.com/ccheever/exact2/issues/272#issuecomment-6055582661): "Expose the union of inline-run rectangles through frame and layout." A correctness fix.
 - Waits for main fix of [#272](https://github.com/ccheever/exact2/issues/272): the `#N` inline-link hover card of pr-links-previews-and-routing anchors to it.
+- [#327](https://github.com/ccheever/exact2/pull/327) audit (open on main, 2026-10-08): medium correctness candidate.

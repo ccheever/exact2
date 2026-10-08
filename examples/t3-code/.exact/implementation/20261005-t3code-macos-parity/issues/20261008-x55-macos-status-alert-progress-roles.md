@@ -62,3 +62,4 @@ Next: issue-close once #278 lands: re-run `tree --ax first-launch`.
 
 [Charlie on #278](https://github.com/ccheever/exact2/issues/278#issuecomment-6055581241): "Complete admitted role mappings, implicit live announcements and macOS modal accessibility."
 - Waits for main fix of [#278](https://github.com/ccheever/exact2/issues/278), then an adoption round. The clone's `role="status"`/`"alert"` nodes, the drawn progress bar and its dialogs then reach VoiceOver; there is no workaround to remove.
+- [#327](https://github.com/ccheever/exact2/pull/327) audit (open on main, 2026-10-08): approved correctness with a scoped amendment (roles first; `aria-modal` needs LLP 1080.003's amendment).

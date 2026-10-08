@@ -91,3 +91,4 @@ Upstream (the rest): https://github.com/ccheever/exact2/issues/273 (#273, [Desig
 module until a separate consumer-driven design is selected."
 - **Declared difference (permanent):** `PDFView` in `R6MediaPreview.swift` (the page alone, fitted to the width, on
   #282828) stays. The clone's PDF is the server's signed `http` URL, so an `app:/` iframe does not apply.
+- [#327](https://github.com/ccheever/exact2/pull/327) audit (open on main, 2026-10-08): approved scoped `app:/` iframe; the fitted PDF surface stays deferred.

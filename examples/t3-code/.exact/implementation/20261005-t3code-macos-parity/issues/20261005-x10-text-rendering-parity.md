@@ -167,3 +167,4 @@ defaults when absent."
   adoption follow-up).
 - **Declared difference (permanent):** font smoothing is deferred. The stored font-smoothing setting stays
   unapplied, and text looks heavier than in Chrome (item 5).
+- [#327](https://github.com/ccheever/exact2/pull/327) audit (open on main, 2026-10-08): balance and `::placeholder` approved; `-webkit-font-smoothing` stays deferred.

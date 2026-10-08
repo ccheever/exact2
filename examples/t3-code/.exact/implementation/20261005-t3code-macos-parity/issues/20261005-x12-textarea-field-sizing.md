@@ -107,3 +107,4 @@ not add a generic reportHeight channel."
 - **Declared difference (permanent):** the composer can be one line taller or shorter than the reference when its
   chips draw wider than their plain text (narrow widths). The clone has no workaround; EXACT2-GAPS's old
   "measured height" cell was wrong and now says so.
+- [#327](https://github.com/ccheever/exact2/pull/327) audit (open on main, 2026-10-08): explicitly deferred; no generic reportHeight.

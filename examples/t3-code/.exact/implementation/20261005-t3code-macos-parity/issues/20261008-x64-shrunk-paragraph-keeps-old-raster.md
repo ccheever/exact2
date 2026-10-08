@@ -108,3 +108,5 @@ or wrapped label whose content can shrink is exposed; a key per value is a worka
 
 ## Filed upstream (2026-10-08)
 Filed as [#316](https://github.com/ccheever/exact2/issues/316), reproduced on main `b896050d7`. The T3 rows it blocks wait for the main fix of #316; the clone keeps its workaround (the provider status texts are keyed by status) until then.
+
+- **Fixed by [#327](https://github.com/ccheever/exact2/pull/327)** (open on main, 2026-10-08); this resumes in the main-adoption round after it merges. Then #312's status-keyed redraw goes (the provider list row's status `each status in [row.status] key=status`, and the editor's status line keyed by its parts).

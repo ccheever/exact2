@@ -26,6 +26,8 @@ after the PRs in flight merge: #290 (popover-escape-parity), #307 (fix-hover-car
 Charlie's ruling on [#108](https://github.com/ccheever/exact2/issues/108#issuecomment-6055587663) (2026-10-08) endorses this rewrite
 as the remedy: "Use child state/actions to reduce the root now; defer request ownership to the existing D5 design. … Use the
 T3 Code root rewrite already planned in #303 as the immediate remedy. … do not add partial-root syntax merely to evade the cap."
+Main PR [#327](https://github.com/ccheever/exact2/pull/327)'s audit (open on main, 2026-10-08) repeats it: "Immediate child-state/action
+root rewrite belongs to #303/T3 example"; general child resources wait for D5.
 
 ## Why (measured at `ec32c8c37`, 2026-10-08)
 
@@ -114,7 +116,7 @@ Excluded:
 
 | Kind | Item | State | Effect |
 | --- | --- | --- | --- |
-| merged task PRs | #290 (popover-escape-parity), #307 (fix-hover-cards), #310 (fix-keyboard-focus), #312 (fix-provider-auth-state), #308 (pr-code-tab) and #311 (pr-links-previews-and-routing) | in flight on 2026-10-08; #290 merged (`84a52dde0`) | start after they all merge (user decision) |
+| merged task PRs | #290 (popover-escape-parity), #307 (fix-hover-cards), #310 (fix-keyboard-focus), #312 (fix-provider-auth-state), #308 (pr-code-tab) and #311 (pr-links-previews-and-routing) | in flight on 2026-10-08; merged: #290 (`84a52dde0`), #312 (`421047c46`), #308 (`0e2901aec`) | start after they all merge (user decision) |
 | recorded decision | rewrite `app.contract` so the root stays well under the cap (user, 2026-10-08) | decided | this task |
 | recorded decision | X9 ([#108](https://github.com/ccheever/exact2/issues/108)), Charlie, 2026-10-08 | decided | "Use the T3 Code root rewrite already planned in #303 as the immediate remedy": this task; no framework wait (resources, mutations and tasks stay in the root) |
 | main adoption | round 7 (main `9731c8056`, the `now()` rename) | waits for main fix of X67 | rename in this task's first commit only if round 7 merged main first |
@@ -146,4 +148,8 @@ Once #290, #307, #310, #312, #308 and #311 have merged into `feat(example)/t3-co
 - confirm the area map above;
 - list, per area, the actions that split, with their child half and root half;
 - check whether round 7 has merged main (then the first commit renames `now()`);
+- note only (an investigation, not a goal): check whether moving views into child components brings the clone's 103-site
+  nesting below the debug build's 2 MiB limit of X67 ([#320](https://github.com/ccheever/exact2/issues/320), still open:
+  #327 withdrew its attempt, so round 7 stays blocked). Record the result in the PR. #320's body says long component
+  chains also overflow in optimized builds, so a lower count does not settle X67;
 - then implement area by area, running the clone checks after each.

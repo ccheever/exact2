@@ -139,3 +139,4 @@ five-second deadline, not five seconds per module, with once-only completion and
 - On adoption: move the embedded server's stop (SIGTERM, SIGKILL after 2 s; measured 0.79 s) out of the
   blocking `destroy()` into the shared hold. Keep the pid-file reaper, and the `atexit` stop for the agent's
   `exit(0)`.
+- [#327](https://github.com/ccheever/exact2/pull/327) audit (open on main, 2026-10-08): "existing PR #313, partial", now merged on main (`a3d61c023`): SIGTERM goes through the orderly quit (synchronous `destroy()`); the async module hold still needs a ruling, so #269 stays open. Round 7 brings #313 in; the embedded server's stop then also runs on SIGTERM.

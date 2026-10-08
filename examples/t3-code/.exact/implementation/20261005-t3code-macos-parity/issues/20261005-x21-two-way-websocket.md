@@ -118,3 +118,4 @@ stream-handle/mutation-send API and distinguish protocol frames from coalescible
   until its first send). It is superseded and not pursued.
 - The adoption also needs `net.websocket` grants for origins the user enters (a grant names one exact origin).
   That is framework-side; STATUS lists it.
+- [#327](https://github.com/ccheever/exact2/pull/327) audit (open on main, 2026-10-08): selected next core investment; larger design; #227 fixes refusal consistency only.

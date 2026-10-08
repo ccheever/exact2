@@ -94,3 +94,4 @@ Upstream (the rest): https://github.com/ccheever/exact2/issues/267 (#267, [Desig
 arbitrary button positioning."
 - Waits for main fix of [#267](https://github.com/ccheever/exact2/issues/267): the fact and `env()` slice retires `T3FullScreen.swift` and the hard-coded
   90 pt inset; `T3WindowChrome.swift` (the title-row height) waits for the manifest field.
+- [#327](https://github.com/ccheever/exact2/pull/327) audit (open on main, 2026-10-08): approved bounded platform feature.

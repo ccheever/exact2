@@ -133,3 +133,4 @@ flip-block/inline/start … Prefer CSS fallback order to an unconditional macOS-
 - **Different design:** placements that lean on the macOS clamp (the `tail` in `pages-prs.contract`, the margins
   under `position-area="bottom span-right"`) move if CSS fallback order replaces the clamp; re-drive them at
   adoption. No new per-site arithmetic meanwhile.
+- [#327](https://github.com/ccheever/exact2/pull/327) audit (open on main, 2026-10-08): selected next core investment; larger design (amend LLP 1021's no-flip line first).

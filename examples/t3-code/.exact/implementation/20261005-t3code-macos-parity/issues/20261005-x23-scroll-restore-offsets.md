@@ -179,3 +179,4 @@ restoration. … Expose a first-visible key/offset and a matching explicit resto
 - **Different design (X23a):** exact2 will not restore a list by key. At adoption, port the reference's
   `rememberTimelinePosition`/`readTimelinePosition` into app state over the first-visible key and offset, then
   retire the restore code in `R9Input.swift`.
+- [#327](https://github.com/ccheever/exact2/pull/327) audit (open on main, 2026-10-08): approved larger feature; LLP 1010/1070 scope amendments first.

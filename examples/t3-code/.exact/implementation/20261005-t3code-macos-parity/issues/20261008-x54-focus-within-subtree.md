@@ -77,3 +77,4 @@ Next: issue-close once #283 lands: `PrdWords` expands on it; `PrdEditButton` sho
 
 [Charlie on #283](https://github.com/ccheever/exact2/issues/283#issuecomment-6055583103): "Add bubbling focusin/focusout with enough target information. … DOM focusout also fires when focus moves between descendants; a subtree-exit test uses relatedTarget."
 - Waits for main fix of [#283](https://github.com/ccheever/exact2/issues/283), then an adoption round. **Different design:** `PrdEditButton`'s pencil hides only when `relatedTarget` is outside its remark; `PrdWords` expands on `focusin`.
+- [#327](https://github.com/ccheever/exact2/pull/327) audit (open on main, 2026-10-08): approved feature; the acceptance is corrected first (DOM `focusout` within the subtree).

@@ -118,3 +118,4 @@ parity slice is resolved, then close the timer request not planned."
 - The local fix ("Fix built" above) is declined by the decision and not pursued.
 - Main renamed `now()` to `performanceNow()` (`9731c8056`); the clone's 26 sites are renamed by round 7 or by the
   root rewrite, whichever runs on that main first.
+- [#327](https://github.com/ccheever/exact2/pull/327) audit (open on main, 2026-10-08): "existing draft PR #228, incomplete" (JS sync-send and queued-send cases missing); timers stay refused.

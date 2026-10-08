@@ -92,3 +92,4 @@ ruling, use the shipped picker. Keep re-encoding/average-color logic in a native
 - Not in #116: the topic announce and resource invalidation part (#116's "Not in this issue"), so `r10Wake` stays;
   and the theme editor's Inspect lookup (the element under a point and its paint provenance), which is X68
   ([#321](https://github.com/ccheever/exact2/issues/321)). U18 waits for main fix of that issue.
+- [#327](https://github.com/ccheever/exact2/pull/327) audit (open on main, 2026-10-08): the any-type file input is policy pending; codecs and readback stay deferred (main's new bounded image compression does not meet them). X68 (#321): new feature, design not selected.

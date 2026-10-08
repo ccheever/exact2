@@ -175,3 +175,4 @@ selectionchange and beforeinput; pin range-edit semantics first."
   (`T3Composer*.swift`, styled ranges over `[label](t3-context://…)`).
 - Waits for main fix of [#275](https://github.com/ccheever/exact2/issues/275) for plain Contract fields. It does not retire the native composer: the chips,
   the trigger and menu keys and the history recall live in the same view.
+- [#327](https://github.com/ccheever/exact2/pull/327) audit (open on main, 2026-10-08): #275 approved, with a semantic choice needed first (`setRangeText` events and selection mode); #276 stays closed.

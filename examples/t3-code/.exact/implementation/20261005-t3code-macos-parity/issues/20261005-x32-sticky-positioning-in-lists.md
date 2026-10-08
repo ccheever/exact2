@@ -121,3 +121,4 @@ containment with its CSS behavior, or explicitly declare a section-header extens
   pinned over several rows of a virtualized list.
 - **Declared difference until #131 lands on main** (user decision, 2026-10-08): the pinned diff file headers of
   diff-review-engine and pr-code-tab scroll away with their file. Waits for main fix of [#131](https://github.com/ccheever/exact2/issues/131).
+- [#327](https://github.com/ccheever/exact2/pull/327) audit (open on main, 2026-10-08): explicitly deferred pending a list-lifetime design; kept open.

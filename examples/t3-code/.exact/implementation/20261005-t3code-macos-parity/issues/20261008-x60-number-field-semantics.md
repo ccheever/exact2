@@ -81,3 +81,4 @@ Next: `issue-close` once #301 lands: remove `tsStep` and the ArrowUp/ArrowDown b
 
 [Charlie on #301](https://github.com/ccheever/exact2/issues/301#issuecomment-6055580503): "Implement number-field behavior and its adjustable accessible role."
 - Waits for main fix of [#301](https://github.com/ccheever/exact2/issues/301), then an adoption round. On adoption, `tsStep` goes.
+- [#327](https://github.com/ccheever/exact2/pull/327) audit (open on main, 2026-10-08): approved correctness, medium.

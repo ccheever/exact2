@@ -122,24 +122,30 @@ these user decisions have changed the tickets:
   so `e200397ec` is not an ancestor of the feature branch (its framework content is): the next adoption round first
   records it with `git merge -s ours e200397ec`, then merges main (`febb2c5fb` or later).
 - X59, X60 and X61 were filed upstream on 2026-10-08 as #300, #301 and #302 (reproduced on main `febb2c5fb`).
-- In flight (2026-10-08): `fix-hover-cards` (#307), `fix-keyboard-focus` (#310),
-  `fix-provider-auth-state` (#312), `pr-code-tab` (#308), `pr-links-previews-and-routing` (#311) and
-  `app-developer-tools` (narrowed, no PR yet). `fix-misc-batch` merged as #306 and `popover-escape-parity` as #290
-  (its record moved to `tasks/closed/`).
+- In flight (2026-10-08): `fix-hover-cards` (#307), `fix-keyboard-focus` (#310), `pr-links-previews-and-routing` (#311)
+  and `app-developer-tools` (narrowed, no PR yet). Merged: `fix-misc-batch` (#306), `popover-escape-parity` (#290),
+  `fix-provider-auth-state` (#312) and `pr-code-tab` (#308); the last three records moved to `tasks/closed/`.
 - Planned (user decisions, 2026-10-08):
-  [app-contract-root-rewrite](tasks/20261008-app-contract-root-rewrite.md), after #290 (merged), #307, #310, #312, #308 and
-  #311 merge, so the root stays well under the 1,500-line cap (1,478 at `ec32c8c37`, about 1,488 with #307); Charlie's ruling
-  on #108 names it the remedy. [fix-providers-environment-scope](tasks/20261008-fix-providers-environment-scope.md)
-  (found by #312), after #312 merges. [browser-surface](tasks/20261005-browser-surface.md), after the root rewrite.
+  [fix-providers-environment-scope](tasks/20261008-fix-providers-environment-scope.md) (found by #312), ready now that
+  #312 merged. [app-contract-root-rewrite](tasks/20261008-app-contract-root-rewrite.md), after #307, #310 and #311 merge
+  (#290, #312 and #308 have merged), so the root stays well under the 1,500-line cap (1,478 at `ec32c8c37`, about 1,488
+  with #307); Charlie's ruling on #108 and main PR #327's audit name it the remedy. [browser-surface](tasks/20261005-browser-surface.md),
+  after the root rewrite.
 - Waiting: `provider-sign-in-verification-followup` (its X49 row waits for main fix of #279); `installed-font-picker`
   (waits for main fix of X48, [#318](https://github.com/ccheever/exact2/issues/318)). The deferred rows of the next real-input batch are listed in
   `examples/t3-code/STATUS.md`.
+- Main PR [#327](https://github.com/ccheever/exact2/pull/327) (open, 2026-10-08) fixes #315 (X63), #316 (X64), #322 (X62),
+  #280 (X52), #284 (X50) and #281 (X51); it is partial for #292 and #282 and withdrew #291, #317 (X65) and #320 (X67);
+  its audit's disposition for each of our issues is in `issues/README.md` and the X files. Main merged #309 (#101),
+  #313 (#269, partial) and #314 (#235, partial) the same day.
 - Main adoption round 7 is blocked: it waits for main fix of X67 (main's examples test overflows the compiler's 2 MiB
-  test-thread stack on the clone, [#320](https://github.com/ccheever/exact2/issues/320)), and it unblocks no T3 task today. It must adopt main #305 (closes #300,
-  X59), main #304 (closes #285: drop the branch's `QUEUE.md` `clock +N real` entry), the `now()` → `performanceNow()`
-  rename (main `9731c8056`, 26 call sites; the root rewrite's first commit does it only if round 7 merged main before the rewrite
-  started, otherwise round 7 does) and the removal of the comment-only
-  `panels.contract` and `settings-panels.contract`, which main's examples test refuses.
+  test-thread stack on the clone, [#320](https://github.com/ccheever/exact2/issues/320), still open after #327), and it
+  unblocks no T3 task today. It must adopt main #305 (closes #300, X59), main #304 (closes #285: drop the branch's
+  `QUEUE.md` `clock +N real` entry), the `now()` → `performanceNow()` rename (main `9731c8056`, 26 call sites; the root
+  rewrite's first commit does it only if round 7 merged main before the rewrite started, otherwise round 7 does), the
+  removal of the comment-only `panels.contract` and `settings-panels.contract`, which main's examples test refuses, main
+  #309, #313 and #314, and, once #327 has merged, the workarounds its fixes retire (STATUS "Next up" lists them, with
+  #307's hover layer staying for its clipping fix).
 
 ## Parallel implementation, 2026-10-06
 
@@ -241,7 +247,7 @@ Common prerequisites, not repeated per row: every feature ticket (group 2 and la
 | 4 | [20261005-usage-pooled-view](tasks/closed/20261005-usage-pooled-view.md) | Pooled Usage page across connected environments, account popover with redeem, Cursor keychain enable prompt | exact2 | usage-reset-and-feedback | Reuses the redeem machinery and bars from usage-reset-and-feedback | trace, oracle pairs |
 | 5 | [20261005-pr-handoffs-and-quick-actions](tasks/closed/20261005-pr-handoffs-and-quick-actions.md) | PR panel hand-offs (Ask, Explain, Fix findings, Check out), header fold, Shift quick actions, row menu and popovers | exact2 | real-github-lane, pr-conversation-and-refresh, pr-header-actions-and-stacks | Split from the header ticket for size; the Code tab and links reuse the hand-offs and row menus | lane gh log, GitHub read-back, oracle pairs, attended Shift |
 | 5 | [20261005-terminal-integrations](tasks/closed/20261005-terminal-integrations.md) | Selection actions, Add to chat, terminal menus, links, scripts, Run in terminal, Open terminal | exact2 | terminal-drawer, terminal-layout | Needs tabs and the panel surface | ported tests, attended |
-| 6 | [20261005-pr-code-tab](tasks/20261005-pr-code-tab.md) | PR Code tab with review threads | exact2 | diff-review-engine, real-github-lane, pr-conversation-and-refresh, pr-handoffs-and-quick-actions, pr-writing-and-metadata | Reuses the diff engine, the writes, and the hand-off functions of pr-handoffs-and-quick-actions | real-GitHub lane, oracle pairs |
+| 6 | [20261005-pr-code-tab](tasks/closed/20261005-pr-code-tab.md) | PR Code tab with review threads | exact2 | diff-review-engine, real-github-lane, pr-conversation-and-refresh, pr-handoffs-and-quick-actions, pr-writing-and-metadata | Reuses the diff engine, the writes, and the hand-off functions of pr-handoffs-and-quick-actions | real-GitHub lane, oracle pairs |
 | 6 | [20261005-pr-links-previews-and-routing](tasks/20261005-pr-links-previews-and-routing.md) | Thread links, `#N` hover cards, cross-environment routing | exact2 | environment-routes, real-github-lane, pr-conversation-and-refresh, pr-handoffs-and-quick-actions, pr-header-actions-and-stacks | Routing trust depends on routes; row menus from pr-handoffs-and-quick-actions | real-GitHub lane, trace |
 | 7 (last) | [20261005-interface-font-size](tasks/closed/20261005-interface-font-size.md) | Root font size foundation: `rem` check, size map, shared style classes (per-area conversion tickets follow) | exact2 | resolved framework issue X3 (if reproduced); preference: after all UI tickets | Converts every UI size; last to avoid churn | matrix at 16 px unchanged; 12/20 px pairs |
 | 8 (last) | [20261005-interface-font-size-conversion](tasks/closed/20261005-interface-font-size-conversion.md) | Every surface scales with the interface font size (split per area at prepare) | exact2 | interface-font-size; resolved framework issue X3 (if reproduced); preference: after the area's last UI ticket | Needs the root size and the size map | matrix at 16 unchanged; 12/20 pairs |

@@ -1,9 +1,9 @@
 ---
 name: 20261008-fix-provider-auth-state
 plan: 20261005-t3code-macos-parity
-implementation: implemented
+implementation: done
 verification: verified-with-unverified-rows
-delivery: draft
+delivery: merged
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: 'feat(example)/t3-code-fix-provider-auth-state'
@@ -162,6 +162,8 @@ Findings from the one-file probe (`target/fpas/x62app/.exact/app-x63probe.contra
 | checks | merged tree | `bun test examples/t3-code` 3140 pass / 1 skip / 0 fail on the merged tree (3139 before the review follow-up's test) (runner attempt 1 before the merge: 3053 / 1 / 0); strict tsc clean; contract build 3860 slots, 46 resources; `cargo test -p t3-code-macos --lib` 11 pass; AppKit transport 57 / 0, fleet 9 / 0, codex-auth 6 / 0; caps within; five checks on the merged tree: build exit 0, test 3,521 passed / 0 failed / 34 ignored (94 binaries), clippy and fmt clean, boot allowed paths only; verify runner passed, `source_unchanged: true`, the committed tree matches | `target/fpas/verify/attempt-1`, `target/fpas/checks` (not committed) | — |
 
 ## Progress
+
+2026-10-08 (records sync): merged into `feat(example)/t3-code` as #312 (`421047c46`); the record moved to `tasks/closed/`. Its real-input rows are in `STATUS.md` "Next real-input batch".
 
 2026-10-08: implemented, verified (runner attempt 1 passed, `source_unchanged: true`, committed tree matches;
 independent review without blocking findings) and pushed as `fe6629054` with the merge of

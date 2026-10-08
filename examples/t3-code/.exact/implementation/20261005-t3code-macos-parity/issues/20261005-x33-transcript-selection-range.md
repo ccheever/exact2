@@ -140,3 +140,4 @@ the operation."
 - Waits for main fix of [#274](https://github.com/ccheever/exact2/issues/274): Cite sits under the selection's end and clears the selection after citing.
 - **Different design:** where this record says `clearSelection()`, read the web's `removeAllRanges` (and
   `setBaseAndExtent` to set one).
+- [#327](https://github.com/ccheever/exact2/pull/327) audit (open on main, 2026-10-08): approved larger text feature (geometry shared with #272).

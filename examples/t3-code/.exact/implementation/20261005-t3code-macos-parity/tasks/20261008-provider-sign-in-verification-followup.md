@@ -60,7 +60,7 @@ Pro account); the X49 row waits for main fix of #279.
 
 2026-10-08 (real-input batch, records PR): Antigravity Google sign-in and real Sign out (Cancel/Confirm) pass; Gemini CLI refused by Google for this account; Codex Change account passes (#256). Results and proof: "Real-input batch (2026-10-08)" below.
 
-2026-10-08 ([fix-provider-auth-state](20261008-fix-provider-auth-state.md)): the Add provider dialog's
+2026-10-08 ([fix-provider-auth-state](closed/20261008-fix-provider-auth-state.md)): the Add provider dialog's
 Sign-in method select opens by click, Space and Return (its ids collided with the Settings row behind the
 dialog); ↓/↑ comes with fix-keyboard-focus's shared menu pattern.
 
