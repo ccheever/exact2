@@ -254,6 +254,10 @@ pub struct Engine {
     pending: BTreeSet<(u64, Property)>,
     transitions: BTreeMap<u64, Transitions>,
     slots: HashMap<(u64, Property), Slot, BuildHasherDefault<SlotHasher>>,
+    // Which properties each node has a slot for, a bit a property: removing
+    // a node removes those slots, not a probe for every property there is
+    // (a list row rebound forgets each of its nodes, most holding four).
+    properties: HashMap<u64, u32, BuildHasherDefault<SlotHasher>>,
     // Observed targets provide CSS's before-change style, but only live curves
     // need a clock. Holds and settled slots never enter this index.
     running: BTreeSet<(u64, Property)>,
@@ -313,6 +317,9 @@ impl Engine {
         if self.slots.capacity() > 2 * self.slots.len().max(256) {
             self.slots.shrink_to_fit();
         }
+        if self.properties.capacity() > 2 * self.properties.len().max(256) {
+            self.properties.shrink_to_fit();
+        }
         if self.dirty.capacity() > 2 * self.dirty.len().max(256) {
             self.dirty.shrink_to_fit();
         }
@@ -367,6 +374,52 @@ impl Engine {
         Ok(())
     }
 
+    /// Keep `slot` for `key`, noting that the node holds the property.
+    fn keep(&mut self, key: (u64, Property), slot: Slot) {
+        *self.properties.entry(key.0).or_insert(0) |= 1 << key.1 as u32;
+        self.slots.insert(key, slot);
+    }
+
+    /// Whether the engine holds nothing of `node`'s but settled values: no
+    /// transition, layout transition, animation, appearance, timeline, clock
+    /// or path, no curve running, pending or played, no hold. (Whether a
+    /// host samples the node's animations itself, [`Engine::set_node_sampled`],
+    /// is not counted: it has none, and the host says so again for every
+    /// node it restates.) Forgetting
+    /// such a node and observing its values again leaves what observing
+    /// them alone does (and presents only those that changed): what a
+    /// producer that renews a node (a list row rebound, LLP 1078) may count
+    /// on when the node's new rows are as bare.
+    pub fn at_rest(&self, node: u64) -> bool {
+        let none = |keys: &BTreeSet<(u64, Property)>| {
+            keys.range((node, Property::Translate)..)
+                .next()
+                .is_none_or(|key| key.0 != node)
+        };
+        let mut held = self.properties.get(&node).copied().unwrap_or(0);
+        let mut settled = true;
+        while held != 0 && settled {
+            let property = Property::from_slot(held.trailing_zeros());
+            held &= held - 1;
+            settled = self
+                .slots
+                .get(&(node, property))
+                .is_none_or(|slot| slot.live.is_none());
+        }
+        settled
+            && !self.transitions.contains_key(&node)
+            && !self.layout.contains_key(&node)
+            && !self.node_dark.contains_key(&node)
+            && !self.animations.contains_key(&node)
+            && !self.animating.contains(&node)
+            && !self.paths.contains_key(&node)
+            && !self.timelines.names(node)
+            && !self.clocks.names(node)
+            && none(&self.running)
+            && none(&self.pending)
+            && none(&self.played)
+    }
+
     /// Forget a node entirely.
     pub fn remove(&mut self, node: u64) {
         self.transitions.remove(&node);
@@ -402,11 +455,12 @@ impl Engine {
         for key in pending {
             self.pending.remove(&key);
         }
-        for property in Property::ALL {
+        let mut held = self.properties.remove(&node).unwrap_or(0);
+        while held != 0 {
+            let property = Property::from_slot(held.trailing_zeros());
+            held &= held - 1;
             self.slots.remove(&(node, property));
         }
-        self.slots.remove(&(node, Property::Layout));
-        self.slots.remove(&(node, Property::D));
     }
 
     /// Forget only this property's target, curve, hold and pending frame.
@@ -420,6 +474,12 @@ impl Engine {
         self.dirty.remove(&(node, property));
         self.running.remove(&(node, property));
         self.pending.remove(&(node, property));
+        if let Some(held) = self.properties.get_mut(&node) {
+            *held &= !(1 << property as u32);
+            if *held == 0 {
+                self.properties.remove(&node);
+            }
+        }
         self.slots.remove(&(node, property)).is_some()
     }
 
@@ -463,7 +523,7 @@ impl Engine {
         .map(|t| t.governing(change.property));
 
         let Some(slot) = self.slots.get_mut(&key) else {
-            self.slots.insert(key, Slot::settled(change.value));
+            self.keep(key, Slot::settled(change.value));
             self.dirty.insert(key);
             return Ok(());
         };

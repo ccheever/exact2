@@ -255,6 +255,13 @@ impl Engine {
 /// The last cycle boundary of `origin`'s timeline at or before `now`: an
 /// iteration, or two under `alternate`, so a joiner's first is forwards and
 /// it ends on the keyframe it would end on alone.
+impl Clocks {
+    /// Whether `node` is on a clock timeline or joining one.
+    pub(super) fn names(&self, node: u64) -> bool {
+        self.of.contains_key(&node) || self.joining.contains_key(&node)
+    }
+}
+
 pub(super) fn boundary(animation: &Animation, now: f64, origin: f64) -> f64 {
     let alternates = matches!(
         animation.direction,
