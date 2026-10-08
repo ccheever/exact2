@@ -11,6 +11,8 @@ rest_upstream_url: [https://github.com/ccheever/exact2/issues/275, https://githu
 
 # X20: No way to build an editor with inline atomic chips, caret/selection access, range replacement, paste interception and undo grouping
 
+**Status (reclassified 2026-10-08):** Bucket 4 for #275 (field `selectionchange`, `beforeinput`; approved, no PR); bucket 6 for #276 (chips, closed not planned). The native composer stays.
+
 ## Summary
 
 The T3 Code composer is a Tiptap/ProseMirror editor: chips for files, skills and citations are single units in
