@@ -765,3 +765,22 @@ fn compress_image_answers_a_rust_source_as_typescripts() {
     }
     assert!(!paths.0.join("data/x.jpg").exists());
 }
+
+/// A Rust source's upload from a file (LLP 1108 D6 R2): the storage composer
+/// passes `Request::body_from` through untouched, the path alone, for the
+/// host's executor to read when it sends the request.
+#[test]
+fn a_rust_sources_body_from_passes_to_the_host_as_its_path() {
+    let mut host = Storage::new(Fixture::new());
+    let mut upload = Request::get("https://example.test/upload").body_from("app:/data/photo.jpg");
+    upload.method = "POST".into();
+    host.source.request = upload.clone();
+    host.configure_storage("data".into(), "cache".into(), "tmp".into())
+        .unwrap();
+    host.activate().unwrap();
+    let mut store = Store::default();
+    let Answer::Later(request) = host.answer(&mut store, "upload", &[]).unwrap() else {
+        panic!("an upload is a request")
+    };
+    assert_eq!(request, upload);
+}

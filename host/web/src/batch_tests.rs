@@ -195,6 +195,15 @@ fn cases() -> Vec<(&'static str, String)> {
             one(|b| b.request(&request(42, independent, false))),
         ),
         (
+            "request-body-from",
+            one(|b| {
+                let mut upload =
+                    Request::get("https://api.example/blob").body_from("app:/tmp/a.jpg");
+                upload.method = "POST".into();
+                b.request(&request(48, upload, false))
+            }),
+        ),
+        (
             "request-continue",
             one(|b| {
                 b.request(&request(
@@ -367,6 +376,10 @@ const GOLDEN: &[(&str, &str)] = &[
     (
         "request-independent",
         r#"{"ops":[{"op":"request","ticket":42,"target":"feed \"home\"","scope":null,"nativeHttp":"independent","maxResponseBytes":1048576,"method":"GET","url":"https://api.example/big","headers":[],"body":"","cache":"default"}],"timers":false,"clock":0,"error":null}"#,
+    ),
+    (
+        "request-body-from",
+        r#"{"ops":[{"op":"request","ticket":48,"target":"feed \"home\"","scope":null,"method":"POST","url":"https://api.example/blob","headers":[],"bodyFrom":"app:/tmp/a.jpg","body":"","cache":"default"}],"timers":false,"clock":0,"error":null}"#,
     ),
     (
         "request-continue",

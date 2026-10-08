@@ -787,6 +787,21 @@
       bytes = raw.byteLength === 0 ? new Uint8Array(0) : new Uint8Array(copyBytes(raw, "fetch"));
     }
     var body = bytes || raw == null ? "" : String(raw);
+    // A body from an app file (LLP 1108 D6 R2): only the path goes to the
+    // host, which reads the file when it runs the request, under `fs.read`,
+    // at most 64 MiB. The bytes never enter JavaScript. A missing file, a
+    // denied path or one over the bound rejects the fetch before it is sent.
+    var bodyFrom = init ? init.exactBodyFrom : undefined;
+    if (bodyFrom !== undefined) {
+      if (typeof bodyFrom !== "string" || bodyFrom.slice(0, 5) !== "app:/")
+        return Promise.reject(new TypeError("exactBodyFrom must be an app:/ path"));
+      if (/(^|\/)\.\.?(\/|$)|\0/.test(bodyFrom.slice(5)))
+        return Promise.reject(new TypeError("exactBodyFrom: an app:/ path has no . or .. segment"));
+      if (method === "GET" || method === "HEAD")
+        return Promise.reject(new TypeError("fetch: a " + method + " request cannot have a body"));
+      if (raw != null)
+        return Promise.reject(new TypeError("fetch: a request has one body: body or exactBodyFrom"));
+    }
     // LLP 1041 §8.4: an explicit promise about both operation and settlement.
     // Browsers ignore this native scheduling hint; their admission is unchanged.
     var independent = init ? init.exactIndependentHttp : undefined;
@@ -822,7 +837,7 @@
     }
     if (signal && signal.aborted) return Promise.reject(signal.reason);
     var ticket = nextTicket++;
-    var error = host(1, String(ticket), JSON.stringify({ method: method, url: String(url), headers: headers, body: body, body_base64: bytes ? toBase64(bytes) : undefined, max_response_bytes: ceiling, stream: stream ? true : undefined, timeout_ms: timeout }));
+    var error = host(1, String(ticket), JSON.stringify({ method: method, url: String(url), headers: headers, body: body, body_base64: bytes ? toBase64(bytes) : undefined, max_response_bytes: ceiling, stream: stream ? true : undefined, timeout_ms: timeout, body_from: bodyFrom }));
     if (error !== undefined) return Promise.reject(new Error(error));
     call.tickets.push(ticket);
     if (stream) call.stream = stream;

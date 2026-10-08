@@ -510,6 +510,87 @@ test('a built TypeScript source refuses fetch and storage without grants', async
   }
 }, 60_000);
 
+// @ref LLP 1108 D6 R2 — `exactBodyFrom` on the JS target: the app file is the
+// request's body, read from the page's store as a Blob (a picked entry is its
+// own File), with no Content-Type but the author's; a missing file and a path
+// outside `fs.read` reject the fetch before anything is sent, and fetch's own
+// refusals are TypeErrors.
+test('exactBodyFrom sends an app file from the page\'s store, a picked File too', async () => {
+  if (!process.env.CHROME || !existsSync(process.env.CHROME)) return;
+  const received = [];
+  const cors = { 'access-control-allow-origin': '*', 'access-control-allow-headers': 'content-type', 'access-control-allow-methods': 'POST' };
+  const destination = Bun.serve({ port: 0, async fetch(request) {
+    if (request.method === 'OPTIONS') return new Response(null, { headers: cors });
+    const body = new Uint8Array(await request.arrayBuffer());
+    received.push({ type: request.headers.get('content-type'), sha: new Bun.CryptoHasher('sha256').update(body).digest('hex'), length: body.length });
+    return new Response('got ' + body.length, { headers: cors });
+  } });
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-body-from-')), dist = resolve(dir, 'dist'), profile = resolve(dir, 'chrome');
+  const bytes = 'new Uint8Array(300000).map((_, i) => (Math.imul(i, 2654435761) >>> 13) & 255)';
+  const expected = new Bun.CryptoHasher('sha256').update(new Uint8Array(300000).map((_, i) => (Math.imul(i, 2654435761) >>> 13) & 255)).digest('hex');
+  writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ name: 'Upload probe', app: { id: 'test.upload-probe', name: 'Upload probe' }, host: { web: {} } }));
+  writeFileSync(resolve(dir, 'app.contract'), `shape Result\n  value: string\ncomponent Probe\n  resource result = upload() as shape Result\n  view\n    text result.value testId="result"\n`);
+  writeFileSync(resolve(dir, 'app.ts'), `import type { Answer, Sources } from './app.contract.d.ts';
+export const appId = 'test.upload-probe', grants = 'fs.read app:/data\\nfs.write app:/data\\nnet.fetch ${destination.url.origin}';
+const url = ${JSON.stringify(destination.url.href + 'upload')};
+const sources: Sources = { upload: async (_args, _store, storage) => {
+  await storage!.fs.atomicWriteFile('app:/data/photo.bin', ${bytes});
+  const out: string[] = [];
+  const steps: [string, any][] = [
+    ['typed', { method: 'POST', headers: { 'content-type': 'image/jpeg' }, exactBodyFrom: 'app:/data/photo.bin' }],
+    ['picked', { method: 'POST', exactBodyFrom: 'app:/data/picked.bin' }],
+    ['denied', { method: 'POST', exactBodyFrom: 'app:/tmp/photo.bin' }],
+    ['get', { exactBodyFrom: 'app:/data/photo.bin' }],
+    ['both', { method: 'POST', body: 'x', exactBodyFrom: 'app:/data/photo.bin' }],
+  ];
+  for (const [name, init] of steps) {
+    try { const r: any = await fetch(url, init); out.push(name + ' ' + r.status + ' ' + await r.text()); }
+    catch (e: any) { out.push(name + ' ' + e.name + ':' + (e.kind ?? '') + ' ' + e.message); }
+  }
+  return { value: out.join('|') };
+} };
+export const answer: Answer = (source, args, store, storage, native) => sources[source](args as never, store, storage, native) as never;
+`);
+  const built = spawnSync(process.execPath, ['host/web-js/build.mjs', 'upload-probe', '--out', dist, '--render', 'none'], { cwd: ROOT, encoding: 'utf8', env: { ...process.env, EXACT_APP_DIR: dir } });
+  let page, child, cdp, exited;
+  try {
+    expect(built.status, built.stderr || built.stdout).toBe(0);
+    page = Bun.serve({ port: 0, async fetch(request) {
+      const name = new URL(request.url).pathname === '/' ? 'index.html' : decodeURIComponent(new URL(request.url).pathname.slice(1));
+      const file = resolve(dist, name);
+      if (!file.startsWith(dist + sep) || !existsSync(file)) return new Response('not found', { status: 404 });
+      return new Response(Bun.file(file));
+    } });
+    child = spawn(process.env.CHROME, ['--headless=new', '--no-sandbox', '--remote-debugging-pipe', '--no-first-run', '--disable-background-networking', `--user-data-dir=${profile}`, 'about:blank'], { detached: true, stdio: ['ignore', 'ignore', 'ignore', 'pipe', 'pipe'] });
+    cdp = new Cdp(child.stdio[3], child.stdio[4]);
+    exited = new Promise(resolveExit => child.on('exit', () => { cdp.fail('browser closed'); resolveExit(); }));
+    const { targetInfos } = await cdp.send('Target.getTargets');
+    const target = targetInfos.find(info => info.type === 'page') ?? await cdp.send('Target.createTarget', { url: 'about:blank' });
+    const { sessionId } = await cdp.send('Target.attachToTarget', { targetId: target.targetId, flatten: true });
+    const call = (method, params = {}) => cdp.send(method, params, sessionId);
+    await call('Page.enable');
+    const result = async () => (await call('Runtime.evaluate', { expression: `(async()=>{for(let i=0;i<240;i++){await new Promise(r=>requestAnimationFrame(r));const value=document.querySelector('[data-testid="result"]')?.textContent;if(value)return value;}return document.body.innerText;})()`, returnByValue: true, awaitPromise: true })).result.value;
+    await call('Page.navigate', { url: page.url.href });
+    const first = (await result()).split('|');
+    expect(first[0]).toBe('typed 200 got 300000');
+    expect(first[1]).toStartWith('picked FetchError:Refused exactBodyFrom app:/data/picked.bin: no such file');
+    expect(first[2]).toStartWith('denied FetchError:Refused exactBodyFrom app:/tmp/photo.bin: denied: fs.read app:/tmp/photo.bin');
+    expect(first.slice(3)).toEqual(['get TypeError: fetch: a GET request cannot have a body', 'both TypeError: fetch: a request has one body: body or exactBodyFrom']);
+    expect(received).toEqual([{ type: 'image/jpeg', sha: expected, length: 300000 }]);
+    // A picked file's entry, the browser's own File with its type (LLP 1069.002 D5): sent untyped, as its bytes.
+    const put = await call('Runtime.evaluate', { expression: `(async()=>{const {createFileStore}=await import('/storage-fs.js');const s=createFileStore('test.upload-probe');await s.putBlob('app:/data/picked.bin',new File([${bytes}],'picked.jpg',{type:'image/jpeg'}));s.close();return 'put';})()`, returnByValue: true, awaitPromise: true });
+    expect(put.result.value).toBe('put');
+    await call('Page.reload');
+    const second = (await result()).split('|');
+    expect(second.slice(0, 2)).toEqual(['typed 200 got 300000', 'picked 200 got 300000']);
+    expect(received.slice(1)).toEqual([{ type: 'image/jpeg', sha: expected, length: 300000 }, { type: null, sha: expected, length: 300000 }]);
+  } finally {
+    if (child?.pid) { try { if (process.platform === 'win32') child.kill(); else process.kill(-child.pid, 'SIGKILL'); } catch {} await exited; }
+    page?.stop(true); destination.stop(true);
+    rmSync(dir, { recursive: true, force: true });
+  }
+}, 60_000);
+
 // @ref LLP 1069.002 D7 — an `image` shows a file the app keeps in `app:/data`
 // on the JS target, bound or literal, and again after the page reloads
 // (recipes F9, gallery F7): the web host's file store, as an object URL.
@@ -768,7 +849,7 @@ test("the JS target refuses a data module's clock, randomness and timers as Herm
   const bound = JSON.parse(/const bound = (\[[^\]]*\]);/.exec(build)[1].replaceAll("'", '"').replace(/\s+/g, ''));
   const guards = resolve(dir, 'ts-fetch.js');
   cpSync(resolve(ROOT, 'host/web-js/ts-fetch.js'), guards);
-  writeFileSync(resolve(dir, 'admission.js'), 'export const fetchWith = () => Promise.reject(new Error("no fetch here"));\n');
+  writeFileSync(resolve(dir, 'admission.js'), 'export const fetchWith = () => Promise.reject(new Error("no fetch here")); export class FetchError extends Error {}\n');
   writeFileSync(resolve(dir, 'admission-data.js'), 'export const tsGrantSet = null;\n');
   const fixture = resolve(ROOT, 'js/tests/fixtures/inputs.ts');
   const app = transformSync(fixture, readFileSync(fixture, 'utf8'), { inject: { ...Object.fromEntries(bound.map(name => [name, [guards, name]])),
@@ -816,7 +897,7 @@ test("the JS target refuses a data module's own WebSocket, XMLHttpRequest and Ev
   const bound = JSON.parse(/const bound = (\[[^\]]*\]);/.exec(build)[1].replaceAll("'", '"').replace(/\s+/g, ''));
   const guards = resolve(dir, 'ts-fetch.js');
   cpSync(resolve(ROOT, 'host/web-js/ts-fetch.js'), guards);
-  writeFileSync(resolve(dir, 'admission.js'), 'export const fetchWith = () => Promise.reject(new Error("no fetch here"));\n');
+  writeFileSync(resolve(dir, 'admission.js'), 'export const fetchWith = () => Promise.reject(new Error("no fetch here")); export class FetchError extends Error {}\n');
   writeFileSync(resolve(dir, 'admission-data.js'), 'export const tsGrantSet = null;\n');
   const source = resolve(dir, 'source.js');
   writeFileSync(source, `const io = { WebSocket, XMLHttpRequest, EventSource };

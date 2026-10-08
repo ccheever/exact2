@@ -160,6 +160,17 @@ registry's lock, so it abandons no call registered after its retirement. The cod
 the job's start. `bindings/storage.d.ts` declares it. Ibex holds no codec:
 without one the op answers `unsupported` before reading.
 
+### 10. `AppDirectories::read_capped` is public
+
+From exact2 LLP 1108 D6 R2 (2026-10-08): `fetch(url, {exactBodyFrom})` sends an
+app file as a request body, read by the embedder's HTTP executor when it runs
+the request, never by the guest. `app_fs_unix.rs`'s `read_capped` (patch 9),
+which admits `fs.read`, opens the file through the directory handles, refuses
+anything but a regular file and reads at most `cap` bytes from the opened
+descriptor, is now `pub` so that executor uses the same checks and cap as
+`compressImage`. No behaviour changes. Unix only, as before; the embedder
+reads through `stdlib::fs::run` elsewhere.
+
 ### Windows chosen-document EISDIR
 
 `src/stdlib/fs.rs` opens one handle with backup semantics, checks that same

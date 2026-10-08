@@ -1070,3 +1070,6 @@ fn completed_latency_is_measured_before_the_ui_drains_it() {
 
 #[path = "executor_timeout_tests.rs"]
 mod timeout;
+
+#[path = "executor_body_tests.rs"]
+mod body_from;

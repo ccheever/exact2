@@ -86,6 +86,9 @@ struct Shared {
     state: Mutex<State>,
     ready: Condvar,
     abort: AbortController,
+    /// The app's files, for a body read from one (`Request::body_from`);
+    /// unset on a host or drive that has none.
+    roots: std::sync::OnceLock<[std::path::PathBuf; 3]>,
 }
 
 /// Count/byte reservations last until the UI takes the result, not merely
@@ -145,6 +148,7 @@ impl Core {
             }),
             ready: Condvar::new(),
             abort: AbortController::new(),
+            roots: std::sync::OnceLock::new(),
         });
         let reserve = || {
             LIVE_WORKERS
@@ -196,6 +200,13 @@ impl Core {
         core
     }
 
+    /// Where `app:/data`, `app:/cache` and `app:/tmp` are, for a request
+    /// whose body is one of the app's files (LLP 1108 D6 R2). Set once,
+    /// before the first request; without it such a request is refused.
+    pub(super) fn set_app_roots(&self, roots: [std::path::PathBuf; 3]) {
+        let _ = self.shared.roots.set(roots);
+    }
+
     #[cfg(test)]
     pub(super) fn run(&self, r: RequestOut, work: Option<Work>) -> Result<(), &'static str> {
         self.run_owned(r, work.map(OwnedWork::Now))
@@ -212,6 +223,9 @@ impl Core {
             // A deadline on work that cannot take one (a stream, a
             // continuation, native work) is refused here, before any path.
             if let Some(why) = r.request.timeout_refusal() {
+                return Err(why);
+            }
+            if let Some(why) = r.request.body_from_refusal() {
                 return Err(why);
             }
             let (lane, charge, limit) = reservation(&r.request)?;
@@ -760,21 +774,25 @@ fn worker(
             let abort = abort.clone();
             shared.abort.signal().register(move || abort.abort())
         };
-        let outcome =
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                match scoped_bindings(&grants, request.grants.as_deref(), &host) {
-                    Some(Err(message)) => failed(FailureKind::Refused, message),
-                    Some(Ok(ref scoped)) => execute(Ok(scoped), request, forced, work, &abort),
-                    None => execute(
-                        bindings.as_ref().ok_or(unbound.as_str()),
-                        request,
-                        forced,
-                        work,
-                        &abort,
-                    ),
-                }
-            }))
-            .unwrap_or_else(|_| failed(FailureKind::Aborted, "native work panicked"));
+        let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let files = Files {
+                roots: shared.roots.get().cloned(),
+                grants: &grants,
+            };
+            match scoped_bindings(&grants, request.grants.as_deref(), &host) {
+                Some(Err(message)) => failed(FailureKind::Refused, message),
+                Some(Ok(ref scoped)) => execute(Ok(scoped), request, forced, work, &abort, &files),
+                None => execute(
+                    bindings.as_ref().ok_or(unbound.as_str()),
+                    request,
+                    forced,
+                    work,
+                    &abort,
+                    &files,
+                ),
+            }
+        }))
+        .unwrap_or_else(|_| failed(FailureKind::Aborted, "native work panicked"));
         complete(&shared, ticket, outcome);
     }
 }
@@ -844,12 +862,20 @@ fn retained(outcome: &Outcome) -> usize {
     }
 }
 
+/// What a body read from an app file needs: where the files are, and the
+/// app's grants (the request's own scope narrows them).
+struct Files<'a> {
+    roots: body::Roots,
+    grants: &'a str,
+}
+
 fn execute(
     bindings: Result<&ibex2::host::Bindings, &str>,
-    request: Request,
+    mut request: Request,
     forced: bool,
     work: Option<Work>,
     abort: &AbortController,
+    files: &Files<'_>,
 ) -> Outcome {
     if abort.signal().aborted() {
         return failed(FailureKind::Aborted, "native request aborted");
@@ -882,6 +908,11 @@ fn execute(
     };
     if let Some(why) = request.timeout_refusal() {
         return failed(FailureKind::Refused, why);
+    }
+    // The body from an app file, read now, as late as can be, and refused
+    // before anything is sent (LLP 1108 D6 R2).
+    if let Err(outcome) = body::resolve(&files.roots, files.grants, &mut request) {
+        return outcome;
     }
     let limit = match request.http {
         HttpScheduling::Ordered => MAX_BODY,
@@ -1018,6 +1049,9 @@ fn fetch_failure(e: ibex2::boundary::HostError, abort: &AbortController) -> Outc
 
 #[path = "executor_stream.rs"]
 mod stream;
+
+#[path = "executor_body.rs"]
+mod body;
 
 #[cfg(test)]
 #[path = "executor_tests.rs"]

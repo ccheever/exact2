@@ -135,12 +135,12 @@ export async function waitForInflight(waiting, deadline) {
   return true;
 }
 
-import { admitsNetwork, grantError, scopedGrantSet } from './grant-admission.js';
+import { admitsNetwork, coversPath, grantError, scopedGrantSet } from './grant-admission.js';
 import { faultMessage, takeFault } from './faults.js';
 
 // Network and page-module requests share admission and the byte ceiling.
 // Called after the enclosing batch, so even an immediate refusal cannot re-enter it.
-export async function request(op, { grantSet, loadPageNative, moduleLoader, localAssetURL, controllers, controller = new AbortController(), active = () => true, message = () => {} }) {
+export async function request(op, { grantSet, loadPageNative, moduleLoader, localAssetURL, controllers, controller = new AbortController(), active = () => true, message = () => {}, bodyFile }) {
   const encoder = new TextEncoder();
   const failed = (kind, message) => ({ kind, status: 0, headers: '', body: encoder.encode(String(message?.message ?? message)) });
   const { method, url, headers, body, cache } = op;
@@ -170,6 +170,21 @@ export async function request(op, { grantSet, loadPageNative, moduleLoader, loca
   let decodedBody;
   try { if (body) decodedBody = Uint8Array.from(atob(body), c => c.charCodeAt(0)); }
   catch (error) { return failed(4, `invalid request body: ${error}`); }
+  // `exactBodyFrom` (LLP 1108 D6 R2): the app file, read now under the
+  // request's `fs.read` grant into a Blob body (a picked file is its own
+  // File, never copied into a string), or refused before anything is sent.
+  let fileBody;
+  if (op.bodyFrom != null) {
+    if (!bodyFile) return failed(3, `exactBodyFrom ${op.bodyFrom}: this host has no app files (no storage here)`);
+    if (body) return failed(2, 'exactBodyFrom: a request has one body, body or exactBodyFrom');
+    if (/^(GET|HEAD)$/i.test(method)) return failed(2, 'exactBodyFrom: a GET or HEAD request cannot have a body');
+    // Refused before the storage adapters load, which an app without file grants does not ship.
+    if (typeof op.bodyFrom !== 'string' || !coversPath(effective, 'fs.read', op.bodyFrom))
+      return failed(2, `exactBodyFrom ${op.bodyFrom}: denied: fs.read ${op.bodyFrom}: no grant covers it; grant \`fs.read ${op.bodyFrom}\``);
+    try { fileBody = await bodyFile(op.bodyFrom, effective); }
+    catch (error) { return failed(error?.code === 'agent' ? 3 : 2, error); }
+    if (!active()) return failed(4, 'request source unloaded');
+  }
   // A deadline for the whole exchange (Request::timeout_ms): kind 10 when it
   // passes (9 is an auth session's delivery, glue.js).
   if (op.timeoutMs !== undefined && (!Number.isInteger(op.timeoutMs) || op.timeoutMs < 1 || op.timeoutMs > 3600000)) return failed(2, 'a request timeout must be 1 to 3600000 ms');
@@ -178,6 +193,7 @@ export async function request(op, { grantSet, loadPageNative, moduleLoader, loca
   const signal = deadline ? AbortSignal.any([controller.signal, deadline]) : controller.signal;
   const init = { method, headers, redirect: 'follow', cache: cache === 'reload' ? 'reload' : 'default', signal };
   if (decodedBody) init.body = decodedBody;
+  else if (fileBody) init.body = fileBody;
   if (op.stream && !headers.some(([k]) => k.toLowerCase() === 'accept')) init.headers = [...headers, ['accept', 'text/event-stream']];
   try {
     const early = !asset && moduleLoader?.claim?.(url, init);
@@ -205,11 +221,11 @@ export async function request(op, { grantSet, loadPageNative, moduleLoader, loca
 // A stream on the JS target (host/web-js: rust-data.js, ts-data.js): `request`
 // over a source's request, as the wasm host runs it, so a stream is admitted,
 // read, coalesced and ended the same on both web targets (LLP 1016.000).
-export function streamed(req, grantSet, message, controller) {
+export function streamed(req, grantSet, message, controller, bodyFile) {
   let body = '';
   for (const b of req.raw ?? []) body += String.fromCharCode(b);
-  return request({ method: req.method ?? 'GET', url: req.url, headers: req.headers ?? [], body: body && btoa(body), stream: true, maxResponseBytes: req.maxResponseBytes, scope: req.scope },
-    { grantSet, controllers: new Set(), controller, message, localAssetURL: url => new URL(url, location.href).href,
+  return request({ method: req.method ?? 'GET', url: req.url, headers: req.headers ?? [], body: body && btoa(body), bodyFrom: req.bodyFrom, stream: true, maxResponseBytes: req.maxResponseBytes, scope: req.scope },
+    { grantSet, controllers: new Set(), controller, message, bodyFile, localAssetURL: url => new URL(url, location.href).href,
       loadPageNative: () => Promise.reject(new Error('a stream is not a page-module request')) });
 }
 

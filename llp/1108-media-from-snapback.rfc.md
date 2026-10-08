@@ -492,6 +492,17 @@ With R2 a 60 MB video moves between the network and the disk in the host. Withou
 it, the same video would cross the JavaScript bridge as an 80 MB base64 string in
 each direction. Slice 1's avatars do not need it. Video does.
 
+**Built early: `exactBodyFrom` (2026-10-08).** Built ahead of slice 2 for the
+Bluesky clone's uploads (a 2 MB photo ran its source's step over the 100 ms
+budget through `readFile` and a byte body), approved by Charlie via the lead.
+Branch `bsky/body-from`. The surface is this section's: `fetch(url,
+{exactBodyFrom: "app:/…"})`, `Request::body_from` for a Rust source, at most 64
+MiB, under `fs.read`. The native executor core (Apple, Linux, render) and the
+web (the wasm host's page, the JS target) read the file when they send; a
+Rust module across the logic seam (LLP 1029.000) refuses it, as it refuses a
+timeout. `exactSaveTo` is not built and stays in slice 2, with the rest of
+this RFC.
+
 ### D7 — Sessions
 
 Every asset exchange carries the bearer that the driver's `headers()` gives

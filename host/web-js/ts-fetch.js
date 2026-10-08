@@ -1,9 +1,35 @@
 // App-module bindings, injected by the bundler, never installed as page-wide
 // globals. Host modules keep the browser's functions at every load time.
-import { fetchWith } from './admission.js';
+import { FetchError, fetchWith } from './admission.js';
 import { tsGrantSet } from './admission-data.js';
-export const fetch = (input, options) => options?.exactStream === undefined ? fetchWith(tsGrantSet, input, options)
+export const fetch = (input, options) => options?.exactStream === undefined ? (options?.exactBodyFrom === undefined ? fetchWith(tsGrantSet, input, options) : fromFile(input, options))
   : options.exactTimeout !== undefined ? Promise.reject(new TypeError('exactTimeout: a stream has no timeout')) : stream(input, options);
+
+// `exactBodyFrom` (LLP 1108 D6 R2), with Hermes's checks and words
+// (js/src/prelude.js): the app file at that path is the body, read from the
+// page's store as a Blob (a picked file is its own File; nothing becomes a
+// string), under `fs.read`, at most 64 MiB. A refusal is a FetchError before
+// anything is sent. `files.appId` is the module's, set by ts-data.js.
+export const files = { appId: null };
+export function bodyFromRefusal(input, init) {
+  const path = init.exactBodyFrom, method = String(init.method ?? (typeof Request === 'function' && input instanceof Request ? input.method : 'GET')).toUpperCase();
+  if (typeof path !== 'string' || !path.startsWith('app:/')) return 'exactBodyFrom must be an app:/ path';
+  if (/(^|\/)\.\.?(\/|$)|\0/.test(path.slice(5))) return 'exactBodyFrom: an app:/ path has no . or .. segment';
+  if (method === 'GET' || method === 'HEAD') return `fetch: a ${method} request cannot have a body`;
+  if (init.body != null) return 'fetch: a request has one body: body or exactBodyFrom';
+  return null;
+}
+export function readBodyFile(path, grantSet) {
+  return import(new URL('./storage-fs.js', import.meta.url).href)
+    .then(m => m.requestBody(files.appId, grantSet, path))
+    .catch(error => { throw Object.assign(new FetchError(error?.code === 'agent' ? 'Unsupported' : 'Refused', error?.message ?? error), { code: error?.code }); });
+}
+async function fromFile(input, init) {
+  const refusal = bodyFromRefusal(input, init);
+  if (refusal) throw new TypeError(refusal);
+  const { exactBodyFrom: path, ...rest } = init;
+  return fetchWith(tsGrantSet, input, { ...rest, body: await readBodyFile(path, tsGrantSet) });
+}
 
 // An answer that keeps coming (LLP 1016.000), with Hermes's words
 // (js/src/prelude.js): the stream is the answer's, so its fetch is made while

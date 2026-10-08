@@ -357,6 +357,12 @@ impl Module {
                         .map_err(|_| unavailable("a request timeout must be 1 to 3600000 ms"))?,
                 );
             }
+            // `exactBodyFrom`: the page reads the file into the body.
+            match &r["body_from"] {
+                Json::Null => {}
+                Json::String(path) => request.body_from = Some(path.clone()),
+                _ => return Err(unavailable("exactBodyFrom must be an app:/ path")),
+            }
             if r["stream"] == true {
                 // The page opens it; its events come back as messages.
                 request = match Answer::stream(request) {

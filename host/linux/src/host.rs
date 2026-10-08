@@ -722,6 +722,9 @@ impl<D: DataSource> Host<D> {
     /// also wake (LLP 1016.002).
     pub fn executor(&mut self) -> crate::executor::Executor {
         let executor = crate::executor::Executor::start(&self.grants());
+        if let Some(roots) = self.app_roots() {
+            executor.set_app_roots(roots);
+        }
         self.preload_wake.set(executor.waker());
         self.runner.listen(executor.waker());
         executor
@@ -740,6 +743,16 @@ impl<D: DataSource> Host<D> {
     /// The hosts the app may reach (LLP 1016 D6), as the data crate declares them.
     pub fn grants(&mut self) -> String {
         self.runner.data().grants().to_string()
+    }
+
+    /// The app's `app:/data`, `app:/cache` and `app:/tmp`, as storage
+    /// configures them, for a request whose body is one of its files (LLP
+    /// 1108 D6 R2); `None` with no app id, or a drive with no scratch store.
+    pub fn app_roots(&mut self) -> Option<[std::path::PathBuf; 3]> {
+        crate::picker::app_dirs(self.runner.data().app_id())
+            .ok()
+            .flatten()
+            .map(|(roots, _)| roots)
     }
 
     /// The requests the runner handed out since the last take (LLP 1016 D2).

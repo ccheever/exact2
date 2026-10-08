@@ -1,6 +1,6 @@
 // Portable Rust storage operations use the same filesystem and SQLite services
 // as TS. Handles never cross this boundary. @ref LLP 1027.001 D2.
-import { createFileSystem } from './storage-fs.js';
+import { createFileSystem, requestBody } from './storage-fs.js';
 import { createSqlite } from './storage-sqlite.js';
 import { agentStorageRefusal, storageKey } from './storage-environment.js';
 import { grantError } from './grant-admission.js';
@@ -102,4 +102,4 @@ export function createStorageRequests(appId, admitted) {
   };
 }
 
-if(globalThis.exact)globalThis.exact.createStorageRequests=createStorageRequests;
+if(globalThis.exact){globalThis.exact.createStorageRequests=createStorageRequests;globalThis.exact.requestBody=requestBody;}

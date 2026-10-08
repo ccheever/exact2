@@ -264,6 +264,30 @@ async function work(_source:string, args:unknown[], store:Store, storage:Storage
     const wrote = storage.fs.writeFile(data + "/second", bytes("second"));
     return Promise.all([shrunk, wrote]).then(([code]) => ({text: String(code)}));
   }
+  // `exactBodyFrom` (LLP 1108 D6 R2): the host reads the file into the
+  // body. The reply's text, or the rejection's name, kind and message.
+  if (op === "upload") {
+    try {
+      const r = await fetch("https://example.test/upload", { method: "POST", headers: { "content-type": "image/jpeg" }, exactBodyFrom: value } as any);
+      return {text: r.status + " " + await r.text()};
+    } catch (e:any) { return {text: e.name + " " + e.kind + " " + e.message}; }
+  }
+  // What `fetch` itself refuses, before any request: each a TypeError.
+  if (op === "upload-refusals") {
+    const url = "https://example.test/upload", data = storage.fs.directories.data, out: string[] = [];
+    const inits: any[] = [
+      { method: "POST", exactBodyFrom: 42 },
+      { method: "POST", exactBodyFrom: "/tmp/photo.jpg" },
+      { method: "POST", exactBodyFrom: data + "/../photo.jpg" },
+      { method: "POST", exactBodyFrom: data + "/photo.jpg", body: "x" },
+      { exactBodyFrom: data + "/photo.jpg" },
+      { method: "HEAD", exactBodyFrom: data + "/photo.jpg" },
+    ];
+    for (const init of inits) {
+      try { await fetch(url, init); out.push("sent"); } catch (e:any) { out.push(e.name + ": " + e.message); }
+    }
+    return {text: out.join("\n")};
+  }
   if (op === "write-slow") {
     await storage.fs.writeFile(storage.fs.directories.data + "/slow.jpg", bytes(value));
     return {text: "wrote " + value};

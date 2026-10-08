@@ -37,7 +37,7 @@ pub(super) fn is_socket(url: &str) -> bool {
 pub(super) fn run(
     shared: &Shared,
     ticket: u64,
-    request: Request,
+    mut request: Request,
     forced: bool,
     grants: &str,
     host: &dyn Fn() -> ibex2::host::Host,
@@ -64,7 +64,9 @@ pub(super) fn run(
         });
         match bindings {
             Ok(b) if is_socket(&request.url) => open_socket(&b, request, &abort).map(|s| (s, b)),
-            Ok(b) => open(Ok(&b), request, forced, &abort)
+            // A body from an app file, read as the stream opens (LLP 1108 D6 R2).
+            Ok(b) => super::body::resolve(&shared.roots.get().cloned(), grants, &mut request)
+                .and_then(|()| open(Ok(&b), request, forced, &abort))
                 .map(|(r, limit)| (Opened::Events(r, limit), b)),
             Err(message) => Err(failed(FailureKind::Refused, message)),
         }

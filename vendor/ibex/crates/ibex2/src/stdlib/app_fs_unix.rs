@@ -244,7 +244,9 @@ impl AppDirectories {
     }
     /// Exact patch 9 (`fs.compressImage`): a regular file's bytes, at most
     /// `cap` of them, read through the opened descriptor, under `fs.read`.
-    pub(crate) fn read_capped(
+    /// Public since Exact patch 10: an embedder's request body from an app
+    /// file (exact2 LLP 1108 D6 R2, `exactBodyFrom`) reads through it.
+    pub fn read_capped(
         &self,
         grants: &GrantSet,
         path: &str,
