@@ -1,6 +1,7 @@
 // GAP 001: bake cannot capture parent imports. Remove this copy when ancestor mounts work.
 // Adapted body from examples/t3-code/client.ts at 38352ceaf4cd35a40b7b24ce992db87c2357a99b.
 // Mobile 365aa87982: selection errors belong to the requesting route, not the thread composer.
+// Additive cleanup visibility from shared commit af0a96dddbd500aa50bc5bbe69ec59597e34efee.
 import { snapshotShortcut } from './snapshot-shortcut';
 import { snapshotIdentity, snapshotDefaultProject, snapshotDestinationExists, withoutSnapshot, snapshotNoProjectMessage, snapshotFailureMessage } from './snapshot-adopt';
 import { decodeClientPrefs, type ClientPrefs } from './settings-core';
@@ -564,7 +565,7 @@ export class T3Client {
     this.finishPending(pending);
     return true;
   }
-  private finishPending(pending: Pending, environmentId = this.environmentId): void {
+  protected finishPending(pending: Pending, environmentId = this.environmentId): void {
     // The outcome is known (acknowledged or reconciled), so "may have reached T3" is answered.
     if (this.error === uncertainError(pending)) this.error = '';
     if (pending.text) {
