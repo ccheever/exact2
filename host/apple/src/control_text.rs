@@ -22,7 +22,7 @@ pub struct CControlFont {
     pub italic: u8,
 }
 /// Ask the host for its registered control font before layout.
-pub type ControlTextFn = extern "C" fn(*mut c_void) -> CControlFont;
+pub type ControlTextFn = extern "C" fn(*mut c_void, u8) -> CControlFont;
 
 /// The kernel's resolved field chrome request.
 #[repr(C)]
@@ -59,7 +59,7 @@ pub struct CFieldChrome {
 pub type FieldChromeFn = extern "C" fn(*mut c_void, *const CFieldChromeRequest) -> CFieldChrome;
 
 pub(crate) fn text_styles(f: ControlTextFn, ctx: *mut c_void) -> ControlTextStyles {
-    let f = f(ctx);
+    let f = f(ctx, 0);
     let font = ControlFont {
         family: crate::app_module::text(f.family, f.family_len),
         family_id: f.family_id,
@@ -75,6 +75,28 @@ pub(crate) fn text_styles(f: ControlTextFn, ctx: *mut c_void) -> ControlTextStyl
         field: font.clone(),
         textarea: font.clone(),
         button: font,
+    }
+}
+pub(crate) fn button_fonts(f: ControlTextFn, ctx: *mut c_void) -> exact_kernel::ButtonFonts {
+    let font = |size| {
+        let f = f(ctx, size);
+        Some(ControlFont {
+            family: crate::app_module::text(f.family, f.family_len),
+            family_id: f.family_id,
+            size: f.size,
+            weight: f.weight,
+            style: if f.italic == 0 {
+                FontStyle::Normal
+            } else {
+                FontStyle::Italic
+            },
+        })
+    };
+    exact_kernel::ButtonFonts {
+        mini: font(1),
+        small: font(2),
+        medium: font(3),
+        large: font(4),
     }
 }
 pub(crate) fn chrome(f: FieldChromeFn, ctx: *mut c_void, r: &FieldChromeRequest) -> FieldChrome {
@@ -133,12 +155,7 @@ pub(crate) fn button_measure(
     ctx: *mut c_void,
     r: &exact_kernel::ButtonMeasureRequest,
 ) -> exact_kernel::ButtonMeasure {
-    let face = crate::button::face_json(
-        Some(&r.face),
-        Some(&r.style),
-        &r.button_style,
-        &exact_kernel::Env::default(),
-    );
+    let face = crate::button::face_json(Some(&r.face), Some(&r.style), &r.button_style);
     let (width_kind, width) = match r.width {
         exact_kernel::AxisOffer::Definite(w) => (0, w),
         exact_kernel::AxisOffer::MinContent => (1, 0.0),

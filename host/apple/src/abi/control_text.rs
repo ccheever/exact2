@@ -27,7 +27,11 @@ impl<D: DataSource> Bridge<D> {
             .control_text
             .map(|f| crate::control_text::text_styles(f, hooks.ctx));
         let out = match (self.host.as_mut(), styles) {
-            (Some(host), Some(styles)) => host.set_control_text_styles(styles),
+            (Some(host), Some(styles)) => host.set_control_fonts(
+                styles,
+                self.control_text
+                    .map(|f| crate::control_text::button_fonts(f, hooks.ctx)),
+            ),
             _ => not_booted(),
         };
         self.emit(out)
@@ -51,6 +55,7 @@ pub(super) fn prepare<D: DataSource>(
     if let Some(callback) = callback {
         let mut env = runner.kernel().env();
         env.control_text_styles = Some(crate::control_text::text_styles(callback, ctx));
+        env.button_fonts = Some(crate::control_text::button_fonts(callback, ctx));
         runner
             .kernel_mut()
             .set_env(env)

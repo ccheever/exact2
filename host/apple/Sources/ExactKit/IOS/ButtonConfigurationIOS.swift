@@ -24,7 +24,7 @@ enum ButtonConfigurationIOS {
         default: platformWeight = .black
         }
         let base = TextEngine.cssWeight(UIFont.systemFont(ofSize: targetSize, weight: platformWeight), weight: cssWeight, size: targetSize)
-        return size == nil ? base : UIFontMetrics(forTextStyle: .body).scaledFont(for: base, compatibleWith: traits)
+        return size == nil || rows["font_size_resolved"]?.number == 1 ? base : UIFontMetrics(forTextStyle: .body).scaledFont(for: base, compatibleWith: traits)
     }
     static func color(_ value: BatchValue?, traits: UITraitCollection, accent: UIColor?) -> UIColor? {
         value?.cgColor(dark: traits.userInterfaceStyle == .dark,
@@ -45,6 +45,13 @@ enum ButtonConfigurationIOS {
         ])
         return parent.systemLayoutSizeFitting(UIView.layoutFittingCompressedSize).width
     }
+    static func uniformRadius(_ face: ButtonFace) -> CGFloat? {
+        let names = ["top_left", "top_right", "bottom_right", "bottom_left"]
+        let radii = names.map { face.rows.button["border_radius_" + $0]?.number ?? 0 }
+        guard face.rows.button.keys.contains(where: { $0.hasPrefix("border_radius_") }),
+              radii.allSatisfy({ $0 == radii[0] }) else { return nil }
+        return CGFloat(radii[0])
+    }
     static func observation(_ face: ButtonFace, button: UIButton) -> [String: Any] {
         let config = button.configuration
         func row(_ authored: Bool, _ drawn: Any) -> [String: Any] { ["authored": authored, "drawn": drawn] }
@@ -64,6 +71,10 @@ enum ButtonConfigurationIOS {
             "symbol.font-weight": row(rows.symbol["font_weight"] != nil, rows.symbol["font_weight"]?.number ?? 400),
             "symbol.-exact-tint-color": row(rows.symbol["tint_color"] != nil, config?.image?.renderingMode == .alwaysOriginal ? "original" : "title")
         ]
+        if rows.button.keys.contains(where: { $0.hasPrefix("border_radius_") }), uniformRadius(face) == nil {
+            result["border-radius"] = ["authored": true, "drawn": config?.background.cornerRadius ?? 0,
+                "standIn": "UIButton.Configuration has one corner radius; non-uniform radii keep the platform shape"]
+        }
         let inset = config?.contentInsets ?? .zero
         for (name, value) in [("top", inset.top), ("right", inset.trailing), ("bottom", inset.bottom), ("left", inset.leading)] {
             result["padding-" + name] = row(rows.button["padding_" + name] != nil, value)
@@ -97,8 +108,8 @@ enum ButtonConfigurationIOS {
         case "capsule": config.cornerStyle = .capsule
         default: break
         }
-        if let radius = rows.button["border_radius_top_left"]?.number {
-            config.cornerStyle = .fixed; config.background.cornerRadius = CGFloat(radius)
+        if let radius = uniformRadius(face) {
+            config.cornerStyle = .fixed; config.background.cornerRadius = radius
         }
         // Physical CSS sides map to directional UIKit insets for the current layout direction.
         var insets = config.contentInsets

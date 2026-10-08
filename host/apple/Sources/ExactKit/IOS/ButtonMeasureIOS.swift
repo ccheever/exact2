@@ -24,6 +24,20 @@ final class ButtonMeasureCache: @unchecked Sendable {
         self.surface = surface
         return changed
     }
+    /// Read UIKit's configured title font, including buttonSize and current traits.
+    func font(_ kind: UInt8) -> UIFont {
+        precondition(Thread.isMainThread)
+        let container = UIView(); container.isHidden = true
+        surface?.addSubview(container); defer { container.removeFromSuperview() }
+        container.traitOverrides.preferredContentSizeCategory = traits.preferredContentSizeCategory
+        container.traitOverrides.legibilityWeight = traits.legibilityWeight
+        var config = UIButton.Configuration.bordered(); config.title = "Title"
+        let sizes: [UIButton.Configuration.Size] = [.mini, .small, .medium, .large]
+        config.buttonSize = sizes[Int(kind) - 1]
+        let button = UIButton(configuration: config); container.addSubview(button)
+        button.updateTraitsIfNeeded(); button.layoutIfNeeded()
+        return button.titleLabel!.font
+    }
     func answer(face data: Data, widthKind: UInt8, width: Float) -> ExactButtonMeasure {
         lock.lock()
         let current = traits

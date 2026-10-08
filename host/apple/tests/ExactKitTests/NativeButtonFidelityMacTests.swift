@@ -69,6 +69,15 @@ final class NativeButtonFidelityMacTests: XCTestCase {
             reference.attributedTitle.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? NSColor)
         XCTAssertNil(b.contentTintColor); XCTAssertTrue(b.image?.isTemplate == true)
     }
+    func testAbsentControlSizeDoesNotOverwriteThePlatformControl() {
+        var f = ButtonFace(); f.title = "Title"
+        let b = NSButton(title: "Title", target: nil, action: nil); b.controlSize = .small
+        ButtonConfigurationMac.apply(f, to: b, appearance: NSAppearance(named: .aqua)!, accent: nil)
+        XCTAssertEqual(b.controlSize, .small, "absent means leave the platform field alone")
+        f.rows.button["control_size"] = .string("medium")
+        ButtonConfigurationMac.apply(f, to: b, appearance: NSAppearance(named: .aqua)!, accent: nil)
+        XCTAssertEqual(b.controlSize, .regular, "explicit medium still maps")
+    }
     func testAllPlacementsFontAxesAlignmentSizesAndSymbolRows() throws {
         var f = ButtonFace(); f.title = "Title"; f.symbol = "lock.fill"
         for (name, position) in [("leading", NSControl.ImagePosition.imageLeading), ("trailing", .imageTrailing), ("top", .imageAbove), ("bottom", .imageBelow)] {

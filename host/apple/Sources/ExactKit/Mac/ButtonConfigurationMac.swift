@@ -60,7 +60,8 @@ enum ButtonConfigurationMac {
         case "mini": button.controlSize = .mini
         case "small": button.controlSize = .small
         case "large": button.controlSize = .large
-        default: button.controlSize = .regular
+        case "medium": button.controlSize = .regular
+        default: break
         }
         let platformFont = NSFont.systemFont(ofSize: NSFont.systemFontSize(for: button.controlSize))
         let titleFont = font(platformFont, rows: rows.title)

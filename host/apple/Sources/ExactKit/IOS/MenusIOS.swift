@@ -16,6 +16,7 @@ import UIKit
 
 final class MenuHost {
     private weak var presenter: Presenter?
+    private var touchObserver: PopoverTouch?
     private var overlays: [UInt32: UIButton] = [:]
     /// The target and press shape each overlay's menu was built for.
     private var menuShapes: [UInt32: String] = [:]
@@ -131,6 +132,12 @@ final class MenuHost {
         // Ordinary menus retain LLP 1021 D4's existing agent presentation.
         // Confirmations use the same UIKit owner under either input carrier.
         guard let presenter else { return }
+        let surface = presenter.modals.coordinateView ?? presenter.viewport
+        if touchObserver?.view !== surface {
+            touchObserver?.view?.removeGestureRecognizer(touchObserver!)
+            let observer = PopoverTouch(host: self)
+            surface.addGestureRecognizer(observer); touchObserver = observer
+        }
         if let owner = confirmation, !valid(owner) { resetConfirmation() }
         var popovers: [String: NodeView] = [:]
         for (name, entry) in agentOpen {
@@ -240,7 +247,8 @@ final class MenuHost {
         guard source.isNativeButton, eligible(source), let name = target(of: source), !name.isEmpty,
               let pop = popover(named: name), opens(source, pop) || closes(source, pop) else { return }
         if isConfirmation(pop) {
-            _ = openConfirmation(from: source, popover: pop, dispatchPress: false)
+            if closes(source, pop), let owner = confirmation, owner.popover === pop { finish(owner, chosen: nil) }
+            else if opens(source, pop) { _ = openConfirmation(from: source, popover: pop, dispatchPress: false) }
         } else {
             let toggle = source.props["command"] == "toggle-popover" ||
                 (source.props["commandfor"] == nil && (source.props["popovertargetaction"] ?? "toggle") == "toggle")
@@ -410,6 +418,22 @@ final class MenuHost {
         return node.props["id"].map { agentOpen[$0] != nil } == true
     }
 
+    /// Production and agent touches share HTML's light-dismiss exclusions.
+    func lightDismiss(_ touched: UIView) {
+        var kept = Set<String>()
+        var inside = agentOpen.first { _, entry in
+            entry.popover.map { touched === $0 || touched.isDescendant(of: $0) } ?? false
+        }?.key
+        while let name = inside, !kept.contains(name) { kept.insert(name); inside = agentOpen[name]?.ancestor }
+        let node = sequence(first: touched as UIView?, next: { $0?.superview }).compactMap { $0 as? NodeView }.first
+        for (name, entry) in agentOpen.sorted(by: { $0.value.order > $1.value.order }) {
+            guard agentOpen[name] != nil, entry.popover?.props["popover"] != "manual", !kept.contains(name) else { continue }
+            if let source = presenter?.views[entry.source], touched === source || touched.isDescendant(of: source) { continue }
+            if node.map({ target(of: $0) == name }) == true { continue }
+            drop(name)
+        }
+    }
+
     /// Under the agent, what a tap on `node` does to the painted popovers
     /// (LLP 1021 D4, as the web's and macOS's). Outside an open one, and not
     /// its opener, it dismisses it before the tap is delivered, so the tap
@@ -419,21 +443,12 @@ final class MenuHost {
     /// where the node is; an opened popover is in the top layer below its
     /// opener with its `autofocus` field focused.
     func agentTap(_ node: NodeView) {
-        guard !node.isNativeButton, ExactEnv.agentMode, let presenter else { return }
+        guard ExactEnv.agentMode else { return }
+        lightDismiss(node)
+        guard !node.isNativeButton, let presenter else { return }
         var byName: [String: NodeView] = [:]
         for pop in presenter.carrying("popover") where !isConfirmation(pop) {
             if let name = pop.props["id"] { byName[name] = pop }
-        }
-        // A tap inside an open popover keeps it and the popovers it is
-        // nested in (its submenu's tap keeps the menu); one outside, the
-        // spec's light dismiss, closes it.
-        var kept = Set<String>()
-        var inside = agentOpen.first { node === $0.value.popover || ($0.value.popover.map { node.isDescendant(of: $0) } ?? false) }?.key
-        while let name = inside, !kept.contains(name) { kept.insert(name); inside = agentOpen[name]?.ancestor }
-        for (name, entry) in agentOpen.sorted(by: { $0.value.order > $1.value.order }) {
-            guard byName[name] != nil, agentOpen[name] != nil else { continue }
-            if kept.contains(name) || node.id == entry.source || target(of: node) == name { continue }
-            drop(name)
         }
         guard let name = target(of: node), let pop = byName[name], closes(node, pop) || opens(node, pop) else { return }
         let hides = closes(node, pop), source = node.id
@@ -477,11 +492,15 @@ final class MenuHost {
     }
     /// Whether a tap on `node` goes through the agent's painted popovers —
     /// one is open (the tap dismisses it first), or `node` is a painted
-    /// popover, is in one, or opens or closes one — which only `agentTap`
-    /// drives: a real touch bypasses it (LLP 1080.000 D7, stage 3).
+    /// popover, is in one, or opens or closes one. Native invokers' content
+    /// popovers use production touches; custom invokers retain the agent carrier
+    /// (LLP 1080.000 D7, stage 3).
     func agentPainted(_ node: NodeView) -> Bool {
         guard ExactEnv.agentMode, let presenter else { return false }
-        if !agentOpen.isEmpty { return true }
+        if node.isNativeButton { return false } // Native invokers and outside buttons take real UIKit touches.
+        if !agentOpen.isEmpty {
+            return agentOpen.values.contains { presenter.views[$0.source]?.isNativeButton != true }
+        }
         let painted = (presenter.carrying("popover") + presenter.carrying("tag:dialog").filter { $0.props["popover"] == nil }).filter { !isConfirmation($0) }
         return painted.contains { pop in node === pop || node.isDescendant(of: pop) || (pop.props["id"] != nil && target(of: node) == pop.props["id"]) }
     }
@@ -501,7 +520,7 @@ final class MenuHost {
         #if os(iOS)
         if let open = context.observation() { return open }
         #endif
-        if confirmation == nil, ExactEnv.agentMode, let open = agentOpen.values.max(by: { $0.order < $1.order }), let pop = open.popover {
+        if confirmation == nil, let open = agentOpen.values.max(by: { $0.order < $1.order }), let pop = open.popover {
             return ["kind": "popover", "source": Int(open.source), "popover": Int(pop.id), "phase": "open"]
         }
         guard let owner = confirmation else { return nil }
@@ -753,4 +772,20 @@ final class MenuHost {
             .joined(separator: " ")
     }
 }
+/// Observes UIKit touches without consuming the underlying control's activation.
+final class PopoverTouch: UIGestureRecognizer, UIGestureRecognizerDelegate {
+    private weak var host: MenuHost?
+    init(host: MenuHost) {
+        self.host = host
+        super.init(target: nil, action: nil)
+        cancelsTouchesInView = false; delaysTouchesBegan = false; delaysTouchesEnded = false
+        delegate = self
+    }
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
+        if let touched = touches.first?.view { host?.lightDismiss(touched) }
+        state = .failed
+    }
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool { true }
+}
+
 #endif

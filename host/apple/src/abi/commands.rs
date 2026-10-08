@@ -161,7 +161,7 @@ impl<D: DataSource> Bridge<D> {
                     .node(view)
                     .and_then(|n| n.props.str(exact_kernel::PropId::ButtonStyle))
                     .unwrap_or("bordered");
-                crate::button::face_json(face.as_ref(), rows.as_ref(), style, &kernel.env())
+                crate::button::face_json(face.as_ref(), rows.as_ref(), style)
             },
         );
         self.output = json.into_bytes();

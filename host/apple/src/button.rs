@@ -1,12 +1,11 @@
 //! Native button faces and authored rows cross the measurement and presentation seams together.
 //! @ref LLP 1069.011.001 D1–D15.
-use exact_kernel::{ButtonFaceStyle, Env, PressFace};
+use exact_kernel::{ButtonFaceStyle, PressFace};
 
 pub(crate) fn face_json(
     face: Option<&PressFace>,
     rows: Option<&ButtonFaceStyle>,
     style: &str,
-    env: &Env,
 ) -> String {
     let quote = exact_runner::agent::quote;
     let button = face.is_some();
@@ -78,9 +77,7 @@ pub(crate) fn face_json(
             }
             quote(name, &mut json);
             json.push(':');
-            json.push_str(
-                &value.map_or_else(|| "{}".into(), |v| crate::style::style_json(v, env).0),
-            );
+            json.push_str(&value.map_or_else(|| "{}".into(), resolved_rows));
         }
         json.push_str(",\"imageGap\":");
         json.push_str(
@@ -92,6 +89,23 @@ pub(crate) fn face_json(
     }
     json.push('}');
 
+    json
+}
+
+/// The face record already resolved lengths against the live kernel environment.
+/// Neither sizing nor drawing may re-resolve them against a second environment.
+fn resolved_rows(style: &exact_kernel::StyleProps) -> String {
+    let mut json = crate::style::style_json_resolved(style).0;
+    // An em size has already incorporated the platform font's Dynamic Type scale.
+    if style.mask.has(exact_kernel::StyleId::FontSize)
+        && matches!(
+            style.relative.get(exact_kernel::StyleId::FontSize),
+            Some((exact_kernel::style::relative::Unit::Em, _))
+        )
+    {
+        json.pop();
+        json.push_str(",\"font_size_resolved\":1}");
+    }
     json
 }
 
@@ -120,13 +134,8 @@ mod tests {
         let id = kernel.node(kernel.roots()[0]).unwrap().children()[0];
         let face = kernel.press_face(id).unwrap();
         let rows = kernel.button_face_style(id).unwrap();
-        let json: serde_json::Value = serde_json::from_str(&face_json(
-            Some(&face),
-            Some(&rows),
-            "tinted",
-            &kernel.env(),
-        ))
-        .unwrap();
+        let json: serde_json::Value =
+            serde_json::from_str(&face_json(Some(&face), Some(&rows), "tinted")).unwrap();
         assert_eq!(json["subtitle"], "Your vehicle");
         assert_eq!(json["symbol"], "lock.fill");
         assert_eq!(json["placement"], "top");

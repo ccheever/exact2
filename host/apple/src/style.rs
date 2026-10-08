@@ -90,7 +90,20 @@ fn presenter_ignores(name: &str) -> bool {
 pub fn style_json_sized(style: &StyleProps, env: &Env, keep_size: bool) -> (String, Vec<Skipped>) {
     // An undefined segment length is its row's initial value (LLP 1078 D3).
     let resolved = style.env_resolved(env);
-    let style = &*resolved;
+    style_json_rows(&resolved, Some(env), keep_size)
+}
+
+/// Native button face geometry was resolved by the kernel against its live
+/// environment. Serialise the same points for fitting and presentation.
+pub(crate) fn style_json_resolved(style: &StyleProps) -> (String, Vec<Skipped>) {
+    style_json_rows(style, None, false)
+}
+
+fn style_json_rows(
+    style: &StyleProps,
+    env: Option<&Env>,
+    keep_size: bool,
+) -> (String, Vec<Skipped>) {
     // Written in place: a list row's mount builds one of these per node,
     // and a `String` per value (`format!`) was most of its cost.
     let mut out = String::with_capacity(256);
@@ -123,7 +136,7 @@ pub fn style_json_sized(style: &StyleProps, env: &Env, keep_size: bool) -> (Stri
             // Layout only (LLP 1053 G1): the kernel sizes the box.
             RowValue::AspectRatio(_) => false,
             RowValue::Dimension(d) => {
-                push_dimension(&mut out, d.resolve(env));
+                push_dimension(&mut out, env.map_or(d, |e| d.resolve(e)));
                 true
             }
             // @ref LLP 1061 D6 — `[x, y]`, each points or `{"pct": n}`.

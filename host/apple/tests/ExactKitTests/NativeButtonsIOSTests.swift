@@ -125,6 +125,52 @@ final class NativeButtonsIOSTests: XCTestCase {
         XCTAssertEqual(focused, [2])
     }
 
+    func testAuthoredColoursFollowALightToDarkSwitch() throws {
+        var f = face("Scheme", symbol: "lock.fill", style: "filled", ios: "filled")
+        let pair: BatchValue = .array([.array([.number(0), .number(0), .number(0), .number(255)]),
+            .array([.number(255), .number(255), .number(255), .number(255)])])
+        f.rows.title["text_color"] = pair; f.rows.symbol["tint_color"] = pair
+        let p = presenter(native(2) + [["op": "roots", "ids": [2]]], faces: [2: f])
+        window.overrideUserInterfaceStyle = .light; window.updateTraitsIfNeeded()
+        let b = try button(p, 2); b.updateTraitsIfNeeded(); p.controls.sync()
+        let old = b.written
+        XCTAssertEqual(b.configuration?.baseForegroundColor?.cgColor.components, [0, 0, 0, 1])
+        window.overrideUserInterfaceStyle = .dark; window.updateTraitsIfNeeded(); b.updateTraitsIfNeeded(); p.controls.sync()
+        XCTAssertNotEqual(b.written, old, "appearance invalidates the title and baked symbol tint")
+        XCTAssertEqual(b.configuration?.baseForegroundColor?.cgColor.components, [1, 1, 1, 1])
+        XCTAssertEqual(b.configuration?.image?.renderingMode, .alwaysOriginal)
+    }
+    private final class LocatedTouch: UITouch {
+        let target: UIView
+        init(_ target: UIView) { self.target = target; super.init() }
+        override var view: UIView? { target }
+        override func location(in view: UIView?) -> CGPoint { target.convert(CGPoint(x: target.bounds.midX, y: target.bounds.midY), to: view) }
+    }
+    func testProductionTouchesLightDismissAndHideANativeInvokersPopover() throws {
+        let p = presenter(box(1) + native(2, ["popovertarget": "choices"]) + native(3)
+            + box(4, ["popover": "auto", "id": "choices"]) + native(5, ["popovertarget": "choices", "popovertargetaction": "hide"], handlers: [])
+            + [["op": "children", "id": 1, "ids": [2, 3, 4]], ["op": "children", "id": 4, "ids": [5]], ["op": "roots", "ids": [1]]],
+            faces: [2: face("Open"), 3: face("Outside"), 5: face("Hide")])
+        let pop = try XCTUnwrap(p.views[4]), opener = try button(p, 2)
+        opener.sendActions(for: .primaryActionTriggered)
+        XCTAssertTrue(p.menus.isOpen(pop))
+        let watcher = try XCTUnwrap(p.viewport.gestureRecognizers?.first { String(describing: type(of: $0)) == "PopoverTouch" }, "production touch observer")
+        XCTAssertFalse(watcher.cancelsTouchesInView); XCTAssertFalse(watcher.delaysTouchesBegan)
+        watcher.touchesBegan([LocatedTouch(opener)], with: UIEvent())
+        XCTAssertTrue(p.menus.isOpen(pop), "its invoker is excluded from light dismiss")
+        watcher.reset()
+        watcher.touchesBegan([LocatedTouch(try button(p, 5))], with: UIEvent())
+        XCTAssertTrue(p.menus.isOpen(pop), "a touch inside keeps it until activation")
+        try button(p, 5).sendActions(for: .primaryActionTriggered)
+        XCTAssertFalse(p.menus.isOpen(pop), "hide-only native button closes it")
+        p.apply(wireBatch([["op": "props", "id": 5, "set": ["commandfor": "choices", "command": "hide-popover"]]]))
+        opener.sendActions(for: .primaryActionTriggered)
+        try button(p, 5).sendActions(for: .primaryActionTriggered)
+        XCTAssertFalse(p.menus.isOpen(pop), "the command invoker closes it too")
+        opener.sendActions(for: .primaryActionTriggered)
+        watcher.reset(); watcher.touchesBegan([LocatedTouch(try button(p, 3))], with: UIEvent())
+        XCTAssertFalse(p.menus.isOpen(pop), "outside touch reaches production dismissal without agentTap")
+    }
     func testAPanCancelsItsTouchAsACustomButtons() {
         let scroll = ScrollView()
         XCTAssertTrue(scroll.touchesShouldCancel(in: NativeButtonIOS(configuration: .bordered())))

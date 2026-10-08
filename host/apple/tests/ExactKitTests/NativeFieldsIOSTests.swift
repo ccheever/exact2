@@ -116,12 +116,12 @@ final class NativeFieldsIOSTests: XCTestCase {
         engine.fieldChrome = cache
         Owner.shared.sync { engine.measuring.fieldChrome = cache }
         cache.configure(.init(preferredContentSizeCategory: .large))
-        let first = Owner.shared.sync { TextEngine.controlText(engine.measuring.opaque) }
+        let first = Owner.shared.sync { TextEngine.controlText(engine.measuring.opaque, 0) }
         let drawn = engine.font(size: CGFloat(first.size), weight: Int(first.weight), family: Int(first.family_id), italic: first.italic != 0)
         XCTAssertEqual(drawn, cache.body)
         XCTAssertEqual(drawn.fontName, cache.body.fontName)
         cache.configure(.init(preferredContentSizeCategory: .accessibilityExtraExtraExtraLarge))
-        let large = Owner.shared.sync { TextEngine.controlText(engine.measuring.opaque) }
+        let large = Owner.shared.sync { TextEngine.controlText(engine.measuring.opaque, 0) }
         XCTAssertGreaterThan(large.size, first.size)
         XCTAssertEqual(engine.font(size: CGFloat(large.size), weight: Int(large.weight), family: Int(large.family_id), italic: false), cache.body)
     }

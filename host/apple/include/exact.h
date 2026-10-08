@@ -255,7 +255,8 @@ typedef struct {
     const uint8_t *family; size_t family_len;
     uint16_t family_id; float size; uint16_t weight; uint8_t italic;
 } ExactControlFont;
-typedef ExactControlFont (*ExactControlTextFn)(void *ctx);
+/* kind: 0 field/textarea, 1 mini, 2 small, 3 medium/default, 4 large button. */
+typedef ExactControlFont (*ExactControlTextFn)(void *ctx, uint8_t kind);
 typedef struct {
     uint8_t kind; uint16_t family_id; float size; uint16_t weight; uint8_t italic;
 } ExactFieldChromeRequest;

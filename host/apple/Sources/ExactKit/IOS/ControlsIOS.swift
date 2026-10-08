@@ -122,7 +122,7 @@ final class ControlHost: NSObject {
         made.tag = Int(node.id)
         // Its natural size follows text size, weight and scale, which no batch says.
         MainActor.assumeIsolated {
-            made.registerForTraitChanges([UITraitPreferredContentSizeCategory.self, UITraitLegibilityWeight.self, UITraitDisplayScale.self]) { [weak self] (_: UIControl, _: UITraitCollection) in
+            made.registerForTraitChanges([UITraitPreferredContentSizeCategory.self, UITraitLegibilityWeight.self, UITraitDisplayScale.self, UITraitUserInterfaceStyle.self, UITraitAccessibilityContrast.self]) { [weak self] (_: UIControl, _: UITraitCollection) in
                 self?.presenter.requestProjectionSync()
             }
         }

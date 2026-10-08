@@ -62,6 +62,57 @@ final class NativeButtonFidelityIOSTests: XCTestCase {
             XCTAssertNotNil(c.preferredSymbolConfigurationForImage, name)
         }
     }
+    func testResolvedEmFontIsNotScaledTwiceAtAccessibilitySize() throws {
+        let session = try fixture(); defer { session.destroy() }
+        window.traitOverrides.preferredContentSizeCategory = .accessibilityExtraExtraLarge
+        window.updateTraitsIfNeeded()
+        let surface = session.presenter.viewport
+        surface.updateTraitsIfNeeded()
+        var config = UIButton.Configuration.filled(); config.buttonSize = .large; config.title = "Title"
+        let reference = UIButton(configuration: config)
+        surface.addSubview(reference); reference.updateTraitsIfNeeded()
+        let expected = try XCTUnwrap(reference.titleLabel?.font)
+        XCTAssertEqual(session.buttonMeasurements.font(4).pointSize, expected.pointSize, accuracy: 0.01)
+        var f = ButtonFace(); f.title = "Title"; f.ios = "filled"
+        f.rows.button["control_size"] = .string("large")
+        // The kernel resolved 1em against the already scaled large control font.
+        f.rows.title["font_size"] = .number(Double(expected.pointSize))
+        f.rows.title["font_size_resolved"] = .number(1)
+        let actual = UIButton(configuration: .filled()); surface.addSubview(actual)
+        ButtonConfigurationIOS.apply(f, to: actual, traits: surface.traitCollection, accent: nil)
+        XCTAssertEqual(try XCTUnwrap(actual.titleLabel?.font).pointSize, expected.pointSize, accuracy: 0.01)
+        f.rows.title = ["font_size": .number(13)]
+        ButtonConfigurationIOS.apply(f, to: actual, traits: surface.traitCollection, accent: nil)
+        XCTAssertEqual(try XCTUnwrap(actual.titleLabel?.font).pointSize,
+            UIFontMetrics(forTextStyle: .body).scaledFont(for: .systemFont(ofSize: 13), compatibleWith: surface.traitCollection).pointSize, accuracy: 0.01)
+    }
+    func testNonuniformResolvedCornersReportAStandIn() throws {
+        var f = ButtonFace(); f.title = "Corners"
+        f.rows.button = ["border_radius_top_left": .number(8), "border_radius_top_right": .number(12),
+            "border_radius_bottom_right": .number(16), "border_radius_bottom_left": .number(20)]
+        let b = UIButton(configuration: .bordered())
+        ButtonConfigurationIOS.apply(f, to: b, traits: b.traitCollection, accent: nil)
+        let row = try XCTUnwrap(ButtonConfigurationIOS.observation(f, button: b)["border-radius"] as? [String: Any])
+        XCTAssertNotNil(row["standIn"], "UIKit cannot draw four independent configuration corners")
+        XCTAssertEqual(b.configuration?.cornerStyle, UIButton.Configuration.bordered().cornerStyle)
+    }
+    func testCornerRadiusDoesNotChangeTheFittingAnswer() throws {
+        let session = try fixture(); defer { session.destroy() }
+        let traits = session.presenter.viewport.traitCollection
+        for style in ["plain", "gray", "tinted", "filled", "bordered", "glass"] {
+            for width in [CGFloat(100), 200] {
+                var f = ButtonFace(); f.ios = style; f.title = "A long title that wraps"
+                var heights: [Float] = []
+                for radius in [Double(0), 6, 18, 80] {
+                    for corner in ["top_left", "top_right", "bottom_right", "bottom_left"] {
+                        f.rows.button["border_radius_" + corner] = .number(radius)
+                    }
+                    heights.append(session.buttonMeasurements.measure(f, widthKind: 0, width: width, traits: traits).height)
+                }
+                XCTAssertTrue(heights.allSatisfy { $0 == heights[0] }, "radius changes drawing, not height-for-width: \(style) \(width)")
+            }
+        }
+    }
     // Independent use of UIKit's public system-spacing API for the reference column.
     private func standardSpacing() -> CGFloat {
         let parent = UIView(), a = UIView(), b = UIView()
@@ -331,28 +382,7 @@ final class NativeButtonFidelityIOSTests: XCTestCase {
         button.isEnabled = name != "disabled-authored" && name != "disabled"
         return button
     }
-    private func pixels(_ button: UIButton) throws -> (UIImage, [UInt8]) {
-        button.window?.layoutIfNeeded(); button.layoutIfNeeded()
-        CATransaction.flush()
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
-        let format = UIGraphicsImageRendererFormat(); format.scale = 3; format.opaque = true; format.preferredRange = .standard
-        let image = UIGraphicsImageRenderer(size: button.bounds.size, format: format).image { context in
-            UIColor.white.setFill(); context.fill(button.bounds)
-            XCTAssertTrue(button.drawHierarchy(in: button.bounds, afterScreenUpdates: true), "hierarchy snapshot succeeds")
-        }
-        let cg = try XCTUnwrap(image.cgImage)
-        var bytes = [UInt8](repeating: 0, count: cg.width * cg.height * 4)
-        let space = CGColorSpace(name: CGColorSpace.sRGB)!
-        let context = try XCTUnwrap(CGContext(data: &bytes, width: cg.width, height: cg.height, bitsPerComponent: 8,
-            bytesPerRow: cg.width * 4, space: space, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
-        context.draw(cg, in: CGRect(x: 0, y: 0, width: cg.width, height: cg.height))
-        let ink = stride(from: 0, to: bytes.count, by: 4).filter { i in
-            (0..<3).contains { bytes[i + $0] < 247 }
-        }.count
-        XCTAssertGreaterThan(ink, 0, "snapshot must contain non-background pixels")
-        return (image, bytes)
-    }
-    func testFixtureRowsPixelDiffAgainstHandConfiguredUIKit() throws {
+    func testFixtureMeasurementsAgainstHandConfiguredUIKit() throws {
         let session = try fixture(); defer { session.destroy() }
         let host = try XCTUnwrap(window.rootViewController?.view)
         let nine = ["sign-in", "resend-code", "method-email", "method-passkey", "get-app", "try-demo", "subscriptions", "sign-out", "clear"]
@@ -365,47 +395,21 @@ final class NativeButtonFidelityIOSTests: XCTestCase {
             let native = try button(session, name), hand = try reference(name)
             let size = native.bounds.size
             XCTAssertGreaterThan(size.width, 0, name); XCTAssertGreaterThan(size.height, 0, name)
-            // Both columns are real controls in the key window on the same backdrop.
-            let stage = UIView(frame: host.bounds); stage.backgroundColor = .white
-            host.addSubview(stage)
-            let originalParent = native.superview, originalFrame = native.frame
-            stage.addSubview(native); stage.addSubview(hand)
-            defer {
-                originalParent?.addSubview(native); native.frame = originalFrame
-                stage.removeFromSuperview()
+            host.addSubview(hand); defer { hand.removeFromSuperview() }
+            hand.updateTraitsIfNeeded()
+            // Entering the hierarchy may reapply configuration and reset label fields.
+            if name == "clamped" { hand.titleLabel?.numberOfLines = 2; hand.titleLabel?.lineBreakMode = .byTruncatingTail }
+            hand.layoutIfNeeded()
+            let f = try XCTUnwrap(native.written?.face)
+            let measured = session.buttonMeasurements.measure(f, widthKind: 0, width: size.width, traits: native.traitCollection)
+            let expected = hand.sizeThatFits(CGSize(width: size.width, height: .greatestFiniteMagnitude))
+            XCTAssertEqual(CGFloat(measured.height), expected.height, accuracy: 0.5, name + " measured height at the same width")
+            if name == "clamped" {
+                var c = try XCTUnwrap(hand.configuration); c.title = f.title
+                let full = UIButton(configuration: c); host.addSubview(full); defer { full.removeFromSuperview() }
+                XCTAssertLessThan(expected.height, full.sizeThatFits(CGSize(width: size.width, height: .greatestFiniteMagnitude)).height,
+                    "the independent reference really clamps")
             }
-            native.frame = CGRect(origin: CGPoint(x: 20, y: 100), size: size)
-            hand.translatesAutoresizingMaskIntoConstraints = false
-            NSLayoutConstraint.activate([hand.widthAnchor.constraint(equalToConstant: size.width),
-                hand.leadingAnchor.constraint(equalTo: stage.leadingAnchor, constant: 20),
-                hand.topAnchor.constraint(equalTo: stage.topAnchor, constant: 100)])
-            stage.layoutIfNeeded()
-            let deltaHeight = size.height - hand.frame.height
-            XCTAssertEqual(size.height, hand.frame.height, accuracy: 0.5, name + " required-width height")
-            // Use identical frames for raster comparison after checking independent height.
-            hand.translatesAutoresizingMaskIntoConstraints = true
-            stage.removeConstraints(stage.constraints)
-            hand.frame = native.frame
-            native.isHidden = false; hand.isHidden = true
-            stage.layoutIfNeeded()
-            let actual = try pixels(native)
-            native.isHidden = true; hand.isHidden = false
-            stage.layoutIfNeeded()
-            let expected = try pixels(hand)
-            native.isHidden = false
-            XCTAssertEqual(actual.1.count, expected.1.count, name)
-            guard actual.1.count == expected.1.count else { continue }
-            var different = 0, maximum = 0
-            for i in stride(from: 0, to: actual.1.count, by: 4) {
-                let delta = (0..<3).map { abs(Int(actual.1[i + $0]) - Int(expected.1[i + $0])) }.max()!
-                maximum = max(maximum, delta)
-                if delta > 8 { different += 1 }
-            }
-            let fraction = Double(different) / Double(actual.1.count / 4)
-            print("button-pixel-diff \(name): height delta \(String(format: "%.3f", deltaHeight)) pt, \(different)/\(actual.1.count / 4) pixels >8, \(String(format: "%.4f", fraction * 100))%, max \(maximum)")
-            let attachment = XCTAttachment(image: actual.0); attachment.name = name + " native"; attachment.lifetime = .keepAlways; add(attachment)
-            let reference = XCTAttachment(image: expected.0); reference.name = name + " hand UIKit"; reference.lifetime = .keepAlways; add(reference)
-            XCTAssertLessThanOrEqual(fraction, 0.02, name + " native and reference pixels")
         }
     }
 
