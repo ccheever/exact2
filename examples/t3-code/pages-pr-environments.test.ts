@@ -96,6 +96,16 @@ describe('reads and writes land on the server the reader shares GitHub with', ()
     await routedPullRequestRequest(client, native, 'pullRequests.comment', { ...ref, body: 'Looks good.' }, true);
     expect(at(calls, 'pullRequests.comment')).toEqual(['A']);
   });
+  test('a write built from a reference without the marker goes to the server holding its project', async () => {
+    const { client, native, calls } = setup('http://10.0.0.5:3773', { a: 'off', b: 'off' });
+    fleet.entries.get(KEY_B)!.shell = { ...initialShell(), projects: [{ id: 'b1', title: 'sandbox' }] };
+    await routedPullRequestRequest(client, native, 'pullRequests.comment', { ...ref, projectId: 'b1', body: 'Thanks.' }, true);
+    await routedPullRequestRequest(client, native, 'pullRequests.invalidate', { reference: { ...ref, projectId: 'b1', environmentId: 'env-b' } }, false);
+    expect(calls.map(({ at, method, payload }) => ({ at, method, payload }))).toEqual([
+      { at: 'B', method: 'pullRequests.comment', payload: { ...ref, projectId: 'b1', body: 'Thanks.' } },
+      { at: 'B', method: 'pullRequests.invalidate', payload: { reference: { ...ref, projectId: 'b1' } } },
+    ]);
+  });
   test('a row a background server listed is read there, and its marker never reaches the wire', async () => {
     const { client, native, calls } = setup('http://10.0.0.5:3773', { a: 'off', b: 'off' });
     await routedPullRequestRequest(client, native, 'pullRequests.activity', { ...ref, projectId: 'b1', environmentId: 'env-b' }, false);

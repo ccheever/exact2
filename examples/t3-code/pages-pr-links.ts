@@ -237,7 +237,7 @@ export function linkChips(client: T3Client, environmentId: string, links: { href
 }
 
 /** PullRequestLinkPreview's card: `pullRequests.detail` for the hovered link's target, kept per link. */
-export async function readPreview(client: T3Client, native: Native, target: string): Promise<PrPreviewView> {
+export async function readPreview(client: T3Client, native: Native, target: string, now: number): Promise<PrPreviewView> {
   const view = emptyPreview();
   if (!target) return view;
   let reference: Obj;
@@ -257,8 +257,19 @@ export async function readPreview(client: T3Client, native: Native, target: stri
   const state = detail.state === 'open' && detail.isDraft === true ? 'draft' : str(detail.state, 'open');
   return { ...view, phase: 'content', url: str(detail.url), repository: str(detail.repository), number: `#${num(detail.number)}`, stateKey: state, stateLabel: STATE_LABELS[state] ?? 'Open',
     title: str(detail.title), author: name && name !== login ? `${name} (@${login})` : login, avatar: author ? str(author.avatarUrl) : '', initial: login.slice(0, 1).toUpperCase(),
-    opened: `opened ${relativeLabel(detail.createdAt, Date.now())}` };
+    opened: `opened ${relativeLabel(detail.createdAt, now)}` };
 }
+const hovering = new WeakMap<object, string>();
+/**
+ * `chatlocal:pr-preview`: the pointer entered (or left) a pull request link in the panel's text. The card's own
+ * open and close (350 ms, 120 ms) belong to the window's hover layer; this says which pull request the panel's
+ * resource reads for it (pullRequestDetail: the hovered link's `pullRequests.detail`, kept per link).
+ */
+export function notePreviewHover(client: object, target: string, inside: boolean): void {
+  if (inside && target) hovering.set(client, target);
+  else if (!inside && hovering.get(client) === target) hovering.delete(client);
+}
+export const hoveredLink = (client: object) => hovering.get(client) ?? '';
 /** A preview is read again when the panel's detail or its conversation changes (keeps hover previews fresh after edits and turns). */
 export function forgetPreviews(client: object): void { previews.delete(client); }
 

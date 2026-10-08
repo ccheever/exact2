@@ -39,7 +39,7 @@ import { markStackDue, readPanelStack } from './pages-pr-stack';
 import { emptyHandoffs, presentHandoffs, prHandoffCommand } from './pages-pr-handoffs'; // pr-handoffs-and-quick-actions
 import { runQuickAction } from './pages-pr-quick';
 import { finishCheckoutHandoff } from './r6-pr-actions';
-import { emptyLinks, emptyPreview, linkChips, linksCommand, linkPanelOnPage, openLink, presentLinks, readLinkedThreads, readPreview, type LinkContext } from './pages-pr-links'; // pr-links-previews-and-routing
+import { emptyLinks, emptyPreview, hoveredLink, linkChips, linksCommand, linkPanelOnPage, openLink, presentLinks, readLinkedThreads, readPreview, type LinkContext } from './pages-pr-links'; // pr-links-previews-and-routing
 import { surfaceLocal } from './r4-surfaces-panel';
 import { actOnHandoff, chooseActOn, emptyActOn, handoffServer, presentActOn } from './pages-pr-acton';
 import { autolinkPullRequestMarkdown, changeRequestRepositoryUrl } from './pages-pr-links-logic';
@@ -189,7 +189,8 @@ export async function pullRequestDetail(client: T3Client, native: Native | null 
   if (display) await readPanelStack(client, native!, panel.key, display, panel.reference);
   // pr-links-previews-and-routing: the page's linked threads (every 10 s), and the hovered link's card.
   if (display) await readLinkedThreads(client, native!, linkContext(selection, display, input), input.linkTick ?? 0);
-  if (input.preview) view.preview = await readPreview(client, native!, input.preview);
+  const hovered = input.preview ?? hoveredLink(client);
+  if (hovered) view.preview = await readPreview(client, native!, hovered, input.now);
   shown.set(client, phaseOf(panel));
   return present(view, panel, selection, listEntry, input.now, client, input);
 }

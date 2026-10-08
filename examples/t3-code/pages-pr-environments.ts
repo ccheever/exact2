@@ -5,7 +5,7 @@
 // {registry,githubRoutingPermissions}.ts, state/pullRequestRouting.ts): the router asks it which
 // servers are connected, local and trusted, and sends each routed request through it.
 import type { T3Client } from './client';
-import { obj, str, type Obj } from './domain';
+import { arr, obj, str, type Obj } from './domain';
 import { ClientError, bridgeReply, type Native } from './protocol';
 import { EnvironmentFleet, fleet, type FleetEntry } from './settings-b-fleet';
 import { githubSharing } from './connections';
@@ -91,5 +91,19 @@ export function routerHost(client: T3Client, native: Native, originId: string, s
  */
 export function routedPullRequestRequest(client: T3Client, native: Native, method: string, payload: Obj, write: boolean): Promise<Obj> {
   const { environmentId, ...rest } = payload;
-  return pullRequestRouter.request(routerHost(client, native, str(environmentId)), method, rest, write);
+  // An invalidation names its pull request inside `reference`; the marker rides there too.
+  const reference = obj(rest.reference), nested = str(reference.environmentId);
+  if (nested) { const { environmentId: _nested, ...plain } = reference; rest.reference = plain; }
+  return pullRequestRouter.request(routerHost(client, native, str(environmentId) || nested || projectServer(client, rest)), method, rest, write);
+}
+/**
+ * The server a request's project lives on when the payload does not say (a write built from the panel's reference, a row's
+ * quick action): project ids are per server, so a project only a background server holds names that server; the focused
+ * connection's own projects, or none, keep the focus.
+ */
+export function projectServer(client: T3Client, payload: Obj, source: EnvironmentFleet = fleet): string {
+  const projectId = str(payload.projectId) || str(obj(payload.reference).projectId) || str(obj(arr(payload.refs)[0]).projectId);
+  if (!projectId || client.shell.projects.some(project => str(project.id) === projectId)) return '';
+  for (const entry of source.entries.values()) if (ready(entry) && entry.shell.projects.some(project => str(project.id) === projectId)) return entry.environmentId;
+  return '';
 }

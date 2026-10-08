@@ -7,7 +7,7 @@ import type { Obj } from './domain';
 import { ClientError, type Files, type Native } from './protocol';
 import { toasts } from './toast';
 import { prCommand, pullRequestDetail } from './pages-pr-detail';
-import { linkedThreadItems, openLink, readPreview, threadPickerView } from './pages-pr-links';
+import { linkedThreadItems, notePreviewHover, openLink, readPreview, threadPickerView } from './pages-pr-links';
 import { paletteView } from './palette-view';
 
 type Reply = (payload: Obj) => unknown;
@@ -180,13 +180,22 @@ describe('pull request text (remarkPullRequestAutolinks, PullRequestLinkPreview)
   test('the hovered link\'s card reads the detail once, and a failure leaves the URL tooltip', async () => {
     const target = JSON.stringify({ projectId: 'p1', host: 'github.com', repository: 'lane/sandbox', number: 9 });
     const { client, calls } = fakeClient(defaults({ 'pullRequests.detail': payload => detail({ number: payload.number, title: 'Fix the parser', url: 'https://github.com/lane/sandbox/pull/9', state: 'merged' }) }));
-    const card = await readPreview(client, native, target);
+    const card = await readPreview(client, native, target, Date.parse('2026-10-08T12:00:00Z'));
     expect(card).toMatchObject({ phase: 'content', repository: 'lane/sandbox', number: '#9', stateKey: 'merged', stateLabel: 'Merged', title: 'Fix the parser', author: 'Lane Primary (@lane-primary)' });
     expect(card.opened).toMatch(/^opened /);
-    await readPreview(client, native, target);
+    await readPreview(client, native, target, Date.parse('2026-10-08T12:00:00Z'));
     expect(calls.filter(call => call.method === 'pullRequests.detail')).toHaveLength(1);
     const failing = fakeClient(defaults({ 'pullRequests.detail': () => { throw new Error('404'); } }));
-    expect((await readPreview(failing.client, native, target)).phase).toBe('error');
+    expect((await readPreview(failing.client, native, target, 0)).phase).toBe('error');
+  });
+  test('pointing at a link makes the panel read its card; leaving it lets go', async () => {
+    const { client } = fakeClient(defaults({ 'pullRequests.detail': payload => detail({ number: payload.number, title: payload.number === 9 ? 'Fix the parser' : 'Add a changelog' }) }));
+    const view = await open(client, { page: true });
+    const chip = view.md.chips.find(entry => entry.href.endsWith('/pull/9'))!;
+    notePreviewHover(client, chip.target, true);
+    expect((await open(client, { page: true })).preview).toMatchObject({ phase: 'content', number: '#9', title: 'Fix the parser' });
+    notePreviewHover(client, chip.target, false);
+    expect((await open(client, { page: true })).preview.phase).toBe('');
   });
   test('a click opens the pull request in the panel; a #N asks the host first; a modifier keeps the browser', async () => {
     const target = JSON.stringify({ projectId: 'p1', host: 'github.com', repository: 'lane/sandbox', number: 101 });

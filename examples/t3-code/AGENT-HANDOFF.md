@@ -147,6 +147,22 @@ so the number's menu and the checks/stack indicators are not presses of the row.
 reference keys its panel per pull request, so the fold and the scroll anchors start over on another one
 (`pages-pr-fold.test.ts` guards both call sites).
 
+## Pull request links, previews, routing and list paging
+
+Task `20261005-pr-links-previews-and-routing`, 2026-10-08.
+
+| What | Where |
+|---|---|
+| Every `pullRequests.*` request | `T3Client.rpc` → `pages-pr-environments.ts` `routedPullRequestRequest` → `pages-pr-routing.ts` `PullRequestRouter` (the reference's `createPullRequestRouter`, ported with its decisions and tests). `environmentId` in a payload names the server a row was listed on; it is stripped before sending |
+| The servers the router sees | `pages-pr-environments.ts` `prEnvironments`: the focused connection and each connected, synchronized fleet entry, with GitHub sharing from `connections.ts` `githubSharing` (the stored preference under the server's current saved key, so a changed address or SSH profile reads "off") and loopback/primary as local. Probes and invalidations are bounded by the transport's per-request `timeout` (2 s, 1 s), not a timer (X19) |
+| Merged listings and paging | `pages-pr-paging.ts`: `environmentQueries` (assignProjectsToEnvironments: one server per repository, the focused one first), `listTargets` (page size 99 up to 500, per-server `cursors` from the last `nextCursors`), `foldAnswers`/`orderAnswer` (a continuation appends), `loadMore`, `refreshPaging` (a refresh reads every row on screen again in one page). Footer: `pages-pr-links.contract` `PrListFooter`; "Loading more" is drawn first through the `t3.pr` wake |
+| Linked threads, Link/Unlink, picker, back arrow | `pages-pr-links.ts` (`readLinkedThreads` on the page, re-read when `floor(liveNow / 10000)` moves — app.contract liveTick runs while `prDetail.links.polling`; `changeLink` dispatches `thread.pull-request.link`/`.unlink` or the legacy metadata update, a refusal is a toast). The count and the picker open the palette through the command's answer `palette:<page>` (commandCompleted): `pr-linked\|<url>` (the URL as the query, the linked threads as the thread results) and `pr-link-thread` ("Choose a thread") |
+| Autolinks and link clicks | `pages-pr-links-logic.ts` `autolinkPullRequestMarkdown` rewrites `#N` and 40-hex commits in the bodies before the Rust parse; `linkChips` gives each pull request link a `pr-link` chip; `markdown.contract` `PrLinkRun` draws it (no favicon for an autolink, monospace for a commit). Its press goes through `PrdBody` `textLocal` to `pageslocal:pr-act-link-open`: a modifier held (the last gesture, `composerSendIntent`) or no project → the browser; a `#N` asks `pullRequests.preview` first; on the page the answer is `pr-select:<ref>` |
+| Hover card | `PrLinkRun`'s hover sends `chatlocal:pr-preview`; `prDetail.preview` carries the card (`pages-pr-links.ts` `readPreview`), `PrLinkPreviewCard` draws it. Waits on fix-hover-cards' window hover layer for placement (kind "pr-preview", 120 ms close) |
+| Act on | `pages-pr-acton.ts`: `presentActOn` (resolvePickableEnvironments, page only), `handoffServer`, `actOnHandoff` (a checkout runs on the chosen server's transport, the task goes into that server's draft, then the window moves there as Run on does). Menus: `PrdActOnItems` in the More and Check out menus |
+
+Tests: `pages-pr-routing.test.ts`, `pages-pr-links-logic.test.ts` (ported names), `pages-pr-environments.test.ts`, `pages-pr-links.test.ts`, `pages-pr-paging.test.ts`, `pages-pr-acton.test.ts`. Two lane servers on one account: `target/github-lane` and `target/github-lane-b` (set `T3_GITHUB_LANE`), each with its own `logs/gh-calls.tsv`.
+
 ## Interface font size
 
 Tasks `20261005-interface-font-size` and `-conversion` (both closed), 2026-10-07, PR #206. Settings › Appearance ›
