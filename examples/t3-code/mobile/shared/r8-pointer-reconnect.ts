@@ -1,5 +1,6 @@
 // GAP 001: bake cannot capture parent imports. Remove this copy when ancestor mounts work.
-// Unchanged body from examples/t3-code/r8-pointer-reconnect.ts at 887b2491b182f851b11253655f6aa84fe2a26708.
+// Adapted body from examples/t3-code/r8-pointer-reconnect.ts at 887b2491b182f851b11253655f6aa84fe2a26708.
+// Mobile: interrupted catalog reads do not consume reconnect-on-launch; only the newest read may connect.
 // Lane r8-pointer (D14): a relaunch reconnects to the saved environment, as
 // the reference does ("The environment is saved and will reconnect on app
 // startup."). The transport restores the last origin but opens nothing until
@@ -16,6 +17,7 @@ import { environmentKey, isLoopback, trimOrigin, type FocusedHost } from './sett
 
 type Focus = { origin: string; environmentId: string; connection: string };
 const asked = new WeakSet<object>();
+const reading = new WeakMap<object, object>();
 const pending = new WeakMap<object, { origin: string; environmentId: string }>();
 
 /** The saved environment a relaunch opens, or null. */
@@ -33,14 +35,21 @@ export function relaunchTarget(saved: Obj[], lastOrigin: string): Obj | null {
  */
 export async function reconnectOnLaunch(client: object, native: Native, status: Obj): Promise<boolean> {
   if (asked.has(client)) return false;
-  asked.add(client);
-  if (str(status.state) !== 'disconnected' || str(status.environmentId)) return false;
+  if (str(status.state) !== 'disconnected' || str(status.environmentId)) {
+    asked.add(client);
+    return false;
+  }
+  const attempt = {};
+  reading.set(client, attempt);
   let saved: Obj[] = [];
   try {
     const listed = await bridgeReply(native, { op: 'environments' });
     if (!listed.ok) return false;
     saved = arr(obj(listed.value).saved);
   } catch { return false; }
+  if (asked.has(client) || reading.get(client) !== attempt) return false;
+  reading.delete(client);
+  asked.add(client);
   const target = relaunchTarget(saved, str(status.origin));
   if (!target) return false;
   pending.set(client, { origin: str(target.origin), environmentId: str(target.environmentId) });
