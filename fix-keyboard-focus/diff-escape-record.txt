@@ -1,0 +1,13 @@
+fix-keyboard-focus: Escape in the diff scope menu (coordinator, 2026-10-08), agent mode, macOS 1280x840.
+
+Cause: two nodes declare an Escape shortcut while the menu is open: the right panel's toggle
+(panel-toggle-right, "Toggle right panel") and the menu's backdrop ("Close diff scope menu"). Among
+non-modal shortcuts the lower view id wins, which is the panel's toggle, so Escape closed the panel.
+
+Base ec32c8c37 (existing issue): thread Snooze-me, Changes (diff panel), press on diff-scope (menu shows
+diff-scope-menu, -branch, -unstaged), Escape -> the menu and the whole diff panel close (diff-scope gone), focus none.
+
+Branch (build 13): the menus' box is aria-modal (scopes the shortcuts) and closes them on Escape itself.
+  press on diff-scope -> focus diff-scope-keys; Escape -> menu closed, focus diff-scope, panel still open
+  ArrowDown on diff-scope -> diff-scope-branch; Escape -> menu closed, focus diff-scope, panel still open
+  Escape again (menu closed) -> the panel closes (its own Escape, as before)
