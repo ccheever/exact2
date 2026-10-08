@@ -83,7 +83,12 @@
     "mobile-review-route",
     "mobile-review-path",
     "mobile-home-menu",
-    "mobile-home-menu-id"
+    "mobile-home-menu-id",
+    "mobile-home-surface",
+    "mobile-home-foreground",
+    "mobile-home-primary",
+    "mobile-home-danger",
+    "mobile-home-background"
   ],
   "hatches": [
     "mobile-voice-editor",

@@ -133,7 +133,7 @@ final class T3MobileModule: ExactModule {
         informationLegal.configure(route)
     }
     override func element(_ element: ExactElement) {
-        if element.hatch == .mobileHomeRow { homeChrome.rowMenus.configure(element) }
+        if element.hatch == .mobileHomeRow { homeChrome.rowMenus.configure(element); homeChrome.customSnooze.configure(element) }
         if element.hatch == .mobileReviewList || element.hatch == .mobileReviewRow { reviewViewport.configure(element) }
         if element.hatch == .mobileVoiceEditor {
             voice.editor.configure(element, owner: element.data[.mobileVoiceOwner] ?? "",
@@ -141,7 +141,7 @@ final class T3MobileModule: ExactModule {
         }
     }
     override func elementEnded(_ element: ExactElement) {
-        if element.hatch == .mobileHomeRow { homeChrome.rowMenus.end(element) }
+        if element.hatch == .mobileHomeRow { homeChrome.rowMenus.end(element); homeChrome.customSnooze.end(element) }
         if element.hatch == .mobileReviewList || element.hatch == .mobileReviewRow { reviewViewport.end(element) }
         if element.hatch == .mobileVoiceEditor { voice.editor.end(element) }
     }
@@ -217,6 +217,9 @@ final class T3MobileModule: ExactModule {
             releases.perform(request, reply: reply)
         case "mobileCameraPermission":
             T3QRScanner.requestCameraPermission(agent: context.agent) { status in answer(["status": status]) }
+        case "mobileCustomSnooze":
+            do { try homeChrome.customSnooze.present(request) { answer($0) } }
+            catch { reply.fail(String(describing: error)) }
         case "mobilePrompt":
             do {
                 try alerts.prompt(title: request["title"] as? String ?? "Rename thread",
@@ -294,6 +297,7 @@ final class T3MobileModule: ExactModule {
     override func destroy() {
         alive = false
         homeChrome.rowMenus.destroy()
+        homeChrome.customSnooze.destroy()
         sheets.destroy()
         scratchClock.destroy()
         threadHeader.destroy()

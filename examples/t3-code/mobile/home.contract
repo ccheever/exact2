@@ -19,6 +19,7 @@ shape HomeColors
   dangerForeground: string
   done: string
   menuBackground: string
+  card: string
 
 shape HomeItem
   key: string
@@ -163,7 +164,12 @@ component HomeListItem
       else
         button press=selectThread(item.id)
           hatch="mobile-home-row"
-          data-mobile-home-menu=(surface == "sidebar-list" ? item.nativeMenu : "")
+          data-mobile-home-menu=item.nativeMenu
+          data-mobile-home-surface=surface
+          data-mobile-home-foreground=colors.foreground
+          data-mobile-home-primary=colors.primary
+          data-mobile-home-danger=colors.dangerForeground
+          data-mobile-home-background=colors.card
           data-mobile-home-menu-id=(surface == "sidebar-list" ? menuId : "")
           contextPopover=(surface != "sidebar-list" and length(item.menuItems) > 0 ? menuId : "")
           padding=0

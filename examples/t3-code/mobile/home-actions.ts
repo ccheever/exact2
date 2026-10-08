@@ -62,7 +62,7 @@ export function mobileHomeSnoozeSelection(operation: string, displayed: string, 
   return ['hour', 'three-hours', 'evening', 'tomorrow', 'next-week'].includes(id) && Date.parse(displayed) > now ? displayed : '';
 }
 
-/** Ordinary rows only. Arrange, swipes and the custom snooze picker are later slices. */
+/** Ordinary rows only. Arrange and swipes are later slices. */
 export function mobileHomeMenu(environmentId: string, threadId: string, now: number,
   client: T3Client = mobileClient, background: EnvironmentFleet = fleet, orderInput?: HomeOrderSnapshot): HomeMenuItem[] {
   const { environment, thread, allowed } = row(environmentId, threadId, client, background);
@@ -79,7 +79,7 @@ export function mobileHomeMenu(environmentId: string, threadId: string, now: num
   if (!snoozed && caps.settlement && section !== 'settled' && caps.snooze && canSnooze(thread, now)) {
     items.push(item('snooze', 'Snooze', 'clock', { operation: '' }));
     for (const preset of mobileHomeSnoozePresets(now)) items.push(item(`snooze:${preset.id}`, preset.label, '', { parentId: 'snooze', value: preset.value, subtitle: preset.subtitle }));
-    items.push(item('snooze:custom', 'Custom…', '', { parentId: 'snooze', disabled: true }));
+    items.push(item('snooze:custom', 'Custom…', '', { parentId: 'snooze' }));
   }
   const moveSection = thread.pinnedAt != null ? 'pinned' : 'active';
   const movesSupported = moveSection === 'pinned' ? caps.pinReorder : !order.workingEnabled && caps.activeReorder;
@@ -155,8 +155,8 @@ export async function mobileHomeAction(requestRoute: string, environmentId: stri
       check(); const request = obj(input), writing = request.method === 'orchestration.dispatchCommand';
       if (writing) sent = true;
       const response = await base.later(input), raw = obj(response);
-      if (writing) { acknowledged = raw.ok === true; refused = raw.ok === false && obj(raw.error).uncertain !== true; }
-      if (['http', 'request', 'ids'].includes(str(request.op)) && (!endpointCurrent() || raw.generation !== generation))
+      if (writing) { acknowledged = raw.ok === true && raw.generation === generation; refused = raw.ok === false && raw.generation === generation && obj(raw.error).uncertain !== true; }
+      if (['http', 'request', 'ids', 'mobileCustomSnooze'].includes(str(request.op)) && (!endpointCurrent() || raw.generation !== generation))
         throw new ClientError('The connection changed. Refresh this thread.', 'stale', writing && !acknowledged);
       if (!sent) check();
       if (raw.ok === false) throw new ClientError(str(obj(raw.error).message, 'The request failed.'), str(obj(raw.error).kind, 'transport'), obj(raw.error).uncertain === true);
@@ -176,20 +176,21 @@ export async function mobileHomeAction(requestRoute: string, environmentId: stri
       if (!state.allowed || !state.thread) throw new ClientError('That thread is no longer available.');
       return state.thread;
     };
+    let eligibilityTime = now;
     const available = () => {
       const thread = freshThread(), caps = capabilities(row(environmentId, threadId, client, background).environment!.config);
       if (['settle', 'unsettle'].includes(kind) && !caps.settlement) throw new ClientError("This environment's server does not support settling yet. Update the server to use Settle.");
       if ((kind.startsWith('snooze:') || kind === 'unsnooze') && !caps.snooze) throw new ClientError(kind === 'unsnooze'
         ? "This environment's server does not support snoozing yet. Update the server to wake this thread."
         : "This environment's server does not support snoozing yet. Update the server to use Snooze.");
-      if (kind.startsWith('snooze:') && !canSnooze(thread, now)) throw new ClientError(pendingApproval(thread) || pendingInput(thread)
+      if (kind.startsWith('snooze:') && !canSnooze(thread, eligibilityTime)) throw new ClientError(pendingApproval(thread) || pendingInput(thread)
         ? 'This thread is waiting on you. Respond to the pending request before snoozing it.'
         : "This thread is still starting a turn. Try again once it's running.");
       if (['pin', 'unpin'].includes(kind) && !caps.pinning) throw new ClientError("This environment's server does not support pinning yet. Update the server to use Pin.");
       if (kind.startsWith('auto-settle:') && !caps.autoSettleOptOut) throw new ClientError("This environment's server does not support turning auto-settle off per thread yet. Update the server to use it.");
       if (kind === 'regenerate-title' && thread.titleRegeneration != null) throw new ClientError('');
       if (kind === 'regenerate-title' && !caps.titleRegeneration) throw new ClientError("This environment's server does not support title regeneration yet. Update the server to regenerate thread titles.");
-      const menu = mobileHomeMenu(environmentId, threadId, now, client, background);
+      const menu = mobileHomeMenu(environmentId, threadId, eligibilityTime, client, background);
       if (!menu.some(item => item.operation === kind && !item.disabled) && !(kind.startsWith('snooze:') && kind !== 'snooze:custom' && menu.some(item => item.id === 'snooze')))
         throw new ClientError('This thread action is no longer available.');
     };
@@ -206,7 +207,18 @@ export async function mobileHomeAction(requestRoute: string, environmentId: stri
       if (reply.copied === false) return result('Clipboard access is unavailable in this session.');
       await local({ op: 'mobileHomeHaptic', kind: 'light' }); return result();
     }
-    let renamed = '';
+    let renamed = '', customSnoozedUntil = '';
+    if (kind === 'snooze:custom') {
+      const answer = await local({ op: 'mobileCustomSnooze', requestRoute, environmentId, threadId, origin, generation });
+      if (answer.choice !== 'snooze') return result();
+      const until = str(answer.snoozedUntil), stamp = Date.parse(until), confirmedAt = answer.confirmedAt;
+      if (!Number.isFinite(stamp) || new Date(stamp).toISOString() !== until
+        || typeof confirmedAt !== 'number' || !Number.isInteger(confirmedAt) || Math.abs(confirmedAt) > 8.64e15 || stamp <= confirmedAt)
+        throw new ClientError('The snooze picker returned an invalid date and time.');
+      // Native validates future time at confirmation. Network latency must not move the selected date.
+      customSnoozedUntil = until; eligibilityTime = confirmedAt;
+      await grant(); available();
+    }
     if (kind === 'rename') {
       const answer = await local({ op: 'mobilePrompt', title: 'Rename thread', initialValue: str(original.title), cancelLabel: 'Cancel', submitLabel: 'OK' });
       if (answer.choice !== 'submit') return result();
@@ -226,7 +238,7 @@ export async function mobileHomeAction(requestRoute: string, environmentId: stri
     else if (kind === 'regenerate-title') Object.assign(payload, { type: 'thread.metadata.update', regenerateTitle: true });
     else if (kind.startsWith('auto-settle:')) Object.assign(payload, { type: 'thread.auto-settle.set', enabled: kind === 'auto-settle:enabled' });
     else if (kind.startsWith('snooze:')) {
-      const until = mobileHomeSnoozeSelection(kind, value, now);
+      const until = kind === 'snooze:custom' ? customSnoozedUntil : mobileHomeSnoozeSelection(kind, value, now);
       if (!until) throw new ClientError('That snooze time has passed. Choose another time.');
       Object.assign(payload, { type: 'thread.snooze', snoozedUntil: until });
     } else {
