@@ -758,6 +758,8 @@ A `button` is the platform's own control by default. A background, border or
 radius, rich children, or a row/attribute/context the native control cannot
 support makes it your bare box instead. Classes count after merging, and a
 row or incompatible child on any conditional arm keeps the whole button bare.
+Grouped-list row buttons and their detail accessories stay bare by default so
+UIKit can read the cell's face; explicit `appearance="auto"` carries a custom native control.
 `appearance="none"` explicitly asks for your box. `appearance="auto"` explicitly
 asks for the platform's button and refuses unsupported rows or children. The
 switch must resolve to a literal after class merging; use `when` with two

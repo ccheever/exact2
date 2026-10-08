@@ -64,6 +64,8 @@ public final class Agent {
     /// The modifiers held through the contact: its `down`'s, until a
     /// `move` or `up` names others.
     var contactFlags: NSEvent.ModifierFlags = []
+    /// A native button's nested tracking loop consumes queued drag/up events.
+    var contactTracksNative = false
     #endif
     weak var canvasContact: NodeView?
     /// The last point the agent's pointer sent its canvas (iOS), for its motion.

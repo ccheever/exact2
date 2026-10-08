@@ -160,7 +160,7 @@ extension ControlHost {
         let face = self.face(owner.id)
         let written = NativeButtonIOS.Written(
             face: face, accent: accent, enabled: !owner.disabled,
-            label: owner.props["accessibilityLabel"].flatMap { $0.isEmpty ? nil : $0 } ?? face.title, testId: owner.props["testId"],
+            label: owner.authoredLabel ?? face.title, testId: owner.props["testId"],
             selected: owner.props["accessibilitySelected"] == "true", expanded: owner.props["accessibilityExpanded"],
             pressed: owner.pressedState, traits: .init(button.traitCollection),
             interactive: owner.style["pointer_events"]?.string != "none")

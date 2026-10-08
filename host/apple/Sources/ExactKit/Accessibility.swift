@@ -259,12 +259,27 @@ extension Presenter {
         let described = changed == nil ? [] : chrome.ids("accessibilityDescribedBy").subtracting(nodes.map(\.id)).compactMap { views[$0] }
         for node in described { node.applyFormAccessibility() }
         // A name read from other elements follows their text (ledger2 Rough 3).
-        for node in chrome.ids("accessibilityLabelledBy").compactMap({ views[$0] }) where !node.isNativeButton {
-            #if os(macOS)
-            if node.accessibilityLabel() != node.accessibleName { node.setAccessibilityLabel(node.accessibleName) }
-            #else
-            if node.accessibilityLabel != node.accessibleName { node.accessibilityLabel = node.accessibleName }
-            #endif
+        for node in chrome.ids("accessibilityLabelledBy").compactMap({ views[$0] }) {
+            if node.isNativeButton {
+                #if os(macOS)
+                guard let button = controls.controls[node.id] as? NativeButtonMac else { continue }
+                let name = node.authoredLabel ?? button.written?.face.title
+                if button.accessibilityLabel() != name { button.setAccessibilityLabel(name) }
+                #else
+                guard let button = controls.controls[node.id] as? NativeButtonIOS else { continue }
+                let name = node.authoredLabel ?? button.written?.face.title
+                if button.accessibilityLabel != name { button.accessibilityLabel = name }
+                #endif
+                // Keep the configuration guard current without rewriting the
+                // face or restarting native animations for referenced text.
+                button.written?.label = name
+            } else {
+                #if os(macOS)
+                if node.accessibilityLabel() != node.accessibleName { node.setAccessibilityLabel(node.accessibleName) }
+                #else
+                if node.accessibilityLabel != node.accessibleName { node.accessibilityLabel = node.accessibleName }
+                #endif
+            }
         }
         for node in nodes {
             node.applyFormAccessibility()

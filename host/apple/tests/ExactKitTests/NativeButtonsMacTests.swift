@@ -23,6 +23,21 @@ final class NativeButtonsMacTests: XCTestCase {
         p.apply(wireBatch(ops))
         return p
     }
+    func testReferencedAccessibleNameWinsAndFollowsItsText() throws {
+        let p = presenter(box(1) + native(2, ["accessibilityLabelledBy": "name", "accessibilityLabel": "Fallback"])
+                          + box(3, ["id": "name", "text": "Delete permanent copy"])
+                          + [["op": "children", "id": 1, "ids": [2, 3]], ["op": "roots", "ids": [1]]],
+                          faces: [2: face("Go")])
+        let button = try XCTUnwrap(p.controls.controls[2] as? NativeButtonMac)
+        XCTAssertEqual(button.accessibilityLabel(), "Delete permanent copy", "aria-labelledby precedes aria-label and the face")
+        p.apply(wireBatch([["op": "props", "id": 3, "set": ["text": "Delete archived copy"]]]))
+        XCTAssertEqual(button.accessibilityLabel(), "Delete archived copy", "a referenced text-only batch refreshes the control")
+        p.apply(wireBatch([["op": "props", "id": 3, "set": ["text": ""]]]))
+        XCTAssertEqual(button.accessibilityLabel(), "Fallback", "an empty referenced name falls back to aria-label")
+        p.apply(wireBatch([["op": "props", "id": 2, "clear": ["accessibilityLabel"]]]))
+        XCTAssertEqual(button.accessibilityLabel(), "Go", "without an authored name the face names the control")
+    }
+
     private func face(_ title: String?, macos: String = "push", style: String = "bordered") -> ButtonFace {
         var f = ButtonFace()
         f.title = title; f.macos = macos; f.style = style

@@ -645,6 +645,7 @@ impl<'a> Lowerer<'a> {
                 // `class=` expands its style's rows first; the node's own
                 // attribute of the same name replaces the style's (LLP 1017 P6).
                 // @ref LLP 1084 D7 — a grouped list's sheet, under its classes.
+                let button_context = grouped::button_context(attrs);
                 let (mut sheet, unmarked) = grouped::split(attrs);
                 let attrs = unmarked.as_ref().unwrap_or(attrs);
                 let (class_label, mut expanded) = self.class_rows(attrs)?.unzip();
@@ -653,6 +654,7 @@ impl<'a> Lowerer<'a> {
                     expanded.as_deref().unwrap_or(&[]),
                     attrs,
                     children,
+                    button_context,
                     *span,
                 )?;
                 if button.as_ref().is_some_and(|b| b.native) {

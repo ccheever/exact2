@@ -390,7 +390,25 @@ extension Agent {
                 // Through the application, as a hand's event comes: its local
                 // monitors see it (a grouped drag's, whose grip is hidden while
                 // its ghost stands for it; LLP 1094 D6), then the window.
-                NSApp.sendEvent(e)
+                if contactTracksNative {
+                    if type == .leftMouseDown {
+                        // Return the down reply first. Common-mode blocks let
+                        // the agent's next request run inside AppKit tracking.
+                        CFRunLoopPerformBlock(CFRunLoopGetMain(), CFRunLoopMode.commonModes.rawValue) {
+                            NSApp.sendEvent(e)
+                        }
+                        CFRunLoopWakeUp(CFRunLoopGetMain())
+                    } else {
+                        // AppKit reads these from its tracking queue rather
+                        // than a reentrant sendEvent. Its queue reconstructs
+                        // locationInWindow from the CG event's screen point.
+                        let screen = win.convertPoint(toScreen: e.locationInWindow)
+                        e.cgEvent?.location = CGPoint(x: screen.x, y: (NSScreen.screens.first?.frame.maxY ?? 0) - screen.y)
+                        NSApp.postEvent(e, atStart: false)
+                    }
+                } else {
+                    NSApp.sendEvent(e)
+                }
             }
         }
         let at = { (p: CGPoint) -> [Double] in [Agent.r2(p.x), Agent.r2(p.y)] }
@@ -405,8 +423,10 @@ extension Agent {
             // The button is down: the pointer no longer rests where it hovered.
             presenter.agentPointer = nil
             contactFlags = named
-            send(.leftMouseDown, p)
+            let hit = win.contentView?.hitTest(toWindow(p))
+            contactTracksNative = sequence(first: hit, next: { $0?.superview }).contains { $0 is NativeButtonMac }
             contact = p
+            send(.leftMouseDown, p)
             return ["contact": Int(v.id), "phase": "down", "at": at(p), "delivery": "platform"]
         case "move":
             guard let from = contact else { return ["error": "no contact is down"] }
@@ -438,13 +458,19 @@ extension Agent {
             send(.leftMouseUp, p)
             contact = nil
             contactFlags = []
+            contactTracksNative = false
             return ["phase": "up", "at": at(p), "delivery": "platform"]
         case "cancel":
             guard let p = contact else { return ["error": "no contact is down"] }
             contactClock += 1.0 / 60
-            send(.leftMouseUp, p)
+            // Queue a drag-away and lift to end native tracking. The contact
+            // test still exposes an action on cancel (QUEUE, LLP 1104 F6).
+            let release = contactTracksNative ? CGPoint(x: -10000, y: -10000) : p
+            if contactTracksNative { send(.leftMouseDragged, release) }
+            send(.leftMouseUp, release)
             contact = nil
             contactFlags = []
+            contactTracksNative = false
             return ["phase": "cancel", "at": at(p), "delivery": "platform"]
         default:
             return ["error": "unknown phase \(phase) (down, move, hold, up, cancel)"]

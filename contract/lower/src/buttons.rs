@@ -53,6 +53,7 @@ impl Lowerer<'_> {
         class: &[Attr],
         own: &[Attr],
         children: &[Node],
+        context: Option<&str>,
         span: Span,
     ) -> Result<Option<ButtonSite>, LowerError> {
         if tag != "button" {
@@ -99,7 +100,7 @@ impl Lowerer<'_> {
                 migrate: false,
             }));
         }
-        let bare_reason = disabled.or_else(|| {
+        let bare_reason = context.map(str::to_owned).or(disabled).or_else(|| {
             self.check_native_button(checked, children, span)
                 .err()
                 .map(|e| e.message)

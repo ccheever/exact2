@@ -1126,6 +1126,9 @@ list appearance="auto" listStyle="inset-grouped" flex=1
       text "Who can see you."
 ```
 
+Row buttons and their detail accessories stay bare by default, preserving the
+cell's title and action. Explicit `appearance="auto"` makes one a custom native control.
+
 `listStyle` is `inset-grouped` (the default), `grouped` or `plain`, a literal.
 iOS draws UIKit's own list (`UICollectionView` with a list configuration); the
 other hosts draw a sheet measured from it, and your own attributes replace any

@@ -31,6 +31,62 @@ final class AgentMouseFormsMacTests: XCTestCase {
         override func scrollWheel(with e: NSEvent) { note(e) }
     }
 
+    func testHeldNativeButtonContactAcknowledgesDownThenMovesReleasesAndCancels() throws {
+        _ = NSApplication.shared
+        let session = ExactApp.shared.makeSession(label: "agent-native-contact")
+        defer { session.destroy() }
+        let p = session.presenter
+        p.viewport.frame = NSRect(x: 0, y: 0, width: 400, height: 300)
+        let window = NSWindow(contentRect: NSRect(x: 240, y: 160, width: 400, height: 300), styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = p.viewport
+        window.orderFrontRegardless()
+        defer { window.close() }
+        var face = ButtonFace(); face.title = "Go"
+        p.buttonFace = { _ in face }
+        p.apply(wireBatch([
+            ["op": "create", "id": 1, "kind": "control", "props": ["type": "button"], "handlers": ["press"]],
+            ["op": "frame", "id": 1, "x": 16, "y": 16, "w": 120, "h": 32], ["op": "roots", "ids": [1]],
+        ]))
+        p.viewport.layoutSubtreeIfNeeded()
+        let button = try XCTUnwrap(p.controls.controls[1] as? NativeButtonMac)
+        var pressed: [UInt32] = []
+        p.onPress = { pressed.append($0) }
+        let agent = Agent(session: session)
+        for phase in ["up", "cancel"] {
+            var acknowledged = false, lifted = false
+            // The timer runs inside AppKit's tracking loop too. It is a bounded
+            // escape for the regression, so a failed down cannot hang the suite.
+            let timer = Timer(timeInterval: 0.05, repeats: false) { _ in
+                XCTAssertTrue(acknowledged, "down must return before native tracking begins")
+                XCTAssertNotNil(agent.contact, "down records ownership before tracking")
+                let move = agent.contact("move", ["dx": 4, "dy": 0])
+                XCTAssertNil(move["error"], "\(move)")
+                let reply = agent.contact(phase, [:])
+                XCTAssertNil(reply["error"], "\(reply)")
+                if reply["error"] != nil {
+                    let at = button.convert(NSPoint(x: button.bounds.midX, y: button.bounds.midY), to: nil)
+                    let up = NSEvent.mouseEvent(with: .leftMouseUp, location: at, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 0)!
+                    NSApp.postEvent(up, atStart: false)
+                }
+                lifted = true
+            }
+            RunLoop.main.add(timer, forMode: .common)
+            RunLoop.main.add(timer, forMode: .eventTracking)
+            let down = agent.contact("down", ["id": 1])
+            acknowledged = true
+            XCTAssertNil(down["error"], "\(down)")
+            let deadline = Date(timeIntervalSinceNow: 1)
+            while !lifted && Date() < deadline { RunLoop.main.run(mode: .default, before: deadline) }
+            timer.invalidate()
+            XCTAssertTrue(lifted)
+            XCTAssertNil(agent.contact)
+            XCTAssertEqual(pressed, [1], "up activates once; cancel never activates")
+            // Clear ownership left by the old, synchronous down after the escape.
+            if agent.contact != nil { _ = agent.contact("cancel", [:]) }
+        }
+    }
+
     func testMiddleTripleWheelAtAndShiftDragReachTheViewAndTheMonitor() throws {
         _ = NSApplication.shared
         let session = ExactApp.shared.makeSession(label: "agent-mouse-forms")
