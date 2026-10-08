@@ -5,6 +5,7 @@ import { launchPayload, sendPayload } from './shared/protocol';
 import { assistantCitationsToPlainText } from './shared/diff-citations';
 import { contextReferences } from './shared/composer-editor-menu';
 import { mobileModelSelectionUnavailable } from './model-availability';
+import { mobileOutboxPlanCommand, type MobileOutboxCommandPlan } from './mobile-outbox-command';
 import { mobileOutboxCreationSendable, mobileOutboxResolveSettings,
   type MobileOutboxRecord, type MobileOutboxSettings } from './mobile-outbox-model';
 
@@ -15,13 +16,14 @@ export interface MobileOutboxWireRequest {
   owner: MobileOutboxWireOwner; stage: 'settings-sync' | 'start-turn';
   method: 'orchestration.launchThread' | 'orchestration.dispatchCommand'; payload: Obj;
 }
-/** Preparation validates server attachment metadata and native CAS adopts its
- * upload reference. This final mapper checks ownership and order; legacy inline
- * images still need the source command's persistence stage before this boundary. */
-export interface MobileOutboxPreparedAttachment { localId: string; attachment: Obj }
+/** Preparation validates metadata and native CAS adopts modern references.
+ * Plan builders also admit source legacy inline images, which must pass the
+ * persistence stage before becoming a sendable command. */
+export interface MobileOutboxPreparedAttachment { localId: string; kind?: 'reference' | 'inline-image'; attachment: Obj }
 export interface MobileOutboxWireFacts {
   origin: string; environmentId: string; config: Obj;
-  /** Final persisted server references in the captured record's attachment order. */
+  /** Prepared entries in captured order. Request builders require adopted references;
+   * Plan builders can return a separate persistence stage for legacy inline images. */
   attachments: readonly MobileOutboxPreparedAttachment[];
 }
 export interface MobileOutboxThreadFacts extends MobileOutboxSettings {
@@ -64,11 +66,24 @@ export function mobileOutboxTitle(text: string, attachments: readonly { name: st
 /** Input bytes were already uploaded and adopted durably by the queue owner. */
 export function mobileOutboxMessageContent(record: MobileOutboxRecord, prepared: readonly MobileOutboxPreparedAttachment[],
   supportsInlineMessageContext: boolean, trimText = false): { text: string; context?: Obj; attachments: Obj[] } {
+  return messageContent(record, prepared, supportsInlineMessageContext, trimText, false);
+}
+function messageContent(record: MobileOutboxRecord, prepared: readonly MobileOutboxPreparedAttachment[],
+  supportsInlineMessageContext: boolean, trimText: boolean, allowInlineImages: boolean): { text: string; context?: Obj; attachments: Obj[] } {
   if (prepared.length !== record.attachments.length) throw new Error('Outbox attachment preparation is incomplete.');
-  const ids = new Map<string, string>();
+  const ids = new Map<string, string>(), seen = new Set<string>();
   for (let index = 0; index < prepared.length; index++) {
     const input = prepared[index]!, local = record.attachments[index]!, remote = input.attachment;
-    if (input.localId !== local.id || ids.has(input.localId) || !str(remote.id) ||
+    if (input.localId !== local.id || seen.has(input.localId)) throw new Error('Outbox attachment order does not match the captured bytes.');
+    seen.add(input.localId);
+    if (input.kind === 'inline-image') {
+      if (!allowInlineImages || local.kind !== 'image' || remote.type !== 'image' || 'id' in remote || 'source' in remote ||
+        remote.name !== local.name || remote.mimeType !== local.mimeType || remote.sizeBytes !== local.sizeBytes ||
+        !str(remote.dataUrl).startsWith(`data:${local.mimeType};base64,`))
+        throw new Error('Outbox inline image preparation does not match the captured bytes.');
+      continue;
+    }
+    if (!str(remote.id) ||
         !['image', 'file'].includes(str(remote.type)) || 'dataUrl' in remote ||
         local.uploadId !== remote.id || local.uploadEnvironmentId !== record.environmentId)
       throw new Error('Outbox attachment preparation does not match the captured bytes.');
@@ -82,8 +97,8 @@ export function mobileOutboxMessageContent(record: MobileOutboxRecord, prepared:
   return copy({ ...content, attachments: prepared.map(input => input.attachment) });
 }
 
-export function mobileOutboxLaunchRequest(record: MobileOutboxRecord, facts: MobileOutboxWireFacts,
-  worktreeBranchName = ''): MobileOutboxWireResult<MobileOutboxWireRequest> {
+function launchRequest(record: MobileOutboxRecord, facts: MobileOutboxWireFacts,
+  worktreeBranchName: string, allowInlineImages: boolean): MobileOutboxWireResult<MobileOutboxWireRequest> {
   try {
     assertOwner(record, facts);
     if (!mobileOutboxCreationSendable(record) || !record.creation || !record.modelSelection)
@@ -91,8 +106,9 @@ export function mobileOutboxLaunchRequest(record: MobileOutboxRecord, facts: Mob
     const creation = record.creation, resolved = settings(record, facts, { modelSelection: record.modelSelection,
       runtimeMode: 'full-access', interactionMode: 'default' });
     if (creation.workspaceMode === 'worktree' && !worktreeBranchName) return blocked('Prepare a temporary branch for this worktree.');
-    const content = mobileOutboxMessageContent(record, facts.attachments,
-      obj(obj(facts.config.environment).capabilities).inlineMessageContext === true, true);
+    const capabilities = obj(obj(facts.config.environment).capabilities);
+    const content = messageContent(record, facts.attachments, capabilities.inlineMessageContext === true, true,
+      allowInlineImages && capabilities.attachmentUploads !== true);
     const payload = launchPayload(record.commandId, record.threadId, record.messageId, creation.projectId, content.text,
       copy(resolved.modelSelection) as unknown as Obj, resolved.runtimeMode, resolved.interactionMode, content.attachments);
     payload.creationSource = 'mobile';
@@ -107,6 +123,10 @@ export function mobileOutboxLaunchRequest(record: MobileOutboxRecord, facts: Mob
     return { status: 'ready', value: request(record, payload, 'start-turn', 'orchestration.launchThread') };
   } catch (error) { return failed(error); }
 }
+export const mobileOutboxLaunchRequest = (record: MobileOutboxRecord, facts: MobileOutboxWireFacts, worktreeBranchName = '') =>
+  launchRequest(record, facts, worktreeBranchName, false);
+export const mobileOutboxLaunchPlan = (record: MobileOutboxRecord, facts: MobileOutboxWireFacts, worktreeBranchName = ''): MobileOutboxCommandPlan =>
+  mobileOutboxPlanCommand(launchRequest(record, facts, worktreeBranchName, true));
 
 /** Ordered source plan only: caller must revalidate and settle each command before the next. */
 export function mobileOutboxSettingsRequests(record: MobileOutboxRecord, facts: MobileOutboxWireFacts,
@@ -125,8 +145,8 @@ export function mobileOutboxSettingsRequests(record: MobileOutboxRecord, facts: 
   } catch (error) { return failed(error); }
 }
 
-export function mobileOutboxMessageRequest(record: MobileOutboxRecord, facts: MobileOutboxWireFacts,
-  thread: MobileOutboxThreadFacts, projection: Obj | null = null): MobileOutboxWireResult<MobileOutboxWireRequest> {
+function messageRequest(record: MobileOutboxRecord, facts: MobileOutboxWireFacts,
+  thread: MobileOutboxThreadFacts, projection: Obj | null, allowInlineImages: boolean): MobileOutboxWireResult<MobileOutboxWireRequest> {
   try {
     assertOwner(record, facts, thread);
     if (record.creation) return blocked('A pending task must use its launch command.');
@@ -134,7 +154,8 @@ export function mobileOutboxMessageRequest(record: MobileOutboxRecord, facts: Mo
     const serverResolves = capabilities.serverResolvedCommandContext === true, mode = record.dispatchMode ?? 'start';
     if (!serverResolves && mode !== 'start' && projection === null) return { status: 'needs-projection' };
     if (projection && obj(projection.thread).id !== record.threadId) return blocked('Outbox projection belongs to another thread.');
-    const content = mobileOutboxMessageContent(record, facts.attachments, capabilities.inlineMessageContext === true);
+    const content = messageContent(record, facts.attachments, capabilities.inlineMessageContext === true, false,
+      allowInlineImages && capabilities.attachmentUploads !== true);
     const payload = sendPayload(record.commandId, record.threadId, record.messageId, content.text, content.attachments);
     payload.creationSource = 'mobile'; delete payload.deliveryIntent;
     payload.modelSelection = copy(resolved.modelSelection) as unknown as Obj;
@@ -160,6 +181,11 @@ export function mobileOutboxMessageRequest(record: MobileOutboxRecord, facts: Mo
     return { status: 'ready', value: request(record, payload, 'start-turn') };
   } catch (error) { return failed(error); }
 }
+export const mobileOutboxMessageRequest = (record: MobileOutboxRecord, facts: MobileOutboxWireFacts,
+  thread: MobileOutboxThreadFacts, projection: Obj | null = null) => messageRequest(record, facts, thread, projection, false);
+export const mobileOutboxMessagePlan = (record: MobileOutboxRecord, facts: MobileOutboxWireFacts,
+  thread: MobileOutboxThreadFacts, projection: Obj | null = null): MobileOutboxCommandPlan =>
+  mobileOutboxPlanCommand(messageRequest(record, facts, thread, projection, true));
 
 // Pinned composerContextLegacySend.ts. These functions consume captured records,
 // never foreground editor caches. The existing parser validates each occurrence;
