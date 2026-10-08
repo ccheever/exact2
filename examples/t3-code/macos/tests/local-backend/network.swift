@@ -135,12 +135,12 @@ final class LocalNetworkTests: XCTestCase {
         let lan = ["en0": [T3NetworkAddress(address: "192.168.1.20", family: "IPv4", isInternal: false)]]
         let tailnet = ["utun4": [T3NetworkAddress(address: "100.90.1.2", family: "IPv4", isInternal: false)]]
         let loopback = ["lo0": [T3NetworkAddress(address: "127.0.0.1", family: "IPv4", isInternal: true)], "en5": [T3NetworkAddress(address: "169.254.3.4", family: "IPv4", isInternal: false)]]
-        let network: [String: Any] = ["serverExposureMode": "network-accessible", "tailscaleServeEnabled": true, "tailscaleServePort": 8443]
+        var network = T3DesktopSettings(); network.serverExposureMode = "network-accessible"; network.tailscaleServeEnabled = true; network.tailscaleServePort = 8443
         XCTAssertEqual(T3LocalExposure.atLaunch(settings: network, interfaces: lan, lanHostOverride: nil), T3LocalExposure(host: "0.0.0.0", tailscaleServeEnabled: true, tailscaleServePort: 8443))
         XCTAssertEqual(T3LocalExposure.atLaunch(settings: network, interfaces: tailnet, lanHostOverride: nil).host, "0.0.0.0", "Tailscale-only hosts stay network-accessible")
         XCTAssertEqual(T3LocalExposure.atLaunch(settings: network, interfaces: loopback, lanHostOverride: nil).host, "127.0.0.1", "no reachable address falls back to local-only")
         XCTAssertEqual(T3LocalExposure.atLaunch(settings: network, interfaces: loopback, lanHostOverride: "10.0.0.9").host, "0.0.0.0")
-        XCTAssertEqual(T3LocalExposure.atLaunch(settings: [:], interfaces: lan, lanHostOverride: nil), T3LocalExposure())
+        XCTAssertEqual(T3LocalExposure.atLaunch(settings: T3DesktopSettings(), interfaces: lan, lanHostOverride: nil), T3LocalExposure())
         for port: Any in [0, 70_000, 44.5, "8443", true] { XCTAssertEqual(T3LocalExposure.normalizedPort(port), 443) }
     }
 

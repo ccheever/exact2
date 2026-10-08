@@ -144,13 +144,22 @@ describe('Authorized clients', () => {
 
 // ── The commands, over a fake native module ───────────────────────────────
 type Answer = (request: Obj) => Obj | undefined;
-function fakeNative(answer: Answer): { native: Native; requests: Obj[] } {
+/** The fake native module; `settings` is desktop-settings.json as T3DesktopSettings.swift keeps it (decision U7). */
+function fakeNative(answer: Answer): { native: Native; requests: Obj[]; settings: Obj } {
   const requests: Obj[] = [];
-  return { requests, native: { available: true, watch: () => {}, later: async request => {
+  const settings: Obj = { localEnvironmentEnabled: true, serverExposureMode: 'local-only', tailscaleServeEnabled: false, tailscaleServePort: 443 };
+  return { requests, settings, native: { available: true, watch: () => {}, later: async request => {
     const value = request as Obj;
     requests.push(value);
     const custom = answer(value);
+    // A status the native side answers carries the settings it holds.
+    if (custom?.ok && (value.op === 'localBackendRestart' || value.op === 'localBackendSetEnabled')) return { ...custom, value: { ...obj(custom.value), desktopSettings: { ...settings } } };
     if (custom) return custom;
+    if (value.op === 'desktopSettingsSet') {
+      const { op: _op, ...patch } = value, before = JSON.stringify(settings);
+      Object.assign(settings, patch);
+      return { ok: true, generation: 1, value: { changed: JSON.stringify(settings) !== before, settings: { ...settings } } };
+    }
     if (value.op === 'connect') return { ok: true, generation: 2, value: { state: 'connected', origin: 'http://127.0.0.1:16101', environmentId: 'env-local', message: '' } };
     return { ok: true, generation: 1, value: {} };
   } } };
@@ -165,11 +174,12 @@ describe('Network access and Tailscale HTTPS commands (applyLocalSetting restart
   it('refuses network access without a reachable address: the row’s error, the toast, local-only kept, the dialog closed', async () => {
     primary.update(ready(), true);
     const client = new T3Client();
-    const { native, requests } = fakeNative(request => request.op === 'localNetworkFacts' ? facts({ lo0: [{ address: '127.0.0.1', family: 'IPv4', internal: true }] }) : undefined);
+    const { native, requests, settings } = fakeNative(request => request.op === 'localNetworkFacts' ? facts({ lo0: [{ address: '127.0.0.1', family: 'IPv4', internal: true }] }) : undefined);
     await runNetworkOp(client, native, 'network-access', '', 'on');
     expect(networkUi.exposureError).toBe('No reachable network address is available for desktop network access on port 16101.');
     expect(toasts(client).map(toast => [toast.kind, toast.title, toast.description])).toEqual([['error', 'Could not update network access', networkUi.exposureError]]);
-    expect((client.local as Obj).serverExposureMode).not.toBe('network-accessible');
+    expect(settings.serverExposureMode).toBe('local-only'); // refused before the write, as DesktopServerExposure.setMode
+    expect(requests.some(request => request.op === 'desktopSettingsSet')).toBe(false);
     expect(networkUi.networkSerial).toBe(1);
     expect(requests.some(request => request.op === 'localBackendRestart')).toBe(false);
   });
@@ -178,37 +188,43 @@ describe('Network access and Tailscale HTTPS commands (applyLocalSetting restart
     primary.update(ready(), true);
     const client = new T3Client();
     client.environmentId = 'env-local'; client.origin = 'http://127.0.0.1:16101';
-    const { native, requests } = fakeNative(request => request.op === 'localNetworkFacts' ? facts(LAN)
+    const { native, requests, settings } = fakeNative(request => request.op === 'localNetworkFacts' ? facts(LAN)
       : request.op === 'localBackendRestart' ? { ok: true, generation: 1, value: { ...ready(), host: request.host } } : undefined);
     const result = await runNetworkOp(client, native, 'network-access', '', 'on');
+    // desktop:set-server-exposure-mode: persisted to desktop-settings.json, then the (stopgap) restart.
+    expect(requests.filter(request => ['desktopSettingsSet', 'localBackendRestart'].includes(String(request.op))).map(request => request.op)).toEqual(['desktopSettingsSet', 'localBackendRestart']);
+    expect(requests.find(request => request.op === 'desktopSettingsSet')).toEqual({ op: 'desktopSettingsSet', serverExposureMode: 'network-accessible' });
     expect(requests.find(request => request.op === 'localBackendRestart')).toEqual({ op: 'localBackendRestart', host: '0.0.0.0', tailscaleServeEnabled: false, tailscaleServePort: 443 });
     expect(requests.find(request => request.op === 'connect')).toMatchObject({ op: 'connect', origin: 'http://127.0.0.1:16101/', primary: true });
     expect(obj(result.status).state).toBe('connected');
-    expect([(client.local as Obj).serverExposureMode, networkUi.exposureError, networkUi.networkSerial]).toEqual(['network-accessible', '', 1]);
+    expect([settings.serverExposureMode, client.localBackend.settings.serverExposureMode, networkUi.exposureError, networkUi.networkSerial]).toEqual(['network-accessible', 'network-accessible', '', 1]);
+    expect(client.local).not.toHaveProperty('serverExposureMode'); // t3-code.json no longer holds it
   });
 
   it('puts the mode back when the server cannot come back with it', async () => {
     primary.update(ready(), true);
     const client = new T3Client();
     let restarts = 0;
-    const { native, requests } = fakeNative(request => request.op === 'localNetworkFacts' ? facts(LAN)
+    const { native, requests, settings } = fakeNative(request => request.op === 'localNetworkFacts' ? facts(LAN)
       : request.op === 'localBackendRestart' ? (++restarts === 1 ? { ok: false, generation: 1, error: { kind: 'LocalEnvironment', message: 'The local server did not start in time.' } } : { ok: true, generation: 1, value: ready() })
         : undefined);
     await runNetworkOp(client, native, 'network-access', '', 'on');
     expect(requests.filter(request => request.op === 'localBackendRestart').map(request => request.host)).toEqual(['0.0.0.0', '127.0.0.1']);
-    expect([(client.local as Obj).serverExposureMode, networkUi.exposureError]).toEqual(['local-only', 'The local server did not start in time.']);
+    expect(requests.filter(request => request.op === 'desktopSettingsSet').map(request => request.serverExposureMode)).toEqual(['network-accessible', 'local-only']);
+    expect([settings.serverExposureMode, networkUi.exposureError]).toEqual(['local-only', 'The local server did not start in time.']);
     expect(toasts(client).at(-1)?.title).toBe('Could not update network access');
   });
 
   it('sets up Tailscale HTTPS on the chosen port and closes its dialog; a bad port keeps it open with the toast', async () => {
     primary.update(ready(), true);
     const client = new T3Client();
-    const { native, requests } = fakeNative(request => request.op === 'localNetworkFacts' ? facts(LAN) : request.op === 'localBackendRestart' ? { ok: true, generation: 1, value: ready() } : undefined);
+    const { native, requests, settings } = fakeNative(request => request.op === 'localNetworkFacts' ? facts(LAN) : request.op === 'localBackendRestart' ? { ok: true, generation: 1, value: ready() } : undefined);
     await runNetworkOp(client, native, 'tailscale-serve', '', 'on:70000');
     expect([networkUi.tailscaleSerial, toasts(client).at(-1)?.title, toasts(client).at(-1)?.description]).toEqual([0, 'Could not set up Tailscale HTTPS', 'Enter a port from 1 to 65535.']);
     await runNetworkOp(client, native, 'tailscale-serve', '', 'on:8443');
+    expect(requests.find(request => request.op === 'desktopSettingsSet')).toEqual({ op: 'desktopSettingsSet', tailscaleServeEnabled: true, tailscaleServePort: 8443 });
     expect(requests.find(request => request.op === 'localBackendRestart')).toEqual({ op: 'localBackendRestart', host: '127.0.0.1', tailscaleServeEnabled: true, tailscaleServePort: 8443 });
-    expect([(client.local as Obj).tailscaleServeEnabled, (client.local as Obj).tailscaleServePort, networkUi.tailscaleSerial]).toEqual([true, 8443, 1]);
+    expect([settings.tailscaleServeEnabled, settings.tailscaleServePort, networkUi.tailscaleSerial]).toEqual([true, 8443, 1]);
     await runNetworkOp(client, native, 'tailscale-serve', '', 'off');
     expect(requests.filter(request => request.op === 'localBackendRestart').at(-1)).toEqual({ op: 'localBackendRestart', host: '127.0.0.1', tailscaleServeEnabled: false, tailscaleServePort: 8443 });
     expect(networkUi.tailscaleSerial).toBe(2);
@@ -297,7 +313,7 @@ describe('the Connections page carries the section', () => {
   it('says Loading… while Tailscale’s first read is pending, then shows its endpoint', async () => {
     primary.update(ready(), true);
     const client = new T3Client();
-    (client.local as Obj).serverExposureMode = 'network-accessible';
+    client.localBackend.settings.serverExposureMode = 'network-accessible';
     let read = false;
     const { native } = fakeNative(request => request.op === 'localNetworkFacts' ? facts(LAN, { tailscale: { read, magicDnsName: read ? 'lane.tail.ts.net' : null, tailnetIpv4Addresses: [] } }) : undefined);
     expect((await networkPage(client, native, true, NOW, true)).fallback).toBe('Loading…');

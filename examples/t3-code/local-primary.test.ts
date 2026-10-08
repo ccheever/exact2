@@ -89,6 +89,9 @@ describe('the primary from the embedded server', () => {
 // ── The launch ─────────────────────────────────────────────────────────────
 class Fake implements Native {
   available = true; calls: Obj[] = [];
+  /** desktop-settings.json as the native side keeps it (T3DesktopSettings.swift); `settingsFailure` fails the next write. */
+  settings: Obj = { localEnvironmentEnabled: true, serverExposureMode: 'local-only', tailscaleServeEnabled: false, tailscaleServePort: 443 };
+  settingsFailure = '';
   constructor(public saved: Obj[] = [], public answers: Record<string, (request: Obj) => unknown> = {}) {}
   watch() {}
   async later(input: unknown): Promise<unknown> {
@@ -96,6 +99,12 @@ class Fake implements Native {
     const answer = this.answers[String(request.op)];
     if (answer) { const value = answer(request); return value instanceof Error ? { ok: false, generation: 1, error: { kind: 'LocalEnvironment', message: value.message, uncertain: false } } : { ok: true, generation: 1, value }; }
     if (request.op === 'environments') return { ok: true, generation: 0, value: { saved: this.saved } };
+    if (request.op === 'desktopSettingsSet') {
+      if (this.settingsFailure) { const message = this.settingsFailure; this.settingsFailure = ''; return { ok: false, generation: 0, error: { kind: 'DesktopSettings', message } }; }
+      const { op: _op, ...patch } = request, next = { ...this.settings, ...patch }, changed = JSON.stringify(next) !== JSON.stringify(this.settings);
+      this.settings = next;
+      return { ok: true, generation: 0, value: { changed, settings: next } };
+    }
     return { ok: true, generation: 0, value: {} };
   }
 }
@@ -171,11 +180,14 @@ describe('the Local environment switch (applyLocalSetting, the U4 stopgap)', () 
       localBackendSetEnabled: request => ({ state: 'stopped', enabled: request.enabled }),
     });
     const result = await applyLocalSetting(client, native, { localEnvironmentEnabled: false });
-    expect(native.calls.map(call => call.op)).toEqual(['disconnect', 'fleetStop', 'connect', 'fleetStop', 'localBackendSetEnabled']);
+    // DesktopAppSettings.setLocalEnvironmentEnabled persists to desktop-settings.json first (decision U7).
+    expect(native.calls.map(call => call.op)).toEqual(['desktopSettingsSet', 'disconnect', 'fleetStop', 'connect', 'fleetStop', 'localBackendSetEnabled']);
+    expect(native.calls[0]).toEqual({ op: 'desktopSettingsSet', localEnvironmentEnabled: false });
     expect(native.calls.find(call => call.op === 'connect')).toMatchObject({ origin: 'https://box.example.com', credential: '' });
     expect(native.calls.find(call => call.op === 'localBackendSetEnabled')).toEqual({ op: 'localBackendSetEnabled', enabled: false });
     expect(result.status).toMatchObject({ origin: 'https://box.example.com', state: 'connecting' });
-    expect((client.local as { localEnvironmentEnabled?: boolean }).localEnvironmentEnabled).toBe(false);
+    expect(native.settings.localEnvironmentEnabled).toBe(false);
+    expect(client.local).not.toHaveProperty('localEnvironmentEnabled'); // t3-code.json no longer holds it
     expect([primary.disabled, primary.target]).toEqual([true, null]);
     fleet.saved = [];
   });
@@ -183,13 +195,17 @@ describe('the Local environment switch (applyLocalSetting, the U4 stopgap)', () 
   test('turning on starts the server and, with nothing focused, connects to it', async () => {
     primaryOff();
     const client = switchClient(false);
-    (client.local as { localEnvironmentEnabled?: boolean }).localEnvironmentEnabled = false;
+    client.localBackend = parseLocalBackendStatus({ state: 'stopped', enabled: false, desktopSettings: { localEnvironmentEnabled: false } });
     const native = new Fake([], {
-      localBackendSetEnabled: () => ({ state: 'ready', enabled: true, httpBaseUrl: 'http://127.0.0.1:16437', wsBaseUrl: 'ws://127.0.0.1:16437', bearerReady: true, environmentId: 'env-local', label: 'Lane Mac' }),
+      localBackendSetEnabled: () => ({ state: 'ready', enabled: true, httpBaseUrl: 'http://127.0.0.1:16437', wsBaseUrl: 'ws://127.0.0.1:16437', bearerReady: true, environmentId: 'env-local', label: 'Lane Mac',
+        desktopSettings: { localEnvironmentEnabled: true } }),
       connect: request => ({ state: 'connected', origin: request.origin, environmentId: 'env-local', message: '' }),
     });
+    native.settings.localEnvironmentEnabled = false;
     const result = await applyLocalSetting(client, native, { localEnvironmentEnabled: true });
-    expect(native.calls.filter(call => call.op !== 'fleetStop')).toEqual([{ op: 'localBackendSetEnabled', enabled: true }, { op: 'connect', origin: 'http://127.0.0.1:16437/', primary: true }]);
+    expect(native.calls.filter(call => call.op !== 'fleetStop')).toEqual([{ op: 'desktopSettingsSet', localEnvironmentEnabled: true }, { op: 'localBackendSetEnabled', enabled: true },
+      { op: 'connect', origin: 'http://127.0.0.1:16437/', primary: true }]);
+    expect([native.settings.localEnvironmentEnabled, client.localBackend.settings.localEnvironmentEnabled]).toEqual([true, true]);
     expect(result.status).toMatchObject({ environmentId: 'env-local', state: 'connected' });
     expect(primary.target?.environmentId).toBe('env-local');
   });
@@ -197,13 +213,29 @@ describe('the Local environment switch (applyLocalSetting, the U4 stopgap)', () 
   test('a failure puts the setting back and answers its reason (shown under the dialog\'s description)', async () => {
     primaryOff();
     const client = switchClient(false);
-    (client.local as { localEnvironmentEnabled?: boolean }).localEnvironmentEnabled = false;
+    client.localBackend = parseLocalBackendStatus({ state: 'stopped', enabled: false, desktopSettings: { localEnvironmentEnabled: false } });
     const native = new Fake([], { localBackendSetEnabled: () => new Error('The local server stopped before it was ready (code=1).') });
+    native.settings.localEnvironmentEnabled = false;
     expect(await applyLocalSetting(client, native, { localEnvironmentEnabled: true })).toEqual({ status: null, generation: -1 });
-    expect((client.local as { localEnvironmentEnabled?: boolean }).localEnvironmentEnabled).toBe(false);
+    // Persisted on, then written back off when the server could not start.
+    expect(native.calls.filter(call => call.op === 'desktopSettingsSet').map(call => call.localEnvironmentEnabled)).toEqual([true, false]);
+    expect([native.settings.localEnvironmentEnabled, client.localBackend.settings.localEnvironmentEnabled]).toEqual([false, false]);
     expect(primary.disabled).toBe(true);
     // The dialog's inline error (the view's), not the command's; the next change clears it.
     expect(thisMachine(undefined, null)).toMatchObject({ enabled: false, error: 'The local server stopped before it was ready (code=1).' });
+  });
+
+  test('a desktop-settings.json write failure changes nothing and shows the reference\'s DesktopSettingsWriteError text', async () => {
+    primaryOff();
+    const client = switchClient(false);
+    client.localBackend = parseLocalBackendStatus({ state: 'stopped', enabled: false, desktopSettings: { localEnvironmentEnabled: false } });
+    const native = new Fake([]);
+    native.settings.localEnvironmentEnabled = false;
+    native.settingsFailure = 'Desktop settings write failed during replace-settings-file at /lane/t3-home/userdata/desktop-settings.json.';
+    expect(await applyLocalSetting(client, native, { localEnvironmentEnabled: true })).toEqual({ status: null, generation: -1 });
+    expect(native.calls.map(call => call.op)).toEqual(['desktopSettingsSet']); // the server is never touched
+    expect([native.settings.localEnvironmentEnabled, client.localBackend.settings.localEnvironmentEnabled, primary.disabled]).toEqual([false, false, true]);
+    expect(thisMachine(undefined, null)).toMatchObject({ enabled: false, error: 'Desktop settings write failed during replace-settings-file at /lane/t3-home/userdata/desktop-settings.json.' });
   });
 
   test('the section holds still while a change runs ("Restarting…"), then shows the new value', async () => {

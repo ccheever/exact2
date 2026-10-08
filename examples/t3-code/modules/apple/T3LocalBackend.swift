@@ -229,8 +229,10 @@ final class T3LocalBackend: @unchecked Sendable {
     private var policy: T3LocalPolicy?
     private let auth: T3LocalAuth
     private let session: URLSession
-    /// Network access and Tailscale Serve for the next start (20261005-this-machine-network-access): read
-    /// from t3-code.json at launch, replaced by `restart(exposure:)`.
+    /// The desktop settings document (decision U7: the original app's desktop-settings.json).
+    let settings = T3DesktopSettingsStore()
+    /// Network access and Tailscale Serve for the next start (20261005-this-machine-network-access): from
+    /// the desktop settings at launch, replaced by `restart(exposure:)`.
     private var exposure = T3LocalExposure()
     /// The Local environment switch's waits for a start (`setEnabled(true)`): each gets nil once ready, else the reason.
     private var readyWaiters: [(String?) -> Void] = []
@@ -289,7 +291,8 @@ final class T3LocalBackend: @unchecked Sendable {
         notify.forEach { $0(Self.topic) }
     }
 
-    /// A session's module arrived. The first one starts the backend.
+    /// A session's module arrived. The first one reads the desktop settings (before any TypeScript
+    /// answer can read the status) and starts the backend.
     func attach(_ owner: AnyObject, dataRoot: URL, changed: @escaping (String) -> Void) {
         T3LocalNetwork.shared.changed = { [weak self] in self?.announce() }
         lock.lock()
@@ -297,7 +300,54 @@ final class T3LocalBackend: @unchecked Sendable {
         let first = !begun
         begun = true
         lock.unlock()
-        if first { installQueue.async { self.begin(dataRoot: dataRoot) } }
+        if first {
+            loadSettings(dataRoot: dataRoot)
+            installQueue.async { self.begin(dataRoot: dataRoot) }
+        }
+    }
+
+    /// The desktop settings (T3DesktopSettings.swift, decision U7): `<T3 home>/userdata/desktop-settings.json`,
+    /// read once (`DesktopAppSettings.load`), then the one-time carry-over of the keys `t3-code.json` still has.
+    private func loadSettings(dataRoot: URL) {
+        let policy = T3LocalPolicy.resolve(env: environment(), packaged: T3LocalPolicy.packaged(resources: resources()),
+                                           home: NSHomeDirectory(), accountHome: String(cString: getpwuid(getuid()).pointee.pw_dir))
+        lock.lock(); self.dataRoot = dataRoot; self.policy = policy; lock.unlock()
+        var home: URL?
+        if case let .allowed(allowedHome, _, _, _) = policy { home = allowedHome }
+        let present = settings.load(path: home.map(T3DesktopSettings.path(home:)))
+        if let data = try? Data(contentsOf: dataRoot.appendingPathComponent("t3-code.json")),
+           let legacy = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           T3DesktopSettings.legacyKeys.contains(where: { legacy[$0] != nil }) {
+            do {
+                let result = try settings.persist { T3DesktopSettings.adoptingLegacy($0, legacy: legacy, present: present) }
+                if result.changed { log("carried the Local environment and Network access settings over from t3-code.json") }
+            } catch let error as T3DesktopSettingsWriteError { log(error.message) } catch { log("\(error)") }
+        }
+        let loaded = settings.settings
+        publish { $0["enabled"] = loaded.localEnvironmentEnabled; $0["desktopSettings"] = loaded.statusValue }
+    }
+
+    /// `desktopSettingsSet`: one setter of `DesktopAppSettings` (`setLocalEnvironmentEnabled`,
+    /// `setServerExposureMode`, `setTailscaleServe`), persisted before it answers; what changed and the
+    /// four keys after it. The server is not touched here (the switch and the restart are their own ops).
+    func setDesktopSettings(_ request: [String: Any]) throws -> [String: Any] {
+        let bool = { (value: Any?) in (value as? NSNumber).flatMap { CFGetTypeID($0) == CFBooleanGetTypeID() ? $0.boolValue : nil } }
+        let update: (T3DesktopSettings) -> T3DesktopSettings
+        if let enabled = bool(request["localEnvironmentEnabled"]) {
+            update = { var next = $0; next.localEnvironmentEnabled = enabled; return next }
+        } else if let mode = request["serverExposureMode"] as? String, ["local-only", "network-accessible"].contains(mode) {
+            update = { var next = $0; next.serverExposureMode = mode; return next }
+        } else if let enabled = bool(request["tailscaleServeEnabled"]) {
+            let port = request["tailscaleServePort"]
+            update = { var next = $0; next.tailscaleServeEnabled = enabled
+                if let port, !(port is NSNull) { next.tailscaleServePort = T3DesktopSettings.normalizePort(port) }
+                return next }
+        } else {
+            throw T3Failure(kind: "Arguments", message: "desktopSettingsSet requires localEnvironmentEnabled, serverExposureMode or tailscaleServeEnabled.")
+        }
+        let result = try settings.persist(update)
+        publish { $0["desktopSettings"] = result.settings.statusValue }
+        return ["changed": result.changed, "settings": result.settings.statusValue]
     }
 
     /// `t3.local` without a status change (a background network read landed; T3LocalNetwork.swift).
@@ -335,19 +385,8 @@ final class T3LocalBackend: @unchecked Sendable {
         _ = done.wait(timeout: .now() + 5.5)
     }
 
-    /// `localEnvironmentEnabled` in the app's own preference file (`t3-code.json`, decision U7: not the
-    /// original app's desktop-settings.json); a missing file or key means on, as `DesktopAppSettings`.
-    static func localEnvironmentEnabled(dataRoot: URL) -> Bool {
-        guard let data = try? Data(contentsOf: dataRoot.appendingPathComponent("t3-code.json")),
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return true }
-        return object["localEnvironmentEnabled"] as? Bool != false
-    }
-
     private func begin(dataRoot: URL) {
-        let env = environment()
-        let policy = T3LocalPolicy.resolve(env: env, packaged: T3LocalPolicy.packaged(resources: resources()),
-                                           home: NSHomeDirectory(), accountHome: String(cString: getpwuid(getuid()).pointee.pw_dir))
-        lock.lock(); self.dataRoot = dataRoot; self.policy = policy; lock.unlock()
+        lock.lock(); let policy = self.policy; lock.unlock()
         guard case .allowed = policy else {
             if case let .refused(reason) = policy { publish { $0["state"] = "refused"; $0["refused"] = reason } }
             return
@@ -357,7 +396,7 @@ final class T3LocalBackend: @unchecked Sendable {
         self.pidFile = pidFile
         if let reaped = T3LocalPidFile.reap(pidFile) { log("stopped the server pid \(reaped) a previous run left behind") }
         // The Local environment switch off: no server and nothing unpacked until it is turned on again.
-        guard Self.localEnvironmentEnabled(dataRoot: dataRoot) else { return publish { $0["enabled"] = false; $0["state"] = "stopped" } }
+        guard settings.settings.localEnvironmentEnabled else { return publish { $0["enabled"] = false; $0["state"] = "stopped" } }
         // `handleFatalStartupError`: a start that cannot pick a port is fatal (stage "bootstrap").
         if let failure = prepare(), failure.fatal { return fatal("bootstrap", failure.message) }
         lock.lock(); let manager = self.manager; let stillWanted = !listeners.isEmpty; lock.unlock()
@@ -407,7 +446,7 @@ final class T3LocalBackend: @unchecked Sendable {
             }
         }
         // configureFromSettings: the exposure the server starts with (loopback unless network access can bind).
-        let launchExposure = T3LocalExposure.atLaunch(settings: T3LocalExposure.settings(dataRoot: dataRoot ?? home),
+        let launchExposure = T3LocalExposure.atLaunch(settings: settings.settings,
                                                       interfaces: (try? T3LocalNetwork.shared.interfaces()) ?? [:], lanHostOverride: T3LocalNetwork.shared.lanHostOverride)
         lock.lock(); exposure = launchExposure; lock.unlock()
         let serverEnv = serverEnvironment(env)

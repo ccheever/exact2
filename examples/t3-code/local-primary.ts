@@ -84,7 +84,7 @@ export function primaryPhase(status: LocalBackendStatus, socket: { phase: Primar
 /** The app's one primary: what the backend reports and the switch this client keeps. */
 export class LocalPrimary {
   status: LocalBackendStatus = unknownLocalBackend();
-  /** The Local environment switch as this client saved it (t3-code.json `localEnvironmentEnabled`). */
+  /** The Local environment switch as saved (desktop-settings.json `localEnvironmentEnabled`, decision U7). */
   setting = true;
   target: PrimaryTarget | null = null;
   /** A bootstrap the primary cannot be built from (one base URL only). */
@@ -125,21 +125,21 @@ export const sessionScopes = (environmentId: string, scopes: string[], source: L
 export const canManageLocalBackend = (source: LocalPrimary = primary) =>
   !source.disabled && source.status.state !== 'refused' && (AUTH_ADMINISTRATIVE_SCOPES as readonly string[]).includes('access:write');
 
-// ── The switch in the client's preferences (t3-code.json, decision U7: the clone's own file) ──
-type Holder = { local: object };
-/** The saved switch (default on, as DesktopAppSettings). */
-export function localEnvironmentEnabled(owner: Holder): boolean { return (owner.local as { localEnvironmentEnabled?: boolean }).localEnvironmentEnabled !== false; }
-export function setLocalEnvironmentEnabled(owner: Holder, enabled: boolean): void { (owner.local as { localEnvironmentEnabled?: boolean }).localEnvironmentEnabled = enabled; }
+// ── The switch in desktop-settings.json (decision U7, 2026-10-08: the original app's file) ──
+type Holder = { localBackend: LocalBackendStatus };
+/** The saved switch (default on, as DesktopAppSettings), as the native side read or last wrote it. */
+export function localEnvironmentEnabled(owner: Holder): boolean { return owner.localBackend.settings.localEnvironmentEnabled; }
 /** client.ts refresh: read the embedded server's status into the client and the primary; true when it changed (it redraws "This machine"). */
-export async function refreshLocal(client: Holder & { localBackend: LocalBackendStatus }, native: Native, source: LocalPrimary = primary): Promise<boolean> {
+export async function refreshLocal(client: Holder, native: Native, source: LocalPrimary = primary): Promise<boolean> {
   const status = await readLocalBackend(native);
   const changed = JSON.stringify(status) !== JSON.stringify(client.localBackend);
   if (changed) client.localBackend = status;
   source.update(client.localBackend, localEnvironmentEnabled(client));
   return changed;
 }
-/** load(): carry the saved switch (top level, as the reference's desktop-settings.json key). */
-export function adoptLocalPrefs(next: object, saved: Obj): void { (next as { localEnvironmentEnabled?: boolean }).localEnvironmentEnabled = saved.localEnvironmentEnabled !== false; }
+/** The keys the clone kept in t3-code.json before decision U7; the native side carried them over once, so a load drops them. */
+export const LEGACY_DESKTOP_KEYS = ['localEnvironmentEnabled', 'serverExposureMode', 'tailscaleServeEnabled', 'tailscaleServePort'] as const;
+export const hasLegacyDesktopKeys = (saved: Obj) => LEGACY_DESKTOP_KEYS.some(key => saved[key] !== undefined);
 
 /** folderDropTarget: a dropped Finder folder reaches only the primary, and only while it is on. */
 export function folderDropTarget(input: { localEnvironmentDisabled: boolean; environmentId: string; primaryEnvironmentId: string | null }): 'local' | 'remote' {

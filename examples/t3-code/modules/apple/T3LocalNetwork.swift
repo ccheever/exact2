@@ -8,7 +8,7 @@
 // TypeScript asks for the facts (`localNetworkFacts`) and computes the exposure state and endpoints
 // (server-exposure.ts). This answers at once from the caches and refreshes in the background; when a
 // background read lands it announces `t3.local`, so a read never waits on the CLI or the network.
-// At launch the bind host comes from t3-code.json and the interfaces here (`T3LocalExposure`), the
+// At launch the bind host comes from desktop-settings.json and the interfaces here (`T3LocalExposure`), the
 // same rule as resolveRuntimeState: a network request with no LAN and no Tailscale IPv4 binds loopback.
 import Foundation
 import Darwin
@@ -97,24 +97,19 @@ struct T3LocalExposure: Equatable {
         return double.rounded() == double && double >= 1 && double <= 65_535 ? Int(double) : 443
     }
 
-    /// At launch (configureFromSettings): t3-code.json's `serverExposureMode`, `tailscaleServeEnabled` and
-    /// `tailscaleServePort`; a network request binds 0.0.0.0 only when a LAN or Tailscale IPv4 (or an
-    /// explicit T3CODE_DESKTOP_LAN_HOST) exists, else it falls back to loopback, keeping the preference.
-    static func atLaunch(settings: [String: Any], interfaces: [String: [T3NetworkAddress]], lanHostOverride: String?) -> T3LocalExposure {
+    /// At launch (configureFromSettings): the desktop settings' `serverExposureMode`, `tailscaleServeEnabled`
+    /// and `tailscaleServePort` (T3DesktopSettings.swift); a network request binds 0.0.0.0 only when a LAN or
+    /// Tailscale IPv4 (or an explicit T3CODE_DESKTOP_LAN_HOST) exists, else it falls back to loopback, keeping
+    /// the preference.
+    static func atLaunch(settings: T3DesktopSettings, interfaces: [String: [T3NetworkAddress]], lanHostOverride: String?) -> T3LocalExposure {
         var exposure = T3LocalExposure()
-        exposure.tailscaleServeEnabled = settings["tailscaleServeEnabled"] as? Bool == true
-        exposure.tailscaleServePort = normalizedPort(settings["tailscaleServePort"])
-        if settings["serverExposureMode"] as? String == "network-accessible",
+        exposure.tailscaleServeEnabled = settings.tailscaleServeEnabled
+        exposure.tailscaleServePort = settings.tailscaleServePort
+        if settings.serverExposureMode == "network-accessible",
            lanHostOverride != nil || T3NetworkInterfaces.hasLanIpv4(interfaces) || T3NetworkInterfaces.hasTailscaleIpv4(interfaces) {
             exposure.host = "0.0.0.0"
         }
         return exposure
-    }
-
-    static func settings(dataRoot: URL) -> [String: Any] {
-        guard let data = try? Data(contentsOf: dataRoot.appendingPathComponent("t3-code.json")),
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return [:] }
-        return object
     }
 }
 

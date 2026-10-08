@@ -16,8 +16,8 @@
 import { obj, str, type Obj } from './domain';
 import { bridgeReply, type Native } from './protocol';
 import type { AdvertisedEndpoint } from './advertised-endpoint';
-import { DesktopServerExposure, decodeExposureSettings, defaultEndpointKey, exposureSettings, setDefaultEndpointKey, withServerExposureMode, withTailscaleServe, writeExposureSettings,
-  type DesktopServerExposureMode, type DesktopServerExposureState } from './server-exposure';
+import { DesktopServerExposure, defaultEndpointKey, setDefaultEndpointKey, type DesktopServerExposureMode, type DesktopServerExposureState, type ExposureSettings } from './server-exposure';
+import { writeDesktopSettings, type DesktopSettingsFacts, type LocalBackendStatus } from './local-backend';
 import type { NetworkInterfaces, NetworkInterfaceInfo } from './tailscale';
 import { endpointDefaultPreferenceKey, endpointShareHint, isHostedAppPairingUrl, isQrShareableEndpoint, isTailscaleHttpsEndpoint, resolveAdvertisedEndpointPairingUrl,
   resolveDesktopPairingUrl, resolveHostedPairingUrl, selectPairingEndpoint, selectQrEndpointOption } from './pairing-urls';
@@ -209,7 +209,7 @@ function revealView(reveal: typeof networkUi.reveal, endpoints: readonly Adverti
 }
 
 // ── The live state behind it ────────────────────────────────────────────
-type Local = { local: object };
+type Local = { local: object; localBackend: LocalBackendStatus };
 const ctx = { native: null as Native | null, owner: null as Local | null, pending: false, refresh: false, env: { lanHost: '', httpsEndpoints: [] as string[] }, facts: null as Obj | null };
 async function facts(tailscale: boolean, probe = ''): Promise<Obj> {
   if (!ctx.native) throw new Error('Open this app on macOS to read network access.');
@@ -230,20 +230,19 @@ export function decodeInterfaces(value: unknown): NetworkInterfaces {
   return result;
 }
 
+/** The exposure part of desktop-settings.json (decision U7): read from the status, written by the native side. */
+const exposureOf = (settings: DesktopSettingsFacts): ExposureSettings => ({ serverExposureMode: settings.serverExposureMode, tailscaleServeEnabled: settings.tailscaleServeEnabled, tailscaleServePort: settings.tailscaleServePort });
 const makeExposure = () => new DesktopServerExposure({
   settings: {
-    get: () => (ctx.owner ? exposureSettings(ctx.owner) : decodeExposureSettings({})),
+    get: () => exposureOf(ctx.owner?.localBackend.settings ?? primary.status.settings),
     setServerExposureMode: async (mode: DesktopServerExposureMode) => {
-      if (!ctx.owner) throw new Error('No preference file.');
-      const before = exposureSettings(ctx.owner), next = withServerExposureMode(before, mode);
-      writeExposureSettings(ctx.owner, next); // T3Client saves the preference file after the command
-      return { changed: next !== before };
+      if (!ctx.native) throw new Error('Open this app on macOS to change network access.');
+      return { changed: (await writeDesktopSettings(ctx.native, { serverExposureMode: mode }, ctx.owner ?? undefined)).changed };
     },
     setTailscaleServe: async (input: { enabled: boolean; port?: number }) => {
-      if (!ctx.owner) throw new Error('No preference file.');
-      const before = exposureSettings(ctx.owner), next = withTailscaleServe(before, input);
-      writeExposureSettings(ctx.owner, next);
-      return { settings: next, changed: next !== before };
+      if (!ctx.native) throw new Error('Open this app on macOS to change Tailscale HTTPS.');
+      const result = await writeDesktopSettings(ctx.native, { tailscaleServeEnabled: input.enabled, ...(input.port === undefined ? {} : { tailscaleServePort: input.port }) }, ctx.owner ?? undefined);
+      return { settings: exposureOf(result.settings), changed: result.changed };
     },
   },
   readNetworkInterfaces: async () => decodeInterfaces((await facts(false)).interfaces),
