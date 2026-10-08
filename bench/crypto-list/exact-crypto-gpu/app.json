@@ -1,0 +1,18 @@
+{
+  "$schema": "../../../scripts/app.schema.json",
+  "name": "Crypto GPU",
+  "short_name": "Crypto GPU",
+  "id": "dev.exact.cryptobench.gpu",
+  "start_url": "/",
+  "display": "standalone",
+  "theme_color": "#ffffff",
+  "background_color": "#ffffff",
+  "app": { "id": "dev.exact.cryptobench.gpu", "name": "Crypto GPU" },
+  "rust": { "mode": "off" },
+  "host": {
+    "ios": { "minimumOS": "17.0", "deviceFamily": ["iphone", "ipad"] },
+    "macos": { "minimumOS": "14.0" },
+    "web": {}
+  },
+  "deploy": { "store": { "web": "0", "macos": "0", "ios": "0", "linux": "0" } }
+}

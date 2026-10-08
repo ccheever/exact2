@@ -7,6 +7,7 @@
 #   BENCH_DEVICE=<udid>  required     SERIES=cold     APPS="swiftui exact expo uikit"     ROUNDS=3
 #   BENCH_COLD=<dir>     the cold copies (default <checkout>/target/bench/heavy-list/cold)
 #   BENCH_LOCK=<command> optional: `<command> take cold` / `<command> give cold` around each hold
+#   BENCH_ID_PREFIX      the bundle ids' prefix (default dev.exact.heavybench.; bench/crypto-list sets its own)
 set -u
 H=$(cd "$(dirname "$0")" && pwd); ROOT=$(cd "$H/../.." && pwd); D=$H/probe/devrun-cold.sh
 export BENCH_DEVICE=${BENCH_DEVICE:?set BENCH_DEVICE to the device UDID} LOCK_HOLDER_PID=$$ BENCH_RENDER=layer
@@ -22,7 +23,7 @@ L give
 for r in $(seq 1 ${ROUNDS:-3}); do
   L take
   for app in ${APPS:-swiftui exact expo uikit}; do
-    for t in 1 2 3; do o=$($D dev.exact.heavybench.${app}cold coldstart 1 $R/$app-coldstart-$r.json); echo "$o"; [ "$o" = "launch failed" ] || break; sleep 3; done
+    for t in 1 2 3; do o=$($D ${BENCH_ID_PREFIX:-dev.exact.heavybench.}${app}cold coldstart 1 $R/$app-coldstart-$r.json); echo "$o"; [ "$o" = "launch failed" ] || break; sleep 3; done
   done
   L give
 done

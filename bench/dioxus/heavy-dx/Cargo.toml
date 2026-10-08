@@ -1,0 +1,33 @@
+# The heavy list benchmark (bench/heavy-list/SPEC.md) on Dioxus: one
+# codebase, Dioxus Web (`--features web`) and Dioxus Native / Blitz
+# (`--features native`).
+[package]
+name = "heavy-dx"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+dioxus = { version = "=0.8.0-alpha.1" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+futures-timer = "3"
+futures-util = "0.3"
+dioxus-native = { version = "=0.8.0-alpha.1", optional = true }
+web-sys = { version = "0.3", features = ["Window", "Location", "Performance"], optional = true }
+
+[features]
+default = []
+web = ["dioxus/web", "dep:web-sys", "futures-timer/wasm-bindgen"]
+native = ["dioxus/native"]
+# Dioxus Native's full Vello renderer; it wins over the default (vello-hybrid)
+# when both are enabled.
+vello = ["native", "dioxus-native/vello"]
+
+# exact2's app release profile (thin LTO, one codegen unit, stripped, abort).
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = true
+panic = "abort"

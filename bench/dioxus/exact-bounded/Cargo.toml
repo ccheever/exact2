@@ -1,8 +1,7 @@
-# The heavy list benchmark (../SPEC.md) on exact2, consumed by path from the
-# checkout this directory is in. `data/` answers the feed, reactions and live
-# mode; `apple/` is the static library the Apple host links; `web/` is the web
-# build's crate (bench/dioxus measures it on Chrome). Its own [workspace], so
-# the repository's root workspace does not adopt it.
+# The heavy list (bench/heavy-list/SPEC.md) on exact2 with a bounded answer (LLP 1027.004), consumed by path
+# from the checkout this directory is in. `data/` answers a window of the feed, reactions and live mode;
+# `apple/` is the static library the Apple host links; `web/` is the web build's crate. Its own [workspace],
+# so the root workspace never adopts it. Cargo.lock is not committed: ../prepare.sh copies the checkout's.
 [workspace]
 members = ["data", "apple", "web"]
 resolver = "2"
@@ -12,8 +11,8 @@ edition = "2021"
 version = "0.1.0"
 license = "MIT"
 
-# exact2's vendored patches: the kernel must build against the same crates
-# (scripts/app.mjs refuses an outside workspace whose patches differ).
+# exact2's vendored patches, the root Cargo.toml's [patch.crates-io] (scripts/app.mjs refuses a
+# workspace whose patches differ from the checkout's).
 [patch.crates-io]
 taffy = { path = "../../../vendor/taffy" }
 parley = { path = "../../../vendor/parley" }
