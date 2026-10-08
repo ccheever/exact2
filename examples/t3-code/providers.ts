@@ -5,6 +5,8 @@ import { setupOf } from './provider-setup'; // provider-sign-in-and-install: the
 import { providerAccount, providerWizardAuth } from './provider-auth';
 import { providerRuntime, configuredBinaryPath } from './provider-install';
 import { redactedValue } from './redacted-text';
+import { codexSetupView, codexRuntimeFields, codexPicker, codexFlow, readCodexSetupMode } from './codex-setup'; // managed-codex-chatgpt: CodexSetupSection
+import { usesChatGptSharing } from './chatgpt-plan';
 import { obj, str, arr, num, type Obj } from './domain';
 import { ClientError, type Native } from './protocol';
 import { pushToast } from './toast';
@@ -22,6 +24,8 @@ import { instanceIconUrl, resolveOfficialAcpRegistryIconUrl, resolveProviderInst
 export interface ProviderHost {
   config: Obj; ready: boolean; writable: boolean; local: { favoriteModels: string[] };
   rpc(native: Native, method: string, payload: Obj, write?: boolean): Promise<Obj>;
+  /** The native id source the client's command ids come from (client.ts `ids`): new ChatGPT accounts are `codex_<uuid>`. */
+  ids?(native: Native, count: number): Promise<string[]>;
 }
 type Row = { id: string; instance: Obj; driver: string; isDefault: boolean; isDirty: boolean };
 export type AcpAgent = { id: string; name: string; description: string; link: string; icon: string; iconUrl: string; version: string; distribution: string; added: boolean };
@@ -101,11 +105,12 @@ const environmentLabelOf = (host: ProviderHost) => str(obj(host.config.environme
  * Antigravity gets ProviderSetupSection (Environment, then Runtime and Account); a provider
  * that can sign in in-app (or an installed ACP agent) gets the Account row; Cursor with an
  * API key keeps its note. A read-only session gets the Antigravity rows' "Setup unavailable"
- * and nothing else. Managed Codex is CodexSetupSection (20261005-managed-codex-chatgpt);
- * until it lands the generic Account row stands in for it.
+ * and nothing else. A managed Codex instance gets CodexSetupSection (codex-setup.ts; read-only
+ * sessions see it disabled, as the reference mounts it before the readOnly check).
  */
-function setupKind(host: ProviderHost, row: Row, provider: Obj | undefined): '' | 'antigravity' | 'account' | 'cursor' {
+function setupKind(host: ProviderHost, row: Row, provider: Obj | undefined): '' | 'antigravity' | 'codex' | 'account' | 'cursor' {
   if (row.driver === 'antigravity') return 'antigravity';
+  if (row.driver === 'codex' && readCodexSetupMode(row.instance.config) === 'managed') return 'codex';
   const setup = obj(provider?.setup);
   if (host.writable && provider && (setup.canAuthenticate === true || (provider.driver === 'acpRegistry' && provider.installed === true))) return 'account';
   if (host.writable && row.driver === 'cursor' && provider && setup.canAuthenticate === false) return 'cursor';
@@ -119,16 +124,22 @@ function setupView(host: ProviderHost, row: Row, provider: Obj | undefined) {
     kind, environmentLabel, mode, showEnable: kind === 'antigravity' && !instanceEnabled(row.instance) && host.writable,
     runtime: mode === 'actions' ? [providerRuntime(live, entry, environmentLabel, configuredBinaryPath(row.instance.config), instanceEnabled(row.instance))] : [],
     account: kind === 'account' || mode === 'actions' ? [providerAccount(row.id, live, entry, environmentLabel)] : [],
+    codex: kind === 'codex' ? [codexSetupView(host, row.id, provider, { presentation: 'settings', mode: 'managed', enabled: instanceEnabled(row.instance), readOnly: !host.writable, allowExistingCli: true })] : [],
     cursorNote: kind === 'cursor' ? "Using CURSOR_API_KEY. Remove it from this provider's environment to use browser sign-in." : '',
   };
 }
 /** The wizard's Sign in step's stream: the ACP instance this opening created. */
-export const wizardSetupStreams = (_host: ProviderHost, open: boolean, serial: number) => ({ auth: open && acpCreated?.serial === serial ? [acpCreated.instanceId] : [], install: [] as string[] });
+export function wizardSetupStreams(_host: ProviderHost, open: boolean, serial: number, dialog = '', target = '') {
+  // The Add ChatGPT account dialog's setup and the Reconnect ChatGPT picker read their instance's streams too.
+  const codex = [...(dialog === 'chatgpt' ? chatgptDialogStreams(open, serial) : []), ...(open && dialog === 'codex-picker' && target ? [target] : [])];
+  return { auth: [...(open && acpCreated?.serial === serial ? [acpCreated.instanceId] : []), ...codex], install: codex };
+}
 /** The streams the selected editor's setup rows show (ProviderSetupActions: auth and install; the Account row: auth). */
 export function providerSetupStreams(host: ProviderHost, selectedId: string): { auth: string[]; install: string[] } {
   const editor = providerPage(host, selectedId, 0).editors[0];
   if (!editor) return { auth: [], install: [] };
-  return { auth: editor.setup.account.length ? [editor.id] : [], install: editor.setup.runtime.length ? [editor.id] : [] };
+  const codex = editor.setup.codex.length > 0;
+  return { auth: editor.setup.account.length || codex ? [editor.id] : [], install: editor.setup.runtime.length || codex ? [editor.id] : [] };
 }
 
 function editorFor(host: ProviderHost, row: Row, live: Obj[]) {
@@ -163,7 +174,9 @@ function editorFor(host: ProviderHost, row: Row, live: Obj[]) {
       const redacted = variable?.valueRedacted === true;
       return fieldRow(row.id, field, redacted ? '' : str(variable?.value), { placeholder: redacted ? 'Stored secret - enter a new value to replace' : field.placeholder, redacted, clearable: variable !== undefined });
     }),
-    fields: (meta?.fields || []).map((field, index) => fieldRow(row.id, field, str(config[field.key]), {}, index === 0)),
+    // A managed Codex instance folds its read-only runtime paths instead (CodexManagedRuntimeFields).
+    fields: row.driver === 'codex' && readCodexSetupMode(config) === 'managed' ? [] : (meta?.fields || []).map((field, index) => fieldRow(row.id, field, str(config[field.key]), {}, index === 0)),
+    codexRuntime: row.driver === 'codex' && readCodexSetupMode(config) === 'managed' ? [codexRuntimeFields(host, row.id, provider)] : [],
     variables: variables.map((variable, index) => ({ rowKey: `${row.id}:env:${index}:${str(variable.name)}:${variable.valueRedacted === true ? '' : str(variable.value)}:${variable.sensitive === true}:${variable.valueRedacted === true}`,
       index, name: str(variable.name), value: variable.valueRedacted === true ? '' : str(variable.value), sensitive: variable.sensitive === true,
       redacted: variable.valueRedacted === true, label: str(variable.name) || String(index + 1) })),
@@ -234,6 +247,8 @@ function existingIds(settings: Obj): Set<string> {
 let acpPrepared: { serial: number; agent: AcpAgent } | null = null;
 // The ACP instance this wizard opening created: its Sign in step (ProviderWizardAuthenticationStep).
 let acpCreated: { serial: number; instanceId: string } | null = null;
+// The ChatGPT account this Add ChatGPT account dialog created: its managed setup (AddCodexAccountDialog).
+let chatgptCreated: { serial: number; instanceId: string; displayName: string } | null = null;
 let acpLastAgents: AcpAgent[] = [];
 let wizardSerial = -1;
 function wizardIdentity(settings: Obj, driverId: string, labelSet: boolean, label: string, idSet: boolean, id: string) {
@@ -246,8 +261,8 @@ function wizardIdentity(settings: Obj, driverId: string, labelSet: boolean, labe
 }
 
 /** The Add provider wizard's derived identity and the selected driver's config fields. */
-export function providerWizard(host: ProviderHost, open: boolean, serial: number, driverId: string, labelSet: boolean, label: string, idSet: boolean, id: string) {
-  if (serial !== wizardSerial) { wizardSerial = serial; acpPrepared = null; acpCreated = null; }
+export function providerWizard(host: ProviderHost, open: boolean, serial: number, driverId: string, labelSet: boolean, label: string, idSet: boolean, id: string, dialog = '', target = '') {
+  if (serial !== wizardSerial) { wizardSerial = serial; acpPrepared = null; acpCreated = null; chatgptCreated = null; }
   const identity = wizardIdentity(settingsOf(host), driverId, labelSet, label, idSet, id);
   const prepared = identity.meta.id === 'acpRegistry' && acpPrepared?.serial === serial ? acpPrepared.agent : null;
   const created = open && acpCreated?.serial === serial ? acpCreated.instanceId : '';
@@ -259,8 +274,23 @@ export function providerWizard(host: ProviderHost, open: boolean, serial: number
     preview: identity.shownLabel.trim() || `${identity.meta.label} Workspace`, idPlaceholder: `${identity.meta.id}_work`,
     fields: identity.meta.fields.map((field, index) => ({ ...fieldRow('wizard', field, ''), index })),
     environment: str(obj(host.config.environment).label) || 'this environment',
+    chatgpt: chatgptDialog(host, open && dialog === 'chatgpt', serial), chatgptConnected: open && dialog === 'chatgpt' && chatgptConnected(host, serial),
+    codexPicker: open && dialog === 'codex-picker' && target ? [codexTargetResolver?.(host, target) ?? codexPicker(host, target)].filter(picker => picker !== null) : [],
   };
 }
+
+/** AddCodexAccountDialog after Continue: the created account's managed setup, or "Preparing managed setup.". */
+function chatgptDialog(host: ProviderHost, open: boolean, serial: number) {
+  if (!open || chatgptCreated?.serial !== serial) return [];
+  const { instanceId, displayName } = chatgptCreated, provider = liveProviders(host).find(candidate => candidate.instanceId === instanceId);
+  const setup = provider?.setup ? [codexSetupView(host, instanceId, provider, { presentation: 'settings', mode: 'managed', enabled: true, readOnly: !host.writable, allowExistingCli: false })] : [];
+  return [{ key: instanceId, instanceId, title: displayName, setup }];
+}
+/** The dialog closes once the destination's snapshot shares a ChatGPT plan (usesChatGptSharing). */
+const chatgptConnected = (host: ProviderHost, serial: number) => chatgptCreated?.serial === serial
+  && usesChatGptSharing(liveProviders(host).find(candidate => candidate.instanceId === chatgptCreated!.instanceId));
+/** The streams the open Add ChatGPT account dialog shows. */
+export const chatgptDialogStreams = (open: boolean, serial: number) => open && chatgptCreated?.serial === serial ? [chatgptCreated.instanceId] : [];
 
 /** ACP Registry search (read scope); an empty query is the compact compatible catalog. */
 export async function acpRegistry(host: ProviderHost, native: Native | null | undefined, query: string, open: boolean, configured: string[]) {
@@ -332,15 +362,22 @@ async function providerOp(host: ProviderHost, native: Native, op: string, id: st
     return '';
   }
   if (op === 'provider-chatgpt') {
-    // AddCodexAccountDialog: one managed Codex instance per ChatGPT account.
-    // Its runtime install and browser sign-in are the server's managed setup.
+    // AddCodexAccountDialog.createAccount: one managed Codex instance per ChatGPT account. "The ID is
+    // routing identity; the name is editable and need not be unique": codex_<uuid>. The reference sends
+    // the whole providerInstances map; this sends the atomic create (the settings writes' rule).
     const name = str(input.key).trim();
     if (!name) throw new ClientError('Enter an account name.');
-    const settings = await freshSettings(host, native);
-    const instanceId = deriveAvailableInstanceId(() => `codex_chatgpt_${slugifyLabel(name) || 'account'}`, name, existingIds(settings));
+    const [uuid] = host.ids ? await host.ids(native, 1) : [];
+    if (!uuid) throw new ClientError('Could not allocate request identifiers.');
+    const instanceId = `codex_${uuid}`, displayName = `ChatGPT - ${name}`;
     await host.rpc(native, 'server.updateSettings', { patch: {}, providerInstanceMutation: { operation: 'create', instanceId,
-      instance: { driver: 'codex', displayName: `ChatGPT - ${name}`, enabled: true, config: { enabled: true, setupMode: 'managed' } } } }, true);
-    await refreshConfig(host, native); return '';
+      instance: { driver: 'codex', displayName, enabled: true, config: { enabled: true, setupMode: 'managed' } } } }, true);
+    await refreshConfig(host, native);
+    // renderSetup's ManagedCodexSetup autoStart, in this dialog or (onAccountCreated) on the welcome's new row.
+    chatgptCreated = { serial: wizardSerial, instanceId, displayName };
+    Object.assign(codexFlow(host, instanceId), { autoStart: true, autoStartHandled: false, displayName });
+    onChatGptCreated?.(host, instanceId, displayName);
+    return '';
   }
   if (op === 'provider-hub-add' || op === 'provider-hub-remove') {
     if (op === 'provider-hub-add') {
@@ -502,6 +539,13 @@ async function createInstance(host: ProviderHost, native: Native, op: string, id
   if (driver !== 'acpRegistry') pushToast(toastOf(host), { kind: 'success', title: 'Provider instance added', description: `${meta.label} instance '${instanceId}' was added.` });
   return '';
 }
+
+/** The picker's instance on a background computer (codex-setup-host.ts registers it). */
+let codexTargetResolver: ((host: ProviderHost, target: string) => ReturnType<typeof codexPicker> | null) | null = null;
+export function setCodexTargetResolver(resolver: typeof codexTargetResolver): void { codexTargetResolver = resolver; }
+/** The welcome's onAccountCreated (pages-welcome.ts registers it): the new row comes first and starts. */
+let onChatGptCreated: ((host: ProviderHost, instanceId: string, displayName: string) => void) | null = null;
+export function setChatGptCreatedHandler(handler: typeof onChatGptCreated): void { onChatGptCreated = handler; }
 
 export const PROVIDER_OPS = ['provider-create', 'provider-add', 'provider-name', 'provider-display', 'provider-enabled', 'provider-remove', 'provider-reset',
   'provider-accent', 'provider-field', 'provider-env-field', 'provider-env-add', 'provider-env-name', 'provider-env-value', 'provider-env-sensitive', 'provider-env-remove', 'provider-model-add',

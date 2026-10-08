@@ -17,6 +17,9 @@ use ProviderAntigravitySetup from "./providers-setup.contract"
 use RedactedText from "./redacted-text.contract"
 use ProviderAdvisory, ProviderUpdateAll, ProviderUpkeep from "./providers-upkeep.contract" // provider-settings-upkeep
 use ProviderVersionAdvisory, ProviderUpdatesAllButton, ProviderUrlAuth, AcpManagement, CustomModelEditor from "./providers-upkeep.contract"
+use CodexRuntimeFields from "./codex-setup.contract"
+use CodexSetupRow from "./codex-setup.contract"
+use CodexRuntimeSection from "./codex-setup.contract"
 
 shape ProviderOption
   value: string
@@ -91,6 +94,7 @@ shape ProviderEditorData
   showSetup: bool
   envFields: list<ProviderFieldRow>
   fields: list<ProviderFieldRow>
+  codexRuntime: list<CodexRuntimeFields>
   variables: list<ProviderVariable>
   hasVariables: bool
   models: list<ProviderModelRow>
@@ -296,6 +300,8 @@ component ProviderEditor
           PvGroup()
             when editor.setup.kind == "antigravity"
               ProviderAntigravitySetup(setup=editor.setup, instanceId=editor.id, scheme=scheme, wide=rowWide, busy=setupBusy, op=op, ui=ui)
+            each codex in editor.setup.codex key=codex.key
+              CodexSetupRow(setup=codex, wide=rowWide, busy=setupBusy, op=op, ui=ui, cancelled=ui("none", ""))
             when editor.setup.kind == "account"
               each account in editor.setup.account key=account.key
                 ProviderAccountRow(account=account, scheme=scheme, wide=rowWide, divided=false, busy=setupBusy, op=op, askSignOut=ui("setup-logout", editor.id))
@@ -303,6 +309,9 @@ component ProviderEditor
               PvRow(title="Cursor account", description=editor.setup.cursorNote, status="", wide=rowWide, divided=false)
             each field in editor.envFields key=field.rowKey
               ProviderSecretField(field=field, instance=editor.id, wide=rowWide, divided=(editor.setup.kind != ""), writable=writable, op=op)
+      each runtime in editor.codexRuntime key=runtime.key
+        column width="100%" opacity=(writable ? 1 : 0.5) inert=(not writable)
+          CodexRuntimeSection(runtime=runtime, wide=rowWide)
       when length(editor.fields) > 0 or not editor.known
         column width="100%" gap="0.625rem" opacity=(writable ? 1 : 0.5)
           PvSectionTitle(title="Runtime")

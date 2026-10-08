@@ -36,6 +36,8 @@ use AcpRegistry from "./providers-wizard.contract"
 use UsageHubDialog from "./providers-wizard.contract"
 use HubRemoveDialog from "./providers-wizard.contract"
 use ChatGptAccountDialog from "./providers-wizard.contract"
+use ChatGptAccountPicker from "./codex-setup.contract"
+use ChatGptPlanDialog from "./codex-setup.contract"
 use ConnectionsPanel from "./connections.contract"
 use ConnectionsPage from "./connections.contract"
 use AddEnvironmentDialog from "./connections.contract"
@@ -299,7 +301,11 @@ component SettingsModals
         AddProviderDialog(wizard=providerWizard, acp=acpAgents, step=wizardStep, attempted=wizardAttempted, labelSet=wizardLabelSet, label=wizardLabel, idSet=wizardIdSet, id=wizardId, query=acpQuery, manual=wizardManual, viewportHeight=viewport.height, scheme=(data.look.mode == "dark" or (data.look.mode == "system" and viewport.prefersColorScheme == "dark") ? "dark" : "light"), busy=commandPending, setupBusy=setupBusy, error=modalError, ui=providerUi, add=providerAdd, op=providerOp)
     when providerDialog == "chatgpt"
       each session in providerWizard.sessions key=session.key
-        ChatGptAccountDialog(busy=commandPending, error=modalError, close=providerUi("close", ""), create=providerOp("provider-chatgpt", ""))
+        ChatGptAccountDialog(wizard=providerWizard, busy=commandPending, setupBusy=setupBusy, error=modalError, close=providerUi("close", ""), create=providerOp("provider-chatgpt", ""), op=providerOp, ui=providerUi)
+    // managed-codex-chatgpt: Reconnect ChatGPT (ChatGptAccountPicker) for the instance that opened it.
+    when providerDialog == "codex-picker"
+      each picker in providerWizard.codexPicker key=picker.key
+        ChatGptAccountPicker(picker=picker, busy=setupBusy, op=providerOp, ui=providerUi)
     when providerDialog == "hub"
       each session in providerWizard.sessions key=session.key
         UsageHubDialog(environment=providerWizard.environment, busy=commandPending, error=modalError, close=providerUi("close", ""), save=providerOp("provider-hub-add"))
@@ -338,3 +344,6 @@ component SettingsModals
         each route in environment.routes key=route.id
           when route.target == connectionRemove
             RouteRemoveDialog(route=route, busy=commandPending, cancel=connectionAskRemove(""), confirm=connectionOp("environment-route-remove", environment.key, route.id))
+    // managed-codex-chatgpt: ChatGptWelcomeCoordinator's "Your ChatGPT plan is connected", once per profile.
+    each notice in data.chatgptPlan key=notice.key
+      ChatGptPlanDialog(notice=notice, busy=setupBusy, op=providerOp)

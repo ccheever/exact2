@@ -13,6 +13,7 @@ use UsageShare from "./pages-usage-shapes.contract"
 use UsageModelDetail from "./pages-usage-shapes.contract"
 use UsagePrices from "./pages-usage-shapes.contract"
 use UsageShareBar from "./pages-usage-shapes.contract"
+use ChatGptUsageButton from "./codex-setup.contract"
 
 shape UsageText
   key: string
@@ -68,6 +69,8 @@ shape UsageLimitPool
   label: string
   windows: list<UsageLimitWindow>
 shape UsageView
+  // managed-codex-chatgpt: a selected environment shares a ChatGPT plan (UsagePage.tsx:543-548).
+  chatgptShared: bool
   metric: string
   windowDays: number
   breakdown: string
@@ -370,14 +373,14 @@ component UsageSummary
       when lg
         row width="100%" gap="1.5rem" align-items="flex-start"
           column width="18rem" flex-shrink=0 gap="1.25rem"
-            UsageHeadline(page=page, scheme=scheme)
+            UsageHeadline(page=page, scheme=scheme, op=op)
           column flex=1 min-width=0 gap="0.75rem"
             text page.chartTitle font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=2
             UsageChartView(chart=page.chart, width=page.plotWidth, title=page.chartTitle, scheme=scheme)
       else
         column width="100%" gap="1.5rem"
           column width="100%" gap="1.25rem"
-            UsageHeadline(page=page, scheme=scheme)
+            UsageHeadline(page=page, scheme=scheme, op=op)
           column width="100%" gap="0.75rem"
             text page.chartTitle font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=2
             UsageChartView(chart=page.chart, width=page.plotWidth, title=page.chartTitle, scheme=scheme)
@@ -408,6 +411,7 @@ component UsageHeadline
   props
     page: UsageView
     scheme: string
+    op: action
   view
     column width="100%" gap="0.25rem"
       text page.total font-size="2.25rem" line-height="2.5rem" font-weight=600 font-variant-numeric="tabular-nums" color="light-dark(#27272a, #f5f5f5)" testId="usage-total"
@@ -415,6 +419,10 @@ component UsageHeadline
         text (page.metric == "cost" ? `${page.sessions} · API estimate` : page.sessions) font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)" white-space="pre"
         when page.unpriced != ""
           UnpricedInfo(text=page.unpriced, scheme=scheme)
+    when page.chatgptShared
+      row width="100%" align-items="center" justify-content="space-between" gap="0.5rem" testId="usage-chatgpt-shared"
+        text "ChatGPT shared usage" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
+        ChatGptUsageButton(small=true, testId="usage-manage-usage", press=op("usage-chatgpt", "", ""), first=false)
     each provider in page.providers key=provider.key
       column width="100%" gap="0.25rem"
         row width="100%" justify-content="space-between" align-items="flex-end" gap="1rem"
