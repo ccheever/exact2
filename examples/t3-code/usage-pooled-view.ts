@@ -47,6 +47,9 @@ export function hatchPath(height: number, width = 1400): string {
   return parts.join('');
 }
 
+/** A segment's redeem is its account's in that window (the reference's useResetCredit lives in PoolSegment keyed by the account). */
+const redeemKeyOf = (account: LimitAccount, window: import('./domain').Obj) => `${account.key}\n${str(window.kind)}:${str(window.id)}`;
+
 /** AccountName: the instance name, else the email's chip, else the driver. */
 function accountName(account: LimitAccount) {
   const chip = !account.displayName && account.email ? accountInitials(account.email) : '';
@@ -62,7 +65,7 @@ function segmentView(state: UsageState, id: string, account: LimitAccount, windo
   const label = account.displayName ?? (account.email ? accountInitials(account.email) : account.driver);
   const named = accountName(account), email = redactedValue(account.email ?? '');
   const where = account.environments.length > 0 ? account.environments.map(environment => environment.label).join(', ') : account.sourceLabel ?? '';
-  const redeem = state.redeems.get(id) ?? REDEEM_IDLE;
+  const redeem = state.redeems.get(redeemKeyOf(account, window)) ?? REDEEM_IDLE;
   const resetCredits = account.limits.resetCredits as import('./domain').Obj | undefined;
   const avatar = account.redeem ? 'instance' : account.email ? 'chip' : '';
   return {
@@ -110,7 +113,7 @@ export function pooledView(state: UsageState, statuses: EnvironmentUsageStatus[]
       const segments = window.columns.flatMap((member, position) => {
         if (!member.window) return [];
         const id = `${poolIndex}-${windowIndex}-${position}`;
-        state.segments.set(id, { account: member.account, name: accountName(member.account).name });
+        state.segments.set(id, { account: member.account, redeemKey: redeemKeyOf(member.account, member.window), name: accountName(member.account).name });
         return [segmentView(state, id, member.account, member.window, restores.get(member.account.key), position + 1, window.columns.length, now, layout.format, 'top')];
       });
       return {

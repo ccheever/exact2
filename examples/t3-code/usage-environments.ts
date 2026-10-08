@@ -31,6 +31,8 @@ const PHASE_TEXT: Record<string, string> = { available: 'Disconnected', connecti
 export type UsageEnvironment = {
   readonly id: string; readonly label: string; readonly connected: boolean; readonly phase: string;
   readonly config: Obj | null; readonly focused: boolean; readonly fleet: string; readonly generation: number;
+  /** The transport is connected (a stream failure may still be resynchronizing it): its replies still come. */
+  readonly live: boolean;
 };
 
 /** The focused environment, then each background one, in the catalog's order. */
@@ -39,7 +41,8 @@ export function usageEnvironments(client: T3Client, source: EnvironmentFleet = a
   if (client.environmentId) {
     const connected = client.connection === 'connected' && client.ready;
     list.push({ id: client.environmentId, label: str(obj(client.config.environment).label, 'This environment'), connected,
-      phase: connected ? 'connected' : client.connection, config: connected ? client.config : null, focused: true, fleet: '', generation: client.generation });
+      phase: connected ? 'connected' : client.connection, config: connected ? client.config : null, focused: true, fleet: '', generation: client.generation,
+      live: client.connection === 'connected' });
   }
   for (const entry of source.entries.values()) {
     if (!entry.environmentId || entry.environmentId === client.environmentId || list.some(item => item.id === entry.environmentId)) continue;
@@ -47,12 +50,12 @@ export function usageEnvironments(client: T3Client, source: EnvironmentFleet = a
     const saved = source.saved.find(item => str(item.environmentId) === entry.environmentId);
     const label = str(obj(entry.config.environment).label) || str(saved?.label) || (entry.primary ? 'This machine' : entry.origin.replace(/^\w+:\/\//, ''));
     list.push({ id: entry.environmentId, label, connected, phase: connected ? 'connected' : entry.phase, config: connected ? entry.config : null,
-      focused: false, fleet: entry.key, generation: entry.generation });
+      focused: false, fleet: entry.key, generation: entry.generation, live: entry.phase === 'connected' });
   }
   return list;
 }
 
-type Summary = { windowKey: string; summary: Obj | null; error: string; pending: boolean; stale: boolean; token: number };
+type Summary = { windowKey: string; summary: Obj | null; error: string; pending: boolean; stale: boolean; token: number; generation: number; readAt: number };
 type Outgoing = { environmentId: string; method: string; payload: Obj; resolve: (reply: DetachedReply) => void };
 export type UsageState = {
   selected: Set<string> | null; envs: UsageEnvironment[]; clock: number;
@@ -61,10 +64,16 @@ export type UsageState = {
   /** refreshingRef / isRefreshing: one press at a time, for either view. */
   refreshing: boolean;
   limitsNow: number; autoKey: string;
-  /** Per pooled segment (its popover's redeem), and the segment whose confirm is open. */
-  redeems: Map<string, RedeemState>; confirm: string;
-  /** The accounts behind the segments last drawn, so a command finds what it redeems. */
-  segments: Map<string, { account: LimitAccount; name: string }>;
+  /**
+   * The redeem of each account's window (useResetCredit lives in that segment's popover, keyed by the
+   * account in the reference), and the confirm that is open: the segment it was asked from and the
+   * target captured then, so a redraw that reorders the accounts never redirects a credit.
+   */
+  redeems: Map<string, RedeemState>;
+  confirm: string;
+  asked: { redeemKey: string; target: NonNullable<LimitAccount['redeem']> } | null;
+  /** The segments last drawn: each one's account, redeem key and name, by its (positional) id. */
+  segments: Map<string, { account: LimitAccount; redeemKey: string; name: string }>;
   cursorPending: Set<string>;
   /** The external usage pages last drawn: the only addresses `open` may hand to the system. */
   links: string[];
@@ -73,7 +82,7 @@ const states = new WeakMap<object, UsageState>();
 export function usageState(client: object): UsageState {
   let state = states.get(client);
   if (!state) states.set(client, state = { selected: null, envs: [], clock: 0, open: false, metric: '', windowDays: 0, window: null, refreshSeen: null,
-    summaries: new Map(), outbox: [], listeners: new Map(), refreshing: false, limitsNow: 0, autoKey: '', redeems: new Map(), confirm: '', segments: new Map(), cursorPending: new Set(), links: [] });
+    summaries: new Map(), outbox: [], listeners: new Map(), refreshing: false, limitsNow: 0, autoKey: '', redeems: new Map(), confirm: '', asked: null, segments: new Map(), cursorPending: new Set(), links: [] });
   return state;
 }
 /** Tests and a closed page start over. */
@@ -113,7 +122,9 @@ export async function flush(client: T3Client, native: Native, state: UsageState)
     const batch = state.outbox.splice(0);
     await Promise.all(batch.map(async item => {
       const env = state.envs.find(candidate => candidate.id === item.environmentId);
-      if (!env?.connected) { item.resolve(disconnected()); return; }
+      // The focus may have moved since the page last drew: a request never goes to another environment.
+      const moved = env?.focused && (client.environmentId !== env.id || client.generation !== env.generation);
+      if (!env?.connected || moved) { item.resolve(disconnected()); return; }
       const sent = env.focused ? await startDetached(client, native, item.method, item.payload)
         : await startFleetDetached(native, { key: env.fleet, generation: env.generation }, item.method, item.payload);
       void sent.reply.then(item.resolve);
@@ -133,7 +144,7 @@ function summaryEntry(state: UsageState, id: string): Summary | null {
   if (!state.window) return null;
   const windowKey = windowKeyOf(state.window);
   let entry = state.summaries.get(id);
-  if (!entry || entry.windowKey !== windowKey) state.summaries.set(id, entry = { windowKey, summary: null, error: '', pending: false, stale: true, token: 0 });
+  if (!entry || entry.windowKey !== windowKey) state.summaries.set(id, entry = { windowKey, summary: null, error: '', pending: false, stale: true, token: 0, generation: -1, readAt: 0 });
   return entry;
 }
 /** A summary read for the current window; a read that an invalidation or a newer read replaced is dropped. */
@@ -142,18 +153,25 @@ function readSummary(state: UsageState, id: string): Promise<void> {
   if (!entry || !state.window) return Promise.resolve();
   const token = ++entry.token;
   entry.pending = true; entry.stale = false;
+  entry.generation = state.envs.find(env => env.id === id)?.generation ?? -1;
   return request(state, id, 'server.getUsageSummary', windowPayload(state.window)).then(reply => {
     if (entry.token !== token || state.summaries.get(id) !== entry) return;
     entry.pending = false;
-    if (reply.ok) { entry.summary = reply.value; entry.error = ''; }
+    if (reply.ok) { entry.summary = reply.value; entry.error = ''; entry.readAt = state.clock; }
     else if (reply.interrupted) entry.stale = true; // read again once the environment is back
     else entry.error = 'This environment could not report usage.';
   });
 }
-/** Every selected connected environment reads the current window once (the per-window query atoms). */
-function ensureSummaries(state: UsageState): void {
+/**
+ * Every selected connected environment reads the current window once (the per-window query atoms).
+ * As the reference's query depends on the session, a reconnected environment reads again (its last
+ * summary and error give way to the new read); `reopened` is the query's 60 s stale time on a remount.
+ */
+function ensureSummaries(state: UsageState, reopened: boolean): void {
   for (const env of selectedConnected(state)) {
     const entry = summaryEntry(state, env.id);
+    if (entry && !entry.pending && (entry.generation !== env.generation && (entry.summary || entry.error)
+      || reopened && entry.summary && state.clock - entry.readAt > 60_000)) { entry.stale = true; entry.error = ''; }
     if (entry?.stale && !entry.pending) void readSummary(state, env.id);
   }
 }
@@ -230,9 +248,9 @@ export async function prepareUsage(client: T3Client, native: Native | null | und
   const before = state.envs.map(env => `${env.id}:${env.connected}:${env.generation}`).join(',');
   state.envs = usageEnvironments(client, source);
   if (state.envs.map(env => `${env.id}:${env.connected}:${env.generation}`).join(',') !== before) connectivityChanged(state);
-  settleFleetWaiters((key, generation) => state.envs.some(env => env.fleet === key && env.connected && env.generation === generation));
+  settleFleetWaiters((key, generation) => state.envs.some(env => env.fleet === key && env.live && env.generation === generation));
   onUsageFleetChange(input.open ? () => { client.revision++; } : null);
-  if (!input.open) { state.open = false; state.autoKey = ''; state.confirm = ''; return state; }
+  if (!input.open) { state.open = false; state.autoKey = ''; state.confirm = ''; state.asked = null; return state; }
   const opening = !state.open, limits = input.metric === 'limits';
   state.open = true;
   // selectMetric("limits") and the first mount read the time; the countdown advances only on refresh after that.
@@ -245,7 +263,7 @@ export async function prepareUsage(client: T3Client, native: Native | null | und
   const key = limits ? selectedConnected(state).filter(env => env.config !== null).map(env => env.id).sort().join(',') : '';
   if (key && key !== state.autoKey) void refreshLimits(state, true);
   state.autoKey = key;
-  ensureSummaries(state);
+  ensureSummaries(state, opening);
   if (native?.available) await flush(client, native, state);
   await turns();
   return state;
@@ -269,24 +287,30 @@ export async function usagePoolLocal(client: T3Client, native: Native | null | u
   const state = usageState(client);
   if (op === 'env') { toggleEnvironment(state, id); return ''; }
   const segmentFocus = (segment: string) => (segment ? `focus:usage-seg-${segment}` : '');
+  // The segment that now draws an account's window (the order can change while a confirm is open).
+  const segmentOf = (redeemKey: string, fallback: string) => [...state.segments].find(([, entry]) => entry.redeemKey === redeemKey)?.[0] ?? fallback;
   if (op === 'reset-ask') {
-    if (!state.segments.has(id) || state.redeems.get(id)?.busy) return '';
-    state.redeems.set(id, redeemStep(state.redeems.get(id) ?? REDEEM_IDLE, { type: 'ask' })); state.confirm = id;
+    const shown = state.segments.get(id);
+    if (!shown?.account.redeem || state.redeems.get(shown.redeemKey)?.busy) return '';
+    state.redeems.set(shown.redeemKey, redeemStep(state.redeems.get(shown.redeemKey) ?? REDEEM_IDLE, { type: 'ask' }));
+    state.confirm = id; state.asked = { redeemKey: shown.redeemKey, target: shown.account.redeem };
     return 'focus:reset-credit-cancel';
   }
   if (op === 'reset-cancel') {
-    const segment = state.confirm || id;
-    state.redeems.set(segment, redeemStep(state.redeems.get(segment) ?? REDEEM_IDLE, { type: 'cancel' })); state.confirm = '';
+    const asked = state.asked, segment = asked ? segmentOf(asked.redeemKey, state.confirm || id) : state.confirm || id;
+    if (asked) state.redeems.set(asked.redeemKey, redeemStep(state.redeems.get(asked.redeemKey) ?? REDEEM_IDLE, { type: 'cancel' }));
+    state.confirm = ''; state.asked = null;
     return segmentFocus(segment);
   }
   if (op === 'reset-confirm') {
-    const segment = state.confirm || id, current = state.redeems.get(segment) ?? REDEEM_IDLE;
-    state.confirm = '';
-    const target = state.segments.get(segment)?.account.redeem;
-    if (!target || current.busy) { state.redeems.set(segment, redeemStep(current, { type: 'cancel' })); return segmentFocus(segment); }
-    state.redeems.set(segment, redeemStep(current, { type: 'start' }));
-    void request(state, target.environmentId, 'provider.consumeResetCredit', target.input as Obj)
-      .then(reply => { state.redeems.set(segment, redeemStep(state.redeems.get(segment) ?? REDEEM_IDLE, redeemEvent(reply))); });
+    const asked = state.asked, segment = asked ? segmentOf(asked.redeemKey, state.confirm || id) : state.confirm || id;
+    state.confirm = ''; state.asked = null;
+    if (!asked) return segmentFocus(segment);
+    const current = state.redeems.get(asked.redeemKey) ?? REDEEM_IDLE;
+    if (current.busy) { state.redeems.set(asked.redeemKey, redeemStep(current, { type: 'cancel' })); return segmentFocus(segment); }
+    state.redeems.set(asked.redeemKey, redeemStep(current, { type: 'start' }));
+    void request(state, asked.target.environmentId, 'provider.consumeResetCredit', asked.target.input as Obj)
+      .then(reply => { state.redeems.set(asked.redeemKey, redeemStep(state.redeems.get(asked.redeemKey) ?? REDEEM_IDLE, redeemEvent(reply))); });
     if (native?.available) await flush(client, native, state);
     return segmentFocus(segment);
   }
@@ -298,6 +322,7 @@ export async function usagePoolLocal(client: T3Client, native: Native | null | u
   if (op === 'cursor') {
     const env = state.envs.find(candidate => candidate.id === id && candidate.connected);
     if (!env || !native?.available || state.cursorPending.has(id)) return '';
+    if (env.focused && (client.environmentId !== env.id || client.generation !== env.generation)) return '';
     state.cursorPending.add(id);
     try {
       // CursorEnableButton: updateSettings on that environment, then refresh usage and limits.
@@ -307,6 +332,7 @@ export async function usagePoolLocal(client: T3Client, native: Native | null | u
         const remote: Native = { available: native.available, watch: topic => native.watch(topic), later: request => native.later({ ...obj(request), fleet: env.fleet }) };
         const reply = await bridgeReply(remote, { op: 'request', method: 'server.updateSettings', payload, generation: env.generation });
         if (!reply.ok) throw new ClientError(reply.error!.message, reply.error!.kind);
+        if (reply.generation !== env.generation) throw new ClientError('The connection changed. Refresh before continuing.', 'stale');
       }
       void rescanUsage(state);
       void refreshLimits(state, false, true);

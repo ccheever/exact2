@@ -35,7 +35,9 @@ export async function startFleetDetached(native: Native, target: FleetTarget, me
     key = `${KEY}${id || `${++serial}`}`;
     waiters.set(key, { fleet: target.key, generation: target.generation, resolve: resolveReply });
     const response = await bridgeReply(remote, { op: 'request', method, payload, deliver: key, timeout: 300, generation: target.generation });
-    if (!response.ok) settle(key, { ok: false, error: new ClientError(response.error!.message, response.error!.kind, response.error!.uncertain), interrupted: false });
+    // A transport that is not connected (or moved on) never sent it: as composer-replies' `call`, that is an interruption.
+    if (!response.ok) settle(key, { ok: false, error: new ClientError(response.error!.message, response.error!.kind, response.error!.uncertain),
+      interrupted: ['Disconnected', 'stale', 'superseded', 'Closed'].includes(response.error!.kind) });
     else if (response.generation !== target.generation) settle(key, { ok: false, error: new ClientError('The connection changed. Refresh before continuing.', 'stale'), interrupted: true });
   } catch (error) {
     const failure = error instanceof ClientError ? error : new ClientError(error instanceof Error ? error.message : String(error));
@@ -72,6 +74,14 @@ export function usageFleetSynced(revision: number): void {
   if (revision === seenRevision) return;
   seenRevision = revision;
   changed?.();
+}
+
+/** EnvironmentFleet's drain after its inbox overflowed: a reply of this connection may be gone, so each waiter ends as lost (the request may have been applied). */
+export function usageFleetReset(entry: FleetTarget): void {
+  for (const [key, waiter] of [...waiters]) {
+    if (waiter.fleet !== entry.key || waiter.generation !== entry.generation) continue;
+    settle(key, { ok: false, error: new ClientError('The server reply was lost. The request may already have been applied.', 'Lost', true), interrupted: false });
+  }
 }
 
 /** Waiters whose environment stopped or reconnected: their replies never come, so each ends as interrupted. */

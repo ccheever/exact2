@@ -7,7 +7,7 @@ delivery: draft
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-usage-pooled-view
-pr_url: null
+pr_url: https://github.com/ccheever/exact2/pull/263
 verified_commit: null
 ---
 
@@ -97,7 +97,7 @@ Required environment: Xcode 27.0, pinned Bun and Hermes, oracle build, two isola
 
 2026-10-06: on hold (user decision: tasks that need a sign-in waited). 2026-10-07: the user lifted the hold. Rows that need a real account are signed in by the user in person on the lane build; every other sign-in row uses lane fixtures.
 
-2026-10-08: implemented in [PR #PRNUM](https://github.com/ccheever/exact2/pull/PRNUM) (draft), all five scope items.
+2026-10-08: implemented in [PR #263](https://github.com/ccheever/exact2/pull/263) (draft), all five scope items.
 - **Data model** (`usage-limits-pools.ts`): port of `collectLimitAccounts`, `collectLimitPools`,
   `displayLimitWindows`, `collectLimitNotices`, `collectExternalUsageLinks`, `CURSOR_USAGE_WINDOWS`,
   `cursorUsageWindowDetails`, the `LimitAccount` / `LimitPool` / `LimitPoolWindow` / `LimitPoolMember`
@@ -196,7 +196,7 @@ Acceptance rows:
 
 ## Next action
 
-Review and merge PR #PRNUM into `feat(example)/t3-code`. The coordinator's real-input batch runs the steps
+Review and merge PR #263 into `feat(example)/t3-code`. The coordinator's real-input batch runs the steps
 below (real hover, a real click on an unfocused segment for X56, the popover side, the Cursor Enable
 buttons with Return). A real redeem waits for the user's decision on spending a banked credit; the real
 Cursor Keychain prompt waits for a Cursor account on a paid plan.

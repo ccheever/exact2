@@ -18,7 +18,7 @@ import { liveFleetEvent, liveFleetPass } from './live-streams';
 import { applyTerminalMetadataStreamEvent, type TerminalSummary, type TerminalMetadataStreamEvent } from './terminal-session';
 import { letGo } from './let-go';
 import { dropPrimaryDuplicates, primary, primaryEntry, withoutPrimaryDuplicates } from './local-primary';
-import { usageFleetEvent, usageFleetSynced } from './usage-replies'; // usage-pooled-view
+import { usageFleetEvent, usageFleetReset, usageFleetSynced } from './usage-replies'; // usage-pooled-view
 import { handoffKeptThread, keepAliveFleetEvent, keepAliveFleetPass } from './keep-alive';
 import { codexHandoffEvent } from './codex-handoff-events'; // managed-codex-chatgpt: the primary's handoff stream
 import { providerSetupEvent } from './provider-setup';
@@ -187,7 +187,7 @@ export class EnvironmentFleet {
   private async drain(remote: Native, entry: FleetEntry): Promise<void> {
     for (let pass = 0; pass < 8; pass++) {
       const batch = await this.call(remote, entry, { op: 'events', after: entry.lastEvent });
-      if (batch.reset === true) entry.synchronized = -1;
+      if (batch.reset === true) { if (entry.lastEvent > 0) usageFleetReset(entry); entry.synchronized = -1; } // usage-replies.ts: an overflowed inbox may have dropped a reply
       let through = entry.lastEvent;
       for (const event of arr(batch.events)) {
         const seq = num(event.seq);

@@ -16,7 +16,7 @@ import { fleet, environmentKey, EnvironmentFleet } from './settings-b-fleet';
 import { initialShell } from './domain';
 import { forgetUsageState } from './usage-environments';
 import { popoverSides } from './usage-pooled-view';
-import { usageFleetEvent } from './usage-replies';
+import { usageFleetEvent, usageFleetReset } from './usage-replies';
 import { forgetLimitsRefreshes } from './usage-refresh';
 
 const it = test;
@@ -199,6 +199,63 @@ describe('popover sides (Base UI collision flip on an unscrolled page)', () => {
     const pools = [{ cursorBefore: false, windows: [window(), window()] }, { cursorBefore: false, windows: [window(), window()] }];
     popoverSides(pools, { wide: true, md: true, cursorRows: 0 });
     expect(pools.flatMap(pool => pool.windows.map(entry => entry.segments[0]!.side))).toEqual(['bottom', 'bottom', 'top', 'top']);
+  });
+});
+
+describe('review fixes (2026-10-08)', () => {
+  it('a confirm redeems the account it was asked for, even when a redraw reorders the segments', async () => {
+    const two = laptop();
+    (two.providers as Obj[]).push(provider({ instanceId: 'codex-work', displayName: 'Work', auth: { status: 'authenticated', email: 'work@example.com' },
+      usageLimits: { checkedAt: iso(-60_000), windows: [session(10, { resetsAt: iso(3 * HOUR) })], resetCredits: { availableCount: 1 } } }));
+    const rig = new Rig(two, null);
+    const first = (await rig.page()).pooled.pools[0]!.windows[0]!.segments[0]!;
+    expect(first.name).toBe('Codex');
+    await rig.command('usage-pool-reset-ask', first.id);
+    // Work's session now resets first, so it takes the first column.
+    ((two.providers as Obj[])[1]!.usageLimits as Obj).windows = [session(10, { resetsAt: iso(HOUR) })];
+    const reordered = (await rig.page()).pooled.pools[0]!.windows[0]!.segments;
+    expect(reordered.map(segment => segment.name)).toEqual(['Work', 'Codex']);
+    expect(await rig.command('usage-pool-reset-confirm', first.id)).toBe(`focus:usage-seg-${reordered[1]!.id}`);
+    expect(rig.of('provider.consumeResetCredit').map(entry => entry.payload)).toEqual([{ instanceId: 'codex' }]);
+    await rig.reply(rig.of('provider.consumeResetCredit')[0]!, { outcome: 'reset' });
+    const after = (await rig.page()).pooled.pools[0]!.windows[0]!.segments;
+    expect(after.map(segment => [segment.name, segment.status])).toEqual([['Work', ''], ['Codex', 'Reset applied. Your windows have cleared.']]);
+  });
+
+  it('a reconnected environment reads its summary again after a failure', async () => {
+    const rig = new Rig(laptop(), desktop());
+    await rig.page({ metric: 'cost' });
+    await rig.reply(rig.of('server.getUsageSummary', 'env-a')[0]!, summary());
+    await rig.reply(rig.of('server.getUsageSummary', 'env-b')[0]!, { error: { kind: 'RPC', message: 'scan failed' } });
+    let page = await rig.page({ metric: 'cost' });
+    expect(page.environments.map(row => row.status)).toEqual(['Ready', 'Unavailable']);
+    const entry = fleet.entries.get(KEY_B)!;
+    entry.generation = 8; entry.synchronized = 8;
+    page = await rig.page({ metric: 'cost' });
+    expect(rig.of('server.getUsageSummary', 'env-b')).toHaveLength(2);
+    expect(page.environments[1]!.status).toBe('Scanning…');
+  });
+
+  it('a background inbox that overflowed settles its waiters, so a refresh never stays busy', async () => {
+    const rig = new Rig(laptop(), desktop());
+    await rig.page();
+    for (const check of rig.of('server.refreshProviders', 'env-a')) await rig.reply(check, {});
+    let page = await rig.page({ refresh: 1 });
+    expect(page.refreshing).toBe(true);
+    await rig.reply(rig.of('server.refreshProviders', 'env-a')[1] ?? rig.of('server.refreshProviders', 'env-a')[0]!, {});
+    usageFleetReset({ key: KEY_B, generation: 7 });
+    for (let index = 0; index < 12; index++) await Promise.resolve();
+    page = await rig.page({ refresh: 1 });
+    expect(page.refreshing).toBe(false);
+  });
+
+  it('never sends a focused environment request after the focus moved', async () => {
+    const rig = new Rig(laptop(), null);
+    const segment = (await rig.page()).pooled.pools[0]!.windows[0]!.segments[0]!;
+    await rig.command('usage-pool-reset-ask', segment.id);
+    (rig.client as unknown as { environmentId: string }).environmentId = 'env-z';
+    await rig.command('usage-pool-reset-confirm', segment.id);
+    expect(rig.of('provider.consumeResetCredit')).toHaveLength(0);
   });
 });
 
