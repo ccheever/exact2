@@ -116,9 +116,10 @@ export function dialogPlotWidth(viewportWidth: number): number {
  * the same merge narrowed to this model's buckets. Unpriced cost is unknown,
  * not zero, so its trend shows tokens.
  */
-export function modelDetail(model: ModelTotals, environment: { id: string; label: string; summary: Obj }, periods: string[], resolution: 'day' | 'hour', metric: string, viewportWidth: number): ModelDetailView {
-  const summary = { ...environment.summary, buckets: arr(environment.summary.buckets).filter(bucket => bucket.provider === model.provider && bucket.model === model.model) };
-  const usage = mergeUsage([{ ...environment, summary }]);
+export function modelDetail(model: ModelTotals, environment: { id: string; label: string; summary: Obj } | { id: string; label: string; summary: Obj }[], periods: string[], resolution: 'day' | 'hour', metric: string, viewportWidth: number): ModelDetailView {
+  // usage-pooled-view: the selected environments that answered (mergeAnsweredUsage with the model's buckets).
+  const usage = mergeUsage((Array.isArray(environment) ? environment : [environment]).map(entry => ({ ...entry,
+    summary: { ...entry.summary, buckets: arr(entry.summary.buckets).filter(bucket => bucket.provider === model.provider && bucket.model === model.model) } })));
   const meta = PROVIDERS[model.provider as ProviderKind];
   const unknown = isModelCostUnknown(model), hit = cacheHitRate(model), perMillion = costPerMillionTokens(model);
   const chartMetric = unknown ? 'tokens' : metric === 'tokens' ? 'tokens' : 'cost';

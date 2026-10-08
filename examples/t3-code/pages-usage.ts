@@ -3,15 +3,15 @@
 // apps/web/src/components/usage/{UsagePage,UsageProviderChart,usageProviders,
 // usageShortcuts,usagePagePreferences,UsageLimits,UsageLimitsPooled}.tsx and
 // packages/shared/src/{usageFormat,usageMerge,usageLimits}.ts.
-import { resolveOfficialAcpRegistryIconUrl } from './acp-icons';
 import { arr, num, obj, str, type Obj } from './domain';
-import { ClientError, providerAvailable, type Files, type Native } from './protocol';
+import { ClientError, type Files, type Native } from './protocol';
 import type { T3Client } from './client';
 import { pagesPrefs, type UsagePrefs } from './pages-prefs';
 import { emptyPrices, presentPrices } from './pages-usage-prices';
 import { checkMenu, uniqueProbes, type Probe } from './r5-composer-menus';
 import { emptyDetail, modelDetail, modelKey, modelRows, openModel, pageShares, setOpenModel, type ModelRowView, type ShareBarView } from './pages-usage-detail';
-import { letGo } from './let-go';
+import { contractVersionOf, environmentStatuses, forgetSummaries, isSelected, phaseText, prepareUsage, usageState, type EnvironmentUsageStatus } from './usage-environments';
+import { cursorRows, emptyPooled, poolBarWidth, pooledView } from './usage-pooled-view';
 import { usesChatGptSharing } from './chatgpt-plan'; // managed-codex-chatgpt
 
 export const USAGE_CONTRACT_VERSION = 6;
@@ -282,43 +282,8 @@ export function providersWithUsage(merged: Merged): ProviderKind[] {
   return PROVIDER_ORDER.filter(provider => active.has(provider));
 }
 
-// ── Limits (UsageLimits.tsx / usageLimits.ts) ───────────────────────────────
-
-const LIMIT_DRIVERS: Record<string, { label: string; color: [string, string] }> = {
-  codex: { label: 'Codex', color: PROVIDERS.codex.color }, claudeAgent: { label: 'Claude Code', color: PROVIDERS.claude.color },
-  cursor: { label: 'Cursor', color: ['#27272a', '#f5f5f5'] }, grok: { label: 'Grok Build', color: ['#27272a', '#f5f5f5'] },
-};
-export function formatDuration(ms: number): string {
-  const remaining = Math.max(0, ms), days = Math.floor(remaining / 86_400_000), hours = Math.floor((remaining % 86_400_000) / HOUR), minutes = Math.floor((remaining % HOUR) / 60_000);
-  if (days > 0) return `${days}d ${hours}h`;
-  if (hours > 0) return `${hours}h ${minutes}m`;
-  return `${minutes}m`;
-}
-export type LimitPool = { key: string; driver: string; icon: string; label: string; windows: { key: string; label: string; remaining: number; fill: number; pace: string; resets: string; light: string; dark: string }[] };
-/** Providers on this environment that report subscription windows (providersWithLimits), one section each. */
-export function limitPools(providers: Obj[], now: number): LimitPool[] {
-  const pools = new Map<string, LimitPool>();
-  for (const provider of providers) {
-    if (provider.enabled === false || provider.installed === false || !providerAvailable(provider)) continue;
-    const limits = obj(provider.usageLimits);
-    if (!provider.usageLimits) continue;
-    const driver = str(provider.driver), meta = LIMIT_DRIVERS[driver] ?? { label: str(provider.displayName, driver), color: ['#27272a', '#f5f5f5'] as [string, string] };
-    // provider-settings-upkeep: an ACP agent's pool draws its registry icon (the live provider's iconUrl).
-    const pool = pools.get(driver) ?? { key: driver, driver, icon: driver === 'acpRegistry' ? resolveOfficialAcpRegistryIconUrl(str(provider.iconUrl)) ?? '' : '', label: meta.label, windows: [] };
-    for (const window of arr(limits.windows)) {
-      if (pool.windows.some(existing => existing.key === str(window.id))) continue;
-      const used = Math.max(0, Math.min(100, num(window.usedPercent))), remaining = Math.round(100 - used);
-      const resetsAt = Date.parse(str(window.resetsAt)), duration = num(window.windowDurationMins) * 60_000;
-      const elapsed = Number.isFinite(resetsAt) && duration > 0 ? Math.max(0, Math.min(1, (duration - (resetsAt - now)) / duration)) : null;
-      const gap = elapsed === null ? 0 : used - elapsed * 100;
-      pool.windows.push({ key: str(window.id), label: str(window.label), remaining, fill: remaining,
-        pace: elapsed === null ? '' : gap > 5 ? 'ahead' : gap < -5 ? 'under' : 'on',
-        resets: Number.isFinite(resetsAt) ? (resetsAt <= now ? 'resets now' : `resets in ${formatDuration(resetsAt - now)}`) : '', light: meta.color[0], dark: meta.color[1] });
-    }
-    if (pool.windows.length) pools.set(driver, pool);
-  }
-  return [...pools.values()];
-}
+// ── Limits: the pooled view (usage-limits-pools.ts, usage-pooled-view.ts) ─────
+// The page's environments, refreshes and requests are usage-environments.ts's.
 
 // ── Page state and the resource ─────────────────────────────────────────────
 
@@ -336,11 +301,8 @@ export function saveUsagePrefs(owner: { local: object }, change: Partial<Prefs>)
   pagesPrefs(owner).usage = next;
 }
 
-type Cached = { key: string; window: UsageWindow; summary: Obj | null; error: string };
-const summaries = new WeakMap<object, Cached>();
 /** Prices or mappings changed: the next read re-aggregates (the server folds and prices on read). */
-export const forgetUsage = (client: object) => { summaries.delete(client); };
-const limitRefreshes = new WeakMap<object, string>();
+export const forgetUsage = (client: object) => { forgetSummaries(usageState(client)); };
 
 /** The plot's width: the page container (max 1024, 24pt gutters), less the summary column at lg and the 64pt axis. */
 export function plotWidth(viewportWidth: number, sidebarWidth: number): number {
@@ -349,63 +311,75 @@ export function plotWidth(viewportWidth: number, sidebarWidth: number): number {
   return Math.max(40, Math.round(chartColumn - 64));
 }
 
-type UsageInput = { open: boolean; metric: string; windowDays: number; breakdown: string; refresh: number; width: number; now: number; environmentOff: boolean; viewport?: number };
+type UsageInput = { open: boolean; metric: string; windowDays: number; breakdown: string; refresh: number; width: number; now: number; viewport?: number; sidebar?: number };
 export async function usagePage(client: T3Client, native: Native | null | undefined, storage: Files | null, input: UsageInput) {
   const page = await usageView(client, native, storage, input);
   // The environment menu sizes to its widest row (Model prices included), as MenuPopup does.
   // r5-composer: both menus size from measured texts (r5-composer-menus.ts checkMenu; probes drawn by the page).
-  const environments = checkMenu(client.presentation, [{ label: 'All environments', status: '' }, ...(page.environmentCount ? [{ label: page.environmentName, status: page.metric === 'limits' ? '' : page.environmentStatus }] : [])], ['Model prices']);
+  const environments = checkMenu(client.presentation, [{ label: 'All environments', status: '' }, ...page.environments.map(row => ({ label: row.label, status: row.status }))], ['Model prices']);
   const prices = checkMenu(client.presentation, [{ label: 'All environments', status: '' }, ...page.prices.targets.map(target => ({ label: target.label, status: target.unavailable }))]);
   page.menuWidth = environments.width; page.prices.menuWidth = prices.width;
   page.menuProbes = uniqueProbes([...environments.probes, ...prices.probes]);
   return page;
 }
-async function usageView(client: T3Client, native: Native | null | undefined, storage: Files | null, input: UsageInput) {
+/** UsageEnvironmentFilter's menu status for an environment (UsagePage.tsx), or its connection phase when it cannot report. */
+function environmentStatusText(status: EnvironmentUsageStatus): string {
+  if (!status.connected) return phaseText(status.phase);
+  if (status.error !== null) return 'Unavailable';
+  const version = contractVersionOf(status.summary);
+  if (status.summary !== null && (version < MERGE_COMPATIBLE_SINCE || version > USAGE_CONTRACT_VERSION)) return 'Update required';
+  if (status.summary === null) return 'Scanning…';
+  return status.isPending ? 'Refreshing…' : 'Ready';
+}
+async function usageView(client: T3Client, native: Native | null | undefined, _storage: Files | null, input: UsageInput) {
   const prefs = usagePrefs(client);
   const metric = METRICS.includes(input.metric) ? input.metric : prefs.metric;
   const windowDays = WINDOWS.some(window => window.days === input.windowDays) ? input.windowDays : prefs.windowDays;
   const page = emptyUsage(metric, windowDays, input.breakdown === 'time' ? 'time' : 'model', input.width);
-  const connected = client.connection === 'connected' && client.ready;
-  page.environmentLabel = 'All environments';
-  page.environmentName = str(obj(client.config.environment).label, 'This environment');
-  page.environmentSelected = !input.environmentOff;
-  page.environmentCount = connected ? 1 : 0;
-  if (input.open && metric !== 'limits') page.prices = presentPrices(client);
-  if (!connected) { page.empty = `Connect an environment to see ${metric === 'limits' ? 'limits' : 'usage'}.`; page.environmentStatus = ''; return page; }
-  if (input.environmentOff) { page.empty = `Select an environment to see ${metric === 'limits' ? 'limits' : 'usage'}.`; page.environmentLabel = '0 environments'; return page; }
-  if (!input.open || !native?.available) return page;
-  if (metric === 'limits') {
-    // refreshLimits: the provider probe re-reads subscription windows; the config subscription delivers them.
-    const key = `${client.environmentId}:${input.refresh}`;
-    if (limitRefreshes.get(client) !== key) {
-      limitRefreshes.set(client, key);
-      try { await client.rpc(native, 'server.refreshProviders', {}); } catch { /* the last published windows still show */ }
-    }
-    page.limits = limitPools(arr(client.config.providers), input.now);
-    page.limitsEmpty = page.limits.length === 0;
-    page.environmentStatus = 'Ready';
+  const limits = metric === 'limits', noun = limits ? 'limits' : 'usage';
+  if (input.open && !limits) page.prices = presentPrices(client);
+  const state = await prepareUsage(client, native, { open: input.open && !!native?.available, metric, windowDays, refresh: input.refresh, now: input.now },
+    (days, now) => makeWindow(days, now));
+  const statuses = environmentStatuses(state);
+  const selected = statuses.filter(status => status.connected && isSelected(state, status.environmentId));
+  page.refreshing = state.refreshing;
+  page.environments = statuses.map(status => ({ key: status.environmentId, label: status.label, checked: status.connected && isSelected(state, status.environmentId),
+    disabled: !status.connected, status: !status.connected || !limits ? environmentStatusText(status) : '' }));
+  const connected = statuses.filter(status => status.connected);
+  page.environmentLabel = state.selected === null ? 'All environments' : selected.length === 1 ? selected[0]!.label : `${selected.length} environments`;
+  page.allSelected = state.selected === null;
+  if (connected.length === 0) { page.empty = `Connect an environment to see ${noun}.`; return page; }
+  if (selected.length === 0) { page.empty = `Select an environment to see ${noun}.`; return page; }
+  // The header's scan glyph (UsageEnvironmentFilter): pending scans, else a failed or incompatible environment.
+  const pendingCount = selected.filter(status => status.error === null && (status.isPending || status.summary === null)).length;
+  page.environmentIcon = limits ? '' : pendingCount > 0 ? 'pending' : selected.some(status => status.error !== null || environmentStatusText(status) === 'Update required') ? 'issue' : '';
+  page.environmentPending = pendingCount > 0 ? `${pendingCount} ${pendingCount === 1 ? 'environment' : 'environments'} still scanning` : '';
+  if (!input.open || !native?.available || !state.window) return page;
+  if (limits) {
+    page.pooled = pooledView(state, statuses, { barWidth: poolBarWidth(input.viewport ?? 1280, input.sidebar ?? 0), format: client.local.deviceSettings.timestampFormat, md: (input.viewport ?? 1280) >= 768 });
     return page;
   }
-  const key = `${client.environmentId}:${windowDays}:${input.refresh}`;
-  let cached = summaries.get(client);
-  if (!cached || cached.key !== key) {
-    const window = makeWindow(windowDays, input.now);
-    cached = { key, window, summary: null, error: '' };
-    try {
-      const payload: Obj = { sinceDay: window.sinceDay, untilDay: window.untilDay, timeZone: window.timeZone, resolution: window.resolution };
-      if (window.sinceTime) { payload.sinceTime = window.sinceTime; payload.untilTime = window.untilTime; }
-      cached.summary = await client.rpc(native, 'server.getUsageSummary', payload);
-    } catch (error) { if (letGo(error)) throw error; cached.error = error instanceof Error ? error.message : 'Usage could not be read.'; }
-    summaries.set(client, cached);
+  // useUsage: merge every selected environment that has answered; the rest are still scanning or failed.
+  const answered = selected.filter(status => status.summary !== null);
+  const stillReporting = selected.filter(status => status.summary === null && status.error === null).length;
+  page.partial = answered.length > 0 && stillReporting > 0 ? 'Totals are partial while selected environments scan.' : '';
+  if (answered.length === 0 && stillReporting > 0) return page; // the skeleton
+  const environments = answered.map(status => ({ id: status.environmentId, label: status.label, summary: status.summary! }));
+  // managed-codex-chatgpt: a selected environment shares a ChatGPT plan (UsagePage.tsx:543-548).
+  page.chatgptShared = selected.some(status => arr(state.envs.find(env => env.id === status.environmentId)?.config?.providers).some(usesChatGptSharing));
+  const merged = mergeUsage(environments);
+  presentUsage(page, merged, state.window, { sources: environments.flatMap(environment => arr(environment.summary.sources)) });
+  page.coverage = [...selected.filter(status => status.error !== null).map(status => ({ key: `f:${status.environmentId}`, text: `${status.label} could not report usage.` })), ...page.coverage];
+  // CursorEnableRow: after Codex and Claude Code in the provider list.
+  const cursor = cursorRows(statuses, state);
+  if (cursor.length) {
+    const at = Math.max(page.providers.findIndex(row => row.key === 'codex'), page.providers.findIndex(row => row.key === 'claude')) + 1;
+    page.providers.splice(at, 0, ...cursor.map(row => ({ key: `enable:${row.key}`, driver: 'cursor', label: row.label, light: PROVIDERS.cursor.color[0], dark: PROVIDERS.cursor.color[1],
+      sessions: '', value: '', detail: '', enable: row.key, enableLabel: `Enable Cursor usage from ${row.environment}`, busy: row.busy })));
   }
-  if (!cached.summary) { page.error = cached.error; page.environmentStatus = 'Unavailable'; page.empty = `${page.environmentName} could not report usage.`; return page; }
-  const environment = { id: client.environmentId, label: page.environmentName, summary: cached.summary };
-  page.chatgptShared = arr(client.config.providers).some(usesChatGptSharing); // the selected environment shares a ChatGPT plan
-  const merged = mergeUsage([environment]);
-  presentUsage(page, merged, cached.window, cached.summary);
   // UsageModelDialog for the row the person opened, while it is still in the window.
   const open = merged.models.find(model => modelKey(model) === openModel(client));
-  if (open) page.detail = modelDetail(open, environment, windowPeriods(cached.window), cached.window.resolution, metric, input.viewport ?? 1280);
+  if (open) page.detail = modelDetail(open, environments, windowPeriods(state.window), state.window.resolution, metric, input.viewport ?? 1280);
   else if (openModel(client)) setOpenModel(client, '');
   return page;
 }
@@ -413,17 +387,19 @@ export function windowPeriods(window: UsageWindow): string[] {
   return window.resolution === 'hour' && window.sinceTime && window.untilTime ? enumerateHourStarts(window.sinceTime, window.untilTime) : enumerateDays(window.sinceDay, window.untilDay);
 }
 
+type ProviderRowView = { key: string; driver: string; label: string; light: string; dark: string; sessions: string; value: string; detail: string; enable: string; enableLabel: string; busy: boolean };
 export function emptyUsage(metric: string, windowDays: number, breakdown: string, width: number) {
   return {
-    chatgptShared: false, metric, windowDays, breakdown, plotWidth: width, menuWidth: 224, menuProbes: [] as Probe[], empty: '', error: '', environmentLabel: 'All environments', environmentName: '', environmentStatus: 'Scanning…',
-    environmentSelected: true, environmentCount: 0, windowLabel: '', total: '', sessions: '', unpriced: '', notices: [] as { key: string; text: string }[],
-    providers: [] as { key: string; driver: string; label: string; light: string; dark: string; sessions: string; value: string; detail: string }[],
+    chatgptShared: false, metric, windowDays, breakdown, plotWidth: width, menuWidth: 224, menuProbes: [] as Probe[], empty: '', error: '', environmentLabel: 'All environments', allSelected: true,
+    environments: [] as { key: string; label: string; checked: boolean; disabled: boolean; status: string }[], environmentIcon: '', environmentPending: '', partial: '', refreshing: false,
+    windowLabel: '', total: '', sessions: '', unpriced: '', notices: [] as { key: string; text: string }[],
+    providers: [] as ProviderRowView[],
     chartTitle: '', chart: { ticks: [], series: [], start: '', middle: '', end: '' } as Chart,
     totals: [] as { key: string; label: string; value: string }[],
     models: [] as ModelRowView[], shares: [] as ShareBarView[], detail: emptyDetail(), prices: emptyPrices(),
     periodLabel: 'Day', columns: [] as { key: string; label: string }[],
     periods: [] as { key: string; label: string; cells: { key: string; text: string }[]; total: string; tokens: string }[],
-    limits: [] as LimitPool[], limitsEmpty: false, coverage: [] as { key: string; text: string }[],
+    pooled: emptyPooled(), coverage: [] as { key: string; text: string }[],
   };
 }
 export type UsageView = ReturnType<typeof emptyUsage>;
@@ -433,7 +409,6 @@ export function presentUsage(page: UsageView, merged: Merged, window: UsageWindo
   const hourly = window.resolution === 'hour';
   const periods = windowPeriods(window);
   const tokens = page.metric === 'tokens';
-  page.environmentStatus = 'Ready';
   page.windowLabel = hourly && window.sinceTime && window.untilTime ? `${formatDateTimeShort(window.sinceTime)} to ${formatDateTimeShort(window.untilTime)}` : `${formatDayShort(window.sinceDay)} to ${formatDayShort(window.untilDay)}`;
   page.total = tokens ? formatTokens(merged.totalTokens) : formatUsd(merged.costUsd);
   page.sessions = `${formatCount(merged.sessions)} sessions`;
@@ -446,7 +421,6 @@ export function presentUsage(page: UsageView, merged: Merged, window: UsageWindo
       ? `${mismatch.environment} runs an older server version and is excluded from totals.` : `This client is older than the server on ${mismatch.environment}; its usage is excluded from totals.` })),
     ...(merged.duplicates.length ? [{ key: 'duplicates', text: `Counted once across environments sharing a transcript directory: ${merged.duplicates.join(', ')}` }] : []),
   ];
-  if (merged.mismatches.length) page.environmentStatus = 'Update required';
   const active = providersWithUsage(merged);
   page.providers = active.map(provider => {
     const totals = merged.providers.find(entry => entry.provider === provider);
@@ -454,7 +428,8 @@ export function presentUsage(page: UsageView, merged: Merged, window: UsageWindo
     const meta = PROVIDERS[provider];
     return { key: provider, driver: meta.driver, label: meta.label, light: meta.color[0], dark: meta.color[1], sessions: `${formatCount(count)} ${count === 1 ? 'session' : 'sessions'}`,
       value: tokens ? formatTokens(totals?.totalTokens ?? 0) : formatUsd(totals?.costUsd ?? 0),
-      detail: tokens ? `${formatPercent(share)} of tokens · ${formatUsd(totals?.costUsd ?? 0)}` : `${formatPercent(share)} of cost · ${formatTokens(totals?.totalTokens ?? 0)} tokens` };
+      detail: tokens ? `${formatPercent(share)} of tokens · ${formatUsd(totals?.costUsd ?? 0)}` : `${formatPercent(share)} of cost · ${formatTokens(totals?.totalTokens ?? 0)} tokens`,
+      enable: '', enableLabel: '', busy: false };
   });
   page.chartTitle = `${hourly ? 'Hourly' : 'Daily'} ${tokens ? 'processed tokens' : 'cost'}`;
   page.chart = buildChart(merged, periods, hourly ? 'hour' : 'day', page.metric, page.plotWidth);

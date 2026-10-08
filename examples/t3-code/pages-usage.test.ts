@@ -1,6 +1,8 @@
 import { expect, test } from 'bun:test';
 import { formatUsd, formatTokens, formatPercent, formatCount, formatDayShort, makeWindow, enumerateDays, enumerateHourStarts, mergeUsage, niceScale,
-  curvePath, buildChart, presentUsage, emptyUsage, limitPools, usageKeys, plotWidth, usagePrefs, saveUsagePrefs, isModelCostUnknown } from './pages-usage';
+  curvePath, buildChart, presentUsage, emptyUsage, usageKeys, plotWidth, usagePrefs, saveUsagePrefs, isModelCostUnknown } from './pages-usage';
+import { collectLimitAccounts, collectLimitPools } from './usage-limits-pools';
+import { formatResetsIn } from './usage-limits';
 import { adoptPagesPrefs, pagesPrefs } from './pages-prefs';
 import type { Obj } from './domain';
 
@@ -88,17 +90,18 @@ test('the page presents the summary, provider rows, totals and both breakdowns',
   expect([tokens.total, tokens.chartTitle, tokens.providers[0]!.detail]).toEqual(['2.10K', 'Daily processed tokens', '50.0% of tokens · $9,604.72']);
 });
 
-test('limits list providers reporting windows, with pace and reset', () => {
+test('limits list providers reporting windows, with pace and reset (pooled: usage-limits-pools.ts)', () => {
   const now = Date.parse('2026-10-04T12:00:00Z');
   const providers = [
     { driver: 'codex', instanceId: 'codex', enabled: true, installed: true, status: 'ready', auth: { status: 'authenticated' }, usageLimits: { checkedAt: 'x', windows: [
       { id: 'primary', kind: 'session', label: '5 hour', usedPercent: 80, resetsAt: '2026-10-04T14:00:00Z', windowDurationMins: 300 }] } },
     { driver: 'claudeAgent', instanceId: 'claude', enabled: true, installed: true, status: 'ready', auth: { status: 'authenticated' } },
   ];
-  const pools = limitPools(providers, now);
+  const pools = collectLimitPools(collectLimitAccounts(new Map([['env', { entry: { target: { label: 'Mac' } }, serverConfig: { providers } }]])), now);
   expect(pools).toHaveLength(1);
-  expect(pools[0]!.windows[0]).toMatchObject({ label: '5 hour', remaining: 20, pace: 'ahead', resets: 'resets in 2h 0m' });
-  expect(limitPools([], now)).toEqual([]);
+  expect(pools[0]!.windows[0]).toMatchObject({ label: '5 hour', remainingPercent: 20, pace: 'ahead' });
+  expect(formatResetsIn(pools[0]!.windows[0]!.members[0]!.window, now)).toBe('resets in 2h 0m');
+  expect(collectLimitPools(collectLimitAccounts(new Map()), now)).toEqual([]);
 });
 
 test('usage shortcuts resolve with usagePageOpen and the last binding wins', () => {
