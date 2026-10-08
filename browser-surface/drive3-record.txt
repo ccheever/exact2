@@ -1,0 +1,102 @@
+browser-surface part 1 — drive 3 (agent mode on the fixed build cf53202c4; coordinator go-ahead 2026-10-08T18:29Z; screen locked).
+Lane as drives 1-2 (record drive-record.txt): T3_LOCAL_HOME seeded (projects 'work', 'site'), T3_LOCAL_PORT=16650, T3_LOCAL_RUNTIME_DIR,
+isolated CODEX_HOME/CLAUDE_CONFIG_DIR/XDG_*, telemetry off, lane PATH; fixture 127.0.0.1:16651; T3_REMOTE_OPEN_LOG; no account used.
+pids: fixture 16453, agent 16454, embedded server 16621; `t3 app <lane>/projects/work` exit 0. Agent captures are blank while the screen is
+locked, so the proof is the tree, the logs and the fixture's request log. Nothing that passed in drive 2 was re-checked.
+
+op 1: {"clock": 15000}
+op 2: {"clock": 21000}
+op 3: {"target": "toggle-right-panel", "tapped": 129, "clock": 21000}
+op 4: {"clock": 22500}
+op 5: {"target": "surface-browser", "tapped": 685, "clock": 22500}
+op 6: {"clock": 25500}
+op 7: {"target": "browser-url", "value": "127.0.0.1:16651", "clock": 25500}
+op 8: {"target": "browser-url", "value": "", "key": "Enter", "clock": 25500}
+op 9: {"clock": 29500}
+op 10: {"clock": 29500, "screenshot": "03-lane-page.png (blank: screen locked)"}
+op 11: logs (host) ->
+    app: t3.inspection: browser web view isInspectable=true (development build)
+    app: t3.browser: open ["508c0f8f-46dd-4a19-9dec-1a1363bf7955","d3f0a856-8dd8-432f-bf90-2d1afefefabd","fe6a71be-6035-44a4-b79f-a94bdd0994b0","tab_1"]
+    app: t3.browser: navigate http://127.0.0.1:16651/
+op 12: {"target": "browser-url", "value": "127.0.0.1:16651/a", "clock": 29500}
+op 13: {"target": "browser-url", "value": "http://127.0.0.1:16651/", "key": "Enter", "clock": 29500}
+op 14: {"clock": 32500}
+op 15: {"target": "browser-url", "value": "127.0.0.1:16651/b", "clock": 32500}
+op 16: {"target": "browser-url", "value": "http://127.0.0.1:16651/a", "key": "Enter", "clock": 32500}
+op 17: {"clock": 35500}
+op 18: {"clock": 35500, "screenshot": "04-page-b.png (blank: screen locked)"}
+op 19: {"target": "browser-back", "tapped": 876, "clock": 35500}
+op 20: {"clock": 38500}
+op 21: {"clock": 38500, "screenshot": "05-back.png (blank: screen locked)"}
+op 22: tree ->
+    {"testId": "browser-tab-favicon"}
+    {"testId": "tab-browser:tab_1", "accessibilityLabel": "Page A"}
+    {"testId": "browser-back", "accessibilityLabel": "Back", "disabled": false}
+    {"testId": "browser-forward", "accessibilityLabel": "Forward", "disabled": false}
+    {"testId": "browser-refresh", "accessibilityLabel": "Refresh", "disabled": false}
+    {"testId": "browser-url", "accessibilityLabel": "Search or enter URL", "value": "http://127.0.0.1:16651/a"}
+    {"testId": "browser-page", "accessibilityLabel": "Browser page"}
+op 23: {"target": "browser-forward", "tapped": 884, "clock": 38500}
+op 24: {"clock": 41500}
+op 25: {"clock": 41500, "screenshot": "06-forward.png (blank: screen locked)"}
+op 26: {"target": "browser-url", "value": "127.0.0.1:16651/slow?ms=9000", "clock": 41500}
+op 27: {"target": "browser-url", "value": "http://127.0.0.1:16651/b", "key": "Enter", "clock": 41500}
+op 28: {"clock": 43500}
+op 29: {"clock": 43500, "screenshot": "07-loading.png (blank: screen locked)"}
+op 30: tree ->
+    {"testId": "browser-tab-favicon"}
+    {"testId": "tab-browser:tab_1", "accessibilityLabel": "Page B"}
+    {"testId": "browser-back", "accessibilityLabel": "Back", "disabled": false}
+    {"testId": "browser-forward", "accessibilityLabel": "Forward", "disabled": true}
+    {"testId": "browser-refresh", "accessibilityLabel": "Stop", "disabled": false}
+    {"testId": "browser-url", "accessibilityLabel": "Search or enter URL", "value": "http://127.0.0.1:16651/slow?ms=9000"}
+    {"testId": "browser-page", "accessibilityLabel": "Browser page"}
+op 31: {"target": "browser-refresh", "tapped": 892, "clock": 43500}
+op 32: {"clock": 45000}
+op 33: {"clock": 45000, "screenshot": "08-stop-pressed.png (blank: screen locked)"}
+op 34: {"clock": 56000}
+op 35: {"clock": 56000, "screenshot": "09-slow-loaded.png (blank: screen locked)"}
+op 36: {"target": "browser-url", "value": "example.com", "clock": 56000}
+op 37: {"target": "browser-url", "value": "http://127.0.0.1:16651/slow?ms=9000", "key": "Enter", "clock": 56000}
+op 38: {"clock": 63000}
+op 39: {"clock": 63000, "screenshot": "10-public.png (blank: screen locked)"}
+op 40: {"target": "browser-address", "tapped": 899, "clock": 63000}
+op 41: {"clock": 63300}
+op 42: {"target": "browser-open-external", "tapped": 1039, "clock": 63300}
+op 43: {"clock": 63800}
+op 44: {"target": "browser-url", "value": "127.0.0.1:16699", "clock": 63800}
+op 45: {"target": "browser-url", "value": "https://example.com/", "key": "Enter", "clock": 63800}
+op 46: {"clock": 67800}
+op 47: {"clock": 67800, "screenshot": "11-failed.png (blank: screen locked)"}
+op 48: tree ->
+    {"testId": "browser-tab-globe"}
+    {"testId": "tab-browser:tab_1", "accessibilityLabel": "Example Domain"}
+    {"testId": "browser-back", "accessibilityLabel": "Back", "disabled": false}
+    {"testId": "browser-forward", "accessibilityLabel": "Forward", "disabled": true}
+    {"testId": "browser-refresh", "accessibilityLabel": "Refresh", "disabled": false}
+    {"testId": "browser-url", "accessibilityLabel": "Search or enter URL", "value": "http://127.0.0.1:16699/"}
+    {"testId": "browser-failed-title", "text": "This site can’t be reached"}
+    {"text": "127.0.0.1:16699: Connection refused.", "testId": "browser-failed-text"}
+    {"text": "ERR_CONNECTION_REFUSED", "testId": "browser-failed-code"}
+op 49: {"target": "browser-failed-reload", "tapped": 1067, "clock": 67800}
+op 50: {"clock": 70800}
+op 51: {"target": "browser-url", "value": "127.0.0.1:16651/a", "clock": 70800}
+op 52: {"target": "browser-url", "value": "http://127.0.0.1:16699/", "key": "Enter", "clock": 70800}
+op 53: {"clock": 73800}
+op 54: {"target": "browser-more", "tapped": 935, "clock": 73800}
+op 55: refused by the agent driver — `clock +1000 real`: "the clock cannot go backwards (73800.0 → 73799.99999999999)":
+    exact2 #285 (agent driver), closed by main #304 (235164b3a), not yet in this branch (round 7, QUEUE.md entry). Ops 55-71
+    (Hard reload, panel hide/show, closing the tab) were not reached.
+
+Fixture request log:
+fixture on 16651
+2026-10-08T18:38:11.505Z GET /
+2026-10-08T18:38:11.514Z GET /favicon.png
+2026-10-08T18:38:15.844Z GET /a
+2026-10-08T18:38:18.919Z GET /b
+2026-10-08T18:38:28.950Z GET /slow
+2026-10-08T18:38:31.274Z GET /slow
+2026-10-08T18:39:00.083Z GET /a
+
+T3_REMOTE_OPEN_LOG (Open in system browser, recorded in agent runs):
+https://example.com/
