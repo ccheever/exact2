@@ -273,6 +273,8 @@ shape PickerRow
   highlighted: bool
   expanded: bool
   checked: bool
+  // settings-model-picker: getModelDisabledReason; a disabled row cannot be chosen or favorited.
+  reason: string
 shape PickerRail
   id: string
   index: number
@@ -305,3 +307,11 @@ shape PickerCatalog
   providers: list<PickerRail>
   railIndex: number
   setup: list<PickerSetup>
+  // The active model is a legacy one: its section starts expanded (expandedLegacyInstances).
+  legacyDefault: bool
+// settings-model-picker: the row the open picker chooses for ("" for the composer) and its trigger's window-space edges.
+shape PickerTarget
+  id: string
+  top: number
+  bottom: number
+  left: number

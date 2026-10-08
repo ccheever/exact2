@@ -1,13 +1,13 @@
 ---
 name: 20261007-settings-model-picker
 plan: 20261005-t3code-macos-parity
-implementation: planned
+implementation: implemented
 verification: unverified
-delivery: none
+delivery: draft
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
-branch: null
-pr_url: null
+branch: feat(example)/t3-code-settings-model-picker
+pr_url: https://github.com/ccheever/exact2/pull/246
 verified_commit: null
 ---
 
@@ -91,7 +91,68 @@ comparison. Account authentication is not needed to prove these controls with an
 | Text generation | Use a catalog with an unsupported provider/model | Unsupported choices follow the reference's visibility/disabled rules and cannot be saved | Fixture test and capture |
 | Keyboard | Open, search, move through providers/results, choose and dismiss with Escape | Reference keyboard navigation and focus return; current thread selection stays unchanged | Bounded live drive |
 
+## Progress
+
+2026-10-08, draft PR #246 (`e9fbc8ef4`). Both General model rows now open the composer's
+picker, with no fork. The shared parts are `pickerCatalog` with a `PickerTarget`, and `ModelPicker` with an `anchor`.
+`settings-model-picker.ts` adapts the catalog to the settings scope. `settings-core.ts`
+`scopedModelReason` ports `useScopedModelDisabledReason`: it disables rows, refuses picks and supplies the toast text.
+Picks write through the existing `settings-core` command. Mixed rows show a neutral
+trigger. In Settings, the picker's provider and jump keys act on the settings catalog. Escape closes
+the picker, not Settings. Unit tests cover every acceptance row (`settings-model-picker.test.ts`, 9 tests).
+No live row has run yet: two sessions failed in the drive's setup, and the approved third session ran with the screen locked (below). The rows are deferred to the real-input batch.
+
+The brief's provider-sign-in lane logins no longer exist (the `t3-code-provider-sign-in-and-install`
+worktree is gone). The lane catalog uses fixture credentials instead, with no real account:
+- Codex: an API-key auth file with a placeholder.
+- Claude: a placeholder `ANTHROPIC_API_KEY` in the instance environment.
+
+Both probe `ready` / `authenticated`: Codex 0.151.0 with 5 models, all legacy, and Claude 2.1.293 with 12.
+
+## Attempts and evidence
+
+| Attempt | Revision/fingerprint | Checks and outcomes | Evidence | Remaining blocker |
+| --- | --- | --- | --- | --- |
+| 1 (2026-10-08) | `e9fbc8ef4` | `bun test examples/t3-code` 2520 pass / 1 skip / 0 fail (205 files); strict `tsc` clean; contract build 2628 slots, 46 resources; `cargo test -p t3-code-macos --lib` 11 pass; caps within (`app.contract` 1,499 lines); five checks: build 0, test 3383 pass / 0 fail / 33 ignored (94 binaries), clippy 0, fmt 0, boot 0 | [checks.txt](https://github.com/ccheever/exact2/blob/db93d8b98ef678b3be35ff249371538ef183b85b/settings-model-picker/checks.txt) | — |
+| Live session 1 (18:20Z) | dev build of `e9fbc8ef4` sources, lane port 16810 | Failed in setup: the development build has no bundled `t3-runtime`, so "This machine" did not start (`T3_LOCAL_RUNTIME_DIR` unset). No flow ran | [live-attempts.md](https://github.com/ccheever/exact2/blob/56cd563cc93a3785951b6e72693d12ebb9e3941e/settings-model-picker/live-attempts.md) | — |
+| Live session 2, retry (18:22Z) | same | Server up in 2 s, providers ready in 3 s. The drive treated the still-inert main window as decided, and every tap was refused. No flow ran | same | — |
+| Approved session (2026-10-08 01:07-01:10Z, screen locked) | base `da4f4512f` (evidence-base, build lock held), then branch `e9fbc8ef4`; ports 16812 / 16810; `T3_LOCAL_RUNTIME_DIR` set | Base: every tap refused for 20 s and every capture blank. Branch: Settings opened at 0.56 s and closed, providers ready at 1.1 s, then every tap refused for 40 s and every capture blank. No row flow ran. Every process exited and the ports are free | [live-session-3.md](https://github.com/ccheever/exact2/blob/31dcb418267527791e7add96b034034f2ddaf3ef/settings-model-picker/live-session-3.md) | deferred to the real-input batch — screen locked (user away) |
+
+## Real-input batch steps
+
+Every live row is deferred to the real-input batch — screen locked (user away). Steps, with the screen unlocked:
+
+1. **Builds.**
+   - Branch: `t3-code-settings-model-picker` worktree at `e9fbc8ef4` (dev build already made; rebuild with
+     `export PATH=$HOME/.bun-1.4.2/bin:$PATH; EXACT_APP_DIR=$PWD/examples/t3-code bun host/apple/build.mjs t3-code-macos`).
+   - Base: `t3-code-evidence-base` at `da4f4512f`, already built. Take `.build-lock` while running it.
+2. **Lane.** `target/smp/lane` in the task worktree:
+   - Homes: `t3-a` for the branch, `t3-b` for the base, each `userdata/settings.json` with the Codex / Claude / Antigravity instances.
+   - Runtime: `runtime/` (the staged t3 0.0.46-nightly, unpacked).
+   - `bin/` symlinks: `codex`, `node`, `claude`.
+   - Fixture keys: placeholder API keys in `codex/auth.json` and in the Claude instance environment. No account; no prompt is sent.
+   - Ports: 16812 for the base, 16810 for the branch.
+3. **Drive.** Both commands run from the task worktree.
+   - Base: `bun target/smp/drive.mjs before target/smp/drive-before /Users/daehyeonmun/orca/workspaces/exact2/t3-code-evidence-base`.
+   - Branch: `bun target/smp/drive.mjs after target/smp/drive-after /Users/daehyeonmun/orca/workspaces/exact2/t3-code-settings-model-picker`.
+   - Copy: [drive.mjs.txt](https://github.com/ccheever/exact2/blob/012fdceb1d43ce42a7482ac1d5b6d7715e185c8f/settings-model-picker/drive.mjs.txt).
+   - Each run writes `steps.ndjson` and PNGs. Check that `"uniform":false` holds on every `shot` line.
+4. **Rows, which the branch drive performs in this order.** After each step, read back `catalog`, the General row, the lane `settings.json` and the composer model.
+   - Before/after pairs: `02-default-model-open` and `03-text-generation-open` (General, picker open, untouched settings).
+   - Provider browsing: tap `provider-claudeAgent`, then `provider-codex` (`04`, `05`). Read back: rail Favorites / Codex / Claude / Antigravity (disabled) and the selected rail.
+   - Search: type `opus`, `codex`, `zzzz`, then clear it in `model-search` (`06`-`08`). Read back: cross-provider results, `model-empty`, and that the rail returns.
+   - Favorites: star `favorite-claude-opus-5-5` (`09`), open `provider-favorites` (`10`), press Escape, close Settings. Then open the composer's `model-picker` (`11`, opens on Favorites), press Escape, reopen the Settings picker and unstar (`12`). Read back: `settings.json` and the composer model unchanged.
+   - Legacy: `provider-codex`, `model-legacy` twice (`13`-`15`), then pick `model-gpt-5.5` (`16`). Read back: the row label and `defaultModelSelection`.
+   - Scoped selection: choose project `model-demo` (add it first with `add-project` + the path `target/smp/lane/repos/model-demo`) and pick Claude Opus (`18`, `projectSettingsOverrides`). Choose the environment row and pick `gpt-5.2` (`19`). Choose All environments and pick Claude Sonnet.
+   - Text generation: open the picker; the rail has no Antigravity. Pick Claude Opus (`20`, `textGenerationModelSelection`).
+   - Keyboard: ArrowDown ×2 (`21`), ArrowLeft to the rail, ArrowDown, ArrowRight back to search, type `opus 5.5`, ArrowDown, Enter (`22`, the setting changes). Reopen, press Escape: the picker closes, Settings stays open, focus is on the trigger.
+5. **Disabled-row tooltip (real hover).** Pair a second lane server through Settings › Connections › Add environment:
+   - Command: `target/smp/lane/serve.sh 16811` with `claudeAgent` disabled in its settings.
+   - At All environments, open the default model picker and hover a Claude row. Expect the tooltip "This model is unavailable on <second>. Select that environment to choose its model separately." The row is dimmed and its star is disabled.
+   - The row is pressed with `orca computer` under the real-input lock.
+6. **Evidence.** Compose base | branch pairs with PIL; upload them to `t3-code-evidence/settings-model-picker/`.
+
 ## Next action
 
-Prepare a settings adapter for the existing model catalog/picker, then implement and run the
-affected app tests and a rebuilt macOS comparison before changing verification status.
+Run "Real-input batch steps" in the coordinator's real-input batch (screen unlocked). Then attach the pairs and
+after-only images to PR #246 and change `verification`. Everything except the live rows is done.

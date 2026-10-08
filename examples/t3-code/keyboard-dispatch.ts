@@ -21,7 +21,9 @@ import { terminalRows, terminalOpen } from './terminal-drawer-view';
 import { terminalFocused } from './terminal-focus'; // terminal-drawer: ⌘J
 
 export type DispatchContext = { composerFocus: boolean; editableFocus: boolean; turnRunning: boolean; modelPickerOpen: boolean; draftThreadRoute: boolean; modalOpen: boolean; settingsOpen: boolean; diffOpen: boolean;
-  terminalFocus?: boolean; terminalOpen?: boolean; paletteOpen?: boolean; paletteMode?: string; prNumber?: string; undoShown?: boolean; settingsRoute?: string; page?: string };
+  terminalFocus?: boolean; terminalOpen?: boolean; paletteOpen?: boolean; paletteMode?: string; prNumber?: string; undoShown?: boolean; settingsRoute?: string; page?: string;
+  /** The open picker's Settings row (settings-model-picker.ts); '' for the composer's. */
+  modelTarget?: string };
 type Rule = { command: string; chord: string; whenAst: unknown };
 
 const NAMED: Record<string, string> = { ' ': 'Space', space: 'Space', escape: 'Escape', esc: 'Escape', enter: 'Enter', tab: 'Tab', arrowup: 'ArrowUp', arrowdown: 'ArrowDown', arrowleft: 'ArrowLeft', arrowright: 'ArrowRight', backspace: 'Backspace', delete: 'Delete', pageup: 'PageUp', pagedown: 'PageDown', home: 'Home', end: 'End', '+': 'Plus' };
@@ -123,6 +125,7 @@ export function keyboardDispatch(client: T3Client, threads: Obj[], browseProvide
     add('themeEditor.toggle', 'palette-run', 'theme-editor', 'Toggle Theme Editor');
     // thread-commands-and-keys: the palette provider's chords are app-wide (CommandPalette.tsx), so they work in Settings too.
     overlays(); add('theme.select', 'palette', 'command', 'Change Theme', 'theme'); add('usage.open', 'palette-run', 'usage', 'Open Usage'); appearanceRow(add, client, threads, browseProvider, modelQuery, context);
+    modelPickerRows(add, client, threads, browseProvider, modelQuery, context); // a General model row's picker (ModelPickerContent's own keys)
     return out;
   }
   overlays();
@@ -225,12 +228,13 @@ function turnRows(add: DispatchAdd, client: T3Client, threads: Obj[], browseProv
 /** The open model picker: provider rail and the first nine models. */
 function modelPickerRows(add: DispatchAdd, client: T3Client, threads: Obj[], browseProvider: string, modelQuery: string, context: DispatchContext): void {
   if (context.modelPickerOpen) {
-    const catalog = modelCatalog(client, browseProvider, modelQuery);
+    const catalog = modelCatalog(client, browseProvider, modelQuery, context.modelTarget ?? '');
     const rail = ['favorites', ...catalog.providers.map(provider => provider.id)];
     const at = Math.max(0, catalog.railIndex);
     add('modelPicker.previousProvider', 'provider', rail[at <= 0 ? rail.length - 1 : at - 1], 'Previous Provider');
     add('modelPicker.nextProvider', 'provider', rail[at >= rail.length - 1 ? 0 : at + 1], 'Next Provider');
-    catalog.models.filter(row => row.kind === 'model').slice(0, 9).forEach((row, index) => add(`modelPicker.jump.${index + 1}`, 'model', row.id, `Model ${index + 1}`, row.providerId));
+    // modelJumpCommandByKey: a disabled model (getModelDisabledReason) takes no jump number.
+    catalog.models.filter(row => row.kind === 'model' && !row.reason).slice(0, 9).forEach((row, index) => add(`modelPicker.jump.${index + 1}`, 'model', row.id, `Model ${index + 1}`, row.providerId));
   }
 }
 
@@ -238,5 +242,5 @@ function modelPickerRows(add: DispatchAdd, client: T3Client, threads: Obj[], bro
 export function keyboardDispatchSource(client: T3Client, args: unknown[]): Dispatch[] {
   return keyboardDispatch(client, Array.isArray(args[0]) ? args[0] as Obj[] : [], String(args[1] || ''), String(args[2] || ''), { composerFocus: args[3] === true, editableFocus: args[3] === true || args[7] === true,
     turnRunning: args[4] === true, modelPickerOpen: args[5] === true, draftThreadRoute: args[6] === true, modalOpen: args[7] === true, settingsOpen: args[8] === true, diffOpen: args[9] === true,
-    paletteOpen: args[11] === true, paletteMode: String(args[12] || ''), prNumber: String(args[13] || ''), undoShown: args.length > 14 ? args[14] === true : undefined, settingsRoute: String(args[15] || ''), page: String(args[16] || '') });
+    paletteOpen: args[11] === true, paletteMode: String(args[12] || ''), prNumber: String(args[13] || ''), undoShown: args.length > 14 ? args[14] === true : undefined, settingsRoute: String(args[15] || ''), page: String(args[16] || ''), modelTarget: String(args[17] || '') });
 }
