@@ -130,6 +130,8 @@ component PrdTimeline
     local: action
     act: action
     retry: action
+    // pr-code-tab: a commit row opens the Code tab on that commit (PullRequestDetailPanel openCommit).
+    openCommit: action
   view
     column width="100%" testId="pull-request-timeline"
       when pending
@@ -142,7 +144,7 @@ component PrdTimeline
             column width="100%" position="relative"
               box position="absolute" left="0.9375rem" top="0.25rem" bottom="1.25rem" width=1 background-color="light-dark(#e4e4e773, #ffffff0f)" aria-hidden=true
               each row in (order == "newest" ? timeline.newest : timeline.oldest) key=row.key
-                PrdTimelineRow(row=row, choices=choices, scope=scope, documents=documents, code=code, env=env, still=still, local=local, act=act)
+                PrdTimelineRow(row=row, choices=choices, scope=scope, documents=documents, code=code, env=env, still=still, local=local, act=act, openCommit=openCommit)
             when timeline.empty
               column width="100%" padding-top="4rem" padding-bottom="4rem" align-items="center" justify-content="center" gap="0.5rem"
                 PgIcon(name="git-pull-request", size=20, color=prtMuted())
@@ -159,17 +161,22 @@ component PrdTimelineRow
     still: bool
     local: action
     act: action
+    openCommit: action
+  state over = false
+  action hover(value: bool)
+    over = value
   view
     when row.kind == "comments"
       PrdConversationGroup(row=row, choices=choices, scope=scope, documents=documents, code=code, env=env, still=still, local=local, act=act)
     when row.kind == "verdict"
       PrdVerdictRow(row=row, choices=choices, scope=scope, documents=documents, code=code, env=env, local=local, act=act)
     when row.kind == "commit"
-      column position="relative" margin-bottom="1.25rem" padding-left="3rem" box-sizing="border-box" testId=`pull-request-timeline-commit-${row.sha}`
+      // CommitEvent: the whole row is a button that opens the commit's diff; its headline takes the primary tone on hover.
+      button press=openCommit(row.id) hover=hover aria-label=`View commit ${row.id}` position="relative" width="100%" margin-bottom="1.25rem" padding=0 padding-left="3rem" box-sizing="border-box" border-width=0 border-radius="0.125rem" background-color="#00000000" text-align="left" display="flex" flex-direction="column" testId=`pull-request-timeline-commit-${row.sha}`
         PrdMarker(row=row, pinned=false, muted=false, icon="git-commit-horizontal")
-        row min-width=0 align-items="center" gap="0.625rem" padding-top="0.375rem" padding-bottom="0.375rem"
+        row width="100%" min-width=0 align-items="center" gap="0.625rem" padding-top="0.375rem" padding-bottom="0.375rem"
           column flex=1 min-width=0
-            text row.headline font-size="0.75rem" line-height="1rem" font-weight=600 color=prtInk() white-space="nowrap" overflow="hidden" text-overflow="ellipsis"
+            text row.headline font-size="0.75rem" line-height="1rem" font-weight=600 color=(over ? "light-dark(#1b4ed8, #346bf1)" : prtInk()) white-space="nowrap" overflow="hidden" text-overflow="ellipsis"
             row margin-top="0.25rem" flex-wrap="wrap" align-items="center" gap="0.5rem"
               text row.sha font-family="ui-monospace" font-size="0.625rem" line-height="0.875rem" color=prtMuted()
               Tip(label=row.ageTip, side="top", align="start", offset=18)

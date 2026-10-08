@@ -48,8 +48,8 @@ export class DiffState {
 export const DIFF_LOCAL_OPS = ['diff-view', 'diffreview'];
 export const ROW_LIMIT = 4000;
 
-type Line = { kind: 'context' | 'addition' | 'deletion'; text: string; old: number; next: number };
-type Hunk = { oldStart: number; newStart: number; lines: Line[] };
+export type Line = { kind: 'context' | 'addition' | 'deletion'; text: string; old: number; next: number };
+export type Hunk = { oldStart: number; newStart: number; lines: Line[] };
 export type DiffFileModel = { path: string; previous: string; status: 'modified' | 'added' | 'deleted' | 'renamed'; additions: number; deletions: number; binary: boolean; hunks: Hunk[] };
 
 function threadKey(client: T3Client): string { return `${client.environmentId}:${client.threadId}`; }
@@ -177,7 +177,7 @@ export function parsePatch(patch: string): DiffFileModel[] {
   return files.sort((a, b) => a.path.toLowerCase().localeCompare(b.path.toLowerCase()));
 }
 
-type Segment = { id: string; text: string; mark: boolean; syntax: string };
+export type Segment = { id: string; text: string; mark: boolean; syntax: string };
 const tokens = (text: string) => text.match(/\w+|\s+|[^\w\s]/g) ?? [];
 /** Word marks for a replaced line pair: the changed middle between shared prefix and suffix tokens. */
 export function wordMarks(before: string, after: string): [Segment[], Segment[]] {
@@ -195,10 +195,10 @@ export function wordMarks(before: string, after: string): [Segment[], Segment[]]
   return [split(a), split(b)];
 }
 /** A drawn line: its tone and number, and the line it is on each side (0 for none), for line selection and comments. */
-type Row = { tone: string; number: string; segments: Segment[]; oldLine: number; newLine: number };
-const plain = (text: string): Segment[] => [{ id: '0', text, mark: false, syntax: '' }];
-/** One hunk as stacked rows and split pairs (no word marks: `lineDiffType: "none"`). */
-function hunkRows(hunk: Hunk, path: string): { stacked: Row[]; split: { left: Row; right: Row }[] } {
+export type Row = { tone: string; number: string; segments: Segment[]; oldLine: number; newLine: number };
+export const plain = (text: string): Segment[] => [{ id: '0', text, mark: false, syntax: '' }];
+/** One hunk as stacked rows and split pairs (no word marks: `lineDiffType: "none"`); the pull request Code tab draws the same rows (pages-pr-code-rows.ts). */
+export function hunkRows(hunk: Hunk, path: string): { stacked: Row[]; split: { left: Row; right: Row }[] } {
   const stacked: Row[] = [], split: { left: Row; right: Row }[] = [];
   const empty: Row = { tone: 'empty', number: '', segments: [], oldLine: 0, newLine: 0 };
   // Each side is highlighted as one text (timeline-diff-syntax.ts).

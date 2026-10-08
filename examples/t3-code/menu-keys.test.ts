@@ -55,6 +55,7 @@ describe('the shared menu keyboard (Base UI Menu)', () => {
     ['shell-details.contract', 'details-editors-keys'], ['r6-polish.contract', 'details-scripts-keys'], ['diff.contract', 'diff-scope-keys'], ['diff.contract', 'diff-turns-keys'],
     ['r6-device.contract', 'device-text-keys'], ['r6-device.contract', 'device-rotate-keys'], ['r6-device.contract', 'device-more-keys'], ['r4-surfaces-files.contract', 'crumb-menu-keys'],
     ['r4-surfaces-files.contract', 'file-editors-keys'], ['r8-keys-table-menu.contract', 'table-copy-keys'],
+    ['pages-pr-code.contract', 'pull-request-code-scope-keys'],
   ];
   test.each(menus)('%s wraps its rows in the keyboard menu %s', async (file, menuId) => {
     const text = await source(file);

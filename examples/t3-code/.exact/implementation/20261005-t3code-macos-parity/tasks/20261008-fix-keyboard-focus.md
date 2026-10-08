@@ -72,10 +72,10 @@ Included:
 - One regression test per bug that fails on the base.
 - A live row for each bug, run with real input under the shared lock, base and branch.
 - Before/after evidence.
-- The shared pattern on the 36 `KeyMenu` call sites. The Settings kit menus (`CnMenu`, `SkPopup`, `ScopeMenu`,
+- The shared pattern on the 37 `KeyMenu` call sites (36, plus #308's Code tab scope menu after the merge). The Settings kit menus (`CnMenu`, `SkPopup`, `ScopeMenu`,
   `CoreMenu`, `TraitsMenu`) carry it to every Settings menu that uses them.
 - ↓/↑-to-open on every menu trigger:
-  - 32 popover triggers have `KeyMenuOpen`. Six gained a positioned wrapper: Keybindings and Scheduled Tasks
+  - 33 popover triggers have `KeyMenuOpen`. Six gained a positioned wrapper: Keybindings and Scheduled Tasks
     rows, the Scheduled Tasks environment, `SettingsSelect`, `GhostSelect`, and the snooze clock.
     `R7DevSelect`'s box became positioned.
   - 12 state-driven menus open from their trigger's key handler. The device rail's three menus share one handler;
@@ -128,7 +128,7 @@ Tests:
   - `kmBump` evaluated as written: every bump differs from the last, with the end in its sign.
   - Every menu's `KeyMenu`, with its modality.
   - Every popover trigger that counts its keyboard openings has a `KeyMenuOpen` for its own popover and is armed
-    by its own focus (32 triggers).
+    by its own focus (33 triggers).
   - The state-driven openers.
   - Every `menuitem` in a keyboard-menu file has an `id`.
   - The bug 4, 6, 5, 13 and 16 pins.
@@ -136,17 +136,17 @@ Tests:
 
 `app.contract`: 1,478 lines after merging `732f0e3f3`, the same as the base (0 net root lines; one root line changed).
 
-Plan: 4,920 slots and 16.08 MB, against the base's 3,931 slots and 15.23 MB. The difference is each menu's focus
-state and its invokers.
+Plan, after merging `0e2901aec`: 5,491 slots and 18.24 MB, against the base's 4,478 slots and 17.36 MB. The difference is
+each menu's focus state and its invokers.
 
 ## Menus covered
 
-The pattern is on 36 `KeyMenu` call sites.
+The pattern is on 37 `KeyMenu` call sites.
 
-Popover menus (`modal=true`, 22):
+Popover menus (`modal=true`, 23):
 - Sidebar row snooze.
 - Pull requests: Sort, provider, Filters and its submenu.
-- PR detail: More, Check out, the stack menu, the row stack popover.
+- PR detail: More, Check out, the stack menu, the row stack popover, the Code tab's scope menu (#308).
 - Usage: environment; Usage prices: apply.
 - Hero: project picker.
 - Legacy sidebar options; SnapShots sound.
@@ -169,8 +169,9 @@ State-driven menus (`modal=false`, 14):
 The trigger of a state-driven menu that the data module opens lets go of the focus first, so the popup can take it.
 
 ↓/↑ on a closed trigger:
-- All 32 popover triggers that count keyboard openings, through `KeyMenuOpen`, the sign-in method menu included
-  since #312 merged (its ids take #312's `idPrefix`). Not the Icon submenu row.
+- All 33 popover triggers that count keyboard openings, through `KeyMenuOpen`. That includes the sign-in method menu
+  since #312 merged (its ids take #312's `idPrefix`) and #308's PR Code tab scope menu (its rows' stable ids are the
+  `KmItem`s). Not the Icon submenu row.
 - The 12 top-level state-driven menus, from their trigger's key handler.
 - The table Copy menu mounts at the window, outside its trigger's tree. Its ↓/↑ request carries the end
   (`keys:first`/`keys:last` before the table), and the data module hands it back as `menu.keyed`, so the menu
@@ -276,13 +277,14 @@ capture while the code is on screen):
 
 ## Current state
 
-- Head: see the PR. Merged in: `84a52dde0` (#290) and `421047c46` (#312).
+- Head: see the PR. Merged in: `84a52dde0` (#290), `421047c46` (#312) and `0e2901aec` (#308).
   - #312's sign-in method menu now has the shared pattern: its `KmItem` ids take `idPrefix`, and its trigger has
     `KeyMenuOpen`. #312 merged without its own invoker.
 - Draft PR #310's body is current with this record.
 - Expected conflicts, per the coordinator; whoever lands second resolves them:
-  - `diff.contract` `DiffScopeMenu` with #308: the `keyed` prop and the Escape box.
   - The More and Check out menus with #311.
+  - #308's conflict was a `use` block in `diff.contract`; `DiffScopeMenu` keeps its `keyed` prop and the Escape box,
+    and its rows' ids equal their testIds, which are the `KmItem` ids.
 
 ## Next action
 
