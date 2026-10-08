@@ -1,3 +1,4 @@
+import { mobileDraftSettingsHandles } from './mobile-draft-settings';
 // Pinned365aa87982 use-thread-composer-state run-loss recovery and composerContext.
 // @ref llp/1107.005-composer-and-transcript.decision.md#scratch-tasks-and-queue-boundaries
 import { T3Client, type Pending } from './shared/client';
@@ -149,6 +150,10 @@ function pruneRetiredMarkers(client: T3Client) {
  * context is extended before super.write; retry payloads stay immutable. */
 export class MobileDraftClient extends T3Client {
   override get draftKey(): string { return mobileNewTaskDraftBoundKey(this) || super.draftKey; }
+  override async command(...args: Parameters<T3Client['command']>): ReturnType<T3Client['command']> {
+    const [op, id, value, n, native, storage] = args, handles = mobileDraftSettingsHandles(this, op, native, storage);
+    return super.command(op, id, value, n, handles.native, handles.storage);
+  }
   protected override finishPending(pending: Pending, environmentId = this.environmentId): void {
     if (!mobileNewTaskLaunchFinish(this, pending, environmentId)) super.finishPending(pending, environmentId);
   }
@@ -165,10 +170,10 @@ export class MobileDraftClient extends T3Client {
     super.chooseDefaults();
     if (this.threadId) return;
     const independent = mobileNewTaskDraftCurrent(this);
-    if (independent && mobileNewTaskDraftChoicesRestore(this, independent.key)) return;
     const selected = mobileNewTaskDefaultModel(this);
     this.providerId = selected?.instanceId ?? ''; this.modelId = selected?.model ?? '';
     this.modelOptions = selected?.options ?? [];
+    if (independent) mobileNewTaskDraftChoicesRestore(this, independent.key);
   }
   override async persist(storage: Files): Promise<void> {
     pruneRetiredMarkers(this);

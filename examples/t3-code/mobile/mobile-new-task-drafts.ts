@@ -7,7 +7,7 @@ import { draftFiles, setDraftFiles, type DraftFile } from './shared/composer-edi
 import { mobileQueuedEditOrigin } from './queued-edit-origin';
 
 export interface MobileNewTaskChoices {
-  providerId: string; modelId: string; modelOptions: Obj[]; runtimeMode: string; interactionMode: string;
+  providerId?: string; modelId?: string; modelOptions?: Obj[]; runtimeMode?: string; interactionMode?: string;
 }
 export interface MobileNewTaskDraft {
   key: string; environmentId: string; projectId: string; origin: string; createdAt: string;
@@ -46,7 +46,7 @@ export function mobileNewTaskDraftHydrate(client: T3Client, saved: Obj): void {
       || !Number.isSafeInteger(record.revision) || Number(record.revision) < 0 || !Number.isFinite(Date.parse(str(record.createdAt)))) continue;
     const choices = obj(record.choices);
     records[key] = { key, environmentId: str(record.environmentId), projectId: str(record.projectId), origin: str(record.origin),
-      createdAt: str(record.createdAt), revision: Number(record.revision), choices: validChoices(choices) ? mobileNewTaskDraftClone(choices) as unknown as MobileNewTaskChoices : null };
+      createdAt: str(record.createdAt), revision: Number(record.revision), choices: decodeChoices(choices) };
   }
   // Keep invalid receipt values visible to admission. Silently dropping one could
   // route its pending launch through the ordinary project-slot cleanup.
@@ -55,8 +55,27 @@ export function mobileNewTaskDraftHydrate(client: T3Client, saved: Obj): void {
     fileReleases: Array.isArray(raw.fileReleases) ? raw.fileReleases.filter((id): id is string => typeof id === 'string' && !!id) : [] };
   Object.assign(client.local, { mobileNewTaskDrafts: store }); bindings.delete(client);
 }
-function validChoices(value: Obj): boolean {
-  return ['providerId', 'modelId', 'runtimeMode', 'interactionMode'].every(key => typeof value[key] === 'string') && Array.isArray(value.modelOptions);
+/** Persist only explicit picks. Never assign arbitrary decoded keys onto the client. */
+function decodeChoices(value: Obj): MobileNewTaskChoices | null {
+  const next: MobileNewTaskChoices = {};
+  if ('providerId' in value || 'modelId' in value || 'modelOptions' in value) {
+    if (typeof value.providerId !== 'string' || typeof value.modelId !== 'string' || !Array.isArray(value.modelOptions)) return null;
+    next.providerId = value.providerId; next.modelId = value.modelId; next.modelOptions = mobileNewTaskDraftClone(value.modelOptions) as Obj[];
+  }
+  for (const key of ['runtimeMode', 'interactionMode'] as const) {
+    if (!(key in value)) continue;
+    if (typeof value[key] !== 'string') return null;
+    next[key] = value[key];
+  }
+  return next;
+}
+export function mobileNewTaskDraftChoicesUpdate(client: T3Client, key: string, patch: MobileNewTaskChoices): boolean {
+  const record = mobileNewTaskDraftStore(client).records[key];
+  if (!record || mobileNewTaskDraftCurrent(client)?.key !== key) return false;
+  const choices = decodeChoices({ ...record.choices, ...patch });
+  if (!choices) throw new ClientError('The draft settings are invalid.');
+  if (JSON.stringify(choices) !== JSON.stringify(record.choices)) { record.choices = choices; client.revision++; }
+  return true;
 }
 export function mobileNewTaskDraftChoicesCapture(client: T3Client): MobileNewTaskChoices {
   return { providerId: client.providerId, modelId: client.modelId, modelOptions: mobileNewTaskDraftClone(client.modelOptions),
@@ -65,7 +84,9 @@ export function mobileNewTaskDraftChoicesCapture(client: T3Client): MobileNewTas
 export function mobileNewTaskDraftChoicesRestore(client: T3Client, key: string): boolean {
   const record = mobileNewTaskDraftCurrent(client);
   if (!record || record.key !== key || !record.choices) return false;
-  Object.assign(client, mobileNewTaskDraftClone(record.choices)); return true;
+  const choices = decodeChoices(record.choices as Obj);
+  if (!choices) return false;
+  Object.assign(client, choices); return true;
 }
 export function mobileNewTaskDraftLookup(client: T3Client, key: string): MobileNewTaskDraft | null {
   const record = mobileNewTaskDraftStore(client).records[key]; return record ? mobileNewTaskDraftClone(record) : null;
@@ -89,7 +110,7 @@ export function mobileNewTaskDraftCreate(client: T3Client, input: { id: string; 
   if (!client.preferencesLoaded || !mobileNewTaskDraftIsKey(key) || !validStamp(input) || !Number.isFinite(Date.parse(input.createdAt))) throw new ClientError('The new draft identity is not ready.');
   if (store.records[key] || key in client.local.drafts || key in client.local.snapshotDrafts || draftFiles(client.local).some(file => file.draftKey === key)) throw new ClientError('That draft identity already exists.');
   const record: MobileNewTaskDraft = { key, environmentId: input.environmentId, projectId: input.projectId, origin: input.origin,
-    createdAt: input.createdAt, revision: 0, choices: input.choices ? mobileNewTaskDraftClone(input.choices) : null };
+    createdAt: input.createdAt, revision: 0, choices: input.choices ? decodeChoices(input.choices as Obj) : null };
   store.records[key] = record; client.revision++; return mobileNewTaskDraftClone(record);
 }
 export function mobileNewTaskDraftBind(client: T3Client, key: string, owner: string): boolean {

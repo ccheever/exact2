@@ -1,6 +1,6 @@
 // GAP 001: bake cannot capture parent imports. Remove this copy when ancestor mounts work.
 // Adapted body from examples/t3-code/client-ops-composer.ts at 887b2491b182f851b11253655f6aa84fe2a26708.
-// Mobile 365aa87982: send admission and retained model options differ from this desktop copy.
+// Mobile 365aa87982: send admission, retained options and independent model-pick ownership differ.
 import { mobileModelSelectionUnavailable } from '../model-availability';
 import { mobileDispatchSelection as dispatchSelection } from '../model-send-selection';
 import { omitExpiredTerminalContexts } from './terminal-integrations';
@@ -167,7 +167,13 @@ async function changeModel(this: T3Client, native: Native, storage: Files, op: s
   const locked = lockedProviderReason(this, providerId);
   if (locked) throw new ClientError(locked);
   // A draft's Shift-click (or Shift+Return) adds the model to a multi-model fan-out; a plain pick ends it.
-  if (op === 'model' && await additiveGesture(this, native)) { const single = toggleFanout(this, providerId, modelId); if (!single) return; return changeModel.call(this, native, storage, 'model', single.model, single.instanceId); }
+  const owner = JSON.stringify([this.origin, this.environmentId, this.generation, this.projectId, this.threadId, this.draftKey]);
+  const independent = this.draftKey.startsWith('new-task:');
+  const additive = op === 'model' && await additiveGesture(this, native);
+  // additiveGesture tolerates native errors. Recheck before it can mutate a newer draft.
+  if (independent && owner !== JSON.stringify([this.origin, this.environmentId, this.generation, this.projectId, this.threadId, this.draftKey]))
+    throw new ClientError('The draft changed while settings were saving.', 'superseded');
+  if (additive) { const single = toggleFanout(this, providerId, modelId); if (!single) return; return changeModel.call(this, native, storage, 'model', single.model, single.instanceId); }
   setFanout(this, null);
   const remembered = rememberModel(this, providerId, modelId);
   if (stagesChanges(this)) { stage(this, { providerId, modelId, options: remembered }); return; }

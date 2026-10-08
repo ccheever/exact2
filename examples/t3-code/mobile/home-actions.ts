@@ -2,9 +2,10 @@
 // @ref llp/1107.004-home-projection.decision.md#decision
 // @ref llp/1107.011-responsive-workspace.decision.md#navigation-and-data-ownership
 import { mobileClient, mobileNative } from './client';
+import { mobileHomeDraftAction } from './home-draft-actions';
 import type { T3Client } from './shared/client';
 import { obj, str, type Obj } from './shared/domain';
-import { bridgeReply, ClientError, type Native } from './shared/protocol';
+import { bridgeReply, ClientError, type Files, type Native } from './shared/protocol';
 import { letGo, letGoAware } from './shared/let-go';
 import { liveEnvironments } from './shared/live-streams';
 import { EnvironmentFleet, fleet } from './shared/settings-b-fleet';
@@ -131,7 +132,7 @@ export function mobileHomeCanArchive(thread: Obj): boolean {
 
 /** A single root mutation owns prompt, permission check and actual command. */
 export async function mobileHomeAction(requestRoute: string, environmentId: string, threadId: string, kind: string, value: string, now: number,
-  nativeInput?: Native | null, client: T3Client = mobileClient, background: EnvironmentFleet = fleet): Promise<HomeActionResult> {
+  nativeInput?: Native | null, client: T3Client = mobileClient, background: EnvironmentFleet = fleet, storage?: Files): Promise<HomeActionResult> {
   const invocation = kind.startsWith('swipe:') ? 'swipe' : 'menu';
   if (invocation === 'swipe') {
     const operation = homeSwipeOperation(kind);
@@ -149,6 +150,8 @@ export async function mobileHomeAction(requestRoute: string, environmentId: stri
   const result = (message = '', nextLocation = '', archiveChanged = false, uncertain = false): HomeActionResult => ({
     revision: client.revision, requestRoute, message, alertTitle: message ? titleFor(kind) : '', nextLocation, archiveChanged, uncertain });
   const currentSurface = () => !!surface && surfaces.get(client) === surface && surface.requestRoute === requestRoute && (surface.homeVisible || surface.sidebarVisible);
+  if (kind === 'draft-open' || kind === 'draft-discard')
+    return mobileHomeDraftAction(requestRoute, environmentId, threadId, kind, value, currentSurface, client, nativeInput, storage);
   if (!currentSurface() || held.has(key)) return result();
   const initial = row(environmentId, threadId, client, background), focused = initial.environment?.focused;
   const entry = focused ? undefined : background.entries.get(initial.environment?.key ?? '');

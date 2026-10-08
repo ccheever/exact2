@@ -6,6 +6,8 @@ import { mobileHomeSources } from './home';
 import { mobileNewTask, mobileNewTaskAction } from './new-task';
 import { mobileSessionGrants } from './environment-detail';
 import { mobileComposerSettings, mobileComposerSettingsAction } from './composer-settings';
+import { mobileBindNewTaskDraft } from './new-task-draft-binding';
+import { mobileNewTaskDraftLookup, mobileNewTaskDraftCurrent, mobileNewTaskDraftUnbind, mobileNewTaskDraftRetarget } from './mobile-new-task-drafts';
 import { mobileComposerTarget } from './composer-target';
 import { patchDraftContext } from './shared/composer-controls-branch';
 import { ClientError, nativeFiles, type Native, type Files } from './shared/protocol';
@@ -25,7 +27,7 @@ export interface NewTaskFlowResult {
 interface Selection { environmentId: string; projectId: string; draftKey: string; generation: number; threadEpoch: number }
 interface Flow {
   session: string; owner: string; visit: string; location: string; active: boolean; serial: number;
-  busy: boolean; selected: Selection | null; applied: Set<string>; requests: Map<string, string>; error: string; readyVisit: string;
+  draftKey: string; busy: boolean; selected: Selection | null; applied: Set<string>; requests: Map<string, string>; error: string; readyVisit: string;
 }
 const flows = new WeakMap<T3Client, Flow>();
 // A checkout already dispatched cannot be cancelled by ignoring its result.
@@ -53,12 +55,12 @@ export function mobileNewTaskRoute(location: string) {
       : /^\/new\/draft\/attachments\/[^/]+$/.test(path) ? 'attachment'
       : /^\/new\/draft\/files\/.+$/.test(path) ? 'file'
         : /^\/new\/draft\/settings\/(?:runtime|providers|options\/[^/]+)$/.test(path) ? 'settings-child' : '');
-  const unsupported = ['pendingTaskId', 'draftId', 'incomingShareId'].find(key => !!query.get(key))
+  const unsupported = ['pendingTaskId', 'incomingShareId'].find(key => !!query.get(key))
     ?? (query.get('cloning') && query.get('cloning') !== '1' ? 'cloning' : '');
   const param = (key: string) => { const value = query.get(key); return value?.trim() ? value : ''; };
   const environmentId = param('environmentId'), projectId = param('projectId'), cwd = param('cwd');
-  const standaloneFile = context === 'file' && !!environmentId && !!cwd && !projectId && !unsupported;
-  return { chooser, context, environmentId, projectId, cwd, standaloneFile,
+  const standaloneFile = context === 'file' && !!environmentId && !!cwd && !projectId && !param('draftId') && !unsupported;
+  return { chooser, context, environmentId, projectId, cwd, standaloneFile, draftId: param('draftId'),
     branch: query.get('branch') ?? '', worktreePath: query.get('worktreePath') ?? '', unsupported };
 }
 
@@ -69,8 +71,9 @@ export function mobileNewTaskFlowView(session: string, visit: string, location: 
   client: T3Client = mobileClient, background: EnvironmentFleet = fleet): NewTaskFlowSnapshot {
   let flow = flows.get(client);
   if (!flow || flow.session !== session || active && !flow.active) {
+    if (flow) mobileNewTaskDraftUnbind(client, flow.owner);
     flow = { session, owner: JSON.stringify([session, ++sequence]), visit, location, active, serial: 0,
-      busy: false, selected: null, applied: new Set(), requests: new Map(), error: '', readyVisit: '' }; flows.set(client, flow);
+      draftKey: '', busy: false, selected: null, applied: new Set(), requests: new Map(), error: '', readyVisit: '' }; flows.set(client, flow);
   }
   if (flow.requests.has(visit) && flow.requests.get(visit) !== location) flow.applied.delete(visit);
   flow.requests.set(visit, location);
@@ -79,11 +82,11 @@ export function mobileNewTaskFlowView(session: string, visit: string, location: 
   }
   const route = mobileNewTaskRoute(location), explicit = !!route.environmentId && !!route.projectId;
   flow.readyVisit = '';
-  const selected = sameSelection(flow.selected, client) && projectExists(client.environmentId, client.projectId, client, background);
+  const selected = !!flow.draftKey && mobileNewTaskDraftCurrent(client)?.key === flow.draftKey && sameSelection(flow.selected, client) && projectExists(client.environmentId, client.projectId, client, background);
   const base: NewTaskFlowSnapshot = { owner: flow.owner, requestRoute: visit, status: 'inactive', title: 'New task', message: flow.error,
     draftOwner: active && client.preferencesLoaded && selected ? mobileComposerTarget(client).owner : '',
     ready: false, fileReady: false, chooser: route.chooser, needsPrepare: false, busy: flow.busy || checkouts.has(client), nextLocation: '' };
-  if (!active) return base;
+  if (!active) { mobileNewTaskDraftUnbind(client, flow.owner); return base; }
   if (route.context === 'add-project') return { ...base, status: 'add-project', title: 'Add project' };
   if (route.chooser) return { ...base, status: 'choose', title: 'Choose project' };
   if (route.standaloneFile) return { ...base, status: 'file', title: 'Files', draftOwner: '', fileReady: true, busy: false };
@@ -92,6 +95,12 @@ export function mobileNewTaskFlowView(session: string, visit: string, location: 
   if (route.unsupported) return { ...base, status: 'pick', nextLocation: '/new', message: 'This saved task or shared-content link is unavailable in this build.' };
   if (base.busy) return { ...base, status: 'preparing', title: route.branch ? 'Switching branch...' : 'New task' };
   if (flow.error) return { ...base, status: 'error' };
+  if (!flow.applied.has(visit) && route.draftId) {
+    if (!catalogReady) return { ...base, status: 'loading' };
+    const saved = mobileNewTaskDraftLookup(client, route.draftId);
+    if (!saved || !projectExists(saved.environmentId, saved.projectId, client, background)) return { ...base, status: 'pick', nextLocation: '/new' };
+    return { ...base, status: 'prepare', needsPrepare: true };
+  }
   if (!flow.applied.has(visit) && explicit) {
     if (!catalogReady) return { ...base, status: 'loading' };
     if (!projectExists(route.environmentId, route.projectId, client, background)) return { ...base, status: 'pick', nextLocation: '/new' };
@@ -121,7 +130,7 @@ export function mobileNewTaskFileRouteCurrent(owner: string, visit: string, loca
  * well as rendering. A route change alone never adopts the client's old draft. */
 export function mobileNewTaskFlowOwns(owner: string, visit: string, client: T3Client = mobileClient) {
   const flow = flows.get(client);
-  return !!flow && flow.active && flow.owner === owner && flow.visit === visit && flow.readyVisit === visit && !flow.busy && !checkouts.has(client) && sameSelection(flow.selected, client);
+  return !!flow && flow.active && flow.owner === owner && flow.visit === visit && flow.readyVisit === visit && !flow.busy && !checkouts.has(client) && sameSelection(flow.selected, client) && mobileNewTaskDraftCurrent(client)?.key === flow.draftKey;
 }
 
 export async function mobileNewTaskFlowAction(owner: string, visit: string, kind: string, id: string, value: string,
@@ -179,10 +188,21 @@ export async function mobileNewTaskFlowAction(owner: string, visit: string, kind
     assertCurrent();
     if (kind === 'prepare') {
       if (!route.context || route.unsupported) return result('', '/new');
-      if (!flow.applied.has(visit) && route.environmentId && route.projectId) {
-        if (!projectExists(route.environmentId, route.projectId, client, background)) return result('', '/new');
-        const chosen = await mobileNewTaskAction('project', JSON.stringify([route.environmentId, route.projectId]), '', native, storage, client, background, current);
+      const saved = route.draftId ? mobileNewTaskDraftLookup(client, route.draftId) : null;
+      const requestedEnvironment = saved?.environmentId || route.environmentId, requestedProject = saved?.projectId || route.projectId;
+      if (route.draftId && !saved) return result('', '/new');
+      if (!flow.applied.has(visit) && requestedEnvironment && requestedProject) {
+        if (!projectExists(requestedEnvironment, requestedProject, client, background)) return result('', '/new');
+        if (saved && saved.key !== flow.draftKey) mobileNewTaskDraftUnbind(client, flow.owner);
+        else if (flow.draftKey) {
+          const held = mobileNewTaskDraftLookup(client, flow.draftKey);
+          if (!held) return result('', '/new');
+          mobileNewTaskDraftRetarget(client, flow.draftKey, held);
+        }
+        const chosen = await mobileNewTaskAction('project', JSON.stringify([requestedEnvironment, requestedProject]), '', native, storage, client, background, current);
         assertCurrent(); if (chosen.message) throw new ClientError(chosen.message);
+        flow.draftKey = await mobileBindNewTaskDraft(client, flow.owner, flow.draftKey, route.draftId, native, storage, current);
+        assertCurrent();
         if (route.branch && !mobileNewTask('', client, background).scratch) {
           const target = selection(client), expected = () => current() && sameSelection(target, client);
           const scoped: Native = { available: native.available, watch: topic => native.watch(topic), later: async input => {
@@ -216,9 +236,20 @@ export async function mobileNewTaskFlowAction(owner: string, visit: string, kind
       return result();
     }
     if (kind !== 'project' && kind !== 'scratch' && !sameSelection(flow.selected, client)) throw new ClientError('Choose a project before changing this draft.');
+    if (flow.draftKey && ['project', 'scratch', 'environment'].includes(kind)) {
+      const held = mobileNewTaskDraftLookup(client, flow.draftKey);
+      if (!held) throw new ClientError('That saved draft is no longer available.');
+      // Validate the existing stamp without changing it, before reducing selection
+      // or making a remote scratch request for a captured pending draft.
+      mobileNewTaskDraftRetarget(client, flow.draftKey, held);
+    }
     const response = await mobileNewTaskAction(kind, id, value, native, storage, client, background, current);
     assertCurrent(); if (response.message) throw new ClientError(response.message);
-    if (response.submitted) { flow.selected = null; return result('', '', true); }
+    if (response.submitted) { flow.selected = null; mobileNewTaskDraftUnbind(client, flow.owner); flow.draftKey = ''; return result('', '', true); }
+    if (kind === 'project' || kind === 'scratch' || kind === 'environment') {
+      flow.draftKey = await mobileBindNewTaskDraft(client, flow.owner, flow.draftKey, '', native, storage, current);
+      assertCurrent();
+    }
     flow.selected = selection(client); flow.applied.add(visit);
     return result('', kind === 'project' || kind === 'scratch' ? '/new/draft' : '');
   } catch (error) {

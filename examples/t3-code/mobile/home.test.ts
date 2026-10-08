@@ -130,3 +130,45 @@ describe('live home sources and empty-state catalog', () => {
     expect(mobileHomeEmpty({ ...base, hasConnections: true, hasLoadedShell: true }, 1).title).toBe('No threads yet');
   });
 });
+
+const homeDraft = (key: string, environmentId = 'one', projectId = 'project') => ({ key: `new-task:${key}`, environmentId, projectId,
+  origin: 'https://draft.test', createdAt: at(-1), text: `Draft ${key}`, images: [], files: [], workspace: { branch: 'topic' } });
+test('Unsent drafts sit after active rows and before shelves, without thread operations or counts', () => {
+  const input = source('one', [thread('active'), thread('pin', { pinnedAt: at(-1) }), thread('settled', { settledOverride: 'settled' })], capabilities);
+  const result = projectMobileHome([input], now, { drafts: [homeDraft('A'), homeDraft('B')], settledExpanded: true });
+  expect(result.items.map(item => item.kind)).toEqual(['thread', 'thread', 'draft', 'draft', 'shelf', 'thread']);
+  expect(result.items.map(item => item.trailingDivider)).toEqual([true, false, true, false, false, false]);
+  expect(result.counts).toEqual({ pinned: 1, active: 1, working: 0, snoozed: 0, settled: 1 });
+  const drafts = result.items.filter(item => item.kind === 'draft');
+  expect(drafts.map(item => item.showPendingDivider)).toEqual([true, false]);
+  for (const item of drafts) {
+    expect(item.threadId).toBe(''); expect(item.id).toBe(''); expect(item.selected).toBe(false); expect(item.swipe.primary).toBe('');
+    expect(item.menuItems.map(menu => menu.operation)).toEqual(['draft-discard']);
+  }
+});
+test('draft filtering uses title and actual grouped project pairs, including colon IDs', () => {
+  const first = source('env:one'), second = source('two');
+  first.shell.projects[0]!.id = 'p:one'; first.shell.projects[0]!.repositoryIdentity = { canonicalKey: 'github:t/r', name: 'r' };
+  second.shell.projects[0]!.repositoryIdentity = { canonicalKey: 'github:t/r', name: 'r' };
+  const drafts = [homeDraft('A', 'env:one', 'p:one'), homeDraft('B', 'two'), homeDraft('C', 'missing', 'gone')];
+  const group = mobileHomeProjects([first, second], {})[0]!;
+  expect(projectMobileHome([first, second], now, { drafts, projectKey: group.key }).items.map(item => item.draftKey)).toEqual(['new-task:A', 'new-task:B']);
+  expect(projectMobileHome([first, second], now, { drafts, environmentId: 'two' }).items.map(item => item.draftKey)).toEqual(['new-task:B']);
+  expect(projectMobileHome([first, second], now, { drafts, query: ' draft c ' }).items.map(item => item.draftKey)).toEqual(['new-task:C']);
+});
+test('drafts-only offline Home keeps rows without projects and uses saved environment labels', () => {
+  const client = new T3Client(), fleet = new EnvironmentFleet(), drafts = [homeDraft('A')];
+  const options = { drafts, draftEnvironments: [{ environmentId: 'one', label: 'Offline Mac', machineSymbol: 'laptopcomputer' }, { environmentId: 'two', label: 'Server', machineSymbol: 'server.rack' }] };
+  const result = mobileHome(now, options, client, fleet), item = result.items[0]!;
+  expect(result.emptyTitle).toBe(''); expect(result.loading).toBe(false); expect(result.addEnvironment).toBe(false); expect(result.hasAnyThreads).toBe(false);
+  expect(item.environmentLabel).toBe('Offline Mac'); expect(item.projectPresent).toBe(false); expect(item.projectTitle).toBe('');
+  expect(mobileHome(now, { ...options, query: 'missing' }, client, fleet).emptyTitle).toBe('No results');
+  expect(projectMobileHome([source('one')], now, { drafts }).items[0]?.kind).toBe('draft');
+});
+test('draft creation contributes to project group activity without an edit-time promotion', () => {
+  const input = source('one'); input.shell.projects = [{ id: 'project', title: 'Draft project', workspaceRoot: '/draft', createdAt: at(-60) }, { id: 'other', title: 'Other', workspaceRoot: '/other', createdAt: at(-10) }];
+  const draft = homeDraft('A');
+  expect(mobileHomeProjects([input], {}).map(project => project.projectId)).toEqual(['other', 'project']);
+  expect(mobileHomeProjects([input], { drafts: [draft] }).map(project => project.projectId)).toEqual(['project', 'other']);
+  draft.text = 'edited'; expect(mobileHomeProjects([input], { drafts: [draft] }).map(project => project.projectId)).toEqual(['project', 'other']);
+});

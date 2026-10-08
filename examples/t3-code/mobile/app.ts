@@ -1,3 +1,4 @@
+import { noteNow } from './shared/composer-controls';
 import { homeArrangeActionValue } from './home-arrange';
 import { mobileHomeAction } from './home-actions';
 import { mobileAddProjectObserve, mobileAddProjectPrepare, mobileAddProjectEdit, mobileAddProjectBrowse, mobileAddProjectAction, type AddProjectRoute } from './add-project';
@@ -572,7 +573,7 @@ const sources: Sources = {
   },
   homeAction: (args, _store, storage, nativeInput) => {
     const native = sourceNative('homeAction', args, nativeInput);
-    return mobileHomeAction(str(args[0]), str(args[1]), str(args[2]), str(args[3]), str(args[4]), Number(args[5]), native);
+    return mobileHomeAction(str(args[0]), str(args[1]), str(args[2]), str(args[3]), str(args[4]), Number(args[5]), native, mobileClient, fleet, native?.available ? nativeFiles(native) : storage);
   },
   homeView: (args, _store, storage, nativeInput) => {
     const native = sourceNative('homeView', args, nativeInput);
@@ -649,6 +650,7 @@ function newTaskGuard(source: string, args: unknown[]): (() => boolean) | null {
 }
 
 async function newTaskFlow(args: unknown[], native?: Native | null) {
+  noteNow(mobileClient, Number(args[5]));
   const session = String(args[0]), visit = String(args[1]), location = String(args[2]), active = args[3] === true;
   // Invalidate departing actions synchronously, before the catalog read or any
   // dependent resource can use the previous flow's composer owner.

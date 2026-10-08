@@ -26,6 +26,7 @@ shape HomeColors
   done: string
   menuBackground: string
   card: string
+  draft: string
 
 shape HomeSwipeData
   primary: string
@@ -43,6 +44,8 @@ shape HomeSwipeData
 shape HomeItem
   key: string
   kind: string
+  draftKey: string
+  showPendingDivider: bool
   id: string
   environmentId: string
   threadId: string
@@ -243,7 +246,7 @@ component Home
         estimated-item-height=72
         testId="home-thread-list"
         each item in items key=item.key
-          HomeListItem(surface=listId, owner=swipeOwner, active=active, openToken=(active and stateOwner == swipeOwner ? openToken : ""), dragToken=(active and stateOwner == swipeOwner ? dragToken : ""), dragOffset=dragOffset, reducedMotion=reducedMotion, item=item, bottomClearance=bottomClearance, selectThread=chooseThread, toggleShelf=toggleShelf, showMore=showMore, colors=colors)
+          HomeListItem(surface=listId, owner=swipeOwner, active=active, openToken=(active and stateOwner == swipeOwner ? openToken : ""), dragToken=(active and stateOwner == swipeOwner ? dragToken : ""), dragOffset=dragOffset, reducedMotion=reducedMotion, item=item, bottomClearance=bottomClearance, selectThread=chooseThread, menuAction=chooseMenu, toggleShelf=toggleShelf, showMore=showMore, colors=colors)
       each item in items key=item.key
         when length(item.menuItems) > 0
           HomeMenu(menuId=`home-menu-${listId}-${item.key}`, items=item.menuItems, environmentId=item.environmentId, threadId=item.threadId, action=chooseMenu, foreground=colors.foreground, muted=colors.muted, danger=colors.dangerForeground, background=colors.menuBackground)
@@ -262,6 +265,7 @@ component HomeListItem
     item: HomeItem
     bottomClearance: number
     selectThread: action
+    menuAction: action
     toggleShelf: action
     showMore: action
     colors: HomeColors
@@ -299,6 +303,48 @@ component HomeListItem
           svg position="absolute" top=0 left=0 width="100%" height="100%" pointer-events="none"
             rect x=0 y=0 width="100%" height="100%" rx=7 fill="none" stroke=colors.border stroke-width=1 stroke-dasharray="3 3"
           text item.title font-size=13 line-height="17px" font-weight=500 color=colors.muted
+      else when item.kind == "draft"
+        when item.showPendingDivider
+          row margin-top=14 margin-bottom=5.25 padding-left=(surface == "sidebar-list" ? 10.5 : 17.5) padding-right=(surface == "sidebar-list" ? 10.5 : 17.5) align-items="center" gap=8.75
+            text "Unsent" font-size=13 line-height="17px" font-weight=500 color=(surface == "sidebar-list" ? colors.muted : colors.tertiary)
+            view flex=1 height=1 background-color=colors.border
+        button press=menuAction(item.environmentId, "", "draft-open", item.draftKey)
+          hatch="mobile-home-row"
+          data-mobile-home-menu=item.nativeMenu
+          data-mobile-home-surface=surface
+          data-mobile-home-foreground=colors.foreground
+          data-mobile-home-primary=colors.primary
+          data-mobile-home-danger=colors.dangerForeground
+          data-mobile-home-background=colors.card
+          data-mobile-home-menu-id=(surface == "sidebar-list" ? menuId : "")
+          contextPopover=(surface != "sidebar-list" and length(item.menuItems) > 0 ? menuId : "")
+          padding=0
+          border-radius=(surface == "sidebar-list" ? 12 : 0)
+          background-color=(surface == "sidebar-list" ? colors.drawer : colors.screen)
+          text-align="left"
+          aria-label=item.title
+          aria-description="Opens the draft in the new task composer"
+          testId=`home-draft-${item.draftKey}`
+          column padding-left=(surface == "sidebar-list" ? 12 : 17.5) padding-right=(surface == "sidebar-list" ? 12 : 17.5) padding-top=(surface == "sidebar-list" ? 10 : 8.75) padding-bottom=(surface == "sidebar-list" ? 10 : 8.75)
+            row align-items="center" gap=5.25
+              when item.projectPresent
+                HomeProjectIcon(item=item, colors=colors)
+              text item.projectTitle flex=1 min-width=0 line-clamp=1 text-overflow="ellipsis" font-size=14 line-height="19px" font-weight=500 color=colors.muted
+              row align-items="center" gap=3.5
+                t3-symbol symbol-name="square.and.pencil" point-size=10 symbol-weight="regular" symbol-tint=colors.draft width=10 height=10
+                text "Draft" font-size=13 line-height="17px" color=colors.draft
+            text item.title margin-top=3.5 font-size=16 line-height="23px" font-weight=500 color=colors.foreground line-clamp=1 text-overflow="ellipsis"
+            when length(item.branch) > 0 or length(item.environmentLabel) > 0
+              row margin-top=3.5 align-items="center" gap=3.5
+                text min-width=0 flex-shrink=1 font-size=13 line-height="17px" line-clamp=1 text-overflow="ellipsis"
+                  text item.branch font-family="Menlo" color=colors.muted
+                  when length(item.branch) > 0 and length(item.environmentLabel) > 0
+                    text "  ·  " color=colors.muted
+                  text item.environmentLabel color=(surface == "sidebar-list" ? colors.muted : colors.tertiary)
+                when length(item.environmentLabel) > 0 and length(item.machineSymbol) > 0
+                  t3-symbol symbol-name=item.machineSymbol point-size=11 symbol-weight="regular" symbol-tint=(surface == "sidebar-list" ? colors.muted : colors.tertiary) width=11 height=11 flex-shrink=0
+          when item.trailingDivider and surface != "sidebar-list"
+            view height=1 margin-left=17.5 background-color=colors.borderSubtle
       else
         box position="relative" overflow="hidden" background-color=(surface == "sidebar-list" ? colors.drawer : colors.screen)
           when item.swipe.primary != ""

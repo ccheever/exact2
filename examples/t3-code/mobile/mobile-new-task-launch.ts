@@ -88,6 +88,10 @@ export function mobileNewTaskLaunchEnd(client: T3Client, capture: MobileNewTaskL
     delete store.receipts[capture.slot]; delete store.claims[capture.slot];
   }
 }
+/** Local new-flow selection may proceed while this validated captured launch waits. */
+export function mobileNewTaskLaunchPendingOwned(client: T3Client): boolean {
+  return !!client.pending && !!receipt(client, client.pending, client.environmentId);
+}
 /** False holds malformed/foreign independent records without invoking default cleanup. */
 export function mobileNewTaskLaunchCanReconcile(client: T3Client): boolean {
   const pending = client.pending;

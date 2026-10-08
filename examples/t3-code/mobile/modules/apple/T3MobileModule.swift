@@ -251,6 +251,8 @@ final class T3MobileModule: ExactModule {
                     ? [("cancel", "Cancel", .cancel), ("sign-out", "Sign out", .destructive)]
                 : kind == "delete"
                     ? [("cancel", "Cancel", .cancel), ("delete", "Delete", .destructive)]
+                : kind == "discard"
+                    ? [("cancel", "Cancel", .cancel), ("discard", "Discard", .destructive)]
                 : kind == "update"
                     ? [("cancel", "Cancel", .cancel), ("update", "Update", .default)]
                 : kind == "camera-settings"
