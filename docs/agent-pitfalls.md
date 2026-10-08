@@ -484,6 +484,13 @@ guide's rules don't make obvious.
   the agent's own `screenshot`, which targets the app's simulator. (Authoring
   bench, LLP 1087, t9-profile, 2026-10-07.)
 
+- **`axe tap` misses on an exact2 app about one time in three.** Its default
+  style (FBSimulator `tapAt`) sometimes lands as nothing: a mute button toggled
+  1 of 3, a drawer button did not open, and the app looked frozen until
+  relaunched. Fix: `axe tap … --tap-style physical` (a real touch down and up),
+  which hit 6 of 6; or drive by `testId` with the agent. (Bluesky clone, b12,
+  2026-10-08.)
+
 - **Records an agent drive writes are dated 2026-01-01.** The driver's clock
   starts at a fixed epoch, so `wallTime.epochAtZero + performanceNow()` is that date, and a
   `createdAt` taken from it is too: Bluesky's AppView then sorted the clone's
