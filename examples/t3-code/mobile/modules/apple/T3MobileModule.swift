@@ -157,10 +157,10 @@ final class T3MobileModule: ExactModule {
     override func later(_ request: [String: Any], reply: ExactReply) {
         guard alive else { reply.fail("The mobile session was closed."); return }
         if request["op"] as? String == "mobileOutbox" {
-            let store = queuedEdits
-            DispatchQueue.global(qos: .userInitiated).async {
-                do { reply.send(["ok": true, "generation": request["generation"] ?? 0, "value": try store.outbox(request)]) }
-                catch {
+            queuedEdits.submitOutbox(request) { result in
+                switch result {
+                case .success(let value): reply.send(["ok": true, "generation": request["generation"] ?? 0, "value": value])
+                case .failure(let error):
                     let problem = error as? T3Failure ?? T3Failure(kind: "Persistence", message: "The outbox could not be saved.")
                     reply.send(["ok": false, "generation": request["generation"] ?? 0, "error": problem.json])
                 }

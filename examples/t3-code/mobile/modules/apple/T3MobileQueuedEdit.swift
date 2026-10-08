@@ -10,17 +10,18 @@ final class T3MobileQueuedEdit: @unchecked Sendable {
     private final class Weak { weak var value: T3MobileQueuedEdit?; init(_ value: T3MobileQueuedEdit) { self.value = value } }
     private static let registryLock = NSLock()
     private static var registry: [String: Weak] = [:]
-    static func shared(root: URL) -> T3MobileQueuedEdit {
+    static func shared(root: URL, replace: @escaping (Data, URL) throws -> Void = T3MobileQueuedEdit.durableReplace) -> T3MobileQueuedEdit {
         registryLock.lock(); defer { registryLock.unlock() }
         let key = root.standardizedFileURL.resolvingSymlinksInPath().path
         if let value = registry[key]?.value { return value }
-        let value = T3MobileQueuedEdit(root: root); registry[key] = Weak(value)
+        let value = T3MobileQueuedEdit(root: root, replace: replace); registry[key] = Weak(value)
         registry = registry.filter { $0.value.value != nil }
         return value
     }
     private let lock = NSLock()
     private let root: URL
     private let outboxStore: T3MobileOutbox
+    private var outboxOwner: T3MobileOutboxOwner!
     private var file: URL { root.appendingPathComponent("mobile-queued-edit.json") }
     private var preferences: URL { root.appendingPathComponent("t3-code.json") }
     private var active: [UUID: String] = [:]
@@ -30,15 +31,19 @@ final class T3MobileQueuedEdit: @unchecked Sendable {
     init(root: URL, replace: @escaping (Data, URL) throws -> Void = T3MobileQueuedEdit.durableReplace) {
         self.root = root; self.replace = replace
         outboxStore = T3MobileOutbox(root: root, replace: replace)
-    }
-    /// Both stores and byte deletion share this lock; no outbox call owns another mutex.
-    func outbox(_ request: [String: Any]) throws -> [String: Any] {
-        try locked {
-            let releases = try outboxStore.releaseCandidates(request)
-            if !releases.isEmpty {
-                var value = try store(); enqueueReleases(releases, in: &value); try save(value)
+        outboxOwner = T3MobileOutboxOwner(lock: lock, disk: outboxStore, release: { [weak self] records in
+            guard let self else { throw T3Failure(kind: "Persistence", message: "The attachment owner ended.") }
+            try self.locked {
+                var value = try self.store()
+                self.enqueueReleases(records.flatMap { $0["attachments"] as? [[String: Any]] ?? [] }, in: &value)
+                try self.save(value)
             }
-            return try outboxStore.perform(request)
+        })
+    }
+    /// Registration happens before background scheduling. The existing lock owns all byte inventories.
+    func submitOutbox(_ request: [String: Any], answer: @escaping T3MobileOutboxOwner.Answer) {
+        outboxOwner.submit(request) { [self] result in
+            withExtendedLifetime(self) { answer(result) }
         }
     }
     private func locked<T>(_ action: () throws -> T) rethrows -> T { lock.lock(); defer { lock.unlock() }; return try action() }
@@ -51,6 +56,8 @@ final class T3MobileQueuedEdit: @unchecked Sendable {
     }
     /// Synchronized file contents followed by same-directory atomic replacement. No cross-process lock.
     static func durableReplace(_ data: Data, _ destination: URL) throws {
+        var replaced = false
+        do {
         let manager = FileManager.default, directory = destination.deletingLastPathComponent()
         try manager.createDirectory(at: directory, withIntermediateDirectories: true)
         let temporary = directory.appendingPathComponent(".queued-edit-\(UUID().uuidString)")
@@ -69,12 +76,15 @@ final class T3MobileQueuedEdit: @unchecked Sendable {
         guard fsync(fd) == 0 else { throw CocoaError(.fileWriteUnknown) }
         guard Darwin.close(fd) == 0 else { closed = true; throw CocoaError(.fileWriteUnknown) }; closed = true
         guard Darwin.rename(temporary.path, destination.path) == 0 else { throw CocoaError(.fileWriteUnknown) }
+        replaced = true
         // Directory sync persists the replacement name. A failed sync is reported, never called success.
         let directoryFD = Darwin.open(directory.path, O_RDONLY)
         guard directoryFD >= 0 else { throw CocoaError(.fileWriteUnknown) }
         defer { Darwin.close(directoryFD) }
         guard fsync(directoryFD) == 0 else { throw CocoaError(.fileWriteUnknown) }
+        } catch { throw T3OutboxReplaceFailure(replaced: replaced, cause: error) }
     }
+
     private func readJSON(_ url: URL) throws -> [String: Any] {
         do {
             let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
@@ -289,6 +299,7 @@ final class T3MobileQueuedEdit: @unchecked Sendable {
             (record["attachments"] as? [[String: Any]] ?? []).contains { ($0["id"] as? String)?.lowercased() == identifier }
         } || operations(value).values.contains { ($0["attachmentIDs"] as? [String] ?? []).map { $0.lowercased() }.contains(identifier) }
         if owned { return true }
+        if outboxOwner.protects(identifier) { return true }
         if try outboxStore.inventoryHolds(identifier) { return true }
         let preferencesValue = try readJSON(preferences)
         if try launchReceiptsHold(identifier, preferences: preferencesValue) { return true }

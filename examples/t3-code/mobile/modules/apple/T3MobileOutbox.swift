@@ -10,7 +10,6 @@ final class T3MobileOutbox {
     typealias Object = [String: Any]
     private let directory: URL
     private let replace: (Data, URL) throws -> Void
-    private var holds: [String: Set<String>] = [:]
     init(root: URL, replace: @escaping (Data, URL) throws -> Void) {
         directory = root.appendingPathComponent("mobile-outbox", isDirectory: true)
         self.replace = replace
@@ -143,6 +142,17 @@ final class T3MobileOutbox {
         return (1...12).contains(month) && (1...days[month - 1]).contains(day)
             && (0...23).contains(fields[3]) && (0...59).contains(fields[4]) && (0...59).contains(fields[5])
     }
+    static func validateMutation(_ request: Object, id: String) -> Bool {
+        guard nonempty(request["mutationId"]), request["messageId"] as? String == id,
+              member(request["operation"], ["enqueue", "update", "remove"]) else { return false }
+        if request["operation"] as? String != "remove" {
+            guard let record = request["record"] as? Object, record["messageId"] as? String == id, validateRecord(record) else { return false }
+        }
+        if let revision = request["expectedRevision"], !integer(revision) { return false }
+        if let token = request["expectedToken"], !nonempty(token) { return false }
+        if let held = request["requireUnheld"], !boolean(held) { return false }
+        return true
+    }
     private func url(_ id: String) -> URL {
         let digest = SHA256.hash(data: Data(id.utf8)).map { String(format: "%02x", $0) }.joined()
         return directory.appendingPathComponent(digest + ".json")
@@ -168,18 +178,49 @@ final class T3MobileOutbox {
         if value["state"] as? String == "active" && !(value["record"] is Object) || value["state"] as? String == "deleted" && !(value["record"] is NSNull) {
             throw failure("An outbox record has inconsistent state.")
         }
-        if let removed = value["removed"] {
-            guard value["state"] as? String == "deleted", let record = removed as? Object,
-                  record["messageId"] as? String == id, Self.validateRecord(record) else { throw failure("An outbox deletion receipt is invalid.") }
+        guard Self.integer(value["sourceRevision"]), value["token"] is String,
+              Self.boolean(value["confirmed"]), let outcomes = value["outcomes"] as? [String: Object], let removals = value["removals"] as? [String: Object] else {
+            throw failure("The outbox transaction inventory is invalid.")
+        }
+        for (mutation, outcome) in outcomes {
+            guard let result = outcome["result"] as? Object, result["mutationId"] as? String == mutation,
+                  result["messageId"] as? String == id, Self.member(result["status"], ["committed", "stale", "failed"]),
+                  Self.integer(result["revision"]), result["message"] is String,
+                  let encoded = outcome["request"] as? String, let data = encoded.data(using: .utf8),
+                  let request = try JSONSerialization.jsonObject(with: data) as? Object,
+                  request["mutationId"] as? String == mutation, Self.validateMutation(request, id: id),
+                  let owners = outcome["owners"] as? [Object], owners.allSatisfy({ Self.validateRecord($0) && $0["messageId"] as? String == id }) else {
+                throw failure("The outbox outcome inventory is invalid.")
+            }
+            for field in ["record", "removed"] {
+                guard let raw = result[field], raw is NSNull || (raw as? Object).map({ Self.validateRecord($0) && $0["messageId"] as? String == id }) == true else {
+                    throw failure("The outbox outcome payload is invalid.")
+                }
+            }
+        }
+        guard removals.values.allSatisfy({ Self.validateRecord($0) && $0["messageId"] as? String == id }) else { throw failure("The outbox removal inventory is invalid.") }
+        if value["state"] as? String == "active", !Self.nonempty(value["token"]) { throw failure("The active outbox owner is invalid.") }
+        if value["state"] as? String == "pending" {
+            guard let mutation = value["mutation"] as? Object, Self.validateMutation(mutation, id: id) else { throw failure("The outbox pending mutation is invalid.") }
+            if value["previous"] is Object, !Self.nonempty(value["token"]) { throw failure("The previous outbox owner is invalid.") }
+            if mutation["operation"] as? String == "remove" {
+                guard value["proposed"] is NSNull else { throw failure("An outbox removal cannot propose a record.") }
+            } else {
+                guard let proposed = value["proposed"] as? Object, let requested = mutation["record"] as? Object,
+                      try JSONSerialization.data(withJSONObject: proposed, options: [.sortedKeys])
+                        == JSONSerialization.data(withJSONObject: requested, options: [.sortedKeys]) else {
+                    throw failure("The outbox proposal differs from its recorded mutation.")
+                }
+            }
         }
         return value
     }
-    private func load(_ id: String) throws -> Object? {
+    func load(_ id: String) throws -> Object? {
         let file = url(id)
         do { return try decode(file) }
         catch let error as CocoaError where error.code == .fileReadNoSuchFile { return nil }
     }
-    private func envelopes() -> (values: [Object], errors: [Object]) {
+    func envelopes() -> (values: [Object], errors: [Object]) {
         var values: [Object] = [], errors: [Object] = []
         let files: [URL]
         do { files = try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: [.isRegularFileKey]) }
@@ -191,142 +232,23 @@ final class T3MobileOutbox {
         }
         return (values, errors)
     }
-    private func save(_ value: Object) throws {
+    func save(_ value: Object) throws {
         guard JSONSerialization.isValidJSONObject(value), let id = value["messageId"] as? String else { throw failure("The outbox record cannot be serialized.") }
         let data = try JSONSerialization.data(withJSONObject: value, options: [.sortedKeys])
         guard data.count <= T3Wire.maximumBytes else { throw failure("The outbox record is too large.") }
-        do { try replace(data, url(id)) }
-        catch { throw failure("The outbox mutation may have reached disk. Read and confirm its saved revision before continuing.", uncertain: true) }
+        try replace(data, url(id))
     }
-    private func payloads(_ value: Object) -> [Object] {
-        ["record", "previous", "proposed", "removed"].compactMap { value[$0] as? Object }
+    func payloads(_ value: Object) -> [Object] {
+        ["record", "previous", "proposed"].compactMap { value[$0] as? Object }
+            + (value["outcomes"] as? [String: Object] ?? [:]).values.flatMap { $0["owners"] as? [Object] ?? [] }
+            + Array((value["removals"] as? [String: Object] ?? [:]).values)
     }
-    private func held(_ id: String) -> Bool { !(holds[id] ?? []).isEmpty }
     func inventoryHolds(_ attachmentID: String) throws -> Bool {
         let inventory = envelopes()
         guard inventory.errors.isEmpty else { throw failure("Outbox attachment ownership is incomplete. Keep local files until its records can be read.") }
         return inventory.values.flatMap(payloads).contains { record in
             (record["attachments"] as? [Object] ?? []).contains { ($0["id"] as? String)?.lowercased() == attachmentID.lowercased() }
         }
-    }
-    func read() -> Object {
-        let inventory = envelopes()
-        return ["complete": inventory.errors.isEmpty, "errors": inventory.errors,
-                "records": inventory.values.compactMap { value -> Object? in
-                    guard let record = value["record"] as? Object ?? value["proposed"] as? Object ?? value["previous"] as? Object else { return nil }
-                    return ["record": record, "revision": value["revision"]!, "pending": value["state"] as? String == "pending", "held": held(value["messageId"] as! String)]
-                },
-                "mutations": inventory.values.filter { $0["state"] as? String == "pending" },
-                "removals": inventory.values.filter { $0["removed"] != nil }]
-    }
-    private func identity(_ request: Object) throws -> String {
-        guard let id = request["messageId"] as? String, Self.nonempty(id) else { throw failure("Choose an outbox message.") }; return id
-    }
-    private func expected(_ request: Object) throws -> Int {
-        guard Self.integer(request["expectedRevision"], positive: true), let revision = request["expectedRevision"] as? Int else { throw failure("Choose an exact outbox revision.") }; return revision
-    }
-    private func mutation(_ id: String, current: Object?, next: Object?) throws -> Object {
-        guard current?["state"] as? String != "pending", current?["removed"] == nil else { throw failure("Confirm the previous outbox mutation or cleanup before changing this message.") }
-        let revision = (current?["revision"] as? Int ?? 0) + 1
-        guard Self.integer(revision, positive: true) else { throw failure("The outbox revision is exhausted.") }
-        let value: Object = ["version": 1, "messageId": id, "revision": revision, "state": "pending",
-                             "previous": current?["record"] ?? NSNull(), "proposed": next.map { $0 as Any } ?? NSNull()]
-        try save(value)
-        return ["messageId": id, "applied": true, "removed": next == nil, "pending": true, "revision": revision,
-                "record": next.map { $0 as Any } ?? current?["record"] ?? NSNull()]
-    }
-    func perform(_ request: Object) throws -> Object {
-        let action = request["action"] as? String ?? ""
-        if action == "read" { return read() }
-        if action == "clearEnvironment" {
-            guard let environment = request["environmentId"] as? String, Self.nonempty(environment), Self.canonicalOrigin(request["origin"]) else { throw failure("Choose an exact outbox environment.") }
-            let inventory = envelopes()
-            guard inventory.errors.isEmpty else { throw failure("The outbox must load completely before clearing an environment.") }
-            var removals: [Object] = [], errors: [Object] = []
-            for value in inventory.values {
-                if value["state"] as? String == "pending", payloads(value).contains(where: {
-                    $0["environmentId"] as? String == environment && $0["origin"] as? String == request["origin"] as? String
-                }) {
-                    errors.append(["messageId": value["messageId"]!, "message": "Confirm the pending mutation before clearing this environment."]); continue
-                }
-                guard let record = value["record"] as? Object, record["environmentId"] as? String == environment,
-                      record["origin"] as? String == request["origin"] as? String else { continue }
-                do { removals.append(try mutation(value["messageId"] as! String, current: value, next: nil)) }
-                catch { errors.append(["messageId": value["messageId"]!, "message": "The outbox removal was not confirmed."]) }
-            }
-            return ["removals": removals, "errors": errors]
-        }
-        let id: String
-        if action == "enqueue" || action == "update" {
-            guard let next = request["record"] as? Object, Self.validateRecord(next), let key = next["messageId"] as? String else { throw failure("The outbox record is invalid.") }
-            id = key; let prior = try load(id)
-            if action == "update" {
-                let revision = try expected(request)
-                guard prior?["state"] as? String == "active", prior?["revision"] as? Int == revision else {
-                    return ["applied": false, "revision": prior?["revision"] ?? 0]
-                }
-            }
-            return try mutation(id, current: prior, next: next)
-        }
-        id = try identity(request)
-        let prior = try load(id), revision = prior?["revision"] as? Int ?? 0
-        if action == "releaseHold" {
-            guard let owner = request["owner"] as? String, Self.nonempty(owner) else { throw failure("Choose the pending task editor owner.") }
-            let released = holds[id]?.remove(owner) != nil
-            if holds[id]?.isEmpty == true { holds.removeValue(forKey: id) }
-            return ["released": released]
-        }
-        if action == "hold" {
-            let expected = try expected(request)
-            guard let owner = request["owner"] as? String, Self.nonempty(owner) else { throw failure("Choose the pending task editor owner.") }
-            guard prior?["state"] as? String == "active", revision == expected else { return ["held": false, "revision": revision] }
-            holds[id, default: []].insert(owner)
-            return ["held": true, "record": prior!["record"]!, "revision": revision]
-        }
-        if action == "remove" {
-            if request["expectedRevision"] != nil {
-                let expected = try expected(request)
-                if revision != expected { return ["removed": false, "revision": revision] }
-            }
-            if request["requireUnheld"] as? Bool == true && held(id) { return ["removed": false, "revision": revision] }
-            guard prior?["state"] as? String == "active" else { return ["removed": false, "revision": revision] }
-            return try mutation(id, current: prior, next: nil)
-        }
-        if action == "confirm" {
-            let expected = try expected(request)
-            guard let prior, revision == expected else { return ["current": false, "revision": revision] }
-            if prior["state"] as? String != "pending" {
-                return ["current": prior["state"] as? String == "active" && !held(id), "revision": revision, "record": prior["record"] ?? NSNull()]
-            }
-            guard Self.member(request["decision"], ["commit", "rollback"]) else { throw failure("Confirm or roll back the exact saved outbox mutation.") }
-            let record = prior[request["decision"] as? String == "commit" ? "proposed" : "previous"] as? Object
-            var next: Object = ["version": 1, "messageId": id, "revision": revision,
-                                "state": record == nil ? "deleted" : "active", "record": record.map { $0 as Any } ?? NSNull()]
-            if record == nil, request["decision"] as? String == "commit", let removed = prior["previous"] as? Object { next["removed"] = removed }
-            try save(next)
-            return ["current": record != nil && !held(id), "removed": next["removed"] != nil, "revision": revision, "record": record.map { $0 as Any } ?? next["removed"] ?? NSNull()]
-        }
-        if action == "completeRemoval" {
-            let expected = try expected(request)
-            guard var prior, prior["state"] as? String == "deleted", revision == expected else { return ["completed": false, "revision": revision] }
-            prior.removeValue(forKey: "removed"); try save(prior)
-            return ["completed": true, "revision": revision]
-        }
-        throw failure("Unknown local outbox action.")
-    }
-    // Persist releases in the coordinator before a confirmation removes their owner.
-    func releaseCandidates(_ request: Object) throws -> [Object] {
-        guard ["confirm", "completeRemoval"].contains(request["action"] as? String ?? "") else { return [] }
-        let id = try identity(request), revision = try expected(request)
-        guard let prior = try load(id), prior["revision"] as? Int == revision else { return [] }
-        if request["action"] as? String == "completeRemoval" { return (prior["removed"] as? Object)?["attachments"] as? [Object] ?? [] }
-        guard prior["state"] as? String == "pending", Self.member(request["decision"], ["commit", "rollback"]) else { return [] }
-        let commit = request["decision"] as? String == "commit"
-        let kept = prior[commit ? "proposed" : "previous"] as? Object
-        // A committed deletion keeps its own receipt until editor cleanup completes.
-        if kept == nil && commit { return [] }
-        let ids = Set((kept?["attachments"] as? [Object] ?? []).compactMap { ($0["id"] as? String)?.lowercased() })
-        return payloads(prior).flatMap { $0["attachments"] as? [Object] ?? [] }.filter { !ids.contains(($0["id"] as? String ?? "").lowercased()) }
     }
 }
 #endif
