@@ -453,7 +453,16 @@ impl Client {
         let entry = json!({"id": id, "seq": seq, "op": op, "args": args, "viewer": self.config.viewer,
             "now": now, "new_ids": new_ids, "predictable": predictable, "predicted": [],
             "replay_candidate": key.is_some()});
-        let admitted = core.call(json!({"op": "admit", "entry": entry}))?;
+        // Ephemeral writes are not in this client yet: refuse them here, as a
+        // terminal failure the app sees, rather than queue what never lands.
+        let unsupported = crate::backend::touches_ephemeral(&backend, op).then(|| {
+            json!({"denied": {"code": "E_CLIENT_UNSUPPORTED", "family": "client",
+                "message": format!("{op} writes an ephemeral table, which this client does not send yet (snapback4/README.md); it was not sent")}})
+        });
+        let admitted = match unsupported {
+            Some(refused) => refused,
+            None => core.call(json!({"op": "admit", "entry": entry}))?,
+        };
         if let Some(why) = admitted.get("denied") {
             // A keyed write the device could not admit at all (a reused key,
             // a device that cannot write) took nothing: its key names the

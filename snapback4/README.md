@@ -391,7 +391,8 @@ wasm32-unknown-unknown`.
 
 What the TypeScript client of Snapback itself does that this one does not
 yet: media and assets (LLP 1108), native jobs on the device, Following
-feeds, ephemeral reads, search state, the online fallback fenced by
+feeds, ephemeral reads and writes (a write that touches an ephemeral table
+is refused at once with `E_CLIENT_UNSUPPORTED`, never queued), search state, the online fallback fenced by
 intersecting predictions (here a read the device cannot vouch for asks the
 server only when nothing is queued at all), a server read kept live
 (here a query the server answers is asked again, not invalidated by the

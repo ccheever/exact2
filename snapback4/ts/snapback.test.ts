@@ -49,6 +49,18 @@ query myDrafts():
 query total():
   return count(messages)
 
+table pings:
+  author: principal
+  public 'pings are public'
+  insert <- .author = viewer
+  update <- deny
+  delete <- .author = viewer
+  ephemeral 4s
+
+mutation ping():
+  row = insert pings { author: viewer }
+  return { id: row.id }
+
 mutation draft(body: text <=50):
   row = insert drafts { author: viewer, body, at: now }
   return { id: row.id }
@@ -592,4 +604,23 @@ test('two sources polling one partition at once share the poll', async () => {
   expect(both[0]).toBe(both[1]);
   await a.close();
   await b.close();
+}, 60_000);
+
+test('an ephemeral write is refused at once, not queued; poll opens a never-synced partition', async () => {
+  const lee = await open('lee', join(scratch, 'lee'));
+  // poll() before any sync opens the partition first (it threw E_OFFLINE).
+  expect(typeof await lee.poll(0)).toBe('boolean');
+  const pinged = await lee.write('ping', {}, Date.now());
+  expect(pinged.state).toBe('failed');
+  if (pinged.state === 'failed') expect(pinged.why.code).toBe('E_CLIENT_UNSUPPORTED');
+  expect((await lee.outcome(pinged.id)).state).toBe('failed');
+  expect((await lee.refusals()).map(r => r.id)).toContain(pinged.id);
+  expect((await lee.status()).queued).toEqual([]);
+  // The next write is unaffected and takes its own id.
+  const sent = await lee.write('send', { body: 'after a ping' }, Date.now());
+  expect(sent.state).toBe('pending');
+  expect(sent.id).not.toBe(pinged.id);
+  expect(await lee.sync()).toEqual({ ok: true });
+  expect((await lee.outcome(sent.id)).state).toBe('sent');
+  await lee.close();
 }, 60_000);

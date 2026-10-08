@@ -3,8 +3,9 @@
 // app's native module (`exact_snapback4::Module` behind `native.call`); on
 // the web it is the same Rust as wasm, persisted through Exact SQLite
 // (`./web.ts`). Mount this directory in app.json:
-//   "typescript": { "sources": { "snapback": "../exact2/snapback4/ts" } }
-// and `import { openSnapback } from './snapback/snapback.ts'`.
+//   "typescript": { "sources": { "snapback4": "<the exact2 checkout>/snapback4/ts" } }
+// and `import { Snapback } from './snapback4/snapback.ts'`. README.md has
+// a complete app.
 //
 // Data modules have no clock: pass `now` (milliseconds) from a source argument.
 
@@ -382,6 +383,7 @@ export class Snapback {
    * `sync()`. Throws when the server is unreachable or refuses. A poll while
    * another client of the partition has one in flight shares its answer. */
   async poll(wait = 20): Promise<boolean> {
+    await this.ready();
     const partition = this.partition;
     // One at a time for every client of the partition: a caller while one is
     // in flight shares its answer (a second poll would supersede it).
