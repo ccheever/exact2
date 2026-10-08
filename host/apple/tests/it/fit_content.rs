@@ -575,11 +575,18 @@ fn a_width_through_a_percentage_height_does_not_cycle() {
 /// an ancestor's width still follows the sheet: LLP 1075.003 §9.11.)
 #[test]
 fn a_parents_viewport_padding_is_the_screens_in_the_measure() {
-    for sizing in ["border-box", "content-box"] {
+    // A border box at the sheet's width, a content box of 100%, and a
+    // plain column whose width fills (auto, content-box: its border box
+    // stays, the padding comes out of its content; Grok's round-3 case).
+    for sizing in [
+        r#"width="100%" box-sizing="border-box""#,
+        r#"width="100%" box-sizing="content-box""#,
+        r#"align-self="stretch""#,
+    ] {
         let src = format!(
             r##"component Menu
   view
-    column testId="page" width="100%" height="100%" padding-left="10vh" box-sizing="{sizing}"
+    column testId="page" {sizing} height="100%" padding-left="10vh"
       column testId="menu" navigationDetent="fit-content" flex=1
         text "Twenty-six letters wrap at each width the route is given, and a long sentence wraps into more lines where the column is narrower, so its height follows that width exactly."
 "##
@@ -603,5 +610,41 @@ fn a_parents_viewport_padding_is_the_screens_in_the_measure() {
                 "{sizing} at {h}: {resized}"
             );
         }
+    }
+}
+
+/// Grok's and Astra's round-3 case: a fixed sibling in a flex row sets the
+/// `flex: 1` route's width, 200 of the row's 400, in the measure as in the
+/// layout; the route's text wraps at 200.
+#[test]
+fn a_rows_siblings_set_the_routes_width_in_the_measure() {
+    let src = r##"component Menu
+  view
+    row testId="row" width=400 height="100%"
+      column width=200 flex-shrink=0
+      column testId="menu" navigationDetent="fit-content" flex=1 min-width=0
+        text "Twenty-six letters wrap at each width the route is given, so its height follows that width."
+"##;
+    let plan = contract::compile(src).unwrap();
+    let (mut host, first) = Host::boot(
+        &plan.encode(),
+        NoData,
+        Box::new(MonospaceMeasurer::default()),
+        390.0,
+        844.0,
+    )
+    .unwrap();
+    host.set_screen(Some(Screen::sized(390.0, 844.0)));
+    let menu = view(&host, "menu");
+    let k = host.runner().kernel();
+    let node = k.node(menu).unwrap();
+    assert_eq!(node.frame.width, 200.0);
+    // The text's laid-out height at that width is the extent.
+    let text = node.children()[0];
+    let laid = k.node(text).unwrap().frame.height;
+    assert_eq!(heights(&first, menu), [laid], "{first}");
+    for h in [44.0, 200.0, 844.0] {
+        let resized = host.resize(390.0, h);
+        assert!(heights(&resized, menu).is_empty(), "at {h}: {resized}");
     }
 }

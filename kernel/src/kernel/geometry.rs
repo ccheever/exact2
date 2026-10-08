@@ -116,7 +116,37 @@ impl Kernel {
         let tree_ref = self.layout.as_deref().and_then(LayoutMirror::tree_ref)?;
         let parent = self.arena.parent(slot);
         let holder = parent.map(|p| (p, self.arena.taffy(p).map(|n| tree_ref.layout(n))));
-        let (mut tree, nodes) = LayoutTree::of_subtree(&self.arena, slot);
+        // Where the parent shares its inline axis among its children (a flex
+        // row, a grid), the in-flow siblings come too: they set the box's
+        // width (a fixed sibling beside a `flex: 1` box). In a block or a
+        // column they set nothing of it and stay out.
+        let mut roots = vec![slot];
+        if let Some(p) = parent {
+            let s = self.arena.style(p);
+            let shares = match s.display {
+                crate::Display::Flex => matches!(
+                    s.flex_direction,
+                    crate::FlexDirection::Row | crate::FlexDirection::RowReverse
+                ),
+                crate::Display::Grid => true,
+                _ => false,
+            };
+            if shares {
+                roots = self
+                    .arena
+                    .children(p)
+                    .iter()
+                    .copied()
+                    .filter(|&c| {
+                        let cs = self.arena.style(c);
+                        c == slot
+                            || (cs.display != crate::Display::None
+                                && cs.position_type != crate::PositionType::Absolute)
+                    })
+                    .collect();
+            }
+        }
+        let (mut tree, nodes) = LayoutTree::of_subtrees(&self.arena, &roots);
         let root = nodes[&slot];
         let presented = engine(&mut self.layout).height_samples(self.epoch);
         let derive = |s: u32, mut t: taffy::style::Style| {
@@ -176,10 +206,14 @@ impl Kernel {
             }
             border.left = length(here.border.left).unwrap_or(border.left);
             border.right = length(here.border.right).unwrap_or(border.right);
-            // Its authored width is the content box's under `content-box`
-            // (CSS's default): that stays and the edges grow around it;
-            // under `border-box` the border box stays.
-            if own.box_sizing == crate::BoxSizing::ContentBox {
+            // A content box its authored width sets (`content-box`, CSS's
+            // default, and a width that is not `auto`) stays and the edges
+            // grow around it. Otherwise the border box stays and the edges
+            // come out of the content: `border-box`, or a width that fills
+            // (`auto`, a plain `column` filling the sheet; Grok's review).
+            if own.box_sizing == crate::BoxSizing::ContentBox
+                && own.width != crate::style::Dimension::Auto
+            {
                 width += pad.left + pad.right + border.left + border.right - before;
             }
             outer.padding = taffy::geometry::Rect {
@@ -220,7 +254,10 @@ impl Kernel {
         };
         outer.position = taffy::style::Position::Relative;
         let holder_node = tree.new_leaf(outer, parent.unwrap_or(slot), false);
-        tree.set_children(holder_node, &[root]);
+        match parent {
+            Some(p) => tree.adopt(&self.arena, p, holder_node, &nodes),
+            None => tree.set_children(holder_node, &[root]),
+        }
         let offer = Offer {
             width: AxisOffer::Definite(width),
             height: AxisOffer::MaxContent,

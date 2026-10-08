@@ -464,6 +464,13 @@ public final class Agent {
         }
         if grid {
             do { next.rects = try Segments.even(viewport: presenter.viewportSize, cols: next.cols, rows: next.rows, gap: gap) } catch { return "prefer: \(error)" }
+            // A fit-content route reads the screen's grid (LLP 1075.003
+            // §9.11): the same division of the screen, at its own size.
+            if let screen = session.screenSize {
+                var whole = next
+                do { whole.rects = try Segments.even(viewport: screen, cols: next.cols, rows: next.rows, gap: gap) } catch { return "prefer: \(error)" }
+                session.screen(screen, fold: whole)
+            }
         }
         return session.segments(next).map { "prefer: \($0)" }
     }
