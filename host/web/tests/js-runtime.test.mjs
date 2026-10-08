@@ -17,7 +17,7 @@ for (const f of ['rt.js', 'roster.js', 'router.js', 'schedule.js', 'budget.js', 
 copyFileSync(resolve(new URL('../notify-glue.js', import.meta.url).pathname), resolve(dir, 'notify-glue.js'));
 for (const [file, names] of Object.entries({ 'navigation.js': ['renderMarkup', 'reportPlace', 'onSelection', 'textField', 'settleRadios', 'animationClocks', 'launchLocation'], 'pointer.js': ['pointer', 'record'], 'commands.js': ['commands'], 'focus.js': ['autofocus', 'press', 'hold', 'within'],
   'media.js': ['media', 'mediaProp', 'mediaOn', 'mediaPiece', 'requestFullscreen'], 'document.js': ['Docs', 'Head', 'head', 'markDocument', 'projectRoots'],
-  'svg-transform.js': ['svgTransform'], 'dataset.js': ['ds'], 'hooks.js': ['hk'], 'perf.js': ['pf'], 'format.js': ['x_formatTime', 'x_formatDate', 'x_formatNumber', 'x_toFixed', 'x_formatDecimal'] }))
+  'svg-transform.js': ['svgTransform'], 'backdrop.js': ['backdropValue'], 'dataset.js': ['ds'], 'hatches.js': ['ht'], 'perf.js': ['pf'], 'format.js': ['x_formatTime', 'x_formatDate', 'x_formatNumber', 'x_toFixed', 'x_formatDecimal'] }))
   writeFileSync(resolve(dir, file), names.map(n => `export const ${n} = () => {};`).join('\n') + (file === 'media.js' ? '\nexport const MEDIA_EVENTS = new Set();' : ''));
 // A view transition that holds every tree update (shared.js's commit returns before its callback).
 writeFileSync(resolve(dir, 'shared.js'), 'export const commit = (tail) => { globalThis.heldTail = tail; return true; };');
@@ -48,18 +48,23 @@ const tsData = readFileSync(webJs('ts-data.js'), 'utf8').replace("'__APP_TS__'",
 writeFileSync(resolve(dir, 'ts-data.js'), tsData);
 
 test('a baked answer shows until the source is ready, then is asked; a settled one is not', async () => {
-  const { res, data } = await import(resolve(dir, 'rt.js'));
-  const asked = [];
-  data.answer = (source) => { asked.push(source); return null; }; // not ready: no value, no request
-  const baked = res('stamp', 'stamp', () => [], 0, [], 'n', 0);
-  const kept = res('preview', 'preview', () => [], 5, [], 'n', 0, true);
-  expect([baked(), baked.p(), kept(), kept.p()]).toEqual([0, false, 5, false]);
-  expect(asked).toEqual(['stamp']); // the settled row is never asked
-  expect(data.q.length).toBe(1);
-  data.answer = (source) => { asked.push(source); return { v: source === 'stamp' ? 42 : 6 }; };
-  for (const f of data.q.splice(0)) f();
-  expect([baked(), kept()]).toEqual([42, 5]);
-  expect(asked).toEqual(['stamp', 'stamp']);
+  // A page with no checkpoint: another file's stand-in `document` (run in this process) may lack querySelector.
+  const page = globalThis.document;
+  globalThis.document = { querySelector: () => null, getElementById: () => ({}) };
+  try {
+    const { res, data } = await import(resolve(dir, 'rt.js'));
+    const asked = [];
+    data.answer = (source) => { asked.push(source); return null; }; // not ready: no value, no request
+    const baked = res('stamp', 'stamp', () => [], 0, [], 'n', 0);
+    const kept = res('preview', 'preview', () => [], 5, [], 'n', 0, true);
+    expect([baked(), baked.p(), kept(), kept.p()]).toEqual([0, false, 5, false]);
+    expect(asked).toEqual(['stamp']); // the settled row is never asked
+    expect(data.q.length).toBe(1);
+    data.answer = (source) => { asked.push(source); return { v: source === 'stamp' ? 42 : 6 }; };
+    for (const f of data.q.splice(0)) f();
+    expect([baked(), kept()]).toEqual([42, 5]);
+    expect(asked).toEqual(['stamp', 'stamp']);
+  } finally { if (page === undefined) delete globalThis.document; else globalThis.document = page; }
 });
 
 // An answer that keeps coming (LLP 1016.000): each message settles the

@@ -532,6 +532,37 @@ fn fractional_high_extent_end_follow_needs_one_wheel_without_false_origin_change
     assert!(!p.dirty(), "bounded refinement eventually becomes idle");
 }
 
+/// LLP 1010 §6.9: a padding change that keeps the list's size and offset (a
+/// fixed border-box list) is still reported, so a followed end follows it.
+#[test]
+fn a_padding_only_change_reaches_the_runner_and_the_end_follows_it() {
+    let mut p = boot_source(
+        r#"component App
+  resource rows = rows() as shape list<number>
+  state end = 83
+  action grow
+    end = end + 26
+  view
+    column
+      button "Grow" press=grow testId="grow"
+      list virtualized=true scrollFollowEnd=true height=180 width=200 padding-top=20 padding-bottom=end box-sizing="border-box" testId="feed"
+        each x in rows key=x
+          text `row ${x}` height=24
+"#,
+    );
+    settle(&mut p);
+    let view = named(&p, "feed");
+    p.wheel(view, 0., 10_000_000.).unwrap();
+    settle(&mut p);
+    let end = p.collection_scroll_limits()[&view];
+    assert_eq!(p.scroll_of(view).1, end, "at the true end");
+    p.tap(named(&p, "grow")).unwrap();
+    settle(&mut p);
+    let grown = p.collection_scroll_limits()[&view];
+    assert_eq!(grown, end + 26.);
+    assert_eq!(p.scroll_of(view).1, grown, "followed to the grown end");
+}
+
 #[test]
 fn collection_resize_remeasures_new_width_without_unbounded_frame_loop() {
     let mut p = boot("text `row ${x} with words to wrap when the port gets narrower` font-size=16");
@@ -731,7 +762,7 @@ fn height_projection_refines_real_25k_port_through_hold_ticks_resize_and_typing(
       input value=draft input=edit testId="input"
       button press=grow testId="grow"
         text "grow"
-      column position="absolute" bottom=0 width="100%" height=target max-height="100%" padding=8 border-width=2 border-style="solid" box-sizing="border-box" transition="height spring(300,30,1)" testId="panel"
+      column position="absolute" bottom=0 width="100%" height=target max-height="100%" padding=8 border-width=2 border-style="solid" box-sizing="border-box" transition="height -exact-spring(300,30,1)" testId="panel"
         list virtualized=true scrollFollowEnd=true flex=1 min-height=0 width="100%" testId="port"
           each x in rows key=x
             text `row ${x}` height=24

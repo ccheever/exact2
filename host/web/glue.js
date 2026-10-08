@@ -19,7 +19,7 @@ const pieces = afterPaintPieces(loadAfterPaint, { root, views, applyBatch, agent
   replayed() { motion.commit(); arrange.commit(); if (agentMode) { register(agentClock); seek(agentClock); } else motion.followTimelines(); },
   wasm(name, bytes) { if (!wasm) return null; new Uint8Array(memory.buffer, wasm.exact_in(bytes.length), bytes.length).set(bytes); return JSON.parse(readOut(wasm[name](bytes.length))); } });
 const { collections, motion, arrange } = pieces, retiredViews = new WeakSet(); // committed removals must not dispatch teardown events
-const presence = presenceLoader(loadAfterPaint, root, batch => applyBatch(batch), log); // exit-animation and layout-transition, after paint at first use (LLP 1063)
+const presence = presenceLoader(loadAfterPaint, root, batch => applyBatch(batch), log); // -exact-exit-animation and -exact-layout-transition, after paint at first use (LLP 1063)
 let mediaModule, soundModule, soundOut, imageHold, geometry = null, resizes = null; // the voice table's output (sound-glue.js, LLP 1096 D7); animated images held to the agent's clock (image-glue.js, LLP 1011.000); geometry reads (geometry-glue.js, LLP 1051.000 D4); the element resize event (resize-glue.js)
 function syncMedia(el, set = {}, clear = []) {
   if (!(el instanceof HTMLMediaElement)) return;
@@ -859,6 +859,7 @@ function apply(batch) {
   }
   pendingScrolls.clear();
   if (collectionOp) collections.commit(collectionOp.items);
+  else collections.restyled();
   for (const [view, offset, name] of jumps) collections.jump(view, offset, name);
   listSelection?.after();
   syncLists();

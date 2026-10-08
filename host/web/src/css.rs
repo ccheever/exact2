@@ -313,7 +313,7 @@ fn css_text_in(
                 }
                 out.push(';');
             }
-            // @ref LLP 1077 D14 — host-owned feedback, as `press-scale`: a
+            // @ref LLP 1077 D14 — host-owned feedback, as `-exact-press-scale`: a
             // custom property input-glue.js reads from the pressed element's
             // own style, and plays as `navigator.vibrate` where it exists.
             (StyleId::PressHaptic, RowValue::Enum(kind)) => {
@@ -463,7 +463,7 @@ pub(crate) fn css_string(value: &str) -> String {
     out
 }
 
-/// Whether the corner a radius row sizes is `-apple-continuous` (LLP 1077 D1).
+/// Whether the corner a radius row sizes is `-exact-continuous` (LLP 1077 D1).
 fn apple_corner(style: &StyleProps, id: StyleId) -> bool {
     let i = match id {
         StyleId::BorderRadiusTopLeft => 0,
@@ -545,7 +545,7 @@ fn spell_property(out: &mut String, id: StyleId) {
         StyleId::TextColor => return out.push_str("color"),
         StyleId::TintColor => return out.push_str("--exact-tint"),
         StyleId::PositionType => return out.push_str("position"),
-        StyleId::BackdropBlur => return out.push_str("backdrop-filter"),
+        StyleId::BackdropFilter => return out.push_str("backdrop-filter"),
         StyleId::SvgMask => return out.push_str("mask"),
         // @ref LLP 1077 D7 — the Compat Standard's prefixed names.
         StyleId::TextStrokeWidth => return out.push_str("-webkit-text-stroke-width"),
@@ -600,7 +600,7 @@ fn declared(out: &mut String, id: StyleId, value: &RowValue<'_>) {
             out.push(')');
         }
         // @ref LLP 1095 D2 — a CSS system colour as is, an Exact role as
-        // `var(--exact-<role>, <fallback>)`, a `platform-color()` as its web colour.
+        // `var(--exact-<role>, <fallback>)`, a `-exact-platform-color()` as its web colour.
         RowValue::ColorValue(c) => exact_kernel::gradient::color_css(out, *c),
         RowValue::LineHeight(v) => out.push_str(&v.css()),
         RowValue::Enum(e) => out.push_str(e),
@@ -618,6 +618,7 @@ fn declared(out: &mut String, id: StyleId, value: &RowValue<'_>) {
         RowValue::PaintOrder(p) => out.push_str(&p.css()),
         RowValue::Marker(m) => out.push_str(&m.css()),
         RowValue::Filter(f) => out.push_str(&f.css()),
+        RowValue::BackdropFilter(f) => out.push_str(&f.css()),
         // The kernel's canonical CSS: explicit stops, `#rrggbbaa` colours and
         // `light-dark()` pairs the browser resolves per element (LLP 1034
         // D2); the browser mixes premultiplied, as CSS says (LLP 1066).
@@ -661,14 +662,6 @@ fn declared(out: &mut String, id: StyleId, value: &RowValue<'_>) {
             StyleId::Rotate => {
                 num_into(out, *n as f32);
                 out.push_str("deg");
-            }
-            // @ref LLP 1053.000 D1 — `none` is 0, which paints nothing and
-            // makes no backdrop root, where `blur(0px)` would.
-            StyleId::BackdropBlur if *n == 0.0 => out.push_str("none"),
-            StyleId::BackdropBlur => {
-                out.push_str("blur(");
-                num_into(out, *n as f32);
-                out.push_str("px)");
             }
             _ => {
                 num_into(out, *n as f32);
@@ -743,7 +736,7 @@ fn transition_property(tr: &Transition) -> &'static str {
     tr.property.css_name()
 }
 
-/// A `layout-transition` row as the presence module reads it: duration and
+/// A `-exact-layout-transition` row as the presence module reads it: duration and
 /// delay in milliseconds, then a CSS easing (LLP 1063). A spring is
 /// `spring(stiffness, damping, mass)`: the module lowers each move itself,
 /// from its displacement and velocity in points, to the grid and rest
@@ -811,6 +804,9 @@ pub(crate) fn dimension(out: &mut String, d: Dimension) {
         // The browser resolves the segment itself too (LLP 1078 D6): the
         // text is CSS-ENV-1's, untouched.
         Dimension::Segment(var, x, y, plus) => exact_kernel::style::env::css(var, x, y, plus, out),
+        // CSS's own `min()`, `max()` and `clamp()`: the browser resolves
+        // them, the insets with the rest (LLP 1001 §2, 2026-10-07).
+        Dimension::Compare(c) => c.css(out),
     }
 }
 
@@ -948,10 +944,10 @@ mod writer_tests {
     fn transitions_and_linear_easings_write_what_joining_wrote() {
         for text in [
             "opacity 1s",
-            "opacity 250ms ease-in-out, all 0.5s cubic-bezier(0.4, 0, 0.2, 1) 100ms, translate spring(180, 12, 1)",
+            "opacity 250ms ease-in-out, all 0.5s cubic-bezier(0.4, 0, 0.2, 1) 100ms, translate -exact-spring(180, 12, 1)",
             "opacity 1s steps(4, jump-both), height 200ms linear 50ms",
             "opacity 1s linear(0, 0.2, 0.6 60%, 0.8, 1), translate 1s linear(0 0% 20%, 1 80% 100%)",
-            "translate spring(180, 12, 1)",
+            "translate -exact-spring(180, 12, 1)",
         ] {
             let t = Transitions::parse(text).unwrap();
             assert_eq!(transition_css(&t), transition_joined(&t), "{text}");
@@ -970,12 +966,12 @@ mod writer_tests {
         };
         let (duration, easing) = config.easing();
         let curve = format!("{}s {} 0.1s", num(duration as f32), easing.css());
-        let t = Transitions::parse("background-color spring(180, 12, 1) 0s 100ms").unwrap();
+        let t = Transitions::parse("background-color -exact-spring(180, 12, 1) 0s 100ms").unwrap();
         assert_eq!(
             transition_css(&t),
             (format!("background-color {curve}"), false)
         );
-        let t = Transitions::parse("opacity 1s, all spring(180, 12, 1) 0s 100ms").unwrap();
+        let t = Transitions::parse("opacity 1s, all -exact-spring(180, 12, 1) 0s 100ms").unwrap();
         let (text, skipped) = transition_css(&t);
         assert!(skipped, "the compositor rows' spring is the host's");
         let names: Vec<&str> = text
@@ -1019,6 +1015,27 @@ mod declaration_tests {
         }
         let fonts: Vec<String> = fonts.iter().map(|f| f.to_string()).collect();
         css_text(&style, &fonts).0
+    }
+
+    #[test]
+    fn backdrop_filters_keep_order_and_identity_in_css() {
+        exact_kernel::style::link_backdrop_filter();
+        for value in [
+            "none",
+            "blur(0px)",
+            "saturate(1)",
+            "saturate(0)",
+            "blur(12px) saturate(1.14)",
+            "saturate(1.8) blur(4px)",
+        ] {
+            assert_eq!(
+                css(
+                    &[(StyleId::BackdropFilter, StyleValue::Text(value.into()))],
+                    &[]
+                ),
+                format!("backdrop-filter:{value};")
+            );
+        }
     }
 
     #[test]
@@ -1254,7 +1271,7 @@ mod declaration_tests {
             &[
                 (StyleId::BorderRadiusTopLeft, StyleValue::Number(10.0)),
                 (StyleId::BorderRadiusTopRight, StyleValue::Number(10.0)),
-                (StyleId::CornerShape, t("-apple-continuous squircle")),
+                (StyleId::CornerShape, t("-exact-continuous squircle")),
             ],
             &[],
         );
@@ -1302,7 +1319,7 @@ mod declaration_tests {
         );
     }
 
-    /// `press-haptic` is the custom property input-glue.js plays at the
+    /// `-exact-press-haptic` is the custom property input-glue.js plays at the
     /// press (LLP 1077 D14, workout F4); `rotate`'s axis part is written
     /// with the angle and skips nothing (kanban F30).
     #[test]

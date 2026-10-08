@@ -8,19 +8,19 @@
 // colour in `draw(_:)`, which the ordinary capture does see. Neither takes
 // hits: an agent `tap` lands on the node's own view.
 //
-// On iOS the module's hooks (LLP 1075.003 §3.2) take the long tail: what
+// On iOS the module's hatches (LLP 1075.003 §3.2) take the long tail: what
 // the authored header does not say — the bar's tint, and a leading button
 // that clicks the authored control `data-menu` names, so a finger and the
 // agent run one handler. The title, large or inline, Back and the
 // Compose item are Exact's, from the header, in the first frame.
-// `data-violate` makes the route hook write the content scroll view's inset,
+// `data-violate` makes the route hatch write the content scroll view's inset,
 // which Exact owns (the development check journals it); `data-transition`
 // gives the stack a cross-fade through the forwarded delegate.
 //
-// On every Apple host, nodes the Contract marks `hook` (LLP 1075.003.000)
+// On every Apple host, nodes the Contract marks `hatch` (LLP 1075.003.000)
 // reach `element`: the `badge` gets a context menu, an interaction Exact
-// leaves to the app; each list row's `dot` hook does nothing, so what a
-// hooked node costs is the cost of being hooked; with `data-violate` the
+// leaves to the app; each list row's `dot` hatch does nothing, so what a
+// hatched node costs is the cost of being hatched; with `data-violate` the
 // detail's scroller (`detail-list`) gets an inset Exact owns.
 import Foundation
 #if os(macOS)
@@ -36,24 +36,167 @@ final class FixtureModule: ExactModule {
          "exact-screen": ExactNativeFactory { _, events in Screen(events: events) }]
     }
 
+    // The app and window scopes (LLP 1075.003.000.001 §2.1): each moment is
+    // counted and published for the smoke, and a window that is the
+    // session's own takes the scheme's background, taken back at its end.
+    private var scheme = "light"
+    private weak var ownWindow: ExactWindow?
+
+    private func publishScopes(_ moment: String) {
+        context.diagnostics.count("scope.\(moment)")
+        context.diagnostics.publish("scopes", ["scheme": scheme, "exclusive": ownWindow?.exclusive ?? false, "hasWindow": ownWindow?.window != nil,
+                                              "frame": ownWindow.map { [$0.frame.width, $0.frame.height] } ?? [], "last": moment])
+    }
+
+    private func tint() {
+        ownWindow?.window?.backgroundColor = scheme == "dark" ? .black : .white
+    }
+
+    override func app(_ app: ExactApp) {
+        scheme = app.prefersColorScheme
+        tint()
+        context.diagnostics.publish("app", ["processOwner": app.processOwner, "hasApplication": app.application != nil, "visibilityState": app.visibilityState, "onLine": app.onLine,
+                                            "mood": app.data[.mood] ?? ""])
+        publishScopes(app.isNew ? "app-built" : "app-changed")
+    }
+
+    override func appEnded(_ app: ExactApp) { publishScopes("app-ended") }
+
+    override func window(_ window: ExactWindow) {
+        ownWindow = window
+        tint()
+        publishScopes(window.isNew ? "window-built" : "window-changed")
+    }
+
+    override func windowEnded(_ window: ExactWindow) {
+        window.window?.backgroundColor = nil
+        publishScopes("window-ended")
+    }
+
+    // The frame clock (LLP 1075.003.000.001 §2.4). Each tick counts itself
+    // and whether the node's `data-frames`, which a frame task advances, is
+    // the tick's own number. The first tick chains `after`s: one for now, one
+    // for 20 ms on, and one stopped before it can run. The third presses the
+    // node 65 times.
+    private var clockTicket: ExactTicket?
+    private var ticks = 0, agreed = 0
+
+    private func startClock(_ element: ExactElement) {
+        ticks = 0; agreed = 0
+        let d = context.diagnostics
+        clockTicket = context.frames { [weak self, weak element] frame in
+            guard let self, let element else { return }
+            self.ticks += 1
+            if element.data[.frames] == String(self.ticks) { self.agreed += 1 }
+            d.count("clock.ticks")
+            if self.ticks == 1 {
+                self.context.after(0) {
+                    d.count("clock.after0")
+                    self.context.after(20) { d.count("clock.after20") }
+                }
+                self.context.after(30) { d.count("clock.stopped") }.stop()
+            }
+            if self.ticks == 3 { for _ in 0..<65 { element.click() } }
+            d.publish("clock", ["ticks": self.ticks, "agreed": self.agreed, "now": frame.now])
+        }
+    }
+
+    private func regionsAndParts(_ element: ExactElement, _ view: ExactPlatformView) {
+        let tag = 0x5EA1
+        #if os(macOS)
+        let seal = view.subviews.first { $0.tag == tag }
+        #else
+        let seal = view.viewWithTag(tag)
+        #endif
+        if element.data[.tone] == "busy" {
+            seal?.removeFromSuperview()
+            element.parts = []
+            return
+        }
+        guard seal == nil else { return }
+        // What the seal does when pressed is the hatch's own code: here it counts the press.
+        let pressed = { [weak self] in self?.context.diagnostics.count("seal.presses") ?? () }
+        #if os(macOS)
+        let made = SealView(frame: NSRect(x: 4, y: 4, width: 12, height: 12))
+        made.pressed = pressed
+        #else
+        let made = SealView(frame: CGRect(x: 4, y: 4, width: 12, height: 12))
+        made.pressed = pressed
+        made.tag = tag
+        made.backgroundColor = .white
+        made.isAccessibilityElement = true
+        made.accessibilityLabel = "Verified"
+        #endif
+        made.addGestureRecognizer(made.press)
+        view.addSubview(made)
+        element.owns(view: made, "seal: a white square the hatch draws on the badge")
+        element.owns(recognizer: made.press, "press: the seal's own click")
+        element.parts = [ExactPart(id: "seal", view: made, role: "button", label: "Verified")]
+    }
+
+    /// Each badge's span, from its mount to its end.
+    private var shown: [ObjectIdentifier: ExactSpan] = [:]
+
     override func element(_ element: ExactElement) {
+        // What each hatch says of itself (LLP 1075.003.000.001 §3.2): a
+        // counter a moment, and for the badge a line, a span from its mount
+        // to its end and a snapshot of its last tone.
+        let moment = element.isNew ? "built" : "changed"
+        // The smoke's stand-in for a crash in hatch code (LLP 1075.003.000.001
+        // §4.4): the process dies inside this call, with no report to dismiss,
+        // and the next launch's journal says where.
+        if element.hatch == .badge, ProcessInfo.processInfo.environment["EXACT_FIXTURE_DIE"] == "badge" { kill(getpid(), SIGKILL) }
+        element.diagnostics.count(moment)
+        // What a hatch asks of an authored node (§2.5), each queued: `feed`
+        // replaces its field's value, `presser` clicks its own button once
+        // when armed and on every change while looping.
+        if element.hatch == .feed, !element.isNew, let text = element.data[.feed], !text.isEmpty { element.input(text) }
+        if element.hatch == .presser, !element.isNew, element.data[.loop] != "off" || element.data[.armed] == "true" { element.click() }
+        // The frame clock (§2.4): a ticket while the node says to run.
+        if element.hatch == .clock {
+            let run = element.data[.run] == "true"
+            if run, clockTicket == nil { startClock(element) }
+            if !run { clockTicket?.stop(); clockTicket = nil }
+            if !element.isNew, element.data[.presses] == "65" { element.click() }
+        }
+        if element.hatch == .badge {
+            let tone = element.data[.tone] ?? ""
+            element.diagnostics.log("\(moment), tone \(tone)")
+            element.diagnostics.publish("tone", ["tone": tone, "moment": moment])
+            if element.isNew { shown[ObjectIdentifier(element)] = element.diagnostics.begin("shown") }
+        }
         #if os(iOS)
         // Owned by Exact (LLP 1075.003.000 §3.6): the development check says so.
-        if element.hook == .detailList, element.data[.violate] == "true" { element.scrollView?.contentInset.bottom = 1 }
+        if element.hatch == .detailList, element.data[.violate] == "true" { element.scrollView?.contentInset.bottom = 1 }
         // A row's dot takes a recognizer of its own, which `elementEnded`
-        // takes back; with `data-reuse` the hook says so, and its row may be
+        // takes back; with `data-reuse` the hatch says so, and its row may be
         // reused (LLP 1075.003.000.000 §8).
-        if element.hook == .dot {
-            if element.isNew { element.view?.addGestureRecognizer(DotPress()) }
+        if element.hatch == .dot {
+            // Declared (LLP 1075.003.000.001 §3.4): the agent is told whose it is.
+            if element.isNew, let view = element.view { let press = DotPress(); view.addGestureRecognizer(press); element.owns(recognizer: press, "press: the dot's own recognizer") }
             element.reusable = element.data[.reuse] == "true"
             return
         }
         #endif
-        guard element.hook == .badge, element.isNew, let view = element.view else { return }
+        guard element.hatch == .badge, let view = element.view else { return }
+        // Regions and parts (§3.4, §3.5): the badge draws a seal over itself
+        // and says so; with `data-tone` busy the seal goes, and its region
+        // stays a while as a tombstone.
+        regionsAndParts(element, view)
+        guard element.isNew else { return }
         #if os(iOS)
         view.addInteraction(UIContextMenuInteraction(delegate: badgeMenu))
         #else
         view.menu = NSMenu(title: "Badge \(element.data[.tone] ?? "")")
+        #endif
+    }
+
+    override func elementEnded(_ element: ExactElement) {
+        element.diagnostics.count("ended")
+        shown.removeValue(forKey: ObjectIdentifier(element))?.end()
+        #if os(iOS)
+        guard element.hatch == .dot, let view = element.view else { return }
+        for case let press as DotPress in view.gestureRecognizers ?? [] { view.removeGestureRecognizer(press) }
         #endif
     }
 
@@ -65,11 +208,12 @@ final class FixtureModule: ExactModule {
     /// (AppKit shows icons only under the compact style a window toolbar
     /// gets, so labels need the window's style too.)
     override func toolbar(_ toolbar: ExactToolbar) {
+        context.diagnostics.count("toolbars")
         toolbar.window?.toolbarStyle = .unified
         toolbar.toolbar.displayMode = .iconAndLabel
-        let item = NSToolbarItem(itemIdentifier: .init("fixture.hooked"))
-        item.label = "Hooked"
-        item.image = NSImage(systemSymbolName: "star", accessibilityDescription: "Hooked")
+        let item = NSToolbarItem(itemIdentifier: .init("fixture.hatched"))
+        item.label = "Hatched"
+        item.image = NSImage(systemSymbolName: "star", accessibilityDescription: "Hatched")
         item.target = toolbarPress
         item.action = #selector(ToolbarPress.press)
         toolbar.add(item)
@@ -83,6 +227,7 @@ final class FixtureModule: ExactModule {
 
     override func navigation(_ navigation: ExactNavigation) {
         navigation.controller.navigationBar.tintColor = .systemIndigo
+        context.diagnostics.count("navigations")
     }
 
     override func route(_ route: ExactRoute) {
@@ -91,10 +236,10 @@ final class FixtureModule: ExactModule {
             let target = Click(route, id)
             targets[route.key] = target
             let button = UIBarButtonItem(image: UIImage(systemName: "ellipsis.circle"), style: .plain, target: target, action: #selector(Click.click))
-            button.accessibilityIdentifier = "hook-more"
+            button.accessibilityIdentifier = "hatch-more"
             return button
         }
-        item.leftBarButtonItems = (item.leftBarButtonItems ?? []).filter { $0.accessibilityIdentifier != "hook-more" } + (more.map { [$0] } ?? [])
+        item.leftBarButtonItems = (item.leftBarButtonItems ?? []).filter { $0.accessibilityIdentifier != "hatch-more" } + (more.map { [$0] } ?? [])
         if route.data[.violate] == "true" { route.contentScrollView?.contentInset.top = 1 }
         if let navigation = route.navigation {
             if route.data[.transition] == "true" { navigation.delegate = fade }
@@ -102,10 +247,6 @@ final class FixtureModule: ExactModule {
         }
     }
 
-    override func elementEnded(_ element: ExactElement) {
-        guard element.hook == .dot, let view = element.view else { return }
-        for case let press as DotPress in view.gestureRecognizers ?? [] { view.removeGestureRecognizer(press) }
-    }
 
     override func routeEnded(_ route: ExactRoute) {
         targets.removeValue(forKey: route.key)
@@ -191,9 +332,9 @@ final class Screen: ExactNativeInstance {
 #endif
 
 #if os(iOS)
-/// A hook-made control that stands for an authored one: it clicks it, so the
+/// A hatch-made control that stands for an authored one: it clicks it, so the
 /// agent, tapping the authored control, runs the same handler.
-/// The dot's own recognizer: what an app's hook adds to a row's view.
+/// The dot's own recognizer: what an app's hatch adds to a row's view.
 private final class DotPress: UILongPressGestureRecognizer {}
 
 /// The badge's context menu: one item, with the badge's word.
@@ -434,9 +575,30 @@ final class PlainBox: ExactNativeInstance {
 }
 
 #if os(macOS)
-/// The hooked toolbar item's target: an app's own action, which AppKit
+/// The hatched toolbar item's target: an app's own action, which AppKit
 /// validates through it.
 private final class ToolbarPress: NSObject {
     @objc func press() {}
+}
+#endif
+
+/// The badge's seal: a small view the fixture finds by its tag. Its own
+/// click recognizer tells the hatch when it is pressed: an ancestor's
+/// recognizer holds a plain `mouseDown` back, as it would a person's.
+#if os(macOS)
+final class SealView: NSView {
+    var pressed: (() -> Void)?
+    lazy var press = NSClickGestureRecognizer(target: self, action: #selector(didPress))
+    override var tag: Int { 0x5EA1 }
+    override func draw(_ dirtyRect: NSRect) { NSColor.white.setFill(); bounds.fill() }
+    // A click on a window that is not key still presses it, as it does Exact's own controls.
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+    @objc func didPress() { pressed?() }
+}
+#else
+final class SealView: UIView {
+    var pressed: (() -> Void)?
+    lazy var press = UITapGestureRecognizer(target: self, action: #selector(didPress))
+    @objc func didPress() { pressed?() }
 }
 #endif

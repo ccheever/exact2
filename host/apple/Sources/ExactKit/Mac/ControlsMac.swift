@@ -22,6 +22,11 @@ final class ControlHost: NSObject {
     var appliedRange: [UInt32: String] = [:]
     /// A radio's group from the kernel (`exact_radio_group`; x2apps survey #2).
     var radioGroup: ((UInt32) -> RadioGroup)?
+    /// Each `progress`'s spinner (ProgressMac.swift): a view, not a
+    /// control, so beside `controls`; and those turning, which AppKit does
+    /// not say.
+    var spinners: [UInt32: NSProgressIndicator] = [:]
+    var animating: Set<UInt32> = []
 
     init(_ presenter: Presenter) { self.presenter = presenter }
 
@@ -130,6 +135,7 @@ final class ControlHost: NSObject {
                 if !live.isEmpty { self.presenter.onIntrinsic?(live) }
             }
         }
+        syncProgress()
     }
 
     @objc private func changed(_ sender: NSControl) {
@@ -164,6 +170,7 @@ final class ControlHost: NSObject {
     }
 
     func observation(_ node: NodeView) -> [String: Any]? {
+        if let progress = progressObservation(node) { return progress }
         guard let control = controls[node.id] else { return nil }
         if let b = control as? NativeButtonMac { return nativeObservation(b) }
         if let value = valueObservation(control) {
@@ -176,6 +183,9 @@ final class ControlHost: NSObject {
     func reset() {
         for control in controls.values { control.removeFromSuperview() }
         controls.removeAll()
+        for spinner in spinners.values { spinner.stopAnimation(nil); spinner.removeFromSuperview() }
+        spinners.removeAll()
+        animating.removeAll()
         reported.removeAll()
         kinds.removeAll()
         menus.removeAll()

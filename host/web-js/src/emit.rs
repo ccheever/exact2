@@ -952,7 +952,7 @@ impl Em<'_> {
         let (mut attrs, content, extra) = rows::attributes(element, &parts.props);
         let mut css = parts.css.clone();
         css.push_str(&extra);
-        // @ref LLP 1063 — `layout-transition` and `exit-animation` are custom
+        // @ref LLP 1063 — `-exact-layout-transition` and `-exact-exit-animation` are custom
         // properties the web host's presence-glue.js reads from the element's
         // own declaration: inline, as the live host writes every row, not
         // the class (a class's custom property would be inherited).

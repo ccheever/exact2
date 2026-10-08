@@ -334,6 +334,9 @@ export async function openPlaywrightWeb({ browser: name, plan, world, size, url:
       },
       async input(id, kind, opts) {
         if (kind === 'history') { const reply = await ask({ op: 'tap', id, history: opts.history }); if (reply.error) throw new Error(reply.error); await frame(); return reply; }
+        // @ref LLP 1098 D10 — the handler the browser would call, through the media glue's `act`, as the
+        // Chrome carrier delivers it: no box is needed (an `audio` without controls has none).
+        if (kind === 'mediasession') { const r = await page.evaluate(([id, action, seconds]) => globalThis.exact?.mediaSession?.act(id, action, seconds) ?? { error: 'mediasession: this page publishes no media session (no media glue)' }, [id, opts.mediaSession, opts.seconds ?? null]); if (r.error) throw new Error(r.error); await frame(); return r; }
         const box = id == null ? null : (await ask({ op: 'layout' })).nodes.find(n => n.id === id);
         if (id != null && (!box || (box.w === 0 && box.h === 0))) throw new Error(`view ${id} has no box on screen`);
         const point = kind === 'contextmenu' ? opts.at : null;

@@ -31,6 +31,7 @@ public struct Batch {
     /// A canvas draw is owed to a turn of its own (LLP 1072 §8.5).
     public var canvasOwed = false
     /// A control's viewless contents changed (LLP 1069.011 §9).
+    public var layoutProvisional = false
     public var controls = false
     /// Image handles a 2D canvas asked for, to decode (LLP 1056 D9).
     public var canvasImages: [String] = []
@@ -59,8 +60,8 @@ public struct Batch {
 /// A runtime handle and its calls. `destroy` is idempotent at this layer and
 /// one-shot at the C boundary; a call after it is refused by the library by
 /// name, never a trap.
-final class Runtime {
-    let rt: ExactRuntime
+package final class Runtime {
+    package let rt: ExactRuntime
     private(set) var destroyed = false
     #if DEBUG
     // Per-runtime observation for differential tests of actual session traffic.
@@ -90,9 +91,9 @@ final class Runtime {
     static let busy = Batch(ops: [], timers: false, motion: false, clock: nil,
         error: "busy: the owner is waiting on this callback (LLP 1072 T5)")
     static let busyAgent = "{\"error\":\"busy: the owner is waiting on this callback (LLP 1072 T5)\"}"
-    func on(_ body: () -> Batch) -> Batch { Owner.shared.sync(body, busy: Runtime.busy) }
-    func on<T>(busy: @autoclosure () -> T, _ body: () -> T) -> T { Owner.shared.sync(body, busy: busy()) }
-    func on(_ body: () -> Void) { Owner.shared.sync(body, busy: ()) }
+    package func on(_ body: () -> Batch) -> Batch { Owner.shared.sync(body, busy: Runtime.busy) }
+    package func on<T>(busy: @autoclosure () -> T, _ body: () -> T) -> T { Owner.shared.sync(body, busy: busy()) }
+    package func on(_ body: () -> Void) { Owner.shared.sync(body, busy: ()) }
 
     /// The text measurer (`TextEngine.measure`) and its context.
     func setMeasure(_ measure: ExactMeasureFn?, ctx: UnsafeMutableRawPointer?) {
@@ -535,15 +536,6 @@ final class Runtime {
             return ButtonFace(json: Data(bytes: exact_out(rt), count: Int(len)))
         }
     }
-    #if os(iOS)
-    /// A grouped list's sections and rows (LLP 1084 D4).
-    func groupedList(_ view: UInt32) -> GroupedListModel? {
-        return on(busy: nil) {
-            let len = exact_grouped_list(rt, view)
-            return GroupedListModel(json: Data(bytes: exact_out(rt), count: Int(len)))
-        }
-    }
-    #endif
     /// A select's options and the one it shows (LLP 1069.001 D5).
     func selectOptions(_ view: UInt32) -> SelectMenu {
         return on(busy: SelectMenu(json: Data())) {

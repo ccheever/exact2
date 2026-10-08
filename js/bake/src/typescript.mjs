@@ -33,14 +33,24 @@ const IO=['XMLHttpRequest','WebSocket','EventSource'];
 const GLOBALS=['globalThis','self','window','global'];
 // `x!`, `(x)` and `x?.y` as written, down to the expression they wrap.
 const bare=(node)=>{ while (node && ['TSNonNullExpression','ParenthesizedExpression','ChainExpression','TSAsExpression','TSSatisfiesExpression','TSTypeAssertion'].includes(node.type)) node=node.expression; return node; };
+// A literal bracket key names the same property as dot access. Dynamic
+// keys and aliases stay with the runtime guard; do not evaluate them here.
+const propertyName=(node)=>{
+  if (node?.type!=='MemberExpression') return null;
+  const property=bare(node.property);
+  if (!node.computed) return property?.type==='Identifier' ? property.name : null;
+  if (property?.type==='Literal' && typeof property.value==='string') return property.value;
+  if (property?.type==='TemplateLiteral' && !property.expressions.length) return property.quasis[0].value.cooked;
+  return null;
+};
 // The global `name`: the bare identifier, or a global object's property.
 const ambientGlobal=(node,name,local)=>{
   node=bare(node);
   if (node?.type==='Identifier') return node.name===name && !local.has(name);
-  return node?.type==='MemberExpression' && !node.computed && node.property?.name===name
+  return propertyName(node)===name
     && bare(node.object)?.type==='Identifier' && GLOBALS.includes(bare(node.object).name) && !local.has(bare(node.object).name);
 };
-const member=(node,object,property,local)=>{ node=bare(node); return node?.type==='MemberExpression' && !node.computed && node.property?.name===property && ambientGlobal(node.object,object,local); };
+const member=(node,object,property,local)=>{ node=bare(node); return propertyName(node)===property && ambientGlobal(node.object,object,local); };
 function refusal(node,local) {
   if (node.type==='CallExpression') {
     const callee=node.callee;

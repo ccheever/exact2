@@ -97,9 +97,23 @@ pub(crate) struct SizeIndex {
     estimate: f64,
     epoch: u64,
     next_generation: u64,
+    /// The list's main-axis padding after its last row (@ref LLP 1010
+    /// §6.9): the scroll range runs this far past the rows' end.
+    trailing: f64,
+    /// And before its first row: the range starts this far before the
+    /// rows' start, so a short list's end can be there.
+    leading: f64,
     #[cfg(test)]
     rebuilds: usize,
 }
+
+/// How far short of a fractional end a port at its end may report, in CSS
+/// pixels or points: a browser's scroll range is whole pixels, rounded from a
+/// fractional extent in Chrome (a 210.72 px extent in a 140 px port scrolls to
+/// 71) and floored in WebKit (it stops at 70); native geometry rounds through
+/// f32 and device pixels. A port less than this from the end is at it, on
+/// every host, whatever the extent; a reader a whole pixel up is not.
+pub(crate) const END_SLACK: f64 = 1.0;
 
 impl SizeIndex {
     /// Zero estimates are legal, but cannot bootstrap a visible row by geometry.
@@ -114,6 +128,8 @@ impl SizeIndex {
             estimate,
             epoch: 1,
             next_generation: 0,
+            trailing: 0.0,
+            leading: 0.0,
             #[cfg(test)]
             rebuilds: 0,
         })
@@ -312,6 +328,37 @@ impl SizeIndex {
 
     pub(crate) fn total_height(&self) -> f64 {
         self.tree.total()
+    }
+
+    /// The rows and the padding after them: past every offset a port takes.
+    pub(crate) fn scroll_extent(&self) -> f64 {
+        self.total_height() + self.trailing
+    }
+
+    /// The padding after the last row, as the list's layout resolved it.
+    pub(crate) fn set_trailing(&mut self, trailing: f64) {
+        self.trailing = if trailing.is_finite() {
+            trailing.max(0.0)
+        } else {
+            0.0
+        };
+    }
+
+    pub(crate) fn trailing(&self) -> f64 {
+        self.trailing
+    }
+
+    /// The padding before the first row, as the list's style resolved it.
+    pub(crate) fn set_leading(&mut self, leading: f64) {
+        self.leading = if leading.is_finite() {
+            leading.max(0.0)
+        } else {
+            0.0
+        };
+    }
+
+    pub(crate) fn leading(&self) -> f64 {
+        self.leading
     }
 
     /// First row whose bottom is strictly after `offset`; zero-height prefixes
@@ -521,18 +568,16 @@ impl SizeIndex {
     /// show (mail F8: a mail list's newest message, a row Undo puts back).
     pub(crate) fn capture_anchor(
         &self,
-        offset: f64,
+        raw: f64,
         viewport: f64,
         follow_end: bool,
     ) -> Result<Anchor, IndexError> {
-        let offset = self.clamp_offset(offset, viewport)?;
-        // Browser scroll ranges round fractional CSS extents to whole pixels;
-        // native document geometry also rounds through f32. Admit up to half a
-        // logical pixel/point on every host, independent of extent (including
-        // small resident windows); never follow a reader beyond that tolerance.
-        let tolerance = 0.5;
-        let follows_end =
-            follow_end && viewport > 0.0 && self.max_offset(viewport) - offset <= tolerance;
+        let offset = self.clamp_offset(raw, viewport)?;
+        // The end is judged where the port is, padding before the rows
+        // included: a short list's end is in it (LLP 1010 §6.9).
+        let max = self.max_offset(viewport);
+        let at = raw.min(max).max(-self.leading);
+        let follows_end = follow_end && viewport > 0.0 && max - at < END_SLACK;
         // An end it follows wins: a short transcript is at both edges.
         let row = if offset <= 0.0 && !follows_end {
             None
@@ -602,12 +647,20 @@ impl SizeIndex {
         first..last
     }
 
-    fn max_offset(&self, viewport: f64) -> f64 {
-        (self.total_height() - viewport).max(0.0)
+    /// The farthest a port of `viewport` scrolls: the rows and the padding
+    /// after them, less the port (offsets count from the first row's start).
+    /// A list shorter than that ends in the padding before its first row,
+    /// down to `scrollTop` 0 (LLP 1010 §6.9).
+    pub(crate) fn max_offset(&self, viewport: f64) -> f64 {
+        (self.total_height() + self.trailing - viewport).max(-self.leading)
     }
 
+    /// A port in the padding before the first row (a negative offset, LLP
+    /// 1010 §6.9) is at the rows' start.
     fn clamp_offset(&self, offset: f64, viewport: f64) -> Result<f64, IndexError> {
-        valid_geometry(offset)?;
+        if !offset.is_finite() {
+            return Err(IndexError::InvalidGeometry);
+        }
         valid_geometry(viewport)?;
         Ok(offset.min(self.max_offset(viewport)).max(0.0))
     }

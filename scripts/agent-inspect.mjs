@@ -135,7 +135,7 @@ export function identifyInspectedNode(reply, target) {
  * only when its field is present (not null); strings are JSON-quoted.
  *
  *   tree    epoch E · incarnation I · clock C ms · N nodes
- *           {"  " × depth}{Type}#{id} [{testId}] hook="…" "{text}" value="…" label="…" checked=true|false ({handlers, comma-separated})
+ *           {"  " × depth}{Type}#{id} [{testId}] hatch="…" "{text}" value="…" label="…" checked=true|false ({handlers, comma-separated})
  *           an iframe adds url="…" loading=true|false and `[guest]` outline lines
  *   layout  viewport W×H [· safe-area T R B L · keyboard K, when any is not 0] [· status bar light-content|dark-content (#id), iOS] · clock C ms
  *           #{id} [{testId}] {Type} {x},{y} {w}×{h} scroll {sx},{sy} [overscroll {ox},{oy}]
@@ -160,7 +160,7 @@ export function render(op, r) {
       for (const n of r.nodes) {
         const depth = Math.max(0, n.depth - rootDepth);
         const p = n.props ?? {};
-        lines.push(`${'  '.repeat(depth)}${n.type}#${n.id}${p.testId != null ? ` [${p.testId}]` : ''}${p.hook != null ? ` hook=${q(p.hook)}` : ''}${p.text != null ? ` ${q(p.text)}` : ''}${p.value != null ? ` value=${q(p.value)}` : ''}${p.accessibilityLabel != null ? ` label=${q(p.accessibilityLabel)}` : ''}${p.checked != null ? ` checked=${p.checked}` : ''}${n.focused ? " [focused]" : ""}${n.inactive ? " [inactive]" : ""}${n.world ? ` world{${n.world.name}} · ${n.world.entities} entities · tick ${n.world.tick}` : ""}${n.handlers?.length ? ` (${n.handlers.join(', ')})` : ''}${n.url != null ? ` url=${q(n.url)} loading=${n.loading}` : ''}`);
+        lines.push(`${'  '.repeat(depth)}${n.type}#${n.id}${p.testId != null ? ` [${p.testId}]` : ''}${p.hatch != null ? ` hatch=${q(p.hatch)}` : ''}${p.text != null ? ` ${q(p.text)}` : ''}${p.value != null ? ` value=${q(p.value)}` : ''}${p.accessibilityLabel != null ? ` label=${q(p.accessibilityLabel)}` : ''}${p.checked != null ? ` checked=${p.checked}` : ''}${n.focused ? " [focused]" : ""}${n.inactive ? " [inactive]" : ""}${n.world ? ` world{${n.world.name}} · ${n.world.entities} entities · tick ${n.world.tick}` : ""}${n.handlers?.length ? ` (${n.handlers.join(', ')})` : ''}${n.url != null ? ` url=${q(n.url)} loading=${n.loading}` : ''}`);
         for (const g of n.guest ?? []) lines.push(`${'  '.repeat(depth + g.depth + 1)}[guest] ${g.tag}${g.id != null ? `#${g.id}` : ''}${g.testId != null ? ` [${g.testId}]` : ''}${g.text != null ? ` ${q(g.text)}` : ''}`);
       }
       return lines.join('\n');
@@ -259,12 +259,45 @@ const COUNTERS = ['instances', 'created', 'retired', 'evaluated', 'unchanged', '
  * again, and subtracts: the delta belongs to the driver, a read changes nothing.
  * `live <ms>` lends the page's clock to the wall for that long and measures the
  * frames it presents (the platformer's diary, R11: a game's 60 fps). */
+/** `tap <node>/<part>` (LLP 1075.003.000.001 §3.5): a control a hatch drew, by the id `tree` lists under its node. Reached
+ *  only as real platform input at its place: the host aims (the part live, in its window, not covered), the driver delivers a
+ *  pointer event there (a touch on iOS under `--touch platform`), and the host says where it landed, against the aim's token.
+ *  `unsupported` where no real carrier exists; never a fallback, never an activation by name. Null when `target` names no part. */
+export async function partTap({ s, host, touch }, target, opts = {}) {
+  const cut = typeof target === 'string' ? target.lastIndexOf('/') : -1;
+  if (cut <= 0 || cut === target.length - 1) return null;
+  const of = target.slice(0, cut), name = target.slice(cut + 1);
+  let node;
+  try { node = await s.target(of); } catch { return null; }
+  if (!['web', 'macos', 'ios'].includes(host) || (host === 'ios' && touch === 'agent')) {
+    return { tapped: node.id, part: name, delivery: 'unsupported', reason: host === 'ios' ? 'a part takes a real touch: open the simulator with --touch platform' : `the ${host} host has no real pointer carrier for a part` };
+  }
+  const aim = await s.op({ op: 'tap', id: node.id, part: name, aim: true });
+  if (aim.error) throw new Error(aim.error);
+  // One real click at the aimed point (`clicks 1 at x y`, the mouse form that takes a point on any node); a touch on iOS.
+  await s.tap(of, { ...opts, ...(host === 'ios' ? {} : { clicks: 1 }), at: aim.aimed.at });
+  const landed = await s.op({ op: 'tap', id: node.id, part: name, landed: aim.aimed.token });
+  if (landed.error) throw new Error(landed.error);
+  return { ...landed, target, at: aim.aimed.at };
+}
+
 export async function perfOp(s, args, line, step) {
   if (args[0] === 'frames') {
     const at = word => { const i = args.indexOf(word); return i < 0 ? undefined : Number(args[i + 1]); };
     const live = at('live'), late = at('late');
     if (live !== undefined && !(Number.isInteger(live) && live > 0 && live <= 120000)) throw Error('perf frames live <ms>: a whole number of milliseconds, 1–120000');
     return s.perf(null, { frames: true, late, ...(live !== undefined ? { live } : {}) });
+  }
+  // `perf hatches` (LLP 1075.003.000.001 §3.3): the hatches' calls and what their code counted.
+  if (args[0] === 'hatches') {
+    const read = () => s.op({ op: 'perf', hatches: true });
+    const at = line.search(/\sduring\s/);
+    if (at < 0) return read();
+    const ops = [...line.slice(at).matchAll(/"((?:[^"\\]|\\.)*)"/g)].map(m => JSON.parse(`"${m[1]}"`));
+    if (!ops.length) throw Error('perf hatches during: quote each op, as perf hatches during "tap start" "clock +1000"');
+    const before = await read();
+    for (const op of ops) await step(op);
+    return hatchDelta(before, await read());
   }
   const target = args[0] && args[0] !== 'during' ? args[0] : undefined;
   const at = line.search(/\sduring\s/);
@@ -298,7 +331,38 @@ export function perfDelta(a, b) {
   return { ...b, sites, from: { seq: a.seq, clock: a.clock } };
 }
 
+function renderHatchPerf(r) {
+  const ms = v => `${Math.round(v * 100) / 100} ms`;
+  const lines = [`perf hatches: seq ${r.seq}${r.from ? ` (from ${r.from.seq})` : ''}, plan ${r.plan?.slice(0, 12) ?? 'unknown'}${r.measuring ? '' : '; not measuring (a production build collects nothing)'}${r.truncated ? '; truncated' : ''}`];
+  for (const [name, h] of Object.entries(r.hatches)) lines.push(`  ${name}: ${h.calls} calls, ${ms(h.ms)}, worst ${ms(h.worst)}`);
+  for (const c of r.calls) if (c.site != null) lines.push(`    ${c.hatch} site ${c.site} ${c.moment}: ${c.calls} calls, ${ms(c.ms)}`);
+  for (const [scope, names] of Object.entries(r.counters)) for (const [name, n] of Object.entries(names)) lines.push(`  count ${scope} ${name}: ${n}`);
+  for (const [scope, names] of Object.entries(r.timings)) for (const [name, t] of Object.entries(names))
+    lines.push(`  timing ${scope} ${name}: ${t.count} samples, sum ${ms(t.sum)}, max ${ms(t.max)}, p50 ${ms(t.p50)}, p95 ${ms(t.p95)}${t.dropped ? `, ${t.dropped} dropped from the ring` : ''}${t.measured ? ' (measured)' : ''}`);
+  if (r.rejected || r.abandoned || r.limited) lines.push(`  refused: ${r.rejected} calls past a bound or badly named, ${r.abandoned} spans abandoned, ${r.limited} log lines over the rate`);
+  return lines.join('\n');
+}
+
+/** Two `perf hatches` reads' difference: calls, time and counters, each
+ * cumulative, subtracted; the samples' percentiles are the later read's.
+ * Refused across a changed plan or incarnation, as `perfDelta` is. */
+export function hatchDelta(a, b) {
+  if (!a.plan || !b.plan) throw Error('perf hatches: a read names no plan; no difference is defined');
+  if (a.truncated) throw Error('perf hatches: the first read was partial; no difference is defined');
+  if (a.plan !== b.plan) throw Error(`perf hatches: the plan changed between the reads (${a.plan?.slice(0, 12)} → ${b.plan?.slice(0, 12)}); no difference is defined`);
+  if (a.incarnation !== b.incarnation) throw Error(`perf hatches: incarnation ${a.incarnation} → ${b.incarnation} between the reads; no difference is defined`);
+  const less = (x, was, keys) => { const d = { ...x }; for (const k of keys) if (typeof x[k] === 'number') d[k] = x[k] - (was?.[k] ?? 0); return d; };
+  const key = c => `${c.hatch}\n${c.site ?? ''}\n${c.moment}`, before = new Map(a.calls.map(c => [key(c), c]));
+  const calls = b.calls.map(c => less(c, before.get(key(c)), ['calls', 'ms']));
+  const hatches = Object.fromEntries(Object.entries(b.hatches).map(([name, h]) => [name, less(h, a.hatches[name], ['calls', 'ms'])]));
+  const counters = Object.fromEntries(Object.entries(b.counters).map(([scope, names]) => [scope, less(names, a.counters[scope], Object.keys(names))]));
+  const timings = Object.fromEntries(Object.entries(b.timings).map(([scope, names]) => [scope,
+    Object.fromEntries(Object.entries(names).map(([name, t]) => [name, less(t, a.timings[scope]?.[name], ['count', 'sum'])]))]));
+  return { ...b, hatches, calls, counters, timings, from: { seq: a.seq, clock: a.clock } };
+}
+
 function renderPerf(r) {
+  if (r.calls && r.hatches) return renderHatchPerf(r);
   if (r.virtual) return 'virtual clock: no frame was presented (LLP 1079 D4); `perf frames live <ms>` measures a live window';
   if (r.unavailable) return 'this host observes no presented frames';
   if (r.lifetime) {
@@ -389,6 +453,7 @@ export function renderTrace(t) {
     }
   } else if (t.frames) out.push('', renderPerf(t.frames));
   if (t.perf) out.push('', renderPerf(t.perf));
+  if (t.hatches?.perf?.calls) out.push('', renderHatchPerf(t.hatches.perf));
   return out.join('\n');
 }
 

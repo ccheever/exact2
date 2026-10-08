@@ -9,6 +9,25 @@ pub use store::Updates;
 
 /// Run the app with its update store attached before boot.
 pub fn run<D: DataSource + Default>(baked: &[u8], compat: &str) -> i32 {
+    run_installed::<D>(baked, compat, None)
+}
+
+/// [`run`] with the app's hatches (LLP 1075.003.000.001 §5), as
+/// `exact_linux::run_with_hatches` takes them.
+pub fn run_with_hatches<D: DataSource + Default, H: exact_linux::Hatches>(
+    baked: &[u8],
+    compat: &str,
+    words: &'static [&'static str],
+) -> i32 {
+    let hatches = exact_linux::hatches::install::<H>(words);
+    run_installed::<D>(baked, compat, Some(hatches))
+}
+
+fn run_installed<D: DataSource + Default>(
+    baked: &[u8],
+    compat: &str,
+    hatches: Option<exact_linux::hatches::Install>,
+) -> i32 {
     if exact_linux::app::print_baked_receipt(compat) {
         return 0;
     }
@@ -24,6 +43,7 @@ pub fn run<D: DataSource + Default>(baked: &[u8], compat: &str) -> i32 {
     }
     let started = std::time::Instant::now();
     let mut config = exact_linux::app::Config::from_env(baked, compat);
+    config.hatches = hatches;
     match Updates::open(compat, baked, &config.assets) {
         Ok(updates) => config.use_updates(Box::new(updates), baked),
         Err(error) => eprintln!("exact update: {error}"),

@@ -10,7 +10,9 @@ export function collectionBytes(facts, fill = {}) {
   const id = n => Number.isInteger(n) && n > 0 && n <= 0xffffffff;
   const u64 = n => { if (typeof n === 'number' && !Number.isSafeInteger(n)) throw Error('unsafe collection identity'); const v = BigInt(n); if (v < 0n || v > 0xffffffffffffffffn) throw Error('invalid collection identity'); return v; };
   const rows = facts.measurements, seen = new Set();
-  if (!id(facts.view) || ![facts.offset, facts.port_main, facts.port_cross, facts.cross].every(valid)
+  // The offset counts from the first row: negative in the padding before it (LLP 1010 §6.9).
+  if (!id(facts.view) || !(Number.isFinite(facts.offset) && Math.abs(facts.offset) <= 3.4028234663852886e38)
+      || ![facts.port_main, facts.port_cross, facts.cross].every(valid)
       || [facts.focus_view, facts.interaction_view].some(n => n != null && !id(n))) throw Error('invalid collection geometry');
   for (const row of rows) {
     if (!id(row.view) || seen.has(row.view) || !valid(row.size)) throw Error('invalid collection row');
@@ -38,9 +40,9 @@ const INPUT = ['wheel', 'touchstart', 'keydown', 'pointerdown'];
 // Every main-axis read and write goes through one of these.
 const AXES = {
   y: { offset: 'scrollTop', client: 'clientHeight', crossClient: 'clientWidth', scrollSize: 'scrollHeight', overflow: 'overflowY',
-    start: 'top', end: 'bottom', size: 'height', clientStart: 'clientTop', padStart: 'paddingTop', crossPads: ['paddingLeft', 'paddingRight'] },
+    start: 'top', end: 'bottom', size: 'height', clientStart: 'clientTop', padStart: 'paddingTop', padEnd: 'paddingBottom', scrollPads: ['scrollPaddingTop', 'scrollPaddingBottom'], crossPads: ['paddingLeft', 'paddingRight'] },
   x: { offset: 'scrollLeft', client: 'clientWidth', crossClient: 'clientHeight', scrollSize: 'scrollWidth', overflow: 'overflowX',
-    start: 'left', end: 'right', size: 'width', clientStart: 'clientLeft', padStart: 'paddingLeft', crossPads: ['paddingTop', 'paddingBottom'] },
+    start: 'left', end: 'right', size: 'width', clientStart: 'clientLeft', padStart: 'paddingLeft', padEnd: 'paddingRight', scrollPads: ['scrollPaddingLeft', 'scrollPaddingRight'], crossPads: ['paddingTop', 'paddingBottom'] },
 };
 
 export function applyCollectionFeedback(batch, applyBatch) {
@@ -121,14 +123,17 @@ export function collectionController({ root, views, report, settled=()=>{}, agen
     ? { start: 0, main: doc.documentElement[A.client], cross: doc.documentElement[A.crossClient] }
     : { start: port.getBoundingClientRect()[A.start] + port[A.clientStart], main: port[A.client], cross: port[A.crossClient] };
   // `raw`: the port's start edge from the list's content origin; `cross`: the
-  // rows' available cross size, after the list's cross-axis padding.
+  // rows' available cross size, after the list's cross-axis padding;
+  // `trailing`: the padding after the rows (LLP 1010 §6.9), for the JS
+  // target's runner (the wasm runner reads its own layout).
   function geometry(s) {
     if (!s.el.isConnected || !s.el.getClientRects().length) return null;
     const A = AXES[s.axis], css = getComputedStyle(s.el), port = viewport(s.port, A);
     const origin = s.el.getBoundingClientRect()[A.start] + s.el[A.clientStart] + number(css[A.padStart])
       - (s.el === s.port ? s.port[A.offset] : 0);
     return { raw: port.start - origin, portMain: port.main, portCross: port.cross,
-      cross: s.el[A.crossClient] - number(css[A.crossPads[0]]) - number(css[A.crossPads[1]]) };
+      cross: s.el[A.crossClient] - number(css[A.crossPads[0]]) - number(css[A.crossPads[1]]), trailing: number(css[A.padEnd]),
+      leading: number(css[A.padStart]), scrollPadding: A.scrollPads.map(p => number(css[p])) };
   }
   const dimensionsOf = g => `${g.portCross},${g.portMain},${g.cross}`;
   function liveView(s, element) {
@@ -153,8 +158,17 @@ export function collectionController({ root, views, report, settled=()=>{}, agen
   // A correction's offset: smooth only when the correction says so, never
   // by the element's own `scroll-behavior: smooth` (an anchor's shift must
   // land with the rows that moved, before the frame paints).
+  // `s.exact` is where an instant correction put the port and what the browser then read back:
+  // WebKit keeps whole-pixel offsets (a place at 91783.6 reads back 91783), so a later correction
+  // relative to the read-back offset would lose up to a pixel each time, and the reader's row
+  // creep (two corrections: 2 px). It holds only while the port still reads exactly that.
   function place(s, at, smooth) {
-    s.port.scrollTo({ [AXES[s.axis].offset === 'scrollTop' ? 'top' : 'left']: at, behavior: smooth ? 'smooth' : 'instant' });
+    const name = AXES[s.axis].offset;
+    s.port.scrollTo({ [name === 'scrollTop' ? 'top' : 'left']: at, behavior: smooth ? 'smooth' : 'instant' });
+    // Only a rounding residual (under a pixel): a target the browser clamped (an offset below 0 or past
+    // the end) is not where the port is, and a later correction builds on the port.
+    const A = AXES[s.axis], read = s.port[name], max = s.port[A.scrollSize] - s.port[A.client];
+    s.exact = !smooth && at >= 0 && at <= max && Math.abs(at - read) < 1 ? { at, read } : null;
   }
   // A smooth correction (LLP 1070.000 §6.2) is the browser's smooth scroll
   // to `s.animating`. While it runs the sequence stays, nothing is sampled
@@ -203,7 +217,7 @@ export function collectionController({ root, views, report, settled=()=>{}, agen
       s.clamp = { from: s.clamp?.from ?? s.offset, at }; s.offset = s.clampAt = at;
       return false;
     }
-    s.clamp = s.clampAt = null; s.offset = at; s.sequence++;
+    s.clamp = s.clampAt = null; s.offset = at; s.sequence++; s.exact = null; // the reader's own scroll
     return true;
   }
   function desired(s) {
@@ -251,7 +265,7 @@ export function collectionController({ root, views, report, settled=()=>{}, agen
           return { view: row.view, epoch: row.epoch, size: rect[A.size] };
         });
       } else if (releases.includes(s)) {
-        g = { raw: old.offset, portCross: old.port_cross, portMain: old.port_main, cross: old.cross };
+        g = { raw: old.offset, portCross: old.port_cross, portMain: old.port_main, cross: old.cross, trailing: old.trailing, leading: old.leading, scrollPadding: old.scrollPadding };
       } else continue;
       scrollChanged(s);
       // The jump's target, clamped as the browser will: reported before it
@@ -264,9 +278,9 @@ export function collectionController({ root, views, report, settled=()=>{}, agen
       if (s.dimensions !== null && dimensions !== s.dimensions) { s.sequence++; s.jumpedAt = s.sequence; }
       s.dimensions = dimensions;
       const facts = { view: s.snapshot.view, revision: s.snapshot.revision, scroll_sequence: s.sequence,
-        offset: Math.max(0, g.raw + (s.animating != null ? (s.owed ?? s.animating) - s.port[A.offset] : s.clamp?.at === s.port[A.offset] ? s.clamp.from - s.clamp.at : 0)), port_main: g.portMain, port_cross: g.portCross, cross: g.cross,
-        focus_view: pins[0], interaction_view: pins[1], measurements };
-      const signature = [facts.offset, facts.scroll_sequence, dimensions, ...pins,
+        offset: Math.max(-g.leading, g.raw + (s.animating != null ? (s.owed ?? s.animating) - s.port[A.offset] : s.clamp?.at === s.port[A.offset] ? s.clamp.from - s.clamp.at : 0)), port_main: g.portMain, port_cross: g.portCross, cross: g.cross,
+        focus_view: pins[0], interaction_view: pins[1], measurements, trailing: g.trailing, leading: g.leading, scrollPadding: g.scrollPadding };
+      const signature = [facts.offset, facts.scroll_sequence, dimensions, facts.trailing, facts.leading, ...(facts.scrollPadding ?? []), ...pins,
         ...measurements.flatMap(r => [r.view, r.epoch, r.size])].join('|');
       for (const [el, value] of measuredSizes) if (s.observed.has(el)) s.observed.set(el, value);
       if (s.signature === signature && jump == null && !s.snapshot.pending) continue;
@@ -309,7 +323,7 @@ export function collectionController({ root, views, report, settled=()=>{}, agen
   }
   function move(s, at) {
     const name = AXES[s.axis].offset;
-    s.port[name] = at; s.offset = s.port[name]; s.travel = null;
+    s.port[name] = at; s.offset = s.port[name]; s.travel = null; s.exact = null;
   }
   function jumpTo(s, at) {
     if (!states.has(s.snapshot.view)) return;
@@ -367,7 +381,7 @@ export function collectionController({ root, views, report, settled=()=>{}, agen
       if(scrollChanged(s))enqueue(s,true);
       enqueue(s);if(!delivering)flush(true);
       const g=geometry(s),f=s.lastFacts,p=viewport(s.port,AXES.y);
-      if(!g||!f||f.offset!==Math.max(0,g.raw)||f.port_cross!==g.portCross||f.port_main!==g.portMain
+      if(!g||!f||f.offset!==Math.max(-g.leading,g.raw)||f.port_cross!==g.portCross||f.port_main!==g.portMain
         ||f.cross!==g.cross||BigInt(f.scroll_sequence)!==s.sequence)return undefined;
       return {revision:s.snapshot.revision,scrollSequence:String(s.sequence),scrollTop:f.offset,
         portWidth:g.portCross,portHeight:g.portMain,rowWidth:g.cross,totalExtent:s.snapshot.totalExtent,
@@ -393,7 +407,7 @@ export function collectionController({ root, views, report, settled=()=>{}, agen
       if (!lease || interaction?.lease !== lease || delivering || reportsLeft <= 0) return null;
       const s=lease.state,view=liveView(s,element),g=geometry(s),old=s.lastFacts;
       if (!states.has(s.snapshot.view)||!lease.wrapper.isConnected||!lease.wrapper.contains(element)||view==null
-        ||!g||old?.interaction_view!==lease.view||old.offset!==Math.max(0,g.raw)
+        ||!g||old?.interaction_view!==lease.view||old.offset!==Math.max(-g.leading,g.raw)
         ||old.port_cross!==g.portCross||old.port_main!==g.portMain||old.cross!==g.cross
         ||s.port[AXES[s.axis].offset]!==s.offset) return null;
       const facts={...old,revision:s.snapshot.revision,interaction_view:view,measurements:[]};
@@ -507,12 +521,18 @@ export function collectionController({ root, views, report, settled=()=>{}, agen
               // From where the port was: rows leaving above a deep offset
               // shrink the extent first, and the browser's clamp to it is
               // not where the reader is (scrollChanged's `s.clamp`).
-              const was = s.clamp?.at === port[name] ? s.clamp.from : port[name];
+              // The read-back offset, or where the last correction put it while the port still reads
+              // just what the browser made of that: anything that moved it since (the reader, a jump,
+              // an authored offset) is the base instead.
+              const read = port[name], base = s.exact && s.exact.read === read ? s.exact.at : read;
+              const was = s.clamp?.at === read ? s.clamp.from : base;
               s.clamp = s.clampAt = null;
+              const before = port[name];
               place(s, was + correction.offset - done, false);
               s.offset = port[name]; // consume the programmatic scroll echo
-              // Not the reader's travel: its velocity reads on from here.
-              if (s.travel) s.travel.at += port[name] - was;
+              // Not the reader's travel: its velocity reads on from here (by what the browser moved,
+              // never a residual `s.exact` carries).
+              if (s.travel) s.travel.at += port[name] - before;
             }
           }
         } else
@@ -520,7 +540,7 @@ export function collectionController({ root, views, report, settled=()=>{}, agen
         // scroll anchoring since the runner's last report don't void it.
         if (correction && s.corrected !== snapshot.revision
             && (BigInt(correction.scrollSequence) === s.sequence || authored(s))
-            && Number.isFinite(correction.offset) && correction.offset >= 0) {
+            && Number.isFinite(correction.offset)) {
           const g = geometry(s), name = AXES[axis].offset;
           // H4: a row list moving under the user's hand is not corrected;
           // its next report carries the uncorrected offset and the runner
@@ -550,6 +570,17 @@ export function collectionController({ root, views, report, settled=()=>{}, agen
         enqueue(s, !delivering || freshRows || snapshot.pending === true);
       }
       if (!dirty.size && frame !== null && !delivering) { cancelFrame(frame); frame = null; }
+    },
+    // After a commit that changed no snapshot: a list whose padding changed
+    // and nothing the browser observes (a border-box list keeps its size)
+    // reports it, so the runner's end follows (LLP 1010 §6.9).
+    restyled() {
+      for (const s of states.values()) {
+        const f = s.lastFacts, A = AXES[s.axis];
+        if (!f || !s.valid || !s.el.isConnected) continue;
+        const css = getComputedStyle(s.el);
+        if (number(css[A.padStart]) !== f.leading || number(css[A.padEnd]) !== f.trailing) enqueue(s, true);
+      }
     },
     // An authored offset on a collection (glue.js): on the list's own axis
     // (`scrollTop` for y, `scrollLeft` for x) its rows are built at the

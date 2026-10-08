@@ -55,7 +55,7 @@ component GroupedListRows
         column flex-grow=1 margin-left=8 min-width=0
           text "Maya Chen" font-size=22
           text "+1 415 555 0134" color="light-dark(#3c3c4399, #ebebf599)" font-size=15
-        image "symbol:forward-chevron" width=10 height=14 object-fit="contain" font-weight=600 tint-color="light-dark(#3c3c434d, #ebebf54d)"
+        image "symbol:forward-chevron" width=10 height=14 object-fit="contain" font-weight=600 -exact-tint-color="light-dark(#3c3c434d, #ebebf54d)"
     section
       header
         text "Account"
@@ -78,7 +78,7 @@ component GroupedListRows
         image "symbol:info"
         text "Detail"
         button press=tap testId="detail" aria-label="More info"
-          image "symbol:info" width=26 height=26 object-fit="contain" tint-color="light-dark(#0088ff, #0091ff)"
+          image "symbol:info" width=26 height=26 object-fit="contain" -exact-tint-color="light-dark(#0088ff, #0091ff)"
       footer
         text `Tapped ${taps} times.`
     section

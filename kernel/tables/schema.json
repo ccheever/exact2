@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "_about": "The single declaration authority for the kernel's node types, props, style rows, enum vocabularies, and opcodes. build.rs generates the Rust types, the wire codec, the style mask, and the schema digest from this file. Nothing here is hand-mirrored anywhere else; a second copy of any table is a defect.",
+  "_about": "The single declaration authority for the kernel's node types, props, style rows, enum vocabularies, and opcodes. build.rs generates the Rust types, the wire codec, the style mask, and the schema digest from this file. Nothing here is hand-mirrored anywhere else; a second copy of any table is a defect. Prop 253 (fieldStyle) was retired by LLP 1104 r8; never reuse its number.",
   "nodeTypes": [
     {
       "id": 0,
@@ -581,7 +581,7 @@
       "id": 219,
       "name": "dataset",
       "kind": "str",
-      "_comment": "@ref LLP 1075.003 §3.3: a node's data-* words as one JSON object of strings, keys sorted (the NativeProps opcode); data-<word> attributes on the web, read by a native hook."
+      "_comment": "@ref LLP 1075.003 §3.3: a node's data-* words as one JSON object of strings, keys sorted (the NativeProps opcode); data-<word> attributes on the web, read by a native hatch."
     },
     {
       "id": 220,
@@ -597,9 +597,9 @@
     },
     {
       "id": 222,
-      "name": "hook",
+      "name": "hatch",
       "kind": "str",
-      "_comment": "@ref LLP 1075.003.000: the word naming a node the app's native code receives (its view and platform object); a hooked node leaves the host's fast path. data-hook on the web."
+      "_comment": "@ref LLP 1075.003.000: the word naming a node the app's native code receives (its view and platform object); a hatched node leaves the host's fast path. data-hatch on the web."
     },
     {
       "id": 214,
@@ -1462,12 +1462,6 @@
       "_comment": "HTML's `autocomplete` on an input or textarea (LLP 1102 §3.6): the web writes the attribute; iOS and macOS set the field's text content type from its last field token (`email`, `username`, `current-password`, `new-password`, `one-time-code`, `name`, `tel`, `postal-code`, ...), over the one `type` implies; `off` clears it; a token the platform has no type for leaves `type`'s."
     },
     {
-      "id": 253,
-      "name": "fieldStyle",
-      "kind": "str",
-      "_comment": "@ref LLP 1104 D4: set by Contract, never authored: `default` on a text field that wears the default field rows (not `appearance=\"none\"`). The web shows such a field's `:focus-visible` ring; a host may mark its focus."
-    },
-    {
       "id": 254,
       "name": "statusBarStyle",
       "kind": "str",
@@ -2176,7 +2170,7 @@
       "default": "manual"
     }
   },
-  "_styles": "Each row is one mask bit. codec: dimension (u8 kind + f32; kind 0 auto, 1 points, 2 percent as authored 0-100 points, 3-6 an env(safe-area-inset-top/right/bottom/left) length with the f32 the points added, 7 calc(<percent> \u00b1 <px>) with a second f32 the points, 8-13 an env(viewport-segment-width/height/top/left/bottom/right x y) length with the f32 the points added and then two u8 indices x then y \u2014 LLP 1078 D3; 14-23 viewport vw/vh/vmin/vmax/svw/svh/lvw/lvh/dvw/dvh with f32 the percentage) | f32 | u8 | u16 | u32 | i32 | rgba8 | vec2 (f32 f32) | auto-color (u8: 0 auto, 1 followed by color) | color2 (rgba8 rgba8) | tracks (CSS grid-template grammar Taffy can lay out: none, named lines, px, %, fr, auto, min/max-content, fit-content(), minmax(), and fixed/auto-fill/auto-fit repeat(); canonical CSS text on the wire) | placement (CSS grid placement: auto, nonzero numeric or named lines and positive numeric or named spans; canonical CSS text on the wire) | aspect-ratio (CSS text: auto, a ratio, or both) | background-image (CSS text: none or one gradient, LLP 1066) | paint (CSS text: none, currentcolor, or a colour) | dasharray (CSS text: none or a list of numbers) | transform (CSS text: a transform list) | paint-order (CSS text: normal, or fill/stroke/markers) | marker (CSS text: none or url(#id)) | transform-origin (CSS text: one to three lengths, percentages or keywords) | animations (`_animations`) | drag-timeline, animation-timeline, animation-range, timeline-scope (CSS text: the four timeline rows, LLP 1057.003) | enum:<Name>. admitsAuto applies to dimension rows only; Auto on a non-admitting row is a typed decode rejection. Every length row (each dimension, line-height, font-size, letter-spacing, the gaps, border widths and radii, shape-margin) also takes CSS `rem` and `em` through `set_dynamic`; the row holds the pixels the kernel resolves at the end of each commit against the host's root font size (LLP 1069.000 D3), so every reader and the wire see pixels. Every length row also takes CSS `ch` and `lh` at a fixed 8\u00d716 px cell (LLP 1101 D3). terminal: how a terminal entry admits the row (LLP 1101 \u00a74) \u2014 cell (lengths only in `ch`/`lh`, a percentage, `auto` or 0), admit, or quantize (the host approximates it); a row without one is refused in a terminal entry. layout: a change re-runs layout. text: a change invalidates text measurement. inherited: the row follows CSS inheritance \u2014 a node without its own row takes the nearest logical ancestor's computed value, else the initial value (LLP 1035.000 D1); the kernel marks the descendants an inherited change reaches. Defaults are the storage defaults AND the semantic defaults \u2014 this table is the one default authority, and the defaults are CSS's: a bare node is a block, content-box, flex-direction row, flex-shrink 1 (rules/RULES.md: the web is the standard). A colour row's default may name a role from `colors` (`\"CanvasText\"`), as CSS's initial `color` is a system colour; a host with the platform's colour shows that, never a snapshot (LLP 1095 stage 2).",
+  "_styles": "Each row is one mask bit. codec: dimension (u8 kind + f32; kind 0 auto, 1 points, 2 percent as authored 0-100 points, 3-6 an env(safe-area-inset-top/right/bottom/left) length with the f32 the points added, 7 calc(<percent> \u00b1 <px>) with a second f32 the points, 8-13 an env(viewport-segment-width/height/top/left/bottom/right x y) length with the f32 the points added and then two u8 indices x then y \u2014 LLP 1078 D3; 14-23 viewport vw/vh/vmin/vmax/svw/svh/lvw/lvh/dvw/dvh with f32 the percentage; 24 a min()/max()/clamp() with a zero f32 and then its tree \u2014 style/compare.rs, LLP 1001 \u00a72) | f32 | u8 | u16 | u32 | i32 | rgba8 | vec2 (f32 f32) | auto-color (u8: 0 auto, 1 followed by color) | color2 (rgba8 rgba8) | tracks (CSS grid-template grammar Taffy can lay out: none, named lines, px, %, fr, auto, min/max-content, fit-content(), minmax(), and fixed/auto-fill/auto-fit repeat(); canonical CSS text on the wire) | placement (CSS grid placement: auto, nonzero numeric or named lines and positive numeric or named spans; canonical CSS text on the wire) | aspect-ratio (CSS text: auto, a ratio, or both) | background-image (CSS text: none or one gradient, LLP 1066) | paint (CSS text: none, currentcolor, or a colour) | dasharray (CSS text: none or a list of numbers) | transform (CSS text: a transform list) | paint-order (CSS text: normal, or fill/stroke/markers) | marker (CSS text: none or url(#id)) | transform-origin (CSS text: one to three lengths, percentages or keywords) | animations (`_animations`) | drag-timeline, animation-timeline, animation-range, timeline-scope (CSS text: the four timeline rows, LLP 1057.003) | enum:<Name>. admitsAuto applies to dimension rows only; Auto on a non-admitting row is a typed decode rejection. Every length row (each dimension, line-height, font-size, letter-spacing, the gaps, border widths and radii, shape-margin) also takes CSS `rem` and `em` through `set_dynamic`; the row holds the pixels the kernel resolves at the end of each commit against the host's root font size (LLP 1069.000 D3), so every reader and the wire see pixels. Every length row also takes CSS `ch` and `lh` at a fixed 8\u00d716 px cell (LLP 1101 D3). terminal: how a terminal entry admits the row (LLP 1101 \u00a74) \u2014 cell (lengths only in `ch`/`lh`, a percentage, `auto` or 0), admit, or quantize (the host approximates it); a row without one is refused in a terminal entry. layout: a change re-runs layout. text: a change invalidates text measurement. inherited: the row follows CSS inheritance \u2014 a node without its own row takes the nearest logical ancestor's computed value, else the initial value (LLP 1035.000 D1); the kernel marks the descendants an inherited change reaches. Defaults are the storage defaults AND the semantic defaults \u2014 this table is the one default authority, and the defaults are CSS's: a bare node is a block, content-box, flex-direction row, flex-shrink 1 (rules/RULES.md: the web is the standard). A colour row's default may name a role from `colors` (`\"CanvasText\"`), as CSS's initial `color` is a system colour; a host with the platform's colour shows that, never a snapshot (LLP 1095 stage 2).",
   "styles": [
     {
       "bit": 0,
@@ -2643,9 +2637,8 @@
     },
     {
       "bit": 59,
-      "field": "backdrop_blur",
-      "codec": "f32",
-      "default": 0
+      "field": "backdrop_filter",
+      "codec": "backdrop-filter"
     },
     {
       "bit": 60,
@@ -3263,7 +3256,7 @@
       "field": "animation_timeline",
       "rare": true,
       "codec": "animation-timeline",
-      "_comment": "@ref LLP 1057.003 D1: CSS `animation-timeline`, `auto | <dashed-ident>`: the node's animations are held at the named drag timeline's progress, never played on the clock. @ref LLP 1055.002 D2: a third value, `clock(<ident>)`, keeps them on the clock from a start every animation on that clock timeline shares, a deviation LLP 1001 declares."
+      "_comment": "@ref LLP 1057.003 D1: CSS `animation-timeline`, `auto | <dashed-ident>`: the node's animations are held at the named drag timeline's progress, never played on the clock. @ref LLP 1055.002 D2: a third value, `-exact-clock(<ident>)`, keeps them on the clock from a start every animation on that clock timeline shares, a deviation LLP 1001 declares."
     },
     {
       "bit": 149,
@@ -3297,7 +3290,7 @@
       "field": "corner_shape",
       "rare": true,
       "codec": "corner-shape",
-      "_comment": "@ref LLP 1077 D1: CSS `corner-shape`, one to four of round | squircle | square | bevel | scoop | notch | superellipse(K), plus -apple-continuous (Apple's continuous curve on every host; declared in LLP 1001). Shapes the corners `border-radius` sizes."
+      "_comment": "@ref LLP 1077 D1: CSS `corner-shape`, one to four of round | squircle | square | bevel | scoop | notch | superellipse(K), plus -exact-continuous (Apple's continuous curve on every host; declared in LLP 1001). Shapes the corners `border-radius` sizes."
     },
     {
       "bit": 154,
@@ -3359,14 +3352,14 @@
       "field": "symbol_rendering",
       "codec": "enum:SymbolRendering",
       "inherited": true,
-      "_comment": "@ref LLP 1077 D10: not CSS. How an SF Symbol draws: monochrome (in `color`), hierarchical, palette (`symbol-palette`), or multicolor. Inherited, as SwiftUI's environment is; the web draws monochrome."
+      "_comment": "@ref LLP 1077 D10: not CSS. How an SF Symbol draws: monochrome (in `color`), hierarchical, palette (`-exact-symbol-palette`), or multicolor. Inherited, as SwiftUI's environment is; the web draws monochrome."
     },
     {
       "bit": 163,
       "field": "symbol_palette",
       "codec": "symbol-palette",
       "inherited": true,
-      "_comment": "@ref LLP 1077 D10: not CSS. A symbol's palette, one to three colours, under `symbol-rendering: palette`. Inherited."
+      "_comment": "@ref LLP 1077 D10: not CSS. A symbol's palette, one to three colours, under `-exact-symbol-rendering: palette`. Inherited."
     },
     {
       "bit": 164,
@@ -3385,7 +3378,7 @@
       "bit": 166,
       "field": "press_haptic",
       "codec": "enum:PressHaptic",
-      "_comment": "@ref LLP 1077 D14: not CSS. Host-owned feedback when a pointer presses the node, as `press-scale` is (no runner round trip): a selection tick or an impact."
+      "_comment": "@ref LLP 1077 D14: not CSS. Host-owned feedback when a pointer presses the node, as `-exact-press-scale` is (no runner round trip): a selection tick or an impact."
     },
     {
       "bit": 167,
@@ -3576,10 +3569,39 @@
       "field": "animation_trigger",
       "rare": true,
       "codec": "enum:AnimationTrigger",
-      "_comment": "@ref LLP 1055 D13: `animation-trigger`, the name of CSS's scroll-triggered animations with two values of our own, `view | none`: whether the node's animations start when its list row first shows or at insertion."
+      "_comment": "@ref LLP 1055 D13: `-exact-animation-trigger`, the name of CSS's scroll-triggered animations with two values of our own, `view | none`: whether the node's animations start when its list row first shows or at insertion."
+    },
+    {
+      "bit": 194,
+      "field": "scroll_padding_top",
+      "rare": true,
+      "codec": "dimension",
+      "default": 0,
+      "_comment": "@ref LLP 1010 \u00a76.9: CSS `scroll-padding-*`, the scrollport inset that `scrollIntoView` aligns within. Read by a virtualized list's `scrollIntoView` (the runner, the JS target) and written as CSS on the web; nothing else reads it."
+    },
+    {
+      "bit": 195,
+      "field": "scroll_padding_right",
+      "rare": true,
+      "codec": "dimension",
+      "default": 0
+    },
+    {
+      "bit": 196,
+      "field": "scroll_padding_bottom",
+      "rare": true,
+      "codec": "dimension",
+      "default": 0
+    },
+    {
+      "bit": 197,
+      "field": "scroll_padding_left",
+      "rare": true,
+      "codec": "dimension",
+      "default": 0
     }
   ],
-  "_transitions": "The `transition` row is CSS `transition` (LLP 1002): count u8 (\u22648), then per declaration property u8 (0 all, then 1 + `Property`: 1 translate, 2 scale, 3 rotate, 4 opacity, 5 height, 6 stroke-dashoffset, 7 r, 8 color, 9 background-color, 10 fill, 11 stroke, 12 cx, 13 cy, 14 x, 15 y, 16 rx, 17 ry, 18 border-top-color, 19 border-right-color, 20 border-bottom-color, 21 border-left-color, 22 tint-color, 23 box-shadow \u2014 LLP 1062; 24, box-shadow's colour alone, is refused; 25 is CSS's `border-color` shorthand; 26 is a path's `d`, LLP 1055.000 D15), duration f32 s, delay f32 s, easing u8 (0 linear, 1 ease, 2 ease-in, 3 ease-out, 4 ease-in-out, 5 cubic-bezier + 4\u00d7f32, 6 steps + u16 count + u8 position, 7 spring + f32 stiffness/damping/mass, 8 linear() + u8 count + count\u00d7(f32 input, f32 output)). Its Rust type lives in exact-motion; the kernel owns the bytes.",
+  "_transitions": "The `transition` row is CSS `transition` (LLP 1002): count u8 (\u22648), then per declaration property u8 (0 all, then 1 + `Property`: 1 translate, 2 scale, 3 rotate, 4 opacity, 5 height, 6 stroke-dashoffset, 7 r, 8 color, 9 background-color, 10 fill, 11 stroke, 12 cx, 13 cy, 14 x, 15 y, 16 rx, 17 ry, 18 border-top-color, 19 border-right-color, 20 border-bottom-color, 21 border-left-color, 22 -exact-tint-color, 23 box-shadow \u2014 LLP 1062; 24, box-shadow's colour alone, is refused; 25 is CSS's `border-color` shorthand; 26 is a path's `d`, LLP 1055.000 D15), duration f32 s, delay f32 s, easing u8 (0 linear, 1 ease, 2 ease-in, 3 ease-out, 4 ease-in-out, 5 cubic-bezier + 4\u00d7f32, 6 steps + u16 count + u8 position, 7 spring + f32 stiffness/damping/mass, 8 linear() + u8 count + count\u00d7(f32 input, f32 output)). Its Rust type lives in exact-motion; the kernel owns the bytes.",
   "_animations": "The `animation` row is CSS `animation` (LLP 1055 D5): count u8 (\u22648), then per animation name (str), duration f32 s, delay f32 s, easing (as `_transitions`, never a spring), iteration count f32 (+inf is `infinite`), direction u8 (0 normal, 1 reverse, 2 alternate, 3 alternate-reverse), fill u8 (0 none, 1 forwards, 2 backwards, 3 both), paused u8, then its keyframes: count u8 (\u226432), per keyframe offset f32 in [0,1], easing flag u8 (0 the animation's, 1 followed by an easing), count u8, per value property u8 (as `Property`), then its components as f32: one, four for `translate` (x and y lengths in points, then x and y percentages of the box), three for `box-shadow` (offset x, y and blur, in points; its colour is the next value, `box-shadow`'s colour half), four for a colour (premultiplied sRGB red, green, blue, alpha; LLP 1055.000 D6), a colour then u8 1 and four more for the dark half of a `light-dark()` pair, else u8 0 (LLP 1062 D9). Its Rust type lives in exact-motion; the kernel owns the bytes.",
   "_opcodes": "The closed wire-visible op list for EXWF frame revision 1. There is no op count on the wire; consumers iterate by validated lengths.",
   "opcodes": [
@@ -4051,7 +4073,7 @@
     ["grouped-background", "-apple-system-grouped-background", "systemGroupedBackgroundColor", "windowBackgroundColor", "#f2f2f7", "#000000"],
     ["secondary-grouped-background", "-apple-system-secondary-grouped-background", "secondarySystemGroupedBackgroundColor", "controlBackgroundColor", "#ffffff", "#1c1c1e"],
     ["tertiary-grouped-background", "-apple-system-tertiary-grouped-background", "tertiarySystemGroupedBackgroundColor", "controlBackgroundColor", "#f2f2f7", "#2c2c2e"],
-    ["fill", "-apple-system-fill", "systemFillColor", "systemFillColor", "#78788033", "#7878805c"],
+    ["fill", "", "systemFillColor", "systemFillColor", "#78788033", "#7878805c"],
     ["secondary-fill", "", "secondarySystemFillColor", "secondarySystemFillColor", "#78788029", "#78788052"],
     ["tertiary-fill", "-apple-system-tertiary-fill", "tertiarySystemFillColor", "tertiarySystemFillColor", "#7676801f", "#7676803d"],
     ["quaternary-fill", "-apple-system-quaternary-fill", "quaternarySystemFillColor", "quaternarySystemFillColor", "#74748014", "#7676802e"],

@@ -168,7 +168,29 @@ export const AGENT_EPOCH = '2026-01-01T00:00:00Z';
 export function parityScript({ mediaClock = 'wall', lineHeight = null } = {}) {
   if (!['wall', 'frozen'].includes(mediaClock)) throw new Error(`mediaClock: ${mediaClock} (wall or frozen)`);
   if (lineHeight != null && !/^\d+(\.\d+)?$/.test(String(lineHeight))) throw new Error(`lineHeight: ${lineHeight} is a unitless number`);
-  const media = mediaClock === 'frozen' ? `addEventListener('loadstart', e => { if (e.target instanceof HTMLMediaElement) { e.target.defaultPlaybackRate = 0; e.target.playbackRate = 0; } }, true);` : '';
+  // The freeze is invisible to the page: each element's real rates are 0 (so time stands still), while
+  // `playbackRate` and `defaultPlaybackRate` hold the page's own values. Writes are validated as the real
+  // setters validate them (a detached element takes the value first); a change fires `ratechange`; a load
+  // (`load()`, `src`, `srcObject`, the `src` attribute) resets the page's rate to its default at once, as
+  // every engine does (plain HTML: rate 2, then a new src: Chrome, Firefox and WebKit read 1 at once and
+  // fire one ratechange, and a load drops the rate events still pending). Every trusted `ratechange` on a
+  // frozen element (made by createElement or `new Audio`, or seen at loadstart) is the freeze's own and is
+  // swallowed before any listener (a capture listener on the element from its creation, and on the window),
+  // so no count depends on when the page attached its handlers. The page's
+  // events are dispatched by the freeze (untrusted).
+  const media = mediaClock === 'frozen' ? `{ const P = HTMLMediaElement.prototype, d = k => Object.getOwnPropertyDescriptor(P, k), real = { rate: d('playbackRate'), def: d('defaultPlaybackRate'), src: d('src'), srcObject: d('srcObject') }, load = P.load, setAttribute = Element.prototype.setAttribute, page = new WeakMap();
+    let check = null; const swallow = e => { if (e.isTrusted) e.stopImmediatePropagation(); }; const valid = (k, n) => { check ??= document.createElement('audio'); real[k].set.call(check, n); return real[k].get.call(check); };
+    const of = m => { let v = page.get(m); if (!v) { v = { rate: real.rate.get.call(m), def: real.def.get.call(m) }; page.set(m, v); m.addEventListener('ratechange', swallow, true); real.def.set.call(m, 0); real.rate.set.call(m, 0); } return v; };
+    const make = Document.prototype.createElement; Document.prototype.createElement = function (...a) { const e = make.apply(this, a); if (e instanceof HTMLMediaElement) of(e); return e; };
+    const Audio0 = globalThis.Audio; if (Audio0) { globalThis.Audio = function Audio(...a) { const e = new Audio0(...a); of(e); return e; }; globalThis.Audio.prototype = Audio0.prototype; }
+    const pending = new WeakMap(), told = m => { const t = setTimeout(() => { pending.get(m)?.delete(t); m.dispatchEvent(new Event('ratechange')); }, 0); (pending.get(m) ?? pending.set(m, new Set()).get(m)).add(t); };
+    const reset = m => { const v = of(m); for (const t of pending.get(m) ?? []) clearTimeout(t); pending.get(m)?.clear(); if (v.rate !== v.def) { v.rate = v.def; told(m); } };
+    for (const k of ['rate', 'def']) Object.defineProperty(P, k === 'rate' ? 'playbackRate' : 'defaultPlaybackRate', { configurable: true, enumerable: true, get() { return of(this)[k]; }, set(n) { const x = valid(k, n), v = of(this); if (v[k] !== x) { v[k] = x; told(this); } } });
+    for (const k of ['src', 'srcObject']) if (real[k]) Object.defineProperty(P, k, { configurable: true, enumerable: true, get() { return real[k].get.call(this); }, set(x) { real[k].set.call(this, x); reset(this); } });
+    P.load = function () { const r = load.call(this); reset(this); return r; };
+    Element.prototype.setAttribute = function (name, value) { const r = setAttribute.call(this, name, value); if (this instanceof HTMLMediaElement && String(name).toLowerCase() === 'src') reset(this); return r; };
+    addEventListener('ratechange', e => { if (page.has(e.target)) swallow(e); }, true);
+    addEventListener('loadstart', e => { if (e.target instanceof HTMLMediaElement) { of(e.target); real.def.set.call(e.target, 0); real.rate.set.call(e.target, 0); } }, true); }` : '';
   const line = lineHeight != null ? `{ const s = new CSSStyleSheet(); s.replaceSync('body{line-height:${lineHeight}}'); document.adoptedStyleSheets = [...document.adoptedStyleSheets, s]; }` : '';
   return media + line;
 }

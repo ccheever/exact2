@@ -1,7 +1,8 @@
 //! A style row as the agent prints it: CSS text, the same words the web writes.
 //!
 //! A length is a number of CSS pixels, `"auto"`, `"50%"`, or
-//! `"env(safe-area-inset-top)"`. A colour is `"#rrggbb"` (`"#rrggbbaa"` when
+//! `"env(safe-area-inset-top)"`, or `"clamp(15px, env(safe-area-inset-bottom),
+//! 60px)"`. A colour is `"#rrggbb"` (`"#rrggbbaa"` when
 //! translucent), `"light-dark(#…, #…)"`, or the CSS text of a wide or profiled
 //! colour. An enum is its CSS name, a vector is `[x, y]`, and a clip path is
 //! its canonical text. The engine's and the grid's rows are named, not spelled.
@@ -72,6 +73,11 @@ pub(super) fn row_json(row: StyleId, v: RowValue<'_>, out: &mut String) {
             };
             quote(&text, out)
         }
+        RowValue::Dimension(Dimension::Compare(c)) => {
+            let mut text = String::new();
+            c.css(&mut text);
+            quote(&text, out)
+        }
         RowValue::LineHeight(v) => match v {
             exact_kernel::LineHeight::Number(n) => {
                 let _ = write!(out, "{}", num(n as f64));
@@ -131,6 +137,7 @@ pub(super) fn row_json(row: StyleId, v: RowValue<'_>, out: &mut String) {
         RowValue::PaintOrder(p) => quote(&p.css(), out),
         RowValue::Marker(m) => quote(&m.css(), out),
         RowValue::Filter(f) => quote(&f.css(), out),
+        RowValue::BackdropFilter(f) => quote(&f.css(), out),
         RowValue::Animations(a) => quote(&a.css(), out),
         RowValue::Color2(_) | RowValue::Tracks(_) | RowValue::Placement(_) => quote("(grid)", out),
     }

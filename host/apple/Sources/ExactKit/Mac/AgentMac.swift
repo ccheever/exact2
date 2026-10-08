@@ -140,8 +140,11 @@ extension Agent {
         navigation["popover"] = presenter.menus.observation ?? NSNull()
         // The window's title as AppKit shows it (LLP 1048.003 D1).
         let window: [String: Any] = ["title": presenter.root.window?.title ?? NSNull(), "toolbar": presenter.toolbar.summary]
-        return ["focus": focus, "keyboard": keyboard, "navigation": navigation, "window": window,
-                "dialog": presenter.dialogs.observation ?? NSNull(), "hooks": presenter.elements.observation]
+        let kernelState = (try? JSONSerialization.jsonObject(with: Data(session.agent("{\"op\":\"state\"}").utf8))) as? [String: Any]
+        let kernelLayout = kernelState?["kernelLayout"] as? [String: Any] ?? [:]
+        let layout = kernelLayout.merging(["provisional": session.fieldChrome.presentedProvisional]) { _, host in host }
+        return ["layout": layout, "focus": focus, "keyboard": keyboard, "navigation": navigation, "window": window,
+                "dialog": presenter.dialogs.observation ?? NSNull(), "hatches": presenter.elements.observation(presenter.session?.hatchDiagnostics)]
     }
 
     /// A view's box in the viewport: the clip view's space, less its scroll
@@ -632,6 +635,9 @@ extension Agent {
         // `clicks n` is n, each with the count so far (a triple click selects a line).
         let count = req["clicks"] == nil ? (req["dblclick"] as? Bool == true ? 2 : 1) : req["clicks"] as? Int ?? 0
         guard (1...3).contains(count) else { return ["error": "tap: clicks is 1, 2 or 3"] }
+        // What the click will reach, by the window's own hit test: a part's landing reads it (AgentParts.swift).
+        PartLanding.view = win.contentView?.superview?.hitTest(p) ?? win.contentView?.hitTest(p)
+        PartLanding.delivered = true
         for clicks in 1...count {
             let t = ProcessInfo.processInfo.systemUptime
             let eventNumber = AgentMouseRelease.nextEventNumber()
@@ -785,7 +791,21 @@ extension Agent {
             else { return ["error": "no key event"] }
             // The release's `keyup` handlers at the focus then (#140), as the
             // monitor's route hears a keyboard's (`Presenter.keyUp`).
-            let heardUp: () -> Void = { [weak presenter, weak win] in presenter?.keyUp(up, in: win) }
+            // A chord's modifiers are their own keys around it (Charlie, 2026-10-07;
+            // KeyCodes.modifierPresses): down in order, up in reverse after the
+            // key's, each up without its own flag (#140), as a keyboard's.
+            let flagsOf = { (held: String) in NSEvent.ModifierFlags([.shift, .control, .option, .command].enumerated().compactMap { i, f in held.contains(["Shift+", "Control+", "Alt+", "Meta+"][i]) ? f : nil }) }
+            let presses = KeyCodes.modifierPresses(chord)
+            let modifierKeys: [(down: NSEvent, up: NSEvent)] = presses.enumerated().compactMap { i, m in
+                guard let device = KeyCodes.device(m.key), let mac = KeyCodes.mac.first(where: { $0.value == device.code })?.key,
+                      let d = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flagsOf(m.held), timestamp: t, windowNumber: win.windowNumber, context: nil, characters: "", charactersIgnoringModifiers: "", isARepeat: false, keyCode: UInt16(mac)),
+                      let u = NSEvent.keyEvent(with: .keyUp, location: .zero, modifierFlags: flagsOf(i > 0 ? presses[i - 1].held : ""), timestamp: t, windowNumber: win.windowNumber, context: nil, characters: "", charactersIgnoringModifiers: "", isARepeat: false, keyCode: UInt16(mac)) else { return nil }
+                return (d, u)
+            }
+            let heardUp: () -> Void = { [weak presenter, weak win] in
+                presenter?.keyUp(up, in: win)
+                for m in modifierKeys.reversed() { presenter?.keyUp(m.up, in: win) }
+            }
             // A down a command took still comes up through the handlers.
             let releaseHeard = { [self] in
                 if phase == nil { heardUp() }
@@ -799,6 +819,8 @@ extension Agent {
             // The monitor's route (`Presenter.routeKey`): shortcuts, the focus's
             // `key` handlers (a prevented key goes no further), then the menus'
             // and dialogs' defaults.
+            // Each modifier's own keydown first (a held key's repeat finds them down).
+            if phase != "up", !repeats { for m in modifierKeys { _ = presenter.routeKey(m.down, focused: true, in: win) } }
             if phase != "up", presenter.routeKey(down, focused: true, in: win) {
                 if phase != "down" { heardUp(); _ = presenter.menus.key(up) }
                 if phase == "down", let release = req["releaseKey"] as? String {
@@ -811,7 +833,12 @@ extension Agent {
                 }
                 return ["typed": Int(v.id), "key": chord, "value": Agent.shownValue(v.textArea?.string ?? v.field?.stringValue ?? "", of: v)]
             }
-            if v.kind == "native" { return nativeType(v, req, token: nativeToken) }
+            // A native view takes the key itself; the chord's modifiers still come up here.
+            if v.kind == "native" {
+                let reply = nativeType(v, req, token: nativeToken)
+                if phase != "down" { for m in modifierKeys.reversed() { presenter.keyUp(m.up, in: win) } }
+                return reply
+            }
             // Accessory test windows may have a first responder before
             // NSApp has a keyWindow. Deliver to the named responder first.
             // An Edit menu chord (⌘X, ⌘C, ⌘V) first, whether or not a window is

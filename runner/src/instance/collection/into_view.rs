@@ -132,27 +132,39 @@ impl Collection {
         };
         (number(a), number(b))
     }
-    /// The offset that aligns row `position` by `align`, from the index.
+    /// The offset that aligns row `position` by `align`, from the index,
+    /// within the port less its `scroll-padding`, as CSS aligns in the
+    /// snapport (@ref LLP 1010 §6.9). It may be negative, down to the padding
+    /// before the first row: `scrollTop` 0.
     fn aligned(&self, plan: &Plan, position: usize, align: Align, current: f64) -> f64 {
         let (before, after) = self.root_margins(plan, position);
         let start = self.index.prefix(position).unwrap_or(0.0) + before;
         let size = (self.index.height(position).unwrap_or(0.0) - before - after).max(0.0);
         let port = self.geometry.as_ref().map_or(0.0, |g| g.port_main);
+        let [inset_start, inset_end] = self.scroll_padding;
+        // The snapport, as offsets from the port's start.
+        let (low, high) = (inset_start, (port - inset_end).max(inset_start));
+        let view = high - low;
         let at = match align {
-            Align::Start => start,
-            Align::Center => start + size / 2.0 - port / 2.0,
-            Align::End => start + size - port,
-            Align::Nearest if start < current => start,
-            Align::Nearest if start + size > current + port => {
-                if size > port {
-                    start
+            Align::Start => start - low,
+            Align::Center => start + size / 2.0 - (low + high) / 2.0,
+            Align::End => start + size - high,
+            // CSSOM View's "nearest": a row that covers the snapport, or
+            // fits inside it, stays; else the nearer edge aligns.
+            Align::Nearest => {
+                let (top, bottom) = (start - current, start + size - current);
+                let above = top < low;
+                let below = bottom > high;
+                if above == below {
+                    current
+                } else if above == (size <= view) {
+                    start - low
                 } else {
-                    start + size - port
+                    start + size - high
                 }
             }
-            Align::Nearest => current,
         };
-        at.clamp(0.0, (self.index.total_height() - port).max(0.0))
+        at.clamp(-self.index.leading(), self.index.max_offset(port))
     }
     /// Start a request for the row keyed `key`: its window is built at the
     /// destination now, and the host is told to move there before it paints.
@@ -195,7 +207,7 @@ impl Collection {
                 });
             }
             None => {
-                self.start_offset = offset;
+                self.start_offset = offset.max(0.0);
                 self.correction = Some(AnchorCorrection {
                     scroll_sequence: 0,
                     offset,

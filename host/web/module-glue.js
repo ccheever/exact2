@@ -42,7 +42,7 @@ async function read(url, limit) {
 // settles after the turn's microtask drain, which is a task, and a frame can
 // render before that task runs; the runner's `request` op for the same GET
 // then claims the response in flight (`claim`) instead of fetching. Only a
-// module's own `net.fetch` origins, and nothing with a body. A GET its turn
+// module's own `net.fetch` origins, and nothing with a body (text or bytes). A GET its turn
 // didn't report is aborted as the turn ends; one the runner didn't claim while
 // the report was delivered is aborted a task later.
 const early = new Map(); // `GET url headers` -> [{ response, controller }]
@@ -51,7 +51,7 @@ const earlyKey = (url, headers) => `GET ${url} ${JSON.stringify(headers ?? [])}`
 export function fetchEarly(request, grants) {
   try { new URL(request.url); } catch { return null; } // a relative (asset) URL is the host's own
   // A GET a driver fault will fail is not started early: the request fails it, counted once (LLP 1103 D1).
-  if (grantError(grants) || request.method !== 'GET' || request.body || !admitsNetwork(grants, request.url, 'fetch') || faultMatches(request.url)) return null;
+  if (grantError(grants) || request.method !== 'GET' || request.body || request.body_base64 != null || !admitsNetwork(grants, request.url, 'fetch') || faultMatches(request.url)) return null;
   const key = earlyKey(request.url, request.headers), controller = new AbortController();
   const entry = { controller, response: fetch(request.url, { method: 'GET', headers: request.headers, redirect: 'follow', cache: 'default', signal: controller.signal }) };
   entry.response.catch(() => {});

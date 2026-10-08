@@ -182,7 +182,7 @@ fn nested_ancestor_scroll_changes_mapping_and_cancels_before_any_late_action() {
 #[test]
 fn an_arrange_sample_publishes_concurrent_height_layout_then_cancels_changed_port() {
     let source=APP.replace("  state grips = true", "  state panelHeight = 180\n  action grow\n    panelHeight = 320\n  state grips = true")
-        .replace("    column width=\"100%\" height=\"100%\"", "    column testId=\"panel\" width=400 height=panelHeight box-sizing=\"border-box\" transition=\"height spring(300,30,1)\" press=grow")
+        .replace("    column width=\"100%\" height=\"100%\"", "    column testId=\"panel\" width=400 height=panelHeight box-sizing=\"border-box\" transition=\"height -exact-spring(300,30,1)\" press=grow")
         .replace("width=width height=180", "width=width height=\"100%\" flex-shrink=0");
     let (mut p, error) = Presenter::boot_with(
         &contract::compile(&source).unwrap().encode(),
@@ -446,6 +446,50 @@ fn a_drag_at_the_board_edge_scrolls_the_board() {
     }
     assert!(p.scroll_of(board).0 > before, "the board scrolls toward c");
     p.pointer_up(r.0 + r.2 - 8., r.1 + 30., 120.).unwrap();
+}
+
+#[test]
+fn a_contact_at_the_edge_scrolls_though_the_ghost_centre_has_passed_it() {
+    // D7 as amended (2026-10-07): a row held by its left end has its centre
+    // 54 points right of the contact; with the contact in the board's right
+    // band, the centre is past the board, and the board still scrolls (bench
+    // t4: a tall card held by its top never autoscrolled to Done).
+    let mut p = board();
+    let board = p
+        .host
+        .kernel()
+        .node_by_key(p.host.kernel().find_by_test_id("board")[0])
+        .unwrap()
+        .id;
+    let r = p.rect_of(board).unwrap();
+    let grip = p
+        .host
+        .kernel()
+        .node_by_key(p.host.kernel().find_by_test_id("grip-a2")[0])
+        .unwrap()
+        .id;
+    let g = p.rect_of(grip).unwrap();
+    let (x, y) = (g.0 + 6., g.1 + g.3 / 2.);
+    p.pointer_down(x, y, 0.).unwrap();
+    p.pointer_move(x + 12., y, 10.).unwrap();
+    assert!(p.group.is_some(), "the row lifts");
+    let edge = r.0 + r.2 - 4.;
+    p.pointer_move(edge, y, 20.).unwrap();
+    let ghost = p.brush.lift.ghost.expect("a ghost");
+    assert!(
+        ghost.at.0 + g.2 / 2. > r.0 + r.2,
+        "the ghost's centre is past the board's right edge"
+    );
+    assert!(p.needs_animation_frame(), "the contact's band pumps");
+    let before = p.scroll_of(board).0;
+    for t in [50., 66., 82., 98., 114.] {
+        p.tick(t);
+    }
+    assert!(
+        p.scroll_of(board).0 > before,
+        "the board scrolls toward the edge"
+    );
+    p.pointer_up(edge, y, 120.).unwrap();
 }
 
 #[test]

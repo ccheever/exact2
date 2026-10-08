@@ -3,7 +3,7 @@
 //
 // A node's `sharedElement` names it. When a commit destroys the node holding
 // a name and creates another holding it, the new one flies from where the
-// old one was shown, on either one's `layout-transition` (here `Fly`).
+// old one was shown, on either one's `-exact-layout-transition` (here `Fly`).
 // Natively the arriver flies live; on the web the browser runs a CSS View
 // Transition. Linux shows the arriver in place.
 //
@@ -39,7 +39,7 @@ shape Task
   label: string
 
 style Fly
-  layout-transition="spring(240, 26, 1)"
+  -exact-layout-transition="-exact-spring(240, 26, 1)"
 
 style Tab
   padding-left=12

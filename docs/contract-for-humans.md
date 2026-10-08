@@ -433,7 +433,13 @@ A virtualized list has exactly one direct `each`, whose body has one flow root.
 A vertical list needs a real height bound (`height`, `max-height`, or growing
 `flex` in a bounded parent). A horizontal one needs a literal `display="flex"` and
 a literal positive `height`, takes `estimated-item-width`, and refuses a nonzero
-`gap`, main-axis padding, and `justify-content` other than `flex-start`.
+`gap` and `justify-content` other than `flex-start`. Padding along the list's
+axis is room before the first row and after the last, as in CSS: a length or an
+`env()` inset, not a percentage. On iOS a list's pull-to-refresh spinner draws
+below its `padding-top`, so a header laid over that padding does not hide it. A
+virtualized list's `scroll-padding` insets where `scrollIntoView` aligns a row,
+as in CSS: `scroll-padding-top` the height of that header brings a row to just
+below it, and the first row to the very top. Other elements refuse it.
 Virtualized lists nest one level deep (an inner vertical list needs a literal
 `height` or `max-height`); deeper nesting, masonry, wrapping, reversed lists, and
 RTL horizontal collections are not supported.
@@ -868,7 +874,11 @@ parenthood, and do not assume border-box sizing. Set it when it matters.
 
 Numeric dimensions normally mean pixels. Unit-bearing values and keywords are
 strings: `width="50%"`, `height="auto"`, `padding-top="env(safe-area-inset-top)"`,
-`width="calc(100% - 24px)"`. Supported values are property-specific; this is not
+`width="calc(100% - 24px)"`, and CSS's `min()`, `max()` and `clamp()` over px,
+the safe-area insets and viewport lengths: `padding-bottom="clamp(15px,
+env(safe-area-inset-bottom), 60px)"`, `bottom="calc(max(15px,
+env(safe-area-inset-bottom)) + 44px)"` (no percentage inside one: the kernel
+resolves them before layout). Supported values are property-specific; this is not
 an unrestricted browser stylesheet. The compiler and kernel reject unsupported
 names or values. `line-height=1.5` is a ratio; `line-height="24px"` is fixed.
 
@@ -906,6 +916,15 @@ template naming `repeating-linear-gradient(` or `url(` fails the build, and a
 computed value that is refused at run time is dropped and journaled on the web
 as on a Mac (`invalid background-image value …; unset`), never painted by the
 browser alone.
+
+`backdrop-filter` accepts `none`, one `blur()` and/or one `saturate()` in the
+order written. For example, `backdrop-filter="blur(12px) saturate(1.14)"`
+blurs the backdrop, then increases its saturation. `saturate(0)` is grayscale;
+`saturate(180%)` is the same as `saturate(1.8)`. A function may appear only once.
+Web, macOS and Linux apply these functions; iOS/tvOS use the fixed `.light`
+system material approximation. macOS samples only the parent layer's subtree
+and clips children to the filter's border box. `backgroundMaterial` wins when
+both are present, and backdrop filters do not animate.
 
 Bound scroll containers. A typical full-height column gives its scroller
 `flex=1 min-height=0`; an isolated scroller can use a numeric height. A scrolling
@@ -948,10 +967,16 @@ input value=query input=search placeholder="Search" aria-label="Search"
 textarea value=body input=editBody
 ```
 
-A bare text field is visible, as the browser's is: a thin border, rounded
-corners, padding and a fill that follow light and dark mode. Any row you write
-replaces only that row; `appearance="none"` gives the bare box for a field you
-draw yourself (LLP 1104).
+A text field is the platform's own by default (LLP 1104): `input` with no type
+or `text`, `email`, `password`, `search`, `tel`, `url`, `number`, and `textarea`
+outside the Markdown editor. On the web it inherits the page's font and
+colour, as a CSS reset does. Disabled and placeholder appearances are the
+platform's. A background, border or radius makes it your own box, as in a
+browser; `appearance="none"` says so explicitly. A row on any conditional
+class or value arm counts. `appearance="auto"` asks for the native field and
+refuses those rows; `background-clip` and `background-attachment` are allowed.
+Appearance is a literal, from the class then your own attribute; use `when`
+with two fields to switch it.
 
 `input` and `change` carry the control's new value as the final action argument:
 a string for a text field, textarea or `select`, a boolean for a checkbox or
@@ -974,7 +999,8 @@ keeps it from its ancestors' `key` handlers with `stopPropagation()`
 
 The complete event inventory and payload groups are in the
 [event reference](contract-grammar.md#events). HTML controls include `select` and
-`option`; inspect [the control tests](../contract/cli/tests/it/controls.rs) for
+`option`, and `progress` with no `value`, the platform's activity indicator
+([activity](contract-grammar.md#activity-progress)); inspect [the control tests](../contract/cli/tests/it/controls.rs) for
 the checkbox/switch, radio, range, select and date/time conventions instead of
 assuming a browser Event object. `input type="radio"` is HTML's: the radios of
 one `name` are a group, exclusive, and the arrow keys move the check among them.
@@ -1216,17 +1242,17 @@ component Motion
 Keyframe values are literals or calls to the app's own `fn`s with constant
 arguments (standard functions are refused), and keyframes animate paint and
 transform properties, not layout ones such as `width`. Styles remain
-literal-only. CSS easing and the admitted `spring(…)` timing function, which
+literal-only. CSS easing and the admitted `-exact-spring(…)` timing function, which
 belongs only inside `transition`, are not interchangeable guesses: copy the
 appropriate [motion fixture](../contract/corpus/spring.contract).
 In a `list virtualized=true` row, an animation waits until its row first
-shows in the list (`animation-trigger="view"`, the default), because the list
-builds rows before they scroll in; `animation-trigger="none"` starts it when
+shows in the list (`-exact-animation-trigger="view"`, the default), because the list
+builds rows before they scroll in; `-exact-animation-trigger="none"` starts it when
 the row is built, so the row arrives settled. The web build does not hold it
 yet.
 
-`exit-animation`, `layout-transition`, and presentation timelines
-(`drag-timeline`, `animation-timeline`, `animation-range`, `timeline-scope`) are
+`-exact-exit-animation`, `-exact-layout-transition`, and presentation timelines
+(`-exact-drag-timeline`, `animation-timeline`, `animation-range`, `timeline-scope`) are
 declared extensions with bounded behavior, not arbitrary layout animation.
 
 For direct manipulation, `pan`, `panrelease`, `heightrelease`,

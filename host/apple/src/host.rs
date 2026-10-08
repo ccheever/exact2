@@ -20,6 +20,9 @@ use exact_kernel::{
 };
 use exact_motion::{Change, Engine, HoldToken, Property};
 
+#[path = "agent.rs"]
+mod agent;
+
 #[path = "arrange.rs"]
 mod arrange;
 #[path = "arrange_group.rs"]
@@ -36,6 +39,9 @@ pub(crate) mod canvas2d;
 mod colors;
 #[path = "content_region/host.rs"]
 mod content_region_host;
+#[cfg(test)]
+#[path = "control_text_tests.rs"]
+mod control_text_tests;
 #[path = "covers.rs"]
 mod covers;
 #[path = "flights.rs"]
@@ -103,6 +109,9 @@ pub enum HostError {
     Runner(RunnerError),
     Layout(String),
     Delivery(String),
+    /// The plan uses capabilities this archive doesn't link, by name
+    /// (LLP 1047.001 D5): `Unlinked("grouped_lists")`.
+    Unlinked(String),
     RuntimeIdExhausted,
 }
 
@@ -120,6 +129,7 @@ pub(crate) struct Mirror {
     frame: Option<(f32, f32, f32, f32)>,
     content: Option<(f32, f32)>,
     flow: Vec<exact_kernel::FlowShape>,
+    field_content: Option<exact_kernel::Frame>,
 }
 
 /// One runner, one presenter.
@@ -135,8 +145,8 @@ pub struct Host<D: DataSource> {
     mirror: IdMap<ViewId, Mirror>,
     keys: IdMap<NodeKey, ViewId>,
     inline_runs: IdMap<ViewId, (ViewId, Vec<EventKind>)>,
-    /// Hook words journaled as having no view here (an inline run's).
-    viewless_hooks: std::collections::BTreeSet<String>,
+    /// Hatch words: those journaled as viewless here, and those the plan does not give this platform.
+    hatches: paragraph::HatchWords,
     /// SVG scenes and lowered CSS animations (LLP 1055 D4, D7).
     svg: svg::SvgState,
     /// 2D canvases whose replays the presenter has not caught up with: a
@@ -148,6 +158,7 @@ pub struct Host<D: DataSource> {
     canvas_deferred: bool,
     dirty_paragraphs: BTreeSet<ViewId>,
     pending_layout: IdSet<NodeKey>,
+    layout_withheld: bool,
     /// Each sticky node's constraint as the presenter last heard it (LLP 1083).
     stickies: IdMap<ViewId, exact_kernel::StickyConstraint>,
     /// Each multi-column record as the presenter last heard it (LLP 1093 D7).
@@ -186,7 +197,7 @@ pub struct Host<D: DataSource> {
     /// Where the app's kept secrets, and the runner's kept answers, go after
     /// a commit (LLP 1018 D6); `None` keeps them in the runner only (a test,
     /// or grants that do not parse).
-    secrets: Option<Platform>,
+    secrets: Option<Box<dyn crate::store::KeptStore>>,
     data_activated: bool,
     /// The session's wake (`listen`), which a pending activation leaves
     /// with the data source.
@@ -286,13 +297,14 @@ impl<D: DataSource> Host<D> {
             exact_runner::Viewport::sized(width as f64, height as f64),
             carried,
             snapshot,
-            secrets,
+            secrets.map(|p| Box::new(p) as Box<dyn crate::store::KeptStore>),
             None,
             None,
             None,
             "/",
             None,
-            |_| {},
+            crate::link::Links::ALL,
+            |_| Ok(()),
         )?;
         host.commit_boot();
         Ok((host, batch))
@@ -309,13 +321,14 @@ impl<D: DataSource> Host<D> {
         viewport: exact_runner::Viewport,
         carried: Option<&Carried>,
         snapshot: Vec<(String, String)>,
-        secrets: Option<Platform>,
+        secrets: Option<Box<dyn crate::store::KeptStore>>,
         compat: Option<&str>,
         delivery: Option<&'static crate::delivery::Hooks>,
         candidate_delivery: Option<exact_runner::Delivery>,
         launch: &str,
         region: Option<crate::content_region::ContentRegionRegistration>,
-        prepare: impl FnOnce(&Plan),
+        links: crate::link::Links<D>,
+        prepare: impl FnOnce(&mut Runner<D>) -> Result<(), HostError>,
     ) -> Result<(Host<D>, String), HostError> {
         Self::boot_stored_after_decode_mode(
             plan_bytes,
@@ -331,6 +344,7 @@ impl<D: DataSource> Host<D> {
             launch,
             region,
             None,
+            links,
             prepare,
         )
     }
@@ -343,14 +357,15 @@ impl<D: DataSource> Host<D> {
         viewport: exact_runner::Viewport,
         carried: Option<&Carried>,
         snapshot: Vec<(String, String)>,
-        secrets: Option<Platform>,
+        secrets: Option<Box<dyn crate::store::KeptStore>>,
         compat: Option<&str>,
         delivery: Option<&'static crate::delivery::Hooks>,
         candidate_delivery: Option<exact_runner::Delivery>,
         launch: &str,
         region: Option<crate::content_region::ContentRegionRegistration>,
         native: Option<crate::content_region::NativeProjectionLimits>,
-        prepare: impl FnOnce(&Plan),
+        links: crate::link::Links<D>,
+        prepare: impl FnOnce(&mut Runner<D>) -> Result<(), HostError>,
     ) -> Result<(Host<D>, String), HostError> {
         if let Some(json) = compat {
             exact_runner::delivery::refuse_analysis(json)
@@ -361,11 +376,13 @@ impl<D: DataSource> Host<D> {
             }
         }
         let plan = plan_bytes.decode().map_err(HostError::Plan)?;
-        // Native hosts link every row's grammar (LLP 1053.000 §2).
-        exact_kernel::style::link_backdrop_filter();
-        exact_kernel::style::link_segments();
-        exact_kernel::style::link_wide_colors();
-        exact_kernel::timeline::link();
+        // Before anything is built from it (LLP 1047.001 D5).
+        if let Some(names) = crate::link::missing(&plan, crate::link::linked()) {
+            return Err(HostError::Unlinked(names));
+        }
+        // The grammars this archive links (LLP 1047.001 D3; every one for a
+        // public boot, LLP 1053.000 §2).
+        links.grammars.link();
         let kernel = Kernel::new(measurer);
         let facts = candidate_delivery.unwrap_or_else(|| {
             let mut facts = exact_runner::Delivery::default();
@@ -380,10 +397,19 @@ impl<D: DataSource> Host<D> {
         // An `app:/data` image shows from the first frame, before storage
         // is configured and whether or not anything was picked (D7).
         crate::picker::know_roots(data.app_id());
-        let mut runner = Runner::boot_with_delivery(
-            plan, data, kernel, carried, snapshot, facts, viewport, launch,
+        let mut runner = Runner::boot_with_delivery_linked(
+            links.runner,
+            plan,
+            data,
+            kernel,
+            carried,
+            snapshot,
+            facts,
+            viewport,
+            launch,
         )
         .map_err(HostError::Runner)?;
+        runner.set_device_links(links.device);
         // @ref LLP 1079 D1 — a development build measures its work.
         runner.measure_unless_production(compat, true);
         if let Some(action) = region.and_then(|r| r.activate) {
@@ -403,7 +429,8 @@ impl<D: DataSource> Host<D> {
         }
         // The candidate catalog is installed before first text measurement.
         // Platform registration is deferred until the app accepts it.
-        prepare(runner.plan());
+        prepare(&mut runner)?;
+
         let has_heads = runner
             .plan()
             .nodes
@@ -414,17 +441,18 @@ impl<D: DataSource> Host<D> {
             head_title: None,
             head_edited: false,
             language: None,
+            hatches: paragraph::HatchWords::of(runner.plan()),
             runner,
             mirror: IdMap::default(),
             keys: IdMap::default(),
             inline_runs: IdMap::default(),
-            viewless_hooks: Default::default(),
             svg: svg::SvgState::new(cfg!(any(target_os = "ios", target_os = "tvos"))),
             canvas_held: IdSet::default(),
             canvas_kept: Default::default(),
             canvas_deferred: false,
             dirty_paragraphs: BTreeSet::new(),
             pending_layout: IdSet::default(),
+            layout_withheld: false,
             stickies: IdMap::default(),
             fragments: IdMap::default(),
             ranks: IdMap::default(),
@@ -706,7 +734,7 @@ impl<D: DataSource> Host<D> {
     pub fn kept_failures(&self) -> Vec<String> {
         self.secrets
             .as_ref()
-            .map(Platform::kept_failures)
+            .map(|s| s.kept_failures())
             .unwrap_or_default()
     }
 
@@ -819,27 +847,6 @@ impl<D: DataSource> Host<D> {
     /// no route, a presentation the owner refused — with its reason.
     pub fn log(&mut self, line: &str) {
         self.runner.log(line);
-    }
-
-    /// The agent API's read operations (LLP 1012): `tree`, `state`, and
-    /// `logs` from the runner; `settle` — the clock at which the last
-    /// transition in flight ends, milliseconds, `null` when quiescent — from
-    /// the engine, which is what the presenter's `clock` advances to.
-    pub fn agent(&self, request: &str) -> String {
-        if exact_runner::agent::field_str(request, "op").as_deref() == Some("settle") {
-            return match self.engine.settle_time() {
-                Some(t) => format!("{{\"settle\":{}}}", exact_runner::agent::num(t * 1000.0)),
-                None => "{\"settle\":null}".to_string(),
-            };
-        }
-        // A native content region's frames are the host's, not the kernel's
-        // (LLP 1080.001 D2): `layout agree` must not compare them.
-        if exact_runner::agent::field_str(request, "op").as_deref() == Some("frames") {
-            return exact_runner::agent::frames(&self.runner, request, &|id| {
-                self.native_protected_id(id)
-            });
-        }
-        exact_runner::agent::handle(&self.runner, request)
     }
 
     /// Deliver an event at the app's clock (milliseconds); the batch makes
@@ -1134,6 +1141,9 @@ impl<D: DataSource> Host<D> {
 
     fn finish(&mut self, batch: Batch, error: Option<String>) -> String {
         let (batch, error) = self.resize_rounds(batch, error);
+        if batch.layout_provisional {
+            self.withhold_layout();
+        }
         self.refused(batch, error)
     }
 
@@ -1354,7 +1364,8 @@ fn content_size(node: &NodeRef<'_>, kernel: &Kernel) -> (f32, f32) {
         exact_kernel::Dimension::Auto
         | exact_kernel::Dimension::Env(..)
         | exact_kernel::Dimension::Segment(..)
-        | exact_kernel::Dimension::Viewport(..) => 0.0,
+        | exact_kernel::Dimension::Viewport(..)
+        | exact_kernel::Dimension::Compare(..) => 0.0,
     };
     let pad_right = pad(node.style.padding_right, node.frame.width);
     let pad_bottom = pad(node.style.padding_bottom, node.frame.width);

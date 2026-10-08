@@ -213,6 +213,7 @@ pub fn install_fonts(plan: &Plan, callback: FontsFn, ctx: *mut c_void) {
 /// A kernel measurer backed by the app's callback.
 pub struct CallbackMeasurer {
     f: MeasureFn,
+    field_chrome: Option<crate::control_text::FieldChromeFn>,
     lines: Option<LinesFn>,
     ctx: *mut c_void,
     memo: identified::Memo,
@@ -227,6 +228,7 @@ impl CallbackMeasurer {
     pub fn new(f: MeasureFn, ctx: *mut c_void, lines: Option<LinesFn>) -> CallbackMeasurer {
         CallbackMeasurer {
             f,
+            field_chrome: None,
             lines,
             ctx,
             memo: identified::Memo::default(),
@@ -259,6 +261,15 @@ fn c_run(text: &str, style: exact_kernel::TextStyle) -> CRun {
 }
 
 impl CallbackMeasurer {
+    /// Install the optional UIKit chrome callback with the text engine's context.
+    pub fn with_field_chrome(
+        mut self,
+        callback: Option<crate::control_text::FieldChromeFn>,
+    ) -> Self {
+        self.field_chrome = callback;
+        self
+    }
+
     fn foreign_measure(
         &mut self,
         request: &TextMeasureRequest<'_>,
@@ -360,6 +371,16 @@ fn sanitize(m: CMetrics) -> TextMetrics {
 }
 
 impl TextMeasurer for CallbackMeasurer {
+    fn field_chrome(
+        &mut self,
+        request: &exact_kernel::FieldChromeRequest,
+    ) -> exact_kernel::FieldChrome {
+        self.field_chrome
+            .map_or_else(exact_kernel::FieldChrome::default, |f| {
+                crate::control_text::chrome(f, self.ctx, request)
+            })
+    }
+
     fn set_language(&mut self, language: &str) {
         // `hyphens: auto` breaks by the language's points: answers by the old
         // one are another paragraph's.

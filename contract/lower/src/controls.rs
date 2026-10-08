@@ -384,6 +384,44 @@ pub(crate) fn check_nesting(tag: &str, parent: Option<&str>, span: Span) -> Resu
     Ok(())
 }
 
+/// `progress` (LLP 1069.001, amended 2026-10-07) is HTML's indeterminate
+/// one only: no `value` or `max`, which would make it a determinate bar
+/// Exact does not draw yet; no `type`, which is the kind it is; and no
+/// children, since every host draws the indicator HTML's fallback content
+/// stands in for.
+pub(crate) fn check_progress(
+    tag: &str,
+    attrs: &[contract_syntax::Attr],
+    children: &[contract_syntax::Node],
+) -> Result<(), LowerError> {
+    if tag != "progress" {
+        return Ok(());
+    }
+    if let Some(a) = attrs
+        .iter()
+        .find(|a| matches!(a.name.as_str(), "value" | "max" | "type"))
+    {
+        let why = match a.name.as_str() {
+            "type" => "it is always the activity indicator",
+            "value" => "a `value` makes HTML's determinate progress bar, which Exact does not draw yet; without one it is the platform's activity indicator",
+            _ => "`max` belongs to HTML's determinate progress bar, which Exact does not draw yet; without a `value` it is the platform's activity indicator",
+        };
+        return err(
+            "lower-attr-tag",
+            format!("`progress` takes no `{}`: {why}", a.name),
+            a.span,
+        );
+    }
+    if let Some(child) = children.first() {
+        return err(
+            "lower-void",
+            "`progress` takes no children: it is the platform's activity indicator (name it with `aria-label`)",
+            child.span(),
+        );
+    }
+    Ok(())
+}
+
 impl Lowerer<'_> {
     /// A control's bare word — HTML's boolean `switch` on a checkbox (LLP
     /// 1069.001 D1), `multiple` on a file input (LLP 1069.002 D1) — as its
@@ -454,7 +492,7 @@ fn native_button(attrs: &[contract_syntax::Attr]) -> Result<bool, LowerError> {
         Some(a) => match &a.value {
             Expr::Str(v, _) => Ok(v == "auto"),
             _ => err(
-                "lower-button-appearance",
+                "lower-appearance",
                 "a `button`'s `appearance` is a literal: `\"auto\"` makes it the platform's own button, `\"none\"` (the default) the author's box. To switch between them, write `when` with two buttons",
                 a.span,
             ),
@@ -780,7 +818,7 @@ impl Lowerer<'_> {
         Ok(())
     }
 
-    /// A native button's `animation` or `exit-animation`: keyframes, looked
+    /// A native button's `animation` or `-exact-exit-animation`: keyframes, looked
     /// up by name, that touch only its opacity and transforms.
     fn check_native_animation(&self, a: &contract_syntax::Attr) -> Result<(), LowerError> {
         let Some(texts) = literals(&a.value) else {

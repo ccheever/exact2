@@ -281,7 +281,7 @@ export const clock = { now: 0, timers: [], agent: false, epoch: 0 };
 const Now = node(null, 0);
 let Timing = false;
 // A commit takes its time first (`time`); its clock readers see it once the body has run (`tick`): the body reads the pre-state.
-function time() { if (!clock.agent && !Timing && start) clock.now = Math.max(clock.now, performance.now() - start); }
+export function time() { if (!clock.agent && !Timing && start) clock.now = Math.max(clock.now, performance.now() - start); }
 function tick() { if (Now.v !== clock.now) { Now.v = clock.now; for (const o of Now.obs) stale(o, DIRTY); } }
 // A release build never enters agent mode (LLP 1069.007 D2): its build
 // writes this false, as the wasm host's files are gated.
@@ -313,7 +313,8 @@ export function advance(to, wall, stop, timers = true) {
   let fired = 0, stopped = false;
   for (;;) {
     let next = null, then = null, head = null;
-    if (timers) for (const t of clock.timers) if (t.due <= to && !(wall && t.frame) && (!next || t.due < next.due)) next = t;
+    // A hatch's instant (hatches.js, LLP 1075.003.000.001 §2.4) comes after the timers and frame tasks due at the same time.
+    if (timers) for (const t of clock.timers) if (t.due <= to && !(wall && t.frame) && (!next || t.due < next.due || t.due === next.due && next.hatch && !t.hatch)) next = t;
     // An answer's `then` goes before a timer due at the same time: the answer landed first; a queue's `next` between them (LLP 1092 D3).
     for (const m of Mutations) if (m.due <= to && (!then || m.due < then.due) && (!next || m.due <= next.due)) then = m;
     for (const m of Mutations) if (m.next <= to && (!head || m.next < head.next) && (!next || m.next <= next.due) && (!then || m.next < then.due)) head = m;
@@ -322,9 +323,9 @@ export function advance(to, wall, stop, timers = true) {
     if (fired === 4096) return say("refused advance: 4096 commits in one advance (TIMER_FIRE_LIMIT)"), journal.at(-1);
     if (head) clock.now = Math.max(clock.now, head.next);
     else if (then) { clock.now = Math.max(clock.now, then.due); then.due = Infinity; }
-    else { clock.now = next.due; if (next.once) clock.timers.splice(clock.timers.indexOf(next), 1); else next.due = next.frame ? vf(next.base, ++next.k) : next.due + next.ms; }
+    else { clock.now = next.due; if (next.once) clock.timers.splice(clock.timers.indexOf(next), 1); else if (!next.hatch) next.due = next.frame ? vf(next.base, ++next.k) : next.due + next.ms; }
     if (fire(head ? () => Sched.next(head) : then ? () => commit(then.then, `${then.name} then`) : next.action) !== true) return journal.at(-1);
-    fired++;
+    if (head || then || !next.hatch) fired++; // a hatch's instant is no commit: it has its own caps
     if (stop?.()) { stopped = true; break; }
   }
   if (!stopped) clock.now = Math.max(clock.now, to);
@@ -356,11 +357,11 @@ export function paint() {
     const at = clock.now, rev = Rev, ticket = Ticket;
     NowRead = false;
     // A frame task's commit may arm or drop one (a gate, LLP 1092 D10): each armed at the frame's start fires once.
-    for (const t of clock.timers.filter(t => t.frame)) if (clock.timers.includes(t)) { t.base = at; t.k = 1; t.due = vf(at, 1); fire(t.action); }
+    for (const t of clock.timers.filter(t => t.frame).sort((a, b) => !!a.hatch - !!b.hatch)) if (clock.timers.includes(t)) { t.base = at; t.k = 1; t.due = vf(at, 1); fire(t.action); }
     // Frames whose tasks changed nothing and read no clock would change
     // nothing again until state does: the loop parks until a commit writes
     // (skipping a frame that would commit nothing is unobservable).
-    if (Rev === rev && Ticket === ticket && !NowRead) { cancelAnimationFrame(painting); painting = 0; Parked = Rev; }
+    if (Rev === rev && Ticket === ticket && !NowRead && !clock.timers.some(t => t.hatch && t.frame)) { cancelAnimationFrame(painting); painting = 0; Parked = Rev; }
     drive();
   });
 }
@@ -851,7 +852,8 @@ export function Sr(e, prop, unit, f) {
     }
   });
 }
-export { svgTransform } from "./svg-transform.js"; export { ds } from "./dataset.js"; export { hk } from "./hooks.js"; export { pf } from "./perf.js";
+export { svgTransform } from "./svg-transform.js"; export { ds } from "./dataset.js"; export { ht } from "./hatches.js"; export { pf } from "./perf.js";
+import { backdropValue as backdropCss } from "./backdrop.js"; export const backdropValue = (v, report = true) => backdropCss(v, report ? why => say(`unset backdrop-filter: ${why}`) : undefined);
 /** Loaded pieces' hooks: `style(e, prop, value)` takes a dynamic row's
  * write on a node the motion piece holds (motion.js). */
 export const Hooks = {};
@@ -939,7 +941,7 @@ export const onClipboard = (e, kind, f, l) => { return l(kind, ev => { ev.stopPr
 export const onSelectionChange = (e, kind, f, l) => { return onSelection(e, (text, a, b) => f([text, a, b])); };
 
 // ---------------------------------------------------------------- presence (LLP 1063)
-// `exit-animation` and `layout-transition`: the web host's own
+// `-exact-exit-animation` and `-exact-layout-transition`: the web host's own
 // presence-glue.js, fetched after the first painted frame by a plan with
 // either row (its node calls `pr`), plays both. Each commit it measures the
 // views that declare a layout transition before the tree changes and plays

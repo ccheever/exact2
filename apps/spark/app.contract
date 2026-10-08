@@ -47,7 +47,7 @@ fn verdict(x: number, y: number, vx: number, vy: number, at: number): number = (
 
 // A card's travel: the top one's release rides a spring home (or back in,
 // after an undo); a thrown card flies out on an ease-out curve.
-fn cardTransition(pos: number, dragging: bool): string = (pos == -1 or not dragging) ? (pos == 0 ? "translate spring(260, 22, 1), rotate spring(260, 22, 1), scale 300ms ease-out, opacity 200ms ease-out" : "translate 420ms cubic-bezier(.2, .8, .2, 1), rotate 420ms cubic-bezier(.2, .8, .2, 1), scale 300ms ease-out, opacity 200ms ease-out") : "none"
+fn cardTransition(pos: number, dragging: bool): string = (pos == -1 or not dragging) ? (pos == 0 ? "translate -exact-spring(260, 22, 1), rotate -exact-spring(260, 22, 1), scale 300ms ease-out, opacity 200ms ease-out" : "translate 420ms cubic-bezier(.2, .8, .2, 1), rotate 420ms cubic-bezier(.2, .8, .2, 1), scale 300ms ease-out, opacity 200ms ease-out") : "none"
 
 // The palette: the brand's pink, the page and its two inks. The verdict
 // colours (nope red, like green, super-like blue, undo gold) are written
@@ -290,7 +290,7 @@ component RoundButton
     off: bool
     press: action
   view
-    button testId=testId aria-label=label press=press disabled=off press-scale=0.9 width=size height=size flex-shrink=0 border-radius=999 border-width=0 padding=0 display="flex" align-items="center" justify-content="center" background-color="#ffffff" box-shadow="0 6px 18px rgba(20, 24, 31, 0.12)" opacity=(off ? 0.45 : 1) transition="opacity 200ms ease-out"
+    button testId=testId aria-label=label press=press disabled=off -exact-press-scale=0.9 width=size height=size flex-shrink=0 border-radius=999 border-width=0 padding=0 display="flex" align-items="center" justify-content="center" background-color="#ffffff" box-shadow="0 6px 18px rgba(20, 24, 31, 0.12)" opacity=(off ? 0.45 : 1) transition="opacity 200ms ease-out"
       svg width=glyph height=glyph viewBox="0 0 24 24"
         path d=path fill=color
 
@@ -304,7 +304,7 @@ component EmptyDeck
         path d="M12 1.5C13 6 19.5 8.5 19.5 14.5C19.5 19 16 22.5 12 22.5C8 22.5 4.5 19 4.5 14.5C4.5 11.5 6 9.5 8 8.5C8 10.5 8.5 12 9.5 12.5C9.5 8 10.5 4 12 1.5Z" fill="#ffd0dc"
       text "You've seen everyone nearby" font-size=20 font-weight=700 class=Ink text-align="center"
       text "Check back later, or start over from the top of the deck." font-size=15 class=Muted text-align="center" max-width=260
-      button testId="start-over" press=restart press-scale=0.96 padding-left=28 padding-right=28 padding-top=13 padding-bottom=13 border-width=0 border-radius=999 background-image="linear-gradient(90deg, #fd297b, #ff655b)" box-shadow="0 6px 16px rgba(253, 41, 123, 0.3)"
+      button testId="start-over" press=restart -exact-press-scale=0.96 padding-left=28 padding-right=28 padding-top=13 padding-bottom=13 border-width=0 border-radius=999 background-image="linear-gradient(90deg, #fd297b, #ff655b)" box-shadow="0 6px 16px rgba(253, 41, 123, 0.3)"
         text "Start over" font-size=16 font-weight=700 color="#ffffff"
 
 keyframes pop
@@ -324,5 +324,5 @@ component MatchOverlay
         text "It's a match!" testId="match-title" font-size=44 font-weight=900 font-style="italic" letter-spacing=-1 color="#ffffff" text-align="center"
         text `You and ${p.name} like each other.` font-size=17 color="#ffffff" text-align="center"
         image (match first(p.photos) { case some(u) => u, case none => "" }) aria-label=`Photo of ${p.name}` width=168 height=168 border-radius=999 object-fit="cover" border-width=5 border-style="solid" border-color="#ffffff" box-shadow="0 12px 30px rgba(0, 0, 0, 0.25)" testId="match-photo"
-        button testId="keep-swiping" press=keepSwiping press-scale=0.96 padding-left=36 padding-right=36 padding-top=14 padding-bottom=14 border-radius=999 border-width=2 border-style="solid" border-color="#ffffff" background-color="rgba(255, 255, 255, 0.12)"
+        button testId="keep-swiping" press=keepSwiping -exact-press-scale=0.96 padding-left=36 padding-right=36 padding-top=14 padding-bottom=14 border-radius=999 border-width=2 border-style="solid" border-color="#ffffff" background-color="rgba(255, 255, 255, 0.12)"
           text "Keep swiping" font-size=17 font-weight=700 color="#ffffff"

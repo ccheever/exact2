@@ -469,9 +469,14 @@ This list lives in memory. To keep it across launches, give `app.ts` a grant lik
   source. A list that changes changes where its data lives, through a mutation, as
   in the example above. That's what lets the plan be baked, diffed, inspected, and
   executed the same way on four hosts.
-- **No escape hatch.** Where an app needs a platform widget, it uses a *native
-  module*: a hyphenated tag like `native-map`, backed by Swift or Rust, laid out by the
-  kernel like any other box.
+- **No escape hatch; access hatches.** Nothing steps outside the plan. Where an app
+  needs a platform widget, it uses a *native module*: a hyphenated tag like
+  `native-map`, backed by Swift or Rust, laid out by the kernel like any other box.
+  Where it needs the platform object Exact itself built (a `UIView`, a navigation
+  controller, a DOM element), it marks the node `hatch="word"` and its native code is
+  handed that object: an *access hatch*, the panel a machine is built with so its
+  insides can be reached. It configures what Exact made and changes Contract state
+  only by acting on authored nodes, as a person would.
 
 These limits serve the principles. An agent can't wire up a data race it can't write.
 A plan with no JavaScript in it starts fast. A view written in CSS's own words means
@@ -584,7 +589,6 @@ To learn from, read these four first:
 | [Update Lab](apps/update-lab) | Live replacement of Contract, TypeScript, and Rust in a running app | Hand-testing lab |
 | [Messages Stress](apps/messages-stress), [Completion Storm](apps/completion-storm), [Markdown Stress](apps/markdown-stress) | 100k-message histories, 128 parallel requests, and 4 MiB documents, under load | Opt-in workloads ([LLP 1041](llp/1041-graceful-overload.rfc.md)) |
 | [Native Fixture](apps/native-fixture), [Auth Fixture](apps/auth-fixture) | The native-module interface; OAuth with PAR, DPoP, and PKCE against a local server | Test fixtures |
-| [Messages Legacy](apps/messages-legacy) | The earlier chat app, built on Snapback4 | Needs private Snapback access |
 | [Beacons, Tennis, …](game/games) | Games on the optional [engine add-on](game/README.md): Rust gameplay, Contract menus | `bun game/dev.mjs beacons` |
 
 ## What works today, and what doesn't yet

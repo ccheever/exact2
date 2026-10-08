@@ -14,7 +14,6 @@ import AppKit
 import CExact
 import Foundation
 import QuartzCore
-
 /// Supplied once per session launch and reused by every replacement runner.
 struct LaunchPlace: Equatable {
     let locale: String
@@ -23,7 +22,6 @@ struct LaunchPlace: Equatable {
     /// Under the agent, the Unix milliseconds at the clock's zero (LLP
     /// 1027.000.000 D3; default 2026-01-01T00:00:00Z); nil reads the machine.
     let epoch: Double?
-
     init(environment: [String: String] = ExactEnv.environment) {
         if environment["EXACT_AGENT"] == "1" {
             locale = environment["EXACT_AGENT_LOCALE"] ?? "en-US"
@@ -38,7 +36,6 @@ struct LaunchPlace: Equatable {
         }
     }
 }
-
 /// The process facts every session reads: the agent drives the app
 /// (LLP 1012 — the driver owns the clock), a smoke run prints and exits.
 public enum ExactEnv {
@@ -48,7 +45,7 @@ public enum ExactEnv {
     /// or its library reads one.
     public static let environment: [String: String] = {
         var environment = ProcessInfo.processInfo.environment
-        let agent = environment.keys.filter { $0 == "EXACT_AGENT" || $0.hasPrefix("EXACT_AGENT_") }.sorted()
+        let agent = environment.keys.filter { $0 == "EXACT_AGENT" || $0 == "EXACT_HATCHES" || $0.hasPrefix("EXACT_AGENT_") }.sorted()
         guard !agent.isEmpty, productionBake else { return environment }
         FileHandle.standardError.write(Data("exact: a production build ignores \(agent.joined(separator: ", ")) (LLP 1069.007 D2)\n".utf8))
         for key in agent { environment[key] = nil; unsetenv(key) }
@@ -89,19 +86,16 @@ public enum ExactEnv {
     nonisolated(unsafe) public static var stamps: [(String, Double)] = []
     public static func stamp(_ label: String) { stamps.append((label, wall())) }
 }
-
 /// What a session tells its host: a capability an action called (LLP 1005
 /// §3), after the batch that carried it was applied; and its state.
 public protocol ExactSessionDelegate: AnyObject {
     func exactSession(_ session: ExactSession, command name: String, args: [Any])
     func exactSession(_ session: ExactSession, didChange state: ExactSession.State)
 }
-
 public extension ExactSessionDelegate {
     func exactSession(_ session: ExactSession, command name: String, args: [Any]) {}
     func exactSession(_ session: ExactSession, didChange state: ExactSession.State) {}
 }
-
 /// Optional app behavior supplied by a higher composition. Every callback
 /// identifies the generation that caused it; the core owns no store policy.
 public protocol ExactAppLifecycle: AnyObject {
@@ -112,7 +106,6 @@ public protocol ExactAppLifecycle: AnyObject {
     func initialGenerationRefused(_ app: ExactApp, token: UInt64, reason: String)
     func handleCommand(_ name: String, app: ExactApp) -> Bool
 }
-
 /// A plan and its complete asset namespace prepared by an app composition.
 /// The opaque token is meaningful only to that composition; zero is an
 /// ordinary core/dev plan, with no delivery selection to count or bless.
@@ -123,7 +116,6 @@ public struct ExactModule {
     public let bytecode: Data
     public init(receipt: Data, bytecode: Data) { self.receipt = receipt; self.bytecode = bytecode }
 }
-
 public struct ExactGeneration {
     public let plan: Data
     public let assets: AssetResolver
@@ -134,11 +126,9 @@ public struct ExactGeneration {
         self.module = module
     }
 }
-
 /// The one Exact app this process links (LLP 1031 D1, D11).
 public final class ExactApp {
     public static let shared = ExactApp()
-
     /// Where an image source, a declared font, or a deck page resolves:
     /// `EXACT_ASSETS`, else the bundle (iOS) or the working directory
     /// (macOS) — the way a page resolves against its URL.
@@ -159,22 +149,18 @@ public final class ExactApp {
     /// A retryable image preparation; the current sessions remain live.
     public private(set) var generationPending = false
     private var notifications: [() -> Void] = []
-
     func deliver(_ body: @escaping () -> Void) {
         if transaction { notifications.append(body) } else { body() }
     }
     /// Retained for the app lifetime; embedded-only apps supply none.
     public var lifecycle: ExactAppLifecycle?
     private(set) var selectedToken: UInt64 = 0
-
     private var sessionRefs: [WeakSession] = []
     /// Every live session, in creation order.
     public var sessions: [ExactSession] { sessionRefs.compactMap(\.session) }
-
     /// The one dev connection (D11): the app URL `dev.mjs` prints, resolved
     /// and subscribed once; every `{seq}` applies to every session.
     private(set) var connection: PlanURL?
-
     private init() {
         #if canImport(UIKit)
         let fallback = Bundle.main.bundlePath
@@ -185,7 +171,6 @@ public final class ExactApp {
         assetRoot = URL(fileURLWithPath: ExactEnv.environment["EXACT_ASSETS"] ?? fallback, isDirectory: true)
         resolver = AssetResolver(root: assetRoot)
     }
-
     /// The immutable Rust executor policy carried by this binary's bake.
     public var rustPolicy: (mode: String, target: String) {
         let bytes = Runtime.bakedCompat()
@@ -370,12 +355,13 @@ public final class ExactSession {
     private var pendingActivation: (generation: Int, token: UInt64)? // retried on the session's wake
     private var updateToken: UInt64 = 0
 
-    let runtime: Runtime
+    package let runtime: Runtime
     let rasters = RasterLoader()
     #if os(macOS)
     lazy var regions = RegionController(self)
     #endif
     var text: TextEngine
+    let fieldChrome = FieldChromeCache()
     let presenter: Presenter
     var launchLocation: String? // a pre-boot `openURL`'s location, until the first frame (LaunchURL.swift)
     private var textPressure: DispatchSourceMemoryPressure?
@@ -398,7 +384,7 @@ public final class ExactSession {
     /// The runner's soonest timer, from the last batch (absent without timers).
     var timerDue: Double?
     /// The view presenting this session, while one is mounted (D1).
-    weak var view: ExactView?
+    weak package var view: ExactView?
     #if os(iOS) || os(tvOS)
     private var systemDark = false
     #endif
@@ -488,6 +474,7 @@ public final class ExactSession {
         sampler = FrameSampler.measured ? FrameSampler(session: self) : nil
         runtime.setMeasure(TextEngine.measureText, ctx: text.measuring.opaque)
         runtime.setFonts(TextEngine.installFonts, ctx: text.measuring.opaque)
+        installControlText()
         // LLP 1056 D8, D9: Canvas 2D measures with this engine and draws the
         // handles this session decodes.
         runtime.setCanvasText(CanvasText.measureRun)
@@ -535,6 +522,7 @@ public final class ExactSession {
         // applies its colours again.
         colorObserver = NotificationCenter.default.addObserver(forName: NSColor.systemColorsDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
             guard let self, state != .destroyed else { return }
+            controlTextChanged()
             SystemColor.invalidate()
             reportColors()
             presenter.views.values.forEach { $0.systemColorsChanged() }
@@ -722,21 +710,18 @@ public final class ExactSession {
         presenter.controls.radioGroup = { [unowned self] id in runtime.radioGroup(id) }
         presenter.buttonFace = { [unowned self] id in runtime.buttonFace(id) }
         presenter.onIntrinsic = { [unowned self] sizes in whenIdle { [unowned self] in apply(runtime.intrinsics(sizes)) } }
-        #if os(iOS)
-        presenter.groupedList = { [unowned self] id in runtime.groupedList(id) }
-        #endif
         #if os(iOS) || os(tvOS)
         // @ref LLP 1075.003 §3.5, Q3 (c) — what a bar covers reaches layout
-        // as an intrinsic size does; the hooks replay once the module connects.
+        // as an intrinsic size does; the hatches replay once the module connects.
         presenter.onCovers = { [unowned self] covers in whenIdle { [unowned self] in apply(runtime.covers(covers)) } }
-        natives.onHooksConnected = { [weak self] in
-            self?.presenter.navigation.replayHooks()
+        natives.onHatchesConnected = { [weak self] in
+            self?.presenter.navigation.replayHatches()
             self?.presenter.elements.replay()
         }
         #else
-        natives.onHooksConnected = { [weak self] in
+        natives.onHatchesConnected = { [weak self] in
             self?.presenter.elements.replay()
-            self?.presenter.toolbar.hookToolbar()
+            self?.presenter.toolbar.hatchToolbar()
         }
         #endif
         presenter.onHover = { [unowned self] id, over in apply(runtime.hover(id, over: over, now: now())) }
@@ -863,12 +848,14 @@ public final class ExactSession {
         let candidate = TextEngine.pair(resolve: { resolver.url($0) }, read: { resolver.bytes($0) }, bundled: { resolver.bundledURL($0) })
         runtime.setMeasure(TextEngine.measureText, ctx: candidate.measuring.opaque)
         runtime.setFonts(TextEngine.installFonts, ctx: candidate.measuring.opaque)
+        installControlText(on: candidate)
         let viewport = size ?? presenter.viewportSize
         let batch: Batch
         if let module { batch = runtime.prepareModule(bytes, module: module, token: token, width: viewport.width, height: viewport.height) }
         else { batch = runtime.preparePlan(bytes, width: viewport.width, height: viewport.height, token: token) }
         runtime.setMeasure(TextEngine.measureText, ctx: text.measuring.opaque)
         runtime.setFonts(TextEngine.installFonts, ctx: text.measuring.opaque)
+        installControlText()
         if batch.pending { modulePending = true; return nil }
         // Resolve initially used local payloads before first pixel, without
         // applying a presenter batch or starting an image/web/GPU operation.
@@ -894,6 +881,7 @@ public final class ExactSession {
         updateToken = candidate.token
         runtime.setMeasure(TextEngine.measureText, ctx: text.measuring.opaque)
         runtime.setFonts(TextEngine.installFonts, ctx: text.measuring.opaque)
+        installControlText()
         text.commitFonts()
         let batch = runtime.commitPlan()
         precondition(batch.error == nil, "an accepted session candidate must remain commit-ready")
@@ -990,7 +978,7 @@ public final class ExactSession {
         applying = true
         // What applying it cost, with its transactions, for the next sampled frame (LLP 1079 D3).
         let began = sampler == nil ? 0 : CACurrentMediaTime()
-        defer { sampler?.batch(batch.seq, ms: outermost ? (CACurrentMediaTime() - began) * 1000 : 0) }
+        defer { sampler?.batch(batch.seq, ms: outermost ? (CACurrentMediaTime() - began) * 1000 : 0); if let q = batch.seq { natives.hatchClock.seq = q.1 } }
         // Each batch says what its turn left owed; batches apply in the
         // owner's order, so the last one applied is the runner's now.
         canvasOwed = batch.canvasOwed
@@ -1266,12 +1254,16 @@ public final class ExactSession {
         apply(runtime.setPreferences(preferenceBits()))
         // Increased Contrast changes what every platform colour resolves to.
         reportColors()
+        #if os(macOS)
+        controlTextChanged()
+        #endif
     }
     /// Before a first boot the runtime keeps them, so the first frame is laid
     /// out with the device's preferences rather than a mouse's and then again
     /// (`pointer: none` on tvOS sets a different layout).
     private func primePreferences() {
         guard !booted, state != .destroyed else { return }
+        primeControlText()
         _ = runtime.setPreferences(preferenceBits())
     }
     private func preferenceBits() -> UInt32 {
@@ -1391,7 +1383,7 @@ public final class ExactSession {
     /// no such field, or its action refused the value (studio diary R14).
     public private(set) var changeRefusal: String?
     /// Deliver toolbar facts only when the authored editor has a select handler.
-    func selection(node: UInt32, json: String) {
+    package func selection(node: UInt32, json: String) {
         guard booted, state != .destroyed,
               presenter.views[node]?.handlers.contains("select") == true,
               let batch = runtime.selection(node, json: json, now: now()) else { return }

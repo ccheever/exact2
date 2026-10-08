@@ -5,11 +5,61 @@
 //! look (D6).
 
 use super::{rgba, Backend, Rect4, Shape};
-use exact_kernel::{Appearance, NodeRef, PropId, StyleMask};
+use exact_kernel::{Appearance, FieldChrome, NodeRef, PropId, StyleMask};
 use tiny_skia::Transform;
 
 /// Chrome's default accent, `#0075ff`, where `accent-color` is `auto`.
 pub(crate) const ACCENT: [u8; 4] = [0x00, 0x75, 0xff, 0xff];
+
+// LLP 1104 D7: the host's field look, outside the author's box rows.
+const FIELD_BORDER: f32 = 1.0;
+const FIELD_RADIUS: f32 = 6.0;
+const FIELD_PADDING: (f32, f32) = (6.0, 8.0);
+
+// The existing system-ui stack selects the host's installed sans-serif face.
+// Linux's own control size is the page's initial 16px, independent of ancestors.
+pub(crate) fn control_text_styles() -> exact_kernel::ControlTextStyles {
+    let font = exact_kernel::ControlFont {
+        family: "system-ui".into(),
+        family_id: 0,
+        size: 16.0,
+        weight: 400,
+        style: exact_kernel::FontStyle::Normal,
+    };
+    exact_kernel::ControlTextStyles {
+        field: font.clone(),
+        textarea: font.clone(),
+        button: font,
+    }
+}
+
+fn field_fill(dark: bool) -> [u8; 4] {
+    if dark {
+        [0x1c, 0x1c, 0x1e, 0xff]
+    } else {
+        [0xff; 4]
+    }
+}
+
+// Keep the fill opaque; disabled border and unauthored ink approach that fill.
+pub(super) fn disabled_field_ink(mut ink: [u8; 4], dark: bool) -> [u8; 4] {
+    let fill = field_fill(dark);
+    for i in 0..3 {
+        ink[i] = ((ink[i] as u16 + fill[i] as u16) / 2) as u8;
+    }
+    ink
+}
+
+pub(crate) fn field_chrome() -> FieldChrome {
+    FieldChrome {
+        top: FIELD_BORDER + FIELD_PADDING.0,
+        right: FIELD_BORDER + FIELD_PADDING.1,
+        bottom: FIELD_BORDER + FIELD_PADDING.0,
+        left: FIELD_BORDER + FIELD_PADDING.1,
+        minimum_height: 0.0,
+        provisional: false,
+    }
+}
 
 /// A control's choice while its bound value is the one it had when the
 /// person chose, as the web build writes an input's `value` only when the
@@ -81,6 +131,28 @@ pub struct MenuPaint {
 pub const MENU_PAD: f32 = 4.0;
 
 impl super::Painter {
+    /// Native text field chrome; text uses the kernel's published content rect.
+    pub(super) fn text_field_chrome(
+        &mut self,
+        rect: Rect4,
+        disabled: bool,
+        ts: Transform,
+    ) -> Shape {
+        let shape = Shape::new(rect, [FIELD_RADIUS; 4]);
+        let fill = field_fill(self.dark);
+        let mut line = if self.dark {
+            [0x48, 0x48, 0x4a, 0xff]
+        } else {
+            [0xc6, 0xc6, 0xc8, 0xff]
+        };
+        if disabled {
+            line = disabled_field_ink(line, self.dark);
+        }
+        self.backend.fill(&shape, line, ts);
+        self.backend.fill(&shape.inset(FIELD_BORDER), fill, ts);
+        shape
+    }
+
     /// A closed select, or a field that shows a value (LLP 1069.001 D7): a
     /// rounded box with the text, and a chevron when it opens a menu.
     pub(super) fn field_control(
@@ -319,6 +391,39 @@ pub(super) fn paint(
     }
 }
 
+/// An indeterminate `progress` (LLP 1069.001, amended 2026-10-07): UIKit's
+/// activity indicator as one still frame, eight spokes round the centre of
+/// the box's shorter side in `color`, the tail fading behind the brightest
+/// one (counterclockwise: the indicator turns clockwise). Linux paints on
+/// change, not per frame, so it does not turn; every frame is the same,
+/// which is what the agent's held clock shows on the other hosts.
+pub(super) fn progress(
+    backend: &mut dyn Backend,
+    node: &NodeRef<'_>,
+    content: Rect4,
+    ts: Transform,
+    dark: bool,
+) {
+    let (x, y, w, h) = content;
+    let s = w.min(h);
+    if s <= 0.0 {
+        return;
+    }
+    let (cx, cy) = (x + w / 2.0, y + h / 2.0);
+    let ink = rgba(node.text_color().resolve(dark));
+    let (thick, long) = (s * 0.1, s * 0.27);
+    let spoke = Shape::new(
+        (cx - thick / 2.0, cy - s / 2.0, thick, long),
+        [thick / 2.0; 4],
+    );
+    for i in 0..8 {
+        let mut c = ink;
+        c[3] = (c[3] as f32 * (1.0 - i as f32 * 0.1)) as u8;
+        let turn = Transform::from_rotate_at(-45.0 * i as f32, cx, cy);
+        backend.fill(&spoke, c, ts.pre_concat(turn));
+    }
+}
+
 /// A native button's look on Linux and its metrics (LLP 1069.011 D2, D6): the
 /// `buttonStyles` row's web/Linux look, as the web's stylesheet draws it.
 /// `ua` is Chrome's own button; the others a pill padded 7/12. Both set the
@@ -436,5 +541,48 @@ impl super::Painter {
             .text(&mut engine, &paragraph, &palette, origin, ts);
         drop(engine);
         self.backend.pop_clip();
+    }
+}
+
+#[cfg(test)]
+mod field_tests {
+    use crate::text::{Measurer, TextEngine};
+    use exact_kernel::{
+        ControlFont, FieldChrome, FieldChromeRequest, FieldKind, FontStyle, TextMeasurer,
+    };
+
+    #[test]
+    fn the_host_answers_every_field_kind_and_font_without_a_provisional_frame() {
+        let mut measurer = Measurer(TextEngine::shared());
+        for kind in [
+            FieldKind::Field,
+            FieldKind::SecureField,
+            FieldKind::SearchField,
+            FieldKind::Textarea,
+        ] {
+            for size in [10.0, 16.0, 32.0] {
+                let chrome = measurer.field_chrome(&FieldChromeRequest {
+                    kind,
+                    font: ControlFont {
+                        family: String::new(),
+                        family_id: 0,
+                        size,
+                        weight: 700,
+                        style: FontStyle::Italic,
+                    },
+                });
+                assert_eq!(
+                    chrome,
+                    FieldChrome {
+                        top: 7.0,
+                        right: 9.0,
+                        bottom: 7.0,
+                        left: 9.0,
+                        minimum_height: 0.0,
+                        provisional: false,
+                    }
+                );
+            }
+        }
     }
 }

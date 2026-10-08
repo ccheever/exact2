@@ -1,7 +1,7 @@
 // Shared elements on the web (LLP 1013.000 D7): CSS View Transitions, the
 // browser's own, for the commits that hand a `sharedElement` name from one
 // element to another. Loaded after first paint with presence-glue.js, by a
-// plan with a `layout-transition` (rt.js `pr`), which a pair needs at one
+// plan with a `-exact-layout-transition` (rt.js `pr`), which a pair needs at one
 // end at least; until then a commit cuts.
 //
 // Before a commit's flush, the named elements inside each region or list
@@ -9,7 +9,7 @@
 // tree update runs inside `document.startViewTransition`: the leavers get a
 // `view-transition-name` before the browser captures the old state; in the
 // update, after the flush, each name's new holder gets the same one, its
-// group the pair's curve (the arriver's `layout-transition`, else the
+// group the pair's curve (the arriver's `-exact-layout-transition`, else the
 // leaver's; a spring as `linear()`), and is scrolled into view. A leaver
 // still there keeps its name (it moves, as the browser moves it). With no
 // pair that has a curve the transition is skipped and the update still
@@ -41,10 +41,10 @@ function leavers(queue) {
   return out;
 }
 
-/** A `layout-transition` as the group's duration, delay and timing
+/** A `-exact-layout-transition` as the group's duration, delay and timing
  * function. The row is carried as the host writes it: times in
  * milliseconds without a unit (`300 0 ease`), or with one as authored. */
-function curve(el) {
+export function curve(el) {
   const text = el?.style.getPropertyValue('--exact-layout-transition').trim();
   if (!text || text === 'none') return null;
   const decl = text.split(/,(?![^(]*\))/).pop().trim(); // the last declaration; a spring's commas are inside it

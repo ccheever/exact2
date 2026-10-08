@@ -59,7 +59,7 @@ fn the_rows_reach_the_page_as_custom_properties_and_an_exit_precedes_its_destroy
 #[test]
 fn a_spring_layout_transition_reaches_the_page_as_its_parameters() {
     let plan = contract::compile(
-        "component App\n  view\n    column\n      text \"a\" layout-transition=\"spring(300, 30, 1)\"\n",
+        "component App\n  view\n    column\n      text \"a\" -exact-layout-transition=\"-exact-spring(300, 30, 1)\"\n",
     )
     .unwrap();
     exact_web::link(exact_web_capabilities::ALL);

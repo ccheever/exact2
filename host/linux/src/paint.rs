@@ -21,6 +21,7 @@
 
 use crate::image::Bitmap;
 use crate::text::{Paragraph, Run, RunPaint, Shared, Spec, TextEngine};
+use exact_kernel::style::{BackdropFilter, BackdropOp};
 use exact_kernel::{
     Dimension, Display, Kernel, NodeRef, NodeType, ObjectFit, Overflow, PropId, StyleId, StyleMask,
     StyleProps, ViewId,
@@ -160,9 +161,8 @@ struct BoxPaint {
     gradients: Vec<gradient::Captured>,
     padding: [f32; 4],
     shadows: Vec<shadow::ShadowPaint>,
-    /// `backdrop-filter: blur(σ)`, σ in points; 0 for none, or under a
-    /// host material, which wins (LLP 1053.000 D3).
-    backdrop: f32,
+    /// The ordered backdrop functions, or the winning material's blur.
+    backdrop: BackdropFilter,
 }
 struct BoxGeometry {
     outer: Shape,
@@ -193,7 +193,8 @@ impl BoxPaint {
             Dimension::Auto
             | Dimension::Env(..)
             | Dimension::Segment(..)
-            | Dimension::Viewport(..) => 0.0,
+            | Dimension::Viewport(..)
+            | Dimension::Compare(..) => 0.0,
         };
         // @ref LLP 1053.000 D4 — a material wins over `backdrop-filter`; a
         // name the table lacks draws ultra-thin ([`material_note`]).
@@ -228,7 +229,10 @@ impl BoxPaint {
             },
             gradients: gradient::Captured::capture(s, dark),
             shadows: shadow::ShadowPaint::capture(s, dark),
-            backdrop: material.map_or(s.backdrop_blur.max(0.0), |m| m.blur),
+            backdrop: material.map_or_else(
+                || s.backdrop_filter.clone(),
+                |m| BackdropFilter(vec![BackdropOp::Blur(m.blur)]),
+            ),
             padding: [
                 pad(s.padding_top),
                 pad(s.padding_right),
@@ -277,9 +281,9 @@ impl BoxPaint {
                 backend.fill_border(&band, ts);
             }
         }
-        // @ref LLP 1053.000 D2 — the backdrop blurs under the background.
-        if self.backdrop > 0.0 {
-            backend.backdrop_blur(&geometry.outer, self.backdrop, ts);
+        // @ref LLP 1053.000 D2 — the backdrop filters under the background.
+        if !self.backdrop.is_none() {
+            backend.backdrop_filter(&geometry.outer, &self.backdrop, ts);
         }
         self.emit(geometry, |shape, color| backend.fill(&shape, color, ts));
         // The last layer first, so the first is on top (LLP 1077 D5), within
@@ -497,6 +501,8 @@ pub struct Painter {
     pub(crate) placements: BTreeMap<ViewId, crate::placement::Placement>,
     /// Each 2D canvas's latest bitmap (LLP 1056).
     pub(crate) canvases: BTreeMap<ViewId, crate::canvas2d::CanvasPaint>,
+    /// Each hatched node's overlay as last published (LLP 1075.003.000.001 §2.2.1).
+    pub(crate) overlays: BTreeMap<ViewId, Arc<Pixmap>>,
     viewport: (f32, f32),
     cpu_ms: Option<f64>,
     /// What a reorder lifts: a row in its list, or a ghost over everything.
@@ -606,6 +612,7 @@ impl Painter {
             decoration_warning: false,
             placements: BTreeMap::new(),
             canvases: BTreeMap::new(),
+            overlays: BTreeMap::new(),
             viewport: (0., 0.),
             cpu_ms: None,
             flatten: None,
@@ -883,7 +890,7 @@ impl Painter {
             || node.node_type == NodeType::Image
             || !node.style.box_shadow.0.is_empty()
             // A backdrop reads what is under it, beyond any damage.
-            || node.style.backdrop_blur > 0.0
+            || !node.style.backdrop_filter.is_none()
             || self.material_note(&node)
             || !p.colors.is_empty();
         let origin = node.style.transform_origin.resolve(w, h);
@@ -1035,6 +1042,15 @@ impl Painter {
             }
             NodeType::TextInput => {
                 self.row_refuse();
+                let native = node.style.appearance == exact_kernel::Appearance::Auto;
+                let disabled = node.props.bool(PropId::Disabled) == Some(true);
+                let field_shape =
+                    native.then(|| self.text_field_chrome(surface.outer.rect, disabled, ts));
+                let content = if let Some(c) = node.field_content_rect() {
+                    (rect.0 + c.x, rect.1 + c.y, c.width, c.height)
+                } else {
+                    content
+                };
                 // Typed text its bound value has not replaced (LLP 1069.001 D4).
                 let value = control::choice(node, walk.scene.chosen.get(&node.id))
                     .unwrap_or_else(|| node.props.str(PropId::Value).unwrap_or(""));
@@ -1067,14 +1083,20 @@ impl Painter {
                     + if multiline {
                         0.0
                     } else {
-                        ((content.3 - paragraph.height) / 2.0).max(0.0)
+                        (content.3 - paragraph.height) / 2.0
                     };
-                let ink = if placeholder {
+                let mut ink = if placeholder {
                     [0x75, 0x75, 0x75, 0xff]
                 } else {
                     presented_color(walk, node)
                         .unwrap_or_else(|| rgba(node.text_color().resolve(self.dark)))
                 };
+                if native
+                    && disabled
+                    && (placeholder || !node.style.mask.has(exact_kernel::StyleId::TextColor))
+                {
+                    ink = control::disabled_field_ink(ink, self.dark);
+                }
                 // The focused field's selection (x2apps codeedit #2).
                 let field = caret::FieldText {
                     node: node.id,
@@ -1110,10 +1132,8 @@ impl Painter {
                     );
                     let at_end = || exact_runner::FieldSelection::at_end(value);
                     self.field_caret(&field, caret, selection.unwrap_or_else(at_end), ts);
-                    if node.props.str(PropId::FieldStyle).is_some() {
-                        let accent = control::accent(node, self.dark).unwrap_or(control::ACCENT);
-                        self.field_ring(&surface.outer, accent, ts);
-                    }
+                    let accent = control::accent(node, self.dark).unwrap_or(control::ACCENT);
+                    self.field_ring(field_shape.as_ref().unwrap_or(&outer), accent, ts);
                 }
             }
             NodeType::Svg => self.svg(walk, node, rect, content, ts),
@@ -1138,6 +1158,9 @@ impl Painter {
             }
             NodeType::Control if node.props.str(PropId::Type) == Some("range") => {
                 self.range_control(node, content, ts, walk.scene.chosen.get(&node.id))
+            }
+            NodeType::Control if node.props.str(PropId::Type) == Some("progress") => {
+                control::progress(self.backend.as_mut(), node, content, ts, self.dark)
             }
             NodeType::Control if node.props.str(PropId::Type) == Some("button") => {
                 let title = walk.scene.kernel.press_face(node.id).and_then(|f| f.title);
@@ -1181,6 +1204,14 @@ impl Painter {
         self.children(walk, node, ts, child_offset, child_rect);
         if clips {
             self.backend.pop_clip();
+        }
+        // @ref LLP 1075.003.000.001 §2.2.1 — a hatch's overlay: over the
+        // node's own paint and its descendants, clipped to its border box.
+        if let Some(pixels) = self.overlays.get(&node.id).cloned() {
+            self.row_refuse();
+            self.damage.unsupported = true;
+            let clips = [Shape::rect(rect), surface.outer];
+            self.backend.canvas(&pixels, rect, &clips, ts);
         }
     }
 }
@@ -1298,9 +1329,11 @@ pub fn content_size(node: &NodeRef<'_>, kernel: &Kernel) -> (f32, f32) {
         Dimension::Points(p) => p,
         Dimension::Percent(p) => against * p / 100.0,
         Dimension::Calc(p, x) => against * p / 100.0 + x,
-        Dimension::Auto | Dimension::Env(..) | Dimension::Segment(..) | Dimension::Viewport(..) => {
-            0.0
-        }
+        Dimension::Auto
+        | Dimension::Env(..)
+        | Dimension::Segment(..)
+        | Dimension::Viewport(..)
+        | Dimension::Compare(..) => 0.0,
     };
     let pad_right = pad(node.style.padding_right, node.frame.width);
     let pad_bottom = pad(node.style.padding_bottom, node.frame.width);

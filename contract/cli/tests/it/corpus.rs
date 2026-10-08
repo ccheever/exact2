@@ -37,7 +37,7 @@ fn symbols_admit_roles_and_opaque_sf_names_but_refuse_misspelled_roles() {
         "sort",
         "filter",
     ] {
-        contract::compile(&format!("component App\n  view\n    image \"symbol:{role}\" tint-color=\"light-dark(#123456,#abcdef)\"\n")).unwrap();
+        contract::compile(&format!("component App\n  view\n    image \"symbol:{role}\" -exact-tint-color=\"light-dark(#123456,#abcdef)\"\n")).unwrap();
     }
     contract::compile("component App\n  state selected = true\n  view\n    button role=\"tab\" aria-selected=selected\n      text \"Questions\"\n").unwrap();
     for role in [
@@ -837,9 +837,8 @@ fn content_sized_composer_grows_wraps_and_stops_at_its_maximum() {
         ),
     )
     .unwrap();
-    // `max-height` bounds the content box; the field's sheet adds its
-    // padding and border outside it (LLP 1104 D2).
-    assert_eq!(height(&mut r), 88.0 + 14.0);
+    // No compiled field sheet adds padding or border (LLP 1104 r8 D1).
+    assert_eq!(height(&mut r), 88.0);
     assert_eq!(
         r.kernel().node_by_key(fixed).unwrap().frame.height,
         fixed_height

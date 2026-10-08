@@ -105,6 +105,40 @@ fn a_frame_and_structured_apply_produce_the_same_tree() {
 }
 
 #[test]
+fn backdrop_filter_roundtrips_its_order_and_identity() {
+    exact_kernel::style::link_backdrop_filter();
+    for css in [
+        "none",
+        "blur(0px)",
+        "saturate(1)",
+        "saturate(1.8) blur(4px)",
+        "blur(12px) saturate(1.14)",
+    ] {
+        let mut style = StyleProps::default();
+        style
+            .set_dynamic(
+                StyleId::BackdropFilter,
+                &exact_kernel::StyleValue::Text(css.into()),
+            )
+            .unwrap();
+        let ops = [
+            Op::CreateView {
+                id: 1,
+                node_type: NodeType::View,
+            },
+            Op::SetStyle {
+                id: 1,
+                patch: Box::new(style),
+            },
+            Op::AttachRoot { id: 1 },
+        ];
+        let mut kernel = Kernel::with_monospace();
+        kernel.apply_frame(&wire::encode(0, 1, &ops)).unwrap();
+        assert_eq!(kernel.node(1).unwrap().style.backdrop_filter.css(), css);
+    }
+}
+
+#[test]
 fn a_malformed_frame_applies_nothing() {
     let mut k = Kernel::with_monospace();
     k.apply(0, 1, &ops()).unwrap();

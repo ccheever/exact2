@@ -581,7 +581,7 @@ fn generate(schema: &Schema, digest: u64) -> String {
     // ---- StyleId / StyleCodec --------------------------------------------
     writeln!(w, "/// Wire codec of a style row.").unwrap();
     writeln!(w, "#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]").unwrap();
-    writeln!(w, "pub enum StyleCodec {{ Dimension, LineHeight, F32, U8, U16, U32, I32, Rgba8, ColorValue, KeywordColor, Vec2, Color2, Tracks, Placement, Transitions, Animations, ClipPath, ShapeOutside, AspectRatio, Paint, DashArray, Transform, TransformOrigin, PaintOrder, Marker, Filter, BackgroundImage, BoxShadow, TextShadow, MaskImage, CornerShape, RotateAxis, SymbolPalette, DragTimeline, AnimationTimeline, AnimationRange, TimelineScope, Enum }}").unwrap();
+    writeln!(w, "pub enum StyleCodec {{ Dimension, LineHeight, F32, U8, U16, U32, I32, Rgba8, ColorValue, KeywordColor, Vec2, Color2, Tracks, Placement, Transitions, Animations, ClipPath, ShapeOutside, AspectRatio, Paint, DashArray, Transform, TransformOrigin, PaintOrder, Marker, Filter, BackgroundImage, BackdropFilter, BoxShadow, TextShadow, MaskImage, CornerShape, RotateAxis, SymbolPalette, DragTimeline, AnimationTimeline, AnimationRange, TimelineScope, Enum }}").unwrap();
     writeln!(w, "/// One style row; the discriminant is the mask bit.").unwrap();
     writeln!(w, "#[repr(u8)]").unwrap();
     writeln!(
@@ -1304,6 +1304,7 @@ fn generate(schema: &Schema, digest: u64) -> String {
             // An exit must end (LLP 1063 D2), refused here as on the wire.
             Codec::Animations if row.ends => "Animations::parse(value.text(id)?).ok().filter(|a| a.validate_ending().is_ok()).ok_or(StyleValueError::BadAnimation { style: id })?".to_string(),
             Codec::Animations => "Animations::parse(value.text(id)?).map_err(|_| StyleValueError::BadAnimation { style: id })?".to_string(),
+            Codec::CssValue { variant: "BackdropFilter", path, .. } => format!("{path}::check(&value.css_text(id)?).map_err(|reason| StyleValueError::BadBackdropFilter {{ style: id, reason }})?"),
             Codec::CssValue { path, error, .. } => format!("{path}::parse(&value.css_text(id)?).ok_or(StyleValueError::{error} {{ style: id }})?"),
             Codec::Tracks => "GridTracks::parse(&value.css_text(id)?).ok_or(StyleValueError::BadGridTracks { style: id })?".to_string(),
             Codec::Placement => "GridPlacement::parse(&value.css_text(id)?).ok_or(StyleValueError::BadGridPlacement { style: id })?".to_string(),

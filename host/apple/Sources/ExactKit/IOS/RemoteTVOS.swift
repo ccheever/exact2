@@ -17,7 +17,7 @@ import UIKit
 extension NodeView {
     /// An explicit negative `tabindex` is no remote stop, as it is no Tab
     /// stop (LLP 1088 D7.3); the remote's order stays UIKit's geometry.
-    override var canBecomeFocused: Bool {
+    package override var canBecomeFocused: Bool {
         if let index = explicitTabIndex, index < 0 { return false }
         if cssVisibilityHidden { return false } // no remote stop, nor Select (e28279b3b)
         return canBecomeFirstResponder || (!disabled && !inert && handlers.contains("press")) || focusableScroller
@@ -50,7 +50,7 @@ extension NodeView {
     /// The arrow presses a scroller stepped on, whose ends it takes too.
     static var steppedPresses = Set<ObjectIdentifier>()
 
-    override func didUpdateFocus(in context: UIFocusUpdateContext, with coordinator: UIFocusAnimationCoordinator) {
+    package override func didUpdateFocus(in context: UIFocusUpdateContext, with coordinator: UIFocusAnimationCoordinator) {
         super.didUpdateFocus(in: context, with: coordinator)
         if context.nextFocusedItem === self {
             presenter?.focusKey = props["testId"]

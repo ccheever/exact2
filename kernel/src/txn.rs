@@ -31,7 +31,7 @@ use crate::wire::Op;
 /// process on a stack overflow (20,000 levels did).
 pub const MAX_DEPTH: u32 = 128;
 
-/// A destroyed node that leaves with its `exit-animation` (LLP 1063): the
+/// A destroyed node that leaves with its `-exact-exit-animation` (LLP 1063): the
 /// root of a destroyed subtree whose parent survived the batch and that no
 /// batch-local creation owns, or a virtualized list's row whose item left the
 /// data. Its descendants go with it; their own exit rows never play.
@@ -41,7 +41,7 @@ pub struct Exit {
     pub key: NodeKey,
     /// The surviving parent it leaves from.
     pub parent: NodeKey,
-    /// Its `exit-animation` row as it was when destroyed.
+    /// Its `-exact-exit-animation` row as it was when destroyed.
     pub animations: exact_motion::Animations,
 }
 
@@ -926,7 +926,7 @@ fn exit(
     })
 }
 
-/// The `exit-animation` `slot` plays as it leaves: its own row, unless it
+/// The `-exact-exit-animation` `slot` plays as it leaves: its own row, unless it
 /// is a virtualized list's row wrapper (it carries `listItemKey`). The window
 /// destroys rows that scroll away as well as rows whose item left the data,
 /// and empties the key of the latter alone; such a wrapper leaves as the
@@ -1118,6 +1118,10 @@ fn style_changed(
     mask: StyleMask,
     receipt: &mut CommitReceipt,
 ) {
+    if mask.has(crate::StyleId::Appearance) && arena.node_type(slot) == NodeType::TextInput {
+        control_env_changed(arena, layout, slot);
+        receipt.layout_invalidated = true;
+    }
     if mask.intersects(StyleMask::LAYOUT) {
         arena.flags_mut(slot).insert(NodeFlags::STYLE_DIRTY);
         if let Some(node) = arena.taffy(slot) {
@@ -1180,7 +1184,11 @@ fn propagate_inherited(
     let mut stack: Vec<(u32, StyleMask)> =
         arena.children(slot).iter().map(|c| (*c, changed)).collect();
     while let Some((s, rows)) = stack.pop() {
-        let pass = rows.minus(arena.style(s).mask);
+        let pass = rows.minus(arena.style(s).mask).minus(
+            arena
+                .control_text_start(s)
+                .map_or(StyleMask::EMPTY, |start| start.mask),
+        );
         if pass.is_empty() {
             continue;
         }
@@ -1220,7 +1228,18 @@ fn inherited_changed(
     }
 }
 
-mod relative;
+/// A control's computed starting style changed outside an authored commit.
+pub(crate) fn control_env_changed(arena: &mut NodeArena, layout: &mut dyn LayoutMirror, slot: u32) {
+    arena.flags_mut(slot).insert(NodeFlags::STYLE_DIRTY);
+    arena.flags_mut(slot).insert(NodeFlags::PAINT_DIRTY);
+    invalidate_text(arena, layout, slot);
+    if let Some(node) = arena.taffy(slot) {
+        layout.restyle(arena, slot, node);
+        layout.mark_dirty(node);
+    }
+}
+
+pub(crate) mod relative;
 
 #[cfg(test)]
 mod tests;

@@ -2,10 +2,16 @@
 // @ref LLP 1045 D1, D5, D6 — no claim about physical keyboard/phone gestures.
 import XCTest
 @testable import ExactKit
+@testable import ExactMarkdown
 #if os(macOS)
 import AppKit
 
 final class MarkupEditorTests: XCTestCase {
+    override func setUp() {
+        super.setUp()
+        ExactMarkdown.install() // LLP 1047.001 D4: the capability this tests
+    }
+
     private func editor(_ source: String, selection: NSRange) -> (NodeView, TextArea, NSWindow, Presenter) {
         _ = NSApplication.shared
         let presenter = Presenter()
@@ -192,7 +198,7 @@ final class MarkupEditorTests: XCTestCase {
         defer { window.close(); _ = presenter }
         let look = MarkupEditor.Look(font: { size, weight, _, _ in NSFont.systemFont(ofSize: size, weight: weight >= 700 ? .bold : .regular) },
                                      size: 16, weight: 400, family: 0, italic: false, lineHeight: nil, ink: .textColor)
-        f.markup!.restyle(f.textStorage!, selection: f.selectedRange(), look: look)
+        (f.markup as! MarkupEditor).restyle(f.textStorage!, selection: f.selectedRange(), look: look)
         XCTAssertNotNil(f.textStorage!.attribute(.link, at: 10, effectiveRange: nil))
         node.props["markup"] = "none"
         node.applyTextArea()

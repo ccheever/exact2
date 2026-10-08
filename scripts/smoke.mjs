@@ -1033,7 +1033,7 @@ if (deckFixture) {
       await m.clock('+125');
       let l = await m.layout();
       check(w(l, 'linear') === 75, `at 125 ms of a 250 ms linear scale 1→2 the box is ${w(l, 'linear')} wide, not 75`);
-      check(near(w(l, 'spring'), 86.55, 0.5), `at 125 ms the spring(180, 12, 1) box is ${w(l, 'spring')} wide (both hosts: 86.55)`);
+      check(near(w(l, 'spring'), 86.55, 0.5), `at 125 ms the -exact-spring(180, 12, 1) box is ${w(l, 'spring')} wide (both hosts: 86.55)`);
       check(w(l, 'timed') === 50, `the timer has not fired yet: ${w(l, 'timed')}`);
       await m.clock('+125');
       l = await m.layout();
@@ -1396,6 +1396,8 @@ if (app.modules.tags.includes('exact-fixture') && ['web', 'macos', 'ios'].includ
   const { nativeSmoke } = await import('./smoke-native.mjs');
   await nativeSmoke({ host, open, check, webDist: selectedWebDist });
 }
+// A painting host loads no module; the fixture's hatches run there (LLP 1075.003.000.001 §8 stage 4).
+if (app.modules.tags.includes('exact-fixture') && host === 'linux') await (await import('./smoke-native.mjs')).paintingHatchSmoke({ host, open, check });
 
 // 15. The recorder (LLP 1067.000): one native object, a view and functions.
 if (app.modules.tags.includes('waveform-view') && ['web', 'macos', 'ios'].includes(host)) {

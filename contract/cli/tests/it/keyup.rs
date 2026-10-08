@@ -130,3 +130,56 @@ fn keyup_takes_keys_payload_and_record() {
     .unwrap_err();
     assert!(e.to_string().contains("keyup"), "{e}");
 }
+
+/// Held modifiers the web's way (#140): each keydown and keyup sets the
+/// flag from the event, and losing the window's focus forgets it, as a
+/// page's `window` `blur` listener does, since a key let go in another app
+/// sends no keyup. `exactPage().hasFocus` going false arms the task.
+const HELD: &str = r#"shape Page
+  hasFocus: bool
+
+component App
+  resource page = exactPage() as shape Page
+  state meta = false
+  action down(k: string, e: KeyboardEvent)
+    meta = e.metaKey
+  action up(k: string, e: KeyboardEvent)
+    meta = e.metaKey
+  action forget()
+    meta = false
+  task release when meta and not page.hasFocus
+    after(1, forget)
+  view
+    column key=down keyup=up testId="list"
+      when meta and page.hasFocus
+        text "⌘" testId="hint"
+"#;
+
+#[test]
+fn a_held_modifier_is_forgotten_when_the_window_loses_focus() {
+    let mut r = boot(HELD);
+    let list = id(&r, "list");
+    let hint = |r: &Runner<NoData>| !r.kernel().find_by_test_id("hint").is_empty();
+    r.dispatch(list, wire(6, "Meta+Meta\nMetaLeft\nfalse"))
+        .unwrap();
+    assert!(hint(&r));
+    // Another app comes forward with ⌘ still down and ⌘ comes up there: no keyup.
+    let blurred = exact_runner::Page {
+        has_focus: false,
+        ..r.page()
+    };
+    r.set_page(blurred).unwrap();
+    assert!(!hint(&r), "no hint while the window has no focus");
+    r.advance(1.0).unwrap();
+    assert_eq!(r.slot("meta"), Some(&Value::Bool(false)));
+    r.set_page(exact_runner::Page {
+        has_focus: true,
+        ..blurred
+    })
+    .unwrap();
+    assert!(!hint(&r), "back in front, ⌘ is not held");
+    // A ⌘ pressed again is heard as before.
+    r.dispatch(list, wire(6, "Meta+Meta\nMetaLeft\nfalse"))
+        .unwrap();
+    assert!(hint(&r));
+}

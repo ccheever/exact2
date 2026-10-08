@@ -33,6 +33,11 @@ impl<D: DataSource> Presenter<D> {
                     "view {id} is a button: it takes a press, not a value"
                 ));
             }
+            // An indeterminate progress has no value (LLP 1069.001, amended
+            // 2026-10-07).
+            if node.props.str(PropId::Type) == Some("progress") {
+                return Err(format!("view {id} is not an input"));
+            }
             return self.set_control_value(id, text);
         }
         if node.node_type != NodeType::TextInput {
@@ -106,6 +111,8 @@ impl<D: DataSource> Presenter<D> {
             self.hold_modifier("ControlLeft", true);
             self.key_up("v", "KeyV", self.host.now());
             self.hold_modifier("ControlLeft", false);
+            // Control's own keyup after it, without its own bit (Charlie, 2026-10-07).
+            self.key_up("Control", "ControlLeft", self.host.now());
         }
         r
     }
@@ -154,6 +161,12 @@ impl<D: DataSource> Presenter<D> {
         // stay the clipboard event alone.
         if kind == EventKind::Paste {
             self.hold_modifier("ControlLeft", true);
+            // Control's own keydown first, as a keyboard's (Charlie, 2026-10-07).
+            let (error, _) = self.key_event(EventKind::Key, "Control", "ControlLeft", false, now);
+            if let Some(e) = error {
+                self.hold_modifier("ControlLeft", false);
+                return Err(e);
+            }
             // The page's shortcuts hear the chord first, as the web's capture
             // listener does: a button declaring Control+V takes it.
             let (error, prevented) = if self.shortcut("v", false, now) {
@@ -441,6 +454,14 @@ impl<D: DataSource> Presenter<D> {
     /// [`Self::key_down`] with the key's physical position (`code`) and
     /// whether it is an auto-repeat, which its `KeyboardEvent` carries.
     pub(crate) fn key_down_with(&mut self, name: &str, code: &str, repeat: bool, now_ms: f64) {
+        // A hatch observes the key after its handlers and its default
+        // action (LLP 1075.003.000.001 §2.2.2).
+        let mark = self.hatch_key_mark();
+        self.key_pressed(name, code, repeat, now_ms);
+        self.hatch_key(mark, name, code, true, repeat);
+    }
+
+    fn key_pressed(&mut self, name: &str, code: &str, repeat: bool, now_ms: f64) {
         // The page's shortcuts first, focus or none (`shortcuts.rs`).
         if self.shortcut(name, false, now_ms) {
             return;

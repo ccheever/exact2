@@ -715,9 +715,10 @@ exactly one policy owns the list. The initial supported
 shape is a bounded vertical list with one direct keyed `each`, whose body
 has one normal-flow element root. Wrap multiple or conditional roots in a
 column. Absolute/overlapping rows and alternate container layouts are rejected.
-Vertical scroll-container padding is also rejected until the feedback protocol
-models content insets. Put top/end spacing inside measured first/last rows;
-horizontal padding is represented by the host's actual offered row width.
+Vertical scroll-container padding was also rejected until the feedback protocol
+modelled content insets; since 2026-10-07 main-axis padding is CSS's room
+before the first row and after the last (§6.9). Cross-axis padding is
+represented by the host's actual offered row width.
 The compiler keeps one row template; records and compact key/height metadata
 remain O(N). Only selected rows own instances, local slots and kernel views.
 
@@ -779,8 +780,14 @@ Measured zero-height runs are skipped by the height tree rather than flattened
 from a potentially huge endpoint hull. Typography invalidation restores estimates,
 the reading anchor and actual emitted rows/spacers. Individually valid heights
 whose sum would overflow native geometry are rejected without poisoning the
-runner. End-follow tolerates at most 0.5 logical units of host geometry rounding,
-including the browser's integer scroll range for fractional CSS row extents.
+runner. End-follow tolerates less than one logical unit of host geometry rounding
+(`END_SLACK`, `collection/index.rs`), including the browser's integer scroll range for
+fractional CSS row extents. **Amended 2026-10-07** from at most 0.5: Chrome rounds that
+range, but WebKit floors it (a 210.72 px extent in a 140 px port scrolls to 71 in Chrome and
+stops at 70 in WebKit), so a port at the end can read up to, but not, a pixel short, and a
+transcript stopped following its end in Safari (synthetic-lists, WebKit conformance). A
+reader a whole pixel or more above the runner's modelled end stays where they are; one less
+than a pixel above it is taken as at it, a tolerance, not a proof.
 
 **2026-09-18 (LLP 1027.004 S1, revised after review):** `reachstart` and
 `reachend` are argument-free list handlers dispatched after accepted host geometry
@@ -975,13 +982,15 @@ one (+64 pt), inside the frame the motion starts on. So:
   250 ms poll), an opening list never settled (`settle_start` needs no
   correction owed), and with its opening unsettled no follow was smooth:
   in such a session every sent message snapped. The runner now takes a port
-  within half a point of a followed end it has already sent as at it
+  within half a point (less than a point since 2026-10-07: `END_SLACK`, above) of a
+  followed end it has already sent as at it
   (`at_target`, `collection/start.rs`, and the web JS target's `list.js`,
   which mirrors it). An end that moved, by any amount, is sent once. A row
   anchor keeps 0.01: a row above it measured 0.4 pt taller is a real move,
-  and such moves add up report on report. Half a point is half a pixel
+  and such moves add up report on report. Half a point was half a pixel
   at 1x and more at any finer scale; a per-host half pixel would need each
-  host's scale in its reports. The web hosts take the runner's corrections,
+  host's scale in its reports. (2026-10-07: less than a point, `END_SLACK`,
+  since WebKit floors a fractional scroll range to whole pixels.) The web hosts take the runner's corrections,
   so the same loop under a browser's device-pixel `scrollTop` ends with it.
 - Not done: the host resolving a followed end from its own layout, a
   correction that names the end, not an offset (proposal on
@@ -997,3 +1006,198 @@ Tests: `SmoothCollectionIOSTests`
 `an_opening_at_a_half_pixel_end_settles_and_then_follows_smoothly`,
 `an_end_moved_by_less_than_half_a_point_is_still_followed` and
 `a_row_anchors_small_moves_still_correct`.
+
+### 6.9 Main-axis padding is a content inset (2026-10-07)
+
+Approved by Charlie 2026-10-06, via the lead. Consumer: the Bluesky clone,
+whose feed is a FlatList with `contentContainerStyle` padding: room under a
+header laid over the list and room over the tab bar. Without it the clone
+put a 92-point fake first row in its data, and its pull-to-refresh spinner
+showed behind the header.
+
+**Surface.** A virtualized list takes `padding-top` and `padding-bottom`
+(`padding-left` and `padding-right` on a row list), and the `padding`
+shorthand's main-axis sides, in the forms padding takes elsewhere: a
+number, `env(safe-area-inset-*)`, `calc(env(…) ± px)`, a choice between
+those, or a computed number. `lower-collection-flow` refuses a percentage
+(a literal `%`, in a choice, a `calc()` or a class's rows too) and a computed string, which
+could be one: Apple's hosts place rows from the authored padding, which has
+no containing block to resolve a percentage against. Nothing else is new.
+
+**Meaning, as in CSS.** The padding is inside the scroll content: room
+before the first row and after the last. `scrollTop` 0 is the very top,
+padding showing. `scrollIntoView(block="start")` puts a row at the
+scroller's top edge (`scrollTop` is the row's start plus the padding), as a
+padded CSS scroller does. `reachend`, a followed end (`scrollFollowEnd`) and
+`scroll-start="end"` are at the true end: the last row with the padding
+after it showing. A list shorter than its port and both paddings ends where
+the browser's range does, in the padding before its rows, down to
+`scrollTop` 0 (all of it shows there).
+
+**The one non-CSS rule.** A scroller's pull-to-refresh control (iOS, the
+only host with one) draws below its `padding-top`, React Native's
+`progressViewOffset`: a header laid over the padding hides nothing of it,
+and it shows between the header and the first row. Every scroller with a
+`refresh` handler takes it; with no padding nothing moves.
+
+**How.** The feedback protocol already counted offsets from the first row's
+start (§6.5's Ubuntu fold: Linux subtracts the authored origin; Apple
+subtracts the content box, `CollectionIOS.swift`/`CollectionMac.swift`
+`geometry`; the web subtracts `padding-top` in `collection-glue.js`
+`geometry`), and each host already adds the padding back to a correction and
+sizes its content as the rows plus both paddings. What was missing was the
+end: the runner took the range's end to be the rows' end, `total - port`,
+so at the true end it pulled the port back by `padding-bottom`, a followed
+end stopped short of it, and a clamped `scrollIntoView` with it. Now:
+
+- The runner reads the list's own padding from its kernel, `env()`
+  resolved, before every report (`Runner::collection_feedback_filled`,
+  `Tree::set_collection_insets`), so `env()` and a computed value are
+  followed at no cost but that read. Not the layout's resolved padding:
+  that adds a route's cover (LLP 1075.003 §3.5) where the list is the
+  covered route box, and Apple's hosts size their content from the
+  authored padding, so the runner's end would lie past the scroll view's
+  (Grok's third review). A report takes a new padding in itself
+  (`collection/inset.rs`): its anchor is taken on the range the reader was
+  in, so a followed end whose padding grew (a rotation's safe area; the host
+  left the port at the old end) moves to the new end, and one whose padding
+  shrank (the host clamped the port to the new end) still follows (Grok's
+  second review: r1 took the anchor on the new range and dropped the
+  follow). The padding before the rows is taken the same way: the host
+  leaves the port where it was on the page, so on the old range it is as
+  much farther from the first row as that padding grew; a followed end
+  moves to the new end and a reader among the rows keeps them where they
+  were on screen (Astra's review: the shorter offset read as the reader
+  leaving the end). The size index's range runs from minus the padding
+  before the rows to that far past them, `max(-leading, rows + trailing -
+  port)` (`SizeIndex::max_offset`, `scroll_extent`): the clamp, the
+  followed end, a kept row, an inner list's kept position, the opening at
+  the end and `scrollIntoView`'s clamp all take it. Its lookups stay on the
+  rows, from their start; a short list's end is judged where the port is
+  (`capture_anchor`, `start::at_target`; Astra's review: the range's end
+  was floored at the rows' start, which a short padded list's port cannot
+  reach, so a request for its last row ended `unconverged` and
+  `scroll-start="end"` never let go).
+- A change of padding alone is reported. A fixed `border-box` list keeps
+  its size and offset when its padding changes, so each host's
+  deduplication of unchanged facts would send nothing and a followed end
+  would go stale (Astra's review). Apple's `CollectionFacts.padding` and
+  the Linux presenter's `Cursor::sent` count the main-axis padding (both run
+  a pass over every list after each commit); the browser half, which runs
+  one only for a changed snapshot or what it observes, checks each list's
+  padding after a commit that changed no snapshot
+  (`collectionController.restyled`, from `glue.js` and `list.js`
+  `publish`), and its report signature already counted it. Scroll padding
+  is not counted: only a `scrollIntoView` reads it, and each of its reports
+  reads it afresh. Rows and spacers are
+  unchanged; the window is `[offset, offset + port]` on the rows, so at the
+  top the padding's height of port overlaps the window's lead.
+- The web JS target's `list.js` mirrors it (`SizeIndex.trailing`,
+  `extent`), from `trailing`, the padding after the rows that the browser
+  half now reads with the rest of a list's geometry.
+- iOS: the padding stays in the content, not `UIScrollView.contentInset`.
+  The Apple host already lays rows out in the content box from the kernel's
+  frames and reports from it, the scroll event already reads CSS's 0 at the
+  top, and a content inset would make `contentOffset` negative at the top
+  and need every reader (the scroll event, chaining, corrections, the
+  agent) to subtract it. `PaddedRefreshControl` places the control's top
+  `padding-top` down the scroller's port after each of UIKit's layouts, as
+  React Native's `RCTRefreshControl` applies `progressViewOffset`: behind the
+  content, uncovered between the header and the first row as the pull
+  opens. (r1 shifted its bounds' origin; Grok's review: UIKit lays the
+  spinner out in those bounds, so it stayed put.) macOS: the flipped document view is the rows and both
+  paddings, as before. Linux: nothing changed (`geometry` already read both
+  paddings).
+
+**Deviations.** (Until the `scroll-padding` addendum below, a `block="center"`
+or `"end"` `scrollIntoView` near the top clamped at the first row's start;
+it now reaches `scrollTop` 0.) `reachstart`
+fires for a port anywhere in that padding, which is before the first row.
+Before the first report the runner knows no padding, so `scroll-start="end"`'s
+opening correction is the rows' extent; a host clamps it to the true end
+unless `padding-bottom` is taller than the port, and then the first report
+corrects it. With `padding-bottom` at least two ports tall, the last row is
+out of the window at the true end and `reachend` does not fire there. Linux
+still refuses reorder facts for a list with main-axis padding
+(`reorder_facts_current`), so a padded list does not reorder there.
+
+Tests: `collection_inset.rs` (row 0 below the padding, the true end kept
+with `reachend`, a followed end, one whose padding grows and shrinks, `scroll-start="end"`, `scrollIntoView`
+start and its clamp, through a host that reports from the first row's
+start; `a_short_list_ends_in_the_padding_before_its_rows` and
+`scroll_start_end_on_a_short_list_opens_and_lets_go`, four and five rows on
+both axes; `a_followed_end_follows_the_padding_before_the_rows_as_it_grows`,
+both axes), `collection_bounds.rs` and `collection_axis.rs` (the forms taken and
+refused), `trailing_padding_extends_the_range_past_the_rows` and
+`a_short_list_ends_in_the_padding_before_its_rows` (index), the Linux
+presenter's `a_padding_only_change_reaches_the_runner_and_the_end_follows_it`
+and the browser half's `a padding change alone on a border-box list is
+reported after its commit` (through each host's own scheduling), the
+web conformance plan `listinset` (also its scroll-padding requests, a
+padding-only change under a followed end and a short list opening at its
+end), and `RefreshInsetIOSTests` (written and
+type-checked; the iOS simulator was down, so it has not run).
+
+**Addendum, `scroll-padding` (2026-10-07).** Approved via the lead
+2026-10-07 (Charlie's standing rule on standard CSS gaps). Consumer: the
+Bluesky clone's soft reset (the butterfly), `scrollIntoView(feed, firstKey,
+block="start")` under a 92-point header, which should land at `scrollTop` 0
+with the padding showing, as Bluesky's does.
+
+*Surface.* A virtualized list takes CSS's `scroll-padding-top` and
+`-bottom` (`-left` and `-right` on a row list), and the `scroll-padding`
+shorthand, in padding's forms; its main-axis sides refuse a percentage and a
+computed string (`lower-collection-flow`), as padding's do. The cross-axis
+sides are taken and read by nothing. Anywhere but a virtualized list,
+`scroll-padding*` is refused (`lower-scroll-padding`): the element form of
+`scrollIntoView` on an ordinary scroller is the host's own (UIKit's,
+AppKit's, the Linux presenter's), which reads no scroll padding, so only the
+browser would follow it. Nothing else reads it: no snapping, and only
+`scrollIntoView` and the corrections that settle it align by it.
+
+*Meaning, as CSS's.* `scrollIntoView` aligns the row in the port less its
+scroll padding (the optimal viewing region; CSS Scroll Snap 1 §4.1):
+`start` puts the row's start at the scroll padding's edge, `end` its end at
+the far edge's, `center` its centre in the middle of the two, and `nearest`
+leaves it where it is when it is inside them. The result clamps to the
+scroll range, `scrollTop` 0 to the true end.
+
+*How.* Kernel style rows `scroll_padding_top`…`_left` (rare, dimension, not
+layout); the web hosts write them as CSS on the scroller (the browser's own
+scroll padding, which the collection's `scrollTo` does not apply twice).
+The runner reads the list's `padding-top`/`-left` and its scroll padding from
+its style with the end padding before each report (`collection/inset.rs`
+`Insets`, `Runner::collection_feedback_filled`); the JS target's `list.js`
+gets the same from the browser half (`leading`, `scrollPadding`). `aligned`
+(`collection/into_view.rs`, `list.js`) aligns within the scroll padding and
+clamps at minus the padding before the first row, so a correction's offset
+may now be negative, down to that padding: `scrollTop` 0. Hosts already
+added the padding to a correction; Apple's snapshot parser refused a
+negative offset and the web browser half ignored one, and both now take it
+(Apple also an anchor's negative `from`, a kept row's correction from a
+port in that padding: Grok's second review).
+A host's report is negative too while its port is in that padding, down to
+it (Apple `max(-padding, …)`, Linux `max(-origin)`, the browser half
+`max(-leading, …)`; `CollectionFeedback::validate`, the wire and the
+reorder geometry take a negative offset). r1 kept reports at 0 there, and
+Grok's review found a request into the padding finished a padding's height
+down (every port in the padding reported 0) and `nearest` at `scrollTop` 0
+moved the port to the first row. The size index takes any port short of the
+first row as at its start, so the window, anchors and edges are unchanged.
+`nearest` is CSSOM View's: a row that covers the snapport, or lies inside
+it, stays; else the nearer edge aligns (a row taller than the snapport,
+partly above it, aligns its end). On Apple a bordered list's very top is its
+border's width down: its offsets count from the content box, its reports
+stop at minus the padding.
+
+Tests: `collection_inset.rs` `scroll_into_view_aligns_within_the_scroll_padding`
+(start, end, centre and nearest within the scroll padding, the clamp at the
+true end, the first row's start and end at `scrollTop` 0) and
+`without_scroll_padding_start_is_the_ports_top_edge`,
+`the_soft_reset_before_any_report_still_reaches_the_top`,
+`nearest_at_the_top_leaves_the_port_there` and
+`nearest_keeps_a_row_that_covers_the_snapport` (also one partly above it,
+which aligns its end); `collection_bounds.rs`
+`scroll_padding_is_a_virtualized_lists_and_takes_lengths`; the web host's
+`style_rows_lower_to_css_by_their_names` (the CSS); `CollectionTests`
+(Apple's parser takes a negative correction and `from`).

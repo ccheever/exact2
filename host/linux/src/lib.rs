@@ -6,7 +6,7 @@
 //!
 //! The third host and the first that paints. The runner and kernel run
 //! natively; after every commit the host lays the tree out with the
-//! kernel's own layout (Taffy, measuring text with cosmic-text), seeks the
+//! kernel's own layout (Taffy, measuring text with Parley), seeks the
 //! motion engine to the app's clock, and the painter draws the kernel tree
 //! itself — vello on the GPU, tiny-skia on the CPU where there is none —
 //! **the kernel is the display list**: no batch, no mirror, no view tree of
@@ -16,7 +16,7 @@
 //! fleet Linux box with no GPU, or on macOS in the seconds-loop. Pure Rust
 //! end to end; no system library is linked.
 //!
-//! - [`text`] — cosmic-text: one paragraph cache answers measure and paint.
+//! - [`text`] — Parley: one paragraph cache answers measure and paint.
 //! - [`paint`] — the painter: one walk of the tree, every box recorded,
 //!   emitted to a backend.
 //! - [`gpu`] — the vello backend, the main one: wgpu, a texture, a readback.
@@ -25,6 +25,8 @@
 //! - [`host`] — the runner wrapped: commits → layout → motion.
 //! - [`image`] — sources under the asset root, PNG decoded off-thread.
 //! - [`presenter`] — scroll, focus, hit-testing, the host-side operations.
+//! - [`hatches`] — access hatches: an app's own code at its nodes' boxes,
+//!   their overlays and the input that lands there (LLP 1075.003.000.001).
 //! - [`agent`] — the agent API on stdio (`Agent.swift`'s twin).
 //! - [`executor`] — `ibex2::host` on a worker thread for a request that
 //!   leaves the process (LLP 1016 D2), its wake a socketpair the loop polls.
@@ -55,6 +57,7 @@ pub mod fetch;
 mod file;
 pub mod frames;
 pub mod gpu;
+pub mod hatches;
 pub mod host;
 pub mod image;
 #[cfg(target_os = "linux")]
@@ -84,7 +87,8 @@ pub fn set_event_waker(waker: Option<std::sync::Arc<dyn Fn() + Send + Sync>>) {
     wake::install(waker);
 }
 
-pub use app::run;
+pub use app::{run, run_with_hatches};
+pub use hatches::Hatches;
 pub use host::{Host, HostError};
 pub use presenter::Presenter;
 

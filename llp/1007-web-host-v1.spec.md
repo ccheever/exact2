@@ -125,7 +125,7 @@ the CSS property is the row's name with `-` for `_` (`font_size` →
 values are already CSS spellings), with the exceptions a table names
 (`text_color`→`color`, `position_type`→`position`, `border_radius_top_left`→
 `border-top-left-radius`, the four `shadow_*` rows → one `box-shadow`,
-`backdrop_blur`→`backdrop-filter: blur()`). Units by rule: dimensions and
+`backdrop_filter`→the ordered CSS `backdrop-filter` list). Units by rule: dimensions and
 lengths in `px`, percentages, `auto`; unitless where CSS is (`flex-grow`,
 `opacity`, `z-index`, `font-weight`, `scale`); `rotate` in `deg`;
 `translate` as two lengths or percentages (a `calc()` of the two where an
@@ -139,7 +139,9 @@ visibility, or scrolling. Apply the clamp to a text block inside the container.
 for symbol images; raster-image tint remains unsupported. An `env()` length (LLP 1001
 §2) lowers to its CSS text — `env(safe-area-inset-top)`,
 `calc(env(safe-area-inset-bottom) + 12px)` — and the browser resolves it
-(2026-08-30). A generic `font_family` Chrome does not know carries its CSS
+(2026-08-30); a `min()`, `max()` or `clamp()` length lowers to CSS's own
+function, `clamp(15px, env(safe-area-inset-bottom), 60px)` (2026-10-07,
+LLP 1001 §2, "Comparisons"). A generic `font_family` Chrome does not know carries its CSS
 generic (`ui-monospace,monospace`, `ui-serif,serif`,
 `ui-sans-serif,system-ui,sans-serif`, `ui-rounded,system-ui,sans-serif`):
 bare, each rendered as Times — the Markdown reader's code, now Menlo

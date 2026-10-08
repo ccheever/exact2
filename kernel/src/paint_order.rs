@@ -209,7 +209,7 @@ pub struct Facts<'a> {
     pub parent_display: Option<Display>,
     /// A sibling is a text-flow exclusion (`flow::is_exclusion`).
     pub beside_exclusion: bool,
-    /// A child has a `layout-transition` row.
+    /// A child has a `-exact-layout-transition` row.
     pub holds_layout_transition: bool,
 }
 
@@ -234,7 +234,7 @@ pub fn own_from(f: Facts<'_>) -> Own {
         || (m.has(StyleId::Transform) && !s.transform.0.is_empty())
         || (m.has(StyleId::PressScale) && s.press_scale != 1.0)
         || (m.has(StyleId::Filter) && !s.filter.is_none())
-        || (m.has(StyleId::BackdropBlur) && s.backdrop_blur > 0.0)
+        || (m.has(StyleId::BackdropFilter) && !s.backdrop_filter.is_none())
         || (m.has(StyleId::ClipPath) && s.rare.clip_path != crate::clip::ClipPath::default())
         || (m.has(StyleId::MaskImage)
             && s.rare.mask_image != crate::gradient::BackgroundImage::default())

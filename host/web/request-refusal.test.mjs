@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -395,6 +395,33 @@ test('a clean JS dist imports every lazy storage and document entry with its com
   } finally { rmSync(dist, { recursive: true, force: true }); }
 }, 60_000);
 
+test('a typescript.sources mount still builds after it moves', () => {
+  // Bun's runtime transpiler cache keys a module by its text and keeps the
+  // imports the mount resolver gave it: the same file at a new place must
+  // not resolve back into the old one.
+  const root = mkdtempSync(resolve(tmpdir(), 'exact ts mount # ')), dir = resolve(root, 'app'), dist = resolve(root, 'dist');
+  const nonce = `${process.pid}-${Date.now()}`;
+  mkdirSync(resolve(root, 'first'), { recursive: true }); mkdirSync(dir);
+  // Past the size Bun's cache starts at (it skips small files).
+  writeFileSync(resolve(root, 'first/word.ts'), `// ${nonce}\n${'// padding\n'.repeat(8000)}import { suffix } from './suffix.ts';\nexport const word = (text: string) => text + suffix;\n`);
+  writeFileSync(resolve(root, 'first/suffix.ts'), `export const suffix = '!';\n`);
+  const manifest = mount => JSON.stringify({ name: 'Mount probe', app: { id: 'test.mount-probe', name: 'Mount probe' }, host: { web: {} }, typescript: { sources: { lib: mount } } });
+  writeFileSync(resolve(dir, 'app.contract'), `shape Result\n  value: string\ncomponent Probe\n  resource result = probe() as shape Result\n  view\n    text result.value testId="result"\n`);
+  writeFileSync(resolve(dir, 'app.ts'), `import type { Answer, Sources } from './app.contract.d.ts';\nimport { word } from './lib/word.ts';\nexport const appId='test.mount-probe',grants='';\nconst sources: Sources = { probe: () => ({ value: word('hi') }) };\nexport const answer: Answer = (source, args, store, storage, native) => sources[source](args as never, store, storage, native) as never;\n`);
+  const env = { ...process.env, EXACT_APP_DIR: dir };
+  delete env.BUN_RUNTIME_TRANSPILER_CACHE_PATH;
+  const build = () => spawnSync(process.execPath, ['host/web-js/build.mjs', 'mount-probe', '--out', dist, '--render', 'none'], { cwd: ROOT, encoding: 'utf8', env });
+  try {
+    writeFileSync(resolve(dir, 'app.json'), manifest('../first'));
+    const first = build();
+    expect(first.status, first.stderr || first.stdout).toBe(0);
+    renameSync(resolve(root, 'first'), resolve(root, 'second'));
+    writeFileSync(resolve(dir, 'app.json'), manifest('../second'));
+    const second = build();
+    expect(second.status, second.stderr || second.stdout).toBe(0);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+}, 60_000);
+
 test('a built TypeScript source refuses fetch and storage without grants', async () => {
   if (!process.env.CHROME || !existsSync(process.env.CHROME)) return;
   let destinationHits = 0;
@@ -657,6 +684,36 @@ export function answer(name, args, store, storage) {
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('the web build retains every ambient diagnostic with its source location', () => {
+  // Diagnostic paths can resemble warnings or Cargo's progress lines.
+  for (const file of ['logic clock.ts', 'warning clock.ts', 'Compiling clock.ts']) {
+    const dir = mkdtempSync(resolve(tmpdir(), 'exact web diagnostics-'));
+    try {
+      writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ name: 'Diagnostics', app: { id: 'test.exact.diagnostics', name: 'Diagnostics' }, rust: false }));
+      writeFileSync(resolve(dir, 'app.contract'), 'component App\n  resource message = message() as shape string\n  view\n    text message\n');
+      writeFileSync(resolve(dir, 'app.ts'), `import { prefix } from './${file}';\nexport const appId = 'test.exact.diagnostics';\nexport const grants = '';\nexport const answer: import('./app.contract.d.ts').Answer = () => prefix;\n`);
+      writeFileSync(resolve(dir, file), [
+        "export const prefix = 'hello';",
+        'export const a = () => Date.now();',
+        'export const b = () => globalThis.setTimeout(() => {}, 1);',
+        "export const c = () => Date['now']();",
+        'export const d = () => Math[`random`]();',
+        "export const e = () => new WebSocket('ws://127.0.0.1:9/x');",
+        '',
+      ].join('\n'));
+      const built = spawnSync(process.execPath, [resolve(ROOT, 'host/web/build.mjs'), 'diagnostics', '--render', 'none'], {
+        cwd: ROOT, encoding: 'utf8', env: { ...process.env, EXACT_APP_DIR: dir, EXACT_WEB_DIST: resolve(dir, 'dist') },
+      });
+      expect(built.status, built.stderr).toBe(1);
+      // The browser's own I/O, whose words end the line (#126).
+      for (const [line, api] of [[2, 'Date.now()'], [3, 'setTimeout()'], [4, 'Date.now()'], [5, 'Math.random()'], [6, 'WebSocket']]) {
+        expect(built.stderr, built.stderr).toContain(`${file}:${line}:24: ${api} is unavailable in data sources`);
+      }
+      expect(built.stderr).toContain('the web build (the JS target) failed');
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  }
+}, 60_000);
 
 // LLP 1027.000 D3 on the JS target: the app's modules get guarded bindings
 // in place of the page's clock, Math.random and timers, injected as the web

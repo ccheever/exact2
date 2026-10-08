@@ -25,6 +25,13 @@ guide's rules don't make obvious.
   `line-height=1.3` (28.6 px at 22 px). (Authoring bench,
   LLP 1087: three Codex builders, caught only by a screenshot, 2026-10-05.)
 
+- **A ported `clamp(inset, 15, 60)` never stops at 60.** Cause: React Native
+  code's `clamp(value, min, max)` (lodash's order) is not CSS's `clamp(MIN, VAL,
+  MAX)`, which is `max(MIN, min(VAL, MAX))`: `clamp(env(safe-area-inset-bottom),
+  15px, 60px)` is the inset whenever it passes 15. Fix: `clamp(15px,
+  env(safe-area-inset-bottom), 60px)`. (Bluesky clone's bottom bar, the kernel
+  test that caught it, 2026-10-07.)
+
 - **An image tile grows to its picture's size.** An album tile in a flex row became
   900×1200 pt. Cause: a flex item's automatic minimum is its content size (CSS), and
   an image's content size is its intrinsic size. Fix: give the image or its flex
@@ -276,7 +283,8 @@ guide's rules don't make obvious.
 
 - **`Date.now()` in a data module passes its Bun tests and fails on the
   device.** Since 2026-10-05 the build refuses a direct use by file and line
-  (`Date.now()`, `new Date()`, `Math.random()`, timers); an alias still gets
+  (`Date.now()`, `new Date()`, `Math.random()`, timers), including literal
+  bracket access such as `Date['now']()`. An alias or dynamic key still gets
   past the build and throws on first use on every host but Bun. Take the time
   from the call's arguments (the Contract's `wallTime.epochAtZero + now()`), as
   every source already receives it. (Signal clone build 34, 2026-10-05.)
@@ -367,6 +375,14 @@ guide's rules don't make obvious.
   `box-sizing`.) **Candidate diagnostic:** the compiler or a development log
   could name the failed condition.
 
+- **A field normalized while the person types fights the typing.** A `task … when
+  people != "${count}"` (or a timer, or an `input` action) that rewrites an
+  emptied field to `"1"` lands between keystrokes: clearing the field and typing
+  `3` reads `13`, for a person as for a test. Fix: keep the raw text while
+  editing and normalize in `change` (Enter or blur), as the guide's "Editing a
+  value: the field's contract" shows. (Authoring bench, LLP 1087, t1-tip,
+  codex, 2026-10-07: per-person share 8.85 for 3 people, because the field read
+  13.)
 - **A text field shows an edit its action refused or normalized.** A field bound with
   `value=text input=edit`, where `edit` ignores a blank value, shows the blank while
   `text` keeps the old value, and the next keystroke builds on what is shown; so does
@@ -423,7 +439,7 @@ guide's rules don't make obvious.
   does nothing. Cause: with `touch-action` at `auto` a horizontal pan is the
   platform's, as in a browser, so the swipe never begins. Fix:
   `touch-action="pan-y"` on the swiped node, which leaves vertical scrolling to the
-  page. Messages also gives the bubble `transition="translate spring(300, 30, 1)"`,
+  page. Messages also gives the bubble `transition="translate -exact-spring(300, 30, 1)"`,
   which moves it with the finger; that does not arm the gesture. (Chat2 DIARY,
   which credited the transition, about 20 minutes; reproduced with `agent ios
   --touch platform`, 2026-10-04.) **Candidate diagnostic:** the compiler could
@@ -469,6 +485,19 @@ guide's rules don't make obvious.
   (Authoring bench, LLP 1087, t2-todo on iOS: about 20 minutes, 2026-10-05.)
 
 ## Driving and testing
+
+- **`xcrun simctl io booted screenshot` can capture the wrong simulator.** With
+  several simulators booted, `booted` names any one of them, not the one the
+  app runs on. Fix: use the UDID the build prints (`… on iPhone 17 <UDID>`), or
+  the agent's own `screenshot`, which targets the app's simulator. (Authoring
+  bench, LLP 1087, t9-profile, 2026-10-07.)
+
+- **A screenshot right after a state change shows a transition's start.** A
+  `transition` (a background colour, an opacity) is held by the driver's clock,
+  so the frame and the computed style still read the old value: the toggle
+  looks unchanged. Fix: `clock settle` (or `clock +N` past the transition)
+  before `screenshot`. (Authoring bench, LLP 1087, t5-pomodoro, 2026-10-07:
+  about 5 minutes and a probe script to find.)
 
 - **A test passes on the web and fails on iOS right after an input that saves.** An
   `expect` straight after `type` or `tap` reads what the input's mutation answered,
@@ -662,7 +691,7 @@ guide's rules don't make obvious.
 
 - **A platform feature looks missing, and you start building it.** Cause: the
   feature already exists under a name you did not search for. Haptics
-  (`haptic()`, `press-haptic`) were proposed as a new gap after they had
+  (`haptic()`, `-exact-press-haptic`) were proposed as a new gap after they had
   landed. Fix: before calling something missing, search
   `docs/contract-for-agents.md` and the LLP index (`ls llp/`, then `grep -ril
   <term> llp`). Name the LLP that lacks it when you report the gap. (Signal
@@ -747,3 +776,39 @@ guide's rules don't make obvious.
   the bundle, which changes their signature bytes; other files stay identical.
   `exact release` signs these files with the release identity before sealing
   the outer bundle. This field is macOS-only. (Issue #103, 2026-10-07.)
+
+- **A background, border or radius makes a text field your own box.** A text
+  field is the platform's own by default. Any such row, including a shorthand,
+  a class row or a row on just one conditional arm, makes it bare for its whole
+  lifetime. Write `appearance="none"` explicitly when drawing the field yourself.
+  With `appearance="auto"`, those rows are refused; remove them to keep the
+  platform's background, border and corners. `background-clip` and
+  `background-attachment` alone keep the field native. (LLP 1104 r8 D2.)
+
+## Access hatches
+
+- **A view a hatch adds on macOS hears no click while its window is not key.**
+  The click reaches the view by hit test and nothing happens: AppKit spends a
+  first click on activating the window unless the view says otherwise, and an
+  ancestor's click recognizer holds a plain `mouseDown` back. Give the view
+  its own `NSClickGestureRecognizer` (declared with `element.owns(recognizer:)`)
+  and override `acceptsFirstMouse(for:)` to return true, as Exact's own
+  controls do. Found building the fixture's badge seal (LLP 1075.003.000.001
+  §13.10): `tap <node>/<part>` answered `landed: "part"` and the press was
+  never counted.
+- **An absolutely positioned element a web hatch appends is not where its
+  node is.** `position: absolute` resolves against the nearest positioned
+  ancestor, which is rarely the hatched node, and a hatch must not restyle the
+  node to make it one. Put what you add in the node's own flow (a block with a
+  margin). Found the same way: `tree` showed the part's size right and its
+  place elsewhere, and the aimed click was refused as outside the node's box.
+- **A page module that exports `window` loses the global of that name.**
+  `export function window(w)` is the window hatch, and inside that file
+  `window.innerWidth` is then the function's property. Reach the global as
+  `globalThis` (the hatch's `w.window` is it too).
+- **On Linux, Windows and Android `changed` also means the node's size
+  changed.** A hatch that acts whenever `element` is called again (a click, an
+  input) loops when its act changes the node's own size, a label's width, say.
+  Keep the words the node was last told with and act only when they differ.
+  Found building the fixture's Linux hatches (§13.13): the pressing hatch
+  pressed itself forever once its label grew a digit.

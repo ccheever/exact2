@@ -44,6 +44,8 @@ final class AgreementReport {
     var incomplete: [String] = []
     var walked: [String] = [], excluded: [String] = []
     var judged = 0, opaque = 0, views = 0
+    /// Of the opaque, those inside a view a hatch's region binds, by its sentence (LLP 1075.003.000.001 §3.4).
+    var opaqueBy: [String: Int] = [:]
     var parkedRoots = 0, leaving = 0
     var compared = 0, sizeOnly = 0
     var skipped: [String: Int] = [:]
@@ -97,7 +99,7 @@ final class AgreementReport {
             "incomplete": incomplete,
             "roots": ["walked": walked, "excluded": excluded],
             "coverage": [
-                "stray": ["judged": judged, "opaque": opaque],
+                "stray": opaqueBy.isEmpty ? ["judged": judged, "opaque": opaque] : ["judged": judged, "opaque": opaque, "opaqueBy": ["hatch": opaqueBy]],
                 "kept": ["parkedRoots": parkedRoots, "leaving": leaving],
                 "frame": ["compared": compared, "sizeOnly": sizeOnly, "skipped": skipped],
                 "hidden": ["compared": hiddenCompared, "claimed": claimed],

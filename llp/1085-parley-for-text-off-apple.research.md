@@ -1,7 +1,7 @@
 # LLP 1085: Parley for text off Apple — measured against cosmic-text on exact2's inputs
 
 **Type:** Research
-**Status:** Draft
+**Status:** Draft (a record). Superseded in its recommendation by [LLP 1085.000](1085.000-parley-in-place-of-cosmic-text.plan.md): Parley was built in place of cosmic-text, met that plan's land rule on Linux and landed (2026-10-07, §7 there).
 **Systems:** Linux host text (`host/linux/src/text*`: cosmic-text shaping, the width-specific `Paragraph`, the font catalog, swash ink), the `TextMeasurer` seam (LLP 1001 §6), `exact-textflow` (LLP 1043.000), `vendor/cosmic-text` (three local patches)
 **Author:** Claude (Opus 5.5) for Charlie Cheever
 **Date:** 2026-10-04

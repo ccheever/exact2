@@ -15,15 +15,15 @@ component Mounted
   view
     column testId="root" gap=8 padding=8 width=400
       row gap=8
-        select value=pick change=choose testId="bound" aria-label="Bound"
+        select value=pick change=choose testId="bound" aria-label="Bound" width=96 height=24
           option "Alpha" value="a"
           option "Beta" value="b"
           when open
             option "Gamma" value="c"
-        select value="y" testId="constant" aria-label="Constant"
+        select value="y" testId="constant" aria-label="Constant" width=96 height=24
           option "Ex" value="x"
           option "Why" value="y"
-        select value="b" testId="swapped" aria-label="Swapped"
+        select value="b" testId="swapped" aria-label="Swapped" width=96 height=24
           when open
             option "A2" value="a"
             option "B2" value="b"

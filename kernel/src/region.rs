@@ -313,6 +313,10 @@ impl RegionOffset {
 pub(crate) struct RegionGeometry {
     frames: Vec<RegionFrame>,
     offsets: Vec<RegionOffset>,
+    // Local editor boxes belong to this immutable pass, not every retained node.
+    // An empty map allocates nothing for regions without native text fields.
+    field_content: crate::id::IdMap<NodeKey, Frame>,
+    provisional_chrome: bool,
 }
 impl RegionGeometry {
     fn validate(&self, origin: Frame) -> Result<(), LayoutError> {
@@ -399,6 +403,12 @@ impl RegionPublication {
     /// projection; these local coordinates remain immutable source geometry.
     pub fn frames(&self) -> &[RegionFrame] {
         &self.geometry.frames
+    }
+    /// Local native editor content box from this accepted layout pass. It stays
+    /// unchanged when frames are projected at another origin, and never reads
+    /// live arena styles or aliases a node whose slot was reused.
+    pub fn field_content_rect(&self, node: NodeKey) -> Option<Frame> {
+        self.geometry.field_content.get(&node).copied()
     }
     /// Default: all retained offers. Split profile: final paint owners only.
     pub fn artifacts(&self) -> &[RegionArtifact] {

@@ -130,8 +130,10 @@ pub fn web_linked(plan: &exact_plan::Plan, inputs: &serde_json::Value) -> String
                 .is_some_and(|module| !module.is_empty()));
     // Inspection is linked by policy, not by use: in production too, so the
     // smoked artifact is the shipped one (LLP 1047 §10, Q3).
+    // A grouped list is its authored nodes on the web (LLP 1047.001 D2).
     let names: Vec<&str> = uses
         .iter()
+        .filter(|c| !matches!(c, Capability::GroupedLists | Capability::Io))
         .map(|c| c.name())
         .chain(["inspection"])
         // A colour row's text, literal or a template's piece, names one in
@@ -174,7 +176,39 @@ pub fn web_linked(plan: &exact_plan::Plan, inputs: &serde_json::Value) -> String
             | Capability::Segments
             | Capability::Dataset
             | Capability::Tabs
-            | Capability::Notifications => {}
+            | Capability::Notifications
+            | Capability::GroupedLists
+            | Capability::Io => {}
+        }
+    }
+    entry
+}
+
+/// The Apple entry's `EXACT_LINKED` (LLP 1047.001 D2, D3), which the entry
+/// passes as `host!(…; linked = EXACT_LINKED)`, and the export groups of what
+/// it names. `host` is the crate whose `host!` the entry calls
+/// (`exact_apple`, or `exact_apple_update` above it). Which capabilities an
+/// archive links is `exact_bake::apple_link`'s to say.
+pub fn apple_linked(uses: exact_runner::Uses, host: &str) -> String {
+    use exact_runner::Capability;
+    let apple = if host == "exact_apple" {
+        "::exact_apple".to_owned()
+    } else {
+        format!("::{host}::exact_apple")
+    };
+    let link = format!("{apple}::link");
+    let mut set = format!("{link}::Uses::NONE");
+    for capability in uses.iter() {
+        set.push_str(&format!(".with({link}::Capability::{capability:?})"));
+    }
+    let mut entry = format!("/// What this archive links beyond the core (LLP 1047.001 D2).\nconst EXACT_LINKED: {link}::Uses = {set};\n");
+    // A capability's export group, where it has one on Apple.
+    for (capability, group) in [
+        (Capability::GroupedLists, "grouped_list_exports"),
+        (Capability::Markdown, "markup_exports"),
+    ] {
+        if uses.has(capability) {
+            entry.push_str(&format!("{apple}::{group}!();\n"));
         }
     }
     entry
@@ -183,6 +217,34 @@ pub fn web_linked(plan: &exact_plan::Plan, inputs: &serde_json::Value) -> String
 #[cfg(test)]
 mod tests {
     use super::web_rust_mode;
+
+    /// LLP 1047.001 D3: the entry names its set and invokes the export
+    /// groups of what it names, through whichever host crate it calls.
+    #[test]
+    fn an_apple_entry_names_its_set_and_its_groups() {
+        use exact_runner::{Capability, Uses};
+        let grouped = Uses::NONE.with(Capability::GroupedLists);
+        let entry = super::apple_linked(grouped, "exact_apple");
+        assert!(
+            entry.contains("::exact_apple::link::Capability::GroupedLists"),
+            "{entry}"
+        );
+        assert!(
+            entry.contains("::exact_apple::grouped_list_exports!();"),
+            "{entry}"
+        );
+        let update = super::apple_linked(grouped, "exact_apple_update");
+        assert!(
+            update.contains("::exact_apple_update::exact_apple::grouped_list_exports!();"),
+            "{update}"
+        );
+        assert!(!super::apple_linked(Uses::NONE, "exact_apple").contains("exports!"));
+        let markdown = super::apple_linked(Uses::NONE.with(Capability::Markdown), "exact_apple");
+        assert!(
+            markdown.contains("::exact_apple::markup_exports!();"),
+            "{markdown}"
+        );
+    }
 
     #[test]
     fn a_web_entry_links_a_rust_executor_only_for_a_declared_module() {

@@ -25,6 +25,8 @@ mod activation;
 mod arrange;
 #[path = "content_region/host.rs"]
 mod content;
+#[path = "hatches/host.rs"]
+mod hatch;
 #[path = "height.rs"]
 mod height;
 #[path = "height_binding.rs"]
@@ -46,7 +48,7 @@ mod transform_binding;
 #[path = "value_watch.rs"]
 mod value_watch;
 
-use system::{agent_store_snapshot, persist_agent_writes, physical_memory};
+use system::{persist_store_writes, physical_memory, store_snapshot};
 
 /// Why the host refused to boot.
 #[allow(missing_docs)]
@@ -110,6 +112,8 @@ pub struct Host<D: DataSource> {
     /// those nodes and what it plays, and a count of changes to them.
     lowering: bool,
     lowered: std::collections::HashMap<u64, u8>,
+    /// Whether colour transitions are lowered too (`lower.rs`).
+    lower_colors: bool,
     lowered_epoch: u64,
     /// The epoch each lowered node's plays last changed at.
     lowered_changed: std::collections::HashMap<u64, u64>,
@@ -132,6 +136,8 @@ pub struct Host<D: DataSource> {
     media_mounts: crate::media_session::Mounts,
     /// The `value`s the presenter keeps typed text against (LLP 1069.001 D4).
     pub(crate) values: value_watch::ValueWatch,
+    /// The plan marks nodes `hatch` (`presenter/hatches.rs` says what follows).
+    pub(crate) hatched: bool,
 }
 
 impl<D: DataSource> Host<D> {
@@ -213,11 +219,10 @@ impl<D: DataSource> Host<D> {
         launch: &str,
         region: Option<crate::content_region::ContentRegionRegistration>,
     ) -> Result<(Host<D>, Option<String>), HostError> {
-        // @ref LLP 1075.003.000 §3.3 — this host has no native objects for a
-        // hook to reach: a plan that marks nodes is told so once, at boot.
-        let hooked = plan.bindings.iter().any(|b| {
+        // @ref LLP 1075.003.000 §3.3 — whether the plan marks nodes for a hatch.
+        let hatched = plan.bindings.iter().any(|b| {
             b.kind == exact_plan::BindingKind::Prop
-                && exact_kernel::PropId::from_wire(b.id) == Some(exact_kernel::PropId::Hook)
+                && exact_kernel::PropId::from_wire(b.id) == Some(exact_kernel::PropId::Hatch)
         });
         // @ref LLP 1100 D10 — this host draws sRGB only.
         exact_kernel::style::wide::set_available(exact_color::Wide::in_srgb);
@@ -226,13 +231,20 @@ impl<D: DataSource> Host<D> {
         exact_kernel::style::link_segments();
         exact_kernel::style::link_wide_colors();
         exact_kernel::timeline::link();
-        let kernel = Kernel::new(measurer);
+        let mut kernel = Kernel::new(measurer);
+        let env = exact_kernel::Env {
+            control_text_styles: Some(crate::paint::control::control_text_styles()),
+            ..kernel.env().clone()
+        };
+        kernel
+            .set_env(env)
+            .map_err(|e| HostError::Layout(format!("{e:?}")))?;
         // An `app:/data` image shows from the first frame, before storage
         // is configured and whether or not anything was picked (D7).
         crate::picker::know_roots(data.app_id());
         // A named drive's secrets, read before the runner takes the source.
         // A carried reload keeps its memory store and does not touch the files.
-        let store_snapshot = agent_store_snapshot(data.app_id(), carried.is_some());
+        let store_snapshot = store_snapshot(data.app_id(), carried.is_some());
         let mut runner = Runner::boot_with_delivery(
             plan,
             data,
@@ -268,6 +280,7 @@ impl<D: DataSource> Host<D> {
             data_activated: false,
             lowering: false,
             lowered: Default::default(),
+            lower_colors: false,
             lowered_epoch: 0,
             lowered_changed: Default::default(),
             played: Default::default(),
@@ -280,6 +293,7 @@ impl<D: DataSource> Host<D> {
             renewed: Vec::new(),
             media_mounts: Default::default(),
             values: Default::default(),
+            hatched,
         };
         host.runner
             .set_canvas_limits(exact_runner::Limits::native(physical_memory(), false));
@@ -321,11 +335,6 @@ impl<D: DataSource> Host<D> {
         let error = host.layout().err();
         host.observe_layout();
         host.present();
-        if hooked {
-            host.runner.log(
-                "hook: this host has no native objects; hooked nodes are shown and never called",
-            );
-        }
         Ok((host, error))
     }
 
@@ -492,6 +501,11 @@ impl<D: DataSource> Host<D> {
     /// The kernel.
     pub fn kernel(&self) -> &Kernel {
         self.runner.kernel()
+    }
+
+    /// Whether the plan gives `platform` the hatch `word` (LLP 1075.003.000.001 §4.3).
+    pub(crate) fn plan_gives_hatch(&self, word: &str, platform: &str) -> bool {
+        self.runner.plan().handles_hatch(word, platform)
     }
 
     /// The commit each media session claimant mounted in (LLP 1098 D9).
@@ -1251,7 +1265,7 @@ impl<D: DataSource> Host<D> {
         // reload reads them back (platformer R10). The log is taken either way.
         let writes = self.runner.take_store_writes();
         let app_id = self.runner.data().app_id().to_string();
-        for line in persist_agent_writes(&app_id, &writes) {
+        for line in persist_store_writes(&app_id, &writes) {
             self.runner.log(line);
         }
         paint |= self.project_navigation();

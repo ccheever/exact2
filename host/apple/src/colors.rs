@@ -1,6 +1,6 @@
 //! Platform colours the kernel resolves itself (LLP 1095 D1, D6).
 //!
-//! A row naming a role or a `platform-color()` crosses as its name, and the
+//! A row naming a role or a `-exact-platform-color()` crosses as its name, and the
 //! presenter resolves it per view (`SystemColor.swift`). What the kernel
 //! resolves before it crosses — paint motion's endpoints, gradient stops,
 //! an SVG scene's paint and filter colours — the presenter resolves too and

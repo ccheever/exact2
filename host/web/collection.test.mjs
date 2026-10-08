@@ -101,6 +101,8 @@ bunTest('LE feedback preserves u64 identity and rejects invalid geometry before 
   expect(() => collectionBytes({ ...feedback, revision: Number.MAX_SAFE_INTEGER + 1 })).toThrow();
   expect(() => collectionBytes({ ...feedback, measurements: [feedback.measurements[0], feedback.measurements[0]] })).toThrow();
 });
+test('LLP 1010 §6.9: a padding change alone, which keeps a border-box list\'s size, is reported after its commit', async () => { const r = await evaluate(`(() => { const f=fixture({own:true}); f.port.style.boxSizing='border-box'; f.controller.commit([f.snapshot()]); f.flush(); const before=f.reports.length; f.controller.restyled(); f.flush(); const idle=f.reports.length; f.port.style.paddingBottom='36px'; const size=f.port.getBoundingClientRect().height; f.controller.restyled(); f.flush(); return {reported:before>0,idle:idle===before,size,grew:f.reports.length-before}; })()`);
+  expect(r).toEqual({ reported: true, idle: true, size: 180, grew: 1 }); });
 test('actual nested scrollport, content padding, mounted rows, and coalesced scroll without authored handler', async () => {
   const result = await evaluate(`(() => { const f=fixture(); f.controller.commit([f.snapshot()]); f.port.scrollTop=110; for(let i=0;i<100;i++) f.port.dispatchEvent(new Event('scroll')); const queued=f.frames.size; f.flush(); return {queued,last:f.reports.at(-1),inner:f.port.clientWidth,anchor:getComputedStyle(f.views.get(1)).overflowAnchor}; })()`);
   expect(result.queued).toBe(1);
@@ -250,7 +252,7 @@ test('collection read reuse: correction-free commit reads only list and port bas
   const result=await evaluate(`(() => {const f=fixture(),reads=(${collectionReads})(f);
     f.controller.commit([f.snapshot()]);const commit=[...reads.counts];f.flush();
     return {commit,wire:f.wires.at(-1),width:f.port.clientWidth};})()`);
-  expect(result.wire).toEqual([...collectionBytes({view:1,revision:'1',scroll_sequence:'0',offset:0,
+  expect(result.wire).toEqual([...collectionBytes({view:1,revision:'1',scroll_sequence:'0',offset:-10,
     port_cross:result.width,port_main:180,cross:result.width-24,focus_view:null,interaction_view:null,
     measurements:[{view:2,epoch:'9007199254740993',size:40},{view:4,epoch:'2',size:60}]},{limit:1})]);
   expect(result.commit).toEqual([1,1,0,0]);
@@ -302,6 +304,12 @@ test('an anchor correction (from) moves the port by its shift after a later user
     f.controller.commit([f.snapshot('4',{correction:{...c,offset:102}})]);
     return {shifted,again,grown:f.port.scrollTop};})()`);
   expect(result).toEqual({shifted:232,again:232,grown:222});
+});
+test('relative corrections build on where the last one put the port, not on a floored (WebKit) read-back', async () => {
+  expect(await evaluate(`(() => {const f=fixture(),proto=Object.getOwnPropertyDescriptor(Element.prototype,'scrollTop');let real=0;
+    const set=v=>{real=Math.max(0,Math.min(v,f.port.scrollHeight-f.port.clientHeight));proto.set.call(f.port,Math.floor(real));};Object.defineProperty(f.port,'scrollTop',{configurable:true,get:()=>Math.floor(real),set});f.port.scrollTo=o=>set(o.top);
+    f.controller.commit([f.snapshot()]);f.port.scrollTop=160;f.port.dispatchEvent(new Event('scroll'));f.flush();const seq=f.reports.at(-1).sequence;
+    f.controller.commit([f.snapshot('2',{correction:{scrollSequence:seq,offset:112.6,from:140}})]);const first=f.port.scrollTop;f.controller.commit([f.snapshot('3',{correction:{scrollSequence:seq,offset:100.2,from:112.6}})]);const second=f.port.scrollTop;f.port.scrollTop=121;f.port.dispatchEvent(new Event('scroll'));f.flush();const q=f.reports.at(-1).sequence;f.controller.commit([f.snapshot('4',{correction:{scrollSequence:q,offset:90.5,from:100.5}})]);const moved=f.port.scrollTop;f.controller.commit([f.snapshot('5',{correction:{scrollSequence:q,offset:-100,from:100}})]);f.controller.commit([f.snapshot('6',{correction:{scrollSequence:q,offset:80,from:50}})]);const clamped=f.port.scrollTop;f.controller.commit([f.snapshot('7',{correction:{scrollSequence:q,offset:9.4,from:40}})]);f.controller.commit([f.snapshot('8',{correction:{scrollSequence:q,offset:60,from:30}})]);return {first,second,moved,clamped,subclamp:f.port.scrollTop};})()`)).toEqual({first:132,second:120,moved:111,clamped:30,subclamp:30});
 });
 test('under scroll-behavior: smooth an anchor correction still lands before the frame paints', async () => {
   const result=await evaluate(`(() => {const f=fixture();f.port.style.scrollBehavior='smooth';
@@ -430,7 +438,7 @@ test('collection read reuse: synchronous report replacement samples new nodes an
     ['2','1',result.widths[1]-24,[{view:2,epoch:'9007199254740994',size:73.5},{view:4,epoch:'2',size:88.25}]],
   ]);
   for(const [i,r] of result.reports.entries())expect(result.wires[i]).toEqual([...collectionBytes({view:1,
-    revision:r.revision,scroll_sequence:r.sequence,offset:0,port_cross:r.width,port_main:180,
+    revision:r.revision,scroll_sequence:r.sequence,offset:-10,port_cross:r.width,port_main:180,
     cross:r.rowWidth,focus_view:null,interaction_view:null,measurements:r.rows},{limit:1})]);
 });
 test('collection read reuse: width wrapping keeps actual fractional heights and fresh later-pass dimensions', async () => {
@@ -698,7 +706,6 @@ test('accepted pin release with an edge refusal permits the replacement pin repo
   expect(result).toEqual({pins:[[1,0,0],[10,12,12],[20,0,0]],peak:2,pending:0,surfaced:1});
 });
 
-
 function motionFixture() {
   const f=fixture(), node=f.views.get(2); f.motion?.reset();
   let serial=9007199254740993n, time=100, epoch=1;
@@ -891,7 +898,6 @@ test('height presentation clamps the negative spring lobe and hold without chang
     return {held,raw,caught:caught.value[0],stale,lateCalls,frames,lobe,end:getComputedStyle(n).height,translate:getComputedStyle(n).translate};})()`);
   expect(result).toEqual({held:'0px',raw:-49.7162387436,caught:0,stale:false,lateCalls:0,frames:['20px','0px','0px','20px'],lobe:'0px',end:'20px',translate:'-40px'});
 });
-
 
 function heightFixture(make,native=false) {
   const f=make(), m=f.motion, panel=f.node, header=document.createElement('div');

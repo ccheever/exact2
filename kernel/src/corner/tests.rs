@@ -5,16 +5,16 @@ fn the_shorthand_expands_as_border_radius_does_and_round_trips() {
     let s = CornerShape::check("squircle").unwrap();
     assert_eq!(s.0, [Corner::Superellipse(2.0); 4]);
     assert_eq!(s.css(), "squircle");
-    let s = CornerShape::check("round -apple-continuous").unwrap();
+    let s = CornerShape::check("round -exact-continuous").unwrap();
     assert_eq!(s.0[1], Corner::AppleContinuous);
     assert_eq!(s.0[3], Corner::AppleContinuous);
-    assert_eq!(s.css(), "round -apple-continuous round -apple-continuous");
+    assert_eq!(s.css(), "round -exact-continuous round -exact-continuous");
     let s = CornerShape::check("superellipse(3)  bevel superellipse(-infinity)").unwrap();
     assert_eq!(s.0[2], Corner::Superellipse(f32::NEG_INFINITY));
     assert_eq!(s.css(), "superellipse(3) bevel notch bevel");
     assert_eq!(CornerShape::check(&s.css()).unwrap(), s);
     assert!(CornerShape::default().is_round());
-    assert!(CornerShape::check("-Apple-Continuous")
+    assert!(CornerShape::check("-Exact-Continuous")
         .unwrap()
         .is_apple_continuous());
 }
@@ -53,7 +53,7 @@ fn every_shape_stays_in_its_box_and_meets_the_edges_at_the_radius() {
         "square",
         "notch",
         "superellipse(0.5)",
-        "-apple-continuous",
+        "-exact-continuous",
     ] {
         let shape = CornerShape::check(word).unwrap();
         let path = outline((10.0, 20.0, 100.0, 60.0), [(12.0, 12.0); 4], &shape);
@@ -64,7 +64,7 @@ fn every_shape_stays_in_its_box_and_meets_the_edges_at_the_radius() {
                 "{word}: ({x}, {y})"
             );
         }
-        let reach = if word == "-apple-continuous" {
+        let reach = if word == "-exact-continuous" {
             12.0 * APPLE_EXTENT
         } else {
             12.0
@@ -102,7 +102,7 @@ fn a_squircle_bulges_past_the_round_corner_and_a_scoop_falls_inside_it() {
 
 #[test]
 fn apple_continuous_takes_a_smaller_radius_in_a_small_box() {
-    let shape = CornerShape::check("-apple-continuous").unwrap();
+    let shape = CornerShape::check("-exact-continuous").unwrap();
     let pts = points(&outline((0.0, 0.0, 30.0, 30.0), [(20.0, 20.0); 4], &shape));
     // 30 / 2 / 1.5287 ≈ 9.81: the corner reaches half the side, no further.
     assert!((pts[0].1 - 15.0).abs() < 0.01, "{:?}", pts[0]);

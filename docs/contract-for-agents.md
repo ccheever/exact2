@@ -48,6 +48,7 @@ This guide is documentation, not an additional policy layer. Documents in
 | Network, authentication, storage, sorting, domain algorithms | App TypeScript/Rust data module |
 | Device facts | Reserved source with an admitted shape |
 | A system control (button, list, switch, picker, menu, tabs, bars) | Contract's native form ([below](#views-layout-and-interaction)); an app native module only where none exists |
+| What only the platform's own object can do (a gesture recognizer, a bar's look, drawing into a view) | An access hatch: `hatch="word"` on the node, native code handed its view ([reference](reference.md#access-hatches)); `bun exact.mjs hatch <word>` writes the stubs |
 | Canvas 2D drawing | Data module's canvas surface |
 | GPU scene or game | Optional GPU/game artifact |
 | App identity, grants/deploy selection, module placement | App manifest and data-module declarations |
@@ -436,7 +437,10 @@ half-typed `-` or `1.` survives). That makes the contract:
 
 A field bound straight to the accepted value breaks this: an action that
 normalizes `-2` to the `0` it already held leaves the binding unchanged, so the
-field keeps showing `-2`.
+field keeps showing `-2`. So does normalizing while the person types: a `task … when draft != …`, a
+timer or an `input` action that rewrites the draft (an empty field back to
+`"1"`) puts text back under the caret mid-edit, and the next keystroke lands
+after it (`1` then `3` reads `13`). Normalize only in `change`.
 
 ```contract
 component Quantity
@@ -635,6 +639,10 @@ Use those generated declarations with the existing TypeScript/Rust integration.
 A shape has no exported name in the `.d.ts`: name one by its source,
 `type Recipe = Result<'recipe'>` (a list's element: `Result<'recipes'>[number]`;
 an optional answer is `… | null`, so `NonNullable<Result<'find'>>`).
+`app:/data`, `app:/cache` and `app:/tmp` exist on every host before a source
+runs, so a file directly in one (`app:/data/notes.json`) needs no `mkdir`; a file
+deeper down needs its folder first (`storage.fs.mkdir('app:/data/drafts')`, which
+makes the folders above it too), or the write fails with `ENOENT`.
 The [human guide's data-module section](contract-for-humans.md#writing-the-data-module)
 has a complete `app.ts`: synchronous, `fetch` and SQLite sources, the grants
 each needs (one per line: `['sqlite.open app:/data/books.db', 'net.fetch https://…'].join('\n')`;
@@ -708,8 +716,20 @@ list with no bound at all, in its first 390×844 frame, so look at the list in e
 layout it takes. It takes `estimated-item-height`. A horizontal one needs a
 literal `display="flex"` and a literal positive `height`, takes
 `estimated-item-width`, and refuses wrapping, reversed or right-to-left flow, a
-nonzero `gap`, main-axis padding, `justify-content` other than `flex-start`, and
-`reorderdrop`. `reorderdrop` belongs only on a vertical `list virtualized=true`
+nonzero `gap`, `justify-content` other than `flex-start`, and `reorderdrop`.
+Main-axis padding (`padding-top`/`-bottom`, a row list's `-left`/`-right`) is
+CSS's room before the first row and after the last, inside the scroll content:
+room under a header laid over the list, or over a tab bar
+(`padding-bottom="calc(env(safe-area-inset-bottom) + 49px)"`). It takes a
+number, an `env()` length or its `calc()`, or a computed number, not a
+percentage; the end that `reachend`, `scrollFollowEnd` and `scroll-start="end"`
+reach is past it, and on iOS the pull-to-refresh spinner draws below
+`padding-top` (a padding-bottom taller than the port has limits: LLP 1010
+§6.9). `scroll-padding` (`-top`/`-bottom`, a row list's `-left`/`-right`, the
+same forms) is where its `scrollIntoView` aligns a row, as CSS's snapport:
+with `scroll-padding-top` equal to a header's height, the first row's
+`block="start"` is `scrollTop` 0. Only a virtualized list takes it
+(`lower-scroll-padding` elsewhere: native hosts read it nowhere else). `reorderdrop` belongs only on a vertical `list virtualized=true`
 (each row's handle names it with `reorderFor`); the compiler refuses it on any
 other element, where no host could drag. Lists that share a `reorderGroup`
 (each with a `reorderdrop`, an `id` and string keys) exchange rows: the drop
@@ -755,6 +775,7 @@ drawn title bar) is a bug. On iOS:
 | `input type="range"` | `UISlider` |
 | `input type="date"`, `"time"`, `"datetime-local"` | `UIDatePicker` |
 | `select` of `option`s | a pop-up button with its menu |
+| `progress` (no `value`) | `UIActivityIndicatorView`, `.large` from a 37-point box (LLP 1069.001) |
 | `popover="auto" role="menu"` of `button`s, opened by `popovertarget` (a row whose `popovertarget` names another menu: its submenu) | `UIMenu`, nested (LLP 1021) |
 | `role="tablist"`: each tab a symbol over a label / one text or image | `UITabBar` / `UISegmentedControl`, the tablist at least its native height unless `min-height` says otherwise (LLP 1059) |
 | a route whose first child is a `header` holding one heading and its buttons | the navigation bar; a level-1 heading (`aria-level=1`) is a large title |
@@ -1142,8 +1163,8 @@ in the viewer's zone, format it in TypeScript with
 `new Intl.DateTimeFormat(time.locale, { timeZone: time.timeZone })`.
 
 Use admitted CSS transitions and keyframes. Check which properties animate and
-which require optional capabilities. `spring(…)` (a `transition` timing
-function), `exit-animation`, `layout-transition`, and presentation timelines have
+which require optional capabilities. `-exact-spring(…)` (a `transition` timing
+function), `-exact-exit-animation`, `-exact-layout-transition`, and presentation timelines have
 specific documented behavior;
 they do not admit arbitrary frame callbacks or a second app-state graph.
 
@@ -1158,6 +1179,39 @@ modifiers; a trackpad pinch is a Control-held wheel) and `preventDefault()` keep
 the scroll from happening; `drop` hands a `DragEvent` whose `files` are `doc:`
 handles of the types `file_handlers` declares. See
 [Pointer](contract-grammar.md#pointer).
+
+`key` is the DOM's keydown and `keyup` its keyup; an action that takes it hears
+a `KeyboardEvent` (`metaKey`, `code`, `repeat`, …). Track a held modifier as a
+page does: set it from the event on every keydown and keyup, and forget it when
+the window loses the focus, since a key let go in another app sends no keyup
+(the page's `window` `blur`). `exactPage().hasFocus` turning false gates the task
+that forgets it, and the hint shows only while the window has the focus:
+
+```contract
+shape Page
+  hasFocus: bool
+
+component Hints
+  resource page = exactPage() as shape Page
+  state meta = false
+  action held(k: string, e: KeyboardEvent)
+    meta = e.metaKey
+  action forget()
+    meta = false
+  task release when meta and not page.hasFocus
+    after(1, forget)
+  view
+    column key=held keyup=held testId="list"
+      when meta and page.hasFocus
+        text "⌘ held"
+```
+
+Drive it with `type "list" key "Meta" down`, `prefer has-focus false` and
+`clock +1`. While an input method composes text in a field on macOS or iOS, a
+modifier's own keys still reach these handlers, and a ⌘ chord commits the
+composed text first (its `input`, then the chord's `key`), so a composer's
+⌘Enter `key` action sends what was typed; a button that declares ⌘Enter is not
+pressed then. See [Keys](contract-grammar.md#keys).
 
 A long-press or right-click menu is a `popover` the node names with
 `contextPopover="<id>"`: its `button` rows (with `popovertarget="<id>"
@@ -1205,9 +1259,9 @@ and `inert`; any other known name (`color`, `value`, `command`, `href`) is refus
 so give the module prop another name. Do not
 turn a missing widget or canvas operation into invented Contract syntax.
 
-Haptics are already there (LLP 1077 D14). `press-haptic` (`selection`,
+Haptics are already there (LLP 1077 D14). `-exact-press-haptic` (`selection`,
 `impact-light|medium|heavy|soft|rigid`) plays at touch-down without a round
-trip, as `press-scale` does. `haptic("selection" | "impact-…" | "success" |
+trip, as `-exact-press-scale` does. `haptic("selection" | "impact-…" | "success" |
 "warning" | "error")` is a host command an action runs, for example when a
 drag crosses a threshold. iOS uses the feedback generators; the web vibrates
 where it can; Linux does nothing.
@@ -1468,7 +1522,17 @@ textarea's breaks the line), `"Space"` presses a button, `"r"` reaches an
 `aria-keyshortcuts="r"` button — then releases it through the `keyup`
 handlers at the focus. A chord holds its modifiers for the key, in
 Playwright's spelling: `"Shift+Enter"`, `"Meta+s"`, `"Control+Alt+ArrowLeft"`
-([keys](contract-grammar.md#keys)). Not every interactive
+([keys](contract-grammar.md#keys)). As a keyboard does, on every host, each
+modifier is its own key first: a `key` handler hears `Shift`, then `Enter`
+(with its `shiftKey`), so a handler that treats any key as typing must skip
+`Shift`, `Control`, `Alt` and `Meta`. A paste is the same (`Control` or `Meta`,
+then `v`), and so is a click or a wheel with `tap … modifiers` on Chrome,
+Firefox, WebKit and Linux, and a right or double click with modifiers on Chrome.
+Each modifier comes up after the key, in reverse, without its own bit, so a
+`keyup` handler hears it too. Still flags only, with no modifier key of their
+own: Apple's taps, a drag's phased `tap … down`/`move`/`up` (Chrome and Apple;
+other carriers refuse modifiers there), and a key a canvas world takes on Apple.
+Not every interactive
 driver operation is a test-file statement. `contract test` parses and prints JSON;
 `agent.mjs <host> --test <file>` actually drives the app.
 
@@ -1554,6 +1618,19 @@ On native, all viewport variants follow the window; on web, CSS resolves
 small/large/dynamic viewports. Scalar lengths such as font size and gap do
 not yet accept viewport units.
 
+The same rows take `env(safe-area-inset-top|right|bottom|left)`, `calc(env(…) ±
+<n>px)`, and CSS's `min()`, `max()` and `clamp()` over px (and in/cm/mm/pt/pc),
+those insets and viewport lengths, with sums inside them (`max(15px,
+env(safe-area-inset-bottom) - 4px)`) and nested in each other and in `calc()`:
+`padding-bottom="clamp(15px, env(safe-area-inset-bottom), 60px)"`,
+`bottom="calc(clamp(15px, env(safe-area-inset-bottom), 60px) + 59px)"`.
+CSS's order is `clamp(MIN, VAL, MAX)`, not React Native's `clamp(value, min,
+max)`. Native hosts resolve them as the insets change; the web writes CSS's own
+functions. On a size, a padding or a radius a result below zero is 0, as CSS
+clamps it; a margin or an inset keeps it. Refused with the reason: a percentage, `rem`/`em`, a unitless
+number (write `0px`, not `0`), `env(viewport-segment-*)`, two inset or viewport terms in one
+sum, subtracting one, `*` and `/` (LLP 1001 §2, "Comparisons").
+
 `translate` takes one or two lengths, each in px or a percentage of the box's own
 border box, as CSS's does: `left="50%" top="50%" translate="-50% -50%"` on an
 absolute box centres it, a percentage follows the box's size, and transitions and
@@ -1561,10 +1638,10 @@ keyframes interpolate the two parts as CSS does a `calc()`. `calc()` itself is
 refused.
 
 Transitions animate translate/scale/rotate/opacity, box paint (color,
-background-color, border colors, tint-color, box-shadow), SVG paint/geometry
+background-color, border colors, -exact-tint-color, box-shadow), SVG paint/geometry
 and the admitted numeric height path. `width` and other general layout
 properties cannot interpolate yet: native layout is not run per frame.
-The diagnostic names this engine limit; `layout-transition` animates a
+The diagnostic names this engine limit; `-exact-layout-transition` animates a
 change in the laid-out box using the existing measured projection.
 
 `cursor` takes CSS cursor keywords (`pointer`, `grab`, `grabbing`, etc.) and
@@ -1611,18 +1688,21 @@ says so once per box. Refused, each saying what to write: `column-span`, page
 and region breaks, `balance-all`, dashed or dotted rules, and multi-column rows
 on `row` or `column` (CSS ignores them on flex and grid; write `view`).
 
-A bare text field (`input` of type `text`, `email`, `password`, `search`, `tel`,
-`url`, `number` or none, and `textarea`) is visible, as the browser's is: a 1px
-`light-dark(#c6c6c8, #48484a)` border, radius 6, padding 6/8, a
-`light-dark(#ffffff, #1c1c1e)` fill and its own `light-dark(#000000, #ffffff)`
-ink (it does not inherit `color`). These are rows under yours: any row or class
-you write replaces that one row and keeps the rest; `padding` and `width` stay
-content-box, so the field is 18px wider and 14px taller than its content.
-`appearance="none"` (a literal) leaves them all out for a field you draw
-yourself, such as a composer inside a pill (LLP 1104). A field in this look
-shows a focus ring while focused (the web's `:focus-visible`, an accent ring on
-macOS and Linux; iOS shows its caret) and dims to `opacity` 0.5 while
-`disabled`; a bare field draws its own focus and disabled states.
+A text field (`input` of type `text`, `email`, `password`, `search`, `tel`,
+`url`, `number` or no type, and `textarea` outside the Markdown editor) is the
+platform's own field by default (LLP 1104). On the web it inherits the page's
+font and colour, as a CSS reset does; other platforms use their control's own
+text style. Disabled and placeholder appearances are the platform's.
+
+A background, border or radius makes it your own box, as in a browser;
+`appearance="none"` says so explicitly. This is decided once after classes
+and shorthands: a row on any conditional arm counts, even if its value is
+`none` on another arm. `background-clip` and `background-attachment` do not
+make it bare. `appearance="auto"` explicitly asks for the native field and
+refuses background, border and radius rows, naming each longhand. Appearance
+is a literal, resolved from the class then the field's own attribute; to
+switch it, write `when` with two fields. Excluded input types and the Markdown
+editor keep the bare text-input box or their existing specialised control.
 
 `textarea rows=3` sets its preferred height in lines (default 2); explicit CSS
 height and `field-sizing="content"` override it. `maxlength=80` on text inputs
@@ -1652,7 +1732,7 @@ status bar: of what the bar sits over, the declaration painted on top wins, and
 a flip shows in its own batch's frame; `status-bar-animation="fade"` fades it
 (LLP 1105). Other hosts ignore both.
 `currentcolor` takes the node's `color` on borders, `background-color`,
-`tint-color`, text stroke and SVG paint. `unset` clears any row, and `inherit`
+`-exact-tint-color`, text stroke and SVG paint. `unset` clears any row, and `inherit`
 an inherited one (`color`, fonts, `fill`…); `inherit` on a row CSS does not
 inherit is refused. `order` places flex and grid items. An image's accessible
 name is `alt` or `aria-label`; `enterkeyhint` labels a soft keyboard's enter

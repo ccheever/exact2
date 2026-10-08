@@ -113,7 +113,7 @@ size_t exact_text_collapse(const uint8_t *utf8, size_t len, const size_t *lens, 
 size_t exact_material_platform(const uint8_t *name, size_t len, uint8_t platform, const uint8_t **out);
 
 /* LLP 1077 D1. A box outline with shaped corners as one closed polygon: `shape` 4 K values
- * (NaN is -apple-continuous), `radii` 8 (top-left first, horizontal then vertical, reduced).
+ * (NaN is -exact-continuous), `radii` 8 (top-left first, horizontal then vertical, reduced).
  * Writes x,y pairs into `out` when `cap` holds them all; returns the point count. */
 size_t exact_corner_outline(const float *shape, float x, float y, float width, float height,
     const float *radii, float *out, size_t cap);
@@ -250,6 +250,22 @@ typedef void (*ExactWakeFn)(void *ctx);
 /* Lifecycle. */
 ExactRuntime exact_create(void);
 void exact_destroy(ExactRuntime rt);
+/* LLP 1104: UIKit's body font, installed in the host registry before layout. */
+typedef struct {
+    const uint8_t *family; size_t family_len;
+    uint16_t family_id; float size; uint16_t weight; uint8_t italic;
+} ExactControlFont;
+typedef ExactControlFont (*ExactControlTextFn)(void *ctx);
+typedef struct {
+    uint8_t kind; uint16_t family_id; float size; uint16_t weight; uint8_t italic;
+} ExactFieldChromeRequest;
+typedef struct {
+    float top, right, bottom, left, minimum_height; uint8_t provisional;
+} ExactFieldChrome;
+typedef ExactFieldChrome (*ExactFieldChromeFn)(void *ctx, const ExactFieldChromeRequest *request);
+void exact_set_control_text(ExactRuntime rt, ExactControlTextFn text, ExactFieldChromeFn chrome);
+uint32_t exact_control_text_changed(ExactRuntime rt);
+
 void exact_set_measure(ExactRuntime rt, ExactMeasureFn measure, void *ctx);   /* NULL: a monospace reference measurer */
 /* LLP 1056 D8: one Canvas 2D run measured with Core Text where the draw
  * runs, with the context exact_set_measure was given. The strings live for

@@ -84,9 +84,18 @@ fn style_rows_lower_to_css_by_their_names() {
         .unwrap();
     s.set_dynamic(StyleId::ScrollBehavior, &StyleValue::Text("smooth".into()))
         .unwrap();
+    s.set_dynamic(StyleId::ScrollPaddingTop, &StyleValue::Number(92.0))
+        .unwrap();
+    s.set_dynamic(
+        StyleId::ScrollPaddingBottom,
+        &StyleValue::Text("calc(env(safe-area-inset-bottom) + 49px)".into()),
+    )
+    .unwrap();
     let (css, skipped) = css_text(&s, &[]);
     for expected in [
         "scroll-behavior:smooth;",
+        "scroll-padding-top:92px;",
+        "scroll-padding-bottom:calc(env(safe-area-inset-bottom) + 49px);",
         "display:-webkit-box;",
         "-webkit-box-orient:vertical;",
         "-webkit-line-clamp:2;",
@@ -283,7 +292,7 @@ fn relative_lengths_are_pixels_live_and_units_ahead_of_time() {
         (StyleId::LetterSpacing, "0.1em"),
         (StyleId::BorderRadiusTopLeft, "0.5rem"),
         (StyleId::BorderRadiusBottomLeft, "0.5rem"),
-        (StyleId::CornerShape, "-apple-continuous round round round"),
+        (StyleId::CornerShape, "-exact-continuous round round round"),
     ] {
         s.set_dynamic(id, &StyleValue::Text(value.into())).unwrap();
     }
@@ -313,5 +322,42 @@ fn relative_lengths_are_pixels_live_and_units_ahead_of_time() {
     ] {
         assert!(live.contains(&live_decl), "{live_decl} in {live}");
         assert!(ahead.contains(&ahead_decl), "{ahead_decl} in {ahead}");
+    }
+}
+
+/// LLP 1001 §2 (2026-10-07): a `min()`, `max()` or `clamp()` length lowers to
+/// CSS's own function, which the browser resolves with the insets.
+#[test]
+fn comparison_lengths_lower_to_css_comparisons() {
+    use exact_kernel::{StyleId, StyleProps, StyleValue};
+    let mut s = StyleProps::default();
+    for (id, value) in [
+        (
+            StyleId::PaddingBottom,
+            "clamp(15px, env(safe-area-inset-bottom), 60px)",
+        ),
+        (
+            StyleId::Bottom,
+            "calc(clamp(15px, env(safe-area-inset-bottom), 60px) + 15px + 44px)",
+        ),
+        (
+            StyleId::PaddingTop,
+            "max(15px,env(safe-area-inset-top) - 4px)",
+        ),
+        (StyleId::Width, "min(50vw, 300px)"),
+        (StyleId::Height, "max(10px, 2px)"),
+    ] {
+        s.set_dynamic(id, &StyleValue::Text(value.into())).unwrap();
+    }
+    let (css, skipped) = css_text(&s, &[]);
+    assert!(skipped.is_empty(), "{skipped:?}");
+    for expected in [
+        "padding-bottom:clamp(15px, env(safe-area-inset-bottom), 60px);",
+        "bottom:calc(clamp(15px, env(safe-area-inset-bottom), 60px) + 59px);",
+        "padding-top:max(15px, calc(env(safe-area-inset-top) - 4px));",
+        "width:min(50vw, 300px);",
+        "height:10px;",
+    ] {
+        assert!(css.contains(expected), "{expected} in {css}");
     }
 }

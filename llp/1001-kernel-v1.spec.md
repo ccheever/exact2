@@ -161,7 +161,7 @@ outgoing read-only selection and auto on incoming selections. See
 [CSS UI's caret rules](https://www.w3.org/TR/css-ui-4/#caret-color): user agents
 may also apply them to selection mechanisms outside editable text.
 
-`tint-color` (bit 89; LLP 1035.004, 2026-09-10) colours a `symbol:` image
+`-exact-tint-color` (bit 86; LLP 1035.004, 2026-09-10) colours a `symbol:` image
 on Apple and the web. Initially opaque black, not inherited, it accepts fixed
 and `light-dark()` colours. Computed inherited `font-size` and `font-weight`
 configure the symbol independently of its CSS box. The schema's `symbols` rows
@@ -359,24 +359,32 @@ macOS implements alignment without magnification; Linux currently retains the
 panel's authored position. Messages supplies its outside-dismiss backdrop as an
 ordinary press control.
 
+**Spelling (LLP 1081, 2026-10-06).** Every name below that CSS does not
+define is spelled `-exact-` (LLP 1081 D1, D2): the fourteen non-CSS rows,
+the spring timing function `-exact-spring()` (LLP 1002 D2), the corner keyword
+`-exact-continuous`, Exact's colour roles (`-exact-label`, `-exact-fill`, …)
+and `-exact-platform-color()` (LLP 1095 §12). CSS's system colours, WebKit's
+`-apple-system-*` aliases and `-webkit-text-stroke` keep their names. The bits
+cited here are `schema.json`'s.
+
 **Additional deviations as built (2026-09-27; recorded by Astra).** The
 following declarations collect the host carve-outs and non-CSS rows introduced
 with PR #47, with Charlie's rulings of 2026-09-27 where he made them; the
 `box-shadow` subset is still unruled.
 
-- **`press-scale`**, bit 147 ([LLP 1061 D1–D3](1061-press-feel-and-reduced-motion.rfc.md)),
+- **`-exact-press-scale`**, bit 144 ([LLP 1061 D1–D3](1061-press-feel-and-reduced-motion.rfc.md)),
   is not CSS. It supplies platform press feedback without a runner round trip
   or app-owned pressed state. Ruled 2026-09-27: it composes through CSS's
   `scale` property and never writes `transform`, and it is kept under reduced
   motion, as a native button's highlight is.
-- **`layout-transition`**, bit 146 ([LLP 1063 D1, D6](1063-presence-and-layout-motion.rfc.md)),
+- **`-exact-layout-transition`**, bit 143 ([LLP 1063 D1, D6](1063-presence-and-layout-motion.rfc.md)),
   is not CSS. It moves the presentation after committed layout, sizing only
   the box's surface while content keeps its final geometry. The separate row
   prevents `transition: all` from silently starting to animate layout.
-  Ruled 2026-09-27 (with `exit-animation`, option a): the web runs it by FLIP,
+  Ruled 2026-09-27 (with `-exact-exit-animation`, option a): the web runs it by FLIP,
   as web layout-animation libraries do; no browser feature is its oracle, so
   parity is one recorded timeline compared across hosts.
-- **`exit-animation`**, bit 145 ([LLP 1063 D1–D5, D8](1063-presence-and-layout-motion.rfc.md)),
+- **`-exact-exit-animation`**, bit 142 ([LLP 1063 D1–D5, D8](1063-presence-and-layout-motion.rfc.md)),
   is not CSS: it holds a destroyed view as an inert ghost until its finite
   animation ends. CSS's `animation` does not itself defer destruction. Linux
   refuses it and removes the node immediately, with a journal entry, because
@@ -397,7 +405,7 @@ with PR #47, with Charlie's rulings of 2026-09-27 where he made them; the
   the gradient image as CSS's initial `background-repeat` does. Their gradient
   shaders/layers extend one gradient rather than tiling a padding-box image;
   translucent borders expose the difference.
-- **`corner-shape: -apple-continuous`**, bit 156 ([LLP 1077 D1](1077-css-visual-properties-native-draws-cheaply.rfc.md)),
+- **`corner-shape: -exact-continuous`**, bit 153 ([LLP 1077 D1](1077-css-visual-properties-native-draws-cheaply.rfc.md)),
   is not a CSS keyword. It names Apple's continuous corner curve, one shape on
   every host: UIKit and AppKit draw it with `cornerCurve = .continuous` where
   the box has one radius, and the kernel's outline (`corner::outline`, fitted
@@ -432,23 +440,24 @@ with PR #47, with Charlie's rulings of 2026-09-27 where he made them; the
   the axis at once where CSS slerps. Linux draws a 3D box as a picture warped
   on the CPU.
 - **Apple's affordances** ([LLP 1077 §5](1077-css-visual-properties-native-draws-cheaply.rfc.md)),
-  rows 162–170, are not CSS: `symbol-rendering`, `symbol-palette`,
-  `symbol-value`, `symbol-effect` (with the `symbolEffectValue` prop),
-  `press-haptic` (host-owned as `press-scale`), `content-transition`,
-  `scroll-edge-effect`, `hover-effect` and `smart-invert`. Each draws on the
+  rows 162–170, are not CSS: `-exact-symbol-rendering`, `-exact-symbol-palette`,
+  `-exact-symbol-value`, `-exact-symbol-effect` (with the `symbolEffectValue` prop),
+  `-exact-press-haptic` (host-owned as `-exact-press-scale`), `-exact-content-transition`,
+  `-exact-scroll-edge-effect`, `-exact-hover-effect` and `-exact-smart-invert`. Each draws on the
   platform that has it; the web writes no declaration for them and draws a
-  symbol monochrome. `press-haptic` alone has a web arm: the pressed
+  symbol monochrome. `-exact-press-haptic` alone has a web arm: the pressed
   element's `--exact-press-haptic`, which the input glue plays at the press
-  as `navigator.vibrate` where the browser has it, as `haptic()` does. The `-apple-system-*` label, fill and separator colours
-  are WebKit's names. The kernel keeps them as themselves (`ColorValue::System`),
-  and each paints as a `light-dark()` pair of UIKit's values. Inside a blur
+  as `navigator.vibrate` where the browser has it, as `haptic()` does. The label and separator colours
+  (WebKit's `-apple-system-*` names, or `-exact-label` …) and `-exact-fill`, which
+  WebKit has no name for, are roles (LLP 1095 D2): the kernel keeps a role id
+  (`ColorValue::Role`), and each paints as a `light-dark()` pair of UIKit's values. Inside a blur
   material, Apple draws them vibrantly, blended with what the material blurs:
   - On macOS, any view in that colour inside the material.
   - On iOS, only in a material whose box clips its children on both axes, which then hosts them in its effect view.
     In that material, a paragraph's text and a plain fill (no border, gradient,
     image, corner shape or `background-clip`) are vibrant.
   - Everything else, and glass, draws the pair.
-- **Raster `tint-color`** ([LLP 1011 §3](1011-image-v1.spec.md)) is a template
+- **Raster `-exact-tint-color`** ([LLP 1011 §3](1011-image-v1.spec.md)) is a template
   image operation without a CSS property of that name. On the web the tint is
   a `mask-image` on the `<img>` itself, so it also masks the element's own
   background, border and shadow (declared limitation: `issues/closed/20260927-web-tint-masks-the-box.md`),
@@ -469,7 +478,7 @@ with PR #47, with Charlie's rulings of 2026-09-27 where he made them; the
   is removed (`issues/closed/20260927-tab-bar-height-to-layout.md`).
 
 **When a list row's animations start (2026-10-06, [LLP 1055](1055-svg-shapes-and-css-animations.rfc.md)
-D13; Charlie's ruling, not reviewed).** `animation-trigger` (bit 179) is
+D13; Charlie's ruling, not reviewed).** `-exact-animation-trigger` (bit 193; spelled `-exact-` by LLP 1081 D1, since only CSS's name is shared) is
 `view | none`, and `view` is the default: an animation in a row a virtualized
 list mounted out of its port is held at its start until the row first shows.
 CSS starts it at insertion, and CSS's own `animation-trigger` is a different
@@ -479,7 +488,7 @@ its row is seen. The web hosts do not build it yet (the browser starts the
 animation at insertion), which is the deviation in the other direction.
 
 **Clock timelines (2026-10-03, [LLP 1055.002](1055.002-synced-animations.rfc.md)
-D2; not reviewed).** `animation-timeline` takes a third value, `clock(<ident>)`,
+D2; not reviewed).** `animation-timeline` takes a third value, `-exact-clock(<ident>)` (LLP 1081),
 which CSS has no form of. Its animations stay on the clock (it is `auto` to
 every other reader, the name lookup included) and each starts at the last
 cycle boundary of the timeline it names, so every animation on one timeline is
@@ -488,7 +497,7 @@ commands, skeletons) should pulse together, and CSS can only do that with a
 script setting each animation's `startTime`; the web host does exactly that.
 
 **Drag timelines (2026-09-27, [LLP 1057.003](1057.003-gesture-timelines.rfc.md)
-D1, accepted by Charlie).** `drag-timeline`, bit 150, is not CSS. CSS names a
+D1, accepted by Charlie).** `-exact-drag-timeline`, bit 147, is not CSS. CSS names a
 timeline on a scroller (`scroll-timeline`) or on a box's visibility
 (`view-timeline`), and has none a gesture drives. This row takes `none |
 <dashed-ident> [x | y]?` and names a timeline whose position is the node's
@@ -497,8 +506,8 @@ holds it, then the spring the drag hands off to. The reason: a follower, such
 as a backdrop fading with a dismiss drag, must be a function of its source as
 presented, in the frame the source moves, with no app code per frame, and no
 CSS timeline has a drag as its source (LLP 1057.002 §6.10).
-- **The consumer's rows are CSS's**, `animation-timeline` (bit 151) and
-  `animation-range` (bit 152), in a subset: `auto | <dashed-ident>`, and
+- **The consumer's rows are CSS's**, `animation-timeline` (bit 148) and
+  `animation-range` (bit 149), in a subset: `auto | <dashed-ident>`, and
   `normal | <length> <length>`. A drag has no scroll range for `cover`,
   `contain` or percentages to name. `normal` leaves the node on the clock.
 - **The mapping is a scroll timeline's.** The range spans the animation's
@@ -511,7 +520,7 @@ CSS timeline has a drag as its source (LLP 1057.002 §6.10).
 - **An endless animation is refused** (`lower-timeline-endless`). CSS gives
   it no duration on a progress-based timeline and shows its end; a computed
   one that reaches a host holds its start.
-- **Names scope as CSS scopes them** (D4): `timeline-scope`, bit 153, is
+- **Names scope as CSS scopes them** (D4): `timeline-scope`, bit 150, is
   CSS's row, and a consumer's name resolves to the nearest ancestor-or-self
   that declares or scopes it, in the kernel and in the web's glue alike.
   `all` follows the specification's text; Chrome 154 does not parse it.
@@ -710,8 +719,9 @@ already carries `clip-path` (LLP 1054.000 R7). Web flowed text with
 initial value; no row sets another). Declared: under `system-ui` Apple's stops
 are up to 2% narrower than Chrome's, which sizes them from San Francisco's
 untracked space where CoreText's space is tracked (LLP 1053 §0.1).
-`backdrop-filter` is `none` or one `blur()` (LLP 1053.000). Declared: iOS draws
-it as `UIBlurEffect.Style.light`, whose blur and tint are its own (no public
+`backdrop-filter` is `none`, or one `blur()` and/or one `saturate()` in authored
+order (LLP 1053.000). Declared: iOS/tvOS draw it as `UIBlurEffect.Style.light`,
+whose blur, saturation and tint are its own (no public
 arbitrary-radius backdrop blur exists; Charlie's ruling, 2026-09-27); macOS's Core Image blur
 matches Chrome's σ but clips the node's children to its border box and sees
 only its parent's subtree as the backdrop; the GPU painter on Linux renders
@@ -770,6 +780,69 @@ the frame once more per backdrop node. The measured bounds are LLP 1053.000 §3.
   when something can move. Zero until the host says otherwise, as a browser
   reports the insets for a page without `viewport-fit=cover` (LLP 1008 §9).
   `tests/env.rs`.
+- **Comparisons** (2026-10-07; approved by Charlie 2026-10-06, via the lead:
+  "standard CSS"). A dimension row takes CSS's `min()`, `max()` and `clamp()`
+  (CSS Values 4 §10.2) over the lengths the kernel resolves before layout: px
+  and the other absolute units, `env(safe-area-inset-<edge>)`, the viewport
+  lengths, and sums of them, written in an argument directly or in `calc()`,
+  nested in each other and in `calc()` as CSS allows. The Bluesky clone asked
+  for its bottom bar's padding and its compose button's offset: Bluesky's
+  `clamp(insets.bottom, 15, 60)` is a value bounded to 15–60, which CSS
+  spells `clamp(15px, env(safe-area-inset-bottom), 60px)` (CSS's order is
+  `clamp(MIN, VAL, MAX)`, `max(MIN, min(VAL, MAX))`, so MIN wins over MAX),
+  and the button sits at `calc(clamp(15px, env(safe-area-inset-bottom),
+  60px) + 15px + 44px)`. Parsed once, in `style/compare.rs`, before the other
+  length grammars (a text naming no comparison falls through to them
+  unchanged). The row holds `Dimension::Compare(Comparison)`, a handle to an
+  interned tree — a term (points, an inset or a viewport length, plus points)
+  or a comparison of trees plus points — with equal trees sharing a handle,
+  so an unchanged style still compares equal by value, as `calc()` pairs are
+  interned for Taffy. A handle keeps `Dimension` `Copy`, which every reader
+  in the kernel and the four hosts takes by value: a boxed tree would change
+  all of them, and lists of the existing linear forms cannot hold a
+  comparison nested in a `calc()` with points added, or a viewport length
+  plus px. `Dimension::resolve` turns a comparison into points against the
+  `Env` exactly where an `env()` length becomes points (`taffy_style`), and
+  `uses_env` counts it, so `set_env` and a viewport change re-derive and
+  dirty its node; every host that reads a resolved length (Apple's style
+  JSON, the Linux painter, both hosts' content sizes) sees points (their
+  matches name the variant only as resolved away). On a row CSS gives no
+  negative length (a size, its minimum and maximum, a padding, a flex
+  basis, a border radius, an SVG `r`/`rx`/`ry`, a column width), the tree is
+  held as `max(0px, …)` unless it has a floor at 0 or more (an inset is 0 or
+  more, `clamp(lo, …)` is `lo` or more), and folded points at 0 or more, as
+  CSS clamps a math function to the property's range (a tree with no room
+  left for the wrap under the limits below is refused); margins and insets
+  keep negative lengths (Astra's review, 2026-10-07: a folded `-8px` width
+  was written as a `width:-8px` the browser drops). A replaced header padded
+  by a comparison that reads the top inset hands that inset to the bar, as
+  one padded by `env(safe-area-inset-top)` does (`kernel/cover.rs`). The
+  readers that never resolved `env()` or viewport lengths (SVG geometry, the
+  Apple canvas clip, `svg::scene::content_box`) take an unresolved comparison
+  as 0, as they take those (QUEUE.md). The web writes CSS's own functions for the browser to resolve
+  (`host/web/src/css.rs`, the wasm page and the JS target's static rows; a
+  JS target binding writes its text as authored), and the agent prints the
+  same text. Wire kind 24: a zero `f32`, then the tree (a tag: 0 points, 1 an
+  inset and its edge, 2 a viewport length and its unit and number, 3–5
+  `min`/`max`/`clamp` with a count and the arguments; then each node's
+  points), a nonzero leading `f32` refused, decoded to what the parser accepts or refused as
+  `DecodeError::InvalidComparison` (the 64-term limit counted across the
+  whole tree as it is read, so a wide tree is refused before it is built). Refused by name at the bake
+  (`StyleValueError::BadComparison`, `lower-attr-value`): a percentage (it
+  has no basis where the insets resolve; resolving one would put the tree in
+  Taffy's `calc()` resolver, left until an app asks), `rem`/`em`, a unitless
+  number, zero too (inside a math function a `0` is a number, not a length,
+  CSS Values 4 §10.9), `env(viewport-segment-*)`, a sum with two terms that read
+  the environment or one subtracted (it negates the variable, which no
+  length holds, as `<n>px - env(…)` already is), `*` and `/`, a sum outside
+  `calc()`, a `clamp()` of other than three, an empty `min()`/`max()`, and
+  more than 8 levels or 64 terms. A text that reads nothing folds to points
+  at the parse. The interned table grows with each distinct tree, as the
+  `calc()` pairs do: a bound text that changes every frame grows it.
+  `tests/compare.rs`, `wire/codec.rs`
+  (`comparisons_round_trip_and_a_malformed_tree_is_refused`),
+  `contract/cli/tests/it/insets.rs`, `host/web/tests/it/host/css_tests.rs`,
+  and the conformance plan `host/web-js/conformance/comparisons.contract`.
 
 ## 3. One write path (WS-D, WS-F, 0507 §4)
 

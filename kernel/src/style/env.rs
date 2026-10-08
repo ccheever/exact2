@@ -177,6 +177,8 @@ pub struct Env {
     /// side occupies one cell. Set by the terminal host on its own kernel;
     /// no other host sees it.
     pub cell_borders: bool,
+    /// Platform control fonts (LLP 1104 D4). None preserves page inheritance.
+    pub control_text_styles: Option<crate::ControlTextStyles>,
 }
 
 impl Default for Env {
@@ -199,6 +201,7 @@ impl Env {
             viewport_width: 0.0,
             viewport_height: 0.0,
             cell_borders: false,
+            control_text_styles: None,
         }
     }
 
@@ -216,6 +219,10 @@ impl Env {
     pub fn is_finite(&self) -> bool {
         Edge::ALL.iter().all(|e| self.inset(*e).is_finite())
             && self.segments.iter().all(Rect::is_finite)
+            && self
+                .control_text_styles
+                .as_ref()
+                .is_none_or(crate::ControlTextStyles::is_valid)
     }
 
     /// Whether the grid is well formed: both counts at least 1, and exactly
@@ -414,7 +421,14 @@ fn segment_term(tail: &str, indices: &[&str]) -> Result<Dimension, EnvRefusal> {
     ))
 }
 
-fn term(inner: &str) -> Result<Dimension, EnvRefusal> {
+/// The `env()` variable families `term` reads, each with its kind (LLP 1081
+/// D8): both are CSS Environment Variables 1's.
+pub const ENV_NAMES: [(&str, &str); 2] = [
+    ("safe-area-inset-", "css CSS Environment Variables 1"),
+    ("viewport-segment-", "css CSS Environment Variables 1"),
+];
+
+pub(super) fn term(inner: &str) -> Result<Dimension, EnvRefusal> {
     let inner = inner.trim();
     let body = inner
         .strip_prefix("env(")
@@ -426,7 +440,7 @@ fn term(inner: &str) -> Result<Dimension, EnvRefusal> {
     }
     let mut words = body.split_whitespace();
     let name = words.next().ok_or(EnvRefusal::UnknownVariable)?;
-    if let Some(edge) = name.strip_prefix("safe-area-inset-") {
+    if let Some(edge) = name.strip_prefix(ENV_NAMES[0].0) {
         let edge = Edge::from_name(edge).ok_or(EnvRefusal::UnknownVariable)?;
         return if words.next().is_some() {
             Err(EnvRefusal::UnknownVariable)
@@ -435,7 +449,7 @@ fn term(inner: &str) -> Result<Dimension, EnvRefusal> {
         };
     }
     let tail = name
-        .strip_prefix("viewport-segment-")
+        .strip_prefix(ENV_NAMES[1].0)
         .ok_or(EnvRefusal::UnknownVariable)?;
     let hooks = LINKED.get().ok_or(EnvRefusal::Unlinked)?;
     let indices: Vec<&str> = words.collect();
@@ -528,7 +542,10 @@ pub fn uses_env(style: &crate::StyleProps) -> bool {
         matches!(
             style.get(id),
             crate::RowValue::Dimension(
-                Dimension::Env(..) | Dimension::Segment(..) | Dimension::Viewport(..)
+                Dimension::Env(..)
+                    | Dimension::Segment(..)
+                    | Dimension::Viewport(..)
+                    | Dimension::Compare(..)
             )
         )
     })

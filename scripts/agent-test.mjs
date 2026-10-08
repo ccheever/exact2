@@ -125,7 +125,8 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
   const base = device ? null : chrome ? driveStore(id, storage, env).base : host === 'web' ? null : storeBase(id, host, launched, launched.HOME || homedir());
   // A run's own names where the driver can remove them; a simulator's (one drive at a time: a launch ends the
   // last) reuse one store a test, emptied at launch, so they cannot pile up in its app container.
-  const tag = base ? `.r${process.pid}-${Math.random().toString(36).slice(2, 8)}` : '';
+  // Android's stores are on the device, out of the driver's reach, but a run's names stay its own there too (LLP 1107).
+  const tag = base || host === 'android' ? `.r${process.pid}-${Math.random().toString(36).slice(2, 8)}` : '';
   sweepTestStores(base, storage);
   for (const [n, t] of tests.entries()) {
     const failures = [];

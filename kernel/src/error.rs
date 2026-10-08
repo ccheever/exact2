@@ -51,9 +51,11 @@ pub enum DecodeError {
     BadBackgroundImage,
     /// Invalid or unsupported CSS `box-shadow` (LLP 1077 D4).
     BadBoxShadow,
+    /// Invalid or unsupported CSS `backdrop-filter` (LLP 1053.000 D1).
+    BadBackdropFilter,
     /// Invalid CSS `rotate` axis (LLP 1077 D8).
     BadRotateAxis,
-    /// Invalid `symbol-palette` (LLP 1077 D10).
+    /// Invalid `-exact-symbol-palette` (LLP 1077 D10).
     BadSymbolPalette,
     /// Invalid or unsupported CSS `text-shadow` (LLP 1077 D3).
     BadTextShadow,
@@ -61,7 +63,7 @@ pub enum DecodeError {
     BadMaskImage,
     /// Invalid CSS `corner-shape` (LLP 1077 D1).
     BadCornerShape,
-    /// Invalid `drag-timeline` (LLP 1057.003).
+    /// Invalid `-exact-drag-timeline` (LLP 1057.003).
     BadDragTimeline,
     /// Invalid `animation-timeline` (LLP 1057.003).
     BadAnimationTimeline,
@@ -122,6 +124,9 @@ pub enum DecodeError {
     AutoNotAdmitted { style: StyleId },
     /// A dimension kind byte is not auto/points/percent.
     UnknownDimensionKind(u8),
+    /// A `min()`/`max()`/`clamp()` length's tree is malformed: an unknown
+    /// tag, a wrong count, too deep or too large.
+    InvalidComparison,
     /// A grid track kind byte is outside the closed grammar.
     UnknownTrackKind(u8),
     /// More grid tracks than the closed grammar allows.
@@ -319,7 +324,7 @@ pub enum LayoutError {
     NotAnImage(ViewId),
     /// An intrinsic size that is not finite and positive on both axes.
     InvalidIntrinsicSize(ViewId),
-    /// An environment with a non-finite inset.
+    /// An environment with a non-finite inset or invalid control font size.
     InvalidEnv,
     /// A segment grid with a count that is not `cols × rows` (or any
     /// segment on a 1 × 1 grid), a zero count, or a non-finite rect
@@ -329,6 +334,8 @@ pub enum LayoutError {
     InvalidRootFontSize,
     /// A host text callback returned a non-finite or negative metric.
     InvalidTextMetrics(ViewId),
+    /// A host returned non-finite or negative field chrome.
+    InvalidFieldChrome(ViewId),
     /// A sampled CSS height is non-finite or negative.
     InvalidPresentedHeight,
     /// More than one sample supplies the same generational node.
@@ -463,6 +470,12 @@ pub enum StyleValueError {
     BadEnv {
         style: StyleId,
         refusal: crate::style::EnvRefusal,
+    },
+    /// A `min()`, `max()` or `clamp()` length the kernel does not hold
+    /// (LLP 1001 §2, 2026-10-07); `reason` names what.
+    BadComparison {
+        style: StyleId,
+        reason: &'static str,
     },
     /// A `transition` text was not CSS shorthand the evaluator accepts.
     BadTransition {
