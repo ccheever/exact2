@@ -1,3 +1,0 @@
-// The former shared panel components now live with their owners:
-// ThreadSection in sidebar.contract, TimelineRow in timeline.contract,
-// Requests in requests.contract and DiffPanel in diff.contract.
