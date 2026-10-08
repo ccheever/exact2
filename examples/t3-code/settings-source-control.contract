@@ -181,12 +181,12 @@ component ScopedSettingRow
             when row.kind == "switch"
               SettingsSwitch(checked=row.checked, label=row.title, disabled=(busy or row.disabled), switchId=`scoped-${row.key}`, toggle=rest("scoped", `key=${row.key}&value=${row.checked ? "false" : "true"}`))
             when row.kind == "select"
-              SettingsSelect(selectId=`scoped-${row.key}`, label=row.title, valueLabel=row.valueLabel, width=((row.key == "sourceControlWritingStyle" ? 224 : 160) * rem / 16), disabled=(busy or row.disabled), options=row.options, choose=restInput("scoped", `key=${row.key == "sourceControlWritingStyle" ? "sourceControlWritingStyle.mode" : row.key}&value=`))
+              SettingsSelect(selectId=`scoped-${row.key}`, label=row.title, valueLabel=row.valueLabel, value="", width=((row.key == "sourceControlWritingStyle" ? 224 : 160) * rem / 16), disabled=(busy or row.disabled), options=row.options, choose=restInput("scoped", `key=${row.key == "sourceControlWritingStyle" ? "sourceControlWritingStyle.mode" : row.key}&value=`))
             when row.kind == "text"
               ScopedTextField(value=row.value, placeholder=row.placeholder, label=row.title, fieldKey=row.key, busy=(busy or row.disabled), restInput=restInput)
             when row.kind == "model"
               when row.checked and length(row.options) > 0
-                SettingsSelect(selectId="scoped-writer-model", label="Source control writer model", valueLabel=row.valueLabel, width=200, disabled=(busy or row.disabled), options=row.options, choose=restInput("scoped", "key=sourceControlWriterModelSelection&value="))
+                SettingsSelect(selectId="scoped-writer-model", label="Source control writer model", valueLabel=row.valueLabel, value="", width=200, disabled=(busy or row.disabled), options=row.options, choose=restInput("scoped", "key=sourceControlWriterModelSelection&value="))
               SettingsSwitch(checked=row.checked, label="Use a separate source control writer model", disabled=(busy or row.disabled), switchId="scoped-writer-model-enabled", toggle=rest("scoped", `key=sourceControlWriterModelSelection&value=${row.checked ? "off" : "default"}`))
       when row.kind == "textarea"
         ScopedTextArea(value=row.value, placeholder=row.placeholder, label=row.title, fieldKey=row.key, busy=(busy or row.disabled), restInput=restInput)

@@ -316,10 +316,10 @@ component ScheduledEditor
             row gap="0.75rem" width="100%"
               column gap="0.375rem" flex=1 min-width=0
                 text "Project" class=TkLabel
-                SettingsSelect(selectId="task-project", label="Project", valueLabel=projectLabel(data.projects, projectId), width=257, disabled=busy, options=data.projects, choose=choose("project"))
+                SettingsSelect(selectId="task-project", label="Project", valueLabel=projectLabel(data.projects, projectId), value=projectId, width=257, disabled=busy, options=data.projects, choose=choose("project"))
               column gap="0.375rem" flex=1 min-width=0
                 text "Workspace" class=TkLabel
-                SettingsSelect(selectId="task-workspace", label="Workspace", valueLabel=(workspaceMode == "root" ? "Use the project checkout" : (workspaceMode == "existing_worktree" ? "Use a specific checkout" : "Create a new worktree")), width=257, disabled=busy, options=data.workspaces, choose=choose("workspace"))
+                SettingsSelect(selectId="task-workspace", label="Workspace", valueLabel=(workspaceMode == "root" ? "Use the project checkout" : (workspaceMode == "existing_worktree" ? "Use a specific checkout" : "Create a new worktree")), value=workspaceMode, width=257, disabled=busy, options=data.workspaces, choose=choose("workspace"))
             when workspaceMode == "worktree"
               column gap="0.375rem"
                 text "Base branch" class=TkLabel

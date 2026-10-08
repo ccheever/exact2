@@ -17,7 +17,7 @@ import { usageNotices, type UsageAccountView } from './composer-controls-usage';
 import { feedbackNotices, feedbackUploading } from './composer-feedback'; // usage-reset-and-feedback: Codex /feedback
 import { subagentTitle } from './timeline-events';
 import { compactBlocked, resumeCompaction } from './r3-composer-controls-resume';
-import { chordGlyphs, optionLabel, resolvedCurrent, type Selection } from './r3-composer-controls-model';
+import { chordGlyphs } from './r3-composer-controls-model';
 import { commandChords } from './composer-presentation';
 import { threadWorktreeSetup } from './timeline-worktree';
 import { machineChanging } from './r12-threads-scratch'; // r12-threads: isEnvironmentChanging (c47f4263f9)
@@ -88,35 +88,8 @@ export function footerLayout(input: { model: string; traits: string; traitsIcon:
     controlsHidden: sm.hidden, restingControlsHidden: xs.hidden, steps: { sm: sm.step, xs: xs.step, smHidden: sm.hidden, xsHidden: xs.hidden } as FooterSteps };
 }
 
-/** buildTraitsTriggerDisplay: speed traits become a bolt (two for Ultrafast); booleans read "<label> On|Off". */
-export function traitsDisplay(driver: string, descriptors: Obj[], selections: Obj[], selection: Selection | null = null, reported: Selection | null = null,
-  ultra: { primaryId: string; controlled: boolean } = { primaryId: '', controlled: false }) {
-  let speed = '', fallback = '';
-  const labels: string[] = [];
-  const current = (descriptor: Obj) => resolvedCurrent(descriptor, selections) ?? arr(descriptor.options).find(option => option.isDefault === true)?.id;
-  for (const descriptor of descriptors) {
-    if (descriptor.id === 'fastMode' && descriptor.type === 'boolean') {
-      speed = current(descriptor) === true ? 'fast' : ''; fallback = speed ? 'Fast' : 'Normal'; continue;
-    }
-    if (driver === 'codex' && descriptor.id === 'serviceTier' && descriptor.type === 'select') {
-      const value = current(descriptor), options = arr(descriptor.options);
-      const fast = options.find(option => option.label === 'Fast'), ultra = options.find(option => option.label === 'Ultrafast');
-      if (((fast || ultra) && value === 'default') || (fast && value === fast.id) || (ultra && value === ultra.id)) {
-        speed = ultra && value === ultra.id ? 'ultrafast' : fast && value === fast.id ? 'fast' : '';
-        fallback = str(options.find(option => option.id === value)?.label, 'Normal'); continue;
-      }
-    }
-    // composer-fidelity G9: the prompt-controlled primary effort reads "Ultrathink" (buildTraitsTriggerDisplay).
-    if (ultra.controlled && descriptor.id === ultra.primaryId) { labels.push('Ultrathink'); continue; }
-    if (descriptor.type === 'boolean') { labels.push(`${str(descriptor.label, str(descriptor.id))} ${current(descriptor) === true ? 'On' : 'Off'}`); continue; }
-    if (descriptor.type !== 'select') continue;
-    // getProviderOptionCurrentLabel: a provider-reported value labels an option the user left unset.
-    const label = optionLabel(descriptor, resolvedCurrent(descriptor, selections), selection, reported);
-    if (label) labels.push(label);
-  }
-  if (!labels.length && fallback) return { label: fallback, speed: '' };
-  return { label: labels.join(' · '), speed };
-}
+// traitsDisplay (buildTraitsTriggerDisplay) lives in r3-composer-controls-model.ts, beside the option labels it reads; Settings' TraitsPicker rows share it.
+export { traitsDisplay } from './r3-composer-controls-model';
 
 // ── Primary action ─────────────────────────────────────────────────────────
 

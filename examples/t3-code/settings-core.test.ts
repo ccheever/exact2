@@ -223,6 +223,23 @@ describe('writes through the command', () => {
     const legacy = await settingsCore(as(client), native, '', '', '', 'p3', 'storage', '', true);
     expect([legacy.kind, legacy.projectLabel, legacy.showScope]).toEqual(['checkout', 'Single checkout two', true]);
   });
+  test("the Project page's Model row is General's, in the project scope", async () => {
+    // ProjectSettingsPanel renders ProjectDefaultsSettings' modelRow: ProviderModelPicker + TraitsPicker.
+    const client = fake();
+    const project = await settingsCore(as(client), native, '', 'repo', '', '', 'projects', '', true);
+    expect(project.projectModel.map(row => [row.id, row.kind, row.description, row.label, row.label2, row.status, row.divider]))
+      .toEqual([['default-model', 'model', 'Model for new threads in this project.', 'GPT-5.6-Luna', 'Medium', 'Automatic', false]]);
+    expect(project.scopeKey).toBe('|repo|');
+    expect((await settingsCore(as(client), native, '', '', '', '', 'projects', '', true)).projectModel).toEqual([]);
+    expect((await settingsCore(as(client), native, '', 'repo', '', '', 'general', '', true)).projectModel).toEqual([]);
+    // TraitsPicker's trigger names every trait (buildTraitsTriggerDisplay), as the composer's does: "Medium · 1M".
+    const wide = fake();
+    const context = { id: 'contextWindow', label: 'Context window', type: 'select', options: [{ id: '200k', label: '200K' }, { id: '1m', label: '1M', isDefault: true }] };
+    const luna = provider.models[0]!;
+    wide.config.providers = [{ ...provider, models: [{ ...luna, capabilities: { optionDescriptors: [...luna.capabilities!.optionDescriptors, context] } }] }];
+    const traits = (await settingsCore(as(wide), native, '', 'repo', '', '', 'projects', '', true)).projectModel[0]!;
+    expect([traits.label2, traits.options2.map(entry => entry.label)]).toEqual(['Medium · 1M', ['reasoningEffort', 'Low', 'Medium', 'High', 'Context window', '200K', '1M']]);
+  });
 });
 
 describe('navigation and search', () => {

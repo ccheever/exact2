@@ -128,6 +128,12 @@ Those drafts are not on this branch; here X50 and X54 are the records above.
 | --- | --- | --- | --- | --- |
 | [X58](closed/20261008-x58-scroll-lost-after-window-refocus.md) | A wheel-scrolled `scroll` keeping its offset after the window is focused again (macOS) | framework-gap (unconfirmed) | [pr-list-live-refresh](../tasks/20261008-pr-list-live-refresh.md) (its scroll row) | not reproduced on main `0365ad1a4` in a one-file app (four variants kept the offset); closed (2026-10-08), not filed |
 
+## Visual parity follow-up addition, 2026-10-08
+
+| Issue | Capability | Kind | Blocks | Status |
+| --- | --- | --- | --- | --- |
+| [X59](20261008-x59-line-clamp-first-layout-ellipsis.md) | A `line-clamp=1` text that replaces a wrapped one shows its first wrapped line without the ellipsis until restyled (macOS) | framework-gap (unconfirmed) | none ([visual-parity-followup](../tasks/20261008-visual-parity-followup.md): the collapsed table cell's first layout; a restyle draws the ellipsis) | seen in the clone with the agent on this branch and on base `07dcef1ab`; a one-file app not tried; not searched upstream beyond the title; draft, not published |
+
 ## Upstream issues (filed 2026-10-06)
 
 Each was reproduced on exact2 `4c893fef6` before filing. Not filed: X13 (unverified on macOS; the web behavior is designed), X42 (already supported on main), X38–X41 (product scope, not framework gaps).

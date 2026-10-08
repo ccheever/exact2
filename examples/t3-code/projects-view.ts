@@ -4,8 +4,7 @@
 // settings scope (settings-core's resolveScope), so this never guesses a target.
 import { arr, obj, str, type Obj } from './domain';
 import type { T3Client } from './client';
-import { projectIdentity, providerBadge } from './presentation';
-import { providerAvailable } from './protocol';
+import { projectIdentity } from './presentation';
 import { inheritance, type ScopedRow } from './source-control-view';
 import { projectActions, resolveScripts, overridesScripts } from './settings-b-actions';
 import { iconFields, blankIconFields } from './settings-b-icons';
@@ -25,7 +24,7 @@ function iconDescription(project: Obj): string {
 export function projectsPage(client: T3Client, projectKey: string, checkout: string, active: boolean) {
   const empty = { ready: false, selected: false, message: '', choices: [] as { key: string; label: string; member: string }[], confirmTitle: '', confirmDescription: '', key: '', name: '', mark: '', ink: '', surface: '', icon: 'Automatic', iconCustom: false,
     members: [] as { id: string; title: string; path: string; environment: string; first: boolean }[], hasOther: false, threads: 0,
-    model: blank, modelDriver: '', modelBadge: '', modelBadgeColor: '', effort: blank, workspace: blank, removeTitle: '', removeDescription: '', removeLabel: '', confirm: '', removeTarget: '', names: [] as string[] };
+    workspace: blank, removeTitle: '', removeDescription: '', removeLabel: '', confirm: '', removeTarget: '', names: [] as string[] };
   if (!active) return empty;
   const groups = client.projectGroups();
   if (!client.ready) return { ...empty, ready: true, message: 'Connect an environment to manage its projects.' };
@@ -42,17 +41,7 @@ export function projectsPage(client: T3Client, projectKey: string, checkout: str
   const settings = obj(client.config.settings), projectId = str(representative.id);
   const environment = str(obj(client.config.environment).label, 'Environment');
   const override = obj(obj(settings.projectSettingsOverrides)[projectId]);
-  // Model: the project's override, else the environment's, else Automatic.
-  const selection = obj(override.defaultModelSelection ?? settings.defaultModelSelection);
-  const providers = arr(client.config.providers).filter(provider => providerAvailable(provider));
-  const models = providers.flatMap(provider => arr(provider.models).filter(model => model.isUnavailable !== true && model.isLegacy !== true).map(model => ({ provider, model })));
-  const current = models.find(entry => entry.provider.instanceId === selection.instanceId && entry.model.slug === selection.model) || models.find(entry => entry.model.isDefault === true) || models[0];
-  const modelInfo = inheritance(settings, projectId, 'defaultModelSelection', environment);
-  const options = arr(obj(current?.model.capabilities).optionDescriptors);
-  const effort = options.find(option => str(option.id).toLowerCase().includes('effort'));
-  const chosen = arr(selection.options).find(option => option.id === effort?.id);
-  const effortValue = str(chosen?.value, str(effort?.currentValue, str(effort?.defaultValue)));
-  const effortChoices = arr(effort?.options ?? effort?.values).map(choice => ({ value: str(choice.id ?? choice.value), label: str(choice.label ?? choice.name, str(choice.id ?? choice.value)), selected: str(choice.id ?? choice.value) === effortValue }));
+  // The Model row is General's (settings-core's ProviderModelPicker + TraitsPicker row, settingsCore.projectModel).
   const envMode = str(override.defaultThreadEnvMode ?? settings.defaultThreadEnvMode, 'local');
   const identity = projectIdentity(group.name);
   const whole = members.length === group.members.length && !hasOther;
@@ -61,12 +50,7 @@ export function projectsPage(client: T3Client, projectKey: string, checkout: str
   return { ...empty, ready: true, selected: true, key: group.key, name: group.name, mark: identity.projectMark, ink: identity.projectInk, surface: identity.projectSurface,
     icon: iconDescription(representative), iconCustom: group.members.some(member => member.faviconPath != null || member.projectIcon != null),
     members: group.members.length > 1 ? members.map((member, index) => ({ id: str(member.id), title: str(member.title), path: str(member.workspaceRoot), environment, first: index === 0 })) : [],
-    hasOther, threads, modelDriver: str(current?.provider.driver), modelBadge: providerBadge(current?.provider, arr(client.config.providers)).providerBadge, modelBadgeColor: providerBadge(current?.provider, arr(client.config.providers)).providerBadgeColor,
-    model: { ...blank, ...modelInfo, key: 'defaultModelSelection', kind: 'model', title: 'Model', description: 'Model for new threads in this project.', first: true, disabled: !client.writable || !current,
-      status: modelInfo.state === 'overridden' || settings.defaultModelSelection ? '' : 'Automatic', value: current ? `${current.provider.instanceId}:${current.model.slug}` : '',
-      valueLabel: current ? str(current.model.name, str(current.model.slug)) : 'No providers available', options: models.map(entry => ({ value: `${entry.provider.instanceId}:${entry.model.slug}`, label: `${str(entry.model.name, str(entry.model.slug))} · ${str(entry.provider.displayName, str(entry.provider.instanceId))}`, selected: entry === current })),
-      reset: Object.prototype.hasOwnProperty.call(override, 'defaultModelSelection') ? 'key=defaultModelSelection&value=__inherit__' : '' },
-    effort: { ...blank, key: effort ? str(effort.id) : '', kind: 'effort', title: 'Effort', valueLabel: effortChoices.find(choice => choice.selected)?.label || effortValue, options: effortChoices, disabled: !client.writable || !effort },
+    hasOther, threads,
     workspace: { ...blank, ...inheritance(settings, projectId, 'defaultThreadEnvMode', environment), key: 'defaultThreadEnvMode', kind: 'select', title: 'Workspace', description: 'Where new threads in this project start.', disabled: !client.writable,
       value: envMode, valueLabel: envMode === 'worktree' ? 'New worktree' : 'Current checkout', options: [{ value: 'local', label: 'Current checkout', selected: envMode === 'local' }, { value: 'worktree', label: 'New worktree', selected: envMode === 'worktree' }],
       reset: Object.prototype.hasOwnProperty.call(override, 'defaultThreadEnvMode') ? 'key=defaultThreadEnvMode&value=__inherit__' : '' },
@@ -96,7 +80,7 @@ async function actionsSection(client: T3Client, native: Native | null | undefine
   const group = page.selected ? client.projectGroups().find(candidate => candidate.key === projectKey) : undefined;
   const members = group ? group.members.filter(member => !checkout || member.id === checkout) : [];
   const empty = { actionScope: '', actionsMixed: false, actionsWritable: false, t3Invalid: false, actions: [] as (typeof blankAction)[], importable: [] as { key: string; name: string; command: string; icon: string; payload: string }[],
-    actionsRow: { ...page.model, key: 'defaultProjectScripts', kind: 'actions', title: 'Actions', description: "Commands that run in this project's checkout or its worktree, with optional shortcuts.", first: true, reset: '', status: '' }, blankActions: [blankAction] };
+    actionsRow: { ...blank, key: 'defaultProjectScripts', kind: 'actions', title: 'Actions', description: "Commands that run in this project's checkout or its worktree, with optional shortcuts.", first: true, reset: '', status: '' }, blankActions: [blankAction] };
   if (!members.length) return empty;
   const view = await projectActions(client, native, members);
   const settings = obj(client.config.settings), environment = str(obj(client.config.environment).label, 'Environment');
