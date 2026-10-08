@@ -46,7 +46,7 @@ import { basename, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { openTouches, realTap } from '../host/apple/touches.mjs';
 import { dragTap, duringAllowed, duringOp } from './agent-drag.mjs';
-import { runTests, nodeNamed, targetsIn } from './agent-test.mjs';
+import { driveNotes, runTests, nodeNamed, targetsIn } from './agent-test.mjs';
 import { cdpKey, browserKey, nativeKey, typeFor, ticketOf, holdOf, heldTicket, typeArguments, typeCommand, pickedPaths, mouseContact, withHeldModifiers, pasteChord, deliverClipboard, tapWords, pointerGap, chordModifiers, withChordModifiers, heldForClick } from './agent-keys.mjs';
 export { cdpKey, browserKey, nativeKey, typeFor, ticketOf, holdOf, heldTicket, typeArguments, typeCommand, pickedPaths, mouseContact, pasteChord, deliverClipboard, tapWords, pointerGap } from './agent-keys.mjs';
 import { appleArtifacts, assertAppleIdentity, bundleId, install } from '../host/apple/build.mjs';
@@ -1448,36 +1448,20 @@ async function main(argv) {
       }
       return [op, r];
   };
-  // A drive that names no scratch store has no storage, and a source's write fails only in the
-  // journal; say so on stderr, which a --json reader's stdout never carries (authoring bench,
-  // LLP 1087; LLP 1102 §3.17). The web reads its journal beside each op that could have caused
-  // it (an in-page call); a native carrier, whose journal read could be slow, once when the
-  // drive ends, bounded, so it never fails the ops.
-  let peek = 0, probes = 0, warned = flags.storage !== undefined;
-  const storageNote = async () => {
-    if (warned || ++probes > 20) return; // a missing store shows at the first writes
-    try {
-      const j = await Promise.race([s.op({ op: 'logs', since: peek }).catch(() => null), new Promise((done) => setTimeout(() => done(null), 3000))]);
-      if (!Array.isArray(j?.lines)) return;
-      peek = j.next;
-      if (j.lines.some((l) => /unavailable in agent mode/.test(typeof l === 'string' ? l : JSON.stringify(l)))) {
-        warned = true;
-        console.error('note: a data source was refused storage: this drive names no scratch store, so writes do nothing; pass --storage <name> (docs/agent-pitfalls.md)');
-      }
-    } catch { warned = true; } // advice only: never fail a drive over it
-  };
+  // What the replies leave out, on stderr, which a --json reader's stdout never carries (agent-test.mjs `driveNotes`).
+  const notes = driveNotes(s, { host, storage: flags.storage });
   try {
     for (const [k, line] of ops.entries()) {
       at = k + 1;
       const [op, r] = await step(line);
       console.log(flags.json ? JSON.stringify(r) : render(op, r));
-      if (host === 'web' && ['tap', 'type', 'clock'].includes(op)) await storageNote();
+      await notes(op);
     }
-    if (host !== 'web' && ops.some((line) => /^\s*(tap|type|clock)\b/.test(line))) await storageNote();
+    await notes('end');
     return 0;
   } catch (e) {
-    // A drive that fails (an `expect`, a refused op) is where a missing store is found: say it first.
-    if (host !== 'web' && ops.slice(0, at).some((line) => /^\s*(tap|type|clock)\b/.test(line))) await storageNote();
+    // A drive that fails (an `expect`, a refused op) is where a missing store or a failed resource is found: say it first.
+    await notes('end');
     e.message = `op ${at}/${ops.length} \`${ops[at - 1]?.trim()}\`: ${e.message}`;
     throw e;
   } finally {

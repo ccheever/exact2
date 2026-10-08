@@ -584,6 +584,14 @@ Resources read as their declared type. Mutations read as `option<T>` and start a
 `none`, so a mutation's `T` is not itself an option. Do not treat a resource as an optional wrapper unless its declared type
 itself is optional. A mutation reply is unwrapped with match.
 
+An answer is held to its shape exactly: a field the shape does not declare, at any
+depth, fails the resource as a thrown error does (TypeScript lets a spread such as
+`{ ...row }` through). The view keeps its placeholder or last value and
+`failed(x)` is true, so a banner on `failed` reads "unreachable" for what is a
+shape mismatch: `state` names the field under `failed`, a CLI drive says so on
+stderr, and a failing `expect` names it. Project a backend row onto the shape
+field by field (`({ id: row.id, title: row.title })`).
+
 `with` takes one or more expressions, before `as shape`, and appends them to the
 source's arguments. All arguments still trigger re-asks and identify live
 requests. Only an eligible persisted answer admitted while the source is unready
@@ -1462,7 +1470,9 @@ transition or animation ends, firing the timers due on the way, so a test on a t
 `clock data` lands it without moving the clock: the data module's activation and
 every request in flight, each answer's `then` with it, no timer fired. A CLI drive's
 first operation runs at boot and may come before that has landed (an authored test
-lands it before its first step), so a drive that reads or taps data starts with `clock data`.
+lands it before its first step), so a drive that reads or taps data starts with `clock data`
+(a `tree`, `layout` or `screenshot` taken before the clock first moves, with a request
+in flight, says so on stderr).
 A playing `video` or `audio` is on real time too: the clock never seeks or holds it, so
 between operations it moves only as far as the drive took. `clock +N real` lets
 N ms of real time pass with the clock moving beside it, a step at a time: a
@@ -1565,9 +1575,9 @@ changes?"; macOS and the web),
 options, and a checkbox with a `checked` binding `true` or `false`; else its descendants' — a button's label — else a field's value), and
 `expect state name == <number|string|bool|none|[]>`, where `name` may go on into
 a record's fields (`board.active.present`) or a list index (`rows.0`), and the
-number may be negative (`== -3`). A failed expect with no input before
-it names the requests still in flight (the boot's own, or what a `clock +N` left
-on real time). An input step ends with what it settled: an answer the data
+number may be negative (`== -3`). A failed expect names any resource that
+failed, and why; with no input before it, the requests still in flight (the boot's
+own, or what a `clock +N` left on real time). An input step ends with what it settled: an answer the data
 module gave in the input's turn, and its mutation's `then`, are there for the
 next step. Otherwise the clock stands still between steps: a reply on real time
 (a store's, the network's) or a transition an input started lands at a `clock`

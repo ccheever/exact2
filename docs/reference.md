@@ -345,7 +345,8 @@ present (an `undefined` one is missing, as `JSON.stringify` leaves it out), none
 undeclared at any depth, each value of its declared kind. TypeScript's excess
 property check misses a spread (`{ ...row, amount }` keeps `row`'s other fields),
 so the refusal is at run time, the same on the web as on a device:
-``` `ledger` answered outside its shape: field `days`: field `transactions`: field `cents` is not in the shape ```.
+``` `ledger` answered outside its shape: field `days`: field `transactions`: field `cents` is not in the shape ```,
+which the agent's `state` shows under `failed` while the resource keeps its last value.
 Use a distinct filename: adjacent `app.ts` shadows an `app.d.ts` import.
 Generated declarations are build artifacts, not files to commit. A development
 build writes them beside `app.ts` for an editor: the web build and the native

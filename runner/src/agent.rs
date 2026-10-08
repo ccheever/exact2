@@ -737,7 +737,23 @@ fn state_with<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
             None => s.push_str("null"),
         }
     }
-    s.push_str("},\"pending\":[");
+    s.push('}');
+    // Why each failed resource failed (app farm round 1: a shape refusal
+    // showed only in the journal while the view kept its placeholder).
+    let failed = runner.failed_resources();
+    if !failed.is_empty() {
+        s.push_str(",\"failed\":{");
+        for (i, (name, why)) in failed.iter().enumerate() {
+            if i > 0 {
+                s.push(',');
+            }
+            quote(name, &mut s);
+            s.push(':');
+            quote(why, &mut s);
+        }
+        s.push('}');
+    }
+    s.push_str(",\"pending\":[");
     let in_flight = runner.in_flight();
     for (i, (name, ticket)) in in_flight.iter().enumerate() {
         if i > 0 {
