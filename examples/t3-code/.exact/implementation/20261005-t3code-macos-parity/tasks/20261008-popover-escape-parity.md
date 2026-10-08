@@ -115,7 +115,7 @@ The user decided on 2026-10-08 that both behave as the reference T3 Code (`1e2ec
 2026-10-08: implemented on `feat(example)/t3-code-popover-escape-parity` (from `07dcef1ab`). Two agent sessions
 (one retry) and the base session; session 1 found the scroll-ground and the doubled own-segment press (under
 a toast), both fixed before session 2. An independent review (below) found one blocking issue and several
-others; all fixed in attempt 3 or recorded. `20261007-theme-color-picker.md` still calls the editor's Escape
+others; all fixed in attempt 3 or recorded. `closed/20261007-theme-color-picker.md` still calls the editor's Escape
 "provisional, user decision pending"; the user decided it here (records sync is the coordinator's).
 
 Later on 2026-10-08 the coordinator added the real-input batch's #263 rows 10-12 (PR #298). Attempt 5 built a
