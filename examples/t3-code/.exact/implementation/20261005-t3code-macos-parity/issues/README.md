@@ -106,12 +106,14 @@ publication was performed during this local audit.
 | --- | --- | --- | --- | --- |
 | [X54](20261008-x54-focus-within-subtree.md) | An ancestor hearing the focus enter its subtree (`focusin`, `:focus-within`) | framework-gap | [pr-writing-and-metadata](../tasks/20261005-pr-writing-and-metadata.md) (nonblocking: "Show full comment" and the pencil are Tab stops of their own) | upstream [#283](https://github.com/ccheever/exact2/issues/283) ([Feature], 2026-10-08); reproduced on main `0365ad1a4` |
 
-## Agent storage and accessibility additions, 2026-10-08
+## Additions filed or closed in the 2026-10-08 round
 
 | Issue | Capability | Kind | Blocks | Status |
 | --- | --- | --- | --- | --- |
 | [X50](20261008-x50-agent-module-data-storage.md) | A native module's data folder under the agent's `--storage` (per process today, so module files do not survive an agent relaunch) | framework-gap | [pr-conversation-and-refresh](../tasks/20261005-pr-conversation-and-refresh.md) (nonblocking: agent relaunch checks only) | upstream [#284](https://github.com/ccheever/exact2/issues/284) ([Bug], 2026-10-08); reproduced on main `0365ad1a4` |
 | [X55](20261008-x55-macos-status-alert-progress-roles.md) | Live regions, alerts, modal dialogs and progress bars exposed to accessibility on macOS | framework-gap | [portable-app-download](../tasks/20261005-portable-app-download.md) (the view's accessibility row) | upstream [#278](https://github.com/ccheever/exact2/issues/278) ([Bug], 2026-10-08); reproduced on main `0365ad1a4`; record copied from the closed #260 branch |
+| [X57](20261008-x57-overflowing-centred-line.md) | A line wider than its box start-aligned whatever `text-align` says (CSS Text 3 §7.1); macOS centres it and cuts its start | framework-gap | none (pr-list-title-clip, PR #289: the clone says `text-left` where the reference does) | upstream [#291](https://github.com/ccheever/exact2/issues/291) ([Bug], 2026-10-08); reproduced on main `0365ad1a4`; record also on PR #289's branch |
+| [X58](20261008-x58-scroll-lost-after-window-refocus.md) | A wheel-scrolled `scroll` keeping its offset after the window is focused again (macOS) | framework-gap (unconfirmed) | pr-list-live-refresh (PR #265) | not reproduced on main `0365ad1a4` in a one-file app (four variants kept the offset); closed (2026-10-08), not filed; record also on PR #265's branch |
 
 The closed #260 branch numbered two of its own drafts X50 and X54 (distribution build paths).
 Those drafts are not on this branch; here X50 and X54 are the records above.
@@ -175,6 +177,7 @@ Each was reproduced on exact2 `4c893fef6` before filing. Not filed: X13 (unverif
 Each was reproduced on main `0365ad1a4` with a minimal public-API app before filing; the files involved are unchanged on main `e200397ec`. `[Policy]` and `[Design]` issues carry one "Decision needed" comment. Not filed:
 - X13: not reproduced as described.
 - X56: not reproduced in a one-file app.
+- X58: not reproduced in a one-file app.
 - X42: supported on main.
 - X44's rest: open PR #239 covers it.
 - The timeline-keyboard test recipe: a clone recipe problem. ExactKit's `package` access needs `-package-name`; it is not a framework API.
@@ -203,5 +206,7 @@ Each was reproduced on main `0365ad1a4` with a minimal public-API app before fil
 | side (agent driver) | [#285](https://github.com/ccheever/exact2/issues/285) | [Bug] Agent driver: `clock +N real` can ask an Apple host for a time just behind its clock ("the clock cannot go backwards") |
 | side (native executor) | [#286](https://github.com/ccheever/exact2/issues/286) | [Bug] Native executor: a request a source makes inside its answer fails at the ordered admission limit (16), where the web queues it |
 | side (borders) | [#287](https://github.com/ccheever/exact2/issues/287) | [Feature] `border-style`: `dotted` and `dashed` |
+| X57 | [#291](https://github.com/ccheever/exact2/issues/291) | [Bug] macOS: a centred line wider than its box is centred and clipped at its start (CSS start-aligns it) |
+| side (from X26) | [#292](https://github.com/ccheever/exact2/issues/292) | [Bug] macOS: while a context or button menu is open, main-queue work stalls, so native module calls stop until it closes |
 
 Local draft: [macOS native module termination](closed/20261006-native-module-termination.md) — reproduced by SSH acceptance; folded into #105 and fixed by main #200; the app workaround (T3Ssh's `willTerminateNotification` observer) is removed and the live check passed: both SSH tunnels end at ⌘W, an Apple Event quit and ⌘Q in both builds (adopt-main-fixes-r4). **Adopted.**
