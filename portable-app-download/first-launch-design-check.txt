@@ -1,0 +1,48 @@
+# portable-app-download: first-launch view design check (lane development build, agent driver), 2026-10-07 UTC
+Build: bun host/apple/build.mjs t3-code-macos --bundle at 49d1e21ac (dev flavor). Driven with EXACT_MAC_BIN=<bundle>/Contents/MacOS/T3 Code (Exact), T3_LOCAL_HOME=<empty lane home>, T3_LOCAL_PORT=16351, T3_LOCAL_UNPACK_DELAY_MS=6500 (holds checking, unpacking 0 %, unpacking 50 %). Failure: T3_LOCAL_HOME=/Volumes/T3LANESMALL (a 48 MB APFS image).
+
+## Layout (agent layout, view points)
+== d1-1280-light.json
+  first-launch-column clock=1500 window={'h': 68, 'y': 386, 'x': 460, 'w': 360} content={'w': 360, 'h': 68} {'text_color': 'light-dark(#27272a, #f5f5f5)', 'max_width': 360, 'width': '100%', 'box_sizing': 'border-box'}
+  first-launch-title clock=1500 window={'w': 360, 'h': 20, 'x': 460, 'y': 386} content={'w': 193.578125, 'h': 20} {'font_size': 20, 'line_height': '20px', 'font_weight': 600, 'text_color': 'light-dark(#27272a, #f5f5f5)', 'width': '100%'}
+  first-launch-status clock=1500 window={'h': 20, 'y': 418, 'x': 460, 'w': 360} content={'w': 171.109375, 'h': 20} {'font_size': 14, 'line_height': '20px', 'text_color': 'light-dark(#71717b, #9a9a9a)', 'height': 20, 'width': '100%', 'white_space': 'nowrap'}
+  first-launch-progress clock=1500 window={'w': 360, 'h': 4, 'x': 460, 'y': 450} content={'w': 360, 'h': 4} {'text_color': 'light-dark(#27272a, #f5f5f5)', 'background_color': 'light-dark(#27272a14, #f5f5f514)', 'height': 4, 'width': '100%'}
+  first-launch-status clock=8000 window={'x': 460, 'y': 418, 'h': 20, 'w': 360} content={'w': 204.71875, 'h': 20} {'font_size': 14, 'line_height': '20px', 'text_color': 'light-dark(#71717b, #9a9a9a)', 'height': 20, 'width': '100%', 'white_space': 'nowrap'}
+  first-launch-progress clock=8000 window={'h': 4, 'x': 460, 'y': 450, 'w': 360} content={'w': 360, 'h': 4} {'text_color': 'light-dark(#27272a, #f5f5f5)', 'background_color': 'light-dark(#27272a14, #f5f5f514)', 'height': 4, 'width': '100%'}
+  first-launch-progress clock=14500 window={'x': 460, 'y': 450, 'h': 4, 'w': 360} content={'w': 360, 'h': 4} {'text_color': 'light-dark(#27272a, #f5f5f5)', 'background_color': 'light-dark(#27272a14, #f5f5f514)', 'height': 4, 'width': '100%'}
+  first-launch-fill clock=14500 window={'h': 4, 'x': 460, 'y': 450, 'w': 360} content=None {'text_color': 'light-dark(#27272a, #f5f5f5)', 'background_color': 'light-dark(#18181b, #f5f5f5)', 'height': '100%', 'width': '100%', 'transition': '(transition)', 'translate': [0, 0]}
+== f1-840-light.json
+  first-launch-column clock=3000 window={'x': 240, 'h': 160, 'w': 360, 'y': 230} content={'w': 360, 'h': 160} {'text_color': 'light-dark(#27272a, #f5f5f5)', 'max_width': 360, 'width': '100%', 'box_sizing': 'border-box'}
+  first-launch-title clock=3000 window={'y': 230, 'x': 240, 'w': 360, 'h': 20} content={'w': 257.359375, 'h': 20} {'font_size': 20, 'line_height': '20px', 'font_weight': 600, 'text_color': 'light-dark(#27272a, #f5f5f5)', 'width': '100%'}
+  first-launch-error clock=3000 window={'y': 262, 'x': 240, 'w': 360, 'h': 80} content={'w': 342.234375, 'h': 80} {'font_size': 14, 'line_height': '20px', 'text_color': 'light-dark(#e7000b, #ff6467)', 'width': '100%'}
+  first-launch-retry clock=3000 window={'y': 358, 'x': 240, 'h': 32, 'w': 59.36} content={'w': 46.359375, 'h': 25} {'text_color': 'light-dark(#27272a, #f5f5f5)', 'background_color': 'light-dark(#1b4ed8, #346bf1)', 'padding_left': 11, 'height': 32, 'box_sizing': 'border-box'}
+  first-launch-quit clock=3000 window={'x': 307.36, 'y': 358, 'h': 32, 'w': 51.61} content={'w': 38.609375, 'h': 25} {'text_color': 'light-dark(#27272a, #f5f5f5)', 'background_color': 'light-dark(#ffffff, #ffffff07)', 'padding_left': 11, 'height': 32, 'box_sizing': 'border-box'}
+== f2-1280-dark.json
+  first-launch-column clock=3000 window={'x': 460, 'y': 340, 'w': 360, 'h': 160} content={'w': 360, 'h': 160} {'text_color': 'light-dark(#27272a, #f5f5f5)', 'max_width': 360, 'width': '100%', 'box_sizing': 'border-box'}
+  first-launch-title clock=3000 window={'y': 340, 'w': 360, 'x': 460, 'h': 20} content={'w': 257.359375, 'h': 20} {'font_size': 20, 'line_height': '20px', 'font_weight': 600, 'text_color': 'light-dark(#27272a, #f5f5f5)', 'width': '100%'}
+  first-launch-error clock=3000 window={'x': 460, 'y': 372, 'w': 360, 'h': 80} content={'w': 342.234375, 'h': 80} {'font_size': 14, 'line_height': '20px', 'text_color': 'light-dark(#e7000b, #ff6467)', 'width': '100%'}
+  first-launch-retry clock=3000 window={'x': 460, 'w': 59.36, 'h': 32, 'y': 468} content={'w': 46.359375, 'h': 25} {'text_color': 'light-dark(#27272a, #f5f5f5)', 'background_color': 'light-dark(#1b4ed8, #346bf1)', 'padding_left': 11, 'height': 32, 'box_sizing': 'border-box'}
+  first-launch-quit clock=3000 window={'x': 527.36, 'h': 32, 'w': 51.61, 'y': 468} content={'w': 38.609375, 'h': 25} {'text_color': 'light-dark(#27272a, #f5f5f5)', 'background_color': 'light-dark(#ffffff, #ffffff07)', 'padding_left': 11, 'height': 32, 'box_sizing': 'border-box'}
+
+## Contrast from screenshot pixels (darkest/brightest ink in the node's box against the window background)
+d1-1280-light-1-checking.png: first-launch-title ink #27272a on #fcfcfc = 14.52:1
+d1-1280-light-1-checking.png: first-launch-status ink #71717b on #fcfcfc = 4.71:1
+d2-840-dark-1-checking.png: first-launch-title ink #f5f5f5 on #0a0a0a = 18.16:1
+d2-840-dark-1-checking.png: first-launch-status ink #9a9a9a on #0a0a0a = 7.04:1
+f1-840-light-failed.png: first-launch-title ink #27272a on #fcfcfc = 14.52:1
+f1-840-light-failed.png: first-launch-error ink #e7000b on #fcfcfc = 4.65:1
+f2-1280-dark-failed.png: first-launch-title ink #f5f5f5 on #0a0a0a = 18.16:1
+f2-1280-dark-failed.png: first-launch-error ink #ff6467 on #0a0a0a = 6.85:1
+
+## Accessibility (tree --ax, AppKit)
+d1-1280-light clock 1500 [('first-launch-title', 'heading', 'Setting up T3 Code…', {'level': 1}), ('first-launch-status', 'text', 'Checking the server files…', {})] modal {'present': False}
+d1-1280-light clock 8000 [('first-launch-title', 'heading', 'Setting up T3 Code…', {'level': 1}), ('first-launch-status', 'text', 'Unpacking the server files… 0%', {})] modal {'present': False}
+d1-1280-light clock 14500 [('first-launch-title', 'heading', 'Setting up T3 Code…', {'level': 1}), ('first-launch-status', 'text', 'Unpacking the server files… 50%', {})] modal {'present': False}
+f1-840-light clock 3000 [('first-launch-title', 'heading', 'T3 Code could not be set up', {'level': 1}), ('first-launch-error', 'text', 'There is not enough disk space to set up T3 C', {}), ('first-launch-retry', 'button', 'Retry', {'focused': True}), ('first-launch-quit', 'button', 'Quit', {})] modal {'present': False}
+f1-840-light clock 3000 [('first-launch-title', 'heading', 'T3 Code could not be set up', {'level': 1}), ('first-launch-error', 'text', 'There is not enough disk space to set up T3 C', {}), ('first-launch-retry', 'button', 'Retry', {}), ('first-launch-quit', 'button', 'Quit', {'focused': True})] modal {'present': False}
+f1-840-light clock 3000 [('first-launch-title', 'heading', 'T3 Code could not be set up', {'level': 1}), ('first-launch-error', 'text', 'There is not enough disk space to set up T3 C', {}), ('first-launch-retry', 'button', 'Retry', {}), ('first-launch-quit', 'button', 'Quit', {})] modal {'present': False}
+f1-840-light clock 6000 [('first-launch-title', 'heading', 'T3 Code could not be set up', {'level': 1}), ('first-launch-error', 'text', 'There is not enough disk space to set up T3 C', {}), ('first-launch-retry', 'button', 'Retry', {'focused': True}), ('first-launch-quit', 'button', 'Quit', {})] modal {'present': False}
+(Contract tree: first-launch role dialog/alertdialog aria-modal; first-launch-progress role progressbar aria-label 'Setting up T3 Code' aria-description '<n>%'; first-launch-status role status aria-live polite; first-launch-error role alert. AppKit exposes the heading, the text and the buttons only: EXACT2-GAPS X51, X49.)
+
+## Reduced motion
+first-launch-fill: transition (reduced ? "none" : "translate 160ms linear"); translate_percent read back: m1 (no-preference) [-100,0] at 0 % then [-50,0] at 50 %; m2 (reduce) the same steps. The agent's own frame film returns blank frames on this host, so no film.
