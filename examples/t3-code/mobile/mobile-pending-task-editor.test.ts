@@ -5,8 +5,9 @@ import { mobileNewTaskPendingContext } from './new-task-pending-context';
 import { mobileNewTask, mobileNewTaskPrepare } from './new-task';
 // @ref llp/1109.005-composer-and-transcript.decision.md#local-outbox-storage
 import { expect, test } from 'bun:test';
+import { mobileOutboxDeliveryDecode } from './mobile-outbox-delivery';
 import { MobileDraftClient, mobileDraftRecoveryHandles } from './mobile-draft-recovery';
-import { mobilePendingTaskEditorOpen as open, mobilePendingTaskEditorSave as save, mobilePendingTaskEditorFinish as finish } from './mobile-pending-task-editor';
+import { mobilePendingTaskEditorOpen as open, mobilePendingTaskEditorSave as save, mobilePendingTaskEditorFinish as finish, mobilePendingTaskEditorSaveForRecovery as saveForRecovery } from './mobile-pending-task-editor';
 import { mobilePendingTaskEditorKey, mobilePendingTaskEditorsSnapshot } from './mobile-pending-task-state';
 import { mobileNewTaskDraftBind as bind, mobileNewTaskDraftUnbind as unbind, mobileNewTaskDraftStore as drafts } from './mobile-new-task-drafts';
 import { mobilePendingTaskDraftFingerprint } from './mobile-pending-task-draft';
@@ -23,8 +24,8 @@ function original(): MobileOutboxRecord {
 }
 function backend() {
   const state: { record: MobileOutboxRecord | null; epoch: string; token: string; revision: number; floor: number;
-    held: Set<string>; outcomes: Map<string, Obj>; requests: Map<string, Obj>; unknown: boolean; releaseFalse: boolean } = { record: original(), epoch: 'epoch', token: 'epoch:1', revision: 1, floor: 1,
-    held: new Set<string>(), outcomes: new Map<string, Obj>(), requests: new Map<string, Obj>(), unknown: false, releaseFalse: false };
+    terminal: Obj | null; terminalDurable: boolean; held: Set<string>; outcomes: Map<string, Obj>; requests: Map<string, Obj>; unknown: boolean; releaseFalse: boolean } = { record: original(), epoch: 'epoch', token: 'epoch:1', revision: 1, floor: 1,
+    terminal: null, terminalDurable: true, held: new Set<string>(), outcomes: new Map<string, Obj>(), requests: new Map<string, Obj>(), unknown: false, releaseFalse: false };
   const calls: Obj[] = [], hooks = new Map<string, (request: Obj) => void | Promise<void>>();
   const current = () => ({ record: copy(state.record), revision: state.revision, token: state.token, pending: false });
   const native: Native = { available: true, watch() {}, async later(raw) {
@@ -34,7 +35,9 @@ function backend() {
     else if (request.op === 'devicePresentation') value = {};
     else if (request.op === 'environments') value = { saved: [] };
     else if (request.op === 'ids') value = ['aaaaaaaa-1111-4111-8111-111111111111'];
-    else if (request.op === 'mobileOutboxDelivery' && request.action === 'status') value = { operation: null, durable: false };
+    else if (request.op === 'mobileOutboxDelivery' && request.action === 'status') value = { operation: request.operationId === 'command' ? state.terminal : null, durable: request.operationId === 'command' && !!state.terminal && state.terminalDurable };
+    else if (request.op === 'mobileOutboxDelivery' && request.action === 'recover') { expect(request.revision).toBe(state.terminal?.revision); state.terminalDurable = true; value = { operation: state.terminal, durable: true }; }
+    else if (request.op === 'mobileOutboxDelivery' && request.action === 'draftHandoffStatus') value = { handoff: null, durable: false };
     else if (request.op === 'mobileOutboxInline' && request.action === 'lookup') value = { operations: [] };
     else if (request.op === 'mobileOutbox') {
       if (request.action === 'read') value = { ownerEpoch: state.epoch, sequenceFloor: state.floor, complete: true, errors: [],
@@ -455,4 +458,59 @@ test('offline pending header uses only the exact saved home label without changi
   fleet.saved.push({ environmentId: 'env', origin: owner.origin, label: 'Ambiguous server' });
   expect(mobileNewTask('', f.client, fleet).environmentLabel).toBe('Environment');
   expect(f.host.state.record).toEqual(original()); expect(f.client.shell.projects).toEqual([]);
+});
+
+
+function terminalRecord(state: 'acknowledged' | 'rejected' | 'issued' | 'reserved', cleanup = 'edited'): Obj {
+  return { kind: 'outbox', operationId: 'command', revision: state === 'reserved' ? 1 : state === 'issued' ? 2 : state === 'acknowledged' ? 5 : 3,
+    origin: owner.origin, environmentId: owner.environmentId, threadId: owner.threadId, messageId: owner.messageId,
+    rowToken: 'epoch:1', rowRevision: 1, record: original(), stage: 'start-turn', method: 'orchestration.launchThread',
+    payload: { commandId: 'command', threadId: 'thread', initialMessage: { messageId: 'message' } }, attachmentIDs: [], state,
+    ...(state === 'reserved' ? {} : { attemptRevision: 2, attemptPreviousState: 'reserved' }),
+    ...(state === 'acknowledged' ? { result: { sequence: 42 }, cleanup: { ackRevision: 3, intentRevision: 4, phase: cleanup, mutationId: 'epoch:2', ownerEpoch: 'epoch',
+      outcome: cleanup === 'edited' ? { messageId: 'message', mutationId: 'epoch:2', status: 'stale', revision: 2, record: null, removed: null, message: '',
+        current: { record: original(), revision: 2, token: 'epoch:3', pending: false }, ownerEpoch: 'epoch', sequenceFloor: 3 } : null } } : {}),
+    ...(state === 'rejected' ? { error: { kind: 'EnvironmentAuthorizationError' } } : {}) };
+}
+for (const outcome of ['acknowledged', 'rejected'] as const) test(`terminal ${outcome} recovery save preserves current editor and immutable command, without authorizing ordinary Finish`, async () => {
+  const f = await opened(); edit(f, 'latest retained edits'); f.host.state.terminal = terminalRecord(outcome);
+  const terminal = copy(f.host.state.terminal); expect(mobileOutboxDeliveryDecode(terminal, 'command').state).toBe(outcome);
+  expect((await save(f.client, f.host.native, f.storage, { ...f.input, expected: live(f) })).status).toBe('retained');
+  expect(f.host.writes()).toHaveLength(0);
+  const saved = await saveForRecovery(f.client, f.host.native, f.storage, { ...f.input, expected: live(f) });
+  expect(saved.status).toBe('recovery-saved'); expect(saved.fingerprint).toBe(mobilePendingTaskDraftFingerprint(f.client, key));
+  expect(f.host.state.record).toMatchObject({ ...owner, text: 'latest retained edits', createdAt: original().createdAt });
+  expect(f.host.state.terminal).toEqual(terminal); expect(f.host.state.held.size).toBe(1);
+  expect(f.client.local.drafts[key]).toBe('latest retained edits'); expect(savedMarker(f.disk()).session).toBe(live(f).session);
+  expect((await finish(f.client, f.host.native, f.storage, { ...f.input, expected: live(f), fingerprint: saved.fingerprint! })).status).toBe('retained');
+  expect(f.host.state.held.size).toBe(1); expect(mobilePendingTaskEditorsSnapshot(f.client).markers).toHaveLength(1);
+});
+test('terminal recovery refuses absent, reserved, issued and incomplete ACK receipts without fresh update or retirement', async () => {
+  for (const terminal of [null, terminalRecord('reserved'), terminalRecord('issued'), terminalRecord('acknowledged', 'not-started')]) {
+    const f = await opened(); edit(f, 'keep current'); f.host.state.terminal = terminal;
+    expect((await saveForRecovery(f.client, f.host.native, f.storage, { ...f.input, expected: live(f) })).status).toBe('retained');
+    expect(f.host.writes()).toHaveLength(0); expect(f.host.calls.some(call => call.action === 'retire')).toBe(false);
+    expect(f.client.local.drafts[key]).toBe('keep current');
+  }
+});
+test('cold terminal save resumes one captured update and leaves newer typing in its editor', async () => {
+  const f = await opened(); edit(f, 'captured terminal edit'); f.host.state.terminal = terminalRecord('rejected'); f.host.state.unknown = true;
+  expect((await saveForRecovery(f.client, f.host.native, f.storage, { ...f.input, expected: live(f) })).status).toBe('retained');
+  const request = copy(live(f).pending!.request); edit(f, 'newer retained typing'); await f.client.persist(f.storage);
+  f.host.state.held.clear(); f.host.state.epoch = 'cold'; f.host.state.unknown = false;
+  const restart = await fixture(f.disk(), f.host);
+  const reopened = await open(restart.client, restart.host.native, restart.storage, restart.input);
+  expect(reopened.status).toBe('retained'); expect(restart.host.writes().map(call => call.request)).toEqual([request, request]);
+  expect(restart.host.state.record?.text).toBe('captured terminal edit'); expect(restart.client.local.drafts[key]).toBe('newer retained typing');
+  expect((await saveForRecovery(restart.client, restart.host.native, restart.storage, { ...restart.input, expected: live(restart) })).status).toBe('recovery-saved');
+  expect(restart.host.state.record?.text).toBe('newer retained typing'); expect(restart.host.state.terminal).toEqual(terminalRecord('rejected'));
+});
+test('terminal recovery save retains newer typing during update and sends no provider requests', async () => {
+  const f = await opened(); edit(f, 'captured'); f.host.state.terminal = terminalRecord('rejected');
+  f.host.hooks.set('mobileOutbox:resumeUpdate', () => edit(f, 'typed while saving'));
+  const value = await saveForRecovery(f.client, f.host.native, f.storage, { ...f.input, expected: live(f) });
+  expect(value.status).toBe('retained'); expect(value.reason).toContain('Newer');
+  expect(f.host.state.record?.text).toBe('captured'); expect(f.client.local.drafts[key]).toBe('typed while saving');
+  expect(obj(f.disk().drafts)[key]).toBe('typed while saving');
+  expect(f.host.calls.some(call => ['send', 'reserve', 'releaseHold'].includes(str(call.action)) || call.op === 'request')).toBe(false);
 });
