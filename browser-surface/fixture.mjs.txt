@@ -1,0 +1,17 @@
+// browser-surface lane fixture: static pages on 127.0.0.1:16651 (not committed).
+const port = Number(process.env.FIXTURE_PORT || 16651);
+const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAKElEQVR4nGP8z8Dwn4ECwESJ5lEDRg0YNWDUgFEDRg0YNWDUAAoBAOTiAh9JeVnSAAAAAElFTkSuQmCC', 'base64');
+const page = (title, body) => `<!doctype html><html><head><meta charset="utf-8"><title>${title}</title><link rel="icon" href="/favicon.png"><style>body{font:15px -apple-system,sans-serif;margin:32px;color:#222}a{color:#1b4ed8}</style></head><body><h1>${title}</h1>${body}</body></html>`;
+const log = [];
+Bun.serve({ port, hostname: '127.0.0.1', async fetch(request) {
+  const url = new URL(request.url);
+  log.push(`${new Date().toISOString()} ${request.method} ${url.pathname}`);
+  console.log(log.at(-1));
+  if (url.pathname === '/favicon.png') return new Response(png, { headers: { 'content-type': 'image/png' } });
+  if (url.pathname === '/slow') { await Bun.sleep(Number(url.searchParams.get('ms') || 6000)); return new Response(page('Slow page', '<p>Loaded after a delay.</p>'), { headers: { 'content-type': 'text/html' } }); }
+  if (url.pathname === '/a') return new Response(page('Page A', '<p><a id="to-b" href="/b">Go to page B</a></p>'), { headers: { 'content-type': 'text/html' } });
+  if (url.pathname === '/b') return new Response(page('Page B', '<p>Second page. <a href="/a">Back to A</a></p>'), { headers: { 'content-type': 'text/html' } });
+  if (url.pathname === '/') return new Response(page('Lane fixture', '<p>A lane-served page for the Browser surface.</p><p><a id="to-a" href="/a">Page A</a> · <a href="/slow">Slow page</a></p>'), { headers: { 'content-type': 'text/html' } });
+  return new Response(page('Not found', '<p>No such page.</p>'), { status: 404, headers: { 'content-type': 'text/html' } });
+} });
+console.log(`fixture on ${port}`);
