@@ -1,0 +1,96 @@
+dialog-shortcut-focus: agent drives on macOS (2026-10-08 UTC 18:43-19:08)
+
+Builds: base = t3-code-evidence-base at da4f4512f; after = this branch (bundle built from the working tree
+committed as the PR head). Both drive the same lane: T3_LOCAL_HOME=target/lane/t3-home, T3_LOCAL_PORT=16610,
+isolated CODEX_HOME / CLAUDE_CONFIG_DIR / XDG_*, T3CODE_TELEMETRY_ENABLED=false, a lane project `work`, three
+threads (Snooze-me 5215ee26, Delete-me 12cfa877, 'Reply OK' 0b9428ee; created with a version-only `claude`
+stand-in, so each turn failed), and the Antigravity runtime downloaded for real (316 MB) to get its Remove
+confirmation. Driver: `bun scripts/agent.mjs macos --json --size 1280x840 …`; every "focus" line is the
+node the tree marks [focused] after the key (its testId, then its ancestors). A Nightly toast
+("Nightly needs the beta mobile app") is up in every launch, so its buttons are Tab stops outside the dialogs.
+
+== 1. Settings > Connections > Add Environment (settings dialog)
+ops: ⌘, ; tap settings-connections ; tap manage-connection ; then Tab / Shift+Tab as listed
+after (focus at open, then Tab ×7, Shift+Tab ×3, Escape):
+  open      connection-mode-remote   (Remote link: Base UI's first stop)
+  Tab       connection-mode-ssh → server-origin → server-credential → connect → close-connection
+  Tab       connection-mode-remote   (wraps from Close)
+  Tab       connection-mode-ssh
+  Shift+Tab connection-mode-remote → close-connection (wraps) → connect
+  Escape    manage-connection        (the trigger, in Settings; connecting=false)
+base (nothing focused at open; Tab does nothing until the Host field is tapped):
+  tap server-origin, then Tab: server-credential → connect → close-connection
+  Tab       toast-secondary-2 → toast-action-2 → toast-dismiss-2   (the toast, outside the dialog)
+  Tab       shortcut-settings.open → shortcut-navigation.back      (KEYBOARD-DISPATCH: the reported bug)
+after, same taps: server-origin → server-credential → connect → close-connection → connection-mode-remote →
+  connection-mode-ssh → server-origin → server-credential → connect   (stays in the dialog)
+
+== 2. Settings > Providers > Antigravity > Remove (AppConfirm through ProviderSetupConfirm; opened with Return)
+after:  open app-confirm-cancel ; Tab confirm, cancel, confirm, cancel, confirm ; Shift+Tab cancel, confirm, cancel ;
+        Escape → provider-runtime-remove-antigravity (the trigger), providerDialog="", runtime still "Installed."
+base:   open: nothing focused (the trigger turned inert) ; Tab ×5, Shift+Tab ×3: nothing focused ;
+        Escape → provider-runtime-remove-antigravity
+`tree --ax` (after, after Tab ×2): button "Cancel" [focused] #2540 [app-confirm-cancel]; the dispatch
+  buttons are still exposed to accessibility (1×1, as on the base) but are no stop.
+
+== 3. Thread title > Delete (AppConfirm, main window)
+after:  open app-confirm-cancel ; Tab confirm, cancel, confirm, cancel ; Shift+Tab confirm, cancel, confirm ;
+        Escape → thread-title (confirmOp="")
+base:   nothing focused at open and after every key ; Escape closes, nothing focused
+Return on Confirm (after): open → Tab → app-confirm-confirm → Return → confirm closed, thread gone.
+  orchestration_command_receipts afterwards: exactly one `thread.delete` for 12cfa877 (2026-10-07T19:00:24.394Z);
+  none from the Escape runs before it.
+
+== 4. Sidebar row > Snooze > Custom… (SidebarSnoozeDialog)
+after (Date and time mode): open snooze-mode-date ; Tab cancel → confirm → close → mode-date (wraps) → cancel →
+  confirm → close ; Shift+Tab confirm → cancel ; Escape → thread-5215ee26… (its row), sidebarDialog=""
+after (Duration): ArrowRight → snooze-mode-duration ; Space (mode) ; Tab decrease → amount → increase → cancel →
+  confirm → close → mode-duration (wraps) ; Shift+Tab decrease → … ; Home on a toggle → mode-date ;
+  Shift+Tab → close ; tap close → row focused
+  Date, Time and the Unit select are skipped: on macOS they are no Tab stops at all (X52, framework).
+base: nothing focused at open; after tapping "Date and time": mode-date → mode-duration → cancel → confirm →
+  toast-secondary-2 → toast-action-2 → toast-dismiss-2 → toggle-sidebar → sidebar-brand (the page behind);
+  Shift+Tab stays on toggle-sidebar; Escape there leaves the dialog open.
+
+== 5. Sidebar row > context menu > Delete (SettingsConfirm "sidebar-delete", after only)
+  open sidebar-delete-cancel ; Tab confirm, cancel ; Shift+Tab confirm ; Escape → thread-0b9428ee… (row);
+  no thread.delete receipt for it.
+
+== 6. Terminal ⌘W (AppConfirm "Close terminal?")
+after: ⌘J opens the drawer (terminal-view focused) ; ⌘W → app-confirm-cancel ; Tab → confirm ; Shift+Tab → cancel ;
+       Escape → terminal-view (confirmOp="")
+base:  ⌘W → confirm open (confirmOp="terminallocal:close") but the focus stays in terminal-view behind it
+
+== 7. Shortcuts (identical on base and after)
+dialogs closed: ⌘K → paletteOpen=true ; Escape → closed ; ⌘1 → thread 12cfa877 selected ;
+  composer focused (type composer key Meta+k) → palette-input focused, paletteOpen=true
+snooze dialog open: ⌘K → paletteOpen=true (sidebarDialog="snooze")
+Settings > Add Environment open: ⌘K → paletteOpen=true (connecting=true) ; ⌘, opened Settings from the main window
+
+== 8. Return on Confirm, Settings > Providers > Remove (after; run last)
+  open (Return on Remove) → app-confirm-cancel ; Tab → app-confirm-confirm ; Return → confirm closed.
+  Server trace (userdata/logs/server.trace.ndjson*): exactly one `ws.rpc.provider.install.remove` span (trace
+  aee3294b), none from the five Escape runs before it; the Runtime row then reads "317 MB download." with
+  "Install Antigravity", and tools/antigravity-acp/ is empty.
+
+== 9. ⌘W with the terminal focused (after): the logs show `press view 882 (closeTerminal…)` — the hidden
+  `shortcut-terminal.close` button (tabindex=-1) still takes its chord — then `command focus("app-confirm-cancel")`.
+
+Images (01–04): agent window screenshots (`screenshot … window`, 1280x840 @2x) with the element that
+`tree --ax` marks [focused] outlined in red; agent screenshots draw no AppKit focus ring
+(docs/agent-pitfalls.md), so the outline is drawn from the tree, not captured.
+
+== 10. After the independent review's repairs (rebuilt; 2026-10-07 19:30–19:40 UTC)
+Changes: the Settings `inert` extension reverted (review B1), AppConfirm ids per call site (`confirmId`), the
+terminal's own close buttons move the focus into the confirm, `tabindex=-1` on a surface tab's 0x0 anchor.
+Antigravity reinstalled (Install, ~150 s) for the Providers confirm.
+Providers Remove (Return): open app-confirm-cancel (id provider-setup-confirm-cancel) ; Tab confirm, cancel ;
+  Shift+Tab confirm, cancel ; Escape → provider-runtime-remove-antigravity ; still one
+  `ws.rpc.provider.install.remove` span in the trace (the earlier Return run).
+Terminal trash (pointer press on terminal-close, which keeps the focus): open app-confirm-cancel
+  (confirmOp=terminallocal:close) ; Tab confirm ; Shift+Tab cancel ; Escape → terminal-view.
+Title menu Delete: open cancel ; Tab confirm, cancel, Shift+Tab confirm ; Escape → thread-title.
+Custom snooze: open snooze-mode-date ; Shift+Tab → snooze-close ; Tab → snooze-mode-date ; Escape → its row.
+Add Environment: open connection-mode-remote ; Shift+Tab → close-connection ; Tab → connection-mode-remote ;
+  Escape → manage-connection.
+Images 01–04 were re-captured on this build ("after" halves).

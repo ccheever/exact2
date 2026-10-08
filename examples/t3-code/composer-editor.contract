@@ -155,13 +155,13 @@ component ComposerCommandMenu
         box position="absolute" left=0 right=0 bottom="1.0625rem" height="0.625rem" pointer-events="none" background-image="linear-gradient(to top, #0000002e, #00000000)" aria-hidden=true
       when menu.count > 0
         column max-height=listMax overflow-y="scroll" padding="0.5rem" box-sizing="border-box" width="100%" role="listbox" aria-label=menu.listLabel testId="composer-command-list"
-          button hatch="t3-composer-key" data-anchor="ArrowDown" press=move(1) position="absolute" left=0 top=0 width=1 height=1 overflow="hidden" padding=0 border-width=0 opacity=0 aria-hidden=true testId="composer-menu-down"
+          button hatch="t3-composer-key" data-anchor="ArrowDown" press=move(1) position="absolute" left=0 top=0 width=1 height=1 overflow="hidden" padding=0 border-width=0 opacity=0 aria-hidden=true tabindex=-1 testId="composer-menu-down"
             text "composer-menu-down" font-size=1
-          button hatch="t3-composer-key" data-anchor="ArrowUp" press=move(-1) position="absolute" left=0 top=0 width=1 height=1 overflow="hidden" padding=0 border-width=0 opacity=0 aria-hidden=true testId="composer-menu-up"
+          button hatch="t3-composer-key" data-anchor="ArrowUp" press=move(-1) position="absolute" left=0 top=0 width=1 height=1 overflow="hidden" padding=0 border-width=0 opacity=0 aria-hidden=true tabindex=-1 testId="composer-menu-up"
             text "composer-menu-up" font-size=1
           each row in menu.rows key=row.id
             when row.index == active
-              button hatch="t3-composer-key" data-anchor="Enter" press=op("pick", row.id, "") position="absolute" left=0 top=0 width=1 height=1 overflow="hidden" padding=0 border-width=0 opacity=0 aria-hidden=true testId="composer-menu-enter"
+              button hatch="t3-composer-key" data-anchor="Enter" press=op("pick", row.id, "") position="absolute" left=0 top=0 width=1 height=1 overflow="hidden" padding=0 border-width=0 opacity=0 aria-hidden=true tabindex=-1 testId="composer-menu-enter"
                 text "composer-menu-enter" font-size=1
             button press=op("pick", row.id, "") hover=hovered(row.index) role="option" aria-selected=(row.index == active) aria-label=`${row.prefix}${row.label} ${row.description}` testId=`composer-suggestion-${row.index}` width="100%" height="1.75rem" flex-shrink=0 padding-top="0.375rem" padding-bottom="0.375rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" display="flex" flex-direction="row" align-items="center" justify-content="flex-start" gap="0.5rem" border-width=0 border-radius="0.375rem" background-color=(row.index == active ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000")
               when row.icon != "" and dark
@@ -214,7 +214,7 @@ component StashKey
     stash: ComposerStash
     op: action
   view
-    button press=op("stash", "", "") aria-keyshortcuts=stash.keyStash aria-label="Stash prompt" position="absolute" left=0 top=0 width=1 height=1 overflow="hidden" padding=0 border-width=0 opacity=0 aria-hidden=true testId="composer-stash-key"
+    button press=op("stash", "", "") aria-keyshortcuts=stash.keyStash aria-label="Stash prompt" position="absolute" left=0 top=0 width=1 height=1 overflow="hidden" padding=0 border-width=0 opacity=0 aria-hidden=true tabindex=-1 testId="composer-stash-key"
       text "composer-stash-key" font-size=1
 
 component StashBadge
@@ -265,15 +265,15 @@ component StashMenu
         box width="1.5rem" height="1.5rem" margin-left="0.25rem" display="flex" align-items="center" justify-content="center" flex-shrink=0
           StashGlyph(name="chevron-down", size=14, color="light-dark(#71717a, #818181)")
       column width="100%" gap=1 max-height="12.5rem" overflow-y="scroll" role="list" aria-label="Stashed prompts" testId="composer-stash-list"
-        button hatch="t3-composer-key" data-anchor="stash-ArrowDown" press=move(1) position="absolute" left=0 top=0 width=1 height=1 overflow="hidden" padding=0 border-width=0 opacity=0 aria-hidden=true testId="composer-stash-down"
+        button hatch="t3-composer-key" data-anchor="stash-ArrowDown" press=move(1) position="absolute" left=0 top=0 width=1 height=1 overflow="hidden" padding=0 border-width=0 opacity=0 aria-hidden=true tabindex=-1 testId="composer-stash-down"
           text "composer-stash-down" font-size=1
-        button hatch="t3-composer-key" data-anchor="stash-ArrowUp" press=move(-1) position="absolute" left=0 top=0 width=1 height=1 overflow="hidden" padding=0 border-width=0 opacity=0 aria-hidden=true testId="composer-stash-up"
+        button hatch="t3-composer-key" data-anchor="stash-ArrowUp" press=move(-1) position="absolute" left=0 top=0 width=1 height=1 overflow="hidden" padding=0 border-width=0 opacity=0 aria-hidden=true tabindex=-1 testId="composer-stash-up"
           text "composer-stash-up" font-size=1
         each entry in stash.rows key=entry.id
           when entry.index == active
-            button hatch="t3-composer-key" data-anchor="stash-Enter" press=op("stash-restore", entry.id, "") position="absolute" left=0 top=0 width=1 height=1 overflow="hidden" padding=0 border-width=0 opacity=0 aria-hidden=true testId="composer-stash-enter"
+            button hatch="t3-composer-key" data-anchor="stash-Enter" press=op("stash-restore", entry.id, "") position="absolute" left=0 top=0 width=1 height=1 overflow="hidden" padding=0 border-width=0 opacity=0 aria-hidden=true tabindex=-1 testId="composer-stash-enter"
               text "composer-stash-enter" font-size=1
-            button hatch="t3-composer-key" data-anchor="stash-Delete" press=op("stash-delete", entry.id, "") position="absolute" left=0 top=0 width=1 height=1 overflow="hidden" padding=0 border-width=0 opacity=0 aria-hidden=true testId="composer-stash-delete-key"
+            button hatch="t3-composer-key" data-anchor="stash-Delete" press=op("stash-delete", entry.id, "") position="absolute" left=0 top=0 width=1 height=1 overflow="hidden" padding=0 border-width=0 opacity=0 aria-hidden=true tabindex=-1 testId="composer-stash-delete-key"
               text "composer-stash-delete-key" font-size=1
           row width="100%" height="1.5rem" flex-shrink=0 align-items="center" border-radius="0.375rem" background-color=(entry.index == active ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") role="listitem" hover=hovered(entry.index)
             box width="1.5rem" height="1.5rem" display="flex" align-items="center" justify-content="center" flex-shrink=0
@@ -298,7 +298,7 @@ component ComposerEditorDock
   view
     column width="100%" position="relative"
       StashKey(stash=editor.stash, op=op)
-      button hatch="t3-composer-key" data-anchor="models" press=openModels position="absolute" left=0 top=0 width=1 height=1 overflow="hidden" padding=0 border-width=0 opacity=0 aria-hidden=true testId="composer-models-key"
+      button hatch="t3-composer-key" data-anchor="models" press=openModels position="absolute" left=0 top=0 width=1 height=1 overflow="hidden" padding=0 border-width=0 opacity=0 aria-hidden=true tabindex=-1 testId="composer-models-key"
         text "composer-models-key" font-size=1
       when not editor.drawer.placed
         when editor.menu.open

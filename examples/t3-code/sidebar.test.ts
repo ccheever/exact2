@@ -439,6 +439,24 @@ describe('sidebar navigation, drafts and the hover card', () => {
     expect(strip(dispatched).map(payload => `${payload.type}:${payload.threadId}`)).toEqual(['thread.snooze:a', 'thread.snooze:b']);
     expect(sidebarSnapshot(client, NOW, helpers).sidebar.dialog).toBe('');
   });
+
+  // dialog-shortcut-focus: Base UI's finalFocus gives the focus back to the trigger; the clone's row
+  // triggers collapse once the pointer leaves, so a one-thread dialog names its row (sidebar-row.contract's
+  // `id=thread-…`) and a selection's names none.
+  test('a dialog for one thread gives the focus back to its row; a selection and a closed dialog name none', async () => {
+    const { client } = fake([shell('a'), shell('b')], { picks: ['snooze:custom'], settings: { confirmThreadDelete: true } });
+    await sidebarCommand(client, native, files, 'snooze:custom', 'a', '');
+    expect(sidebarSnapshot(client, NOW, helpers).sidebar).toMatchObject({ dialog: 'snooze', dialogReturn: 'thread-a' });
+    await sidebarLocal(client, native, 'dialog-close', '', '');
+    expect(sidebarSnapshot(client, NOW, helpers).sidebar).toMatchObject({ dialog: '', dialogReturn: '' });
+    sidebarSession(client).selection = ['a', 'b'];
+    await sidebarCommand(client, native, files, 'menu', 'a', 'row');
+    expect(sidebarSnapshot(client, NOW, helpers).sidebar).toMatchObject({ dialog: 'snooze', dialogReturn: '' });
+    await sidebarLocal(client, native, 'dialog-close', '', '');
+    sidebarSession(client).selection = [];
+    await sidebarCommand(client, native, files, 'delete', 'b', '');
+    expect(sidebarSnapshot(client, NOW, helpers).sidebar).toMatchObject({ dialog: 'delete', dialogReturn: 'thread-b' });
+  });
 });
 
 

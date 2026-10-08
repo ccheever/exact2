@@ -409,7 +409,7 @@ component ProviderSetupConfirm
     ui("close", "")
     focus(what == "setup-logout" ? `provider-sign-out-${instanceId}` : `provider-runtime-remove-${instanceId}`)
   view
-    AppConfirm(title=title, body=body, destructive=false, busy=busy, cancel=cancel, confirm=accept)
+    AppConfirm(title=title, body=body, destructive=false, busy=busy, confirmId="provider-setup-confirm", cancel=cancel, confirm=accept)
 
 // ProviderWizardAuthenticationStep's panel: the Account row once the created agent
 // can sign in (or is signed in), else a plain Account row.

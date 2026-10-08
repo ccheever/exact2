@@ -271,7 +271,7 @@ component ThreadSection
         ThreadRow(reduced=reduced, t=t, now=now, presets=data.snoozePresets, busy=busy, local=local, run=run, menu=menu, open=open, hoverCard=hoverCard, hoverId=(sweepLive ? "" : sweepCancelled and sweepEpoch == data.sidebar.sweepEpoch ? sweepHover : hoverId), drag=drag, dragEnd=dragEnd, dragId=dragId, dragVerb=dragVerb, dragOffset=(dragId == t.id ? dragOffset : 0), page=page, sweep=sweep, sweepKeys=(sweepCancelled and sweepEpoch == data.sidebar.sweepEpoch ? "|cancel|" : sweepLive ? sweepKeys : ""), sweepVerb=sweepVerb)
       // r12-sidebar: the sweep owns Escape while it is armed (a window shortcut: the pan's section gets no keys).
       when sweepLive
-        button press=cancelSweep aria-keyshortcuts="Escape" aria-label="Cancel sweep" testId=`sweep-cancel-${section}` position="absolute" left=0 top=0 width=1 height=1 overflow="hidden" opacity=0 padding=0 border-width=0 background-color="#00000000"
+        button press=cancelSweep aria-keyshortcuts="Escape" aria-label="Cancel sweep" tabindex=-1 testId=`sweep-cancel-${section}` position="absolute" left=0 top=0 width=1 height=1 overflow="hidden" opacity=0 padding=0 border-width=0 background-color="#00000000"
 
 // SidebarDragBoundary: "Pinned" and "Active" open 24pt while a row is lifted.
 component SidebarDragLabel
