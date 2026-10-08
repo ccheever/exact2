@@ -1192,3 +1192,7 @@ mod span_capacity_tests;
 #[cfg(test)]
 #[path = "text/css_tests.rs"]
 mod css_tests;
+
+#[cfg(test)]
+#[path = "text/eviction_tests.rs"]
+mod eviction_tests;
